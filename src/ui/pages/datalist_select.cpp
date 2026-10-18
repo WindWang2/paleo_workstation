@@ -140,8 +140,11 @@ void DataListPanel::selectAssetInViews(const QString &assetId)
       {
         if ((*it)->data(0, Qt::UserRole).toString() == assetId)
         {
+          for (QTreeWidgetItem *parent = (*it)->parent(); parent; parent = parent->parent())
+            parent->setExpanded(true);
           const QSignalBlocker b(m_tree);
           m_tree->setCurrentItem(*it);
+          m_tree->scrollToItem(*it);
           break;
         }
         ++it;

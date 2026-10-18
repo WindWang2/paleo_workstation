@@ -16,6 +16,7 @@
 #include <QDialog>
 #include <QFileDialog>
 #include <QMetaObject>
+#include <QTimer>
 #include <QVariantMap>
 
 using paleo::ui_detail::isOffscreen;
@@ -146,13 +147,13 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
             page->setUnresolvedFilter(true);
         };
         hooks.previewAsset = [this](const QString &assetId) {
-          QMetaObject::invokeMethod(
-              this,
-              [this, assetId] {
-                if (m_previewTabs)
-                  m_previewTabs->openAsset(assetId);
-              },
-              Qt::QueuedConnection);
+          QTimer::singleShot(0, this, [this, assetId] {
+            showPage(QStringLiteral("data"));
+            if (auto *page = findChild<DataPage *>())
+              page->selectAsset(assetId);
+            if (m_previewTabs)
+              m_previewTabs->openAsset(assetId);
+          });
         };
         PaleoFolderConfirm::buildFolderConfirmDialog(&dlg, displayDir, preview, hooks);
         dlg.exec();

@@ -40,6 +40,7 @@ struct FolderPreviewRow
 struct FolderRowResult
 {
   QString path;            // 源路径（所选目录内）
+  QString assetId;         // 入库成功后的资产 id；失败/跳过为空
   QString classifiedType;  // 分类器类型（well_head/well_log/tops/...）
   QString entityName;      // 已解析实体名；多个主关联用 ", " 连接；未决/失败为空
   enum class Outcome { Imported, Unresolved, Failed, Skipped };

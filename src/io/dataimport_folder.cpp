@@ -536,6 +536,7 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
   opts.forceType = item.type; // 恒下传——与分类器同值时是无害同值
   const ImportResult res = importOneFile(s, item.path, opts, &ferr);
   row.message = res.message.isEmpty() ? ferr : res.message;
+  row.assetId = res.assetId;
   if (res.outcome == ImportOutcome::Failed || res.assetId.isEmpty())
   {
     row.outcome = FolderRowResult::Outcome::Failed;

@@ -6,7 +6,10 @@
 
 // 一个编码唯一标识一条完整的 相 → 亚相 → 微相 路径。项目分类优先于模板。
 namespace FaciesTaxonomy {
+// Stable default schema; existing codes and historical migration use this set.
 QVariantList library();
+// Optional templates for explicit selection; never replace the project schema.
+QVariantList templates();
 bool complete(const QVariantMap &leaf);
 // 把单条类别安放进三级体系：微相可识别则采用模板路径；相/亚相级旧类别落
 // 「未细分」；无法识别的落「其他 / 未归类」。不复制父级名称伪造子级。

@@ -16,6 +16,8 @@
 #include "../src/qgis/qgisruntime.h"
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgsfillsymbol.h>
+#include "../src/qgis/facieshierarchyrenderer.h"
+#include "../src/domain/faciestaxonomy.h"
 #include "../src/workflow/geologicalexport.h"
 #include "../src/workflow/horizonbatchexport.h"
 #include "../src/catalog/datacatalog.h"
@@ -29,6 +31,9 @@
 #include <qgslayoutitemlabel.h>
 #include <qgslayoutitemmap.h>
 #include <qgslayoutitemlegend.h>
+#include <qgslayertree.h>
+#include <qgslayertreemodel.h>
+#include <qgslayertreemodellegendnode.h>
 #include <qgslayoutpagecollection.h>
 #include <qgslayoutitempage.h>
 #include <memory>
@@ -65,20 +70,32 @@ private slots:
     auto *action = window.findChild<QAction *>("fileExportGeologicalMap");
     QVERIFY(action); QVERIFY(!action->isEnabled());
   }
+  void longLegendCannotSilentlyClip_data() {
+    QTest::addColumn<bool>("hierarchy");
+    QTest::newRow("categorized") << false;
+    QTest::newRow("facies-hierarchy") << true;
+  }
   void longLegendCannotSilentlyClip() {
+    QFETCH(bool, hierarchy);
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     QgsProject project; project.setCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
     auto *layer = new QgsVectorLayer("Polygon?field=facies_code:integer&crs=EPSG:3857", "微相", "memory");
     QgsFeatureList features;
     QgsCategoryList categories;
+    QVariantList schema;
     // Keep the overflow fixture independent of the project's facies catalogue.
     for (int i = 0; i < 80; ++i) {
       QgsFeature f(layer->fields()); f.setAttribute("facies_code", i);
       f.setGeometry(QgsGeometry::fromRect(QgsRectangle(i * 100, 0, (i + 1) * 100, 100))); features << f;
       categories << QgsRendererCategory(i, QgsFillSymbol::createSimple({}).release(), QStringLiteral("测试图例 %1").arg(i));
+      schema << QVariantMap{{"code", i + 1}, {"name", QStringLiteral("测试图例 %1").arg(i)},
+          {"facies", "测试相"}, {"subfacies", "测试亚相"},
+          {"microfacies", QStringLiteral("测试图例 %1").arg(i)}, {"color", "#FFE082"}};
+      if (hierarchy) features.last().setAttribute("facies_code", i + 1);
     }
     QVERIFY(layer->dataProvider()->addFeatures(features)); layer->updateExtents(); project.addMapLayer(layer);
-    layer->setRenderer(new QgsCategorizedSymbolRenderer("facies_code", categories));
+    if (hierarchy) FaciesHierarchyRenderer::apply(layer, schema, "micro_facies");
+    else layer->setRenderer(new QgsCategorizedSymbolRenderer("facies_code", categories));
     PaleoGeologicalMapLayout::Settings settings;
     std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, layer->extent(), settings)); QVERIFY(layout);
     PaleoGeologicalExport::Request request; request.destination = tmp.filePath("long-legend"); request.dpi = 72;
@@ -87,6 +104,42 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(called, 30000);
     QVERIFY2(result.error.contains(QStringLiteral("图例")), qPrintable(result.error));
     QVERIFY(!QFileInfo::exists(request.destination)); QVERIFY(cat.assets().isEmpty());
+  }
+  void optionalTemplatesExportThroughTheRealFaciesRenderer() {
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
+    QgsProject project; project.setCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    auto *layer = new QgsVectorLayer("Polygon?field=facies_code:integer&crs=EPSG:3857", "三级相图", "memory");
+    const auto templates = FaciesTaxonomy::templates();
+    QVariantList schema;
+    QgsFeatureList features;
+    for (const auto &label : {QStringLiteral("水下分流河道"), QStringLiteral("河道充填"), QStringLiteral("浅湖泥")}) {
+      const auto row = FaciesTaxonomy::resolve(templates, label);
+      QVERIFY(!row.isEmpty());
+      const int i = features.size();
+      schema << row;
+      QgsFeature f(layer->fields()); f.setAttribute("facies_code", row.value("code"));
+      f.setGeometry(QgsGeometry::fromRect(QgsRectangle(i * 100, 0, (i + 1) * 100, 100))); features << f;
+    }
+    QVERIFY(layer->dataProvider()->addFeatures(features)); layer->updateExtents(); project.addMapLayer(layer);
+    QCOMPARE(FaciesHierarchyRenderer::apply(layer, schema, "micro_facies").size(), 3);
+    PaleoGeologicalMapLayout::Settings settings; settings.kind = PaleoStandardElements::FigureKind::Facies;
+    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, layer->extent(), settings));
+    QVERIFY(layout);
+    PaleoGeologicalExport::Request request;
+    request.destination = qEnvironmentVariable("PALEO_FACIES_EXPORT_QA_DIR", tmp.filePath("facies")); request.dpi = 72;
+    request.formats = {PaleoLayoutExport::Format::Pdf, PaleoLayoutExport::Format::Png};
+    bool called = false; PaleoGeologicalExport::Result result;
+    QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this, [&](const auto &r) { result = r; called = true; }));
+    QTRY_VERIFY_WITH_TIMEOUT(called, 30000);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QCOMPARE(result.assetIds.size(), 2);
+    QVERIFY(QFileInfo::exists(QDir(request.destination).filePath("map.pdf")));
+    QVERIFY(!QImage(QDir(request.destination).filePath("map.png")).isNull());
+    auto *legend = qobject_cast<QgsLayoutItemLegend *>(layout->itemById("legend")); QVERIFY(legend);
+    auto *node = legend->model()->rootGroup()->findLayer(layer->id()); QVERIFY(node);
+    QStringList labels;
+    for (auto *entry : legend->model()->layerLegendNodes(node)) labels << entry->data(Qt::DisplayRole).toString();
+    for (const auto &row : schema) QVERIFY2(labels.contains(row.toMap().value("name").toString()), qPrintable(labels.join(", ")));
   }
   void mapFramesAndScaleBarsStayOnPaper() {
     QgsProject project; auto *layer = points(project);

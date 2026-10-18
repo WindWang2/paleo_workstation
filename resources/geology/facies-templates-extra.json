@@ -1,0 +1,329 @@
+[
+  {
+    "code": 8,
+    "name": "河道充填",
+    "facies": "河流相",
+    "subfacies": "河床亚相",
+    "microfacies": "河道充填",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#E8D5B0"
+  },
+  {
+    "code": 9,
+    "name": "前三角洲泥",
+    "facies": "三角洲相",
+    "subfacies": "前三角洲亚相",
+    "microfacies": "前三角洲泥",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#B0BEC5"
+  },
+  {
+    "code": 10,
+    "name": "浅湖泥",
+    "facies": "湖泊相",
+    "subfacies": "浅湖亚相",
+    "microfacies": "浅湖泥",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8D8C8"
+  },
+  {
+    "code": 11,
+    "name": "沼泽沉积",
+    "facies": "三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "沼泽沉积",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#B4C9A0"
+  },
+  {
+    "code": 12,
+    "name": "远砂坝",
+    "facies": "三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "远砂坝",
+    "texture": "strata/micro_mouth_bar_fill.svg",
+    "color": "#F2D28B"
+  },
+  {
+    "code": 13,
+    "name": "决口扇",
+    "facies": "三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "决口扇",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#FFE0B2"
+  },
+  {
+    "code": 14,
+    "name": "滨湖砂",
+    "facies": "湖泊相",
+    "subfacies": "滨湖亚相",
+    "microfacies": "滨湖砂",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#D6E4C8"
+  },
+  {
+    "code": 15,
+    "name": "河漫滩",
+    "facies": "河流相",
+    "subfacies": "泛滥平原亚相",
+    "microfacies": "河漫滩",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#D7CCC8"
+  },
+  {
+    "code": 16,
+    "name": "深湖泥",
+    "facies": "湖泊相",
+    "subfacies": "深湖亚相",
+    "microfacies": "深湖泥",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#9FA8A0"
+  },
+  {
+    "code": 17,
+    "name": "半深湖泥",
+    "facies": "湖泊相",
+    "subfacies": "半深湖亚相",
+    "microfacies": "半深湖泥",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#B2BFB2"
+  },
+  {
+    "code": 18,
+    "name": "残积物",
+    "facies": "残积相",
+    "subfacies": "残积亚相",
+    "microfacies": "残积物",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C9B8A8"
+  },
+  {
+    "code": 19,
+    "name": "坡积物",
+    "facies": "残积相",
+    "subfacies": "坡积亚相",
+    "microfacies": "坡积物",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#BFAE9E"
+  },
+  {
+    "code": 20,
+    "name": "沙丘砂",
+    "facies": "沙漠相",
+    "subfacies": "沙丘亚相",
+    "microfacies": "沙丘砂",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#F0E0B8"
+  },
+  {
+    "code": 21,
+    "name": "丘间沉积",
+    "facies": "沙漠相",
+    "subfacies": "丘间亚相",
+    "microfacies": "丘间沉积",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#E8D8B0"
+  },
+  {
+    "code": 22,
+    "name": "盐泥坪",
+    "facies": "沙漠相",
+    "subfacies": "干盐湖亚相",
+    "microfacies": "盐泥坪",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#E6E0C8"
+  },
+  {
+    "code": 23,
+    "name": "扇根砾岩",
+    "facies": "洪积相",
+    "subfacies": "扇根亚相",
+    "microfacies": "扇根砾岩",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#C8B8A0",
+    "aliases": [
+      "山麓冲积相"
+    ]
+  },
+  {
+    "code": 24,
+    "name": "扇中砂砾岩",
+    "facies": "洪积相",
+    "subfacies": "扇中亚相",
+    "microfacies": "扇中砂砾岩",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#D8C8B0"
+  },
+  {
+    "code": 25,
+    "name": "扇端粉砂岩",
+    "facies": "洪积相",
+    "subfacies": "扇端亚相",
+    "microfacies": "扇端粉砂岩",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#E2D8C8"
+  },
+  {
+    "code": 26,
+    "name": "冰碛泥砾",
+    "facies": "冰川相",
+    "subfacies": "冰碛亚相",
+    "microfacies": "冰碛泥砾",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8D4DC"
+  },
+  {
+    "code": 27,
+    "name": "冰水沉积",
+    "facies": "冰川相",
+    "subfacies": "冰水亚相",
+    "microfacies": "冰水沉积",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#D4E0E8"
+  },
+  {
+    "code": 28,
+    "name": "后滨砂",
+    "facies": "滨海相",
+    "subfacies": "后滨亚相",
+    "microfacies": "后滨砂",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#E8E4C8"
+  },
+  {
+    "code": 29,
+    "name": "前滨砂",
+    "facies": "滨海相",
+    "subfacies": "前滨亚相",
+    "microfacies": "前滨砂",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#E0DCC0"
+  },
+  {
+    "code": 30,
+    "name": "临滨砂",
+    "facies": "滨海相",
+    "subfacies": "临滨亚相",
+    "microfacies": "临滨砂",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#D8D8BC"
+  },
+  {
+    "code": 31,
+    "name": "潟湖泥",
+    "facies": "滨海相",
+    "subfacies": "潟湖亚相",
+    "microfacies": "潟湖泥",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8D0C0"
+  },
+  {
+    "code": 32,
+    "name": "咸化潟湖泥",
+    "facies": "滨海相",
+    "subfacies": "潟湖亚相",
+    "microfacies": "咸化潟湖泥",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C0CCC0"
+  },
+  {
+    "code": 33,
+    "name": "沼泽化潟湖泥",
+    "facies": "滨海相",
+    "subfacies": "潟湖亚相",
+    "microfacies": "沼泽化潟湖泥",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#B8C8B0"
+  },
+  {
+    "code": 34,
+    "name": "浅海砂",
+    "facies": "浅海相",
+    "subfacies": "浅海陆棚亚相",
+    "microfacies": "浅海砂",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#C8D8E0"
+  },
+  {
+    "code": 35,
+    "name": "浅海泥",
+    "facies": "浅海相",
+    "subfacies": "浅海陆棚亚相",
+    "microfacies": "浅海泥",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#BCCCD8"
+  },
+  {
+    "code": 36,
+    "name": "半深海泥",
+    "facies": "半深海相",
+    "subfacies": "半深海亚相",
+    "microfacies": "半深海泥",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#A8BCC8"
+  },
+  {
+    "code": 37,
+    "name": "深海泥",
+    "facies": "深海相",
+    "subfacies": "深海平原亚相",
+    "microfacies": "深海泥",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#96ACBC"
+  },
+  {
+    "code": 38,
+    "name": "浊流沉积",
+    "facies": "深海相",
+    "subfacies": "海底扇亚相",
+    "microfacies": "浊流沉积",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#A0B4C4"
+  },
+  {
+    "code": 39,
+    "name": "盐类沉积",
+    "facies": "湖泊相",
+    "subfacies": "盐湖亚相",
+    "microfacies": "盐类沉积",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#EAE6D0"
+  },
+  {
+    "code": 40,
+    "name": "黄土",
+    "facies": "其他沉积相",
+    "subfacies": "风成沉积亚相",
+    "microfacies": "黄土",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#E8DCA8"
+  },
+  {
+    "code": 41,
+    "name": "风成沙",
+    "facies": "其他沉积相",
+    "subfacies": "风成沉积亚相",
+    "microfacies": "风成沙",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#F0E4B4"
+  },
+  {
+    "code": 42,
+    "name": "化学沉积",
+    "facies": "其他沉积相",
+    "subfacies": "化学沉积亚相",
+    "microfacies": "化学沉积",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#E0E0D0"
+  },
+  {
+    "code": 43,
+    "name": "混杂堆积",
+    "facies": "其他沉积相",
+    "subfacies": "重力流亚相",
+    "microfacies": "混杂堆积",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C0C0B8"
+  }
+]

@@ -52,6 +52,13 @@ QVariantList library() {
   if (!file.open(QIODevice::ReadOnly)) return {};
   return QJsonDocument::fromJson(file.readAll()).toVariant().toList();
 }
+QVariantList templates() {
+  auto result = library();
+  QFile file(FaciesCatalog::resourcePath("facies-templates-extra.json"));
+  if (file.open(QIODevice::ReadOnly))
+    result.append(QJsonDocument::fromJson(file.readAll()).toVariant().toList());
+  return result;
+}
 bool complete(const QVariantMap &leaf) {
   const auto p = path(leaf);
   return std::all_of(p.cbegin(), p.cend(), [](const auto &s) { return !s.isEmpty(); });

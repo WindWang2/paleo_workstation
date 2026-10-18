@@ -67,8 +67,10 @@ bool MappingWorkbench::setDisplayMode(const QString &id, const QString &mode,
                                       QString *error) {
   if (mode != "auto" && !FaciesHierarchy::levels().contains(mode))
     return reject(error, tr("请选择自动、相、亚相或微相"));
+  if (!supportsFaciesDisplay(id))
+    return reject(error, tr("请选择相图件"));
   auto *layer = m_layers->instantiate(id, error);
-  if (!layer || versionForLayer(id).extra.value("facies").toList().isEmpty())
+  if (!layer)
     return reject(error, tr("请选择相图件"));
   layer->setCustomProperty("paleo/faciesDisplayMode", mode);
   if (m_project && m_project->project())
@@ -80,7 +82,7 @@ bool MappingWorkbench::setDisplayMode(const QString &id, const QString &mode,
 bool MappingWorkbench::isFaciesPolygon(const QString &id) const {
   const auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
   return layer && layer->geometryType() == Qgis::GeometryType::Polygon &&
-      !versionForLayer(id).extra.value("facies").toList().isEmpty();
+      supportsFaciesDisplay(id);
 }
 QString MappingWorkbench::featureDisplayMode(const QString &id, qint64 featureId) const {
   const auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));

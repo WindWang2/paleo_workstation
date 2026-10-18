@@ -1026,9 +1026,10 @@ void MappingWorkbenchPage::updateState() {
   if (wellResult) m_editLevel->setCurrentIndex(2);
   m_displayLevel->setCurrentIndex(qMax(
       0, m_displayLevel->findData(m_workbench->displayMode(selectedLayer()))));
-  m_displayLevel->setEnabled(!wellResult && !selectedSchema.isEmpty());
+  const bool displayable = m_workbench->supportsFaciesDisplay(selectedLayer());
+  m_displayLevel->setEnabled(!wellResult && displayable);
   m_displayLevel->setToolTip(
-      wellResult ? tr("测井图件只显示最终预测相") : selectedSchema.isEmpty()
+      wellResult ? tr("测井图件只显示最终预测相") : !displayable
           ? tr("请先选择相图件")
           : FaciesDisplayControl::scaleHint(m_workbench->resolvedLevel(selectedLayer()), m_workbench->displayThresholds()));
   const auto displaySelection = m_workbench->selectedFeatures(selectedLayer());

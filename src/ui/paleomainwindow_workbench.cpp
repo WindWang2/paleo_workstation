@@ -206,11 +206,15 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
           &MappingWorkbench::updateDisplayScale);
   attachFaciesDisplayControls(workbench);
   connect(workbench, &MappingWorkbench::displayChanged, this,
-          [this, legend](const QString &id) {
+          [this, legend, workbench](const QString &id) {
+            // 当前层可以是约束过程；固定层级仍要刷新真正的相图图例。
+            if (workbench->supportsFaciesDisplay(id))
+              legend(id);
             auto *layer = m_canvasCtl->canvas()->currentLayer();
             if (layer &&
                 layer->customProperty("paleoLayerId").toString() == id) {
-              legend(id);
+              if (!workbench->supportsFaciesDisplay(id))
+                legend(id);
               if (m_profileSvc)
                 m_profileSvc->captureCurrentAsTheme(
                     QgisLayerProfileService::pageThemeName(currentPage()));
@@ -416,7 +420,7 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
       const auto horizon = d.horizon.isEmpty() ? extra.value("horizon").toString() : d.horizon;
       if (!horizon.isEmpty() && horizon != h) return false;
       return !layer->customProperty("paleo/faciesDisplayLegend").toList().isEmpty() ||
-          (!extra.value("facies").toList().isEmpty() && !extra.value("kind").toString().startsWith("constraint")) ||
+          workbench->supportsFaciesDisplay(layerId) ||
           paleo::singlefactor::isAnalysisFactorRaster(extra.value("kind").toString(), extra.value("value_source").toString()) ||
           paleo::singlefactor::rejectsQuantitativeUse(extra.value("kind").toString(), extra.value("value_source").toString());
     };
@@ -439,10 +443,7 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
         paleo::singlefactor::isAnalysisFactorRaster(legendKind, legendSource);
     const bool cartographic =
         paleo::singlefactor::rejectsQuantitativeUse(legendKind, legendSource);
-    bool product = !v.id.isEmpty() && d.horizon == h &&
-                   v.extra.contains("facies") &&
-                   !legendKind.startsWith(QLatin1String("constraint")) &&
-                   !analysisRaster && !cartographic;
+    const bool product = d.horizon == h && workbench->supportsFaciesDisplay(layerId);
     QVariantList schema;
     if (product) {
       // 旧成果冻结的平级分类也迁进三级体系，图例不出现未定义相。
@@ -584,20 +585,20 @@ void PaleoMainWindow::attachFaciesDisplayControls(MappingWorkbench *workbench) {
   auto *canvas = m_canvasCtl->canvas();
   const auto refresh = [this, workbench, canvas, controls] {
     const auto visible = canvas->layers();
-    const auto eligible = [workbench, &visible](QgsMapLayer *layer) {
-      if (!layer || !layer->isValid() || !visible.contains(layer)) return false;
+    const auto eligible = [this, workbench, canvas, &visible](QgsMapLayer *layer) {
+      if (!layer || !layer->isValid() || !visible.contains(layer) ||
+          !layer->isInScaleRange(canvas->scale())) return false;
       const auto id = layer->customProperty("paleoLayerId").toString();
-      return !id.isEmpty() && !workbench->isWellPrediction(id) &&
-          !workbench->versionForLayer(id).extra.value("facies").toList().isEmpty();
+      const auto horizon = workbench->declaration(id).horizon;
+      if (m_selection && !m_selection->activeHorizon().isEmpty() &&
+          horizon != m_selection->activeHorizon()) return false;
+      return !workbench->isWellPrediction(id) && workbench->supportsFaciesDisplay(id);
     };
     auto *target = canvas->currentLayer();
     if (!eligible(target)) {
       target = nullptr;
       for (auto *layer : visible) {
         if (!eligible(layer)) continue;
-        const auto horizon = workbench->declaration(layer->customProperty("paleoLayerId").toString()).horizon;
-        if (m_selection && !m_selection->activeHorizon().isEmpty() &&
-            horizon != m_selection->activeHorizon()) continue;
         target = layer; break;
       }
     }

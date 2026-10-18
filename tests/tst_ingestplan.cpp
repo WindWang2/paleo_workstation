@@ -292,6 +292,88 @@ private slots:
     }
   }
 
+  // ---- 文件列表口径：多选文件与目录 plan 同一分类/身份/去重/排序 ------------
+  void filesPlanClassifiesDedupesAndSkipsDirectories()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString root = makeArea(tmp);
+    QVERIFY(!root.isEmpty());
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataCatalog *cat = stack->importSvc->catalog();
+    QString err;
+    stack->importSvc->importFolder(root, &err); // 目录已入库：文件列表应全部命中 sha 去重
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+
+    const QStringList paths{
+        QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
+        QDir(root).filePath(QStringLiteral("0A1.Las")),
+        QDir(root).filePath(QStringLiteral("0A1.Las")), // 重复选中只计一次
+        QDir(root).filePath(QString::fromUtf8("时深/A1_TD.dat")),
+        root, // 目录如实入 skipped（提示走文件夹入口）
+        QDir(root).filePath(QStringLiteral("不存在.dat")),
+    };
+    const IngestPlan plan = buildIngestPlanForFiles(paths, *cat);
+    QCOMPARE(plan.items.size(), 3);
+    QCOMPARE(plan.skipped.size(), 1);
+    QVERIFY2(plan.skipped.first().note.contains(QStringLiteral("导入工区文件夹")),
+             qPrintable(plan.skipped.first().note));
+    QVERIFY(plan.issues.size() >= 1); // 找不到源文件如实入 issues
+    // 两阶段序与目录口径一致：well_head 先行；批内去重（已入库字节）逐行
+    // decision=skip + duplicateOfVersionId。
+    QCOMPARE(plan.items.first().type, QStringLiteral("well_head"));
+    for (const PlannedItem &item : plan.items)
+    {
+      QCOMPARE(item.decision, QStringLiteral("skip"));
+      QVERIFY(!item.duplicateOfVersionId.isEmpty());
+    }
+    // 同一清单重复构建幂等（不写 catalog，纯函数）。
+    const IngestPlan again = buildIngestPlanForFiles(paths, *cat);
+    QCOMPARE(again.items.size(), plan.items.size());
+    QCOMPARE(again.skipped.size(), plan.skipped.size());
+  }
+
+  // 多选文件导入执行面：与 importFolder 同一行结果语义——已入库字节重跑
+  // 全行 Skipped（幂等）；未入库文件入库后类型如实（document → 辅助口径）。
+  void importFilesEndToEndAndIdempotent()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString root = makeArea(tmp);
+    QVERIFY(!root.isEmpty());
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("notes.pdf")), "%PDF-1.4 fake"));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("ref.zzz")), "opaque bytes"));
+
+    const QStringList paths{
+        QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
+        QDir(root).filePath(QStringLiteral("0A1.Las")),
+        QDir(root).filePath(QString::fromUtf8("时深/A1_TD.dat")),
+        QDir(root).filePath(QStringLiteral("notes.pdf")),
+        QDir(root).filePath(QStringLiteral("ref.zzz")),
+    };
+    QString err;
+    const auto first = stack->importSvc->importFiles(paths, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(first.size(), 5);
+    QCOMPARE(countBy(first, FolderRowResult::Outcome::Imported), 5);
+    for (const FolderRowResult &r : first)
+      if (r.path.endsWith(QStringLiteral(".pdf")))
+        QCOMPARE(r.classifiedType, QStringLiteral("document"));
+      else if (r.path.endsWith(QStringLiteral(".zzz")))
+        QCOMPARE(r.classifiedType, QStringLiteral("unknown"));
+
+    const auto second = stack->importSvc->importFiles(paths, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(countBy(second, FolderRowResult::Outcome::Skipped), 5);
+  }
+
   // ---- worker 线程无 marshal 构建：GUI 事件循环不泵也能完成 plan ------------
   void planFromWorkerThreadNeedsNoGuiEventLoop()
   {

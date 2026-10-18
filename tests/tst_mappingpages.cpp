@@ -517,7 +517,7 @@ class FactorPageTests : public QObject
     void contourIntervalResetsAcrossFactorTypes(); // 方向04 D9：等值距自动态不跨因素类型残留
     void parseLevelsDroppedTokensAreRefused();     // 方向04 D10：脏级别 token 不静默吞
     void staleSuffixSurvivesLayerRedeclare();      // 方向04 D11：「（旧输入）」标记不被重声明抹掉
-    void structuralBoundaryComboHidesConstraintLines(); // 成图边界不列出约束线，也不默认选它
+    void structuralBoundaryComboPrefersPolygonDefaults(); // 成图边界只列面图层；默认值不盲选第 0 个矢量层
     void factorResultsTableShowsLineageColumn();   // P4：成果表第 4 列「来源与质控」+ 明细 tooltip
     void interpretiveResultsShowInFactorResultsTable(); // U7：制图工作场进成果表 + 解释性等值线回执即时刷新
     void wellFactorFieldFetchesAreCached();        // U10：字段清单按（层位,数据世代）缓存，勾选不重取
@@ -1402,7 +1402,11 @@ void FactorPageTests::staleSuffixSurvivesLayerRedeclare()
             qPrintable( factors->item( 3, 3 )->text() ) );
 }
 
-void FactorPageTests::structuralBoundaryComboHidesConstraintLines()
+// 回归（真实工程 D61）：结构 IDW 成图边界下拉曾把约束线（constraints.<层位>）
+// 和井点属性表（点几何）列进清单甚至默认选中——计算到算法深处才报匿名的
+// 「边界图层中没有有效 polygon」。清单只列面图层；默认值依次落
+// boundary.* → survey.area，都没有才留空交给生成门控引导。
+void FactorPageTests::structuralBoundaryComboPrefersPolygonDefaults()
 {
   QTemporaryDir dir;
   QVERIFY( dir.isValid() );
@@ -1418,19 +1422,21 @@ void FactorPageTests::structuralBoundaryComboHidesConstraintLines()
     d.title = title;
     return layers.declare( d, &err );
   };
-  // 声明顺序把约束线放在最前。旧下拉会把它显示成「constraints.C6」并默认选中。
+  // 声明顺序把约束线/井点/属性表放在最前——旧下拉会列出甚至默认选中它们。
   QVERIFY2( declareVector( QStringLiteral( "constraints.C6" ), QString() ), qPrintable( err ) );
   QVERIFY2( declareVector( QStringLiteral( "wells" ), QStringLiteral( "井位" ) ), qPrintable( err ) );
+  QVERIFY2( declareVector( QStringLiteral( "welllog.attributes" ), QStringLiteral( "测井岩性与相属性" ) ),
+            qPrintable( err ) );
   QVERIFY2( declareVector( QStringLiteral( "survey.area" ), QStringLiteral( "测区范围" ) ), qPrintable( err ) );
 
   ConstraintPage page( nullptr );
   page.bindLayerService( &layers );
-  auto *horizon = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
-  horizon->addItem( QStringLiteral( "D61" ) );
-  horizon->setCurrentIndex( 0 );
+  auto *h = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  h->addItem( QStringLiteral( "D61" ) );
+  h->setCurrentIndex( 0 );
   page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) )
       ->item( 1, 0 )
-      ->setCheckState( Qt::Checked );
+      ->setCheckState( Qt::Checked ); // 砂地比（插值引擎）
   auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
   auto *boundary = page.findChild<QComboBox *>( QStringLiteral( "factorBoundaryCombo" ) );
   method->setCurrentIndex( method->findData( QStringLiteral( "structural_idw" ) ) );
@@ -1438,14 +1444,18 @@ void FactorPageTests::structuralBoundaryComboHidesConstraintLines()
   QCOMPARE( boundary->currentText(), QStringLiteral( "测区范围" ) );
   QVERIFY( boundary->findData( QStringLiteral( "constraints.C6" ) ) < 0 );
   QVERIFY( boundary->findData( QStringLiteral( "wells" ) ) < 0 );
+  QVERIFY( boundary->findData( QStringLiteral( "welllog.attributes" ) ) < 0 );
 
+  // 专有边界后补声明：清单一目之首是 boundary.*；用户之前的 survey.area 选择回填保留。
   QVERIFY2( declareVector( QStringLiteral( "boundary.imported" ), QStringLiteral( "导入边界" ) ),
             qPrintable( err ) );
   method->setCurrentIndex( method->findData( QStringLiteral( "kriging" ) ) );
   method->setCurrentIndex( method->findData( QStringLiteral( "structural_idw" ) ) );
   QCOMPARE( boundary->currentData().toString(), QStringLiteral( "survey.area" ) );
   QCOMPARE( boundary->itemData( 0 ).toString(), QStringLiteral( "boundary.imported" ) );
+  boundary->setCurrentIndex( boundary->findData( QStringLiteral( "boundary.imported" ) ) );
 
+  // 专有边界与测区面都不在时：留空（占位提示），剩余声明的非面层不再进清单。
   QVERIFY( layers.removeDeclaration( QStringLiteral( "boundary.imported" ), &err ) );
   QVERIFY( layers.removeDeclaration( QStringLiteral( "survey.area" ), &err ) );
   method->setCurrentIndex( method->findData( QStringLiteral( "kriging" ) ) );

@@ -129,6 +129,18 @@ class DataImportService : public QObject
     previewFolder(const QString &dirPath, QString *error,
                   const std::function<bool(int filesSeen, const QString &path)> &scanProgress);
 
+    // 多选文件导入（文件列表口径）：与 importFolder 同一分类/身份匹配/
+    // 去重/两阶段排序与确认表语义，来源是显式文件清单（目录成员如实跳行，
+    // 提示走「导入工区文件夹」入口）。typeOverrides/forceImportPaths/progress
+    // 口径同 importFolder。
+    QVector<FolderRowResult> importFiles(
+        const QStringList &paths, QString *error = nullptr,
+        const QMap<QString, QString> &typeOverrides = {},
+        const QStringList &forceImportPaths = {},
+        const std::function<bool(int done, int total, const QString &path)> &progress = {});
+    // 确认表预览（文件列表口径）：与 previewFolder 同一行语义，来源为文件清单。
+    QVector<FolderPreviewRow> previewFiles(const QStringList &paths, QString *error = nullptr);
+
     // ---- C 包 IngestPlan 执行面（docs/DATA_FABRIC_ADOPTION.md）----
     // 执行单条 plan 项——executeIngestPlan 逐项调它；确认表「重试」合成的
     // 单项也走这里。decision==skip 或 (path,sha) 已注册 → Skipped 行；
@@ -262,6 +274,14 @@ class DataImportService : public QObject
     static QVector<FolderPreviewRow> producePreview(
         ImportSession &s, const QString &dirPath, QString *error,
         const std::function<bool(int filesSeen, const QString &path)> &scanProgress = {});
+    // 文件列表口径的 produce（多选文件导入；任务池 worker 调用）。
+    static void produceFiles(
+        ImportSession &s, const QStringList &paths, const QMap<QString, QString> &typeOverrides,
+        const QStringList &forceImportPaths,
+        const std::function<bool(int done, int total, const QString &path)> &progress = {});
+    static QVector<FolderPreviewRow> producePreviewForFiles(
+        ImportSession &s, const QStringList &paths, QString *error,
+        const std::function<bool(int filesSeen, const QString &path)> &scanProgress = {});
     // 单条 plan 项（executeIngestPlan 逐项调它）。
     static FolderRowResult produceItem(ImportSession &s, const PlannedItem &item,
                                        QString *error = nullptr);
@@ -270,6 +290,16 @@ class DataImportService : public QObject
     static IngestPlan planFor(
         ImportSession &s, const QString &root,
         const std::function<bool(int filesSeen, const QString &path)> &scanProgress = {});
+    static IngestPlan planForFiles(
+        ImportSession &s, const QStringList &paths,
+        const std::function<bool(int filesSeen, const QString &path)> &scanProgress = {});
+    // plan → 确认表行（目录/文件列表两口径共享）。
+    static QVector<FolderPreviewRow> previewRowsFromPlan(const IngestPlan &plan);
+    // plan 后半段（两口径共享）：override 并入 → 「仍导入」改判 → 执行。
+    static void produceFromPlan(
+        ImportSession &s, IngestPlan plan, const QMap<QString, QString> &typeOverrides,
+        const QStringList &forceImportPaths,
+        const std::function<bool(int done, int total, const QString &path)> &progress = {});
     // owner 线程内联：begin → produce → commit。off-thread → nullptr。
     std::shared_ptr<ImportSession>
     runInline(const std::function<void(ImportSession &)> &produce);

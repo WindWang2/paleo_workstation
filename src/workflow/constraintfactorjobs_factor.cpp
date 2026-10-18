@@ -689,6 +689,29 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
   QgsMapLayer *boundary = layers->instantiate( boundaryId, error );
   if ( !boundary )
     return false;
+  // 面几何快速失败：点/空图层（如井点属性表）被选作边界时，算法深处才报
+  // 「边界图层中没有有效 polygon」且不点名图层——入口处点名拒绝，错误可
+  // 行动。线/混合几何交给算法按「闭合线可作边界」的原契约校验。
+  if ( auto *boundaryVector = qobject_cast<QgsVectorLayer *>( boundary ) )
+  {
+    const QString label =
+        boundaryVector->name().isEmpty() ? boundaryId : boundaryVector->name();
+    if ( boundaryVector->geometryType() == Qgis::GeometryType::Point )
+    {
+      paleo::workflow_detail::setError(
+          error, tr( "成图边界图层「%1」是点图层，不能作成图边界；"
+                     "请在成图边界下拉中选择面图层（如测区范围）或导入测区边界" )
+                     .arg( label ) );
+      return false;
+    }
+    if ( boundaryVector->featureCount() == 0 )
+    {
+      paleo::workflow_detail::setError(
+          error, tr( "成图边界图层「%1」没有要素；请选择或导入含面要素的边界图层" )
+                     .arg( label ) );
+      return false;
+    }
+  }
   QgsMapLayer *interpArea = nullptr;
   const QString interpId = params.value( QStringLiteral( "interpolationAreaLayerId" ) ).toString();
   if ( !interpId.isEmpty() )

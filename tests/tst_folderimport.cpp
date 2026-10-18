@@ -131,6 +131,78 @@ private slots:
     QVERIFY(rows.isEmpty());
   }
 
+  // 多选文件导入（文件列表口径）：previewFilesAsync 只列不导；importFiles
+  // 同步路径入库、未知类型按 unknown 入辅助口径、importActiveChanged 双发、
+  // 台账落首文件所在目录。
+  void importFilesSyncPathAndLedger()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString srcDir = tmp.filePath(QStringLiteral("loose"));
+    QVERIFY(QDir().mkpath(srcDir));
+    QVERIFY(!stageFixture(tmp, QStringLiteral("loose"),
+                          QStringLiteral("ExportWellHead.dat")).isEmpty());
+    {
+      QFile odd(QDir(srcDir).filePath(QStringLiteral("ref.zzz")));
+      QVERIFY(odd.open(QIODevice::WriteOnly));
+      odd.write("opaque bytes");
+      odd.close();
+    }
+
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+
+    FolderImportWorkflow wf(stack->importSvc.get(), nullptr);
+    const QStringList paths{QDir(srcDir).filePath(QStringLiteral("ExportWellHead.dat")),
+                            QDir(srcDir).filePath(QStringLiteral("ref.zzz"))};
+    // 预览（无任务服务 → 同步回调）：行带分类，纯查询不产资产。
+    QVector<FolderPreviewRow> previewRows;
+    QString previewErr;
+    wf.previewFilesAsync(paths,
+                         [&previewRows, &previewErr](const QVector<FolderPreviewRow> &r,
+                                                     const QString &e) {
+                           previewRows = r;
+                           previewErr = e;
+                         });
+    QVERIFY2(!previewRows.isEmpty(), qPrintable(previewErr));
+    QVERIFY(stack->importSvc->catalog()->assets().isEmpty());
+
+    QSignalSpy activeSpy(&wf, &FolderImportWorkflow::importActiveChanged);
+    bool doneCalled = false;
+    QVector<FolderRowResult> rows;
+    QString importErr;
+    wf.importFiles(paths, {}, {},
+                   [&doneCalled, &rows, &importErr](const QVector<FolderRowResult> &r,
+                                                    const QString &e) {
+                     doneCalled = true;
+                     rows = r;
+                     importErr = e;
+                   });
+    QVERIFY(doneCalled);
+    QVERIFY2(importErr.isEmpty(), qPrintable(importErr));
+    QCOMPARE(rows.size(), 2);
+    int unknowns = 0;
+    for (const FolderRowResult &r : rows)
+    {
+      QCOMPARE(r.outcome, FolderRowResult::Outcome::Imported);
+      if (r.classifiedType == QLatin1String("unknown"))
+        ++unknowns;
+    }
+    QCOMPARE(unknowns, 1);
+    QCOMPARE(activeSpy.count(), 2);
+    QCOMPARE(stack->importSvc->catalog()->assets().size(), 2);
+    // 台账：批目录 = 首文件所在目录。
+    DataCatalog *cat = stack->importSvc->catalog();
+    paleo::imports::ImportLedger ledger;
+    ledger.load(cat);
+    const auto batches = ledger.batches();
+    QCOMPARE(batches.size(), 1);
+    QCOMPARE(batches.first().dir, srcDir);
+    QCOMPARE(batches.first().imported, 2);
+  }
+
   // 无任务服务 → 同步路径：done 在调用返回前已触发；importActiveChanged
   // 双发 true→false。
   void importFolderSyncPathTogglesActive()

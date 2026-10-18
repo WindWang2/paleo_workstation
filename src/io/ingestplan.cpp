@@ -463,6 +463,147 @@ namespace
       item.entityName = stem;
     }
   }
+  // 显式文件路径（单文件 root / 多选文件列表的每个成员）→ 一个待分类项。
+  // 与目录枚举同一分类口径（xml/dat/csv/txt/tsv 先嗅内容；TOCTOU 复核同
+  // T33）。目录、非普通文件、读不到的路径如实入 skipped/issues，不静默消失。
+  void appendExplicitFileItem(const QString &path, IngestPlan *plan)
+  {
+    const QFileInfo fi(path);
+    PlannedItem item;
+    item.path = fi.absoluteFilePath();
+    item.type = classifyProjectPath(path).type; // 跳过行也带分类器原类型
+    if (!fi.exists())
+    {
+      plan->issues.append(QStringLiteral("找不到源文件: %1").arg(path));
+      return;
+    }
+    if (fi.isDir())
+    {
+      item.decision = QStringLiteral("skip");
+      item.note = QStringLiteral("目录请用「导入工区文件夹」入口，本行已跳过");
+      plan->skipped.append(item);
+      return;
+    }
+    if (!fi.isFile())
+    {
+      item.decision = QStringLiteral("skip");
+      item.note = QStringLiteral("不是普通文件，已跳过");
+      plan->skipped.append(item);
+      return;
+    }
+    const QString canon = fi.canonicalFilePath();
+    item.canonicalPath = canon;
+    QByteArray xml;
+    if (QStringList{"xml", "dat", "csv", "txt", "tsv"}.contains(fi.suffix().toLower()))
+    {
+      const QFileInfo recheck(path);
+      if (!recheck.isFile() || recheck.canonicalFilePath() != canon)
+      {
+        item.decision = QStringLiteral("skip");
+        item.note = QStringLiteral("符号链接目标在枚举后已变化，已跳过");
+        plan->skipped.append(item);
+        return;
+      }
+      QFile prefix(item.path);
+      if (prefix.open(QIODevice::ReadOnly))
+        xml = prefix.read(65536);
+    }
+    const ProjectClassification cls = classifyProjectImport(item.path, xml);
+    item.type = cls.type;
+    item.format = cls.format;
+    item.size = fi.size();
+    plan->items.append(item);
+  }
+
+  // plan 收尾（目录枚举/文件列表枚举后共享）：plan 期 sha → 身份匹配 →
+  // sha 去重 → 主关联建议。哈希逐文件回调 scanProgress（协作取消）。
+  IngestPlan finalizeIngestPlan(IngestPlan plan, const IngestCatalogSource &catalog,
+                                const IngestScanProgress &scanProgress)
+  {
+    bool cancelled = false;
+    const auto reportScan = [&cancelled, &scanProgress](int seen, const QString &path) {
+      if (!scanProgress || cancelled)
+        return;
+      if (!scanProgress(seen, path))
+        cancelled = true;
+    };
+
+    // ---- plan 期 sha256：≤200MB 才算；SEG-Y 留空、永不因 plan 去重拦截。
+    // 哈希是 plan 期的主要重活——每个待哈希文件回调一次扫描进度（枚举本身
+    // 只 stat，不报；>200MB 不哈希的文件无回调，重活在执行段另有行进度）。
+    for (PlannedItem &item : plan.items)
+    {
+      if (item.size <= 0 || item.size > kPlanHashLimitBytes)
+        continue;
+      reportScan(plan.items.size(), item.path);
+      if (cancelled)
+        break;
+      QString herr;
+      item.sha256 = ShaCache::shared().sha256Hex(item.path, &herr); // D7.7
+      if (item.sha256.isEmpty())
+        plan.issues.append(QFileInfo(item.path).fileName() +
+                           (herr.isEmpty() ? QStringLiteral(" 哈希失败") : herr));
+    }
+    if (cancelled)
+    {
+      plan.cancelled = true;
+      plan.issues.append(QStringLiteral("已取消"));
+      return plan;
+    }
+
+    // ---- 身份匹配（只读 catalog；歧义/零匹配如实未决，不猜）----
+    for (PlannedItem &item : plan.items)
+      proposeIdentity(item, catalog);
+
+    // ---- sha 去重：catalog.versionBySha256 命中 → duplicateOf + decision=skip
+    // （确认框可改；同一 sha 只查一次）。快照路径下重哈希发生在调用线程
+    // （worker）——这正是 plan 期要搬出 GUI 的重活。
+    QHash<QString, QString> dupVersionBySha; // sha → versionId（缓存含空命中）
+    for (PlannedItem &item : plan.items)
+    {
+      if (item.sha256.isEmpty())
+        continue;
+      if (!dupVersionBySha.contains(item.sha256))
+        dupVersionBySha.insert(item.sha256,
+                               catalog.versionBySha256(item.sha256).id);
+      const QString vid = dupVersionBySha.value(item.sha256);
+      if (!vid.isEmpty())
+      {
+        item.duplicateOfVersionId = vid;
+        item.decision = QStringLiteral("skip");
+        item.note =
+            (item.note.isEmpty() ? QString() : item.note + QStringLiteral("；")) +
+            QStringLiteral("重复：与已注册版本 %1 字节相同").arg(vid);
+      }
+    }
+
+    // ---- 主关联建议：同 (entity,role) 首成员 → true；该角色槽在 catalog 已被
+    // 已决链接占用的项不建议（首个占用者保持其主关联）。
+    QSet<QString> seen;
+    for (PlannedItem &item : plan.items)
+    {
+      item.suggestedPrimary = false;
+      if (item.entityId.isEmpty() || item.decision != QLatin1String("accept"))
+        continue;
+      const QString key = item.entityType + QLatin1Char('|') + item.entityId +
+                          QLatin1Char('|') + item.role;
+      if (seen.contains(key))
+        continue;
+      bool occupied = false;
+      for (const EntityAssetLink &l : catalog.linksForEntity(item.entityId))
+        if (l.role == item.role && !l.unresolved)
+        {
+          occupied = true;
+          break;
+        }
+      if (!occupied)
+      {
+        item.suggestedPrimary = true;
+        seen.insert(key);
+      }
+    }
+    return plan;
+  }
 } // namespace
 
 IngestPlan buildIngestPlan(const QString &root, const DataCatalog &catalog)
@@ -477,33 +618,11 @@ IngestPlan buildIngestPlan(const QString &root, const IngestCatalogSource &catal
 {
   IngestPlan plan;
   plan.root = root;
-  bool cancelled = false;
-  const auto reportScan = [&cancelled, &scanProgress](int seen,
-                                                      const QString &path) {
-    if (!scanProgress || cancelled)
-      return;
-    if (!scanProgress(seen, path))
-      cancelled = true;
-  };
   const QFileInfo rootInfo(root);
   if (rootInfo.isFile())
   {
     // 单文件入口同一 builder：一项 plan（分类/身份/去重/主建议全走）。
-    PlannedItem item;
-    item.path = rootInfo.absoluteFilePath();
-    item.canonicalPath = rootInfo.canonicalFilePath();
-    QByteArray xml;
-    if (QStringList{"xml", "dat", "csv", "txt", "tsv"}.contains(rootInfo.suffix().toLower()))
-    {
-      QFile prefix(item.path);
-      if (prefix.open(QIODevice::ReadOnly))
-        xml = prefix.read(65536);
-    }
-    const ProjectClassification cls = classifyProjectImport(item.path, xml);
-    item.type = cls.type;
-    item.format = cls.format;
-    item.size = rootInfo.size();
-    plan.items.append(item);
+    appendExplicitFileItem(root, &plan);
   }
   else if (rootInfo.isDir())
   {
@@ -515,96 +634,49 @@ IngestPlan buildIngestPlan(const QString &root, const IngestCatalogSource &catal
               [](const PlannedItem &a, const PlannedItem &b) {
                 return a.path < b.path;
               });
+    if (plan.items.isEmpty() && plan.skipped.isEmpty() && plan.issues.isEmpty())
+      plan.issues.append(QStringLiteral("目录里没有可导入的文件: %1").arg(root));
   }
   else
   {
     plan.issues.append(QStringLiteral("找不到源文件: %1").arg(root));
     return plan;
   }
-  if (cancelled)
-  {
-    plan.cancelled = true;
-    plan.issues.append(QStringLiteral("已取消"));
-    return plan;
-  }
-  if (plan.items.isEmpty() && plan.skipped.isEmpty() && plan.issues.isEmpty())
-    plan.issues.append(QStringLiteral("目录里没有可导入的文件: %1").arg(root));
+  return finalizeIngestPlan(std::move(plan), catalog, scanProgress);
+}
 
-  // ---- plan 期 sha256：≤200MB 才算；SEG-Y 留空、永不因 plan 去重拦截。
-  // 哈希是 plan 期的主要重活——每个待哈希文件回调一次扫描进度（枚举本身
-  // 只 stat，不报；>200MB 不哈希的文件无回调，重活在执行段另有行进度）。
-  for (PlannedItem &item : plan.items)
-  {
-    if (item.size <= 0 || item.size > kPlanHashLimitBytes)
-      continue;
-    reportScan(plan.items.size(), item.path);
-    if (cancelled)
-      break;
-    QString herr;
-    item.sha256 = ShaCache::shared().sha256Hex(item.path, &herr); // D7.7
-    if (item.sha256.isEmpty())
-      plan.issues.append(QFileInfo(item.path).fileName() +
-                         (herr.isEmpty() ? QStringLiteral(" 哈希失败") : herr));
-  }
-  if (cancelled)
-  {
-    plan.cancelled = true;
-    plan.issues.append(QStringLiteral("已取消"));
-    return plan;
-  }
+IngestPlan buildIngestPlanForFiles(const QStringList &paths, const DataCatalog &catalog)
+{
+  const LiveCatalogSource live(&catalog);
+  return buildIngestPlanForFiles(paths, live);
+}
 
-  // ---- 身份匹配（只读 catalog；歧义/零匹配如实未决，不猜）----
-  for (PlannedItem &item : plan.items)
-    proposeIdentity(item, catalog);
-
-  // ---- sha 去重：catalog.versionBySha256 命中 → duplicateOf + decision=skip
-  // （确认框可改；同一 sha 只查一次）。快照路径下重哈希发生在调用线程
-  // （worker）——这正是 plan 期要搬出 GUI 的重活。
-  QHash<QString, QString> dupVersionBySha; // sha → versionId（缓存含空命中）
-  for (PlannedItem &item : plan.items)
-  {
-    if (item.sha256.isEmpty())
-      continue;
-    if (!dupVersionBySha.contains(item.sha256))
-      dupVersionBySha.insert(item.sha256,
-                             catalog.versionBySha256(item.sha256).id);
-    const QString vid = dupVersionBySha.value(item.sha256);
-    if (!vid.isEmpty())
-    {
-      item.duplicateOfVersionId = vid;
-      item.decision = QStringLiteral("skip");
-      item.note =
-          (item.note.isEmpty() ? QString() : item.note + QStringLiteral("；")) +
-          QStringLiteral("重复：与已注册版本 %1 字节相同").arg(vid);
-    }
-  }
-
-  // ---- 主关联建议：同 (entity,role) 首成员 → true；该角色槽在 catalog 已被
-  // 已决链接占用的项不建议（首个占用者保持其主关联）。
+IngestPlan buildIngestPlanForFiles(const QStringList &paths,
+                                   const IngestCatalogSource &catalog,
+                                   const IngestScanProgress &scanProgress)
+{
+  IngestPlan plan;
+  if (!paths.isEmpty())
+    plan.root = QFileInfo(paths.first()).absolutePath(); // 台账/溯源用公共父目录
   QSet<QString> seen;
-  for (PlannedItem &item : plan.items)
+  for (const QString &path : paths)
   {
-    item.suggestedPrimary = false;
-    if (item.entityId.isEmpty() || item.decision != QLatin1String("accept"))
-      continue;
-    const QString key = item.entityType + QLatin1Char('|') + item.entityId +
-                        QLatin1Char('|') + item.role;
+    // 同一文件被重复选中（多选框按住 Ctrl 再点）只计一次。
+    const QString key = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
     if (seen.contains(key))
       continue;
-    bool occupied = false;
-    for (const EntityAssetLink &l : catalog.linksForEntity(item.entityId))
-      if (l.role == item.role && !l.unresolved)
-      {
-        occupied = true;
-        break;
-      }
-    if (!occupied)
-    {
-      item.suggestedPrimary = true;
-      seen.insert(key);
-    }
+    seen.insert(key);
+    appendExplicitFileItem(path, &plan);
   }
-  return plan;
+  groupShapefileFamilies(plan.items);
+  orderIngestPlanItems(plan.items);
+  std::sort(plan.skipped.begin(), plan.skipped.end(),
+            [](const PlannedItem &a, const PlannedItem &b) {
+              return a.path < b.path;
+            });
+  if (plan.items.isEmpty() && plan.skipped.isEmpty() && plan.issues.isEmpty())
+    plan.issues.append(QStringLiteral("所选文件里没有可导入项"));
+  return finalizeIngestPlan(std::move(plan), catalog, scanProgress);
 }
 
 void orderIngestPlanItems(QVector<PlannedItem> &items)

@@ -86,7 +86,7 @@ DataImportService::previewFolder(const QString &dirPath, QString *error,
 
 QVector<FolderPreviewRow>
 DataImportService::producePreview(ImportSession &sess, const QString &dirPath, QString *error,
-                                  const std::function<bool(int, const QString &)> &scanProgress)
+                                  const std::function<bool(int filesSeen, const QString &path)> &scanProgress)
 {
   QVector<FolderPreviewRow> rows;
   if (error)
@@ -112,8 +112,43 @@ DataImportService::producePreview(ImportSession &sess, const QString &dirPath, Q
                         : plan.issues.join(QStringLiteral("\n")));
     return rows;
   }
-  // 确认表显示语义在预览期算好（domain/importrows.h）：行显示类型、可改
-  // 与否、类型词表——视图纯渲染，不回查分类器谓词。
+  return previewRowsFromPlan(plan);
+}
+
+QVector<FolderPreviewRow>
+DataImportService::producePreviewForFiles(ImportSession &sess, const QStringList &paths,
+                                          QString *error,
+                                          const std::function<bool(int filesSeen, const QString &path)> &scanProgress)
+{
+  QVector<FolderPreviewRow> rows;
+  if (error)
+    error->clear();
+  if (paths.isEmpty())
+  {
+    setError(error, QStringLiteral("所选文件为空"));
+    return rows;
+  }
+  const IngestPlan plan = planForFiles(sess, paths, scanProgress);
+  if (plan.cancelled)
+  {
+    setError(error, QStringLiteral("已取消"));
+    return rows;
+  }
+  if (plan.items.isEmpty() && plan.skipped.isEmpty())
+  {
+    setError(error, plan.issues.isEmpty()
+                        ? QStringLiteral("所选文件里没有可导入项")
+                        : plan.issues.join(QStringLiteral("\n")));
+    return rows;
+  }
+  return previewRowsFromPlan(plan);
+}
+
+// plan → 确认表行（目录/文件列表两口径共享）：显示类型/可改性/词表在预览
+// 期算好（domain/importrows.h），视图纯渲染，不回查分类器谓词。
+QVector<FolderPreviewRow> DataImportService::previewRowsFromPlan(const IngestPlan &plan)
+{
+  QVector<FolderPreviewRow> rows;
   const QStringList vocab = projectClassifierTypes(); // 「reference」伪类型含在内
   const auto fillDisplay = [&vocab](FolderPreviewRow &r) {
     // 行默认显示类型：HZ28-6-1 固定辅助 → 「参考」；「参考资料」目录内井类/
@@ -217,6 +252,39 @@ DataImportService::importFolder(
   return s->rows;
 }
 
+QVector<FolderRowResult>
+DataImportService::importFiles(
+    const QStringList &paths, QString *error, const QMap<QString, QString> &typeOverrides,
+    const QStringList &forceImportPaths,
+    const std::function<bool(int, int, const QString &)> &progress)
+{
+  if (error)
+    error->clear();
+  const auto s = runInline([&](ImportSession &sess) {
+    produceFiles(sess, paths, typeOverrides, forceImportPaths, progress);
+  });
+  if (!s)
+  {
+    setError(error, offThreadError());
+    return {};
+  }
+  setError(error, s->error);
+  return s->rows;
+}
+
+QVector<FolderPreviewRow> DataImportService::previewFiles(const QStringList &paths, QString *error)
+{
+  if (error)
+    error->clear();
+  const std::shared_ptr<ImportSession> s = beginImport();
+  if (!s)
+  {
+    setError(error, offThreadError());
+    return {};
+  }
+  return producePreviewForFiles(*s, paths, error);
+}
+
 void DataImportService::produceFolder(
     ImportSession &sess, const QString &dirPath, const QMap<QString, QString> &typeOverrides,
     const QStringList &forceImportPaths,
@@ -233,8 +301,6 @@ void DataImportService::produceFolder(
     return finish(rows, QStringLiteral("import service is not fully wired"));
   if (sess.projectDir.isEmpty())
     return finish(rows, QStringLiteral("project dir is not set"));
-  QString errText;
-  QString *const error = &errText;
 
   if (dirPath.isEmpty() || !QFileInfo(dirPath).isDir())
     return finish(rows, QStringLiteral("找不到目录: %1").arg(dirPath));
@@ -264,6 +330,60 @@ void DataImportService::produceFolder(
                             ? QStringLiteral("目录里没有可导入的文件: %1").arg(dirPath)
                             : plan.issues.join(QStringLiteral("\n")));
   }
+  produceFromPlan(sess, std::move(plan), typeOverrides, forceImportPaths, progress);
+}
+
+void DataImportService::produceFiles(
+    ImportSession &sess, const QStringList &paths, const QMap<QString, QString> &typeOverrides,
+    const QStringList &forceImportPaths,
+    const std::function<bool(int, int, const QString &)> &progress)
+{
+  sess.rows.clear();
+  sess.error.clear();
+  const auto finish = [&sess](QVector<FolderRowResult> rows, const QString &err) {
+    sess.rows = std::move(rows);
+    sess.error = err;
+  };
+  QVector<FolderRowResult> rows;
+  if (!sess.wired)
+    return finish(rows, QStringLiteral("import service is not fully wired"));
+  if (sess.projectDir.isEmpty())
+    return finish(rows, QStringLiteral("project dir is not set"));
+  if (paths.isEmpty())
+    return finish(rows, QStringLiteral("所选文件为空"));
+
+  IngestPlan plan;
+  if (progress)
+  {
+    const auto scanCb = [&progress](int seen, const QString &p) {
+      return progress(seen, 0, p); // total=0：plan 哈希段
+    };
+    plan = planForFiles(sess, paths, scanCb);
+  }
+  else
+    plan = planForFiles(sess, paths);
+  if (plan.cancelled)
+    return finish(rows, QStringLiteral("已取消"));
+  if (plan.items.isEmpty() && plan.skipped.isEmpty())
+  {
+    return finish(rows, plan.issues.isEmpty()
+                            ? QStringLiteral("所选文件里没有可导入项")
+                            : plan.issues.join(QStringLiteral("\n")));
+  }
+  produceFromPlan(sess, std::move(plan), typeOverrides, forceImportPaths, progress);
+}
+
+// plan 后半段（目录/文件列表两口径共享）：确认表「改类型」override 并入 →
+// 「仍导入」改判 → executeIngestPlan 执行。行结果/错误写回 session。
+void DataImportService::produceFromPlan(
+    ImportSession &sess, IngestPlan plan, const QMap<QString, QString> &typeOverrides,
+    const QStringList &forceImportPaths,
+    const std::function<bool(int, int, const QString &)> &progress)
+{
+  sess.rows.clear();
+  sess.error.clear();
+  QString errText;
+  QString *const error = &errText;
 
   // 确认表「改类型」：合法 override 并进 item.type（生效类型）；非法 override
   // 忽略——不落进资产类型。D5：阶段归属按生效类型算——改成 well_head 的行
@@ -296,10 +416,10 @@ void DataImportService::produceFolder(
 
   // 执行面：executeIngestPlan 逐项 produceItem（写 staging 副本）+ progress
   // 协作取消；入库在 owner 线程 commitImport 一次事务落盘。幂等——
-  // decision==skip 或 (path,sha) 已注册的项不再登记；重跑同目录每行
-  // Skipped、目录零增量。
-  rows = executeIngestPlan(plan, sess, progress, error);
-  finish(std::move(rows), errText);
+  // decision==skip 或 (path,sha) 已注册的项不再登记；重跑同清单每行
+  // Skipped、零增量。
+  sess.rows = executeIngestPlan(plan, sess, progress, error);
+  sess.error = errText;
 }
 
 // ---------------------------------------------------------------------------

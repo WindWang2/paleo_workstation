@@ -521,7 +521,8 @@ void ConstraintPage::updateEngineRows()
     // 成图边界只要面：boundary.* 在前，测区面 survey.area 次之。约束线
     // （constraints.<层位>）、等值线和井点不是面，不能出现在这个下拉里——
     // 否则会显示成 constraints.C6，算到算法深处才报「没有有效 polygon」。
-    // 默认值回填上次选择；否则依次落 boundary.* / survey.area，都没有就留空。
+    // 默认值不得盲选第 0 项：回填上次选择，否则依次落 boundary.* /
+    // survey.area，都不在才留空，交给生成门控引导选择。
     const QString keep = boundaryCombo->currentData().toString();
     boundaryCombo->blockSignals( true );
     boundaryCombo->clear();

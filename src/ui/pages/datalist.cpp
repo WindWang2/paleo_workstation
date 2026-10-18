@@ -86,15 +86,16 @@ DataListPanel::DataListPanel(QWidget *parent)
   const struct { const char *name; const char *text; const char *kind; const char *desc; }
       kImports[] = {
     {"importWells", QT_TR_NOOP("导入井数据"), "wells",
-     QT_TR_NOOP("选择单个井位/分层文件入库")},
+     QT_TR_NOOP("选择一个或多个井位/分层文件入库")},
     {"importWellLogs", QT_TR_NOOP("导入测井数据"), "well_log",
-     QT_TR_NOOP("选择 LAS 测井曲线或 XML/Excel 综合柱状图入库")},
+     QT_TR_NOOP("选择 LAS 测井曲线或 XML/Excel 综合柱状图入库，可多选")},
     {"importSeismic", QT_TR_NOOP("导入地震数据"), "seismic",
-     QT_TR_NOOP("选择 SEG-Y 等地震数据文件入库")},
+     QT_TR_NOOP("选择 SEG-Y 等地震数据文件入库，可多选")},
     {"importBoundary", QT_TR_NOOP("导入边界数据"), "boundary",
-     QT_TR_NOOP("选择边界矢量文件入库")},
+     QT_TR_NOOP("选择边界矢量文件入库，可多选")},
     {"importFolder", QT_TR_NOOP("导入工区文件夹"), "folder",
-     QT_TR_NOOP("选择工区目录：确认每个文件的类型后整目录入库")},
+     QT_TR_NOOP("选择工区目录：确认每个文件的类型后整目录入库；"
+                "识别不了的类型按参考资料/未归类入库")},
   };
   for (const auto &spec : kImports)
   {

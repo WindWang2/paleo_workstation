@@ -616,6 +616,19 @@ class TestFactorWorkflow : public QObject
         const auto lineage = ConstraintWorkflow::factorResultLineage(structural.extra);
         QVERIFY2(lineage.value("summary").toString().contains("约束 参与"), qPrintable(lineage.value("summary").toString()));
       }
+      // 边界预检：点图层（井点层）被选作边界时入口处点名拒绝，不进算法
+      // 深处报匿名的「边界图层中没有有效 polygon」。
+      {
+        QVariantMap pointBoundary = params;
+        pointBoundary.insert("boundaryLayerId", "wells.T1");
+        QString pointErr;
+        QVERIFY(!wf.generateFactor("T1", "sandratio", pointBoundary, &pointErr));
+        QVERIFY2(pointErr.contains(QStringLiteral("点图层")), qPrintable(pointErr));
+        const auto *wellsLayer = f.layers.layer("wells.T1");
+        QVERIFY2(pointErr.contains(QStringLiteral("wells.T1")) ||
+                     (wellsLayer && pointErr.contains(wellsLayer->name())),
+                 qPrintable(pointErr));
+      }
       params.remove("method");
       QVERIFY2(wf.generateFactor("T1", "sandratio", params, &err), qPrintable(err));
       {

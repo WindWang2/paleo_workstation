@@ -478,6 +478,7 @@ target_link_libraries(paleo_store PUBLIC paleo_deps paleo_domain)
 add_library(paleo_qgis STATIC
   src/qgis/wellpointnavigation.cpp
   src/qgis/mappingartifactwriter.cpp
+  src/qgis/seismicwellcalibration.cpp
   src/qgis/qgisruntime.cpp
   src/qgis/qgisprojectservice.cpp
   src/qgis/qgisprojectservice_async.cpp
@@ -575,6 +576,7 @@ add_library(paleo_services STATIC
   src/services/jobrunner.cpp                        # 方向20：统一三段式 JobRunner（作业框架）
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
   src/services/seismichorizoncluster.cpp             # 层位窗反射特征聚类（Mock 相解释）
+  src/services/seismicclusterlabels.cpp              # 测井多数票标定聚类类别
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排 (Base Core)
   src/services/seismictaskservice_transcode.cpp     # 地震任务：索引与转码
   src/services/seismictaskservice_slice.cpp         # 地震任务：切片与剖面

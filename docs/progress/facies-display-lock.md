@@ -27,5 +27,5 @@
 非法设置拒绝、批量锁定、保存版本与复制继承、历史版本只读，以及页面意图与使能。
 
 验证：`tst_mappingworkbench` 覆盖混合层级渲染、图例节点、撤销与版本继承；
-分类、标准图件元素和导出回归也通过。`layering`、`layering_strict` 与
+分类及标准图件元素回归也通过。`layering`、`layering_strict` 与
 `layering_selftest` 均通过。浅色与深色主题下检查了新增控件布局。

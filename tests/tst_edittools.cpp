@@ -34,6 +34,9 @@
 //   · QgsProject::instance() is process-global — init()/cleanup() clear it.
 
 #include "../src/qgis/qgiseditingservice.h"
+#include "../src/qgis/faciespartitioneditor.h"
+#include "../src/qgis/faciespartitiontool.h"
+#include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include <algorithm>
 #include <memory>
@@ -44,10 +47,13 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QMenu>
 #include <QSignalSpy>
 #include <QUndoStack>
 
 #include <qgsapplication.h>
+#include <qgscoordinatetransform.h>
+#include <qgscompoundcurve.h>
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
 #include <qgsgeometry.h>
@@ -130,6 +136,9 @@ class TestEditTools : public QObject
     // Test-fixture hygiene (QgsProject is process-global).
     void init();
     void cleanup();
+    void partitionVertexChangesKeepCoverageAndRollbackInvalidGesture();
+    void partitionCaptureUsesNativeEventsAndLayerCrs();
+    void toolbarRelaysNativeWarningsAndExplainsPartitionActions();
 
     // a) add feature → edit buffer
     void addPointClickCommitsIntoEditBuffer();
@@ -333,6 +342,120 @@ static void addPointCommand( QgsVectorLayer *vl, int id )
   vl->beginEditCommand( QStringLiteral( "add point %1" ).arg( id ) );
   QVERIFY2( vl->addFeature( f ), "addFeature failed" );
   vl->endEditCommand();
+}
+
+void TestEditTools::partitionVertexChangesKeepCoverageAndRollbackInvalidGesture()
+{
+  QgsMapCanvas canvas; configureCanvas(canvas);
+  QgsVectorLayer layer("Polygon?crs=EPSG:4326&field=facies_code:integer", "partition", "memory");
+  QgsFeatureList features;
+  for (int start : {40, 100}) {
+    QgsFeature f(layer.fields()); f.setAttribute("facies_code", 1);
+    f.setGeometry(QgsGeometry::fromRect(QgsRectangle(mapPt(canvas, start, 160), mapPt(canvas, start + 60, 40))));
+    features << f;
+  }
+  QVERIFY(layer.dataProvider()->addFeatures(features)); layer.updateExtents();
+  QString error;
+  const QVariantList schema{QVariantMap{{"code", 1}, {"facies", "河流"}, {"subfacies", "曲流河"}, {"microfacies", "河道"}}};
+  QVERIFY2(FaciesPartitionEditor::install(&layer, schema, {}, &error), qPrintable(error));
+  QVERIFY(MappingFeatureIdentity::Observer::attach(&layer, &error)); QVERIFY(layer.startEditing());
+  canvas.setLayers({&layer}); canvas.setCurrentLayer(&layer); layer.selectByIds({features.first().id()});
+  TestVertexTool tool(&canvas, &layer); tool.setTopologicalEditingEnabled(true); canvas.setMapTool(&tool);
+  QSignalSpy warnings(&tool, &QgsMapTool::messageEmitted);
+  const auto original = layer.getFeature(features.first().id()).geometry().asWkt();
+  QgsMapMouseEvent press(&canvas, QEvent::MouseButtonPress, QPoint(40,160), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+  tool.canvasPressEvent(&press); QVERIFY(tool.isDragging());
+  QgsMapMouseEvent release(&canvas, QEvent::MouseButtonRelease, QPoint(30,150), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+  tool.canvasReleaseEvent(&release);
+  QCOMPARE(layer.getFeature(features.first().id()).geometry().asWkt(), original);
+  QCOMPARE(layer.undoStack()->count(), 0); QVERIFY(!warnings.isEmpty());
+  QgsMapMouseEvent sharedPress(&canvas, QEvent::MouseButtonPress, QPoint(100,160), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+  tool.canvasPressEvent(&sharedPress); QVERIFY(tool.isDragging());
+  QgsMapMouseEvent sharedRelease(&canvas, QEvent::MouseButtonRelease, QPoint(110,160), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+  tool.canvasReleaseEvent(&sharedRelease);
+  QCOMPARE(layer.undoStack()->count(), 1);
+  QVERIFY2(FaciesPartitionEditor::validate(&layer, &error), qPrintable(error));
+  QVERIFY(layer.getFeature(features.first().id()).geometry().asWkt() != original);
+  layer.undoStack()->undo(); QCOMPARE(layer.getFeature(features.first().id()).geometry().asWkt(), original);
+  canvas.unsetMapTool(&tool); QVERIFY(layer.rollBack());
+}
+
+void TestEditTools::partitionCaptureUsesNativeEventsAndLayerCrs()
+{
+  QgsMapCanvas canvas; configureCanvas(canvas); canvas.setExtent(QgsRectangle(0, 0, 2, 2));
+  QgsVectorLayer layer("MultiPolygon?crs=EPSG:3857&field=facies_code:integer", "partition", "memory");
+  const QgsCoordinateTransform transform(canvas.mapSettings().destinationCrs(), layer.crs(), QgsProject::instance());
+  QgsFeatureList features;
+  for (int x : {40, 100}) {
+    QgsFeature f(layer.fields()); f.setAttribute("facies_code", 1);
+    auto geometry = QgsGeometry::fromRect(QgsRectangle(transform.transform(mapPt(canvas, x, 160)),
+        transform.transform(mapPt(canvas, x + 60, 40))));
+    geometry.convertToMultiType(); f.setGeometry(geometry); features << f;
+  }
+  QVERIFY(layer.dataProvider()->addFeatures(features)); layer.updateExtents();
+  const QVariantList schema{QVariantMap{{"code", 1}, {"facies", "河流"}, {"subfacies", "曲流河"}, {"microfacies", "河道"}},
+      QVariantMap{{"code", 2}, {"facies", "湖泊"}, {"subfacies", "滨浅湖"}, {"microfacies", "湖泥"}}};
+  QString error; QVERIFY2(FaciesPartitionEditor::install(&layer, schema, {}, &error), qPrintable(error));
+  QVERIFY(MappingFeatureIdentity::Observer::attach(&layer, &error));
+  canvas.setLayers({&layer}); PaleoEditingToolbar toolbar(&canvas);
+  toolbar.setLayers({&layer}); toolbar.setCurrentLayer(&layer);
+  QSignalSpy refused(&toolbar, &PaleoEditingToolbar::editRefused);
+  QSignalSpy edited(&toolbar, &PaleoEditingToolbar::featureEdited);
+  layer.selectByIds({features.first().id()}); toolbar.actionSplitFacies()->trigger();
+  auto *tool = qobject_cast<FaciesPartitionTool *>(canvas.mapTool()); QVERIFY(tool);
+  click(*tool, canvas, QPoint(20, 100), Qt::LeftButton);
+  click(*tool, canvas, QPoint(180, 100), Qt::LeftButton);
+  click(*tool, canvas, QPoint(180, 100), Qt::RightButton);
+  QCOMPARE(edited.count(), 1); QCOMPARE(layer.featureCount(), 3);
+  QVERIFY2(FaciesPartitionEditor::validate(&layer, &error), qPrintable(error));
+  QCOMPARE(layer.undoStack()->count(), 1); toolbar.actionUndo()->trigger(); QCOMPARE(layer.featureCount(), 2);
+  toolbar.actionRedo()->trigger(); QCOMPARE(layer.featureCount(), 3); toolbar.actionUndo()->trigger();
+  toolbar.partitionCodeCombo()->setCurrentIndex(toolbar.partitionCodeCombo()->findData(2));
+  toolbar.actionPaintFacies()->trigger(); tool = qobject_cast<FaciesPartitionTool *>(canvas.mapTool()); QVERIFY(tool);
+  for (const auto &point : {QPoint(80,80), QPoint(120,80), QPoint(120,120), QPoint(80,120)})
+    click(*tool, canvas, point, Qt::LeftButton);
+  click(*tool, canvas, QPoint(80,120), Qt::RightButton);
+  QCOMPARE(edited.count(), 2); QCOMPARE(layer.featureCount(), 3);
+  const auto painted = layer.selectedFeatures().first();
+  QCOMPARE(painted.attribute("facies_code").toInt(), 2);
+  const auto expected = transform.transform(mapPt(canvas, 80, 120));
+  QVERIFY(qgsDoubleNear(painted.geometry().boundingBox().xMinimum(), expected.x(), 1e-6));
+  QVERIFY(qgsDoubleNear(painted.geometry().boundingBox().yMinimum(), expected.y(), 1e-6));
+  QVERIFY2(FaciesPartitionEditor::validate(&layer, &error), qPrintable(error));
+  // QGIS Backspace removes the last point. Esc and an unfinished right-click
+  // cancel capture only; completed native edit commands remain undoable.
+  click(*tool, canvas, QPoint(80,80), Qt::LeftButton);
+  click(*tool, canvas, QPoint(120,80), Qt::LeftButton); QCOMPARE(tool->captureCurve()->numPoints(), 2);
+  QKeyEvent backspace(QEvent::KeyPress, Qt::Key_Backspace, Qt::NoModifier);
+  static_cast<QgsMapTool *>(tool)->keyPressEvent(&backspace); QCOMPARE(tool->captureCurve()->numPoints(), 1);
+  sendEsc(*tool); QVERIFY(!toolbar.actionPaintFacies()->isChecked()); QCOMPARE(edited.count(), 2);
+  toolbar.actionPaintFacies()->trigger(); tool = qobject_cast<FaciesPartitionTool *>(canvas.mapTool()); QVERIFY(tool);
+  click(*tool, canvas, QPoint(80,80), Qt::LeftButton);
+  click(*tool, canvas, QPoint(80,80), Qt::RightButton);
+  QVERIFY(!toolbar.actionPaintFacies()->isChecked()); QCOMPARE(layer.featureCount(), 3);
+  QVERIFY(refused.isEmpty()); QVERIFY(toolbar.cancelEditing()); QCOMPARE(layer.featureCount(), 2);
+}
+
+void TestEditTools::toolbarRelaysNativeWarningsAndExplainsPartitionActions()
+{
+  QgsMapCanvas canvas; configureCanvas(canvas);
+  QgsVectorLayer layer("Polygon?crs=EPSG:4326&field=facies_code:integer", "partition", "memory");
+  auto features = seedFeatures(layer, {squareWkt(20,20,60)});
+  QVERIFY(layer.dataProvider()->changeAttributeValues({{features.first().id(), {{0, 1}}}}));
+  const QVariantList schema{QVariantMap{{"code", 1}, {"facies", "河流"}, {"subfacies", "曲流河"}, {"microfacies", "河道"}}};
+  QString error; QVERIFY2(FaciesPartitionEditor::install(&layer, schema, {}, &error), qPrintable(error));
+  QVERIFY(MappingFeatureIdentity::Observer::attach(&layer, &error)); canvas.setLayers({&layer});
+  PaleoEditingToolbar toolbar(&canvas); toolbar.setLayers({&layer}); toolbar.setCurrentLayer(&layer);
+  QVERIFY(toolbar.actionFaciesOperations()->menu()->toolTipsVisible());
+  toolbar.partitionCodeCombo()->setCurrentIndex(1);
+  QVERIFY(toolbar.actionAddPolygon()->toolTip().contains("裁切"));
+  toolbar.actionAddPolygon()->trigger(); auto *tool = canvas.mapTool(); QVERIFY(tool);
+  QSignalSpy warnings(&toolbar, &PaleoEditingToolbar::editRefused);
+  for (const auto &point : {QPoint(5,5), QPoint(15,5), QPoint(15,15)}) click(*tool, canvas, point, Qt::LeftButton);
+  click(*tool, canvas, QPoint(15,15), Qt::RightButton);
+  QCOMPARE(warnings.count(), 1); QVERIFY(warnings.first().first().toString().contains("有效区域"));
+  QCOMPARE(layer.featureCount(), 1); QCOMPARE(layer.undoStack()->count(), 0);
+  QVERIFY(toolbar.actionAddPolygon()->isChecked()); QVERIFY(toolbar.cancelEditing());
 }
 
 void TestEditTools::init()

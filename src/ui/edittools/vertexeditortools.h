@@ -121,6 +121,7 @@ class PaleoVertexTool : public QgsMapToolEdit
     void keyPressEvent( QKeyEvent *e ) override;                 // Esc
 
   private:
+    bool validatePartition(QgsVectorLayer *layer);
     // Internal drag bookkeeping (defined in the .cpp to keep this header
     // free of geometry includes): one in-flight vertex identified by
     // (feature id, vertex number) plus its feature's pre-drag geometry.

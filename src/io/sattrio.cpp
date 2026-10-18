@@ -500,6 +500,7 @@ bool SattrVolumeReader::open(const QString &path, QString *error)
   info.validCells = qint64(qFromLittleEndian<quint64>(footer + 16));
   info_ = std::move(info);
   blockScratch_.clear();
+  lastBlock_ = -1; // #477：新开文件，块缓存失效
   return true;
 }
 
@@ -510,6 +511,13 @@ bool SattrVolumeReader::readBlock(int blockIndex, QString *error)
     setError(error, QStringLiteral("SATV 块索引越界（%1）").arg(blockIndex));
     return false;
   }
+  // #477：当前块缓存——同块连续取样（readCell 点查询等）零重读。装载一旦
+  // 开始即先失效缓存：失败路径（resize 后截断/寻址失败）会让 blockScratch_
+  // 持垃圾而 lastBlock_ 仍指旧块，缓存命中会回吐垃圾——故只在成功整块装入
+  // 后才登记新块号。
+  if (blockIndex == lastBlock_)
+    return true;
+  lastBlock_ = -1;
   const int rows =
       std::min(info_.blockIl, info_.nIl - blockIndex * info_.blockIl);
   const qint64 floats = qint64(rows) * info_.nXl * info_.nS;
@@ -527,6 +535,7 @@ bool SattrVolumeReader::readBlock(int blockIndex, QString *error)
     setError(error, QStringLiteral("SATV 块载荷截断（块 %1）").arg(blockIndex));
     return false;
   }
+  lastBlock_ = blockIndex;
   return true;
 }
 

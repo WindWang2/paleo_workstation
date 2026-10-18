@@ -4,6 +4,7 @@
 #include "../paleotheme.h"
 #include <QApplication>
 #include <QContextMenuEvent>
+#include <QFontMetrics>
 #include <QKeyEvent>
 #include <QMenu>
 #include <QMouseEvent>
@@ -119,12 +120,15 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
                   dragging ? 2.0 : 1.2, Qt::DashLine));
     p.drawLine(QPointF(0, y), QPointF(width(), y));
 
-    // 名签（左端小旗）
+    // 名签（左端小旗）。#482：旗宽用 QFontMetrics 实测——原「字符数×7」对
+    // CJK（每字两倍宽）与字号变化都失真，文字被 ElideRight 无谓截断或旗子
+    // 虚胖。
     QFont mf = p.font();
     mf.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(mf);
     const QString label = markers.at(i).second;
-    const QRectF flagRect(0, y - 8, qMax<qreal>(34.0, label.size() * 7.0 + 8), 15);
+    const QFontMetricsF mfMetrics(mf);
+    const QRectF flagRect(0, y - 8, qMax<qreal>(34.0, mfMetrics.horizontalAdvance(label) + 12.0), 15);
     p.fillRect(flagRect, QColor(dragging ? 253 : 255, dragging ? 235 : 244, dragging ? 235 : 224, 225));
     p.setPen(QColor(QStringLiteral("#92400E")));
     p.drawText(flagRect.adjusted(3, 0, -3, 0), Qt::AlignVCenter | Qt::ElideRight, label);
@@ -141,12 +145,13 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
     p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0, Qt::DotLine));
     p.drawLine(QPointF(0, y), QPointF(width(), y));
 
-    // 右端文字旗
+    // 右端文字旗（#482：旗宽同上改 QFontMetrics 实测，ElideRight 兜底超长）
     QFont pf = p.font();
     pf.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(pf);
     const QString text = pins.at(i).text.isEmpty() ? tr("钉注") : pins.at(i).text;
-    const qreal flagW = qMin<qreal>(150.0, text.size() * 7.0 + 14);
+    const QFontMetricsF pfMetrics(pf);
+    const qreal flagW = qMin<qreal>(150.0, pfMetrics.horizontalAdvance(text) + 18.0);
     const QRectF flagRect(width() - flagW - 2, y + 1, flagW, 14);
     p.fillRect(flagRect, QColor(27, 115, 208, 215));
     p.setPen(Qt::white);

@@ -75,6 +75,8 @@ class TestPreviewMapPage : public QObject
     void measureAreaReadoutLandsInStatusBar();
     void identifyRectRoutesToPanel();
     void overviewRendersManagedGridVector();
+    // #482：鹰眼点选限定左键——中键按压不得带动主画布中心。
+    void overviewOnlyLeftButtonCenters();
 
   private:
     QgsVectorLayer *addPointLayer(int n);
@@ -531,6 +533,44 @@ int main(int argc, char *argv[])
   const int rc = QTest::qExec(&tc, argc, argv);
   QgisRuntime::shutdown();
   return rc;
+}
+
+// #482：鹰眼小画布点选/拖动限定左键——中键/右键按压不得触发 centerMainAt
+// 带动主画布中心（旧实现 MouseButtonPress 不看 button()，任意键都居中）。
+void TestPreviewMapPage::overviewOnlyLeftButtonCenters()
+{
+  addPointLayer(3);
+  m_page->show();
+  QTest::qWaitForWindowExposed(m_page.get());
+  m_page->mapCanvas()->zoomToFullExtent();
+  QTRY_VERIFY_WITH_TIMEOUT(!m_page->scaleReadout().isEmpty(), 5000);
+  auto *ovCanvas = m_page->findChild<QWidget *>(QStringLiteral("previewOverviewCanvas"));
+  QVERIFY(ovCanvas);
+
+  const QgsPointXY before = m_page->mapCanvas()->currentExtent().center();
+  const auto pressAt = [ovCanvas](Qt::MouseButton button) {
+    QMouseEvent ev(QEvent::MouseButtonPress, QPointF(180, 12),
+                   ovCanvas->mapToGlobal(QPoint(180, 12)), button, button,
+                   Qt::NoModifier);
+    QCoreApplication::sendEvent(ovCanvas, &ev);
+  };
+  // 中键：主画布中心必须纹丝不动。
+  pressAt(Qt::MiddleButton);
+  QTest::qWait(30);
+  const QgsPointXY afterMid = m_page->mapCanvas()->currentExtent().center();
+  QCOMPARE(afterMid.x(), before.x());
+  QCOMPARE(afterMid.y(), before.y());
+  // 右键：同上（鹰眼不吃右键菜单路径）。
+  pressAt(Qt::RightButton);
+  QTest::qWait(30);
+  const QgsPointXY afterRight = m_page->mapCanvas()->currentExtent().center();
+  QCOMPARE(afterRight.x(), before.x());
+  QCOMPARE(afterRight.y(), before.y());
+  // 左键：点击偏心点（overview 右上角）必须把主画布中心带过去。
+  pressAt(Qt::LeftButton);
+  const QgsPointXY afterLeft = m_page->mapCanvas()->currentExtent().center();
+  QVERIFY2(qAbs(afterLeft.x() - before.x()) > 1e-6 || qAbs(afterLeft.y() - before.y()) > 1e-6,
+           "左键点选必须移动主画布中心");
 }
 
 #include "tst_previewmap_page.moc"

@@ -13,6 +13,7 @@
 #include "../io/constraintstore.h"
 #include "../io/lasparser.h"
 #include "../qgis/facieshierarchyrenderer.h"
+#include "../qgis/faciespartitioneditor.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
 #include "../qgis/mappingartifactwriter.h"
@@ -30,6 +31,7 @@
 #include "evidencerecord.h"
 #include "../domain/interpretationevidence.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -73,6 +75,18 @@ void fail(QString *error, const QString &text) {
 }
 QString uid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 QString filePath(const QString &source) { return source.section('|', 0, 0); }
+// #499：QgsProject::removeMapLayers 走 deleteLater——DeferredDelete 在主线程
+// 落地之前，被删 QgsMapLayer 实例仍持 OGR/GDAL 数据源句柄（Windows 上锁定
+// 对应 GeoPackage/工作副本文件，删除必败；Linux 允许 unlink 打开的 fd，
+// 平台差异被掩盖）。删除（或派发后台删除）任何受管文件前，先显式销毁层
+// 实例释放句柄——processEvents/qWait 默认不处理 DeferredDelete，必须
+// sendPostedEvents（同 tst_versions #499 审计注释的纪律）。注意这是全队列
+// 提前落地：调用点不得处于「对已 deleteLater 对象仍持引用」的调用链中
+//（Qt 契约下此类引用本就非法）。
+void releaseLayerHandles()
+{
+  QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+}
 // 导入坐标门（P0-1 pr457-closure 的有意分叉，与画布写入门的契约不同）：
 // 画布绘制（toStoreWkt）只认「同一 CRS」或有显式坐标操作——交互几何来源
 // CRS 可证。批量导入是用户显式断言「该文件坐标就在本工程局部网格」的动作：
@@ -170,6 +184,10 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   const auto source = m_catalog->versionById(parent);
   QVariantList schema;
   if (!FaciesTaxonomy::normalize(source.extra.value("facies", facies(d.horizon)).toList(), &schema, error)) return {};
+  if (!FaciesHierarchyRenderer::validateTopology(layer, error)) return {};
+  const auto partitionFootprint = layer->geometryType() == Qgis::GeometryType::Polygon
+      ? FaciesPartitionEditor::footprint(layer, error) : QString();
+  if (layer->geometryType() == Qgis::GeometryType::Polygon && partitionFootprint.isEmpty()) return {};
   const auto draft = QStringLiteral("draft.%1").arg(uid());
   const auto relative =
       QStringLiteral("artifacts/working/%1/features.gpkg").arg(draft);
@@ -194,6 +212,7 @@ QString MappingWorkbench::copyForEditing(const QString &id,
       {"reference_layers", references},
       {"display_mode", displayMode(id)},
       {"hierarchy_model", "shared-polygon-partition-v1"},
+      {"partition_footprint_wkb", partitionFootprint},
       {"mock", source.extra.value("mock")},
       {"result_scope", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("current_formation") : source.extra.value("result_scope").toString()},
       {"result_kind", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("formation_prediction") : source.extra.value("result_kind").toString()},
@@ -262,6 +281,8 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
           layer, schema, error))
     return false;
   auto extra = previous.extra;
+  if (layer->geometryType() == Qgis::GeometryType::Polygon && extra.value("partition_footprint_wkb").toString().isEmpty())
+    extra.insert("partition_footprint_wkb", FaciesPartitionEditor::footprint(layer, error));
   extra.remove(QStringLiteral("evidence")); // rebuild this generation; historical versions stay frozen
   extra.insert("facies", schema);
   extra.insert("method", "manual-edit-save");
@@ -532,6 +553,10 @@ bool MappingWorkbench::removeProduct(const QString &layerId, QString *error, boo
     emit changed();
   };
   if (!m_layers->removeDeclarations(declIds, error)) return false;
+  // #499：层实例经 deleteLater 下架——主线程落地 DeferredDelete 前 OGR 句
+  // 柄仍打开，紧随其后的（同步 catalog 清理 + 后台线程）文件删除在 Windows
+  // 上会竞态失败。先确定性销毁层实例，再进入任何文件删除路径。
+  releaseLayerHandles();
   const auto outcome = paleo::assetops::purgeAssets(m_catalog, m_dir, assetIds, true, true);
   if (outcome.purgedAssetIds.size() != assetIds.size()) {
     restoreDeclarations();
@@ -755,6 +780,8 @@ bool MappingWorkbench::publishConstraintImport(
     transaction.abort();
     m_constraints->setProperty(snapshotKey.constData(), previousSnapshot);
     m_layers->removeDeclaration(inputId);
+    // #499：先落地层析构释放 OGR 句柄，再删受管文件（Windows 删除竞态）。
+    releaseLayerHandles();
     const auto sourcePath = DataCatalog::resolvedVersionPath(m_dir, source);
     QFile::setPermissions(sourcePath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     QFile::remove(sourcePath);
@@ -766,6 +793,8 @@ bool MappingWorkbench::publishConstraintImport(
   const auto snapshotVersion = versionForLayer(snapshot);
   if (!transaction.flush(error)) {
     m_layers->removeDeclaration(snapshot);
+    // #499：同 rollback——句柄释放先行，文件删除随后。
+    releaseLayerHandles();
     const auto snapshotPath = DataCatalog::resolvedVersionPath(m_dir, snapshotVersion);
     QFile::setPermissions(snapshotPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     QFile::remove(snapshotPath);

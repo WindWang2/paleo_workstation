@@ -371,7 +371,10 @@ class DataCatalog : public QObject
     // ---- 审计 02 M-8：produce-then-commit（导入 worker 不碰活 catalog）----
     // 线程纪律：活 catalog 只被它所属线程（thread()）读写。跨线程写一律拒绝
     // （return false + error，计入 threadViolationCount 并 qCritical；环境变量
-    // PALEO_CATALOG_STRICT_THREADS=1 时直接 qFatal）；跨线程读计数 + 告警。
+    // PALEO_CATALOG_STRICT_THREADS=1 时直接 qFatal）；跨线程读同样默认拒绝
+    // （#476：QVector/QHash COW 下属主写+他线程读是真实 UB，只告警不够）——
+    // 读方法返回空数据/失败值并计入 threadViolationCount + qCritical（strict
+    // 模式仍 qFatal）；staging 副本归单个 worker 独占，不受此限。
     static int threadViolationCount();
     static void resetThreadViolationCount();
 
@@ -428,7 +431,10 @@ class DataCatalog : public QObject
   private:
     bool ensureOpen(QString *error) const;
     bool checkWriteThread(const char *what, QString *error) const;
-    void noteRead(const char *what) const;
+    // #476：const 读方法的线程门。属主线程/staging → true 放行；跨线程 →
+    // 计数 + qCritical（strict 模式 qFatal）并返回 false——调用方提前返回
+    // 空数据（默认拒绝，杜绝 COW 竞态读）。
+    bool noteRead(const char *what) const;
     void recordOp(CatalogOp op);
     bool save(QString *error = nullptr);
     bool commitStore(QString *error);

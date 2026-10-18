@@ -2,6 +2,7 @@
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <QStringEncoder>
 #include <cmath>
 
 #include "io/lasparser.h"
@@ -22,6 +23,8 @@ class TestLas : public QObject
     void testDepthRangeAcrossChunkBoundaries_data();
     void testDepthRangeAcrossChunkBoundaries();
     void testWhitespaceOnlyAndCtrlZDoNotCreatePhantomRows();
+    void legacyParseSharesGuardAndEncodingWithParseDoc();
+    void parseRangeStreamingSurfacesTruncatedIssues();
 
   private:
     QTemporaryDir m_tempDir;
@@ -564,6 +567,176 @@ void TestLas::testDepthRangeAcrossChunkBoundaries()
   QList<LasCurve> sub;
   QVERIFY2(LasParser::parseDepthRange(path, lo, hi, names, sub, &error), qPrintable(error));
   QCOMPARE(sub[0].values.size(), expected);
+}
+
+// #466：旧入口 LasParser::parse() 必须与安全入口 parseDoc 单源同防护、同
+// 编码口径——超大文件两条入口一起拒（含拒因文案），流式入口不受闸；GB18030
+// 头段（曲线名/descr）两条入口解出同一结果（旧 QTextStream 路径会解成
+// U+FFFD 替换符），且 parse() 的返回语义保留 ~C descr。
+void TestLas::legacyParseSharesGuardAndEncodingWithParseDoc()
+{
+  const qint64 kRestoreLimit = LasParser::fileSizeLimit();
+
+  // ---- 大文件闸：两入口同拒，流式入口放行 ----
+  {
+    const QString path = m_tempDir.filePath(QStringLiteral("guard_over_limit.las"));
+    {
+      QFile f(path);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      QByteArray body = QByteArrayLiteral(
+          "~Version\nVERS. 2.0 :\nWRAP. NO :\n~Well\nNULL. -999.25 :\nWELL. W1 :\n"
+          "~Curve\nDEPT.M :\nGR.API :\n~A\n");
+      while (body.size() < 8192)
+        body += "1000 10\n";
+      f.write(body);
+    }
+    LasParser::setFileSizeLimit(4096);
+
+    QStringList names;
+    QList<LasCurve> curves;
+    QString legacyError;
+    const bool legacyOk = LasParser::parse(path, names, curves, &legacyError);
+
+    QList<LasIssue> docIssues;
+    const LasDoc doc = LasParser::parseDoc(path, &docIssues);
+
+    // 先恢复全局闸再做断言——QVERIFY 提前返回也不污染后续用例。
+    LasParser::setFileSizeLimit(kRestoreLimit);
+
+    QVERIFY2(!legacyOk, "旧入口必须受大文件整读闸保护（#466）");
+    QVERIFY2(legacyError.contains(QStringLiteral("full-parse guard")),
+             qPrintable(legacyError));
+    QVERIFY(!doc.ok);
+    QVERIFY(!doc.error.isEmpty());
+    bool docOversize = false;
+    for (const LasIssue &i : docIssues)
+      if (i.category == LasIssue::Category::Oversize)
+        docOversize = true;
+    QVERIFY2(docOversize, "parseDoc 拒收必须落 Oversize 类目 issue");
+
+    // 流式入口不受闸（拒收文案指引的正是它们）。
+    QStringList streamNames;
+    QList<LasCurve> streamCurves;
+    QString streamError;
+    QVERIFY2(LasParser::parseDepthRange(path, 0.0, 1e9, streamNames, streamCurves,
+                                        &streamError),
+             qPrintable(streamError));
+    QVERIFY(streamCurves[0].values.size() > 0);
+  }
+
+  // ---- GB18030 头段：两入口同口径 + descr 语义保留 ----
+  {
+    QStringEncoder gb(QStringLiteral("GB18030"), QStringConverter::Flag::Stateless);
+    QVERIFY(gb.isValid());
+    const QByteArray curveGb = gb.encode(QStringLiteral("GR伽马"));
+    const QByteArray descrGb = gb.encode(QStringLiteral("伽马曲线描述"));
+    const QByteArray wellGb = gb.encode(QStringLiteral("井一"));
+
+    const QString path = m_tempDir.filePath(QStringLiteral("gb18030_head.las"));
+    {
+      QFile f(path);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      QByteArray body = QByteArrayLiteral("~Version\nVERS. 2.0 :\nWRAP. NO :\n~Well\nNULL. -999.25 :\nWELL. ");
+      body += wellGb + QByteArrayLiteral(" :\n~Curve\nDEPT.M :\n");
+      body += curveGb + QByteArrayLiteral(".GAPI : ") + descrGb + QByteArrayLiteral("\n~A\n1000 10\n1001 20\n");
+      f.write(body);
+    }
+
+    QStringList names;
+    QList<LasCurve> curves;
+    QString error;
+    QVERIFY2(LasParser::parse(path, names, curves, &error), qPrintable(error));
+    QCOMPARE(names, QStringList({QStringLiteral("DEPT"), QStringLiteral("GR伽马")}));
+
+    QList<LasIssue> issues;
+    const LasDoc doc = LasParser::parseDoc(path, &issues);
+    QVERIFY(doc.ok);
+    QCOMPARE(doc.curveNames, names);
+    QCOMPARE(doc.curves.size(), curves.size());
+    for (int i = 0; i < curves.size(); ++i)
+    {
+      QCOMPARE(doc.curves[i].name, curves[i].name);
+      QCOMPARE(doc.curves[i].unit, curves[i].unit);
+      QCOMPARE(doc.curves[i].descr, curves[i].descr);
+      QCOMPARE(doc.curves[i].values, curves[i].values);
+    }
+    // descr 语义保留（旧 parse() 返回 ~C 描述文本）+ 非 UTF-8 文件按
+    // GB18030 解码（旧 QTextStream 路径会得 U+FFFD）。
+    QCOMPARE(curves.at(1).descr, QStringLiteral("伽马曲线描述"));
+    bool sawEncodingNotice = false;
+    for (const LasIssue &i : issues)
+      if (i.category == LasIssue::Category::Encoding)
+        sawEncodingNotice = true;
+    QVERIFY2(sawEncodingNotice, "GB18030 头段嗅探必须发 Encoding 告警");
+  }
+
+  // 复位兜底（上文断言失败路径已各自恢复，这里幂等再保险）。
+  LasParser::setFileSizeLimit(kRestoreLimit);
+}
+
+// #477 P2：>8MB 文件走 parseRange 流式路径时，块内「token 少于曲线数」的
+// Truncated 告警不得静默丢失（旧实现给块级 parseAsciiRows 传 nullptr）。
+void TestLas::parseRangeStreamingSurfacesTruncatedIssues()
+{
+  const QString path = m_tempDir.filePath(QStringLiteral("stream_truncated.las"));
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("~Version\nVERS. 2.0 :\nWRAP. NO :\n~Well\nNULL. -999.25 :\nWELL. W1 :\n"
+            "~Curve\nDEPT.M :\nGR.API :\n~A\n");
+    QByteArray buf;
+    // 行宽垫到 ~26B（f,4 值 + 10 空格垫）：400k 行 ≈ 10MB，稳越 8MB 流式
+    // 门槛（窄行 300k 只有 ~3MB，会掉进小文件整读路径、测不到本修复）。
+    const int rows = 400000;
+    for (int i = 0; i < rows; ++i)
+    {
+      if (i % 1000 == 0)
+        buf += QByteArray::number(1000.0 + i) + '\n'; // 缺 GR token 的截断行
+      else
+        buf += QByteArray::number(1000.0 + i) + ' ' +
+               QByteArray::number(10.0 + (i % 7), 'f', 4) +
+               QByteArray(10, ' ') + '\n';
+      if (buf.size() > (1 << 20))
+      {
+        f.write(buf);
+        buf.clear();
+      }
+    }
+    f.write(buf);
+    QVERIFY(f.size() > 8 * 1024 * 1024);
+  }
+
+  QStringList names;
+  QList<LasCurve> curves;
+  QString error;
+  QList<LasIssue> issues;
+  QVERIFY2(LasParser::parseRange(path, 0, -1, names, curves, &error, &issues),
+           qPrintable(error));
+  QCOMPARE(names, QStringList({QStringLiteral("DEPT"), QStringLiteral("GR")}));
+  QCOMPARE(curves.at(0).values.size(), qsizetype(400000));
+  QVERIFY2(qIsNaN(curves.at(1).values.at(0)), "截断行的缺失列必须记 NaN");
+
+  int truncatedWarnings = 0;
+  for (const LasIssue &i : issues)
+    if (i.category == LasIssue::Category::Truncated)
+      ++truncatedWarnings;
+  QVERIFY2(truncatedWarnings > 0,
+           "流式路径的 Truncated 告警必须透传到 issues（#477，不再静默）");
+
+  // 流式结果与整读口径一致（截断行同样 NaN）：防透传改动扰动取值。
+  // NaN == NaN 为假——缺失列（双方皆 NaN）按「同 NaN」判等。
+  const LasDoc doc = LasParser::parseDoc(path);
+  QVERIFY(doc.ok);
+  QCOMPARE(doc.curves.at(0).values.size(), curves.at(0).values.size());
+  for (qsizetype r = 0; r < curves.at(0).values.size(); ++r)
+  {
+    const double s0 = curves.at(0).values.at(r), d0 = doc.curves.at(0).values.at(r);
+    const double s1 = curves.at(1).values.at(r), d1 = doc.curves.at(1).values.at(r);
+    QVERIFY2(s0 == d0 || (qIsNaN(s0) && qIsNaN(d0)),
+             QStringLiteral("row %1 DEPT: %2 != %3").arg(r).arg(s0).arg(d0).toUtf8().constData());
+    QVERIFY2(s1 == d1 || (qIsNaN(s1) && qIsNaN(d1)),
+             QStringLiteral("row %1 GR: %2 != %3").arg(r).arg(s1).arg(d1).toUtf8().constData());
+  }
 }
 
 QTEST_MAIN(TestLas)

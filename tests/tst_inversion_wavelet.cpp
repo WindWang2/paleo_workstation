@@ -100,6 +100,9 @@ private slots:
   // #478：旋转因子递推的舍入误差随蝶形级累积——n 大时高频谱线相对
   // 解析值漂移；查表实现（逐项直接三角求值）无累积。
   void fftHighFrequencyTailAccuracy();
+  // #471：主元判据是矩阵尺度的相对阈值（1e-12·scale，与 linsolve 同口径）——
+  // 接受/拒绝决策与道幅度量级无关（小幅不误判奇异，同结构大幅不误放行）。
+  void pivotCriterionScaleInvariant();
 };
 
 void TestInversionWavelet::rickerShapeAndSpectrum()
@@ -326,6 +329,37 @@ void TestInversionWavelet::fftHighFrequencyTailAccuracy()
                                   im[std::size_t(k)] - static_cast<double>(si));
     QVERIFY2(ref > 1.0 && err / ref < 1e-12,
              qPrintable(QString("k=%1 errRel=%2").arg(k).arg(err / ref, 0, 'e', 3)));
+  }
+}
+
+// #471：正则方程主元判据的幅度量级不变性。autoR 由尖峰幅度平方决定，
+// 尖峰整体缩放 s → Toeplitz 矩阵缩放 s²、尺度（max|a_ij|）同乘 s²：
+//   * 绝对阈值（旧实现 best > 1e-12）在 s=1e-7 时矩阵元 ~1e-14 全部落
+//     到阈值下 → 良态系统被误判「正则方程奇异」（小幅误拒）；s 大时同
+//     病态度的解又被放行——判据随量级漂移。
+//   * 相对阈值（1e-12·scale）下接受/拒绝只看相对病态度，与 s 无关。
+// 同结构尖峰 × Ricker 道在 s ∈ {1, 1e-7, 1e4} 三档都必须成功提取且质量
+// 不劣化；振幅标定随 s 线性缩放。s=1e-7 档在旧实现下必红（判别点）。
+void TestInversionWavelet::pivotCriterionScaleInvariant()
+{
+  const std::vector<ReflSpike> base = fixtureSpikes();
+  const Wavelet truth = makeRicker(25.0, 2.0, 128.0);
+  for (double s : {1.0, 1e-7, 1e4})
+  {
+    std::vector<ReflSpike> spikes = base;
+    for (ReflSpike &sp : spikes)
+      sp.amplitude = float(double(sp.amplitude) * s);
+    const std::vector<float> trace = synthTrace(spikes, truth, 0.0, 1501, 2.0);
+    const WaveletExtractResult r = extractWavelet(trace.data(), int(trace.size()), 0.0, 2.0,
+                                                  spikes.data(), int(spikes.size()), -64.0, 65);
+    QVERIFY2(r.ok, qPrintable(QString("s=%1 被误判奇异: %2").arg(s).arg(r.reason.c_str())));
+    const double c = corr(r.wavelet.samples, truth.samples);
+    QVERIFY2(c >= 0.95, qPrintable(QString("s=%1 与真子波相关 %2").arg(s).arg(c)));
+    QVERIFY2(r.fitCorrelation >= 0.99,
+             qPrintable(QString("s=%1 拟合相关 %2").arg(s).arg(r.fitCorrelation)));
+    // amplitudeScale 是归一化子波峰值（恒≈1），不随数据幅度走——幅度
+    // 不变性由「三个数量级下形状提取都成功且相关达标」断言承载，这正是
+    // issue #471 的红绿判别点（旧绝对阈值在极小幅度档误判奇异）。
   }
 }
 

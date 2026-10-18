@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "doc": "CI 已知红项分诊名单（#497）：master 连续全红期间，红分两类——本名单登记的已知红项由 triage job（tools/ci_triage_reds.py）降级为 ::warning 并链接 issue；未知红项才让 triage job 红（exit 1）。名单不是放行通道：lint/linux/windows required checks 的红仍是红（context 名与本门禁语义互不影响），本名单只负责「红得明白」。纪律：① 条目必须带 issue 链接与 owner；② review_due 到期即降级失效（按未知红处理）——续期须改日期并在 reason 补一轮证据，否则转正式修复；③ golden 类预算只缩不涨（#475）：超差抽样点数超登记值即红，收敛建议同步收紧；④ 测试转绿即删条目（triage 的 STALE NOTE 会点名）；⑤ 名单变更须走显式 PR——triage job 对本文件 paths diff 输出 ::notice 点名。与 tools/documented_redset.json 的分工：彼处管 ctest 级文档化红项分类（env_redset 消费），此处管 CI job 级分诊降级；同一红项两处登记时 reason 互引。",
+  "lanes": {
+    "gating": ["lint", "linux", "windows"],
+    "observation": ["linux-perf", "linux-asan"]
+  },
+  "entries": [
+    {"id": "wellcomposite-golden-17of48", "scope": "test", "match": "tst_wellcomposite_visual",
+     "lanes": ["linux", "windows"],
+     "category": "golden-tolerance",
+     "issue": 475, "owner": "WindWang2", "added": "2026-10-17",
+     "review_due": "2027-01-16",
+     "reason": "testGoldenImageSampling 17/48 抽样点超容差（门限 4）；3b22a9c 全量基线已在重构前出现，需单独定位——golden 渲染超容差本质是功能回归候选，与墙钟抖动不同类（TODOS.md P2 master 验证红项对账；同 tools/documented_redset.json 条目）",
+     "budget": {"metric": "golden_points_over", "value": 17}},
+    {"id": "cache-las-ratio-gate", "scope": "test", "match": "tst_cache_las",
+     "lanes": ["linux-perf", "linux"],
+     "category": "perf-budget",
+     "issue": 475, "owner": "WindWang2", "added": "2026-10-17",
+     "review_due": "2027-01-16",
+     "reason": "secondOpenUnder5ms 磁盘命中耗时 <0.5×冷解析比率门（perf 标签，仅 linux-perf 观察车道可见）；env_redset.json 已按 localdeps 路线豁免，本条覆盖其余路线出现同类红时的 CI 分诊（tools/documented_redset.json 同源条目）"},
+    {"id": "singlefactor-l-median", "scope": "test", "match": "tst_singlefactor_perf",
+     "lanes": ["linux-perf"],
+     "category": "perf-budget",
+     "issue": 475, "owner": "WindWang2", "added": "2026-10-17",
+     "review_due": "2027-01-16",
+     "reason": "proposedBudgets 的 L 中位数超 15000ms（master 隔离复跑 20089ms）；依赖宿主算力，perf 标签不进必过门禁（tools/documented_redset.json 同源条目）"}
+  ]
+}

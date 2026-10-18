@@ -294,6 +294,7 @@ DataListPanel::DataListPanel(QWidget *parent)
 
   auto *table = new QTableWidget(0, 3, m_viewStack);
   table->setObjectName(QStringLiteral("assetTable"));
+  m_assetTable = table; // #482：Resize 热路径缓存（免每次 findChild 全子树遍历）
   table->setAccessibleName(tr("资产列表"));
   table->setMinimumWidth(0);
   table->horizontalHeader()->setMinimumSectionSize(25);
@@ -607,12 +608,14 @@ bool DataListPanel::eventFilter(QObject *watched, QEvent *event)
   }
   if (event && event->type() == QEvent::Resize)
   {
-    if (m_rows.size() > 200 && watched == findChild<QTableWidget *>(QStringLiteral("assetTable")))
+    // #482：表指针走成员缓存（QPointer 兜底异常销毁）——原先每次 Resize
+    // findChild 全子树遍历 ×2，大表拖拽窗口时纯浪费。
+    if (m_rows.size() > 200 && m_assetTable && watched == m_assetTable.data())
       if (!property("paleo.pageResizeQueued").toBool()) {
         setProperty("paleo.pageResizeQueued", true);
         QTimer::singleShot(0, this, [this] { setProperty("paleo.pageResizeQueued", false); applyListFilter(); });
       }
-    if (watched == m_tree || (m_tree && watched == m_tree->viewport()))
+    if (m_tree && (watched == m_tree || watched == m_tree->viewport()))
     {
       const int w = (watched == m_tree && event)
                         ? static_cast<QResizeEvent *>(event)->size().width()
@@ -624,22 +627,21 @@ bool DataListPanel::eventFilter(QObject *watched, QEvent *event)
           m_tree->setColumnWidth(1, col1W);
       }
     }
-    else if (auto *tbl = findChild<QTableWidget *>(QStringLiteral("assetTable")))
+    else if (m_assetTable && (watched == m_assetTable.data() ||
+                              watched == m_assetTable->viewport()))
     {
-      if (watched == tbl || watched == tbl->viewport())
+      auto *tbl = m_assetTable.data();
+      const int w = (watched == tbl && event)
+                        ? static_cast<QResizeEvent *>(event)->size().width()
+                        : tbl->viewport()->width();
+      if (w > 50)
       {
-        const int w = (watched == tbl && event)
-                          ? static_cast<QResizeEvent *>(event)->size().width()
-                          : tbl->viewport()->width();
-        if (w > 50)
-        {
-          const int c1 = qBound(30, w * 18 / 100, 60);
-          const int c2 = qBound(35, w * 22 / 100, 75);
-          if (tbl->columnWidth(1) != c1)
-            tbl->setColumnWidth(1, c1);
-          if (tbl->columnWidth(2) != c2)
-            tbl->setColumnWidth(2, c2);
-        }
+        const int c1 = qBound(30, w * 18 / 100, 60);
+        const int c2 = qBound(35, w * 22 / 100, 75);
+        if (tbl->columnWidth(1) != c1)
+          tbl->setColumnWidth(1, c1);
+        if (tbl->columnWidth(2) != c2)
+          tbl->setColumnWidth(2, c2);
       }
     }
   }
@@ -652,13 +654,19 @@ void DataListPanel::buildDataOpsUi()
   QWidget *listSection = findChild<QWidget *>(QStringLiteral("dataListSection"));
   if (!listSection)
     return;
-  auto *listLay = static_cast<QVBoxLayout *>(listSection->layout());
+  // #482：布局指针 qobject_cast + 判空——static_cast 无验证，布局类型一旦
+  // 与假设不符（改 UI 时易发生）即静默 UB。
+  auto *listLay = qobject_cast<QVBoxLayout *>(listSection->layout());
+  if (!listLay)
+    return;
 
   // ---- 头部：仅选中徽标（D1.2）——宽度契约（D9）：本行保持 P3 之前的
   //      最小宽，新增按钮全部下放工具行，列表仍可压到 ~150px。----
   if (auto *header = findChild<QWidget *>(QStringLiteral("dataListHeader")))
   {
-    auto *hl = static_cast<QHBoxLayout *>(header->layout());
+    auto *hl = qobject_cast<QHBoxLayout *>(header->layout());
+    if (!hl)
+      return;
     auto *badge = new SelectionBadge(header);
     hl->addWidget(badge);
   }

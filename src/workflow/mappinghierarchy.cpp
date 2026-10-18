@@ -191,6 +191,10 @@ bool MappingWorkbench::assignHierarchy(const QString &id,
       continue;
     const int newCode = FaciesHierarchy::reassignedCode(
         schema, f.attribute("facies_code").toInt(), code, level);
+    if (newCode != f.attribute("facies_code").toInt())
+      for (const auto &field : {"value_min", "value_max", "confidence", "probability"})
+        if (const int index = layer->fields().indexOf(field); index >= 0)
+          ok = layer->changeAttributeValue(f.id(), index, QVariant()) && ok;
     ok = layer->changeAttributeValue(
              f.id(), layer->fields().indexOf("facies_code"), newCode) &&
          ok;

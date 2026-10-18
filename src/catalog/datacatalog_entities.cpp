@@ -39,13 +39,15 @@ bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
 
 bool DataCatalog::hasEntity(const QString &id) const
 {
-  noteRead("hasEntity");
+  if (!noteRead("hasEntity"))
+    return false;
   return m_idx.entityRow(id) >= 0; // D5.1 O(1)
 }
 
 QVector<CatalogEntity> DataCatalog::entities(const QString &entityType) const
 {
-  noteRead("entities");
+  if (!noteRead("entities"))
+    return {};
   QVector<CatalogEntity> out;
   if (entityType.isEmpty())
     return m_entities;
@@ -58,7 +60,8 @@ QVector<CatalogEntity> DataCatalog::entities(const QString &entityType) const
 
 CatalogEntity DataCatalog::entityById(const QString &id) const
 {
-  noteRead("entityById");
+  if (!noteRead("entityById"))
+    return {};
   const int row = m_idx.entityRow(id); // D5.1 O(1)
   return row >= 0 ? m_entities.at(row) : CatalogEntity();
 }
@@ -78,7 +81,8 @@ QString DataCatalog::normalizeWellName(const QString &name)
 
 QStringList DataCatalog::wellsMatchingName(const QString &name) const
 {
-  noteRead("wellsMatchingName");
+  if (!noteRead("wellsMatchingName"))
+    return {};
   const QString needle = normalizeWellName(name);
   QStringList out;
   if (needle.isEmpty())
@@ -95,7 +99,8 @@ QStringList DataCatalog::wellsMatchingName(const QString &name) const
 
 QString DataCatalog::nextEntityId(const QString &prefix)
 {
-  noteRead("nextEntityId");
+  if (!noteRead("nextEntityId"))
+    return {};
   ++m_mutationSeq; // 分配 id 也是 owner 侧状态变化（提交基线要看见）
   // WP2：前缀最大序号走索引（旧实现线性扫全实体表——导入井/辅助实体逐个
   // 调用即 O(N²)）。语义等价：只认「prefix 后跟 '-' 且余段纯数字」的既有 id。

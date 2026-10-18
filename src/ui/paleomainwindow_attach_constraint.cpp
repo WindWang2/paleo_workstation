@@ -40,6 +40,7 @@
 #include <QLineEdit>
 #include <QStatusBar>
 #include <QUndoStack>
+#include <functional>
 #include <memory>
 
 // ---------------------------------------------------------------------------
@@ -301,9 +302,81 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               revealDeclaredLayer(layerId, true);
             });
     // 等值线 / 解释性等值线：GDAL 提线和制图核在任务线程，图层打开与登记留在界面线程。
+    // #481 P3-6：解释性/分析等值线两个 handler 的任务化三段式骨架原本逐字
+    // 重复（~85 行×2，dropTemp 守卫口径曾各自漂移）——提取共享 runner：
+    // 可变项（任务名/失败文案/首阶段进度/compute/publish/清理路径）经参数
+    // 注入；忙检与 prepare 参数各异，留在各 handler。状态机、守卫与清理
+    // 顺序原样搬移（行为守恒）。
+    const auto runContourTaskJob =
+        [this, constraint, constraintPage](
+            const QString &title, const QString &failText,
+            const QString &stageText, int stagePercent,
+            const QStringList &dropPaths, const QString &dropOnCancelExtra,
+            const std::function<QString(PaleoTask *)> &compute,
+            const std::function<bool(QString *)> &publish,
+            const std::function<void(const QString &)> &fail) {
+          constraintPage->setRunBusy(true);
+          constraintPage->noteRunStage(stageText, stagePercent);
+          PaleoTask *task = m_taskSvc->start(title, compute, QString(),
+                                             PaleoTask::Priority::High, true);
+          m_factorTask = task;
+          connect(task, &PaleoTask::finished, this,
+                  [this, constraintPage, failText, dropPaths, dropOnCancelExtra,
+                   publish, fail, task] {
+                    const auto clearTask = [this, task] {
+                      if (m_factorTask == task)
+                        m_factorTask.clear();
+                    };
+                    // #481 P2-1：删除语义收进 workflow——按目录名前缀判定
+                    //（paleo-sf- 开头才删），路径任意位置含该串的无关目录
+                    //（用户目录名撞串）不再被误删。
+                    const auto dropTemp = [](const QString &path) {
+                      PaleoWorkflowDiscardFactorTempTree(path);
+                    };
+                    if (!constraintPage)
+                    {
+                      for (const QString &p : dropPaths)
+                        dropTemp(p);
+                      clearTask();
+                      return;
+                    }
+                    if (task->state() == PaleoTask::State::Cancelled)
+                    {
+                      for (const QString &p : dropPaths)
+                        dropTemp(p);
+                      if (!dropOnCancelExtra.isEmpty())
+                        dropTemp(dropOnCancelExtra);
+                      constraintPage->setRunBusy(false);
+                      if (auto *statusLabel =
+                              constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                        statusLabel->setText(tr("已取消"));
+                      clearTask();
+                      return;
+                    }
+                    if (task->state() != PaleoTask::State::Succeeded)
+                    {
+                      for (const QString &p : dropPaths)
+                        dropTemp(p);
+                      constraintPage->setRunBusy(false);
+                      fail(task->errorText().isEmpty() ? failText : task->errorText());
+                      clearTask();
+                      return;
+                    }
+                    // 发布是临界区：任务已结束，不再 requestCancel。
+                    constraintPage->noteRunStage(tr("正在保存"), 95);
+                    QString pubErr;
+                    const bool published = publish(&pubErr);
+                    constraintPage->setRunBusy(false);
+                    if (!published)
+                      fail(pubErr.isEmpty() ? failText : pubErr);
+                    else
+                      constraintPage->noteRunStage(tr("正在保存"), 100);
+                    clearTask();
+                  });
+        };
     connect(constraintPage, &ConstraintPage::interpretiveContourRequested, this,
-            [this, constraint, constraintPage](const QString &factorLayerId,
-                                               const QVector<double> &levels) {
+            [this, constraint, constraintPage,
+             runContourTaskJob](const QString &factorLayerId, const QVector<double> &levels) {
               const QString horizon = factorLayerId.startsWith(QStringLiteral("factor."))
                                          ? factorLayerId.mid(QStringLiteral("factor.").size())
                                               .section(QLatin1Char('.'), 0, 0)
@@ -338,10 +411,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 fail(prepErr.isEmpty() ? tr("解释性等值线生成失败") : prepErr);
                 return;
               }
-              constraintPage->setRunBusy(true);
-              constraintPage->noteRunStage(tr("正在准备"), 5);
-              PaleoTask *task = m_taskSvc->start(
+              runContourTaskJob(
                   tr("解释性等值线 %1").arg(horizon),
+                  tr("解释性等值线生成失败"),
+                  tr("正在准备"), 5,
+                  {job->workPath}, job->contourPath,
                   [job](PaleoTask *running) -> QString {
                     const bool ok =
                         ConstraintWorkflow::computeInterpretiveContourJob(
@@ -353,61 +427,15 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                       return job->error.isEmpty() ? QObject::tr("解释性等值线生成失败") : job->error;
                     return QString();
                   },
-                  QString(), PaleoTask::Priority::High, true);
-              m_factorTask = task;
-              connect(task, &PaleoTask::finished, this,
-                      [this, constraint, constraintPage, job, fail, task] {
-                        const auto clearTask = [this, task] {
-                          if (m_factorTask == task)
-                            m_factorTask.clear();
-                        };
-                        // #481 P2-1：删除语义收进 workflow——按目录名前缀
-                        // 判定（paleo-sf- 开头才删），路径任意位置含该串的
-                        // 无关目录（用户目录名撞串）不再被误删。
-                        const auto dropTemp = [](const QString &path) {
-                          PaleoWorkflowDiscardFactorTempTree(path);
-                        };
-                        if (!constraintPage)
-                        {
-                          dropTemp(job->workPath);
-                          clearTask();
-                          return;
-                        }
-                        if (task->state() == PaleoTask::State::Cancelled)
-                        {
-                          dropTemp(job->workPath);
-                          dropTemp(job->contourPath);
-                          constraintPage->setRunBusy(false);
-                          if (auto *statusLabel =
-                                  constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
-                            statusLabel->setText(tr("已取消"));
-                          clearTask();
-                          return;
-                        }
-                        if (task->state() != PaleoTask::State::Succeeded)
-                        {
-                          dropTemp(job->workPath);
-                          constraintPage->setRunBusy(false);
-                          fail(task->errorText().isEmpty() ? tr("解释性等值线生成失败")
-                                                           : task->errorText());
-                          clearTask();
-                          return;
-                        }
-                        // 发布是临界区：任务已结束，不再 requestCancel。
-                        constraintPage->noteRunStage(tr("正在保存"), 95);
-                        QString pubErr;
-                        const bool published = constraint->publishInterpretiveContourJob(*job, &pubErr);
-                        constraintPage->setRunBusy(false);
-                        if (!published)
-                          fail(pubErr.isEmpty() ? tr("解释性等值线生成失败") : pubErr);
-                        else
-                          constraintPage->noteRunStage(tr("正在保存"), 100);
-                        clearTask();
-                      });
+                  [constraint, job](QString *err) {
+                    return constraint->publishInterpretiveContourJob(*job, err);
+                  },
+                  fail);
             });
     connect(constraintPage, &ConstraintPage::contourRequested, this,
-            [this, constraint, constraintPage](const QString &factorLayerId, double interval,
-                                               const QString &contourMethod) {
+            [this, constraint, constraintPage,
+             runContourTaskJob](const QString &factorLayerId, double interval,
+                               const QString &contourMethod) {
               const QString horizon = factorLayerId.startsWith(QStringLiteral("factor."))
                                          ? factorLayerId.mid(QStringLiteral("factor.").size())
                                               .section(QLatin1Char('.'), 0, 0)
@@ -442,10 +470,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 fail(prepErr.isEmpty() ? tr("等值线生成失败") : prepErr);
                 return;
               }
-              constraintPage->setRunBusy(true);
-              constraintPage->noteRunStage(tr("正在生成等值线"), 10);
-              PaleoTask *task = m_taskSvc->start(
+              runContourTaskJob(
                   tr("等值线 %1").arg(horizon),
+                  tr("等值线生成失败"),
+                  tr("正在生成等值线"), 10,
+                  {job->outputPath}, QString(),
                   [job](PaleoTask *running) -> QString {
                     const bool ok =
                         ConstraintWorkflow::computeAnalysisContourJob(
@@ -457,55 +486,10 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                       return job->error.isEmpty() ? QObject::tr("等值线生成失败") : job->error;
                     return QString();
                   },
-                  QString(), PaleoTask::Priority::High, true);
-              m_factorTask = task;
-              connect(task, &PaleoTask::finished, this,
-                      [this, constraint, constraintPage, job, fail, task] {
-                        const auto clearTask = [this, task] {
-                          if (m_factorTask == task)
-                            m_factorTask.clear();
-                        };
-                        // #481 P2-1：删除语义收进 workflow——按目录名前缀
-                        // 判定（paleo-sf- 开头才删），路径任意位置含该串的
-                        // 无关目录（用户目录名撞串）不再被误删。
-                        const auto dropTemp = [](const QString &path) {
-                          PaleoWorkflowDiscardFactorTempTree(path);
-                        };
-                        if (!constraintPage)
-                        {
-                          dropTemp(job->outputPath);
-                          clearTask();
-                          return;
-                        }
-                        if (task->state() == PaleoTask::State::Cancelled)
-                        {
-                          dropTemp(job->outputPath);
-                          constraintPage->setRunBusy(false);
-                          if (auto *statusLabel =
-                                  constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
-                            statusLabel->setText(tr("已取消"));
-                          clearTask();
-                          return;
-                        }
-                        if (task->state() != PaleoTask::State::Succeeded)
-                        {
-                          dropTemp(job->outputPath);
-                          constraintPage->setRunBusy(false);
-                          fail(task->errorText().isEmpty() ? tr("等值线生成失败") : task->errorText());
-                          clearTask();
-                          return;
-                        }
-                        // 发布是临界区：任务已结束，不再 requestCancel。
-                        constraintPage->noteRunStage(tr("正在保存"), 95);
-                        QString pubErr;
-                        const bool published = constraint->publishAnalysisContourJob(*job, &pubErr);
-                        constraintPage->setRunBusy(false);
-                        if (!published)
-                          fail(pubErr.isEmpty() ? tr("等值线生成失败") : pubErr);
-                        else
-                          constraintPage->noteRunStage(tr("正在保存"), 100);
-                        clearTask();
-                      });
+                  [constraint, job](QString *err) {
+                    return constraint->publishAnalysisContourJob(*job, err);
+                  },
+                  fail);
             });
     // 互斥上图：visible=true → instantiate + 图层树勾选该层，04_SingleFactor 组
     // 其它已实例化层取消勾选；false 只取消该层（业务上同时只看一张单因素图）。

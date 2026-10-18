@@ -71,7 +71,33 @@ QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
   const auto present = codes(layer);
   QVariantList styled;
   for (const auto &v : effective) styled << FaciesCatalog::appearance(v.toMap());
-  auto entries = FaciesHierarchy::legend(styled, level, present);
+  QVariantList entries;
+  if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
+      v && v->geometryType() == Qgis::GeometryType::Polygon &&
+      v->fields().indexOf("facies_display_level") >= 0) {
+    QMap<QString, QVariantList> byLevel;
+    auto it = v->getFeatures(QgsFeatureRequest()
+        .setFlags(Qgis::FeatureRequestFlag::NoGeometry)
+        .setSubsetOfAttributes(QStringList{"facies_code", "facies_display_level"}, v->fields()));
+    QgsFeature feature;
+    while (it.nextFeature(feature)) {
+      const auto locked = feature.attribute("facies_display_level").toString();
+      byLevel[FaciesHierarchy::levels().contains(locked) ? locked : level]
+          << feature.attribute("facies_code");
+    }
+    for (const auto &display : FaciesHierarchy::levels())
+      if (byLevel.contains(display))
+        entries += FaciesHierarchy::legend(styled, display, byLevel.value(display));
+    // Unknown codes share one fallback symbol, regardless of their lock value.
+    bool unknown = false;
+    for (int i = entries.size() - 1; i >= 0; --i)
+      if (entries[i].toMap().value("key") == "unknown") {
+        if (unknown) entries.removeAt(i);
+        unknown = true;
+      }
+  } else {
+    entries = FaciesHierarchy::legend(styled, level, present);
+  }
   if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
       v && v->geometryType() == Qgis::GeometryType::Point)
     for (auto &entry : entries) {
@@ -100,6 +126,13 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
     if (!base)
       return entries;
     QgsCategoryList categories;
+    const QString displayExpression =
+        v->geometryType() == Qgis::GeometryType::Polygon &&
+                v->fields().indexOf("facies_display_level") >= 0
+            ? QStringLiteral("CASE WHEN \"facies_display_level\" IN ('facies', 'sub_facies', 'micro_facies') "
+                             "THEN \"facies_display_level\" ELSE %1 END")
+                  .arg(QgsExpression::quotedString(level))
+            : QgsExpression::quotedString(level);
     QString keyExpression = "CASE ", nameExpression = "CASE ";
     bool hasCodes = false;
     for (const auto &entry : entries) {
@@ -129,8 +162,10 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
       categories << QgsRendererCategory(row.value("key"), symbol,
                                         row.value("name").toString(), true, row.value("key").toString());
       for (const auto &code : row.value("codes").toList()) {
-        const auto when = QStringLiteral("WHEN \"facies_code\" = %1 THEN ")
-                              .arg(QgsExpression::quotedValue(code));
+        const auto when = QStringLiteral("WHEN (%1) = %2 AND \"facies_code\" = %3 THEN ")
+                              .arg(displayExpression,
+                                   QgsExpression::quotedValue(row.value("level")),
+                                   QgsExpression::quotedValue(code));
         keyExpression +=
             when + QgsExpression::quotedValue(row.value("key")) + " ";
         nameExpression +=

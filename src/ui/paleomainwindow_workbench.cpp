@@ -221,6 +221,11 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
       title = tr("%1 · %2 · v%3")
                   .arg(h, wellResult ? tr("测井预测 · %1").arg(FaciesHierarchy::title(workbench->resolvedLevel(id))) : FaciesHierarchy::title(workbench->resolvedLevel(id)))
                   .arg(v.versionNumber);
+      for (const auto &entry : schema)
+        if (entry.toMap().value("level").toString() != workbench->resolvedLevel(id)) {
+          title += tr(" · 含相面层级锁定");
+          break;
+        }
       if (v.extra.value("mock").toBool())
         title += tr(" · Mock");
     }
@@ -808,6 +813,14 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
           } else if (action == "displayLevel") {
             ok = workbench->setDisplayMode(
                 id, p.value("display_mode").toString(), &error);
+          } else if (action == "featureDisplayLevel") {
+            if (!beginEdit(id)) {
+              ok = false;
+              error = tr("请先结束其他图层的编辑");
+            } else {
+              ok = workbench->setFeatureDisplayMode(
+                  id, workbench->selectedFeatures(id), p.value("display_mode").toString(), &error);
+            }
           } else if (action == "addEvidence" || action == "removeEvidence" || action == "updateEvidence" || action == "verifyEvidence" || action == "reviewInterpretation") {
             if (!beginEdit(id)) {
               ok = false;

@@ -224,16 +224,9 @@ void ConstraintPage::wireFactorTableSelection( QTableWidget *factors )
                  property( kFactorGenProp ).toMap().value( factorIdOfRow( factors, newRow ) ).toString();
              if ( !newLayer.isEmpty() )
                emit factorVisibilityRequested( newLayer, true );
-             // 等值距随因素类型切换：structural_idw → 自动(0)；切回其他因素时
-             // 若残留自动态则恢复默认 20 m（interval=0 会被服务层以「间距必须
-             // 是正数」拒绝，不能跨类型残留）。
-             if ( auto *spin = child<QDoubleSpinBox>( this, "contourIntervalSpin" ) )
-             {
-               if ( checkedFactorIsStructural() )
-                 spin->setValue( 0.0 );
-               else if ( spin->value() == 0.0 )
-                 spin->setValue( 20.0 );
-             }
+             // 换因素后按该因素的井点值极差重设等值距；没有值域时，
+             // 非结构因素若残留自动态 0 则回到 20，避免间距必须为正却提交 0。
+             applySuggestedContourInterval();
              updateFactorActionStates();
            } );
   // ---- m2(B) 双区 end ------------------------------------------------------

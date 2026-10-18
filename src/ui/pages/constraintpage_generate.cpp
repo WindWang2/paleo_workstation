@@ -233,6 +233,10 @@ void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
   interval->setValue( 20.0 );
   interval->setSuffix( tr( " m" ) );
   interval->setAccessibleName( tr( "等值线间距" ) );
+  interval->setToolTip( tr( "默认约为当前单因素有效值极差的 1/6，可再改。" ) );
+  connect( interval, qOverload<double>( &QDoubleSpinBox::valueChanged ), this, [this]( double ) {
+    setProperty( "paleo.page.contourIntervalUser", true );
+  } );
   useMono( interval );
   lay->addWidget( interval );
 

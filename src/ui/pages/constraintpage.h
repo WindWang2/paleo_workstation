@@ -65,6 +65,9 @@ class ConstraintPage : public QWidget
     QVariantMap newConstraintLineParams(const QString &type) const;
     void refreshWellFactorFields();
     void refreshWellFactorResults();
+    // 等值线间距默认约为当前单因素有效井点值极差的 1/6。用户改过之后，
+    // 同一因素不再覆盖；换因素或换层位再按新数据重算。
+    void applySuggestedContourInterval();
     // 口径切换把逐井表失效清空后，若当前口径恰有仍新鲜的已保存提取
     //（含刚提取完切走再切回），就地恢复显示，不落回「尚未提取」。
     void restoreWellFactorDisplay();

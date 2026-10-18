@@ -515,6 +515,7 @@ class FactorPageTests : public QObject
     void strategyPackDrivesMethodCombo(); // 方向67：词表驱动下拉 + 参数预览 + strategy_id 载荷
     void cokrigingCovariateControls();    // 方向91：协变量下拉只在协克里金可见，并写入参数
     void contourIntervalResetsAcrossFactorTypes(); // 方向04 D9：等值距自动态不跨因素类型残留
+    void contourIntervalDefaultsToSixthOfFactorRange(); // 有井点值时默认约为极差的 1/6
     void parseLevelsDroppedTokensAreRefused();     // 方向04 D10：脏级别 token 不静默吞
     void staleSuffixSurvivesLayerRedeclare();      // 方向04 D11：「（旧输入）」标记不被重声明抹掉
     void structuralBoundaryComboPrefersPolygonDefaults(); // 成图边界只列面图层；默认值不盲选第 0 个矢量层
@@ -1275,6 +1276,35 @@ void FactorPageTests::contourIntervalResetsAcrossFactorTypes()
   spin->setValue( 0.0 );                               // 模拟 structural 残留的自动态
   factors->item( 2, 0 )->setCheckState( Qt::Checked ); // 切到 strathick（仍非 structural）
   QCOMPARE( spin->value(), 20.0 );                     // 修复前保持 0.0（跨类型残留）
+}
+
+void FactorPageTests::contourIntervalDefaultsToSixthOfFactorRange()
+{
+  ConstraintPage page( nullptr );
+  page.setHorizons( { QStringLiteral( "T1" ) } );
+  page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) )->setCurrentIndex( 0 );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  auto *table = page.findChild<QTableWidget *>( QStringLiteral( "wellFactorTable" ) );
+  auto *spin = page.findChild<QDoubleSpinBox *>( QStringLiteral( "contourIntervalSpin" ) );
+  QVERIFY( factors && table && spin );
+  factors->item( 1, 0 )->setCheckState( Qt::Checked ); // sandratio
+  table->setRowCount( 3 );
+  table->setItem( 0, 1, new QTableWidgetItem( QStringLiteral( "0.20" ) ) );
+  table->setItem( 1, 1, new QTableWidgetItem( QStringLiteral( "0.80" ) ) );
+  table->setItem( 2, 1, new QTableWidgetItem( QStringLiteral( "—" ) ) );
+  page.applySuggestedContourInterval();
+  QCOMPARE( spin->value(), 0.1 ); // (0.80-0.20)/6 = 0.1
+
+  spin->setValue( 0.05 );
+  table->item( 1, 1 )->setText( QStringLiteral( "0.90" ) );
+  page.applySuggestedContourInterval();
+  QCOMPARE( spin->value(), 0.05 ); // 同一因素上用户改过的间距保留
+
+  table->setRowCount( 2 );
+  table->setItem( 0, 1, new QTableWidgetItem( QStringLiteral( "10" ) ) );
+  table->setItem( 1, 1, new QTableWidgetItem( QStringLiteral( "70" ) ) );
+  factors->item( 0, 0 )->setCheckState( Qt::Checked ); // 换因素后按新极差重算
+  QCOMPARE( spin->value(), 10.0 );                     // (70-10)/6 = 10
 }
 
 // 方向04 D10：「10, abc, 30」不再静默解析成 [10,30]——按钮提示脏 token，

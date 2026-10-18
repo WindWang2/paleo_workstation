@@ -1,6 +1,7 @@
 // 层：数据
 #include "facieshierarchy.h"
 #include "faciescatalog.h"
+#include "faciestaxonomy.h"
 #include <QJsonDocument>
 #include <QObject>
 #include <QSet>
@@ -23,16 +24,16 @@ QString resolveLevel(const QString &mode, double scale) {
                               : "micro_facies";
 }
 QStringList path(const QVariantMap &f) {
-  QStringList raw{
-      f.value("facies", f.value("facies_name")).toString().trimmed(),
-      f.value("subfacies").toString().trimmed(),
-      f.value("microfacies").toString().trimmed()};
-  if (raw.join(QString()).isEmpty())
-    raw[0] = f.value("name").toString().trimmed();
-  QStringList result = raw;
-  for (int i = 0; i < result.size(); ++i)
-    if (result[i].isEmpty())
-      result[i] = QObject::tr("未定义%1").arg(QStringList{QObject::tr("相"), QObject::tr("亚相"), QObject::tr("微相")}[i]);
+  // 缺级词面经 FaciesTaxonomy::place 安放进三级体系（未细分/未归类），
+  // 路径三级恒有值——项目里不出现未定义相。
+  const auto placed = FaciesTaxonomy::place(f);
+  QStringList result{
+      placed.value("facies", placed.value("facies_name")).toString().trimmed(),
+      placed.value("subfacies").toString().trimmed(),
+      placed.value("microfacies").toString().trimmed()};
+  if (result.join(QString()).isEmpty())
+    result = QStringList{QObject::tr("其他"), QObject::tr("未归类"),
+                          QObject::tr("未分类")};
   return result;
 }
 QString key(const QVariantMap &f, const QString &level) {

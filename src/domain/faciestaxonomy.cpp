@@ -13,6 +13,16 @@ QStringList path(const QVariantMap &f) {
           f.value("subfacies").toString().trimmed(),
           f.value("microfacies").toString().trimmed()};
 }
+// 内置相级词表：模板未细分的常见沉积相，旧分类的相级词面据此安放，
+// 不必为每个相造占位微相条目。
+QStringList knownPhases() {
+  return {QStringLiteral("三角洲相"), QStringLiteral("河流相"),
+          QStringLiteral("湖泊相"),   QStringLiteral("冲积扇相"),
+          QStringLiteral("辫状河相"), QStringLiteral("曲流河相"),
+          QStringLiteral("浊积相"),   QStringLiteral("滨海相"),
+          QStringLiteral("浅海相"),   QStringLiteral("半深海相"),
+          QStringLiteral("深海相"),   QStringLiteral("沼泽相")};
+}
 bool reject(QString *error, const QString &reason) {
   if (error) *error = reason;
   return false;
@@ -28,6 +38,100 @@ QVariantList library() {
 bool complete(const QVariantMap &leaf) {
   const auto p = path(leaf);
   return std::all_of(p.cbegin(), p.cend(), [](const auto &s) { return !s.isEmpty(); });
+}
+QVariantMap place(const QVariantMap &entry) {
+  auto p = path(entry);
+  if (!p.contains(QString())) {
+    auto placed = entry;
+    placed.insert("facies", p[0]); placed.insert("subfacies", p[1]);
+    placed.insert("microfacies", p[2]);
+    if (placed.value("name").toString().trimmed().isEmpty())
+      placed.insert("name", p[2]);
+    return placed;
+  }
+  // 深度优先取词面：微相 → 名称 → 亚相 → 相。
+  QString label;
+  for (const auto &s : p)
+    if (!s.isEmpty()) { label = s; break; }
+  if (label.isEmpty())
+    label = entry.value("name").toString().trimmed();
+  const auto known = resolve(library(), label);
+  if (!known.isEmpty()) {
+    // 词面能解析到微相：信任模板路径。与已有字段的冲突来自平级旧存储，不是父级知识。
+    p = path(known);
+  } else {
+    // 词面停在相级或亚相级：安放到「未细分」，不造子级名。
+    QString facies, subfacies;
+    for (const auto &v : library()) {
+      const auto kp = path(v.toMap());
+      if (label == kp[0]) { facies = kp[0]; subfacies = QStringLiteral("未细分"); break; }
+      if (label == kp[1]) { facies = kp[0]; subfacies = kp[1]; break; }
+    }
+    if (facies.isEmpty() && knownPhases().contains(label)) {
+      facies = label;
+      subfacies = QStringLiteral("未细分");
+    }
+    if (!facies.isEmpty()) {
+      p = QStringList{facies, subfacies, QStringLiteral("未细分")};
+    } else if (!p[0].isEmpty()) {
+      // 有明确相、缺中间级：补「未细分」，不造子级名。
+      for (int i = 1; i < 3; ++i)
+        if (p[i].isEmpty()) p[i] = QStringLiteral("未细分");
+    } else {
+      // 连相都没有：落「其他 / 未归类」，词面保留为微相。
+      p = QStringList{QStringLiteral("其他"), QStringLiteral("未归类"),
+                      label.isEmpty() ? QStringLiteral("未分类") : label};
+    }
+  }
+  auto placed = entry;
+  placed.insert("facies", p[0]); placed.insert("subfacies", p[1]);
+  placed.insert("microfacies", p[2]);
+  const auto originalName = placed.value("name").toString().trimmed();
+  if (!originalName.isEmpty() && originalName != p[2]) {
+    auto aliases = placed.value("aliases").toStringList();
+    if (!aliases.contains(originalName)) aliases << originalName;
+    placed.insert("aliases", aliases);
+  }
+  placed.insert("name", p[2]);
+  return placed;
+}
+bool upgrade(const QVariantList &source, QVariantList *result, QString *error) {
+  QVariantList normalized;
+  if (normalize(source, &normalized, error)) {
+    // normalize 顺带补齐了可识别条目的模板路径，返回补全后的结果。
+    *result = normalized;
+    return true;
+  }
+  if (error) error->clear();
+  QVariantList upgraded;
+  QSet<QString> used;
+  for (const auto &value : source) {
+    auto placed = place(value.toMap());
+    auto p = path(placed);
+    auto key = QString::fromUtf8(
+        QJsonDocument::fromVariant(p).toJson(QJsonDocument::Compact));
+    if (used.contains(key)) {
+      const auto label = placed.value("name").toString().trimmed();
+      p = QStringList{QStringLiteral("其他"), QStringLiteral("未归类"),
+                      label.isEmpty() ? p[2] : label};
+      for (int n = 2; used.contains(key); ++n) {
+        p[2] = QStringLiteral("%1 %2").arg(label.isEmpty() ? p[2] : label).arg(n);
+        key = QString::fromUtf8(
+            QJsonDocument::fromVariant(p).toJson(QJsonDocument::Compact));
+      }
+      placed.insert("facies", p[0]); placed.insert("subfacies", p[1]);
+      placed.insert("microfacies", p[2]);
+      placed.insert("name", p[2]);
+    }
+    used.insert(key);
+    upgraded << placed;
+  }
+  QString reason;
+  if (!normalize(upgraded, result, &reason)) {
+    if (error) *error = reason;
+    return false;
+  }
+  return true;
 }
 QVariantMap resolve(const QVariantList &schema, const QString &label, QString *error) {
   QVariantMap found;

@@ -421,8 +421,14 @@ QString MappingWorkbench::schemaVersion(const QString &h) const {
 }
 QVariantList MappingWorkbench::facies(const QString &h) const {
   const auto id = schemaVersion(h);
-  if (!id.isEmpty())
-    return m_catalog->versionById(id).extra.value("facies").toList();
+  if (!id.isEmpty()) {
+    const auto stored =
+        m_catalog->versionById(id).extra.value("facies").toList();
+    // 旧分类读出即迁移进三级体系（未细分/未归类），项目里不出现未定义相。
+    QVariantList upgraded;
+    if (FaciesTaxonomy::upgrade(stored, &upgraded)) return upgraded;
+    return stored;
+  }
   return FaciesCatalog::defaults();
 }
 bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
@@ -928,7 +934,7 @@ bool MappingWorkbench::setLabelMode(const QString &id, int mode,
                                     QString *error) {
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(id));
   if (!layer || layer->fields().indexOf("facies_code") < 0 || mode < 0 ||
-      mode > 3) {
+      mode > 4) {
     fail(error, tr("请选择井相点图或矢量相面；栅格请先转为相面。"));
     return false;
   }

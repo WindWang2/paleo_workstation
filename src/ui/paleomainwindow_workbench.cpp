@@ -2,6 +2,7 @@
 #include <QApplication>
 
 #include "../domain/faciescatalog.h"
+#include "../domain/faciestaxonomy.h"
 #include "../domain/facieshierarchy.h"
 #include "../domain/singlefactorrequest.h"
 #include "../linkage/selectioncontext.h"
@@ -397,8 +398,13 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
                    v.extra.contains("facies") &&
                    !legendKind.startsWith(QLatin1String("constraint")) &&
                    !analysisRaster && !cartographic;
-    auto schema =
-        product ? v.extra.value("facies").toList() : workbench->facies(h);
+    QVariantList schema;
+    if (product) {
+      // 旧成果冻结的平级分类也迁进三级体系，图例不出现未定义相。
+      FaciesTaxonomy::upgrade(v.extra.value("facies").toList(), &schema);
+    } else {
+      schema = workbench->facies(h);
+    }
     QString title = h.isEmpty() ? tr("请选择层位") : tr("%1 · 三级相图例").arg(h);
     if (product)
       title +=

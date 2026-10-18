@@ -10,6 +10,7 @@
 #include "../qgis/layervocabulary.h"
 #include "../metadata/layermanifest.h"
 #include "../workflow/workflows.h"
+#include "../workflow/constraintjobs.h" // #558：job 族完整定义（原内嵌 workflows.h）
 #include "../workflow/mappingworkbench.h"
 #include "pages/mappingworkbenchpage.h"
 #include "../services/paleotaskservice.h"

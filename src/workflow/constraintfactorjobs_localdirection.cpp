@@ -29,6 +29,7 @@
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
+#include "constraintjobs.h" // #558：job 族完整定义（原内嵌 workflows.h）
 #include "workflows_internal.h"
 #include <QDateTime>
 #include <QDir>

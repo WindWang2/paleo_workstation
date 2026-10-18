@@ -27,6 +27,7 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/services/singlefactordef.h"
 #include "../src/workflow/workflows.h"
+#include "../src/workflow/constraintjobs.h" // #558：job 族完整定义（原内嵌 workflows.h）
 #include "../src/io/constraintstore.h"
 #include <QJsonArray>
 

@@ -2,6 +2,7 @@
 #include "../qgis/layervocabulary.h"
 #include "../services/paleotaskservice.h"
 #include "workflows.h"
+#include "constraintjobs.h" // #558：job 族完整定义（原内嵌 workflows.h）
 #include "workflows_internal.h"
 
 #include "../algorithms/geostat/kriging.h"     // KrigingParams / KrigingResult（方向18）

@@ -47,7 +47,8 @@ namespace
 
 constexpr float PALEO_NODATA = -9999.0f;
 
-// Open a GDAL dataset from a QgsRasterLayer, throwing a Processing error on failure.
+// Open a GDAL dataset from a QgsRasterLayer; returns nullptr when the layer is
+// null or GDAL cannot open it (callers report the Processing error).
 GDALDatasetH openRaster( const QgsMapLayer *layer, GDALAccess access = GA_ReadOnly )
 {
   if ( !layer )
@@ -115,14 +116,11 @@ GDALDatasetH createGTiff( const QString &outPath, int nCols, int nRows, GDALData
   GDALDriverH drv = GDALGetDriverByName( "GTiff" );
   if ( !drv )
     return nullptr;
-  GDALDatasetH ds = GDALCreate( drv, outPath.toUtf8().constData(), nCols, nRows, 1, type, nullptr );
+  PaleoRasterOut::GdalDatasetPtr ds( GDALCreate( drv, outPath.toUtf8().constData(), nCols, nRows, 1, type, nullptr ) );
   if ( !ds )
     return nullptr;
-  if ( GDALSetGeoTransform( ds, const_cast<double *>( geoTransform ) ) != CE_None )
-  {
-    GDALClose( ds );
-    return nullptr;
-  }
+  if ( GDALSetGeoTransform( ds.get(), const_cast<double *>( geoTransform ) ) != CE_None )
+    return nullptr; // 守卫析构即 GDALClose（#553）
   if ( crs.isValid() )
   {
     // QGIS's engineering CRS exporter can omit EDATUM; GeoTIFF then loses
@@ -139,8 +137,8 @@ GDALDatasetH createGTiff( const QString &outPath, int nCols, int nRows, GDALData
     if ( wkt.isEmpty() )
       wkt = crs.toWkt( Qgis::CrsWktVariant::PreferredGdal );
     const QByteArray wktUtf8 = wkt.toUtf8();
-    GDALSetProjection( ds, wktUtf8.constData() );
-    GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wktUtf8.constData(), nullptr );
+    GDALSetProjection( ds.get(), wktUtf8.constData() );
+    GDALSetMetadataItem( ds.get(), "PALEO_CRS_WKT", wktUtf8.constData(), nullptr );
   }
   else if ( !canonicalCrsWkt.isEmpty() )
   {
@@ -149,10 +147,10 @@ GDALDatasetH createGTiff( const QString &outPath, int nCols, int nRows, GDALData
     // 串写出，不再产出无投影 GeoTIFF。无规范覆盖的直调（测试/外部脚本）
     // 仍保持旧行为（不编造 CRS），见 rasterout.h 残余面说明。
     const QByteArray wktUtf8 = canonicalCrsWkt.toUtf8();
-    GDALSetProjection( ds, wktUtf8.constData() );
-    GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wktUtf8.constData(), nullptr );
+    GDALSetProjection( ds.get(), wktUtf8.constData() );
+    GDALSetMetadataItem( ds.get(), "PALEO_CRS_WKT", wktUtf8.constData(), nullptr );
   }
-  return ds;
+  return ds.release(); // 裸句柄契约（调用方即刻接进 GdalDatasetPtr）
 }
 
 } // namespace
@@ -602,9 +600,9 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
 
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0,
                          extent.yMaximum(), 0.0, -cellSize };
-  GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, nCols, nRows, gt,
-                                          source->sourceCrs(), PALEO_NODATA,
-                                          PaleoRasterOut::canonicalWktFromParameters( parameters ) );
+  PaleoRasterOut::GdalDatasetPtr outDs( PaleoRasterOut::createFloatRaster(
+      outPath, nCols, nRows, gt, source->sourceCrs(), PALEO_NODATA,
+      PaleoRasterOut::canonicalWktFromParameters( parameters ) ) );
   if ( !outDs )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
 
@@ -614,7 +612,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   {
     const int faciesCode = parameterAsInt( parameters, QStringLiteral( "FACIES_CODE" ), context );
     const QByteArray v = QString::number( faciesCode ).toUtf8();
-    GDALSetMetadataItem( outDs, "PALEO_FACIES_CODE", v.constData(), nullptr );
+    GDALSetMetadataItem( outDs.get(), "PALEO_FACIES_CODE", v.constData(), nullptr );
   }
 
   // ---- direction_line field: length-weighted mean direction (C1) -----------
@@ -652,15 +650,15 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
       hasAniso = true;
     }
   }
-  GDALSetMetadataItem( outDs, "PALEO_BREAK_LINES",
+  GDALSetMetadataItem( outDs.get(), "PALEO_BREAK_LINES",
                        QString::number( touchedBreakCount ).toUtf8().constData(), nullptr ); // 实际落格条数
-  GDALSetMetadataItem( outDs, "PALEO_DIRECTION_LINES",
+  GDALSetMetadataItem( outDs.get(), "PALEO_DIRECTION_LINES",
                        QString::number( directionGeoms.size() ).toUtf8().constData(), nullptr );
   if ( hasAniso )
   {
-    GDALSetMetadataItem( outDs, "PALEO_ANISO_RATIO",
+    GDALSetMetadataItem( outDs.get(), "PALEO_ANISO_RATIO",
                          QString::number( anisoRatio ).toUtf8().constData(), nullptr );
-    GDALSetMetadataItem( outDs, "PALEO_ANISO_ANGLE_DEG",
+    GDALSetMetadataItem( outDs.get(), "PALEO_ANISO_ANGLE_DEG",
                          QString::number( std::atan2( sinTheta, cosTheta ) * 180.0 /
                                           std::numbers::pi )
                              .toUtf8()
@@ -706,10 +704,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
         if ( feedback && ( ++dfsVisited & 1023 ) == 0 )
         {
           if ( feedback->isCanceled() )
-          {
-            GDALClose( outDs );
             throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-          }
           feedback->setProgress( 100.0 * static_cast<double>( dfsVisited ) /
                                  static_cast<double>( cellCount ) );
         }
@@ -763,7 +758,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     }
   }
 
-  GDALRasterBandH outBand = GDALGetRasterBand( outDs, 1 );
+  GDALRasterBandH outBand = GDALGetRasterBand( outDs.get(), 1 );
 
   // ---- plain IDW (power = 2) honoring barriers + anisotropy ------------------
   // O(rows * cols * points); adequate for P1-scale inputs. A spatial index /
@@ -774,10 +769,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   for ( int r = 0; r < nRows; ++r )
   {
     if ( feedback && feedback->isCanceled() )
-    {
-      GDALClose( outDs );
       throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-    }
     const double y = extent.yMaximum() - ( r + 0.5 ) * cellSize;
     for ( int c = 0; c < nCols; ++c )
     {
@@ -834,15 +826,10 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     }
     if ( GDALRasterIO( outBand, GF_Write, 0, r, nCols, 1, rowBuf.data(),
                        nCols, 1, GDT_Float32, 0, 0 ) != CE_None )
-    {
-      GDALClose( outDs );
       throw QgsProcessingException( QStringLiteral( "GDAL write failed at row %1" ).arg( r ) );
-    }
     if ( feedback )
       feedback->setProgress( 100.0 * static_cast<double>( r + 1 ) / nRows );
   }
-
-  GDALClose( outDs );
 
   QVariantMap out;
   out.insert( QStringLiteral( "OUTPUT" ), outPath );
@@ -895,7 +882,7 @@ QVariantMap FaciesFusionAlgorithm::processAlgorithm( const QVariantMap &paramete
   // Open all inputs via the GDAL C API (band 1 of each).
   struct Input
   {
-    GDALDatasetH ds = nullptr;
+    PaleoRasterOut::GdalDatasetPtr ds; // #553：守卫析构即关，异常路径不漏
     GDALRasterBandH band = nullptr;
     bool hasNodata = false;
     double nodata = 0;
@@ -904,48 +891,31 @@ QVariantMap FaciesFusionAlgorithm::processAlgorithm( const QVariantMap &paramete
   };
   std::vector<std::unique_ptr<Input>> inputs;
   inputs.reserve( static_cast<size_t>( layers.size() ) );
-  auto closeAll = [&inputs] {
-    for ( auto &in : inputs )
-      if ( in->ds )
-        GDALClose( in->ds );
-  };
 
   GridInfo ref;
   for ( int i = 0; i < layers.size(); ++i )
   {
     QgsRasterLayer *rl = qobject_cast<QgsRasterLayer *>( layers.at( i ) );
     if ( !rl )
-    {
-      closeAll();
       throw QgsProcessingException(
           QStringLiteral( "INPUTS layer %1 is not a raster layer" ).arg( i + 1 ) );
-    }
     auto in = std::make_unique<Input>();
-    in->ds = openRaster( rl );
+    in->ds.reset( openRaster( rl ) );
     if ( !in->ds )
-    {
-      closeAll();
       throw QgsProcessingException(
           QStringLiteral( "GDAL cannot open input %1 (%2)" ).arg( i + 1 ).arg( rl->source() ) );
-    }
-    if ( GDALGetRasterCount( in->ds ) < 1 )
-    {
-      closeAll();
+    if ( GDALGetRasterCount( in->ds.get() ) < 1 )
       throw QgsProcessingException(
           QStringLiteral( "Input %1 has no raster band" ).arg( i + 1 ) );
-    }
-    in->band = GDALGetRasterBand( in->ds, 1 );
+    in->band = GDALGetRasterBand( in->ds.get(), 1 );
     bandNodata( in->band, in->hasNodata, in->nodata );
-    in->grid = gridOf( in->ds );
+    in->grid = gridOf( in->ds.get() );
     if ( i == 0 )
       ref = in->grid;
     else if ( !sameGrid( ref, in->grid ) )
-    {
-      closeAll();
       throw QgsProcessingException(
           QStringLiteral( "Input %1 grid does not match the first input "
                           "(same extent and cell size required)" ).arg( i + 1 ) );
-    }
     in->rowBuf.resize( ref.cols );
     inputs.push_back( std::move( in ) );
   }
@@ -954,35 +924,24 @@ QVariantMap FaciesFusionAlgorithm::processAlgorithm( const QVariantMap &paramete
   // defined, else use the paleo default.
   const double outNodata = inputs.front()->hasNodata ? inputs.front()->nodata
                                                      : static_cast<double>( PALEO_NODATA );
-  GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, ref.cols, ref.rows, ref.gt,
-                                          layers.at( 0 )->crs(), outNodata,
-                                          PaleoRasterOut::canonicalWktFromParameters( parameters ) );
+  PaleoRasterOut::GdalDatasetPtr outDs( PaleoRasterOut::createFloatRaster(
+      outPath, ref.cols, ref.rows, ref.gt, layers.at( 0 )->crs(), outNodata,
+      PaleoRasterOut::canonicalWktFromParameters( parameters ) ) );
   if ( !outDs )
-  {
-    closeAll();
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
-  }
-  GDALRasterBandH outBand = GDALGetRasterBand( outDs, 1 );
+  GDALRasterBandH outBand = GDALGetRasterBand( outDs.get(), 1 );
 
   QVector<float> outRow( ref.cols );
   const int nInputs = static_cast<int>( inputs.size() );
   for ( int r = 0; r < ref.rows; ++r )
   {
     if ( feedback && feedback->isCanceled() )
-    {
-      GDALClose( outDs );
-      closeAll();
       throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-    }
     for ( auto &in : inputs )
     {
       if ( GDALRasterIO( in->band, GF_Read, 0, r, ref.cols, 1, in->rowBuf.data(),
                          ref.cols, 1, GDT_Float32, 0, 0 ) != CE_None )
-      {
-        GDALClose( outDs );
-        closeAll();
         throw QgsProcessingException( QStringLiteral( "GDAL read failed at row %1" ).arg( r ) );
-      }
     }
     for ( int c = 0; c < ref.cols; ++c )
     {
@@ -1000,17 +959,10 @@ QVariantMap FaciesFusionAlgorithm::processAlgorithm( const QVariantMap &paramete
     }
     if ( GDALRasterIO( outBand, GF_Write, 0, r, ref.cols, 1, outRow.data(),
                        ref.cols, 1, GDT_Float32, 0, 0 ) != CE_None )
-    {
-      GDALClose( outDs );
-      closeAll();
       throw QgsProcessingException( QStringLiteral( "GDAL write failed at row %1" ).arg( r ) );
-    }
     if ( feedback )
       feedback->setProgress( 100.0 * static_cast<double>( r + 1 ) / ref.rows );
   }
-
-  closeAll();
-  GDALClose( outDs );
 
   QVariantMap out;
   out.insert( QStringLiteral( "OUTPUT" ), outPath );
@@ -1057,16 +1009,13 @@ QVariantMap GeologicalSmoothingAlgorithm::processAlgorithm( const QVariantMap &p
   if ( outPath.isEmpty() )
     throw QgsProcessingException( QStringLiteral( "Invalid OUTPUT raster destination" ) );
 
-  GDALDatasetH inDs = openRaster( rl );
+  PaleoRasterOut::GdalDatasetPtr inDs( openRaster( rl ) );
   if ( !inDs )
     throw QgsProcessingException( QStringLiteral( "GDAL cannot open %1" ).arg( rl->source() ) );
-  if ( GDALGetRasterCount( inDs ) < 1 )
-  {
-    GDALClose( inDs );
+  if ( GDALGetRasterCount( inDs.get() ) < 1 )
     throw QgsProcessingException( QStringLiteral( "INPUT raster has no band" ) );
-  }
-  GDALRasterBandH inBand = GDALGetRasterBand( inDs, 1 );
-  const GridInfo grid = gridOf( inDs );
+  GDALRasterBandH inBand = GDALGetRasterBand( inDs.get(), 1 );
+  const GridInfo grid = gridOf( inDs.get() );
   bool hasNodata = false;
   double nodata = 0;
   bandNodata( inBand, hasNodata, nodata );
@@ -1076,11 +1025,8 @@ QVariantMap GeologicalSmoothingAlgorithm::processAlgorithm( const QVariantMap &p
   QVector<float> cur( cellCount ), nxt( cellCount );
   if ( GDALRasterIO( inBand, GF_Read, 0, 0, grid.cols, grid.rows, cur.data(),
                      grid.cols, grid.rows, GDT_Float32, 0, 0 ) != CE_None )
-  {
-    GDALClose( inDs );
     throw QgsProcessingException( QStringLiteral( "GDAL read of INPUT failed" ) );
-  }
-  GDALClose( inDs );
+  // inDs 读完不再使用，守卫在作用域尾关闭（原手工 GDALClose 位点，#553）。
 
   // One pass = simultaneous mode filter (double buffer keeps passes independent).
   auto onePass = [&]( const QVector<float> &src, QVector<float> &dst ) {
@@ -1160,19 +1106,15 @@ QVariantMap GeologicalSmoothingAlgorithm::processAlgorithm( const QVariantMap &p
       feedback->setProgress( 80.0 * static_cast<double>( p + 1 ) / passes );
   }
 
-  GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, grid.cols, grid.rows, grid.gt,
-                                          rl->crs(), outNodata,
-                                          PaleoRasterOut::canonicalWktFromParameters( parameters ) );
+  PaleoRasterOut::GdalDatasetPtr outDs( PaleoRasterOut::createFloatRaster(
+      outPath, grid.cols, grid.rows, grid.gt, rl->crs(), outNodata,
+      PaleoRasterOut::canonicalWktFromParameters( parameters ) ) );
   if ( !outDs )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
-  GDALRasterBandH outBand = GDALGetRasterBand( outDs, 1 );
+  GDALRasterBandH outBand = GDALGetRasterBand( outDs.get(), 1 );
   if ( GDALRasterIO( outBand, GF_Write, 0, 0, grid.cols, grid.rows, cur.data(),
                      grid.cols, grid.rows, GDT_Float32, 0, 0 ) != CE_None )
-  {
-    GDALClose( outDs );
     throw QgsProcessingException( QStringLiteral( "GDAL write of OUTPUT failed" ) );
-  }
-  GDALClose( outDs );
   if ( feedback )
     feedback->setProgress( 100 );
 
@@ -1224,67 +1166,43 @@ QVariantMap IsopachAlgorithm::processAlgorithm( const QVariantMap &parameters,
   if ( outPath.isEmpty() )
     throw QgsProcessingException( QStringLiteral( "Invalid OUTPUT raster destination" ) );
 
-  GDALDatasetH topDs = openRaster( topLayer );
-  GDALDatasetH baseDs = openRaster( baseLayer );
-  auto closeInputs = [&] {
-    if ( topDs ) GDALClose( topDs );
-    if ( baseDs ) GDALClose( baseDs );
-  };
+  PaleoRasterOut::GdalDatasetPtr topDs( openRaster( topLayer ) );
+  PaleoRasterOut::GdalDatasetPtr baseDs( openRaster( baseLayer ) );
   if ( !topDs || !baseDs )
-  {
-    closeInputs();
     throw QgsProcessingException( QStringLiteral( "GDAL cannot open one of the input rasters" ) );
-  }
-  if ( GDALGetRasterCount( topDs ) < 1 || GDALGetRasterCount( baseDs ) < 1 )
-  {
-    closeInputs();
+  if ( GDALGetRasterCount( topDs.get() ) < 1 || GDALGetRasterCount( baseDs.get() ) < 1 )
     throw QgsProcessingException( QStringLiteral( "Input raster has no band" ) );
-  }
 
-  GDALRasterBandH topBand = GDALGetRasterBand( topDs, 1 );
-  GDALRasterBandH baseBand = GDALGetRasterBand( baseDs, 1 );
-  const GridInfo grid = gridOf( topDs );
-  if ( !sameGrid( grid, gridOf( baseDs ) ) )
-  {
-    closeInputs();
+  GDALRasterBandH topBand = GDALGetRasterBand( topDs.get(), 1 );
+  GDALRasterBandH baseBand = GDALGetRasterBand( baseDs.get(), 1 );
+  const GridInfo grid = gridOf( topDs.get() );
+  if ( !sameGrid( grid, gridOf( baseDs.get() ) ) )
     throw QgsProcessingException(
         QStringLiteral( "INPUT_BASE grid does not match INPUT_TOP "
                         "(same extent and cell size required)" ) );
-  }
   bool topNodataOk = false, baseNodataOk = false;
   double topNodata = 0, baseNodata = 0;
   bandNodata( topBand, topNodataOk, topNodata );
   bandNodata( baseBand, baseNodataOk, baseNodata );
 
   const double outNodata = topNodataOk ? topNodata : static_cast<double>( PALEO_NODATA );
-  GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, grid.cols, grid.rows, grid.gt,
-                                          topLayer->crs(), outNodata,
-                                          PaleoRasterOut::canonicalWktFromParameters( parameters ) );
+  PaleoRasterOut::GdalDatasetPtr outDs( PaleoRasterOut::createFloatRaster(
+      outPath, grid.cols, grid.rows, grid.gt, topLayer->crs(), outNodata,
+      PaleoRasterOut::canonicalWktFromParameters( parameters ) ) );
   if ( !outDs )
-  {
-    closeInputs();
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
-  }
-  GDALRasterBandH outBand = GDALGetRasterBand( outDs, 1 );
+  GDALRasterBandH outBand = GDALGetRasterBand( outDs.get(), 1 );
 
   QVector<float> topRow( grid.cols ), baseRow( grid.cols ), outRow( grid.cols );
   for ( int r = 0; r < grid.rows; ++r )
   {
     if ( feedback && feedback->isCanceled() )
-    {
-      GDALClose( outDs );
-      closeInputs();
       throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-    }
     if ( GDALRasterIO( topBand, GF_Read, 0, r, grid.cols, 1, topRow.data(),
                        grid.cols, 1, GDT_Float32, 0, 0 ) != CE_None ||
          GDALRasterIO( baseBand, GF_Read, 0, r, grid.cols, 1, baseRow.data(),
                        grid.cols, 1, GDT_Float32, 0, 0 ) != CE_None )
-    {
-      GDALClose( outDs );
-      closeInputs();
       throw QgsProcessingException( QStringLiteral( "GDAL read failed at row %1" ).arg( r ) );
-    }
     for ( int c = 0; c < grid.cols; ++c )
     {
       const float t = topRow[c], b = baseRow[c];
@@ -1300,17 +1218,10 @@ QVariantMap IsopachAlgorithm::processAlgorithm( const QVariantMap &parameters,
     }
     if ( GDALRasterIO( outBand, GF_Write, 0, r, grid.cols, 1, outRow.data(),
                        grid.cols, 1, GDT_Float32, 0, 0 ) != CE_None )
-    {
-      GDALClose( outDs );
-      closeInputs();
       throw QgsProcessingException( QStringLiteral( "GDAL write failed at row %1" ).arg( r ) );
-    }
     if ( feedback )
       feedback->setProgress( 100.0 * static_cast<double>( r + 1 ) / grid.rows );
   }
-
-  closeInputs();
-  GDALClose( outDs );
 
   QVariantMap out;
   out.insert( QStringLiteral( "OUTPUT" ), outPath );

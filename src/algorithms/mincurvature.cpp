@@ -221,9 +221,9 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
 
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0, extent.yMaximum(), 0.0,
                          -cellSize };
-  GDALDatasetH outDs =
-      PaleoRasterOut::createFloatRaster( outPath, dims.cols, dims.rows, gt, source->sourceCrs(),
-                         PALEO_NODATA, PaleoRasterOut::canonicalWktFromParameters( parameters ) );
+  PaleoRasterOut::GdalDatasetPtr outDs( PaleoRasterOut::createFloatRaster(
+      outPath, dims.cols, dims.rows, gt, source->sourceCrs(), PALEO_NODATA,
+      PaleoRasterOut::canonicalWktFromParameters( parameters ) ) );
   if ( !outDs )
     throw QgsProcessingException(
         QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
@@ -239,10 +239,7 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
         barrierRead, extent.xMinimum(), extent.yMaximum(), cellSize, dims.cols, dims.rows, barrierMask,
         [feedback] { return feedback && feedback->isCanceled(); } );
     if ( touchedParts < 0 )
-    {
-      GDALClose( outDs );
       throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-    }
     if ( touchedParts == 0 )
       barrierMask.clear();
   }
@@ -268,10 +265,7 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
       samples, geom, gp, barrierMask.empty() ? nullptr : barrierMask.data(), &z, &stats,
       &solveErr, control );
   if ( !ok )
-  {
-    GDALClose( outDs );
     throw QgsProcessingException( QStringLiteral( "Gridding failed: %1" ).arg( solveErr ) );
-  }
 
   // ---- quality surface: distance to nearest data (map units) ------------------
   const std::vector<float> dist = paleo::gridsolver::distanceToData( samples, geom );
@@ -287,7 +281,7 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
   }
 
   // ---- write rows (NaN → nodata) + QC metadata --------------------------------
-  GDALRasterBandH outBand = GDALGetRasterBand( outDs, 1 );
+  GDALRasterBandH outBand = GDALGetRasterBand( outDs.get(), 1 );
   std::vector<float> row( dims.cols );
   for ( int r = 0; r < dims.rows; ++r )
   {
@@ -298,14 +292,11 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
     }
     if ( GDALRasterIO( outBand, GF_Write, 0, r, dims.cols, 1, row.data(), dims.cols, 1,
                        GDT_Float32, 0, 0 ) != CE_None )
-    {
-      GDALClose( outDs );
       throw QgsProcessingException(
           QStringLiteral( "GDAL write failed at row %1" ).arg( r ) );
-    }
   }
   const auto meta = [&]( const char *key, const QString &value )
-  { GDALSetMetadataItem( outDs, key, value.toUtf8().constData(), nullptr ); };
+  { GDALSetMetadataItem( outDs.get(), key, value.toUtf8().constData(), nullptr ); };
   meta( "PALEO_ALGORITHM", QStringLiteral( "min_curvature" ) );
   meta( "PALEO_TENSION", QString::number( tension ) );
   meta( "PALEO_SWEEPS", QString::number( stats.sweeps ) );
@@ -318,7 +309,6 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
   meta( "PALEO_DIST_TO_DATA_MAX", QString::number( distMax ) );
   meta( "PALEO_DIST_TO_DATA_MEAN",
         distCount > 0 ? QString::number( distSum / distCount ) : QString() );
-  GDALClose( outDs );
 
   QVariantMap out;
   out.insert( QStringLiteral( "OUTPUT" ), outPath );

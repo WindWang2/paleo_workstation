@@ -1289,6 +1289,7 @@ add_paleo_test(tst_standardelements LIBS paleo_qgis) # 方向25：标准图件�
 add_paleo_test(tst_layoutpersistence LIBS paleo_qgis) # 方向25：布局随工程 QGZ round-trip
 add_paleo_test(tst_layouttemplatelibrary LIBS paleo_workflow) # 方向25：模板库（qpt→catalog 版本 + 库表）
 add_paleo_test(tst_horizonbatchexport LIBS paleo_workflow) # 方向25：按层位组批量出图 + catalog 登记
+add_paleo_test(tst_horizonbatchexport_diag LIBS paleo_workflow) # #541 诊断套件（此前 582 行零注册覆盖幻影；2026-10-19 审计 E-04 接闸）
 # ---- wave/data-foundation ----
 add_paleo_test(tst_catalog LIBS paleo_store)
 add_paleo_test(tst_catalogroles LIBS paleo_store)   # 方向92：角色词表单源

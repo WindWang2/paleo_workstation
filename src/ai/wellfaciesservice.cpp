@@ -117,6 +117,7 @@ void WellFaciesService::configure(const WellFaciesConfig &config) {
   m_config = config;
   m_jobId.clear();
   m_accepted.clear();
+  m_acceptOrder.clear();
 }
 void WellFaciesService::cancel() {
   ++m_generation;
@@ -281,6 +282,24 @@ void WellFaciesService::request(const QString &path, const QJsonObject &body,
         emit modelsReady(list);
       });
 }
+void WellFaciesService::rememberAcceptedJob(const QString &key,
+                                            const QString &jobId) {
+  // 已在缓存中：只刷新 jobId，插入序保持原位（淘汰按首次受理序）。
+  if (!m_accepted.contains(key))
+    m_acceptOrder.append(key);
+  m_accepted.insert(key, jobId);
+  // #479 上限淘汰：永不终结的任务（页面切走/进程重启）不再只增不减。
+  while (m_accepted.size() > kMaxAcceptedJobs && !m_acceptOrder.isEmpty()) {
+    const QString oldest = m_acceptOrder.takeFirst();
+    m_accepted.remove(oldest);
+  }
+}
+
+void WellFaciesService::forgetAcceptedJob(const QString &key) {
+  if (m_accepted.remove(key) != 0)
+    m_acceptOrder.removeAll(key);
+}
+
 void WellFaciesService::handlePrediction(const QJsonObject &json) {
   const QString status = json.value("status").toString();
   if (status == "completed") {
@@ -292,13 +311,13 @@ void WellFaciesService::handlePrediction(const QJsonObject &json) {
     QString error;
     if (!parseWellFaciesResult(json, m_wellName, m_input, &result, &error))
       return fail(error);
-    m_accepted.remove(m_key);
+    forgetAcceptedJob(m_key);
     m_jobId.clear();
     emit completed(result);
     return;
   }
   if (status == "failed" || status == "canceled") {
-    m_accepted.remove(m_key);
+    forgetAcceptedJob(m_key);
     m_jobId.clear();
     QString error = json.value("error").toString();
     if (error.isEmpty())
@@ -320,7 +339,7 @@ void WellFaciesService::handlePrediction(const QJsonObject &json) {
   }
   if (m_jobId.isEmpty())
     return fail(tr("推理已受理，但响应缺少任务 ID"));
-  m_accepted.insert(m_key, m_jobId);
+  rememberAcceptedJob(m_key, m_jobId);
   emit progress(
       qBound(0, json.value("progress").toInt(), 100),
       json.value("latestMessage")

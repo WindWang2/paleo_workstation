@@ -383,8 +383,11 @@ void TestDataCatalogSqlite::workerReadsDoNotTouchSqlite()
   QVERIFY2(beforeCap.isEmpty(), qPrintable(beforeCap));
   QVERIFY(before.db.present);
 
+  // #476 P2-5 契约更新：非属主线程的 live 读默认拒绝（返回空值 + 计数），
+  // 不再返回内存数据——QVector/QHash COW 下属主写+他线程读是真实 UB。
+  // 本测试的原始意图（worker 读不触碰 sqlite 文件）保持不变。
   int rows = -1;
-  QString seen;
+  QString seen = QStringLiteral("sentinel");
   const QString id = QStringLiteral("well-w");
   QThread *worker = QThread::create([&] {
     rows = cat.entities().size();
@@ -394,8 +397,9 @@ void TestDataCatalogSqlite::workerReadsDoNotTouchSqlite()
   const bool joined = worker->wait(30000);
   delete worker;
   QVERIFY(joined);
-  QCOMPARE(rows, 1);
-  QCOMPARE(seen, id);
+  QCOMPARE(rows, 0);        // 拒绝面：空结果
+  QCOMPARE(seen, QString()); // 而不是透出属主线程的内存
+  QVERIFY(cat.threadViolationCount() >= 2);
 
   FamilySnap after;
   const QString afterCap = captureFamily(sqlite, &after);

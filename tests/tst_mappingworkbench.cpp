@@ -1310,7 +1310,11 @@ private slots:
     while (features.nextFeature(candidate)) if (!survivor.isValid() || candidate.geometry().boundingBox().xMaximum() > survivor.geometry().boundingBox().xMaximum()) survivor = candidate;
     features.close(); QVERIFY(survivor.isValid());
     QVERIFY(layer->startEditing()); const auto fid = survivor.id();
-    for (int n = 0; n < 20; ++n) {
+    // #503 快速道减样：PALEO_TEST_FAST=1 时合并轮数 20→5——逐轮不变量
+    //（父树单线/无双记/解释继承）与收尾 saveEditingVersion+重开对拍不变，
+    // 只减轮次；默认全量 20（CI 语义不变）。轮内断言界 (n+1)*20000 随轮缩放。
+    const int mergeRounds = qEnvironmentVariableIntValue("PALEO_TEST_FAST") > 0 ? 5 : 20;
+    for (int n = 0; n < mergeRounds; ++n) {
       const auto current = layer->getFeature(fid); const auto box = current.geometry().boundingBox();
       QgsFeature adjacent(layer->fields()); adjacent.setAttribute("facies_code", current.attribute("facies_code"));
       // Stress the lineage inside the frozen map footprint: carve off the

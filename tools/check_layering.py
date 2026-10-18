@@ -160,8 +160,9 @@ QTWIDGETS_CLASSES = {
     "QRadioButton", "QRubberBand", "QScrollArea", "QScrollBar",
     "QScroller", "QShortcut", "QSizeGrip", "QSlider", "QSpinBox",
     "QSplashScreen", "QSplitter", "QSplitterHandle", "QStackedLayout",
-    "QStackedWidget", "QStatusBar", "QStyleFactory", "QStyleOption",
-    "QStyledItemDelegate", "QSwipeGesture", "QSystemTrayIcon",
+    "QStackedWidget", "QStatusBar", "QStyle", "QStyleFactory", "QStyleOption",
+    "QCommonStyle", "QProxyStyle", "QStyledItemDelegate", "QSwipeGesture",
+    "QSystemTrayIcon",
     "QTabBar", "QTabWidget", "QTableView", "QTableWidget",
     "QTableWidgetItem", "QTapGesture", "QTextBrowser", "QTextEdit",
     "QTimeEdit", "QToolBar", "QToolBox", "QToolButton", "QToolTip",
@@ -171,7 +172,8 @@ QTWIDGETS_CLASSES = {
 }
 
 INC_RE = re.compile(r'^\s*#\s*include\s*[<"]([^>"]+)[>"]')
-FWD_RE = re.compile(r'^\s*class\s+(Q[A-Za-z0-9_]+)\s*;')
+# #484 P3：struct 前向声明与 class 同权（词表类经 struct 前置同样暴露符号）。
+FWD_RE = re.compile(r'^\s*(?:class|struct)\s+(Q[A-Za-z0-9_]+)\s*;')
 
 
 def norm_include(file_dir, inc):
@@ -774,6 +776,19 @@ def selftest():
          {"reverse-ui-include"}),
         ("linkage/x.h",
          '// 层：功能\nclass QTabWidget;\n',
+         {"qtwidgets-fwd-decl"}),
+        # #484 P3：QStyle 家族补词表 + struct 前向声明同权
+        ("services/x.h",
+         '// 层：数据\n#include <QStyle>\n',
+         {"qtwidgets-include"}),
+        ("services/x.h",
+         '// 层：数据\nstruct QProxyStyle;\n',
+         {"qtwidgets-fwd-decl"}),
+        ("services/x.h",
+         '// 层：数据\nstruct NotAQtWidget;\n',
+         set()),
+        ("linkage/x.h",
+         '// 层：功能\nstruct QCommonStyle;\n',
          {"qtwidgets-fwd-decl"}),
         ("linkage/x.h",
          '// 层：功能\nclass QgsMapLayer;\n',

@@ -7,6 +7,7 @@
 #include "paleotheme.h"
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
+#include "../services/toolavailability.h"  // 导入门控取禁令理由需完整类型
 #include "../qgis/qgislayerservice.h"
 #include "../linkage/selectioncontext.h"
 #include "../domain/projectclassifier.h"
@@ -100,16 +101,37 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
     catalogError->setObjectName(QStringLiteral("statusCatalogError"));
     catalogError->hide();
     statusBar()->addPermanentWidget(catalogError);
+    // #481 P2-4：与 attach.cpp 的 applyProjectGate 同一套 tooltip 存还纪律
+    //（门态存 paleoGateSavedTip、开门还原），且开门与工程门取与——目录禁令
+    // 解除≠全局门放开，谁的禁令用谁的理由（旧实现开门清空原 tooltip、不
+    // 看工程门就 enable）。
     const auto setImportsEnabled = [this](bool enabled) {
+      bool toolsOk = true;
+      QString toolsReason;
+      if (enabled && m_tools)
+        toolsOk = m_tools->check(QString(), &toolsReason);
       for (const char *name : {"importWells", "importWellLogs", "importSeismic",
                                "importBoundary", "importFolder"})
         if (auto *btn = findChild<QPushButton *>(QLatin1String(name)))
         {
-          btn->setEnabled(enabled);
-          if (!enabled)
-            btn->setToolTip(tr("数据目录打开失败 — 导入暂不可用（见状态栏）"));
+          if (enabled && toolsOk)
+          {
+            btn->setEnabled(true);
+            if (btn->property("paleoGateSavedTip").isValid())
+            {
+              btn->setToolTip(btn->property("paleoGateSavedTip").toString());
+              btn->setProperty("paleoGateSavedTip", QVariant());
+            }
+          }
           else
-            btn->setToolTip(QString());
+          {
+            if (!btn->property("paleoGateSavedTip").isValid())
+              btn->setProperty("paleoGateSavedTip", btn->toolTip());
+            btn->setEnabled(false);
+            btn->setToolTip(enabled && !toolsOk
+                                ? toolsReason
+                                : tr("数据目录打开失败 — 导入暂不可用（见状态栏）"));
+          }
         }
     };
     connect(m_previewDoc, &PreviewDocService::catalogOpenFailed, this,

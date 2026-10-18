@@ -448,6 +448,67 @@ private slots:
       QVERIFY(err.contains(QStringLiteral("越界")));
     }
   }
+
+  // #477：readBlock 当前块缓存——readCell 同块连续取样零重读、换块/与
+  // extract* 交错后取值仍与直算一致（缓存不得返回旧块数据）。
+  void readCellBlockCacheStaysCorrect()
+  {
+    SattrVolumeInfo info;
+    info.attrId = QStringLiteral("instfreq");
+    info.nIl = 5;
+    info.nXl = 3;
+    info.nS = 4;
+    info.ilValues = {10, 11, 12, 13, 14};
+    info.xlValues = {20, 21, 22};
+    info.blockIl = 2; // 块 0: il0-1，块 1: il2-3，块 2: il4
+    info.valueMin = 0.0;
+    info.valueMax = 5000.0;
+    info.validCells = info.nIl * info.nXl * info.nS;
+    const QString path = tempDir_.filePath(QStringLiteral("cellcache.sattr"));
+    SattrVolumeWriter writer;
+    QString err;
+    QVERIFY2(writer.begin(path, info, &err), qPrintable(err));
+    std::vector<float> trace(std::size_t(info.nXl) * info.nS);
+    for (int il = 0; il < info.nIl; ++il)
+    {
+      for (int xl = 0; xl < info.nXl; ++xl)
+        for (int s = 0; s < info.nS; ++s)
+          trace[std::size_t(xl) * info.nS + std::size_t(s)] = cellValue(il, xl, s);
+      QVERIFY2(writer.writeInline(trace.data(), &err), qPrintable(err));
+    }
+    QVERIFY2(writer.finish(info.valueMin, info.valueMax, info.validCells, &err),
+             qPrintable(err));
+
+    SattrVolumeReader reader;
+    QVERIFY2(reader.open(path, &err), qPrintable(err));
+
+    float cell = 0.f;
+    // 同块连续点取样（块 0：il 0/1 交替——同块内 il 维连跳）。
+    for (int rep = 0; rep < 3; ++rep)
+      for (int il : {0, 1})
+        for (int xl = 0; xl < info.nXl; ++xl)
+          for (int s = 0; s < info.nS; ++s)
+          {
+            QVERIFY2(reader.readCell(il, xl, s, &cell, &err), qPrintable(err));
+            QCOMPARE(cell, cellValue(il, xl, s));
+          }
+    // 换块（块 1、块 2——末块短路径）后不得回吐旧块。
+    for (int il : {2, 3, 4})
+      for (int xl = 0; xl < info.nXl; ++xl)
+        for (int s = 0; s < info.nS; ++s)
+        {
+          QVERIFY2(reader.readCell(il, xl, s, &cell, &err), qPrintable(err));
+          QCOMPARE(cell, cellValue(il, xl, s));
+        }
+    // 回到已访问过的块（块 0）——缓存失效重读路径。
+    QVERIFY2(reader.readCell(0, 0, 0, &cell, &err), qPrintable(err));
+    QCOMPARE(cell, cellValue(0, 0, 0));
+    // 与 extract* 交错：extract 换块后再 readCell（另一块）仍正确。
+    std::vector<float> plane;
+    QVERIFY2(reader.extractTime(info.nS - 1, &plane, &err), qPrintable(err));
+    QVERIFY2(reader.readCell(3, 1, 2, &cell, &err), qPrintable(err));
+    QCOMPARE(cell, cellValue(3, 1, 2));
+  }
 };
 
 QTEST_MAIN(TestSattrIo)

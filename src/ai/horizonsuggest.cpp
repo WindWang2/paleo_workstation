@@ -4,10 +4,13 @@
 #include "onnxpredictionservice.h"
 
 #include <QHash>
+#include <QSet>
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
+#include <queue>
+#include <tuple>
+#include <vector>
 
 namespace
 {
@@ -20,6 +23,65 @@ uint qHash( const Key &k, uint seed = 0 )
 {
   return ( uint( k.il ) * 31u + uint( k.xl ) ) ^ seed;
 }
+
+// 最近已拾取场（#479 去平方化）：格 → 最近 picked 点（欧氏距离平方 + 平手
+// 取小 inline/xline 的字典序）。种子/拾取按处理序增量播撒（Dijkstra 式向
+// 外传播，仅在「更近」时覆盖），查询 O(1)——替代逐候选全量扫 picked 的
+// O(n·m)。域限制在候选包围盒内。
+struct NearestField
+{
+  struct Rec
+  {
+    int d2 = 0;
+    int il = 0, xl = 0; // 最近 picked 点坐标（平手裁决键）
+  };
+  QHash<Key, Rec> grid;
+  int minIl = 0, maxIl = 0, minXl = 0, maxXl = 0;
+
+  NearestField( int a, int b, int c, int d )
+    : minIl( a ), maxIl( b ), minXl( c ), maxXl( d )
+  {
+  }
+  bool inBounds( int il, int xl ) const
+  {
+    return il >= minIl && il <= maxIl && xl >= minXl && xl <= maxXl;
+  }
+  // 字典序：d2 → inline → xline（与旧全量扫描的平手规则一致）。
+  static bool betterThan( const Rec &a, const Rec &b )
+  {
+    return std::tie( a.d2, a.il, a.xl ) < std::tie( b.d2, b.il, b.xl );
+  }
+  void seed( int il, int xl )
+  {
+    // 优先队列按 d2 升序弹出；仅当候选记录（距离平方 + 平手裁决键）严格
+    // 更优才覆盖并继续传播——每格写入次数摊还后 O(1)，总代价 ~O(域)。
+    using Item = std::tuple<int, int, int>; // (d2, 格il, 格xl)
+    std::priority_queue<Item, std::vector<Item>, std::greater<Item>> pq;
+    pq.push( { 0, il, xl } );
+    static const int kDIl[8] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+    static const int kDXl[8] = { -1, 0, 1, -1, 1, -1, 0, 1 };
+    while ( !pq.empty() )
+    {
+      const auto [ d2, curIl, curXl ] = pq.top();
+      pq.pop();
+      const Key k { curIl, curXl };
+      const Rec candidate { d2, il, xl };
+      const auto it = grid.constFind( k );
+      if ( it != grid.constEnd() && !betterThan( candidate, it.value() ) )
+        continue; // 已有等优/更优记录：剪枝
+      grid.insert( k, candidate );
+      for ( int i = 0; i < 8; ++i )
+      {
+        const int nIl = curIl + kDIl[i];
+        const int nXl = curXl + kDXl[i];
+        if ( !inBounds( nIl, nXl ) )
+          continue;
+        const int dIl = nIl - il, dXl = nXl - xl;
+        pq.push( { dIl * dIl + dXl * dXl, nIl, nXl } );
+      }
+    }
+  }
+};
 
 // Bernoulli 熵归一：p=峰概率；p→1 或 →0 → 置信 1；p=0.5 → 0。
 float bernoulliConfidence( double p )
@@ -65,8 +127,20 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
                    .arg( meta.inputSignature ) );
 
   QHash<Key, TrackingSuggestion> picked; // 已定拾取（含种子）
-  const auto record = [&picked]( const TrackingSuggestion &s ) {
+  // #479 去平方化：候选域包围盒（种子 ± radius）限定距离场传播范围。
+  int minIl = seeds.first().inlineNo, maxIl = minIl;
+  int minXl = seeds.first().xlineNo, maxXl = minXl;
+  for ( const TrackingSeed &seed : seeds )
+  {
+    minIl = std::min( minIl, seed.inlineNo - radius );
+    maxIl = std::max( maxIl, seed.inlineNo + radius );
+    minXl = std::min( minXl, seed.xlineNo - radius );
+    maxXl = std::max( maxXl, seed.xlineNo + radius );
+  }
+  NearestField nearest( minIl, maxIl, minXl, maxXl );
+  const auto record = [&picked, &nearest]( const TrackingSuggestion &s ) {
     picked.insert( Key { s.inlineNo, s.xlineNo }, s );
+    nearest.seed( s.inlineNo, s.xlineNo );
   };
 
   for ( const TrackingSeed &seed : seeds )
@@ -85,23 +159,23 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
   }
 
   // 扩张序：按（到最近种子的切比雪夫距离, inline, xline）——确定性。
+  // 去重 #479：QSet 一次遍历（原 std::find_if 线性查重是 O(n²)）。
   struct Candidate
   {
     int il, xl, dist;
   };
+  QSet<Key> seen; // 种子/已入序候选（键去重）
   QVector<Candidate> order;
   for ( const TrackingSeed &seed : seeds )
     for ( int dil = -radius; dil <= radius; ++dil )
       for ( int dxl = -radius; dxl <= radius; ++dxl )
       {
         const Key k { seed.inlineNo + dil, seed.xlineNo + dxl };
-        if ( picked.contains( k ) )
-          continue; // 种子或更早种子的邻域已覆盖
+        if ( picked.contains( k ) || seen.contains( k ) )
+          continue; // 种子或更早种子/本种子的邻域已覆盖
+        seen.insert( k );
         const int dist = std::max( std::abs( dil ), std::abs( dxl ) );
-        if ( std::find_if( order.cbegin(), order.cend(),
-                           [ &k ]( const Candidate &c ) { return c.il == k.il && c.xl == k.xl; } ) ==
-             order.cend() )
-          order.append( Candidate { k.il, k.xl, dist } );
+        order.append( Candidate { k.il, k.xl, dist } );
       }
   std::sort( order.begin(), order.end(), []( const Candidate &a, const Candidate &b ) {
     if ( a.dist != b.dist )
@@ -116,25 +190,16 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
     // 协作取消：逐道扩张前检查；命中即如实失败，不把半途建议当成功外发。
     if ( cancelled && cancelled() )
       return fail( QObject::tr( "已取消" ) );
-    // 最近已拾取邻道（欧氏距离，平手取小 inline/xline——确定性）。
+    // 最近已拾取邻道（#479：距离场 O(1) 查询替代全量扫 picked 的 O(m)；
+    // 平手取小 inline/xline 的裁决与距离场 Rec 字典序一致）。
     const Key self { cand.il, cand.xl };
-    const TrackingSuggestion *best = nullptr;
-    int bestD2 = std::numeric_limits<int>::max();
-    for ( auto it = picked.constBegin(); it != picked.constEnd(); ++it )
-    {
-      const int dil = it.key().il - cand.il;
-      const int dxl = it.key().xl - cand.xl;
-      const int d2 = dil * dil + dxl * dxl;
-      if ( d2 < bestD2 || ( d2 == bestD2 && best &&
-                            ( it.key().il < best->inlineNo ||
-                              ( it.key().il == best->inlineNo && it.key().xl < best->xlineNo ) ) ) )
-      {
-        bestD2 = d2;
-        best = &it.value();
-      }
-    }
-    if ( !best )
-      continue; // 理论不可达（种子先入 picked）
+    const auto nearIt = nearest.grid.constFind( self );
+    if ( nearIt == nearest.grid.constEnd() )
+      continue; // 理论不可达（种子先入距离场）
+    const auto pickedIt = picked.constFind( Key { nearIt->il, nearIt->xl } );
+    if ( pickedIt == picked.constEnd() )
+      continue; // 理论不可达（距离场源必在 picked）
+    const TrackingSuggestion *best = &pickedIt.value();
 
     const int center = best->sampleIndex;
     const int begin = center - windowSamples / 2;

@@ -1087,43 +1087,42 @@ void Seismic3DViewPanel::buildDisplayBar() {
             return;
         camBookmarks_.removeAt(idx);
         cboCamBookmark_->removeItem(idx);
-        // 持久化重写
-        QSettings settings;
-        QStringList entries;
-        for (const auto &bm : camBookmarks_)
-            entries << QStringLiteral("%1|%2,%3,%4,%5,%6,%7")
-                           .arg(bm.name)
-                           .arg(bm.state.yaw).arg(bm.state.pitch)
-                           .arg(bm.state.distance)
-                           .arg(bm.state.target.x).arg(bm.state.target.y)
-                           .arg(bm.state.target.z);
-        settings.setValue(QStringLiteral("seismic/3dCamBookmarks"), entries);
+        persistCameraBookmarks(); // 持久化重写（与保存侧同一序列化点）
     });
     connect(cboCamBookmark_, QOverload<int>::of(&QComboBox::activated), this, [this](int idx) {
         applyCameraBookmark(idx);
     });
     // 恢复持久化的相机书签（#463：与保存侧按当前字段集对称——name + 6 个
-    // 数字段 yaw,pitch,distance,target.x,target.y,target.z。任一条目字段数
-    // 不对称即整包拒绝并告警，不再逐条静默 continue 丢书签。）
+    // 数字段 yaw,pitch,distance,target.x,target.y,target.z。字段演进不得让
+    // 用户书签跨会话清空：缺失字段按 CameraState 默认补齐并计 warning，
+    // 未知多余字段忽略；无法解析的条目单独跳过，其余书签照常恢复。）
     QSettings settings;
     const QStringList entries = settings.value(QStringLiteral("seismic/3dCamBookmarks")).toStringList();
     QList<CamBookmark> restored;
-    bool malformed = false;
+    constexpr int kNumericFields = 6;    // 当前格式
+    constexpr int kLegacyNumericFields = 5; // 5 字段退化输入（防御性宽容：仓库历史无此格式，纯损坏/前向容错）
+    int padded = 0, extraIgnored = 0, skipped = 0;
+    const SeismicCameraController::CameraState defaults{};
     for (const QString &e : entries) {
         const auto kv = e.split(QLatin1Char('|'));
-        if (kv.size() != 2) {
-            malformed = true;
-            break;
+        if (kv.size() != 2 || kv[0].isEmpty()) {
+            ++skipped;
+            continue;
         }
         const auto nums = kv[1].split(QLatin1Char(','));
-        bool numOk = nums.size() == 6;
-        float fields[6] = {0, 0, 0, 0, 0, 0};
-        for (int i = 0; numOk && i < 6; ++i) {
+        bool numOk = nums.size() >= kLegacyNumericFields;
+        float fields[kNumericFields] = {defaults.yaw, defaults.pitch, defaults.distance,
+                                        defaults.target.x, defaults.target.y, defaults.target.z};
+        for (int i = 0; numOk && i < qMin<int>(nums.size(), kNumericFields); ++i)
             fields[i] = nums[i].toFloat(&numOk);
-        }
         if (!numOk) {
-            malformed = true;
-            break;
+            ++skipped; // 结构坏/字段数低于已知旧格式/非数字——只丢这一条
+            continue;
+        }
+        if (nums.size() < kNumericFields) {
+            ++padded; // 旧格式：缺失尾部字段保持默认（如 target.z = 0）
+        } else if (nums.size() > kNumericFields) {
+            ++extraIgnored; // 未来新增字段（降级读旧版二进制）——忽略未知尾部
         }
         CamBookmark bm;
         bm.name = kv[0];
@@ -1133,15 +1132,13 @@ void Seismic3DViewPanel::buildDisplayBar() {
         bm.state.target = glm::vec3(fields[3], fields[4], fields[5]);
         restored.append(bm);
     }
-    if (malformed) {
-        qWarning() << "seismic/3dCamBookmarks persisted entries have asymmetric field"
-                   << "counts (expected name + 6 numeric fields); rejecting the whole"
-                   << "bookmark set to avoid silent partial loss";
-    } else {
-        for (const CamBookmark &bm : std::as_const(restored)) {
-            camBookmarks_.append(bm);
-            cboCamBookmark_->addItem(bm.name);
-        }
+    if (padded || extraIgnored || skipped)
+        qWarning() << "seismic/3dCamBookmarks restored with legacy-padded entries:"
+                   << padded << ", unknown extra fields ignored:" << extraIgnored
+                   << ", unparseable entries skipped:" << skipped;
+    for (const CamBookmark &bm : std::as_const(restored)) {
+        camBookmarks_.append(bm);
+        cboCamBookmark_->addItem(bm.name);
     }
 }
 
@@ -1720,14 +1717,10 @@ void Seismic3DViewPanel::requestStackLayersPerLayer(const std::vector<int> &samp
 }
 
 // ---- D3.6 相机书签 ----
-void Seismic3DViewPanel::saveCameraBookmark(const QString &name) {
-    CamBookmark bm;
-    bm.name = name;
-    bm.state = viewport_->camera().state();
-    camBookmarks_.append(bm);
-    cboCamBookmark_->addItem(name);
-    // QSettings 持久化（全局列表——相机视角跨工区可复用；#463：与恢复侧
-    // 字段集对称，name + 6 个数字段含 target.z）
+// 持久化唯一序列化点（#463）：name + 6 个数字段
+// yaw,pitch,distance,target.x,target.y,target.z——保存/删除共用，与恢复侧
+// 解析字段集对称；两份内联复制曾是漂移隐患（保存侧漏 target.z 即整包静默丢）。
+void Seismic3DViewPanel::persistCameraBookmarks() const {
     QSettings settings;
     QStringList entries;
     for (const auto &b : camBookmarks_)
@@ -1738,6 +1731,16 @@ void Seismic3DViewPanel::saveCameraBookmark(const QString &name) {
                        .arg(b.state.target.x).arg(b.state.target.y)
                        .arg(b.state.target.z);
     settings.setValue(QStringLiteral("seismic/3dCamBookmarks"), entries);
+}
+
+void Seismic3DViewPanel::saveCameraBookmark(const QString &name) {
+    CamBookmark bm;
+    bm.name = name;
+    bm.state = viewport_->camera().state();
+    camBookmarks_.append(bm);
+    cboCamBookmark_->addItem(name);
+    // QSettings 持久化（全局列表——相机视角跨工区可复用）
+    persistCameraBookmarks();
 }
 
 void Seismic3DViewPanel::applyCameraBookmark(int index) {

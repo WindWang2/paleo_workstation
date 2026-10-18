@@ -217,7 +217,8 @@ bool DataCatalog::updateVersionExtra(const QString &versionId, const QString &ke
 
 CatalogVersion DataCatalog::versionBySha256(const QString &sha256) const
 {
-  noteRead("versionBySha256");
+  if (!noteRead("versionBySha256"))
+    return {};
   if (sha256.isEmpty())
     return CatalogVersion();
   // WP2：sha 命中行集走索引（旧实现线性全表扫——导入 dedup 每行调一次，
@@ -438,7 +439,8 @@ bool DataCatalog::isSafePathSegment(const QString &segment)
 
 QVector<CatalogVersion> DataCatalog::versionsForAsset(const QString &assetId) const
 {
-  noteRead("versionsForAsset");
+  if (!noteRead("versionsForAsset"))
+    return {};
   QVector<CatalogVersion> out;
   const QVector<int> rows = m_idx.versionRowsForAsset(assetId); // D5.1 O(1)+收集
   out.reserve(rows.size());
@@ -449,14 +451,16 @@ QVector<CatalogVersion> DataCatalog::versionsForAsset(const QString &assetId) co
 
 CatalogVersion DataCatalog::versionById(const QString &id) const
 {
-  noteRead("versionById");
+  if (!noteRead("versionById"))
+    return {};
   const int row = m_idx.versionRow(id); // D5.1 O(1)
   return row >= 0 ? m_versions.at(row) : CatalogVersion();
 }
 
 CatalogVersion DataCatalog::currentVersion(const QString &assetId) const
 {
-  noteRead("currentVersion");
+  if (!noteRead("currentVersion"))
+    return {};
   CatalogVersion best;
   const QVector<int> rows = m_idx.versionRowsForAsset(assetId); // D5.1
   for (int r : rows)
@@ -477,7 +481,8 @@ QString DataCatalog::managedPath(const QString &stage, const QString &assetId,
 
 QString DataCatalog::nextVersionId()
 {
-  noteRead("nextVersionId");
+  if (!noteRead("nextVersionId"))
+    return {};
   ++m_mutationSeq; // 分配 id 也是 owner 侧状态变化（提交基线要看见）
   QString id;
   do { id = QStringLiteral("ver-%1").arg(++m_versionSeq); }

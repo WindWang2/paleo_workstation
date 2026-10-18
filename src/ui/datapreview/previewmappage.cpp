@@ -146,11 +146,20 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
       }
       else if ( watched == m_canvas )
       {
-        if ( event->type() == QEvent::MouseButtonPress ||
-             event->type() == QEvent::MouseMove )
+        // #482：鹰眼点选/拖动限定左键——原先 MouseButtonPress 不看 button()，
+        // 中键/右键按压也触发 centerMainAt 并吞事件，与「左键点选」意图不符。
+        // 非左键照旧吞掉（鹰眼小画布不响应任何点击，同滚轮/右键菜单口径）。
+        if ( event->type() == QEvent::MouseButtonPress )
         {
           auto *me = static_cast<QMouseEvent *>( event );
-          if ( me->buttons() & Qt::LeftButton || event->type() == QEvent::MouseButtonPress )
+          if ( me->button() == Qt::LeftButton )
+            centerMainAt( me->pos() );
+          return true;
+        }
+        if ( event->type() == QEvent::MouseMove )
+        {
+          auto *me = static_cast<QMouseEvent *>( event );
+          if ( me->buttons() & Qt::LeftButton )
           {
             centerMainAt( me->pos() );
             return true; // 吃掉事件，小画布不响应

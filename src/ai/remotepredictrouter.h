@@ -4,9 +4,11 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QThreadPool>
 #include <QUrl>
 #include <QVector>
 #include <memory>
+#include <vector>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -142,11 +144,22 @@ private:
                  const QString &error);
   void degradeOrDie(quint64 runId, const QString &stageName,
                     const QString &stageError);
+  // #479：本地降级推理经专用单线程池跑（SHA256 全读+会话构建+warmup+全网格
+  // 推理是秒~分钟级重活，不得在 GUI 线程槽内同步执行）。结果按轮次号排队回
+  // router 线程结算——迟到（取消/重入之后）即丢弃，语义与远端迟到回包一致。
+  void runLocalFallback(quint64 runId, const RemotePredictionRequest &request,
+                        const QString &stageError);
+  void settleLocalResult(quint64 runId, const RemotePredictionRequest &request,
+                         const QString &stageError, bool ok,
+                         const QVector<int> &cells, const QString &localError);
   void settleFail(const QString &reason);
 
   QPointer<RemoteTransport> m_transport;
   LocalPredictor *m_local = nullptr;             // 非拥有（调用方持有）
   std::unique_ptr<LocalPredictor> m_ownedLocal; // setLocalFallback 建的引擎
+  // 重绑后等池排空再释放的旧引擎（在飞降级持其快照；析构序在池之后清空）。
+  std::vector<std::unique_ptr<LocalPredictor>> m_retiredLocals;
+  QThreadPool m_fallbackPool;                    // 降级推理专用（≤1 线程）
   bool m_fallbackEnabled = true;
   int m_healthTimeoutMs = 2000;
   int m_predictTimeoutMs = 10000;

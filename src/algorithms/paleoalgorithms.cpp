@@ -543,7 +543,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   // supercover 栅格化（#488 统一实现：闭域裁剪 + 4-连通途经链，陡斜线/穿角
   // 点不漏格）。只有真正标记到像元的屏障才算「实际消费」：未落格的线在回执
   // 里改记 consumed=false / outside_compute_domain，也不进凸包（域外线没有
-  // 屏障作用，不该裁掉成图域）。同一 mask 供连通性 BFS 复用，不二次栅格化。
+  // 屏障作用，不该裁掉成图域）。同一 mask 供连通性泛洪复用，不二次栅格化。
   std::vector<std::uint8_t> barrierMask;
   QVector<char> breakTouched( breakGeoms.size(), 0 );
   int touchedBreakCount = 0;
@@ -670,8 +670,10 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
 
   // ---- break_line barriers: grid reachability (C1) --------------------------
   // P1（pr457-closure）：屏障栅格化统一走 supercoverPolylineCells（闭域裁剪 +
-  // 4-连通途经链）——此前半格采样在陡斜线/穿角点漏格，对角链墙会被 4-连通 BFS
-  // 从格缝穿过。非屏障格按 4-连通 BFS 标分量；一格只从同分量井点插值——绕行
+  // 4-连通途经链）——此前半格采样在陡斜线/穿角点漏格，对角链墙会被 4-连通泛洪
+  // 从格缝穿过。非屏障格按 4-连通 DFS 标分量（栈式泛洪，#478：容器是 LIFO 栈、
+  // 非 BFS 队列——连通分量与访问序无关，旧「BFS/queue」命名误导）；一格只从同
+  // 分量井点插值——绕行
   // 屏障端点在格分辨率上成立。同分量内用平面欧氏距离（直线仍可能穿过凹形
   // 屏障；既有的近似口径，仅权重语义）。
   const bool hasBarriers = touchedBreakCount > 0;
@@ -689,30 +691,30 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     for ( qsizetype cell = 0; cell < cellCount; ++cell )
       comp[static_cast<size_t>( cell )] = barrierMask[static_cast<size_t>( cell )] ? -2 : -1;
     int nextComp = 0;
-    std::vector<qsizetype> queue;
-    queue.reserve( static_cast<size_t>( cellCount ) );
-    qsizetype bfsVisited = 0; // 节流：每 1024 格查一次取消，避免虚调用过密
+    std::vector<qsizetype> stack; // LIFO：栈式 DFS 泛洪（back/pop_back）
+    stack.reserve( static_cast<size_t>( cellCount ) );
+    qsizetype dfsVisited = 0; // 节流：每 1024 格查一次取消，避免虚调用过密
     for ( qsizetype start = 0; start < cellCount; ++start )
     {
       if ( comp[static_cast<size_t>( start )] != -1 )
         continue;
       comp[static_cast<size_t>( start )] = nextComp;
-      queue.clear();
-      queue.push_back( start );
-      while ( !queue.empty() )
+      stack.clear();
+      stack.push_back( start );
+      while ( !stack.empty() )
       {
-        if ( feedback && ( ++bfsVisited & 1023 ) == 0 )
+        if ( feedback && ( ++dfsVisited & 1023 ) == 0 )
         {
           if ( feedback->isCanceled() )
           {
             GDALClose( outDs );
             throw QgsProcessingException( QStringLiteral( "Canceled" ) );
           }
-          feedback->setProgress( 100.0 * static_cast<double>( bfsVisited ) /
+          feedback->setProgress( 100.0 * static_cast<double>( dfsVisited ) /
                                  static_cast<double>( cellCount ) );
         }
-        const qsizetype cur = queue.back();
-        queue.pop_back();
+        const qsizetype cur = stack.back();
+        stack.pop_back();
         const int cr = static_cast<int>( cur / nCols ), cc = static_cast<int>( cur % nCols );
         const int nr[4] = { cr - 1, cr + 1, cr, cr };
         const int nc[4] = { cc, cc, cc - 1, cc + 1 };
@@ -724,7 +726,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
           if ( comp[static_cast<size_t>( n )] == -1 )
           {
             comp[static_cast<size_t>( n )] = nextComp;
-            queue.push_back( n );
+            stack.push_back( n );
           }
         }
       }

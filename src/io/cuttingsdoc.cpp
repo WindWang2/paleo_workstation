@@ -564,6 +564,13 @@ CuttingsTable readCuttingsFile( const QString &path )
       table.error = QStringLiteral( "文件读取失败：%1（%2）" ).arg( path, file.errorString() );
       return table;
     }
+    // 文本分支同 xlsx 分支的大文件闸（A-02；outsourceworkbook 512MB 族口径）：
+    // 裸 readAll 在井剖面打开时对畸形大文件直接放大内存。超限如实拒绝。
+    if ( file.size() > 512LL * 1024 * 1024 )
+    {
+      table.error = QStringLiteral( "岩屑文本文件超过 512MB 预算：%1" ).arg( path );
+      return table;
+    }
     const QString content = EncodingDetect::decodeText( file.readAll() );
     file.close();
     QStringList textIssues;

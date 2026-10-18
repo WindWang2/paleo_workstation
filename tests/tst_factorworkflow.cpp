@@ -974,6 +974,52 @@ class TestFactorWorkflow : public QObject
       QVERIFY2( sawSand100, "maintained factors must carry interval-table sand thickness" );
     }
 
+    // 回归（真实工程 D61 全空井组）：属性表行存在但数值列为空 ≠ 「维护过
+    // 空值」——种行当时取数口径坏（primary tops 无编图层位）留下的空行不
+    // 得屏蔽工程分层/岩性解释的计算值；重跑「获取并维护」补齐空格子。
+    void emptyMaintainedRowsFallBackToComputedAndHeal()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupIntervalSourcedWells(
+                    f, &err,
+                    { { QStringLiteral( "well-1" ), QStringLiteral( "A1" ), QStringLiteral( "砂岩" ), 10.0 } } ),
+                qPrintable( err ) );
+      // 复现坏口径时期的落种：行只有井/层位，数值列全空。
+      QVERIFY2( WellAttributeStore::seedFactors(
+                    &f.catalog, f.dir.path(), &f.layers,
+                    { QVariantMap{ { "well_id", "well-1" }, { "horizon", "D61" } } }, &err ),
+                qPrintable( err ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap direct{ { "factorMode", "direct" },
+                          { "valueField", "log_layer_thickness_md" } };
+      QVERIFY2( wf.extractWellFactors( QStringLiteral( "D61" ), QStringLiteral( "strathick" ), direct, &err ),
+                qPrintable( err ) );
+      auto rows = wf.wellFactorRows();
+      QCOMPARE( rows.size(), 1 );
+      // 修复前：空维护行屏蔽计算值，reason=「维护的层厚为空或不是有限数值」。
+      QCOMPARE( rows.first().toMap().value( "value" ).toDouble(), 100.0 );
+      QVERIFY( rows.first().toMap().value( "contributing" ).toBool() );
+      QVERIFY2( rows.first().toMap().value( "reason" ).toString().isEmpty(),
+                qPrintable( rows.first().toMap().value( "reason" ).toString() ) );
+      QVariantMap ratio{ { "factorMode", "ratio" },
+                         { "numeratorField", "log_sand_thickness_md" },
+                         { "denominatorField", "log_layer_thickness_md" } };
+      QVERIFY2( wf.extractWellFactors( QStringLiteral( "D61" ), QStringLiteral( "sandratio" ), ratio, &err ),
+                qPrintable( err ) );
+      rows = wf.wellFactorRows();
+      QCOMPARE( rows.first().toMap().value( "value" ).toDouble(), 1.0 ); // 整段砂岩
+      QVERIFY( rows.first().toMap().value( "contributing" ).toBool() );
+      QVERIFY2( wf.maintainWellFactors( QStringLiteral( "D61" ), &err ), qPrintable( err ) );
+      const auto healed = WellAttributeStore::rows( f.dir.path(), &f.layers, true,
+                                                    QStringLiteral( "well-1" ), QStringLiteral( "D61" ) );
+      QCOMPARE( healed.size(), 1 );
+      QCOMPARE( healed.first().toMap().value( "log_layer_thickness_md" ).toDouble(), 100.0 );
+      QCOMPARE( healed.first().toMap().value( "log_sand_thickness_md" ).toDouble(), 100.0 );
+    }
+
     // U2a：井点图层两要素同 well_id → 双样本双倍权重。与因子属性表同井/
     // 层位重复同口径：提取前硬失败并点名重复 id，不静默取第一条。
     void duplicateWellIdsInPointsLayerRefuseExtraction()

@@ -219,12 +219,16 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     }
     if (!maintained.isEmpty()) {
       const auto values = maintained.first().toMap();
+      // 属性表读出的行带全部列键（含 NULL）：空值不覆盖井点图层的同名属性，
+      // 「行存在」也不等于「维护过数值」——种行时没算出值的空行按 contains
+      // 判会永久屏蔽计算值且无自愈路径（D61 全空井组即此坑）。维护=数值可用。
       for (auto i = values.cbegin(); i != values.cend(); ++i)
-        if (i.key() != QLatin1String("well_id") && i.key() != QLatin1String("well_name") && i.key() != QLatin1String("horizon"))
+        if (i.key() != QLatin1String("well_id") && i.key() != QLatin1String("well_name") &&
+            i.key() != QLatin1String("horizon") && !i.value().isNull())
           row.attributes.insert(i.key(), i.value());
-      row.maintainedThickness = values.contains(layerThickness);
-      row.maintainedSand = values.contains(sandThickness);
-      row.sandSource = ConstraintWorkflow::tr("井点单因素属性表");
+      row.maintainedThickness = paleo::singlefactor::parseNumeric(values.value(layerThickness)).has_value();
+      row.maintainedSand = paleo::singlefactor::parseNumeric(values.value(sandThickness)).has_value();
+      if (row.maintainedSand) row.sandSource = ConstraintWorkflow::tr("井点单因素属性表");
     }
     if (!metrics) continue;
     double top = qQNaN(), base = qQNaN();
@@ -254,8 +258,6 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     } else if (std::isfinite(top) && std::isfinite(base)) {
       row.thicknessReason = ConstraintWorkflow::tr("分层倒置或层厚为零"); row.sandReason = row.thicknessReason;
     }
-    if (row.maintainedThickness) row.thicknessReason = ConstraintWorkflow::tr("维护的层厚为空或不是有限数值");
-    if (row.maintainedSand) row.sandReason = ConstraintWorkflow::tr("维护的砂厚为空或不是有限数值");
     const bool usesRawSand = sandMetric && !row.maintainedSand;
     const bool usesRawTops = !row.maintainedThickness || usesRawSand;
     for (const auto &link : wf->catalog()->linksForEntity(well.id))

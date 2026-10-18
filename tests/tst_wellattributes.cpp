@@ -582,6 +582,38 @@ private slots:
     QVERIFY(!layer->commitChanges());
     QVERIFY(layer->rollBack());
   }
+  // 空格子补齐：种行时没算出值的 NULL 格子（坏口径时期落种），重跑获取后
+  // 补上本次结果；补齐后的非空值照旧不被后续重算覆盖。
+  void seedFactorsFillsOnlyEmptyCells() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QString error;
+    QVERIFY(WellAttributeStore::seedFactors(&f.catalog, f.dir.path(), &f.layers,
+                                            {QVariantMap{{"well_id", "W1"},
+                                                         {"horizon", "D61"}}},
+                                            &error));
+    QVERIFY(WellAttributeStore::seedFactors(&f.catalog, f.dir.path(), &f.layers,
+                                            {QVariantMap{{"well_id", "W1"},
+                                                         {"horizon", "D61"},
+                                                         {"log_layer_thickness_md", 20.0},
+                                                         {"log_sand_thickness_md", 99.0}}},
+                                            &error));
+    const auto row = WellAttributeStore::rows(f.dir.path(), nullptr, true, "W1", "D61")
+                         .first()
+                         .toMap();
+    QCOMPARE(row.value("log_layer_thickness_md").toDouble(), 20.0);
+    QCOMPARE(row.value("log_sand_thickness_md").toDouble(), 99.0);
+    QVERIFY(WellAttributeStore::seedFactors(&f.catalog, f.dir.path(), &f.layers,
+                                            {QVariantMap{{"well_id", "W1"},
+                                                         {"horizon", "D61"},
+                                                         {"log_layer_thickness_md", 55.0}}},
+                                            &error));
+    const auto kept = WellAttributeStore::rows(f.dir.path(), nullptr, true, "W1", "D61")
+                          .first()
+                          .toMap();
+    QCOMPARE(kept.value("log_layer_thickness_md").toDouble(), 20.0);
+  }
   // 砂地比物理域门：维护值组合（砂厚 25/层厚 20——各字段单独合法，属性表
   // 校验不查组合）绕过单字段校验后，提取端必须拒收越界比值井并注明原因，
   // 不静默裁剪、不带病插值；合法比值（15/20=0.75）照常参与。

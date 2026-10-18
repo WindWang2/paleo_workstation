@@ -2,6 +2,7 @@
 // 口径此前零测试）。纯域函数：点要素 + 相 schema + 当前地层名 → 地层范围相结果。
 #include <QtTest>
 #include <QJsonDocument>
+#include <QColor>
 
 #include "domain/faciescatalog.h"
 #include "domain/faciestaxonomy.h"
@@ -37,6 +38,34 @@ class TestFaciesCatalog : public QObject
 {
   Q_OBJECT
 private slots:
+  void optionalTemplatesPreserveDefaultsAndHistoricalClassification() {
+    const auto defaults = FaciesCatalog::defaults();
+    const auto templates = FaciesTaxonomy::templates();
+    QCOMPARE(defaults.size(), 7);
+    QCOMPARE(templates.size(), 43);
+    QCOMPARE(templates.mid(0, defaults.size()), defaults);
+    QVariantList normalized;
+    QString error;
+    QVERIFY2(FaciesTaxonomy::normalize(templates, &normalized, &error), qPrintable(error));
+    QCOMPARE(normalized, templates); // unique codes and full paths, no implicit migration
+    for (const auto &value : templates) {
+      const auto row = value.toMap();
+      QVERIFY(QColor(row.value("color").toString()).isValid());
+      QVERIFY2(!FaciesCatalog::fillPath(row.value("texture").toString()).isEmpty(),
+               qPrintable(row.value("name").toString()));
+    }
+    for (const auto &label : {QStringLiteral("河道充填"), QStringLiteral("浅湖泥"),
+                              QStringLiteral("前三角洲泥")})
+      QVERIFY(!FaciesTaxonomy::resolve(templates, label, &error).isEmpty());
+    const auto historical = FaciesTaxonomy::place(
+        {{"code", 97}, {"name", "河流相"}, {"facies", "河流相"}, {"color", "#123456"}});
+    QCOMPARE(historical.value("code").toInt(), 97);
+    QCOMPARE(historical.value("color").toString(), QString("#123456"));
+    QCOMPARE(historical.value("subfacies").toString(), QStringLiteral("未细分"));
+    QCOMPARE(historical.value("microfacies").toString(), QStringLiteral("未细分"));
+    // Optional templates must not change the fallback for an incomplete old schema.
+    QVERIFY(FaciesTaxonomy::resolve(defaults, QStringLiteral("河道充填")).isEmpty());
+  }
   void legacyShiftedAppearanceColumnsAreRecoveredWithoutChangingInput() {
     const QVariantMap legacy{{"code", 17}, {"name", QStringLiteral("河道充填")},
         {"facies", QStringLiteral("河流相")}, {"subfacies", QStringLiteral("河床亚相")},

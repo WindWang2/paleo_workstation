@@ -42,7 +42,7 @@ void MappingWorkbenchPage::buildFaciesSchema(QWidget *schemaBody) {
   library->setAccessibleName(tr("三级相分类模板"));
   library->setEditable(true);
   library->setInsertPolicy(QComboBox::NoInsert);
-  for (const auto &v : FaciesTaxonomy::library()) {
+  for (const auto &v : FaciesTaxonomy::templates()) {
     auto f = v.toMap();
     library->addItem(
         QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
@@ -50,6 +50,7 @@ void MappingWorkbenchPage::buildFaciesSchema(QWidget *schemaBody) {
   }
   editLayout->addWidget(library);
   auto *useTexture = new QPushButton(tr("应用所选微相及父级归属"), schemaBody);
+  useTexture->setObjectName("applyFaciesTemplate");
   editLayout->addWidget(useTexture);
   connect(useTexture, &QPushButton::clicked, this, [this, library] {
     int row = m_facies->currentRow();

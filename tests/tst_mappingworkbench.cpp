@@ -716,6 +716,40 @@ private slots:
       remaining += tree->topLevelItem(0)->child(i)->childCount();
     QCOMPARE(remaining, 6);
   }
+  void optionalTemplateSelectionKeepsTheProjectCodeAndOtherRows() {
+    Fixture f;
+    QVERIFY(f.init());
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    auto *library = page.findChild<QComboBox *>("faciesTextureLibrary");
+    auto *table = page.findChild<QTableWidget *>("faciesSchema");
+    auto *apply = page.findChild<QPushButton *>("applyFaciesTemplate");
+    QVERIFY(library); QVERIFY(table); QVERIFY(apply);
+    QCOMPARE(library->count(), 43);
+    QCOMPARE(table->rowCount(), 7);
+    int index = -1;
+    for (int i = 0; i < library->count(); ++i)
+      if (library->itemData(i).toMap().value("name").toString() == QStringLiteral("河道充填")) index = i;
+    QVERIFY(index >= 0);
+    table->item(0, 0)->setText("101");
+    table->setCurrentCell(0, 1);
+    library->setCurrentIndex(index);
+    apply->click();
+    QSignalSpy commands(&page, &MappingWorkbenchPage::commandRequested);
+    page.commandButton("schema")->click();
+    QCOMPARE(commands.size(), 1);
+    const auto schema = commands.first()[1].toMap().value("facies").toList();
+    QCOMPARE(schema.size(), 7);
+    QCOMPARE(schema.first().toMap().value("code").toInt(), 101);
+    QCOMPARE(schema.first().toMap().value("facies").toString(), QStringLiteral("河流相"));
+    QCOMPARE(schema.first().toMap().value("subfacies").toString(), QStringLiteral("河床亚相"));
+    QCOMPARE(schema.first().toMap().value("microfacies").toString(), QStringLiteral("河道充填"));
+    for (int i = 1; i < schema.size(); ++i)
+      QCOMPARE(schema[i].toMap().value("microfacies"), FaciesCatalog::defaults()[i].toMap().value("microfacies"));
+    QString error;
+    QVERIFY2(f.work.saveFacies("D61", schema, &error), qPrintable(error));
+    QCOMPARE(f.work.facies("D61").first().toMap().value("code").toInt(), 101);
+  }
   void incompleteClassificationsCannotBeSavedOrPredicted() {
     Fixture f;
     QVERIFY(f.init());

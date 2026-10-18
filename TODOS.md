@@ -1,3 +1,11 @@
+## P3 — 井点因子实际值标注（备份分支需求提取，2026-10-18）
+
+- **What:** 井号与 `factor_value` 双行标注，预览和编图共用规则；保留比值原口径，
+  四舍五入到两位小数（整数不带小数），空值显示“无数据”，禁止以 fid/行号代替实际值。
+- **Context:** 旧草稿只有设计与 `applySamplePoints` 声明，没有实现和接线；完整需求及
+  提取依据见 `docs/progress/wip-salvage-20261018.md`。实施须覆盖数值、空值、舍入及历史结果，
+  不改原始数据。该条为待实现需求，不表示当前已支持。
+
 ## P2 — 新 worktree 首 configure 漏 include 的根因修复（from #484 P2, 2026-10-17）
 
 - - **noteRead 跨线程门覆盖面补全**（#476 后续）：`versions()`/`downstreamClosure`/`mutationSeq`/`catalogPath` 等读接口尚无线程门（当前 18 个 noteRead 点已覆盖高频读面；staging 副本路径全放行）。补齐时同步 tst_catalog liveReads 用例。Effort: S / Priority: P3

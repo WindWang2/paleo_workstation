@@ -7,15 +7,19 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
+#include <QImageWriter>
 #include <QObject>
 #include <QPointer>
 #include <QSet>
+#include <QSaveFile>
 
 #include <memory>
 
 #include <gdal.h>
 
 #include <qgsapplication.h>
+#include <qgsabstractgeopdfexporter.h>
+#include <qgsfillsymbol.h>
 #include <qgscoordinatetransform.h>
 #include <qgslayertree.h>
 #include <qgslayout.h>
@@ -62,6 +66,7 @@ namespace
       case PaleoLayoutExport::Format::Png: ext = "png"; break;
       case PaleoLayoutExport::Format::Pdf: ext = "pdf"; break;
       case PaleoLayoutExport::Format::Svg: ext = "svg"; break;
+      case PaleoLayoutExport::Format::Tiff: ext = "tif"; break;
     }
     const QFileInfo info( path );
     if ( info.suffix().compare( QLatin1String( ext ), Qt::CaseInsensitive ) == 0 )
@@ -122,8 +127,24 @@ namespace
 namespace PaleoLayoutExport
 {
 
+QString formatExtension(Format format) {
+  switch (format) { case Format::Png: return "png"; case Format::Pdf: return "pdf";
+    case Format::Svg: return "svg"; case Format::Tiff: return "tif"; }
+  return {};
+}
+bool formatAvailable(Format format) {
+  if (format != Format::Tiff) return true;
+  const auto supported = QImageWriter::supportedImageFormats();
+  return supported.contains("tiff") || supported.contains("tif");
+}
+bool geoPdfAvailable(QString *reason) {
+  const bool available = QgsAbstractGeospatialPdfExporter::geospatialPDFCreationAvailable();
+  if (!available && reason) *reason = QgsAbstractGeospatialPdfExporter::geospatialPDFAvailabilityExplanation();
+  return available;
+}
+
 ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format format,
-                            double dpi, const PageRange &range )
+                            double dpi, const PageRange &range, const ExportOptions &options )
 {
   ExportOutcome outcome;
 
@@ -138,6 +159,18 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
     return outcome;
   }
 
+  if (!formatAvailable(format)) { outcome.error = QObject::tr("当前运行环境缺少 TIFF 图像编码器"); return outcome; }
+  if (options.worldFile && (format == Format::Png || format == Format::Tiff) &&
+      (!layout->referenceMap() || !layout->referenceMap()->crs().isValid())) {
+    outcome.error = QObject::tr("坐标定位文件需要有效的参考地图和坐标系"); return outcome;
+  }
+  if (options.geoPdf && format == Format::Pdf) {
+    if (!geoPdfAvailable(&outcome.error)) return outcome;
+    auto *reference = layout->referenceMap();
+    if (!reference || !reference->crs().isValid() || reference->crs().type() == Qgis::CrsType::Engineering) {
+      outcome.error = QObject::tr("GeoPDF 需要已配准的地理或投影坐标系"); return outcome;
+    }
+  }
   const QString path = withDefaultExtension( outPath, format );
   outcome.effectivePath = path;
   const int pageCount = layout->pageCollection() ? layout->pageCollection()->pageCount() : 0;
@@ -173,6 +206,16 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
     }
   }
 
+  std::unique_ptr<QgsLayout> transparent;
+  if (options.transparentBackground && (format == Format::Png || format == Format::Tiff)) {
+    transparent = trimmedClone(layout, pages);
+    if (!transparent) { outcome.error = QObject::tr("无法创建透明图件快照"); return outcome; }
+    const auto pageStyle = QgsFillSymbol::createSimple({{"color", "255,255,255,0"}, {"outline_style", "no"}});
+    transparent->pageCollection()->setPageStyleSymbol(pageStyle.get());
+    layout = transparent.get();
+    pages.clear();
+    for (int i = 0; i < layout->pageCollection()->pageCount(); ++i) pages << i;
+  }
   QgsLayoutExporter::ExportResult result = QgsLayoutExporter::Success;
   QString extraError;
 
@@ -186,11 +229,13 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
   switch ( format )
   {
     case Format::Png:
+    case Format::Tiff:
     {
       if ( contiguousFromZero )
       {
         QgsLayoutExporter exporter( layout );
         QgsLayoutExporter::ImageExportSettings settings;
+        settings.generateWorldFile = options.worldFile;
         settings.dpi = dpi;
         settings.pages = pages; // empty would mean "all"; pages always covers All here
         result = exporter.exportToImage( path, settings );
@@ -206,6 +251,7 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
         }
         QgsLayoutExporter exporter( clone.get() );
         QgsLayoutExporter::ImageExportSettings settings;
+        settings.generateWorldFile = options.worldFile;
         settings.dpi = dpi;
         result = exporter.exportToImage( path, settings );
         extraError = resultErrorText( result, exporter );
@@ -218,6 +264,8 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
       {
         QgsLayoutExporter exporter( layout );
         QgsLayoutExporter::PdfExportSettings settings;
+        settings.writeGeoPdf = options.geoPdf;
+        settings.textRenderFormat = options.textAsPaths ? Qgis::TextRenderFormat::AlwaysOutlines : Qgis::TextRenderFormat::AlwaysText;
         settings.dpi = dpi;
         result = exporter.exportToPdf( path, settings );
         extraError = resultErrorText( result, exporter );
@@ -232,6 +280,8 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
         }
         QgsLayoutExporter exporter( clone.get() );
         QgsLayoutExporter::PdfExportSettings settings;
+        settings.writeGeoPdf = options.geoPdf;
+        settings.textRenderFormat = options.textAsPaths ? Qgis::TextRenderFormat::AlwaysOutlines : Qgis::TextRenderFormat::AlwaysText;
         settings.dpi = dpi;
         result = exporter.exportToPdf( path, settings );
         extraError = resultErrorText( result, exporter );
@@ -244,6 +294,7 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
       {
         QgsLayoutExporter exporter( layout );
         QgsLayoutExporter::SvgExportSettings settings;
+        settings.textRenderFormat = options.textAsPaths ? Qgis::TextRenderFormat::AlwaysOutlines : Qgis::TextRenderFormat::AlwaysText;
         settings.dpi = dpi;
         result = exporter.exportToSvg( path, settings );
         extraError = resultErrorText( result, exporter );
@@ -258,6 +309,7 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
         }
         QgsLayoutExporter exporter( clone.get() );
         QgsLayoutExporter::SvgExportSettings settings;
+        settings.textRenderFormat = options.textAsPaths ? Qgis::TextRenderFormat::AlwaysOutlines : Qgis::TextRenderFormat::AlwaysText;
         settings.dpi = dpi;
         result = exporter.exportToSvg( path, settings );
         extraError = resultErrorText( result, exporter );
@@ -297,6 +349,21 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
     }
     siblings.sort();
     outcome.files << siblings;
+    if (options.worldFile && (format == Format::Png || format == Format::Tiff)) {
+      for (const auto &image : outcome.files) {
+        const QFileInfo info(image);
+        const auto base = info.absoluteDir().filePath(info.completeBaseName());
+        for (const auto &extension : QStringList{".pgw", ".tfw", ".wld"})
+          if (QFile::exists(base + extension)) outcome.auxiliaryFiles << base + extension;
+        if (auto *reference = layout->referenceMap(); reference && reference->crs().isValid()) {
+          QSaveFile crs(base + ".prj"); const auto bytes = reference->crs().toWkt().toUtf8();
+          if (!crs.open(QIODevice::WriteOnly) || crs.write(bytes) != bytes.size() || !crs.commit()) {
+            outcome.ok = false; outcome.error = QObject::tr("坐标系配套文件写入失败"); return outcome;
+          }
+          outcome.auxiliaryFiles << base + ".prj";
+        }
+      }
+    }
   }
   else
   {

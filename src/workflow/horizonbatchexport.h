@@ -39,6 +39,7 @@ struct Request
   QString projectDir;                //!< catalog 受管区根（必填）
   double dpi = 300.0;
   Format format = Format::Png;
+  QString outputDirectory;           //!< optional new external batch directory (async path)
   QString date;                      //!< 文件名日期段（yyyyMMdd；空 = 当天）
 };
 
@@ -50,6 +51,7 @@ struct HorizonOutcome
   QString assetId;  //!< catalog 资产 id（成功时）
   QString sha256;   //!< 成品摘要（成功时）
   QString error;    //!< 人读原因（失败时）
+  QStringList files, assetIds;        //!< all pages/products; file/assetId remain the primary
 };
 
 struct Result
@@ -57,6 +59,7 @@ struct Result
   int total = 0;
   int succeeded = 0;
   int failed = 0;
+  QString directory;
   QVector<HorizonOutcome> horizons; //!< 与请求键集同序（按名排序）
   QString summary() const;          //!< 一行人读进度
 };

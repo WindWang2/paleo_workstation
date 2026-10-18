@@ -12,6 +12,10 @@
 #include "../catalog/datacatalog.h"
 #include "../workflow/mappingworkflow.h"
 #include "../workflow/mapexport.h"
+#include "../workflow/geologicalexport.h"
+#include "../services/dataexport.h"
+#include "../qgis/geologicalmaplayout.h"
+#include "dialogs/geologicalexportdialog.h"
 #include "../workflow/mapversioncontroller.h"
 #include "evolution/evolutionplayerpanel.h"
 #include "layout/layoutexportactions.h"
@@ -19,6 +23,9 @@
 #include "pages/pagepanels.h"
 
 #include <qgsmapcanvas.h>
+#include <qgslayoutitemlabel.h>
+#include <qgsmaplayer.h>
+#include <qgsproject.h>
 #include <qgslayoutitemmap.h>
 #include <qgsprintlayout.h>
 #include <qgsmessagelog.h>
@@ -233,60 +240,85 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
   // 层位图 PDF（阶段C+E）：导出 → catalog OUTPUT 资产登记 → 布局产物记录 →
   // 发布门重算。失败弹「导出失败 + 原因 + 重试」；成功弹路径 + SHA-256。
   connect(composePage, &ComposePage::exportPdfRequested, this,
-          [this, versionStore, projectData, catalog, activeHorizon, status]() {
-            const QString h = activeHorizon();
-            if (h.isEmpty() || !m_layerSvc)
-            {
-              status(tr("先在顶部 chip 选择层位再导出"));
-              return;
-            }
-            const QString projectDir = m_projectSvc
-                                           ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
-                                           : QDir::temp().absolutePath();
-            const QString target = QDir(projectDir).filePath(
-                QStringLiteral("%1_map.pdf").arg(h));
-            QString error;
-            std::unique_ptr<QgsPrintLayout> layout(
-                buildHorizonMapLayout(m_layerSvc, m_projectSvc, h, &error));
-            if (!layout) {
-              status(error);
-              return;
-            }
-            if (auto *map = qobject_cast<QgsLayoutItemMap *>(
-                    layout->itemById(QStringLiteral("map"))))
-              pinLayoutTheme(map, QStringLiteral("compose"));
-            auto *task = startMapLayoutExport(
-                layout.get(), m_taskSvc, catalog, projectDir, target, this,
-                [this, versionStore, status, h,
-                 target](const MapProductExportOutcome &outcome) {
-                  if (outcome.cancelled) {
-                    status(tr("层位图导出已取消或工程已切换"));
-                    return;
-                  }
-                  if (outcome.assetId.isEmpty()) {
-                    status(outcome.error.isEmpty()
-                               ? tr("层位图导出失败，请重试")
-                               : outcome.error);
-                    return;
-                  }
-                  if (versionStore) {
-                    QString error;
-                    if (!versionStore->recordLayoutProduct(
-                            h, outcome.managedPath, outcome.assetId,
-                            outcome.sha256, &error))
-                      QgsMessageLog::logMessage(error, QStringLiteral("Paleo"),
-                                                Qgis::MessageLevel::Warning);
-                  }
-                  status(tr("层位图已导出：%1").arg(target));
-                  PaleoNotify::report(this, tr("导出成功"),
-                                      tr("已导出层位图：\n%1\n\nSHA-256：%2")
-                                          .arg(target, outcome.sha256));
-                  if (m_refreshPublishGate)
-                    m_refreshPublishGate();
-                },
-                &error);
-            status(task ? tr("层位图正在后台导出，可在任务中心查看") : error);
-          });
+          [this, versionStore, catalog, activeHorizon, status]() {
+    const auto horizon = activeHorizon();
+    auto *canvas = m_canvasCtl ? m_canvasCtl->canvas() : nullptr;
+    if (!canvas || !m_projectSvc || !m_projectSvc->project() || !catalog || !catalog->isOpen()) {
+      status(tr("请先打开工程并选择地图")); return;
+    }
+    auto *project = m_projectSvc->project();
+    const auto layers = canvas->layers();
+    const auto extent = canvas->extent();
+    const auto session = m_taskSvc ? m_taskSvc->session() : 0;
+    QPointer<QgsProject> projectGuard(project);
+    QList<QPointer<QgsMapLayer>> layerGuards;
+    for (auto *layer : layers) layerGuards << layer;
+    PaleoGeologicalMapLayout::Settings settings;
+    settings.horizon = horizon;
+    settings.kind = PaleoStandardElements::FigureKind::WellPosition;
+    QString primaryName;
+    for (auto *layer : layers) {
+      const auto id = layer->customProperty("paleoLayerId").toString();
+      if (id.startsWith("facies.") || (m_layerSvc && m_layerSvc->declaration(id).group == "05_PaleoMap")) {
+        settings.kind = PaleoStandardElements::FigureKind::Facies; primaryName = layer->name(); break;
+      }
+      if (layer->type() == Qgis::LayerType::Raster && layer->providerType() == "gdal") {
+        settings.kind = PaleoStandardElements::FigureKind::SingleFactor; primaryName = layer->name();
+      }
+    }
+    settings.title = (horizon + " " + PaleoStandardElements::figureKindTitle(settings.kind)).trimmed();
+    if (!primaryName.isEmpty()) settings.subtitle = tr("层位：%1 · %2 · 当前地图快照").arg(horizon, primaryName);
+    settings.rotation = canvas->rotation();
+    settings.version = versionStore && !horizon.isEmpty() ? versionStore->currentVersion(horizon) : 0;
+    settings.author = project->customVariables().value("paleoAuthor").toString();
+    settings.reviewer = project->customVariables().value("paleoReviewer").toString();
+    QStringList inputs, unbound;
+    QStringList paths;
+    for (auto *layer : layers) paths << layer->source().section('|', 0, 0);
+    const auto pathVersions = paleo::exporting::versionIdsForPaths(*catalog, paths);
+    for (auto *layer : layers) {
+      const auto explicitVersion = layer->customProperty("paleoVersionId").toString();
+      if (!explicitVersion.isEmpty() && !catalog->versionById(explicitVersion).id.isEmpty()) {
+        inputs << explicitVersion; continue;
+      }
+      const auto matches = pathVersions.value(layer->source().section('|', 0, 0));
+      if (matches.size() == 1) inputs << matches.first();
+      else unbound << layer->name();
+    }
+    inputs.removeDuplicates();
+    GeologicalExportDialog dialog(settings,
+        [projectGuard, layerGuards, extent](const PaleoGeologicalMapLayout::Settings &settings, QString *error) -> QgsPrintLayout * {
+          QList<QgsMapLayer *> current;
+          for (const auto &layer : layerGuards) {
+            if (!layer) { if (error) *error = tr("地图数据已变化，请重新打开导出"); return nullptr; }
+            current << layer.data();
+          }
+          return PaleoGeologicalMapLayout::build(projectGuard, current, extent, settings, error);
+        }, !inputs.isEmpty(), this, unbound);
+    if (dialog.exec() != QDialog::Accepted) return;
+    if (!m_taskSvc || m_taskSvc->session() != session || !projectGuard) { status(tr("工程已切换，请重新打开导出")); return; }
+    auto request = dialog.request();
+    request.sourceVersionIds = inputs;
+    request.context = {{"project", project->title()}, {"horizon", horizon},
+        {"map_version", settings.version}, {"scope", "current_visible_saved_layers"},
+        {"unbound_layers", unbound}, {"validation", "unverified"}};
+    QString error;
+    auto *task = PaleoGeologicalExport::start(dialog.layout(), catalog, m_taskSvc, request, this,
+        [this, versionStore, status, horizon](const PaleoGeologicalExport::Result &result) {
+      if (result.cancelled) { status(tr("图件导出已取消或工程已切换")); return; }
+      if (!result.error.isEmpty()) { status(result.error); PaleoNotify::warning(this, tr("图件导出失败"), result.error); return; }
+      if (versionStore && !horizon.isEmpty() && !result.pdfAssetId.isEmpty()) {
+        QString error;
+        if (!versionStore->recordLayoutProduct(horizon, result.pdfPath, result.pdfAssetId, result.pdfSha256, &error))
+          PaleoNotify::warning(this, tr("图件登记"), error);
+      }
+      const auto summary = tr("已导出 %1 个文件：%2").arg(result.files.size()).arg(result.directory);
+      status(summary);
+      PaleoNotify::report(this, tr("地质图导出完成"), summary + "\n" + result.warnings.join("\n"));
+      if (m_refreshPublishGate) m_refreshPublishGate();
+    }, &error);
+    status(task ? tr("地质图正在后台导出，可在任务中心查看进度或取消") : error);
+  });
 
   // 方向35：演化动览「定格导出」——当前帧（activeHorizon 的画布现状）抓 PNG
   // 落 catalog OUTPUT 受管资产（PNG 须显式登记为 png，不冒充 pdf）。catalog

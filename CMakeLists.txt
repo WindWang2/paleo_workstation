@@ -492,6 +492,8 @@ add_library(paleo_qgis STATIC
   src/qgis/geopatterns.cpp                           # 方向31：地质符号语义注册表（花纹/线型词表 + 符号构造）
   src/qgis/semanticlegend.cpp                        # 方向31：语义图例自动生成（渲染器类目→swatch+词面，增删/renderer 联动）
   src/qgis/qgislayoutservice.cpp
+  src/qgis/geologicalmaplayout.cpp
+  src/qgis/dataexportwriter.cpp
   src/qgis/layoutexport.cpp                         # 层位图/设计器导出核心（QgsLayoutExporter 封装）
   src/qgis/standardelements.cpp                     # 标准图件元素工厂 + 三类内置内容模板骨架（方向 25）
   src/qgis/mapbooklayout.cpp                        # 地图册：逐格/蒙太奇/索引页版面构建 + 落盘回读校验
@@ -557,6 +559,7 @@ target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
   src/services/datagraph_layout.cpp
+  src/services/dataexport.cpp
   src/services/datagraph.cpp
   src/services/toolavailability.cpp
   src/services/previewdoc.cpp                       # W1 数据页唯一数据门面
@@ -596,6 +599,8 @@ add_library(paleo_linkage STATIC
 target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
 
 add_library(paleo_workflow STATIC
+  src/workflow/geologicalexport.cpp
+  src/workflow/dataexportworkflow.cpp
   src/workflow/datagraphworkflow.cpp
   src/workflow/derivationworkflow.cpp
   src/workflow/officepreviewsession.cpp
@@ -689,6 +694,8 @@ add_library(paleo_ui STATIC
   src/ui/pages/datalist_tree.cpp                   # 数据页·树形层级与分组
   src/ui/pages/datalist_select.cpp                 # 数据页·选中集管理与联动
   src/ui/pages/datalist_filter.cpp                 # 数据页·多维组合过滤与搜索
+  src/ui/dialogs/geologicalexportdialog.cpp
+  src/ui/dialogs/dataexportdialog.cpp
   src/ui/pages/datalist_batch.cpp                  # 数据页·批量操作与上下文菜单
   src/ui/pages/datalist_association.cpp
   src/ui/pages/datalist_dnd.cpp                    # 数据页·拖拽与外部文件处理
@@ -1239,6 +1246,8 @@ add_paleo_test(tst_storagegovernance LIBS paleo_workflow)
 add_paleo_test(tst_assetpaging LIBS paleo_ui)
 target_link_libraries(tst_assetpaging PRIVATE ${CMAKE_DL_LIBS})
 add_paleo_test(tst_cataloghealth LIBS paleo_services)   # 体检召回（缺失/SHA/未决/孤立/无版本）
+add_paleo_test(tst_dataexport LIBS paleo_workflow)
+add_paleo_test(tst_exportpipeline LIBS paleo_ui)
 add_paleo_test(tst_assetops LIBS paleo_workflow)        # 版本回滚/对比 + 物理清理 + 未决归位
 add_paleo_test(tst_previewdoc LIBS paleo_services paleo_qgis)
 target_compile_definitions(tst_previewdoc PRIVATE

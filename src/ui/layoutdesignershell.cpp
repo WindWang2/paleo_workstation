@@ -419,9 +419,8 @@ void PaleoLayoutDesignerShell::buildChrome()
 void PaleoLayoutDesignerShell::buildFileMenu()
 {
   QMenu *file = fileMenu();
-  file->addAction( m_exportActions->exportPngAction() );
-  file->addAction( m_exportActions->exportPdfAction() );
-  file->addAction( m_exportActions->exportSvgAction() );
+  file->addActions({m_exportActions->exportPngAction(), m_exportActions->exportPdfAction(),
+                    m_exportActions->exportSvgAction(), m_exportActions->exportTiffAction()});
   file->addSeparator();
   file->addAction( m_templates->saveAsTemplateAction() );
   file->addAction( m_templates->loadFromTemplateAction() );

@@ -45,6 +45,17 @@ struct SyncOptions {
   qint64 maxRowsPerVersion = 2000000;    // 每版本展开行数上界（特征×记录）
 };
 
+// Read-only provenance consumer; shares the index parser, never writes the
+// rebuildable SQLite index or changes the source GeoPackage.
+struct VersionEvidence {
+  QVector<Entry> entries;
+  QString error;
+  int corruptRecords = 0;
+  bool truncated = false, cancelled = false;
+};
+VersionEvidence readVersionEvidence(const CatalogVersion &version, const QString &path,
+    const std::function<bool()> &cancel = {}, const SyncOptions &options = {});
+
 class Index {
   public:
     Index() = default;

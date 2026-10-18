@@ -404,6 +404,27 @@ QVector<Row> readVersion(const CatalogVersion &version, const QString &filePath,
 }
 } // namespace
 
+VersionEvidence readVersionEvidence(const CatalogVersion &version, const QString &path,
+    const std::function<bool()> &cancel, const SyncOptions &options) {
+  VersionEvidence result;
+  const auto rows = readVersion(version, path,
+      layerNameFromSuffix(version.extra.value("source_suffix").toString()),
+      &result.corruptRecords, &result.error, cancel, &result.cancelled, options, &result.truncated);
+  for (const auto &row : rows) {
+    Entry entry;
+    entry.versionId = row.versionId; entry.assetId = row.assetId;
+    entry.layerId = row.layerId; entry.title = row.title; entry.horizon = row.horizon;
+    entry.featureUid = row.featureUid; entry.evidenceId = row.evidenceId;
+    entry.evidenceType = row.evidenceType; entry.role = row.role; entry.text = row.text;
+    entry.interpretationId = row.interpretationId; entry.assertionId = row.assertionId;
+    entry.reviewState = row.reviewState; entry.sourceVersion = row.sourceVersion;
+    entry.sourceFeatureUid = row.sourceFeatureUid; entry.actorId = row.actorId;
+    entry.identityReview = row.identityReview; entry.unlinked = row.unlinked;
+    result.entries.append(entry);
+  }
+  return result;
+}
+
 Index::~Index() { close(); }
 
 bool Index::open(const QString &projectDir, QString *error) {

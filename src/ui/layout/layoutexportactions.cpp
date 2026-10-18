@@ -52,6 +52,8 @@ namespace
         return QObject::tr( "PNG 图像 (*.png)" );
       case PaleoLayoutExportActions::Format::Pdf:
         return QObject::tr( "PDF 文档 (*.pdf)" );
+      case PaleoLayoutExportActions::Format::Tiff:
+        return QObject::tr("TIFF 图像 (*.tif)");
       case PaleoLayoutExportActions::Format::Svg:
         return QObject::tr( "SVG 文档 (*.svg)" );
     }
@@ -204,6 +206,11 @@ PaleoLayoutExportActions::PaleoLayoutExportActions( QObject *parent )
   m_pdfAction->setObjectName( QStringLiteral( "actionExportLayoutPdf" ) );
   connect( m_pdfAction, &QAction::triggered, this, [this] { runExportUi( Format::Pdf ); } );
 
+  m_tiffAction = new QAction(tr("导出为 &TIFF…"), this);
+  m_tiffAction->setObjectName("actionExportLayoutTiff");
+  m_tiffAction->setEnabled(PaleoLayoutExport::formatAvailable(Format::Tiff));
+  if (!m_tiffAction->isEnabled()) m_tiffAction->setToolTip(tr("当前环境缺少 TIFF 图像编码器"));
+  connect(m_tiffAction, &QAction::triggered, this, [this] { runExportUi(Format::Tiff); });
   m_svgAction = new QAction( tr( "导出为 &SVG…" ), this );
   m_svgAction->setObjectName( QStringLiteral( "actionExportLayoutSvg" ) );
   connect( m_svgAction, &QAction::triggered, this, [this] { runExportUi( Format::Svg ); } );
@@ -211,6 +218,7 @@ PaleoLayoutExportActions::PaleoLayoutExportActions( QObject *parent )
 
 QAction *PaleoLayoutExportActions::exportPngAction() { return m_pngAction; }
 QAction *PaleoLayoutExportActions::exportPdfAction() { return m_pdfAction; }
+QAction *PaleoLayoutExportActions::exportTiffAction() { return m_tiffAction; }
 QAction *PaleoLayoutExportActions::exportSvgAction() { return m_svgAction; }
 
 void PaleoLayoutExportActions::setTaskService( PaleoTaskService *service )
@@ -302,10 +310,10 @@ void PaleoLayoutExportActions::runExportUi( Format format )
 void PaleoLayoutExportActions::setInFlight( bool inFlight )
 {
   m_inFlight = inFlight;
-  for ( QAction *action : { m_pngAction, m_pdfAction, m_svgAction } )
+  for ( QAction *action : { m_pngAction, m_pdfAction, m_svgAction, m_tiffAction } )
   {
     if ( action )
-      action->setEnabled( !inFlight );
+      action->setEnabled( !inFlight && (action != m_tiffAction || PaleoLayoutExport::formatAvailable(Format::Tiff)) );
   }
 }
 

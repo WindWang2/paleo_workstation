@@ -401,7 +401,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     navPanel(cat);
 
     SARibbonPanel *op = panel(cat, tr("图件输出"), "ribbonPanel.compose.output");
-    addLarge(op, mirrored(compose, "exportPdfButton", tr("导出 PDF"), icon("mActionSaveAsPDF.svg"),
+    addLarge(op, mirrored(compose, "exportPdfButton", tr("导出地质图"), icon("mActionSaveAsPDF.svg"),
                        "ribbonExportPdf"));
     if (QAction *designer = findChild<QAction *>(QStringLiteral("ribbonDesignerAction")))
     {

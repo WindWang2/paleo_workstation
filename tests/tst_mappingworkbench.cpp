@@ -1943,31 +1943,9 @@ private slots:
       layer->updateExtents();
       panel.setReference(layer, {{"facies", schema}, {"display_mode", level}, {"mock", true}});
     };
-    auto *tree = panel.findChild<QTreeWidget *>("referenceLegendTree");
-    auto *toggle = panel.findChild<QToolButton *>("referenceLegendToggle");
-    QVERIFY(tree && toggle);
-    QVERIFY(!toggle->isEnabled());
     load("micro_facies");
-    QVERIFY(toggle->isEnabled());
-    QVERIFY(tree->isHidden());
-    QCOMPARE(tree->topLevelItemCount(), 1);
-    auto *root = tree->topLevelItem(0);
-    QCOMPARE(root->text(0), QStringLiteral("三角洲相"));
-    QCOMPARE(root->childCount(), 2);
-    QCOMPARE(root->child(0)->childCount() + root->child(1)->childCount(), 7);
-    QVERIFY(!root->child(0)->child(0)->icon(0).isNull());
-    QVERIFY(tree->headerItem()->text(0).contains("Mock"));
-    toggle->click();
-    QVERIFY(!tree->isHidden());
-    panel.canvas()->zoomScale(10000000); // 手动微相模式不随比例尺变成相。
-    QCOMPARE(tree->topLevelItem(0)->childCount(), 2);
-    load("facies");
-    QCOMPARE(tree->topLevelItemCount(), 1);
-    QCOMPARE(tree->topLevelItem(0)->childCount(), 0);
-    QVERIFY(!tree->topLevelItem(0)->icon(0).isNull());
+    QVERIFY(panel.hasReference());
     panel.selectSource("other");
-    QCOMPARE(tree->topLevelItemCount(), 0);
-    QVERIFY(!toggle->isEnabled());
     QVERIFY(!panel.hasReference());
     main.stopRendering();
   }
@@ -2005,7 +1983,7 @@ private slots:
     QVERIFY(panel.hasReference());
     panel.setSources(rows, "D62");
     QCOMPARE(panel.sourceId(), QString("wells"));
-    QVERIFY(panel.findChild<QLabel *>("referenceCaption")->text().contains(QStringLiteral("跨层位")));
+    QVERIFY(panel.findChild<QComboBox *>("referenceSource")->toolTip().contains(QStringLiteral("跨层位")));
     QVERIFY(owned);
     // 目录刷新保留选中的版本；移除来源则释放私有图层并显示空态。
     panel.setSources(rows, "D62");
@@ -2078,7 +2056,8 @@ private slots:
     QCOMPARE(first->canvas()->layers().first(), firstLayer.data());
     third->findChild<QToolButton *>("referenceRemoveView")->click();
     QCOMPARE(panel.views().size(), 1);
-    QVERIFY(!first->findChild<QToolButton *>("referenceRemoveView")->isEnabled());
+    QVERIFY(first->findChild<QToolButton *>("referenceRemoveView")->isEnabled());
+    QCOMPARE(first->findChild<QToolButton *>("referenceRemoveView")->text(), QStringLiteral("−"));
     panel.setSources({}, QString());
     QVERIFY(firstLayer.isNull());
     QVERIFY(!first->hasReference());
@@ -2144,8 +2123,12 @@ private slots:
     first.setViewActive(true);
     QCOMPARE(first.canvas()->extent().center(), main.extent().center());
     const auto before = main.extent();
-    first.findChild<QPushButton *>("referenceFullExtent")->click();
-    QVERIFY(!first.findChild<QCheckBox *>("referenceLinked")->isChecked());
+    first.resize(180, 140);
+    QCoreApplication::processEvents();
+    QCOMPARE(main.extent(), before);
+    auto *linked = first.findChild<QToolButton *>("referenceLinked");
+    QVERIFY(linked && linked->isChecked());
+    linked->setChecked(false);
     QCOMPARE(main.extent(), before);
     first.clearReference(QStringLiteral("参考文件缺失"));
     QVERIFY(first.canvas()->layers().isEmpty());

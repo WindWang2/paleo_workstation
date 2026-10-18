@@ -1994,7 +1994,7 @@ class TestUiShell : public QObject
       m_win->showPage("predict");
       page->commandButton("compare")->click();auto *ref=referenceDock();QVERIFY(ref);auto *referenceCanvas=ref->findChild<QgsMapCanvas *>("referenceCanvas");QVERIFY(referenceCanvas);QCOMPARE(referenceCanvas->layers().size(),1);QPointer<QgsMapLayer> reference=referenceCanvas->layers().first();QVERIFY(reference!=layer);
       auto *display=page->findChild<QComboBox *>("faciesDisplayLevel"); QVERIFY(display); display->setCurrentIndex(1); QVERIFY(decor->legendTitle().contains(QStringLiteral("相（1 级）")));
-      auto *linked=ref->findChild<QCheckBox *>("referenceLinked"); QVERIFY(linked && linked->isChecked());
+      auto *linked=ref->findChild<QToolButton *>("referenceLinked"); QVERIFY(linked && linked->isChecked());
       auto *mainCanvas=m_ctx->canvasCtl()->canvas(); mainCanvas->setExtent(QgsRectangle(100,200,400,500));
       QCOMPARE(referenceCanvas->extent().center(),mainCanvas->extent().center());
       linked->setChecked(false); const auto independentExtent=referenceCanvas->extent(); mainCanvas->setExtent(QgsRectangle(200,300,500,600)); QCOMPARE(referenceCanvas->extent(),independentExtent);

@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "mapcanvaslink.h"
 #include <QScopedValueRollback>
+#include <cmath>
 #include <qgscoordinatetransform.h>
 #include <qgsexception.h>
 #include <qgsmapcanvas.h>
@@ -47,23 +48,40 @@ void MapCanvasLink::setEnabled(bool enabled) {
 void MapCanvasLink::sync(QgsMapCanvas *source, QgsMapCanvas *target) {
   if (!m_enabled || m_syncing || !m_main || !m_reference)
     return;
+  // 联动打开时只认主画布。证据画布变大小或被拖动，不能把范围写回主图。
+  if (source != m_main) {
+    sync(m_main, m_reference);
+    return;
+  }
   QScopedValueRollback<bool> guard(m_syncing, true);
-  auto extent = source->extent();
+  Q_UNUSED(target);
+  const double mupp = m_main->mapUnitsPerPixel();
+  const QgsPointXY center = m_main->extent().center();
+  QgsRectangle extent;
+  if (mupp > 0.0 && std::isfinite(mupp) && m_reference->width() > 1 &&
+      m_reference->height() > 1) {
+    const double halfW = m_reference->width() * mupp / 2.0;
+    const double halfH = m_reference->height() * mupp / 2.0;
+    extent = QgsRectangle(center.x() - halfW, center.y() - halfH, center.x() + halfW,
+                          center.y() + halfH);
+  } else {
+    extent = m_main->extent();
+  }
   try {
-    if (source->mapSettings().destinationCrs() !=
-        target->mapSettings().destinationCrs()) {
+    if (m_main->mapSettings().destinationCrs() !=
+        m_reference->mapSettings().destinationCrs()) {
       QgsCoordinateTransform transform(
-          source->mapSettings().destinationCrs(),
-          target->mapSettings().destinationCrs(),
-          source->mapSettings().transformContext());
+          m_main->mapSettings().destinationCrs(),
+          m_reference->mapSettings().destinationCrs(),
+          m_main->mapSettings().transformContext());
       extent = transform.transformBoundingBox(extent);
     }
   } catch (const QgsCsException &) {
     return;
   }
   if (!extent.isEmpty()) {
-    target->setExtent(extent);
-    target->refresh();
+    m_reference->setExtent(extent);
+    m_reference->refresh();
   }
 }
 void MapCanvasLink::cursor(QgsMapCanvas *source, QgsMapCanvas *target,

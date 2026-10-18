@@ -5,7 +5,6 @@
 #include <QVariantMap>
 #include <QWidget>
 
-class QCheckBox;
 class QComboBox;
 class QLabel;
 class QPushButton;
@@ -53,9 +52,8 @@ private:
   MappingReferenceCanvas *m_view = nullptr;
   QComboBox *m_sources = nullptr;
   QToolButton *m_remove = nullptr;
-  QCheckBox *m_linked = nullptr;
-  QPushButton *m_fullExtent = nullptr;
-  QLabel *m_caption = nullptr, *m_empty = nullptr;
+  QToolButton *m_linked = nullptr;
+  QLabel *m_empty = nullptr;
   QVariantList m_rows;
   QVariantMap m_metadata;
   QString m_activeHorizon;

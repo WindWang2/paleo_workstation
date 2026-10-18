@@ -3600,9 +3600,12 @@ private slots:
     QCOMPARE(mapping[1].toMap().value("vote_count").toInt(), 2);
     QCOMPARE(mapping[1].toMap().value("facies_code").toInt(), 2);
     auto *raster = qobject_cast<QgsRasterLayer *>(f.layers.instantiate(id, &error)); QVERIFY(raster);
+    // B-01（2026-10-19 审计第三轮）：SMI 点栅格 extent 半格外扩后，相图
+    // 栅格像素中心对齐到样本点本身（x=10·c）——旧配准像素中心在样本间
+    // 半格处（x=10·c+5），正是被修复的半道间距错位。采样点随配准校正。
     for (int column = 0; column < 4; ++column) {
       bool ok = false;
-      const double code = raster->dataProvider()->sample(QgsPointXY(column * 10 + 5, 65), 1, &ok);
+      const double code = raster->dataProvider()->sample(QgsPointXY(column * 10, 65), 1, &ok);
       QVERIFY(ok); QCOMPARE(int(code), column % 2 == 0 ? 7 : 2);
     }
   }

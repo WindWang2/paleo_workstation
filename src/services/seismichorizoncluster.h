@@ -16,6 +16,9 @@ struct SeismicClusterResult {
   int validCells = 0;
   QString crsWkt;
   QString error;
+  // 覆盖缩水的如实留痕（B-06）：读取失败的 inline 整条缺席，与「本来没有」
+  // 不可区分——调用方应把 warnings 呈现给用户/QC。
+  QStringList warnings;
   QVariantList clusterMapping, supportingWells;
   QStringList wellVersionIds;
 };

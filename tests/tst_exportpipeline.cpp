@@ -99,6 +99,21 @@ private slots:
     QVERIFY(first != other); QCOMPARE(cat.currentVersion(first).sha256, cat.currentVersion(other).sha256);
     QCOMPARE(registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", "D61"), first); QCOMPARE(cat.assets().size(), 2);
   }
+  void projectLevelExportDoesNotStealHorizonScopedVersion() {
+    // C-01 回归：空层位（工区级）导出不得复用带层位登记的既有同字节版本——
+    // 复用+按本层位回写 extra 会把既有版本的层位归属清空，下游按 horizon
+    // 归集错位。期望：新资产登记，既有版本层位保持不变。
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path()));
+    QImage image(24, 24, QImage::Format_ARGB32); image.fill(Qt::darkGray); const auto path = tmp.filePath("scoped.png"); QVERIFY(image.save(path)); QString error;
+    const auto scoped = registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", "D61"); QVERIFY2(!scoped.isEmpty(), qPrintable(error));
+    QCOMPARE(cat.currentVersion(scoped).extra.value("horizon").toString(), QLatin1String("D61"));
+    const auto projectLevel = registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", QString()); QVERIFY2(!projectLevel.isEmpty(), qPrintable(error));
+    QVERIFY(projectLevel != scoped); QCOMPARE(cat.assets().size(), 2);
+    QCOMPARE(cat.currentVersion(scoped).extra.value("horizon").toString(), QLatin1String("D61"));
+    QCOMPARE(cat.currentVersion(projectLevel).extra.value("horizon").toString(), QString());
+    // 同域重导仍正确 dedup：工区级第二次注册复用工区级资产。
+    QCOMPARE(registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", QString()), projectLevel);
+  }
   void changedInputCannotBeRegisteredAsAHistoricalMap() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     const auto path = tmp.filePath("input.dat");

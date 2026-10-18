@@ -35,7 +35,22 @@
 #   差额 1 条在 docs/ci/known-reds.json 登记（issue #533）待 src/qgis 薄壳
 #   与视图层边界的计数口径裁决（该文件不属本岗可改范围）。
 #   heavy_* 与 func 实测 = 冻结，无缺口。
+# ---- 2026-10-18 #558 扇出根削减后 re-pin：heavy_tus 87→50 ----
+# 两条头扇出根落地削除（issue #558 建议 1）：
+#   根一（paleomainwindow.h 值成员/unique_ptr 完整类型依赖撤出）：
+#     propertymodelworkflow.h / faciesmappingworkflow.h /
+#     petrophyscomputeservice.h 不再被主窗头扇出——algorithms/{geostat,
+#     stratgrid,faciesmapping}/* 与 petrophys 的 29-30 TU 出闸链消失，
+#     实测 heavy_tus 88→69（master 实测曾 +1 漂移至 88，随本批归位）。
+#   根二（workflows.h 三段式 job 族外提 constraintjobs.h）：
+#     singlefactor/types.h 经 workflows.h 的 28-TU 出闸边消失，随迁到
+#     constraintjobs.h 的 4 TU（真实构造点：constraintworkflow/
+#     constraintfactorjobs* / paleomainwindow_attach_constraint），
+#     实测 heavy_tus 69→50。
+# heavy_edges 维持 52：workflows.h 出闸边由 constraintjobs.h 等价替换
+#（出闸边数不变，受染面 28→4）；func/ui 两指标无变化（ui 差额 1 条仍为
+# #533 known-red，见 docs/ci/known-reds.json）。
 func_qtwidgets_edges: 0
 ui_qtwidgets_notes: 6
 heavy_edges: 52
-heavy_tus: 87
+heavy_tus: 50

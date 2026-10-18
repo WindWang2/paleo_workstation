@@ -1,12 +1,15 @@
 // 层：视图
 // paleomainwindow_attach_models — 属性建模/相图/时深转换接线（W4 拆分段）
 #include "paleomainwindow.h"
+#include "paleomainwindow_runners.h" // #558：PropModel/FaciesMapping RunState（runner/job/computed 完整类型）
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgislayerservice.h"
 #include "layers/layertreepanel.h"
 #include "../workflow/depthconversionworkflow.h"
 #include "../workflow/propertymodelworkflow.h"
+#include "../workflow/faciesmappingworkflow.h" // DraftFaciesJob/Request（#558 起本 TU 显式持有，不再经 paleomainwindow.h）
+#include "../services/jobrunner.h"            // JobRunnerBase::jobCompleted 接线（同上）
 #include "../workflow/faultinterpretationcontroller.h"
 #include "propertymodel/propertymodelpanel.h"
 #include "faciesmapping/faciesmappingpanel.h"
@@ -108,7 +111,7 @@ void PaleoMainWindow::attachFaciesMapping(FaciesMappingWorkflow *wf)
   m_faciesMappingDock->hide();
 
   connect(m_faciesMappingPanel, &FaciesMappingPanel::cancelRequested, this, [this]() {
-    m_faciesMappingRunner.requestCancel();
+    faciesMappingRun()->runner.requestCancel();
     if (m_faciesMappingTask)
       m_faciesMappingTask->requestCancel();
   });
@@ -167,10 +170,10 @@ void PaleoMainWindow::attachFaciesMapping(FaciesMappingWorkflow *wf)
               // JobRunner 三段式：compute 在任务池 worker，commit 回 owner 线程
               //（catalog 登记线程亲和由框架断言）。进度接 PaleoTask::changed 读
               // stagePercent()/stage()——不再把面板指针传进 worker（#163 形态）。
-              m_faciesMappingRunner.setTaskService(m_taskSvc);
-              m_faciesMappingJob.reset();
+              faciesMappingRun()->runner.setTaskService(m_taskSvc);
+              faciesMappingRun()->job.reset();
               m_faciesMappingTask = m_faciesMappingWf->startJob(
-                  m_faciesMappingRunner, request, &m_faciesMappingJob);
+                  faciesMappingRun()->runner, request, &faciesMappingRun()->job);
               if (m_faciesMappingTask)
               {
                 connect(m_faciesMappingTask.data(), &PaleoTask::changed, this,
@@ -208,8 +211,8 @@ void PaleoMainWindow::attachFaciesMapping(FaciesMappingWorkflow *wf)
               m_faciesMappingPanel->showResult(false, computed.error);
               return;
             }
-            m_faciesMappingJob = std::make_shared<FaciesMappingWorkflow::DraftFaciesJob>();
-            m_faciesMappingJob->computed = std::move(computed);
+            faciesMappingRun()->job = std::make_shared<FaciesMappingWorkflow::DraftFaciesJob>();
+            faciesMappingRun()->job->computed = std::move(computed);
             finishFaciesMappingRun();
           });
 }
@@ -226,7 +229,7 @@ void PaleoMainWindow::finishFaciesMappingRun()
   // 三段式 commit 段成功时结果已在 job 里回填；同步兜底路径由调用方先行
   // commit 再进这里（同 finishPropertyModelRun 的判据口径）。
   const FaciesMappingWorkflow::DraftFaciesComputed *computed =
-      m_faciesMappingJob ? &m_faciesMappingJob->computed : nullptr;
+      faciesMappingRun()->job ? &faciesMappingRun()->job->computed : nullptr;
   if (cancelled)
   {
     m_faciesMappingPanel->showResult(false, tr("已取消"));
@@ -271,6 +274,29 @@ void PaleoMainWindow::finishFaciesMappingRun()
         tr("草稿相图完成：%1 个单元，QA 问题 %2 条").arg(regionCount).arg(issues), 8000);
 }
 
+// ---- #558 run 状态桥：懒建访问点（run 状态 = 本窗口的 QObject 子对象，
+// JobRunner 以本窗口为 dispatcher/Qt 父；完整类型见 paleomainwindow_runners.h，
+// 本文件是唯一展开点）。
+PropModelRunState *PaleoMainWindow::propModelRun()
+{
+  if (!m_propModelRun)
+    m_propModelRun = new PropModelRunState(this);
+  return m_propModelRun;
+}
+
+FaciesMappingRunState *PaleoMainWindow::faciesMappingRun()
+{
+  if (!m_faciesMappingRun)
+    m_faciesMappingRun = new FaciesMappingRunState(this);
+  return m_faciesMappingRun;
+}
+
+void PaleoMainWindow::cancelPropModelRun()
+{
+  if (m_propModelRun)
+    m_propModelRun->runner.requestCancel();
+}
+
 void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
                                            paleo::fault::FaultInterpretationController *faults)
 {
@@ -292,7 +318,7 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
     m_propModelCancel = true;
     // 方向20：取消经框架传播（会同时置本代 cancel 标志与任务自身的取消位）。
     // 同步兜底路径没有任务，靠 m_propModelCancel 那个布尔的原逻辑仍有效。
-    m_propModelRunner.requestCancel();
+    propModelRun()->runner.requestCancel();
     if (m_propModelTask)
       m_propModelTask->requestCancel();
   });
@@ -381,7 +407,7 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
 
             m_propModelRunning = true;
             m_propModelCancel = false;
-            m_propModelJob.reset(); // 新一代：别让 UI 段读到上一代的登记结果
+            propModelRun()->job.reset(); // 新一代：别让 UI 段读到上一代的登记结果
             m_propModelPanel->setBusy(true);
 
             if (m_taskSvc)
@@ -391,9 +417,9 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
               // 留在 commit 段——框架把它排在 owner 线程执行并在入口断言线程
               // 亲和，#80 的纪律由此变成机制。忙则拒绝由框架 busy() 门控承担
               // （原 m_propModelRunning 布尔的等价物）。
-              m_propModelRunner.setTaskService(m_taskSvc);
-              m_propModelTask = m_propModelWf->startJob(m_propModelRunner, req, overlayAlpha,
-                                                        &m_propModelJob);
+              propModelRun()->runner.setTaskService(m_taskSvc);
+              m_propModelTask = m_propModelWf->startJob(propModelRun()->runner, req,
+                                                        overlayAlpha, &propModelRun()->job);
               if (!m_propModelTask)
               {
                 m_propModelRunning = false;
@@ -411,14 +437,14 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
               // #159：收尾接 jobCompleted（commit/drop 执行完之后发），而不是
               // PaleoTask::finished——UI 段必须读到登记结果与登记失败。
               // 框架忙则拒绝，同一时刻只有一代，单发连接即可。
-              connect(&m_propModelRunner, &paleo::jobs::JobRunnerBase::jobCompleted, this,
+              connect(&propModelRun()->runner, &paleo::jobs::JobRunnerBase::jobCompleted, this,
                       [this, overlayAlpha](quint64, bool) { finishPropertyModelRun(overlayAlpha); },
                       Qt::SingleShotConnection);
               return;
             }
 
             // 无任务池（未接线壳/旧测试）：同步直跑，不泵事件。
-            m_propModelComputed = m_propModelWf->runCompute(
+            propModelRun()->computed = m_propModelWf->runCompute(
                 req, [this](double fraction, const QString &stage) {
                   if (m_propModelPanel)
                     m_propModelPanel->updateProgress(static_cast<int>(fraction * 100.0), stage);
@@ -446,21 +472,23 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
   // job 是 shared_ptr 共享体——异步路径直接引用，不整表深拷贝（R=64 大网格
   // 时每项含完整 PropertyVolume + blob）。
   PropertyModelOutput out;
-  const PropertyModelWorkflow::PropertyModelComputedList *computedPtr = &m_propModelComputed;
-  if (m_propModelJob)
+  const PropertyModelWorkflow::PropertyModelComputedList *computedPtr =
+      &propModelRun()->computed;
+  if (propModelRun()->job)
   {
-    computedPtr = &m_propModelJob->computed; // commit 已回填
+    computedPtr = &propModelRun()->job->computed; // commit 已回填
     if (!cancelled && !computedPtr->empty() && computedPtr->front().out.ok &&
-        !m_propModelJob->registered)
+        !propModelRun()->job->registered)
     {
       // 防御：未登记不报成功（改写共享体会污染 commit 段回填，改走本地标记）
       out.ok = false;
       out.error = tr("属性体登记失败");
     }
   }
-  else if (!cancelled && !m_propModelComputed.empty() && m_propModelComputed.front().ok)
+  else if (!cancelled && !propModelRun()->computed.empty() &&
+           propModelRun()->computed.front().ok)
   {
-    m_propModelWf->commitAll(&m_propModelComputed); // 无池兜底：同步直连
+    m_propModelWf->commitAll(&propModelRun()->computed); // 无池兜底：同步直连
   }
   if (out.error.isEmpty())
   {

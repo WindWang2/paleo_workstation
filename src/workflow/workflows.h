@@ -1,6 +1,11 @@
 // 层：功能
 #pragma once
-#include "../algorithms/singlefactor/types.h"
+// #558 扇出根二：ConstraintWorkflow 的三段式 job 族（LocalDirectionJob/
+// GeostatJob/AnalysisContourJob/InterpretiveContourJob/ConstraintJob）外提
+// 到 workflow/constraintjobs.h——InterpretiveContourJob 持 singlefactor::
+// ConstraintLine 向量，是本头直连 algorithms 的唯一消费点（曾致 28-TU
+// singlefactor/types.h 出闸边）。类内只留前置声明 + 指针/引用签名；
+// 构造/检查 job 的 TU include constraintjobs.h。
 #include "../domain/types.h"
 #include "../metadata/layermanifest.h"
 #include "../metadata/paleoprojectstore.h"
@@ -14,7 +19,6 @@
 #include <QVector>
 #include <functional>
 #include <memory>
-#include <variant>
 
 class QgisProcessingService;
 class QgisLayerService;
@@ -378,29 +382,14 @@ class ConstraintWorkflow : public QObject
     // 本地方向：准备在界面线程，计算可在任务线程，发布回到 catalog 所属线程。
     // engineId 区分共享三段式的单因素引擎（paleo_local_direction_idw /
     // paleo_surfer_idw）。
-    struct LocalDirectionJob
-    {
-      DerivedStaging staging;
-      DerivedFileFingerprint fingerprint;
-      QString stagedSupportSha, stagedQcSha;
-      bool prepared = false;
-      bool ok = false;
-      quint64 generation = 0;
-      QString error;
-      QString horizon;
-      QString factorId;
-      QString field;
-      double cellSize = 1.0;
-      QString engineId = QStringLiteral("paleo:paleo_local_direction_idw");
-      QString wellUri;
-      QString constraintUri;
-      bool hasConstraints = false;
-      QStringList parentPaths;
-      QVariantMap params;
-      QString outputPath;
-      QString supportPath;
-      QString qcPath;
-    };
+    // ---- #558：三段式 job 族的完整定义见 constraintjobs.h（类外定义）----
+    struct LocalDirectionJob;
+    struct GeostatJob;
+    struct AnalysisContourJob;
+    struct InterpretiveContourJob;
+    enum class ConstraintJobKind : int; // 不透明声明——定义在 constraintjobs.h
+    struct ConstraintJob;
+
     bool prepareLocalDirectionJob(const QString &horizon, const QString &factorId,
                                   const QVariantMap &inputParams, LocalDirectionJob *job, QString *error = nullptr,
                                   const QString &engineId = QStringLiteral( "paleo:paleo_local_direction_idw" ));
@@ -421,36 +410,6 @@ class ConstraintWorkflow : public QObject
     //   azimuth: 走向方位（度，从北顺时针）；<0 = 自动（全向拟合，各向同性）
     //   maxPoints: 克里金/SGS 邻域上限（缺省 16）
     //   realizations/seed: SGS 实现数（缺省 4）与种子（缺省 42）
-    struct GeostatJob
-    {
-      DerivedStaging staging;
-      DerivedFileFingerprint fingerprint;
-      QString stagedSupportSha, stagedQcSha;
-      bool prepared = false;
-      bool ok = false;
-      bool degraded = false; // 样本不足 → 计算段降级 IDW（method_actual="idw"）
-      quint64 generation = 0;
-      QString error;
-      QString method; // "kriging" | "sgs"
-      QString horizon;
-      QString factorId;
-      QString field;
-      double cellSize = 1.0;
-      QString wellUri;
-      QStringList parentPaths;
-      QVariantMap params;
-      QString outputPath;
-      QString supportPath; // 克里金：估计方差场；SGS：实现间标准差场；降级：空
-      // 方向 47：SGS 成员集合——计算段把各 realization 写成员栅格（同一临时
-      // 目录），发布段由 RealizationWorkflow 收编为 realization_set 成员版本。
-      QStringList memberPaths; // 按 realizationIndex 升序
-      quint64 memberSeed = 0;  // 集合基种子（SGS 共享随机流）
-      QString qcPath;
-      // P1-A：地统方法不读约束线——准备段按统一计划逐条记「未使用」与原因，
-      // 计算段写进 QC，发布段写进血缘 extra（降级 IDW 也不带约束）。
-      QVariantList constraintsUnused;
-      QString constraintCapability;
-    };
     bool prepareGeostatJob(const QString &horizon, const QString &factorId, const QString &method,
                            const QVariantMap &inputParams, GeostatJob *job, QString *error = nullptr);
     bool computeGeostatJob(GeostatJob *job, const std::function<bool()> &cancelled = {},
@@ -465,28 +424,6 @@ class ConstraintWorkflow : public QObject
     // fixedLevels 为真时用 levels（空级别直接拒绝）；否则要求正间距。
     // structural（algorithm_id=paleo:paleo_structural_idw）走上游 field_contours
     // 提取：interval<=0 = 自动级别（对话框自适应规则），不降级到 GDAL 等值线。
-    struct AnalysisContourJob
-    {
-      DerivedFileFingerprint inputFingerprint;
-      bool prepared = false;
-      bool ok = false;
-      bool fixedLevels = false;
-      bool structural = false;
-      quint64 generation = 0;
-      QString error;
-      QString horizon;
-      QString factorLayerId;
-      QString factorId;
-      QString rasterPath;
-      QString structuralPath;
-      QString analysisSha;
-      QStringList parentPaths;
-      double interval = 0.0;
-      QVector<double> levels;
-      QVector<double> resolvedLevels;
-      QString outputPath;
-      QString contourMethod;
-    };
     bool prepareAnalysisContourJob(const QString &horizon, const QString &factorLayerId,
                                    double interval, const QVector<double> &levels, bool fixedLevels,
                                    AnalysisContourJob *job, QString *error = nullptr,
@@ -499,31 +436,6 @@ class ConstraintWorkflow : public QObject
     // 解释性等值线：工作场与提线可在任务线程写临时文件，登记仍回调用线程。
     // 约束线在准备阶段解析。计算线程只读 constraintLines，不再打开图层。
     // strict 默认与 generateInterpretiveContours 相同，不改拒绝穿线的缺省。
-    struct InterpretiveContourJob
-    {
-      DerivedFileFingerprint inputFingerprint;
-      bool prepared = false;
-      bool ok = false;
-      bool strict = true;
-      bool hasConstraints = false;
-      bool frozenConstraints = false;
-      quint64 generation = 0;
-      int unresolved = 0;
-      QString error;
-      QString horizon;
-      QString factorLayerId;
-      QString factorId;
-      QString rasterPath;
-      QString constraintUri;
-      QString analysisSha;
-      QStringList parentPaths;
-      QVector<double> levels;
-      std::vector<paleo::singlefactor::ConstraintLine> constraintLines;
-      std::vector<std::string> ignoredConstraints;
-      QString workPath;
-      QString qcPath;
-      QString contourPath;
-    };
     bool prepareInterpretiveContourJob(const QString &horizon, const QString &factorLayerId,
                                        const QVector<double> &levels, bool strict,
                                        InterpretiveContourJob *job, QString *error = nullptr);
@@ -538,21 +450,8 @@ class ConstraintWorkflow : public QObject
     // 下面的统一面是**新增的等价入口**，把这三组接到 JobRunner 上。
     //
     // 三种 job 的字段并不相同（各自有各自的中间产物路径），故用 variant 容纳：
-    // variant 索引即 Kind，compute 段据此分派，commit 段同理。
-    using ConstraintJobVariant = std::variant<LocalDirectionJob, AnalysisContourJob,
-                                              InterpretiveContourJob>;
-    enum class ConstraintJobKind { LocalDirection, AnalysisContour, InterpretiveContour };
-
-    struct ConstraintJob
-    {
-        ConstraintJobKind kind = ConstraintJobKind::LocalDirection;
-        ConstraintJobVariant payload;
-        // 任务标题（现状各调用点的标题文案原样搬过来，避免改 i18n 面）。
-        QString title;
-        // 进度阶段词表：现状各调用点自带的 prepare/geometry/encode 映射在此
-        // 声明式表达，由框架统一节流后经 reportStage 上任务面板。
-        std::function<QString(double)> stageOf;
-    };
+    // variant 索引即 Kind，compute 段据此分派，commit 段同理（variant 词表
+    // #558 起收进 ConstraintJob::Variant——完整定义见 constraintjobs.h）。
 
     // 各自 job 的三段入口（owner 线程 / worker / owner 线程）。非静态：它们要
     // 访问 catalog、layers、projectStore。

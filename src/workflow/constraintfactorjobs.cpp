@@ -3,6 +3,7 @@
 // 类契约仍在 workflows.h（公共 API 零改动）；族间共享辅助经
 // constraintfactorjobs_internal.h。
 #include "workflows.h"
+#include "constraintjobs.h" // #558：job 族完整定义（原内嵌 workflows.h）
 #include "constraintworkflow_internal.h"
 #include "workflows_internal.h"
 #include "../algorithms/geostat/kriging.h"     // KrigingParams / KrigingResult（方向18）

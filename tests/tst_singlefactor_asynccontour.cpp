@@ -28,6 +28,7 @@
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/workflow/workflows.h"
+#include "../src/workflow/constraintjobs.h" // #558：job 族完整定义（原内嵌 workflows.h）
 
 // 分析等值线与解释性等值线的准备 / 计算 / 发布。不测性能。
 

@@ -15,21 +15,6 @@ QVariantMap inspect(const QString &path, QString *error) {
     if (!layer.isValid()) { if (error) *error = QObject::tr("矢量图件无法读取：%1").arg(path); return {}; }
     QVariantMap result{{"source_type", "vector"}, {"spatial", layer.crs().isValid()}, {"crs", layer.crs().toWkt()},
         {"feature_count", layer.featureCount()}, {"polygon", layer.geometryType() == Qgis::GeometryType::Polygon}};
-    const auto fields = layer.fields();
-    const bool hierarchy = fields.indexOf("facies_code") >= 0 && fields.indexOf("facies_name") >= 0 &&
-        fields.indexOf("subfacies") >= 0 && fields.indexOf("microfacies") >= 0;
-    if (hierarchy) {
-      QMap<int, QVariantMap> schema; bool valid = true; auto it = layer.getFeatures(); QgsFeature feature;
-      while (it.nextFeature(feature)) {
-        const int code = feature.attribute("facies_code").toInt();
-        QVariantMap row{{"code", code}, {"name", feature.attribute("microfacies")}, {"facies", feature.attribute("facies_name")},
-            {"subfacies", feature.attribute("subfacies")}, {"microfacies", feature.attribute("microfacies")}, {"color", "#9AA7B4"}};
-        if (code < 1 || row.value("facies").toString().trimmed().isEmpty() || row.value("subfacies").toString().trimmed().isEmpty() || row.value("microfacies").toString().trimmed().isEmpty() ||
-            (schema.contains(code) && schema.value(code) != row)) { valid = false; break; }
-        schema.insert(code, row);
-      }
-      if (valid && !schema.isEmpty()) { QVariantList rows; for (const auto &row : schema) rows << row; result.insert("facies", rows); }
-    }
     return result;
   }
   QgsRasterLayer layer(path, "source", "gdal");

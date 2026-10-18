@@ -1,5 +1,6 @@
 // 层：功能
 #include "paleomaplibrary.h"
+#include "paleomapimport_internal.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/mappinghorizons.h"
 #include "../services/paleomapfiles.h"
@@ -20,8 +21,8 @@ QStringList declareMaps(DataCatalog *catalog, QgisLayerService *layers) {
     for (const auto &v : catalog->versionsForAsset(asset.id)) {
       if (!v.extra.value("spatial").toBool()) continue;
       LayerDeclaration d; d.layerId = v.extra.value("layer_id", "paleomap." + v.id).toString(); d.horizon = v.extra.value("horizon").toString();
-      d.type = v.extra.value("source_type").toString(); d.source = catalog->versionFilePath(v);
-      d.title = QObject::tr("%1 · %2 · v%3").arg(d.horizon, asset.displayName).arg(v.versionNumber); d.group = "05_PaleoMap";
+      d.type = v.extra.value("source_type").toString(); d.source = catalog->versionFilePath(v) + v.extra.value("source_suffix").toString();
+      d.title = QObject::tr("%1 · %2 · v%3").arg(d.horizon, v.extra.value("title", asset.displayName).toString()).arg(v.versionNumber); d.group = "05_PaleoMap";
       QString why; if (!layers->declare(d, &why)) errors << why;
     }
   }
@@ -50,40 +51,20 @@ PaleoTask *importMaps(DataCatalog *catalog, QgisLayerService *layers, PaleoTaskS
       const auto path = files[i];
       if (path.startsWith(QDir(directory).filePath("artifacts/"))) continue;
       const auto horizon = request.inferHorizons ? PaleoMapFiles::inferredHorizon(path, horizons, request.horizon) : request.horizon;
-      QString error; const auto sourceName = QFileInfo(path).fileName();
-      const auto old = [&]() { for (const auto &a : cat->assets()) if (a.type == "paleogeographic_map") {
-          const auto v = cat->currentVersion(a.id); if (v.sourceUri == path && v.extra.value("horizon").toString() == horizon) return v;
-        } return CatalogVersion{}; }();
-      const auto assetId = old.id.isEmpty() ? cat->nextAssetId() : old.assetId;
-      const auto versionId = cat->nextVersionId();
-      const auto relative = "artifacts/" + DataCatalog::managedPath("raw", assetId, versionId, sourceName);
-      const auto outputDir = QFileInfo(QDir(job->stage->path()).filePath(relative)).absolutePath();
-      const auto parts = PaleoMapFiles::copyDataset(path, outputDir, cancelled, &error);
-      if (cancelled()) return {};
-      if (parts.isEmpty()) { job->result.errors << sourceName + ": " + error; QDir(outputDir).removeRecursively(); continue; }
-      const auto identity = PaleoMapFiles::fingerprint(parts);
-      if (!old.id.isEmpty() && old.extra.value("bundle_sha256").toString() == identity) {
-        bool intact = true; const auto storedDirectory = QFileInfo(DataCatalog::resolvedVersionPath(directory, old)).absoluteDir();
-        for (const auto &entry : old.extra.value("bundle_members").toList()) {
-          const auto member = entry.toMap(); const auto name = member.value("file").toString(); QString why;
-          intact &= DataCatalog::isSafePathSegment(name) && DataCatalog::sha256FileHex(storedDirectory.filePath(name), &why, cancelled) == member.value("sha256").toString();
-        }
-        if (intact) { ++job->result.unchanged; QDir(outputDir).removeRecursively(); continue; }
+      QString error; PaleoMapImport::Prepared result;
+      if (!PaleoMapImport::prepare(cat, directory, job->stage->path(), path, horizon, request, cancelled, &result,
+                                  &error)) {
+        if (cancelled()) return {};
+        if (error.isEmpty()) return QObject::tr("图件准备失败：%1").arg(path);
+        job->result.errors << QFileInfo(path).fileName() + ": " + error;
+        // Catalog mutations are atomic across the batch; a bad source can be skipped.
+        if (result.fatal) return error;
+        continue;
       }
-      const auto stagedPath = QDir(job->stage->path()).filePath(relative);
-      auto metadata = PaleoMapSource::inspect(stagedPath, &error);
-      if (metadata.isEmpty()) { job->result.errors << sourceName + ": " + error; QDir(outputDir).removeRecursively(); continue; }
-      metadata.insert("horizon", horizon); metadata.insert("paleomap", true); metadata.insert("kind", "existing_paleomap");
-      metadata.insert("layer_id", (metadata.value("facies").toList().isEmpty() ? "paleomap." : "product.") + versionId); metadata.insert("bundle_members", parts); metadata.insert("bundle_sha256", identity);
-      metadata.insert("mapping_product", !metadata.value("facies").toList().isEmpty());
-      CatalogAsset asset{assetId, "paleogeographic_map", QFileInfo(path).suffix().toLower(), sourceName};
-      CatalogVersion version; version.id = versionId; version.assetId = assetId; version.stage = "RAW";
-      version.versionNumber = old.id.isEmpty() ? 1 : old.versionNumber + 1; version.path = relative; version.fileName = sourceName;
-      version.sourceUri = path; version.managed = true; version.extra = metadata;
-      for (const auto &p : parts) if (p.toMap().value("file").toString() == sourceName) version.sha256 = p.toMap().value("sha256").toString();
-      if (!old.id.isEmpty()) version.parentVersionIds << old.id;
-      if ((old.id.isEmpty() && !cat->addAsset(asset, &error)) || !cat->addVersion(version, &error)) return error;
-      job->directories << QFileInfo(relative).path(); job->result.assets << assetId;
+      job->result.errors += result.warnings;
+      job->directories += result.directories;
+      if (result.unchanged) ++job->result.unchanged;
+      else if (!result.assetId.isEmpty()) job->result.assets << result.assetId;
       task->reportBytes(i + 1, files.size());
     }
     if (job->result.assets.isEmpty() && job->result.unchanged == 0 && !job->result.errors.isEmpty()) return job->result.errors.join("\n");

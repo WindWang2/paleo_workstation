@@ -1,0 +1,206 @@
+// 层：功能
+#include "../catalog/datacatalog.h"
+#include "../domain/faciescatalog.h"
+#include "../qgis/paleomapsource.h"
+#include "../services/paleomapfiles.h"
+#include "paleomapimport_internal.h"
+#include <QCryptographicHash>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+namespace
+{
+QVariantList schemaFor(DataCatalog *cat, const QString &horizon)
+{
+  for (const auto &asset : cat->assets())
+    if (asset.type == "facies_schema" && asset.displayName == "facies-schema-" + horizon)
+      return cat->currentVersion(asset.id).extra.value("facies").toList();
+  return FaciesCatalog::defaults();
+}
+bool intact(const QString &project, const CatalogVersion &raw, const std::function<bool()> &cancelled)
+{
+  const auto members = raw.extra.value("bundle_members").toList();
+  if (members.isEmpty())
+    return false;
+  const auto directory = QFileInfo(DataCatalog::resolvedVersionPath(project, raw)).absoluteDir();
+  for (const auto &entry : members)
+  {
+    const auto row = entry.toMap();
+    const auto name = row.value("file").toString();
+    if (!DataCatalog::isSafePathSegment(name) ||
+        DataCatalog::sha256FileHex(directory.filePath(name), nullptr, cancelled) !=
+            row.value("sha256").toString())
+      return false;
+  }
+  return true;
+}
+} // namespace
+namespace PaleoMapImport
+{
+bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, const QString &path,
+             const QString &horizon, const PaleoMapLibrary::Request &request, const std::function<bool()> &cancelled,
+             Prepared *out, QString *error)
+{
+  CatalogVersion current;
+  for (const auto &asset : cat->assets())
+    if (asset.type == "paleogeographic_map")
+    {
+      const auto v = cat->currentVersion(asset.id);
+      if (v.sourceUri == path && v.extra.value("horizon") == horizon)
+      {
+        current = v;
+        break;
+      }
+    }
+  const auto oldRaw = current.extra.contains("source_raw_version_id")
+                          ? cat->versionById(current.extra.value("source_raw_version_id").toString())
+                          : current;
+  const auto assetId = current.id.isEmpty() ? cat->nextAssetId() : current.assetId;
+  const auto versionId = cat->nextVersionId();
+  const auto name = QFileInfo(path).fileName();
+  const auto relative = "artifacts/" + DataCatalog::managedPath("raw", assetId, versionId, name);
+  const auto copyDirectory = QFileInfo(QDir(stageDir).filePath(relative)).absolutePath();
+  const auto parts = PaleoMapFiles::copyDataset(path, copyDirectory, cancelled, error);
+  if (cancelled())
+    return false;
+  if (parts.isEmpty())
+  {
+    QDir(copyDirectory).removeRecursively();
+    return false;
+  }
+  const auto fingerprint = PaleoMapFiles::fingerprint(parts);
+  const auto schema = schemaFor(cat, horizon);
+  const auto policy =
+      QString::fromLatin1(QCryptographicHash::hash(QJsonDocument::fromVariant(
+                                                       QVariantMap{{"normalizer", 1},
+                                                                   {"facies", schema},
+                                                                   {"normalize", request.normalizeFacies},
+                                                                   {"micro_field", request.microfaciesField}})
+                                                       .toJson(QJsonDocument::Compact),
+                                                   QCryptographicHash::Sha256)
+                              .toHex());
+  const bool reuse = !oldRaw.id.isEmpty() && oldRaw.extra.value("bundle_sha256") == fingerprint &&
+                     intact(project, oldRaw, cancelled);
+  if (reuse && current.extra.value("normalization_policy") == policy &&
+      DataCatalog::sha256FileHex(DataCatalog::resolvedVersionPath(project, current), nullptr, cancelled) ==
+          current.sha256)
+  {
+    QDir(copyDirectory).removeRecursively();
+    out->unchanged = true;
+    return true;
+  }
+  if (reuse)
+    QDir(copyDirectory).removeRecursively();
+  const auto rawPath =
+      reuse ? DataCatalog::resolvedVersionPath(project, oldRaw) : QDir(stageDir).filePath(relative);
+  auto metadata = reuse ? oldRaw.extra : PaleoMapSource::inspect(rawPath, error);
+  if (metadata.isEmpty())
+  {
+    QDir(copyDirectory).removeRecursively();
+    return false;
+  }
+  CatalogVersion raw = oldRaw;
+  if (!reuse)
+  {
+    raw = {};
+    raw.id = versionId;
+    raw.assetId = assetId;
+    raw.stage = "RAW";
+    raw.managed = true;
+    raw.versionNumber = current.id.isEmpty() ? 1 : current.versionNumber + 1;
+    raw.path = relative;
+    raw.fileName = name;
+    raw.sourceUri = path;
+    metadata.insert("horizon", horizon);
+    metadata.insert("paleomap", true);
+    metadata.insert("kind", "existing_paleomap");
+    metadata.insert("layer_id", "paleomap." + raw.id);
+    metadata.insert("mapping_product", false);
+    metadata.insert("bundle_members", parts);
+    metadata.insert("bundle_sha256", fingerprint);
+    raw.extra = metadata;
+    for (const auto &entry : parts)
+      if (entry.toMap().value("file") == name)
+        raw.sha256 = entry.toMap().value("sha256").toString();
+    if (!oldRaw.id.isEmpty())
+      raw.parentVersionIds << oldRaw.id;
+  }
+  CatalogVersion derived;
+  QVariantMap converted;
+  QString conversionError;
+  const bool faciesPolygon = request.normalizeFacies && metadata.value("source_type") == "vector" &&
+                             metadata.value("polygon").toBool();
+  if (faciesPolygon && !metadata.value("spatial").toBool())
+    conversionError = QObject::tr("图件缺少有效坐标系，请先完成配准后重试三级相整理");
+  else if (faciesPolygon)
+  {
+    derived.id = cat->nextVersionId();
+    derived.assetId = assetId;
+    derived.stage = "DERIVED";
+    derived.managed = true;
+    derived.versionNumber = reuse ? current.versionNumber + 1 : raw.versionNumber + 1;
+    derived.fileName = "facies.gpkg";
+    derived.path = "artifacts/" + DataCatalog::managedPath("derived", assetId, derived.id, derived.fileName);
+    const auto destination = QDir(stageDir).filePath(derived.path);
+    QDir().mkpath(QFileInfo(destination).absolutePath());
+    converted = PaleoMapSource::normalizeFacies(rawPath, destination, schema, request.microfaciesField,
+                                                cancelled, &conversionError);
+    if (cancelled())
+      return false;
+    if (converted.isEmpty())
+      QDir(QFileInfo(destination).absolutePath()).removeRecursively();
+  }
+  if (!conversionError.isEmpty())
+    out->warnings << QObject::tr("%1：原图已保存，仅供参考；三级相副本未生成：%2").arg(name, conversionError);
+  else
+    raw.extra.insert("normalization_policy", policy);
+  if (!reuse)
+  {
+    CatalogAsset asset{assetId, "paleogeographic_map", QFileInfo(path).suffix().toLower(), name};
+    if ((current.id.isEmpty() && !cat->addAsset(asset, error)) || !cat->addVersion(raw, error))
+    {
+      out->fatal = true;
+      return false;
+    }
+    out->directories << QFileInfo(relative).path();
+  }
+  else if (conversionError.isEmpty() && converted.isEmpty())
+  {
+    if (!cat->updateVersionExtra(raw.id, "normalization_policy", policy, error))
+    {
+      out->fatal = true;
+      return false;
+    }
+  }
+  if (!converted.isEmpty())
+  {
+    converted.insert("horizon", horizon);
+    converted.insert("kind", "existing_paleomap");
+    converted.insert("paleomap", true);
+    converted.insert("group", "05_PaleoMap");
+    converted.insert("title", QObject::tr("%1 · 三级相").arg(name));
+    converted.insert("mapping_product", true);
+    converted.insert("layer_id", "product." + derived.id);
+    converted.insert("source_raw_version_id", raw.id);
+    converted.insert("source_bundle_sha256", fingerprint);
+    converted.insert("normalization_policy", policy);
+    converted.insert("method", "existing-paleomap-hierarchy-v1");
+    derived.extra = converted;
+    derived.sourceUri = path;
+    derived.parentVersionIds = {raw.id};
+    derived.sha256 =
+        DataCatalog::sha256FileHex(QDir(stageDir).filePath(derived.path), error, cancelled);
+    if (derived.sha256.isEmpty() || !cat->addVersion(derived, error))
+    {
+      out->fatal = true;
+      return false;
+    }
+    QFile::setPermissions(QDir(stageDir).filePath(derived.path),
+                          QFileDevice::ReadOwner | QFileDevice::ReadGroup | QFileDevice::ReadOther);
+    out->directories << QFileInfo(derived.path).path();
+  }
+  out->assetId = assetId;
+  return true;
+}
+} // namespace PaleoMapImport

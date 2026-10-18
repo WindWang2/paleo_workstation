@@ -15,6 +15,7 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QStatusBar>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -40,12 +41,18 @@ void PaleoMainWindow::attachPaleomapLibrary(DataPage *page) {
     if (m_selection) horizon->setCurrentText(m_selection->activeHorizon());
     form->addRow(tr("所属层位／未识别时使用"), horizon); layout->addLayout(form);
     auto *infer = new QCheckBox(tr("优先按目录或文件名识别层位"), &dialog); infer->setChecked(true); layout->addWidget(infer);
-    auto *hint = new QLabel(tr("Shapefile 按一套图件管理，须保留同名 SHP、SHX、DBF；配套坐标和样式文件会一并保存。无法识别或名称含多个层位时使用上方层位。未配准图片和 PDF 作为参考图管理。"), &dialog);
+    auto *normalize = new QCheckBox(tr("识别微相，补齐相／亚相并使用系统纹理"), &dialog);
+    normalize->setObjectName("paleomapNormalizeFacies"); normalize->setChecked(true); layout->addWidget(normalize);
+    auto *microField = new QLineEdit(&dialog); microField->setObjectName("paleomapMicrofaciesField");
+    microField->setPlaceholderText(tr("自动识别；也可填写自定义微相字段名")); form->addRow(tr("微相字段"), microField);
+    connect(normalize, &QCheckBox::toggled, microField, &QWidget::setEnabled);
+    auto *hint = new QLabel(tr("Shapefile 按一套图件管理，须保留同名 SHP、SHX、DBF；配套坐标和样式文件会一并保存。无法识别或名称含多个层位时使用上方层位。微相优先匹配工程分类，再匹配内置模板；不能确定归属时保留原图并提示。三级相副本另存为 GeoPackage，原始数据不改。未配准图片和 PDF 作为参考图管理。"), &dialog);
     hint->setWordWrap(true); hint->setTextFormat(Qt::PlainText); layout->addWidget(hint);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog); layout->addWidget(buttons);
     buttons->button(QDialogButtonBox::Ok)->setText(tr("开始导入")); buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept); connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     if (dialog.exec() != QDialog::Accepted) return;
+    request.normalizeFacies = normalize->isChecked(); request.microfaciesField = microField->text().trimmed();
     request.horizon = horizon->currentText(); request.inferHorizons = infer->isChecked(); QString error;
     auto *task = PaleoMapLibrary::importMaps(m_previewDoc ? m_previewDoc->catalog() : nullptr, m_layerSvc, m_taskSvc, request, this,
         [this](const PaleoMapLibrary::Result &result) {

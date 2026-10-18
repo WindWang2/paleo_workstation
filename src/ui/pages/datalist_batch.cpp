@@ -1,5 +1,10 @@
 // 层：视图
 #include "datalist.h"
+#include "../dialogs/dataexportdialog.h"
+#include <QHBoxLayout>
+#include <QToolButton>
+#include "../../workflow/dataexportworkflow.h"
+#include "../../services/paleotaskservice.h"
 #include "../../services/previewdoc.h" // m_doc->… 成员调用需完整类型
 #include "datalistops.h"
 #include "../../catalog/datacatalog.h"
@@ -194,6 +199,56 @@ void DataListPanel::showWellAttachments(const QString &wellId)
             });
   }
   m_attachments->setWell(wellId);
+}
+
+void DataListPanel::buildSearchActions(QWidget *searchRow, QHBoxLayout *layout, QWidget *advanced)
+{
+  auto *exportData = new QToolButton(searchRow);
+  exportData->setObjectName("dataExportButton");
+  exportData->setText(tr("导出数据…"));
+  exportData->setToolTip(tr("导出所选数据；未选择时导出筛选后的可见数据"));
+  connect(exportData, &QToolButton::clicked, this, &DataListPanel::batchExportData);
+  layout->addWidget(exportData);
+  auto *options = new QToolButton(searchRow);
+  options->setObjectName(QStringLiteral("dataListOptionsButton"));
+  options->setText(tr("选项"));
+  options->setToolTip(tr("展开筛选、视图、排序与标签选项"));
+  options->setAccessibleName(options->toolTip());
+  options->setCheckable(true);
+  layout->addWidget(options);
+  connect(options, &QToolButton::toggled, advanced, &QWidget::setVisible);
+}
+
+void DataListPanel::batchExportData()
+{
+  if (!m_doc || !m_doc->catalog() || !m_doc->catalog()->isOpen()) {
+    emit statusMessage(tr("请先打开工程")); return;
+  }
+  QStringList ids = currentAssetSelection().values();
+  if (ids.isEmpty())
+    for (const auto &row : m_filteredRows) ids << row.assetId;
+  ids.removeDuplicates(); ids.sort();
+  if (ids.isEmpty()) { emit statusMessage(tr("当前没有可导出的数据")); return; }
+  const auto directory = m_doc->catalog()->projectDir();
+  const auto session = m_doc->taskService() ? m_doc->taskService()->session() : 0;
+  DataExportDialog dialog(m_doc->catalog(), ids, m_doc->taskService(), this);
+  if (dialog.exec() != QDialog::Accepted) return;
+  if (m_doc->catalog()->projectDir() != directory || !m_doc->taskService() || m_doc->taskService()->session() != session) {
+    emit statusMessage(tr("工程已切换，请重新选择导出数据")); return;
+  }
+  QString error;
+  auto *task = startDataExport(m_doc->catalog(), m_doc->taskService(), dialog.request(), this,
+      [this, directory](const paleo::exporting::Result &result) {
+    if (!m_doc || !m_doc->catalog() || m_doc->catalog()->projectDir() != directory) return;
+    if (result.cancelled) { emit statusMessage(tr("数据导出已取消")); return; }
+    const auto summary = tr("数据导出：成功 %1 项，问题 %2 项\n%3")
+        .arg(result.succeeded).arg(result.failures.size()).arg(result.directory);
+    emit statusMessage(summary);
+    if (!result.error.isEmpty() || !result.failures.isEmpty())
+      PaleoNotify::warning(this, tr("数据导出结果"), summary + "\n" + result.error + "\n" + result.failures.join("\n"));
+    else PaleoNotify::report(this, tr("数据导出完成"), summary + "\n" + result.warnings.join("\n"));
+  }, &error);
+  emit statusMessage(task ? tr("数据正在后台导出，可在任务中心查看进度或取消") : error);
 }
 
 void DataListPanel::batchExportManifest()
@@ -392,6 +447,11 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     return;
   QMenu menu(this);
   menu.setObjectName(QStringLiteral("dataContextMenu"));
+  if (!mix.assetIds.isEmpty()) {
+    auto *exportData = menu.addAction(tr("导出数据／制作源数据…"));
+    exportData->setData("exportData");
+    menu.addSeparator();
+  }
   if (mix.assetIds.size() == 1) {
     auto *graph = menu.addAction(tr("查看资料关联图谱"));
     connect(graph, &QAction::triggered, this, [this, id = *mix.assetIds.constBegin()] { emit graphRequested(id); });
@@ -450,7 +510,9 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
   if (!picked)
     return;
   const QString key = picked->data().toString();
-  if (key == QLatin1String("openPreview") || key == QLatin1String("openPreviewAll"))
+  if (key == QLatin1String("exportData"))
+    batchExportData();
+  else if (key == QLatin1String("openPreview") || key == QLatin1String("openPreviewAll"))
     batchOpenPreview();
   else if (key == QLatin1String("showVersions"))
     showVersionTable();

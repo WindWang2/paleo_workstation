@@ -191,137 +191,26 @@ using paleo::io_detail::setError;
   }
 } // namespace
 
+// #466：旧入口薄封装 parseDoc——防护与编码口径单源化（此前旧入口用
+// QTextStream 逐行全量装载：无 CacheBudgetManager 登记、无 GB18030 头段
+// 嗅探，同一文件与 parseDoc 解出不同曲线名/井名）。签名与返回语义不变：
+// 成功填 curveNames/curves（含 unit/descr，与旧实现一致），失败置 *error
+// 并透传 parseDoc 的拒因（cannot open / Oversize 大文件闸 / WRAP YES /
+// 无 ~C / 无 ~A 文案同源）。已知口径变化（病态输入）：头段含 0x1A（DOS
+// Ctrl-Z）不再按 EOF 截停头扫描——parseDoc 只在 ~A 数据区认 0x1A。
 bool LasParser::parse(const QString &path, QStringList &curveNames,
                       QList<LasCurve> &curves, QString *error)
 {
   curveNames.clear();
   curves.clear();
-
-  QFile f(path);
-  if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+  const LasDoc doc = parseDoc(path);
+  if (!doc.ok)
   {
-    setError(error, QStringLiteral("cannot open %1").arg(path));
+    setError(error, doc.error);
     return false;
   }
-  if (f.size() > s_fileSizeLimit)
-  {
-    setError(error, QStringLiteral("file %1 is %2 bytes — exceeds the %3 MB full-parse guard; "
-                                   "use parseRange/parseDepthRange streaming instead")
-                        .arg(path)
-                        .arg(f.size())
-                        .arg(s_fileSizeLimit / (1024 * 1024)));
-    return false;
-  }
-
-  enum class Section { None, Version, Well, Curves, Ascii, Other };
-  Section section = Section::None;
-
-  double nullValue = paleo::wellnumeric::kLasDefaultNull; // CWLS default when ~W has no usable NULL item
-  bool sawAscii = false;
-  QStringList names;
-  QList<LasCurve> cols;
-
-  QTextStream in(&f);
-  bool hitEof = false;
-  while (!hitEof && !in.atEnd())
-  {
-    QString line = in.readLine();
-    // #167：DOS 文件尾 Ctrl-Z（0x1A）= EOF，与 parseAsciiRows 同口径。
-    if (const qsizetype sub = line.indexOf(QChar(0x1A)); sub >= 0)
-    {
-      line.truncate(sub);
-      hitEof = true;
-    }
-    line = line.trimmed();
-    if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
-      continue;
-
-    if (line.startsWith(QLatin1Char('~')))
-    {
-      const QChar code = line.size() > 1 ? line.at(1).toUpper() : QChar();
-      if (code == QLatin1Char('V'))      section = Section::Version;
-      else if (code == QLatin1Char('W')) section = Section::Well;
-      else if (code == QLatin1Char('C')) section = Section::Curves;
-      else if (code == QLatin1Char('A')) { section = Section::Ascii; sawAscii = true; }
-      else                               section = Section::Other;
-      continue;
-    }
-
-    switch (section)
-    {
-      case Section::Version:
-      {
-        LasItem it;
-        if (parseItemLine(line, it) && it.mnem == QStringLiteral("WRAP") &&
-            it.value.startsWith(QStringLiteral("YES"), Qt::CaseInsensitive))
-        {
-          setError(error, QStringLiteral("wrap mode (WRAP YES) is not supported: %1").arg(path));
-          return false;
-        }
-        break;
-      }
-      case Section::Well:
-      {
-        LasItem it;
-        if (parseItemLine(line, it) && it.mnem == QStringLiteral("NULL"))
-        {
-          bool ok = false;
-          const double v = it.value.toDouble(&ok);
-          if (ok)
-            nullValue = v;
-        }
-        break;
-      }
-      case Section::Curves:
-      {
-        LasItem it;
-        if (parseItemLine(line, it))
-        {
-          names.append(it.mnem);
-          cols.append({it.mnem, it.unit, it.descr, {}});
-        }
-        break;
-      }
-      case Section::Ascii:
-      {
-        // Whitespace-separated floats in ~C column order; missing/trailing
-        // tokens and unparseable cells land as NaN.
-        const QStringList tokens =
-            line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-        if (tokens.isEmpty())
-          break;
-        for (int i = 0; i < cols.size(); ++i)
-        {
-          double v = nan();
-          if (i < tokens.size())
-          {
-            bool ok = false;
-            const double t = tokens.at(i).toDouble(&ok);
-            if (ok && t != nullValue)
-              v = t;
-          }
-          cols[i].values.append(v);
-        }
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  if (cols.isEmpty())
-  {
-    setError(error, QStringLiteral("no curve definitions (~C) found in %1").arg(path));
-    return false;
-  }
-  if (!sawAscii)
-  {
-    setError(error, QStringLiteral("no ASCII data section (~A) found in %1").arg(path));
-    return false;
-  }
-
-  curveNames = names;
-  curves = cols;
+  curveNames = doc.curveNames;
+  curves = doc.curves;
   return true;
 }
 
@@ -477,6 +366,7 @@ namespace
       bool sawWrapYes = false;
       bool sawCurves = false;
       QList<QPair<QString, QString>> curveNameUnits; // (name, unit) 有序
+      QStringList curveDescrs;                       // ~C 行 descr（与 curveNameUnits 同序）
       QString error;                                  // 非空 = 致命
   };
 
@@ -562,6 +452,9 @@ namespace
         {
           out.header.curveNames.append(it.mnem);
           out.curveNameUnits.append({it.mnem, it.unit});
+          // #466：descr 与 name/unit 同源捕获——旧 parse() 的返回语义含 descr，
+          // 薄封装 parseDoc 后此处是 descr 的唯一来源。
+          out.curveDescrs.append(it.descr);
           out.sawCurves = true;
           // D1.6 单位缺失分级：~C 行没有单位不算错（CWLS 允许），值得提示。
           if (it.unit.isEmpty())
@@ -792,8 +685,13 @@ LasDoc LasParser::parseDoc(const QString &path, QList<LasIssue> *issues)
   doc.curves = parseAsciiRows(raw, asciiOff, header.header.curveNames,
                               header.header.nullValue, 0, -1, &rowsTotal, issues);
   for (int i = 0; i < doc.curves.size(); ++i)
+  {
     doc.curves[i].unit =
         i < header.curveNameUnits.size() ? header.curveNameUnits.at(i).second : QString();
+    // #466：descr 同源填充——旧 parse() 语义含 descr，薄封装后由此带出。
+    doc.curves[i].descr =
+        i < header.curveDescrs.size() ? header.curveDescrs.at(i) : QString();
+  }
   doc.curveNames = header.header.curveNames;
   doc.ok = true;
   return doc;
@@ -832,8 +730,12 @@ namespace
   void fillUnits(QList<LasCurve> *curves, const HeaderScanResult &header)
   {
     for (int i = 0; i < curves->size(); ++i)
+    {
       (*curves)[i].unit =
           i < header.curveNameUnits.size() ? header.curveNameUnits.at(i).second : QString();
+      (*curves)[i].descr =
+          i < header.curveDescrs.size() ? header.curveDescrs.at(i) : QString();
+    }
   }
 } // namespace
 
@@ -894,7 +796,15 @@ bool LasParser::parseRange(const QString &path, qint64 rowFrom, qint64 rowTo,
     {
       const qint64 lastSep = qMax<qint64>(chunk.lastIndexOf('\n'), chunk.lastIndexOf('\r'));
       if (lastSep < 0)
-        usable = 0; // 单行超过 8MB——病态，放弃（如实返回已收行）
+      {
+        // 单行超过 8MB——病态，放弃后续（如实返回已收行），但不静默：
+        // 与 parseDepthRange 同口径落 Truncated 留痕（#477）。
+        addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Truncated, 0,
+                 QStringLiteral("数据行超过 %1 字节，区间读段在偏移 %2 处中止")
+                     .arg(8 * 1024 * 1024)
+                     .arg(pos));
+        usable = 0;
+      }
       else
         usable = lastSep + 1;
     }
@@ -902,8 +812,17 @@ bool LasParser::parseRange(const QString &path, qint64 rowFrom, qint64 rowTo,
       break;
     const QByteArray complete = chunk.left(static_cast<int>(usable));
     qint64 rowsInChunk = 0;
+    // #477：流式路径不再把 issues 传 nullptr——每块内「token 少于曲线数」
+    // 的 Truncated 告警必须如实透传，>8MB 文件的截断行不再静默丢失。只
+    // 转发 Truncated：块级 parseAsciiRows 以 wantAll 口径运行，会按块误报
+    // MissingCurve（该类汇总告警由本函数末尾按全文件 sawFinite 统一口径
+    // 发出，见下）。
+    QList<LasIssue> chunkIssues;
     const QList<LasCurve> piece = parseAsciiRows(complete, 0, names, header.header.nullValue,
-                                                 0, -1, &rowsInChunk, nullptr);
+                                                 0, -1, &rowsInChunk, &chunkIssues);
+    for (const LasIssue &issue : chunkIssues)
+      if (issue.category == LasIssue::Category::Truncated)
+        addIssue(issues, issue.severity, issue.category, issue.line, issue.message);
     for (int c = 0; c < nCurves; ++c)
     {
       const QVector<double> &vals = piece.at(c).values;

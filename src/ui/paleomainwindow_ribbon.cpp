@@ -18,6 +18,7 @@
 #include "../qgis/qgiscanvascontroller.h" // mapConfigurationChanged → zoomToFullExtent
 #include "../qgis/qgisprojectservice.h"
 
+#include <qgsmapcanvas.h>
 #include <qgis.h> // Qgis::version()（方向63 关于框）
 
 #include <QAction>
@@ -87,6 +88,17 @@ void PaleoMainWindow::buildRibbon()
     viaStartup(tr("打开工程(&O)…"), "mActionFileOpen.svg", "openProjectButton");
     viaStartup(tr("从工区文件夹新建(&I)…"), "mIconFolderOpen.svg", "importFromFolderButton");
     menu->addSeparator()->setObjectName(QStringLiteral("fileMenuSaveAnchor"));
+    auto *exportMap = menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionSaveAsPDF.svg")), tr("导出工程地图／地质图…"));
+    exportMap->setObjectName(QStringLiteral("fileExportGeologicalMap"));
+    exportMap->setEnabled(false);
+    connect(menu, &QMenu::aboutToShow, this, [this, exportMap] {
+      exportMap->setEnabled(m_projectSvc && !m_projectSvc->projectPath().isEmpty() && !m_projectSvc->isOpening() &&
+          m_canvasCtl && !m_canvasCtl->canvas()->layers().isEmpty());
+    });
+    connect(exportMap, &QAction::triggered, this, [this] {
+      if (auto *button = findChild<QPushButton *>(QStringLiteral("exportPdfButton"))) button->click();
+    });
+
     auto *mapSettings = menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionMapSettings.svg")), tr("工程坐标与底图…"));
     mapSettings->setObjectName(QStringLiteral("projectMapSettingsAction"));
     connect(menu, &QMenu::aboutToShow, this, [this, mapSettings] {

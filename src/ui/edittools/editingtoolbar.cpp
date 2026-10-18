@@ -39,6 +39,8 @@
 #include "../paleoicons.h"
 #include "../paleotheme.h"
 #include "editingtools.h"
+#include "../../qgis/faciespartitioneditor.h"
+#include "../../qgis/faciespartitiontool.h"
 #include "vertexeditortools.h"
 
 // ui/edittools/ — PaleoEditingToolbar implementation notes:
@@ -217,16 +219,6 @@ void selectComboLayer( QComboBox *combo, QgsVectorLayer *layer )
   combo->setCurrentIndex( comboIndexForLayer( combo, layer ) );
 }
 
-// Uses the public action accessors only — the contract header's member list
-// leaves no room for extra bookkeeping members.
-void uncheckEditTools( PaleoEditingToolbar *bar )
-{
-  const QList<QAction *> actions = { bar->actionSelect(), bar->actionAddPoint(), bar->actionAddLine(),
-                                     bar->actionAddPolygon(), bar->actionReshape(), bar->actionMove(),
-                                     bar->actionDeleteFeatures(), bar->actionVertexEdit() };
-  for ( QAction *a : actions )
-    a->setChecked( false );
-}
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -298,6 +290,7 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
     } );
     connect( layer, &QgsVectorLayer::readOnlyChanged, this, &PaleoEditingToolbar::updateActionStates );
     connect( layer, &QgsVectorLayer::supportsEditingChanged, this, &PaleoEditingToolbar::updateActionStates );
+    connect(layer, &QgsVectorLayer::selectionChanged, this, [this] { updateActionStates(); });
   }
   if (isEditing())
   {
@@ -518,7 +511,7 @@ void PaleoEditingToolbar::buildUi()
     QAction *active = tool ? tool->action() : nullptr;
     for ( QAction *action : { mActionSelect, mActionAddPoint, mActionAddLine,
                               mActionAddPolygon, mActionReshape, mActionMove,
-                              mActionDeleteFeatures, mActionVertexEdit } )
+                              mActionDeleteFeatures, mActionVertexEdit, mActionSplitFacies, mActionPaintFacies } )
       action->setChecked( action == active );
     const bool capture = active == mActionAddPoint || active == mActionAddLine || active == mActionAddPolygon;
     mActionAddFeature->setChecked( capture );
@@ -539,6 +532,7 @@ void PaleoEditingToolbar::buildUi()
                                          QStringLiteral( "mActionDeleteSelected.svg" ) );
   mActionVertexEdit = newToolAction( tr( "节点" ), tr( "编辑所选要素的节点" ),
                                      QStringLiteral( "mActionVertexTool.svg" ) );
+  buildPartitionControls();
   // Mode toggle (checkable, NOT in the exclusive tool group): same-layer
   // topological editing for the vertex tool — coincident vertices move/insert/
   // delete together. State mirrors QgsProject::topologicalEditing so it
@@ -565,7 +559,7 @@ void PaleoEditingToolbar::buildUi()
     if ( project )
       project->writeEntry( QStringLiteral( "paleo" ), QStringLiteral( "crossLayerTopologicalEditing" ), on );
     if ( auto *vt = qobject_cast<PaleoVertexTool *>( mActiveEditTool.data() ) )
-      vt->setCrossLayerTopologyEnabled( on && !QgisEditingService::isConstraintLayer(currentLayer()) );
+      vt->setCrossLayerTopologyEnabled( on && !QgisEditingService::isConstraintLayer(currentLayer()) && !FaciesPartitionEditor::isPartition(currentLayer()) );
   } );
 
   mToolBar->addSeparator();
@@ -580,16 +574,7 @@ void PaleoEditingToolbar::buildUi()
   mActionRedo = newPlainAction( tr( "重做" ), tr( "重做被撤销的编辑" ),
                                 QStringLiteral( "mActionRedo.svg" ) );
 
-  // Exclusive checkable group: select + the capture modes + the edit tools.
-  QActionGroup *toolGroup = new QActionGroup( this );
-  toolGroup->setExclusive( true );
-  const QList<QAction *> grouped = { mActionSelect, mActionAddPoint, mActionAddLine, mActionAddPolygon,
-                                     mActionReshape, mActionMove, mActionDeleteFeatures, mActionVertexEdit };
-  for ( QAction *a : grouped )
-  {
-    toolGroup->addAction( a );
-    connect( a, &QAction::triggered, this, &PaleoEditingToolbar::onEditToolTriggered );
-  }
+  wireToolActions();
 
   connect( mActionSave, &QAction::triggered, this, &PaleoEditingToolbar::saveEditing );
   connect( mActionCancel, &QAction::triggered, this, [this] {
@@ -670,18 +655,16 @@ void PaleoEditingToolbar::buildUi()
 
 void PaleoEditingToolbar::installTool( QgsMapTool *tool )
 {
-  if ( mActiveEditTool )
-  {
-    QgsMapTool *old = mActiveEditTool;
-    mActiveEditTool = nullptr;
-    if (mCanvas)
-      mCanvas->unsetMapTool( old ); // deactivates when it is the live tool
-    old->deleteLater();           // deferred: callers may sit inside the tool's own signal
+  if (mActiveEditTool) {
+    auto *old = mActiveEditTool.data(); mActiveEditTool = nullptr;
+    if (mCanvas) mCanvas->unsetMapTool(old);
+    old->deleteLater(); // may run inside the tool's own editAborted signal
   }
-  if ( tool )
-  {
-    mActiveEditTool = tool;
-    mCanvas->setMapTool( tool );
+  if (tool) {
+    connect(tool, &QgsMapTool::messageEmitted, this, [this](const QString &message, Qgis::MessageLevel level) {
+      if (level == Qgis::MessageLevel::Warning || level == Qgis::MessageLevel::Critical) emit editRefused(message);
+    });
+    mActiveEditTool = tool; mCanvas->setMapTool(tool);
   }
 }
 
@@ -804,6 +787,7 @@ void PaleoEditingToolbar::updateActionStates()
                                ? mActionRedo->property( "hint" ).toString()
                                : tr( "没有可重做的编辑" ) );
 
+  updatePartitionControls(noEdit);
   updateStateLabel();
   emit stateChanged();
 }
@@ -900,6 +884,11 @@ void PaleoEditingToolbar::onEditToolTriggered()
     tool = wireAborted( new PaleoAddFeatureTool( mCanvas, cadDock, QgsMapToolCapture::CapturePoint, target ) );
   else if ( action == mActionAddLine )
     tool = wireAborted( new PaleoAddFeatureTool( mCanvas, cadDock, QgsMapToolCapture::CaptureLine, target ) );
+  else if (action == mActionSplitFacies || action == mActionPaintFacies ||
+           (action == mActionAddPolygon && FaciesPartitionEditor::isPartition(target)))
+    tool = wireAborted(new FaciesPartitionTool(mCanvas, cadDock, target,
+        action == mActionSplitFacies ? FaciesPartitionTool::Split : FaciesPartitionTool::Paint,
+        [combo = QPointer<QComboBox>(mPartitionCode)] { return combo ? combo->currentData().toInt() : 0; }));
   else if ( action == mActionAddPolygon )
     tool = wireAborted( new PaleoAddFeatureTool( mCanvas, cadDock, QgsMapToolCapture::CapturePolygon, target ) );
   else if ( action == mActionReshape )
@@ -912,7 +901,7 @@ void PaleoEditingToolbar::onEditToolTriggered()
   {
     auto *vt = new PaleoVertexTool( mCanvas, target );
     vt->setTopologicalEditingEnabled( mActionTopological->isChecked() || target->customProperty("paleo/requireFaciesTopology").toBool() );
-    vt->setCrossLayerTopologyEnabled( mActionCrossLayerTopo->isChecked() && !QgisEditingService::isConstraintLayer(target) );
+    vt->setCrossLayerTopologyEnabled( mActionCrossLayerTopo->isChecked() && !QgisEditingService::isConstraintLayer(target) && !FaciesPartitionEditor::isPartition(target) );
     tool = wireAborted( vt );
   }
 
@@ -1001,7 +990,7 @@ void PaleoEditingToolbar::finishSession(const QString &id, bool saved)
   mEditHighlight.reset();
   mEditLayer = nullptr;
   installTool(nullptr);
-  uncheckEditTools(this);
+  uncheckTools();
   emit editingStopped(id, saved);
   refreshCombo();
   updateActionStates();
@@ -1087,7 +1076,7 @@ void PaleoEditingToolbar::watchProject( QgsProject *project )
     const QString id = mEditLayer->id();
     mEditLayer = nullptr; // 缓冲随层析构丢弃
     installTool( nullptr );
-    uncheckEditTools( this );
+    uncheckTools();
     emit editingStopped( id, false );
     emit editRefused( tr( "工程已清空：编辑已丢弃" ) );
     refreshCombo();

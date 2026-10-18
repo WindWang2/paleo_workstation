@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstring>
+#include <initializer_list>
 #include <limits>
 
 #include "../src/ai/onnxfixture.h"
@@ -22,6 +24,133 @@
 // 纯函数断言（plan 覆盖恰好一次 / softmax 对测试内独立双精度实现 / 缝合
 // 只写内区）+ 端到端（生成 seg3 模型 → 合成坡度网格 → 概率图/置信度/无数据
 // 标记）+ 取消/诚实失败 + 异步任务（PaleoTaskService）取消后无泄漏（fd/RSS）。
+
+namespace
+{
+// #460 测试内直排下采样模型：OnnxFixtureWriter::writeSeg 只能产与输入同维的
+// 输出，这里手写「固定输入 [1,1,4,4] → Slice 常量裁剪 → 输出 [1,1,2,2]」的
+// ONNX 字节。字段编码与 src/ai/onnxfixture.cpp 同源（ModelProto ir=1/
+// producer=2/graph=7/opset=8；GraphProto node=1/name=2/initializer=5/
+// input=11/output=12；NodeProto input=1/output=2/op_type=4；TensorProto
+// dims=1(packed)/data_type=2/name=8/raw_data=9，INT64=7；ValueInfoProto
+// name=1/type=2，Dimension.dim_value=1）。
+struct TestPb
+{
+  QByteArray bytes;
+  void varint( quint64 v )
+  {
+    while ( v >= 0x80 )
+    {
+      bytes.append( char( quint8( v ) | 0x80 ) );
+      v >>= 7;
+    }
+    bytes.append( char( quint8( v ) ) );
+  }
+  void tag( int field, int wire ) { varint( ( quint64( field ) << 3 ) | quint64( wire ) ); }
+  void varintField( int field, quint64 v )
+  {
+    tag( field, 0 );
+    varint( v );
+  }
+  void lenField( int field, const QByteArray &payload )
+  {
+    tag( field, 2 );
+    varint( quint64( payload.size() ) );
+    bytes += payload;
+  }
+  void strField( int field, const char *s )
+  {
+    const int n = int( std::strlen( s ) );
+    tag( field, 2 );
+    varint( quint64( n ) );
+    bytes.append( s, n );
+  }
+};
+
+QByteArray testValueInfoF32( const char *name, std::initializer_list<int64_t> dims )
+{
+  TestPb shape;
+  for ( int64_t d : dims )
+  {
+    TestPb dim;
+    dim.varintField( 1, quint64( d ) ); // Dimension.dim_value
+    shape.lenField( 1, dim.bytes );
+  }
+  TestPb tensorType;
+  tensorType.varintField( 1, 1 ); // elem_type = FLOAT
+  tensorType.lenField( 2, shape.bytes );
+  TestPb type;
+  type.lenField( 1, tensorType.bytes );
+  TestPb vi;
+  vi.strField( 1, name );
+  vi.lenField( 2, type.bytes );
+  return vi.bytes;
+}
+
+QByteArray testTensorI64( const char *name, std::initializer_list<int64_t> vals )
+{
+  TestPb t;
+  t.varintField( 1, quint64( vals.size() ) ); // dims = [n]（非 packed 单值）
+  t.varintField( 2, 7 );                      // data_type = INT64
+  t.strField( 8, name );
+  QByteArray raw( int( vals.size() ) * 8, Qt::Uninitialized );
+  int i = 0;
+  for ( int64_t v : vals )
+  {
+    const quint64 u = quint64( v );
+    for ( int b = 0; b < 8; ++b )
+      raw[i * 8 + b] = char( quint8( ( u >> ( 8 * b ) ) & 0xff ) );
+    ++i;
+  }
+  t.lenField( 9, raw );
+  return t.bytes;
+}
+
+// 固定输入 [1,1,4,4]、输出 [1,1,2,2] 的「下采样」模型（Slice starts/ends/axes
+// 全走 initializer，无属性）。返回 false 时 *error 给写盘失败原因。
+bool writeDownsampleOnnx( const QString &path, QString *error )
+{
+  TestPb node; // Slice(x, starts, ends, axes) -> y
+  node.strField( 1, "x" );
+  node.strField( 1, "starts" );
+  node.strField( 1, "ends" );
+  node.strField( 1, "axes" );
+  node.strField( 2, "y" );
+  node.strField( 4, "Slice" );
+  TestPb graph;
+  graph.lenField( 1, node.bytes );
+  graph.strField( 2, "downsample" );
+  graph.lenField( 5, testTensorI64( "starts", { 0, 0 } ) );
+  graph.lenField( 5, testTensorI64( "ends", { 2, 2 } ) );
+  graph.lenField( 5, testTensorI64( "axes", { 2, 3 } ) );
+  graph.lenField( 11, testValueInfoF32( "x", { 1, 1, 4, 4 } ) );
+  graph.lenField( 12, testValueInfoF32( "y", { 1, 1, 2, 2 } ) );
+  TestPb opset;
+  opset.strField( 1, "" );
+  opset.varintField( 2, 13 );
+  TestPb model;
+  model.varintField( 1, 8 ); // ir_version（ORT 1.30 接受）
+  model.strField( 2, "tst-tileinference" );
+  model.lenField( 7, graph.bytes );
+  model.lenField( 8, opset.bytes );
+
+  QFile f( path );
+  if ( !f.open( QIODevice::WriteOnly ) )
+  {
+    if ( error )
+      *error = QStringLiteral( "cannot write %1: %2" ).arg( path, f.errorString() );
+    return false;
+  }
+  if ( f.write( model.bytes ) != model.bytes.size() )
+  {
+    if ( error )
+      *error = QStringLiteral( "short write for %1" ).arg( path );
+    return false;
+  }
+  f.close();
+  return true;
+}
+} // namespace
 class TestTileInference : public QObject
 {
   Q_OBJECT
@@ -49,6 +178,9 @@ private slots:
   void probabilitiesDegenerateVectorIsNodata();
   void probabilitiesMultiChannelConfidenceUnchanged();
   void fixedShapeModelPadsBoundaryTiles();
+  // #460：needPad 去垫片必须在校验输出形状之后——下采样模型（输出空间维
+  // 小于填充域）如实拒收，不按填充布局越界索引 values。
+  void needPadOutputShapeMismatchRejected();
 
 private:
   QString fixtureDir()
@@ -764,6 +896,46 @@ void TestTileInference::fixedShapeModelPadsBoundaryTiles()
   QVERIFY2( runTileInference( &onnx, req, &res, {}, nullptr, &err ), qPrintable( err ) );
   QCOMPARE( res.grid.rows, 6 );
   QCOMPARE( res.grid.cols, 6 );
+}
+
+void TestTileInference::needPadOutputShapeMismatchRejected()
+{
+  // #460 回归：下采样 ONNX（固定输入 [1,1,4,4]、输出 [1,1,2,2]）× tile 读域
+  // 2×2 → needPad 路径。修复前去垫片发生在形状校验之前，按填充布局
+  //（C×4×4，索引上界 15）读 values（实际仅 4 元素）→ QVector 越界读；
+  // 且校验前 shape 已被覆写、事后永远查不出。修复后：形状契约先行、
+  // 如实报「输出形状 … 不符」，不产出部分产品、不崩溃。
+  const QString path = fixtureDir() + QStringLiteral( "/downsample4x4.onnx" );
+  QString werr;
+  QVERIFY2( writeDownsampleOnnx( path, &werr ), qPrintable( werr ) );
+  PaleoOnnxService onnx;
+  onnx.setModelRoot( fixtureDir() );
+
+  // 夹具自检：会话可建、输入签名恰为固定 [1,1,4,4]（needPad 的前提）。
+  // 若本段红，是夹具构造问题而非被测行为——先把模型字节修对。
+  OnnxModelMeta meta;
+  QString loadErr;
+  QCOMPARE( onnx.loadModelMeta( QStringLiteral( "downsample4x4" ), &meta, &loadErr ),
+            OnnxLoadStatus::Ok );
+  QCOMPARE( meta.inputShape, ( QVector<int64_t>{ 1, 1, 4, 4 } ) );
+
+  TileInferenceRequest req;
+  req.model = QStringLiteral( "downsample4x4" );
+  req.gridRows = 2;
+  req.gridCols = 2;
+  req.tileRows = 2;
+  req.tileCols = 2; // 读域 2×2 < 固定输入 4×4 → needPad
+  req.halo = 0;
+  req.fetch = []( int, int, int rows, int cols, QVector<float> &out, QString & ) {
+    out = QVector<float>( rows * cols, 1.0f );
+    return true;
+  };
+  TileInferenceResult res;
+  QString err;
+  QVERIFY( !runTileInference( &onnx, req, &res, {}, nullptr, &err ) );
+  QVERIFY2( err.contains( QStringLiteral( "输出形状" ) ), qPrintable( err ) );
+  QVERIFY2( err.contains( QStringLiteral( "不符" ) ), qPrintable( err ) );
+  QVERIFY( res.grid.isEmpty() ); // 拒收不给部分产品
 }
 
 int main( int argc, char *argv[] )

@@ -3,6 +3,7 @@
 #include "datalistops.h"
 #include "../../catalog/datacatalog.h"
 #include "../../catalog/realizationset.h"
+#include "../../services/jsonsidecar.h"
 #include "../../services/previewdoc.h"
 #include "../../workflow/assetops.h"
 #include "../../workflow/importledger.h"
@@ -78,21 +79,16 @@ QString undoVaultPath(DataCatalog *cat)
 
 // 副作用清洗：attach 的目标链接已不在（被外部改掉/新会话没有这条挂接）
 // → 记录作废剔除；note 记忆只留仍未决链接能用的。
+// 落盘/装载走数据层 jsonsidecar helper（#482 收敛：原子写 + 损坏留痕清洗
+// 的契约不再散落在视图树各目录）。
 QVector<UndoRecord> loadUndoVault(DataCatalog *cat, QHash<QString, QString> *notesOut)
 {
   QVector<UndoRecord> records;
   const QString path = undoVaultPath(cat);
-  QFile f(path);
-  if (!f.open(QIODevice::ReadOnly))
+  if (path.isEmpty())
     return records;
-  QJsonParseError parseErr;
   const QJsonObject root =
-      QJsonDocument::fromJson(f.readAll(), &parseErr).object();
-  if (parseErr.error != QJsonParseError::NoError)
-    // 损坏要留痕（与 dataops sidecar 契约一致）：静默回空会把「有可撤销
-    // 挂接」读成「从未有过」，且无日志线索可查。
-    qWarning() << "DataPage undo vault corrupt, treated as empty:" << path
-               << parseErr.errorString();
+      paleo::readJsonFile(path, "DataPage undo vault").object();
   for (const QJsonValue &v : root.value(QStringLiteral("undo")).toArray())
   {
     const QJsonObject o = v.toObject();
@@ -161,19 +157,10 @@ void saveUndoVault(DataCatalog *cat, const QVector<UndoRecord> &records,
     noteArr.append(o);
   }
   root.insert(QStringLiteral("notes"), noteArr);
-  // QSaveFile 原子落盘（与 dataops sidecar 契约一致）：断电/崩溃不留半截
-  // JSON——半截 undo 记录会在下次装载被当损坏丢弃，全部撤销入口静默丢失。
-  QSaveFile f(path);
-  if (f.open(QIODevice::WriteOnly))
-  {
-    f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    // 写失败只在日志说明——undo 是增强面，不阻塞挂接本身。
-    if (!f.commit())
-      qWarning() << "DataPage undo vault write failed:" << path
-                 << f.errorString();
-  }
-  else
-    qWarning() << "DataPage undo vault write failed:" << path;
+  // QSaveFile 原子落盘（jsonsidecar helper）：断电/崩溃不留半截 JSON——半截
+  // undo 记录会在下次装载被当损坏丢弃，全部撤销入口静默丢失。写失败只在
+  // 日志说明——undo 是增强面，不阻塞挂接本身。
+  paleo::writeJsonFile(path, QJsonDocument(root), "DataPage undo vault");
 }
 
 } // namespace paleo::pagesinternal
@@ -213,6 +200,8 @@ void DataListPanel::registerCommands()
       [this] { batchChangeType(); });
   reg("dataops.removeSoft", QT_TR_NOOP("移除（软删）"), QT_TR_NOOP("批量"),
       [this] { batchRemoveSoft(); });
+  reg("dataops.exportData", QT_TR_NOOP("导出数据与制作源数据"), QT_TR_NOOP("批量"),
+      [this] { batchExportData(); });
   reg("dataops.exportManifest", QT_TR_NOOP("导出清单 CSV/JSON"), QT_TR_NOOP("批量"),
       [this] { batchExportManifest(); });
   reg("dataops.openPreviewAll", QT_TR_NOOP("批量打开预览"), QT_TR_NOOP("批量"),

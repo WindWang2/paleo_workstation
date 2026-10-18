@@ -40,6 +40,7 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QSignalBlocker>
 #include <QToolButton>
 
 // Ribbon 命令组：每个页签按「做事的顺序」排组——数据管理（导入 → 列表 →
@@ -401,7 +402,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     navPanel(cat);
 
     SARibbonPanel *op = panel(cat, tr("图件输出"), "ribbonPanel.compose.output");
-    addLarge(op, mirrored(compose, "exportPdfButton", tr("导出 PDF"), icon("mActionSaveAsPDF.svg"),
+    addLarge(op, mirrored(compose, "exportPdfButton", tr("导出地质图"), icon("mActionSaveAsPDF.svg"),
                        "ribbonExportPdf"));
     if (QAction *designer = findChild<QAction *>(QStringLiteral("ribbonDesignerAction")))
     {
@@ -460,6 +461,27 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   bar->updateRibbonGeometry();
 }
 
+namespace {
+void addPartitionPanel(SARibbonCategory *category, PaleoEditingToolbar *toolbar) {
+  auto *panel = category->addPanel(QObject::tr("相面分区"));
+  panel->setObjectName("ribbonFaciesPartitionPanel");
+  panel->addLargeAction(toolbar->actionFaciesOperations(), QToolButton::InstantPopup);
+  auto *master = toolbar->partitionCodeCombo();
+  auto *combo = new QComboBox(panel); combo->setObjectName("ribbonPartitionFaciesCode");
+  combo->setModel(master->model()); combo->setMinimumContentsLength(14);
+  combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  combo->setAccessibleName(master->accessibleName()); panel->addSmallWidget(combo);
+  const auto sync = [master, combo, panel] {
+    const QSignalBlocker blocked(combo); combo->setCurrentIndex(master->currentIndex());
+    combo->setEnabled(master->isEnabled()); combo->setToolTip(master->toolTip());
+    panel->setVisible(!master->isHidden());
+  };
+  QObject::connect(combo, &QComboBox::activated, master, [master](int index) { master->setCurrentIndex(index); });
+  QObject::connect(master, &QComboBox::currentIndexChanged, combo, sync);
+  QObject::connect(toolbar, &PaleoEditingToolbar::stateChanged, combo, sync);
+  sync();
+}
+}
 void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb)
 {
   if (!category || !editTb)
@@ -514,6 +536,7 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   p->addSmallAction(editTb->actionMove());
   p->addSmallAction(editTb->actionDeleteFeatures());
   p->addSmallAction(editTb->actionVertexEdit());
+  addPartitionPanel(category, editTb);
   auto *session = category->addPanel(tr("编辑会话"));
   session->setObjectName(QStringLiteral("ribbonEditSessionPanel"));
   session->addSmallAction(editTb->actionTopological());

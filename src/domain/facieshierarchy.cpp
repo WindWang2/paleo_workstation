@@ -125,10 +125,8 @@ QVariantList legendTree(const QVariantList &entries) {
     const auto keyFor = [&parts](int length) {
       return QString::fromUtf8(QJsonDocument::fromVariant(parts.mid(0, length)).toJson(QJsonDocument::Compact));
     };
-    if (parts.size() < 2) { result << row; continue; }
-    QString key;
     for (int i = 0; i + 1 < parts.size(); ++i) {
-      key += QString::number(parts[i].size()) + ":" + parts[i];
+      const auto key = keyFor(i + 1);
       if (!positions.contains(key)) {
         QVariantMap heading{{"name", parts[i]}, {"depth", i}, {"heading", true},
                             {"key", keyFor(i + 1)}, {"parent_key", i ? keyFor(i) : QString()}};
@@ -136,9 +134,12 @@ QVariantList legendTree(const QVariantList &entries) {
         result << heading;
       }
     }
-    row.insert("depth", parts.size() - 1);
+    row.insert("depth", qMax(0, int(parts.size()) - 1));
     row.insert("parent_key", parts.size() > 1 ? keyFor(parts.size() - 1) : QString());
-    row.insert("name", parts.last());
+    if (!parts.isEmpty()) {
+      row.insert("name", parts.last());
+      positions.insert(keyFor(parts.size()), result.size());
+    }
     result << row;
   }
   return result;

@@ -90,9 +90,9 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   markPrimaryButton(chain);
   lay->addWidget(chain);
 
-  auto *exportPdf = new QPushButton(tr("导出层位图 PDF"), this);
+  auto *exportPdf = new QPushButton(tr("导出地质图…"), this);
   exportPdf->setObjectName(QStringLiteral("exportPdfButton"));
-  exportPdf->setAccessibleName(tr("导出层位图 PDF"));
+  exportPdf->setAccessibleName(tr("导出地质图…"));
   connect(exportPdf, &QPushButton::clicked, this, [this] { emit exportPdfRequested(); });
 
   // m2(C)：在布局设计器中打开本页版面（导出用的同一主题版面）。

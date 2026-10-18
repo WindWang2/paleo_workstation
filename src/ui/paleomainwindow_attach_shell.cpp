@@ -527,9 +527,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
         tree->setCurrentLayer(canvas->currentLayer());
       });
     }
-    connect(editTb, &PaleoEditingToolbar::editRefused, this, [this](const QString &reason) {
-      statusBar()->showMessage(reason, 8000);
-    });
+    editTb->bindStatusMessages(statusBar());
     editTb->hide(); // 逻辑宿主，不进布局
     // 撤销/重做动作直挂 ribbon 与快速访问栏，不经 ButtonMirror——把编辑语义
     // 的帮助写在动作上，两侧按钮经 action 同步一起拿到。

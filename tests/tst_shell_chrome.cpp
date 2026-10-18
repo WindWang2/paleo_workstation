@@ -728,6 +728,17 @@ private slots:
     QTest::qWait(60);
     expectGated(false, "catalog recovered");
 
+    // #481 P2-4 的取与修复（setImportsEnabled 开门与工程门 AND）为防御
+    // 语义：真实流程中 projectOpened 前编辑会话已强制收口（切工程门必
+    // 开），「门关着穿越 projectOpened」不可达——harness 实测 createProject
+    // 即重置全局门。可直达的双门取与已由上方「gate replay while catalog
+    // broken」段覆盖（applyProjectGate 同一套存还纪律）。
+
+    m_ctx->toolSvc()->setGlobalGate(true, QString());
+    QTest::qWait(60);
+    expectGated(false, "both gates open");
+
+
     m_ctx->projectSvc()->closeProject();
     QTest::qWait(60);
     expectGated(true, "project closed");

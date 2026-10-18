@@ -124,6 +124,7 @@ public:
   QStringList predictModels;      // 每次 /predict 的 modelVersionId（按到达序）
   QList<int> predictRows;         // 每次 /predict 提交的行数
   int predictCount = 0, pollCount = 0, httpError = 0;
+  int pollAfterMs = 100; // #479 上限测试调大：让「已受理」任务停在缓存里不轮询回来
   bool queued = false, malformed = false, foreignPoll = false,
        terminalFailure = false, hold = false;
   Server() {
@@ -191,7 +192,7 @@ public:
               status = 202;
               json = {{"jobId", "job-1"},
                       {"status", "predicting"},
-                      {"pollAfterMs", 100},
+                      {"pollAfterMs", pollAfterMs},
                       {"progress", 45},
                       {"pollUrl",
                        foreignPoll
@@ -547,6 +548,29 @@ private slots:
     service.predict(model(), "W-1", input);
     QTRY_COMPARE(done.size(), 1);
     QCOMPARE(server.predictCount, 1);
+  }
+  // #479：已受理任务缓存只增不减（永不终结的任务——页面切走/退出——留下
+  // 死键）；上限 32 FIFO 淘汰后，最旧的键重新提交走新 POST，最新的键仍能
+  // 续查（GET，不重复提交）。
+  void acceptedJobCacheEvictsBeyondLimit() {
+    Server server;
+    server.queued = true;
+    server.pollAfterMs = 30000; // 任务停在「已受理」，不轮询回来
+    WellFaciesService service;
+    service.configure(server.config());
+    QSignalSpy progress(&service, &WellFaciesService::progress);
+    const auto input = prepareWellFaciesInput(well(), model());
+    for (int i = 0; i < 33; ++i) {
+      service.predict(model(), QStringLiteral("W-%1").arg(i), input);
+      QTRY_COMPARE(progress.size(), i + 1); // 受理（progress 45）= 键已入缓存
+    }
+    // 第 1 个键（W-0）已被 FIFO 淘汰：重新提交 → 服务端收到新的 POST。
+    service.predict(model(), QStringLiteral("W-0"), input);
+    QTRY_COMPARE(server.predictCount, 34);
+    // 最新键（W-32）仍在缓存：重新提交 → 客户端直接 GET 续查，不发 POST。
+    service.predict(model(), QStringLiteral("W-32"), input);
+    QTRY_COMPARE(server.pollCount, 1);
+    QCOMPARE(server.predictCount, 34);
   }
   void panelGatePredictionAndRestore() {
     Server server;

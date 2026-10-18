@@ -87,6 +87,8 @@ private:
   QTableWidget *m_facies = nullptr;
   QComboBox *m_editFacies = nullptr;
   QComboBox *m_displayLevel = nullptr, *m_editLevel = nullptr, *m_evidenceSource = nullptr;
+  QComboBox *m_featureDisplayLevel = nullptr;
+  QLabel *m_featureDisplayState = nullptr;
   QPlainTextEdit *m_evidenceText = nullptr;
   QListWidget *m_evidence = nullptr;
   QListWidget *m_generationEvidence = nullptr;

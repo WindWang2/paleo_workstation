@@ -248,7 +248,8 @@ QgsLayoutItemScaleBar *addScaleBar( QgsPrintLayout *layout, QgsLayoutItemMap *ma
 
   // 主图左下、内缩 4mm（DESIGN.md 画布内装饰位）。
   const QRectF mapRect = mapSceneRectMm( map );
-  scalebar->attemptMove( QgsLayoutPoint( mapRect.left() + 4.0, mapRect.bottom() - 10.0,
+  scalebar->update();
+  scalebar->attemptMove( QgsLayoutPoint( mapRect.left() + 4.0, mapRect.bottom() - scalebar->rect().height() - 4.0,
                                           Qgis::LayoutUnit::Millimeters ) );
   scalebar->update();
   return scalebar;
@@ -324,7 +325,13 @@ void addCoordinateGrid( QgsLayoutItemMap *map )
   grid->setIntervalY( niceInterval( extent.height() / 4.0 ) > 0 ? niceInterval( extent.height() / 4.0 )
                                                                 : interval );
   grid->setAnnotationEnabled( true );
-  grid->setAnnotationTextFormat( figureTextFormat( 6 ) ); // 网格注记比次级标签再小一档
+  auto annotation = figureTextFormat( 9 ); // DESIGN.md 数值/坐标：JetBrains Mono 9pt
+  auto font = annotation.font(); font.setFamily(QStringLiteral("JetBrains Mono"));
+  annotation.setFont(font);
+  grid->setAnnotationTextFormat(annotation);
+  grid->setAnnotationPrecision(interval >= 1 ? 0 : qBound(0, int(std::ceil(-std::log10(interval))) + 1, 6));
+  grid->setAnnotationDirection(Qgis::MapGridAnnotationDirection::Vertical, Qgis::MapGridBorderSide::Left);
+  grid->setAnnotationDirection(Qgis::MapGridAnnotationDirection::Vertical, Qgis::MapGridBorderSide::Right);
   grid->setFrameStyle( Qgis::MapGridFrameStyle::LineBorder );
   map->grids()->addGrid( grid );
 }
@@ -468,8 +475,8 @@ bool populateFigureLayout( QgsPrintLayout *layout, FigureKind kind, const PageSe
   addTitleBlock( layout, figureKindTitle( kind ), QString() );
 
   // 地图区：y 从标题块下开始，下边留署名带。
-  const double topY = 28.0;
-  const double bottomY = H - 14.0;
+  const double topY = 32.0;      // subtitle + outside coordinate annotations
+  const double bottomY = H - 24.0; // coordinate annotations + CRS/signature footer
   double mapLeft = 10.0;
   double mapRight = W - 10.0;
 
@@ -482,13 +489,13 @@ bool populateFigureLayout( QgsPrintLayout *layout, FigureKind kind, const PageSe
   else if ( kind == FigureKind::Facies )
     legendColumnW = 66.0;
   if ( legendColumnW > 0.0 )
-    mapRight = W - 10.0 - legendColumnW - 4.0;
+    mapRight = W - 10.0 - legendColumnW - 6.0; // leave room for outside coordinate annotations
 
   map->attemptResize( QgsLayoutSize( mapRight - mapLeft, bottomY - topY,
                                      Qgis::LayoutUnit::Millimeters ) );
   map->attemptMove( QgsLayoutPoint( mapLeft, topY, Qgis::LayoutUnit::Millimeters ) );
   if ( !extent.isNull() && !extent.isEmpty() )
-    map->setExtent( extent ); // 定框后设范围（顺序纪律见 addMainMap 注）
+    map->zoomToExtent( extent ); // 保持纸面框尺寸，扩范围适配；setExtent 会改框高
 
   addScaleBar( layout, map );
   QgsLayoutItemLegend *legend = addLegend( layout, map );

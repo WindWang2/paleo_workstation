@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QNetworkAccessManager>
 #include <QPointer>
+#include <QStringList>
 #include <QTimer>
 #include <QUrl>
 class QNetworkReply;
@@ -57,6 +58,9 @@ private:
                bool models);
   void handlePrediction(const QJsonObject &json);
   void fail(const QString &reason);
+  // #479：已受理缓存的登记/注销（带上限 FIFO 淘汰，见 kMaxAcceptedJobs）。
+  void rememberAcceptedJob(const QString &key, const QString &jobId);
+  void forgetAcceptedJob(const QString &key);
   QNetworkAccessManager m_network;
   QPointer<QNetworkReply> m_reply;
   QTimer m_poll;
@@ -66,6 +70,10 @@ private:
   QString m_wellName, m_jobId, m_modelId, m_key;
   // 已受理未终态的任务，键 = 模型+井+输入的 SHA-256：逐地层组预测时停掉再点
   // 「预测相」，能续查任一在途地层的任务而不重复提交。
+  // #479：任务终态才摘键——中途退出/页面切走会留下永不终结的键，只增不减；
+  // 超过 kMaxAcceptedJobs 按插入序淘汰最旧（续查面有限，FIFO 足够）。
+  static constexpr int kMaxAcceptedJobs = 32;
   QHash<QString, QString> m_accepted;
+  QStringList m_acceptOrder; // m_accepted 的插入序（FIFO 淘汰用）
   int m_generation = 0;
 };

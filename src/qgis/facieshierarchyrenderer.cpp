@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "facieshierarchyrenderer.h"
+#include "faciespartitioneditor.h"
 #include "../domain/faciestaxonomy.h"
 #include "faciesmaplegend.h"
 #include "../domain/facieshierarchy.h"
@@ -71,7 +72,33 @@ QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
   const auto present = codes(layer);
   QVariantList styled;
   for (const auto &v : effective) styled << FaciesCatalog::appearance(v.toMap());
-  auto entries = FaciesHierarchy::legend(styled, level, present);
+  QVariantList entries;
+  if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
+      v && v->geometryType() == Qgis::GeometryType::Polygon &&
+      v->fields().indexOf("facies_display_level") >= 0) {
+    QMap<QString, QVariantList> byLevel;
+    auto it = v->getFeatures(QgsFeatureRequest()
+        .setFlags(Qgis::FeatureRequestFlag::NoGeometry)
+        .setSubsetOfAttributes(QStringList{"facies_code", "facies_display_level"}, v->fields()));
+    QgsFeature feature;
+    while (it.nextFeature(feature)) {
+      const auto locked = feature.attribute("facies_display_level").toString();
+      byLevel[FaciesHierarchy::levels().contains(locked) ? locked : level]
+          << feature.attribute("facies_code");
+    }
+    for (const auto &display : FaciesHierarchy::levels())
+      if (byLevel.contains(display))
+        entries += FaciesHierarchy::legend(styled, display, byLevel.value(display));
+    // Unknown codes share one fallback symbol, regardless of their lock value.
+    bool unknown = false;
+    for (int i = entries.size() - 1; i >= 0; --i)
+      if (entries[i].toMap().value("key") == "unknown") {
+        if (unknown) entries.removeAt(i);
+        unknown = true;
+      }
+  } else {
+    entries = FaciesHierarchy::legend(styled, level, present);
+  }
   if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
       v && v->geometryType() == Qgis::GeometryType::Point)
     for (auto &entry : entries) {
@@ -100,6 +127,13 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
     if (!base)
       return entries;
     QgsCategoryList categories;
+    const QString displayExpression =
+        v->geometryType() == Qgis::GeometryType::Polygon &&
+                v->fields().indexOf("facies_display_level") >= 0
+            ? QStringLiteral("CASE WHEN \"facies_display_level\" IN ('facies', 'sub_facies', 'micro_facies') "
+                             "THEN \"facies_display_level\" ELSE %1 END")
+                  .arg(QgsExpression::quotedString(level))
+            : QgsExpression::quotedString(level);
     QString keyExpression = "CASE ", nameExpression = "CASE ";
     bool hasCodes = false;
     for (const auto &entry : entries) {
@@ -129,8 +163,10 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
       categories << QgsRendererCategory(row.value("key"), symbol,
                                         row.value("name").toString(), true, row.value("key").toString());
       for (const auto &code : row.value("codes").toList()) {
-        const auto when = QStringLiteral("WHEN \"facies_code\" = %1 THEN ")
-                              .arg(QgsExpression::quotedValue(code));
+        const auto when = QStringLiteral("WHEN (%1) = %2 AND \"facies_code\" = %3 THEN ")
+                              .arg(displayExpression,
+                                   QgsExpression::quotedValue(row.value("level")),
+                                   QgsExpression::quotedValue(code));
         keyExpression +=
             when + QgsExpression::quotedValue(row.value("key")) + " ";
         nameExpression +=
@@ -190,33 +226,7 @@ void watchUndo(QgsVectorLayer *layer, QObject *context,
                    });
 }
 bool validateTopology(QgsVectorLayer *v, QString *error) {
-  if (!v || v->geometryType() != Qgis::GeometryType::Polygon)
-    return true;
-  auto *collection = new QgsGeometryCollection;
-  QgsGeometry coverage(collection);
-  auto it = v->getFeatures();
-  QgsFeature f;
-  while (it.nextFeature(f)) {
-    if (f.geometry().isEmpty() || !f.geometry().isGeosValid()) {
-      if (error)
-        *error = QObject::tr("相面含空几何或无效几何，请修复后保存");
-      return false;
-    }
-    collection->addGeometry(f.geometry().constGet()->clone());
-  }
-  if (collection->numGeometries() < 2)
-    return true;
-  try {
-    if (coverage.validateCoverage(0) == Qgis::CoverageValidityResult::Valid)
-      return true;
-  } catch (const QgsNotSupportedException &) {
-    if (error)
-      *error = QObject::tr("当前 QGIS/GEOS 不支持相面覆盖拓扑检查");
-    return false;
-  }
-  if (error)
-    *error = QObject::tr("相、亚相、微相共用的面覆盖存在重叠或共边不匹配；请撤"
-                         "销或修复边界后保存");
-  return false;
+  return FaciesPartitionEditor::validate(v, error);
 }
+
 } // namespace FaciesHierarchyRenderer

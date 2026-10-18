@@ -5,6 +5,8 @@
 #include "../src/domain/facieshierarchy.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/facieshierarchyrenderer.h"
+#include "../src/qgis/faciespartitioneditor.h"
+#include "../src/qgis/faciespartitiontool.h"
 #include "../src/qgis/mapcanvaslink.h"
 #include "../src/qgis/mappingreferencecanvas.h"
 #include "../src/qgis/mappingartifactwriter.h"
@@ -40,6 +42,8 @@
 #include <QFileInfo>
 #include <cmath>
 #include <qgslayertree.h>
+#include <qgslayertreemodellegendnode.h>
+#include <qgsmaplayerlegend.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
 #include <qgsrasterdataprovider.h>
@@ -811,6 +815,119 @@ private slots:
     QCOMPARE(f.work.resolvedLevel(draft), QString("facies"));
     QCOMPARE(f.work.displayLegend(draft).size(), 3);
   }
+  void featureDisplayLockMixesLevelsWithoutChangingClassification() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    auto it = v->getFeatures();
+    QgsFeature a, b;
+    QVERIFY(it.nextFeature(a));
+    QVERIFY(it.nextFeature(b));
+    // Same leaf code, different feature display levels: code alone cannot select a symbol.
+    QVERIFY(f.work.assignHierarchy(draft, {b.id()}, 1, "micro_facies", &error));
+    b = v->getFeature(b.id());
+    const auto geometry = a.geometry().asWkb();
+    QSignalSpy changed(&f.work, &MappingWorkbench::displayChanged);
+    QVERIFY(f.work.setDisplayMode(draft, "auto", &error));
+    QVERIFY2(f.work.setFeatureDisplayMode(draft, {a.id()}, "facies", &error), qPrintable(error));
+    QVERIFY(!changed.isEmpty());
+    const auto schema = f.work.versionForLayer(draft).extra.value("facies").toList();
+    const auto leaf = FaciesCatalog::find(schema, 1);
+    auto evaluated = [v](const QString &expression, qint64 fid) {
+      auto context = v->createExpressionContext();
+      context.setFeature(v->getFeature(fid));
+      QgsExpression expr(expression);
+      return expr.evaluate(&context).toString();
+    };
+    for (const auto scale : {9000000.0, 5000000.0, 1000000.0, 9000000.0, 1000000.0}) {
+      f.work.updateDisplayScale(scale);
+      auto *merged = dynamic_cast<QgsMergedFeatureRenderer *>(v->renderer());
+      QVERIFY(merged);
+      const auto *categories = dynamic_cast<const QgsCategorizedSymbolRenderer *>(merged->embeddedRenderer());
+      QVERIFY(categories);
+      QCOMPARE(evaluated(categories->classAttribute(), a.id()), FaciesHierarchy::key(leaf, "facies"));
+      QCOMPARE(evaluated(categories->classAttribute(), b.id()), FaciesHierarchy::key(leaf, f.work.resolvedLevel(draft)));
+      QCOMPARE(evaluated(v->customProperty("paleo/faciesDisplayExpression").toString(), a.id()),
+               FaciesHierarchy::path(leaf).first());
+      const auto entries = f.work.displayLegend(draft);
+      QCOMPARE(entries.size(), scale > 8000000 ? 3 : scale > 4000000 ? 4 : 5);
+      QSet<QString> treeKeys;
+      for (const auto &value : FaciesHierarchy::legendTree(entries)) {
+        const auto key = value.toMap().value("key").toString();
+        QVERIFY2(!treeKeys.contains(key), qPrintable(key));
+        treeKeys.insert(key);
+      }
+      QgsLayerTreeLayer node(v);
+      const auto nodes = v->legend()->createLayerTreeModelLegendNodes(&node);
+      QCOMPARE(nodes.size(), treeKeys.size());
+      QSet<QString> nativeKeys;
+      for (const auto *legendNode : nodes) {
+        const auto key = legendNode->data(int(QgsLayerTreeModelLegendNode::CustomRole::RuleKey)).toString();
+        QVERIFY(!nativeKeys.contains(key));
+        nativeKeys.insert(key);
+      }
+      QCOMPARE(nativeKeys, treeKeys);
+      qDeleteAll(nodes);
+      QCOMPARE(v->getFeature(a.id()).geometry().asWkb(), geometry);
+      QCOMPARE(v->getFeature(a.id()).attribute("facies_code").toInt(), 1);
+    }
+    QCOMPARE(f.work.featureDisplayMode(draft, a.id()), QString("facies"));
+    QCOMPARE(f.work.featureDisplayMode(draft, b.id()), QString("auto"));
+    const auto before = v->undoStack()->count();
+    QVERIFY(!f.work.setFeatureDisplayMode(draft, {a.id(), 999999}, "sub_facies", &error));
+    QVERIFY(!f.work.setFeatureDisplayMode(draft, {a.id()}, "invalid", &error));
+    QCOMPARE(v->undoStack()->count(), before);
+    QVERIFY(f.work.setFeatureDisplayMode(draft, {a.id()}, "auto", &error));
+    QCOMPARE(f.work.displayLegend(draft).size(), 4);
+    v->undoStack()->undo();
+    QCoreApplication::processEvents();
+    QCOMPARE(f.work.featureDisplayMode(draft, a.id()), QString("facies"));
+    QCOMPARE(f.work.displayLegend(draft).size(), 5);
+    v->undoStack()->redo();
+    QCoreApplication::processEvents();
+    QCOMPARE(f.work.featureDisplayMode(draft, a.id()), QString("auto"));
+    QVERIFY(v->rollBack());
+    QCOMPARE(v->fields().indexOf("facies_display_level"), -1);
+    QCOMPARE(f.work.displayLegend(draft).size(), 5);
+  }
+  void featureDisplayLocksSurviveSavedVersionsAndCopies() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    auto it = v->getFeatures();
+    QgsFeature a, b;
+    QVERIFY(it.nextFeature(a));
+    QVERIFY(it.nextFeature(b));
+    QVERIFY(f.work.setFeatureDisplayMode(draft, {a.id(), b.id()}, "sub_facies", &error));
+    QVERIFY2(v->commitChanges(), qPrintable(v->commitErrors().join(";")));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto version = f.work.versionForLayer(draft);
+    QgsVectorLayer saved(DataCatalog::resolvedVersionPath(f.dir.path(), version) + "|layername=features", "saved", "ogr");
+    QVERIFY(saved.isValid());
+    auto stored = saved.getFeatures();
+    QgsFeature feature;
+    int locked = 0;
+    while (stored.nextFeature(feature))
+      locked += feature.attribute("facies_display_level").toString() == "sub_facies";
+    QCOMPARE(locked, 2);
+    const auto copy = f.work.copyForEditing(draft, {}, &error);
+    QVERIFY2(!copy.isEmpty(), qPrintable(error));
+    QVERIFY(f.layers.instantiate(copy));
+    f.work.updateDisplayScale(1000000);
+    int sub = 0;
+    for (const auto &entry : f.work.displayLegend(copy))
+      sub += entry.toMap().value("level") == "sub_facies";
+    QCOMPARE(sub, 1);
+    QVERIFY(!f.work.setFeatureDisplayMode("product." + version.id, {a.id()}, "facies", &error));
+  }
   void hierarchyParentAssignmentIsOneUndoAndKeepsCompatibleChildren() {
     Fixture f;
     QVERIFY(f.init());
@@ -907,6 +1024,132 @@ private slots:
     QVERIFY(tool->topologicalEditingEnabled());
     QVERIFY(toolbar.actionTopological()->isChecked());
     QVERIFY(toolbar.cancelEditing());
+  }
+  void partitionOperationsPreserveEvidenceHierarchyUndoAndVersions() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    const auto originalVersion = f.work.versionForLayer(draft);
+    const auto originalHash = digest(DataCatalog::resolvedVersionPath(f.dir.path(), originalVersion));
+    QVERIFY(!originalVersion.extra.value("partition_footprint_wkb").toString().isEmpty());
+    auto it = layer->getFeatures(); QgsFeature first, second;
+    QVERIFY(it.nextFeature(first)); QVERIFY(it.nextFeature(second)); it.close();
+    QVERIFY(layer->startEditing()); layer->beginEditCommand("source boundary semantics");
+    for (const auto &field : {QgsField("boundary_kind", QMetaType::Type::QString),
+         QgsField("transition_width", QMetaType::Type::Double), QgsField("confidence", QMetaType::Type::Double),
+         QgsField("comment", QMetaType::Type::QString)})
+      QVERIFY(layer->addAttribute(field));
+    for (const auto &source : {first, second}) {
+      QVERIFY(layer->changeAttributeValue(source.id(), layer->fields().indexOf("boundary_kind"), "fault_cut"));
+      QVERIFY(layer->changeAttributeValue(source.id(), layer->fields().indexOf("transition_width"), 0.));
+      QVERIFY(layer->changeAttributeValue(source.id(), layer->fields().indexOf("confidence"), .9));
+      QVERIFY(layer->changeAttributeValue(source.id(), layer->fields().indexOf("comment"), QString("原面备注 %1").arg(source.id())));
+    }
+    layer->endEditCommand();
+    for (const auto &source : {first, second})
+      QVERIFY2(f.work.addEvidence(draft, {source.id()}, {{"text", QString("井震解释 %1").arg(source.id())},
+          {"source_layer", "input.grid"}, {"actor_id", "local:geologist"}, {"reason", "记录编辑前依据"}}, &error), qPrintable(error));
+    layer->selectByIds({first.id()});
+    const int beforeCommands = layer->undoStack()->count();
+    QVERIFY2(FaciesPartitionEditor::split(layer, QgsGeometry::fromWkt("LINESTRING(-10 50,110 50)"), &error), qPrintable(error));
+    QCOMPARE(layer->featureCount(), 6); QCOMPARE(layer->undoStack()->count(), beforeCommands + 1);
+    for (const auto &child : layer->selectedFeatures()) {
+      QCOMPARE(child.attribute("facies_code").toInt(), 1);
+      const auto state = f.work.featureEvidence(draft, {child.id()});
+      QCOMPARE(state.value("records").toList().size(), 1);
+      QCOMPARE(state.value("interpretation").toMap().value("status").toString(), QString("NeedsReview"));
+    }
+    layer->undoStack()->undo(); QCOMPARE(layer->featureCount(), 5);
+    QCOMPARE(MappingFeatureIdentity::uid(layer->getFeature(first.id())), MappingFeatureIdentity::uid(first));
+    QVERIFY2(FaciesPartitionEditor::paint(layer, QgsGeometry::fromRect(QgsRectangle(50,10,150,90)), 3, &error), qPrintable(error));
+    QCOMPARE(layer->selectedFeatureCount(), 1);
+    const auto painted = layer->selectedFeatures().first();
+    QCOMPARE(painted.attribute("facies_code").toInt(), 3);
+    QCOMPARE(painted.attribute("facies_name").toString(), QString("三角洲"));
+    QVERIFY(painted.attribute("boundary_kind").isNull()); QVERIFY(painted.attribute("confidence").isNull());
+    QVERIFY(painted.attribute("comment").isNull());
+    const auto evidence = f.work.featureEvidence(draft, {painted.id()});
+    QCOMPARE(evidence.value("records").toList().size(), 2);
+    QCOMPARE(evidence.value("interpretation").toMap().value("parent_interpretations").toList().size(), 2);
+    for (const auto &parent : evidence.value("interpretation").toMap().value("parent_interpretations").toList()) {
+      QCOMPARE(parent.toMap().value("source_feature_attributes").toMap().value("boundary_kind").toString(), QString("fault_cut"));
+      QCOMPARE(parent.toMap().value("source_feature_attributes").toMap().value("confidence").toDouble(), .9);
+      QVERIFY(parent.toMap().value("source_feature_attributes").toMap().value("comment").toString().startsWith("原面备注"));
+    }
+    const auto interpretation = painted.attribute("paleo_interpretation");
+    const auto identity = MappingFeatureIdentity::uid(painted);
+    layer->undoStack()->undo(); QCOMPARE(layer->featureCount(), 5);
+    layer->undoStack()->redo();
+    QCOMPARE(MappingFeatureIdentity::find(layer, identity).attribute("paleo_interpretation"), interpretation);
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(";")));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto saved = f.work.versionForLayer(draft);
+    QVERIFY(saved.id != originalVersion.id);
+    QCOMPARE(saved.extra.value("partition_footprint_wkb"), originalVersion.extra.value("partition_footprint_wkb"));
+    QCOMPARE(digest(DataCatalog::resolvedVersionPath(f.dir.path(), originalVersion)), originalHash);
+    QgsVectorLayer reopened(DataCatalog::resolvedVersionPath(f.dir.path(), saved) + "|layername=features", "reopened", "ogr");
+    QVERIFY(reopened.isValid());
+    const auto restored = MappingFeatureIdentity::find(&reopened, identity); QVERIFY(restored.isValid());
+    QCOMPARE(restored.attribute("paleo_interpretation"), interpretation);
+    QVERIFY2(FaciesPartitionEditor::install(&reopened, saved.extra.value("facies").toList(), saved.extra.value("partition_footprint_wkb").toString(), &error), qPrintable(error));
+    QVERIFY2(FaciesPartitionEditor::validate(&reopened, &error), qPrintable(error));
+    QVERIFY(layer->startEditing()); QgsFeatureIds mergeIds;
+    it = layer->getFeatures(); QgsFeature feature;
+    while (it.nextFeature(feature)) if (feature.geometry().boundingBox().xMaximum() <= 200) mergeIds.insert(feature.id());
+    layer->selectByIds(mergeIds);
+    QVERIFY2(FaciesPartitionEditor::merge(layer, 3, &error), qPrintable(error));
+    QCOMPARE(layer->featureCount(), 4);
+    const auto merged = layer->selectedFeatures().first();
+    const auto mergedEvidence = f.work.featureEvidence(draft, {merged.id()});
+    QVERIFY(mergedEvidence.value("records").toList().size() >= 2);
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(";")));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    QCOMPARE(digest(DataCatalog::resolvedVersionPath(f.dir.path(), originalVersion)), originalHash);
+    QVERIFY(f.work.setDisplayMode(draft, "facies", &error));
+    QVERIFY(!f.work.displayLegend(draft).isEmpty());
+    QVERIFY(f.work.setDisplayMode(draft, "micro_facies", &error));
+  }
+  void partitionToolbarGatesUnsafeToolsAndFollowsSelection() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    QgsMapCanvas canvas; PaleoEditingToolbar toolbar(&canvas);
+    toolbar.setProject(f.project.project()); toolbar.setLayers({layer}); toolbar.setCurrentLayer(layer);
+    QVERIFY(!toolbar.actionMove()->isEnabled()); QVERIFY(!toolbar.actionReshape()->isEnabled());
+    QVERIFY(!toolbar.actionDeleteFeatures()->isEnabled()); QVERIFY(!toolbar.actionCrossLayerTopo()->isEnabled());
+    QVERIFY(!toolbar.actionPaintFacies()->isEnabled()); QVERIFY(!toolbar.actionSplitFacies()->isEnabled());
+    auto *code = toolbar.findChild<QComboBox *>("partitionFaciesCode"); QVERIFY(code);
+    QCOMPARE(code->count(), 6); QVERIFY(code->itemText(1).contains("→"));
+    code->setCurrentIndex(code->findData(3)); QVERIFY(toolbar.actionPaintFacies()->isEnabled());
+    toolbar.actionAddPolygon()->trigger(); QVERIFY(qobject_cast<FaciesPartitionTool *>(canvas.mapTool()));
+    auto it = layer->getFeatures(); QgsFeature a, b; QVERIFY(it.nextFeature(a)); QVERIFY(it.nextFeature(b)); it.close();
+    layer->selectByIds({a.id()}); QVERIFY(toolbar.actionSplitFacies()->isEnabled());
+    QVERIFY(!toolbar.actionMergeFacies()->isEnabled());
+    toolbar.actionSplitFacies()->trigger(); QVERIFY(qobject_cast<FaciesPartitionTool *>(canvas.mapTool()));
+    layer->selectByIds({a.id(), b.id()}); QVERIFY(toolbar.actionMergeFacies()->isEnabled());
+    toolbar.actionMergeFacies()->trigger(); QCOMPARE(layer->featureCount(), 4);
+    QVERIFY(!toolbar.actionSplitFacies()->isChecked());
+    QVERIFY(!qobject_cast<FaciesPartitionTool *>(canvas.mapTool()));
+    toolbar.actionUndo()->trigger(); QCOMPARE(layer->featureCount(), 5);
+    toolbar.actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
+    QVERIFY(toolbar.cancelEditing()); QCOMPARE(layer->featureCount(), 5);
+  }
+  void partitionCommitRejectionCanBeRepairedWithUndo() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    QVERIFY(layer->startEditing()); auto it = layer->getFeatures(); QgsFeature face; QVERIFY(it.nextFeature(face)); it.close();
+    layer->beginEditCommand("invalid outside edit"); auto geometry = face.geometry(); geometry.translate(100000,0);
+    QVERIFY(layer->changeGeometry(face.id(), geometry)); layer->endEditCommand();
+    QVERIFY(!layer->commitChanges()); QVERIFY(layer->isEditable());
+    QVERIFY(!layer->commitChanges()); // repeated save must retain the recovery path
+    layer->undoStack()->undo(); QCoreApplication::processEvents();
+    QVERIFY2(FaciesPartitionEditor::validate(layer, &error), qPrintable(error));
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(";")));
+    // An independent beforeCommit veto must still win on a healthy partition.
+    QVERIFY(layer->startEditing());
+    const auto veto = connect(layer, &QgsVectorLayer::beforeCommitChanges, layer, [layer] { layer->setAllowCommit(false); });
+    QVERIFY(!layer->commitChanges()); disconnect(veto); QVERIFY(layer->rollBack());
   }
   void evidenceUndoVersionLineageAndRecovery() {
     Fixture f;
@@ -1182,11 +1425,20 @@ private slots:
     while (features.nextFeature(candidate)) if (!survivor.isValid() || candidate.geometry().boundingBox().xMaximum() > survivor.geometry().boundingBox().xMaximum()) survivor = candidate;
     features.close(); QVERIFY(survivor.isValid());
     QVERIFY(layer->startEditing()); const auto fid = survivor.id();
-    for (int n = 0; n < 20; ++n) {
+    // #503 快速道减样：PALEO_TEST_FAST=1 时合并轮数 20→5——逐轮不变量
+    //（父树单线/无双记/解释继承）与收尾 saveEditingVersion+重开对拍不变，
+    // 只减轮次；默认全量 20（CI 语义不变）。轮内断言界 (n+1)*20000 随轮缩放。
+    const int mergeRounds = qEnvironmentVariableIntValue("PALEO_TEST_FAST") > 0 ? 5 : 20;
+    for (int n = 0; n < mergeRounds; ++n) {
       const auto current = layer->getFeature(fid); const auto box = current.geometry().boundingBox();
       QgsFeature adjacent(layer->fields()); adjacent.setAttribute("facies_code", current.attribute("facies_code"));
-      adjacent.setGeometry(QgsGeometry::fromRect(QgsRectangle(box.xMaximum(), box.yMinimum(), box.xMaximum() + 100, box.yMaximum())));
-      layer->beginEditCommand("new neighbouring interpretation"); QVERIFY(layer->addFeature(adjacent)); layer->endEditCommand();
+      // Stress the lineage inside the frozen map footprint: carve off the
+      // neighbor instead of silently extending the study area on every cycle.
+      const double splitX = (box.xMinimum() + box.xMaximum()) / 2;
+      adjacent.setGeometry(QgsGeometry::fromRect(QgsRectangle(splitX, box.yMinimum(), box.xMaximum(), box.yMaximum())));
+      auto remainder = QgsGeometry::fromRect(QgsRectangle(box.xMinimum(), box.yMinimum(), splitX, box.yMaximum()));
+      layer->beginEditCommand("new neighbouring interpretation");
+      QVERIFY(layer->changeGeometry(fid, remainder)); QVERIFY(layer->addFeature(adjacent)); layer->endEditCommand();
       const auto before = layer->getFeature(fid); const auto parentUid = MappingFeatureIdentity::uid(before);
       const auto neighbourUid = MappingFeatureIdentity::uid(layer->getFeature(adjacent.id()));
       auto united = before.geometry().combine(layer->getFeature(adjacent.id()).geometry()); QVERIFY(!united.isEmpty());
@@ -1241,8 +1493,13 @@ private slots:
     for (int n = 0; n < 3; ++n) {
       const auto current = layer->getFeature(fid); const auto box = current.geometry().boundingBox();
       QgsFeature adjacent(layer->fields()); adjacent.setAttribute("facies_code", current.attribute("facies_code"));
-      adjacent.setGeometry(QgsGeometry::fromRect(QgsRectangle(box.xMaximum(), box.yMinimum(), box.xMaximum() + 100, box.yMaximum())));
-      layer->beginEditCommand("new neighbouring interpretation"); QVERIFY(layer->addFeature(adjacent)); layer->endEditCommand();
+      // Stress the lineage inside the frozen map footprint: carve off the
+      // neighbor instead of silently extending the study area on every cycle.
+      const double splitX = (box.xMinimum() + box.xMaximum()) / 2;
+      adjacent.setGeometry(QgsGeometry::fromRect(QgsRectangle(splitX, box.yMinimum(), box.xMaximum(), box.yMaximum())));
+      auto remainder = QgsGeometry::fromRect(QgsRectangle(box.xMinimum(), box.yMinimum(), splitX, box.yMaximum()));
+      layer->beginEditCommand("new neighbouring interpretation");
+      QVERIFY(layer->changeGeometry(fid, remainder)); QVERIFY(layer->addFeature(adjacent)); layer->endEditCommand();
       const auto before = layer->getFeature(fid);
       auto united = before.geometry().combine(layer->getFeature(adjacent.id()).geometry()); QVERIFY(!united.isEmpty());
       layer->beginEditCommand("native merge");
@@ -1601,6 +1858,10 @@ private slots:
     auto *level = page.findChild<QComboBox *>("faciesDisplayLevel");
     auto *edit = page.findChild<QComboBox *>("faciesEditLevel");
     QVERIFY(level && edit);
+    auto *featureLevel = page.findChild<QComboBox *>("faciesFeatureDisplayLevel");
+    auto *featureApply = page.commandButton("featureDisplayLevel");
+    QVERIFY(featureLevel && featureApply);
+    QVERIFY(!featureApply->isEnabled());
     QSignalSpy intent(&page, &MappingWorkbenchPage::commandRequested);
     level->setCurrentIndex(1);
     QCOMPARE(intent.last()[0].toString(), QString("displayLevel"));
@@ -1621,6 +1882,12 @@ private slots:
     QgsFeature feature;
     QVERIFY(it.nextFeature(feature));
     v->selectByIds({feature.id()});
+    page.setEvidenceSnapshot(f.work.featureEvidence(draft, {feature.id()}));
+    QVERIFY(featureApply->isEnabled());
+    featureLevel->setCurrentIndex(featureLevel->findData("facies"));
+    featureApply->click();
+    QCOMPARE(intent.last()[0].toString(), QString("featureDisplayLevel"));
+    QCOMPARE(intent.last()[1].toMap().value("display_mode").toString(), QString("facies"));
     text->setPlainText("解释证据");
     QVERIFY(page.commandButton("addEvidence")->isEnabled());
     page.commandButton("addEvidence")->click();

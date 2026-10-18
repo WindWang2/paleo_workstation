@@ -74,7 +74,8 @@ class PaleoOnnxService : public QObject
 
     // Toy/general inference: named input float tensor in -> first output float tensor out.
     // Deterministic: same input → same output (spike verified 2.0 → 42.0).
-    // 线程安全：会话 Run 与加载/换模互斥（异步 tile 推理从任务池线程调）。
+    // 线程安全：推理取会话引用（m_mutex 短临界区）后在锁外 Run——多线程推理
+    // 并行、且不与会话构建互斥（异步 tile 推理从任务池线程调）。
     QVector<float> run(const QString &inputName, const QVector<float> &input,
                        const QVector<int64_t> &shape, QString *error = nullptr);
 
@@ -113,18 +114,28 @@ class PaleoOnnxService : public QObject
     QHash<QString, ModelRegistryEntry> m_registryOk;   // name → Ok 条目
     QHash<QString, QString> m_registryRejected;        // name → 拒绝原因（诚实报错）
     struct PoolEntry;                               // Ort::Session* + meta + LRU 戳（cpp 内定义）
+    // 锁外推理期间的会话生命周期：条目带引用计数，被淘汰（LRU/指纹变化/
+    // 换根/析构）时先退休（retired 列表），在飞 Run 归零后才真正 delete。
+    // 调用方持 m_mutex。
+    void retireEntryLocked(PoolEntry *entry);
+    void releaseEntryLocked(PoolEntry *entry);      // --refs；退休条目归零即删
     QString m_modelRoot;
     QString m_loaded;
     QString m_loadedPath;
     PoolEntry *m_active = nullptr;                  // 指向池内条目（池拥有会话）
     QHash<QString, PoolEntry *> m_pool;             // key = canonical path
+    QVector<PoolEntry *> m_retired;                 // 已摘除、等在飞推理归零删除
     quint64 m_lruCounter = 0;
     OnnxLoadStatus m_lastStatus = OnnxLoadStatus::NotFound;
     OnnxModelMeta m_lastMeta;
     bool m_lastPoolHit = false;
-    mutable QMutex m_mutex;                         // 会话换装/池/Run 全互斥
-    // #402：在飞推理排空——runTensorOn 进出 m_inFlight；销毁/换模型目录先
-    // 置 m_destroying 拒新、再等计数归零，不再把悬垂会话留给 worker。
+    // 双锁（#479）：m_mutex 只盖池/状态/引用计数的短临界区，Run 在锁外并行；
+    // m_loadMutex 串行化会话构建（new Session/签名/warmup 在 m_loadMutex 内、
+    // m_mutex 外）——模型加载期间推理不停摆，同模型并发加载不重复建会话。
+    mutable QMutex m_mutex;
+    mutable QMutex m_loadMutex;
+    // #402：在飞推理排空——runTensorOn/runTensor 进出 m_inFlight；销毁/换模型
+    // 目录先置 m_destroying 拒新、再等计数归零，不再把悬垂会话留给 worker。
     int m_inFlight = 0;
     bool m_destroying = false;
     QWaitCondition m_inFlightIdle;

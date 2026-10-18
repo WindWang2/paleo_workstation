@@ -57,7 +57,16 @@ std::unique_ptr<QgsProject> rebuildProject(const ProjectSnapshot &snapshot,
                                            QString *error = nullptr,
                                            QStringList *warnings = nullptr);
 
-enum class Format { Png, Pdf, Svg };
+enum class Format { Png, Pdf, Svg, Tiff };
+bool formatAvailable(Format format);
+QString formatExtension(Format format);
+bool geoPdfAvailable(QString *reason = nullptr);
+struct ExportOptions {
+  bool transparentBackground = false;
+  bool worldFile = false;
+  bool geoPdf = false;
+  bool textAsPaths = true;
+};
 
 // 0-based page selection, QGIS convention (page 0 = first page).
 // fromPage/toPage are inclusive and clamped to the existing page count;
@@ -80,6 +89,7 @@ struct ExportOutcome
                            //!< when layout==nullptr or outPath empty (pre-resolution errors)
     QStringList warnings; //!< non-fatal issues (e.g. snapshot layers whose data
                           //!< source was unreadable → map rendered without them)
+    QStringList auxiliaryFiles; //!< world files and CRS sidecars
 };
 
 // Logic core — synchronous, no dialogs, directly testable.
@@ -89,7 +99,8 @@ struct ExportOutcome
 //   dpi      export resolution; <= 0 keeps the layout's own dpi
 //   range    page selection (see PageRange); pass PageRange() for all pages
 ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format format,
-                            double dpi, const PageRange &range );
+                            double dpi, const PageRange &range,
+                            const ExportOptions &options = {} );
 // Builds the thickness map print layout on project (A4 landscape with map, title, legend, scalebar, north arrow, CRS caption).
 QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectService *projectSvc,
                                        const QString &horizon, QString *error = nullptr );

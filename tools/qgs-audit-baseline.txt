@@ -11,6 +11,12 @@
 # 基线：master @ ddd1325e 实测 114 文件（workflow 41 + ui 73）。#472 正文
 # 口径 112（40+72）与本闸复现命令（check_layering.py --qgs-audit）差 2——
 # 正文取证未附统计命令，以本工具的确定性口径为准。
+# #473 拆分追加 2 行（114→116）：attachWorkbench 的直连代码面随 TU 拆分
+# 从 paleomainwindow_workbench.cpp 平移到 _wells/_commands.cpp（原文件仍
+# 有直连故仍在册）——同一份代码换文件承载，不是新增泄漏面；后续收敛时
+# 这三个文件按同一批处理。
+src/ui/paleomainwindow_workbench_commands.cpp
+src/ui/paleomainwindow_workbench_wells.cpp
 src/ui/attributetablepanel.cpp
 src/ui/constraintdrawcontroller.cpp
 src/ui/correlation/correlationtrack.cpp

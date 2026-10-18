@@ -255,6 +255,10 @@ RemotePredictionRouter::RemotePredictionRouter(RemoteTransport *transport,
   : RemotePredictionService(parent)
   , m_transport(transport)
 {
+  // #479：本地降级重活（SHA256 全读+会话构建+warmup+全网格推理）不得在 GUI
+  // 线程槽内同步执行——专用单线程池跑（降级是罕见路径，1 线程即够，且不与
+  // 任务池/全局池抢资源）。
+  m_fallbackPool.setMaxThreadCount(1);
   if (!m_transport)
     return;
   connect(m_transport, &RemoteTransport::healthDone, this,
@@ -277,7 +281,15 @@ RemotePredictionRouter::RemotePredictionRouter(RemoteTransport *transport,
           });
 }
 
-RemotePredictionRouter::~RemotePredictionRouter() = default;
+RemotePredictionRouter::~RemotePredictionRouter()
+{
+  // 排空降级 worker：worker 内对 this 的排队回调随 QObject 析构清队，
+  // 不会在析构后触达；m_ownedLocal/m_retiredLocals 在成员析构序中晚于
+  // 池排空（声明序在池之前），安全。
+  m_fallbackPool.clear();
+  m_fallbackPool.waitForDone();
+  m_retiredLocals.clear();
+}
 
 void RemotePredictionRouter::setLocalPredictor(LocalPredictor *predictor)
 {
@@ -377,20 +389,59 @@ void RemotePredictionRouter::degradeOrDie(quint64 runId, const QString &stageNam
     return;
   }
   emit progress(m_request.id, 50);
-  QVector<int> cells;
-  QString localError;
-  if (!local->predict(m_request, cells, &localError)) {
+  // #479：本地 ORT 降级是秒~分钟级重活（模型全读 SHA256 + 会话构建 + warmup
+  // + 全网格推理），不得在 GUI 线程槽内同步执行——移入专用池，结果按轮次号
+  // 排队回本线程结算（runId 守卫与远端迟到回包同一道防线）。
+  runLocalFallback(runId, m_request, stageError);
+}
+
+void RemotePredictionRouter::runLocalFallback(quint64 runId,
+                                              const RemotePredictionRequest &request,
+                                              const QString &stageError)
+{
+  LocalPredictor *local = m_local; // 快照：setLocalFallback 可重绑，旧引擎由
+                                   // m_ownedLocal 持有到 router 析构，指针稳定。
+  QPointer<RemotePredictionRouter> self(this);
+  m_fallbackPool.start([this, self, runId, request, stageError, local] {
+    QVector<int> cells;
+    QString localError;
+    const bool ok = local && local->predict(request, cells, &localError);
+    // 排队回 router 线程结算：QObject 析构会清掉自己队列中的挂起调用，
+    // 析构后此 lambda 不会触达 this。
+    QMetaObject::invokeMethod(this,
+                              [this, self, runId, request, stageError, ok,
+                               cells, localError] {
+                                if (!self)
+                                  return;
+                                settleLocalResult(runId, request, stageError,
+                                                  ok, cells, localError);
+                              },
+                              Qt::QueuedConnection);
+  });
+}
+
+void RemotePredictionRouter::settleLocalResult(quint64 runId,
+                                               const RemotePredictionRequest &request,
+                                               const QString &stageError, bool ok,
+                                               const QVector<int> &cells,
+                                               const QString &localError)
+{
+  // 迟到守卫：取消/重入之后到达的降级结果按过期丢弃——与远端迟到回包同语义。
+  if (runId == 0 || runId != m_runId || m_cancelled || !m_running)
+    return;
+  LocalPredictor *local = m_local;
+  if (!ok || !local) {
     settleFail(QObject::tr("远端失败 (%1)，本地降级失败 (%2)")
                  .arg(stageError, localError));
     return;
   }
   RemotePredictionResult result;
-  result.request = m_request;
+  result.request = request;
   result.cells = cells;
   result.method = local->engineId();
   result.mock = false;
   m_lastRoute = result.method;
-  emit progress(m_request.id, 100);
+  emit progress(request.id, 100);
   m_running = false;
   emit completed(result);
 }

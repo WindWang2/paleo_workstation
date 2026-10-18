@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QUuid>
 #include <qgsproject.h>
+#include <qgsfield.h>
 #include <qgsvectorlayer.h>
 namespace {
 bool reject(QString *error, const QString &message) {
@@ -67,6 +68,49 @@ bool MappingWorkbench::setDisplayMode(const QString &id, const QString &mode,
     m_project->project()->setDirty(true);
   styleLayer(id);
   emit displayChanged(id);
+  return true;
+}
+bool MappingWorkbench::isFaciesPolygon(const QString &id) const {
+  const auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+  return layer && layer->geometryType() == Qgis::GeometryType::Polygon &&
+      !versionForLayer(id).extra.value("facies").toList().isEmpty();
+}
+QString MappingWorkbench::featureDisplayMode(const QString &id, qint64 featureId) const {
+  const auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+  if (!layer || layer->fields().indexOf("facies_display_level") < 0)
+    return QStringLiteral("auto");
+  const auto mode = layer->getFeature(featureId).attribute("facies_display_level").toString();
+  return FaciesHierarchy::levels().contains(mode) ? mode : QStringLiteral("auto");
+}
+bool MappingWorkbench::setFeatureDisplayMode(const QString &id, const QList<qint64> &ids,
+                                            const QString &mode, QString *error) {
+  if (mode != "auto" && !FaciesHierarchy::levels().contains(mode))
+    return reject(error, tr("请选择跟随图层、相、亚相或微相"));
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(id, error));
+  if (!id.startsWith("draft.") || !layer || layer->readOnly() ||
+      layer->geometryType() != Qgis::GeometryType::Polygon || ids.isEmpty() ||
+      versionForLayer(id).extra.value("facies").toList().isEmpty())
+    return reject(error, tr("请在相面编辑副本中选择要锁定的面"));
+  for (auto fid : ids)
+    if (!layer->getFeature(fid).isValid())
+      return reject(error, tr("选中要素已不存在"));
+  if (!layer->isEditable() && !layer->startEditing())
+    return reject(error, tr("无法开始编辑"));
+  layer->beginEditCommand(tr("设置选中相面的显示层级"));
+  int field = layer->fields().indexOf("facies_display_level");
+  if (field < 0) {
+    if (!layer->addAttribute(QgsField("facies_display_level", QMetaType::Type::QString))) {
+      layer->destroyEditCommand();
+      return reject(error, tr("无法添加相面显示层级字段"));
+    }
+    field = layer->fields().indexOf("facies_display_level");
+  }
+  for (auto fid : ids)
+    if (!layer->changeAttributeValue(fid, field, mode)) {
+      layer->destroyEditCommand();
+      return reject(error, tr("相面显示层级更新失败，已撤销本次修改"));
+    }
+  layer->endEditCommand(); // existing edit/undo observers refresh renderer and legends
   return true;
 }
 void MappingWorkbench::updateDisplayScale(double scale) {
@@ -147,6 +191,10 @@ bool MappingWorkbench::assignHierarchy(const QString &id,
       continue;
     const int newCode = FaciesHierarchy::reassignedCode(
         schema, f.attribute("facies_code").toInt(), code, level);
+    if (newCode != f.attribute("facies_code").toInt())
+      for (const auto &field : {"value_min", "value_max", "confidence", "probability"})
+        if (const int index = layer->fields().indexOf(field); index >= 0)
+          ok = layer->changeAttributeValue(f.id(), index, QVariant()) && ok;
     ok = layer->changeAttributeValue(
              f.id(), layer->fields().indexOf("facies_code"), newCode) &&
          ok;

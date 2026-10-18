@@ -937,9 +937,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
     };
     const bool need3d = m_seismic3dPanel && !matches(m_seismic3dPanel->volume());
     const bool needSection = m_seismicSectionDock && !matches(m_seismicSectionDock->volume());
-    // #481 P3-3：已就位/本会话已自动装载过/在途的体不再拦路——continue
-    // 看下一个 seismic 资产（旧 return 吞掉后续体，多地震体工程第二个
-    // 体永不自动装载）。同体在途不算失败，等下次同步再扫余体。
+    // #481 P3-3：已就位/已记账/在途的体 continue 跳过（旧 return 吞后续体）；余体由终态回调串行推进。
     if ((!need3d && !needSection) || m_seismicAutoLoadedPaths.contains(path) ||
         (m_seismicOpenPath == path && m_seismicOpenTask && m_seismicOpenTask->running()))
       continue;
@@ -970,8 +968,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
     progress->setRange(0, 0);
     status->show(); progress->show();
     QPointer<PaleoMainWindow> guard(this);
-    // #481 P3-6：状态条控件按 QPointer 捕获（attach_models 范本）——窗口
-    // 先于任务回调析构时不解引用裸指针。
+    // #481 P3-6：状态条控件按 QPointer 捕获（attach_models 范本），窗口先亡不解引用。
     const QPointer<QLabel> statusGuard(status);
     const QPointer<QProgressBar> progressGuard(progress);
     m_seismicOpenTask = m_seismicTaskSvc->startVolumeLoad(path,
@@ -985,6 +982,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
       guard->m_seismicOpenPath.clear();
       if (!ok || !volume) {
         guard->statusBar()->showMessage(error, 10000);
+        guard->syncSeismicVolumeToDocks(); // #481 P3-8：失败终态同样推进余体
         return;
       }
       if (guard->m_seismic3dPanel) {
@@ -1003,6 +1001,8 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
           guard->m_seismicSectionDock->setVolume(volume);
       }
       guard->statusBar()->showMessage(QObject::tr("地震体加载完成"), 5000);
+      // #481 P3-8 后半：终态后重扫余体（多体串行装载，已记账路径不重试）；循环尾 return 保单在途体。
+      guard->syncSeismicVolumeToDocks();
     }, /*quiet=*/true); // 状态栏已有进度；自动加载不反复展开/收起底栏。
     if (m_seismicOpenTask) {
       QPointer<PaleoTask> task = m_seismicOpenTask;

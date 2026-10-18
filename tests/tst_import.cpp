@@ -2275,7 +2275,9 @@ private slots:
     DataCatalog *cat = svc.catalog();
     DataCatalog::resetThreadViolationCount();
 
-    constexpr int kN = 12;
+    // #503 快速道减样：PALEO_TEST_FAST=1 时并发面 12→4——死锁路径/Conflict
+    // 重做/逐项提交语义不变，只减并发规模；默认全量 12（CI 语义不变）。
+    const int kN = qEnvironmentVariableIntValue("PALEO_TEST_FAST") > 0 ? 4 : 12;
     QStringList files;
     for (int i = 0; i < kN; ++i)
     {

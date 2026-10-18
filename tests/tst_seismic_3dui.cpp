@@ -219,7 +219,9 @@ private slots:
   }
 
   // ---- #463 相机书签跨会话 round-trip：保存（6 数字段对称序列化）→
-  // 新面板恢复 → 相机参数逐项相等；字段数不对称的坏包整包拒绝不静默丢。
+  // 新面板恢复 → 相机参数逐项相等；旧格式（5 数字段，无 target.z）恢复
+  // 不丢书签——缺失字段按默认补齐并计 warning；未知多余字段忽略；无法解析
+  // 的条目单独跳过，其余书签照常恢复。
   void cameraBookmarkRoundTripPersistence()
   {
     QTemporaryDir dir;
@@ -269,11 +271,12 @@ private slots:
       }
     }
 
-    // 旧格式坏包（5 数字段）：整包拒绝 + 告警日志，不静默装半包
+    // 旧格式（#463 修复前的 5 数字段，无 target.z）：书签不丢——前 5 个字段
+    // 逐项相等、target.z 补 CameraState 默认 0，且计 warning
     {
       settings.setValue(QStringLiteral("seismic/3dCamBookmarks"),
-                        QStringList{QStringLiteral("好|1,2,3,4,5"),
-                                    QStringLiteral("也|6,7,8,9,10")});
+                        QStringList{QStringLiteral("旧1|-30.5,48.25,12.75,1.5,2.5"),
+                                    QStringLiteral("旧2|10,-20.75,7.5,-1.25,0.75")});
       static int warnings = 0;
       warnings = 0;
       const auto oldHandler = qInstallMessageHandler(
@@ -281,10 +284,54 @@ private slots:
             if (type == QtMsgType::QtWarningMsg && msg.contains(QStringLiteral("3dCamBookmarks")))
               ++warnings;
           });
-      Seismic3DViewPanel bad;
+      Seismic3DViewPanel legacy;
       qInstallMessageHandler(oldHandler);
-      QVERIFY(bad.cameraBookmarkNames().isEmpty());
+      const QStringList legacyNames{QStringLiteral("旧1"), QStringLiteral("旧2")};
+      QCOMPARE(legacy.cameraBookmarkNames(), legacyNames);
       QCOMPARE(warnings, 1);
+      legacy.applyCameraBookmark(0);
+      const auto st = legacy.viewport()->camera().state();
+      QCOMPARE(st.yaw, -30.5f);
+      QCOMPARE(st.pitch, 48.25f);
+      QCOMPARE(st.distance, 12.75f);
+      QCOMPARE(st.target.x, 1.5f);
+      QCOMPARE(st.target.y, 2.5f);
+      QCOMPARE(st.target.z, 0.0f); // 缺失字段默认
+      legacy.applyCameraBookmark(1);
+      const auto st2 = legacy.viewport()->camera().state();
+      QCOMPARE(st2.yaw, 10.0f);
+      QCOMPARE(st2.pitch, -20.75f);
+      QCOMPARE(st2.distance, 7.5f);
+      QCOMPARE(st2.target.x, -1.25f);
+      QCOMPARE(st2.target.y, 0.75f);
+      QCOMPARE(st2.target.z, 0.0f);
+    }
+
+    // 混合包：未知多余字段忽略（降级读未来格式）；结构坏/字段数过少的条目
+    // 单独跳过，其余书签照常恢复，不再整包丢弃
+    {
+      settings.setValue(QStringLiteral("seismic/3dCamBookmarks"),
+                        QStringList{QStringLiteral("好|1,2,3,4,5,6,7,8"),
+                                    QStringLiteral("坏|1,2"),
+                                    QStringLiteral("没竖线"),
+                                    QStringLiteral("|1,2,3,4,5,6")});
+      static int warnings = 0;
+      warnings = 0;
+      const auto oldHandler = qInstallMessageHandler(
+          [](QtMsgType type, const QMessageLogContext &, const QString &msg) {
+            if (type == QtMsgType::QtWarningMsg && msg.contains(QStringLiteral("3dCamBookmarks")))
+              ++warnings;
+          });
+      Seismic3DViewPanel mixed;
+      qInstallMessageHandler(oldHandler);
+      QCOMPARE(mixed.cameraBookmarkNames(), QStringList{QStringLiteral("好")});
+      QCOMPARE(warnings, 1);
+      mixed.applyCameraBookmark(0);
+      const auto st = mixed.viewport()->camera().state();
+      QCOMPARE(st.yaw, 1.0f);
+      QCOMPARE(st.pitch, 2.0f);
+      QCOMPARE(st.distance, 3.0f);
+      QCOMPARE(st.target, glm::vec3(4.0f, 5.0f, 6.0f)); // 未知尾部 7,8 被忽略
     }
     settings.remove(QStringLiteral("seismic/3dCamBookmarks"));
   }

@@ -85,8 +85,11 @@ bool OnnxLocalPredictor::predict(const RemotePredictionRequest &request,
 
 void RemotePredictionRouter::setLocalFallback(PaleoOnnxService *onnx,
                                               const QString &model) {
-  // 所有权：由 router 持有（unique_ptr），指针视图记在 m_local。重复绑定时
-  // 旧引擎先被替换掉再析构，不会留下悬垂指针。
+  // 所有权：由 router 持有（unique_ptr），指针视图记在 m_local。重绑时旧
+  // 引擎不立即析构——降级 worker 可能正持其快照跑长推理（runLocalFallback
+  // 注释承诺指针稳定）；移入 m_retiredLocals 等池排空后统一释放（审 P2）。
+  if (m_ownedLocal)
+    m_retiredLocals.push_back(std::move(m_ownedLocal));
   m_ownedLocal = std::make_unique<OnnxLocalPredictor>(onnx, model);
   m_local = m_ownedLocal.get();
 }

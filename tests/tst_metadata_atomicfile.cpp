@@ -23,6 +23,11 @@ private slots:
   void transaction_rollbackCleansUp();
   void transaction_crashSimulationAndRecovery();
   void mutationDemonstration_corruptDefense();
+  // #461：paleoSyncFile（flush + fsync/_commit）在替换前生效的行为回归——
+  // 多轮「写多 MB 载荷 → fsync → 原子替换」必须全部成功、内容逐字节正确、
+  // 无临时同胞残留（若有人把 fsync/commit 路径改坏，这里当场红）。
+  void durabilityRegression_fsyncThenReplace();
+  void durabilityRegression_transactionCommit();
 };
 
 void TestMetadataAtomicFile::normalWriteNewFile()
@@ -303,6 +308,71 @@ void TestMetadataAtomicFile::mutationDemonstration_corruptDefense()
   QFile checkFile(target);
   QVERIFY(checkFile.open(QIODevice::ReadOnly));
   QCOMPARE(checkFile.readAll(), snapshot);
+}
+
+// #461：fsync 落盘语义的行为回归——载荷取多 MB（远超用户态 stdio 缓冲，
+// fsync 是否真实生效的数据量级），多轮替换必须成功且内容逐字节正确、
+// 目录内无 .tmp.* 同胞残留（fsync 失败路径会清理并返回 false，此处即红）。
+void TestMetadataAtomicFile::durabilityRegression_fsyncThenReplace()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString target = QDir(tmp.path()).filePath(QStringLiteral("fsync_rounds.bin"));
+
+  // 首轮：新文件
+  QByteArray payload;
+  payload.reserve(4 * 1024 * 1024);
+  for (int round = 0; round < 4; ++round)
+  {
+    payload.clear();
+    for (int i = 0; i < 4 * 1024 * 1024; ++i)
+      payload.append(char((round * 131 + i * 7) & 0xFF));
+    QString err;
+    QVERIFY2(paleoWriteFileAtomic(target, payload, &err), qPrintable(err));
+
+    QFile f(target);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QByteArray readBack = f.readAll();
+    f.close();
+    QCOMPARE(readBack.size(), payload.size());
+    QCOMPARE(readBack, payload);
+  }
+
+  // 目录里只有目标文件——每轮的 .tmp.* 同胞都被原子替换消费/清理。
+  const QStringList entries = QDir(tmp.path()).entryList(QDir::Files | QDir::Hidden);
+  QCOMPARE(entries, QStringList{QStringLiteral("fsync_rounds.bin")});
+}
+
+// #461：PaleoAtomicTransaction::writeStaged 同样走 paleoSyncFile（fsync）
+// 后才 commit——多 MB 暂存提交后目标内容正确、脏标记清除、无 .staged/.tmp
+// 残留（writeStaged 的 fsync 失败路径返回 false，此处即红）。
+void TestMetadataAtomicFile::durabilityRegression_transactionCommit()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString target = QDir(tmp.path()).filePath(QStringLiteral("tx_fsync.bin"));
+  const QByteArray original = "TX_ORIGINAL_BEFORE_LARGE_STAGED_WRITE";
+  QVERIFY(paleoWriteFileAtomic(target, original));
+
+  QByteArray staged;
+  staged.reserve(3 * 1024 * 1024);
+  for (int i = 0; i < 3 * 1024 * 1024; ++i)
+    staged.append(char((i * 31 + 11) & 0xFF));
+
+  PaleoAtomicTransaction tx(target);
+  QString err;
+  QVERIFY(tx.begin(&err));
+  QVERIFY2(tx.writeStaged(staged, &err), qPrintable(err));
+  QVERIFY2(tx.commit(&err), qPrintable(err));
+
+  QFile f(target);
+  QVERIFY(f.open(QIODevice::ReadOnly));
+  QCOMPARE(f.readAll(), staged);
+  f.close();
+
+  QVERIFY(!PaleoAtomicTransaction::hasDirtyMarker(target));
+  const QStringList entries = QDir(tmp.path()).entryList(QDir::Files | QDir::Hidden);
+  QCOMPARE(entries, QStringList{QStringLiteral("tx_fsync.bin")});
 }
 
 QTEST_MAIN(TestMetadataAtomicFile)

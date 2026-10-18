@@ -25,8 +25,10 @@
 //     指纹变化 → 旧会话淘汰重建（钉指纹语义）。LRU 上限 4，永不淘汰活跃项。
 //   · warmup：首次建会话后按输入签名跑一次零填充推理并计时（meta.warmupMs）。
 //   · 失败分类：OnnxLoadStatus；ORT 原始信息拼进错误链，不吞。
-//   · 线程安全：m_mutex 盖住会话换装/池/Run；信号在锁外发（直连槽可安全回
-//     调本服务）。
+//   · 线程安全（#479 锁分离）：m_mutex 只盖池/状态/引用计数短临界区，Run 在
+//     锁外并行（多线程推理互不退化）；会话构建持独立 m_loadMutex——模型加载
+//     期间推理不停摆。信号在锁外发（直连槽可安全回调本服务）。在飞推理持
+//     条目引用，被淘汰的会话延迟到引用归零才删（retire/release 协议）。
 
 namespace
 {
@@ -146,6 +148,13 @@ bool runFirstOutput( Ort::Session *session, const QByteArray &inputNameUtf8,
     *error = QString::fromUtf8( e.what() );
     return false;
   }
+  catch ( ... )
+  {
+    // 非 std 异常也必须翻译成错误返回（审 P3）：调用方在锁外 Run 后要归还
+    // 引用计数，异常逃逸会让 m_inFlight 永不归零、析构排空挂死。
+    *error = QObject::tr( "Inference failed (unknown exception)" );
+    return false;
+  }
 }
 
 QString elemTypeLabel( int t )
@@ -161,7 +170,44 @@ struct PaleoOnnxService::PoolEntry
   Ort::Session *session = nullptr; // 池拥有；析构删
   OnnxModelMeta meta;
   quint64 lru = 0;
+  int refs = 0;    // 在飞 Run 持有的引用（锁外推理期间条目不得删除）
+  bool retired = false; // 已从池中摘除；refs 归零后删除
 };
+
+// 摘除池条目（LRU 淘汰/指纹变化/换根/析构共用）。在飞推理仍持引用时不删，
+// 挂进 m_retired 等 releaseEntryLocked 归零收尾——锁外 Run 不悬垂（#479）。
+void PaleoOnnxService::retireEntryLocked( PoolEntry *entry )
+{
+  if ( !entry )
+    return;
+  m_pool.remove( entry->meta.path );
+  if ( m_active == entry )
+    m_active = nullptr;
+  entry->retired = true;
+  if ( entry->refs == 0 )
+  {
+    delete entry->session;
+    delete entry;
+    return;
+  }
+  m_retired.append( entry );
+}
+
+// 推理归还引用：--refs；退休条目归零即删；m_inFlight 归零唤醒排空等待者。
+void PaleoOnnxService::releaseEntryLocked( PoolEntry *entry )
+{
+  if ( !entry )
+    return;
+  --entry->refs;
+  if ( --m_inFlight == 0 )
+    m_inFlightIdle.wakeAll();
+  if ( entry->retired && entry->refs == 0 )
+  {
+    m_retired.removeOne( entry );
+    delete entry->session;
+    delete entry;
+  }
+}
 
 PaleoOnnxService::PaleoOnnxService( QObject *parent )
   : QObject( parent )
@@ -170,16 +216,24 @@ PaleoOnnxService::PaleoOnnxService( QObject *parent )
 
 PaleoOnnxService::~PaleoOnnxService()
 {
+  // 先收构建锁：loadModelMeta 的锁外构建段（new Session/warmup）完成并入池
+  // 后才继续，避免析构与迟到的插入交错（#479 锁分离引入的新窗口）。
+  QMutexLocker loadLock( &m_loadMutex );
   QMutexLocker lock( &m_mutex );
-  m_destroying = true; // runTensorOn 入口拒新
-  // #402：排空在飞推理——worker 拿着服务指针跑 Ort::Session::Run，直接删
-  // 会话就是 UAF；等计数归零再动池（任务排空可能失败的机制缺口在此兜底）。
+  m_destroying = true; // runTensorOn/runTensor 入口拒新
+  // #402：排空在飞推理——worker 拿着会话指针在锁外跑 Ort::Session::Run，
+  // 直接删会话就是 UAF；等计数归零再动池（任务排空可能失败的机制缺口在此
+  // 兜底）。
   while ( m_inFlight > 0 )
     m_inFlightIdle.wait( &m_mutex );
   for ( PoolEntry *e : m_pool )
     delete e->session;
   qDeleteAll( m_pool );
   m_pool.clear();
+  for ( PoolEntry *e : m_retired )
+    delete e->session;
+  qDeleteAll( m_retired );
+  m_retired.clear();
   m_active = nullptr;
 }
 
@@ -192,16 +246,17 @@ void PaleoOnnxService::setModelRoot( const QString &dir )
     const QString canonical = rootInfo.canonicalFilePath();
     nextRoot = QDir::cleanPath( canonical.isEmpty() ? rootInfo.absoluteFilePath() : canonical );
   }
+  // 构建锁先行：正在 loadModelMeta 锁外构建的会话完成入池后本函数再清，
+  // 否则构建收尾会把旧根的会话插进新池（#479 锁分离引入的交错窗口）。
+  QMutexLocker loadLock( &m_loadMutex );
   // Sessions belong to one project's model directory. Drop the whole pool as
   // soon as that directory changes, even when the next project has a
   // same-named model. m_modelRoot 的读写都在锁内（#144）。
   QMutexLocker lock( &m_mutex );
   if ( nextRoot == m_modelRoot )
     return;
-  for ( PoolEntry *e : m_pool )
-    delete e->session;
-  qDeleteAll( m_pool );
-  m_pool.clear();
+  while ( !m_pool.isEmpty() )
+    retireEntryLocked( *m_pool.begin() );
   m_active = nullptr;
   m_loaded.clear();
   m_loadedPath.clear();
@@ -402,17 +457,31 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
   OnnxModelMeta nextMeta;
   QString emitName;
 
+  // #479 锁分离：会话构建（new Session/输入签名/warmup）持 m_loadMutex 而非
+  // m_mutex——构建期间 runTensorOn 只需 m_mutex 短临界区取会话引用即可继续
+  // 推理（模型加载不再让一切推理停摆）；m_loadMutex 同时保证同模型并发加载
+  // 串行化、不重复建会话。
+  QMutexLocker loadLock( &m_loadMutex );
+
+  QString rootSnapshot;
+  bool registryActive = false;
+  bool registryHit = false;
+  ModelRegistryEntry registryEntry;
   {
     QMutexLocker lock( &m_mutex );
-    // 锁内失败收尾（finishFail 不能再用——锁不可重入）。
-    const auto failLocked = [this, error]( OnnxLoadStatus status, const QString &msg ) {
-      m_lastStatus = status;
-      m_lastMeta = OnnxModelMeta();
-      m_lastPoolHit = false;
-      if ( error )
-        *error = msg;
-      return status;
-    };
+    rootSnapshot = m_modelRoot;
+    registryActive = m_registryActive;
+    if ( registryActive )
+    {
+      auto it = m_registryOk.constFind( name );
+      if ( it == m_registryOk.constEnd() )
+        it = m_registryOk.constFind( QFileInfo( file ).completeBaseName() );
+      if ( it != m_registryOk.constEnd() )
+      {
+        registryHit = true;
+        registryEntry = it.value();
+      }
+    }
     m_lastPoolHit = false;
 
     // 池命中：同路径 + 同指纹 → 直接换活跃指针（会话不重建、warmup 不重跑）。
@@ -433,130 +502,162 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
       }
       else
       {
-        // 文件指纹变了：钉指纹语义——旧会话淘汰，按新文件重建。
-        m_pool.remove( path );
-        if ( m_active == hit )
-          m_active = nullptr;
-        delete hit->session;
-        delete hit;
+        // 文件指纹变了：钉指纹语义——旧会话淘汰，按新文件重建（在飞推理
+        // 持引用时由 retire 延迟到归零删除，锁外 Run 不悬垂）。
+        retireEntryLocked( hit );
       }
     }
+  }
 
-    if ( emitName.isEmpty() )
+  if ( emitName.isEmpty() )
+  {
+    Ort::Session *session = nullptr;
+    // ---- 构建段（只持 m_loadMutex，不持 m_mutex）：模型加载期间推理不停摆 ----
+    try
     {
-      Ort::Session *session = nullptr;
-      try
-      {
-        Ort::SessionOptions options;
-        options.SetIntraOpNumThreads( 1 );          // 池内会话统一钉 1 线程
-        options.SetGraphOptimizationLevel( GraphOptimizationLevel::ORT_ENABLE_BASIC );
+      Ort::SessionOptions options;
+      options.SetIntraOpNumThreads( 1 );          // 池内会话统一钉 1 线程
+      options.SetGraphOptimizationLevel( GraphOptimizationLevel::ORT_ENABLE_BASIC );
 #ifdef _WIN32
-        // Windows 的 Ort::Session 路径参数是 wchar_t（ORTCHAR_T）；toStdWString
-        // 临时量存活到本语句结束，Session 构造期即拷贝路径，安全。
-        const std::wstring pathW = path.toStdWString();
-        session = new Ort::Session( ortEnv(), pathW.c_str(), options );
+      // Windows 的 Ort::Session 路径参数是 wchar_t（ORTCHAR_T）；toStdWString
+      // 临时量存活到本语句结束，Session 构造期即拷贝路径，安全。
+      const std::wstring pathW = path.toStdWString();
+      session = new Ort::Session( ortEnv(), pathW.c_str(), options );
 #else
-        const QByteArray pathUtf8 = path.toUtf8();
-        session = new Ort::Session( ortEnv(), pathUtf8.constData(), options );
+      const QByteArray pathUtf8 = path.toUtf8();
+      session = new Ort::Session( ortEnv(), pathUtf8.constData(), options );
 #endif
-      }
-      catch ( const Ort::Exception &e )
+    }
+    catch ( const Ort::Exception &e )
+    {
+      const QString raw = QString::fromUtf8( e.what() );
+      const OnnxLoadStatus status = classifyLoadError( raw );
+      delete session;
+      return finishFail(
+        status, tr( "%1: %2 (%3)" ).arg( loadStatusLabel( status ), path, raw ) );
+    }
+    catch ( const std::exception &e )
+    {
+      delete session;
+      return finishFail( OnnxLoadStatus::CreateFailed,
+                         tr( "%1: %2 (%3)" )
+                           .arg( loadStatusLabel( OnnxLoadStatus::CreateFailed ), path,
+                                 QString::fromUtf8( e.what() ) ) );
+    }
+
+    // 输入签名（首输入；非 tensor 输入如实失败）。
+    try
+    {
+      Ort::AllocatorWithDefaultOptions allocator;
+      if ( session->GetInputCount() < 1 )
+        throw std::runtime_error( "model has no inputs" );
+      auto inputName = session->GetInputNameAllocated( 0, allocator );
+      auto typeInfo = session->GetInputTypeInfo( 0 );
+      auto tensorInfo = typeInfo.GetTensorTypeAndShapeInfo();
+      nextMeta.inputElemType = int( tensorInfo.GetElementType() );
+      const std::vector<int64_t> dims = tensorInfo.GetShape();
+      QString sig = QStringLiteral( "%1:%2[" )
+                      .arg( QString::fromUtf8( inputName.get() ),
+                            elemTypeLabel( nextMeta.inputElemType ) );
+      for ( size_t i = 0; i < dims.size(); ++i )
       {
-        const QString raw = QString::fromUtf8( e.what() );
-        const OnnxLoadStatus status = classifyLoadError( raw );
+        if ( i )
+          sig += QLatin1Char( ',' );
+        sig += dims[i] < 0 ? QStringLiteral( "?" ) : QString::number( dims[i] );
+      }
+      sig += QLatin1Char( ']' );
+      nextMeta.inputName = QString::fromUtf8( inputName.get() );
+      nextMeta.inputShape.reserve( qsizetype( dims.size() ) );
+      for ( int64_t d : dims )
+        nextMeta.inputShape.append( d );
+      nextMeta.inputSignature = sig;
+    }
+    catch ( const std::exception &e )
+    {
+      delete session;
+      return finishFail( OnnxLoadStatus::CreateFailed,
+                         tr( "%1: 读取输入签名失败 (%2)" )
+                           .arg( path, QString::fromUtf8( e.what() ) ) );
+    }
+
+    nextMeta.name = QFileInfo( file ).completeBaseName();
+    nextMeta.path = path;
+    nextMeta.sha256 = sha;
+
+    if ( registryHit )
+    {
+      nextMeta.outputSemantics = registryEntry.outputSemantics;
+      nextMeta.classes = registryEntry.classes;
+    }
+
+    // warmup：按输入签名零填充跑一次，计时（不伪造——失败如实记录）。
+    qint64 count = 1;
+    QVector<int64_t> warmShape = nextMeta.inputShape;
+    for ( int64_t &d : warmShape )
+    {
+      if ( d <= 0 )
+        d = 1;
+      count *= d;
+    }
+    if ( count >= 1 && count <= ( qint64( 4 ) << 20 ) )
+    {
+      OnnxTensor warm;
+      const QVector<float> zeros( int( count ), 0.0f );
+      QElapsedTimer clock;
+      clock.start();
+      const QByteArray inName = nextMeta.inputName.toUtf8();
+      QString runErr;
+      runFirstOutput( session, inName, zeros, warmShape, &warm, &runErr );
+      nextMeta.warmupMs = clock.elapsed();
+      nextMeta.warmupError = runErr;
+    }
+    else
+    {
+      nextMeta.warmupMs = -1;
+      nextMeta.warmupError = tr( "跳过 warmup：静态输入过大（%1 元素）" ).arg( count );
+    }
+
+    // ---- 收尾段（m_mutex 短临界区）：入池 + 换装 ----
+    QMutexLocker lock( &m_mutex );
+    // 锁内失败收尾（finishFail 不能再用——锁不可重入）。
+    const auto failLocked = [this, error]( OnnxLoadStatus status, const QString &msg ) {
+      m_lastStatus = status;
+      m_lastMeta = OnnxModelMeta();
+      m_lastPoolHit = false;
+      if ( error )
+        *error = msg;
+      return status;
+    };
+    if ( m_destroying || m_modelRoot != rootSnapshot )
+    {
+      // 构建期间服务在销毁/模型目录被换：丢弃新会话，如实失败。
+      delete session;
+      return failLocked( OnnxLoadStatus::CreateFailed,
+                         tr( "模型目录已切换，构建中的会话被丢弃：%1" ).arg( path ) );
+    }
+    if ( PoolEntry *existing = m_pool.value( path ) )
+    {
+      // 构建期间同路径已入池（换根往返可致）：同指纹复用已有会话，否则替换。
+      if ( existing->meta.sha256 == sha )
+      {
         delete session;
-        session = nullptr;
-        return failLocked(
-          status, tr( "%1: %2 (%3)" ).arg( loadStatusLabel( status ), path, raw ) );
-      }
-      catch ( const std::exception &e )
-      {
-        delete session;
-        session = nullptr;
-        return failLocked( OnnxLoadStatus::CreateFailed,
-                           tr( "%1: %2 (%3)" )
-                             .arg( loadStatusLabel( OnnxLoadStatus::CreateFailed ), path,
-                                   QString::fromUtf8( e.what() ) ) );
-      }
-
-      // 输入签名（首输入；非 tensor 输入如实失败）。
-      try
-      {
-        Ort::AllocatorWithDefaultOptions allocator;
-        if ( session->GetInputCount() < 1 )
-          throw std::runtime_error( "model has no inputs" );
-        auto inputName = session->GetInputNameAllocated( 0, allocator );
-        auto typeInfo = session->GetInputTypeInfo( 0 );
-        auto tensorInfo = typeInfo.GetTensorTypeAndShapeInfo();
-        nextMeta.inputElemType = int( tensorInfo.GetElementType() );
-        const std::vector<int64_t> dims = tensorInfo.GetShape();
-        QString sig = QStringLiteral( "%1:%2[" )
-                        .arg( QString::fromUtf8( inputName.get() ),
-                              elemTypeLabel( nextMeta.inputElemType ) );
-        for ( size_t i = 0; i < dims.size(); ++i )
-        {
-          if ( i )
-            sig += QLatin1Char( ',' );
-          sig += dims[i] < 0 ? QStringLiteral( "?" ) : QString::number( dims[i] );
-        }
-        sig += QLatin1Char( ']' );
-        nextMeta.inputName = QString::fromUtf8( inputName.get() );
-        nextMeta.inputShape.reserve( qsizetype( dims.size() ) );
-        for ( int64_t d : dims )
-          nextMeta.inputShape.append( d );
-        nextMeta.inputSignature = sig;
-      }
-      catch ( const std::exception &e )
-      {
-        delete session;
-        return failLocked( OnnxLoadStatus::CreateFailed,
-                           tr( "%1: 读取输入签名失败 (%2)" )
-                             .arg( path, QString::fromUtf8( e.what() ) ) );
-      }
-
-      nextMeta.name = QFileInfo( file ).completeBaseName();
-      nextMeta.path = path;
-      nextMeta.sha256 = sha;
-
-      if ( m_registryActive )
-      {
-        auto it = m_registryOk.constFind( name );
-        if ( it == m_registryOk.constEnd() )
-          it = m_registryOk.constFind( nextMeta.name );
-        if ( it != m_registryOk.constEnd() )
-        {
-          nextMeta.outputSemantics = it.value().outputSemantics;
-          nextMeta.classes = it.value().classes;
-        }
-      }
-
-      // warmup：按输入签名零填充跑一次，计时（不伪造——失败如实记录）。
-      qint64 count = 1;
-      QVector<int64_t> warmShape = nextMeta.inputShape;
-      for ( int64_t &d : warmShape )
-      {
-        if ( d <= 0 )
-          d = 1;
-        count *= d;
-      }
-      if ( count >= 1 && count <= ( qint64( 4 ) << 20 ) )
-      {
-        OnnxTensor warm;
-        const QVector<float> zeros( int( count ), 0.0f );
-        QElapsedTimer clock;
-        clock.start();
-        const QByteArray inName = nextMeta.inputName.toUtf8();
-        QString runErr;
-        runFirstOutput( session, inName, zeros, warmShape, &warm, &runErr );
-        nextMeta.warmupMs = clock.elapsed();
-        nextMeta.warmupError = runErr;
+        m_active = existing;
+        existing->lru = ++m_lruCounter;
+        m_loaded = QFileInfo( file ).completeBaseName();
+        m_loadedPath = path;
+        m_lastStatus = OnnxLoadStatus::Ok;
+        m_lastMeta = existing->meta;
+        m_lastPoolHit = true;
+        if ( meta )
+          *meta = existing->meta;
+        emitName = m_loaded; // 锁外发
+        existing = nullptr;
       }
       else
-      {
-        nextMeta.warmupMs = -1;
-        nextMeta.warmupError = tr( "跳过 warmup：静态输入过大（%1 元素）" ).arg( count );
-      }
-
+        retireEntryLocked( existing );
+    }
+    if ( emitName.isEmpty() )
+    {
       auto *entry = new PoolEntry;
       entry->session = session;
       entry->meta = nextMeta;
@@ -570,11 +671,7 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
             oldest = e;
         if ( !oldest )
           break;
-        if ( m_active == oldest )
-          m_active = nullptr; // 理论不可达（活跃项 lru 最新），防御性摘除
-        m_pool.remove( oldest->meta.path );
-        delete oldest->session;
-        delete oldest;
+        retireEntryLocked( oldest ); // 在飞推理持引用时延迟删除
       }
       m_pool.insert( path, entry );
 
@@ -650,20 +747,33 @@ OnnxTensor PaleoOnnxService::runTensor( const QString &inputName, const QVector<
   QString failedModel;
   QString failMsg;
   OnnxTensor result;
+  // #479 锁分离：锁内取会话引用（短临界区），Run 在锁外——多线程推理并行、
+  // 不与会话构建互斥；条目被淘汰时由 retire/release 延迟删除保指针有效。
+  PoolEntry *entry = nullptr;
   {
     QMutexLocker lock( &m_mutex );
-    auto *session = m_active ? m_active->session : nullptr;
-    if ( !session )
+    entry = m_active;
+    if ( !entry || !entry->session )
     {
+      entry = nullptr;
       failedModel = m_loaded;
       failMsg = tr( "No model loaded" );
     }
     else
     {
-      const QByteArray inNameUtf8 = inputName.toUtf8();
-      if ( !runFirstOutput( session, inNameUtf8, input, shape, &result, &failMsg ) )
-        failedModel = m_loaded; // 失败时 failMsg 已由 runFirstOutput 写入
+      entry->lru = ++m_lruCounter;
+      entry->refs++;
+      ++m_inFlight;
+      failedModel = m_loaded;
     }
+  }
+  if ( entry )
+  {
+    const QByteArray inNameUtf8 = inputName.toUtf8();
+    if ( !runFirstOutput( entry->session, inNameUtf8, input, shape, &result, &failMsg ) )
+      failedModel = m_loaded; // 失败时 failMsg 已由 runFirstOutput 写入
+    QMutexLocker lock( &m_mutex );
+    releaseEntryLocked( entry );
   }
   if ( !failMsg.isEmpty() )
   {
@@ -683,18 +793,21 @@ OnnxTensor PaleoOnnxService::runTensorOn( const QString &model, const QString &i
     error->clear();
   QString failMsg;
   OnnxTensor result;
+  // #479 锁分离：同 runTensor——取引用后锁外 Run（tile 4 线程池不退化单线程，
+  // 模型加载期间推理不停摆）。
+  PoolEntry *entry = nullptr;
   {
     QMutexLocker lock( &m_mutex );
     if ( m_destroying )
       failMsg = tr( "ONNX 服务已销毁" );
     else
     {
-      ++m_inFlight; // #402：登记在飞——析构/setModelRoot 删池前排空
       QString resolveErr;
       const QString path = resolveModelPathLocked( model, &resolveErr );
-      PoolEntry *entry = path.isEmpty() ? nullptr : m_pool.value( path );
+      entry = path.isEmpty() ? nullptr : m_pool.value( path );
       if ( !entry || !entry->session )
       {
+        entry = nullptr;
         failMsg = !resolveErr.isEmpty()
                     ? resolveErr
                     : tr( "模型 '%1' 的会话不在池中（未加载、已被淘汰或模型目录已切换）" ).arg( model );
@@ -702,14 +815,19 @@ OnnxTensor PaleoOnnxService::runTensorOn( const QString &model, const QString &i
       else
       {
         entry->lru = ++m_lruCounter; // 使用中的会话刷新 LRU，降低被并发加载淘汰的概率
-        const QByteArray inNameUtf8 = inputName.toUtf8();
-        if ( !runFirstOutput( entry->session, inNameUtf8, input, shape, &result, &failMsg ) &&
-             failMsg.isEmpty() )
-          failMsg = tr( "推理失败（模型 '%1'）" ).arg( model );
+        entry->refs++;
+        ++m_inFlight; // #402：登记在飞——析构/setModelRoot 删池前排空
       }
-      if ( --m_inFlight == 0 )
-        m_inFlightIdle.wakeAll();
     }
+  }
+  if ( entry )
+  {
+    const QByteArray inNameUtf8 = inputName.toUtf8();
+    if ( !runFirstOutput( entry->session, inNameUtf8, input, shape, &result, &failMsg ) &&
+         failMsg.isEmpty() )
+      failMsg = tr( "推理失败（模型 '%1'）" ).arg( model );
+    QMutexLocker lock( &m_mutex );
+    releaseEntryLocked( entry );
   }
   if ( !failMsg.isEmpty() )
   {

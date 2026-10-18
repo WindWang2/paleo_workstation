@@ -16,6 +16,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QSpinBox>
@@ -34,6 +35,8 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/qgis/faciespartitioneditor.h"
+#include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
@@ -112,6 +115,7 @@
 #include <qgslayertree.h>
 #include <qgsmaplayer.h>
 #include <qgsvectorlayer.h>
+#include <qgsvectordataprovider.h>
 #include <qgslayertreemodel.h>
 #include <qgsmaptoolpan.h>
 
@@ -1224,6 +1228,88 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("data"));
       QVERIFY(m_ctx->canvasCtl()->activeTool() == nullptr);
       delete pan;
+    }
+
+    void faciesPartitionRibbonMirrorsTargetAndAvailability()
+    {
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+          m_ctx->compositionWf(), m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(),
+          m_ctx->processingSvc(), m_ctx->store(), m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
+      auto *editor = m_win->findChild<PaleoEditingToolbar *>("editingToolbar"); QVERIFY(editor);
+      auto *project = m_ctx->projectSvc()->project();
+      auto *layer = new QgsVectorLayer("Polygon?crs=EPSG:3857&field=facies_code:integer", "三级相面编辑", "memory");
+      QgsFeatureList features;
+      for (int i = 0; i < 2; ++i) { QgsFeature f(layer->fields()); f.setAttribute("facies_code", i + 1);
+        f.setGeometry(QgsGeometry::fromRect(QgsRectangle(i * 100, 0, (i + 1) * 100, 100))); features << f; }
+      QVERIFY(layer->dataProvider()->addFeatures(features)); layer->updateExtents();
+      const QVariantList schema{QVariantMap{{"code", 1}, {"facies", "河流"}, {"subfacies", "曲流河"}, {"microfacies", "河道"}},
+          QVariantMap{{"code", 2}, {"facies", "湖泊"}, {"subfacies", "滨浅湖"}, {"microfacies", "湖泥"}}};
+      QString error; QVERIFY2(FaciesPartitionEditor::install(layer, schema, {}, &error), qPrintable(error));
+      QVERIFY(MappingFeatureIdentity::Observer::attach(layer, &error));
+      project->addMapLayer(layer); m_win->showPage("compose");
+      auto *tree = m_win->findChild<QgsLayerTreeView *>("layerTreeView"); QVERIFY(tree); tree->setCurrentLayer(layer);
+      QCOMPARE(editor->currentLayer(), layer);
+      auto *master = editor->partitionCodeCombo(); QCOMPARE(master->count(), 3);
+      QVERIFY(!editor->actionPaintFacies()->isEnabled());
+      auto *combo = m_win->categoryForPage("compose")->findChild<QComboBox *>("ribbonPartitionFaciesCode"); QVERIFY(combo);
+      QVERIFY(QMetaObject::invokeMethod(combo, "activated", Qt::DirectConnection, Q_ARG(int, 2)));
+      QCOMPARE(master->currentData().toInt(), 2); QVERIFY(editor->actionPaintFacies()->isEnabled());
+      layer->selectByIds({features.first().id()}); QVERIFY(editor->actionSplitFacies()->isEnabled());
+      for (const auto &page : {"predict", "constraint", "compose"}) {
+        auto *category = m_win->categoryForPage(page);
+        auto *panel = category->findChild<SARibbonPanel *>("ribbonFaciesPartitionPanel"); QVERIFY(panel && !panel->isHidden());
+        QCOMPARE(category->findChild<QComboBox *>("ribbonPartitionFaciesCode")->currentData().toInt(), 2);
+      }
+      auto *canvas = m_ctx->canvasCtl()->canvas(); canvas->setDestinationCrs(layer->crs());
+      canvas->setLayers({layer}); canvas->setExtent(QgsRectangle(-20, -20, 220, 120)); canvas->refresh();
+      m_win->findChild<QStackedWidget *>("centerStack")->setCurrentIndex(1);
+      if (!qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty()) {
+        m_win->resize(1400, 900); m_win->show();
+        QSignalSpy rendered(canvas, &QgsMapCanvas::mapCanvasRefreshed); canvas->refresh();
+        QTRY_VERIFY_WITH_TIMEOUT(!rendered.isEmpty(), 5000);
+      }
+      QVERIFY(paleo::tests::captureVisual(m_win, "facies-partition-ribbon", QSize(1400, 900)));
+      // This memory fixture exercises the real shell and tools. Persistent
+      // workbench/store round trips are covered in tst_mappingworkbench.
+      editor->setEditingService(nullptr);
+      const auto restoreService = qScopeGuard([editor, this] { editor->setEditingService(m_ctx->editingSvc()); });
+      const auto snapshot = [this, canvas](const QString &name) {
+        if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty()) return true;
+        m_win->show(); QSignalSpy rendered(canvas, &QgsMapCanvas::mapCanvasRefreshed); canvas->refresh();
+        if (rendered.isEmpty() && !rendered.wait(5000)) return false;
+        return paleo::tests::captureVisual(m_win, name, QSize(1400,900));
+      };
+      const auto clickMap = [canvas](double x, double y, Qt::MouseButton button) {
+        const auto point = canvas->getCoordinateTransform()->transform(QgsPointXY(x,y));
+        const QPoint pixel(qRound(point.x()), qRound(point.y())); auto *tool = canvas->mapTool();
+        QgsMapMouseEvent press(canvas, QEvent::MouseButtonPress, pixel, button, button, Qt::NoModifier);
+        QgsMapMouseEvent release(canvas, QEvent::MouseButtonRelease, pixel, button, Qt::NoButton, Qt::NoModifier);
+        tool->canvasPressEvent(&press); tool->canvasReleaseEvent(&release);
+      };
+      editor->actionSplitFacies()->trigger(); QVERIFY(editor->isEditing());
+      QVERIFY(snapshot("02-split-active"));
+      clickMap(-10,50,Qt::LeftButton); clickMap(110,50,Qt::LeftButton); clickMap(110,50,Qt::RightButton);
+      QCOMPARE(layer->featureCount(), 3); QVERIFY(snapshot("03-split-result"));
+      editor->actionPaintFacies()->trigger();
+      clickMap(50,20,Qt::LeftButton); clickMap(150,20,Qt::LeftButton);
+      clickMap(150,80,Qt::LeftButton); clickMap(50,80,Qt::LeftButton); clickMap(50,80,Qt::RightButton);
+      QCOMPARE(layer->featureCount(), 4); QCOMPARE(layer->selectedFeatureCount(), 1);
+      QVERIFY(snapshot("04-overlay-result"));
+      // Native map-tool warnings must reach the visible status bar.
+      clickMap(-15,-15,Qt::LeftButton); clickMap(-5,-15,Qt::LeftButton);
+      clickMap(-5,-5,Qt::LeftButton); clickMap(-5,-5,Qt::RightButton);
+      QVERIFY(m_win->statusBar()->currentMessage().contains("有效区域"));
+      QCOMPARE(layer->featureCount(), 4); QVERIFY(snapshot("05-rejected-overlay"));
+      editor->actionUndo()->trigger(); QCOMPARE(layer->featureCount(), 3);
+      editor->actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
+      QVERIFY(m_win->statusBar()->currentMessage().isEmpty());
+      QVERIFY(snapshot("06-redo-result"));
+      layer->selectAll(); editor->actionMergeFacies()->trigger(); QCOMPARE(layer->featureCount(), 1);
+      QVERIFY(snapshot("07-merge-result"));
+      QVERIFY(editor->saveEditing()); QVERIFY(!editor->isEditing()); QVERIFY(!layer->isEditable());
+      QVERIFY(snapshot("08-saved"));
+      project->removeMapLayer(layer);
+      QVERIFY(!editor->actionFaciesOperations()->isEnabled());
     }
 
     void mapContextAndLayerSelectionStayInSync()

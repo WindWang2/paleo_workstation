@@ -165,16 +165,16 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
   }
   const auto show = makeWorkbenchShow(workbench, legend, shown);
   const auto compare = makeWorkbenchCompare(workbench);
-  if (edit) {
-    connect(edit->actionAddPolygon(), &QAction::triggered, this, [this, compare] {
-      if (currentPage() != QLatin1String("compose")) return;
-      // 首次绘面给出入口；用户关闭过参考面板后，不因再次绘面反复拉起。
-      if (!findChildren<MappingReferencePanel *>().isEmpty()) return;
-      QString error;
-      compare(QString(), &error);
-      m_canvasCtl->canvas()->setFocus();
-    });
-  }
+  if (edit)
+    for (auto *action : {edit->actionAddPolygon(), edit->actionPaintFacies()})
+      connect(action, &QAction::triggered, this, [this, compare] {
+        if (currentPage() != QLatin1String("compose")) return;
+        // 首次绘面给出入口；用户关闭过参考面板后，不因再次绘面反复拉起。
+        if (!findChildren<MappingReferencePanel *>().isEmpty()) return;
+        QString error;
+        compare(QString(), &error);
+        m_canvasCtl->canvas()->setFocus();
+      });
   // #473：井预测修订域拆至 attachWorkbenchWells；返回句柄沿用原局部名，
   // 下游 connect 捕获列表零改动。
   const auto wells = attachWorkbenchWells(workbench, edit, pages, legend, show, compare);

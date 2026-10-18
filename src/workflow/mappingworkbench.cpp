@@ -11,6 +11,7 @@
 #include "../io/constraintstore.h"
 #include "../io/lasparser.h"
 #include "../qgis/facieshierarchyrenderer.h"
+#include "../qgis/faciespartitioneditor.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
 #include "../qgis/mappingartifactwriter.h"
@@ -970,6 +971,13 @@ void MappingWorkbench::styleLayer(const QString &id) {
       paleo::singlefactor::rejectsQuantitativeUse(styledKind, styledSource);
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
     vector->setReadOnly(!id.startsWith("draft."));
+    if (id.startsWith("draft.") && vector->geometryType() == Qgis::GeometryType::Polygon) {
+      QString error;
+      if (!FaciesPartitionEditor::install(vector, v.extra.value("facies").toList(),
+                                         v.extra.value("partition_footprint_wkb").toString(), &error)) {
+        vector->setAllowCommit(false); emit errorOccurred(error); return;
+      }
+    }
     // facies-ux 4：属性表里 facies_code 用相名称下拉（值映射到编码），
     // 地震相 / 测井相工作副本可直接在列表中改相（改动由 DraftAutosave 随时保存）。
     if (const int codeField = vector->fields().indexOf("facies_code"); codeField >= 0) {
@@ -1047,7 +1055,15 @@ void MappingWorkbench::styleLayer(const QString &id) {
         emit displayChanged(id);
       });
       FaciesHierarchyRenderer::watchUndo(vector, this, [this, id] {
-        if (m_layers->layer(id)) {
+        if (auto *current = qobject_cast<QgsVectorLayer *>(m_layers->layer(id))) {
+          // Release only our own coverage veto after native undo/repair. A
+          // rejected commit must not permanently lock a now-valid edit buffer.
+          if (current->property("paleo.partitionCommitRejected").toBool() &&
+              current->property("paleo.evidenceEditFailure").toString().isEmpty() &&
+              FaciesHierarchyRenderer::validateTopology(current, nullptr)) {
+            current->setProperty("paleo.partitionCommitRejected", QVariant());
+            current->setAllowCommit(true);
+          }
           styleLayer(id);
           emit displayChanged(id);
         }
@@ -1056,9 +1072,11 @@ void MappingWorkbench::styleLayer(const QString &id) {
               [this, vector, id, schema = v.extra.value("facies").toList()] {
                 const bool previouslyAllowed = vector->allowCommit();
                 QString error = vector->property("paleo.evidenceEditFailure").toString();
-                const bool ok = previouslyAllowed && error.isEmpty() &&
-                    validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error) &&
-                    FaciesHierarchyRenderer::validateTopology(vector, &error) &&
+                const bool evidenceOk = previouslyAllowed && error.isEmpty() &&
+                    validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
+                const bool topologyOk = evidenceOk && FaciesHierarchyRenderer::validateTopology(vector, &error);
+                if (evidenceOk) vector->setProperty("paleo.partitionCommitRejected", !topologyOk);
+                const bool ok = topologyOk &&
                     MappingArtifactWriter::syncFaciesAttributes(vector, schema, &error) &&
                     validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
                 // Never override a rejection from an earlier beforeCommit consumer.

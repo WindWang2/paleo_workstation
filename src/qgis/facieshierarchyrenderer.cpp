@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "facieshierarchyrenderer.h"
+#include "faciespartitioneditor.h"
 #include "../domain/faciestaxonomy.h"
 #include "faciesmaplegend.h"
 #include "../domain/facieshierarchy.h"
@@ -190,33 +191,7 @@ void watchUndo(QgsVectorLayer *layer, QObject *context,
                    });
 }
 bool validateTopology(QgsVectorLayer *v, QString *error) {
-  if (!v || v->geometryType() != Qgis::GeometryType::Polygon)
-    return true;
-  auto *collection = new QgsGeometryCollection;
-  QgsGeometry coverage(collection);
-  auto it = v->getFeatures();
-  QgsFeature f;
-  while (it.nextFeature(f)) {
-    if (f.geometry().isEmpty() || !f.geometry().isGeosValid()) {
-      if (error)
-        *error = QObject::tr("相面含空几何或无效几何，请修复后保存");
-      return false;
-    }
-    collection->addGeometry(f.geometry().constGet()->clone());
-  }
-  if (collection->numGeometries() < 2)
-    return true;
-  try {
-    if (coverage.validateCoverage(0) == Qgis::CoverageValidityResult::Valid)
-      return true;
-  } catch (const QgsNotSupportedException &) {
-    if (error)
-      *error = QObject::tr("当前 QGIS/GEOS 不支持相面覆盖拓扑检查");
-    return false;
-  }
-  if (error)
-    *error = QObject::tr("相、亚相、微相共用的面覆盖存在重叠或共边不匹配；请撤"
-                         "销或修复边界后保存");
-  return false;
+  return FaciesPartitionEditor::validate(v, error);
 }
+
 } // namespace FaciesHierarchyRenderer

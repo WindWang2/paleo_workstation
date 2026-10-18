@@ -360,6 +360,133 @@ void FolderImportWorkflow::importFolder(const QString &dir,
     done(res, importErr);
 }
 
+void FolderImportWorkflow::previewFilesAsync(
+    const QStringList &paths,
+    const std::function<void(const QVector<FolderPreviewRow> &,
+                             const QString &)> &done)
+{
+  if (!m_svc)
+  {
+    if (done)
+      done({}, QStringLiteral("导入服务未就绪"));
+    return;
+  }
+  // 与 previewFolderAsync 同一任务池/进度口径，只换数据源为文件清单。
+  if (m_taskSvc)
+  {
+    std::shared_ptr<ImportSession> session = m_svc->beginImport();
+    if (!session)
+    {
+      if (done)
+        done({}, DataImportService::offThreadError());
+      return;
+    }
+    emit previewActiveChanged(true);
+    auto outRows = std::make_shared<QVector<FolderPreviewRow>>();
+    auto outErr = std::make_shared<QString>();
+    PaleoTask *task = m_taskSvc->start(
+        tr("扫描所选文件"),
+        [session, paths, outRows, outErr](PaleoTask *t) -> QString {
+          *outRows = DataImportService::producePreviewForFiles(
+              *session, paths, outErr.get(),
+              [t](int seen, const QString &path) {
+                t->reportDetail(tr("扫描 %1").arg(QFileInfo(path).fileName()));
+                return !t->cancelRequested();
+              });
+          return outErr->isEmpty() ? QString() : *outErr;
+        });
+    connect(task, &PaleoTask::finished, this,
+            [this, done, outRows, outErr] {
+              emit previewActiveChanged(false);
+              if (done)
+                done(*outRows, *outErr);
+            });
+    return;
+  }
+  QString err;
+  const QVector<FolderPreviewRow> rows = m_svc->previewFiles(paths, &err);
+  if (done)
+    done(rows, err);
+}
+
+void FolderImportWorkflow::importFiles(const QStringList &paths,
+                                       const QMap<QString, QString> &overrides,
+                                       const QStringList &forceImportPaths,
+                                       const ImportDone &done)
+{
+  if (!m_svc)
+  {
+    if (done)
+      done({}, QStringLiteral("导入服务未就绪"));
+    return;
+  }
+  // 台账/溯源目录：首个文件所在目录（清单可跨目录——目录只是台账展示位）。
+  const QString ledgerDir =
+      paths.isEmpty() ? QString() : QFileInfo(paths.first()).absolutePath();
+  if (m_taskSvc)
+  {
+    const QDateTime started = QDateTime::currentDateTime();
+    auto job = std::make_shared<ImportJob>();
+    job->title = tr("导入所选文件");
+    job->produce = [paths, overrides, forceImportPaths](ImportSession &s, PaleoTask *t) {
+          DataImportService::produceFiles(
+              s, paths, overrides, forceImportPaths,
+              [t](int d, int total, const QString &p) {
+                if (total > 0)
+                {
+                  t->reportBytes(d, total);
+                  t->reportDetail(p);
+                }
+                else
+                {
+                  t->reportDetail(tr("扫描 %1").arg(QFileInfo(p).fileName()));
+                }
+                return !t->cancelRequested();
+              });
+        };
+    job->finish = [this, done, ledgerDir, started](ImportSession &s) {
+      emit importActiveChanged(false);
+      DataCatalog *cat = m_svc ? m_svc->catalog() : nullptr;
+      bool sameProject = false;
+      if (cat && !s.projectDir.isEmpty())
+      {
+        const QString catDir =
+            QDir::cleanPath(cat->catalogPath() + QStringLiteral("/../../.."));
+        const QString sessionDir = QDir::cleanPath(s.projectDir);
+        sameProject = catDir == sessionDir;
+        if (!sameProject)
+        {
+          const QString a = QFileInfo(catDir).canonicalFilePath();
+          sameProject = !a.isEmpty() && a == QFileInfo(sessionDir).canonicalFilePath();
+        }
+      }
+      if (sameProject)
+        recordLedger(ledgerDir, started, s.rows, s.error);
+      else
+        qInfo() << "FolderImportWorkflow: project changed during import, ledger not written for"
+                << ledgerDir;
+      if (done)
+        done(s.rows, s.error);
+    };
+    job->fail = [this, done] {
+      emit importActiveChanged(false);
+      if (done)
+        done({}, DataImportService::offThreadError());
+    };
+    emit importActiveChanged(true);
+    enqueueImport(job);
+    return;
+  }
+  const QDateTime started = QDateTime::currentDateTime();
+  emit importActiveChanged(true);
+  QString importErr;
+  const auto res = m_svc->importFiles(paths, &importErr, overrides, forceImportPaths);
+  emit importActiveChanged(false);
+  recordLedger(ledgerDir, started, res, importErr);
+  if (done)
+    done(res, importErr);
+}
+
 void FolderImportWorkflow::importFile(
     const QString &kind, const QString &path,
     std::function<void(const QString &assetId, const QString &error)> done)

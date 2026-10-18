@@ -370,6 +370,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     void runFolderImport(DataImportService *svc);
     // 已知目录的入口变体（「从工区文件夹新建」复用同一确认框流程）。
     void runFolderImportAt(DataImportService *svc, const QString &dir);
+    // 「多选文件导入」：与文件夹导入同一确认表/两阶段导入语义，数据源是
+    // 显式文件清单（识别不了的类型按分类器落 document/unknown → 辅助资料）。
+    void runFilesImportAt(DataImportService *svc, const QStringList &paths);
     // W2/W3 工作流懒建钩子（壳侧唯一持有点； nullptr 直至服务注入）。
     FolderImportWorkflow *folderImportWorkflow();
     ProjectOpenWorkflow *projectOpenWorkflow();

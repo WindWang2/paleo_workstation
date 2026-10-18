@@ -69,6 +69,19 @@ IngestPlan DataImportService::planFor(
   return buildIngestPlan(root, LiveCatalogSource(s.cat.get()), progress);
 }
 
+IngestPlan DataImportService::planForFiles(
+    ImportSession &s, const QStringList &paths,
+    const std::function<bool(int filesSeen, const QString &path)> &scanProgress)
+{
+  // 文件列表口径与 planFor 同一 staging 快照线程模型（审计 02 M-8）。
+  IngestScanProgress progress;
+  if (scanProgress)
+    progress = [scanProgress](int seen, const QString &path) {
+      return scanProgress(seen, path);
+    };
+  return buildIngestPlanForFiles(paths, LiveCatalogSource(s.cat.get()), progress);
+}
+
 
 bool DataImportService::storeManagedRaw(ImportSession &s, const QString &sourcePath,
                                         const QString &assetId, const QString &versionId,

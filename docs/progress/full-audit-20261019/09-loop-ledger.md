@@ -19,3 +19,11 @@
   **全部落入 PR #568 活跃面（paleomaplibrary.cpp 51 行改动/paleomapsource.*）→
   EXCLUDED_ACTIVE_WORK**，只登记不修。
 - #564 新增 qgisdeferreddelete.h / faciespartitionstate.h 复核：契约设计良好，暂无发现。
+
+## R2 — 补充覆盖（主 Agent，等待基线构建期）
+
+- curveexpr.cpp 全文审查：干净（NaN 语义如实、词法/文法正确）；RECORD-ONLY：
+  病态深嵌套无递归深度限制（输入面=UI 表达式框，触发面低）。
+- faultsurface.cpp 结构级审查（函数清单+buildFaultSurface 逐段）：走向排序/转角
+  限制/分叉拒绝/域混用拒绝等防御完备，未见缺陷；深网格段未逐行（诚实标注）。
+- B-01/C-01/D-01/C-03/C-06/A-01/C-02/B-06 修复点预研完成（root fix 方案定型）。

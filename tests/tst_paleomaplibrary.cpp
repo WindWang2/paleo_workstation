@@ -14,6 +14,14 @@
 #include <QScrollBar>
 #include <QLabel>
 #include <QProgressBar>
+#include <QIcon>
+#include <qgssymbollayer.h>
+#include <qgssymbol.h>
+#include "../src/domain/faciescatalog.h"
+#include "../src/domain/faciestaxonomy.h"
+#include "../src/domain/paleomapfacies.h"
+#include "../src/qgis/facieshierarchyrenderer.h"
+#include "../src/qgis/faciesmaplegend.h"
 #include "../src/ui/paleotheme.h"
 #include <gdal.h>
 #include <ogr_api.h>
@@ -88,8 +96,124 @@ class TestPaleomapLibrary : public QObject {
     if (style.open(QIODevice::WriteOnly)) style.write("<qgis version=\"4.2\"/>");
     return created;
   }
+  static bool microShape(const QString &path, const QVariantList &rows, const QString &microField = "microfacies") {
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    auto ds = GDALCreate(GDALGetDriverByName("ESRI Shapefile"), path.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr);
+    if (!ds) return false;
+    auto srs = OSRNewSpatialReference(nullptr); OSRImportFromEPSG(srs, 3857);
+    char encoding[] = "ENCODING=UTF-8"; char *options[] = {encoding, nullptr};
+    auto layer = GDALDatasetCreateLayer(ds, "map", srs, wkbPolygon, options); OSRDestroySpatialReference(srs);
+    if (!layer) { GDALClose(ds); return false; }
+    for (const auto &name : QStringList{microField, "facies_name", "subfacies", "src_note"}) {
+      auto field = OGR_Fld_Create(name.toUtf8().constData(), OFTString); OGR_Fld_SetWidth(field, 128);
+      const auto err = OGR_L_CreateField(layer, field, true); OGR_Fld_Destroy(field); if (err != OGRERR_NONE) { GDALClose(ds); return false; }
+    }
+    for (int i = 0; i < rows.size(); ++i) {
+      const auto row = rows[i].toMap(); auto feature = OGR_F_Create(OGR_L_GetLayerDefn(layer));
+      OGR_F_SetFieldString(feature, 0, row.value("microfacies").toString().toUtf8().constData());
+      OGR_F_SetFieldString(feature, 1, row.value("facies").toString().toUtf8().constData());
+      OGR_F_SetFieldString(feature, 2, row.value("subfacies").toString().toUtf8().constData()); OGR_F_SetFieldString(feature, 3, "preserved");
+      const auto wkt = QString("POLYGON((%1 0,%2 0,%2 1000,%1 1000,%1 0))").arg(i * 1000).arg((i + 1) * 1000).toUtf8();
+      char *ptr = const_cast<char *>(wkt.constData()); OGRGeometryH geometry = nullptr; OGR_G_CreateFromWkt(&ptr, nullptr, &geometry); OGR_F_SetGeometryDirectly(feature, geometry);
+      const auto err = OGR_L_CreateFeature(layer, feature); OGR_F_Destroy(feature); if (err != OGRERR_NONE) { GDALClose(ds); return false; }
+    }
+    GDALClose(ds); return true;
+  }
 private slots:
   void initTestCase() { PaleoTheme::pinRenderEnvironment(); }
+  void importedMicrofaciesUseProjectTexturesAndThreeLevelEditing() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    auto projectSchema = FaciesCatalog::defaults(); auto mouth = projectSchema[1].toMap(); mouth["code"] = 77; projectSchema[1] = mouth;
+    QVERIFY2(f.work.saveFacies("D61", projectSchema, &error), qPrintable(error));
+    QTemporaryDir source; const auto path = source.filePath("D61/micro.shp");
+    QVERIFY(microShape(path, {QVariantMap{{"microfacies", "水下河道"}}, QVariantMap{{"microfacies", "河口坝"}}}));
+    const auto originalHash = DataCatalog::sha256FileHex(path);
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61";
+    const auto result = f.run(request); QVERIFY2(result.errors.isEmpty(), qPrintable(result.errors.join("\n"))); QCOMPARE(result.assets.size(), 1);
+    auto *cat = f.importer.catalog(); const auto version = cat->currentVersion(result.assets.first());
+    QCOMPARE(version.stage, QString("DERIVED")); QVERIFY(version.path.endsWith(".gpkg"));
+    const auto raw = cat->versionById(version.extra.value("source_raw_version_id").toString());
+    QCOMPARE(raw.stage, QString("RAW")); QCOMPARE(version.parentVersionIds, QStringList{raw.id});
+    QCOMPARE(cat->versionsForAsset(version.assetId).size(), 2); QCOMPARE(DataCatalog::sha256FileHex(path), originalHash);
+    const auto id = version.extra.value("layer_id").toString();
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(id, &error)); QVERIFY2(layer, qPrintable(error));
+    QVERIFY(f.work.supportsFaciesDisplay(id)); QCOMPARE(layer->featureCount(), 2); QVERIFY(layer->readOnly());
+    auto features = layer->getFeatures(); QgsFeature first, second; QVERIFY(features.nextFeature(first)); QVERIFY(features.nextFeature(second));
+    QCOMPARE(first.attribute("facies_code").toInt(), 1); QCOMPARE(second.attribute("facies_code").toInt(), 77);
+    QCOMPARE(first.attribute("facies_name").toString(), QString("三角洲相")); QCOMPARE(first.attribute("subfacies").toString(), QString("三角洲前缘"));
+    QCOMPARE(first.attribute("microfacies").toString(), QString("水下分流河道")); QCOMPARE(first.attribute("src_note").toString(), QString("preserved"));
+    QVERIFY(!FaciesCatalog::fillPath(first.attribute("texture").toString()).isEmpty());
+    for (const auto &level : {QString("facies"), QString("sub_facies"), QString("micro_facies")}) {
+      QVERIFY2(f.work.setDisplayMode(id, level, &error), qPrintable(error));
+      const auto entries = FaciesHierarchyRenderer::legend(layer, version.extra.value("facies").toList(), level);
+      QCOMPARE(entries.size(), level == "micro_facies" ? 2 : 1);
+      const auto symbols = FaciesMapLegend::symbolEntries(layer, entries);
+      for (const auto &row : symbols) { QVERIFY(!row.toMap().value("texture").toString().isEmpty()); QVERIFY(!row.toMap().value("legend_icon").value<QIcon>().isNull()); }
+    }
+    const auto draft = f.work.copyForEditing(id, {}, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *working = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error)); QVERIFY2(working, qPrintable(error));
+    auto iterator = working->getFeatures(); QgsFeature feature; QVERIFY(iterator.nextFeature(feature)); const auto geometry = feature.geometry().asWkt();
+    QVERIFY2(f.work.assignHierarchy(draft, {feature.id()}, 77, "micro_facies", &error), qPrintable(error));
+    QCOMPARE(working->getFeature(feature.id()).attribute("microfacies").toString(), QString("河口坝"));
+    QCOMPARE(working->getFeature(feature.id()).attribute("facies_name").toString(), QString("三角洲相"));
+    QCOMPARE(working->getFeature(feature.id()).geometry().asWkt(), geometry);
+    QCOMPARE(layer->getFeature(first.id()).attribute("microfacies").toString(), QString("水下分流河道"));
+    QCOMPARE(DataCatalog::sha256FileHex(path), originalHash);
+    const auto repeated = f.run(request); QVERIFY(repeated.errors.isEmpty()); QCOMPARE(repeated.unchanged, 1); QCOMPARE(cat->currentVersion(version.assetId).id, version.id);
+    PreviewDocService doc(&f.importer); DataPreviewTabs preview; preview.setDocService(&doc); preview.setProject(f.project.project()); preview.openAsset(version.assetId);
+    bool styled = false;
+    for (auto *canvas : preview.findChildren<QgsMapCanvas *>()) for (auto *map : canvas->layers())
+      if (auto *vector = qobject_cast<QgsVectorLayer *>(map); vector && vector->fields().indexOf("facies_code") >= 0) {
+        styled = true; QCOMPARE(vector->customProperty("paleo/faciesDisplayLegend").toList().size(), 2); QVERIFY(vector->legend());
+      }
+    QVERIFY(styled);
+    const auto qa = qEnvironmentVariable("PALEO_PALEOMAP_QA_DIR");
+    if (!qa.isEmpty()) { preview.resize(1000, 700); preview.show(); QTest::qWait(200); QVERIFY(preview.grab().save(qa + "/imported-microfacies.png")); }
+    paleo::exporting::DataRequest exportRequest; exportRequest.versionIds = {raw.id}; exportRequest.destination = source.filePath("original-export");
+    const auto plan = paleo::exporting::plan(*cat, f.dir.path(), exportRequest); QVERIFY2(plan.failures.isEmpty(), qPrintable(plan.failures.join("\n")));
+    const auto exported = paleo::exporting::execute(plan); QVERIFY2(exported.complete(), qPrintable(exported.error));
+    bool exportedOriginal = false; for (const auto &file : exported.files) if (file.endsWith(".shp")) { exportedOriginal = true; QCOMPARE(DataCatalog::sha256FileHex(file), originalHash); }
+    QVERIFY(exportedOriginal);
+  }
+  void explicitMicrofaciesFieldAndReferenceFallback() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source;
+    const auto path = source.filePath("custom.shp"); QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}, "SEDCLASS"));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61";
+    const auto reference = f.run(request); QVERIFY(reference.errors.isEmpty()); QCOMPARE(reference.assets.size(), 1);
+    auto *cat = f.importer.catalog(); const auto raw = cat->currentVersion(reference.assets.first()); QCOMPARE(raw.stage, QString("RAW"));
+    request.microfaciesField = "SEDCLASS";
+    const auto converted = f.run(request); QVERIFY2(converted.errors.isEmpty(), qPrintable(converted.errors.join("\n"))); QCOMPARE(converted.assets, reference.assets);
+    const auto current = cat->currentVersion(raw.assetId); QCOMPARE(current.stage, QString("DERIVED")); QCOMPARE(cat->versionsForAsset(raw.assetId).size(), 2);
+    QCOMPARE(current.extra.value("source_raw_version_id").toString(), raw.id);
+    const auto unknown = source.filePath("unknown.shp"); QVERIFY(microShape(unknown, {QVariantMap{{"microfacies", "陌生微相"}}}));
+    request.microfaciesField.clear(); request.files = {unknown}; const auto rejected = f.run(request);
+    QVERIFY(!rejected.errors.isEmpty()); QCOMPARE(rejected.assets.size(), 1);
+    const auto unclassified = cat->currentVersion(rejected.assets.first()); QCOMPARE(unclassified.stage, QString("RAW")); QVERIFY(!unclassified.extra.value("mapping_product").toBool());
+    const auto complete = source.filePath("complete.shp"); QVERIFY(microShape(complete, {QVariantMap{{"microfacies", "自定义微相"}, {"facies", "自定义相"}, {"subfacies", "自定义亚相"}}}));
+    request.files = {complete}; const auto custom = f.run(request); QVERIFY2(custom.errors.isEmpty(), qPrintable(custom.errors.join("\n")));
+    QCOMPARE(cat->currentVersion(custom.assets.first()).stage, QString("DERIVED"));
+    const auto disabled = source.filePath("disabled.shp"); QVERIFY(microShape(disabled, {QVariantMap{{"microfacies", "河口坝"}}}));
+    request.files = {disabled}; request.normalizeFacies = false; const auto plain = f.run(request); QVERIFY(plain.errors.isEmpty());
+    QCOMPARE(cat->currentVersion(plain.assets.first()).stage, QString("RAW"));
+  }
+  void schemaChangeRegeneratesFromRawAndAmbiguousNamesRequireParents() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; QString error;
+    const auto path = source.filePath("micro.shp"); QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61";
+    const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); const auto asset = imported.assets.first(); auto *cat = f.importer.catalog();
+    const auto first = cat->currentVersion(asset); const auto rawId = first.extra.value("source_raw_version_id").toString();
+    auto schema = FaciesCatalog::defaults(); auto mouth = schema[1].toMap(); mouth["code"] = 99; mouth["texture"] = "strata/micro_sheet_sand_fill.svg"; schema[1] = mouth;
+    QVERIFY(f.work.saveFacies("D61", schema, &error)); const auto changed = f.run(request); QVERIFY2(changed.errors.isEmpty(), qPrintable(changed.errors.join("\n")));
+    const auto second = cat->currentVersion(asset); QVERIFY(first.id != second.id); QCOMPARE(second.extra.value("source_raw_version_id").toString(), rawId);
+    QCOMPARE(cat->versionsForAsset(asset).size(), 3); const auto list = second.extra.value("facies").toList(); QCOMPARE(FaciesTaxonomy::resolve(list, "河口坝").value("code").toInt(), 99);
+    QFile::setPermissions(cat->versionFilePath(second), QFileDevice::ReadOwner | QFileDevice::WriteOwner); QVERIFY(QFile::remove(cat->versionFilePath(second)));
+    const auto restored = f.run(request); QVERIFY(restored.errors.isEmpty()); QVERIFY(QFile::exists(cat->versionFilePath(cat->currentVersion(asset)))); QCOMPARE(cat->versionsForAsset(asset).size(), 4);
+    const QVariantList ambiguous{QVariantMap{{"code", 1}, {"name", "同名微相"}, {"facies", "相甲"}, {"subfacies", "亚相甲"}, {"microfacies", "同名微相"}},
+      QVariantMap{{"code", 2}, {"name", "同名微相"}, {"facies", "相乙"}, {"subfacies", "亚相乙"}, {"microfacies", "同名微相"}}};
+    QVERIFY(PaleoMapFacies::resolve(ambiguous, {QVariantMap{{"microfacies", "同名微相"}}}, &error).isEmpty()); QVERIFY(error.contains("多个归属"));
+    const auto exact = PaleoMapFacies::resolve(ambiguous, {QVariantMap{{"microfacies", "同名微相"}, {"facies", "相乙"}, {"subfacies", "亚相乙"}}}, &error);
+    QCOMPARE(exact.value("codes").toList(), QVariantList{2});
+  }
   void shapefileIsOneImmutableDatasetAndDbfChangesCreateAVersion() {
     Fixture f; QVERIFY(f.init()); QTemporaryDir source;
     const auto path = source.filePath("D61/map.shp"); QVERIFY(shape(path));

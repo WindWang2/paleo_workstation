@@ -476,6 +476,7 @@ target_link_libraries(paleo_store PUBLIC paleo_deps paleo_domain)
 
 # ---- QGIS 封装层 ----
 add_library(paleo_qgis STATIC
+  src/qgis/paleomapfacies.cpp
   src/qgis/paleomapsource.cpp
   src/qgis/wellpointnavigation.cpp
   src/qgis/mappingartifactwriter.cpp
@@ -606,6 +607,7 @@ add_library(paleo_linkage STATIC
 target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
 
 add_library(paleo_workflow STATIC
+  src/workflow/paleomapimport.cpp
   src/workflow/paleomaplibrary.cpp
   src/workflow/projectareasummary.cpp
   src/workflow/mappingbasemaps.cpp

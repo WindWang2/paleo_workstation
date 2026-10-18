@@ -213,6 +213,8 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   for (const auto &name : m_constraints->dynamicPropertyNames())
     if (name.startsWith("paleo.constraint.snapshot."))
       m_constraints->setProperty(name.constData(), QVariant());
+  m_editEvidence.clear();
+  emit editEvidenceChanged();
   m_catalog = catalog;
   m_catalogSyncQueued = false;
   m_dir = dir;

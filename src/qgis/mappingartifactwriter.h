@@ -39,6 +39,7 @@ bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
 bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
             const QRectF &extent, const QString &crsWkt, QString *error = nullptr);
 bool points(const QString &path, const QVariantList &points, QString *error);
+bool emptyFacies(const QString &path, const QVariantList &facies, QString *error);
 bool vectorSnapshot(QgsVectorLayer *layer, const QString &path, QString *error);
 QVariantList constraintGeometries(const QString &path, QString *error);
 bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,

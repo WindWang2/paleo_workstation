@@ -26,6 +26,11 @@
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/edittools/vertexeditortools.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
+#include "../src/ui/pages/mappingeditbasis.h"
+#include "../src/ui/dialogs/dataexportdialog.h"
+#include <QLineEdit>
+#include <QGroupBox>
+#include <QScrollBar>
 #include "../src/ui/pages/mappingreferencepanel.h"
 #include "../src/ui/pages/wellpredictionpanel.h"
 #include "../src/ui/paleotheme.h"
@@ -1437,6 +1442,159 @@ private slots:
   }
   // #541 子项 2：零要素相面（从零手绘的起点）建不出编辑副本——此前
   // copyForEditing 被 footprint() 的「无法建立相图覆盖范围」堵死。
+  void mappingFlowOffersBlankBasisAndDelivery() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    MappingWorkbenchPage page("compose", &f.work); page.setHorizon("D61");
+    page.resize(500, 1000); page.show(); QCoreApplication::processEvents();
+    auto *category = page.findChild<QComboBox *>("baseMapCategory"); QVERIFY(category);
+    QCOMPARE(category->currentData().toString(), QString("new"));
+    const auto starts = page.findChildren<QPushButton *>();
+    QPushButton *start = nullptr;
+    for (auto *button : starts) if (button->text() == QStringLiteral("新建并开始编制")) start = button;
+    QVERIFY(start); QVERIFY(start->isEnabled());
+    QSignalSpy commands(&page, &MappingWorkbenchPage::commandRequested);
+    start->click(); QCOMPARE(commands.last().first().toString(), QString("newMap"));
+    auto *advanced = page.findChild<QGroupBox *>("mappingComposeAdvanced"); QVERIFY(advanced);
+    auto *toggle = page.findChild<QToolButton *>("mappingComposeToggle"); QVERIFY(toggle);
+    QVERIFY(!toggle->isChecked());
+    auto *text = page.findChild<QPlainTextEdit *>("editBasisText"); QVERIFY(text);
+    auto *reason = page.findChild<QLineEdit *>("editBasisReason"); QVERIFY(reason);
+    text->setPlainText(QStringLiteral("砂厚高值区与井相支持河道展布"));
+    reason->setText(QStringLiteral("调整河道边界"));
+    auto *apply = page.commandButton("setEditEvidence"); QVERIFY(apply); apply->click();
+    const auto p = commands.last().at(1).toMap();
+    QCOMPARE(commands.last().first().toString(), QString("setEditEvidence"));
+    QVERIFY2(f.work.setEditEvidence("D61", p, &error), qPrintable(error));
+    QVERIFY(page.findChild<QLabel *>("editBasisState")->text().contains(QStringLiteral("已启用")));
+    QVERIFY(page.commandButton("checkTopology")); QVERIFY(page.commandButton("save"));
+    QVERIFY(page.commandButton("exportVector")); QVERIFY(page.commandButton("exportMap"));
+    QVERIFY(!page.commandButton("exportVector")->isEnabled());
+    const auto qa = qEnvironmentVariable("PALEO_MAPPING_QA_DIR");
+    if (!qa.isEmpty()) {
+      PaleoTheme::applyLightTheme(); QCoreApplication::processEvents();
+      QDir().mkpath(qa); QVERIFY(page.grab().save(QDir(qa).filePath("mapping-flow.png")));
+      if (auto *scroll = page.findChild<QScrollArea *>()) {
+        scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+        QCoreApplication::processEvents(); QVERIFY(page.grab().save(QDir(qa).filePath("mapping-delivery.png")));
+      }
+    }
+    if (!qa.isEmpty()) {
+      PaleoTheme::applyDarkTheme();
+      if (auto *scroll = page.findChild<QScrollArea *>()) scroll->verticalScrollBar()->setValue(0);
+      QCoreApplication::processEvents(); QVERIFY(page.grab().save(QDir(qa).filePath("mapping-flow-dark.png")));
+      PaleoTheme::applyLightTheme();
+    }
+    page.setHorizon("D62"); QVERIFY(f.work.editEvidence("D61").isEmpty());
+  }
+  void blankMapRequiresEvidenceAndKeepsUndoAndCoverage() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = f.work.createBlankMap("D61", &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    const auto initial = f.work.versionForLayer(draft);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY2(layer, qPrintable(error)); QCOMPARE(layer->featureCount(), 0);
+    QVERIFY(layer->fields().indexOf("microfacies") >= 0);
+    QVERIFY(layer->startEditing());
+    const auto outline = QgsGeometry::fromWkt("POLYGON((0 0,100 0,100 100,0 100,0 0))");
+    QVERIFY(!FaciesPartitionEditor::paint(layer, outline, 1, &error));
+    QVERIFY(error.contains(QStringLiteral("依据"))); QCOMPARE(layer->featureCount(), 0);
+    QVERIFY(!f.work.setEditEvidence("D61", {{"text", "observation"}}, &error));
+    const QVariantMap context{{"text", "well and sand thickness observation"}, {"reason", "draw initial outline"}};
+    QVERIFY2(f.work.setEditEvidence("D61", context, &error), qPrintable(error));
+    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
+    QCOMPARE(layer->featureCount(), 1);
+    auto selected = layer->selectedFeatureIds().values(); QCOMPARE(selected.size(), 1);
+    const auto evidence = f.work.featureEvidence(draft, selected);
+    QCOMPARE(evidence.value("records").toList().size(), 1);
+    QCOMPARE(evidence.value("records").toList().first().toMap().value("role").toString(), QString("SUPPORTED_BY"));
+    QVERIFY(f.work.hasUnpublishedEdits(draft));
+    layer->undoStack()->undo(); QCOMPARE(layer->featureCount(), 0);
+    QVERIFY2(FaciesPartitionEditor::validate(layer, &error), qPrintable(error));
+    layer->undoStack()->redo(); QCOMPARE(layer->featureCount(), 1);
+    QVERIFY2(f.work.checkEditingTopology(draft, &error), qPrintable(error));
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(";")));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    QVERIFY(!f.work.hasUnpublishedEdits(draft));
+    QVERIFY(FaciesPartitionState::hasFrozenFootprint(layer));
+    const auto version = f.work.versionForLayer(draft);
+    QVERIFY(!version.extra.value("partition_footprint_path").toString().isEmpty());
+    QVERIFY(version.extra.value("requires_edit_evidence").toBool());
+    { DataExportDialog dialog(&f.catalog, {version.assetId}, nullptr, nullptr, {initial.id});
+      QCOMPARE(dialog.request().versionIds, QStringList{initial.id}); }
+    QVERIFY(layer->startEditing());
+    const auto stripe = QgsGeometry::fromWkt("POLYGON((40 -20,60 -20,60 120,40 120,40 -20))");
+    QVERIFY2(FaciesPartitionEditor::paint(layer, stripe, 2, &error), qPrintable(error));
+    QVERIFY2(f.work.checkEditingTopology(draft, &error), qPrintable(error));
+    auto pieces = layer->getFeatures(); QgsFeature piece; double area = 0;
+    while (pieces.nextFeature(piece)) {
+      area += piece.geometry().area();
+      QVERIFY(FaciesTaxonomy::complete(FaciesCatalog::find(f.work.facies("D61"), piece.attribute("facies_code"))));
+      QVERIFY(!piece.attribute("facies_evidence").toString().isEmpty());
+    }
+    QCOMPARE(area, outline.area());
+    QVERIFY(layer->rollBack());
+  }
+  void editingContextPinsReferenceVersionsAndReclassificationIsAtomic() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto base = hierarchyDraft(f, &error); QVERIFY2(!base.isEmpty(), qPrintable(error));
+    const auto reference = f.work.versionForLayer(base);
+    const auto draft = f.work.copyForEditing(base, {}, &error, true);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    QVERIFY(layer->startEditing()); QgsFeature face; auto iterator = layer->getFeatures();
+    QVERIFY(iterator.nextFeature(face)); iterator.close();
+    const int original = face.attribute("facies_code").toInt(), next = original == 1 ? 2 : 1;
+    QVERIFY(!f.work.assignHierarchy(draft, {face.id()}, next, "micro_facies", &error));
+    QCOMPARE(layer->getFeature(face.id()).attribute("facies_code").toInt(), original);
+    QVERIFY(!f.work.setEditEvidence("D61", {{"text", "test"}, {"reason", "test"}, {"source_versions", QStringList{"missing"}}}, &error));
+    const QVariantMap context{{"text", "observed channel boundary"}, {"reason", "revise microfacies"},
+        {"source_versions", QStringList{reference.id, reference.id}}};
+    QVERIFY2(f.work.setEditEvidence("D61", context, &error), qPrintable(error));
+    QCOMPARE(f.work.editEvidence("D61").value("references").toList().size(), 1);
+    const auto sourcePath = DataCatalog::resolvedVersionPath(f.dir.path(), reference);
+    QVERIFY(QFile::rename(sourcePath, sourcePath + ".hidden"));
+    const bool missingSourceAccepted = f.work.assignHierarchy(draft, {face.id()}, next, "micro_facies", &error);
+    QVERIFY(QFile::rename(sourcePath + ".hidden", sourcePath));
+    QVERIFY(!missingSourceAccepted);
+    QCOMPARE(layer->getFeature(face.id()).attribute("facies_code").toInt(), original);
+    QVERIFY2(f.work.assignHierarchy(draft, {face.id()}, next, "micro_facies", &error), qPrintable(error));
+    QVariantList records; QVariantMap interpretation;
+    auto changed = layer->getFeature(face.id());
+    QVERIFY(paleo::evidence::decodeRecords(changed.attribute("facies_evidence").toString(), &records, &error));
+    QCOMPARE(records.size(), 2);
+    QCOMPARE(records.first().toMap().value("source_version").toString(), reference.id);
+    QCOMPARE(records.first().toMap().value("role").toString(), QString("REFERENCES"));
+    QCOMPARE(records.last().toMap().value("role").toString(), QString("SUPPORTED_BY"));
+    QVERIFY(changed.geometry().isGeosEqual(face.geometry()));
+    layer->undoStack()->undo();
+    QCOMPARE(layer->getFeature(face.id()).attribute("facies_code").toInt(), original);
+    QVERIFY(paleo::evidence::decodeRecords(layer->getFeature(face.id()).attribute("facies_evidence").toString(), &records, &error));
+    QVERIFY(records.isEmpty());
+    layer->undoStack()->redo();
+    QVERIFY2(f.work.assignHierarchy(draft, {face.id()}, original, "micro_facies", &error), qPrintable(error));
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(";")));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    QVERIFY(f.work.versionForLayer(draft).parentVersionIds.contains(reference.id));
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QVERIFY(f.work.editEvidence("D61").isEmpty());
+  }
+  void manualMappingModeRequiresEvidenceForExistingDrafts() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    QgsFeature face; auto features = layer->getFeatures(); QVERIFY(features.nextFeature(face)); features.close();
+    const int original = face.attribute("facies_code").toInt(), target = original == 1 ? 2 : 1;
+    f.work.setManualEvidenceRequired(true);
+    QVERIFY(!f.work.assignHierarchy(draft, {face.id()}, target, "micro_facies", &error));
+    QCOMPARE(layer->getFeature(face.id()).attribute("facies_code").toInt(), original);
+    QVERIFY2(f.work.setEditEvidence("D61", {{"text", "manual observation"}, {"reason", "revise existing map"}}, &error), qPrintable(error));
+    QVERIFY2(f.work.assignHierarchy(draft, {face.id()}, target, "micro_facies", &error), qPrintable(error));
+    QVERIFY(layer->rollBack());
+    f.work.setManualEvidenceRequired(false);
+    QVERIFY(f.work.editEvidence("D61").isEmpty());
+    QVERIFY2(f.work.assignHierarchy(draft, {face.id()}, target, "micro_facies", &error), qPrintable(error));
+    QVERIFY(layer->rollBack());
+  }
   void zeroFeaturePartitionStillOpensAnEditingCopy() {
     Fixture f; QVERIFY(f.init()); QString error;
     QVERIFY2(f.work.saveFacies("D61", hierarchySchema(), &error), qPrintable(error));

@@ -11,6 +11,7 @@
 #include "../services/projectdata.h"
 #include "../catalog/datacatalog.h"
 #include "../workflow/mappingworkflow.h"
+#include "../workflow/mappingworkbench.h"
 #include "../workflow/mapexport.h"
 #include "../workflow/geologicalexport.h"
 #include "../services/dataexport.h"
@@ -25,6 +26,7 @@
 #include <qgsmapcanvas.h>
 #include <qgslayoutitemlabel.h>
 #include <qgsmaplayer.h>
+#include <qgsvectorlayer.h>
 #include <qgsproject.h>
 #include <qgslayoutitemmap.h>
 #include <qgsprintlayout.h>
@@ -249,6 +251,13 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
     auto *project = m_projectSvc->project();
     const auto layers = canvas->layers();
     const auto extent = canvas->extent();
+    for (auto *layer : layers) {
+      if (auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+          (vector && vector->isEditable()) ||
+          (m_workbench && m_workbench->hasUnpublishedEdits(layer->customProperty("paleoLayerId").toString()))) {
+        status(tr("请先保存地图中正在编辑的图层，再输出图件。")); return;
+      }
+    }
     const auto session = m_taskSvc ? m_taskSvc->session() : 0;
     QPointer<QgsProject> projectGuard(project);
     QList<QPointer<QgsMapLayer>> layerGuards;

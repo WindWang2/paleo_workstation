@@ -68,7 +68,7 @@ bool ready(QgsVectorLayer *v, QString *error) {
 }
 QgsFeature child(QgsVectorLayer *v, const QgsFeatureList &sources,
                  const QgsGeometry &geometry, int code, bool keepRange) {
-  QgsFeature f = sources.first(); f.setId(FID_NULL); f.setGeometry(geometry);
+  QgsFeature f = sources.isEmpty() ? QgsFeature(v->fields()) : sources.first(); f.setId(FID_NULL); f.setGeometry(geometry);
   // Never present the first parent's conflicting measurements or remarks as
   // a value for the whole new face. All source attributes remain in lineage.
   if (sources.size() > 1)
@@ -263,8 +263,9 @@ bool install(QgsVectorLayer *v, const QVariantList &source, const QString &froze
   FaciesPartitionState::setRequireTopology(v, true);
   // #541 子项 2：零要素相面（从零手绘的起点）没有覆盖范围可冻结——放行，不写
   // 冻结范围（validate 的 footprint 比对随之跳过）。
+  // 首绘命令内不冻结：撤销须能回到空图。首次保存后按版本 sidecar 冻结。
   const bool nothingToFreeze = frozenFootprint.isEmpty() && v->featureCount() == 0;
-  if (!FaciesPartitionState::hasFrozenFootprint(v) && !nothingToFreeze) {
+  if (!FaciesPartitionState::hasFrozenFootprint(v) && !nothingToFreeze && (!v->isEditable() || !frozenFootprint.isEmpty())) {
     const auto frozen = frozenFootprint.isEmpty() ? footprint(v, error) : frozenFootprint;
     QgsGeometry g;
     g.fromWkb(QByteArray::fromBase64(frozen.toLatin1()));
@@ -338,6 +339,15 @@ bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code, QString *err
   if (!ready(v, error) || !validCode(v, code, error)) return false;
   if (polygon.type() != Qgis::GeometryType::Polygon || polygon.isEmpty() || !polygon.isGeosValid())
     return fail(error, QObject::tr("绘制的新相面无效，请检查自交和闭合边界"));
+  if (v->featureCount() == 0 && !FaciesPartitionState::hasFrozenFootprint(v)) {
+    Plan initial;
+    for (const auto &part : parts(polygon)) {
+      const auto feature = child(v, {}, part, code, false);
+      initial.added << feature;
+      initial.selectedUids << MappingFeatureIdentity::uid(feature);
+    }
+    return apply(v, initial, "create", QObject::tr("绘制首个相面及解释依据"), error);
+  }
   const auto clipped = polygon.intersection(united(v));
   if (!clipped.lastError().isEmpty()) return fail(error, clipped.lastError());
   if (clipped.isEmpty() || clipped.area() <= 0) return fail(error, QObject::tr("新面必须覆盖现有相图中的有效区域"));

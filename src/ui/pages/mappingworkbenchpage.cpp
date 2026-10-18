@@ -87,8 +87,10 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   auto *form = new QFormLayout;
   form->setRowWrapPolicy(QFormLayout::WrapLongRows);
   form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-  layout->addWidget(paleo::pagesinternal::caption(tr("输入与参数"), body));
-  layout->addLayout(form);
+  if (mode != "compose") {
+    layout->addWidget(paleo::pagesinternal::caption(tr("输入与参数"), body));
+    layout->addLayout(form);
+  } else { delete form; form = nullptr; }
   if (mode == "predict") {
     label(tr("地震层位窗聚类／预测服务 · 结果待复核\n"
              "选择一个地震体，或勾选一口／多口井。结果按当前层位与相分类"
@@ -257,42 +259,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     connect(m_points, &QComboBox::currentIndexChanged, this,
             [this] { updateState(); });
   } else {
-    label(tr("2 · 可选综合编图：勾选本层位输入，按列表顺序采用有效相值；连续单因素按下方阈值分相。"));
-    m_inputs = new QListWidget(body);
-    m_inputs->setObjectName("workbenchInputs");
-    m_inputs->setFixedHeight(96);
-    m_inputs->setAccessibleName(tr("编图输入，按空格勾选"));
-    layout->addWidget(m_inputs);
-    auto *order = new QHBoxLayout;
-    for (bool up : {true, false}) {
-      auto *b = new QPushButton(up ? tr("上移优先级") : tr("下移优先级"), body);
-      b->setObjectName(up ? "workbenchMoveUp" : "workbenchMoveDown");
-      order->addWidget(b);
-      connect(b, &QPushButton::clicked, this, [this, up] {
-        int i = m_inputs->currentRow(), j = i + (up ? -1 : 1);
-        if (i < 0 || j < 0 || j >= m_inputs->count())
-          return;
-        auto *item = m_inputs->takeItem(i);
-        m_inputs->insertItem(j, item);
-        m_inputs->setCurrentItem(item);
-      });
-    }
-    layout->addLayout(order);
-    m_thresholds = new QLineEdit(body);
-    m_thresholds->setAccessibleName(tr("单因素分相阈值"));
-    m_thresholds->setPlaceholderText(tr("例如 10, 25（3 类相）"));
-    form->addRow(tr("单因素分相阈值"), m_thresholds);
-    label(tr("不同量纲的单因素请分别分相。当前一次编图使用同一组阈值；相栅格和"
-             "相点不使用阈值。"));
-    layout->addWidget(button("compose", tr("生成综合相图与相面")));
-    buildReferenceEntry(body, layout);
-    // G05/G09：输入版本变化 → 影响分析（三级分明 + 报告快照）→ 受控重算
-    // （生成新版本，绝不覆盖历史）。
-    layout->addWidget(button("impactAnalysis", tr("分析所选输入的版本变化影响")));
-    layout->addWidget(button("recompute", tr("按最近影响报告受控重算")));
-    layout->addWidget(button("compareRecompute", tr("对比重算成果与旧版本")));
+    buildComposeAdvanced(body, layout);
   }
-  m_inputHint = label(QString());
+  m_inputHint = label(QString()); m_inputHint->setVisible(mode != "compose");
   m_inputHint->setObjectName("workbenchInputHint");
   PaleoTheme::applyThemedStyleSheet(m_inputHint, [] {
     return PaleoTheme::mutedCaptionStyleSheet();
@@ -317,7 +286,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_message->hide();
   m_message->setTextInteractionFlags(Qt::TextSelectableByMouse);
   layout->addSpacing(PaleoTheme::tokens().spacingSm);
-  layout->addWidget(paleo::pagesinternal::caption(tr("图件与版本"), body));
+  layout->addWidget(paleo::pagesinternal::caption(mode == "compose" ? tr("3 · 当前编图与编辑") : tr("图件与版本"), body));
   m_results = new QTreeWidget(body);
   m_results->setObjectName("workbenchResults");
   m_results->setHeaderLabels({tr("图件"), tr("版本")});
@@ -338,7 +307,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   actions->addWidget(button("compare", tr("在参考面板中查看")), 0, 1);
   actions->addWidget(button("polygonize", tr("相栅格转相面")), 1, 0);
   actions->addWidget(button("copy", tr("复制底图并编辑")), 1, 1);
-  actions->addWidget(button("save", tr("保存图件新版本")), 2, 0);
+  if (mode != "compose") actions->addWidget(button("save", tr("保存图件新版本")), 2, 0);
   actions->addWidget(button("catalog", tr("在数据管理中定位")), 2, 1);
   actions->addWidget(button("delete", tr("删除图件")), 3, 0);
   actions->addWidget(button("graph", tr("资料关联 / 成果追溯")), 3, 1);
@@ -416,6 +385,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   appearanceLayout->addLayout(labelRow);
   appearanceLayout->addWidget(button("labels", tr("应用标注到选中图件")));
   layout->addWidget(appearance);
+  if (mode == "compose") buildDeliveryStep(body, layout);
   auto *evidenceGroup =
       new QgsCollapsibleGroupBox(tr("选中要素的解释证据"), body);
   evidenceGroup->setObjectName("workbenchEvidence");
@@ -653,7 +623,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
         m_workbench->selectedFeatures(selectedLayer()).size() == 1 && !m_evidenceReason->text().trimmed().isEmpty() && localActorOk;
     commandButton("updateEvidence")->setEnabled(ready); commandButton("verifyEvidence")->setEnabled(ready);
   });
-  evidenceGroup->setCollapsed(false);
+  evidenceGroup->setCollapsed(mode == "compose");
   layout->addWidget(evidenceGroup);
   appearance->setCollapsed(false); // DESIGN.md: groups start expanded.
   auto *details = new QgsCollapsibleGroupBox(tr("来源与生成参数"), body);
@@ -1214,8 +1184,7 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
     p.insert("display_mode", m_featureDisplayLevel->currentData());
   p.insert("horizon", m_horizon);
   p.insert("layer", selectedLayer());
-  p.insert("inputs", action == "copy" && m_mode != "compose" ? QStringList()
-                                                             : checkedInputs());
+  p.insert("inputs", action == "copy" ? QStringList() : checkedInputs());
   if (action == "predict") {
     p.insert("kind", m_kind->currentData());
     if (m_kind->currentData() == "seismic_mock")

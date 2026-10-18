@@ -130,6 +130,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
         m_correlationHiddenDocks.append(dock);
   }
   m_currentPage = pageId;
+  if (m_workbench) m_workbench->setManualEvidenceRequired(pageId == QLatin1String("compose"));
   // Web 页自己的 Ctrl+S 保存独立解释，Paleo 工程的保存快捷键让出。
   if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
     paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), save,

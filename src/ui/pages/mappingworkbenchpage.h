@@ -57,6 +57,8 @@ protected:
   void showEvent(QShowEvent *event) override;
 
 private:
+  void buildComposeAdvanced(QWidget *body, QVBoxLayout *layout);
+  void buildDeliveryStep(QWidget *body, QVBoxLayout *layout);
   void buildBaseMapStep(QWidget *body, QVBoxLayout *layout);
   void refreshInputs();
   void buildFaciesSchema(QWidget *schemaBody);

@@ -610,6 +610,7 @@ add_library(paleo_workflow STATIC
   src/workflow/paleomapimport.cpp
   src/workflow/paleomaplibrary.cpp
   src/workflow/projectareasummary.cpp
+  src/workflow/mappingeditcontext.cpp
   src/workflow/mappingbasemaps.cpp
   src/workflow/geologicalexport.cpp
   src/workflow/dataexportworkflow.cpp
@@ -669,6 +670,7 @@ add_library(paleo_ui STATIC
   src/ui/paleomainwindow_paleomaps.cpp
   src/ui/pages/datalist_paleomaps.cpp
   src/ui/pages/datalist_importbuttons.cpp
+  src/ui/pages/mappingeditbasis.cpp
   src/ui/pages/mappingbasemapselector.cpp
   src/ui/datapreview/projectstatisticspage.cpp
   src/ui/datapreview/datapreviewtabdocument.cpp
@@ -683,11 +685,13 @@ add_library(paleo_ui STATIC
   src/ui/pages/stratigraphicwebpage.cpp
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
+  src/ui/pages/mappingworkbenchpage_flow.cpp
   src/ui/pages/mappingworkbenchpage_references.cpp
   src/ui/pages/mappingworkbenchpage_schema.cpp
   src/ui/pages/mappingreferencepanel.cpp
   src/ui/paleomainwindow_references.cpp
   src/ui/paleomainwindow_workbench.cpp
+  src/ui/paleomainwindow_workbench_editflow.cpp
   src/ui/paleomainwindow_workbench_commands.cpp   # #473：命令分发链——attachWorkbench 行为守恒拆分
   src/ui/paleomainwindow_workbench_evidence.cpp   # #473：证据面板/图谱联动接线
   src/ui/paleomainwindow_workbench_wells.cpp      # #473：井面板 dock/自动保存/修订链

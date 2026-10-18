@@ -103,7 +103,15 @@ public:
   bool polygonizeBusy() const;
   void cancelPolygonize();
   QString copyForEditing(const QString &layerId, const QStringList &references,
-                         QString *error);
+                         QString *error, bool requireEvidence = false);
+  // 从零编制：空白微相分区，首次闭合绘制确定覆盖范围。
+  QString createBlankMap(const QString &horizon, QString *error);
+  bool setEditEvidence(const QString &horizon, const QVariantMap &context, QString *error);
+  QVariantMap editEvidence(const QString &horizon) const;
+  void clearEditEvidence();
+  void setManualEvidenceRequired(bool required);
+  bool hasUnpublishedEdits(const QString &id) const;
+  bool checkEditingTopology(const QString &id, QString *error);
   bool saveEditingVersion(const QString &draftId, QString *error);
   // 永久删除生成的图件/编辑副本（product.*/draft.* 才受理）：下架该资产
   // 全部图层声明、删 catalog 资产与受管文件、清草稿工作目录。
@@ -247,6 +255,7 @@ signals:
   void faciesEdited(const QString &layerId);
   void displayChanged(const QString &layerId);
   void faciesChanged(const QString &horizon);
+  void editEvidenceChanged();
   void predictionBusyChanged(bool busy);
   void predictionProgress(int percent);
   void predictionDetailChanged(const QString &detail);
@@ -294,6 +303,7 @@ private:
                  const QString &assetKey = QString(),
                  const DerivedFileFingerprint *fingerprint = nullptr);
   QString ensureInputVersion(const QString &layerId, QString *error);
+  bool appendEditEvidence(const QString &id, qint64 fid, QString *error);
   bool recordInterpretationEdit(const QString &id, qint64 fid,
                                 int beforeCode, int afterCode, QString *error);
   bool recordSpatialInterpretationEdit(const QString &id, qint64 fid,
@@ -380,6 +390,8 @@ private:
   QPointer<WellPredictionService> m_wellRemote;
   QString m_dir;
   double m_displayScale = 0;
+  QVariantMap m_editEvidence; // 会话依据：冻结版本；切层位或工程即清空。
+  bool m_manualEvidenceRequired = false;
   bool m_catalogSyncQueued = false;
   RemotePredictionRequest m_request;
   QVariantMap m_predictionParameters;

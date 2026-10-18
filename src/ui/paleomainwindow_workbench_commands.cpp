@@ -302,7 +302,7 @@ WbCmdStep runWorkbenchEditFamily(const WorkbenchCmdDeps &d,
   } else if (action == "polygonize")
     ok = d.workbench->startPolygonize(id, &error);
   else if (action == "copy") {
-    const auto draft = d.workbench->copyForEditing(id, inputs, &error);
+    const auto draft = d.workbench->copyForEditing(id, inputs, &error, d.page->mode() == "compose");
     ok = !draft.isEmpty();
     if (ok && d.edit) {
       d.show(draft, &error);
@@ -337,7 +337,14 @@ WbCmdStep runWorkbenchLifecycleFamily(const WorkbenchCmdDeps &d,
                                       const QStringList &inputs,
                                       const QVariantMap &p, bool &ok,
                                       QString &error, bool &declarationOnly) {
-  if (action == "delete") {
+  if (action == "newMap") {
+    const auto draft = d.workbench->createBlankMap(h, &error);
+    ok = !draft.isEmpty();
+    if (ok) {
+      ok = d.show(draft, &error) && d.beginEdit(draft);
+      if (!ok && error.isEmpty()) error = PaleoMainWindow::tr("空白图已创建，请先结束其他图层的编辑");
+    }
+  } else if (action == "delete") {
     const auto title = d.workbench->declaration(id).title;
     const auto products = d.workbench->removalProducts(id, &error);
     declarationOnly = products.size() == 1 && products.first().toMap().value("declaration_only").toBool();
@@ -461,6 +468,15 @@ void PaleoMainWindow::runWorkbenchCommand(
     const WorkbenchBeginEditFn &beginEdit,
     const std::shared_ptr<QHash<QString, QString>> &shown,
     const QString &action, const QVariantMap &p) {
+  const WorkbenchShowFn exportView = [this](const QString &id, QString *error) {
+    auto *layer = m_layerSvc->layer(id);
+    if (!layer || !m_canvasCtl->canvas()->layers().contains(layer)) {
+      if (error) *error = tr("请先显示所选图件，再输出当前地图范围和显示层级");
+      return false;
+    }
+    return true; // 保留当前范围、比例尺和三级显示，不在导出前重新缩放。
+  };
+  if (runMappingEditFlow(page, action, p, action == "exportMap" ? exportView : show)) return;
   QString error;
   bool ok = true;
   bool declarationOnly = false;

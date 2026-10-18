@@ -153,33 +153,11 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   if (asset.type == QLatin1String("seismic"))
     return buildSeismicContent(cat, asset, v, abs, assetId, links, host, lay);
 
-  if (asset.type == QLatin1String("image_reference"))
+  if ((asset.type == "document" && QStringList{"png", "jpg", "jpeg", "tif", "tiff"}.contains(asset.format)) || asset.type == QLatin1String("image_reference") || (asset.type == "paleogeographic_map" && !v.extra.value("spatial").toBool() && v.extra.value("source_type") == "raster"))
     return buildImageReferenceContent(cat, asset, v, abs, assetId, host, lay);
 
-  if (asset.type == QLatin1String("document"))
-  {
-    // PDF 原件仍走 QtPdf；Office 后缀已在上方接入 Calligra，绝不转换。
-    if (QFileInfo(abs).suffix().compare(QLatin1String("pdf"), Qt::CaseInsensitive) == 0)
-    {
-      auto *doc = new QPdfDocument(host);
-      if (doc->load(abs) == QPdfDocument::Error::None)
-      {
-        auto *view = new QPdfView(host);
-        view->setObjectName(QStringLiteral("pdfView"));
-        view->setDocument(doc);
-        view->setPageMode(QPdfView::PageMode::MultiPage);
-        lay->addWidget(view, 1);
-      }
-      else
-        lay->addWidget(stateLabel(tr("PDF 原件无法加载\n%1").arg(abs), host, true), 1);
-    }
-    else
-    {
-      lay->addWidget(stateLabel(tr("该格式暂无内嵌预览"), host), 1);
-      lay->addWidget(makeOpenExternalRow(abs, host));
-    }
-    return host;
-  }
+  if (asset.type == QLatin1String("document") || (asset.type == "paleogeographic_map" && v.extra.value("source_type") == "document"))
+    return buildReferenceDocumentContent(abs, host, lay);
 
   // SpreadsheetML XML 保留原生数据表；xls/xlsx 已由 Calligra 直接预览。
   if (asset.type == QLatin1String("outsource_workbook")) {
@@ -193,7 +171,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
        asset.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive)))
     return buildGeoJsonContent(cat, asset, v, abs, assetId, host, lay);
 
-  if (isMapProductAsset(asset, v))
+  if (isMapProductAsset(asset, v) || (asset.type == "paleogeographic_map" && v.extra.value("spatial").toBool()))
     return buildMapProductContent(cat, asset, v, abs, assetId, host, lay);
 
   // ---- 辅助/参考与未知类型（§4 阶段 D）：预览内容为主，文件名/类型等属性

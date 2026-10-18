@@ -54,7 +54,21 @@ bool copyChecked(const QString &source, const QString &destination, const QStrin
   if (!output.commit()) { *error = output.errorString(); return false; }
   return true;
 }
-QStringList companions(const QString &path, QString *error) {
+QStringList companions(const QString &path, QString *error, const QVariantList &manifest = {}) {
+  if (!manifest.isEmpty()) {
+    QStringList result; const auto directory = QFileInfo(path).absoluteDir();
+    for (const auto &entry : manifest) {
+      const auto name = entry.toMap().value("file").toString();
+      const auto member = directory.filePath(name);
+      if (!DataCatalog::isSafePathSegment(name) || !QFileInfo(member).isFile() ||
+          QFileInfo(member).canonicalPath() != QFileInfo(path).canonicalPath()) {
+        if (error) *error = QObject::tr("图件配套文件缺失或路径不安全：%1").arg(name); return {};
+      }
+      result << member;
+    }
+    if (!result.contains(path)) { if (error) *error = QObject::tr("图件配套清单缺少主文件"); return {}; }
+    return result;
+  }
   const QFileInfo info(path);
   const QString suffix = info.suffix().toLower();
   if (suffix == "vrt") {
@@ -195,7 +209,7 @@ Plan plan(const DataCatalog &snapshot, const QString &projectDir, const DataRequ
       result.failures << QObject::tr("%1：文件缺失或路径不可读取").arg(id); continue;
     }
     QString preparationError;
-    const auto parts = companions(path, &preparationError);
+    const auto parts = companions(path, &preparationError, version.extra.value("bundle_members").toList());
     if (!preparationError.isEmpty()) { result.failures << id + "：" + preparationError; continue; }
     const auto category = seeds.contains(id) ? QStringLiteral("data") : QStringLiteral("sources");
     result.items.append({asset, version, path, category}); assetIds.insert(asset.id);
@@ -244,7 +258,7 @@ Result execute(const Plan &plan, const Cancel &cancel, const Progress &progress,
     // Pin and verify bytes before handing the private copy to a format writer.
     // File backed layers are never reconstructed from a mutable live URI.
     QTemporaryDir input(staging.filePath(".input-XXXXXX"));
-    const auto parts = companions(item.path, &error);
+    const auto parts = companions(item.path, &error, v.extra.value("bundle_members").toList());
     QStringList inputs = parts;
     if (QFileInfo(item.path).suffix().compare("vrt", Qt::CaseInsensitive) == 0 && plan.request.format != DataFormat::Native) {
       // VRT cannot be made self-contained by copying the declaration alone.
@@ -253,7 +267,10 @@ Result execute(const Plan &plan, const Cancel &cancel, const Progress &progress,
     for (const auto &part : inputs) {
       const auto target = input.filePath(QFileInfo(part).fileName());
       QString digest;
-      if (!copyChecked(part, target, part == item.path ? v.sha256 : QString(), cancel, progress,
+      QString expected = part == item.path ? v.sha256 : QString();
+      for (const auto &entry : v.extra.value("bundle_members").toList())
+        if ((part != item.path || expected.isEmpty()) && entry.toMap().value("file").toString() == QFileInfo(part).fileName()) expected = entry.toMap().value("sha256").toString();
+      if (!copyChecked(part, target, expected, cancel, progress,
                        done, plan.bytes, &digest, &error)) break;
       if (part == item.path) sourceSha = digest;
     }

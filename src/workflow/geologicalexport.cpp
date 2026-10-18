@@ -42,6 +42,9 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
     return fail(QObject::tr("请先打开工程并准备图件版面"));
   if (!qIsFinite(request.dpi) || request.dpi < 72 || request.dpi > 1200)
     return fail(QObject::tr("导出 DPI 必须在 72～1200 范围内"));
+  const auto managedParent = QDir(catalog->projectDir()).absoluteFilePath("exports/maps");
+  if (request.registerInProject && destination.absolutePath() == managedParent && !QDir(managedParent).exists() && !QDir().mkpath(managedParent))
+    return fail(QObject::tr("无法创建工区图件输出目录"));
   if (request.destination.isEmpty() || destination.exists() || !destination.absoluteDir().exists())
     return fail(QObject::tr("导出目标必须是已有父目录中的新批次目录"));
   if (request.includeSources && request.sourceVersionIds.isEmpty())
@@ -115,13 +118,15 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
       for (const auto &path : output.files) {
         if (cancel()) return {};
         if (!PaleoMapBookLayout::validateExportedFile(path, format, -1, -1, &error)) return fail(error);
-        QString hash, managed;
-        const auto asset = registerMapPdfAsset(job->catalog.get(), job->managed->path(), path, &hash, &managed, &error, extension);
-        if (asset.isEmpty()) return fail(error);
-        job->result.assetIds << asset;
-        registered.append(QVariantMap{{"asset_id", asset}, {"path", QFileInfo(path).fileName()}, {"sha256", hash}, {"format", extension}});
-        if (format == PaleoLayoutExport::Format::Pdf && job->result.pdfAssetId.isEmpty()) {
-          job->result.pdfAssetId = asset; job->result.pdfPath = managed; job->result.pdfSha256 = hash;
+        if (request.registerInProject) {
+          QString hash, managed;
+          const auto asset = registerMapPdfAsset(job->catalog.get(), job->managed->path(), path, &hash, &managed, &error, extension, request.context.value("horizon").toString());
+          if (asset.isEmpty()) return fail(error);
+          job->result.assetIds << asset;
+          registered.append(QVariantMap{{"asset_id", asset}, {"path", QFileInfo(path).fileName()}, {"sha256", hash}, {"format", extension}});
+          if (format == PaleoLayoutExport::Format::Pdf && job->result.pdfAssetId.isEmpty()) {
+            job->result.pdfAssetId = asset; job->result.pdfPath = managed; job->result.pdfSha256 = hash;
+          }
         }
       }
     }
@@ -185,7 +190,7 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
     auto context = job->description;
     for (auto i = request.context.begin(); i != request.context.end(); ++i) context.insert(i.key(), i.value());
     const auto bytes = QJsonDocument::fromVariant(QVariantMap{{"schema", "paleo_map_export_v1"},
-        {"exported_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}, {"qgis_version", Qgis::version()},
+        {"registered_in_project", request.registerInProject}, {"exported_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}, {"qgis_version", Qgis::version()},
         {"dpi", request.dpi}, {"world_file", request.options.worldFile}, {"geo_pdf", request.options.geoPdf},
         {"text_as_paths", request.options.textAsPaths}, {"transparent_background", request.options.transparentBackground}, {"context", context}, {"input_versions", request.sourceVersionIds},
         {"source_package_requested", request.includeSources},
@@ -199,6 +204,7 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
     for (const auto &asset : job->result.assetIds) {
       const auto version = job->catalog->currentVersion(asset);
       auto history = version.extra.value("map_exports").toList();
+      if (!job->catalog->updateVersionExtra(version.id, "horizon", context.value("horizon"), &error)) return fail(error);
       history.append(QVariantMap{{"context", context}, {"inputs", request.sourceVersionIds}, {"batch", request.destination}});
       if (!job->catalog->updateVersionExtra(version.id, "map_exports", history, &error)) return fail(error);
     }
@@ -208,12 +214,12 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
   });
   QObject::connect(task, &PaleoTask::finished, tasks,
       [job, request, projectDirectory, owner, sequence, task, tasks, target, done] {
-    const bool stale = !owner || owner->projectDir() != projectDirectory || owner->mutationSeq() != sequence || task->session() != tasks->session();
+    const bool stale = !owner || owner->projectDir() != projectDirectory || (request.registerInProject && owner->mutationSeq() != sequence) || task->session() != tasks->session();
     job->result.cancelled = task->cancelRequested() || stale;
     if (stale) task->discardPublication();
     if (!job->result.cancelled && task->state() == PaleoTask::State::Succeeded) {
       if (!QDir().rename(job->output->path(), request.destination)) job->result.error = QObject::tr("无法提交图件目录，目标可能已存在");
-      else if (!publishMapExportJournal(owner, projectDirectory, job->managed->path(), job->journal, &job->result.error))
+      else if (request.registerInProject && !publishMapExportJournal(owner, projectDirectory, job->managed->path(), job->journal, &job->result.error))
         QDir(request.destination).removeRecursively();
       else {
         job->result.directory = QFileInfo(request.destination).absoluteFilePath();

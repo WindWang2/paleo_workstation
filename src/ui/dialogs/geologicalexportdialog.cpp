@@ -18,12 +18,13 @@
 #include <QScrollArea>
 #include <QUuid>
 #include <QVBoxLayout>
+#include <QTimer>
 #include <qgslayoutview.h>
 #include <qgsprintlayout.h>
 
 GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::Settings &settings,
-    Builder builder, bool hasInputs, QWidget *parent, const QStringList &unboundLayers)
-    : QDialog(parent), m_builder(std::move(builder)), m_settings(settings) {
+    Builder builder, bool hasInputs, QWidget *parent, const QStringList &unboundLayers, const QString &projectDirectory)
+    : QDialog(parent), m_builder(std::move(builder)), m_settings(settings), m_projectDirectory(projectDirectory) {
   setObjectName("geologicalExportDialog"); setWindowTitle(tr("导出地质图"));
   auto *root = new QVBoxLayout(this); root->setSpacing(PaleoTheme::tokens().spacingSm);
   auto *splitter = new QSplitter(this); root->addWidget(splitter, 1);
@@ -66,6 +67,10 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
     auto *coverage = new QLabel(tr("以下图层没有资产版本，源数据包仅含已登记来源：%1").arg(unboundLayers.join("、")), controls);
     coverage->setWordWrap(true); form->addRow(coverage);
   }
+  m_destinationMode = new QComboBox(controls); m_destinationMode->setObjectName("mapExportDestinationMode");
+  m_destinationMode->addItem(tr("工区管理（按当前层位登记）"), true); m_destinationMode->addItem(tr("外部位置"), false);
+  m_destinationMode->setCurrentIndex(projectDirectory.isEmpty() ? 1 : 0);
+  form->addRow(tr("输出到"), m_destinationMode);
   m_directory = new QLineEdit(controls); m_directory->setReadOnly(true); m_directory->setObjectName("mapExportDirectory");
   auto *choose = new QPushButton(tr("选择目录…"), controls);
   form->addRow(tr("保存到"), m_directory); form->addRow(choose);
@@ -74,10 +79,17 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
     if (!path.isEmpty()) m_directory->setText(path);
     rebuild();
   });
+  const auto destinationChanged = [this, choose] {
+    const bool managed = m_destinationMode->currentData().toBool();
+    m_directory->setText(managed && !m_projectDirectory.isEmpty() ? QDir(m_projectDirectory).filePath("exports/maps") : QString());
+    choose->setEnabled(!managed); choose->setToolTip(managed ? tr("工区图件保存在工程 exports/maps 下，并登记到当前层位") : tr("选择外部输出目录"));
+    rebuild();
+  };
   m_status = new QLabel(controls); m_status->setWordWrap(true); form->addRow(m_status);
   m_preview = new QgsLayoutView(splitter); m_preview->setObjectName("mapExportPreview");
   splitter->addWidget(scroll); splitter->addWidget(m_preview); splitter->setStretchFactor(1, 1);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
+  buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
   m_save = buttons->button(QDialogButtonBox::Save); m_save->setText(tr("开始导出"));
   root->addWidget(buttons);
   connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -87,7 +99,8 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
   for (auto *box : {m_png, m_pdf, m_svg, m_tiff}) connect(box, &QCheckBox::toggled, this, [this] { rebuild(); });
   connect(m_dpi, &QSpinBox::valueChanged, this, [this] { rebuild(); });
   connect(m_scale, &QDoubleSpinBox::valueChanged, this, [this] { rebuild(); });
-  resize(1100, 720); rebuild();
+  connect(m_destinationMode, &QComboBox::currentIndexChanged, this, destinationChanged);
+  resize(1100, 720); destinationChanged();
 }
 GeologicalExportDialog::~GeologicalExportDialog() { delete m_preview; }
 QgsPrintLayout *GeologicalExportDialog::layout() const { return m_layout.get(); }
@@ -105,6 +118,7 @@ void GeologicalExportDialog::rebuild() {
     m_preview->setCurrentLayout(replacement.get());
     m_layout = std::move(replacement);
     m_preview->zoomFull();
+    QTimer::singleShot(0, m_preview, [this] { m_preview->zoomFull(); });
   }
   const bool format = m_png->isChecked() || m_pdf->isChecked() || m_svg->isChecked() || m_tiff->isChecked();
   m_save->setEnabled(valid && format && !m_directory->text().isEmpty());
@@ -121,6 +135,7 @@ PaleoGeologicalExport::Request GeologicalExportDialog::request() const {
     if (pair.first->isChecked()) result.formats << pair.second;
   result.options.transparentBackground = m_transparent->isChecked();
   result.options.worldFile = m_world->isChecked(); result.options.geoPdf = m_geoPdf->isChecked(); result.options.textAsPaths = m_textPaths->isChecked();
+  result.registerInProject = m_destinationMode->currentData().toBool();
   result.dpi = m_dpi->value(); result.includeData = m_data->isChecked(); result.includeSources = m_sources->isChecked();
   result.destination = QDir(m_directory->text()).filePath("paleo_map_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") + "_" + QUuid::createUuid().toString(QUuid::Id128).left(8));
   return result;

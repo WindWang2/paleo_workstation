@@ -44,6 +44,7 @@ public:
   // X10：反查导航回退栈可用性（由 EvidenceInteraction::historyChanged 驱动）。
   void setCanGoBack(bool canBack);
 signals:
+  void horizonChanged(const QString &horizon);
   void commandRequested(const QString &action, const QVariantMap &parameters);
   void targetLayerChanged(const QString &layerId);
   void evidenceActivated(const QVariantMap &evidence);
@@ -56,6 +57,7 @@ protected:
   void showEvent(QShowEvent *event) override;
 
 private:
+  void buildBaseMapStep(QWidget *body, QVBoxLayout *layout);
   void refreshInputs();
   void buildFaciesSchema(QWidget *schemaBody);
   void buildReferenceEntry(QWidget *body, QVBoxLayout *layout);

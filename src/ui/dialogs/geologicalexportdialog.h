@@ -16,7 +16,7 @@ class GeologicalExportDialog : public QDialog {
 public:
   using Builder = std::function<QgsPrintLayout *(const PaleoGeologicalMapLayout::Settings &, QString *)>;
   GeologicalExportDialog(const PaleoGeologicalMapLayout::Settings &settings, Builder builder,
-      bool hasInputs, QWidget *parent = nullptr, const QStringList &unboundLayers = {});
+      bool hasInputs, QWidget *parent = nullptr, const QStringList &unboundLayers = {}, const QString &projectDirectory = {});
   ~GeologicalExportDialog() override;
   QgsPrintLayout *layout() const;
   PaleoGeologicalExport::Request request() const;
@@ -26,7 +26,8 @@ private:
   PaleoGeologicalMapLayout::Settings m_settings;
   std::unique_ptr<QgsPrintLayout> m_layout;
   QgsLayoutView *m_preview;
-  QComboBox *m_kind, *m_paper, *m_orientation;
+  QComboBox *m_kind, *m_paper, *m_orientation, *m_destinationMode;
+  QString m_projectDirectory;
   QLineEdit *m_subtitle;
   QDoubleSpinBox *m_scale;
   QLineEdit *m_title, *m_directory, *m_author, *m_reviewer;

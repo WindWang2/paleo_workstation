@@ -18,6 +18,7 @@ struct Request {
   QVariantMap context;
   QStringList sourceVersionIds;
   bool includeData = false, includeSources = false;
+  bool registerInProject = true;
 };
 struct Result {
   QString directory, pdfAssetId, pdfPath, pdfSha256, error;

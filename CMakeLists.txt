@@ -476,6 +476,7 @@ target_link_libraries(paleo_store PUBLIC paleo_deps paleo_domain)
 
 # ---- QGIS 封装层 ----
 add_library(paleo_qgis STATIC
+  src/qgis/paleomapsource.cpp
   src/qgis/wellpointnavigation.cpp
   src/qgis/mappingartifactwriter.cpp
   src/qgis/seismicwellcalibration.cpp
@@ -561,6 +562,7 @@ add_library(paleo_io STATIC
 target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
+  src/services/paleomapfiles.cpp
   src/services/datagraph_layout.cpp
   src/services/dataexport.cpp
   src/services/datagraph.cpp
@@ -604,6 +606,9 @@ add_library(paleo_linkage STATIC
 target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
 
 add_library(paleo_workflow STATIC
+  src/workflow/paleomaplibrary.cpp
+  src/workflow/projectareasummary.cpp
+  src/workflow/mappingbasemaps.cpp
   src/workflow/geologicalexport.cpp
   src/workflow/dataexportworkflow.cpp
   src/workflow/datagraphworkflow.cpp
@@ -659,6 +664,12 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/paleomainwindow_paleomaps.cpp
+  src/ui/pages/datalist_paleomaps.cpp
+  src/ui/pages/datalist_importbuttons.cpp
+  src/ui/pages/mappingbasemapselector.cpp
+  src/ui/datapreview/projectstatisticspage.cpp
+  src/ui/datapreview/datapreviewtabdocument.cpp
   src/ui/pages/datagraphsceneitems.cpp
   src/ui/pages/datagraphpage.cpp
   src/ui/datapreview/officepreviewwidget.cpp
@@ -1294,6 +1305,7 @@ target_link_libraries(tst_assetpaging PRIVATE ${CMAKE_DL_LIBS})
 add_paleo_test(tst_cataloghealth LIBS paleo_services)   # 体检召回（缺失/SHA/未决/孤立/无版本）
 add_paleo_test(tst_dataexport LIBS paleo_workflow)
 add_paleo_test(tst_exportpipeline LIBS paleo_ui)
+add_paleo_test(tst_paleomaplibrary LIBS paleo_ui)
 add_paleo_test(tst_assetops LIBS paleo_workflow)        # 版本回滚/对比 + 物理清理 + 未决归位
 add_paleo_test(tst_previewdoc LIBS paleo_services paleo_qgis)
 target_compile_definitions(tst_previewdoc PRIVATE

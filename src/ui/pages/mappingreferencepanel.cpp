@@ -8,8 +8,9 @@
 
 #include <QCheckBox>
 #include <QComboBox>
-#include <QGridLayout>
 #include <QScrollArea>
+#include <QScrollBar>
+#include <QSizePolicy>
 #include <QTimer>
 #include <QToolButton>
 #include <QHBoxLayout>
@@ -269,7 +270,7 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   m_count->setObjectName(QStringLiteral("referenceViewCount"));
   auto *add = new QPushButton(tr("添加视图"), this);
   add->setObjectName(QStringLiteral("referenceAddView"));
-  add->setToolTip(tr("在本面板内增加一个视图，再用视图上方的下拉框选择参考证据"));
+  add->setToolTip(tr("在右侧追加一个较窄的视图，多出的视图用横向滚动条查看"));
   tools->addWidget(m_count);
   tools->addStretch();
   tools->addWidget(add);
@@ -278,12 +279,15 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   m_scroll->setObjectName(QStringLiteral("referenceViewsScroll"));
   m_scroll->setFrameShape(QFrame::NoFrame);
   m_scroll->setWidgetResizable(true);
+  m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   auto *body = new QWidget(m_scroll);
-  m_grid = new QGridLayout(body);
-  m_grid->setContentsMargins(0, 0, 0, 0);
-  m_grid->setSpacing(tokens.spacingSm);
-  m_grid->setColumnStretch(0, 1);
-  m_grid->setColumnStretch(1, 1);
+  body->setObjectName(QStringLiteral("referenceViewsRow"));
+  body->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Expanding);
+  m_row = new QHBoxLayout(body);
+  m_row->setContentsMargins(0, 0, 0, 0);
+  m_row->setSpacing(tokens.spacingSm);
+  m_row->setAlignment(Qt::AlignLeft);
   m_scroll->setWidget(body);
   layout->addWidget(m_scroll, 1);
   connect(add, &QPushButton::clicked, this, [this] { addView(); });
@@ -312,7 +316,7 @@ void MappingEvidencePanel::removeView(MappingReferencePanel *view)
 {
   if (m_views.size() <= 1 || !m_views.removeOne(view)) return;
   view->clearReference();
-  m_grid->removeWidget(view);
+  m_row->removeWidget(view);
   view->hide();
   view->deleteLater();
   layoutViews();
@@ -320,14 +324,26 @@ void MappingEvidencePanel::removeView(MappingReferencePanel *view)
 
 void MappingEvidencePanel::layoutViews()
 {
-  for (auto *view : m_views) m_grid->removeWidget(view);
+  while (QLayoutItem *item = m_row->takeAt(0))
+    delete item;
+  // 单张视图固定较窄，横向追加；剩余宽度留白，不把视图拉满停靠区。
+  constexpr int kReferenceViewWidth = 420;
   for (qsizetype i = 0; i < m_views.size(); ++i) {
     auto *view = m_views[i];
+    view->setFixedWidth(kReferenceViewWidth);
+    view->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     view->setCanRemove(m_views.size() > 1);
     view->setAccessibleName(tr("证据视图 %1").arg(i + 1));
-    m_grid->addWidget(view, i / 2, i % 2, 1, m_views.size() == 1 ? 2 : 1);
+    m_row->addWidget(view);
     view->show();
   }
+  const int gaps = qMax(0, int(m_views.size()) - 1) * m_row->spacing();
+  auto *body = m_scroll->widget();
+  const int width = int(m_views.size()) * kReferenceViewWidth + gaps;
+  body->setMinimumWidth(width);
+  if (body->width() < width)
+    body->resize(width, qMax(body->height(), m_scroll->viewport()->height()));
+  m_row->activate();
   m_count->setText(tr("%1 个视图").arg(m_views.size()));
 }
 

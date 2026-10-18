@@ -43,7 +43,7 @@
 - **Confidence**: High
 - **Module**: tests（测试有效性）/ 构建布线（该测试挂 perf 标签 + RUN_SERIAL，占 CI 串行槽位）
 - **File:Line**: tests/tst_perf.cpp:82-90（concurrencyCap）、:130-145（defaultCellSize）；生产对照 src/services/paleotaskservice.cpp:220
-- **Root Cause**: 
+- **Root Cause**:
   - `concurrencyCap()` 在测试内本地计算 `qMax(2, cores/4)` 后断言其 ≥2——全仓 grep 证实生产代码没有该公式；PaleoTaskService 实际是 `m_pool->setMaxThreadCount(4)`（固定 4，与核数无关）。§41.6 声称的「NFR 策略」与实现相悖，而该槽位对两者都无检测力（`max(2, anything)` 数学上恒 ≥2；`cap <= cores` 被 `if (cores > 0)` 守卫）。
   - `defaultCellSize()` 同样在测试内重算 `ext.width()/2048.0` 再断言 ≈0.0049——「默认像元 = 范围/2048」这一策略在生产代码零命中（grep `2048` 仅命中 segy/渲染/kriging 的无关常量），唯一有效成分是 golden 夹具 extent==10.0 的数据校验。
   - 文件头注释自认「Policy/budget checks … trivially met」「the manager itself is not part of this slice」，但它以 perf 标签 + RUN_SERIAL 进入 CI linux-perf 车道，消耗串行预算换零缺陷检测力。

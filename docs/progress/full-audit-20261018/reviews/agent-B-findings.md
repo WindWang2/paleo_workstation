@@ -177,7 +177,7 @@
 
 ## 3. SUSPECTED（未达报告门槛，单列）
 
-- **S-1 Isopach 顶/底符号约定**（paleoalgorithms.cpp:1186-1316 + 
+- **S-1 Isopach 顶/底符号约定**（paleoalgorithms.cpp:1186-1316 +
   constraintfactorjobs_factor.cpp:380）：`thickness = INPUT_TOP − INPUT_BASE`。
   若用户喂深度域（正值向下，TWT/TVD）构造面，几何上顶<底 → 全图负厚度；默认
   `negativeToNodata=true` 时**整图 nodata（响亮失败）**，非静默错值。是约定/文档

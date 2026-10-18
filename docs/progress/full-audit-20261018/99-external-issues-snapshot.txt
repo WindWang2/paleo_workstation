@@ -1395,4 +1395,3 @@ Windows 保持串行的原文理由是「QSettings NativeFormat 走注册表，�
 ### 关于原建议第 2 条（拆巨型测试文件）
 
 补充：拆分**不减少总墙钟**（用例数不变），收益在①失败定位粒度 ②本地可按族跑子集（如只跑 `dataPage_*` 20 个用例而非 144 个）。`tst_panels.cpp` 结构适合拆——单类 144 用例、命名已按页面分族（`dataPage_*` / `predictPage_*` / `constraintPage_*` / `composePage_*` / `validatePage_*` / `folderConfirm_*` / `mainWindow_*`），但需先把共享 Fixture 抽到 `tests/support/`，属独立工程。
-

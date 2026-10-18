@@ -105,6 +105,7 @@ public:
   bool saveEditingVersion(const QString &draftId, QString *error);
   // 永久删除生成的图件/编辑副本（product.*/draft.* 才受理）：下架该资产
   // 全部图层声明、删 catalog 资产与受管文件、清草稿工作目录。
+  // 未登记的残留图件仅移除声明和工程图层，保留所有数据文件。
   // 级联删除需由 UI 展示 removalProducts 的完整清单并取得确认。
   QVariantList removalProducts(const QString &layerId, QString *error) const;
   bool removeProduct(const QString &layerId, QString *error,

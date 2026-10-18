@@ -1,12 +1,10 @@
 // 层：视图
 #include "mappingreferencepanel.h"
-#include "../../domain/facieshierarchy.h"
 
 #include "../../qgis/mappingreferencecanvas.h"
 #include "../decorations/paleodecorations.h"
 #include "../paleotheme.h"
 
-#include <QCheckBox>
 #include <QComboBox>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -18,7 +16,6 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
-#include <QTreeWidget>
 MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
                                              QgsProject *project, QWidget *parent)
     : QWidget(parent)
@@ -35,39 +32,22 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   m_sources->setAccessibleName(tr("参考证据"));
   m_sources->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
   m_sources->setMinimumContentsLength(12);
+  m_linked = new QToolButton(this);
+  m_linked->setObjectName(QStringLiteral("referenceLinked"));
+  m_linked->setText(tr("联动"));
+  m_linked->setCheckable(true);
+  m_linked->setChecked(true);
+  m_linked->setAccessibleName(tr("与主画布联动"));
+  m_linked->setToolTip(tr("打开后证据视图跟随主画布的比例尺和中心，不反向改主图；关闭后可独立浏览"));
   m_remove = new QToolButton(this);
   m_remove->setObjectName(QStringLiteral("referenceRemoveView"));
-  m_remove->setText(tr("移除"));
-  m_remove->setAccessibleName(tr("移除此证据视图"));
+  m_remove->setText(QStringLiteral("−"));
+  m_remove->setAccessibleName(tr("关闭此证据"));
+  m_remove->setToolTip(tr("关闭此证据"));
   header->addWidget(m_sources, 1);
+  header->addWidget(m_linked);
   header->addWidget(m_remove);
   layout->addLayout(header);
-  auto *actions = new QHBoxLayout;
-  actions->setSpacing(tokens.spacingXs);
-  m_linked = new QCheckBox(tr("范围与光标联动"), this);
-  m_linked->setObjectName(QStringLiteral("referenceLinked"));
-  m_linked->setChecked(true);
-  m_linked->setToolTip(tr("双向联动主图的范围和光标；关闭后可独立浏览此图"));
-  m_fullExtent = new QPushButton(tr("全图"), this);
-  m_fullExtent->setObjectName(QStringLiteral("referenceFullExtent"));
-  m_fullExtent->setEnabled(false);
-  m_fullExtent->setToolTip(tr("请先选择可读取的参考图件"));
-  auto *legendToggle = new QToolButton(this);
-  legendToggle->setObjectName("referenceLegendToggle");
-  legendToggle->setText(tr("图例"));
-  legendToggle->setCheckable(true);
-  legendToggle->setEnabled(false);
-  legendToggle->setToolTip(tr("在视图下方展开图例，查看此版本的符号和三级归属"));
-  actions->addWidget(m_linked);
-  actions->addWidget(legendToggle);
-  actions->addStretch();
-  actions->addWidget(m_fullExtent);
-  layout->addLayout(actions);
-  m_caption = new QLabel(this);
-  m_caption->setObjectName(QStringLiteral("referenceCaption"));
-  m_caption->setWordWrap(true);
-  PaleoTheme::applyThemedStyleSheet(m_caption, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
-  layout->addWidget(m_caption);
   m_empty = new QLabel(tr("从上方下拉框选择参考证据。\n"
                          "可选择地震相、测井相、单因素图或参考相图。"), this);
   m_empty->setObjectName(QStringLiteral("referenceEmptyState"));
@@ -78,16 +58,6 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   m_view->setMinimumSize(240, 160);
   layout->addWidget(m_view, 1);
   m_view->hide();
-  auto *legendTree = new QTreeWidget(this);
-  legendTree->setObjectName("referenceLegendTree");
-  legendTree->setAccessibleName(tr("当前参考图件图例"));
-  legendTree->setHeaderLabel(tr("图例"));
-  legendTree->setMaximumHeight(160);
-  legendTree->setIconSize(QSize(tokens.spacingMd * 2, tokens.spacingMd));
-  legendTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  legendTree->hide();
-  layout->addWidget(legendTree);
-  connect(legendToggle, &QToolButton::toggled, legendTree, &QWidget::setVisible);
   m_decor = new PaleoDecorationManager(canvas());
   m_decor->setScaleBarEnabled(true);
   connect(m_sources, &QComboBox::currentIndexChanged, this, [this] {
@@ -95,33 +65,8 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
     updateCaption();
     if (!sourceId().isEmpty()) emit referenceRequested(sourceId());
   });
-  connect(m_linked, &QCheckBox::toggled, this, &MappingReferencePanel::updateLink);
-  connect(m_fullExtent, &QPushButton::clicked, this, [this] {
-    // 全图是此参考图的浏览操作，先解除联动，保留主图正在绘制的范围。
-    m_linked->setChecked(false);
-    m_view->zoomToFullExtent();
-  });
+  connect(m_linked, &QToolButton::toggled, this, &MappingReferencePanel::updateLink);
   connect(m_remove, &QToolButton::clicked, this, &MappingReferencePanel::removeViewRequested);
-  connect(m_view, &MappingReferenceCanvas::legendChanged, this,
-          [this, legendTree, legendToggle](const QVariantList &entries) {
-    legendTree->clear();
-    legendToggle->setEnabled(!entries.isEmpty());
-    const auto level = entries.value(0).toMap().value("level").toString();
-    const auto title = level.isEmpty() ? tr("参考图例") : FaciesHierarchy::title(level);
-    legendTree->setHeaderLabel(title + (m_metadata.value("mock").toBool() ? tr(" · Mock") : QString()));
-    QVector<QTreeWidgetItem *> parents;
-    for (const auto &entry : FaciesHierarchy::legendTree(entries)) {
-      const auto row = entry.toMap();
-      const int depth = row.value("depth", 0).toInt();
-      while (parents.size() > depth) parents.removeLast();
-      auto *parent = parents.isEmpty() ? legendTree->invisibleRootItem() : parents.last();
-      auto *node = new QTreeWidgetItem(parent, {row.value("name").toString()});
-      node->setToolTip(0, row.value("path", row.value("name")).toString());
-      if (!row.value("heading").toBool()) node->setIcon(0, row.value("legend_icon").value<QIcon>());
-      parents << node;
-    }
-    legendTree->expandAll();
-  });
   setMinimumSize(260, 260);
   refreshSources();
 }
@@ -207,8 +152,6 @@ void MappingReferencePanel::setReference(QgsMapLayer *layer, const QVariantMap &
   m_empty->hide();
   m_view->show();
   m_view->setReference(layer, metadata);
-  m_fullExtent->setEnabled(true);
-  m_fullExtent->setToolTip(tr("查看此参考图全范围，并解除联动以保留主图范围"));
   updateCaption();
   setProperty("paleo.referenceVersion", selectedSource().value("version_id"));
   emit referenceChanged(selectedSource().value("name").toString(), selectedSource().value("version_id").toString());
@@ -222,8 +165,6 @@ void MappingReferencePanel::clearReference(const QString &message)
   m_empty->setText(message.isEmpty() ? tr("从上方下拉框选择参考证据。\n"
                                          "可选择地震相、测井相、单因素图或参考相图。") : message);
   m_empty->show();
-  m_fullExtent->setEnabled(false);
-  m_fullExtent->setToolTip(tr("请先选择可读取的参考图件"));
   setProperty("paleo.referenceVersion", QString());
   emit referenceChanged(QString(), QString());
 }
@@ -232,10 +173,11 @@ void MappingReferencePanel::updateCaption()
 {
   const auto row = selectedSource();
   const auto horizon = row.value("horizon").toString();
-  m_caption->setText(row.isEmpty() ? tr("选择本视图的参考证据，与主图联动对照。")
+  const QString note = row.isEmpty() ? tr("选择本视图的参考证据，与主图联动对照。")
       : !horizon.isEmpty() && !m_activeHorizon.isEmpty() && horizon != m_activeHorizon
           ? tr("参考层位：%1 · 当前绘制层位：%2（跨层位对照）").arg(horizon, m_activeHorizon)
-          : tr("参考层位：%1 · 保留所选版本，与主图独立管理").arg(horizon.isEmpty() ? tr("共享资料") : horizon));
+          : tr("参考层位：%1 · 保留所选版本，与主图独立管理").arg(horizon.isEmpty() ? tr("共享资料") : horizon);
+  m_sources->setToolTip(note);
 }
 
 void MappingReferencePanel::setViewActive(bool active)
@@ -248,11 +190,10 @@ void MappingReferencePanel::updateLink()
   m_view->setLinked(m_linked->isChecked());
 }
 
-void MappingReferencePanel::setCanRemove(bool canRemove)
+void MappingReferencePanel::setCanRemove(bool)
 {
-  m_remove->setEnabled(canRemove);
-  m_remove->setToolTip(canRemove ? tr("移除此视图，其他视图继续保留")
-                                : tr("至少保留一个视图；可关闭整个参考证据面板"));
+  m_remove->setEnabled(true);
+  m_remove->setToolTip(tr("关闭此证据"));
 }
 
 MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject *project,
@@ -314,7 +255,7 @@ MappingReferencePanel *MappingEvidencePanel::addView()
 
 void MappingEvidencePanel::removeView(MappingReferencePanel *view)
 {
-  if (m_views.size() <= 1 || !m_views.removeOne(view)) return;
+  if (!m_views.removeOne(view)) return;
   view->clearReference();
   m_row->removeWidget(view);
   view->hide();

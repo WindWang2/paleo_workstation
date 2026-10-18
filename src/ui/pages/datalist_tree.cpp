@@ -592,8 +592,11 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
     auxRoot.text0 = tr("辅助资料 (%1)").arg(auxAssets.size());
     auxRoot.text1 = tr("参考相图 / 文档 / 图片");
     auxRoot.type = QStringLiteral("category");
+    auxRoot.sub = QStringLiteral("auxiliary");
     auxRoot.icon = QStringLiteral("mActionFolder.svg");
-    auxRoot.expanded = false;
+    // 有文档/参考图时保持展开。导入的 pptx 落在「参考资料」下，
+    // 顶级组收拢时文件名不会出现在视野里。
+    auxRoot.expanded = !auxAssets.isEmpty();
 
     NavNodeSpec faciesBranch;
     faciesBranch.text0 = tr("参考相图");
@@ -799,7 +802,10 @@ void DataListPanel::applyNavSpec(QTreeWidgetItem *item, const NavNodeSpec &spec,
   else
     flags &= ~Qt::ItemIsEnabled;
   item->setFlags(flags);
-  if (newItem)
+  // 辅助资料有内容时每次刷新都展开，避免已导入的文档停在收拢组里。
+  if (spec.sub == QLatin1String("auxiliary") && !spec.children.isEmpty())
+    item->setExpanded(true);
+  else if (newItem)
     item->setExpanded(spec.expanded);
 }
 

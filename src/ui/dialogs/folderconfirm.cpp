@@ -609,8 +609,25 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
         if (r >= results->size() || results->at(r).outcome != Outcome::Failed)
           combos[r]->setEnabled(false);
       cancel->setText(QObject::tr("关闭"));
-      if (hooks.previewAsset && !wellHeadAssetId.isEmpty())
-        hooks.previewAsset(wellHeadAssetId);
+      QString focusAssetId = wellHeadAssetId;
+      if (focusAssetId.isEmpty())
+      {
+        for (const FolderRowResult &rowRes : res)
+        {
+          if (rowRes.assetId.isEmpty())
+            continue;
+          if (rowRes.outcome != Outcome::Imported && rowRes.outcome != Outcome::Unresolved)
+            continue;
+          const QString type = rowRes.classifiedType;
+          const bool document =
+              type == QLatin1String("document") || type == QLatin1String("image_reference") ||
+              type == QLatin1String("reference") || type == QLatin1String("unknown");
+          if (document)
+            focusAssetId = rowRes.assetId;
+        }
+      }
+      if (hooks.previewAsset && !focusAssetId.isEmpty())
+        hooks.previewAsset(focusAssetId);
       // PROJECT_FILE_DESIGN：「从工区文件夹新建」的工程把本次导入统计写回
       // project.paleo.sourceArea（目录不匹配时 stampSourceArea 自拒，不污染
       // 普通导入路径下的工程）。

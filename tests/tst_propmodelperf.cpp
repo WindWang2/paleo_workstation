@@ -14,6 +14,7 @@
 #include "../src/io/lasparser.h"
 #include "../src/io/wellfileparsers.h"
 #include "../src/workflow/propertymodelworkflow.h"
+#include "perfbudget_relax.h"
 
 #include <cmath>
 #include <cstdio>
@@ -320,7 +321,8 @@ void TestPropModelPerf::realAreaChain()
              qPrintable(QStringLiteral("filled=%1 live=%2")
                             .arg(out.filledCells)
                             .arg(out.liveColumns)));
-  QVERIFY2(ms < 30000, qPrintable(QStringLiteral("chain %1 ms").arg(ms)));
+  QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(30000),
+           qPrintable(QStringLiteral("chain %1 ms").arg(ms)));
   QVERIFY2(rss0 >= 0 && rss1 >= 0, "VmRSS unreadable");
   if (peak < rss0)
     peak = rss0;

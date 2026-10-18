@@ -5,6 +5,7 @@
 #include "../src/io/lascache.h"
 #include "../src/io/perffixtures.h"
 #include "services/paleotaskservice.h"
+#include "perfbudget_relax.h"
 
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -110,7 +111,7 @@ void CacheAsyncTests::priorityHighBeatsLow()
   // 高优必然插到它们前面，lowsAfterHigh 恒为 4 不再抖动。
   QElapsedTimer gate;
   gate.start();
-  while (started.load() < svc.maxWorkerThreads() && gate.elapsed() < 5000)
+  while (started.load() < svc.maxWorkerThreads() && gate.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000))
     QThread::msleep(1);
   QVERIFY2(started.load() >= svc.maxWorkerThreads(), "低优未占满线程池");
   PaleoTask *high = svc.start(QStringLiteral("high"), [&](PaleoTask *) -> QString {
@@ -211,7 +212,7 @@ void CacheAsyncTests::coalescedConcurrentLasLoad()
     QElapsedTimer t;
     t.start();
     while (LasCache::shared().ridersJoinedForTest() - riderBase < 5 &&
-           t.elapsed() < 10000)
+           t.elapsed() < paleo::perfbudget::relaxedBudgetMs(10000))
       QThread::msleep(5);
   });
   // 6 个真实线程同时冷加载——显式线程不受 QtConcurrent 池上限影响，

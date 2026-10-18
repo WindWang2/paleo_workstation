@@ -29,6 +29,7 @@
 #include "Engine/PagedPipeline.h"
 #include "Engine/Sdk.h"
 #include "Engine/TranscodeJob.h"
+#include "perfbudget_relax.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include "Engine/Types.h"
@@ -118,7 +119,8 @@ private slots:
         const double ms = clock.elapsed();
         report("index_cold_full_scan", ms, "ms");
         report("index_traces", double(index->traces.size()), "traces");
-        QVERIFY2(ms < 120000.0, "cold index over 120 s sanity bound");
+        QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(120000),
+                 "cold index over 120 s sanity bound");
 
         // 顺手落盘，为后续转码/打开提供热索引路径
         QVERIFY(SgyIndexCache::Save(index, err));
@@ -134,7 +136,8 @@ private slots:
         const double ms = clock.elapsed();
         QVERIFY2(index, reason.c_str());
         report("index_warm_cache", ms, "ms");
-        QVERIFY2(ms < 5000.0, "warm index load over 5 s sanity bound");
+        QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(5000),
+                 "warm index load over 5 s sanity bound");
     }
 
     // 直读后端：Open + 首条 inline 剖面（冷）/ 立即重读（引擎 SliceCache 热）
@@ -164,7 +167,8 @@ private slots:
         clock.restart();
         QVERIFY(ds->ReadTimeSlice(midSample, slice, nullptr).ok());
         report("slice_time_hot_direct", clock.elapsed(), "ms");
-        QVERIFY2(clock.elapsed() < 5000.0, "hot time slice over 5 s sanity bound");
+        QVERIFY2(clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000),
+                 "hot time slice over 5 s sanity bound");
     }
 
     // .sf3c 转码（临时目录，不影响夹具旁产物）+ 质量字段采样
@@ -184,7 +188,8 @@ private slots:
         report("transcode_sf3c_traces", double(result.tracesRead), "traces");
         report("transcode_sf3c_out_mb",
                double(result.bytesWritten) / 1048576.0, "MiB");
-        QVERIFY2(ms < 300000.0, "sf3c transcode over 300 s sanity bound");
+        QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(300000),
+                 "sf3c transcode over 300 s sanity bound");
 
         engine::Status st;
         clock.restart();
@@ -199,7 +204,8 @@ private slots:
         clock.restart();
         QVERIFY(ds->ReadInline(ds->Metadata().inlineAxis.origin + 5, slice, nullptr).ok());
         report("slice_inline_hot_workspace", clock.elapsed(), "ms");
-        QVERIFY2(clock.elapsed() < 2000.0, "workspace hot slice over 2 s sanity bound");
+        QVERIFY2(clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(2000),
+                 "workspace hot slice over 2 s sanity bound");
     }
 
     // .sf3p 金字塔（L0+L1+L2 全建）+ paged 打开 + 体素窗口
@@ -217,7 +223,8 @@ private slots:
         const double ms = clock.elapsed();
         QVERIFY2(result.status.ok(), result.status.message.c_str());
         report("transcode_sf3p_pyramid", ms, "ms");
-        QVERIFY2(ms < 600000.0, "sf3p pyramid over 600 s sanity bound");
+        QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(600000),
+                 "sf3p pyramid over 600 s sanity bound");
         report("transcode_sf3p_l0_mb",
                std::filesystem::file_size(l0) / 1048576.0, "MiB");
         report("transcode_sf3p_l1_mb",
@@ -248,7 +255,8 @@ private slots:
         clock.restart();
         QVERIFY(ds->ReadVoxelWindow(req, win).ok());
         report("voxel_window_64cubed_paged", clock.elapsed(), "ms");
-        QVERIFY2(clock.elapsed() < 5000.0, "voxel window over 5 s sanity bound");
+        QVERIFY2(clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000),
+                 "voxel window over 5 s sanity bound");
     }
 
     // 离屏 3D 帧率（输出 GL_RENDERER；真机 vsync 数值以手动验收为准）

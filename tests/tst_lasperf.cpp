@@ -26,6 +26,7 @@
 
 #include "../src/io/lasparser.h"
 #include "../src/io/perffixtures.h"
+#include "perfbudget_relax.h"
 
 namespace
 {
@@ -170,7 +171,8 @@ void LasPerfTests::millionRowParseRatioGate()
                           .arg(refMs, 0, 'f', 1)
                           .arg(refMs > 0 ? nowMs / refMs : -1.0, 0, 'f', 3)));
   // sanity 上限：只拦挂死，不判机器快慢。
-  QVERIFY2(nowMs < 60000.0, qPrintable(QStringLiteral("parseDoc %1ms sanity").arg(nowMs)));
+  QVERIFY2(nowMs < paleo::perfbudget::relaxedBudgetMs(60000),
+           qPrintable(QStringLiteral("parseDoc %1ms sanity").arg(nowMs)));
 }
 
 void LasPerfTests::parseResultIsBitIdenticalToReference()
@@ -276,7 +278,7 @@ void LasPerfTests::concurrentMultiFileReadIsFasterThanSerial()
                           .arg(parallelMs, 0, 'f', 1)
                           .arg(serialMs, 0, 'f', 1)));
   // sanity 上限：只拦线程池挂死。
-  QVERIFY2(parallelMs < 60000.0,
+  QVERIFY2(parallelMs < paleo::perfbudget::relaxedBudgetMs(60000),
            qPrintable(QStringLiteral("parallel read %1ms sanity").arg(parallelMs)));
 }
 

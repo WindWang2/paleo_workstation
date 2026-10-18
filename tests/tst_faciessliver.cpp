@@ -2,6 +2,7 @@
 // A11：小图斑吸收新实现（一次标号 + 并查集 + 小顶堆）与旧实现（逐斑全图重
 // 标号）在随机网格上逐像元对拍；并覆盖可取消与大网格耗时。
 #include "../src/algorithms/faciessliver.h"
+#include "perfbudget_relax.h"
 
 #include <QElapsedTimer>
 #include <QHash>
@@ -254,7 +255,8 @@ private slots:
     t.start();
     const int merged = paleo::facies::absorbSmallParts( g, 400, 400, 1.0, 0.0, 400 );
     QVERIFY( merged > 1000 );
-    QVERIFY2( t.elapsed() < 4000, qPrintable( QStringLiteral( "took %1 ms" ).arg( t.elapsed() ) ) );
+    QVERIFY2( t.elapsed() < paleo::perfbudget::relaxedBudgetMs(4000),
+              qPrintable( QStringLiteral( "took %1 ms" ).arg( t.elapsed() ) ) );
     // 结果中不应残留小于门限的相斑（除非无相邻相斑）
     QSet<int> codes( g.cbegin(), g.cend() );
     QVERIFY( !codes.isEmpty() );

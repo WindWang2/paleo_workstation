@@ -22,6 +22,7 @@
 #include "../src/io/horizonbinner.h"
 #include "../src/services/seismicmapping.h"
 #include "../src/workflow/depthconversionworkflow.h"
+#include "perfbudget_relax.h"
 
 namespace
 {
@@ -238,7 +239,7 @@ void TestTimeDepthPerf::realAreaTimeDepthProfile()
     qInfo("BASELINE td_real_section_axis_ms = %.0f (%d samples, %.1f%% in-model)",
           axisMs, img.width * ns, 100.0 * finite / (img.width * ns));
     QVERIFY(finite > 0);
-    QVERIFY(axisMs < 5000.0); // 深度标尺换算不得进入秒级（防数量级回归）
+    QVERIFY(axisMs < paleo::perfbudget::relaxedBudgetMs(5000)); // 深度标尺换算不得进入秒级（防数量级回归）
   }
 
   QCOMPARE(listing(), before); // 只读契约

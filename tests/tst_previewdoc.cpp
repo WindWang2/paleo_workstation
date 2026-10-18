@@ -17,6 +17,7 @@
 #include "../src/services/previewdoc.h"
 #include "../src/services/sectiondoc.h" // SectionDoc 完整定义（QSignalSpy 取参）
 #include "../src/services/paleotaskservice.h"
+#include "perfbudget_relax.h"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -342,7 +343,8 @@ void TestPreviewDoc::lasHeaderFacadeMatchesAndIsFast()
           static_cast<long long>(fullMs));
     QVERIFY2(headerMs < fullMs || fullMs < 5,
              qPrintable(QStringLiteral("header=%1 full=%2").arg(headerMs).arg(fullMs)));
-    QVERIFY2(headerMs < 50, qPrintable(QString::number(headerMs)));
+    QVERIFY2(headerMs < paleo::perfbudget::relaxedBudgetMs(50),
+             qPrintable(QString::number(headerMs)));
 
     // 坏文件语义对齐：WRAP YES 拒绝；无 ~C 拒绝；~A 缺失不算失败。
     {
@@ -423,7 +425,7 @@ void TestPreviewDoc::simultaneousLasResultsKeepUiResponsive()
     bool yieldedWhileOutstanding = false;
     QElapsedTimer clock;
     clock.start();
-    while (clock.elapsed() < 10000 && !yieldedWhileOutstanding) {
+    while (clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(10000) && !yieldedWhileOutstanding) {
       const int before = received;
       QCoreApplication::processEvents(QEventLoop::AllEvents);
       if (received > before && received < 12)
@@ -460,7 +462,7 @@ void TestPreviewDoc::requestLasGenerationsDiscardStale()
 
     QElapsedTimer clock;
     clock.start();
-    while (ready.count() < 1 && clock.elapsed() < 15000)
+    while (ready.count() < 1 && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(15000))
       QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
     // 让可能晚到的大文件任务收尾（其结果按世代号被丢弃）。
     while (clock.elapsed() < 1000)

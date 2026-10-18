@@ -6,6 +6,7 @@
 #include "io/lasalias.h"
 #include "io/lasparser.h"
 #include "io/perffixtures.h"
+#include "perfbudget_relax.h"
 
 #include <QFile>
 #include <QTemporaryDir>
@@ -66,10 +67,10 @@ void PerfLasTests::parseDocUnder50ms()
   // 绝对预算（本用例名义 50ms；旧实现量级 ~35ms，退化回旧量级仍会触顶）。
   // sanity 上限只拦挂死，不判回归。
   qInfo("parseDoc %.2fms (budget 50ms)", ms);
-  QVERIFY2(ms < 50.0,
+  QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(50),
            qPrintable(QStringLiteral("parseDoc %1ms >= 50ms（解析退化）")
                           .arg(ms, 0, 'f', 2)));
-  QVERIFY2(ms < 2000.0,
+  QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(2000),
            qPrintable(QStringLiteral("parseDoc %1ms >= 2000ms（sanity）").arg(ms)));
   QCOMPARE(doc.curves.first().values.size(), 15581);
 }

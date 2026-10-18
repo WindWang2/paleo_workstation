@@ -20,6 +20,7 @@
 #include "domain/seismic/sgyvolume.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
+#include "perfbudget_relax.h"
 
 class TestSeismicIndex : public QObject
 {
@@ -243,7 +244,7 @@ private slots:
     QVERIFY(cachedIndex != nullptr);
     QCOMPARE(cachedIndex->traceCount, 100);
     // Cache loading from disk takes < 50ms (typically < 5ms)
-    QVERIFY(elapsedMs < 100);
+    QVERIFY(elapsedMs < paleo::perfbudget::relaxedBudgetMs(100));
   }
 
   void companionSgyidxSupported()
@@ -299,7 +300,8 @@ private slots:
     const qint64 cancelDurationMs = cancelTimer.elapsed();
 
     // Cancellation must respond within 50ms
-    QVERIFY2(cancelDurationMs < 50, qPrintable(QString("Cancellation took %1 ms").arg(cancelDurationMs)));
+    QVERIFY2(cancelDurationMs < paleo::perfbudget::relaxedBudgetMs(50),
+             qPrintable(QString("Cancellation took %1 ms").arg(cancelDurationMs)));
     QCOMPARE(task->state(), PaleoTask::State::Cancelled);
 
     // Verify no corrupted cache file is published

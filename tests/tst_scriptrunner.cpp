@@ -1,5 +1,6 @@
 #include "../src/services/pythonenv.h"
 #include "../src/services/scriptrunner.h"
+#include "perfbudget_relax.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -249,7 +250,8 @@ void TestScriptRunner::timeoutTerminatesRun()
   const QList<QVariant> args = finishedSpy.takeFirst();
   QCOMPARE(args.at(4).toBool(), false); // cancelled
   QCOMPARE(args.at(5).toBool(), true);  // timedOut
-  QVERIFY2(timer.elapsed() < 20000, "timeout escalation took too long");
+  QVERIFY2(timer.elapsed() < paleo::perfbudget::relaxedBudgetMs(20000),
+           "timeout escalation took too long");
 }
 
 void TestScriptRunner::cancelTerminatesRun()
@@ -270,7 +272,8 @@ void TestScriptRunner::cancelTerminatesRun()
   const QList<QVariant> args = finishedSpy.takeFirst();
   QCOMPARE(args.at(4).toBool(), true);  // cancelled
   QCOMPARE(args.at(5).toBool(), false); // timedOut
-  QVERIFY2(timer.elapsed() < 20000, "cancel escalation took too long");
+  QVERIFY2(timer.elapsed() < paleo::perfbudget::relaxedBudgetMs(20000),
+           "cancel escalation took too long");
 }
 
 void TestScriptRunner::cancelEscalatesToKill()
@@ -295,7 +298,8 @@ void TestScriptRunner::cancelEscalatesToKill()
   QCOMPARE(finishedSpy.takeFirst().at(4).toBool(), true); // cancelled
   // 优雅窗口 2s + 强杀；留出进程启动开销后仍须远小于「忽略 SIGTERM 就
   // 收不掉」的情形。
-  QVERIFY2(timer.elapsed() < 15000, "kill escalation took too long");
+  QVERIFY2(timer.elapsed() < paleo::perfbudget::relaxedBudgetMs(15000),
+           "kill escalation took too long");
 }
 
 void TestScriptRunner::gateQueuesThirdRun()

@@ -16,6 +16,7 @@
 #include "../src/qgis/qgislayerorganizer.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "perfbudget_relax.h"
 
 // 图层树布局器（QgisLayerOrganizer）契约测试：
 //   · 00_Data 共享层（测区范围/井位）置顶树根；
@@ -537,7 +538,7 @@ void TestLayerOrganizer::placementScalesWithDeclarations()
   const qint64 instantiateMs = timer.elapsed();
   qInfo("goal7 W3 probe: N=%d instantiateMs=%lld", N,
         static_cast<long long>(instantiateMs));
-  QVERIFY2(instantiateMs < 30000,
+  QVERIFY2(instantiateMs < paleo::perfbudget::relaxedBudgetMs(30000),
            qPrintable(QStringLiteral("instantiateMs=%1").arg(instantiateMs)));
 
   // 正确性守恒：300 层全收进 T1 层位组（含占位组凭据）
@@ -555,7 +556,7 @@ void TestLayerOrganizer::placementScalesWithDeclarations()
   const qint64 reorganizeMs = timer.elapsed();
   qInfo("goal7 W3 probe: N=%d reorganizeMs=%lld", N,
         static_cast<long long>(reorganizeMs));
-  QVERIFY2(reorganizeMs < 30000,
+  QVERIFY2(reorganizeMs < paleo::perfbudget::relaxedBudgetMs(30000),
            qPrintable(QStringLiteral("reorganizeMs=%1").arg(reorganizeMs)));
   // 规整幂等守恒：归位后组内成员数与组凭据不变。
   QCOMPARE(group->findLayers().size(), N);

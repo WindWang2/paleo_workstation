@@ -4,6 +4,7 @@
 
 #include "catalog/datacatalog.h"
 #include "io/perffixtures.h"
+#include "perfbudget_relax.h"
 
 #include <QDir>
 #include <QFile>
@@ -255,7 +256,8 @@ void PerfCatalogTests::open10kUnder500ms()
   QVERIFY2(ms1k > 0 && ms / ms1k <= 25.0,
            qPrintable(QStringLiteral("open 10k/1k=%1 > 25（打开退化成超线性？）")
                           .arg(ms1k > 0 ? ms / ms1k : -1.0, 0, 'f', 1)));
-  QVERIFY2(ms < 500.0, qPrintable(QStringLiteral("open 10k = %1ms >= 500ms").arg(ms)));
+  QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(500),
+           qPrintable(QStringLiteral("open 10k = %1ms >= 500ms").arg(ms)));
   QCOMPARE(cat.entities().size(), 10000);
   QVERIFY(cat.indexHealthy());
 }

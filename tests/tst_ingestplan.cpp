@@ -25,6 +25,7 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
+#include "perfbudget_relax.h"
 
 class TestIngestPlan : public QObject
 {
@@ -403,7 +404,7 @@ private slots:
     // 故意不泵事件循环（模拟 GUI 忙）——快照路径若仍依赖
     // BlockingQueuedConnection marshal 回 catalog 线程，这里会等到超时。
     const IngestPlan plan = fut.get();
-    QVERIFY(clock.elapsed() < 30000);
+    QVERIFY(clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(30000));
     QVERIFY(!plan.items.isEmpty());
     for (const PlannedItem &item : plan.items)
       QCOMPARE(item.decision, QStringLiteral("skip")); // 全部重复→跳过

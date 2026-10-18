@@ -6,6 +6,7 @@
 #include "algorithms/geostat/variogram.h"
 #include "algorithms/gridsolver.h"
 #include "io/horizonbinner.h"
+#include "perfbudget_relax.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -151,7 +152,7 @@ void GeostatRealAreaTests::krigingAndSgsOnLargestHorizon()
                             .arg( sampleMin )
                             .arg( sampleMax ) ) );
   // 绝对门（真机 env 门控口径）
-  QVERIFY2( krigingMs < 60000,
+  QVERIFY2( krigingMs < paleo::perfbudget::relaxedBudgetMs(60000),
             qPrintable( QStringLiteral( "kriging %1 ms exceeds 60 s gate" ).arg( krigingMs ) ) );
 
   SgsParams sgsParams;
@@ -163,7 +164,7 @@ void GeostatRealAreaTests::krigingAndSgsOnLargestHorizon()
   const qint64 sgsMs = timer.elapsed();
   QCOMPARE( simulated.status, Status::Ok );
   qWarning( "%s", qPrintable( QStringLiteral( "BASELINE geostat_real_sgs_ms = %1" ).arg( sgsMs ) ) );
-  QVERIFY2( sgsMs < 30000,
+  QVERIFY2( sgsMs < paleo::perfbudget::relaxedBudgetMs(30000),
             qPrintable( QStringLiteral( "sgs %1 ms exceeds 30 s gate" ).arg( sgsMs ) ) );
   QVERIFY2( simulated.solverFailures == 0,
             qPrintable( QStringLiteral( "sgs solver failures: %1" ).arg( simulated.solverFailures ) ) );

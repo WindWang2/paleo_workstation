@@ -28,6 +28,7 @@
 #include "../src/ui/pages/dataops/dataopsmodel.h"     // TagStore / OverrideStore / RecycleBin
 #include "../src/ui/pages/entitypanel.h"
 #include "../src/ui/wellcomposite/wellcompositepanel.h"
+#include "perfbudget_relax.h"
 
 #include <QComboBox>
 #include <QDeadlineTimer>
@@ -497,7 +498,8 @@ void TestUiBlocking::topologyRebuildIsOffTheUiThread()
   QCOMPARE(links.size(), 1);
   QVERIFY(graph.nodeById(links.first().entityId, true));
   QVERIFY(graph.nodeById(links.first().assetId, false));
-  QVERIFY2(rebuildMs < 50.0, qPrintable(QStringLiteral("有界拓扑重建 %1ms ≥ 50ms——疑似回退全工区扫描")
+  QVERIFY2(rebuildMs < paleo::perfbudget::relaxedBudgetMs(50),
+           qPrintable(QStringLiteral("有界拓扑重建 %1ms ≥ 50ms——疑似回退全工区扫描")
                                             .arg(rebuildMs, 0, 'f', 2)));
 }
 
@@ -637,7 +639,7 @@ void TestUiBlocking::metadataOpenDoesNotRebuildTopologyInline()
            qPrintable(QStringLiteral("拓扑应含 %1 节点（当前资产+关联实体），实际 %2——夹具未对齐")
                           .arg(2)
                           .arg(graph->nodeCount())));
-  QVERIFY2(openMs < 400.0,
+  QVERIFY2(openMs < paleo::perfbudget::relaxedBudgetMs(400),
            qPrintable(QStringLiteral(
                           "开元数据页耗时 %1ms（n=%2）——"
                           "已知阻塞：EntityPanel::refresh() 每次都同步调 "

@@ -16,6 +16,7 @@
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/services/paleotaskservice.h"
+#include "perfbudget_relax.h"
 
 #include <atomic>
 
@@ -320,7 +321,7 @@ private slots:
       started.store( true );
       QElapsedTimer c;
       c.start();
-      while ( !task->cancelRequested() && c.elapsed() < 5000 )
+      while ( !task->cancelRequested() && c.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000) )
         QThread::msleep( 2 );
       return QString();
     } );

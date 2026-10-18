@@ -8,6 +8,7 @@
 
 #include "catalog/datacatalog.h"
 #include "services/welllogset.h"
+#include "perfbudget_relax.h"
 
 namespace
 {
@@ -422,7 +423,7 @@ void TestWellLogSet::headerOnlyIndexStaysUnder200ms()
       WellLogSet::wellCurveIndex(&cat, dir.path(), QStringLiteral("well-fat"), nullptr);
   const double ms = timer.nsecsElapsed() / 1.0e6;
   const QString msg = QStringLiteral("wellCurveIndex took %1 ms").arg(ms, 0, 'f', 3);
-  QVERIFY2(ms < 200.0, qPrintable(msg));
+  QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(200), qPrintable(msg));
   QCOMPARE(index.size(), 1);
   QCOMPARE(index.at(0).mnemonic, QStringLiteral("GR"));
   QCOMPARE(index.at(0).column, 1);

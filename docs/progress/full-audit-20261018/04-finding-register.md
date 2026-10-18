@@ -7,7 +7,7 @@ reviews/agent-*.md；本表为权威汇总与状态跟踪。状态：OPEN→FIXE
 
 | ID | Sev | Conf | Module | 位置 | 一句话根因 | 外部重合 | 状态 |
 |---|---|---|---|---|---|---|---|
-| FC-001 | P1 | VERIFIED | workflow | predictionworkflow.cpp:229-262/374 | prepare 把主线程活 QgsMapLayer 塞进 job.params，worker 线程整段交 QgisProcessingService::run——违反服务成文契约，跨线程并发读 GDAL dataset UB/崩溃面 | 无 | FIXED(commit 待记) |
+| FC-001 | P1 | VERIFIED | workflow | predictionworkflow.cpp:229-262/374 | prepare 把主线程活 QgsMapLayer 塞进 job.params，worker 线程整段交 QgisProcessingService::run——违反服务成文契约，跨线程并发读 GDAL dataset UB/崩溃面 | 无 | FIXED aca2aa61 |
 | FB-001 | P2 | HIGH | algorithms | faciespolygonize.cpp:168-177 | smoothMajority 并列计票由 QHash 迭代序裁决（Qt6.8 每进程随机种子，全仓未固定）→ 同输入两次转面图斑/PROVENANCE 漂移；同文件另两处已排序钉死此处漏网 | 无（#470 是 cluster 随机分布，不同机制） | FIXED |
 | FA-001 | P2 | VERIFIED | io | outsourceworkbook.cpp:46-53,183-275,498-499,627-629 + wellcompositexml.cpp:533-537,556 | 工作簿「列填充」只有每格 16384 列上限，无行数×列数总量预算：~40B 的 ss:Index="16384" 单元格换 ~128KB 内存（~3000×放大），GUI 线程路径 OOM/假死 | 无 | FIXED |
 | FA-002 | P3 | VERIFIED | io | outsourceworkbook.cpp:727-733 + wellcompositexml.cpp:63-69,895-902 | SpreadsheetML .xml 路径 readAll() 无文件大小闸（xlsx 512MB/LAS 500MB 均有，此路径裸奔） | 无 | FIXED |

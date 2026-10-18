@@ -17,4 +17,6 @@
 | Round | Finding IDs | Changed Files | Verification | Review Result | Remaining Work | Next Action |
 |-------|-------------|---------------|--------------|----------------|----------------|-------------|
 | 0 | — | — | 基线构建 0 退出；ctest 420/421（tst_catalog -j4 flaky，隔离绿） | 5 agent 报告齐 | 审查完成 | 聚合修复池 |
-| 1 | FC-001,FB-001,FA-001/002,FB-002/003,FD-001,FA-004,FA-003,FC-002,FC-003,FD-002/003/004,FE-001..005（17 项簇） | 源 16 文件 + 测 11 文件 + CMakeLists + extra-ux.cmake + make_appimage.sh - translations.qrc | 增量构建 + 定向 ctest（待） | 待 R2 | FC-004/FD-005 记录级；FD-004 seam 无头不可测（编译+评审验证） | 构建→红绿验证→commit→R2 |
+| 1 | FC-001,FB-001,FA-001/002,FB-002/003,FD-001,FA-004,FA-003,FC-002,FC-003,FD-002/003/004,FE-001..005（17 项簇） | 源 16 文件 + 测 11 文件 + CMakeLists + extra-ux.cmake + make_appimage.sh - translations.qrc | 增量构建 0 err；定向 20 套件绿；红绿验证 5 项（FB-001/FA-001/FC-001/FA-003/R2-MF-01） | R2 双审：1 MUST_FIX + 5 SHOULD_FIX | FC-004/FD-005 记录级 | Fix 2 |
+| 2 | R2-MF-01 + R2-SF-01..05 | 7 源/测文件 | 定向套件绿 + R2-MF-01 红绿双向 | 终审 PASS-WITH-NOTES（0 新 MUST_FIX；挑战 a-d 全部推翻失败） | seam 测试与 PR #521 文本冲突 | 终审处置 |
+| 3 | FF-NOTE 处置 | seam 测试迁 tst_attributetablehost.cpp；ui 基线 1015→1018（--emit-baseline 再生成）；07 报告口径更正 | 二轮全量 ctest 422/422 全绿；ui_size/layering/tidy/i18n/tokens 全绿 | — | 无 | 推送 PR |

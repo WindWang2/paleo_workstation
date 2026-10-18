@@ -118,6 +118,14 @@ class TestDecorations : public QObject
     }
 
     void togglesChangeItemCount();
+    void emptyFaciesLegendPaintsNothing()
+    {
+      QgsMapCanvas canvas; canvas.resize(640, 480);
+      PaleoDecorationManager mgr(&canvas);
+      mgr.setFaciesLegend(QStringLiteral("D61 · 三级相图例"), {});
+      QCOMPARE(mgr.decorationItems().size(), 0);
+      QCOMPARE(paintAndCount(canvas, mgr), 0);
+    }
     void enabledFlagsRoundtrip();
     void decorationsPaintPixels();
     void disabledDecorationPaintsNothing();

@@ -607,6 +607,6 @@ void PaleoFaciesLegendDecoration::render(const QgsMapSettings &, QgsRenderContex
 }
 void PaleoDecorationManager::setFaciesLegend(const QString &title,const QVariantList &facies, QgsMapLayer *symbolLayer)
 {
-  mLegend->title=title;mLegend->facies=FaciesHierarchy::legendTree(symbolLayer ? FaciesMapLegend::symbolEntries(symbolLayer, facies) : facies);mLegendEnabled=true;
+  mLegend->title=title;mLegend->facies=FaciesHierarchy::legendTree(symbolLayer ? FaciesMapLegend::symbolEntries(symbolLayer, facies) : facies);mLegendEnabled=!mLegend->facies.isEmpty();
   if(mOverlay){mOverlay->raise();mOverlay->update();}if(mCanvas)mCanvas->refresh();
 }

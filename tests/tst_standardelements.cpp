@@ -15,6 +15,8 @@
 #include "../src/qgis/faciesmaplegend.h"
 #include "../src/qgis/mappingartifactwriter.h"
 #include "../src/domain/faciescatalog.h"
+#include "../src/domain/facieshierarchy.h"
+#include <qgsrenderer.h>
 #include <qgsmaplayerlegend.h>
 #include <qgslayertree.h>
 #include <qgslayertreemodellegendnode.h>
@@ -133,6 +135,54 @@ class TestStandardElements : public QObject
       QVERIFY( !PaleoStandardElements::applyPageSetup( nullptr, a4p ) );
     }
 
+    void legendContainsOnlyPresentAndEnabledClasses()
+    {
+      QgsVectorLayer layer("Polygon?field=facies_code:integer&crs=EPSG:3857", "facies", "memory");
+      const auto schema = FaciesCatalog::defaults();
+      QVariantList allCodes;
+      for (const auto &entry : schema) allCodes << entry.toMap().value("code");
+      QgsFeatureList features;
+      for (const int code : {1, 5}) {
+        QgsFeature feature(layer.fields()); feature.setAttribute("facies_code", code);
+        feature.setGeometry(QgsGeometry::fromRect(QgsRectangle(code * 100, 0, code * 100 + 100, 100)));
+        features << feature;
+      }
+      QVERIFY(layer.dataProvider()->addFeatures(features)); layer.updateExtents();
+      FaciesHierarchyRenderer::apply(&layer, schema, "micro_facies");
+      const auto catalogue = FaciesHierarchy::legend(schema, "micro_facies", allCodes);
+      auto present = FaciesMapLegend::presentEntries(&layer, catalogue);
+      QCOMPARE(present.size(), 2);
+      QCOMPARE(present[0].toMap().value("code").toInt(), 1);
+      QCOMPARE(present[1].toMap().value("code").toInt(), 5);
+      const auto actual = FaciesMapLegend::symbolEntries(&layer,
+          layer.customProperty("paleo/faciesDisplayLegend").toList());
+      QCOMPARE(present[1].toMap().value("legend_icon").value<QIcon>().pixmap(32, 16).toImage(),
+               actual[1].toMap().value("legend_icon").value<QIcon>().pixmap(32, 16).toImage());
+      layer.renderer()->checkLegendSymbolItem(present[1].toMap().value("key").toString(), false);
+      QCOMPARE(FaciesMapLegend::presentEntries(&layer, catalogue).size(), 1);
+      QgsFeatureIds ids;
+      for (const auto &feature : features) ids.insert(feature.id());
+      QVERIFY(layer.dataProvider()->deleteFeatures(ids));
+      QVERIFY(FaciesMapLegend::presentEntries(&layer, catalogue).isEmpty());
+    }
+    void rasterLegendContainsOnlyValuesPresentInTheRaster()
+    {
+      QTemporaryDir directory;
+      QString error;
+      const auto path = directory.filePath("present-classes.tif");
+      QVERIFY(MappingArtifactWriter::raster(path, {1, 5}, 2, 1, QRectF(0, 0, 200, 100), &error));
+      QgsRasterLayer layer(path, "facies"); QVERIFY(layer.isValid());
+      const auto schema = FaciesCatalog::defaults();
+      const auto actual = FaciesHierarchyRenderer::apply(&layer, schema, "micro_facies");
+      QVariantList allCodes;
+      for (const auto &entry : schema) allCodes << entry.toMap().value("code");
+      const auto catalogue = FaciesHierarchy::legend(schema, "micro_facies", allCodes);
+      const auto present = FaciesMapLegend::presentEntries(&layer, catalogue);
+      QCOMPARE(present.size(), 2);
+      QCOMPARE(present[0].toMap().value("code").toInt(), 1);
+      QCOMPARE(present[1].toMap().value("code").toInt(), 5);
+      QCOMPARE(FaciesMapLegend::presentEntries(&layer, actual).size(), 2);
+    }
     void hierarchicalFaciesLegendFollowsRendererAndLayout()
     {
       auto *layout = makeLayout();

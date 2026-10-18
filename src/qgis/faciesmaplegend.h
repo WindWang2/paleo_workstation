@@ -7,4 +7,6 @@ namespace FaciesMapLegend {
 void install(QgsMapLayer *layer);
 // 仅供显示的瞬时符号预览，不写入分类快照或图层持久属性。
 QVariantList symbolEntries(QgsMapLayer *layer, const QVariantList &entries);
+// Filter the current renderer legend to classes actually present in the layer.
+QVariantList presentEntries(QgsMapLayer *layer, const QVariantList &entries);
 }

@@ -28,6 +28,8 @@
 #include "../src/ui/pages/mappingreferencepanel.h"
 #include "../src/ui/pages/wellpredictionpanel.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/paleomainwindow.h"
+#include "../src/ui/decorations/paleodecorations.h"
 #include "../src/ui/wellcomposite/wellcompositecanvas.h"
 #include "../src/io/constraintstore.h"
 #include "../src/workflow/derivedassets.h"
@@ -466,6 +468,42 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void canvasLegendFollowsVisibleFaciesInsteadOfTheCatalogue() {
+    QObject context;
+    Fixture f; QVERIFY(f.init());
+    f.project.setParent(&context);
+    QgisCanvasController controller(&context);
+    controller.setLayerResolver([&f](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkbench(&f.work);
+    window.showPage("compose");
+    selection.setActiveHorizon("D61");
+    auto *decorations = window.findChild<PaleoDecorationManager *>();
+    QVERIFY(decorations);
+    QTRY_VERIFY(decorations->legendFacies().isEmpty());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error)); QVERIFY(layer);
+    auto *node = f.project.project()->layerTreeRoot()->findLayer(layer->id()); QVERIFY(node);
+    node->setItemVisibilityCheckedParentRecursive(true);
+    controller.canvas()->setCurrentLayer(layer);
+    QTRY_VERIFY(controller.canvas()->layers().contains(layer));
+    QTRY_VERIFY(!decorations->legendFacies().isEmpty());
+    node->setItemVisibilityChecked(false);
+    QTRY_VERIFY(!controller.canvas()->layers().contains(layer));
+    QTRY_VERIFY(decorations->legendFacies().isEmpty());
+    node->setItemVisibilityCheckedParentRecursive(true);
+    QTRY_VERIFY(!decorations->legendFacies().isEmpty());
+    selection.setActiveHorizon("D62");
+    QTRY_VERIFY(decorations->legendFacies().isEmpty());
+    selection.setActiveHorizon("D61");
+    QTRY_VERIFY(!decorations->legendFacies().isEmpty());
+    QgsFeatureIds ids; auto iterator = layer->getFeatures(); QgsFeature feature;
+    while (iterator.nextFeature(feature)) ids.insert(feature.id()); iterator.close();
+    QVERIFY(layer->dataProvider()->deleteFeatures(ids)); layer->reload();
+    QTRY_VERIFY(decorations->legendFacies().isEmpty());
+  }
   void impactCommandsAreGatedWithReasons() {
     Fixture f;
     QVERIFY(f.init());

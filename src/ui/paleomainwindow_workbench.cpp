@@ -10,6 +10,7 @@
 #include "pages/faciesconsistencydialog.h"
 #include "../qgis/draftautosave.h"
 #include "../qgis/facieshierarchyrenderer.h"
+#include "../qgis/faciesmaplegend.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/mappingartifactwriter.h"
 #include "../qgis/qgiscanvascontroller.h"
@@ -48,6 +49,7 @@
 #include <QStackedLayout>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTimer>
 #include <QUndoStack>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -158,6 +160,22 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
   // 调用点零改动。
   const auto legendCore = makeWorkbenchLegend(workbench);
   auto legend = [legendCore](const QString &id = QString()) { legendCore(id); };
+  auto *legendRefresh = new QTimer(this);
+  legendRefresh->setSingleShot(true);
+  legendRefresh->setInterval(50);
+  connect(legendRefresh, &QTimer::timeout, this, [legend] { legend(); });
+  connect(m_canvasCtl->canvas(), &QgsMapCanvas::layersChanged, legendRefresh, qOverload<>(&QTimer::start));
+  connect(m_canvasCtl->canvas(), &QgsMapCanvas::scaleChanged, legendRefresh, qOverload<>(&QTimer::start));
+  connect(m_canvasCtl->canvas(), &QgsMapCanvas::currentLayerChanged, legendRefresh, qOverload<>(&QTimer::start));
+  connect(workbench, &MappingWorkbench::changed, legendRefresh, qOverload<>(&QTimer::start));
+  const auto watchLegendLayer = [this, legendRefresh](const QString &id) {
+    if (auto *layer = m_layerSvc->layer(id)) {
+      connect(layer, &QgsMapLayer::rendererChanged, legendRefresh, qOverload<>(&QTimer::start));
+      connect(layer, &QgsMapLayer::dataChanged, legendRefresh, qOverload<>(&QTimer::start));
+    }
+  };
+  for (const auto &d : m_layerSvc->declared()) watchLegendLayer(d.layerId);
+  connect(m_layerSvc, &QgisLayerService::layerInstantiated, this, watchLegendLayer);
   auto shown = std::make_shared<QHash<QString, QString>>();
   if (m_projectSvc) {
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
@@ -386,8 +404,33 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
     if (!m_decorMgr)
       return;
     const auto h = m_selection->activeHorizon();
-    auto v = workbench->versionForLayer(id);
-    auto d = workbench->declaration(id);
+    auto *canvas = m_canvasCtl->canvas();
+    const auto visible = canvas->layers();
+    const auto eligible = [&](QgsMapLayer *layer) {
+      if (!layer || !visible.contains(layer) || !layer->isInScaleRange(canvas->scale())) return false;
+      const auto layerId = layer->customProperty("paleoLayerId").toString();
+      const auto d = workbench->declaration(layerId);
+      const auto extra = workbench->versionForLayer(layerId).extra;
+      const auto horizon = d.horizon.isEmpty() ? extra.value("horizon").toString() : d.horizon;
+      if (!horizon.isEmpty() && horizon != h) return false;
+      return !layer->customProperty("paleo/faciesDisplayLegend").toList().isEmpty() ||
+          (!extra.value("facies").toList().isEmpty() && !extra.value("kind").toString().startsWith("constraint")) ||
+          paleo::singlefactor::isAnalysisFactorRaster(extra.value("kind").toString(), extra.value("value_source").toString()) ||
+          paleo::singlefactor::rejectsQuantitativeUse(extra.value("kind").toString(), extra.value("value_source").toString());
+    };
+    auto *symbolLayer = m_layerSvc->layer(id);
+    if (!eligible(symbolLayer)) symbolLayer = canvas->currentLayer();
+    if (!eligible(symbolLayer)) {
+      symbolLayer = nullptr;
+      for (auto *layer : visible) if (eligible(layer)) { symbolLayer = layer; break; }
+    }
+    if (h.isEmpty() || !symbolLayer) {
+      m_decorMgr->setFaciesLegend(QString(), {});
+      return;
+    }
+    const auto layerId = symbolLayer->customProperty("paleoLayerId").toString();
+    auto v = workbench->versionForLayer(layerId);
+    auto d = workbench->declaration(layerId);
     const auto legendKind = v.extra.value("kind").toString();
     const auto legendSource = v.extra.value("value_source").toString();
     const bool analysisRaster =
@@ -402,9 +445,7 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
     if (product) {
       // 旧成果冻结的平级分类也迁进三级体系，图例不出现未定义相。
       FaciesTaxonomy::upgrade(v.extra.value("facies").toList(), &schema);
-    } else {
-      schema = workbench->facies(h);
-    }
+    } else schema = symbolLayer->customProperty("paleo/faciesDisplayLegend").toList();
     QString title = h.isEmpty() ? tr("请选择层位") : tr("%1 · 三级相图例").arg(h);
     if (product)
       title +=
@@ -413,7 +454,7 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
               .arg(v.extra.value("mock").toBool() ? tr(" Mock") : QString());
     if (analysisRaster || cartographic) {
       schema.clear();
-      if (auto *r = qobject_cast<QgsRasterLayer *>(m_layerSvc->layer(id));
+      if (auto *r = qobject_cast<QgsRasterLayer *>(symbolLayer);
           r && r->renderer())
         for (const auto &item : r->renderer()->legendSymbologyItems())
           schema << QVariantMap{{"name", item.first},
@@ -429,23 +470,23 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
                                        : tr("约束线"));
     }
     if (product) {
-      schema = workbench->displayLegend(id);
-      auto *wellLayer = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
+      schema = workbench->displayLegend(layerId);
+      auto *wellLayer = qobject_cast<QgsVectorLayer *>(symbolLayer);
       const bool wellResult = wellLayer && wellLayer->fields().indexOf("facies_intervals") >= 0;
       title = tr("%1 · %2 · v%3")
-                  .arg(h, wellResult ? tr("测井预测 · %1").arg(FaciesHierarchy::title(workbench->resolvedLevel(id))) : FaciesHierarchy::title(workbench->resolvedLevel(id)))
+                  .arg(h, wellResult ? tr("测井预测 · %1").arg(FaciesHierarchy::title(workbench->resolvedLevel(layerId))) : FaciesHierarchy::title(workbench->resolvedLevel(layerId)))
                   .arg(v.versionNumber);
       // #522（显示锁定）：图例 schema 带非当前解析层级的相面时点名后缀。
       for (const auto &entry : schema)
-        if (entry.toMap().value("level").toString() != workbench->resolvedLevel(id)) {
+        if (entry.toMap().value("level").toString() != workbench->resolvedLevel(layerId)) {
           title += tr(" · 含相面层级锁定");
           break;
         }
       if (v.extra.value("mock").toBool())
         title += tr(" · Mock");
     }
-    m_decorMgr->setFaciesLegend(title, h.isEmpty() ? QVariantList() : schema,
-                                product ? m_layerSvc->layer(id) : nullptr);
+    if (!analysisRaster && !cartographic) schema = FaciesMapLegend::presentEntries(symbolLayer, schema);
+    m_decorMgr->setFaciesLegend(title, schema);
   };
 }
 

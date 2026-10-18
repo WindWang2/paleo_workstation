@@ -103,6 +103,62 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
   dlg.exec();
 }
 
+void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList &paths)
+{
+  // 多选文件导入：复用文件夹确认表（同一分类/改类型/仍导入/重试语义），
+  // 数据源换文件清单。台账/标题用首文件所在目录；sourceArea 回写是目录
+  // 专属（PROJECT_FILE_DESIGN），文件清单不 stamp。
+  if (!svc || paths.isEmpty() || isOffscreen())
+    return;
+  auto *wf = folderImportWorkflow();
+  if (!wf)
+    return;
+  const QString displayDir =
+      QFileInfo(paths.first()).absolutePath() + QStringLiteral("/") +
+      tr("%n 个所选文件", nullptr, paths.size());
+  wf->previewFilesAsync(
+      paths,
+      [this, wf, paths, displayDir](const QVector<FolderPreviewRow> &preview,
+                                    const QString &err) {
+        if (preview.isEmpty())
+        {
+          PaleoNotify::warning(this, tr("导入文件"),
+                               err.isEmpty() ? tr("所选文件里没有可导入项") : err);
+          return;
+        }
+        QDialog dlg(this);
+        PaleoFolderConfirm::Hooks hooks;
+        hooks.importRow = [wf](const QString &path, const QString &force) {
+          return wf->importFolderRow(path, force, nullptr);
+        };
+        hooks.importAllWithForced =
+            [wf, paths](const QMap<QString, QString> &overrides,
+                        const QStringList &forceImportPaths,
+                        FolderImportWorkflow::ImportDone done) {
+              wf->importFiles(paths, overrides, forceImportPaths, std::move(done));
+            };
+        hooks.importedWellHead = [wf](const QString &rowPath) {
+          return wf->importedWellHeadAsset(rowPath);
+        };
+        hooks.showUnresolved = [this] {
+          showPage(QStringLiteral("data"));
+          if (auto *page = findChild<DataPage *>())
+            page->setUnresolvedFilter(true);
+        };
+        hooks.previewAsset = [this](const QString &assetId) {
+          QMetaObject::invokeMethod(
+              this,
+              [this, assetId] {
+                if (m_previewTabs)
+                  m_previewTabs->openAsset(assetId);
+              },
+              Qt::QueuedConnection);
+        };
+        PaleoFolderConfirm::buildFolderConfirmDialog(&dlg, displayDir, preview, hooks);
+        dlg.exec();
+      });
+}
+
 void PaleoMainWindow::stampSourceArea(const QString &dir,
                                       const QVariantMap &stats)
 {

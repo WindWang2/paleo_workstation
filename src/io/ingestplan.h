@@ -167,6 +167,15 @@ IngestPlan buildIngestPlan(const QString &root, const IngestCatalogSource &catal
 // 旧签名保留（GUI 线程零拷贝直通）：等价于 LiveCatalogSource 包装。
 IngestPlan buildIngestPlan(const QString &root, const DataCatalog &catalog);
 
+// 文件列表入口（多选文件导入）：与目录/单文件同一分类、身份匹配、去重、
+// 排序口径——逐路径成项（目录/非普通文件如实入 skipped 行），跨文件 shp 族
+// 归组与批内 sha 去重同样生效；同一文件重复出现只计一次。
+IngestPlan buildIngestPlanForFiles(const QStringList &paths,
+                                   const IngestCatalogSource &catalog,
+                                   const IngestScanProgress &scanProgress = {});
+// 旧签名同口径（GUI 线程零拷贝直通）：等价于 LiveCatalogSource 包装。
+IngestPlan buildIngestPlanForFiles(const QStringList &paths, const DataCatalog &catalog);
+
 // 按生效类型把 items 重排成两阶段序（well_head 先行）——buildIngestPlan 已
 // 排好；确认表 override 改了类型之后要再调一次（改回 well_head 的行回阶段 1）。
 void orderIngestPlanItems(QVector<PlannedItem> &items);

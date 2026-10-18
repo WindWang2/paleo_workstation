@@ -74,6 +74,14 @@ class FolderImportWorkflow : public QObject
     // 单文件导入（数据页「导入」按钮）：同 importFolder 的双路径语义。
     void importFile(const QString &kind, const QString &path,
                     std::function<void(const QString &assetId, const QString &error)> done);
+    // 多选文件导入（文件列表口径）：与 importFolder 同一确认表/任务池/台账
+    // 语义；预览 importActiveChanged 抑制逐文件预览标签口径相同。
+    void importFiles(const QStringList &paths, const QMap<QString, QString> &overrides,
+                     const QStringList &forceImportPaths, const ImportDone &done);
+    void previewFilesAsync(
+        const QStringList &paths,
+        const std::function<void(const QVector<FolderPreviewRow> &,
+                                 const QString &)> &done);
     // 按行源文件名反查刚入库的井口资产 id（找不到 → 空）。
     QString importedWellHeadAsset(const QString &rowPath) const;
     // 测试/诊断：排队中 + 在途的异步导入作业数。

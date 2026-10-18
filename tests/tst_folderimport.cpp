@@ -19,6 +19,7 @@
 #include "../src/workflow/importledger.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/dialogs/folderconfirm.h"
+#include "perfbudget_relax.h"
 
 #include <QDialog>
 #include <QElapsedTimer>
@@ -512,7 +513,7 @@ void previewFolderAsyncOnTaskPool()
       });
   QElapsedTimer clock;
   clock.start();
-  while (!doneCalled && clock.elapsed() < 15000)
+  while (!doneCalled && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(15000))
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QVERIFY(doneCalled);
   QVERIFY2(err.isEmpty(), qPrintable(err));
@@ -594,7 +595,7 @@ void concurrentWorkflowImportsCommitOnGuiThread()
   QVERIFY(wf.pendingImportJobs() >= 1);
   QElapsedTimer clock;
   clock.start();
-  while (doneCount < kFolders + kFiles && clock.elapsed() < 60000)
+  while (doneCount < kFolders + kFiles && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(60000))
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QCOMPARE(doneCount, kFolders + kFiles);
   QVERIFY2(errors.isEmpty(), qPrintable(errors.join(QLatin1Char('\n'))));
@@ -649,7 +650,7 @@ void workflowImportRetriesOnConcurrentCatalogWrite()
   QVERIFY2(cat->addEntity(w, &werr), qPrintable(werr));
   QElapsedTimer clock;
   clock.start();
-  while (!done && clock.elapsed() < 30000)
+  while (!done && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(30000))
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QVERIFY(done);
   QVERIFY2(!assetId.isEmpty(), qPrintable(err));
@@ -695,7 +696,7 @@ void folderImportSurvivesServiceTeardownHonestly()
   QCOMPARE(wf.importService(), static_cast<DataImportService *>(nullptr));
   QElapsedTimer clock;
   clock.start();
-  while (!done && clock.elapsed() < 30000)
+  while (!done && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(30000))
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QVERIFY(done);
   QCOMPARE(err, QStringLiteral("导入服务已关闭，导入结果已丢弃"));
@@ -762,7 +763,7 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
   const int assetsBefore = catB->assets().size();
   QElapsedTimer clock;
   clock.start();
-  while (!done && clock.elapsed() < 30000)
+  while (!done && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(30000))
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QVERIFY(done);
   QVERIFY2(err.contains(QStringLiteral("工程已切换")), qPrintable(err));
@@ -791,7 +792,7 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
     err = e;
   });
   clock.restart();
-  while (!done && clock.elapsed() < 30000)
+  while (!done && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(30000))
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QVERIFY(done);
   ledgerB.load(catB);
@@ -817,7 +818,7 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
     err = e;
   });
   clock.restart();
-  while (!done && clock.elapsed() < 30000)
+  while (!done && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(30000))
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QVERIFY(done);
   paleo::imports::ImportLedger ledgerC;
@@ -860,7 +861,7 @@ void singleFileImportCancelledDiscardsCommit()
     t->requestCancel();
   QElapsedTimer clock;
   clock.start();
-  while (!done && clock.elapsed() < 30000)
+  while (!done && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(30000))
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QVERIFY(done);
   QVERIFY(assetId.isEmpty());

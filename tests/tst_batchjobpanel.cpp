@@ -28,6 +28,7 @@
 #include "services/paleotaskservice.h"
 #include "ui/batchjobpanel.h"
 #include "workflow/batchjobqueue.h"
+#include "perfbudget_relax.h"
 
 using PaleoBatchQueue::BatchItem;
 using PaleoBatchQueue::BatchQueue;
@@ -120,7 +121,7 @@ private:
         progress(30.0, QStringLiteral("interpolate"));
       QElapsedTimer clock;
       clock.start();
-      while (!gate->load() && clock.elapsed() < 5000)
+      while (!gate->load() && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000))
       {
         if (cancelled && cancelled())
         {

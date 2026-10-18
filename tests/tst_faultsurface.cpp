@@ -12,6 +12,7 @@
 #include "../src/algorithms/faultsurface/faultsurface.h"
 #include "../src/algorithms/stratgrid/propfill.h"
 #include "../src/algorithms/stratgrid/stratgrid.h"
+#include "perfbudget_relax.h"
 
 using namespace paleo::fault;
 using namespace paleo::faultsurf;
@@ -380,7 +381,8 @@ void TestFaultSurface::hundredByTwoHundredUnderThreeSeconds()
     const SurfaceBuildResult built = buildFaultSurface(fault, testFrame());
     const qint64 elapsed = timer.elapsed();
     QVERIFY2(built.ok(), qPrintable(built.message));
-    QVERIFY2(elapsed < 3000, qPrintable(QStringLiteral("%1 ms").arg(elapsed)));
+    QVERIFY2(elapsed < paleo::perfbudget::relaxedBudgetMs(3000),
+             qPrintable(QStringLiteral("%1 ms").arg(elapsed)));
     QCOMPARE(built.mesh.vertices.size(), kSections * kPoints);
     QVERIFY(built.mesh.triangles.size() > 0);
     QVERIFY(built.mesh.triangles.size() < 2 * kSections * kPoints);

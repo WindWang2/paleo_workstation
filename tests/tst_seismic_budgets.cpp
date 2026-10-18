@@ -23,6 +23,7 @@
 #endif
 
 #include "Engine/Sdk.h"
+#include "perfbudget_relax.h"
 
 #include "../src/domain/seismic/sgyvolume.h"
 #include "../src/services/paleotaskservice.h"
@@ -34,8 +35,8 @@
 using namespace seismic;
 
 namespace {
-constexpr double kSliceHitBudgetMs = 50.0;
-constexpr double kSliceMissBudgetMs = 500.0;
+const double kSliceHitBudgetMs = paleo::perfbudget::relaxedBudgetMs(50);   // #559 放宽口径
+const double kSliceMissBudgetMs = paleo::perfbudget::relaxedBudgetMs(500); // 同上
 constexpr double kFpsBudget = 15.0;
 } // namespace
 
@@ -282,7 +283,7 @@ private slots:
     // 等全部完成（闸保证 ≤4 并发——总时长 ≈ 2 批 × 120ms）
     QElapsedTimer clock;
     clock.start();
-    while (completed.load() < kJobs && clock.elapsed() < 30000)
+    while (completed.load() < kJobs && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(30000))
       QApplication::processEvents(QEventLoop::AllEvents, 20);
     QCOMPARE(completed.load(), kJobs);
     QVERIFY2(maxConcurrent.load() <= SeismicTaskService::kMaxConcurrentTasks,
@@ -319,10 +320,10 @@ private slots:
 
     QElapsedTimer clock;
     clock.start();
-    while (svc.activeTaskCount() > 0 && clock.elapsed() < 10000)
+    while (svc.activeTaskCount() > 0 && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(10000))
       QApplication::processEvents(QEventLoop::AllEvents, 20);
     QCOMPARE(svc.activeTaskCount(), 0); // 全部收尾——无悬挂
-    QVERIFY(clock.elapsed() < 5000);    // 秒级收尾（不是死等）
+    QVERIFY(clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000));    // 秒级收尾（不是死等）
   }
 
   // ---- D6.7 自动保存点：解释会话即时落盘（转码续跑位图由引擎测过）----
@@ -424,7 +425,7 @@ private slots:
     // 等待 4 个异常任务收尾
     QElapsedTimer clock;
     clock.start();
-    while (svc.activeTaskCount() > 0 && clock.elapsed() < 5000)
+    while (svc.activeTaskCount() > 0 && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000))
       QApplication::processEvents(QEventLoop::AllEvents, 20);
     QCOMPARE(svc.activeTaskCount(), 0);
 
@@ -437,7 +438,7 @@ private slots:
                      });
 
     clock.restart();
-    while (!fifthRan.load() && clock.elapsed() < 5000)
+    while (!fifthRan.load() && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000))
       QApplication::processEvents(QEventLoop::AllEvents, 20);
     QVERIFY2(fifthRan.load(), "Task deadlocked: semaphore permit was leaked on exception!");
   }

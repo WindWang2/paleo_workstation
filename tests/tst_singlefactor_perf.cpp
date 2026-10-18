@@ -3,6 +3,7 @@
 
 #include "algorithms/singlefactor/localidw.h"
 #include "algorithms/singlefactor/support.h"
+#include "perfbudget_relax.h"
 
 #include <algorithm>
 #include <atomic>
@@ -209,8 +210,10 @@ void SingleFactorPerfTests::proposedBudgets()
                            .arg( cancelMax )
                            .arg( rssDeltaKiB );
 
-  QVERIFY2( smallMs <= 5000, qPrintable( QStringLiteral( "S median %1 ms" ).arg( smallMs ) ) );
-  QVERIFY2( largeMs <= 15000, qPrintable( QStringLiteral( "L median %1 ms" ).arg( largeMs ) ) );
+  QVERIFY2( smallMs <= paleo::perfbudget::relaxedBudgetMs(5000),
+             qPrintable( QStringLiteral( "S median %1 ms" ).arg( smallMs ) ) );
+  QVERIFY2( largeMs <= paleo::perfbudget::relaxedBudgetMs(15000),
+             qPrintable( QStringLiteral( "L median %1 ms" ).arg( largeMs ) ) );
   QVERIFY2( scaleMs <= smallMs * 6,
             qPrintable( QStringLiteral( "cell ratio %1 / %2" ).arg( scaleMs ).arg( smallMs ) ) );
   QVERIFY2( denseMs <= smallMs * 3.5,

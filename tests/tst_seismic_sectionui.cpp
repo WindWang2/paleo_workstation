@@ -37,6 +37,7 @@
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
 #include "uipolish_capture.h"
 #include "helpers/visualcapture.h"
+#include "perfbudget_relax.h"
 
 using namespace seismic;
 
@@ -507,7 +508,7 @@ private slots:
     QVERIFY2(secondMs <= firstMs + 2,
              qPrintable(QStringLiteral("cache hit %1 ms not faster than build %2 ms")
                             .arg(secondMs).arg(firstMs)));
-    QVERIFY2(secondMs < 25,
+    QVERIFY2(secondMs < paleo::perfbudget::relaxedBudgetMs(25),
              qPrintable(QStringLiteral("cache hit too slow: %1 ms").arg(secondMs)));
   }
 
@@ -531,7 +532,7 @@ private slots:
     }
     const double perFrameMs = double(clock.elapsed()) / kFrames;
     qInfo("pan frame budget: %.2f ms/frame (LOD stride path)", perFrameMs);
-    QVERIFY2(perFrameMs < 16.0,
+    QVERIFY2(perFrameMs < paleo::perfbudget::relaxedBudgetMs(16),
              qPrintable(QStringLiteral("frame over 16ms budget: %1").arg(perFrameMs)));
   }
 

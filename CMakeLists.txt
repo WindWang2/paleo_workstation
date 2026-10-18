@@ -1165,6 +1165,7 @@ add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_faciessliver LIBS paleo_algorithms)  # A11：小图斑吸收新旧实现对拍 + 可取消 + 大网格耗时
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
+add_paleo_test(tst_dsp_fft LIBS paleo_algorithms)          # #559：dsp radix-2 FFT 专属套件（解析恒等式 + 独立直求 DFT 对拍；纯数值，无 QGIS init）
 add_paleo_test(tst_sattrio LIBS paleo_io)                 # goal/attr-volume：SATR/SATV 容器 round-trip
 add_paleo_test(tst_seismicattrscan LIBS paleo_services)  # goal/attr-volume：时间切片/属性体扫描编排
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)

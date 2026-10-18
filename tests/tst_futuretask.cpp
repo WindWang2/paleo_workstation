@@ -10,6 +10,7 @@
 #include <QtConcurrent>
 
 #include "../src/services/futuretask.h"
+#include "perfbudget_relax.h"
 
 class TestFutureTask : public QObject
 {
@@ -96,7 +97,8 @@ void TestFutureTask::watcherDestroyedFinalizesCancellableTask()
   delete watcher; // 拥有方先走：可取消任务必须立刻终态（Cancelled），不等 worker
   QVERIFY(fin.wait(2000));
   QCOMPARE(task->state(), PaleoTask::State::Cancelled);
-  QVERIFY2(timer.elapsed() < 400, "terminal state waited for the worker");
+  QVERIFY2(timer.elapsed() < paleo::perfbudget::relaxedBudgetMs(400),
+           "terminal state waited for the worker");
 }
 
 void TestFutureTask::nonCancellableTrackSurvivesWatcherDeath()

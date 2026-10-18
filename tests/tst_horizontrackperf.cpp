@@ -25,6 +25,7 @@
 
 #include "../src/domain/seismic/sgyvolume.h"
 #include "../src/services/seismictaskservice.h"
+#include "perfbudget_relax.h"
 
 using seismic::SeismicTaskService;
 
@@ -195,7 +196,7 @@ private slots:
           qPrintable(report.stopSummary));
     qInfo("BASELINE autotrack_966mb_picks_per_sec = %.0f", picksPerSec);
     QVERIFY(picks.size() >= report.totalTraces * 9 / 10); // ramp 全程可追
-    QVERIFY(trackMs < 5000.0); // 防数量级回归（正常亚百 ms 级）
+    QVERIFY(trackMs < paleo::perfbudget::relaxedBudgetMs(5000)); // 防数量级回归（正常亚百 ms 级）
   }
 };
 

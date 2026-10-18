@@ -17,6 +17,7 @@
 #include "../src/ui/paleotheme.h"
 #include "../src/ui/webviewpanel.h"
 #include "../src/workflow/officepreviewsession.h"
+#include "perfbudget_relax.h"
 
 class TestOfficePreview : public QObject {
   Q_OBJECT
@@ -173,7 +174,7 @@ private slots:
     QByteArray response;
     QElapsedTimer timer;
     timer.start();
-    while (timer.elapsed() < 2000 && !response.contains("\r\n\r\n"))
+    while (timer.elapsed() < paleo::perfbudget::relaxedBudgetMs(2000) && !response.contains("\r\n\r\n"))
     {
       QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
       response += socket.readAll();

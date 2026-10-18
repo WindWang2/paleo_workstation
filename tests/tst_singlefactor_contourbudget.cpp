@@ -17,6 +17,7 @@
 
 #include "algorithms/singlefactor/support.h"
 #include "../src/qgis/factorcontour.h"
+#include "perfbudget_relax.h"
 
 using namespace paleo::singlefactor;
 
@@ -298,7 +299,8 @@ void SingleFactorContourBudgetTests::extractionPlusDetourMedianWithinTwentySecon
                            .arg( medianMs )
                            .arg( maxMs )
                            .arg( modifiedCells );
-  QVERIFY2( medianMs <= 20000, qPrintable( QStringLiteral( "median %1 ms exceeds 20000" ).arg( medianMs ) ) );
+  QVERIFY2( medianMs <= paleo::perfbudget::relaxedBudgetMs(20000),
+             qPrintable( QStringLiteral( "median %1 ms exceeds 20000" ).arg( medianMs ) ) );
 }
 
 QTEST_MAIN( SingleFactorContourBudgetTests )

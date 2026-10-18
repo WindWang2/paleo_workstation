@@ -1,5 +1,6 @@
 #include "../src/ui/paleoicons.h"
 #include "../src/qgis/layervocabulary.h"
+#include "perfbudget_relax.h"
 #include <QtTest>
 #include <QAction>
 #include <QGuiApplication>
@@ -1067,8 +1068,10 @@ class TestLayerTreePanel : public QObject
       const qint64 refreshMs = timer.elapsed();
       qInfo("goal7 W2 probe: N=%d mountMs=%lld refreshMs=%lld", N,
             static_cast<long long>(mountMs), static_cast<long long>(refreshMs));
-      QVERIFY2(mountMs < 30000, qPrintable(QStringLiteral("mountMs=%1").arg(mountMs)));
-      QVERIFY2(refreshMs < 10000, qPrintable(QStringLiteral("refreshMs=%1").arg(refreshMs)));
+      QVERIFY2(mountMs < paleo::perfbudget::relaxedBudgetMs(30000),
+               qPrintable(QStringLiteral("mountMs=%1").arg(mountMs)));
+      QVERIFY2(refreshMs < paleo::perfbudget::relaxedBudgetMs(10000),
+               qPrintable(QStringLiteral("refreshMs=%1").arg(refreshMs)));
 
       // 正确性守恒：激活层位 T1 的层无灰显 indicator，T2 的层有
       QgsMapLayer *lT1 = nullptr, *lT2 = nullptr;

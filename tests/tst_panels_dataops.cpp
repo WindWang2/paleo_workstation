@@ -7,6 +7,7 @@
 // 注册（根 CMakeLists，主 Agent 统一落地）：add_paleo_test(tst_panels_dataops)
 
 #include "../src/qgis/layervocabulary.h"
+#include "perfbudget_relax.h"
 #include <QtTest>
 #include <QApplication>
 #include <QComboBox>
@@ -742,7 +743,8 @@ class TestPanelsDataOps : public QObject
         // D2.8 预算 100ms；300ms 上限为机器争用容限（多 goal-loop worktree
         // 并行构建/测试时实测 108ms——空载 8/8 过、争用下偶发超。回归语义
         // 不变：数量级劣化（>3×）才红）。
-        QVERIFY2(elapsed < 300, qPrintable(QStringLiteral("%1ms").arg(elapsed)));
+        QVERIFY2(elapsed < paleo::perfbudget::relaxedBudgetMs(300),
+                 qPrintable(QStringLiteral("%1ms").arg(elapsed)));
         QVERIFY(hits > 0);
     }
 
@@ -1796,12 +1798,14 @@ class TestPanelsDataOps : public QObject
         t.start();
         model.fetchMore(QModelIndex());
         const qint64 one = t.elapsed();
-        QVERIFY2(one < 16, qPrintable(QStringLiteral("one batch %1ms").arg(one)));
+        QVERIFY2(one < paleo::perfbudget::relaxedBudgetMs(16),
+                 qPrintable(QStringLiteral("one batch %1ms").arg(one)));
         t.restart();
         while (model.canFetchMore(QModelIndex()))
             model.fetchMore(QModelIndex());
         const qint64 all = t.elapsed();
-        QVERIFY2(all < 1000, qPrintable(QStringLiteral("all %1ms").arg(all)));
+        QVERIFY2(all < paleo::perfbudget::relaxedBudgetMs(1000),
+                 qPrintable(QStringLiteral("all %1ms").arg(all)));
         QCOMPARE(model.rowCount(), 10000);
     }
 

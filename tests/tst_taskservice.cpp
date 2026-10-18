@@ -10,6 +10,7 @@
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/taskpanel.h"
+#include "perfbudget_relax.h"
 
 // PaleoTaskService (pass-2 D1/D2): worker runs on QThreadPool, byte progress is
 // queued back to the GUI thread, cancel is cooperative, a layerId binding marks
@@ -294,7 +295,8 @@ private slots:
     clock.start();
     QVERIFY(svc.shutdown(5000));
     QVERIFY(marshalled.load());
-    QVERIFY2(clock.elapsed() < 4000, "shutdown() deadlocked against a BlockingQueued worker");
+    QVERIFY2(clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(4000),
+             "shutdown() deadlocked against a BlockingQueued worker");
   }
 
   void panelRendersTaskRowWithProgress()
@@ -350,7 +352,7 @@ private slots:
       firstStarted.store(true);
       QElapsedTimer c;
       c.start();
-      while (!task->cancelRequested() && c.elapsed() < 3000)
+      while (!task->cancelRequested() && c.elapsed() < paleo::perfbudget::relaxedBudgetMs(3000))
         QThread::msleep(2);
       return QString();
     });

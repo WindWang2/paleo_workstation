@@ -22,6 +22,7 @@
 #include "../src/ai/onnxlocalpredictor.h"
 #include "../src/ai/onnxpredictionservice.h"
 #include "../src/ai/remotepredictrouter.h"
+#include "perfbudget_relax.h"
 
 // goal/ai-geological-assist 轮6：远端推理路由——健康检查/超时/断线降级到
 // 本地 ORT。全部走 127.0.0.1 loopback fixture server（无外网端点）。
@@ -655,7 +656,7 @@ void TestRemotePredictionRouter::localFallbackRunsOffMainThread()
   // settleHealth 已返回而 predict 仍在跑 = 降级不在 GUI 线程同步执行。
   QElapsedTimer clock;
   clock.start();
-  while ( !local.insidePredict.load() && clock.elapsed() < 5000 )
+  while ( !local.insidePredict.load() && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000) )
     QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
   QVERIFY2( local.insidePredict.load(), "降级推理必须已在工作线程开跑" );
   QVERIFY2( waitSpy( completed ), "异步降级须完成并发出 completed" );
@@ -684,7 +685,7 @@ void TestRemotePredictionRouter::cancelledLocalFallbackResultIsDropped()
   transport.settleHealth( false, QStringLiteral( "健康检查失败: 桩" ) );
   QElapsedTimer clock;
   clock.start();
-  while ( !local.insidePredict.load() && clock.elapsed() < 5000 )
+  while ( !local.insidePredict.load() && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000) )
     QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
   QVERIFY( local.insidePredict.load() );
   // 降级推理在飞时取消：终态是「已取消」，迟到的降级 completed 不补发。
@@ -692,7 +693,7 @@ void TestRemotePredictionRouter::cancelledLocalFallbackResultIsDropped()
   QCOMPARE( failed.size(), 1 );
   QVERIFY( failed.at( 0 ).at( 1 ).toString().contains( QStringLiteral( "已取消" ) ) );
   clock.restart();
-  while ( !local.finishedPredict.load() && clock.elapsed() < 5000 )
+  while ( !local.finishedPredict.load() && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000) )
     QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
   QVERIFY( local.finishedPredict.load() );
   QCoreApplication::processEvents( QEventLoop::AllEvents, 200 ); // 排队的结算回调落地

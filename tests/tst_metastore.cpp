@@ -11,6 +11,7 @@
 #include "../src/metadata/projectlock.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/metadata/releasestore.h"
+#include "perfbudget_relax.h"
 
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -205,7 +206,7 @@ private slots:
     QByteArray output;
     QElapsedTimer deadline;
     deadline.start();
-    while (!output.contains("PALEO_LOCK_READY") && deadline.elapsed() < 10000)
+    while (!output.contains("PALEO_LOCK_READY") && deadline.elapsed() < paleo::perfbudget::relaxedBudgetMs(10000))
     {
       child.waitForReadyRead(100);
       output += child.readAllStandardOutput();

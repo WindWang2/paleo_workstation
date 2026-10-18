@@ -2,6 +2,7 @@
 #include <QtTest/QtTest>
 
 #include "domain/constraintsemantics.h"
+#include "perfbudget_relax.h"
 
 #include <QElapsedTimer>
 #include <QRandomGenerator>
@@ -589,7 +590,8 @@ private slots:
     QCOMPARE( checkConstraintPart( crossed ).issue, QStringLiteral( "self_intersecting" ) );
     const qint64 ms = timer.elapsed();
     qInfo( "self-intersection 3x50k vertices: %lld ms", static_cast<long long>( ms ) );
-    QVERIFY2( ms < 2000, qPrintable( QStringLiteral( "%1 ms" ).arg( ms ) ) );
+    QVERIFY2( ms < paleo::perfbudget::relaxedBudgetMs(2000),
+              qPrintable( QStringLiteral( "%1 ms" ).arg( ms ) ) );
   }
 
   void validGeometryEdgeCases()

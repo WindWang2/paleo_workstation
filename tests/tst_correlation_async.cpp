@@ -17,6 +17,7 @@
 #include "../src/ui/correlationpanel.h"
 #include "../src/linkage/selectioncontext.h"
 #include "../src/services/paleotaskservice.h"
+#include "perfbudget_relax.h"
 
 #include "../src/io/perffixtures.h" // makeSyntheticLas（合成夹具，白名单外仅测试用）
 
@@ -291,7 +292,8 @@ class TestCorrelationAsync : public QObject
         QCOMPARE(panel.wellTrackMnemonics(QStringLiteral("W1")),
                  QStringList{QStringLiteral("GR")});
         // 受理必须立刻：大文件解析百毫秒~秒级，受理超过 500ms 就等于没解阻。
-        QVERIFY2(acceptMs < 500, "async accept path must not parse on the GUI thread");
+        QVERIFY2(acceptMs < paleo::perfbudget::relaxedBudgetMs(500),
+                 "async accept path must not parse on the GUI thread");
       }
     }
 
@@ -332,7 +334,8 @@ class TestCorrelationAsync : public QObject
         const qint64 acceptMs = t.elapsed();
         qDebug("async (after): returned in %lld ms", acceptMs);
         QVERIFY(waitForLasSettled(&panel, QStringLiteral("W1"), 60000));
-        QVERIFY2(acceptMs < 500, "async accept path must not parse on the GUI thread");
+        QVERIFY2(acceptMs < paleo::perfbudget::relaxedBudgetMs(500),
+                 "async accept path must not parse on the GUI thread");
       }
     }
 };

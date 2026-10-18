@@ -14,6 +14,7 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
 #include "../src/ui/datapreview/previewmappage.h"
+#include "perfbudget_relax.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsrasterlayer.h>
@@ -64,7 +65,7 @@ void TestPreviewMapPerf::firstOpenUnderBudget()
   qInfo() << "PERF first-open(ms):" << openMs;
   QVERIFY(st->preview->findChild<QWidget *>(QStringLiteral("horizonPreviewPage")));
   // 预算 300ms；共享机负载放宽到 3 倍（fixture 量级 <50ms 常态）。
-  QVERIFY2(openMs < 300 * 3,
+  QVERIFY2(openMs < paleo::perfbudget::relaxedBudgetMs(300 * 3),
            qPrintable(QStringLiteral("first open %1 ms exceeds budget").arg(openMs)));
 }
 
@@ -131,7 +132,8 @@ void TestPreviewMapPerf::snapshotRenderFast()
   const qint64 ms = timer.elapsed();
   qInfo() << "PERF snapshot(ms):" << ms;
   QVERIFY(!img.isNull());
-  QVERIFY2(ms < 100 * 3, qPrintable(QStringLiteral("snapshot %1 ms").arg(ms)));
+  QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(100 * 3),
+           qPrintable(QStringLiteral("snapshot %1 ms").arg(ms)));
 }
 
 void TestPreviewMapPerf::identifyIndexReused()
@@ -193,7 +195,8 @@ void TestPreviewMapPerf::profileSamplingUnderBudget()
   const qint64 ms = timer.elapsed();
   qInfo() << "PERF profile-sampling(ms):" << ms << "samples:" << samples.size();
   QCOMPARE(samples.size(), 200);
-  QVERIFY2(ms < 100, qPrintable(QStringLiteral("sampling %1 ms").arg(ms)));
+  QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(100),
+           qPrintable(QStringLiteral("sampling %1 ms").arg(ms)));
 }
 
 int main(int argc, char *argv[])

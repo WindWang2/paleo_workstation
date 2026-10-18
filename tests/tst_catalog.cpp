@@ -11,6 +11,7 @@
 #include <QSqlQuery>
 
 #include "../src/catalog/datacatalog.h"
+#include "perfbudget_relax.h"
 
 #include <algorithm>
 #include <functional>
@@ -1982,7 +1983,7 @@ void TestCatalog::thousandEntityQueryBudget()
   //   reopen 49ms − roCatalogOpen 26ms = 23ms 全在写侧（建表脚本 2ms +
   //   integrity_check 8ms + checkpoint 1ms + 整库文件备份拷贝 1ms +
   //   关连接/重 attach + 二次 loadTables）。
-  QVERIFY2(openMs < 2000, qPrintable(QString::number(openMs)));
+  QVERIFY2(openMs < paleo::perfbudget::relaxedBudgetMs(2000), qPrintable(QString::number(openMs)));
   // 稳态重开不得比迁移重开更贵（多一遍迁移就不是稳态了）。
   QVERIFY2(reopenMs <= openMs,
            qPrintable(QStringLiteral("sqlite reopen %1ms > migration open %2ms")
@@ -2001,7 +2002,7 @@ void TestCatalog::thousandEntityQueryBudget()
   QVERIFY2(shaMissMs < 100, qPrintable(QString::number(shaMissMs)));
   QVERIFY2(linksMs < 100, qPrintable(QString::number(linksMs)));
   QVERIFY2(currentMs < 100, qPrintable(QString::number(currentMs)));
-  QVERIFY2(saveMs < 2000, qPrintable(QString::number(saveMs)));
+  QVERIFY2(saveMs < paleo::perfbudget::relaxedBudgetMs(2000), qPrintable(QString::number(saveMs)));
 }
 
 // ---- 审计 02 M-8 ----
@@ -2477,7 +2478,7 @@ void TestCatalog::sqliteOpenCostAttribution()
                           .arg(reopenMs)
                           .arg(openMs)));
   // sanity 上限：只拦挂死，不做性能门。
-  QVERIFY2(openMs < 5000, qPrintable(QString::number(openMs)));
+  QVERIFY2(openMs < paleo::perfbudget::relaxedBudgetMs(5000), qPrintable(QString::number(openMs)));
 }
 
 

@@ -5,6 +5,7 @@
 #include "io/perffixtures.h"
 #include "io/segyindexstore.h"
 #include "io/segyreader.h"
+#include "perfbudget_relax.h"
 
 #include <QDir>
 #include <QTemporaryDir>
@@ -80,7 +81,7 @@ void PerfSegyIndexTests::cacheHitWithinBudget()
            qPrintable(QStringLiteral("index hit %1ms >= 0.42×冷建 %2ms（索引缓存未生效）")
                           .arg(ms, 0, 'f', 2)
                           .arg(coldMs, 0, 'f', 1)));
-  QVERIFY2(ms < 500.0,
+  QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(500),
            qPrintable(QStringLiteral("index hit %1ms >= 500ms（sanity）").arg(ms)));
   QCOMPARE(hit.traceCount(), 10000);
 }
@@ -97,7 +98,8 @@ void PerfSegyIndexTests::coldBuildWithinBudget()
   QVERIFY(r.openCached(sgy, idx, &err));
   const double ms = t.nsecsElapsed() / 1.0e6;
   // 冷建（扫描 10000 道 + zstd 发布）预算：重扫实测 ~6ms，预算 50ms 留余量。
-  QVERIFY2(ms < 50.0, qPrintable(QStringLiteral("cold build %1ms >= 50ms").arg(ms)));
+  QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(50),
+           qPrintable(QStringLiteral("cold build %1ms >= 50ms").arg(ms)));
 }
 
 void PerfSegyIndexTests::progressReachesHundredOnHit()

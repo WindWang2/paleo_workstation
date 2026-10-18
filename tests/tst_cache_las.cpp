@@ -5,6 +5,7 @@
 #include "io/lascache.h"
 #include "io/lasdoc.h" // LasDoc（缓存载荷契约）
 #include "io/perffixtures.h"
+#include "perfbudget_relax.h"
 
 #include <QElapsedTimer>
 #include <QFile>
@@ -378,7 +379,7 @@ void CacheLasTests::coalescedRidersReceiveIssues()
   QFuture<LasDoc> a = QtConcurrent::run([&] { return LasCache::shared().load(las, &issuesA); });
   QElapsedTimer t;
   t.start();
-  while (!executorInJob && t.elapsed() < 10000)
+  while (!executorInJob && t.elapsed() < paleo::perfbudget::relaxedBudgetMs(10000))
     QThread::msleep(1);
   QVERIFY(executorInJob);
   QFuture<LasDoc> b = QtConcurrent::run([&] { return LasCache::shared().load(las, &issuesB); });

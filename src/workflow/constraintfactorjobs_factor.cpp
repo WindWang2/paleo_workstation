@@ -673,6 +673,15 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
     paleo::workflow_detail::setError( error, tr( "请先选择成图边界图层" ) );
     return false;
   }
+  if ( boundaryId.startsWith( QLatin1String( "constraints." ) ) )
+  {
+    const QString horizonName = boundaryId.mid( QStringLiteral( "constraints." ).size() );
+    paleo::workflow_detail::setError(
+        error, tr( "成图边界选中的是「%1 约束线」。约束线是方向线或打断线，不是成图边界面。"
+                   "请改选测区范围，或用「导入…」加入面图层。" )
+                   .arg( horizonName.isEmpty() ? boundaryId : horizonName ) );
+    return false;
+  }
 
   QgsMapLayer *points = layers->instantiate( pointsId, error );
   if ( !points )

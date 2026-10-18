@@ -517,6 +517,7 @@ class FactorPageTests : public QObject
     void contourIntervalResetsAcrossFactorTypes(); // 方向04 D9：等值距自动态不跨因素类型残留
     void parseLevelsDroppedTokensAreRefused();     // 方向04 D10：脏级别 token 不静默吞
     void staleSuffixSurvivesLayerRedeclare();      // 方向04 D11：「（旧输入）」标记不被重声明抹掉
+    void structuralBoundaryComboHidesConstraintLines(); // 成图边界不列出约束线，也不默认选它
     void factorResultsTableShowsLineageColumn();   // P4：成果表第 4 列「来源与质控」+ 明细 tooltip
     void interpretiveResultsShowInFactorResultsTable(); // U7：制图工作场进成果表 + 解释性等值线回执即时刷新
     void wellFactorFieldFetchesAreCached();        // U10：字段清单按（层位,数据世代）缓存，勾选不重取
@@ -1399,6 +1400,58 @@ void FactorPageTests::staleSuffixSurvivesLayerRedeclare()
   page.noteFactorLayer( QStringLiteral( "poro" ), QStringLiteral( "factor.T1.poro" ) );
   QVERIFY2( !factors->item( 3, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
             qPrintable( factors->item( 3, 3 )->text() ) );
+}
+
+void FactorPageTests::structuralBoundaryComboHidesConstraintLines()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  LayerManifest manifest( dir.filePath( QStringLiteral( "boundary.sqlite" ) ) );
+  QVERIFY( manifest.open() );
+  QgisLayerService layers( nullptr, &manifest );
+  QString err;
+  const auto declareVector = [&layers, &err]( const QString &id, const QString &title ) {
+    LayerDeclaration d;
+    d.layerId = id;
+    d.type = QStringLiteral( "vector" );
+    d.source = QStringLiteral( "/tmp/%1.geojson" ).arg( id );
+    d.title = title;
+    return layers.declare( d, &err );
+  };
+  // 声明顺序把约束线放在最前。旧下拉会把它显示成「constraints.C6」并默认选中。
+  QVERIFY2( declareVector( QStringLiteral( "constraints.C6" ), QString() ), qPrintable( err ) );
+  QVERIFY2( declareVector( QStringLiteral( "wells" ), QStringLiteral( "井位" ) ), qPrintable( err ) );
+  QVERIFY2( declareVector( QStringLiteral( "survey.area" ), QStringLiteral( "测区范围" ) ), qPrintable( err ) );
+
+  ConstraintPage page( nullptr );
+  page.bindLayerService( &layers );
+  auto *horizon = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  horizon->addItem( QStringLiteral( "D61" ) );
+  horizon->setCurrentIndex( 0 );
+  page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) )
+      ->item( 1, 0 )
+      ->setCheckState( Qt::Checked );
+  auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
+  auto *boundary = page.findChild<QComboBox *>( QStringLiteral( "factorBoundaryCombo" ) );
+  method->setCurrentIndex( method->findData( QStringLiteral( "structural_idw" ) ) );
+  QCOMPARE( boundary->currentData().toString(), QStringLiteral( "survey.area" ) );
+  QCOMPARE( boundary->currentText(), QStringLiteral( "测区范围" ) );
+  QVERIFY( boundary->findData( QStringLiteral( "constraints.C6" ) ) < 0 );
+  QVERIFY( boundary->findData( QStringLiteral( "wells" ) ) < 0 );
+
+  QVERIFY2( declareVector( QStringLiteral( "boundary.imported" ), QStringLiteral( "导入边界" ) ),
+            qPrintable( err ) );
+  method->setCurrentIndex( method->findData( QStringLiteral( "kriging" ) ) );
+  method->setCurrentIndex( method->findData( QStringLiteral( "structural_idw" ) ) );
+  QCOMPARE( boundary->currentData().toString(), QStringLiteral( "survey.area" ) );
+  QCOMPARE( boundary->itemData( 0 ).toString(), QStringLiteral( "boundary.imported" ) );
+
+  QVERIFY( layers.removeDeclaration( QStringLiteral( "boundary.imported" ), &err ) );
+  QVERIFY( layers.removeDeclaration( QStringLiteral( "survey.area" ), &err ) );
+  method->setCurrentIndex( method->findData( QStringLiteral( "kriging" ) ) );
+  method->setCurrentIndex( method->findData( QStringLiteral( "structural_idw" ) ) );
+  QVERIFY( boundary->currentData().toString().isEmpty() );
+  QCOMPARE( boundary->count(), 0 );
 }
 
 // ---- 任务 C（智能编图页）：融合清单栅格过滤/参考图/相属性/设计器入口。--

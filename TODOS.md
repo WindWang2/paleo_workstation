@@ -1,3 +1,21 @@
+## P2 — 新 worktree 首 configure 漏 include 的根因修复（from #484 P2, 2026-10-17）
+
+- - **noteRead 跨线程门覆盖面补全**（#476 后续）：`versions()`/`downstreamClosure`/`mutationSeq`/`catalogPath` 等读接口尚无线程门（当前 18 个 noteRead 点已覆盖高频读面；staging 副本路径全放行）。补齐时同步 tst_catalog liveReads 用例。Effort: S / Priority: P3
+**What:** 新 worktree 首次 configure 会漏 glm/saribbon/sbm/segyio 的 include 路径，再跑
+  同一条 configure 即恢复（症状与「再 configure 一次」操作手册见 BUILDING.md
+  「构建与测试」段）。#484 指出：坑已写成手册 12 天，根因修复始终没有独立
+  TODOS 条目跟踪——本条补上。根因方向：这些 vendored include 路径靠
+  configure 期探测产物（superbuild/prefix 或 cache 变量）在**第二次**
+  configure 才命中——候选修法是把探测移到 bootstrap/fetch-only 产出后立即
+  写入 cache，或在 configure 期对「目录存在但 cache 未命中」直接
+  FATAL_ERROR 早失败（与 #498 磁盘水位闸同「早失败并报明确原因」口径），
+  替代「红一轮再重跑」的隐式恢复。
+- **Why:** 首 configure 红一轮对新手是断头路；「再跑一次就好」的隐式约定
+  无法被 CI 捕获（CI 每次都是全新 worktree 形态）。
+- **Context:** BUILDING.md「独立 worktree 开发」段；#484 P2-1。
+- **Effort:** human: M / CC: M
+- **Priority:** P2
+
 ## P3 — 快捷键/帮助面后续（from goal/shortcuts-help, 2026-10-07）
 
 - **What:** 方向63 把全仓键位收进 `src/ui/shortcuts/shortcutcatalog.cpp` 中央注册表，但按红线「不改键序/上下文/行为」，

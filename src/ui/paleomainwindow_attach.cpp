@@ -136,6 +136,32 @@ void declareGriddedRaster(PaleoMainWindow *win, QgisLayerService *layerSvc,
                               QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
 }
 
+// #481 P3-9：网格化与面运算共用一只 workflow（挂窗下、objectName 寻址复用，
+// 信号连接只在首建时打一次）。旧路径每条命令 new 一只挂 win 下不复用——
+// 实例随使用次数线性累积；workflow 自身无逐次运行态（成员只有 catalog/
+// 工程目录/屏障源绑定，逐命令重设），复用行为守恒。
+SurfaceGriddingWorkflow *sharedGriddingWorkflow(PaleoMainWindow *win,
+                                                QgisLayerService *layerSvc)
+{
+  if (auto *existing =
+          win->findChild<SurfaceGriddingWorkflow *>(QStringLiteral("paleoGriddingWorkflow")))
+    return existing;
+  auto *wf = new SurfaceGriddingWorkflow(layerSvc, win);
+  wf->setObjectName(QStringLiteral("paleoGriddingWorkflow"));
+  QObject::connect(wf, &SurfaceGriddingWorkflow::rasterReady, win,
+                   [win, layerSvc](const QString &layerId, const QString &source,
+                                   const QString &title, const QString &horizon)
+                   { declareGriddedRaster(win, layerSvc, layerId, source, title, horizon); });
+  QObject::connect(wf, &SurfaceGriddingWorkflow::griddingFailed, win,
+                   [win](const QString &, const QString &error)
+                   {
+                     QgsMessageLog::logMessage(error, QStringLiteral("Paleo"),
+                                               Qgis::MessageLevel::Warning);
+                     win->statusBar()->showMessage(error, 10000);
+                   });
+  return wf;
+}
+
 void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QString &projectDir,
                         PaleoTaskService *taskSvc, QgisLayerService *layerSvc,
                         const QString &constraintGpkg, const QString &assetId)
@@ -172,20 +198,9 @@ void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QStrin
   if (!PaleoGriddingDialog::prompt(win, ctx, &req))
     return;
 
-  auto *wf = new SurfaceGriddingWorkflow(layerSvc, win);
+  auto *wf = sharedGriddingWorkflow(win, layerSvc);
   wf->setCatalog(catalog, projectDir);
   wf->setBarrierSource(constraintGpkg);
-  QObject::connect(wf, &SurfaceGriddingWorkflow::rasterReady, win,
-                   [win, layerSvc](const QString &layerId, const QString &source,
-                                   const QString &title, const QString &horizon)
-                   { declareGriddedRaster(win, layerSvc, layerId, source, title, horizon); });
-  QObject::connect(wf, &SurfaceGriddingWorkflow::griddingFailed, win,
-                   [win](const QString &, const QString &error)
-                   {
-                     QgsMessageLog::logMessage(error, QStringLiteral("Paleo"),
-                                               Qgis::MessageLevel::Warning);
-                     win->statusBar()->showMessage(error, 10000);
-                   });
 
   const QString horizon = a.displayName;
   const QByteArray textCopy = text;
@@ -261,12 +276,8 @@ void runSurfaceOps(PaleoMainWindow *win, QgisLayerService *layerSvc, DataCatalog
   if (!PaleoGriddingDialog::promptIsopach(win, candidates, &sel))
     return;
 
-  auto *wf = new SurfaceGriddingWorkflow(layerSvc, win);
+  auto *wf = sharedGriddingWorkflow(win, layerSvc);
   wf->setCatalog(catalog, projectDir);
-  QObject::connect(wf, &SurfaceGriddingWorkflow::rasterReady, win,
-                   [win, layerSvc](const QString &layerId, const QString &source,
-                                   const QString &title, const QString &horizon)
-                   { declareGriddedRaster(win, layerSvc, layerId, source, title, horizon); });
 
   const QString label = QStringLiteral("%1–%2")
                             .arg(PaleoGriddingDialog::safeAssetLabel(
@@ -574,11 +585,12 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   // 受管派生 + manifest 声明上图。视图只发意图信号（gridHorizonRequested）。
   if (dataPage && dataPage->listPanel() && m_previewDoc && m_previewDoc->catalog())
   {
-    const DataCatalog *catalogConst = m_previewDoc->catalog();
+    // #481 P3-10：catalog() 返回壳唯一写实例，旧代码自造 const 再 const_cast 偷写权（假只读签名）——直持可写指针。
+    DataCatalog *catalog = m_previewDoc->catalog();
     // #275：projectDir/gpkg 调用时现取——attach 期工程未打开，按值捕获的空
     // 串会让三入口恒报「先打开工程」，且若 attach 前已开工程会钉死旧目录。
     connect(dataPage->listPanel(), &DataListPanel::gridHorizonRequested, this,
-            [this, catalogConst, taskSvc](const QString &assetId)
+            [this, catalog, taskSvc](const QString &assetId)
             {
               const QString projectDir =
                   m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
@@ -588,7 +600,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 return;
               }
               const QString gpkg = m_projectStore ? m_projectStore->gpkgPath() : QString();
-              runHorizonGridding(this, const_cast<DataCatalog *>(catalogConst), projectDir,
+              runHorizonGridding(this, catalog, projectDir,
                                  taskSvc, m_layerSvc, gpkg, assetId);
             });
     // 方向 47：集合树的成员/统计叶节点 → 同上图通道（图签文案同源）。
@@ -602,7 +614,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
             });
     // 方向 32：井分层右键「编辑分层…」→ 版本化编辑对话框（GUI 线程单事务）。
     connect(dataPage->listPanel(), &DataListPanel::topsEditRequested, this,
-            [this, catalogConst](const QString &assetId)
+            [this, catalog](const QString &assetId)
             {
               const QString projectDir =
                   m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
@@ -611,14 +623,14 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 statusBar()->showMessage(tr("先打开工程再编辑分层（新版本需要受管目录）"));
                 return;
               }
-              WellTopsEditorDialog dlg(const_cast<DataCatalog *>(catalogConst), projectDir,
+              WellTopsEditorDialog dlg(catalog, projectDir,
                                        assetId, this);
               dlg.exec();
             });
     // 图层树栅格「面运算（等厚/体积）…」。
     if (m_layerPanel)
       connect(m_layerPanel, &LayerTreePanel::surfaceOpsRequested, this,
-              [this, catalogConst](const QString &)
+              [this, catalog](const QString &)
               {
                 const QString projectDir =
                     m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
@@ -627,7 +639,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                   statusBar()->showMessage(tr("面运算需要已打开的工程与图层声明"));
                   return;
                 }
-                runSurfaceOps(this, m_layerSvc, const_cast<DataCatalog *>(catalogConst),
+                runSurfaceOps(this, m_layerSvc, catalog,
                               projectDir);
               });
   }

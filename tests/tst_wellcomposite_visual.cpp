@@ -701,6 +701,12 @@ private slots:
         }
       }
     }
+    // #475：结构化明细行（无论过否，只要有超差点就打）——CI 红项分诊
+    //（tools/ci_triage_reds.py）grep 本行做 golden 预算核数（只缩不涨：
+    // over=N 超登记值即分诊红），GOLDEN-DIFF 保留坐标/色值供人工定位。
+    if (diffs > 0)
+      qInfo().noquote() << QStringLiteral("GOLDEN-SUMMARY over=%1/%2 tolerance=4")
+                                .arg(QString::number(diffs), QString::number(total));
     if (diffs > 4)
     {
       qInfo() << "GOLDEN-DIFF" << diffDetail.join(QStringLiteral(", "));

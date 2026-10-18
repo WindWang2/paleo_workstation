@@ -1,8 +1,9 @@
 // 层：视图
 #include "wellcompositestore.h"
 
+#include "../../services/jsonsidecar.h"
+
 #include <QDateTime>
-#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
@@ -179,25 +180,23 @@ WellCompositeStore::WellCompositeStore(const QString &sourceDataPath)
 
 bool WellCompositeStore::load()
 {
-  QFile f(m_sidecarPath);
-  if (!f.exists())
-    return true; // 空 sidecar 是合法状态
-  if (!f.open(QIODevice::ReadOnly))
-    return false;
-  const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
-  if (doc.isNull())
-    return false;
+  // #482 收敛：读/写走数据层 jsonsidecar helper（损坏留痕清洗 + 原子写）。
+  // 旧 save() 是 QFile Truncate 直写——断电/崩溃留半截 .wc.json，下次装载
+  // 判损坏整库作废（钉注/书签/地层归属全丢）。
+  bool ok = false;
+  const QJsonDocument doc =
+    paleo::readJsonFile( m_sidecarPath, "wellcomposite sidecar", &ok );
+  if ( !ok )
+    return false; // 打不开/损坏：如实失败（不存在 → ok=true 的空 doc，合法）
   m_doc = doc.object();
   return true;
 }
 
 bool WellCompositeStore::save() const
 {
-  QFile f(m_sidecarPath);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-    return false;
-  f.write(QJsonDocument(m_doc).toJson(QJsonDocument::Indented));
-  return true;
+  return paleo::writeJsonFile( m_sidecarPath, QJsonDocument( m_doc ),
+                               "wellcomposite sidecar",
+                               QJsonDocument::Indented );
 }
 
 namespace {

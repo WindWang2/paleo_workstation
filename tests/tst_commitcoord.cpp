@@ -4,7 +4,10 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSignalSpy>
 #include <QTemporaryDir>
+
+#include <stdexcept>
 
 #include "../src/metadata/paleoprojectstore.h"
 
@@ -231,6 +234,86 @@ private slots:
     QCOMPARE( calls, 0 );
     QCOMPARE( journalStage( dir.path(), opId ),
               QStringLiteral( "catalog_done" ) ); // 记档未被推进
+  }
+
+  // #462：catalog 回调抛异常（provider/GDAL 异常裸穿）→ 转写失败结果，
+  // writeFailed 照发、writeCompleted 不发、qgz 单元不执行、记档停在 queued
+  // 可被 recover 上报——与「单元返回失败」同口径，异常不得穿出丢信号。
+  void throwingCatalogCallbackConvertsToFailureAndSignals()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    PaleoProjectStore *store = makeStore( this, dir.path() );
+    const QString opId = QStringLiteral( "op-throw-cat" );
+    QSignalSpy failed( store, &PaleoProjectStore::writeFailed );
+    QSignalSpy completed( store, &PaleoProjectStore::writeCompleted );
+
+    int qgzCalls = 0;
+    const auto res = store->commitAll(
+        opId, QStringLiteral( "d" ),
+        []() -> PaleoProjectStore::WriteResult {
+          throw std::runtime_error( "provider blew up" );
+        },
+        [&]() -> PaleoProjectStore::WriteResult { ++qgzCalls; return ok(); } );
+    QVERIFY( !res.ok );
+    QVERIFY2( res.error.contains( QStringLiteral( "provider blew up" ) ),
+              qPrintable( res.error ) );
+    QCOMPARE( qgzCalls, 0 );                       // 异常即停——后续单元不执行
+    QCOMPARE( journalStage( dir.path(), opId ), QStringLiteral( "queued" ) );
+    QCOMPARE( failed.size(), 1 );                  // writeFailed 未被异常吞掉
+    QCOMPARE( completed.size(), 0 );
+    QVERIFY2( failed.first().first().toString().endsWith( QStringLiteral( "catalog.json" ) ),
+              qPrintable( failed.first().first().toString() ) );
+    // 状态一致：未完成记档进 recover 上报面（崩溃恢复语义不因异常路径破缺）。
+    const QVector<PaleoProjectStore::CommitOp> pending = store->recoverCommitJournal();
+    QCOMPARE( pending.size(), 1 );
+    QCOMPARE( pending.first().opId, opId );
+    QCOMPARE( pending.first().stage, QStringLiteral( "queued" ) );
+  }
+
+  // #462：qgz 回调抛非 std 异常 → 同样转失败结果；记档停在 catalog_done，
+  // 同 opId+同摘要续跑补齐 qgz 后 complete——异常路径与失败路径状态一致。
+  void throwingQgzCallbackConvertsToFailureAndResumes()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    PaleoProjectStore *store = makeStore( this, dir.path() );
+    const QString opId = QStringLiteral( "op-throw-qgz" );
+    QSignalSpy failed( store, &PaleoProjectStore::writeFailed );
+    QSignalSpy completed( store, &PaleoProjectStore::writeCompleted );
+
+    int catCalls = 0, qgzCalls = 0;
+    auto res = store->commitAll(
+        opId, QStringLiteral( "d" ),
+        [&]() -> PaleoProjectStore::WriteResult { ++catCalls; return ok(); },
+        []() -> PaleoProjectStore::WriteResult { throw 42; } );
+    QVERIFY( !res.ok );
+    QVERIFY2( !res.error.isEmpty(), qPrintable( res.error ) );
+    QCOMPARE( catCalls, 1 );
+    QCOMPARE( qgzCalls, 0 );
+    QCOMPARE( journalStage( dir.path(), opId ), QStringLiteral( "catalog_done" ) );
+    QCOMPARE( failed.size(), 1 );                  // qgz 的 writeFailed 未被异常吞掉
+    QVERIFY2( failed.first().first().toString().endsWith( QStringLiteral( "proj.qgz" ) ),
+              qPrintable( failed.first().first().toString() ) );
+    QCOMPARE( completed.size(), 1 ); // catalog 单元已成功——其 writeCompleted 照发
+    QVERIFY2( completed.first().first().toString().endsWith( QStringLiteral( "catalog.json" ) ),
+              qPrintable( completed.first().first().toString() ) );
+    QCOMPARE( store->recoverCommitJournal().size(), 1 );
+
+    // 续跑：catalog 不重跑，qgz 这次正常 → complete（恢复语义未受损）。
+    failed.clear();
+    completed.clear();
+    res = store->commitAll(
+        opId, QStringLiteral( "d" ),
+        [&]() -> PaleoProjectStore::WriteResult { ++catCalls; return ok(); },
+        [&]() -> PaleoProjectStore::WriteResult { ++qgzCalls; return ok(); } );
+    QVERIFY2( res.ok, qPrintable( res.error ) );
+    QCOMPARE( catCalls, 1 );
+    QCOMPARE( qgzCalls, 1 );
+    QCOMPARE( journalStage( dir.path(), opId ), QStringLiteral( "complete" ) );
+    QVERIFY( store->recoverCommitJournal().isEmpty() );
+    QCOMPARE( completed.size(), 1 );
+    QCOMPARE( failed.size(), 0 );
   }
 
   // catalog 单元失败：qgz 不执行，记档停在 queued，recover 能报告它。

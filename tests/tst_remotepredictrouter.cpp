@@ -9,11 +9,14 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QTimer>
 
 #include <cmath>
 #include <limits>
 #include <memory>
+
+#include <atomic>
 
 #include "../src/ai/onnxfixture.h"
 #include "../src/ai/onnxlocalpredictor.h"
@@ -245,6 +248,11 @@ class TestRemotePredictionRouter : public QObject
     void remoteJsonNullDeserializedToNodataNegative9999();
     void localFallbackTranslatesFaciesCodesAndNodata();
     void oversizeResponseAbortsDuringReceive();
+    // #479：本地 ORT 降级不得在 GUI 线程槽内同步执行（SHA 全读+会话构建+
+    // warmup+全网格推理是秒~分钟级重活）——断言 predict 落在非 GUI 线程且
+    // completed/failed 信号语义不变；取消后迟到的降级结果按过期丢弃。
+    void localFallbackRunsOffMainThread();
+    void cancelledLocalFallbackResultIsDropped();
 
   private:
     static bool waitSpy( QSignalSpy &spy, int count = 1, int timeoutMs = 15000 )
@@ -604,6 +612,94 @@ int main( int argc, char *argv[] )
 }
 
 #include "tst_remotepredictrouter.moc"
+
+// ---------------------------------------------------------------------------
+// #479：本地降级异步化。慢桩 predictor：进入 predict 置 inFlight、150ms 后
+// 置 finished——主线程泵事件能观察到 inFlight 且自身不被卡，即证明 predict
+// 与 GUI 线程并发（同步执行时 settleHealth 根本不会先返回）。
+// ---------------------------------------------------------------------------
+namespace
+{
+class SlowLocalPredictor : public LocalPredictor
+{
+  public:
+    std::atomic_bool insidePredict{ false };
+    std::atomic_bool finishedPredict{ false };
+    QThread *predictThread = nullptr;
+    bool isConfigured() const override { return true; }
+    QString engineId() const override { return QStringLiteral( "slow-stub" ); }
+    bool predict( const RemotePredictionRequest &request, QVector<int> &out,
+                  QString * ) override
+    {
+      predictThread = QThread::currentThread();
+      insidePredict.store( true );
+      QThread::msleep( 150 ); // 模拟 SHA 全读+会话构建+warmup+全网格推理
+      out = QVector<int>( qsizetype( request.columns ) * request.rows, 7 );
+      finishedPredict.store( true );
+      return true;
+    }
+};
+} // namespace
+
+void TestRemotePredictionRouter::localFallbackRunsOffMainThread()
+{
+  ManualTransport transport;
+  SlowLocalPredictor local;
+  RemotePredictionRouter router( &transport );
+  router.setLocalPredictor( &local );
+  QSignalSpy completed( &router, &RemotePredictionService::completed );
+  QSignalSpy failed( &router, &RemotePredictionService::failed );
+  router.start( makeRequest( 4, 4, true ) );
+  QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  transport.settleHealth( false, QStringLiteral( "健康检查失败: 桩" ) );
+  // settleHealth 已返回而 predict 仍在跑 = 降级不在 GUI 线程同步执行。
+  QElapsedTimer clock;
+  clock.start();
+  while ( !local.insidePredict.load() && clock.elapsed() < 5000 )
+    QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  QVERIFY2( local.insidePredict.load(), "降级推理必须已在工作线程开跑" );
+  QVERIFY2( waitSpy( completed ), "异步降级须完成并发出 completed" );
+  QCOMPARE( failed.size(), 0 );
+  QVERIFY2( local.predictThread != nullptr, "predict 已执行" );
+  QVERIFY2( local.predictThread != QThread::currentThread(),
+            "降级推理必须移出 GUI 线程（#479 P2）" );
+  const RemotePredictionResult result =
+    completed.at( 0 ).at( 0 ).value<RemotePredictionResult>();
+  QCOMPARE( result.method, QStringLiteral( "slow-stub" ) );
+  QCOMPARE( result.cells.size(), 16 );
+  QCOMPARE( router.lastRoute(), QStringLiteral( "slow-stub" ) );
+  QVERIFY( !router.busy() );
+}
+
+void TestRemotePredictionRouter::cancelledLocalFallbackResultIsDropped()
+{
+  ManualTransport transport;
+  SlowLocalPredictor local;
+  RemotePredictionRouter router( &transport );
+  router.setLocalPredictor( &local );
+  QSignalSpy completed( &router, &RemotePredictionService::completed );
+  QSignalSpy failed( &router, &RemotePredictionService::failed );
+  router.start( makeRequest( 4, 4, true ) );
+  QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  transport.settleHealth( false, QStringLiteral( "健康检查失败: 桩" ) );
+  QElapsedTimer clock;
+  clock.start();
+  while ( !local.insidePredict.load() && clock.elapsed() < 5000 )
+    QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  QVERIFY( local.insidePredict.load() );
+  // 降级推理在飞时取消：终态是「已取消」，迟到的降级 completed 不补发。
+  router.cancel();
+  QCOMPARE( failed.size(), 1 );
+  QVERIFY( failed.at( 0 ).at( 1 ).toString().contains( QStringLiteral( "已取消" ) ) );
+  clock.restart();
+  while ( !local.finishedPredict.load() && clock.elapsed() < 5000 )
+    QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  QVERIFY( local.finishedPredict.load() );
+  QCoreApplication::processEvents( QEventLoop::AllEvents, 200 ); // 排队的结算回调落地
+  QCOMPARE( completed.size(), 0 ); // 取消后的降级结果 = 幽灵，必须丢弃
+  QCOMPARE( failed.size(), 1 );    // 不再补第二条终态
+  QVERIFY( !router.busy() );
+}
 
 
 // #469：响应体上限必须在接收途中生效（声明超限 / 未声明长度但已收超限两路），

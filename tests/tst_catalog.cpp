@@ -133,6 +133,9 @@ private slots:
   void stagingCopyJournalsWithoutTouchingLive();
   void applyJournalIsAtomicOnFailure();
   void liveWritesRefusedOffOwnerThread();
+  // #476：跨线程读不再只告警——默认拒绝（空数据/失败值）+ 计数；
+  // 属主线程读不受影响。
+  void liveReadsRefusedOffOwnerThread();
   // 方向 79：版本 extra 就地更新通道（锚深后补编辑）契约。
   void updateVersionExtraContract();
   // 方向 01 B2：批次挂起中重开工程，删除面不得跨工程泄漏。
@@ -2149,6 +2152,49 @@ void TestCatalog::liveWritesRefusedOffOwnerThread()
   QCOMPARE(DataCatalog::threadViolationCount(), 2);
   QVERIFY(!live.hasEntity(QStringLiteral("well-9")));
   QVERIFY(!live.hasEntity(QStringLiteral("well-8")));
+  DataCatalog::resetThreadViolationCount();
+}
+
+// #476：跨线程读默认拒绝——QVector/QHash COW 下属主写+他线程读是真实 UB，
+// 此前 noteRead 非严格模式只 qWarning。现在读方法在属主线程外一律拿空数据/
+// 失败值并计数；属主线程读不受影响（join 后照常读到 worker 看不到的行）。
+void TestCatalog::liveReadsRefusedOffOwnerThread()
+{
+  QTemporaryDir tmp;
+  DataCatalog live;
+  QString err;
+  QVERIFY2(live.open(tmp.path(), &err), qPrintable(err));
+  QVERIFY2(live.addEntity(wellEntity(QStringLiteral("A1")), &err), qPrintable(err));
+  QVERIFY(live.hasEntity(QStringLiteral("well-A1"))); // 属主线程读通道先确认健康
+  DataCatalog::resetThreadViolationCount();
+
+  bool has = true, stagingCopyOk = true;
+  QString entityId, nextEntityId, nextAssetId;
+  int entityCount = -1, linkCount = -1;
+  std::thread worker([&] {
+    has = live.hasEntity(QStringLiteral("well-A1"));
+    entityId = live.entityById(QStringLiteral("well-A1")).id;
+    entityCount = live.entities().size();
+    linkCount = live.links().size();
+    nextEntityId = live.nextEntityId(QStringLiteral("ent"));
+    nextAssetId = live.nextAssetId();
+    stagingCopyOk = live.createStagingCopy(QString()) != nullptr;
+  });
+  worker.join();
+
+  QVERIFY(!has);                    // 拒绝面：不透出属主线程的内存
+  QVERIFY(entityId.isEmpty());
+  QCOMPARE(entityCount, 0);
+  QCOMPARE(linkCount, 0);
+  QVERIFY(nextEntityId.isEmpty());  // 序号分配同样拒绝，不推进属主状态
+  QVERIFY(nextAssetId.isEmpty());
+  QVERIFY(!stagingCopyOk);
+  QVERIFY(DataCatalog::threadViolationCount() >= 7); // 每次跨线程读都计数
+
+  // 属主线程读不受影响：拒绝是「他线程拿不到数据」，不是「数据被破坏」。
+  QVERIFY(live.hasEntity(QStringLiteral("well-A1")));
+  QCOMPARE(live.entityById(QStringLiteral("well-A1")).name, QStringLiteral("A1"));
+  QCOMPARE(live.entities().size(), 1);
   DataCatalog::resetThreadViolationCount();
 }
 

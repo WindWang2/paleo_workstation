@@ -156,6 +156,9 @@ private:
     void updateQualityLabel(const QString &quality);
     void activateFallback();         // D3.9
     void checkMemoryBudget();        // D3.8
+    // D3.6/#463：相机书签持久化唯一入口（保存/删除共用同一字段清单，防两份
+    // 序列化复制漂移——字段集演进只改这里）。
+    void persistCameraBookmarks() const;
 
     Seismic3DViewportWidget *viewport_ = nullptr;
     QPointer<SeismicTaskService> taskSvc_;

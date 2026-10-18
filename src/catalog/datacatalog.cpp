@@ -121,15 +121,18 @@ bool DataCatalog::checkWriteThread(const char *what, QString *error) const
   return false;
 }
 
-void DataCatalog::noteRead(const char *what) const
+bool DataCatalog::noteRead(const char *what) const
 {
   if (m_staging || !thread() || QThread::currentThread() == thread())
-    return;
+    return true;
+  // #476：跨线程读不再只告警——QVector/QHash COW 下属主写+他线程读是真实
+  // UB，默认拒绝：调用方拿空数据/失败值（strict 模式仍 qFatal 直接暴露）。
   const int n = g_threadViolations.fetch_add(1);
   if (strictThreads())
     qFatal("DataCatalog::%s read off the catalog thread", what);
-  if (n < 8) // 只告警前几次——诊断面是计数器
-    qWarning("DataCatalog::%s read off the catalog thread", what);
+  if (n < 8) // 只细说前几次——诊断面是计数器
+    qCritical("DataCatalog::%s refused: read off the catalog thread", what);
+  return false;
 }
 
 void DataCatalog::recordOp(CatalogOp op)
@@ -144,7 +147,8 @@ void DataCatalog::recordOp(CatalogOp op)
 
 std::unique_ptr<DataCatalog> DataCatalog::createStagingCopy(const QString &overlayDir) const
 {
-  noteRead("createStagingCopy");
+  if (!noteRead("createStagingCopy"))
+    return nullptr;
   auto copy = std::make_unique<DataCatalog>();
   copy->m_dir = m_dir;
   copy->m_isOpen = m_isOpen;

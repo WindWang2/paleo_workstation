@@ -26,6 +26,7 @@
 #include <qgsmapcanvas.h>
 #include <qgsmaptoolpan.h>
 #include <qgsmaptoolzoom.h>
+#include "maptools/identifytool.h"
 #include <qgsproject.h>
 #include <qgslayertree.h>
 #include <qgsvectorlayer.h>
@@ -157,7 +158,8 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   connect(toValidate, &QAction::triggered, this, [this] { showPage(QStringLiteral("validate")); });
 
   // 地图导航：原生 QGIS 工具；setAction 让工具激活/停用时自动勾选/取消。
-  QAction *panAct = nullptr, *zoomInAct = nullptr, *zoomOutAct = nullptr, *fullAct = nullptr;
+  QAction *panAct = nullptr, *zoomInAct = nullptr, *zoomOutAct = nullptr, *fullAct = nullptr,
+         *identifyAct = nullptr;
   if (m_canvasCtl)
   {
     QgsMapCanvas *cv = m_canvasCtl->canvas();
@@ -182,12 +184,16 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     fullAct = newAction(tr("全图"), icon("mActionZoomFullExtent.svg"), tr("缩放到全部图层"),
                         "ribbonZoomFullAction");
     connect(fullAct, &QAction::triggered, this, [this] { m_canvasCtl->zoomToFullExtent(); });
+    identifyAct = toolAction(new PaleoIdentifyTool(cv), tr("识别"), icon("mActionIdentify.svg"),
+                             tr("指针落到要素上时显示悬浮信息，多个命中可切换"),
+                             "ribbonIdentifyAction");
   }
   const auto navPanel = [&](SARibbonCategory *cat) {
     if (!panAct)
       return;
     SARibbonPanel *p = panel(cat, tr("地图"), "ribbonNavPanel");
     addLarge(p, panAct);
+    addSmall(p, identifyAct);
     addSmall(p, zoomInAct);
     addSmall(p, zoomOutAct);
     addSmall(p, fullAct);

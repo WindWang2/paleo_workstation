@@ -12,7 +12,7 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildPaleomapNavSpec() const 
     if (asset.type != "paleogeographic_map" || m_recycle.isRemoved(asset.id)) continue;
     const auto v = cat->currentVersion(asset.id); const auto h = v.extra.value("horizon").toString();
     NavNodeSpec leaf; leaf.id = asset.id; leaf.type = "paleomap"; leaf.text0 = asset.displayName;
-    leaf.text1 = tr("v%1 · %2 个配套文件").arg(v.versionNumber).arg(qMax(1, v.extra.value("bundle_members").toList().size()));
+    leaf.text1 = tr("v%1 · %2 个配套文件").arg(v.versionNumber).arg(v.extra.value("bundle_members").toList().size());
     leaf.tooltip0 = tr("层位：%1\n%2").arg(h, v.path); leaf.icon = "mIconPolygonLayer.svg";
     byHorizon[h].append(leaf); ++count;
   }

@@ -14,6 +14,7 @@
 #include <qgsspatialindex.h>
 #include <qgsvectorlayer.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -111,8 +112,12 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
   const double tol = qMax( 0.0, toleranceMapUnits );
   QgsRectangle filter( point.x() - tol, point.y() - tol, point.x() + tol, point.y() + tol );
 
-  // 层序自顶而下——先命中的在上面（结果面板序 = 视觉序）。
-  for ( QgsMapLayer *ml : layers )
+  // 调用方传入的是画布绘制序（QgsMapCanvas::layers 自底而上）：反转后自顶
+  // 而下扫描，先命中的排在结果前面（结果面板序 = 视觉堆叠序）。两个调用方
+  // （主画布识别工具 / 预览页）都直接传 canvas 层表，倒序契约在此内化。
+  QList<QgsMapLayer *> scan = layers;
+  std::reverse( scan.begin(), scan.end() );
+  for ( QgsMapLayer *ml : scan )
   {
     if ( !ml )
       continue;
@@ -187,7 +192,9 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyRect(
   QVector<PreviewIdentifyResult> out;
   if ( rect.isEmpty() )
     return out;
-  for ( QgsMapLayer *ml : layers )
+  QList<QgsMapLayer *> scan = layers;
+  std::reverse( scan.begin(), scan.end() );
+  for ( QgsMapLayer *ml : scan )
   {
     auto *vl = qobject_cast<QgsVectorLayer *>( ml );
     if ( !vl || !vl->isValid() )

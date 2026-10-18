@@ -663,6 +663,46 @@ private slots:
     QVERIFY2(!hint->text().contains(QStringLiteral("尚未提取")), qPrintable(hint->text()));
     QVERIFY2(hint->text().contains(QStringLiteral("已保存为 v1")), qPrintable(hint->text()));
   }
+  // D-01 回归（2026-10-19 审计第三轮）：#544 只修了口径切换路径，
+  // 「单因素表换行勾选」路径漏恢复——勾上另一因素后逐井表残留上一因素的
+  // 提取值，等值距建议按旧值域计算，错误默认会被静默提交。修复：勾选换行
+  // 同样先 restoreWellFactorDisplay 再算建议。
+  void factorRowSwitchRestoresPerFactorWellTable() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QString error;
+    QVERIFY(WellAttributeStore::seedFactors(&f.catalog, f.dir.path(), &f.layers,
+                                            {QVariantMap{{"well_id", "W1"},
+                                                         {"horizon", "D61"},
+                                                         {"log_sand_thickness_md", 8.0},
+                                                         {"log_layer_thickness_md", 20.0},
+                                                         {"sand_ratio", 0.4}}},
+                                            &error));
+    ConstraintWorkflow factors(&f.proc, &f.layers);
+    factors.setCatalog(&f.catalog, f.dir.path());
+    QVariantMap direct{{"factorMode", "direct"},
+                       {"valueField", "log_sand_thickness_md"},
+                       {"numeratorField", "log_sand_thickness_md"},
+                       {"denominatorField", "log_layer_thickness_md"}};
+    QVERIFY2(factors.extractWellFactors("D61", "sandthick", direct, &error),
+             qPrintable(error));
+    ConstraintPage page(&factors);
+    page.setHorizons({"D61"});
+    page.findChild<QComboBox *>("horizonCombo")->setCurrentIndex(0);
+    auto *factorTable = page.findChild<QTableWidget *>("factorTable");
+    factorTable->item(0, 0)->setCheckState(Qt::Checked); // 砂体厚度：表显示 8
+    auto *table = page.findChild<QTableWidget *>("wellFactorTable");
+    auto *hint = page.findChild<QLabel *>("wellFactorHint");
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 1)->text(), QStringLiteral("8"));
+    // 直接勾选另一因素行（不经口径下拉）：口径仍是 direct，sandratio 无
+    // 已保存版本 → 表必须如实清空（修复前残留上一因素的「8」，且等值距
+    // 建议按 8 所在值域计算）。
+    factorTable->item(1, 0)->setCheckState(Qt::Checked); // 砂地比
+    QCOMPARE(table->rowCount(), 0);
+    QVERIFY2(hint->text().contains(QStringLiteral("尚未提取")), qPrintable(hint->text()));
+  }
   // 砂地比物理域门：维护值组合（砂厚 25/层厚 20——各字段单独合法，属性表
   // 校验不查组合）绕过单字段校验后，提取端必须拒收越界比值井并注明原因，
   // 不静默裁剪、不带病插值；合法比值（15/20=0.75）照常参与。

@@ -775,8 +775,23 @@ bool seedFactors(DataCatalog *catalog, const QString &dir,
         found = f;
         break;
       }
-    if (found.isValid())
-      continue; // 已维护行（含显式空值）不被自动重算覆盖。
+    if (found.isValid()) {
+      // 已维护的非空数值不被自动重算覆盖；NULL 格子是上次获取没算出值的
+      // 残留（或用户清空后重新获取），用本次结果补齐——空行不补会永久
+      // 屏蔽该井的计算值，且无自愈路径（D61 全空井组即此坑）。
+      bool ok = true;
+      for (auto i = row.cbegin(); i != row.cend(); ++i) {
+        const int index = layer->fields().indexOf(i.key());
+        if (index < 0 || i.value().isNull() || !found.attribute(index).isNull())
+          continue;
+        ok = layer->changeAttributeValue(found.id(), index, i.value()) && ok;
+      }
+      if (!ok) {
+        layer->rollBack();
+        return fail(error, tr("井点因子补齐失败"));
+      }
+      continue;
+    }
     auto next = featureFor(layer, catalog, row);
     if (!layer->addFeature(next)) {
       layer->rollBack();

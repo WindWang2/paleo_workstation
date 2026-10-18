@@ -20,6 +20,7 @@
 
 class PaleoProjectStore;
 class QProcess;
+class QTimer; // #555：转换挂死看门狗（两段式终止计时）
 struct PlannedItem; // io/ingestplan.h（前向声明——C 包 plan 项按引用传）
 struct IngestPlan;  // io/ingestplan.h（planFor 返回值；定义侧 include）
 struct ImportSession; // 见文件尾：produce-then-commit 的一次导入（审计 02 M-8）
@@ -339,6 +340,16 @@ class DataImportService : public QObject
     void queueConversion(const QString &assetId, const QString &outExt);
     void startNextConversion();
     void finishConversion(int exitCode);
+    // #555：soffice 挂死两段式回收（口径同 services/scriptrunner.cpp 的
+    // terminateGracefully——就近复制模式而非抽公共助手：两侧进程生命周期
+    // 模型不同，Run 结构体 vs 单槽位成员，抽离强造间接层不抵改动面）。
+    // 超时 → SIGTERM 整组（setsid 进程组连坐 soffice.bin 孙进程）→
+    // 2s 优雅窗口 → SIGKILL 整组。
+    void terminateConversionGracefully();
+    void stopConversionTimers();
+    // 析构/工程切换共用：在途转换整组强杀 + 看门狗停表（不发失败信号——
+    // 队列/状态由调用方整体作废）。
+    void abortInflightConversion();
 
     PaleoProjectStore *m_store;
     QString m_projectDir;
@@ -351,6 +362,9 @@ class DataImportService : public QObject
     QString m_converter;            // "" 未解析/不可用
     bool m_converterResolved = false;
     QProcess *m_convProc = nullptr; // 非空即转换在途
+    QTimer *m_convTimeoutTimer = nullptr; // #555 挂死看门狗（超时触发两段式终止）
+    QTimer *m_convKillTimer = nullptr;    // 优雅退出窗口计时（SIGTERM→SIGKILL 递进）
+    bool m_convTimedOut = false;          // 本次转换已超时（失败文案区分）
     // FE-004：LibreOffice 独立 UserInstallation 目录——随机名（防多用户机
     // 预布设 symlink）+ 服务存续期保活 + 析构自动清理（旧实现是固定名
     // /tmp/paleo-lo-profile-<pid> 且全仓无清理，跨会话在 /tmp 永久累积）。

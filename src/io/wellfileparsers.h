@@ -1,8 +1,12 @@
 // 层：数据
 #pragma once
 #include <QByteArray>
+#include <QCryptographicHash>
+#include <QIODevice>
 #include <QString>
 #include <QVector>
+
+#include <optional>
 
 #include "../domain/wellrecords.h" // WellHeadRecord/WellTopRecord/TdRow/TimeDepthTable
 
@@ -15,6 +19,25 @@ QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text, WellParseRepor
 
 QVector<WellTopRecord> parseWellTopsText(const QByteArray &text);
 QVector<WellTopRecord> parseWellTopsText(const QByteArray &text, WellParseReport *report);
+
+// #561 流式逐行入口：与整读版同一解析核、同一报告/错误口径（编码嗅探对
+// 全文件语义等价——先一趟 O(64KB) 内存嗅探，再逐行解码喂核；UTF-16 BOM
+// 或顺序设备（fifo）退回整读兜底）。dev 需已打开只读；上限闸在调用方
+//（井表导入按 LasParser::fileSizeLimit 拒大文件）。runningHash 非空时随读
+// 喂哈希——对全部读过字节的哈希与「readAll 后整段哈希」等价，供调用方做
+// 读取期间突变复验。nullopt = 读失败（ioError 给设备侧原因）。
+std::optional<QVector<WellHeadRecord>>
+parseWellHeadDevice(QIODevice *dev, QCryptographicHash *runningHash,
+                    WellParseReport *report, QString *ioError = nullptr);
+std::optional<QVector<WellTopRecord>>
+parseWellTopsDevice(QIODevice *dev, QCryptographicHash *runningHash,
+                    WellParseReport *report, QString *ioError = nullptr);
+std::optional<TimeDepthTable>
+parseTimeDepthDevice(QIODevice *dev, QCryptographicHash *runningHash,
+                     WellParseReport *report, QString *ioError = nullptr);
+std::optional<DeviationTable>
+parseDeviationDevice(QIODevice *dev, QCryptographicHash *runningHash,
+                     WellParseReport *report, QString *ioError = nullptr);
 
 // 井分层文本写侧（方向 32 编辑落库）：parseWellTopsText 的逆。
 // 列序 井名 层名 MD X Y Z TVD Time(ms)；缺失值写 -99999.000；

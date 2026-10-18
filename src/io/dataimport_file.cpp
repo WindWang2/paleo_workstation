@@ -192,21 +192,43 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     if (!source.open(QIODevice::ReadOnly))
       return fail(QCoreApplication::translate("DataImportService", "无法读取井表 %1：%2")
                       .arg(sourcePath, source.errorString()));
-    // #387：井文本整读+split 无超限闸——GB 级文件直接 OOM。与 LAS 500MB
-    // 同口径（fileSizeLimit 可被测试收紧）。
+    // #387：井文本大文件闸——与 LAS 500MB 同口径（fileSizeLimit 可被测试收紧）。
     if (source.size() > LasParser::fileSizeLimit())
       return fail(QCoreApplication::translate("DataImportService", "井表过大（%1 MB 上限）：%2")
                       .arg(LasParser::fileSizeLimit() / (1024 * 1024))
                       .arg(sourcePath));
-    const QByteArray bytes = source.readAll();
-    if (source.error() != QFileDevice::NoError)
-      return fail(QCoreApplication::translate("DataImportService", "读取井表失败 %1：%2").arg(sourcePath, source.errorString()));
-    if (QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()) != sourceSha)
+    // #561：上限内整读 readAll（数百 MB 级峰值）改流式逐行——解析核与整读
+    // 版同一实现（wellfileparsers 两路共用），报告/错误口径不变；哈希随读
+    // 喂，读毕与 sourceSha 比对（等价旧「对 readAll 字节重哈希」的突变复验）。
+    QCryptographicHash streamHash(QCryptographicHash::Sha256);
+    QString ioErr;
+    bool parsed = false;
+    if (cls.type == QLatin1String("well_head"))
+    {
+      const auto rows = parseWellHeadDevice(&source, &streamHash, &wellReport, &ioErr);
+      if (rows) { parsedHeads = *rows; parsed = true; }
+    }
+    else if (cls.type == QLatin1String("well_stratification"))
+    {
+      const auto rows = parseWellTopsDevice(&source, &streamHash, &wellReport, &ioErr);
+      if (rows) { parsedTops = *rows; parsed = true; }
+    }
+    else if (cls.type == QLatin1String("time_depth"))
+    {
+      const auto table = parseTimeDepthDevice(&source, &streamHash, &wellReport, &ioErr);
+      if (table) { parsedTd = *table; parsed = true; }
+    }
+    else
+    {
+      const auto table = parseDeviationDevice(&source, &streamHash, &wellReport, &ioErr);
+      if (table) { parsedDev = *table; parsed = true; }
+    }
+    if (!parsed)
+      return fail(QCoreApplication::translate("DataImportService", "读取井表失败 %1：%2")
+                      .arg(sourcePath,
+                           ioErr.isEmpty() ? source.errorString() : ioErr));
+    if (QString::fromLatin1(streamHash.result().toHex()) != sourceSha)
       return fail(QCoreApplication::translate("DataImportService", "井表读取期间内容发生变化，请重试：%1").arg(sourcePath));
-    if (cls.type == QLatin1String("well_head")) parsedHeads = parseWellHeadText(bytes, &wellReport);
-    else if (cls.type == QLatin1String("well_stratification")) parsedTops = parseWellTopsText(bytes, &wellReport);
-    else if (cls.type == QLatin1String("time_depth")) parsedTd = parseTimeDepthText(bytes, &wellReport);
-    else parsedDev = parseDeviationText(bytes, &wellReport);
     parseSummary = wellParseSummary(wellReport);
     if (wellReport.acceptedRows == 0)
       return fail(QCoreApplication::translate("DataImportService", "井表没有可用数据行：%1；%2")

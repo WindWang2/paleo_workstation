@@ -127,7 +127,7 @@ namespace
     TopsColumnMap m;
     for (int i = 0; i < tokens.size(); ++i)
     {
-      const QString t = tokens.at(i);
+      const QString &t = tokens.at(i);
       if (m.well < 0 && tokenMatches(t, {QStringLiteral("wellname"),
                                           QStringLiteral("well"),
                                           QStringLiteral("井名"), QStringLiteral("井号")}))

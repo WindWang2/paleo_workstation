@@ -125,7 +125,7 @@ QString ShaCache::sha256Hex(const QString &path, QString *error, Fingerprint fp)
       }
       if (diskHit)
       {
-        const QString sha = parts.constLast();
+        const QString &sha = parts.constLast();
         m_mem.insert(fpKey, sha);
         m_diskAge.insert(canon, QDateTime::currentMSecsSinceEpoch());
         ++m_counts.diskHits;

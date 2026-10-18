@@ -215,7 +215,12 @@ void TestScriptRunner::unbrokenFloodOutputStaysBounded()
   QSignalSpy finishedSpy(&svc, &ScriptRunnerService::runFinished);
   qint64 maxLineChars = 0, totalChars = 0;
   connect(&svc, &ScriptRunnerService::runOutput, this,
-          [&](qint64, const QString &line, bool) {
+          [&](qint64, const QString &line, bool stderrChannel) {
+            // 只计 stdout：Windows 托管 Python 会往 stderr 打 54 字符的
+            // "Could not find platform independent libraries <prefix>"，
+            // 混进总量即 2097206 ≠ 2 MiB（windows job 恒红）。
+            if (stderrChannel)
+              return;
             maxLineChars = qMax(maxLineChars, qint64(line.size()));
             totalChars += line.size();
           });

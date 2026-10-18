@@ -150,7 +150,10 @@ private slots:
       QElapsedTimer t;
       t.start();
       QVERIFY(vol->ExtractSlice(seismic::SgySliceType::Inline, midInline, img, err));
-      extractMs = std::min(extractMs, double(t.elapsed()));
+      // 纳秒精度：热态页缓存下 400×1024 切片提取可 <1ms，整数毫秒 elapsed()
+      // 归零 → 下行 extractMs>0 断言 0.18s 即红（linux-perf 间歇红）。精度
+      // 只会让 extractMs ≥ 旧的向下取整值，比率门不因此变严。
+      extractMs = std::min(extractMs, double(t.nsecsElapsed()) / 1.0e6);
     }
     QVERIFY(extractMs > 0.0);
 

@@ -36,8 +36,8 @@ src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:351
 src/ui/pages/datalist.cpp:fn:DataListPanel:480
 src/ui/pages/datalist.cpp:fn:buildDataOpsUi:337
 src/ui/pages/datalist_table.cpp:fn:renderAssetPage:388
-src/ui/pages/datalist_tree.cpp:file:1111
-src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:693
+src/ui/pages/datalist_tree.cpp:file:1094
+src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:676
 src/ui/pages/entitypanel.cpp:file:1620
 src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
 src/ui/pages/entitypanel.cpp:fn:refresh:782
@@ -46,11 +46,11 @@ src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:659
 src/ui/pages/mappingworkbenchpage.cpp:fn:renderEvidenceSnapshot:267
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:278
 src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:263
-src/ui/paleomainwindow.cpp:file:1018
+src/ui/paleomainwindow.cpp:file:1015
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:412
 src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:405
 src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:718
-src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:263
+src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:262
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:580
 src/ui/paleomainwindow_docks.cpp:fn:buildCenterArea:209
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:295

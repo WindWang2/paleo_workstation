@@ -39,3 +39,21 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildPaleomapNavSpec() const 
   }
   return {root, output};
 }
+
+DataListPanel::NavNodeSpec DataListPanel::buildOverviewNavSpec() const
+{
+  NavNodeSpec root;
+  root.text0 = tr("工区概况"); root.text1 = tr("看板 / 工区地图");
+  root.type = QStringLiteral("category"); root.sub = QStringLiteral("project_overview");
+  root.icon = QStringLiteral("mIconPolygonLayer.svg"); root.expanded = true;
+  NavNodeSpec dashboard;
+  dashboard.text0 = tr("工区看板"); dashboard.text1 = tr("统计与项目进度");
+  dashboard.id = QStringLiteral("project_dashboard"); dashboard.type = QStringLiteral("survey_area");
+  dashboard.icon = QStringLiteral("mLayoutItemChart.svg");
+  root.children.append(dashboard);
+  NavNodeSpec map;
+  map.text0 = tr("工区全景地图"); map.text1 = tr("QGIS 地图画布");
+  map.id = QStringLiteral("survey_area"); map.type = QStringLiteral("survey_area");
+  map.icon = QStringLiteral("mActionZoomFullExtent.svg"); root.children.append(map);
+  return root;
+}

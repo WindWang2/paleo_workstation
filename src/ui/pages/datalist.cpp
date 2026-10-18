@@ -351,11 +351,11 @@ DataListPanel::DataListPanel(QWidget *parent)
     const QString wellId = item->data(0, Qt::UserRole + 1).toString();
     const QString nodeType = item->data(0, Qt::UserRole + 2).toString();
     const QString lineMode = item->data(0, Qt::UserRole + 3).toString();
-
     if (nodeType == QLatin1String("survey_area") || assetId == QLatin1String("survey_area"))
     {
-      emit surveyAreaActivated();
-      emit assetFocusRequested(QStringLiteral("survey_area"));
+      if (assetId == QLatin1String("project_dashboard")) emit projectDashboardActivated();
+      else emit surveyAreaActivated();
+      emit assetFocusRequested(assetId);
       return;
     }
     // 方向 47：集合成员/统计面叶 → 壳侧物化图层（缺席叶已禁选，到不了这里）。
@@ -460,7 +460,7 @@ DataListPanel::DataListPanel(QWidget *parent)
     const QString nodeType = item->data(0, Qt::UserRole + 2).toString();
     if (nodeType == QLatin1String("survey_area") || assetId == QLatin1String("survey_area"))
     {
-      emit assetFocusRequested(QStringLiteral("survey_area"));
+      emit assetFocusRequested(assetId);
       return;
     }
     if (!assetId.isEmpty())

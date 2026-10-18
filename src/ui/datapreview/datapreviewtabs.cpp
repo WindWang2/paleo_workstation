@@ -178,7 +178,7 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
   m_tabs->tabBar()->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_tabs->tabBar(), &QWidget::customContextMenuRequested, this, [this](const QPoint &point) {
     const int index = m_tabs->tabBar()->tabAt(point); const QString asset = assetIdAt(index);
-    if (asset.isEmpty() || asset == QLatin1String("survey_area")) return;
+    if (asset.isEmpty() || asset == QLatin1String("survey_area") || asset == QLatin1String("project_dashboard")) return;
     const QString version = versionIdAt(index);
     QMenu menu(this); auto *graph = menu.addAction(tr("查看资料关联图谱"));
     if (menu.exec(m_tabs->tabBar()->mapToGlobal(point)) == graph) emit graphRequested(asset, version);

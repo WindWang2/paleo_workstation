@@ -56,6 +56,7 @@ class DataPage : public QWidget
     void assetWellActivated(const QString &assetId, const QString &wellId);
     void seismicLineActivated(const QString &assetId, const QString &mode); // 测线激活
     void wellSelected(const QString &wellId); // 树中选中井 → 地图高亮
+    void projectDashboardActivated();
     void surveyAreaActivated(); // 双击测区 → 打开测区全景地图
     // ---- P3 新增 ----
     void statusMessage(const QString &msg);        // D5.4/D8（壳接状态栏）

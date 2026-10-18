@@ -38,17 +38,27 @@ void DataPreviewTabs::openSurveyArea()
   pageLay->setContentsMargins(0, 0, 0, 0);
   pageLay->setSpacing(0);
 
-  auto *overview = new QTabWidget(page); overview->setObjectName("surveyOverviewPages");
-  QWidget *content = buildSurveyAreaContent(overview);
-  overview->addTab(content ? content : stateLabel(tr("无法生成测区地图"), overview, true), tr("工区地图"));
-  overview->addTab(new ProjectStatisticsPage(m_doc ? m_doc->catalog() : nullptr, overview), tr("统计与项目进度"));
-  pageLay->addWidget(overview, 1);
+  QWidget *content = buildSurveyAreaContent(page);
+  pageLay->addWidget(content ? content : stateLabel(tr("无法生成测区地图"), page, true), 1);
 
   const int idx = m_tabs->addTab(page, PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")), tr("测区全景地图"));
   m_pageOfAsset.insert(key, page);
   m_tabs->setVisible(true);
   m_emptyLabel->setVisible(false);
   m_tabs->setCurrentIndex(idx);
+}
+
+void DataPreviewTabs::openProjectDashboard()
+{
+  const QString key = QStringLiteral("project_dashboard");
+  if (auto *existing = m_pageOfAsset.value(key)) {
+    m_tabs->setCurrentWidget(existing); return;
+  }
+  auto *page = new ProjectStatisticsPage(m_doc ? m_doc->catalog() : nullptr, this);
+  connect(page, &ProjectStatisticsPage::surveyMapRequested, this, &DataPreviewTabs::openSurveyArea);
+  const int index = m_tabs->addTab(page, PaleoIcons::qgisTheme(QStringLiteral("mLayoutItemChart.svg")), tr("工区看板"));
+  m_pageOfAsset.insert(key, page);
+  m_emptyLabel->hide(); m_tabs->show(); m_tabs->setCurrentIndex(index);
 }
 
 QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)

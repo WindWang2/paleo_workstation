@@ -90,25 +90,8 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
   if (!cat)
     return tops;
 
-  // 0. 测区 (Survey Area) — 首项显示，双击打开测区全景地图 (QGIS 画布)
-  {
-    NavNodeSpec surveyRoot;
-    surveyRoot.text0 = tr("工区概况");
-    surveyRoot.text1 = tr("工区地图 / 统计与项目进度");
-    surveyRoot.id = QStringLiteral("survey_area");
-    surveyRoot.type = QStringLiteral("survey_area");
-    surveyRoot.icon = QStringLiteral("mIconPolygonLayer.svg");
-    surveyRoot.expanded = false;
-
-    NavNodeSpec surveyMapItem;
-    surveyMapItem.text0 = tr("工区全景地图");
-    surveyMapItem.text1 = tr("QGIS地图画布");
-    surveyMapItem.id = QStringLiteral("survey_area");
-    surveyMapItem.type = QStringLiteral("survey_area");
-    surveyMapItem.icon = QStringLiteral("mActionZoomFullExtent.svg");
-    surveyRoot.children.append(surveyMapItem);
-    tops.append(surveyRoot); tops += buildPaleomapNavSpec();
-  }
+  tops.append(buildOverviewNavSpec());
+  tops += buildPaleomapNavSpec();
 
   // 1. 井 (Wells)——显示名走实体改写表（D4.1），排序按 D2.5 记忆键。
   QVector<CatalogEntity> wells = cat->entities(QStringLiteral("well"));

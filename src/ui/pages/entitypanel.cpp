@@ -758,7 +758,7 @@ void EntityPanel::refreshDerivation()
   if (!m_derivation) return;
   if (m_preserveGraphOnce) { m_preserveGraphOnce = false; return; }
   auto query = m_derivation->query();
-  query.entityId = m_entityId; query.assetId = m_assetId; query.versionId = m_versionId;
+  query.entityId = m_entityId; query.assetId = (m_assetId == QLatin1String("project_dashboard") || m_assetId == QLatin1String("survey_area")) ? QString() : m_assetId; query.versionId = m_versionId;
   if (m_multiAssetIds.size() > 1) { query.entityId.clear(); query.assetId.clear(); query.versionId.clear(); }
   if (!m_doc || !m_doc->catalog()) { m_derivationWorkflow->cancel(); m_derivationData = {}; m_derivation->setGraph({}); return; }
   if (isVisible()) {
@@ -847,17 +847,17 @@ void EntityPanel::refresh()
   }
 
   // 情况 1：选中了测区全景
-  if (assetId == QLatin1String("survey_area"))
+  if (assetId == QLatin1String("survey_area") || assetId == QLatin1String("project_dashboard"))
   {
     empty->setVisible(false);
     content->setVisible(true);
-    header->setText(tr("测区全景 (Survey Area)"));
-    if (propName) propName->setText(tr("工区全景与空间范围"));
-    if (propType) propType->setText(tr("测区全景地图 (Survey Map)"));
+    header->setText(assetId == QLatin1String("project_dashboard") ? tr("工区看板") : tr("测区全景 (Survey Area)"));
+    if (propName) propName->setText(assetId == QLatin1String("project_dashboard") ? tr("工区统计与项目进度") : tr("工区全景与空间范围"));
+    if (propType) propType->setText(assetId == QLatin1String("project_dashboard") ? tr("工区概况看板") : tr("测区全景地图 (Survey Map)"));
     if (propFormat) propFormat->setText(tr("QGIS 地图工程"));
     if (propPath) propPath->setText(cat->catalogPath());
     if (propVersion) propVersion->setText(tr("当前工程"));
-    if (propStatus) propStatus->setText(tr("已加载 · 双击打开全景地图"));
+    if (propStatus) propStatus->setText(assetId == QLatin1String("project_dashboard") ? tr("按已登记资料更新") : tr("已加载 · 双击打开全景地图"));
 
     const QVector<CatalogEntity> wells = cat->entities(QStringLiteral("well"));
     const QVector<CatalogEntity> surveys = cat->entities(QStringLiteral("seismic_survey"));

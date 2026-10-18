@@ -901,6 +901,10 @@ class TestUiShell : public QObject
       QVERIFY(m_ctx->projectSvc()->createProject(dirB.filePath(QStringLiteral("b.qgz"))));
       QCOMPARE(preview->tabCount(), 0);   // #154：旧工程标签不残留
       QCOMPARE(corr->wellCount(), 0);     // #156：旧工程井集不残留
+      auto *tabs = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+      QVERIFY(tabs);
+      QTRY_COMPARE(preview->assetIdAt(tabs->currentIndex()), QStringLiteral("project_dashboard"));
+      QCOMPARE(preview->tabCount(), 1); // 新工区只留下自己的默认看板。
 
       QVERIFY(m_ctx->projectSvc()->openProject(qgzA));
       QTRY_COMPARE_WITH_TIMEOUT(corr->wellCount(), wellLogs, 3000); // #156：从 catalog 重灌

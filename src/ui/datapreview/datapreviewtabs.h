@@ -60,6 +60,7 @@ class DataPreviewTabs : public QWidget
 
     // 打开测区全景地图画布（可以用 QGIS 画布）
     void openSurveyArea();
+    void openProjectDashboard();
 
     // 任务服务（wave2 D1）：接上后地震标签的「索引+SHA 复验+测线解码」进
     // 任务池异步执行（任务页有进度条/ETA/取消）；不接线保持同步旧行为

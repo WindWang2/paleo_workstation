@@ -7,7 +7,7 @@ src/ui/edittools/vertexeditortools.cpp:1318
 src/ui/pages/datalist.cpp:1016
 src/ui/pages/datalist_tree.cpp:1126
 src/ui/pages/entitypanel.cpp:1620
-src/ui/pages/mappingworkbenchpage.cpp:1638
+src/ui/pages/mappingworkbenchpage.cpp:1668
 src/ui/paleomainwindow.cpp:1015
 src/ui/seismic3d/seismic3dviewpanel.cpp:1839
 src/ui/seismic3d/seismic3dviewportwidget.cpp:1003

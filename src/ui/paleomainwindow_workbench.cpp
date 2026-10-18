@@ -435,6 +435,12 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
       title = tr("%1 · %2 · v%3")
                   .arg(h, wellResult ? tr("测井预测 · %1").arg(FaciesHierarchy::title(workbench->resolvedLevel(id))) : FaciesHierarchy::title(workbench->resolvedLevel(id)))
                   .arg(v.versionNumber);
+      // #522（显示锁定）：图例 schema 带非当前解析层级的相面时点名后缀。
+      for (const auto &entry : schema)
+        if (entry.toMap().value("level").toString() != workbench->resolvedLevel(id)) {
+          title += tr(" · 含相面层级锁定");
+          break;
+        }
       if (v.extra.value("mock").toBool())
         title += tr(" · Mock");
     }

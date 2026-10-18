@@ -42,6 +42,8 @@
 #include <QFileInfo>
 #include <cmath>
 #include <qgslayertree.h>
+#include <qgslayertreemodellegendnode.h>
+#include <qgsmaplayerlegend.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
 #include <qgsrasterdataprovider.h>
@@ -812,6 +814,119 @@ private slots:
     f.work.updateDisplayScale(9000000);
     QCOMPARE(f.work.resolvedLevel(draft), QString("facies"));
     QCOMPARE(f.work.displayLegend(draft).size(), 3);
+  }
+  void featureDisplayLockMixesLevelsWithoutChangingClassification() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    auto it = v->getFeatures();
+    QgsFeature a, b;
+    QVERIFY(it.nextFeature(a));
+    QVERIFY(it.nextFeature(b));
+    // Same leaf code, different feature display levels: code alone cannot select a symbol.
+    QVERIFY(f.work.assignHierarchy(draft, {b.id()}, 1, "micro_facies", &error));
+    b = v->getFeature(b.id());
+    const auto geometry = a.geometry().asWkb();
+    QSignalSpy changed(&f.work, &MappingWorkbench::displayChanged);
+    QVERIFY(f.work.setDisplayMode(draft, "auto", &error));
+    QVERIFY2(f.work.setFeatureDisplayMode(draft, {a.id()}, "facies", &error), qPrintable(error));
+    QVERIFY(!changed.isEmpty());
+    const auto schema = f.work.versionForLayer(draft).extra.value("facies").toList();
+    const auto leaf = FaciesCatalog::find(schema, 1);
+    auto evaluated = [v](const QString &expression, qint64 fid) {
+      auto context = v->createExpressionContext();
+      context.setFeature(v->getFeature(fid));
+      QgsExpression expr(expression);
+      return expr.evaluate(&context).toString();
+    };
+    for (const auto scale : {9000000.0, 5000000.0, 1000000.0, 9000000.0, 1000000.0}) {
+      f.work.updateDisplayScale(scale);
+      auto *merged = dynamic_cast<QgsMergedFeatureRenderer *>(v->renderer());
+      QVERIFY(merged);
+      const auto *categories = dynamic_cast<const QgsCategorizedSymbolRenderer *>(merged->embeddedRenderer());
+      QVERIFY(categories);
+      QCOMPARE(evaluated(categories->classAttribute(), a.id()), FaciesHierarchy::key(leaf, "facies"));
+      QCOMPARE(evaluated(categories->classAttribute(), b.id()), FaciesHierarchy::key(leaf, f.work.resolvedLevel(draft)));
+      QCOMPARE(evaluated(v->customProperty("paleo/faciesDisplayExpression").toString(), a.id()),
+               FaciesHierarchy::path(leaf).first());
+      const auto entries = f.work.displayLegend(draft);
+      QCOMPARE(entries.size(), scale > 8000000 ? 3 : scale > 4000000 ? 4 : 5);
+      QSet<QString> treeKeys;
+      for (const auto &value : FaciesHierarchy::legendTree(entries)) {
+        const auto key = value.toMap().value("key").toString();
+        QVERIFY2(!treeKeys.contains(key), qPrintable(key));
+        treeKeys.insert(key);
+      }
+      QgsLayerTreeLayer node(v);
+      const auto nodes = v->legend()->createLayerTreeModelLegendNodes(&node);
+      QCOMPARE(nodes.size(), treeKeys.size());
+      QSet<QString> nativeKeys;
+      for (const auto *legendNode : nodes) {
+        const auto key = legendNode->data(int(QgsLayerTreeModelLegendNode::CustomRole::RuleKey)).toString();
+        QVERIFY(!nativeKeys.contains(key));
+        nativeKeys.insert(key);
+      }
+      QCOMPARE(nativeKeys, treeKeys);
+      qDeleteAll(nodes);
+      QCOMPARE(v->getFeature(a.id()).geometry().asWkb(), geometry);
+      QCOMPARE(v->getFeature(a.id()).attribute("facies_code").toInt(), 1);
+    }
+    QCOMPARE(f.work.featureDisplayMode(draft, a.id()), QString("facies"));
+    QCOMPARE(f.work.featureDisplayMode(draft, b.id()), QString("auto"));
+    const auto before = v->undoStack()->count();
+    QVERIFY(!f.work.setFeatureDisplayMode(draft, {a.id(), 999999}, "sub_facies", &error));
+    QVERIFY(!f.work.setFeatureDisplayMode(draft, {a.id()}, "invalid", &error));
+    QCOMPARE(v->undoStack()->count(), before);
+    QVERIFY(f.work.setFeatureDisplayMode(draft, {a.id()}, "auto", &error));
+    QCOMPARE(f.work.displayLegend(draft).size(), 4);
+    v->undoStack()->undo();
+    QCoreApplication::processEvents();
+    QCOMPARE(f.work.featureDisplayMode(draft, a.id()), QString("facies"));
+    QCOMPARE(f.work.displayLegend(draft).size(), 5);
+    v->undoStack()->redo();
+    QCoreApplication::processEvents();
+    QCOMPARE(f.work.featureDisplayMode(draft, a.id()), QString("auto"));
+    QVERIFY(v->rollBack());
+    QCOMPARE(v->fields().indexOf("facies_display_level"), -1);
+    QCOMPARE(f.work.displayLegend(draft).size(), 5);
+  }
+  void featureDisplayLocksSurviveSavedVersionsAndCopies() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    auto it = v->getFeatures();
+    QgsFeature a, b;
+    QVERIFY(it.nextFeature(a));
+    QVERIFY(it.nextFeature(b));
+    QVERIFY(f.work.setFeatureDisplayMode(draft, {a.id(), b.id()}, "sub_facies", &error));
+    QVERIFY2(v->commitChanges(), qPrintable(v->commitErrors().join(";")));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto version = f.work.versionForLayer(draft);
+    QgsVectorLayer saved(DataCatalog::resolvedVersionPath(f.dir.path(), version) + "|layername=features", "saved", "ogr");
+    QVERIFY(saved.isValid());
+    auto stored = saved.getFeatures();
+    QgsFeature feature;
+    int locked = 0;
+    while (stored.nextFeature(feature))
+      locked += feature.attribute("facies_display_level").toString() == "sub_facies";
+    QCOMPARE(locked, 2);
+    const auto copy = f.work.copyForEditing(draft, {}, &error);
+    QVERIFY2(!copy.isEmpty(), qPrintable(error));
+    QVERIFY(f.layers.instantiate(copy));
+    f.work.updateDisplayScale(1000000);
+    int sub = 0;
+    for (const auto &entry : f.work.displayLegend(copy))
+      sub += entry.toMap().value("level") == "sub_facies";
+    QCOMPARE(sub, 1);
+    QVERIFY(!f.work.setFeatureDisplayMode("product." + version.id, {a.id()}, "facies", &error));
   }
   void hierarchyParentAssignmentIsOneUndoAndKeepsCompatibleChildren() {
     Fixture f;
@@ -1743,6 +1858,10 @@ private slots:
     auto *level = page.findChild<QComboBox *>("faciesDisplayLevel");
     auto *edit = page.findChild<QComboBox *>("faciesEditLevel");
     QVERIFY(level && edit);
+    auto *featureLevel = page.findChild<QComboBox *>("faciesFeatureDisplayLevel");
+    auto *featureApply = page.commandButton("featureDisplayLevel");
+    QVERIFY(featureLevel && featureApply);
+    QVERIFY(!featureApply->isEnabled());
     QSignalSpy intent(&page, &MappingWorkbenchPage::commandRequested);
     level->setCurrentIndex(1);
     QCOMPARE(intent.last()[0].toString(), QString("displayLevel"));
@@ -1763,6 +1882,12 @@ private slots:
     QgsFeature feature;
     QVERIFY(it.nextFeature(feature));
     v->selectByIds({feature.id()});
+    page.setEvidenceSnapshot(f.work.featureEvidence(draft, {feature.id()}));
+    QVERIFY(featureApply->isEnabled());
+    featureLevel->setCurrentIndex(featureLevel->findData("facies"));
+    featureApply->click();
+    QCOMPARE(intent.last()[0].toString(), QString("featureDisplayLevel"));
+    QCOMPARE(intent.last()[1].toMap().value("display_mode").toString(), QString("facies"));
     text->setPlainText("解释证据");
     QVERIFY(page.commandButton("addEvidence")->isEnabled());
     page.commandButton("addEvidence")->click();

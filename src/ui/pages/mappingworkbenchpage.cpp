@@ -366,7 +366,19 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_editLevel->setCurrentIndex(2);
   levelForm->addRow(tr("显示层级"), m_displayLevel);
   levelForm->addRow(tr("编辑层级"), m_editLevel);
+  m_featureDisplayLevel = new QComboBox(appearance);
+  m_featureDisplayLevel->setObjectName("faciesFeatureDisplayLevel");
+  m_featureDisplayLevel->setAccessibleName(tr("选中相面的显示层级"));
+  m_featureDisplayLevel->addItem(tr("跟随图层（解除锁定）"), "auto");
+  for (const auto &level : FaciesHierarchy::levels())
+    m_featureDisplayLevel->addItem(tr("锁定为%1").arg(FaciesHierarchy::title(level)), level);
+  levelForm->addRow(tr("选中相面"), m_featureDisplayLevel);
   appearanceLayout->addLayout(levelForm);
+  appearanceLayout->addWidget(button("featureDisplayLevel", tr("应用显示层级到选中相面")));
+  m_featureDisplayState = new QLabel(appearance);
+  m_featureDisplayState->setObjectName("faciesFeatureDisplayState");
+  m_featureDisplayState->setWordWrap(true);
+  appearanceLayout->addWidget(m_featureDisplayState);
   connect(m_displayLevel, &QComboBox::currentIndexChanged, this, [this] {
     issue("displayLevel", {{"display_mode", m_displayLevel->currentData()}});
   });
@@ -1020,6 +1032,22 @@ void MappingWorkbenchPage::updateState() {
           : tr("当前显示：%1；自动阈值为 1:800 万与 1:400 万")
                 .arg(FaciesHierarchy::title(
                     m_workbench->resolvedLevel(selectedLayer()))));
+  const auto displaySelection = m_workbench->selectedFeatures(selectedLayer());
+  const bool canLock = row.value("draft").toBool() && !wellResult &&
+      m_workbench->isFaciesPolygon(selectedLayer()) && !selectedSchema.isEmpty() &&
+      !displaySelection.isEmpty();
+  const auto lockHint = tr("在相面编辑副本中选中面，可固定显示层级；跟随图层可解除锁定");
+  m_featureDisplayLevel->setEnabled(canLock);
+  m_featureDisplayLevel->setToolTip(lockHint);
+  gate("featureDisplayLevel", canLock, lockHint);
+  QSet<QString> selectedDisplayModes;
+  for (auto fid : displaySelection)
+    selectedDisplayModes.insert(m_workbench->featureDisplayMode(selectedLayer(), fid));
+  m_featureDisplayState->setText(displaySelection.isEmpty() ? tr("未选中相面")
+      : selectedDisplayModes.size() > 1 ? tr("选中 %1 个面，显示层级设置不同").arg(displaySelection.size())
+      : tr("选中 %1 个面：%2").arg(displaySelection.size()).arg(
+            selectedDisplayModes.contains("auto") ? tr("跟随图层")
+                : tr("锁定为%1").arg(FaciesHierarchy::title(*selectedDisplayModes.cbegin()))));
   m_editLevel->setEnabled(!wellResult && row.value("draft").toBool());
   m_editLevel->setToolTip(wellResult ? tr("每井每地层只修订一个预测相") : m_editLevel->isEnabled()
                               ? tr("选择要修改的相层级")
@@ -1182,6 +1210,8 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
   }
   if (action == "labels")
     p["label_mode"] = findChild<QComboBox *>("faciesLabelMode")->currentIndex();
+  if (action == "featureDisplayLevel")
+    p.insert("display_mode", m_featureDisplayLevel->currentData());
   p.insert("horizon", m_horizon);
   p.insert("layer", selectedLayer());
   p.insert("inputs", action == "copy" && m_mode != "compose" ? QStringList()

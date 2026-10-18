@@ -198,6 +198,15 @@ void PaleoMainWindow::runWorkbenchCommand(
   } else if (action == "displayLevel") {
     ok = workbench->setDisplayMode(
         id, p.value("display_mode").toString(), &error);
+  } else if (action == "featureDisplayLevel") {
+    // #522（显示锁定）：要素级显示层级——需编辑会话（beginEdit 同族守卫）。
+    if (!beginEdit(id)) {
+      ok = false;
+      error = tr("请先结束其他图层的编辑");
+    } else {
+      ok = workbench->setFeatureDisplayMode(
+          id, workbench->selectedFeatures(id), p.value("display_mode").toString(), &error);
+    }
   } else if (action == "addEvidence" || action == "removeEvidence" || action == "updateEvidence" || action == "verifyEvidence" || action == "reviewInterpretation") {
     if (!beginEdit(id)) {
       ok = false;

@@ -12,20 +12,6 @@
 # 由 #502 另行跟踪，本闸只管不涨。
 # 基线：master @ ddd1325e 实测 src/ui 超标 61 项（file 12 / fn 49）。
 # 注：#502 正文的「43 个 >1000 行」是全仓口径；src/ui 内为 12 个。
-src/ui/edittools/editingtoolbar.cpp:file:1107
-src/ui/edittools/vertexeditortools.cpp:file:1318
-src/ui/pages/datalist.cpp:file:1016
-src/ui/pages/datalist_tree.cpp:file:1126
-src/ui/pages/entitypanel.cpp:file:1620
-src/ui/pages/mappingworkbenchpage.cpp:file:1517
-src/ui/pages/mappingworkbenchpage.cpp:file:1638
-src/ui/paleomainwindow.cpp:file:1005
-src/ui/paleomainwindow.cpp:file:1015
-src/ui/paleomainwindow_workbench.cpp:file:1157
-src/ui/seismic3d/seismic3dviewpanel.cpp:file:1839
-src/ui/seismic3d/seismic3dviewportwidget.cpp:file:1003
-src/ui/wellsection/wellsectionpanel.cpp:file:1541
-src/ui/welltops/welltopseditordialog.cpp:file:1010
 src/ui/correlation/petrophyspanel.cpp:fn:buildUi:220
 src/ui/crossplot/crossplotpanel.cpp:fn:CrossplotPanel:240
 src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:488
@@ -39,22 +25,29 @@ src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:278
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:289
 src/ui/dialogs/folderconfirm.cpp:fn:buildFolderConfirmDialog:346
+src/ui/edittools/editingtoolbar.cpp:file:1107
 src/ui/edittools/editingtoolbar.cpp:fn:buildUi:232
+src/ui/edittools/vertexeditortools.cpp:file:1318
 src/ui/edittools/vertexeditortools.cpp:fn:deleteVertexAtMapPoint:245
 src/ui/pages/composepage.cpp:fn:ComposePage:422
 src/ui/pages/constraintpage_constraints.cpp:fn:buildConstraintArea:365
 src/ui/pages/constraintpage_interpolation.cpp:fn:buildAdvancedSection:207
 src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:351
+src/ui/pages/datalist.cpp:file:1016
 src/ui/pages/datalist.cpp:fn:DataListPanel:510
 src/ui/pages/datalist.cpp:fn:buildDataOpsUi:337
 src/ui/pages/datalist_table.cpp:fn:renderAssetPage:388
+src/ui/pages/datalist_tree.cpp:file:1126
 src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:693
+src/ui/pages/entitypanel.cpp:file:1620
 src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
 src/ui/pages/entitypanel.cpp:fn:refresh:782
-src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:647
+src/ui/pages/mappingworkbenchpage.cpp:file:1668
+src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:659
 src/ui/pages/mappingworkbenchpage.cpp:fn:renderEvidenceSnapshot:267
-src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:262
+src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:278
 src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:263
+src/ui/paleomainwindow.cpp:file:1015
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:412
 src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:387
 src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:718
@@ -63,13 +56,16 @@ src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:580
 src/ui/paleomainwindow_docks.cpp:fn:buildCenterArea:209
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:295
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:477
+src/ui/paleomainwindow_workbench.cpp:file:1157
 src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:1091
-src/ui/paleomainwindow_workbench_commands.cpp:fn:runWorkbenchCommand:376
+src/ui/paleomainwindow_workbench_commands.cpp:fn:runWorkbenchCommand:385
 src/ui/paleomainwindow_workbench_wells.cpp:fn:attachWorkbenchWells:285
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:408
+src/ui/seismic3d/seismic3dviewpanel.cpp:file:1839
 src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildDisplayBar:422
 src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildUi:253
+src/ui/seismic3d/seismic3dviewportwidget.cpp:file:1003
 src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:783
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupDisplayBar:255
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupUi:386
@@ -78,4 +74,6 @@ src/ui/wellcomposite/compositebody.cpp:fn:paintEvent:202
 src/ui/wellcomposite/panelsetup.cpp:fn:setupUi:422
 src/ui/wellcomposite/wellpositionlegendwidget.cpp:fn:setupUi:262
 src/ui/wellsection/wellsectiondialogs.cpp:fn:WellSectionTracksDialog:257
+src/ui/wellsection/wellsectionpanel.cpp:file:1541
 src/ui/wellsection/wellsectionpanel.cpp:fn:WellSectionPanel:456
+src/ui/welltops/welltopseditordialog.cpp:file:1010

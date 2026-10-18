@@ -145,6 +145,11 @@ public:
   QString resolvedLevel(const QString &id) const;
   QVariantList displayLegend(const QString &id) const;
   bool setDisplayMode(const QString &id, const QString &mode, QString *error);
+  // Per-polygon override; "auto" follows the layer's current display level.
+  QString featureDisplayMode(const QString &id, qint64 featureId) const;
+  bool isFaciesPolygon(const QString &id) const;
+  bool setFeatureDisplayMode(const QString &id, const QList<qint64> &ids,
+                             const QString &mode, QString *error);
   void updateDisplayScale(double scale);
   bool selectHierarchyMembers(const QString &id, const QString &level, QString *error);
   bool assignHierarchy(const QString &id, const QList<qint64> &ids,

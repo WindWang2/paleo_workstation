@@ -27,7 +27,8 @@ inline QSet<QString> selectedAssetIds(QTreeWidget *tree)
   for (QTreeWidgetItem *it : sel)
   {
     const QString id = it->data(0, Qt::UserRole).toString();
-    if (!id.isEmpty() && it->data(0, Qt::UserRole + 2).toString() != QLatin1String("category"))
+    if (!id.isEmpty() && it->data(0, Qt::UserRole + 2).toString() != QLatin1String("category") &&
+        it->data(0, Qt::UserRole + 2).toString() != QLatin1String("survey_area"))
       out.insert(id);
   }
   return out;

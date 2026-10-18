@@ -194,6 +194,7 @@ class DataListPanel : public QWidget
     void assetWellActivated(const QString &assetId, const QString &wellId);
     void seismicLineActivated(const QString &assetId, const QString &mode);
     void wellSelected(const QString &wellId); // 树中选中井 → 地图高亮
+    void projectDashboardActivated();
     void surveyAreaActivated();               // 双击测区 → 测区全景地图
     // 内部建/撤挂接变更 catalog 后请实体视图重取（薄壳接 EntityPanel::refresh）。
     void entityRefreshRequested();
@@ -227,6 +228,7 @@ class DataListPanel : public QWidget
     struct NavNodeSpec;             // 树蓝图节点（纯数据，无 widget）
     QVector<NavNodeSpec> buildNavTreeSpec() const;
     QVector<NavNodeSpec> buildPaleomapNavSpec() const;
+    NavNodeSpec buildOverviewNavSpec() const;
     void renderNavChildren(QTreeWidgetItem *parent, const QVector<NavNodeSpec> &specs);
     void rebuildNavTree(const QVector<NavNodeSpec> &specs);
     bool reconcileNavTree(const QVector<NavNodeSpec> &specs);

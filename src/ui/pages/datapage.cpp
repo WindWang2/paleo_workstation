@@ -56,6 +56,7 @@ DataPage::DataPage(QWidget *parent)
           &DataPage::seismicLineActivated);
   connect(m_listPanel, &DataListPanel::wellSelected, this,
           &DataPage::wellSelected);
+  connect(m_listPanel, &DataListPanel::projectDashboardActivated, this, &DataPage::projectDashboardActivated);
   connect(m_listPanel, &DataListPanel::surveyAreaActivated, this,
           &DataPage::surveyAreaActivated);
   // 列表内部建/撤挂接后的实体视图联动（原来走同一 refreshAssetTable）。
@@ -312,8 +313,10 @@ void DataPage::selectAssetsForEntities(const QStringList &entityIds)
 void DataPage::selectAsset(const QString &assetId)
 {
   setProperty("paleo.page.versionId", QString());
-  m_graphPage->setSelection(QString(), assetId);
-  setProperty("paleo.page.assetId", assetId);
+  const bool overview = assetId == QLatin1String("project_dashboard") || assetId == QLatin1String("survey_area");
+  const QString catalogAsset = overview ? QString() : assetId;
+  m_graphPage->setSelection(QString(), catalogAsset);
+  setProperty("paleo.page.assetId", catalogAsset);
   PreviewDocService *svc = docService();
   const QString matchedEntity = svc ? svc->entityIdForAsset(assetId) : QString();
   setProperty("paleo.page.entityId", matchedEntity);

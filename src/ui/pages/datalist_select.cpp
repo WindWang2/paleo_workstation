@@ -69,6 +69,23 @@ void DataListPanel::selectAssetsForEntities(const QStringList &entityIds)
 
 void DataListPanel::selectAssetInViews(const QString &assetId)
 {
+  if (assetId == QLatin1String("project_dashboard") || assetId == QLatin1String("survey_area")) {
+    auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
+    if (table) { const QSignalBlocker block(table); table->clearSelection(); }
+    if (m_iconView) { const QSignalBlocker block(m_iconView); m_iconView->clearSelection(); }
+    if (m_groupTree) { const QSignalBlocker block(m_groupTree); m_groupTree->clearSelection(); }
+    if (m_virtualView) { const QSignalBlocker block(m_virtualView->selectionModel()); m_virtualView->clearSelection(); }
+    m_pageSelection.clear(); m_selKeep.snapshotIds({});
+    if (m_tree) {
+      const QSignalBlocker block(m_tree); m_tree->clearSelection();
+      for (QTreeWidgetItemIterator it(m_tree); *it; ++it)
+        if ((*it)->data(0, Qt::UserRole).toString() == assetId) {
+          m_tree->setCurrentItem(*it); if ((*it)->parent()) (*it)->parent()->setExpanded(true);
+          m_tree->scrollToItem(*it); break;
+        }
+    }
+    refreshSelectionBadge(); return;
+  }
   bool liveAsset = false;
   for (const auto &row : m_rows) if (row.assetId == assetId) { liveAsset = true; break; }
   if (!liveAsset) return;

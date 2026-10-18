@@ -33,14 +33,17 @@ QVariantMap snapshot(const DataCatalog *cat) {
       }
     }
   }
-  QVariantList horizons;
+  QVariantList horizons; QVariantMap counts;
   for (const auto &h : mappingHorizons()) { QVariantMap row{{"horizon", h}, {"existing_maps", maps.value(h)}};
-    for (const auto &stage : {"well", "seismic", "factor", "map", "output"}) row.insert(stage, stages[h].contains(stage));
+    for (const auto &stage : {"well", "seismic", "factor", "map", "output"}) {
+      const bool present = stages[h].contains(stage); row.insert(stage, present);
+      counts.insert(stage, counts.value(stage).toInt() + int(present));
+    }
     horizons << row;
   }
   return {{"wells", wells.size()}, {"positioned_wells", positioned}, {"seismic_surveys", surveys.size()},
       {"assets", cat->assets().size()}, {"versions", versions}, {"paleomaps", mapCount}, {"outputs", outputCount},
       {"survey_area_km2", PaleoMapSource::surveyArea(polygons)},
-      {"well_envelope_km2", positioned > 1 ? (maxX - minX) * (maxY - minY) / 1000000. : 0.}, {"horizons", horizons}};
+      {"well_envelope_km2", positioned > 1 ? (maxX - minX) * (maxY - minY) / 1000000. : 0.}, {"horizons", horizons}, {"stage_counts", counts}};
 }
 }

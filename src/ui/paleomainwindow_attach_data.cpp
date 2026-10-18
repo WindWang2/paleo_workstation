@@ -192,8 +192,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
         else if (!asset.isEmpty() && action == "tag") list->batchAddTag();
         else if (!asset.isEmpty() && action == "remove") list->batchRemoveSoft();
       });
-      if (m_projectSvc)
-        preview->setProject(m_projectSvc->project());
+      attachProjectDashboard(dataPage, preview);
       // D11 临时配准：GeoJSON 标签手工仿射 → DERIVED + 水印图层。
       connect(preview, &DataPreviewTabs::provisionalRegistrationRequested, this,
               [this, importSvc](const QString &assetId, const QVariantMap &params) {
@@ -218,7 +217,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
               [preview](const QString &aid, const QString &mode) {
                 preview->openSeismicLine(aid, mode, 0, 0.0);
               });
-      connect(dataPage, &DataPage::surveyAreaActivated, preview, &DataPreviewTabs::openSurveyArea);
+
       connect(preview, &DataPreviewTabs::requestShowOnMainCanvas, this, [this]() {
         if (m_workspaceStack)
           m_workspaceStack->setCurrentIndex(0);
@@ -436,4 +435,26 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
                         QStringLiteral("Paleo"), Qgis::Critical);
                 });
             });
+}
+
+void PaleoMainWindow::attachProjectDashboard(DataPage *dataPage, DataPreviewTabs *preview)
+{
+  connect(dataPage, &DataPage::surveyAreaActivated, preview, &DataPreviewTabs::openSurveyArea);
+  connect(dataPage, &DataPage::projectDashboardActivated, preview, &DataPreviewTabs::openProjectDashboard);
+  if (!m_projectSvc) return;
+  preview->setProject(m_projectSvc->project());
+  const auto schedule = [this, dataPage, preview] {
+    const auto session = m_projectSvc->sessionId();
+    const auto page = currentPage();
+    // projectOpened 的同步槽先完成目录绑定；新建、同步打开与后台打开共用此入口。
+    QTimer::singleShot(0, this, [this, dataPage, preview, session, page] {
+      if (!m_projectSvc || m_projectSvc->sessionId() != session || m_projectSvc->projectPath().isEmpty()) return;
+      if (preview->tabCount() > 0 || currentPage() != page) return; // 保留显式导航。
+      showPage(QStringLiteral("data"));
+      preview->openProjectDashboard();
+      dataPage->selectAsset(QStringLiteral("project_dashboard"));
+    });
+  };
+  connect(m_projectSvc, &QgisProjectService::projectOpened, this, schedule);
+  if (!m_projectSvc->projectPath().isEmpty()) schedule();
 }

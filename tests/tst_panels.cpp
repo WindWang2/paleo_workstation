@@ -2115,22 +2115,20 @@ class TestPanels : public QObject
       QVERIFY(tree);
       QVERIFY(tree->topLevelItemCount() >= 1);
 
-      // Requirement 1: "数据列表里面，增加一个测区放在第一个项"
+      // 工区概况下分开提供看板和 QGIS 地图入口。
       QTreeWidgetItem *firstItem = tree->topLevelItem(0);
-      QCOMPARE(firstItem->text(0), QStringLiteral("测区"));
-      QCOMPARE(firstItem->data(0, Qt::UserRole).toString(), QStringLiteral("survey_area"));
-      QCOMPARE(firstItem->data(0, Qt::UserRole + 2).toString(), QStringLiteral("survey_area"));
-      QVERIFY(firstItem->childCount() >= 1);
-      QCOMPARE(firstItem->child(0)->text(0), QStringLiteral("工区全景地图"));
-
-      // Requirement 1: "双击后，就是整个测区的图"（#236：激活单通道化——
-      // itemDoubleClicked 不再接线，双击经 itemActivated 到达同一 handler）。
-      QSignalSpy spy(&page, &DataPage::surveyAreaActivated);
-      emit tree->itemActivated(firstItem, 0);
-      QCOMPARE(spy.count(), 1);
-
-      spy.clear();
+      QCOMPARE(firstItem->text(0), QStringLiteral("工区概况"));
+      QCOMPARE(firstItem->data(0, Qt::UserRole + 2).toString(), QStringLiteral("category"));
+      QCOMPARE(firstItem->childCount(), 2);
+      QCOMPARE(firstItem->child(0)->text(0), QStringLiteral("工区看板"));
+      QCOMPARE(firstItem->child(1)->text(0), QStringLiteral("工区全景地图"));
+      QSignalSpy dashboard(&page, &DataPage::projectDashboardActivated);
       emit tree->itemActivated(firstItem->child(0), 0);
+      QCOMPARE(dashboard.count(), 1);
+      auto *dashboardHeader = page.findChild<QLabel *>(QStringLiteral("entityViewHeader"));
+      QVERIFY(dashboardHeader); QCOMPARE(dashboardHeader->text(), QStringLiteral("工区看板"));
+      QSignalSpy spy(&page, &DataPage::surveyAreaActivated);
+      emit tree->itemActivated(firstItem->child(1), 0);
       QCOMPARE(spy.count(), 1);
 
       // 属性面板展示测区信息

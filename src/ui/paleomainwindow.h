@@ -257,6 +257,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // attachWorkflows 入口只做幂等守卫 + 页创建 + 顺序编排；每页接线一段：
     void attachPaleomapLibrary(DataPage *page);
     void wireDataImportRequests(DataPage *page, DataImportService *service, DataPreviewTabs *preview);
+    void attachProjectDashboard(DataPage *dataPage, DataPreviewTabs *preview);
     void attachDataPage(DataPage *dataPage, WellCorrelationPanel *corrPanel,
                         DataImportService *importSvc, PaleoTaskService *taskSvc);
     void attachPredictPage(PredictPage *predictPage, PredictionWorkflow *pred);

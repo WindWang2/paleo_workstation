@@ -526,11 +526,8 @@ void PaleoMainWindow::onProjectOpened()
                      .arg(AreaRules::active().onnxGrid.cols));
   }
 
-  // Workflow lands on the last-used page when the session was persisted,
-  // otherwise on 数据管理 — first step of the chain.
-  const QString last = QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
-                           .value(QStringLiteral("lastPage")).toString();
-  showPage(paleo::pagesinternal::kPageIds.contains(last) ? last : paleo::pagesinternal::kPageIds.first());
+  // 工区打开默认进入数据看板；具体预览页在目录绑定完成后由 attachDataPage 激活。
+  showPage(QStringLiteral("data"));
 }
 
 void PaleoMainWindow::closeEvent(QCloseEvent *event)

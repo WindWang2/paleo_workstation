@@ -15,6 +15,7 @@
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
 #include "../qgis/mappingartifactwriter.h"
+#include "../qgis/seismicwellcalibration.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../qgis/qgisprojectservice.h"
@@ -226,6 +227,22 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     }
   }
   if (mock) {
+    QVariantList wellSources;
+    const auto versions = m_catalog->versions();
+    for (auto it = versions.crbegin(); it != versions.crend(); ++it) {
+      const auto &extra = it->extra;
+      if (extra.value("horizon").toString() != h ||
+          (extra.value("kind") != QLatin1String("wells_prediction") &&
+           extra.value("result_kind") != QLatin1String("formation_prediction") &&
+           extra.value("result_kind") != QLatin1String("dominant_facies"))) continue;
+      wellSources << QVariantMap{{"version_id", it->id},
+          {"path", DataCatalog::resolvedVersionPath(m_dir, *it)}, {"sha256", it->sha256},
+          {"facies", extra.value("facies")}};
+    }
+    if (wellSources.isEmpty()) {
+      fail(error, tr("请先生成并保存当前层位的测井相预测，再运行地震 Mock 聚类"));
+      return false;
+    }
     // 原始层位的道号/TWT 可直接提取；时间栅格只作为已有工程的兼容输入。
     QString horizonPath = horizonFile, horizonVersion;
     auto source = SeismicHorizonSource::Scatter;
@@ -291,8 +308,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       request.sourceVersionIds << horizonVersion;
     request.sourceVersionIds.removeDuplicates();
     QVector<int> codes;
-    for (const auto &f : request.facies)
-      codes << f.toMap().value("code").toInt();
+    for (int i = 0; i < request.facies.size(); ++i) codes << i + 1;
     const auto seismicVersion = m_catalog->currentVersion(ids.first());
     const QString seismicPath = DataCatalog::resolvedVersionPath(m_dir, seismicVersion);
     const QString cacheDir = QDir(m_dir).filePath("artifacts/cache/segy-index");
@@ -355,6 +371,12 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
         m_request.sourceVersionIds << st.versionId;
       }
       m_predictionParameters.insert("valid_cells", clustered.validCells);
+      m_predictionParameters.insert("cluster_facies_mapping", clustered.clusterMapping);
+      m_predictionParameters.insert("labeling_method", "well_majority_with_observed_facies_fallback");
+      m_predictionParameters.insert("fallback_seed", 42);
+      m_request.wells = clustered.supportingWells;
+      m_request.sourceVersionIds << clustered.wellVersionIds;
+      m_request.sourceVersionIds.removeDuplicates();
       m_request.extent = clustered.extent;
       m_request.rows = clustered.rows;
       m_request.columns = clustered.columns;
@@ -363,14 +385,15 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       result.request = m_request;
       result.cells = clustered.cells;
       result.mock = true;
-      result.method = QStringLiteral("mock-horizon-window-kmeans-v1");
+      result.method = QStringLiteral("mock-horizon-window-kmeans-well-majority-v2");
       finishPrediction(result);
     });
     emit predictionBusyChanged(true);
+    const auto transformContext = m_project->project()->transformContext();
     watcher->setFuture(QtConcurrent::run(
         paleo::tasks::pool(m_taskSvc),
         [seismicPath, horizonPath, cacheDir, codes, cancelled, source,
-         inputSnapshot](QPromise<SeismicClusterResult> &promise) {
+         inputSnapshot, wellSources, schema = request.facies, transformContext](QPromise<SeismicClusterResult> &promise) {
           promise.setProgressRange(0, 100);
           QString inputPath = horizonPath;
           if (inputSnapshot) {
@@ -388,9 +411,21 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
               return;
             }
           }
-          promise.addResult(clusterSeismicHorizon(seismicPath, inputPath, cacheDir, codes,
-              [&promise](int value) { promise.setProgressValue(value); },
-              [cancelled] { return cancelled->load(); }, source));
+          auto clustered = clusterSeismicHorizon(seismicPath, inputPath, cacheDir, codes,
+              [&promise](int value) { promise.setProgressValue(value * 95 / 100); },
+              [cancelled] { return cancelled->load(); }, source);
+          if (clustered.error.isEmpty()) {
+            QStringList wellVersions;
+            const auto wells = readSeismicCalibrationWells(wellSources, schema, clustered.crsWkt,
+                transformContext, &wellVersions, &clustered.error, [cancelled] { return cancelled->load(); });
+            if (clustered.error.isEmpty()) {
+              clustered = labelSeismicClusters(std::move(clustered), wells, 42,
+                  [cancelled] { return cancelled->load(); });
+              clustered.wellVersionIds = wellVersions;
+            }
+          }
+          promise.setProgressValue(100);
+          promise.addResult(clustered);
         }));
     return true;
   }
@@ -809,7 +844,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
       const QVariantMap common =
              {{"mock", result.mock},
               {"method", result.method},
-              {"window_half_ms", result.method == QLatin1String("mock-horizon-window-kmeans-v1") ? 12.0 : 0.0},
+              {"window_half_ms", result.method.startsWith(QLatin1String("mock-horizon-window-kmeans")) ? 12.0 : 0.0},
               {"request_id", request.id},
               {"facies", schema}, {"prediction_level", "micro_facies"}, {"facies_schema", "paleo_facies_hierarchy_v1"},
               {"wells", request.wells},

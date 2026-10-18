@@ -539,7 +539,9 @@ namespace
       if (cancelled)
         break;
       QString herr;
-      item.sha256 = ShaCache::shared().sha256Hex(item.path, &herr); // D7.7
+      // #561 血缘复验加强档：plan 期 sha 驱动 duplicateOf 标记，指纹带 inode。
+      item.sha256 = ShaCache::shared().sha256Hex(
+          item.path, &herr, ShaCache::Fingerprint::MtimeSizeInode); // D7.7
       if (item.sha256.isEmpty())
         plan.issues.append(QFileInfo(item.path).fileName() +
                            (herr.isEmpty() ? QStringLiteral(" 哈希失败") : herr));

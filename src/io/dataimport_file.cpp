@@ -155,8 +155,11 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     return fail(QStringLiteral("文件名不是合法路径段: %1").arg(fi.fileName()));
 
   // 流式算一遍源文件 SHA-256：dedup 查询与外链入库留底共用这一趟。
+  // #561 血缘复验加强档：此 sha 是 dedup 身份与外链版本 sha256 留底的单
+  // 一来源，指纹带 inode——「同 mtime+size 换内容」不再命中旧缓存值。
   QString shaErr;
-  const QString sourceSha = ShaCache::shared().sha256Hex(sourcePath, &shaErr); // D7.7
+  const QString sourceSha = ShaCache::shared().sha256Hex(
+      sourcePath, &shaErr, ShaCache::Fingerprint::MtimeSizeInode); // D7.7
   if (sourceSha.isEmpty())
     return fail(shaErr.isEmpty() ? QStringLiteral("cannot hash %1").arg(sourcePath) : shaErr);
 

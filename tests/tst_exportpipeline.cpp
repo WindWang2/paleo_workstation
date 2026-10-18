@@ -52,7 +52,7 @@ private slots:
   void externalFiguresKeepTheProjectCatalogUnchanged() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "D61";
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings)); QVERIFY(layout);
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings); QVERIFY(layout);
     PaleoGeologicalExport::Request request; request.destination = tmp.filePath("external"); request.dpi = 72;
     request.registerInProject = false; request.formats = {PaleoLayoutExport::Format::Png}; request.context = {{"horizon", "D61"}};
     const auto sequence = cat.mutationSeq(); bool called = false; PaleoGeologicalExport::Result result;
@@ -65,7 +65,7 @@ private slots:
   void projectFiguresAreRegisteredByHorizon() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings;
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings)); QVERIFY(layout);
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings); QVERIFY(layout);
     QStringList assets;
     for (const auto &h : {QString("D61"), QString("D62")}) {
       PaleoGeologicalExport::Request request; request.destination = tmp.filePath("exports/maps/" + h); request.dpi = 72;
@@ -81,7 +81,7 @@ private slots:
   void dialogSeparatesProjectManagementFromExternalOutput() {
     QTemporaryDir tmp; QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "D61";
     GeologicalExportDialog dialog(settings, [&](const auto &s, QString *error) {
-      return PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), s, error);
+      return PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), s, error);
     }, false, nullptr, {}, tmp.path());
     auto *mode = dialog.findChild<QComboBox *>("mapExportDestinationMode"); QVERIFY(mode); QVERIFY(mode->currentData().toBool());
     QVERIFY(dialog.request().registerInProject); QVERIFY(dialog.request().destination.startsWith(tmp.filePath("exports/maps")));

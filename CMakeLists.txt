@@ -1003,10 +1003,29 @@ if(PALEO_PYTHON3)
   #（探测序 --qgis-include > $QGIS_PREFIX/include/qgis > vendor/superbuild 默认）
   # ——本测试不显式传参：superbuild 本地全闸，CI deb 闭包构建自动降为只闸
   # heavy_*（CI lint 车道显式给 QGIS_PREFIX 全闸，见 .github/workflows/ci.yml）。
+  # #533 口径裁决（2026-10-18）：func/ui 两指标的权威闸口在 CI lint 车道
+  #（Source gates 步显式给 QGIS_PREFIX）；本 ctest 项**不注入** QGIS_PREFIX，
+  # 否则 deb 闭包/OSGeo4W 构建下该指标的红会复制进 linux/windows 两个必过
+  # 车道（同一信号 lint 已有，重复红只稀释门禁语义——#497 的教训）。本地
+  # 要与 CI 同口径全闸，显式跑：
+  #   QGIS_PREFIX=<vendor/superbuild/prefix 或 deb 闭包前缀> \
+  #     python tools/check_layering.py --transitive
+  # 当前树该口径实测 ui_qtwidgets_notes 7 > baseline 6（#531 新增
+  # src/qgis/layoutpreview.h 薄壳带入 1 条视图层记录边），差额已在
+  # docs/ci/known-reds.json 登记（issue #533）。**后续动作**：该差额经
+  # src/qgis 薄壳与视图层边界的计数口径裁决收敛后，把本测试改为注入
+  # QGIS_PREFIX 的真同口径（本地/CI 全闸同一指标）。
   add_test(NAME layering_symbol_audit COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --symbol-audit)
   add_test(NAME layering_transitive COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --transitive)
+  # #532：--qgs-audit（PALEO_QGIS_PLAN §2「QGIS 迁移成本只许落在 src/qgis」
+  # 在 include 级的唯一机械执行者）接入 ctest——此前全仓零接线，include 级
+  # 直连可以无声增长。接线前在本树复跑转绿：116 个直连文件全部在册
+  #（#523 导出链封装收敛后新增 0、可收缩 0），--strict 口径与
+  # qgis_spread_strict 一致（可收缩即红，收敛一个删一行）。
+  add_test(NAME layering_qgs_audit COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_layering.py --qgs-audit --strict)
   # #497：CI 红项分诊名单（docs/ci/known-reds.json）结构校验 + 分诊器夹具
 add_test(NAME qgis_spread COMMAND ${PALEO_PYTHON3}
          ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py)
@@ -1037,6 +1056,19 @@ set_tests_properties(qgis_spread qgis_spread_strict PROPERTIES LABELS layering)
            ${CMAKE_SOURCE_DIR}/tools/check_ui_size.py --strict)
   add_test(NAME ui_size_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_size.py --selftest)
+  # #538：函数体规模闸（src/ui 单函数 ≤200 行 + 单文件 ≤1000 行，baseline
+  # 只缩不涨）接入 ctest——与 ui_size（只闸 >1000 行文件）互补：本闸管函数体
+  # 与冻结值回升/可收紧/可收缩四态。接线时已做只缩不涨对账（删 3 行回到阈值
+  # 内 + 下调 5 个冻结值，见 file-budget-baseline.txt 头注）；残余 5 个回升
+  # 条目在 4 个不属本岗可改范围的文件（editingtoolbar / mappingworkbenchpage
+  # ×2 / attach_compose / compositebody），已在 docs/ci/known-reds.json 登记
+  # （issue #538）——闸门红着接线，不靠上调基线换绿。
+  add_test(NAME file_budget COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_file_budget.py)
+  add_test(NAME file_budget_strict COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_file_budget.py --strict)
+  add_test(NAME file_budget_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_file_budget.py --selftest)
   # #77：i18n 裸字面量门禁（#44「无 CI 门禁」收口）。脚本按自身位置定位
   # src/，WORKING_DIRECTORY 显式钉源码根作双保险。
   add_test(NAME i18n COMMAND ${PALEO_PYTHON3}
@@ -1084,9 +1116,12 @@ set_tests_properties(qgis_spread qgis_spread_strict PROPERTIES LABELS layering)
            ${CMAKE_SOURCE_DIR}/tools/check_lo_pin.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        layering_symbol_audit layering_transitive
+                       layering_qgs_audit
                        ci_known_reds ci_triage_reds_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
+                       ui_size ui_size_strict ui_size_selftest
+                       file_budget file_budget_strict file_budget_selftest
                        qgis_versions qgis_versions_selftest
                        qgis_resources_selftest env_redset_validate env_redset_selftest
                        pin_osgeo4w_selftest docs_drift docs_drift_selftest

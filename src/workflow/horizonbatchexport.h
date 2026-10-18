@@ -20,8 +20,9 @@ class PaleoTaskService;
 //
 // 语义：以用户设计好的版面为骨架，逐层位换地图内容（该层位声明图层快照 +
 // 全幅范围）与标题，导出一幅，登记 catalog（OUTPUT，图件纪律：不产游离
-// 文件），文件名规则化 `<工程>_<层位>_<日期>.<ext>`。版面在批处理后恢复
-// 原状（图层/范围/标题/跟随态逐一还原，批处理不动用户的版面）。
+// 文件），文件名规则化 `<工程>_<层位>_<日期>_<序号>.<ext>`（序号 = 层位在
+// 批次内的次序，保证消毒后同形的层位名也拿到不同交付文件，#537）。版面在
+// 批处理后恢复原状（图层/范围/标题/跟随态逐一还原，批处理不动用户的版面）。
 //
 // 计数契约（Oracle 2）：Result.horizons 与请求的 horizonLayers 键集一一对应
 // ——空图层集的层位也入账（ok=false，error 写明「无声明图层」），不静默跳过。
@@ -75,7 +76,11 @@ Result run( const Request &request );
 
 //! Task-centre worker exports a private project/layout snapshot, preserving the
 //! live layout. Owner atomically registers staged outputs after a session and
-//! catalogue-generation check. Cancellation retains already exported horizons.
+//! catalogue-generation check. Publication gate (#541, aligned with
+//! geologicalexport / mapexport): only a Succeeded, uncancelled batch renames
+//! the external directory and applies the catalogue journal — a worker error or
+//! cancellation delivers nothing (already exported horizons stay in the result
+//! as failed entries with their reason).
 PaleoTask *startAsync( const Request &request, PaleoTaskService *tasks,
                        std::function<void( const Result &, bool cancelled )> done,
                        QString *error = nullptr );

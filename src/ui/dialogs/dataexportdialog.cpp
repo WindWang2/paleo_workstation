@@ -29,7 +29,8 @@ DataExportDialog::DataExportDialog(DataCatalog *catalog, const QStringList &asse
   m_scope = new QComboBox(this); m_scope->setObjectName("dataExportScope");
   m_scope->addItems({tr("当前成果／所选版本"), tr("原始文件（RAW）"), tr("成果及其制作源数据")});
   m_format = new QComboBox(this); m_format->setObjectName("dataExportFormat");
-  m_format->addItems({tr("保持原格式"), tr("自动交换格式（GPKG / GeoTIFF）"), "GeoPackage", "GeoJSON", "Shapefile", "CSV", "GeoTIFF"});
+  // 格式名同样过 tr()（同 folderconfirm.cpp:39 口径）——下拉项是用户可见文案。
+  m_format->addItems({tr("保持原格式"), tr("自动交换格式（GPKG / GeoTIFF）"), tr("GeoPackage"), tr("GeoJSON"), tr("Shapefile"), tr("CSV"), tr("GeoTIFF")});
   form->addRow(tr("导出内容"), m_scope); form->addRow(tr("数据格式"), m_format);
   m_directory = new QLineEdit(this); m_directory->setObjectName("dataExportDirectory"); m_directory->setReadOnly(true);
   auto *choose = new QPushButton(tr("选择目录…"), this);

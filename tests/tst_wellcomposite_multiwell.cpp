@@ -1,3 +1,7 @@
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTest>
 
@@ -6,6 +10,7 @@
 #include "ui/wellcomposite/wellcompositestore.h"
 #include "domain/wellcompositemodel.h"
 #include "qgis/qgisruntime.h"
+#include "services/jsonsidecar.h"
 
 using namespace WellComposite;
 
@@ -340,6 +345,54 @@ private slots:
     QVERIFY(reread.load());
     QCOMPARE(reread.pins().size(), 1);
     QCOMPARE(reread.pins().first().depth, 1234.5);
+
+    QFile::remove(sidecar);
+  }
+
+  // ---- #534 收敛：井组合 sidecar 的装载/落盘经数据层门面（无头可读写）----
+  // 视图只保留路径派生（<源名>.wc.json）与值类型映射；门面写出的文档就是
+  // WellCompositeStore 读的那份——壳/无头场景复用钉注/书签不必连 UI 一起拖。
+  void testSidecarFacadeRoundTripsHeadlessly()
+  {
+    const QString src = QDir::temp().absoluteFilePath(
+        QStringLiteral("wc_facade_%1.xml").arg(QCoreApplication::applicationPid()));
+    const QString sidecar = src.left(src.lastIndexOf(QLatin1Char('.')))
+                            + QStringLiteral(".wc.json");
+    QFile::remove(sidecar);
+
+    bool ok = false;
+    const auto missing = paleo::wellcompositeSidecarLoad(sidecar, &ok);
+    QVERIFY(ok);              // 不存在 = 合法初始态
+    QVERIFY(missing.isNull());
+
+    QJsonObject doc;
+    QJsonObject pin;
+    pin.insert(QStringLiteral("depth"), 1234.5);
+    pin.insert(QStringLiteral("text"), QStringLiteral("标志层"));
+    doc.insert(QStringLiteral("pins"), QJsonArray{pin});
+    QVERIFY(paleo::wellcompositeSidecarSave(sidecar, QJsonDocument(doc)));
+
+    const auto back = paleo::wellcompositeSidecarLoad(sidecar, &ok);
+    QVERIFY(ok);
+    QCOMPARE(back.object().value(QStringLiteral("pins")).toArray().size(), 1);
+
+    WellCompositeStore store(src);
+    QVERIFY(store.load());
+    QCOMPARE(store.pins().size(), 1);
+    QCOMPARE(store.pins().first().text, QStringLiteral("标志层"));
+
+    // 半截文档：如实失败（半截库静默成功 = 钉注/书签/地层归属丢失且无线索）。
+    QFile f(sidecar);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("{\"pins\": [{\"depth\": 1");
+    f.close();
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression("wellcomposite sidecar corrupt.*"));
+    QVERIFY(!WellCompositeStore(src).load());
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression("wellcomposite sidecar corrupt.*"));
+    QVERIFY(paleo::wellcompositeSidecarLoad(sidecar, &ok).isNull());
+    QVERIFY(!ok);
 
     QFile::remove(sidecar);
   }

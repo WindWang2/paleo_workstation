@@ -16,6 +16,22 @@
 namespace paleo::exporting {
 namespace {
 bool stopped(const Cancel &cancel) { return cancel && cancel(); }
+// QTemporaryDir 的随机段是 6 个字母数字；只认本仓五个导出暂存根的字面量，
+// 不碰用户自己的隐藏目录。
+constexpr int kStaleStagingHours = 24;
+bool isStagingRootName(const QString &name) {
+  static const QStringList prefixes{".map-products-", ".paleo-map-", ".horizon-export-",
+                                    ".paleo-batch-", ".paleo-export-"};
+  for (const auto &prefix : prefixes) {
+    if (!name.startsWith(prefix)) continue;
+    const auto suffix = name.mid(prefix.size());
+    if (suffix.size() != 6) continue;
+    bool alphanumeric = true;
+    for (const QChar &ch : suffix) if (!ch.isLetterOrNumber()) { alphanumeric = false; break; }
+    if (alphanumeric) return true;
+  }
+  return false;
+}
 bool dependency(datagraph::Relation r, bool references) {
   using R = datagraph::Relation;
   return r == R::Derived || r == R::Used || r == R::Generated || r == R::EditBaseline ||
@@ -101,6 +117,26 @@ QStringList companions(const QString &path, QString *error, const QVariantList &
     if (QFile::exists(extra) && !result.contains(extra)) result << extra;
   return result;
 }
+}
+
+void sweepStaleStagingRoots(const QString &parentDirectory) {
+  if (parentDirectory.isEmpty()) return;
+  const QDir parent(parentDirectory);
+  if (!parent.exists()) return;
+  const auto now = QDateTime::currentDateTime();
+  for (const auto &entry : parent.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
+    if (!isStagingRootName(entry.fileName())) continue;
+    const auto ageHours = entry.lastModified().secsTo(now) / 3600.0;
+    if (ageHours > kStaleStagingHours) {
+      if (QDir(entry.absoluteFilePath()).removeRecursively())
+        qWarning("exporting: swept stale staging root: %s", qPrintable(entry.absoluteFilePath()));
+      else
+        qWarning("exporting: stale staging root not removable (in use?): %s", qPrintable(entry.absoluteFilePath()));
+    } else {
+      qWarning("exporting: staging root residue %.1fh old (< %dh, kept): %s", ageHours, kStaleStagingHours,
+               qPrintable(entry.absoluteFilePath()));
+    }
+  }
 }
 
 QHash<QString, QStringList> versionIdsForPaths(const DataCatalog &catalog, const QStringList &paths) {
@@ -239,6 +275,7 @@ Result execute(const Plan &plan, const Cancel &cancel, const Progress &progress,
   if (plan.request.destination.isEmpty() || destination.exists() || !destination.absoluteDir().exists()) {
     result.error = QObject::tr("导出目标必须是已有父目录中的新目录"); return result;
   }
+  sweepStaleStagingRoots(destination.absoluteDir().path()); // 崩溃残留的 .paleo-export-*（#540）
   QTemporaryDir staging(destination.absoluteDir().filePath(".paleo-export-XXXXXX"));
   if (!staging.isValid()) { result.error = QObject::tr("无法创建导出暂存目录"); return result; }
   QVariantList manifest;
@@ -258,6 +295,7 @@ Result execute(const Plan &plan, const Cancel &cancel, const Progress &progress,
     // Pin and verify bytes before handing the private copy to a format writer.
     // File backed layers are never reconstructed from a mutable live URI.
     QTemporaryDir input(staging.filePath(".input-XXXXXX"));
+    if (!input.isValid()) { result.error = QObject::tr("无法创建导出暂存目录"); return result; }
     const auto parts = companions(item.path, &error, v.extra.value("bundle_members").toList());
     QStringList inputs = parts;
     if (QFileInfo(item.path).suffix().compare("vrt", Qt::CaseInsensitive) == 0 && plan.request.format != DataFormat::Native) {
@@ -283,7 +321,10 @@ Result execute(const Plan &plan, const Cancel &cancel, const Progress &progress,
         for (const auto &part : inputs) {
           const auto name = safeName(part);
           const auto path = QDir(directory).filePath(name);
-          if (QFile::copy(input.filePath(name), path)) files << path;
+          // 暂存内键与落盘名解耦（#540）：写入暂存时用的键是
+          // QFileInfo(part).fileName()（与上面拷贝入暂存同键），safeName 只作用
+          // 于最终落盘名——否则段名不合法时这里必然假失败。
+          if (QFile::copy(input.filePath(QFileInfo(part).fileName()), path)) files << path;
           else { error = QObject::tr("无法写出 CSV 及配套文件"); break; }
         }
       } else if (!converter) error = QObject::tr("该格式的写出服务尚未连接");

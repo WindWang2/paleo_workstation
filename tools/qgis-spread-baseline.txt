@@ -4,8 +4,11 @@
 # 153 = 148 + 5（上游功能演进，master 红修复时补登，非本批引入）：
 #   #521 vertexpartitionvalidation.cpp（PaleoVertexTool 拆分 TU，母文件已在基线）；
 #   #523 geologicalexport.{h,cpp} + geologicalexportdialog.{h,cpp}（QgsPrintLayout
-#   导出链）——待收进 src/qgis 封装后删行。#523 的 paleomainwindow_ribbon.cpp
-#   已改走 QgisCanvasController::hasLayers()，不入基线。
+#   导出链）——补登时注明「待收进 src/qgis 封装后删行」。#523 的
+#   paleomainwindow_ribbon.cpp 已改走 QgisCanvasController::hasLayers()，不入基线。
+# 149 = 153 - 4（2026-10-18 #523 收口）：导出链封装收敛（LayoutHandle/
+# LayoutSnapshot/writeLayerById 薄壳）落地，四个文件已无 qgs* 直连且无 Qgs
+# 符号——按「收敛一个删一行」删行（只缩不涨）。
 # 口径：src/workflow 与 src/ui 中【直接 include 外部 qgs*.h】或
 #【代码使用 Qgs 前缀符号（含前向声明）】的文件（逐文件豁免面 =
 # tools/layering_vocab.json qgs_audit_whitelist ∪ 脚本内附加清单）。
@@ -13,7 +16,10 @@
 # 基线内文件收敛 → NOTE 可收缩（--strict 红，强制删行）。
 # 收敛方向：QGIS 调用收进 src/qgis/ 封装（docs/PALEO_QGIS_PLAN.md
 # §2）；与 check_layering.py --qgs-audit（include 级）同批收敛。
-# 条目数：153（ui 102）（workflow 51）
+# 基线机制裁决（#539）：本表与 qgs-audit-baseline 采用「初冻基线 + 只缩不涨」，
+# 与已归零的 layering-baseline 不同期——非空不判红，新增才红，可收缩（--strict）
+# 才红。裁决全文与按目录分批收敛计划见 AGENTS.md「闸门基线纪律」节。
+# 条目数：149（ui 100）（workflow 49）
 src/ui/attributetablepanel.cpp
 src/ui/attributetablepanel.h
 src/ui/constraintdrawcontroller.cpp
@@ -42,8 +48,6 @@ src/ui/datapreview/previewtocpanel.cpp
 src/ui/datapreview/previewtocpanel.h
 src/ui/decorations/paleodecorations.cpp
 src/ui/decorations/paleodecorations.h
-src/ui/dialogs/geologicalexportdialog.cpp
-src/ui/dialogs/geologicalexportdialog.h
 src/ui/dialogs/projectmapsettingsdialog.cpp
 src/ui/dialogs/projectmapsettingsdialog.h
 src/ui/edittools/editingtoolbar.cpp
@@ -133,8 +137,6 @@ src/workflow/evolutionworkflow.cpp
 src/workflow/faciesmappingworkflow.cpp
 src/workflow/faultinterpretationcontroller.cpp
 src/workflow/faultinterpretationcontroller.h
-src/workflow/geologicalexport.cpp
-src/workflow/geologicalexport.h
 src/workflow/horizonbatchexport.cpp
 src/workflow/horizonbatchexport.h
 src/workflow/layouttemplatelibrary.cpp

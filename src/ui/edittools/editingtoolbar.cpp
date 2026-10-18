@@ -39,8 +39,7 @@
 #include "../paleoicons.h"
 #include "../paleotheme.h"
 #include "editingtools.h"
-#include "../../qgis/faciespartitioneditor.h"
-#include "../../qgis/faciespartitiontool.h"
+#include "../../qgis/faciespartitioneditor.h" // #533：相面捕获工具经此门面创建——faciespartitiontool.h 的 QtWidgets 边归 QGIS 封装层
 #include "vertexeditortools.h"
 
 // ui/edittools/ — PaleoEditingToolbar implementation notes:
@@ -544,7 +543,7 @@ void PaleoEditingToolbar::buildUi()
     if ( project && project->topologicalEditing() != on )
       project->setTopologicalEditing( on );
     if ( auto *vt = qobject_cast<PaleoVertexTool *>( mActiveEditTool.data() ) )
-      vt->setTopologicalEditingEnabled( on || (currentLayer() && currentLayer()->customProperty("paleo/requireFaciesTopology").toBool()) );
+      vt->setTopologicalEditingEnabled( on || FaciesPartitionEditor::isPartition( currentLayer() ) );
     updateActionStates(); // 跨层开关的可用性随拓扑开关联动
   } );
 
@@ -745,7 +744,7 @@ void PaleoEditingToolbar::updateActionStates()
   for ( QAction *action : { mActionAddFeature, mActionMove, mActionDeleteFeatures,
                             mActionVertexEdit, mActionTopological } )
     gate( action, noEdit );
-  if (target && target->customProperty("paleo/requireFaciesTopology").toBool()) {
+  if (FaciesPartitionEditor::isPartition(target)) {
     if (!mActionTopological->isChecked()) mActionTopological->setChecked(true);
     gate(mActionTopological, tr("三级相面共用边界，必须保持拓扑编辑"));
   }
@@ -886,9 +885,10 @@ void PaleoEditingToolbar::onEditToolTriggered()
     tool = wireAborted( new PaleoAddFeatureTool( mCanvas, cadDock, QgsMapToolCapture::CaptureLine, target ) );
   else if (action == mActionSplitFacies || action == mActionPaintFacies ||
            (action == mActionAddPolygon && FaciesPartitionEditor::isPartition(target)))
-    tool = wireAborted(new FaciesPartitionTool(mCanvas, cadDock, target,
-        action == mActionSplitFacies ? FaciesPartitionTool::Split : FaciesPartitionTool::Paint,
-        [combo = QPointer<QComboBox>(mPartitionCode)] { return combo ? combo->currentData().toInt() : 0; }));
+    tool = FaciesPartitionEditor::createCaptureTool(mCanvas, cadDock, target,
+        action == mActionSplitFacies ? FaciesPartitionEditor::PartitionOperation::Split : FaciesPartitionEditor::PartitionOperation::Paint,
+        [combo = QPointer<QComboBox>(mPartitionCode)] { return combo ? combo->currentData().toInt() : 0; },
+        [this, action] { installTool( nullptr ); action->setChecked( false ); });
   else if ( action == mActionAddPolygon )
     tool = wireAborted( new PaleoAddFeatureTool( mCanvas, cadDock, QgsMapToolCapture::CapturePolygon, target ) );
   else if ( action == mActionReshape )
@@ -900,7 +900,7 @@ void PaleoEditingToolbar::onEditToolTriggered()
   else if ( action == mActionVertexEdit )
   {
     auto *vt = new PaleoVertexTool( mCanvas, target );
-    vt->setTopologicalEditingEnabled( mActionTopological->isChecked() || target->customProperty("paleo/requireFaciesTopology").toBool() );
+    vt->setTopologicalEditingEnabled( mActionTopological->isChecked() || FaciesPartitionEditor::isPartition( target ) );
     vt->setCrossLayerTopologyEnabled( mActionCrossLayerTopo->isChecked() && !QgisEditingService::isConstraintLayer(target) && !FaciesPartitionEditor::isPartition(target) );
     tool = wireAborted( vt );
   }

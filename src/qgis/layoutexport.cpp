@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "layoutexport.h"
+#include "layoutpreview.h"
 #include "standardelements.h"
 
 #include <QDate>
@@ -12,10 +13,14 @@
 #include <QPointer>
 #include <QSet>
 #include <QSaveFile>
+#include <QVBoxLayout>
 
 #include <memory>
 
 #include <gdal.h>
+
+#include <qgis.h>
+#include <qgslayoutview.h>
 
 #include <qgsapplication.h>
 #include <qgsabstractgeopdfexporter.h>
@@ -141,6 +146,12 @@ bool geoPdfAvailable(QString *reason) {
   const bool available = QgsAbstractGeospatialPdfExporter::geospatialPDFCreationAvailable();
   if (!available && reason) *reason = QgsAbstractGeospatialPdfExporter::geospatialPDFAvailabilityExplanation();
   return available;
+}
+
+ExportOutcome exportLayout( QgsPrintLayout *layout, const QString &outPath, Format format,
+                            double dpi, const PageRange &range, const ExportOptions &options )
+{
+  return exportLayout( static_cast<QgsLayout *>( layout ), outPath, format, dpi, range, options );
 }
 
 ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format format,
@@ -721,7 +732,93 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
   return layout;
 }
 
+LayoutHandle::LayoutHandle(std::unique_ptr<QgsPrintLayout> layout) : m_layout(std::move(layout)) {}
+LayoutHandle::~LayoutHandle() = default;
+
+ProjectHandle::ProjectHandle(std::unique_ptr<QgsProject> project) : m_project(std::move(project)) {}
+ProjectHandle::~ProjectHandle() = default;
+
+QString qgisVersion() { return Qgis::version(); }
+
+bool captureLayout(QgsPrintLayout *layout, LayoutSnapshot &out, QString *error) {
+  const auto fail = [error](const QString &why) {
+    if (error)
+      *error = why;
+    return false;
+  };
+  if (!layout)
+    return fail(QObject::tr("图件版面缺失"));
+  if (!captureProjectSnapshot(layout->project(), out.project, error))
+    return false;
+  QgsReadWriteContext context;
+  out.xml.appendChild(layout->writeXml(out.xml, context));
+  // 图面引用的图层 id（去重，保序）：worker 侧据此核对数据源可用性，并按同
+  // 一顺序导出所选图层的成果数据。
+  for (auto *item : layout->items())
+    if (auto *map = dynamic_cast<QgsLayoutItemMap *>(item))
+      for (auto *layer : map->layers())
+        if (layer && !out.requiredLayerIds.contains(layer->id()))
+          out.requiredLayerIds << layer->id();
+  return true;
+}
+
+std::unique_ptr<LayoutHandle> rebuildLayout(QgsProject *project, const QDomDocument &xml,
+                                            QString *error) {
+  if (!project) {
+    if (error)
+      *error = QObject::tr("图件工程快照缺失");
+    return nullptr;
+  }
+  std::unique_ptr<QgsPrintLayout> layout(new QgsPrintLayout(project));
+  QgsReadWriteContext context;
+  if (!layout->readXml(xml.documentElement(), xml, context)) {
+    if (error)
+      *error = QObject::tr("无法重建图件版面");
+    return nullptr;
+  }
+  return std::make_unique<LayoutHandle>(std::move(layout));
+}
+
+bool validateLayoutLayers(QgsPrintLayout *layout, const QStringList &requiredLayerIds, QString *error) {
+  if (!layout)
+    return false;
+  for (const auto &id : requiredLayerIds) {
+    auto *layer = layout->project()->mapLayer(id);
+    if (!layer || !layer->isValid()) {
+      if (error)
+        *error = QObject::tr("所选制图图层数据源不可用：%1").arg(id);
+      return false;
+    }
+  }
+  return true;
+}
+
+bool saveLayoutTemplate(QgsPrintLayout *layout, const QString &path, QString *error) {
+  if (!layout) {
+    if (error)
+      *error = QObject::tr("图件版面缺失");
+    return false;
+  }
+  QgsReadWriteContext context;
+  if (!layout->saveAsTemplate(path, context)) {
+    if (error)
+      *error = QObject::tr("无法写出版面模板");
+    return false;
+  }
+  return true;
+}
+
 } // namespace PaleoLayoutExport
+
+PaleoLayoutPreview::PaleoLayoutPreview(QWidget *parent) : QWidget(parent) {
+  auto *outer = new QVBoxLayout(this);
+  outer->setContentsMargins(0, 0, 0, 0);
+  m_view = new QgsLayoutView(this);
+  outer->addWidget(m_view);
+}
+PaleoLayoutPreview::~PaleoLayoutPreview() = default;
+void PaleoLayoutPreview::setCurrentLayout(QgsPrintLayout *layout) { m_view->setCurrentLayout(layout); }
+void PaleoLayoutPreview::zoomFull() { m_view->zoomFull(); }
 
 namespace {
 const QString kSnapRoot = QStringLiteral("qgis");
@@ -903,4 +1000,11 @@ PaleoLayoutExport::rebuildProject(const ProjectSnapshot &snapshot,
   }
   project->mapThemeCollection()->readXml(snapshot.xml);
   return project;
+}
+
+std::unique_ptr<PaleoLayoutExport::ProjectHandle>
+PaleoLayoutExport::rebuildProjectHandle(const ProjectSnapshot &snapshot,
+                                        QString *error, QStringList *warnings) {
+  return std::make_unique<PaleoLayoutExport::ProjectHandle>(
+      rebuildProject(snapshot, error, warnings));
 }

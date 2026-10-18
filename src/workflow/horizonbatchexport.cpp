@@ -8,8 +8,10 @@
 #include "../catalog/datacatalog.h"
 #include "../metadata/layermanifest.h"
 #include "../qgis/qgislayerservice.h"
+#include "../services/dataexport.h"
 
 #include <QDate>
+#include <QHash>
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QDir>
@@ -59,6 +61,39 @@ namespace
       case PaleoHorizonBatchExport::Format::Tiff: return QStringLiteral( "tif" );
     }
     return QStringLiteral( "png" );
+  }
+
+  // 批处理文件名规则（#537）：`<工程>_<层位>_<日期>_<序号>`，序号 = 层位在批次内
+  // 的次序（0 起）——消毒后同形的层位名（"K1/q" 与 "K1 q" 的 safeSegment 都是
+  // "K1_q"）也拿到不同文件。step() 的暂存导出名与 startAsync() 的外部交付名
+  // 共用这条规则，避免两处命名漂移。
+  QString batchBaseName( const QString &project, const QString &horizon,
+                         const QString &date, int index )
+  {
+    return QStringLiteral( "%1_%2_%3_%4" )
+        .arg( project, safeSegment( horizon ), date, QString::number( index + 1 ) );
+  }
+
+  // 批次命名上下文：工程段 / 日期段 / 扩展名。Batch::step()（暂存导出名）与
+  // startAsync() 的交付循环（外部目录落盘名）必须同源。
+  struct BatchNaming
+  {
+    QString project;
+    QString date;
+    QString ext;
+  };
+
+  BatchNaming batchNaming( const PaleoHorizonBatchExport::Request &request )
+  {
+    BatchNaming naming;
+    naming.project = safeSegment( request.projectName.isEmpty()
+                                      ? QStringLiteral( "project" )
+                                      : request.projectName );
+    naming.date = request.date.isEmpty()
+                      ? QDate::currentDate().toString( QStringLiteral( "yyyyMMdd" ) )
+                      : request.date;
+    naming.ext = extensionFor( request.format );
+    return naming;
   }
 
   QgsRectangle combinedExtent( const QList<QgsMapLayer *> &layers, QgsLayoutItemMap *map )
@@ -126,6 +161,10 @@ struct Batch
   // 图层以 QPointer 守护：后台出图期间图层被移除 → 该层位少一层而非悬垂。
   QMap<QString, QList<QPointer<QgsMapLayer>>> guarded;
   int next = 0;
+  // 已占用的交付文件名 → 层位（#537）：safeSegment 把 '/'、' '、'\t' 等一律折叠
+  // 成 '_'（"K1/q" 与 "K1 q"、"K1_q" 三名同形），Windows 大小写不敏感同样同
+  // 文件；平面命名下 QFile::copy 目标已存在即失败，且失败发生在全部渲染之后。
+  QHash<QString, QString> usedNames;
   struct MapState
   {
     QPointer<QgsLayoutItemMap> map;
@@ -191,10 +230,10 @@ struct Batch
     }
     title = qobject_cast<QgsLayoutItemLabel *>( layout->itemById( QStringLiteral( "title" ) ) );
     titleBackup = title ? title->text() : QString();
-    project = safeSegment( request.projectName.isEmpty() ? QStringLiteral( "project" ) : request.projectName );
-    date = request.date.isEmpty() ? QDate::currentDate().toString( QStringLiteral( "yyyyMMdd" ) )
-                                  : request.date;
-    ext = extensionFor( request.format );
+    const auto naming = batchNaming( request );
+    project = naming.project;
+    date = naming.date;
+    ext = naming.ext;
     scratch = std::make_unique<QTemporaryDir>();
     begun = true;
     return true;
@@ -203,6 +242,7 @@ struct Batch
   // 导出并登记一个层位（next 前进一格）。
   void step()
   {
+    const int index = next; // 层位序号（0 起）：交付文件名的唯一性来源
     const QString horizon = horizons.at( next++ );
     if ( !layout || !catalog )
     {
@@ -251,7 +291,17 @@ struct Batch
                                                        : request.projectName,
                                                    horizon ) );
     // ---- 导出到临时文件（文件名即最终受管文件名）--------------------------
-    const QString baseName = QStringLiteral( "%1_%2_%3" ).arg( project, safeSegment( horizon ), date );
+    // 层位序号进文件名（#537）：消毒后同形的层位名不再撞同一交付文件；万一仍
+    // 撞名（如同名层位），如实报「层位 %1 与 %2 导出文件名相同」而不是让
+    // QFile::copy 在全部渲染完成后才失败。
+    const QString baseName = batchBaseName( project, horizon, date, index );
+    const auto claimed = usedNames.value( baseName );
+    if ( !claimed.isEmpty() && claimed != horizon )
+    {
+      fail( horizon, QObject::tr( "层位 %1 与 %2 导出文件名相同" ).arg( claimed, horizon ) );
+      return;
+    }
+    usedNames.insert( baseName, horizon );
     const QString tmpPath = scratch && scratch->isValid()
                                 ? scratch->filePath( baseName + QLatin1Char( '.' ) + ext )
                                 : QDir::temp().filePath( baseName + QLatin1Char( '.' ) + ext );
@@ -364,6 +414,12 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
     return reject(job->error);
   QgsReadWriteContext context;
   job->layout.appendChild(request.layout->writeXml(job->layout, context));
+  // 崩溃残留的隐藏暂存根（.horizon-export-* / .paleo-batch-*）无清扫器（#540）：
+  // 入口先扫一遍再建自己的暂存目录。
+  paleo::exporting::sweepStaleStagingRoots(request.projectDir);
+  if (!request.outputDirectory.isEmpty())
+    paleo::exporting::sweepStaleStagingRoots(
+        QFileInfo(request.outputDirectory).absoluteDir().path());
   job->staging = std::make_unique<QTemporaryDir>(request.projectDir +
                                                  "/.horizon-export-XXXXXX");
   if (!job->staging->isValid())
@@ -421,27 +477,47 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
         }
         job->result = batch.result;
         if (job->external) {
+          // 交付名与 step() 的导出名同源（#537）。catalog §3 dedup（同 SHA-256
+          // 复用既有资产，mapexport.cpp:89）会把渲染结果相同的层位并到同一资产，
+          // 受管文件名只剩首个层位的——按受管名交付会让第二个层位的 QFile::copy
+          // 目标已存在，整批在全部渲染完成后才失败（正是 #537 要消灭的失败模式）。
+          // 故每层位按自己的导出名落盘；一页以上产物保留源文件名，避免自覆盖。
+          const auto naming = batchNaming(job->request);
+          const QStringList keys = job->layerIds.keys();
           QVariantList outcomes;
           for (const auto &outcome : job->result.horizons) {
             QStringList files;
+            QString copyError;
+            // 层位序号以该层位在批次键序中的位置为准（与 step() 的 index 同源）
+            const int at = keys.indexOf(outcome.horizon);
+            const auto base = batchBaseName(naming.project, outcome.horizon, naming.date,
+                                            at < 0 ? 0 : at);
             for (const auto &path : outcome.files) {
-              const auto name = QFileInfo(path).fileName();
-              if (!QFile::copy(path, job->external->filePath(name))) return job->error = QObject::tr("无法写入批量导出文件：%1").arg(name);
+              const auto name = outcome.files.size() == 1
+                                    ? base + QLatin1Char('.') + naming.ext
+                                    : QFileInfo(path).fileName();
+              if (!QFile::copy(path, job->external->filePath(name))) {
+                copyError = QObject::tr("无法写入批量导出文件：%1").arg(name);
+                break;
+              }
               QFile::setPermissions(job->external->filePath(name), QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser | QFileDevice::WriteUser);
               files << name;
             }
-            outcomes.append(QVariantMap{{"horizon", outcome.horizon}, {"ok", outcome.ok}, {"files", files},
-                {"assets", outcome.assetIds}, {"error", outcome.error}});
+            outcomes.append(QVariantMap{{"horizon", outcome.horizon}, {"ok", outcome.ok && copyError.isEmpty()}, {"files", files},
+                {"assets", outcome.assetIds}, {"error", copyError.isEmpty() ? outcome.error : copyError}});
+            if (!copyError.isEmpty()) { job->error = copyError; break; }
           }
+          // 清单先于任何早退落盘（#541）：写入失败/取消的批次，暂存目录里同样
+          // 留下带 error / cancelled 字段的清单——发布门只放行完整成功的批次。
           const auto bytes = QJsonDocument::fromVariant(QVariantMap{{"schema", "paleo_horizon_export_v1"},
               {"format", extensionFor(job->request.format)}, {"dpi", job->request.dpi},
-              {"cancelled", task->cancelRequested()}, {"horizons", outcomes}}).toJson();
+              {"cancelled", task->cancelRequested()}, {"error", job->error}, {"horizons", outcomes}}).toJson();
           QSaveFile metadata(job->external->filePath("metadata.json"));
           if (!metadata.open(QIODevice::WriteOnly) || metadata.write(bytes) != bytes.size() || !metadata.commit())
-            return job->error = QObject::tr("无法写出批量图件清单");
+            job->error = QObject::tr("无法写出批量图件清单");
         }
         job->journal = job->catalog->journal();
-        if (job->result.failed && !task->cancelRequested())
+        if (job->error.isEmpty() && job->result.failed && !task->cancelRequested())
           job->error = job->result.summary();
         return job->error;
       });
@@ -456,7 +532,13 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
     if (stale) {
       task->discardPublication();
       why = QObject::tr("工程数据已变化，出图成果未登记，请重新导出");
-    } else if (job->journal.isEmpty() && !job->error.isEmpty()) {
+    } else if (task->cancelRequested() || task->state() != PaleoTask::State::Succeeded) {
+      // 发布门（#541，与 geologicalexport.cpp:214 / mapexport.cpp:287-288 对齐）：
+      // worker 报错或取消的批次不发布外部目录、不登记 journal——整批视为未交付，
+      // 已导出层位在结果里留痕（ok=false + 原因），不落幽灵路径。
+      if (job->error.isEmpty())
+        job->error = task->cancelRequested() ? QObject::tr("已取消，批量出图成果未登记")
+                                            : task->errorText();
       why = job->error;
     } else {
       bool externalPlaced = false;

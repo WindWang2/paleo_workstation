@@ -3,6 +3,10 @@
 // 面板 dock 创建、工作副本自动保存、测井预测修订链、画布右键改相菜单，
 // 逐字平移自 paleomainwindow_workbench.cpp，行为守恒。私有成员访问经
 // paleomainwindow.h 的成员函数声明（同 W4 拆分段先例）。
+// #538：attachWorkbenchWells 原 288 行单体（file-budget 闸 >200 行）拆出两
+// 段接线（面板动作族 / 画布右键改相菜单）为文件内自由函数；私有成员经参数
+// 显式传入、私有段回调类型（WorkbenchShowFn 等）展开为等价的 std::function
+// 特化——#538 只许改三个 workbench .cpp，不在头文件加成员声明。
 #include "paleomainwindow.h"
 
 #include "../domain/faciescatalog.h"
@@ -27,6 +31,7 @@
 #include <QMenu>
 #include <QPointer>
 #include <QStatusBar>
+#include <functional>
 #include <qgslayertree.h>
 #include <qgslayertreeview.h>
 #include <qgsmapcanvas.h>
@@ -35,6 +40,160 @@
 #include <qgsmaptoolidentify.h>
 #include <qgsproject.h>
 #include <qgsvectorlayer.h>
+
+namespace {
+
+// #538：wellPanel 信号动作族（logRequested / featureSelected /
+// reviseRequested / saveRequested / undoRequested）——自 attachWorkbenchWells
+// 拆出，逐字平移（this → self），行为守恒。
+void attachWellPanelActions(PaleoMainWindow *self, MappingWorkbench *workbench,
+                            WellPredictionPanel *wellPanel,
+                            PaleoEditingToolbar *edit,
+                            QgisLayerService *layerSvc,
+                            const std::function<void(const QString &)> &openWells,
+                            const std::function<bool(const QString &)> &beginEdit) {
+  QObject::connect(wellPanel, &WellPredictionPanel::logRequested, self,
+          [workbench, wellPanel](const QString &version) {
+            wellPanel->setLog(workbench->predictionLog(version));
+          });
+  QObject::connect(wellPanel, &WellPredictionPanel::featureSelected, self,
+          [self, wellPanel, layerSvc](qint64 fid) {
+            if (auto *v = qobject_cast<QgsVectorLayer *>(
+                    layerSvc->layer(wellPanel->layerId())))
+              v->selectByIds({fid});
+          });
+  QObject::connect(wellPanel, &WellPredictionPanel::reviseRequested, self,
+          [self, workbench, wellPanel, beginEdit, openWells](
+              const QString &well, int interval, int code) {
+            QString error;
+            auto id = wellPanel->layerId();
+            if (!id.startsWith("draft.")) {
+              // 直接在预测相上修订：预测原件不可变，首次修订自动创建修订副本
+              // 并切换到副本（与画布右键改相同一条路径）。
+              id = workbench->copyForEditing(id, {}, &error);
+              if (id.isEmpty()) {
+                self->statusBar()->showMessage(error, 10000);
+                return;
+              }
+              openWells(id);
+            }
+            if (beginEdit(id) &&
+                workbench->reviseWellInterval(id, well, interval, code, &error))
+              self->statusBar()->showMessage(
+                  PaleoMainWindow::tr("当前地层的预测相已更新并自动保存到修订副本；可撤销，保存修订版本后登记新版本。"), 10000);
+            else
+              self->statusBar()->showMessage(
+                  error.isEmpty() ? PaleoMainWindow::tr("请先结束其他图层的编辑") : error,
+                  10000);
+          });
+  QObject::connect(wellPanel, &WellPredictionPanel::saveRequested, self,
+          [self, workbench, wellPanel, edit, layerSvc] {
+            QString error;
+            auto id = wellPanel->layerId();
+            auto *v = qobject_cast<QgsVectorLayer *>(layerSvc->layer(id));
+            if (v && v->isEditable()) {
+              if (edit && edit->currentLayer() == v)
+                edit->saveEditing();
+              else
+                self->statusBar()->showMessage(PaleoMainWindow::tr("请先结束其他图层的编辑"), 10000);
+            } else if (!workbench->saveEditingVersion(id, &error))
+              self->statusBar()->showMessage(error, 10000);
+          });
+  QObject::connect(wellPanel, &WellPredictionPanel::undoRequested, self,
+          [self, workbench, wellPanel, layerSvc] {
+            const auto id = wellPanel->layerId();
+            auto *v = qobject_cast<QgsVectorLayer *>(layerSvc->layer(id));
+            if (v && v->isEditable() && v->undoStack()->canUndo()) {
+              v->undoStack()->undo();
+              v->triggerRepaint();
+              emit workbench->faciesEdited(id);
+            } else if (auto *autosave = DraftAutosave::of(v);
+                       autosave && autosave->canUndo()) {
+              // 已自动保存的修订：按自带历史写回旧值并再次自动保存。
+              QString error;
+              if (autosave->undo(&error))
+                emit workbench->faciesEdited(id);
+              else
+                self->statusBar()->showMessage(error, 10000);
+            }
+          });
+}
+
+// #538：画布右键「更改此要素的相」菜单——自 attachWorkbenchWells 拆出，逐字
+// 平移（this → self，私有成员经参数传入），行为守恒。
+void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
+                            QgisCanvasController *canvasCtl,
+                            QgisLayerService *layerSvc,
+                            const std::function<bool(const QString &, QString *)> &show,
+                            const std::function<bool(const QString &)> &beginEdit) {
+  QObject::connect(
+      canvasCtl->canvas(), &QgsMapCanvas::contextMenuAboutToShow, self,
+      [self, workbench, canvasCtl, layerSvc, show, beginEdit](QMenu *menu, QgsMapMouseEvent *event) {
+        auto *v = qobject_cast<QgsVectorLayer *>(
+            canvasCtl->canvas()->currentLayer());
+        if (!v || v->fields().indexOf("facies_code") < 0)
+          return;
+        const auto id = v->customProperty("paleoLayerId").toString();
+        const auto schema =
+            workbench->versionForLayer(id).extra.value("facies").toList();
+        if (schema.isEmpty())
+          return;
+        QgsMapToolIdentify identify(canvasCtl->canvas());
+        const auto hits =
+            identify.identify(event->pos().x(), event->pos().y(), {v},
+                              QgsMapToolIdentify::TopDownAll);
+        if (hits.isEmpty())
+          return;
+        auto *changes = menu->addMenu(PaleoMainWindow::tr("更改此要素的相"));
+        changes->setObjectName("changeFeatureFacies");
+        const auto original = hits.first().mFeature;
+        for (const auto &entry : schema) {
+          auto f = entry.toMap();
+          auto *action = changes->addAction(
+              QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
+              f.value("name").toString());
+          QObject::connect(
+              action, &QAction::triggered, self,
+              [self, workbench, layerSvc, id, original, code = f.value("code").toInt(),
+               show, beginEdit] {
+                QString error;
+                QString target = id;
+                QgsFeatureId fid = original.id();
+                if (!target.startsWith("draft.")) {
+                  target = workbench->copyForEditing(id, {}, &error);
+                  auto *copy = qobject_cast<QgsVectorLayer *>(
+                      layerSvc->instantiate(target));
+                  if (copy) {
+                    auto it = copy->getFeatures();
+                    QgsFeature f;
+                    fid = FID_NULL;
+                    while (it.nextFeature(f))
+                      if (f.geometry().asWkb() == original.geometry().asWkb() &&
+                          f.attribute("facies_code") ==
+                              original.attribute("facies_code")) {
+                        fid = f.id();
+                        break;
+                      }
+                  }
+                }
+                if (target.isEmpty() || fid == FID_NULL || !beginEdit(target) ||
+                    !workbench->assignFacies(target, {fid}, code, &error))
+                  self->statusBar()->showMessage(
+                      error.isEmpty() ? PaleoMainWindow::tr("无法修改；请先结束其他图层的编辑")
+                                      : error,
+                      10000);
+                else {
+                  show(target, &error);
+                  self->statusBar()->showMessage(
+                      PaleoMainWindow::tr("相类别已更新并自动保存到工作副本，可撤销；保存编辑后登记新版本。"),
+                      10000);
+                }
+              });
+        }
+      });
+}
+
+}  // namespace
 
 PaleoMainWindow::WorkbenchWells PaleoMainWindow::attachWorkbenchWells(
     MappingWorkbench *workbench, PaleoEditingToolbar *edit,
@@ -163,71 +322,9 @@ PaleoMainWindow::WorkbenchWells PaleoMainWindow::attachWorkbenchWells(
     }
     return false;
   };
-  connect(wellPanel, &WellPredictionPanel::logRequested, this,
-          [workbench, wellPanel](const QString &version) {
-            wellPanel->setLog(workbench->predictionLog(version));
-          });
-  connect(wellPanel, &WellPredictionPanel::featureSelected, this,
-          [this, wellPanel](qint64 fid) {
-            if (auto *v = qobject_cast<QgsVectorLayer *>(
-                    m_layerSvc->layer(wellPanel->layerId())))
-              v->selectByIds({fid});
-          });
-  connect(wellPanel, &WellPredictionPanel::reviseRequested, this,
-          [this, workbench, wellPanel, beginEdit, openWells](
-              const QString &well, int interval, int code) {
-            QString error;
-            auto id = wellPanel->layerId();
-            if (!id.startsWith("draft.")) {
-              // 直接在预测相上修订：预测原件不可变，首次修订自动创建修订副本
-              // 并切换到副本（与画布右键改相同一条路径）。
-              id = workbench->copyForEditing(id, {}, &error);
-              if (id.isEmpty()) {
-                statusBar()->showMessage(error, 10000);
-                return;
-              }
-              openWells(id);
-            }
-            if (beginEdit(id) &&
-                workbench->reviseWellInterval(id, well, interval, code, &error))
-              statusBar()->showMessage(
-                  tr("当前地层的预测相已更新并自动保存到修订副本；可撤销，保存修订版本后登记新版本。"), 10000);
-            else
-              statusBar()->showMessage(
-                  error.isEmpty() ? tr("请先结束其他图层的编辑") : error,
-                  10000);
-          });
-  connect(wellPanel, &WellPredictionPanel::saveRequested, this,
-          [this, workbench, wellPanel, edit] {
-            QString error;
-            auto id = wellPanel->layerId();
-            auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
-            if (v && v->isEditable()) {
-              if (edit && edit->currentLayer() == v)
-                edit->saveEditing();
-              else
-                statusBar()->showMessage(tr("请先结束其他图层的编辑"), 10000);
-            } else if (!workbench->saveEditingVersion(id, &error))
-              statusBar()->showMessage(error, 10000);
-          });
-  connect(wellPanel, &WellPredictionPanel::undoRequested, this,
-          [this, workbench, wellPanel] {
-            const auto id = wellPanel->layerId();
-            auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
-            if (v && v->isEditable() && v->undoStack()->canUndo()) {
-              v->undoStack()->undo();
-              v->triggerRepaint();
-              emit workbench->faciesEdited(id);
-            } else if (auto *autosave = DraftAutosave::of(v);
-                       autosave && autosave->canUndo()) {
-              // 已自动保存的修订：按自带历史写回旧值并再次自动保存。
-              QString error;
-              if (autosave->undo(&error))
-                emit workbench->faciesEdited(id);
-              else
-                statusBar()->showMessage(error, 10000);
-            }
-          });
+  // #538：面板信号动作族与画布右键改相菜单拆至文件内自由函数（>200 行闸）。
+  attachWellPanelActions(this, workbench, wellPanel, edit, m_layerSvc,
+                         openWells, beginEdit);
   connect(
       workbench, &MappingWorkbench::faciesEdited, this,
       [this, workbench, wellPanel, legend](const QString &id) {
@@ -257,70 +354,7 @@ PaleoMainWindow::WorkbenchWells PaleoMainWindow::attachWorkbenchWells(
               wellDock->hide();
             });
   }
-  connect(
-      m_canvasCtl->canvas(), &QgsMapCanvas::contextMenuAboutToShow, this,
-      [this, workbench, show, beginEdit](QMenu *menu, QgsMapMouseEvent *event) {
-        auto *v = qobject_cast<QgsVectorLayer *>(
-            m_canvasCtl->canvas()->currentLayer());
-        if (!v || v->fields().indexOf("facies_code") < 0)
-          return;
-        const auto id = v->customProperty("paleoLayerId").toString();
-        const auto schema =
-            workbench->versionForLayer(id).extra.value("facies").toList();
-        if (schema.isEmpty())
-          return;
-        QgsMapToolIdentify identify(m_canvasCtl->canvas());
-        const auto hits =
-            identify.identify(event->pos().x(), event->pos().y(), {v},
-                              QgsMapToolIdentify::TopDownAll);
-        if (hits.isEmpty())
-          return;
-        auto *changes = menu->addMenu(tr("更改此要素的相"));
-        changes->setObjectName("changeFeatureFacies");
-        const auto original = hits.first().mFeature;
-        for (const auto &entry : schema) {
-          auto f = entry.toMap();
-          auto *action = changes->addAction(
-              QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
-              f.value("name").toString());
-          connect(
-              action, &QAction::triggered, this,
-              [this, workbench, id, original, code = f.value("code").toInt(),
-               show, beginEdit] {
-                QString error;
-                QString target = id;
-                QgsFeatureId fid = original.id();
-                if (!target.startsWith("draft.")) {
-                  target = workbench->copyForEditing(id, {}, &error);
-                  auto *copy = qobject_cast<QgsVectorLayer *>(
-                      m_layerSvc->instantiate(target));
-                  if (copy) {
-                    auto it = copy->getFeatures();
-                    QgsFeature f;
-                    fid = FID_NULL;
-                    while (it.nextFeature(f))
-                      if (f.geometry().asWkb() == original.geometry().asWkb() &&
-                          f.attribute("facies_code") ==
-                              original.attribute("facies_code")) {
-                        fid = f.id();
-                        break;
-                      }
-                  }
-                }
-                if (target.isEmpty() || fid == FID_NULL || !beginEdit(target) ||
-                    !workbench->assignFacies(target, {fid}, code, &error))
-                  statusBar()->showMessage(
-                      error.isEmpty() ? tr("无法修改；请先结束其他图层的编辑")
-                                      : error,
-                      10000);
-                else {
-                  show(target, &error);
-                  statusBar()->showMessage(
-                      tr("相类别已更新并自动保存到工作副本，可撤销；保存编辑后登记新版本。"),
-                      10000);
-                }
-              });
-        }
-      });
+  attachCanvasFaciesMenu(this, workbench, m_canvasCtl, m_layerSvc, show,
+                         beginEdit);
   return {wellPanel, wellDock, openWells, beginEdit};
 }

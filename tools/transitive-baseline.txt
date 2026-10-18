@@ -20,6 +20,21 @@
 # #474 接闸前 re-pin：master 演进至 da9f0af6 复测 heavy_tus 83→86（出闸边
 # 52 条不变，受染 TU 随 #473 工作台拆分等文件拆分自然增长——债未新增，
 # 仅 TU 计数面变大）；func/ui/heavy_edges 与原基线一致。闸门自 86 起只缩不涨。
+# ---- 2026-10-18 对账（#540-8：注释与数值矛盾修正 + #533 实测同步）----
+# 此前注释自相矛盾：此处写「heavy_tus 83→86」而下方数值已是 87（86→87 的
+# 上调没有同步注释）；ui_qtwidgets_notes 的涨幅也只归因了 #516。按工具实测
+# （QGIS_PREFIX 指向本地 QGIS 头目录复跑）同步为：
+#   冻结值（只缩不涨，不放宽）：func 0 / ui 6 / heavy_edges 52 / heavy_tus 87。
+#   实测值（2026-10-18，本树）：func 0 / ui 7 / heavy_edges 52 / heavy_tus 87。
+#   ui 实测 7 > 冻结 6：本批 faciespartitiontool.h 的 2 条视图层边已由相面
+#   编辑修复员删除（8→6 口径修复到位），但 #531 导出链封装新增的
+#   src/qgis/layoutpreview.h（PaleoLayoutPreview : QWidget 薄壳）被
+#   geologicalexportdialog.cpp include，带入 1 条新的视图层记录边
+#   （ui/dialogs/geologicalexportdialog.cpp:22 → qgis/layoutpreview.h ->
+#   <QWidget>@3）——设计后果而非新增债，但按「修边不改基线」维持冻结 6，
+#   差额 1 条在 docs/ci/known-reds.json 登记（issue #533）待 src/qgis 薄壳
+#   与视图层边界的计数口径裁决（该文件不属本岗可改范围）。
+#   heavy_* 与 func 实测 = 冻结，无缺口。
 func_qtwidgets_edges: 0
 ui_qtwidgets_notes: 6
 heavy_edges: 52

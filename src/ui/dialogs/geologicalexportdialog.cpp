@@ -16,11 +16,10 @@
 #include <QDoubleSpinBox>
 #include <QSplitter>
 #include <QScrollArea>
+#include <QTimer>
 #include <QUuid>
 #include <QVBoxLayout>
-#include <QTimer>
-#include <qgslayoutview.h>
-#include <qgsprintlayout.h>
+#include "../../qgis/layoutpreview.h"
 
 GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::Settings &settings,
     Builder builder, bool hasInputs, QWidget *parent, const QStringList &unboundLayers, const QString &projectDirectory)
@@ -77,7 +76,7 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
   connect(choose, &QPushButton::clicked, this, [this] {
     const auto path = QFileDialog::getExistingDirectory(this, tr("选择图件导出父目录"), m_directory->text());
     if (!path.isEmpty()) m_directory->setText(path);
-    rebuild();
+    scheduleRebuild();
   });
   const auto destinationChanged = [this, choose] {
     const bool managed = m_destinationMode->currentData().toBool();
@@ -86,7 +85,7 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
     rebuild();
   };
   m_status = new QLabel(controls); m_status->setWordWrap(true); form->addRow(m_status);
-  m_preview = new QgsLayoutView(splitter); m_preview->setObjectName("mapExportPreview");
+  m_preview = new PaleoLayoutPreview(splitter); m_preview->setObjectName("mapExportPreview");
   splitter->addWidget(scroll); splitter->addWidget(m_preview); splitter->setStretchFactor(1, 1);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
   buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
@@ -94,16 +93,21 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
   root->addWidget(buttons);
   connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-  for (auto *combo : {m_kind, m_paper, m_orientation}) connect(combo, &QComboBox::currentIndexChanged, this, [this] { rebuild(); });
-  for (auto *edit : {m_title, m_subtitle, m_author, m_reviewer}) connect(edit, &QLineEdit::editingFinished, this, [this] { rebuild(); });
-  for (auto *box : {m_png, m_pdf, m_svg, m_tiff}) connect(box, &QCheckBox::toggled, this, [this] { rebuild(); });
-  connect(m_dpi, &QSpinBox::valueChanged, this, [this] { rebuild(); });
-  connect(m_scale, &QDoubleSpinBox::valueChanged, this, [this] { rebuild(); });
+  // 预览重建防抖（#540a）：13 条输入连接全部经 200ms 单发定时器合流——逐键
+  // 重建版面会把 GUI 线程占满（与 dataexportdialog.cpp 的预览定时器同口径）。
+  m_rebuildTimer = new QTimer(this); m_rebuildTimer->setSingleShot(true); m_rebuildTimer->setInterval(200);
+  connect(m_rebuildTimer, &QTimer::timeout, this, [this] { rebuild(); });
+  for (auto *combo : {m_kind, m_paper, m_orientation}) connect(combo, &QComboBox::currentIndexChanged, this, [this] { scheduleRebuild(); });
+  for (auto *edit : {m_title, m_subtitle, m_author, m_reviewer}) connect(edit, &QLineEdit::editingFinished, this, [this] { scheduleRebuild(); });
+  for (auto *box : {m_png, m_pdf, m_svg, m_tiff}) connect(box, &QCheckBox::toggled, this, [this] { scheduleRebuild(); });
+  connect(m_dpi, &QSpinBox::valueChanged, this, [this] { scheduleRebuild(); });
+  connect(m_scale, &QDoubleSpinBox::valueChanged, this, [this] { scheduleRebuild(); });
   connect(m_destinationMode, &QComboBox::currentIndexChanged, this, destinationChanged);
   resize(1100, 720); destinationChanged();
 }
 GeologicalExportDialog::~GeologicalExportDialog() { delete m_preview; }
-QgsPrintLayout *GeologicalExportDialog::layout() const { return m_layout.get(); }
+void GeologicalExportDialog::scheduleRebuild() { m_rebuildTimer->start(); }
+PaleoLayoutExport::LayoutHandle *GeologicalExportDialog::layout() const { return m_layout.get(); }
 void GeologicalExportDialog::rebuild() {
   m_settings.subtitle = m_subtitle->text(); m_settings.scale = m_scale->value();
   m_settings.title = m_title->text(); m_settings.kind = PaleoStandardElements::FigureKind(m_kind->currentIndex());
@@ -112,10 +116,10 @@ void GeologicalExportDialog::rebuild() {
   QString error;
   // QGIS 4.2 setCurrentLayout requires a non-null layout. Bind the replacement
   // while the previous scene is alive, then retire the old scene.
-  std::unique_ptr<QgsPrintLayout> replacement(m_builder(m_settings, &error));
+  std::unique_ptr<PaleoLayoutExport::LayoutHandle> replacement(m_builder(m_settings, &error));
   const bool valid = bool(replacement);
   if (replacement) {
-    m_preview->setCurrentLayout(replacement.get());
+    m_preview->setCurrentLayout(replacement->layout());
     m_layout = std::move(replacement);
     m_preview->zoomFull();
     QTimer::singleShot(0, m_preview, [this] { m_preview->zoomFull(); });

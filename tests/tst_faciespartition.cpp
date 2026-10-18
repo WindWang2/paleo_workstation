@@ -99,6 +99,26 @@ private slots:
     f.layer.undoStack()->undo(); QCOMPARE(f.layer.featureCount(), 2);
     f.layer.undoStack()->redo(); QCOMPARE(f.layer.featureCount(), 4);
   }
+  // #541 子项 1：覆盖绘制裁切原面走 apply() 的 changed 路径。该路径曾漏掉
+  // convertToMultiType()（add 路径的 child() 有），GEOS difference 的单部件
+  // 结果是 Polygon——落库后 GeoPackage 的 MULTIPOLYGON 列会混进 POLYGON 行。
+  void changedGeometryStaysMultiTypeForMultiColumns() {
+    Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));
+    QCOMPARE(f.layer.wkbType(), Qgis::WkbType::MultiPolygon);
+    // 50..150 × 10..90 同时切过两个原面，每个面的 remainder 都是单部件 → changed 路径。
+    QVERIFY2(FaciesPartitionEditor::paint(&f.layer, QgsGeometry::fromRect(QgsRectangle(50, 10, 150, 90)), 3, &error), qPrintable(error));
+    QCOMPARE(f.layer.featureCount(), 3);
+    auto it = f.layer.getFeatures(); QgsFeature feature;
+    while (it.nextFeature(feature))
+      QCOMPARE(feature.geometry().wkbType(), Qgis::WkbType::MultiPolygon);
+    QVERIFY2(FaciesPartitionEditor::validate(&f.layer, &error), qPrintable(error));
+    // 撤销/重做后仍不得退化成单部件。
+    f.layer.undoStack()->undo(); QCOMPARE(f.layer.featureCount(), 2);
+    f.layer.undoStack()->redo(); QCOMPARE(f.layer.featureCount(), 3);
+    it = f.layer.getFeatures();
+    while (it.nextFeature(feature))
+      QCOMPARE(feature.geometry().wkbType(), Qgis::WkbType::MultiPolygon);
+  }
   void mergeRequiresExplicitLeafAcrossClassesAndPreservesParents() {
     Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));
     f.layer.selectByIds(f.ids);

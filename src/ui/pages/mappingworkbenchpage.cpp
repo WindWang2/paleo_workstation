@@ -379,12 +379,12 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_featureDisplayState = new QLabel(appearance);
   m_featureDisplayState->setObjectName("faciesFeatureDisplayState");
   m_featureDisplayState->setWordWrap(true);
+  m_featureDisplayState->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt)); // 次级状态标签按 label 字阶设字体（DESIGN.md typography.label 8pt，同 :100 m_status）
   appearanceLayout->addWidget(m_featureDisplayState);
   connect(m_displayLevel, &QComboBox::currentIndexChanged, this, [this] {
     issue("displayLevel", {{"display_mode", m_displayLevel->currentData()}});
   });
-  connect(m_editLevel, &QComboBox::currentIndexChanged, this,
-          [this] { updateState(); });
+  connect(m_editLevel, &QComboBox::currentIndexChanged, this, [this] { updateState(); });
   auto *hierarchyHint = new QLabel(
       tr("三级共用边界。相／亚相改类会更新整个选中父类，并保留目标分类内兼容的"
          "下级；微相改类只作用于选中面。旧分类打开时自动归入三级体系（相／亚相级"

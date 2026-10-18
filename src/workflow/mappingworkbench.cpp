@@ -13,6 +13,7 @@
 #include "../io/lasparser.h"
 #include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/faciespartitioneditor.h"
+#include "../qgis/faciespartitionstate.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
 #include "../qgis/mappingartifactwriter.h"
@@ -67,11 +68,11 @@ void fail(QString *error, const QString &text) {
 }
 QString filePath(const QString &source) { return source.section('|', 0, 0); }
 void rememberNativeFailure(QgsVectorLayer *layer, const QString &target, const QString &error) {
-  auto failures = layer->property("paleo.evidenceEditFailures").toMap();
+  auto failures = FaciesPartitionState::evidenceFailures(layer);
   if (error.isEmpty()) failures.remove(target); else failures.insert(target, error);
-  layer->setProperty("paleo.evidenceEditFailures", failures.isEmpty() ? QVariant() : QVariant(failures));
+  FaciesPartitionState::setEvidenceFailures(layer, failures);
   const auto reason = failures.isEmpty() ? QString() : failures.cbegin().value().toString();
-  layer->setProperty("paleo.evidenceEditFailure", reason.isEmpty() ? QVariant() : QVariant(reason));
+  FaciesPartitionState::setEvidenceFailure(layer, reason);
   layer->setAllowCommit(failures.isEmpty());
 }
 
@@ -989,8 +990,9 @@ void MappingWorkbench::styleLayer(const QString &id) {
     vector->setReadOnly(!id.startsWith("draft."));
     if (id.startsWith("draft.") && vector->geometryType() == Qgis::GeometryType::Polygon) {
       QString error;
+      // #540 子项 2：冻结覆盖范围读 sidecar，旧版本字段（partition_footprint_wkb）兜底。
       if (!FaciesPartitionEditor::install(vector, v.extra.value("facies").toList(),
-                                         v.extra.value("partition_footprint_wkb").toString(), &error)) {
+                                         FaciesPartitionState::loadFootprint(m_dir, v.extra), &error)) {
         vector->setAllowCommit(false); emit errorOccurred(error); return;
       }
     }
@@ -1017,11 +1019,11 @@ void MappingWorkbench::styleLayer(const QString &id) {
     if (id.startsWith("draft.") && vector->fields().indexOf(MappingFeatureIdentity::UidField) >= 0) {
       QString identityError;
       if (auto *observer = MappingFeatureIdentity::Observer::attach(vector, &identityError)) {
-        if (observer->property("paleo.workbenchBinding").value<QObject *>() != this) {
-          observer->setProperty("paleo.workbenchBinding", QVariant::fromValue(static_cast<QObject *>(this)));
+        if (FaciesPartitionState::workbenchBinding(observer) != this) {
+          FaciesPartitionState::setWorkbenchBinding(observer, this);
           const QPointer<QgsVectorLayer> safeVector(vector);
           connect(this, &QObject::destroyed, observer, [observer] {
-            observer->setProperty("paleo.workbenchBinding", QVariant());
+            FaciesPartitionState::setWorkbenchBinding(observer, nullptr);
           });
           connect(observer, &MappingFeatureIdentity::Observer::businessEdit, this,
                   [this, safeVector, id](qint64 fid, const QString &kind) {
@@ -1046,8 +1048,8 @@ void MappingWorkbench::styleLayer(const QString &id) {
             if (!safeVector) return;
             QString error;
             const bool valid = validWorkingEvidence(safeVector, declaration(id).horizon, m_catalog, &error);
-            safeVector->setProperty("paleo.evidenceEditFailures", QVariant());
-            safeVector->setProperty("paleo.evidenceEditFailure", QVariant());
+            FaciesPartitionState::setEvidenceFailures(safeVector, {});
+            FaciesPartitionState::setEvidenceFailure(safeVector, {});
             if (!valid) rememberNativeFailure(safeVector, QStringLiteral("rollback"), error);
             else safeVector->setAllowCommit(true);
           });
@@ -1059,9 +1061,8 @@ void MappingWorkbench::styleLayer(const QString &id) {
     if (id.startsWith("draft.") &&
         !vector->property("faciesSyncAttached").toBool()) {
       vector->setProperty("faciesSyncAttached", true);
-      vector->setCustomProperty("paleo/requireFaciesTopology",
-                                vector->geometryType() ==
-                                    Qgis::GeometryType::Polygon);
+      FaciesPartitionState::setRequireTopology(vector,
+                                              vector->geometryType() == Qgis::GeometryType::Polygon);
       connect(vector, &QgsVectorLayer::editCommandEnded, this, [this, id] {
         styleLayer(id);
         emit displayChanged(id);
@@ -1074,10 +1075,10 @@ void MappingWorkbench::styleLayer(const QString &id) {
         if (auto *current = qobject_cast<QgsVectorLayer *>(m_layers->layer(id))) {
           // Release only our own coverage veto after native undo/repair. A
           // rejected commit must not permanently lock a now-valid edit buffer.
-          if (current->property("paleo.partitionCommitRejected").toBool() &&
-              current->property("paleo.evidenceEditFailure").toString().isEmpty() &&
+          if (FaciesPartitionState::commitRejected(current) &&
+              FaciesPartitionState::evidenceFailure(current).isEmpty() &&
               FaciesHierarchyRenderer::validateTopology(current, nullptr)) {
-            current->setProperty("paleo.partitionCommitRejected", QVariant());
+            FaciesPartitionState::setCommitRejected(current, false);
             current->setAllowCommit(true);
           }
           styleLayer(id);
@@ -1087,11 +1088,11 @@ void MappingWorkbench::styleLayer(const QString &id) {
       connect(vector, &QgsVectorLayer::beforeCommitChanges, this,
               [this, vector, id, schema = v.extra.value("facies").toList()] {
                 const bool previouslyAllowed = vector->allowCommit();
-                QString error = vector->property("paleo.evidenceEditFailure").toString();
+                QString error = FaciesPartitionState::evidenceFailure(vector);
                 const bool evidenceOk = previouslyAllowed && error.isEmpty() &&
                     validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
                 const bool topologyOk = evidenceOk && FaciesHierarchyRenderer::validateTopology(vector, &error);
-                if (evidenceOk) vector->setProperty("paleo.partitionCommitRejected", !topologyOk);
+                if (evidenceOk) FaciesPartitionState::setCommitRejected(vector, !topologyOk);
                 const bool ok = topologyOk &&
                     MappingArtifactWriter::syncFaciesAttributes(vector, schema, &error) &&
                     validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);

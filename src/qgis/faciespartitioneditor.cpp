@@ -1,9 +1,15 @@
 // 层：QGIS 封装
 #include "faciespartitioneditor.h"
+#include "faciespartitionstate.h"
+#include "faciespartitiontool.h"
 #include "mappingfeatureidentity.h"
 #include "../domain/faciescatalog.h"
 #include "../domain/faciestaxonomy.h"
 #include "../domain/interpretationevidence.h"
+#include <QCryptographicHash>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QThread>
 #include <QUndoStack>
@@ -12,11 +18,10 @@
 #include <qgsgeometrycollection.h>
 #include <qgsexception.h>
 #include <qgslinestring.h>
+#include <qgsmaptool.h>
 #include <qgsvectorlayer.h>
 
 namespace {
-const char *schemaKey = "paleo/faciesPartitionSchema";
-const char *footprintKey = "paleo.faciesPartitionFootprint";
 bool fail(QString *error, const QString &text) { if (error) *error = text; return false; }
 QList<QgsGeometry> parts(const QgsGeometry &g) {
   if (g.isEmpty()) return {};
@@ -32,7 +37,7 @@ QgsGeometry united(QgsVectorLayer *v) {
   while (it.nextFeature(f)) geometries << f.geometry();
   return QgsGeometry::unaryUnion(geometries);
 }
-QVariantList schema(QgsVectorLayer *v) { return v->customProperty(schemaKey).toList(); }
+QVariantList schema(QgsVectorLayer *v) { return FaciesPartitionState::schema(v); }
 bool validCode(QgsVectorLayer *v, int code, QString *error) {
   return FaciesTaxonomy::complete(FaciesCatalog::find(schema(v), code)) ||
       fail(error, QObject::tr("请选择具有完整相、亚相、微相归属的目标微相"));
@@ -41,8 +46,8 @@ bool ready(QgsVectorLayer *v, QString *error) {
   if (!v || QThread::currentThread() != v->thread() || !FaciesPartitionEditor::isPartition(v) ||
       !v->isEditable() || v->readOnly())
     return fail(error, QObject::tr("请先选择可写的相面工作副本并开始编辑"));
-  if (!v->property("paleo.evidenceEditFailure").toString().isEmpty())
-    return fail(error, v->property("paleo.evidenceEditFailure").toString());
+  if (!FaciesPartitionState::evidenceFailure(v).isEmpty())
+    return fail(error, FaciesPartitionState::evidenceFailure(v));
   if (!MappingFeatureIdentity::Observer::of(v))
     return fail(error, QObject::tr("相面图元身份观察器尚未就绪，请重新打开工作副本"));
   if (!FaciesPartitionEditor::validate(v, error)) return false;
@@ -56,7 +61,7 @@ bool ready(QgsVectorLayer *v, QString *error) {
     if (!interpretation.isEmpty() && interpretation.value("feature_uid").toString() != MappingFeatureIdentity::uid(f))
       return fail(error, QObject::tr("原面解释与图元身份不一致，请先修复证据关联"));
     if ((!records.isEmpty() || !interpretation.isEmpty()) &&
-        !MappingFeatureIdentity::Observer::of(v)->property("paleo.workbenchBinding").value<QObject *>())
+        !FaciesPartitionState::workbenchBinding(MappingFeatureIdentity::Observer::of(v)))
       return fail(error, QObject::tr("证据修订服务未就绪，请在智能编图工作副本中进行相面编辑"));
   }
   return true;
@@ -101,16 +106,21 @@ QgsFeature child(QgsVectorLayer *v, const QgsFeatureList &sources,
 }
 struct Plan { QgsFeatureIds removed; QgsFeatureList added, changed; QStringList selectedUids; };
 bool apply(QgsVectorLayer *v, Plan plan, const QString &kind, const QString &title, QString *error) {
-  const auto previousOperation = v->property("paleo.partitionOperation");
-  const auto previousFailures = v->property("paleo.evidenceEditFailures");
-  const auto previousFailure = v->property("paleo.evidenceEditFailure");
+  const auto previousOperation = FaciesPartitionState::operation(v);
+  const auto previousFailures = FaciesPartitionState::evidenceFailures(v);
+  const auto previousFailure = FaciesPartitionState::evidenceFailure(v);
   const auto previousSelection = v->selectedFeatureIds();
   const bool previouslyAllowed = v->allowCommit();
-  v->setProperty("paleo.partitionOperation", kind);
+  FaciesPartitionState::setOperation(v, kind);
   v->beginEditCommand(title);
   bool ok = true;
   for (const auto &f : plan.changed) {
-    auto geometry = f.geometry(); ok = v->changeGeometry(f.id(), geometry) && ok;
+    auto geometry = f.geometry();
+    // #541 子项 1：与 child() 的 add 路径同一规范化——GEOS difference 的单部件
+    // 结果是 Polygon，直接 changeGeometry 会让 GeoPackage 的 MULTIPOLYGON 列
+    // 混进 POLYGON 行。
+    if (QgsWkbTypes::isMultiType(v->wkbType())) geometry.convertToMultiType();
+    ok = v->changeGeometry(f.id(), geometry) && ok;
     for (const auto &field : {"confidence", "probability", "boundary_kind", "transition_width"})
       if (const int index = v->fields().indexOf(field); index >= 0)
         ok = v->changeAttributeValue(f.id(), index, QVariant()) && ok;
@@ -129,18 +139,18 @@ bool apply(QgsVectorLayer *v, Plan plan, const QString &kind, const QString &tit
     if (result != 0 && result != 2) ok = false; }
   if (ok) ok = FaciesPartitionEditor::validate(v, error);
   if (!ok) {
-    v->destroyEditCommand(); v->setProperty("paleo.partitionOperation", previousOperation);
+    v->destroyEditCommand(); FaciesPartitionState::setOperation(v, previousOperation);
     v->selectByIds(previousSelection);
     if (error && error->isEmpty()) *error = QObject::tr("相面编辑失败，本次操作已整体撤销");
     return false;
   }
-  v->endEditCommand(); v->setProperty("paleo.partitionOperation", previousOperation);
-  if (!v->property("paleo.evidenceEditFailure").toString().isEmpty()) {
-    const auto reason = v->property("paleo.evidenceEditFailure").toString();
+  v->endEditCommand(); FaciesPartitionState::setOperation(v, previousOperation);
+  if (!FaciesPartitionState::evidenceFailure(v).isEmpty()) {
+    const auto reason = FaciesPartitionState::evidenceFailure(v);
     v->undoStack()->undo();
     auto *discard = new QUndoCommand; discard->setObsolete(true); v->undoStack()->push(discard);
-    v->setProperty("paleo.evidenceEditFailures", previousFailures);
-    v->setProperty("paleo.evidenceEditFailure", previousFailure);
+    FaciesPartitionState::setEvidenceFailures(v, previousFailures);
+    FaciesPartitionState::setEvidenceFailure(v, previousFailure);
     v->setAllowCommit(previouslyAllowed);
     v->selectByIds(previousSelection);
     return fail(error, reason);
@@ -151,15 +161,86 @@ bool apply(QgsVectorLayer *v, Plan plan, const QString &kind, const QString &tit
   v->selectByIds(selected); v->triggerRepaint(); return true;
 }
 }
-namespace FaciesPartitionEditor {
+// #535：跨层状态访问器的唯一实现处。键名与契约见 faciespartitionstate.h。
+namespace FaciesPartitionState {
 bool isPartition(const QgsVectorLayer *v) {
   return v && v->geometryType() == Qgis::GeometryType::Polygon &&
-      v->customProperty("paleo/requireFaciesTopology").toBool();
+      v->customProperty(kRequireTopology).toBool();
 }
+void setRequireTopology(QgsVectorLayer *v, bool on) {
+  if (v) v->setCustomProperty(kRequireTopology, on);
+}
+QVariantList schema(const QgsVectorLayer *v) { return v->customProperty(kSchema).toList(); }
+void setSchema(QgsVectorLayer *v, const QVariantList &rows) {
+  if (v) v->setCustomProperty(kSchema, rows);
+}
+QString frozenFootprint(const QgsVectorLayer *v) { return v->customProperty(kFrozenFootprint).toString(); }
+bool hasFrozenFootprint(const QgsVectorLayer *v) { return v->customProperty(kFrozenFootprint).isValid(); }
+void setFrozenFootprint(QgsVectorLayer *v, const QString &base64Wkb) {
+  if (v) v->setCustomProperty(kFrozenFootprint, base64Wkb);
+}
+QString operation(const QgsVectorLayer *v) { return v->property(kOperation).toString(); }
+void setOperation(QgsVectorLayer *v, const QString &kind) { v->setProperty(kOperation, kind); }
+QString evidenceFailure(const QgsVectorLayer *v) { return v->property(kEvidenceFailure).toString(); }
+void setEvidenceFailure(QgsVectorLayer *v, const QString &reason) {
+  v->setProperty(kEvidenceFailure, reason.isEmpty() ? QVariant() : QVariant(reason));
+}
+QVariantMap evidenceFailures(const QgsVectorLayer *v) { return v->property(kEvidenceFailures).toMap(); }
+void setEvidenceFailures(QgsVectorLayer *v, const QVariantMap &failures) {
+  v->setProperty(kEvidenceFailures, failures.isEmpty() ? QVariant() : QVariant(failures));
+}
+bool commitRejected(const QgsVectorLayer *v) { return v->property(kCommitRejected).toBool(); }
+void setCommitRejected(QgsVectorLayer *v, bool rejected) {
+  v->setProperty(kCommitRejected, rejected ? QVariant(true) : QVariant());
+}
+QObject *workbenchBinding(const QObject *observer) {
+  return observer ? observer->property(kWorkbenchBinding).value<QObject *>() : nullptr;
+}
+void setWorkbenchBinding(QObject *observer, QObject *workbench) {
+  if (observer) observer->setProperty(kWorkbenchBinding, QVariant::fromValue(workbench));
+}
+QVariantMap saveFootprint(const QString &projectDir, const QString &workingPath,
+                          const QString &base64Wkb, QString *error) {
+  if (base64Wkb.isEmpty()) return {};
+  const auto bytes = QByteArray::fromBase64(base64Wkb.toLatin1());
+  const auto relative = footprintSidecarPath(workingPath);
+  QDir().mkpath(QFileInfo(QDir(projectDir).filePath(relative)).absolutePath());
+  QFile file(QDir(projectDir).filePath(relative));
+  if (!file.open(QIODevice::WriteOnly)) {
+    fail(error, QObject::tr("无法写入相图覆盖范围文件：%1").arg(file.errorString()));
+    return {};
+  }
+  file.write(bytes);
+  file.close();
+  QgsGeometry geometry; geometry.fromWkb(bytes);
+  const auto box = geometry.boundingBox();
+  // 可读摘要：bbox / 面积 / 部件数 / sha256——脱离 GEOS 序列化格式也能看懂。
+  QVariantMap summary{{"bbox", QVariantList{box.xMinimum(), box.yMinimum(),
+                                            box.xMaximum(), box.yMaximum()}},
+                      {"area", geometry.area()},
+                      {"parts", geometry.isMultipart() ? geometry.asGeometryCollection().size() : 1},
+                      {"sha256", QString::fromLatin1(
+                                     QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())}};
+  return {{QString::fromLatin1(kFootprintPathKey), relative},
+          {QString::fromLatin1(kFootprintSummaryKey), summary}};
+}
+QString loadFootprint(const QString &projectDir, const QVariantMap &extra) {
+  const auto relative = extra.value(QString::fromLatin1(kFootprintPathKey)).toString();
+  if (!relative.isEmpty()) {
+    QFile file(QDir(projectDir).filePath(relative));
+    if (file.open(QIODevice::ReadOnly))
+      return QString::fromLatin1(file.readAll().toBase64());
+  }
+  // 读取兼容：#540 子项 2 之前的版本把 WKB base64 直接钉在 extra 里。
+  return extra.value(QString::fromLatin1(kLegacyFootprintWkbKey)).toString();
+}
+} // namespace FaciesPartitionState
+namespace FaciesPartitionEditor {
+bool isPartition(const QgsVectorLayer *v) { return FaciesPartitionState::isPartition(v); }
 QVariantList choices(const QgsVectorLayer *v) {
   QVariantList out;
   if (!isPartition(v)) return out;
-  for (const auto &value : v->customProperty(schemaKey).toList()) {
+  for (const auto &value : FaciesPartitionState::schema(v)) {
     const auto leaf = value.toMap();
     out << QVariantMap{{"code", leaf.value("code")}, {"name", QStringLiteral("%1 → %2 → %3")
       .arg(leaf.value("facies").toString(), leaf.value("subfacies").toString(), leaf.value("microfacies").toString())}};
@@ -178,15 +259,18 @@ bool install(QgsVectorLayer *v, const QVariantList &source, const QString &froze
   if (!v || v->geometryType() != Qgis::GeometryType::Polygon) return true;
   QVariantList normalized;
   if (!FaciesTaxonomy::normalize(source, &normalized, error)) return false;
-  v->setCustomProperty(schemaKey, normalized);
-  v->setCustomProperty("paleo/requireFaciesTopology", true);
-  if (!v->property(footprintKey).isValid()) {
+  FaciesPartitionState::setSchema(v, normalized);
+  FaciesPartitionState::setRequireTopology(v, true);
+  // #541 子项 2：零要素相面（从零手绘的起点）没有覆盖范围可冻结——放行，不写
+  // 冻结范围（validate 的 footprint 比对随之跳过）。
+  const bool nothingToFreeze = frozenFootprint.isEmpty() && v->featureCount() == 0;
+  if (!FaciesPartitionState::hasFrozenFootprint(v) && !nothingToFreeze) {
     const auto frozen = frozenFootprint.isEmpty() ? footprint(v, error) : frozenFootprint;
     QgsGeometry g;
     g.fromWkb(QByteArray::fromBase64(frozen.toLatin1()));
     if (frozen.isEmpty() || g.isEmpty() || !g.isGeosValid())
       return fail(error, QObject::tr("相图原始覆盖范围无效，不能开启拓扑编辑"));
-    v->setProperty(footprintKey, frozen);
+    FaciesPartitionState::setFrozenFootprint(v, frozen);
   }
   return true;
 }
@@ -215,8 +299,9 @@ bool validate(QgsVectorLayer *v, QString *error) {
   } catch (const QgsNotSupportedException &) {
     return fail(error, QObject::tr("当前 QGIS/GEOS 不支持相面覆盖拓扑检查"));
   }
-  if (v->property(footprintKey).isValid()) {
-    QgsGeometry baseline; baseline.fromWkb(QByteArray::fromBase64(v->property(footprintKey).toString().toLatin1()));
+  if (FaciesPartitionState::hasFrozenFootprint(v)) {
+    QgsGeometry baseline;
+    baseline.fromWkb(QByteArray::fromBase64(FaciesPartitionState::frozenFootprint(v).toLatin1()));
     const auto current = united(v);
     if (current.isEmpty() || !baseline.isGeosEqual(current))
       return fail(error, QObject::tr("相图覆盖范围发生变化，存在新增空洞、误删或越界；请撤销或使用覆盖绘制保持完整分区"));
@@ -303,5 +388,20 @@ bool merge(QgsVectorLayer *v, int code, QString *error) {
     if (f.fields().indexOf(field) >= 0 && f.attribute(field) != selected.first().attribute(field)) keepRange = false;
   plan.added << child(v, selected, geometry, code, keepRange);
   return apply(v, plan, "merge", QObject::tr("合并相面并记录全部来源"), error);
+}
+// #533：捕获工具的创建点。工具栏只经本门面拿 QgsMapTool*——faciespartitiontool.h
+// 经 QgsMapToolCapture 传递引入的 QtWidgets 边留在本层。
+QgsMapTool *createCaptureTool(QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cad,
+                              QgsVectorLayer *layer, PartitionOperation operation,
+                              const std::function<int()> &targetCode,
+                              const std::function<void()> &aborted) {
+  auto *tool = new FaciesPartitionTool(canvas, cad, layer,
+      operation == PartitionOperation::Split ? FaciesPartitionTool::Split
+                                             : FaciesPartitionTool::Paint,
+      targetCode);
+  // Qt6 没有「字符串式信号 + lambda」的 connect 重载，而视图层看不见工具的具体
+  // 类型——取消回调在此接线。
+  QObject::connect(tool, &FaciesPartitionTool::editAborted, [aborted] { if (aborted) aborted(); });
+  return tool;
 }
 }

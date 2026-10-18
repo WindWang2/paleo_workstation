@@ -9,7 +9,9 @@
 //     sidecar（.paleo/*.json，与 T28 undo vault 同一模式），写回服务层的
 //     正路登记在 docs/dataops/GAPS.md；
 //   · sidecar 路径从 catalogPath() 推导（<projectDir>/.paleo/<name>.json），
-//     与 undo_stack.json 同一函数复刻；catalog 未开 → 所有 store 空转。
+//     与 undo_stack.json 同一函数复刻；catalog 未开 → 所有 store 空转；
+//   · #534：推导与读写本身已下沉数据层门面（services/jsonsidecar.h 的
+//     dataopsSidecar*），本文件只留 sidecar 名与 store 值类型映射。
 #pragma once
 
 #include <QDateTime>
@@ -22,7 +24,6 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QSet>
-#include <QSaveFile>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -35,6 +36,11 @@ namespace paleo::dataops
 {
 
 // ---- sidecar 路径与读写 ----------------------------------------------------
+// #534 收敛：目录推导与装载/落盘全部走数据层门面（services/jsonsidecar.h）——
+// 视图只保留这里原有的路径/sidecar 名入口（datalist/entitypanel/datapage 与
+// 测试按名调用），实际持久化时机与原子写时序归数据层
+// （UI_LAYER_PLAN §1「视图不写工程文件」）。
+//
 // catalog 在 <projectDir>/artifacts/metadata/catalog.json → 工程目录 =
 // 从该文件上三级（metadata → artifacts → projectDir）。方向 30 修正：
 // 原实现只退两级（落在 <projectDir>/artifacts，sidecar 实际写到
@@ -42,42 +48,25 @@ namespace paleo::dataops
 // <projectDir>/.paleo/ 不符——探针此前空转通过（writes=0 ≤ 2）。
 inline QString projectDirFor(DataCatalog *cat)
 {
-  if (!cat || !cat->isOpen())
-    return QString();
-  const QString cp = cat->catalogPath();
-  if (cp.isEmpty())
-    return QString();
-  // 纯词法三级上退（QFileInfo::dir() 摘末段）：不查盘上存在性。
-  return QFileInfo(QFileInfo(QFileInfo(cp).dir().absolutePath()).dir().absolutePath())
-      .dir()
-      .absolutePath();
+  return paleo::projectDirForCatalog(cat);
 }
 
 inline QString sidecarPath(DataCatalog *cat, const QString &name)
 {
-  const QString pd = projectDirFor(cat);
-  if (pd.isEmpty())
-    return QString();
-  return QDir(pd).filePath(QStringLiteral(".paleo/") + name);
+  return paleo::dataopsSidecarPath(cat, name);
 }
 
 inline QJsonObject loadSidecarObject(DataCatalog *cat, const QString &name)
 {
-  const QString path = sidecarPath(cat, name);
-  if (path.isEmpty())
-    return QJsonObject();
-  // #482 收敛：读/写走数据层 jsonsidecar helper——原子写 + 损坏留痕清洗
-  // 的契约不再散落（警告文案保持 "dataops sidecar ..." 前缀，测试按此断言）。
-  return paleo::readJsonFile(path, "dataops sidecar").object();
+  // 数据层门面已带 #482 的原子写 + 损坏留痕清洗契约（警告文案保持
+  // "dataops sidecar ..." 前缀，测试按此断言）。
+  return paleo::dataopsSidecarLoad(cat, name);
 }
 
 inline bool saveSidecarObject(DataCatalog *cat, const QString &name,
                               const QJsonObject &root)
 {
-  const QString path = sidecarPath(cat, name);
-  if (path.isEmpty())
-    return false;
-  return paleo::writeJsonFile(path, QJsonDocument(root), "dataops sidecar");
+  return paleo::dataopsSidecarSave(cat, name, root);
 }
 
 // ---- 资产行快照（过滤/排序/分组/导出的统一输入） ---------------------------

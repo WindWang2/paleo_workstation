@@ -11,34 +11,33 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonDocument>
 #include <QPointer>
 #include <QSaveFile>
+#include <QSet>
+#include <QStringList>
 #include <QTemporaryDir>
-#include <qgis.h>
-#include <qgslayoutitemmap.h>
-#include <qgsprintlayout.h>
-#include <qgsproject.h>
-#include <qgsreadwritecontext.h>
+#include <QVariantList>
+#include <QVector>
+#include <memory>
 
 namespace PaleoGeologicalExport {
 namespace {
 struct Job {
-  PaleoLayoutExport::ProjectSnapshot project;
-  QDomDocument layout;
+  PaleoLayoutExport::LayoutSnapshot capture; // 工程快照 + 版面 XML + 图面图层 id（#531）
+  QVariantMap description;
   std::unique_ptr<QTemporaryDir> output, managed;
   std::unique_ptr<DataCatalog> catalog;
-  QVariantMap description;
-  QStringList requiredLayers;
   QVector<CatalogOp> journal;
   Result result;
 };
 }
-PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService *tasks,
+PaleoTask *start(PaleoLayoutExport::LayoutHandle *layout, DataCatalog *catalog, PaleoTaskService *tasks,
     const Request &request, QObject *receiver, std::function<void(const Result &)> done, QString *error) {
   const auto fail = [error](const QString &text) -> PaleoTask * { if (error) *error = text; return nullptr; };
   const QFileInfo destination(request.destination);
-  if (!layout || !catalog || !catalog->isOpen() || !tasks || request.formats.isEmpty())
+  if (!layout || !layout->layout() || !catalog || !catalog->isOpen() || !tasks || request.formats.isEmpty())
     return fail(QObject::tr("请先打开工程并准备图件版面"));
   if (!qIsFinite(request.dpi) || request.dpi < 72 || request.dpi > 1200)
     return fail(QObject::tr("导出 DPI 必须在 72～1200 范围内"));
@@ -50,13 +49,11 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
   if (request.includeSources && request.sourceVersionIds.isEmpty())
     return fail(QObject::tr("当前地图尚未绑定可追溯的数据版本，请先保存成果数据"));
   auto job = std::make_shared<Job>();
-  if (!PaleoLayoutExport::captureProjectSnapshot(layout->project(), job->project, error)) return nullptr;
-  QgsReadWriteContext writeContext;
-  job->layout.appendChild(layout->writeXml(job->layout, writeContext));
-  job->description = PaleoGeologicalMapLayout::describe(layout);
-  for (auto *item : layout->items()) if (auto *map = dynamic_cast<QgsLayoutItemMap *>(item))
-    for (auto *layer : map->layers()) if (layer && !job->requiredLayers.contains(layer->id())) job->requiredLayers << layer->id();
+  if (!PaleoLayoutExport::captureLayout(layout->layout(), job->capture, error)) return nullptr;
+  job->description = PaleoGeologicalMapLayout::describe(layout->layout());
   const auto projectDirectory = catalog->projectDir();
+  paleo::exporting::sweepStaleStagingRoots(projectDirectory);
+  paleo::exporting::sweepStaleStagingRoots(destination.absoluteDir().path());
   job->managed = std::make_unique<QTemporaryDir>(QDir(projectDirectory).filePath(".map-products-XXXXXX"));
   job->output = std::make_unique<QTemporaryDir>(destination.absoluteDir().filePath(".paleo-map-XXXXXX"));
   if (!job->managed->isValid() || !job->output->isValid()) return fail(QObject::tr("无法创建图件暂存目录"));
@@ -97,14 +94,12 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
     task->reportStage("build", 5);
     if (cancel()) return {};
     QString error;
-    auto project = PaleoLayoutExport::rebuildProject(job->project, &error, &job->result.warnings);
+    auto project = PaleoLayoutExport::rebuildProjectHandle(job->capture.project, &error, &job->result.warnings);
     if (!project) return fail(error);
-    for (const auto &id : job->requiredLayers)
-      if (!project->mapLayer(id) || !project->mapLayer(id)->isValid())
-        return fail(QObject::tr("所选制图图层数据源不可用：%1").arg(id));
-    QgsPrintLayout rebuilt(project.get());
-    QgsReadWriteContext readContext;
-    if (!rebuilt.readXml(job->layout.documentElement(), job->layout, readContext)) return fail(QObject::tr("无法重建图件版面"));
+    auto rebuilt = PaleoLayoutExport::rebuildLayout(project->project(), job->capture.xml, &error);
+    if (!rebuilt) return fail(error);
+    if (!PaleoLayoutExport::validateLayoutLayers(rebuilt->layout(), job->capture.requiredLayerIds, &error))
+      return fail(error);
     QVariantList registered;
     QSet<int> formats;
     for (const auto format : request.formats) {
@@ -112,9 +107,9 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
       if (formats.contains(int(format))) continue;
       formats.insert(int(format));
       const auto extension = PaleoLayoutExport::formatExtension(format);
-      const auto output = PaleoLayoutExport::exportLayout(&rebuilt, job->output->filePath("map." + extension), format, request.dpi, request.pages, request.options);
+      const auto output = PaleoLayoutExport::exportLayout(rebuilt->layout(), job->output->filePath("map." + extension), format, request.dpi, request.pages, request.options);
       if (!output.ok) return fail(output.error);
-      if (!PaleoGeologicalMapLayout::validateBounds(&rebuilt, &error)) return fail(error);
+      if (!PaleoGeologicalMapLayout::validateBounds(rebuilt->layout(), &error)) return fail(error);
       for (const auto &path : output.files) {
         if (cancel()) return {};
         if (!PaleoMapBookLayout::validateExportedFile(path, format, -1, -1, &error)) return fail(error);
@@ -134,20 +129,19 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
     const auto changedInput = verifyInputs(false);
     if (!changedInput.isEmpty()) return fail(changedInput);
     task->reportStage("encode", 65);
-    QgsReadWriteContext templateContext;
-    if (!rebuilt.saveAsTemplate(job->output->filePath("layout.qpt"), templateContext)) return fail(QObject::tr("无法写出版面模板"));
+    if (!PaleoLayoutExport::saveLayoutTemplate(rebuilt->layout(), job->output->filePath("layout.qpt"), &error))
+      return fail(error);
     const auto unbound = request.context.value("unbound_layers").toStringList();
     if (request.includeSources && !unbound.isEmpty())
       job->result.warnings << QObject::tr("制作源数据仅含已登记来源，以下图层无资产版本：%1").arg(unbound.join("、"));
     QVariantList layerData;
     if (request.includeData) {
-      for (int i = 0; i < job->requiredLayers.size(); ++i) {
+      for (int i = 0; i < job->capture.requiredLayerIds.size(); ++i) {
         if (cancel()) return {};
-        auto *layer = project->mapLayer(job->requiredLayers[i]);
         QStringList files;
         QVariantMap detail;
-        if (!PaleoDataExportWriter::writeLayer(layer, job->output->filePath(QString("data/layers/%1").arg(i + 1)), &files, &detail, &error)) return fail(error);
-        detail.insert("qgis_layer_id", layer->id()); detail.insert("title", layer->name());
+        if (!PaleoDataExportWriter::writeLayerById(project->project(), job->capture.requiredLayerIds[i],
+              job->output->filePath(QString("data/layers/%1").arg(i + 1)), &files, &detail, &error)) return fail(error);
         QVariantList relativeFiles;
         for (const auto &file : files) relativeFiles << QDir(job->output->path()).relativeFilePath(file);
         detail.insert("files", relativeFiles); layerData.append(detail);
@@ -190,7 +184,7 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
     auto context = job->description;
     for (auto i = request.context.begin(); i != request.context.end(); ++i) context.insert(i.key(), i.value());
     const auto bytes = QJsonDocument::fromVariant(QVariantMap{{"schema", "paleo_map_export_v1"},
-        {"registered_in_project", request.registerInProject}, {"exported_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}, {"qgis_version", Qgis::version()},
+        {"registered_in_project", request.registerInProject}, {"exported_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}, {"qgis_version", PaleoLayoutExport::qgisVersion()},
         {"dpi", request.dpi}, {"world_file", request.options.worldFile}, {"geo_pdf", request.options.geoPdf},
         {"text_as_paths", request.options.textAsPaths}, {"transparent_background", request.options.transparentBackground}, {"context", context}, {"input_versions", request.sourceVersionIds},
         {"source_package_requested", request.includeSources},
@@ -234,7 +228,7 @@ PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService 
     // staging trees. No live project files reside in these two private roots.
     job->catalog.reset();
     job->output.reset(); job->managed.reset();
-    job->project = {}; job->layout.clear();
+    job->capture = {}; // 旧 Job 的 project/layout 两成员已并为 capture（#531）
     if (target && done) done(job->result);
   });
   return task;

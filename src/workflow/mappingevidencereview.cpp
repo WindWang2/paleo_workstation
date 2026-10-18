@@ -5,6 +5,7 @@
 #include "../domain/evidenceconflict.h"
 #include "../domain/faciescatalog.h"
 #include "../domain/facieshierarchy.h"
+#include "../domain/faciestaxonomy.h"
 #include "../domain/singlefactorrequest.h"
 #include "../qgis/composeattribution.h"
 #include "../qgis/mappingfeatureidentity.h"
@@ -56,6 +57,21 @@ bool store(QgsVectorLayer *v, QgsFeatureId fid, const paleo::evidence::Revision 
     if (v->fields().indexOf(field) < 0 && !v->addAttribute(QgsField(field, QMetaType::Type::QString))) return false;
   return v->changeAttributeValues(fid, {{v->fields().indexOf("facies_evidence"), paleo::evidence::encode(r.records)},
     {v->fields().indexOf("paleo_interpretation"), paleo::evidence::encode(r.interpretation)}});
+}
+// #536：写路径的相分类必须与渲染/图例读路径同一口径。直接喂 version.extra 的
+// 原始 schema 会绕开 #526 的 recoverLegacyAppearanceColumns（那只在
+// place()/normalize() 内跑）：仍存旧七列错位元组（microfacies=色值、
+// color=SVG、texture 空）的草稿会被写成 microfacies=色值、texture 置空，而
+// 图面/图例显示的是正确名称与纹理——同一次编辑产出自相矛盾的属性与图面。
+// 先过一次 normalize()；被拒（相/亚相级旧分类缺归属）时退 upgrade()（与
+// place() 同族迁移），仍不成才退回原 schema——属性同步不新增拒绝理由。
+QVariantList layerFaciesSchema(const CatalogVersion &version) {
+  const auto stored = version.extra.value("facies").toList();
+  QVariantList schema;
+  QString error;
+  if (FaciesTaxonomy::normalize(stored, &schema, &error)) return schema;
+  if (FaciesTaxonomy::upgrade(stored, &schema)) return schema;
+  return stored;
 }
 }
 QString MappingWorkbench::localOperator() const {
@@ -751,7 +767,7 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
   // Native attribute-table edits must obey the same hierarchy and quantitative
   // provenance rules as the dedicated reclassification controls.
   if (kind == "classification") {
-    const auto attrs = FaciesCatalog::attributes(versionForLayer(id).extra.value("facies").toList(), f.attribute("facies_code"));
+    const auto attrs = FaciesCatalog::attributes(layerFaciesSchema(versionForLayer(id)), f.attribute("facies_code"));
     for (auto a = attrs.cbegin(); a != attrs.cend(); ++a)
       if (const int index = v->fields().indexOf(a.key()); index >= 0)
         if (!v->changeAttributeValue(fid, index, a.value())) return reject(error, tr("无法同步三级相属性"));

@@ -57,6 +57,59 @@ std::unique_ptr<QgsProject> rebuildProject(const ProjectSnapshot &snapshot,
                                            QString *error = nullptr,
                                            QStringList *warnings = nullptr);
 
+// 图件版面句柄（#531）：QgsPrintLayout 的所有权关在封装层内——对话框的
+// Builder 与 geologicalexport::start 只传递句柄，功能层/视图层的签名与成员
+// 不再出现 Qgs* 类型。
+class LayoutHandle {
+public:
+  explicit LayoutHandle(std::unique_ptr<QgsPrintLayout> layout);
+  ~LayoutHandle();
+  QgsPrintLayout *layout() const { return m_layout.get(); }
+private:
+  std::unique_ptr<QgsPrintLayout> m_layout;
+};
+
+// 工程句柄（#531）：与 LayoutHandle 对称——worker 侧重建的私有 QgsProject
+// 所有权也关在封装层内。功能层（geologicalexport）不 include QGIS 头，
+// QgsProject 只有前向声明，持 unique_ptr<QgsProject> 连析构都编不过
+// （不完整类型 C2338）；析构留在本封装层的 TU 里。
+class ProjectHandle {
+public:
+  explicit ProjectHandle(std::unique_ptr<QgsProject> project);
+  ~ProjectHandle();
+  QgsProject *project() const { return m_project.get(); }
+private:
+  std::unique_ptr<QgsProject> m_project;
+};
+
+// 一次性快照：工程快照 + 版面 XML + 图面（地图项）引用的图层 id。worker 依此
+// 在私有工程上重建版面，功能层不再触碰 QgsPrintLayout / QgsReadWriteContext /
+// QgsLayoutItemMap（#531）。
+struct LayoutSnapshot {
+  ProjectSnapshot project;
+  QDomDocument xml;
+  QStringList requiredLayerIds;
+};
+bool captureLayout(QgsPrintLayout *layout, LayoutSnapshot &out, QString *error = nullptr);
+// 在已重建的私有工程上按 XML 还原版面（readXml 失败 → nullptr + *error）。
+// 版面所有权装进 LayoutHandle：功能层只见句柄，QgsPrintLayout 的析构留在
+// 封装层（同 ProjectHandle 口径，否则不完整类型销毁即 C2338）。
+std::unique_ptr<LayoutHandle> rebuildLayout(QgsProject *project, const QDomDocument &xml,
+                                            QString *error = nullptr);
+// rebuildProject 的句柄化入口（#531）：error/warnings 口径与 rebuildProject
+// 一致，只是把 QgsProject 所有权装进 ProjectHandle 交给功能层。
+std::unique_ptr<ProjectHandle> rebuildProjectHandle(const ProjectSnapshot &snapshot,
+                                                    QString *error = nullptr,
+                                                    QStringList *warnings = nullptr);
+// 图面引用的图层是否都可用（缺失/数据源损坏即失败，错误带图层 id）。
+bool validateLayoutLayers(QgsPrintLayout *layout, const QStringList &requiredLayerIds,
+                          QString *error = nullptr);
+// 版面模板落盘（QgsReadWriteContext 由封装层管）。
+bool saveLayoutTemplate(QgsPrintLayout *layout, const QString &path, QString *error = nullptr);
+// QGIS 运行库版本串（metadata.json 的 qgis_version 字段来源；功能层不再
+// 直接 include <qgis.h> 取 Qgis::version()）。
+QString qgisVersion();
+
 enum class Format { Png, Pdf, Svg, Tiff };
 bool formatAvailable(Format format);
 QString formatExtension(Format format);
@@ -99,6 +152,13 @@ struct ExportOutcome
 //   dpi      export resolution; <= 0 keeps the layout's own dpi
 //   range    page selection (see PageRange); pass PageRange() for all pages
 ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format format,
+                            double dpi, const PageRange &range,
+                            const ExportOptions &options = {} );
+// worker 侧入口（#531）：rebuildLayout 重建出来的是 QgsPrintLayout，功能层
+// （geologicalexport/horizonbatchexport）不再 include QGIS 头，拿不到
+// QgsLayout 的完整定义做基类转换——与 validateLayoutLayers/saveLayoutTemplate
+// 同口径收一把 QgsPrintLayout * 重载，转调上面的 QgsLayout * 实现。
+ExportOutcome exportLayout( QgsPrintLayout *layout, const QString &outPath, Format format,
                             double dpi, const PageRange &range,
                             const ExportOptions &options = {} );
 // Builds the thickness map print layout on project (A4 landscape with map, title, legend, scalebar, north arrow, CRS caption).

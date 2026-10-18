@@ -13,6 +13,7 @@
 #include "../src/workflow/workflows.h"
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
+#include "helpers/simulatemissingfile.h"
 #include <QDateTime>
 #include <QFile>
 #include <QTemporaryDir>
@@ -695,7 +696,8 @@ private slots:
         DataCatalog::resolvedVersionPath(f.dir.path(), inputVersion)
             .section('|', 0, 0);
     QVERIFY(QFile::exists(inputPath));
-    QVERIFY(QFile::rename(inputPath, inputPath + QStringLiteral(".gone")));
+    PALEO_REQUIRE_FILE_GONE(SimulateMissingFile::rename(
+        f.project.project(), inputPath, inputPath + QStringLiteral(".gone")));
     const auto expected =
         QStringLiteral("冻结输入文件缺失（版本 %1）").arg(inputV);
     const auto reasonFor = [](const QVariantList &unresolved,

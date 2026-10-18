@@ -35,6 +35,9 @@ class QgisCanvasController : public QObject
     void deactivateTool();                        // Esc path
 
     void zoomToFullExtent();
+    // 画布当前是否装有图层（未创建画布 = 无图层；不触发惰性创建）——视图层
+    // 门控用，免直接 include qgsmapcanvas.h（qgis-spread 闸，#472）。
+    bool hasLayers() const;
     // Resolves a manifest layer id to the service-owned QgsMapLayer.
     // No QgsProject::instance() fallback — unset/null resolution is a no-op.
     using LayerResolver = std::function<QgsMapLayer *(const QString &layerId)>;

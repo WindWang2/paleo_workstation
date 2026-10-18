@@ -58,6 +58,11 @@ QgsSnappingConfig QgisCanvasController::nativeSnappingConfig()
   return cfg;
 }
 
+bool QgisCanvasController::hasLayers() const
+{
+  return m_canvas && !m_canvas->layers().isEmpty();
+}
+
 QgsMapCanvas *QgisCanvasController::canvas()
 {
   if ( !m_canvas )

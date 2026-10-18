@@ -132,8 +132,23 @@ bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns)
 class TestSeismic3DUi : public QObject
 {
   Q_OBJECT
+  QTemporaryDir m_settingsDir; // initTestCase 前构造：settings 沙箱路径
 
 private slots:
+  void initTestCase()
+  {
+    // 相机书签走 QSettings() 默认构造：测试进程没设组织名时，Windows
+    // NativeFormat（注册表）读写落空（AccessError）——跨面板恢复恒为 0 条
+    // （cameraBookmarkRoundTripPersistence 在 windows job 恒红）。与
+    // tst_seismic_sectionui 同口径钉死为沙箱内 IniFormat，两平台同一语义。
+    QVERIFY(m_settingsDir.isValid());
+    QCoreApplication::setOrganizationName(QStringLiteral("paleo-tests"));
+    QCoreApplication::setApplicationName(QStringLiteral("tst_seismic_3dui"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                       m_settingsDir.path());
+  }
+
   // ---- D3.5 colormap：8 预设 + 自定义 + 重着色 + 反转 ----
   void colormapPresetsAndCustom()
   {

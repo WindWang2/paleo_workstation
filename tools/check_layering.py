@@ -1102,7 +1102,11 @@ def selftest():
             print("SELFTEST FAIL qgs-audit: 命中 baseline 的残留应双绿")
             failures += 1
         put("workflow/qdirect.cpp", '// 层：功能\n#include <QString>\n')
-        _INC_CACHE.pop(os.path.join(SRC, "workflow/qdirect.cpp"), None)
+        # 整表清空而非按键 pop：os.path.join(SRC, "workflow/qdirect.cpp") 在
+        # Windows 上得 "src\\workflow/qdirect.cpp"，与 os.walk 产生的缓存键
+        # "src\\workflow\\qdirect.cpp" 不等，pop 落空 → 旧 include 残留，
+        # 「可收缩严格必须红」夹具在 windows job 恒红。
+        _INC_CACHE.clear()
         if qgs_rc() != 0:
             print("SELFTEST FAIL qgs-audit: 可收缩条目非严格应绿")
             failures += 1

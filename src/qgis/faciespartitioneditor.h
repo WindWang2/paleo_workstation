@@ -7,19 +7,20 @@ class QgsVectorLayer;
 
 // One leaf partition owns all three display levels. Operations never commit
 // providers: geometry, attributes and observer audits share one native command.
+// Parameter names mirror the definitions (readability-inconsistent-declaration-parameter-name).
 namespace FaciesPartitionEditor {
-bool isPartition(const QgsVectorLayer *layer);
-QVariantList choices(const QgsVectorLayer *layer);
-int selectionSize(const QgsVectorLayer *layer);
-QString layerKey(const QgsVectorLayer *layer);
-QString footprint(QgsVectorLayer *layer, QString *error = nullptr);
-bool install(QgsVectorLayer *layer, const QVariantList &schema,
+bool isPartition(const QgsVectorLayer *v);
+QVariantList choices(const QgsVectorLayer *v);
+int selectionSize(const QgsVectorLayer *v);
+QString layerKey(const QgsVectorLayer *v);
+QString footprint(QgsVectorLayer *v, QString *error = nullptr);
+bool install(QgsVectorLayer *v, const QVariantList &source,
              const QString &frozenFootprint = {}, QString *error = nullptr);
-bool validate(QgsVectorLayer *layer, QString *error = nullptr);
-bool split(QgsVectorLayer *layer, const QgsGeometry &line, QString *error = nullptr);
+bool validate(QgsVectorLayer *v, QString *error = nullptr);
+bool split(QgsVectorLayer *v, const QgsGeometry &line, QString *error = nullptr);
 // Paint is clipped to the existing footprint (including existing no-data holes).
-bool paint(QgsVectorLayer *layer, const QgsGeometry &polygon, int targetCode,
+bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code,
            QString *error = nullptr);
-// targetCode=0 means preserve a common microfacies; mixed classes need a target.
-bool merge(QgsVectorLayer *layer, int targetCode = 0, QString *error = nullptr);
+// code=0 means preserve a common microfacies; mixed classes need a target.
+bool merge(QgsVectorLayer *v, int code = 0, QString *error = nullptr);
 }

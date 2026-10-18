@@ -17,6 +17,7 @@
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/workflows.h"
 #include "../src/workflow/mappingworkbench.h"
+#include "helpers/simulatemissingfile.h"
 #include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -481,7 +482,8 @@ private slots:
     // 来源版本成为编辑版本的谱系父级后目录拒绝 removeAsset（引用完整
     // 性），生产中「来源过期」以文件缺失呈现——删掉登记文件，stale_sources
     // 按目录事实核验补查命中。
-    QVERIFY(QFile::remove(staged.absolutePath));
+    PALEO_REQUIRE_FILE_GONE(
+        SimulateMissingFile::remove(f.project.project(), staged.absolutePath));
     const auto stale = f.work.evidenceReverseQuery(
         QStringLiteral("stale_sources"), QStringLiteral("D61"), &error, &meta);
     QVERIFY2(error.isEmpty(), qPrintable(error));

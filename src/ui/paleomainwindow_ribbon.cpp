@@ -18,7 +18,6 @@
 #include "../qgis/qgiscanvascontroller.h" // mapConfigurationChanged → zoomToFullExtent
 #include "../qgis/qgisprojectservice.h"
 
-#include <qgsmapcanvas.h>
 #include <qgis.h> // Qgis::version()（方向63 关于框）
 
 #include <QAction>
@@ -93,7 +92,7 @@ void PaleoMainWindow::buildRibbon()
     exportMap->setEnabled(false);
     connect(menu, &QMenu::aboutToShow, this, [this, exportMap] {
       exportMap->setEnabled(m_projectSvc && !m_projectSvc->projectPath().isEmpty() && !m_projectSvc->isOpening() &&
-          m_canvasCtl && !m_canvasCtl->canvas()->layers().isEmpty());
+          m_canvasCtl && m_canvasCtl->hasLayers());
     });
     connect(exportMap, &QAction::triggered, this, [this] {
       if (auto *button = findChild<QPushButton *>(QStringLiteral("exportPdfButton"))) button->click();
@@ -143,7 +142,7 @@ void PaleoMainWindow::buildRibbon()
   }
 
   // ---- 右侧全局按钮组：[搜索][处理算法][面板][Web 服务] ----
-  // 搜索（QgsLocatorWidget）与处理算法依赖服务，attachWorkflows 里补进来。
+  // 搜索（QGIS locator 控件）与处理算法依赖服务，attachWorkflows 里补进来。
   SARibbonButtonGroupWidget *right = bar->rightButtonGroup();
   right->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   auto *locatorSlot = new QWidget(right);

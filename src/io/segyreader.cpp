@@ -170,52 +170,14 @@ bool probePairHasNonZero(QFile &file, qint64 firstTraceOffset, qint64 fileSize,
 }
 } // namespace
 
-bool SegyReader::open(const QString &path, QString *error,
-                      const SegyOptions *opts)
+// ---- #554：open() 机械拆段 ----
+// 头解析 → 探针 → 扫描 → ordinal 收尾；open() 只做编排与文件级校验。
+// 各段失败路径（含取消快照、m_index 清理）与拆分前逐字一致。
+
+// 头解析段：3200 字节文本头之后的 400 字节二进制头 + 扩展文本头。
+bool SegyReader::parseSegyHeaders(QFile &file, const QString &path, qint64 fileSize,
+                                  qint16 *binNs, int *binEnsTraces, QString *error)
 {
-  // #83：完整复位（含坏道列表、上次取消留下的 m_lastScanPartial/
-  // m_scannedOffset）——同一 reader 重开时不得累加坏道、不得把成功扫描的
-  // snapshot 写成 complete=false。
-  resetState();
-  m_indexingRules = AreaRules::active().segy;
-
-  if (path.isEmpty())
-  {
-    if (error)
-      *error = QStringLiteral("File path is empty");
-    return false;
-  }
-
-  QFile file(path);
-  if (!file.exists())
-  {
-    if (error)
-      *error = QStringLiteral("File does not exist: %1").arg(path);
-    return false;
-  }
-
-  if (!file.open(QIODevice::ReadOnly))
-  {
-    if (error)
-      *error = QStringLiteral("Cannot open file: %1").arg(file.errorString());
-    return false;
-  }
-
-  const qint64 fileSize = file.size();
-  if (fileSize == 0)
-  {
-    if (error)
-      *error = QStringLiteral("File is empty: %1").arg(path);
-    return false;
-  }
-
-  if (fileSize < 3600)
-  {
-    if (error)
-      *error = QStringLiteral("File size (%1 bytes) is smaller than required 3600-byte SEG-Y header").arg(fileSize);
-    return false;
-  }
-
   uchar bin[400];
   if (!file.seek(3200) || file.read(reinterpret_cast<char *>(bin), 400) != 400)
   {
@@ -227,14 +189,14 @@ bool SegyReader::open(const QString &path, QString *error,
   m_binLineNo = beI32(bin + 4);
   m_sawVariableNs = false;
   const qint16 binDt = beI16(bin + 16);
-  const qint16 binNs = beI16(bin + 20);
+  *binNs = beI16(bin + 20);
   m_formatCode = beI16(bin + 24);
   const qint16 extHeaders = beI16(bin + 304);
 
-  if (binNs <= 0)
+  if (*binNs <= 0)
   {
     if (error)
-      *error = QStringLiteral("Invalid samples per trace in binary header (ns=%1)").arg(binNs);
+      *error = QStringLiteral("Invalid samples per trace in binary header (ns=%1)").arg(*binNs);
     return false;
   }
   if (m_formatCode != 1 && m_formatCode != 5)
@@ -244,7 +206,7 @@ bool SegyReader::open(const QString &path, QString *error,
     return false;
   }
 
-  m_samplesPerTrace = binNs;
+  m_samplesPerTrace = *binNs;
   m_sampleIntervalUs = static_cast<float>(binDt > 0 ? binDt : 0);
 
   qint64 offset = 3600;
@@ -289,7 +251,14 @@ bool SegyReader::open(const QString &path, QString *error,
     return false;
   }
   m_firstTraceOffset = offset;
+  *binEnsTraces = beI16(bin + 12); // 二进制头字节 13-14：每条 inline 道数
+  return true;
+}
 
+// 探针段：道头方言判定（#290 快照进 m_dialect 供三条扫描路径共用）。
+void SegyReader::probeDialect(QFile &file, qint64 offset, qint64 fileSize, int binNs,
+                              bool *ordinalIndex)
+{
   // inline/crossline 道头固定为标准位（plan §2）：偏移 188/192（SEG-Y 1-based
   // 字节 189/193）。本工区文件偏移 188 恒为 0——该字在首段不变时按道号索引：
   //   inline = base + 道号/N（N = 一条 inline 的道数），crossline = 该道 CDP
@@ -299,11 +268,10 @@ bool SegyReader::open(const QString &path, QString *error,
   // 覆盖，见 docs/AREA_PARAMETERS.md）——open() 开始取一份快照，全程一致。
   const AreaRules::SegyIndexing sidx = m_indexingRules;
   // 方言探针（命名空间级共用实现，与 openCached() 并行路径同一判据）。
-  auto fieldVaries = [&](int fieldOff) -> bool {
+  const auto fieldVaries = [&](int fieldOff) -> bool {
     return probeFieldVaries(file, offset, fileSize, binNs, fieldOff);
   };
-  const bool ordinalIndex = !fieldVaries(sidx.inlineWordOffset);
-  const int binEnsTraces = beI16(bin + 12); // 二进制头字节 13-14：每条 inline 道数
+  const bool ordinalIdx = !fieldVaries(sidx.inlineWordOffset);
 
   // P?（demo 工区方言，工区 docx 道头契约「道号位置 21 / X=181 / Y=185」）：
   // ①标准 inline 位有效、crossline 位（字节 193）恒 0 且 CDP（字节 21）在变化
@@ -311,13 +279,13 @@ bool SegyReader::open(const QString &path, QString *error,
   // ②角点坐标对（偏移 72/76，源点 X/Y）恒 0 而 CDP X/Y（偏移 180/184）非零
   //   → 角点取 181-188。两者都是探针判据（≤4096 道），既有布局（72/76 有值、
   //   193 有值）不触发，行为逐字节不变。
-  auto fieldAllZero = [&](int fieldOff) -> bool {
+  const auto fieldAllZero = [&](int fieldOff) -> bool {
     return probeFieldAllZero(file, offset, fileSize, binNs, fieldOff);
   };
-  auto pairHasNonZero = [&](int offA, int offB) -> bool {
+  const auto pairHasNonZero = [&](int offA, int offB) -> bool {
     return probePairHasNonZero(file, offset, fileSize, binNs, offA, offB);
   };
-  const bool xlineFromCdp = !ordinalIndex &&
+  const bool xlineFromCdp = !ordinalIdx &&
                             fieldAllZero(sidx.crosslineWordOffset) &&
                             fieldVaries(sidx.cdpXlineOffset);
   const bool cornerFromCdpXY = fieldAllZero(72) && pairHasNonZero(180, 184);
@@ -325,14 +293,24 @@ bool SegyReader::open(const QString &path, QString *error,
   // restore() 后 resumeScan() 按同一口径续扫。
   m_dialect.xlineFromCdp = xlineFromCdp;
   m_dialect.cornerFromCdpXY = cornerFromCdpXY;
+  *ordinalIndex = ordinalIdx;
+}
 
+// 扫描段：顺序逐道读 240 字节道头，跳过样本区，建 m_index + 冻结几何。
+bool SegyReader::scanTracesSequential(QFile &file, qint64 offset, qint64 fileSize, qint16 binNs,
+                                      bool ordinalIndex, double *delayMs, qint32 *firstLineWord,
+                                      qint32 *firstFieldRec, QVector<double> *ordX,
+                                      QVector<double> *ordY, QString *error,
+                                      const SegyOptions *opts)
+{
+  const AreaRules::SegyIndexing sidx = m_indexingRules;
+  const bool xlineFromCdp = m_dialect.xlineFromCdp;
+  const bool cornerFromCdpXY = m_dialect.cornerFromCdpXY;
   // 索引道：只读 240 字节道头；样本区用 seek 跳过——打开内存不随体增长。
   uchar trHdr[240];
   bool sawTrace = false;
-  double delayMs = 0.0;
-  qint32 firstLineWord = 0; // ordinal 模式：偏移 188 的恒定值（inline 起点兜底）
-  qint32 firstFieldRec = 0; // ordinal 模式：首道 field record（偏移 8）= inline 起点
-  QVector<double> ordX, ordY; // ordinal 模式的坐标序列（一致性校验 + 角点）
+  QVector<double> &ordXs = *ordX;
+  QVector<double> &ordYs = *ordY;
   while (offset + 240 <= fileSize)
   {
     // D1 进度/取消：每 128 道 ≈ 数百 KB–数 MB 一次，任务面板据此画进度条。
@@ -418,13 +396,13 @@ bool SegyReader::open(const QString &path, QString *error,
     if (!sawTrace)
     {
       sawTrace = true;
-      delayMs = static_cast<double>(beI16(trHdr + 108)); // 字节 109-110
+      *delayMs = static_cast<double>(beI16(trHdr + 108)); // 字节 109-110
     }
 
     // survey 坐标（角点）：偏移 72/76（源点 X/Y，1 基字节 73/77）或——探针判
     // 该对恒 0 且 CDP X/Y（偏移 180/184，1 基字节 181-188）非零时——后者
-    //（demo 工区方言，见 open() 头注释）。比例因子（偏移 70）为 0 或 1 都按
-    // 原值取整数；正值乘、负值除。
+    //（demo 工区方言，见 probeDialect() 注释）。比例因子（偏移 70）为 0 或 1
+    // 都按原值取整数；正值乘、负值除。
     const int coordXOff = cornerFromCdpXY ? 180 : 72;
     const int coordYOff = cornerFromCdpXY ? 184 : 76;
     const qint16 scal = beI16(trHdr + 70);
@@ -442,15 +420,15 @@ bool SegyReader::open(const QString &path, QString *error,
       const qint32 lineWord = beI32(trHdr + sidx.inlineWordOffset);
       if (m_index.isEmpty())
       {
-        firstLineWord = lineWord;
-        firstFieldRec = beI32(trHdr + sidx.fieldRecordOffset); // 道号索引的 inline 起点（本文件 1315）
+        *firstLineWord = lineWord;
+        *firstFieldRec = beI32(trHdr + sidx.fieldRecordOffset); // 道号索引的 inline 起点（本文件 1315）
       }
-      else if (lineWord != firstLineWord)
+      else if (lineWord != *firstLineWord)
       {
         if (error)
           *error = QStringLiteral("inline word at trace-header offset %4 must stay constant for "
                                   "ordinal indexing: expected %1, read %2 at trace %3")
-                       .arg(firstLineWord)
+                       .arg(*firstLineWord)
                        .arg(lineWord)
                        .arg(m_index.size())
                        .arg(sidx.inlineWordOffset);
@@ -459,8 +437,8 @@ bool SegyReader::open(const QString &path, QString *error,
       }
       e.inlineNo = 0;                 // 占位：收尾统一按道号赋值
       e.xlineNo = beI32(trHdr + sidx.cdpXlineOffset); // crossline = 该道 CDP（plan §2）
-      ordX.append(cx);
-      ordY.append(cy);
+      ordXs.append(cx);
+      ordYs.append(cy);
     }
     else
     {
@@ -510,128 +488,206 @@ bool SegyReader::open(const QString &path, QString *error,
       *error = QStringLiteral("File contains 0 traces");
     return false;
   }
+  return true;
+}
+
+// ordinal 收尾段：偏移 188 全程不变 → 按道号索引（plan §2）。
+bool SegyReader::finalizeOrdinalIndexing(int binEnsTraces, qint32 firstLineWord,
+                                         qint32 firstFieldRec, const QVector<double> &ordX,
+                                         const QVector<double> &ordY, QString *error)
+{
+  // inline = base + 道号/N，crossline = 该道 CDP。道数、CDP 顺序、角点对不
+  // 上就报数停止。
+  const int n = m_index.size();
+
+  // N = 一条 inline 的道数：CDP 序列首次回落处；全程不回落 → 全文件一条线。
+  int perLine = n;
+  for (int i = 1; i < n; ++i)
+  {
+    if (m_index.at(i).xlineNo < m_index.at(i - 1).xlineNo)
+    {
+      perLine = i;
+      break;
+    }
+  }
+  // 二进制头字节 13-14 声明的每条 inline 道数若与 CDP 回落不符 → 对不上。
+  if (binEnsTraces > 0 && binEnsTraces != perLine)
+  {
+    if (error)
+      *error = QStringLiteral("traces-per-inline mismatch: binary header declares %1, CDP order gives %2")
+                   .arg(binEnsTraces)
+                   .arg(perLine);
+    m_index.clear();
+    return false;
+  }
+  // 道数：总道数必须是每条 inline 道数的整数倍（残线属截断）。
+  if (n % perLine != 0)
+  {
+    if (error)
+      *error = QStringLiteral("trace count mismatch: expected a multiple of %1 traces per inline, read %2 traces")
+                   .arg(perLine)
+                   .arg(n);
+    m_index.clear();
+    return false;
+  }
+  // CDP 顺序：后续每条线必须重复第一条线的 CDP 序列。
+  for (int i = perLine; i < n; ++i)
+  {
+    if (m_index.at(i).xlineNo != m_index.at(i - perLine).xlineNo)
+    {
+      if (error)
+        *error = QStringLiteral("CDP order mismatch at trace %1: expected %2 (first line at same position), read %3")
+                     .arg(i)
+                     .arg(m_index.at(i - perLine).xlineNo)
+                     .arg(m_index.at(i).xlineNo);
+      m_index.clear();
+      return false;
+    }
+  }
+  // 角点一致性：线内 x 不减、随线号 y 不减（整齐测网的结构校验）。
+  for (int i = 1; i < n; ++i)
+  {
+    if (i % perLine != 0 && ordX.at(i) < ordX.at(i - 1))
+    {
+      if (error)
+        *error = QStringLiteral("corner coordinate mismatch at trace %1: expected x >= %2, read %3")
+                     .arg(i)
+                     .arg(ordX.at(i - 1))
+                     .arg(ordX.at(i));
+      m_index.clear();
+      return false;
+    }
+    if (i >= perLine && ordY.at(i) < ordY.at(i - perLine))
+    {
+      if (error)
+        *error = QStringLiteral("corner coordinate mismatch at trace %1: expected y >= %2, read %3")
+                     .arg(i)
+                     .arg(ordY.at(i - perLine))
+                     .arg(ordY.at(i));
+      m_index.clear();
+      return false;
+    }
+  }
+
+  // inline = base + 道号/N：base 取首道 field record（本文件 = 1315），
+  // field record 为空时退回偏移 188 的恒定值。
+  const qint32 base = firstFieldRec != 0 ? firstFieldRec : firstLineWord;
+  const int lines = n / perLine;
+  // #83：base 来自不可信道头——base + lines - 1 越过 qint32 即有符号溢出（UB）。
+  if (qint64(base) + qint64(lines) - 1 > std::numeric_limits<qint32>::max())
+  {
+    if (error)
+      *error = QStringLiteral("inline numbering overflows qint32 (base %1, %2 lines)")
+                   .arg(base)
+                   .arg(lines);
+    m_index.clear();
+    return false;
+  }
+  for (int i = 0; i < n; ++i)
+    m_index[i].inlineNo = base + i / perLine;
+
+  m_geometry.inlineMin = base;
+  m_geometry.inlineMax = base + lines - 1;
+  m_geometry.xlineMin = m_index.first().xlineNo;
+  m_geometry.xlineMax = m_index.first().xlineNo;
+  for (int i = 0; i < n; ++i)
+  {
+    if (m_index.at(i).xlineNo < m_geometry.xlineMin)
+      m_geometry.xlineMin = m_index.at(i).xlineNo;
+    if (m_index.at(i).xlineNo > m_geometry.xlineMax)
+      m_geometry.xlineMax = m_index.at(i).xlineNo;
+  }
+  // 四角 = 四条极端道的坐标（整齐网格上即精确角点）：先在线内找
+  // xlMin/xlMax 的位置，再取首末两条线的对应道。
+  // slot：(inlMin,xlMin)=0 (inlMin,xlMax)=1 (inlMax,xlMax)=2 (inlMax,xlMin)=3。
+  int jMin = 0, jMax = 0;
+  for (int j = 1; j < perLine; ++j)
+  {
+    if (m_index.at(j).xlineNo < m_index.at(jMin).xlineNo)
+      jMin = j;
+    if (m_index.at(j).xlineNo > m_index.at(jMax).xlineNo)
+      jMax = j;
+  }
+  const int lastLine = n - perLine;
+  m_geometry.cornerX[0] = ordX.at(jMin);             m_geometry.cornerY[0] = ordY.at(jMin);
+  m_geometry.cornerX[1] = ordX.at(jMax);             m_geometry.cornerY[1] = ordY.at(jMax);
+  m_geometry.cornerX[2] = ordX.at(lastLine + jMax);  m_geometry.cornerY[2] = ordY.at(lastLine + jMax);
+  m_geometry.cornerX[3] = ordX.at(lastLine + jMin);  m_geometry.cornerY[3] = ordY.at(lastLine + jMin);
+  return true;
+}
+
+bool SegyReader::open(const QString &path, QString *error,
+                      const SegyOptions *opts)
+{
+  // #83：完整复位（含坏道列表、上次取消留下的 m_lastScanPartial/
+  // m_scannedOffset）——同一 reader 重开时不得累加坏道、不得把成功扫描的
+  // snapshot 写成 complete=false。
+  resetState();
+  m_indexingRules = AreaRules::active().segy;
+
+  if (path.isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("File path is empty");
+    return false;
+  }
+
+  QFile file(path);
+  if (!file.exists())
+  {
+    if (error)
+      *error = QStringLiteral("File does not exist: %1").arg(path);
+    return false;
+  }
+
+  if (!file.open(QIODevice::ReadOnly))
+  {
+    if (error)
+      *error = QStringLiteral("Cannot open file: %1").arg(file.errorString());
+    return false;
+  }
+
+  const qint64 fileSize = file.size();
+  if (fileSize == 0)
+  {
+    if (error)
+      *error = QStringLiteral("File is empty: %1").arg(path);
+    return false;
+  }
+
+  if (fileSize < 3600)
+  {
+    if (error)
+      *error = QStringLiteral("File size (%1 bytes) is smaller than required 3600-byte SEG-Y header").arg(fileSize);
+    return false;
+  }
+
+  // ---- 头解析：二进制头 + 扩展文本头 → 首道偏移 ----
+  qint16 binNs = 0;
+  int binEnsTraces = 0;
+  if (!parseSegyHeaders(file, path, fileSize, &binNs, &binEnsTraces, error))
+    return false;
+  const qint64 offset = m_firstTraceOffset;
+
+  // ---- 探针：道头方言 + ordinal 判定（#290 快照进 m_dialect） ----
+  bool ordinalIndex = false;
+  probeDialect(file, offset, fileSize, binNs, &ordinalIndex);
+
+  // ---- 扫描：顺序逐道建索引 ----
+  double delayMs = 0.0;
+  qint32 firstLineWord = 0; // ordinal 模式：偏移 188 的恒定值（inline 起点兜底）
+  qint32 firstFieldRec = 0; // ordinal 模式：首道 field record（偏移 8）= inline 起点
+  QVector<double> ordX, ordY; // ordinal 模式的坐标序列（一致性校验 + 角点）
+  if (!scanTracesSequential(file, offset, fileSize, binNs, ordinalIndex, &delayMs,
+                            &firstLineWord, &firstFieldRec, &ordX, &ordY, error, opts))
+    return false;
 
   if (ordinalIndex)
   {
-    // 偏移 188 全程不变 → 按道号索引（plan §2）：inline = base + 道号/N，
-    // crossline = 该道 CDP。道数、CDP 顺序、角点对不上就报数停止。
-    const int n = m_index.size();
-
-    // N = 一条 inline 的道数：CDP 序列首次回落处；全程不回落 → 全文件一条线。
-    int perLine = n;
-    for (int i = 1; i < n; ++i)
-    {
-      if (m_index.at(i).xlineNo < m_index.at(i - 1).xlineNo)
-      {
-        perLine = i;
-        break;
-      }
-    }
-    // 二进制头字节 13-14 声明的每条 inline 道数若与 CDP 回落不符 → 对不上。
-    if (binEnsTraces > 0 && binEnsTraces != perLine)
-    {
-      if (error)
-        *error = QStringLiteral("traces-per-inline mismatch: binary header declares %1, CDP order gives %2")
-                     .arg(binEnsTraces)
-                     .arg(perLine);
-      m_index.clear();
+    if (!finalizeOrdinalIndexing(binEnsTraces, firstLineWord, firstFieldRec, ordX, ordY, error))
       return false;
-    }
-    // 道数：总道数必须是每条 inline 道数的整数倍（残线属截断）。
-    if (n % perLine != 0)
-    {
-      if (error)
-        *error = QStringLiteral("trace count mismatch: expected a multiple of %1 traces per inline, read %2 traces")
-                     .arg(perLine)
-                     .arg(n);
-      m_index.clear();
-      return false;
-    }
-    // CDP 顺序：后续每条线必须重复第一条线的 CDP 序列。
-    for (int i = perLine; i < n; ++i)
-    {
-      if (m_index.at(i).xlineNo != m_index.at(i - perLine).xlineNo)
-      {
-        if (error)
-          *error = QStringLiteral("CDP order mismatch at trace %1: expected %2 (first line at same position), read %3")
-                       .arg(i)
-                       .arg(m_index.at(i - perLine).xlineNo)
-                       .arg(m_index.at(i).xlineNo);
-        m_index.clear();
-        return false;
-      }
-    }
-    // 角点一致性：线内 x 不减、随线号 y 不减（整齐测网的结构校验）。
-    for (int i = 1; i < n; ++i)
-    {
-      if (i % perLine != 0 && ordX.at(i) < ordX.at(i - 1))
-      {
-        if (error)
-          *error = QStringLiteral("corner coordinate mismatch at trace %1: expected x >= %2, read %3")
-                       .arg(i)
-                       .arg(ordX.at(i - 1))
-                       .arg(ordX.at(i));
-        m_index.clear();
-        return false;
-      }
-      if (i >= perLine && ordY.at(i) < ordY.at(i - perLine))
-      {
-        if (error)
-          *error = QStringLiteral("corner coordinate mismatch at trace %1: expected y >= %2, read %3")
-                       .arg(i)
-                       .arg(ordY.at(i - perLine))
-                       .arg(ordY.at(i));
-        m_index.clear();
-        return false;
-      }
-    }
-
-    // inline = base + 道号/N：base 取首道 field record（本文件 = 1315），
-    // field record 为空时退回偏移 188 的恒定值。
-    const qint32 base = firstFieldRec != 0 ? firstFieldRec : firstLineWord;
-    const int lines = n / perLine;
-    // #83：base 来自不可信道头——base + lines - 1 越过 qint32 即有符号溢出（UB）。
-    if (qint64(base) + qint64(lines) - 1 > std::numeric_limits<qint32>::max())
-    {
-      if (error)
-        *error = QStringLiteral("inline numbering overflows qint32 (base %1, %2 lines)")
-                     .arg(base)
-                     .arg(lines);
-      m_index.clear();
-      return false;
-    }
-    for (int i = 0; i < n; ++i)
-      m_index[i].inlineNo = base + i / perLine;
-
-    m_geometry.inlineMin = base;
-    m_geometry.inlineMax = base + lines - 1;
-    m_geometry.xlineMin = m_index.first().xlineNo;
-    m_geometry.xlineMax = m_index.first().xlineNo;
-    for (int i = 0; i < n; ++i)
-    {
-      if (m_index.at(i).xlineNo < m_geometry.xlineMin)
-        m_geometry.xlineMin = m_index.at(i).xlineNo;
-      if (m_index.at(i).xlineNo > m_geometry.xlineMax)
-        m_geometry.xlineMax = m_index.at(i).xlineNo;
-    }
-    // 四角 = 四条极端道的坐标（整齐网格上即精确角点）：先在线内找
-    // xlMin/xlMax 的位置，再取首末两条线的对应道。
-    // slot：(inlMin,xlMin)=0 (inlMin,xlMax)=1 (inlMax,xlMax)=2 (inlMax,xlMin)=3。
-    int jMin = 0, jMax = 0;
-    for (int j = 1; j < perLine; ++j)
-    {
-      if (m_index.at(j).xlineNo < m_index.at(jMin).xlineNo)
-        jMin = j;
-      if (m_index.at(j).xlineNo > m_index.at(jMax).xlineNo)
-        jMax = j;
-    }
-    const int lastLine = n - perLine;
-    m_geometry.cornerX[0] = ordX.at(jMin);             m_geometry.cornerY[0] = ordY.at(jMin);
-    m_geometry.cornerX[1] = ordX.at(jMax);             m_geometry.cornerY[1] = ordY.at(jMax);
-    m_geometry.cornerX[2] = ordX.at(lastLine + jMax);  m_geometry.cornerY[2] = ordY.at(lastLine + jMax);
-    m_geometry.cornerX[3] = ordX.at(lastLine + jMin);  m_geometry.cornerY[3] = ordY.at(lastLine + jMin);
   }
-  if (!ordinalIndex && !freezeCornersFromFile(file, cornerFromCdpXY))
+  if (!ordinalIndex && !freezeCornersFromFile(file, m_dialect.cornerFromCdpXY))
   {
     if (error)
       *error = QStringLiteral("无法读取测区四角的道头");
@@ -642,25 +698,12 @@ bool SegyReader::open(const QString &path, QString *error,
   m_geometry.startTimeMs = delayMs;
 
   // 行/道索引（排序，供测线级读取）。
-  for (int i = 0; i < m_index.size(); ++i)
-    m_byInline[m_index.at(i).inlineNo].append(i);
-  for (int i = 0; i < m_index.size(); ++i)
-    m_byXline[m_index.at(i).xlineNo].append(i);
-  const QVector<IndexEntry> &idx = m_index;
-  for (auto it = m_byInline.begin(); it != m_byInline.end(); ++it)
-  {
-    std::sort(it.value().begin(), it.value().end(),
-              [&idx](int a, int b) { return idx.at(a).xlineNo < idx.at(b).xlineNo; });
-  }
-  for (auto it = m_byXline.begin(); it != m_byXline.end(); ++it)
-  {
-    std::sort(it.value().begin(), it.value().end(),
-              [&idx](int a, int b) { return idx.at(a).inlineNo < idx.at(b).inlineNo; });
-  }
+  rebuildLineHashes();
 
   m_path = path;
   return true;
 }
+
 
 bool SegyReader::decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out,
                               SegySampleIssue *issue) const

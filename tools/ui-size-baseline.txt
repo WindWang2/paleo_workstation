@@ -8,7 +8,7 @@ src/ui/pages/datalist_tree.cpp:1094
 src/ui/pages/entitypanel.cpp:1620
 src/ui/pages/mappingworkbenchpage.cpp:1668
 src/ui/paleomainwindow.cpp:1015
-src/ui/seismic3d/seismic3dviewpanel.cpp:1839
+src/ui/seismic3d/seismic3dviewpanel.cpp:1827
 src/ui/seismic3d/seismic3dviewportwidget.cpp:1003
 src/ui/wellsection/wellsectionpanel.cpp:1541
 src/ui/welltops/welltopseditordialog.cpp:1010

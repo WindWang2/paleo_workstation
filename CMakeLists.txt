@@ -669,6 +669,7 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 add_library(paleo_ui STATIC
   src/ui/paleomainwindow_paleomaps.cpp
   src/ui/pages/datalist_paleomaps.cpp
+  src/ui/pages/datalist_auxnav.cpp
   src/ui/pages/datalist_importbuttons.cpp
   src/ui/pages/mappingeditbasis.cpp
   src/ui/pages/mappingbasemapselector.cpp

@@ -133,6 +133,9 @@ class ConstraintPage : public QWidget
     void updateOperationGuidance();
     // 主线6：等厚引擎行（顶/底构造面选择）的可见性与清单填充。
     void updateEngineRows();
+    // updateEngineRows 析出的两个下拉重建段（file_budget 防增长闸）。
+    void rebuildCovariateCombo();
+    void rebuildBoundaryCombo( QComboBox *boundaryCombo );
     void invalidateWellFactors();
     void updateWellFactorActionState();
     void markInputsStale();

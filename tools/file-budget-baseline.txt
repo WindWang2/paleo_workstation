@@ -25,7 +25,10 @@
 #   - 下调冻结值（仍超标、可收紧）：fn:attachWorkbench 1091→316（#473 拆分后
 #     实际值；该函数仍 >200 行，条目只能收紧不能删——删了即新增超标）、
 #     datalist.cpp:file 1016→1009、datalist.cpp:fn:DataListPanel 510→503、
-#     attach_constraint.cpp:fn:attachConstraintPage 718→713、
+#     attach_constraint.cpp:fn:attachConstraintPage 718→713（2026-10-19
+#     审计第三轮 G1-07：#564 曾把冻结值上调 718→719（该 PR 未触碰该 cpp，
+#     违反只缩不涨）；本轮提取 attachConstraintDrawController 后实测 706，
+#     冻结值随之回撤并下调研值）、
 #     attach_shell.cpp:fn:attachShellSurfaces 580→578；
 #   - 维持冻结（本批代码修复致超标面回升，文件不属本岗可改范围）：见
 #     docs/ci/known-reds.json 的 file-budget-grown 条目与 issue #538。
@@ -53,8 +56,8 @@ src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:351
 src/ui/pages/datalist.cpp:fn:DataListPanel:480
 src/ui/pages/datalist.cpp:fn:buildDataOpsUi:337
 src/ui/pages/datalist_table.cpp:fn:renderAssetPage:388
-src/ui/pages/datalist_tree.cpp:file:1094
-src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:676
+src/ui/pages/datalist_tree.cpp:file:1049
+src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:628
 src/ui/pages/entitypanel.cpp:file:1620
 src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
 src/ui/pages/entitypanel.cpp:fn:refresh:782
@@ -66,7 +69,7 @@ src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:263
 src/ui/paleomainwindow.cpp:file:1015
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:412
 src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:405
-src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:719
+src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:706
 src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:262
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:578
 src/ui/paleomainwindow_docks.cpp:fn:buildCenterArea:209

@@ -54,3 +54,7 @@ func_qtwidgets_edges: 0
 ui_qtwidgets_notes: 6
 heavy_edges: 52
 heavy_tus: 50
+# ---- 2026-10-19 审计第三轮 G1-06（已被 #578 超越）----
+# 本轮曾按 #474 先例带归因 re-pin 87→88（+1 TU 归因 #562 拆分
+# ui/paleomainwindow_paleomaps.cpp，出闸边恒 52）；#578 削掉两条头扇出根后
+# heavy_tus 实测降至 50，rebase 取其值，本轮 re-pin 作废留痕。

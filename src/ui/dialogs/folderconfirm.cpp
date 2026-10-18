@@ -300,6 +300,31 @@ QString folderEstimateText(const QVector<FolderPreviewRow> &rows)
   return text;
 }
 
+// 导入完成后预览聚焦哪个资产：优先井头文件；无井头时回落到最后一个导入
+// 成功/未决的文档类行（#549/#566 引入的口径，抽出以守住 buildFolderConfirmDialog
+// 的 file_budget 冻结面——行为零变更）。
+QString pickPreviewFocusAsset(const QVector<FolderRowResult> &rows, const QString &wellHeadAssetId)
+{
+  using Outcome = FolderRowResult::Outcome;
+  QString focusAssetId = wellHeadAssetId;
+  if (!focusAssetId.isEmpty())
+    return focusAssetId;
+  for (const FolderRowResult &rowRes : rows)
+  {
+    if (rowRes.assetId.isEmpty())
+      continue;
+    if (rowRes.outcome != Outcome::Imported && rowRes.outcome != Outcome::Unresolved)
+      continue;
+    const QString type = rowRes.classifiedType;
+    const bool document =
+        type == QLatin1String("document") || type == QLatin1String("image_reference") ||
+        type == QLatin1String("reference") || type == QLatin1String("unknown");
+    if (document)
+      focusAssetId = rowRes.assetId;
+  }
+  return focusAssetId;
+}
+
 void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
                               const QVector<FolderPreviewRow> &preview,
                               const Hooks &hooks)
@@ -609,25 +634,8 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
         if (r >= results->size() || results->at(r).outcome != Outcome::Failed)
           combos[r]->setEnabled(false);
       cancel->setText(QObject::tr("关闭"));
-      QString focusAssetId = wellHeadAssetId;
-      if (focusAssetId.isEmpty())
-      {
-        for (const FolderRowResult &rowRes : res)
-        {
-          if (rowRes.assetId.isEmpty())
-            continue;
-          if (rowRes.outcome != Outcome::Imported && rowRes.outcome != Outcome::Unresolved)
-            continue;
-          const QString type = rowRes.classifiedType;
-          const bool document =
-              type == QLatin1String("document") || type == QLatin1String("image_reference") ||
-              type == QLatin1String("reference") || type == QLatin1String("unknown");
-          if (document)
-            focusAssetId = rowRes.assetId;
-        }
-      }
-      if (hooks.previewAsset && !focusAssetId.isEmpty())
-        hooks.previewAsset(focusAssetId);
+      const QString focusAssetId = pickPreviewFocusAsset(res, wellHeadAssetId);
+      if (hooks.previewAsset && !focusAssetId.isEmpty()) hooks.previewAsset(focusAssetId);
       // PROJECT_FILE_DESIGN：「从工区文件夹新建」的工程把本次导入统计写回
       // project.paleo.sourceArea（目录不匹配时 stampSourceArea 自拒，不污染
       // 普通导入路径下的工程）。

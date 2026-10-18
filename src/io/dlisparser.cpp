@@ -4,6 +4,7 @@
 
 #include "../domain/wellnumeric.h"
 #include "lasparser.h" // LasParser::fileSizeLimit（大文件防护共用口径）
+#include <QCoreApplication> // #561：错误/issue 文案走 translate（io 层口径同 segyreader）
 #include <QFile>
 #include <QFileInfo>
 
@@ -307,14 +308,14 @@ using paleo::io_detail::addIssue;
     if (c.bad)
     {
       if (error)
-        *error = QStringLiteral("EFLR 空 body");
+        *error = QCoreApplication::translate("DlisParser", "EFLR 空 body");
       return false;
     }
     const int role = desc & 0xE0;
     if (role != 0xE0 && role != 0xC0 && role != 0xA0)
     {
       if (error)
-        *error = QStringLiteral("EFLR 首组件不是 Set（descriptor 0x%1）")
+        *error = QCoreApplication::translate("DlisParser", "EFLR 首组件不是 Set（descriptor 0x%1）")
                      .arg(desc, 2, 16, QLatin1Char('0'));
       return false;
     }
@@ -326,14 +327,14 @@ using paleo::io_detail::addIssue;
     if (c.bad)
     {
       if (error)
-        *error = QStringLiteral("EFLR Set 头截断/非法");
+        *error = QCoreApplication::translate("DlisParser", "EFLR Set 头截断/非法");
       return false;
     }
     if (out.type.isEmpty() && !(role == 0xA0))
     {
       // RP66：Set Type 必须显式非空（冗余集可空并按唯一同型回指）
       if (error)
-        *error = QStringLiteral("EFLR Set Type 缺失");
+        *error = QCoreApplication::translate("DlisParser", "EFLR Set Type 缺失");
       return false;
     }
 
@@ -342,12 +343,12 @@ using paleo::io_detail::addIssue;
     {
       *absent = false;
       const uchar d = c.u8();
-      if (c.bad) { *err = QStringLiteral("组件描述符越界"); return false; }
+      if (c.bad) { *err = QCoreApplication::translate("DlisParser", "组件描述符越界"); return false; }
       const int r = d & 0xE0;
       if (r == 0x00) { *absent = true; return true; } // ABSATR：无特征
       if (r != 0x20 && r != 0x40)
       {
-        *err = QStringLiteral("期待属性组件，得到 role 0x%1")
+        *err = QCoreApplication::translate("DlisParser", "期待属性组件，得到 role 0x%1")
                    .arg(r, 2, 16, QLatin1Char('0'));
         return false;
       }
@@ -356,11 +357,13 @@ using paleo::io_detail::addIssue;
       if (!c.bad && (d & 0x08)) attr.count = c.uvari();
       if (!c.bad && (d & 0x04)) attr.repc = int(c.u8());
       if (!c.bad && (d & 0x02)) attr.units = c.ident();
-      if (c.bad) { *err = QStringLiteral("属性特征序列截断"); return false; }
+      if (c.bad) { *err = QCoreApplication::translate("DlisParser", "属性特征序列截断"); return false; }
       if (attr.repc < 0 || attr.repc > RepUnits)
       {
-        *err = QStringLiteral("属性 %1 表示码 %2 越界")
-                   .arg(attr.label.isEmpty() ? QStringLiteral("<模板>") : attr.label)
+        *err = QCoreApplication::translate("DlisParser", "属性 %1 表示码 %2 越界")
+                   .arg(attr.label.isEmpty()
+                            ? QCoreApplication::translate("DlisParser", "<模板>")
+                            : attr.label)
                    .arg(attr.repc);
         return false;
       }
@@ -439,14 +442,14 @@ using paleo::io_detail::addIssue;
           }
           else
           {
-            *err = QStringLiteral("属性 %1 表示码 %2 无法解码")
+            *err = QCoreApplication::translate("DlisParser", "属性 %1 表示码 %2 无法解码")
                        .arg(attr.label).arg(attr.repc);
             return false;
           }
         }
         if (c.bad)
         {
-          *err = QStringLiteral("属性 %1 值序列截断").arg(attr.label);
+          *err = QCoreApplication::translate("DlisParser", "属性 %1 值序列截断").arg(attr.label);
           return false;
         }
       }
@@ -470,7 +473,7 @@ using paleo::io_detail::addIssue;
           if (c.bad)
           {
             if (error)
-              *error = QStringLiteral("对象名截断");
+              *error = QCoreApplication::translate("DlisParser", "对象名截断");
             return false;
           }
           inTemplate = false;
@@ -488,7 +491,7 @@ using paleo::io_detail::addIssue;
         if (absent)
         {
           if (error)
-            *error = QStringLiteral("模板中出现 ABSATR（非法）");
+            *error = QCoreApplication::translate("DlisParser", "模板中出现 ABSATR（非法）");
           return false;
         }
         out.tmpl.append(attr);
@@ -506,7 +509,7 @@ using paleo::io_detail::addIssue;
           if (c.bad)
           {
             if (error)
-              *error = QStringLiteral("对象名截断");
+              *error = QCoreApplication::translate("DlisParser", "对象名截断");
             return false;
           }
           continue;
@@ -523,7 +526,7 @@ using paleo::io_detail::addIssue;
           if (col >= out.tmpl.size())
           {
             if (error)
-              *error = QStringLiteral("对象 %1 属性数超出模板列数")
+              *error = QCoreApplication::translate("DlisParser", "对象 %1 属性数超出模板列数")
                            .arg(current.name.id);
             return false;
           }
@@ -542,7 +545,7 @@ using paleo::io_detail::addIssue;
           if (attr.invariant)
           {
             if (error)
-              *error = QStringLiteral("对象行出现 INVATR（非法）");
+              *error = QCoreApplication::translate("DlisParser", "对象行出现 INVATR（非法）");
             return false;
           }
           current.attrs.append(attr);
@@ -551,7 +554,8 @@ using paleo::io_detail::addIssue;
         if (c.bad)
         {
           if (error)
-            *error = QStringLiteral("对象 %1 属性序列截断").arg(current.name.id);
+            *error = QCoreApplication::translate("DlisParser", "对象 %1 属性序列截断")
+                         .arg(current.name.id);
           return false;
         }
         // 模板不变列 + 缺尾列补默认（不变列在模板里已有值，逐列对齐）
@@ -563,7 +567,7 @@ using paleo::io_detail::addIssue;
     if (c.bad)
     {
       if (error)
-        *error = QStringLiteral("EFLR 组件流截断");
+        *error = QCoreApplication::translate("DlisParser", "EFLR 组件流截断");
       return false;
     }
     if (c.left() > 0 && !inTemplate)
@@ -573,7 +577,7 @@ using paleo::io_detail::addIssue;
       if ((d & 0xE0) == 0xE0 || (d & 0xE0) == 0xC0 || (d & 0xE0) == 0xA0)
       {
         if (error)
-          *error = QStringLiteral("EFLR 内出现第二个 Set 组件");
+          *error = QCoreApplication::translate("DlisParser", "EFLR 内出现第二个 Set 组件");
         return false;
       }
     }
@@ -702,7 +706,7 @@ using paleo::io_detail::addIssue;
       const qint64 prev = lastFrameNo.value(key, 0);
       if (no <= prev && prev > 0)
         addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
-                 QStringLiteral("帧类型 %1 帧号 %2 未递增（前值 %3）——按文件序采值")
+                 QCoreApplication::translate("DlisParser", "帧类型 %1 帧号 %2 未递增（前值 %3）——按文件序采值")
                      .arg(key.section(QLatin1Char('#'), -1))
                      .arg(no)
                      .arg(prev));
@@ -753,7 +757,7 @@ using paleo::io_detail::addIssue;
         if (catalogFrozen)
         {
           addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
-                   QStringLiteral("首个 FDATA 后又遇 %1 集——目录与解码布局已冻结，"
+                   QCoreApplication::translate("DlisParser", "首个 FDATA 后又遇 %1 集——目录与解码布局已冻结，"
                                   "改写不生效").arg(set.type));
           return;
         }
@@ -831,14 +835,14 @@ using paleo::io_detail::addIssue;
       if (c.bad)
       {
         if (error)
-          *error = QStringLiteral("FDATA 帧引用截断");
+          *error = QCoreApplication::translate("DlisParser", "FDATA 帧引用截断");
         return false;
       }
       const qint64 frameNo = c.uvari();
       if (c.bad)
       {
         if (error)
-          *error = QStringLiteral("FDATA 帧号截断");
+          *error = QCoreApplication::translate("DlisParser", "FDATA 帧号截断");
         return false;
       }
       const QString key = obnameKey(ref);
@@ -846,14 +850,15 @@ using paleo::io_detail::addIssue;
       {
         // 帧未定义（RP66 要求引用对象先于 IFLR）——如实报错，不猜
         if (error)
-          *error = QStringLiteral("FDATA 引用未定义帧 %1").arg(ref.id);
+          *error = QCoreApplication::translate("DlisParser", "FDATA 引用未定义帧 %1").arg(ref.id);
         return false;
       }
       const FrameState fr = frames.value(key);
       if (fr.encrypted)
       {
         addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
-                 QStringLiteral("帧类型 %1 已加密——跳过（白名单：加密记录）").arg(ref.id));
+                 QCoreApplication::translate("DlisParser", "帧类型 %1 已加密——跳过（白名单：加密记录）")
+                     .arg(ref.id));
         return true;
       }
       if (firstDataFrameKey.isEmpty())
@@ -862,7 +867,8 @@ using paleo::io_detail::addIssue;
         catalogFrozen = true; // 主帧确定：目录冻结（其余帧类型走白名单）
         if (fr.direction == QLatin1String("DECREASING"))
           addIssue(issues, LasIssue::Severity::Info, LasIssue::Category::Format,
-                   QStringLiteral("帧类型 %1 深度递减——按文件序保留").arg(ref.id));
+                   QCoreApplication::translate("DlisParser", "帧类型 %1 深度递减——按文件序保留")
+                     .arg(ref.id));
       }
       noteFrameNumber(key, frameNo, issues);
       if (key != firstDataFrameKey)
@@ -877,7 +883,8 @@ using paleo::io_detail::addIssue;
         if (!channels.contains(ck))
         {
           if (error)
-            *error = QStringLiteral("帧 %1 引用未定义通道 %2").arg(ref.id, chRef.id);
+            *error = QCoreApplication::translate("DlisParser", "帧 %1 引用未定义通道 %2")
+                         .arg(ref.id, chRef.id);
           return false;
         }
         qint64 elems = 1;
@@ -886,7 +893,8 @@ using paleo::io_detail::addIssue;
         if (!dimProduct(ch.dimension, &elems))
         {
           if (error)
-            *error = QStringLiteral("通道 %1 DIMENSION 非法或元素积溢出").arg(chRef.id);
+            *error = QCoreApplication::translate("DlisParser", "通道 %1 DIMENSION 非法或元素积溢出")
+                         .arg(chRef.id);
           return false;
         }
         const int fixed = fixedRepSize(ch.repc);
@@ -897,7 +905,7 @@ using paleo::io_detail::addIssue;
           {
             channels[ck].unusableNoted = true;
             addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
-                     QStringLiteral("通道 %1 非标量（元素数 %2，表示码 %3）——"
+                     QCoreApplication::translate("DlisParser", "通道 %1 非标量（元素数 %2，表示码 %3）——"
                                     "白名单：多维/非数值通道不进表，槽位按宽度跳过")
                          .arg(chRef.id)
                          .arg(elems)
@@ -907,7 +915,8 @@ using paleo::io_detail::addIssue;
           if (fixed <= 0)
           {
             if (error)
-              *error = QStringLiteral("通道 %1 表示码 %2 无固定宽度，无法跳过槽位")
+              *error = QCoreApplication::translate(
+                             "DlisParser", "通道 %1 表示码 %2 无固定宽度，无法跳过槽位")
                            .arg(chRef.id)
                            .arg(ch.repc);
             return false;
@@ -918,14 +927,16 @@ using paleo::io_detail::addIssue;
           if (slotBytes < 0 || slotBytes > c.left())
           {
             if (error)
-              *error = QStringLiteral("帧 %1 于通道 %2 处截断").arg(ref.id, chRef.id);
+              *error = QCoreApplication::translate("DlisParser", "帧 %1 于通道 %2 处截断")
+                         .arg(ref.id, chRef.id);
             return false;
           }
           c.skip(int(slotBytes));
           if (c.bad)
           {
             if (error)
-              *error = QStringLiteral("帧 %1 于通道 %2 处截断").arg(ref.id, chRef.id);
+              *error = QCoreApplication::translate("DlisParser", "帧 %1 于通道 %2 处截断")
+                         .arg(ref.id, chRef.id);
             return false;
           }
           continue;
@@ -934,14 +945,15 @@ using paleo::io_detail::addIssue;
         if (c.bad)
         {
           if (error)
-            *error = QStringLiteral("帧 %1 于通道 %2 处截断").arg(ref.id, chRef.id);
+            *error = QCoreApplication::translate("DlisParser", "帧 %1 于通道 %2 处截断")
+                         .arg(ref.id, chRef.id);
           return false;
         }
         values[ck].append(v);
       }
       if (c.left() > 0)
         addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
-                 QStringLiteral("帧 %1（帧号 %2）有 %3 字节残余——畸形帧边界，"
+                 QCoreApplication::translate("DlisParser", "帧 %1（帧号 %2）有 %3 字节残余——畸形帧边界，"
                                 "已按帧布局解出全部通道")
                      .arg(ref.id)
                      .arg(frameNo)
@@ -1011,7 +1023,7 @@ using paleo::io_detail::addIssue;
     if (!src.ensure(80))
     {
       if (error)
-        *error = QStringLiteral("文件不足 80 字节，无 DLIS 存储标签");
+        *error = QCoreApplication::translate("DlisParser", "文件不足 80 字节，无 DLIS 存储标签");
       return DlisWalkResult::Error;
     }
     int sulOff = -1;
@@ -1033,12 +1045,13 @@ using paleo::io_detail::addIssue;
     if (sulOff < 0)
     {
       if (error)
-        *error = QStringLiteral("前 %1 字节未找到 DLIS 存储标签（SUL）").arg(scanMax);
+        *error = QCoreApplication::translate("DlisParser", "前 %1 字节未找到 DLIS 存储标签（SUL）")
+                         .arg(scanMax);
       return DlisWalkResult::Error;
     }
     if (sulOff > 0)
       addIssue(issues, LasIssue::Severity::Info, LasIssue::Category::Format,
-               QStringLiteral("SUL 前有 %1 字节杂数据，已跳过").arg(sulOff));
+               QCoreApplication::translate("DlisParser", "SUL 前有 %1 字节杂数据，已跳过").arg(sulOff));
     src.advance(sulOff + 80);
 
     // ---- VR / LRS 循环 ----
@@ -1059,9 +1072,9 @@ using paleo::io_detail::addIssue;
       if (!src.ensure(4))
       {
         if (error)
-          *error = QStringLiteral("文件在可见记录头处截断");
+          *error = QCoreApplication::translate("DlisParser", "文件在可见记录头处截断");
         if (issues)
-          issues->append(truncatedIssue(QStringLiteral("可见记录头截断")));
+          issues->append(truncatedIssue(QCoreApplication::translate("DlisParser", "可见记录头截断")));
         return DlisWalkResult::Error;
       }
       const uchar *vh = src.ptr();
@@ -1072,7 +1085,7 @@ using paleo::io_detail::addIssue;
       if (mark != 0xFF || ver != 0x01)
       {
         if (error)
-          *error = QStringLiteral("可见记录头非法（0x%1 0x%2，期待 0xFF 0x01）")
+          *error = QCoreApplication::translate("DlisParser", "可见记录头非法（0x%1 0x%2，期待 0xFF 0x01）")
                        .arg(mark, 2, 16, QLatin1Char('0'))
                        .arg(ver, 2, 16, QLatin1Char('0'));
         return DlisWalkResult::Error;
@@ -1080,7 +1093,7 @@ using paleo::io_detail::addIssue;
       if (vrLen < 4)
       {
         if (error)
-          *error = QStringLiteral("可见记录长度 %1 非法").arg(vrLen);
+          *error = QCoreApplication::translate("DlisParser", "可见记录长度 %1 非法").arg(vrLen);
         return DlisWalkResult::Error;
       }
       const qint64 vrEnd = src.offset() + vrLen - 4;
@@ -1091,9 +1104,9 @@ using paleo::io_detail::addIssue;
         if (!src.ensure(4))
         {
           if (error)
-            *error = QStringLiteral("文件在逻辑记录段头处截断");
+            *error = QCoreApplication::translate("DlisParser", "文件在逻辑记录段头处截断");
           if (issues)
-            issues->append(truncatedIssue(QStringLiteral("逻辑记录段头截断")));
+            issues->append(truncatedIssue(QCoreApplication::translate("DlisParser", "逻辑记录段头截断")));
           return DlisWalkResult::Error;
         }
         const uchar *lh = src.ptr();
@@ -1104,14 +1117,14 @@ using paleo::io_detail::addIssue;
         if (segLen < 4)
         {
           if (error)
-            *error = QStringLiteral("逻辑记录段长 %1 非法").arg(segLen);
+            *error = QCoreApplication::translate("DlisParser", "逻辑记录段长 %1 非法").arg(segLen);
           return DlisWalkResult::Error;
         }
         if ((attrs & 0x40) && !continuation)
         {
           // 段声明前驱却无待续 LR——分段状态与字节流不一致（结构损坏）
           if (error)
-            *error = QStringLiteral("逻辑记录段带前驱位但无待续逻辑记录");
+            *error = QCoreApplication::translate("DlisParser", "逻辑记录段带前驱位但无待续逻辑记录");
           return DlisWalkResult::Error;
         }
         qint64 bodyLen = segLen - 4;
@@ -1119,16 +1132,16 @@ using paleo::io_detail::addIssue;
         if (bodyLen > roomInVr)
         {
           if (error)
-            *error = QStringLiteral("逻辑记录段（%1 字节）越过可见记录边界")
+            *error = QCoreApplication::translate("DlisParser", "逻辑记录段（%1 字节）越过可见记录边界")
                          .arg(segLen);
           return DlisWalkResult::Error;
         }
         if (!src.ensure(int(bodyLen)))
         {
           if (error)
-            *error = QStringLiteral("文件在逻辑记录段体处截断（%1 字节）").arg(bodyLen);
+            *error = QCoreApplication::translate("DlisParser", "文件在逻辑记录段体处截断（%1 字节）").arg(bodyLen);
           if (issues)
-            issues->append(truncatedIssue(QStringLiteral("逻辑记录段体截断")));
+            issues->append(truncatedIssue(QCoreApplication::translate("DlisParser", "逻辑记录段体截断")));
           return DlisWalkResult::Error;
         }
         if (firstSeg)
@@ -1155,7 +1168,7 @@ using paleo::io_detail::addIssue;
               LasIssue issue;
               issue.severity = LasIssue::Severity::Error;
               issue.category = LasIssue::Category::Oversize;
-              issue.message = QStringLiteral(
+              issue.message = QCoreApplication::translate("DlisParser", 
                   "逻辑记录跨段累积 %1 字节超过整读上限（%2 字节）——"
                   "拒绝无界拼接（Oversize）")
                                    .arg(lrBuf.size() + bodyLen)
@@ -1163,7 +1176,7 @@ using paleo::io_detail::addIssue;
               issues->append(issue);
             }
             if (error)
-              *error = QStringLiteral("逻辑记录累积超过整读上限（Oversize）");
+              *error = QCoreApplication::translate("DlisParser", "逻辑记录累积超过整读上限（Oversize）");
             return DlisWalkResult::Error;
           }
           // 段体（尾随 trailer 剥离前）读入 lrBuf
@@ -1184,7 +1197,7 @@ using paleo::io_detail::addIssue;
             if (padPos < 0)
             {
               if (error)
-                *error = QStringLiteral("填充字节计数越界（段长 %1）").arg(segLen);
+                *error = QCoreApplication::translate("DlisParser", "填充字节计数越界（段长 %1）").arg(segLen);
               return DlisWalkResult::Error;
             }
             const uchar padCount = uchar(lrBuf.at(padPos));
@@ -1193,7 +1206,8 @@ using paleo::io_detail::addIssue;
           if (trim > lrBuf.size())
           {
             if (error)
-              *error = QStringLiteral("段尾（校验/尾长/填充）越界（段长 %1）").arg(segLen);
+              *error = QCoreApplication::translate("DlisParser", "段尾（校验/尾长/填充）越界（段长 %1）")
+                         .arg(segLen);
             return DlisWalkResult::Error;
           }
           lrBuf.chop(trim);
@@ -1206,7 +1220,7 @@ using paleo::io_detail::addIssue;
         if (encryptedRec)
         {
           addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
-                   QStringLiteral("逻辑记录类型 %1 加密——跳过（白名单：加密记录）")
+                   QCoreApplication::translate("DlisParser", "逻辑记录类型 %1 加密——跳过（白名单：加密记录）")
                        .arg(lrType));
         }
         else if (explicitRec)
@@ -1217,7 +1231,7 @@ using paleo::io_detail::addIssue;
             {
               w.multiLfNoted = true;
               addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Truncated,
-                       QStringLiteral("遇第二个文件头（多逻辑文件）——只读第一个逻辑文件"
+                       QCoreApplication::translate("DlisParser", "遇第二个文件头（多逻辑文件）——只读第一个逻辑文件"
                                       "（白名单：多逻辑文件）"));
             }
             return DlisWalkResult::StoppedAtNextFile;
@@ -1230,7 +1244,9 @@ using paleo::io_detail::addIssue;
                          lrBuf.size(), set, &eflrErr))
           {
             if (error)
-              *error = QStringLiteral("EFLR（类型 %1）解析失败：%2").arg(lrType).arg(eflrErr);
+              *error = QCoreApplication::translate("DlisParser", "EFLR（类型 %1）解析失败：%2")
+                           .arg(lrType)
+                           .arg(eflrErr);
             return DlisWalkResult::Error;
           }
           w.consumeEflr(lrType, set, issues);
@@ -1257,13 +1273,15 @@ using paleo::io_detail::addIssue;
             {
               w.noFormatNoted = true;
               addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
-                       QStringLiteral("NO-FORMAT 记录不读（白名单：RP66 不定义其布局）"));
+                       QCoreApplication::translate(
+                           "DlisParser", "NO-FORMAT 记录不读（白名单：RP66 不定义其布局）"));
             }
           }
           else
           {
             if (error)
-              *error = QStringLiteral("隐式记录类型 %1 不在 RP66 v1 定义内（0=FDATA，"
+              *error = QCoreApplication::translate(
+                           "DlisParser", "隐式记录类型 %1 不在 RP66 v1 定义内（0=FDATA，"
                                       "1=NO-FORMAT）")
                            .arg(lrType);
             return DlisWalkResult::Error;
@@ -1283,9 +1301,9 @@ using paleo::io_detail::addIssue;
     {
       // 文件结束但 LR 未闭合（末段后继位悬置）——半截 LR 不得当完整数据交出
       if (error)
-        *error = QStringLiteral("文件结束时逻辑记录后继位悬置（跨可见记录未闭合）");
+        *error = QCoreApplication::translate("DlisParser", "文件结束时逻辑记录后继位悬置（跨可见记录未闭合）");
       if (issues)
-        issues->append(truncatedIssue(QStringLiteral("逻辑记录跨可见记录未闭合")));
+        issues->append(truncatedIssue(QCoreApplication::translate("DlisParser", "逻辑记录跨可见记录未闭合")));
       return DlisWalkResult::Error;
     }
     return DlisWalkResult::Ok;
@@ -1327,7 +1345,7 @@ bool DlisParser::parse(const QString &path, LasHeaderInfo &header,
   if (!f.open(QIODevice::ReadOnly))
   {
     if (error)
-      *error = QStringLiteral("无法打开 %1").arg(path);
+      *error = QCoreApplication::translate("DlisParser", "无法打开 %1").arg(path);
     return false;
   }
 
@@ -1340,13 +1358,13 @@ bool DlisParser::parse(const QString &path, LasHeaderInfo &header,
       LasIssue issue;
       issue.severity = LasIssue::Severity::Error;
       issue.category = LasIssue::Category::Oversize;
-      issue.message = QStringLiteral("文件 %1 超过整读上限（%2 MB）——井曲线体拒绝整读")
+      issue.message = QCoreApplication::translate("DlisParser", "文件 %1 超过整读上限（%2 MB）——井曲线体拒绝整读")
                            .arg(QFileInfo(path).fileName())
                            .arg(LasParser::fileSizeLimit() / (1024 * 1024));
       issues->append(issue);
     }
     if (error)
-      *error = QStringLiteral("文件超过整读上限（Oversize）");
+      *error = QCoreApplication::translate("DlisParser", "文件超过整读上限（Oversize）");
     return false;
   }
 
@@ -1369,8 +1387,8 @@ bool DlisParser::parse(const QString &path, LasHeaderInfo &header,
   {
     if (error)
       *error = w.sawAnyFdata
-                   ? QStringLiteral("无可用曲线（主帧通道全部为白名单子结构）")
-                   : QStringLiteral("无帧数据（FDATA）——井曲线读面需要至少一帧");
+                   ? QCoreApplication::translate("DlisParser", "无可用曲线（主帧通道全部为白名单子结构）")
+                   : QCoreApplication::translate("DlisParser", "无帧数据（FDATA）——井曲线读面需要至少一帧");
     return false;
   }
 
@@ -1398,7 +1416,7 @@ bool DlisParser::parse(const QString &path, LasHeaderInfo &header,
     if (c.values.size() != rows)
     {
       addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
-               QStringLiteral("通道 %1 行数 %2 与索引道 %3 不齐——补 NaN")
+               QCoreApplication::translate("DlisParser", "通道 %1 行数 %2 与索引道 %3 不齐——补 NaN")
                    .arg(c.name)
                    .arg(c.values.size())
                    .arg(rows));
@@ -1419,7 +1437,7 @@ bool DlisParser::parseHeader(const QString &path, LasHeaderInfo &out,
   if (!f.open(QIODevice::ReadOnly))
   {
     if (error)
-      *error = QStringLiteral("无法打开 %1").arg(path);
+      *error = QCoreApplication::translate("DlisParser", "无法打开 %1").arg(path);
     return false;
   }
 
@@ -1436,7 +1454,7 @@ bool DlisParser::parseHeader(const QString &path, LasHeaderInfo &out,
   if (out.curveNames.isEmpty())
   {
     if (error)
-      *error = QStringLiteral("头扫描未取得曲线目录（无 CHANNEL/FRAME 或全部为"
+      *error = QCoreApplication::translate("DlisParser", "头扫描未取得曲线目录（无 CHANNEL/FRAME 或全部为"
                               "白名单子结构）");
     return false;
   }

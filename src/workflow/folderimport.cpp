@@ -12,6 +12,27 @@
 #include <QFile>
 #include "domain/projectclassifier.h"
 
+namespace
+{
+// （#560）台账入账前的「同一工程」判定（importFolder/importFiles 的
+// finish 共用）：session.projectDir 与当前 catalog 所在工程目录先比词法
+// cleanPath（setProjectDir 可带预开 catalog，其目录字符串形态未必与
+// session.projectDir 一致——不能因写法不同把正常批次漏记），不等再比
+// canonicalFilePath（符号链接/大小写别名；catDir 侧 canonical 为空即不认）。
+bool sameProjectSession(DataCatalog *cat, const ImportSession &s)
+{
+  if (!cat || s.projectDir.isEmpty())
+    return false;
+  const QString catDir =
+      QDir::cleanPath(cat->catalogPath() + QStringLiteral("/../../.."));
+  const QString sessionDir = QDir::cleanPath(s.projectDir);
+  if (catDir == sessionDir)
+    return true;
+  const QString a = QFileInfo(catDir).canonicalFilePath();
+  return !a.isEmpty() && a == QFileInfo(sessionDir).canonicalFilePath();
+}
+} // namespace
+
 // 审计 02 M-8：一次异步导入作业。produce 在 worker 上只碰 session；finish
 // 在 GUI 线程拿提交后的 session（行/结果已按提交结局改写）回壳。
 struct FolderImportWorkflow::ImportJob
@@ -137,6 +158,60 @@ void FolderImportWorkflow::runImportJob(const std::shared_ptr<ImportJob> &job)
   });
 }
 
+// （#560）importFolder/importFiles 的任务池路径共用脚手架。D1b+T2+
+// 审计 02 M-8：整个批次（plan 扫描/哈希 + LAS 解析/层位装箱/SEG-Y 索引）
+// 在 worker 上 produce 进 session 的 staging 副本；finished（GUI）里
+// commitImport 一次事务入库，随后按原序发 layerDeclared/imported/
+// importFailed，再 importActiveChanged(false)——抑制逐文件标签的标志在
+// 信号之后复位，不会漏开逐文件标签。两口径（目录/文件清单）只差
+// title/produce/台账目录，收口在此；后续加口径只改一处。
+void FolderImportWorkflow::makeImportJob(const QString &title,
+                                         const BatchProduce &produce,
+                                         const QString &ledgerDir,
+                                         const ImportDone &done)
+{
+  const QDateTime started = QDateTime::currentDateTime();
+  auto job = std::make_shared<ImportJob>();
+  job->title = title;
+  // 进度口径（两口径逐字同型）：扫描段 total==0（跑马灯 + 文件名
+  // detail），执行段 total=行数（reportBytes + 路径 detail）；false =
+  // 协作取消。
+  job->produce = [produce](ImportSession &s, PaleoTask *t) {
+    produce(s, [t](int d, int total, const QString &p) {
+      if (total > 0)
+      {
+        t->reportBytes(d, total); // 执行段：行进度
+        t->reportDetail(p);
+      }
+      else
+      {
+        t->reportDetail(tr("扫描 %1").arg(QFileInfo(p).fileName()));
+      }
+      return !t->cancelRequested();
+    });
+  };
+  job->finish = [this, done, ledgerDir, started](ImportSession &s) {
+    emit importActiveChanged(false);
+    // 台账写进「当前打开」工程的 sidecar：produce 期间若已切换工程，当前
+    // catalog 是另一个工程的——把别处的、整批作废的导入记进它的审计台账
+    // 是串账（opt-01 P5）。此时只经回调如实报「工程已切换」，不入账。
+    if (sameProjectSession(m_svc ? m_svc->catalog() : nullptr, s))
+      recordLedger(ledgerDir, started, s.rows, s.error);
+    else
+      qInfo() << "FolderImportWorkflow: project changed during import, ledger not written for"
+              << ledgerDir;
+    if (done)
+      done(s.rows, s.error);
+  };
+  job->fail = [this, done] {
+    emit importActiveChanged(false);
+    if (done)
+      done({}, DataImportService::offThreadError());
+  };
+  emit importActiveChanged(true);
+  enqueueImport(job);
+}
+
 QVector<FolderPreviewRow>
 FolderImportWorkflow::previewFolder(const QString &dir, QString *error)
 {
@@ -149,8 +224,17 @@ FolderImportWorkflow::previewFolder(const QString &dir, QString *error)
   return m_svc->previewFolder(dir, error);
 }
 
-void FolderImportWorkflow::previewFolderAsync(
-    const QString &dir,
+// （#560）preview 双胞胎（previewFolderAsync/previewFilesAsync）的骨架
+// 收口：两口径只差 title/produce/同步 fallback。T2：任务池在场 → 扫描/
+// 分类/哈希跑 worker（plan 经 COW 快照构建，catalog 不被 worker 触碰），
+// 扫描进度回报任务页，GUI 零同步整目录扫描；无任务服务 → 同步旧路径
+// （小环境/测试行为不变）。
+void FolderImportWorkflow::previewAsync(
+    const QString &title,
+    const std::function<QVector<FolderPreviewRow>(
+        ImportSession &, QString *,
+        const std::function<bool(int, const QString &)> &)> &produce,
+    const std::function<QVector<FolderPreviewRow>(QString *)> &syncPreview,
     const std::function<void(const QVector<FolderPreviewRow> &,
                              const QString &)> &done)
 {
@@ -160,9 +244,6 @@ void FolderImportWorkflow::previewFolderAsync(
       done({}, QStringLiteral("导入服务未就绪"));
     return;
   }
-  // T2：任务池在场 → 扫描/分类/哈希跑 worker（plan 经 COW 快照构建，
-  // catalog 不被 worker 触碰），扫描进度回报任务页；GUI 零同步整目录扫描。
-  // 无任务服务 → 同步旧路径（小环境/测试行为不变）。
   if (m_taskSvc)
   {
     // 审计 02 M-8：预览也只读 session 的 staging 副本（GUI 上拷出）。
@@ -177,14 +258,12 @@ void FolderImportWorkflow::previewFolderAsync(
     auto outRows = std::make_shared<QVector<FolderPreviewRow>>();
     auto outErr = std::make_shared<QString>();
     PaleoTask *task = m_taskSvc->start(
-        tr("扫描工区文件夹"),
-        [session, dir, outRows, outErr](PaleoTask *t) -> QString {
-          *outRows = DataImportService::producePreview(
-              *session, dir, outErr.get(),
-              [t](int seen, const QString &path) {
-                t->reportDetail(tr("扫描 %1").arg(QFileInfo(path).fileName()));
-                return !t->cancelRequested();
-              });
+        title, [session, produce, outRows, outErr](PaleoTask *t) -> QString {
+          *outRows = produce(*session, outErr.get(),
+                             [t](int seen, const QString &path) {
+                               t->reportDetail(tr("扫描 %1").arg(QFileInfo(path).fileName()));
+                               return !t->cancelRequested();
+                             });
           return outErr->isEmpty() ? QString() : *outErr;
         });
     connect(task, &PaleoTask::finished, this,
@@ -196,9 +275,24 @@ void FolderImportWorkflow::previewFolderAsync(
     return;
   }
   QString err;
-  const QVector<FolderPreviewRow> rows = m_svc->previewFolder(dir, &err);
+  const QVector<FolderPreviewRow> rows = syncPreview(&err);
   if (done)
     done(rows, err);
+}
+
+void FolderImportWorkflow::previewFolderAsync(
+    const QString &dir,
+    const std::function<void(const QVector<FolderPreviewRow> &,
+                             const QString &)> &done)
+{
+  previewAsync(
+      tr("扫描工区文件夹"),
+      [dir](ImportSession &s, QString *err,
+            const std::function<bool(int, const QString &)> &scanProgress) {
+        return DataImportService::producePreview(s, dir, err, scanProgress);
+      },
+      [this, dir](QString *err) { return m_svc->previewFolder(dir, err); },
+      done);
 }
 
 void FolderImportWorkflow::recordLedger(const QString &dir, const QDateTime &started,
@@ -286,68 +380,18 @@ void FolderImportWorkflow::importFolder(const QString &dir,
   }
   // D1b+T2+审计 02 M-8：任务池在场 → 整个文件夹导入（plan 扫描/哈希 +
   // LAS 解析/层位装箱/SEG-Y 索引）在 worker 上 produce 进 session 的
-  // staging 副本；finished（GUI）里 commitImport 一次事务入库，随后按原序
-  // 发 layerDeclared/imported/importFailed，再 importActiveChanged(false)
-  // ——抑制逐文件标签的标志在信号之后复位，不会漏开逐文件标签。进度口径：
-  // 扫描段 total==0（跑马灯 + 文件名 detail），执行段 total=行数。
+  // staging 副本；finished（GUI）里 commitImport 一次事务入库（脚手架
+  // 见 makeImportJob）。
   if (m_taskSvc)
   {
-    const QDateTime started = QDateTime::currentDateTime();
-    auto job = std::make_shared<ImportJob>();
-    job->title = tr("导入工区文件夹");
-    job->produce = [dir, overrides, forceImportPaths](ImportSession &s, PaleoTask *t) {
-          DataImportService::produceFolder(
-              s, dir, overrides, forceImportPaths,
-              [t](int d, int total, const QString &p) {
-                if (total > 0)
-                {
-                  t->reportBytes(d, total); // 执行段：行进度
-                  t->reportDetail(p);
-                }
-                else
-                {
-                  t->reportDetail(tr("扫描 %1").arg(QFileInfo(p).fileName()));
-                }
-                return !t->cancelRequested();
-              });
-        };
-    job->finish = [this, done, dir, started](ImportSession &s) {
-      emit importActiveChanged(false);
-      // 台账写进「当前打开」工程的 sidecar：produce 期间若已切换工程，当前
-      // catalog 是另一个工程的——把别处的、整批作废的导入记进它的审计台账
-      // 是串账（opt-01 P5）。此时只经回调如实报「工程已切换」，不入账。
-      // 同一工程的判定先比词法路径，再比规范路径（setProjectDir 可带预开
-      // catalog，其目录字符串形态未必与 session.projectDir 一致——不能因写法
-      // 不同把正常批次漏记）。
-      DataCatalog *cat = m_svc ? m_svc->catalog() : nullptr;
-      bool sameProject = false;
-      if (cat && !s.projectDir.isEmpty())
-      {
-        const QString catDir =
-            QDir::cleanPath(cat->catalogPath() + QStringLiteral("/../../.."));
-        const QString sessionDir = QDir::cleanPath(s.projectDir);
-        sameProject = catDir == sessionDir;
-        if (!sameProject)
-        {
-          const QString a = QFileInfo(catDir).canonicalFilePath();
-          sameProject = !a.isEmpty() && a == QFileInfo(sessionDir).canonicalFilePath();
-        }
-      }
-      if (sameProject)
-        recordLedger(dir, started, s.rows, s.error);
-      else
-        qInfo() << "FolderImportWorkflow: project changed during import, ledger not written for"
-                << dir;
-      if (done)
-        done(s.rows, s.error);
-    };
-    job->fail = [this, done] {
-      emit importActiveChanged(false);
-      if (done)
-        done({}, DataImportService::offThreadError());
-    };
-    emit importActiveChanged(true);
-    enqueueImport(job);
+    makeImportJob(
+        tr("导入工区文件夹"),
+        [dir, overrides, forceImportPaths](
+            ImportSession &s,
+            const std::function<bool(int, int, const QString &)> &progress) {
+          DataImportService::produceFolder(s, dir, overrides, forceImportPaths, progress);
+        },
+        dir, done);
     return;
   }
   const QDateTime started = QDateTime::currentDateTime();
@@ -365,48 +409,15 @@ void FolderImportWorkflow::previewFilesAsync(
     const std::function<void(const QVector<FolderPreviewRow> &,
                              const QString &)> &done)
 {
-  if (!m_svc)
-  {
-    if (done)
-      done({}, QStringLiteral("导入服务未就绪"));
-    return;
-  }
   // 与 previewFolderAsync 同一任务池/进度口径，只换数据源为文件清单。
-  if (m_taskSvc)
-  {
-    std::shared_ptr<ImportSession> session = m_svc->beginImport();
-    if (!session)
-    {
-      if (done)
-        done({}, DataImportService::offThreadError());
-      return;
-    }
-    emit previewActiveChanged(true);
-    auto outRows = std::make_shared<QVector<FolderPreviewRow>>();
-    auto outErr = std::make_shared<QString>();
-    PaleoTask *task = m_taskSvc->start(
-        tr("扫描所选文件"),
-        [session, paths, outRows, outErr](PaleoTask *t) -> QString {
-          *outRows = DataImportService::producePreviewForFiles(
-              *session, paths, outErr.get(),
-              [t](int seen, const QString &path) {
-                t->reportDetail(tr("扫描 %1").arg(QFileInfo(path).fileName()));
-                return !t->cancelRequested();
-              });
-          return outErr->isEmpty() ? QString() : *outErr;
-        });
-    connect(task, &PaleoTask::finished, this,
-            [this, done, outRows, outErr] {
-              emit previewActiveChanged(false);
-              if (done)
-                done(*outRows, *outErr);
-            });
-    return;
-  }
-  QString err;
-  const QVector<FolderPreviewRow> rows = m_svc->previewFiles(paths, &err);
-  if (done)
-    done(rows, err);
+  previewAsync(
+      tr("扫描所选文件"),
+      [paths](ImportSession &s, QString *err,
+              const std::function<bool(int, const QString &)> &scanProgress) {
+        return DataImportService::producePreviewForFiles(s, paths, err, scanProgress);
+      },
+      [this, paths](QString *err) { return m_svc->previewFiles(paths, err); },
+      done);
 }
 
 void FolderImportWorkflow::importFiles(const QStringList &paths,
@@ -423,58 +434,17 @@ void FolderImportWorkflow::importFiles(const QStringList &paths,
   // 台账/溯源目录：首个文件所在目录（清单可跨目录——目录只是台账展示位）。
   const QString ledgerDir =
       paths.isEmpty() ? QString() : QFileInfo(paths.first()).absolutePath();
+  // 任务池路径与 importFolder 同一脚手架（makeImportJob），只换数据源。
   if (m_taskSvc)
   {
-    const QDateTime started = QDateTime::currentDateTime();
-    auto job = std::make_shared<ImportJob>();
-    job->title = tr("导入所选文件");
-    job->produce = [paths, overrides, forceImportPaths](ImportSession &s, PaleoTask *t) {
-          DataImportService::produceFiles(
-              s, paths, overrides, forceImportPaths,
-              [t](int d, int total, const QString &p) {
-                if (total > 0)
-                {
-                  t->reportBytes(d, total);
-                  t->reportDetail(p);
-                }
-                else
-                {
-                  t->reportDetail(tr("扫描 %1").arg(QFileInfo(p).fileName()));
-                }
-                return !t->cancelRequested();
-              });
-        };
-    job->finish = [this, done, ledgerDir, started](ImportSession &s) {
-      emit importActiveChanged(false);
-      DataCatalog *cat = m_svc ? m_svc->catalog() : nullptr;
-      bool sameProject = false;
-      if (cat && !s.projectDir.isEmpty())
-      {
-        const QString catDir =
-            QDir::cleanPath(cat->catalogPath() + QStringLiteral("/../../.."));
-        const QString sessionDir = QDir::cleanPath(s.projectDir);
-        sameProject = catDir == sessionDir;
-        if (!sameProject)
-        {
-          const QString a = QFileInfo(catDir).canonicalFilePath();
-          sameProject = !a.isEmpty() && a == QFileInfo(sessionDir).canonicalFilePath();
-        }
-      }
-      if (sameProject)
-        recordLedger(ledgerDir, started, s.rows, s.error);
-      else
-        qInfo() << "FolderImportWorkflow: project changed during import, ledger not written for"
-                << ledgerDir;
-      if (done)
-        done(s.rows, s.error);
-    };
-    job->fail = [this, done] {
-      emit importActiveChanged(false);
-      if (done)
-        done({}, DataImportService::offThreadError());
-    };
-    emit importActiveChanged(true);
-    enqueueImport(job);
+    makeImportJob(
+        tr("导入所选文件"),
+        [paths, overrides, forceImportPaths](
+            ImportSession &s,
+            const std::function<bool(int, int, const QString &)> &progress) {
+          DataImportService::produceFiles(s, paths, overrides, forceImportPaths, progress);
+        },
+        ledgerDir, done);
     return;
   }
   const QDateTime started = QDateTime::currentDateTime();

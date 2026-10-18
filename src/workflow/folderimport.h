@@ -98,6 +98,31 @@ class FolderImportWorkflow : public QObject
 
   private:
     struct ImportJob;
+    // （#560）整批导入（importFolder/importFiles）的 produce 面：只写
+    // session；进度统一经任务页回调（扫描段 total==0 跑马灯 + 文件名
+    // detail，执行段 total=行数走 reportBytes + 路径 detail）。
+    using BatchProduce = std::function<
+        void(ImportSession &,
+             const std::function<bool(int done, int total, const QString &path)> &)>;
+    // （#560）importFolder/importFiles 的作业脚手架收口：统一 job 构造
+    // （produce/finish/fail）+ importActiveChanged 双发（入队前 true、
+    // finish/fail 收尾 false）+ enqueue。finish 先判「同一工程」
+    // （词法 → canonical 双段比较）再写台账（ledgerDir 只是台账展示位），
+    // 后回调 done。
+    void makeImportJob(const QString &title, const BatchProduce &produce,
+                       const QString &ledgerDir, const ImportDone &done);
+    // （#560）previewFolderAsync/previewFilesAsync 的骨架收口：任务池在场
+    // → 扫描/分类/哈希跑 worker（produce 只读 session 的 staging 副本，
+    // 进度回报任务页），无任务服务同步走 syncPreview；done 总在 GUI 线程
+    // 回调。
+    void previewAsync(
+        const QString &title,
+        const std::function<QVector<FolderPreviewRow>(
+            ImportSession &, QString *,
+            const std::function<bool(int filesSeen, const QString &path)> &)> &produce,
+        const std::function<QVector<FolderPreviewRow>(QString *)> &syncPreview,
+        const std::function<void(const QVector<FolderPreviewRow> &,
+                                 const QString &)> &done);
     void enqueueImport(const std::shared_ptr<ImportJob> &job);
     void pumpImports();
     void runImportJob(const std::shared_ptr<ImportJob> &job);

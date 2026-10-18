@@ -10,7 +10,7 @@ class QComboBox;
 class QLabel;
 class QPushButton;
 class QToolButton;
-class QGridLayout;
+class QHBoxLayout;
 class QScrollArea;
 class QgsMapCanvas;
 class QgsMapLayer;
@@ -85,7 +85,7 @@ private:
   QgsMapCanvas *m_mainCanvas; // 非拥有；宿主与现有参考画布共享生命周期。
   QgsProject *m_project;
   QScrollArea *m_scroll;
-  QGridLayout *m_grid;
+  QHBoxLayout *m_row;
   QLabel *m_count;
   QList<MappingReferencePanel *> m_views;
   QVariantList m_sources;

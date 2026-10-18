@@ -32,6 +32,7 @@
 #include "../src/services/faciesdisplaysettings.h"
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QPushButton>
 #include <QSettings>
@@ -2040,6 +2041,25 @@ private slots:
     QPointer<QgsMapLayer> secondLayer = second->canvas()->layers().first();
     panel.findChild<QPushButton *>("referenceAddView")->click();
     QCOMPARE(panel.views().size(), 3);
+    QCoreApplication::processEvents();
+    auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll");
+    QVERIFY(scroll);
+    QCOMPARE(scroll->horizontalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
+    const int cardWidth = panel.views().first()->width();
+    QVERIFY(cardWidth > 0 && cardWidth <= 420);
+    scroll->widget()->layout()->activate();
+    const int rowY = panel.views().first()->pos().y();
+    int previousX = -1;
+    QString placed;
+    for (auto *view : panel.views()) {
+      QCOMPARE(view->width(), cardWidth);
+      QCOMPARE(view->pos().y(), rowY);
+      const int x = view->pos().x();
+      placed += QString::number(x) + QLatin1Char(' ');
+      QVERIFY2(x > previousX, qPrintable(placed));
+      previousX = x;
+    }
+    QVERIFY(scroll->widget()->minimumWidth() > scroll->viewport()->width());
     QCOMPARE(first->sourceId(), QString("wells"));
     QCOMPARE(second->sourceId(), QString("seismic"));
     QCOMPARE(first->canvas()->layers().first(), firstLayer.data());

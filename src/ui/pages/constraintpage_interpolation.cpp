@@ -518,11 +518,11 @@ void ConstraintPage::updateEngineRows()
   }
   if ( structural && boundaryCombo )
   {
-    // 边界清单：boundary.* 声明前置，测区面 survey.area 次之，其后其它矢量
-    // 图层——任一已声明矢量层均可作边界，面几何由算法侧校验。默认值不得
-    // 盲选第 0 项：清单首位常是井点/属性表（点几何），算法深处才报「边界
-    // 图层中没有有效 polygon」且不点名图层——回填上次选择，否则依次落
-    // boundary.* / survey.area，都不在才留空，交给生成门控引导选择。
+    // 成图边界只要面：boundary.* 在前，测区面 survey.area 次之。约束线
+    // （constraints.<层位>）、等值线和井点不是面，不能出现在这个下拉里——
+    // 否则会显示成 constraints.C6，算到算法深处才报「没有有效 polygon」。
+    // 默认值不得盲选第 0 项：回填上次选择，否则依次落 boundary.* /
+    // survey.area，都不在才留空，交给生成门控引导选择。
     const QString keep = boundaryCombo->currentData().toString();
     boundaryCombo->blockSignals( true );
     boundaryCombo->clear();
@@ -533,27 +533,50 @@ void ConstraintPage::updateEngineRows()
       const auto isVector = []( const LayerDeclaration &d ) {
         return d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) == 0;
       };
+      const auto excluded = []( const LayerDeclaration &d ) {
+        const QString id = d.layerId;
+        return id.startsWith( QLatin1String( "constraints." ) ) ||
+               id.startsWith( QLatin1String( "contours." ) ) ||
+               id == QLatin1String( "wells" ) ||
+               id.startsWith( QLatin1String( "wells." ) ) ||
+               id.startsWith( QLatin1String( "welllog." ) );
+      };
       const auto dedicated = []( const LayerDeclaration &d ) {
-        return d.layerId.startsWith( QStringLiteral( "boundary." ) );
+        return d.layerId.startsWith( QLatin1String( "boundary." ) );
       };
       const auto survey = []( const LayerDeclaration &d ) {
         return d.layerId == QLatin1String( "survey.area" );
       };
+      const auto labelFor = []( const LayerDeclaration &d ) {
+        if ( !d.title.isEmpty() )
+          return d.title;
+        if ( d.layerId == QLatin1String( "survey.area" ) )
+          return QObject::tr( "测区范围" );
+        return d.layerId;
+      };
       for ( int pass = 0; pass < 3; ++pass )
         for ( const LayerDeclaration &d : declared )
         {
-          if ( !isVector( d ) )
+          if ( !isVector( d ) || excluded( d ) )
             continue;
           if ( ( pass == 0 && !dedicated( d ) ) || ( pass == 1 && !survey( d ) ) ||
                ( pass == 2 && ( dedicated( d ) || survey( d ) ) ) )
             continue;
-          boundaryCombo->addItem( d.title.isEmpty() ? d.layerId : d.title, d.layerId );
+          boundaryCombo->addItem( labelFor( d ), d.layerId );
         }
     }
     int idx = boundaryCombo->findData( keep );
-    if ( idx < 0 && boundaryCombo->count() > 0 &&
-         boundaryCombo->itemData( 0 ).toString().startsWith( QStringLiteral( "boundary." ) ) )
-      idx = 0;
+    if ( idx < 0 )
+    {
+      for ( int i = 0; i < boundaryCombo->count(); ++i )
+      {
+        if ( boundaryCombo->itemData( i ).toString().startsWith( QLatin1String( "boundary." ) ) )
+        {
+          idx = i;
+          break;
+        }
+      }
+    }
     if ( idx < 0 )
       idx = boundaryCombo->findData( QStringLiteral( "survey.area" ) );
     boundaryCombo->setCurrentIndex( idx );

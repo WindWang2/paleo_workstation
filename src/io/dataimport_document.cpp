@@ -34,7 +34,13 @@
 #include <QSettings>
 #include <QSysInfo>
 #include <QThread>
+#include <QTimer>
 #include <QUuid>
+
+#ifdef Q_OS_UNIX
+#include <csignal>
+#include <unistd.h>
+#endif
 
 #include <cpl_conv.h>
 #include <cpl_error.h>
@@ -50,6 +56,24 @@
 
 using paleo::dataimport_detail::setError;
 using paleo::dataimport_detail::readFileOrEmpty;
+
+namespace
+{
+// #555：超时后两段式终止的优雅退出窗口——SIGTERM 整组后给 LibreOffice
+// 存档/清档机会，仍未退出再整组 SIGKILL（与 services/scriptrunner.cpp 的
+// kKillGraceMs 同值同义）。
+constexpr int kConvKillGraceMs = 2000;
+// 缺省转换超时：LibreOffice 冷启动建 profile + 大文档换算留足余量；
+// 部署/测试用 PALEO_SOFFICE_TIMEOUT_MS（毫秒，>0 才生效）覆盖。
+constexpr int kConvDefaultTimeoutMs = 120000;
+
+int conversionTimeoutMs()
+{
+  bool ok = false;
+  const int v = qEnvironmentVariableIntValue("PALEO_SOFFICE_TIMEOUT_MS", &ok);
+  return ok && v > 0 ? v : kConvDefaultTimeoutMs;
+}
+} // namespace
 
 // ---------------------------------------------------------------------------
 // LibreOffice headless 转换管线（串行队列，双目标）：
@@ -311,14 +335,81 @@ void DataImportService::startNextConversion()
                           QUrl::fromLocalFile(m_convProfileDir->path()).toString();
 
   m_convProc = new QProcess(this);
+#ifdef Q_OS_UNIX
+  // 独立进程组（#555）：soffice 入口是壳脚本、真身 soffice.bin 是孙进程——
+  // 超时回收必须整组连坐，否则只杀壳会留下孤儿 soffice.bin 继续占
+  // UserInstallation profile 锁（scriptrunner/stratigraphicwebsession 先例）。
+  m_convProc->setChildProcessModifier([] { ::setsid(); });
+#endif
   connect(m_convProc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
           this, [this](int code, QProcess::ExitStatus status) {
             finishConversion(status == QProcess::NormalExit ? code : -1);
           });
+  // 挂死看门狗（#555）：start() 之前武装——Windows 的 FailedToStart 在
+  // start() 内同步派发 finished，收尾链可能已把 m_convProc 换成下一单，
+  // 尾部再武装会挂错单（scriptrunner 同序防御）。
+  m_convTimedOut = false;
+  m_convTimeoutTimer = new QTimer(this);
+  m_convTimeoutTimer->setSingleShot(true);
+  connect(m_convTimeoutTimer, &QTimer::timeout, this, [this] {
+    if (!m_convProc)
+      return;
+    m_convTimedOut = true;
+    terminateConversionGracefully();
+  });
+  m_convTimeoutTimer->start(conversionTimeoutMs());
   m_convProc->start(m_converter,
                     {QStringLiteral("--headless"), QStringLiteral("--norestore"),
                      profile, QStringLiteral("--convert-to"), m_convCurrentExt,
                      QStringLiteral("--outdir"), outDir, rawAbs});
+}
+
+// #555：两段式终止第一段——SIGTERM 整组（Unix：setsid 进程组 = 壳脚本
+// 直接子 + soffice.bin 等孙进程一并收到），kConvKillGraceMs 优雅窗口后
+// SIGKILL 整组。进程退出走正常 finished → finishConversion 链（超时文案
+// 区分 + 队列继续），不另设旁路。
+void DataImportService::terminateConversionGracefully()
+{
+  if (!m_convProc || m_convKillTimer)
+    return;
+#ifdef Q_OS_UNIX
+  const qint64 pid = m_convProc->processId();
+  if (pid > 0)
+    ::kill(-pid, SIGTERM); // 整组：壳脚本与 soffice.bin 一并收到
+  else
+    m_convProc->terminate();
+#else
+  m_convProc->terminate();
+#endif
+  m_convKillTimer = new QTimer(this);
+  m_convKillTimer->setSingleShot(true);
+  connect(m_convKillTimer, &QTimer::timeout, this, [this] {
+    if (!m_convProc)
+      return;
+#ifdef Q_OS_UNIX
+    const qint64 pid = m_convProc->processId();
+    if (pid > 0)
+      ::kill(-pid, SIGKILL);
+#endif
+    m_convProc->kill();
+  });
+  m_convKillTimer->start(kConvKillGraceMs);
+}
+
+void DataImportService::stopConversionTimers()
+{
+  if (m_convTimeoutTimer)
+  {
+    m_convTimeoutTimer->stop();
+    m_convTimeoutTimer->deleteLater();
+    m_convTimeoutTimer = nullptr;
+  }
+  if (m_convKillTimer)
+  {
+    m_convKillTimer->stop();
+    m_convKillTimer->deleteLater();
+    m_convKillTimer = nullptr;
+  }
 }
 
 void DataImportService::finishConversion(int exitCode)
@@ -365,6 +456,12 @@ void DataImportService::finishConversion(int exitCode)
     else
       err = f.errorString();
   }
+  else if (m_convTimedOut)
+    // #555：超时用户可见文案优先于（多半为空的）stderr——「永占无错」是
+    // 本 issue 的另一半病灶。
+    err = tr("LibreOffice 转换超时（上限 %1 秒），已强制结束——请检查文档是否"
+             "损坏或过大后重试")
+              .arg((conversionTimeoutMs() + 999) / 1000);
   else
     err = m_convProc ? QString::fromLocal8Bit(m_convProc->readAllStandardError()).trimmed()
                      : tr("无法创建输出目录");
@@ -376,6 +473,7 @@ void DataImportService::finishConversion(int exitCode)
 
   if (m_convProc)
   {
+    stopConversionTimers(); // #555：看门狗随单了结（迟到触发只会读到空槽位）
     m_convProc->deleteLater();
     m_convProc = nullptr;
   }

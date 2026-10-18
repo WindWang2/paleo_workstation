@@ -13,6 +13,9 @@
 #include <thread>
 #if defined(Q_OS_UNIX)
 #include <sys/stat.h> // mkfifo（文件夹导入的「非普通文件」行）
+#include <sys/wait.h>
+#include <csignal>
+#include <cerrno>
 #endif
 
 #include "../src/catalog/datacatalog.h"
@@ -455,6 +458,106 @@ private slots:
     // catalog 侧不留半成品 DERIVED。
     for (const CatalogVersion &v : svc.catalog()->versionsForAsset(assetId))
       QVERIFY(v.stage != QLatin1String("DERIVED"));
+  }
+
+  // #555 回归：soffice 挂死不得永久堵死转换队列。假 soffice（PALEO_SOFFICE
+  // 指向挂死脚本）+ 短超时（PALEO_SOFFICE_TIMEOUT_MS）——超时必须两段式
+  // 整组回收（Unix：孙进程 sleep 60 不留孤儿——只杀直接子会让它活满 60s）、
+  // 失败走 documentPdfFailed 带超时文案、队列继续消化后续单（第二单也在
+  // 短窗内以同样口径失败，而不是永 Pending）。
+  void documentConversionTimeoutRecoversQueue()
+  {
+    // QVERIFY 失败即返回函数体——RAII 兜底恢复两个环境变量，不渗漏进同
+    // 二进制里的后续测试（超时值在每单武装时读取，须全程在场）。
+    struct EnvGuard
+    {
+      ~EnvGuard()
+      {
+        qunsetenv("PALEO_SOFFICE");
+        qunsetenv("PALEO_SOFFICE_TIMEOUT_MS");
+      }
+    } envGuard;
+
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    // 挂死 soffice 假体：孙进程 sleep 60（组覆盖断言用）+ 自身 sleep 30。
+    // Windows 用 .cmd（无 pid 断言——进程组语义是 Unix 面板）。
+    const QString stub = tmp.filePath(QStringLiteral("hang_soffice") +
+#ifdef Q_OS_WIN
+                                          QStringLiteral(".cmd"));
+    {
+      QFile f(stub);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+      f.write("@ping -n 30 127.0.0.1 > nul\r\n");
+      f.close();
+    }
+#else
+                                          QStringLiteral(".sh"));
+    {
+      QFile f(stub);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+      f.write("#!/bin/sh\n"
+              "sleep 60 &\n"
+              "echo $! > \"$(dirname \"$0\")/hang_child.pid\"\n"
+              "echo $$ > \"$(dirname \"$0\")/hang_parent.pid\"\n"
+              "exec sleep 30\n");
+      f.close();
+      QFile::setPermissions(stub, QFileDevice::ExeOwner | QFileDevice::ReadOwner |
+                                     QFileDevice::WriteOwner);
+    }
+#endif
+    qputenv("PALEO_SOFFICE", QFile::encodeName(stub).constData());
+    qputenv("PALEO_SOFFICE_TIMEOUT_MS", "1500");
+
+    // 两份内容不同的 .doc（dedup 按 SHA-256——同字节会并成同一资产）。
+    QString err;
+    QStringList docIds;
+    for (int i = 0; i < 2; ++i)
+    {
+      const QString src = tmp.filePath(QStringLiteral("hang_%1.doc").arg(i));
+      QFile df(src);
+      QVERIFY(df.open(QIODevice::WriteOnly));
+      df.write(QStringLiteral("not a real doc %1").arg(i).toUtf8());
+      df.close();
+      const QString id = svc.importProjectFile(src, &err);
+      QVERIFY2(!id.isEmpty(), qPrintable(err));
+      docIds.append(id);
+    }
+
+    QSignalSpy failed(&svc, &DataImportService::documentPdfFailed);
+    svc.ensureDocumentPdf(docIds[0]); // 第一单：在途（挂死）
+    QCOMPARE(svc.documentPdfState(docIds[0]), DataImportService::DocPdfState::Pending);
+    svc.ensureDocumentPdf(docIds[1]); // 第二单：排队——超时后必须被消化
+    // 两单都收口：1.5s 超时 ×2 + 优雅窗口余量，20s 上限远宽于正常路径。
+    QVERIFY2(failed.wait(20000), "first conversion did not fail in time");
+    QVERIFY2(failed.wait(20000), "queued conversion never drained (queue stuck)");
+    QCOMPARE(failed.count(), 2);
+    for (const QString &id : std::as_const(docIds))
+    {
+      QCOMPARE(svc.documentPdfState(id), DataImportService::DocPdfState::Failed);
+      QVERIFY2(svc.documentPdfError(id).contains(QStringLiteral("超时")),
+               qPrintable(svc.documentPdfError(id)));
+    }
+
+#ifndef Q_OS_WIN
+    // 整组回收断言：直接子（壳/sleep 30）与孙进程（sleep 60）都必须死。
+    // 退出后短暂僵尸态由 QTRY 轮询吸收（init/systemd 收养收割）。
+    const auto readPid = [&tmp](const char *name) -> qint64 {
+      QFile f(tmp.filePath(QString::fromLatin1(name)));
+      return f.open(QIODevice::ReadOnly) ? f.readAll().trimmed().toLongLong() : 0;
+    };
+    const qint64 parentPid = readPid("hang_parent.pid");
+    const qint64 childPid = readPid("hang_child.pid");
+    QVERIFY2(parentPid > 0, "stub parent pid recorded");
+    QVERIFY2(childPid > 0, "stub grandchild pid recorded");
+    QTRY_VERIFY_WITH_TIMEOUT(::kill(parentPid, 0) == -1 && errno == ESRCH, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(::kill(childPid, 0) == -1 && errno == ESRCH, 5000);
+#endif
   }
 
   void lockedReadOnlyImportRefusedEarly()

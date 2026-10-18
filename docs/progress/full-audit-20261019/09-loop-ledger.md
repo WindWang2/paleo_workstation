@@ -27,3 +27,13 @@
 - faultsurface.cpp 结构级审查（函数清单+buildFaultSurface 逐段）：走向排序/转角
   限制/分叉拒绝/域混用拒绝等防御完备，未见缺陷；深网格段未逐行（诚实标注）。
 - B-01/C-01/D-01/C-03/C-06/A-01/C-02/B-06 修复点预研完成（root fix 方案定型）。
+
+## R3 — Fix 1 落地（2026-10-19）
+
+- **Round Findings**: G1-01..08 + A-01/02/03 + B-01/02/06/08 + C-01/02/03/06 + D-01/03/04 + MA-F01 + E-04
+- **Changed**: 6 commit（6a942d4f / b1076a62 / eea57e46 / 051ed34d / 0dc5a1a4 / docs）
+- **Verify**: 门禁 17/17 绿（原 10 红）；定向套件全绿；tst_ingestplan 基线红→绿；
+  tst_ui 仅剩基线既有 legendTitle 红（stash 法证实非本轮引入）；tst_mappingworkbench
+  采样点随 B-01 配准校正后全绿
+- **Review**: 待 Review 2
+- **Remaining**: E-02/B-03/B-04/D-02/A-04/E-05/B-05 未修（P3 低/中，视 R2 意见入 Fix 2 或记录）

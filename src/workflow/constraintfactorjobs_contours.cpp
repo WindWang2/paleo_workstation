@@ -204,18 +204,10 @@ bool ConstraintWorkflow::prepareAnalysisContourJob( const QString &horizon, cons
     return false;
   }
   job->contourMethod = contourMethod;
-  if ( const paleo::singlefactor::ContourExtractPack *pack =
-           paleo::singlefactor::contourExtractPack( contourMethod ) )
-  {
-    if ( pack->supportsBarrierStop && !job->structural )
-    {
-      paleo::workflow_detail::setError(
-          error, tr( "「%1」需要带打断线分区的结构面。请先用「IDW 方向线与打断约束」计算等值面。" )
-                     .arg( pack->label ) );
-      return false;
-    }
-  }
-  else if ( !contourMethod.isEmpty() )
+  // supportsBarrierStop 表示算法能在有打断线时停住，不是「必须先有结构面」。
+  // 普通等值面没有侧卡，仍按所选提线包在分析栅格上提取。
+  if ( !contourMethod.isEmpty() &&
+       !paleo::singlefactor::contourExtractPack( contourMethod ) )
   {
     paleo::workflow_detail::setError( error, tr( "未知等值线算法：%1" ).arg( contourMethod ) );
     return false;
@@ -289,22 +281,27 @@ bool ConstraintWorkflow::computeAnalysisContourJob( AnalysisContourJob *job, con
   QString contourErr;
   // structural 因素必须走上游 field_contours 提取；绝不静默降级 GDAL。
   // D8：三路都接取消——fixed 走 GDAL 回调真实中止，structural 在阶段边界轮询。
+  const paleo::singlefactor::ContourExtractPack *pack =
+      paleo::singlefactor::contourExtractPack( job->contourMethod );
+  const bool smooth = !pack || pack->smoothingIterations > 0;
   const bool wrote =
       job->structural
           ? FactorContourService::generateStructuralContours(
                 job->rasterPath, job->structuralPath, job->outputPath,
                 job->fixedLevels ? job->levels : QVector<double>(),
-                job->interval, &job->resolvedLevels, &contourErr, cancelled,
-                !paleo::singlefactor::contourExtractPack( job->contourMethod ) ||
-                    paleo::singlefactor::contourExtractPack( job->contourMethod )
-                            ->smoothingIterations > 0 )
-          : job->fixedLevels
-              ? FactorContourService::generateFixedContours(
-                    job->rasterPath, job->outputPath, job->levels, &contourErr,
-                    cancelled)
-              : FactorContourService::generateContours(
-                    job->rasterPath, job->outputPath, job->interval, &contourErr,
-                    cancelled);
+                job->interval, &job->resolvedLevels, &contourErr, cancelled, smooth )
+          : pack
+              ? FactorContourService::generateAnalysisFieldContours(
+                    job->rasterPath, job->outputPath,
+                    job->fixedLevels ? job->levels : QVector<double>(),
+                    job->interval, &job->resolvedLevels, &contourErr, cancelled, smooth )
+              : job->fixedLevels
+                  ? FactorContourService::generateFixedContours(
+                        job->rasterPath, job->outputPath, job->levels, &contourErr,
+                        cancelled)
+                  : FactorContourService::generateContours(
+                        job->rasterPath, job->outputPath, job->interval, &contourErr,
+                        cancelled);
   if ( cancelled && cancelled() )
   {
     discard();
@@ -447,9 +444,10 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
     inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parents, extra );
 
   QString commitErr;
+  const bool fieldContours = job.structural || !job.contourMethod.isEmpty();
   if ( !registrar.commitExternal( st, job.outputPath, parents,
-                                  job.structural ? QStringLiteral( "paleo_field_contours" )
-                                                 : QStringLiteral( "gdal_contour_c_api" ),
+                                  fieldContours ? QStringLiteral( "paleo_field_contours" )
+                                                : QStringLiteral( "gdal_contour_c_api" ),
                                   extra, &commitErr ) )
   {
     if ( !sameFile( st.absolutePath, job.rasterPath ) )

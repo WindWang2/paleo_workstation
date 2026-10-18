@@ -276,6 +276,194 @@ void createFieldDef( OGRLayerH layer, const char *name, OGRFieldType type )
   OGR_L_CreateField( layer, field, true );
   OGR_Fld_Destroy( field );
 }
+
+// 北向上、无旋转的分析栅格 → 像元中心轴。grid 行序已翻成 y 升序。
+bool readAnalysisField( const QString &rasterPath, std::vector<double> *grid,
+                        std::vector<double> *xs, std::vector<double> *ys,
+                        std::vector<std::uint8_t> *validMask, int *nxOut, int *nyOut,
+                        OGRSpatialReferenceH *srsOut, QString *error )
+{
+  GDALDatasetH src = GDALOpen( rasterPath.toUtf8().constData(), GA_ReadOnly );
+  if ( !src )
+  {
+    setError( error, QStringLiteral( "cannot open raster '%1' for contouring" ).arg( rasterPath ) );
+    return false;
+  }
+  double gt[6] = {};
+  if ( GDALGetGeoTransform( src, gt ) != CE_None || std::abs( gt[2] ) > 1e-9 ||
+       std::abs( gt[4] ) > 1e-9 || !( gt[1] > 0.0 ) || !( gt[5] < 0.0 ) )
+  {
+    setError( error, QStringLiteral( "分析场不是北向上的规则网格，不能按制图规范提线：%1" ).arg( rasterPath ) );
+    GDALClose( src );
+    return false;
+  }
+  GDALClose( src );
+  if ( !readStructuralRaster( rasterPath, grid, nxOut, nyOut, srsOut, error ) )
+    return false;
+  const int nx = *nxOut;
+  const int ny = *nyOut;
+  xs->resize( static_cast<std::size_t>( nx ) );
+  ys->resize( static_cast<std::size_t>( ny ) );
+  for ( int c = 0; c < nx; ++c )
+    ( *xs )[static_cast<std::size_t>( c )] = gt[0] + ( c + 0.5 ) * gt[1];
+  for ( int k = 0; k < ny; ++k )
+  {
+    const int rasterRow = ny - 1 - k;
+    ( *ys )[static_cast<std::size_t>( k )] = gt[3] + ( rasterRow + 0.5 ) * gt[5];
+  }
+  validMask->assign( grid->size(), 0 );
+  for ( std::size_t i = 0; i < grid->size(); ++i )
+    ( *validMask )[i] = std::isfinite( ( *grid )[i] ) ? 1 : 0;
+  return true;
+}
+
+bool planContourLevels( const paleo::singlefactor::FieldContourSurface &surface,
+                        const QVector<double> &levels, double interval,
+                        std::vector<double> *useLevels, QString *error )
+{
+  if ( !levels.isEmpty() )
+  {
+    for ( const double level : levels )
+    {
+      if ( !std::isfinite( level ) )
+      {
+        setError( error, QStringLiteral( "等值级别必须为有限数值" ) );
+        return false;
+      }
+      useLevels->push_back( level );
+    }
+    return true;
+  }
+  paleo::singlefactor::ContourLevelPlan plan;
+  const bool ok = interval > 0.0
+                      ? paleo::singlefactor::intervalContourLevels(
+                            surface.grid, surface.validMask, interval, &plan )
+                      : paleo::singlefactor::autoContourLevels(
+                            surface.grid, surface.validMask, &plan );
+  if ( !ok && plan.tooManyLevels )
+  {
+    setError( error, QStringLiteral( "等值线间距过小：间距 %1 在值域 %2~%3 上将生成约 %4 条级别，"
+                                     "超过上限 %5 条；请增大间距" )
+                         .arg( interval, 0, 'g', 6 )
+                         .arg( plan.valueMin, 0, 'g', 8 )
+                         .arg( plan.valueMax, 0, 'g', 8 )
+                         .arg( plan.estimatedLevels, 0, 'g', 6 )
+                         .arg( static_cast<qulonglong>( paleo::singlefactor::kMaxContourLevels ) ) );
+    return false;
+  }
+  if ( !ok )
+  {
+    setError( error, QStringLiteral( "趋势面没有可提线的有效像元" ) );
+    return false;
+  }
+  *useLevels = plan.levels;
+  if ( useLevels->empty() )
+  {
+    setError( error, QStringLiteral( "等值级别为空" ) );
+    return false;
+  }
+  return true;
+}
+
+bool writeFieldContourGpkg( const QString &outputGpkg, OGRSpatialReferenceH srs,
+                            const paleo::singlefactor::FieldContourSurface &surface,
+                            const paleo::singlefactor::FieldContourResult &result,
+                            QString *error )
+{
+  QFile::remove( outputGpkg );
+  GDALDriverH drv = GDALGetDriverByName( "GPKG" );
+  if ( !drv )
+  {
+    setError( error, QStringLiteral( "GDAL GPKG driver unavailable" ) );
+    OSRDestroySpatialReference( srs );
+    return false;
+  }
+  GDALDatasetH ds = GDALCreate( drv, outputGpkg.toUtf8().constData(), 0, 0, 0,
+                                GDT_Unknown, nullptr );
+  if ( !ds )
+  {
+    setError( error, QStringLiteral( "cannot create contour output '%1'" ).arg( outputGpkg ) );
+    OSRDestroySpatialReference( srs );
+    return false;
+  }
+  OGRLayerH layer = GDALDatasetCreateLayer( ds, "contours", srs, wkbLineString, nullptr );
+  if ( srs )
+    OSRDestroySpatialReference( srs );
+  if ( !layer )
+  {
+    setError( error, QStringLiteral( "cannot create layer 'contours' in '%1'" ).arg( outputGpkg ) );
+    GDALClose( ds );
+    return false;
+  }
+  createFieldDef( layer, "level", OFTReal );
+  createFieldDef( layer, "closed", OFTInteger );
+  createFieldDef( layer, "closure_type", OFTString );
+  createFieldDef( layer, "value_source", OFTString );
+  createFieldDef( layer, "geometry_policy", OFTString );
+  createFieldDef( layer, "buffer_policy", OFTString );
+  createFieldDef( layer, "buffer_half_width", OFTReal );
+  createFieldDef( layer, "detour_applied", OFTInteger );
+
+  const QByteArray valueSource = QString::fromStdString( surface.partition.geometryPolicy ).toUtf8();
+  const QByteArray bufferPolicy = QString::fromStdString( surface.partition.bufferPolicy ).toUtf8();
+  const double bufferHalfWidth = std::max( surface.barrierBufferDistance,
+                                           surface.contourStopBufferDistance );
+
+  bool wrote = true;
+  QString writeErr;
+  for ( const paleo::singlefactor::ContourLevelLines &entry : result.contours )
+  {
+    for ( const auto &line : entry.lines )
+    {
+      if ( line.size() < 2 )
+        continue;
+      OGRGeometryH geometry = OGR_G_CreateGeometry( wkbLineString );
+      for ( const auto &pt : line )
+        OGR_G_SetPoint_2D( geometry, OGR_G_GetPointCount( geometry ), pt.x, pt.y );
+      const bool closed = line.size() > 2 && line.front().x == line.back().x &&
+                          line.front().y == line.back().y;
+      OGRFeatureH feature = OGR_F_Create( OGR_L_GetLayerDefn( layer ) );
+      OGR_F_SetGeometryDirectly( feature, geometry );
+      OGR_F_SetFieldDouble( feature, OGR_F_GetFieldIndex( feature, "level" ), entry.level );
+      OGR_F_SetFieldInteger( feature, OGR_F_GetFieldIndex( feature, "closed" ),
+                             closed ? 1 : 0 );
+      OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "closure_type" ),
+                            closed ? "interior" : "open" );
+      OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "value_source" ),
+                            valueSource.constData() );
+      OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "geometry_policy" ),
+                            valueSource.constData() );
+      OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "buffer_policy" ),
+                            bufferPolicy.constData() );
+      OGR_F_SetFieldDouble( feature, OGR_F_GetFieldIndex( feature, "buffer_half_width" ),
+                            bufferHalfWidth );
+      OGR_F_SetFieldInteger( feature, OGR_F_GetFieldIndex( feature, "detour_applied" ),
+                             result.detourApplied ? 1 : 0 );
+      if ( OGR_L_CreateFeature( layer, feature ) != OGRERR_NONE )
+      {
+        wrote = false;
+        writeErr = QStringLiteral( "等值线要素写入失败" );
+      }
+      OGR_F_Destroy( feature );
+      if ( !wrote )
+        break;
+    }
+    if ( !wrote )
+      break;
+  }
+  GDALClose( ds );
+  if ( !wrote )
+  {
+    setError( error, writeErr );
+    return false;
+  }
+  if ( !QFile::exists( outputGpkg ) )
+  {
+    setError( error, QStringLiteral( "contour run reported success but '%1' is missing" ).arg( outputGpkg ) );
+    return false;
+  }
+  return true;
+}
 } // namespace
 
 bool generateStructuralContours( const QString &rasterPath,
@@ -434,101 +622,83 @@ bool generateStructuralContours( const QString &rasterPath,
     OSRDestroySpatialReference( srs );
     return false;
   }
+  return writeFieldContourGpkg( outputGpkg, srs, surface, result, error );
+}
 
-  // ---- GPKG contours 图层 ----
-  QFile::remove( outputGpkg );
-  GDALDriverH drv = GDALGetDriverByName( "GPKG" );
-  if ( !drv )
+bool generateAnalysisFieldContours( const QString &rasterPath, const QString &outputGpkg,
+                                    const QVector<double> &levels, double interval,
+                                    QVector<double> *levelsUsed, QString *error,
+                                    const std::function<bool()> &cancelled, bool smooth )
+{
+  if ( rasterPath.isEmpty() || !QFile::exists( rasterPath ) )
   {
-    setError( error, QStringLiteral( "GDAL GPKG driver unavailable" ) );
-    OSRDestroySpatialReference( srs );
+    setError( error, QStringLiteral( "contour input raster not found: %1" ).arg( rasterPath ) );
     return false;
   }
-  GDALDatasetH ds = GDALCreate( drv, outputGpkg.toUtf8().constData(), 0, 0, 0,
-                                GDT_Unknown, nullptr );
-  if ( !ds )
+  if ( outputGpkg.isEmpty() )
   {
-    setError( error, QStringLiteral( "cannot create contour output '%1'" ).arg( outputGpkg ) );
-    OSRDestroySpatialReference( srs );
+    setError( error, QStringLiteral( "contour output path is empty" ) );
     return false;
   }
-  OGRLayerH layer = GDALDatasetCreateLayer( ds, "contours", srs, wkbLineString, nullptr );
-  if ( srs )
-    OSRDestroySpatialReference( srs );
-  if ( !layer )
+  if ( cancelled && cancelled() )
   {
-    setError( error, QStringLiteral( "cannot create layer 'contours' in '%1'" ).arg( outputGpkg ) );
-    GDALClose( ds );
+    setError( error, QStringLiteral( "已取消" ) );
     return false;
   }
-  createFieldDef( layer, "level", OFTReal );
-  createFieldDef( layer, "closed", OFTInteger );
-  createFieldDef( layer, "closure_type", OFTString );
-  createFieldDef( layer, "value_source", OFTString );
-  createFieldDef( layer, "geometry_policy", OFTString );
-  createFieldDef( layer, "buffer_policy", OFTString );
-  createFieldDef( layer, "buffer_half_width", OFTReal );
-  createFieldDef( layer, "detour_applied", OFTInteger );
 
-  const QByteArray valueSource = QString::fromStdString( surface.partition.geometryPolicy ).toUtf8();
-  const QByteArray bufferPolicy = QString::fromStdString( surface.partition.bufferPolicy ).toUtf8();
-  const double bufferHalfWidth = std::max( surface.barrierBufferDistance,
-                                           surface.contourStopBufferDistance );
+  std::vector<double> grid, xs, ys;
+  std::vector<std::uint8_t> validMask;
+  int nx = 0, ny = 0;
+  OGRSpatialReferenceH srs = nullptr;
+  if ( !readAnalysisField( rasterPath, &grid, &xs, &ys, &validMask, &nx, &ny, &srs, error ) )
+    return false;
+  if ( cancelled && cancelled() )
+  {
+    setError( error, QStringLiteral( "已取消" ) );
+    if ( srs )
+      OSRDestroySpatialReference( srs );
+    return false;
+  }
 
-  bool wrote = true;
-  QString writeErr;
-  for ( const paleo::singlefactor::ContourLevelLines &entry : result.contours )
+  paleo::singlefactor::FieldContourSurface surface;
+  surface.xs = std::move( xs );
+  surface.ys = std::move( ys );
+  surface.grid = std::move( grid );
+  surface.validMask = std::move( validMask );
+  surface.partition.geometryPolicy = "field_only";
+
+  std::vector<double> useLevels;
+  QString levelErr;
+  if ( !planContourLevels( surface, levels, interval, &useLevels, &levelErr ) )
   {
-    for ( const auto &line : entry.lines )
-    {
-      if ( line.size() < 2 )
-        continue;
-      OGRGeometryH geometry = OGR_G_CreateGeometry( wkbLineString );
-      for ( const auto &pt : line )
-        OGR_G_SetPoint_2D( geometry, OGR_G_GetPointCount( geometry ), pt.x, pt.y );
-      const bool closed = line.size() > 2 && line.front().x == line.back().x &&
-                          line.front().y == line.back().y;
-      OGRFeatureH feature = OGR_F_Create( OGR_L_GetLayerDefn( layer ) );
-      OGR_F_SetGeometryDirectly( feature, geometry );
-      OGR_F_SetFieldDouble( feature, OGR_F_GetFieldIndex( feature, "level" ), entry.level );
-      OGR_F_SetFieldInteger( feature, OGR_F_GetFieldIndex( feature, "closed" ),
-                             closed ? 1 : 0 );
-      OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "closure_type" ),
-                            closed ? "interior" : "open" );
-      OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "value_source" ),
-                            valueSource.constData() );
-      OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "geometry_policy" ),
-                            valueSource.constData() );
-      OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "buffer_policy" ),
-                            bufferPolicy.constData() );
-      OGR_F_SetFieldDouble( feature, OGR_F_GetFieldIndex( feature, "buffer_half_width" ),
-                            bufferHalfWidth );
-      OGR_F_SetFieldInteger( feature, OGR_F_GetFieldIndex( feature, "detour_applied" ),
-                             result.detourApplied ? 1 : 0 );
-      if ( OGR_L_CreateFeature( layer, feature ) != OGRERR_NONE )
-      {
-        wrote = false;
-        writeErr = QStringLiteral( "等值线要素写入失败" );
-      }
-      OGR_F_Destroy( feature );
-      if ( !wrote )
-        break;
-    }
-    if ( !wrote )
-      break;
-  }
-  GDALClose( ds );
-  if ( !wrote )
-  {
-    setError( error, writeErr );
+    setError( error, levelErr );
+    if ( srs )
+      OSRDestroySpatialReference( srs );
     return false;
   }
-  if ( !QFile::exists( outputGpkg ) )
+  if ( cancelled && cancelled() )
   {
-    setError( error, QStringLiteral( "contour run reported success but '%1' is missing" ).arg( outputGpkg ) );
+    setError( error, QStringLiteral( "已取消" ) );
+    if ( srs )
+      OSRDestroySpatialReference( srs );
     return false;
   }
-  return true;
+  if ( levelsUsed )
+  {
+    levelsUsed->clear();
+    for ( const double level : useLevels )
+      levelsUsed->push_back( level );
+  }
+  const paleo::singlefactor::FieldContourResult result =
+      paleo::singlefactor::extractFieldContours( surface, useLevels, smooth );
+  if ( result.status != paleo::singlefactor::Status::Ok )
+  {
+    setError( error, QString::fromStdString( result.message ) );
+    if ( srs )
+      OSRDestroySpatialReference( srs );
+    return false;
+  }
+  return writeFieldContourGpkg( outputGpkg, srs, surface, result, error );
 }
 
 void requestContours(const QString &rasterPath, const QString &outputGpkg,

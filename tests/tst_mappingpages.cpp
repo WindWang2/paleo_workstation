@@ -517,6 +517,7 @@ class FactorPageTests : public QObject
     void contourIntervalResetsAcrossFactorTypes(); // 方向04 D9：等值距自动态不跨因素类型残留
     void parseLevelsDroppedTokensAreRefused();     // 方向04 D10：脏级别 token 不静默吞
     void staleSuffixSurvivesLayerRedeclare();      // 方向04 D11：「（旧输入）」标记不被重声明抹掉
+    void structuralBoundaryComboPrefersPolygonDefaults(); // 结构 IDW 边界默认值不盲选第 0 个矢量层
     void factorResultsTableShowsLineageColumn();   // P4：成果表第 4 列「来源与质控」+ 明细 tooltip
     void interpretiveResultsShowInFactorResultsTable(); // U7：制图工作场进成果表 + 解释性等值线回执即时刷新
     void wellFactorFieldFetchesAreCached();        // U10：字段清单按（层位,数据世代）缓存，勾选不重取
@@ -1399,6 +1400,59 @@ void FactorPageTests::staleSuffixSurvivesLayerRedeclare()
   page.noteFactorLayer( QStringLiteral( "poro" ), QStringLiteral( "factor.T1.poro" ) );
   QVERIFY2( !factors->item( 3, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
             qPrintable( factors->item( 3, 3 )->text() ) );
+}
+
+// 回归（真实工程 D61）：结构 IDW 成图边界下拉曾盲选第 0 个已声明矢量层——
+// 那是井点属性表（点几何），计算到算法深处才报匿名的「边界图层中没有
+// 有效 polygon」。默认值必须依次落 boundary.* → survey.area，都没有才留空
+// 交给生成门控引导；清单里 survey.area 紧随专有边界，点图层不再占首项。
+void FactorPageTests::structuralBoundaryComboPrefersPolygonDefaults()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  LayerManifest manifest( dir.filePath( QStringLiteral( "boundary.sqlite" ) ) );
+  QVERIFY( manifest.open() );
+  QgisLayerService layers( nullptr, &manifest );
+  QString err;
+  const auto declareVector = [&layers, &err]( const QString &id, const QString &title ) {
+    LayerDeclaration d;
+    d.layerId = id;
+    d.type = QStringLiteral( "vector" );
+    d.source = QStringLiteral( "/tmp/%1.geojson" ).arg( id );
+    d.title = title;
+    return layers.declare( d, &err );
+  };
+  // 声明顺序：点几何属性表在前——旧实现的默认值就是它。
+  QVERIFY( declareVector( QStringLiteral( "welllog.attributes" ), QStringLiteral( "测井岩性与相属性" ) ) );
+  QVERIFY( declareVector( QStringLiteral( "survey.area" ), QStringLiteral( "测区范围" ) ) );
+
+  ConstraintPage page( nullptr );
+  page.bindLayerService( &layers );
+  auto *h = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  h->addItem( QStringLiteral( "D61" ) );
+  h->setCurrentIndex( 0 );
+  page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) )
+      ->item( 1, 0 )
+      ->setCheckState( Qt::Checked ); // 砂地比（插值引擎）
+  auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
+  auto *boundary = page.findChild<QComboBox *>( QStringLiteral( "factorBoundaryCombo" ) );
+  method->setCurrentIndex( method->findData( QStringLiteral( "structural_idw" ) ) );
+  QCOMPARE( boundary->currentData().toString(), QStringLiteral( "survey.area" ) );
+
+  // 专有边界后补声明：清单一目之首是 boundary.*；用户之前的 survey.area 选择回填保留。
+  QVERIFY( declareVector( QStringLiteral( "boundary.imported" ), QStringLiteral( "导入边界" ) ) );
+  method->setCurrentIndex( method->findData( QStringLiteral( "kriging" ) ) );
+  method->setCurrentIndex( method->findData( QStringLiteral( "structural_idw" ) ) );
+  QCOMPARE( boundary->currentData().toString(), QStringLiteral( "survey.area" ) );
+  QCOMPARE( boundary->itemData( 0 ).toString(), QStringLiteral( "boundary.imported" ) );
+  boundary->setCurrentIndex( boundary->findData( QStringLiteral( "boundary.imported" ) ) );
+
+  // 专有边界与测区面都不在时：留空（占位提示），不再盲选任意矢量层。
+  QVERIFY( layers.removeDeclaration( QStringLiteral( "boundary.imported" ), &err ) );
+  QVERIFY( layers.removeDeclaration( QStringLiteral( "survey.area" ), &err ) );
+  method->setCurrentIndex( method->findData( QStringLiteral( "kriging" ) ) );
+  method->setCurrentIndex( method->findData( QStringLiteral( "structural_idw" ) ) );
+  QVERIFY( boundary->currentData().toString().isEmpty() );
 }
 
 // ---- 任务 C（智能编图页）：融合清单栅格过滤/参考图/相属性/设计器入口。--

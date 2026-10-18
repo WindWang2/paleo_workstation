@@ -518,8 +518,11 @@ void ConstraintPage::updateEngineRows()
   }
   if ( structural && boundaryCombo )
   {
-    // 边界清单：boundary.* 声明前置，其后其它矢量图层——任一已声明矢量
-    // 层均可作边界，面几何由算法侧校验。
+    // 边界清单：boundary.* 声明前置，测区面 survey.area 次之，其后其它矢量
+    // 图层——任一已声明矢量层均可作边界，面几何由算法侧校验。默认值不得
+    // 盲选第 0 项：清单首位常是井点/属性表（点几何），算法深处才报「边界
+    // 图层中没有有效 polygon」且不点名图层——回填上次选择，否则依次落
+    // boundary.* / survey.area，都不在才留空，交给生成门控引导选择。
     const QString keep = boundaryCombo->currentData().toString();
     boundaryCombo->blockSignals( true );
     boundaryCombo->clear();
@@ -527,19 +530,33 @@ void ConstraintPage::updateEngineRows()
              property( kLayersProp ).value<QObject *>() ) )
     {
       const QVector<LayerDeclaration> declared = svc->declared();
-      for ( int pass = 0; pass < 2; ++pass )
+      const auto isVector = []( const LayerDeclaration &d ) {
+        return d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) == 0;
+      };
+      const auto dedicated = []( const LayerDeclaration &d ) {
+        return d.layerId.startsWith( QStringLiteral( "boundary." ) );
+      };
+      const auto survey = []( const LayerDeclaration &d ) {
+        return d.layerId == QLatin1String( "survey.area" );
+      };
+      for ( int pass = 0; pass < 3; ++pass )
         for ( const LayerDeclaration &d : declared )
         {
-          if ( d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) != 0 )
+          if ( !isVector( d ) )
             continue;
-          const bool dedicated = d.layerId.startsWith( QStringLiteral( "boundary." ) );
-          if ( ( pass == 0 ) != dedicated )
+          if ( ( pass == 0 && !dedicated( d ) ) || ( pass == 1 && !survey( d ) ) ||
+               ( pass == 2 && ( dedicated( d ) || survey( d ) ) ) )
             continue;
           boundaryCombo->addItem( d.title.isEmpty() ? d.layerId : d.title, d.layerId );
         }
     }
-    const int idx = boundaryCombo->findData( keep );
-    boundaryCombo->setCurrentIndex( idx >= 0 ? idx : 0 );
+    int idx = boundaryCombo->findData( keep );
+    if ( idx < 0 && boundaryCombo->count() > 0 &&
+         boundaryCombo->itemData( 0 ).toString().startsWith( QStringLiteral( "boundary." ) ) )
+      idx = 0;
+    if ( idx < 0 )
+      idx = boundaryCombo->findData( QStringLiteral( "survey.area" ) );
+    boundaryCombo->setCurrentIndex( idx );
     boundaryCombo->blockSignals( false );
   }
 

@@ -726,6 +726,8 @@ add_library(paleo_ui STATIC
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
   src/ui/maptools/sitingpicktool.cpp               # 方向34：地图布点拾取工具
+  src/ui/maptools/identifytool.cpp                 # 主画布识别浏览
+  src/ui/maptools/identifypopup.cpp
   src/ui/maptools/paleoshapetools.cpp              # wave/shapetools
   src/ui/correlationpanel.cpp
   src/ui/correlation/correlationtrack.cpp          # wave/correlation
@@ -1101,6 +1103,7 @@ add_paleo_test(tst_runtime LIBS paleo_qgis)                 # metadata,qgis
 add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
 add_paleo_test(tst_background_open LIBS paleo_workflow)
 add_paleo_test(tst_officepreview LIBS paleo_ui)
+add_paleo_test(tst_identifybrowse LIBS paleo_ui)
 add_paleo_test(tst_layerservice LIBS paleo_qgis paleo_services) # catalog,metadata,qgis,services(#483 refreshBasemaps ErrorHub 断言)
 add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,services
 add_paleo_test(tst_domain LIBS paleo_domain)

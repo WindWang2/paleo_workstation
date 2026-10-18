@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：地质相模型表格中可编辑的颜色值。（tools/ui-token-exceptions.json 精确计数）。
 #include "mappingworkbenchpage.h"
+#include "../faciesdisplaycontrol.h"
 #include "../../domain/predictionevidence.h"
 #include "../../domain/faciescatalog.h"
 #include "../../domain/facieshierarchy.h"
@@ -1029,9 +1030,7 @@ void MappingWorkbenchPage::updateState() {
   m_displayLevel->setToolTip(
       wellResult ? tr("测井图件只显示最终预测相") : selectedSchema.isEmpty()
           ? tr("请先选择相图件")
-          : tr("当前显示：%1；自动阈值为 1:800 万与 1:400 万")
-                .arg(FaciesHierarchy::title(
-                    m_workbench->resolvedLevel(selectedLayer()))));
+          : FaciesDisplayControl::scaleHint(m_workbench->resolvedLevel(selectedLayer()), m_workbench->displayThresholds()));
   const auto displaySelection = m_workbench->selectedFeatures(selectedLayer());
   const bool canLock = row.value("draft").toBool() && !wellResult &&
       m_workbench->isFaciesPolygon(selectedLayer()) && !selectedSchema.isEmpty() &&

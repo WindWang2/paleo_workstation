@@ -1,6 +1,7 @@
 // 层：功能
 #pragma once
 #include "constraintimport.h"
+#include "../domain/facieshierarchy.h"
 #include "../ai/remotepredictionservice.h"
 #include "../catalog/datacatalog.h"
 #include "../io/lasdoc.h"
@@ -152,6 +153,8 @@ public:
   bool setFeatureDisplayMode(const QString &id, const QList<qint64> &ids,
                              const QString &mode, QString *error);
   void updateDisplayScale(double scale);
+  FaciesHierarchy::ScaleThresholds displayThresholds() const;
+  bool setDisplayThresholds(double faciesToSubfacies, double subfaciesToMicrofacies, QString *error);
   bool selectHierarchyMembers(const QString &id, const QString &level, QString *error);
   bool assignHierarchy(const QString &id, const QList<qint64> &ids,
                        int code, const QString &level, QString *error);

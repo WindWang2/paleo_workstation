@@ -339,6 +339,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 三个编图页各有一组「要素编辑」：动作与编辑条共享同一批 QAction；图层
     // 下拉共享编辑条下拉的 model，选择经 setCurrentLayer 回写。
     void addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb);
+    void addFaciesDisplayPanel(SARibbonCategory *category);
+    void attachFaciesDisplayControls(MappingWorkbench *workbench);
     // 面板显隐菜单（QMainWindow::createPopupMenu 列出全部 dock 的
     // toggleViewAction）。右键 dock 标题栏与右上「面板」钮共用此入口。
     // 菜单尾附「视图」节：浅色/深色主题切换（写 QSettings 仅发生在用户

@@ -1,5 +1,6 @@
 // 层：功能
 #include "mappingworkbench.h"
+#include "../services/faciesdisplaysettings.h"
 #include "mapversionvalidation_internal.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
@@ -142,6 +143,8 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
                                    QObject *parent)
     : QObject(parent), m_layers(layers), m_processing(processing),
       m_project(project), m_constraints(constraints) {
+  connect(&FaciesDisplaySettings::instance(), &FaciesDisplaySettings::thresholdsChanged,
+      this, [this] { updateDisplayScale(m_displayScale); emit changed(); });
   // 方向51：不再自装测试替身（原先这里 setPredictionService(new <替身>(this))，
   // 产品里的远端预测就这样悄悄跑着假数据）。
   // 远端预测由装配根显式注入（app/aiwiring.cpp）；本地层位窗聚类是用户

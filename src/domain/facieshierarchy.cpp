@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QSet>
 #include <algorithm>
+#include <cmath>
 namespace FaciesHierarchy {
 QStringList levels() { return {"facies", "sub_facies", "micro_facies"}; }
 QString title(const QString &level) {
@@ -15,12 +16,18 @@ QString title(const QString &level) {
     return QObject::tr("亚相（2 级）");
   return QObject::tr("微相（3 级）");
 }
-QString resolveLevel(const QString &mode, double scale) {
+bool validThresholds(const ScaleThresholds &thresholds) {
+  return std::isfinite(thresholds.faciesToSubfacies) &&
+      std::isfinite(thresholds.subfaciesToMicrofacies) &&
+      thresholds.faciesToSubfacies > thresholds.subfaciesToMicrofacies &&
+      thresholds.subfaciesToMicrofacies > 0;
+}
+QString resolveLevel(const QString &mode, double scale, const ScaleThresholds &thresholds) {
   if (levels().contains(mode))
     return mode;
-  // Match paleo_project/main geo-viz-engine PaleoMapCanvas thresholds.
-  return scale > 8000000.0   ? "facies"
-         : scale > 4000000.0 ? "sub_facies"
+  const auto limits = validThresholds(thresholds) ? thresholds : ScaleThresholds{};
+  return scale > limits.faciesToSubfacies   ? "facies"
+         : scale > limits.subfaciesToMicrofacies ? "sub_facies"
                               : "micro_facies";
 }
 QStringList path(const QVariantMap &f) {

@@ -7,6 +7,7 @@
 #include "paleotheme.h"
 #include "paleoicons.h"
 #include "paleoribbon.h"
+#include "faciesdisplaycontrol.h"
 
 #include "pages/pagepanels.h"
 #include "correlationpanel.h"
@@ -484,6 +485,7 @@ void addPartitionPanel(SARibbonCategory *category, PaleoEditingToolbar *toolbar)
 }
 void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb)
 {
+  addFaciesDisplayPanel(category);
   if (!category || !editTb)
     return;
   SARibbonPanel *p = category->addPanel(tr("要素编辑"));
@@ -564,4 +566,11 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   settings->addSmallAction(editTb->actionUndo());
   settings->addSmallAction(editTb->actionRedo());
 
+}
+
+void PaleoMainWindow::addFaciesDisplayPanel(SARibbonCategory *category) {
+  if (!category) return;
+  auto *panel = category->addPanel(tr("相图显示"));
+  panel->setObjectName("ribbonFaciesDisplayPanel");
+  panel->addLargeWidget(new FaciesDisplayControl(panel));
 }

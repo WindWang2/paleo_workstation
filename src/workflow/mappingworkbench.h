@@ -143,6 +143,8 @@ public:
                     int code, QString *error);
   bool reviseWellInterval(const QString &id, const QString &wellId,
                           int index, int code, QString *error);
+  // Frozen taxonomy alone does not make a constraint/factor product a facies map.
+  bool supportsFaciesDisplay(const QString &id) const;
   QString displayMode(const QString &id) const;
   QString resolvedLevel(const QString &id) const;
   QVariantList displayLegend(const QString &id) const;

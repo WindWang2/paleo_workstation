@@ -572,7 +572,7 @@ private slots:
     window.attachWorkbench(&f.work); window.showPage("compose"); selection.setActiveHorizon("D61");
     const auto controls = window.findChildren<FaciesDisplayControl *>(); QCOMPARE(controls.size(), 3);
     QString error; const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
-    auto *layer = f.layers.instantiate(draft, &error); QVERIFY(layer);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error)); QVERIFY(layer);
     auto *node = f.project.project()->layerTreeRoot()->findLayer(layer->id()); QVERIFY(node);
     node->setItemVisibilityCheckedParentRecursive(true); controller.canvas()->setCurrentLayer(layer);
     auto *mode = controls.first()->findChild<QComboBox *>("ribbonFaciesDisplayMode"); QVERIFY(mode);
@@ -582,15 +582,69 @@ private slots:
       if (candidate->mode() == "compose") page = candidate;
     QVERIFY(page); page->selectLayer(draft);
     auto *sideMode = page->findChild<QComboBox *>("faciesDisplayLevel"); QVERIFY(sideMode);
+    // Real constraint snapshots freeze the same taxonomy as facies products.
+    // Selecting one must leave the ribbon bound to the visible facies map.
+    QVERIFY2(f.constraints.addConstraint("D61", "LINESTRING(50 0,50 100)", "line", -1, &error), qPrintable(error));
+    const auto snapshot = f.work.snapshotConstraints("D61", {}, &error);
+    QVERIFY2(!snapshot.isEmpty(), qPrintable(error));
+    QVERIFY(!f.work.versionForLayer(snapshot).extra.value("facies").toList().isEmpty());
+    auto *constraint = f.layers.instantiate(snapshot, &error); QVERIFY(constraint);
+    auto *constraintNode = f.project.project()->layerTreeRoot()->findLayer(constraint->id()); QVERIFY(constraintNode);
+    constraintNode->setItemVisibilityCheckedParentRecursive(true);
+    node->setItemVisibilityCheckedParentRecursive(true); // productReady focuses the new snapshot
+    controller.canvas()->setCurrentLayer(constraint);
+    QTRY_VERIFY(controller.canvas()->layers().contains(constraint));
+    QTRY_VERIFY(controller.canvas()->layers().contains(layer)); QTRY_VERIFY(mode->isEnabled());
+    controller.canvas()->zoomScale(100000);
+    // productReady selects the new snapshot. The parameter panel follows the
+    // facies map while the canvas current layer stays the constraint.
+    page->selectLayer(draft);
+    QTRY_VERIFY(sideMode->isEnabled());
+    auto *decorations = window.findChild<PaleoDecorationManager *>(); QVERIFY(decorations);
+    const auto leaf = hierarchySchema().first().toMap();
+    const auto feature = layer->getFeature(1);
+    QVERIFY(feature.isValid());
     for (const auto &level : FaciesHierarchy::levels()) {
       mode->setCurrentIndex(mode->findData(level));
       QVERIFY(QMetaObject::invokeMethod(mode, "activated", Qt::DirectConnection, Q_ARG(int, mode->currentIndex())));
       QCOMPARE(f.work.displayMode(draft), level);
+      QCOMPARE(layer->customProperty("paleo/faciesResolvedLevel").toString(), level);
+      auto *merged = dynamic_cast<QgsMergedFeatureRenderer *>(layer->renderer()); QVERIFY(merged);
+      auto *categories = dynamic_cast<const QgsCategorizedSymbolRenderer *>(merged->embeddedRenderer()); QVERIFY(categories);
+      auto expressionContext = layer->createExpressionContext(); expressionContext.setFeature(feature);
+      QCOMPARE(QgsExpression(categories->classAttribute()).evaluate(&expressionContext).toString(), FaciesHierarchy::key(leaf, level));
+      auto *labeling = dynamic_cast<QgsVectorLayerSimpleLabeling *>(layer->labeling()); QVERIFY(labeling);
+      const auto expected = FaciesHierarchy::legend(hierarchySchema(), level, {1, 2, 3, 4, 5});
+      QCOMPARE(QgsExpression(labeling->settings().fieldName).evaluate(&expressionContext).toString(), expected.first().toMap().value("name").toString());
+      QTRY_VERIFY2(decorations->legendTitle().contains(FaciesHierarchy::title(level)),
+                   qPrintable(decorations->legendTitle()));
+      QStringList expectedKeys, shownKeys;
+      for (const auto &entry : expected)
+        expectedKeys << entry.toMap().value("key").toString();
+      for (const auto &entry : decorations->legendFacies()) {
+        const auto row = entry.toMap();
+        if (row.value("heading").toBool()) continue;
+        shownKeys << row.value("key").toString();
+        QCOMPARE(row.value("level").toString(), level);
+      }
+      expectedKeys.sort();
+      shownKeys.sort();
+      QCOMPARE(shownKeys, expectedKeys);
+      QVERIFY(!constraint->customProperty("paleo/faciesDisplayMode").isValid());
       QTRY_COMPARE(sideMode->currentData().toString(), level);
       controller.canvas()->zoomScale(1000); QCOMPARE(f.work.resolvedLevel(draft), level);
+      QCOMPARE(layer->customProperty("paleo/faciesResolvedLevel").toString(), level);
       controller.canvas()->zoomScale(10000000); QCOMPARE(f.work.resolvedLevel(draft), level);
+      QCOMPARE(layer->customProperty("paleo/faciesResolvedLevel").toString(), level);
       for (auto *control : controls)
         QTRY_COMPARE(control->findChild<QComboBox *>("ribbonFaciesDisplayMode")->currentData().toString(), level);
+      const auto qa = qEnvironmentVariable("PALEO_FACIES_SCALE_QA_DIR");
+      if (level == "micro_facies" && !qa.isEmpty()) {
+        window.resize(1600, 1000); window.show();
+        controller.canvas()->setExtent(layer->extent()); controller.canvas()->refresh();
+        QTest::qWait(200); QTRY_VERIFY(!controller.canvas()->isDrawing());
+        QVERIFY(window.grab().save(qa + "/fixed-microfacies-with-constraint.png"));
+      }
     }
     mode->setCurrentIndex(0);
     QVERIFY(QMetaObject::invokeMethod(mode, "activated", Qt::DirectConnection, Q_ARG(int, 0)));
@@ -598,7 +652,15 @@ private slots:
     const auto qa = qEnvironmentVariable("PALEO_FACIES_SCALE_QA_DIR");
     if (!qa.isEmpty()) { window.resize(1600, 1000); window.show(); QTest::qWait(80);
       QVERIFY(window.categoryForPage("compose")->grab().save(qa + "/ribbon-facies.png")); }
+    layer->setScaleBasedVisibility(true); layer->setMinimumScale(200000); layer->setMaximumScale(50000);
+    controller.canvas()->zoomScale(1000000); QTRY_VERIFY(!mode->isEnabled());
+    layer->setScaleBasedVisibility(false);
     node->setItemVisibilityChecked(false); QTRY_VERIFY(!mode->isEnabled());
+    QVERIFY(!f.work.setDisplayMode(snapshot, "micro_facies", &error));
+    QVERIFY(!constraint->customProperty("paleo/faciesDisplayMode").isValid());
+    page->selectLayer(snapshot); QTRY_VERIFY(!sideMode->isEnabled());
+    selection.setActiveHorizon("D62"); node->setItemVisibilityCheckedParentRecursive(true);
+    controller.canvas()->setCurrentLayer(layer); QTRY_VERIFY(!mode->isEnabled());
   }
   void changedScaleSettingsRefreshExistingReferenceViews() {
     Fixture f; QVERIFY(f.init()); QString error;

@@ -949,6 +949,18 @@ bool MappingWorkbench::setLabelMode(const QString &id, int mode,
   emit changed();
   return true;
 }
+bool MappingWorkbench::supportsFaciesDisplay(const QString &id) const {
+  const auto extra = versionForLayer(id).extra;
+  const auto kind = extra.value("kind").toString();
+  const auto source = extra.value("value_source").toString();
+  return extra.value("mapping_product").toBool() &&
+      !extra.value("facies").toList().isEmpty() &&
+      !kind.startsWith(QLatin1String("constraint")) &&
+      !paleo::singlefactor::isAnalysisFactorRaster(kind, source) &&
+      !paleo::singlefactor::rejectsQuantitativeUse(kind, source) &&
+      kind != QLatin1String("contour_lines") && kind != QLatin1String("well_factor_points");
+}
+
 void MappingWorkbench::styleLayer(const QString &id) {
   // 约束线图层（constraints.<层位>）按 type 语义分类渲染——方向线/打断线
   // /软边界等在图面可辨（版本目录不入册，mapping_product 分支管不着）。
@@ -1094,10 +1106,7 @@ void MappingWorkbench::styleLayer(const QString &id) {
   if (analysisRaster || cartographic)
     FactorStyleWriter::applyTo(qobject_cast<QgsRasterLayer *>(layer),
                                v.extra.value("factor_id").toString());
-  if (styledKind.startsWith(QLatin1String("constraint")) || analysisRaster ||
-      cartographic || styledKind == QLatin1String("contour_lines") ||
-      styledKind == QLatin1String("well_factor_points") ||
-      styledKind == QLatin1String("single_factor_cartographic_contour")) {
+  if (!supportsFaciesDisplay(id)) {
     // 分析与制图绕行等值线共用双描边和数字 halo，兼容 ELEV/level。
     if ((styledKind == QLatin1String("contour_lines") ||
          styledKind == QLatin1String("single_factor_cartographic_contour")))

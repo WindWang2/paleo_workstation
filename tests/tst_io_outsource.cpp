@@ -3,9 +3,11 @@
 
 #include "domain/projectclassifier.h"
 #include "io/outsourceworkbook.h"
+#include "io/ziparchive.h"
 
 #include <QDir>
 #include <QFileInfo>
+#include <QTemporaryDir>
 
 using namespace paleo::io;
 
@@ -45,6 +47,9 @@ class OutsourceWorkbookTests : public QObject
     void readsCoordinateTable();
     void readsIntervalRowAndValues();
     void rejectsForeignXml();
+    void rejectsCellFillAmplification();
+    void rejectsMultiSheetXlsxAmplification();
+    void rejectsOversizeSpreadsheetMl();
     void scansDirectoryHonestly();
     void canonicalizesWellNamesAndNumbers();
     void registersFormatsInClassifierVocabulary();
@@ -192,6 +197,96 @@ void OutsourceWorkbookTests::rejectsForeignXml()
   const WellCoordinateTable table = readWellCoordinateTable( fixturePath( QStringLiteral( "wg1_well.xml" ) ) );
   QVERIFY( !table.ok );
   QVERIFY2( table.error.contains( QStringLiteral( "井号" ) ), qPrintable( table.error ) );
+}
+
+// FA-001：列填充内存放大闸——300 行 × ss:Index="16384"（约 39 字节/行的输入
+// 换 131KB/行的内存）必须被总量预算拒收，而不是默默吞下 ~4.9M 格。
+void OutsourceWorkbookTests::rejectsCellFillAmplification()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString path = dir.filePath( QStringLiteral( "amplify.xml" ) );
+  QFile file( path );
+  QVERIFY( file.open( QIODevice::WriteOnly ) );
+  QByteArray head( "<?xml version=\"1.0\"?>"
+                   "<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" "
+                   "xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">"
+                   "<Worksheet ss:Name=\"S\"><Table>" );
+  file.write( head );
+  QByteArray rowTpl( "<Row><Cell ss:Index=\"16384\"><Data ss:Type=\"String\">x</Data></Cell></Row>" );
+  for ( int i = 0; i < 300; ++i )
+    file.write( rowTpl );
+  file.write( QByteArray( "</Table></Worksheet></Workbook>" ) );
+  file.close();
+
+  const WorkbookReadResult result = readWorkbook( path );
+  QVERIFY( !result.ok );
+  QVERIFY2( result.error.contains( QStringLiteral( "预算" ) ), qPrintable( result.error ) );
+}
+
+// R2-MF-01：xlsx 格数预算必须是**整簿累计**——3 表 × 244 行（每行一个 XFD 列
+// 引用 = 16384 格）单表 ~4M 恰在旧「每表重置」预算之下，多表合计 ~12M 格
+// 需被整簿拒收（旧实现每表重置预算，全部放行驻留）。
+void OutsourceWorkbookTests::rejectsMultiSheetXlsxAmplification()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString path = dir.filePath( QStringLiteral( "amplify.xlsx" ) );
+
+  const auto makeSheet = []( int index ) {
+    QByteArray xml = "<?xml version=\"1.0\"?><worksheet><sheetData>";
+    for ( int row = 1; row <= 244; ++row )
+      xml += QByteArray( "<row r=\"" ) + QByteArray::number( row ) +
+             QByteArray( "\"><c r=\"XFD" ) + QByteArray::number( row ) +
+             QByteArray( "\"><v>x</v></c></row>" );
+    xml += "</sheetData></worksheet>";
+    return xml;
+  };
+  QByteArray workbook = "<?xml version=\"1.0\"?><workbook"
+      " xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>";
+  QByteArray rels = "<?xml version=\"1.0\"?><Relationships>";
+  for ( int s = 1; s <= 3; ++s )
+  {
+    workbook += QByteArray( "<sheet name=\"S" ) + QByteArray::number( s ) +
+                QByteArray( "\" sheetId=\"" ) + QByteArray::number( s ) +
+                QByteArray( "\" r:id=\"rId" ) + QByteArray::number( s ) + QByteArray( "\"/>" );
+    rels += QByteArray( "<Relationship Id=\"rId" ) + QByteArray::number( s ) +
+            QByteArray( "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\""
+                        " Target=\"worksheets/sheet" ) +
+            QByteArray::number( s ) + QByteArray( ".xml\"/>" );
+  }
+  workbook += "</sheets></workbook>";
+  rels += "</Relationships>";
+
+  QVector<paleo::io::ZipWriteEntry> entries;
+  entries << paleo::io::ZipWriteEntry{ QStringLiteral( "xl/workbook.xml" ), workbook }
+          << paleo::io::ZipWriteEntry{ QStringLiteral( "xl/_rels/workbook.xml.rels" ), rels }
+          << paleo::io::ZipWriteEntry{ QStringLiteral( "xl/worksheets/sheet1.xml" ), makeSheet( 1 ) }
+          << paleo::io::ZipWriteEntry{ QStringLiteral( "xl/worksheets/sheet2.xml" ), makeSheet( 2 ) }
+          << paleo::io::ZipWriteEntry{ QStringLiteral( "xl/worksheets/sheet3.xml" ), makeSheet( 3 ) };
+  QString zipError;
+  QVERIFY2( paleo::io::zipWriteArchive( path, entries, {}, &zipError ), qPrintable( zipError ) );
+
+  const WorkbookReadResult result = readWorkbook( path );
+  QVERIFY( !result.ok );
+  QVERIFY2( result.error.contains( QStringLiteral( "整簿拒收" ) ), qPrintable( result.error ) );
+}
+
+// FA-002：SpreadsheetML .xml 直读大小闸——超 512MB 拒收（xlsx 由 zip 层同口径把关）。
+void OutsourceWorkbookTests::rejectsOversizeSpreadsheetMl()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString path = dir.filePath( QStringLiteral( "huge.xml" ) );
+  QFile file( path );
+  QVERIFY( file.open( QIODevice::WriteOnly ) );
+  file.resize( 512LL * 1024 * 1024 + 1 ); // 稀疏占位：闸在 readAll 之前生效
+  file.close();
+  QVERIFY( QFileInfo( path ).size() > 512LL * 1024 * 1024 );
+
+  const WorkbookReadResult result = readWorkbook( path );
+  QVERIFY( !result.ok );
+  QVERIFY2( result.error.contains( QStringLiteral( "512MB" ) ), qPrintable( result.error ) );
 }
 
 // 批量扫描：单文件失败不中断，逐文件列因。

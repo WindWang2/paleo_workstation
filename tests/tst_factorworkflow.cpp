@@ -426,7 +426,20 @@ class TestFactorWorkflow : public QObject
       using namespace paleo::domain;
 
       // ---- 枚举解析/显示名（往返一致） ----
-      QCOMPARE(LithoLexicon::groupDisplayName(LithoGroup::Sand), LithoLexicon::groupDisplayName(LithoGroup::Sand));
+      // FE-001：原首行是 QCOMPARE(x, x) 永真断言（词表显示名回归零保护）——
+      // 改为全枚举值的双向往返 + 期望字面量。
+      const QList<QPair<LithoGroup, QString>> groupNames = {
+        { LithoGroup::Unknown, QStringLiteral("未知") },
+        { LithoGroup::Sand, QStringLiteral("砂族") },
+        { LithoGroup::Mud, QStringLiteral("泥族") },
+        { LithoGroup::Carbonate, QStringLiteral("碳酸盐族") },
+        { LithoGroup::Conglomerate, QStringLiteral("砾岩族") },
+        { LithoGroup::Other, QStringLiteral("其他") },
+      };
+      for (const auto &pair : groupNames) {
+        QCOMPARE(LithoLexicon::groupDisplayName(pair.first), pair.second);
+        QCOMPARE(LithoLexicon::parseGroup(pair.second), pair.first);
+      }
       for (const QString &name : { QStringLiteral("砂族"), QStringLiteral("泥族"),
                                    QStringLiteral("碳酸盐族"), QStringLiteral("砾岩族"),
                                    QStringLiteral("其他"), QStringLiteral("未知") }) {

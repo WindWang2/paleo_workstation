@@ -103,6 +103,21 @@ void EvolutionPlayerPanel::setPlayIntervalMs( int ms )
   m_timer->setInterval( ms );
 }
 
+void EvolutionPlayerPanel::reloadFrames()
+{
+  m_frames = mappingHorizons();
+  const QString active = m_selection ? m_selection->activeHorizon() : QString();
+  if ( !active.isEmpty() && m_frames.contains( active ) )
+    applyFrame( active );
+  else
+  {
+    // 激活层位不在新词表（或无上下文）：帧位复位 + 标签清空——
+    // m_index 若停在越界位，帧标签会继续显示旧词表内容、步进双向锁死。
+    m_index = -1;
+    m_frameLabel->setText( QString() );
+  }
+}
+
 void EvolutionPlayerPanel::applyFrame( const QString &horizon )
 {
   const int index = m_frames.indexOf( horizon );

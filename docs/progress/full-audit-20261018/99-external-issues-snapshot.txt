@@ -1,0 +1,1397 @@
+# 460 [high] tileinference 去垫片在形状校验前索引输出张量，下采样 ONNX 模型即堆越界读
+
+来源：2026-10-15 swarm 深度 review（P1 1/16）
+
+## 问题
+needPad 去垫片在输出形状校验之前按填充布局索引输出张量，可致堆越界读。
+
+## 证据
+`src/ai/tileinference.cpp:477-494`：去垫片按 `out.values[c * (inferRows*inferCols) + r*inferCols + col]` 索引，假定模型输出空间维等于填充后的 inferRows×inferCols；该读取发生在 :497 的形状契约检查**之前**，且 :493 已把 `out.shape` 覆写为 `{1,C,tile.rows,tile.cols}`，之后的校验永远查不出真实形状不符。
+
+## 影响
+用户装载带下采样的 ONNX 模型（输出 `[1,C,H/2,W/2]`，values 实际尺寸小于索引上界）即触发 QVector 越界读（UB/崩溃/脏数据进相图）。这是 d6261046 closed-loop hardening 的漏网点；`tests/tst_tileinference.cpp` 无 needPad/输出形状不匹配用例，正是逃逸原因。
+
+## 建议修法
+先按模型真实输出 shape 校验（values 尺寸与 shape 一致、且与去垫片布局匹配）再执行去垫片索引。
+
+## 验收
+tst_tileinference 增补：needPad 路径 + 输出形状与填充布局不符的拒收用例。
+
+# 461 [high] paleoWriteFileAtomic 只 flush 不 fsync，断电窗口内“原子替换”可落为截断文件
+
+来源：2026-10-15 swarm 深度 review（P1 2/16）
+
+## 问题
+`paleoWriteFileAtomic` 只 `flush()` 不 fsync 就 rename，断电窗口内"原子替换"可落为截断/空文件。
+
+## 证据
+`src/metadata/atomicfile.h:125-134,144`：注释（:48）自述「2. 刷盘（flush / fsync）」，实现只有 `tmpFile.flush()`（QFile::flush 仅 fflush 用户态缓冲），:144 直接 rename。同文件 `PaleoAtomicTransaction::commit`（:295-306）同样只 flush。对照：同仓 journal 写入用 QSaveFile（commit 走 fdatasync），耐久性口径不一致。
+
+## 影响
+断电/崩溃窗口内 rename 可先于数据落盘持久化，目标文件被替换为截断内容——恰是该工具要防的损坏。使用点如 `src/catalog/frameworkstore.cpp:174`（受管文件落盘）。
+
+## 建议修法
+改用 QSaveFile，或 QFile::flush 后显式 handle 上 fsync/fdatasync 再 rename；PaleoAtomicTransaction::commit 同步收口。
+
+# 462 [high] PaleoProjectStore::commitAll 回调无 try/catch，异常裸穿丢 writeFailed 信号
+
+来源：2026-10-15 swarm 深度 review（P1 3/16）
+
+## 问题
+`PaleoProjectStore::commitAll` 两个回调单元无 try/catch，异常裸穿触发本文件自述的故障模式。
+
+## 证据
+`src/metadata/paleoprojectstore.cpp:421`（`result = catalogCommit();`）与 `:448`（`result = qgzWrite();`）裸调；而 `enqueueWrite`（:103-114）与 `saveAll`（:146-157,181-192）都包 try/catch，注释明说原因：「异常裸穿会让调用方的收尾（如 commitEdit 的 busy 标记释放）被跳过，且 writeFailed 信号丢失」。
+
+## 影响
+provider/GDAL 抛异常时：writeFailed/writeCompleted 信号丢失、调用方收尾被跳过、返回值变为异常而非 WriteResult。
+
+## 建议修法
+照 enqueueWrite 的既有模式给两处回调包 try/catch 并转写失败结果。
+
+# 463 [high] seismic3d 相机书签保存/恢复字段数不对称，跨会话书签全部静默丢失
+
+来源：2026-10-15 swarm 深度 review（P1 4/16）
+
+## 问题
+相机书签保存/恢复字段数不对称，跨会话书签全部静默丢失。
+
+## 证据
+`src/ui/seismic3d/seismic3dviewpanel.cpp:1710-1714`（保存）：格式 `"%1|%2,%3,%4,%5,%6"` 实际只写 name + 5 个数字段（yaw,pitch,distance,target.x,target.y——**target.z 从未保存**）；`:1106-1112`（恢复）却要求 `nums.size() >= 6` → 每条书签静默 `continue` 跳过。注释声称「跨工区可复用」，实际全部丢失。同段序列化逻辑在 `btnCamDel_`（:1091-1099）还有第二份复制。
+
+## 影响
+3D 视图相机书签功能跨会话 100% 失效；两份复制漂移隐患。
+
+## 建议修法
+保存侧补 target.z（凑足 6 个数字段）；两份序列化收敛为单一函数；恢复侧对字段数不足的情况给 warning。
+
+## 验收
+补书签 round-trip 测试（保存→恢复→相机参数逐项相等）。
+
+# 464 [high] busy-token 跨工程残留：快照在飞时切工程，同名图层在新工程被永久锁死编辑
+
+来源：2026-10-15 swarm 深度 review（P1 5/16）
+
+## 问题
+跨工程 busy-token 残留：快照在飞时切工程，同名图层在新工程被永久锁死编辑。
+
+## 证据
+`src/workflow/mapversioncontroller_async.cpp:343-346`：快照任务持锁（markLayerBusy(id, tokenOwner, "地图快照正在读取来源")）后，释放唯一走 jobCompleted lambda（:381）里的 `releaseTokens`，守卫是 `tokenStore->metaDbPath() == tokenProject`。而 PaleoProjectStore 是全应用单例（appcontext.cpp:169），`setProjectPaths` 切工程**不清理 m_busy**。
+
+## 影响
+快照在飞时关工程再开另一工程 → 守卫判路径不等跳过释放 → 旧工程确定性层 id（如 `constraints.H1`）在新工程残留 busy，`QgisEditingService::beginEdit`（qgiseditingservice.cpp:98-102）永久拒绝编辑直至重启。任务启动未传 layerId（:385），paleotaskservice.cpp:372 的 markLayerFree 兜底也不覆盖这批 token。
+
+## 建议修法
+store 侧 setProjectPaths 清空 m_busy（一行）+ workflow 侧按 tokenOwner 释放即可闭合。
+
+# 465 [high] saveEditingVersion 部分完成态：acknowledge 过早 + 重试复制 spatial_edit_events
+
+来源：2026-10-15 swarm 深度 review（P1 6/16）
+
+## 问题
+saveEditingVersion 部分完成态：主产物已落库但返回失败，且重试会复制 spatial_edit_events 污染谱系。
+
+## 证据
+`src/workflow/mappingworkbench_edit.cpp:372-390`：`record()` 成功（edited_facies 新版本已 flush 进 catalog）后立即 `observer->acknowledge()`（:373，清空编辑日志），随后 `mergeIntervals/mergeFormations` 失败 → `return false`（:387）。重试时 `spatial_edit_events` 从 `previous.extra` 继承（:288）会把已入档事件**再复制一份**进新版本。
+
+## 影响
+调用方报「保存失败」但版本已存在；重试产生重复谱系事件。
+
+## 建议修法
+把 acknowledge 移到全部合并成功之后；spatial_edit_events 继承处做已入档判重（或以事件 id 幂等）。
+
+# 466 [high] LasParser::parse() 旧入口无大小闸无编码嗅探，仍被剖面/属性建模生产路径调用
+
+来源：2026-10-15 swarm 深度 review（P1 7/16）
+
+## 问题
+`LasParser::parse()` 旧入口既无大文件闸也无编码嗅探，仍被多条生产路径调用。
+
+## 证据
+`src/io/lasparser.cpp:194-317`：`parseDoc()`（:748-757）有 `s_fileSizeLimit` 拒绝 + CacheBudgetManager 登记 + GB18030 嗅探（scanHeaderBytes:485-493），而 `parse()` 用 QTextStream 逐行全量装载、无任何防护。`src/io/welllogread.cpp:125`（parseCurves）直接路由到它，下游 sectionworkbench.cpp:391、propertymodelworkflow.cpp:1150、mappingworkbench_predict.cpp:459、wellpredictionreview.cpp:33 均以用户工程里的 LAS 路径调用。
+
+## 影响
+4GB 畸形/超大 LAS：导入预览路径被拒，剖面/属性建模路径直接整卷入内存（OOM）；同一 GB18030 文件两条口径解出不同井名。
+
+## 建议修法
+旧入口薄封装 parseDoc（保留签名，防护与编码口径单源化）。
+
+# 467 [high] DLIS/LIS parseHeader 头扫描累积无上限，恶意文件无界内存
+
+来源：2026-10-15 swarm 深度 review（P1 8/16）
+
+## 问题
+DLIS/LIS `parseHeader` 头扫描模式逻辑记录累积无上限，恶意文件可无界耗内存。
+
+## 证据
+`src/io/dlisparser.cpp:1049,1149`：`lrBuf` 随后继位（0x20）跨 VR 无限拼接（主循环 :1055-1260 对 continuation 链无字节数上限）；`src/io/lisparser.cpp:383,472`：LogicalReader::next() 同样无上限 body.append。两者 `parse()` 均有 fileSizeLimit 闸（dlisparser.cpp:1314、lisparser.cpp:1003），`parseHeader` 明示「头扫描不受限」（dlisparser.cpp:1313 注释）。
+
+## 影响
+恶意构造的「全后继位 + 无 FDATA」DLIS/LIS 经 `WellLogRead::readWellInfo/parseHeader`（welllogread.cpp:50,64,87-89）把整个文件读进单个 QByteArray → 无界内存。
+
+## 建议修法
+parseHeader 复用 parse() 的 fileSizeLimit 同款预算（或按 header 语义给更小上限，如 64MB），超限拒收并如实报错。
+
+# 468 [high] SGS 缺「实现数×格点数」组合内存闸，最坏 ~51GB
+
+来源：2026-10-15 swarm 深度 review（P1 9/16）
+
+## 问题
+SGS 缺「实现数 × 格点数」组合内存闸，最坏 ~51GB。
+
+## 证据
+`src/algorithms/geostat/sgs.cpp:176-180`、`sgs3.cpp:477-479`：cells 预算 1e8、nRealizations 上限 64、`realizations` 为 `vector<double>`，最坏 64×1e8×8B ≈ 51GB（外加每实现的 gaussianField/lattice.reset 各 0.8GB churn）。1e7 格 × 64 实现也要 5.1GB。
+
+## 影响
+合法参数组合即可 OOM；单轴预算闸挡不住乘积爆炸。
+
+## 建议修法
+加组合预算（realizations 总字节 ≤ 配置上限），超限拒收或降级 float 存储。
+
+# 469 [high] 远端预测响应体无大小上限，故障/恶意端点可一次打爆内存
+
+来源：2026-10-15 swarm 深度 review（P1 10/16）
+
+## 问题
+远端预测响应体无大小上限，故障/恶意端点可一次打爆内存。
+
+## 证据
+`src/ai/remotepredictrouter.cpp:105`：`const QByteArray payload = reply->readAll()` 无界。对照同仓 `llmclient.cpp:29`（kMaxResponseBytes=8MiB）与 `wellfaciesservice.cpp:203-210`（#133 纪律）都有上限。
+
+## 影响
+远端预测端点是用户自配的任意 URL，恶意/故障服务可无界耗尽内存。
+
+## 建议修法
+对齐 llmclient 的响应字节上限；超限中断并如实报错。
+
+# 470 [high] cluster 子域 std::distribution/shuffle 跨平台不可复现，违背自订随机数口径
+
+来源：2026-10-15 swarm 深度 review（P1 11/16）
+
+## 问题
+cluster 子域用 std::distribution/shuffle，输出序列标准库实现定义，跨平台不可复现——违背项目自订随机数口径。
+
+## 证据
+`src/algorithms/cluster/cluster.cpp:135,152`、`som.cpp:88,95,118`、`supervised.cpp:485` 用 `std::uniform_int/real_distribution` 和 `std::shuffle`。项目明文口径：`geostat/sgs.h:16-17`「不用 std::normal_distribution（其序列是实现定义的，跨平台不可复现）」；且 `supervised.h:74` 承诺 "identical"。CI 有 Windows 侧。
+
+## 影响
+聚类/kmeans++/SOM 结果在 libstdc++/libc++/MSVC 间漂移，破坏可复现性承诺。
+
+## 建议修法
+改用 mt19937_64 原始 u64 派生（`geostat/sgs_internal.h:37` unitRandom 已示范）+ 手写 Fisher–Yates。
+
+# 471 [high] wavelet 高斯消元主元用绝对阈值：小幅误拒、大幅病态解放行
+
+来源：2026-10-15 swarm 深度 review（P1 12/16）
+
+## 问题
+子波正则方程高斯消元主元判据用绝对阈值，与 linsolve 的相对判据不一致。
+
+## 证据
+`src/algorithms/inversion/wavelet.cpp:42`：`!(best > 1e-12)` 绝对阈值；`geostat/linsolve.cpp:26` 用 `1e-12·scale` 相对判据。autoR 由尖峰幅度平方决定、地震道幅度跨数个量级。
+
+## 影响
+小幅度数据被误判奇异拒绝；大幅度（未标定 raw 振幅 ~1e4）时病态 Toeplitz 解（wl 可 4096）被放行。
+
+## 建议修法
+对齐 linsolve 的相对主元判据（1e-12 × 本列/矩阵 scale）。
+
+# 472 [high] Qgs* 越过封装层散布 workflow/ui 共 112 文件且无检查器把守，架空蓝图收敛承诺
+
+来源：2026-10-15 swarm 深度 review（P1 13/16）
+
+## 问题
+Qgs\* 越过封装层直接散布 workflow（40 文件）与 ui（72 文件），且无任何检查器把守——架空蓝图收敛承诺。
+
+## 证据
+docs/PALEO_QGIS_PLAN.md §2 明文：「应特别避免业务代码直接散布 QGIS API 调用……以后无论迁移到 QGIS 4.x，只修改这一层」。现状：domain 层 0 泄漏（干净），但典型如 `src/workflow/evidenceinteraction.cpp:12-14,86-94`（直接 qobject_cast\<QgsVectorLayer\*>、连 selectionChanged）、`src/workflow/mappingworkbench_compose.cpp:159-175`（直接 make_unique\<QgsRasterLayer/QgsVectorLayer>）、`src/workflow/horizonbatchexport.cpp:23-29,61-69`（直接驱动 QgsLayoutItemMap/QgsCoordinateTransform）、`src/workflow/faultinterpretationcontroller.h:126-157`（头文件暴露 QgsVectorLayer\* 接口）；ui 层 72 文件、65 处 `new Qgs*`。`tools/check_layering.py` 词表只管 QtWidgets 与 ui/ include，Qgs 调用完全不在闸门内。
+
+## 影响
+QGIS 大版本迁移成本从「只改 src/qgis」膨胀为 112 个文件；边界只会单向变差。
+
+## 建议修法
+分两步：① 先给 check_layering.py 加 Qgs 泄漏计数闸（现状冻结、只缩不涨，同 baseline 语义）；② 新增/收敛 facade（如 qgis/ 已有 map 头的路线），按域逐步回收 workflow 侧的直连。ui 侧用 QGIS 原生控件做视图可暂缓。
+
+# 473 [high] attachWorkbench 1060 行巨型视图函数：编图编排焊死在视图层
+
+来源：2026-10-15 swarm 深度 review（P1 14/16）
+
+## 问题
+attachWorkbench 是 1060 行巨型视图函数，编图业务编排焊死在视图层，「视图只发信号」在主壳最热文件名存实亡。
+
+## 证据
+`src/ui/paleomainwindow_workbench.cpp:67-1126`。头文件 `paleomainwindow.h:143` 自我声明 "UI never touches Qgs\* beyond canvas/layer-tree widgets (§25)"，但本函数：直接操作 `QgsProject::layerTreeRoot()` 做显示互斥与 custom layer order 手术（:243-277）、直接 `new QgsRasterLayer/QgsVectorLayer` 从文件数据源构造（:293-297）、右键菜单里跑 `QgsMapToolIdentify` 命中 + 全表 WKB 比对找回副本要素（:632-668）、串删除级联确认/版本登记/编辑会话管理（:848-895）。同族：`paleomainwindow_attach.cpp:82-108` 视图层 QFile 全量读层位资产（GUI 线程同步 IO，大文件冻 UI；同文件 :72-74 注释自己声明白名单理由）。
+
+## 影响
+删除级联、要素找回这类地质语义应属 MappingWorkbench；一旦补 split-file 复制，该逻辑指数发散。
+
+## 建议修法
+分层下沉：图层树互斥/WKB 要素找回/删除级联迁 MappingWorkbench；文件读取经 FolderImportWorkflow/SurfaceGriddingWorkflow 的 prepare 段。
+
+# 474 [high] check_layering --symbol-audit/--transitive 无防增长闸：有工具未接线
+
+来源：2026-10-15 swarm 深度 review（P1 15/16）
+
+## 问题
+「不带 include 直接 new」盲区的唯一机械护栏 `check_layering.py --symbol-audit` 没接进任何闸门。
+
+## 证据
+`tools/check_layering.py:534-576` + `CMakeLists.txt:944-949` + `.github/workflows/ci.yml:111-123`：symbol-audit 不在 ctest、不在 CI lint Source gates。实测它 0.5s 跑完、selftest 夹具齐备、当前 0 命中（洞是「未来可能被绕过」而非「正在被绕过」——违规构造需要完整类型必经 ui/ 头，会被 reverse-ui-include 拦住）。同类：`--transitive` 52 条边/83 个受染 TU 的重头出闸债只有 opt-in 诊断、无防增长闸。另：lint job 跑了 `--strict` 却没跑 `--selftest`（同步骤里其它 checker 的 selftest 都在），扫描器回归的假绿要晚 ~30 分钟才被 ctest 捞到。
+
+## 影响
+AGENTS.md 声称该洞「靠 review 纪律」——对一个机械检查密度如此高的仓，这是契约执行面最显眼的缺口；transitive 债可无声增长。
+
+## 建议修法
+半天工作量：symbol-audit 与 transitive 计数闸接进 ctest（+CI lint），lint 补 --selftest；transitive 边数以当前 52 为基线只缩不涨。
+
+# 475 [high] master 文档化红项（golden 17/48 超容差等）CI 结构性不可见，无分诊通道
+
+来源：2026-10-15 swarm 深度 review（P1 16/16）
+
+## 问题
+master 有文档化红项而 CI 结构性看不见，无分诊/升级通道。
+
+## 证据
+`.github/workflows/ci.yml:171,178,228-231` + `TODOS.md:239-252`：tst_cache_las 比率门、tst_wellcomposite_visual golden 17/48 超容差、tst_singlefactor_perf 中位数 20089ms 均为文档化红项，但 perf 标签被 `-LE perf` 排除、linux-perf job `continue-on-error`。前科实锤：linux-asan 自方向 70 合入起跑的是已删除的 apt 脚本、「从未跑进编译步」，静默腐烂靠注释考古才发现。
+
+## 影响
+golden 渲染超容差本质是功能回归候选，与墙钟抖动混在同一条非阻断通道里；continue-on-error job 的同类腐烂可以再发生而不被发现。
+
+## 建议修法
+拆通道：golden 容差单独标签化并给「连续 N 次超差转阻断」机制；continue-on-error job 加状态追踪（如 weekly 汇总 job 或 trend 检查）。
+
+# 476 [med] src/domain、catalog、metadata 深度review中低危清单（P2×5 P3×5）
+
+来源：2026-10-15 swarm 深度 review（src/domain / src/catalog / src/metadata 域）
+
+## P2
+- [ ] `src/metadata/metastore.cpp:31-57` + 各 store 连接名 qHash：32 位 qHash(path) 碰撞时静默串库——复用前不比对已开连接的 databaseName 与请求 path；mapversionstore.cpp:33、wellsectionstore.cpp:90、faultsetstore.cpp:23、releasestore.cpp:25、layouttemplatestore.cpp:18 同款。修复便宜：复用前比对 db.databaseName()
+- [ ] `src/catalog/catalogstore_internal.h:74-87` + `datacatalog_versions.cpp:34-124,440-449`：versions 表缺 (asset_id, version_number) 唯一约束；addVersion 不查同资产版本号重复；currentVersion 用 `>=` 行序 tie-break。对照 mapversionstore.cpp:101-103 有 UNIQUE INDEX，口径不一
+- [ ] `src/metadata/releasestore.cpp:28-47`、`layouttemplatestore.cpp:17-31`：完全没有 readOnly 通道，所有方法（含 const 读）都读写连接 + CREATE TABLE——#80 只读工程下 ReleaseStore 打开即失败（ui/releasepanel.cpp 直接构造会踩中）
+- [ ] `src/metadata/mapversionstore.cpp:761-847` vs `:990-1047`：publish() 与 snapshotInputForPublish() 约 90 行校验逻辑逐字复制（JSON 解析、快照指纹、PDF 绑定、§177、D10 阈值、#394 双份注释），漏改一份即 native/prepared 发布门禁分叉
+- [ ] `src/catalog/datacatalog.cpp:124-133`：noteRead 非严格模式跨线程只 qWarning；QVector/QHash COW 下属主写+他线程读是真实 UB。建议默认拒绝或文档化
+
+## P3
+- [ ] `src/domain/faultset.cpp:292 / .h:162`：branchesOfVertex 全仓零调用者（死代码）且 mutable 懒缓存在 const 方法里并发读即竞态；:282 对段内顶点索引无界检。删除或改预建
+- [ ] `src/metadata/wellsectionstore.cpp:334-336`：load() 井 id 列 splitEscaped 丢空段，空 id 静默少读一口井
+- [ ] `src/domain/welllogfacies.cpp:180-191,220,227-230`：采样步长/缺口判据只取 curves.first()，其他曲线更稀时整井被拒且报错文案误导
+- [ ] `src/domain/seismic/timedepthmodel.cpp:26-39`：setCheckshots strict 路径不查首点负深度（setPoints :45 有查）
+- [ ] 测试盲区：litholexicon.cpp（300 行规则引擎）无专属 tst；arearules 全局互斥态无并发压力测试
+
+# 477 [med] src/io 深度review中低危清单（P2×5 P3×7）
+
+来源：2026-10-15 swarm 深度 review（src/io 域）
+
+## P2
+- [ ] `src/io/ziparchive.cpp:327-403`：zipExtractBytes 解压后不校验条目 CRC32（中央目录读出 method/sizes 但 CRC 字段从未比对）；xlsx 链（outsourceworkbook.cpp:380-383）无 sha256 兜底
+- [ ] `src/io/sfpkgreader.cpp:112-118,155-206`：NPY dtype 字节序 `<`/`>`/`|`/`=` 一律按主机序 memcpy——大端 dtype .npy 全部静默错值
+- [ ] `src/io/segyreader.cpp:634-639`：open() 的 freezeCornersFromFile 失败路径未清 m_index/几何半状态，与同函数其余 8 个失败路径不一致
+- [ ] `src/io/constraintstore.cpp:139-148,196-225`：活动事务内执行 DDL（ensureAudit 的 CREATE INDEX）——e077b861 修过 mapping 侧同类 gpkg ddl locks；建议补「事务内建索引」并发回归测试钉契约
+- [ ] `src/io/lasparser.cpp:896-897`：parseRange 流式路径 issues 传 nullptr，>8MB 文件的 Truncated 告警静默丢失
+
+## P3
+- [ ] `src/io/laswriter.cpp:12-17`：fmtValue 只挡 isnan，±Inf 写成 "inf" 回读即 NaN
+- [ ] `src/io/sattrio.cpp:287-296`：SattrVolumeWriter::begin 先 remove 旧文件再截断新建（同文件 writeSattrSection :139-160 是 QSaveFile 口径）；readCell（:663-684）逐单元整块重读无当前块缓存
+- [ ] `src/io/rasterpyramid.cpp:399-425`：瓦片自愈协议只防单进程崩溃，双进程共用缓存目录并发 append 可交错
+- [ ] `src/io/wellcompositexml.cpp:648-659,701-704`：SpreadsheetML 数值全 Type="String" + 深度固定 2 位小数；:632 无可识别工作表时静默失败（errorMsg 未赋值）
+- [ ] `src/io/encodingdetect.cpp:45-46`：isStrictUtf8 对尾部截断多字节序列返回 true；looksLikeGbLead（:12-15）死代码
+- [ ] `src/io/cachecore.cpp:194`：原子写暂存名 `tmp<pid>_<ms&0xFFFF>` 同 pid 同 16ms 窗口可互踩
+- [ ] `src/io/lasalias.cpp:149-150`：memo 超限 erase(begin()) 随机淘汰而非 LRU
+
+# 478 [med] src/algorithms 深度review中低危清单（P2×5 P3×6）
+
+来源：2026-10-15 swarm 深度 review（src/algorithms 域）
+
+## P2
+- [ ] `src/algorithms/geostat/sgs_internal.h:207-232` + `linsolve.cpp:16`：SGS 热路径每格重分配 a/lu/permutation（n≤128 时每格 ~130KB churn × 1e7 格 × R 实现）——工作区应跨格复用
+- [ ] `src/algorithms/geostat/cokriging.cpp:141-174`：协克里金全 m×m 填充（对称 γ 评估 2 倍）+ solveAt 每格重分配；kriging.cpp 同类扫描已复用缓冲
+- [ ] 全目录零并行（QtConcurrent/std::thread/omp 零命中）：SGS 的 R 个实现天然可并行（per-realization 派生流即可，stratgrid/sgsfill.cpp:296-299 已示范按 zone 散布种子）
+- [ ] `src/algorithms/geostat/sgs.cpp:326-327`、`sgs3.cpp:634-635`：finiteCells/nodataCells 在实现循环内清零重算，多实现后只反映最后一个实现
+- [ ] `src/algorithms/paleoalgorithms.cpp:741-810`：IDW O(rows×cols×samples) 无空间索引；:661-699 注释称 BFS 变量名 queue 实为栈式 DFS（命名误导）
+
+## P3
+- [ ] `src/algorithms/petrophys.cpp:123`：swArchie 输出未查 isfinite（rt/phi 极小时 pow 可溢出 ±inf），与同文件 NaN 诚实传播口径不一
+- [ ] `src/algorithms/horizontrack.cpp:21-40`：normalizedCorrelation 朴素二阶矩大直流偏置消碳——petrophys.cpp:174-189 已有 Welford 范本，统一口径
+- [ ] `src/algorithms/dsp/fft.cpp:43-45`：旋转因子递推舍入误差随蝶形级累积，nFft 大时频谱尾部精度下降
+- [ ] `src/algorithms/stratgrid/stratgrid.h:65-66`：cellIndex/cellCount int 乘法，三轴组合可溢出（sgsfill.cpp:104 只挡单轴 ≥2^20）；补 cells ≤ INT_MAX 闸
+- [ ] `src/algorithms/geostat/cokriging.cpp:223-307 vs 309-400`：两套近乎全同重载已出现取消语义细微差异
+- [ ] `src/algorithms/inversion/sparse.cpp:107-109`：缺失样以 0 参与保真项（应掩膜），有 30% 缺失闸兜底
+
+# 479 [med] src/services、ai、linkage 深度review中低危清单（P2×2 P3×6）
+
+来源：2026-10-15 swarm 深度 review（src/services / src/ai / src/linkage 域）
+
+## P2
+- [ ] `src/ai/remotepredictrouter.cpp:340`（degradeOrDie）+ `onnxlocalpredictor.cpp:37-53`：远端失败后的本地 ORT 降级在主线程槽内同步执行（SHA256 全读 + 会话构建 + warmup + 全网格推理），GUI 冻结秒~分钟级；应仿 runTileInference 经 PaleoTaskService 池化
+- [ ] `src/ai/onnxpredictionservice.cpp:687-713,406-593`：推理与会话构建同一把互斥锁——tile 推理 4 线程池退化单线程，模型加载期间一切推理停摆（#402 排空与锁外发信号本身正确）
+
+## P3
+- [ ] `src/services/pythonenv.cpp:94-143`：startStep 无超时无取消，pip/venv 挂死即 busyChanged(true) 永真、环境 UI 锁死到重启（对照 scriptrunner 有超时+三级击杀）
+- [ ] `src/services/scriptrunner.cpp:284-307`：drainChannel 半行缓冲无上限，无换行巨量输出 OOM
+- [ ] Python 进程 IO 编码不一致：pythonrepl.cpp:155 toLocal8Bit vs scriptrunner/pythonenv fromLocal8Bit——Python 3 是 UTF-8，Windows 非 UTF-8 locale 下中文乱码；统一 toUtf8/fromUtf8
+- [ ] `src/ai/horizonsuggest.cpp:93-135`：候选去重 O(n²)/最近邻 O(n·m)，QSet 即可
+- [ ] `src/ai/wellfaciesservice.cpp:323`：m_accepted 任务缓存只增不减
+- [ ] 测试盲区：tst_tileinference 无形状不符用例（P1 逃逸原因）；futuretask.h 无专测；pythonenv 挂死路径无从测起
+
+# 480 [med] src/workflow 深度review中低危清单（P2×4 P3×5）
+
+来源：2026-10-15 swarm 深度 review（src/workflow 域）
+
+## P2
+- [ ] `src/workflow/mapversioncontroller.cpp:69-72` + `_async.cpp:181-182`：图层实例化失败静默丢弃——失败的层不进快照照常保存；async 路径 instantiate 已写 \*error 但 startSaveVersion 返回 true 且 \*error 非空的自相矛盾状态
+- [ ] `src/workflow/mapversioncontroller.cpp:192-244`：多层原生提交非原子——层 A 提交成功（落 GPKG、undo 已清）后层 B 失败 → 无版本快照的已提交编辑
+- [ ] `src/workflow/mappingworkbench.cpp:870-876,907-913`：generateFactor/generateContours 吞掉 declare 失败仍 emit productReady 且 return true，\*error 残留
+- [ ] `src/workflow/constraintworkflow.cpp:970-1103` vs `constraintfactorjobs_factor.cpp:234-239`：runConstraintIDW 用活约束图层、generateFactor 用冻结快照——同一引擎两条入口的约束谱系语义不一致，与 3738e8a4「被计算的约束状态」语义相悖
+
+## P3
+- [ ] `src/workflow/wellsectionworkflow.cpp:359-360`（同 sectionworkbench.cpp:396）：LAS 解析失败静默 continue 无告警，坏文件致剖面曲线缺失无感知
+- [ ] `src/workflow/constraintfactorjobs.cpp:210-287`：「统一异步面」startConstraintJob 生产零调用（仅 tst_factorworkflow 消费），与 runFactorWork 自建异步栈双栈并存漂移
+- [ ] `src/workflow/constraintfactorjobs_factor.cpp:1104,1130-1133`：mutationSeq 陈旧判据过严——无关 catalog 写入即误取消长作业（输入实际已冻结）
+- [ ] `src/workflow/faultinterpretationcontroller.cpp:40-46`：FaultEditStack::push 即执行、失败不入账的隐式约定无机制保障
+- [ ] `src/workflow/mappingworkbench_predict.cpp:813-824`：预测登记成功但井表合并失败——「成功产物+失败报文」并存，无回滚无补偿提示
+
+# 481 [med] src/ui 主壳深度review中低危清单（P2×5 P3×6）
+
+来源：2026-10-15 swarm 深度 review（src/ui 主壳域：paleomainwindow\* 家族/ribbon/docks/theme/notifications 等）
+
+## P2
+- [ ] `src/ui/paleomainwindow_attach_predict.cpp:109-111`：取消清理无守卫 `removeRecursively()` 整个父目录；对照 attach_constraint.cpp:330-333 的守卫也只是子串匹配 `paleo-sf-`（路径任意位置含该串即递归删除用户目录）——灾难性误删风险，删除语义应收进 workflow
+- [ ] `src/ui/paleomainwindow_attach_shell.cpp:719-722`：裸 QMessageBox::question 做破坏性确认，违反 DESIGN.md Tier-2 收敛契约（应走 paleonotify.h ask/askSaveDiscard）
+- [ ] `src/ui/decorations/paleodecorations.cpp:56`：setDark() 全仓零调用——暗色主题下比例尺/指北针/图例卡片仍按浅色 token 渲染（paleodecorations.h:99-103 契约死接线）
+- [ ] `src/ui/paleomainwindow_attach_data.cpp:99-110` + `attach.cpp:682-703`：导入按钮 tooltip 双门控互踩——时序错乱后 enabled 按钮顶着失败文案，且原始用途 tooltip 被永久清掉
+- [ ] `src/ui/paleomainwindow_wellsection.cpp:98-129,273-323`：视图直接 delete/new WellSectionStore + 300ms 去抖槽里同步 open+load，GUI 阻塞随库体积增长；编排应归 WellSectionWorkflow
+
+## P3
+- [ ] `src/ui/paleomainwindow_attach_constraint.cpp:285-371 vs 384-468` + `attach_predict.cpp:100-137`：三个 contour handler ~85 行逐字复制，dropTemp 守卫已各不相同
+- [ ] `src/ui/paleoicons.cpp:44-59`：ThemeIconEngine 暗色/禁用态逐像素 CPU 重着色无缓存，ribbon hover 反复付费
+- [ ] `src/ui/paleomainwindow.cpp:937-938,1003`：syncSeismicVolumeToDocks 两处 return 吞掉后续 seismic 资产，多地震体工程第二个体永不自动装载
+- [ ] `src/ui/paleomainwindow_attach.cpp:170,259`：每次网格化 new SurfaceGriddingWorkflow 挂窗口下不复用（连同信号连接线性累积）
+- [ ] `src/ui/paleomainwindow_attach.cpp:572,586`：const_cast\<DataCatalog\*> 偷写权维持假只读签名
+- [ ] `src/ui/paleomainwindow.cpp:996-1002`：地震体装载进度条 connect 捕获裸指针+每代叠一条连接（对照 attach_models.cpp:405-416 的正确范本）
+
+# 482 [med] src/ui 专业页面深度review中低危清单（P2×3 P3×4）
+
+来源：2026-10-15 swarm 深度 review（src/ui 专业页面域：pages/wellcomposite/datapreview/seismic\*/wellsection/correlation 等）
+
+## P2
+- [ ] `src/ui/seismicsection/seismicsectioncanvas_render.cpp:357`：wiggle 纵向无裁剪——每条可见道迭代全部样本（:362 只 continue 不缩循环域），放大窄时窗仍 O(可见道×总样本)；横向已按视口裁剪（:344-345），纵向同法反算 yBegin/yEnd
+- [ ] `src/ui/seismicsection/seismicsectioncanvas_interact.cpp:85-86`：hover 每次鼠标移动无条件整幅 update()（底图+wiggle 多边形+井轨迹），无脏区/缓存层——大剖面卡顿源，可只重绘十字带
+- [ ] `src/ui/wellcomposite/wellcompositestore.cpp:180-201`、`pages/datalist_undo.cpp:64-177`、`pages/dataops/dataopsmodel.h:68-92`：视图树内嵌 JSON 持久化（.wc.json sidecar、undo_stack.json）——落盘细节对（原子写/损坏清洗），但持久化属数据层职责，undo/sidecar 契约散落三处重复
+
+## P3
+- [ ] `src/ui/seismicsection/seismicsectioncanvas_paint.cpp:91`：死三元（两分支同串 tr("当前")），疑似未写完的 A 侧标签；:93 B 标签渲染尾随空
+- [ ] `src/ui/pages/datalist.cpp:655,661`：static_cast 布局指针无验证（应 qobject_cast+判空）；:610,627 resize 里每次 findChild 全子树遍历×2
+- [ ] `src/ui/datapreview/previewmappage.cpp:138`：鹰眼任意键（含中键）按压触发 centerMainAt 并吞事件，与「左键点选」意图不符
+- [ ] `src/ui/wellcomposite/compositebody.cpp:127,149`：旗宽用字符数×7 估算未用 QFontMetrics，CJK/字号变化失真
+
+# 483 [med] src/qgis、src/app 深度review中低危清单（P2×1 P3×8）
+
+来源：2026-10-15 swarm 深度 review（src/qgis / src/app 域）
+
+## P2
+- [ ] `src/qgis/qgisprojectservice_async.cpp:159,192-193,224-262`：后台开工程的 worker 线程第二 QgsProject 与进程级单例并存——QgsProject::instance() 是进程级静态（非 thread_local）仍指向主线程活工程，后台 read 期间 vendored 内部查单例即跨线程访问主线程 QObject；takeMapLayer/addMapLayer 依赖 moveToThread 连 provider 亲和一起搬的契约 QGIS 未书面保证——升级敏感隐性依赖
+
+## P3
+- [ ] `src/qgis/previewmapcanvas.h:142-145` + `.cpp:260-290,493-514`：裸 QgsMapLayer\* 键持三层状态无悬垂防护（对照 qgislayerservice.cpp:46-62 的 QPointer+双钩子），当前全靠唯一消费者自造克隆层（datapreviewtabs_well.cpp:308-316）
+- [ ] `src/services/errorhub.cpp:27-36` + `src/app/appcontext.cpp:210-211,863-865`：ErrorHub 全局指针装把后从不清除，~AppContext 逆序删除期间悬垂窗口（teardown 改动即踩）
+- [ ] `src/app/mkproject.cpp:700-706`：绕过 QgisRuntime 复制初始化序列且不 exitQgis——prefix 解析规则出现两份事实
+- [ ] `src/app/main.cpp:116-119` vs `src/qgis/qgisruntime.cpp:49-52`：--prefix CLI 被 QGIS_PREFIX_PATH env 静默压过，与帮助文本语义相反
+- [ ] `src/qgis/mappingartifactwriter.cpp:38-58`：restoreRasterCrs 每调用一次 GDALOpen，被 previewmapcanvas.cpp:108,123,135 逐层触发——批量上图 O(层数) 次磁盘打开；source 带 provider 选项串时静默失败
+- [ ] `src/app/appcontext.cpp:412-676`：projectOpened 巨 lambda ~260 行顺序敏感九连绑，不可单测
+- [ ] `src/qgis/projectmapreference.cpp:20-31,81-104`：手拼 PROJ pipeline + 硬编码球体参数 + 对 QGIS 输出做文本手术——配置期有往返校验兜底，但升级时重点回归此文件
+- [ ] `src/qgis/qgislayerservice.cpp:263-268`：refreshBasemaps 只读分支 removeDeclaration 失败被吞，旧底图残留
+
+# 484 [med] 构建/测试布线/CI 深度review中低危清单（P2×4 P3×5）
+
+来源：2026-10-15 swarm 深度 review（构建/测试布线/CI 域）
+
+## P2
+- [ ] `BUILDING.md:154-155` + `TODOS.md:219-220`：新 worktree 首 configure 漏 glm/saribbon/sbm/segyio include、「再 configure 一次恢复」的坑已写成操作手册 12 天，根因修复无 TODOS 条目跟踪
+- [ ] `.github/workflows/ci.yml:288,293-298`：continue-on-error job 静默腐烂有实锤前科（linux-asan 跑已删除脚本从未报错），至今无定期晋升检查
+- [ ] `tools/check_layering.py:497-519`：重头出闸债（io/algorithms 头经 services 门面渗进 83 TU / 52 条边）无防增长闸，与 baseline「只缩不涨」待遇不一致
+- [ ] `CMakeLists.txt:944-949` vs `ci.yml:111-123`：lint 跑了 --strict 没跑 --selftest，扫描器回归假绿晚 ~30 分钟才被 ctest 捞到
+
+## P3
+- [ ] `cmake/CalligraRenderer.cmake` + `src/app/officepreviewrenderer.cpp`：OnlyOnly 转向后全仓零引用且无 CI 车道编译——必然 bitrot
+- [ ] `tools/check_layering.py:119-155`：QTWIDGETS_CLASSES 词表缺 QStyle/QCommonStyle/QProxyStyle 家族；FWD_RE 不认 struct 前向声明（当前零利用，预防性）
+- [ ] `tests/tst_procdialog.cpp:436` 等 8 个文件：QSettings::setPath /tmp 重定向残留（TODOS.md:443 自认可清未清），与 XDG 沙箱重复自卫
+- [ ] `CMakeLists.txt:930`：标签正则 `^paleo_[a-z]+$` 不匹配带下划线库（如 paleo_qgis_attribute_table），静默回落 label=core
+- [ ] 仓库根追踪了取证快照垃圾：goal-loop-prompts.zip、leak-test-root/leaked-run/、r0-red-set.txt、r1-red-set.txt
+
+# 485 2026-10-15 swarm 深度 review 追踪：16×P1 + 9 域低危清单
+
+2026-10-15 swarm 深度 review（8+1 个分域审查 agent，全仓 ~29 万行静态审查，findings 均带 file:line 证据）。
+
+总体结论：无 P0；16 条 P1 + 各域 P2/P3 清单。四个跨域系统性主题：
+1. 同一功能双入口/双份维护、口径漂移（LasParser 两入口、publish 门禁 90 行复制两份、contour handler 三份复制……几乎每条 P1/P2 旁边都站着一个「另一份」）
+2. 有工具无闸门（symbol-audit 写好未接线、transitive 债无增长闸、continue-on-error job 无腐烂告警、Qgs 泄漏无检查器）
+3. 多步编排尾段部分完成态（acknowledge 过早、多层提交非原子、成功产物+失败报文并存）
+4. 用户自备输入的信任边界（自配 ONNX 模型/远端端点、恶意 DLIS/LIS/ZIP——对抗性输入路径是加固漏网区）
+
+## P1（16）
+- https://github.com/WindWang2/paleo_workstation/issues/460 [high] tileinference 去垫片在形状校验前索引输出张量，下采样 ONNX 模型即堆越界读
+- https://github.com/WindWang2/paleo_workstation/issues/461 [high] paleoWriteFileAtomic 只 flush 不 fsync，断电窗口内“原子替换”可落为截断文件
+- https://github.com/WindWang2/paleo_workstation/issues/462 [high] PaleoProjectStore::commitAll 回调无 try/catch，异常裸穿丢 writeFailed 信号
+- https://github.com/WindWang2/paleo_workstation/issues/463 [high] seismic3d 相机书签保存/恢复字段数不对称，跨会话书签全部静默丢失
+- https://github.com/WindWang2/paleo_workstation/issues/464 [high] busy-token 跨工程残留：快照在飞时切工程，同名图层在新工程被永久锁死编辑
+- https://github.com/WindWang2/paleo_workstation/issues/465 [high] saveEditingVersion 部分完成态：acknowledge 过早 + 重试复制 spatial_edit_events
+- https://github.com/WindWang2/paleo_workstation/issues/466 [high] LasParser::parse() 旧入口无大小闸无编码嗅探，仍被剖面/属性建模生产路径调用
+- https://github.com/WindWang2/paleo_workstation/issues/467 [high] DLIS/LIS parseHeader 头扫描累积无上限，恶意文件无界内存
+- https://github.com/WindWang2/paleo_workstation/issues/468 [high] SGS 缺「实现数×格点数」组合内存闸，最坏 ~51GB
+- https://github.com/WindWang2/paleo_workstation/issues/469 [high] 远端预测响应体无大小上限，故障/恶意端点可一次打爆内存
+- https://github.com/WindWang2/paleo_workstation/issues/470 [high] cluster 子域 std::distribution/shuffle 跨平台不可复现，违背自订随机数口径
+- https://github.com/WindWang2/paleo_workstation/issues/471 [high] wavelet 高斯消元主元用绝对阈值：小幅误拒、大幅病态解放行
+- https://github.com/WindWang2/paleo_workstation/issues/472 [high] Qgs* 越过封装层散布 workflow/ui 共 112 文件且无检查器把守，架空蓝图收敛承诺
+- https://github.com/WindWang2/paleo_workstation/issues/473 [high] attachWorkbench 1060 行巨型视图函数：编图编排焊死在视图层
+- https://github.com/WindWang2/paleo_workstation/issues/474 [high] check_layering --symbol-audit/--transitive 无防增长闸：有工具未接线
+- https://github.com/WindWang2/paleo_workstation/issues/475 [high] master 文档化红项（golden 17/48 超容差等）CI 结构性不可见，无分诊通道
+
+## 域内 P2/P3 清单（9）
+- https://github.com/WindWang2/paleo_workstation/issues/476 [med] src/domain、catalog、metadata 深度review中低危清单（P2×5 P3×5）
+- https://github.com/WindWang2/paleo_workstation/issues/477 [med] src/io 深度review中低危清单（P2×5 P3×7）
+- https://github.com/WindWang2/paleo_workstation/issues/478 [med] src/algorithms 深度review中低危清单（P2×5 P3×6）
+- https://github.com/WindWang2/paleo_workstation/issues/479 [med] src/services、ai、linkage 深度review中低危清单（P2×2 P3×6）
+- https://github.com/WindWang2/paleo_workstation/issues/480 [med] src/workflow 深度review中低危清单（P2×4 P3×5）
+- https://github.com/WindWang2/paleo_workstation/issues/481 [med] src/ui 主壳深度review中低危清单（P2×5 P3×6）
+- https://github.com/WindWang2/paleo_workstation/issues/482 [med] src/ui 专业页面深度review中低危清单（P2×3 P3×4）
+- https://github.com/WindWang2/paleo_workstation/issues/483 [med] src/qgis、src/app 深度review中低危清单（P2×1 P3×8）
+- https://github.com/WindWang2/paleo_workstation/issues/484 [med] 构建/测试布线/CI 深度review中低危清单（P2×4 P3×5）
+
+## 建议修复顺序
+- 一天内可闭合：P1-01（先校验再去垫片）、P1-03（包 try/catch）、P1-04（字段对称）、P1-06（acknowledge 移位）、P1-15（symbol-audit/selftest 接闸）
+- 一周内：P1-02（fsync）、P1-05（busy-token 清理）、P1-07（parse 薄封装）、P1-10（响应上限）、P1-12（相对主元）
+- 专项立项：P1-08/09（输入累积与内存组合闸）、P1-11（随机数统一）、P1-13/14（Qgs 收敛 + attachWorkbench 拆解）、P1-16（CI 红项分诊）
+
+（编号对应上方 P1 顺序。）另：当日工作区 seismic3d GL 看门狗有界重试未提交改动经专项审查判定正确无回归，无需 issue。
+
+# 486 fix: 无组标注井恢复默认模型兜底 + GL 看门狗有界重试
+
+## Summary
+
+两个独立修复，各一个 commit：
+
+**1. 测井相：无组标注井恢复服务默认模型兜底（`welllogfacies.cpp`）**
+
+#458 的闭环加固把「井上无组标注 → 用清单第一顺位模型」收紧成仅限 `formationGroup` 为空的模型。对全段名工区（本工程 256 条分层 `unit_type` 全为「段」、零组标注），`wellGroups()` 恒为空 → 服务端任何组绑定模型都无法命中 → 20 口井全部「当前地层 D62 没有对应模型」→ 智能预测在 96% 处整体失败。
+
+地层本不和模型绑定——恢复旧语义：无组标注无从判错配，服务清单第一顺位即默认模型；井上**有**组标注且都不匹配时仍拒绝（#458 的错配保护完整保留）。项目 gpkg 里留有此前同模型对 D62 的成功预测记录为证。
+
+**2. 三维视口：GL 看门狗一次性判决改有界重试（`seismic3dviewpanel.{h,cpp}`）**
+
+`showEvent` 武装的 3 秒看门狗在工程加载 GUI 拥塞时抢先于 `QOpenGLWidget` 首帧 `initializeGL`，把健康视口不可逆切到 2D 兜底（实测 RTX 3080 / GL4.6 / EGL1.5 环境上下文完全正常）。改为每 3 秒重试、最多 4 次、每个可见期重置——迟到的初始化自愈，持久性 GL 失败 ~15s 后仍走兜底。
+
+## Test plan
+
+- [x] `tst_wellfacies` 35/35（新增 `planFormationRunUngroupedWellUsesDefaultModel`：全段名井→默认模型；有组不匹配→仍拒绝；#458 的 `stratigraphicFormationMatchingRobustness` 等严格用例全保活）
+- [x] `tst_seismic_3dui` 13/13（真显示真 GL 上下文）
+- [x] `tools/check_layering.py` 无违规
+- [x] 实机复验：重启后三维视口正常渲染；重跑 D62「测井→当前地层预测相」可走通远端推理
+
+Generated with [Devin](https://devin.ai)
+# 487 fix(qgis): 测井相点图例按层位分组——相码规则挂层位父节点
+
+## Summary
+
+- `QgisStyleService::wellFaciesRenderer` 原先把每个层位分类表的全部相码规则平铺到规则渲染器 root（N 层位 × M 相码），图层面板里「河流相/三角洲相/湖泊相」重复刷屏、label 无层位归属，else 兜底组还出空白行。
+- 现改为层位父节点（无符号、label=层位名）+ 相码子规则的分组树，图例按层位折叠；缺省 else 组补 label「缺省分类」。
+- 父节点过滤限定为「层位匹配 AND facies_code IN 表内码」：QGIS else 只在同层兄弟全不命中时触发，限定编码集保证表外编码照旧漏进缺省分类兜底，渲染语义与扁平结构一致。
+- `tst_services2` 新增 `wellFaciesRendererGroupsRulesByHorizon`：覆盖分组结构、缺省组 label 及三类要素（组内编码/跨表编码/NULL）的着色命中。
+
+#### Test plan
+
+- [x] `tst_services2` 全绿（含新增分组用例）
+- [x] `tst_wellattributes` / `tst_evolution_workflow` 回归通过
+- [x] `layering` / `layering_strict` / `layering_selftest` 全绿
+- [ ] 手工开工程看图层面板：层位分组折叠、缺省分类不再空白行
+
+Generated with [Devin](https://devin.ai)
+# 488 fix(singlefactor): close PR457 CRS, constraint geometry and edit consistency gaps
+
+## 目标
+
+在 PR #457 已合并成果（统一约束语义 / 引擎消费回执 / CRS 契约）与 #458（智能预测闭环，本 PR 保护不动）基础上，补全尚未闭环的安全性、正确性、持久化与数值精度缺口。完整 Review–Fix–Review 过程与证据：`docs/progress/pr457-closure-review1.md`。
+
+## Review 1 → Fix（8 commits，每个问题：定位 → 红测 → 修复 → 绿测 → 回归）
+
+| # | 问题（优先级） | 修复 | 红测 → 绿测 |
+|---|---|---|---|
+| C1 | `toStoreWkt` 把任意米制 Engineering CRS 当本地网格 identity 直通；无效来源也直通（**P0**） | 等价只认「同一 CRS」（QGIS 相等或 WKT2 全等）；无效来源拒绝；其余需可用的 QgsCoordinateTransform，否则如实拒绝 | `unrelatedEngineeringCrsIsNotStoreEquivalent`（原点/轴向/LOCAL_CS 三 fixture）+ `unknownSourceCrsRequiresVerifiedContext` 旧代码失败 → constraintcrs 11/11 |
+| C2 | GPKG 建库 wkbUnknown 无 SRS；legacy 无检测、无迁移路径（**P0**） | 新库建层即写库约定 SRS（几何类型/schema 不动）；`inspectCrsStorage()` 只读检测；`migrateLegacyCrs()` 显式迁移（备份+事务+审计+校验+还原，绝不自动） | 3 个新测试旧代码失败 → store 9/9；旧 GPKG 照常可读 |
+| C3 | `schemaVersion:1.5` 被 toInt 截断接受；`enabled:"false"` 经 toBool(true) 变启用；`blockMode:5` 静默按 full_block（**P0/P1**） | 版本严格整数+范围；enabled 严格布尔；blockMode 严格字符串；数值有限性 | 5 组新测试旧代码失败 → constraintuse 30/30（含旧数据兼容面） |
+| C4 | 自交判定用 `cross==0` 精确相等——同一几何平移 1e7 后分类翻转（实测 fixture，**P1**） | orientSign/onSegment/foldsBack/samePoint 统一 K·(M·L+L²) 相对阈（K=64u，误差分析入注）；扫描剪枝不动 | 确定性翻转 fixture + 3000 例平移电池旧代码失败 → 30/30；perf 无 O(n²) 回退 |
+| C5 | `subset=horizon='%1'` 五处未转义——`O'Connell-1` 层位 subset 直接失效（featureCount=-1），注入串匹配全层（**P1**） | `constraintHorizonSubsetSuffix()` 单点转义替换全部 6 处拼接 | stash 复证红 → constraintstore 8/8（引号/中文/空格/注入四类层位隔离） |
+| C6 | 屏障半像元采样漏格（45° 线只落对角链）；贴边屏障被判域外与计划侧分叉；回执不区分真实落格（**P1**） | supercover 格网遍历（闭域裁剪+clamp+4-连通链）；回执 rasterized/rasterized_cells/new_cells/fully_shadowed | 3 组新测试旧代码失败 → receipts 19/19、algorithm_harness 27/27（对角密封与贴墙探针语义双向保持） |
+| C7 | 经纬度井位在地统计里角度当米静默计算（**P1**） | compute 入口 geographic 拒绝（与 local_direction/structural 同口径）；测试 fixture 从缺省 4326 修正为显式 3857 | `geographicWellsAreRejected` 旧代码失败 → geostat_workflow 13/13 |
+| C8 | FID 冲突安全失败无回归锁定 | 特征锁定测试：三种撞号（同层位/跨层位/身份复用）整批拒绝、无半提交 | constraintediting 31/31 |
+
+## 独立 Review 2（只读子代理，主动找反例）→ Re-fix（708fb3ea）
+
+复审提出 V1–V15；3 个 Major 全部补齐：
+
+- **V1** 导入门与画布门规则分叉且无留痕 → 保留 #457 导入口语义（测试固化的合法工作流），契约文档化 + provenance：外来米制工程 CRS 导入记 `crs_verified=false + crs_source + crs_note`（用户断言推测），同格 CRS 记 `crs_verified=true`（已核实）。
+- **V2** supercover 只改了 2/4 栅格化点 → 抽公共 `supercoverPolylineCells()`，`paleo_constraint_idw` 与 local_direction `labelHardBarriers` 两处半格采样统一接入，不实注释改写。
+- **V3** 迁移备份 WAL 盲区 / 并发还原可覆盖合法提交 / 还原失败谎报 / 绕过单写者队列 → 重写为独占窗：`m_enqueue` 队列 → `wal_checkpoint(TRUNCATE)` → 事务持锁内预扫描+备份+迁移+审计+提交前校验 → 提交后独立重开校验；还原失败如实上报。
+- 另闭合 V5（库 CRS 解析失败不再静默建无 SRS 层）、V6（审计写入检查）、V7（无效 CRS 井位拒绝）、V8（层位名含 `|` 入口拒绝）、V9（注释准确化）。
+
+## 验证
+
+- 目标套件 `ctest -R 'singlefactor|constraint|geostat|factorworkflow|mappingworkbench'`：**46/46 通过**（不含下述 perf 项）；`layering` 3/3（含 strict）、i18n 2/2、`git diff --check` 干净、#458 智能预测面 9/9。
+- **tst_singlefactor_perf 环境性失败（如实报告）**：L 基准 17–18s vs 15s 预算。受控实验证实与本次改动无关：(a) perf 输入只有方向线/软边界、无 HardBarrier 线，改动不在其测量路径；(b) stash 掉改动后 L 仍 17.1s 失败；(c) 同代码在低负载窗口曾 3/3 通过（162s）。机器当日多 worktree 并行构建，负载 13–36。
+- 对角走向/贴格边屏障的格网结果与 #457 基线有**合法差异**（漏格修复所致），无 golden 值钉住旧漏格结果；回执新字段为 additive。
+
+## 兼容性承诺
+
+旧 GPKG 照常可读（legacy 检测不迁移不写文件）；旧 params_json 合法数据照常加载（`legacyValidConstraintStillLoads`）；迁移显式可选、幂等、外来 SRS 拒绝覆盖、失败回滚+备份还原；不自动重新解释任何历史坐标；不回滚 #457/#458 任何成果。
+
+## 剩余风险（全部明示，见 docs/progress/pr457-closure-review1.md §五）
+
+UI 侧（constraintsready 门方法无关 / 运行按钮不含 blocking / A10 计数断言）按任务边界未动，留待专门 UI 轮；inspect/migrate API 尚无 UI 入口接线；M1–M4 无头限制沿用 #457 遗留。
+
+# 489 [opt-01] 数据管理/资产版本/资料图谱/导入预览深度闭环
+
+# [opt-01] 数据管理 / 资产版本 / 资料图谱 / 导入预览深度闭环
+
+> 状态：首批 U1–U6、批次 2（R-9、R-7+P4、P2、P5、P1、P3）与 S5 两轮复审修复均已提交；全部普通 push（未 force-push、未 rebase 已推提交）。不合并、未请求 reviewer。
+
+## 基线与范围
+- **BASE_SHA**：`dbb03269ca1809145e1ee39b699c6fd08916a317`（收尾 `git fetch --prune` 复核 origin/master 未移动，无需合并）。
+- **最终 HEAD**：见本 PR 头提交（收尾文档提交之上无代码变更；代码态 = de2521ff）。
+- 写入域：`src/workflow/{folderimport,importledger,assetops,projectopen}.*`、`src/ui/pages/datagraphpage.*`、`src/ui/pages/datalist_undo.cpp`（仅 `showImportLedger`）、配套测试（tst_folderimport / tst_io_importledger / tst_assetops / tst_assetpaging / 新增 tst_datagraphpage）与本域 fragment `cmake/extra-data-asset-deepening.cmake`。`src/qgis/` 只读；根 CMakeLists/AGENTS/DESIGN/jobrunner/paleomainwindow.h/全局翻译零改动；无 schema/GPKG 迁移。
+- 证据：`docs/progress/opt-01-data-catalog-graph-20261016.md`（R0 排除矩阵、调用链、backlog、八类流程矩阵）、`.goal-loop-ledger-opt-01.md`（逐轮证据、取舍 T1–T15、A/B、门禁）。
+
+## 排除
+- Open Issues #460–#485（26 个）全部排除、零评论/零状态变更；相邻指纹（#476 datacatalog_versions/datacatalog.cpp、#482 datalist.cpp 与 datalist_undo.cpp:64-177、#461 atomicfile）零改动。
+- Open PR #486、#487、#488：收尾复核文件交集为空。
+- 已合并 #424/#433/#437/#450/#455/#456/#459 交付点不重做。
+
+## 变更表
+| 提交 | 单元 | 问题 → 修复 | 回归测试（旧码结果） |
+|---|---|---|---|
+| 197af242 | U1 | 井口回查只比文件名，同名井口表开错资产 → 按 sourceUri 精确定位，歧义不猜 | importedWellHeadAssetResolvesSameNameBySourcePath（红） |
+| b5d7ad9a | U3 | 导入服务先析构时悬垂 m_svc 写台账、未提交行报入库 → QPointer + 行如实报失败 | folderImportSurvivesServiceTeardownHonestly（旧码 SIGSEGV） |
+| e99616e7 | U2 | 损坏台账被下一批整份覆盖 → 先备份原字节（失败拒写）+ 给出原因 | corruptLedger* ×2、importLedgerViewerReportsCorruptLedger（红） |
+| cb8e2105 | U4 | openLineage 压入未请求中间态 → 一次直达 | tst_datagraphpage ×2（红） |
+| f4125de7 | U5 | 越界受管路径回落原始 path 读工程外文件 → 视为不可读 | compareVersionsRefusesManagedPathOutsideProject（红） |
+| 7c26fd69 | U6 | 差异样本全给旧侧 → 两侧分摊 | compareVersionsSamplesBothSides（红） |
+| f9b669c1, eb9aee8c | R-9 | 多 .qgz 且无同名主工程时静默打开字母序首个 → 拒绝并列候选（仅文件、封顶 20） | openPathRefusesAmbiguousQgzDirectory（红） |
+| cd2344fa, 25acad5a, 172704a3 | R-7 + P4 | 「追溯/下游影响/展开关联」按钮单击、以及图上双击实体节点/「实体目录」分组，每次操作双发查询 → 屏蔽模式框信号单发；真实 id 往返。172704a3：实体节点子例先切到实体目录再双击，使其对旧码有鉴别力 | nodeVersionPreviewBackRoundTrip、everyRefocusEntryPointSendsOneQuery（红 2≠1；实体子例单独回退亦红） |
+| db876508, 91aa5fd6, f0947ac3 | P2 | 台账 load/record 经 QVariant 中转为实测热点 → 直接 JSON↔结构，字节不变 | ledgerScaleRoundTrip（含与 toVariant 路径逐字节比对） |
+| fe15e9a2, 2700540e, 577dd9f9 | P5 | 导入在飞时切工程，作废批次被记进新工程台账 → 不入账；同工程判定先词法后规范路径 | folderImportAcrossProjectSwitchDoesNotCrossPostLedger（红；别名子例对 fe15e9a2 红） |
+| 6f736cd2, a425e229 | P1 | 工程数据 E2E：初始化→导入→关联→图谱→预览→更新→恢复→重开，双跑 | projectDataEndToEndTwice |
+| cd92a246, 720e0534 | P3 | 合并窗换代只落最新代；取消后被取消代不落地 | rapidRefocusLandsOnLatestGeneration |
+| 7ee24b66 | S5 r1 U1-c/d | 回查每资产 stat → 先词法后规范路径；修注释 | 别名断言 |
+| 298416fd | S5 r1 U3-d | 用例收紧 | — |
+| a479c654, a3d5bc61 | S5 r1 U2-c/d, r2 Low 9 | 台账形状不对/读不了/部分批次无效被当空历史覆盖 → 按损坏先备份 | corruptShapesAreNotOverwritten、unreadableLedgerRefusesWrite（红） |
+| 9bfc3e27 | S5 r1 U2-b | 备份经 QSaveFile 落盘后再覆盖 | 既有备份用例 |
+| 9aa9dd94, de2521ff | S5 r1 U2-e, r2 Low 12 | 损坏原因在查看器内可见，纯文本显示 | importLedgerViewerReportsCorruptLedger（红） |
+| 72ef6604 | S5 r1 U4-c | 返回栈逐步断言 | — |
+| 1f482a9d | S5 r1 U5-c | 注释修正 | — |
+| b3d849d6 | S5 r2 M-1 | 符号链接子例 `#ifndef Q_OS_WIN` | — |
+
+## 验证证据（本机实际执行）
+- 构建：`flock -x <git-common-dir>/paleo-shared-build-j4.lock bash -lc 'cmake --build build -j4'` rc=0（Release，GCC 14 / Qt 6.8.2 / QGIS 4.2.3 / GDAL 3.10.3）。
+- 全量：`QT_QPA_PLATFORM=offscreen ctest --test-dir build -j2`（de2521ff 代码态）**409 项 407 过**；红 = {tst_singlefactor_fieldcontours, tst_horizontracksvc}，与干净 master 基线（408 项 406 过）同集。
+- tst_singlefactor_perf：同一干净 master 构建的二进制（只链 paleo_algorithms，本 PR 零触及）基线 164.5 s 过、批次 2 期间两次超预算 2%（15303 ms > 15000 ms，box 负载 ≈9）、收尾 165.6 s 过 ⇒ 主机负载抖动，非本 PR。
+- 定向 8 套（tst_folderimport / io_importledger / assetops / assetpaging / datagraphpage / datagraph / storagegovernance / panels）`ctest -j2` **连跑两遍 8/8**。
+- 每个行为修复先红后绿（生产文件还原为修复前版本重建 → 新用例红 → 恢复后绿；日志 /workspace/audit/opt01/revert-check-*.log）。
+- 门禁：`git diff origin/master --check` 0；`check_layering.py --strict` 通过；`check_ui_invariants.py --strict` clean；`check_i18n.py` 通过。
+- **性能 A/B**（同机同构建，只换 importledger.cpp 重建同一测试二进制；各 3 轮×每档 3 次中位数）：100k 行 record 1846–1921 → 846–957 ms；回读 30 万行 1893–2003 → 493–514 ms；10k record 126–129 → 77–89 ms；1k 10–11 → 7–8 ms。三档落盘 sha256 A=B，逐字段回读一致，现常驻断言与 toVariant 路径逐字节相等。
+- 八类流程矩阵、「原始资产完好」断言（≥5 处）见进度文档。未运行/未等待线上 CI。
+
+## 本地环境说明
+本机 GDAL 3.10 需仅本地的兼容补丁（constraintstore.cpp / tst_realizationworkflow.cpp，skip-worktree 隔离，**未提交**）。最终树与所有提交的 src/tests/cmake 中该补丁标记行数为 0；仅账本散文曾提及标记字样：12847382 引入；8456f9f1 改写该句时又新增了一行含标记字面量的文字，随后由 ef79b2ee 删除（不 force-push，历史保留）。
+
+## 独立 review
+- 作者自审：每批两轮，剩余 High/Medium 0（批次 2 自审发现的 Medium 已由 2700540e 修复，577dd9f9 补红测）。
+- **S5 第 1 轮**（dbb03269..0dd90e07）：0 High / 0 Medium。已修 U1-c、U1-d、U3-d、U2-b、U2-c、U2-d、U2-e、U4-c、U5-c；U5-e 越域未改；U1-b、U4-b、U5-b、U5-d、U6-b 记已知限制。
+- **S5 第 2 轮**（0dd90e07..935dcc55）：0 High / 1 Medium。M-1 已修（b3d849d6）；Low 2、4、7、9、12、14、15、16 已修；Low 8、11 按处置留作已知限制。
+- **S5 第 3 轮**（935dcc55..b6a52c0c）：0 High / 0 Medium，修复全部验证；唯一测试 Low（实体节点子例对旧码无鉴别力）已由 172704a3 修复并对旧码红。
+
+## Lows（已知、接受）
+1. U4/U4-b：openLineage 空 id 且无焦点时回概览；入口一次性重置类别/阶段/检索，少了中间态查询。
+2. U1-b：同名井口表歧义时不再打开预览；词法命中优先于更新资产的别名命中。
+3. U2：`.corrupt-<时间戳>` 备份不自动清理（同毫秒覆盖见已知限制 Low 11）。
+4. U3：旧码崩溃依赖释放后内存内容，其他平台可能表现为静默误写（修复后皆不可能）。
+5. R-9：多 .qgz 目录需用户直接选文件（多一步）。
+6. P5：切工程作废的批次不记任何台账（旧工程 catalog 已关闭）。
+
+## 已知限制
+- S5 r1 U5-b：resolvedVersionPath 允许路径段含 ':'（Windows ADS），既有行为；datacatalog_versions.cpp 与 #476 同文件（非同 hunk），超出本任务写入域，未改。
+- S5 r1 U5-d：compareVersions 解析与读取间 TOCTOU（既有）。
+- S5 r1 U6-b：A/B 按选择顺序非版本序（既有，信息项）。
+- S5 r1 U5-e：versiondialog.h 把闸门拒读报成「非文本格式或超限」——不在写入域，未改。
+- S5 r2 Low 8：10 万行级台账 load/record 仍在 GUI 线程同步执行（优化后 record ≈0.9 s、回读 ≈0.5 s），未下沉到任务线程。
+- S5 r2 Low 11：台账备份读原件用 readAll，无法发现短读；同毫秒同名备份现会被 QSaveFile 覆盖；台账读不了时写入被永久拒绝，且仅经 qWarning 体现（查看器内有警告，导入回调不报）。
+- P1：重导改过的源文件被登记为新资产（产品现口径，未改，测试显式断言）；资产版本追加用 catalog 受管 addVersion 原语。
+- 历史真实数据回读：box 无历史真实工程，未覆盖。
+- 账本历史提交中的本地补丁标记字样（见「本地环境说明」）。
+
+# 490 [opt-02] 测井/地层对比/连井剖面/地震多视图联动深化：15 个改进单元（井震对齐一致性、剖面状态与叠加生命周期、选择工程作用域、E2E 保护）
+
+[opt-02] 测井/地层对比/连井剖面/地震多视图联动深化：15 个改进单元（井震对齐一致性、剖面状态与叠加生命周期、选择工程作用域、E2E 保护）
+
+## 基线与范围
+
+- **BASE_SHA**: `dbb03269ca1809145e1ee39b699c6fd08916a317`（= origin/master @2026-10-16 快照，PR #459 之后）
+- 方向 02 独占写入域：`src/ui/{wellsection,wellcomposite,seismicsection}/`、`src/ui/sequenceframework*`、`src/workflow/{wellsectionworkflow,sectionworkbench}*`、`src/domain/` 井深/地层非 issue 子文件、`src/workflow/evidenceinteraction.cpp`（工程边界选择复位，P4 目标的既有 hook，PR 单列说明）、`tests/` 既有用例增补
+- 主 checkout / master 零改动；独立 worktree 独立 build；全程 `-j4` + 跨 worktree 共享构建锁
+
+## 明确排除
+
+- **全部 Open Issues #460–#485 未触碰**（正文级指纹比对；同文件不同 hunk 的三处——`timedepthmodel.cpp:15-21`（#476 占 :26-39）、`wellsectionworkflow.cpp:272-310`（#480 占 :359）、`seismicsectioncanvas_interact.cpp` press 段（#482 占 :85 hover）——S5 review 逐行核对零越界）
+- **Open PR #486/#487 文件未触碰**（welllogfacies.cpp / seismic3dviewpanel.* / tst_wellfacies.cpp / qgisstyleservice.cpp / tst_services2.cpp）
+- 未重做 #446/#449/#459 已交付内容；无 issue 评论/关闭/标签操作
+
+## 变更表（15 单元，28 文件 +949/−53）
+
+| 单元 | 内容 | 主要文件 | Oracle（新/扩展用例） |
+|------|------|----------|------------------------|
+| 1 井震对齐（P1） | 时深表只有一侧域列时分层按该行另一域值精确换算（对称回退经测斜 tvdAt），不再把 TVD 当深度喂常速 | sectionworkbench.cpp | tst_sections_alignment::singleDomainTimeDepthTableTopsUseExactModel |
+| 2 导出诚实（P1） | tops 表 NoSurvey 井 TVD 列留空（.h 三态契约落到导出面） | wellsection.cpp | tst_wellsection::topsTableTvdColumn |
+| 3 装载告警（P2） | 时深三类装载失败如实入 warnings（status 丢弃/拒收/TVD-only 对 MD 契约不可用） | wellsectionworkflow.cpp | tst_wellsection_workflow::timeDepthLoadFailuresWarn |
+| 4 地震缝保全（P0 交互） | setSection 井集地震身份（井序+坐标）不变时不再清缝重发——无关刷新不闪断、不取消在途 512 道重提取 | wellsectionpanel.cpp | tst_wellsection_ui::setSectionKeepsStripWhenSeismicIdentityUnchanged |
+| 5 undo 同步（P2） | 拾取 undo/redo 统一刷画布叠加；另修 **AddPicksCommand 按值 indexOf 与 redo 重发 id 错配**（撤销「添加」从未真正从会话删除，改按 id 记账回收） | seismicsectiondock_internal.h | tst_seismic_sectionui::pickUndoRedoSyncsCanvasOverlay |
+| 6 道头索引域（P2） | 道头卡按「剖面列→实际线号→FindTraceIndex→文件道号」两级换算；时间片/任意线如实给「无单一物理道」 | seismicsectiondock_bookmark.cpp | traceHeaderCardResolvesColumnToPhysicalTrace |
+| 7 卷帘/叠加生命周期（P2） | 切时间片/任意线显式关帘；换线清 zone、任意线清 attr+zone 叠加（#224 同族补漏） | seismicsectiondockwidget.cpp | curtainDisabledOnTimeSliceMode / overlaysClearedOnLineSwitchAndArbitraryLine |
+| 8 时间片方向闸（P2） | 追踪被拒并给面板原因；断层拾取不起草（旧实现按 (Time,采样号) 伪身份追踪落盘/陈旧 t0/dt 伪 TWT） | dock_track.cpp + canvas_interact.cpp | trackingGatedOnTimeSlice（线号 1..4 夹具暴露旧路径） |
+| 9 NaN 诚实（P2） | valueAtDepth 双 NaN 空档返回 NaN（不伪造合法物理量 0）；折线深度 NaN 同口径断笔 | wellcompositemodel.cpp + trackcurves.cpp | tst_wellcomposite_framework::valueAtDepthNanGapReturnsNan |
+| 10 速度边界（P3） | TimeDepthModel 构造器/isValid 补上界，与 setVelocity/setCalibration 同界 | timedepthmodel.cpp:15-21 | tst_timedepthmodel::velocityBoundsSymmetric |
+| 11 选择复位（P2） | EvidenceInteraction::reset 清 SelectionContext ids+activeHorizon（旧选择污染新工程 + 等值短路吞广播） | evidenceinteraction.cpp | tst_evidenceselection::projectResetClearsSelectionIdsAndHorizon |
+| 12 菜单 id 锚定（P2） | 版头右键移除按井 id 重定位（popup 存续期井集重建不删错井） | wellsectionscene.cpp | headerRemoveMenuAnchorsWellId |
+| 13 格架级联（P3） | removeUnit 级联删子体系域时清空其名下标志层归属（不再持久化悬空 unitId） | sequenceframeworkpanel.cpp | removeUnitClearsMarkersOnCascadedChildren |
+| 14 落库可见（P2） | 栅状图落库失败进提示行+日志且不前进快照（自动重试），不静默丢编辑 | fencewidget.cpp | fenceStoreFailureSurfacesAndKeepsRetry |
+| 15 E2E 保护 | 剖面保存→清除→恢复往返 + 体缺失拒绝分支（恢复侧此前零覆盖） | tst_sectionlifecycle.cpp | sectionSaveRestoreRoundTrip |
+
+## 验证证据
+
+- **红绿对照**：stash 旧 src 重建后六个代表用例全部按预期失败（判据逐条记录于 ledger）；恢复后全绿
+- **回归**：受影响 10 个测试二进制全量绿；收官第二遍扩展到 26 个域内目标（含 correlation/crossplot/linkage/datapreview/deviation/welllogset/seismic interpret 等）**100% tests passed**（ctest -j2 offscreen）
+- **静态门禁**：`check_layering.py --strict` 通过、`check_ui_invariants.py --strict` clean、`check_i18n.py` 通过、`git diff --check` 干净
+- **离屏渲染**：既有像素断言与截屏族用例（renderImage/imageDiff/captureEvidence）随套件绿
+- 全程 `-j4` + 五任务共享构建锁；无线上 CI 依赖（本地验证）
+
+## 独立 Review
+
+S5（非作者 subagent）逐文件审 diff + 邻近代码（UAF/线程/越界/数值边界/语义回归/伪断言/i18n/占用越界/undo 记账链十项清单）：**可合并，无阻断**。应修 A-1（fence 提示行累积）+ 建议 B-1/B-2/B-4 全部采纳修复（commit `6bc7b171`），修复后套件复跑绿。对修复 commit 的独立复审因平台 5 小时配额上限无法再派发——由主 Agent 二次核验并记录于 ledger（证据缺口如实注明）。完整 review 报告与账本见 `.goal-loop-ledger-opt-02.md`。
+
+## 已知限制
+
+1. **tops 表 CSV 对外契约诚实化变更**：NoSurvey 井 TVD 列从「MD 冒充值」改为「空」——外部脚本需按「空 = 无实测垂深」适配
+2. SeismicStrip 未携带体身份：切活动体与 catalog 去抖同帧到达的窄窗口会保全旧体缝（既有缺陷窗口扩大；治本建议 strip 附体世代，后续立项）
+3. 域外发现未修（证据在 ledger）：datapreview 井预览 LAS FT 深度不折算（写入域外）、SeismicMapLink 测线层死接线、证据选择 writeEntry 写脏 QgsProject
+4. E/F/G/H/K/L/M/N/O 用例未做 stash 级红验证（判据注释 + S5 因果复核），六个代表用例已实测红
+
+不等待线上 CI；按任务约束只提交 PR 不合并。
+
+# 491 [opt-05] 编图链路纵深：层位口径统一、自定义绘制序同步与真实失败记账
+
+## Summary
+
+QGIS 图层/综合编图/证据交互/地图版式/验证发布链路的 11 个实测改善单元（逐单元动机、证据与 Oracle 见 `docs/progress/opt-05-qgis-compose-publish-20261016.md`，全程账本 `.goal-loop-ledger-opt-05.md`）。BASE `dbb03269`，与 Open Issues #460–#485 及 Open PR #486/#487 的文件/hunk 零交集。
+
+**发布/验证记账如实化**
+- `ReleaseStore`：发布清单往返 `LayerDeclaration.title`（此前静默丢失、`diff()` 对纯改名失明）并纳入 diff 键；`manifest_json` 损坏被 `diff()` 具名拒绝，`releases()` 标 `manifestCorrupt`、发布面板显示「损坏」而非谎报 0 图层。
+- `MapBookQueue`：索引页/manifest 装配失败计入 `complete()`/`summary()`（逐版 `succeeded+failed+cancelled==total` 守恒不破）。
+- `ValidatePage::clearResults()` 清残余表孤儿 cellWidget（`setRowCount(0)` 不删控件）。
+
+**编图链层位口径**
+- `fuseFactors` 拒空层位与跨层位因子输入；综合页因子表/相栅格下拉/相属性目标按 `SelectionContext::activeHorizon` 收窄（壳接 `activeHorizonChanged`，非仅 `horizonReleased`）；跨层位矢量化完成不再接管目标层/自动进编辑。
+
+**图层平台**
+- `ensureSharedDataVisible` 愈合写回「被应用的主题」而非滞后的 `m_currentPage`（跨页可见性串档修复）；首建主题在定格前先愈合共享数据层。
+- `LayerPropertiesDialog::resolveLayer` 兜底 `QgsMapLayer::id()`（树面板对无 paleoLayerId 手工层的发射契约）。
+- `QgisLayerOrganizer` 批量路径共享一次 `declared()` 快照（sqlite 全表读去放大）。
+- 树里挪层（含组、含拖拽 InternalMove）按新树序回填 `customLayerOrder`——画布叠置不再停在旧位；「显示预测点位」特意置顶的条目不被打平（自下而上锚定语义）。
+
+**版式**
+- `buildHorizonMapLayout` 对活工程图层的 nodata 透明表/井名标注改写挂 `TransientLayerStyleGuard`（快照入场、挂为布局子对象、析构还原）——出图专用状态不再泄漏回画布并随 .qgz 持久化。
+
+## 验证
+
+- 定向测试（flock 共享锁 + `ctest -j2`）双跑 **11/11 ×2 全绿**：tst_release / tst_mapbook / tst_panels / tst_workflows / tst_mappingpages / tst_composeworkflow / tst_layerplatform / tst_layerproperties / tst_layertreepanel / tst_mapping / tst_layerorganizer。新增 10 个回归 Oracle 全部真实 QGIS 对象（QgsProject/QgsLayerTree/QgsPrintLayout/QgsMapThemeCollection/GPKG fixture）。
+- 门禁：`git diff --check` 干净；`check_layering.py`（含 `--strict`/`--selftest`）零违规；`check_ui_invariants.py` 0 违规；`check_i18n.py` 通过；`check_ui_tokens.py` violations=0。
+- 独立 review（全 diff）：1 MAJOR（U10 拖拽/组移动未覆盖）+ 4 MINOR 已修复并复验；2 MINOR 如实登记为已知限制（主题记录含临时层、册 manifest 逐页状态口径）。
+
+## 已知限制/未做
+
+- Open Issues #460–#485 全数未触碰（含本域内被指纹占用的 hunks）；S2 证据面板候选与 S4 只读域线索登记不实施。
+- 主题愈合写回会把未声明临时图层定格进 page:* 记录（重放路径仍守恒其活体状态，影响有界）。
+- 出册失败时册 manifest 逐页状态仍写 `"ok"`（页确已渲染，仅目录发布失败）。
+- 不等待在线 CI；不合并。
+
+Generated with [Devin](https://devin.ai)
+# 492 [opt-03] 单因素取数、约束线绘编、插值方法与成果质控深化（10 单元）
+
+[opt-03] 单因素取数、约束线绘编、插值方法与成果质控深化（10 单元）
+
+## 基线与排除
+
+- BASE_SHA：`dbb03269ca1809145e1ee39b699c6fd08916a317`（2026-10-16 fetch 后 origin/master）
+- 完全避开 26 个 Open Issues（#460–#485，清单类 #476/#478/#480/#482/#483 已读全文逐条指纹比对）
+  与 Open PR #486/#487 文件（welllogfacies.cpp / seismic3dviewpanel / tst_wellfacies /
+  **qgisstyleservice.cpp** / tst_services2）。
+- #451（D1–D12）与 #457（A1–A15/B/C/D 全表）已交付能力零重写、零重包装。
+- 执行账本：`.goal-loop-ledger-opt-03.md`（逐轮证据、24 候选中 14 项未入选理由）；
+  进度文档：`docs/progress/opt-03-singlefactor-constraint-20261016.md`（逐单元验收细节）。
+
+## 改进单元（动机 → 改动 → 测试）
+
+**U1 取数快照守卫**：异步提取期间 worker 活读 `well-log-attributes.gpkg`（砂厚来源），
+快照守卫不覆盖该文件 → 编辑可污染「不可变」采样快照。现冻结该文件（存在时），
+publish 校验 + `preparedWellFactorVersion` 复验覆盖；`maintainWellFactors` 同修。
+测试 `extractionSnapshotGuardsWellLogAttributeTable`、`maintainWellFactorsSeedsFromGuardedSources`。
+
+**U2 重复井/井名碰撞**：井点图层两要素同 `well_id` → 同井双样本双倍权重；两口目录井
+规范化名相同 → 后者改写前者身份、一口井样本静默消失。现同 id 硬失败（点名 id，
+对齐属性表口径），名碰撞拆行保留 + `identity_note`。测试
+`duplicateWellIdsInPointsLayerRefuseExtraction`、`normalizedWellNameCollisionKeepsBothWells`。
+
+**U3 structural POWER 诚实拒绝**：POWER≤0/NaN 在姊妹引擎被拒，structural 静默全 NaN、
+extend 模式误报「缺井控」。入口 throw + `evaluateAt` 错误传播。测试
+`buildSurfaceRejectsNonPositivePowerHonestly`、`powerZeroRejectedAtEntry`；power=2 golden 逐位不变。
+
+**U4 参数钳制回执**：local_kriging K 钳 [1,64] 但 QC 记请求值；地统显式负块金/比率<1
+静默钳制无痕。现 issues 记 `kriging_neighbourhood_clamped`、QC 记 effective（仅钳制时），
+`model_provenance` 记 `nugget_clamped/anisotropy_clamped`+effective。K=64 与 K=100 数值逐位一致。
+
+**U5 structural QC 完整性**：参数指纹漏 9 个数值生效参数（不同 SEARCH_RADIUS 撞同一
+parameter_hash）；counts 缺 finite/nodata（血缘恒 null）。现补齐（resolve 后生效值）。
+**兼容性说明**：新 structural 成果 parameter_hash 改变（漏键→完整的诚实化，旧成果不受影响）。
+
+**U6 约束 reason 词表**：主链「绘制约束(线)」画出的约束显示裸 token `unknown_type:line`，
+6 个域层 token 无中文、semantic 为空的行不进任何计数桶。现补词表+前缀处理+「N 条未类型化」。
+
+**U7 解释性成果表贯通**：解释性等值线/制图工作场发布后成果表不刷新、
+`savedFactorResults` 漏 `cartographic_work` 行——P4 血缘定位链在解释性链上断裂。现补齐。
+
+**U8 等值线血缘键**：两类等值线版本 extra 统一 `contour_feature_count`（0 条也如实入档）、
+解释性补 `analysis_sha256`；lineage 读侧显示等值距/级别数/SHA/0 条/未解交叉，缺键不臆造。
+
+**U9 FIXED_LEVELS 上限**：固定级别路径无级别数闸（#149 自动/间距路径的对偶），数万级可
+冻结 GDAL。UI parseLevels 截断+dropped、两个 prepare 闸 >10000 拒绝（服务层按写域约束递延）。
+发现：QLineEdit 默认 maxLength=32767 先截断超长粘贴（紧凑 token 才到达上限）。
+
+**U10 因子表字段缓存**：每勾选一次全量重取井点字段（GUI 线程全要素扫描+双表读取）。
+现按（层位+属性表世代+wells 声明集合）缓存，默认选中逻辑不缓存。
+
+## 验证证据（本机 Linux，RelWithDebInfo，全部持跨 worktree 构建锁 -j4/-j2）
+
+- R1 干净基线（主 checkout @ dbb03269）：域内 15 测试 14 绿 + 1 环境性超时
+  （`gridScaleRatioGate` Debug+CPU 争用 300s 看门狗；RelWithDebInfo 下 19/19、22s 复核通过）。
+- 域内定向 21 测试（改动直接消费方）：**21/21 绿**；关键 15 项两遍复跑均 100%
+  （含 S5 修正后）。
+- 全量 ctest：**408/408 全绿**（修正前树与 S5 修正后树各跑一遍，均 100%）。
+- 静态检查：`git diff --check`、`check_layering --strict`、`check_ui_invariants --strict`、
+  `check_i18n` 全部通过（S5 修正后复跑）。
+- 数值回归对拍：structural power=2 golden 逐位不变；K=64 vs K=100 逐位一致；
+  display_only/停用约束口径未触碰（#457 语义保持）。
+
+## 独立 Review（S5 非作者审查，Review→Fix→Review 闭环）
+
+- 首轮结论：需修后可合——1 Med（U10 缓存键不覆盖既有 wells 图层就地编辑：不换声明、
+  无信号、showEvent 命中缓存不能自愈）+ 3 Low（invalid_params 前缀 detail 截断风险、
+  裸 token 回退、helper 两文件重复）。状态机推演、10000 边界、-1 哨兵、线程亲和、
+  历史兼容、伪断言抽查（4 例改前红成立）、测试夹具真实性（走真实 prepare/compute/publish
+  + 独立 GDAL 对照）全部核过。
+- 作者修正（commit 8dc14c65）：缓存键每个 wells 声明条目追加 source 文件 size+mtime
+  （与 U1 快照守卫同配方）+ 新失效测试 `wellFactorCacheInvalidatesOnLayerFileEdit`；
+  `section(':',1,-1)`；词表回退；`contourFeatureCountOf` 收编 internal 头。
+- 二次复审结论：**可合**——四处修正全部闭合、无新引入问题；残余仅「程序化同毫秒等长
+  改写」理论窗口（无生产路径，与全项目守卫配方同界）。
+
+## 已知限制与递延
+
+- 服务层 FIXED_LEVELS 闸（src/qgis/factorcontour.cpp 非约束专属文件，本任务 src/qgis
+  写域受限）未做；UI+工作流两层已挡主链与脚本直调工作流层。
+- U1 等长同 mtime 重写不可检（与既有守卫同界）；维护路径「中途编辑拒绝」为同步路径
+  未做交错测试。
+- 三引擎（local IDW/surfer/structural）LOO 交叉验证为下一轮首选增强（geostat 已有）。
+- legacy `paleo:paleo_constraint_idw` 的 QC 计数同族缺口未动（另一文件族）。
+- 其余未入选候选及理由见账本（S1-4 百分号单位、S1-5 字段语义标注、S2-2 undo/redo 视图
+  同步、S2-3 双控制器、S2-4 reveal、S4-5 陈旧标记等 14 项）。
+
+# 493 [opt-04] 智能预测/成果管理/人工修订与预测证据链深度完善
+
+## 目标
+
+对既有的**智能预测 / 成果管理 / 人工修订 / 预测证据链**做深度完善（不改产品方向、不新增模块）。
+基线：`origin/master` @ `dbb03269`。隔离 worktree `../paleo_workstation-opt-04-prediction-evidence`，
+主 checkout 全程零修改。
+
+## 交付的 5 个独立改善单元
+
+| # | 单元 | 文件 | 用户可见效果 |
+|---|---|---|---|
+| U1 | 证据链「缺记录 / 未知 schema」不再是「无 finding」 | `src/domain/predictionevidence.cpp` | 缺失证据不再与「证据健康」同形，API 层可区分（4 个调用点按 `Blocking` 动作 → 用户可见发布门禁**不变**，见「已知影响」） |
+| U2 | `probabilities` 语义置信度修正 | `src/ai/tileinference.cpp` | 全 NoData 退化向量不再产出 `argmax=0/置信度 1.0` 的「最确定」假象；单通道置信度改用 `\|p−0.5\|×2`，与该语义的 logits 分支对齐 |
+| U4 | 主动取消不再误报失败 | `src/workflow/mappingworkbench_predict.cpp` | 点「取消」不再弹「编图操作未完成：已取消」；真实失败路径逐字不变 |
+| U5 | 全 NoData 不发布空图 | `src/workflow/mappingworkbench_predict.cpp` | 一格有效都没有时如实报错、不登记成功版本、不落空栅格 |
+| U6 | 真实 API 2.0 协议 E2E 补齐 | `tests/tst_mappingworkbench.cpp` | 覆盖「服务端给空结果 / 空模型清单 / 非默认层位证据链」三条此前无测试的生产路径 |
+
+## 新增 / 加固用例：12 个（全部先验证「改前为红」）
+
+| 测试 | 新增数 | 用例 |
+|---|---|---|
+| `tst_predictionevidence` | +3 | `validateWarnsOnMissingEvidence`、`validateDistinguishesUnknownSchemaFromAbsent`、`validateMissingSourceMessageMatchesBehavior` |
+| `tst_tileinference` | +3 | `probabilitiesSingleChannelConfidenceIsNotConstant`、`probabilitiesDegenerateVectorIsNodata`、`probabilitiesMultiChannelConfidenceUnchanged`（反向保护：C>1 口径不变） |
+| `tst_mappingworkbench` | +6 | `userCancellationIsNotReportedAsFailure`、`allNodataSeismicResultIsNotPublished`、`emptyGridSeismicResultReportsShapeMismatch`、`wellsRemoteApiEmptyPredictionsPublishNothing`、`wellsRemoteApiEmptyModelListPublishNothing`、`wellsRemoteApiNonDefaultHorizonEvidenceIsRecorded` |
+
+E2E 走**真实传输 + 真实曲线准备 + 真实作业区落盘**（假 HTTP 端点，非 `MockRemotePredictionService` 替身），
+并带判别式断言（`server.bodies.size()>=1` / `modelRequests>=1`）防止「因输入缺口被跳过」而假绿。
+
+## 验证结果
+
+| 项 | 结果 |
+|---|---|
+| `tst_mappingworkbench` | **51 passed / 1 failed**（45→51）；唯一失败 `removeDraftDeletesWorkingCopy` 为**基线既存**环境项（临时目录含只读文件，Windows 无法删除），基线同样 1 failed |
+| `tst_predictionevidence` | 7 passed / 0 failed（4→7） |
+| `tst_tileinference` | 22 passed / 0 failed（19→22） |
+| `tst_onnxworkflow` | 14 passed / 0 failed（退出码非 0 为**基线既存** teardown 崩溃，用例全过） |
+| 其余 9 项定向测试 | 全部 0 failed（`tst_remotepredictrouter`/`evidencegraph`/`evidencesourcevalidation`/`faciescatalog`/`aiwiring`/`modelregistry`/`onnxsessions`/`onnx`/`predict_challenger_r2`） |
+| 静态门禁 | `git diff --check` ✅ / `check_layering.py --strict` ✅ 0 违规 / `check_ui_invariants.py --strict` ✅ `violations=0, baseline=0` / `check_i18n.py` ✅ 无裸字面量 |
+
+**零既有用例回归。**
+
+## 已知影响（诚实声明）
+
+1. **U1 不改用户可见发布门禁**：全仓 `paleo::evidence::validate` 的 4 个调用点只按 `"Blocking"` 动作；
+   U1 新增的是 `Warning`，因此本单元只让**API 层可区分**，不是行为修复。升格为 Blocking 属发布权决策，留给有发布权的人。
+2. **U2 属行为变化**：对「以 `probabilities` 语义吐出未归一化全负向量」的模型，
+   旧行为 = 类 0 + 置信度 1.0，新行为 = 无数据（255）+ 置信度 0。更诚实，但对这类模型是可观察变化。
+   `C>1` 的 `entropy/lnC` 公式一字未改，并加了反向保护用例。
+3. **U2 对 `stitch` 的二阶影响**：退化格不再以 `pIn≡0` 参与重叠混合——符合既有 #143 意图。
+4. **主动放弃 2 个「看起来像缺陷」的候选**：
+   - `classes` 语义下 `label < kMaxTileClasses` 不改（该语义下 `classes` 恒为 1，改了会自伤）；
+   - `mappingworkbench_predict.cpp:150` 的「远端预测未配置，走本地引擎」文案不改（属方向 51 已完成的产品决策，改动会重解释既有产品意图）→ 记为待产品确认。
+
+## 合规
+
+- 未触及任何 Open Issue（#460–#485）与 Open PR（#486 `welllogfacies`/`seismic3dviewpanel`/`tst_wellfacies`、#487 `qgisstyleservice`/`tst_services2`）的文件与代码块，已用文件级比对核验。
+- 改动文件共 7 个（3 源 + 4 测试）+ 2 文档。
+- 编译全程 `-j4` 且持跨 worktree 锁；未在线等待 CI。
+
+## 文档
+
+- `docs/progress/opt-04-prediction-evidence-20261016.md`（进度与门禁）
+- `.goal-loop-ledger-opt-04.md`（Oracle 逐条证据 / 决策账 / 轮次记录 / 独立 review 采纳账）
+
+# 494 feat(mapping): complete feature-level evidence attribution, graph traceability and impact-aware review
+
+## 目标与最新基线
+
+把证据体系从「知道算法用了什么数据」深化为「能解释每个图斑为什么如此划分、哪些证据支持或反驳它、证据变化会影响哪些解释与成果」。基线 `origin/master 66e79e61`（含 #456–#459 与 #492/#493）；开发期间 master 两次前进（#459、#492+#493），均已 rebase 并重验（与 #493 仅 `mappingworkbench.h` 一处文本重叠，无语义冲突）。差距矩阵与设计见 `docs/progress/mapping-evidence-completion.md`。
+
+**顺手修复 master 既有回归**：#493 让 `EvidenceInteraction::reset()` 关工程时清空 activeHorizon，但重开恢复守卫仍要求 horizon 相等 → 同工程重开证据目标永远恢复失败（`tst_mappingworkbench::mapEvidenceAndGraphUseOneStableTargetWithoutEditing` 在 rebase 后红，与本 PR 改动无关的链路）。最小修复：恢复时当前层位为空则采纳保存值（见 commit）。
+
+## 已复用的既有功能
+
+- `paleo_evidence_v1`（predictionevidence）与 interpretationevidence（记录/解释/状态机/追加审计/乐观并发）被包装扩展，未重写。
+- 图斑稳定身份（MappingFeatureIdentity）、PR #456 的 split/merge 继承与 interpretation 同步原样保留（17 项相关回归套件全绿）。
+- DataGraph/DerivationGraph 的版本级反查与 Impact 模式、SelectionContext/EvidenceInteraction 唯一选择上下文、反查命中行复用 `evidenceActivated → navigate` 定位链。
+- PR #457 的单因素回执（constraints_consumed/engine_samples_*）原样消费并聚合，不另立格式。
+- 重算复用 startCompose/JobRunner/版本登记全链，不建新计算引擎。
+
+## 图斑级证据归因（G03）
+
+- `src/qgis/composeattribution.*`：按成果保存时冻结的 `ordered_inputs` 版本重放确定性决策（priority-first-valid / threshold-classification / categorical-nearest，与 composeRaster 逐条对齐；栅格批量 block 读）。
+- `featureEvidence["attribution"]`：状态摘要 + 逐输入决策分布（值域/编码分布/胜出占比）+ 一致率（平滑聚合差异如实呈现，不强行归一）+ 采样有界（≤4096，strided 抽样如实标注）。
+- 人工图斑如实 `manual`（不伪造自动分类过程）；输入缺失/参数损坏如实 `unresolved` + 原因；不用当前版本静默替换冻结版本（测试断言输入更新后归因仍用旧值域）。
+- `composeAttributionAt` 局部位置级（Level 3）单点决策（阈值区间/最近邻距离）。
+- UI：证据面板新增「计算归因」tab。
+
+## 井、地震、单因素证据（G04）
+
+- `wells_in_feature`：井口落面（有界 ≤500，一次读表建索引）+ 本层位地层优势相（Formations 按 formation==horizon，与预测写路径同口径；e2e 实测井意见进冲突分析并被点名）。
+- `seismic_sources`：预测成果 support.seismic_attributes 版本事实。
+- 归因输入附带上游单因素回执，显式文案「约束被该因素消费 ≠ 决定了本图斑相分类」。
+
+## 证据图谱及反向查询（G08/G12）
+
+- `src/services/evidenceindex.*`：可重建 SQLite 反向索引（(version_id, sha256) 增量同步、幂等、损坏记录跳过计数、特征/展开行双上限、limit 钳制）。原始证据仍以成果 GPKG 属性为唯一事实源——索引只是检索结构，随 bindCatalog 重置。
+- 查询：待复核/反驳证据/失效来源/引用来源版本/全文检索（text/actor/evidenceId）。
+- UI：证据面板「反查」行，双击结果复用证据定位链跳到图斑。
+
+## 多源地质冲突分析（G06）
+
+- `src/domain/evidenceconflict.*`：井/井段/预测/单因素/地震/人工意见聚合，七类 conflict_type（data_quality/broken_reference/spatial_contradiction/interpretation_contradiction/model_uncertainty/manual_dispute/consistency_note）× 四级 severity；已知意见与未知严格区分；**不合成置信度分数**。完全不一致（fraction==0）也告警。
+- 接入 featureEvidence `conflicts` 与计算归因 tab 展示（含 basis/建议）。
+
+## 空间影响分析（G05）
+
+- `analyzeImpact`：直接依赖（血缘事实）/潜在影响（派生链可达，无法局部证明）/可确定空间影响（像元级重放 diff：网格口径校验、保证首变化像元入样、strided 时标注采样下界）三级分明，报告 JSON 快照落 `artifacts/reports/`。
+- 约束编辑保存发 `constraintsSaved`（指纹覆盖 wkt/type/facies_code/weight/params_json，无变化不发）；修改未被消费的约束 → no_impact 如实空态。
+
+## 受控重算（G09）
+
+- `recomputePlan`：local/whole 分级 + 冻结/当前输入对照 + 保护口径（受影响图斑的 Confirmed/NeedsReview 计数与政策文案）。
+- `executeRecompute`：**rerun_layer_id 修正**——ordered_inputs 的 layer_id 可能是冻结当时的 product id（永远指旧版本），重算用当前版本 product 声明；生成新版本绝不覆盖历史（测试断言旧版本 sha256 不变）；任务模式单飞如实报错。
+- `compareVersions`：像元级转移矩阵 + 相面统计（不伪装跨版本图斑一一对应）。
+- UI：编图页「影响分析 / 受控重算」按钮 + 状态栏三级计数；m_lastImpact 随 catalogBound 清。
+
+## QGIS 人工交互
+
+证据面板：计算归因 tab（归因/回执/井关联/冲突）+ 反查行；既有三 tab 与命令门控原样。视图只收集参数（reverseQuery 参数拼装在 issue()），查询在功能层执行。DESIGN.md token 遵循（既有控件类型，无新视觉语言）。
+
+## 版本与历史兼容性
+
+- 只追加不改写既有 extra 键（compose_receipts/polygonize_provenance/upstream_receipts 均新增）。
+- 旧读者不受影响；早期版本无回执 → legacy 如实标注（receiptsemantics）。
+- 已发布/已保存版本字节与 extra 在分析与重算全程不动（测试断言 sha256/extra 相等）。
+
+## 性能测试
+
+- BASELINE 实测（tst_evidencee2e，遵循 tst_mapsnapshot_scale 口径：qInfo 记录、不设墙钟断言）：500×500 成果点击归因 30ms、10 次重复选择 304ms、10k 井实体落面 50ms、命中井 500（截断上限生效）、重放采样钳 4096（strided 生效）。
+- replayGrid 批量 block 读（复审 P1#7 修复后）——大网格影响分析不再逐像元 sample()。
+
+## 端到端测试
+
+- `tst_evidencee2e`：场景 A/C/D 合流（真实计算链归因 → 反驳证据 → 冲突点名井意见 → 保存版本 → 反查找回 → 工程重开仍可追溯）+ 约束保存信号（无变化不发/几何与语义变化点名）+ 有界性与 BASELINE。
+- 新增 6 个测试目标全绿：tst_composeattribution / tst_impactrecompute / tst_receiptsemantics / tst_evidenceconflict / tst_evidenceindex / tst_evidencee2e。
+- 回归：29 项证据/映射/版本/约束套件 + layering --strict 通过；全量 ctest 414 项中 412 通过——`tst_singlefactor_perf` 墙钟预算在机器被其他会话构建占用时超限（16.3s vs 15s；本 diff 与 single-factor 算法零文件重叠，首轮流跑通过，干净负载下基线二进制亦无法运行），`tst_import` 单独重跑通过。
+
+## 独立 Review
+
+三轮 Review-Fix-Review（审查员均未参与实现）：
+- 第一轮：8 P1 + 10 P2 + 5 P3。7 项 P1 修复（索引生命期/diff extent 校验/采样漏报/fraction=0 告警/约束语义指纹/replayGrid 批量读/unresolved 回归测试）；P1#1（Formations 过滤键）经写路径代码核实为误报并补 e2e 断言。
+- 第三轮复审：确认修复真实无虚报，另发现 5 项（N1 保护计数 break 回归/N3 replayGrid 未定义编码口径/N4 阈值守卫缺口/N2 Windows rename 风险/N5 死变量）——全部修复（19f3bed8）并复验。
+
+## 未解决问题
+
+- 反查首查在 UI 线程同步增量同步（用户触发、双上限）——未后台化。
+- 冻结输入解析在 3 处同口径实现（已加一致性注释），未抽公共助手。
+- 点输入的最近邻在 replayGrid 中仍逐像元（有 4M 上限 + 索引一次构建）。
+- unresolved 回归的文件改名模拟在 Windows 跳过（句柄占用；Linux 覆盖）。
+
+## 后续风险
+
+- 归因重放的栅格取样与批量重算在不对齐网格的半像元边界可能有差异（单因素家族同网格生成，通常对齐；文档已声明 fidelity 口径）。
+- 图斑 uid 过滤表达式为字符串拼接（uid 为 UUID 安全；手工改库可注入表达式错误——低风险，复审 P3）。
+
+# 495 fix(mapping): 修复 clang-tidy performance-unnecessary-copy-initialization
+
+## 原因
+
+#494 合并后，master 的 lint job（CI run 38835970978）在 clang-tidy 增量门禁红，唯一错误：
+
+```
+src/workflow/mappingworkbench_impact.cpp:430:20: error: local copy 'child' of the variable 'polygonChild' is never modified; consider avoiding the copy [performance-unnecessary-copy-initialization,-warnings-as-errors]
+```
+
+其余 16 个 TU 均 OK。
+
+## 改动
+
+`MappingWorkbench::recomputePlan` 内 `const auto child = polygonChild;` → `const auto &child = polygonChild;`（单行，仅此一处）。
+
+生命周期：`polygonChild` 声明在外层 `for (vid ...)` 循环体作用域，内层块只读使用 `child`（传给 `versionById(const QString &)` / `attributionLayer(const QString &)`），期间 `polygonChild` 不被修改，引用全程有效，行为不变。
+
+同文件内无其他同类告警（本地 check_tidy 对该 TU 结果为 OK）。
+
+## 本地验证（实际执行的命令与结果）
+
+环境：Debian 13，Qt 6.8.2，系统 QGIS，GDAL 3.10；clang-tidy 20.1.0（PyPI wheel，与 CI `clang-tidy-20` 同大版本）。
+
+1. 复现（未修改的 origin/master ddd1325e）：`PALEO_CLANG_TIDY=<clang-tidy-20 包装> python3 tools/check_tidy.py --base origin/master --build-dir <build>` → exit 1，FAIL `mappingworkbench_impact.cpp:430:20`，与 CI 报错一致。
+2. 修复后同命令（base 回退到 66e79e61，与 CI 相同的 17 个 TU）→ 17/17 OK，exit 0。
+3. 提交后 PR 口径 `check_tidy.py --base origin/master` → 1 个 TU（mappingworkbench_impact.cpp）OK，exit 0。
+4. 构建：`cmake --build <build> -j4 --target tst_mappingworkbench tst_impactrecompute tst_evidencee2e tst_assetops`（Release，Ninja）→ 成功。
+5. 测试：`QT_QPA_PLATFORM=offscreen ctest -j2 -R '^(tst_mappingworkbench|tst_impactrecompute|tst_evidencee2e|tst_assetops)$'` → tst_mappingworkbench / tst_impactrecompute / tst_assetops 通过；tst_evidencee2e 失败（见下方 Low）。
+
+## Low
+
+- tst_evidencee2e 的 `scenarioAttributionEvidenceConflictReverseAndReopen` 在本机间歇失败（`tst_evidencee2e.cpp:164`，`wells.size()` 实际 0 期望 1）。**在未修改的 master 代码上同样复现**（基线 6 次运行中 1 次失败；修复后 7 次中 4 次失败），该用例在失败断言之前不调用 `recomputePlan`，与本改动无关，属既有不稳定用例，本 PR 不处理。
+- 本机环境差异需仅本地的构建适配（均未提交）：GDAL 3.10 的 `OGRWktOptions` 构造（`src/io/constraintstore.cpp`，已 skip-worktree）；Qt 6.8.2 下 `mappingworkbench_impact.cpp` 中 `QPointer<PaleoTaskService>` 布尔判断需完整类型、`predictionworkflow.cpp` 缺 `AreaRules` 的可见声明——本地通过编译器 launcher / clang-tidy `--extra-arg` 对这两个 TU 强制 `-include` 对应头解决。CI linux job 在同一 SHA 上编译通过，不受影响；但在与本机相同的 Qt 6.8.2 等较旧环境下这两处可能编译失败，可另行评估是否补显式 include。
+- 未跑全量 ctest，也未等待 CI。
+
+# 496 fix(singlefactor): PR457 二轮缺口收口——旧 IDW 落格回执、计划域接线、CRS 迁移可达与层位 URI 安全（叠加 #488）
+
+## 定位：PR #457 剩余缺口的二轮 Review–Fix–Review（与 #488 同源并行，本 PR 只含其未覆盖的增量）
+
+本轮与 #488 源自同一任务说明，并行执行。第一轮以 `dbb03269` 为基线独立完成
+Review → Fix（7 组）→ 独立 adversarial review（14 项发现）→ Re-fix（8 项）→
+13 个目标测试套件 + 全量 ctest 门禁。推送前发现 #488 已合入且覆盖了第一轮的
+约 60%（toStoreWkt 严格等价、容差几何谓词、schema/enabled/blockMode 严格、
+新库建层带 SRS、`inspectCrsStorage`/`migrateLegacyCrs` 迁移、引号转义、
+supercover 栅格化统一）。本分支随即**语义 rebase 到最新 master**（`ddd1325e`），
+#488 已覆盖部分不再重复提交，以下为**二轮增量**（全部有红→绿测试）：
+
+### 增量清单
+
+1. **旧 IDW 屏障逐线落格回执（R3）**：supercover 栅格化前置 + 逐部件 touched
+   跟踪；未落格线回执改记 `consumed=false / outside_compute_domain`、不进
+   凸包（域外线没有屏障作用，不该裁掉成图域）、`PALEO_BREAK_LINES` 只计实际
+   落格数；连通性 BFS 复用同一 mask（无屏障零分配）。
+2. **计划侧域感知补齐（R1）**：legacy hard_barrier 与 structural 停线消费前
+   判域（`outside_compute_domain`），与引擎逐线落格回执一致；四条贴边线 ×
+   三引擎（旧 IDW/距离变换/最小曲率）闭契约一致性测试（`edgeAlignedBarrierIs
+   OutsideForAllGridEngines`——#488 的 supercover 闭域+clamp 契约）。
+3. **生产域接线（R2）**：`lastFactorComputeDomain`（已提取井点 bbox±10%）、
+   `buildBarrierMask` 传精确网格域、`inspectHorizonText` 传散点域——此前
+   `context.domain` 是测试专属死代码，UI 无法显示「在计算域外」。
+4. **P0-2 迁移可达性（A2）**：#488 的 `migrateLegacyCrs` 只有测试调用——补
+   `ConstraintWorkflow` 门面（`constraintLayerCrsState`/`migrateConstraint
+   LayerCrs`，满足 layering 门禁的视图层不依赖 io）+ 约束页真实状态显示
+   （⚠ 坐标按工程上下文假定）与显式迁移按钮（确认框含备份/校验/还原说明）。
+5. **层 CRS 溯源（C3）**：`assignStoreCrsIfMissing` 返回 `{assigned,verified}`
+   并打 `paleoCrsProvenance=assumed_from_context`；`layerCrsProvenance()`
+   三态（assumed / verified_from_file / none）——运行时指派不冒充已核实。
+6. **F4 fid 映射复核**：`storeFidIndex`（max fid + fid→身份表，含无 id 行）；
+   undo 释放预分配编号被外部写入占用后，redo **让位新编号重放**（同业务身份）
+   而非永久撞身份守卫；测试 `redoSurvivesFidReuseByOtherWriter`。
+7. **层位名 '|' 拒绝（F3/A3）**：#488 helper 只转义引号——'|' 是 OGR URI 选项
+   分隔符无法转义；helper 增加 '|' 拒绝 + 六处调用点接入（绘制/声明拒绝并
+   回滚刚写行；快照空 suffix 如实失败，绝不退化为无过滤全表层）+ 敌意层位
+   测试（O'Connell-1/中文/空格/反斜杠/引号注入语义/管道拒绝）。
+8. **结构面停线数值精确跳过（R4）**：`GEOSDistance(line,domain) >
+   softRadiusAuto` 才跳过（软核紧支于半径 ⇔ 零数值作用）；触域/半径内可达
+   线保留完整折线**不裁剪**（数值逐位不变）。
+9. **R8 按层位收敛**：`inspectHorizonText` 按层位分组（`barrierHorizons`），
+   网格化参数表的屏障开关不再被其它层位的约束点亮。
+10. **计划 id 归一（R5）**：trim + fid 兜底（与三引擎读者同口径，手工编辑
+    GPKG 行的回执可与 UI 列表 join）；UI reason label 补全
+    （not_consumed/other_horizon/unknown_type/ignored）。
+
+### 与 #488 的设计取舍差异（明示）
+
+- **导入坐标门**：#488 保持「米制工程 CRS 照收 + provenance 留痕
+  （crs_verified=false）」；本轮第一轮曾改为「有名有姓的工程网格拒绝」，
+  rebase 时**尊重 #488 已合并决策**，未翻转。
+- **域契约**：第一轮独立 review 的 A1 曾以半开谓词修正方向；rebase 后发现
+  #488 用「supercover 闭域 + clamp」统一了引擎侧并保持计划闭谓词——两契约
+  不可混用，本轮**回退到闭契约**并补接线与一致性测试（commit b5e51dd1）。
+
+### Review–Fix–Review 证据
+
+- **Review 1**：主 Agent 精读 P0/P1 链路 + 2 个专项 subagent（编辑会话/层位
+  过滤；屏障/回执/UI）→ 21 项 CONFIRMED/LIKELY（`docs/progress/
+  pr457-closure-review1.md` 为 #488 侧同源审查，两轮独立结论互为印证）。
+- **Fix**：7 组修复（第一轮基线上的完整记录见 `docs/progress/
+  pr457-closure.md`「第一轮过程记录」）。
+- **独立 Review（adversarial）**：14 项发现（A1–A14，含 1 项 P1 blocker、
+  2 项 P2 应修）——其中 A1/A3/A7/A10/A12 已修，A2/A4/A8 在二轮中交付，
+  A5/A6/A9/A11/A13 明示为已知限制/记录（见文档「剩余风险」）。
+- **Re-fix 后复验**：13+1 目标套件全绿 + layering 门禁绿。
+
+### 本地门禁（无 CI 依赖）
+
+| 套件 | 结果 |
+|------|------|
+| tst_singlefactor_constraintcrs / constraintuse / constraintreceipts / constraintediting | PASS（含本轮全部新增红测） |
+| tst_constraint_draw / constraintstore / constraintevidence / singlefactor_store | PASS |
+| tst_factorworkflow / mappingworkbench / mappingpages / geostat_workflow / singlefactor_contours / geostat_perf | PASS（#457/#458 成果无回归） |
+| layering / layering_strict / layering_selftest | PASS |
+| 全量 ctest | 见 PR 评论补充（perf 类门与既有基线对照另记） |
+
+已知环境事实：`tst_singlefactor_perf` 的 L 预算在本机 master 基线即超
+（同机对照 20.4s vs 15s，与本分支无关）；复现命令见 `run-target-tests.sh`。
+
+### 剩余风险（明示，未解决项见文档）
+
+- UI 计算域为未量化 bbox（引擎 ceil 网格差 ≤1 cell）与结构面停线「触域」
+  计划 vs 「距离≤半径」引擎的环形带差异——页面计划是咨询性显示，引擎回执
+  为事实契约；
+- 占位 CRS 名识别为白名单启发式（非主流本地 CRS 名会被拒绝并要求重新导出
+  ——安全方向）；
+- Windows（迁移文件锁路径）未验证；
+- `"enabled":1` 等存量非法 JSON 从静默宽容变为 invalid_params（规格要求，
+  数据兼容性变化已在文档明示）。
+
+不自动合并；请 review 后决定。
+
+# 497 [high] CI 门禁功能性失效：master 连续 10+ 次 push 全红仍持续合入，绿灯失去门禁语义
+
+## 问题
+
+CI 门禁已功能性失效：master 上最近 10 次 push 触发的 workflow run **全部 failure**，代码仍持续合入（#486–#494 均已进 master）。
+
+## 证据
+
+- `gh run list --event push --limit 10`（2026-10-15 ~ 10-16）：38756099683 … 38835970978 结论全为 `failure`。
+- run 38835970978（#494 合入后，master @ ddd1325e）job 级结论：
+  `windows ❌ / lint ❌ / linux-asan ❌ / linux ✅ / linux-perf ✅`。
+- AGENTS.md「PR 合并」既定流程：`DELETE branches/master/protection/required_status_checks` → `gh pr merge --squash --admin` → 恢复保护。即红灯在流程上不构成合入阻碍。
+
+## 影响
+
+1. 绿灯不再携带「可合入」语义，回归只能靠事后人工分诊发现。
+2. 与 #475（文档化红项 CI 结构性不可见）、#484（CI 布线清单）叠加后，CI 从「质量门」退化为「事后日志」。
+3. 新引入缺陷（如本次 lint 红）平均要等到下一轮人工 review 才暴露。
+
+## 建议
+
+- 立一条 master 健康度底线：**windows + linux 两车道必须绿**才允许合入；asan / lint 若长期不可用，要么修复要么显式下线并在 PR 模板标注「未覆盖」。
+- 三条车道恢复前，每个合并显式登记红灯分诊 owner 与预计修复时间。
+- 逐条关闭本批子项（B / C / D）后重估是否恢复 strict 门禁。
+
+## 验证
+
+`gh run list --event push --limit 5` 连续两次全绿。
+
+## 关联
+
+- 子项：本批 B（asan 磁盘）、C（Windows 两真红）、D（lint）
+- 相关：#475、#484
+
+# 498 [high] linux-asan 车道结构性磁盘耗尽（27MB / 2231 链接目标），内存类检测形同虚设
+
+## 问题
+
+linux-asan 车道结构性磁盘耗尽：构建到 2,231 个链接目标时 runner 磁盘归零，链接直接失败，**ASAN/UBSAN 车道长期给不出任何结论**。
+
+## 证据
+
+run 38835970978（linux-asan job）：
+
+```
+##[warning]You are running out of disk space. The runner will stop working when the machine runs out of disk space. Free space left: 27 MB
+FAILED: [code=1] tst_wellcomposite
+/usr/bin/x86_64-linux-gnu-ld.bfd: final link failed: No space left on device
+collect2: error: ld returned 1 exit status
+FAILED: [code=1] tst_smoke_realdata
+```
+
+- 全部目标在 `-fsanitize=address -fsanitize=undefined` 下链接，共 2,231 个。
+- 非偶发：10-15 的 run 38756099683 linux-asan 同为 `failure`。
+
+## 影响
+
+ASAN/UBSAN 是唯一能捕获堆越界读、生命周期与未定义行为的车道——#460（tileinference 张量越界读）、#467（DLIS/LIS 无界累积）、#468（SGS 组合内存闸）这类缺陷都靠它兜底。该车道无结论 = 这类缺陷的检测形同虚设。且与 #484 记录的「continue-on-error job 静默腐烂」叠加，失败更容易被忽略。
+
+## 建议
+
+- 缩减 asan 车道目标集：只链受影响的 label 子集（如 `-L 'core|io|algorithms'`），或拆成多个 job 分片。
+- 降链接期体积：`-gsplit-dwarf`、换 lld、构建后清理非 asan 产物。
+- CI 侧加磁盘水位检查：低于阈值时**早失败并报明确原因**（当前报的是 ld 错误，容易被误判为代码问题）。
+- 若 continue-on-error 仍在，至少加「连续 N 次失败即转红」的晋升检查。
+
+## 验证
+
+linux-asan job 能完整跑完并给出测试结论（而非链接失败）。
+
+## 关联
+
+父项：本批 A；相关：#484（continue-on-error 腐烂）
+
+# 499 [high] Windows 车道 2 项真红疑为句柄未释放：工作副本/GeoPackage 删除失败
+
+## 问题
+
+Windows 车道 2 项真红，两处都是「删除失败」，指向**文件句柄 / 数据集未释放**（非负载抖动：并行轮失败，直接重跑仍失败）。
+
+## 证据
+
+run 38835970978（windows job，388 项 → 2 failed）：
+
+```
+FAIL!  : TestMappingWorkbench::removeDraftDeletesWorkingCopy() '!QDir(workDir).exists()' returned FALSE. ()
+FAIL!  : TestVersions::savedBytesAndPdfSurviveWorkingChanges() 'QFile::remove(gpkg)' returned FALSE. ()
+```
+
+- 门禁判定：`UNEXPECTED tst_mappingworkbench: 不在环境债名单` / `UNEXPECTED tst_versions: 不在环境债名单` → `env_redset: 2 红 → 0 豁免 / 2 不放行` → job failure。
+- 非偶发：10-15 run 38756099683 的 windows job 同样 `failure`。
+- 用例位置：`tests/tst_mappingworkbench.cpp:3097`、`tests/tst_versions.cpp:441`。
+
+## 影响
+
+- 若是**产品侧**句柄未释放，则「删除草稿/工作副本」「版本文件覆盖」在真机 Windows 上可能同样失败，是用户可见的行为缺陷，不只是测试问题。
+- 直接构成 Windows 车道红灯面（本批 A 的子项）。
+
+## 建议
+
+1. 先判定归属：在上述两条执行路径上枚举仍打开的 GDALDataset / CPL 句柄与 QFile / QLockFile（Windows 可用 handle.exe / Process Explorer 复现），确认是产品代码未释放还是测试夹具未关闭。
+2. 产品侧：派生工作副本（GeoPackage）与栅格数据集在删除前显式 close / unregister；版本覆盖路径同理。
+3. 测试侧**不要**用「重试等待删除成功」绕过——那会掩盖真实的句柄泄漏。
+
+## 验证
+
+windows 车道全绿，且两个用例连续 3 次复跑稳定通过。
+
+## 关联
+
+父项：本批 A；同族：#461（原子写落盘）
+
+# 500 [high] lint 车道红于 mappingworkbench_impact.cpp:430，阻塞 master 静态检查
+
+## 问题
+
+lint 车道红于 `src/workflow/mappingworkbench_impact.cpp:430`，跟进修复 PR 亦失败；master @ ddd1325e 该车道为红。
+
+## 证据
+
+run 38835970978（lint job）：
+
+```
+check-tidy：base 66e79e616d563452f43dae9f752123ba799d9b25 -> 66e79e616d56
+check-tidy：17 个 TU
+FAIL src/workflow/mappingworkbench_impact.cpp
+  src/workflow/mappingworkbench_impact.cpp:430:20: error: local copy 'child' of the variable 'polygonChild' is never modified; consider avoiding the copy [performance-unnecessary-copy-initialization,-warnings-as-errors]
+clang-tidy 门禁红：修掉或（证明误报时）在 tools/.clang-tidy 收窄选题。
+```
+
+跟进 PR「fix(mapping): 修复 clang-tidy performance-unnecessary-copy-initialization」run 38866361582 结论仍为 `failure`（需确认是否修错位置或引入新告警）。
+
+## 影响
+
+lint 是唯一在合入前跑静态检查的车道；它红了会掩盖同批其他 16 个 TU 的检查结果，并让本批 A 的红灯面再加一条。
+
+## 建议
+
+- 修 `mappingworkbench_impact.cpp:430`（`child` 改 const 引用或消除副本）；若判定为误报，在 `tools/.clang-tidy` 收窄该 check 并注明理由（项目既定口径）。
+- 复核跟进 PR 38866361582 为何仍红。
+- 建议 lint 在 PR 阶段即为 required，避免「合入后才发现红」。
+- 顺带对账 #484 记录的「lint 跑了 --strict 没跑 --selftest」。
+
+## 验证
+
+lint job 绿（`python3 tools/check_tidy.py --base <base>` 通过）。
+
+## 关联
+
+父项：本批 A；相关：#484
+
+# 501 [med] 绿灯通胀：48 条环境债豁免 + flaky 串行重跑放行，无到期复审机制
+
+> **2026-10-16 复核修正**：原正文把 `r0-red-set.txt` / `r1-red-set.txt` 当作「48 条环境债豁免名单」，**有误**。这两个文件是 R0/R1 轮次的红集合**取证快照**（全仓仅 `.goal-loop-ledger-hub-merge.md` 提及，无任何工具或 CI 消费）；真正的豁免名单是 `tools/env_redset.json`（16 项，带 status/category/routes/expect_fail）。下面的问题表述已按复核结果重写，快照文件的去留归 #484。
+
+## 问题
+
+绿色结论的可信度被两套「放行」机制稀释——它们的**约束机制都已实现，但都没接线**。
+
+## 证据
+
+### 1）失败项串行直跑通过即放行（无台账）
+
+- `tools/ci_ctest_gate.sh`：并行轮失败后，非崩溃类失败串行重跑一次，「重跑通过仍留痕」，仅 `::warning::`。
+- `paleo-dev.ps1:395-430`（Windows 侧同路径）：env_redset 分类后，未豁免项直跑一次，通过即放行。
+- 实证 run 38835970978（linux 车道）：373 项 2 红（`tst_wellsiting_kernel`、`tst_evidencee2e`）→ 串行重跑通过 → job 判 `success`。
+- **无 flaky 台账**：同一测试反复靠重跑放行不会被累计、不会被升级为硬红。
+
+### 2）环境债名单的「只减不增」机制已实现但未接线
+
+- `tools/env_redset.json` + `tools/check_env_redset.py` 已实现 `STALE` 分类：exempt 项本轮通过 → 名单可删此条，`--strict` 下按失败算（防名单僵化）。
+- 但 CI 侧调用**不传 `--strict`**（`paleo-dev.ps1:408-409`、`ci.yml` 对应 steps）→ `STALE` 从不触发，名单事实上**只增不减**。
+- 与 #474（`--symbol-audit` / `--transitive` 有工具未接线）同族：**有约束、无强制**。
+
+## 影响
+
+- 超时类失败可能掩盖真实性能退化（TODOS.md 已记 golden 17/48 超容差、`tst_cache_las`、`tst_perf_catalog`、`tst_singlefactor_perf` 等文档化红项，同族）。
+- 偶发竞态被吞掉后，直到用户机器上复现才被发现；名单无限增长会让豁免面持续扩大而无人复审。
+
+## 建议
+
+- **接线 STALE**：CI 侧给 `check_env_redset.py` 接 `--strict`（或先接「STALE 只提示不红」的过渡档），并给名单条目加 `reviewed_utc` 字段与季度复审。
+- **flaky 台账**：直跑放行时写入固定台账（仓库内文件或 `flaky` 标签 issue），按周复审；同一测试命中 N 次即升级为硬红。
+- 把串行直跑的放行 warning 提升为 PR 评审面可见的 annotation。
+
+## 验证
+
+连续两轮 CI 出现「出名单」或「台账新增」记录。
+
+## 关联
+
+- 同族：#474（有工具未接线）、#475（文档化红项 CI 不可见）
+- 快照文件去留：#484
+
+# 502 [med] 视图层规模失衡：ui 113k 行占 38.6%、43 个 >1000 行文件，无防增长闸
+
+## 问题
+
+**视图层规模失衡**：`src/ui` 113,101 行占全仓 38.6%，43 个 >1000 行文件、TOP5 巨型文件 4 个在 ui/，且无任何防增长闸。
+
+## 证据（master @ ddd1325e）
+
+模块行数：
+
+| 模块 | 行数 | 占比 |
+|---|---|---|
+| src/ui | 113,101 | 38.6% |
+| src/workflow | 45,645 | 15.6% |
+| src/algorithms | 36,704 | 12.5% |
+| src/io | 24,830 | 8.5% |
+| src/services | 20,701 | 7.1% |
+| src/qgis | 18,328 | 6.3% |
+| 其余（domain/catalog/ai/metadata/app/linkage/selfcheck） | 34,035 | 11.6% |
+
+巨型文件：
+
+- >1000 行：43 个；>1500 行：5 个 —— `seismic3dviewpanel.cpp` 1811 · `entitypanel.cpp` 1620 · `wellsectionpanel.cpp` 1541 · `mappingworkbenchpage.cpp` 1517 · `segyreader.cpp` 1515（4/5 在 ui/）。
+- >800 行：70 个。
+
+## 影响
+
+- AGENTS.md / docs/UI_LAYER_PLAN.md 契约要求「视图只发信号不干活」，体量分布与该契约存在张力；#473 已点名 `attachWorkbench` 1060 行巨型视图函数，本条是其**面上版本**。
+- 巨型视图文件是合并冲突震中（TODOS.md「同域高频补丁大文件拆分候选清单」同族结论），也是分层退化的入口。
+- 方向 96 / 97 已成功拆掉 constraintpage、datapreviewtabs，但新巨型文件仍在冒出 —— 说明缺的是闸而不是一次性拆分。
+
+## 建议
+
+- 加「UI 单文件 ≤1000 行 / 单函数 ≤200 行」防增长闸，与 #474（check_layering 防增长闸）同族，可并入同一工具与 baseline 机制，口径**只缩不涨**。
+- 沿用已验证模式（ctor 编排主文件 + 域 TU + `*_internal.h`，逐字节保留行为）继续拆 TOP5：seismic3dviewpanel、entitypanel、wellsectionpanel、mappingworkbenchpage。
+- 闸接线时给出当前 43 个文件的 baseline，避免一次性全红。
+
+## 验证
+
+闸接线且 TOP5 中至少 2 个降到 1000 行以下。
+
+## 关联
+
+同族：#473（attachWorkbench）、#474（防增长闸）；
+
+# 503 [med] 测试侧膨胀与反馈周期：Windows 全量 ctest 44 分钟、tst_panels 5,337 行
+
+> **2026-10-16 复核修正**（两条）：① 原建议第 1 条「按 label 分片**并行车道**」经核对 `.github/workflows/ci.yml` 后需要加前提——windows 是**单个 job**（vendor 缓存 → build → selfcheck → test），分片意味着每个 job 都要**完整构建一次**（构建产物不跨 job 共享），runner 成本翻倍、总时长只省下约一半测试时间。**只有先把构建成本降下来**（ccache/sccache 对 MSVC、或把 vendor+build 产物做成可复用 artifact）分片才划算；在此之前优先级应放在第 3 条（定位 18× 差距）与拆巨型测试文件上。② linux 车道**已经是两段式**（`tools/ci_ctest_gate.sh -LE 'core|perf'` 再 `-L core -LE perf`，隔离模块标签优先后全栈伞式），并非未分片状态。
+
+## 问题
+
+**测试侧膨胀 + 反馈周期过长**：18.4 万行测试码、巨型测试单文件、Windows 全量 ctest 约 44 分钟。
+
+## 证据（master @ ddd1325e / run 38835970978）
+
+- 体量：`tests/` 389 文件 **184,033 行**；最大单文件 `tst_panels.cpp` 5,337、`tst_edittools.cpp` 4,426、`tst_import.cpp` 3,485、`tst_mappingworkbench.cpp` 3,184、`tst_correlation_full.cpp` 2,565。
+- 墙钟：windows job `Total Test time (real) = 2635.06 sec`（≈44 min）；label 耗时 ui 845 s*proc（90 tests）、workflow 922 s*proc（58）、qgis 174 s*proc（20）、io 124 s*proc（33）。
+- 跨平台差异显著：linux 同为 373 项仅 `147.62 sec`，Windows 慢约 **18×**（MSVC 链接/运行 + QGIS 装载/文件系统）。
+- 目标面：注册 ctest 406 项（win 388 / linux 373），CMake 侧 397 处 `add_paleo_test`。
+
+## 影响
+
+反馈周期过长会**反向激励「不跑全量就合并」**，与 #497（CI 门禁失效）叠加后进一步削弱验证有效性；巨型测试文件则定位失败困难、易互相污染。
+
+## 建议
+
+1. **先定位 Windows 相对 Linux 的 18× 差距来源**（DLL 装载 / 链接 / 文件系统 / 沙箱 TEMP 重定向），削掉系统性部分——这是性价比最高的一项，且不增加 runner 成本。
+2. **拆分巨型测试文件**：`tst_panels`（5,337）、`tst_edittools`（4,426）等按被测域切成多个 `add_paleo_test` 目标（瘦 relink 面机制已有）。本地即可验证（编译 + 跑），无 CI 成本。
+3. **（需先降构建成本）** 分片并行车道：先把 vendor+build 产物做成可复用 artifact 或接 sccache，再拆 windows job 为多片并行，把墙钟压到 15 分钟内。
+
+## 验证
+
+Windows 全量 ctest 墙钟 < 15 min，且最大测试文件 < 3,000 行。
+
+## 关联
+
+- 父项：#497（CI 门禁功能性失效）
+- 相关：#484（CMake/测试布线清单）、#502（视图层规模闸，同族「只缩不涨」口径）
+
+
+---
+
+## 2026-10-16 二次复核：18× 差距的构成已定位
+
+**结论：18× ≈ 并行度 8× × 单测试慢 2.2×**，原描述「Windows 慢约 18×（MSVC 链接/运行 + QGIS 装载/文件系统）」不准确。
+
+| 平台 | ctest 并行度 | 报告的墙钟 | 等效单进程墙钟 |
+|---|---|---|---|
+| linux | `paleo-dev:104-112` 默认 `-j min(核数,8)` | 147.62 s | ≈ 147.62 × 8 ≈ **1181 s** |
+| windows | `paleo-dev.ps1:388` **未传 `-j` → ctest 串行** | 2635.06 s | **2635 s** |
+
+- **约 8× 来自并行度**（单进程等效 1181 s vs 2635 s 之间还剩 2.2×）
+- **约 2.2× 来自单测试本身**（DLL 加载 / GDAL+QGIS 初始化 / 文件系统 / 沙箱 TEMP 重定向）
+
+### 可行动项（需 CI 验证，未在本批引入）
+
+Windows 保持串行的原文理由是「QSettings NativeFormat 走注册表，不受 env 控制」（ci.yml windows Test 步注释）。但**方向 81 已落地测试私有注册表 hive**（`tests/support/paleo_test_registry_sandbox.cpp`），该理由**可能已失效**——那条注释疑为方向 81 之后未同步更新。
+
+建议单独 PR 试跑 `ctest -j4`：本机 worktree 只有 2 个测试目标，**无法本地验证并行安全性**，故不宜与本批修复混在一起提交。若并行可行，Windows 墙钟可直接从 ~44 min 压到 ~11 min（8× 的主要来源），这是本 issue 性价比最高的一项。
+
+### 关于原建议第 2 条（拆巨型测试文件）
+
+补充：拆分**不减少总墙钟**（用例数不变），收益在①失败定位粒度 ②本地可按族跑子集（如只跑 `dataPage_*` 20 个用例而非 144 个）。`tst_panels.cpp` 结构适合拆——单类 144 用例、命名已按页面分族（`dataPage_*` / `predictPage_*` / `constraintPage_*` / `composePage_*` / `validatePage_*` / `folderConfirm_*` / `mainWindow_*`），但需先把共享 Fixture 抽到 `tests/support/`，属独立工程。

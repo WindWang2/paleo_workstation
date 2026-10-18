@@ -413,9 +413,52 @@ bool MapVersionController::startPublish(const QString &horizon, const QString &r
   job->input = m_store->snapshotInputForPublish(horizon, declarations, residualSummary, error);
   if (!job->input.valid) return false;
   if (!m_async) m_async = std::make_shared<AsyncState>(this);
+  // FC-003：legacy（非冻结）发布来源是声明图层的当前可编辑文件——与 save
+  // 路径（launchSaveSnapshot）的 stale 守卫对称：编辑/换源/CRS/销毁任一信号
+  // 置 stale，commit 前复查。发布期间来源被编辑 → 如实失败重试，不产出
+  // 混合新旧状态的「只读快照」。冻结（saved_layers）来源是受管不可变文件，
+  // 不挂守卫。
+  bool legacySources = false;
+  for (const auto &entry : job->input.files)
+    if (entry.toMap().value(QStringLiteral("legacy")).toBool()) { legacySources = true; break; }
+  if (legacySources) {
+    job->stale = std::make_shared<std::atomic_bool>(false);
+    m_async->disconnectSourceWatches();
+    const auto stale = job->stale;
+    const auto markStale = [stale] { stale->store(true, std::memory_order_release); };
+    if (m_layers)
+      for (const auto &entry : job->input.files) {
+        const auto record = entry.toMap();
+        if (!record.value(QStringLiteral("legacy")).toBool()) continue;
+        auto *layer = m_layers->layer(record.value(QStringLiteral("layer_id")).toString());
+        if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
+          m_async->sourceWatches
+            << connect(vector, &QgsVectorLayer::geometryChanged, this, markStale)
+            << connect(vector, &QgsVectorLayer::attributeValueChanged, this, markStale)
+            << connect(vector, &QgsVectorLayer::featureAdded, this, markStale)
+            << connect(vector, &QgsVectorLayer::featureDeleted, this, markStale)
+            << connect(vector, &QgsVectorLayer::updatedFields, this, markStale)
+            << connect(vector, &QgsVectorLayer::subsetStringChanged, this, markStale)
+            << connect(vector, &QgsVectorLayer::editingStopped, this, markStale)
+            << connect(layer, &QgsMapLayer::dataSourceChanged, this, markStale)
+            << connect(layer, &QgsMapLayer::dataChanged, this, markStale)
+            << connect(layer, &QgsMapLayer::crsChanged, this, markStale)
+            << connect(layer, &QObject::destroyed, this, markStale);
+        } else if (layer) {
+          m_async->sourceWatches
+            << connect(layer, &QgsMapLayer::dataSourceChanged, this, markStale)
+            << connect(layer, &QgsMapLayer::dataChanged, this, markStale)
+            << connect(layer, &QgsMapLayer::crsChanged, this, markStale)
+            << connect(layer, &QObject::destroyed, this, markStale);
+        }
+      }
+  }
   m_async->runner.setTaskService(m_tasks);
   paleo::jobs::JobRunner<SnapshotJob>::Callbacks callbacks; callbacks.compute = computeSnapshot;
   callbacks.commit = [this](SnapshotJob &j, QString *err) {
+    if (j.stale && j.stale->load(std::memory_order_acquire)) {
+      if (err) *err = tr("发布来源在快照期间被编辑，请重试"); return false;
+    }
     if (!j.error.isEmpty()) { if (err) *err = j.error; return false; }
     if (!m_store || j.epoch != m_snapshotEpoch || j.input.projectDirectory != m_store->projectDirectory()) {
       if (err) *err = tr("工程已切换，旧发布快照已丢弃"); return false;
@@ -437,13 +480,18 @@ bool MapVersionController::startPublish(const QString &horizon, const QString &r
   *connection = connect(&m_async->runner, &paleo::jobs::JobRunnerBase::jobCompleted, this,
       [this, job, connection](quint64, bool) {
     disconnect(*connection);
+    m_async->disconnectSourceWatches(); // R2-SF-03：legacy 守卫连接随任务收口（save 路径同款）
     job->vectors.clear(); job->temporary.reset();
     emit snapshotBusyChanged(snapshotBusy());
     if (job->epoch == m_snapshotEpoch)
       emit snapshotFinished(job->input.horizon, "publish", job->prepared.committed, job->cancelled, job->error);
   });
   auto *task = m_async->runner.start(tr("%1 发布地图与证据快照").arg(horizon), job, callbacks);
-  if (!task) { disconnect(*connection); return false; }
+  if (!task) {
+    disconnect(*connection);
+    m_async->disconnectSourceWatches(); // R2-SF-03：启动失败同样不悬挂守卫连接
+    return false;
+  }
   emit snapshotBusyChanged(snapshotBusy());
   task->setNavigationContext({{"horizon", horizon}, {"workspace", "compose"}, {"operation", "map_snapshot_publish"}});
   return true;

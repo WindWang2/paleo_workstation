@@ -227,6 +227,63 @@ private slots:
     QVERIFY2(elapsed < 1500, qPrintable(QStringLiteral("destroy blocked %1ms").arg(elapsed)));
   }
 
+  // FE-004：LibreOffice profile 目录必须随机名且随服务析构清理——旧实现
+  // 固定名 /tmp/paleo-lo-profile-<pid> 是多用户机上的预布设面（symlink），
+  // 且从不清理（每个转换进程在 /tmp 永久遗留一个 profile）。
+  void documentConversionProfileDirIsRandomAndCleanedUp()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    // 长睡转换器（复用 documentTeardown 的口径）：转换在途即可观测 profile。
+    const QString stub = tmp.filePath(QStringLiteral("sleepy_profile") +
+#ifdef Q_OS_WIN
+                                      QStringLiteral(".cmd"));
+    {
+      QFile f(stub);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+      f.write("@ping -n 30 127.0.0.1 > nul\r\n");
+      f.close();
+    }
+#else
+                                      QStringLiteral(".sh"));
+    {
+      QFile f(stub);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+      f.write("#!/bin/sh\nsleep 30\n");
+      f.close();
+      QFile::setPermissions(stub, QFileDevice::ExeOwner | QFileDevice::ReadOwner |
+                                     QFileDevice::WriteOwner);
+    }
+#endif
+    svc.setDocumentConverterProgram(stub);
+    QString err;
+    const QString docSrc = tmp.filePath(QStringLiteral("stub_profile.doc"));
+    {
+      QFile df(docSrc);
+      QVERIFY(df.open(QIODevice::WriteOnly));
+      df.write("not a real doc");
+      df.close();
+    }
+    const QString docId = svc.importProjectFile(docSrc, &err);
+    QVERIFY2(!docId.isEmpty(), qPrintable(err));
+    svc.ensureDocumentPdf(docId);
+
+    const QStringList before = QDir::temp().entryList(
+        {QStringLiteral("paleo-lo-profile-*")}, QDir::Dirs | QDir::NoDotAndDotDot);
+    QVERIFY2(!before.contains(QStringLiteral("paleo-lo-profile-%1").arg(
+                                  QCoreApplication::applicationPid())),
+             "profile 目录不得用进程号可预测名（多用户机预布设面）");
+    stack.reset(); // 析构：profile 随 QTemporaryDir 清理
+    const QStringList after = QDir::temp().entryList(
+        {QStringLiteral("paleo-lo-profile-*")}, QDir::Dirs | QDir::NoDotAndDotDot);
+    QCOMPARE(after.size(), 0);
+  }
+
   // 方向 94：resolver 三级探测序 env(PALEO_SOFFICE) > vendored
   // (vendor/libreoffice/program/soffice[.exe] 自应用目录向上找) > PATH。
   // env 层无条件赢（部署逃生门，即使路径尚不存在）；vendored 树在场时

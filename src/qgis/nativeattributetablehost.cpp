@@ -95,15 +95,22 @@ bool PaleoAttributeTableHost::stopEditing(QgsVectorLayer *layer, bool allowCance
 {
   if (!layer || !layer->isEditable()) return true;
   if (layer->isModified()) {
-    if (QGuiApplication::platformName() == QLatin1String("offscreen") || !m_parent) {
+    // R2-SF-04：seam 先于 offscreen 早退判定——注入的 ask 是显式契约（含
+    // 测试驱动），无头环境同样生效；未注入时 offscreen 保持直存语义。
+    if (m_saveDiscardAsk && allowCancel) {
+      const auto choice = m_saveDiscardAsk(layer->name());
+      if (choice == SaveChoice::Cancel) return false;
+      if (choice == SaveChoice::Save) return saveEdits(layer, false);
+    } else if (QGuiApplication::platformName() == QLatin1String("offscreen") || !m_parent) {
       return saveEdits(layer, false);
+    } else {
+      const auto answer = QMessageBox::question(m_parent, tr("保存编辑"),
+        tr("是否保存图层「%1」的修改？").arg(layer->name()),
+        QMessageBox::Save | QMessageBox::Discard | (allowCancel ? QMessageBox::Cancel : QMessageBox::NoButton),
+        QMessageBox::Save);
+      if (answer == QMessageBox::Cancel) return false;
+      if (answer == QMessageBox::Save) return saveEdits(layer, false);
     }
-    const auto answer = QMessageBox::question(m_parent, tr("保存编辑"),
-      tr("是否保存图层「%1」的修改？").arg(layer->name()),
-      QMessageBox::Save | QMessageBox::Discard | (allowCancel ? QMessageBox::Cancel : QMessageBox::NoButton),
-      QMessageBox::Save);
-    if (answer == QMessageBox::Cancel) return false;
-    if (answer == QMessageBox::Save) return saveEdits(layer, false);
   }
   const bool ok = m_editingService ? m_editingService->rollbackEdit(layer) : layer->rollBack();
   return ok || fail(tr("放弃图层编辑失败"));

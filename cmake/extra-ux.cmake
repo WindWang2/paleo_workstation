@@ -61,6 +61,9 @@ if(PALEO_LRELEASE_EXECUTABLE)
     GENERATED TRUE
     QT_RESOURCE_ALIAS "paleo_zh_CN.qm"
   )
+  # FE-005：这里是 :/i18n/paleo_zh_CN.qm 的**唯一**嵌入点（main.cpp 的
+  # Q_INIT_RESOURCE(translations) 初始化的正是本目标）——不要另建 qrc 双轨
+  #（resources/translations.qrc 曾是引用不存在源树文件的死清单，已删除）。
   qt6_add_resources(paleo_ui "translations"
     PREFIX "/i18n"
     FILES "${PALEO_ZH_CN_QM}"

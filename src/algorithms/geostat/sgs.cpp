@@ -375,9 +375,14 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
   if ( R > 1 && !hasCallbacks )
   {
     // #478：实现级并行——输出行不相交、每实现流/缓冲私有，无需同步。
-    // 工作线程 ≤4（每实现工作区 ~2·cells·8B，峰值内存有界；回调在场时
-    // 不并行——Control 回调无线程安全契约，取消/进度仍走顺序档）。
-    const int workers = std::min<int>( R, 4 );
+    // 回调在场时不并行——Control 回调无线程安全契约，取消/进度仍走顺序档。
+    // FB-002：每实现工作区 = path + gaussianField + lattice.values ≈ 3·cells·8B
+    //（#468 输出闸只看张量，此处把 workers × 工作区计入总峰值并按预算收缩；
+    // worker 数是资源面，收缩不动成果语义——串行档=并行化之前的既有行为）。
+    const std::int64_t workspacePerWorker = cells64 * 3 * 8;
+    const std::int64_t outputBytes = static_cast<std::int64_t>( R ) * cells64 * 8;
+    const int workers =
+        detail::workersForPeakBudget( std::min<int>( R, 4 ), outputBytes, workspacePerWorker );
     std::vector<std::thread> threads;
     threads.reserve( static_cast<std::size_t>( workers ) - 1 );
     for ( int worker = 1; worker < workers; ++worker )

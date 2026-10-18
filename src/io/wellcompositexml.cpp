@@ -2,6 +2,7 @@
 #include "wellcompositexml.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QHash>
 #include <QXmlStreamReader>
 #include <cmath>
@@ -13,6 +14,11 @@ namespace WellComposite
 // 列号上限（同 outsourceworkbook 口径）：畸形 ss:Index（如 2000000000）会让
 // 补空列的分配失控（OOM/挂死）。
 constexpr int kMaxSpreadsheetColumns = 16384;
+// FA-001/FA-002 总量闸（同 outsourceworkbook 口径）：列填充的行宽 × 行数没有
+// 总预算时，~40B 的 ss:Index="16384" 单元格即可换 ~128KB 内存（构造工作簿
+// OOM/假死）；.xml 直读另有文件大小闸（xlsx 已由 zip 层 512MB 把关）。
+constexpr qint64 kMaxSheetCells = 4'000'000;
+constexpr qint64 kMaxWorkbookXmlBytes = 512LL * 1024 * 1024;
 
 static QColor pickWellCurveColor(const QString &mnemonic, int index)
 {
@@ -60,6 +66,14 @@ static QString pickUnitForMnemonic(const QString &mnemonic)
 
 bool parseComprehensiveWellXml(const QString &filePath, ComprehensiveWellData &outData, QString *errorMsg)
 {
+  // FA-002：.xml 直读大小闸（xlsx 已由 zip 层把关）——超大文件整读 + 解码
+  // 拷贝会等量放大内存。
+  if (QFileInfo(filePath).size() > kMaxWorkbookXmlBytes)
+  {
+    if (errorMsg)
+      *errorMsg = QStringLiteral("综合柱状图 XML 超大小上限（512MB）: %1").arg(filePath);
+    return false;
+  }
   QFile file(filePath);
   if (!file.open(QIODevice::ReadOnly))
   {
@@ -76,6 +90,8 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
   QString currentSheetName;
   QVector<QStringList> sheetRows;
   sheetRows.reserve(512);
+  // FA-001：累计格数预算（列填充放大闸）——超限如实拒收整簿。
+  qint64 cellBudget = kMaxSheetCells;
 
   // 解析并分流单个工作表
   const auto processSheet = [&](const QString &sheetName, const QVector<QStringList> &rows) {
@@ -553,6 +569,15 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
             }
           }
         }
+        cellBudget -= rowCells.size();
+        if (cellBudget < 0)
+        {
+          if (errorMsg)
+            *errorMsg = QStringLiteral("工作表「%1」累计单元格超预算（%2）——文件疑似畸形，整簿拒收")
+                            .arg(currentSheetName)
+                            .arg(kMaxSheetCells);
+          return false;
+        }
         sheetRows.append(rowCells);
       }
     }
@@ -891,6 +916,13 @@ namespace {
 bool collectSheetRows(const QString &filePath, const QString &sheetNamePrefix,
                       QVector<QStringList> &rowsOut, QString *errorMsg)
 {
+  // FA-002：.xml 直读大小闸（与 parseComprehensiveWellXml 同口径）。
+  if (QFileInfo(filePath).size() > kMaxWorkbookXmlBytes)
+  {
+    if (errorMsg)
+      *errorMsg = QStringLiteral("工作簿 XML 超大小上限（512MB）: %1").arg(filePath);
+    return false;
+  }
   QFile file(filePath);
   if (!file.open(QIODevice::ReadOnly))
   {
@@ -902,6 +934,7 @@ bool collectSheetRows(const QString &filePath, const QString &sheetNamePrefix,
   QXmlStreamReader xml(file.readAll());
   QString currentSheetName;
   QVector<QStringList> sheetRows;
+  qint64 cellBudget = kMaxSheetCells; // FA-001：累计格数预算（列填充放大闸）
   bool found = false;
 
   while (!xml.atEnd())
@@ -958,6 +991,15 @@ bool collectSheetRows(const QString &filePath, const QString &sheetNamePrefix,
               ++colIndex;
             }
           }
+        }
+        cellBudget -= rowCells.size();
+        if (cellBudget < 0)
+        {
+          if (errorMsg)
+            *errorMsg = QStringLiteral("工作表「%1」累计单元格超预算（%2）——文件疑似畸形，整簿拒收")
+                            .arg(currentSheetName)
+                            .arg(kMaxSheetCells);
+          return false;
         }
         sheetRows.append(rowCells);
       }

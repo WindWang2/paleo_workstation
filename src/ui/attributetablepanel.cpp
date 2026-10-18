@@ -45,6 +45,22 @@ AttributeTablePanel::AttributeTablePanel(
   picker->setAccessibleName(tr("属性表图层选择"));
   lay->addWidget(picker);
   m_host = new PaleoAttributeTableHost(canvas, this);
+  // FD-004：破坏性确认统一走 PaleoNotify Tier-2 收敛（DESIGN.md「错误呈现」；
+  // 未注入时宿主回落原生 QMessageBox 的降级契约保持）。
+  m_host->setSaveDiscardAsk([this](const QString &layerName) -> PaleoAttributeTableHost::SaveChoice {
+    switch (PaleoNotify::askSaveDiscard(
+        this, PaleoNotify::AskIcon::Question, tr("保存编辑"),
+        tr("是否保存图层「%1」的修改？").arg(layerName),
+        tr("保存"), tr("放弃"), tr("取消"))) {
+      case PaleoNotify::SaveChoice::Save:
+        return PaleoAttributeTableHost::SaveChoice::Save;
+      case PaleoNotify::SaveChoice::Discard:
+        return PaleoAttributeTableHost::SaveChoice::Discard;
+      case PaleoNotify::SaveChoice::Cancel:
+        break;
+    }
+    return PaleoAttributeTableHost::SaveChoice::Cancel;
+  });
   lay->addWidget(m_host->messageBar());
   connect(m_host, &PaleoAttributeTableHost::errorOccurred, this, &AttributeTablePanel::editRefused);
 

@@ -685,8 +685,15 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
   if ( R > 1 && !hasCallbacks )
   {
     // #478：实现级并行（2D 核同款）：输出行不相交、每实现流/缓冲私有；
-    // 工作线程 ≤4；回调在场时不并行（取消/进度走顺序档）。
-    const int workers = std::min<int>( R, 4 );
+    // 回调在场时不并行（取消/进度走顺序档）。
+    // FB-002：每实现工作区 = path + gaussianField + lattice 值 + 逐目标查找表
+    //（~n·80B，unordered_map 节点按 56B/项保守估）——与 2D 核同款按总峰值
+    // 预算收缩 worker 数（资源面收缩，成果语义不动）。
+    const std::int64_t n64 = static_cast<std::int64_t>( n );
+    const std::int64_t workspacePerWorker = n64 * 80;
+    const std::int64_t outputBytes = static_cast<std::int64_t>( R ) * n64 * 8;
+    const int workers =
+        detail::workersForPeakBudget( std::min<int>( R, 4 ), outputBytes, workspacePerWorker );
     std::vector<std::thread> threads;
     threads.reserve( static_cast<std::size_t>( workers ) - 1 );
     for ( int worker = 1; worker < workers; ++worker )

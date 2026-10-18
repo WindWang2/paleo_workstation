@@ -47,6 +47,7 @@ class TestPreviewMapTools : public QObject
     void measureAreaNeedsThreePoints();
     void measureAreaComputesAreaAndPerimeter();
     void measureClearEmitsCleared();
+    void measureDeactivateHidesBandAndKeepsPoints();
     void identifyClickEmitsPoint();
     void identifyDragEmitsRect();
     void identifyEscapeReturnsToPan();
@@ -228,6 +229,25 @@ void TestPreviewMapTools::measureClearEmitsCleared()
   tool->clear();
   QCOMPARE(spy.count(), 1);
   QCOMPARE(tool->points().size(), 0);
+}
+
+// FD-002：切走工具时量测带必须隐藏（identify/profile 同款清理契约），
+// 点列保留（重新激活可续测）。旧代码 deactivate 无清理——虚线带+读数
+// 永久残留画布。
+void TestPreviewMapTools::measureDeactivateHidesBandAndKeepsPoints()
+{
+  m_mgr->activate(PreviewMapToolManager::kMeasureLine);
+  auto *tool = static_cast<PreviewMeasureTool *>(m_mgr->tool(PreviewMapToolManager::kMeasureLine));
+  firePress(tool, QPoint(10, 150));
+  firePress(tool, QPoint(110, 150));
+  QCOMPARE(tool->points().size(), 2);
+  QVERIFY(tool->isBandVisible());
+  m_mgr->activate(PreviewMapToolManager::kPan); // QGIS 切换链会 deactivate 旧工具
+  QVERIFY(!tool->isBandVisible());
+  QCOMPARE(tool->points().size(), 2); // 续测点列保留（Esc 才全清）
+  m_mgr->activate(PreviewMapToolManager::kMeasureLine);
+  firePress(tool, QPoint(210, 150)); // 续测
+  QCOMPARE(tool->points().size(), 3);
 }
 
 void TestPreviewMapTools::identifyClickEmitsPoint()

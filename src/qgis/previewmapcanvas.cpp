@@ -105,6 +105,18 @@ PreviewMapCanvas::~PreviewMapCanvas()
 
 void PreviewMapCanvas::setLayers( const QList<QgsMapLayer *> &layers )
 {
+  // FD-003：整表置换时摘除「旧表 − 新表」层的三层记账——旧实现只加不减，
+  // forgetLayer 又对已置换层早退，被置换层的陈旧条目（以裸指针为键）永久
+  // 累积；分配器地址复用时，新层经 !contains 守卫直接继承陈旧可见性/透明
+  // 度/混合模式。仍在新表中的层不重置（重排/叠加不得清用户显式设置）。
+  for ( QgsMapLayer *old : std::as_const( m_layers ) )
+  {
+    if ( layers.contains( old ) )
+      continue;
+    m_visible.remove( old );
+    m_opacity.remove( old );
+    m_blend.remove( old );
+  }
   m_layers = layers;
   for ( QgsMapLayer *l : layers )
   {

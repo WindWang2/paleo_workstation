@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <functional>
 #include <memory>
 #include <qgsfeature.h>
 #include <qgsgeometry.h>
@@ -31,6 +32,15 @@ public:
   QgsMessageBar *messageBar() const;
   QgsAttributeEditorContext createAttributeEditorContext() const;
   QgsClipboard *clipboard() const;
+  // FD-004：破坏性确认（保存/放弃/取消）的 ask seam——DESIGN.md Tier-2 要求
+  // 破坏性确认统一走 ui/notifications/paleonotify.h 收敛；qgis 封装层按分层
+  // 不能 include ui/，由壳侧注入。缺省（未注入）回落现有原生 QMessageBox
+  //（降级契约，同 paleonotify 无 hub 回落）；offscreen 分支保持直存语义。
+  // allowCancel=false 的罕见调用保持原生两键路径（不引入 seam 语义漂移）。
+  enum class SaveChoice { Save, Discard, Cancel };
+  void setSaveDiscardAsk(const std::function<SaveChoice(const QString &layerName)> &ask)
+  { m_saveDiscardAsk = ask; }
+
   bool startEditing(QgsVectorLayer *layer);
   bool toggleEditing(QgsVectorLayer *layer);
   bool saveEdits(QgsVectorLayer *layer, bool leaveEditable = true, bool = true);
@@ -49,5 +59,6 @@ private:
   QPointer<QgisEditingService> m_editingService;
   QPointer<QWidget> m_parent;
   QgsMessageBar *m_messageBar;
+  std::function<SaveChoice(const QString &)> m_saveDiscardAsk;
   std::unique_ptr<QgsVectorLayerTools> m_tools;
 };

@@ -72,6 +72,8 @@ class TestEvolutionPlayer : public QObject
     void playStopsAtLastFrame();
     void followsExternalActiveHorizon();
     void outOfSetHorizonKeepsFrame();
+    // FD-001：工程词表换装后帧表必须可重灌（步进不越出本工程层位集合）。
+    void reloadFramesFollowsProjectVocabulary();
 
   private:
     std::unique_ptr<QTemporaryDir> m_dir;
@@ -89,6 +91,51 @@ void TestEvolutionPlayer::frameOrderMatchesMappingHorizons()
   QCOMPARE( panel.frameOrder(), mappingHorizons() );
   QCOMPARE( panel.frameOrder(),
             QStringList( { QStringLiteral( "H1" ), QStringLiteral( "H2" ), QStringLiteral( "H3" ) } ) );
+}
+
+// FD-001：帧表在构造时快照词表——工程打开换装 sequence_boundaries 后，
+// reloadFrames() 必须让帧表跟随新词表；否则步进会把 activeHorizon 切到
+// 本工程不存在的层位（chip 全灭、地图层被清空、编图三页上下文被污染）。
+void TestEvolutionPlayer::reloadFramesFollowsProjectVocabulary()
+{
+  WorkflowFixture f;
+  QVERIFY( initFixture( f ) );
+  SelectionContext selection;
+  EvolutionPlayerPanel panel( &selection, &f.layers );
+  QCOMPARE( panel.frameOrder(),
+            QStringList( { QStringLiteral( "H1" ), QStringLiteral( "H2" ), QStringLiteral( "H3" ) } ) );
+
+  // 换装第二套工程词表（模拟 onProjectOpened：AreaRules::setProjectDir）。
+  QTemporaryDir dir2;
+  QVERIFY( dir2.isValid() );
+  QFile config( dir2.filePath( QStringLiteral( "project_area.json" ) ) );
+  QVERIFY( config.open( QIODevice::WriteOnly | QIODevice::Truncate ) );
+  config.write( R"({
+  "schema_version": 1,
+  "sequence_boundaries": ["K1", "K2"],
+  "target_horizon": "K1",
+  "classifier": {"dat_path_rules": [], "reference_dir_names": [], "fixed_auxiliary_name_stem": "OTHER-1"},
+  "segy_indexing": {"inline_word_offset": 189, "crossline_word_offset": 193, "field_record_offset": 9, "cdp_xline_offset": 24},
+  "onnx_grid": {"rows": 97, "cols": 129}
+})" );
+  config.close();
+  AreaRules::setProjectDir( dir2.path() );
+  QVERIFY( AreaRules::lastError().isEmpty() );
+  QCOMPARE( mappingHorizons(), QStringList( { QStringLiteral( "K1" ), QStringLiteral( "K2" ) } ) );
+
+  panel.reloadFrames();
+  QCOMPARE( panel.frameOrder(), mappingHorizons() );
+  QCOMPARE( panel.frameOrder(),
+            QStringList( { QStringLiteral( "K1" ), QStringLiteral( "K2" ) } ) );
+  // 重灌后步进只在新词表内（H2 已不在集合——旧代码会切到集合外层位）。
+  selection.setActiveHorizon( QStringLiteral( "K1" ) );
+  QToolButton *next = panel.findChild<QToolButton *>( QStringLiteral( "evolutionNextButton" ) );
+  QVERIFY( next != nullptr );
+  next->click();
+  QCOMPARE( selection.activeHorizon(), QStringLiteral( "K2" ) );
+  next->click(); // 末帧：不动（不越出 K1/K2）
+  QCOMPARE( selection.activeHorizon(), QStringLiteral( "K2" ) );
+  // AreaRules 复位交回 cleanup()。
 }
 
 void TestEvolutionPlayer::stepAdvancesInMappingOrder()

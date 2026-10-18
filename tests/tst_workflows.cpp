@@ -357,6 +357,14 @@ private slots:
                                        params, &job, &err ),
               qPrintable( err ) );
     QVERIFY( job.prepared );
+    // FC-001：prepare（GUI 线程段）必须把活 QgsMapLayer 冻结成 URI 快照——
+    // worker 线程的 compute 只收值类型，不得触碰主线程拥有的图层对象
+    // （qgisprocessingservice.cpp 自述契约）。下方 compute 在 worker 上执行，
+    // 全链成功即证快照回放等价。
+    QVERIFY2( !job.params.contains( QStringLiteral( "INPUT" ) ),
+              "prepare 后 params 不得携带活 QgsMapLayer（应冻结为 inputUri 快照）" );
+    QVERIFY( !job.inputUri.isEmpty() );
+    QVERIFY( job.inputIsRaster );
     QVERIFY( job.staging.isValid() );
     QVERIFY2( f.catalog.assetById( job.staging.assetId ).id.isEmpty(),
               "prepare 的 stage 只预留不落库——资产由 publish 段结算" );

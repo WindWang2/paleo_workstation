@@ -27,9 +27,28 @@ namespace detail
 // #468：realizations 组合内存预算闸——单轴预算（2D cells ≤ 1e8 / 3D targets
 // ≤ 1e8、R ≤ 64）挡不住乘积爆炸（64×1e8×8B ≈ 51GB）。输出张量总字节超过
 // 本预算的参数组合在入口拒绝（拒绝而非钳制：实现数是成果语义，静默降档
-// 会篡改成果口径）。峰值工作内存 ≈ 输出张量 + 每实现工作区
-//（gaussianField + lattice ≈ 2·cells·8B）+ 索引，预算 4GiB 时整体 ≤ ~4.5GB。
+// 会篡改成果口径）。峰值工作内存 = 输出张量 + workers × 每实现工作区
+//（2D：path+gaussianField+lattice ≈ 3·cells·8B；3D 另加逐目标查找表）——
+// #478 并行化起每 worker 各持一份工作区，合法输出参数下峰值可数倍于输出
+// 张量，由 kPeakBudgetBytes + workersForPeakBudget 收缩 worker 数约束
+//（worker 数是资源面，收缩不动成果语义；串行档为并行化之前的既有行为，
+// 不再向下收缩——其工作区峰值在最坏参数下本就可超 4.5GB，历史口径失实）。
 constexpr std::int64_t kMaxRealizationBytes = std::int64_t( 4 ) * 1024 * 1024 * 1024;
+// FB-002：并行档总峰值预算（输出张量 + 全部在飞 worker 的工作区之和）。
+constexpr std::int64_t kPeakBudgetBytes = std::int64_t( 6 ) * 1024 * 1024 * 1024;
+
+// 在 [1, requestedWorkers] 内取不超 kPeakBudgetBytes 的最大 worker 数；
+// 哪怕 1 个 worker 也超预算时返回 1（回落串行档，语义=并行化之前的行为）。
+inline int workersForPeakBudget( int requestedWorkers, std::int64_t outputBytes,
+                                 std::int64_t workspacePerWorkerBytes )
+{
+  int workers = requestedWorkers < 1 ? 1 : requestedWorkers;
+  while ( workers > 1 &&
+          outputBytes + static_cast<std::int64_t>( workers ) * workspacePerWorkerBytes >
+              kPeakBudgetBytes )
+    --workers;
+  return workers;
+}
 
 // 条件点（高斯域）。2D 消费方 z 恒 0。
 struct CondPoint

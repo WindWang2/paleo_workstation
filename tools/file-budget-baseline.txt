@@ -47,9 +47,9 @@ src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:659
 src/ui/pages/mappingworkbenchpage.cpp:fn:renderEvidenceSnapshot:267
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:278
 src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:263
-src/ui/paleomainwindow.cpp:file:1015
+src/ui/paleomainwindow.cpp:file:1018
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:412
-src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:387
+src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:405
 src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:718
 src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:342
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:580

@@ -49,6 +49,7 @@ class TestPreviewMapCanvas : public QObject
     void addLayerGoesOnTop();
     void removeAndMoveLayers();
     void layerDestroyedDropsAllBookkeeping();
+    void setLayersReplacementDropsReplacedBookkeeping();
     void restoreRasterCrsHandlesProviderOptions();
     void visibilityGatesCanvasLayerList();
     void opacityAndBlendApplyToLayer();
@@ -169,6 +170,34 @@ void TestPreviewMapCanvas::layerDestroyedDropsAllBookkeeping()
   delete a;
   QTRY_COMPARE(m_canvas->layerCount(), 0);
   QVERIFY(m_canvas->canvas()->layers().isEmpty());
+}
+
+// FD-003：setLayers 整表置换必须摘除被置换层的三层记账——旧实现只加不减，
+// 地址复用时新层经 !contains 守卫继承陈旧可见性/透明度（TOC 显示可见、
+// 画布不画）；仍在新表中的层不重置（重排不清用户显式设置）。
+void TestPreviewMapCanvas::setLayersReplacementDropsReplacedBookkeeping()
+{
+  auto *a = makePointLayer(1, QStringLiteral("replace-a"));
+  auto *b = makePointLayer(1, QStringLiteral("replace-b"));
+  m_canvas->setLayers({a});
+  QCOMPARE(m_canvas->isLayerVisible(a), true);
+  m_canvas->setLayerVisible(a, false);
+  m_canvas->setLayerOpacity(a, 0.3);
+  // a 置换出去（记账应随之摘除）……
+  m_canvas->setLayers({b});
+  // ……再回表：默认可见/不透明，不继承置换前的隐藏+0.3。
+  m_canvas->setLayers({a});
+  QCOMPARE(m_canvas->isLayerVisible(a), true);
+  QCOMPARE(m_canvas->layerOpacity(a), 1.0);
+  // b 置换后回表同样取默认值。
+  m_canvas->setLayers({b});
+  QCOMPARE(m_canvas->isLayerVisible(b), true);
+  QCOMPARE(m_canvas->layerOpacity(b), 1.0);
+  // 重排不清用户显式设置：a、b 同表时对 b 隐藏，重排（同集合异序）后保持。
+  m_canvas->setLayers({b, a});
+  m_canvas->setLayerVisible(b, false);
+  m_canvas->setLayers({a, b});
+  QCOMPARE(m_canvas->isLayerVisible(b), false);
 }
 
 void TestPreviewMapCanvas::restoreRasterCrsHandlesProviderOptions()

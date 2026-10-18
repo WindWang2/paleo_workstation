@@ -1157,7 +1157,7 @@ add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_wellattributes LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
-add_paleo_test(tst_perf LIBS paleo_qgis)
+add_paleo_test(tst_perf LIBS paleo_qgis paleo_services paleo_algorithms)
 set_tests_properties(tst_perf PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_locator LIBS paleo_ui)
 add_paleo_test(tst_layoutshell LIBS paleo_ui)
@@ -1211,6 +1211,7 @@ add_paleo_test(tst_constraintevidence LIBS paleo_io)
 add_paleo_test(tst_constraintediting LIBS paleo_ui)
 add_paleo_test(tst_shapetools LIBS paleo_ui)
 add_paleo_test(tst_edittools LIBS paleo_ui)
+add_paleo_test(tst_attributetablehost LIBS paleo_qgis paleo_qgis_attribute_table) # FD-004/R2-SF-04：ask seam 契约（独立文件避开 PR #521 冲突面）
 add_paleo_test(tst_faciespartition LIBS paleo_qgis)
 add_paleo_test(tst_correlation_full LIBS paleo_ui)
 # tst_correlation_full 内嵌墙钟性能断言（10 次 warm reorder < 1000ms，测试

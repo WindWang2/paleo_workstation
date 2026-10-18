@@ -23,6 +23,7 @@
 #include "../workflow/evidenceinteraction.h"
 #include "datapreview/datapreviewtabs.h"
 #include "decorations/paleodecorations.h"
+#include "faciesdisplaycontrol.h"
 #include "edittools/editingtoolbar.h"
 #include "horizonchipbar.h"
 #include "notifications/paleonotify.h"
@@ -203,6 +204,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
   workbench->updateDisplayScale(m_canvasCtl->canvas()->scale());
   connect(m_canvasCtl->canvas(), &QgsMapCanvas::scaleChanged, workbench,
           &MappingWorkbench::updateDisplayScale);
+  attachFaciesDisplayControls(workbench);
   connect(workbench, &MappingWorkbench::displayChanged, this,
           [this, legend](const QString &id) {
             auto *layer = m_canvasCtl->canvas()->currentLayer();
@@ -575,4 +577,56 @@ PaleoMainWindow::WorkbenchShowFn PaleoMainWindow::makeWorkbenchCompare(
   return [this](const QString &id, QString *error) {
     return showMappingReference(id, error);
   };
+}
+
+void PaleoMainWindow::attachFaciesDisplayControls(MappingWorkbench *workbench) {
+  const auto controls = findChildren<FaciesDisplayControl *>();
+  auto *canvas = m_canvasCtl->canvas();
+  const auto refresh = [this, workbench, canvas, controls] {
+    const auto visible = canvas->layers();
+    const auto eligible = [workbench, &visible](QgsMapLayer *layer) {
+      if (!layer || !layer->isValid() || !visible.contains(layer)) return false;
+      const auto id = layer->customProperty("paleoLayerId").toString();
+      return !id.isEmpty() && !workbench->isWellPrediction(id) &&
+          !workbench->versionForLayer(id).extra.value("facies").toList().isEmpty();
+    };
+    auto *target = canvas->currentLayer();
+    if (!eligible(target)) {
+      target = nullptr;
+      for (auto *layer : visible) {
+        if (!eligible(layer)) continue;
+        const auto horizon = workbench->declaration(layer->customProperty("paleoLayerId").toString()).horizon;
+        if (m_selection && !m_selection->activeHorizon().isEmpty() &&
+            horizon != m_selection->activeHorizon()) continue;
+        target = layer; break;
+      }
+    }
+    const auto id = target ? target->customProperty("paleoLayerId").toString() : QString();
+    for (auto *control : controls)
+      control->setState(id, target ? target->name() : QString(), workbench->displayMode(id),
+          workbench->resolvedLevel(id), workbench->displayThresholds());
+  };
+  auto *timer = new QTimer(this); timer->setSingleShot(true); timer->setInterval(30);
+  connect(timer, &QTimer::timeout, this, refresh);
+  connect(canvas, &QgsMapCanvas::currentLayerChanged, this, [refresh] { refresh(); });
+  connect(canvas, &QgsMapCanvas::layersChanged, this, refresh);
+  connect(canvas, &QgsMapCanvas::scaleChanged, timer, qOverload<>(&QTimer::start));
+  connect(workbench, &MappingWorkbench::displayChanged, timer, qOverload<>(&QTimer::start));
+  connect(workbench, &MappingWorkbench::changed, timer, qOverload<>(&QTimer::start));
+  if (m_selection) connect(m_selection, &SelectionContext::activeHorizonChanged, timer, qOverload<>(&QTimer::start));
+  for (auto *control : controls) {
+    connect(control, &FaciesDisplayControl::displayModeRequested, this,
+        [this, workbench, refresh](const QString &id, const QString &mode) {
+          QString error;
+          if (!workbench->setDisplayMode(id, mode, &error)) statusBar()->showMessage(error, 15000);
+          refresh();
+        });
+    connect(control, &FaciesDisplayControl::thresholdsRequested, this,
+        [this, workbench, refresh](double facies, double micro) {
+          QString error;
+          if (!workbench->setDisplayThresholds(facies, micro, &error)) statusBar()->showMessage(error, 15000);
+          refresh();
+        });
+  }
+  refresh();
 }

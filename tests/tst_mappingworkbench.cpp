@@ -28,6 +28,16 @@
 #include "../src/ui/pages/mappingreferencepanel.h"
 #include "../src/ui/pages/wellpredictionpanel.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/faciesdisplaycontrol.h"
+#include "../src/services/faciesdisplaysettings.h"
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QSpinBox>
+#include <QPushButton>
+#include <QSettings>
+#include <QScopeGuard>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/decorations/paleodecorations.h"
 #include "../src/ui/wellcomposite/wellcompositecanvas.h"
@@ -468,6 +478,150 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void scaleSettingsAreRestoredInANewProcess() {
+    auto &preferences = FaciesDisplaySettings::instance();
+    if (qEnvironmentVariableIsSet("PALEO_SCALE_SETTINGS_CHILD")) {
+      QCOMPARE(preferences.thresholds().faciesToSubfacies, 375000.);
+      QCOMPARE(preferences.thresholds().subfaciesToMicrofacies, 75000.);
+      return;
+    }
+    const auto previous = preferences.thresholds(); QString error;
+    const auto restore = qScopeGuard([&] { QString ignored; preferences.save(previous, &ignored); });
+    QVERIFY2(preferences.save({375000, 75000}, &error), qPrintable(error));
+    QTemporaryDir dir;
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert("PALEO_SCALE_SETTINGS_CHILD", "1");
+    QProcess process; process.setProcessEnvironment(environment);
+    process.start(QCoreApplication::applicationFilePath(), {"scaleSettingsAreRestoredInANewProcess",
+        "-o", dir.filePath("startup.txt") + ",txt"});
+    QVERIFY(process.waitForFinished(30000));
+    QFile log(dir.filePath("startup.txt")); QVERIFY(log.open(QIODevice::ReadOnly));
+    const auto results = log.readAll();
+    QVERIFY2(process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0, results.constData());
+  }
+  void thresholdSettingsRefreshAutoLayersAndKeepFixedModes() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto previous = f.work.displayThresholds();
+    const auto restore = qScopeGuard([&] { QString ignored;
+      f.work.setDisplayThresholds(previous.faciesToSubfacies, previous.subfaciesToMicrofacies, &ignored); });
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    f.work.updateDisplayScale(100000);
+    QVERIFY(f.work.setDisplayMode(draft, "auto", &error));
+    QVERIFY(f.work.setDisplayThresholds(250000, 50000, &error));
+    QCOMPARE(f.work.resolvedLevel(draft), QString("sub_facies"));
+    QCOMPARE(f.work.displayLegend(draft).size(), 3); // this fixture has three subfacies paths
+    QCOMPARE(f.work.displayLegend(draft).first().toMap().value("level").toString(), QString("sub_facies"));
+    QVERIFY(f.work.setDisplayThresholds(75000, 25000, &error));
+    QCOMPARE(f.work.resolvedLevel(draft), QString("facies"));
+    QCOMPARE(f.work.displayLegend(draft).size(), 3);
+    QCOMPARE(f.work.displayLegend(draft).first().toMap().value("level").toString(), QString("facies"));
+    QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
+    QCOMPARE(settings.value("mapping/faciesToSubfaciesScale").toDouble(), 75000.);
+    QCOMPARE(settings.value("mapping/subfaciesToMicrofaciesScale").toDouble(), 25000.);
+    QVERIFY(f.work.setDisplayMode(draft, "micro_facies", &error));
+    QVERIFY(f.work.setDisplayThresholds(200000, 150000, &error));
+    f.work.updateDisplayScale(10000000);
+    QCOMPARE(f.work.resolvedLevel(draft), QString("micro_facies"));
+    QCOMPARE(f.work.displayLegend(draft).size(), 5);
+    QVERIFY(!f.work.setDisplayThresholds(1000, 1000, &error));
+    QCOMPARE(f.work.displayThresholds().faciesToSubfacies, 200000.);
+  }
+  void scaleSettingsDialogValidatesRestoresAndCancels() {
+    FaciesDisplayControl control;
+    control.setState("facies", "test", "auto", "sub_facies", {250000, 50000});
+    auto *settings = control.findChild<QToolButton *>("ribbonFaciesScaleSettings"); QVERIFY(settings);
+    QSignalSpy requested(&control, &FaciesDisplayControl::thresholdsRequested);
+    QTimer::singleShot(5000, &control, [&] {
+      if (auto *dialog = control.findChild<QDialog *>("faciesScaleSettingsDialog")) dialog->reject();
+    });
+    QTimer::singleShot(0, &control, [&] {
+      auto *dialog = control.findChild<QDialog *>("faciesScaleSettingsDialog"); QVERIFY(dialog);
+      auto *facies = dialog->findChild<QSpinBox *>("faciesScaleThreshold"); QVERIFY(facies);
+      auto *micro = dialog->findChild<QSpinBox *>("microfaciesScaleThreshold"); QVERIFY(micro);
+      auto *buttons = dialog->findChild<QDialogButtonBox *>(); QVERIFY(buttons);
+      facies->setValue(100000); micro->setValue(100000);
+      QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
+      buttons->button(QDialogButtonBox::RestoreDefaults)->click();
+      QCOMPARE(facies->value(), 250000); QCOMPARE(micro->value(), 50000);
+      QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+      const auto qa = qEnvironmentVariable("PALEO_FACIES_SCALE_QA_DIR");
+      if (!qa.isEmpty()) { QDir().mkpath(qa); QVERIFY(dialog->grab().save(qa + "/scale-settings.png")); }
+      facies->setValue(500000); micro->setValue(100000);
+      buttons->button(QDialogButtonBox::Ok)->click();
+    });
+    settings->click();
+    QCOMPARE(requested.size(), 1); QCOMPARE(requested.first()[0].toDouble(), 500000.);
+    QCOMPARE(requested.first()[1].toDouble(), 100000.);
+    QTimer::singleShot(0, &control, [&] {
+      auto *dialog = control.findChild<QDialog *>("faciesScaleSettingsDialog"); QVERIFY(dialog); dialog->reject();
+    });
+    settings->click(); QCOMPARE(requested.size(), 1);
+  }
+  void ribbonFixedFaciesTracksVisibleTargetAndRestoresAutomaticMode() {
+    QObject context;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&context);
+    QgisCanvasController controller(&context);
+    controller.setLayerResolver([&f](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    PredictionWorkflow prediction(&f.processing, &f.layers);
+    CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation,
+        nullptr, nullptr, &f.processing, &f.store);
+    window.attachWorkbench(&f.work); window.showPage("compose"); selection.setActiveHorizon("D61");
+    const auto controls = window.findChildren<FaciesDisplayControl *>(); QCOMPARE(controls.size(), 3);
+    QString error; const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = f.layers.instantiate(draft, &error); QVERIFY(layer);
+    auto *node = f.project.project()->layerTreeRoot()->findLayer(layer->id()); QVERIFY(node);
+    node->setItemVisibilityCheckedParentRecursive(true); controller.canvas()->setCurrentLayer(layer);
+    auto *mode = controls.first()->findChild<QComboBox *>("ribbonFaciesDisplayMode"); QVERIFY(mode);
+    QTRY_VERIFY(mode->isEnabled());
+    MappingWorkbenchPage *page = nullptr;
+    for (auto *candidate : window.findChildren<MappingWorkbenchPage *>())
+      if (candidate->mode() == "compose") page = candidate;
+    QVERIFY(page); page->selectLayer(draft);
+    auto *sideMode = page->findChild<QComboBox *>("faciesDisplayLevel"); QVERIFY(sideMode);
+    for (const auto &level : FaciesHierarchy::levels()) {
+      mode->setCurrentIndex(mode->findData(level));
+      QVERIFY(QMetaObject::invokeMethod(mode, "activated", Qt::DirectConnection, Q_ARG(int, mode->currentIndex())));
+      QCOMPARE(f.work.displayMode(draft), level);
+      QTRY_COMPARE(sideMode->currentData().toString(), level);
+      controller.canvas()->zoomScale(1000); QCOMPARE(f.work.resolvedLevel(draft), level);
+      controller.canvas()->zoomScale(10000000); QCOMPARE(f.work.resolvedLevel(draft), level);
+      for (auto *control : controls)
+        QTRY_COMPARE(control->findChild<QComboBox *>("ribbonFaciesDisplayMode")->currentData().toString(), level);
+    }
+    mode->setCurrentIndex(0);
+    QVERIFY(QMetaObject::invokeMethod(mode, "activated", Qt::DirectConnection, Q_ARG(int, 0)));
+    controller.canvas()->zoomScale(100000); QTRY_COMPARE(f.work.resolvedLevel(draft), QString("sub_facies"));
+    const auto qa = qEnvironmentVariable("PALEO_FACIES_SCALE_QA_DIR");
+    if (!qa.isEmpty()) { window.resize(1600, 1000); window.show(); QTest::qWait(80);
+      QVERIFY(window.categoryForPage("compose")->grab().save(qa + "/ribbon-facies.png")); }
+    node->setItemVisibilityChecked(false); QTRY_VERIFY(!mode->isEnabled());
+  }
+  void changedScaleSettingsRefreshExistingReferenceViews() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto previous = f.work.displayThresholds();
+    const auto restore = qScopeGuard([&] { QString ignored;
+      f.work.setDisplayThresholds(previous.faciesToSubfacies, previous.subfaciesToMicrofacies, &ignored); });
+    QVERIFY(f.work.setDisplayThresholds(250000, 50000, &error));
+    QgsMapCanvas main; MappingReferenceCanvas reference(&main, f.project.project());
+    auto *layer = new QgsVectorLayer("Polygon?field=facies_code:integer&crs=EPSG:3857", "facies", "memory");
+    const auto schema = hierarchySchema(); QgsFeatureList features;
+    for (const auto &row : schema) {
+      const int code = row.toMap().value("code").toInt();
+      QgsFeature feature(layer->fields()); feature.setAttribute("facies_code", code);
+      feature.setGeometry(QgsGeometry::fromRect(QgsRectangle(code * 100, 0, (code + 1) * 100, 100)));
+      features << feature;
+    }
+    QVERIFY(layer->dataProvider()->addFeatures(features)); layer->updateExtents();
+    reference.setReference(layer, {{"facies", schema}, {"display_mode", "auto"}});
+    reference.canvas()->zoomScale(100000);
+    QCOMPARE(layer->customProperty("paleo/faciesResolvedLevel").toString(), QString("sub_facies"));
+    QVERIFY(f.work.setDisplayThresholds(75000, 25000, &error));
+    QCOMPARE(layer->customProperty("paleo/faciesResolvedLevel").toString(), QString("facies"));
+  }
   void canvasLegendFollowsVisibleFaciesInsteadOfTheCatalogue() {
     QObject context;
     Fixture f; QVERIFY(f.init());
@@ -779,15 +933,15 @@ private slots:
     QCOMPARE(f.work.versionForLayer(draft).id, previous);
   }
   void hierarchyScaleFallbackAndScopedNames() {
-    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 8000001), QString("facies"));
-    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 8000000), QString("sub_facies"));
-    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 7999999),
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 250001), QString("facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 250000), QString("sub_facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 249999),
              QString("sub_facies"));
-    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 4000001),
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 50001),
              QString("sub_facies"));
-    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 4000000),
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 50000),
              QString("micro_facies"));
-    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 3999999),
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 49999),
              QString("micro_facies"));
     QCOMPARE(FaciesHierarchy::resolveLevel("facies", 1), QString("facies"));
     QCOMPARE(FaciesHierarchy::path({{"microfacies", "仅微相"}}),
@@ -883,7 +1037,7 @@ private slots:
     QCOMPARE(v->customProperty("paleo/faciesResolvedLevel").toString(),
              QString("micro_facies"));
     QVERIFY(f.work.setDisplayMode(draft, "auto", &error));
-    f.work.updateDisplayScale(9000000);
+    f.work.updateDisplayScale(500000);
     QCOMPARE(f.work.resolvedLevel(draft), QString("facies"));
     QCOMPARE(f.work.displayLegend(draft).size(), 3);
   }
@@ -915,7 +1069,7 @@ private slots:
       QgsExpression expr(expression);
       return expr.evaluate(&context).toString();
     };
-    for (const auto scale : {9000000.0, 5000000.0, 1000000.0, 9000000.0, 1000000.0}) {
+    for (const auto scale : {500000.0, 100000.0, 25000.0, 500000.0, 25000.0}) {
       f.work.updateDisplayScale(scale);
       auto *merged = dynamic_cast<QgsMergedFeatureRenderer *>(v->renderer());
       QVERIFY(merged);
@@ -926,7 +1080,7 @@ private slots:
       QCOMPARE(evaluated(v->customProperty("paleo/faciesDisplayExpression").toString(), a.id()),
                FaciesHierarchy::path(leaf).first());
       const auto entries = f.work.displayLegend(draft);
-      QCOMPARE(entries.size(), scale > 8000000 ? 3 : scale > 4000000 ? 4 : 5);
+      QCOMPARE(entries.size(), scale > 250000 ? 3 : scale > 50000 ? 4 : 5);
       QSet<QString> treeKeys;
       for (const auto &value : FaciesHierarchy::legendTree(entries)) {
         const auto key = value.toMap().value("key").toString();
@@ -993,7 +1147,7 @@ private slots:
     const auto copy = f.work.copyForEditing(draft, {}, &error);
     QVERIFY2(!copy.isEmpty(), qPrintable(error));
     QVERIFY(f.layers.instantiate(copy));
-    f.work.updateDisplayScale(1000000);
+    f.work.updateDisplayScale(25000);
     int sub = 0;
     for (const auto &entry : f.work.displayLegend(copy))
       sub += entry.toMap().value("level") == "sub_facies";

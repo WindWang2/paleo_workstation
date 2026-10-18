@@ -7,6 +7,7 @@
 #include "mappingartifactwriter.h"
 #include "qgisstyleservice.h"
 #include "../domain/facieshierarchy.h"
+#include "../services/faciesdisplaysettings.h"
 #include "../domain/singlefactorrequest.h"
 #include <memory>
 #include <QResizeEvent>
@@ -31,6 +32,8 @@ MappingReferenceCanvas::MappingReferenceCanvas(QgsMapCanvas *mainCanvas,
   pan->setParent(canvas());
   canvas()->setMapTool(pan);
   connect(canvas(), &QgsMapCanvas::scaleChanged, this, &MappingReferenceCanvas::updateLegend);
+  connect(&FaciesDisplaySettings::instance(), &FaciesDisplaySettings::thresholdsChanged,
+      this, &MappingReferenceCanvas::updateLegend);
 }
 
 MappingReferenceCanvas::~MappingReferenceCanvas() { clearReference(); }
@@ -112,7 +115,8 @@ void MappingReferenceCanvas::updateLegend()
   if (!m_layer) return;
   auto entries = m_schema;
   if (m_facies) {
-    const auto level = FaciesHierarchy::resolveLevel(m_layer->customProperty("paleo/faciesDisplayMode", "auto").toString(), canvas()->scale());
+    const auto level = FaciesHierarchy::resolveLevel(m_layer->customProperty("paleo/faciesDisplayMode", "auto").toString(),
+        canvas()->scale(), FaciesDisplaySettings::instance().thresholds());
     if (m_legendLevel == level) return;
     entries = FaciesHierarchyRenderer::apply(m_layer, m_schema, level);
     m_legendLevel = level;

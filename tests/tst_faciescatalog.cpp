@@ -38,6 +38,21 @@ class TestFaciesCatalog : public QObject
 {
   Q_OBJECT
 private slots:
+  void configurableScaleThresholdsUseMapDenominators() {
+    const FaciesHierarchy::ScaleThresholds custom{100000, 25000};
+    QVERIFY(FaciesHierarchy::validThresholds(custom));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 100001, custom), QString("facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 100000, custom), QString("sub_facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 25001, custom), QString("sub_facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 25000, custom), QString("micro_facies"));
+    for (const auto &level : FaciesHierarchy::levels())
+      for (double scale : {1000., 100000., 10000000.})
+        QCOMPARE(FaciesHierarchy::resolveLevel(level, scale, custom), level);
+    QVERIFY(!FaciesHierarchy::validThresholds({1000, 1000}));
+    QVERIFY(!FaciesHierarchy::validThresholds({1000, -1}));
+    QVERIFY(!FaciesHierarchy::validThresholds({qQNaN(), 1000}));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 250001, {1, 2}), QString("facies"));
+  }
   void optionalTemplatesPreserveDefaultsAndHistoricalClassification() {
     const auto defaults = FaciesCatalog::defaults();
     const auto templates = FaciesTaxonomy::templates();

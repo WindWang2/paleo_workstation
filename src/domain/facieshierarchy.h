@@ -3,9 +3,15 @@
 #include <QStringList>
 #include <QVariantList>
 namespace FaciesHierarchy {
+struct ScaleThresholds {
+  double faciesToSubfacies = 250000;
+  double subfaciesToMicrofacies = 50000;
+};
+bool validThresholds(const ScaleThresholds &thresholds);
 QStringList levels();
 QString title(const QString &level);
-QString resolveLevel(const QString &mode, double scale);
+QString resolveLevel(const QString &mode, double scale,
+                     const ScaleThresholds &thresholds = {});
 // Legacy missing levels are explicitly marked as undefined; never copy a parent
 // name into a child. Full paths distinguish homonymous children.
 QStringList path(const QVariantMap &f);

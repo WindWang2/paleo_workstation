@@ -568,6 +568,7 @@ add_library(paleo_services STATIC
   src/services/previewdoc_xml.cpp
   src/services/previewdoc_survey.cpp                # 完整测区范围后台恢复
   src/services/singlefactordef.cpp                  # m2：单因素定义注册表
+  src/services/faciesdisplaysettings.cpp
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
   src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架
@@ -693,6 +694,7 @@ add_library(paleo_ui STATIC
   src/ui/paleomainwindow_attach_mapping.cpp        # 编图流水线与版本接线
   src/ui/paleomainwindow_attach_models.cpp         # 属性建模/相图/时深转换接线
   src/ui/ribbonpanels.cpp                          # W4 ribbon 命令组构建迁出
+  src/ui/faciesdisplaycontrol.cpp
   src/ui/pages/datalist.cpp                        # W5 数据页·列表侧（胶水层）
   src/ui/pages/datalistops.h                       # 数据页·辅助类型与持久化工具
   src/ui/pages/datalist_table.cpp                  # 数据页·表格展现与行内动作

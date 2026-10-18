@@ -5,6 +5,7 @@
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprojectservice.h"
 #include "mappingworkbench.h"
+#include "../services/faciesdisplaysettings.h"
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QUuid>
@@ -43,7 +44,13 @@ QString MappingWorkbench::displayMode(const QString &id) const {
                : QStringLiteral("auto");
 }
 QString MappingWorkbench::resolvedLevel(const QString &id) const {
-  return FaciesHierarchy::resolveLevel(displayMode(id), m_displayScale);
+  return FaciesHierarchy::resolveLevel(displayMode(id), m_displayScale, displayThresholds());
+}
+FaciesHierarchy::ScaleThresholds MappingWorkbench::displayThresholds() const {
+  return FaciesDisplaySettings::instance().thresholds();
+}
+bool MappingWorkbench::setDisplayThresholds(double facies, double micro, QString *error) {
+  return FaciesDisplaySettings::instance().save({facies, micro}, error);
 }
 QVariantList MappingWorkbench::displayLegend(const QString &id) const {
   auto *layer = m_layers->layer(id);

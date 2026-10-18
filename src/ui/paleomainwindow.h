@@ -255,6 +255,8 @@ class PaleoMainWindow : public SARibbonMainWindow
 
     // ---- W4 拆分段（实现在 paleomainwindow_attach.cpp）----
     // attachWorkflows 入口只做幂等守卫 + 页创建 + 顺序编排；每页接线一段：
+    void attachPaleomapLibrary(DataPage *page);
+    void wireDataImportRequests(DataPage *page, DataImportService *service, DataPreviewTabs *preview);
     void attachDataPage(DataPage *dataPage, WellCorrelationPanel *corrPanel,
                         DataImportService *importSvc, PaleoTaskService *taskSvc);
     void attachPredictPage(PredictPage *predictPage, PredictionWorkflow *pred);
@@ -339,6 +341,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 三个编图页各有一组「要素编辑」：动作与编辑条共享同一批 QAction；图层
     // 下拉共享编辑条下拉的 model，选择经 setCurrentLayer 回写。
     void addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb);
+    void addDataImportRibbon(SARibbonCategory *category, DataPage *data);
     void addFaciesDisplayPanel(SARibbonCategory *category);
     void attachFaciesDisplayControls(MappingWorkbench *workbench);
     // 面板显隐菜单（QMainWindow::createPopupMenu 列出全部 dock 的

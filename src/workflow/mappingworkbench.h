@@ -75,6 +75,7 @@ public:
                   QString *error);
   QVariantList inputs(const QString &kind) const;
   QVariantList products(const QString &horizon) const;
+  QVariantList baseMapCandidates(const QString &horizon) const;
   CatalogVersion versionForLayer(const QString &id) const;
   LayerDeclaration declaration(const QString &id) const;
   QString layerForVersion(const QString &versionId, QString *error = nullptr);

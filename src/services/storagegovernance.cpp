@@ -81,12 +81,20 @@ Report scan(const Snapshot &s, const Progress &progress) {
     FileFact f;
     if (!path.isEmpty()) f = fact(path, s.projectDir);
     r.versionFiles.insert(v.id, f);
+    // Dataset manifests keep coordinate/style members alive with their main file.
+    for (const auto &entry : v.extra.value("bundle_members").toList()) {
+      const auto name = entry.toMap().value("file").toString();
+      if (!v.managed || !DataCatalog::isSafePathSegment(name) || name == QFileInfo(path).fileName()) continue;
+      const auto member = QFileInfo(path).absoluteDir().filePath(name); const auto sidecar = fact(member, s.projectDir);
+      if (sidecar.sizeBytes < 0 || !sidecar.canonicalPath.startsWith(projectCanonical + '/')) continue;
+      references.insert(sidecar.canonicalPath); r.versionSidecars[v.id].append(sidecar);
+    }
     // #283：shapefile 族附属文件（.shx/.dbf/.prj/.cpg…）没有 catalog 记录，
     // 但与主 .shp 同生共死——主件在工程内时把同目录同主名的成员一并登记为
     // 被引用（不进孤儿清单），并记入 versionSidecars 供 purge 连带回收。
     // 成员若已登记为某个版本文件，登记为被引用是同值幂等，purge 侧会在
     // preview 里跳过（它是别人的版本字节，不能连带删）。
-    if (f.sizeBytes >= 0 && !f.canonicalPath.isEmpty()
+    if (v.extra.value("bundle_members").toList().isEmpty() && f.sizeBytes >= 0 && !f.canonicalPath.isEmpty()
         && f.canonicalPath.startsWith(projectCanonical + QLatin1Char('/'))
         && QFileInfo(path).suffix().compare(QLatin1String("shp"), Qt::CaseInsensitive) == 0) {
       const QDir vdir = QFileInfo(path).absoluteDir();

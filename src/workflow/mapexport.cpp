@@ -63,7 +63,7 @@ QString exportHorizonMapPdf( QgisLayerService *layers, QgisProjectService *proje
 QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
                              const QString &pdfPath, QString *sha256Out,
                              QString *managedPathOut, QString *error,
-                             const QString &assetFormat )
+                             const QString &assetFormat, const QString &horizon )
 {
   const QString format = assetFormat.isEmpty() ? QStringLiteral( "pdf" ) : assetFormat;
   const auto fail = [error]( const QString &msg ) {
@@ -86,9 +86,18 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
                                   : shaErr );
 
   // §3 dedup：同 SHA-256 已在库 → 复用既有版本的资产，不新增。
-  const CatalogVersion existing = catalog->versionBySha256( sha );
+  CatalogVersion existing = catalog->versionBySha256( sha );
+  if (!horizon.isEmpty()) {
+    existing = {};
+    for (const auto &candidate : catalog->versions())
+      if (candidate.sha256.compare(sha, Qt::CaseInsensitive) == 0 && candidate.stage == "OUTPUT" &&
+          candidate.extra.value("horizon").toString() == horizon && catalog->assetById(candidate.assetId).format == format) {
+        existing = candidate; break;
+      }
+  }
   if ( !existing.id.isEmpty() && existing.stage == "OUTPUT" &&
-       catalog->assetById(existing.assetId).format == format )
+       catalog->assetById(existing.assetId).format == format &&
+       (horizon.isEmpty() || existing.extra.value("horizon").toString() == horizon) )
   {
     if ( sha256Out )
       *sha256Out = sha;
@@ -154,6 +163,7 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
   ver.sourceUri = QFileInfo( pdfPath ).absoluteFilePath();
   ver.sha256 = sha;
   ver.fileName = fileName;
+  if (!horizon.isEmpty()) ver.extra.insert("horizon", horizon);
   if ( !catalog->addVersion( ver, error ) )
   {
     // 版本没入库：回滚刚加的资产并清掉受管副本——不留「资产在、零版本」

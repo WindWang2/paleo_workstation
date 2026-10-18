@@ -83,6 +83,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     connect(b, &QPushButton::clicked, this, [this, name] { issue(name); });
     return b;
   };
+  if (mode == "compose") buildBaseMapStep(body, layout);
   auto *form = new QFormLayout;
   form->setRowWrapPolicy(QFormLayout::WrapLongRows);
   form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
@@ -256,8 +257,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     connect(m_points, &QComboBox::currentIndexChanged, this,
             [this] { updateState(); });
   } else {
-    label(tr("勾选本层位输入，按列表从上到下优先采用有效相值。测井相点使用最近"
-             "邻；连续单因素按下方阈值分相。已有图件可联动对照编辑。"));
+    label(tr("2 · 可选综合编图：勾选本层位输入，按列表顺序采用有效相值；连续单因素按下方阈值分相。"));
     m_inputs = new QListWidget(body);
     m_inputs->setObjectName("workbenchInputs");
     m_inputs->setFixedHeight(96);
@@ -721,7 +721,7 @@ QStringList MappingWorkbenchPage::checkedInputs() const {
 void MappingWorkbenchPage::setHorizon(const QString &h) {
   if (m_horizon == h)
     return;
-  m_horizon = h;
+  m_horizon = h; emit horizonChanged(h);
   m_evidenceSnapshotOwned = false; m_evidenceSnapshot.clear();
   // 层位切换后反查结果属于旧层位上下文——清空，避免双击定位错层。
   if (m_reverseResults) m_reverseResults->clear();

@@ -23,6 +23,7 @@
 
 class PreviewDocService;
 class QHBoxLayout;
+class QVBoxLayout;
 class QStackedWidget;
 class QTableWidget;
 class CatalogHealthDialog;
@@ -219,11 +220,13 @@ class DataListPanel : public QWidget
   private:
     // 方向34：计划井可见性过滤器（setPlannedVisibilityFilter 注入，可空）。
     std::function<bool(const QString &id)> m_plannedVisible;
+    void buildImportButtons(QVBoxLayout *layout, QWidget *parent);
     void buildDataOpsUi();          // P3 增量 UI（过滤条/队列/视图页）
     void refreshAssetTree();
     // ---- 方向 92：树蓝图 + 增量通道（定义与实现见 datalist_tree.cpp）----
     struct NavNodeSpec;             // 树蓝图节点（纯数据，无 widget）
     QVector<NavNodeSpec> buildNavTreeSpec() const;
+    QVector<NavNodeSpec> buildPaleomapNavSpec() const;
     void renderNavChildren(QTreeWidgetItem *parent, const QVector<NavNodeSpec> &specs);
     void rebuildNavTree(const QVector<NavNodeSpec> &specs);
     bool reconcileNavTree(const QVector<NavNodeSpec> &specs);

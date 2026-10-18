@@ -19,6 +19,7 @@
 #include "../src/qgis/facieshierarchyrenderer.h"
 #include "../src/domain/faciestaxonomy.h"
 #include "../src/workflow/geologicalexport.h"
+#include "../src/workflow/mapexport.h"
 #include "../src/workflow/horizonbatchexport.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/services/paleotaskservice.h"
@@ -48,6 +49,56 @@ class TestExportPipeline : public QObject {
     project.addMapLayer(layer); project.setCrs(layer->crs()); return layer;
   }
 private slots:
+  void externalFiguresKeepTheProjectCatalogUnchanged() {
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
+    QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "D61";
+    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings)); QVERIFY(layout);
+    PaleoGeologicalExport::Request request; request.destination = tmp.filePath("external"); request.dpi = 72;
+    request.registerInProject = false; request.formats = {PaleoLayoutExport::Format::Png}; request.context = {{"horizon", "D61"}};
+    const auto sequence = cat.mutationSeq(); bool called = false; PaleoGeologicalExport::Result result;
+    QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this, [&](const auto &r) { result = r; called = true; }));
+    QTRY_VERIFY_WITH_TIMEOUT(called, 20000); QVERIFY2(result.error.isEmpty(), qPrintable(result.error)); QVERIFY(!result.cancelled);
+    QVERIFY(!result.files.isEmpty()); QVERIFY(result.assetIds.isEmpty()); QVERIFY(cat.assets().isEmpty()); QCOMPARE(cat.mutationSeq(), sequence);
+    QFile metadata(QDir(result.directory).filePath("metadata.json")); QVERIFY(metadata.open(QIODevice::ReadOnly));
+    QVERIFY(!QJsonDocument::fromJson(metadata.readAll()).object().value("registered_in_project").toBool());
+  }
+  void projectFiguresAreRegisteredByHorizon() {
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
+    QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings;
+    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings)); QVERIFY(layout);
+    QStringList assets;
+    for (const auto &h : {QString("D61"), QString("D62")}) {
+      PaleoGeologicalExport::Request request; request.destination = tmp.filePath("exports/maps/" + h); request.dpi = 72;
+      request.formats = {PaleoLayoutExport::Format::Png}; request.context = {{"horizon", h}};
+      bool called = false; PaleoGeologicalExport::Result result;
+      QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this, [&](const auto &r) { result = r; called = true; }));
+      QTRY_VERIFY_WITH_TIMEOUT(called, 20000); QVERIFY2(result.error.isEmpty(), qPrintable(result.error)); QCOMPARE(result.assetIds.size(), 1);
+      const auto version = cat.currentVersion(result.assetIds.first()); QCOMPARE(version.stage, QString("OUTPUT"));
+      QCOMPARE(version.extra.value("horizon").toString(), h); QVERIFY(QFileInfo::exists(cat.versionFilePath(version))); assets << version.assetId;
+    }
+    QCOMPARE(cat.assets().size(), 2); QVERIFY(assets[0] != assets[1]);
+  }
+  void dialogSeparatesProjectManagementFromExternalOutput() {
+    QTemporaryDir tmp; QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "D61";
+    GeologicalExportDialog dialog(settings, [&](const auto &s, QString *error) {
+      return PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), s, error);
+    }, false, nullptr, {}, tmp.path());
+    auto *mode = dialog.findChild<QComboBox *>("mapExportDestinationMode"); QVERIFY(mode); QVERIFY(mode->currentData().toBool());
+    QVERIFY(dialog.request().registerInProject); QVERIFY(dialog.request().destination.startsWith(tmp.filePath("exports/maps")));
+    const auto qa = qEnvironmentVariable("PALEO_PALEOMAP_QA_DIR");
+    if (!qa.isEmpty()) { dialog.show(); QTest::qWait(150); QVERIFY(dialog.grab().save(qa + "/map-export-destinations.png")); }
+    mode->setCurrentIndex(1); QVERIFY(!dialog.request().registerInProject);
+    QVERIFY(dialog.findChild<QLineEdit *>("mapExportDirectory")->text().isEmpty());
+    QVERIFY(!dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->isEnabled());
+  }
+  void identicalFigureBytesAreDeduplicatedWithinTheirHorizon() {
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path()));
+    QImage image(24, 24, QImage::Format_ARGB32); image.fill(Qt::white); const auto path = tmp.filePath("figure.png"); QVERIFY(image.save(path)); QString error;
+    const auto first = registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", "D61"); QVERIFY2(!first.isEmpty(), qPrintable(error));
+    const auto other = registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", "D62"); QVERIFY2(!other.isEmpty(), qPrintable(error));
+    QVERIFY(first != other); QCOMPARE(cat.currentVersion(first).sha256, cat.currentVersion(other).sha256);
+    QCOMPARE(registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", "D61"), first); QCOMPARE(cat.assets().size(), 2);
+  }
   void changedInputCannotBeRegisteredAsAHistoricalMap() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     const auto path = tmp.filePath("input.dat");

@@ -49,6 +49,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                                      DataImportService *importSvc,
                                      PaleoTaskService *taskSvc)
 {
+  attachPaleomapLibrary(dataPage);
   // Panel intents → workflows / selection. Params stay minimal for the shell
   // milestone — full parameter dialogs are per-panel follow-up work.
   if (importSvc && dataPage)
@@ -111,7 +112,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
       if (enabled && m_tools)
         toolsOk = m_tools->check(QString(), &toolsReason);
       for (const char *name : {"importWells", "importWellLogs", "importSeismic",
-                               "importBoundary", "importFolder"})
+                               "importBoundary", "importFolder", "importFiles", "importPaleomap", "importPaleomapFolder"})
         if (auto *btn = findChild<QPushButton *>(QLatin1String(name)))
         {
           if (enabled && toolsOk)
@@ -290,8 +291,63 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                   preview->setHorizonOnMap(layerId, true);
                 });
     }
+    wireDataImportRequests(dataPage, importSvc, preview);
+  }
+    // Imported assets feed the bottom-dock correlation panel and the central
+    // preview tabs (§4: the preview tab opens only after the import is
+    // confirmed; 地震预览不再走底栏面板，预览壳直接按资产渲染测线控件)。
+    DataPreviewTabs *previewForImport = m_previewTabs;
+    // m_previewDoc 只在上方 importSvc 分支里创建；无导入服务的壳在此处
+    // connect(nullptr)——产生空连接告警且接线静默失效，一并挪进守卫。
+    if (m_previewDoc)
+      connect(m_previewDoc, &PreviewDocService::assetImported, this,
+              [this, corrPanel, previewForImport](const QString &kind, const QString &assetId, const QString &) {
+                // 文件夹导入期间不逐文件开标签——确认后只开井口标签（§4）。
+                if (previewForImport && !m_folderImportActive)
+                  previewForImport->openAsset(assetId);
+                // LAS imports pull the GR curve into the column when present
+                // (#156：井集与工程打开同一来源——catalog 全部 well_log)。
+                if (corrPanel && kind == QLatin1String("well_log"))
+                  refreshCorrelationWells();
+              });
+}
+
+void PaleoMainWindow::openDataGraph(const QString &asset, const QString &version,
+                                   const QString &entity, bool lineage) {
+  auto *dataPage = findChild<DataPage *>();
+  if (!dataPage || !m_previewTabs || !m_previewDoc || !m_previewDoc->catalog()) return;
+  auto *catalog = m_previewDoc->catalog();
+  if ((!version.isEmpty() && catalog->versionById(version).id.isEmpty()) ||
+      (!asset.isEmpty() && catalog->assetById(asset).id.isEmpty()) ||
+      (!entity.isEmpty() && catalog->entityById(entity).id.isEmpty())) {
+    statusBar()->showMessage(tr("关联资料已移除或不属于当前工区"), 8000); return;
+  }
+  showPage(QStringLiteral("data"));
+  if (!version.isEmpty()) dataPage->focusVersion(catalog->versionById(version).assetId, version);
+  else if (!asset.isEmpty()) dataPage->selectAsset(asset);
+  else if (!entity.isEmpty()) dataPage->selectAssetsForEntities({entity});
+  auto *graph = dataPage->graphPage();
+  graph->setPresentation(dataPage->listPanel()->graphPresentation());
+  m_previewTabs->openWorkspace(graph, tr("资料图谱"));
+  if (lineage) graph->openLineage(asset, version);
+  else graph->openRelations(asset, version, entity);
+  if (m_workspaceStack) m_workspaceStack->setCurrentWidget(m_previewTabs);
+}
+void PaleoMainWindow::openTaskCenter() {
+  if (!m_bottomDock) return;
+  m_bottomDockAutoShown = false;
+  m_bottomDock->setProgrammaticVisible(true);
+  if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+    if (auto *panel = findChild<TaskPanel *>(QStringLiteral("taskPanel"))) {
+      tabs->setCurrentWidget(panel); panel->refresh();
+    }
+  m_bottomDock->raise();
+}
+
+void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportService *importSvc, DataPreviewTabs *preview) {
     connect(dataPage, &DataPage::importRequested, this,
             [this, importSvc, preview](const QString &kind) {
+              if (kind.startsWith(QLatin1String("paleomap"))) return;
               if (kind == QLatin1String("folder"))
               {
                 runFolderImport(importSvc);
@@ -309,7 +365,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                   this, tr("导入 %1").arg(kind), QString(), filter);
               if (picked.isEmpty())
                 return;
-              if (picked.size() > 1)
+              if (picked.size() > 1 || kind == "files")
               {
                 runFilesImportAt(importSvc, picked);
                 return;
@@ -380,54 +436,4 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                         QStringLiteral("Paleo"), Qgis::Critical);
                 });
             });
-  }
-    // Imported assets feed the bottom-dock correlation panel and the central
-    // preview tabs (§4: the preview tab opens only after the import is
-    // confirmed; 地震预览不再走底栏面板，预览壳直接按资产渲染测线控件)。
-    DataPreviewTabs *previewForImport = m_previewTabs;
-    // m_previewDoc 只在上方 importSvc 分支里创建；无导入服务的壳在此处
-    // connect(nullptr)——产生空连接告警且接线静默失效，一并挪进守卫。
-    if (m_previewDoc)
-      connect(m_previewDoc, &PreviewDocService::assetImported, this,
-              [this, corrPanel, previewForImport](const QString &kind, const QString &assetId, const QString &) {
-                // 文件夹导入期间不逐文件开标签——确认后只开井口标签（§4）。
-                if (previewForImport && !m_folderImportActive)
-                  previewForImport->openAsset(assetId);
-                // LAS imports pull the GR curve into the column when present
-                // (#156：井集与工程打开同一来源——catalog 全部 well_log)。
-                if (corrPanel && kind == QLatin1String("well_log"))
-                  refreshCorrelationWells();
-              });
-}
-
-void PaleoMainWindow::openDataGraph(const QString &asset, const QString &version,
-                                   const QString &entity, bool lineage) {
-  auto *dataPage = findChild<DataPage *>();
-  if (!dataPage || !m_previewTabs || !m_previewDoc || !m_previewDoc->catalog()) return;
-  auto *catalog = m_previewDoc->catalog();
-  if ((!version.isEmpty() && catalog->versionById(version).id.isEmpty()) ||
-      (!asset.isEmpty() && catalog->assetById(asset).id.isEmpty()) ||
-      (!entity.isEmpty() && catalog->entityById(entity).id.isEmpty())) {
-    statusBar()->showMessage(tr("关联资料已移除或不属于当前工区"), 8000); return;
-  }
-  showPage(QStringLiteral("data"));
-  if (!version.isEmpty()) dataPage->focusVersion(catalog->versionById(version).assetId, version);
-  else if (!asset.isEmpty()) dataPage->selectAsset(asset);
-  else if (!entity.isEmpty()) dataPage->selectAssetsForEntities({entity});
-  auto *graph = dataPage->graphPage();
-  graph->setPresentation(dataPage->listPanel()->graphPresentation());
-  m_previewTabs->openWorkspace(graph, tr("资料图谱"));
-  if (lineage) graph->openLineage(asset, version);
-  else graph->openRelations(asset, version, entity);
-  if (m_workspaceStack) m_workspaceStack->setCurrentWidget(m_previewTabs);
-}
-void PaleoMainWindow::openTaskCenter() {
-  if (!m_bottomDock) return;
-  m_bottomDockAutoShown = false;
-  m_bottomDock->setProgrammaticVisible(true);
-  if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
-    if (auto *panel = findChild<TaskPanel *>(QStringLiteral("taskPanel"))) {
-      tabs->setCurrentWidget(panel); panel->refresh();
-    }
-  m_bottomDock->raise();
 }

@@ -44,7 +44,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     DataCatalog *cat, const CatalogAsset &asset, const CatalogVersion &v,
     const QString &abs, const QString &assetId, QWidget *host, QVBoxLayout *lay)
 {
-  const QString layerType = v.extra.value(QStringLiteral("layer_type")).toString();
+  const QString layerType = v.extra.value(QStringLiteral("source_type"), v.extra.value(QStringLiteral("layer_type"))).toString();
   bool isRaster = false;
   if (layerType == QLatin1String("raster"))
     isRaster = true;
@@ -104,10 +104,10 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     {
       FactorStyleWriter::applyTo(raster.get(), factorId);
     }
-    else
+    else if (asset.type != "paleogeographic_map" || !v.extra.value(QStringLiteral("facies")).toList().isEmpty())
     {
       QVariantList faciesList = v.extra.value(QStringLiteral("facies")).toList();
-      if (faciesList.isEmpty())
+      if (faciesList.isEmpty() && asset.type != "paleogeographic_map")
       {
         const QString horizon = v.extra.value(QStringLiteral("horizon")).toString();
         if (!horizon.isEmpty() && cat)
@@ -315,10 +315,10 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     {
       QgisStyleService::applyContourLayerStyle(vlayer.get());
     }
-    else
+    else if (asset.type != "paleogeographic_map" || !v.extra.value(QStringLiteral("facies")).toList().isEmpty())
     {
       QVariantList faciesList = v.extra.value(QStringLiteral("facies")).toList();
-      if (faciesList.isEmpty())
+      if (faciesList.isEmpty() && asset.type != "paleogeographic_map")
       {
         const QString horizon = v.extra.value(QStringLiteral("horizon")).toString();
         if (!horizon.isEmpty() && cat)

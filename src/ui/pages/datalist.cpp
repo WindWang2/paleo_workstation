@@ -83,31 +83,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   auto *listLay = static_cast<QVBoxLayout *>(listSection->layout());
 
   importLay->addWidget(caption(tr("数据导入"), importSection));
-  const struct { const char *name; const char *text; const char *kind; const char *desc; }
-      kImports[] = {
-    {"importWells", QT_TR_NOOP("导入井数据"), "wells",
-     QT_TR_NOOP("选择一个或多个井位/分层文件入库")},
-    {"importWellLogs", QT_TR_NOOP("导入测井数据"), "well_log",
-     QT_TR_NOOP("选择 LAS 测井曲线或 XML/Excel 综合柱状图入库，可多选")},
-    {"importSeismic", QT_TR_NOOP("导入地震数据"), "seismic",
-     QT_TR_NOOP("选择 SEG-Y 等地震数据文件入库，可多选")},
-    {"importBoundary", QT_TR_NOOP("导入边界数据"), "boundary",
-     QT_TR_NOOP("选择边界矢量文件入库，可多选")},
-    {"importFolder", QT_TR_NOOP("导入工区文件夹"), "folder",
-     QT_TR_NOOP("选择工区目录：确认每个文件的类型后整目录入库；"
-                "识别不了的类型按参考资料/未归类入库")},
-  };
-  for (const auto &spec : kImports)
-  {
-    auto *btn = new QPushButton(tr(spec.text), importSection);
-    btn->setObjectName(QLatin1String(spec.name));
-    // T32 a11y：导入入口各自报名（屏幕阅读器不读图标猜测）。
-    btn->setAccessibleName(tr(spec.text));
-    btn->setAccessibleDescription(tr(spec.desc));
-    connect(btn, &QPushButton::clicked, this,
-            [this, kind = QLatin1String(spec.kind)] { emit importRequested(kind); });
-    importLay->addWidget(btn);
-  }
+  buildImportButtons(importLay, importSection);
   // 方向 30：导入台账 + 工区体检（维护面，随导入区安放）。
   auto *ledgerBtn = new QPushButton(tr("导入台账"), importSection);
   ledgerBtn->setObjectName(QStringLiteral("importLedgerButton"));

@@ -123,6 +123,7 @@ class DataPreviewTabs : public QWidget
     QPointer<QWidget> m_detailsHost;
     QHash<QString, QPointer<QWidget>> m_detailsOfAsset;
     QWidget *buildContent(const QString &assetId, QWidget *page);
+    QWidget *buildReferenceDocumentContent(const QString &path, QWidget *host, QVBoxLayout *layout);
     QWidget *buildMapProductContent(DataCatalog *cat, const CatalogAsset &asset,
                                     const CatalogVersion &v, const QString &abs,
                                     const QString &assetId,

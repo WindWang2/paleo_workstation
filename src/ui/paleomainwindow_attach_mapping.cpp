@@ -294,7 +294,7 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
             current << layer.data();
           }
           return PaleoGeologicalMapLayout::build(projectGuard, current, extent, settings, error);
-        }, !inputs.isEmpty(), this, unbound);
+        }, !inputs.isEmpty(), this, unbound, catalog->projectDir());
     if (dialog.exec() != QDialog::Accepted) return;
     if (!m_taskSvc || m_taskSvc->session() != session || !projectGuard) { status(tr("工程已切换，请重新打开导出")); return; }
     auto request = dialog.request();

@@ -1,6 +1,8 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：QGIS 测区轮廓与透明填充，不改变地图符号色。（tools/ui-token-exceptions.json 精确计数）。
 #include "datapreviewtabs.h"
+#include "projectstatisticspage.h"
+#include <QTabWidget>
 #include "datapreviewtabs_internal.h"
 
 #include "../paleoicons.h"
@@ -36,8 +38,11 @@ void DataPreviewTabs::openSurveyArea()
   pageLay->setContentsMargins(0, 0, 0, 0);
   pageLay->setSpacing(0);
 
-  QWidget *content = buildSurveyAreaContent(page);
-  pageLay->addWidget(content ? content : stateLabel(tr("无法生成测区地图"), page, true), 1);
+  auto *overview = new QTabWidget(page); overview->setObjectName("surveyOverviewPages");
+  QWidget *content = buildSurveyAreaContent(overview);
+  overview->addTab(content ? content : stateLabel(tr("无法生成测区地图"), overview, true), tr("工区地图"));
+  overview->addTab(new ProjectStatisticsPage(m_doc ? m_doc->catalog() : nullptr, overview), tr("统计与项目进度"));
+  pageLay->addWidget(overview, 1);
 
   const int idx = m_tabs->addTab(page, PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")), tr("测区全景地图"));
   m_pageOfAsset.insert(key, page);

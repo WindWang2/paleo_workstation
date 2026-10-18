@@ -52,7 +52,7 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
 QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
                              const QString &pdfPath, QString *sha256Out = nullptr,
                              QString *managedPathOut = nullptr, QString *error = nullptr,
-                             const QString &assetFormat = QString() );
+                             const QString &assetFormat = QString(), const QString &horizon = QString() );
 
 // Worker has already copied and hashed files into a private root on the same
 // filesystem. Owner only renames them and applies one atomic catalogue journal.

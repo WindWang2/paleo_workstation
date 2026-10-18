@@ -194,11 +194,11 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 变更、buildShell 六段按原文行序分解仅加函数边界、构造期 connect 55 条
 序列对拍唯一偏移 = ErrorHub 计数两条前移（wireErrorHubStatus 合并原两段）。
 
-**实测（2026-10-17，issue-sweep 分支）：paleomainwindow.cpp 1015 行（家族 25 TU）**
+**实测（2026-10-17，issue-sweep 分支）：paleomainwindow.cpp 1015 行（家族 26 TU）**
 （#473 拆分：`_workbench.cpp` 1250→525 行 + `_workbench_commands/_wells` 承载；
 #516 新增 `_references.cpp` 参考面板域）
 
-家族全表（`src/ui/paleomainwindow*.cpp` 共 25 TU，平铺不建子目录；行数为
+家族全表（`src/ui/paleomainwindow*.cpp` 共 26 TU，平铺不建子目录；行数为
 当日实测，#318 文案改动后与 #312 落点微差——漂移护栏按 ±20% 容差盯本行）：
 
 | TU | 行数 | 域（各 TU 头注释口径） |
@@ -225,6 +225,7 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 | `_attach_predict.cpp` | 193 | 智能预测页接线（W4 段） |
 | `_status.cpp` | 186 | 状态栏域（#312）：层位/坐标/比例尺/CRS 读数 + 工程进度 |
 | `_project.cpp` | 153 | 工程打开/导入编排入口域（#312）：openPath/确认表/懒建编排器 |
+| `_paleomaps.cpp` | 56 | 现有古地理图导入、层位归属与目录恢复接线 |
 | `_errorhub.cpp` | 89 | 错误呈现域（方向 64，#312 自成 TU）：错误历史 dock/错误胶囊 |
 | `_attach_python.cpp` | 36 | Python 控制台/REPL 接线（方向 68） |
 | `_shortcuts.cpp` | 42 | 页快捷键域（方向 63 注册表，#312 自成 TU）：Ctrl+1..6/Ctrl+Tab |

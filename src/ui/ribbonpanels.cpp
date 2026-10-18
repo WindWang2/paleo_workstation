@@ -202,17 +202,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   // ================= 数据管理 =================
   if (SARibbonCategory *cat = categoryForPage(QStringLiteral("data")))
   {
-    SARibbonPanel *p = panel(cat, tr("数据导入"), "ribbonPanel.data.import");
-    addLarge(p, mirrored(data, "importFolder", tr("导入工区文件夹"), icon("mIconFolderOpen.svg"),
-                      "ribbonImportFolder"));
-    addSmall(p, mirrored(data, "importWells", tr("导入井数据"), icon("mIconPointLayer.svg"),
-                      "ribbonImportWells"));
-    addSmall(p, mirrored(data, "importWellLogs", tr("导入测井数据"), icon("mIconLineLayer.svg"),
-                      "ribbonImportWellLogs"));
-    addSmall(p, mirrored(data, "importSeismic", tr("导入地震数据"), icon("mIconRasterLayer.svg"),
-                      "ribbonImportSeismic"));
-    addSmall(p, mirrored(data, "importBoundary", tr("导入边界数据"), icon("mIconPolygonLayer.svg"),
-                      "ribbonImportBoundary"));
+    addDataImportRibbon(cat, data);
 
     if (data)
     {
@@ -579,4 +569,24 @@ void PaleoMainWindow::addFaciesDisplayPanel(SARibbonCategory *category) {
   auto *panel = category->addPanel(tr("相图显示"));
   panel->setObjectName("ribbonFaciesDisplayPanel");
   panel->addLargeWidget(new FaciesDisplayControl(panel));
+}
+
+void PaleoMainWindow::addDataImportRibbon(SARibbonCategory *category, DataPage *data) {
+  auto *panel = category->addPanel(tr("数据导入")); panel->setObjectName("ribbonPanel.data.import");
+  const struct { const char *button; const char *action; const char *text; const char *icon; bool large; } entries[] = {
+    {"importPaleomap", "ribbonImportPaleomap", QT_TR_NOOP("导入现有古地理图"), "mIconPolygonLayer.svg", true},
+    {"importPaleomapFolder", "ribbonImportPaleomapFolder", QT_TR_NOOP("导入图件文件夹"), "mIconFolderOpen.svg", false},
+    {"importFiles", "ribbonImportFiles", QT_TR_NOOP("导入文件"), "mActionFileOpen.svg", false},
+    {"importFolder", "ribbonImportFolder", QT_TR_NOOP("导入工区文件夹"), "mIconFolderOpen.svg", true},
+    {"importWells", "ribbonImportWells", QT_TR_NOOP("导入井数据"), "mIconPointLayer.svg", false},
+    {"importWellLogs", "ribbonImportWellLogs", QT_TR_NOOP("导入测井数据"), "mIconLineLayer.svg", false},
+    {"importSeismic", "ribbonImportSeismic", QT_TR_NOOP("导入地震数据"), "mIconRasterLayer.svg", false},
+    {"importBoundary", "ribbonImportBoundary", QT_TR_NOOP("导入边界数据"), "mIconPolygonLayer.svg", false}
+  };
+  for (const auto &entry : entries) {
+    auto *button = data ? data->findChild<QAbstractButton *>(QLatin1String(entry.button)) : nullptr; if (!button) continue;
+    auto *action = new QAction(PaleoIcons::qgisTheme(QLatin1String(entry.icon)), tr(entry.text), this); action->setObjectName(QLatin1String(entry.action));
+    PaleoRibbon::mirror(action, button);
+    if (entry.large) panel->addLargeAction(action); else panel->addSmallAction(action);
+  }
 }

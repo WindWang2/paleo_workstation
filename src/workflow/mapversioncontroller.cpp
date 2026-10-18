@@ -263,7 +263,7 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
     // 误以为全部编辑仍在缓冲区可重试。
     if ( !committedWithEdits.isEmpty() && error )
       *error = tr( "部分层已提交编辑但本次未出版本快照：%1（提交失败：%2）" )
-                   .arg( committedWithEdits.join( QLatin1Char( '、' ) ), *error );
+                   .arg( committedWithEdits.join( QChar( 0x3001 ) ), *error ); // 顿号 U+3001——窄字符字面量容不下多字节 CJK（clang 诊断 error）
     releaseCommittedEditLocks();
     return false;
   }

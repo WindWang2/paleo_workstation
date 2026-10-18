@@ -61,6 +61,7 @@ class PaleoLayoutExportActions : public QObject
     QAction *exportPngAction();
     QAction *exportPdfAction();
     QAction *exportSvgAction();
+    QAction *exportTiffAction();
 
     // Logic core — synchronous, no dialogs, directly testable.
     //   layout   the layout to export (must not be null)
@@ -125,6 +126,7 @@ class PaleoLayoutExportActions : public QObject
     QAction *m_pngAction = nullptr;
     QAction *m_pdfAction = nullptr;
     QAction *m_svgAction = nullptr;
+    QAction *m_tiffAction = nullptr;
 
     std::function<QgsLayout *()> m_layoutProvider;
     std::function<int()> m_currentPageProvider;

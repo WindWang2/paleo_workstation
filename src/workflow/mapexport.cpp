@@ -76,7 +76,7 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
   if ( projectDir.isEmpty() )
     return fail( QObject::tr( "工程目录未设置" ) );
   if ( pdfPath.isEmpty() || !QFile::exists( pdfPath ) )
-    return fail( QObject::tr( "找不到 PDF 文件: %1" ).arg( pdfPath ) );
+    return fail( QObject::tr( "找不到图件文件: %1" ).arg( pdfPath ) );
 
   // 文件摘要先算 —— dedup 与登记共用同一份 SHA-256。
   QString shaErr;
@@ -87,7 +87,8 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
 
   // §3 dedup：同 SHA-256 已在库 → 复用既有版本的资产，不新增。
   const CatalogVersion existing = catalog->versionBySha256( sha );
-  if ( !existing.id.isEmpty() )
+  if ( !existing.id.isEmpty() && existing.stage == "OUTPUT" &&
+       catalog->assetById(existing.assetId).format == format )
   {
     if ( sha256Out )
       *sha256Out = sha;
@@ -176,8 +177,10 @@ bool publishMapExportJournal(DataCatalog *catalog, const QString &projectDir,
                              const QVector<CatalogOp> &ops, QString *error) {
   QStringList moved;
   const auto fail = [&](const QString &why) {
-    for (const auto &path : moved)
+    for (const auto &path : moved) {
+      QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
       QFile::remove(path);
+    }
     if (error)
       *error = why;
     return false;

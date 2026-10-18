@@ -530,14 +530,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   }
   listLay->insertWidget(listLay->indexOf(searchRow) + 1, advanced);
   advanced->hide();
-  auto *options = new QToolButton(searchRow);
-  options->setObjectName(QStringLiteral("dataListOptionsButton"));
-  options->setText(tr("选项"));
-  options->setToolTip(tr("展开筛选、视图、排序与标签选项"));
-  options->setAccessibleName(options->toolTip());
-  options->setCheckable(true);
-  srl->addWidget(options);
-  connect(options, &QToolButton::toggled, advanced, &QWidget::setVisible);
+  buildSearchActions(searchRow, srl, advanced);
   m_treeSort = paleo::dataops::recalledTreeSort();
 
   applyListFilter();   // 空表也写计数

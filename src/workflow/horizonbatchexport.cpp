@@ -10,6 +10,8 @@
 #include "../qgis/qgislayerservice.h"
 
 #include <QDate>
+#include <QJsonDocument>
+#include <QSaveFile>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -54,6 +56,7 @@ namespace
       case PaleoHorizonBatchExport::Format::Png: return QStringLiteral( "png" );
       case PaleoHorizonBatchExport::Format::Pdf: return QStringLiteral( "pdf" );
       case PaleoHorizonBatchExport::Format::Svg: return QStringLiteral( "svg" );
+      case PaleoHorizonBatchExport::Format::Tiff: return QStringLiteral( "tif" );
     }
     return QStringLiteral( "png" );
   }
@@ -234,7 +237,7 @@ struct Batch
       {
         const auto extent = combinedExtent( layers, map );
         if ( !extent.isNull() && !extent.isEmpty() )
-          map->setExtent( extent );
+          map->zoomToExtent( extent ); // preserve the designed page frame for every horizon
       }
       catch ( const QgsCsException &ex )
       {
@@ -261,17 +264,15 @@ struct Batch
     }
     // ---- 登记 catalog（OUTPUT；受管副本即成品，不留游离文件）----------------
     QString sha, managed, err;
-    const QString assetId = registerMapPdfAsset( catalog, request.projectDir, exported.files.value( 0 ),
-                                                 &sha, &managed, &err, ext );
-    if ( assetId.isEmpty() )
-    {
-      fail( horizon, err.isEmpty() ? QObject::tr( "catalog 登记失败：%1" ).arg( baseName ) : err );
-      return;
+    for (const auto &file : exported.files) {
+      const auto assetId = registerMapPdfAsset(catalog, request.projectDir, file, &sha, &managed, &err, ext);
+      if (assetId.isEmpty()) { fail(horizon, err); return; }
+      outcome.files << managed; outcome.assetIds << assetId;
+      if (outcome.assetId.isEmpty()) {
+        outcome.file = managed; outcome.assetId = assetId; outcome.sha256 = sha;
+      }
     }
     outcome.ok = true;
-    outcome.file = managed;
-    outcome.assetId = assetId;
-    outcome.sha256 = sha;
     result.horizons.append( outcome );
     ++result.succeeded;
   }
@@ -337,7 +338,7 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
     QPointer<QgsPrintLayout> ownerLayout;
     QPointer<DataCatalog> ownerCatalog;
     quint64 sequence = 0;
-    std::unique_ptr<QTemporaryDir> staging;
+    std::unique_ptr<QTemporaryDir> staging, external;
     std::unique_ptr<DataCatalog> catalog;
     QVector<CatalogOp> journal;
     Result result;
@@ -367,6 +368,12 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
                                                  "/.horizon-export-XXXXXX");
   if (!job->staging->isValid())
     return reject(QObject::tr("无法创建出图暂存目录"));
+  if (!request.outputDirectory.isEmpty()) {
+    const QFileInfo destination(request.outputDirectory);
+    if (destination.exists() || !destination.absoluteDir().exists()) return reject(QObject::tr("批量导出目标必须是新目录"));
+    job->external = std::make_unique<QTemporaryDir>(destination.absoluteDir().filePath(".paleo-batch-XXXXXX"));
+    if (!job->external->isValid()) return reject(QObject::tr("无法创建批量导出目录"));
+  }
   job->catalog = request.catalog->createStagingCopy(job->staging->path());
   job->result.total = job->layerIds.size();
   request.layout->setProperty(kBusy, true);
@@ -413,6 +420,26 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
           batch.finish();
         }
         job->result = batch.result;
+        if (job->external) {
+          QVariantList outcomes;
+          for (const auto &outcome : job->result.horizons) {
+            QStringList files;
+            for (const auto &path : outcome.files) {
+              const auto name = QFileInfo(path).fileName();
+              if (!QFile::copy(path, job->external->filePath(name))) return job->error = QObject::tr("无法写入批量导出文件：%1").arg(name);
+              QFile::setPermissions(job->external->filePath(name), QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser | QFileDevice::WriteUser);
+              files << name;
+            }
+            outcomes.append(QVariantMap{{"horizon", outcome.horizon}, {"ok", outcome.ok}, {"files", files},
+                {"assets", outcome.assetIds}, {"error", outcome.error}});
+          }
+          const auto bytes = QJsonDocument::fromVariant(QVariantMap{{"schema", "paleo_horizon_export_v1"},
+              {"format", extensionFor(job->request.format)}, {"dpi", job->request.dpi},
+              {"cancelled", task->cancelRequested()}, {"horizons", outcomes}}).toJson();
+          QSaveFile metadata(job->external->filePath("metadata.json"));
+          if (!metadata.open(QIODevice::WriteOnly) || metadata.write(bytes) != bytes.size() || !metadata.commit())
+            return job->error = QObject::tr("无法写出批量图件清单");
+        }
         job->journal = job->catalog->journal();
         if (job->result.failed && !task->cancelRequested())
           job->error = job->result.summary();
@@ -429,10 +456,20 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
     if (stale) {
       task->discardPublication();
       why = QObject::tr("工程数据已变化，出图成果未登记，请重新导出");
-    } else if (!publishMapExportJournal(
-                   job->ownerCatalog, job->request.projectDir,
-                   job->staging->path(), job->journal, &why)) {
-      task->failPublication(why);
+    } else if (job->journal.isEmpty() && !job->error.isEmpty()) {
+      why = job->error;
+    } else {
+      bool externalPlaced = false;
+      if (job->external) {
+        externalPlaced = QDir().rename(job->external->path(), job->request.outputDirectory);
+        if (!externalPlaced) why = QObject::tr("无法提交批量图件目录");
+      }
+      if (why.isEmpty() && !publishMapExportJournal(job->ownerCatalog, job->request.projectDir,
+                                                   job->staging->path(), job->journal, &why)) {
+        if (externalPlaced) QDir(job->request.outputDirectory).removeRecursively();
+      }
+      if (!why.isEmpty()) task->failPublication(why);
+      else if (externalPlaced) job->result.directory = job->request.outputDirectory;
     }
     if (job->result.horizons.isEmpty() && !job->error.isEmpty()) {
       for (const auto &horizon : job->layerIds.keys())
@@ -448,13 +485,19 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
         outcome.file.clear();
         outcome.assetId.clear();
         outcome.sha256.clear();
+        outcome.files.clear(); outcome.assetIds.clear();
         --job->result.succeeded;
         ++job->result.failed;
       } else {
         outcome.file = job->ownerCatalog->versionFilePath(
             job->ownerCatalog->currentVersion(outcome.assetId));
+        outcome.files.clear();
+        for (const auto &asset : outcome.assetIds)
+          outcome.files << job->ownerCatalog->versionFilePath(job->ownerCatalog->currentVersion(asset));
       }
     }
+    job->catalog.reset(); job->external.reset(); job->staging.reset();
+    job->project = {}; job->layout.clear();
     if (done)
       done(job->result, task->cancelRequested() || stale);
   });

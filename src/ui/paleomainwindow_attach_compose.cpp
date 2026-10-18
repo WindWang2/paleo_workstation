@@ -27,6 +27,15 @@
 #include <qgsmessagelog.h>
 
 #include <QCoreApplication>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QComboBox>
+#include <QSpinBox>
+#include <QFormLayout>
+#include <QFileDialog>
+#include <QDir>
+#include <QDateTime>
+#include <QUuid>
 #include <QFileInfo>
 #include <QLabel>
 #include "notifications/paleonotify.h"
@@ -390,11 +399,34 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               request.projectDir = projectDir;
               request.dpi = 300.0;
               request.format = PaleoHorizonBatchExport::Format::Pdf;
+              QDialog options(this); options.setWindowTitle(tr("按层位批量导出"));
+              auto *form = new QFormLayout(&options);
+              auto *format = new QComboBox(&options);
+              format->addItem("PDF", int(PaleoHorizonBatchExport::Format::Pdf));
+              format->addItem("PNG", int(PaleoHorizonBatchExport::Format::Png));
+              format->addItem("SVG", int(PaleoHorizonBatchExport::Format::Svg));
+              if (PaleoLayoutExport::formatAvailable(PaleoLayoutExport::Format::Tiff))
+                format->addItem("TIFF", int(PaleoHorizonBatchExport::Format::Tiff));
+              auto *dpi = new QSpinBox(&options); dpi->setRange(72, 1200); dpi->setValue(300);
+              form->addRow(tr("输出格式"), format); form->addRow(tr("分辨率（DPI）"), dpi);
+              auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &options);
+              form->addRow(buttons);
+              connect(buttons, &QDialogButtonBox::accepted, &options, &QDialog::accept);
+              connect(buttons, &QDialogButtonBox::rejected, &options, &QDialog::reject);
+              if (options.exec() != QDialog::Accepted) return;
+              const auto destination = QFileDialog::getExistingDirectory(this, tr("选择批量图件导出父目录"));
+              if (destination.isEmpty()) return;
+              request.format = PaleoHorizonBatchExport::Format(format->currentData().toInt());
+              request.dpi = dpi->value();
+              request.outputDirectory = QDir(destination).filePath("paleo_horizons_" +
+                  QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") + "_" + QUuid::createUuid().toString(QUuid::Id128).left(8));
+
 
               const QPointer<QWidget> page(composePage);
               const auto report = [this, page](const PaleoHorizonBatchExport::Result &result,
                                                bool cancelled) {
                 QStringList lines{result.summary()};
+                if (!result.directory.isEmpty()) lines << tr("导出目录：%1").arg(result.directory);
                 if (cancelled)
                   lines << tr("（已取消或工程已切换，未出图层位已入账为失败；版面已复原）");
                 for (const auto &outcome : result.horizons)
@@ -416,14 +448,9 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
                       tr("批量出图已在后台按层位执行，进度见底栏任务中心；期间请勿编辑该版面。"), 10000);
                 return;
               }
-              QProgressDialog progress(tr("正在按层位组批量出图…"), QString(), 0, 0, this);
-              progress.setWindowTitle(tr("批量出图"));
-              progress.setWindowModality(Qt::WindowModal);
-              progress.setMinimumDuration(0);
-              QCoreApplication::processEvents();
-              const auto result = PaleoHorizonBatchExport::run(request);
-              progress.cancel();
-              report(result, false);
+              PaleoNotify::warning(this, tr("批量出图"), tr("任务中心未连接，无法启动后台批量导出"));
+              return;
+
             });
     // ---- 方向 25 M6 end ----
   }

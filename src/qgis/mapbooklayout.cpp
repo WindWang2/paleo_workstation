@@ -369,6 +369,14 @@ bool validateExportedFile( const QString &path, PaleoLayoutExport::Format format
     return fail( QObject::tr( "导出产物无法回读：%1" ).arg( path ) );
   const QByteArray head = file.read( 4096 );
 
+  if (format == PaleoLayoutExport::Format::Tiff) {
+    const QImage image(path);
+    if (image.isNull()) return fail(QObject::tr("TIFF 无法解码：%1").arg(path));
+    if (expectedWidthPx > 0 && expectedHeightPx > 0 &&
+        (qAbs(image.width() - expectedWidthPx) > 2 || qAbs(image.height() - expectedHeightPx) > 2))
+      return fail(QObject::tr("TIFF 像素尺寸与版面不符"));
+    return true;
+  }
   if ( format == PaleoLayoutExport::Format::Png )
   {
     if ( !head.startsWith( QByteArray( "\x89PNG\x0D\x0A\x1A\x0A", 8 ) ) )

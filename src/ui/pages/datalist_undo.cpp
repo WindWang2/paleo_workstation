@@ -200,6 +200,8 @@ void DataListPanel::registerCommands()
       [this] { batchChangeType(); });
   reg("dataops.removeSoft", QT_TR_NOOP("移除（软删）"), QT_TR_NOOP("批量"),
       [this] { batchRemoveSoft(); });
+  reg("dataops.exportData", QT_TR_NOOP("导出数据与制作源数据"), QT_TR_NOOP("批量"),
+      [this] { batchExportData(); });
   reg("dataops.exportManifest", QT_TR_NOOP("导出清单 CSV/JSON"), QT_TR_NOOP("批量"),
       [this] { batchExportManifest(); });
   reg("dataops.openPreviewAll", QT_TR_NOOP("批量打开预览"), QT_TR_NOOP("批量"),

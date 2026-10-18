@@ -357,7 +357,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
   }
   if (auto *tabs = findChild<QTabWidget *>("workbenchTabs.compose")) {
     for (const auto &name :
-         {"ribbonThicknessChain", "ribbonExportPdf", "ribbonPublish"})
+         {"ribbonThicknessChain", "ribbonPublish"})
       if (auto *action = findChild<QAction *>(name)) {
         action->setVisible(tabs->currentIndex() == 1);
         connect(tabs, &QTabWidget::currentChanged, action,

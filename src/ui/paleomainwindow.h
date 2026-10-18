@@ -551,6 +551,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     using WorkbenchOpenWellsFn = std::function<void(const QString &)>;
     using WorkbenchBeginEditFn = std::function<bool(const QString &)>;
     // 证据面板/图谱联动接线（_evidence.cpp）。
+    void attachMappingEditFlow(MappingWorkbench *workbench);
+    bool runMappingEditFlow(MappingWorkbenchPage *page, const QString &action, const QVariantMap &parameters,
+                            const WorkbenchShowFn &show);
     void attachWorkbenchEvidence(EvidenceInteraction *evidence,
                                  const QList<MappingWorkbenchPage *> &pages);
     // 井预测修订域（_wells.cpp）：面板 dock、修订副本自动保存、画布右键

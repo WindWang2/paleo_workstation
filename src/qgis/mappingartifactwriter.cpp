@@ -38,6 +38,17 @@
 #include <ogr_api.h>
 #include <ogr_srs_api.h>
 namespace MappingArtifactWriter {
+bool emptyFacies(const QString &path, const QVariantList &facies, QString *error) {
+  QgsVectorLayer layer("MultiPolygon", "empty-facies", "memory");
+  layer.setCrs(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+  if (!layer.isValid() || !layer.dataProvider()->addAttributes({QgsField("facies_code", QMetaType::Type::Int)})) {
+    if (error) *error = QObject::tr("无法建立空白相面");
+    return false;
+  }
+  layer.updateFields();
+  return MappingFeatureIdentity::ensure(&layer, error) && syncFaciesAttributes(&layer, facies, error) && vectorSnapshot(&layer, path, error);
+}
+
 void restoreRasterCrs(QgsMapLayer *layer) {
   auto *raster = qobject_cast<QgsRasterLayer *>(layer);
   if (!raster) {

@@ -140,7 +140,7 @@ QVariantList wellAttributeUpdates(const QVariantList &points, const QVariantList
 
 QString MappingWorkbench::copyForEditing(const QString &id,
                                          const QStringList &references,
-                                         QString *error) {
+                                         QString *error, bool requireEvidence) {
   auto d = declaration(id);
   if (!ready(d.horizon, error))
     return {};
@@ -204,6 +204,7 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   if (!partitionFootprint.isEmpty() && footprintExtra.isEmpty()) return {};
   QVariantMap extra{
       {"draft_id", draft},
+      {"requires_edit_evidence", requireEvidence || source.extra.value("requires_edit_evidence").toBool()},
       {"computational_parent_versions", QStringList{parent}},
       {"interpretation_reference_versions", referenceVersions},
       {"working_path", relative},
@@ -429,6 +430,9 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     }
   }
   const auto snapshotPath = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
+  if (!QDir().mkpath(QFileInfo(snapshotPath).absolutePath())) {
+    fail(error, tr("无法创建编图版本暂存目录")); return false;
+  }
   if (!MappingArtifactWriter::vectorSnapshot(layer, snapshotPath, error))
     return false;
   const auto output =

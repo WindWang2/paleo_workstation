@@ -16,7 +16,7 @@ class PaleoTaskService;
 class DataExportDialog : public QDialog {
   Q_OBJECT
 public:
-  DataExportDialog(DataCatalog *catalog, const QStringList &assetIds, PaleoTaskService *tasks, QWidget *parent = nullptr);
+  DataExportDialog(DataCatalog *catalog, const QStringList &assetIds, PaleoTaskService *tasks, QWidget *parent = nullptr, const QStringList &selectedVersions = {});
   ~DataExportDialog() override;
   paleo::exporting::DataRequest request() const;
 private:
@@ -31,7 +31,7 @@ private:
   QPushButton *m_save;
   quint64 m_generation = 0;
   bool m_ready = false;
-  QStringList m_assetIds;
+  QStringList m_assetIds, m_selectedVersions;
   QComboBox *m_scope, *m_format;
   QLineEdit *m_directory;
   QCheckBox *m_references;

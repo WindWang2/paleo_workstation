@@ -15,6 +15,7 @@ void MappingWorkbenchPage::buildReferenceEntry(QWidget *body, QVBoxLayout *layou
   layout->addWidget(hint);
   for (const auto &entry : {qMakePair(QStringLiteral("referencePanel"), tr("打开参考证据面板")),
                             qMakePair(QStringLiteral("references"), tr("在参考面板中显示勾选输入"))}) {
+    if (m_mode == "compose" && entry.first == "references") continue;
     auto *button = new QPushButton(entry.second, body);
     button->setObjectName(QStringLiteral("workbench.") + entry.first);
     button->setAccessibleName(entry.second);

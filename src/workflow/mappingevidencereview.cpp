@@ -8,6 +8,8 @@
 #include "../domain/faciestaxonomy.h"
 #include "../domain/singlefactorrequest.h"
 #include "../qgis/composeattribution.h"
+#include "../qgis/faciespartitioneditor.h"
+#include <QDir>
 #include "../qgis/mappingfeatureidentity.h"
 #include "../qgis/evidencemapadapter.h"
 #include "../qgis/qgislayerservice.h"
@@ -754,7 +756,7 @@ bool MappingWorkbench::recordInterpretationEdit(const QString &id, qint64 fid, i
   if (!paleo::evidence::revise(records, i, target(f, versionForLayer(id), declaration(id).horizon), "edit",
       {{"before_facies_code", beforeCode}, {"facies_code", afterCode}}, localOperator(),
       tr("人工指定相类型：%1 → %2").arg(beforeCode).arg(afterCode), i.value("revision", 0).toULongLong(), &r, error)) return false;
-  return store(v, fid, r);
+  return store(v, fid, r) && appendEditEvidence(id, fid, error);
 }
 bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64 fid, const QString &kind, QString *error) {
   auto *v = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(id)) : nullptr;
@@ -886,5 +888,59 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
   paleo::evidence::Revision result;
   if (!paleo::evidence::revise(records, i, t, "edit", change, localOperator(),
       tr("QGIS 原生空间编辑（%1），继承的证据需要复核").arg(kind), i.value("revision", 0).toULongLong(), &result, error)) return false;
-  return store(v, fid, result);
+  return store(v, fid, result) && appendEditEvidence(id, fid, error);
+}
+
+// 和几何、三级属性及身份写入同一个原生撤销命令；不会自动确认解释。
+bool MappingWorkbench::appendEditEvidence(const QString &id, qint64 fid, QString *error) {
+  const auto version = versionForLayer(id);
+  const auto horizon = declaration(id).horizon;
+  const auto context = editEvidence(horizon);
+  if (context.isEmpty())
+    return !(m_manualEvidenceRequired || version.extra.value("requires_edit_evidence").toBool()) ||
+        reject(error, tr("请先设置本次解释依据和修改目的，再绘制或修改相面"));
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+  if (!layer || !layer->isEditable()) return reject(error, tr("解释依据需要当前编辑事务"));
+  const auto feature = layer->getFeature(fid);
+  QVariantList records; QVariantMap interpretation;
+  if (!read(feature, &records, &interpretation, error)) return false;
+  auto entries = context.value("references").toList();
+  entries << QVariantMap{{"text", context.value("text")}, {"role", "SUPPORTED_BY"}, {"type", "manual"}};
+  const auto category = FaciesCatalog::find(layerFaciesSchema(version), feature.attribute("facies_code"));
+  const auto current = target(feature, version, horizon);
+  const auto text = context.value("text").toString() + "\n" +
+      tr("本次修订：%1（修订 %2）").arg(context.value("reason").toString()).arg(interpretation.value("revision").toULongLong());
+  for (const auto &entry : entries) {
+    auto link = entry.toMap();
+    const auto sourceId = link.value("source_version").toString();
+    if (!sourceId.isEmpty()) {
+      const auto source = m_catalog->versionById(sourceId);
+      if (source.id.isEmpty() || source.extra.value("horizon").toString() != horizon ||
+          !QFileInfo::exists(QDir(m_dir).filePath(source.path)))
+        return reject(error, tr("本次解释的参考版本已失效，请重新设置依据"));
+    }
+    link.insert("text", text);
+    link.insert("level", "micro_facies");
+    link.insert("category_path", FaciesHierarchy::path(category).join(" / "));
+    link.insert("category_key", FaciesHierarchy::key(category, "micro_facies"));
+    paleo::evidence::Revision next;
+    if (!paleo::evidence::revise(records, interpretation, current, "link", link,
+        localOperator(), context.value("reason").toString(), interpretation.value("revision", 0).toULongLong(), &next, error)) return false;
+    records = next.records; interpretation = next.interpretation;
+  }
+  return store(layer, fid, {records, interpretation});
+}
+
+bool MappingWorkbench::checkEditingTopology(const QString &id, QString *error) {
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(id, error));
+  if (!layer || !isFaciesPolygon(id)) return reject(error, tr("请选择三级相面图件"));
+  if (!layer->featureCount()) return reject(error, tr("空白图尚无相面，请先绘制首个闭合相面"));
+  return FaciesPartitionEditor::validate(layer, error);
+}
+
+bool MappingWorkbench::hasUnpublishedEdits(const QString &id) const {
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+  if (layer && layer->isEditable()) return true;
+  const auto *observer = layer ? MappingFeatureIdentity::Observer::of(layer) : nullptr;
+  return observer && !observer->changes().isEmpty();
 }

@@ -86,9 +86,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
     return;
   setProperty("workbenchAttached", true);
   m_workbench = workbench;
-  // G09：工程切换后旧影响报告失效——重算入口必须基于当前工程的快照。
-  connect(workbench, &MappingWorkbench::catalogBound, this,
-          [this] { m_lastImpact.clear(); });
+  attachMappingEditFlow(workbench);
   // 智能预测在后台执行：开跑即弹出底栏任务中心并切到任务页（底栏原本就
   // 开着也切页），显示任务行与进度；收尾由 syncBottomDockForTasks 恢复。
   connect(workbench, &MappingWorkbench::predictionBusyChanged, this,

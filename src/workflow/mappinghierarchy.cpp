@@ -231,7 +231,7 @@ bool MappingWorkbench::assignHierarchy(const QString &id,
   }
   if (!ok) {
     layer->destroyEditCommand();
-    return reject(error, tr("三级相分类更新失败，已撤销本次修改"));
+    return reject(error, error && !error->isEmpty() ? tr("已撤销本次修改：%1").arg(*error) : tr("三级相分类更新失败，已撤销本次修改"));
   }
   layer->endEditCommand();
   emit faciesEdited(id);

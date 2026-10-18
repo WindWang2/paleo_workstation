@@ -390,11 +390,17 @@ private slots:
     const auto candidates = f.work.baseMapCandidates("D61"); QCOMPARE(candidates.size(), 1); QCOMPARE(candidates.first().toMap().value("category").toString(), QString("existing"));
     QVERIFY(f.work.baseMapCandidates("D62").isEmpty());
     MappingBaseMapSelector selector(&f.work); selector.setHorizon("D61");
+    auto *category = selector.findChild<QComboBox *>("baseMapCategory"); QVERIFY(category);
+    category->setCurrentIndex(category->findData("existing"));
     auto *sourceBox = selector.findChild<QComboBox *>("baseMapSource"); QVERIFY(sourceBox); QCOMPARE(sourceBox->count(), 1);
     QSignalSpy commands(&selector, &MappingBaseMapSelector::commandRequested);
-    const auto buttons = selector.findChildren<QPushButton *>(); QVERIFY(buttons.first()->isEnabled()); buttons.first()->click(); QCOMPARE(commands.size(), 1);
+    auto *show = selector.findChild<QPushButton *>("baseMapShow"); QVERIFY(show); QVERIFY(show->isEnabled());
+    auto *start = selector.findChild<QPushButton *>("baseMapStart"); QVERIFY(start); QVERIFY(!start->isEnabled());
+    show->click(); QCOMPARE(commands.size(), 1);
     QCOMPARE(commands.first()[0].toString(), QString("show")); QCOMPARE(commands.first()[1].toMap().value("horizon").toString(), QString("D61"));
-    selector.setHorizon("D62"); QVERIFY(!buttons.first()->isEnabled()); selector.setHorizon("D61");
+    selector.setHorizon("D62"); QVERIFY(!show->isEnabled()); QVERIFY(start->isEnabled());
+    QCOMPARE(category->currentData().toString(), QString("new"));
+    selector.setHorizon("D61"); category->setCurrentIndex(category->findData("existing"));
     PreviewDocService doc(&f.importer); DataPreviewTabs mapPreview; mapPreview.setDocService(&doc); mapPreview.setProject(f.project.project()); mapPreview.openAsset(result.assets.first());
     bool foundSource = false;
     for (auto *canvas : mapPreview.findChildren<QgsMapCanvas *>()) for (auto *layer : canvas->layers())

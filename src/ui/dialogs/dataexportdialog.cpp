@@ -20,8 +20,8 @@
 #include <QVBoxLayout>
 #include <QTimer>
 
-DataExportDialog::DataExportDialog(DataCatalog *catalog, const QStringList &assetIds, PaleoTaskService *tasks, QWidget *parent)
-    : QDialog(parent), m_catalog(catalog), m_tasks(tasks), m_assetIds(assetIds) {
+DataExportDialog::DataExportDialog(DataCatalog *catalog, const QStringList &assetIds, PaleoTaskService *tasks, QWidget *parent, const QStringList &selectedVersions)
+    : QDialog(parent), m_catalog(catalog), m_tasks(tasks), m_assetIds(assetIds), m_selectedVersions(selectedVersions) {
   setObjectName("dataExportDialog"); setWindowTitle(tr("导出数据"));
   auto *root = new QVBoxLayout(this);
   root->setSpacing(PaleoTheme::tokens().spacingSm);
@@ -101,7 +101,7 @@ void DataExportDialog::refreshVersions() {
       if (original && version.stage != "RAW") continue;
       combo->addItem(tr("v%1 · %2 · %3").arg(version.versionNumber).arg(version.stage, version.id), version.id);
     }
-    const int at = combo->findData(current.id);
+    const int at = combo->findData(row < m_selectedVersions.size() ? m_selectedVersions[row] : current.id);
     combo->setCurrentIndex(at >= 0 ? at : combo->count() - 1);
     connect(combo, &QComboBox::currentIndexChanged, this, &DataExportDialog::schedulePreview);
     m_versions->setCellWidget(row, 1, combo);

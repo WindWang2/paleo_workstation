@@ -17,6 +17,7 @@
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QHBoxLayout;
 class QSlider;
 class QSpinBox;
 class QLabel;
@@ -138,6 +139,12 @@ protected:
 private:
     void buildUi();
     void buildDisplayBar();          // D3.x 显示控制行
+    // #554：buildDisplayBar 按控件族机械拆段——每族「构建+接线」一体、可独立
+    // 调用；控件入栏顺序与拆分前逐字一致。
+    void buildColorControls(QHBoxLayout *lay, QWidget *bar);  // D3.5/D3.3 色标+透明度/值域
+    void buildRenderControls(QHBoxLayout *lay, QWidget *bar); // D7.1/D3.1/D7.2/D7.3
+    void buildSweepControls(QHBoxLayout *lay, QWidget *bar);  // D7.4
+    void buildViewControls(QHBoxLayout *lay, QWidget *bar);   // D3.10/D3.6/D3.7
     void requestSliceUpdate(SeismicSliceSlot slot, SgySliceType type, int index);
     void applyTransferFunction();    // D7.1：LUT 重传 + 缓存切片/堆叠层值纹理重喂
     void requestStackLayers();       // D3.1 堆叠层提取（A1/A2：体窗合并通道 + 逐层回落）

@@ -45,6 +45,7 @@
 #include <QUuid>
 #include <QVariantList>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cpl_conv.h>
 #include <cstring>
@@ -148,6 +149,851 @@ bool writeJsonFile( const QString &path, const QVariantMap &payload )
   if ( !file.open( QIODevice::WriteOnly ) )
     return false;
   file.write( QJsonDocument( QJsonObject::fromVariantMap( payload ) ).toJson( QJsonDocument::Compact ) );
+  return true;
+}
+
+// ---- #554：computeGeostatJobWithService 按段拆分 ----
+// 段序：采样 →（样本不足早退降级 IDW）→ 网格 → 变差函数 → QC 输入面 →
+// 方法执行（kriging/cokriging/sgs 三选一）→ QC 落盘 → 暂存。各段可独立
+// 调用；除「采样」（临时目录尚未建立）与「暂存」（成果已拷出，原路径失败
+// 即不回收临时目录）外，段失败统一由编排层 cleanupTemp()——与原内联路径
+// 的清理时机一一对应。函数体自原函数逐字搬迁，tr 显式限定
+// ConstraintWorkflow::tr（与原静态成员内裸 tr 同一翻译上下文）。
+
+// 建模段共享上下文：网格/变差函数/网格变换/进度控制/邻域参数（字段与原
+// 局部变量同名）。
+struct GeostatRunContext
+{
+  ConstraintWorkflow::GeostatJob *job = nullptr;
+  QString tempDir;
+  paleo::geostat::GridSpec grid;
+  paleo::geostat::VariogramModel model;
+  std::array<double, 6> geoTransform{};
+  QgsCoordinateReferenceSystem crs;
+  paleo::geostat::Control control;
+  int maxPoints = 16;
+  double searchRadius = 0.0;
+  int minPoints = 4;
+};
+
+// 建模段产物——QC 落盘的原料（字段与原局部变量同名，初值同原声明）。
+struct GeostatQcParts
+{
+  bool autoFit = true;
+  double fitR2 = 0;
+  double fitRmse = 0;
+  QVariantMap modelProvenance; // P2：变差函数来源与被派生/钳制的量（不进参数指纹）
+  QVariantList ignoredInputs;
+  QVariantMap searchNode;
+  QVariantMap counts;
+  QVariantMap cvNode;
+  QVariantMap cokrigingNode;
+  QVariantMap sgsNode;
+};
+
+// 采样段：井点图层 → 有效样本 + 参与/跳过井清单 + 井层 CRS。
+bool sampleGeostatWells( ConstraintWorkflow::GeostatJob *job,
+                         const std::function<bool()> &cancelled,
+                         std::vector<paleo::geostat::Sample> &samples, QVariantList &supportingWells,
+                         QVariantList &skippedWells, QgsCoordinateReferenceSystem &crs )
+{
+  auto wells = std::make_unique<QgsVectorLayer>( job->wellUri, QStringLiteral( "wells" ), QStringLiteral( "ogr" ) );
+  if ( !wells || !wells->isValid() )
+  {
+    job->error = ConstraintWorkflow::tr( "井点图层无法读取" );
+    return false;
+  }
+  // P2（pr457-closure）：地统计距离/变差函数/网格间距全按米制口径——经纬度
+  // 坐标下把角度当米会得出错误的空间结构与估值。与 local_direction /
+  // structural 引擎同口径明确拒绝（提示先投影），不静默执行。
+  if ( !wells->crs().isValid() )
+  {
+    job->error = ConstraintWorkflow::tr( "井点图层没有可识别的坐标系：距离/变差函数的单位无法核实，"
+                                         "请先为井点层声明 CRS（本地工程网格或投影坐标系）" );
+    return false;
+  }
+  if ( wells->crs().isGeographic() )
+  {
+    job->error = ConstraintWorkflow::tr( "井点图层坐标系为地理坐标（%1，单位是度）：地质统计需要米制投影坐标，"
+                                         "请先把井位投影（例如本地工程网格或投影坐标系）" )
+                     .arg( wells->crs().userFriendlyIdentifier() );
+    return false;
+  }
+  const int fieldIndex = wells->fields().lookupField( job->field );
+  if ( fieldIndex < 0 )
+  {
+    job->error = ConstraintWorkflow::tr( "井点图层没有字段 %1" ).arg( job->field );
+    return false;
+  }
+  QgsAttributeList fields{fieldIndex};
+  for (const auto &name : {"well_id", "id", "well_name", "name", "paleo_feature_uid"})
+    if (const int index = wells->fields().indexOf(name); index >= 0 && !fields.contains(index)) fields << index;
+  QgsFeature feature;
+  auto it = wells->getFeatures(QgsFeatureRequest().setSubsetOfAttributes(fields));
+  const auto attribute = [&](const char *preferred, const char *fallback) {
+    const int first = wells->fields().indexOf(preferred), second = wells->fields().indexOf(fallback);
+    return first >= 0 ? feature.attribute(first) : second >= 0 ? feature.attribute(second) : QVariant();
+  };
+  while (it.nextFeature(feature)) {
+    if (cancelled && cancelled()) { job->error = ConstraintWorkflow::tr("已取消"); return false; }
+    QVariantMap observation{{"well_id", attribute("well_id", "id")},
+        {"name", attribute("well_name", "name")}, {"horizon", job->horizon},
+        {"source_record_id", QString::number(feature.id())}, {"source_uri", job->wellUri},
+        {"source_record_scope", "provider_fid_with_source_version"},
+        {"source_version_ids", job->params.value("well_input_version_ids")}};
+    if (wells->fields().indexOf("paleo_feature_uid") >= 0)
+      observation.insert("source_feature_uid", feature.attribute("paleo_feature_uid"));
+    QString reason;
+    const auto geometry = feature.geometry(); QgsPointXY point;
+    if (geometry.isNull() || geometry.isEmpty()) reason = ConstraintWorkflow::tr("缺少有效井点坐标");
+    else {
+      point = geometry.isMultipart() ? geometry.asMultiPoint().value(0) : geometry.asPoint();
+      if (!std::isfinite(point.x()) || !std::isfinite(point.y())) reason = ConstraintWorkflow::tr("井点坐标不是有限数值");
+    }
+    const auto value = feature.attribute(fieldIndex); bool numeric = false;
+    const double z = value.toDouble(&numeric);
+    if (value.isNull() || !numeric || !std::isfinite(z))
+      reason += (reason.isEmpty() ? QString() : QStringLiteral("; ")) + ConstraintWorkflow::tr("字段 %1 缺失或不是有限数值").arg(job->field);
+    observation.insert("participating", reason.isEmpty());
+    if (!reason.isEmpty()) {
+      observation.insert("reason", reason); skippedWells << observation; continue;
+    }
+    observation.insert("value", z); observation.insert("x", point.x()); observation.insert("y", point.y());
+    supportingWells << observation;
+    samples.push_back(paleo::geostat::Sample{point.x(), point.y(), z});
+  }
+  crs = wells->sourceCrs();
+  if ( samples.empty() )
+  {
+    job->error = ConstraintWorkflow::tr( "井点图层没有可用样本（字段 %1）" ).arg( job->field );
+    return false;
+  }
+  return true;
+}
+
+// 降级段：样本不足阈值 → 约束 IDW，method_actual 如实标注（成功即任务完成，
+// 编排层直接返回 true）。
+bool runDegradedGeostatIdw( QgisProcessingService *proc, ConstraintWorkflow::GeostatJob *job,
+                            const std::vector<paleo::geostat::Sample> &samples,
+                            const QgsCoordinateReferenceSystem &crs, const QVariantList &supportingWells,
+                            const QVariantList &skippedWells, const QVariantMap &qcParameters,
+                            const std::function<bool()> &cancelled,
+                            const std::function<void( double )> &progress )
+{
+  // Pass exactly the admitted observations to fallback too; typed NULL can
+  // otherwise become numeric zero again inside a legacy algorithm.
+  QgsVectorLayer admitted("Point", "admitted_geostat_samples", "memory");
+  admitted.setCrs(crs);
+  admitted.dataProvider()->addAttributes({QgsField(job->field, QMetaType::Type::Double)});
+  admitted.updateFields();
+  QgsFeatureList accepted;
+  for (const auto &sample : samples) {
+    QgsFeature point(admitted.fields()); point.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(sample.x, sample.y)));
+    point.setAttribute(0, sample.value); accepted << point;
+  }
+  admitted.dataProvider()->addFeatures(accepted); admitted.updateExtents();
+  QVariantMap runParams;
+  runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( static_cast<QgsMapLayer *>( &admitted ) ) );
+  runParams.insert( QStringLiteral( "FIELD" ), job->field );
+  runParams.insert( QStringLiteral( "CELL_SIZE" ), job->cellSize );
+  runParams.insert( QStringLiteral( "OUTPUT" ), job->outputPath );
+  QgisProcessingService::ProcessingHooks hooks;
+  hooks.cancelled = cancelled;
+  hooks.progress = progress;
+  QString runErr;
+  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_constraint_idw" ), runParams, &runErr, hooks );
+  if ( results.isEmpty() || !QFile::exists( job->outputPath ) )
+  {
+    job->outputPath.clear();
+    job->error = runErr.isEmpty() ? ConstraintWorkflow::tr( "降级 IDW 未返回输出" ) : runErr;
+    return false;
+  }
+  job->degraded = true;
+  QVariantMap qc;
+  QVariantMap parameters = qcParameters;
+  parameters.insert( QStringLiteral( "method_actual" ), QStringLiteral( "idw" ) );
+  parameters.insert( QStringLiteral( "degraded_reason" ),
+                     QStringLiteral( "samples %1 < %2" ).arg( samples.size() ).arg( kGeostatMinSamples ) );
+  qc.insert( QStringLiteral( "schema" ), QStringLiteral( "paleo_geostat_qc_v1" ) );
+  qc.insert( QStringLiteral( "method" ), job->method );
+  qc.insert( QStringLiteral( "method_actual" ), QStringLiteral( "idw" ) );
+  qc.insert( QStringLiteral( "cross_validation" ),
+             QVariantMap{ { QStringLiteral( "status" ), QStringLiteral( "not_computed" ) },
+                          { QStringLiteral( "reason" ), QStringLiteral( "degraded_to_idw_insufficient_samples" ) } } );
+  // 降级 IDW 不传 CONSTRAINTS：约束同样一条未用。
+  qc.insert( QStringLiteral( "constraints_consumed" ), QVariantList() );
+  qc.insert( QStringLiteral( "constraints_unused" ), job->constraintsUnused );
+  qc.insert( QStringLiteral( "samples" ), static_cast<int>( samples.size() ) );
+  qc.insert("supporting_wells", supportingWells); qc.insert("skipped_wells", skippedWells);
+  qc.insert( QStringLiteral( "parameters" ), parameters );
+  if ( !writeJsonFile( job->qcPath, qc ) )
+  {
+    job->error = ConstraintWorkflow::tr( "QC 写盘失败" );
+    return false;
+  }
+  job->ok = true;
+  return true;
+}
+
+// 网格段产物：样本包围盒 + 2 像元边距的网格规格（spanX/spanY 供变差函数
+// 自动拟合取面积）。
+struct GeostatSampleGrid
+{
+  paleo::geostat::GridSpec spec;
+  double spanX = 0.0;
+  double spanY = 0.0;
+};
+
+GeostatSampleGrid buildGeostatGrid( const std::vector<paleo::geostat::Sample> &samples, double cellSize,
+                                    const QgsCoordinateReferenceSystem &crs )
+{
+  double minX = std::numeric_limits<double>::max();
+  double minY = std::numeric_limits<double>::max();
+  double maxX = std::numeric_limits<double>::lowest();
+  double maxY = std::numeric_limits<double>::lowest();
+  for ( const paleo::geostat::Sample &sample : samples )
+  {
+    minX = std::min( minX, sample.x );
+    minY = std::min( minY, sample.y );
+    maxX = std::max( maxX, sample.x );
+    maxY = std::max( maxY, sample.y );
+  }
+  const double margin = 2.0 * cellSize;
+  GeostatSampleGrid run;
+  run.spanX = std::max( maxX - minX, cellSize );
+  run.spanY = std::max( maxY - minY, cellSize );
+  run.spec.pixelWidth = cellSize;
+  run.spec.pixelHeight = -cellSize;
+  run.spec.cols = static_cast<int>( std::ceil( ( run.spanX + 2 * margin ) / cellSize ) );
+  run.spec.rows = static_cast<int>( std::ceil( ( run.spanY + 2 * margin ) / cellSize ) );
+  run.spec.originX = ( minX + maxX ) / 2.0 - run.spec.cols * cellSize / 2.0;
+  run.spec.originY = ( minY + maxY ) / 2.0 + run.spec.rows * cellSize / 2.0;
+  run.spec.crs = crs.toWkt().toStdString();
+  return run;
+}
+
+// 变差函数段：显式参数或自动拟合（可选方向各向异性）+ 模型有效性校验。
+bool fitGeostatVariogram( ConstraintWorkflow::GeostatJob *job,
+                          const std::vector<paleo::geostat::Sample> &samples, double spanX, double spanY,
+                          paleo::geostat::VariogramModel *model, GeostatQcParts *parts )
+{
+  const QString modelName = job->params.value( QStringLiteral( "variogramModel" ), QStringLiteral( "spherical" ) ).toString();
+  const paleo::geostat::VariogramModelType modelType = variogramTypeFor( modelName );
+  const double explicitNugget = job->params.value( QStringLiteral( "nugget" ), 0.0 ).toDouble();
+  const double explicitSill = job->params.value( QStringLiteral( "sill" ), 0.0 ).toDouble();
+  const double explicitRange = job->params.value( QStringLiteral( "range" ), 0.0 ).toDouble();
+  const double azimuthParam = job->params.value( QStringLiteral( "azimuth" ), -1.0 ).toDouble();
+  const bool hasAzimuth = azimuthParam >= 0.0 && azimuthParam <= 360.0;
+
+  model->type = modelType;
+  double &fitR2 = parts->fitR2;
+  double &fitRmse = parts->fitRmse;
+  bool &autoFit = parts->autoFit;
+  QVariantMap &modelProvenance = parts->modelProvenance;
+  if ( explicitRange > 0 && explicitSill > 0 )
+  {
+    const double anisotropyRequested =
+        job->params.value( QStringLiteral( "anisotropyRatio" ), 1.0 ).toDouble();
+    model->nugget = std::max( 0.0, explicitNugget );
+    model->sill = explicitSill;
+    model->range = explicitRange;
+    model->anisotropyRatio = std::max( 1.0, anisotropyRequested );
+    if ( hasAzimuth )
+      model->azimuthDeg = azimuthParam;
+    autoFit = false;
+    // P2 诚实面：负块金→0、比率<1→1 是静默钳制，留痕（同 rho_clamped 与
+    // auto-fit anisotropy_ratio_clamped 口径）——仅发生钳制时插入，正常值无新键。
+    if ( model->nugget != explicitNugget )
+    {
+      modelProvenance.insert( QStringLiteral( "nugget_clamped" ), true );
+      modelProvenance.insert( QStringLiteral( "nugget_effective" ), model->nugget );
+    }
+    if ( model->anisotropyRatio != anisotropyRequested )
+    {
+      modelProvenance.insert( QStringLiteral( "anisotropy_clamped" ), true );
+      modelProvenance.insert( QStringLiteral( "anisotropy_effective" ), model->anisotropyRatio );
+    }
+  }
+  else
+  {
+    const double area = spanX * spanY;
+    const double lag = std::max( job->cellSize, std::sqrt( area / samples.size() ) );
+    const int nLags = 12;
+    if ( hasAzimuth )
+    {
+      paleo::geostat::VariogramDirection along;
+      along.omnidirectional = false;
+      along.azimuthDeg = azimuthParam;
+      along.toleranceDeg = 22.5;
+      paleo::geostat::VariogramDirection across = along;
+      across.azimuthDeg = std::fmod( azimuthParam + 90.0, 360.0 );
+      const paleo::geostat::VariogramFit fitAlong =
+          paleo::geostat::fitVariogram( paleo::geostat::experimentalVariogram( samples, lag, nLags, along ), modelType );
+      const paleo::geostat::VariogramFit fitAcross =
+          paleo::geostat::fitVariogram( paleo::geostat::experimentalVariogram( samples, lag, nLags, across ), modelType );
+      if ( fitAlong.status != paleo::geostat::Status::Ok || fitAcross.status != paleo::geostat::Status::Ok )
+      {
+        job->error = ConstraintWorkflow::tr( "方向变差函数拟合失败：%1 / %2" )
+                         .arg( QString::fromStdString( fitAlong.message ), QString::fromStdString( fitAcross.message ) );
+        return false;
+      }
+      *model = fitAlong.model;
+      model->azimuthDeg = azimuthParam;
+      const double rawRatio = fitAcross.model.range > 0 ? fitAlong.model.range / fitAcross.model.range : 1.0;
+      model->anisotropyRatio = std::clamp( rawRatio, 1.0, 8.0 );
+      fitR2 = fitAlong.r2;
+      fitRmse = fitAlong.rmse;
+      // 只用沿走向拟合的块金/基台；横向拟合只贡献变程比。两向都如实记录。
+      modelProvenance.insert( QStringLiteral( "across_range" ), fitAcross.model.range );
+      modelProvenance.insert( QStringLiteral( "across_fit_r2" ), fitAcross.r2 );
+      modelProvenance.insert( QStringLiteral( "across_fit_rmse" ), fitAcross.rmse );
+      modelProvenance.insert( QStringLiteral( "anisotropy_ratio_raw" ), rawRatio );
+      modelProvenance.insert( QStringLiteral( "anisotropy_ratio_clamped" ), rawRatio != model->anisotropyRatio );
+    }
+    else
+    {
+      const paleo::geostat::VariogramFit fit =
+          paleo::geostat::fitVariogram( paleo::geostat::experimentalVariogram( samples, lag, nLags ), modelType );
+      if ( fit.status != paleo::geostat::Status::Ok )
+      {
+        job->error = ConstraintWorkflow::tr( "变差函数拟合失败：%1" ).arg( QString::fromStdString( fit.message ) );
+        return false;
+      }
+      *model = fit.model;
+      fitR2 = fit.r2;
+      fitRmse = fit.rmse;
+    }
+  }
+  if ( !( model->range > 0 ) || model->nugget < 0 || model->sill < 0 )
+  {
+    job->error = ConstraintWorkflow::tr( "变差函数模型参数无效" );
+    return false;
+  }
+  if ( model->nugget + model->sill <= 0 )
+  {
+    // 恒定场：零基台 → 克氏方程组全零无解。如实拒绝，不产空栅格。
+    job->error = ConstraintWorkflow::tr( "字段 %1 在井点上是常量（零基台），克里金无空间结构可解" ).arg( job->field );
+    return false;
+  }
+  return true;
+}
+
+// QC 输入面段：给了但引擎没读/被覆盖的参数逐条留因 + 检索邻域节点。
+void collectGeostatQcInputs( const ConstraintWorkflow::GeostatJob *job,
+                             const paleo::geostat::VariogramModel &model, const GeostatRunContext &ctx,
+                             GeostatQcParts *parts )
+{
+  const double explicitSill = job->params.value( QStringLiteral( "sill" ), 0.0 ).toDouble();
+  const double explicitRange = job->params.value( QStringLiteral( "range" ), 0.0 ).toDouble();
+  const double azimuthParam = job->params.value( QStringLiteral( "azimuth" ), -1.0 ).toDouble();
+  const bool hasAzimuth = azimuthParam >= 0.0 && azimuthParam <= 360.0;
+  const bool autoFit = parts->autoFit;
+  const int maxPoints = ctx.maxPoints;
+  const double searchRadius = ctx.searchRadius;
+  const int minPoints = ctx.minPoints;
+  QVariantList &ignoredInputs = parts->ignoredInputs;
+  QVariantMap &modelProvenance = parts->modelProvenance;
+  const auto ignore = [&]( const QString &key, const QString &reason ) {
+    if ( job->params.contains( key ) )
+      ignoredInputs << QVariantMap{ { QStringLiteral( "key" ), key }, { QStringLiteral( "reason" ), reason } };
+  };
+  for ( const QString &key : { QStringLiteral( "power" ), QStringLiteral( "coverage" ), QStringLiteral( "wellClusterLocality" ),
+                               QStringLiteral( "anisotropyAngle" ), QStringLiteral( "krigingMaxPoints" ) } )
+    ignore( key, QStringLiteral( "not_read_by_geostat_engine" ) );
+  if ( autoFit )
+  {
+    const bool partial = ( explicitRange > 0 ) != ( explicitSill > 0 );
+    const QString why = partial ? QStringLiteral( "explicit_model_requires_range_and_sill" )
+                                : QStringLiteral( "auto_fit_estimates_model" );
+    ignore( QStringLiteral( "nugget" ), why );
+    ignore( QStringLiteral( "sill" ), why );
+    ignore( QStringLiteral( "range" ), why );
+    ignore( QStringLiteral( "anisotropyRatio" ), hasAzimuth ? QStringLiteral( "directional_auto_fit_derives_ratio" )
+                                                            : QStringLiteral( "omnidirectional_auto_fit" ) );
+  }
+  else if ( !hasAzimuth && model.anisotropyRatio > 1.0 )
+  {
+    modelProvenance.insert( QStringLiteral( "azimuth_defaulted" ), model.azimuthDeg );
+  }
+  if ( job->params.contains( QStringLiteral( "azimuth" ) ) && !hasAzimuth )
+    ignore( QStringLiteral( "azimuth" ), QStringLiteral( "outside_0_360" ) );
+  if ( job->method != QLatin1String( "cokriging" ) )
+    for ( const QString &key : { QStringLiteral( "covariateLayerId" ), QStringLiteral( "crossCorrelation" ),
+                                 QStringLiteral( "cross_correlation" ), QStringLiteral( "covariateMaxSamples" ) } )
+      ignore( key, QStringLiteral( "method_has_no_covariate" ) );
+  if ( job->method != QLatin1String( "sgs" ) )
+    for ( const QString &key : { QStringLiteral( "realizations" ), QStringLiteral( "seed" ), QStringLiteral( "persistRealizations" ) } )
+      ignore( key, QStringLiteral( "deterministic_method" ) );
+  if ( job->method != QLatin1String( "kriging" ) )
+    ignore( QStringLiteral( "minPoints" ), QStringLiteral( "method_neighbourhood_has_no_min_points" ) );
+  else if ( !( searchRadius > 0 ) )
+    ignore( QStringLiteral( "minPoints" ), QStringLiteral( "used_only_with_search_radius" ) );
+  modelProvenance.insert( QStringLiteral( "variogram_source" ),
+                          !autoFit ? QStringLiteral( "explicit" )
+                                   : hasAzimuth ? QStringLiteral( "auto_fit_directional" )
+                                                : QStringLiteral( "auto_fit_omnidirectional" ) );
+  QVariantMap &searchNode = parts->searchNode;
+  searchNode.insert( QStringLiteral( "max_points_requested" ), maxPoints );
+  // 各内核口径：克里金/协克里金 ≤0 = 全部样本；SGS 一律钳到 [1,64]。0 表示「全部」。
+  searchNode.insert( QStringLiteral( "max_points_effective" ),
+                     job->method == QLatin1String( "sgs" ) || maxPoints > 0 ? std::clamp( maxPoints, 1, 64 ) : 0 );
+  searchNode.insert( QStringLiteral( "search_radius" ), searchRadius );
+  if ( job->method == QLatin1String( "kriging" ) && searchRadius > 0 )
+    searchNode.insert( QStringLiteral( "min_points" ), minPoints );
+}
+
+// 方法执行段（kriging）：普通克里金 + 方差栅格 + LOO 交叉验证。
+bool runGeostatKriging( const GeostatRunContext &ctx, const std::vector<paleo::geostat::Sample> &samples,
+                        GeostatQcParts *parts )
+{
+  ConstraintWorkflow::GeostatJob *job = ctx.job;
+  const paleo::geostat::GridSpec &grid = ctx.grid;
+  const paleo::geostat::VariogramModel &model = ctx.model;
+  const paleo::geostat::Control &control = ctx.control;
+  const QString &tempDir = ctx.tempDir;
+  const double *const geoTransform = ctx.geoTransform.data();
+  const QgsCoordinateReferenceSystem &crs = ctx.crs;
+  const int maxPoints = ctx.maxPoints;
+  const double searchRadius = ctx.searchRadius;
+  const int minPoints = ctx.minPoints;
+  QVariantMap &counts = parts->counts;
+  QVariantMap &cvNode = parts->cvNode;
+  const std::function<bool()> &cancelled = control.cancelled;
+  paleo::geostat::KrigingParams krigingParams;
+  krigingParams.maxPoints = maxPoints;
+  krigingParams.searchRadius = searchRadius;
+  if ( searchRadius > 0 )
+    krigingParams.minPoints = minPoints;
+  const paleo::geostat::KrigingResult result =
+      paleo::geostat::ordinaryKriging( samples, grid, model, krigingParams, control );
+  if ( result.status == paleo::geostat::Status::Cancelled )
+  {
+    job->error = ConstraintWorkflow::tr( "已取消" );
+    return false;
+  }
+  if ( result.status != paleo::geostat::Status::Ok )
+  {
+    job->error = ConstraintWorkflow::tr( "克里金失败：%1" ).arg( QString::fromStdString( result.message ) );
+    return false;
+  }
+  job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "variance.tif" ) );
+  if ( !writeFloatRaster( job->outputPath, result.estimate, grid.cols, grid.rows, geoTransform, crs,
+                          DataCatalog::localGridCrsWkt() ) ||
+       !writeFloatRaster( job->supportPath, result.variance, grid.cols, grid.rows, geoTransform, crs,
+                          DataCatalog::localGridCrsWkt() ) )
+  {
+    job->error = ConstraintWorkflow::tr( "克里金栅格写盘失败" );
+    return false;
+  }
+  counts.insert( QStringLiteral( "finite" ), result.finiteCells );
+  counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
+  counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
+  bool cvCancelled = false;
+  cvNode = leaveOneOut(
+      samples, QStringLiteral( "ordinary_kriging" ),
+      [&]( double x, double y, const std::vector<paleo::geostat::Sample> &rest ) {
+        const paleo::geostat::KrigingPointResult point = paleo::geostat::ordinaryKrigingAt( x, y, rest, model, krigingParams );
+        return CvPrediction{ point.ok, point.estimate, point.variance };
+      },
+      cancelled, &cvCancelled );
+  if ( cvCancelled )
+  {
+    job->error = ConstraintWorkflow::tr( "已取消" );
+    return false;
+  }
+  return true;
+}
+
+// 方法执行段（cokriging）：协变量取样、ρ 估计/钳制、协克里金 + LOO。
+bool runGeostatCokriging( const GeostatRunContext &ctx, const std::vector<paleo::geostat::Sample> &samples,
+                          GeostatQcParts *parts, QVariantMap &qcParameters )
+{
+  ConstraintWorkflow::GeostatJob *job = ctx.job;
+  const paleo::geostat::GridSpec &grid = ctx.grid;
+  const paleo::geostat::VariogramModel &model = ctx.model;
+  const paleo::geostat::Control &control = ctx.control;
+  const QString &tempDir = ctx.tempDir;
+  const double *const geoTransform = ctx.geoTransform.data();
+  const QgsCoordinateReferenceSystem &crs = ctx.crs;
+  const int maxPoints = ctx.maxPoints;
+  const double searchRadius = ctx.searchRadius;
+  QVariantMap &counts = parts->counts;
+  QVariantMap &cvNode = parts->cvNode;
+  QVariantMap &cokrigingNode = parts->cokrigingNode;
+  const std::function<bool()> &cancelled = control.cancelled;
+  const QString covariateLayerId = job->params.value( QStringLiteral( "covariateLayerId" ) ).toString();
+  // The covariate URI was frozen in prepare; never instantiate a GUI layer
+  // through the live layer service from the worker.
+  auto ownedRaster = std::make_unique<QgsRasterLayer>(
+      job->parentPaths.last(), QStringLiteral("covariate"));
+  auto *covRaster = ownedRaster.get();
+  if ( !covRaster || !covRaster->isValid() )
+  {
+    job->error = ConstraintWorkflow::tr( "协克里金方法需要有效的次级协变量图层 (covariateLayerId)" );
+    return false;
+  }
+
+  std::vector<double> primaryZ;
+  std::vector<double> secondaryZ;
+  primaryZ.reserve( samples.size() );
+  secondaryZ.reserve( samples.size() );
+  for ( const paleo::geostat::Sample &s : samples )
+  {
+    bool ok = false;
+    const double v2 = covRaster->dataProvider()->sample( QgsPointXY( s.x, s.y ), 1, &ok );
+    if ( ok && std::isfinite( v2 ) )
+    {
+      primaryZ.push_back( s.value );
+      secondaryZ.push_back( v2 );
+    }
+  }
+
+  double rho = 0.0;
+  QString rhoSource = QStringLiteral( "default_zero" );
+  if ( job->params.contains( QStringLiteral( "crossCorrelation" ) ) )
+  {
+    rho = job->params.value( QStringLiteral( "crossCorrelation" ) ).toDouble();
+    rhoSource = QStringLiteral( "explicit" );
+  }
+  else if ( job->params.contains( QStringLiteral( "cross_correlation" ) ) )
+  {
+    rho = job->params.value( QStringLiteral( "cross_correlation" ) ).toDouble();
+    rhoSource = QStringLiteral( "explicit" );
+  }
+  else if ( primaryZ.size() >= 3 )
+  {
+    rhoSource = QStringLiteral( "estimated_colocated" );
+    const std::size_t n = primaryZ.size();
+    double sum1 = 0, sum2 = 0;
+    for ( std::size_t i = 0; i < n; ++i )
+    {
+      sum1 += primaryZ[i];
+      sum2 += secondaryZ[i];
+    }
+    const double mean1 = sum1 / static_cast<double>( n );
+    const double mean2 = sum2 / static_cast<double>( n );
+    double cov = 0, var1 = 0, var2 = 0;
+    for ( std::size_t i = 0; i < n; ++i )
+    {
+      const double d1 = primaryZ[i] - mean1;
+      const double d2 = secondaryZ[i] - mean2;
+      cov += d1 * d2;
+      var1 += d1 * d1;
+      var2 += d2 * d2;
+    }
+    if ( var1 > 1e-12 && var2 > 1e-12 )
+      rho = cov / std::sqrt( var1 * var2 );
+    else
+    {
+      rho = 0.0;
+      rhoSource = QStringLiteral( "estimated_degenerate_zero" );
+    }
+  }
+  if ( !std::isfinite( rho ) )
+  {
+    job->error = ConstraintWorkflow::tr( "协克里金交叉相关系数无效" );
+    return false;
+  }
+  const double rhoRequested = rho;
+  rho = std::clamp( rho, -0.99, 0.99 );
+  // ρ=0 时交叉协方差为零、次级权重恒为零：结果等同只用主变量的普通克里金。
+  // 方法名不改（仍是 cokriging 方程组），但如实标注协变量未生效。
+  cokrigingNode.insert( QStringLiteral( "rho_source" ), rhoSource );
+  cokrigingNode.insert( QStringLiteral( "rho_requested" ), rhoRequested );
+  cokrigingNode.insert( QStringLiteral( "rho_effective" ), rho );
+  cokrigingNode.insert( QStringLiteral( "rho_clamped" ), rho != rhoRequested );
+  cokrigingNode.insert( QStringLiteral( "colocated_samples" ), static_cast<int>( primaryZ.size() ) );
+  cokrigingNode.insert( QStringLiteral( "covariate_effective" ), rho != 0.0 );
+  cokrigingNode.insert( QStringLiteral( "secondary_model" ),
+                        QStringLiteral( "primary_variogram_nugget_zero" ) );
+
+  std::vector<paleo::geostat::Sample> secondarySamples;
+  const int totalCells = grid.cols * grid.rows;
+  const int maxSec = job->params.value( QStringLiteral( "covariateMaxSamples" ), 2048 ).toInt();
+  const int step = std::max( 1, static_cast<int>( std::ceil( std::sqrt( static_cast<double>( totalCells ) / std::max( 64, maxSec ) ) ) ) );
+  for ( int r = 0; r < grid.rows; r += step )
+  {
+    for ( int c = 0; c < grid.cols; c += step )
+    {
+      const double gx = grid.cellCenterX( c );
+      const double gy = grid.cellCenterY( r );
+      bool ok = false;
+      const double gv = covRaster->dataProvider()->sample( QgsPointXY( gx, gy ), 1, &ok );
+      if ( ok && std::isfinite( gv ) )
+        secondarySamples.push_back( paleo::geostat::Sample{ gx, gy, gv } );
+    }
+  }
+  if ( secondarySamples.empty() )
+  {
+    job->error = ConstraintWorkflow::tr( "协变量栅格在计算网格范围内无有效数据" );
+    return false;
+  }
+
+  paleo::geostat::CoKrigingModel coModel;
+  coModel.primary = model;
+  // #326：次级自变差必须与交叉项同单位。交叉项是 ρ·γ1（主变量单位，
+  // cokriging.h crossSemivariance），所以 γ22 也要落在主变量基台上——
+  // 即 scaled MM1 的两基台相等那种退化。原实现把 γ22 的拱高换成协变量
+  // 井点原始方差，地震属性与孔隙度/厚度差几个数量级时，方程组里混了两
+  // 种单位：Pearson ρ 不再是那个 ρ，次级块还会主导条件数。测得的协变量
+  // 方差只进 QC 参数，不改模型。
+  coModel.secondary = model;
+  coModel.secondary.nugget = 0.0;
+  if ( !secondaryZ.empty() )
+  {
+    double secMean = 0;
+    for ( double val : secondaryZ )
+      secMean += val;
+    secMean /= secondaryZ.size();
+    double secVar = 0;
+    for ( double val : secondaryZ )
+      secVar += ( val - secMean ) * ( val - secMean );
+    secVar /= secondaryZ.size();
+    job->params.insert( QStringLiteral( "covariate_sample_variance" ),
+                        QString::number( secVar, 'g', 10 ) );
+  }
+  coModel.crossCorrelation = rho;
+
+  paleo::geostat::KrigingParams krigingParams;
+  krigingParams.maxPoints = maxPoints;
+  krigingParams.searchRadius = searchRadius;
+  const paleo::geostat::CoKrigingResult result =
+      paleo::geostat::ordinaryCoKriging( samples, secondarySamples, grid, coModel, krigingParams,
+                                         [&control]( double frac ) -> bool {
+                                           if ( control.cancelled && control.cancelled() )
+                                             return false;
+                                           if ( control.progress )
+                                             control.progress( frac );
+                                           return true;
+                                         } );
+  if ( result.status == paleo::geostat::Status::Cancelled )
+  {
+    job->error = ConstraintWorkflow::tr( "已取消" );
+    return false;
+  }
+  if ( result.status != paleo::geostat::Status::Ok )
+  {
+    job->error = ConstraintWorkflow::tr( "协克里金失败：%1" ).arg( QString::fromStdString( result.message ) );
+    return false;
+  }
+  job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "variance.tif" ) );
+  if ( !writeFloatRaster( job->outputPath, result.estimates, grid.cols, grid.rows, geoTransform, crs,
+                          DataCatalog::localGridCrsWkt() ) ||
+       !writeFloatRaster( job->supportPath, result.variances, grid.cols, grid.rows, geoTransform, crs,
+                          DataCatalog::localGridCrsWkt() ) )
+  {
+    job->error = ConstraintWorkflow::tr( "协克里金栅格写盘失败" );
+    return false;
+  }
+  counts.insert( QStringLiteral( "finite" ), result.finiteCells );
+  counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
+  counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
+  counts.insert( QStringLiteral( "secondary_samples" ), static_cast<int>( secondarySamples.size() ) );
+  {
+    paleo::geostat::CoKrigingParams coParams;
+    coParams.maxPrimary = maxPoints;
+    coParams.maxSecondary = maxPoints;
+    coParams.searchRadius = searchRadius;
+    bool cvCancelled = false;
+    cvNode = leaveOneOut(
+        samples, QStringLiteral( "ordinary_cokriging" ),
+        [&]( double x, double y, const std::vector<paleo::geostat::Sample> &rest ) {
+          const paleo::geostat::CoKrigingPointResult point =
+              paleo::geostat::coKrigingAt( x, y, rest, secondarySamples, coModel, coParams );
+          return CvPrediction{ point.ok, point.estimate, point.variance };
+        },
+        cancelled, &cvCancelled );
+    if ( cvCancelled )
+    {
+      job->error = ConstraintWorkflow::tr( "已取消" );
+      return false;
+    }
+  }
+  qcParameters.insert( QStringLiteral( "cross_correlation" ), rho );
+  qcParameters.insert( QStringLiteral( "covariate_layer_id" ), covariateLayerId );
+  return true;
+}
+
+// 方法执行段（sgs）：顺序高斯模拟 + 均值/标准差栅格 + 成员栅格持久化。
+bool runGeostatSgs( const GeostatRunContext &ctx, const std::vector<paleo::geostat::Sample> &samples,
+                    GeostatQcParts *parts )
+{
+  ConstraintWorkflow::GeostatJob *job = ctx.job;
+  const paleo::geostat::GridSpec &grid = ctx.grid;
+  const paleo::geostat::VariogramModel &model = ctx.model;
+  const paleo::geostat::Control &control = ctx.control;
+  const QString &tempDir = ctx.tempDir;
+  const double *const geoTransform = ctx.geoTransform.data();
+  const QgsCoordinateReferenceSystem &crs = ctx.crs;
+  const int maxPoints = ctx.maxPoints;
+  const double searchRadius = ctx.searchRadius;
+  QVariantMap &counts = parts->counts;
+  QVariantMap &cvNode = parts->cvNode;
+  QVariantMap &sgsNode = parts->sgsNode;
+  paleo::geostat::SgsParams sgsParams;
+  sgsParams.nRealizations = job->params.value( QStringLiteral( "realizations" ), 4 ).toInt();
+  sgsParams.seed = static_cast<std::uint64_t>( job->params.value( QStringLiteral( "seed" ), 42 ).toLongLong() );
+  sgsParams.maxPoints = maxPoints;
+  sgsParams.searchRadius = searchRadius;
+  const paleo::geostat::SgsResult result = paleo::geostat::sgs( samples, grid, model, sgsParams, control );
+  if ( result.status == paleo::geostat::Status::Cancelled )
+  {
+    job->error = ConstraintWorkflow::tr( "已取消" );
+    return false;
+  }
+  if ( result.status != paleo::geostat::Status::Ok )
+  {
+    job->error = ConstraintWorkflow::tr( "SGS 失败：%1" ).arg( QString::fromStdString( result.message ) );
+    return false;
+  }
+  const std::size_t cells = static_cast<std::size_t>( grid.rows ) * grid.cols;
+  std::vector<double> mean( cells, std::numeric_limits<double>::quiet_NaN() );
+  std::vector<double> spread( cells, std::numeric_limits<double>::quiet_NaN() );
+  for ( std::size_t cell = 0; cell < cells; ++cell )
+  {
+    double sum = 0;
+    double sumSq = 0;
+    int n = 0;
+    for ( const std::vector<double> &realization : result.realizations )
+    {
+      const double value = realization[cell];
+      if ( std::isfinite( value ) )
+      {
+        sum += value;
+        sumSq += value * value;
+        ++n;
+      }
+    }
+    if ( n > 0 )
+    {
+      const double m = sum / n;
+      mean[cell] = m;
+      spread[cell] = n > 1 ? std::sqrt( std::max( 0.0, sumSq / n - m * m ) ) : 0.0;
+    }
+  }
+  job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "std.tif" ) );
+  if ( !writeFloatRaster( job->outputPath, mean, grid.cols, grid.rows, geoTransform, crs,
+                          DataCatalog::localGridCrsWkt() ) ||
+       !writeFloatRaster( job->supportPath, spread, grid.cols, grid.rows, geoTransform, crs,
+                          DataCatalog::localGridCrsWkt() ) )
+  {
+    job->error = ConstraintWorkflow::tr( "SGS 栅格写盘失败" );
+    return false;
+  }
+  // 方向 47：成员持久化——各 realization 写成员栅格，发布段收编为
+  // realization_set 集合（契约见 catalog/realizationset.h）。
+  // params.persistRealizations=false → 只产均值+标准差旁路的旧形态。
+  if ( job->params.value( QStringLiteral( "persistRealizations" ), true ).toBool() )
+  {
+    for ( std::size_t k = 0; k < result.realizations.size(); ++k )
+    {
+      const QString memberPath = QDir( tempDir ).filePath(
+          QStringLiteral( "member_r%1.tif" ).arg( k, 3, 10, QLatin1Char( '0' ) ) );
+      if ( !writeFloatRaster( memberPath, result.realizations[k], grid.cols,
+                              grid.rows, geoTransform, crs, DataCatalog::localGridCrsWkt() ) )
+      {
+        job->error = ConstraintWorkflow::tr( "SGS 成员栅格写盘失败（成员 %1）" ).arg( k );
+        return false;
+      }
+      job->memberPaths << memberPath;
+    }
+    job->memberSeed = sgsParams.seed;
+  }
+  counts.insert( QStringLiteral( "finite" ), result.finiteCells );
+  counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
+  counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
+  sgsNode.insert( QStringLiteral( "realizations" ), sgsParams.nRealizations );
+  sgsNode.insert( QStringLiteral( "seed" ), static_cast<qulonglong>( sgsParams.seed ) );
+  sgsNode.insert( QStringLiteral( "sample_mean" ), result.sampleMean );
+  sgsNode.insert( QStringLiteral( "sample_std" ), result.sampleStd );
+  // 随机模拟成果是实现集合的均值/标准差，不是最优估值：不做 LOO，也不冒充。
+  cvNode.insert( QStringLiteral( "status" ), QStringLiteral( "not_computed" ) );
+  cvNode.insert( QStringLiteral( "reason" ), QStringLiteral( "stochastic_simulation_use_realization_spread" ) );
+  return true;
+}
+
+// QC 落盘段：组装 paleo_geostat_qc_v1 并写盘。
+bool writeGeostatQc( const GeostatRunContext &ctx, const std::vector<paleo::geostat::Sample> &samples,
+                     const QVariantList &supportingWells, const QVariantList &skippedWells,
+                     const QVariantMap &qcParameters, const GeostatQcParts &parts )
+{
+  ConstraintWorkflow::GeostatJob *job = ctx.job;
+  const paleo::geostat::GridSpec &grid = ctx.grid;
+  const paleo::geostat::VariogramModel &model = ctx.model;
+  const bool autoFit = parts.autoFit;
+  const double fitR2 = parts.fitR2;
+  const double fitRmse = parts.fitRmse;
+  const QVariantMap &modelProvenance = parts.modelProvenance;
+  const QVariantList &ignoredInputs = parts.ignoredInputs;
+  const QVariantMap &searchNode = parts.searchNode;
+  const QVariantMap &counts = parts.counts;
+  const QVariantMap &cvNode = parts.cvNode;
+  const QVariantMap &cokrigingNode = parts.cokrigingNode;
+  const QVariantMap &sgsNode = parts.sgsNode;
+  QVariantMap qc;
+  qc.insert( QStringLiteral( "schema" ), QStringLiteral( "paleo_geostat_qc_v1" ) );
+  qc.insert( QStringLiteral( "method" ), job->method );
+  qc.insert( QStringLiteral( "method_actual" ), job->method );
+  qc.insert( QStringLiteral( "constraints_consumed" ), QVariantList() );
+  qc.insert( QStringLiteral( "constraints_unused" ), job->constraintsUnused );
+  qc.insert( QStringLiteral( "samples" ), static_cast<int>( samples.size() ) );
+  qc.insert("supporting_wells", supportingWells); qc.insert("skipped_wells", skippedWells);
+  qc.insert( QStringLiteral( "auto_fit" ), autoFit );
+  qc.insert( QStringLiteral( "model" ), variogramExtra( model, fitR2, fitRmse ) );
+  QVariantMap gridNode;
+  gridNode.insert( QStringLiteral( "cols" ), grid.cols );
+  gridNode.insert( QStringLiteral( "rows" ), grid.rows );
+  gridNode.insert( QStringLiteral( "cell_size" ), job->cellSize );
+  qc.insert( QStringLiteral( "grid" ), gridNode );
+  qc.insert( QStringLiteral( "counts" ), counts );
+  if ( !sgsNode.isEmpty() )
+    qc.insert( QStringLiteral( "sgs" ), sgsNode );
+  qc.insert( QStringLiteral( "model_provenance" ), modelProvenance );
+  qc.insert( QStringLiteral( "ignored_inputs" ), ignoredInputs );
+  qc.insert( QStringLiteral( "search" ), searchNode );
+  qc.insert( QStringLiteral( "cross_validation" ), cvNode );
+  if ( !cokrigingNode.isEmpty() )
+    qc.insert( QStringLiteral( "cokriging" ), cokrigingNode );
+  qc.insert( QStringLiteral( "parameters" ), qcParameters );
+  if ( !writeJsonFile( job->qcPath, qc ) )
+  {
+    job->error = ConstraintWorkflow::tr( "QC 写盘失败" );
+    return false;
+  }
+  return true;
+}
+
+// 暂存段：计算成果拷入暂存位并落 SHA（失败不回收临时目录——与原路径一致，
+// 成果可能已部分拷出，回收交给上层清理）。
+bool stageGeostatOutputs( ConstraintWorkflow::GeostatJob *job,
+                          const std::function<bool()> &cancelled )
+{
+  if (job->staging.isValid()) {
+    if (cancelled && cancelled()) {
+      job->error = ConstraintWorkflow::tr("已取消");
+      return false;
+    }
+    const QString output = job->staging.absolutePath;
+    const QString qc = fileStem(output) + ".qc.json";
+    const QString support = job->supportPath.isEmpty()
+                                ? QString()
+                                : fileStem(output) + ".support.tif";
+    if (!QFile::copy(job->outputPath, output) ||
+        !QFile::copy(job->qcPath, qc) ||
+        (!support.isEmpty() && !QFile::copy(job->supportPath, support))) {
+      job->error = ConstraintWorkflow::tr("无法暂存计算成果");
+      return false;
+    }
+    job->fingerprint =
+        DerivedFileFingerprint::read(output, cancelled, &job->error);
+    job->stagedQcSha = DataCatalog::sha256FileHex(qc, &job->error, cancelled);
+    if (!support.isEmpty())
+      job->stagedSupportSha =
+          DataCatalog::sha256FileHex(support, &job->error, cancelled);
+    if (job->fingerprint.sha256.isEmpty() || job->stagedQcSha.isEmpty() ||
+        (!support.isEmpty() && job->stagedSupportSha.isEmpty()))
+      return false;
+  }
   return true;
 }
 } // namespace
@@ -306,78 +1152,12 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
     return false;
   }
 
-  auto wells = std::make_unique<QgsVectorLayer>( job->wellUri, QStringLiteral( "wells" ), QStringLiteral( "ogr" ) );
-  if ( !wells || !wells->isValid() )
-  {
-    job->error = tr( "井点图层无法读取" );
-    return false;
-  }
-  // P2（pr457-closure）：地统计距离/变差函数/网格间距全按米制口径——经纬度
-  // 坐标下把角度当米会得出错误的空间结构与估值。与 local_direction /
-  // structural 引擎同口径明确拒绝（提示先投影），不静默执行。
-  if ( !wells->crs().isValid() )
-  {
-    job->error = tr( "井点图层没有可识别的坐标系：距离/变差函数的单位无法核实，"
-                     "请先为井点层声明 CRS（本地工程网格或投影坐标系）" );
-    return false;
-  }
-  if ( wells->crs().isGeographic() )
-  {
-    job->error = tr( "井点图层坐标系为地理坐标（%1，单位是度）：地质统计需要米制投影坐标，"
-                     "请先把井位投影（例如本地工程网格或投影坐标系）" )
-                     .arg( wells->crs().userFriendlyIdentifier() );
-    return false;
-  }
-  const int fieldIndex = wells->fields().lookupField( job->field );
-  if ( fieldIndex < 0 )
-  {
-    job->error = tr( "井点图层没有字段 %1" ).arg( job->field );
-    return false;
-  }
+  // ---- 采样：井点图层 → 有效样本 + 参证/跳过清单 + CRS ----
   std::vector<paleo::geostat::Sample> samples;
   QVariantList supportingWells, skippedWells;
-  QgsAttributeList fields{fieldIndex};
-  for (const auto &name : {"well_id", "id", "well_name", "name", "paleo_feature_uid"})
-    if (const int index = wells->fields().indexOf(name); index >= 0 && !fields.contains(index)) fields << index;
-  QgsFeature feature;
-  auto it = wells->getFeatures(QgsFeatureRequest().setSubsetOfAttributes(fields));
-  const auto attribute = [&](const char *preferred, const char *fallback) {
-    const int first = wells->fields().indexOf(preferred), second = wells->fields().indexOf(fallback);
-    return first >= 0 ? feature.attribute(first) : second >= 0 ? feature.attribute(second) : QVariant();
-  };
-  while (it.nextFeature(feature)) {
-    if (cancelled && cancelled()) { job->error = tr("已取消"); return false; }
-    QVariantMap observation{{"well_id", attribute("well_id", "id")},
-        {"name", attribute("well_name", "name")}, {"horizon", job->horizon},
-        {"source_record_id", QString::number(feature.id())}, {"source_uri", job->wellUri},
-        {"source_record_scope", "provider_fid_with_source_version"},
-        {"source_version_ids", job->params.value("well_input_version_ids")}};
-    if (wells->fields().indexOf("paleo_feature_uid") >= 0)
-      observation.insert("source_feature_uid", feature.attribute("paleo_feature_uid"));
-    QString reason;
-    const auto geometry = feature.geometry(); QgsPointXY point;
-    if (geometry.isNull() || geometry.isEmpty()) reason = tr("缺少有效井点坐标");
-    else {
-      point = geometry.isMultipart() ? geometry.asMultiPoint().value(0) : geometry.asPoint();
-      if (!std::isfinite(point.x()) || !std::isfinite(point.y())) reason = tr("井点坐标不是有限数值");
-    }
-    const auto value = feature.attribute(fieldIndex); bool numeric = false;
-    const double z = value.toDouble(&numeric);
-    if (value.isNull() || !numeric || !std::isfinite(z))
-      reason += (reason.isEmpty() ? QString() : QStringLiteral("; ")) + tr("字段 %1 缺失或不是有限数值").arg(job->field);
-    observation.insert("participating", reason.isEmpty());
-    if (!reason.isEmpty()) {
-      observation.insert("reason", reason); skippedWells << observation; continue;
-    }
-    observation.insert("value", z); observation.insert("x", point.x()); observation.insert("y", point.y());
-    supportingWells << observation;
-    samples.push_back(paleo::geostat::Sample{point.x(), point.y(), z});
-  }
-  if ( samples.empty() )
-  {
-    job->error = tr( "井点图层没有可用样本（字段 %1）" ).arg( job->field );
+  QgsCoordinateReferenceSystem sampleCrs;
+  if ( !sampleGeostatWells( job, cancelled, samples, supportingWells, skippedWells, sampleCrs ) )
     return false;
-  }
 
   const QString tempDir = QDir( QDir::tempPath() )
                               .filePath( QStringLiteral( "paleo-gs-%1" ).arg( QUuid::createUuid().toString( QUuid::Id128 ) ) );
@@ -397,86 +1177,18 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
   // ---- 降级：样本不足阈值 → 约束 IDW，method_actual 如实标注 ----
   if ( static_cast<int>( samples.size() ) < kGeostatMinSamples )
   {
-    // Pass exactly the admitted observations to fallback too; typed NULL can
-    // otherwise become numeric zero again inside a legacy algorithm.
-    QgsVectorLayer admitted("Point", "admitted_geostat_samples", "memory");
-    admitted.setCrs(wells->crs());
-    admitted.dataProvider()->addAttributes({QgsField(job->field, QMetaType::Type::Double)});
-    admitted.updateFields();
-    QgsFeatureList accepted;
-    for (const auto &sample : samples) {
-      QgsFeature point(admitted.fields()); point.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(sample.x, sample.y)));
-      point.setAttribute(0, sample.value); accepted << point;
-    }
-    admitted.dataProvider()->addFeatures(accepted); admitted.updateExtents();
-    QVariantMap runParams;
-    runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( static_cast<QgsMapLayer *>( &admitted ) ) );
-    runParams.insert( QStringLiteral( "FIELD" ), job->field );
-    runParams.insert( QStringLiteral( "CELL_SIZE" ), job->cellSize );
-    runParams.insert( QStringLiteral( "OUTPUT" ), job->outputPath );
-    QgisProcessingService::ProcessingHooks hooks;
-    hooks.cancelled = cancelled;
-    hooks.progress = progress;
-    QString runErr;
-    const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_constraint_idw" ), runParams, &runErr, hooks );
-    if ( results.isEmpty() || !QFile::exists( job->outputPath ) )
+    if ( !runDegradedGeostatIdw( proc, job, samples, sampleCrs, supportingWells, skippedWells,
+                                 qcParameters, cancelled, progress ) )
     {
       cleanupTemp();
-      job->outputPath.clear();
-      job->error = runErr.isEmpty() ? tr( "降级 IDW 未返回输出" ) : runErr;
       return false;
     }
-    job->degraded = true;
-    QVariantMap qc;
-    QVariantMap parameters = qcParameters;
-    parameters.insert( QStringLiteral( "method_actual" ), QStringLiteral( "idw" ) );
-    parameters.insert( QStringLiteral( "degraded_reason" ),
-                       QStringLiteral( "samples %1 < %2" ).arg( samples.size() ).arg( kGeostatMinSamples ) );
-    qc.insert( QStringLiteral( "schema" ), QStringLiteral( "paleo_geostat_qc_v1" ) );
-    qc.insert( QStringLiteral( "method" ), job->method );
-    qc.insert( QStringLiteral( "method_actual" ), QStringLiteral( "idw" ) );
-    qc.insert( QStringLiteral( "cross_validation" ),
-               QVariantMap{ { QStringLiteral( "status" ), QStringLiteral( "not_computed" ) },
-                            { QStringLiteral( "reason" ), QStringLiteral( "degraded_to_idw_insufficient_samples" ) } } );
-    // 降级 IDW 不传 CONSTRAINTS：约束同样一条未用。
-    qc.insert( QStringLiteral( "constraints_consumed" ), QVariantList() );
-    qc.insert( QStringLiteral( "constraints_unused" ), job->constraintsUnused );
-    qc.insert( QStringLiteral( "samples" ), static_cast<int>( samples.size() ) );
-    qc.insert("supporting_wells", supportingWells); qc.insert("skipped_wells", skippedWells);
-    qc.insert( QStringLiteral( "parameters" ), parameters );
-    if ( !writeJsonFile( job->qcPath, qc ) )
-    {
-      cleanupTemp();
-      job->error = tr( "QC 写盘失败" );
-      return false;
-    }
-    job->ok = true;
     return true;
   }
 
-  // ---- 网格：样本包围盒 + 2 像元边距 ----
-  double minX = std::numeric_limits<double>::max();
-  double minY = std::numeric_limits<double>::max();
-  double maxX = std::numeric_limits<double>::lowest();
-  double maxY = std::numeric_limits<double>::lowest();
-  for ( const paleo::geostat::Sample &sample : samples )
-  {
-    minX = std::min( minX, sample.x );
-    minY = std::min( minY, sample.y );
-    maxX = std::max( maxX, sample.x );
-    maxY = std::max( maxY, sample.y );
-  }
-  const double margin = 2.0 * job->cellSize;
-  const double spanX = std::max( maxX - minX, job->cellSize );
-  const double spanY = std::max( maxY - minY, job->cellSize );
-  paleo::geostat::GridSpec grid;
-  grid.pixelWidth = job->cellSize;
-  grid.pixelHeight = -job->cellSize;
-  grid.cols = static_cast<int>( std::ceil( ( spanX + 2 * margin ) / job->cellSize ) );
-  grid.rows = static_cast<int>( std::ceil( ( spanY + 2 * margin ) / job->cellSize ) );
-  grid.originX = ( minX + maxX ) / 2.0 - grid.cols * job->cellSize / 2.0;
-  grid.originY = ( minY + maxY ) / 2.0 + grid.rows * job->cellSize / 2.0;
-  grid.crs = wells->sourceCrs().toWkt().toStdString();
+  // ---- 网格：样本包围盒 + 2 像元边距（超工作流预算即拒） ----
+  const GeostatSampleGrid gridRun = buildGeostatGrid( samples, job->cellSize, sampleCrs );
+  const paleo::geostat::GridSpec &grid = gridRun.spec;
   if ( static_cast<qint64>( grid.rows ) * grid.cols > kGeostatMaxWorkflowCells )
   {
     cleanupTemp();
@@ -488,569 +1200,57 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
   }
 
   // ---- 变差函数：显式参数或自动拟合（可选方向各向异性） ----
-  const QString modelName = job->params.value( QStringLiteral( "variogramModel" ), QStringLiteral( "spherical" ) ).toString();
-  const paleo::geostat::VariogramModelType modelType = variogramTypeFor( modelName );
-  const double explicitNugget = job->params.value( QStringLiteral( "nugget" ), 0.0 ).toDouble();
-  const double explicitSill = job->params.value( QStringLiteral( "sill" ), 0.0 ).toDouble();
-  const double explicitRange = job->params.value( QStringLiteral( "range" ), 0.0 ).toDouble();
-  const double azimuthParam = job->params.value( QStringLiteral( "azimuth" ), -1.0 ).toDouble();
-  const int maxPoints = job->params.value( QStringLiteral( "maxPoints" ), 16 ).toInt();
-  const bool hasAzimuth = azimuthParam >= 0.0 && azimuthParam <= 360.0;
-
   paleo::geostat::VariogramModel model;
-  model.type = modelType;
-  double fitR2 = 0;
-  double fitRmse = 0;
-  bool autoFit = true;
-  QVariantMap modelProvenance; // P2：变差函数来源与被派生/钳制的量（不进参数指纹）
-  if ( explicitRange > 0 && explicitSill > 0 )
-  {
-    const double anisotropyRequested =
-        job->params.value( QStringLiteral( "anisotropyRatio" ), 1.0 ).toDouble();
-    model.nugget = std::max( 0.0, explicitNugget );
-    model.sill = explicitSill;
-    model.range = explicitRange;
-    model.anisotropyRatio = std::max( 1.0, anisotropyRequested );
-    if ( hasAzimuth )
-      model.azimuthDeg = azimuthParam;
-    autoFit = false;
-    // P2 诚实面：负块金→0、比率<1→1 是静默钳制，留痕（同 rho_clamped 与
-    // auto-fit anisotropy_ratio_clamped 口径）——仅发生钳制时插入，正常值无新键。
-    if ( model.nugget != explicitNugget )
-    {
-      modelProvenance.insert( QStringLiteral( "nugget_clamped" ), true );
-      modelProvenance.insert( QStringLiteral( "nugget_effective" ), model.nugget );
-    }
-    if ( model.anisotropyRatio != anisotropyRequested )
-    {
-      modelProvenance.insert( QStringLiteral( "anisotropy_clamped" ), true );
-      modelProvenance.insert( QStringLiteral( "anisotropy_effective" ), model.anisotropyRatio );
-    }
-  }
-  else
-  {
-    const double area = spanX * spanY;
-    const double lag = std::max( job->cellSize, std::sqrt( area / samples.size() ) );
-    const int nLags = 12;
-    if ( hasAzimuth )
-    {
-      paleo::geostat::VariogramDirection along;
-      along.omnidirectional = false;
-      along.azimuthDeg = azimuthParam;
-      along.toleranceDeg = 22.5;
-      paleo::geostat::VariogramDirection across = along;
-      across.azimuthDeg = std::fmod( azimuthParam + 90.0, 360.0 );
-      const paleo::geostat::VariogramFit fitAlong =
-          paleo::geostat::fitVariogram( paleo::geostat::experimentalVariogram( samples, lag, nLags, along ), modelType );
-      const paleo::geostat::VariogramFit fitAcross =
-          paleo::geostat::fitVariogram( paleo::geostat::experimentalVariogram( samples, lag, nLags, across ), modelType );
-      if ( fitAlong.status != paleo::geostat::Status::Ok || fitAcross.status != paleo::geostat::Status::Ok )
-      {
-        cleanupTemp();
-        job->error = tr( "方向变差函数拟合失败：%1 / %2" )
-                         .arg( QString::fromStdString( fitAlong.message ), QString::fromStdString( fitAcross.message ) );
-        return false;
-      }
-      model = fitAlong.model;
-      model.azimuthDeg = azimuthParam;
-      const double rawRatio = fitAcross.model.range > 0 ? fitAlong.model.range / fitAcross.model.range : 1.0;
-      model.anisotropyRatio = std::clamp( rawRatio, 1.0, 8.0 );
-      fitR2 = fitAlong.r2;
-      fitRmse = fitAlong.rmse;
-      // 只用沿走向拟合的块金/基台；横向拟合只贡献变程比。两向都如实记录。
-      modelProvenance.insert( QStringLiteral( "across_range" ), fitAcross.model.range );
-      modelProvenance.insert( QStringLiteral( "across_fit_r2" ), fitAcross.r2 );
-      modelProvenance.insert( QStringLiteral( "across_fit_rmse" ), fitAcross.rmse );
-      modelProvenance.insert( QStringLiteral( "anisotropy_ratio_raw" ), rawRatio );
-      modelProvenance.insert( QStringLiteral( "anisotropy_ratio_clamped" ), rawRatio != model.anisotropyRatio );
-    }
-    else
-    {
-      const paleo::geostat::VariogramFit fit =
-          paleo::geostat::fitVariogram( paleo::geostat::experimentalVariogram( samples, lag, nLags ), modelType );
-      if ( fit.status != paleo::geostat::Status::Ok )
-      {
-        cleanupTemp();
-        job->error = tr( "变差函数拟合失败：%1" ).arg( QString::fromStdString( fit.message ) );
-        return false;
-      }
-      model = fit.model;
-      fitR2 = fit.r2;
-      fitRmse = fit.rmse;
-    }
-  }
-  if ( !( model.range > 0 ) || model.nugget < 0 || model.sill < 0 )
+  GeostatQcParts parts;
+  if ( !fitGeostatVariogram( job, samples, gridRun.spanX, gridRun.spanY, &model, &parts ) )
   {
     cleanupTemp();
-    job->error = tr( "变差函数模型参数无效" );
-    return false;
-  }
-  if ( model.nugget + model.sill <= 0 )
-  {
-    // 恒定场：零基台 → 克氏方程组全零无解。如实拒绝，不产空栅格。
-    cleanupTemp();
-    job->error = tr( "字段 %1 在井点上是常量（零基台），克里金无空间结构可解" ).arg( job->field );
     return false;
   }
 
-  // ---- P2：输入取用诚实面——给了但引擎没读/被覆盖的参数逐条留因 ----
-  const double searchRadius = std::max( 0.0, job->params.value( QStringLiteral( "searchRadius" ), 0.0 ).toDouble() );
-  const int minPoints = job->params.value( QStringLiteral( "minPoints" ), 4 ).toInt();
-  QVariantList ignoredInputs;
-  const auto ignore = [&]( const QString &key, const QString &reason ) {
-    if ( job->params.contains( key ) )
-      ignoredInputs << QVariantMap{ { QStringLiteral( "key" ), key }, { QStringLiteral( "reason" ), reason } };
-  };
-  for ( const QString &key : { QStringLiteral( "power" ), QStringLiteral( "coverage" ), QStringLiteral( "wellClusterLocality" ),
-                               QStringLiteral( "anisotropyAngle" ), QStringLiteral( "krigingMaxPoints" ) } )
-    ignore( key, QStringLiteral( "not_read_by_geostat_engine" ) );
-  if ( autoFit )
-  {
-    const bool partial = ( explicitRange > 0 ) != ( explicitSill > 0 );
-    const QString why = partial ? QStringLiteral( "explicit_model_requires_range_and_sill" )
-                                : QStringLiteral( "auto_fit_estimates_model" );
-    ignore( QStringLiteral( "nugget" ), why );
-    ignore( QStringLiteral( "sill" ), why );
-    ignore( QStringLiteral( "range" ), why );
-    ignore( QStringLiteral( "anisotropyRatio" ), hasAzimuth ? QStringLiteral( "directional_auto_fit_derives_ratio" )
-                                                            : QStringLiteral( "omnidirectional_auto_fit" ) );
-  }
-  else if ( !hasAzimuth && model.anisotropyRatio > 1.0 )
-  {
-    modelProvenance.insert( QStringLiteral( "azimuth_defaulted" ), model.azimuthDeg );
-  }
-  if ( job->params.contains( QStringLiteral( "azimuth" ) ) && !hasAzimuth )
-    ignore( QStringLiteral( "azimuth" ), QStringLiteral( "outside_0_360" ) );
-  if ( job->method != QLatin1String( "cokriging" ) )
-    for ( const QString &key : { QStringLiteral( "covariateLayerId" ), QStringLiteral( "crossCorrelation" ),
-                                 QStringLiteral( "cross_correlation" ), QStringLiteral( "covariateMaxSamples" ) } )
-      ignore( key, QStringLiteral( "method_has_no_covariate" ) );
-  if ( job->method != QLatin1String( "sgs" ) )
-    for ( const QString &key : { QStringLiteral( "realizations" ), QStringLiteral( "seed" ), QStringLiteral( "persistRealizations" ) } )
-      ignore( key, QStringLiteral( "deterministic_method" ) );
-  if ( job->method != QLatin1String( "kriging" ) )
-    ignore( QStringLiteral( "minPoints" ), QStringLiteral( "method_neighbourhood_has_no_min_points" ) );
-  else if ( !( searchRadius > 0 ) )
-    ignore( QStringLiteral( "minPoints" ), QStringLiteral( "used_only_with_search_radius" ) );
-  modelProvenance.insert( QStringLiteral( "variogram_source" ),
-                          !autoFit ? QStringLiteral( "explicit" )
-                                   : hasAzimuth ? QStringLiteral( "auto_fit_directional" )
-                                                : QStringLiteral( "auto_fit_omnidirectional" ) );
-  QVariantMap searchNode;
-  searchNode.insert( QStringLiteral( "max_points_requested" ), maxPoints );
-  // 各内核口径：克里金/协克里金 ≤0 = 全部样本；SGS 一律钳到 [1,64]。0 表示「全部」。
-  searchNode.insert( QStringLiteral( "max_points_effective" ),
-                     job->method == QLatin1String( "sgs" ) || maxPoints > 0 ? std::clamp( maxPoints, 1, 64 ) : 0 );
-  searchNode.insert( QStringLiteral( "search_radius" ), searchRadius );
-  if ( job->method == QLatin1String( "kriging" ) && searchRadius > 0 )
-    searchNode.insert( QStringLiteral( "min_points" ), minPoints );
-  QVariantMap cvNode;
-  QVariantMap cokrigingNode;
+  // ---- P2：输入取用诚实面 + 检索邻域节点（建模上下文就绪后收集） ----
+  GeostatRunContext ctx;
+  ctx.job = job;
+  ctx.tempDir = tempDir;
+  ctx.grid = grid;
+  ctx.model = model;
+  ctx.geoTransform = { grid.originX, grid.pixelWidth, 0.0, grid.originY, 0.0, grid.pixelHeight };
+  ctx.crs = sampleCrs;
+  ctx.control.cancelled = cancelled;
+  ctx.control.progress = progress;
+  ctx.maxPoints = job->params.value( QStringLiteral( "maxPoints" ), 16 ).toInt();
+  ctx.searchRadius = std::max( 0.0, job->params.value( QStringLiteral( "searchRadius" ), 0.0 ).toDouble() );
+  ctx.minPoints = job->params.value( QStringLiteral( "minPoints" ), 4 ).toInt();
+  collectGeostatQcInputs( job, model, ctx, &parts );
 
-  paleo::geostat::Control control;
-  control.cancelled = cancelled;
-  control.progress = progress;
-  const double geoTransform[6] = { grid.originX, grid.pixelWidth, 0.0, grid.originY, 0.0, grid.pixelHeight };
-  const QgsCoordinateReferenceSystem crs = wells->sourceCrs();
-
-  QVariantMap counts;
-  QVariantMap sgsNode;
+  // ---- 方法执行：kriging / cokriging / sgs 三选一 ----
+  bool ran = false;
   if ( job->method == QLatin1String( "kriging" ) )
-  {
-    paleo::geostat::KrigingParams krigingParams;
-    krigingParams.maxPoints = maxPoints;
-    krigingParams.searchRadius = searchRadius;
-    if ( searchRadius > 0 )
-      krigingParams.minPoints = minPoints;
-    const paleo::geostat::KrigingResult result =
-        paleo::geostat::ordinaryKriging( samples, grid, model, krigingParams, control );
-    if ( result.status == paleo::geostat::Status::Cancelled )
-    {
-      cleanupTemp();
-      job->error = tr( "已取消" );
-      return false;
-    }
-    if ( result.status != paleo::geostat::Status::Ok )
-    {
-      cleanupTemp();
-      job->error = tr( "克里金失败：%1" ).arg( QString::fromStdString( result.message ) );
-      return false;
-    }
-    job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "variance.tif" ) );
-    if ( !writeFloatRaster( job->outputPath, result.estimate, grid.cols, grid.rows, geoTransform, crs,
-                             DataCatalog::localGridCrsWkt() ) ||
-         !writeFloatRaster( job->supportPath, result.variance, grid.cols, grid.rows, geoTransform, crs,
-                            DataCatalog::localGridCrsWkt() ) )
-    {
-      cleanupTemp();
-      job->error = tr( "克里金栅格写盘失败" );
-      return false;
-    }
-    counts.insert( QStringLiteral( "finite" ), result.finiteCells );
-    counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
-    counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
-    bool cvCancelled = false;
-    cvNode = leaveOneOut(
-        samples, QStringLiteral( "ordinary_kriging" ),
-        [&]( double x, double y, const std::vector<paleo::geostat::Sample> &rest ) {
-          const paleo::geostat::KrigingPointResult point = paleo::geostat::ordinaryKrigingAt( x, y, rest, model, krigingParams );
-          return CvPrediction{ point.ok, point.estimate, point.variance };
-        },
-        cancelled, &cvCancelled );
-    if ( cvCancelled )
-    {
-      cleanupTemp();
-      job->error = tr( "已取消" );
-      return false;
-    }
-  }
+    ran = runGeostatKriging( ctx, samples, &parts );
   else if ( job->method == QLatin1String( "cokriging" ) )
-  {
-    const QString covariateLayerId = job->params.value( QStringLiteral( "covariateLayerId" ) ).toString();
-    // The covariate URI was frozen in prepare; never instantiate a GUI layer
-    // through the live layer service from the worker.
-    auto ownedRaster = std::make_unique<QgsRasterLayer>(
-        job->parentPaths.last(), QStringLiteral("covariate"));
-    auto *covRaster = ownedRaster.get();
-    if ( !covRaster || !covRaster->isValid() )
-    {
-      cleanupTemp();
-      job->error = tr( "协克里金方法需要有效的次级协变量图层 (covariateLayerId)" );
-      return false;
-    }
-
-    std::vector<double> primaryZ;
-    std::vector<double> secondaryZ;
-    primaryZ.reserve( samples.size() );
-    secondaryZ.reserve( samples.size() );
-    for ( const paleo::geostat::Sample &s : samples )
-    {
-      bool ok = false;
-      const double v2 = covRaster->dataProvider()->sample( QgsPointXY( s.x, s.y ), 1, &ok );
-      if ( ok && std::isfinite( v2 ) )
-      {
-        primaryZ.push_back( s.value );
-        secondaryZ.push_back( v2 );
-      }
-    }
-
-    double rho = 0.0;
-    QString rhoSource = QStringLiteral( "default_zero" );
-    if ( job->params.contains( QStringLiteral( "crossCorrelation" ) ) )
-    {
-      rho = job->params.value( QStringLiteral( "crossCorrelation" ) ).toDouble();
-      rhoSource = QStringLiteral( "explicit" );
-    }
-    else if ( job->params.contains( QStringLiteral( "cross_correlation" ) ) )
-    {
-      rho = job->params.value( QStringLiteral( "cross_correlation" ) ).toDouble();
-      rhoSource = QStringLiteral( "explicit" );
-    }
-    else if ( primaryZ.size() >= 3 )
-    {
-      rhoSource = QStringLiteral( "estimated_colocated" );
-      const std::size_t n = primaryZ.size();
-      double sum1 = 0, sum2 = 0;
-      for ( std::size_t i = 0; i < n; ++i )
-      {
-        sum1 += primaryZ[i];
-        sum2 += secondaryZ[i];
-      }
-      const double mean1 = sum1 / static_cast<double>( n );
-      const double mean2 = sum2 / static_cast<double>( n );
-      double cov = 0, var1 = 0, var2 = 0;
-      for ( std::size_t i = 0; i < n; ++i )
-      {
-        const double d1 = primaryZ[i] - mean1;
-        const double d2 = secondaryZ[i] - mean2;
-        cov += d1 * d2;
-        var1 += d1 * d1;
-        var2 += d2 * d2;
-      }
-      if ( var1 > 1e-12 && var2 > 1e-12 )
-        rho = cov / std::sqrt( var1 * var2 );
-      else
-      {
-        rho = 0.0;
-        rhoSource = QStringLiteral( "estimated_degenerate_zero" );
-      }
-    }
-    if ( !std::isfinite( rho ) )
-    {
-      cleanupTemp();
-      job->error = tr( "协克里金交叉相关系数无效" );
-      return false;
-    }
-    const double rhoRequested = rho;
-    rho = std::clamp( rho, -0.99, 0.99 );
-    // ρ=0 时交叉协方差为零、次级权重恒为零：结果等同只用主变量的普通克里金。
-    // 方法名不改（仍是 cokriging 方程组），但如实标注协变量未生效。
-    cokrigingNode.insert( QStringLiteral( "rho_source" ), rhoSource );
-    cokrigingNode.insert( QStringLiteral( "rho_requested" ), rhoRequested );
-    cokrigingNode.insert( QStringLiteral( "rho_effective" ), rho );
-    cokrigingNode.insert( QStringLiteral( "rho_clamped" ), rho != rhoRequested );
-    cokrigingNode.insert( QStringLiteral( "colocated_samples" ), static_cast<int>( primaryZ.size() ) );
-    cokrigingNode.insert( QStringLiteral( "covariate_effective" ), rho != 0.0 );
-    cokrigingNode.insert( QStringLiteral( "secondary_model" ),
-                          QStringLiteral( "primary_variogram_nugget_zero" ) );
-
-    std::vector<paleo::geostat::Sample> secondarySamples;
-    const int totalCells = grid.cols * grid.rows;
-    const int maxSec = job->params.value( QStringLiteral( "covariateMaxSamples" ), 2048 ).toInt();
-    const int step = std::max( 1, static_cast<int>( std::ceil( std::sqrt( static_cast<double>( totalCells ) / std::max( 64, maxSec ) ) ) ) );
-    for ( int r = 0; r < grid.rows; r += step )
-    {
-      for ( int c = 0; c < grid.cols; c += step )
-      {
-        const double gx = grid.cellCenterX( c );
-        const double gy = grid.cellCenterY( r );
-        bool ok = false;
-        const double gv = covRaster->dataProvider()->sample( QgsPointXY( gx, gy ), 1, &ok );
-        if ( ok && std::isfinite( gv ) )
-          secondarySamples.push_back( paleo::geostat::Sample{ gx, gy, gv } );
-      }
-    }
-    if ( secondarySamples.empty() )
-    {
-      cleanupTemp();
-      job->error = tr( "协变量栅格在计算网格范围内无有效数据" );
-      return false;
-    }
-
-    paleo::geostat::CoKrigingModel coModel;
-    coModel.primary = model;
-    // #326：次级自变差必须与交叉项同单位。交叉项是 ρ·γ1（主变量单位，
-    // cokriging.h crossSemivariance），所以 γ22 也要落在主变量基台上——
-    // 即 scaled MM1 的两基台相等那种退化。原实现把 γ22 的拱高换成协变量
-    // 井点原始方差，地震属性与孔隙度/厚度差几个数量级时，方程组里混了两
-    // 种单位：Pearson ρ 不再是那个 ρ，次级块还会主导条件数。测得的协变量
-    // 方差只进 QC 参数，不改模型。
-    coModel.secondary = model;
-    coModel.secondary.nugget = 0.0;
-    if ( !secondaryZ.empty() )
-    {
-      double secMean = 0;
-      for ( double val : secondaryZ )
-        secMean += val;
-      secMean /= secondaryZ.size();
-      double secVar = 0;
-      for ( double val : secondaryZ )
-        secVar += ( val - secMean ) * ( val - secMean );
-      secVar /= secondaryZ.size();
-      job->params.insert( QStringLiteral( "covariate_sample_variance" ),
-                          QString::number( secVar, 'g', 10 ) );
-    }
-    coModel.crossCorrelation = rho;
-
-    paleo::geostat::KrigingParams krigingParams;
-    krigingParams.maxPoints = maxPoints;
-    krigingParams.searchRadius = searchRadius;
-    const paleo::geostat::CoKrigingResult result =
-        paleo::geostat::ordinaryCoKriging( samples, secondarySamples, grid, coModel, krigingParams,
-                                           [&control]( double frac ) -> bool {
-                                             if ( control.cancelled && control.cancelled() )
-                                               return false;
-                                             if ( control.progress )
-                                               control.progress( frac );
-                                             return true;
-                                           } );
-    if ( result.status == paleo::geostat::Status::Cancelled )
-    {
-      cleanupTemp();
-      job->error = tr( "已取消" );
-      return false;
-    }
-    if ( result.status != paleo::geostat::Status::Ok )
-    {
-      cleanupTemp();
-      job->error = tr( "协克里金失败：%1" ).arg( QString::fromStdString( result.message ) );
-      return false;
-    }
-    job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "variance.tif" ) );
-    if ( !writeFloatRaster( job->outputPath, result.estimates, grid.cols, grid.rows, geoTransform, crs,
-                            DataCatalog::localGridCrsWkt() ) ||
-         !writeFloatRaster( job->supportPath, result.variances, grid.cols, grid.rows, geoTransform, crs,
-                            DataCatalog::localGridCrsWkt() ) )
-    {
-      cleanupTemp();
-      job->error = tr( "协克里金栅格写盘失败" );
-      return false;
-    }
-    counts.insert( QStringLiteral( "finite" ), result.finiteCells );
-    counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
-    counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
-    counts.insert( QStringLiteral( "secondary_samples" ), static_cast<int>( secondarySamples.size() ) );
-    {
-      paleo::geostat::CoKrigingParams coParams;
-      coParams.maxPrimary = maxPoints;
-      coParams.maxSecondary = maxPoints;
-      coParams.searchRadius = searchRadius;
-      bool cvCancelled = false;
-      cvNode = leaveOneOut(
-          samples, QStringLiteral( "ordinary_cokriging" ),
-          [&]( double x, double y, const std::vector<paleo::geostat::Sample> &rest ) {
-            const paleo::geostat::CoKrigingPointResult point =
-                paleo::geostat::coKrigingAt( x, y, rest, secondarySamples, coModel, coParams );
-            return CvPrediction{ point.ok, point.estimate, point.variance };
-          },
-          cancelled, &cvCancelled );
-      if ( cvCancelled )
-      {
-        cleanupTemp();
-        job->error = tr( "已取消" );
-        return false;
-      }
-    }
-    qcParameters.insert( QStringLiteral( "cross_correlation" ), rho );
-    qcParameters.insert( QStringLiteral( "covariate_layer_id" ), covariateLayerId );
-  }
+    ran = runGeostatCokriging( ctx, samples, &parts, qcParameters );
   else
-  {
-    paleo::geostat::SgsParams sgsParams;
-    sgsParams.nRealizations = job->params.value( QStringLiteral( "realizations" ), 4 ).toInt();
-    sgsParams.seed = static_cast<std::uint64_t>( job->params.value( QStringLiteral( "seed" ), 42 ).toLongLong() );
-    sgsParams.maxPoints = maxPoints;
-    sgsParams.searchRadius = searchRadius;
-    const paleo::geostat::SgsResult result = paleo::geostat::sgs( samples, grid, model, sgsParams, control );
-    if ( result.status == paleo::geostat::Status::Cancelled )
-    {
-      cleanupTemp();
-      job->error = tr( "已取消" );
-      return false;
-    }
-    if ( result.status != paleo::geostat::Status::Ok )
-    {
-      cleanupTemp();
-      job->error = tr( "SGS 失败：%1" ).arg( QString::fromStdString( result.message ) );
-      return false;
-    }
-    const std::size_t cells = static_cast<std::size_t>( grid.rows ) * grid.cols;
-    std::vector<double> mean( cells, std::numeric_limits<double>::quiet_NaN() );
-    std::vector<double> spread( cells, std::numeric_limits<double>::quiet_NaN() );
-    for ( std::size_t cell = 0; cell < cells; ++cell )
-    {
-      double sum = 0;
-      double sumSq = 0;
-      int n = 0;
-      for ( const std::vector<double> &realization : result.realizations )
-      {
-        const double value = realization[cell];
-        if ( std::isfinite( value ) )
-        {
-          sum += value;
-          sumSq += value * value;
-          ++n;
-        }
-      }
-      if ( n > 0 )
-      {
-        const double m = sum / n;
-        mean[cell] = m;
-        spread[cell] = n > 1 ? std::sqrt( std::max( 0.0, sumSq / n - m * m ) ) : 0.0;
-      }
-    }
-    job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "std.tif" ) );
-    if ( !writeFloatRaster( job->outputPath, mean, grid.cols, grid.rows, geoTransform, crs,
-                             DataCatalog::localGridCrsWkt() ) ||
-         !writeFloatRaster( job->supportPath, spread, grid.cols, grid.rows, geoTransform, crs,
-                            DataCatalog::localGridCrsWkt() ) )
-    {
-      cleanupTemp();
-      job->error = tr( "SGS 栅格写盘失败" );
-      return false;
-    }
-    // 方向 47：成员持久化——各 realization 写成员栅格，发布段收编为
-    // realization_set 集合（契约见 catalog/realizationset.h）。
-    // params.persistRealizations=false → 只产均值+标准差旁路的旧形态。
-    if ( job->params.value( QStringLiteral( "persistRealizations" ), true ).toBool() )
-    {
-      for ( std::size_t k = 0; k < result.realizations.size(); ++k )
-      {
-        const QString memberPath = QDir( tempDir ).filePath(
-            QStringLiteral( "member_r%1.tif" ).arg( k, 3, 10, QLatin1Char( '0' ) ) );
-        if ( !writeFloatRaster( memberPath, result.realizations[k], grid.cols,
-                                grid.rows, geoTransform, crs, DataCatalog::localGridCrsWkt() ) )
-        {
-          cleanupTemp();
-          job->error = tr( "SGS 成员栅格写盘失败（成员 %1）" ).arg( k );
-          return false;
-        }
-        job->memberPaths << memberPath;
-      }
-      job->memberSeed = sgsParams.seed;
-    }
-    counts.insert( QStringLiteral( "finite" ), result.finiteCells );
-    counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
-    counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
-    sgsNode.insert( QStringLiteral( "realizations" ), sgsParams.nRealizations );
-    sgsNode.insert( QStringLiteral( "seed" ), static_cast<qulonglong>( sgsParams.seed ) );
-    sgsNode.insert( QStringLiteral( "sample_mean" ), result.sampleMean );
-    sgsNode.insert( QStringLiteral( "sample_std" ), result.sampleStd );
-    // 随机模拟成果是实现集合的均值/标准差，不是最优估值：不做 LOO，也不冒充。
-    cvNode.insert( QStringLiteral( "status" ), QStringLiteral( "not_computed" ) );
-    cvNode.insert( QStringLiteral( "reason" ), QStringLiteral( "stochastic_simulation_use_realization_spread" ) );
-  }
-
-  QVariantMap qc;
-  qc.insert( QStringLiteral( "schema" ), QStringLiteral( "paleo_geostat_qc_v1" ) );
-  qc.insert( QStringLiteral( "method" ), job->method );
-  qc.insert( QStringLiteral( "method_actual" ), job->method );
-  qc.insert( QStringLiteral( "constraints_consumed" ), QVariantList() );
-  qc.insert( QStringLiteral( "constraints_unused" ), job->constraintsUnused );
-  qc.insert( QStringLiteral( "samples" ), static_cast<int>( samples.size() ) );
-  qc.insert("supporting_wells", supportingWells); qc.insert("skipped_wells", skippedWells);
-  qc.insert( QStringLiteral( "auto_fit" ), autoFit );
-  qc.insert( QStringLiteral( "model" ), variogramExtra( model, fitR2, fitRmse ) );
-  QVariantMap gridNode;
-  gridNode.insert( QStringLiteral( "cols" ), grid.cols );
-  gridNode.insert( QStringLiteral( "rows" ), grid.rows );
-  gridNode.insert( QStringLiteral( "cell_size" ), job->cellSize );
-  qc.insert( QStringLiteral( "grid" ), gridNode );
-  qc.insert( QStringLiteral( "counts" ), counts );
-  if ( !sgsNode.isEmpty() )
-    qc.insert( QStringLiteral( "sgs" ), sgsNode );
-  qc.insert( QStringLiteral( "model_provenance" ), modelProvenance );
-  qc.insert( QStringLiteral( "ignored_inputs" ), ignoredInputs );
-  qc.insert( QStringLiteral( "search" ), searchNode );
-  qc.insert( QStringLiteral( "cross_validation" ), cvNode );
-  if ( !cokrigingNode.isEmpty() )
-    qc.insert( QStringLiteral( "cokriging" ), cokrigingNode );
-  qc.insert( QStringLiteral( "parameters" ), qcParameters );
-  if ( !writeJsonFile( job->qcPath, qc ) )
+    ran = runGeostatSgs( ctx, samples, &parts );
+  if ( !ran )
   {
     cleanupTemp();
-    job->error = tr( "QC 写盘失败" );
     return false;
   }
-  if (job->staging.isValid()) {
-    if (cancelled && cancelled()) {
-      job->error = tr("已取消");
-      return false;
-    }
-    const QString output = job->staging.absolutePath;
-    const QString qc = fileStem(output) + ".qc.json";
-    const QString support = job->supportPath.isEmpty()
-                                ? QString()
-                                : fileStem(output) + ".support.tif";
-    if (!QFile::copy(job->outputPath, output) ||
-        !QFile::copy(job->qcPath, qc) ||
-        (!support.isEmpty() && !QFile::copy(job->supportPath, support))) {
-      job->error = tr("无法暂存计算成果");
-      return false;
-    }
-    job->fingerprint =
-        DerivedFileFingerprint::read(output, cancelled, &job->error);
-    job->stagedQcSha = DataCatalog::sha256FileHex(qc, &job->error, cancelled);
-    if (!support.isEmpty())
-      job->stagedSupportSha =
-          DataCatalog::sha256FileHex(support, &job->error, cancelled);
-    if (job->fingerprint.sha256.isEmpty() || job->stagedQcSha.isEmpty() ||
-        (!support.isEmpty() && job->stagedSupportSha.isEmpty()))
-      return false;
+
+  // ---- QC 落盘 ----
+  if ( !writeGeostatQc( ctx, samples, supportingWells, skippedWells, qcParameters, parts ) )
+  {
+    cleanupTemp();
+    return false;
   }
+
+  // ---- 暂存：成果拷入暂存位并落 SHA（失败不回收临时目录，与原路径一致） ----
+  if ( !stageGeostatOutputs( job, cancelled ) )
+    return false;
   job->ok = true;
   return true;
 }
+
 
 bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *error )
 {

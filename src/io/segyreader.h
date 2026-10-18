@@ -116,6 +116,31 @@ class SegyReader
     bool freezeCornersFromFile(QFile &file, bool fromCdpXY = false);
     void resetState();
 
+    // #554：open() 按「头解析→探针→扫描→ordinal 收尾」机械拆段，各段可独立
+    // 调用。失败路径的 m_index 清理、取消快照（m_lastScanPartial/
+    // m_scannedOffset）与 52 处错误赋值语义与拆分前逐字一致。
+    // 头解析：二进制头 + 扩展文本头 → 首道偏移（m_firstTraceOffset）与
+    // ns/采样间隔/格式码等成员；binNs/binEnsTraces 供探针与 ordinal 收尾。
+    bool parseSegyHeaders(QFile &file, const QString &path, qint64 fileSize,
+                          qint16 *binNs, int *binEnsTraces, QString *error);
+    // 探针：道头方言判定（inline 字恒定 → ordinal 索引；crossline 位恒 0 且
+    // CDP 变化 → 取 CDP；72/76 恒 0 且 180/184 非零 → 角点取 CDP X/Y），结果
+    // 落 m_dialect。探针顺序与拆分前一致（短路语义保留）。
+    void probeDialect(QFile &file, qint64 offset, qint64 fileSize, int binNs,
+                      bool *ordinalIndex);
+    // 扫描：顺序逐道读 240 字节道头建索引（方言经 m_dialect 取字）。
+    // delayMs/firstLineWord/firstFieldRec/ordX/ordY 供 ordinal 收尾与几何。
+    bool scanTracesSequential(QFile &file, qint64 offset, qint64 fileSize, qint16 binNs,
+                              bool ordinalIndex, double *delayMs, qint32 *firstLineWord,
+                              qint32 *firstFieldRec, QVector<double> *ordX,
+                              QVector<double> *ordY, QString *error,
+                              const SegyOptions *opts);
+    // ordinal 收尾：道号索引（inline = base + 道号/N）的道数/CDP 顺序/角点
+    // 一致性校验与 inline 赋值、几何冻结。
+    bool finalizeOrdinalIndexing(int binEnsTraces, qint32 firstLineWord,
+                                 qint32 firstFieldRec, const QVector<double> &ordX,
+                                 const QVector<double> &ordY, QString *error);
+
     // #290：方言探针结果——open()/scanParallel()/resumeScan() 三条扫描路径
     // 共用同一判据（segyreader.cpp 顶部 probe* 共享函数），避免并行/续扫
     // 索引与顺序索引口径分叉；经 StoredIndex::dialectFlags 随 checkpoint

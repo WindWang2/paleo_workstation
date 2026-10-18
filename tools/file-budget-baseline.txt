@@ -10,6 +10,12 @@
 # *_internal.h）。TOP5 拆分（seismic3dviewpanel / entitypanel /
 # wellsectionpanel / mappingworkbenchpage，另 io/segyreader.cpp 非本闸范围）
 # 由 #502 另行跟踪，本闸只管不涨。
+# #554 对账（2026-10-19，工具实测）：
+#   - 删行（回到阈值内）：seismic3dviewpanel.cpp:fn:buildDisplayBar（按控件族
+#     拆为 buildColorControls/buildRenderControls/buildSweepControls/
+#     buildViewControls 后编排函数 <200 行）；
+#   - 下调冻结值（仍超标、可收紧）：seismic3dviewpanel.cpp:file 1839→1827
+#     （同上拆分后实测；ui-size-baseline.txt 同步下调）。
 # 基线：master @ ddd1325e 实测 src/ui 超标 61 项（file 12 / fn 49）。
 # 注：#502 正文的「43 个 >1000 行」是全仓口径；src/ui 内为 12 个。
 # #538 接线时只缩不涨对账（2026-10-18，工具实测）：
@@ -69,8 +75,7 @@ src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:477
 src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:321
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:403
-src/ui/seismic3d/seismic3dviewpanel.cpp:file:1839
-src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildDisplayBar:422
+src/ui/seismic3d/seismic3dviewpanel.cpp:file:1827
 src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildUi:253
 src/ui/seismic3d/seismic3dviewportwidget.cpp:file:1003
 src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:783

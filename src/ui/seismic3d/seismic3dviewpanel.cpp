@@ -717,8 +717,8 @@ void Seismic3DViewPanel::supersedeInFlightSlice(std::size_t slotIndex)
     }
 }
 
-
 // ---- D3.x 显示控制行 ----
+// #554：按控件族机械拆分（构建+接线一体，可独立调用；入栏顺序不变）。
 void Seismic3DViewPanel::buildDisplayBar() {
     auto *bar = new QWidget(this);
     PaleoTheme::applyThemedStyleSheet(bar, [] {
@@ -729,16 +729,18 @@ void Seismic3DViewPanel::buildDisplayBar() {
     auto *lay = new QHBoxLayout(bar);
     lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
     lay->setSpacing(PaleoTheme::tokens().spacingXs);
+    buildColorControls(lay, bar);      // D3.5/D3.3 色标 + 透明度/值域
+    buildRenderControls(lay, bar);     // D7.1/D3.1/D7.2/D7.3 TF/体渲染/剖面/解释
+    buildSweepControls(lay, bar);      // D7.4 扫掠
+    buildViewControls(lay, bar);       // D3.10/D3.6/D3.7 帧率/书签/截图
+    if (auto *mainLay = qobject_cast<QVBoxLayout *>(layout()))
+        mainLay->insertWidget(1, bar); // 顶栏与视口之间
+}
 
-    const auto themedCaption = [](QWidget *w) {
-        PaleoTheme::applyThemedStyleSheet(w, [] {
-            return PaleoTheme::mutedCaptionStyleSheet();
-        });
-    };
-
-    // D3.5 colormap：默认（引擎预烘焙）+ 8 预设 + 自定义
+// D3.5 colormap（默认引擎预烘焙 + 8 预设 + 自定义）+ D3.3 透明度/值域
+void Seismic3DViewPanel::buildColorControls(QHBoxLayout *lay, QWidget *bar) {
     auto *lblCmap = new QLabel(tr("色标:"), bar);
-    themedCaption(lblCmap);
+    PaleoTheme::applyThemedStyleSheet(lblCmap, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     lay->addWidget(lblCmap);
     cboColorMap_ = new QComboBox(bar);
     cboColorMap_->setObjectName(QStringLiteral("cbo3dColorMap"));
@@ -748,10 +750,8 @@ void Seismic3DViewPanel::buildDisplayBar() {
     lay->addWidget(cboColorMap_);
     btnCmapEdit_ = createToolBtn(tr("编辑…"), tr("自定义 colormap 控制点（位置→颜色）"));
     lay->addWidget(btnCmapEdit_);
-
-    // D3.3 透明度 + 值域
     auto *lblAlpha = new QLabel(tr("透明度:"), bar);
-    themedCaption(lblAlpha);
+    PaleoTheme::applyThemedStyleSheet(lblAlpha, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     lay->addWidget(lblAlpha);
     sliderAlpha_ = new QSlider(Qt::Horizontal, bar);
     sliderAlpha_->setRange(10, 100);
@@ -759,7 +759,7 @@ void Seismic3DViewPanel::buildDisplayBar() {
     sliderAlpha_->setFixedWidth(70);
     lay->addWidget(sliderAlpha_);
     auto *lblRange = new QLabel(tr("值域:"), bar);
-    themedCaption(lblRange);
+    PaleoTheme::applyThemedStyleSheet(lblRange, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     lay->addWidget(lblRange);
     spinRangeMin_ = new QDoubleSpinBox(bar);
     spinRangeMin_->setRange(0.0, 0.9);
@@ -774,82 +774,6 @@ void Seismic3DViewPanel::buildDisplayBar() {
     lay->addWidget(spinRangeMin_);
     lay->addWidget(new QLabel(QStringLiteral("–"), bar));
     lay->addWidget(spinRangeMax_);
-
-    // D7.1 传递函数（GPU LUT 体渲染）
-    btnTf_ = createToolBtn(tr("传递函数"), tr("体渲染传递函数：色彩+不透明度 LUT 实时作用于 3D 体\n（GPU 侧取色，修改零取数零重烘焙）"), true);
-    lay->addWidget(btnTf_);
-    btnTfEdit_ = createToolBtn(tr("TF…"), tr("编辑传递函数曲线（不透明度分段线性）"));
-    lay->addWidget(btnTfEdit_);
-
-    // D3.1 体渲染（切片堆叠）
-    btnStack_ = createToolBtn(tr("体渲染"), tr("切片堆叠体渲染：16 层水平切片半透明叠渲；\n拖动滑杆期间自动降到 4 层（交互降采样），静止后精渲"), true);
-    lay->addWidget(btnStack_);
-
-    // D7.2 任意剖面（两点斜剖面 / 多点栅栏）
-    btnOblique_ = createToolBtn(tr("斜剖面"), tr("任意斜剖面：顶面拾取起止两点 → 后端取数 → 剖面贴入 3D 场景"), true);
-    lay->addWidget(btnOblique_);
-    btnFence_ = createToolBtn(tr("栅栏"), tr("栅栏剖面：顶面拾取多段折线，回车/双击提交 → 折线剖面贴入 3D 场景"), true);
-    lay->addWidget(btnFence_);
-    btnSectionClear_ = createToolBtn(tr("清除剖面"), tr("移除 3D 场景中的任意剖面与顶面路径线"));
-    lay->addWidget(btnSectionClear_);
-
-    // D7.3 解释 overlay：层位面/井轨迹/井名标注 checkable 菜单
-    btnOverlay_ = createToolBtn(tr("解释"), tr("层位面/井轨迹/井名标注的 3D 叠显与显隐"));
-    overlayMenu_ = new QMenu(this);
-    btnOverlay_->setPopupMode(QToolButton::InstantPopup);
-    btnOverlay_->setMenu(overlayMenu_);
-    lay->addWidget(btnOverlay_);
-
-    // D7.4 扫掠动画：轴向 + 帧率 + 播放/暂停 + PNG 序列导出
-    cboSweepAxis_ = new QComboBox(bar);
-    cboSweepAxis_->setObjectName(QStringLiteral("cbo3dSweepAxis"));
-    cboSweepAxis_->addItem(tr("T"));
-    cboSweepAxis_->addItem(tr("IL"));
-    cboSweepAxis_->addItem(tr("XL"));
-    cboSweepAxis_->setToolTip(tr("扫掠轴向：时间切片 / 纵测线 / 横测线"));
-    cboSweepAxis_->setFixedWidth(48);
-    lay->addWidget(cboSweepAxis_);
-    spinSweepFps_ = new QSpinBox(bar);
-    spinSweepFps_->setObjectName(QStringLiteral("spin3dSweepFps"));
-    spinSweepFps_->setRange(1, 30);
-    spinSweepFps_->setValue(8);
-    spinSweepFps_->setSuffix(tr(" fps"));
-    spinSweepFps_->setToolTip(tr("扫掠帧率（播放中可调，即时生效）"));
-    spinSweepFps_->setFixedWidth(64);
-    lay->addWidget(spinSweepFps_);
-    btnSweepPlay_ = createToolBtn(tr("扫掠"), tr("切片动画扫掠：按轴向逐帧推进\n（当前帧异步取数 + 前向预取，UI 不阻塞）"), true);
-    lay->addWidget(btnSweepPlay_);
-    btnSweepExport_ = createToolBtn(tr("导出序列"), tr("选择目录并导出扫掠 PNG 序列（frame_NNNNN.png）"));
-    lay->addWidget(btnSweepExport_);
-
-    // D3.10 帧率（debug）
-    chkFps_ = new QCheckBox(tr("fps"), bar);
-    themedCaption(chkFps_);
-    chkFps_->setToolTip(tr("显示帧率读数（调试）"));
-    lay->addWidget(chkFps_);
-
-    lay->addStretch();
-
-    // D3.6 相机书签
-    auto *lblCam = new QLabel(tr("视角:"), bar);
-    themedCaption(lblCam);
-    lay->addWidget(lblCam);
-    cboCamBookmark_ = new QComboBox(bar);
-    cboCamBookmark_->setFixedWidth(90);
-    lay->addWidget(cboCamBookmark_);
-    btnCamSave_ = createToolBtn(tr("存"), tr("保存当前视角为书签"));
-    btnCamDel_ = createToolBtn(tr("删"), tr("删除选中的视角书签"));
-    lay->addWidget(btnCamSave_);
-    lay->addWidget(btnCamDel_);
-
-    // D3.7 截图
-    btnShot_ = createToolBtn(tr("截图"), tr("导出当前三维视口为 PNG"));
-    lay->addWidget(btnShot_);
-
-    if (auto *mainLay = qobject_cast<QVBoxLayout *>(layout()))
-        mainLay->insertWidget(1, bar); // 顶栏与视口之间
-
-    // ---- 接线 ----
     connect(cboColorMap_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
         if (idx <= 0) {
             customCmapActive_ = false;
@@ -928,8 +852,31 @@ void Seismic3DViewPanel::buildDisplayBar() {
             [rangeChanged](double) { rangeChanged(); });
     connect(spinRangeMax_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
             [rangeChanged](double) { rangeChanged(); });
+}
 
-    // D7.1 传递函数
+// D7.1 传递函数 / D3.1 体渲染堆叠 / D7.2 任意剖面 / D7.3 解释 overlay
+void Seismic3DViewPanel::buildRenderControls(QHBoxLayout *lay, QWidget *bar) {
+    // D7.1 传递函数（GPU LUT 体渲染）
+    btnTf_ = createToolBtn(tr("传递函数"), tr("体渲染传递函数：色彩+不透明度 LUT 实时作用于 3D 体\n（GPU 侧取色，修改零取数零重烘焙）"), true);
+    lay->addWidget(btnTf_);
+    btnTfEdit_ = createToolBtn(tr("TF…"), tr("编辑传递函数曲线（不透明度分段线性）"));
+    lay->addWidget(btnTfEdit_);
+    // D3.1 体渲染（切片堆叠）
+    btnStack_ = createToolBtn(tr("体渲染"), tr("切片堆叠体渲染：16 层水平切片半透明叠渲；\n拖动滑杆期间自动降到 4 层（交互降采样），静止后精渲"), true);
+    lay->addWidget(btnStack_);
+    // D7.2 任意剖面（两点斜剖面 / 多点栅栏）
+    btnOblique_ = createToolBtn(tr("斜剖面"), tr("任意斜剖面：顶面拾取起止两点 → 后端取数 → 剖面贴入 3D 场景"), true);
+    lay->addWidget(btnOblique_);
+    btnFence_ = createToolBtn(tr("栅栏"), tr("栅栏剖面：顶面拾取多段折线，回车/双击提交 → 折线剖面贴入 3D 场景"), true);
+    lay->addWidget(btnFence_);
+    btnSectionClear_ = createToolBtn(tr("清除剖面"), tr("移除 3D 场景中的任意剖面与顶面路径线"));
+    lay->addWidget(btnSectionClear_);
+    // D7.3 解释 overlay：层位面/井轨迹/井名标注 checkable 菜单
+    btnOverlay_ = createToolBtn(tr("解释"), tr("层位面/井轨迹/井名标注的 3D 叠显与显隐"));
+    overlayMenu_ = new QMenu(this);
+    btnOverlay_->setPopupMode(QToolButton::InstantPopup);
+    btnOverlay_->setMenu(overlayMenu_);
+    lay->addWidget(btnOverlay_);
     connect(btnTf_, &QToolButton::toggled, this, [this](bool on) {
         setTransferFunctionEnabled(on);
     });
@@ -965,42 +912,6 @@ void Seismic3DViewPanel::buildDisplayBar() {
     }
     connect(btnSectionClear_, &QToolButton::clicked, this, [this]() {
         clearLineSection();
-    });
-    // D7.4 扫掠
-    connect(btnSweepPlay_, &QToolButton::toggled, this, [this](bool on) {
-        if (on) {
-            const SgySliceType axis = cboSweepAxis_->currentIndex() == 1
-                ? SgySliceType::Inline
-                : (cboSweepAxis_->currentIndex() == 2 ? SgySliceType::Xline
-                                                      : SgySliceType::Time);
-            startSweep(axis, spinSweepFps_->value());
-            if (!isSweepRunning()) // 无体/空轴——按钮弹回
-                btnSweepPlay_->setChecked(false);
-        } else {
-            pauseSweep();
-        }
-    });
-    connect(cboSweepAxis_, QOverload<int>::of(&QComboBox::activated), this, [this](int idx) {
-        if (!isSweepRunning())
-            return;
-        const SgySliceType axis = idx == 1
-            ? SgySliceType::Inline
-            : (idx == 2 ? SgySliceType::Xline : SgySliceType::Time);
-        startSweep(axis, spinSweepFps_->value()); // 换轴重起
-    });
-    connect(spinSweepFps_, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int fps) {
-        if (sweepTimer_ && sweepTimer_->isActive())
-            sweepTimer_->setInterval(1000 / std::clamp(fps, 1, 60));
-    });
-    connect(btnSweepExport_, &QToolButton::clicked, this, [this]() {
-        const QString dir = QFileDialog::getExistingDirectory(
-            this, tr("选择扫掠 PNG 序列导出目录"));
-        if (dir.isEmpty())
-            return;
-        setSweepExportDir(dir);
-        QgsMessageLog::logMessage(
-            tr("扫掠序列将导出到：%1（frame_NNNNN.png，播放期间逐帧落盘）").arg(dir),
-            QStringLiteral("Seismic3D"), Qgis::MessageLevel::Info);
     });
     connect(btnTfEdit_, &QToolButton::clicked, this, [this]() {
         // 编辑器对话框：预设 + 曲线（变更实时生效——每拖一下只重传 256B LUT）
@@ -1043,13 +954,90 @@ void Seismic3DViewPanel::buildDisplayBar() {
                 });
         dlg.exec();
     });
-
     connect(btnStack_, &QToolButton::toggled, this, [this](bool on) {
         setStackModeEnabled(on);
     });
-    connect(chkFps_, &QCheckBox::toggled, viewport_, &Seismic3DViewportWidget::setFpsVisible);
+}
 
-    // D3.7 截图
+// D7.4 扫掠动画：轴向 + 帧率 + 播放/暂停 + PNG 序列导出
+void Seismic3DViewPanel::buildSweepControls(QHBoxLayout *lay, QWidget *bar) {
+    cboSweepAxis_ = new QComboBox(bar);
+    cboSweepAxis_->setObjectName(QStringLiteral("cbo3dSweepAxis"));
+    cboSweepAxis_->addItem(tr("T"));
+    cboSweepAxis_->addItem(tr("IL"));
+    cboSweepAxis_->addItem(tr("XL"));
+    cboSweepAxis_->setToolTip(tr("扫掠轴向：时间切片 / 纵测线 / 横测线"));
+    cboSweepAxis_->setFixedWidth(48);
+    lay->addWidget(cboSweepAxis_);
+    spinSweepFps_ = new QSpinBox(bar);
+    spinSweepFps_->setObjectName(QStringLiteral("spin3dSweepFps"));
+    spinSweepFps_->setRange(1, 30);
+    spinSweepFps_->setValue(8);
+    spinSweepFps_->setSuffix(tr(" fps"));
+    spinSweepFps_->setToolTip(tr("扫掠帧率（播放中可调，即时生效）"));
+    spinSweepFps_->setFixedWidth(64);
+    lay->addWidget(spinSweepFps_);
+    btnSweepPlay_ = createToolBtn(tr("扫掠"), tr("切片动画扫掠：按轴向逐帧推进\n（当前帧异步取数 + 前向预取，UI 不阻塞）"), true);
+    lay->addWidget(btnSweepPlay_);
+    btnSweepExport_ = createToolBtn(tr("导出序列"), tr("选择目录并导出扫掠 PNG 序列（frame_NNNNN.png）"));
+    lay->addWidget(btnSweepExport_);
+    connect(btnSweepPlay_, &QToolButton::toggled, this, [this](bool on) {
+        if (on) {
+            const SgySliceType axis = cboSweepAxis_->currentIndex() == 1
+                ? SgySliceType::Inline
+                : (cboSweepAxis_->currentIndex() == 2 ? SgySliceType::Xline
+                                                      : SgySliceType::Time);
+            startSweep(axis, spinSweepFps_->value());
+            if (!isSweepRunning()) // 无体/空轴——按钮弹回
+                btnSweepPlay_->setChecked(false);
+        } else {
+            pauseSweep();
+        }
+    });
+    connect(cboSweepAxis_, QOverload<int>::of(&QComboBox::activated), this, [this](int idx) {
+        if (!isSweepRunning())
+            return;
+        const SgySliceType axis = idx == 1
+            ? SgySliceType::Inline
+            : (idx == 2 ? SgySliceType::Xline : SgySliceType::Time);
+        startSweep(axis, spinSweepFps_->value()); // 换轴重起
+    });
+    connect(spinSweepFps_, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int fps) {
+        if (sweepTimer_ && sweepTimer_->isActive())
+            sweepTimer_->setInterval(1000 / std::clamp(fps, 1, 60));
+    });
+    connect(btnSweepExport_, &QToolButton::clicked, this, [this]() {
+        const QString dir = QFileDialog::getExistingDirectory(
+            this, tr("选择扫掠 PNG 序列导出目录"));
+        if (dir.isEmpty())
+            return;
+        setSweepExportDir(dir);
+        QgsMessageLog::logMessage(
+            tr("扫掠序列将导出到：%1（frame_NNNNN.png，播放期间逐帧落盘）").arg(dir),
+            QStringLiteral("Seismic3D"), Qgis::MessageLevel::Info);
+    });
+}
+
+// D3.10 帧率（debug）+ D3.6 相机书签 + D3.7 截图
+void Seismic3DViewPanel::buildViewControls(QHBoxLayout *lay, QWidget *bar) {
+    chkFps_ = new QCheckBox(tr("fps"), bar);
+    PaleoTheme::applyThemedStyleSheet(chkFps_, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    chkFps_->setToolTip(tr("显示帧率读数（调试）"));
+    lay->addWidget(chkFps_);
+    lay->addStretch();
+    auto *lblCam = new QLabel(tr("视角:"), bar);
+    PaleoTheme::applyThemedStyleSheet(lblCam, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    lay->addWidget(lblCam);
+    cboCamBookmark_ = new QComboBox(bar);
+    cboCamBookmark_->setFixedWidth(90);
+    lay->addWidget(cboCamBookmark_);
+    btnCamSave_ = createToolBtn(tr("存"), tr("保存当前视角为书签"));
+    btnCamDel_ = createToolBtn(tr("删"), tr("删除选中的视角书签"));
+    lay->addWidget(btnCamSave_);
+    lay->addWidget(btnCamDel_);
+    btnShot_ = createToolBtn(tr("截图"), tr("导出当前三维视口为 PNG"));
+    lay->addWidget(btnShot_);
+    connect(chkFps_, &QCheckBox::toggled, viewport_, &Seismic3DViewportWidget::setFpsVisible);
     connect(btnShot_, &QToolButton::clicked, this, [this]() {
         if (fallbackActive_) {
             PaleoNotify::information(this, tr("三维截图"), tr("当前处于 2D 回退模式，请使用右键另存。"));
@@ -1070,8 +1058,6 @@ void Seismic3DViewPanel::buildDisplayBar() {
         else
             PaleoNotify::critical(this, tr("导出失败"), tr("保存 PNG 失败。"));
     });
-
-    // D3.6 相机书签
     connect(btnCamSave_, &QToolButton::clicked, this, [this]() {
         bool ok = false;
         const QString name = QInputDialog::getText(this, tr("保存视角书签"),
@@ -1141,6 +1127,8 @@ void Seismic3DViewPanel::buildDisplayBar() {
         cboCamBookmark_->addItem(bm.name);
     }
 }
+
+
 
 // ---- D3.5/D3.3：重着色 + 值域裁剪（alpha 带外置 0）+ 上传 ----
 void Seismic3DViewPanel::recolorizeSlice(SeismicSliceSlot slot) {

@@ -401,12 +401,12 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               request.format = PaleoHorizonBatchExport::Format::Pdf;
               QDialog options(this); options.setWindowTitle(tr("按层位批量导出"));
               auto *form = new QFormLayout(&options);
-              auto *format = new QComboBox(&options);
-              format->addItem("PDF", int(PaleoHorizonBatchExport::Format::Pdf));
-              format->addItem("PNG", int(PaleoHorizonBatchExport::Format::Png));
-              format->addItem("SVG", int(PaleoHorizonBatchExport::Format::Svg));
+              auto *format = new QComboBox(&options); // 下拉项过 tr()——用户可见文案，漏翻译即漏扫（同 folderconfirm.cpp:39 口径）
+              format->addItem(tr("PDF"), int(PaleoHorizonBatchExport::Format::Pdf));
+              format->addItem(tr("PNG"), int(PaleoHorizonBatchExport::Format::Png));
+              format->addItem(tr("SVG"), int(PaleoHorizonBatchExport::Format::Svg));
               if (PaleoLayoutExport::formatAvailable(PaleoLayoutExport::Format::Tiff))
-                format->addItem("TIFF", int(PaleoHorizonBatchExport::Format::Tiff));
+                format->addItem(tr("TIFF"), int(PaleoHorizonBatchExport::Format::Tiff));
               auto *dpi = new QSpinBox(&options); dpi->setRange(72, 1200); dpi->setValue(300);
               form->addRow(tr("输出格式"), format); form->addRow(tr("分辨率（DPI）"), dpi);
               auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &options);

@@ -1,7 +1,6 @@
 // 层：视图
 #include "editingtoolbar.h"
 #include "../../qgis/faciespartitioneditor.h"
-#include "../../qgis/faciespartitiontool.h"
 #include "../paleoicons.h"
 #include <QAction>
 #include <QActionGroup>

@@ -25,7 +25,8 @@ struct Result {
   QStringList files, assetIds, warnings;
   bool cancelled = false;
 };
-PaleoTask *start(QgsPrintLayout *layout, DataCatalog *catalog, PaleoTaskService *tasks,
+// layout 为 src/qgis 的图件版面句柄（#531：功能层签名不出现 Qgs* 类型）。
+PaleoTask *start(PaleoLayoutExport::LayoutHandle *layout, DataCatalog *catalog, PaleoTaskService *tasks,
     const Request &request, QObject *receiver, std::function<void(const Result &)> done,
     QString *error = nullptr);
 }

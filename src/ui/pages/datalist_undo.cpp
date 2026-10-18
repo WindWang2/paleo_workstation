@@ -21,14 +21,12 @@
 
 #include <algorithm>
 #include <QDebug>
-#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
-#include <QSaveFile>
 #include "../notifications/paleonotify.h"
 #include <QDialog>  // 原经 <QMessageBox> 传递引入
 #include <QPushButton>
@@ -62,33 +60,23 @@ int indexOfLink(DataCatalog *cat, const QString &assetId, const QString &role,
   return -1;
 }
 
+// #534 收敛：路径推导与装载/落盘全部走数据层门面（jsonsidecar.h）——视图不
+// 再自持工程文件路径与原子写时序（UI_LAYER_PLAN §1）。
 QString undoVaultPath(DataCatalog *cat)
 {
-  const QString cp = cat ? cat->catalogPath() : QString();
-  if (cp.isEmpty() || !cat->isOpen())
-    return QString();
-  // catalog 在 <projectDir>/artifacts/metadata/catalog.json → 退三级到工程
-  // 目录（方向 30 修正：与 dataopsmodel.h projectDirFor 同步——原两级推导
-  // 落在 artifacts/ 下）。
-  const QString projectDir = QFileInfo(
-      QFileInfo(QFileInfo(cp).dir().absolutePath()).dir().absolutePath())
-      .dir()
-      .absolutePath();
-  return QDir(projectDir).filePath(QStringLiteral(".paleo/undo_stack.json"));
+  return paleo::undoVaultPath(cat);
 }
 
 // 副作用清洗：attach 的目标链接已不在（被外部改掉/新会话没有这条挂接）
 // → 记录作废剔除；note 记忆只留仍未决链接能用的。
-// 落盘/装载走数据层 jsonsidecar helper（#482 收敛：原子写 + 损坏留痕清洗
-// 的契约不再散落在视图树各目录）。
+// 装载走数据层 undo 库门面（#482 收敛原子写 + 损坏留痕清洗；#534 收敛路径）。
 QVector<UndoRecord> loadUndoVault(DataCatalog *cat, QHash<QString, QString> *notesOut)
 {
   QVector<UndoRecord> records;
-  const QString path = undoVaultPath(cat);
-  if (path.isEmpty())
-    return records;
-  const QJsonObject root =
-      paleo::readJsonFile(path, "DataPage undo vault").object();
+  bool ok = false;
+  const QJsonObject root = paleo::undoVaultLoad(cat, &ok);
+  if (!ok)
+    return records; // 打不开/损坏：如实按空处理（已由门面 qWarning 留痕）
   for (const QJsonValue &v : root.value(QStringLiteral("undo")).toArray())
   {
     const QJsonObject o = v.toObject();
@@ -120,10 +108,8 @@ QVector<UndoRecord> loadUndoVault(DataCatalog *cat, QHash<QString, QString> *not
 void saveUndoVault(DataCatalog *cat, const QVector<UndoRecord> &records,
                    const QHash<QString, QString> &notes)
 {
-  const QString path = undoVaultPath(cat);
-  if (path.isEmpty())
+  if (undoVaultPath(cat).isEmpty())
     return;
-  QDir().mkpath(QFileInfo(path).absolutePath());
   QJsonObject root;
   QJsonArray arr;
   for (const UndoRecord &r : records)
@@ -157,10 +143,10 @@ void saveUndoVault(DataCatalog *cat, const QVector<UndoRecord> &records,
     noteArr.append(o);
   }
   root.insert(QStringLiteral("notes"), noteArr);
-  // QSaveFile 原子落盘（jsonsidecar helper）：断电/崩溃不留半截 JSON——半截
-  // undo 记录会在下次装载被当损坏丢弃，全部撤销入口静默丢失。写失败只在
-  // 日志说明——undo 是增强面，不阻塞挂接本身。
-  paleo::writeJsonFile(path, QJsonDocument(root), "DataPage undo vault");
+  // 原子落盘走数据层 undo 库门面（#534）：断电/崩溃不留半截 JSON——半截 undo
+  // 记录会在下次装载被当损坏丢弃，全部撤销入口静默丢失。写失败只在日志
+  // 说明——undo 是增强面，不阻塞挂接本身。
+  paleo::undoVaultSave(cat, root);
 }
 
 } // namespace paleo::pagesinternal

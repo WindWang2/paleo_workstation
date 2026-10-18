@@ -6,6 +6,7 @@
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/facieshierarchyrenderer.h"
 #include "../src/qgis/faciespartitioneditor.h"
+#include "../src/qgis/faciespartitionstate.h"
 #include "../src/qgis/faciespartitiontool.h"
 #include "../src/qgis/mapcanvaslink.h"
 #include "../src/qgis/mappingreferencecanvas.h"
@@ -1322,7 +1323,12 @@ private slots:
     auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
     const auto originalVersion = f.work.versionForLayer(draft);
     const auto originalHash = digest(DataCatalog::resolvedVersionPath(f.dir.path(), originalVersion));
-    QVERIFY(!originalVersion.extra.value("partition_footprint_wkb").toString().isEmpty());
+    // #540 子项 2：冻结覆盖范围走 sidecar 文件，extra 只留路径 + 可读摘要。
+    const auto footprintPath = originalVersion.extra.value("partition_footprint_path").toString();
+    QVERIFY2(!footprintPath.isEmpty(), qPrintable(footprintPath));
+    QVERIFY(QFile::exists(f.dir.filePath(footprintPath)));
+    QVERIFY(originalVersion.extra.value("partition_footprint_wkb").toString().isEmpty());
+    QVERIFY(!originalVersion.extra.value("partition_footprint").toMap().value("sha256").toString().isEmpty());
     auto it = layer->getFeatures(); QgsFeature first, second;
     QVERIFY(it.nextFeature(first)); QVERIFY(it.nextFeature(second)); it.close();
     QVERIFY(layer->startEditing()); layer->beginEditCommand("source boundary semantics");
@@ -1376,13 +1382,17 @@ private slots:
     QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
     const auto saved = f.work.versionForLayer(draft);
     QVERIFY(saved.id != originalVersion.id);
-    QCOMPARE(saved.extra.value("partition_footprint_wkb"), originalVersion.extra.value("partition_footprint_wkb"));
+    // 保存时沿用同一 sidecar（覆盖范围被 validate 钉住），extra 不再出现 WKB。
+    QCOMPARE(saved.extra.value("partition_footprint_path"), originalVersion.extra.value("partition_footprint_path"));
+    QCOMPARE(saved.extra.value("partition_footprint"), originalVersion.extra.value("partition_footprint"));
+    QVERIFY(saved.extra.value("partition_footprint_wkb").toString().isEmpty());
     QCOMPARE(digest(DataCatalog::resolvedVersionPath(f.dir.path(), originalVersion)), originalHash);
     QgsVectorLayer reopened(DataCatalog::resolvedVersionPath(f.dir.path(), saved) + "|layername=features", "reopened", "ogr");
     QVERIFY(reopened.isValid());
     const auto restored = MappingFeatureIdentity::find(&reopened, identity); QVERIFY(restored.isValid());
     QCOMPARE(restored.attribute("paleo_interpretation"), interpretation);
-    QVERIFY2(FaciesPartitionEditor::install(&reopened, saved.extra.value("facies").toList(), saved.extra.value("partition_footprint_wkb").toString(), &error), qPrintable(error));
+    QVERIFY2(FaciesPartitionEditor::install(&reopened, saved.extra.value("facies").toList(),
+                 FaciesPartitionState::loadFootprint(f.dir.path(), saved.extra), &error), qPrintable(error));
     QVERIFY2(FaciesPartitionEditor::validate(&reopened, &error), qPrintable(error));
     QVERIFY(layer->startEditing()); QgsFeatureIds mergeIds;
     it = layer->getFeatures(); QgsFeature feature;
@@ -1424,6 +1434,34 @@ private slots:
     toolbar.actionUndo()->trigger(); QCOMPARE(layer->featureCount(), 5);
     toolbar.actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
     QVERIFY(toolbar.cancelEditing()); QCOMPARE(layer->featureCount(), 5);
+  }
+  // #541 子项 2：零要素相面（从零手绘的起点）建不出编辑副本——此前
+  // copyForEditing 被 footprint() 的「无法建立相图覆盖范围」堵死。
+  void zeroFeaturePartitionStillOpensAnEditingCopy() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QVERIFY2(f.work.saveFacies("D61", hierarchySchema(), &error), qPrintable(error));
+    QgsVectorLayer empty("Polygon?field=facies_code:integer", "empty", "memory");
+    empty.setCrs(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+    QCOMPARE(empty.featureCount(), 0);
+    const auto path = f.dir.filePath("empty-grid.gpkg");
+    QVERIFY2(MappingArtifactWriter::vectorSnapshot(&empty, path, &error), qPrintable(error));
+    LayerDeclaration d;
+    d.layerId = "input.empty"; d.horizon = "D61"; d.type = "vector";
+    d.group = "05_Composition"; d.title = "empty partition";
+    d.source = path + "|layername=features";
+    QVERIFY(f.layers.declare(d, &error));
+    const auto draft = f.work.copyForEditing(d.layerId, {}, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    // 放行语义：footprint 留空——既不写 sidecar，也不写旧 WKB 字段。
+    const auto version = f.work.versionForLayer(draft);
+    QVERIFY(version.extra.value("partition_footprint_path").toString().isEmpty());
+    QVERIFY(version.extra.value("partition_footprint_wkb").toString().isEmpty());
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY(layer);
+    // install() 放行且不冻结覆盖范围（validate 的 footprint 比对随之跳过）。
+    QVERIFY2(FaciesPartitionEditor::validate(layer, &error), qPrintable(error));
+    QVERIFY(!FaciesPartitionState::hasFrozenFootprint(layer));
+    QVERIFY(FaciesPartitionEditor::isPartition(layer));
   }
   void partitionCommitRejectionCanBeRepairedWithUndo() {
     Fixture f; QVERIFY(f.init()); QString error;
@@ -3409,6 +3447,72 @@ private slots:
       const double code = raster->dataProvider()->sample(QgsPointXY(column * 10 + 5, 65), 1, &ok);
       QVERIFY(ok); QCOMPARE(int(code), column % 2 == 0 ? 7 : 2);
     }
+  }
+  // #536：原生属性表改编码的写路径必须与 place() 读路径同一口径。旧七列错位
+  // 草稿（#526 之前存进版本 extra 的元组：microfacies=色值、color=SVG、
+  // texture 空）若被原样喂给 FaciesCatalog::attributes()，会把色值写进图层的
+  // microfacies、texture 置空——而渲染器/图例走 place() 已修复，同一次编辑
+  // 产出自相矛盾的属性与图面。
+  void nativeAttributeTableRecodeRecoversLegacySchemaColumns() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    f.work.styleLayer(draft);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(layer);
+    // 草稿版本 extra 建于 #526 之前：就地换回旧七列错位元组（不动版本血缘）。
+    const QVariantList legacySchema{
+      QVariantMap{{"code", 1}, {"name", QStringLiteral("河道充填")},
+        {"facies", QStringLiteral("河流相")}, {"subfacies", QStringLiteral("河床亚相")},
+        {"microfacies", QStringLiteral("#E8D5B0")},
+        {"color", QStringLiteral("strata/micro_channel_fill.svg")},
+        {"texture", QString()}}};
+    const auto draftVersion = f.work.versionForLayer(draft);
+    QVERIFY2(f.catalog.updateVersionExtra(draftVersion.id,
+                                          QVariantMap{{"facies", legacySchema}},
+                                          &error),
+             qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).extra.value("facies").toList(),
+             legacySchema);
+    QSignalSpy failures(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY(layer->startEditing());
+    // 原生属性表改编码：显式编辑命令（属性表对话框同口径）→ businessEdit →
+    // recordSpatialInterpretationEdit 的分类同步分支。取一个编码确实变化的
+    // 要素（observer 对「改了又等于原值」的分类编辑不发 businessEdit）。
+    const int field = layer->fields().indexOf("facies_code");
+    QVERIFY(field >= 0);
+    QgsFeature feature;
+    auto all = layer->getFeatures();
+    while (all.nextFeature(feature))
+      if (feature.attribute(field).toInt() != 1)
+        break;
+    QVERIFY(feature.isValid());
+    QVERIFY(feature.attribute(field).toInt() != 1);
+    layer->beginEditCommand(QStringLiteral("改编码")); // void 返回，同本文件既有口径不包 QVERIFY
+    QVERIFY(layer->changeAttributeValue(feature.id(), field, 1));
+    layer->endEditCommand();
+    QCOMPARE(failures.count(), 0); // 同步不得报错
+    // 写路径取值与渲染侧 place() 一致（错位元组被恢复，不是被照抄）。
+    const auto placed = FaciesTaxonomy::place(legacySchema.first().toMap());
+    const auto edited = layer->getFeature(feature.id());
+    QCOMPARE(edited.attribute("facies_code").toInt(), 1);
+    QCOMPARE(edited.attribute("microfacies").toString(),
+             placed.value("microfacies").toString());
+    QCOMPARE(edited.attribute("facies_label").toString(),
+             placed.value("name").toString());
+    QCOMPARE(edited.attribute("facies_name").toString(),
+             placed.value("facies").toString());
+    QCOMPARE(edited.attribute("subfacies").toString(),
+             placed.value("subfacies").toString());
+    QCOMPARE(edited.attribute("texture").toString(),
+             placed.value("texture").toString());
+    // 反向锚定：色值不进 microfacies、SVG 不丢成纹理缺失。
+    QCOMPARE(edited.attribute("microfacies").toString(),
+             QStringLiteral("河道充填"));
+    QVERIFY(!edited.attribute("texture").toString().isEmpty());
+    QVERIFY(layer->rollBack());
   }
   void seismicToPolygonToEditableVersions() {
     Fixture f;

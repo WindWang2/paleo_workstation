@@ -180,12 +180,13 @@ WellCompositeStore::WellCompositeStore(const QString &sourceDataPath)
 
 bool WellCompositeStore::load()
 {
-  // #482 收敛：读/写走数据层 jsonsidecar helper（损坏留痕清洗 + 原子写）。
+  // #482 收敛：读/写走数据层 sidecar 门面（损坏留痕清洗 + 原子写）。
   // 旧 save() 是 QFile Truncate 直写——断电/崩溃留半截 .wc.json，下次装载
   // 判损坏整库作废（钉注/书签/地层归属全丢）。
+  // #534 收敛：路径派生（<源名>.wc.json）留在本组件（井组合特有面），装载/
+  // 落盘本身不再由视图层直写文件。
   bool ok = false;
-  const QJsonDocument doc =
-    paleo::readJsonFile( m_sidecarPath, "wellcomposite sidecar", &ok );
+  const QJsonDocument doc = paleo::wellcompositeSidecarLoad( m_sidecarPath, &ok );
   if ( !ok )
     return false; // 打不开/损坏：如实失败（不存在 → ok=true 的空 doc，合法）
   m_doc = doc.object();
@@ -194,9 +195,7 @@ bool WellCompositeStore::load()
 
 bool WellCompositeStore::save() const
 {
-  return paleo::writeJsonFile( m_sidecarPath, QJsonDocument( m_doc ),
-                               "wellcomposite sidecar",
-                               QJsonDocument::Indented );
+  return paleo::wellcompositeSidecarSave( m_sidecarPath, QJsonDocument( m_doc ) );
 }
 
 namespace {

@@ -145,7 +145,7 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
     p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.0, Qt::DotLine));
     p.drawLine(QPointF(0, y), QPointF(width(), y));
 
-    // 右端文字旗（#482：旗宽同上改 QFontMetrics 实测，ElideRight 兜底超长）
+    // 右端文字旗：#482 旗宽 QFontMetrics 实测（ElideRight 兜底）；#540-6 旗底禁交互主色装饰底——墨色 text 底 + surface 字
     QFont pf = p.font();
     pf.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(pf);
@@ -153,8 +153,8 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
     const QFontMetricsF pfMetrics(pf);
     const qreal flagW = qMin<qreal>(150.0, pfMetrics.horizontalAdvance(text) + 18.0);
     const QRectF flagRect(width() - flagW - 2, y + 1, flagW, 14);
-    p.fillRect(flagRect, QColor(27, 115, 208, 215));
-    p.setPen(Qt::white);
+    p.fillRect(flagRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
+    p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
     p.drawText(flagRect.adjusted(4, 0, -4, 0), Qt::AlignVCenter | Qt::ElideRight, text);
   }
 

@@ -287,13 +287,14 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
     }
     inputs.removeDuplicates();
     GeologicalExportDialog dialog(settings,
-        [projectGuard, layerGuards, extent](const PaleoGeologicalMapLayout::Settings &settings, QString *error) -> QgsPrintLayout * {
+        [projectGuard, layerGuards, extent](const PaleoGeologicalMapLayout::Settings &settings, QString *error)
+            -> std::unique_ptr<PaleoLayoutExport::LayoutHandle> {
           QList<QgsMapLayer *> current;
           for (const auto &layer : layerGuards) {
             if (!layer) { if (error) *error = tr("地图数据已变化，请重新打开导出"); return nullptr; }
             current << layer.data();
           }
-          return PaleoGeologicalMapLayout::build(projectGuard, current, extent, settings, error);
+          return PaleoGeologicalMapLayout::buildHandle(projectGuard, current, extent, settings, error);
         }, !inputs.isEmpty(), this, unbound, catalog->projectDir());
     if (dialog.exec() != QDialog::Accepted) return;
     if (!m_taskSvc || m_taskSvc->session() != session || !projectGuard) { status(tr("工程已切换，请重新打开导出")); return; }

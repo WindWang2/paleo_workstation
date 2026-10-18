@@ -108,7 +108,7 @@ private slots:
     version.path = path; version.managed = false; version.fileName = "input.dat"; version.sha256 = DataCatalog::sha256FileHex(path); QVERIFY(cat.addVersion(version));
     QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate)); file.write("changed"); file.close();
     QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings;
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings)); QVERIFY(layout);
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings); QVERIFY(layout);
     PaleoGeologicalExport::Request request; request.destination = tmp.filePath("changed-input"); request.dpi = 72; request.sourceVersionIds = {version.id};
     bool called = false; PaleoGeologicalExport::Result result;
     QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this, [&](const auto &r) { result = r; called = true; }));
@@ -148,7 +148,7 @@ private slots:
     if (hierarchy) FaciesHierarchyRenderer::apply(layer, schema, "micro_facies");
     else layer->setRenderer(new QgsCategorizedSymbolRenderer("facies_code", categories));
     PaleoGeologicalMapLayout::Settings settings;
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, layer->extent(), settings)); QVERIFY(layout);
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, layer->extent(), settings); QVERIFY(layout);
     PaleoGeologicalExport::Request request; request.destination = tmp.filePath("long-legend"); request.dpi = 72;
     bool called = false; PaleoGeologicalExport::Result result;
     QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this, [&](const auto &r) { result = r; called = true; }));
@@ -174,7 +174,7 @@ private slots:
     QVERIFY(layer->dataProvider()->addFeatures(features)); layer->updateExtents(); project.addMapLayer(layer);
     QCOMPARE(FaciesHierarchyRenderer::apply(layer, schema, "micro_facies").size(), 3);
     PaleoGeologicalMapLayout::Settings settings; settings.kind = PaleoStandardElements::FigureKind::Facies;
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, layer->extent(), settings));
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, layer->extent(), settings);
     QVERIFY(layout);
     PaleoGeologicalExport::Request request;
     request.destination = qEnvironmentVariable("PALEO_FACIES_EXPORT_QA_DIR", tmp.filePath("facies")); request.dpi = 72;
@@ -186,7 +186,7 @@ private slots:
     QCOMPARE(result.assetIds.size(), 2);
     QVERIFY(QFileInfo::exists(QDir(request.destination).filePath("map.pdf")));
     QVERIFY(!QImage(QDir(request.destination).filePath("map.png")).isNull());
-    auto *legend = qobject_cast<QgsLayoutItemLegend *>(layout->itemById("legend")); QVERIFY(legend);
+    auto *legend = qobject_cast<QgsLayoutItemLegend *>(layout->layout()->itemById("legend")); QVERIFY(legend);
     auto *node = legend->model()->rootGroup()->findLayer(layer->id()); QVERIFY(node);
     QStringList labels;
     for (auto *entry : legend->model()->layerLegendNodes(node)) labels << entry->data(Qt::DisplayRole).toString();
@@ -199,12 +199,12 @@ private slots:
       for (const bool landscape : {true, false}) {
         for (const auto &extent : {QgsRectangle(0, 0, 1000, 1000), QgsRectangle(450000, 3500000, 450100, 3510000)}) {
           PaleoGeologicalMapLayout::Settings settings; settings.kind = kind; settings.page.landscape = landscape;
-          std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, extent, settings)); QVERIFY(layout);
-          const auto paper = layout->pageCollection()->page(0)->pageSize();
-          auto *map = qobject_cast<QgsLayoutItemMap *>(layout->itemById("map")); QVERIFY(map);
+          auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, extent, settings); QVERIFY(layout);
+          const auto paper = layout->layout()->pageCollection()->page(0)->pageSize();
+          auto *map = qobject_cast<QgsLayoutItemMap *>(layout->layout()->itemById("map")); QVERIFY(map);
           const auto rect = map->mapRectToScene(map->rect());
           QVERIFY(rect.right() < paper.width()); QVERIFY(rect.bottom() < paper.height() - 18);
-          auto *scale = layout->itemById("scalebar"); QVERIFY(scale);
+          auto *scale = layout->layout()->itemById("scalebar"); QVERIFY(scale);
           QVERIFY(scale->mapRectToScene(scale->rect()).bottom() < rect.bottom());
         }
       }
@@ -225,20 +225,20 @@ private slots:
   void worldFilesAndTransparentPaperKeepTheOriginalLayout() {
     QTemporaryDir tmp; QgsProject project; auto *layer = points(project);
     PaleoGeologicalMapLayout::Settings settings;
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings));
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings);
     PaleoLayoutExport::ExportOptions options; options.transparentBackground = true; options.worldFile = true;
-    const auto result = PaleoLayoutExport::exportLayout(layout.get(), tmp.filePath("transparent.png"), PaleoLayoutExport::Format::Png, 72, {}, options);
+    const auto result = PaleoLayoutExport::exportLayout(layout->layout(), tmp.filePath("transparent.png"), PaleoLayoutExport::Format::Png, 72, {}, options);
     QVERIFY2(result.ok, qPrintable(result.error));
     QVERIFY(QFileInfo::exists(tmp.filePath("transparent.pgw")));
     QVERIFY(QFileInfo::exists(tmp.filePath("transparent.prj")));
     QCOMPARE(QImage(tmp.filePath("transparent.png")).pixelColor(0, 0).alpha(), 0);
-    const auto opaque = PaleoLayoutExport::exportLayout(layout.get(), tmp.filePath("opaque.png"), PaleoLayoutExport::Format::Png, 72, {});
+    const auto opaque = PaleoLayoutExport::exportLayout(layout->layout(), tmp.filePath("opaque.png"), PaleoLayoutExport::Format::Png, 72, {});
     QVERIFY(opaque.ok); QCOMPARE(QImage(tmp.filePath("opaque.png")).pixelColor(0, 0).alpha(), 255);
   }
   void cancelledSessionDoesNotPublishToAnotherProject() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings;
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings));
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings);
     PaleoGeologicalExport::Request request; request.destination = tmp.filePath("cancelled"); request.dpi = 72;
     bool called = false; PaleoGeologicalExport::Result result;
     QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this, [&](const auto &r) { result = r; called = true; }));
@@ -248,9 +248,9 @@ private slots:
   void batchExportsEveryPageToTheChosenDirectory() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings;
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings));
-    auto *page = new QgsLayoutItemPage(layout.get()); page->setPageSize("A4"); layout->pageCollection()->addPage(page);
-    PaleoHorizonBatchExport::Request request; request.layout = layout.get(); request.catalog = &cat; request.projectDir = tmp.path();
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings);
+    auto *page = new QgsLayoutItemPage(layout->layout()); page->setPageSize("A4"); layout->layout()->pageCollection()->addPage(page);
+    PaleoHorizonBatchExport::Request request; request.layout = layout->layout(); request.catalog = &cat; request.projectDir = tmp.path();
     request.horizonLayers.insert("C6", {layer}); request.dpi = 72; request.outputDirectory = tmp.filePath("batch");
     bool called = false; PaleoHorizonBatchExport::Result result;
     QVERIFY(PaleoHorizonBatchExport::startAsync(request, &tasks, [&](const auto &r, bool) { result = r; called = true; }));
@@ -265,12 +265,12 @@ private slots:
     PaleoGeologicalMapLayout::Settings settings; settings.horizon = "C6"; settings.title = "C6 沉积相图";
     settings.version = 5; settings.author = "编图员";
     QString error;
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings, &error));
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings, &error);
     QVERIFY2(layout, qPrintable(error));
-    for (const auto *id : {"map", "title", "legend", "scalebar", "northArrow", "crsCaption", "signature"}) QVERIFY2(layout->itemById(id), id);
-    QCOMPARE(qobject_cast<QgsLayoutItemMap *>(layout->itemById("map"))->layers(), QList<QgsMapLayer *>{layer});
-    QCOMPARE(qobject_cast<QgsLayoutItemLabel *>(layout->itemById("title"))->text(), settings.title);
-    QVERIFY(qobject_cast<QgsLayoutItemLabel *>(layout->itemById("signature"))->text().contains(settings.author));
+    for (const auto *id : {"map", "title", "legend", "scalebar", "northArrow", "crsCaption", "signature"}) QVERIFY2(layout->layout()->itemById(id), id);
+    QCOMPARE(qobject_cast<QgsLayoutItemMap *>(layout->layout()->itemById("map"))->layers(), QList<QgsMapLayer *>{layer});
+    QCOMPARE(qobject_cast<QgsLayoutItemLabel *>(layout->layout()->itemById("title"))->text(), settings.title);
+    QVERIFY(qobject_cast<QgsLayoutItemLabel *>(layout->layout()->itemById("signature"))->text().contains(settings.author));
     QVERIFY(!PaleoGeologicalMapLayout::build(&project, {}, QgsRectangle(), settings, &error));
     QVERIFY(layer->startEditing());
     QgsFeature f(layer->fields()); f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(1, 1))); QVERIFY(layer->addFeature(f));
@@ -281,7 +281,7 @@ private slots:
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     QgsProject project; auto *layer = points(project);
     PaleoGeologicalMapLayout::Settings settings; settings.horizon = "C6";
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings)); QVERIFY(layout);
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings); QVERIFY(layout);
     PaleoGeologicalExport::Request request; request.destination = qEnvironmentVariable("PALEO_EXPORT_QA_DIR", tmp.filePath("maps")); request.dpi = 72; request.includeData = true;
     request.formats = {PaleoLayoutExport::Format::Pdf, PaleoLayoutExport::Format::Png, PaleoLayoutExport::Format::Svg};
     bool called = false; PaleoGeologicalExport::Result result; QString error;
@@ -305,7 +305,7 @@ private slots:
   void dialogRequiresDestinationAndFormat() {
     QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "C6";
     GeologicalExportDialog dialog(settings, [&](const auto &s, QString *error) {
-      return PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), s, error);
+      return PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), s, error);
     }, false);
     QVERIFY(dialog.layout());
     for (auto *combo : dialog.findChildren<QComboBox *>()) {
@@ -317,8 +317,8 @@ private slots:
   void tiffIsCapabilityGated() {
     QTemporaryDir tmp; QgsProject project; auto *layer = points(project);
     PaleoGeologicalMapLayout::Settings settings;
-    std::unique_ptr<QgsPrintLayout> layout(PaleoGeologicalMapLayout::build(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings));
-    const auto result = PaleoLayoutExport::exportLayout(layout.get(), tmp.filePath("map.tif"), PaleoLayoutExport::Format::Tiff, 72, {});
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings);
+    const auto result = PaleoLayoutExport::exportLayout(layout->layout(), tmp.filePath("map.tif"), PaleoLayoutExport::Format::Tiff, 72, {});
     if (PaleoLayoutExport::formatAvailable(PaleoLayoutExport::Format::Tiff)) { QVERIFY2(result.ok, qPrintable(result.error)); QVERIFY(!QImage(result.files.first()).isNull()); }
     else { QVERIFY(!result.ok); QVERIFY(!result.error.isEmpty()); }
   }

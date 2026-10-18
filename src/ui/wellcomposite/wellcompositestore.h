@@ -19,8 +19,10 @@
 //    （D2.3）、深度书签（D2.6）、地层单元指派（D3.6）、曲线量程/单位覆盖层
 //    （D3.12）、导出预设（D4.10）、对比模板（D5.6）。sidecar 不污染源数据。
 //
-// 分层说明：视图层文件 IO 助手（QtCore；io/* include 被分层护栏白名单挡死，
-// 本组件承载 wellcomposite 特有的持久化面；迁移服务层记 TODOS 接缝）。
+// 分层说明：路径派生（<源名>.wc.json）与 store 值类型映射留在本组件
+// （io/* include 被分层护栏白名单挡死），装载/落盘本身经数据层 sidecar 门面
+// services/jsonsidecar.h 的 wellcompositeSidecar*（#482 原子写 + 损坏留痕，
+// #534 视图不再直写工程文件）。
 
 namespace WellComposite
 {

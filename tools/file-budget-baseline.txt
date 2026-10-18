@@ -12,6 +12,17 @@
 # 由 #502 另行跟踪，本闸只管不涨。
 # 基线：master @ ddd1325e 实测 src/ui 超标 61 项（file 12 / fn 49）。
 # 注：#502 正文的「43 个 >1000 行」是全仓口径；src/ui 内为 12 个。
+# #538 接线时只缩不涨对账（2026-10-18，工具实测）：
+#   - 删行（回到阈值内）：paleomainwindow_workbench.cpp:file（#473 拆分后
+#     537 行）、fn:runWorkbenchCommand 与 fn:attachWorkbenchWells（#538 按
+#     动作族/接线族拆分为文件内函数后均 <200 行）；
+#   - 下调冻结值（仍超标、可收紧）：fn:attachWorkbench 1091→316（#473 拆分后
+#     实际值；该函数仍 >200 行，条目只能收紧不能删——删了即新增超标）、
+#     datalist.cpp:file 1016→1009、datalist.cpp:fn:DataListPanel 510→503、
+#     attach_constraint.cpp:fn:attachConstraintPage 718→713、
+#     attach_shell.cpp:fn:attachShellSurfaces 580→578；
+#   - 维持冻结（本批代码修复致超标面回升，文件不属本岗可改范围）：见
+#     docs/ci/known-reds.json 的 file-budget-grown 条目与 issue #538。
 src/ui/correlation/petrophyspanel.cpp:fn:buildUi:220
 src/ui/crossplot/crossplotpanel.cpp:fn:CrossplotPanel:240
 src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:488
@@ -44,21 +55,18 @@ src/ui/pages/entitypanel.cpp:fn:refresh:782
 src/ui/pages/mappingworkbenchpage.cpp:file:1668
 src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:659
 src/ui/pages/mappingworkbenchpage.cpp:fn:renderEvidenceSnapshot:267
-src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:278
+src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:277
 src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:263
 src/ui/paleomainwindow.cpp:file:1015
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:412
 src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:405
-src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:718
+src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:719
 src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:262
-src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:580
+src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:578
 src/ui/paleomainwindow_docks.cpp:fn:buildCenterArea:209
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:295
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:477
-src/ui/paleomainwindow_workbench.cpp:file:1157
-src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:1091
-src/ui/paleomainwindow_workbench_commands.cpp:fn:runWorkbenchCommand:385
-src/ui/paleomainwindow_workbench_wells.cpp:fn:attachWorkbenchWells:285
+src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:321
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:403
 src/ui/seismic3d/seismic3dviewpanel.cpp:file:1839

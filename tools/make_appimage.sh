@@ -35,12 +35,16 @@ fi
 # SHA、vendored 依赖钉哈希」的供应链纪律相悖。升级时同步换 URL 与摘要。
 RUNTIME_URL="https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64"
 RUNTIME_SHA256="2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d"
+# #540-9：sha256sum -c 提到「文件不存在或不可执行」分支之外无条件执行——
+# 复用路径（build/appimage/runtime-x86_64 已存在且带 x 位）此前永不与新 pin
+# 对账，改 pin 值后旧 runtime 会被静默打进 AppImage。缺文件先下载，随后
+# 无论下载还是复用都过同一道校验。
 if [ ! -x "$RUNTIME" ]; then
   echo ">> 下载 AppImage runtime（type2-runtime 20251108，sha256 钉版）"
   curl -fL --retry 3 -o "$RUNTIME" "$RUNTIME_URL"
-  echo "$RUNTIME_SHA256  $RUNTIME" | sha256sum -c
   chmod +x "$RUNTIME"
 fi
+echo "$RUNTIME_SHA256  $RUNTIME" | sha256sum -c
 
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" "$APPDIR/usr/share"

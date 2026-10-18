@@ -1,7 +1,10 @@
 #include <QtTest>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -352,6 +355,150 @@ class TestHorizonBatchExport : public QObject
         }
       QCOMPARE( sampled, 25 );
       delete layout;
+    }
+
+    // #537：消毒后同形的层位名（"K1/q" 与 "K1 q" 的 safeSegment 都是 "K1_q"）
+    // 必须拿到不同交付文件——平面命名下 QFile::copy 目标已存在即失败，且失败
+    // 发生在全部渲染之后。层位序号进文件名后两者都成功，metadata.json 的
+    // horizons[].files 记录实际落盘名。
+    void sanitizedCollisionStillGetsUniqueDeliveries()
+    {
+      QTemporaryDir projectDir;
+      QVERIFY( projectDir.isValid() );
+      DataCatalog catalog;
+      QVERIFY2( catalog.open( projectDir.path() ), qPrintable( catalog.openError() ) );
+
+      std::unique_ptr<QgsPrintLayout> layout( makeFigureLayout() );
+      QMap<QString, QList<QgsMapLayer *>> groups;
+      QList<QgsMapLayer *> keepAlive;
+      for ( const QString &h : { QStringLiteral( "K1/q" ), QStringLiteral( "K1 q" ) } )
+      {
+        auto *layer = makeLayer( h + QStringLiteral( "_layer" ) );
+        keepAlive.append( layer );
+        layout->project()->addMapLayer( layer, false ); // 快照源：须在版面工程里
+        groups.insert( h, { layer } );
+      }
+
+      PaleoHorizonBatchExport::Request request;
+      request.layout = layout.get();
+      request.projectName = QStringLiteral( "collide 工程" );
+      request.horizonLayers = groups;
+      request.catalog = &catalog;
+      request.projectDir = projectDir.path();
+      request.dpi = 96.0;
+      request.format = PaleoHorizonBatchExport::Format::Png;
+      request.date = QStringLiteral( "20261018" );
+      request.outputDirectory = projectDir.filePath( QStringLiteral( "batch" ) );
+
+      PaleoTaskService tasks;
+      bool doneCalled = false;
+      PaleoHorizonBatchExport::Result result;
+      PaleoTask *task = PaleoHorizonBatchExport::startAsync(
+          request, &tasks,
+          [&doneCalled, &result]( const PaleoHorizonBatchExport::Result &r, bool ) {
+            result = r;
+            doneCalled = true;
+          } );
+      QVERIFY2( task != nullptr, "startAsync rejected a valid request" );
+      QSignalSpy finished( task, &PaleoTask::finished );
+      QVERIFY2( finished.wait( 60000 ), "async batch export never finished" );
+      QTRY_VERIFY_WITH_TIMEOUT( doneCalled, 5000 );
+      QCOMPARE( task->state(), PaleoTask::State::Succeeded );
+      QCOMPARE( result.succeeded, 2 );
+      QCOMPARE( result.failed, 0 );
+
+      // 交付文件名唯一，且层位序号确实进了文件名（按名排序，断言确定）。
+      const auto delivered = QDir( result.directory )
+                                .entryList( { QStringLiteral( "*.png" ) }, QDir::Files, QDir::Name );
+      QCOMPARE( delivered.size(), 2 );
+      QVERIFY2( delivered.at( 0 ) != delivered.at( 1 ), "两个层位拿到了同一交付文件名" );
+      QVERIFY2( delivered.at( 0 ).endsWith( QStringLiteral( "_1.png" ) ),
+                qPrintable( delivered.at( 0 ) ) );
+      QVERIFY2( delivered.at( 1 ).endsWith( QStringLiteral( "_2.png" ) ),
+                qPrintable( delivered.at( 1 ) ) );
+
+      // metadata.json 的 horizons[].files 记录实际落盘名；清单本身存在。
+      QFile manifest( QDir( result.directory ).filePath( QStringLiteral( "metadata.json" ) ) );
+      QVERIFY2( manifest.open( QIODevice::ReadOnly ), "批量图件清单缺失" );
+      const auto root = QJsonDocument::fromJson( manifest.readAll() ).object();
+      QVERIFY2( root.contains( QStringLiteral( "error" ) ), "清单缺 error 字段（#541）" );
+      QVERIFY2( root.contains( QStringLiteral( "cancelled" ) ), "清单缺 cancelled 字段（#541）" );
+      const auto horizons = root.value( QStringLiteral( "horizons" ) ).toArray();
+      QCOMPARE( horizons.size(), 2 );
+      QStringList recorded;
+      for ( const auto &entry : horizons )
+      {
+        const auto horizon = entry.toObject();
+        QCOMPARE( horizon.value( QStringLiteral( "ok" ) ).toBool(), true );
+        for ( const auto &file : horizon.value( QStringLiteral( "files" ) ).toArray() )
+          recorded << file.toString();
+      }
+      QCOMPARE( recorded.size(), 2 );
+      for ( const auto &name : recorded )
+        QVERIFY2( QFileInfo::exists( QDir( result.directory ).filePath( name ) ),
+                  qPrintable( name ) );
+    }
+
+    // #541：worker 报错（一个层位没有可出图的图层）→ 外部目录不被发布、journal
+    // 不登记。发布门与 geologicalexport.cpp:214 / mapexport.cpp:287-288 对齐：
+    // 只有 Succeeded 且未取消的批次才 rename 发布。清单只写进（随后销毁的）
+    // 暂存目录，交付目录因此既不会被发布成半成品、也不会留下清单残片。
+    void workerErrorDoesNotPublishExternalDirectory()
+    {
+      QTemporaryDir projectDir;
+      QVERIFY( projectDir.isValid() );
+      DataCatalog catalog;
+      QVERIFY2( catalog.open( projectDir.path() ), qPrintable( catalog.openError() ) );
+
+      std::unique_ptr<QgsPrintLayout> layout( makeFigureLayout() );
+      QMap<QString, QList<QgsMapLayer *>> groups;
+      QList<QgsMapLayer *> keepAlive;
+      auto *good = makeLayer( QStringLiteral( "good" ) );
+      keepAlive.append( good );
+      layout->project()->addMapLayer( good, false ); // 快照源：须在版面工程里
+      groups.insert( QStringLiteral( "AA" ), { good } );
+      groups.insert( QStringLiteral( "ZZ" ), {} ); // 空图层集 → 该层位入账失败
+
+      PaleoHorizonBatchExport::Request request;
+      request.layout = layout.get();
+      request.projectName = QStringLiteral( "fail 工程" );
+      request.horizonLayers = groups;
+      request.catalog = &catalog;
+      request.projectDir = projectDir.path();
+      request.dpi = 96.0;
+      request.format = PaleoHorizonBatchExport::Format::Png;
+      request.date = QStringLiteral( "20261018" );
+      request.outputDirectory = projectDir.filePath( QStringLiteral( "batch" ) );
+
+      PaleoTaskService tasks;
+      bool doneCalled = false;
+      PaleoHorizonBatchExport::Result result;
+      PaleoTask *task = PaleoHorizonBatchExport::startAsync(
+          request, &tasks,
+          [&doneCalled, &result]( const PaleoHorizonBatchExport::Result &r, bool ) {
+            result = r;
+            doneCalled = true;
+          } );
+      QVERIFY2( task != nullptr, "startAsync rejected a valid request" );
+      QSignalSpy finished( task, &PaleoTask::finished );
+      QVERIFY2( finished.wait( 60000 ), "async batch export never finished" );
+      QTRY_VERIFY_WITH_TIMEOUT( doneCalled, 5000 );
+
+      QCOMPARE( task->state(), PaleoTask::State::Failed );
+      QCOMPARE( result.total, 2 );
+      QCOMPARE( result.succeeded, 0 );
+      QCOMPARE( result.failed, 2 );
+      QVERIFY2( result.directory.isEmpty(), "失败的批次不得留下交付目录" );
+      QVERIFY2( !QFileInfo::exists( request.outputDirectory ),
+                "worker 报错仍发布了外部目录（#541）" );
+      // 已导出的那个层位：结果里留痕（ok=false + 原因），不是幽灵路径。
+      for ( const auto &outcome : result.horizons )
+      {
+        QVERIFY2( !outcome.ok, qPrintable( outcome.horizon ) );
+        QVERIFY2( !outcome.error.isEmpty(), qPrintable( outcome.horizon ) );
+        QVERIFY( outcome.file.isEmpty() );
+      }
+      QVERIFY( catalog.assets().isEmpty() ); // journal 未登记：整批未交付
     }
 };
 

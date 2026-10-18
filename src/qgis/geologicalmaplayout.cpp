@@ -80,6 +80,13 @@ QgsPrintLayout *build(QgsProject *project, const QList<QgsMapLayer *> &layers,
   caption->attemptResize(QgsLayoutSize(size.width() - 20, 6));
   return layout.release();
 }
+std::unique_ptr<PaleoLayoutExport::LayoutHandle> buildHandle(QgsProject *project,
+    const QList<QgsMapLayer *> &layers, const QgsRectangle &extent, const Settings &settings,
+    QString *error) {
+  std::unique_ptr<QgsPrintLayout> built(build(project, layers, extent, settings, error));
+  if (!built) return nullptr;
+  return std::make_unique<PaleoLayoutExport::LayoutHandle>(std::move(built));
+}
 QVariantMap describe(QgsPrintLayout *layout) {
   QVariantList layers;
   if (!layout) return {};

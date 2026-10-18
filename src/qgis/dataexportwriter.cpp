@@ -5,6 +5,7 @@
 #include <gdal.h>
 #include <ogr_api.h>
 #include <qgscoordinatetransform.h>
+#include <qgsproject.h>
 #include <qgsrasterdataprovider.h>
 #include <qgsrasterfilewriter.h>
 #include <qgsrasterlayer.h>
@@ -43,6 +44,27 @@ bool writeLayer(QgsMapLayer *layer, const QString &directory, QStringList *files
   const auto detail = layer->saveNamedStyle(style, styleOk);
   if (!styleOk) { if (error) *error = QObject::tr("样式保存失败：%1").arg(detail); return false; }
   *files << style;
+  return true;
+}
+bool writeLayerById(QgsProject *project, const QString &layerId, const QString &directory,
+                    QStringList *files, QVariantMap *description, QString *error) {
+  if (!project) {
+    if (error)
+      *error = QObject::tr("图件工程缺失");
+    return false;
+  }
+  auto *layer = project->mapLayer(layerId);
+  if (!layer) {
+    if (error)
+      *error = QObject::tr("图层缺失：%1").arg(layerId);
+    return false;
+  }
+  if (!writeLayer(layer, directory, files, description, error))
+    return false;
+  if (description) {
+    description->insert("qgis_layer_id", layer->id());
+    description->insert("title", layer->name());
+  }
   return true;
 }
 bool write(const QString &source, const QString &destination,

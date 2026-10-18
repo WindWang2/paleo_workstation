@@ -108,22 +108,28 @@ jobs:
           fi
           echo "tidy base: $base ($(git rev-parse --short "$base" 2>/dev/null || echo '?'))"
           python3 tools/check_tidy.py --base "$base"
-      - name: Source gates (layering / ui invariants / ui size / i18n / QGIS 版本口径 / docs drift，按脚本位置定位源码根)
+      - name: Source gates (layering / qgs-audit / ui invariants / ui size / file budget / i18n / QGIS 版本口径 / docs drift，按脚本位置定位源码根)
         env:
           # #474：--transitive 的 QGIS 头目录探测约定名（vendor deb 闭包前缀，
           # 与上面 compile_commands 的 QGIS_PREFIX_PATH 同源）——func/ui 两指标
           # 的外部 qgs 边可解析才参与闸门；缺位时工具自动只闸 heavy_*。
+          # #532/#533 口径：本车道是 func/ui 两指标与 --qgs-audit 的权威闸口；
+          # ctest 侧 layering_transitive 不注入 QGIS_PREFIX（同一信号不复制进
+          # linux/windows 必过车道，裁决见 CMakeLists.txt 与 AGENTS.md）。
           QGIS_PREFIX: ${{ github.workspace }}/vendor/prefix/usr
         run: |
           python3 tools/check_layering.py --strict
           python3 tools/check_layering.py --selftest
           python3 tools/check_layering.py --symbol-audit
           python3 tools/check_layering.py --transitive
+          python3 tools/check_layering.py --qgs-audit --strict
           python3 tools/check_qgis_spread.py --strict
           python3 tools/check_ui_invariants.py --strict
           python3 tools/check_ui_invariants.py --selftest
           python3 tools/check_ui_size.py --strict
           python3 tools/check_ui_size.py --selftest
+          python3 tools/check_file_budget.py --strict
+          python3 tools/check_file_budget.py --selftest
           python3 tools/check_i18n.py
           python3 tools/check_i18n.py --selftest
           python3 tools/check_qgis_versions.py

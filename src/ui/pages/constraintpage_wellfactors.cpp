@@ -5,6 +5,9 @@
 #include "constraintpage.h"
 #include "constraintpage_internal.h"
 
+#include <cmath>
+#include <limits>
+
 #include "pageshared.h"
 
 #include "../../qgis/qgislayerservice.h"
@@ -14,10 +17,12 @@
 #include <QFileInfo>
 
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
@@ -265,7 +270,75 @@ void ConstraintPage::refreshWellFactorResults() {
     detail->setToolTip(detail->text()); table->setItem(row, 2, detail);
   }
   child<QLabel>(this, "wellFactorHint")->setText(wf->wellFactorMessage());
+  applySuggestedContourInterval();
   updateFactorActionStates();
+}
+
+namespace {
+double niceContourSixth(double lo, double hi)
+{
+  if (!std::isfinite(lo) || !std::isfinite(hi) || !(hi > lo))
+    return 0.0;
+  const double raw = (hi - lo) / 6.0;
+  if (!(raw > 0.0) || !std::isfinite(raw))
+    return 0.0;
+  const double exponent = std::floor(std::log10(raw));
+  const double base = std::pow(10.0, exponent);
+  const double mantissa = raw / base;
+  const double nice = mantissa < 1.5 ? 1.0 : mantissa < 3.5 ? 2.0 : mantissa < 7.5 ? 5.0 : 10.0;
+  return nice * base;
+}
+} // namespace
+
+void ConstraintPage::applySuggestedContourInterval()
+{
+  auto *spin = child<QDoubleSpinBox>(this, "contourIntervalSpin");
+  auto *factors = child<QTableWidget>(this, "factorTable");
+  if (!spin || !factors)
+    return;
+  const QString factor = factorIdOfRow(factors, checkedRow(factors));
+  if (factor.isEmpty())
+    return;
+  auto *horizons = child<QComboBox>(this, "horizonCombo");
+  const QString key = (horizons ? horizons->currentText() : QString()) + QChar(0x1f) + factor;
+  if (property("paleo.page.contourIntervalKey").toString() != key)
+    setProperty("paleo.page.contourIntervalUser", false);
+  if (property("paleo.page.contourIntervalUser").toBool())
+    return;
+
+  double lo = std::numeric_limits<double>::infinity();
+  double hi = -lo;
+  int count = 0;
+  if (auto *table = child<QTableWidget>(this, "wellFactorTable")) {
+    for (int row = 0; row < table->rowCount(); ++row) {
+      const auto *item = table->item(row, 1);
+      if (!item)
+        continue;
+      bool ok = false;
+      const double value = item->text().toDouble(&ok);
+      if (!ok || !std::isfinite(value))
+        continue;
+      lo = std::min(lo, value);
+      hi = std::max(hi, value);
+      ++count;
+    }
+  }
+  const double step = count >= 2 ? niceContourSixth(lo, hi) : 0.0;
+  QSignalBlocker block(spin);
+  if (!(step > 0.0)) {
+    if (spin->value() == 0.0 && !checkedFactorIsStructural())
+      spin->setValue(20.0);
+    setProperty("paleo.page.contourIntervalKey", key);
+    return;
+  }
+  int decimals = 2;
+  for (double scaled = step; decimals < 6 && scaled < 1.0 - 1e-12; scaled *= 10.0)
+    ++decimals;
+  spin->setDecimals(std::max(2, decimals - 1));
+  spin->setValue(step);
+  spin->setToolTip(tr("默认约为当前单因素有效值极差的 1/6（%1 ~ %2）。").arg(lo, 0, 'g', 6).arg(hi, 0, 'g', 6));
+  setProperty("paleo.page.contourIntervalKey", key);
+  setProperty("paleo.page.contourIntervalUser", false);
 }
 void ConstraintPage::restoreWellFactorDisplay() {
   auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());

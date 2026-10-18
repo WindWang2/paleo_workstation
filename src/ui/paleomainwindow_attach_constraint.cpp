@@ -382,9 +382,12 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                                               .section(QLatin1Char('.'), 0, 0)
                                          : QString();
               auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
-              const auto fail = [status](const QString &msg) {
+              auto *hint = constraintPage->findChild<QLabel *>(QStringLiteral("factorContourHint"));
+              const auto fail = [status, hint](const QString &msg) {
                 if (status)
                   status->setText(msg);
+                if (hint)
+                  hint->setText(msg);
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
               };
               if (!m_taskSvc)
@@ -441,9 +444,12 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                                               .section(QLatin1Char('.'), 0, 0)
                                          : QString();
               auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
-              const auto fail = [status](const QString &msg) {
+              auto *hint = constraintPage->findChild<QLabel *>(QStringLiteral("factorContourHint"));
+              const auto fail = [status, hint](const QString &msg) {
                 if (status)
                   status->setText(msg);
+                if (hint)
+                  hint->setText(msg);
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
               };
               if (!m_taskSvc)

@@ -49,6 +49,18 @@ bool generateStructuralContours( const QString &rasterPath,
                                  const std::function<bool()> &cancelled = {},
                                  bool smooth = true );
 
+// 普通分析场（无 .structural.json）按所选提线包走同一套 field contours。
+// 轴对齐北向上栅格用像元中心建 field_only 表面；旋转栅格返回 false，
+// 调用方不得把它记成制图规范提线。
+bool generateAnalysisFieldContours( const QString &rasterPath,
+                                    const QString &outputGpkg,
+                                    const QVector<double> &levels,
+                                    double interval,
+                                    QVector<double> *levelsUsed = nullptr,
+                                    QString *error = nullptr,
+                                    const std::function<bool()> &cancelled = {},
+                                    bool smooth = true );
+
 void requestContours(const QString &rasterPath, const QString &outputGpkg,
                      double interval, PaleoTaskService *tasks,
                      QObject *receiver,

@@ -288,6 +288,33 @@ private slots:
     delete lines;
   }
 
+  // 普通分析场没有结构面侧卡。选「制图规范 MS」仍要提线并入库，
+  // 不能以「需要打断线分区」拒绝。
+  void cartographicMethodExtractsOrdinaryAnalysisRaster()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+    const QString rasterPath = f.dir.filePath( QStringLiteral( "ramp.tif" ) );
+    QVERIFY( writeNorthUpFloat32( rasterPath, 8, 4, 500000.0, 4001000.0, 10.0 ) );
+    QString err;
+    QVERIFY2( declareRaster( f, rasterPath, &err ), qPrintable( err ) );
+    ConstraintWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+
+    ConstraintWorkflow::AnalysisContourJob job;
+    QVERIFY2( wf.prepareAnalysisContourJob(
+                  QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ), 2.0, {}, false,
+                  &job, &err, QStringLiteral( "marching_squares_cartographic" ) ),
+              qPrintable( err ) );
+    QVERIFY2( !err.contains( QStringLiteral( "打断线" ) ), qPrintable( err ) );
+    QVERIFY2( wf.computeAnalysisContourJob( &job ), qPrintable( job.error ) );
+    QVERIFY2( wf.publishAnalysisContourJob( job, &err ), qPrintable( err ) );
+    const QVariantMap extra = findVersionExtra( f.catalog, QStringLiteral( "contour_lines" ) );
+    QCOMPARE( extra.value( QStringLiteral( "contour_method" ) ).toString(),
+              QStringLiteral( "marching_squares_cartographic" ) );
+    QVERIFY( extra.value( QStringLiteral( "contour_feature_count" ) ).toInt() > 0 );
+  }
+
   void staleGenerationDropsFirstContourPublish()
   {
     Fixture f;

@@ -1,10 +1,14 @@
 #include "../src/qgis/wellattributestore.h"
+#include "../src/ui/pages/constraintpage.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/ui/wellcomposite/wellcompositepanel.h"
 #include "../src/workflow/wellfaciesworkflow.h"
 #include "../src/workflow/workflows.h"
 #include "helpers/workflowfixture.h"
+#include <QComboBox>
+#include <QLabel>
 #include <QSignalSpy>
+#include <QTableWidget>
 #include <QToolButton>
 #include <QtTest>
 #include <limits>
@@ -613,6 +617,51 @@ private slots:
                           .first()
                           .toMap();
     QCOMPARE(kept.value("log_layer_thickness_md").toDouble(), 20.0);
+  }
+  // 回归（真实工程 D61 会话）：提取成功后用户切换「取值方式/依据字段」，
+  // 逐井表被失效清空；切回已保存口径必须就地恢复显示，不落回
+  // 「当前口径尚未提取井点因子」（截图里口径与已存版本一致表格却空白）。
+  void modeSwitchAwayAndBackRestoresSavedExtraction() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QString error;
+    QVERIFY(WellAttributeStore::seedFactors(&f.catalog, f.dir.path(), &f.layers,
+                                            {QVariantMap{{"well_id", "W1"},
+                                                         {"horizon", "D61"},
+                                                         {"log_sand_thickness_md", 8.0},
+                                                         {"log_layer_thickness_md", 20.0},
+                                                         {"sand_ratio", 0.4}}},
+                                            &error));
+    ConstraintWorkflow factors(&f.proc, &f.layers);
+    factors.setCatalog(&f.catalog, f.dir.path());
+    QVariantMap params{{"factorMode", "direct"},
+                       {"valueField", "log_sand_thickness_md"},
+                       {"numeratorField", "log_sand_thickness_md"},
+                       {"denominatorField", "log_layer_thickness_md"}};
+    QVERIFY2(factors.extractWellFactors("D61", "sandthick", params, &error),
+             qPrintable(error));
+    ConstraintPage page(&factors);
+    page.setHorizons({"D61"});
+    page.findChild<QComboBox *>("horizonCombo")->setCurrentIndex(0);
+    auto *factorTable = page.findChild<QTableWidget *>("factorTable");
+    factorTable->item(0, 0)->setCheckState(Qt::Checked); // 砂体厚度
+    auto *table = page.findChild<QTableWidget *>("wellFactorTable");
+    auto *hint = page.findChild<QLabel *>("wellFactorHint");
+    auto *mode = page.findChild<QComboBox *>("factorModeCombo");
+    // 勾选因子后按当前口径恢复已保存提取。
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 1)->text(), QStringLiteral("8"));
+    // 切到比值口径：无已保存版本 → 表格清空并如实提示。
+    mode->setCurrentIndex(mode->findData(QStringLiteral("ratio")));
+    QCOMPARE(table->rowCount(), 0);
+    QVERIFY2(hint->text().contains(QStringLiteral("尚未提取")), qPrintable(hint->text()));
+    // 切回原口径：就地恢复（修复前：永远空白）。
+    mode->setCurrentIndex(mode->findData(QStringLiteral("direct")));
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 1)->text(), QStringLiteral("8"));
+    QVERIFY2(!hint->text().contains(QStringLiteral("尚未提取")), qPrintable(hint->text()));
+    QVERIFY2(hint->text().contains(QStringLiteral("已保存为 v1")), qPrintable(hint->text()));
   }
   // 砂地比物理域门：维护值组合（砂厚 25/层厚 20——各字段单独合法，属性表
   // 校验不查组合）绕过单字段校验后，提取端必须拒收越界比值井并注明原因，

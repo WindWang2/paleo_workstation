@@ -557,12 +557,12 @@ QString ConstraintWorkflow::preparedWellFactorVersion(const QString &horizon,
   return {};
 }
 
-void ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QString &factorId,
+bool ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QString &factorId,
                                             const QVariantMap &params) {
   if (factorBusy() || !catalog() || !layerService())
-    return;
+    return false;
   if (!preparedWellFactorVersion(horizon, factorId, params).isEmpty())
-    return;
+    return true;
   // 计算复用只认来源仍新鲜的快照。来源文件被原样重写（mtime 变、内容未变）
   // 或井位层重声明时，结果表仍要显示上次提取，不能落回「尚未提取」。
   CatalogVersion stale;
@@ -590,14 +590,16 @@ void ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QStrin
     m_wellFactorRows = v.extra.value("rows").toList();
     m_wellFactorMessage =
         tr("已读取本层位已保存的井点数据 v%1；缺失原因见逐井表。").arg(v.versionNumber);
-    return;
+    return true;
   }
   if (haveStale && !stale.extra.value(QStringLiteral("rows")).toList().isEmpty()) {
     m_wellFactorRows = stale.extra.value(QStringLiteral("rows")).toList();
     m_wellFactorMessage =
         tr("上次提取 v%1 的来源文件已变化，表中仍是该次结果。请重新提取后再计算。")
             .arg(stale.versionNumber);
+    return true;
   }
+  return false;
 }
 
 bool ConstraintWorkflow::startWellFactorExtraction(const QString &horizon, const QString &factorId,

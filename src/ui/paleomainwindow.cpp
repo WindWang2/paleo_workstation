@@ -489,9 +489,7 @@ void PaleoMainWindow::onProjectOpened()
   // chip 条按新词表重建；标定层位相关文案重写。
   if (auto *bar = findChild<HorizonChipBar *>())
     bar->reloadHorizons();
-  // FD-001：演化动览帧表同词表重灌——否则自定义 sequence_boundaries 工程里
-  // 步进会把 activeHorizon 切到本工程不存在的层位（chip 全灭、地图层被清空）。
-  if (auto *player = findChild<EvolutionPlayerPanel *>())
+  if (auto *player = findChild<EvolutionPlayerPanel *>()) // FD-001：演化动览帧表随工程词表重灌
     player->reloadFrames();
   // 同一词表填充预测/单因素页的层位下拉（此前生产链从未填充，页面发出的
   // 意图恒携带空层位）；已选层位原样跟随，未选时下拉给词表首项。

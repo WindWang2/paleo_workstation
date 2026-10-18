@@ -29,7 +29,8 @@
 - OBS-04（出表再回表丢显式设置）：既定权衡（重排不清设置的对称面），已在源码注释与测试钉死；DOCUMENT_ONLY。
 - OBS-05（缓存 runtime 旁路 sha 校验）：打包机本地缓存信任面，与 vendored cache 同口径；DOCUMENT_ONLY。
 - OBS-06（tst_import 扫共享 /tmp、512MB 稀疏夹具）：环境敏感点记录——/tmp 互扰经分析仅
-  tst_import 单进程做文档转换；稀疏夹具新代码零读（闸在 readAll 前）。
+  tst_import 单进程做文档转换（终审更正：ctest 沙箱已注入 TMPDIR，CMakeLists.txt:885，
+  互扰面进一步收窄）；稀疏夹具新代码零读（闸在 readAll 前）。
 
 ## 验证汇总
 

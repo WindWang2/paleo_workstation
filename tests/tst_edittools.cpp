@@ -34,7 +34,6 @@
 //   · QgsProject::instance() is process-global — init()/cleanup() clear it.
 
 #include "../src/qgis/qgiseditingservice.h"
-#include "../src/qgis/nativeattributetablehost.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include <algorithm>
 #include <memory>
@@ -131,10 +130,6 @@ class TestEditTools : public QObject
     // Test-fixture hygiene (QgsProject is process-global).
     void init();
     void cleanup();
-
-    // FD-004/R2-SF-04：属性表宿主的破坏性确认 ask seam——注入后三分支
-    // （保存/放弃/取消）真实驱动编辑结局；未注入时 offscreen 保持直存语义。
-    void attributeTableHostAskSeamDrivesSaveDiscardCancel();
 
     // a) add feature → edit buffer
     void addPointClickCommitsIntoEditBuffer();
@@ -4426,65 +4421,6 @@ int main( int argc, char *argv[] )
   const int rc = QTest::qExec( &tc, argc, argv );
   QgsApplication::exitQgis();
   return rc;
-}
-
-void TestEditTools::attributeTableHostAskSeamDrivesSaveDiscardCancel()
-{
-  QgsMapCanvas canvas;
-  const auto makeDirtyLayer = [] {
-    auto *layer = new QgsVectorLayer(QStringLiteral("Point?field=name:string"),
-                                     QStringLiteral("seam_pts"), QStringLiteral("memory"));
-    layer->startEditing();
-    QgsFeature f(layer->fields());
-    f.setAttribute(QStringLiteral("name"), QStringLiteral("井A"));
-    f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(1, 2)));
-    layer->addFeature(f);
-    return layer;
-  };
-
-  PaleoAttributeTableHost::SaveChoice choice = PaleoAttributeTableHost::SaveChoice::Cancel;
-  int asked = 0;
-  {
-    auto *layer = makeDirtyLayer(); // 归 canvas 无父子——手动清理
-    PaleoAttributeTableHost host(&canvas, nullptr);
-    host.setSaveDiscardAsk([&](const QString &) {
-      ++asked;
-      return choice;
-    });
-    QVERIFY(layer->isModified());
-    choice = PaleoAttributeTableHost::SaveChoice::Cancel;
-    QVERIFY(!host.stopEditing(layer, true)); // 取消：编辑态保持
-    QVERIFY(layer->isEditable());
-    QVERIFY(layer->isModified());
-    choice = PaleoAttributeTableHost::SaveChoice::Discard;
-    QVERIFY(host.stopEditing(layer, true)); // 放弃：回滚
-    QVERIFY(!layer->isEditable());
-    QCOMPARE(layer->featureCount(), 0);
-    delete layer;
-  }
-  {
-    auto *layer = makeDirtyLayer();
-    PaleoAttributeTableHost host(&canvas, nullptr);
-    host.setSaveDiscardAsk([&](const QString &) {
-      ++asked;
-      return choice;
-    });
-    choice = PaleoAttributeTableHost::SaveChoice::Save;
-    QVERIFY(host.stopEditing(layer, true)); // 保存：提交
-    QVERIFY(!layer->isEditable());
-    QCOMPARE(layer->featureCount(), 1);
-    delete layer;
-  }
-  QCOMPARE(asked, 3);
-  // 未注入 seam：offscreen 平台保持直存语义（旧降级契约不变）。
-  {
-    auto *layer = makeDirtyLayer();
-    PaleoAttributeTableHost host(&canvas, nullptr);
-    QVERIFY(host.stopEditing(layer, true)); // offscreen 直存
-    QVERIFY(!layer->isEditable());
-    QCOMPARE(layer->featureCount(), 1);
-    delete layer;
-  }
 }
 
 #include "tst_edittools.moc"

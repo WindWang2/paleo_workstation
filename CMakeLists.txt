@@ -1167,6 +1167,7 @@ add_paleo_test(tst_constraintevidence LIBS paleo_io)
 add_paleo_test(tst_constraintediting LIBS paleo_ui)
 add_paleo_test(tst_shapetools LIBS paleo_ui)
 add_paleo_test(tst_edittools LIBS paleo_ui)
+add_paleo_test(tst_attributetablehost LIBS paleo_qgis paleo_qgis_attribute_table) # FD-004/R2-SF-04：ask seam 契约（独立文件避开 PR #521 冲突面）
 add_paleo_test(tst_correlation_full LIBS paleo_ui)
 # tst_correlation_full 内嵌墙钟性能断言（10 次 warm reorder < 1000ms，测试
 # .cpp 归 correlation 方向）——并行负载下偶发超时（本次 ctest -j4 实测捕获）。

@@ -1,0 +1,78 @@
+# superbuild 首选依赖路线的干净环境周检（#561 项4）。
+# BUILDING.md「依赖来源策略」第 1 档自述「尚无 CI 覆盖，端到端未在干净环境
+# 验证」——四钉位（GEOS/PROJ/GDAL/QGIS 的 URL+SHA256）与 QGIS 补丁应用
+#（labels-with-layer）此前只有本机人工验证，护不住「钉位腐烂/补丁随版本
+# 失配/裁剪面漂移」。这里每周从零 configure+build 一轮（ExternalProject
+# stamp 全新——干净环境即意义，不做增量缓存），并在收尾探针 prefix 产物。
+# 预算口径 vendor/superbuild/README.md：8 核基线机 ≤2h、磁盘 ≥60GB——
+# runner 4 核放宽 timeout，磁盘靠清理步 + ${{ runner.temp }} 建构建树。
+# 独立 workflow，不进 required checks（同 deb-lock 先例）。
+name: superbuild-weekly
+
+on:
+  schedule:
+    - cron: '23 2 * * 0'   # 每周日 02:23 UTC（错开 deb-lock 的周一 03:17）
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'vendor/superbuild/**'
+      - '.github/workflows/superbuild-weekly.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  clean-build:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # 磁盘：superbuild ≥60GB 口径（README）——同 ci.yml linux-asan 的清理面。
+      - name: Free disk space
+        run: |
+          echo "== df before =="
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell \
+            /usr/local/.ghcup /opt/hostedtoolcache /usr/share/swift /usr/local/lib/node_modules
+          if command -v docker >/dev/null 2>&1; then
+            sudo docker image prune -af >/dev/null || echo "docker image prune skipped"
+          fi
+          echo "== df after =="
+          df -h /
+      - name: Disk space guard
+        run: |
+          avail_gb=$(( $(df --output=avail / | tail -1) / 1024 / 1024 ))
+          echo "free: ${avail_gb} GB"
+          if [ "$avail_gb" -lt 60 ]; then
+            echo "::error::磁盘余量 ${avail_gb}GB < 60GB，superbuild（≥60GB 口径）必然失败——先扩 Free disk space 再跑（同 ci.yml linux-asan #498 口径）"
+            exit 1
+          fi
+      # Qt6 走发行版包（superbuild 决策 D-QT：禁止 qt-everywhere 整块编译）；
+      # flex/bison/nasm/python3 是 README preflight 追加检查项；其余为
+      # PROJ(curl/sqlite) / GDAL / QGIS(expat/zip/ssl/X11/GL) 的系统开发面。
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y
+          cmake ninja-build g++ pkg-config ccache
+          qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-tools-dev qt6-5compat-dev
+          flex bison nasm python3
+          libsqlite3-dev libcurl4-openssl-dev libssl-dev libexpat1-dev libzip-dev
+          libx11-dev libxkbcommon-dev libgl1-mesa-dev libopengl-dev
+          && sudo apt-get clean
+      - name: Configure superbuild
+        run: cmake -S vendor/superbuild -B "${RUNNER_TEMP}/sb-build" -G Ninja
+      # 入口命令见 vendor/superbuild/README.md「启用步骤」（ninja 增量即
+      # ExternalProject stamp 断点续跑；本 job 每次全新构建树 = 干净口径）。
+      - name: Build superbuild (GEOS → PROJ → GDAL → QGIS)
+        run: cmake --build "${RUNNER_TEMP}/sb-build" -j 4
+      - name: Prefix sanity probe
+        run: |
+          prefix="${GITHUB_WORKSPACE}/vendor/superbuild/prefix"
+          test -d "${prefix}/include/qgis" || { echo "::error::${prefix}/include/qgis 缺失"; exit 1; }
+          test -e "${prefix}/lib/libqgis_core.so" || { echo "::error::libqgis_core.so 缺失"; exit 1; }
+          echo "prefix 产物探针通过："
+          ls "${prefix}/lib/" | grep -E 'qgis_(core|gui|analysis)' || true
+      - name: Disk usage after build
+        if: always()
+        run: |
+          df -h /
+          du -sh "${RUNNER_TEMP}/sb-build" "${GITHUB_WORKSPACE}/vendor/superbuild/prefix" 2>/dev/null || true

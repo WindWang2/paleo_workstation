@@ -13,6 +13,7 @@
 #include <QSaveFile>
 
 #include <algorithm>
+#include <sys/stat.h>
 
 namespace
 {
@@ -40,6 +41,17 @@ namespace
     *shaOut = QString::fromLatin1(hash.result().toHex());
     return true;
   }
+
+  // #561 inode 采样：segyindexstore::identityOf 同款平台口径——POSIX stat
+  // 取 st_ino；Windows 的 stat 恒填 0（size+mtime 已够），失败也回 0（弱化为
+  // 默认口径，不阻断哈希）。
+  quint64 inodeOf(const QString &canonicalPath)
+  {
+    struct stat st;
+    if (::stat(QFile::encodeName(canonicalPath).constData(), &st) != 0)
+      return 0;
+    return static_cast<quint64>(st.st_ino);
+  }
 } // namespace
 
 ShaCache &ShaCache::shared()
@@ -66,7 +78,7 @@ void ShaCache::setMemoryLimit(int entries)
   m_memLimit = qMax(16, entries);
 }
 
-QString ShaCache::sha256Hex(const QString &path, QString *error)
+QString ShaCache::sha256Hex(const QString &path, QString *error, Fingerprint fp)
 {
   const QFileInfo info(path);
   if (!info.exists())
@@ -78,33 +90,49 @@ QString ShaCache::sha256Hex(const QString &path, QString *error)
   const QString canon = PathCanon::canonicalize(path);
   const qint64 mtime = info.lastModified().toMSecsSinceEpoch();
   const qint64 size = info.size();
-  const QString fp = QStringLiteral("%1|%2|%3").arg(canon).arg(mtime).arg(size);
+  const bool withInode = fp == Fingerprint::MtimeSizeInode;
+  const quint64 ino = withInode ? inodeOf(canon) : quint64(0);
+  const QString fpKey = withInode
+      ? QStringLiteral("%1|%2|%3|%4").arg(canon).arg(mtime).arg(size).arg(ino)
+      : QStringLiteral("%1|%2|%3").arg(canon).arg(mtime).arg(size);
 
   quint64 diskGen = 0;
   {
     QMutexLocker lock(&m_mutex);
     if (m_diskPending) { m_diskPending = false; loadDiskLocked(); }
-    const auto it = m_mem.constFind(fp);
+    const auto it = m_mem.constFind(fpKey);
     if (it != m_mem.constEnd())
     {
       ++m_counts.hits;
       return it.value();
     }
-    // 磁盘层：键是 canonical path，值自带 mtime|size——失配即弃。
+    // 磁盘层：键是 canonical path，值自带 mtime|size[|inode]——失配即弃。
     const auto dit = m_disk.constFind(canon);
     if (dit != m_disk.constEnd())
     {
       const QStringList parts = dit.value().split(QLatin1Char('|'));
-      if (parts.size() == 3 && parts.at(0) == QString::number(mtime) &&
-          parts.at(1) == QString::number(size) && !parts.at(2).isEmpty())
+      bool diskHit = false;
+      if ((parts.size() == 3 || parts.size() == 4) &&
+          parts.at(0) == QString::number(mtime) &&
+          parts.at(1) == QString::number(size) && !parts.constLast().isEmpty())
       {
-        m_mem.insert(fp, parts.at(2));
+        // 默认口径只判 mtime+size（4 段条目里的 inode 是强口径的附加证据，
+        // 不反向收紧默认语义）；强口径要求 4 段且 inode 一致——3 段旧条目
+        // 证不了 inode，按失配重算（覆写自愈成 4 段）。
+        diskHit = withInode
+            ? (parts.size() == 4 && parts.at(2) == QString::number(ino))
+            : true;
+      }
+      if (diskHit)
+      {
+        const QString &sha = parts.constLast();
+        m_mem.insert(fpKey, sha);
         m_diskAge.insert(canon, QDateTime::currentMSecsSinceEpoch());
         ++m_counts.diskHits;
         ++m_counts.hits;
-        return parts.at(2);
+        return sha;
       }
-      // 指纹失配：文件变了——清掉旧条目，下面重算。
+      // 指纹失配：文件变了（或强口径遇旧条目）——清掉旧条目，下面重算。
       m_disk.remove(canon);
       m_diskAge.remove(canon);
     }
@@ -124,11 +152,13 @@ QString ShaCache::sha256Hex(const QString &path, QString *error)
 
   QMutexLocker lock(&m_mutex);
   ++m_counts.misses;
-  m_mem.insert(fp, sha);
+  m_mem.insert(fpKey, sha);
   // setDiskFile 换代后不得把这次哈希写入新 sha.json（内存指纹仍保留）。
   if (diskGen == m_diskGeneration && !m_diskFile.isEmpty())
   {
-    m_disk.insert(canon, QStringLiteral("%1|%2|%3").arg(mtime).arg(size).arg(sha));
+    m_disk.insert(canon, withInode
+        ? QStringLiteral("%1|%2|%3|%4").arg(mtime).arg(size).arg(ino).arg(sha)
+        : QStringLiteral("%1|%2|%3").arg(mtime).arg(size).arg(sha));
     m_diskAge.insert(canon, QDateTime::currentMSecsSinceEpoch());
     saveDiskLocked(); // 惰性持久化：算一次大文件的哈希值得立即落盘
   }

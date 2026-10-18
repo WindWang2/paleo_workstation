@@ -3,7 +3,10 @@
 状态：**首选依赖路线（2026-10-01 政策升级）——四钉位（GEOS/PROJ/GDAL/QGIS）
 URL+SHA256 已回填（QGIS 4.2.3，方向 71 依赖口径统一：与 deb 闭包
 4.2.3+44resolute 同上游版本；三路一致性由 tools/check_qgis_versions.py
-看守）；端到端可用性尚未在干净环境验证（无 CI 覆盖，见 BUILDING.md）。**
+看守）；端到端干净环境验证由 `.github/workflows/superbuild-weekly.yml`
+周检承担（#561 起接入：每周日干净 runner 从零 configure+build，PR 触及
+`vendor/superbuild/**` 时增跑；非 required check，首跑状态以 Actions 页
+为准）。**
 2026-10-01 起「尽量不依赖系统库、尽量自编译 vendored」是仓库级依赖策略
 （BUILDING.md「依赖来源策略」），本路线取代 binary vendoring 成为首选；
 `vendor/fetch-deps.sh`（deb 闭包）/ OSGeo4W 降为加速档，发行版系统包仅兜底。

@@ -12,8 +12,13 @@
 // mtime + size」键做两层缓存：内存 LRU + 磁盘 JSON（artifacts/index/sha.json，
 // 崩溃重启后仍命中）。指纹失配（文件变了）→ 重算；重算失败 → 如实回空串。
 //
-// 一致性口径：mtime+size 未变视为内容未变（git 同款启发式）。对「mtime 可
-// 伪造」的敌意场景不设防——工程目录内的受管资产有自己的只读权限防线。
+// 一致性口径：默认 mtime+size 未变视为内容未变（git 同款启发式）。对「mtime
+// 可伪造」的敌意场景不设防——工程目录内的受管资产有自己的只读权限防线。
+// #561 血缘复验加强档：sha256Hex(..., Fingerprint::MtimeSizeInode) 在指纹里
+// 追加 POSIX inode（磁盘条目由 3 段升 4 段「mtime|size|inode|sha」，旧 3 段
+// 条目强口径不认、重算后自愈覆写）。「同 mtime+size 换文件」在强口径下必击
+// 穿缓存。Windows 无 inode：恒 0，退化回默认口径（segyindexstore::Identity
+// 同款平台口径，size+mtime 已够）。
 class ShaCache
 {
   public:
@@ -24,8 +29,18 @@ class ShaCache
     // 内存条目上限（默认 16384 条，磁盘表另算）。
     void setMemoryLimit(int entries);
 
+    // 指纹口径（#561）：默认 MtimeSize（git 同款启发式）；MtimeSizeInode 供
+    // 关键血缘复验（导入 dedup 身份 / 入库 sha 留底）防「mtime+size 可伪造」
+    // 的缓存投毒。两种口径各自持有内存键，互不串味。
+    enum class Fingerprint
+    {
+        MtimeSize,      // path|mtime|size（磁盘条目 3 段，历史格式）
+        MtimeSizeInode, // path|mtime|size|inode（磁盘条目 4 段；Windows 恒 0）
+    };
+
     // 命中缓存或重算。error 透传重算失败原因（命中时不动 error）。
-    QString sha256Hex(const QString &path, QString *error = nullptr);
+    QString sha256Hex(const QString &path, QString *error = nullptr,
+                      Fingerprint fp = Fingerprint::MtimeSize);
 
     // 失效（写路径后调用；空 path = 全清内存+磁盘）。
     void invalidate(const QString &path = QString());

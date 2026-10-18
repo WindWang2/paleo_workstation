@@ -10,6 +10,7 @@
 #include "wellsectiondialogs.h"
 #include "workflow/wellsectionworkflow.h"
 
+#include <QHash>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -49,6 +50,14 @@ class FencePreview : public QWidget
     {
         m_choices = std::move(choices);
         m_sections = std::move(sections);
+        // #561：paintEvent 逐井 choiceById 由 O(段×线×井)/帧的线性扫改为
+        // 哈希查——井集只在 setModel 变更，此处重建即失效策略（首井胜出，
+        // 与原线性扫同语义）。指针指向 m_choices 元素，setModel 外无人改写。
+        m_choicesById.clear();
+        m_choicesById.reserve(m_choices.size());
+        for (const auto &c : m_choices)
+            if (!m_choicesById.contains(c.id))
+                m_choicesById.insert(c.id, &c);
         update();
     }
 
@@ -131,12 +140,10 @@ class FencePreview : public QWidget
   private:
     const WellSectionPanel::WellChoice *choiceById(const QString &id) const
     {
-        for (const auto &c : m_choices)
-            if (c.id == id)
-                return &c;
-        return nullptr;
+        return m_choicesById.value(id, nullptr);
     }
     QVector<WellSectionPanel::WellChoice> m_choices;
+    QHash<QString, const WellSectionPanel::WellChoice *> m_choicesById;
     QVector<QStringList> m_sections;
 };
 } // namespace

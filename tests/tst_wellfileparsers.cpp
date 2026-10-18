@@ -1,8 +1,11 @@
 // 层：测试壳
 #include <QtTest>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QStringEncoder>
+#include <QTemporaryDir>
 #include <cmath>
 
 #include "domain/wellnumeric.h"
@@ -40,6 +43,7 @@ private slots:
   void acousticUnitAliases();
   void densityUnitAliases_data();
   void densityUnitAliases();
+  void streamingDeviceEntryMatchesWholeRead();
 };
 
 void WellFileParserTests::sentinelVocabularyIsExact()
@@ -310,6 +314,129 @@ void WellFileParserTests::densityUnitAliases()
   QCOMPARE(parsed.has_value(), scale > 0);
   if (parsed)
     QCOMPARE(*parsed, scale);
+}
+
+// #561：流式逐行入口与整读版同核同口径——四型 ×（LF/CRLF/孤 CR、UTF-8
+// BOM、GB18030、列名头）对拍，外加 runningHash 与「readAll 后整段哈希」等价。
+void WellFileParserTests::streamingDeviceEntryMatchesWholeRead()
+{
+  QStringEncoder gbEnc(QStringLiteral("GB18030"));
+  const QList<QByteArray> topsCases = {
+      QByteArray("W1 T1 100\nW1 T2 -999.25\n"),                     // LF
+      QByteArray("# h\r\nW1 T1 100\r\nW1 T2 x\r\n"),            // CRLF + 拒收行
+      QByteArray("W1 T1 100\rW1 T2 -999.25\r"),                     // 孤 CR（旧 Mac）
+      QByteArray("\xEF\xBB\xBF# bom\nW1 T1 100\nW1 T2 -999.25\n"),  // UTF-8 BOM
+      gbEnc.encode(QStringLiteral("井1 顶1 100\n井2 顶2 -999.25\n")), // GB18030 井名
+      QByteArray("#wellName topName DepthMD\r\nW1 T1 100\r\nW1 T2 bad\r\n"), // 列名头
+  };
+  for (const QByteArray &bytes : topsCases)
+  {
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("tops.dat"));
+    {
+      QFile f(path);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      QCOMPARE(f.write(bytes), qint64(bytes.size()));
+    }
+    QFile dev(path);
+    QVERIFY(dev.open(QIODevice::ReadOnly));
+    QCryptographicHash running(QCryptographicHash::Sha256);
+    QString ioErr;
+    WellParseReport devReport;
+    const auto streamed = parseWellTopsDevice(&dev, &running, &devReport, &ioErr);
+    QVERIFY2(streamed.has_value(), qPrintable(ioErr));
+    QCOMPARE(QString::fromLatin1(running.result().toHex()),
+             QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()));
+    WellParseReport textReport;
+    const auto whole = parseWellTopsText(bytes, &textReport);
+    QCOMPARE(streamed->size(), whole.size());
+    for (int i = 0; i < whole.size(); ++i)
+    {
+      QCOMPARE((*streamed)[i].wellName, whole[i].wellName);
+      QCOMPARE((*streamed)[i].topName, whole[i].topName);
+      QCOMPARE((*streamed)[i].md, whole[i].md);
+    }
+    QCOMPARE(devReport.acceptedRows, textReport.acceptedRows);
+    QCOMPARE(devReport.rejectedRows, textReport.rejectedRows);
+    QCOMPARE(devReport.sentinelHits, textReport.sentinelHits);
+    QCOMPARE(devReport.blankCells, textReport.blankCells);
+    QCOMPARE(devReport.invalidCells, textReport.invalidCells);
+    QCOMPARE(devReport.issues.join(QLatin1Char(';')),
+             textReport.issues.join(QLatin1Char(';')));
+  }
+
+  // 井口 / 时深 / 井斜：同一流式骨架（行界机共用），各取一组混合行界对拍。
+  {
+    const QByteArray bytes = "\xEF\xBB\xBFW1 10 20 1 100\r\nW2 bad 30 2 200\n";
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("heads.dat"));
+    {
+      QFile f(path);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      QCOMPARE(f.write(bytes), qint64(bytes.size()));
+    }
+    QFile dev(path);
+    QVERIFY(dev.open(QIODevice::ReadOnly));
+    QString ioErr;
+    WellParseReport devReport, textReport;
+    const auto streamed = parseWellHeadDevice(&dev, nullptr, &devReport, &ioErr);
+    QVERIFY2(streamed.has_value(), qPrintable(ioErr));
+    const auto whole = parseWellHeadText(bytes, &textReport);
+    QCOMPARE(streamed->size(), whole.size());
+    for (int i = 0; i < whole.size(); ++i)
+    {
+      QCOMPARE((*streamed)[i].name, whole[i].name);
+      QCOMPARE((*streamed)[i].x, whole[i].x);
+      QCOMPARE((*streamed)[i].td, whole[i].td);
+    }
+    QCOMPARE(devReport.rejectedRows, textReport.rejectedRows);
+    QCOMPARE(devReport.issues.join(QLatin1Char(';')),
+             textReport.issues.join(QLatin1Char(';')));
+  }
+  {
+    const QByteArray bytes = "# Well : W9\r100 -999.25 100 100\n200\t\t200 200\r";
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("td.dat"));
+    {
+      QFile f(path);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      QCOMPARE(f.write(bytes), qint64(bytes.size()));
+    }
+    QFile dev(path);
+    QVERIFY(dev.open(QIODevice::ReadOnly));
+    QString ioErr;
+    WellParseReport devReport, textReport;
+    const auto streamed = parseTimeDepthDevice(&dev, nullptr, &devReport, &ioErr);
+    QVERIFY2(streamed.has_value(), qPrintable(ioErr));
+    const auto whole = parseTimeDepthText(bytes, &textReport);
+    QCOMPARE(streamed->wellName, whole.wellName);
+    QCOMPARE(streamed->rows.size(), whole.rows.size());
+    QCOMPARE(devReport.acceptedRows, textReport.acceptedRows);
+    QCOMPARE(devReport.issues.join(QLatin1Char(';')),
+             textReport.issues.join(QLatin1Char(';')));
+  }
+  {
+    const QByteArray bytes = "# Well : W9\n100 10 45\r\nbad 20 90\n";
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("dev.dat"));
+    {
+      QFile f(path);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      QCOMPARE(f.write(bytes), qint64(bytes.size()));
+    }
+    QFile dev(path);
+    QVERIFY(dev.open(QIODevice::ReadOnly));
+    QString ioErr;
+    WellParseReport devReport, textReport;
+    const auto streamed = parseDeviationDevice(&dev, nullptr, &devReport, &ioErr);
+    QVERIFY2(streamed.has_value(), qPrintable(ioErr));
+    const auto whole = parseDeviationText(bytes, &textReport);
+    QCOMPARE(streamed->wellName, whole.wellName);
+    QCOMPARE(streamed->stations.size(), whole.stations.size());
+    QCOMPARE(devReport.rejectedRows, textReport.rejectedRows);
+    QCOMPARE(devReport.issues.join(QLatin1Char(';')),
+             textReport.issues.join(QLatin1Char(';')));
+  }
 }
 
 QTEST_GUILESS_MAIN(WellFileParserTests)

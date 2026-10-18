@@ -1,6 +1,7 @@
 // setDiskFile(lazy) 与在途 sha256Hex 重叠时，不得用旧路径覆盖新工程的 sha.json。
 #include <QtTest>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -12,6 +13,7 @@
 
 #if defined(Q_OS_UNIX)
 #include <cerrno>
+#include <cstdio>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -22,6 +24,96 @@ class TestShaCache : public QObject
   Q_OBJECT
 
 private slots:
+  // #561：血缘复验加强档——指纹带 inode，磁盘条目升 4 段；POSIX 下「同
+  // mtime+size 换文件」必击穿缓存（默认口径如实保留 git 式弱点以作对照）。
+  void inodeFingerprintOption()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString file = dir.filePath(QStringLiteral("lineage.bin"));
+    const QString shaJson = dir.filePath(QStringLiteral("sha.json"));
+    const QDateTime stamp(QDate(2026, 10, 18), QTime(12, 0, 0));
+
+    auto writeFileAt = [&](const QString &target, const QByteArray &payload) {
+      QVERIFY(!QFile::exists(target) || QFile::remove(target));
+      {
+        QFile f(target);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        QCOMPARE(f.write(payload), qint64(payload.size()));
+        f.close(); // setFileTime 需要重开句柄
+        QVERIFY(f.open(QIODevice::ReadWrite));
+        QVERIFY(f.setFileTime(stamp, QFileDevice::FileModificationTime));
+      }
+    };
+
+    ShaCache &cache = ShaCache::shared();
+    cache.setDiskFile(QString());
+    cache.invalidate();
+    cache.setDiskFile(shaJson, false);
+
+    // 默认口径首算：磁盘 3 段条目。
+    writeFileAt(file, QByteArray("v1"));
+    QString herr;
+    const QString shaV1 = cache.sha256Hex(file, &herr);
+    QVERIFY2(!shaV1.isEmpty(), qPrintable(herr));
+    {
+      QFile j(shaJson);
+      QVERIFY(j.open(QIODevice::ReadOnly));
+      const QStringList parts = QJsonDocument::fromJson(j.readAll())
+                                    .object()
+                                    .value(PathCanon::canonicalize(file))
+                                    .toString()
+                                    .split(QLatin1Char('|'));
+      QCOMPARE(parts.size(), 3);
+      QCOMPARE(parts.constLast(), shaV1);
+    }
+
+    // 强口径：3 段旧条目证不了 inode → 重算（自愈覆写为 4 段），sha 不变。
+    const QString shaStrong = cache.sha256Hex(
+        file, &herr, ShaCache::Fingerprint::MtimeSizeInode);
+    QCOMPARE(shaStrong, shaV1);
+    {
+      QFile j(shaJson);
+      QVERIFY(j.open(QIODevice::ReadOnly));
+      const QStringList parts = QJsonDocument::fromJson(j.readAll())
+                                    .object()
+                                    .value(PathCanon::canonicalize(file))
+                                    .toString()
+                                    .split(QLatin1Char('|'));
+      QCOMPARE(parts.size(), 4);
+      // 第 3 段 = inode 数目字（POSIX 为真实 inode，Windows 恒 0——平台口径
+      // 见 shacache.h 头注；这里只验「是数字」，值面由下方 POSIX 段覆盖）。
+      bool inoOk = false;
+      parts.at(2).toULongLong(&inoOk);
+      QVERIFY(inoOk);
+      QCOMPARE(parts.constLast(), shaV1);
+    }
+
+#ifdef Q_OS_UNIX
+    // 敌意场景（POSIX）：同路径换文件、还原 mtime+size——默认口径仍命中旧值
+    //（git 式启发式的已知弱点，口径如实保留）；强口径必须重算出新 sha。
+    // 换文件走「旁路写 + rename 顶替」：v2 的 inode 在旧文件存活期间分配，
+    // 必与旧 inode 不同（删后原地重建会被文件系统复用 inode，演示不可复现）。
+    const QString fileV2 = dir.filePath(QStringLiteral("lineage.v2"));
+    writeFileAt(fileV2, QByteArray("v2"));
+    QVERIFY(QFile::remove(file));
+    QCOMPARE(::rename(QFile::encodeName(fileV2).constData(),
+                      QFile::encodeName(file).constData()),
+             0);
+    QCOMPARE(cache.sha256Hex(file, &herr), shaV1); // 弱点对照：缓存投毒成立
+    const QString shaV2 = cache.sha256Hex(
+        file, &herr, ShaCache::Fingerprint::MtimeSizeInode);
+    QCryptographicHash expected(QCryptographicHash::Sha256);
+    expected.addData(QByteArray("v2"));
+    QCOMPARE(shaV2, QString::fromLatin1(expected.result().toHex()));
+    QVERIFY(shaV2 != shaV1);
+#else
+    // Windows 无 inode（恒 0）：强口径退化回默认口径——平台口径见
+    // segyindexstore::Identity::inode 与 shacache.h 头注。
+    qDebug("inode 判等仅 POSIX；Windows 恒 0，强口径退化为 mtime+size。");
+#endif
+  }
+
   void setDiskFileDuringHashDoesNotClobberNewShaJson()
   {
 #if !defined(Q_OS_UNIX)

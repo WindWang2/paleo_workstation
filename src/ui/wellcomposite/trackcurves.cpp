@@ -2,6 +2,7 @@
 // 综合图道·曲线充填与符号（CurveTrack 1-4 根合并 / SymbolTrack）——自 wellcompositetrack.cpp 拆出（方向 66，行为零变更）
 #include "wellcompositetrack.h"
 #include "ui/paleotheme.h"
+#include <algorithm>
 #include <cmath>
 
 namespace WellComposite
@@ -211,12 +212,36 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
       QVector<QPointF> polyPoints;
       polyPoints.reserve(1024);
 
-      for (int i = 0; i < n; ++i)
+      // #557：深度采样有序（domain CurveData::valueAtDepth 二分插值同一
+      // 前提）→ 二分定位可见窗口起点，每帧 O(可见样点) 而非 O(总样点)。
+      // 仅在端点有限且首 ≤ 末时走二分（越下窗即 break）；坏数据（NaN/逆序
+      // 深度）退回原全量线性扫描，绘制结果与改前逐点一致。起点比窗口下界
+      // 多取一个样点，但该样点仍按原 ±20 m 深度窗谓词过滤——不改线段集合。
+      const double winTop = topDepth - 20.0;
+      const double winBottom = bottomDepth + 20.0;
+      const bool ordered = n > 0 && std::isfinite(c.depths.first()) &&
+                           std::isfinite(c.depths.at(n - 1)) &&
+                           c.depths.first() <= c.depths.at(n - 1);
+      int begin = 0;
+      if (ordered)
+      {
+        begin = static_cast<int>(std::lower_bound(c.depths.cbegin(),
+                                                  c.depths.cbegin() + n,
+                                                  winTop) -
+                                 c.depths.cbegin());
+        if (begin > 0)
+          --begin; // 窗口上缘多取一个样点，避免边界处线段断裂
+      }
+
+      for (int i = begin; i < n; ++i)
       {
         const float d = c.depths.at(i);
         const float v = c.values.at(i);
 
-        if (d < topDepth - 20.0 || d > bottomDepth + 20.0)
+        if (ordered && d > winBottom)
+          break; // 深度有序：其后样点必然越窗，无需继续扫描
+
+        if (d < winTop || d > winBottom)
           continue;
 
         // 深度或值任一 NaN 都断笔（opt-02）：深度列 NULL 行的 NaN 比较恒

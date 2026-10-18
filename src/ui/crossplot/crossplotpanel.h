@@ -2,6 +2,7 @@
 #pragma once
 #include "domain/faciesclassification.h"
 #include <QImage>
+#include <QPixmap>
 #include <QWidget>
 class QComboBox;
 class QListWidget;
@@ -33,12 +34,20 @@ protected:
 private:
   QPointF normalized(QPointF) const;
   void densityImage();
+  // #557：非手势内容全量渲染（背景/轴/密度图/散点/选点，不含橡皮筋）——
+  // 缓存直绘共用同一函数，同输入逐像素一致。
+  void renderPlot(QPainter &);
   PlotFrame m_frame;
   QVector<int> m_selected;
   QVector<QPointF> m_gesture;
   QPointF m_start;
   bool m_dragging = false, m_box = false;
   QImage m_density;
+  // #557：整幅位图缓存——手势（框选/套索）期间 paintEvent 只 blit 缓存 +
+  // 重画橡皮筋，鼠标 move 不再逐点重绘散点；随 setFrame/setSelection/主题
+  // 切换置脏，尺寸或 DPR 变化在重建时就地检出。
+  QPixmap m_plotCache;
+  bool m_cacheDirty = true;
 };
 class CrossplotPanel : public QWidget {
   Q_OBJECT

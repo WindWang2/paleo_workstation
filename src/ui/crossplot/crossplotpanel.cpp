@@ -72,21 +72,58 @@ void CrossplotCanvas::setFrame(const PlotFrame &f) {
   m_selected.clear();
   m_gesture.clear();
   densityImage();
+  m_cacheDirty = true;
   update();
 }
 void CrossplotCanvas::setSelection(const QVector<int> &indices) {
   m_selected = indices;
+  m_cacheDirty = true;
   update();
 }
 void CrossplotCanvas::changeEvent(QEvent *e) {
   if (e->type() == QEvent::ApplicationPaletteChange) {
     densityImage();
+    m_cacheDirty = true;
     update();
   }
   QWidget::changeEvent(e);
 }
+// #557：非手势内容全部渲染进整幅位图缓存，paintEvent 只 blit + 橡皮筋——
+// 框选/套索手势期间每次 mouse move 从 O(样点数) 逐点 drawEllipse/setPen
+// 降为一次 blit。缓存与直绘共用 renderPlot（同一绘制命令序列），同输入
+// 逐像素不变；DPR 口径同 PaleoIcons（按 devicePixelRatioF 光栅化，blit 1:1
+// 物理像素，不额外缩放补偿）。
 void CrossplotCanvas::paintEvent(QPaintEvent *) {
+  const qreal dpr = devicePixelRatioF();
+  const QSize phys(qRound(width() * dpr), qRound(height() * dpr));
+  if (m_cacheDirty || m_plotCache.size() != phys ||
+      m_plotCache.devicePixelRatio() != dpr) {
+    m_plotCache = QPixmap(phys);
+    m_plotCache.setDevicePixelRatio(dpr);
+    m_plotCache.fill(Qt::transparent); // 防 DPR 边缘亚像素覆盖读未初始化内存
+    QPainter cachePainter(&m_plotCache);
+    renderPlot(cachePainter);
+    m_cacheDirty = false;
+  }
   QPainter p(this);
+  p.drawPixmap(0, 0, m_plotCache);
+  if (!m_gesture.isEmpty()) {
+    const auto r = plotRect();
+    p.save();
+    p.setClipRect(r);
+    p.setPen(QPen(PaleoTheme::tokens().focusRing, 1, Qt::DashLine));
+    p.setBrush(Qt::NoBrush);
+    p.drawPolygon(QPolygonF(m_gesture));
+    p.restore();
+  }
+  // 空样本提示在橡皮筋之后绘制（与改前 z 序一致：提示文字压在虚线上）。
+  if (m_frame.points.isEmpty()) {
+    p.setPen(PaleoTheme::tokens().textMuted);
+    p.drawText(plotRect(), Qt::AlignCenter,
+               tr("选择两个或更多通道，然后读取样本"));
+  }
+}
+void CrossplotCanvas::renderPlot(QPainter &p) {
   const auto &t = PaleoTheme::tokens();
   p.fillRect(rect(), t.surface);
   const auto r = plotRect();
@@ -136,16 +173,7 @@ void CrossplotCanvas::paintEvent(QPaintEvent *) {
       const auto &v = m_frame.points[i];
       p.drawPoint(screen(v.x, v.y));
     }
-  if (!m_gesture.isEmpty()) {
-    p.setPen(QPen(t.focusRing, 1, Qt::DashLine));
-    p.setBrush(Qt::NoBrush);
-    p.drawPolygon(QPolygonF(m_gesture));
-  }
   p.restore();
-  if (m_frame.points.isEmpty()) {
-    p.setPen(t.textMuted);
-    p.drawText(r, Qt::AlignCenter, tr("选择两个或更多通道，然后读取样本"));
-  }
 }
 void CrossplotCanvas::mousePressEvent(QMouseEvent *e) {
   if (e->button() != Qt::LeftButton || !plotRect().contains(e->position()))

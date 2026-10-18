@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "faciesmaplegend.h"
+#include "facieshierarchyrenderer.h"
 #include "../domain/faciestaxonomy.h"
 #include "../domain/facieshierarchy.h"
 #include <QPointer>
@@ -12,6 +13,7 @@
 #include <qgslayertreefiltersettings.h>
 #include <QIcon>
 #include <QPixmap>
+#include <QSet>
 #include <qgslayertreemodellegendnode.h>
 #include <qgsmaplayerlegend.h>
 #include <qgslegendsettings.h>
@@ -128,18 +130,59 @@ QVariantList FaciesMapLegend::symbolEntries(QgsMapLayer *layer, const QVariantLi
   const auto effective = migrated.isEmpty() && !entries.isEmpty() ? entries : migrated;
   const auto *vector = qobject_cast<QgsVectorLayer *>(layer);
   const auto symbols = vector && vector->renderer() ? vector->renderer()->legendSymbolItems() : QgsLegendSymbolList{};
+  const auto *raster = qobject_cast<QgsRasterLayer *>(layer);
+  const auto *palette = raster ? dynamic_cast<QgsPalettedRasterRenderer *>(raster->renderer()) : nullptr;
   QVariantList result;
   for (int i = 0; i < effective.size(); ++i) {
     auto row = effective[i].toMap();
     QIcon icon;
-    if (i < symbols.size()) icon = QgsSymbolLayerUtils::symbolPreviewIcon(symbols[i].symbol(), QSize(32, 16));
+    const QgsSymbol *symbol = nullptr;
+    const auto key = row.value("key").toString();
+    for (const auto &item : symbols)
+      if (!key.isEmpty() && item.ruleKey() == key) { symbol = item.symbol(); break; }
+    if (key.isEmpty() && i < symbols.size()) symbol = symbols[i].symbol();
+    if (symbol) icon = QgsSymbolLayerUtils::symbolPreviewIcon(symbol, QSize(32, 16));
     else {
+      if (palette) {
+        const auto codes = row.contains("codes") ? row.value("codes").toList() : QVariantList{row.value("code")};
+        for (const auto &item : palette->classes())
+          if (codes.contains(int(item.value))) { row.insert("color", item.color.name()); break; }
+        row.insert("texture", QString());
+      }
       QPixmap swatch(32, 16);
       swatch.fill(QColor(row.value("color").toString()));
       icon = QIcon(swatch);
     }
     row.insert("legend_icon", icon);
     result << row;
+  }
+  return result;
+}
+QVariantList FaciesMapLegend::presentEntries(QgsMapLayer *layer, const QVariantList &entries) {
+  if (!layer || !layer->isValid()) return {};
+  QSet<QString> present, known;
+  for (const auto &code : FaciesHierarchyRenderer::codes(layer)) present.insert(code.toString());
+  for (const auto &entry : entries) {
+    const auto row = entry.toMap();
+    const auto codes = row.contains("codes") ? row.value("codes").toList() : QVariantList{row.value("code")};
+    if (row.value("key") != "unknown")
+      for (const auto &code : codes) known.insert(code.toString());
+  }
+  auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+  QVariantList result;
+  for (const auto &entry : symbolEntries(layer, entries)) {
+    const auto row = entry.toMap();
+    bool used = false;
+    if (row.value("key") == "unknown") {
+      for (const auto &code : present) used |= !known.contains(code);
+    } else {
+      const auto codes = row.contains("codes") ? row.value("codes").toList() : QVariantList{row.value("code")};
+      for (const auto &code : codes) used |= present.contains(code.toString());
+    }
+    const auto key = row.value("key").toString();
+    if (vector && vector->renderer() && !key.isEmpty() &&
+        !vector->renderer()->legendSymbolItemChecked(key)) used = false;
+    if (used) result << row;
   }
   return result;
 }

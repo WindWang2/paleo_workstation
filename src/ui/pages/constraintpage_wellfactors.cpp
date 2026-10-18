@@ -53,7 +53,10 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
     wellLay->addWidget(label);
     auto *combo = new QComboBox(wellFactors); combo->setObjectName(entry.first);
     combo->setAccessibleName(entry.second); combo->setPlaceholderText(tr("请选择字段")); wellLay->addWidget(combo);
-    connect(combo, &QComboBox::currentIndexChanged, this, [this] { invalidateWellFactors(); });
+    connect(combo, &QComboBox::currentIndexChanged, this, [this] {
+      invalidateWellFactors();
+      restoreWellFactorDisplay();
+    });
   }
   auto *extract = new QPushButton(tr("提取并保存井点数据"), wellFactors);
   extract->setObjectName(QStringLiteral("extractWellFactorsButton"));
@@ -94,6 +97,7 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
       findChild<QWidget *>(name + QStringLiteral("Caption"))->setVisible(visible);
     }
     invalidateWellFactors();
+    restoreWellFactorDisplay();
   };
   connect(factorMode, &QComboBox::currentIndexChanged, this, modeChanged); modeChanged();
   connect(extract, &QPushButton::clicked, this, [this, factors, horizons] {
@@ -182,19 +186,7 @@ void ConstraintPage::refreshWellFactorFields() {
   if (!error.isEmpty()) child<QLabel>(this, "wellFactorHint")->setText(error);
   setWellFactorFields(fields);
   setProperty("paleo.page.fieldsbound", wf != nullptr);
-  if (wf && h)
-    wf->restoreWellFactors(h->currentText(),
-                           factorIdOfRow(child<QTableWidget>(this, "factorTable"),
-                                         checkedRow(child<QTableWidget>(this, "factorTable"))),
-                           wellFactorParams());
-  if (wf && h &&
-      !wf->preparedWellFactorVersion(
-             h->currentText(),
-             factorIdOfRow(child<QTableWidget>(this, "factorTable"),
-                           checkedRow(child<QTableWidget>(this, "factorTable"))),
-             wellFactorParams())
-           .isEmpty())
-    refreshWellFactorResults();
+  restoreWellFactorDisplay();
   updateFactorActionStates();
 }
 void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
@@ -274,4 +266,16 @@ void ConstraintPage::refreshWellFactorResults() {
   }
   child<QLabel>(this, "wellFactorHint")->setText(wf->wellFactorMessage());
   updateFactorActionStates();
+}
+void ConstraintPage::restoreWellFactorDisplay() {
+  auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+  auto *h = child<QComboBox>(this, "horizonCombo");
+  auto *factors = child<QTableWidget>(this, "factorTable");
+  if (!wf || !h || !factors)
+    return;
+  const QString factor = factorIdOfRow(factors, checkedRow(factors));
+  if (factor.isEmpty())
+    return;
+  if (wf->restoreWellFactors(h->currentText(), factor, wellFactorParams()))
+    refreshWellFactorResults();
 }

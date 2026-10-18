@@ -263,7 +263,9 @@ class ConstraintWorkflow : public QObject
                                    const QVariantMap &params, QString *error = nullptr);
     QString preparedWellFactorVersion(const QString &horizon, const QString &factorId,
                                       const QVariantMap &params) const;
-    void restoreWellFactors(const QString &horizon, const QString &factorId,
+    // 当前口径命中已保存的井点提取（新鲜或过期）时置好行/消息并返回 true，
+    // 页面据此刷新逐井表；无命中返回 false，维持「尚未提取」态。
+    bool restoreWellFactors(const QString &horizon, const QString &factorId,
                             const QVariantMap &params);
     // P3 任务G：成果版本来源/质控摘要 {summary, details}（只读血缘 extra）。
     static QVariantMap factorResultLineage(const QVariantMap &extra);

@@ -65,6 +65,9 @@ class ConstraintPage : public QWidget
     QVariantMap newConstraintLineParams(const QString &type) const;
     void refreshWellFactorFields();
     void refreshWellFactorResults();
+    // 口径切换把逐井表失效清空后，若当前口径恰有仍新鲜的已保存提取
+    //（含刚提取完切走再切回），就地恢复显示，不落回「尚未提取」。
+    void restoreWellFactorDisplay();
     void refreshFactorResults();
     void refreshFactorLayers();
   signals:

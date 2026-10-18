@@ -57,7 +57,7 @@ QVariantList legend(const QVariantList &schema, const QString &level,
   QMap<QString, int> groups;
   QSet<QString> known;
   for (const auto &v : sorted) {
-    const auto f = v.toMap();
+    const auto f = FaciesTaxonomy::place(v.toMap());
     const auto code = f.value("code");
     known.insert(code.toString());
     // Choose the same representative color even if that leaf is absent.

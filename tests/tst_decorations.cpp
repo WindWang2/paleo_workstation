@@ -88,6 +88,35 @@ class TestDecorations : public QObject
       QCOMPARE( first, render() );
     }
 
+    void legacyFaciesLegendShowsNamesAndColouredTextures()
+    {
+      QgsMapCanvas canvas;
+      canvas.resize(640, 480);
+      PaleoDecorationManager mgr(&canvas);
+      mgr.setFaciesLegend(QStringLiteral("D61 · 三级相图例"), {
+          QVariantMap{{"code", 1}, {"name", QStringLiteral("河道充填")},
+              {"facies", QStringLiteral("河流相")}, {"subfacies", QStringLiteral("河床亚相")},
+              {"microfacies", "#E8D5B0"}, {"color", "strata/micro_channel_fill.svg"}, {"texture", ""}}});
+      const auto tree = mgr.legendFacies();
+      QCOMPARE(tree.size(), 3);
+      QCOMPARE(tree.last().toMap().value("name").toString(), QStringLiteral("河道充填"));
+      QVERIFY(QColor(tree.last().toMap().value("color").toString()).isValid());
+      QImage image(canvas.size(), QImage::Format_ARGB32_Premultiplied);
+      image.fill(Qt::white);
+      QPainter painter(&image);
+      mgr.paintDecorations(&painter);
+      painter.end();
+      int colouredPixels = 0;
+      for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x) {
+          const auto c = image.pixelColor(x, y);
+          if (c.red() > 180 && c.green() > 90 && c.blue() < 180) ++colouredPixels;
+        }
+      QVERIFY2(colouredPixels > 20, "legend must render its coloured swatch/texture, not a black fallback");
+      const auto capture = qEnvironmentVariable("PALEO_LEGEND_QA_IMAGE");
+      if (!capture.isEmpty()) QVERIFY(image.save(capture));
+    }
+
     void togglesChangeItemCount();
     void enabledFlagsRoundtrip();
     void decorationsPaintPixels();

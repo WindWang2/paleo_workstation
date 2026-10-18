@@ -37,6 +37,36 @@ class TestFaciesCatalog : public QObject
 {
   Q_OBJECT
 private slots:
+  void legacyShiftedAppearanceColumnsAreRecoveredWithoutChangingInput() {
+    const QVariantMap legacy{{"code", 17}, {"name", QStringLiteral("河道充填")},
+        {"facies", QStringLiteral("河流相")}, {"subfacies", QStringLiteral("河床亚相")},
+        {"microfacies", "#E8D5B0"}, {"color", "strata/micro_channel_fill.svg"}, {"texture", ""}};
+    QVariantList upgraded;
+    QString error;
+    QVERIFY2(FaciesTaxonomy::upgrade({legacy}, &upgraded, &error), qPrintable(error));
+    QCOMPARE(upgraded.size(), 1);
+    const auto row = upgraded.first().toMap();
+    QCOMPARE(row.value("code").toInt(), 17);
+    QCOMPARE(row.value("name"), legacy.value("name"));
+    QCOMPARE(row.value("microfacies"), legacy.value("name"));
+    QCOMPARE(row.value("facies"), legacy.value("facies"));
+    QCOMPARE(row.value("subfacies"), legacy.value("subfacies"));
+    QCOMPARE(row.value("color"), legacy.value("microfacies"));
+    QCOMPARE(row.value("texture"), legacy.value("color"));
+    QCOMPARE(legacy.value("microfacies").toString(), QString("#E8D5B0"));
+    QVariantList normalized;
+    QVERIFY(FaciesTaxonomy::normalize({legacy}, &normalized, &error));
+    QCOMPARE(normalized, upgraded);
+    const auto tree = FaciesHierarchy::legendTree({legacy});
+    QCOMPARE(tree.size(), 3);
+    QCOMPARE(tree.last().toMap().value("name"), legacy.value("name"));
+    QCOMPARE(tree.last().toMap().value("color"), legacy.value("microfacies"));
+    QCOMPARE(tree.last().toMap().value("texture"), legacy.value("color"));
+    auto complete = row;
+    complete.insert("microfacies", QStringLiteral("自定义微相"));
+    complete.insert("name", QStringLiteral("自定义显示名"));
+    QCOMPARE(FaciesTaxonomy::place(complete), complete);
+  }
   void taxonomyIsAThreeLevelTree() {
     const auto schema = FaciesCatalog::defaults();
     QCOMPARE(schema.size(), 7);

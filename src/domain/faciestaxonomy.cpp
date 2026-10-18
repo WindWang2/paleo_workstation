@@ -1,6 +1,7 @@
 // 层：数据
 #include "faciestaxonomy.h"
 #include "faciescatalog.h"
+#include <QColor>
 #include <QFile>
 #include <QJsonDocument>
 #include <QObject>
@@ -8,6 +9,22 @@
 #include <algorithm>
 
 namespace {
+QVariantMap recoverLegacyAppearanceColumns(QVariantMap entry) {
+  // Old seven-column records used name/facies/subfacies/colour/texture
+  // positions inconsistently. Repair only the unambiguous stored tuple:
+  // microfacies = colour, colour = bundled SVG, texture = empty.
+  const auto name = entry.value("name").toString().trimmed();
+  const auto colour = entry.value("microfacies").toString();
+  const auto texture = entry.value("color").toString();
+  if (!name.isEmpty() && !QColor(name).isValid() && QColor(colour).isValid() &&
+      !QColor(texture).isValid() && entry.value("texture").toString().trimmed().isEmpty() &&
+      !FaciesCatalog::fillPath(texture).isEmpty()) {
+    entry.insert("microfacies", name);
+    entry.insert("color", colour);
+    entry.insert("texture", texture);
+  }
+  return entry;
+}
 QStringList path(const QVariantMap &f) {
   return {f.value("facies").toString().trimmed(),
           f.value("subfacies").toString().trimmed(),
@@ -39,7 +56,8 @@ bool complete(const QVariantMap &leaf) {
   const auto p = path(leaf);
   return std::all_of(p.cbegin(), p.cend(), [](const auto &s) { return !s.isEmpty(); });
 }
-QVariantMap place(const QVariantMap &entry) {
+QVariantMap place(const QVariantMap &source) {
+  const auto entry = recoverLegacyAppearanceColumns(source);
   auto p = path(entry);
   if (!p.contains(QString())) {
     auto placed = entry;
@@ -164,7 +182,7 @@ bool normalize(const QVariantList &source, QVariantList *result, QString *error)
   QSet<int> codes;
   QSet<QString> paths;
   for (const auto &value : source) {
-    auto f = value.toMap();
+    auto f = recoverLegacyAppearanceColumns(value.toMap());
     auto p = path(f);
     const auto label = f.value("name").toString().trimmed();
     if (p[2].isEmpty() && !p[0].isEmpty() && !p[1].isEmpty()) p[2] = label;

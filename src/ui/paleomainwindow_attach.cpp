@@ -21,6 +21,7 @@
 #include "../metadata/paleoprojectstore.h"
 #include "../metadata/layermanifest.h"
 #include "../services/previewdoc.h"
+#include "../services/petrophyscomputeservice.h" // #558：m_petroPhysSvc 建批/析构需完整类型（不再经 paleomainwindow.h）
 #include "../services/toolavailability.h" // check/availabilityChanged（导入命令门控）
 #include "pages/pagepanels.h"
 #include "pages/pageshared.h"
@@ -452,8 +453,8 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   // （进度/取消/产物落盘走写队列 + catalog DERIVED 登记）→ 结果曲线并回
   // 曲线集（mergeComputedCurves，上轨由用户勾选驱动）。
   if (taskSvc && !m_petroPhysSvc)
-    m_petroPhysSvc = std::make_unique<paleo::petrophys::PetroPhysTaskService>(
-        taskSvc, store, this);
+    m_petroPhysSvc = new paleo::petrophys::PetroPhysTaskService(
+        taskSvc, store, this); // #558：Qt 父子持有（parent=this）
   if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
   {
     auto *petroPanel = new paleo::petrophys::PetroPhysPanel(bottomTabs);

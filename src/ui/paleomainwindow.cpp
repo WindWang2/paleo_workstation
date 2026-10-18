@@ -714,7 +714,7 @@ void PaleoMainWindow::resetProjectScopedState()
   // 属性建模：作业取消（任务已随任务会话取消，这里同步收 UI 忙态的入口；
   // jobCompleted 到达时 finishPropertyModelRun 按「已取消」收尾）。
   m_propModelCancel = true;
-  m_propModelRunner.requestCancel();
+  cancelPropModelRun(); // #558：run 状态桥（懒建，未建时 no-op）
   if (m_factorTask && m_factorTask->running())
     m_factorTask->requestCancel();
 

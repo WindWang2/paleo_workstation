@@ -9,13 +9,11 @@
 #include <functional>
 #include <QPointer>
 
+#include <memory> // #558：run 状态 unique_ptr 成员（完整类型在 paleomainwindow_runners.h）
+
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（T22 静态面，W2 下沉 domain）
 #include "notifications/paleonotify.h" // #282 maybeSaveProject 询问三选一（SaveChoice）
 #include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
-#include "../services/petrophyscomputeservice.h" // m_petroPhysSvc unique_ptr 需完整类型
-#include "../services/jobrunner.h" // m_propModelRunner 成员需完整类型（方向20）
-#include "../workflow/propertymodelworkflow.h" // PropertyModelComputed 值成员需完整类型（#85 worker→GUI 交接）
-#include "../workflow/faciesmappingworkflow.h" // DraftFaciesJob runner 成员需完整类型（goal/facies-automapping）
 
 class PaleoDockManager;
 class QComboBox;
@@ -46,6 +44,12 @@ namespace seismic {
 class SeismicSectionDockWidget;
 class Seismic3DViewPanel;
 class SeismicTaskService;
+}
+
+namespace paleo::petrophys {
+// #558：m_petroPhysSvc unique_ptr 头面只留声明——完整类型（含
+// algorithms/petrophys 链）在实现 TU（paleomainwindow.cpp / _attach.cpp）。
+class PetroPhysTaskService;
 }
 
 namespace paleo::fault {
@@ -101,6 +105,11 @@ class PreviewDocService;
 class DepthConversionWorkflow;
 class PropertyModelWorkflow;
 class PropertyModelPanel;
+// #558 扇出根一：属性建模/相图在途作业状态（JobRunner + 交接体）的完整
+// 类型只活在实现侧伴生头 paleomainwindow_runners.h——本头持前置声明 +
+// unique_ptr，不再经 workflow 头把 algorithms 重头链扇出给全体 ui TU。
+struct PropModelRunState;
+struct FaciesMappingRunState;
 class FaciesMappingWorkflow;
 class FaciesMappingPanel;
 class PaleoMapBookPanel;
@@ -467,7 +476,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     //（每次同步装一个），同体不重复触发（防 A/B 轮换互踢）。
     QSet<QString> m_seismicAutoLoadedPaths;
     // goal/petrophysics-logs：测井计算批任务（面板只发意图，编排在此）。
-    std::unique_ptr<paleo::petrophys::PetroPhysTaskService> m_petroPhysSvc;
+    // #558：Qt 父子持有（构造点 parent=this，见 paleomainwindow_attach.cpp）——
+    // 头面只留前置声明，algorithms/petrophys 链不再经本头扇出。
+    paleo::petrophys::PetroPhysTaskService *m_petroPhysSvc = nullptr;
     QPointer<class PaleoTask> m_petroPhysTask;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
@@ -499,20 +510,26 @@ class PaleoMainWindow : public SARibbonMainWindow
     // #85：计算段在任务池 worker 上跑；交接体由 worker 写、finished 回包（GUI）
     // 读。task 是 PaleoTaskService 持有的对象，QPointer 防服务先析构。
     // V2（goal/prop-model-v2）：SGS 多实现 → list（每实现一项；呈现取首实现）。
-    PropertyModelWorkflow::PropertyModelComputedList m_propModelComputed;
     QPointer<PaleoTask> m_propModelTask;
     // 方向20：属性建模改由统一 JobRunner 编排（忙则拒绝/取消传播/commit 强制
     // owner 线程都由框架承担）。job 用 shared_ptr 与 commit 段共享同一份交接体
     // —— 共享所有权正是「commit 段回填的登记结果，UI 段能读到」的前提。
-    paleo::jobs::JobRunner<PropertyModelWorkflow::PropertyModelJob> m_propModelRunner{this};
-    std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> m_propModelJob;
+    // #558：runner/job/computed 打包进 PropModelRunState（窗口的 QObject 子
+    // 对象，懒建；完整类型只在伴生头 paleomainwindow_runners.h 展开）。
+    PropModelRunState *m_propModelRun = nullptr;
     // goal/facies-automapping：证据合成 + QA 报告面板（幂等 dock，同
-    // attachPropertyModel 形态）。runner 承担忙则拒绝/取消传播/commit 亲和。
+    // attachPropertyModel 形态）。runner 承担忙则拒绝/取消传播/commit 亲和
+    //（#558 同上）。
     FaciesMappingWorkflow *m_faciesMappingWf = nullptr;
     QDockWidget *m_faciesMappingDock = nullptr;
     FaciesMappingPanel *m_faciesMappingPanel = nullptr;
-    paleo::jobs::JobRunner<FaciesMappingWorkflow::DraftFaciesJob> m_faciesMappingRunner{this};
-    std::shared_ptr<FaciesMappingWorkflow::DraftFaciesJob> m_faciesMappingJob;
+    FaciesMappingRunState *m_faciesMappingRun = nullptr;
+    // #558 run 状态桥访问点（实现 paleomainwindow_attach_models.cpp）：
+    // 懒建（首次使用时挂到本窗口）；cancelPropModelRun 未建时 no-op
+    //（= 无在途作业，resetProjectScopedState 早于 attach 也安全）。
+    PropModelRunState *propModelRun();
+    FaciesMappingRunState *faciesMappingRun();
+    void cancelPropModelRun();
     QPointer<PaleoTask> m_faciesMappingTask;
     bool m_faciesMappingRunning = false;
     void finishFaciesMappingRun();

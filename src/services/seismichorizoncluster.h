@@ -3,6 +3,8 @@
 #include <QRectF>
 #include <QString>
 #include <QVector>
+#include <QVariantList>
+#include <QStringList>
 #include <functional>
 
 enum class SeismicHorizonSource { TimeRaster, Scatter };
@@ -14,6 +16,8 @@ struct SeismicClusterResult {
   int validCells = 0;
   QString crsWkt;
   QString error;
+  QVariantList clusterMapping, supportingWells;
+  QStringList wellVersionIds;
 };
 
 // 当前层位 TWT 窗内的真实反射特征 + 确定性聚类；解释类别映射为 Mock。

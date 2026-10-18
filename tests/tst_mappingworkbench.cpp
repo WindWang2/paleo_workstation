@@ -52,6 +52,8 @@
 #include <qgseditorwidgetsetup.h>
 #include "../src/workflow/workflows.h"
 #include "mockremotepredictionservice.h"
+#include "seismichorizonfixture.h"
+#include "../src/qgis/seismicwellcalibration.h"
 #include <QAction>
 #include <QComboBox>
 #include <QCheckBox>
@@ -3104,6 +3106,90 @@ private slots:
     QVERIFY(!setup.config().value("map").toList().isEmpty());
     // 非相结果被拒。
     QVERIFY(f.work.faciesConsistency(QStringLiteral("nope"), &error).isEmpty());
+  }
+  void seismicMockRequiresSavedWellPredictions() {
+    Fixture f; QVERIFY(f.init());
+    const auto input = f.seismic(); QVERIFY(!input.isEmpty());
+    QString error;
+    QVERIFY(!f.work.predict("D61", "seismic_mock", {input}, &error));
+    QVERIFY(error.contains(QStringLiteral("测井相预测")));
+    QVERIFY(!f.work.busy());
+    QVERIFY(f.latest("seismic_prediction").isEmpty());
+  }
+  void seismicCalibrationTransformsCoordinatesAndMatchesFrozenClassPaths() {
+    QTemporaryDir dir;
+    QgsVectorLayer layer("Point?crs=EPSG:4326&field=id:string&field=facies_code:integer", "wells", "memory");
+    QgsFeature feature(layer.fields()); feature.setAttribute("id", "W1"); feature.setAttribute("facies_code", 42);
+    feature.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(1, 1)));
+    QgsFeatureList points{feature}; QVERIFY(layer.dataProvider()->addFeatures(points));
+    const auto file = dir.filePath("wells.gpkg"); QString error;
+    QVERIFY2(MappingArtifactWriter::vectorSnapshot(&layer, file, &error), qPrintable(error));
+    auto frozen = FaciesCatalog::defaults()[1].toMap(); frozen.insert("code", 42);
+    const QVariantMap source{{"path", file}, {"sha256", DataCatalog::sha256FileHex(file)},
+        {"version_id", "well-v1"}, {"facies", QVariantList{frozen}}};
+    QStringList versions;
+    const auto wells = readSeismicCalibrationWells({source}, FaciesCatalog::defaults(),
+        QgsCoordinateReferenceSystem("EPSG:3857").toWkt(), QgsCoordinateTransformContext(), &versions, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error)); QCOMPARE(wells.size(), 1);
+    QCOMPARE(wells.first().code, 2); // same geological path despite different stored codes
+    QVERIFY(qAbs(wells.first().x - 111319.49) < 1);
+    QVERIFY(qAbs(wells.first().y - 111325.14) < 1);
+    QCOMPARE(versions, QStringList{"well-v1"});
+    auto altered = source; altered.insert("sha256", "changed");
+    QVERIFY(readSeismicCalibrationWells({altered}, FaciesCatalog::defaults(),
+        QgsCoordinateReferenceSystem("EPSG:3857").toWkt(), QgsCoordinateTransformContext(), &versions, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("已改变")));
+  }
+  void seismicMockUsesLatestWellMajoritiesAndRecordsTheirVersions() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const auto volume = registrar.stage("seismic", "volume", "volume.sgy", &error);
+    QVERIFY(volume.isValid());
+    QVERIFY(SeismicHorizonFixture::writeFile(volume.absolutePath, SeismicHorizonFixture::buildVolume()));
+    QVERIFY(registrar.commit(volume, {}, "fixture", {}, &error));
+    const auto horizon = f.dir.filePath("D61.dat");
+    QVERIFY(SeismicHorizonFixture::writeFile(horizon, SeismicHorizonFixture::buildHorizon(100)));
+    const auto point = [](const QString &id, double x, const QVariant &code) {
+      return QVariantMap{{"id", id}, {"x", x}, {"y", 65.0}, {"facies_code", code}};
+    };
+    const auto save = [&](const QString &name, const QVariantList &points) {
+      const auto st = registrar.stage("wells_prediction", name, "wells.geojson", &error);
+      if (!st.isValid() || !MappingArtifactWriter::points(st.absolutePath, points, &error) ||
+          !registrar.commit(st, {}, "fixture", {{"kind", "wells_prediction"}, {"horizon", "D61"},
+              {"mapping_product", true}, {"facies", FaciesCatalog::defaults()}}, &error)) return QString();
+      return st.versionId;
+    };
+    const auto old = save("old", {point("a", 2, 2), point("b", 3, 2), point("c", 4, 2),
+        point("d", 12, 7), point("e", 13, 7), point("skip", 14, 7)});
+    QVERIFY2(!old.isEmpty(), qPrintable(error));
+    const auto current = save("current", {point("a", 2, 7), point("b", 3, 7), point("c", 4, 2),
+        point("d", 12, 2), point("e", 13, 2), point("skip", 14, QVariant())});
+    QVERIFY2(!current.isEmpty(), qPrintable(error));
+    const auto tail = save("later-partial-batch", {point("d", 12, 2)});
+    QVERIFY2(!tail.isEmpty(), qPrintable(error));
+    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.predict("D61", "seismic_mock", {volume.assetId}, &error, horizon), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 30000);
+    QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString()));
+    const auto id = f.latest("seismic_prediction"); QVERIFY(!id.isEmpty());
+    const auto version = f.work.versionForLayer(id);
+    QVERIFY(version.extra.value("mock").toBool());
+    QCOMPARE(version.extra.value("window_half_ms").toDouble(), 12.0);
+    QVERIFY(version.parentVersionIds.contains(current)); QVERIFY(version.parentVersionIds.contains(tail));
+    QVERIFY(!version.parentVersionIds.contains(old));
+    QCOMPARE(version.extra.value("wells").toList().size(), 5);
+    const auto mapping = version.extra.value("cluster_facies_mapping").toList();
+    QCOMPARE(mapping.size(), 2);
+    QCOMPARE(mapping[0].toMap().value("vote_count").toInt(), 3);
+    QCOMPARE(mapping[0].toMap().value("facies_code").toInt(), 7);
+    QCOMPARE(mapping[1].toMap().value("vote_count").toInt(), 2);
+    QCOMPARE(mapping[1].toMap().value("facies_code").toInt(), 2);
+    auto *raster = qobject_cast<QgsRasterLayer *>(f.layers.instantiate(id, &error)); QVERIFY(raster);
+    for (int column = 0; column < 4; ++column) {
+      bool ok = false;
+      const double code = raster->dataProvider()->sample(QgsPointXY(column * 10 + 5, 65), 1, &ok);
+      QVERIFY(ok); QCOMPARE(int(code), column % 2 == 0 ? 7 : 2);
+    }
   }
   void seismicToPolygonToEditableVersions() {
     Fixture f;

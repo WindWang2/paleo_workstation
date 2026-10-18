@@ -102,7 +102,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     const auto showStatus = [this] {
       if (m_status && m_workbench)
         m_status->setText(m_kind && m_kind->currentData() == "seismic_mock"
-          ? tr("Mock：沿当前层位提取 ±12 ms 地震反射窗，聚类映射为微相；亚相和相来自三级图例，解释需地质复核。")
+          ? tr("Mock：先保存本层位测井相预测；沿层位提取 ±12 ms 地震反射窗聚类，按簇内测井相多数票定类，无井簇仅从测井已有类别中随机选择。解释需地质复核。")
           : m_kind && m_kind->currentData() == "wells"
               ? m_workbench->wellPredictionStatusHint() : m_workbench->predictionStatusHint());
     };

@@ -41,6 +41,7 @@ void PaleoMainWindow::runWorkbenchCommand(
     const QString &action, const QVariantMap &p) {
   QString error;
   bool ok = true;
+  bool declarationOnly = false;
   const auto h = p.value("horizon").toString(),
              id = p.value("layer").toString();
   const auto inputs = p.value("inputs").toStringList();
@@ -276,11 +277,13 @@ void PaleoMainWindow::runWorkbenchCommand(
   } else if (action == "delete") {
     const auto title = workbench->declaration(id).title;
     const auto products = workbench->removalProducts(id, &error);
+    declarationOnly = products.size() == 1 && products.first().toMap().value("declaration_only").toBool();
     QStringList entries, versionIds;
     for (const auto &value : products) {
       const auto product = value.toMap();
-      entries << tr("• %1（%2 个版本）").arg(product.value("title").toString())
-                     .arg(product.value("versions").toInt());
+      entries << (declarationOnly ? product.value("title").toString()
+                     : tr("• %1（%2 个版本）").arg(product.value("title").toString())
+                           .arg(product.value("versions").toInt()));
       if (m_previewDoc && m_previewDoc->catalog())
         for (const auto &version : m_previewDoc->catalog()->versionsForAsset(
                  product.value("asset_id").toString())) versionIds << version.id;
@@ -289,13 +292,21 @@ void PaleoMainWindow::runWorkbenchCommand(
       ok = false;
     } else if (!PaleoNotify::ask(
             this, tr("删除图件"),
-            tr("永久删除图件「%1」？\n"
+            declarationOnly
+                ? tr("从工程中移除未登记图件「%1」？\n"
+                     "仅移除图件列表和地图中的引用，保留原始文件及其他图层。")
+                      .arg(title.isEmpty() ? id : title)
+                : tr("永久删除图件「%1」？\n"
                "以下图件（含关联派生图件）的全部版本、数据管理记录与受管文件将一并删除，不可恢复：\n%2")
                 .arg(title.isEmpty() ? id : title, entries.join("\n")),
             PaleoNotify::AskButtons::OkCancel,
             PaleoNotify::AskDefault::Reject,
             PaleoNotify::AskIcon::Warning))
       return;
+    else if (workbench->removalProducts(id, &error) != products) {
+      ok = false;
+      if (error.isEmpty()) error = tr("图件或来源记录已变化，请重新确认删除");
+    }
     else {
       auto *deleteCanvas = m_canvasCtl->canvas();
       const bool wasFrozen = deleteCanvas->isFrozen();
@@ -415,7 +426,8 @@ void PaleoMainWindow::runWorkbenchCommand(
   else if (action == "consistency")
     message = tr("已生成地震相与测井相一致性报告并留档；双击逐井行可在画布定位。");
   else if (action == "delete")
-    message = tr("已删除图件及版本记录，受管文件正在后台清理。");
+    message = declarationOnly ? tr("已从工程移除未登记图件，原始文件已保留。")
+                              : tr("已删除图件及版本记录，受管文件正在后台清理。");
   else
     message = tr("操作完成，图件与版本已更新。");
   page->showMessage(message);

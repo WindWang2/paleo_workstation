@@ -3985,6 +3985,85 @@ private slots:
     QVERIFY2(error.contains(QStringLiteral("局部米制坐标")), qPrintable(error));
     QVERIFY(f.constraints.loadConstraints("D61").isEmpty());
   }
+  void removeUnregisteredProductPreservesDataAndOtherLayers() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto path = f.dir.filePath("legacy-prediction.geojson");
+    QVERIFY(MappingArtifactWriter::points(path, {QVariantMap{{"x", 0}, {"y", 0}, {"z", 10}}}, &error));
+    LayerDeclaration orphan;
+    orphan.layerId = "product.legacy-prediction";
+    orphan.title = "D61 测井相预测 · v1";
+    orphan.horizon = "D61"; orphan.type = "vector"; orphan.source = path;
+    QVERIFY(f.layers.declare(orphan, &error));
+    auto reference = orphan; reference.layerId = "wells.D61";
+    QVERIFY(f.layers.declare(reference, &error));
+    QPointer<QgsMapLayer> removed = f.layers.instantiate(orphan.layerId, &error);
+    QPointer<QgsMapLayer> kept = f.layers.instantiate(reference.layerId, &error);
+    QVERIFY(removed); QVERIFY(kept);
+    QVERIFY(f.work.versionForLayer(orphan.layerId).id.isEmpty());
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61"); page.selectLayer(orphan.layerId);
+    auto *results = page.findChild<QTreeWidget *>("workbenchResults");
+    QVERIFY(results); QVERIFY(results->currentItem());
+    QCOMPARE(results->currentItem()->text(1), QString("未登记"));
+    QVERIFY(page.commandButton("delete")->isEnabled());
+    const auto products = f.work.removalProducts(orphan.layerId, &error);
+    QCOMPARE(products.size(), 1);
+    QVERIFY(products.first().toMap().value("declaration_only").toBool());
+    QCOMPARE(products.first().toMap().value("title").toString(), orphan.title);
+    QVERIFY2(f.work.removeProduct(orphan.layerId, &error), qPrintable(error));
+    QVERIFY(removed.isNull()); QVERIFY(kept);
+    QVERIFY(QFile::exists(path));
+    QVERIFY(f.work.declaration(orphan.layerId).layerId.isEmpty());
+    QVERIFY(!f.work.declaration(reference.layerId).layerId.isEmpty());
+    for (const auto &row : f.work.products("D61"))
+      QVERIFY(row.toMap().value("id").toString() != orphan.layerId);
+    QVERIFY(f.project.openProject(f.project.projectPath()));
+    for (auto *layer : f.project.project()->mapLayers())
+      QVERIFY(layer->customProperty("paleoLayerId").toString() != orphan.layerId);
+    QVERIFY(f.work.declaration(orphan.layerId).layerId.isEmpty());
+    QVERIFY(QFile::exists(path));
+  }
+  void removeUnregisteredDraftWithoutSource() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    LayerDeclaration orphan;
+    orphan.layerId = "draft.missing-source";
+    orphan.type = "vector"; orphan.source = f.dir.filePath("missing.gpkg");
+    QVERIFY(f.layers.declare(orphan, &error));
+    QVERIFY2(f.work.removeProduct(orphan.layerId, &error), qPrintable(error));
+    QVERIFY(f.work.declaration(orphan.layerId).layerId.isEmpty());
+    QVERIFY(!f.work.removeProduct(orphan.layerId, &error));
+    QVERIFY(!error.isEmpty());
+  }
+  void unregisteredRemovalRespectsEditingAndReadOnlyGuards() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto path = f.dir.filePath("orphan-edit.geojson");
+    QVERIFY(MappingArtifactWriter::points(path, {QVariantMap{{"x", 0}, {"y", 0}, {"z", 10}}}, &error));
+    LayerDeclaration orphan;
+    orphan.layerId = "draft.orphan-edit"; orphan.type = "vector"; orphan.source = path;
+    QVERIFY(f.layers.declare(orphan, &error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(orphan.layerId, &error));
+    QVERIFY(layer); QVERIFY(layer->startEditing());
+    QVERIFY(!f.work.removeProduct(orphan.layerId, &error));
+    QVERIFY2(error.contains("编辑"), qPrintable(error));
+    QVERIFY(!f.work.declaration(orphan.layerId).layerId.isEmpty());
+    QVERIFY(layer->isEditable()); QVERIFY(layer->rollBack());
+    f.manifest.setReadOnly(true);
+    QVERIFY(!f.work.removeProduct(orphan.layerId, &error));
+    QVERIFY(!f.work.declaration(orphan.layerId).layerId.isEmpty());
+    QVERIFY(f.layers.layer(orphan.layerId)); QVERIFY(QFile::exists(path));
+    f.manifest.setReadOnly(false);
+    f.catalog.setLockedReadOnly(true);
+    QVERIFY(!f.work.removeProduct(orphan.layerId, &error));
+    QVERIFY(!f.work.declaration(orphan.layerId).layerId.isEmpty());
+    f.catalog.setLockedReadOnly(false);
+    QVERIFY(!f.work.removeProduct("wells.D61", &error));
+  }
   void removeProductDeletesAssetDeclarationsAndFiles() {
     Fixture f;
     QVERIFY(f.init());

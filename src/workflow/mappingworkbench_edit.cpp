@@ -457,14 +457,24 @@ QVariantList MappingWorkbench::removalProducts(const QString &layerId, QString *
     fail(error, tr("只有生成的图件与编辑副本可在此删除"));
     return {};
   }
-  if (!m_catalog || !m_layers) {
+  if (!m_catalog || m_catalog->refusesWrites() || !m_layers) {
     fail(error, tr("请先打开可写工程"));
     return {};
   }
   const auto target = versionForLayer(layerId);
   if (target.assetId.isEmpty()) {
-    fail(error, tr("所选图件尚未登记到数据管理"));
-    return {};
+    QVector<LayerDeclaration> declarations;
+    if (!m_layers->tryDeclared(&declarations, error)) return {};
+    const auto found = std::find_if(declarations.cbegin(), declarations.cend(),
+        [&layerId](const auto &d) { return d.layerId == layerId; });
+    if (found == declarations.cend()) {
+      fail(error, tr("所选图件已不存在，请刷新图件列表"));
+      return {};
+    }
+    // A stale declaration has no catalogue ownership proof. Remove its
+    // project reference only; never infer ownership from a filename/path.
+    return {QVariantMap{{"layer_id", layerId}, {"title", found->title.isEmpty() ? layerId : found->title},
+        {"source", found->source}, {"versions", 0}, {"declaration_only", true}}};
   }
   // 一次建反向谱系，按资产广度遍历；每条版本边只处理一次。
   QHash<QString, QVector<CatalogVersion>> childrenByAsset;
@@ -505,6 +515,14 @@ bool MappingWorkbench::removeProduct(const QString &layerId, QString *error, boo
   }
   const auto products = removalProducts(layerId, error);
   if (products.isEmpty()) return false;
+  if (products.first().toMap().value("declaration_only").toBool()) {
+    if (!m_layers->removeDeclaration(layerId, error)) return false;
+    releaseLayerHandles();
+    if (m_project && !m_project->projectPath().isEmpty() && !m_project->writeProject())
+      emit errorOccurred(tr("图件已移除，但工程视图保存失败：%1")
+                             .arg(m_project->lastErrors().join("；")));
+    return true;
+  }
   if (products.size() > 1 && !includeDerived) {
     fail(error, tr("下游图件「%1」以它为来源，请确认同时删除关联派生图件")
                     .arg(products[1].toMap().value("title").toString()));

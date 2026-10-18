@@ -833,7 +833,7 @@ void MappingWorkbenchPage::refresh() {
         m_results, {row.value("name").toString(),
                     row.value("version").toInt() > 0
                         ? tr("v%1").arg(row.value("version").toInt())
-                        : tr("源数据")});
+                        : row.value("unregistered_product").toBool() ? tr("未登记") : tr("源数据")});
     item->setData(0, Qt::UserRole, row);
     item->setToolTip(0, row.value("path").toString());
     if (row.value("id").toString() == selected)

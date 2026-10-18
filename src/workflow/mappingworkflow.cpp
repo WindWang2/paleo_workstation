@@ -36,6 +36,7 @@
 namespace
 {
 using paleo::workflow_detail::setError;
+using paleo::workflow_detail::raiseToErrorHub;
 
   constexpr float kNoData = -9999.0f;
 
@@ -616,12 +617,19 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
   if ( !st.isValid() )
   {
     qWarning() << "thickness wells layer staging failed";
+    // #556：主栅格已产出但井位层缺产物——用户/任务面板必须可见，不再只落日志
+    raiseToErrorHub( ErrorHub::Level::Error, QStringLiteral( "mapping" ),
+                     tr( "厚度井位层暂存失败" ),
+                     tr( "层位 %1：派生产物暂存失败，厚度井位层未生成" ).arg( horizon ) );
     return;
   }
   QString writeErr;
   if ( !writeThicknessWellsGeoJson( samples, st.absolutePath, &writeErr ) )
   {
     qWarning() << "thickness wells layer write failed:" << writeErr;
+    raiseToErrorHub( ErrorHub::Level::Error, QStringLiteral( "mapping" ),
+                     tr( "厚度井位层写入失败" ),
+                     tr( "层位 %1：%2" ).arg( horizon, writeErr ) );
     return;
   }
   if ( !QFile::exists( st.absolutePath ) )
@@ -629,7 +637,12 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
   QString commitErr;
   if ( !registrar.commit( st, {}, QStringLiteral( "mappingworkflow/thickness_wells" ),
                           {}, &commitErr ) )
+  {
     qWarning() << "thickness wells version registration failed:" << commitErr;
+    raiseToErrorHub( ErrorHub::Level::Error, QStringLiteral( "mapping" ),
+                     tr( "厚度井位层版本登记失败" ),
+                     tr( "层位 %1：%2" ).arg( horizon, commitErr ) );
+  }
 
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "wells.thickness.%1" ).arg( horizon );
@@ -639,8 +652,13 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
   decl.group = QStringLiteral( "04_SingleFactor" );
   decl.title = tr( "厚度井位" );
   QString declErr;
-  if (!recordThicknessDeclaration(decl, &declErr))
+  if ( !recordThicknessDeclaration( decl, &declErr ) )
+  {
     qWarning() << "thickness wells layer declare failed:" << declErr;
+    raiseToErrorHub( ErrorHub::Level::Error, QStringLiteral( "mapping" ),
+                     tr( "厚度井位层声明失败" ),
+                     tr( "层位 %1：%2" ).arg( horizon, declErr ) );
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 // 层：功能
 #include "folderimport.h"
+#include "workflowerrors_internal.h" // raiseToErrorHub：#556 台账写失败入账
 
 #include "../io/dataimportservice.h"
 #include "../catalog/datacatalog.h"
@@ -247,7 +248,12 @@ void FolderImportWorkflow::recordLedger(const QString &dir, const QDateTime &sta
   }
   QString lerr;
   if (!ledger.record(batch, &lerr))
+  {
     qWarning() << "import ledger record failed:" << lerr;
+    paleo::workflow_detail::raiseToErrorHub(
+        ErrorHub::Level::Warning, QStringLiteral("folderimport"),
+        tr("导入台账写入失败"), lerr); // #556：导入本身已成功，降 Warning 档
+  }
 }
 
 FolderRowResult

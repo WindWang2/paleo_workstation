@@ -18,6 +18,17 @@ inline void setError( QString *error, const QString &text )
     *error = text;
 }
 
+/// #556 吞错路径收口：调用点 qWarning 保留为诊断日志，同时接 ErrorHub
+/// raise() 让用户/任务面板可见（DESIGN.md 错误呈现 error/warning 档：
+/// 非模态通知卡 + 环形历史）。raise 任意线程可调；未安装全局 hub
+/// （单测/组装根之前）为 no-op——调用点自身的 qWarning 已兜底诊断。
+inline void raiseToErrorHub( ErrorHub::Level level, const QString &source,
+                             const QString &title, const QString &text )
+{
+  if ( ErrorHub *hub = ErrorHub::global() )
+    hub->raise( level, source, title, text );
+}
+
 /// 版面导出快照重建的缺层警告统一入账（DESIGN.md 错误呈现 warning 档：
 /// 非模态通知卡 + 环形历史）。ErrorHub::raise 任意线程可调——worker 线程
 /// 直接上报，errorRaised 经 AutoConnection 排队回 GUI 线程呈现；未安装

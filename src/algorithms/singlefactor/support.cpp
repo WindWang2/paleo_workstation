@@ -537,6 +537,13 @@ std::string resolveParameters( const PreparedInput &input, const GridSpec &grid,
   params->directions.clear();
   params->soft.clear();
   params->spacingSubsampled = false;
+  // B-11（full-audit-20261020）：meanNearestSpacing 是 O(n²) 且在本函数内先于
+  // gridBudgetOk 的样本闸执行——预算闸的 1e6 上限与「验收井数不超过 200」的
+  // 注释假设差三个数量级，闸形同虚设。交互预算先拒（拒绝而非静默降档，
+  // #149 口径）：>2e4 井点的输入按错误返回，不给用户无响应假象。
+  if ( input.samples.size() > 20000 )
+    return "井点样本数 " + std::to_string( input.samples.size() )
+        + " 超交互预算（>20000）——请先抽样或裁剪井点输入";
   if ( !( params->power > 0.0 ) || !std::isfinite( params->power ) )
     return "power 必须为有限正数";
   const bool gridless = grid.cols <= 0 || grid.rows <= 0;

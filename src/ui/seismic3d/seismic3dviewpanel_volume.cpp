@@ -7,7 +7,7 @@
 
 // SF-1（full-audit-20261020）：视图侧堆叠层清理入口定义在此 TU——
 // viewportwidget 主文件 1003 冻结值不涨（file-budget/ui-size 只缩不涨纪律）。
-void Seismic3DViewportWidget::clearStackLayers() {
+void seismic::Seismic3DViewportWidget::clearStackLayers() {
     if (glInitialized_) {
         makeCurrent();
         sliceRenderer_.ClearStackLayers(this);
@@ -15,6 +15,8 @@ void Seismic3DViewportWidget::clearStackLayers() {
     }
     update();
 }
+
+namespace seismic {
 
 void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
     // #158：换体/清体先中止旧体在途的切片读取（结果按槽位句柄丢弃）。
@@ -105,3 +107,5 @@ void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
     if (stackMode_)
         requestStackLayers();
 }
+
+} // namespace seismic

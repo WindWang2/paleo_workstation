@@ -83,6 +83,10 @@ public:
     [[nodiscard]] bool IsSlotVisible(SeismicSliceSlot slot) const;
     [[nodiscard]] bool IsSlotReady(SeismicSliceSlot slot) const;
     void ClearSlot(QOpenGLFunctions_3_3_Core *gl, SeismicSliceSlot slot);
+    // D-05/SF-1（full-audit-20261020）：换体清全部堆叠层 GPU 状态——
+    // 新体取数失败/未开体渲染时旧体平面不得残留上屏（纹理资源保留复用，
+    // 仅清 ready 标志）。
+    void ClearStackLayers(QOpenGLFunctions_3_3_Core *gl);
 
     // D7.1 传递函数（GPU 1D LUT）：enable=true 时切片/堆叠层/任意剖面纹理
     // 改传归一化索引（GL_RG8），着色器按 LUT 取色取不透明度。lutRgba 为

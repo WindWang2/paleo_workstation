@@ -39,3 +39,27 @@
 | F8 | E-10/E-12/E-13/E-11部分 | ci_triage_reds selftest 17 夹具（已过）+ ctest 注册面对账 | selftest 已过 |
 | F9 | C-11/C-14/C-15 | tst_paleomaplibrary 新例（C-14/C-15 静态修复 review 钉） | 待跑 |
 | F10 | B-11 + B-10 | tst_singlefactor_contract 补例（B-11）+ tst_faultsurface 新例（B-10） | 待跑（B-11 测试待补） |
+
+## Round 3 — R2 复审 + Fix 2（Phase 4-5）
+
+- **Finding IDs**: R2-MF-1/MF-2/SF-1/SF-3/SF-5（闭合）；SF-2/SF-4（登记）
+- **Changed Files**: seismic3d 三件+新 TU/CMakeLists/constraintpage_wellfactors/ci_triage_reds/tst_paleomaplibrary
+- **Verification**: file-budget/ui-size 冻结值回位（1003/1775）；triage selftest 18 夹具绿；transitive 52/50 持平
+- **Review Result**: MF-2 抓准（我违反冻结值）；MF-1 抓准（断言必红）
+- **Remaining Work**: 全量回归 + 终审
+- **Next Action**: 终局 ctest
+
+## Round 4 — 终局回归 + R3 终审（Phase 6-7）
+
+- **Finding IDs**: R3-MUST_FIX（include 未提交）+ SHOULD-2
+- **Changed Files**: tst_wellattributes/volume TU
+- **Verification**: 提交树重编译（build13）绿；426/440 终局（14 红=10 master G1+#533+2 在册+1 墙钟抖动，零新增）；5 簇红绿双证（A-10/B-04/B-05/D-13/C-10）
+- **Review Result**: R3 初判 FAIL（include 脏树）→ d45f74d7 闭合 → PASS-WITH-NOTES
+- **Remaining Work**: master 对账 + PR
+- **Next Action**: Phase 8 交付
+
+## 环境事件对账（贯穿）
+
+Arrow 25/26 ABI（rpath-link 旁路）/ld 偶发段错误（重试）/-j4 并链资源（降 -j2）/
+ar 写入期偶发损坏（重放档案命令重建）/AppDir 库遮蔽 prefix（LD_LIBRARY_PATH 排序）/
+ccache 疑云（禁用后仍现——真凶是 ar/写入偶发，非 ccache）。全部 ENVIRONMENT_FAILURE，06 分账在案。

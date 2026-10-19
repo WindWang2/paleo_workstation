@@ -29,6 +29,8 @@ tst_assetpaging 基线 SEGFAULT）作参照。
 ## 全量 ctest 结果（终局，Fix-1 + Fix-2 后）
 
 - **426/440 通过（97%），14 红全部为 master 既有/在册/负载抖动，零本轮新增回归**。
+- **提交树（HEAD）复跑终局：427/440**——tst_catalog 墙钟抖动未再现，13 红全部
+  为 master 既有/在册（10 项 G1 簇 + #533 + tst_ui legendTitle + tst_assetpaging）。
 - 环境要点：`LD_LIBRARY_PATH` 必须 **prefix 在前、AppDir 在后**（AppDir 自带全套
   QGIS/GDAL——前置会遮蔽共享 prefix 的已打补丁 QGIS，tst_labelzorder 曾因此假红）；
   QGIS_PREFIX_PATH 需指向 vendor prefix。

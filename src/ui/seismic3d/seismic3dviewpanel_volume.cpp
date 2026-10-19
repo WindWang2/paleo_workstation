@@ -4,6 +4,10 @@
 // D-05 面板侧派生内容弃置（缓存清空/世代号/回退弹回/§35 reason tooltip）。
 #include "seismic3dviewpanel.h"
 #include "seismic3dviewportwidget.h"
+#include <QComboBox>
+#include <QSlider>
+#include <QSpinBox>
+#include <QWidget>
 
 // SF-1（full-audit-20261020）：视图侧堆叠层清理入口定义在此 TU——
 // viewportwidget 主文件 1003 冻结值不涨（file-budget/ui-size 只缩不涨纪律）。

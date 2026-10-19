@@ -726,6 +726,15 @@ bool Seismic3DViewportWidget::isLineSectionReady() const {
     return pendingLineSlice_.valid || sliceRenderer_.IsSlotReady(SeismicSliceSlot::Line);
 }
 
+void Seismic3DViewportWidget::clearStackLayers() {
+    if (glInitialized_) {
+        makeCurrent();
+        sliceRenderer_.ClearStackLayers(this);
+        doneCurrent();
+    }
+    update();
+}
+
 void Seismic3DViewportWidget::clearLineSection() {
     pendingLineSlice_.valid = false;
     activeSectionPath_.clear();

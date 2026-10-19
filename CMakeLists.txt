@@ -825,6 +825,7 @@ add_library(paleo_ui STATIC
   src/ui/seismic3d/volumeframerenderer.cpp
   src/ui/seismic3d/seismic3dviewportwidget.cpp
   src/ui/seismic3d/seismic3dviewpanel.cpp
+  src/ui/seismic3d/seismic3dviewpanel_volume.cpp            # 换体入口 TU（full-audit-20261020 拆分）
   src/ui/seismicsection/seismicsectioncanvas.cpp   # 2D 任意线/井剖面 dock
   src/ui/seismicsection/seismicsectiondockwidget.cpp
   src/ui/paleotheme.cpp                            # DESIGN.md 字体/色 token

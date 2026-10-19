@@ -61,7 +61,15 @@ spacing/dedup 多候选/重入勾选/空 BOM）全部未推翻修复。
 
 ## Testing
 
-- 基线：421/438（17 红）→ rebase 终局全量：**436/439（3 红，全部基线既有/已登记）**
+- 基线：421/438（17 红）→ rebase 前终局全量：436/439（3 红，全部基线既有/已登记）
+- rebase 至 816f9b40 后共享 vendor prefix 被并行工作于 08:24 重建（QGIS 4.2.3→
+  4.2.2，新库无 RUNPATH，传递依赖 libqgis_native 解析断——219 个用例加载失败，
+  **外部环境事件非代码回归**；BUILDING.md「不要在共享 prefix 中清理或重建」被
+  并行会话违反）。以 LD_LIBRARY_PATH 前置旁路完成终局全量回归（见下），并顺带
+  收敛 master 自身的 docs_drift 红（主窗家族 TU 计数 26→27，#578 漏更）。
+- 终局全量（LD_LIBRARY_PATH 旁路）：**437/440（99%），3 红全部基线既有/已登记**
+  （layering_transitive #533 挂起、tst_ui legendTitle 基线红、tst_assetpaging 基线
+  SEGFAULT）；docs_drift 经本 PR 主窗 TU 计数同步后绿
 - 3 红分账：layering_transitive（ui_qtwidgets_notes 7>6，#533 裁决挂起，基线文件
   头注+known-reds 在案）、tst_ui legendTitle（stash 法证实基线即红）、
   tst_assetpaging SEGFAULT（基线在册）

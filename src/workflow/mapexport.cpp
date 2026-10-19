@@ -93,7 +93,15 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
   for (const auto &candidate : catalog->versions())
     if (candidate.sha256.compare(sha, Qt::CaseInsensitive) == 0 && candidate.stage == "OUTPUT" &&
         candidate.extra.value("horizon").toString() == horizon && catalog->assetById(candidate.assetId).format == format) {
-      existing = candidate; break;
+      // 在盘复核（R2-1）：陈旧 OUTPUT 版本（sha 在册、受管文件已删）不得
+      // 复用——旧 versionBySha256 路径有此复核，改线性扫描后须保留，否则
+      // dedup 返回悬空 managed 路径，批量导出到发布期才失败。
+      const QString onDisk = catalog->versionFilePath(candidate);
+      QString verifyError;
+      if (QFile::exists(onDisk) &&
+          DataCatalog::sha256FileHex(onDisk, &verifyError).compare(sha, Qt::CaseInsensitive) == 0) {
+        existing = candidate; break;
+      }
     }
   // §3 dedup 的层位域必须严格同域：空层位导出不得复用带层位登记的既有版本
   // （否则调用侧按本层位回写 extra 时会把既有版本的层位归属清空——C-01）。

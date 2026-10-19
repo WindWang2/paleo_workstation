@@ -3,6 +3,18 @@
 // 主文件拆出，file 预算纪律 1827 冻结值不涨）：#158 在途切片顶替 +
 // D-05 面板侧派生内容弃置（缓存清空/世代号/回退弹回/§35 reason tooltip）。
 #include "seismic3dviewpanel.h"
+#include "seismic3dviewportwidget.h"
+
+// SF-1（full-audit-20261020）：视图侧堆叠层清理入口定义在此 TU——
+// viewportwidget 主文件 1003 冻结值不涨（file-budget/ui-size 只缩不涨纪律）。
+void Seismic3DViewportWidget::clearStackLayers() {
+    if (glInitialized_) {
+        makeCurrent();
+        sliceRenderer_.ClearStackLayers(this);
+        doneCurrent();
+    }
+    update();
+}
 
 void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
     // #158：换体/清体先中止旧体在途的切片读取（结果按槽位句柄丢弃）。

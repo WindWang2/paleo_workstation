@@ -700,6 +700,35 @@ private slots:
     panel.setStackModeEnabled(false);
     QVERIFY(!panel.isStackModeEnabled());
 
+    // D-05（full-audit-20261020）：换体弃置面板侧派生内容缓存——
+    // 旧体任意剖面不得经 TF 重喂回到新体，换体后 isLineSectionReady 归零。
+    auto staleA = std::make_shared<SgyVolume>();
+    QVERIFY(writeTestSegy(dir.filePath("stale_a.sgy"), 4, 4, 32));
+    QVERIFY(staleA->Load((dir.filePath("stale_a.sgy")).toStdString(), err));
+    auto staleB = std::make_shared<SgyVolume>();
+    QVERIFY(writeTestSegy(dir.filePath("stale_b.sgy"), 4, 4, 20)); // 不同采样数
+    QVERIFY(staleB->Load((dir.filePath("stale_b.sgy")).toStdString(), err));
+    Seismic3DViewPanel stalePanel;
+    stalePanel.resize(800, 600);
+    stalePanel.setVolume(staleA);
+    const std::vector<glm::ivec2> linePath{{1001, 2001}, {1002, 2002}};
+    stalePanel.requestLineSection(linePath); // 无任务服务 → 同步回落贴 A 剖面
+    QVERIFY(stalePanel.isLineSectionReady());
+    stalePanel.setVolume(staleB);            // 换体：旧体剖面整体弃置
+    QVERIFY(!stalePanel.isLineSectionReady());
+    stalePanel.setTransferFunctionEnabled(true);  // TF 重喂不得回灌旧体
+    stalePanel.setTransferFunctionEnabled(false);
+    QVERIFY(!stalePanel.isLineSectionReady());
+    stalePanel.requestLineSection(linePath); // 新体剖面照常可贴
+    QVERIFY(stalePanel.isLineSectionReady());
+
+    // D-07（full-audit-20261020）：无体不可入拾取——enter 返回 false（按钮处理器据此弹回）
+    Seismic3DViewPanel emptyPanel;
+    QVERIFY(!emptyPanel.enterObliqueSectionPick());
+    QVERIFY(!emptyPanel.enterFenceSectionPick());
+    QVERIFY(stalePanel.enterObliqueSectionPick()); // 有体（B）可入
+    stalePanel.viewport()->setSectionPickMode(false);
+
     // D3.4/D3.12 面板 API
     std::vector<Seismic3DWell> wells;
     Seismic3DWell w;

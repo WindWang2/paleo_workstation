@@ -274,6 +274,23 @@ private slots:
     declaredIds.clear(); for (const auto &row : rows) declaredIds << row.layerId;
     QVERIFY(declaredIds.contains(removedLayerId));
   }
+  // C-14（full-audit-20261020）：copyDataset 失败自清——第二个成员 copy 失败
+  //（目标已存在，QFile::copy 拒绝覆写）时整目录回收，不留半拷孤儿字节。
+  void copyDatasetFailureCleansDirectory() {
+    QTemporaryDir source, target;
+    const auto path = source.filePath("half.shp");
+    QVERIFY(shape(path));
+    QDir().mkpath(target.path());
+    // 预置目标目录内同名 .shx：拷贝 .shp 成功、拷 .shx 时 QFile::copy 失败。
+    QFile preexisting(target.filePath("half.shx"));
+    QVERIFY(preexisting.open(QIODevice::WriteOnly)); preexisting.close();
+    QString error;
+    const auto copied = PaleoMapFiles::copyDataset(path, target.path(), {}, &error);
+    QVERIFY(copied.isEmpty());
+    QVERIFY2(!error.isEmpty(), "copy 失败必须报错");
+    QVERIFY2(!QFile::exists(target.filePath("half.shp")), "失败后目录必须自清");
+    QVERIFY(QFile::exists(source.filePath("half.shp"))); // 源不动
+  }
   // C-11（full-audit-20261020）：角点是 SEG-Y 道头原值（单位随工区 CRS）——
   // 度制坐标（|x|≤360 且 |y|≤90）下 /1e6 是量级失真的伪面积，surveyArea 如实
   // 返回 -1（消费端按「未登记边界」兜底）；米制照常计算。

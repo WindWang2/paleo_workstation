@@ -40,21 +40,38 @@ namespace PaleoMapImport
 {
 bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, const QString &path,
              const QString &horizon, const PaleoMapLibrary::Request &request, const std::function<bool()> &cancelled,
-             Prepared *out, QString *error, const QString &existingAsset)
+             Prepared *out, QString *error, const QString &existingAsset, const QSet<QString> &removedAssetIds)
 {
   CatalogVersion current;
   if (!existingAsset.isEmpty())
     current = cat->currentVersion(existingAsset);
-  else for (const auto &asset : cat->assets())
-    if (asset.type == "paleogeographic_map")
-    {
-      const auto v = cat->currentVersion(asset.id);
-      if (v.sourceUri == path && v.extra.value("horizon") == horizon)
+  else
+  {
+    // C-10（full-audit-20261020）：文件导入按 sourceUri+horizon 匹配现有资产时，
+    // 删除态（可回收清单内）资产不得被静默复活——同文件命中删除态资产即拒绝，
+    // 提示先恢复或永久删除（另建新资产会在恢复时产生同源双资产）。
+    bool removedMatch = false;
+    for (const auto &asset : cat->assets())
+      if (asset.type == "paleogeographic_map")
       {
-        current = v;
-        break;
+        const auto v = cat->currentVersion(asset.id);
+        if (v.sourceUri == path && v.extra.value("horizon") == horizon)
+        {
+          if (removedAssetIds.contains(asset.id))
+          {
+            removedMatch = true;
+            break;
+          }
+          current = v;
+          break;
+        }
       }
+    if (removedMatch)
+    {
+      if (error) *error = QObject::tr("该图件已在可回收清单中（删除状态），请先恢复或永久删除后再导入");
+      return false;
     }
+  }
   const auto oldRaw = current.extra.contains("source_raw_version_id")
                           ? cat->versionById(current.extra.value("source_raw_version_id").toString())
                           : current;

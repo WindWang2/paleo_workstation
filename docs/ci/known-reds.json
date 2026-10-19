@@ -54,7 +54,7 @@
       "owner": "WindWang2",
       "added": "2026-10-18",
       "review_due": "2027-01-18",
-      "reason": "lint 车道 Source gates 三处红（#540-7：triage needs lint，含红闸即恒红，故按 job-scope 登记而非留未知红）：① --transitive 带 QGIS_PREFIX 实测 ui_qtwidgets_notes 7>baseline 6——#531 导出链封装新增的 src/qgis/layoutpreview.h（PaleoLayoutPreview : QWidget 薄壳）被 geologicalexportdialog.cpp include 带入 1 条视图层记录边（设计后果；#533 相面修复员已删掉原 2 条 faciespartitiontool 边，净剩 1 条差额，两文件均不属本岗可改范围，口径裁决见 AGENTS.md 与 tools/transitive-baseline.txt 头注）；② ui_size --strict 2 个条目（见 ui-size-strict-grown-20261018）；③ #538 新接线的 file_budget --strict 5 个条目（见 file-budget-strict-grown-20261018）。qgs-audit/qgis-spread 两步已转绿（#523 封装收敛 + 基线删 4 行）"
+      "reason": "lint 车道 Source gates 三处红（#540-7：triage needs lint，含红闸即恒红，故按 job-scope 登记而非留未知红）：① --transitive 带 QGIS_PREFIX 实测 ui_qtwidgets_notes 7>baseline 6——#531 导出链封装新增的 src/qgis/layoutpreview.h（PaleoLayoutPreview : QWidget 薄壳）被 geologicalexportdialog.cpp include 带入 1 条视图层记录边（设计后果；#533 相面修复员已删掉原 2 条 faciespartitiontool 边，净剩 1 条差额，两文件均不属本岗可改范围，口径裁决见 AGENTS.md 与 tools/transitive-baseline.txt 头注）；② ui_size --strict 2 个条目（见 ui-size-strict-grown-20261018）；③ #538 新接线的 file_budget --strict 5 个条目（见 file-budget-strict-grown-20261018）。qgs-audit/qgis-spread 两步已转绿（#523 封装收敛 + 基线删 4 行）（2026-10-19 审计第三轮：file_budget/ui_size 族红已修复转绿、对应条目已删；本 job 级条目覆盖剩余 lint Source gates 红，当前为 layering_transitive 的 ui_qtwidgets_notes #533 裁决挂起项）"
     }
   ]
 }

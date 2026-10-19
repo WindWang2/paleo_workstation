@@ -103,8 +103,6 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
         existing = candidate; break;
       }
     }
-  // §3 dedup 的层位域必须严格同域：空层位导出不得复用带层位登记的既有版本
-  // （否则调用侧按本层位回写 extra 时会把既有版本的层位归属清空——C-01）。
   if ( !existing.id.isEmpty() && existing.stage == "OUTPUT" &&
        catalog->assetById(existing.assetId).format == format &&
        existing.extra.value("horizon").toString() == horizon )

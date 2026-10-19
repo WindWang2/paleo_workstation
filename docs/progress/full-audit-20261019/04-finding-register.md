@@ -12,7 +12,7 @@
 | ID | Sev | Conf | 位置 | 根因 | 修复策略 | 状态 |
 |---|---|---|---|---|---|---|
 | G1-01 | P2 | VERIFIED | src/ui/maptools/identifytool.{h,cpp} | #552 新增 QgsMapTool 子类直连 qgs* 头且未登记（qgs_audit 新增即红；同目录 8 个同类文件均在初冻基线） | 按批 3 纪律加入 layering_vocab.json qgs_audit_whitelist（带理由：QgsMapTool 子类=视图原生控件，与基线内 paleomaptools/paleoshapetools/sitingpicktool 同族） | OPEN |
-| G1-02 | P3 | VERIFIED | src/ui/maptools/identifypopup.cpp:58 | setSpacing(2) 硬编码间距，绕过 DESIGN.md token 体系（spacingXs=4/sm=8/md=16） | 改 tokens.spacingXs（4px，符合设计尺度；变化 2→4px 属对齐设计体系） | OPEN |
+| G1-02 | P3 | VERIFIED | src/ui/maptools/identifypopup.cpp:58 | setSpacing(2) 硬编码间距，绕过 DESIGN.md token 体系（spacingXs=4/sm=8/md=16） | 改 tokens.spacingXs（4px，符合设计尺度；变化 2→4px 属对齐设计体系） | FIXED b1076a62 |
 | G1-03 | P2 | VERIFIED | src/ui/pages/datalist_tree.cpp（file 1100>1094；buildNavTreeSpec 679>676） | #566 在冻结面内净增 ~10 行（auxiliary sub/expanded 逻辑） | 提取「辅助资料分支」~75 行为 buildAuxiliaryNavSpec() 落新 TU（仿 buildPaleomapNavSpec 先例，fn/file 双收敛） | OPEN |
 | G1-04 | P2 | VERIFIED | src/ui/dialogs/folderconfirm.cpp buildFolderConfirmDialog 363>346 | #549/#566 塞入 17 行文档焦点回落内联块 | 提取为文件内静态助手 pickDocumentFocusAsset()（fn 收敛，file 无冻结项） | OPEN |
 | G1-05 | P2 | VERIFIED | src/ui/pages/constraintpage_interpolation.cpp updateEngineRows 230>200（新增超标） | #546/#548 在函数内持续追加行（协变量重建+方法可见性清单膨胀） | 提取 rebuildCovariateCombo()/方法可见性助手（目标 ≤200） | OPEN |
@@ -30,7 +30,7 @@
 | G1-06 | P2 | VERIFIED | tools/transitive-baseline.txt | #564 把 heavy_tus 钉为 87 但其实测即 88（本树与 5a3cbe83 树 TU 集完全一致、edges 恒 52）；+1 TU 归因 #562 拆分文件 ui/paleomainwindow_paleomaps.cpp（#474 先例：拆分自然受染非新增债） | OPEN（带归因 re-pin 87→88） |
 | G1-07 | P3 | VERIFIED | tools/file-budget-baseline.txt:63 | #564 将 attachConstraintPage 冻结值 718→**719**（该 PR 未触碰该 cpp；+1 行来自 #563 等自然增长）——「补登转绿」违约 | OPEN（压回 ≤718 并恢复冻结值） |
 | G1-08 | P3 | VERIFIED | docs/ci/known-reds.json | E-06：5 条登记红实测已回冻结值内（STALE），与当前红集零交集 | OPEN（逐条复测后删条目） |
-| MA-F01 | P3 | HIGH | src/qgis/previewidentify.cpp:114-115 + identifytool.cpp/previewmappage.cpp 两调用方 | 契约注释称「层序自顶而下」，但两个调用方都直接传 canvas()->layers()（QGIS 绘制序=自底而上）→ 弹窗/结果序与视觉堆叠序相反 | OPEN（identifyPoint 内化反转+契约更新+多层级测试） |
+| MA-F01 | P3 | ~~HIGH~~ | src/qgis/previewidentify.cpp | **FALSE_POSITIVE（终审证实）**：canvas layers() 实为 index 0=顶层，旧代码本就正确；Fix-1 曾误修，R2-1 发现后已回退（eb39c31f）并钉死契约注释 | CLOSED（假阳性） |
 | （修正）E-01 部分 | — | — | ui_qtwidgets_notes 7>6 为**已登记** known-red（#533 裁决挂起，transitive-baseline 头注在案），非未登记红 | EXTERNAL（#533） |
 
 ## Subagent Findings（修复池）
@@ -39,7 +39,7 @@
 
 | ID | Sev | Conf | 位置 | 一句话 | 状态 |
 |---|---|---|---|---|---|
-| A-01 | P2 | VERIFIED | src/io/dataimport_geodata.cpp:382-403 | geojson 图例字典 readAll 无大小闸（同族 FA-002/#387 口径遗漏） | OPEN |
+| A-01 | P2 | VERIFIED | src/io/dataimport_geodata.cpp:382-403 | geojson 图例字典 readAll 无大小闸（同族 FA-002/#387 口径遗漏） | FIXED 0dc5a1a4 |
 | A-02 | P3 | HIGH | src/io/cuttingsdoc.cpp:560-580 | 岩屑 csv/txt readAll 无闸（xlsx 分支有），井剖面打开延迟引爆 | OPEN |
 | A-03 | P3 | VERIFIED | src/io/ingestplan.cpp:538 | 哈希进度回调恒传总数违背「已见文件数」契约（#549 搬运旧错） | OPEN |
 | A-04 | P3 | SUSPECTED | src/catalog/catalogstore_json.cpp:280-294 | 负 ord 链接行静默丢弃无告警（与同函数口径不对称） | OPEN |
@@ -62,18 +62,18 @@
 
 | ID | Sev | Conf | 位置 | 一句话 | 状态 |
 |---|---|---|---|---|---|
-| C-01 | P3 | VERIFIED | geologicalexport.cpp:201-204 + mapexport.cpp:86-99 | 空层位导出复用带 horizon 既有版本并清空其归属，下游按 horizon 归集错位 | OPEN |
-| C-02 | P3 | VERIFIED | onnxpredictionservice.cpp:774 | runTensor 失败路径锁外读 m_loaded（QString 竞争 + 冗余） | OPEN |
-| C-03 | P3 | HIGH | horizonbatchexport.cpp:495-508 | 同资产多文件产物 dedup 缺口（#537 修复未覆盖 files>1 分支） | OPEN |
+| C-01 | P3 | VERIFIED | geologicalexport.cpp:201-204 + mapexport.cpp:86-99 | 空层位导出复用带 horizon 既有版本并清空其归属，下游按 horizon 归集错位 | FIXED eea57e46+c632b50f |
+| C-02 | P3 | VERIFIED | onnxpredictionservice.cpp:774 | runTensor 失败路径锁外读 m_loaded（QString 竞争 + 冗余） | FIXED 0dc5a1a4 |
+| C-03 | P3 | HIGH | horizonbatchexport.cpp:495-508 | 同资产多文件产物 dedup 缺口（#537 修复未覆盖 files>1 分支） | FIXED eea57e46 |
 | C-05 | P3L | VERIFIED | mappingworkbench_predict.cpp:414-427 | Mock 井标定 95% 进度冻结 | RECORD-ONLY |
-| C-06 | P3L | VERIFIED | horizonbatchexport.cpp:317-318 | registerMapPdfAsset 未传 horizon 参（与单图口径分叉） | OPEN（与 C-03 同文件同 commit） |
+| C-06 | P3L | VERIFIED | horizonbatchexport.cpp:317-318 | registerMapPdfAsset 未传 horizon 参（与单图口径分叉） | FIXED eea57e46 |
 | C-04 | P3 | SUSPECTED | folderimport.cpp:363-410 | preview 双胞胎无队列串行 | **EXCLUDED_EXISTING_ISSUE #560**（preview 双胞胎即其登记面；且 PR #569 活跃触碰该文件） |
 
 ### Agent D（qgis/ui，详情 findings-agent-D.md）
 
 | ID | Sev | Conf | 位置 | 一句话 | 状态 |
 |---|---|---|---|---|---|
-| D-01 | P3 | VERIFIED | constraintpage.cpp:224-231 + constraintpage_wellfactors.cpp:300-341 | #544 漏「单因素表换行勾选」路径：逐井表残留旧因素值、等值距默认按旧值域——错误默认静默提交 | OPEN |
+| D-01 | P3 | VERIFIED | constraintpage.cpp:224-231 + constraintpage_wellfactors.cpp | #544 漏「单因素表换行勾选」路径（终审 FR-1/FR-2 更正：有保存版本路径由既有字段组合框链自愈，Fix-1 的 A-restore 在换勾时刻惰性；**无版本换勾路径的等值距建议残留仍在**——constraintpage.cpp:233 于清表前读旧值域，wellfactors 失败路径无重算者） | PARTIAL 051ed34d：A-restore 保留（口径对齐时有值）+ 终态钉子测试；残留 OPEN 待后续（重构两次破坏既有套件，见 07 试错记录） |
 | D-02 | P3L | VERIFIED | mappingreferencepanel.cpp:193-196,257-258 | #547 删「至少一视图」保护留死参 setCanRemove；关最后视图无空态文案 | OPEN |
 | D-03 | P3L | VERIFIED | datalist_paleomaps.cpp:21 | qMax(1,bundle_members) 对无记录图虚构「1 个配套文件」 | OPEN |
 | D-04 | P3L | VERIFIED | paleomainwindow.cpp:598 | #565 删 lastPage 读取后 QSettings 永久死写 | OPEN |

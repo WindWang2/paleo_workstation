@@ -6,7 +6,6 @@
 #include "../src/workflow/workflows.h"
 #include "helpers/workflowfixture.h"
 #include <QComboBox>
-#include <QDebug>
 #include <QDoubleSpinBox>
 #include <QLabel>
 #include <QSignalSpy>

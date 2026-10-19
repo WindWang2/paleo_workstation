@@ -37,3 +37,17 @@
   采样点随 B-01 配准校正后全绿
 - **Review**: 待 Review 2
 - **Remaining**: E-02/B-03/B-04/D-02/A-04/E-05/B-05 未修（P3 低/中，视 R2 意见入 Fix 2 或记录）
+
+## R4 — Review 2 → Fix 2 → 终审（2026-10-19）
+
+- **R2**：R2-1（MUST×1/SHOULD×3）+ R2-2（MUST×1/SHOULD×1）；B-01 双重独立证实；
+  E2 golden 跟进全裁合法；E3 基线纪律合规
+- **Fix 2**：eb39c31f（MA-F01 假阳性回退）/c632b50f（dedup 在盘复核+warnings 接线）/
+  24a8bf4a（D-01 测试升级）；D-01 重构两案破坏既有套件→按实证回退
+- **终审**：PASS-WITH-NOTES（FR-1 诚实性 MUST：D-01「收口」声明不实→已更正台账，
+  残留 OPEN；FR-2 残留在码；FR-3 transitive 基线与 #578 未来对撞→PR 注明）
+- **全量回归**：436/439（99%），基线 17 红→3 红（全部基线既有/已登记：
+  layering_transitive #533 挂起、tst_ui legendTitle 基线红、tst_assetpaging 基线
+  SEGFAULT）；基线 5 个二进制红转绿（含 A-03 修复的 tst_ingestplan）
+- **NOTE 清理**：mapexport 重复注释、测试无用 include、known-reds 滞留引用、
+  登记册状态列全量回填

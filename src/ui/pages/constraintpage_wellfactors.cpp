@@ -342,6 +342,9 @@ void ConstraintPage::applySuggestedContourInterval()
   if (!(step > 0.0)) {
     if (spin->value() == 0.0 && !checkedFactorIsStructural())
       spin->setValue(20.0);
+    // R2-1/MF-1（full-audit-20261020）：无可用建议时复位默认 tooltip——
+    // 上一因素的「（旧极差）」文案不得冒充当前因素的数值依据残留。
+    spin->setToolTip(tr("默认约为当前单因素有效值极差的 1/6，可再改。"));
     setProperty("paleo.page.contourIntervalKey", key);
     return;
   }

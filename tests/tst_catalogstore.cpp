@@ -1021,27 +1021,23 @@ void TestCatalogStore::negativeAndDuplicateLinkOrdsWarnOnLoad()
     QVERIFY2(store.commit(&err), qPrintable(err));
     store.close();
   }
-  // 模拟手改/损坏：一行负 ord；再塞一行与既有行重复的 ord=1。
+  // 模拟手改/损坏：一行负 ord。注：ord 是 INTEGER PRIMARY KEY（rowid 别名），
+  // 重复 ord 在本 schema 下不可构造——装载侧的重复告警是纵深防御，不在此测。
   QVERIFY2(execSql(sqlitePath,
                    QStringLiteral("UPDATE entity_asset_links SET ord = -5 WHERE entity_id = 'ent-1'"),
-                   &err),
-           qPrintable(err));
-  QVERIFY2(execSql(sqlitePath,
-                   QStringLiteral("INSERT INTO entity_asset_links (ord, entity_type, entity_id, asset_id,"
-                                  " role, is_primary, unresolved, ordinal, note) VALUES"
-                                  " (1, 'well', 'ent-x', 'ast-1', 'log', 0, 0, 0, '')"),
                    &err),
            qPrintable(err));
 
   {
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression("negative ord=-5"));
-    QTest::ignoreMessage(QtWarningMsg, QRegularExpression("duplicate link ord=1"));
     CatalogStore store;
     CatalogStore::Tables tables;
     QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
-    // 负 ord 行跳过；重复 ord 后写覆盖前行（既有行为，仅告警）。
+    // 负 ord 行跳过并告警；其余行装载不受影响（ord=1 落位后留 ord=0 空档——
+    // 与修复前同一装载行为，只补可见性）。
     QCOMPARE(tables.links.size(), 2);
-    QCOMPARE(tables.links.at(1).entityId, QStringLiteral("ent-x"));
+    QCOMPARE(tables.links.at(1).entityId, QStringLiteral("ent-2"));
+    QVERIFY(tables.links.at(0).entityId.isEmpty());
     store.close();
   }
 }

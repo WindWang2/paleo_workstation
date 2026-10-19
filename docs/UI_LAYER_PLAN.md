@@ -194,11 +194,12 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 变更、buildShell 六段按原文行序分解仅加函数边界、构造期 connect 55 条
 序列对拍唯一偏移 = ErrorHub 计数两条前移（wireErrorHubStatus 合并原两段）。
 
-**实测（2026-10-17，issue-sweep 分支）：paleomainwindow.cpp 1015 行（家族 26 TU）**
+**实测（2026-10-19，全仓审计第三轮）：paleomainwindow.cpp 1015 行（家族 27 TU）**
+（2026-10-17 issue-sweep 实测为 26 TU；#578 从 _attach.cpp 拆出 run 状态承载后 +1）
 （#473 拆分：`_workbench.cpp` 1250→525 行 + `_workbench_commands/_wells` 承载；
 #516 新增 `_references.cpp` 参考面板域）
 
-家族全表（`src/ui/paleomainwindow*.cpp` 共 26 TU，平铺不建子目录；行数为
+家族全表（`src/ui/paleomainwindow*.cpp` 共 27 TU，平铺不建子目录；行数为
 当日实测，#318 文案改动后与 #312 落点微差——漂移护栏按 ±20% 容差盯本行）：
 
 | TU | 行数 | 域（各 TU 头注释口径） |

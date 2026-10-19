@@ -1,5 +1,6 @@
 // 层：数据
 #include "storagegovernance.h"
+#include "../domain/sidecarvocab.h"
 #include "../io/pathcanon.h"
 #include <QDirIterator>
 #include <QCoreApplication>
@@ -26,15 +27,9 @@ bool inRoots(const QString &relative) {
     if (relative.startsWith(root + QLatin1Char('/'))) return true;
   return false;
 }
-// #283 shapefile 族附属后缀：成员与主 .shp 同目录同主名、无独立 catalog
-// 记录，但 OGR 打开图层缺一不可——必须随主件同生共死。覆盖 ingestplan 归组
-// 口径（shp/shx/dbf/prj）外加 .cpg 与常见索引/元数据后缀。
-const QStringList shpSidecarSuffixes = {
-  QStringLiteral("shx"), QStringLiteral("dbf"), QStringLiteral("prj"),
-  QStringLiteral("cpg"), QStringLiteral("sbn"), QStringLiteral("sbx"),
-  QStringLiteral("fbn"), QStringLiteral("fbx"), QStringLiteral("ain"),
-  QStringLiteral("aih"), QStringLiteral("atx"), QStringLiteral("qix"),
-  QStringLiteral("ixs"), QStringLiteral("mxs")};
+// #283 + B-03/A-14：附属文件词表统一在 domain/sidecarvocab.h——shapefile
+// 族（OGR 必备件 + 索引/样式/元数据）与「主件全名+后缀串」特判（.xml/
+// .aux.xml）单一事实源，与 paleomapfiles 导入侧并集，防两侧再分叉。
 bool safeFile(const FileFact &f, const QString &projectDir) {
   CatalogVersion v;
   v.path = f.relativePath;
@@ -82,39 +77,53 @@ Report scan(const Snapshot &s, const Progress &progress) {
     if (!path.isEmpty()) f = fact(path, s.projectDir);
     r.versionFiles.insert(v.id, f);
     // Dataset manifests keep coordinate/style members alive with their main file.
+    QSet<QString> registeredCanonical; // 本版本已登记引用的 canonical（防族扫描重复入账）
     for (const auto &entry : v.extra.value("bundle_members").toList()) {
       const auto name = entry.toMap().value("file").toString();
       if (!v.managed || !DataCatalog::isSafePathSegment(name) || name == QFileInfo(path).fileName()) continue;
       const auto member = QFileInfo(path).absoluteDir().filePath(name); const auto sidecar = fact(member, s.projectDir);
       if (sidecar.sizeBytes < 0 || !sidecar.canonicalPath.startsWith(projectCanonical + '/')) continue;
-      references.insert(sidecar.canonicalPath); r.versionSidecars[v.id].append(sidecar);
+      references.insert(sidecar.canonicalPath); registeredCanonical.insert(sidecar.canonicalPath);
+      r.versionSidecars[v.id].append(sidecar);
     }
-    // #283：shapefile 族附属文件（.shx/.dbf/.prj/.cpg…）没有 catalog 记录，
-    // 但与主 .shp 同生共死——主件在工程内时把同目录同主名的成员一并登记为
-    // 被引用（不进孤儿清单），并记入 versionSidecars 供 purge 连带回收。
+    // #283 + B-03/A-14：附属文件族扫描——bundle 与非 bundle 版本同权（此前
+    // 以 bundle_members.isEmpty() 为门，bundle 导入后由 QGIS/GDAL 生成的
+    // .aux.xml/.qix/.qml/.tfw 全部误报孤儿，用户确认回收即删）。主件后缀
+    // 分派 shp 族/栅格族词表；成员若已由 bundle_members 登记，跳过（幂等）。
     // 成员若已登记为某个版本文件，登记为被引用是同值幂等，purge 侧会在
     // preview 里跳过（它是别人的版本字节，不能连带删）。
-    if (v.extra.value("bundle_members").toList().isEmpty() && f.sizeBytes >= 0 && !f.canonicalPath.isEmpty()
-        && f.canonicalPath.startsWith(projectCanonical + QLatin1Char('/'))
-        && QFileInfo(path).suffix().compare(QLatin1String("shp"), Qt::CaseInsensitive) == 0) {
-      const QDir vdir = QFileInfo(path).absoluteDir();
-      const QString base = QFileInfo(path).completeBaseName();
-      // ingestplan 归组大小写不敏感（.SHP/.SHX 同主名即成族），族成员按原名
-      // 落位受管版本目录——成员探测同样大小写不敏感，否则大写族附属（如
-      // BOUNDARY.SHX）仍是孤儿、仍会被误删（Linux 大小写敏感文件系统现形）。
-      const QString xmlName = base + QStringLiteral(".shp.xml");
-      for (const auto &entry : vdir.entryList(QDir::Files)) {
-        if (entry.compare(xmlName, Qt::CaseInsensitive) != 0) {
+    if (f.sizeBytes >= 0 && !f.canonicalPath.isEmpty()
+        && f.canonicalPath.startsWith(projectCanonical + QLatin1Char('/'))) {
+      const QString mainSuffix = QFileInfo(path).suffix().toLower();
+      const bool isShp = mainSuffix == QLatin1String("shp");
+      const bool isRaster = mainSuffix == QLatin1String("tif") || mainSuffix == QLatin1String("tiff")
+        || mainSuffix == QLatin1String("img") || mainSuffix == QLatin1String("png")
+        || mainSuffix == QLatin1String("jpg") || mainSuffix == QLatin1String("jpeg");
+      if (isShp || isRaster) {
+        const QDir vdir = QFileInfo(path).absoluteDir();
+        const QString base = QFileInfo(path).completeBaseName();
+        const QString mainName = QFileInfo(path).fileName();
+        const QStringList &sidecarSuffixes = isShp ? paleo::sidecars::shpFamily() : paleo::sidecars::rasterFamily();
+        // ingestplan 归组大小写不敏感（.SHP/.SHX 同主名即成族），族成员按原名
+        // 落位受管版本目录——成员探测同样大小写不敏感，否则大写族附属（如
+        // BOUNDARY.SHX）仍是孤儿、仍会被误删（Linux 大小写敏感文件系统现形）。
+        for (const auto &entry : vdir.entryList(QDir::Files)) {
           const QFileInfo ei(entry);
-          if (ei.completeBaseName().compare(base, Qt::CaseInsensitive) != 0) continue;
-          if (!shpSidecarSuffixes.contains(ei.suffix().toLower())) continue;
+          bool hit = false;
+          if (ei.completeBaseName().compare(base, Qt::CaseInsensitive) == 0
+              && sidecarSuffixes.contains(ei.suffix().toLower()))
+            hit = true;
+          else
+            for (const auto &nameSuffix : paleo::sidecars::nameSuffixes())
+              if (entry.compare(mainName + QLatin1Char('.') + nameSuffix, Qt::CaseInsensitive) == 0) { hit = true; break; }
+          if (!hit) continue;
+          const QFileInfo si(vdir.filePath(entry));
+          if (!si.isFile() || si.isSymLink()) continue;
+          const QString c = PathCanon::canonicalize(si.absoluteFilePath());
+          if (c.isEmpty() || registeredCanonical.contains(c)) continue;
+          references.insert(c);
+          r.versionSidecars[v.id].append(fact(si.absoluteFilePath(), s.projectDir));
         }
-        const QFileInfo si(vdir.filePath(entry));
-        if (!si.isFile() || si.isSymLink()) continue;
-        const QString c = PathCanon::canonicalize(si.absoluteFilePath());
-        if (c.isEmpty()) continue;
-        references.insert(c);
-        r.versionSidecars[v.id].append(fact(si.absoluteFilePath(), s.projectDir));
       }
     }
     if (f.sizeBytes >= 0) {

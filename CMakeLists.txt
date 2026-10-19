@@ -993,7 +993,13 @@ endfunction()
 # QtWidgets 词表禁令 + 层标记硬检查；词表外置 tools/layering_vocab.json
 # （scripts/new_module.sh 同步维护）。baseline 已归零，--strict 是防回升闸门
 # （非空即红）；selftest 单独成项——扫描器自身坏掉不能静默变绿。 ----
+# E-13（full-audit-20261020）：python3 缺失时 ~36 个源码闸门 ctest 项会静默
+# 不注册（ctest 全绿假象）——配置错不能静默变绿，显式 FATAL_ERROR 早失败。
 find_program(PALEO_PYTHON3 NAMES python3 python)
+if(NOT PALEO_PYTHON3)
+  message(FATAL_ERROR "未找到 python3——源码闸门（layering/ui/i18n/file_budget 等）"
+          "无法注册；安装 python3 后重新 configure（政策见 BUILDING.md）")
+endif()
 if(PALEO_PYTHON3)
   add_test(NAME layering COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py)
@@ -1039,12 +1045,19 @@ add_test(NAME qgis_spread_strict COMMAND ${PALEO_PYTHON3}
          ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py --strict)
 add_test(NAME qgis_spread_selftest COMMAND ${PALEO_PYTHON3}
          ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py --selftest)
-set_tests_properties(qgis_spread qgis_spread_strict PROPERTIES LABELS layering)
+# E-12（full-audit-20261020）：与其余源码闸门同口径——无标签 ctest 项 +
+# WORKING_DIRECTORY 双保险（AGENTS.md「构建与测试布线」节声明）。
+set_tests_properties(qgis_spread qgis_spread_strict qgis_spread_selftest
+                     PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   #（triage job 消费前，本地/ctest 先过一遍名单合法性与解析器回归）。
   add_test(NAME ci_known_reds COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/ci_triage_reds.py --validate)
   add_test(NAME ci_triage_reds_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/ci_triage_reds.py --selftest)
+  # E-11（full-audit-20261020）部分收口：flaky 台账检查器 selftest 接闸——
+  # 此前零注册（检查器自身坏掉不能静默变绿；跨 run 聚合接线见 #501 后续）。
+  add_test(NAME flaky_ledger_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_flaky_ledger.py --selftest)
   # goal/ui-experience-polish：UI 不变量闸门——DESIGN.md Motion 禁编排动画
   #（src/ui 零 QPropertyAnimation/QEasingCurve/setAnimated(true)）+ QSS 裸
   # hex 零容忍（token 单一真源 = paleotheme；baseline 只缩不涨，strict 防回升）。
@@ -1123,7 +1136,7 @@ set_tests_properties(qgis_spread qgis_spread_strict PROPERTIES LABELS layering)
   set_tests_properties(layering layering_strict layering_selftest
                        layering_symbol_audit layering_transitive
                        layering_qgs_audit
-                       ci_known_reds ci_triage_reds_selftest
+                       ci_known_reds ci_triage_reds_selftest flaky_ledger_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        ui_size ui_size_strict ui_size_selftest

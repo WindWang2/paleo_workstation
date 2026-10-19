@@ -666,6 +666,50 @@ private slots:
   // 砂地比物理域门：维护值组合（砂厚 25/层厚 20——各字段单独合法，属性表
   // 校验不查组合）绕过单字段校验后，提取端必须拒收越界比值井并注明原因，
   // 不静默裁剪、不带病插值；合法比值（15/20=0.75）照常参与。
+  // D-13（full-audit-20261020）：换勾因子后等值距建议不得取自上一因子的
+  // 提取行——勾选互斥 handler 先于清表 handler 执行，wellFactorTable 仍是
+  // 旧因素行；行归属键守卫按（层位, 因子）校验，无版本的换勾因素保留用户
+  // 手设间距而非用旧值域 1/6 伪装修改。
+  void crossFactorSwitchDoesNotLeakContourSuggestion() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QVERIFY(addWell(f, "W2"));
+    QString error;
+    QVERIFY(WellAttributeStore::seedFactors(&f.catalog, f.dir.path(), &f.layers,
+                                            {QVariantMap{{"well_id", "W1"},
+                                                         {"horizon", "D61"},
+                                                         {"log_sand_thickness_md", 10.0},
+                                                         {"log_layer_thickness_md", 20.0},
+                                                         {"sand_ratio", 0.4}},
+                                             QVariantMap{{"well_id", "W2"},
+                                                         {"horizon", "D61"},
+                                                         {"log_sand_thickness_md", 70.0},
+                                                         {"log_layer_thickness_md", 20.0},
+                                                         {"sand_ratio", 0.6}}},
+                                            &error));
+    ConstraintWorkflow factors(&f.proc, &f.layers);
+    factors.setCatalog(&f.catalog, f.dir.path());
+    QVariantMap params{{"factorMode", "direct"},
+                       {"valueField", "log_sand_thickness_md"},
+                       {"numeratorField", "log_sand_thickness_md"},
+                       {"denominatorField", "log_layer_thickness_md"}};
+    QVERIFY2(factors.extractWellFactors("D61", "sandthick", params, &error),
+             qPrintable(error));
+    ConstraintPage page(&factors);
+    page.setHorizons({"D61"});
+    page.findChild<QComboBox *>("horizonCombo")->setCurrentIndex(0);
+    auto *factorTable = page.findChild<QTableWidget *>("factorTable");
+    auto *spin = page.findChild<QDoubleSpinBox *>("contourIntervalSpin");
+    factorTable->item(0, 0)->setCheckState(Qt::Checked); // sandthick：恢复 10/70
+    QCOMPARE(spin->value(), 10.0); // (70-10)/6 = 10，归属一致建议成立
+    spin->setValue(5.0);           // 用户手设间距（触发 contourIntervalUser）
+    // 换勾 sandratio（本口径无已保存版本）：不得用 sandthick 的 10~70 行
+    // 把 5.0 覆写回 10.0（修复前正是旧行域 1/6 泄漏）。
+    factorTable->item(1, 0)->setCheckState(Qt::Checked);
+    QCOMPARE(spin->value(), 5.0);
+    QVERIFY(!spin->toolTip().contains(QStringLiteral("10 ~ 70"))); // 不伪造当前因素值域
+  }
   void contradictoryMaintainedThicknessRatioIsRefused() {
     WorkflowFixture f;
     QVERIFY(initFixture(f));

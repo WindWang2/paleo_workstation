@@ -256,9 +256,10 @@ void ProjectStatisticsPage::refresh()
   }
   for (const auto &v : horizons)
     m_horizonCards << horizonCard(v.toMap(), body);
+  const auto envelopeKm2 = data.value("well_envelope_km2").toDouble();
   auto *envelope = metricCard(
       tr("井位包络面积（估算）"),
-      ready ? tr("%1 km²").arg(locale.toString(data.value("well_envelope_km2").toDouble(), 'f', 3)) : tr("—"),
+      ready && envelopeKm2 >= 0 ? tr("%1 km²").arg(locale.toString(envelopeKm2, 'f', 3)) : tr("—"),
       ready ? tr("用于衡量井位分布范围，非工区边界面积") : tr("打开工区后显示统计信息"), "dashboardEnvelope",
       body);
   if (auto *old = body->findChild<QWidget *>("dashboardEnvelopeCard", Qt::FindDirectChildrenOnly))

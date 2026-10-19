@@ -6,6 +6,12 @@
 #include <QDir>
 #include <QComboBox>
 #include <QPushButton>
+#include <QToolButton>
+#include <QDialog>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QMenu>
+#include "../src/workflow/assetops.h"
 #include <QTreeWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -121,6 +127,169 @@ class TestPaleomapLibrary : public QObject {
   }
 private slots:
   void initTestCase() { PaleoTheme::pinRenderEnvironment(); }
+  void existingMapNormalizationDialogRunsTheRegisteredMapFlow() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("D61/map.shp");
+    QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}, "SEDCLASS"));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61"; request.normalizeFacies = false;
+    const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); const auto id = imported.assets.first();
+    QgisCanvasController controller; controller.setLayerResolver([&](const QString &layer) { return f.layers.layer(layer); });
+    SelectionContext selection; selection.setActiveHorizon("D61"); PredictionWorkflow prediction(&f.processing, &f.layers);
+    CompositionWorkflow composition(&f.processing, &f.layers); ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, &f.importer, nullptr, &f.processing, &f.store, nullptr, nullptr, &f.tasks);
+    auto *list = window.findChild<DataListPanel *>(); QVERIFY(list); list->refreshAssetTable(); list->selectAssetInViews(id);
+    bool shown = false;
+    QTimer::singleShot(0, [&] {
+      auto *dialog = window.findChild<QDialog *>("paleomapNormalizeDialog");
+      if (!dialog) return;
+      auto *field = dialog->findChild<QLineEdit *>("paleomapNormalizeField");
+      if (!field) { dialog->reject(); return; }
+      shown = true; field->setText("SEDCLASS");
+      const auto qa = qEnvironmentVariable("PALEO_PALEOMAP_QA_DIR");
+      if (!qa.isEmpty()) dialog->grab().save(qa + "/normalize-existing-map.png");
+      dialog->accept();
+    });
+    list->normalizeSelectedPaleomaps(); QVERIFY(shown);
+    QTRY_COMPARE_WITH_TIMEOUT(f.importer.catalog()->currentVersion(id).stage, QString("DERIVED"), 20000);
+    const auto qa = qEnvironmentVariable("PALEO_PALEOMAP_QA_DIR");
+    if (!qa.isEmpty()) {
+      list->refreshAssetTable(); list->selectAssetInViews(id);
+      auto *tree = list->findChild<QTreeWidget *>("dataTree"); QVERIFY(tree); tree->expandAll();
+      const auto theme = PaleoTheme::currentTheme();
+      list->resize(520, 700); list->show(); QTest::qWait(100); list->grab().save(qa + "/data-map-actions.png");
+      auto *panels = window.findChild<QToolButton *>("panelsMenuButton"); QVERIFY(panels); panels->click();
+      auto *toggle = window.findChild<QAction *>("themeToggleAction"); QVERIFY(toggle);
+      auto *menu = qobject_cast<QMenu *>(toggle->parent()); QVERIFY(menu); menu->hide();
+      toggle->setChecked(true); QTest::qWait(100); list->grab().save(qa + "/data-map-actions-dark.png");
+      toggle->setChecked(theme == PaleoTheme::Theme::Dark); menu->close();
+    }
+  }
+  void existingMapsNormalizeFromStoredOriginalWithoutDuplicatingAssets() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source;
+    const auto path = source.filePath("D61/legacy.shp");
+    QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}, "SEDCLASS"));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61"; request.normalizeFacies = false;
+    const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); QCOMPARE(imported.assets.size(), 1);
+    auto *cat = f.importer.catalog(); const auto raw = cat->currentVersion(imported.assets.first());
+    QCOMPARE(raw.stage, QString("RAW")); const auto sha = DataCatalog::sha256FileHex(cat->versionFilePath(raw));
+    QVERIFY(QDir(source.filePath("D61")).removeRecursively());
+    request = {}; request.assetIds = {raw.assetId, raw.assetId}; request.microfaciesField = "SEDCLASS";
+    const auto processed = f.run(request); QVERIFY2(processed.errors.isEmpty(), qPrintable(processed.errors.join("\n")));
+    QCOMPARE(processed.assets, QStringList{raw.assetId}); QCOMPARE(cat->assets().size(), 1);
+    const auto current = cat->currentVersion(raw.assetId);
+    QCOMPARE(current.stage, QString("DERIVED")); QCOMPARE(current.extra.value("horizon").toString(), QString("D61"));
+    QCOMPARE(current.sourceUri, path); QCOMPARE(current.parentVersionIds, QStringList{raw.id});
+    QCOMPARE(cat->versionsForAsset(raw.assetId).size(), 2); QCOMPARE(DataCatalog::sha256FileHex(cat->versionFilePath(raw)), sha);
+    const auto id = current.extra.value("layer_id").toString();
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(id)); QVERIFY(layer);
+    auto features = layer->getFeatures(); QgsFeature feature; QVERIFY(features.nextFeature(feature));
+    QCOMPARE(feature.attribute("microfacies").toString(), QString("河口坝"));
+    QCOMPARE(feature.attribute("facies_name").toString(), QString("三角洲相"));
+    QCOMPARE(feature.attribute("subfacies").toString(), QString("三角洲前缘"));
+    QVERIFY(!FaciesCatalog::fillPath(feature.attribute("texture").toString()).isEmpty());
+    const auto again = f.run(request); QVERIFY(again.errors.isEmpty()); QCOMPARE(again.unchanged, 1);
+    QCOMPARE(cat->currentVersion(raw.assetId).id, current.id);
+    for (const auto &mode : {QString("facies"), QString("sub_facies"), QString("micro_facies")})
+      QVERIFY(f.work.setDisplayMode(id, mode, nullptr));
+    QVERIFY(!f.work.copyForEditing(id, {}, nullptr).isEmpty());
+  }
+  void batchNormalizationKeepsEachMapsHorizon() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source;
+    PaleoMapLibrary::Request request; request.horizon = "D61"; request.normalizeFacies = false;
+    for (const auto &h : {QString("D61"), QString("D62")}) {
+      const auto path = source.filePath(h + "/map.shp");
+      QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}})); request.files << path;
+    }
+    const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); QCOMPARE(imported.assets.size(), 2);
+    QMap<QString, QString> horizons;
+    for (const auto &id : imported.assets) horizons[id] = f.importer.catalog()->currentVersion(id).extra.value("horizon").toString();
+    request = {}; request.assetIds = imported.assets;
+    const auto processed = f.run(request); QVERIFY2(processed.errors.isEmpty(), qPrintable(processed.errors.join("\n"))); QCOMPARE(processed.assets.size(), 2);
+    for (const auto &id : imported.assets) {
+      const auto version = f.importer.catalog()->currentVersion(id); QCOMPARE(version.stage, QString("DERIVED"));
+      QCOMPARE(version.extra.value("horizon").toString(), horizons.value(id));
+    }
+  }
+  void existingMapWithoutMicroFieldReportsActionableFailure() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("map.shp");
+    QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}, "SEDCLASS"));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61";
+    const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); auto *cat = f.importer.catalog();
+    const auto raw = cat->currentVersion(imported.assets.first()); request = {}; request.assetIds = {raw.assetId};
+    const auto rejected = f.run(request); QVERIFY(rejected.assets.isEmpty()); QVERIFY(!rejected.errors.isEmpty());
+    QVERIFY(rejected.errors.join("\n").contains(QString::fromUtf8("微相字段")));
+    QCOMPARE(cat->currentVersion(raw.assetId).id, raw.id);
+  }
+  void recyclingDuringNormalizationRejectsPublication() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("map.shp");
+    QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61"; request.normalizeFacies = false;
+    const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); auto *cat = f.importer.catalog();
+    const auto raw = cat->currentVersion(imported.assets.first()); request = {}; request.assetIds = {raw.assetId};
+    bool called = false; PaleoMapLibrary::Result result;
+    QVERIFY(PaleoMapLibrary::importMaps(cat, &f.layers, &f.tasks, request, this, [&](const auto &r) { result = r; called = true; }));
+    paleo::dataops::RecycleBin bin; bin.load(cat); bin.remove(raw.assetId, "paleogeographic_map", "map", "test"); QVERIFY(bin.save());
+    QTRY_VERIFY_WITH_TIMEOUT(called, 20000); QVERIFY(!result.errors.isEmpty()); QVERIFY(result.assets.isEmpty());
+    QCOMPARE(cat->currentVersion(raw.assetId).id, raw.id); QCOMPARE(cat->versionsForAsset(raw.assetId).size(), 1);
+    QString error; QVERIFY(!PaleoMapLibrary::importMaps(cat, &f.layers, &f.tasks, request, this, {}, &error)); QVERIFY(!error.isEmpty());
+  }
+  void existingMapMissingCompanionDoesNotPublish() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("map.shp");
+    QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61"; request.normalizeFacies = false;
+    const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); auto *cat = f.importer.catalog();
+    const auto raw = cat->currentVersion(imported.assets.first());
+    const auto companion = QFileInfo(cat->versionFilePath(raw)).absoluteDir().filePath("map.dbf");
+    QVERIFY(QFile::setPermissions(companion, QFile::permissions(companion) | QFileDevice::WriteOwner)); QVERIFY(QFile::remove(companion));
+    request = {}; request.assetIds = {raw.assetId}; const auto rejected = f.run(request);
+    QVERIFY(!rejected.errors.isEmpty()); QVERIFY(rejected.assets.isEmpty()); QCOMPARE(cat->currentVersion(raw.assetId).id, raw.id);
+    QCOMPARE(cat->versionsForAsset(raw.assetId).size(), 1);
+  }
+  void purgingCompoundDatasetProtectsLegacySharedReferences() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("map.shp");
+    QVERIFY(shape(path)); PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61";
+    const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); auto *cat = f.importer.catalog();
+    const auto raw = cat->currentVersion(imported.assets.first());
+    CatalogAsset alias{cat->nextAssetId(), "reference", "shp", "shared"}; QVERIFY(cat->addAsset(alias));
+    CatalogVersion version; version.id = cat->nextVersionId(); version.assetId = alias.id; version.stage = "RAW";
+    version.versionNumber = 1; version.managed = false; version.path = cat->versionFilePath(raw); version.sha256 = raw.sha256;
+    QVERIFY(cat->addVersion(version));
+    const auto purged = paleo::assetops::purgeAssets(cat, f.dir.path(), {raw.assetId});
+    QVERIFY(purged.failedAssets.isEmpty()); QCOMPARE(purged.purgedAssetIds, QStringList{raw.assetId});
+    for (const auto &value : raw.extra.value("bundle_members").toList())
+      QVERIFY(QFile::exists(QFileInfo(version.path).absoluteDir().filePath(value.toMap().value("file").toString())));
+  }
+  void dataManagementDeleteIsVisibleRecoverableAndCompoundPurgeKeepsExternalOriginal() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("D61/map.shp");
+    QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61";
+    const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); const auto id = imported.assets.first(); auto *cat = f.importer.catalog();
+    PreviewDocService doc(&f.importer); DataListPanel list; list.setDocService(&doc); list.refreshAssetTable();
+    auto *remove = list.findChild<QToolButton *>("dataDeleteButton"); QVERIFY(remove); QVERIFY(!remove->isEnabled());
+    list.selectAssetInViews(id); QVERIFY(remove->isEnabled());
+    auto *normalize = list.findChild<QToolButton *>("dataNormalizePaleomapButton"); QVERIFY(normalize); QVERIFY(normalize->isEnabled());
+    QSignalSpy intent(&list, &DataListPanel::normalizePaleomapsRequested); normalize->click(); QCOMPARE(intent.size(), 1);
+    QCOMPARE(intent.first().first().toStringList(), QStringList{id});
+    QTimer::singleShot(0, [] { auto *dialog = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()); if (dialog) dialog->done(QMessageBox::No); });
+    remove->click(); QVERIFY(!list.opsContext().recycle->isRemoved(id));
+    QTimer::singleShot(0, [] { auto *dialog = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()); if (dialog) dialog->done(QMessageBox::Yes); });
+    remove->click(); QVERIFY(list.opsContext().recycle->isRemoved(id)); QVERIFY(list.currentAssetSelection().isEmpty());
+    QVERIFY(!remove->isEnabled()); QVERIFY(!normalize->isEnabled());
+    list.undoOp(); QVERIFY(!list.opsContext().recycle->isRemoved(id));
+    list.selectAssetInViews("project_dashboard"); QVERIFY(list.currentAssetSelection().isEmpty());
+    QVERIFY(!remove->isEnabled()); QVERIFY(!normalize->isEnabled());
+    QStringList files;
+    for (const auto &version : cat->versionsForAsset(id)) {
+      files << cat->versionFilePath(version);
+      for (const auto &value : version.extra.value("bundle_members").toList())
+        files << QFileInfo(cat->versionFilePath(version)).absoluteDir().filePath(value.toMap().value("file").toString());
+    }
+    files.removeDuplicates(); for (const auto &file : files) QVERIFY(QFile::exists(file));
+    const auto purged = paleo::assetops::purgeAssets(cat, f.dir.path(), {id});
+    QVERIFY2(purged.failedAssets.isEmpty(), qPrintable(purged.failedAssets.join("\n"))); QCOMPARE(purged.purgedAssetIds, QStringList{id});
+    for (const auto &file : files) QVERIFY2(!QFile::exists(file), qPrintable(file));
+    QVERIFY(QFile::exists(path)); QVERIFY(QFile::exists(source.filePath("D61/map.dbf")));
+  }
   void importedMicrofaciesUseProjectTexturesAndThreeLevelEditing() {
     Fixture f; QVERIFY(f.init()); QString error;
     auto projectSchema = FaciesCatalog::defaults(); auto mouth = projectSchema[1].toMap(); mouth["code"] = 77; projectSchema[1] = mouth;

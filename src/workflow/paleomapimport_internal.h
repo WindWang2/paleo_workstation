@@ -12,5 +12,5 @@ struct Prepared
 };
 bool prepare(DataCatalog *catalog, const QString &projectDir, const QString &stageDir, const QString &path,
              const QString &horizon, const PaleoMapLibrary::Request &request,
-             const std::function<bool()> &cancelled, Prepared *result, QString *error);
+             const std::function<bool()> &cancelled, Prepared *result, QString *error, const QString &existingAsset = {});
 } // namespace PaleoMapImport

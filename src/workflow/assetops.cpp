@@ -1,6 +1,7 @@
 // 层：功能
 #include "assetops.h"
 #include "../io/pathcanon.h"
+#include "../services/paleomapfiles.h"
 
 #include "../catalog/datacatalog.h"
 
@@ -15,6 +16,25 @@ namespace paleo::assetops
 
 namespace
 {
+
+// A compound dataset is one asset; only safe, registered members in its own
+// managed directory may be purged. External originals are never expanded.
+QStringList versionFiles(const QString &project, const CatalogVersion &version)
+{
+  const auto primary = DataCatalog::resolvedVersionPath(project, version);
+  if (primary.isEmpty()) return {};
+  QStringList paths{primary};
+  if (!version.managed) return paths;
+  for (const auto &value : version.extra.value("bundle_members").toList()) {
+    const auto name = value.toMap().value("file").toString();
+    if (!DataCatalog::isSafePathSegment(name)) continue;
+    auto member = version;
+    member.path = QFileInfo(version.path).dir().filePath(name);
+    const auto path = DataCatalog::resolvedVersionPath(project, member);
+    if (!path.isEmpty()) paths << path;
+  }
+  paths.removeDuplicates(); return paths;
+}
 
 QString firstError(QString *error, const QString &msg)
 {
@@ -325,9 +345,7 @@ PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
     {
       if (!v.managed)
         continue; // 外链源在工程外，永不删
-      const QString abs = DataCatalog::resolvedVersionPath(projectDir, v);
-      if (!abs.isEmpty())
-        t.managedFiles << abs;
+      t.managedFiles << versionFiles(projectDir, v);
     }
     targets.append(t);
   }
@@ -394,8 +412,16 @@ PurgeOutcome purgeManagedFiles(const QString &projectDir, const QStringList &pat
 {
   PurgeOutcome out;
   QSet<QString> referenced, seen, prunedDirs;
-  for (const auto &v : retained)
-    referenced.insert(PathCanon::canonicalize(v.path, v.managed ? projectDir : QString()));
+  for (const auto &v : retained) {
+    auto files = versionFiles(projectDir, v);
+    // Legacy/external aliases may lack bundle metadata but still depend on
+    // the same SHP/DBF/SHX family. Protect them as one dataset as well.
+    const auto primary = DataCatalog::resolvedVersionPath(projectDir, v);
+    if (QFileInfo(primary).suffix().compare("shp", Qt::CaseInsensitive) == 0)
+      files += PaleoMapFiles::members(primary, nullptr);
+    for (const auto &path : files)
+      referenced.insert(PathCanon::canonicalize(path, v.managed ? projectDir : QString()));
+  }
   QHash<QString, PurgeFileExpectation> expectations;
   for (const auto &f : expected) expectations.insert(f.path, f);
   for (const auto &path : paths) {

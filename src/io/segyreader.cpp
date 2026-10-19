@@ -1118,6 +1118,18 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
           sh.bad.append(offset); // D2.7：固定道长布局——跳过并记录，不整体作废
           continue;
         }
+        if (traceNs > 0 && traceNs != ns)
+        {
+          // A-11（full-audit-20261020）：固定步长读位下道头 ns 与二进制头
+          // 不符——变道长布局误入并行路径的错位特征（eligibility 只抽查
+          // 前 8 道，尾部切换道长的文件可穿透）。错位后的 inline/xline 全是
+          // 垃圾且会被 checkpoint 固化长期复用：整体作废（FA-003 同路）转
+          // 顺序扫描按实际文件界重建。
+          sh.err = QStringLiteral(
+              "Variable trace length at offset %1 (fixed-step parallel scan aborted)")
+                       .arg(offset);
+          return;
+        }
         const qint16 scal = beI16(h + 70);
         const double coordScale =
             (scal == 0 || scal == 1) ? 1.0

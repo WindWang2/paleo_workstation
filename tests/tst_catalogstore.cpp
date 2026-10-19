@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QRegularExpression>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -525,6 +526,7 @@ private slots:
   void futureSchemaEpochRefusesWithoutBak();
   void unsafeVersionInsertedLaterIsSkippedButKept();
   void corruptLinkOrdSkippedNotHugeResize();
+  void negativeAndDuplicateLinkOrdsWarnOnLoad(); // A-13（full-audit-20261020）
   void rollbackLeavesSqliteUnchanged();
 };
 
@@ -989,6 +991,57 @@ void TestCatalogStore::corruptLinkOrdSkippedNotHugeResize()
     QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
     QCOMPARE(tables.links.size(), 1);
     QCOMPARE(tables.links.at(0).entityId, QStringLiteral("ent-1"));
+    store.close();
+  }
+}
+
+// A-13（full-audit-20261020）：负 ord 与重复 ord 链接行不再静默丢弃/覆盖——
+// 装载告警如实可见、其余行装载不受影响（行为不变，只补可见性）。
+void TestCatalogStore::negativeAndDuplicateLinkOrdsWarnOnLoad()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sqlitePath = CatalogStore::sqlitePathFor(dir.path());
+  QString err;
+
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    EntityAssetLink a;
+    a.entityType = QStringLiteral("well");
+    a.entityId = QStringLiteral("ent-1");
+    a.assetId = QStringLiteral("ast-1");
+    a.role = QStringLiteral("log");
+    EntityAssetLink b = a;
+    b.entityId = QStringLiteral("ent-2");
+    QVERIFY2(store.begin(&err), qPrintable(err));
+    QVERIFY2(store.upsertLink(0, a, &err), qPrintable(err));
+    QVERIFY2(store.upsertLink(1, b, &err), qPrintable(err));
+    QVERIFY2(store.commit(&err), qPrintable(err));
+    store.close();
+  }
+  // 模拟手改/损坏：一行负 ord；再塞一行与既有行重复的 ord=1。
+  QVERIFY2(execSql(sqlitePath,
+                   QStringLiteral("UPDATE entity_asset_links SET ord = -5 WHERE entity_id = 'ent-1'"),
+                   &err),
+           qPrintable(err));
+  QVERIFY2(execSql(sqlitePath,
+                   QStringLiteral("INSERT INTO entity_asset_links (ord, entity_type, entity_id, asset_id,"
+                                  " role, is_primary, unresolved, ordinal, note) VALUES"
+                                  " (1, 'well', 'ent-x', 'ast-1', 'log', 0, 0, 0, '')"),
+                   &err),
+           qPrintable(err));
+
+  {
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression("negative ord=-5"));
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression("duplicate link ord=1"));
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    // 负 ord 行跳过；重复 ord 后写覆盖前行（既有行为，仅告警）。
+    QCOMPARE(tables.links.size(), 2);
+    QCOMPARE(tables.links.at(1).entityId, QStringLiteral("ent-x"));
     store.close();
   }
 }

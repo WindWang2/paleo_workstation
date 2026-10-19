@@ -307,13 +307,14 @@ def classify(reds, jobs, lane_logs, today=None, out=None, summary_fh=None, lane_
                 print(f"NOTE {lane}: 作业缺位（jobs.json 无此条目——分页/改名？），"
                       f"本轮不参与分诊", file=out)
                 continue
+            why = "超时" if conclusion == "timed_out" else f"conclusion={conclusion}"
             if lane_obs:
-                print(f"::warning::观察档 {lane} conclusion={conclusion}（超时，"
+                print(f"::warning::观察档 {lane} {why}（"
                       f"不阻断）——须分诊登记", file=out)
                 obs_warn.append((lane, "<job>", None))
             else:
-                print(f"::error title=未知红项 ({lane})::{lane} conclusion={conclusion}"
-                      f"（超时——gating 车道超时不参与分诊即静默，须修复或登记）",
+                print(f"::error title=未知红项 ({lane})::{lane} {why}"
+                      f"（gating 车道不参与分诊即静默，须修复或登记）",
                       file=out)
                 unknown_err.append((lane, "<job>"))
                 rc = 1
@@ -627,7 +628,9 @@ def selftest():
              lane_steps={"lint": {"Source gates": "failure", "Install Qt6": "success"}})
     # (c) gating 车道超时 → 未知红 rc 1（此前静默跳过）；作业缺位 → NOTE 不红
     run_case("lane-timed-out", base_reds, {"windows": "timed_out"}, {}, 1,
-             ("超时——gating",))
+             ("超时", "gating 车道不参与分诊"))
+    run_case("lane-startup-failure", base_reds, {"linux": "startup_failure"}, {}, 1,
+             ("conclusion=startup_failure",))
     run_case("lane-missing", base_reds, {}, {}, 0, ("作业缺位", "不参与分诊"))
     # (d) job-scope 条目所在车道本轮绿 → STALE 可收缩（此前 lint 永无日志、
     #      条目永不被点名收缩）
@@ -637,7 +640,7 @@ def selftest():
     if failures:
         print(f"selftest：{failures} 处夹具失败")
         return 1
-    print("selftest 通过：17 分诊夹具（含 E-10 六例）+ 4 名单校验夹具 + 2 jobs 解析夹具全部命中预期。")
+    print("selftest 通过：18 分诊夹具（含 E-10 七例）+ 4 名单校验夹具 + 2 jobs 解析夹具全部命中预期。")
     return 0
 
 

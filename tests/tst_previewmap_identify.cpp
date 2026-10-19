@@ -102,8 +102,9 @@ void TestPreviewIdentify::pointIdentifyHitsVectorFeature()
 
 void TestPreviewIdentify::canvasDrawingOrderYieldsTopmostFirst()
 {
-  // MA-F01 回归：调用方按画布绘制序（自底而上）传层表，识别结果须自顶而
-  // 下——先命中视觉最上层。两层都在 (200,300) 放一个点要素。
+  // 层序契约钉死（R2-1 复审）：canvas()->layers() 的 index 0 = 视觉最
+  // 顶层，识别结果序 = 输入序（先命中视觉最上层）。两层都在 (200,300)
+  // 放一个点要素。
   std::unique_ptr<QgsVectorLayer> bottom(makeGridLayer(0));
   bottom->setName(QStringLiteral("bottom"));
   {
@@ -122,7 +123,7 @@ void TestPreviewIdentify::canvasDrawingOrderYieldsTopmostFirst()
     top->dataProvider()->addFeature(f);
   }
   top->updateExtents();
-  const auto results = m_core.identifyPoint({bottom.get(), top.get()}, QgsPointXY(200.0, 300.0), 0.5);
+  const auto results = m_core.identifyPoint({top.get(), bottom.get()}, QgsPointXY(200.0, 300.0), 0.5);
   QCOMPARE(results.size(), 2);
   QCOMPARE(results.at(0).layerName, QStringLiteral("top"));
   QCOMPARE(results.at(1).layerName, QStringLiteral("bottom"));
@@ -247,14 +248,14 @@ void TestPreviewIdentify::rasterPointOutsideExtentIsMiss()
 
 void TestPreviewIdentify::pointIdentifyAcrossMixedLayers()
 {
-  // 混合层（矢量在上、栅格在下）：点查同时命中矢量要素与栅格取值。
-  // 输入按画布绘制序（自底而上：先栅格后矢量），结果序 = 视觉序
-  //（视顶到视底）——MA-F01 契约内化后调用方直传 canvas()->layers()。
+  // 混合层（矢量在上、栅格在下）：点查同时命中矢量要素与栅格取值，
+  // 结果序 = 层序（视顶到视底）。canvas()->layers() 的 index 0 即视觉
+  // 最顶层（R2-1 复审核实），输入序即视觉序，无需反转。
   std::unique_ptr<QgsVectorLayer> vl(makeGridLayer(4));
   std::unique_ptr<QgsRasterLayer> rl(makeTinyRaster());
   QVERIFY(rl && rl->isValid());
   // 矢量点 (200,300)=p2_3 落在栅格范围内（0..400）：双命中。
-  const auto results = m_core.identifyPoint({rl.get(), vl.get()}, QgsPointXY(200.0, 300.0), 0.5);
+  const auto results = m_core.identifyPoint({vl.get(), rl.get()}, QgsPointXY(200.0, 300.0), 0.5);
   QCOMPARE(results.size(), 2);
   QVERIFY(!results.at(0).isRaster); // 矢量在前
   QCOMPARE(results.at(0).attributes.value(QStringLiteral("name")).toString(),

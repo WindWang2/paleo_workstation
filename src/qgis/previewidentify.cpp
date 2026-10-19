@@ -14,7 +14,6 @@
 #include <qgsspatialindex.h>
 #include <qgsvectorlayer.h>
 
-#include <algorithm>
 #include <cmath>
 
 namespace
@@ -112,12 +111,12 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
   const double tol = qMax( 0.0, toleranceMapUnits );
   QgsRectangle filter( point.x() - tol, point.y() - tol, point.x() + tol, point.y() + tol );
 
-  // 调用方传入的是画布绘制序（QgsMapCanvas::layers 自底而上）：反转后自顶
-  // 而下扫描，先命中的排在结果前面（结果面板序 = 视觉堆叠序）。两个调用方
-  // （主画布识别工具 / 预览页）都直接传 canvas 层表，倒序契约在此内化。
-  QList<QgsMapLayer *> scan = layers;
-  std::reverse( scan.begin(), scan.end() );
-  for ( QgsMapLayer *ml : scan )
+  // 层序自顶而下——先命中的在上面（结果面板序 = 视觉序）。注意
+  // QgsMapCanvas::layers() 的 index 0 即视觉最顶层（qgsmapsettings.h
+  // setLayers 文档「layer with index 0 will be on top」；PreviewTocPanel
+  // layerOrderChanged 直喂同序）——直接顺序遍历即可，勿反转（R2-1 复审
+  // 曾误判为绘制序自底而上，特此钉死）。
+  for ( QgsMapLayer *ml : layers )
   {
     if ( !ml )
       continue;
@@ -192,9 +191,7 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyRect(
   QVector<PreviewIdentifyResult> out;
   if ( rect.isEmpty() )
     return out;
-  QList<QgsMapLayer *> scan = layers;
-  std::reverse( scan.begin(), scan.end() );
-  for ( QgsMapLayer *ml : scan )
+  for ( QgsMapLayer *ml : layers )
   {
     auto *vl = qobject_cast<QgsVectorLayer *>( ml );
     if ( !vl || !vl->isValid() )

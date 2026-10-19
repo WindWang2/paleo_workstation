@@ -1,4 +1,5 @@
 #include "../src/qgis/wellattributestore.h"
+#include <QDoubleSpinBox>
 #include "../src/ui/pages/constraintpage.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/ui/wellcomposite/wellcompositepanel.h"

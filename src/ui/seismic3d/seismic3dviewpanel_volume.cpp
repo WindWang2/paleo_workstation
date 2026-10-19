@@ -4,7 +4,6 @@
 // D-05 面板侧派生内容弃置（缓存清空/世代号/回退弹回/§35 reason tooltip）。
 #include "seismic3dviewpanel.h"
 #include "seismic3dviewportwidget.h"
-#include <QComboBox>
 #include <QSlider>
 #include <QSpinBox>
 #include <QWidget>

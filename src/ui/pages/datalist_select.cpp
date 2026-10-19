@@ -151,6 +151,7 @@ void DataListPanel::selectAssetInViews(const QString &assetId)
       }
     }
   }
+  refreshSelectionBadge();
 }
 
 QSet<QString> DataListPanel::currentAssetSelection() const
@@ -167,6 +168,12 @@ QSet<QString> DataListPanel::currentAssetSelection() const
       if (!id.isEmpty())
         out.insert(id);
     }
+  }
+  // 树中的井、测线与统计节点不能冒充资产参与批量删除。
+  if (!m_doc || !m_doc->catalog()) return {};
+  for (auto it = out.begin(); it != out.end(); ) {
+    if (m_doc->catalog()->assetById(*it).id.isEmpty() || m_recycle.isRemoved(*it)) it = out.erase(it);
+    else ++it;
   }
   // 软删资产不在表里——选中集只含现存可见资产。
   return out;

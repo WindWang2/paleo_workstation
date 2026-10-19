@@ -70,6 +70,7 @@ struct PurgeOutcome
   QStringList pendingFiles; // deferFiles=true 时，已提交删除记录、尚待后台清理的受管路径
 };
 
+// 配套文件按 bundle_members 随同主件清理；仍被其它版本引用的成员保留。
 // 物理删除：一次 BatchSave 里 removeAsset 全部入选资产（单事务——flush 失败
 // 整批回滚、零文件动作）；提交成功后删受管版本文件与空目录（best-effort，
 // 残留如实报）。外链版本源文件永远不删（工程外的字节不是我们的）。目标版本

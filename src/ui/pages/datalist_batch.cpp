@@ -2,6 +2,8 @@
 #include "datalist.h"
 #include "../dialogs/dataexportdialog.h"
 #include <QHBoxLayout>
+#include <QVBoxLayout>
+#include "../paleotheme.h"
 #include <QToolButton>
 #include "../../workflow/dataexportworkflow.h"
 #include "../../services/paleotaskservice.h"
@@ -140,11 +142,11 @@ void DataListPanel::batchRemoveSoft()
 {
   using namespace paleo::dataops;
   const QSet<QString> ids = currentAssetSelection();
-  if (ids.isEmpty())
+  if (ids.isEmpty() || !m_ctx.valid() || m_ctx.cat->refusesWrites())
     return;
   // D5.5：软删可撤销——确认说明这一点（不是破坏性删除）。
-  if (!PaleoNotify::ask(this, tr("移除资产"),
-                        tr("把 %1 个资产移入可回收清单？\n"
+  if (!PaleoNotify::ask(this, tr("删除数据"),
+                        tr("将选中的 %1 项数据删除到可回收清单？\n"
                            "（软删：可从「可回收清单」恢复，可撤销；"
                            "catalog 记录保留）").arg(ids.size())))
     return;
@@ -156,7 +158,7 @@ void DataListPanel::batchRemoveSoft()
 void DataListPanel::removeAssetsSoft(const QStringList &assetIds)
 {
   using namespace paleo::dataops;
-  if (assetIds.isEmpty() || !m_ctx.valid())
+  if (assetIds.isEmpty() || !m_ctx.valid() || m_ctx.cat->refusesWrites())
     return;
   QVector<std::pair<QString, RecycleEntry>> entries;
   for (const QString &id : assetIds)
@@ -203,12 +205,44 @@ void DataListPanel::showWellAttachments(const QString &wellId)
 
 void DataListPanel::buildSearchActions(QWidget *searchRow, QHBoxLayout *layout, QWidget *advanced)
 {
-  auto *exportData = new QToolButton(searchRow);
+  auto *row = new QWidget(searchRow->parentWidget()); row->setObjectName("dataAssetActions");
+  auto *actions = new QHBoxLayout(row); actions->setContentsMargins(0, 0, 0, 0);
+  actions->setSpacing(PaleoTheme::tokens().spacingXs);
+  if (auto *parent = qobject_cast<QVBoxLayout *>(searchRow->parentWidget()->layout()))
+    parent->insertWidget(parent->indexOf(searchRow) + 1, row);
+  else layout->addWidget(row);
+  auto *exportData = new QToolButton(row);
   exportData->setObjectName("dataExportButton");
   exportData->setText(tr("导出数据…"));
   exportData->setToolTip(tr("导出所选数据；未选择时导出筛选后的可见数据"));
   connect(exportData, &QToolButton::clicked, this, &DataListPanel::batchExportData);
-  layout->addWidget(exportData);
+  actions->addWidget(exportData);
+  auto *remove = new QToolButton(row);
+  remove->setObjectName("dataDeleteButton"); remove->setText(tr("删除…"));
+  remove->setToolTip(tr("删除选中数据到可回收清单，可撤销或恢复；永久清理在可回收清单中操作"));
+  remove->setEnabled(false);
+  connect(this, &DataListPanel::selectionCountChanged, remove, [this, remove](int count, int) {
+    remove->setEnabled(count > 0 && m_doc && m_doc->catalog() && !m_doc->catalog()->refusesWrites());
+  });
+  connect(remove, &QToolButton::clicked, this, &DataListPanel::batchRemoveSoft);
+  actions->addWidget(remove);
+  auto *normalize = new QToolButton(row);
+  normalize->setObjectName("dataNormalizePaleomapButton"); normalize->setText(tr("三级相…"));
+  normalize->setToolTip(tr("将选中现有古地理图整理为相／亚相／微相，使用系统纹理"));
+  normalize->setEnabled(false);
+  connect(this, &DataListPanel::selectionCountChanged, normalize, [this, normalize](int, int) {
+    bool enabled = false;
+    if (m_doc && m_doc->catalog() && !m_doc->catalog()->refusesWrites())
+      for (const auto &id : currentAssetSelection())
+        enabled |= m_doc->catalog()->assetById(id).type == "paleogeographic_map";
+    normalize->setEnabled(enabled);
+  });
+  connect(normalize, &QToolButton::clicked, this, &DataListPanel::normalizeSelectedPaleomaps);
+  actions->addWidget(normalize);
+  auto *recycle = new QToolButton(row); recycle->setObjectName("dataRecycleButton");
+  recycle->setText(tr("可回收清单…")); recycle->setToolTip(tr("恢复已删除数据，或永久删除选中数据及其受管配套文件"));
+  connect(recycle, &QToolButton::clicked, this, &DataListPanel::showRecycleBin);
+  actions->addWidget(recycle); actions->addStretch();
   auto *options = new QToolButton(searchRow);
   options->setObjectName(QStringLiteral("dataListOptionsButton"));
   options->setText(tr("选项"));
@@ -452,6 +486,16 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     exportData->setData("exportData");
     menu.addSeparator();
   }
+  bool hasPaleomap = false;
+  if (m_doc && m_doc->catalog()) for (const auto &id : mix.assetIds)
+    hasPaleomap |= m_doc->catalog()->assetById(id).type == "paleogeographic_map";
+  if (hasPaleomap) {
+    auto *normalize = menu.addAction(tr("整理三级相与系统纹理…"));
+    normalize->setObjectName("normalizePaleomapsAction");
+    normalize->setEnabled(!m_doc->catalog()->refusesWrites());
+    connect(normalize, &QAction::triggered, this, &DataListPanel::normalizeSelectedPaleomaps);
+    menu.addSeparator();
+  }
   if (mix.assetIds.size() == 1) {
     auto *graph = menu.addAction(tr("查看资料关联图谱"));
     connect(graph, &QAction::triggered, this, [this, id = *mix.assetIds.constBegin()] { emit graphRequested(id); });
@@ -479,7 +523,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     {"addTag", QT_TR_NOOP("打标签…")},
     {"changeType", QT_TR_NOOP("改类型…")},
     {"exportManifest", QT_TR_NOOP("导出清单 CSV/JSON…")},
-    {"removeSoft", QT_TR_NOOP("移除（进可回收清单）")},
+    {"removeSoft", QT_TR_NOOP("删除（可恢复）…")},
     {"showInFolder", QT_TR_NOOP("在文件管理器中显示")},
     {"openExternal", QT_TR_NOOP("用系统程序打开")},
     {"renameEntity", QT_TR_NOOP("重命名实体…")},

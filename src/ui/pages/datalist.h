@@ -152,6 +152,7 @@ class DataListPanel : public QWidget
     void batchChangeType();              // D1.5（确认 + 失败明细）
     void batchRemoveSoft();              // D1.6 软删 → 可回收清单
     void batchExportData();
+    void normalizeSelectedPaleomaps();
     void buildSearchActions(QWidget *searchRow, QHBoxLayout *layout, QWidget *advanced);
     void batchExportManifest();          // D1.7 CSV/JSON
     void batchOpenPreview();             // D1.8 前几项进标签
@@ -182,6 +183,7 @@ class DataListPanel : public QWidget
   signals:
     void assetAssociationChanged(const QString &assetId);
     void graphRequested(const QString &assetId);
+    void normalizePaleomapsRequested(const QStringList &assetIds);
     void graphDataChanged();
     void importRequested(const QString &kind);   // "wells" | "seismic" | "boundary" | ...
     void versionActivated(const QString &versionId); // 体检 stale 版本定位

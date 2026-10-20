@@ -21,6 +21,7 @@ private slots:
   void sparseSpikeRejectsNullTrace();
   void synthesizeRejectsNullPointers();
   void diagnoseCoverageRejectsNullPointers();
+  void propagateRejectsInvalidGeometry();
   void runResultHelpersShapeArtifacts();
 };
 
@@ -74,6 +75,7 @@ void AlgorithmAdapterTests::nativeCppAdapterMapEntryPointsToTyped()
     { QStringLiteral( "faciesmapping:synthesize" ), QStringLiteral( "runSynthesizeFacies" ) },
     { QStringLiteral( "inversion:sparse_spike" ), QStringLiteral( "runSparseSpike" ) },
     { QStringLiteral( "wellsiting:diagnose_coverage" ), QStringLiteral( "runDiagnoseCoverage" ) },
+    { QStringLiteral( "hztrack:propagate_volume" ), QStringLiteral( "runPropagateVolume" ) },
   };
   for ( const auto &c : cases )
   {
@@ -87,7 +89,7 @@ void AlgorithmAdapterTests::nativeCppAdapterMapEntryPointsToTyped()
   }
 
   AlgorithmSpec unknown;
-  unknown.id = QStringLiteral( "hztrack:propagate_volume" );
+  unknown.id = QStringLiteral( "native:not_a_real_alg" );
   unknown.engine = QStringLiteral( "native_cpp" );
   QString err;
   const AlgorithmRunResult todo = adapter.run( unknown, {}, &err );
@@ -171,6 +173,19 @@ void AlgorithmAdapterTests::diagnoseCoverageRejectsNullPointers()
   QString err;
   QVERIFY( !adapter.runDiagnoseCoverage( in, nullptr, nullptr, &err ).ok );
   QVERIFY( err.contains( QStringLiteral( "指针" ) ) );
+}
+
+
+void AlgorithmAdapterTests::propagateRejectsInvalidGeometry()
+{
+  paleo::NativeCppAdapter adapter;
+  paleo::PropagateVolumeInputs in;
+  // nIl=0 → Invalid
+  QString err;
+  paleo::hztrack::PropagateResult out;
+  const AlgorithmRunResult r = adapter.runPropagateVolume( in, &out, &err );
+  QVERIFY( !r.ok );
+  QVERIFY( err.contains( QStringLiteral( "非法" ) ) );
 }
 
 void AlgorithmAdapterTests::runResultHelpersShapeArtifacts()

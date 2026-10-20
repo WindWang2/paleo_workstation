@@ -508,11 +508,16 @@ PaleoTask *SeismicTaskService::startVolumePropagation(
                           : nIl - 1 - seedIlIdx;
     provider.totalFetchBudget = 1 + spanL + spanR;
 
-    const paleo::hztrack::PropagateResult r = paleo::hztrack::propagateVolumeWindowed(
+    // algo-atom：hztrack:propagate_volume 经 native_runners
+    paleo::hztrack::PropagateResult r;
+    QString propErr;
+    const AlgorithmRunResult propRun = paleo::native_runners::runPropagateVolumeWindowed(
         nIl, nXl, nS,
         [&provider](int il) { return provider.section(il); },
         seedIlIdx, kernelSeeds, kernelOptions, maxInlineStep,
-        [task]() { return task && task->cancelRequested(); });
+        [task]() { return task && task->cancelRequested(); }, &r, &propErr);
+    Q_UNUSED(propRun);
+    Q_UNUSED(propErr);
     if (task && task->cancelRequested())
       return QString(); // 取消不发布半成品
     if (r.stopReason == paleo::hztrack::StopReason::ReadFailure)

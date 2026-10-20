@@ -135,6 +135,19 @@ struct DiagnoseCoverageInputs
   paleo::wellsiting::SitingOptions options;
 };
 
+struct PropagateVolumeInputs
+{
+  int nIl = 0;
+  int nXl = 0;
+  int nS = 0;
+  paleo::hztrack::SectionProvider sectionAt;
+  int seedIl = 0;
+  std::vector<paleo::hztrack::SeedPoint> seeds;
+  paleo::hztrack::TrackOptions options;
+  int maxInlineStep = 0;
+  std::function<bool()> cancelled;
+};
+
 class NativeCppAdapter
 {
   public:
@@ -170,6 +183,10 @@ class NativeCppAdapter
                                             paleo::wellsiting::CoverageReport *outReport = nullptr,
                                             paleo::wellsiting::SitingField *outField = nullptr,
                                             QString *error = nullptr );
+
+    AlgorithmRunResult runPropagateVolume( const PropagateVolumeInputs &in,
+                                           paleo::hztrack::PropagateResult *out = nullptr,
+                                           QString *error = nullptr );
 };
 
 } // namespace paleo

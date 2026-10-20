@@ -193,6 +193,12 @@ AlgorithmRunResult NativeCppAdapter::run( const AlgorithmSpec &spec, const QVari
         "NativeCppAdapter：wellsiting:diagnose_coverage 请使用类型化 "
         "runDiagnoseCoverage(DiagnoseCoverageInputs)" );
   }
+  else if ( id == QLatin1String( "hztrack:propagate_volume" ) )
+  {
+    r.error = QStringLiteral(
+        "NativeCppAdapter：hztrack:propagate_volume 请使用类型化 "
+        "runPropagateVolume(PropagateVolumeInputs)" );
+  }
   else
   {
     r.error = QStringLiteral( "NativeCppAdapter 尚未实现：%1（TODO）" ).arg( id );
@@ -658,6 +664,16 @@ AlgorithmRunResult NativeCppAdapter::runDiagnoseCoverage(
   r.diagnostics.insert( QStringLiteral( "algorithm_id" ),
                         QStringLiteral( "wellsiting:diagnose_coverage" ) );
   return r;
+}
+
+
+AlgorithmRunResult NativeCppAdapter::runPropagateVolume( const PropagateVolumeInputs &in,
+                                                         paleo::hztrack::PropagateResult *out,
+                                                         QString *error )
+{
+  return paleo::native_runners::runPropagateVolumeWindowed(
+      in.nIl, in.nXl, in.nS, in.sectionAt, in.seedIl, in.seeds, in.options, in.maxInlineStep,
+      in.cancelled, out, error );
 }
 
 } // namespace paleo

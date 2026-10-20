@@ -490,7 +490,7 @@ void ConstraintPage::updateEngineRows()
   findChild<QWidget *>(QStringLiteral("directionFamilySection"))->setVisible(interpolant);
   child<QLabel>(this, "factorConstraintHint")->setVisible(interpolant);
   if (auto *caption = child<QLabel>(this, "factorConstraintCaption"))
-    caption->setText(interpolant ? tr("约束线 · 先准备间隔线和方向线，再提取井点")
+    caption->setText(interpolant ? tr("约束线 · 可选：考虑断层或展布方向时绘制")
                                 : tr("约束线 · 用于绕障距离计算"));
   // WS-C5：结构 IDW 专属行——成图边界（面图层）+ 格网分辨率。
   auto *method = child<QComboBox>( this, "factorMethodCombo" );

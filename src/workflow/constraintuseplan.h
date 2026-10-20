@@ -36,4 +36,25 @@ struct ConstraintUsePlan
 
 ConstraintUsePlan planConstraintUse( const QVector<QVariantMap> &rows, const ConstraintMethodContext &context );
 
+// 约束就绪状态（单一事实来源）：UI 生成门、提示与 workflow 共用。
+// 约束线是可选的插值解释条件，不是普通插值的前置条件；只有当前方法会因约束
+// 整次拒绝（plan.blocking>0）时才阻止运行。
+enum class ConstraintReadinessState
+{
+  NoneRunnable,    // 1. 没有约束，允许正常计算
+  Consumed,        // 2. 有约束，当前方法会使用
+  PresentUnused,   // 3. 有约束，但当前方法不使用
+  InvalidExcluded, // 4. 只有无效约束，不参与计算（不阻止运行）
+  RequiredUnmet,   // 5. 当前方法要求的约束不满足（参数越界会被引擎整次拒绝）
+};
+
+struct ConstraintReadiness
+{
+  ConstraintReadinessState state = ConstraintReadinessState::NoneRunnable;
+  bool runAllowed = true;
+  QString message; // 中文一句话说明
+};
+
+ConstraintReadiness assessConstraintReadiness( const ConstraintUsePlan &plan );
+
 } // namespace paleo::singlefactor

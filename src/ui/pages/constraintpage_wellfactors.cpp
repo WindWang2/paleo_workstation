@@ -247,11 +247,10 @@ void ConstraintPage::updateWellFactorActionState() {
   const bool busy = property("paleo.page.runbusy").toBool();
   const auto *horizon = child<QComboBox>(this, "horizonCombo");
   const bool hasHorizon = horizon && !horizon->currentText().trimmed().isEmpty();
-  const bool linesReady = property("paleo.page.constraintsready").toBool();
-  button->setEnabled(ready && hasHorizon && !busy && linesReady);
+  // 井点提取是输入准备，与约束线相互独立（约束只在插值时汇合）。
+  button->setEnabled(ready && hasHorizon && !busy);
   button->setToolTip(busy          ? tr("正在计算，可取消")
                      : !hasHorizon ? tr("步骤 1：请先打开工程并选择层位")
-                     : !linesReady ? tr("步骤 2：先绘制或导入本层位的间隔线和方向线")
                      : ready       ? tr("后台提取当前地层数据，保存井点版本后再计算等值面")
                                    : tr("请勾选因子并选择真实提取字段"));
 }

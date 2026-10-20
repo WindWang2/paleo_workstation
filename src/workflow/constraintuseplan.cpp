@@ -4,6 +4,8 @@
 #include <qgsgeometry.h>
 #include <qgswkbtypes.h>
 
+#include <QObject>
+
 namespace paleo::singlefactor
 {
 
@@ -106,6 +108,41 @@ ConstraintUsePlan planConstraintUse( const QVector<QVariantMap> &rows, const Con
   }
   plan.summary = summarizeConstraintDecisions( plan.decisions );
   return plan;
+}
+
+ConstraintReadiness assessConstraintReadiness( const ConstraintUsePlan &plan )
+{
+  ConstraintReadiness r;
+  const int available = plan.availableBarriers + plan.availableDirections + plan.availableSoft;
+  if ( plan.blocking > 0 )
+  {
+    r.state = ConstraintReadinessState::RequiredUnmet;
+    r.runAllowed = false;
+    r.message = QObject::tr( "%1 条约束参数越界，当前方法会拒绝运行；请修正或停用这些约束，或改用不读取约束的方法。" )
+                    .arg( plan.blocking );
+  }
+  else if ( plan.consumed > 0 )
+  {
+    r.state = ConstraintReadinessState::Consumed;
+    r.message = QObject::tr( "当前方法将使用 %1 条约束。" ).arg( plan.consumed );
+    if ( plan.invalid > 0 )
+      r.message += QObject::tr( "%1 条无效约束不参与计算。" ).arg( plan.invalid );
+  }
+  else if ( available > 0 )
+  {
+    r.state = ConstraintReadinessState::PresentUnused;
+    r.message = QObject::tr( "本层位有 %1 条可用约束，但当前算法未使用这些约束；可直接按井点计算。" ).arg( available );
+  }
+  else if ( plan.invalid > 0 )
+  {
+    r.state = ConstraintReadinessState::InvalidExcluded;
+    r.message = QObject::tr( "%1 条约束无效，不参与计算；可直接按井点计算。" ).arg( plan.invalid );
+  }
+  else
+  {
+    r.message = QObject::tr( "本层位没有约束线，按井点直接计算；如需考虑断层或展布方向可再绘制。" );
+  }
+  return r;
 }
 
 } // namespace paleo::singlefactor

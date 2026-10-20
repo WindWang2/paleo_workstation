@@ -3,12 +3,15 @@
 #include <QtTest>
 
 #include "../src/catalog/datacatalog.h"
+#include "../src/domain/wellnumeric.h"
 #include "../src/domain/welltopsedit.h"
 #include "../src/io/wellfileparsers.h"
 #include "../src/workflow/welltopseditorworkflow.h"
 
 #include <QFile>
 #include <QDir>
+#include <cmath>
+#include <limits>
 
 // 方向 32：井分层编辑与质量管理——domain 纯函数 + workflow 版本化落库。
 //   · 写侧序列化 round-trip（parse → write → parse 记录级恒等；自适应精度）
@@ -38,6 +41,8 @@ private slots:
   void batchCommitAllRows();
   void contextForUsesWellTd();
   void sentinelValuesAreValidatorErrors();
+  void mdSentinelReportedAsSentinelNotNegative();
+  void nullVocabularyIsSingleAuthority();
   void wellKeyMirrorsCatalogUnderscoreRule();
   void validateAllWellsAggregatesPerWell();
   void mergeCommitCarriesProvenance();
@@ -653,6 +658,52 @@ void TestWellTopsEdit::sentinelValuesAreValidatorErrors()
   r.tvd = -100000.0;
   r.x = -99999.5;
   QVERIFY(findIssues(validate({r}, ValidationContext()), IssueKind::SentinelValue).isEmpty());
+}
+
+// L2.3（#593）：MD 列同样命中共享缺失哨兵词表——此前 sentinelCols 只查
+// TVD/X/Y/Time，-99999 的 MD 被降级报成 MdOutOfRange「负值」。
+void TestWellTopsEdit::mdSentinelReportedAsSentinelNotNegative()
+{
+  using namespace WellTopsEdit;
+  WellTopRecord r = Fixture::rec(QStringLiteral("A1"), QStringLiteral("X"), 850.0, 850.0);
+  for (double sentinel : {-99999.0, -999.25, -9999.0, -999.0})
+  {
+    r.md = sentinel;
+    const auto sentinels = findIssues(validate({r}, ValidationContext()), IssueKind::SentinelValue);
+    QCOMPARE(sentinels.size(), 1); // 只 MD 一列（TVD/X/Y 仍合法）
+    QVERIFY(sentinels.front().message.contains(QStringLiteral("MD 列值")));
+    // 不再降级成「MD 为负值」。
+    QVERIFY(findIssues(validate({r}, ValidationContext()), IssueKind::MdOutOfRange).isEmpty());
+  }
+  // 真负值（非哨兵）仍归 MdOutOfRange。
+  r.md = -5.0;
+  QCOMPARE(findIssues(validate({r}, ValidationContext()), IssueKind::MdOutOfRange).size(), 1);
+  QVERIFY(findIssues(validate({r}, ValidationContext()), IssueKind::SentinelValue).isEmpty());
+}
+
+// C.4（#589）：空值口径唯一权威 = wellnumeric。曲线/属性值走
+// isNullCurveValue（精确四哨兵 + 范围带），坐标/海拔等合法负值域仍走
+// isNull 精确匹配——两套口径并存时同一数值会一条链判缺失、另一条判数据。
+void TestWellTopsEdit::nullVocabularyIsSingleAuthority()
+{
+  using namespace paleo::wellnumeric;
+  for (double sentinel : {-99999.0, -999.25, -9999.0, -999.0})
+  {
+    QVERIFY(isNull(sentinel));
+    QVERIFY(!isUsable(sentinel));
+    QVERIFY(isNullCurveValue(sentinel)); // 曲线口径是精确词表的超集
+  }
+  // 范围带：野外流传的非精确占位（-99995 / ±1e30）在曲线链判缺失。
+  for (double banded : {-99995.0, -1e30, 1e30, std::numeric_limits<double>::infinity(),
+                        std::numeric_limits<double>::quiet_NaN()})
+    QVERIFY(isNullCurveValue(banded));
+  // 合法负值域不受范围比较抹掉（海拔/负坐标仍可用）。
+  QVERIFY(!isNull(-5000.0));
+  QVERIFY(isUsable(-5000.0));
+  QVERIFY(!isNullCurveValue(-5000.0));
+  QVERIFY(!isNullCurveValue(150000.0)); // 大幅值不是哨兵
+  double parsed = 0.0;
+  QCOMPARE(parse(QStringLiteral("-99999.0"), &parsed), NumberKind::NullSentinel);
 }
 
 // M5：井名键镜像 catalog 规则——下划线在两端口径一致（A_1 ≡ A1）。

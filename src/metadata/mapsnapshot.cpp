@@ -119,12 +119,12 @@ bool verifyPreparedMapSnapshot(const PreparedMapSnapshot &snapshot, QString *err
   if (!snapshot.isValid()) return reject(snapshot.error.isEmpty() ? QStringLiteral("地图快照未完成") : snapshot.error);
   for (const auto &entry : snapshot.attestations) {
     const auto record = entry.toMap(); const QFileInfo file(record.value("path").toString());
-    if (!file.isFile() || file.isSymLink() || file.size() != record.value("size").toLongLong() ||
-        file.lastModified().toMSecsSinceEpoch() != record.value("modified").toLongLong())
+    if (!file.isFile() || file.isSymLink())
       return reject(QStringLiteral("登记前地图快照已经变化：%1").arg(file.filePath()));
-    // size/mtime 门只挡「变长/改时间戳」的改动：同大小、保留 mtime 的就地
-    // 篡改（字节翻转、同位宽改写）能整条穿过——prepare 已把 sha256 记进
-    // attestation，登记前必须真比（commit 之间才是快照的可信边界）。
+    // sha256 是内容判据且必须最先执行：size/mtime 门的精度随文件系统而异
+    // （mtime 秒级/纳秒级差一点就抢先报「已经变化」），而同大小、保留 mtime
+    // 的就地篡改（字节翻转、同位宽改写）只有摘要能发现——prepare 已把 sha256
+    // 记进 attestation，登记前必须真比（commit 之间才是快照的可信边界）。
     const QString expected = record.value("sha256").toString();
     if (expected.size() != 64)
       return reject(QStringLiteral("地图快照登记项缺少 SHA-256：%1").arg(file.filePath()));
@@ -132,11 +132,15 @@ bool verifyPreparedMapSnapshot(const PreparedMapSnapshot &snapshot, QString *err
     const QString actual = DataCatalog::sha256FileHex(file.filePath(), &hashErr);
     if (actual.isEmpty())
       return reject(hashErr.isEmpty()
-                        ? QStringLiteral("地图快照指纹读取失败：%1").arg(file.filePath())
-                        : hashErr);
+                      ? QStringLiteral("地图快照指纹读取失败：%1").arg(file.filePath())
+                      : hashErr);
     if (actual.compare(expected, Qt::CaseInsensitive) != 0)
       return reject(QStringLiteral("登记前地图快照内容已变化（SHA-256 不一致）：%1")
-                        .arg(file.filePath()));
+                      .arg(file.filePath()));
+    // 摘要一致后，size/mtime 作为廉价补充门（挡 attestation 自身被改）。
+    if (file.size() != record.value("size").toLongLong() ||
+        file.lastModified().toMSecsSinceEpoch() != record.value("modified").toLongLong())
+      return reject(QStringLiteral("登记前地图快照已经变化：%1").arg(file.filePath()));
   }
   return true;
 }

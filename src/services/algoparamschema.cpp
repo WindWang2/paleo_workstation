@@ -1,209 +1,131 @@
 // 层：数据
-// services/algoparamschema.cpp — 见 algoparamschema.h 头注释。字段值逐一对照
-// 算法注册表 initAlgorithm 的真值：
-//   paleo_geological_smoothing : PASSES        int    def 1    min 0
-//   paleo_constraint_idw       : FIELD         string（INPUT 的数值字段名）
-//                                FACIES_CODE   int    可选元数据
-//                                CELL_SIZE     double def 1.0
-//                                ANISO_RATIO   double def 2.0  min 0（algo-atom P3）
-//   paleo_facies_fusion        : （仅 INPUTS/OUTPUT 图层型 → 零标量字段）
-//   paleo_isopach              : NEGATIVE_TO_NODATA bool → InList 是/否
-//   paleo_facies_polygonize    : SMOOTH        double def 1    min 0 max 10
-//                                MIN_CELLS     double def 4    min 0
-//                                MIN_AREA      double def 0.0  min 0
-//                                SIMPLIFY      double def 0.0  min 0
-//                                SNAP_TOLERANCE double def 0.0 min 0
-//                                ANGLE_TOLERANCE double def 15.0 min 0 max 90
-// bool 没有独立类型词表——按 inlist 呈现（是/否，userData false/true），与
-// QgsProcessingParameterBoolean 的取值面一致。
+// services/algoparamschema.cpp — algo-atom P3：标量表单字段以 AlgorithmSpec.params
+// 为单一事实源；本文件只做 UI 富化（中文标签、InList 选项、单位后缀）。
+// 图层型端口不在此列（见 algoparamschema.h）。PredictPage 仍读 fieldsFor。
 #include "algoparamschema.h"
 
+#include "algorithmspec.h"
+
 #include <QCoreApplication>
+#include <QHash>
 
 namespace
 {
-  QVector<AlgorithmParamField> smoothingFields()
+
+QString trLabel( const char *s )
+{
+  return QCoreApplication::translate( "AlgorithmParamSchema", s );
+}
+
+// Spec 已有 label 时保留；否则用本表补中文（polygonize 等 Spec 参数 label 为空）。
+QHash<QString, QString> labelOverrides()
+{
+  static const QHash<QString, QString> k = {
+    { QStringLiteral( "PASSES" ), trLabel( "滤波次数" ) },
+    { QStringLiteral( "FIELD" ), trLabel( "Z 值字段名" ) },
+    { QStringLiteral( "FACIES_CODE" ), trLabel( "相代码（元数据）" ) },
+    { QStringLiteral( "CELL_SIZE" ), trLabel( "网格单元大小" ) },
+    { QStringLiteral( "ANISO_RATIO" ), trLabel( "各向异性比（沿方向线）" ) },
+    { QStringLiteral( "NEGATIVE_TO_NODATA" ), trLabel( "负厚度置为无数据" ) },
+    { QStringLiteral( "SMOOTH" ), trLabel( "平滑次数（3×3 多数滤波）" ) },
+    { QStringLiteral( "MIN_CELLS" ), trLabel( "最小图斑像元数" ) },
+    { QStringLiteral( "MIN_FRACTION" ), trLabel( "最小图斑占有效区比例" ) },
+    { QStringLiteral( "MIN_AREA" ), trLabel( "最小图斑面积" ) },
+    { QStringLiteral( "SIMPLIFY" ), trLabel( "化简容差" ) },
+    { QStringLiteral( "BOUNDARY_SMOOTH" ), trLabel( "边界圆润化迭代（Chaikin 切角）" ) },
+    { QStringLiteral( "SNAP_TOLERANCE" ), trLabel( "约束吸附距离" ) },
+    { QStringLiteral( "ANGLE_TOLERANCE" ), trLabel( "约束角度容差" ) },
+    { QStringLiteral( "VALUE_RANGES" ), trLabel( "值域（可选）" ) },
+    { QStringLiteral( "TENSION" ), trLabel( "张力" ) },
+    { QStringLiteral( "MAX_SWEEPS" ), trLabel( "最大扫描次数" ) },
+    { QStringLiteral( "POWER" ), trLabel( "幂" ) },
+    { QStringLiteral( "MIN_POINTS" ), trLabel( "最少邻点数" ) },
+    { QStringLiteral( "MAX_POINTS" ), trLabel( "最多邻点数" ) },
+    { QStringLiteral( "SEARCH_RADIUS" ), trLabel( "搜索半径" ) },
+  };
+  return k;
+}
+
+QHash<QString, QString> suffixOverrides()
+{
+  static const QHash<QString, QString> k = {
+    { QStringLiteral( "MIN_AREA" ), QStringLiteral( " m²" ) },
+    { QStringLiteral( "ANGLE_TOLERANCE" ), QStringLiteral( "°" ) },
+  };
+  return k;
+}
+
+void enrichField( AlgorithmParamField *f )
+{
+  if ( !f )
+    return;
+  if ( f->label.isEmpty() || f->label == f->key )
   {
-    AlgorithmParamField passes;
-    passes.key = QStringLiteral( "PASSES" );
-    passes.label = QCoreApplication::translate( "AlgorithmParamSchema", "滤波次数" );
-    passes.type = AlgorithmParamField::Int;
-    passes.defaultValue = 1;
-    passes.hasMin = true;
-    passes.minValue = 0.0;
-    passes.hasMax = true; // UI 实用上限：算法本体只设 min 0，超大值拖垮整页运行
-    passes.maxValue = 99.0;
-    return { passes };
+    const auto labels = labelOverrides();
+    const auto it = labels.constFind( f->key );
+    if ( it != labels.cend() )
+      f->label = it.value();
   }
-
-  QVector<AlgorithmParamField> constraintIdwFields()
+  if ( f->suffix.isEmpty() )
   {
-    AlgorithmParamField field;
-    field.key = QStringLiteral( "FIELD" );
-    field.label = QCoreApplication::translate( "AlgorithmParamSchema", "Z 值字段名" );
-    field.type = AlgorithmParamField::String;
-    field.defaultValue = QStringLiteral( "z" );
-    field.required = true; // 空字段名进不了插值（主线7：页面收集侧拒收）
-
-    AlgorithmParamField faciesCode;
-    faciesCode.key = QStringLiteral( "FACIES_CODE" );
-    faciesCode.label = QCoreApplication::translate( "AlgorithmParamSchema", "相代码（元数据）" );
-    faciesCode.type = AlgorithmParamField::Int;
-    faciesCode.defaultValue = 1;
-    faciesCode.hasMin = true;
-    faciesCode.minValue = 0.0;
-    faciesCode.hasMax = true;
-    faciesCode.maxValue = 99.0;
-
-    AlgorithmParamField cellSize;
-    cellSize.key = QStringLiteral( "CELL_SIZE" );
-    cellSize.label = QCoreApplication::translate( "AlgorithmParamSchema", "网格单元大小" );
-    cellSize.type = AlgorithmParamField::Double;
-    cellSize.defaultValue = 1.0;
-    cellSize.hasMin = true; // 正数（算法默认 1.0；0 会导致无穷网格）
-    cellSize.minValue = 0.0001;
-    cellSize.decimals = 4;
-
-    AlgorithmParamField aniso;
-    aniso.key = QStringLiteral( "ANISO_RATIO" );
-    aniso.label = QCoreApplication::translate( "AlgorithmParamSchema", "各向异性比（沿方向线）" );
-    aniso.type = AlgorithmParamField::Double;
-    aniso.defaultValue = 2.0;
-    aniso.hasMin = true;
-    aniso.minValue = 0.0;
-    aniso.hasMax = true; // 与 initAlgorithm 上界同口径（核内拒 >1000）
-    aniso.maxValue = 1000.0;
-    aniso.decimals = 2;
-
-    return { field, faciesCode, cellSize, aniso };
+    const auto suffixes = suffixOverrides();
+    const auto it = suffixes.constFind( f->key );
+    if ( it != suffixes.cend() )
+      f->suffix = it.value();
   }
-
-  QVector<AlgorithmParamField> isopachFields()
+  // bool InList：Spec 只钉类型，选项在此补是/否。
+  if ( f->type == AlgorithmParamField::InList && f->options.isEmpty()
+       && f->key == QStringLiteral( "NEGATIVE_TO_NODATA" ) )
   {
     AlgorithmParamOption no, yes;
-    no.label = QCoreApplication::translate( "AlgorithmParamSchema", "否" );
+    no.label = trLabel( "否" );
     no.value = false;
-    yes.label = QCoreApplication::translate( "AlgorithmParamSchema", "是" );
+    yes.label = trLabel( "是" );
     yes.value = true;
-
-    AlgorithmParamField negToNodata;
-    negToNodata.key = QStringLiteral( "NEGATIVE_TO_NODATA" );
-    negToNodata.label = QCoreApplication::translate( "AlgorithmParamSchema", "负厚度置为无数据" );
-    negToNodata.type = AlgorithmParamField::InList;
-    negToNodata.defaultValue = false;
-    negToNodata.options = { no, yes };
-    return { negToNodata };
+    f->options = { no, yes };
+    if ( !f->defaultValue.isValid() )
+      f->defaultValue = false;
   }
+}
 
-QVector<AlgorithmParamField> polygonizeFields()
+QVector<AlgorithmParamField> fieldsFromSpec( const AlgorithmSpec &spec )
 {
-    auto scalar = []( const QString &key, const QString &label, double def,
-                      double minV, bool hasMaxV, double maxV, const QString &suffix ) {
-      AlgorithmParamField f;
-      f.key = key;
-      f.label = label;
-      f.type = AlgorithmParamField::Double;
-      f.defaultValue = def;
-      f.hasMin = true;
-      f.minValue = minV;
-      f.hasMax = hasMaxV;
-      f.maxValue = maxV;
-      f.decimals = 2;
-      f.suffix = suffix;
-      return f;
-    };
-    return {
-      [] {
-        AlgorithmParamField f;
-        f.key = QStringLiteral( "SMOOTH" );
-        f.label = QCoreApplication::translate( "AlgorithmParamSchema", "平滑次数（3×3 多数滤波）" );
-        f.type = AlgorithmParamField::Int;
-        f.defaultValue = 1;
-        f.hasMin = true;
-        f.minValue = 0.0;
-        f.hasMax = true; // 与算法参数上限一致（initAlgorithm 10）
-        f.maxValue = 10.0;
-        return f;
-      }(),
-      [] {
-        AlgorithmParamField f;
-        f.key = QStringLiteral( "MIN_CELLS" );
-        f.label = QCoreApplication::translate( "AlgorithmParamSchema", "最小图斑像元数" );
-        f.type = AlgorithmParamField::Int;
-        f.defaultValue = 4;
-        f.hasMin = true;
-        f.minValue = 0.0;
-        return f;
-      }(),
-      [] {
-        AlgorithmParamField f;
-        f.key = QStringLiteral( "MIN_FRACTION" );
-        f.label = QCoreApplication::translate( "AlgorithmParamSchema", "最小图斑占有效区比例" );
-        f.type = AlgorithmParamField::Double;
-        f.defaultValue = 0.0025;
-        f.hasMin = true;
-        f.minValue = 0.0;
-        f.hasMax = true;
-        f.maxValue = 1.0;
-        f.decimals = 4;
-        return f;
-      }(),
-      scalar( QStringLiteral( "MIN_AREA" ),
-              QCoreApplication::translate( "AlgorithmParamSchema", "最小图斑面积" ), 0.0, 0.0,
-              false, 0.0, QStringLiteral( " m²" ) ),
-      scalar( QStringLiteral( "SIMPLIFY" ),
-              QCoreApplication::translate( "AlgorithmParamSchema", "化简容差" ), 0.0, 0.0,
-              false, 0.0, QString() ),
-      [] {
-        AlgorithmParamField f;
-        f.key = QStringLiteral( "BOUNDARY_SMOOTH" );
-        f.label = QCoreApplication::translate( "AlgorithmParamSchema", "边界圆润化迭代（Chaikin 切角）" );
-        f.type = AlgorithmParamField::Int;
-        f.defaultValue = 2;
-        f.hasMin = true;
-        f.minValue = 0.0;
-        f.hasMax = true; // 与算法参数上限一致（initAlgorithm 5）
-        f.maxValue = 5.0;
-        return f;
-      }(),
-      scalar( QStringLiteral( "SNAP_TOLERANCE" ),
-              QCoreApplication::translate( "AlgorithmParamSchema", "约束吸附距离" ), 0.0, 0.0,
-              false, 0.0, QString() ),
-      scalar( QStringLiteral( "ANGLE_TOLERANCE" ),
-              QCoreApplication::translate( "AlgorithmParamSchema", "约束角度容差" ), 15.0, 0.0,
-              true, 90.0, QStringLiteral( "°" ) ),
-    };
-  }
+  QVector<AlgorithmParamField> fields = spec.params;
+  for ( AlgorithmParamField &f : fields )
+    enrichField( &f );
+  return fields;
+}
+
 } // namespace
 
 bool AlgorithmParamSchema::knows( const QString &algorithmId )
 {
-  return !fieldsFor( algorithmId ).isEmpty() ||
-         algorithmId == QStringLiteral( "paleo:paleo_facies_fusion" );
+  const AlgorithmSpec spec = AlgorithmSpecRegistry::spec( algorithmId );
+  if ( spec.complete && spec.engine == QLatin1String( "processing" ) )
+    return true;
+  // 兼容：历史登记的零标量 fusion
+  return algorithmId == QStringLiteral( "paleo:paleo_facies_fusion" );
 }
 
 QVector<AlgorithmParamField> AlgorithmParamSchema::fieldsFor( const QString &algorithmId )
 {
-  if ( algorithmId == QStringLiteral( "paleo:paleo_geological_smoothing" ) )
-    return smoothingFields();
-  if ( algorithmId == QStringLiteral( "paleo:paleo_constraint_idw" ) )
-    return constraintIdwFields();
-  if ( algorithmId == QStringLiteral( "paleo:paleo_isopach" ) )
-    return isopachFields();
-  if ( algorithmId == QStringLiteral( "paleo:paleo_facies_polygonize" ) )
-    return polygonizeFields();
+  const AlgorithmSpec spec = AlgorithmSpecRegistry::spec( algorithmId );
+  if ( spec.complete && spec.engine == QLatin1String( "processing" ) )
+    return fieldsFromSpec( spec );
   if ( algorithmId == QStringLiteral( "paleo:paleo_facies_fusion" ) )
-    return {}; // 仅图层型参数（INPUTS/OUTPUT）——零标量字段
+    return {}; // 仅图层型
   return {};
 }
 
 QStringList AlgorithmParamSchema::registeredAlgorithms()
 {
-  return {
-    QStringLiteral( "paleo:paleo_geological_smoothing" ),
-    QStringLiteral( "paleo:paleo_constraint_idw" ),
-    QStringLiteral( "paleo:paleo_facies_fusion" ),
-    QStringLiteral( "paleo:paleo_isopach" ),
-    QStringLiteral( "paleo:paleo_facies_polygonize" ),
-  };
+  QStringList ids;
+  for ( const QString &id : AlgorithmSpecRegistry::completeIds() )
+  {
+    const AlgorithmSpec s = AlgorithmSpecRegistry::spec( id );
+    if ( s.engine == QLatin1String( "processing" ) )
+      ids.append( id );
+  }
+  ids.sort();
+  return ids;
 }

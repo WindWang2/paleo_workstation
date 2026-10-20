@@ -89,6 +89,7 @@ private slots:
   void nativeCppP4SpecsRegistered();
   void everyCompleteSpecMatchesFrozenInitAlgorithm();
   void schemaFieldsSubsetOfSpecParamsWhenKnown();
+  void schemaDerivedFromCompleteProcessingSpecs();
   void constraintIdwPortsAndAnisoInSchema();
   void unknownIdReturnsEmpty();
 };
@@ -166,6 +167,36 @@ void AlgorithmSpecTests::schemaFieldsSubsetOfSpecParamsWhenKnown()
                                 .arg( id, f.key ) ) );
     }
   }
+}
+
+
+void AlgorithmSpecTests::schemaDerivedFromCompleteProcessingSpecs()
+{
+  // P3：fieldsFor 对 complete processing Spec 派生自 Spec.params（键集相等）。
+  const QStringList peers = {
+    QStringLiteral( "paleo:paleo_constraint_idw" ),
+    QStringLiteral( "paleo:paleo_geological_smoothing" ),
+    QStringLiteral( "paleo:paleo_isopach" ),
+    QStringLiteral( "paleo:paleo_facies_polygonize" ),
+    QStringLiteral( "paleo:paleo_welldist" ),
+  };
+  for ( const QString &id : peers )
+  {
+    QVERIFY2( AlgorithmParamSchema::knows( id ), qPrintable( id ) );
+    const QStringList specKeys = AlgorithmSpecRegistry::spec( id ).paramKeys();
+    QStringList schemaKeys;
+    for ( const AlgorithmParamField &f : AlgorithmParamSchema::fieldsFor( id ) )
+      schemaKeys.append( f.key );
+    schemaKeys.sort();
+    QStringList expected = specKeys;
+    expected.sort();
+    QCOMPARE( schemaKeys, expected );
+  }
+  // fusion：零标量
+  QVERIFY( AlgorithmParamSchema::knows( QStringLiteral( "paleo:paleo_facies_fusion" ) ) );
+  QVERIFY( AlgorithmParamSchema::fieldsFor( QStringLiteral( "paleo:paleo_facies_fusion" ) ).isEmpty() );
+  // registeredAlgorithms 覆盖全部 complete processing Spec
+  QVERIFY( AlgorithmParamSchema::registeredAlgorithms().size() >= 12 );
 }
 
 void AlgorithmSpecTests::constraintIdwPortsAndAnisoInSchema()

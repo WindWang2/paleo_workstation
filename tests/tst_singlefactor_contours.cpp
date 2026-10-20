@@ -1,6 +1,7 @@
 // 层：数据（测试壳。被测对象是等值线服务对分析栅格的只读提取。）
 #include <QtTest/QtTest>
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -15,6 +16,7 @@
 #include <ogr_srs_api.h>
 
 #include "../src/qgis/factorcontour.h"
+#include "../src/services/paleotaskservice.h"
 
 namespace
 {
@@ -126,6 +128,7 @@ private slots:
   void fixedLevelApiRejectsEmptyAndNonFinite();
   void intervalContoursIgnoreNodata();
   void blockedOutputLeavesPreviousContentIntact();
+  void failedRequestKeepsPreviousOutput();
 };
 
 void SingleFactorContourTests::constantFieldHasNoFalseLoops()
@@ -374,9 +377,43 @@ void SingleFactorContourTests::blockedOutputLeavesPreviousContentIntact()
             "失败路径不得残留临时文件" );
 }
 
+// #588 B.13：异步入口的失败/取消路径同样不许删正式输出。等值线落盘已是
+// 「临时文件 + 成功后原子替换」，失败时正式产物保持调用前状态；这里再
+// QFile::remove(outputGpkg) 会把上一版好产物一起删掉——用户拿到错误，
+// 新旧两边都没有输出。
+void SingleFactorContourTests::failedRequestKeepsPreviousOutput()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString output = dir.filePath( QStringLiteral( "contours.gpkg" ) );
+  QFile previous( output );
+  QVERIFY( previous.open( QIODevice::WriteOnly ) );
+  const QByteArray contents( "previous output" );
+  QCOMPARE( previous.write( contents ), qint64( contents.size() ) );
+  previous.close();
+
+  PaleoTaskService tasks;
+  bool finished = false;
+  bool succeeded = true;
+  FactorContourService::requestContours( dir.filePath( QStringLiteral( "missing.tif" ) ),
+                                         output, 1.0, &tasks, this,
+                                         [&finished, &succeeded]( bool ok, const QString & ) {
+                                           finished = true;
+                                           succeeded = ok;
+                                         } );
+  QTRY_VERIFY_WITH_TIMEOUT( finished, 10000 );
+  QVERIFY( !succeeded );
+  QFile kept( output );
+  QVERIFY2( kept.open( QIODevice::ReadOnly ), "失败不得删掉上一版产物" );
+  QCOMPARE( kept.readAll(), contents );
+}
+
 int main( int argc, char *argv[] )
 {
   GDALAllRegister();
+  // 异步入口（requestContours）经 PaleoTaskService 排队回调回主线程，
+  // 需要 QCoreApplication 实例才有事件循环可派发。
+  QCoreApplication app( argc, argv );
   SingleFactorContourTests tests;
   return QTest::qExec( &tests, argc, argv );
 }

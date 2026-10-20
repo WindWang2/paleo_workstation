@@ -747,8 +747,9 @@ void requestContours(const QString &rasterPath, const QString &outputGpkg,
             rasterPath, outputGpkg, interval, &error,
             [running] { return running->cancelRequested(); },
             [running](double p) { running->reportStage("build", qRound(p)); });
-        if (!ok || running->cancelRequested())
-          QFile::remove(outputGpkg);
+        // 不删正式输出：等值线走「临时文件 + 成功后原子替换」，失败/取消时
+        // 正式产物保持调用前状态（不存在或仍是上一版）。这里再 remove 会把
+        // 上一版好产物一起删掉，用户拿到错误却两边都没有输出（#588 B.13）。
         return ok ? QString() : error;
       },
       {}, true);

@@ -56,7 +56,13 @@ def parse_superbuild(root: Path):
     idx = text.find("ExternalProject_Add(qgis")
     if idx < 0:
         raise RuntimeError("%s: 找不到 ExternalProject_Add(qgis 块" % SB_CMAKE)
+    # E-6（full-audit-20261021）：块界截到下一个 ExternalProject_Add——此前
+    # 切到文件尾，qgis 之后追加任何带 URL_HASH 的工程会让本块的正则命中
+    # 后继工程的哈希（当前 qgis 恰为最后一个工程故潜伏）。
     block = text[idx:]
+    nxt = block.find("ExternalProject_Add(", len("ExternalProject_Add(qgis"))
+    if nxt >= 0:
+        block = block[:nxt]
     h = re.search(r"URL_HASH SHA256=([0-9a-f]{64})", block)
     url_hash = h.group(1) if h else ""
     p = re.search(r"PATCH_FILE=\$\{CMAKE_CURRENT_SOURCE_DIR\}/patches/"
@@ -155,6 +161,13 @@ def selftest() -> int:
          SELFTEST_LOCK_OK, SELFTEST_MANIFEST_OK, 1),
         ("URL_HASH 缺失", SELFTEST_SB_OK.replace(
             "  URL_HASH SHA256=b044889d895c07d9355512cba76973822830153f6f15feb0d5e00077d3d76e59\n", ""),
+         SELFTEST_LOCK_OK, SELFTEST_MANIFEST_OK, 1),
+        # E-6（full-audit-20261021）：qgis 之后追加带 URL_HASH 的工程时，
+        # 删除 qgis 自身哈希不得错绑后继工程的哈希（修复前该用例假绿）。
+        ("URL_HASH 缺失且后有他工程", SELFTEST_SB_OK.replace(
+            "  URL_HASH SHA256=b044889d895c07d9355512cba76973822830153f6f15feb0d5e00077d3d76e59\n", "")
+         + "ExternalProject_Add(zstd\n  URL https://example.com/zstd.tar.gz\n"
+           "  URL_HASH SHA256=1111111111111111111111111111111111111111111111111111111111111111\n)\n",
          SELFTEST_LOCK_OK, SELFTEST_MANIFEST_OK, 1),
         ("superbuild 版本分裂", SELFTEST_SB_OK.replace("qgis-4.2.3.tar", "qgis-4.2.2.tar"),
          SELFTEST_LOCK_OK, SELFTEST_MANIFEST_OK, 1),

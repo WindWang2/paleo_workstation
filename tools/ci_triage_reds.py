@@ -153,12 +153,24 @@ def parse_last_failed(root):
 
 
 def parse_test_xml(root):
-    """**/Test.xml 里 Status="failed" 的 <Test><Name>（与 LastTestsFailed 并集）。"""
+    """**/Test.xml 里 Status="failed" 的 <Test><Name>（与 LastTestsFailed 并集）。
+
+    E-7（full-audit-20261021）：只取每个 build 目录最新 tag 的 Test.xml——
+    ctest --rerun-failed 会产生新 tag 且保留旧 tag，跨 tag 并集把已被重跑
+    洗白的 flaky 重新算成未知红（与 ci_ctest_gate 的 flaky 裁决相矛盾）。
+    """
     names = set()
     import xml.etree.ElementTree as ET
+    latest_by_parent = {}
     for p in _walk_files(root):
         if os.path.basename(p) != "Test.xml":
             continue
+        parent = os.path.dirname(os.path.dirname(p))  # .../<build>/Testing/<tag>
+        prev = latest_by_parent.get(parent)
+        tag = os.path.basename(os.path.dirname(p))
+        if prev is None or tag > prev[0]:
+            latest_by_parent[parent] = (tag, p)
+    for _, (_, p) in latest_by_parent.items():
         try:
             tree = ET.parse(p)
         except (ET.ParseError, OSError):

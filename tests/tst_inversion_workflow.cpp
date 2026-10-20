@@ -2,6 +2,7 @@
 // goal/seismic-inversion — 反演编排三段式：DERIVED 登记、并行确定性、取消诚实。
 #include <QtTest>
 #include <QFile>
+#include <QDir>
 #include <QTemporaryDir>
 
 #include <cmath>
@@ -204,6 +205,8 @@ private slots:
     void prepareFailuresHonest();
     // 无时间戳：两次 compute 字节级一致（并行确定性）。
     void byteStableAcrossRuns();
+    // C-4（full-audit-20261021）：暂存体回收只认 paleo-inv- 前缀目录。
+    void reclaimTempVolumeOnlyRemovesPaleoInvDirs();
 
 private:
     QString m_sgyPath;
@@ -496,6 +499,30 @@ void TestInversionWorkflow::byteStableAcrossRuns()
     }
     QCOMPARE(first.size(), second.size());
     QVERIFY(first == second);
+}
+
+void TestInversionWorkflow::reclaimTempVolumeOnlyRemovesPaleoInvDirs()
+{
+    // C-4：compute 的暂存树（<tmp>/paleo-inv-<uuid>/impedance.iimp）此前任何
+    // 结局都永留系统临时区。reclaimTempVolume 是编排方的回收口——只删
+    // paleo-inv- 前缀目录，异名/空路径无操作（防误删）。
+    QTemporaryDir outer;
+    QVERIFY(outer.isValid());
+    const QString invDir = QDir(outer.path()).filePath(QStringLiteral("paleo-inv-abc123"));
+    QVERIFY(QDir().mkpath(invDir));
+    {
+        QFile f(QDir(invDir).filePath(QStringLiteral("impedance.iimp")));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("blob");
+    }
+    InversionWorkflow::reclaimTempVolume(QDir(invDir).filePath(QStringLiteral("impedance.iimp")));
+    QVERIFY(!QDir(invDir).exists());
+
+    const QString keep = QDir(outer.path()).filePath(QStringLiteral("elsewhere"));
+    QVERIFY(QDir().mkpath(keep));
+    InversionWorkflow::reclaimTempVolume(QDir(keep).filePath(QStringLiteral("file.bin")));
+    QVERIFY(QDir(keep).exists()); // 非 paleo-inv- 前缀：无操作
+    InversionWorkflow::reclaimTempVolume(QString());
 }
 
 QTEST_MAIN(TestInversionWorkflow)

@@ -236,15 +236,19 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
         if (gen != m_invGeneration)
             return;
         if (m_invTask->state() == PaleoTask::State::Cancelled) {
+            paleo::inv::InversionWorkflow::reclaimTempVolume(job->tempVolumePath);
             m_invPanel->showResult(false, tr("反演已取消"));
             return;
         }
         if (m_invTask->state() != PaleoTask::State::Succeeded || !job->ok) {
+            paleo::inv::InversionWorkflow::reclaimTempVolume(job->tempVolumePath);
             m_invPanel->showResult(false,
                                    job->error.isEmpty() ? m_invTask->errorText() : job->error);
             return;
         }
         if (!m_catalog) {
+            // 不回收：提示文案把体位置告知用户作人工兜底（目录未连接时
+            // publishInversionJob 无从执行，tempVolumePath 是唯一成果）。
             m_invPanel->showResult(false, tr("反演完成，但数据目录未连接，无法登记（体在 %1）")
                                              .arg(job->tempVolumePath));
             return;
@@ -252,6 +256,9 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
         DerivedAssetRegistrar registrar(m_catalog, m_interpretationDir);
         QString pubErr;
         const auto pub = paleo::inv::InversionWorkflow().publishInversionJob(*job, registrar, &pubErr);
+        // C-4：发布后（成败皆然）回收暂存体——commitExternal 已把字节拷进
+        // 受管目录，系统临时区的 paleo-inv-* 树不再有消费方。
+        paleo::inv::InversionWorkflow::reclaimTempVolume(job->tempVolumePath);
         if (!pub.ok) {
             m_invPanel->showResult(false, pubErr);
             return;

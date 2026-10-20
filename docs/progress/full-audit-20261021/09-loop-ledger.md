@@ -29,3 +29,20 @@
   - D-14 杂项：petrophys outputUnit 恒 v/v（含 EXPR）确认（P3 边际）；
     深度道 first()/caption 叠压/mapbook 双日志不可定位或有守卫 → 放弃。
   - A-12 mapversionstore 冻结目录 journal 化 → 维持上轮裁定不接（独立批次）。
+
+## Round 1 — Fix 1（2026-10-21）
+
+- Finding IDs：B-1/C-1/C-2/C-3/C-4/A-01/C-5/A-02/A-04/A-05/D-01..04/K-1..3/C-6/E-6/7/8/E-2/B-2/B-4
+- Changed Files：40+（23 commits）
+- Verification：全部定向测试绿（含 5 个新红绿用例 + 3 个扩展用例）；闸门与 master 同面零新增；
+  全量 ctest 97%、12 红全为基线已知（较基线 14 红少 2：缺失二进制已链上并通过）
+- Review Result：R2 独立复审（06 文档）——1 MUST_FIX + 4 SHOULD_FIX + 2 FALSE_POSITIVE/EXTERNAL
+- Remaining Work：Fix 2
+
+## Round 2 — Fix 2（2026-10-21）
+
+- Finding IDs：R2-MF-1/R2-SF-1..4 + 文档级两条
+- Changed Files：mapexport/mappingworkflow/seismictaskservice_slice/shacache.h/tst_exportpipeline
+- Verification：定向 6 套件全绿（含 MF-1 红形状扩展）；全量 ctest 复跑见终审
+- Review Result：终审（08 文档）进行中
+- Remaining Work：终审 → PR

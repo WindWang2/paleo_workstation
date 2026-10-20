@@ -153,6 +153,12 @@ public:
     // ---- D4 解释 ----
     void setPickMode(SectionPickMode mode);
     SectionPickMode pickMode() const { return m_pickMode; }
+    // 测试断言面：断层折线草稿点数（0 = 无草稿）——释放键收笔/清理契约
+    // 用（L3.12：任意释放键都不留草稿）。
+    int faultDraftPointCount() const
+    {
+        return static_cast<int>(m_faultDraft.size());
+    }
     void setSectionRef(const SectionRef &ref) { m_sectionRef = ref; }
     SectionRef sectionRef() const { return m_sectionRef; }
     // 叠加数据（画布只画不存——会话模型在 dock）

@@ -36,6 +36,25 @@ QVector<QColor> previewPalette()
             QColor(QStringLiteral("#FF7F0E")), QColor(QStringLiteral("#8C564B"))};
 }
 
+// 连线改接：域类型 ↔ store 行类型（与主剖面保存同口径的转换）。
+QVector<metadata::WellSectionLinkOverride>
+toStoreOverrides(const QVector<wellsection::LinkOverride> &in) {
+  QVector<metadata::WellSectionLinkOverride> out;
+  out.reserve(in.size());
+  for (const wellsection::LinkOverride &o : in)
+    out.push_back({o.leftWellId, o.rightWellId, o.topName, o.connected});
+  return out;
+}
+
+QVector<wellsection::LinkOverride>
+fromStoreOverrides(const QVector<metadata::WellSectionLinkOverride> &in) {
+  QVector<wellsection::LinkOverride> out;
+  out.reserve(in.size());
+  for (const metadata::WellSectionLinkOverride &o : in)
+    out.push_back({o.leftWellId, o.rightWellId, o.topName, o.connected});
+  return out;
+}
+
 // 井网预览：井点 + 各剖面折线（按剖面取色），交点井（多条剖面共用）画
 // 主色描边放大点。坐标系 = choices 井位归一到部件矩形（等比）。
 class FencePreview : public QWidget
@@ -304,9 +323,14 @@ void WellSectionFenceWidget::autoPlan(int targetSections)
 void WellSectionFenceWidget::setSections(const QVector<QStringList> &sections)
 {
     m_wellIds.clear();
+    // 显式整体替换：连线改接不跨集沿用（键按井对无序，旧条目不再对应当
+    // 前井序）——与 m_wellIds 同序重建空改接集。
+    m_linkOverrides.clear();
     for (const QStringList &ids : sections)
-        if (!ids.isEmpty())
+        if (!ids.isEmpty()) {
             m_wellIds << ids;
+            m_linkOverrides << QVector<wellsection::LinkOverride>();
+        }
     rebuild();
 }
 
@@ -381,9 +405,24 @@ void WellSectionFenceWidget::rebuild(bool persist)
                             index, tr("剖面 %1（%2 口井）")
                                        .arg(index + 1)
                                        .arg(ids.size()));
+                        // 井网预览按剖面取色画折线/交点井放大点（D.21）——
+                        // 权威态变了就重喂，否则折线停在旧井序上。
+                        static_cast<FencePreview *>(m_preview)
+                            ->setModel(m_params.choices, m_wellIds);
                         saveToStore();
                         emit sectionsChanged();
                     }
+                });
+        // 层位连线断开/重连（D.22）：权威态同步 + 落库。栅内编辑与主剖面
+        // 同口径进工程库（fence-<n> 节 linkOverrides 列）；面板随 rebuild
+        // 销毁，编辑先收进 m_linkOverrides，重建后再灌回新面板。
+        connect(ctl.panel, &WellSectionPanel::linkOverridesChanged, this,
+                [this, index](const QVector<wellsection::LinkOverride> &ov) {
+                    if (index >= m_linkOverrides.size())
+                        m_linkOverrides.resize(m_wellIds.size());
+                    if (index < m_linkOverrides.size())
+                        m_linkOverrides[index] = ov;
+                    saveToStore();
                 });
         // 用户域/井距动作 → 同步其余剖面面板（三处一致性）+ fence 节落库
         //（方向 98：域/间距随节井集同存，读回即所见）并向上传播（壳层接
@@ -410,6 +449,10 @@ void WellSectionFenceWidget::rebuild(bool persist)
         m_sections.push_back(ctl);
         m_tabs->addTab(ctl.panel, tr("剖面 %1").arg(i + 1));
         ctl.panel->setWellIds(m_wellIds.at(i));
+        // D.22：连线改接灌回新面板（setLinkOverrides 不发信号，无回声
+        // 环路）——否则 rebuild 后面板内存里的编辑凭空消失。
+        if (index < m_linkOverrides.size())
+            ctl.panel->setLinkOverrides(m_linkOverrides.at(index));
         m_list->addItem(tr("剖面 %1（%2 口井）")
                             .arg(i + 1)
                             .arg(m_wellIds.at(i).size()));
@@ -476,8 +519,12 @@ void WellSectionFenceWidget::saveToStore()
             ? std::nullopt
             : std::optional<wellsection::SpacingMode>(
                   m_sections.first().panel->spacingMode());
+    // 连线改接随节同存（D.22）；m_linkOverrides 与 m_wellIds 同序对齐，
+    // 尺寸漂移（防御）按空条兜底，不越界。
+    QVector<QVector<wellsection::LinkOverride>> links = m_linkOverrides;
+    links.resize(m_wellIds.size());
     if (m_persistedIds == m_wellIds && m_persistedDomain == domain &&
-        m_persistedSpacing == spacing)
+        m_persistedSpacing == spacing && m_persistedLinks == links)
         return; // 无变化不落盘
     // fence-<n> 节逐条写（版本随每次落盘推进）；条数收缩 → 尾节删除。
     //（空态短路于上，此处必有节；域缺省仅是编译器要求的落库值。）
@@ -489,7 +536,7 @@ void WellSectionFenceWidget::saveToStore()
     bool allOk = true;
     for (int i = 0; i < m_wellIds.size(); ++i) {
         m_params.store->save(QStringLiteral("fence-%1").arg(i + 1),
-                             m_wellIds.at(i), {},
+                             m_wellIds.at(i), toStoreOverrides(links.at(i)),
                              domain.value_or(wellsection::DepthDomain::MD),
                              spacing, &err);
         if (!err.isEmpty()) {
@@ -529,6 +576,7 @@ void WellSectionFenceWidget::saveToStore()
     m_persistedIds = m_wellIds;
     m_persistedDomain = domain;
     m_persistedSpacing = spacing;
+    m_persistedLinks = links;
     // 间距一旦真正落库，「旧档缺间距」的回落标注即失效，撤下。
     if (m_persistedSpacing.has_value())
         m_storeNote.clear();
@@ -584,8 +632,13 @@ void WellSectionFenceWidget::loadFromStore()
     // 按 n 升序收全部 fence-n 节（节号有洞也继续——save 侧失败可能留洞）。
     // 方向 98 读回收口：首节的深度域/井间距一并读回（域列方向 69 起必在，
     // 旧行按 'MD' 列默认；spacing 可空——NULL = 旧库未存过，回落当前面板
-    // 状态并记标注，不拿 Equal 默认冒充存档）。
-    QVector<QPair<int, QStringList>> rows;
+    // 状态并记标注，不拿 Equal 默认冒充存档）。D.22：层位连线改接随节同读。
+    struct FenceRow {
+        int n = 0;
+        QStringList wellIds;
+        QVector<wellsection::LinkOverride> links;
+    };
+    QVector<FenceRow> rows;
     bool haveRec = false;
     for (const QString &id : m_params.store->sectionIds(&err))
         if (id.startsWith(QLatin1String("fence-"))) {
@@ -594,7 +647,8 @@ void WellSectionFenceWidget::loadFromStore()
                 continue;
             const auto rec = m_params.store->load(id, &err);
             if (!rec.wellIds.isEmpty()) {
-                rows << qMakePair(n, rec.wellIds);
+                rows.push_back({n, rec.wellIds,
+                                fromStoreOverrides(rec.linkOverrides)});
                 if (!haveRec && rec.valid()) {
                     m_loadedDomain = rec.depthDomain;
                     m_loadedSpacing = rec.spacing;
@@ -603,13 +657,17 @@ void WellSectionFenceWidget::loadFromStore()
             }
         }
     std::sort(rows.begin(), rows.end(),
-              [](const QPair<int, QStringList> &a,
-                 const QPair<int, QStringList> &b) { return a.first < b.first; });
+              [](const FenceRow &a, const FenceRow &b) { return a.n < b.n; });
     QVector<QStringList> sections;
-    for (const auto &row : rows)
-        sections << row.second;
+    QVector<QVector<wellsection::LinkOverride>> links;
+    for (const FenceRow &row : rows) {
+        sections << row.wellIds;
+        links << row.links;
+    }
     m_wellIds = sections;
+    m_linkOverrides = links;
     m_persistedIds = sections;
+    m_persistedLinks = links;
     // 回落标注：有存档但 spacing 缺（旧库行）才说「沿用主面板」——无存档
     // 是新工程首用，不是回落，不标。
     m_storeNote = (haveRec && !m_loadedSpacing.has_value())
@@ -652,6 +710,7 @@ void WellSectionFenceWidget::addManualSection()
     if (dlg.selectedIds().isEmpty())
         return;
     m_wellIds << dlg.selectedIds();
+    m_linkOverrides << QVector<wellsection::LinkOverride>();
     rebuild();
     emit sectionsChanged();
 }
@@ -661,6 +720,8 @@ void WellSectionFenceWidget::removeSection(int index)
     if (index < 0 || index >= m_wellIds.size())
         return;
     m_wellIds.removeAt(index);
+    if (index < m_linkOverrides.size())
+        m_linkOverrides.removeAt(index);
     rebuild();
     emit sectionsChanged();
 }

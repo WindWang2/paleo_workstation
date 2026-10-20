@@ -13,9 +13,10 @@
 // 左 = 剖面条列表（自动布点/手工增删改井序）；中 = 剖面 tabs（每条一个
 // WellSectionPanel + 独立 workflow）；右 = 井网预览（剖面线 + 交点井）。
 // 交点井联动：任一剖面点名 → 其余剖面同帧 selectWell（不经
-// SelectionContext 回环，避免自反馈）。井序 + 深度域 + 井间距经
-// WellSectionStore 的 fence-<n> 节持久化（方向 98 读回收口：域/间距随节
-// 井集同存同读，旧库行缺 spacing 列回落当前面板状态并如实标注）。
+// SelectionContext 回环，避免自反馈）。井序 + 层位连线改接 + 深度域 +
+// 井间距经 WellSectionStore 的 fence-<n> 节持久化（方向 98 读回收口：
+// 域/间距随节井集同存同读，旧库行缺 spacing 列回落当前面板状态并如实
+// 标注）。
 class DataCatalog;
 class PaleoTaskService;
 class WellSectionWorkflow;
@@ -102,6 +103,12 @@ class WellSectionFenceWidget : public QWidget
     Params m_params;
     QVector<QStringList> m_wellIds; // 各剖面井序（权威态）
     QVector<QStringList> m_persistedIds; // 最近落库快照（等值短路）
+    // 各剖面层位连线改接（权威态，与 m_wellIds 同序对齐）——面板内断开/
+    // 重连的编辑只活在面板内存里、rebuild 即丢（D.22），故收在这里随
+    // fence-<n> 节落库、重建后灌回新面板。
+    QVector<QVector<wellsection::LinkOverride>> m_linkOverrides;
+    // 最近落库的连线改接快照（等值短路）。
+    QVector<QVector<wellsection::LinkOverride>> m_persistedLinks;
     // 最近落库的域/间距快照（等值短路；nullopt = 无节/间距未存档）。
     std::optional<wellsection::DepthDomain> m_persistedDomain;
     std::optional<wellsection::SpacingMode> m_persistedSpacing;

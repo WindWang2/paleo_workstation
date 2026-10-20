@@ -76,6 +76,9 @@ private:
   void rebuildVersionMenu();
   void setSummaryLine(const QString &text);
   bool commitBatch(QVector<WellTopRecord> rows, const QString &editKind, const QString &confirmText);
+  // 差异摘要行文本（L1.5：走 tr——英文界面不漏「改」）。静态：调用点均在
+  // 成员函数内，不需要 this。
+  static QString diffText(const WellTopsEdit::DiffSummary &d);
 
   // ESC/标题栏关闭与「关闭」按钮同走丢弃确认（防未保存改动静默丢失）。
   void reject() override;

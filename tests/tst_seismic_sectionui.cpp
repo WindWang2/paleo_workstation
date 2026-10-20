@@ -828,6 +828,42 @@ private slots:
     QCOMPARE(dock.canvas()->pickOverlays().size(), 1);
   }
 
+  // L3.12：断层折线草稿的收笔/清理对任意释放键生效——旧实现只写在左/中键
+  // 分支里，左键起草后以其它键释放时草稿既不清除也不收笔（红色虚线残留
+  // 并继续随鼠标生长，直到下一次左键按下）。
+  void faultDraftClearedOnNonDrawingButtonRelease()
+  {
+    SeismicSectionCanvas canvas;
+    canvas.resize(800, 600);
+    canvas.setSectionData(makeSection(64, 256), 2.0f);
+    canvas.setPickMode(SectionPickMode::Fault);
+    canvas.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+
+    QSignalSpy drawn(&canvas, &SeismicSectionCanvas::faultDrawn);
+    const QPoint a{int(canvas.traceToPixelX(8)), int(canvas.timeToPixelY(40))};
+    const QPoint b{int(canvas.traceToPixelX(30)), int(canvas.timeToPixelY(90))};
+    // 左键起草 → 移动生长 → 左键释放收笔（≥2 点才发 faultDrawn）。
+    QTest::mousePress(&canvas, Qt::LeftButton, Qt::NoModifier, a);
+    QCOMPARE(canvas.faultDraftPointCount(), 1);
+    QTest::mouseMove(&canvas, b);
+    QCOMPARE(canvas.faultDraftPointCount(), 2);
+    QTest::mouseRelease(&canvas, Qt::LeftButton, Qt::NoModifier, b);
+    QCOMPARE(drawn.size(), 1);
+    QCOMPARE(canvas.faultDraftPointCount(), 0);
+
+    // 左键起草后以右键释放：不收笔、草稿清除，且后续移动不生长。
+    QTest::mousePress(&canvas, Qt::LeftButton, Qt::NoModifier, a);
+    QCOMPARE(canvas.faultDraftPointCount(), 1);
+    QTest::mouseMove(&canvas, b);
+    QCOMPARE(canvas.faultDraftPointCount(), 2);
+    QTest::mouseRelease(&canvas, Qt::RightButton, Qt::NoModifier, b);
+    QCOMPARE(drawn.size(), 1);
+    QCOMPARE(canvas.faultDraftPointCount(), 0);
+    QTest::mouseMove(&canvas, QPoint(b.x() + 5, b.y() + 5));
+    QCOMPARE(canvas.faultDraftPointCount(), 0);
+  }
+
   // Q2：道头卡按「剖面列 → 实际线号 → 文件道号」换算——旧实现把列号直
   // 当文件道序，非首条 inline / XL 剖面全读错道；时间切片如实给原因。
   void traceHeaderCardResolvesColumnToPhysicalTrace()

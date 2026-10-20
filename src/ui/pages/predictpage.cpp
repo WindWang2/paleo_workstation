@@ -108,7 +108,7 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   advLay->addWidget(caption(tr("输入名称"), advBody));
   auto *nameEdit = new QLineEdit(advBody);
   nameEdit->setObjectName(QStringLiteral("onnxInputNameEdit"));
-  nameEdit->setText(QStringLiteral("x"));
+  nameEdit->setPlaceholderText(tr("例如: x"));
   advLay->addWidget(nameEdit);
 
   // 输出网格是工区合同（PROJECT_AREA_PLAN §3）：标定层位栅格 + 同一套
@@ -393,9 +393,14 @@ QVariantMap PredictPage::parseInputParams()
     shapeList.append(val);
   }
 
-  QString nameStr = nameEdit->text().trimmed();
+  const QString nameStr = nameEdit->text().trimmed();
   if (nameStr.isEmpty())
-    nameStr = QStringLiteral("x");
+  {
+    setOnnxAdvancedExpanded(true);
+    if (status)
+      status->setText(tr("输入名称不能为空"));
+    return {};
+  }
 
   QVariantMap params;
   params.insert(QStringLiteral("input"), inList);

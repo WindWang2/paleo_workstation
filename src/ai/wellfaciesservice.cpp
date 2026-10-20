@@ -113,6 +113,17 @@ bool WellFaciesConfig::save(QString *error, bool writeKeyToFile) const {
     *error = f.errorString();
   return false;
 }
+namespace {
+// 服务端错误/进度文本可能回显请求头里的密钥；空密钥时 QString::replace("", …)
+// 会在每个字符边界插入占位符，必须先跳过。
+QString redactKey(QString text, const QByteArray &apiKey) {
+  if (apiKey.isEmpty())
+    return text;
+  text.replace(QString::fromUtf8(apiKey), QStringLiteral("[密钥已隐藏]"));
+  return text;
+}
+} // namespace
+
 WellFaciesService::WellFaciesService(QObject *parent) : QObject(parent) {
   m_poll.setSingleShot(true);
   connect(&m_poll, &QTimer::timeout, this, [this] {
@@ -253,10 +264,10 @@ void WellFaciesService::request(const QString &path, const QJsonObject &body,
           if (!json.value("code").toString().isEmpty())
             detail.prepend(json.value("code").toString() +
                            QStringLiteral(": "));
-          detail.replace(QString::fromUtf8(m_config.apiKey),
-                         QStringLiteral("[密钥已隐藏]"));
           return fail(
-              tr("测井相服务请求失败（HTTP %1）：%2").arg(http).arg(detail));
+              tr("测井相服务请求失败（HTTP %1）：%2")
+                  .arg(http)
+                  .arg(redactKey(detail, m_config.apiKey)));
         }
         if (networkError != QNetworkReply::NoError ||
             parse.error != QJsonParseError::NoError || !document.isObject())
@@ -336,11 +347,10 @@ void WellFaciesService::handlePrediction(const QJsonObject &json) {
     if (error.isEmpty())
       error = QString::fromUtf8(QJsonDocument(json.value("error").toObject())
                                     .toJson(QJsonDocument::Compact));
-    error.replace(QString::fromUtf8(m_config.apiKey),
-                  QStringLiteral("[密钥已隐藏]"));
     return fail(
         tr("测井相推理%1：%2")
-            .arg(status == "failed" ? tr("失败") : tr("已取消"), error));
+            .arg(status == "failed" ? tr("失败") : tr("已取消"),
+                 redactKey(error, m_config.apiKey)));
   }
   if (!QStringList{"queued", "preprocessing", "predicting"}.contains(status))
     return fail(tr("未知推理状态：%1").arg(status));
@@ -354,9 +364,10 @@ void WellFaciesService::handlePrediction(const QJsonObject &json) {
     return fail(tr("推理已受理，但响应缺少任务 ID"));
   rememberAcceptedJob(m_key, m_jobId);
   // 服务端进度文本同样可能回显请求头（含密钥）：与错误文本一样脱敏后再上屏。
-  QString message = json.value("latestMessage")
-                        .toString(json.value("message").toString(tr("等待推理完成")));
-  message.replace(QString::fromUtf8(m_config.apiKey), QStringLiteral("[密钥已隐藏]"));
+  const QString message = redactKey(
+      json.value("latestMessage")
+          .toString(json.value("message").toString(tr("等待推理完成"))),
+      m_config.apiKey);
   emit progress(qBound(0, json.value("progress").toInt(), 100), message);
   m_poll.start(qBound(100, json.value("pollAfterMs").toInt(2000), 30000));
 }

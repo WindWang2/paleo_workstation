@@ -79,6 +79,11 @@ private slots:
                                          {"model_names", QStringList{"m1"}},
                                          {"validation_metrics", QVariantMap{{"holdout_wells", 4}}}}, {});
     QCOMPARE(validated.value("provenance").toMap().value("validation").toString(), QString("validated"));
+    // 空值指标不得抬成已验证（review L3）。
+    const auto emptyMetrics = build({log}, {{"method", "remote-well-facies-api-v2"},
+                                            {"model_names", QStringList{"m1"}},
+                                            {"validation_metrics", QVariantMap{{"note", ""}, {"", 1}}}}, {});
+    QCOMPARE(emptyMetrics.value("provenance").toMap().value("validation").toString(), QString("unvalidated"));
     // 来源块不进参数指纹（同参数同指纹）。
     QCOMPARE(real.value("parameter_hash"), build({log}, {{"method", "remote-well-facies-api-v2"},
                                                          {"model_names", QStringList{"m1"}}}, {}).value("parameter_hash"));

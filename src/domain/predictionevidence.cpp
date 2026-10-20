@@ -97,12 +97,33 @@ static QVariantMap provenanceOf( const QVector<InputRef> &inputs, const QVariant
                        : basedOnMock ? QStringLiteral( "mock" )
                        : model ? QStringLiteral( "model_prediction" )
                                : QStringLiteral( "derived" );
+  // validated 要求至少一项「有意义」的指标：非空键 + 非空/非空容器值。
+  // 空 map、全空字符串、占位 null 仍算未验证（避免 {{"note",""}} 被抬成已验证）。
   const QVariantMap metrics = extra.value( QStringLiteral( "validation_metrics" ) ).toMap();
+  bool meaningful = false;
+  for ( auto it = metrics.constBegin(); it != metrics.constEnd(); ++it )
+  {
+    if ( it.key().trimmed().isEmpty() )
+      continue;
+    const QVariant &v = it.value();
+    if ( !v.isValid() || v.isNull() )
+      continue;
+    if ( v.typeId() == QMetaType::QString && v.toString().trimmed().isEmpty() )
+      continue;
+    if ( v.typeId() == QMetaType::QVariantMap && v.toMap().isEmpty() )
+      continue;
+    if ( v.typeId() == QMetaType::QVariantList && v.toList().isEmpty() )
+      continue;
+    if ( v.typeId() == QMetaType::QStringList && v.toStringList().isEmpty() )
+      continue;
+    meaningful = true;
+    break;
+  }
   return { { QStringLiteral( "kind" ), kind },
            { QStringLiteral( "based_on_mock" ), basedOnMock },
            { QStringLiteral( "mock_input_count" ), mockInputs },
-           { QStringLiteral( "validation" ), metrics.isEmpty() ? QStringLiteral( "unvalidated" )
-                                                               : QStringLiteral( "validated" ) },
+           { QStringLiteral( "validation" ), meaningful ? QStringLiteral( "validated" )
+                                                        : QStringLiteral( "unvalidated" ) },
            { QStringLiteral( "confidence_semantics" ), QStringLiteral( "model_score" ) } };
 }
 

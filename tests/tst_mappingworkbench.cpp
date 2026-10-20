@@ -217,7 +217,7 @@ public:
   QTcpServer server;
   QList<QJsonObject> bodies;
   int modelRequests = 0;
-  bool hold = false, failPredict = false, queued = false, holdPoll = false;
+  bool hold = false, failPredict = false, queued = false, holdPoll = false, holdModels = false;
   // opt-04 E2E 缺口：远端 200 但无可用模型 / 无输出（predictions 为空）。
   bool emptyModels = false, emptyPredictions = false;
   QJsonObject pending;
@@ -242,6 +242,7 @@ public:
           int status = 200;
           if (path.endsWith("/models")) {
             ++modelRequests;
+            if (holdModels) { buffer->clear(); return; }
             if (emptyModels)
               response = {{"models", QJsonArray{}}};
             else
@@ -2755,6 +2756,56 @@ private slots:
   }
   // 智能预测的测井预测按地层（井 tops 的组/段）组织成矢量：每井每地层一行，
   // 优势微相 = 累计厚度最大的相；与数据管理的预测同一张表，请求带入该表。
+  // 预测专项 review M1：进行中的准备检查被 bindCatalog / cancelPrediction 中止时，
+  // 必须发出 wellReadinessReady（带中止原因），否则面板卡在「正在检查…」。
+  void wellReadinessAbortedByCatalogRebindRecoversPanel() {
+    WellApiServer server;
+    server.holdModels = true; // 卡住 GET /models，使检查停在途中
+    WellApiEnvironment environment(server);
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\n")));
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+      {QVariantMap{{"well_id", "A"}, {"top_md", 1000.0}, {"base_md", 1120.0},
+        {"lithology", QStringLiteral("维护砂岩")}, {"facies", QStringLiteral("原解释")}}}, &error));
+    installRemotePrediction(&f.work, RemotePredictConfig{}, nullptr, {}, &f.work);
+    MappingWorkbenchPage page("predict", &f.work);
+    page.setHorizon("D61");
+    auto *kind = page.findChild<QComboBox *>("predictionKind");
+    kind->setCurrentIndex(kind->findData(QStringLiteral("wells")));
+    auto *inputs = page.findChild<QListWidget *>("workbenchInputs");
+    QCOMPARE(inputs->count(), 1);
+    inputs->item(0)->setCheckState(Qt::Checked);
+    auto *check = page.findChild<QPushButton *>("wellReadinessCheck");
+    auto *summary = page.findChild<QLabel *>("wellReadinessSummary");
+    QVERIFY(check && summary);
+    QTRY_VERIFY(check->isEnabled());
+    QSignalSpy readiness(&f.work, &MappingWorkbench::wellReadinessReady);
+    check->click();
+    QTRY_COMPARE(server.modelRequests, 1);
+    QTRY_VERIFY(summary->text().contains(QStringLiteral("正在检查")));
+    QVERIFY(!check->isEnabled());
+    QCOMPARE(readiness.size(), 0);
+    f.work.bindCatalog(&f.catalog, f.dir.path()); // → cancelPrediction；修复前不发信号
+    QTRY_COMPARE_WITH_TIMEOUT(readiness.size(), 1, 5000);
+    const auto abortMsg = readiness.first()[2].toString();
+    QVERIFY2(!abortMsg.isEmpty(), "中止必须带原因，面板才能离开「正在检查」");
+    QVERIFY2(abortMsg.contains(QStringLiteral("中止")), qPrintable(abortMsg));
+    QTRY_VERIFY(check->isEnabled());
+    QVERIFY2(summary->text().contains(QStringLiteral("未完成")) ||
+             summary->text().contains(QStringLiteral("中止")),
+             qPrintable(summary->text()));
+    // 放开服务后再跑通一次，证明 m_readinessId 已清干净。
+    server.holdModels = false;
+    check->click();
+    QTRY_COMPARE_WITH_TIMEOUT(readiness.size(), 2, 10000);
+    QVERIFY2(readiness.last()[2].toString().isEmpty(), qPrintable(readiness.last()[2].toString()));
+    QCOMPARE(readiness.last()[1].toList().size(), 1);
+    QVERIFY(readiness.last()[1].toList().first().toMap().value("ready").toBool());
+  }
+
   // 预测专项 P0：批量逐井准备检查——与正式运行同一条规则链，干跑只查模型
   // 清单（不 POST /predict、不写成果），逐井给出可预测/不可预测原因。
   void wellReadinessDryRunReportsPerWellReasonsWithoutPredicting() {

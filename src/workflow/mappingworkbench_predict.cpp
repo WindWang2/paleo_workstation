@@ -504,6 +504,17 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
 }
 void MappingWorkbench::cancelPrediction() {
   cancelPredictionTask();
+  // 准备检查干跑不占 m_request（busy()=false），原先此处不会 cancel 测井服务，
+  // 也不会清 m_readinessId——面板一直等 wellReadinessReady，卡在「正在检查…」。
+  if (!m_readinessId.isEmpty()) {
+    const QString horizon = m_readinessHorizon;
+    m_readinessId.clear();
+    m_readinessHorizon.clear();
+    m_readinessMissing.clear();
+    if (m_wellRemote)
+      m_wellRemote->cancel();
+    emit wellReadinessReady(horizon, {}, tr("检查已中止：工区已切换或预测已取消"));
+  }
   // 先摘 m_request 再取消服务：服务在 cancel() 里同步 emit failed(id,"已取消")，
   // 而 failed 槽按 id == m_request.id 过滤（mappingworkbench.cpp）。原先顺序
   // 是「先取消服务、再清 m_request」，于是用户主动取消被翻译成 errorOccurred，

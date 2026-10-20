@@ -1,7 +1,7 @@
 // 层：视图
 #include "paleomainwindow.h"
 #include "pages/mappingreferencepanel.h"
-#include "../qgis/mappingreferencecanvas.h"
+#include "../qgis/mappingreferenceloader.h"
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprojectservice.h"
@@ -27,7 +27,7 @@ bool PaleoMainWindow::showMappingReference(const QString &id, QString *error)
     connect(panel, &MappingEvidencePanel::referenceRequested, panel,
             [this](MappingReferencePanel *view, const QString &sourceId) {
       const auto declaration = m_workbench->declaration(sourceId);
-      auto *layer = MappingReferenceCanvas::loadReference(declaration, m_layerSvc->layer(sourceId),
+      auto *layer = MappingReferenceLoader::load(declaration, m_layerSvc->layer(sourceId),
           m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).dir().filePath("styles") : QString());
       if (!layer) {
         view->clearReference(tr("参考图件无法读取，请检查文件是否存在，或选择其他图件。"));

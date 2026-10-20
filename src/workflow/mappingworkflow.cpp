@@ -422,13 +422,26 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
             if (m_constraints)
               m_constraints->setThicknessSamples(job->rows, job->message);
             QString error = job->error;
+            QHash<QString, QString> idMap; // R2-SF-1：撞号重映射表
             if (job->ok && publishMapExportJournal(catalog, directory,
                                                    job->staging->path(),
-                                                   job->journal, &error)) {
+                                                   job->journal, &error, &idMap)) {
               for (auto decl : job->outputs) {
                 const auto relative =
                     QDir(job->staging->path()).relativeFilePath(decl.source);
                 decl.source = QDir(directory).filePath(relative);
+                // R2-SF-1：声明源路径里的 ast-N/ver-N 段随发布换新号——
+                // 否则撞号批次的图层声明指向不存在的受管路径（静默死链）。
+                if (!idMap.isEmpty()) {
+                  QStringList segs = decl.source.split(QLatin1Char('/'));
+                  bool changed = false;
+                  for (QString &seg : segs) {
+                    const auto it = idMap.constFind(seg);
+                    if (it != idMap.constEnd()) { seg = it.value(); changed = true; }
+                  }
+                  if (changed)
+                    decl.source = segs.join(QLatin1Char('/'));
+                }
                 if (!m_layers->declare(decl, &error))
                   break;
               }

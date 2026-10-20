@@ -332,29 +332,45 @@ private slots:
     QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "D61";
     auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings); QVERIFY(layout);
     PaleoGeologicalExport::Request request; request.destination = tmp.filePath("exports/maps/D61"); request.dpi = 72;
-    request.registerInProject = true; request.formats = {PaleoLayoutExport::Format::Png}; request.context = {{"horizon", "D61"}};
+    // 双格式 = 同一 journal 含两个 AddAsset（R2-MF-1：重映射须避让同批
+    // 自有 id——噪声只消耗 ast-1 时，若把撞号 ast-1 映到 journal 自有的
+    // ast-2，重放即 duplicate 整批失败）。
+    request.registerInProject = true;
+    request.formats = {PaleoLayoutExport::Format::Png, PaleoLayoutExport::Format::Pdf};
+    request.context = {{"horizon", "D61"}};
     bool called = false; PaleoGeologicalExport::Result result;
     QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this, [&](const auto &r) { result = r; called = true; }));
-    for (int n = 1; n <= 50; ++n) {
+    // 噪声只消耗 ast-1：journal 自有的 ast-2 保持未被 live 占用——旧重映射
+    // 把撞号 ast-1 映到 nextAssetId()=ast-2（journal 自有）→ 重放 duplicate。
+    {
       CatalogAsset noise;
-      noise.id = QStringLiteral("ast-%1").arg(n);
+      noise.id = QStringLiteral("ast-1");
       noise.type = QStringLiteral("well_log");
       noise.format = QStringLiteral("las");
       QString err;
       QVERIFY2(cat.addAsset(noise, &err), qPrintable(err));
     }
-    QTRY_VERIFY_WITH_TIMEOUT(called, 20000);
+    QTRY_VERIFY_WITH_TIMEOUT(called, 30000);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QVERIFY(!result.cancelled);
+    QCOMPARE(result.assetIds.size(), 2);
+    // 未撞号的 ast-2 原号保留；撞号的 ast-1 映到 live/journal 双避让的新号
+    // （≥ast-3）。
+    const bool keptTwo = result.assetIds.contains(QStringLiteral("ast-2"));
+    const int remapped = int(result.assetIds.removeAll(QStringLiteral("ast-2")));
+    QVERIFY2(keptTwo && remapped == 1, "未撞号 id 应原号保留");
     QCOMPARE(result.assetIds.size(), 1);
-    const QString published = result.assetIds.first();
-    QVERIFY2(published != QStringLiteral("ast-1"),
-             "撞号 id 必须重映射为 live 新号（C-3）");
-    QVERIFY(!cat.assetById(published).id.isEmpty());
-    const auto version = cat.currentVersion(published);
-    QCOMPARE(version.stage, QString("OUTPUT"));
-    QCOMPARE(version.extra.value("horizon").toString(), QString("D61"));
-    QVERIFY(QFileInfo::exists(cat.versionFilePath(version)));
+    QVERIFY2(result.assetIds.first() != QStringLiteral("ast-1") &&
+                 result.assetIds.first() != QStringLiteral("ast-2"),
+             "撞号 id 必须重映射为双避让新号（R2-MF-1）");
+    result.assetIds.append(QStringLiteral("ast-2"));
+    for (const QString &published : result.assetIds) {
+      QVERIFY(!cat.assetById(published).id.isEmpty());
+      const auto version = cat.currentVersion(published);
+      QCOMPARE(version.stage, QString("OUTPUT"));
+      QCOMPARE(version.extra.value("horizon").toString(), QString("D61"));
+      QVERIFY(QFileInfo::exists(cat.versionFilePath(version)));
+    }
   }
 };
 int main(int argc, char **argv) {

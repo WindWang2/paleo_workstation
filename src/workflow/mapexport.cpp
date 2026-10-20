@@ -193,15 +193,37 @@ QVector<CatalogOp> remapCollidingJournalIds(DataCatalog *live,
                                             const QVector<CatalogOp> &ops,
                                             QHash<QString, QString> &idMap)
 {
+  // R2-MF-1（full-audit-20261021 独立复审）：新号必须同时避让 live 已占
+  // 与「同批 journal 自有 id」——只查 live 会把撞号 ast-N 映射到本批下一
+  // 个 ast-(N+1)（live 无、journal 有），重放 addAsset 同 id 两次 → 整批
+  // 失败（恰在批量导出 + 一笔无关写的目标场景）。
+  QSet<QString> journalAssetIds, journalVersionIds;
+  for (const CatalogOp &op : ops)
+  {
+    if (op.kind == CatalogOp::Kind::AddAsset)
+      journalAssetIds.insert(op.asset.id);
+    else if (op.kind == CatalogOp::Kind::AddVersion)
+      journalVersionIds.insert(op.version.id);
+  }
   QHash<QString, QString> assetMap, versionMap;
   for (const CatalogOp &op : ops)
   {
     if (op.kind == CatalogOp::Kind::AddAsset &&
         !live->assetById(op.asset.id).id.isEmpty())
-      assetMap.insert(op.asset.id, live->nextAssetId());
+    {
+      QString next = live->nextAssetId();
+      while (journalAssetIds.contains(next))
+        next = live->nextAssetId();
+      assetMap.insert(op.asset.id, next);
+    }
     else if (op.kind == CatalogOp::Kind::AddVersion &&
              !live->versionById(op.version.id).id.isEmpty())
-      versionMap.insert(op.version.id, live->nextVersionId());
+    {
+      QString next = live->nextVersionId();
+      while (journalVersionIds.contains(next))
+        next = live->nextVersionId();
+      versionMap.insert(op.version.id, next);
+    }
   }
   if (assetMap.isEmpty() && versionMap.isEmpty())
     return ops;

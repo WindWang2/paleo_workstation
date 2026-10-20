@@ -1,6 +1,6 @@
 # 算法原子契约（Algorithm Atom Contract）
 
-> 状态：P0 规格钉板（文档 + 薄类型 + 对齐测试）  
+> 状态：P0 规格钉板 + **P1 publishArtifacts**（constraint_idw 收口）  
 > 日期：2026-10-20（Asia/Shanghai）  
 > 切片：`algo-atom-p0-spec-constraint-idw`  
 > 相关：`docs/DATA_FABRIC_ADOPTION.md`（typed RunPort **defer**）→ 本契约是该递延项的 Paleo 裁剪落地，**不**引入对方整套 data-fabric。
@@ -48,16 +48,26 @@ P0 **不改运行时**：本文件与 `src/services/algorithmspec.*` / `tests/ts
 5. **bindings 优先 `CatalogVersion.id`**：禁止私自约定「某子目录文件名即输入」。
 6. **失败/取消无幽灵资产**：延迟 `addAsset` 纪律保持（现有 registrar 行为）。
 
-P1 将提供：
+P1 已提供（`src/workflow/algorithmpublish.h`）：
 
 ```cpp
+AlgorithmRunResult runResultFromProcessingOutput(const QVariantMap &results,
+                                                 const QString &portId = "OUTPUT");
+
 bool publishArtifacts(DerivedAssetRegistrar &reg,
+                      const DerivedStaging &staging,
                       const AlgorithmRunResult &result,
                       const QStringList &parentVersionIds,
-                      QString *error);
+                      const QString &sourceUri,
+                      const QVariantMap &extra,
+                      QString *error = nullptr,
+                      const DerivedFileFingerprint *fingerprint = nullptr);
 ```
 
-作为算法类产出写 catalog 的统一出口。
+相对概念草案多了 `staging` / `sourceUri` / `extra` / `fingerprint`——与现网
+`DerivedAssetRegistrar::commitExternal` 对齐（prepare 已 stage，publish 只登记）。
+行为等价于对主 `OUTPUT` 工件调用 `commitExternal`。constraint_idw 两条路径
+（`generateFactor` 默认 IDW、`runConstraintIDW`）已改走此单函数。
 
 ## 4. 执行样板：PredictionJob 三段式
 
@@ -119,7 +129,7 @@ P0 Spec 端口与现网参数名对齐：
 | 阶段 | 内容 | 本切片 |
 |------|------|--------|
 | **P0** | Spec 静态表 + 文档 + `tst_algorithm_spec` | ✅ |
-| **P1** | `publishArtifacts` 收口；行为对拍 harness | 下一刀 |
+| **P1** | `publishArtifacts` 收口；constraint_idw 走统一发布面 | ✅ |
 | **P2** | Processing / NativeCpp adapter；AtomicJob | 后续 |
 | **P3** | Schema ← Spec；UI 只读 Spec | 后续 |
 
@@ -130,9 +140,17 @@ P0 验收：
 - `AlgorithmParamSchema::fieldsFor(id)` 的 key ⊆ Spec.params。
 - 层闸门通过；**不**改 `processAlgorithm` / workflow 运行时。
 
+P1 验收：
+
+- `paleo::publishArtifacts` 存在且层闸门允许（功能层，链 DerivedAssetRegistrar）。
+- `constraint_idw` 的 `commitExternal` 调用点改经 `publishArtifacts`（`generateFactor` 默认分支 + `runConstraintIDW`）。
+- **不**改 `processAlgorithm` 本体；catalog 指纹/只读纪律与直调 `commitExternal` 一致。
+- `tst_algorithm_spec` + `tst_derivedassets`（含 publish 用例）绿。
+
 ## 7. 回链
 
 - 调研：`/workspace/algo-atom-survey.md`（§6.6 首切片）
 - DATA_FABRIC RunPort defer：`docs/DATA_FABRIC_ADOPTION.md` 表行「working-copy / trash / typed RunPort」
 - 派生产出契约：`src/workflow/derivedassets.h`
+- 统一发布面：`src/workflow/algorithmpublish.h`
 - 单因素原生集成：`docs/designs/single-factor-native-integration-plan.md`

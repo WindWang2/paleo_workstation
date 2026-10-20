@@ -655,6 +655,7 @@ add_library(paleo_workflow STATIC
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
   src/workflow/aiassistworkflow.cpp
   src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
+  src/workflow/algorithmpublish.cpp                # algo-atom P1：publishArtifacts 统一发布面
   src/workflow/welltopseditorworkflow.cpp           # 方向 32：分层编辑版本化提交/回滚/合并编排
   src/workflow/wellsitingworkflow.cpp               # 方向34：井网辅助编排（诊断/候选/方案/planned）
   src/workflow/storagegovernancecontroller.cpp

@@ -1,6 +1,6 @@
 # 算法原子契约（Algorithm Atom Contract）
 
-> 状态：P0 规格钉板 + **P1 publishArtifacts**（constraint_idw 收口）  
+> 状态：P0 规格钉板（**12/12 Processing complete**）+ P1 publishArtifacts（单因素链收口）+ P3 ANISO_RATIO schema  
 > 日期：2026-10-20（Asia/Shanghai）  
 > 切片：`algo-atom-p0-spec-constraint-idw`  
 > 相关：`docs/DATA_FABRIC_ADOPTION.md`（typed RunPort **defer**）→ 本契约是该递延项的 Paleo 裁剪落地，**不**引入对方整套 data-fabric。
@@ -118,7 +118,7 @@ P0 Spec 端口与现网参数名对齐：
 | `FIELD` | scalar string | 是 | Z 字段（schema 有） |
 | `FACIES_CODE` | scalar int | 否 | 元数据（schema 有） |
 | `CELL_SIZE` | scalar double | 是 | 网格单元（schema 有） |
-| `ANISO_RATIO` | scalar double | 否 | 各向异性比；**initAlgorithm 有，schema 暂缺**（P0 Spec 已列，P3 补 schema） |
+| `ANISO_RATIO` | scalar double | 否 | 各向异性比；initAlgorithm + Spec + **AlgorithmParamSchema（P3 已补）** |
 | `OUTPUT` | raster | 是 | 插值栅格目的地 |
 | `LOCAL_GRID_WKT` | string / hidden | 否 | 编排注入；不在 initAlgorithm |
 | `CONSTRAINT_RECEIPTS` | string out | — | 诊断 JSON |
@@ -128,10 +128,11 @@ P0 Spec 端口与现网参数名对齐：
 
 | 阶段 | 内容 | 本切片 |
 |------|------|--------|
-| **P0** | Spec 静态表 + 文档 + `tst_algorithm_spec` | ✅ |
-| **P1** | `publishArtifacts` 收口；constraint_idw 走统一发布面 | ✅ |
-| **P2** | Processing / NativeCpp adapter；AtomicJob | 后续 |
-| **P3** | Schema ← Spec；UI 只读 Spec | 后续 |
+| **P0** | Spec 静态表 + 文档 + `tst_algorithm_spec` | ✅ **12/12 Processing complete** |
+| **P1** | `publishArtifacts`；单因素 constraintfactorjobs_* 发布收口 | ✅ |
+| **P2** | Processing / NativeCpp adapter；AtomicJob | 后续（未开工） |
+| **P3** | Schema ← Spec；UI 只读 Spec | 部分：ANISO_RATIO 已进 schema；全文单一事实源仍后续 |
+| **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | 后续 |
 
 P0 验收：
 
@@ -143,9 +144,11 @@ P0 验收：
 P1 验收：
 
 - `paleo::publishArtifacts` 存在且层闸门允许（功能层，链 DerivedAssetRegistrar）。
-- `constraint_idw` 的 `commitExternal` 调用点改经 `publishArtifacts`（`generateFactor` 默认分支 + `runConstraintIDW`）。
+- 单因素链（constraint_idw / isopach / distance / structural / local_direction / surfer /
+  geostat / cartographic / 等值线 / 解释性工作场）`commitExternal` 改经 `publishArtifacts`。
 - **不**改 `processAlgorithm` 本体；catalog 指纹/只读纪律与直调 `commitExternal` 一致。
-- `tst_algorithm_spec` + `tst_derivedassets`（含 publish 用例）绿。
+- `tst_algorithm_spec`（12/12）+ `tst_derivedassets`（含 publish 用例）绿。
+- P3 小步：`ANISO_RATIO` 已写入 `AlgorithmParamSchema`（与 Spec / initAlgorithm 对齐）。
 
 ## 7. 回链
 

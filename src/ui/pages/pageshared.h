@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 
+#include <QComboBox>
 #include <QLabel>
 #include <QPushButton>
 #include <QSizePolicy>
@@ -110,6 +111,15 @@ private:
   QPushButton *m_toggle = nullptr;
   QWidget *m_container = nullptr;
 };
+
+// 窄停靠栏：下拉框勿按最长选项撑宽整页（弹出列表仍显示全文）。
+inline void shrinkComboBoxesToDock(QWidget *root)
+{
+  for (QComboBox *c : root->findChildren<QComboBox *>()) {
+    c->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    c->setMinimumContentsLength(6);
+  }
+}
 
 // 主操作按钮（DESIGN.md：primary #1B73D0 三用途之一 = 主按钮）——primary
 // 底 + onPrimary 字 + primaryHover hover，活体注册随主题。每页至多一颗。

@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QDir>
 #include "io/cuttingsdoc.h"
+#include "io/lasparser.h" // LasParser::fileSizeLimit（大文件闸共用口径）
 #include "io/outsourceworkbook.h"
 
 namespace
@@ -44,6 +45,8 @@ private slots:
   //（零 QProcess，直读仓内源；断言与 generate.py 写入字面逐一相等）。
   void miniWellHeadSpreadsheetMlMatchesGenerator();
   void miniCuttingsCsvsMatchGenerator();
+  // #588（B.4）：csv/txt/tsv 分支整读大小闸（与 xlsx/xml 的 readWorkbook 闸同口径）。
+  void cuttingsTextBranchHonorsSizeGate();
 };
 
 void IoWorkbookEdgeTests::workbookEdgesAreHonest()
@@ -427,6 +430,30 @@ void IoWorkbookEdgeTests::miniCuttingsCsvsMatchGenerator()
       QCOMPARE(iv.rowNumber, 2 + i);
     }
   }
+}
+
+// #588（B.4）：readCuttingsFile 的 csv/txt/tsv 分支整读无大小闸（同函数的
+// xlsx/xml 分支经 readWorkbook 有闸，调用方 wellsectionworkflow 也不设闸）——
+// 大文本岩屑表会在渲染路径上 OOM。收紧 LasParser::fileSizeLimit 后必须拒收，
+// 且拒收要带因（table.error 非空）而不是交回空表。
+void IoWorkbookEdgeTests::cuttingsTextBranchHonorsSizeGate()
+{
+  const QString path = mini(QStringLiteral("2.4岩屑录井数据/A1_岩屑录井.csv"));
+  QVERIFY(QFile::exists(path));
+
+  const qint64 kRestore = LasParser::fileSizeLimit();
+  LasParser::setFileSizeLimit(64); // 远小于样例文件
+
+  const auto gated = paleo::io::readCuttingsFile(path);
+  LasParser::setFileSizeLimit(kRestore);
+
+  QVERIFY2(!gated.ok, "超限的岩屑文本表必须拒收");
+  QVERIFY2(gated.error.contains(QStringLiteral("过大")), qPrintable(gated.error));
+
+  // 恢复闸后同一文件照常解析（闸只挡大小，不改解析口径）。
+  const auto normal = paleo::io::readCuttingsFile(path);
+  QVERIFY2(normal.ok, qPrintable(normal.error));
+  QCOMPARE(int(normal.intervals.size()), 4);
 }
 QTEST_GUILESS_MAIN(IoWorkbookEdgeTests)
 #include "tst_io_workbook_edges.moc"

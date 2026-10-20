@@ -301,14 +301,18 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
     if (!okInl || !okXl || !okZ || !std::isfinite(z) || z == kNoData)
       continue;
     // 北向上：行 0 是最大 y（inline 最大侧）；inline=p1Inline 落在末行。
-    const int row = (h.gridRows - 1) - (inl - h.p1Inline);
-    const int col = xl - h.p1Xline;
+    // L4.1：inl/xl 是数据行里的任意 32 位取值（文件内容，非头段校验过的），
+    // int 相减可溢出=UB；按 qint64 算完再收窄成索引（与 parseHorizonHeader
+    // 的量纲一致：那里已把 inlineMax/xlineMax/cellCount 压进 int 域）。
+    const qint64 row =
+        static_cast<qint64>(h.gridRows - 1) - (static_cast<qint64>(inl) - h.p1Inline);
+    const qint64 col = static_cast<qint64>(xl) - h.p1Xline;
     if (row < 0 || row >= b.rows || col < 0 || col >= b.cols)
     {
       ++b.rejected; // 越界的点不写入，只计入拒绝数（§3）
       continue;
     }
-    const int idx = row * b.cols + col;
+    const int idx = static_cast<int>(row * b.cols + col);
     if (filled.at(idx))
       ++b.collisions; // 同像元多点：保留最后一点（下方覆盖）
     else

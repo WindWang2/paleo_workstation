@@ -380,7 +380,12 @@ QString importAuxReferenceFamily(FamilyContext &ctx)
       aux.extra.insert(QStringLiteral("georeferenced"), false); // 未配准，不生成地图图层
       // 相/亚相/微相名称收成图例字典（阶段 D）。
       QFile gf(sourcePath);
-      if (gf.open(QIODevice::ReadOnly))
+      // #387/#588：图例字典整读 + 全量 DOM（内存常为文件 3-10 倍）此前无大小
+      // 闸——数百 MB～GB 级 .geojson 走导入即 OOM/冻结。与同管线兄弟路径
+      // 同一 500MB 口径（geojsonaffine kMaxGeoJsonBytes、LAS fileSizeLimit）。
+      // 图例字典只是辅助 extra（阶段 D 的附带产物），超限即不建，不影响
+      // aux/reference 登记本身。
+      if (gf.open(QIODevice::ReadOnly) && gf.size() <= LasParser::fileSizeLimit())
       {
         const QJsonDocument doc = QJsonDocument::fromJson(gf.readAll());
         const QJsonArray feats = doc.object().value(QStringLiteral("features")).toArray();

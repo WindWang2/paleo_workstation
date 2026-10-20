@@ -130,9 +130,9 @@ P0 Spec 端口与现网参数名对齐：
 |------|------|--------|
 | **P0** | Spec 静态表 + 文档 + `tst_algorithm_spec` | ✅ **12/12 Processing complete** |
 | **P1** | `publishArtifacts`；单因素 + 编图 fusion/polygonize/prediction/workbench.record | ✅ |
-| **P2** | Processing / NativeCpp adapter；AtomicJob | **基本完成**：Processing + NativeCpp 生产路径已接；AtomicJob 未做 |
-| **P3** | Schema ← Spec；UI 只读 Spec | 部分：ANISO_RATIO 已进 schema |
-| **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | **基本完成**：native Spec 全登记；生产路径已接（propagate Spec-only）；任务中心 port 摘要未做 |
+| **P2** | Processing / NativeCpp adapter；AtomicJob | ✅ Processing/NativeCpp 接线；AtomicJob 薄助手 `runProcessingAndPublish`（fusion 试点） |
+| **P3** | Schema ← Spec；UI 只读 Spec | ✅ `AlgorithmParamSchema::fieldsFor` 派生自 complete Processing Spec.params（UI 富化标签/InList） |
+| **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | ✅ native Spec + 运行时接线（含 propagate）；任务中心 port 摘要未做 |
 
 P0 验收：
 
@@ -166,13 +166,12 @@ P1 验收：
 
 - `ProcessingAlgorithmAdapter`：`run` / `runById` → `AlgorithmRunResult`；`processingResultsFromRunResult` 回桥旧 publish 回调。
 - **Processing 已接线**：`runFactorAlgorithm`（constraint_idw 等）、`PredictionWorkflow`、`facies_polygonize`、`cartographic_work`、`local_direction`/`surfer`、geostat 降级 IDW、fusion。
-- `NativeCppAdapter` 类型化：geostat OK/cokriging/SGS、facies synthesize、bandlimited、
-  sparse_spike、diagnose_coverage、`runTrackSection`（委托 `services/nativerunners`）。
-- 运行时接线：geostat 三方法；facies synthesize + draft/report publish；thickness 三段 publish；
-  inversion bandlimited + sparse_spike 逐道；hztrack 2D track；wellsiting diagnosis。
-- `run(QVariantMap)` 对已实现 id 指向类型化入口；`hztrack:propagate_volume` 仍 TODO。
-- AtomicJob 泛化：未做。
-- 验收：`tst_algorithm_adapters`、`tst_algorithm_spec`。
+- `NativeCppAdapter` 类型化：geostat×3、facies synthesize、inversion×2、wellsiting diagnose、
+  hztrack track + propagate（委托 `services/nativerunners`）。
+- 运行时接线：上表全部 ✅；thickness / facies draft publishArtifacts。
+- AtomicJob：`runProcessingAndPublish` / `ById` 薄助手（fusion 已用）；不重写 JobRunner/ConstraintJob。
+- P3：`AlgorithmParamSchema` ← Spec.params（PredictPage 仍读 fieldsFor）。
+- 验收：`tst_algorithm_adapters`、`tst_algorithm_spec`（含 schema←Spec）。
 
 ## 6.3 P4 Spec 起步（native_cpp）
 
@@ -182,7 +181,7 @@ P1 验收：
 | `geostat:ordinary_cokriging` | `NativeCppAdapter::runOrdinaryCoKriging` | ✅ geostat 任务 |
 | `geostat:sgs` | `NativeCppAdapter::runSgs` | ✅ geostat 任务 |
 | `hztrack:track_section` | `native_runners` / `NativeCppAdapter::runTrackSection` | ✅ seismictaskservice_interp |
-| `hztrack:propagate_volume` | Spec only | 3D 扩散仍直调核（未包 adapter） |
+| `hztrack:propagate_volume` | `native_runners` / `NativeCppAdapter::runPropagateVolume` | ✅ seismictaskservice_interp |
 | `inversion:bandlimited` | `NativeCppAdapter::runBandlimited` | ✅ inversionworkflow 逐道 |
 | `inversion:sparse_spike` | `NativeCppAdapter::runSparseSpike` | ✅ inversionworkflow 逐道 |
 | `faciesmapping:synthesize` | `NativeCppAdapter::runSynthesizeFacies` | ✅ faciesmappingworkflow |
@@ -192,10 +191,10 @@ P1 验收：
 
 | 类别 | 内容 |
 |------|------|
-| **生产接线** | 12 Processing Spec + ProcessingAdapter 覆盖；Native：geostat×3、hztrack 2D、inversion×2、facies synthesize、wellsiting diagnose；publishArtifacts 覆盖单因素/编图/fusion/prediction/thickness/facies draft |
-| **Spec-only** | `hztrack:propagate_volume`（3D 核仍直调） |
-| **刻意延期** | AtomicJob 泛化；全量 P3 schema←Spec（ANISO 已做）；任务中心 port 摘要；facies-schema / horizon.dat 快照白名单 |
-| **结论** | **算法原子化主线已实质完成**：编排侧高价值 native/Processing 路径经 Spec→Adapter→publish；剩余为可选扩展与编排框架（AtomicJob），非阻塞生产接线 |
+| **生产接线** | 12 Processing Spec + Adapter；Native 全表（含 hztrack 3D propagate）；publishArtifacts 单因素/编图/fusion/prediction/thickness/facies draft；AtomicJob 薄助手（fusion） |
+| **Spec 派生 UI** | AlgorithmParamSchema ← Spec.params（P3） |
+| **刻意延期** | 任务中心 port 摘要；AtomicJob 全面替换 ConstraintJob/PredictionJob；facies-schema / horizon.dat 快照白名单 |
+| **结论** | **算法原子化主线完成**（含本波 deferred polish）。剩余仅 UI 任务摘要与可选 Job 结构统一，不阻塞 Spec→Adapter→publish 契约 |
 
 ## 7. 回链
 

@@ -6,6 +6,7 @@
 #include "../services/seismictaskservice.h"
 
 #include "../algorithms/inversion/bandlimit.h"
+#include "algorithmadapters.h"
 #include "../algorithms/inversion/sparse.h"
 
 #include <QDir>
@@ -571,13 +572,20 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
                         okTrace = true;
                     }
                 } else {
-                    paleo::inversion::BandlimitedOptions opt;
-                    opt.lowCutHz = job->req.lowCutHz;
-                    const auto r = paleo::inversion::bandlimitedInversion(samples, n, dtMs,
-                                                                          &job->wavelet, lowPtr, opt);
-                    if (r.ok) {
-                        std::copy(r.impedance.begin(), r.impedance.end(), dst);
-                        sumStat[size_t(threadIdx)] += r.lowFreqVarianceFraction;
+                    // algo-atom：inversion:bandlimited 经 NativeCppAdapter
+                    paleo::BandlimitedInputs bin;
+                    bin.trace = samples;
+                    bin.n = n;
+                    bin.sampleIntervalMs = dtMs;
+                    bin.wavelet = &job->wavelet;
+                    bin.lowFreq = lowPtr;
+                    bin.options.lowCutHz = job->req.lowCutHz;
+                    paleo::inversion::BandlimitedResult br;
+                    paleo::NativeCppAdapter native;
+                    const AlgorithmRunResult run = native.runBandlimited(bin, &br, nullptr);
+                    if (run.ok) {
+                        std::copy(br.impedance.begin(), br.impedance.end(), dst);
+                        sumStat[size_t(threadIdx)] += br.lowFreqVarianceFraction;
                         okTrace = true;
                     }
                 }

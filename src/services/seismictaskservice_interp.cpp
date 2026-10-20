@@ -5,6 +5,7 @@
 #include "services/paleotaskservice.h"
 
 #include "algorithms/horizontrack.h"
+#include "services/nativerunners.h"
 #include "catalog/datacatalog.h"
 #include "domain/seismic/sectionaxis.h"
 #include "io/horizonbinner.h"
@@ -152,11 +153,25 @@ KernelTrackOutput runKernelTracking(
   std::vector<paleo::hztrack::TrackResult> runs;
   runs.reserve(static_cast<std::size_t>(seeds.size()));
   bool sawCancel = false;
+  // algo-atom：hztrack:track_section 经 native_runners（services 侧，层闸门合规）
   for (int i = 0; i < seeds.size(); ++i)
   {
-    runs.push_back(paleo::hztrack::trackSection(
+    paleo::hztrack::TrackResult one;
+    QString trackErr;
+    const AlgorithmRunResult trRun = paleo::native_runners::runTrackSection(
         section.data(), slice.width, slice.height,
-        {seeds[i].first, seeds[i].second}, kernelOptions, nullptr, cancelled));
+        {seeds[i].first, seeds[i].second}, kernelOptions, nullptr, cancelled, &one,
+        &trackErr);
+    if (!trRun.ok && one.picks.empty())
+    {
+      // 非法输入：如实空结果，编排侧已有报告语义
+      runs.push_back(one);
+    }
+    else
+    {
+      Q_UNUSED(trackErr);
+      runs.push_back(one);
+    }
     if (task)
       task->reportBytes(i + 1, seeds.size());
     if (runs.back().stopLeft.reason == paleo::hztrack::StopReason::Cancelled ||

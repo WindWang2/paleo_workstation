@@ -1,6 +1,9 @@
 // 层：功能
 #include "wellsitingworkflow.h"
 #include "algorithmadapters.h"
+#include "nativecppadapter.h"
+#include "nativeinputs_wellsiting.h"
+#include "../algorithms/wellsiting/wellsiting.h"
 #include "workflowerrors_internal.h" // raiseToErrorHub：#556 吞错路径收口
 
 #include "../catalog/datacatalog.h"

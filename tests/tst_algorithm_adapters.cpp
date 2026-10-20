@@ -4,6 +4,12 @@
 
 #include "services/algorithmspec.h"
 #include "workflow/algorithmadapters.h"
+#include "workflow/nativecppadapter.h"
+#include "workflow/nativeinputs_geostat.h"
+#include "workflow/nativeinputs_hztrack.h"
+#include "workflow/nativeinputs_inversion.h"
+#include "workflow/nativeinputs_facies.h"
+#include "workflow/nativeinputs_wellsiting.h"
 #include "workflow/algorithmpublish.h"
 
 class AlgorithmAdapterTests : public QObject

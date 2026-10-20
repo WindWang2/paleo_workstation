@@ -3,6 +3,9 @@
 
 #include "derivedassets.h"
 #include "algorithmadapters.h"
+#include "nativecppadapter.h"
+#include "nativeinputs_facies.h"
+#include "../algorithms/faciesmapping/evidencesynthesis.h"
 #include "algorithmpublish.h"
 #include "workflows_internal.h"
 

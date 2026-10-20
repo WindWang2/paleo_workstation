@@ -7,6 +7,8 @@
 
 #include "../algorithms/inversion/bandlimit.h"
 #include "algorithmadapters.h"
+#include "nativecppadapter.h"
+#include "nativeinputs_inversion.h"
 #include "../algorithms/inversion/sparse.h"
 
 #include <QDir>

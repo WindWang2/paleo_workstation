@@ -31,6 +31,8 @@
 #include "derivedassets.h"
 #include "algorithmpublish.h"
 #include "algorithmadapters.h"
+#include "nativecppadapter.h"
+#include "nativeinputs_geostat.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"

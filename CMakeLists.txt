@@ -1017,11 +1017,16 @@ if(PALEO_PYTHON3)
   # 要与 CI 同口径全闸，显式跑：
   #   QGIS_PREFIX=<vendor/superbuild/prefix 或 deb 闭包前缀> \
   #     python tools/check_layering.py --transitive
-  # 当前树该口径实测 ui_qtwidgets_notes 7 > baseline 6（#531 新增
-  # src/qgis/layoutpreview.h 薄壳带入 1 条视图层记录边），差额已在
-  # docs/ci/known-reds.json 登记（issue #533）。**后续动作**：该差额经
-  # src/qgis 薄壳与视图层边界的计数口径裁决收敛后，把本测试改为注入
-  # QGIS_PREFIX 的真同口径（本地/CI 全闸同一指标）。
+  # 当前树该口径实测 ui_qtwidgets_notes 7 > baseline 6（2026-10-20 复测：
+  # func 0 / ui 7 / heavy_edges 52 / heavy_tus 50，仅 ui 差 1）。差额边的
+  # 主体已两度换人未归零——原 #531 的 geologicalexportdialog.cpp →
+  # src/qgis/layoutpreview.h 边已被删除，现差额为
+  # src/ui/maptools/identifytool.h:6 → qgis/maptoolviewapi.h ->
+  # [qgs] qgsmaptool.h -> <QGestureEvent>@26（#552 引入、晚于 #518 基线
+  # 更新）。差额已在 docs/ci/known-reds.json 登记（issue #533，test-scope
+  # 条目 layering-transitive-ui-notes-20261020 + lint job-scope 条目）。
+  # **后续动作**：该差额经 src/qgis 薄壳与视图层边界的计数口径裁决收敛后，
+  # 把本测试改为注入 QGIS_PREFIX 的真同口径（本地/CI 全闸同一指标）。
   add_test(NAME layering_symbol_audit COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --symbol-audit)
   add_test(NAME layering_transitive COMMAND ${PALEO_PYTHON3}

@@ -90,6 +90,7 @@ private slots:
   void everyCompleteSpecMatchesFrozenInitAlgorithm();
   void schemaFieldsSubsetOfSpecParamsWhenKnown();
   void schemaDerivedFromCompleteProcessingSpecs();
+  void schemaUiAllowlistHidesStubTypedSpecs();
   void constraintIdwPortsAndAnisoInSchema();
   void unknownIdReturnsEmpty();
   void portSummaryTextForConstraintIdw();
@@ -173,13 +174,12 @@ void AlgorithmSpecTests::schemaFieldsSubsetOfSpecParamsWhenKnown()
 
 void AlgorithmSpecTests::schemaDerivedFromCompleteProcessingSpecs()
 {
-  // P3：fieldsFor 对 complete processing Spec 派生自 Spec.params（键集相等）。
+  // P3：uiReady allowlist 内算法 fieldsFor 派生自 Spec.params（键集相等）。
   const QStringList peers = {
     QStringLiteral( "paleo:paleo_constraint_idw" ),
     QStringLiteral( "paleo:paleo_geological_smoothing" ),
     QStringLiteral( "paleo:paleo_isopach" ),
     QStringLiteral( "paleo:paleo_facies_polygonize" ),
-    QStringLiteral( "paleo:paleo_welldist" ),
   };
   for ( const QString &id : peers )
   {
@@ -196,8 +196,27 @@ void AlgorithmSpecTests::schemaDerivedFromCompleteProcessingSpecs()
   // fusion：零标量
   QVERIFY( AlgorithmParamSchema::knows( QStringLiteral( "paleo:paleo_facies_fusion" ) ) );
   QVERIFY( AlgorithmParamSchema::fieldsFor( QStringLiteral( "paleo:paleo_facies_fusion" ) ).isEmpty() );
-  // registeredAlgorithms 覆盖全部 complete processing Spec
-  QVERIFY( AlgorithmParamSchema::registeredAlgorithms().size() >= 12 );
+  // registeredAlgorithms = UI allowlist（≠全部 12 Processing Spec）
+  QCOMPARE( AlgorithmParamSchema::registeredAlgorithms().size(), 5 );
+}
+
+void AlgorithmSpecTests::schemaUiAllowlistHidesStubTypedSpecs()
+{
+  // P1 回归：paramKey 默认 Double 的 Spec 不得进入 PredictPage 动态表单。
+  const QStringList stubs = {
+    QStringLiteral( "paleo:paleo_structural_idw" ),
+    QStringLiteral( "paleo:paleo_local_direction_idw" ),
+    QStringLiteral( "paleo:paleo_surfer_idw" ),
+    QStringLiteral( "paleo:paleo_cartographic_work" ),
+    QStringLiteral( "paleo:paleo_welldist" ),
+    QStringLiteral( "paleo:paleo_distance_transform" ),
+  };
+  for ( const QString &id : stubs )
+  {
+    QVERIFY2( AlgorithmSpecRegistry::knows( id ), qPrintable( id ) ); // Spec 仍在
+    QVERIFY2( !AlgorithmParamSchema::knows( id ), qPrintable( id ) );  // UI 不可见
+    QVERIFY( AlgorithmParamSchema::fieldsFor( id ).isEmpty() );
+  }
 }
 
 void AlgorithmSpecTests::constraintIdwPortsAndAnisoInSchema()

@@ -2,12 +2,18 @@
 // services/algoparamschema.cpp — algo-atom P3：标量表单字段以 AlgorithmSpec.params
 // 为单一事实源；本文件只做 UI 富化（中文标签、InList 选项、单位后缀）。
 // 图层型端口不在此列（见 algoparamschema.h）。PredictPage 仍读 fieldsFor。
+//
+// 重要：Spec.complete ≠ PredictPage 可展示。许多 Processing Spec 的 params 仍用
+// paramKey() 默认 Double 占位（structural/local_direction/surfer/cartographic…），
+// 若直接 knows()=true 会把 STRING/BOOL 键渲成 spinbox。UI 面仅暴露下方 allowlist
+// （与 master 五算法 + 已正确分型的 Spec 对齐；constraint_idw 含 ANISO_RATIO）。
 #include "algoparamschema.h"
 
 #include "algorithmspec.h"
 
 #include <QCoreApplication>
 #include <QHash>
+#include <QSet>
 
 namespace
 {
@@ -15,6 +21,20 @@ namespace
 QString trLabel( const char *s )
 {
   return QCoreApplication::translate( "AlgorithmParamSchema", s );
+}
+
+// PredictPage / AlgorithmParamSchema 动态表单 allowlist。
+// Spec 登记可多于本表；未列入者 knows()=false → 空表单（与拆分前一致）。
+QSet<QString> uiReadyAlgorithmIds()
+{
+  static const QSet<QString> k = {
+    QStringLiteral( "paleo:paleo_geological_smoothing" ),
+    QStringLiteral( "paleo:paleo_constraint_idw" ),
+    QStringLiteral( "paleo:paleo_facies_fusion" ),
+    QStringLiteral( "paleo:paleo_isopach" ),
+    QStringLiteral( "paleo:paleo_facies_polygonize" ),
+  };
+  return k;
 }
 
 // Spec 已有 label 时保留；否则用本表补中文（polygonize 等 Spec 参数 label 为空）。
@@ -100,32 +120,26 @@ QVector<AlgorithmParamField> fieldsFromSpec( const AlgorithmSpec &spec )
 
 bool AlgorithmParamSchema::knows( const QString &algorithmId )
 {
-  const AlgorithmSpec spec = AlgorithmSpecRegistry::spec( algorithmId );
-  if ( spec.complete && spec.engine == QLatin1String( "processing" ) )
-    return true;
-  // 兼容：历史登记的零标量 fusion
-  return algorithmId == QStringLiteral( "paleo:paleo_facies_fusion" );
+  // UI allowlist only — Spec.complete alone is not enough (stub Double params).
+  return uiReadyAlgorithmIds().contains( algorithmId );
 }
 
 QVector<AlgorithmParamField> AlgorithmParamSchema::fieldsFor( const QString &algorithmId )
 {
+  if ( !uiReadyAlgorithmIds().contains( algorithmId ) )
+    return {};
   const AlgorithmSpec spec = AlgorithmSpecRegistry::spec( algorithmId );
   if ( spec.complete && spec.engine == QLatin1String( "processing" ) )
     return fieldsFromSpec( spec );
+  // fusion：零标量（仅图层型）
   if ( algorithmId == QStringLiteral( "paleo:paleo_facies_fusion" ) )
-    return {}; // 仅图层型
+    return {};
   return {};
 }
 
 QStringList AlgorithmParamSchema::registeredAlgorithms()
 {
-  QStringList ids;
-  for ( const QString &id : AlgorithmSpecRegistry::completeIds() )
-  {
-    const AlgorithmSpec s = AlgorithmSpecRegistry::spec( id );
-    if ( s.engine == QLatin1String( "processing" ) )
-      ids.append( id );
-  }
+  QStringList ids = uiReadyAlgorithmIds().values();
   ids.sort();
   return ids;
 }

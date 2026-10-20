@@ -69,6 +69,13 @@ bool publishArtifacts(DerivedAssetRegistrar &reg,
 行为等价于对主 `OUTPUT` 工件调用 `commitExternal`。constraint_idw 两条路径
 （`generateFactor` 默认 IDW、`runConstraintIDW`）已改走此单函数。
 
+**多 OUTPUT 限制（刻意）**：`publishArtifacts` 只登记单一主工件（优先 `OUTPUT`
+port，否则 `artifacts` 首项）。Spec 上的次级端口（如 kriging `VARIANCE`、SGS
+`MEMBER_*`）与 `AlgorithmOutputArtifact::suggestedAssetType` /
+`suggestedDisplayName` **尚未**经此函数消费——次级产物仍由既有旁路
+（`support_path`、`RealizationWorkflow::publishSet` 等）发布。多端口原子发布是
+后续 backlog，不是本 PR 范围。
+
 ## 4. 执行样板：PredictionJob 三段式
 
 `src/workflow/workflows.h` 中 `PredictionJob`（#277）是事实标准原子作业：
@@ -131,7 +138,7 @@ P0 Spec 端口与现网参数名对齐：
 | **P0** | Spec 静态表 + 文档 + `tst_algorithm_spec` | ✅ **12/12 Processing complete** |
 | **P1** | `publishArtifacts`；单因素 + 编图 fusion/polygonize/prediction/workbench.record | ✅ |
 | **P2** | Processing / NativeCpp adapter；AtomicJob | ✅ Processing/NativeCpp 接线；AtomicJob 薄助手 `runProcessingAndPublish`（fusion 试点） |
-| **P3** | Schema ← Spec；UI 只读 Spec | ✅ `AlgorithmParamSchema::fieldsFor` 派生自 complete Processing Spec.params（UI 富化标签/InList） |
+| **P3** | Schema ← Spec；UI 只读 Spec | ✅ uiReady allowlist（5）内 `fieldsFor`←Spec.params；其余 Spec 仍登记但不进 PredictPage |
 | **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | ✅ native Spec + 运行时；TaskPanel tooltip 经 `portSummaryText` + `navigationContext.algorithm_id` |
 
 P0 验收：
@@ -150,17 +157,30 @@ P1 验收：
 - `tst_algorithm_spec`（12/12）+ `tst_derivedassets`（含 publish 用例）绿。
 - P3 小步：`ANISO_RATIO` 已写入 `AlgorithmParamSchema`（与 Spec / initAlgorithm 对齐）。
 
-## 6.1 发布白名单（故意不经 publishArtifacts）
+## 6.1 发布白名单 / 未迁路径（诚实）
+
+**非 catalog**（永久不经 `publishArtifacts`）：
 
 | 位置 | 原因 |
 |------|------|
 | `QFile::commit` / SQLite 事务 | 非 catalog DERIVED 登记 |
 
-已迁出白名单：
-- `faciesmappingworkflow` draft/report → `publishArtifacts`
-- `mappingworkflow` thickness wells/fallback/main → 各段独立 `publishArtifacts`
-- `mappingworkbench` facies-schema → `publishArtifacts`（元数据 JSON，仍非 Processing OUTPUT）
-- `mappingworkbench_predict` horizon.dat 输入快照 → `publishArtifacts`（commitExternal 等价）
+**仍直调 `commitExternal` / `commit` 的算法相邻 DERIVED**（backlog，非「已空」）：
+
+| 位置 | 说明 |
+|------|------|
+| `surfacegridding.cpp` | 网格 / isopach 旁路落盘 |
+| `realizationworkflow.cpp` | SGS member 集发布（geostat 仍依赖） |
+| `aiassistworkflow.cpp` | AI 辅助产物 |
+| `evolutionworkflow.cpp` | 矢量 + metrics |
+| `inversionworkflow.cpp` | **体**发布（逐道核已走 NativeCppAdapter；volume `commitExternal` 未迁） |
+
+已迁出（经 `publishArtifacts`）：
+- `faciesmappingworkflow` draft/report
+- `mappingworkflow` thickness wells/fallback/main
+- `mappingworkbench` facies-schema（元数据 JSON）
+- `mappingworkbench_predict` horizon.dat 输入快照
+- 单因素 / fusion / polygonize / PredictionWorkflow / MappingWorkbench::record
 
 ## 6.2 P2 适配器
 
@@ -170,7 +190,7 @@ P1 验收：
   hztrack track + propagate（委托 `services/nativerunners`）。
 - 运行时接线：上表全部 ✅；thickness / facies draft publishArtifacts。
 - AtomicJob：`runProcessingAndPublish` / `ById` 薄助手（fusion 已用）；不重写 JobRunner/ConstraintJob。
-- P3：`AlgorithmParamSchema` ← Spec.params（PredictPage 仍读 fieldsFor）。
+- P3：`AlgorithmParamSchema` ← Spec.params，**仅 uiReady allowlist**（smoothing / constraint_idw / fusion / isopach / polygonize）；PredictPage 仍读 `knows`/`fieldsFor`。
 - 验收：`tst_algorithm_adapters`、`tst_algorithm_spec`（含 schema←Spec）。
 
 ## 6.3 P4 Spec 起步（native_cpp）
@@ -191,10 +211,11 @@ P1 验收：
 
 | 类别 | 内容 |
 |------|------|
-| **生产接线** | 12 Processing Spec + Adapter；Native 全表（含 hztrack 3D propagate）；publishArtifacts 单因素/编图/fusion/prediction/thickness/facies draft；AtomicJob 薄助手（fusion） |
-| **Spec 派生 UI** | AlgorithmParamSchema ← Spec.params（P3） |
-| **刻意延期** | AtomicJob 全面替换 ConstraintJob/PredictionJob（见下） |
-| **结论** | **算法原子化 backlog 已空**：Spec→Adapter→publish 全覆盖；任务中心 Spec 端口摘要已落地；白名单仅剩非 catalog 事务 |
+| **生产接线** | 12 Processing Spec + Adapter；Native 全表（含 hztrack 3D propagate）；publishArtifacts 覆盖单因素/编图/fusion/prediction/thickness/facies draft；AtomicJob 薄助手（fusion） |
+| **Spec 派生 UI** | AlgorithmParamSchema ← Spec.params，**仅 5 个 uiReady**（见 §6.2）；structural/local_direction/surfer/cartographic/welldist 等 Spec 已登记但 **不**进 PredictPage，直至 params 正确分型 |
+| **仍直调 commitExternal/commit** | surfacegridding、realization（SGS members）、aiassist、evolution、inversion volume（§6.1） |
+| **刻意延期** | AtomicJob 全面替换 ConstraintJob/PredictionJob；`publishArtifacts` 多 OUTPUT；Native Spec 与 typed Inputs 全对齐 |
+| **结论** | **P0–P4 主线已落地，backlog 未空**：剩 DERIVED 旁路迁移、UI allowlist 扩容（先分型）、多端口 publish、Job 结构保持三段式 |
 
 ### AtomicJob vs ConstraintJob/PredictionJob（诚实跳过）
 

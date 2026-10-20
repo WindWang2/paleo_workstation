@@ -1,10 +1,11 @@
 // 层：数据
 // services/algoparamschema.h — m2/mapping-pages(A)：算法参数 schema 注册表。
-// paleo:* 算法「标量参数」表单面：algo-atom P3 起以 AlgorithmSpec.params 为
-// 单一事实源（fieldsFor 直接派生），本头只描述字段形状。标签/InList 选项等
-// UI 富化在 .cpp。key/类型/默认/范围 ⊆ Spec ⊆ initAlgorithm。
-// 图层型参数（INPUT/INPUTS/INPUT_TOP/INPUT_BASE/CONSTRAINTS/OUTPUT）由调用
-// 上下文（清单声明/工作流编排）解析，不属于标量表单，故不在此列。
+// paleo:* 算法「标量参数」表单面：algo-atom P3 起，对 **uiReady allowlist**
+// 内算法以 AlgorithmSpec.params 为单一事实源（fieldsFor 派生）；本头只描述
+// 字段形状。标签/InList 选项等 UI 富化在 .cpp。
+// Spec.complete ≠ UI 可展示：未列入 allowlist 的 Processing Spec（params 仍
+// 可能是 paramKey 默认 Double 占位）knows()=false → PredictPage 空表单。
+// 图层型参数（INPUT/…/OUTPUT）由调用上下文解析，不在此列。
 // onnx:* 不走本注册表：其参数语义由页内固定三控件退化承载（见 PredictPage）。
 #pragma once
 #include <QString>
@@ -47,11 +48,11 @@ struct AlgorithmParamField
 class AlgorithmParamSchema
 {
   public:
-    // 算法 id 是否已登记 schema（onnx:* 恒 false——三控件语义在页内）。
+    // 算法 id 是否在 UI allowlist（onnx:* 与未分型 Spec 恒 false）。
     static bool knows(const QString &algorithmId);
     // 该算法的标量参数字段；未登记算法返回空表（paleo:paleo_facies_fusion
     // 登记为「零标量字段」——它只有图层型参数）。
     static QVector<AlgorithmParamField> fieldsFor(const QString &algorithmId);
-    // 已登记算法 id 列表（测试/诊断用）。
+    // UI allowlist 算法 id 列表（测试/诊断用；≠全部 Spec）。
     static QStringList registeredAlgorithms();
 };

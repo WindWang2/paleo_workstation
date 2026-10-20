@@ -574,6 +574,7 @@ add_library(paleo_services STATIC
   src/services/singlefactordef.cpp                  # m2：单因素定义注册表
   src/services/faciesdisplaysettings.cpp
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
+  src/services/algorithmspec.cpp                    # algo-atom P0：AlgorithmSpec 静态契约表
   src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架
   src/services/jobrunner.cpp                        # 方向20：统一三段式 JobRunner（作业框架）

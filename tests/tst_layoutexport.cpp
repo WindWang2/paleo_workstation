@@ -665,6 +665,48 @@ class TestLayoutExport : public QObject
       editing->rollBack();
     }
 
+    // #589 C.17：memory 图层的要素必须在抓快照时（GUI 线程）拷成值快照。
+    // 修复前快照只存指向「活」图层的 QgsVectorLayerFeatureSource，特征拷贝
+    // 落在 worker 线程读 GUI 线程的 provider——抓完快照后 GUI 线程继续加要素，
+    // 重建结果会跟着变（且活图层销毁/编辑即悬空竞态）。
+    void memorySnapshotFreezesFeaturesAtCaptureTime()
+    {
+      QgsProject live;
+      auto *mem = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:4326&field=name:string" ),
+                                      QStringLiteral( "wells" ), QStringLiteral( "memory" ) );
+      QVERIFY( mem->isValid() );
+      for ( int i = 0; i < 3; ++i )
+      {
+        QgsFeature f( mem->fields() );
+        f.setAttribute( 0, QStringLiteral( "w%1" ).arg( i ) );
+        f.setGeometry( QgsGeometry::fromPointXY( QgsPointXY( 110 + i, 30 + i ) ) );
+        QVERIFY( mem->dataProvider()->addFeature( f ) );
+      }
+      live.addMapLayer( mem, false );
+      const QString memId = mem->id();
+
+      PaleoLayoutExportActions::ProjectSnapshot snap;
+      QString reason;
+      QVERIFY2( PaleoLayoutExportActions::captureProjectSnapshot( &live, snap, &reason ), qPrintable( reason ) );
+
+      // 抓完快照后 GUI 线程继续编辑活图层：快照必须停在抓取时的状态。
+      for ( int i = 3; i < 5; ++i )
+      {
+        QgsFeature f( mem->fields() );
+        f.setAttribute( 0, QStringLiteral( "w%1" ).arg( i ) );
+        f.setGeometry( QgsGeometry::fromPointXY( QgsPointXY( 110 + i, 30 + i ) ) );
+        QVERIFY( mem->dataProvider()->addFeature( f ) );
+      }
+      QCOMPARE( mem->featureCount(), 5LL );
+
+      QString error;
+      std::unique_ptr<QgsProject> priv = PaleoLayoutExportActions::rebuildProject( snap, &error );
+      QVERIFY2( priv, qPrintable( error ) );
+      auto *copy = qobject_cast<QgsVectorLayer *>( priv->mapLayer( memId ) );
+      QVERIFY( copy );
+      QCOMPARE( copy->featureCount(), 3LL );
+    }
+
     // #161：带地图项的版面经任务池导出——导出启动后立刻从活工程删掉地图
     // 引用的图层（模拟 GUI 线程并发改工程），worker 只渲染私有副本，导出
     // 照常成功且出图非空白。

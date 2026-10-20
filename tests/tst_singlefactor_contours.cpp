@@ -3,6 +3,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QPointF>
 #include <QTemporaryDir>
 #include <QVector>
@@ -124,6 +125,7 @@ private slots:
   void coneStaysNearTheCircle();
   void fixedLevelApiRejectsEmptyAndNonFinite();
   void intervalContoursIgnoreNodata();
+  void blockedOutputLeavesPreviousContentIntact();
 };
 
 void SingleFactorContourTests::constantFieldHasNoFalseLoops()
@@ -339,6 +341,37 @@ void SingleFactorContourTests::intervalContoursIgnoreNodata()
   QVERIFY( !contours.isEmpty() );
   for ( const ContourLine &line : contours )
     QVERIFY2( line.level >= 5.0 && line.level <= 395.0, qPrintable( QString::number( line.level ) ) );
+}
+
+// #588 B.13：等值线 GPKG 落盘是「同目录临时文件 + 成功后原子替换」。目标
+// 路径被占用（此处为目录）导致替换失败时必须报错、清理临时文件、且不毁既有
+// 内容——修复前先 QFile::remove 旧产物再 GDALCreate，创建/替换失败即
+// 「两边都没有输出」。
+void SingleFactorContourTests::blockedOutputLeavesPreviousContentIntact()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString raster = dir.filePath( QStringLiteral( "blocked.tif" ) );
+  QVector<float> values( 64, 5.0f );
+  values[27] = 50.0f;
+  QVERIFY( writeGrid( raster, 8, 8, 0, 80, 10, values, -9999.0f ) );
+
+  const QString blocked = dir.filePath( QStringLiteral( "contours.gpkg" ) );
+  QVERIFY( QDir().mkpath( blocked ) );
+  QFile marker( QDir( blocked ).filePath( QStringLiteral( "keep.txt" ) ) );
+  QVERIFY( marker.open( QIODevice::WriteOnly ) );
+  QCOMPARE( marker.write( "previous" ), qint64( 8 ) );
+  marker.close();
+
+  QString err;
+  QVERIFY( !FactorContourService::generateContours( raster, blocked, 1.0, &err ) );
+  QVERIFY2( !err.isEmpty(), "替换失败必须给出错误" );
+  QFile kept( QDir( blocked ).filePath( QStringLiteral( "keep.txt" ) ) );
+  QVERIFY2( kept.open( QIODevice::ReadOnly ), "失败不得毁掉目标路径下的既有内容" );
+  QCOMPARE( kept.readAll(), QByteArray( "previous" ) );
+  kept.close();
+  QVERIFY2( !QFileInfo::exists( dir.filePath( QStringLiteral( "contours.gpkg.tmp" ) ) ),
+            "失败路径不得残留临时文件" );
 }
 
 int main( int argc, char *argv[] )

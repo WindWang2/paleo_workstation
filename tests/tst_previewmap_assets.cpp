@@ -112,6 +112,7 @@ class TestPreviewMapAssets : public QObject
     void attributeTableDialogFilters();
     void profilePanelExportsCsvAndPng();
     void rasterAnalysisStretchAndRamps();
+    void previewRasterReadSideSkipsNodata();
     void statesHelpersContract();
     void documentTabNotMapFramework();
     void wellHeadMapLabelToggleWorks();
@@ -967,6 +968,50 @@ void TestPreviewMapAssets::rasterAnalysisStretchAndRamps()
   QVERIFY(PreviewRasterAnalysis::rampPreset(QStringLiteral("depthBlues")) != nullptr);
   QVERIFY(PreviewRasterAnalysis::rampPreset(QStringLiteral("bipolar"))->bipolar);
   QVERIFY(PreviewRasterAnalysis::rampPreset(QStringLiteral("no-such")) == nullptr);
+}
+
+// #589 C.14：预览栅格读侧必须屏蔽 nodata 哨兵——局部极值与剖面采样都只认
+// 真实像元（QgsRasterDataProvider::sample 的 ok 只承诺越界/band 非法，nodata
+// 仍按真实值返回；块读取同理，得靠 isNoData）。
+void TestPreviewMapAssets::previewRasterReadSideSkipsNodata()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString tif = tmp.filePath(QStringLiteral("nodata.tif"));
+  GDALDriverH drv = GDALGetDriverByName("GTiff");
+  QVERIFY(drv != nullptr);
+  GDALDatasetH ds = GDALCreate(drv, tif.toUtf8().constData(), 9, 9, 1, GDT_Float32, nullptr);
+  QVERIFY(ds != nullptr);
+  double geo[6] = {100.0, 10.0, 0.0, 200.0, 0.0, -10.0};
+  QCOMPARE(GDALSetGeoTransform(ds, geo), CE_None);
+  float vals[81];
+  for (int i = 0; i < 81; ++i)
+    vals[i] = 10.0f;
+  vals[2 * 9 + 2] = 50.0f;    // 真实峰
+  vals[6 * 9 + 6] = -9999.0f; // 孤立 nodata 哨兵
+  GDALSetRasterNoDataValue(GDALGetRasterBand(ds, 1), -9999.0);
+  QCOMPARE(GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Write, 0, 0, 9, 9, vals, 9, 9,
+                        GDT_Float32, 0, 0),
+           CE_None);
+  GDALClose(ds);
+
+  QgsRasterLayer layer(tif, QStringLiteral("nodata"), QStringLiteral("gdal"));
+  QVERIFY2(layer.isValid(), qPrintable(layer.error().message()));
+
+  const QVector<PreviewRasterAnalysis::Extremum> extrema =
+      PreviewRasterAnalysis::localExtrema(&layer, 1, 5, 0.0, 200);
+  QCOMPARE(extrema.size(), 1); // 只剩真实峰；nodata 哨兵不是洼地
+  QCOMPARE(extrema.first().value, 50.0);
+  QVERIFY(extrema.first().peak);
+
+  // 剖面起点取 nodata 像元中心 → invalid；终点取背景像元中心 → valid。
+  const QVector<PreviewRasterAnalysis::ProfileSample> profile =
+      PreviewRasterAnalysis::sampleProfile(&layer, QgsPointXY(165.0, 135.0),
+                                           QgsPointXY(105.0, 195.0), 5);
+  QCOMPARE(profile.size(), 5);
+  QVERIFY2(!profile.first().valid, "nodata 像元的剖面样本必须 invalid");
+  QVERIFY(profile.last().valid);
+  QCOMPARE(profile.last().value, 10.0);
 }
 
 void TestPreviewMapAssets::statesHelpersContract()

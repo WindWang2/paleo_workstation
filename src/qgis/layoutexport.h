@@ -9,9 +9,9 @@
 #include <memory>
 #include <qgscoordinatereferencesystem.h>
 #include <qgscoordinatetransformcontext.h>
+#include <qgsfeature.h>
 
 class QgsProject;
-class QgsVectorLayerFeatureSource;
 class QgsLayout;
 class QgsPrintLayout;
 class QgisLayerService;
@@ -37,10 +37,11 @@ namespace PaleoLayoutExport
 {
 
 // Capture declarations on their owner thread; reconstruct private QGIS objects
-// in the worker. Memory features are read from immutable feature sources there.
+// in the worker. Memory features are copied out as values on the owner thread —
+// the worker never touches the live layer's provider.
 struct ProjectSnapshot {
   QDomDocument xml;
-  QHash<QString, std::shared_ptr<QgsVectorLayerFeatureSource>> memorySources;
+  QHash<QString, QgsFeatureList> memoryFeatures;
   QgsCoordinateReferenceSystem crs;
   QgsCoordinateTransformContext transformContext;
   QString ellipsoid, title, homePath;

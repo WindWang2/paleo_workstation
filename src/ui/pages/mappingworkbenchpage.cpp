@@ -671,6 +671,13 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
             m_horizon.clear();
             setHorizon(saved);
           });
+  // 长选项（如「全文检索（证据文本/操作人/证据号）」）的下拉框按内容撑宽，
+  // 把整页最小宽度顶出停靠栏，右侧说明与按钮被裁切。统一改为按最小内容
+  // 长度计尺寸，选项全文仍在弹出列表与 tooltip 中完整可见。
+  for (QComboBox *combo : body->findChildren<QComboBox *>()) {
+    combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    combo->setMinimumContentsLength(6);
+  }
   refresh();
 }
 QPushButton *MappingWorkbenchPage::commandButton(const QString &name) const {

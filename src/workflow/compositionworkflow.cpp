@@ -19,6 +19,7 @@
 #include "derivedassets.h"
 #include "algorithmpublish.h"
 #include "algorithmadapters.h"
+#include "atomicjob.h"
 #include "mappingworkflow.h"
 
 #include <QDir>
@@ -268,21 +269,10 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   params.insert( QStringLiteral( "INPUTS" ), inputs );
   params.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
-  // algo-atom P2 试点：ProcessingAlgorithmAdapter + publishArtifacts
+  // algo-atom：Processing run+publish 经 AtomicJob 薄助手
   paleo::ProcessingAlgorithmAdapter adapter( proc );
   const AlgorithmSpec fusionSpec =
       AlgorithmSpecRegistry::spec( QStringLiteral( "paleo:paleo_facies_fusion" ) );
-  const AlgorithmRunResult runResult = adapter.run( fusionSpec, params, error );
-  if ( !runResult.ok )
-    return false;
-  const QString outPath = runResult.artifacts.isEmpty()
-                              ? QString()
-                              : runResult.artifacts.first().absolutePath;
-  if ( outPath.isEmpty() )
-  {
-    paleo::workflow_detail::setError( error, tr( "facies fusion returned no output path" ) );
-    return false;
-  }
   QVariantMap fusionExtra;
   fusionExtra.insert( QStringLiteral( "factors" ), factorLayerIds );
   fusionExtra.insert( QStringLiteral( "horizon" ), horizon );
@@ -290,14 +280,14 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   const QStringList fusionParents = registrar.parentVersionIdsFor( parentPaths );
   fusionExtra.insert( QStringLiteral( "evidence" ),
                       paleo::workflow_detail::evidenceRecord( m_catalog, fusionParents, fusionExtra ) );
-  QString commitErr;
-  if ( !paleo::publishArtifacts( registrar, st, runResult, fusionParents,
-                                 QStringLiteral( "paleo:paleo_facies_fusion" ), fusionExtra,
-                                 &commitErr ) )
-  {
-    paleo::workflow_detail::setError( error, commitErr );
+  paleo::AtomicProcessingDest dest;
+  dest.registrar = &registrar;
+  dest.staging = st;
+  dest.parentVersionIds = fusionParents;
+  dest.sourceUri = QStringLiteral( "paleo:paleo_facies_fusion" );
+  dest.extra = fusionExtra;
+  if ( !paleo::runProcessingAndPublish( adapter, fusionSpec, params, dest, error ) )
     return false;
-  }
 
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "composite.%1" ).arg( horizon );

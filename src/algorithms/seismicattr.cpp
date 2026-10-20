@@ -332,7 +332,8 @@ void semblanceCoherence(const float *volume, int nIl, int nXl, int nS,
 void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,
                                 int ilHalf, int xlHalf, int timeHalf,
                                 double ilSpacing, double xlSpacing,
-                                CoherenceWeightMode mode, float *out)
+                                CoherenceWeightMode mode, float *out,
+                                const std::function<void(int doneIl)> &progress)
 {
   // #417：先全量校验再算 nOut——负维在旧顺序下可凑出正乘积/溢出回绕，
   // NaN 填充会按垃圾 nOut 越界写调用方缓冲（与未加权版同一校验顺序）。
@@ -380,6 +381,8 @@ void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,
 
   for (int il = ilHalf; il < nIl - ilHalf; ++il)
   {
+    if (progress)
+      progress(il + 1);
     for (int xl = xlHalf; xl < nXl - xlHalf; ++xl)
     {
       const int traceBase = il * rowStride + xl * traceStride;

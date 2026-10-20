@@ -18,7 +18,9 @@ private slots:
   void sgsAndCokrigingTypedRejectEmptyPath();
   void trackSectionRejectsInvalidSeed();
   void bandlimitedRejectsNullTrace();
+  void sparseSpikeRejectsNullTrace();
   void synthesizeRejectsNullPointers();
+  void diagnoseCoverageRejectsNullPointers();
   void runResultHelpersShapeArtifacts();
 };
 
@@ -70,6 +72,8 @@ void AlgorithmAdapterTests::nativeCppAdapterMapEntryPointsToTyped()
     { QStringLiteral( "hztrack:track_section" ), QStringLiteral( "runTrackSection" ) },
     { QStringLiteral( "inversion:bandlimited" ), QStringLiteral( "runBandlimited" ) },
     { QStringLiteral( "faciesmapping:synthesize" ), QStringLiteral( "runSynthesizeFacies" ) },
+    { QStringLiteral( "inversion:sparse_spike" ), QStringLiteral( "runSparseSpike" ) },
+    { QStringLiteral( "wellsiting:diagnose_coverage" ), QStringLiteral( "runDiagnoseCoverage" ) },
   };
   for ( const auto &c : cases )
   {
@@ -83,7 +87,7 @@ void AlgorithmAdapterTests::nativeCppAdapterMapEntryPointsToTyped()
   }
 
   AlgorithmSpec unknown;
-  unknown.id = QStringLiteral( "wellsiting:diagnose_coverage" );
+  unknown.id = QStringLiteral( "hztrack:propagate_volume" );
   unknown.engine = QStringLiteral( "native_cpp" );
   QString err;
   const AlgorithmRunResult todo = adapter.run( unknown, {}, &err );
@@ -147,6 +151,25 @@ void AlgorithmAdapterTests::synthesizeRejectsNullPointers()
   paleo::SynthesizeFaciesInputs in;
   QString err;
   QVERIFY( !adapter.runSynthesizeFacies( in, nullptr, &err ).ok );
+  QVERIFY( err.contains( QStringLiteral( "指针" ) ) );
+}
+
+
+void AlgorithmAdapterTests::sparseSpikeRejectsNullTrace()
+{
+  paleo::NativeCppAdapter adapter;
+  paleo::SparseSpikeInputs in;
+  QString err;
+  QVERIFY( !adapter.runSparseSpike( in, nullptr, &err ).ok );
+  QVERIFY( err.contains( QStringLiteral( "trace" ) ) || err.contains( QStringLiteral( "wavelet" ) ) );
+}
+
+void AlgorithmAdapterTests::diagnoseCoverageRejectsNullPointers()
+{
+  paleo::NativeCppAdapter adapter;
+  paleo::DiagnoseCoverageInputs in;
+  QString err;
+  QVERIFY( !adapter.runDiagnoseCoverage( in, nullptr, nullptr, &err ).ok );
   QVERIFY( err.contains( QStringLiteral( "指针" ) ) );
 }
 

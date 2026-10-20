@@ -105,10 +105,12 @@ void PreviewIdentifyCore::hookLayerInvalidation( QgsVectorLayer *layer )
 }
 
 QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
-    const QList<QgsMapLayer *> &layers, const QgsPointXY &point, double toleranceMapUnits )
+    const QList<QgsMapLayer *> &layers, const QgsPointXY &point, double toleranceMapUnits,
+    int maxPerLayer )
 {
   QVector<PreviewIdentifyResult> out;
   const double tol = qMax( 0.0, toleranceMapUnits );
+  const bool perLayerCapped = maxPerLayer > 0;
   QgsRectangle filter( point.x() - tol, point.y() - tol, point.x() + tol, point.y() + tol );
 
   // 层序自顶而下——先命中的在上面（结果面板序 = 视觉序）。
@@ -118,18 +120,26 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
       continue;
     if ( auto *vl = qobject_cast<QgsVectorLayer *>( ml ) )
     {
-      QgsFeatureRequest req;
-      req.setFilterRect( filter );
-      req.setLimit( 25 );
       if ( QgsSpatialIndex *index = ensureIndex( vl ) )
       {
         // 空间索引先粗筛（bbox），再按几何精筛（点容差与真实相交）。
-        const QList<QgsFeatureId> ids = index->intersects( filter );
+        QList<QgsFeatureId> ids = index->intersects( filter );
+        // 每层上限先截断候选再取要素：D.20 之前这里逐 fid 各发一次
+        // provider 查询（密要素区 = N 次往返）且无每层上限（单层吃满全局
+        // 200 条预算）——悬停识别一次停顿就把 GUI 线程堵死。
+        if ( perLayerCapped && ids.size() > maxPerLayer )
+          ids = ids.mid( 0, maxPerLayer );
+        QgsFeatureIds wanted;
+        wanted.reserve( static_cast<int>( ids.size() ) );
         for ( QgsFeatureId fid : ids )
+          wanted.insert( fid );
+        // 合成一次 setFilterFids 请求取回全部候选（替代逐 fid 单独查询）。
+        QgsFeatureRequest req;
+        req.setFilterFids( wanted );
+        QgsFeatureIterator it = vl->getFeatures( req );
+        QgsFeature full;
+        while ( it.nextFeature( full ) )
         {
-          QgsFeature full;
-          if ( !vl->getFeatures( QgsFeatureRequest( fid ) ).nextFeature( full ) )
-            continue;
           const QgsGeometry geom = full.geometry();
           if ( !geom.isNull() && !geom.intersects( filter ) )
             continue;
@@ -146,6 +156,10 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
       }
       else
       {
+        QgsFeatureRequest req;
+        req.setFilterRect( filter );
+        if ( perLayerCapped )
+          req.setLimit( maxPerLayer );
         QgsFeatureIterator it = vl->getFeatures( req );
         QgsFeature f;
         while ( it.nextFeature( f ) )

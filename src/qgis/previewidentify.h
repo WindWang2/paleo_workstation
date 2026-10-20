@@ -50,9 +50,14 @@ class PreviewIdentifyCore : public QObject
     ~PreviewIdentifyCore() override;
 
     // 点选：容差矩形（局部网格米制）内的矢量要素 + 该点栅格值。
+    // maxPerLayer：每层命中上限；<=0 = 不设每层上限（仅全局 200 条兜底）。
+    // 悬停识别等交互路径必须显式传小值——密要素区不设每层上限时，单层即可
+    // 吃满全局预算，且 bbox 内每个候选 fid 各发一次 provider 查询，GUI
+    // 线程上一次停顿就是全量查询（D.20）。
     QVector<PreviewIdentifyResult> identifyPoint( const QList<QgsMapLayer *> &layers,
                                                   const QgsPointXY &point,
-                                                  double toleranceMapUnits );
+                                                  double toleranceMapUnits,
+                                                  int maxPerLayer = 0 );
     // 框选：矩形相交要素（每层上限 maxPerLayer，按要素 id 截断）。
     QVector<PreviewIdentifyResult> identifyRect( const QList<QgsMapLayer *> &layers,
                                                  const QgsRectangle &rect,

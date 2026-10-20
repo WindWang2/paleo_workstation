@@ -36,6 +36,7 @@ class TestPreviewIdentify : public QObject
     void rasterPointGivesNearestAndBilinear();
     void rasterPointOutsideExtentIsMiss();
     void pointIdentifyAcrossMixedLayers();
+    void pointIdentifyCapsPerLayer();
     void rectIdentifyEmptyRectIsEmpty();
 
   private:
@@ -231,6 +232,28 @@ void TestPreviewIdentify::pointIdentifyAcrossMixedLayers()
            QStringLiteral("p2_3"));
   QVERIFY(results.at(1).isRaster); // 栅格在后
   QCOMPARE(results.at(1).rasterValueNearest, 2.0);
+}
+
+void TestPreviewIdentify::pointIdentifyCapsPerLayer()
+{
+  std::unique_ptr<QgsVectorLayer> vl(makeGridLayer(8)); // 8×8 = 64 个格点
+  const QgsPointXY origin(0.0, 0.0);
+  const double wideTol = 1000.0; // 容差矩形罩住全层
+  // 不设每层上限：全局 200 条内全命中（预览页点击识别的既有口径）。
+  QCOMPARE(m_core.identifyPoint({vl.get()}, origin, wideTol).size(), 64);
+  // 每层上限 25：悬停识别路径显式传小值——密要素区单层不再吃满全局预算，
+  // 候选也在取要素前截断（D.20：此前逐 fid 各发一次 provider 查询）。
+  const auto capped = m_core.identifyPoint({vl.get()}, origin, wideTol, 25);
+  QCOMPARE(capped.size(), 25);
+  // 截断后走合成 setFilterFids 单次查询：命中的仍是真实相交要素。
+  const QgsRectangle filter(-1000, -1000, 1000, 1000);
+  for (const PreviewIdentifyResult &r : capped)
+  {
+    QVERIFY(!r.layerName.isEmpty());
+    QVERIFY(r.geometry.intersects(filter));
+  }
+  // 上限 1 也如实只回一条（防呆：cap 不塌成 0 或全量）。
+  QCOMPARE(m_core.identifyPoint({vl.get()}, origin, wideTol, 1).size(), 1);
 }
 
 void TestPreviewIdentify::rectIdentifyEmptyRectIsEmpty()

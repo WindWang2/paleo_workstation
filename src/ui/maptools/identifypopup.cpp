@@ -55,7 +55,7 @@ IdentifyPopup::IdentifyPopup(QWidget *parent)
   auto *fields = new QWidget(this);
   m_fields = new QVBoxLayout(fields);
   m_fields->setContentsMargins(0, 0, 0, 0);
-  m_fields->setSpacing(2);
+  m_fields->setSpacing(tokens.spacingXs); // 设计令牌（ui_tokens 闸：禁裸字面量间距）
   layout->addWidget(fields);
   setMinimumWidth(220);
   setMaximumWidth(320);

@@ -7,14 +7,14 @@
 #include <QKeyEvent>
 #include <QTimer>
 #include <QToolButton>
-#include <qgsmapcanvas.h>
-#include <qgsmaplayer.h>
-#include <qgsmapmouseevent.h>
-#include <qgsrasterlayer.h>
-#include <qgsvectorlayer.h>
 
 namespace
 {
+// 悬停识别每层命中上限：密要素区不设每层上限时，单层就能吃满全局 200 条
+// 预算，且查询核心对 bbox 内每个候选 fid 各发一次 provider 查询——GUI
+// 线程上每次指针停顿（80ms 防抖）都在为整个画布做全量识别（D.20）。
+constexpr int kHoverMaxPerLayer = 25;
+
 IdentifyHit hitFrom(const PreviewIdentifyResult &result)
 {
   IdentifyHit hit;
@@ -43,8 +43,8 @@ IdentifyHit hitFrom(const PreviewIdentifyResult &result)
 }
 } // namespace
 
-PaleoIdentifyTool::PaleoIdentifyTool(QgsMapCanvas *canvas)
-  : QgsMapTool(canvas)
+PaleoIdentifyTool::PaleoIdentifyTool(PaleoMapCanvas *canvas)
+  : PaleoMapTool(canvas)
 {
   m_popup = new IdentifyPopup(canvas);
   m_core = new PreviewIdentifyCore(this);
@@ -58,7 +58,7 @@ PaleoIdentifyTool::PaleoIdentifyTool(QgsMapCanvas *canvas)
 
 PaleoIdentifyTool::~PaleoIdentifyTool() = default;
 
-void PaleoIdentifyTool::canvasMoveEvent(QgsMapMouseEvent *event)
+void PaleoIdentifyTool::canvasMoveEvent(PaleoMapMouseEvent *event)
 {
   if (m_pinned || m_overPopup)
     return;
@@ -66,7 +66,7 @@ void PaleoIdentifyTool::canvasMoveEvent(QgsMapMouseEvent *event)
   m_hover->start();
 }
 
-void PaleoIdentifyTool::canvasPressEvent(QgsMapMouseEvent *event)
+void PaleoIdentifyTool::canvasPressEvent(PaleoMapMouseEvent *event)
 {
   if (event->button() != Qt::LeftButton)
     return;
@@ -74,7 +74,7 @@ void PaleoIdentifyTool::canvasPressEvent(QgsMapMouseEvent *event)
   refreshAt(event->pos(), true);
 }
 
-void PaleoIdentifyTool::canvasReleaseEvent(QgsMapMouseEvent *) {}
+void PaleoIdentifyTool::canvasReleaseEvent(PaleoMapMouseEvent *) {}
 
 void PaleoIdentifyTool::keyPressEvent(QKeyEvent *event)
 {
@@ -93,13 +93,13 @@ void PaleoIdentifyTool::keyPressEvent(QKeyEvent *event)
     event->accept();
     return;
   }
-  QgsMapTool::keyPressEvent(event);
+  PaleoMapTool::keyPressEvent(event);
 }
 
 void PaleoIdentifyTool::deactivate()
 {
   hidePopup();
-  QgsMapTool::deactivate();
+  PaleoMapTool::deactivate();
 }
 
 void PaleoIdentifyTool::hidePopup()
@@ -115,9 +115,11 @@ void PaleoIdentifyTool::refreshAt(const QPoint &pixel, bool pin)
   if (!canvas())
     return;
   const double tol = qMax(canvas()->mapUnitsPerPixel() * 8.0, 0.0);
-  const QgsPointXY point = toMapCoordinates(pixel);
   QVector<IdentifyHit> hits;
-  const auto found = m_core->identifyPoint(canvas()->layers(), point, tol);
+  // 每层命中上限显式传小值（kHoverMaxPerLayer）：悬停识别跑在 GUI 线程，
+  // 不设每层上限时密要素区的单层就能吃满全局预算并逐 fid 查询（D.20）。
+  const auto found =
+      m_core->identifyPoint(canvas()->layers(), toMapCoordinates(pixel), tol, kHoverMaxPerLayer);
   hits.reserve(found.size());
   for (const PreviewIdentifyResult &result : found)
     hits.append(hitFrom(result));

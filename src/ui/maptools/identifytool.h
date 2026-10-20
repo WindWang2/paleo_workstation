@@ -2,23 +2,28 @@
 #pragma once
 
 #include <QPoint>
-#include <qgsmaptool.h>
+
+#include "../../qgis/maptoolviewapi.h"
+
+class QKeyEvent;
 
 class IdentifyPopup;
 class PreviewIdentifyCore;
 class QTimer;
 
 // 主画布识别浏览：指针落到要素上时弹出悬浮信息，多个命中可切换。
-class PaleoIdentifyTool : public QgsMapTool
+// QGIS 类型只经 src/qgis/maptoolviewapi.h 门面（别名）进入本头——
+// 视图层 TU 不直连外部 qgs* 头（#472 双闸：qgs-audit/qgis-spread）。
+class PaleoIdentifyTool : public PaleoMapTool
 {
   Q_OBJECT
 public:
-  explicit PaleoIdentifyTool(QgsMapCanvas *canvas);
+  explicit PaleoIdentifyTool(PaleoMapCanvas *canvas);
   ~PaleoIdentifyTool() override;
 
-  void canvasMoveEvent(QgsMapMouseEvent *event) override;
-  void canvasPressEvent(QgsMapMouseEvent *event) override;
-  void canvasReleaseEvent(QgsMapMouseEvent *event) override;
+  void canvasMoveEvent(PaleoMapMouseEvent *event) override;
+  void canvasPressEvent(PaleoMapMouseEvent *event) override;
+  void canvasReleaseEvent(PaleoMapMouseEvent *event) override;
   void keyPressEvent(QKeyEvent *event) override;
   void deactivate() override;
 

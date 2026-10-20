@@ -198,7 +198,10 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 （#473 拆分：`_workbench.cpp` 1250→525 行 + `_workbench_commands/_wells` 承载；
 #516 新增 `_references.cpp` 参考面板域）
 
-家族全表（`src/ui/paleomainwindow*.cpp` 共 26 TU，平铺不建子目录；行数为
+**实测（2026-10-21，master-lint 修复）：paleomainwindow.cpp 1015 行（家族 27 TU）**
+（#573 新增 `_workbench_editflow.cpp` 编图元素修改依据流，110 行）
+
+家族全表（`src/ui/paleomainwindow*.cpp` 共 27 TU，平铺不建子目录；行数为
 当日实测，#318 文案改动后与 #312 落点微差——漂移护栏按 ±20% 容差盯本行）：
 
 | TU | 行数 | 域（各 TU 头注释口径） |
@@ -207,6 +210,7 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 | `_workbench.cpp` | 525 | 编图工作台 attachWorkbench 主函数（#473 拆分后；参考窗口经 `_references.cpp` 面板化） |
 | `_workbench_commands.cpp` | 416 | attachWorkbench 命令分发链（#473 拆分承载，行为守恒平移） |
 | `_workbench_evidence.cpp` | 41 | 证据面板/局部图谱联动接线（#473 拆分承载） |
+| `_workbench_editflow.cpp` | 110 | 编图元素修改与修改依据记录流（#573） |
 | `_workbench_wells.cpp` | 326 | 井预测面板 dock/自动保存/修订链（#473 拆分承载） |
 | `_references.cpp` | 66 | 参考证据面板域（#516：showMappingReference/MappingReferencePanel 编排） |
 | `_attach.cpp` | 770 | 壳接线聚合胶水：attachWorkflows 入口 + 静态辅助 + 跨页图层显隐 |

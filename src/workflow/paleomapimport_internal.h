@@ -10,7 +10,7 @@ struct Prepared
   QStringList directories, warnings;
   bool unchanged = false, fatal = false;
 };
-bool prepare(DataCatalog *catalog, const QString &projectDir, const QString &stageDir, const QString &path,
+bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, const QString &path,
              const QString &horizon, const PaleoMapLibrary::Request &request,
-             const std::function<bool()> &cancelled, Prepared *result, QString *error, const QString &existingAsset = {});
+             const std::function<bool()> &cancelled, Prepared *out, QString *error, const QString &existingAsset = {});
 } // namespace PaleoMapImport

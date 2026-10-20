@@ -69,6 +69,16 @@ int countItemNodes(const QTreeWidgetItem *it)
   return n;
 }
 
+// 辅助资料文档的类型说明（按扩展名）。
+QString auxDocKind(const CatalogAsset &a)
+{
+  const QString n = a.displayName.toLower();
+  return n.endsWith(QLatin1String(".pdf"))    ? DataListPanel::tr("PDF 文档")
+         : n.endsWith(QLatin1String(".pptx")) ? DataListPanel::tr("PPT 演示文稿")
+         : n.endsWith(QLatin1String(".png"))  ? DataListPanel::tr("图像")
+         : n.endsWith(QLatin1String(".xml"))  ? DataListPanel::tr("XML 数据表")
+                                              : a.type;
+}
 } // namespace
 
 // ---- 方向 92：树蓝图（NavNodeSpec）------------------------------------------------
@@ -78,7 +88,6 @@ int countItemNodes(const QTreeWidgetItem *it)
 // 共用同一 applyNavSpec 落字段——两条通道产物由构造保证一致，增量不漂移。
 // 资产级增/删/改落到节点级更新；变更面超阈值回全量兜底（阈值口径见
 // datalist.h kNavReconcile* 注释与 ledger 定案）。
-
 
 QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
 {
@@ -577,8 +586,7 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
     auxRoot.type = QStringLiteral("category");
     auxRoot.sub = QStringLiteral("auxiliary");
     auxRoot.icon = QStringLiteral("mActionFolder.svg");
-    // 有文档/参考图时保持展开。导入的 pptx 落在「参考资料」下，
-    // 顶级组收拢时文件名不会出现在视野里。
+    // 有文档/参考图时保持展开：导入的 pptx 落在「参考资料」下，收拢时看不到。
     auxRoot.expanded = !auxAssets.isEmpty();
 
     NavNodeSpec faciesBranch;
@@ -601,22 +609,8 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
       it.id = a.id;
       it.type = QStringLiteral("auxiliary");
       it.icon = isGeo ? QStringLiteral("mIconPolygonLayer.svg") : QStringLiteral("mActionOpenTable.svg");
-      if (isGeo)
-        it.text1 = tr("GeoJSON 矢量相图");
-      else if (a.displayName.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
-        it.text1 = tr("PDF 文档");
-      else if (a.displayName.endsWith(QLatin1String(".pptx"), Qt::CaseInsensitive))
-        it.text1 = tr("PPT 演示文稿");
-      else if (a.displayName.endsWith(QLatin1String(".png"), Qt::CaseInsensitive))
-        it.text1 = tr("图像");
-      else if (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive))
-        it.text1 = tr("XML 数据表");
-      else
-        it.text1 = a.type;
-      if (isGeo)
-        faciesBranch.children.append(it);
-      else
-        docBranch.children.append(it);
+      it.text1 = isGeo ? tr("GeoJSON 矢量相图") : auxDocKind(a);
+      (isGeo ? faciesBranch : docBranch).children.append(it);
     }
     auxRoot.children.append(faciesBranch);
     auxRoot.children.append(docBranch);

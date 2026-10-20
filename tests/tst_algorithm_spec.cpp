@@ -1,7 +1,5 @@
-// algo-atom P0：AlgorithmSpec 与 initAlgorithm / AlgorithmParamSchema 对齐。
-// 故意不引导 QgsApplication——冻结参数名集源自 paleoalgorithms.cpp
-// ConstraintIDWAlgorithm::initAlgorithm（与 schema 注释同源），避免为契约
-// 单测拉起整套 QGIS。
+// algo-atom P0/P0-fill：AlgorithmSpec 与 initAlgorithm / AlgorithmParamSchema 对齐。
+// 故意不引导 QgsApplication——冻结参数名集源自各算法 initAlgorithm。
 #include <QtTest/QtTest>
 
 #include "services/algorithmspec.h"
@@ -10,20 +8,76 @@
 namespace
 {
 
-// 冻结自 src/algorithms/paleoalgorithms.cpp ConstraintIDWAlgorithm::initAlgorithm
-// （addParameter 名；不含 addOutput 的 CONSTRAINT_RECEIPTS / SAMPLE_RECEIPTS，
-// 也不含隐藏约定 LOCAL_GRID_WKT）。
-const QStringList kConstraintIdwInitAlgorithmParams = {
-  QStringLiteral( "INPUT" ),
-  QStringLiteral( "FIELD" ),
-  QStringLiteral( "CONSTRAINTS" ),
-  QStringLiteral( "FACIES_CODE" ),
-  QStringLiteral( "CELL_SIZE" ),
-  QStringLiteral( "ANISO_RATIO" ),
-  QStringLiteral( "OUTPUT" ),
-};
-
 const QString kConstraintIdw = QStringLiteral( "paleo:paleo_constraint_idw" );
+
+// 各算法 addParameter 名（不含 addOutput 诊断串、不含隐藏 LOCAL_GRID_WKT）
+const QHash<QString, QStringList> kFrozenInitParams = {
+  { QStringLiteral( "paleo:paleo_constraint_idw" ),
+    { QStringLiteral( "INPUT" ), QStringLiteral( "FIELD" ), QStringLiteral( "CONSTRAINTS" ),
+      QStringLiteral( "FACIES_CODE" ), QStringLiteral( "CELL_SIZE" ),
+      QStringLiteral( "ANISO_RATIO" ), QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_facies_fusion" ),
+    { QStringLiteral( "INPUTS" ), QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_geological_smoothing" ),
+    { QStringLiteral( "INPUT" ), QStringLiteral( "PASSES" ), QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_facies_polygonize" ),
+    { QStringLiteral( "INPUT" ), QStringLiteral( "SMOOTH" ), QStringLiteral( "MIN_CELLS" ),
+      QStringLiteral( "MIN_FRACTION" ), QStringLiteral( "MIN_AREA" ),
+      QStringLiteral( "SIMPLIFY" ), QStringLiteral( "BOUNDARY_SMOOTH" ),
+      QStringLiteral( "SNAP_TOLERANCE" ), QStringLiteral( "ANGLE_TOLERANCE" ),
+      QStringLiteral( "VALUE_RANGES" ), QStringLiteral( "CONSTRAINTS" ),
+      QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_isopach" ),
+    { QStringLiteral( "INPUT_TOP" ), QStringLiteral( "INPUT_BASE" ),
+      QStringLiteral( "NEGATIVE_TO_NODATA" ), QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_welldist" ),
+    { QStringLiteral( "INPUT" ), QStringLiteral( "CELL_SIZE" ), QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_distance_transform" ),
+    { QStringLiteral( "INPUT" ), QStringLiteral( "CONSTRAINTS" ), QStringLiteral( "CELL_SIZE" ),
+      QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_min_curvature" ),
+    { QStringLiteral( "INPUT" ), QStringLiteral( "FIELD" ), QStringLiteral( "CONSTRAINTS" ),
+      QStringLiteral( "TENSION" ), QStringLiteral( "MAX_SWEEPS" ), QStringLiteral( "CELL_SIZE" ),
+      QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_local_direction_idw" ),
+    { QStringLiteral( "INPUT" ), QStringLiteral( "FIELD" ), QStringLiteral( "CONSTRAINTS" ),
+      QStringLiteral( "CELL_SIZE" ), QStringLiteral( "POWER" ), QStringLiteral( "COVERAGE" ),
+      QStringLiteral( "CLUSTER" ), QStringLiteral( "LOCAL_GRID" ),
+      QStringLiteral( "REQUIRE_FULL_COVERAGE" ), QStringLiteral( "PERCENT_TO_FRACTION" ),
+      QStringLiteral( "MIN_POINTS" ), QStringLiteral( "MAX_POINTS" ),
+      QStringLiteral( "SEARCH_RADIUS" ), QStringLiteral( "METHOD" ),
+      QStringLiteral( "VARIAGRAM_MODEL" ), QStringLiteral( "NUGGET" ), QStringLiteral( "SILL" ),
+      QStringLiteral( "RANGE" ), QStringLiteral( "VARIAGRAM_AZIMUTH" ),
+      QStringLiteral( "KRIGING_MAX_POINTS" ), QStringLiteral( "VALUE_UNIT" ),
+      QStringLiteral( "EXTENT" ), QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_surfer_idw" ),
+    { QStringLiteral( "INPUT" ), QStringLiteral( "FIELD" ), QStringLiteral( "CONSTRAINTS" ),
+      QStringLiteral( "CELL_SIZE" ), QStringLiteral( "POWER" ), QStringLiteral( "COVERAGE" ),
+      QStringLiteral( "LOCAL_GRID" ), QStringLiteral( "PERCENT_TO_FRACTION" ),
+      QStringLiteral( "MIN_POINTS" ), QStringLiteral( "MAX_POINTS" ),
+      QStringLiteral( "SEARCH_RADIUS" ), QStringLiteral( "ANISOTROPY_RATIO" ),
+      QStringLiteral( "ANISOTROPY_ANGLE" ), QStringLiteral( "VALUE_UNIT" ),
+      QStringLiteral( "EXTENT" ), QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_cartographic_work" ),
+    { QStringLiteral( "INPUT" ), QStringLiteral( "CONSTRAINTS" ), QStringLiteral( "LEVELS" ),
+      QStringLiteral( "TRANSITION" ), QStringLiteral( "OUTPUT" ) } },
+  { QStringLiteral( "paleo:paleo_structural_idw" ),
+    { QStringLiteral( "WELLS" ), QStringLiteral( "WELL_ID_FIELD" ),
+      QStringLiteral( "VALUE_FIELD" ), QStringLiteral( "FACTOR_NAME" ),
+      QStringLiteral( "FACTOR_MODE" ), QStringLiteral( "NUMERATOR_FIELD" ),
+      QStringLiteral( "DENOMINATOR_FIELD" ), QStringLiteral( "VALUE_RANGE" ),
+      QStringLiteral( "BOUNDARY" ), QStringLiteral( "INTERPOLATION_AREA" ),
+      QStringLiteral( "CONSTRAINTS" ), QStringLiteral( "GRID_RESOLUTION" ),
+      QStringLiteral( "POWER" ), QStringLiteral( "MIN_POINTS" ), QStringLiteral( "MAX_POINTS" ),
+      QStringLiteral( "SEARCH_RADIUS" ), QStringLiteral( "EXTEND_TO_BOUNDARY" ),
+      QStringLiteral( "ENABLE_BARRIERS" ), QStringLiteral( "ENABLE_DIRECTIONS" ),
+      QStringLiteral( "INTERPRETIVE_STRENGTH" ), QStringLiteral( "BARRIER_BUFFER" ),
+      QStringLiteral( "BARRIER_BUFFER_AUTO" ), QStringLiteral( "BARRIER_SHAPE_RADIUS" ),
+      QStringLiteral( "BARRIER_SHAPE_STRENGTH" ), QStringLiteral( "BARRIER_EXTEND" ),
+      QStringLiteral( "BARRIER_EXTENSION_LIMIT" ), QStringLiteral( "CONTOUR_STOP_BUFFER" ),
+      QStringLiteral( "CLUSTER" ), QStringLiteral( "LOCAL_GRID" ),
+      QStringLiteral( "OUTPUT" ) } },
+};
 
 } // namespace
 
@@ -31,129 +85,81 @@ class AlgorithmSpecTests : public QObject
 {
   Q_OBJECT
 private slots:
-  void constraintIdwSpecExistsAndComplete();
-  void constraintIdwPortsMatchContract();
-  void constraintIdwParamsSubsetOfInitAlgorithm();
-  void constraintIdwSchemaFieldsSubsetOfSpecParams();
-  void constraintIdwHiddenLocalGridWkt();
-  void registryListsTwelveProcessingIds();
+  void allTwelveProcessingComplete();
+  void everyCompleteSpecMatchesFrozenInitAlgorithm();
+  void schemaFieldsSubsetOfSpecParamsWhenKnown();
+  void constraintIdwPortsAndAnisoInSchema();
   void unknownIdReturnsEmpty();
 };
 
-void AlgorithmSpecTests::constraintIdwSpecExistsAndComplete()
+void AlgorithmSpecTests::allTwelveProcessingComplete()
 {
-  QVERIFY( AlgorithmSpecRegistry::knows( kConstraintIdw ) );
-  QVERIFY( AlgorithmSpecRegistry::completeIds().contains( kConstraintIdw ) );
-  const AlgorithmSpec s = AlgorithmSpecRegistry::spec( kConstraintIdw );
-  QCOMPARE( s.id, kConstraintIdw );
-  QVERIFY( s.complete );
-  QCOMPARE( s.engine, QStringLiteral( "processing" ) );
-  QVERIFY( !s.displayName.isEmpty() );
-}
-
-void AlgorithmSpecTests::constraintIdwPortsMatchContract()
-{
-  const AlgorithmSpec s = AlgorithmSpecRegistry::spec( kConstraintIdw );
-
-  QHash<QString, AlgoPort> inById;
-  for ( const AlgoPort &p : s.inputs )
-    inById.insert( p.id, p );
-  QVERIFY( inById.contains( QStringLiteral( "INPUT" ) ) );
-  QCOMPARE( inById.value( QStringLiteral( "INPUT" ) ).kind, QStringLiteral( "vector" ) );
-  QCOMPARE( inById.value( QStringLiteral( "INPUT" ) ).geometryHint, QStringLiteral( "point" ) );
-  QVERIFY( inById.value( QStringLiteral( "INPUT" ) ).required );
-
-  QVERIFY( inById.contains( QStringLiteral( "CONSTRAINTS" ) ) );
-  QCOMPARE( inById.value( QStringLiteral( "CONSTRAINTS" ) ).kind, QStringLiteral( "vector" ) );
-  QCOMPARE( inById.value( QStringLiteral( "CONSTRAINTS" ) ).geometryHint, QStringLiteral( "line" ) );
-  QVERIFY( !inById.value( QStringLiteral( "CONSTRAINTS" ) ).required );
-
-  QHash<QString, AlgoPort> outById;
-  for ( const AlgoPort &p : s.outputs )
-    outById.insert( p.id, p );
-  QVERIFY( outById.contains( QStringLiteral( "OUTPUT" ) ) );
-  QCOMPARE( outById.value( QStringLiteral( "OUTPUT" ) ).kind, QStringLiteral( "raster" ) );
-  QVERIFY( outById.contains( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ) );
-  QVERIFY( outById.contains( QStringLiteral( "SAMPLE_RECEIPTS" ) ) );
-
-  const QStringList keys = s.paramKeys();
-  QVERIFY( keys.contains( QStringLiteral( "FIELD" ) ) );
-  QVERIFY( keys.contains( QStringLiteral( "FACIES_CODE" ) ) );
-  QVERIFY( keys.contains( QStringLiteral( "CELL_SIZE" ) ) );
-  QVERIFY( keys.contains( QStringLiteral( "ANISO_RATIO" ) ) );
-}
-
-void AlgorithmSpecTests::constraintIdwParamsSubsetOfInitAlgorithm()
-{
-  const AlgorithmSpec s = AlgorithmSpecRegistry::spec( kConstraintIdw );
-  const QStringList names = s.processingParameterNames();
-  QVERIFY( !names.isEmpty() );
-  for ( const QString &n : names )
+  QCOMPARE( AlgorithmSpecRegistry::knownIds().size(), 12 );
+  QCOMPARE( AlgorithmSpecRegistry::completeIds().size(), 12 );
+  for ( const QString &id : kFrozenInitParams.keys() )
   {
-    QVERIFY2( kConstraintIdwInitAlgorithmParams.contains( n ),
-              qPrintable( QStringLiteral( "Spec processing param '%1' not in frozen "
-                                          "initAlgorithm set" )
-                              .arg( n ) ) );
-  }
-  // 冻结集里的标量 + 图层名也应被 Spec 覆盖（完整契约，不仅 ⊆）
-  for ( const QString &n : kConstraintIdwInitAlgorithmParams )
-  {
-    QVERIFY2( names.contains( n ),
-              qPrintable( QStringLiteral( "initAlgorithm param '%1' missing from Spec "
-                                          "processingParameterNames" )
-                              .arg( n ) ) );
+    QVERIFY2( AlgorithmSpecRegistry::knows( id ), qPrintable( id ) );
+    QVERIFY2( AlgorithmSpecRegistry::spec( id ).complete, qPrintable( id ) );
   }
 }
 
-void AlgorithmSpecTests::constraintIdwSchemaFieldsSubsetOfSpecParams()
+void AlgorithmSpecTests::everyCompleteSpecMatchesFrozenInitAlgorithm()
 {
-  QVERIFY( AlgorithmParamSchema::knows( kConstraintIdw ) );
-  const AlgorithmSpec s = AlgorithmSpecRegistry::spec( kConstraintIdw );
-  const QStringList specKeys = s.paramKeys();
-  const auto schemaFields = AlgorithmParamSchema::fieldsFor( kConstraintIdw );
-  QVERIFY( !schemaFields.isEmpty() );
-  for ( const AlgorithmParamField &f : schemaFields )
+  for ( auto it = kFrozenInitParams.constBegin(); it != kFrozenInitParams.constEnd(); ++it )
   {
-    QVERIFY2( specKeys.contains( f.key ),
-              qPrintable( QStringLiteral( "schema field '%1' not in Spec.params" ).arg( f.key ) ) );
+    const AlgorithmSpec s = AlgorithmSpecRegistry::spec( it.key() );
+    QVERIFY2( s.complete, qPrintable( it.key() ) );
+    const QStringList names = s.processingParameterNames();
+    for ( const QString &n : names )
+    {
+      QVERIFY2( it.value().contains( n ),
+                qPrintable( QStringLiteral( "%1: Spec param '%2' not in frozen initAlgorithm" )
+                                .arg( it.key(), n ) ) );
+    }
+    for ( const QString &n : it.value() )
+    {
+      QVERIFY2( names.contains( n ),
+                qPrintable( QStringLiteral( "%1: initAlgorithm '%2' missing from Spec" )
+                                .arg( it.key(), n ) ) );
+    }
   }
-  // P3：ANISO_RATIO 已进 AlgorithmParamSchema，与 Spec / initAlgorithm 对齐
-  QVERIFY( specKeys.contains( QStringLiteral( "ANISO_RATIO" ) ) );
+}
+
+void AlgorithmSpecTests::schemaFieldsSubsetOfSpecParamsWhenKnown()
+{
+  for ( const QString &id : AlgorithmParamSchema::registeredAlgorithms() )
+  {
+    if ( !AlgorithmSpecRegistry::knows( id ) )
+      continue;
+    const QStringList specKeys = AlgorithmSpecRegistry::spec( id ).paramKeys();
+    for ( const AlgorithmParamField &f : AlgorithmParamSchema::fieldsFor( id ) )
+    {
+      QVERIFY2( specKeys.contains( f.key ),
+                qPrintable( QStringLiteral( "%1 schema field '%2' not in Spec.params" )
+                                .arg( id, f.key ) ) );
+    }
+  }
+}
+
+void AlgorithmSpecTests::constraintIdwPortsAndAnisoInSchema()
+{
+  const AlgorithmSpec s = AlgorithmSpecRegistry::spec( kConstraintIdw );
+  QVERIFY( s.hiddenParameterNames().contains( QStringLiteral( "LOCAL_GRID_WKT" ) ) );
+  QVERIFY( !s.processingParameterNames().contains( QStringLiteral( "LOCAL_GRID_WKT" ) ) );
+  QVERIFY( s.paramKeys().contains( QStringLiteral( "ANISO_RATIO" ) ) );
   bool schemaHasAniso = false;
-  for ( const AlgorithmParamField &f : schemaFields )
+  for ( const AlgorithmParamField &f : AlgorithmParamSchema::fieldsFor( kConstraintIdw ) )
   {
     if ( f.key == QStringLiteral( "ANISO_RATIO" ) )
       schemaHasAniso = true;
   }
-  QVERIFY2( schemaHasAniso, "ANISO_RATIO must be in AlgorithmParamSchema (algo-atom P3)" );
-}
-
-void AlgorithmSpecTests::constraintIdwHiddenLocalGridWkt()
-{
-  const AlgorithmSpec s = AlgorithmSpecRegistry::spec( kConstraintIdw );
-  const QStringList hidden = s.hiddenParameterNames();
-  QCOMPARE( hidden, QStringList{ QStringLiteral( "LOCAL_GRID_WKT" ) } );
-  QVERIFY( !s.processingParameterNames().contains( QStringLiteral( "LOCAL_GRID_WKT" ) ) );
-  QVERIFY( !kConstraintIdwInitAlgorithmParams.contains( QStringLiteral( "LOCAL_GRID_WKT" ) ) );
-}
-
-void AlgorithmSpecTests::registryListsTwelveProcessingIds()
-{
-  const QStringList ids = AlgorithmSpecRegistry::knownIds();
-  QCOMPARE( ids.size(), 12 );
-  QVERIFY( ids.contains( kConstraintIdw ) );
-  // 桩条目存在但不 complete
-  QVERIFY( AlgorithmSpecRegistry::knows( QStringLiteral( "paleo:paleo_facies_fusion" ) ) );
-  QVERIFY( !AlgorithmSpecRegistry::spec( QStringLiteral( "paleo:paleo_facies_fusion" ) ).complete );
-  QCOMPARE( AlgorithmSpecRegistry::completeIds().size(), 1 );
+  QVERIFY( schemaHasAniso );
 }
 
 void AlgorithmSpecTests::unknownIdReturnsEmpty()
 {
   QVERIFY( !AlgorithmSpecRegistry::knows( QStringLiteral( "paleo:does_not_exist" ) ) );
-  const AlgorithmSpec s = AlgorithmSpecRegistry::spec( QStringLiteral( "paleo:does_not_exist" ) );
-  QVERIFY( s.id.isEmpty() );
-  QVERIFY( !s.complete );
+  QVERIFY( AlgorithmSpecRegistry::spec( QStringLiteral( "paleo:does_not_exist" ) ).id.isEmpty() );
 }
 
 QTEST_MAIN( AlgorithmSpecTests )

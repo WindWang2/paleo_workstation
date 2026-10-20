@@ -45,6 +45,8 @@
 #include <qgsmaplayer.h>
 
 #include <QDockWidget>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -176,8 +178,21 @@ void PaleoMainWindow::buildCenterArea()
             if (statusBar())
               statusBar()->showMessage(reason, 8000);
           });
-  chipsLay->addWidget(chips);
-  chipsLay->addStretch(1);
+  // 中央区被左右停靠面板压窄时，chip 被布局压到 sizeHint 以下、文字省略成
+  // 「…」（DESIGN.md：chip 不缩到 sizeHint 以下）。chip 条单独横向滚动，
+  // 与「长工具栏单独横向滚动」同口径；宽度充足时与原先完全一致。
+  auto *chipsScroll = new QScrollArea(chipsRow);
+  chipsScroll->setObjectName(QStringLiteral("horizonChipScroll"));
+  chipsScroll->setFrameShape(QFrame::NoFrame);
+  chipsScroll->setWidgetResizable(true);
+  chipsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  chipsScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  chipsScroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  chipsScroll->setStyleSheet(QStringLiteral("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }"));
+  chipsScroll->setWidget(chips);
+  chipsScroll->setFixedHeight(chips->sizeHint().height() +
+                              chipsScroll->horizontalScrollBar()->sizeHint().height());
+  chipsLay->addWidget(chipsScroll, 1);
   // 方向35：多期演化动览——步进序 = mappingHorizons()，定格导出为 intent
   //（壳侧在 attachMappingExport 接画布抓帧与 OUTPUT 资产登记）。
   auto *player = new EvolutionPlayerPanel(m_selection, m_layerSvc, chipsRow);

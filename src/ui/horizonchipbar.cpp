@@ -24,7 +24,7 @@ static void applyChipStyle( QToolButton *chip, const QColor &zone )
     const QString faded = QStringLiteral( "rgba(%1,%2,%3,0.45)" )
                               .arg( zone.red() ).arg( zone.green() ).arg( zone.blue() );
     return PaleoTheme::metricStyleSheet(QStringLiteral(
-               "QToolButton { border-radius: %8px; padding: {spacing.xs}px {spacing.md}px;"
+               "QToolButton { border-radius: %8px; padding: {spacing.xs}px {spacing.sm}px;"
                " background: %1; border: 1px solid %2; color: %3; }"
                "QToolButton:checked { background: %4; border-color: %4; color: %5; }"
                "QToolButton:hover:!checked { border-color: %6; }"

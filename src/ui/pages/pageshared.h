@@ -59,15 +59,18 @@ public:
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
-    m_toggle = new QToolButton(this);
+    // QPushButton：QSS text-align 只对按钮类生效，QToolButton 会把标题居中成
+    // 一条「按钮带」。折叠组标题左对齐，与 QgsCollapsibleGroupBox 一致。
+    m_toggle = new QPushButton(this);
+    m_toggle->setObjectName(QStringLiteral("collapsibleSectionToggle"));
+    m_toggle->setFlat(true);
     m_toggle->setText(QStringLiteral("▼  ") + title);
     m_toggle->setCheckable(true);
     m_toggle->setChecked(true);
-    m_toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
     PaleoTheme::applyThemedStyleSheet(m_toggle, [] {
       const auto &t = PaleoTheme::tokens();
       return PaleoTheme::metricStyleSheet(QStringLiteral(
-                 "QToolButton { "
+                 "QPushButton { "
                  "  font-weight: 600; "
                  "  font-size: {typography.label}pt; "
                  "  color: %1; "
@@ -77,7 +80,7 @@ public:
                  "  padding: {spacing.xs}px {spacing.sm}px; "
                  "  text-align: left; "
                  "} "
-                 "QToolButton:hover { background: %4; }"))
+                 "QPushButton:hover { background: %4; }"))
           .arg(t.text.name().toUpper(), t.surfaceAltRaised.name().toUpper(),
                t.border.name().toUpper(),
                t.surfaceAlt.name().toUpper());
@@ -92,7 +95,7 @@ public:
     lay->addWidget(m_toggle);
     lay->addWidget(m_container);
 
-    QObject::connect(m_toggle, &QToolButton::toggled, this, [this](bool checked) {
+    QObject::connect(m_toggle, &QPushButton::toggled, this, [this](bool checked) {
       m_container->setVisible(checked);
       m_toggle->setText((checked ? QStringLiteral("▼  ") : QStringLiteral("▶  ")) + m_title);
     });
@@ -104,7 +107,7 @@ public:
 
 private:
   QString m_title;
-  QToolButton *m_toggle = nullptr;
+  QPushButton *m_toggle = nullptr;
   QWidget *m_container = nullptr;
 };
 

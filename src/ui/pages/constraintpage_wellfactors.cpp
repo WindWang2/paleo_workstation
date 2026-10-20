@@ -215,6 +215,7 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
   QVariantMap old = wellFactorParams();
   auto *factors = child<QTableWidget>(this, "factorTable");
   const QString factor = factorIdOfRow(factors, checkedRow(factors));
+  const auto *horizon = child<QComboBox>(this, "horizonCombo");
   const bool changedFactor = property("paleo.page.extractionFactor").toString() != factor;
   if (changedFactor) old.remove(QStringLiteral("valueField"));
   setProperty("paleo.page.extractionFactor", factor);
@@ -243,13 +244,20 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
     auto *mode = child<QComboBox>(this, "factorModeCombo");
     bool known = false;
     const auto profile = SingleFactorRegistry::geologicalProfile(factor, &known);
-    if (known && profile.supportsAutoMode)
-      mode->setCurrentIndex(mode->findData(QStringLiteral("auto")));
-    else {
-      const bool direct = child<QComboBox>(this, "factorValueFieldCombo")->currentIndex() >= 0;
-      const bool ratioAvailable = child<QComboBox>(this, "factorNumeratorFieldCombo")->currentIndex() >= 0 && child<QComboBox>(this, "factorDenominatorFieldCombo")->currentIndex() >= 0;
-      mode->setCurrentIndex(mode->findData(factor == QLatin1String("sandratio") && !direct && ratioAvailable ? QStringLiteral("ratio") : QStringLiteral("direct")));
+    const bool direct = child<QComboBox>(this, "factorValueFieldCombo")->currentIndex() >= 0;
+    const bool ratioAvailable = child<QComboBox>(this, "factorNumeratorFieldCombo")->currentIndex() >= 0 && child<QComboBox>(this, "factorDenominatorFieldCombo")->currentIndex() >= 0;
+    const QString fieldMode = factor == QLatin1String("sandratio") && !direct && ratioAvailable ? QStringLiteral("ratio") : QStringLiteral("direct");
+    // 已有按字段口径保存的提取版本时沿用该口径（不让默认推荐口径把已保存成果藏起来）；
+    // 否则对支持的因素默认推荐地质口径。
+    bool savedFieldMode = false;
+    if (auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+        wf && horizon && !horizon->currentText().isEmpty())
+    {
+      QVariantMap probe = wellFactorParams();
+      probe.insert(QStringLiteral("factorMode"), fieldMode);
+      savedFieldMode = wf->restoreWellFactors(horizon->currentText(), factor, probe);
     }
+    mode->setCurrentIndex(mode->findData(known && profile.supportsAutoMode && !savedFieldMode ? QStringLiteral("auto") : fieldMode));
   }
   updateFactorActionStates();
 }

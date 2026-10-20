@@ -72,7 +72,9 @@ class PredictPageTests : public QObject
     void predictTypeSwitchRebuildsForm();       // m2(A)：类型切换联动重建（值保留）
     void runBusyLifecycleAndCancel();
     void busyStateSurvivesPageHideShow();
-    void schemaValidationFailureRefusesRun();           // m2(A)：任务化忙碌/取消/进度
+    void schemaValidationFailureRefusesRun();
+    void readinessSummaryGatesRun();                    // 预测专项 P0：准备检查
+    void onnxRawTensorInputIsCollapsedAdvanced();       // 预测专项 P1：张量入口降级为高级/调试           // m2(A)：任务化忙碌/取消/进度
     void historyListFiltersAndShows();          // m2(A)：历史清单过滤/显示/刷新
 
   private:
@@ -341,6 +343,9 @@ void PredictPageTests::predictTypeSwitchRebuildsForm()
 void PredictPageTests::runBusyLifecycleAndCancel()
 {
   PredictPage page(nullptr, nullptr);
+  // 预测专项：运行按钮受准备检查约束——给出可运行上下文（层位 + 算法）。
+  page.setHorizons({QStringLiteral("T1")});
+  page.setAlgorithms({QStringLiteral("paleo:x")});
   auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
   auto *cancel = page.findChild<QPushButton *>(QStringLiteral("cancelRunButton"));
   auto *bar = page.findChild<QProgressBar *>(QStringLiteral("runProgressBar"));
@@ -388,6 +393,8 @@ LayerDeclaration PredictPageTests::makeDecl(const QString &layerId, const QStrin
 void PredictPageTests::busyStateSurvivesPageHideShow()
 {
   PredictPage page(nullptr, nullptr);
+  page.setHorizons({QStringLiteral("T1")});
+  page.setAlgorithms({QStringLiteral("paleo:x")});
   auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
   auto *cancel = page.findChild<QPushButton *>(QStringLiteral("cancelRunButton"));
   QVERIFY(run && cancel);
@@ -410,6 +417,7 @@ void PredictPageTests::busyStateSurvivesPageHideShow()
 void PredictPageTests::schemaValidationFailureRefusesRun()
 {
   PredictPage page(nullptr, nullptr);
+  page.setHorizons({QStringLiteral("T1")});
   page.setAlgorithms({QStringLiteral("paleo:paleo_constraint_idw")});
   auto *algos = page.findChild<QComboBox *>(QStringLiteral("algoCombo"));
   auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
@@ -431,6 +439,86 @@ void PredictPageTests::schemaValidationFailureRefusesRun()
   run->click();
   QCOMPARE(runSpy.count(), 1);
   QVERIFY2(status->text().isEmpty(), qPrintable(status->text()));
+}
+
+void PredictPageTests::readinessSummaryGatesRun()
+{
+  PredictPage page(nullptr, nullptr);
+  auto *ready = page.findChild<QLabel *>(QStringLiteral("predictReadinessLabel"));
+  auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
+  auto *jump = page.findChild<QPushButton *>(QStringLiteral("openWellFaciesButton"));
+  QVERIFY(ready && run && jump);
+  QSignalSpy runSpy(&page, &PredictPage::runRequested);
+
+  // 无层位、无算法：不可运行，按钮禁用且 tooltip 给出真实原因与下一步。
+  QVERIFY2(ready->text().contains(QStringLiteral("不可运行")), qPrintable(ready->text()));
+  QVERIFY(!run->isEnabled());
+  QVERIFY(run->toolTip().contains(QStringLiteral("层位")));
+  run->click();
+  QCOMPARE(runSpy.count(), 0);
+
+  page.setHorizons({QStringLiteral("T1")});
+  QVERIFY2(ready->text().contains(QStringLiteral("算法")), qPrintable(ready->text()));
+  QVERIFY(!run->isEnabled());
+
+  page.setAlgorithms({QStringLiteral("paleo:paleo_geological_smoothing")});
+  QVERIFY2(ready->text().contains(QStringLiteral("可运行")) &&
+               !ready->text().contains(QStringLiteral("不可运行")),
+           qPrintable(ready->text()));
+  QVERIFY(ready->text().contains(QStringLiteral("T1")));
+  QVERIFY(run->isEnabled());
+  QVERIFY(jump->isHidden());
+
+  // 测井相：主入口明确转去测井相面板（不在本页假装可跑），提供跳转。
+  QSignalSpy jumpSpy(&page, &PredictPage::wellFaciesPanelRequested);
+  page.findChild<QComboBox *>(QStringLiteral("predictTypeCombo"))->setCurrentIndex(2);
+  QVERIFY(!run->isEnabled());
+  QVERIFY(!run->toolTip().isEmpty());
+  QVERIFY(!jump->isHidden());
+  QVERIFY2(ready->text().contains(QStringLiteral("测井相")), qPrintable(ready->text()));
+  jump->click();
+  QCOMPARE(jumpSpy.count(), 1);
+
+  // 回到沉积相恢复可运行；忙碌期间禁用，结束后按准备结果恢复。
+  page.findChild<QComboBox *>(QStringLiteral("predictTypeCombo"))->setCurrentIndex(0);
+  QVERIFY(run->isEnabled());
+  page.setRunBusy(true);
+  QVERIFY(!run->isEnabled());
+  page.setRunBusy(false);
+  QVERIFY(run->isEnabled());
+  page.setHorizons({});
+  QVERIFY(!run->isEnabled());
+}
+
+void PredictPageTests::onnxRawTensorInputIsCollapsedAdvanced()
+{
+  PredictPage page(nullptr, nullptr);
+  page.setHorizons({QStringLiteral("T1")});
+  page.setAlgorithms({QStringLiteral("onnx:toy")});
+  auto *toggle = page.findChild<QToolButton *>(QStringLiteral("onnxAdvancedToggle"));
+  auto *body = page.findChild<QWidget *>(QStringLiteral("onnxAdvancedBody"));
+  auto *input = page.findChild<QLineEdit *>(QStringLiteral("onnxInputEdit"));
+  auto *ready = page.findChild<QLabel *>(QStringLiteral("predictReadinessLabel"));
+  auto *status = page.findChild<QLabel *>(QStringLiteral("statusLabel"));
+  QVERIFY(toggle && body && input && ready && status);
+  // 默认折叠：普通用户不面对张量名/形状/原始浮点数组。
+  QVERIFY(body->isHidden());
+  QVERIFY(toggle->text().contains(QStringLiteral("高级")));
+  QVERIFY(body->isAncestorOf(input));
+  // 通用 ONNX 无地质输入映射：如实说明需在高级/调试中手工给张量，不默认填 {0}。
+  QVERIFY2(ready->text().contains(QStringLiteral("输入映射")), qPrintable(ready->text()));
+  QVERIFY(input->text().isEmpty());
+
+  QSignalSpy spy(&page, &PredictPage::runRequested);
+  page.findChild<QPushButton *>(QStringLiteral("runButton"))->click();
+  QCOMPARE(spy.count(), 0);
+  QVERIFY2(status->text().contains(QStringLiteral("高级")), qPrintable(status->text()));
+  QVERIFY(!body->isHidden()); // 校验失败自动展开到需要填写的位置
+
+  toggle->click(); // 折叠
+  QVERIFY(body->isHidden());
+  toggle->click(); // 展开
+  QVERIFY(!body->isHidden());
 }
 
 void PredictPageTests::historyListFiltersAndShows()

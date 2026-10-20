@@ -63,6 +63,21 @@ private slots:
     QVERIFY(!WellFaciesConfig::validateUrl(c.baseUrl, false).isEmpty());
   }
 
+  void loadWithoutConfigInjectsNoBuiltinCredential()
+  {
+    // 预测专项（安全）：无配置文件、无 env 时 load() 不得兜底注入源码内置
+    // 的服务地址或 API 密钥——明文密钥进源码即随仓库/安装包扩散。只有在
+    // 构建期显式给出 PALEO_WELL_FACIES_DEFAULT_URL（CMake 缓存变量，不入库）
+    // 时才有缺省地址，且密钥仍须用户配置（钥匙串 / env / 配置文件）。
+    QFile::remove(WellFaciesConfig::path());
+    const WellFaciesConfig c = WellFaciesConfig::load();
+    QVERIFY2(c.apiKey.isEmpty(), "load() must not ship a built-in API key");
+#ifndef PALEO_WELL_FACIES_DEFAULT_URL
+    QVERIFY(c.baseUrl.isEmpty());
+    QVERIFY(!c.allowInsecureHttp);
+#endif
+  }
+
   void validateUrl_data()
   {
     QTest::addColumn<QString>("url");

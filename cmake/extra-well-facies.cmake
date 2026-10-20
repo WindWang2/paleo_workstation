@@ -16,3 +16,13 @@ endif()
 target_sources(paleo_workflow PRIVATE src/workflow/wellfaciesworkflow.cpp)
 add_paleo_test(tst_wellfacies LIBS paleo_ui paleo_io)
 add_paleo_test(tst_wellfaciesconfig LIBS paleo_ai)  # #133 https 强制/loopback 例外/密钥不落 JSON
+# 预测专项（安全）：测井相服务缺省地址只允许构建期注入（打包机本地
+# -DPALEO_WELL_FACIES_DEFAULT_URL=...），不入库；API 密钥从不内置。
+set(PALEO_WELL_FACIES_DEFAULT_URL "" CACHE STRING "Optional build-time default well-facies service URL (no credentials)")
+option(PALEO_WELL_FACIES_DEFAULT_ALLOW_HTTP "Allow cleartext http for the build-time default well-facies URL" OFF)
+if(PALEO_WELL_FACIES_DEFAULT_URL)
+  target_compile_definitions(paleo_ai PRIVATE PALEO_WELL_FACIES_DEFAULT_URL="${PALEO_WELL_FACIES_DEFAULT_URL}")
+  if(PALEO_WELL_FACIES_DEFAULT_ALLOW_HTTP)
+    target_compile_definitions(paleo_ai PRIVATE PALEO_WELL_FACIES_DEFAULT_ALLOW_HTTP)
+  endif()
+endif()

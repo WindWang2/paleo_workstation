@@ -71,15 +71,19 @@ WellFaciesConfig WellFaciesConfig::load() {
   if (qEnvironmentVariable("PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP") ==
       QLatin1String("1"))
     c.allowInsecureHttp = true;
-  // 2026-10-19 产品裁决：预测相缺省接入自建推理服务（地址与密钥明文内置，
-  // 用户明示豁免安全约束——不设 https 门槛、不入钥匙串）。兜底仅在用户
-  // 配置文件与 env 都未给出地址时生效；显式配置永远优先。
+  // 安全收口（预测专项，取代 #598 的明文内置地址与密钥）：源码不得携带
+  // 服务凭据。缺省地址只能由构建期 CMake 缓存变量
+  // PALEO_WELL_FACIES_DEFAULT_URL 注入（打包机本地给出，不入库）；API 密钥
+  // 永不内置，必须经「预测服务」设置（钥匙串）、配置文件或
+  // PALEO_WELL_FACIES_API_KEY 提供。显式配置永远优先。
+#ifdef PALEO_WELL_FACIES_DEFAULT_URL
   if (c.baseUrl.isEmpty()) {
-    c.baseUrl = QUrl(QStringLiteral("http://118.178.238.153:3100/api/v1"));
-    c.apiKey = QByteArrayLiteral(
-        "ak_898f9c760120bdf8bb37f4547192922f776d495766fbf82a");
+    c.baseUrl = QUrl(QStringLiteral(PALEO_WELL_FACIES_DEFAULT_URL));
+#ifdef PALEO_WELL_FACIES_DEFAULT_ALLOW_HTTP
     c.allowInsecureHttp = true;
+#endif
   }
+#endif
   return c;
 }
 bool WellFaciesConfig::save(QString *error, bool writeKeyToFile) const {

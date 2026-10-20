@@ -322,6 +322,40 @@ private slots:
     if (PaleoLayoutExport::formatAvailable(PaleoLayoutExport::Format::Tiff)) { QVERIFY2(result.ok, qPrintable(result.error)); QVERIFY(!QImage(result.files.first()).isNull()); }
     else { QVERIFY(!result.ok); QVERIFY(!result.error.isEmpty()); }
   }
+  void unrelatedCatalogWriteDuringExportDoesNotDiscardResult() {
+    // C-3（full-audit-20261021）：导出窗口期内的无关 catalog 写（导入/预测/
+    // 另一导出发布）此前把整批判废为「工程数据已变化」。#480 P3-3 口径：
+    // 输入提交时已冻结进 staging；发布撞号由 remap 换新号 + applyJournal
+    // 事务兜底。此处构造最坏形状——导出启动后立刻在 live catalog 显式占用
+    // staging 快照将分配的 ast-1..ast-50，断言导出仍登记成功且结果 id 有效。
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
+    QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "D61";
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings); QVERIFY(layout);
+    PaleoGeologicalExport::Request request; request.destination = tmp.filePath("exports/maps/D61"); request.dpi = 72;
+    request.registerInProject = true; request.formats = {PaleoLayoutExport::Format::Png}; request.context = {{"horizon", "D61"}};
+    bool called = false; PaleoGeologicalExport::Result result;
+    QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this, [&](const auto &r) { result = r; called = true; }));
+    for (int n = 1; n <= 50; ++n) {
+      CatalogAsset noise;
+      noise.id = QStringLiteral("ast-%1").arg(n);
+      noise.type = QStringLiteral("well_log");
+      noise.format = QStringLiteral("las");
+      QString err;
+      QVERIFY2(cat.addAsset(noise, &err), qPrintable(err));
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(called, 20000);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QVERIFY(!result.cancelled);
+    QCOMPARE(result.assetIds.size(), 1);
+    const QString published = result.assetIds.first();
+    QVERIFY2(published != QStringLiteral("ast-1"),
+             "撞号 id 必须重映射为 live 新号（C-3）");
+    QVERIFY(!cat.assetById(published).id.isEmpty());
+    const auto version = cat.currentVersion(published);
+    QCOMPARE(version.stage, QString("OUTPUT"));
+    QCOMPARE(version.extra.value("horizon").toString(), QString("D61"));
+    QVERIFY(QFileInfo::exists(cat.versionFilePath(version)));
+  }
 };
 int main(int argc, char **argv) {
   qputenv("QT_QPA_PLATFORM", "offscreen"); if (!QgisRuntime::initialize("/usr")) return 1;

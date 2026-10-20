@@ -380,7 +380,6 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
   const QString directory = m_projectDir;
   QPointer<DataCatalog> catalog(m_catalog);
   auto *data = m_projectData;
-  const auto sequence = m_catalog->mutationSeq();
   auto *task = m_tasks->start(
       tr("%1 厚度计算").arg(horizon),
       [job, directory, horizon](PaleoTask *task) {
@@ -406,11 +405,12 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
       });
   m_chainTask = task;
   connect(task, &PaleoTask::finished, this,
-          [this, job, catalog, directory, data, sequence, horizon, task] {
+          [this, job, catalog, directory, data, horizon, task] {
+            // C-3 同族（full-audit-20261021）：摘除 mutationSeq 陈旧判据
+            //（#480 P3-3 口径——厚度链输入提交时已冻结，无关写不再判废）。
             const bool stale = task->session() != m_tasks->session() ||
                                catalog != m_catalog || data != m_projectData ||
-                               directory != m_projectDir || !catalog ||
-                               catalog->mutationSeq() != sequence;
+                               directory != m_projectDir || !catalog;
             if (stale) {
               task->discardPublication();
               return;

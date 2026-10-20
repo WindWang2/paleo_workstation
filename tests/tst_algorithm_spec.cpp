@@ -112,6 +112,7 @@ void AlgorithmSpecTests::nativeCppP4SpecsRegistered()
     QStringLiteral( "geostat:sgs" ),
     QStringLiteral( "geostat:ordinary_cokriging" ),
     QStringLiteral( "hztrack:track_section" ),
+    QStringLiteral( "hztrack:propagate_volume" ),
     QStringLiteral( "inversion:bandlimited" ),
     QStringLiteral( "inversion:sparse_spike" ),
     QStringLiteral( "faciesmapping:synthesize" ),
@@ -125,8 +126,8 @@ void AlgorithmSpecTests::nativeCppP4SpecsRegistered()
     QCOMPARE( s.engine, QStringLiteral( "native_cpp" ) );
     QVERIFY2( !s.inputs.isEmpty() || !s.outputs.isEmpty(), qPrintable( id ) );
   }
-  QVERIFY( AlgorithmSpecRegistry::knownIds().size() >= 20 );
-  QVERIFY( AlgorithmSpecRegistry::completeIds().size() >= 20 );
+  QVERIFY( AlgorithmSpecRegistry::knownIds().size() >= 21 );
+  QVERIFY( AlgorithmSpecRegistry::completeIds().size() >= 21 );
 }
 
 void AlgorithmSpecTests::everyCompleteSpecMatchesFrozenInitAlgorithm()

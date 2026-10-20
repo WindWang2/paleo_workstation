@@ -405,6 +405,31 @@ AlgorithmSpec hztrackSectionSpec()
   return s;
 }
 
+
+AlgorithmSpec hztrackPropagateSpec()
+{
+  AlgorithmSpec s;
+  s.id = QStringLiteral( "hztrack:propagate_volume" );
+  s.displayName = QStringLiteral( "Horizon Track: Propagate Volume" );
+  s.engine = QStringLiteral( "native_cpp" );
+  s.complete = true;
+  s.inputs = {
+    port( QStringLiteral( "VOLUME" ), QStringLiteral( "table" ), true ),
+    port( QStringLiteral( "SEEDS" ), QStringLiteral( "table" ), true ),
+  };
+  s.outputs = {
+    port( QStringLiteral( "PICKS" ), QStringLiteral( "table" ) ),
+  };
+  s.params = {
+    paramInt( QStringLiteral( "WINDOW_SAMPLES" ), QString(), 24, true, 4 ),
+    paramInt( QStringLiteral( "MAX_SEARCH_SAMPLES" ), QString(), 12, true, 1 ),
+    paramDouble( QStringLiteral( "CORRELATION_THRESHOLD" ), QString(), 0.6, true, 0, true, 1 ),
+    paramInt( QStringLiteral( "MAX_INLINE_STEP" ), QString(), 0, true, 0 ),
+    paramInt( QStringLiteral( "DIP_HISTORY_PICKS" ), QString(), 0, true, 0 ),
+  };
+  return s;
+}
+
 AlgorithmSpec inversionBandlimitSpec()
 {
   AlgorithmSpec s;
@@ -559,6 +584,7 @@ const QVector<AlgorithmSpec> &allSpecs()
     sgsSpec(),
     ordinaryCokrigingSpec(),
     hztrackSectionSpec(),
+    hztrackPropagateSpec(),
     inversionBandlimitSpec(),
     inversionSparseSpikeSpec(),
     faciesSynthesizeSpec(),

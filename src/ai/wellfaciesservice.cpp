@@ -353,9 +353,10 @@ void WellFaciesService::handlePrediction(const QJsonObject &json) {
   if (m_jobId.isEmpty())
     return fail(tr("推理已受理，但响应缺少任务 ID"));
   rememberAcceptedJob(m_key, m_jobId);
-  emit progress(
-      qBound(0, json.value("progress").toInt(), 100),
-      json.value("latestMessage")
-          .toString(json.value("message").toString(tr("等待推理完成"))));
+  // 服务端进度文本同样可能回显请求头（含密钥）：与错误文本一样脱敏后再上屏。
+  QString message = json.value("latestMessage")
+                        .toString(json.value("message").toString(tr("等待推理完成")));
+  message.replace(QString::fromUtf8(m_config.apiKey), QStringLiteral("[密钥已隐藏]"));
+  emit progress(qBound(0, json.value("progress").toInt(), 100), message);
   m_poll.start(qBound(100, json.value("pollAfterMs").toInt(2000), 30000));
 }

@@ -35,7 +35,11 @@ class ChatSessionStore {
 public:
   // 会话目录（不存在时创建）。
   static QString directory();
+  // 会话文件路径；id 非法（空 / "." / ".." / 含路径分隔符、冒号、NUL）时
+  // 返回空串——调用方须判空，不得拿空路径去开文件（防逃逸 sessions 目录）。
   static QString pathFor(const QString &sessionId);
+  // 单段安全名校验（范式同 ai/modelregistry.cpp 的 isSafeModelName）。
+  static bool isSafeSessionId(const QString &sessionId);
   static QString newSessionId();
   static QStringList listIds();
   static bool save(const ChatSession &session, QString *error);

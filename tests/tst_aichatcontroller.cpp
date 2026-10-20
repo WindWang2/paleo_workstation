@@ -36,7 +36,7 @@ const char kToolChunk[] =
 class FakeLlmServer : public QObject {
   Q_OBJECT
 public:
-  enum class Mode { Stream, ToolCalls, ToolCallsHang, Unauthorized, Slow };
+  enum class Mode { Stream, ToolCalls, ToolCallsHang, Unauthorized, Slow, PlainJson };
 
   bool start(Mode mode) {
     m_mode = mode;
@@ -94,6 +94,19 @@ private:
                   QByteArray::number(body.size()) + "\r\n\r\n" + body);
       return;
     }
+    if (m_mode == Mode::PlainJson) {
+      // 服务端无视请求体里的 "stream": true，直接回普通 chat completions
+      // JSON（Content-Type 也不是 event-stream）——#588：客户端必须按非
+      // 流式解析出内容，不许把「零增量 + finishUp(stop)」当成功收尾。
+      const QByteArray body =
+        "{\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"message\":"
+        "{\"role\":\"assistant\",\"content\":\"石灰岩\"}}],"
+        "\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}";
+      sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\n"
+                  "Content-Type: application/json\r\nContent-Length: " +
+                  QByteArray::number(body.size()) + "\r\n\r\n" + body);
+      return;
+    }
     // 流式：不写 Content-Length（分块写、写完关连接），让 readyRead 多次触发。
     sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\n"
                 "Content-Type: text/event-stream\r\n\r\n");
@@ -121,6 +134,9 @@ private slots:
   void streamingAssemblesAnswerAndSavesSession();
   void toolCallFramesReachThePanelWithHonestStatus();
   void unauthorizedResponseIsClassifiedAsAuthError();
+  // #588 B.14：stream=true 而服务端回普通 JSON——必须解析出内容，不许把
+  // 零增量当成功收尾（空答复冒充成功）。
+  void plainJsonReplyUnderStreamFlagIsParsedNotSwallowed();
   void idleTimeoutIsClassifiedAsTimeout();
   void cancelDropsEmptyAssistantPlaceholder();
   void cancelDuringStreamingAfterToolFramesKeepsProtocol();
@@ -255,6 +271,35 @@ void TestAiChatController::unauthorizedResponseIsClassifiedAsAuthError() {
   QVERIFY2(message.contains(llmErrorLabel(LlmErrorKind::Unauthorized)),
            qPrintable(message));
   QVERIFY(!controller.streaming());
+}
+
+// #588 B.14：stream=true 而服务端回普通 chat completions JSON（无视 stream
+// 参数）——必须解析出内容；旧实现只认 SSE，零增量 + finishUp(stop) 把空答复
+// 当成功收尾、不报错。
+void TestAiChatController::plainJsonReplyUnderStreamFlagIsParsedNotSwallowed() {
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::PlainJson));
+  AiChatController controller;
+  controller.setConfig(baseConfig(server.endpoint()));
+  QVERIFY(controller.config().stream); // 前提：客户端确实请求了流式
+  m_createdSessions.append(controller.session().id);
+  QSignalSpy errors(&controller, &AiChatController::errorOccurred);
+  QStringList deltas;
+  connect(&controller, &AiChatController::assistantDelta, this,
+          [&deltas](const QString &text) { deltas.append(text); });
+
+  controller.sendUserText(QStringLiteral("这段是什么岩性？"));
+  QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
+           "普通 JSON 应答必须收尾（或超时报错）");
+
+  // 内容被解析出来（不是空答复被当成功）。
+  const QVector<ChatMessage> messages = controller.messages();
+  QCOMPARE(messages.size(), 2); // user + assistant
+  QCOMPARE(messages.last().role, ChatRole::Assistant);
+  QCOMPARE(messages.last().content, QStringLiteral("石灰岩"));
+  QCOMPARE(deltas.join(QString()), QStringLiteral("石灰岩"));
+  QVERIFY2(errors.isEmpty(),
+           "合法应答不得报错（空答复冒充成功与误报都不允许）");
 }
 
 void TestAiChatController::idleTimeoutIsClassifiedAsTimeout() {

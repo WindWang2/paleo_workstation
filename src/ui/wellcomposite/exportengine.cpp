@@ -195,17 +195,18 @@ qreal LegendGenerator::paint(QPainter &painter, const QRectF &rect,
   const QFontMetrics fm(f);
 
   const qreal rowH = 20.0;
-  const qreal colW = rect.width() / 2.0;
   const int rowsPerCol = qMax(1, static_cast<int>(rect.height() / rowH));
-  const int cols = 2;
+  // D.10 图例不再静默丢行：列数按条目数自适应（下限 2 列保持既有版面），
+  // 超过 2×每列行数的条目分更多列绘制——岩性名/曲线/标志层稍多的井，导出
+  // 的 PDF/PNG/SVG 图例与 textLines 逐条一致，不再缺行且无提示。
+  const int cols = qMax(2, static_cast<int>((entries.size() + rowsPerCol - 1) / rowsPerCol));
+  const qreal colW = rect.width() / static_cast<qreal>(cols);
 
   painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
   for (int i = 0; i < entries.size(); ++i)
   {
     const int col = i / rowsPerCol;
     const int row = i % rowsPerCol;
-    if (col >= cols)
-      break;
     const qreal x = rect.left() + col * colW;
     const qreal y = rect.top() + row * rowH;
     const QRectF symbolRect(x + 2, y + 3, 14, 14);

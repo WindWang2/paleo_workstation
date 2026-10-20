@@ -142,6 +142,12 @@ void MultiWellView::relayout()
     delete item;
   }
 
+  // D.8 上一轮占位标签只摘了布局项、widget 仍以旧几何叠在新面板之上——
+  // 每轮重建前先删净（占位仅服务当前布局形状，此时已全部出布局）。
+  for (auto *placeholder : m_placeholders)
+    delete placeholder;
+  m_placeholders.clear();
+
   const int cap = capacity();
   for (int i = 0; i < cap; ++i)
   {
@@ -153,6 +159,11 @@ void MultiWellView::relayout()
     lay->addWidget(panel, row, col);
     panel->show();
   }
+  // D.8 超出新容量的面板保持存活但隐藏——否则以旧几何继续叠在新面板之上
+  // （Quad→Single 后原槽 2/3 面板仍是 this 的可见子件）。
+  for (int i = cap; i < m_panels.size(); ++i)
+    if (m_panels.at(i))
+      m_panels.at(i)->setVisible(false);
   // 占位（空槽位也拉住网格形状）
   for (int i = 0; i < cap; ++i)
   {
@@ -161,6 +172,7 @@ void MultiWellView::relayout()
     const int row = (m_mode == LayoutMode::Quad) ? (i / 2) : 0;
     const int col = (m_mode == LayoutMode::Quad) ? (i % 2) : i;
     auto *placeholder = new QLabel(tr("槽位 %1：从井选择器加入井").arg(i + 1), this);
+    placeholder->setObjectName(QStringLiteral("wellSlotPlaceholder"));
     placeholder->setAlignment(Qt::AlignCenter);
     PaleoTheme::applyThemedStyleSheet(placeholder, [] {
       const auto &t = PaleoTheme::tokens();
@@ -169,6 +181,7 @@ void MultiWellView::relayout()
           .arg(t.textDisabled.name(), t.border.name());
     });
     lay->addWidget(placeholder, row, col);
+    m_placeholders << placeholder;
   }
 
   m_overlay->setGeometry(rect());
@@ -182,10 +195,13 @@ int MultiWellView::setPanel(int slot, WellCompositePanel *panel)
   if (slot < 0 || slot >= cap)
     slot = cap - 1;
 
-  // 解绑旧面板
+  // 解绑旧面板：先隐藏再摘父——setParent(nullptr) 会把它变成顶层窗口，
+  // 不隐藏就以可见的浮动窗口叠在新面板之上（D.8）。
   if (m_panels.at(slot))
   {
-    m_panels.at(slot)->setParent(nullptr);
+    WellCompositePanel *old = m_panels.at(slot);
+    old->hide();
+    old->setParent(nullptr);
     m_panels[slot] = nullptr;
   }
 

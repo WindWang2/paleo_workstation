@@ -1,6 +1,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTest>
@@ -39,6 +40,58 @@ class TestWellCompositeMultiWell : public QObject
   Q_OBJECT
 
 private slots:
+  // ---- D.8 relayout/setPanel 生命周期：退出布局的面板/占位标签不得残留可见 ----
+  void testRelayoutLifecycle()
+  {
+    MultiWellView view;
+    view.resize(1200, 800);
+    view.show();
+    QApplication::processEvents();
+    view.setLayoutMode(MultiWellView::LayoutMode::Quad);
+
+    auto *p1 = new WellCompositePanel(&view);
+    QVERIFY(p1->loadLasCurves(QStringLiteral("A1"), oneCurve(QStringLiteral("GR")), twoForms()));
+    auto *p2 = new WellCompositePanel(&view);
+    QVERIFY(p2->loadLasCurves(QStringLiteral("A2"), oneCurve(QStringLiteral("GR")), twoForms()));
+    QCOMPARE(view.setPanel(0, p1), 0);
+    QCOMPARE(view.setPanel(1, p2), 1);
+    QApplication::processEvents();
+    QVERIFY(p1->isVisible());
+    QVERIFY(p2->isVisible());
+    // 空槽 3/4 有占位标签（按 objectName 精确定位，避免误匹配面板内控件）
+    QCOMPARE(view.findChildren<QLabel *>(QStringLiteral("wellSlotPlaceholder")).size(), 2);
+
+    // 缩到 Single：超容量面板隐藏（不以旧几何叠字），占位标签删净重建
+    view.setLayoutMode(MultiWellView::LayoutMode::Single);
+    QApplication::processEvents();
+    QVERIFY(p1->isVisible());
+    QVERIFY(!p2->isVisible());
+    QCOMPARE(view.findChildren<QLabel *>(QStringLiteral("wellSlotPlaceholder")).size(), 0);
+
+    // 切回 Quad：原槽 1 面板重新可见，占位回到 2 个
+    view.setLayoutMode(MultiWellView::LayoutMode::Quad);
+    QApplication::processEvents();
+    QVERIFY(p2->isVisible());
+    QCOMPARE(view.findChildren<QLabel *>(QStringLiteral("wellSlotPlaceholder")).size(), 2);
+
+    // setPanel 换井：旧面板隐藏且不成浮动顶层窗口
+    auto *p3 = new WellCompositePanel(&view);
+    QVERIFY(p3->loadLasCurves(QStringLiteral("A3"), oneCurve(QStringLiteral("GR")), twoForms()));
+    QCOMPARE(view.setPanel(0, p3), 0);
+    QApplication::processEvents();
+    QVERIFY(!p1->isVisible());
+    QVERIFY(p3->isVisible());
+
+    // 腾空槽位：占位标签在场且可见（空槽也拉住网格形状）
+    view.setLayoutMode(MultiWellView::LayoutMode::Single);
+    QApplication::processEvents();
+    view.setPanel(0, nullptr);
+    QApplication::processEvents();
+    const auto placeholders = view.findChildren<QLabel *>(QStringLiteral("wellSlotPlaceholder"));
+    QCOMPARE(placeholders.size(), 1);
+    QVERIFY(placeholders.first()->isVisible());
+  }
+
   // ---- D5.1/D5.2 布局模式 ----
   void testLayoutModes()
   {

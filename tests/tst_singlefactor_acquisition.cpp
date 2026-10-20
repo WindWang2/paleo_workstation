@@ -365,4 +365,5 @@ void tst_singlefactor_acquisition::valueRangeConflictYieldsDataRange()
 }
 
 QTEST_GUILESS_MAIN( tst_singlefactor_acquisition )
+
 #include "tst_singlefactor_acquisition.moc"

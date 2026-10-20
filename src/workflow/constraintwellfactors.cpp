@@ -398,7 +398,10 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
         value = take(sandThickness);
         if (!value)
           value = take(QStringLiteral("sand_thick"));
-        if (value)
+        if (value && *value < -1e-9) {
+          reason = ConstraintWorkflow::tr("砂厚为负值，不参与插值");
+          value.reset();
+        } else if (value)
           valueSource = sourceOfField(sandThickness);
         else
           reason = fieldReason(r, sandThickness);
@@ -425,6 +428,10 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
           if (candidate.isEmpty())
             continue;
           if (const auto found = take(candidate)) {
+            if (*found < -1e-9) {
+              reason = ConstraintWorkflow::tr("数值为负（字段 %1），不参与插值").arg(candidate);
+              continue;
+            }
             value = found;
             valueSource = ConstraintWorkflow::tr("直读：%1").arg(candidate);
             break;
@@ -489,10 +496,30 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
       f.setAttributes(attributes); features << f;
     }
   }
-  result.message =
-      ConstraintWorkflow::tr("%1 口井可参与插值；%2 口井缺失（原因见表）。解释厚度采用 MD 层段。")
-          .arg(features.size())
-          .arg(source.rows.size() - features.size());
+  {
+    bool known = false;
+    const auto profile = SingleFactorRegistry::geologicalProfile(autoFactorId, &known);
+    const int total = source.rows.size();
+    const int okCount = features.size();
+    const int missing = total - okCount;
+    if (known && !profile.ruleSentence.isEmpty())
+    {
+      result.message =
+          ConstraintWorkflow::tr("%1；当前层位 %2 口井中 %3 口有效，%4 口未参与（原因见表）。%5")
+              .arg(profile.ruleSentence)
+              .arg(total)
+              .arg(okCount)
+              .arg(missing)
+              .arg(profile.note);
+    }
+    else
+    {
+      result.message =
+          ConstraintWorkflow::tr("%1 口井可参与插值；%2 口井缺失（原因见表）。解释厚度采用 MD 层段。")
+              .arg(okCount)
+              .arg(missing);
+    }
+  }
   if (features.isEmpty())
     return failure(result.message);
   samples.dataProvider()->addFeatures(features); samples.updateExtents();

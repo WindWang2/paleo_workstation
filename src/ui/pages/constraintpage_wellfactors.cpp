@@ -41,6 +41,7 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
   wellLay->addWidget(caption(tr("取值方式"), wellFactors));
   auto *factorMode = new QComboBox(wellFactors);
   factorMode->setObjectName(QStringLiteral("factorModeCombo"));
+  factorMode->addItem(tr("推荐地质口径（自动）"), QStringLiteral("auto"));
   factorMode->addItem(tr("直接使用字段值"), QStringLiteral("direct"));
   factorMode->addItem(tr("比值（分子 ÷ 分母）"), QStringLiteral("ratio"));
   factorMode->setAccessibleName(tr("因子提取口径"));
@@ -49,20 +50,29 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
   modeHint->setObjectName(QStringLiteral("wellFactorModeHint"));
   modeHint->setWordWrap(true);
   wellLay->addWidget(modeHint);
+  auto *geoHint = caption(QString(), wellFactors);
+  geoHint->setObjectName(QStringLiteral("wellFactorGeoHint"));
+  geoHint->setWordWrap(true);
+  wellLay->addWidget(geoHint);
+  auto *fieldSection = new CollapsibleSection(tr("高级：技术字段映射"), wellFactors);
+  fieldSection->setObjectName(QStringLiteral("wellFactorFieldMappingSection"));
+  fieldSection->setExpanded(false);
+  auto *fieldLay = fieldSection->containerLayout();
   for (const auto &entry : QVector<QPair<QString, QString>>{
        {QStringLiteral("factorValueFieldCombo"), tr("指标字段")},
        {QStringLiteral("factorNumeratorFieldCombo"), tr("分子字段")},
        {QStringLiteral("factorDenominatorFieldCombo"), tr("分母字段")}}) {
     auto *label = caption(entry.second, wellFactors);
     label->setObjectName(entry.first + QStringLiteral("Caption"));
-    wellLay->addWidget(label);
+    fieldLay->addWidget(label);
     auto *combo = new QComboBox(wellFactors); combo->setObjectName(entry.first);
-    combo->setAccessibleName(entry.second); combo->setPlaceholderText(tr("请选择字段")); wellLay->addWidget(combo);
+    combo->setAccessibleName(entry.second); combo->setPlaceholderText(tr("请选择字段")); fieldLay->addWidget(combo);
     connect(combo, &QComboBox::currentIndexChanged, this, [this] {
       invalidateWellFactors();
       restoreWellFactorDisplay();
     });
   }
+  wellLay->addWidget(fieldSection);
   auto *extract = new QPushButton(tr("提取并保存井点数据"), wellFactors);
   extract->setObjectName(QStringLiteral("extractWellFactorsButton"));
   auto *maintain = new QPushButton(tr("维护井点属性"), wellFactors);
@@ -92,15 +102,21 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
   wellLay->addWidget(detailSection);
   lay->addWidget(wellFactors);
   const auto modeChanged = [this, factorMode, modeHint] {
-    const bool ratio = factorMode->currentData() == QStringLiteral("ratio");
-    modeHint->setText(ratio ? tr("逐井计算分子 ÷ 分母；分母为 0 或缺值的井不参与。厚度比值请使用同一 MD 层段。")
-                            : tr("每口井读取一个数值字段。没有合适的字段时，可先维护井点属性。"));
+    const QString mode = factorMode->currentData().toString();
+    const bool ratio = mode == QLatin1String("ratio");
+    const bool automatic = mode == QLatin1String("auto");
+    modeHint->setText(automatic ? tr("按当前因素的地质规则取值：优先工程已维护字段，否则按同层段 MD 规则计算；技术字段可在下方展开。")
+                       : ratio  ? tr("逐井计算分子 ÷ 分母；分母为 0 或缺值的井不参与。厚度比值请使用同一 MD 层段。")
+                                : tr("每口井读取一个数值字段。没有合适的字段时，可先维护井点属性。"));
+    if (auto *fields = findChild<QWidget *>(QStringLiteral("wellFactorFieldMappingSection")))
+      fields->setVisible(!automatic);
     for (const QString &name : {QStringLiteral("factorValueFieldCombo"), QStringLiteral("factorNumeratorFieldCombo"),
                                QStringLiteral("factorDenominatorFieldCombo")}) {
-      const bool visible = (name == QLatin1String("factorValueFieldCombo")) != ratio;
+      const bool visible = !automatic && ((name == QLatin1String("factorValueFieldCombo")) != ratio);
       findChild<QWidget *>(name)->setVisible(visible);
       findChild<QWidget *>(name + QStringLiteral("Caption"))->setVisible(visible);
     }
+    refreshWellFactorGeoHint();
     invalidateWellFactors();
     restoreWellFactorDisplay();
   };
@@ -238,12 +254,43 @@ void ConstraintPage::invalidateWellFactors() {
   markInputsStale(); updateWellFactorActionState();
   updateFactorActionStates();
 }
+void ConstraintPage::refreshWellFactorGeoHint()
+{
+  auto *hint = findChild<QLabel *>(QStringLiteral("wellFactorGeoHint"));
+  if (!hint)
+    return;
+  const int row = checkedRow(child<QTableWidget>(this, "factorTable"));
+  if (row < 0)
+  {
+    hint->setText(tr("勾选因素后显示单位、有效域与推荐取值规则。"));
+    return;
+  }
+  bool known = false;
+  const auto profile = SingleFactorRegistry::geologicalProfile(factorIdOfRow(child<QTableWidget>(this, "factorTable"), row), &known);
+  if (!known)
+  {
+    hint->clear();
+    return;
+  }
+  QString text = tr("%1 · 单位 %2 · 有效域 %3").arg(profile.ruleSentence, profile.unit, profile.validRange);
+  if (!profile.note.isEmpty())
+    text += QLatin1Char('
+') + profile.note;
+  if (!profile.wellPointExtraction)
+    text += QLatin1Char('
+') + tr("本因素不走井点提取，请使用其专属计算入口。");
+  hint->setText(text);
+}
+
 void ConstraintPage::updateWellFactorActionState() {
   auto *button = child<QPushButton>(this, "extractWellFactorsButton"); if (!button) return;
-  const auto params = wellFactorParams(); const bool ratio = params.value(QStringLiteral("factorMode")) == QStringLiteral("ratio");
+  const auto params = wellFactorParams();
+  const QString mode = params.value(QStringLiteral("factorMode")).toString();
+  const bool ratio = mode == QLatin1String("ratio");
+  const bool automatic = mode == QLatin1String("auto");
   const bool ready = checkedRow(child<QTableWidget>(this, "factorTable")) >= 0 &&
-      (ratio ? !params.value(QStringLiteral("numeratorField")).toString().isEmpty() && !params.value(QStringLiteral("denominatorField")).toString().isEmpty()
-             : !params.value(QStringLiteral("valueField")).toString().isEmpty());
+      (automatic || (ratio ? !params.value(QStringLiteral("numeratorField")).toString().isEmpty() && !params.value(QStringLiteral("denominatorField")).toString().isEmpty()
+                           : !params.value(QStringLiteral("valueField")).toString().isEmpty()));
   const bool busy = property("paleo.page.runbusy").toBool();
   const auto *horizon = child<QComboBox>(this, "horizonCombo");
   const bool hasHorizon = horizon && !horizon->currentText().trimmed().isEmpty();
@@ -253,6 +300,7 @@ void ConstraintPage::updateWellFactorActionState() {
                      : !hasHorizon ? tr("步骤 1：请先打开工程并选择层位")
                      : ready       ? tr("后台提取当前地层数据，保存井点版本后再计算等值面")
                                    : tr("请勾选因子并选择真实提取字段"));
+  refreshWellFactorGeoHint();
 }
 void ConstraintPage::refreshWellFactorResults() {
   auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());

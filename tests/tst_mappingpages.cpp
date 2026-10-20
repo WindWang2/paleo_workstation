@@ -510,6 +510,7 @@ class FactorPageTests : public QObject
     void typedDrawEntries();
     void nativeMethodContourAndBusyStates();
     void wellFactorExtractionPayload();
+    void geologicalAutoModeAndTaskRecommendation();
     void methodParameterVisibilityAndFamilies();
     void guidedPreparationAndPinnedActions();
     void strategyPackDrivesMethodCombo(); // 方向67：词表驱动下拉 + 参数预览 + strategy_id 载荷
@@ -1496,6 +1497,34 @@ void FactorPageTests::structuralBoundaryComboPrefersPolygonDefaults()
 
 // ---- 任务 C（智能编图页）：融合清单栅格过滤/参考图/相属性/设计器入口。--
 // 真实栈（属性回写 edit buffer、壳自动编辑态）在 tst_composeworkflow.cpp。
+
+void FactorPageTests::geologicalAutoModeAndTaskRecommendation()
+{
+  ConstraintPage page(nullptr);
+  page.setHorizons({QStringLiteral("D61")});
+  auto *table = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
+  table->item(1, 0)->setCheckState(Qt::Checked); // sandratio
+  auto *mode = page.findChild<QComboBox *>(QStringLiteral("factorModeCombo"));
+  auto *extract = page.findChild<QPushButton *>(QStringLiteral("extractWellFactorsButton"));
+  auto *geo = page.findChild<QLabel *>(QStringLiteral("wellFactorGeoHint"));
+  auto *fields = page.findChild<QWidget *>(QStringLiteral("wellFactorFieldMappingSection"));
+  auto *task = page.findChild<QComboBox *>(QStringLiteral("factorTaskCombo"));
+  auto *method = page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
+  QVERIFY(mode && extract && geo && fields && task && method);
+  QCOMPARE(mode->currentData().toString(), QStringLiteral("auto"));
+  QVERIFY(geo->text().contains(QStringLiteral("解释砂厚")));
+  QVERIFY(geo->text().contains(QStringLiteral("[0, 1]")));
+  QVERIFY(!fields->isVisibleTo(&page));
+  QVERIFY(extract->isEnabled());
+  mode->setCurrentIndex(mode->findData(QStringLiteral("direct")));
+  QVERIFY(fields->isVisibleTo(&page));
+  // 任务导向：地统计估计 → 克里金（真实算法 id）
+  task->setCurrentIndex(task->findText(QStringLiteral("地统计估计并检查误差")));
+  QCOMPARE(method->currentData().toString(), QStringLiteral("kriging"));
+  task->setCurrentIndex(task->findText(QStringLiteral("分析多种可能的模拟结果")));
+  QCOMPARE(method->currentData().toString(), QStringLiteral("sgs"));
+}
+
 void FactorPageTests::wellFactorExtractionPayload() {
   ConstraintPage page(nullptr);
   auto *h = page.findChild<QComboBox *>(QStringLiteral("horizonCombo")); h->addItem(QStringLiteral("D61"));
@@ -1509,10 +1538,11 @@ void FactorPageTests::wellFactorExtractionPayload() {
   auto *den = page.findChild<QComboBox *>(QStringLiteral("factorDenominatorFieldCombo"));
   auto *extract = page.findChild<QPushButton *>(QStringLiteral("extractWellFactorsButton"));
   auto *generate = page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"));
-  value->setCurrentIndex(value->findData(QStringLiteral("ratio")));
-  // 场景 F：井点提取是输入准备，不依赖约束线——无任何约束即可提取。
+  // 默认「推荐地质口径」无需选字段即可提取（场景 F + 地质语义）。
+  QCOMPARE(mode->currentData().toString(), QStringLiteral("auto"));
   QVERIFY2(extract->isEnabled(), qPrintable(extract->toolTip()));
   QVERIFY(!extract->toolTip().contains(QStringLiteral("间隔线")));
+  value->setCurrentIndex(value->findData(QStringLiteral("ratio")));
   // 未提取井点前生成仍不可用，但原因是井点而非约束线。
   QVERIFY(!generate->isEnabled());
   QVERIFY2(generate->toolTip().contains(QStringLiteral("井点")), qPrintable(generate->toolTip()));
@@ -1520,14 +1550,19 @@ void FactorPageTests::wellFactorExtractionPayload() {
   QSignalSpy extracted(&page, &ConstraintPage::extractWellFactorsRequested);
   extract->click(); QCOMPARE(extracted.count(), 1);
   QCOMPARE(extracted[0][0].toString(), QStringLiteral("sandratio"));
-  QCOMPARE(extracted[0][2].toMap().value("factorMode").toString(), QStringLiteral("direct"));
-  QCOMPARE(extracted[0][2].toMap().value("valueField").toString(), QStringLiteral("ratio"));
+  QCOMPARE(extracted[0][2].toMap().value("factorMode").toString(), QStringLiteral("auto"));
+  // 切到直接字段后再提取，技术字段映射生效。
+  mode->setCurrentIndex(mode->findData(QStringLiteral("direct")));
+  value->setCurrentIndex(value->findData(QStringLiteral("ratio")));
+  extract->click(); QCOMPARE(extracted.count(), 2);
+  QCOMPARE(extracted[1][2].toMap().value("factorMode").toString(), QStringLiteral("direct"));
+  QCOMPARE(extracted[1][2].toMap().value("valueField").toString(), QStringLiteral("ratio"));
   mode->setCurrentIndex(mode->findData(QStringLiteral("ratio")));
   QVERIFY(!extract->isEnabled());
   num->setCurrentIndex(num->findData(QStringLiteral("sand")));
   den->setCurrentIndex(den->findData(QStringLiteral("gross")));
-  extract->click(); QCOMPARE(extracted.count(), 2);
-  const auto params = extracted[1][2].toMap();
+  extract->click(); QCOMPARE(extracted.count(), 3);
+  const auto params = extracted[2][2].toMap();
   QCOMPARE(params.value("factorMode").toString(), QStringLiteral("ratio"));
   QCOMPARE(params.value("numeratorField").toString(), QStringLiteral("sand"));
   QCOMPARE(params.value("denominatorField").toString(), QStringLiteral("gross"));
@@ -1647,13 +1682,10 @@ void FactorPageTests::guidedPreparationAndPinnedActions()
   next->click();
   QTRY_VERIFY(scroll->verticalScrollBar()->value() < scroll->verticalScrollBar()->maximum());
   QVERIFY(capture(QStringLiteral("02-constraints-light")));
-  // 沿用既有约束门；准备完成后直接显示字段补齐/提取入口。
+  // 推荐地质口径下无需选字段；下一步直接是提取。
   page.setProperty("paleo.page.constraintsready", true);
   page.setRunBusy(false);
   QVERIFY(page.findChild<QProgressBar *>(QStringLiteral("factorProgressBar"))->isHidden());
-  QVERIFY(hint->text().contains(QStringLiteral("请选择要提取的字段")));
-  auto *field = page.findChild<QComboBox *>(QStringLiteral("factorValueFieldCombo"));
-  field->setCurrentIndex(0);
   QCOMPARE(next->property("target").toString(), QStringLiteral("extractWellFactorsButton"));
   QVERIFY(hint->text().contains(QStringLiteral("先提取并保存")));
   auto *advanced = page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QToolButton *>();

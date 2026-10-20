@@ -41,7 +41,7 @@ src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:777
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:278
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:289
-src/ui/dialogs/folderconfirm.cpp:fn:buildFolderConfirmDialog:346
+src/ui/dialogs/folderconfirm.cpp:fn:buildFolderConfirmDialog:342
 src/ui/edittools/editingtoolbar.cpp:file:1107
 src/ui/edittools/editingtoolbar.cpp:fn:buildUi:232
 src/ui/edittools/vertexeditortools.cpp:file:1318
@@ -53,8 +53,8 @@ src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:351
 src/ui/pages/datalist.cpp:fn:DataListPanel:480
 src/ui/pages/datalist.cpp:fn:buildDataOpsUi:337
 src/ui/pages/datalist_table.cpp:fn:renderAssetPage:388
-src/ui/pages/datalist_tree.cpp:file:1094
-src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:676
+src/ui/pages/datalist_tree.cpp:file:1084
+src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:663
 src/ui/pages/entitypanel.cpp:file:1620
 src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
 src/ui/pages/entitypanel.cpp:fn:refresh:782
@@ -62,13 +62,13 @@ src/ui/pages/mappingworkbenchpage.cpp:file:1637
 src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:629
 src/ui/pages/mappingworkbenchpage.cpp:fn:renderEvidenceSnapshot:267
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:277
-src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:263
+src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:253
 src/ui/paleomainwindow.cpp:file:1015
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:412
-src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:405
+src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:399
 src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:719
 src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:262
-src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:578
+src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:554
 src/ui/paleomainwindow_docks.cpp:fn:buildCenterArea:209
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:295
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:477
@@ -87,5 +87,5 @@ src/ui/wellcomposite/panelsetup.cpp:fn:setupUi:422
 src/ui/wellcomposite/wellpositionlegendwidget.cpp:fn:setupUi:262
 src/ui/wellsection/wellsectiondialogs.cpp:fn:WellSectionTracksDialog:257
 src/ui/wellsection/wellsectionpanel.cpp:file:1541
-src/ui/wellsection/wellsectionpanel.cpp:fn:WellSectionPanel:456
-src/ui/welltops/welltopseditordialog.cpp:file:1010
+src/ui/wellsection/wellsectionpanel.cpp:fn:WellSectionPanel:455
+src/ui/welltops/welltopseditordialog.cpp:file:1006

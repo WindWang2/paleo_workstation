@@ -26,7 +26,8 @@ namespace
   QgsApplication *s_app = nullptr;
 }
 
-bool QgisRuntime::initialize( const QString &prefixPath )
+bool QgisRuntime::initialize( const QString &prefixPath,
+                              const std::function<void()> &applicationCreated )
 {
   if ( isInitialized() )
     return false;
@@ -49,6 +50,8 @@ bool QgisRuntime::initialize( const QString &prefixPath )
   QgsApplication::setPrefixPath(
       resolvePrefixPath( prefixPath, qEnvironmentVariable( "QGIS_PREFIX_PATH" ) ),
       /*useDefaultPaths=*/true );
+  if ( applicationCreated )
+    applicationCreated();
   QgsApplication::initQgis();
   // Embedding applications must register QGIS's native attribute editors;
   // initQgis() initializes providers, while QgisApp normally does this step.

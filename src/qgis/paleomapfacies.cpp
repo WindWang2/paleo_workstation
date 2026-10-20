@@ -40,7 +40,7 @@ QVariantMap normalizeFacies(const QString &source, const QString &output, const 
     return {};
   const auto fields = layer.fields();
   const int micro = field(fields, microField.isEmpty()
-                                      ? QStringList{"microfacies", "micro_facies", "microfacie", "micro_faci",
+                                      ? QStringList{"microfacies", "micro_facies", "microfacie", "micro_faci", "microfac",
                                                     "微相", "微相名", "微相名称", "facies_label",
                                                     "facies_lab", "facies", "相名", "name", "名称", "岩相"}
                                       : QStringList{microField});
@@ -87,12 +87,23 @@ QVariantMap normalizeFacies(const QString &source, const QString &output, const 
   QgsFields outputFields;
   QList<int> originalFields;
   const QStringList canonical{"facies_code", "facies_name",  "subfacies",
-                              "microfacies", "facies_label", "texture"};
+                              "microfacies", "facies_label", "texture", "color"};
   for (int i = 0; i < fields.size(); ++i)
   {
-    if (canonical.contains(fields.at(i).name(), Qt::CaseInsensitive))
+    const auto name = fields.at(i).name().toLower();
+    const bool legacyAppearance = QStringList{"facies_code", "facies_cod", "code", "color"}.contains(name);
+    if (canonical.contains(name) && !legacyAppearance)
       continue;
-    outputFields.append(fields.at(i));
+    auto preserved = fields.at(i);
+    if (legacyAppearance) {
+      const QString base = QStringLiteral("source_") + fields.at(i).name();
+      QString preservedName = base;
+      int suffix = 2;
+      while (field(fields, {preservedName}) >= 0 || outputFields.indexFromName(preservedName) >= 0)
+        preservedName = base + QStringLiteral("_%1").arg(suffix++);
+      preserved.setName(preservedName);
+    }
+    outputFields.append(preserved);
     originalFields << i;
   }
   outputFields.append(QgsField("facies_code", QMetaType::Type::Int));
@@ -120,7 +131,8 @@ QVariantMap normalizeFacies(const QString &source, const QString &output, const 
       return {};
     }
     const int code = codes.value(key(sourceClass(feature, micro, phase, sub)));
-    const auto attrs = FaciesCatalog::attributes(normalized, code);
+    auto attrs = FaciesCatalog::attributes(normalized, code);
+    attrs.insert("color", FaciesCatalog::appearance(FaciesCatalog::find(normalized, code)).value("color"));
     QgsFeature converted(outputFields);
     converted.setGeometry(feature.geometry());
     QgsAttributes attributes;

@@ -3,15 +3,94 @@
 #include "projectmapreference.h"
 #include "qgiserrors_internal.h"
 #include <QDir>
+#include <QCryptographicHash>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QSaveFile>
 #include <cmath>
 #include <memory>
 #include <qgsproject.h>
+#include <qgspathresolver.h>
 #include <qgsrasterlayer.h>
+
+namespace {
+void embedMapConfiguration(QgsProject *project, const PaleoProjectFile &file)
+{
+  project->writeEntry("paleo", "mapConfiguration", QString::fromUtf8(QJsonDocument(QJsonObject{
+      {"crs", file.mapCrs}, {"topo", file.basemapTopo},
+      {"hillshade", file.basemapHillshade}, {"enabled", file.basemapEnabled}}).toJson(QJsonDocument::Compact)));
+}
+
+// External basemaps become project members. Content-addressed names avoid
+// overwriting an existing map when two sources have the same file name.
+bool projectLocalBasemap(const QDir &directory, QString path, QString *local, QString *error)
+{
+  if (path.isEmpty()) { local->clear(); return true; }
+  const auto fail = [&](const QString &reason) {
+    paleo::qgis_detail::setError(error, QObject::tr("无法将底图保存到工程：%1（%2）").arg(path, reason));
+    return false;
+  };
+  const QFileInfo sourceInfo(directory.filePath(path));
+  if (!sourceInfo.isFile()) return fail(QObject::tr("文件不存在"));
+  const QString relative = directory.relativeFilePath(sourceInfo.canonicalFilePath());
+  if (!QDir::isAbsolutePath(relative) && relative != QLatin1String("..") &&
+      !relative.startsWith(QLatin1String("../"))) {
+    *local = relative;
+    return true;
+  }
+  QFile source(sourceInfo.canonicalFilePath());
+  if (!source.open(QIODevice::ReadOnly)) return fail(source.errorString());
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  if (!hash.addData(&source)) return fail(source.errorString());
+  *local = QStringLiteral("basemap/%1.mbtiles").arg(QString::fromLatin1(hash.result().toHex()));
+  const QString target = directory.filePath(*local);
+  QFile existing(target);
+  if (existing.open(QIODevice::ReadOnly)) {
+    QCryptographicHash check(QCryptographicHash::Sha256);
+    if (check.addData(&existing) && check.result() == hash.result()) return true;
+    existing.close();
+  }
+  if (!directory.mkpath(QStringLiteral("basemap"))) return fail(QObject::tr("无法创建底图目录"));
+  if (!source.seek(0)) return fail(source.errorString());
+  QSaveFile output(target);
+  if (!output.open(QIODevice::WriteOnly)) return fail(output.errorString());
+  QCryptographicHash copied(QCryptographicHash::Sha256);
+  while (!source.atEnd()) {
+    const QByteArray bytes = source.read(1024 * 1024);
+    if (source.error() != QFile::NoError) return fail(source.errorString());
+    copied.addData(bytes);
+    if (output.write(bytes) != bytes.size()) return fail(output.errorString());
+  }
+  if (copied.result() != hash.result()) return fail(QObject::tr("复制期间源文件发生变化"));
+  return output.commit() ? true : fail(output.errorString());
+}
+}
+
+bool QgisProjectService::prepareBasemapMembers(QString *error)
+{
+  const QDir directory(QFileInfo(m_path).absolutePath());
+  auto file = m_mapConfiguration;
+  if (!projectLocalBasemap(directory, file.basemapTopo, &file.basemapTopo, error) ||
+      !projectLocalBasemap(directory, file.basemapHillshade, &file.basemapHillshade, error)) return false;
+  if (file.basemapTopo != m_mapConfiguration.basemapTopo ||
+      file.basemapHillshade != m_mapConfiguration.basemapHillshade) {
+    if (!writeProjectFile(directory.path(), file, error)) return false;
+    m_mapConfiguration = file;
+    emit mapConfigurationChanged(); // Refresh layer URIs/declarations before serialization.
+  }
+  embedMapConfiguration(m_project, m_mapConfiguration);
+  return true;
+}
 
 void QgisProjectService::applyMapConfiguration()
 {
+  for (auto *layer : m_project->mapLayers())
+    if (layer->customProperty("paleoBasemap").toBool()) {
+      const auto path = layer->customProperty("paleoBasemapPath").toString();
+      if (!path.isEmpty())
+        layer->setCustomProperty("paleoBasemapPath", m_project->pathResolver().readPath(path));
+    }
   // 裸 QGZ 也带显示配置；有 project.paleo 时以清单为准。
   if (m_mapConfiguration.name.isEmpty()) {
     const auto map = QJsonDocument::fromJson(m_project->readEntry("paleo", "mapConfiguration").toUtf8()).object();
@@ -24,9 +103,7 @@ void QgisProjectService::applyMapConfiguration()
   QString error;
   if (!paleo::mapreference::configure(m_project, m_georeference, m_mapConfiguration.mapCrs, &error))
     m_errors << tr("地图配准未启用：%1").arg(error);
-  m_project->writeEntry("paleo", "mapConfiguration", QString::fromUtf8(QJsonDocument(QJsonObject{
-      {"crs", m_mapConfiguration.mapCrs}, {"topo", m_mapConfiguration.basemapTopo},
-      {"hillshade", m_mapConfiguration.basemapHillshade}, {"enabled", m_mapConfiguration.basemapEnabled}}).toJson(QJsonDocument::Compact)));
+  embedMapConfiguration(m_project, m_mapConfiguration);
 }
 
 void QgisProjectService::setGeoreference(const PaleoGeoreference &reference)
@@ -83,8 +160,8 @@ bool QgisProjectService::updateMapConfiguration(const PaleoProjectFile &configur
   }
   file.mapCrs = configuration.mapCrs;
   file.basemapEnabled = configuration.basemapEnabled;
-  file.basemapTopo = configuration.basemapTopo.isEmpty() ? QString() : directory.relativeFilePath(directory.filePath(configuration.basemapTopo));
-  file.basemapHillshade = configuration.basemapHillshade.isEmpty() ? QString() : directory.relativeFilePath(directory.filePath(configuration.basemapHillshade));
+  if (!projectLocalBasemap(directory, configuration.basemapTopo, &file.basemapTopo, error) ||
+      !projectLocalBasemap(directory, configuration.basemapHillshade, &file.basemapHillshade, error)) return false;
   if (!writeProjectFile(directory.path(), file, error)) return false;
   m_mapConfiguration = file;
   m_georeference = file.georeference;

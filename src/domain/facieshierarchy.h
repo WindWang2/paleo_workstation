@@ -10,6 +10,9 @@ struct ScaleThresholds {
 bool validThresholds(const ScaleThresholds &thresholds);
 QStringList levels();
 QString title(const QString &level);
+// Prediction codes are microfacies. Automatic display of prediction products
+// keeps their native level instead of aggregating them as map scale changes.
+QString productDisplayMode(const QString &kind, const QString &mode = QStringLiteral("auto"));
 QString resolveLevel(const QString &mode, double scale,
                      const ScaleThresholds &thresholds = {});
 // Legacy missing levels are explicitly marked as undefined; never copy a parent

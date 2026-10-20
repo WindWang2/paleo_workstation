@@ -290,6 +290,31 @@ private slots:
     for (const auto &file : files) QVERIFY2(!QFile::exists(file), qPrintable(file));
     QVERIFY(QFile::exists(path)); QVERIFY(QFile::exists(source.filePath("D61/map.dbf")));
   }
+  void legacyMicrofacFieldUsesProjectHierarchy() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    auto schema = FaciesCatalog::defaults();
+    auto channel = schema[4].toMap(); channel["code"] = 77; schema[4] = channel;
+    QVERIFY(f.work.saveFacies("D61", schema, &error));
+    QTemporaryDir source;
+    const auto path = source.filePath("D61/historical.shp");
+    QVERIFY(microShape(path, {QVariantMap{{"microfacies", "分流河道"},
+        {"facies", "三角洲相"}, {"subfacies", "三角洲平原"}}}, "microfac"));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61";
+    const auto imported = f.run(request);
+    QVERIFY2(imported.errors.isEmpty(), qPrintable(imported.errors.join("\n")));
+    QCOMPARE(imported.assets.size(), 1);
+    const auto version = f.importer.catalog()->currentVersion(imported.assets.first());
+    QCOMPARE(version.stage, QString("DERIVED"));
+    QCOMPARE(version.extra.value("source_microfacies_field").toString(), QString("microfac"));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(version.extra.value("layer_id").toString(), &error));
+    QVERIFY2(layer, qPrintable(error));
+    const auto feature = layer->getFeature(1);
+    QCOMPARE(feature.attribute("facies_code").toInt(), 77);
+    QCOMPARE(feature.attribute("facies_name").toString(), QString("三角洲相"));
+    QCOMPARE(feature.attribute("subfacies").toString(), QString("三角洲平原"));
+    QCOMPARE(feature.attribute("microfacies").toString(), QString("分流河道"));
+    QCOMPARE(feature.attribute("texture").toString(), channel.value("texture").toString());
+  }
   void importedMicrofaciesUseProjectTexturesAndThreeLevelEditing() {
     Fixture f; QVERIFY(f.init()); QString error;
     auto projectSchema = FaciesCatalog::defaults(); auto mouth = projectSchema[1].toMap(); mouth["code"] = 77; projectSchema[1] = mouth;

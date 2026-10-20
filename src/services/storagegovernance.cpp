@@ -7,6 +7,15 @@
 
 namespace paleo::storage {
 namespace {
+QString canonicalIdentity(const QString &path, const QString &base = {}) {
+  auto result = PathCanon::canonicalize(path, base);
+#ifdef Q_OS_WIN
+  // RAW/raw roots resolve to the same NTFS directory. QFileInfo can retain
+  // the caller's spelling, so reference and scan keys must ignore case.
+  result = result.toCaseFolded();
+#endif
+  return result;
+}
 const QStringList roots = {QStringLiteral("raw"), QStringLiteral("derived"),
   QStringLiteral("intermediate"), QStringLiteral("output"),
   QStringLiteral("artifacts/RAW"), QStringLiteral("artifacts/DERIVED"),
@@ -16,7 +25,7 @@ const QStringList roots = {QStringLiteral("raw"), QStringLiteral("derived"),
 FileFact fact(const QString &path, const QString &projectDir) {
   FileFact f;
   f.relativePath = QDir(projectDir).relativeFilePath(path);
-  f.canonicalPath = PathCanon::canonicalize(path);
+  f.canonicalPath = canonicalIdentity(path);
   const QFileInfo fi(path);
   if (fi.isFile()) { f.sizeBytes = fi.size(); f.modified = fi.lastModified(); }
   return f;
@@ -66,7 +75,7 @@ Report scan(const Snapshot &s, const Progress &progress) {
   for (const auto &l : s.links)
     if (!l.unresolved && !l.entityId.isEmpty()) entities[l.assetId].insert(l.entityId);
   QSet<QString> references;
-  const QString projectCanonical = PathCanon::canonicalize(s.projectDir);
+  const QString projectCanonical = canonicalIdentity(s.projectDir);
   int done = 0;
   for (const auto &v : s.versions) {
     if (progress && !progress(done, s.versions.size(), v.fileName)) return r;
@@ -75,7 +84,7 @@ Report scan(const Snapshot &s, const Progress &progress) {
     const QString path = DataCatalog::resolvedVersionPath(s.projectDir, v);
     // Even unsafe/symlink aliases remain references: never report their target
     // as unreferenced. Safety validation controls whether cleanup is allowed.
-    const QString canonical = PathCanon::canonicalize(v.path, v.managed ? s.projectDir : QString());
+    const QString canonical = canonicalIdentity(v.path, v.managed ? s.projectDir : QString());
     r.canonicalReferences.insert(v.id, canonical);
     if (!canonical.isEmpty()) references.insert(canonical);
     FileFact f;
@@ -111,7 +120,7 @@ Report scan(const Snapshot &s, const Progress &progress) {
         }
         const QFileInfo si(vdir.filePath(entry));
         if (!si.isFile() || si.isSymLink()) continue;
-        const QString c = PathCanon::canonicalize(si.absoluteFilePath());
+        const QString c = canonicalIdentity(si.absoluteFilePath());
         if (c.isEmpty()) continue;
         references.insert(c);
         r.versionSidecars[v.id].append(fact(si.absoluteFilePath(), s.projectDir));
@@ -139,7 +148,7 @@ Report scan(const Snapshot &s, const Progress &progress) {
         || !info.isDir() || !info.isReadable()) {
       r.uncovered << root; continue;
     }
-    const QString canonicalRoot = PathCanon::canonicalize(path);
+    const QString canonicalRoot = canonicalIdentity(path);
     if (visited.contains(canonicalRoot)) continue;
     visited.insert(canonicalRoot); r.scannedRoots << root;
     // No FollowSymlinks. Enumerate directories too so excluded coverage is honest.

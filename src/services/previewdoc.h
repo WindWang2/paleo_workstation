@@ -24,6 +24,7 @@
 #include "../io/lasdoc.h" // LasCurve/LasDoc/LasHeaderInfo（白名单纯类型门面）
 
 class DataCatalog;
+class QTemporaryDir;
 class DataImportService;
 class PaleoTask;
 class PaleoTaskService;
@@ -102,6 +103,16 @@ class PreviewDocService : public QObject
 
     // ---- 工程参数门面（domain/arearules.h 的视图侧出口）----
     static QString targetHorizon();
+    // Read-only RAW horizon preview: bin actual Z samples into a temporary
+    // raster. Storage survives background work and the rendered layer.
+    struct HorizonPreview {
+      QString path, error;
+      int rows = 0, columns = 0, filled = 0, rejected = 0;
+      double minimum = 0, maximum = 0;
+      std::shared_ptr<QTemporaryDir> storage;
+    };
+    void requestHorizonPreview(const QString &source, QObject *receiver,
+                              std::function<void(const HorizonPreview &)> ready);
     static int onnxGridRows();
     static int onnxGridCols();
 

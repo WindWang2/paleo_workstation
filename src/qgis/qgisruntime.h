@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QString>
+#include <functional>
 
 // P0 spine service — owns QgsApplication lifecycle and vendor prefix resolution.
 // Contract: init() must be the first QGIS call in any process using QGIS APIs;
@@ -63,7 +64,10 @@ class QgisRuntime
     }
     // prefixPath 为空或缺省时按 resolvePrefixPath 取 env/缺省。Returns false
     // if already initialized.
-    static bool initialize(const QString &prefixPath = QString());
+    // Called after QApplication exists, before provider initialization; no UI
+    // dependency here. The application may present startup progress in the hook.
+    static bool initialize(const QString &prefixPath = QString(),
+                           const std::function<void()> &applicationCreated = {});
     static void shutdown();
     static bool isInitialized();
     static int providerCount();          // -1 if not initialized

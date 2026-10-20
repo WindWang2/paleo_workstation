@@ -158,6 +158,8 @@ class DataPreviewTabs : public QWidget
                                  const QVector<EntityAssetLink> &links,
                                  QWidget *host, QVBoxLayout *lay);
     // 方向20 轮4：buildContent 的「horizon」分支析出到 datapreviewtabhorizon.cpp。
+    QWidget *buildRawHorizonContent(const CatalogVersion &version, const QString &assetId,
+                                   QWidget *host, QVBoxLayout *layout);
     QWidget *buildHorizonContent(DataCatalog *cat, const CatalogAsset &asset,
                                  const CatalogVersion &v, const QString &assetId,
                                  const QString &linkedBoundary,

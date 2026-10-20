@@ -371,7 +371,9 @@ void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
       mode == 1   ? identifier
       : mode == 2 ? facies
       : mode == 4 ? (hasRange ? interval : facies)
-                  : QStringLiteral("%1 || '\n' || %2").arg(identifier, facies);
+                  : QStringLiteral("CASE WHEN (%1) = (%2) THEN (%2) "
+                                   "ELSE (%1) || '\n' || (%2) END")
+                        .arg(identifier, facies);
   settings.placement = layer->geometryType() == Qgis::GeometryType::Point
                            ? Qgis::LabelPlacement::OrderedPositionsAroundPoint
                            : Qgis::LabelPlacement::OverPoint;

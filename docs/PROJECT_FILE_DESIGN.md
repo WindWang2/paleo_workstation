@@ -140,9 +140,15 @@ sourceArea）+ `readProjectFile`/`writeProjectFile`/`missingMembers`。
   `map.crs`；缺少配准时保持无基准工程网格，不显示真实地理底图。
 - 转换按配准公式得到 WGS84，再由 QGIS 原生投影操作转换到地图 CRS。
   测区、井位、层位栅格、剖面拾取和定位共用该上下文；地图拾取反算到局部
-  网格后才进入地震计算。MBTiles 由 QGIS 原生 `wms` provider 加载。
+  网格后才进入地震计算。MBTiles 优先由 QGIS 原生 `wms` provider 加载；
+  裁剪构建未提供该插件时，使用 QGIS 原生 `gdal` provider 读取同一份离线文件。
 - 底图路径保存为工程根相对路径，图层声明在共享 `01_Base`，位于地质图层
   下方；全范围定位以测区/地质图层为准，底图的全国范围不参与。
+- 底图是工程成员：选择工程外的 MBTiles 时原子复制到工程 `basemap/`，按
+  SHA-256 命名避免重名覆盖；工程内已有底图保持原相对路径。保存旧工程时
+  同样接管外部底图，清单与 `.qgz` 显示配置同步。缺失底图进入成员缺失检查，
+  复制或配置写入失败不提交新路径。移动时携带整个工程目录（含 `basemap/`）；
+  `.qgz` 中的原生底图数据源及附加路径均可在新目录恢复。
 - `map` 缺席时默认 `EPSG:3857`、空底图路径，不改变旧工程网格行为。
   `.qgz` 的 `paleo/mapConfiguration` 保存显示配置副本；`canvasExtentCrs`
   标记保存视野的坐标系，旧视野默认按局部网格转换。

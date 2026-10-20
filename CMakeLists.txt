@@ -1245,6 +1245,7 @@ target_compile_definitions(tst_import PRIVATE
   MKPROJECT_MINI_DIR="${CMAKE_SOURCE_DIR}/tools/reference/mkproject/mini")
 add_dependencies(tst_import paleo_mkproject)
 set_tests_properties(tst_import PROPERTIES RUN_SERIAL TRUE)
+add_paleo_test(tst_io_importrows_derivation LIBS paleo_io)  # L5.9：DataImportService::previewFiles 推导 FolderPreviewRow 显示类型/词表/可改性/实体预显
 add_paleo_test(tst_imagelod LIBS paleo_services)              # 方向79：图片道 LOD/EXIF/LRU
 add_paleo_test(tst_wellattachmentpanel LIBS paleo_ui)        # 方向79：井附件面板 CRUD offscreen
 add_paleo_test(tst_drawctl LIBS paleo_ui)

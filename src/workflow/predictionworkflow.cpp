@@ -9,6 +9,7 @@
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -479,9 +480,12 @@ bool PredictionWorkflow::publishPredictionJob( const PredictionJob &job, QString
                      : tr( "failed to declare result layer '%1'" ).arg( decl.layerId ) );
   }
 
+  // algo-atom P1-extend：预测成果经 publishArtifacts（路径已在 staging → 等价 commit）
+  const AlgorithmRunResult predResult =
+      paleo::runResultFromOutputPath( stagedPath );
   QString commitErr;
-  if ( !registrar.commit( job.staging, job.parentVersionIds,
-                          job.sourceUri, job.commitExtra, &commitErr ) )
+  if ( !paleo::publishArtifacts( registrar, job.staging, predResult, job.parentVersionIds,
+                                 job.sourceUri, job.commitExtra, &commitErr ) )
   {
     if ( QFile::exists( stagedPath ) )
       QFile::remove( stagedPath );

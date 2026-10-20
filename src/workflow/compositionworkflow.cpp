@@ -17,6 +17,8 @@
 #include "boundaryeditrules.h"              // 方向 39：相界类型编辑语义门禁
 #include "boundarysemantics.h"              // 相界地质语义类型词表
 #include "derivedassets.h"
+#include "algorithmpublish.h"
+#include "algorithmadapters.h"
 #include "mappingworkflow.h"
 
 #include <QDir>
@@ -266,11 +268,16 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   params.insert( QStringLiteral( "INPUTS" ), inputs );
   params.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
-  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_facies_fusion" ), params, error );
-  if ( results.isEmpty() )
+  // algo-atom P2 试点：ProcessingAlgorithmAdapter + publishArtifacts
+  paleo::ProcessingAlgorithmAdapter adapter( proc );
+  const AlgorithmSpec fusionSpec =
+      AlgorithmSpecRegistry::spec( QStringLiteral( "paleo:paleo_facies_fusion" ) );
+  const AlgorithmRunResult runResult = adapter.run( fusionSpec, params, error );
+  if ( !runResult.ok )
     return false;
-
-  const QString outPath = paleo::workflow_detail::outputPathOf( results );
+  const QString outPath = runResult.artifacts.isEmpty()
+                              ? QString()
+                              : runResult.artifacts.first().absolutePath;
   if ( outPath.isEmpty() )
   {
     paleo::workflow_detail::setError( error, tr( "facies fusion returned no output path" ) );
@@ -284,9 +291,9 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   fusionExtra.insert( QStringLiteral( "evidence" ),
                       paleo::workflow_detail::evidenceRecord( m_catalog, fusionParents, fusionExtra ) );
   QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, fusionParents,
-                                  QStringLiteral( "paleo:paleo_facies_fusion" ), fusionExtra,
-                                  &commitErr ) )
+  if ( !paleo::publishArtifacts( registrar, st, runResult, fusionParents,
+                                 QStringLiteral( "paleo:paleo_facies_fusion" ), fusionExtra,
+                                 &commitErr ) )
   {
     paleo::workflow_detail::setError( error, commitErr );
     return false;
@@ -490,11 +497,13 @@ bool CompositionWorkflow::commitFaciesPolygons( FaciesPolygonJob &job, QString *
   const QStringList faciesParents = job.registrar.parentVersionIdsFor( job.parentPaths );
   faciesExtra.insert( QStringLiteral( "evidence" ),
                       paleo::workflow_detail::evidenceRecord( m_catalog, faciesParents, faciesExtra ) );
+  // algo-atom P1-extend：polygonize 经 publishArtifacts
+  const AlgorithmRunResult polyResult =
+      paleo::runResultFromOutputPath( job.outputPath );
   QString commitErr;
-  if ( !job.registrar.commitExternal( job.staging, job.outputPath,
-                                      faciesParents,
-                                      QStringLiteral( "paleo:paleo_facies_polygonize" ), faciesExtra,
-                                      &commitErr ) )
+  if ( !paleo::publishArtifacts(
+           job.registrar, job.staging, polyResult, faciesParents,
+           QStringLiteral( "paleo:paleo_facies_polygonize" ), faciesExtra, &commitErr ) )
     return fail( commitErr );
 
   LayerDeclaration decl;

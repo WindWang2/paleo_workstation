@@ -29,6 +29,7 @@
 #include "assetops.h"
 #include "constraintimport.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "evidencerecord.h"
 #include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
@@ -704,9 +705,12 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
     actual = st.absolutePath;
     attested.path = actual;
   }
-  if (!r.commitExternal(st, actual, parents,
-                        extra.value("method", kind).toString(), extra, error,
-                        fingerprint ? &attested : nullptr)) {
+  // algo-atom P1-extend：MappingWorkbench::record 经 publishArtifacts
+  // （覆盖 polygonize / 编图产品等走 record 的算法类产出）
+  const AlgorithmRunResult runResult = paleo::runResultFromOutputPath(actual);
+  if (!paleo::publishArtifacts(r, st, runResult, parents,
+                               extra.value("method", kind).toString(), extra, error,
+                               fingerprint ? &attested : nullptr)) {
     if (fingerprint)
       QFile::remove(actual);
     return {};

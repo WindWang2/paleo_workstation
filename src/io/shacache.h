@@ -48,7 +48,8 @@ class ShaCache
     // A-01（full-audit-20261021）：磁盘层落盘节流——miss 路径不再每次把全表
     // （上限 65536 条 ≈ 8-13MB JSON）序列化落盘，改为「距上次落盘 ≥
     // intervalMs 或自上次落盘累计 ≥ dirtyEntries 条脏」双阈值惰性写；
-    // invalidate/setDiskFile 后首个 miss 与 flushDisk() 立即落盘。崩溃窗口
+    // setDiskFile 换代后首个 miss、invalidate（强制刷）与 flushDisk() 立即
+    // 落盘。崩溃窗口
     // 从 0 放宽到单阈值区间（丢失代价 = 重算若干文件哈希，自愈）。测试口径
     // 用 setDiskSaveThrottle 注入。
     void setDiskSaveThrottle(qint64 intervalMs, int dirtyEntries);

@@ -7,7 +7,6 @@
 #include "catalog/datacatalog.h"
 #include "domain/seismic/sectionaxis.h"
 #include "domain/seismic/sgycoordinatemapper.h"
-#include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyio.h"
 #include "algorithms/seismicattr.h"
 #include "io/sattrio.h"
@@ -317,6 +316,10 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
         return QString();
       return QString::fromStdString(err);
     }
+    // R2-SF-2（full-audit-20261021 独立复审）：回落路径只有线号单位距离且
+    // 无 per-column 线号输出可换算——清空交消费端兜底口径（其自述的默认
+    // 道距），不留「线号冒充米」的静默错值。
+    outStats->columnDistances.clear();
     return QString();
   };
 
@@ -814,6 +817,9 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
         w.join();
       if (cancelled())
         return QString();
+      // R2-SF-3：终态入账（与相干分支同款）——分片计数在取消/提前退出时
+      // 不到 width，成功路径补满防进度停在 <100%。
+      task->reportBytes(totalUnits, totalUnits);
     }
     result->computeMs = double(clock.elapsed());
 
@@ -1111,9 +1117,10 @@ namespace
     const double dtMs = 2.0;
     const double tStart = *std::min_element(rcTwt.begin(), rcTwt.end()) - 100.0;
     const double tEnd = *std::max_element(rcTwt.begin(), rcTwt.end()) + 100.0;
-    // B-1（full-audit-20261021）：w(t) = (1−2π²f²t²)·e^(−π²f²t²)——系数是 π²
-    // 不是 2π（对照 algorithms/inversion/wavelet.cpp makeRicker 的权威实现；
-    // 写成 2π 时等效主频缩到 √(2/π)≈0.798×，同名义频率下比反演子波低 ~20%）。
+    // B-1（full-audit-20261021）：w(t) = (1−2π²f²t²)·e^(−π²f²t²)——系数是
+    // π²（≈9.87）不是 2π（≈6.28；对照 algorithms/inversion/wavelet.cpp
+    // makeRicker 的权威实现）。写成 2π 时零点半宽 1/(2f√π)≈11.3ms（正确
+    // 9.0ms）、等效主频 √(2/π)≈0.798×，比反演子波低 ~20%。
     const double piSq = std::acos(-1.0) * std::acos(-1.0);
     const double f2 = rickerHz * rickerHz;
     for (double t = std::max(0.0, tStart); t <= tEnd; t += dtMs)

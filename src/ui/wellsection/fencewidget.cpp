@@ -79,6 +79,8 @@ class FencePreview : public QWidget
                 m_choicesById.insert(c.id, &c);
         update();
     }
+    // 当前模型的剖面条井序（测试钩子：D.21 断言预览跟随权威态重喂）。
+    const QVector<QStringList> &model() const { return m_sections; }
 
   protected:
     void paintEvent(QPaintEvent *) override
@@ -285,6 +287,16 @@ QStringList WellSectionFenceWidget::sectionWellIds(int index) const
 {
     return (index >= 0 && index < m_wellIds.size()) ? m_wellIds.at(index)
                                                     : QStringList();
+}
+
+// D.21：井网预览当前模型的剖面条井序——面板内改井序/移除后预览须随权威
+// 态重喂（旧实现只更新列表/tab/store，折线停在旧井序上）。
+QStringList WellSectionFenceWidget::previewSectionWells(int index) const
+{
+    const auto *preview = static_cast<const FencePreview *>(m_preview);
+    return (preview && index >= 0 && index < preview->model().size())
+               ? preview->model().at(index)
+               : QStringList();
 }
 
 WellSectionPanel *WellSectionFenceWidget::sectionPanel(int index) const

@@ -740,6 +740,12 @@ bool runGeostatCokriging( const GeostatRunContext &ctx, const std::vector<paleo:
   // 方差只进 QC 参数，不改模型。
   coModel.secondary = model;
   coModel.secondary.nugget = 0.0;
+  // 纯块金主变差（sill=0，方差全在 nugget）时不能把 secondary.nugget 也归零：
+  // 那会让 γ22≡0、次级块秩亏（LU 奇异→整幅 nodata 而 Status 仍 Ok，正是
+  // C.5 总基台闸要拒的退化）。总基台守恒到 secondary.sill，单位口径不变
+  // （γ22 仍落在主变量基台上，同 #326）。
+  if (coModel.secondary.sill <= 0.0)
+    coModel.secondary.sill = model.nugget + model.sill;
   if ( !secondaryZ.empty() )
   {
     double secMean = 0;

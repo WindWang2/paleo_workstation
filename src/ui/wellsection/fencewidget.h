@@ -71,6 +71,9 @@ class WellSectionFenceWidget : public QWidget
     int sectionCount() const { return m_sections.size(); }
     QStringList sectionWellIds(int index) const;
     WellSectionPanel *sectionPanel(int index) const;
+    // 井网预览当前模型的剖面条井序（D.21：改井序/移除后预览须随权威态
+    // 重喂，否则折线停在旧井序上）。越界 index → 空表。
+    QStringList previewSectionWells(int index) const;
     // 读回状态标注（测试钩子）：store 有节但缺 spacing 存档时的回落说明
     //（空串 = 无回落或无存档）。
     QString storeFallbackNote() const { return m_storeNote; }

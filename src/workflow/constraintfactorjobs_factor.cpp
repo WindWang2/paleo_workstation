@@ -29,6 +29,7 @@
 #include "constraintworkflow_internal.h"
 #include "derivedassets.h"
 #include "algorithmpublish.h"
+#include "algorithmadapters.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
@@ -1231,8 +1232,12 @@ bool ConstraintWorkflow::runFactorAlgorithm(
     std::function<bool(const QVariantMap &, QString *)> publish,
     QString *error) {
   if (!m_factorTasks) {
-    const auto results = m_proc->run(engine, params, error);
-    return !results.isEmpty() && publish(results, error);
+    // algo-atom P2：同步路径经 ProcessingAlgorithmAdapter
+    paleo::ProcessingAlgorithmAdapter adapter( m_proc.data() );
+    const AlgorithmRunResult runResult = adapter.runById( engine, params, error );
+    if ( !runResult.ok )
+      return false;
+    return publish( paleo::processingResultsFromRunResult( runResult ), error );
   }
   struct Source {
     QString key, uri, provider, type, crs;
@@ -1313,10 +1318,17 @@ bool ConstraintWorkflow::runFactorAlgorithm(
             task->reportStage("build", qBound(0, qRound(p), 95));
         };
         QString error;
-        *results = proc->run(engine, options, &error, hooks);
-        if (results->isEmpty() && error.isEmpty() && !cancel())
-          error = QStringLiteral("计算没有返回成果");
-        if (!error.isEmpty() || cancel() || results->isEmpty())
+        // algo-atom P2：异步路径经 ProcessingAlgorithmAdapter
+        paleo::ProcessingAlgorithmAdapter adapter( proc );
+        const AlgorithmRunResult runResult =
+            adapter.runById( engine, options, &error, hooks );
+        *results = paleo::processingResultsFromRunResult( runResult );
+        if ( !runResult.ok && error.isEmpty() && !cancel() )
+          error = runResult.error.isEmpty() ? QStringLiteral( "计算没有返回成果" )
+                                            : runResult.error;
+        if ( results->isEmpty() && error.isEmpty() && !cancel() )
+          error = QStringLiteral( "计算没有返回成果" );
+        if ( !error.isEmpty() || cancel() || results->isEmpty() )
           return error;
         const auto actual = paleo::workflow_detail::outputPathOf(*results);
         if (QDir::cleanPath(actual) != QDir::cleanPath(path)) {

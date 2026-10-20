@@ -27,6 +27,7 @@
 #include "constraintworkflow_internal.h"
 #include "derivedassets.h"
 #include "algorithmpublish.h"
+#include "algorithmadapters.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
@@ -294,7 +295,11 @@ bool ConstraintWorkflow::computeLocalDirectionJobWithService(
   hooks.cancelled = cancelled;
   hooks.progress = progress;
   QString runErr;
-  const QVariantMap results = proc->run( job->engineId, runParams, &runErr, hooks );
+  // algo-atom P2：local_direction / surfer 经 ProcessingAlgorithmAdapter
+  paleo::ProcessingAlgorithmAdapter adapter( proc );
+  const AlgorithmRunResult ldRun =
+      adapter.runById( job->engineId, runParams, &runErr, hooks );
+  const QVariantMap results = paleo::processingResultsFromRunResult( ldRun );
   job->supportPath = results.value( QStringLiteral( "SUPPORT" ) ).toString();
   job->qcPath = results.value( QStringLiteral( "QC" ) ).toString();
   const QString outPath = results.value( QStringLiteral( "OUTPUT" ) ).toString();

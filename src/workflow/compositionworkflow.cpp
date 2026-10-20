@@ -451,12 +451,16 @@ bool CompositionWorkflow::computeFaciesPolygons( FaciesPolygonJob &job, QgisProc
   hooks.cancelled = cancelled;
   hooks.progress = progress;
   QString runErr;
-  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_facies_polygonize" ), alg, &runErr, hooks );
-  if ( results.isEmpty() )
+  // algo-atom P2：polygonize 经 ProcessingAlgorithmAdapter
+  paleo::ProcessingAlgorithmAdapter adapter( proc );
+  const AlgorithmRunResult polyRun = adapter.runById(
+      QStringLiteral( "paleo:paleo_facies_polygonize" ), alg, &runErr, hooks );
+  if ( !polyRun.ok )
   {
     job.error = !runErr.isEmpty() ? runErr : tr( "facies polygonize produced no results" );
     return false;
   }
+  const QVariantMap results = paleo::processingResultsFromRunResult( polyRun );
   job.outputPath = paleo::workflow_detail::outputPathOf( results );
   if ( job.outputPath.isEmpty() )
   {

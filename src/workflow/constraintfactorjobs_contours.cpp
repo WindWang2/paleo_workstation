@@ -29,6 +29,7 @@
 #include "constraintworkflow_internal.h"
 #include "derivedassets.h"
 #include "algorithmpublish.h"
+#include "algorithmadapters.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
@@ -653,7 +654,11 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
     parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
   }
 
-  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_cartographic_work" ), runParams, error );
+  // algo-atom P2：cartographic_work 经 ProcessingAlgorithmAdapter
+  paleo::ProcessingAlgorithmAdapter adapter( proc );
+  const AlgorithmRunResult cartoRun =
+      adapter.runById( QStringLiteral( "paleo:paleo_cartographic_work" ), runParams, error );
+  const QVariantMap results = paleo::processingResultsFromRunResult( cartoRun );
   const QString outPath = results.value( QStringLiteral( "OUTPUT" ) ).toString();
   QString qcPath = results.value( QStringLiteral( "QC" ) ).toString();
   if ( qcPath.isEmpty() && !outPath.isEmpty() )

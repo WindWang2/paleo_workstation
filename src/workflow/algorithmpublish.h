@@ -25,6 +25,9 @@ AlgorithmRunResult runResultFromProcessingOutput(
 AlgorithmRunResult runResultFromOutputPath(
     const QString &absolutePath, const QString &portId = QStringLiteral( "OUTPUT" ) );
 
+// AlgorithmRunResult → 旧 publish 回调仍吃的 QVariantMap（OUTPUT + diagnostics）。
+QVariantMap processingResultsFromRunResult( const AlgorithmRunResult &result );
+
 // 将 RunResult 中目的地型工件发布为 DERIVED 版本。
 // · staging：prepare 阶段已 stage 的受管落位
 // · parentVersionIds / sourceUri / extra / fingerprint：与 commitExternal 同语义

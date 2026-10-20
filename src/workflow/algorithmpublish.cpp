@@ -50,6 +50,15 @@ AlgorithmRunResult runResultFromOutputPath( const QString &absolutePath,
   return r;
 }
 
+
+QVariantMap processingResultsFromRunResult( const AlgorithmRunResult &result )
+{
+  QVariantMap map = result.diagnostics;
+  if ( !result.artifacts.isEmpty() && !result.artifacts.first().absolutePath.isEmpty() )
+    map.insert( QStringLiteral( "OUTPUT" ), result.artifacts.first().absolutePath );
+  return map;
+}
+
 bool publishArtifacts( DerivedAssetRegistrar &reg, const DerivedStaging &staging,
                        const AlgorithmRunResult &result,
                        const QStringList &parentVersionIds, const QString &sourceUri,

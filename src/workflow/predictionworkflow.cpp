@@ -10,6 +10,7 @@
 #include "../qgis/qgisprocessingservice.h"
 #include "derivedassets.h"
 #include "algorithmpublish.h"
+#include "algorithmadapters.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -410,13 +411,17 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
     runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( inputLayer.get() ) );
   }
 
-  const QVariantMap results = proc->run( job->algorithmId, runParams, &job->error );
-  if ( results.isEmpty() )
+  // algo-atom P2：预测 Processing 经 Adapter（含 geological_smoothing 等）
+  paleo::ProcessingAlgorithmAdapter adapter( proc );
+  const AlgorithmRunResult runResult =
+      adapter.runById( job->algorithmId, runParams, &job->error );
+  if ( !runResult.ok )
   {
     if ( job->error.isEmpty() )
       job->error = tr( "prediction algorithm '%1' produced no results" ).arg( job->algorithmId );
     return false;
   }
+  const QVariantMap results = paleo::processingResultsFromRunResult( runResult );
 
   if ( job->isCancelled && job->isCancelled() )
     return fail( tr( "预测已取消" ) );

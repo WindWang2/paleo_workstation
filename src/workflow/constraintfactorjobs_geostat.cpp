@@ -30,6 +30,7 @@
 #include "constraintuseplan.h"
 #include "derivedassets.h"
 #include "algorithmpublish.h"
+#include "algorithmadapters.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
@@ -303,7 +304,11 @@ bool runDegradedGeostatIdw( QgisProcessingService *proc, ConstraintWorkflow::Geo
   hooks.cancelled = cancelled;
   hooks.progress = progress;
   QString runErr;
-  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_constraint_idw" ), runParams, &runErr, hooks );
+  // algo-atom P2：降级 IDW 经 ProcessingAlgorithmAdapter
+  paleo::ProcessingAlgorithmAdapter adapter( proc );
+  const AlgorithmRunResult idwRun =
+      adapter.runById( QStringLiteral( "paleo:paleo_constraint_idw" ), runParams, &runErr, hooks );
+  const QVariantMap results = paleo::processingResultsFromRunResult( idwRun );
   if ( results.isEmpty() || !QFile::exists( job->outputPath ) )
   {
     job->outputPath.clear();
@@ -566,30 +571,32 @@ bool runGeostatKriging( const GeostatRunContext &ctx, const std::vector<paleo::g
   krigingParams.searchRadius = searchRadius;
   if ( searchRadius > 0 )
     krigingParams.minPoints = minPoints;
-  const paleo::geostat::KrigingResult result =
-      paleo::geostat::ordinaryKriging( samples, grid, model, krigingParams, control );
-  if ( result.status == paleo::geostat::Status::Cancelled )
-  {
-    job->error = ConstraintWorkflow::tr( "已取消" );
-    return false;
-  }
-  if ( result.status != paleo::geostat::Status::Ok )
-  {
-    job->error = ConstraintWorkflow::tr( "克里金失败：%1" ).arg( QString::fromStdString( result.message ) );
-    return false;
-  }
+  // algo-atom P2：ordinary_kriging 经 NativeCppAdapter
   job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "variance.tif" ) );
-  if ( !writeFloatRaster( job->outputPath, result.estimate, grid.cols, grid.rows, geoTransform, crs,
-                          DataCatalog::localGridCrsWkt() ) ||
-       !writeFloatRaster( job->supportPath, result.variance, grid.cols, grid.rows, geoTransform, crs,
-                          DataCatalog::localGridCrsWkt() ) )
+  paleo::OrdinaryKrigingInputs okIn;
+  okIn.samples = samples;
+  okIn.grid = grid;
+  okIn.model = model;
+  okIn.params = krigingParams;
+  okIn.control = control;
+  okIn.estimatePath = job->outputPath;
+  okIn.variancePath = job->supportPath;
+  for ( int i = 0; i < 6; ++i )
+    okIn.geoTransform[static_cast<std::size_t>( i )] = geoTransform[i];
+  okIn.crs = crs;
+  okIn.canonicalCrsWkt = DataCatalog::localGridCrsWkt();
+  paleo::NativeCppAdapter native;
+  QString nativeErr;
+  const AlgorithmRunResult okRun = native.runOrdinaryKriging( okIn, &nativeErr );
+  if ( !okRun.ok )
   {
-    job->error = ConstraintWorkflow::tr( "克里金栅格写盘失败" );
+    job->error = nativeErr.isEmpty() ? ConstraintWorkflow::tr( "克里金失败" ) : nativeErr;
     return false;
   }
-  counts.insert( QStringLiteral( "finite" ), result.finiteCells );
-  counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
-  counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
+  counts.insert( QStringLiteral( "finite" ), okRun.diagnostics.value( QStringLiteral( "finite_cells" ) ) );
+  counts.insert( QStringLiteral( "nodata" ), okRun.diagnostics.value( QStringLiteral( "nodata_cells" ) ) );
+  counts.insert( QStringLiteral( "solver_failures" ),
+                 okRun.diagnostics.value( QStringLiteral( "solver_failures" ) ) );
   bool cvCancelled = false;
   cvNode = leaveOneOut(
       samples, QStringLiteral( "ordinary_kriging" ),

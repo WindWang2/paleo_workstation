@@ -1,16 +1,20 @@
 // 层：功能
 // workflow/algorithmadapters.h — algo-atom P2：执行适配器。
 // ProcessingAlgorithmAdapter 包装 QgisProcessingService::run → AlgorithmRunResult；
-// NativeCppAdapter 为纯核车道预留桩（P2 完整落地前返回未实现）。
-// 算法核 / catalog 仍分离：适配器只认 Spec + 参数 map，发布走 publishArtifacts。
+// NativeCppAdapter：geostat:ordinary_kriging 已实装；其余纯核 TODO。
 // 设计：docs/designs/algorithm-atom-contract.md §6 P2。
 #pragma once
 
+#include "../algorithms/geostat/kriging.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../services/algorithmspec.h"
 
+#include <qgscoordinatereferencesystem.h>
+
 #include <QString>
 #include <QVariantMap>
+#include <array>
+#include <vector>
 
 namespace paleo
 {
@@ -20,8 +24,6 @@ class ProcessingAlgorithmAdapter
   public:
     explicit ProcessingAlgorithmAdapter( QgisProcessingService *proc );
 
-    // 按 Spec 同步跑 Processing；成功 → artifacts 含目的地端口路径，diagnostics
-    // 透传其余结果键（含 string 诊断输出）。失败 → ok=false，error 可读。
     AlgorithmRunResult run( const AlgorithmSpec &spec, const QVariantMap &paramValues,
                             QString *error = nullptr,
                             const QgisProcessingService::ProcessingHooks &hooks = {} );
@@ -34,12 +36,29 @@ class ProcessingAlgorithmAdapter
     QgisProcessingService *m_proc = nullptr;
 };
 
-// 纯核（geostat / faciesmapping …）适配器桩——P2 完整实现前不可用。
+struct OrdinaryKrigingInputs
+{
+  std::vector<paleo::geostat::Sample> samples;
+  paleo::geostat::GridSpec grid;
+  paleo::geostat::VariogramModel model;
+  paleo::geostat::KrigingParams params;
+  paleo::geostat::Control control;
+  QString estimatePath;
+  QString variancePath; // 空 = 不写方差
+  std::array<double, 6> geoTransform{ { 0, 1, 0, 0, 0, -1 } };
+  QgsCoordinateReferenceSystem crs;
+  QString canonicalCrsWkt;
+};
+
 class NativeCppAdapter
 {
   public:
+    // QVariantMap 入口：OK 请用 runOrdinaryKriging；其它 id 返回未实现。
     AlgorithmRunResult run( const AlgorithmSpec &spec, const QVariantMap &paramValues,
                             QString *error = nullptr );
+
+    AlgorithmRunResult runOrdinaryKriging( const OrdinaryKrigingInputs &in,
+                                           QString *error = nullptr );
 };
 
 } // namespace paleo

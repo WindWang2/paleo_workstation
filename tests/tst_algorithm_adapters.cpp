@@ -14,6 +14,7 @@ private slots:
   void processingAdapterRejectsNonProcessingEngine();
   void processingAdapterRunByIdFallbackShell();
   void nativeCppAdapterIsStub();
+  void ordinaryKrigingTypedRejectsEmptyPath();
   void runResultHelpersShapeArtifacts();
 };
 
@@ -58,13 +59,32 @@ void AlgorithmAdapterTests::processingAdapterRunByIdFallbackShell()
 void AlgorithmAdapterTests::nativeCppAdapterIsStub()
 {
   paleo::NativeCppAdapter adapter;
-  AlgorithmSpec spec;
-  spec.id = QStringLiteral( "geostat:ordinary_kriging" );
-  spec.engine = QStringLiteral( "native_cpp" );
+  AlgorithmSpec okSpec;
+  okSpec.id = QStringLiteral( "geostat:ordinary_kriging" );
+  okSpec.engine = QStringLiteral( "native_cpp" );
   QString err;
-  const AlgorithmRunResult r = adapter.run( spec, {}, &err );
-  QVERIFY( !r.ok );
+  const AlgorithmRunResult viaMap = adapter.run( okSpec, {}, &err );
+  QVERIFY( !viaMap.ok );
+  QVERIFY( err.contains( QStringLiteral( "runOrdinaryKriging" ) ) );
+
+  AlgorithmSpec other;
+  other.id = QStringLiteral( "hztrack:track_section" );
+  other.engine = QStringLiteral( "native_cpp" );
+  err.clear();
+  const AlgorithmRunResult todo = adapter.run( other, {}, &err );
+  QVERIFY( !todo.ok );
   QVERIFY( err.contains( QStringLiteral( "尚未实现" ) ) );
+}
+
+void AlgorithmAdapterTests::ordinaryKrigingTypedRejectsEmptyPath()
+{
+  paleo::NativeCppAdapter adapter;
+  paleo::OrdinaryKrigingInputs in;
+  // grid invalid + empty path
+  QString err;
+  const AlgorithmRunResult r = adapter.runOrdinaryKriging( in, &err );
+  QVERIFY( !r.ok );
+  QVERIFY( err.contains( QStringLiteral( "无效" ) ) );
 }
 
 void AlgorithmAdapterTests::runResultHelpersShapeArtifacts()
@@ -79,6 +99,10 @@ void AlgorithmAdapterTests::runResultHelpersShapeArtifacts()
 
   const AlgorithmRunResult empty = paleo::runResultFromOutputPath( QString() );
   QVERIFY( !empty.ok );
+
+  const QVariantMap rebuilt = paleo::processingResultsFromRunResult( r );
+  QCOMPARE( rebuilt.value( QStringLiteral( "OUTPUT" ) ).toString(),
+            QStringLiteral( "/tmp/out.tif" ) );
 }
 
 QTEST_MAIN( AlgorithmAdapterTests )

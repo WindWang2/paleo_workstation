@@ -178,48 +178,7 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
       sub.eid = w.id;
       sub.type = l.role;
 
-      const QString roleDisplay = catalogRoleDisplay(l.role);
-      QString detailDisplay;
-      if (l.role == QLatin1String("well_log"))
-      {
-        detailDisplay = a.displayName;
-        sub.icon = QStringLiteral("mIconLineLayer.svg");
-      }
-      else if (l.role == QLatin1String("tops"))
-      {
-        detailDisplay = a.displayName;
-        sub.icon = QStringLiteral("mActionOpenTable.svg");
-      }
-      else if (l.role == QLatin1String("time_depth"))
-      {
-        detailDisplay = a.displayName;
-        sub.icon = QStringLiteral("mActionOpenTable.svg");
-      }
-      else if (l.role == QLatin1String("well_head"))
-      {
-        detailDisplay = a.displayName;
-        sub.icon = QStringLiteral("mIconPointLayer.svg");
-      }
-      else
-      {
-        sub.icon = QStringLiteral("mActionOpenTable.svg");
-      }
-      if (l.role == QLatin1String("well_log") && !l.unresolved)
-      {
-        const QString kind = l.isPrimary ? tr("主文件") : tr("成员");
-        sub.text0 = tr("%1 · %2 (%3)").arg(a.displayName, kind, roleDisplay);
-        sub.text1 = tr("%1 · %2").arg(kind, a.displayName);
-      }
-      else
-      {
-        sub.text0 = QStringLiteral("%1 (%2)").arg(a.displayName, roleDisplay);
-        sub.text1 = detailDisplay;
-      }
-      if (l.unresolved)
-      {
-        sub.warning = true; // 待复核色（现取随主题）
-        sub.text1 = tr("未决关联");
-      }
+      describeWellAssetNode(sub, a, l);
       wellItem.children.append(sub);
     }
 

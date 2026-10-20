@@ -1,4 +1,5 @@
 #include <QtTest>
+#include "importuxfixtures.h"
 #include <QTemporaryDir>
 #include <QElapsedTimer>
 #include <QSignalSpy>
@@ -698,89 +699,129 @@ private slots:
     QCOMPARE(links.front().role, QStringLiteral("time_depth"));
   }
 
-  // 双候选 → 一条 unresolved 链接：实体 id 留空、备注写两个规范化井名，
-  // 不新建井、不并井、不再生成 aux-unresolved 辅助实体（§3 修订）。
-  void ambiguousWellNameYieldsUnresolvedLinks()
+  // 双候选不得猜井或未决入库；显式选择后导入，归属与主文件状态可持久化。
+  void ambiguousWellNameRequiresExplicitTarget()
   {
     QTemporaryDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithAliasWells(projectDir));
     auto stack = makeStack(projectDir);
-    QVERIFY(stack != nullptr);
+    QVERIFY(stack);
     DataImportService &svc = *stack->importSvc;
-
-    const QString lasPath = tmp.filePath(QStringLiteral("dup.Las"));
-    QVERIFY(writeFile(lasPath, QByteArrayLiteral(
+    const QString path = tmp.filePath(QStringLiteral("dup.Las"));
+    QVERIFY(writeFile(path, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. dup : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
-
-    QString err;
-    const QString assetId = svc.importProjectFile(lasPath, &err);
-    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
-    DataCatalog *cat = svc.catalog();
-    // 没有新建井
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
+    auto *cat = svc.catalog();
+    const auto revision = cat->mutationSeq();
+    QSignalSpy failed(&svc, &DataImportService::importFailed);
+    QSignalSpy imported(&svc, &DataImportService::imported);
+    QString error;
+    QVERIFY(svc.importProjectFile(path, &error).isEmpty());
+    QVERIFY(!error.isEmpty());
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(imported.count(), 0);
+    QCOMPARE(cat->mutationSeq(), revision);
     QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
-    // 旧的 aux-unresolved 兜底已移除
+    QVERIFY(cat->assets().isEmpty());
+    QVERIFY(cat->links().isEmpty());
     QVERIFY(cat->entities(QStringLiteral("auxiliary")).isEmpty());
-    const QVector<EntityAssetLink> links = cat->linksForAsset(assetId);
+    DataImportService::ImportOptions options;
+    options.targetWellId = QStringLiteral("well-X1");
+    const auto result = svc.importProjectFileEx(path, options, &error);
+    QVERIFY2(!result.assetId.isEmpty(), qPrintable(error));
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    const auto links = cat->linksForAsset(result.assetId);
     QCOMPARE(links.size(), 1);
-    QVERIFY(links.front().unresolved);
-    QVERIFY(links.front().entityId.isEmpty());
-    QCOMPARE(links.front().entityType, QStringLiteral("well"));
-    QCOMPARE(links.front().role, QStringLiteral("well_log"));
-    // 备注记两个候选（D12：同名井，靠实体 id 消歧）
-    QVERIFY(links.front().note.contains(QStringLiteral("well-X1")));
-    QVERIFY(links.front().note.contains(QStringLiteral("well-X2")));
-
-    // 空实体 id + 备注都能过 catalog.json 往返
+    QVERIFY(!links.first().unresolved);
+    QCOMPARE(links.first().entityId, options.targetWellId);
+    QVERIFY(links.first().isPrimary);
     DataCatalog reloaded;
-    QVERIFY(reloaded.open(projectDir));
-    const auto rl = reloaded.linksForAsset(assetId);
-    QCOMPARE(rl.size(), 1);
-    QVERIFY(rl.front().unresolved);
-    QVERIFY(rl.front().entityId.isEmpty());
-    QCOMPARE(rl.front().note, links.front().note);
+    QVERIFY(reloaded.open(projectDir, &error));
+    const auto persisted = reloaded.linksForAsset(result.assetId);
+    QCOMPARE(persisted.size(), 1);
+    QCOMPARE(persisted.first().entityId, options.targetWellId);
+    QVERIFY(!persisted.first().unresolved);
   }
 
-  // 零匹配（~W 名与文件名主名都落空）→ 资产保留、一条 unresolved 链接、
-  // 实体 id 留空、备注记未匹配井名；不建井不建 aux（§3 修订）。
-  void unmatchedWellLogLeavesUnresolvedLink()
+  // 内容井名明确且无同名井时新建井；文件名 Ghost 不得覆盖内容名 Ghost9。
+  void contentWellNameCreatesNewWellWithoutFilenameGuess()
   {
     QTemporaryDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir));
     auto stack = makeStack(projectDir);
-    QVERIFY(stack != nullptr);
+    QVERIFY(stack);
     DataImportService &svc = *stack->importSvc;
-
-    const QString lasPath = tmp.filePath(QStringLiteral("Ghost.Las"));
-    QVERIFY(writeFile(lasPath, QByteArrayLiteral(
+    const QString path = tmp.filePath(QStringLiteral("Ghost.Las"));
+    QVERIFY(writeFile(path, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. Ghost9 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
-
-    QString err;
-    const QString assetId = svc.importProjectFile(lasPath, &err);
-    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
-    DataCatalog *cat = svc.catalog();
-    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 1);     // 只有预置 A1
-    QVERIFY(cat->entities(QStringLiteral("auxiliary")).isEmpty()); // 无 aux-unresolved
-    const auto links = cat->linksForAsset(assetId);
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
+    QString error;
+    const QString asset = svc.importProjectFile(path, &error);
+    QVERIFY2(!asset.isEmpty(), qPrintable(error));
+    auto *cat = svc.catalog();
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    const auto wells = cat->wellsMatchingName(QStringLiteral("Ghost9"));
+    QCOMPARE(wells.size(), 1);
+    QCOMPARE(cat->entityById(wells.first()).name, QStringLiteral("Ghost9"));
+    QCOMPARE(cat->entityById(wells.first()).coordinateStatus, QStringLiteral("unknown"));
+    QVERIFY(cat->wellsMatchingName(QStringLiteral("Ghost")).isEmpty());
+    QVERIFY(cat->entities(QStringLiteral("auxiliary")).isEmpty());
+    QVERIFY(cat->linksForEntity(QStringLiteral("well-A1")).isEmpty());
+    const auto links = cat->linksForAsset(asset);
     QCOMPARE(links.size(), 1);
-    QVERIFY(links.front().unresolved);
-    QVERIFY(links.front().entityId.isEmpty());
-    QCOMPARE(links.front().entityType, QStringLiteral("well"));
-    QVERIFY(links.front().note.contains(QStringLiteral("ghost9"))); // ~W 名
-    QVERIFY(links.front().note.contains(QStringLiteral("ghost")));  // 文件名主名
-
+    QVERIFY(!links.first().unresolved);
+    QCOMPARE(links.first().entityId, wells.first());
+    QCOMPARE(links.first().role, QStringLiteral("well_log"));
     DataCatalog reloaded;
-    QVERIFY(reloaded.open(projectDir));
-    const auto rl = reloaded.linksForAsset(assetId);
-    QCOMPARE(rl.size(), 1);
-    QVERIFY(rl.front().unresolved);
-    QVERIFY(rl.front().entityId.isEmpty());
-    QCOMPARE(rl.front().note, links.front().note);
+    QVERIFY(reloaded.open(projectDir, &error));
+    const auto persisted = reloaded.linksForAsset(asset);
+    QCOMPARE(persisted.size(), 1);
+    QCOMPARE(persisted.first().entityId, wells.first());
+    QVERIFY(!persisted.first().unresolved);
+  }
+
+  // 无内容井名时，文件名不能创建井或猜已有井；显式选择可完成同一份数据导入。
+  void filenameOnlyLogRequiresExplicitTarget()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack);
+    auto &svc = *stack->importSvc;
+    const QString path = tmp.filePath(QStringLiteral("A1.las"));
+    QVERIFY(writeFile(path, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
+    auto *cat = svc.catalog();
+    const auto revision = cat->mutationSeq();
+    QString error;
+    const auto preview = svc.previewFiles({path}, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(preview.size(), 1);
+    QVERIFY(preview.first().needsWellChoice);
+    QVERIFY(preview.first().suggestedWellId.isEmpty());
+    QVERIFY(svc.importProjectFile(path, &error).isEmpty());
+    QVERIFY(!error.isEmpty());
+    QCOMPARE(cat->mutationSeq(), revision);
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 1);
+    QVERIFY(cat->assets().isEmpty());
+    QVERIFY(cat->links().isEmpty());
+    DataImportService::ImportOptions options;
+    options.targetWellId = QStringLiteral("well-A1");
+    const auto result = svc.importProjectFileEx(path, options, &error);
+    QVERIFY2(!result.assetId.isEmpty(), qPrintable(error));
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 1);
+    QCOMPARE(cat->assets().size(), 1);
+    const auto links = cat->linksForAsset(result.assetId);
+    QCOMPARE(links.size(), 1);
+    QCOMPARE(links.first().entityId, options.targetWellId);
+    QVERIFY(!links.first().unresolved);
   }
 
   // 多井分层文件：能解析的井名挂接；未匹配井名也各留一条 unresolved 链接
@@ -1267,54 +1308,44 @@ private slots:
     QVERIFY(!QFileInfo::exists(outside.filePath(QStringLiteral("A1.Las"))));
   }
 
-  // §3 dedup 补挂：入库时未决的链接，在该井出现后重导同一文件 → 补一条主关联。
-  void reimportAttachesNowResolvableLink()
+  // 内容井名首次导入即归属；重导同字节幂等，不重复建井或追加关联。
+  void reimportContentIdentifiedLogKeepsExistingAssociation()
   {
     QTemporaryDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
-    QVERIFY(seedCatalogWithSingleWell(projectDir)); // 只有 A1
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
     auto stack = makeStack(projectDir);
-    QVERIFY(stack != nullptr);
+    QVERIFY(stack);
     DataImportService &svc = *stack->importSvc;
-
-    const QString lasPath = tmp.filePath(QStringLiteral("Ghost.Las"));
-    QVERIFY(writeFile(lasPath, QByteArrayLiteral(
+    const QString path = tmp.filePath(QStringLiteral("Ghost.Las"));
+    QVERIFY(writeFile(path, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. Ghost9 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
-
-    QString err;
-    const QString assetId = svc.importProjectFile(lasPath, &err);
-    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
-    DataCatalog *cat = svc.catalog();
-    QVERIFY(cat->linksForAsset(assetId).front().unresolved);
-    const int unresolvedBefore = cat->links().size();
-
-    // Ghost9 井后出现 → 再导同一文件：dedup 命中且补上关联。
-    CatalogEntity w;
-    w.id = QStringLiteral("well-Ghost9");
-    w.entityType = QStringLiteral("well");
-    w.name = QStringLiteral("Ghost9");
-    QVERIFY(cat->addEntity(w, &err));
-
-    const DataImportService::ImportResult res = svc.importProjectFileEx(lasPath, &err);
-    QVERIFY(res.outcome == DataImportService::ImportOutcome::AlreadyStored);
-    QCOMPARE(res.assetId, assetId);
-    QVERIFY(res.linkAttached);
-    QVERIFY(res.message.contains(QStringLiteral("字节已在库")));
-    QVERIFY(res.message.contains(QStringLiteral("已补上关联")));
-
-    QCOMPARE(cat->links().size(), unresolvedBefore); // 没有新增链接
-    const auto links = cat->linksForAsset(assetId);
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
+    QString error;
+    const QString asset = svc.importProjectFile(path, &error);
+    QVERIFY2(!asset.isEmpty(), qPrintable(error));
+    auto *cat = svc.catalog();
+    const auto wells = cat->wellsMatchingName(QStringLiteral("Ghost9"));
+    QCOMPARE(wells.size(), 1);
+    const int linksBefore = cat->links().size();
+    const auto result = svc.importProjectFileEx(path, &error);
+    QCOMPARE(result.outcome, DataImportService::ImportOutcome::AlreadyStored);
+    QCOMPARE(result.assetId, asset);
+    QVERIFY(!result.linkAttached);
+    QVERIFY(result.message.contains(QStringLiteral("字节已在库")));
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    QCOMPARE(cat->assets().size(), 1);
+    QCOMPARE(cat->links().size(), linksBefore);
+    const auto links = cat->linksForAsset(asset);
     QCOMPARE(links.size(), 1);
-    QVERIFY(!links.front().unresolved);
-    QCOMPARE(links.front().entityId, QStringLiteral("well-Ghost9"));
-    QVERIFY(links.front().isPrimary);
-    QVERIFY(links.front().note.isEmpty());
-    // catalog.json 往返后仍在
+    QVERIFY(!links.first().unresolved);
+    QCOMPARE(links.first().entityId, wells.first());
+    QVERIFY(links.first().isPrimary);
     DataCatalog reloaded;
-    QVERIFY(reloaded.open(projectDir, &err));
-    QCOMPARE(reloaded.linksForAsset(assetId).front().entityId, QStringLiteral("well-Ghost9"));
+    QVERIFY(reloaded.open(projectDir, &error));
+    QCOMPARE(reloaded.linksForAsset(asset).size(), 1);
+    QCOMPARE(reloaded.linksForAsset(asset).first().entityId, wells.first());
   }
 
   // 新 SHA-256 仍追加新资产。已决 well_log 不再把后导入的那份顶成唯一
@@ -1387,10 +1418,10 @@ private slots:
     const QString secondPath = tmp.filePath(QStringLiteral("A1_second.las"));
     QVERIFY(writeFile(firstPath, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
     QVERIFY(writeFile(secondPath, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n250.5\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n250.5 50.0\n")));
 
     QString err;
     const QString firstId = svc.importProjectFile(firstPath, &err);
@@ -1426,9 +1457,8 @@ private slots:
     QCOMPARE(resolvedLogs, 2);
   }
 
-  // Oracle 3b：catalog 没有井时 LAS 保持未决、entityId 为空，且不建井。
-  // 再导一份不同的未知井名，仍然未决，井实体数保持 0。
-  void consecutiveUnknownLasStayUnresolved()
+  // 内容明确的两份不同井 LAS 各自创建独立井，首份均为主文件，不产生未决关联。
+  void consecutiveContentNamedLasCreateDistinctWells()
   {
     QTemporaryDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
@@ -1441,37 +1471,39 @@ private slots:
     const QString secondPath = tmp.filePath(QStringLiteral("OtherWell.las"));
     QVERIFY(writeFile(firstPath, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. Ghost9 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
     QVERIFY(writeFile(secondPath, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. OtherWell : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n200.0\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n200.0 50.0\n")));
 
     QString err;
     const QString firstId = svc.importProjectFile(firstPath, &err);
     QVERIFY2(!firstId.isEmpty(), qPrintable(err));
     DataCatalog *cat = svc.catalog();
-    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 0);
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 1);
     QCOMPARE(cat->linksForAsset(firstId).size(), 1);
-    QVERIFY(cat->linksForAsset(firstId).front().unresolved);
-    QVERIFY(cat->linksForAsset(firstId).front().entityId.isEmpty());
+    QVERIFY(!cat->linksForAsset(firstId).front().unresolved);
+    QCOMPARE(cat->entityById(cat->linksForAsset(firstId).front().entityId).name, QStringLiteral("Ghost9"));
 
     const QString secondId = svc.importProjectFile(secondPath, &err);
     QVERIFY2(!secondId.isEmpty(), qPrintable(err));
     QVERIFY(secondId != firstId);
-    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 0);
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
     QCOMPARE(cat->assets().size(), 2);
-    QCOMPARE(cat->unresolvedLinks().size(), 2);
+    QCOMPARE(cat->unresolvedLinks().size(), 0);
     for (const QString &id : {firstId, secondId})
     {
       const QVector<EntityAssetLink> links = cat->linksForAsset(id);
       QCOMPARE(links.size(), 1);
-      QVERIFY(links.front().unresolved);
-      QVERIFY(links.front().entityId.isEmpty());
+      QVERIFY(!links.front().unresolved);
+      QVERIFY(!links.front().entityId.isEmpty());
+      QVERIFY(links.front().isPrimary);
       QCOMPARE(links.front().role, QStringLiteral("well_log"));
-      QCOMPARE(links.front().ordinal, 0); // 未决不编号
+      QCOMPARE(links.front().ordinal, 0); // 两口不同井各自从首份编号
     }
-    QVERIFY(cat->linksForAsset(firstId).front().note.contains(QStringLiteral("ghost9")));
-    QVERIFY(cat->linksForAsset(secondId).front().note.contains(QStringLiteral("otherwell")));
+    QCOMPARE(cat->entityById(cat->linksForAsset(firstId).front().entityId).name, QStringLiteral("Ghost9"));
+    QCOMPARE(cat->entityById(cat->linksForAsset(secondId).front().entityId).name, QStringLiteral("OtherWell"));
+    QVERIFY(cat->linksForAsset(firstId).front().entityId != cat->linksForAsset(secondId).front().entityId);
   }
 
   // §3 路径卫生：文件名含换行/控制字符或 ".." → 这一行如实失败，不入库。
@@ -1499,7 +1531,7 @@ private slots:
     const QString nl = tmp.filePath(QStringLiteral("bad\nname.las"));
     QVERIFY(writeFile(nl, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A9 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n1\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n1 50.0\n")));
     QString err;
     QVERIFY(svc.importProjectFile(nl, &err).isEmpty());
     QVERIFY(!err.isEmpty());
@@ -1507,14 +1539,16 @@ private slots:
 
     // 控制字符（Tab）
     const QString tab = tmp.filePath(QStringLiteral("bad\tname.las"));
-    QVERIFY(writeFile(tab, QByteArrayLiteral("x")));
+    QVERIFY(writeFile(tab, QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A9 : WELL\n"
+                      "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
     QVERIFY(svc.importProjectFile(tab, &err).isEmpty());
     QVERIFY(!err.isEmpty());
 #endif
 
     // ".."
     const QString dd = tmp.filePath(QStringLiteral("..evil.las"));
-    QVERIFY(writeFile(dd, QByteArrayLiteral("x")));
+    QVERIFY(writeFile(dd, QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A9 : WELL\n"
+                      "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
     QVERIFY(svc.importProjectFile(dd, &err).isEmpty());
     QVERIFY(!err.isEmpty());
 
@@ -1710,15 +1744,15 @@ private slots:
     const QString lasPath = QDir(root).filePath(QStringLiteral("0A1.Las"));
     QVERIFY(writeFile(lasPath, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
-    // 幽灵 LAS → 未决行（~W 名与文件名主名都落空），不建井。
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
+    // 井名缺失的完整 LAS：不凭文件名猜井，逐行失败且不妨碍有效数据。
     QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("ghost.las")), QByteArrayLiteral(
-        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. Ghost9 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
     // 同井第二份 LAS：路径序在 0A1.Las 之后，非主、ordinal 顺延。两条都入库。
     QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("zzA1b.las")), QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n101.0\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n101.0 50.0\n")));
     // 井位（带 BOM 同真文件）：heads.dat 建 A1+B2；empty.dat 只有注释 → 行失败。
     QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
         QByteArrayLiteral("\xEF\xBB\xBF#WellHead File From SMI\n"
@@ -1806,9 +1840,9 @@ private slots:
     QCOMPARE(rows.at(rLas).entityName, QStringLiteral("A1"));
 
     expectPath(rGhost, QStringLiteral("ghost.las"));
-    QCOMPARE(rows.at(rGhost).outcome, Outcome::Unresolved);
+    QCOMPARE(rows.at(rGhost).outcome, Outcome::Failed);
     QVERIFY(rows.at(rGhost).entityName.isEmpty());
-    QVERIFY(rows.at(rGhost).message.contains(QStringLiteral("ghost9")));
+    QVERIFY(!rows.at(rGhost).message.isEmpty());
 
 #ifndef Q_OS_WIN
     expectPath(rMirror, QStringLiteral("mirror.Las")); // 根内符号链接 → 处理且 dedup
@@ -1893,11 +1927,14 @@ private slots:
     std::sort(roles.begin(), roles.end());
     QCOMPARE(roles, QStringList({QStringLiteral("time_depth"), QStringLiteral("tops"),
                                  QStringLiteral("well_head"), QStringLiteral("well_log")}));
-    QCOMPARE(cat->assets().size(), 6); // ghost 有资产；拒收的空井表不留孤立资产。
+    QCOMPARE(cat->assets().size(), 5); // 缺失井名的 ghost 与空井表均不留孤立资产。
     for (const auto &asset : cat->assets())
       for (const auto &version : cat->versionsForAsset(asset.id))
+        {
         QVERIFY(!version.sourceUri.endsWith(QStringLiteral("井位/empty.dat")));
-    QCOMPARE(cat->links().size(), 8);  // 2 井口 + 2 tops + 2 LAS + 1 ghost + 1 TD
+        QVERIFY(!version.sourceUri.endsWith(QStringLiteral("ghost.las")));
+      }
+    QCOMPARE(cat->links().size(), 7);  // 2 井口 + 2 tops + 2 LAS + 1 TD
   }
 
   // 审计 02 M-8 测试工具：GUI（owner）线程 beginImport → 专用池 worker 上
@@ -1932,7 +1969,7 @@ private slots:
   // D1b/D2 + 审计 02 M-8：文件夹导入在 worker 上 produce（只碰 session 的
   // staging 副本），主线程不泵事件也能等到它结束；提交前活 catalog 一字不
   // 动、信号一个不发；owner 线程 commit 后一次入库、按原序发信号。progress
-  // 回调按行推进 + 返回 false 协作取消（已处理的行随提交保留）。
+  // 回调按行推进；返回 false 协作取消时整批回滚，不影响此前成功批次。
   void folderImportProducedOnWorkerCommittedOnOwner()
   {
     QTemporaryDir tmp;
@@ -1947,7 +1984,7 @@ private slots:
     QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
     QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("0A1.Las")), QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
     QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
         QByteArrayLiteral("#WellHead File From SMI\n"
                           "#Name      X     Y     KB    TotalDepth\n"
@@ -1958,7 +1995,8 @@ private slots:
 
     const auto runOnWorker =
         [&](const std::function<bool(int, int, const QString &)> &progress,
-            int *assetsBeforeCommit = nullptr)
+            int *assetsBeforeCommit = nullptr,
+            DataImportService::CommitStatus expected = DataImportService::CommitStatus::Committed)
         -> std::tuple<QVector<FolderRowResult>, QString, bool> {
       const std::shared_ptr<ImportSession> s = svc.beginImport();
       if (!s)
@@ -1970,9 +2008,9 @@ private slots:
         *assetsBeforeCommit = cat->assets().size();
       QString cerr;
       const auto st = svc.commitImport(*s, &cerr);
-      if (st != DataImportService::CommitStatus::Committed)
+      if (st != expected)
         return {s->rows, cerr, false};
-      return {s->rows, s->error, finished};
+      return {s->rows, cerr.isEmpty() ? s->error : cerr, finished};
     };
 
     // 全量：两行都入库，实体在 owner 线程提交时建成。progress 分两段（T2
@@ -2012,27 +2050,34 @@ private slots:
                  qPrintable(v.path));
     QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
 
-    // 协作取消：扫描段回调放行、执行段首行回调返回 false 即中止——已处理
-    // 的行保留，err 记「已取消」（T2 前契约只回调执行段；现在扫描段也在
-    // 同一回调面上，取消语义不变）。
+    // 扫描与执行均能取消：整批提交失败，既有库与已发表信号保持原样。
+    const auto revisionBeforeCancel = cat->mutationSeq();
     int calls = 0;
     auto [rows2, err2, done2] = runOnWorker(
         [&](int, int total, const QString &) {
           ++calls;
           return total == 0; // 扫描段放行；执行段首行即取消
-        });
+        }, nullptr, DataImportService::CommitStatus::Failed);
     QVERIFY2(done2, "cancel run did not finish");
     QCOMPARE(calls, 3); // 2 次扫描（哈希段）+ 1 次执行段首行
-    QCOMPARE(rows2.size(), 1); // dedup 行（AlreadyStored→Imported 口径）仍在结果里
+    QCOMPARE(rows2.size(), 1); // 已处理行保留在报告中，未新增入库。
+    for (const auto &row : rows2) {
+      QVERIFY(row.outcome != Outcome::Imported);
+      QVERIFY(row.outcome != Outcome::Unresolved);
+    }
     QVERIFY(err2.contains(QStringLiteral("已取消")));
 
     // 扫描段取消：哈希回调直接返回 false——plan 停在半途，零行执行、零行
     // 入库（中断续跑语义见 tst_ingestplan）。
     auto [rows3, err3, done3] = runOnWorker(
-        [&](int, int, const QString &) { return false; });
+        [&](int, int, const QString &) { return false; }, nullptr, DataImportService::CommitStatus::Failed);
     QVERIFY2(done3, "scan-cancel run did not finish");
     QVERIFY(rows3.isEmpty());
     QVERIFY(err3.contains(QStringLiteral("已取消")));
+    QCOMPARE(cat->mutationSeq(), revisionBeforeCancel);
+    QCOMPARE(cat->assets().size(), 2);
+    QCOMPARE(importedSpy.count(), 2);
+    QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
     QCOMPARE(DataCatalog::threadViolationCount(), 0); // worker 从未碰活 catalog
   }
 
@@ -2120,7 +2165,7 @@ private slots:
     const QString las = tmp.filePath(QStringLiteral("w1.las"));
     QVERIFY(writeFile(las, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. W1 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
     const std::shared_ptr<ImportSession> s = svc.beginImport();
     QVERIFY(s);
     QVERIFY(produceOnWorker(s, [&](ImportSession &sess) {
@@ -2149,7 +2194,7 @@ private slots:
     const QString las = tmp.filePath(QStringLiteral("w1.las"));
     QVERIFY(writeFile(las, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. W1 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
     DataCatalog::resetThreadViolationCount();
 
     bool addOk = true;
@@ -2176,9 +2221,7 @@ private slots:
     DataCatalog::resetThreadViolationCount();
   }
 
-  // 审计 02 M-8：执行段中途取消 → 已处理的行随提交入库，未处理的不动；
-  // catalog 自洽（每个版本文件都在、每条链接指向存在的资产/实体、资产数
-  // 与入库行一致、暂存根不留），再跑一次补齐其余行。
+  // 执行段中途取消整批不入库；报告、活库、落盘与暂存清理保持一致，重跑完整导入。
   void cancelMidImportLeavesCatalogConsistent()
   {
     QTemporaryDir tmp;
@@ -2228,6 +2271,7 @@ private slots:
       QCOMPARE(reread.links().size(), cat->links().size());
     };
 
+    QSignalSpy importedSpy(&svc, &DataImportService::imported);
     const std::shared_ptr<ImportSession> s = svc.beginImport();
     QVERIFY(s);
     QVERIFY(produceOnWorker(s, [&](ImportSession &sess) {
@@ -2239,23 +2283,34 @@ private slots:
     QCOMPARE(s->rows.size(), 3);
     QVERIFY(s->error.contains(QStringLiteral("已取消")));
     QString cerr;
-    QCOMPARE(svc.commitImport(*s, &cerr), DataImportService::CommitStatus::Committed);
+    QCOMPARE(svc.commitImport(*s, &cerr), DataImportService::CommitStatus::Failed);
+    QVERIFY(cerr.contains(QStringLiteral("已取消")));
     int imported = 0;
     for (const FolderRowResult &r : s->rows)
       if (r.outcome == FolderRowResult::Outcome::Imported ||
           r.outcome == FolderRowResult::Outcome::Unresolved)
         ++imported;
-    QCOMPARE(imported, 3);
-    QCOMPARE(cat->assets().size(), 3);
-    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    QCOMPARE(imported, 0);
+    for (const auto &row : s->rows) {
+      QCOMPARE(row.outcome, FolderRowResult::Outcome::Failed);
+      QVERIFY(row.message.contains(QStringLiteral("已取消")));
+    }
+    QCOMPARE(cat->assets().size(), 0);
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 0);
+    QVERIFY(cat->links().isEmpty());
+    QCOMPARE(importedSpy.count(), 0);
     checkConsistent();
 
-    // 续跑：已入库的行幂等跳过，其余补齐。
+    // 重新导入：前批零提交，所有有效行完整入库。
     QString err;
     const QVector<FolderRowResult> rows2 = svc.importFolder(root, &err);
     QVERIFY2(err.isEmpty(), qPrintable(err));
     QCOMPARE(rows2.size(), 6);
     QCOMPARE(cat->assets().size(), 6);
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    QCOMPARE(importedSpy.count(), 6);
+    for (const auto &row : rows2)
+      QCOMPARE(row.outcome, FolderRowResult::Outcome::Imported);
     checkConsistent();
   }
 
@@ -2278,7 +2333,7 @@ private slots:
     // 好行：可解析 LAS。
     QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("A1.las")),
         QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
-                          "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+                          "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
     // 坏行：≥3600 字节但二进制头 ns=0 的 SEG-Y——按扩展名分类成 seismic，
     // addAsset/addVersion 之后族导入里 reader.open 确定性失败。
     const QByteArray badSegy(4000, '\0');
@@ -2346,7 +2401,7 @@ private slots:
       return QByteArrayLiteral(
                  "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. W") +
              QByteArray::number(i) +
-             QByteArrayLiteral(" : WELL\n~Curve\nDEPT.M :\n~A DEPT\n100.0\n");
+             QByteArrayLiteral(" : WELL\n~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n");
     };
     for (int i = 0; i < n; ++i)
       QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("S%1.las").arg(i)),
@@ -2390,8 +2445,8 @@ private slots:
       QVERIFY(writeFile(f, QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
                                              "~Well\nWELL. C") +
                                QByteArray::number(i) +
-                               QByteArrayLiteral(" : WELL\n~Curve\nDEPT.M :\n~A DEPT\n") +
-                               QByteArray::number(100 + i) + QByteArrayLiteral(".0\n")));
+                               QByteArrayLiteral(" : WELL\n~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n") +
+                               QByteArray::number(100 + i) + QByteArrayLiteral(".0 50.0\n")));
       files.append(f);
     }
 
@@ -2450,7 +2505,7 @@ private slots:
     const QString aFile = tmp.filePath(QStringLiteral("a.las"));
     QVERIFY(writeFile(aFile, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A9 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
     QVERIFY(svc.importFolder(aFile, &err).isEmpty());
     QVERIFY(!err.isEmpty());
 
@@ -2567,7 +2622,7 @@ private slots:
     const QString lasPath = QDir(root).filePath(QStringLiteral("a.las"));
     QVERIFY(writeFile(lasPath, QByteArrayLiteral(
         "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. B2 : WELL\n"
-        "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
 
     QString err;
     const auto preview = svc.previewFolder(root, &err);
@@ -2641,7 +2696,7 @@ private slots:
   }
 
   // T22：固定辅助收窄到 HZ28-6-1 命名文件——「参考资料」目录内其他 XML 的
-  // override 送达后端：改成 well_log → 照常按井解析（对不上 A1 保持未决），
+  // override 送达后端：改成 well_log → 完整解析曲线后按内容井名归属，
   // 不再被整目录锁成参考；HZ28-6-1 自身给 override 也无效，仍落辅助参考。
   void folderImportReferenceDirXmlOverrideReachesBackend()
   {
@@ -2663,8 +2718,7 @@ private slots:
     const QString root = tmp.filePath(QStringLiteral("area"));
     const QString refDir = QDir(root).filePath(QString::fromUtf8("参考资料"));
     QVERIFY(QDir().mkpath(refDir));
-    const QByteArray logXml(
-        "<logs><log><logcurveinfo/><logdata>1 2</logdata></log></logs>");
+    const QByteArray logXml = ImportUxFixtures::xml(QStringLiteral("A1"));
     const QByteArray logXml2(
         "<logs><log><logcurveinfo/><logdata>3 4</logdata></log></logs>");
     const QString otherPath = QDir(refDir).filePath(QStringLiteral("other.xml"));
@@ -2680,7 +2734,7 @@ private slots:
     QVERIFY2(err.isEmpty(), qPrintable(err));
     QCOMPARE(rows.size(), 2);
 
-    // other.xml：override 生效——没有辅助实体，按 well 侧留未决链接。
+    // other.xml：override 生效，完整测井内容按 A1 绑定，不创建辅助实体。
     QString otherAsset, hz28Asset;
     for (const CatalogAsset &a : cat->assets())
     {
@@ -2693,8 +2747,9 @@ private slots:
     const auto otherLinks = cat->linksForAsset(otherAsset);
     QCOMPARE(otherLinks.size(), 1);
     QCOMPARE(otherLinks.front().entityType, QStringLiteral("well"));
-    QVERIFY(otherLinks.front().unresolved);       // 「改成井之后如果对不上…保持未决」
-    QVERIFY(otherLinks.front().entityId.isEmpty());
+    QVERIFY(!otherLinks.front().unresolved);
+    QCOMPARE(otherLinks.front().entityId, QStringLiteral("well-A1"));
+    QVERIFY(otherLinks.front().isPrimary);
     const auto hz28Links = cat->linksForAsset(hz28Asset);
     QCOMPARE(hz28Links.size(), 1);
     QCOMPARE(hz28Links.front().entityType, QStringLiteral("auxiliary"));
@@ -2703,7 +2758,7 @@ private slots:
     QCOMPARE(cat->entities(QStringLiteral("auxiliary")).size(), 1); // 仅 HZ28
 
     for (const auto &r : rows)
-      QCOMPARE(r.outcome, r.path == otherPath ? Outcome::Unresolved : Outcome::Imported);
+      QCOMPARE(r.outcome, Outcome::Imported);
   }
 
   // T22：确认表「重试」的后端入口——单行按当前（覆盖）类型重导，行结果口径
@@ -3189,8 +3244,8 @@ private slots:
                           "A1  1.0  2.0  0.0  2000.0\n")));
     QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("a1.las")),
         QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
-                          "~Well\nWELL. A1 : WELL\n~Curve\nDEPT.M :\n"
-                          "~A DEPT\n100.0\n")));
+                          "~Well\nWELL. A1 : WELL\n~Curve\nDEPT.M :\nGR.API :\n"
+                          "~A DEPT GR\n100.0 50.0\n")));
 
     QString err;
     const auto rows1 = svc.importFolder(root, &err);
@@ -3315,9 +3370,8 @@ private slots:
     QCOMPARE(res.assetId, assetId);
   }
 
-  // 歧义井名：plan 期标 entityAmbiguous、entityId 留空，不猜；执行后未决
-  // 链接照旧（实体 id 空 + 备注双候选），不建井不并井。
-  void planAmbiguityStaysUnresolved()
+  // 歧义井名：plan 期如实标记，执行无显式归属时拒绝入库；用户选择后成功。
+  void planAmbiguityRequiresExplicitTarget()
   {
     QTemporaryDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
@@ -3333,8 +3387,8 @@ private slots:
     QVERIFY(QDir().mkpath(root));
     QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("dup.Las")),
         QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
-                          "~Well\nWELL. dup : WELL\n~Curve\nDEPT.M :\n"
-                          "~A DEPT\n100.0\n")));
+                          "~Well\nWELL. dup : WELL\n~Curve\nDEPT.M :\nGR.API :\n"
+                          "~A DEPT GR\n100.0 50.0\n")));
 
     const IngestPlan plan = buildIngestPlan(root, *cat);
     QCOMPARE(plan.items.size(), 1);
@@ -3347,19 +3401,20 @@ private slots:
     const auto rows = executeIngestPlan(plan, svc, {}, &err);
     QVERIFY2(err.isEmpty(), qPrintable(err));
     QCOMPARE(rows.size(), 1);
-    QCOMPARE(rows.at(0).outcome, Outcome::Unresolved);
-    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2); // 不建井
-    QString dupAsset;
-    for (const CatalogAsset &a : cat->assets())
-      if (a.displayName == QLatin1String("dup.Las"))
-        dupAsset = a.id;
-    QVERIFY(!dupAsset.isEmpty());
-    const auto links = cat->linksForAsset(dupAsset);
+    QCOMPARE(rows.at(0).outcome, Outcome::Failed);
+    QVERIFY(!rows.at(0).message.isEmpty());
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
+    QVERIFY(cat->assets().isEmpty());
+    QVERIFY(cat->links().isEmpty());
+    DataImportService::ImportOptions options;
+    options.targetWellId = QStringLiteral("well-X2");
+    const auto explicitResult = svc.importProjectFileEx(plan.items.first().path, options, &err);
+    QVERIFY2(!explicitResult.assetId.isEmpty(), qPrintable(err));
+    const auto links = cat->linksForAsset(explicitResult.assetId);
     QCOMPARE(links.size(), 1);
-    QVERIFY(links.front().unresolved);
-    QVERIFY(links.front().entityId.isEmpty());
-    QVERIFY(links.front().note.contains(QStringLiteral("well-X1")));
-    QVERIFY(links.front().note.contains(QStringLiteral("well-X2")));
+    QCOMPARE(links.first().entityId, options.targetWellId);
+    QVERIFY(!links.first().unresolved);
+    QCOMPARE(cat->entities(QStringLiteral("well")).size(), 2);
   }
 
   // buildIngestPlan 纯函数：catalog 不动——revision/实体/资产/链接/版本计数
@@ -3384,8 +3439,8 @@ private slots:
                         QDir(root).filePath(QStringLiteral("dup.las"))));
     QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("new.las")),
         QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
-                          "~Well\nWELL. A1 : WELL\n~Curve\nDEPT.M :\n"
-                          "~A DEPT\n101.0\n")));
+                          "~Well\nWELL. A1 : WELL\n~Curve\nDEPT.M :\nGR.API :\n"
+                          "~A DEPT GR\n101.0 50.0\n")));
 
     const int rev = cat->catalogRevision();
     const int assetCount = cat->assets().size();
@@ -3452,8 +3507,8 @@ private slots:
     // 源数据
     QVERIFY(writeFile(QDir(projectDir).filePath(QStringLiteral("new.las")),
         QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n"
-                          "~Well\nWELL. A1 : WELL\n~Curve\nDEPT.M :\n"
-                          "~A DEPT\n101.0\n")));
+                          "~Well\nWELL. A1 : WELL\n~Curve\nDEPT.M :\nGR.API :\n"
+                          "~A DEPT GR\n101.0 50.0\n")));
 
     const IngestPlan plan = buildIngestPlan(projectDir, *cat);
     QVERIFY2(plan.issues.isEmpty(), qPrintable(plan.issues.join(';')));
@@ -3580,9 +3635,8 @@ private slots:
     QVERIFY(names.contains(QStringLiteral("RHOB")));
   }
 
-  // 失败诚实面（Oracle 4）：截断 DLIS 导入——资产入库、链接未决、
-  // 井名提取失败原因逐条进 note（零静默）。
-  void truncatedDlisImportNotesReason()
+  // 截断 DLIS 必须以真实解析错误拒绝，零新增资产/井/链接，不伪装为可用数据。
+  void truncatedDlisRejectedBeforeRegistration()
   {
     QTemporaryDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj44t"));
@@ -3596,9 +3650,10 @@ private slots:
       using namespace dlisfix;
       QVector<ChannelDef> channels = {
         { QStringLiteral("DEPT"), QStringLiteral("m"), 2, {}, QString() },
+        { QStringLiteral("GR"), QStringLiteral("API"), 2, {}, QString() },
       };
       QVector<FrameDef> frames = { { QStringLiteral("1000"),
-                                     { QStringLiteral("DEPT") },
+                                     { QStringLiteral("DEPT"), QStringLiteral("GR") },
                                      QString(), QString() } };
       whole = sul();
       whole += buildFileHeaderEflr(QStringLiteral("TRUNC"));
@@ -3606,7 +3661,7 @@ private slots:
       whole += buildChannelEflr(channels);
       whole += buildFrameEflr(frames);
       QByteArray s;
-      s += fsinglBytes(100.0f);
+      s += fsinglBytes(100.0f) + fsinglBytes(50.0f);
       whole += buildFdata(QStringLiteral("1000"), 1, s);
     }
     const QString dlisPath = tmp.filePath(QStringLiteral("broken.dlis"));
@@ -3618,16 +3673,17 @@ private slots:
     }
 
     QString err;
+    QSignalSpy failed(&svc, &DataImportService::importFailed);
+    QSignalSpy imported(&svc, &DataImportService::imported);
     const QString assetId = svc.importProjectFile(dlisPath, &err);
-    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    QVERIFY(assetId.isEmpty());
+    QVERIFY2(err.contains(QStringLiteral("截断")), qPrintable(err));
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(imported.count(), 0);
     DataCatalog *cat = svc.catalog();
-    const auto links = cat->linksForAsset(assetId);
-    QCOMPARE(links.size(), 1);
-    QVERIFY(links.front().unresolved);
-    QVERIFY2(links.front().note.contains(QStringLiteral("测井头解析失败")),
-             qPrintable(links.front().note));
-    QVERIFY2(links.front().note.contains(QStringLiteral("截断")),
-             qPrintable(links.front().note));
+    QVERIFY(cat->assets().isEmpty());
+    QVERIFY(cat->links().isEmpty());
+    QVERIFY(cat->entities(QStringLiteral("well")).isEmpty());
   }
 
 };

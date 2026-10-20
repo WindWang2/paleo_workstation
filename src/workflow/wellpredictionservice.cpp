@@ -4,6 +4,7 @@
 #include "../domain/faciescatalog.h"
 #include "../domain/faciestaxonomy.h"
 #include "../domain/welllogfacies.h"
+#include "../domain/wellnumeric.h"
 #include "../io/welllogread.h"
 #include "../qgis/wellattributestore.h"
 #include "../services/futuretask.h"
@@ -11,6 +12,8 @@
 #include "../services/welllogset.h"
 #include "wellsectionworkflow.h"
 #include <QFutureWatcher>
+#include <QFileInfo>
+#include <QCoreApplication>
 #include <QJsonDocument>
 #include <QSet>
 #include <QTimer>
@@ -185,6 +188,7 @@ void WellPredictionService::prepare() {
   }
   const auto generation = m_generation;
   auto cancelled = std::make_shared<std::atomic_bool>(false);
+  auto readErrors = std::make_shared<QHash<int, QString>>();
   m_cancelled = cancelled;
   auto *watcher = new QFutureWatcher<QVector<WellComposite::ComprehensiveWellData>>(this);
   emit progress(m_request.id, 1);
@@ -195,14 +199,15 @@ void WellPredictionService::prepare() {
     emit progress(m_request.id, 1 + done * 9 / std::max(1, int(total)));
     emit detailChanged(m_request.id, tr("读取测井曲线 %1/%2").arg(done).arg(total));
   });
-  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation] {
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, readErrors] {
     const auto data = watcher->result();
     watcher->deleteLater();
     if (generation != m_generation) return;
     m_cancelled.reset(); m_data = data;
     for (int i = 0; i < m_data.size(); ++i) {
       WellAttributeStore::apply(m_request.wells[i].toMap().value("vector_intervals").toList(), &m_data[i]);
-      if (m_data[i].continuousCurves.isEmpty()) skip(i, tr("测井曲线解析失败或没有有效 MD 数据"));
+      if (readErrors->contains(i)) skip(i, readErrors->value(i));
+      else if (m_data[i].continuousCurves.isEmpty()) skip(i, tr("测井曲线解析失败或没有有效 MD 数据"));
     }
     m_results.resize(m_data.size());
     if (m_skipped.size() == m_data.size()) return finish();
@@ -212,7 +217,7 @@ void WellPredictionService::prepare() {
   });
   watcher->setFuture(QtConcurrent::run(
       paleo::tasks::pool(m_tasks),
-      [sources, cancelled](
+      [sources, cancelled, readErrors](
           QPromise<QVector<WellComposite::ComprehensiveWellData>> &promise) {
         promise.setProgressRange(0, int(sources.size()));
         QVector<WellComposite::ComprehensiveWellData> data;
@@ -220,33 +225,43 @@ void WellPredictionService::prepare() {
           if (cancelled->load())
             break;
           auto well = source.data;
-          QHash<QString, LasDoc> docs;
+          QHash<QString, QPair<LasHeaderInfo, LasDoc>> docs;
           double top = std::numeric_limits<double>::infinity(), base = -top;
           for (const auto &ref : source.curves) {
             if (cancelled->load())
               break;
-            if (!docs.contains(ref.path))
-              docs.insert(ref.path, WellLogRead::parseDoc(ref.path));
-            const auto &doc = docs[ref.path];
+            if (!docs.contains(ref.path)) {
+              LasHeaderInfo header;
+              LasDoc parsed;
+              parsed.ok = WellLogRead::parse(ref.path, header, parsed.curves, &parsed.error);
+              parsed.curveNames = header.curveNames;
+              docs.insert(ref.path, {header, parsed});
+            }
+            const auto &header = docs[ref.path].first;
+            const auto &doc = docs[ref.path].second;
+            const bool explicitAxis = WellLogRead::detect(ref.path) != WellLogFormat::Las;
+            const auto unitScale = doc.curves.isEmpty() ? std::optional<double>() :
+                paleo::wellnumeric::depthScaleToMetres(doc.curves.first().unit);
+            if (explicitAxis && (!doc.ok || header.indexBasis != QLatin1String("MD") || !unitScale)) {
+              readErrors->insert(int(data.size()), QCoreApplication::translate("WellPredictionService", "%1：预测需要已声明米或英尺单位的 MD 测深，当前基准为 %2；请检查索引与单位。%3")
+                  .arg(QFileInfo(ref.path).fileName(), header.indexBasis.isEmpty() ? QCoreApplication::translate("WellPredictionService", "未声明") : header.indexBasis, doc.error));
+              well.continuousCurves.clear();
+              break;
+            }
             if (doc.curves.isEmpty() || ref.column < 1 ||
                 ref.column >= doc.curves.size())
               continue;
             // 预测输入使用测深（MD）；其他深度域不能直接当成 MD。
-            LasHeaderInfo header;
-            if (!WellLogRead::parseHeader(ref.path, header) ||
-                header.indexBasis != "MD")
+            if (header.indexBasis != "MD")
               continue;
             WellComposite::CurveData curve;
             curve.name = ref.mnemonic;
             curve.unit = doc.curves[ref.column].unit;
             const auto &depth = doc.curves.first();
-            const bool feet =
-                depth.unit.compare("ft", Qt::CaseInsensitive) == 0;
-            if (!depth.unit.isEmpty() && !feet &&
-                depth.unit.compare("m", Qt::CaseInsensitive) != 0)
+            if (!unitScale && !depth.unit.isEmpty())
               continue;
             for (double d : depth.values) {
-              d *= feet ? 0.3048 : 1.0;
+              d *= unitScale.value_or(1.0);
               curve.depths << float(d);
               if (std::isfinite(d)) {
                 top = std::min(top, double(curve.depths.last()));

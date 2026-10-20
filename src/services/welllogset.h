@@ -4,19 +4,23 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <QList>
 
 #include "../domain/deviationsurvey.h"
 #include "../domain/wellrecords.h" // TimeDepthTable（方向44 TIME 基准对齐）
 
 class DataCatalog;
+struct CatalogVersion;
+struct LasHeaderInfo;
+struct LasCurve;
 
 // 一口井的已决 well_log 文件集，以及跨文件曲线并集。
-// 文件本体仍在 LAS；这里只读 ~C 头（LasParser::parseHeader），不读数据体、不写 catalog
-// ——例外：readCurveTvd 是按列读数据体的读值面（goal/well-trajectory 轮3），
-// 溯源/别名协议与其余头扫描面不动。调用方在 catalog 所属线程使用。
+// 文件本体仍由原有资产/版本管理。目录优先使用受管版本的曲线元数据；
+// 旧版本与外链通过 WellLogRead 读头（新 XML/文本回退需完整解析）。
+// readCurveTvd 按列读取数据体，沿用来源/别名协议。调用方在 catalog 所属线程使用。
 // catalog 为空、未打开，或 wellId 为空 → 空结果。
-// 方向 44：well_log 链接的文件可以是 LAS / DLIS / LIS（WellLogRead 分派），
-// indexBasis 透出各文件深度基准（"MD"/"TVD"/"TIME"/"" 未知）。
+// well_log 来源由 WellLogRead 分派 LAS / DLIS / LIS / SpreadsheetML / 文本，
+// indexBasis 透出各文件基准（"MD"/"TVD"/"TVDSS"/"TIME"/"" 未知）。
 
 struct WellLogFile
 {
@@ -26,8 +30,8 @@ struct WellLogFile
   bool isPrimary = false;
   int ordinal = 0;
   QStringList curveNames;  // parseHeader 的 ~C 列序，curves[0] 为深度索引
-  QString indexBasis;      // 深度基准（方向44）："MD"/"TVD"/"TIME"/""（未知）
-  QString format;          // "las"/"dlis"/"lis"（WellLogRead 分派口径）
+  QString indexBasis;      // 深度基准（方向44）："MD"/"TVD"/"TVDSS"/"TIME"/""（未知）
+  QString format;          // "las"/"dlis"/"lis"/"spreadsheetml"/"text"/"unknown"（WellLogRead 分派口径）
 };
 
 struct WellCurveRef
@@ -37,6 +41,8 @@ struct WellCurveRef
   QString path;
   int column = -1;          // ~C 列号（0 是深度索引，不会出现在并集里）
   bool canonical = false;   // 仅主文件上保留原名的那一列
+  QString indexBasis;
+  QString format;
 };
 
 // 一次扫描的告警面。wellLogFiles / wellCurveIndex 共用同一次判定。
@@ -49,6 +55,11 @@ struct WellLogWarnings
 class WellLogSet
 {
 public:
+  // 新导入的受管文件保存已验证表头，目录/GUI 查询无需再扫描 XML 数据体。
+  static bool storedHeader(const CatalogVersion &version, LasHeaderInfo *out);
+  // 仅转换已声明的深度单位，不把 TIME/TVD/TVDSS 或新格式未知轴冒充 MD。
+  static bool mdAxisInMetres(const WellCurveRef &ref, const QList<LasCurve> &curves,
+                            QVector<double> *axis, QString *error = nullptr);
   // 已决 well_log，按 ordinal 升序，其次 versionNumber，再次 versionId。
   // 头解析失败或路径缺失的链接不进入结果，记入 warnings。
   static QVector<WellLogFile> wellLogFiles(const DataCatalog *catalog,

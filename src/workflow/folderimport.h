@@ -44,6 +44,8 @@ class FolderImportWorkflow : public QObject
     // done(rows, importErr)：res 为空且 importErr 非空 = 整体失败（视图可重试）。
     using ImportDone =
         std::function<void(const QVector<FolderRowResult> &, const QString &)>;
+    // 精确定向本次作业；可忽略返回值。完成后调用无效，不影响后续或同源作业。
+    using CancelImport = std::function<void()>;
 
     FolderImportWorkflow(DataImportService *svc, PaleoTaskService *taskSvc,
                          QObject *parent = nullptr);
@@ -62,22 +64,33 @@ class FolderImportWorkflow : public QObject
                                  const QString &)> &done);
     // 单行导入/重试：forceType 空 = 按分类器原类型。
     FolderRowResult importFolderRow(const QString &path, const QString &forceType,
-                                    QString *error = nullptr);
+                                    QString *error = nullptr,
+                                    const QString &wellTarget = {},
+                                    const QString &expectedHash = {});
     // 整批导入：异步（任务池在场）或同步；done 总在 GUI 线程调用。
-    void importFolder(const QString &dir, const QMap<QString, QString> &overrides,
-                      const ImportDone &done);
+    CancelImport importFolder(const QString &dir, const QMap<QString, QString> &overrides,
+                      const ImportDone &done,
+                      const QMap<QString, QString> &wellTargets = {},
+                      const QMap<QString, QString> &expectedHashes = {},
+                      const QStringList &skippedPaths = {});
     // 同上 + 「仍导入」改判（T2 确认表跳过策略）：forceImportPaths 是用户
     // 对「重复→跳过」行点了「仍导入」的源路径集合——plan 里这些行改判
     // as_new_version（同字节结局交内部 dedup：AlreadyStored + 补挂）。
-    void importFolder(const QString &dir, const QMap<QString, QString> &overrides,
-                      const QStringList &forceImportPaths, const ImportDone &done);
+    CancelImport importFolder(const QString &dir, const QMap<QString, QString> &overrides,
+                      const QStringList &forceImportPaths, const ImportDone &done,
+                      const QMap<QString, QString> &wellTargets = {},
+                      const QMap<QString, QString> &expectedHashes = {},
+                      const QStringList &skippedPaths = {});
     // 单文件导入（数据页「导入」按钮）：同 importFolder 的双路径语义。
     void importFile(const QString &kind, const QString &path,
                     std::function<void(const QString &assetId, const QString &error)> done);
     // 多选文件导入（文件列表口径）：与 importFolder 同一确认表/任务池/台账
     // 语义；预览 importActiveChanged 抑制逐文件预览标签口径相同。
-    void importFiles(const QStringList &paths, const QMap<QString, QString> &overrides,
-                     const QStringList &forceImportPaths, const ImportDone &done);
+    CancelImport importFiles(const QStringList &paths, const QMap<QString, QString> &overrides,
+                     const QStringList &forceImportPaths, const ImportDone &done,
+                     const QMap<QString, QString> &wellTargets = {},
+                     const QMap<QString, QString> &expectedHashes = {},
+                     const QStringList &skippedPaths = {});
     void previewFilesAsync(
         const QStringList &paths,
         const std::function<void(const QVector<FolderPreviewRow> &,
@@ -109,7 +122,7 @@ class FolderImportWorkflow : public QObject
     // finish/fail 收尾 false）+ enqueue。finish 先判「同一工程」
     // （词法 → canonical 双段比较）再写台账（ledgerDir 只是台账展示位），
     // 后回调 done。
-    void makeImportJob(const QString &title, const BatchProduce &produce,
+    CancelImport makeImportJob(const QString &title, const BatchProduce &produce,
                        const QString &ledgerDir, const ImportDone &done);
     // （#560）previewFolderAsync/previewFilesAsync 的骨架收口：任务池在场
     // → 扫描/分类/哈希跑 worker（produce 只读 session 的 staging 副本，
@@ -125,7 +138,12 @@ class FolderImportWorkflow : public QObject
                                  const QString &)> &done);
     void enqueueImport(const std::shared_ptr<ImportJob> &job);
     void pumpImports();
-    void runImportJob(const std::shared_ptr<ImportJob> &job);
+    void runImportJob(std::shared_ptr<ImportJob> job);
+    QVector<FolderRowResult> runInlineImport(
+        const std::function<void(ImportSession &)> &produce,
+        const QMap<QString, QString> &wellTargets,
+        const QMap<QString, QString> &expectedHashes, QString *error,
+        const QStringList &skippedPaths = {});
     // 方向 30：整批导入完成后写台账（.paleo/import_ledger.json，窗口 50 批）。
     // 写失败 qWarning 如实留痕，不挡导入主路径。
     void recordLedger(const QString &dir, const QDateTime &started,

@@ -45,6 +45,7 @@
 #include <algorithm>
 #include <cstdio>
 #include "dataimport_internal.h"
+#include "dataimport_log.h"
 
 using paleo::dataimport_detail::setError;
 using paleo::dataimport_detail::readFileOrEmpty;
@@ -79,33 +80,6 @@ namespace
         norm.append(nn);
     }
     return QStringLiteral("未匹配井名: ") + norm.join(QStringLiteral(", "));
-  }
-  // 已决 well_log 的主标记与 ordinal。只数同一实体上 role==well_log 且
-  // !unresolved：没有则本条为主、ordinal 0；有成员但没有主则本条补主；
-  // 已有主则本条非主。ordinal = 这些成员的 max(ordinal)+1。不改既有链接。
-  void assignResolvedWellLogSlot(const DataCatalog *cat, EntityAssetLink &link)
-  {
-    bool any = false;
-    bool hasPrimary = false;
-    int maxOrdinal = 0;
-    for (const EntityAssetLink &existing : cat->linksForEntity(link.entityId))
-    {
-      if (existing.role != QLatin1String("well_log") || existing.unresolved)
-        continue;
-      if (!any || existing.ordinal > maxOrdinal)
-        maxOrdinal = existing.ordinal;
-      any = true;
-      if (existing.isPrimary)
-        hasPrimary = true;
-    }
-    if (!any)
-    {
-      link.isPrimary = true;
-      link.ordinal = 0;
-      return;
-    }
-    link.isPrimary = !hasPrimary;
-    link.ordinal = maxOrdinal + 1;
   }
 } // namespace
 
@@ -204,55 +178,7 @@ QString importWellHeadFamily(FamilyContext &ctx)
 // 失败记账/信号仍由分派壳的 fail 完成）。返回错误文案，空串 = 成功。
 QString importWellLogFamily(FamilyContext &ctx)
 {
-  DataCatalog *const cat = ctx.cat;
-  const QString &sourcePath = ctx.sourcePath;
-  const QString &assetId = ctx.assetId;
-  QString *const error = ctx.error;
-  const QString &stem = ctx.stem;
-  const ProjectClassification &cls = ctx.cls;
-    // LAS 先读 ~W 的 WELL；XML 测井/读不到时用文件名主名。
-    // （D12：UWI 回退已随 uwi/aliases 字段剥离——井身份只走 name。）
-    QString wellName;
-    QString parseNote;
-    if (cls.format == QLatin1String("las") || cls.format == QLatin1String("dlis") ||
-        cls.format == QLatin1String("lis"))
-    {
-      // 方向44 诚实面：井名提取失败（截断/坏段）逐条给因——进链接 note，
-      // 未决链接的 note 会带进导入台账行，零静默。
-      QString werr;
-      if (!WellLogRead::readWellInfo(sourcePath, wellName, &werr))
-        parseNote = QStringLiteral("测井头解析失败：%1").arg(werr);
-    }
-    QStringList tried{wellName};
-    WellBind bind = resolveWell(cat, wellName);
-    if (bind.unresolved && bind.candidates.isEmpty())
-    {
-      bind = resolveWell(cat, stem); // A1.Las → A1
-      if (bind.unresolved && bind.candidates.isEmpty())
-        tried.append(stem);
-    }
-    // §3 修订：未决也是一条链接——实体 id 留空，备注记候选或未匹配名。
-    EntityAssetLink link;
-    link.entityType = QStringLiteral("well");
-    link.assetId = assetId;
-    link.role = QStringLiteral("well_log");
-    if (!bind.unresolved)
-    {
-      link.entityId = bind.entityId;
-      assignResolvedWellLogSlot(cat, link);
-    }
-    else
-    {
-      link.unresolved = true;
-      link.note = bind.candidates.size() >= 2
-                      ? candidatesNote(cat, bind.candidates)
-                      : unmatchedNameNote(tried);
-    }
-    if (!parseNote.isEmpty())
-      link.note = parseNote + (link.note.isEmpty() ? QString() : QStringLiteral("；") + link.note);
-    if (!cat->addLink(link, error))
-      return *error;
-  return QString();
+  return importInspectedLog(ctx);
 }
 
 

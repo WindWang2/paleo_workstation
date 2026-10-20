@@ -542,8 +542,8 @@ void concurrentWorkflowImportsCommitOnGuiThread()
   QStringList folders, files;
   const auto lasBytes = [](const QByteArray &well, int n) {
     return QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. ") +
-           well + QByteArrayLiteral(" : WELL\n~Curve\nDEPT.M :\n~A DEPT\n") +
-           QByteArray::number(100 + n) + QByteArrayLiteral(".0\n");
+           well + QByteArrayLiteral(" : WELL\n~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n") +
+           QByteArray::number(100 + n) + QByteArrayLiteral(".0 50.0\n");
   };
   for (int i = 0; i < kFolders; ++i)
   {
@@ -629,7 +629,7 @@ void workflowImportRetriesOnConcurrentCatalogWrite()
     QFile f(las);
     QVERIFY(f.open(QIODevice::WriteOnly));
     f.write("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. R1 : WELL\n"
-            "~Curve\nDEPT.M :\n~A DEPT\n100.0\n");
+            "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n");
   }
   PaleoTaskService tasks(stack->store.get());
   FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
@@ -674,7 +674,7 @@ void folderImportSurvivesServiceTeardownHonestly()
   QVERIFY(QDir().mkpath(area));
   const QByteArray lasBytes =
       "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. T1 : WELL\n"
-      "~Curve\nDEPT.M :\n~A DEPT\n100.0\n";
+      "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n";
   const QString las = QDir(area).filePath(QStringLiteral("T1.las"));
   {
     QFile f(las);
@@ -740,7 +740,7 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
   QVERIFY(QDir().mkpath(area));
   const QByteArray lasBytes =
       "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. S1 : WELL\n"
-      "~Curve\nDEPT.M :\n~A DEPT\n100.0\n";
+      "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n";
   const QString las = QDir(area).filePath(QStringLiteral("S1.las"));
   {
     QFile f(las);
@@ -831,6 +831,161 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
 // A2（方向 01）：单文件导入作业取消后不得提交——对齐 dataops 队列
 // 「取消的作业不提交」语义（session 析构删暂存）。produce 对取消无检查点
 //（整文件原子完成），用户叫停后把成品悄悄入库违背取消承诺。
+void batchTerminalGuardDiscardsProducedCatalog_data()
+{
+  QTest::addColumn<bool>("cancel");
+  QTest::newRow("cancel-after-worker-before-commit") << true;
+  QTest::newRow("failed-after-produce-before-commit") << false;
+}
+
+void batchTerminalGuardDiscardsProducedCatalog()
+{
+  QFETCH(bool, cancel);
+  QTemporaryDir temporary;
+  QVERIFY(temporary.isValid());
+  const QString projectDir = temporary.filePath(QStringLiteral("project"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack);
+  const QString head = stageFixture(temporary, QStringLiteral("source"),
+                                    QStringLiteral("ExportWellHead.dat"));
+  const QString log = stageFixture(temporary, QStringLiteral("source"),
+                                   QStringLiteral("A1.Las"));
+  QVERIFY(!head.isEmpty() && !log.isEmpty());
+  PaleoTaskService tasks(stack->store.get());
+  bool produced = false;
+  PaleoTask *finishedTask = nullptr;
+  // taskAdded 在 workflow 接 finished 之前发出：精确卡住 worker 完成后的提交窄窗。
+  connect(&tasks, &PaleoTaskService::taskAdded, &tasks, [&](PaleoTask *task) {
+    connect(task, &PaleoTask::finished, &tasks, [&, task] {
+      produced = task->state() == PaleoTask::State::Succeeded;
+      finishedTask = task;
+      if (cancel) task->requestCancel();
+      else task->failPublication(QStringLiteral("模拟 worker 失败，禁止提交"));
+    });
+  });
+  FolderImportWorkflow workflow(stack->importSvc.get(), &tasks);
+  bool done = false;
+  QString error;
+  QVector<FolderRowResult> results;
+  workflow.importFiles({head, log}, {}, {}, [&](const auto &rows, const QString &message) {
+    results = rows;
+    error = message;
+    done = true;
+  });
+  QTRY_VERIFY_WITH_TIMEOUT(done, paleo::perfbudget::relaxedBudgetMs(30000));
+  QVERIFY(produced);
+  QVERIFY(finishedTask);
+  QVERIFY(!error.isEmpty());
+  if (cancel) {
+    QVERIFY(error.contains(QStringLiteral("已取消")));
+    QCOMPARE(finishedTask->state(), PaleoTask::State::Cancelled);
+  } else {
+    QVERIFY(error.contains(QStringLiteral("模拟 worker 失败")));
+    QCOMPARE(finishedTask->state(), PaleoTask::State::Failed);
+  }
+  QVERIFY(!results.isEmpty());
+  for (const auto &row : results) {
+    QVERIFY(row.outcome != FolderRowResult::Outcome::Imported);
+    QVERIFY(row.outcome != FolderRowResult::Outcome::Unresolved);
+  }
+  QVERIFY(stack->importSvc->catalog()->assets().isEmpty());
+  QVERIFY(stack->importSvc->catalog()->entities(QStringLiteral("well")).isEmpty());
+  QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
+  QVERIFY(tasks.shutdown(5000));
+}
+
+void batchCancellationHandleGuardsCommitAndKeepsSameSourceJob()
+{
+  QTemporaryDir temporary;
+  QVERIFY(temporary.isValid());
+  const QString projectDir = temporary.filePath(QStringLiteral("project"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack);
+  const QString head = stageFixture(temporary, QStringLiteral("source"),
+                                    QStringLiteral("ExportWellHead.dat"));
+  const QString log = stageFixture(temporary, QStringLiteral("source"),
+                                   QStringLiteral("A1.Las"));
+  QVERIFY(!head.isEmpty() && !log.isEmpty());
+  PaleoTaskService tasks(stack->store.get());
+  FolderImportWorkflow workflow(stack->importSvc.get(), &tasks);
+  FolderImportWorkflow::CancelImport cancelFirst;
+  int taskCount = 0;
+  bool produced = false;
+  connect(&tasks, &PaleoTaskService::taskAdded, &tasks, [&](PaleoTask *task) {
+    if (++taskCount != 1) return;
+    connect(task, &PaleoTask::finished, &tasks, [&, task] {
+      produced = task->state() == PaleoTask::State::Succeeded;
+      if (cancelFirst) cancelFirst();
+    });
+  });
+  int completions = 0;
+  QString firstError;
+  cancelFirst = workflow.importFiles({head}, {}, {}, [&](const auto &, const auto &error) {
+    firstError = error;
+    QVERIFY(stack->importSvc->catalog()->assets().isEmpty());
+    ++completions;
+  });
+  auto cancelSecond = workflow.importFiles({head}, {}, {}, [&](const auto &rows, const auto &error) {
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY(!rows.isEmpty());
+    QCOMPARE(rows.first().outcome, FolderRowResult::Outcome::Imported);
+    cancelFirst(); // 已完成句柄不得取消下一批（来源可以完全相同）。
+    ++completions;
+  });
+  workflow.importFiles({log}, {}, {}, [&](const auto &rows, const auto &error) {
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY(!rows.isEmpty());
+    QCOMPARE(rows.first().outcome, FolderRowResult::Outcome::Imported);
+    ++completions;
+  });
+  QVERIFY(cancelFirst && cancelSecond);
+  QTRY_COMPARE_WITH_TIMEOUT(completions, 3, paleo::perfbudget::relaxedBudgetMs(30000));
+  QVERIFY(produced);
+  QVERIFY(firstError.contains(QStringLiteral("已取消")));
+  QCOMPARE(stack->importSvc->catalog()->assets().size(), 2);
+  QCOMPARE(workflow.pendingImportJobs(), 0);
+  QVERIFY(tasks.shutdown(5000));
+}
+
+void queuedBatchCancellationHandleNeverStartsWorker()
+{
+  QTemporaryDir temporary;
+  QVERIFY(temporary.isValid());
+  const QString projectDir = temporary.filePath(QStringLiteral("project"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack);
+  const QString head = stageFixture(temporary, QStringLiteral("source"),
+                                    QStringLiteral("ExportWellHead.dat"));
+  const QString log = stageFixture(temporary, QStringLiteral("source"),
+                                   QStringLiteral("A1.Las"));
+  QVERIFY(!head.isEmpty() && !log.isEmpty());
+  PaleoTaskService tasks(stack->store.get());
+  FolderImportWorkflow workflow(stack->importSvc.get(), &tasks);
+  QSignalSpy added(&tasks, &PaleoTaskService::taskAdded);
+  int completions = 0;
+  workflow.importFolder(QFileInfo(head).absolutePath(), {}, [&](const auto &, const auto &error) {
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    ++completions;
+  });
+  QString cancelledError;
+  const auto cancel = workflow.importFiles({log}, {}, {}, [&](const auto &rows, const auto &error) {
+    QVERIFY(rows.isEmpty());
+    cancelledError = error;
+    ++completions;
+  });
+  QVERIFY(cancel);
+  cancel();
+  QTRY_COMPARE_WITH_TIMEOUT(completions, 2, paleo::perfbudget::relaxedBudgetMs(30000));
+  QVERIFY(cancelledError.contains(QStringLiteral("已取消")));
+  QCOMPARE(added.count(), 1);
+  QCOMPARE(stack->importSvc->catalog()->assets().size(), 2);
+  QCOMPARE(workflow.pendingImportJobs(), 0);
+  QVERIFY(tasks.shutdown(5000));
+}
+
 void singleFileImportCancelledDiscardsCommit()
 {
   QTemporaryDir tmp;
@@ -844,7 +999,7 @@ void singleFileImportCancelledDiscardsCommit()
     QFile f(las);
     QVERIFY(f.open(QIODevice::WriteOnly));
     f.write("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. R1 : WELL\n"
-            "~Curve\nDEPT.M :\n~A DEPT\n100.0\n");
+            "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n");
   }
   PaleoTaskService tasks(stack->store.get());
   FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
@@ -986,13 +1141,13 @@ void folderConfirmEstimateForceImportAndErrorReport()
       return FolderPreviewRow();
     };
 
-    // 新工程：井口行预显「新井」；LAS 零匹配预显「未决（A1）」。
+    // 新工程：井口行预显「新井」；LAS 明确内容井名预显可新建的 A1。
     QVector<FolderPreviewRow> rows = wf.previewFolder(dir);
     QCOMPARE(rowFor(rows, QStringLiteral("ExportWellHead.dat")).entityPreview,
              QStringLiteral("新井"));
     const QString lasPreview = rowFor(rows, QStringLiteral("A1.Las")).entityPreview;
-    QVERIFY2(lasPreview.startsWith(QStringLiteral("未决")),
-             qPrintable(lasPreview)); // 零匹配：预显未决 + 名字，不猜
+    QCOMPARE(lasPreview, QStringLiteral("新井 A1（来自文件内容）"));
+    QVERIFY(!rowFor(rows, QStringLiteral("A1.Las")).needsWellChoice);
 
     bool done = false;
     wf.importFolder(dir, {}, [&done](const QVector<FolderRowResult> &, const QString &) {
@@ -1009,7 +1164,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
                  headPreview.endsWith(QStringLiteral("（既有）")) &&
                  headPreview.contains(QStringLiteral("A1")),
              qPrintable(headPreview));
-    QCOMPARE(rowFor(rows, QStringLiteral("A1.Las")).entityPreview, QStringLiteral("A1"));
+    QCOMPARE(rowFor(rows, QStringLiteral("A1.Las")).entityPreview, QStringLiteral("井 A1"));
   }
 
   // ---- 方向 30：好坏混合导入零静默 + 台账落盘（Oracle 1）----
@@ -1023,7 +1178,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
                           QStringLiteral("A1.Las")).isEmpty());
     // 坏文件一：读不了（权限）——拷贝阶段即失败，行结局 Failed + 原因。
     // Windows 权限位无 unreadable 语义（readonly 属性不拦读、setPermissions
-    // 只认写位），该场景仅 POSIX 侧覆盖；Windows 由 broken.Las 兜底未决行。
+    // 只认写位），该场景仅 POSIX 侧覆盖；Windows 由 broken.Las 覆盖解析失败。
 #ifndef Q_OS_WIN
     const QString unreadable =
         stageFixture(tmp, QStringLiteral("src_area"), QStringLiteral("A1.Las"),
@@ -1032,7 +1187,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
     QVERIFY(QFile::setPermissions(unreadable, QFile::Permissions{})); // 零权限——不可读
     QVERIFY(!QFile(unreadable).open(QIODevice::ReadOnly)); // 不可读已生效
 #endif
-    // 坏文件二：损坏 LAS——不静默跳过，如实入库为未决（解析不出井名）。
+    // 坏文件二：损坏 LAS——原位报失败与原因，不登记无效资产。
     const QString broken = QDir(tmp.filePath(QStringLiteral("src_area")))
                                .filePath(QStringLiteral("broken.Las"));
     {
@@ -1100,7 +1255,8 @@ void folderConfirmEstimateForceImportAndErrorReport()
       QCOMPARE(unreadableOutcome, Outcome::Failed);
       QVERIFY(!unreadableMsg.isEmpty()); // 坏文件逐条原因列报
     }
-    QCOMPARE(brokenOutcome, Outcome::Unresolved); // 损坏不猜——未决如实
+    QCOMPARE(brokenOutcome, Outcome::Failed);
+    QVERIFY(!brokenMsg.isEmpty());
 
     // 好文件全入库：catalog 里有井口与 LAS 资产，井 A1 已建。
     DataCatalog *cat = stack->importSvc->catalog();
@@ -1113,7 +1269,9 @@ void folderConfirmEstimateForceImportAndErrorReport()
         ++wellLogs;
     }
     QCOMPARE(wellHeads, 1);
-    QCOMPARE(wellLogs, 2); // A1.Las + broken.Las（未决也是资产，不静默丢弃）
+    QCOMPARE(wellLogs, 1); // 仅 A1.Las；损坏与不可读文件不留资产。
+    for (const auto &asset : cat->assets())
+      QVERIFY(asset.displayName != QStringLiteral("broken.Las"));
     QVERIFY(!cat->wellsMatchingName(QStringLiteral("A1")).isEmpty());
 
     // 台账：一批落盘，四计数与行集和行结果一致。
@@ -1134,7 +1292,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
         QVERIFY(!lr.message.isEmpty());
       }
     }
-    QCOMPARE(ledgerFailed, seen.contains(QStringLiteral("unreadable.Las")) ? 1 : 0);
+    QCOMPARE(ledgerFailed, seen.contains(QStringLiteral("unreadable.Las")) ? 2 : 1);
     QVERIFY(QFile::exists(QDir(projectDir).filePath(
         QStringLiteral(".paleo/import_ledger.json"))));
 

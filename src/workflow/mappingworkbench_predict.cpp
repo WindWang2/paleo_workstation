@@ -11,6 +11,7 @@
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
 #include "../io/lasparser.h"
+#include "../io/welllogread.h"
 #include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
@@ -33,6 +34,7 @@
 #include "wellpredictionservice.h"
 #include "workflows.h"
 #include <QDateTime>
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -450,6 +452,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   }
   // 测井：后台读各井曲线深度范围 → 回主线程补进请求 → 提交预测服务。
   auto cancelled = std::make_shared<std::atomic_bool>(false);
+  auto preparationError = std::make_shared<QString>();
   m_prepareCancelled = cancelled;
   if (m_task)
     m_task->reportDetail(tr("后台读取 %1 口井的测井曲线").arg(logPaths.size()));
@@ -460,12 +463,20 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       m_task->reportDetail(tr("读取测井曲线 %1/%2").arg(done).arg(total));
   });
   connect(watcher, &QFutureWatcherBase::finished, this,
-          [this, watcher, id = request.id, cancelled] {
+          [this, watcher, id = request.id, cancelled, preparationError] {
     const auto ranges = watcher->result();
     watcher->deleteLater();
     if (m_request.id != id || cancelled->load())
       return;
     m_prepareCancelled.reset();
+    if (!preparationError->isEmpty()) {
+      m_request = {};
+      m_predictionParameters.clear();
+      endPredictionTask(*preparationError);
+      emit predictionBusyChanged(false);
+      emit errorOccurred(*preparationError);
+      return;
+    }
     for (qsizetype i = 0; i < m_request.wells.size() && i < ranges.size(); ++i) {
       auto well = m_request.wells[i].toMap();
       const bool measured = std::isfinite(ranges[i].first) &&
@@ -482,20 +493,28 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   });
   watcher->setFuture(QtConcurrent::run(
       paleo::tasks::pool(m_taskSvc),
-      [logPaths, cancelled](QPromise<QVector<QPair<double, double>>> &promise) {
+      [logPaths, cancelled, preparationError](QPromise<QVector<QPair<double, double>>> &promise) {
         promise.setProgressRange(0, int(logPaths.size()));
         QVector<QPair<double, double>> ranges;
         for (const auto &path : logPaths) {
           if (cancelled->load())
             break;
           double top = std::numeric_limits<double>::infinity(), bottom = -top;
-          QStringList names;
+          LasHeaderInfo header;
           QList<LasCurve> curves;
-          if (!path.isEmpty() &&
-              LasParser::parse(path, names, curves, nullptr) &&
-              !curves.isEmpty())
+          const bool explicitAxis = !path.isEmpty() && WellLogRead::detect(path) != WellLogFormat::Las;
+          QString readError;
+          const bool parsed = !path.isEmpty() && WellLogRead::parse(path, header, curves, &readError) && !curves.isEmpty();
+          const double scale = parsed ? LasParser::depthUnitToMeters(curves.first().unit) : 0.0;
+          if (explicitAxis && (!parsed || header.indexBasis != QLatin1String("MD") || scale <= 0.0)) {
+            *preparationError = QCoreApplication::translate("MappingWorkbench", "%1：预测需要可读取且声明米或英尺单位的 MD 测深；请检查索引基准和单位。%2")
+                .arg(QFileInfo(path).fileName(), readError);
+            break;
+          }
+          if (parsed)
             for (double d : curves.first().values)
               if (std::isfinite(d)) {
+                if (explicitAxis) d *= scale;
                 top = std::min(top, d);
                 bottom = std::max(bottom, d);
               }

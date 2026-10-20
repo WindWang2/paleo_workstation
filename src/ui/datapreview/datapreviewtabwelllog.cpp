@@ -131,7 +131,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   // 执行、返回前信号已发——测试环境行为与旧路径一致。
   LasHeaderInfo header;
   QString perr;
-  if (!m_doc->lasHeaderAt(abs, &header, &perr))
+  if (!m_doc->wellLogHeaderAt(abs, &header, &perr))
   {
     lay->addWidget(failureState(assetId, perr, host), 1);
     return host;
@@ -293,7 +293,8 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   const QPointer<WellComposite::WellCompositePanel> compFill(compPanel);
   const std::function<void(const QList<LasCurve> &, const QHash<QString, LasDoc> &)> fillCurves =
       [compFill, hintFill, names, coreImages,
-       wellTitle, formationIntervals, lithology, wellCurves, compositeFromWell, abs](
+       wellTitle, formationIntervals, lithology, wellCurves, compositeFromWell, abs,
+       currentBasis = header.indexBasis, currentFormat = asset.format](
           const QList<LasCurve> &curves, const QHash<QString, LasDoc> &siblings) {
         if (curves.size() != names.size())
         {
@@ -311,48 +312,20 @@ QWidget *DataPreviewTabs::buildWellLogContent(
         if (compFill)
         {
           QVector<WellComposite::CurveData> compCurves;
+          QStringList axisWarnings;
+          QSet<QString> warnedPaths;
           if (!compositeFromWell)
           {
-            const auto &depList = curves.at(0).values;
-            QVector<float> depVec;
-            depVec.reserve(depList.size());
-            for (double d : depList)
-              depVec.append(static_cast<float>(d));
-
-            for (int i = 1; i < names.size(); ++i)
-            {
-              const auto &src = curves.at(i);
-              WellComposite::CurveData cd;
-              cd.name = names.at(i);
-              cd.unit = src.unit;
-              cd.color = pickCurveColor(cd.name, i - 1);
-              cd.depths = depVec;
-              cd.values.reserve(src.values.size());
-              float valMin = 1e9f, valMax = -1e9f;
-              for (double v : src.values)
-              {
-                if (v <= -999.0 || v >= 99999.0)
-                {
-                  cd.values.append(-9999.0f);
-                  continue;
-                }
-                float fv = static_cast<float>(v);
-                cd.values.append(fv);
-                if (fv < valMin) valMin = fv;
-                if (fv > valMax) valMax = fv;
-              }
-              if (valMin < valMax)
-              {
-                cd.minScale = valMin;
-                cd.maxScale = valMax;
-              }
-              else
-              {
-                cd.minScale = 0.0f;
-                cd.maxScale = 100.0f;
-              }
-              compCurves.append(cd);
-            }
+            WellCurveRef current;
+            current.path = abs;
+            current.indexBasis = currentBasis;
+            current.format = currentFormat;
+            QVector<double> md;
+            QString error;
+            if (WellLogSet::mdAxisInMetres(current, curves, &md, &error))
+              for (int i = 1; i < names.size(); ++i)
+                compCurves.append(compositeCurve(names[i], curves[i].unit, md, curves[i].values, i - 1));
+            else axisWarnings << error;
           }
           else
           {
@@ -362,13 +335,25 @@ QWidget *DataPreviewTabs::buildWellLogContent(
               const QList<LasCurve> *body = lasBodyFor(ref.path, abs, curves, siblings);
               if (!body || body->isEmpty() || ref.column <= 0 || ref.column >= body->size())
                 continue; // 兄弟文件解析失败：跳过，不让整页失败
+              QVector<double> md;
+              QString error;
+              if (!WellLogSet::mdAxisInMetres(ref, *body, &md, &error))
+              {
+                if (!warnedPaths.contains(ref.path)) axisWarnings << error;
+                warnedPaths.insert(ref.path);
+                continue;
+              }
               const LasCurve &src = body->at(ref.column);
-              compCurves.append(compositeCurve(ref.mnemonic, src.unit, body->at(0).values,
-                                               src.values, colorIndex));
+              compCurves.append(compositeCurve(ref.mnemonic, src.unit, md, src.values, colorIndex));
               ++colorIndex;
             }
           }
           compFill->loadLasCurves(wellTitle, compCurves, formationIntervals);
+          if (hintFill && !axisWarnings.isEmpty())
+          {
+            hintFill->setText(axisWarnings.join(QLatin1Char('\n')));
+            hintFill->show();
+          }
           if (!compFill)
             return;
           if (!lithology.isEmpty())

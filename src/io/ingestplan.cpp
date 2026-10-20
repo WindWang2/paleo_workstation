@@ -3,7 +3,9 @@
 
 #include "dataimport_internal.h" // rollbackFailedRow 声明（executePlannedItem 共用）
 #include "shacache.h"
+#include "importrecovery.h"
 
+#include "importclassification.h"
 #include "welllogread.h" // 方向44：井名提取分派
 #include "../domain/projectclassifier.h"
 #include "wellfileparsers.h"
@@ -159,8 +161,7 @@ namespace
 
       // .xml 看内容判定——与 importOneFile 同一分类口径；TOCTOU 复核同 T33：
       // 读字节前重取 canonical，目标被改指向就降级为跳过项。
-      QByteArray xml;
-      if (QStringList{"xml", "dat", "csv", "txt", "tsv"}.contains(fi.suffix().toLower()))
+      if (fi.isFile())
       {
         const QFileInfo recheck(path);
         if (!recheck.isFile() || recheck.canonicalFilePath() != canon)
@@ -170,11 +171,8 @@ namespace
           plan->skipped.append(item);
           continue;
         }
-        QFile prefix(path);
-        if (prefix.open(QIODevice::ReadOnly))
-          xml = prefix.read(65536);
       }
-      const ProjectClassification cls = classifyProjectImport(path, xml);
+      const ProjectClassification cls = classifyImportFile(path);
       item.canonicalPath = canon;
       item.type = cls.type;
       item.format = cls.format;
@@ -382,10 +380,15 @@ namespace
   void proposeWellLog(PlannedItem &item, const IngestCatalogSource &catalog)
   {
     QString wellName;
-    if (item.format == QLatin1String("las") || item.format == QLatin1String("dlis") ||
-        item.format == QLatin1String("lis"))
-      WellLogRead::readWellInfo(item.path, wellName);
-    proposeWell(item, {wellName, fileStem(item.path)}, catalog);
+    WellLogRead::readWellInfo(item.path, wellName);
+    // 内容身份是依据；文件名只能提示，不能覆盖内部井名或自动合并。
+    proposeWell(item, {wellName}, catalog);
+    if (!item.entityId.isEmpty() && catalog.entityById(item.entityId).name.trimmed().compare(
+            wellName.trimmed(), Qt::CaseInsensitive) != 0)
+    {
+      item.entityId.clear();
+      item.entityAmbiguous = true;
+    }
   }
 
   void proposeTimeDepth(PlannedItem &item, const IngestCatalogSource &catalog)
@@ -493,8 +496,7 @@ namespace
     }
     const QString canon = fi.canonicalFilePath();
     item.canonicalPath = canon;
-    QByteArray xml;
-    if (QStringList{"xml", "dat", "csv", "txt", "tsv"}.contains(fi.suffix().toLower()))
+    if (fi.isFile())
     {
       const QFileInfo recheck(path);
       if (!recheck.isFile() || recheck.canonicalFilePath() != canon)
@@ -504,11 +506,8 @@ namespace
         plan->skipped.append(item);
         return;
       }
-      QFile prefix(item.path);
-      if (prefix.open(QIODevice::ReadOnly))
-        xml = prefix.read(65536);
     }
-    const ProjectClassification cls = classifyProjectImport(item.path, xml);
+    const ProjectClassification cls = classifyImportFile(item.path);
     item.type = cls.type;
     item.format = cls.format;
     item.size = fi.size();
@@ -948,7 +947,8 @@ executeIngestPlan(const IngestPlan &plan, ImportSession &session,
         !progress(doneCount, static_cast<int>(plan.items.size()), item.path))
     {
       cancelled = true;
-      break; // 协作取消：已处理的行保留（随提交入库），未处理的不再动
+      session.cancelled = true;
+      break; // 全批仍在暂存区，取消后不提交任何业务实体。
     }
   }
 
@@ -963,7 +963,9 @@ executeIngestPlan(const IngestPlan &plan, ImportSession &session,
     rows.append(row);
   }
   if (cancelled)
-    setPlanError(error, QStringLiteral("已取消（已入库的行保留）"));
+    setPlanError(error, QStringLiteral("已取消，本批数据未入库"));
+  if (!cancelled && !paleo::dataimport_detail::writeImportIntent(session, &session.commitPreparationError))
+    setPlanError(error, session.commitPreparationError);
   return rows;
 }
 

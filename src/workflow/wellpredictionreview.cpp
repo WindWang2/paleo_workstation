@@ -1,9 +1,11 @@
 // 层：功能
 #include "../domain/faciescatalog.h"
-#include "../io/lasparser.h"
+#include "../io/welllogread.h"
+#include "../domain/wellnumeric.h"
 #include "../qgis/mappingartifactwriter.h"
 #include "../qgis/qgislayerservice.h"
 #include "mappingworkbench.h"
+#include <QFileInfo>
 #include <qgsvectorlayer.h>
 
 namespace {
@@ -29,8 +31,23 @@ LasDoc MappingWorkbench::predictionLog(const QString &versionId) const {
     return m_logCache;
   const auto path = DataCatalog::resolvedVersionPath(
       m_dir, m_catalog->versionById(versionId));
-  result.ok =
-      LasParser::parse(path, result.curveNames, result.curves, &result.error);
+  LasHeaderInfo header;
+  result.ok = WellLogRead::parse(path, header, result.curves, &result.error);
+  result.curveNames = header.curveNames;
+  if (result.ok && WellLogRead::detect(path) != WellLogFormat::Las) {
+    const auto scale = result.curves.isEmpty() ? std::optional<double>() :
+        paleo::wellnumeric::depthScaleToMetres(result.curves.first().unit);
+    if (header.indexBasis != QLatin1String("MD") || !scale) {
+      result.ok = false;
+      result.error = tr("%1：测井预测对比需要已声明米或英尺单位的 MD 测深；当前索引为 %2，单位为 %3，请先转换后查看。")
+          .arg(QFileInfo(path).fileName(), header.indexBasis.isEmpty() ? tr("未声明") : header.indexBasis,
+               result.curves.isEmpty() ? tr("未知") : result.curves.first().unit);
+      result.curves.clear();
+    } else {
+      for (double &depth : result.curves.first().values) depth *= *scale;
+      result.curves.first().unit = QStringLiteral("m");
+    }
+  }
   m_logVersion = versionId;
   m_logCache = result;
   return result;

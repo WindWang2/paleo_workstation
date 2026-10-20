@@ -487,6 +487,130 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void directWellPredictionRejectsUnsafeTextIndex_data() {
+    QTest::addColumn<QByteArray>("axis");
+    QTest::newRow("unit-missing") << QByteArray("MD");
+    QTest::newRow("unit-unknown") << QByteArray("MD[league]");
+    QTest::newRow("time") << QByteArray("TIME[ms]");
+    QTest::newRow("tvd") << QByteArray("TVD[m]");
+  }
+  void directWellPredictionRejectsUnsafeTextIndex() {
+    QFETCH(QByteArray, axis);
+    WellApiServer server;
+    WellApiEnvironment environment(server);
+    Fixture fixture;
+    QVERIFY(fixture.init());
+    QVERIFY(!fixture.well(QStringLiteral("A"), 10, 20).isEmpty());
+    for (const auto &asset : fixture.catalog.assets()) {
+      if (asset.type != QLatin1String("well_log")) continue;
+      const auto versions = fixture.catalog.versionsForAsset(asset.id);
+      QVERIFY(!versions.isEmpty());
+      const QString managedLogPath =
+          DataCatalog::resolvedVersionPath(fixture.dir.path(), versions.first());
+      // 受管字节落盘即只读（dataimport_session）——模拟来源内容被替换前先放开写权限。
+      QFile::setPermissions(managedLogPath,
+                            QFile::permissions(managedLogPath) | QFileDevice::WriteOwner);
+      QFile file(managedLogPath);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      const QByteArray text = axis + ",GR[API]\n1000,20\n1001,30\n";
+      QCOMPARE(file.write(text), qint64(text.size()));
+    }
+    WellPredictionService service;
+    service.bindCatalog(&fixture.catalog, fixture.dir.path());
+    qRegisterMetaType<RemotePredictionResult>();
+    QSignalSpy completed(&service, &RemotePredictionService::completed);
+    QSignalSpy failed(&service, &RemotePredictionService::failed);
+    RemotePredictionRequest request;
+    request.id = QStringLiteral("strict-md");
+    request.kind = QStringLiteral("wells");
+    request.horizon = QStringLiteral("D61");
+    request.facies = fixture.work.facies(request.horizon);
+    const QVariantMap formation{{QStringLiteral("formation"), QStringLiteral("D61")},
+        {QStringLiteral("top_md"), 1000.0}, {QStringLiteral("base_md"), 1100.0},
+        {QStringLiteral("unit_type"), QStringLiteral("段")}};
+    request.wells = {QVariantMap{{QStringLiteral("id"), QStringLiteral("A")},
+        {QStringLiteral("name"), QStringLiteral("A")},
+        {QStringLiteral("vector_formations"), QVariantList{formation}}}};
+    service.start(request);
+    QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty() || !failed.isEmpty(), 10000);
+    QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().at(1).toString()));
+    QCOMPARE(server.modelRequests, 0);
+    QVERIFY(server.bodies.isEmpty());
+    const auto result = completed.first().first().value<RemotePredictionResult>();
+    QCOMPARE(result.points.size(), 1);
+    const auto point = result.points.first().toMap();
+    QCOMPARE(point.value(QStringLiteral("prediction_status")).toString(), QStringLiteral("未预测"));
+    QVERIFY(point.value(QStringLiteral("prediction_reason")).toString().contains(QStringLiteral("MD")));
+  }
+  void predictionPreparationRejectsNonMdTextWithoutMockFallback() {
+    Fixture fixture;
+    QVERIFY(fixture.init());
+    QVERIFY(!fixture.well(QStringLiteral("A"), 10, 20).isEmpty());
+    bool replaced = false;
+    for (const auto &asset : fixture.catalog.assets()) {
+      if (asset.type != QLatin1String("well_log")) continue;
+      const auto versions = fixture.catalog.versionsForAsset(asset.id);
+      QVERIFY(!versions.isEmpty());
+      const QString managedLogPath =
+          DataCatalog::resolvedVersionPath(fixture.dir.path(), versions.first());
+      // 受管字节落盘即只读（dataimport_session）——模拟来源内容被替换前先放开写权限。
+      QFile::setPermissions(managedLogPath,
+                            QFile::permissions(managedLogPath) | QFileDevice::WriteOwner);
+      QFile file(managedLogPath);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      const QByteArray text("TIME[ms],GR[API]\n1000,20\n1001,30\n");
+      QCOMPARE(file.write(text), qint64(text.size()));
+      file.close();
+      replaced = true;
+    }
+    QVERIFY(replaced);
+    QSignalSpy errors(&fixture.work, &MappingWorkbench::errorOccurred);
+    QString error;
+    QVERIFY2(fixture.work.predict(QStringLiteral("D61"), QStringLiteral("wells"), {QStringLiteral("A")}, &error), qPrintable(error));
+    QTRY_VERIFY(!fixture.work.busy());
+    QCOMPARE(errors.count(), 1);
+    QVERIFY(errors.first().first().toString().contains(QStringLiteral("MD")));
+    QVERIFY(fixture.latest(QStringLiteral("wells_prediction")).isEmpty());
+  }
+  void predictionLogAcceptsUnifiedMdAndRejectsOtherAxes() {
+    Fixture fixture;
+    QVERIFY(fixture.init());
+    const auto add = [&](const QString &id, const QByteArray &bytes) -> QString {
+      const QString path = fixture.dir.filePath(id + QStringLiteral(".csv"));
+      QFile file(path);
+      if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()) return {};
+      file.close();
+      CatalogAsset asset;
+      asset.id = id;
+      asset.type = QStringLiteral("well_log");
+      asset.format = QStringLiteral("csv");
+      CatalogVersion version;
+      version.id = id + QStringLiteral("-v");
+      version.assetId = id;
+      version.stage = QStringLiteral("RAW");
+      version.versionNumber = 1;
+      version.managed = false;
+      version.path = path;
+      version.fileName = QFileInfo(path).fileName();
+      if (!fixture.catalog.addAsset(asset) || !fixture.catalog.addVersion(version)) return {};
+      return version.id;
+    };
+    const auto md = add(QStringLiteral("md"), "MD[ft],GR[API]\n1000,20\n1001,30\n");
+    QVERIFY(!md.isEmpty());
+    const auto log = fixture.work.predictionLog(md);
+    QVERIFY2(log.ok, qPrintable(log.error));
+    QCOMPARE(log.curveNames, QStringList({"MD", "GR"}));
+    QVERIFY(std::abs(log.curves.first().values.first() - 304.8) < 1e-8);
+    QCOMPARE(log.curves.first().unit, QStringLiteral("m"));
+    for (const auto &axis : {QByteArray("TIME[ms]"), QByteArray("TVD[m]"), QByteArray("DEPTH[m]"), QByteArray("MD[league]")}) {
+      const auto version = add(QString::fromLatin1(axis).replace(QLatin1Char('/'), QLatin1Char('_')), axis + ",GR[API]\n1000,20\n1001,30\n");
+      QVERIFY(!version.isEmpty());
+      const auto rejected = fixture.work.predictionLog(version);
+      QVERIFY(!rejected.ok);
+      QVERIFY(!rejected.error.isEmpty());
+      QVERIFY(rejected.curves.isEmpty());
+    }
+  }
   void scaleSettingsAreRestoredInANewProcess() {
     auto &preferences = FaciesDisplaySettings::instance();
     if (qEnvironmentVariableIsSet("PALEO_SCALE_SETTINGS_CHILD")) {

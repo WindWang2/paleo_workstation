@@ -16,6 +16,7 @@
 #include "../domain/arearules.h"
 #include "horizonbinner.h"
 #include "ingestplan.h"
+#include "importclassification.h"
 #include "welllogread.h" // 方向44：井名提取分派
 #include "../domain/projectclassifier.h"
 #include "segyreader.h"
@@ -48,6 +49,8 @@
 #include <cstdio>
 #include <utility>
 #include "dataimport_internal.h"
+#include "dataimport_log.h"
+#include "importrecovery.h"
 
 using paleo::dataimport_detail::setError;
 using paleo::dataimport_detail::readFileOrEmpty;
@@ -72,15 +75,18 @@ void DataImportService::produceFile(ImportSession &s, const QString &sourcePath,
     {
       const PlannedItem &item = plan.items.constFirst();
       ImportOptions eff = options;
+      if (eff.expectedSourceSha256.isEmpty()) eff.expectedSourceSha256 = s.expectedSourceHashes.value(item.path);
       if (eff.forceType.isEmpty())
         eff.forceType = item.type; // 生效类型取 plan 分类（与内部同口径）
       s.fileResult = importOneFile(s, item.path, eff, &err);
       s.error = err;
+      if (!paleo::dataimport_detail::writeImportIntent(s, &s.commitPreparationError)) s.error = s.commitPreparationError;
       return;
     }
   }
   s.fileResult = importOneFile(s, sourcePath, options, &err);
   s.error = err;
+  if (!paleo::dataimport_detail::writeImportIntent(s, &s.commitPreparationError)) s.error = s.commitPreparationError;
 }
 
 DataImportService::ImportResult
@@ -158,15 +164,16 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   // #561 血缘复验加强档：此 sha 是 dedup 身份与外链版本 sha256 留底的单
   // 一来源，指纹带 inode——「同 mtime+size 换内容」不再命中旧缓存值。
   QString shaErr;
-  const QString sourceSha = ShaCache::shared().sha256Hex(
-      sourcePath, &shaErr, ShaCache::Fingerprint::MtimeSizeInode); // D7.7
+  ProjectClassification cls = classifyImportFile(sourcePath);
+  if (!options.forceType.isEmpty()) cls.type = options.forceType;
+  const QString sourceSha = cls.type == QLatin1String("well_log")
+      ? paleo::dataimport_detail::logFileDigest(sourcePath)
+      : ShaCache::shared().sha256Hex(sourcePath, &shaErr, ShaCache::Fingerprint::MtimeSizeInode);
   if (sourceSha.isEmpty())
     return fail(shaErr.isEmpty() ? QStringLiteral("cannot hash %1").arg(sourcePath) : shaErr);
+  if (!options.expectedSourceSha256.isEmpty() && sourceSha != options.expectedSourceSha256)
+    return fail(QCoreApplication::translate("DataImportService", "文件内容已不同于预览：%1。请重新生成预览后确认。").arg(sourcePath));
 
-  QFile classificationFile(sourcePath);
-  const QByteArray xmlContent = classificationFile.open(QIODevice::ReadOnly)
-                                   ? classificationFile.read(65536) : QByteArray();
-  ProjectClassification cls = classifyProjectImport(sourcePath, xmlContent);
   // 确认表「改类型」：forceType 覆盖分类器结果（其余分类字段保留）。
   if (!options.forceType.isEmpty())
     cls.type = options.forceType;
@@ -186,6 +193,28 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
        cls.type == QLatin1String("time_depth") ||
        (cls.type == QLatin1String("well_deviation") && cls.format != QLatin1String("xml")));
   QString parseSummary;
+  paleo::dataimport_detail::LogInspection logInfo;
+  const bool wellLogInput = !fixedAux && cls.type == QLatin1String("well_log");
+  std::unique_ptr<QTemporaryDir> logSnapshot;
+  QString validatedLogPath = sourcePath;
+  if (wellLogInput)
+  {
+    // 解析与受管复制消费同一份私有快照；源文件在确认/读取期间变化不能混入结果。
+    logSnapshot = std::make_unique<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/paleo-log-import-XXXXXX"));
+    validatedLogPath = logSnapshot->filePath(fi.fileName());
+    if (!logSnapshot->isValid() || !QFile::copy(sourcePath, validatedLogPath))
+      return fail(QCoreApplication::translate("DataImportService", "无法为 %1 创建导入快照，请检查临时目录空间与权限后重试。").arg(sourcePath));
+    QFile::setPermissions(validatedLogPath, QFile::permissions(validatedLogPath) | QFileDevice::WriteOwner);
+    if (paleo::dataimport_detail::logFileDigest(validatedLogPath) != sourceSha)
+      return fail(QCoreApplication::translate("DataImportService", "读取期间文件发生变化：%1。请重新生成预览后确认。").arg(sourcePath));
+    if (!paleo::dataimport_detail::inspectLog(validatedLogPath, logInfo, error))
+    {
+      error->replace(validatedLogPath, sourcePath);
+      return fail(*error);
+    }
+    for (auto &issue : logInfo.issues) issue.replace(validatedLogPath, sourcePath);
+    parseSummary = logInfo.summary;
+  }
   if (textWellInput)
   {
     QFile source(sourcePath);
@@ -243,6 +272,8 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
       cat->versionBySha256(sourceSha);
   if (!existing.id.isEmpty())
   {
+    if (wellLogInput && !paleo::dataimport_detail::validateDuplicateLogTarget(
+            *cat, existing.assetId, options.targetWellId, error)) return fail(*error);
     const CatalogAsset existingAsset =
         cat->assetById(existing.assetId);
     if (existingAsset.type == QLatin1String("horizon"))
@@ -254,7 +285,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     }
     QString aerr;
     // 补挂在 staging 副本上执行（attachLink 记进 journal，提交时重放）。
-    const int attached = attachResolvableLinks(cat, existingAsset, sourcePath, &aerr);
+    const int attached = wellLogInput ? 0 : attachResolvableLinks(cat, existingAsset, sourcePath, &aerr);
     if (!aerr.isEmpty())
       qWarning("import dedup attach: %s", qPrintable(aerr));
     QString msg =
@@ -298,6 +329,15 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   version.versionNumber = 1;
   version.fileName = fi.fileName();
   version.sourceUri = fi.absoluteFilePath();
+  if (wellLogInput)
+  {
+    version.extra.insert(QStringLiteral("logCurves"), logInfo.header.curveNames.mid(1));
+    version.extra.insert(QStringLiteral("logCurveNames"), logInfo.header.curveNames);
+    version.extra.insert(QStringLiteral("logWellName"), logInfo.header.wellName);
+    version.extra.insert(QStringLiteral("logIndexBasis"), logInfo.header.indexBasis);
+    version.extra.insert(QStringLiteral("logSummary"), logInfo.summary);
+    version.extra.insert(QStringLiteral("logIssues"), logInfo.issues);
+  }
 
   // SEG-Y 一律外链（plan §3：966 MB 体不复制）。其余默认受管 RAW。
   const bool external = options.linkExternal || cls.type == QLatin1String("seismic");
@@ -311,9 +351,9 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   else
   {
     QString relPath, sha;
-    if (!storeManagedRaw(s, sourcePath, assetId, versionId, &relPath, &sha, error))
+    if (!storeManagedRaw(s, validatedLogPath, assetId, versionId, &relPath, &sha, error))
       return fail(*error);
-    if (textWellInput && sha != sourceSha)
+    if ((textWellInput || wellLogInput) && sha != sourceSha)
     {
       // 本行尚无资产/版本/关联；移除自身暂存 RAW，不能提交不匹配的解析报告。
       version.managed = true;
@@ -367,6 +407,8 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   ctx.parsedTops = std::move(parsedTops);
   ctx.parsedTd = std::move(parsedTd);
   ctx.parsedDev = std::move(parsedDev);
+  ctx.logWellName = logInfo.header.wellName;
+  ctx.targetWellId = options.targetWellId;
   QString branchErr;
   if (cls.type == QLatin1String("well_head") && !fixedAux)
     branchErr = paleo::dataimport_detail::importWellHeadFamily(ctx);
@@ -421,15 +463,9 @@ int DataImportService::attachResolvableLinks(DataCatalog *cat, const CatalogAsse
 
   // 每条（同资产、well 型）链接按创建序对应一组按序尝试的井名。
   QVector<QStringList> namesPerLink;
-  if (asset.type == QLatin1String("well_log"))
-  {
-    QString wellName;
-    if (asset.format == QLatin1String("las") || asset.format == QLatin1String("dlis") ||
-        asset.format == QLatin1String("lis"))
-      WellLogRead::readWellInfo(sourcePath, wellName); // 失败如实：井名空走候选
-    namesPerLink.append({wellName, stem}); // ~W WELL → 文件名主名（D12：UWI 层已删）
-  }
-  else if (asset.type == QLatin1String("well_stratification"))
+  // 测井归属只能来自验证内容或显式选择；即使改成参考类型后命中旧资产，
+  // 也不能由此通用去重补挂入口恢复文件名猜测。
+  if (asset.type == QLatin1String("well_stratification"))
   {
     QFile f(sourcePath);
     if (!f.open(QIODevice::ReadOnly))

@@ -37,6 +37,8 @@ class DataImportService : public QObject
     {
       bool linkExternal = false; // 用户明确选择「链接外部」才不复制；SEG-Y 一律外链
       QString forceType;         // 非空 → 跳过分类器结果改用此类型（确认表「改类型」）
+      QString targetWellId;      // 显式选择；new:<井名> 仅来自用户新建意图
+      QString expectedSourceSha256; // 用户已确认的预览内容，不得被后续源替换绕过
     };
 
     explicit DataImportService(PaleoProjectStore *store = nullptr, QObject *parent = nullptr);
@@ -421,6 +423,13 @@ struct ImportSession
   QString fileSourcePath;
   QString error;
   bool committed = false;
+  bool cancelled = false;
+  bool recoveryPending = false; // 保留未能清理的提交意图，重开工程时恢复
+  QMap<QString, QString> wellTargets; // 源路径 → 确认表选择，produce 线程独占
+  QMap<QString, QString> expectedSourceHashes; // 预览时内容摘要，禁止旧确认导入新字节
+  QStringList skippedPaths; // 用户保留现有数据：跳过本次文件，不创建任何实体
+  bool intentPrepared = false;
+  QString commitPreparationError;
 
   bool ensureStagingRoot(QString *error);
   void discardStaging();

@@ -30,6 +30,8 @@ class CatalogHealthDialog;
 class StorageGovernanceController;
 class StorageGovernanceDialog;
 class AssetEntityChoiceModel;
+struct CatalogAsset;
+struct EntityAssetLink;
 
 namespace paleo::dataops
 {
@@ -228,6 +230,8 @@ class DataListPanel : public QWidget
     void refreshAssetTree();
     // ---- 方向 92：树蓝图 + 增量通道（定义与实现见 datalist_tree.cpp）----
     struct NavNodeSpec;             // 树蓝图节点（纯数据，无 widget）
+    void describeWellAssetNode(NavNodeSpec &node, const CatalogAsset &asset,
+                               const EntityAssetLink &link) const;
     QVector<NavNodeSpec> buildNavTreeSpec() const;
     QVector<NavNodeSpec> buildPaleomapNavSpec() const;
     NavNodeSpec buildOverviewNavSpec() const;

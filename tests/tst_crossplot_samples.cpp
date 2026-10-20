@@ -2,6 +2,7 @@
 #include "services/crossplotsamples.h"
 #include "services/crossplotsources.h"
 #include <QDataStream>
+#include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
@@ -9,6 +10,7 @@
 #include <gdal.h>
 #include <algorithm>
 #include <iterator>
+#include <cmath>
 using namespace paleo::crossplot;
 class TestSamples : public QObject {
   Q_OBJECT
@@ -19,6 +21,7 @@ private slots:
   void projections();
   void attributeHorizon();
   void satrSource();
+  void unifiedWellSourcesNormalizeMdAndRejectUnsafeAxes();
 };
 void TestSamples::depthAlignment() {
   Channel a{"GR", "API", "well-A", "ver-a", {0, 1, 2, 3, 4}, {1, 2, 3, 4, 5},
@@ -274,5 +277,47 @@ void TestSamples::satrSource() {
   truncated.close();
   QVERIFY(!CrossplotSources::attributeSection(attrPath, &section, &error));
 }
+void TestSamples::unifiedWellSourcesNormalizeMdAndRejectUnsafeAxes() {
+  QTemporaryDir dir;
+  const auto write = [](const QString &path, const QByteArray &bytes) {
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+  };
+  const QString metres = dir.filePath(QStringLiteral("metres.las"));
+  const QString feet = dir.filePath(QStringLiteral("feet.csv"));
+  QVERIFY(write(metres, "~V\nVERS. 2.0:\nWRAP. NO:\n~W\nNULL. -999.25:\n~C\nDEPT.M :\nRT.ohm.m :\n~A\n0 1\n304.8 2\n609.6 3\n"));
+  QVERIFY(write(feet, "MD[ft],GR[API]\n0,10\n1000,20\n2000,30\n"));
+  SourceSpec a;
+  a.choice.kind = QStringLiteral("well");
+  a.path = feet;
+  a.curve = QStringLiteral("GR");
+  a.well.wellId = QStringLiteral("W");
+  a.versionId = QStringLiteral("feet-v");
+  SourceSpec b = a;
+  b.path = metres;
+  b.curve = QStringLiteral("RT");
+  b.versionId = QStringLiteral("metres-v");
+  const auto aligned = CrossplotSources::load({a, b});
+  QVERIFY2(aligned.ok, qPrintable(aligned.error));
+  QCOMPARE(aligned.samples.rows(), std::size_t(3));
+  QVERIFY(std::abs(aligned.samples.locations.at(1).depth - 304.8) < 1e-8);
+  QCOMPARE(aligned.samples.values[2], 20.0);
+  QCOMPARE(aligned.samples.values[3], 2.0);
+  for (const auto &axis : {QByteArray("TIME[ms]"), QByteArray("TVD[m]"), QByteArray("DEPTH[m]"), QByteArray("MD"), QByteArray("MD[league]")}) {
+    const QString path = dir.filePath(QString::fromLatin1(axis) + QStringLiteral(".csv"));
+    QVERIFY(write(path, axis + ",GR[API]\n0,10\n1000,20\n2000,30\n"));
+    a.path = path;
+    const auto rejected = CrossplotSources::load({a, b});
+    QVERIFY(!rejected.ok);
+    QVERIFY(rejected.error.contains(QStringLiteral("MD")));
+  }
+  const QString xml = dir.filePath(QStringLiteral("curve.xml"));
+  QVERIFY(write(xml, QStringLiteral("<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\"><Worksheet ss:Name=\"测井曲线-W井\"><Table><Row><Cell><Data>TIME[ms]</Data></Cell><Cell><Data>GR[API]</Data></Cell></Row><Row><Cell><Data>0</Data></Cell><Cell><Data>1</Data></Cell></Row></Table></Worksheet></Workbook>").toUtf8()));
+  a.path = xml;
+  const auto rejectedXml = CrossplotSources::load({a, b});
+  QVERIFY(!rejectedXml.ok);
+  QVERIFY(rejectedXml.error.contains(QStringLiteral("MD")));
+}
+
 QTEST_APPLESS_MAIN(TestSamples)
 #include "tst_crossplot_samples.moc"

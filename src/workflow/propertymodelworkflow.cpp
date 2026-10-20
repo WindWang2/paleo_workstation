@@ -4,6 +4,7 @@
 
 #include "../catalog/datacatalog.h"
 #include "../io/lasparser.h"
+#include "../io/welllogread.h"
 #include "../services/jobrunner.h"
 #include "../services/projectdata.h"
 #include "../services/welllogset.h"
@@ -1145,10 +1146,21 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     if (ref.column < 1 || ref.path.isEmpty())
       continue;
 
-    QStringList names;
+    LasHeaderInfo header;
     QList<LasCurve> curves;
-    if (!LasParser::parse(ref.path, names, curves, nullptr) || ref.column >= curves.size())
+    QString readError;
+    const bool explicitAxis = WellLogRead::detect(ref.path) != WellLogFormat::Las;
+    if (!WellLogRead::parse(ref.path, header, curves, &readError) || ref.column >= curves.size())
+    {
+      if (explicitAxis) { setError(error, tr("%1：测井曲线无法读取：%2").arg(ent.name, readError)); return {}; }
       continue;
+    }
+    if (explicitAxis && header.indexBasis != QLatin1String("MD"))
+    {
+      setError(error, tr("%1：属性建模需要 MD 测深，文件 %2 的索引基准为 %3；请先提供明确的 MD 数据或完成深度转换。")
+          .arg(ent.name, QFileInfo(ref.path).fileName(), header.indexBasis.isEmpty() ? tr("未声明") : header.indexBasis));
+      return {};
+    }
 
     const QVector<double> &depth = curves.at(0).values;
     const QVector<double> &vals = curves.at(ref.column).values;
@@ -1156,6 +1168,12 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     // #166：深度道单位 → 米制 MD（轨迹/层位都是米）。FT 族 ×0.3048；
     // 空/未知单位沿用旧口径按米处理。
     const double unitScale = LasParser::depthUnitToMeters(curves.at(0).unit);
+    if (explicitAxis && unitScale <= 0.0)
+    {
+      setError(error, tr("%1：文件 %2 的 MD 单位未知（%3），请声明米或英尺单位后重试。")
+          .arg(ent.name, QFileInfo(ref.path).fileName(), curves.at(0).unit));
+      return {};
+    }
     const double mdScale = unitScale > 0.0 ? unitScale : 1.0;
     struct Sample
     {

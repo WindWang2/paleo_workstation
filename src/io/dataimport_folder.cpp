@@ -45,6 +45,7 @@
 #include <algorithm>
 #include <cstdio>
 #include "dataimport_internal.h"
+#include "dataimport_log.h"
 
 using paleo::dataimport_detail::setError;
 using paleo::dataimport_detail::readFileOrEmpty;
@@ -112,7 +113,9 @@ DataImportService::producePreview(ImportSession &sess, const QString &dirPath, Q
                         : plan.issues.join(QStringLiteral("\n")));
     return rows;
   }
-  return previewRowsFromPlan(plan);
+  rows = previewRowsFromPlan(plan);
+  for (auto &row : rows) paleo::dataimport_detail::fillLogPreview(*sess.cat, row);
+  return rows;
 }
 
 QVector<FolderPreviewRow>
@@ -141,7 +144,9 @@ DataImportService::producePreviewForFiles(ImportSession &sess, const QStringList
                         : plan.issues.join(QStringLiteral("\n")));
     return rows;
   }
-  return previewRowsFromPlan(plan);
+  rows = previewRowsFromPlan(plan);
+  for (auto &row : rows) paleo::dataimport_detail::fillLogPreview(*sess.cat, row);
+  return rows;
 }
 
 // plan → 确认表行（目录/文件列表两口径共享）：显示类型/可改性/词表在预览
@@ -321,7 +326,10 @@ void DataImportService::produceFolder(
     plan = planFor(sess, dirPath);
   if (plan.cancelled)
   {
-    // 扫描段取消：零行执行零行入库（执行段取消另有「保留已处理行」语义）。
+    // 扫描段取消：零行执行零行入库；执行段取消也由 owner 丢弃整批暂存。
+    // session 必须带上取消标记——否则 commitImport 对零行零暂存的会话会
+    // 误判 Committed（取消不能报成功）。
+    sess.cancelled = true;
     return finish(rows, QStringLiteral("已取消"));
   }
   if (plan.items.isEmpty() && plan.skipped.isEmpty())
@@ -363,7 +371,11 @@ void DataImportService::produceFiles(
   else
     plan = planForFiles(sess, paths);
   if (plan.cancelled)
+  {
+    // 同 produceFolder：扫描段取消必须标记会话，取消不能提交成 Committed。
+    sess.cancelled = true;
     return finish(rows, QStringLiteral("已取消"));
+  }
   if (plan.items.isEmpty() && plan.skipped.isEmpty())
   {
     return finish(rows, plan.issues.isEmpty()
@@ -474,12 +486,38 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
   FolderRowResult row;
   row.path = item.path;
   row.classifiedType = item.type;
+  if (s.skippedPaths.contains(item.path))
+  {
+    row.outcome = FolderRowResult::Outcome::Skipped;
+    row.message = QCoreApplication::translate("DataImportService", "已按选择跳过本项，现有数据保持不变。");
+    return row;
+  }
   const auto appendStoredWellReport = [&](const CatalogVersion &version) {
     const QString summary = version.extra.value(QStringLiteral("wellParseReport"))
                                 .toMap().value(QStringLiteral("summary")).toString();
     if (!summary.isEmpty())
       row.message += QCoreApplication::translate("DataImportService", "；已有版本：%1").arg(summary);
   };
+  const QString expected = s.expectedSourceHashes.value(item.path);
+  if (!expected.isEmpty() && paleo::dataimport_detail::logFileDigest(item.path) != expected)
+  {
+    row.outcome = FolderRowResult::Outcome::Failed;
+    row.message = QCoreApplication::translate("DataImportService", "文件内容与预览时不同，暂未导入：%1。请重新打开导入预览后确认。").arg(item.path);
+    return row;
+  }
+  const QString target = s.wellTargets.value(item.path);
+  if (!target.isEmpty())
+  {
+    const auto hit = cat->versionBySha256(item.sha256);
+    QString targetError;
+    if (!hit.id.isEmpty() && !paleo::dataimport_detail::validateDuplicateLogTarget(
+            *cat, hit.assetId, target, &targetError))
+    {
+      row.outcome = FolderRowResult::Outcome::Failed;
+      row.message = targetError;
+      return row;
+    }
+  }
 
   // T33 符号链接 TOCTOU 终验：真正读字节的是 importOneFile 里的 open/hash/
   // copy——入它之前再核一次：路径仍解析到枚举时判定的同一 canonical、仍是
@@ -534,6 +572,8 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
   QString ferr;
   ImportOptions opts;
   opts.forceType = item.type; // 恒下传——与分类器同值时是无害同值
+  opts.targetWellId = s.wellTargets.value(item.path);
+  opts.expectedSourceSha256 = expected;
   const ImportResult res = importOneFile(s, item.path, opts, &ferr);
   row.message = res.message.isEmpty() ? ferr : res.message;
   row.assetId = res.assetId;

@@ -396,7 +396,12 @@ bool PaleoLayoutExportActions::exportLayoutAsync( QgsLayout *layout, const QStri
       } );
   if ( !task )
   {
-    reportExportOutcome( ExportOutcome{ false, tr( "任务服务不可用" ), {}, outPath } );
+    // K-2（=20261020 D-09）：失败原因经 fallbackReason 交给调用方统一上报
+    //（exportAsync 前端 :291-297 已有 reportExportOutcome）——此前这里先报
+    // 一次「任务服务不可用」，调用方紧跟又报「无法创建后台导出任务」，
+    // 一次失败两条不同文案连闪。
+    if ( fallbackReason )
+      *fallbackReason = tr( "任务服务不可用" );
     return false;
   }
   setInFlight( true );

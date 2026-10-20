@@ -862,6 +862,10 @@ private slots:
     QCOMPARE(canvas.faultDraftPointCount(), 0);
     QTest::mouseMove(&canvas, QPoint(b.x() + 5, b.y() + 5));
     QCOMPARE(canvas.faultDraftPointCount(), 0);
+    // 收尾：左键按下后以右键释放会在 QTest 的静态按键表里留下幻影左键
+    // （qtestMouseButtons 只清释放事件声明的那个键）——后续用例的 mouseMove
+    // 会带着一个并不存在的按下键，事件投递失效。补一次左键释放清表。
+    QTest::mouseRelease(&canvas, Qt::LeftButton, Qt::NoModifier, QPoint(b.x() + 5, b.y() + 5));
   }
 
   // Q2：道头卡按「剖面列 → 实际线号 → 文件道号」换算——旧实现把列号直

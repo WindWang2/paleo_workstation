@@ -1298,16 +1298,21 @@ class TestVersions : public QObject
         const auto attestedSize = attestation.value("size").toLongLong();
         QVERIFY(attestedSize > 0);
         QFile::setPermissions(target, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-        // 同位宽改写 + 恢复 mtime：size/mtime 两道门必须仍然「通过」。
+        // 同位宽改写：size 不变。mtime 恢复尽力而为——部分文件系统不支持
+        // setFileTime（本机探针实测返回 false），恢复失败不影响本测试主旨：
+        // attestation 里记的 sha256 必须能发现同位宽篡改（旧 size/mtime 双门
+        // 对此完全失明，A.4 的根因）。
         QFile flip(target); QVERIFY(flip.open(QIODevice::ReadWrite)); QVERIFY(flip.seek(0));
         const auto first = flip.read(1); QVERIFY(first.size() == 1);
         const auto patched = char(first.at(0) ^ 0xFF);
         QVERIFY(flip.seek(0)); QCOMPARE(flip.write(&patched, 1), qint64(1));
         QVERIFY(flip.flush()); flip.close();
-        QVERIFY(QFile(target).setFileTime(stamped, QFileDevice::FileModificationTime));
+        const bool mtimeRestored =
+            QFile(target).setFileTime(stamped, QFileDevice::FileModificationTime);
         const QFileInfo after(target);
         QCOMPARE(after.size(), attestedSize);
-        QCOMPARE(after.lastModified(), stamped);
+        if (mtimeRestored)
+            QCOMPARE(after.lastModified(), stamped);
         QCOMPARE(f.versions.commitPreparedVersion(prepared, &err).version, 0);
         QVERIFY2(!err.isEmpty(), qPrintable(err));
         QVERIFY2(err.contains(QStringLiteral("SHA-256")), qPrintable(err));

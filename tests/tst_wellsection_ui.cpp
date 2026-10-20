@@ -1092,6 +1092,50 @@ class TestWellSectionUi : public QObject
                rec.version);
     }
 
+    // ---- D.21：剖面内改井序 → 井网预览随权威态重喂 ----
+    // 旧实现 wellIdsChanged 处理器只更新权威态/列表/tab/store，右侧
+    // FencePreview 不刷新——折线（按剖面取色）与交点井放大点停在旧井序上。
+    void fencePreviewFollowsWellReorder()
+    {
+      QVector<WellSectionPanel::WellChoice> choices;
+      const char *ids[2] = {"C-2", "A5"};
+      for (int i = 0; i < 2; ++i) {
+        WellSectionPanel::WellChoice c;
+        c.id = QLatin1String(ids[i]);
+        c.name = c.id;
+        c.hasCoordinates = true;
+        c.x = i * 200.0;
+        c.y = 0;
+        choices << c;
+      }
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      metadata::WellSectionStore store(QDir(dir.path()).filePath(
+          QStringLiteral("fence-preview.project.sqlite")));
+      QString err;
+      QVERIFY2(store.open(&err), qPrintable(err));
+
+      WellSectionFenceWidget::Params fp;
+      fp.choices = choices;
+      fp.store = &store;
+      WellSectionFenceWidget fence(fp);
+      fence.setSections({QStringList({"C-2", "A5"})});
+      auto *p0 = fence.sectionPanel(0);
+      QVERIFY(p0);
+      auto wells = wells4();
+      wells.remove(2, 2); // 留 C-2 / A5 = 当前剖面井序
+      p0->setSection(wells);
+      QCOMPARE(fence.previewSectionWells(0), QStringList({"C-2", "A5"}));
+
+      // 用户改井序（moveWell → wellIdsChanged）：预览模型跟随新序，
+      // 且与 store 落库的权威态一致。
+      p0->moveWell(0, 1);
+      QCOMPARE(fence.previewSectionWells(0), QStringList({"A5", "C-2"}));
+      QCOMPARE(fence.sectionWellIds(0), QStringList({"A5", "C-2"}));
+      QCOMPARE(store.load(QStringLiteral("fence-1"), &err).wellIds,
+               QStringList({"A5", "C-2"}));
+    }
+
     // ---- 相代码充填道 + 三曲线叠加道（渲染冒烟 + 模板 round-trip）----
     void faciesTrackAndTripleCurve()
     {

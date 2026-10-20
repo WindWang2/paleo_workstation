@@ -227,10 +227,13 @@ private slots:
     QCOMPARE(auxRoot->text(0), QStringLiteral("辅助资料 (0)"));
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
       QTreeWidgetItem *root = tree->topLevelItem(i);
-      // 「工区概况」按 #565 设计默认展开（看板/工区地图常驻视野）。
-      if (root->text(0) == QStringLiteral("工区概况"))
+      // 「工区概况」按 #565 设计默认展开（看板/工区地图常驻视野）；
+      // 「辅助资料」有子节点时按产品规则展开（datalist_tree.cpp 渲染段：
+      // 避免已导入文档停在收拢组里），同样不参与收拢断言。
+      const QString t = root->text(0);
+      if (t == QStringLiteral("工区概况") || t.startsWith(QStringLiteral("辅助资料 (")))
         continue;
-      QVERIFY2(!root->isExpanded(), qPrintable(root->text(0)));
+      QVERIFY2(!root->isExpanded(), qPrintable(t));
     }
 
     // 300 口井全挂在「测井」组下（合成夹具每井一条已决 LAS，无未关联面）。

@@ -93,7 +93,7 @@ void showConsistencyReport(
   if (!dialog) {
     dialog = new FaciesConsistencyDialog(window);
     dialog->setObjectName(QStringLiteral("faciesConsistencyDialog"));
-    connect(dialog, &FaciesConsistencyDialog::wellActivated, window,
+    QObject::connect(dialog, &FaciesConsistencyDialog::wellActivated, window,
             [canvasCtl, layerSvc, projectSvc, show, dialog](const QString &,
                                                             double x, double y) {
               const QString wellLayer = dialog->property("wellLayer").toString();

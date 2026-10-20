@@ -383,6 +383,76 @@ void ConstraintPage::buildSurfaceRow( QVBoxLayout *lay )
   lay->addWidget( surfaceRow );
 }
 
+namespace
+{
+// WS-C5：结构 IDW 成图边界下拉（从 updateEngineRows 拆出，#502 函数行数闸）。
+void fillStructuralBoundaryCombo( QComboBox *boundaryCombo, QgisLayerService *svc )
+{
+  // 成图边界只要面：boundary.* 在前，测区面 survey.area 次之。约束线
+  // （constraints.<层位>）、等值线和井点不是面，不能出现在这个下拉里——
+  // 否则会显示成 constraints.C6，算到算法深处才报「没有有效 polygon」。
+  // 默认值不得盲选第 0 项：回填上次选择，否则依次落 boundary.* /
+  // survey.area，都不在才留空，交给生成门控引导选择。
+  const QString keep = boundaryCombo->currentData().toString();
+  boundaryCombo->blockSignals( true );
+  boundaryCombo->clear();
+  if ( svc )
+  {
+    const QVector<LayerDeclaration> declared = svc->declared();
+    const auto isVector = []( const LayerDeclaration &d ) {
+      return d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) == 0;
+    };
+    const auto excluded = []( const LayerDeclaration &d ) {
+      const QString id = d.layerId;
+      return id.startsWith( QLatin1String( "constraints." ) ) ||
+             id.startsWith( QLatin1String( "contours." ) ) ||
+             id == QLatin1String( "wells" ) ||
+             id.startsWith( QLatin1String( "wells." ) ) ||
+             id.startsWith( QLatin1String( "welllog." ) );
+    };
+    const auto dedicated = []( const LayerDeclaration &d ) {
+      return d.layerId.startsWith( QLatin1String( "boundary." ) );
+    };
+    const auto survey = []( const LayerDeclaration &d ) {
+      return d.layerId == QLatin1String( "survey.area" );
+    };
+    const auto labelFor = []( const LayerDeclaration &d ) {
+      if ( !d.title.isEmpty() )
+        return d.title;
+      if ( d.layerId == QLatin1String( "survey.area" ) )
+        return QObject::tr( "测区范围" );
+      return d.layerId;
+    };
+    for ( int pass = 0; pass < 3; ++pass )
+      for ( const LayerDeclaration &d : declared )
+      {
+        if ( !isVector( d ) || excluded( d ) )
+          continue;
+        if ( ( pass == 0 && !dedicated( d ) ) || ( pass == 1 && !survey( d ) ) ||
+             ( pass == 2 && ( dedicated( d ) || survey( d ) ) ) )
+          continue;
+        boundaryCombo->addItem( labelFor( d ), d.layerId );
+      }
+  }
+  int idx = boundaryCombo->findData( keep );
+  if ( idx < 0 )
+  {
+    for ( int i = 0; i < boundaryCombo->count(); ++i )
+    {
+      if ( boundaryCombo->itemData( i ).toString().startsWith( QLatin1String( "boundary." ) ) )
+      {
+        idx = i;
+        break;
+      }
+    }
+  }
+  if ( idx < 0 )
+    idx = boundaryCombo->findData( QStringLiteral( "survey.area" ) );
+  boundaryCombo->setCurrentIndex( idx );
+  boundaryCombo->blockSignals( false );
+}
+} // namespace
+
 void ConstraintPage::updateEngineRows()
 {
   // 等厚引擎行：勾选因素的 processingAlgId 是 isopach 时展开并按当前层位
@@ -517,71 +587,7 @@ void ConstraintPage::updateEngineRows()
     child<QLabel>(this, "factorCellSizeCaption")->setVisible(!structural);
   }
   if ( structural && boundaryCombo )
-  {
-    // 成图边界只要面：boundary.* 在前，测区面 survey.area 次之。约束线
-    // （constraints.<层位>）、等值线和井点不是面，不能出现在这个下拉里——
-    // 否则会显示成 constraints.C6，算到算法深处才报「没有有效 polygon」。
-    // 默认值不得盲选第 0 项：回填上次选择，否则依次落 boundary.* /
-    // survey.area，都不在才留空，交给生成门控引导选择。
-    const QString keep = boundaryCombo->currentData().toString();
-    boundaryCombo->blockSignals( true );
-    boundaryCombo->clear();
-    if ( auto *svc = qobject_cast<QgisLayerService *>(
-             property( kLayersProp ).value<QObject *>() ) )
-    {
-      const QVector<LayerDeclaration> declared = svc->declared();
-      const auto isVector = []( const LayerDeclaration &d ) {
-        return d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) == 0;
-      };
-      const auto excluded = []( const LayerDeclaration &d ) {
-        const QString id = d.layerId;
-        return id.startsWith( QLatin1String( "constraints." ) ) ||
-               id.startsWith( QLatin1String( "contours." ) ) ||
-               id == QLatin1String( "wells" ) ||
-               id.startsWith( QLatin1String( "wells." ) ) ||
-               id.startsWith( QLatin1String( "welllog." ) );
-      };
-      const auto dedicated = []( const LayerDeclaration &d ) {
-        return d.layerId.startsWith( QLatin1String( "boundary." ) );
-      };
-      const auto survey = []( const LayerDeclaration &d ) {
-        return d.layerId == QLatin1String( "survey.area" );
-      };
-      const auto labelFor = []( const LayerDeclaration &d ) {
-        if ( !d.title.isEmpty() )
-          return d.title;
-        if ( d.layerId == QLatin1String( "survey.area" ) )
-          return QObject::tr( "测区范围" );
-        return d.layerId;
-      };
-      for ( int pass = 0; pass < 3; ++pass )
-        for ( const LayerDeclaration &d : declared )
-        {
-          if ( !isVector( d ) || excluded( d ) )
-            continue;
-          if ( ( pass == 0 && !dedicated( d ) ) || ( pass == 1 && !survey( d ) ) ||
-               ( pass == 2 && ( dedicated( d ) || survey( d ) ) ) )
-            continue;
-          boundaryCombo->addItem( labelFor( d ), d.layerId );
-        }
-    }
-    int idx = boundaryCombo->findData( keep );
-    if ( idx < 0 )
-    {
-      for ( int i = 0; i < boundaryCombo->count(); ++i )
-      {
-        if ( boundaryCombo->itemData( i ).toString().startsWith( QLatin1String( "boundary." ) ) )
-        {
-          idx = i;
-          break;
-        }
-      }
-    }
-    if ( idx < 0 )
-      idx = boundaryCombo->findData( QStringLiteral( "survey.area" ) );
-    boundaryCombo->setCurrentIndex( idx );
-    boundaryCombo->blockSignals( false );
-  }
+    fillStructuralBoundaryCombo( boundaryCombo, qobject_cast<QgisLayerService *>( property( kLayersProp ).value<QObject *>() ) );
 
   row->setVisible( isopach );
   if ( !isopach )

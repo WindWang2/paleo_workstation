@@ -173,12 +173,16 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
                 : Qt::Unchecked);
       updateState();
     });
-    auto *run = new QHBoxLayout;
-    run->addWidget(button("predict", tr("运行预测")));
-    run->addWidget(button("wellattributes", tr("岩性与相属性")));
+    // 两行网格：运行/取消一行，结果表入口一行——窄停靠栏里四颗按钮挤一行
+    // 会把整页撑出停靠宽度、说明文字被右侧裁切。
+    auto *run = new QGridLayout;
+    run->setHorizontalSpacing(PaleoTheme::tokens().spacingSm);
+    run->setVerticalSpacing(PaleoTheme::tokens().spacingXs);
+    run->addWidget(button("predict", tr("运行预测")), 0, 0);
+    run->addWidget(button("cancel", tr("取消")), 0, 1);
+    run->addWidget(button("wellattributes", tr("岩性与相属性")), 1, 0);
     // 与工区维护的地层相表共用一条最终结果。
-    run->addWidget(button("wellformations", tr("地层相属性")));
-    run->addWidget(button("cancel", tr("取消")));
+    run->addWidget(button("wellformations", tr("地层相属性")), 1, 1);
     layout->addLayout(run);
     m_progress = new QProgressBar(body);
     m_progress->setObjectName("workbenchPredictionProgress");

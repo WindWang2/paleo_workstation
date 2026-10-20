@@ -45,7 +45,9 @@ QString WellFaciesConfig::validateUrl(const QUrl &url, bool allowInsecureHttp) {
       !isLoopbackHost(url.host()))
     return QObject::tr("测井相预测服务必须使用 https://（http 会明文传输 API "
                        "密钥与井数据）；确需内网 http 请在「预测服务」勾选"
-                       "「允许不加密的 HTTP」");
+                       "「允许不加密的 HTTP」，或在配置文件写入 "
+                       "\"allowInsecureHttp\": true，或设置环境变量 "
+                       "PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP=1");
   return {};
 }
 WellFaciesConfig WellFaciesConfig::load() {
@@ -57,12 +59,9 @@ WellFaciesConfig WellFaciesConfig::load() {
       c.baseUrl = QUrl(j.value("baseUrl").toString());
     c.apiKey = j.value("apiKey").toString().toUtf8();
     c.allowInsecureHttp = j.value("allowInsecureHttp").toBool(false);
-    // 旧配置只存了 http 地址和密钥，没有「允许不加密」开关。那是用户已经
-    // 选定的服务，按明文传输继续用，否则「预测相」会一直停在地址校验。
-    if (!j.contains(QLatin1String("allowInsecureHttp"))
-        && c.baseUrl.scheme().compare(QLatin1String("http"), Qt::CaseInsensitive) == 0
-        && !c.apiKey.trimmed().isEmpty())
-      c.allowInsecureHttp = true;
+    // 安全：不再为缺少该字段的旧配置自动开启明文 http（会静默明文发送
+    // API 密钥）。http 必须显式开启：配置 allowInsecureHttp=true、环境变量
+    // PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP=1 或 CMake 缺省允许 http。
   }
   if (qEnvironmentVariableIsSet("PALEO_WELL_FACIES_URL"))
     c.baseUrl = QUrl(qEnvironmentVariable("PALEO_WELL_FACIES_URL"));

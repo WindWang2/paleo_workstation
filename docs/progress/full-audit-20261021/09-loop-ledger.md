@@ -46,3 +46,10 @@
 - Verification：定向 6 套件全绿（含 MF-1 红形状扩展）；全量 ctest 复跑见终审
 - Review Result：终审（08 文档）进行中
 - Remaining Work：终审 → PR
+
+## Round 3 — 终审与交付（2026-10-21）
+
+- 终审：PASS-WITH-NOTES（零新增 P0/P1/P2）；唯一结转 F-1 一行了结（b0435e68）
+- 最终全量：ctest -LE 'core|perf' 97%（384/396），12 红全为基线在册已知红
+- 交付：29 commits → PR #607（分支已推 origin；master 与主 worktree 未动）
+- Oracle 对账：O1-O7 全部满足（见 99-pr-body.md）

@@ -1538,7 +1538,12 @@ bool ConstraintWorkflow::generateGeostatFactor( const QString &horizon, const QS
           return publishGeostatJob(*shared, error);
         },
         [shared] {
-          if (shared->outputPath.contains("paleo-sf-"))
+          // 临时目录前缀是 paleo-gs-<uuid>（computeGeostatJob:1164 建），
+          // 不是 paleo-sf-——判错前缀等于永不命中，不走 publish 的收尾
+          // 路径会把整棵临时树（factor.tif + variance/std.tif + SGS 的
+          // R 个 member_r*.tif，按 4M 格预算每件约 16MB）永久留在系统
+          // temp（#588 B.10）。
+          if (shared->outputPath.contains("paleo-gs-"))
             QDir(QFileInfo(shared->outputPath).absolutePath())
                 .removeRecursively();
           if (shared->staging.isValid()) {

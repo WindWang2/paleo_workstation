@@ -264,7 +264,19 @@ QString MappingWorkbench::compose(const QString &h, const QStringList &ids,
       fail(error, job.error);
     return {};
   }
-  return polygonize(job.productId, error);
+  // commitCompose 成功 = composed_facies 版本已落库、图层已上图（record 内
+  // emit productReady → 视图 show）。紧随的转面失败只降级为「相面未生成」
+  // 的后续提示，不得把整次编图混同为失败（#588 B.16）——返回值语义仍是
+  // 相面 layerId，故如实回空串，但错误文案要点明编图本身已成功。
+  const QString polygons = polygonize(job.productId, error);
+  if (polygons.isEmpty()) {
+    const QString why =
+        (error && !error->isEmpty()) ? *error : job.error;
+    fail(error, tr("综合相图已生成（%1），但自动转面失败：%2；可在相图页手动转面")
+                   .arg(job.productId, why.isEmpty() ? tr("原因未知") : why));
+    return {};
+  }
+  return polygons;
 }
 
 bool MappingWorkbench::startCompose(const QString &h, const QStringList &ids,
@@ -294,8 +306,13 @@ bool MappingWorkbench::startCompose(const QString &h, const QStringList &ids,
       return false;
     }
     QString polyError;
+    // 与同步 compose() 同口径（#588 B.16）：编图已登记并上图，转面未启动
+    // 只是后续产物缺失——报局部失败，仍判 committed。
     if (!startPolygonize(j.productId, &polyError))
-      emit errorOccurred(polyError);
+      emit errorOccurred(
+          tr("综合相图已生成（%1），但自动转面未启动：%2；可在相图页手动转面")
+              .arg(j.productId,
+                   polyError.isEmpty() ? tr("原因未知") : polyError));
     return true;
   };
   cb.cleanup = [](ComposeJob &j) { QFile::remove(j.outputPath); };

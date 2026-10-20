@@ -353,6 +353,98 @@ AlgorithmSpec structuralIdwSpec()
   return s;
 }
 
+
+AlgorithmSpec ordinaryKrigingSpec()
+{
+  AlgorithmSpec s;
+  s.id = QStringLiteral( "geostat:ordinary_kriging" );
+  s.displayName = QStringLiteral( "Geostat: Ordinary Kriging" );
+  s.engine = QStringLiteral( "native_cpp" );
+  s.complete = true;
+  s.inputs = {
+    port( QStringLiteral( "SAMPLES" ), QStringLiteral( "table" ), true ), // 样本点表（编排侧组装）
+  };
+  s.outputs = {
+    port( QStringLiteral( "OUTPUT" ), QStringLiteral( "raster" ) ),
+    port( QStringLiteral( "VARIANCE" ), QStringLiteral( "raster" ), false ),
+  };
+  s.params = {
+    paramInt( QStringLiteral( "MAX_POINTS" ), QString(), 16, true, 1, true, 64 ),
+    paramInt( QStringLiteral( "MIN_POINTS" ), QString(), 4, true, 1 ),
+    paramDouble( QStringLiteral( "SEARCH_RADIUS" ), QString(), 0.0, true, 0 ),
+    paramKey( QStringLiteral( "VARIOGRAM_MODEL" ), AlgorithmParamField::String ),
+    paramDouble( QStringLiteral( "NUGGET" ), QString(), 0.0 ),
+    paramDouble( QStringLiteral( "SILL" ), QString(), 1.0 ),
+    paramDouble( QStringLiteral( "RANGE" ), QString(), 1.0 ),
+  };
+  return s;
+}
+
+AlgorithmSpec hztrackSectionSpec()
+{
+  AlgorithmSpec s;
+  s.id = QStringLiteral( "hztrack:track_section" );
+  s.displayName = QStringLiteral( "Horizon Track: Section" );
+  s.engine = QStringLiteral( "native_cpp" );
+  s.complete = true;
+  s.inputs = {
+    port( QStringLiteral( "SECTION" ), QStringLiteral( "table" ), true ), // float 缓冲由编排持有
+    port( QStringLiteral( "SEED" ), QStringLiteral( "scalar" ), true ),
+    port( QStringLiteral( "COHERENCE" ), QStringLiteral( "table" ), false ),
+  };
+  s.outputs = {
+    port( QStringLiteral( "PICKS" ), QStringLiteral( "table" ) ),
+  };
+  s.params = {
+    paramInt( QStringLiteral( "WINDOW_SAMPLES" ), QString(), 24, true, 4 ),
+    paramInt( QStringLiteral( "MAX_SEARCH_SAMPLES" ), QString(), 12, true, 1 ),
+    paramDouble( QStringLiteral( "CORRELATION_THRESHOLD" ), QString(), 0.6, true, 0, true, 1 ),
+    paramDouble( QStringLiteral( "COHERENCE_THRESHOLD" ), QString(), 0.0, true, 0, true, 1 ),
+    paramInt( QStringLiteral( "DIP_HISTORY_PICKS" ), QString(), 0, true, 0 ),
+  };
+  return s;
+}
+
+AlgorithmSpec inversionBandlimitSpec()
+{
+  AlgorithmSpec s;
+  s.id = QStringLiteral( "inversion:bandlimited" );
+  s.displayName = QStringLiteral( "Inversion: Bandlimited" );
+  s.engine = QStringLiteral( "native_cpp" );
+  s.complete = true;
+  s.inputs = {
+    port( QStringLiteral( "TRACE" ), QStringLiteral( "table" ), true ),
+    port( QStringLiteral( "WAVELET" ), QStringLiteral( "table" ), false ),
+  };
+  s.outputs = {
+    port( QStringLiteral( "IMPEDANCE" ), QStringLiteral( "table" ) ),
+  };
+  s.params = {
+    paramDouble( QStringLiteral( "SAMPLE_INTERVAL_MS" ), QString(), 1.0, true, 0.0001 ),
+  };
+  return s;
+}
+
+AlgorithmSpec wellsitingCoverageSpec()
+{
+  AlgorithmSpec s;
+  s.id = QStringLiteral( "wellsiting:diagnose_coverage" );
+  s.displayName = QStringLiteral( "Well Siting: Diagnose Coverage" );
+  s.engine = QStringLiteral( "native_cpp" );
+  s.complete = true;
+  s.inputs = {
+    port( QStringLiteral( "DOMAIN" ), QStringLiteral( "vector" ), true, false, QStringLiteral( "polygon" ) ),
+    port( QStringLiteral( "WELLS" ), QStringLiteral( "vector" ), true, false, QStringLiteral( "point" ) ),
+  };
+  s.outputs = {
+    port( QStringLiteral( "REPORT" ), QStringLiteral( "table" ) ),
+  };
+  s.params = {
+    paramDouble( QStringLiteral( "TARGET_SPACING" ), QString(), 0.0, true, 0 ),
+  };
+  return s;
+}
+
 const QVector<AlgorithmSpec> &allSpecs()
 {
   static const QVector<AlgorithmSpec> kSpecs = {
@@ -368,6 +460,11 @@ const QVector<AlgorithmSpec> &allSpecs()
     faciesFusionSpec(),
     geologicalSmoothingSpec(),
     faciesPolygonizeSpec(),
+    // P4 native_cpp
+    ordinaryKrigingSpec(),
+    hztrackSectionSpec(),
+    inversionBandlimitSpec(),
+    wellsitingCoverageSpec(),
   };
   return kSpecs;
 }

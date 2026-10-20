@@ -1,6 +1,6 @@
 # 算法原子契约（Algorithm Atom Contract）
 
-> 状态：P0 12/12 Spec + P1 单因素/编图发布收口 + **P2 ProcessingAdapter 试点（fusion）** + P3 ANISO schema  
+> 状态：P0 12/12 Spec + P1 发布收口 + **P2 Adapter 扩展（Processing 多路径 + Native OK）** + P4 Spec 起步 + P3 ANISO  
 > 日期：2026-10-20（Asia/Shanghai）  
 > 切片：`algo-atom-p0-spec-constraint-idw`  
 > 相关：`docs/DATA_FABRIC_ADOPTION.md`（typed RunPort **defer**）→ 本契约是该递延项的 Paleo 裁剪落地，**不**引入对方整套 data-fabric。
@@ -130,9 +130,9 @@ P0 Spec 端口与现网参数名对齐：
 |------|------|--------|
 | **P0** | Spec 静态表 + 文档 + `tst_algorithm_spec` | ✅ **12/12 Processing complete** |
 | **P1** | `publishArtifacts`；单因素 + 编图 fusion/polygonize/prediction/workbench.record | ✅ |
-| **P2** | Processing / NativeCpp adapter；AtomicJob | **部分**：ProcessingAlgorithmAdapter + fusion 试点；NativeCpp 桩；AtomicJob 未做 |
-| **P3** | Schema ← Spec；UI 只读 Spec | 部分：ANISO_RATIO 已进 schema；全文单一事实源仍后续 |
-| **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | 后续 |
+| **P2** | Processing / NativeCpp adapter；AtomicJob | **推进中**：Processing 覆盖 factor/prediction/polygonize/carto/local_direction/geostat-IDW；NativeCpp **ordinary_kriging** 实装；AtomicJob 未做 |
+| **P3** | Schema ← Spec；UI 只读 Spec | 部分：ANISO_RATIO 已进 schema |
+| **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | **起步**：hztrack/inversion/wellsiting/geostat Spec 已登记；运行时未全迁 |
 
 P0 验收：
 
@@ -162,9 +162,21 @@ P1 验收：
 
 ## 6.2 P2 适配器
 
-- `src/workflow/algorithmadapters.h`：`ProcessingAlgorithmAdapter`（包装 `QgisProcessingService::run` → `AlgorithmRunResult`）、`NativeCppAdapter`（桩）。
-- **试点**：`CompositionWorkflow` 相融合路径 `adapter.run(fusionSpec) → publishArtifacts`。
-- 验收：`tst_algorithm_adapters`；fusion/polygonize 行为与改前等价（仍走同一 registrar 指纹纪律）。
+- `ProcessingAlgorithmAdapter`：`run` / `runById` → `AlgorithmRunResult`；`processingResultsFromRunResult` 回桥旧 publish 回调。
+- **Processing 已接线**：`runFactorAlgorithm`（constraint_idw 等）、`PredictionWorkflow`、`facies_polygonize`、`cartographic_work`、`local_direction`/`surfer`、geostat 降级 IDW、fusion。
+- `NativeCppAdapter::runOrdinaryKriging`：类型化入参 → `ordinaryKriging` 核 → PaleoRasterOut 写估值/方差 → artifacts；`geostat` 任务 kriging 段已改用。
+- 其它 native id（hztrack / inversion / wellsiting / sgs / cokriging）`run(QVariantMap)` 仍返回明确 TODO。
+- AtomicJob 泛化：未做。
+- 验收：`tst_algorithm_adapters`、`tst_algorithm_spec`（含 P4 native Spec）。
+
+## 6.3 P4 Spec 起步（native_cpp）
+
+| Spec id | 入口 | 运行时 |
+|---------|------|--------|
+| `geostat:ordinary_kriging` | `NativeCppAdapter::runOrdinaryKriging` | ✅ 已接 geostat 任务 |
+| `hztrack:track_section` | Spec only | TODO |
+| `inversion:bandlimited` | Spec only | TODO |
+| `wellsiting:diagnose_coverage` | Spec only | TODO |
 
 ## 7. 回链
 

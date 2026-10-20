@@ -86,6 +86,7 @@ class AlgorithmSpecTests : public QObject
   Q_OBJECT
 private slots:
   void allTwelveProcessingComplete();
+  void nativeCppP4SpecsRegistered();
   void everyCompleteSpecMatchesFrozenInitAlgorithm();
   void schemaFieldsSubsetOfSpecParamsWhenKnown();
   void constraintIdwPortsAndAnisoInSchema();
@@ -94,13 +95,34 @@ private slots:
 
 void AlgorithmSpecTests::allTwelveProcessingComplete()
 {
-  QCOMPARE( AlgorithmSpecRegistry::knownIds().size(), 12 );
-  QCOMPARE( AlgorithmSpecRegistry::completeIds().size(), 12 );
+  QCOMPARE( kFrozenInitParams.size(), 12 );
   for ( const QString &id : kFrozenInitParams.keys() )
   {
     QVERIFY2( AlgorithmSpecRegistry::knows( id ), qPrintable( id ) );
-    QVERIFY2( AlgorithmSpecRegistry::spec( id ).complete, qPrintable( id ) );
+    const AlgorithmSpec s = AlgorithmSpecRegistry::spec( id );
+    QVERIFY2( s.complete, qPrintable( id ) );
+    QCOMPARE( s.engine, QStringLiteral( "processing" ) );
   }
+}
+
+void AlgorithmSpecTests::nativeCppP4SpecsRegistered()
+{
+  const QStringList nativeIds = {
+    QStringLiteral( "geostat:ordinary_kriging" ),
+    QStringLiteral( "hztrack:track_section" ),
+    QStringLiteral( "inversion:bandlimited" ),
+    QStringLiteral( "wellsiting:diagnose_coverage" ),
+  };
+  for ( const QString &id : nativeIds )
+  {
+    QVERIFY2( AlgorithmSpecRegistry::knows( id ), qPrintable( id ) );
+    const AlgorithmSpec s = AlgorithmSpecRegistry::spec( id );
+    QVERIFY2( s.complete, qPrintable( id ) );
+    QCOMPARE( s.engine, QStringLiteral( "native_cpp" ) );
+    QVERIFY2( !s.inputs.isEmpty() || !s.outputs.isEmpty(), qPrintable( id ) );
+  }
+  QVERIFY( AlgorithmSpecRegistry::knownIds().size() >= 16 );
+  QVERIFY( AlgorithmSpecRegistry::completeIds().size() >= 16 );
 }
 
 void AlgorithmSpecTests::everyCompleteSpecMatchesFrozenInitAlgorithm()

@@ -81,6 +81,6 @@ class AlgorithmSpecRegistry
     static bool knows( const QString &algorithmId );
     static AlgorithmSpec spec( const QString &algorithmId ); // 未知 → id 空、complete false
     static QStringList knownIds();
-    // complete==true 的 id（P0-fill：12 Processing 全 complete）
+    // complete==true 的 id（12 Processing + P4 native 入口）
     static QStringList completeIds();
 };

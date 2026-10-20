@@ -7,6 +7,7 @@
 #include "catalog/datacatalog.h"
 #include "domain/seismic/sectionaxis.h"
 #include "domain/seismic/sgycoordinatemapper.h"
+#include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyio.h"
 #include "algorithms/seismicattr.h"
 #include "io/sattrio.h"
@@ -23,6 +24,7 @@
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <atomic>
 #include <thread>
 
 namespace seismic {
@@ -198,21 +200,9 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   SgySectionStats hitStats;
   if (std::shared_ptr<const SgySliceImage> hit = cachedSection(pathPoints, volume, options, &hitStats))
   {
-    if (hitStats.columnDistances.empty() && hit->width > 0)
-    {
-      hitStats.columns = hit->width;
-      float totalGridLen = 0.0f;
-      for (std::size_t i = 1; i < pathPoints.size(); ++i) {
-        const float di = static_cast<float>(pathPoints[i].x - pathPoints[i - 1].x);
-        const float dx = static_cast<float>(pathPoints[i].y - pathPoints[i - 1].y);
-        totalGridLen += std::sqrt(di * di + dx * dx);
-      }
-      hitStats.columnDistances.reserve(hit->width);
-      for (int c = 0; c < hit->width; ++c) {
-        const float target = hit->width <= 1 ? 0.0f : (float(c) / float(hit->width - 1)) * totalGridLen;
-        hitStats.columnDistances.push_back(target);
-      }
-    }
+    // B-2（full-audit-20261021）：删除「命中但 distances 为空 → 按线号总长
+    // 均匀重采样」的合成分支——直接违反头注「绝不合成近似值」，且产物是
+    // 「均匀 + 线号单位」双重近似。空 distances 如实交给消费端的兜底口径。
     if (onFinished)
     {
       auto *timer = new QTimer(this);
@@ -263,7 +253,42 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
           outImage->rgba = std::move(slice.rgba);
           outStats->columns = slice.width;
           outStats->tracesRead = slice.columnsRead;
-          outStats->columnDistances = std::move(slice.distances);
+          // B-2（full-audit-20261021）：把 vendor 的线号弧长换算成米——
+          // 引擎的 distances 在 il/xl 线号空间累计，消费端
+          // （seismicsectioncanvas 的 columnDistancesM）按米使用；线号步长 ×
+          // 线距 ≠ 1 米的测网上横向比例尺与沿剖面对象定位会系统性错位。
+          // per-column inlineNos/xlineNos + SgyCoordinateMapper 仿射换算；
+          // 仿射不可得时保留线号口径（如实降级，不合成）。
+          {
+            const auto mapper =
+                seismic::SgyCoordinateMapper::Fit(*volume->Index());
+            if (mapper.valid() &&
+                slice.inlineNos.size() == std::size_t(slice.width) &&
+                slice.xlineNos.size() == std::size_t(slice.width))
+            {
+              const auto &fit = mapper.fit();
+              std::vector<float> meters(std::size_t(slice.width > 0 ? slice.width : 1),
+                                        0.0f);
+              double acc = 0.0;
+              for (int c = 1; c < slice.width; ++c)
+              {
+                const double dIl =
+                    double(slice.inlineNos[std::size_t(c)]) -
+                    double(slice.inlineNos[std::size_t(c - 1)]);
+                const double dXl =
+                    double(slice.xlineNos[std::size_t(c)]) -
+                    double(slice.xlineNos[std::size_t(c - 1)]);
+                acc += std::hypot(fit.a * dIl + fit.b * dXl,
+                                  fit.d * dIl + fit.e * dXl);
+                meters[std::size_t(c)] = float(acc);
+              }
+              outStats->columnDistances = std::move(meters);
+            }
+            else
+            {
+              outStats->columnDistances = std::move(slice.distances);
+            }
+          }
           int missing = 0;
           std::vector<int> traces = std::move(slice.traceIndices);
           for (int t : traces)
@@ -747,13 +772,18 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
       const unsigned int hw = std::thread::hardware_concurrency();
       const int nThreads = std::max(1, std::min<int>(4, int(hw)));
       const int chunk = (width + nThreads - 1) / nThreads;
-      auto runRange = [&](int x0, int xEnd, bool report) {
+      // B-4（full-audit-20261021）：算阶段进度改为全分片共享的原子列计数
+      // ——此前只有 0 号分片入账，4 线程封顶 ~62% 后任务直接成功（账本与
+      // 实际工作量脱节，ETA 按假速率外推）。
+      std::atomic<int> columnsDone{0};
+      auto runRange = [&](int x0, int xEnd) {
         for (int x = x0; x < xEnd && !cancelled(); ++x)
         {
           processColumn(x);
-          if (report && ((x & 15) == 0 || x == xEnd - 1))
+          const int n = columnsDone.fetch_add(1, std::memory_order_relaxed) + 1;
+          if (((n & 15) == 0 || n == width) && x0 == 0)
             task->reportBytes(totalUnits - sliceUnits +
-                                  qint64(x - x0 + 1) * height,
+                                  qint64(n) * height,
                               totalUnits);
         }
       };
@@ -777,9 +807,9 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
         const int x1 = std::min(width, x0 + chunk);
         if (x0 >= x1)
           break;
-        workers.emplace_back(runRange, x0, x1, /*report=*/false);
+        workers.emplace_back(runRange, x0, x1);
       }
-      runRange(0, std::min(width, chunk), /*report=*/true);
+      runRange(0, std::min(width, chunk));
       for (auto &w : workers)
         w.join();
       if (cancelled())
@@ -1081,7 +1111,10 @@ namespace
     const double dtMs = 2.0;
     const double tStart = *std::min_element(rcTwt.begin(), rcTwt.end()) - 100.0;
     const double tEnd = *std::max_element(rcTwt.begin(), rcTwt.end()) + 100.0;
-    const double pi2 = 2.0 * std::acos(-1.0);
+    // B-1（full-audit-20261021）：w(t) = (1−2π²f²t²)·e^(−π²f²t²)——系数是 π²
+    // 不是 2π（对照 algorithms/inversion/wavelet.cpp makeRicker 的权威实现；
+    // 写成 2π 时等效主频缩到 √(2/π)≈0.798×，同名义频率下比反演子波低 ~20%）。
+    const double piSq = std::acos(-1.0) * std::acos(-1.0);
     const double f2 = rickerHz * rickerHz;
     for (double t = std::max(0.0, tStart); t <= tEnd; t += dtMs)
     {
@@ -1089,7 +1122,7 @@ namespace
       for (std::size_t k = 0; k < rcTwt.size(); ++k)
       {
         const double tau = t - rcTwt[k]; // 褶积：子波平移到反射点（ms→s 折算在 arg）
-        const double arg = pi2 * f2 * (tau / 1000.0) * (tau / 1000.0);
+        const double arg = piSq * f2 * (tau / 1000.0) * (tau / 1000.0);
         amp += double(rc[k]) * (1.0 - 2.0 * arg) * std::exp(-arg);
       }
       result.twtMs.push_back(t);

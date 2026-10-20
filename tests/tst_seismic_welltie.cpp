@@ -138,6 +138,36 @@ private slots:
     // 零相位 Ricker 峰值应落在界面中点时间上
     QVERIFY(std::abs(result.twtMs[std::size_t(peakIdx)] - 1560.0) < 20.0);
 
+    // B-1（full-audit-20261021）：单界面反射下合成道即 Ricker 子波本体——
+    // 25Hz 的零点半宽 = 1/(π·f·√2) ≈ 9.0ms；系数误写 2π 时主频缩到 0.798×，
+    // 半宽 ≈ 11.3ms。峰值位置断言对频率缩放不敏感，这里用带内形状钉死公式
+    //（采样 2ms，过零点线性内插，容差 ±1.5ms）。
+    const double peakT = result.twtMs[std::size_t(peakIdx)];
+    auto zeroCrossMs = [&](int step) {
+      int i = peakIdx;
+      while (i + step >= 0 && std::size_t(i + step) < result.amplitude.size())
+      {
+        const float a0 = result.amplitude[std::size_t(i)];
+        const float a1 = result.amplitude[std::size_t(i + step)];
+        if (a0 * a1 <= 0.0f)
+        {
+          const double frac = (a0 != a1)
+                                  ? std::abs(a0) / (std::abs(a0) + std::abs(a1))
+                                  : 0.5;
+          return result.twtMs[std::size_t(i)] + step * frac * 2.0; // dtMs = 2
+        }
+        i += step;
+      }
+      return -1.0;
+    };
+    const double leftZc = zeroCrossMs(-1);
+    const double rightZc = zeroCrossMs(+1);
+    QVERIFY(leftZc > 0.0 && rightZc > 0.0);
+    QVERIFY2(std::abs((peakT - leftZc) - 9.0) < 1.5,
+             qPrintable(QStringLiteral("左零点半宽 %1ms").arg(peakT - leftZc)));
+    QVERIFY2(std::abs((rightZc - peakT) - 9.0) < 1.5,
+             qPrintable(QStringLiteral("右零点半宽 %1ms").arg(rightZc - peakT)));
+
     // 降级 1：缺密度
     const auto noDen = SeismicTaskService::computeSyntheticSeismogram(
         depths, ac, {}, {}, td);

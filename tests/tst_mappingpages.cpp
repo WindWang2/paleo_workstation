@@ -1510,14 +1510,12 @@ void FactorPageTests::wellFactorExtractionPayload() {
   auto *extract = page.findChild<QPushButton *>(QStringLiteral("extractWellFactorsButton"));
   auto *generate = page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"));
   value->setCurrentIndex(value->findData(QStringLiteral("ratio")));
-  // #430：绑定真实字段后，提取/生成都先要求间隔线+方向线。
-  QVERIFY(!extract->isEnabled());
-  QVERIFY2(extract->toolTip().contains(QStringLiteral("间隔线")), qPrintable(extract->toolTip()));
+  // 场景 F：井点提取是输入准备，不依赖约束线——无任何约束即可提取。
+  QVERIFY2(extract->isEnabled(), qPrintable(extract->toolTip()));
+  QVERIFY(!extract->toolTip().contains(QStringLiteral("间隔线")));
+  // 未提取井点前生成仍不可用，但原因是井点而非约束线。
   QVERIFY(!generate->isEnabled());
-  QVERIFY2(generate->toolTip().contains(QStringLiteral("步骤 2")), qPrintable(generate->toolTip()));
-  page.setProperty("paleo.page.constraintsready", true);
-  page.setRunBusy(false);
-  QVERIFY(extract->isEnabled());
+  QVERIFY2(generate->toolTip().contains(QStringLiteral("井点")), qPrintable(generate->toolTip()));
 
   QSignalSpy extracted(&page, &ConstraintPage::extractWellFactorsRequested);
   extract->click(); QCOMPARE(extracted.count(), 1);
@@ -1625,8 +1623,9 @@ void FactorPageTests::guidedPreparationAndPinnedActions()
   QVERIFY(page.findChild<QLabel *>(QStringLiteral("factorRequestSummary"))->text().contains(QStringLiteral("砂体厚度")));
   page.setWellFactorFields({QVariantMap{{"id", "sand"}, {"label", "砂厚"}}});
   QVERIFY(!generate->isEnabled());
-  QVERIFY(hint->text().contains(QStringLiteral("间隔线和方向线")));
-  QCOMPARE(next->property("target").toString(), QStringLiteral("constraintFamiliesSection"));
+  // 场景 A：无约束线不再把下一步指向约束分组。
+  QVERIFY(!hint->text().contains(QStringLiteral("间隔线和方向线")));
+  QVERIFY(next->property("target").toString() != QStringLiteral("constraintFamiliesSection"));
   const QString qa = qEnvironmentVariable("PALEO_SINGLEFACTOR_QA_DIR");
   const auto capture = [&page, &qa](const QString &name) {
     if (qa.isEmpty())

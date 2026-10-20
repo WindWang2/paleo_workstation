@@ -763,40 +763,35 @@ bool runGeostatCokriging( const GeostatRunContext &ctx, const std::vector<paleo:
   }
   coModel.crossCorrelation = rho;
 
-  paleo::geostat::KrigingParams krigingParams;
-  krigingParams.maxPoints = maxPoints;
-  krigingParams.searchRadius = searchRadius;
-  const paleo::geostat::CoKrigingResult result =
-      paleo::geostat::ordinaryCoKriging( samples, secondarySamples, grid, coModel, krigingParams,
-                                         [&control]( double frac ) -> bool {
-                                           if ( control.cancelled && control.cancelled() )
-                                             return false;
-                                           if ( control.progress )
-                                             control.progress( frac );
-                                           return true;
-                                         } );
-  if ( result.status == paleo::geostat::Status::Cancelled )
-  {
-    job->error = ConstraintWorkflow::tr( "已取消" );
-    return false;
-  }
-  if ( result.status != paleo::geostat::Status::Ok )
-  {
-    job->error = ConstraintWorkflow::tr( "协克里金失败：%1" ).arg( QString::fromStdString( result.message ) );
-    return false;
-  }
+  // algo-atom P2：ordinary_cokriging 经 NativeCppAdapter
   job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "variance.tif" ) );
-  if ( !writeFloatRaster( job->outputPath, result.estimates, grid.cols, grid.rows, geoTransform, crs,
-                          DataCatalog::localGridCrsWkt() ) ||
-       !writeFloatRaster( job->supportPath, result.variances, grid.cols, grid.rows, geoTransform, crs,
-                          DataCatalog::localGridCrsWkt() ) )
+  paleo::OrdinaryCoKrigingInputs coIn;
+  coIn.primary = samples;
+  coIn.secondary = secondarySamples;
+  coIn.grid = grid;
+  coIn.model = coModel;
+  coIn.params.maxPrimary = maxPoints;
+  coIn.params.maxSecondary = maxPoints;
+  coIn.params.searchRadius = searchRadius;
+  coIn.control = control;
+  coIn.estimatePath = job->outputPath;
+  coIn.variancePath = job->supportPath;
+  for ( int i = 0; i < 6; ++i )
+    coIn.geoTransform[static_cast<std::size_t>( i )] = geoTransform[i];
+  coIn.crs = crs;
+  coIn.canonicalCrsWkt = DataCatalog::localGridCrsWkt();
+  paleo::NativeCppAdapter native;
+  QString nativeErr;
+  const AlgorithmRunResult coRun = native.runOrdinaryCoKriging( coIn, &nativeErr );
+  if ( !coRun.ok )
   {
-    job->error = ConstraintWorkflow::tr( "协克里金栅格写盘失败" );
+    job->error = nativeErr.isEmpty() ? ConstraintWorkflow::tr( "协克里金失败" ) : nativeErr;
     return false;
   }
-  counts.insert( QStringLiteral( "finite" ), result.finiteCells );
-  counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
-  counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
+  counts.insert( QStringLiteral( "finite" ), coRun.diagnostics.value( QStringLiteral( "finite_cells" ) ) );
+  counts.insert( QStringLiteral( "nodata" ), coRun.diagnostics.value( QStringLiteral( "nodata_cells" ) ) );
+  counts.insert( QStringLiteral( "solver_failures" ),
+                 coRun.diagnostics.value( QStringLiteral( "solver_failures" ) ) );
   counts.insert( QStringLiteral( "secondary_samples" ), static_cast<int>( secondarySamples.size() ) );
   {
     paleo::geostat::CoKrigingParams coParams;
@@ -839,82 +834,49 @@ bool runGeostatSgs( const GeostatRunContext &ctx, const std::vector<paleo::geost
   QVariantMap &counts = parts->counts;
   QVariantMap &cvNode = parts->cvNode;
   QVariantMap &sgsNode = parts->sgsNode;
+  // algo-atom P2：sgs 经 NativeCppAdapter（均值/标准差/成员写盘）
   paleo::geostat::SgsParams sgsParams;
   sgsParams.nRealizations = job->params.value( QStringLiteral( "realizations" ), 4 ).toInt();
   sgsParams.seed = static_cast<std::uint64_t>( job->params.value( QStringLiteral( "seed" ), 42 ).toLongLong() );
   sgsParams.maxPoints = maxPoints;
   sgsParams.searchRadius = searchRadius;
-  const paleo::geostat::SgsResult result = paleo::geostat::sgs( samples, grid, model, sgsParams, control );
-  if ( result.status == paleo::geostat::Status::Cancelled )
-  {
-    job->error = ConstraintWorkflow::tr( "已取消" );
-    return false;
-  }
-  if ( result.status != paleo::geostat::Status::Ok )
-  {
-    job->error = ConstraintWorkflow::tr( "SGS 失败：%1" ).arg( QString::fromStdString( result.message ) );
-    return false;
-  }
-  const std::size_t cells = static_cast<std::size_t>( grid.rows ) * grid.cols;
-  std::vector<double> mean( cells, std::numeric_limits<double>::quiet_NaN() );
-  std::vector<double> spread( cells, std::numeric_limits<double>::quiet_NaN() );
-  for ( std::size_t cell = 0; cell < cells; ++cell )
-  {
-    double sum = 0;
-    double sumSq = 0;
-    int n = 0;
-    for ( const std::vector<double> &realization : result.realizations )
-    {
-      const double value = realization[cell];
-      if ( std::isfinite( value ) )
-      {
-        sum += value;
-        sumSq += value * value;
-        ++n;
-      }
-    }
-    if ( n > 0 )
-    {
-      const double m = sum / n;
-      mean[cell] = m;
-      spread[cell] = n > 1 ? std::sqrt( std::max( 0.0, sumSq / n - m * m ) ) : 0.0;
-    }
-  }
   job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "std.tif" ) );
-  if ( !writeFloatRaster( job->outputPath, mean, grid.cols, grid.rows, geoTransform, crs,
-                          DataCatalog::localGridCrsWkt() ) ||
-       !writeFloatRaster( job->supportPath, spread, grid.cols, grid.rows, geoTransform, crs,
-                          DataCatalog::localGridCrsWkt() ) )
+  paleo::SgsInputs sgsIn;
+  sgsIn.samples = samples;
+  sgsIn.grid = grid;
+  sgsIn.model = model;
+  sgsIn.params = sgsParams;
+  sgsIn.control = control;
+  sgsIn.meanPath = job->outputPath;
+  sgsIn.stdPath = job->supportPath;
+  sgsIn.persistRealizations =
+      job->params.value( QStringLiteral( "persistRealizations" ), true ).toBool();
+  sgsIn.memberPathPrefix = QDir( tempDir ).filePath( QStringLiteral( "member_r" ) );
+  for ( int i = 0; i < 6; ++i )
+    sgsIn.geoTransform[static_cast<std::size_t>( i )] = geoTransform[i];
+  sgsIn.crs = crs;
+  sgsIn.canonicalCrsWkt = DataCatalog::localGridCrsWkt();
+  paleo::NativeCppAdapter native;
+  QString nativeErr;
+  const AlgorithmRunResult sgsRun = native.runSgs( sgsIn, &nativeErr );
+  if ( !sgsRun.ok )
   {
-    job->error = ConstraintWorkflow::tr( "SGS 栅格写盘失败" );
+    job->error = nativeErr.isEmpty() ? ConstraintWorkflow::tr( "SGS 失败" ) : nativeErr;
     return false;
   }
-  // 方向 47：成员持久化——各 realization 写成员栅格，发布段收编为
-  // realization_set 集合（契约见 catalog/realizationset.h）。
-  // params.persistRealizations=false → 只产均值+标准差旁路的旧形态。
-  if ( job->params.value( QStringLiteral( "persistRealizations" ), true ).toBool() )
-  {
-    for ( std::size_t k = 0; k < result.realizations.size(); ++k )
-    {
-      const QString memberPath = QDir( tempDir ).filePath(
-          QStringLiteral( "member_r%1.tif" ).arg( k, 3, 10, QLatin1Char( '0' ) ) );
-      if ( !writeFloatRaster( memberPath, result.realizations[k], grid.cols,
-                              grid.rows, geoTransform, crs, DataCatalog::localGridCrsWkt() ) )
-      {
-        job->error = ConstraintWorkflow::tr( "SGS 成员栅格写盘失败（成员 %1）" ).arg( k );
-        return false;
-      }
-      job->memberPaths << memberPath;
-    }
+  job->memberPaths = sgsRun.diagnostics.value( QStringLiteral( "member_paths" ) ).toStringList();
+  if ( sgsIn.persistRealizations )
     job->memberSeed = sgsParams.seed;
-  }
-  counts.insert( QStringLiteral( "finite" ), result.finiteCells );
-  counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
-  counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
+  counts.insert( QStringLiteral( "finite" ), sgsRun.diagnostics.value( QStringLiteral( "finite_cells" ) ) );
+  counts.insert( QStringLiteral( "nodata" ), sgsRun.diagnostics.value( QStringLiteral( "nodata_cells" ) ) );
+  counts.insert( QStringLiteral( "solver_failures" ),
+                 sgsRun.diagnostics.value( QStringLiteral( "solver_failures" ) ) );
   sgsNode.insert( QStringLiteral( "realizations" ), sgsParams.nRealizations );
   sgsNode.insert( QStringLiteral( "seed" ), static_cast<qulonglong>( sgsParams.seed ) );
-  sgsNode.insert( QStringLiteral( "sample_mean" ), result.sampleMean );
-  sgsNode.insert( QStringLiteral( "sample_std" ), result.sampleStd );
+  sgsNode.insert( QStringLiteral( "sample_mean" ),
+                  sgsRun.diagnostics.value( QStringLiteral( "sample_mean" ) ) );
+  sgsNode.insert( QStringLiteral( "sample_std" ),
+                  sgsRun.diagnostics.value( QStringLiteral( "sample_std" ) ) );
   // 随机模拟成果是实现集合的均值/标准差，不是最优估值：不做 LOO，也不冒充。
   cvNode.insert( QStringLiteral( "status" ), QStringLiteral( "not_computed" ) );
   cvNode.insert( QStringLiteral( "reason" ), QStringLiteral( "stochastic_simulation_use_realization_spread" ) );

@@ -43,3 +43,6 @@ artifacts/portable/
 # 本地工具目录（WorkBuddy 会话 / 个人工作区）
 .workbuddy/
 .zwork/
+
+# 本机调试凭据与环境（测井相服务等），严禁入库
+/local/

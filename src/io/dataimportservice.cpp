@@ -78,6 +78,8 @@ void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<
   m_convQueue.clear();
   m_convCurrent.clear();
   m_convCurrentExt.clear();
+  m_convRawVersionId.clear(); // A-04：跨工程脏血统值一并清
+  m_convCurrentVersionId.clear();
   m_convPending.clear();
   m_convErrors.clear();
 

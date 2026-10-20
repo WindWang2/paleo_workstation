@@ -1,6 +1,6 @@
 # 算法原子契约（Algorithm Atom Contract）
 
-> 状态：P0 规格钉板（**12/12 Processing complete**）+ P1 publishArtifacts（单因素链收口）+ P3 ANISO_RATIO schema  
+> 状态：P0 12/12 Spec + P1 单因素/编图发布收口 + **P2 ProcessingAdapter 试点（fusion）** + P3 ANISO schema  
 > 日期：2026-10-20（Asia/Shanghai）  
 > 切片：`algo-atom-p0-spec-constraint-idw`  
 > 相关：`docs/DATA_FABRIC_ADOPTION.md`（typed RunPort **defer**）→ 本契约是该递延项的 Paleo 裁剪落地，**不**引入对方整套 data-fabric。
@@ -129,8 +129,8 @@ P0 Spec 端口与现网参数名对齐：
 | 阶段 | 内容 | 本切片 |
 |------|------|--------|
 | **P0** | Spec 静态表 + 文档 + `tst_algorithm_spec` | ✅ **12/12 Processing complete** |
-| **P1** | `publishArtifacts`；单因素 constraintfactorjobs_* 发布收口 | ✅ |
-| **P2** | Processing / NativeCpp adapter；AtomicJob | 后续（未开工） |
+| **P1** | `publishArtifacts`；单因素 + 编图 fusion/polygonize/prediction/workbench.record | ✅ |
+| **P2** | Processing / NativeCpp adapter；AtomicJob | **部分**：ProcessingAlgorithmAdapter + fusion 试点；NativeCpp 桩；AtomicJob 未做 |
 | **P3** | Schema ← Spec；UI 只读 Spec | 部分：ANISO_RATIO 已进 schema；全文单一事实源仍后续 |
 | **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | 后续 |
 
@@ -144,11 +144,27 @@ P0 验收：
 P1 验收：
 
 - `paleo::publishArtifacts` 存在且层闸门允许（功能层，链 DerivedAssetRegistrar）。
-- 单因素链（constraint_idw / isopach / distance / structural / local_direction / surfer /
-  geostat / cartographic / 等值线 / 解释性工作场）`commitExternal` 改经 `publishArtifacts`。
+- 单因素链 + 编图链（fusion / polygonize / PredictionWorkflow / MappingWorkbench::record）
+  算法类产出改经 `publishArtifacts`（见 §6.1 白名单）。
 - **不**改 `processAlgorithm` 本体；catalog 指纹/只读纪律与直调 `commitExternal` 一致。
 - `tst_algorithm_spec`（12/12）+ `tst_derivedassets`（含 publish 用例）绿。
 - P3 小步：`ANISO_RATIO` 已写入 `AlgorithmParamSchema`（与 Spec / initAlgorithm 对齐）。
+
+## 6.1 发布白名单（故意不经 publishArtifacts）
+
+| 位置 | 原因 |
+|------|------|
+| `faciesmappingworkflow` draft/report `commit` | 纯核编图草稿/报告 JSON，非 Processing OUTPUT |
+| `mappingworkflow` thickness `commit` | 厚度井点/回落/栅格管线（本波未迁；非 paleo:* fusion/polygonize） |
+| `mappingworkbench` `facies-schema` `commit` | 相图式元数据资产，非算法栅格/矢量产出 |
+| `mappingworkbench_predict` horizon.dat `commitExternal` | 输入快照冻结，非算法产出 |
+| `QFile::commit` / SQLite 事务 | 非 catalog DERIVED 登记 |
+
+## 6.2 P2 适配器
+
+- `src/workflow/algorithmadapters.h`：`ProcessingAlgorithmAdapter`（包装 `QgisProcessingService::run` → `AlgorithmRunResult`）、`NativeCppAdapter`（桩）。
+- **试点**：`CompositionWorkflow` 相融合路径 `adapter.run(fusionSpec) → publishArtifacts`。
+- 验收：`tst_algorithm_adapters`；fusion/polygonize 行为与改前等价（仍走同一 registrar 指纹纪律）。
 
 ## 7. 回链
 

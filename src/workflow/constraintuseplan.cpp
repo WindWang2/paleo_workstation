@@ -140,7 +140,10 @@ ConstraintReadiness assessConstraintReadiness( const ConstraintUsePlan &plan )
   }
   else
   {
-    r.message = QObject::tr( "本层位没有约束线，按井点直接计算；如需考虑断层或展布方向可再绘制。" );
+    r.message = plan.availableCartographic > 0
+                    ? QObject::tr( "本层位没有参与数值计算的约束线（%1 条仅影响制图）；按井点直接计算。" )
+                          .arg( plan.availableCartographic )
+                    : QObject::tr( "本层位没有约束线，按井点直接计算；如需考虑断层或展布方向可再绘制。" );
   }
   return r;
 }

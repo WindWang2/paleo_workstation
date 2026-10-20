@@ -682,3 +682,29 @@ QStringList AlgorithmSpecRegistry::completeIds()
   }
   return ids;
 }
+
+QString AlgorithmSpecRegistry::portSummaryText( const QString &algorithmId )
+{
+  const AlgorithmSpec s = spec( algorithmId );
+  if ( s.id.isEmpty() )
+    return {};
+  QStringList ins;
+  QStringList outs;
+  for ( const AlgoPort &p : s.inputs )
+  {
+    if ( p.hidden )
+      continue;
+    ins.append( QStringLiteral( "%1(%2)" ).arg( p.id, p.kind ) );
+  }
+  for ( const AlgoPort &p : s.outputs )
+    outs.append( QStringLiteral( "%1(%2)" ).arg( p.id, p.kind ) );
+  QStringList lines;
+  if ( !ins.isEmpty() )
+    lines.append( QCoreApplication::translate( "AlgorithmSpec", "输入：%1" )
+                      .arg( ins.join( QStringLiteral( ", " ) ) ) );
+  if ( !outs.isEmpty() )
+    lines.append( QCoreApplication::translate( "AlgorithmSpec", "输出：%1" )
+                      .arg( outs.join( QStringLiteral( ", " ) ) ) );
+  return lines.join( QLatin1Char( '\n' ) );
+}
+

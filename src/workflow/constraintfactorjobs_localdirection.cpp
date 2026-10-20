@@ -608,7 +608,7 @@ bool ConstraintWorkflow::generateLocalDirectionFactor( const QString &horizon, c
               QFile::remove(file);
           }
         },
-        error);
+        error, job.engineId );
   }
   if ( !computeLocalDirectionJob( &job ) )
   {

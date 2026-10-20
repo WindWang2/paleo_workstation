@@ -83,4 +83,6 @@ class AlgorithmSpecRegistry
     static QStringList knownIds();
     // complete==true 的 id（12 Processing + P4 native 入口）
     static QStringList completeIds();
+    // 任务中心用：非 hidden 输入/输出「id(kind)」摘要；未知 id → 空串。
+    static QString portSummaryText( const QString &algorithmId );
 };

@@ -132,7 +132,7 @@ P0 Spec 端口与现网参数名对齐：
 | **P1** | `publishArtifacts`；单因素 + 编图 fusion/polygonize/prediction/workbench.record | ✅ |
 | **P2** | Processing / NativeCpp adapter；AtomicJob | ✅ Processing/NativeCpp 接线；AtomicJob 薄助手 `runProcessingAndPublish`（fusion 试点） |
 | **P3** | Schema ← Spec；UI 只读 Spec | ✅ `AlgorithmParamSchema::fieldsFor` 派生自 complete Processing Spec.params（UI 富化标签/InList） |
-| **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | ✅ native Spec + 运行时接线（含 propagate）；任务中心 port 摘要未做 |
+| **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | ✅ native Spec + 运行时；TaskPanel tooltip 经 `portSummaryText` + `navigationContext.algorithm_id` |
 
 P0 验收：
 
@@ -154,13 +154,13 @@ P1 验收：
 
 | 位置 | 原因 |
 |------|------|
-| `mappingworkbench` `facies-schema` `commit` | 相图式元数据资产，非算法栅格/矢量产出 |
-| `mappingworkbench_predict` horizon.dat `commitExternal` | 输入快照冻结，非算法产出 |
 | `QFile::commit` / SQLite 事务 | 非 catalog DERIVED 登记 |
 
 已迁出白名单：
 - `faciesmappingworkflow` draft/report → `publishArtifacts`
-- `mappingworkflow` thickness wells/fallback/main → 各段独立 `publishArtifacts`（三份 DERIVED 资产各自 stage，不合成单次多端口 RunResult）
+- `mappingworkflow` thickness wells/fallback/main → 各段独立 `publishArtifacts`
+- `mappingworkbench` facies-schema → `publishArtifacts`（元数据 JSON，仍非 Processing OUTPUT）
+- `mappingworkbench_predict` horizon.dat 输入快照 → `publishArtifacts`（commitExternal 等价）
 
 ## 6.2 P2 适配器
 
@@ -193,8 +193,15 @@ P1 验收：
 |------|------|
 | **生产接线** | 12 Processing Spec + Adapter；Native 全表（含 hztrack 3D propagate）；publishArtifacts 单因素/编图/fusion/prediction/thickness/facies draft；AtomicJob 薄助手（fusion） |
 | **Spec 派生 UI** | AlgorithmParamSchema ← Spec.params（P3） |
-| **刻意延期** | 任务中心 port 摘要；AtomicJob 全面替换 ConstraintJob/PredictionJob；facies-schema / horizon.dat 快照白名单 |
-| **结论** | **算法原子化主线完成**（含本波 deferred polish）。剩余仅 UI 任务摘要与可选 Job 结构统一，不阻塞 Spec→Adapter→publish 契约 |
+| **刻意延期** | AtomicJob 全面替换 ConstraintJob/PredictionJob（见下） |
+| **结论** | **算法原子化 backlog 已空**：Spec→Adapter→publish 全覆盖；任务中心 Spec 端口摘要已落地；白名单仅剩非 catalog 事务 |
+
+### AtomicJob vs ConstraintJob/PredictionJob（诚实跳过）
+
+- `runProcessingAndPublish` 适合 **同步** Adapter.run→publish（fusion 已用）。
+- **PredictionJob**：publish 前有图层 declare 与失败回滚顺序；compute 与 publish 分属 worker/owner 线程——不可整段换成 AtomicJob 而不改 JobRunner 契约。
+- **ConstraintJob**：JobRunner 多 variant（geostat/local_direction/contours…）生产路径已 Adapter+publishArtifacts；统一面 `startConstraintJob` 仅测试消费。
+- **结论**：保留三段式 Job；AtomicJob 薄助手作为同步胶合即可，不做巨型重写。
 
 ## 7. 回链
 

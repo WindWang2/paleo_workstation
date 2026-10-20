@@ -27,6 +27,7 @@
 #include "assetops.h"
 #include "constraintimport.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "evidencerecord.h"
 #include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
@@ -358,9 +359,17 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
         const auto st = registrar.stage("horizon", request.horizon + "-prediction-input",
                                         request.horizon + ".dat", &error);
         const QStringList parents = horizonVersion.isEmpty() ? QStringList() : QStringList{horizonVersion};
-        if (!st.isValid() || !registrar.commitExternal(st, inputSnapshot->filePath("horizon.dat"),
-            parents, horizonPath, {{"horizon", request.horizon}, {"horizon_input_snapshot", true},
-                                  {"z_units", "ms"}}, &error)) {
+        // algo-atom：输入快照经 publishArtifacts（commitExternal 等价）
+        AlgorithmRunResult snapRun =
+            paleo::runResultFromOutputPath( inputSnapshot->filePath( QStringLiteral( "horizon.dat" ) ) );
+        snapRun.diagnostics.insert( QStringLiteral( "asset_role" ),
+                                    QStringLiteral( "horizon_input_snapshot" ) );
+        QVariantMap snapExtra;
+        snapExtra.insert( QStringLiteral( "horizon" ), request.horizon );
+        snapExtra.insert( QStringLiteral( "horizon_input_snapshot" ), true );
+        snapExtra.insert( QStringLiteral( "z_units" ), QStringLiteral( "ms" ) );
+        if (!st.isValid() || !paleo::publishArtifacts( registrar, st, snapRun, parents, horizonPath,
+                                                       snapExtra, &error )) {
           m_request = {};
           m_predictionParameters.clear();
           endPredictionTask(error);

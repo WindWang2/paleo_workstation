@@ -1073,7 +1073,7 @@ bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const 
               QFile::remove(file);
           }
         },
-        error);
+        error, QStringLiteral( "paleo:paleo_surfer_idw" ) );
   }
   if ( !computeLocalDirectionJob( &job ) )
   {
@@ -1129,7 +1129,7 @@ bool ConstraintWorkflow::factorBusy() const {
 bool ConstraintWorkflow::runFactorWork(
     const QString &title, std::function<QString(PaleoTask *)> compute,
     std::function<bool(QString *)> publish, std::function<void()> cleanup,
-    QString *error) {
+    QString *error, const QString &algorithmId ) {
   if (!m_factorTasks) {
     const auto err = compute(nullptr);
     if (!err.isEmpty()) {
@@ -1165,6 +1165,12 @@ bool ConstraintWorkflow::runFactorWork(
   const auto session = m_factorTasks->session();
   QPointer<PaleoTask> task = m_factorTasks->beginExternal(title);
   m_factorJobTask = task;
+  if ( !algorithmId.isEmpty() )
+  {
+    QVariantMap nav = task->navigationContext();
+    nav.insert( QStringLiteral( "algorithm_id" ), algorithmId );
+    task->setNavigationContext( nav );
+  }
   emit factorJobStateChanged(true);
   connect(task, &PaleoTask::changed, this, [this, task] {
     if (task && task->running())
@@ -1377,7 +1383,7 @@ bool ConstraintWorkflow::runFactorAlgorithm(
                          stem + ".support.tif", stem + ".samples.gpkg"})
           QFile::remove(file);
       },
-      error);
+      error, engine );
 }
 
 void ConstraintWorkflow::cancelFactorTask() {

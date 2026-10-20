@@ -92,6 +92,7 @@ private slots:
   void schemaDerivedFromCompleteProcessingSpecs();
   void constraintIdwPortsAndAnisoInSchema();
   void unknownIdReturnsEmpty();
+  void portSummaryTextForConstraintIdw();
 };
 
 void AlgorithmSpecTests::allTwelveProcessingComplete()
@@ -218,6 +219,16 @@ void AlgorithmSpecTests::unknownIdReturnsEmpty()
 {
   QVERIFY( !AlgorithmSpecRegistry::knows( QStringLiteral( "paleo:does_not_exist" ) ) );
   QVERIFY( AlgorithmSpecRegistry::spec( QStringLiteral( "paleo:does_not_exist" ) ).id.isEmpty() );
+}
+
+void AlgorithmSpecTests::portSummaryTextForConstraintIdw()
+{
+  const QString text = AlgorithmSpecRegistry::portSummaryText(
+      QStringLiteral( "paleo:paleo_constraint_idw" ) );
+  QVERIFY( text.contains( QStringLiteral( "INPUT(vector)" ) ) );
+  QVERIFY( text.contains( QStringLiteral( "OUTPUT(raster)" ) ) );
+  QVERIFY( !text.contains( QStringLiteral( "LOCAL_GRID_WKT" ) ) ); // hidden
+  QVERIFY( AlgorithmSpecRegistry::portSummaryText( QStringLiteral( "nope" ) ).isEmpty() );
 }
 
 QTEST_MAIN( AlgorithmSpecTests )

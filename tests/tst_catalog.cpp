@@ -139,6 +139,7 @@ private slots:
   void liveReadsRefusedOffOwnerThread();
   // 方向 79：版本 extra 就地更新通道（锚深后补编辑）契约。
   void updateVersionExtraContract();
+  void mapExtraNoopDoesNotBumpMutationSeq(); // C-5（full-audit-20261021）
   // 方向 01 B2：批次挂起中重开工程，删除面不得跨工程泄漏。
   void openResetsPendingRemovalFaces();
   // #476：versions(asset_id, version_number) 唯一口径——同资产同版本号
@@ -2688,6 +2689,48 @@ void TestCatalog::openResetsPendingRemovalFaces()
   QVERIFY(reread.hasEntity(QStringLiteral("well-B1")));
   QCOMPARE(reread.assets().size(), 1);
   QCOMPARE(reread.versionsForAsset(QStringLiteral("ast-1")).size(), 1);
+}
+
+void TestCatalog::mapExtraNoopDoesNotBumpMutationSeq()
+{
+  // C-5（full-audit-20261021）：map 重载与单键重载同口径的「真 no-op」短路
+  // ——同值重写不动 catalog（不 ++mutationSeq、不 save）。此前查询路径反复
+  // 回写同一 patch 每次都落盘（连井剖面岩性装配是直接放大器：刷新即抬
+  // 发布闸门、刷 catalog.changed）。
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QString err;
+  QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("well_log");
+  QVERIFY(cat.addAsset(a, &err));
+  CatalogVersion v;
+  v.id = QStringLiteral("ver-1");
+  v.assetId = a.id;
+  v.stage = QStringLiteral("RAW");
+  v.versionNumber = 1;
+  v.managed = false;
+  v.path = QStringLiteral("C:/nowhere/a.las");
+  v.extra.insert(QStringLiteral("cuttingsNote"), QStringLiteral("落选"));
+  QVERIFY(cat.addVersion(v, &err));
+  const quint64 seq0 = cat.mutationSeq();
+  const int rev0 = cat.catalogRevision();
+
+  QVariantMap same;
+  same.insert(QStringLiteral("cuttingsNote"), QStringLiteral("落选"));
+  QVERIFY(cat.updateVersionExtra(QStringLiteral("ver-1"), same, &err));
+  QCOMPARE(cat.mutationSeq(), seq0); // 同值：零写副作用
+  QCOMPARE(cat.catalogRevision(), rev0);
+
+  QVariantMap changed;
+  changed.insert(QStringLiteral("cuttingsNote"), QStringLiteral("主打"));
+  QVERIFY(cat.updateVersionExtra(QStringLiteral("ver-1"), changed, &err));
+  QVERIFY(cat.mutationSeq() != seq0); // 真变更：如实入账
+  QCOMPARE(cat.versionById(QStringLiteral("ver-1"))
+               .extra.value(QStringLiteral("cuttingsNote")).toString(),
+           QStringLiteral("主打"));
 }
 
 QTEST_MAIN(TestCatalog)

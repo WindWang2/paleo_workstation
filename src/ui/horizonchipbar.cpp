@@ -110,11 +110,15 @@ void HorizonChipBar::reloadHorizons()
 {
   // 层位名单是工程级参数（AreaRules）——工程打开后按新词表重建；旧 chip
   // 连同其连接一并销毁，激活态交由 applyActive 按当前 selection 恢复。
+  // D-02（full-audit-20261021）：deleteLater 的旧 chip 在事件循环运行前仍
+  // 是本对象的子项——紧随其后的 buildChips/applyActive/chipNames 经
+  // findChildren 会命中新旧两代（chipNames 双计数、状态操作打在死对象上）。
+  // reload 无用户点击在飞，直接 delete 即刻回收。
   const auto chips = findChildren<QToolButton *>();
   for ( QToolButton *chip : chips )
   {
     layout()->removeWidget( chip );
-    chip->deleteLater();
+    delete chip;
   }
   buildChips();
   applyActive( m_selection ? m_selection->activeHorizon() : QString() );

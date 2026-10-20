@@ -144,6 +144,15 @@ void VolumeFrameRenderer::UpdateFromVolume(QOpenGLFunctions_3_3_Core *gl, const 
     Upload(gl, volume);
 }
 
+// D.13：换体即换归一化基准。任意线路径（顶面剖面线）随旧体作废——上传前
+// 必须清掉，否则旧体的 (inline,xline) 会按新体区间重新归一化后继续绘制；
+// 井/第二体轮廓只换基准重建（CPU 成员未动，数据仍属当前解释会话）。
+void VolumeFrameRenderer::ResetForVolumeChange(QOpenGLFunctions_3_3_Core *gl, const SgyVolume &volume) {
+    linePath_.clear();
+    if (gl && initialized_ && volume.IsLoaded())
+        Upload(gl, volume);
+}
+
 void VolumeFrameRenderer::UpdateLineSection(
     QOpenGLFunctions_3_3_Core *gl,
     const SgyVolume &volume,

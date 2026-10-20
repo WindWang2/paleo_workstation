@@ -56,12 +56,14 @@ public:
         const SgySliceImage &image);
     [[nodiscard]] bool hasPendingPropertySlice() const { return !pendingProperty_.empty(); }
 
-    // D3.1 体渲染堆叠层贴图
+    // D3.1 体渲染堆叠层贴图。GL 未就绪时由渲染器暂存，initializeGL 后补传
+    // （面板 glReady 只重发三槽切片，不补堆叠层——D.14）。
     bool updateStackLayer(int layerIdx, int sampleIndex, const SgySliceImage &image);
     void setStackVisible(bool visible);
     [[nodiscard]] bool isStackVisible() const;
     void setStackLayerCount(int count); // 交互降采样：拖动 4 / 静止 16
     [[nodiscard]] int stackLayerCount() const { return stackLayerCount_; }
+    [[nodiscard]] bool hasPendingStackLayers() const { return sliceRenderer_.HasStagedStackLayers(); }
 
     bool updateLineSlice(
         const std::vector<glm::ivec2> &pathPoints,

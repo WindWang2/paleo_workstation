@@ -340,19 +340,16 @@ void AiChatController::retryLast() {
   m_session.messages.resize(lastUser + 1);
   emit sessionChanged(); // 历史被截断：整页重画（UI 不做增量反演）
 
-  ChatMessage placeholder; // 流式增量往这条上累积（与 sendUserText 同形）
-  placeholder.role = ChatRole::Assistant;
-  placeholder.timestamp = QDateTime::currentDateTime();
-  appendMessage(placeholder);
-
   // 与 sendUserText 同口径重置工具往返状态：否则上一轮打满 kMaxToolRounds
   // 后重试，本轮首个工具请求即超限——重试轮被永久禁用工具。
   m_toolRound = 0;
   m_pendingToolResults = 0;
   m_unansweredCalls.clear();
   setStreaming(true);
-  m_client.setConfig(m_config);
-  m_client.send(requestMessages());
+  // C-1（full-audit-20261021）：收编进 sendRound——此前手工复制占位+上送
+  // 序列时漏了 tools() 实参，重试轮发出的请求不含领域工具，模型静默失去
+  // 工具调用能力（与上方注释自述的「重试轮恢复工具」意图相悖）。
+  sendRound();
 }
 
 void AiChatController::appendMessage(const ChatMessage &message) {

@@ -621,6 +621,7 @@ add_library(paleo_workflow STATIC
   src/workflow/xmlpreviewsession.cpp
   src/workflow/stratigraphicwebsession.cpp
   src/workflow/mappingworkbench.cpp
+  src/workflow/mappingworkbench_readiness.cpp     # 预测专项：测井批量准备检查（干跑）
   src/workflow/mappingworkbench_predict.cpp       # 预测管线（predict/finish/任务行）——core-deepening A-R2 拆分
   src/workflow/mappingworkbench_edit.cpp          # 编辑副本/资产移除/约束导入——core-deepening A-R2 拆分
   src/workflow/mappingworkbench_compose.cpp       # 融合合成管线——core-deepening A-R2 拆分
@@ -730,6 +731,7 @@ add_library(paleo_ui STATIC
   src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧
   src/ui/pages/wellsitingpanel.cpp                 # 方向34：布井辅助面板（验证页页签）
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
+  src/ui/pages/wellreadinesspanel.cpp               # 预测专项：测井批量准备检查面板
   src/ui/pages/predictpage.cpp                     # W5b ①智能预测
   src/ui/pages/constraintpage.cpp                  # W5b ②约束与单因素（方向96：ctor 编排 + 因子清单面）
   src/ui/pages/constraintpage_wellfactors.cpp      # 方向96：井点因子域 TU

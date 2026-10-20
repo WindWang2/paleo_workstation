@@ -2755,6 +2755,70 @@ private slots:
   }
   // 智能预测的测井预测按地层（井 tops 的组/段）组织成矢量：每井每地层一行，
   // 优势微相 = 累计厚度最大的相；与数据管理的预测同一张表，请求带入该表。
+  // 预测专项 P0：批量逐井准备检查——与正式运行同一条规则链，干跑只查模型
+  // 清单（不 POST /predict、不写成果），逐井给出可预测/不可预测原因。
+  void wellReadinessDryRunReportsPerWellReasonsWithoutPredicting() {
+    WellApiServer server;
+    WellApiEnvironment environment(server);
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    for (const auto &name : {"A", "B", "C"}) {
+      QVERIFY(!f.well(name, 10, 20).isEmpty());
+      // B 只有 D62 分层：缺当前层位 D61 → 不可预测。
+      const QString d61 = QStringLiteral("%1 D61 1000 0 0 -1000 1000 -99999\n").arg(name);
+      QVERIFY(f.tops(name, QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n%1%2 D62 1060 0 0 -1060 1060 -99999\n")
+                               .arg(QString(name) == "B" ? QString() : d61, name)));
+      QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+        {QVariantMap{{"well_id", name}, {"top_md", 1000.0}, {"base_md", 1120.0},
+          {"lithology", QStringLiteral("维护砂岩")}, {"facies", QStringLiteral("原解释")}}}, &error));
+    }
+    installRemotePrediction(&f.work, RemotePredictConfig{}, nullptr, {}, &f.work);
+    MappingWorkbenchPage page("predict", &f.work);
+    page.setHorizon("D61");
+    auto *kind = page.findChild<QComboBox *>("predictionKind");
+    kind->setCurrentIndex(kind->findData(QStringLiteral("wells")));
+    QSignalSpy readiness(&f.work, &MappingWorkbench::wellReadinessReady);
+    QVERIFY2(f.work.checkWellReadiness("D61", {"A", "B", "C"}, &error), qPrintable(error));
+    QVERIFY(!f.work.busy()); // 干跑不占用正式运行
+    QTRY_COMPARE_WITH_TIMEOUT(readiness.size(), 1, 10000);
+    QCOMPARE(readiness.first()[0].toString(), QString("D61"));
+    QVERIFY2(readiness.first()[2].toString().isEmpty(), qPrintable(readiness.first()[2].toString()));
+    const auto wells = readiness.first()[1].toList();
+    QCOMPARE(wells.size(), 3);
+    QHash<QString, QVariantMap> byId;
+    for (const auto &v : wells) byId.insert(v.toMap().value("id").toString(), v.toMap());
+    QVERIFY(byId["A"].value("ready").toBool());
+    QVERIFY(byId["C"].value("ready").toBool());
+    QVERIFY(!byId["B"].value("ready").toBool());
+    QVERIFY2(byId["B"].value("reason").toString().contains("D61"), qPrintable(byId["B"].value("reason").toString()));
+    QCOMPARE(server.modelRequests, 1);
+    QCOMPARE(server.bodies.size(), 0);                  // 没有提交任何预测
+    QVERIFY(f.latest("wells_prediction").isEmpty());    // 没有写成果
+    // 与正式运行口径一致：随后正式运行 A+B+C，只有 A、C 提交。
+    QVERIFY2(f.work.predict("D61", "wells", {"A", "B", "C"}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 10000);
+    QCOMPARE(server.bodies.size(), 2);
+
+    // 界面：勾选全部井 → 「检查可预测井」→ 汇总与逐井原因。
+    auto *inputs = page.findChild<QListWidget *>("workbenchInputs");
+    QCOMPARE(inputs->count(), 3);
+    for (int i = 0; i < inputs->count(); ++i) inputs->item(i)->setCheckState(Qt::Checked);
+    auto *check = page.findChild<QPushButton *>("wellReadinessCheck");
+    QVERIFY(check);
+    QTRY_VERIFY(check->isEnabled()); // 勾选变化后下一轮事件循环刷新
+    check->click();
+    auto *summary = page.findChild<QLabel *>("wellReadinessSummary");
+    QTRY_VERIFY_WITH_TIMEOUT(summary->text().contains(QStringLiteral("口不可预测")), 10000);
+    QCOMPARE(summary->text(), QStringLiteral("3 口井 / 2 口可预测 / 1 口不可预测"));
+    auto *toggle = page.findChild<QPushButton *>("wellReadinessToggle");
+    QVERIFY(!toggle->isHidden());
+    toggle->click();
+    auto *reasons = page.findChild<QListWidget *>("wellReadinessReasons");
+    QVERIFY(!reasons->isHidden());
+    QCOMPARE(reasons->count(), 3);
+  }
+
   void wellsRemoteApiProducesCurrentFormationVectorAndUpdatesArea() {
     WellApiServer server;
     WellApiEnvironment environment(server);

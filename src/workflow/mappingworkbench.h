@@ -58,6 +58,11 @@ public:
   void setPredictionService(RemotePredictionService *service);
   void setWellPredictionService(WellPredictionService *service);
   QString wellPredictionStatusHint() const;
+  // 预测专项 P0：所选井的批量准备检查（干跑，异步，不阻塞 GUI）。与
+  // predict(h, "wells", ids) 用同一份请求组装（wellRequestEntry）与同一条
+  // WellPredictionService 规则链；结果经 wellReadinessReady 回传。
+  bool checkWellReadiness(const QString &horizon, const QStringList &ids,
+                          QString *error = nullptr);
   RemotePredictionService *predictionService() const { return m_remote.data(); }
   // 智能预测进任务中心：每次预测一行（进度/取消/终态），装配根注入；
   // 未注入时预测照常运行，只是不出任务行。
@@ -260,6 +265,8 @@ signals:
   void predictionProgress(int percent);
   void predictionDetailChanged(const QString &detail);
   void predictionStatusChanged();
+  void wellReadinessReady(const QString &horizon, const QVariantList &wells,
+                          const QString &error);
   void productReady(const QString &horizon, const QString &layerId);
   // 后台转面终态（成功时 productId 非空；取消/过期 cancelled=true）。
   void polygonizeFinished(const QString &sourceLayerId,
@@ -388,6 +395,10 @@ private:
   QPointer<DataCatalog> m_catalog;
   QPointer<RemotePredictionService> m_remote;
   QPointer<WellPredictionService> m_wellRemote;
+  QString m_readinessId, m_readinessHorizon;
+  QStringList m_readinessMissing; // 勾选但不在可用输入中的井
+  // 测井请求的单井条目（predict 与 checkWellReadiness 共用，口径单一）。
+  QVariantMap wellRequestEntry(const QVariantMap &row, const QString &horizon) const;
   QString m_dir;
   double m_displayScale = 0;
   QVariantMap m_editEvidence; // 会话依据：冻结版本；切层位或工程即清空。

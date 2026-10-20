@@ -179,16 +179,12 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     seen.insert(row.value("id").toString());
     request.sourceVersionIds << row.value("parents").toStringList();
     if (kind == "wells") {
-      auto well = row;
       const auto logVersion = row.value("log_version_id").toString();
       logPaths << (logVersion.isEmpty()
                        ? QString()
                        : DataCatalog::resolvedVersionPath(
                              m_dir, m_catalog->versionById(logVersion)));
-      well.insert("vector_intervals", WellAttributeStore::rows(m_dir, m_layers, false, row.value("id").toString()));
-      well.insert("vector_factors", WellAttributeStore::rows(m_dir, m_layers, true, row.value("id").toString(), h));
-      well.insert("vector_formations", WellAttributeStore::rows(m_dir, m_layers, WellAttributeStore::Table::Formations, row.value("id").toString()));
-      request.wells << well;
+      request.wells << wellRequestEntry(row, h);
     }
   }
   if (seen.size() != QSet<QString>(ids.cbegin(), ids.cend()).size()) {

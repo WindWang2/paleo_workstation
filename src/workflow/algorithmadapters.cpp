@@ -27,10 +27,7 @@
 
 #include "../services/nativerunners.h"
 
-#include "../algorithms/rasterout.h"
 #include "../catalog/datacatalog.h"
-
-#include <gdal.h>
 
 #include <cmath>
 #include <cstring>
@@ -40,32 +37,6 @@ namespace paleo
 {
 namespace
 {
-
-bool writeFloatRaster( const QString &path, const std::vector<double> &values, int cols, int rows,
-                       const double geoTransform[6], const QgsCoordinateReferenceSystem &crs,
-                       const QString &canonicalCrsWkt )
-{
-  GDALDatasetH ds = PaleoRasterOut::createFloatRaster( path, cols, rows, geoTransform, crs, -9999.0,
-                                                       canonicalCrsWkt );
-  if ( !ds )
-    return false;
-  std::vector<float> row( static_cast<std::size_t>( cols ) );
-  bool ok = true;
-  for ( int r = 0; r < rows && ok; ++r )
-  {
-    for ( int c = 0; c < cols; ++c )
-    {
-      const double value = values[static_cast<std::size_t>( r ) * cols + c];
-      row[static_cast<std::size_t>( c )] =
-          std::isfinite( value ) ? static_cast<float>( value ) : -9999.0f;
-    }
-    if ( GDALRasterIO( GDALGetRasterBand( ds, 1 ), GF_Write, 0, r, cols, 1, row.data(), cols, 1,
-                       GDT_Float32, 0, 0 ) != CE_None )
-      ok = false;
-  }
-  GDALClose( ds );
-  return ok;
-}
 
 QString crsWktOrLocal( const QString &canonicalCrsWkt )
 {
@@ -264,7 +235,7 @@ AlgorithmRunResult NativeCppAdapter::runOrdinaryKriging( const OrdinaryKrigingIn
   }
 
   const QString wkt = crsWktOrLocal( in.canonicalCrsWkt );
-  if ( !writeFloatRaster( in.estimatePath, kr.estimate, in.grid.cols, in.grid.rows,
+  if ( !writeFloatRasterGrid( in.estimatePath, kr.estimate, in.grid.cols, in.grid.rows,
                           in.geoTransform.data(), in.crs, wkt ) )
   {
     r.ok = false;
@@ -281,7 +252,7 @@ AlgorithmRunResult NativeCppAdapter::runOrdinaryKriging( const OrdinaryKrigingIn
 
   if ( !in.variancePath.isEmpty() )
   {
-    if ( !writeFloatRaster( in.variancePath, kr.variance, in.grid.cols, in.grid.rows,
+    if ( !writeFloatRasterGrid( in.variancePath, kr.variance, in.grid.cols, in.grid.rows,
                             in.geoTransform.data(), in.crs, wkt ) )
     {
       r.ok = false;
@@ -340,7 +311,7 @@ AlgorithmRunResult NativeCppAdapter::runOrdinaryCoKriging( const OrdinaryCoKrigi
   }
 
   const QString wkt = crsWktOrLocal( in.canonicalCrsWkt );
-  if ( !writeFloatRaster( in.estimatePath, cr.estimates, in.grid.cols, in.grid.rows,
+  if ( !writeFloatRasterGrid( in.estimatePath, cr.estimates, in.grid.cols, in.grid.rows,
                           in.geoTransform.data(), in.crs, wkt ) )
   {
     r.ok = false;
@@ -357,7 +328,7 @@ AlgorithmRunResult NativeCppAdapter::runOrdinaryCoKriging( const OrdinaryCoKrigi
 
   if ( !in.variancePath.isEmpty() )
   {
-    if ( !writeFloatRaster( in.variancePath, cr.variances, in.grid.cols, in.grid.rows,
+    if ( !writeFloatRasterGrid( in.variancePath, cr.variances, in.grid.cols, in.grid.rows,
                             in.geoTransform.data(), in.crs, wkt ) )
     {
       r.ok = false;
@@ -446,7 +417,7 @@ AlgorithmRunResult NativeCppAdapter::runSgs( const SgsInputs &in, QString *error
   }
 
   const QString wkt = crsWktOrLocal( in.canonicalCrsWkt );
-  if ( !writeFloatRaster( in.meanPath, mean, in.grid.cols, in.grid.rows, in.geoTransform.data(),
+  if ( !writeFloatRasterGrid( in.meanPath, mean, in.grid.cols, in.grid.rows, in.geoTransform.data(),
                           in.crs, wkt ) )
   {
     r.ok = false;
@@ -463,7 +434,7 @@ AlgorithmRunResult NativeCppAdapter::runSgs( const SgsInputs &in, QString *error
 
   if ( !in.stdPath.isEmpty() )
   {
-    if ( !writeFloatRaster( in.stdPath, spread, in.grid.cols, in.grid.rows, in.geoTransform.data(),
+    if ( !writeFloatRasterGrid( in.stdPath, spread, in.grid.cols, in.grid.rows, in.geoTransform.data(),
                             in.crs, wkt ) )
     {
       r.ok = false;
@@ -487,7 +458,7 @@ AlgorithmRunResult NativeCppAdapter::runSgs( const SgsInputs &in, QString *error
       const QString memberPath =
           in.memberPathPrefix
           + QStringLiteral( "%1.tif" ).arg( k, 3, 10, QLatin1Char( '0' ) );
-      if ( !writeFloatRaster( memberPath, sr.realizations[k], in.grid.cols, in.grid.rows,
+      if ( !writeFloatRasterGrid( memberPath, sr.realizations[k], in.grid.cols, in.grid.rows,
                               in.geoTransform.data(), in.crs, wkt ) )
       {
         r.ok = false;

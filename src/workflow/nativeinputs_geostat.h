@@ -6,7 +6,7 @@
 #include "../algorithms/geostat/cokriging.h"
 #include "../algorithms/geostat/kriging.h"
 #include "../algorithms/geostat/sgs.h"
-#include <qgscoordinatereferencesystem.h>
+#include "../qgis/geostatrasterio.h"
 #include <QString>
 #include <array>
 #include <vector>
@@ -24,7 +24,7 @@ struct OrdinaryKrigingInputs
   QString estimatePath;
   QString variancePath; // 空 = 不写方差
   std::array<double, 6> geoTransform{ { 0, 1, 0, 0, 0, -1 } };
-  QgsCoordinateReferenceSystem crs;
+  RasterCrs crs;
   QString canonicalCrsWkt;
 };
 
@@ -39,7 +39,7 @@ struct OrdinaryCoKrigingInputs
   QString estimatePath;
   QString variancePath;
   std::array<double, 6> geoTransform{ { 0, 1, 0, 0, 0, -1 } };
-  QgsCoordinateReferenceSystem crs;
+  RasterCrs crs;
   QString canonicalCrsWkt;
 };
 
@@ -55,7 +55,7 @@ struct SgsInputs
   bool persistRealizations = true;
   QString memberPathPrefix; // 如 tempDir/member_r → 写出 member_r000.tif …
   std::array<double, 6> geoTransform{ { 0, 1, 0, 0, 0, -1 } };
-  QgsCoordinateReferenceSystem crs;
+  RasterCrs crs;
   QString canonicalCrsWkt;
 };
 

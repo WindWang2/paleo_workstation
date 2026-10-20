@@ -516,6 +516,7 @@ add_library(paleo_qgis STATIC
   src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
   src/qgis/seismicsectiontool.cpp
   src/qgis/wellattributestore.cpp
+  src/qgis/geostatrasterio.cpp                      # algo-atom P2：geostat 适配器 CRS 句柄 + Float32 写口
 )
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io paleo_services) # #483 qgislayerservice→ErrorHub
 

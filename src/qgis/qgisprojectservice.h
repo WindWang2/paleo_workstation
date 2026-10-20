@@ -108,6 +108,7 @@ class QgisProjectService : public QObject
     void notifyAboutToClose();
     void failAfterClose();
     void applyMapConfiguration();
+    bool prepareBasemapMembers(QString *error);
 
   QgsProject *m_project = nullptr;
   quint64 m_sessionId = 0;

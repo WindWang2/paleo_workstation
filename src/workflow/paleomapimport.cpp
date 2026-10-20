@@ -83,7 +83,7 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
   const auto schema = schemaFor(cat, horizon);
   const auto policy =
       QString::fromLatin1(QCryptographicHash::hash(QJsonDocument::fromVariant(
-                                                       QVariantMap{{"normalizer", 1},
+                                                       QVariantMap{{"normalizer", 2},
                                                                    {"facies", schema},
                                                                    {"normalize", request.normalizeFacies},
                                                                    {"micro_field", request.microfaciesField}})
@@ -203,7 +203,7 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
     converted.insert("source_raw_version_id", raw.id);
     converted.insert("source_bundle_sha256", fingerprint);
     converted.insert("normalization_policy", policy);
-    converted.insert("method", "existing-paleomap-hierarchy-v1");
+    converted.insert("method", "existing-paleomap-hierarchy-v2");
     derived.extra = converted;
     derived.sourceUri = sourceUri;
     derived.parentVersionIds = {raw.id};

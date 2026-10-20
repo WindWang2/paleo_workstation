@@ -239,11 +239,7 @@ QWidget *DataPreviewTabs::buildHorizonContent(
   const bool chosenIsDerived = chosen.stage != QLatin1String("RAW");
   if (!chosenIsDerived)
   {
-    // RAW 散点：如实给文件信息卡——散点解析属 io 层，视图不造假地图。
-    lay->addWidget(caption8(tr("原始散点文件"), host));
-    lay->addWidget(valueLabel(m_doc->absolutePathForVersion(chosen), host, false));
-    lay->addWidget(stateLabel(tr("选中「派生栅格」版本可看地图预览"), host), 1);
-    return host;
+    return buildRawHorizonContent(chosen, assetId, host, lay);
   }
 
   const QString tifPath = m_doc->absolutePathForVersion(chosen);
@@ -542,6 +538,51 @@ QWidget *DataPreviewTabs::buildHorizonContent(
     page->primeRenderCache();
     if (!page->mapCanvas()->overlayVisible())
       page->showLowResSnapshot(); // D6.1 低清整图先上（后台精渲随后替换）
+  });
+  return host;
+}
+
+QWidget *DataPreviewTabs::buildRawHorizonContent(
+    const CatalogVersion &version, const QString &assetId,
+    QWidget *host, QVBoxLayout *layout)
+{
+  auto *status = caption8(tr("正在读取原始层位…"), host);
+  layout->addWidget(status);
+  const QString source = m_doc->absolutePathForVersion(version);
+  m_doc->requestHorizonPreview(source, host,
+      [this, host, layout, status, source, assetId, version](const PreviewDocService::HorizonPreview &result) {
+    if (!result.error.isEmpty()) {
+      status->hide();
+      layout->addWidget(PreviewMapStates::buildErrorPage(
+          tr("无法预览原始层位"), result.error, host, tr("重试"),
+          [this, assetId] { rebuildAssetTab(assetId); }), 1);
+      return;
+    }
+    auto raster = std::make_unique<QgsRasterLayer>(result.path, version.fileName, QStringLiteral("gdal"));
+    if (!raster->isValid()) {
+      status->setText(tr("无法读取层位预览栅格"));
+      return;
+    }
+    status->setText(tr("原始层位 · %1×%2 · Z %3–%4 · 有效像元 %5 · 拒绝 %6")
+        .arg(result.rows).arg(result.columns).arg(result.minimum, 0, 'f', 1)
+        .arg(result.maximum, 0, 'f', 1).arg(result.filled).arg(result.rejected));
+    PreviewRasterAnalysis::applyPseudoColorRenderer(raster.get(), 1, result.minimum, result.maximum,
+        *PreviewRasterAnalysis::rampPreset(QStringLiteral("depthBlues")));
+    auto *page = new PreviewMapPage(host);
+    page->setObjectName(QStringLiteral("horizonPreviewPage"));
+    page->setAssetKey(assetId);
+    page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
+    page->setRenderCacheIdentity(assetId, version.id + QStringLiteral("-raw-grid"));
+    page->mapCanvas()->canvas()->setObjectName(QStringLiteral("horizonMapCanvas"));
+    auto *layer = raster.release();
+    layer->setParent(page);
+    connect(layer, &QObject::destroyed, [storage = result.storage] {});
+    page->addMapLayer(layer, version.fileName, source);
+    layout->addWidget(page, 1);
+    QTimer::singleShot(0, page, [page] {
+      page->mapCanvas()->zoomToFullExtent();
+      page->primeRenderCache();
+    });
   });
   return host;
 }

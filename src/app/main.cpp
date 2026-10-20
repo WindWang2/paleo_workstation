@@ -1,5 +1,7 @@
 // 层：组装根
 #include "appcontext.h"
+#include <QFile>
+#include <QFileInfo>
 #include "../workflow/wellfaciesworkflow.h"
 #include "../workflow/workflows.h"
 #include "../linkage/selectioncontext.h"
@@ -12,20 +14,24 @@
 #include "../qgis/qgisruntime.h" // defaultPrefixPath——默认 prefix 跟构建链接面走
 #include "../services/crashreport.h" // wave4：启动早期装崩溃处理器 + 脏退出提示
 #include "../services/startuptrace.h" // goal/perf-systematize 簇1：启动分段仪表
+#include "../services/errorhub.h"
 #include "../ui/paleomainwindow.h"
 #include "../ui/paleotheme.h" // T32：启动注册 vendor 字体 + 正文字体
+#include "../ui/paleostartupscreen.h"
 
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDebug>
 #include <QLibraryInfo>
 #include <QLocale>
-#include <QMessageBox>
+#include <QEventLoop>
+#include <QPointer>
 #include <QSet>
 #include <QStandardPaths>
 #include <QString>
 #include <QSurfaceFormat>
 #include <QTranslator>
+#include <QTimer>
 #include <qgsapplication.h>
 #include <cstdio>
 
@@ -92,6 +98,38 @@ namespace
 int main(int argc, char *argv[])
 {
   StartupTrace::mark(QStringLiteral("main_entry"));
+
+  // 内嵌 WebEngine 只承载本机 127.0.0.1 服务（office 编辑页），但 Chromium
+  // 内核对系统代理回环 bypass 的处理不可靠——系统代理开着时内嵌页会
+  // 「页面加载失败」而系统浏览器正常。启动器 bat 之外（双击 exe / 快捷
+  // 方式）没有注入渠道，这里在 WebEngine 初始化前缺省直连；conda 构建的
+  // 子进程在部分机器上沙箱/GPU 初始化断言崩溃，本地-only 页面一并关掉。
+  // 用户显式设置过 QTWEBENGINE_CHROMIUM_FLAGS 时不抢。
+  if (qEnvironmentVariableIsEmpty("QTWEBENGINE_CHROMIUM_FLAGS"))
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS",
+            "--proxy-server=direct:// --no-sandbox --disable-gpu");
+
+  // 便携包形态（exe 同目录带 plugins/platforms/qwindows.dll）自解析插件路径：
+  // conda 构建的 Qt6Core 不认 qt.conf，双击 exe（无启动器 env）时平台插件
+  // 找不到。开发/构建目录没有该布局时保持不动，不影响既有环境注入。
+  if (qEnvironmentVariableIsEmpty("QT_PLUGIN_PATH") && argc > 0)
+  {
+    const QString exeDir = QFileInfo(QString::fromLocal8Bit(argv[0])).absolutePath();
+    if (QFileInfo::exists(exeDir + QStringLiteral("/plugins/platforms/qwindows.dll")))
+    {
+      qputenv("QT_PLUGIN_PATH", QFile::encodeName(exeDir + QStringLiteral("/plugins")));
+      // WebEngine 子进程按 DLL 的 conda 相对布局找 lib/qt6/bin/——便携包把
+      // 进程放在 exe 同目录，启动器靠 PATH 掩盖；直启没有 PATH，显式指路。
+      const QString weProc = exeDir + QStringLiteral("/QtWebEngineProcess.exe");
+      if (QFileInfo::exists(weProc))
+        qputenv("QTWEBENGINEPROCESS_PATH", QFile::encodeName(weProc));
+      // QWebEngineView 底层是 QQuickWidget；主窗口因 QGIS 画布用 OpenGL 合成，
+      // Windows 上 Qt Quick 缺省 D3D11——API 不一致时 QQuickWidget 拿不到
+      // QRhi，页面渲染不出来（"no rhi / not compatible"）。钉成与窗口一致。
+      if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND"))
+        qputenv("QSG_RHI_BACKEND", "opengl");
+    }
+  }
 
   // Parse command line arguments early, before OpenGL, Qt resources, and crash handler.
   // Critical for --help / -h: terminates cleanly without installing CrashReport handlers,
@@ -182,9 +220,20 @@ int main(int argc, char *argv[])
       QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
   StartupTrace::mark(QStringLiteral("pre_qt_ready"));
 
-  AppContext ctx(qgisPrefix); // brings up QgsApplication + wires all services
+  // The callback runs as soon as QApplication exists, before QGIS providers and
+  // services load. AppContext keeps ownership of the runtime and its shutdown.
+  std::unique_ptr<PaleoStartupScreen> startup;
+  AppContext ctx(qgisPrefix, nullptr, [&startup] {
+    PaleoTheme::applyTheme(PaleoTheme::themeFromSettings());
+    startup = std::make_unique<PaleoStartupScreen>();
+    startup->setStage(QObject::tr("正在加载地图引擎与工作区…"));
+    startup->show();
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    StartupTrace::mark(QStringLiteral("startup_screen_shown"));
+  });
   if (!ctx.ready())
   {
+    startup.reset();
     std::fprintf(stderr, "paleo: QgisRuntime::initialize failed for prefix '%s'\n",
                  qPrintable(qgisPrefix));
     return 1;
@@ -263,13 +312,13 @@ int main(int argc, char *argv[])
           qPrintable(requestedLocale), qPrintable(localeSource));
   }
 
-  // T32 + 浅色默认主题：vendor 字体注册（缺失时 PaleoTheme 内如实告警降级）、
-  // DESIGN.md 浅色 palette 钉死——不跟随系统深色模式。
-  PaleoTheme::applyLightTheme();
+  // Fonts and the saved theme were applied before showing the startup screen.
   StartupTrace::mark(QStringLiteral("theme_ready"));
+  startup->setStage(QObject::tr("正在准备工作界面…"));
 
   PaleoMainWindow window(ctx.canvasCtl(), ctx.projectSvc(), ctx.layerSvc(),
                          ctx.toolSvc(), ctx.selection());
+  startup->setStage(QObject::tr("正在加载工作区工具…"));
   WellComposite::WellCompositePanel::setFaciesWorkflowFactory(
       [&ctx, &window](QObject *parent) {
         auto *wf = new WellFaciesWorkflow(parent);
@@ -380,16 +429,24 @@ int main(int argc, char *argv[])
   class FirstPaintMarker : public QObject
   {
     public:
-      explicit FirstPaintMarker(QObject *parent) : QObject(parent) {}
+      FirstPaintMarker(QObject *parent, PaleoStartupScreen *startup)
+          : QObject(parent), m_startup(startup) {}
       bool eventFilter(QObject *watched, QEvent *ev) override
       {
         if (!m_done && ev->type() == QEvent::Paint)
         {
           m_done = true;
           StartupTrace::mark(QStringLiteral("first_paint"));
-          StartupTrace::finish();
-          if (qEnvironmentVariableIsSet("PALEO_STARTUP_EXIT_AFTER_FRAME"))
-            QCoreApplication::exit(0);
+          // Finish on the next event-loop turn, after this paint has completed.
+          // The splash stays visible until the main window has a complete frame.
+          QTimer::singleShot(0, this, [this] {
+            if (m_startup)
+              m_startup->close();
+            StartupTrace::mark(QStringLiteral("startup_screen_closed"));
+            StartupTrace::finish();
+            if (qEnvironmentVariableIsSet("PALEO_STARTUP_EXIT_AFTER_FRAME"))
+              QCoreApplication::exit(0);
+          });
           if (QObject *w = watched)
             w->removeEventFilter(this);
         }
@@ -397,29 +454,27 @@ int main(int argc, char *argv[])
       }
     private:
       bool m_done = false;
+      QPointer<PaleoStartupScreen> m_startup;
   };
-  auto *firstPaint = new FirstPaintMarker(&window);
+  auto *firstPaint = new FirstPaintMarker(&window, startup.get());
   window.installEventFilter(firstPaint);
 
   if (!targetPath.isEmpty())
     window.openPath(targetPath);
 
-  // §38 错误呈现契约——可恢复降级不模态：上次脏退出的诚实告知（有报告带
-  // 路径，无报告如实说没有），不阻塞用户继续干活。
+  // Keep recovery diagnostics in the error history; startup opens no extra box.
   if (const QString notice = CrashReport::recoveryNoticeText(session);
       !notice.isEmpty())
   {
-    auto *box = new QMessageBox(&window);
-    box->setIcon(QMessageBox::Warning);
-    box->setWindowTitle(QObject::tr("Paleo 上次异常退出"));
-    box->setText(notice);
-    box->setModal(false);
-    box->setAttribute(Qt::WA_DeleteOnClose);
-    box->show();
+    ctx.errorHub()->raise(ErrorHub::Level::Warning, QStringLiteral("startup"),
+                          QObject::tr("Paleo 上次异常退出"), notice,
+                          QString(), false, true);
   }
 
   // The QgsApplication built by the runtime is the live QApplication instance.
   const int exitCode = QApplication::exec();
+  // QWidget destruction must precede AppContext shutting down QApplication.
+  startup.reset();
   // #163：先排空任务池再让 window 析构（栈序：window 先于 ctx 析构）。worker
   // 闭包/finished 槽可能引用主窗口持有的对象（面板、JobRunner、workflow），
   // 旧实现等到 ~AppContext 才排空——那时 window 已析构，在途 worker 向已析构

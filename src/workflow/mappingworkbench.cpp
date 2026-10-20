@@ -678,6 +678,8 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
   extra.insert("layer_id", id);
   extra.insert("horizon", h);
   extra.insert("kind", kind);
+  extra.insert("display_mode", FaciesHierarchy::productDisplayMode(kind,
+      extra.value("display_mode", "auto").toString()));
   extra.insert("title", title);
   extra.insert("layer_type", type);
   extra.insert("source_suffix", suffix);
@@ -1117,9 +1119,8 @@ void MappingWorkbench::styleLayer(const QString &id) {
         QgisStyleService::applyContourLayerStyle(vector);
     return;
   }
-  if (!layer->customProperty("paleo/faciesDisplayMode").isValid())
-    layer->setCustomProperty("paleo/faciesDisplayMode",
-                             v.extra.value("display_mode", "auto"));
+  layer->setCustomProperty("paleo/faciesDisplayMode", FaciesHierarchy::productDisplayMode(styledKind,
+      layer->customProperty("paleo/faciesDisplayMode", v.extra.value("display_mode", "auto")).toString()));
   FaciesHierarchyRenderer::apply(layer, v.extra.value("facies").toList(),
                                  resolvedLevel(id));
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {

@@ -343,13 +343,13 @@ QWidget *DataPreviewTabs::buildMapProductContent(
       if (vlayer->fields().indexOf(QStringLiteral("facies_code")) >= 0)
       {
         FaciesHierarchyRenderer::apply(vlayer.get(), faciesList, QString());
-        // 连续单因素分级的相面默认标分级区间（砂地比值域），其余仍序号＋相名。
+        // 连续单因素面标区间；其他面只标相名，井点保留井名＋相名。
         MappingArtifactWriter::applyFaciesLabels(
             vlayer.get(),
             vlayer->fields().indexOf(QStringLiteral("value_min")) >= 0 &&
                     vlayer->fields().indexOf(QStringLiteral("value_max")) >= 0
                 ? 4
-                : 3);
+                : MappingArtifactWriter::defaultFaciesLabelMode(vlayer.get()));
       }
       else
       {

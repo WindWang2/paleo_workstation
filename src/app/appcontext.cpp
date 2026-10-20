@@ -143,7 +143,8 @@ namespace
   }
 } // namespace
 
-AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
+AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
+                       const std::function<void()> &applicationCreated)
   : QObject(parent)
 {
   // QgsApplication is a QApplication: initialize() creates it, and it must be
@@ -153,7 +154,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   {
     m_ready = true;
   }
-  else if (QgisRuntime::initialize(qgisPrefix))
+  else if (QgisRuntime::initialize(qgisPrefix, applicationCreated))
   {
     s_runtimeOwners.insert(this);
     m_ready = true;

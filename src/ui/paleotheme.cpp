@@ -505,6 +505,13 @@ namespace PaleoTheme
     return metricStyleSheet(QStringLiteral(
         "QLabel, QCheckBox, QRadioButton { color: %2; }"
         "QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled { color: %6; }"
+        // Popup menus must resolve their own text/background roles, including
+        // disabled actions, rather than inherit a tree selection or OS palette.
+        "QMenu { background: %1; color: %2; border: 1px solid %3; }"
+        "QMenu::item { color: %2; padding: {spacing.xs}px {spacing.lg}px; }"
+        "QMenu::item:selected { background: %4; color: %2; }"
+        "QMenu::item:disabled { color: %6; }"
+        "QMenu::separator { height: 1px; background: %3; margin: {spacing.xs}px {spacing.sm}px; }"
         "QPushButton { background: %1; color: %2; border: 1px solid %3;"
         " border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; }"
         "QPushButton:hover { background: %4; }"

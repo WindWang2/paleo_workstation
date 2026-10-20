@@ -28,9 +28,11 @@ namespace
 // 启动段词表（src/app/main.cpp + appcontext.cpp 打点；改动先同步两处）。
 const QStringList kRequiredSegments = {
     QStringLiteral("main_entry"),   QStringLiteral("pre_qt_ready"),
+    QStringLiteral("startup_screen_shown"),
     QStringLiteral("qgis_app_ready"), QStringLiteral("services_ready"),
     QStringLiteral("theme_ready"),  QStringLiteral("main_window_ready"),
     QStringLiteral("window_shown"), QStringLiteral("first_paint"),
+    QStringLiteral("startup_screen_closed"),
 };
 // 比率门容差：单轮起真实进程在共享机上分母波动大（实测健康轮 qgis 份额
 // 极值达基线 2.04×——快分母×慢分子），基线 ×2.5。判别力不受影响：注入

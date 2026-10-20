@@ -26,6 +26,7 @@
 
 #include <qgsmessagelog.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -366,7 +367,14 @@ void PreviewMapCanvas::zoomToFullExtent()
       m_canvas->zoomToFullExtent();
     return;
   }
-  ext.scale( 1.08 ); // 留 8% 边距
+  // Two-line well/facies labels extend beyond the point envelope. Leave
+  // enough room above and below edge wells when fitting a labeled point map.
+  const bool labeledPoints = std::any_of(m_layers.cbegin(), m_layers.cend(), [this](QgsMapLayer *layer) {
+    const auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+    return vector && m_visible.value(layer, true) && vector->labelsEnabled() &&
+           vector->geometryType() == Qgis::GeometryType::Point;
+  });
+  ext.scale( labeledPoints ? 1.20 : 1.08 );
   setExtentInternal( ext );
 }
 

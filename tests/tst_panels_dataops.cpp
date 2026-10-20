@@ -371,7 +371,9 @@ class TestPanelsDataOps : public QObject
         const QString csv = exportCsv(rows, f);
         const QStringList lines = csv.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
         QCOMPARE(lines.size(), 3); // 表头 + 两行
-        QVERIFY(lines[1].endsWith(QStringLiteral("\"2048\",\"2026-01-02T03:04:05\"")));
+        // sizeBytes 列与 version 同口径：裸数字（未 stat 才是引号空单元）；
+        // 末列 lastModified 是字符串列，始终引号包裹。
+        QVERIFY(lines[1].endsWith(QStringLiteral("2048,\"2026-01-02T03:04:05\"")));
         QVERIFY(lines[2].endsWith(QStringLiteral("\"\",\"\"")));
         const QByteArray json = exportJson(rows, f);
         QVERIFY(json.contains("\"sizeBytes\": 2048"));

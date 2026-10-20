@@ -45,6 +45,15 @@ class ShaCache
     // 失效（写路径后调用；空 path = 全清内存+磁盘）。
     void invalidate(const QString &path = QString());
 
+    // A-01（full-audit-20261021）：磁盘层落盘节流——miss 路径不再每次把全表
+    // （上限 65536 条 ≈ 8-13MB JSON）序列化落盘，改为「距上次落盘 ≥
+    // intervalMs 或自上次落盘累计 ≥ dirtyEntries 条脏」双阈值惰性写；
+    // invalidate/setDiskFile 后首个 miss 与 flushDisk() 立即落盘。崩溃窗口
+    // 从 0 放宽到单阈值区间（丢失代价 = 重算若干文件哈希，自愈）。测试口径
+    // 用 setDiskSaveThrottle 注入。
+    void setDiskSaveThrottle(qint64 intervalMs, int dirtyEntries);
+    void flushDisk();
+
     struct Counts
     {
         qint64 hits = 0;      // 内存命中
@@ -67,6 +76,8 @@ class ShaCache
 
     void loadDiskLocked();
     void saveDiskLocked();
+    void flushDiskLocked();     // A-01：收缩 + 落盘 + 节流复位（调用方持锁）
+    void maybeSaveDiskLocked(); // A-01：节流判定（调用方持锁）
 
     mutable QMutex m_mutex;
     QHash<QString, QString> m_mem;       // fingerprint("path|mtime|size") -> sha
@@ -77,5 +88,9 @@ class ShaCache
     bool m_diskPending = false;
     int m_memLimit = 16384;
     int m_diskLimit = 65536;
+    qint64 m_diskSaveIntervalMs = 1000; // A-01 节流（0 = 每 miss 落盘）
+    int m_diskDirtyCount = 0;
+    int m_diskDirtyThreshold = 64;
+    qint64 m_lastDiskSaveMs = 0;
     Counts m_counts;
 };

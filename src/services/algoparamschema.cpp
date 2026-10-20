@@ -108,11 +108,22 @@ void enrichField( AlgorithmParamField *f )
   }
 }
 
+// Spec 有但 PredictPage 表单刻意不展示的键（编排侧注入；master 表单亦无）。
+bool uiHiddenParam( const QString &key )
+{
+  return key == QStringLiteral( "VALUE_RANGES" );
+}
+
 QVector<AlgorithmParamField> fieldsFromSpec( const AlgorithmSpec &spec )
 {
-  QVector<AlgorithmParamField> fields = spec.params;
-  for ( AlgorithmParamField &f : fields )
+  QVector<AlgorithmParamField> fields;
+  for ( AlgorithmParamField f : spec.params )
+  {
+    if ( uiHiddenParam( f.key ) )
+      continue;
     enrichField( &f );
+    fields.append( f );
+  }
   return fields;
 }
 

@@ -190,6 +190,7 @@ void AlgorithmSpecTests::schemaDerivedFromCompleteProcessingSpecs()
       schemaKeys.append( f.key );
     schemaKeys.sort();
     QStringList expected = specKeys;
+    expected.removeAll( QStringLiteral( "VALUE_RANGES" ) ); // UI 隐藏（编排注入）
     expected.sort();
     QCOMPARE( schemaKeys, expected );
   }

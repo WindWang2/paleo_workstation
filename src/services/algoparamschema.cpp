@@ -7,11 +7,13 @@
 //                                CELL_SIZE     double def 1.0
 //   paleo_facies_fusion        : （仅 INPUTS/OUTPUT 图层型 → 零标量字段）
 //   paleo_isopach              : NEGATIVE_TO_NODATA bool → InList 是/否
-//   paleo_facies_polygonize    : SMOOTH        double def 1    min 0 max 10
-//                                MIN_CELLS     double def 4    min 0
-//                                MIN_AREA      double def 0.0  min 0
-//                                SIMPLIFY      double def 0.0  min 0
-//                                SNAP_TOLERANCE double def 0.0 min 0
+//   paleo_facies_polygonize    : SMOOTH          int    def 1    min 0 max 10
+//                                MIN_CELLS       int    def 4    min 0
+//                                MIN_FRACTION    double def 0.0025 min 0 max 1
+//                                MIN_AREA        double def 0.0  min 0
+//                                SIMPLIFY        double def 0.0  min 0
+//                                BOUNDARY_SMOOTH int    def 2    min 0 max 5
+//                                SNAP_TOLERANCE  double def 0.0  min 0
 //                                ANGLE_TOLERANCE double def 15.0 min 0 max 90
 // bool 没有独立类型词表——按 inlist 呈现（是/否，userData false/true），与
 // QgsProcessingParameterBoolean 的取值面一致。

@@ -221,6 +221,51 @@ private slots:
     QCOMPARE(calls, 1);
   }
 
+  // #588-B11：留底为大写十六进制（合法 SHA 表示，catalog 原样载入无规范化）
+  // 时不得误报 ShaMismatch——大小写敏感比对曾在体检面制造假阳性。
+  void shaVerifyAcceptsUppercaseBackup()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY(cat.open(tmp.path(), &err));
+    QVERIFY(cat.addAsset(asset(QStringLiteral("ast-10"), QStringLiteral("seismic"),
+                               QStringLiteral("外链体（大写留底）")), &err));
+    const QString p = QDir(tmp.path()).filePath(QStringLiteral("e3.sgy"));
+    {
+      QFile f(p);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(QByteArray(32, '\x3'));
+    }
+    QString serr;
+    const QString sha = DataCatalog::sha256FileHex(p, &serr);
+    QVERIFY(!sha.isEmpty());
+    CatalogVersion v;
+    v.id = QStringLiteral("ver-10");
+    v.assetId = QStringLiteral("ast-10");
+    v.stage = QStringLiteral("RAW");
+    v.versionNumber = 1;
+    v.managed = false;
+    v.path = p;
+    v.sha256 = sha.toUpper(); // 大写留底
+    v.fileName = QStringLiteral("e3.sgy");
+    QVERIFY(cat.addVersion(v, &err));
+
+    const QVector<HealthIssue> issues = verifyExternalShas(cat.versions());
+    QVERIFY(issues.isEmpty());
+
+    // 内容真的变了（大写留底）仍须检出——口径放宽只治假阳性，不放过真失配。
+    {
+      QFile f(p);
+      QVERIFY(f.open(QIODevice::Append));
+      f.write("tampered");
+    }
+    const QVector<HealthIssue> after = verifyExternalShas(cat.versions());
+    QCOMPARE(after.size(), 1);
+    QCOMPARE(after.first().kind, IssueKind::ShaMismatch);
+  }
+
   void closedCatalogIsHonestError()
   {
     DataCatalog cat; // 未 open

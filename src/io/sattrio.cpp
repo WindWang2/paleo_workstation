@@ -209,9 +209,12 @@ bool readSattrSection(const QString &path, SattrSectionHeader *header,
   values->resize(std::size_t(width) * height);
   if (!readFloatBlock(stream, values->data(), values->size()))
     return fail(QStringLiteral("SATR 值块截断：%1").arg(path));
-  if (cancelled && !cancelled())
+  if (cancelled && cancelled())
   {
-    // 与 crossplot 旧读端同语义：协作取消发生在读值途中 → 如实报已取消。
+    // 协作取消发生在读值途中 → 如实报已取消。回调口径：返回 true = 已取消
+    // （与 DataCatalog::sha256FileHex / PaleoTask::cancelRequested 等全仓
+    // 取消回调一致）——此处历史上按「继续」谓词消费，唯一调用方只能双重
+    // 取反补偿，任何按常规口径传参的调用方都会被误判为已取消（#588-C11）。
     return fail(QStringLiteral("SATR 读回已取消"));
   }
   return true;

@@ -117,7 +117,7 @@ void AlgorithmSpecTests::constraintIdwSchemaFieldsSubsetOfSpecParams()
     QVERIFY2( specKeys.contains( f.key ),
               qPrintable( QStringLiteral( "schema field '%1' not in Spec.params" ).arg( f.key ) ) );
   }
-  // 已知漂移：ANISO_RATIO 在 initAlgorithm + Spec，尚未进 AlgorithmParamSchema
+  // P3：ANISO_RATIO 已进 AlgorithmParamSchema，与 Spec / initAlgorithm 对齐
   QVERIFY( specKeys.contains( QStringLiteral( "ANISO_RATIO" ) ) );
   bool schemaHasAniso = false;
   for ( const AlgorithmParamField &f : schemaFields )
@@ -125,9 +125,7 @@ void AlgorithmSpecTests::constraintIdwSchemaFieldsSubsetOfSpecParams()
     if ( f.key == QStringLiteral( "ANISO_RATIO" ) )
       schemaHasAniso = true;
   }
-  QVERIFY2( !schemaHasAniso,
-            "Unexpected: ANISO_RATIO appeared in AlgorithmParamSchema — update this "
-            "assertion and algorithm-atom-contract.md if schema caught up" );
+  QVERIFY2( schemaHasAniso, "ANISO_RATIO must be in AlgorithmParamSchema (algo-atom P3)" );
 }
 
 void AlgorithmSpecTests::constraintIdwHiddenLocalGridWkt()

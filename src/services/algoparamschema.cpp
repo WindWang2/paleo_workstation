@@ -5,6 +5,7 @@
 //   paleo_constraint_idw       : FIELD         string（INPUT 的数值字段名）
 //                                FACIES_CODE   int    可选元数据
 //                                CELL_SIZE     double def 1.0
+//                                ANISO_RATIO   double def 2.0  min 0（algo-atom P3）
 //   paleo_facies_fusion        : （仅 INPUTS/OUTPUT 图层型 → 零标量字段）
 //   paleo_isopach              : NEGATIVE_TO_NODATA bool → InList 是/否
 //   paleo_facies_polygonize    : SMOOTH        double def 1    min 0 max 10
@@ -63,7 +64,18 @@ namespace
     cellSize.minValue = 0.0001;
     cellSize.decimals = 4;
 
-    return { field, faciesCode, cellSize };
+    AlgorithmParamField aniso;
+    aniso.key = QStringLiteral( "ANISO_RATIO" );
+    aniso.label = QCoreApplication::translate( "AlgorithmParamSchema", "各向异性比（沿方向线）" );
+    aniso.type = AlgorithmParamField::Double;
+    aniso.defaultValue = 2.0;
+    aniso.hasMin = true;
+    aniso.minValue = 0.0;
+    aniso.hasMax = true; // 与 initAlgorithm 上界同口径（核内拒 >1000）
+    aniso.maxValue = 1000.0;
+    aniso.decimals = 2;
+
+    return { field, faciesCode, cellSize, aniso };
   }
 
   QVector<AlgorithmParamField> isopachFields()

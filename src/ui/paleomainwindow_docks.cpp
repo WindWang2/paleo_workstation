@@ -184,9 +184,11 @@ void PaleoMainWindow::buildCenterArea()
   auto *chipsScroll = new QScrollArea(chipsRow);
   chipsScroll->setObjectName(QStringLiteral("horizonChipScroll"));
   chipsScroll->setFrameShape(QFrame::NoFrame);
-  chipsScroll->setWidgetResizable(true);
+  // false：chip 条保持 sizeHint 宽度，窄中央区出现横向滚动，而不是被压窄省略。
+  chipsScroll->setWidgetResizable(false);
   chipsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   chipsScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  chipsScroll->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
   chipsScroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   chipsScroll->setStyleSheet(QStringLiteral("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }"));
   chipsScroll->setWidget(chips);

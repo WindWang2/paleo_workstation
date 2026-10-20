@@ -129,14 +129,28 @@ void IdentifyPopup::showNear(const QPoint &anchor)
   raise();
 }
 
+void IdentifyPopup::presentHits(const QVector<IdentifyHit> &hits, const QPoint &anchor)
+{
+  setHits(hits);
+  showNear(anchor);
+}
+
+void IdentifyPopup::dismissHits()
+{
+  hide();
+  setHits({});
+}
+
 void IdentifyPopup::enterEvent(QEnterEvent *event)
 {
   QFrame::enterEvent(event);
+  m_pointerInside = true;
   emit pointerInside(true);
 }
 
 void IdentifyPopup::leaveEvent(QEvent *event)
 {
   QFrame::leaveEvent(event);
+  m_pointerInside = false;
   emit pointerInside(false);
 }

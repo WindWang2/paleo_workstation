@@ -512,6 +512,7 @@ add_library(paleo_qgis STATIC
   src/qgis/mappingreferencecanvas.cpp
   src/qgis/previewmaptools.cpp                      # P2 D1.2 预览工具注册表（量测/identify/剖面线）
   src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）
+  src/qgis/identifytool.cpp                         # 主画布识别浏览（经 IdentifyPresenter 驱动视图弹层）
   src/qgis/previewidentify.cpp                      # P2 D7 identify 查询核心（空间索引缓存+栅格插值）
   src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
   src/qgis/seismicsectiontool.cpp
@@ -744,7 +745,6 @@ add_library(paleo_ui STATIC
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
   src/ui/maptools/sitingpicktool.cpp               # 方向34：地图布点拾取工具
-  src/ui/maptools/identifytool.cpp                 # 主画布识别浏览
   src/ui/maptools/identifypopup.cpp
   src/ui/maptools/paleoshapetools.cpp              # wave/shapetools
   src/ui/correlationpanel.cpp

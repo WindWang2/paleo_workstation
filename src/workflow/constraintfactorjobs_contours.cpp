@@ -28,6 +28,7 @@
 #include "constraintfactorjobs_internal.h"
 #include "constraintworkflow_internal.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
@@ -446,10 +447,13 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
 
   QString commitErr;
   const bool fieldContours = job.structural || !job.contourMethod.isEmpty();
-  if ( !registrar.commitExternal( st, job.outputPath, parents,
-                                  fieldContours ? QStringLiteral( "paleo_field_contours" )
-                                                : QStringLiteral( "gdal_contour_c_api" ),
-                                  extra, &commitErr ) )
+  // algo-atom P1-extend：等值线发布经 publishArtifacts
+  const QString contourSource =
+      fieldContours ? QStringLiteral( "paleo_field_contours" )
+                    : QStringLiteral( "gdal_contour_c_api" );
+  const AlgorithmRunResult runResult = paleo::runResultFromOutputPath( job.outputPath );
+  if ( !paleo::publishArtifacts( registrar, st, runResult, parents, contourSource, extra,
+                                 &commitErr ) )
   {
     if ( !sameFile( st.absolutePath, job.rasterPath ) )
       removeIfPresent( st.absolutePath );
@@ -767,9 +771,12 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
   extra.insert( QStringLiteral( "unresolved_crossings" ), qc.value( QStringLiteral( "unresolved_crossings" ) ) );
   extra.insert( QStringLiteral( "levels" ), hashParams.value( QStringLiteral( "levels" ) ) );
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
+  // algo-atom P1-extend：cartographic_work 经 publishArtifacts
+  const AlgorithmRunResult runResult = paleo::runResultFromOutputPath( outPath );
   QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, parentIds, QStringLiteral( "paleo:paleo_cartographic_work" ), extra,
-                                  &commitErr ) )
+  if ( !paleo::publishArtifacts(
+           registrar, st, runResult, parentIds,
+           QStringLiteral( "paleo:paleo_cartographic_work" ), extra, &commitErr ) )
   {
     discard();
     paleo::workflow_detail::setError( error, commitErr );

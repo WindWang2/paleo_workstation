@@ -21,6 +21,10 @@ namespace paleo
 AlgorithmRunResult runResultFromProcessingOutput(
     const QVariantMap &results, const QString &portId = QStringLiteral( "OUTPUT" ) );
 
+// 已有绝对路径时组装最小成功 RunResult（三段式 Job 的 publish 段用）。
+AlgorithmRunResult runResultFromOutputPath(
+    const QString &absolutePath, const QString &portId = QStringLiteral( "OUTPUT" ) );
+
 // 将 RunResult 中目的地型工件发布为 DERIVED 版本。
 // · staging：prepare 阶段已 stage 的受管落位
 // · parentVersionIds / sourceUri / extra / fingerprint：与 commitExternal 同语义

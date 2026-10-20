@@ -29,6 +29,7 @@
 #include "constraintworkflow_internal.h"
 #include "constraintuseplan.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
@@ -1449,11 +1450,15 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   extra.insert( QStringLiteral( "qc_sha256" ), qcSha );
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
   insertStrategyId( job.params, extra ); // 方向67：策略包 id 进血缘（kriging 词表项）
+  // algo-atom P1-extend：geostat 经 publishArtifacts
+  const QString publishPath =
+      job.staging.isValid() ? st.absolutePath : job.outputPath;
+  const AlgorithmRunResult runResult = paleo::runResultFromOutputPath( publishPath );
   QString commitErr;
-  if (!registrar.commitExternal(
-          st, job.staging.isValid() ? st.absolutePath : job.outputPath,
-          parentIds, algorithmId, extra, &commitErr,
-          job.staging.isValid() ? &job.fingerprint : nullptr)) {
+  if ( !paleo::publishArtifacts(
+           registrar, st, runResult, parentIds, algorithmId, extra, &commitErr,
+           job.staging.isValid() ? &job.fingerprint : nullptr ) )
+  {
     discard();
     paleo::workflow_detail::setError( error, commitErr );
     return false;

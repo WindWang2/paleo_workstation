@@ -420,12 +420,16 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
         extra.insert(QStringLiteral("engine"), def.processingAlgId);
         extra.insert(QStringLiteral("top_layer_id"), topId);
         extra.insert(QStringLiteral("base_layer_id"), baseId);
+        // algo-atom P1-extend：isopach 经 publishArtifacts
+        const AlgorithmRunResult runResult =
+            paleo::runResultFromProcessingOutput( results );
         QString commitErr;
-        if (!registrar.commitExternal(
-                st, outPath, registrar.parentVersionIdsFor(parentPaths),
-                def.processingAlgId, extra, &commitErr,
-                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
-          paleo::workflow_detail::setError(error, commitErr);
+        if ( !paleo::publishArtifacts(
+                 registrar, st, runResult, registrar.parentVersionIdsFor( parentPaths ),
+                 def.processingAlgId, extra, &commitErr,
+                 fingerprint.sha256.isEmpty() ? nullptr : &fingerprint ) )
+        {
+          paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
 
@@ -560,12 +564,16 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
             QStringLiteral("manifest_layer_id"),
             QStringLiteral("factor.%1.%2").arg(horizon, factorId)); // C4 反链
         extra.insert(QStringLiteral("points_layer_id"), pointsId);
+        // algo-atom P1-extend：distance_transform 经 publishArtifacts
+        const AlgorithmRunResult runResult =
+            paleo::runResultFromProcessingOutput( results );
         QString commitErr;
-        if (!registrar.commitExternal(
-                st, outPath, registrar.parentVersionIdsFor(parentPaths),
-                def.processingAlgId, extra, &commitErr,
-                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
-          paleo::workflow_detail::setError(error, commitErr);
+        if ( !paleo::publishArtifacts(
+                 registrar, st, runResult, registrar.parentVersionIdsFor( parentPaths ),
+                 def.processingAlgId, extra, &commitErr,
+                 fingerprint.sha256.isEmpty() ? nullptr : &fingerprint ) )
+        {
+          paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
 
@@ -985,12 +993,16 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
         inheritMockFlag(PaleoWorkflowDerivedCatalog(this), parentIds, extra);
         insertStrategyId(
             params, extra); // 方向67：策略包 id 进血缘（structural_idw 词表项）
+        // algo-atom P1-extend：structural_idw 经 publishArtifacts
+        const AlgorithmRunResult runResult =
+            paleo::runResultFromProcessingOutput( results );
         QString commitErr;
-        if (!registrar.commitExternal(
-                st, outPath, parentIds, engineId, extra, &commitErr,
-                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
+        if ( !paleo::publishArtifacts(
+                 registrar, st, runResult, parentIds, engineId, extra, &commitErr,
+                 fingerprint.sha256.isEmpty() ? nullptr : &fingerprint ) )
+        {
           discard();
-          paleo::workflow_detail::setError(error, commitErr);
+          paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
 

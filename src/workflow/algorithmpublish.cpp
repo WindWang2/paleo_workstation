@@ -32,6 +32,24 @@ AlgorithmRunResult runResultFromProcessingOutput( const QVariantMap &results,
   return r;
 }
 
+
+AlgorithmRunResult runResultFromOutputPath( const QString &absolutePath,
+                                            const QString &portId )
+{
+  AlgorithmRunResult r;
+  if ( absolutePath.isEmpty() )
+  {
+    r.ok = false;
+    return r;
+  }
+  AlgorithmOutputArtifact art;
+  art.portId = portId;
+  art.absolutePath = absolutePath;
+  r.artifacts.append( art );
+  r.ok = true;
+  return r;
+}
+
 bool publishArtifacts( DerivedAssetRegistrar &reg, const DerivedStaging &staging,
                        const AlgorithmRunResult &result,
                        const QStringList &parentVersionIds, const QString &sourceUri,

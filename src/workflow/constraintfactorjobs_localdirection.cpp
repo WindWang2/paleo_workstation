@@ -26,6 +26,7 @@
 #include "constraintfactorjobs_internal.h"
 #include "constraintworkflow_internal.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
@@ -549,11 +550,15 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
   extra.insert( QStringLiteral( "barrier_cells" ), counts.value( QStringLiteral( "barrier" ) ) );
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
   insertStrategyId( job.params, extra ); // 方向67：策略包 id 进血缘（覆盖本地方向两引擎与 surfer 委托）
+  // algo-atom P1-extend：local_direction / surfer 经 publishArtifacts
+  const QString publishPath =
+      job.staging.isValid() ? st.absolutePath : job.outputPath;
+  const AlgorithmRunResult runResult = paleo::runResultFromOutputPath( publishPath );
   QString commitErr;
-  if (!registrar.commitExternal(
-          st, job.staging.isValid() ? st.absolutePath : job.outputPath,
-          parentIds, committedAlgorithm, extra, &commitErr,
-          job.staging.isValid() ? &job.fingerprint : nullptr)) {
+  if ( !paleo::publishArtifacts(
+           registrar, st, runResult, parentIds, committedAlgorithm, extra, &commitErr,
+           job.staging.isValid() ? &job.fingerprint : nullptr ) )
+  {
     discard();
     paleo::workflow_detail::setError( error, commitErr );
     return false;

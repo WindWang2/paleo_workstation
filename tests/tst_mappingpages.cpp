@@ -511,6 +511,8 @@ class FactorPageTests : public QObject
     void nativeMethodContourAndBusyStates();
     void wellFactorExtractionPayload();
     void geologicalAutoModeAndTaskRecommendation();
+    void horizonAndFactorSwitchDoNotLeakState();
+    void constraintDoubleClickRequestsLocate();
     void methodParameterVisibilityAndFamilies();
     void guidedPreparationAndPinnedActions();
     void strategyPackDrivesMethodCombo(); // 方向67：词表驱动下拉 + 参数预览 + strategy_id 载荷
@@ -1523,6 +1525,51 @@ void FactorPageTests::geologicalAutoModeAndTaskRecommendation()
   QCOMPARE(method->currentData().toString(), QStringLiteral("kriging"));
   task->setCurrentIndex(task->findText(QStringLiteral("分析多种可能的模拟结果")));
   QCOMPARE(method->currentData().toString(), QStringLiteral("sgs"));
+}
+
+
+// 场景 I：层位/因素切换不泄漏上一状态（逐井表、提取提示、地质口径）。
+void FactorPageTests::horizonAndFactorSwitchDoNotLeakState()
+{
+  ConstraintPage page(nullptr);
+  page.setHorizons({QStringLiteral("D61"), QStringLiteral("D62")});
+  auto *table = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
+  auto *wells = page.findChild<QTableWidget *>(QStringLiteral("wellFactorTable"));
+  auto *hint = page.findChild<QLabel *>(QStringLiteral("wellFactorHint"));
+  auto *geo = page.findChild<QLabel *>(QStringLiteral("wellFactorGeoHint"));
+  auto *mode = page.findChild<QComboBox *>(QStringLiteral("factorModeCombo"));
+  auto *h = page.findChild<QComboBox *>(QStringLiteral("horizonCombo"));
+  QVERIFY(table && wells && hint && geo && mode && h);
+  table->item(1, 0)->setCheckState(Qt::Checked); // 砂地比
+  wells->setRowCount(3);
+  hint->setText(QStringLiteral("旧层位结果"));
+  h->setCurrentIndex(h->findText(QStringLiteral("D62")));
+  QCOMPARE(wells->rowCount(), 0);
+  QVERIFY(!hint->text().contains(QStringLiteral("旧层位结果")));
+  QVERIFY(geo->text().contains(QStringLiteral("解释砂厚")));
+  // 手动改成 direct 后换因素：回到该因素的推荐口径，地质说明跟随新因素。
+  mode->setCurrentIndex(mode->findData(QStringLiteral("direct")));
+  wells->setRowCount(2);
+  table->item(0, 0)->setCheckState(Qt::Checked); // 砂体厚度
+  QCOMPARE(wells->rowCount(), 0);
+  QCOMPARE(mode->currentData().toString(), QStringLiteral("auto"));
+  QVERIFY(geo->text().contains(QStringLiteral("解释砂厚（MD")));
+  QVERIFY(!geo->text().contains(QStringLiteral("地层厚度")));
+}
+
+void FactorPageTests::constraintDoubleClickRequestsLocate()
+{
+  ConstraintPage page(nullptr);
+  page.setHorizons({QStringLiteral("D61")});
+  auto *list = page.findChild<QListWidget *>(QStringLiteral("constraintList"));
+  QVERIFY(list);
+  auto *item = new QListWidgetItem(QStringLiteral("c7"), list);
+  item->setData(Qt::UserRole, QStringLiteral("c7"));
+  QSignalSpy spy(&page, &ConstraintPage::constraintLocateRequested);
+  emit list->itemDoubleClicked(item);
+  QCOMPARE(spy.count(), 1);
+  QCOMPARE(spy[0][0].toString(), QStringLiteral("D61"));
+  QCOMPARE(spy[0][1].toString(), QStringLiteral("c7"));
 }
 
 void FactorPageTests::wellFactorExtractionPayload() {

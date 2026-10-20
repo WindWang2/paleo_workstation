@@ -856,6 +856,26 @@ private slots:
     QVERIFY( !r.runAllowed );
   }
 
+  // 场景 K：删除/停用约束后同一计划口径重新判定，计数与就绪一致。
+  void readinessFollowsDeleteAndDisable()
+  {
+    ConstraintMethodContext context;
+    context.horizon = QStringLiteral( "H1" );
+    context.methodId = QStringLiteral( "surfer_idw" );
+    QVector<QVariantMap> rows;
+    for ( const QVariantMap &r : planRows() )
+      if ( r.value( QStringLiteral( "id" ) ).toString() == QLatin1String( "b_full" ) )
+        rows << r;
+    QCOMPARE( rows.size(), 1 );
+    QCOMPARE( assessConstraintReadiness( planConstraintUse( rows, context ) ).state, ConstraintReadinessState::Consumed );
+    QVariantMap disabled = rows.first();
+    disabled.insert( QStringLiteral( "params_json" ), QStringLiteral( R"({"semantic":"hard_barrier","enabled":false})" ) );
+    const ConstraintUsePlan off = planConstraintUse( { disabled }, context );
+    QCOMPARE( off.consumed, 0 );
+    QVERIFY( assessConstraintReadiness( off ).runAllowed );
+    QCOMPARE( assessConstraintReadiness( planConstraintUse( {}, context ) ).state, ConstraintReadinessState::NoneRunnable );
+  }
+
   void availabilityCounts()
   {
     ConstraintMethodContext context;

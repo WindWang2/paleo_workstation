@@ -17,6 +17,10 @@ namespace
 using paleo::store_detail::setError;
 
 constexpr auto kWellSitingRowId = "current"; // 单行文档表
+// 落盘 schema_version（save 侧写入）。读侧同口径校验：载荷形状演进后旧
+// 行不得被静默按新形状误解析（对照 metastore 的 user_version 门与
+// mapversionstore 的 snapshot_schema 指纹门——显式拒绝）。
+constexpr int kWellSitingSchemaVersion = 1;
 
 QString wellSitingConnectionName(const QString &path, bool readOnly)
 {
@@ -68,7 +72,7 @@ bool WellSitingStore::save(const paleo::siting::ScenarioSet &set, QString *error
         return false;
     }
     QJsonObject root = QJsonObject::fromVariantMap(set.toMap());
-    root.insert(QStringLiteral("schema_version"), 1);
+    root.insert(QStringLiteral("schema_version"), kWellSitingSchemaVersion);
     const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Compact);
     const QString nowUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 
@@ -129,6 +133,14 @@ bool WellSitingStore::load(paleo::siting::ScenarioSet &set, QString *error) cons
         return false;
     }
     QVariantMap root = doc.object().toVariantMap();
+    // schema 门：形状不匹配的载荷拒读，不按当前 fromMap 静默误解析。
+    const QJsonValue schemaValue = doc.object().value(QStringLiteral("schema_version"));
+    if (!schemaValue.isDouble() || schemaValue.toInt() != kWellSitingSchemaVersion) {
+        setError(error, QStringLiteral("不支持布井方案集 schema_version：%1")
+                            .arg(schemaValue.isUndefined() ? QStringLiteral("缺失")
+                                                           : schemaValue.toVariant().toString()));
+        return false;
+    }
     root.remove(QStringLiteral("schema_version"));
     set = paleo::siting::ScenarioSet::fromMap(root);
     return true;

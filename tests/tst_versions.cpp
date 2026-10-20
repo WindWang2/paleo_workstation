@@ -1282,6 +1282,39 @@ class TestVersions : public QObject
         if (QFileInfo::exists(stagingBefore)) discardPreparedMapSnapshot(prepared);
     }
 
+    // A.4：同大小、保留 mtime 的就地篡改——size/mtime 门整条穿过，只有
+    // attestation 里记下的 sha256 能发现。prepare 到 commit 之间才是快照的
+    // 可信边界，登记前必须真比摘要。
+    void preparedSnapshotRejectsSameSizeTampering() {
+        Fixture f; QVERIFY(f.init()); QString err;
+        const auto pdf = makePdf(f.dir.filePath("same-size.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &err));
+        auto input = f.versions.snapshotInputForSave("D61", "{}", {}, &err); QVERIFY(input.valid);
+        auto prepared = prepareMapSnapshot(input); QVERIFY2(prepared.isValid(), qPrintable(prepared.error));
+        const auto stagingBefore = prepared.directory;
+        const auto attestation = prepared.attestations.first().toMap();
+        const auto target = attestation.value("path").toString();
+        const auto stamped = QFileInfo(target).lastModified();
+        const auto attestedSize = attestation.value("size").toLongLong();
+        QVERIFY(attestedSize > 0);
+        QFile::setPermissions(target, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        // 同位宽改写 + 恢复 mtime：size/mtime 两道门必须仍然「通过」。
+        QFile flip(target); QVERIFY(flip.open(QIODevice::ReadWrite)); QVERIFY(flip.seek(0));
+        const auto first = flip.read(1); QVERIFY(first.size() == 1);
+        const auto patched = char(first.at(0) ^ 0xFF);
+        QVERIFY(flip.seek(0)); QCOMPARE(flip.write(&patched, 1), qint64(1));
+        QVERIFY(flip.flush()); flip.close();
+        QVERIFY(QFile(target).setFileTime(stamped, QFileDevice::FileModificationTime));
+        const QFileInfo after(target);
+        QCOMPARE(after.size(), attestedSize);
+        QCOMPARE(after.lastModified(), stamped);
+        QCOMPARE(f.versions.commitPreparedVersion(prepared, &err).version, 0);
+        QVERIFY2(!err.isEmpty(), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("SHA-256")), qPrintable(err));
+        QCOMPARE(f.versions.currentVersion("D61"), 0);
+        if (QFileInfo::exists(stagingBefore)) discardPreparedMapSnapshot(prepared);
+    }
+
     void horizonlessCitationBlocksPurgeAndPublish() {
         Fixture f; QVERIFY(f.init()); QString error;
         DataCatalog catalog; QVERIFY(catalog.open(f.dir.path())); f.controller.setCatalog(&catalog);

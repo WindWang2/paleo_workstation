@@ -83,11 +83,14 @@ QString unsafeVersionReason(const CatalogVersion &v)
 
 void absorbSeqs(CatalogStore::Tables *t)
 {
+  // 资产侧与版本侧同口径：只认 "ast-"/"ver-" 前缀且余段为正整数的 id。
+  // 缺前缀闸时，任意「前 4 字符后紧跟正整数」的 id（如 "doc12"）都会抬高
+  // assetSeq，永久跳过 ast-N 号（addAsset 与版本侧都有这两道闸）。
   for (const CatalogAsset &a : t->assets)
   {
     bool ok = false;
-    const int n = QString(a.id).mid(4).toInt(&ok);
-    if (ok)
+    const int n = a.id.startsWith(QStringLiteral("ast-")) ? a.id.mid(4).toInt(&ok) : 0;
+    if (ok && n > 0)
       t->meta.assetSeq = qMax(t->meta.assetSeq, n);
   }
   for (const CatalogVersion &v : t->versions)
@@ -153,7 +156,13 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
 {
   *out = CatalogStore::Tables();
   if (!tableExists(db, QStringLiteral("entities")))
-    return true;
+  {
+    // 无 entities 表 = 不是可用的 catalog 库（零长/异构库）。旧口径在这里
+    // 回「空表 + true」，等于把空库当权威空库放行：recover() 会把「读了个
+    // 空库」当成恢复成功，后续 .bak 代与 JSON 兜底永远够不着（H2）。
+    setError(error, QStringLiteral("catalog sqlite has no entities table"));
+    return false;
+  }
   {
     QSqlQuery q(db);
     if (!q.exec(QStringLiteral("SELECT key, value FROM catalog_meta")))
@@ -288,9 +297,11 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
                    ord, static_cast<qint64>(out->links.size()));
           continue;
         }
-        if (ord > out->links.size())
-          out->links.resize(ord + 1);
-        out->links[ord] = l;
+        // 跳号也不得 resize 补位：默认构造的 EntityAssetLink 是空 id 幻影
+        // 链接行，随后经 links()/toJson/replaceAllLinks 永久回流（查询侧
+        // 跳过空 id 所以看不见，整表重写却把它写回盘）。按表序追加保住这
+        // 一行；ord 的致密化由下一次 replaceAllLinks（ord = 行号）完成。
+        out->links.append(l);
       }
     }
   }

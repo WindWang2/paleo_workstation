@@ -122,6 +122,21 @@ bool verifyPreparedMapSnapshot(const PreparedMapSnapshot &snapshot, QString *err
     if (!file.isFile() || file.isSymLink() || file.size() != record.value("size").toLongLong() ||
         file.lastModified().toMSecsSinceEpoch() != record.value("modified").toLongLong())
       return reject(QStringLiteral("登记前地图快照已经变化：%1").arg(file.filePath()));
+    // size/mtime 门只挡「变长/改时间戳」的改动：同大小、保留 mtime 的就地
+    // 篡改（字节翻转、同位宽改写）能整条穿过——prepare 已把 sha256 记进
+    // attestation，登记前必须真比（commit 之间才是快照的可信边界）。
+    const QString expected = record.value("sha256").toString();
+    if (expected.size() != 64)
+      return reject(QStringLiteral("地图快照登记项缺少 SHA-256：%1").arg(file.filePath()));
+    QString hashErr;
+    const QString actual = DataCatalog::sha256FileHex(file.filePath(), &hashErr);
+    if (actual.isEmpty())
+      return reject(hashErr.isEmpty()
+                        ? QStringLiteral("地图快照指纹读取失败：%1").arg(file.filePath())
+                        : hashErr);
+    if (actual.compare(expected, Qt::CaseInsensitive) != 0)
+      return reject(QStringLiteral("登记前地图快照内容已变化（SHA-256 不一致）：%1")
+                        .arg(file.filePath()));
   }
   return true;
 }

@@ -526,6 +526,15 @@ private slots:
   void unsafeVersionInsertedLaterIsSkippedButKept();
   void corruptLinkOrdSkippedNotHugeResize();
   void rollbackLeavesSqliteUnchanged();
+  // H2：零长 sqlite（migrateFromJson/rewritePrimary 崩溃窗口的残留）不得被
+  // 当权威空库放行——JSON 迁移链必须可达，否则数据退化成盘上孤儿文件。
+  void emptySqliteDoesNotShadowJsonMigration();
+  // A.3：links.ord 跳号不得 resize 补位——默认构造的 EntityAssetLink 是
+  // 空 id 幻影行，会经 links()/replaceAllLinks 永久回流。
+  void linkOrdGapDoesNotCreatePhantomRow();
+  // L3.9：absorbSeqs 只认 "ast-N"/"ver-N" 前缀——非 ast- 前缀的资产 id
+  // 不得抬高 assetSeq（否则 nextAssetId 永久跳过 ast-N 号）。
+  void absorbSeqsIgnoresNonAstPrefixedAssetIds();
 };
 
 void TestCatalogStore::goldenJsonMigratesFieldForField()
@@ -1029,6 +1038,140 @@ void TestCatalogStore::rollbackLeavesSqliteUnchanged()
     QVERIFY(!hasEntityId(tables, QStringLiteral("well-B")));
     store.close();
   }
+}
+
+// H2：migrateFromJson / rewritePrimary 的崩溃窗口会留下「sqlite 在但无表」
+// （attachWritable 建库后、replaceAll 落数据前）。旧口径以 QFileInfo::exists
+// 判 haveSqlite → openExisting 当权威空库放行 → json 永不迁移、数据成孤儿。
+void TestCatalogStore::emptySqliteDoesNotShadowJsonMigration()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QByteArray original = goldenCatalogJson();
+  QString err;
+  QVERIFY2(writeMetadataFile(dir.path(), QStringLiteral("catalog.json"), original, &err),
+           qPrintable(err));
+  const QString jsonPath = CatalogStore::jsonPathFor(dir.path());
+  const QString migratedPath = jsonPath + QStringLiteral(".migrated");
+  const QString sqlitePath = CatalogStore::sqlitePathFor(dir.path());
+  // 零长 sqlite（崩溃残留）。
+  QVERIFY2(writeMetadataFile(dir.path(), QStringLiteral("catalog.sqlite"), QByteArray(), &err),
+           qPrintable(err));
+  QCOMPARE(QFileInfo(sqlitePath).size(), 0);
+
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    QVERIFY2(store.migratedFromJson(), "zero-byte sqlite must not shadow the json migration");
+    QVERIFY(!store.recovered());
+    QVERIFY(store.isWritable());
+    QCOMPARE(tables.entities.size(), 2);
+    QCOMPARE(tables.assets.size(), 1);
+    QCOMPARE(tables.versions.size(), 1);
+    QCOMPARE(tables.links.size(), 2);
+    QVERIFY(!QFile::exists(jsonPath));
+    QVERIFY(QFile::exists(migratedPath));
+    store.close();
+  }
+
+  // 迁移后重开：主库已是权威，数据完整。
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    QVERIFY(!store.recovered());
+    QCOMPARE(tables.entities.size(), 2);
+    QCOMPARE(tables.assets.size(), 1);
+    QCOMPARE(tables.versions.size(), 1);
+    QCOMPARE(tables.links.size(), 2);
+    store.close();
+  }
+}
+
+// A.3：ord 跳号（手改库/历史写路径）时 loadTables 旧口径 resize(ord+1) 补位，
+// 默认构造的 EntityAssetLink 成空 id 幻影行——查询侧跳过空 id 看不见，
+// 但 links()/toJson/replaceAllLinks 会把它永久回流。修后按表序追加。
+void TestCatalogStore::linkOrdGapDoesNotCreatePhantomRow()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sqlitePath = CatalogStore::sqlitePathFor(dir.path());
+  QString err;
+
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    EntityAssetLink l;
+    l.entityType = QStringLiteral("well");
+    l.entityId = QStringLiteral("ent-1");
+    l.assetId = QStringLiteral("ast-1");
+    l.role = QStringLiteral("log");
+    QVERIFY2(store.begin(&err), qPrintable(err));
+    QVERIFY2(store.upsertLink(0, l, &err), qPrintable(err));
+    QVERIFY2(store.commit(&err), qPrintable(err));
+    store.close();
+  }
+
+  // 手改：塞入 ord=5 的链接行（与已读行数偏离不大，不触发 FA-004 的跳过闸）。
+  const QString insertGap = QStringLiteral(
+      "INSERT INTO entity_asset_links (ord, entity_type, entity_id, asset_id, role, is_primary,"
+      " unresolved, ordinal, note) VALUES (5, 'well', 'ent-2', 'ast-2', 'log', 1, 0, 0, '')");
+  QVERIFY2(execSql(sqlitePath, insertGap, &err), qPrintable(err));
+
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    QCOMPARE(tables.links.size(), 2); // 不是 6（跳号补位）
+    for (const EntityAssetLink &l : tables.links)
+    {
+      QVERIFY2(!l.entityId.isEmpty(), "phantom link row with empty entity id");
+      QVERIFY(!l.assetId.isEmpty());
+    }
+    QCOMPARE(tables.links.at(0).entityId, QStringLiteral("ent-1"));
+    QCOMPARE(tables.links.at(1).entityId, QStringLiteral("ent-2"));
+    // 整表重写：幻影行不得回流（ord 致密化由 replaceAllLinks 完成）。
+    QVERIFY2(store.begin(&err), qPrintable(err));
+    QVERIFY2(store.replaceAllLinks(tables.links, &err), qPrintable(err));
+    QVERIFY2(store.commit(&err), qPrintable(err));
+    store.close();
+  }
+
+  const SqliteProbe probe = probeDb(sqlitePath);
+  QVERIFY2(probe.ok, qPrintable(probe.error));
+  QCOMPARE(probe.links, 2);
+}
+
+// L3.9：absorbSeqs 资产侧此前缺 startsWith("ast-") / n > 0 两道闸——任意
+// 「前 4 字符后紧跟正整数」的资产 id 都抬高 assetSeq，永久跳过 ast-N 号。
+void TestCatalogStore::absorbSeqsIgnoresNonAstPrefixedAssetIds()
+{
+  QJsonParseError parseError;
+  const QJsonDocument doc = QJsonDocument::fromJson(goldenCatalogJson(), &parseError);
+  QCOMPARE(parseError.error, QJsonParseError::NoError);
+  QVERIFY(doc.isObject());
+  QJsonObject root = doc.object();
+
+  QJsonArray assets = root.value(QStringLiteral("assets")).toArray();
+  for (const QString &rogue : {QStringLiteral("doc12"), QStringLiteral("user7")})
+  {
+    QJsonObject o;
+    o.insert(QStringLiteral("id"), rogue);
+    o.insert(QStringLiteral("type"), QStringLiteral("document"));
+    o.insert(QStringLiteral("format"), QStringLiteral("pdf"));
+    o.insert(QStringLiteral("display_name"), rogue);
+    assets.append(o);
+  }
+  root.insert(QStringLiteral("assets"), assets);
+
+  QString err;
+  CatalogStore::Tables tables;
+  QVERIFY2(CatalogStore::fromJson(root, &tables, &err), qPrintable(err));
+  QCOMPARE(tables.assets.size(), 3);
+  // 只认 ast-7：rogue id 不得把序号面抬到 12/7 以上。
+  QCOMPARE(tables.meta.assetSeq, 7);
 }
 
 QTEST_MAIN(TestCatalogStore)

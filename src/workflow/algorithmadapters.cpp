@@ -181,6 +181,18 @@ AlgorithmRunResult NativeCppAdapter::run( const AlgorithmSpec &spec, const QVari
         "NativeCppAdapter：faciesmapping:synthesize 请使用类型化 "
         "runSynthesizeFacies(SynthesizeFaciesInputs)" );
   }
+  else if ( id == QLatin1String( "inversion:sparse_spike" ) )
+  {
+    r.error = QStringLiteral(
+        "NativeCppAdapter：inversion:sparse_spike 请使用类型化 "
+        "runSparseSpike(SparseSpikeInputs)" );
+  }
+  else if ( id == QLatin1String( "wellsiting:diagnose_coverage" ) )
+  {
+    r.error = QStringLiteral(
+        "NativeCppAdapter：wellsiting:diagnose_coverage 请使用类型化 "
+        "runDiagnoseCoverage(DiagnoseCoverageInputs)" );
+  }
   else
   {
     r.error = QStringLiteral( "NativeCppAdapter 尚未实现：%1（TODO）" ).arg( id );
@@ -562,6 +574,89 @@ AlgorithmRunResult NativeCppAdapter::runSynthesizeFacies( const SynthesizeFacies
                         QStringLiteral( "faciesmapping:synthesize" ) );
   for ( auto it = sr.diagnostics.constBegin(); it != sr.diagnostics.constEnd(); ++it )
     r.diagnostics.insert( it.key(), it.value() );
+  return r;
+}
+
+
+AlgorithmRunResult NativeCppAdapter::runSparseSpike( const SparseSpikeInputs &in,
+                                                     paleo::inversion::SparseSpikeResult *out,
+                                                     QString *error )
+{
+  AlgorithmRunResult r;
+  if ( !in.trace || in.n <= 0 || !in.wavelet )
+  {
+    r.ok = false;
+    r.error = QStringLiteral( "inversion:sparse_spike：trace/wavelet 无效" );
+    if ( error )
+      *error = r.error;
+    return r;
+  }
+  paleo::inversion::SparseSpikeResult local;
+  paleo::inversion::SparseSpikeResult &sr = out ? *out : local;
+  sr = paleo::inversion::sparseSpikeInversion( in.trace, in.n, in.sampleIntervalMs, *in.wavelet,
+                                               in.lowFreq, in.options );
+  if ( !sr.ok )
+  {
+    r.ok = false;
+    r.error = QStringLiteral( "稀疏脉冲反演失败：%1" ).arg( QString::fromStdString( sr.reason ) );
+    if ( error )
+      *error = r.error;
+    return r;
+  }
+  r.ok = true;
+  r.diagnostics.insert( QStringLiteral( "residual_energy_ratio" ), sr.residualEnergyRatio );
+  r.diagnostics.insert( QStringLiteral( "iterations" ), sr.iterations );
+  r.diagnostics.insert( QStringLiteral( "converged" ), sr.converged );
+  r.diagnostics.insert( QStringLiteral( "lambda_used" ), sr.lambdaUsed );
+  r.diagnostics.insert( QStringLiteral( "amplitude_calibrated" ), sr.amplitudeCalibrated );
+  r.diagnostics.insert( QStringLiteral( "clamped_fraction" ), sr.clampedFraction );
+  r.diagnostics.insert( QStringLiteral( "impedance_samples" ),
+                        static_cast<int>( sr.impedance.size() ) );
+  r.diagnostics.insert( QStringLiteral( "algorithm_id" ),
+                        QStringLiteral( "inversion:sparse_spike" ) );
+  return r;
+}
+
+AlgorithmRunResult NativeCppAdapter::runDiagnoseCoverage(
+    const DiagnoseCoverageInputs &in, paleo::wellsiting::CoverageReport *outReport,
+    paleo::wellsiting::SitingField *outField, QString *error )
+{
+  AlgorithmRunResult r;
+  if ( !in.domain || !in.wells )
+  {
+    r.ok = false;
+    r.error = QStringLiteral( "wellsiting:diagnose_coverage：domain/wells 指针为空" );
+    if ( error )
+      *error = r.error;
+    return r;
+  }
+  paleo::wellsiting::SitingField fieldLocal;
+  paleo::wellsiting::SitingField &field = outField ? *outField : fieldLocal;
+  field = paleo::wellsiting::sampleField( *in.domain, *in.wells, in.options );
+  paleo::wellsiting::CoverageReport reportLocal;
+  paleo::wellsiting::CoverageReport &report = outReport ? *outReport : reportLocal;
+  report = paleo::wellsiting::describeField( field );
+  if ( field.status != paleo::wellsiting::Status::Ok )
+  {
+    r.ok = false;
+    r.error = QString::fromStdString( field.message.empty() ? report.message : field.message );
+    if ( error )
+      *error = r.error;
+    r.diagnostics.insert( QStringLiteral( "algorithm_id" ),
+                          QStringLiteral( "wellsiting:diagnose_coverage" ) );
+    return r;
+  }
+  r.ok = true;
+  r.diagnostics.insert( QStringLiteral( "hole_count" ), report.holeCount );
+  r.diagnostics.insert( QStringLiteral( "hole_area_total" ), report.holeAreaTotal );
+  r.diagnostics.insert( QStringLiteral( "coverage_ratio" ), report.coverageRatio );
+  r.diagnostics.insert( QStringLiteral( "domain_area" ), field.domainArea );
+  r.diagnostics.insert( QStringLiteral( "domain_mean_distance" ),
+                        std::isfinite( report.domainMeanDistance )
+                            ? QVariant( report.domainMeanDistance )
+                            : QVariant() );
+  r.diagnostics.insert( QStringLiteral( "algorithm_id" ),
+                        QStringLiteral( "wellsiting:diagnose_coverage" ) );
   return r;
 }
 

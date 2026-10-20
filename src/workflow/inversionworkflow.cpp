@@ -561,14 +561,21 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
             if (ilIdx >= 0 && xlIdx >= 0 && n == nS && n > 0) {
                 float *dst = volume.data() + (size_t(ilIdx) * size_t(nXl) + size_t(xlIdx)) * size_t(nS);
                 if (sparse) {
-                    paleo::inversion::SparseSpikeOptions opt;
-                    opt.lambda = job->req.lambda;
-                    opt.maxIterations = job->req.maxIterations;
-                    const auto r = paleo::inversion::sparseSpikeInversion(samples, n, dtMs,
-                                                                          job->wavelet, lowPtr, opt);
-                    if (r.ok) {
-                        std::copy(r.impedance.begin(), r.impedance.end(), dst);
-                        sumStat[size_t(threadIdx)] += r.residualEnergyRatio;
+                    // algo-atom：inversion:sparse_spike 经 NativeCppAdapter
+                    paleo::SparseSpikeInputs sin;
+                    sin.trace = samples;
+                    sin.n = n;
+                    sin.sampleIntervalMs = dtMs;
+                    sin.wavelet = &job->wavelet;
+                    sin.lowFreq = lowPtr;
+                    sin.options.lambda = job->req.lambda;
+                    sin.options.maxIterations = job->req.maxIterations;
+                    paleo::inversion::SparseSpikeResult sr;
+                    paleo::NativeCppAdapter native;
+                    const AlgorithmRunResult run = native.runSparseSpike(sin, &sr, nullptr);
+                    if (run.ok) {
+                        std::copy(sr.impedance.begin(), sr.impedance.end(), dst);
+                        sumStat[size_t(threadIdx)] += sr.residualEnergyRatio;
                         okTrace = true;
                     }
                 } else {

@@ -1,7 +1,7 @@
 // 层：功能
 // workflow/algorithmadapters.h — algo-atom P2：执行适配器。
 // ProcessingAlgorithmAdapter 包装 QgisProcessingService::run → AlgorithmRunResult；
-// NativeCppAdapter：geostat OK/SGS/cokriging、facies synthesize、hztrack、bandlimited。
+// NativeCppAdapter：geostat / facies / hztrack / inversion / wellsiting 类型化入口。
 // 设计：docs/designs/algorithm-atom-contract.md §6 P2。
 #pragma once
 
@@ -11,6 +11,8 @@
 #include "../algorithms/geostat/sgs.h"
 #include "../algorithms/horizontrack.h"
 #include "../algorithms/inversion/bandlimit.h"
+#include "../algorithms/inversion/sparse.h"
+#include "../algorithms/wellsiting/wellsiting.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../services/algorithmspec.h"
 
@@ -116,6 +118,23 @@ struct SynthesizeFaciesInputs
   const paleo::faciesmapping::Control *control = nullptr;
 };
 
+struct SparseSpikeInputs
+{
+  const float *trace = nullptr;
+  int n = 0;
+  double sampleIntervalMs = 1.0;
+  const paleo::inversion::Wavelet *wavelet = nullptr; // 必填（核要求引用）
+  const float *lowFreq = nullptr;
+  paleo::inversion::SparseSpikeOptions options;
+};
+
+struct DiagnoseCoverageInputs
+{
+  const std::vector<paleo::wellsiting::Polygon> *domain = nullptr;
+  const std::vector<paleo::wellsiting::Point2> *wells = nullptr;
+  paleo::wellsiting::SitingOptions options;
+};
+
 class NativeCppAdapter
 {
   public:
@@ -140,6 +159,16 @@ class NativeCppAdapter
 
     AlgorithmRunResult runSynthesizeFacies( const SynthesizeFaciesInputs &in,
                                             paleo::faciesmapping::SynthesisResult *out = nullptr,
+                                            QString *error = nullptr );
+
+    AlgorithmRunResult runSparseSpike( const SparseSpikeInputs &in,
+                                       paleo::inversion::SparseSpikeResult *out = nullptr,
+                                       QString *error = nullptr );
+
+    // sampleField + describeField；field 出参供 domainArea 等编排诊断。
+    AlgorithmRunResult runDiagnoseCoverage( const DiagnoseCoverageInputs &in,
+                                            paleo::wellsiting::CoverageReport *outReport = nullptr,
+                                            paleo::wellsiting::SitingField *outField = nullptr,
                                             QString *error = nullptr );
 };
 

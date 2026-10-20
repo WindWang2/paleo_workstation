@@ -4916,6 +4916,58 @@ private slots:
     QCOMPARE(intent.last()[0].toString(), QString("delete"));
     QCOMPARE(intent.last()[1].toMap().value("layer").toString(), layer1);
   }
+  void backgroundConsistencyReportPublishesAcrossFilesystems() {
+    // C-2（full-audit-20261021）：后台一致性报告的暂存目录必须建在目标
+    // 目录（工程 artifacts/reports 内）——旧实现写默认临时目录再 rename
+    // 进工程，跨文件系统（/tmp 独立 tmpfs 的常见 Linux 布局）恒 EXDEV，
+    // 报告永远发布失败。TMPDIR 指到 /dev/shm 构造跨文件系统红态。
+    const QByteArray priorTmp = qgetenv("TMPDIR");
+    {
+      QTemporaryDir shmProbe(QStringLiteral("/dev/shm/paleo-c2-probe-XXXXXX"));
+      if (!shmProbe.isValid() || shmProbe.path() == QDir::tempPath())
+        QSKIP("需要与默认临时目录不同的文件系统（/dev/shm）");
+    }
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(!f.well("B", 300, 200).isEmpty());
+    QString error;
+    QVERIFY(f.work.predict("D61", "wells", {"A", "B"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    const auto wells = f.latest("wells_prediction");
+    QVERIFY(!wells.isEmpty());
+    // 比对需要两侧：补地震相预测（与 faciesConsistencyReportsWellVsSeismic
+    // 同夹具口径）。
+    const auto input = f.seismic();
+    QVERIFY(!input.isEmpty());
+    QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+
+    PaleoTaskService tasks;
+    f.work.setTaskService(&tasks);
+    QSignalSpy ready(&f.work, &MappingWorkbench::consistencyReady);
+    QSignalSpy failed(&f.work, &MappingWorkbench::errorOccurred);
+    qputenv("TMPDIR", "/dev/shm");
+    QVERIFY(f.work.startFaciesConsistency(wells, &error));
+    QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 30000);
+    if (!priorTmp.isEmpty())
+      qputenv("TMPDIR", priorTmp.constData());
+    else
+      qunsetenv("TMPDIR");
+    QVERIFY2(ready.size() == 1,
+             qPrintable(failed.isEmpty() ? QStringLiteral("consistencyReady 未发出")
+                                         : failed.first().first().toString()));
+    const QVariantMap report = ready.first().first().toMap();
+    const QString path = report.value("report_path").toString();
+    QVERIFY2(!path.isEmpty(), "报告必须带发布路径");
+    QVERIFY2(QFile::exists(path), qPrintable(path));
+    QVERIFY(path.startsWith(f.dir.path())); // 落在工程内，非系统临时区
+    // 暂存目录随发布清理，不留 .consistency-* 残留
+    const QStringList leftovers = QDir(f.dir.filePath("artifacts/reports"))
+                                      .entryList({QStringLiteral(".consistency-*")},
+                                                 QDir::Dirs | QDir::NoDotAndDotDot);
+    QCOMPARE(leftovers.size(), 0);
+  }
 };
 int main(int argc, char **argv) {
   // ctest 起进程不带控制台，QTest 结果行走 OutputDebugString；一旦某用例

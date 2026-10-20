@@ -425,6 +425,100 @@ AlgorithmSpec inversionBandlimitSpec()
   return s;
 }
 
+
+AlgorithmSpec sgsSpec()
+{
+  AlgorithmSpec s;
+  s.id = QStringLiteral( "geostat:sgs" );
+  s.displayName = QStringLiteral( "Geostat: Sequential Gaussian Simulation" );
+  s.engine = QStringLiteral( "native_cpp" );
+  s.complete = true;
+  s.inputs = {
+    port( QStringLiteral( "SAMPLES" ), QStringLiteral( "table" ), true ),
+  };
+  s.outputs = {
+    port( QStringLiteral( "OUTPUT" ), QStringLiteral( "raster" ) ), // mean
+    port( QStringLiteral( "STD" ), QStringLiteral( "raster" ), false ),
+    port( QStringLiteral( "MEMBERS" ), QStringLiteral( "table" ), false ), // member path list
+  };
+  s.params = {
+    paramInt( QStringLiteral( "REALIZATIONS" ), QString(), 4, true, 1, true, 64 ),
+    paramInt( QStringLiteral( "SEED" ), QString(), 42 ),
+    paramInt( QStringLiteral( "MAX_POINTS" ), QString(), 16, true, 1, true, 64 ),
+    paramDouble( QStringLiteral( "SEARCH_RADIUS" ), QString(), 0.0, true, 0 ),
+    paramKey( QStringLiteral( "VARIOGRAM_MODEL" ), AlgorithmParamField::String ),
+  };
+  return s;
+}
+
+AlgorithmSpec ordinaryCokrigingSpec()
+{
+  AlgorithmSpec s;
+  s.id = QStringLiteral( "geostat:ordinary_cokriging" );
+  s.displayName = QStringLiteral( "Geostat: Ordinary Co-Kriging" );
+  s.engine = QStringLiteral( "native_cpp" );
+  s.complete = true;
+  s.inputs = {
+    port( QStringLiteral( "SAMPLES" ), QStringLiteral( "table" ), true ),
+    port( QStringLiteral( "SECONDARY" ), QStringLiteral( "table" ), true ),
+  };
+  s.outputs = {
+    port( QStringLiteral( "OUTPUT" ), QStringLiteral( "raster" ) ),
+    port( QStringLiteral( "VARIANCE" ), QStringLiteral( "raster" ), false ),
+  };
+  s.params = {
+    paramInt( QStringLiteral( "MAX_PRIMARY" ), QString(), 16, true, 1, true, 64 ),
+    paramInt( QStringLiteral( "MAX_SECONDARY" ), QString(), 16, true, 1, true, 64 ),
+    paramDouble( QStringLiteral( "SEARCH_RADIUS" ), QString(), 0.0, true, 0 ),
+    paramDouble( QStringLiteral( "CROSS_CORRELATION" ), QString(), 0.0, true, -1, true, 1 ),
+    paramKey( QStringLiteral( "VARIOGRAM_MODEL" ), AlgorithmParamField::String ),
+  };
+  return s;
+}
+
+AlgorithmSpec faciesSynthesizeSpec()
+{
+  AlgorithmSpec s;
+  s.id = QStringLiteral( "faciesmapping:synthesize" );
+  s.displayName = QStringLiteral( "Facies Mapping: Synthesize Regions" );
+  s.engine = QStringLiteral( "native_cpp" );
+  s.complete = true;
+  s.inputs = {
+    port( QStringLiteral( "REGIONS" ), QStringLiteral( "table" ), true ),
+    port( QStringLiteral( "SOURCES" ), QStringLiteral( "table" ), true ),
+  };
+  s.outputs = {
+    port( QStringLiteral( "SYNTHESIS" ), QStringLiteral( "table" ) ),
+  };
+  s.params = {
+    paramDouble( QStringLiteral( "ASSIGN_THRESHOLD" ), QString(), 0.5, true, 0, true, 1 ),
+    paramInt( QStringLiteral( "MIN_VOTES" ), QString(), 1, true, 0 ),
+  };
+  return s;
+}
+
+AlgorithmSpec inversionSparseSpikeSpec()
+{
+  AlgorithmSpec s;
+  s.id = QStringLiteral( "inversion:sparse_spike" );
+  s.displayName = QStringLiteral( "Inversion: Sparse Spike" );
+  s.engine = QStringLiteral( "native_cpp" );
+  s.complete = true;
+  s.inputs = {
+    port( QStringLiteral( "TRACE" ), QStringLiteral( "table" ), true ),
+    port( QStringLiteral( "WAVELET" ), QStringLiteral( "table" ), false ),
+  };
+  s.outputs = {
+    port( QStringLiteral( "IMPEDANCE" ), QStringLiteral( "table" ) ),
+  };
+  s.params = {
+    paramDouble( QStringLiteral( "SAMPLE_INTERVAL_MS" ), QString(), 1.0, true, 0.0001 ),
+    paramDouble( QStringLiteral( "LAMBDA" ), QString(), 0.1, true, 0 ),
+    paramInt( QStringLiteral( "MAX_ITERATIONS" ), QString(), 100, true, 1 ),
+  };
+  return s;
+}
+
 AlgorithmSpec wellsitingCoverageSpec()
 {
   AlgorithmSpec s;
@@ -462,8 +556,12 @@ const QVector<AlgorithmSpec> &allSpecs()
     faciesPolygonizeSpec(),
     // P4 native_cpp
     ordinaryKrigingSpec(),
+    sgsSpec(),
+    ordinaryCokrigingSpec(),
     hztrackSectionSpec(),
     inversionBandlimitSpec(),
+    inversionSparseSpikeSpec(),
+    faciesSynthesizeSpec(),
     wellsitingCoverageSpec(),
   };
   return kSpecs;

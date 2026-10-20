@@ -109,8 +109,12 @@ void AlgorithmSpecTests::nativeCppP4SpecsRegistered()
 {
   const QStringList nativeIds = {
     QStringLiteral( "geostat:ordinary_kriging" ),
+    QStringLiteral( "geostat:sgs" ),
+    QStringLiteral( "geostat:ordinary_cokriging" ),
     QStringLiteral( "hztrack:track_section" ),
     QStringLiteral( "inversion:bandlimited" ),
+    QStringLiteral( "inversion:sparse_spike" ),
+    QStringLiteral( "faciesmapping:synthesize" ),
     QStringLiteral( "wellsiting:diagnose_coverage" ),
   };
   for ( const QString &id : nativeIds )
@@ -121,8 +125,8 @@ void AlgorithmSpecTests::nativeCppP4SpecsRegistered()
     QCOMPARE( s.engine, QStringLiteral( "native_cpp" ) );
     QVERIFY2( !s.inputs.isEmpty() || !s.outputs.isEmpty(), qPrintable( id ) );
   }
-  QVERIFY( AlgorithmSpecRegistry::knownIds().size() >= 16 );
-  QVERIFY( AlgorithmSpecRegistry::completeIds().size() >= 16 );
+  QVERIFY( AlgorithmSpecRegistry::knownIds().size() >= 20 );
+  QVERIFY( AlgorithmSpecRegistry::completeIds().size() >= 20 );
 }
 
 void AlgorithmSpecTests::everyCompleteSpecMatchesFrozenInitAlgorithm()

@@ -532,7 +532,7 @@ protected:
     p.setFont(fCaption);
     p.setPen(PaleoTheme::tokens().textMuted);
     p.drawText(QRect(2, 4, kRulerW - 4, pRect.top() - 4), Qt::AlignCenter | Qt::AlignVCenter,
-               QStringLiteral("MD (m)"));
+               QObject::tr("MD (m)"));
 
     p.drawRect(pRect);
 

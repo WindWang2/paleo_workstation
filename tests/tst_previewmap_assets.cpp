@@ -110,6 +110,7 @@ class TestPreviewMapAssets : public QObject
     void surveyPageHealsWhenProjectLands();
     void surveyPageHealsBasemapClone();
     void attributeTableDialogFilters();
+    void attributeTableDialogPagesWithoutRescan();
     void profilePanelExportsCsvAndPng();
     void rasterAnalysisStretchAndRamps();
     void previewRasterReadSideSkipsNodata();
@@ -913,6 +914,68 @@ void TestPreviewMapAssets::attributeTableDialogFilters()
   filterEdit->setText(QString());
   filterApply->click();
   QVERIFY(table->rowCount() > 0);
+}
+
+// #590 D.19：翻页不得重复整层扫描——页码钳制在 rebuild 内一次算清，本页要素
+// 一次批量取回。250 条点要素（页大小 100 → 3 页）。
+void TestPreviewMapAssets::attributeTableDialogPagesWithoutRescan()
+{
+  QTemporaryDir tmp;
+  const QString path = tmp.filePath(QStringLiteral("many.geojson"));
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QString json = QStringLiteral("{\"type\":\"FeatureCollection\",\"features\":[");
+    for (int i = 0; i < 250; ++i)
+    {
+      if (i)
+        json.append(QLatin1Char(','));
+      json.append(QStringLiteral("{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\","
+                                 "\"coordinates\":[%1,%2]},\"properties\":{\"id\":%3}}")
+                      .arg(i % 20)
+                      .arg(i / 20)
+                      .arg(i));
+    }
+    json.append(QStringLiteral("]}"));
+    f.write(json.toUtf8());
+    f.close();
+  }
+  auto *vlayer = new QgsVectorLayer(path, QStringLiteral("many"), QStringLiteral("ogr"));
+  QVERIFY(vlayer->isValid());
+  const int total = vlayer->featureCount();
+  QCOMPARE(total, 250);
+
+  PreviewAttributeTableDialog dlg(vlayer);
+  auto *table = dlg.findChild<QTableWidget *>(QStringLiteral("attrFullTable"));
+  auto *prevBtn = dlg.findChild<QPushButton *>(QStringLiteral("attrPrevPage"));
+  auto *nextBtn = dlg.findChild<QPushButton *>(QStringLiteral("attrNextPage"));
+  QVERIFY(table && prevBtn && nextBtn);
+
+  QCOMPARE(dlg.pageCount(), 3);
+  QCOMPARE(dlg.currentPage(), 0);
+  QCOMPARE(table->rowCount(), 100); // 首页整页
+  QVERIFY(!prevBtn->isEnabled());
+  QVERIFY(nextBtn->isEnabled());
+
+  dlg.goToPage(1);
+  QCOMPARE(dlg.currentPage(), 1);
+  QCOMPARE(table->rowCount(), 100);
+  QVERIFY(prevBtn->isEnabled());
+  QVERIFY(nextBtn->isEnabled());
+
+  // 越界页码在 rebuild 内钳制到末页（尾页 50 条），不是空表也不是越界读写。
+  dlg.goToPage(99);
+  QCOMPARE(dlg.currentPage(), 2);
+  QCOMPARE(table->rowCount(), 50);
+  QVERIFY(prevBtn->isEnabled());
+  QVERIFY(!nextBtn->isEnabled());
+
+  // 负页码落到首页。
+  dlg.goToPage(-5);
+  QCOMPARE(dlg.currentPage(), 0);
+  QCOMPARE(table->rowCount(), 100);
+
+  delete vlayer;
 }
 
 void TestPreviewMapAssets::profilePanelExportsCsvAndPng()

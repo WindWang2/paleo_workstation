@@ -52,7 +52,7 @@ class QgisProjectService : public QObject
     //（工程清单是权威），本服务在 writeProject 时把它镜像进 QgsProject 自定义
     // 属性（paleo/georeference）随 .qgz 持久化。
     const std::optional<PaleoGeoreference> &georeference() const { return m_georeference; }
-    void setGeoreference(const PaleoGeoreference &g);
+    void setGeoreference(const PaleoGeoreference &reference);
     void clearGeoreference();
     const PaleoProjectFile &mapConfiguration() const { return m_mapConfiguration; }
     bool updateMapConfiguration(const PaleoProjectFile &configuration, QString *error = nullptr);

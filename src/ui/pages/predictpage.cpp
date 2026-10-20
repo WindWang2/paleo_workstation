@@ -90,24 +90,8 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   // 预测专项 P1：通用 ONNX 模型没有登记地质输入映射——原始张量（名称 /
   // 形状 / 逗号分隔浮点数组）只作「高级 / 调试」入口，默认折叠；不预填
   // 任何默认张量，避免测试值被当作真实地质输入。
-  auto *advToggle = new QToolButton(paramsArea);
-  advToggle->setObjectName(QStringLiteral("onnxAdvancedToggle"));
-  advToggle->setText(tr("高级 / 调试：原始张量输入"));
-  advToggle->setCheckable(true);
-  advToggle->setChecked(false);
-  advToggle->setArrowType(Qt::RightArrow);
-  advToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-  advToggle->setToolTip(tr("仅供模型调试：手工给出输入张量名称、形状与数值"));
-  paramsLay->addWidget(advToggle);
-  auto *advBody = new QWidget(paramsArea);
-  advBody->setObjectName(QStringLiteral("onnxAdvancedBody"));
-  auto *advLay = new QVBoxLayout(advBody);
-  advLay->setContentsMargins(0, 0, 0, 0);
-  advLay->setSpacing(PaleoTheme::tokens().spacingSm);
-  advBody->hide();
-  paramsLay->addWidget(advBody);
-  connect(advToggle, &QToolButton::toggled, this,
-          [this](bool on) { setOnnxAdvancedExpanded(on); });
+  QWidget *advBody = nullptr;
+  auto *advLay = buildOnnxAdvanced(paramsArea, paramsLay, &advBody);
 
   advLay->addWidget(caption(tr("输入数据 (逗号分隔浮点数)"), advBody));
   auto *inputEdit = new QLineEdit(advBody);
@@ -160,17 +144,7 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   connect(types, &QComboBox::currentIndexChanged, this, refreshForm);
 
   // 预测专项 P0：准备检查结论（进入页面即可见；层位/算法/类型变化即重算）。
-  auto *readiness = new QLabel(this);
-  readiness->setObjectName(QStringLiteral("predictReadinessLabel"));
-  readiness->setWordWrap(true);
-  readiness->setAccessibleName(tr("预测准备检查"));
-  lay->addWidget(readiness);
-  auto *jump = new QPushButton(tr("前往测井相预测面板"), this);
-  jump->setObjectName(QStringLiteral("openWellFaciesButton"));
-  jump->setToolTip(tr("测井相预测按井读取曲线与分层，在井综合显示的测井相面板运行"));
-  jump->hide();
-  lay->addWidget(jump);
-  connect(jump, &QPushButton::clicked, this, [this] { emit wellFaciesPanelRequested(); });
+  buildReadinessRow(lay);
 
   auto *run = new QPushButton(tr("运行预测"), this);
   run->setObjectName(QStringLiteral("runButton"));
@@ -262,6 +236,47 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   }
   refreshHistory();
   updateReadiness();
+}
+
+// 预测专项 P1：原始张量「高级 / 调试」折叠区（自构造函数拆出，#502 函数行数闸）。
+QVBoxLayout *PredictPage::buildOnnxAdvanced(QWidget *parent, QVBoxLayout *into, QWidget **body)
+{
+  auto *advToggle = new QToolButton(parent);
+  advToggle->setObjectName(QStringLiteral("onnxAdvancedToggle"));
+  advToggle->setText(tr("高级 / 调试：原始张量输入"));
+  advToggle->setCheckable(true);
+  advToggle->setChecked(false);
+  advToggle->setArrowType(Qt::RightArrow);
+  advToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  advToggle->setToolTip(tr("仅供模型调试：手工给出输入张量名称、形状与数值"));
+  into->addWidget(advToggle);
+  auto *advBody = new QWidget(parent);
+  advBody->setObjectName(QStringLiteral("onnxAdvancedBody"));
+  auto *advLay = new QVBoxLayout(advBody);
+  advLay->setContentsMargins(0, 0, 0, 0);
+  advLay->setSpacing(PaleoTheme::tokens().spacingSm);
+  advBody->hide();
+  into->addWidget(advBody);
+  connect(advToggle, &QToolButton::toggled, this,
+          [this](bool on) { setOnnxAdvancedExpanded(on); });
+  *body = advBody;
+  return advLay;
+}
+
+// 预测专项 P0：准备检查结论 + 测井相面板跳转（自构造函数拆出）。
+void PredictPage::buildReadinessRow(QVBoxLayout *lay)
+{
+  auto *readiness = new QLabel(this);
+  readiness->setObjectName(QStringLiteral("predictReadinessLabel"));
+  readiness->setWordWrap(true);
+  readiness->setAccessibleName(tr("预测准备检查"));
+  lay->addWidget(readiness);
+  auto *jump = new QPushButton(tr("前往测井相预测面板"), this);
+  jump->setObjectName(QStringLiteral("openWellFaciesButton"));
+  jump->setToolTip(tr("测井相预测按井读取曲线与分层，在井综合显示的测井相面板运行"));
+  jump->hide();
+  lay->addWidget(jump);
+  connect(jump, &QPushButton::clicked, this, [this] { emit wellFaciesPanelRequested(); });
 }
 
 void PredictPage::setHorizons(const QStringList &horizons)

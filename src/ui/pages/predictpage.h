@@ -7,6 +7,7 @@
 
 class PredictionWorkflow;
 class QgisLayerService;
+class QVBoxLayout;
 
 // ui/pages/predictpage.h — ①智能预测页（自 pagepanels 拆出，公共形状不变：
 // objectName/信号签名/ctor 签名全保留）。
@@ -44,6 +45,8 @@ class PredictPage : public QWidget
     void wellFaciesPanelRequested();
 
   private:
+    QVBoxLayout *buildOnnxAdvanced(QWidget *parent, QVBoxLayout *into, QWidget **body);
+    void buildReadinessRow(QVBoxLayout *lay);
     QVariantMap parseInputParams();                    // onnx:* 三控件（行为不变）
     void rebuildSchemaForm();                          // paramsFormArea 按算法 schema 重建
     bool collectSchemaParams(QVariantMap *out);        // schema 控件 → QVariantMap

@@ -475,7 +475,11 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
                m_parser.completionTokens);
       return;
     }
-    handleNonStreamReply(m_body);
+    // C-6（full-audit-20261021）：非流式应答并入 finished 时刻读出的尾部
+    // 字节——与流式分支同款兜底。Qt 文档建议在 finished 里读取剩余缓冲；
+    // 若平台/管线在最后一个 readyRead 与 finished 之间留有未投递字节，
+    // 截断的 JSON 会被误报成 Malformed。
+    handleNonStreamReply(m_body + tail);
   });
 }
 

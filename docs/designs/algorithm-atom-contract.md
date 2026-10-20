@@ -130,9 +130,9 @@ P0 Spec 端口与现网参数名对齐：
 |------|------|--------|
 | **P0** | Spec 静态表 + 文档 + `tst_algorithm_spec` | ✅ **12/12 Processing complete** |
 | **P1** | `publishArtifacts`；单因素 + 编图 fusion/polygonize/prediction/workbench.record | ✅ |
-| **P2** | Processing / NativeCpp adapter；AtomicJob | **推进中**：Processing 覆盖 factor/prediction/polygonize/carto/local_direction/geostat-IDW；NativeCpp **ordinary_kriging** 实装；AtomicJob 未做 |
+| **P2** | Processing / NativeCpp adapter；AtomicJob | **推进中**：Processing 覆盖 factor/prediction/polygonize/carto/local_direction/geostat-IDW；NativeCpp **OK/SGS/cokriging/synthesize/track_section/bandlimited** 实装；AtomicJob 未做 |
 | **P3** | Schema ← Spec；UI 只读 Spec | 部分：ANISO_RATIO 已进 schema |
-| **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | **起步**：hztrack/inversion/wellsiting/geostat Spec 已登记；运行时未全迁 |
+| **P4** | horizon/inversion/wellsiting Spec；任务中心 port 摘要 | **推进**：native Spec 20+；geostat/hztrack/bandlimited/facies synthesize 已接线；wellsiting/sparse_spike Spec-only |
 
 P0 验收：
 
@@ -154,28 +154,36 @@ P1 验收：
 
 | 位置 | 原因 |
 |------|------|
-| `faciesmappingworkflow` draft/report `commit` | 纯核编图草稿/报告 JSON，非 Processing OUTPUT |
-| `mappingworkflow` thickness `commit` | 厚度井点/回落/栅格管线（本波未迁；非 paleo:* fusion/polygonize） |
+| `mappingworkflow` thickness `commit` | 厚度井点/回落/栅格管线：多段 staging（wells/fallback/raster）且角色非算法 OUTPUT；迁 publish 需拆多工件语义，本波保留直调 `commit` |
 | `mappingworkbench` `facies-schema` `commit` | 相图式元数据资产，非算法栅格/矢量产出 |
 | `mappingworkbench_predict` horizon.dat `commitExternal` | 输入快照冻结，非算法产出 |
 | `QFile::commit` / SQLite 事务 | 非 catalog DERIVED 登记 |
+
+已迁出白名单：`faciesmappingworkflow` draft/report → `publishArtifacts`（写盘落在 staging 路径，commitExternal 退化为 commit）。
 
 ## 6.2 P2 适配器
 
 - `ProcessingAlgorithmAdapter`：`run` / `runById` → `AlgorithmRunResult`；`processingResultsFromRunResult` 回桥旧 publish 回调。
 - **Processing 已接线**：`runFactorAlgorithm`（constraint_idw 等）、`PredictionWorkflow`、`facies_polygonize`、`cartographic_work`、`local_direction`/`surfer`、geostat 降级 IDW、fusion。
-- `NativeCppAdapter::runOrdinaryKriging`：类型化入参 → `ordinaryKriging` 核 → PaleoRasterOut 写估值/方差 → artifacts；`geostat` 任务 kriging 段已改用。
-- 其它 native id（hztrack / inversion / wellsiting / sgs / cokriging）`run(QVariantMap)` 仍返回明确 TODO。
+- `NativeCppAdapter` 类型化：`runOrdinaryKriging` / `runOrdinaryCoKriging` / `runSgs` /
+  `runSynthesizeFacies` / `runBandlimited` / `runTrackSection`（后者委托 `services/nativerunners`）。
+- 运行时接线：geostat kriging/cokriging/sgs；facies synthesize + draft/report publish；
+  inversion bandlimited 逐道；hztrack `runKernelTracking` 经 `native_runners::runTrackSection`。
+- `run(QVariantMap)` 对已实现 id 指向类型化入口；wellsiting / sparse_spike 等仍 TODO。
 - AtomicJob 泛化：未做。
-- 验收：`tst_algorithm_adapters`、`tst_algorithm_spec`（含 P4 native Spec）。
+- 验收：`tst_algorithm_adapters`、`tst_algorithm_spec`（含扩展 native Spec）。
 
 ## 6.3 P4 Spec 起步（native_cpp）
 
 | Spec id | 入口 | 运行时 |
 |---------|------|--------|
-| `geostat:ordinary_kriging` | `NativeCppAdapter::runOrdinaryKriging` | ✅ 已接 geostat 任务 |
-| `hztrack:track_section` | Spec only | TODO |
-| `inversion:bandlimited` | Spec only | TODO |
+| `geostat:ordinary_kriging` | `NativeCppAdapter::runOrdinaryKriging` | ✅ geostat 任务 |
+| `geostat:ordinary_cokriging` | `NativeCppAdapter::runOrdinaryCoKriging` | ✅ geostat 任务 |
+| `geostat:sgs` | `NativeCppAdapter::runSgs` | ✅ geostat 任务 |
+| `hztrack:track_section` | `native_runners` / `NativeCppAdapter::runTrackSection` | ✅ seismictaskservice_interp |
+| `inversion:bandlimited` | `NativeCppAdapter::runBandlimited` | ✅ inversionworkflow 逐道 |
+| `inversion:sparse_spike` | Spec only | 同文件仍直调核（未包 adapter） |
+| `faciesmapping:synthesize` | `NativeCppAdapter::runSynthesizeFacies` | ✅ faciesmappingworkflow |
 | `wellsiting:diagnose_coverage` | Spec only | TODO |
 
 ## 7. 回链

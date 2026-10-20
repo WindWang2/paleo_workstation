@@ -13,8 +13,12 @@ private slots:
   void processingAdapterRejectsNullProc();
   void processingAdapterRejectsNonProcessingEngine();
   void processingAdapterRunByIdFallbackShell();
-  void nativeCppAdapterIsStub();
+  void nativeCppAdapterMapEntryPointsToTyped();
   void ordinaryKrigingTypedRejectsEmptyPath();
+  void sgsAndCokrigingTypedRejectEmptyPath();
+  void trackSectionRejectsInvalidSeed();
+  void bandlimitedRejectsNullTrace();
+  void synthesizeRejectsNullPointers();
   void runResultHelpersShapeArtifacts();
 };
 
@@ -56,22 +60,33 @@ void AlgorithmAdapterTests::processingAdapterRunByIdFallbackShell()
   QVERIFY( err.contains( QStringLiteral( "未绑定" ) ) );
 }
 
-void AlgorithmAdapterTests::nativeCppAdapterIsStub()
+void AlgorithmAdapterTests::nativeCppAdapterMapEntryPointsToTyped()
 {
   paleo::NativeCppAdapter adapter;
-  AlgorithmSpec okSpec;
-  okSpec.id = QStringLiteral( "geostat:ordinary_kriging" );
-  okSpec.engine = QStringLiteral( "native_cpp" );
-  QString err;
-  const AlgorithmRunResult viaMap = adapter.run( okSpec, {}, &err );
-  QVERIFY( !viaMap.ok );
-  QVERIFY( err.contains( QStringLiteral( "runOrdinaryKriging" ) ) );
+  const QList<QPair<QString, QString>> cases = {
+    { QStringLiteral( "geostat:ordinary_kriging" ), QStringLiteral( "runOrdinaryKriging" ) },
+    { QStringLiteral( "geostat:ordinary_cokriging" ), QStringLiteral( "runOrdinaryCoKriging" ) },
+    { QStringLiteral( "geostat:sgs" ), QStringLiteral( "runSgs" ) },
+    { QStringLiteral( "hztrack:track_section" ), QStringLiteral( "runTrackSection" ) },
+    { QStringLiteral( "inversion:bandlimited" ), QStringLiteral( "runBandlimited" ) },
+    { QStringLiteral( "faciesmapping:synthesize" ), QStringLiteral( "runSynthesizeFacies" ) },
+  };
+  for ( const auto &c : cases )
+  {
+    AlgorithmSpec spec;
+    spec.id = c.first;
+    spec.engine = QStringLiteral( "native_cpp" );
+    QString err;
+    const AlgorithmRunResult viaMap = adapter.run( spec, {}, &err );
+    QVERIFY2( !viaMap.ok, qPrintable( c.first ) );
+    QVERIFY2( err.contains( c.second ), qPrintable( c.first + QLatin1Char( ':' ) + err ) );
+  }
 
-  AlgorithmSpec other;
-  other.id = QStringLiteral( "hztrack:track_section" );
-  other.engine = QStringLiteral( "native_cpp" );
-  err.clear();
-  const AlgorithmRunResult todo = adapter.run( other, {}, &err );
+  AlgorithmSpec unknown;
+  unknown.id = QStringLiteral( "wellsiting:diagnose_coverage" );
+  unknown.engine = QStringLiteral( "native_cpp" );
+  QString err;
+  const AlgorithmRunResult todo = adapter.run( unknown, {}, &err );
   QVERIFY( !todo.ok );
   QVERIFY( err.contains( QStringLiteral( "尚未实现" ) ) );
 }
@@ -85,6 +100,54 @@ void AlgorithmAdapterTests::ordinaryKrigingTypedRejectsEmptyPath()
   const AlgorithmRunResult r = adapter.runOrdinaryKriging( in, &err );
   QVERIFY( !r.ok );
   QVERIFY( err.contains( QStringLiteral( "无效" ) ) );
+}
+
+
+void AlgorithmAdapterTests::sgsAndCokrigingTypedRejectEmptyPath()
+{
+  paleo::NativeCppAdapter adapter;
+  QString err;
+  paleo::SgsInputs sgs;
+  QVERIFY( !adapter.runSgs( sgs, &err ).ok );
+  QVERIFY( err.contains( QStringLiteral( "无效" ) ) );
+  err.clear();
+  paleo::OrdinaryCoKrigingInputs co;
+  QVERIFY( !adapter.runOrdinaryCoKriging( co, &err ).ok );
+  QVERIFY( err.contains( QStringLiteral( "无效" ) ) );
+}
+
+void AlgorithmAdapterTests::trackSectionRejectsInvalidSeed()
+{
+  paleo::NativeCppAdapter adapter;
+  std::vector<float> sec( 20, 0.f );
+  paleo::TrackSectionInputs in;
+  in.section = sec.data();
+  in.nTraces = 4;
+  in.nSamples = 5;
+  in.seed = { 99, 0 }; // out of range
+  QString err;
+  paleo::hztrack::TrackResult out;
+  const AlgorithmRunResult r = adapter.runTrackSection( in, &out, &err );
+  QVERIFY( !r.ok );
+  QVERIFY( err.contains( QStringLiteral( "非法" ) ) );
+}
+
+void AlgorithmAdapterTests::bandlimitedRejectsNullTrace()
+{
+  paleo::NativeCppAdapter adapter;
+  paleo::BandlimitedInputs in;
+  QString err;
+  QVERIFY( !adapter.runBandlimited( in, nullptr, &err ).ok );
+  QVERIFY( err.contains( QStringLiteral( "trace" ) ) );
+}
+
+void AlgorithmAdapterTests::synthesizeRejectsNullPointers()
+{
+  paleo::NativeCppAdapter adapter;
+  paleo::SynthesizeFaciesInputs in;
+  QString err;
+  QVERIFY( !adapter.runSynthesizeFacies( in, nullptr, &err ).ok );
+  QVERIFY( err.contains( QStringLiteral( "指针" ) ) );
 }
 
 void AlgorithmAdapterTests::runResultHelpersShapeArtifacts()

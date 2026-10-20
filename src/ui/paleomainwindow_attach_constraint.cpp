@@ -592,6 +592,25 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
           selection.insert(feature.id());
       layer->selectByIds(selection);
     });
+    connect(constraintPage, &ConstraintPage::constraintLocateRequested, this,
+            [this](const QString &horizon, const QString &id) {
+      if (!m_layerSvc || !m_canvasCtl || !m_canvasCtl->canvas())
+        return;
+      auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
+      if (!layer)
+        return;
+      QgsFeatureIds selection;
+      QgsFeature feature;
+      auto features = layer->getFeatures();
+      while (features.nextFeature(feature))
+        if (feature.attribute(QStringLiteral("id")).toString() == id)
+          selection.insert(feature.id());
+      if (selection.isEmpty())
+        return;
+      layer->selectByIds(selection);
+      m_canvasCtl->canvas()->zoomToSelected(layer);
+      m_canvasCtl->canvas()->refresh();
+    });
     const auto beginConstraintEdit = [this, constraintPage](const QString &horizon) -> QgsVectorLayer * {
       if (!m_layerSvc)
         return nullptr;

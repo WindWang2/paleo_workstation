@@ -65,6 +65,13 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
     emit constraintSelectionChanged(h ? h->currentText() : QString(), ids);
     updateFactorActionStates();
   });
+  connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *item) {
+    if (!item)
+      return;
+    auto *h = child<QComboBox>(this, "horizonCombo");
+    emit constraintLocateRequested(h ? h->currentText() : QString(), item->data(Qt::UserRole).toString());
+  });
+  list->setToolTip(tr("双击在地图上定位该约束"));
   lay->addWidget( list, 1 );
   connect( list, &QListWidget::currentItemChanged, this, [this]( QListWidgetItem *, QListWidgetItem * ) {
     loadSelectedConstraintLine();

@@ -285,7 +285,10 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
             }
             else
             {
-              outStats->columnDistances = std::move(slice.distances);
+              // F-1（终审结转，R2-SF-2 的被点名分支）：仿射不可得时
+              // slice.distances 是线号单位——按米消费的通道不留静默错值，
+              // 清空交消费端自述兜底口径（与 BuildLineSection 回落同款）。
+              Q_UNUSED(slice.distances);
             }
           }
           int missing = 0;

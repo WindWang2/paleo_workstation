@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | MF-1 重映射不避让同批 journal 自有 id | MUST_FIX | mapexport.cpp 分配循环改 live/journal 双避让（QSet 预扫 journal Add* id，nextAssetId/nextVersionId 循环跳过） | tst_exportpipeline 扩展：双格式（同 journal 两个 AddAsset）+ 噪声只消耗 ast-1 的红形状——未撞号原号保留、撞号映到 ≥ast-3、双资产全部可解析（修复前重放 duplicate 整批失败）；修复前红/修复后绿由反例推演与代码路径双证 | FIXED fc712cf2 |
 | SF-1 厚度链 publish 不消费 idMap → decl.source 死链 | SHOULD_FIX | mappingworkflow 传 idMap + 声明源路径 ast-N/ver-N 段随映射改写 | tst_workflows（厚度链回归面）绿；路径段改写逻辑与 publish 内 rewritePathSegments 同构 | FIXED fc712cf2 |
-| SF-2 B-2 回落路径线号距离冒充米 | SHOULD_FIX | BuildLineSection 回落后清空 distances（交消费端自述兜底口径） | 头注 + 代码注释留档（消费端兜底是其自述行为） | FIXED 1d28646f |
+| SF-2 B-2 线号距离冒充米（两支） | SHOULD_FIX | BuildLineSection 回落（1d28646f）+ 终审结转的引擎路径仿射不可得 else 分支（F-1，Q_UNUSED 弃用不外送） | 注释留档 + 终审复核 | FIXED 1d28646f + 终审补丁 |
 | SF-3 逐道族缺终填 | SHOULD_FIX | join 后补 reportBytes(totalUnits,totalUnits)（与相干分支同款） | 既有属性任务测试面绿；取消路径早退不受影响 | FIXED 1d28646f |
 | SF-4 重复 include | SHOULD_FIX | 删 sgycoordinatemapper.h 重复行 | 编译通过 | FIXED 1d28646f |
 | A-01 锁序疑虑 | 深查后无问题 | —（复审确认最终版无嵌套取锁） | 死锁曾在中间版出现并已修复（flushDisk 拆公共/持锁两入口）；终审复核维持 | CLOSED |

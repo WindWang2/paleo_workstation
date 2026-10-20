@@ -76,6 +76,16 @@ void SingleFactorSampleTests::reportsMissingAndRangeWithoutClamping()
   QCOMPARE( static_cast<int>( fraction.status ), static_cast<int>( Status::Ok ) );
   QCOMPARE( fraction.input.samples[0].value, 0.25 );
   QCOMPARE( fraction.input.valueUnit, std::string( "fraction" ) );
+  // D6：×0.01 变换必须留痕在 PreparedInput——指纹键 percent_to_fraction
+  // 取它，否则开关两侧参数图逐字节相同（哈希相同）而栅格差 100 倍。
+  QVERIFY( fraction.input.percentToFraction );
+
+  request.percentToFraction = false;
+  request.rows = { row( "a", 0, 0, 25 ) };
+  const SamplePrepResult plain = prepareSamples( request );
+  QCOMPARE( static_cast<int>( plain.status ), static_cast<int>( Status::Ok ) );
+  QCOMPARE( plain.input.samples[0].value, 25.0 );
+  QVERIFY( !plain.input.percentToFraction );
 }
 
 void SingleFactorSampleTests::rejectsMissingAndMixedCrs()

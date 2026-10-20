@@ -126,6 +126,7 @@ class SingleFactorKrigingTests : public QObject
     void variogramFitRecoversExponential();
     void fewSamplesFallBackHonestly();
     void radiusGateFallsBackPerCell();
+    void minPointsGateHoldsWithoutRadius();
     void zeroSignalFallsBackHonestly();
     void hardBarrierKeepsCompartmentsSeparate();
     void domainMarksUnderKriging();
@@ -412,6 +413,35 @@ void SingleFactorKrigingTests::radiusGateFallsBackPerCell()
     ++compared;
   }
   QVERIFY( compared > 0 );
+}
+
+// Oracle 2（诚实面）：DomainExtrapolation 下 resolveParameters 把 searchRadius
+// reset 成空值（support.cpp），纯最近 K 模式——krigingMinPoints 闸必须仍然
+// 生效（旧实现挂在半径分支上，radius<=0 时恒假、只剩 empty()，只要邻域非空
+// 就建方程）。16 口井、闸设 17 → 每格邻域不足，整面回落 IDW。
+void SingleFactorKrigingTests::minPointsGateHoldsWithoutRadius()
+{
+  const std::vector<Sample> wells = latticeWells( 4, 20.0, 10.0, 10.0 ); // 16 口
+  const GridSpec grid = gridSpec( 20, 20, 0, 100, 5 );
+  const PreparedInput input = inputWithDomain( wells, rect( 0, 0, 100, 100 ) );
+
+  ResolvedParameters gated = krigingParams( 1.0, 60.0 );
+  gated.coverage = CoverageMode::DomainExtrapolation; // searchRadius 空：纯最近 K
+  gated.krigingMinPoints = 17;                        // > 井数：每格邻域都不够
+  const SurfaceResult perCell = evaluateLocalKriging( input, grid, gated, {} );
+  QCOMPARE( perCell.status, Status::Ok );
+  QCOMPARE( perCell.krigingCells, 0 );
+  QVERIFY( perCell.idwFallbackCells > 0 );
+  QCOMPARE( perCell.surfaceFallbacks, 1 ); // 全场无解 → 整面回路口径
+  QCOMPARE( perCell.resolved.methodActual, std::string( "local_direction_idw" ) );
+
+  // 闸放到井数 16 → 邻域恒满，正常出克里金值（证明回落确由该闸触发）。
+  ResolvedParameters open = gated;
+  open.krigingMinPoints = 16;
+  const SurfaceResult solved = evaluateLocalKriging( input, grid, open, {} );
+  QCOMPARE( solved.resolved.methodActual, std::string( "kriging" ) );
+  QCOMPARE( solved.idwFallbackCells, 0 );
+  QVERIFY( solved.krigingCells > 0 );
 }
 
 // Oracle 2（诚实面）：恒定场零信号 → 不虚构变程，整面回落并报因。

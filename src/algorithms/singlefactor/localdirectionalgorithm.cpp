@@ -128,6 +128,11 @@ QVariantMap parametersForHash( const sf::PreparedInput &input, const sf::GridSpe
       resolved.krigingMaxPoints > 0 ? std::clamp( resolved.krigingMaxPoints, 1, 64 ) : 0;
   if ( krigingMaxEffective != resolved.krigingMaxPoints )
     parameters.insert( QStringLiteral( "kriging_max_points_effective" ), krigingMaxEffective );
+  // D6：百分数→比例会把全部样本值 ×0.01（samples.cpp），栅格数值相差 100 倍。
+  // 该开关不进 ResolvedParameters，指纹里单独记键——否则两次运行参数图逐
+  // 字节相同 → 哈希必然相同，血缘去重/复算判定误判「同参数同结果」。
+  // 取 prepared.input 的生效值（请求路径经 prepareSamples 落在这里）。
+  parameters.insert( QStringLiteral( "percent_to_fraction" ), input.percentToFraction );
   parameters.insert( QStringLiteral( "value_unit" ), utf8( resolved.valueUnit ) );
   parameters.insert( QStringLiteral( "field" ), field );
   parameters.insert( QStringLiteral( "cell_size" ), cellSize );

@@ -235,9 +235,15 @@ ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
         if ( !( h > 0 ) )
           continue; // 同格不同点（测地 0）：按 γ(0) 口径跳过
       }
-      const int lagIndex = static_cast<int>( h / lag );
-      if ( lagIndex >= nLags )
+      // D5：h/lag 越 double→int 表示范围时 static_cast<int> 是 UB（x86 实现
+      // 产负值，负值穿过紧随的 `>= nLags` 守卫，回绕成巨量 size_t 下标去写
+      // sumH/sumGamma/pairCount → 堆越界写）。先按 double 比值设防再取整：
+      // 入口已保 lag>0、此处 h>0，故比值 ∈ [0, nLags) 才进桶（NaN 同样挡在
+      //  continue 支，`!(x < nLags)` 对 NaN 为真）。
+      const double lagRatio = h / lag;
+      if ( !( lagRatio < static_cast<double>( nLags ) ) )
         continue;
+      const int lagIndex = static_cast<int>( lagRatio );
       if ( !omnidirectional )
       {
         // |cos| 处理 h 与 -h 的对称：对方向与反方向都计入

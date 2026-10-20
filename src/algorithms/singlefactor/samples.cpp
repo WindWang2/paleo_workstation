@@ -15,6 +15,7 @@ SamplePrepResult prepareSamples( const SamplePrepRequest &request )
   PreparedInput &input = result.input;
   input.originalCount = static_cast<int>( request.rows.size() );
   input.valueUnit = request.valueUnit;
+  input.percentToFraction = request.percentToFraction;
   input.localEngineeringGrid = request.crs == CrsMode::LocalEngineering;
   if ( request.crs == CrsMode::Missing )
   {

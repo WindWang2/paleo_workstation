@@ -374,11 +374,11 @@ class TestPanelsDataOps : public QObject
         QVERIFY(lines[1].endsWith(QStringLiteral("\"2048\",\"2026-01-02T03:04:05\"")));
         QVERIFY(lines[2].endsWith(QStringLiteral("\"\",\"\"")));
         const QByteArray json = exportJson(rows, f);
-        QVERIFY(json.contains(QStringLiteral("\"sizeBytes\": 2048")));
-        QVERIFY(json.contains(QStringLiteral("\"lastModified\": \"2026-01-02T03:04:05\"")));
+        QVERIFY(json.contains("\"sizeBytes\": 2048"));
+        QVERIFY(json.contains("\"lastModified\": \"2026-01-02T03:04:05\""));
         // 未 stat 行：null 空值（写出 -1 即是错值——本修复的断言面）。
-        QVERIFY(json.contains(QStringLiteral("\"sizeBytes\": null")));
-        QVERIFY(json.contains(QStringLiteral("\"lastModified\": null")));
+        QVERIFY(json.contains("\"sizeBytes\": null"));
+        QVERIFY(json.contains("\"lastModified\": null"));
     }
 
     void dataops_d1_batchOpenPreviewPlan()

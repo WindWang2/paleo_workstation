@@ -28,6 +28,7 @@
 #include "constraintfactorjobs_internal.h"
 #include "constraintworkflow_internal.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
@@ -304,11 +305,16 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
         insertStrategyId(
             params,
             extra); // 方向67：策略包 id 进血缘（旧约束 IDW = 词表 "idw"）
+        // algo-atom P1：constraint_idw 经统一 publishArtifacts（等价 commitExternal）
+        const AlgorithmRunResult runResult =
+            paleo::runResultFromProcessingOutput( results );
         QString commitErr;
-        if (!registrar.commitExternal(
-                st, outPath, parentIds, def.processingAlgId, extra, &commitErr,
-                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
-          paleo::workflow_detail::setError(error, commitErr);
+        if ( !paleo::publishArtifacts(
+                 registrar, st, runResult, parentIds, def.processingAlgId, extra,
+                 &commitErr,
+                 fingerprint.sha256.isEmpty() ? nullptr : &fingerprint ) )
+        {
+          paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
 

@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include "../notifications/paleonotify.h"
+#include <QProgressBar>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTableWidget>
@@ -226,20 +227,7 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
   connect( plannedTable, &QTableWidget::itemSelectionChanged, plannedOps, armPlannedOps );
 
   // ---- 方案评估段 ----
-  lay->addWidget( caption( tr( "方案评估" ), this ) );
-  auto *evalLabel = new QLabel( tr( "还没有评估——添加计划井后自动评估" ), this );
-  evalLabel->setObjectName( QStringLiteral( "sitingEvalLabel" ) );
-  evalLabel->setWordWrap( true );
-  lay->addWidget( evalLabel );
-  auto *evalRow = new QWidget( this );
-  auto *evalLay = new QHBoxLayout( evalRow );
-  evalLay->setContentsMargins( 0, 0, 0, 0 );
-  auto *eval = new QPushButton( tr( "重新评估" ), evalRow );
-  eval->setObjectName( QStringLiteral( "sitingEvalButton" ) );
-  evalLay->addWidget( eval );
-  evalLay->addStretch( 1 );
-  lay->addWidget( evalRow );
-  connect( eval, &QPushButton::clicked, this, &WellSitingPanel::refreshEvaluation );
+  buildEvaluationSection( lay );
 
   // ---- 方案对比段 ----
   lay->addWidget( caption( tr( "方案对比" ), this ) );
@@ -323,6 +311,9 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
              &WellSitingPanel::refreshCandidateTable );
     connect( m_wf, &WellSitingWorkflow::diagnosisDone, this,
              &WellSitingPanel::refreshDiagnosisLabels );
+    // D.3：后台评估交付回 GUI 线程落地（陈旧/取消结果由 workflow 世代号丢弃）。
+    connect( m_wf, &WellSitingWorkflow::evaluationAsyncDone, this,
+             &WellSitingPanel::onEvaluationAsyncDone );
   }
   reloadFromWorkflow();
 }
@@ -345,6 +336,47 @@ WellSitingParams paramsFromPanel( const WellSitingPanel *panel )
 }
 
 } // namespace
+
+// 方案评估段（D.3 从 ctor 拆出：评估含全场采样，改后台线程异步跑——忙面给
+// 不确定进度条 + 取消钮，不冻界面；无进度回调，不伪造百分比）。
+void WellSitingPanel::buildEvaluationSection( QVBoxLayout *lay )
+{
+  lay->addWidget( caption( tr( "方案评估" ), this ) );
+  auto *evalLabel = new QLabel( tr( "还没有评估——添加计划井后自动评估" ), this );
+  evalLabel->setObjectName( QStringLiteral( "sitingEvalLabel" ) );
+  evalLabel->setWordWrap( true );
+  lay->addWidget( evalLabel );
+  auto *evalRow = new QWidget( this );
+  auto *evalLay = new QHBoxLayout( evalRow );
+  evalLay->setContentsMargins( 0, 0, 0, 0 );
+  auto *eval = new QPushButton( tr( "重新评估" ), evalRow );
+  eval->setObjectName( QStringLiteral( "sitingEvalButton" ) );
+  evalLay->addWidget( eval );
+  auto *evalProgress = new QProgressBar( evalRow );
+  evalProgress->setObjectName( QStringLiteral( "sitingEvalProgress" ) );
+  evalProgress->setRange( 0, 0 ); // 不确定进度（跑马灯）
+  evalProgress->setTextVisible( false );
+  evalProgress->setMaximumWidth( 120 );
+  evalProgress->hide();
+  evalLay->addWidget( evalProgress );
+  auto *evalCancel = new QPushButton( tr( "取消评估" ), evalRow );
+  evalCancel->setObjectName( QStringLiteral( "sitingEvalCancelButton" ) );
+  evalCancel->setToolTip( tr( "停止正在后台运行的方案评估（已算出的指标不落地）" ) );
+  evalCancel->hide();
+  evalLay->addWidget( evalCancel );
+  evalLay->addStretch( 1 );
+  lay->addWidget( evalRow );
+  connect( eval, &QPushButton::clicked, this, &WellSitingPanel::refreshEvaluation );
+  connect( evalCancel, &QPushButton::clicked, this, [this]() {
+    if ( m_wf )
+      m_wf->cancelScenarioEvaluation();
+    m_evalBusy = false;
+    m_evalPending = false;
+    setEvalBusy( false );
+    if ( auto *label = findChild<QLabel *>( QStringLiteral( "sitingEvalLabel" ) ) )
+      label->setText( tr( "评估已取消" ) );
+  } );
+}
 
 void WellSitingPanel::reloadFromWorkflow()
 {
@@ -579,17 +611,66 @@ void WellSitingPanel::refreshEvaluation()
     plannedIds.append( w.value( QStringLiteral( "id" ) ).toString() );
   if ( plannedIds.isEmpty() )
   {
+    // 计划井清空：在飞评估失去意义——停掉并回到「还没有评估」态。
+    if ( m_evalBusy )
+    {
+      m_wf->cancelScenarioEvaluation();
+      m_evalBusy = false;
+      m_evalPending = false;
+      setEvalBusy( false );
+    }
     label->setText( tr( "还没有评估——添加计划井后自动评估" ) );
     return;
   }
-  QString error;
-  const QVariantMap evaluation = m_wf->evaluateScenario( paramsFromPanel( this ), plannedIds,
-                                                         &error );
-  if ( evaluation.isEmpty() )
+  if ( m_evalBusy )
   {
-    label->setText( error.isEmpty() ? tr( "评估失败" ) : error );
+    // 单飞：忙期到达的新意图只登记待办，落地后补跑一次（不在池里堆任务）。
+    m_evalPending = true;
     return;
   }
+  m_evalBusy = true;
+  setEvalBusy( true );
+  label->setText( tr( "评估计算中…" ) );
+  m_wf->evaluateScenarioAsync( paramsFromPanel( this ), plannedIds );
+}
+
+void WellSitingPanel::onEvaluationAsyncDone( const QVariantMap &evaluation,
+                                             const QString &error )
+{
+  if ( !evaluation.isEmpty() )
+    applyEvaluation( evaluation );
+  else if ( auto *label = findChild<QLabel *>( QStringLiteral( "sitingEvalLabel" ) ) )
+    label->setText( error.isEmpty() ? tr( "评估失败" ) : error );
+  m_evalBusy = false;
+  setEvalBusy( false );
+  // 忙期积压的新意图（连改计划井）——补跑一次，只落地最后状态。
+  if ( m_evalPending )
+  {
+    m_evalPending = false;
+    refreshEvaluation();
+  }
+}
+
+void WellSitingPanel::setEvalBusy( bool busy )
+{
+  m_evalBusy = busy;
+  if ( auto *cancel = findChild<QPushButton *>( QStringLiteral( "sitingEvalCancelButton" ) ) )
+    cancel->setVisible( busy );
+  if ( auto *bar = findChild<QProgressBar *>( QStringLiteral( "sitingEvalProgress" ) ) )
+    bar->setVisible( busy );
+  // 忙期禁掉会触发同类重算的动作；计划井增删改名仍可用（新意图走待办补跑）。
+  for ( const QString &name : { QStringLiteral( "sitingRunButton" ),
+                                QStringLiteral( "sitingGenButton" ),
+                                QStringLiteral( "sitingEvalButton" ) } )
+    if ( auto *btn = findChild<QPushButton *>( name ) )
+      btn->setEnabled( !busy );
+}
+
+void WellSitingPanel::applyEvaluation( const QVariantMap &evaluation )
+{
+  auto *label = findChild<QLabel *>( QStringLiteral( "sitingEvalLabel" ) );
+  if ( !label )
+    return;
   const QVariantMap before = evaluation.value( QStringLiteral( "before" ) ).toMap();
   const QVariantMap after = evaluation.value( QStringLiteral( "after" ) ).toMap();
   label->setText( tr( "基线：空洞 %1 / 覆盖率 %2% / 均距 %3\n"

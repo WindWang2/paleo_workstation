@@ -59,8 +59,13 @@ inline QString exportCsv(const QVector<AssetRowInfo> &rows, const ExportFields &
     if (f.withVersion) cells << QString::number(r.currentVersionNo);
     if (f.withEntities) cells << esc(r.entityNames.join(QStringLiteral(";")));
     if (f.withTags) cells << esc(r.tags.join(QStringLiteral(";")));
-    if (f.withSize) cells << QString::number(r.sizeBytes);
-    if (f.withTime) cells << r.lastModified.toString(Qt::ISODate);
+    // sizeBytes < 0 = 未 stat（>200 资产的性能守卫）——导出走空值，不把
+    // 内部哨兵 -1 写成「文件大小 -1 字节」的错值（表视同口径显示空白）。
+    if (f.withSize)
+      cells << (r.sizeBytes < 0 ? esc(QString()) : QString::number(r.sizeBytes));
+    if (f.withTime)
+      cells << r.lastModified.isValid() ? esc(r.lastModified.toString(Qt::ISODate))
+                                        : esc(QString());
     lines << cells.join(QLatin1Char(','));
   }
   return lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
@@ -96,9 +101,15 @@ inline QByteArray exportJson(const QVector<AssetRowInfo> &rows, const ExportFiel
         tags.append(t);
       o.insert(QStringLiteral("tags"), tags);
     }
-    if (f.withSize) o.insert(QStringLiteral("sizeBytes"), double(r.sizeBytes));
+    // 同上：未 stat 的 size/mtime 写 JSON null（空值），不写错值 -1。
+    if (f.withSize)
+      o.insert(QStringLiteral("sizeBytes"),
+               r.sizeBytes < 0 ? QJsonValue() : QJsonValue(double(r.sizeBytes)));
     if (f.withTime)
-      o.insert(QStringLiteral("lastModified"), r.lastModified.toString(Qt::ISODate));
+      o.insert(QStringLiteral("lastModified"),
+               r.lastModified.isValid()
+                   ? QJsonValue(r.lastModified.toString(Qt::ISODate))
+                   : QJsonValue());
     arr.append(o);
   }
   QJsonObject root;

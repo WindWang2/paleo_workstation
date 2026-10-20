@@ -9,7 +9,9 @@
 
 #include "../algorithms/wellsiting/wellsiting.h"
 
+#include <atomic>
 #include <functional>
+#include <memory>
 #include <vector>
 
 class DataCatalog;
@@ -104,6 +106,17 @@ class WellSitingWorkflow : public QObject
                                   QString *error = nullptr );
     QVariantMap lastEvaluation() const { return m_lastEvaluation; }
 
+    // —— 方案评估（异步，D.3）——
+    // 同步 evaluateScenario 内含 3 次全场采样场 + 每候选一次全场扫描（格宽
+    // 最低 10 m、采样预算最高 400 万格）——UI 线程直调会把界面整个冻住。
+    // 本入口在 GUI 线程取输入快照（实井/域/tops/planned），纯核跑工作池，
+    // 结果经 evaluationAsyncDone 回 GUI 线程落地；同一时刻只保留一个在飞
+    // 评估（面板侧单飞 + 本类世代号双保险，陈旧结果一律丢弃）。
+    void evaluateScenarioAsync( const WellSitingParams &params,
+                                const QStringList &plannedIds );
+    // 取消在飞异步评估（协作式：worker 在阶段边界自查退出，结果全部丢弃）。
+    void cancelScenarioEvaluation();
+
     // —— 方案持久化（目标形态 5）——
     bool saveScenario( const QString &name, const QStringList &plannedIds,
                        const WellSitingParams &params, QString *error = nullptr );
@@ -123,11 +136,34 @@ class WellSitingWorkflow : public QObject
     void candidatesChanged();
     void plannedWellsChanged();
     void evaluationDone( const QVariantMap &summary );
+    // D.3：异步评估交付——evaluation 为空即失败/取消，error 如实说明。
+    void evaluationAsyncDone( const QVariantMap &evaluation, const QString &error );
     void scenariosChanged();
 
   private:
     struct Impl;
     Impl *d = nullptr;
+
+    // D.3 异步评估的 GUI 线程输入快照：worker 只碰这份拷贝——catalog、
+    // siting 文档与 tops facade 均非线程安全，禁止 worker 直读活对象。
+    struct EvalSnapshot
+    {
+      std::vector<paleo::wellsiting::Polygon> domain;
+      std::vector<paleo::wellsiting::Point2> wells;
+      std::vector<paleo::wellsiting::LayerWells> layers;
+      std::vector<paleo::wellsiting::Point2> candidates;
+      paleo::wellsiting::SitingOptions options;
+      QStringList resolved;  // 与 candidates 同序的 planned id
+      QStringList missing;   // 不存在的 planned id（如实记录，不虚造点位）
+      int wellCount = 0;
+    };
+    EvalSnapshot buildEvalSnapshot( const WellSitingParams &params,
+                                    const QStringList &plannedIds ) const;
+    // 世代号不匹配 = 已被更新请求/取消取代——结果丢弃（防陈旧落地）。
+    void applyEvaluationOutcome( quint64 generation, const QVariantMap &evaluation,
+                                 const QString &error );
+    quint64 m_evalGeneration = 0;
+    std::shared_ptr<std::atomic_bool> m_evalStop;
 
     // 域解析（诊断/候选/评估共用回退链）：polygon 约束 → 地震工区角点 →
     // 井位包围盒外扩 controlRadius。*source 如实带回策略注记。

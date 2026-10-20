@@ -473,7 +473,7 @@ inline AssetRowInfo buildAssetRow(DataCatalog *cat, const CatalogAsset &a,
   row.currentVersionNo = v.versionNumber > 0 ? v.versionNumber : 1;
   row.versionCount = cat->versionsForAsset(a.id).size();
   if (!statFile)
-    row.sizeBytes = -1; // 未读取文件大小，不能显示成零。
+    row.sizeBytes = -1; // 未读取文件大小，不能显示成零；表视/导出一律按空值呈现。
   if (statFile && !v.path.isEmpty())
   {
     // 外链 = 绝对路径直接 stat；受管 = DataCatalog::resolvedVersionPath

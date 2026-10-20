@@ -350,6 +350,37 @@ class TestPanelsDataOps : public QObject
         QVERIFY(json.contains("\"A1\""));
     }
 
+    // D.1：>200 资产的性能守卫跳过 stat 后 sizeBytes = -1 / lastModified 无效——
+    // 导出件必须是空值（CSV 空单元 / JSON null），不能把内部哨兵 -1 写成错值。
+    void dataops_d1_exportUnstatEmptyValues()
+    {
+        using namespace paleo::dataops;
+        QVector<AssetRowInfo> rows(2);
+        rows[0].displayName = QStringLiteral("known.las");
+        rows[0].fileName = QStringLiteral("known.las");
+        rows[0].effectiveType = QStringLiteral("well_log");
+        rows[0].sizeBytes = 2048;
+        rows[0].lastModified = QDateTime::fromString(QStringLiteral("2026-01-02T03:04:05"),
+                                                     Qt::ISODate);
+        rows[1].displayName = QStringLiteral("unstat.las");
+        rows[1].fileName = QStringLiteral("unstat.las");
+        rows[1].effectiveType = QStringLiteral("well_log");
+        rows[1].sizeBytes = -1; // 同 buildAssetRow 的 statFile=false 哨兵
+        rows[1].lastModified = QDateTime(); // 无效 = 未 stat
+        const ExportFields f;
+        const QString csv = exportCsv(rows, f);
+        const QStringList lines = csv.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        QCOMPARE(lines.size(), 3); // 表头 + 两行
+        QVERIFY(lines[1].endsWith(QStringLiteral("\"2048\",\"2026-01-02T03:04:05\"")));
+        QVERIFY(lines[2].endsWith(QStringLiteral("\"\",\"\"")));
+        const QByteArray json = exportJson(rows, f);
+        QVERIFY(json.contains(QStringLiteral("\"sizeBytes\": 2048")));
+        QVERIFY(json.contains(QStringLiteral("\"lastModified\": \"2026-01-02T03:04:05\"")));
+        // 未 stat 行：null 空值（写出 -1 即是错值——本修复的断言面）。
+        QVERIFY(json.contains(QStringLiteral("\"sizeBytes\": null")));
+        QVERIFY(json.contains(QStringLiteral("\"lastModified\": null")));
+    }
+
     void dataops_d1_batchOpenPreviewPlan()
     {
         using namespace paleo::dataops;

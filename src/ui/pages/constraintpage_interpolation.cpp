@@ -407,6 +407,24 @@ void ConstraintPage::updateEngineRows()
     confidence = known && def.processingAlgId == SingleFactorContracts::confidenceEngineId();
     interpolant = !known || interpolantEngine( def.processingAlgId );
   }
+  const QString selectedMethod = child<QComboBox>(this, "factorMethodCombo")->currentData().toString();
+  // E.2：三段拆分（原 230 行单体 > #502 防增长闸）——顺序与口径不变。
+  updateInterpolationVisibility( interpolant, selectedMethod, isopach, confidence );
+  updateStructuralIdwSection( interpolant, selectedMethod );
+
+  row->setVisible( isopach );
+  if ( !isopach )
+    return;
+
+  fillIsopachSurfaceCombos( horizons ? horizons->currentText() : QString() );
+}
+
+// E.2 拆段 1/3：插值引擎域可见性——插值方法段/参数组/协变量/方向参数/
+// 覆盖方式/约束提示随「是否插值引擎 + 当前方法」联动。
+void ConstraintPage::updateInterpolationVisibility( bool interpolant,
+                                                    const QString &selectedMethod,
+                                                    bool isopach, bool confidence )
+{
   const QStringList interpolationNames = {
       QStringLiteral( "factorMethodCaption" ), QStringLiteral( "factorMethodCombo" ),
       QStringLiteral( "factorCoverageCaption" ), QStringLiteral( "factorCoverageCombo" ),
@@ -419,7 +437,6 @@ void ConstraintPage::updateEngineRows()
       widget->setVisible( interpolant );
   }
 
-  const QString selectedMethod = child<QComboBox>(this, "factorMethodCombo")->currentData().toString();
   const bool idw = selectedMethod == QLatin1String("structural_idw") || selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("surfer_idw");
   const bool kriging = selectedMethod == QLatin1String("kriging") || selectedMethod == QLatin1String("local_direction_kriging") || selectedMethod == QLatin1String("cokriging") || selectedMethod == QLatin1String("sgs");
   for (const auto &entry : QVector<QPair<QString, bool>>{
@@ -492,12 +509,15 @@ void ConstraintPage::updateEngineRows()
   if (auto *caption = child<QLabel>(this, "factorConstraintCaption"))
     caption->setText(interpolant ? tr("约束线 · 先准备间隔线和方向线，再提取井点")
                                 : tr("约束线 · 用于绕障距离计算"));
-  // WS-C5：结构 IDW 专属行——成图边界（面图层）+ 格网分辨率。
-  auto *method = child<QComboBox>( this, "factorMethodCombo" );
+}
+
+// E.2 拆段 2/3：WS-C5 结构 IDW 专属行——成图边界（面图层）+ 格网分辨率。
+void ConstraintPage::updateStructuralIdwSection( bool interpolant,
+                                                 const QString &selectedMethod )
+{
   auto *boundaryCombo = child<QComboBox>( this, "factorBoundaryCombo" );
-  const QString methodId = method ? method->currentData().toString() : QString();
   const bool structural =
-      interpolant && methodId == QLatin1String( "structural_idw" );
+      interpolant && selectedMethod == QLatin1String( "structural_idw" );
   for ( const QString &name :
         { QStringLiteral( "factorBoundaryCaption" ), QStringLiteral( "factorBoundaryRow" ),
           QStringLiteral( "factorGridCaption" ), QStringLiteral( "factorGridResolutionSpin" ) } )
@@ -582,12 +602,16 @@ void ConstraintPage::updateEngineRows()
     boundaryCombo->setCurrentIndex( idx );
     boundaryCombo->blockSignals( false );
   }
+}
 
-  row->setVisible( isopach );
-  if ( !isopach )
+// E.2 拆段 3/3：等厚引擎顶/底构造面清单——按当前层位列已声明栅格
+// （构造面随层位声明；层位无关的也列），回填上次选择。
+void ConstraintPage::fillIsopachSurfaceCombos( const QString &horizon )
+{
+  auto *topCombo = child<QComboBox>( this, "factorTopSurfaceCombo" );
+  auto *baseCombo = child<QComboBox>( this, "factorBaseSurfaceCombo" );
+  if ( !topCombo || !baseCombo )
     return;
-
-  const QString horizon = horizons ? horizons->currentText() : QString();
   const QString keepTop = topCombo->currentData().toString();
   const QString keepBase = baseCombo->currentData().toString();
   auto fill = [&]( QComboBox *combo, const QString &keep ) {

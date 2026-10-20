@@ -1575,7 +1575,7 @@ void FactorPageTests::wellFactorExtractionPayload() {
   page.setWellFactorFields({});
   QVERIFY(!generate->isEnabled());
   page.findChild<QTableWidget *>(QStringLiteral("factorTable"))->item(0, 0)->setCheckState(Qt::Checked);
-  QCOMPARE(mode->currentData().toString(), QStringLiteral("direct"));
+  QCOMPARE(mode->currentData().toString(), QStringLiteral("auto"));
 }
 
 void FactorPageTests::methodParameterVisibilityAndFamilies() {

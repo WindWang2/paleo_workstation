@@ -240,10 +240,16 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
     c->setCurrentIndex(index); c->blockSignals(false);
   }
   if (changedFactor) {
-    const bool direct = child<QComboBox>(this, "factorValueFieldCombo")->currentIndex() >= 0;
     auto *mode = child<QComboBox>(this, "factorModeCombo");
-    const bool ratioAvailable = child<QComboBox>(this, "factorNumeratorFieldCombo")->currentIndex() >= 0 && child<QComboBox>(this, "factorDenominatorFieldCombo")->currentIndex() >= 0;
-    mode->setCurrentIndex(mode->findData(factor == QLatin1String("sandratio") && !direct && ratioAvailable ? QStringLiteral("ratio") : QStringLiteral("direct")));
+    bool known = false;
+    const auto profile = SingleFactorRegistry::geologicalProfile(factor, &known);
+    if (known && profile.supportsAutoMode)
+      mode->setCurrentIndex(mode->findData(QStringLiteral("auto")));
+    else {
+      const bool direct = child<QComboBox>(this, "factorValueFieldCombo")->currentIndex() >= 0;
+      const bool ratioAvailable = child<QComboBox>(this, "factorNumeratorFieldCombo")->currentIndex() >= 0 && child<QComboBox>(this, "factorDenominatorFieldCombo")->currentIndex() >= 0;
+      mode->setCurrentIndex(mode->findData(factor == QLatin1String("sandratio") && !direct && ratioAvailable ? QStringLiteral("ratio") : QStringLiteral("direct")));
+    }
   }
   updateFactorActionStates();
 }
@@ -274,11 +280,9 @@ void ConstraintPage::refreshWellFactorGeoHint()
   }
   QString text = tr("%1 · 单位 %2 · 有效域 %3").arg(profile.ruleSentence, profile.unit, profile.validRange);
   if (!profile.note.isEmpty())
-    text += QLatin1Char('
-') + profile.note;
+    text += QStringLiteral("\n") + profile.note;
   if (!profile.wellPointExtraction)
-    text += QLatin1Char('
-') + tr("本因素不走井点提取，请使用其专属计算入口。");
+    text += QStringLiteral("\n") + tr("本因素不走井点提取，请使用其专属计算入口。");
   hint->setText(text);
 }
 

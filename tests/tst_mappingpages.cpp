@@ -515,6 +515,25 @@ void PredictPageTests::onnxRawTensorInputIsCollapsedAdvanced()
   QVERIFY2(status->text().contains(QStringLiteral("高级")), qPrintable(status->text()));
   QVERIFY(!body->isHidden()); // 校验失败自动展开到需要填写的位置
 
+  // review L1：输入名称不预填、不静默兜底为 "x"；数据与形状齐全但名称为空仍拒绝。
+  auto *shape = page.findChild<QLineEdit *>(QStringLiteral("onnxShapeEdit"));
+  auto *name = page.findChild<QLineEdit *>(QStringLiteral("onnxInputNameEdit"));
+  QVERIFY(shape && name);
+  QVERIFY(name->text().isEmpty());
+  QVERIFY(!name->placeholderText().isEmpty());
+  input->setText(QStringLiteral("1.0"));
+  shape->setText(QStringLiteral("1"));
+  toggle->click(); // 先折叠，验证拒绝时会重新展开
+  QVERIFY(body->isHidden());
+  page.findChild<QPushButton *>(QStringLiteral("runButton"))->click();
+  QCOMPARE(spy.count(), 0);
+  QVERIFY2(status->text().contains(QStringLiteral("名称")), qPrintable(status->text()));
+  QVERIFY(!body->isHidden());
+  name->setText(QStringLiteral("x"));
+  page.findChild<QPushButton *>(QStringLiteral("runButton"))->click();
+  QCOMPARE(spy.count(), 1);
+  QCOMPARE(spy.first().at(2).toMap().value(QStringLiteral("inputName")).toString(), QStringLiteral("x"));
+
   toggle->click(); // 折叠
   QVERIFY(body->isHidden());
   toggle->click(); // 展开

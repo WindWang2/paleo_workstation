@@ -820,6 +820,24 @@ PaleoLayoutPreview::~PaleoLayoutPreview() = default;
 void PaleoLayoutPreview::setCurrentLayout(QgsPrintLayout *layout) { m_view->setCurrentLayout(layout); }
 void PaleoLayoutPreview::zoomFull() { m_view->zoomFull(); }
 
+namespace PaleoLayoutExport {
+
+QWidget *createLayoutPreview(QWidget *parent) { return new PaleoLayoutPreview(parent); }
+
+// 回收本厂产物用 dynamic_cast 而非 qobject_cast：PaleoLayoutPreview 无信号槽、
+// 不带 Q_OBJECT（不为其引入 moc 依赖）。preview 非本厂产物时安全 no-op。
+void setLayoutPreviewLayout(QWidget *preview, QgsPrintLayout *layout) {
+  if (auto *shell = dynamic_cast<PaleoLayoutPreview *>(preview))
+    shell->setCurrentLayout(layout);
+}
+
+void zoomLayoutPreviewFull(QWidget *preview) {
+  if (auto *shell = dynamic_cast<PaleoLayoutPreview *>(preview))
+    shell->zoomFull();
+}
+
+} // namespace PaleoLayoutExport
+
 namespace {
 const QString kSnapRoot = QStringLiteral("qgis");
 const QString kSnapLayers = QStringLiteral("projectlayers");

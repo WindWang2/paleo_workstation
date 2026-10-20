@@ -62,13 +62,13 @@ DataExportDialog::DataExportDialog(DataCatalog *catalog, const QStringList &asse
     m_previewTask = startDataExport(m_catalog, m_tasks, preview, this, [this, generation](const paleo::exporting::Result &result) {
       if (generation != m_generation) return;
       m_ready = !result.cancelled && result.error.isEmpty() && result.succeeded > 0;
-      m_summary->setText(tr("已检查：%1 项数据，源文件约 %2 MB；%3 项问题。\n%4")
+      applySummary(tr("已检查：%1 项数据，源文件约 %2 MB；%3 项问题。\n%4")
           .arg(result.succeeded).arg(result.plannedBytes / 1024. / 1024., 0, 'f', 1).arg(result.failures.size())
           .arg(result.error + result.failures.mid(0, 3).join("\n")));
       m_summary->setToolTip(result.failures.join("\n"));
       updateAvailability();
     }, &error);
-    if (!m_previewTask) { m_summary->setText(error); updateAvailability(); }
+    if (!m_previewTask) { applySummary(error); updateAvailability(); }
   });
   connect(m_directory, &QLineEdit::textChanged, this, &DataExportDialog::updateAvailability);
   connect(m_scope, &QComboBox::currentIndexChanged, this, [this] { refreshVersions(); schedulePreview(); });
@@ -79,11 +79,10 @@ DataExportDialog::DataExportDialog(DataCatalog *catalog, const QStringList &asse
   root->addWidget(buttons); refreshVersions(); schedulePreview(); resize(680, 460);
 }
 DataExportDialog::~DataExportDialog() { if (m_previewTask && m_previewTask->running()) m_previewTask->requestCancel(); }
-void DataExportDialog::updateAvailability() { m_save->setEnabled(m_ready && !m_directory->text().isEmpty()); }
 void DataExportDialog::schedulePreview() {
   ++m_generation; m_ready = false;
   if (m_previewTask && m_previewTask->running()) m_previewTask->requestCancel();
-  m_summary->setText(tr("正在检查所选版本、制作来源和文件大小…")); updateAvailability();
+  applySummary(tr("正在检查所选版本、制作来源和文件大小…")); updateAvailability();
   m_previewTimer->start();
 }
 void DataExportDialog::refreshVersions() {
@@ -101,11 +100,47 @@ void DataExportDialog::refreshVersions() {
       if (original && version.stage != "RAW") continue;
       combo->addItem(tr("v%1 · %2 · %3").arg(version.versionNumber).arg(version.stage, version.id), version.id);
     }
+    if (combo->count() == 0) {
+      // L5.4：RAW scope 下该资产没有 RAW 版本——原来下拉留空（index -1），
+      // request() 仍把空串塞进 versionIds，下游只报「来源版本缺失：」且主语
+      // 为空，资产还被静默排除出批量导出。改为显式占位项 + 禁用下拉，用户
+      // 在行内就看到「没有 RAW 版本」，applySummary 据同名清单拦住导出。
+      combo->addItem(tr("没有 RAW 版本"), QString());
+      combo->setEnabled(false);
+    }
     const int at = combo->findData(row < m_selectedVersions.size() ? m_selectedVersions[row] : current.id);
     combo->setCurrentIndex(at >= 0 ? at : combo->count() - 1);
     connect(combo, &QComboBox::currentIndexChanged, this, &DataExportDialog::schedulePreview);
     m_versions->setCellWidget(row, 1, combo);
   }
+}
+// L5.4：行内版本下拉取不到版本 id 的资产名单（RAW scope 下的「没有 RAW 版本」
+// 行）。导出前据此拦人并点名，不把空 id 送进 DataRequest 让下游报无主语失败。
+QStringList DataExportDialog::rowsMissingVersion() const {
+  QStringList names;
+  for (int row = 0; row < m_versions->rowCount(); ++row) {
+    auto *combo = static_cast<QComboBox *>(m_versions->cellWidget(row, 1));
+    if (!combo || !combo->currentData().toString().isEmpty())
+      continue;
+    if (const QTableWidgetItem *name = m_versions->item(row, 0))
+      names << name->text();
+  }
+  return names;
+}
+// L5.4：汇总文案统一出口——缺 RAW 版本的提示必须常驻可见，不被预览结果或
+// 「正在检查」文案覆盖（否则用户只看到下游那条无主语的「来源版本缺失：」）。
+void DataExportDialog::applySummary(const QString &base) {
+  const QStringList missing = rowsMissingVersion();
+  if (missing.isEmpty()) {
+    m_summary->setText(base);
+    return;
+  }
+  const QString notice = tr("以下 %1 项没有 RAW 原始版本，不能按原始文件导出：%2")
+                             .arg(missing.size()).arg(missing.join(tr("、")));
+  m_summary->setText(base.isEmpty() ? notice : notice + QStringLiteral("\n") + base);
+}
+void DataExportDialog::updateAvailability() {
+  m_save->setEnabled(rowsMissingVersion().isEmpty() && m_ready && !m_directory->text().isEmpty());
 }
 paleo::exporting::DataRequest DataExportDialog::request() const {
   using namespace paleo::exporting;
@@ -115,7 +150,14 @@ paleo::exporting::DataRequest DataExportDialog::request() const {
   result.includeReferences = m_references->isEnabled() && m_references->isChecked();
   result.destination = QDir(m_directory->text()).filePath("paleo_export_" +
       QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") + "_" + QUuid::createUuid().toString(QUuid::Id128).left(8));
-  for (int row = 0; row < m_versions->rowCount(); ++row)
-    result.versionIds << static_cast<QComboBox *>(m_versions->cellWidget(row, 1))->currentData().toString();
+  for (int row = 0; row < m_versions->rowCount(); ++row) {
+    const QString id =
+        static_cast<QComboBox *>(m_versions->cellWidget(row, 1))->currentData().toString();
+    // L5.4：没有 RAW 版本的行占位 id 为空——不塞进请求（下游只会回一条主语
+    // 为空的「来源版本缺失：」）；该资产由 applySummary 的汇总点名、且导出
+    // 按钮已被 updateAvailability 禁用。
+    if (!id.isEmpty())
+      result.versionIds << id;
+  }
   return result;
 }

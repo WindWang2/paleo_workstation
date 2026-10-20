@@ -7,6 +7,7 @@
 #include <QSignalSpy>
 #include <QStatusBar>
 #include <QTemporaryDir>
+#include <QWidget>
 
 #include "../src/ui/paleotheme.h" // 渲染稳定化：vendor 字体钉死
 #include "../src/ui/layout/layoutexportactions.h"
@@ -30,6 +31,7 @@
 #include <qgsgeometry.h>
 #include <qgslayertree.h>
 #include <qgslayoutitemmap.h>
+#include <qgslayoutview.h>
 #include <qgsvectorlayer.h>
 
 // Task C contract tests: PaleoLayoutExportActions (export core + actions) and
@@ -97,6 +99,30 @@ class TestLayoutExport : public QObject
       // Templates dir is relocatable; default is resolved lazily.
       templates.setTemplatesDir( QStringLiteral( "/tmp" ) );
       QCOMPARE( templates.templatesDir(), QStringLiteral( "/tmp" ) );
+    }
+
+    // E.7：版面预览薄壳走 src/qgis 工厂面（视图层不 include layoutpreview.h，
+    // 不往 ui_qtwidgets_notes 传递债记边）。钉住工厂契约：产物是小部件、绑版
+    // 与缩放不崩，外来小部件上的两个操作安全 no-op。
+    void layoutPreviewFactoryHidesTheShellHeader()
+    {
+      QgsProject project;
+      QgsPrintLayout layout( &project );
+      layout.initializeDefaults();
+
+      QWidget *preview = PaleoLayoutExport::createLayoutPreview();
+      QVERIFY( preview != nullptr );
+      QVERIFY( preview->parent() == nullptr );
+      PaleoLayoutExport::setLayoutPreviewLayout( preview, &layout );
+      PaleoLayoutExport::zoomLayoutPreviewFull( preview );
+      QVERIFY( !preview->findChildren<QgsLayoutView *>().isEmpty() );
+
+      // 非本厂产物：两个操作静默返回，不崩、不改状态。
+      QWidget foreign;
+      PaleoLayoutExport::setLayoutPreviewLayout( &foreign, &layout );
+      PaleoLayoutExport::zoomLayoutPreviewFull( &foreign );
+
+      delete preview;
     }
 
     void pngExportWritesValidFile()

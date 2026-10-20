@@ -28,7 +28,7 @@ struct DataListPanel::NavNodeSpec
 // 臆造 411×641 已回收）——如实标类型。成员内联定义保持 tr() 上下文为
 // "DataListPanel"（翻译键不变）。
 inline void DataListPanel::appendHorizonNavBranch(NavNodeSpec &seismicRoot,
-                                                  const QList<CatalogAsset> &horAssets)
+                                                  const QList<CatalogAsset> &horAssets) const
 {
   NavNodeSpec horRoot;
   horRoot.text0 = tr("层位 (%1)").arg(horAssets.size());

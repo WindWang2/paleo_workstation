@@ -64,8 +64,8 @@ inline QString exportCsv(const QVector<AssetRowInfo> &rows, const ExportFields &
     if (f.withSize)
       cells << (r.sizeBytes < 0 ? esc(QString()) : QString::number(r.sizeBytes));
     if (f.withTime)
-      cells << r.lastModified.isValid() ? esc(r.lastModified.toString(Qt::ISODate))
-                                        : esc(QString());
+      cells << (r.lastModified.isValid() ? esc(r.lastModified.toString(Qt::ISODate))
+                                         : esc(QString()));
     lines << cells.join(QLatin1Char(','));
   }
   return lines.join(QLatin1Char('\n')) + QLatin1Char('\n');

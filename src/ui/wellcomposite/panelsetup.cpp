@@ -214,7 +214,7 @@ void WellCompositePanel::setupUi()
     if (m_predictionTrack) m_predictionTrack->setVisible(visible);
     if (m_confidenceTrack) m_confidenceTrack->setVisible(visible);
     for (const auto &track : m_dominantTracks) track->setVisible(visible);
-    m_canvas->updateAll();
+    m_canvas->syncScrollBars(); m_canvas->updateAll(); // 总道宽变：重算横向范围并夹紧偏移
   });
   connect(m_btnFaciesService, &QToolButton::clicked, this, [this] {
     if (!m_faciesWorkflow) return;

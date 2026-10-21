@@ -524,6 +524,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     const char *text;
   } kTitles[] = {
     {"openPreview", QT_TR_NOOP("打开预览")},
+    {"renameAsset", QT_TR_NOOP("重命名数据对象…")},
     {"showVersions", QT_TR_NOOP("版本与回滚…")},
     {"gridHorizon", QT_TR_NOOP("网格化…")},
     {"editTops", QT_TR_NOOP("编辑分层…")},
@@ -572,6 +573,8 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     batchExportData();
   else if (key == QLatin1String("openPreview") || key == QLatin1String("openPreviewAll"))
     batchOpenPreview();
+  else if (key == QLatin1String("renameAsset"))
+    renameSelectedAsset();
   else if (key == QLatin1String("showVersions"))
     showVersionTable();
   else if (key == QLatin1String("gridHorizon"))

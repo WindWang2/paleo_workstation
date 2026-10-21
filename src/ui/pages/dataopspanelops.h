@@ -428,6 +428,8 @@ inline QStringList contextMenuActions(const ContextMenuSpec &spec)
   {
     // 资产面（mixed 时给公共子集——资产操作；实体专属操作不给）。
     acts << QStringLiteral("openPreview");
+    if (spec.assetCount == 1 && !spec.hasEntities)
+      acts << QStringLiteral("renameAsset"); // 数据对象自定义名称（单选资产）
     if (spec.assetCount == 1)
       acts << QStringLiteral("showVersions"); // 方向 30：版本对比/回滚入口
     if (spec.singleAssetIsHorizon)

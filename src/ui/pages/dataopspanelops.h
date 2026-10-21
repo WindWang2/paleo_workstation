@@ -450,6 +450,7 @@ inline QStringList contextMenuActions(const ContextMenuSpec &spec)
     acts << QStringLiteral("addTag") << QStringLiteral("changeType");
     if (spec.assetCount > 1)
       acts << QStringLiteral("exportManifest") << QStringLiteral("removeSoft");
+    acts << QStringLiteral("removeFromCatalog"); // 索引级删除：只删数据对象，文件一律不动
     acts << QStringLiteral("showInFolder");
     if (spec.assetCount == 1)
       acts << QStringLiteral("openExternal"); // 单资产：系统程序打开原件

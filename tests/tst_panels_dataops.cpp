@@ -151,6 +151,8 @@ class TestPanelsDataOps : public QObject
         QCOMPARE(singleActs.indexOf(QStringLiteral("renameAsset")),
                  singleActs.indexOf(QStringLiteral("openPreview")) + 1);
         QVERIFY(!singleActs.contains(QStringLiteral("removeSoft")));
+        // 索引级删除（只删数据对象，文件一律不动）：单/多/混合资产面都给。
+        QVERIFY(singleActs.contains(QStringLiteral("removeFromCatalog")));
         // goal/gridding-surface-ops：非层位单资产不给「网格化」。
         QVERIFY(!singleActs.contains(QStringLiteral("gridHorizon")));
         ContextMenuSpec singleHorizon = singleResolved;
@@ -171,6 +173,7 @@ class TestPanelsDataOps : public QObject
         QVERIFY(multiActs.contains(QStringLiteral("attachToEntity")));
         QVERIFY(multiActs.contains(QStringLiteral("exportManifest")));
         QVERIFY(multiActs.contains(QStringLiteral("removeSoft")));
+        QVERIFY(multiActs.contains(QStringLiteral("removeFromCatalog")));
         QVERIFY(multiActs.contains(QStringLiteral("openPreviewAll")));
         QVERIFY(!multiActs.contains(QStringLiteral("openExternal")));
         // 异构选中：资产 + 实体 → 公共子集（资产操作）+ 实体定位，不给实体 CRUD。
@@ -181,6 +184,7 @@ class TestPanelsDataOps : public QObject
         mixed.entityCount = 1;
         const QStringList mixedActs = contextMenuActions(mixed);
         QVERIFY(mixedActs.contains(QStringLiteral("focusEntities")));
+        QVERIFY(mixedActs.contains(QStringLiteral("removeFromCatalog")));
         QVERIFY(!mixedActs.contains(QStringLiteral("renameEntity")));
         QVERIFY(!mixedActs.contains(QStringLiteral("deleteEntity")));
         // 纯实体：实体 CRUD 面。

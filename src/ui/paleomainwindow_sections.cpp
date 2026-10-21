@@ -22,6 +22,37 @@
 #include <qgsrubberband.h>
 #include <qgsgeometry.h>
 
+// 剖面画布 → 地图定位接线（attachSections 拆出：hover 十字标 + 点击居中，
+// TimeSlice 域按测网几何换算）。只用入参局部，无壳成员。
+namespace {
+void wireSectionTraceLocate(SeismicMapLink *link,
+                            seismic::SeismicSectionDockWidget *dock) {
+  auto locate = [link, dock](bool clicked, int trace, double time, double depth,
+                             float amp, double x, double y) {
+    if (dock->canvas()->orientation() ==
+        seismic::SectionOrientation::TimeSlice) {
+      const auto grid = link->gridGeometry();
+      if (!grid.valid)
+        return;
+      const double inl = y, xl = x;
+      grid.inlineXlineToXy(inl, xl, &x, &y);
+    }
+    if (clicked)
+      link->onSectionTraceClicked(trace, time, depth, amp, x, y);
+    else
+      link->onSectionTraceHovered(trace, time, depth, amp, x, y);
+  };
+  QObject::connect(dock->canvas(), &seismic::SeismicSectionCanvas::traceHovered, link,
+          [locate](int a, double b, double c, float d, double e, double f) {
+            locate(false, a, b, c, d, e, f);
+          });
+  QObject::connect(dock->canvas(), &seismic::SeismicSectionCanvas::traceClicked, link,
+          [locate](int a, double b, double c, float d, double e, double f) {
+            locate(true, a, b, c, d, e, f);
+          });
+}
+} // namespace
+
 void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   m_sectionLink = link;
   if (!link || !m_seismicSectionDock || !m_previewDoc)
@@ -114,29 +145,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
               refresh();
             }
           });
-  auto locate = [link, dock](bool clicked, int trace, double time, double depth,
-                             float amp, double x, double y) {
-    if (dock->canvas()->orientation() ==
-        seismic::SectionOrientation::TimeSlice) {
-      const auto grid = link->gridGeometry();
-      if (!grid.valid)
-        return;
-      const double inl = y, xl = x;
-      grid.inlineXlineToXy(inl, xl, &x, &y);
-    }
-    if (clicked)
-      link->onSectionTraceClicked(trace, time, depth, amp, x, y);
-    else
-      link->onSectionTraceHovered(trace, time, depth, amp, x, y);
-  };
-  connect(dock->canvas(), &seismic::SeismicSectionCanvas::traceHovered, link,
-          [locate](int a, double b, double c, float d, double e, double f) {
-            locate(false, a, b, c, d, e, f);
-          });
-  connect(dock->canvas(), &seismic::SeismicSectionCanvas::traceClicked, link,
-          [locate](int a, double b, double c, float d, double e, double f) {
-            locate(true, a, b, c, d, e, f);
-          });
+  wireSectionTraceLocate(link, dock);
   connect(link, &SeismicMapLink::sectionExtractedFromMap, this,
           [report, setup, drawingFromSetup](bool ok, const QString &error) {
             if (*drawingFromSetup)

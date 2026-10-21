@@ -45,3 +45,14 @@ EXCLUDED_EXISTING_ISSUE）：
 
 - 上述清单之外的**新发现**问题（含新合入 #603–#626 代码引入的缺陷）。
 - 已知 Issue 文件的**外围调用点**可以审查，但不得对已分配根因实施重复修改。
+
+## 交付前复查（2026-10-22 Phase 8）
+
+- origin/master 仍为 b301f2e8（未前进）。
+- 新开 PR #628（codex/indexed-data-mgmt-section-snapping，索引式数据管理 +
+  连井剖面吸附）：与本轮 diff 共享 3 文件（dataimport_folder.cpp /
+  sectionworkbench.cpp / file-budget-baseline.txt），`git merge-tree`
+  零冲突标记，改动 hunk 不相交，语义面（导入外链默认/命名/吸附）与本轮
+  （行序契约/嗅探收敛/闸门收缩）不重叠——标记 EXCLUDED_ACTIVE_WORK，
+  本轮未触碰其根因面。
+- 开放 Issues 集合不变（#556–#597 外部所有）。

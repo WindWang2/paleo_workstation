@@ -4,6 +4,13 @@
 #include <QTemporaryDir>
 #include <QImage>
 #include <QUrl>
+#include <QBuffer>
+#include <QLabel>
+#include <QScopeGuard>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QThread>
+#include <atomic>
 #include <algorithm>
 #include <memory>
 #include "../src/qgis/onlinebasemap.h"
@@ -17,13 +24,171 @@
 #include <qgsrasterlayer.h>
 #include <qgsrasterdataprovider.h>
 #include <qgsrasterblock.h>
+#include <qgsmapcanvas.h>
+#include <qgslabelingresults.h>
+#include <qgsmarkersymbol.h>
+#include <qgspallabeling.h>
+#include <qgssinglesymbolrenderer.h>
+#include <qgstextformat.h>
+#include <qgsvectordataprovider.h>
+#include <qgsvectorlayerlabeling.h>
 
 namespace ob = paleo::onlinebasemap;
+
+namespace {
+// 独立事件循环：GDAL 在建层时也可能探测 alpha 波段，不能让测试 HTTP 服务
+// 和客户端共用 GUI 线程，否则会把夹具自身的阻塞误当成渲染问题。
+class DelayedTiles
+{
+public:
+  DelayedTiles()
+  {
+    QImage tile(256, 256, QImage::Format_RGB32);
+    tile.fill(QColor(180, 200, 160));
+    QBuffer buffer(&m_png);
+    buffer.open(QIODevice::WriteOnly);
+    tile.save(&buffer, "PNG");
+    m_server = new QTcpServer;
+    m_server->moveToThread(&m_thread);
+    QObject::connect(&m_thread, &QThread::finished, m_server, &QObject::deleteLater);
+    m_thread.start();
+    QMetaObject::invokeMethod(m_server, [this] {
+      m_server->listen(QHostAddress::LocalHost, 0);
+      m_port = m_server->serverPort();
+      QObject::connect(m_server, &QTcpServer::newConnection, m_server, [this] {
+        while (auto *socket = m_server->nextPendingConnection()) {
+          QObject::connect(socket, &QTcpSocket::readyRead, m_server, [this, socket] {
+            socket->readAll();
+            if (socket->property("handled").toBool()) return;
+            socket->setProperty("handled", true);
+            if (m_hold) {
+              if (!m_pending.contains(socket)) { m_pending.append(socket); ++held; }
+            } else respond(socket);
+          });
+        }
+      });
+    }, Qt::BlockingQueuedConnection);
+  }
+  ~DelayedTiles()
+  {
+    release(true);
+    m_thread.quit();
+    m_thread.wait();
+  }
+  quint16 port() const { return m_port; }
+  void hold() { QMetaObject::invokeMethod(m_server, [this] { m_hold = true; }, Qt::BlockingQueuedConnection); }
+  void release(bool fail)
+  {
+    QMetaObject::invokeMethod(m_server, [this, fail] {
+      m_hold = false; m_fail = fail;
+      for (const auto &socket : std::as_const(m_pending)) if (socket) respond(socket);
+      m_pending.clear();
+    }, Qt::BlockingQueuedConnection);
+  }
+  std::atomic<int> held{0};
+private:
+  void respond(QTcpSocket *socket)
+  {
+    const QByteArray body = m_fail ? QByteArray("unavailable") : m_png;
+    socket->write((m_fail ? QByteArray("HTTP/1.1 503 Service Unavailable\r\n") : QByteArray("HTTP/1.1 200 OK\r\n")) +
+                  "Content-Type: image/png\r\nConnection: close\r\nContent-Length: " + QByteArray::number(body.size()) + "\r\n\r\n" + body);
+    socket->flush();
+    socket->disconnectFromHost();
+  }
+  QThread m_thread;
+  QTcpServer *m_server = nullptr;
+  QList<QPointer<QTcpSocket>> m_pending;
+  QByteArray m_png;
+  quint16 m_port = 0;
+  bool m_hold = false, m_fail = false;
+};
+} // namespace
 
 class TestOnlineBasemap : public QObject
 {
   Q_OBJECT
 private slots:
+  void wellsStayVisibleWhileTilesArePending_data()
+  {
+    QTest::addColumn<bool>("failTiles");
+    QTest::newRow("delayed-success") << false;
+    QTest::newRow("delayed-failure") << true;
+  }
+
+  void wellsStayVisibleWhileTilesArePending()
+  {
+    QFETCH(bool, failTiles);
+    DelayedTiles server;
+    QVERIFY(server.port());
+    QgsVectorLayer wells(QStringLiteral("Point?crs=EPSG:3857&field=name:string"), QStringLiteral("wells"), QStringLiteral("memory"));
+    QgsFeature well(wells.fields());
+    well.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(0, 0)));
+    well.setAttribute(QStringLiteral("name"), QStringLiteral("A1"));
+    QgsFeatureList features{well};
+    QVERIFY(wells.dataProvider()->addFeatures(features));
+    wells.updateExtents();
+    auto symbol = QgsMarkerSymbol::createSimple({});
+    symbol->setColor(QColor(20, 60, 200));
+    symbol->setSizeUnit(Qgis::RenderUnit::Pixels);
+    symbol->setSize(8);
+    wells.setRenderer(new QgsSingleSymbolRenderer(symbol.release()));
+    QgsPalLayerSettings labels;
+    labels.fieldName = QStringLiteral("name");
+    labels.dist = 8;
+    labels.distUnits = Qgis::RenderUnit::Pixels;
+    QgsTextFormat format;
+    format.setFont(QFont(QStringLiteral("Arial"), 12));
+    format.setSize(12);
+    labels.setFormat(format);
+    wells.setLabeling(new QgsVectorLayerSimpleLabeling(labels));
+    wells.setLabelsEnabled(true);
+    const ob::Source source{QStringLiteral("delayed-tiles"), QStringLiteral("delayed"),
+        QStringLiteral("http://127.0.0.1:%1/{z}/{x}/{y}.png").arg(server.port()), {}, 4};
+    std::unique_ptr<QgsMapLayer> base(ob::createLayer(source));
+    QVERIFY(base);
+    server.hold();
+    QgsMapCanvas canvas;
+    ob::enableResponsiveForeground(&canvas);
+    canvas.resize(400, 400);
+    canvas.setDestinationCrs(wells.crs());
+    canvas.setLayers({&wells, base.get()});
+    canvas.setExtent(QgsRectangle(-100000, -100000, 100000, 100000));
+    auto finish = qScopeGuard([&] {
+      server.release(true);
+      canvas.stopRendering();
+    });
+    canvas.show();
+    canvas.refresh();
+    QTRY_VERIFY_WITH_TIMEOUT(server.held.load() > 0, 5000);
+    QVERIFY(canvas.isDrawing());
+    auto *overlay = canvas.findChild<QLabel *>(QStringLiteral("responsiveForegroundOverlay"));
+    QVERIFY(overlay);
+    QTRY_VERIFY_WITH_TIMEOUT(overlay->isVisible(), 3000);
+    const auto foreground = overlay->pixmap().toImage();
+    QVERIFY(!foreground.isNull());
+    const int cx = foreground.width() / 2, cy = foreground.height() / 2;
+    QVERIFY(foreground.pixelColor(cx, cy).alpha() > 0); // 井点
+    int labelPixels = 0;
+    for (int y = cy - 70; y <= cy + 70; ++y)
+      for (int x = cx - 70; x <= cx + 70; ++x)
+        if ((std::abs(x - cx) > 12 || std::abs(y - cy) > 12) && foreground.pixelColor(x, y).alpha() > 0)
+          ++labelPixels;
+    QVERIFY(labelPixels > 10); // 点符号以外的井名像素
+    canvas.setExtent(QgsRectangle(-50000, -100000, 150000, 100000));
+    QVERIFY(!overlay->isVisible());
+    canvas.refresh();
+    QTRY_VERIFY_WITH_TIMEOUT(overlay->isVisible(), 3000);
+    const auto moved = overlay->pixmap().toImage();
+    QVERIFY(moved.pixelColor(moved.width() / 4, moved.height() / 2).alpha() > 0);
+    QCOMPARE(moved.pixelColor(cx, cy).alpha(), 0); // 旧视野中心不能残留井点。
+    server.release(failTiles);
+    QTRY_VERIFY_WITH_TIMEOUT(!canvas.isDrawing(), 5000);
+    QVERIFY(!overlay->isVisible());
+    QVERIFY(canvas.labelingResults());
+    const auto renderedLabels = canvas.labelingResults()->allLabels();
+    QVERIFY(std::any_of(renderedLabels.cbegin(), renderedLabels.cend(), [](const auto &label) { return label.labelText == QLatin1String("A1"); }));
+  }
+
   void presetsHaveCreditsAndCorrectNativeZoom()
   {
     QSet<QString> ids;

@@ -11,6 +11,7 @@
 #include <qgslayertreelayer.h>
 #include <qgsnetworkaccessmanager.h>
 #include <qgsproviderregistry.h>
+#include <qgsmaprendererparalleljob.h>
 
 #include <QCryptographicHash>
 #include <QJsonArray>
@@ -22,6 +23,9 @@
 #include <QTimer>
 #include <QUrl>
 #include <QXmlStreamWriter>
+#include <QEvent>
+#include <QLabel>
+#include <QPixmap>
 
 namespace paleo::onlinebasemap {
 namespace {
@@ -29,6 +33,93 @@ const char *kSourcesKey = "basemap/onlineSources";
 const char *kScope = "paleo";
 const char *kEntry = "survey/onlineBasemap";
 const QString kUserAgent = QStringLiteral("PaleoWorkbench (+https://github.com/WindWang2/paleo_workstation)");
+
+// 原生整图的标注阶段要等所有图层完成，慢瓦片会连井点/井名一起拖住。
+// 临时前景仍完全交给 QGIS 渲染；透明结果只在整图尚未完成时展示。
+class ResponsiveForeground final : public QObject
+{
+public:
+  explicit ResponsiveForeground(QgsMapCanvas *canvas) : QObject(canvas), m_canvas(canvas)
+  {
+    setObjectName(QStringLiteral("responsiveForegroundRenderer"));
+    m_overlay = new QLabel(canvas->viewport());
+    m_overlay->setObjectName(QStringLiteral("responsiveForegroundOverlay"));
+    m_overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_overlay->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
+    m_overlay->setScaledContents(true);
+    m_overlay->hide();
+    canvas->viewport()->installEventFilter(this);
+    connect(canvas, &QgsMapCanvas::renderStarting, this, [this] { start(); });
+    connect(canvas, &QgsMapCanvas::mapCanvasRefreshed, this, [this] { invalidate(); });
+    connect(canvas, &QgsMapCanvas::extentsChanged, this, [this] { start(); });
+    connect(canvas, &QgsMapCanvas::layersChanged, this, [this] { start(); });
+    connect(canvas, &QgsMapCanvas::rotationChanged, this, [this] { start(); });
+    connect(canvas, &QgsMapCanvas::destinationCrsChanged, this, [this] { start(); });
+  }
+
+  ~ResponsiveForeground() override
+  {
+    invalidate();
+    delete m_overlay.data();
+  }
+
+protected:
+  bool eventFilter(QObject *object, QEvent *event) override
+  {
+    if (event->type() == QEvent::Resize || event->type() == QEvent::Hide)
+      invalidate(); // 不把上一视野的井点图拉伸到新范围。
+    return QObject::eventFilter(object, event);
+  }
+
+private:
+  void invalidate()
+  {
+    ++m_generation;
+    if (m_overlay) m_overlay->hide();
+    if (m_job) {
+      auto *old = m_job.data();
+      m_job = nullptr;
+      old->cancelWithoutBlocking();
+    }
+  }
+
+  void start()
+  {
+    invalidate();
+    bool online = false;
+    QList<QgsMapLayer *> foreground;
+    for (auto *layer : m_canvas->layers()) {
+      online = online || !layer->customProperty(QStringLiteral("paleoOnlineBasemap")).toString().isEmpty();
+      if (layer->type() == Qgis::LayerType::Vector && !layer->customProperty(QStringLiteral("paleoBasemap")).toBool())
+        foreground.append(layer);
+    }
+    if (!online || foreground.isEmpty()) return;
+    auto settings = m_canvas->mapSettings();
+    if (settings.outputSize().isEmpty()) return;
+    settings.setLayers(foreground);
+    settings.setBackgroundColor(Qt::transparent);
+    auto *job = new QgsMapRendererParallelJob(settings);
+    job->setParent(this);
+    m_job = job;
+    const auto generation = m_generation;
+    connect(job, &QgsMapRendererJob::finished, this, [this, job, generation] {
+      if (generation == m_generation && m_overlay && m_canvas->isDrawing()) {
+        m_overlay->setPixmap(QPixmap::fromImage(job->renderedImage()));
+        m_overlay->setGeometry(m_canvas->viewport()->rect());
+        m_overlay->raise();
+        m_overlay->show();
+      }
+      if (m_job == job) m_job = nullptr;
+      job->deleteLater();
+    });
+    job->start();
+  }
+
+  QgsMapCanvas *m_canvas;
+  QPointer<QLabel> m_overlay;
+  QPointer<QgsMapRendererParallelJob> m_job;
+  quint64 m_generation = 0;
+};
 
 QString gdalXyzUri(const Source &source)
 {
@@ -78,6 +169,12 @@ QString projectKey(const QgsProject *project)
       .arg(QString::fromLatin1(QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha1).toHex().left(16)));
 }
 } // namespace
+
+void enableResponsiveForeground(QgsMapCanvas *canvas)
+{
+  if (canvas && !canvas->findChild<QObject *>(QStringLiteral("responsiveForegroundRenderer"), Qt::FindDirectChildrenOnly))
+    new ResponsiveForeground(canvas);
+}
 
 QString noneId() { return QStringLiteral("none"); }
 

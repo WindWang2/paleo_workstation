@@ -105,7 +105,7 @@ bool readTable(const QString &path, const Table &table, LasHeaderInfo &header,
     if (isIndex(name) && indexColumn < 0) indexColumn = i;
   }
   if (indexColumn < 0)
-    return fail(path, 1, QCoreApplication::translate("WellLogText", "缺少明确索引列 DEPTH/DEPT/MD/TVD/TVDSS/TIME/深度"), error, issues);
+    return fail(path, 1, QCoreApplication::translate("WellLogText", "缺少明确索引列 DEPTH/DEPT/MD/TVD/TVDSS/TIME/深度/井深"), error, issues);
   samples.axis = columns.at(indexColumn);
   QVector<int> valueColumns;
   for (int i = 0; i < columns.size(); ++i)

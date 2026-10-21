@@ -109,6 +109,13 @@ int main(int argc, char *argv[])
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS",
             "--proxy-server=direct:// --no-sandbox --disable-gpu");
 
+  // QWebEngineView 使用 Qt Quick 合成，必须与 QOpenGLWidget 共用 OpenGL。
+  // 此设置适用于所有启动方式，不能受便携包布局或 QT_PLUGIN_PATH 影响；
+  // Windows 的 Qt Quick 默认 D3D11，否则打开网页/三维视图会混用图形 API。
+  // 必须在 QgsApplication 构造及首个窗口创建之前设置；保留显式环境配置。
+  if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND"))
+    qputenv("QSG_RHI_BACKEND", "opengl");
+
   // 便携包形态（exe 同目录带 plugins/platforms/qwindows.dll）自解析插件路径：
   // conda 构建的 Qt6Core 不认 qt.conf，双击 exe（无启动器 env）时平台插件
   // 找不到。开发/构建目录没有该布局时保持不动，不影响既有环境注入。
@@ -123,11 +130,6 @@ int main(int argc, char *argv[])
       const QString weProc = exeDir + QStringLiteral("/QtWebEngineProcess.exe");
       if (QFileInfo::exists(weProc))
         qputenv("QTWEBENGINEPROCESS_PATH", QFile::encodeName(weProc));
-      // QWebEngineView 底层是 QQuickWidget；主窗口因 QGIS 画布用 OpenGL 合成，
-      // Windows 上 Qt Quick 缺省 D3D11——API 不一致时 QQuickWidget 拿不到
-      // QRhi，页面渲染不出来（"no rhi / not compatible"）。钉成与窗口一致。
-      if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND"))
-        qputenv("QSG_RHI_BACKEND", "opengl");
     }
   }
 

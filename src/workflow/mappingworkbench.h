@@ -165,7 +165,7 @@ public:
                              const QString &mode, QString *error);
   void updateDisplayScale(double scale);
   FaciesHierarchy::ScaleThresholds displayThresholds() const;
-  bool setDisplayThresholds(double faciesToSubfacies, double subfaciesToMicrofacies, QString *error);
+  bool setDisplayThresholds(double facies, double micro, QString *error);
   bool selectHierarchyMembers(const QString &id, const QString &level, QString *error);
   bool assignHierarchy(const QString &id, const QList<qint64> &ids,
                        int code, const QString &level, QString *error);

@@ -1,15 +1,14 @@
-// 层：视图
+// 层：QGIS 封装
 #include "identifytool.h"
 
-#include "identifypopup.h"
-#include "../../qgis/previewidentify.h"
+#include "previewidentify.h"
 
 #include <QKeyEvent>
 #include <QTimer>
-#include <QToolButton>
 #include <qgsmapcanvas.h>
 #include <qgsmaplayer.h>
 #include <qgsmapmouseevent.h>
+#include <qgsmaptool.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
 
@@ -41,26 +40,44 @@ IdentifyHit hitFrom(const PreviewIdentifyResult &result)
   }
   return hit;
 }
-} // namespace
 
-PaleoIdentifyTool::PaleoIdentifyTool(QgsMapCanvas *canvas)
-  : QgsMapTool(canvas)
+class PaleoIdentifyTool : public QgsMapTool
 {
-  m_popup = new IdentifyPopup(canvas);
+public:
+  PaleoIdentifyTool(QgsMapCanvas *canvas, IdentifyPresenter *presenter);
+
+  void canvasMoveEvent(QgsMapMouseEvent *event) override;
+  void canvasPressEvent(QgsMapMouseEvent *event) override;
+  void canvasReleaseEvent(QgsMapMouseEvent *event) override;
+  void keyPressEvent(QKeyEvent *event) override;
+  void deactivate() override;
+
+private:
+  void refreshAt(const QPoint &pixel, bool pin);
+  void hidePopup();
+
+  IdentifyPresenter *m_popup = nullptr;
+  PreviewIdentifyCore *m_core = nullptr;
+  QTimer *m_hover = nullptr;
+  QPoint m_pending;
+  bool m_pinned = false;
+};
+
+PaleoIdentifyTool::PaleoIdentifyTool(QgsMapCanvas *canvas, IdentifyPresenter *presenter)
+  : QgsMapTool(canvas)
+  , m_popup(presenter)
+{
   m_core = new PreviewIdentifyCore(this);
   m_hover = new QTimer(this);
   m_hover->setSingleShot(true);
   m_hover->setInterval(80);
   setCursor(Qt::CrossCursor);
   connect(m_hover, &QTimer::timeout, this, [this] { refreshAt(m_pending, false); });
-  connect(m_popup, &IdentifyPopup::pointerInside, this, [this](bool inside) { m_overPopup = inside; });
 }
-
-PaleoIdentifyTool::~PaleoIdentifyTool() = default;
 
 void PaleoIdentifyTool::canvasMoveEvent(QgsMapMouseEvent *event)
 {
-  if (m_pinned || m_overPopup)
+  if (m_pinned || m_popup->pointerOverHits())
     return;
   m_pending = event->pos();
   m_hover->start();
@@ -86,10 +103,8 @@ void PaleoIdentifyTool::keyPressEvent(QKeyEvent *event)
   }
   if (event->key() == Qt::Key_Left || event->key() == Qt::Key_Right)
   {
-    auto *button = m_popup->findChild<QToolButton *>(
-        event->key() == Qt::Key_Left ? QStringLiteral("identifyPrev") : QStringLiteral("identifyNext"));
-    if (button && m_popup->isVisible())
-      button->click();
+    if (m_popup->hitsShown())
+      m_popup->stepHit(event->key() == Qt::Key_Left ? -1 : 1);
     event->accept();
     return;
   }
@@ -106,8 +121,7 @@ void PaleoIdentifyTool::hidePopup()
 {
   m_hover->stop();
   m_pinned = false;
-  m_popup->hide();
-  m_popup->setHits({});
+  m_popup->dismissHits();
 }
 
 void PaleoIdentifyTool::refreshAt(const QPoint &pixel, bool pin)
@@ -123,11 +137,16 @@ void PaleoIdentifyTool::refreshAt(const QPoint &pixel, bool pin)
     hits.append(hitFrom(result));
   if (hits.isEmpty())
   {
-    if (pin || !m_overPopup)
+    if (pin || !m_popup->pointerOverHits())
       hidePopup();
     return;
   }
   m_pinned = pin;
-  m_popup->setHits(hits);
-  m_popup->showNear(pixel);
+  m_popup->presentHits(hits, pixel);
+}
+} // namespace
+
+QgsMapTool *createIdentifyTool(QgsMapCanvas *canvas, IdentifyPresenter *presenter)
+{
+  return new PaleoIdentifyTool(canvas, presenter);
 }

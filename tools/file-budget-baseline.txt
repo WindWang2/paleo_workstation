@@ -41,7 +41,7 @@ src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:777
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:278
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:289
-src/ui/dialogs/folderconfirm.cpp:fn:buildFolderConfirmDialog:346
+src/ui/dialogs/folderconfirm.cpp:fn:buildFolderConfirmDialog:345
 src/ui/edittools/editingtoolbar.cpp:file:1107
 src/ui/edittools/editingtoolbar.cpp:fn:buildUi:232
 src/ui/edittools/vertexeditortools.cpp:file:1318
@@ -54,7 +54,7 @@ src/ui/pages/datalist.cpp:fn:DataListPanel:480
 src/ui/pages/datalist.cpp:fn:buildDataOpsUi:337
 src/ui/pages/datalist_table.cpp:fn:renderAssetPage:388
 src/ui/pages/datalist_tree.cpp:file:1094
-src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:676
+src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:664
 src/ui/pages/entitypanel.cpp:file:1620
 src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
 src/ui/pages/entitypanel.cpp:fn:refresh:782

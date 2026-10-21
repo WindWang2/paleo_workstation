@@ -474,59 +474,6 @@ private slots:
     QVERIFY(QFileInfo::exists(extSrc));
   }
 
-  // 孤儿受管目录扫描：artifacts/<stage>/ 下无 catalog 对应的资产目录被列出
-  //（字节数/文件数就位），在册资产目录不列。受管文件按生产口径落在
-  // artifacts/raw/<assetId>/（版本 path = "raw/..."，不含 artifacts 前缀）。
-  void scanOrphanManagedDirsFindsUntracked()
-  {
-    QTemporaryDir tmp;
-    QVERIFY(tmp.isValid());
-    QDir dir(tmp.path());
-    DataCatalog cat;
-    QString err;
-    QVERIFY(cat.open(dir.absolutePath(), &err));
-
-    // 在册受管资产：文件真实落在 artifacts/raw/ast-tracked/。
-    CatalogAsset tracked;
-    tracked.id = QStringLiteral("ast-tracked");
-    tracked.type = QStringLiteral("well_log");
-    tracked.format = QStringLiteral("las");
-    tracked.displayName = QStringLiteral("tracked.las");
-    QVERIFY(cat.addAsset(tracked, &err));
-    const QString trackedRel =
-        QStringLiteral("raw/ast-tracked/ver-t/a.las");
-    const QString trackedAbs =
-        dir.filePath(QStringLiteral("artifacts/") + trackedRel);
-    QVERIFY(writeFile(trackedAbs, QByteArray("TRACKED BYTES\n")));
-    CatalogVersion tv;
-    tv.id = QStringLiteral("ver-t");
-    tv.assetId = tracked.id;
-    tv.stage = QStringLiteral("RAW");
-    tv.versionNumber = 1;
-    tv.managed = true;
-    tv.path = trackedRel;
-    tv.sha256 = DataCatalog::sha256FileHex(trackedAbs, &err);
-    tv.fileName = QStringLiteral("a.las");
-    QVERIFY(cat.addVersion(tv, &err));
-
-    // 孤儿目录：raw/ast-orphan/…（无 catalog 对应）。
-    const QString orphanFile =
-        dir.filePath(QStringLiteral("artifacts/raw/ast-orphan/ver-x/orphan.las"));
-    QVERIFY(writeFile(orphanFile, QByteArray("ORPHAN BYTES\n")));
-
-    const auto orphans = scanOrphanManagedDirs(dir.absolutePath(), &cat);
-    QCOMPARE(orphans.size(), 1);
-    QCOMPARE(orphans.first().relPath, QStringLiteral("raw/ast-orphan"));
-    QCOMPARE(orphans.first().fileCount, 1);
-    QVERIFY(orphans.first().bytes > 0);
-    QVERIFY(orphans.first().absPath.endsWith(QStringLiteral("ast-orphan")));
-
-    // 索引级删除后，受管目录转为孤儿被扫出——D4「留待治理」的落点。
-    QVERIFY(removeAssetsKeepFiles(&cat, {tracked.id}, &err));
-    const auto after = scanOrphanManagedDirs(dir.absolutePath(), &cat);
-    QCOMPARE(after.size(), 2); // ast-tracked（刚删）+ ast-orphan（原有）
-  }
-
   void pendingResolveProposesExactlyOneMatchOnly()
   {
     QTemporaryDir tmp;

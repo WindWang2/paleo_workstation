@@ -6,7 +6,6 @@
 #include "../catalog/datacatalog.h"
 
 #include <QDir>
-#include <QDirIterator>
 #include <QFile>
 #include <QFileDevice>
 #include <QFileInfo>
@@ -539,51 +538,6 @@ bool removeAssetsKeepFiles(DataCatalog *cat, const QStringList &assetIds,
   // 文件一律不动——removeAssets 本就只删索引（含血缘/staging 保护），
   // 这里只是给「不接 purgeManagedFiles」的调用面一个显式名字。
   return cat->removeAssets(assetIds, error);
-}
-
-QVector<OrphanManagedDir> scanOrphanManagedDirs(const QString &projectDir,
-                                                const DataCatalog *cat)
-{
-  QVector<OrphanManagedDir> out;
-  if (projectDir.isEmpty() || !cat)
-    return out;
-  QSet<QString> known;
-  for (const CatalogAsset &a : cat->assets())
-    known.insert(a.id);
-  // stage 目录名大小写不敏感（catalog stage 值是 RAW/DERIVED 大写、
-  // 文档口径是小写 raw/derived——以盘上实际名为准，归一化后匹配）。
-  const QSet<QString> stages{QStringLiteral("raw"), QStringLiteral("derived"),
-                             QStringLiteral("intermediate"), QStringLiteral("output")};
-  const QDir artifactsDir(projectDir + QStringLiteral("/artifacts"));
-  if (!artifactsDir.exists())
-    return out;
-  const QStringList stageEntries =
-      artifactsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-  for (const QString &stageEntry : stageEntries)
-  {
-    const QString stageLower = stageEntry.toLower();
-    if (!stages.contains(stageLower))
-      continue;
-    const QDir stageDir(artifactsDir.absoluteFilePath(stageEntry));
-    const QStringList sub = stageDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    for (const QString &assetId : sub)
-    {
-      if (known.contains(assetId))
-        continue;
-      OrphanManagedDir d;
-      d.relPath = stageLower + QLatin1Char('/') + assetId;
-      d.absPath = stageDir.absoluteFilePath(assetId);
-      QDirIterator it(d.absPath, QDir::Files, QDirIterator::Subdirectories);
-      while (it.hasNext())
-      {
-        it.next();
-        d.bytes += static_cast<qint64>(it.fileInfo().size());
-        ++d.fileCount;
-      }
-      out << d;
-    }
-  }
-  return out;
 }
 
 } // namespace paleo::assetops

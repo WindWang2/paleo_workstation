@@ -93,23 +93,10 @@ PurgeOutcome purgeManagedFiles(const QString &projectDir, const QStringList &pat
 // ---- 索引级删除（只删数据对象，文件一律不动）----
 // removeAssets 纯索引面的事务封装：资产行+版本行+链接行删除（血缘/staging
 // 保护同 removeAssets），不做任何文件操作——外链源文件与工程内受管副本都
-// 保留；受管副本自此成为孤儿，由 scanOrphanManagedDirs/治理面板发现回收。
+// 保留；受管副本自此成为孤儿——既有存储治理扫描（storagegovernance 文件级
+// 孤儿面 + 预览-确认-清理流程）即其发现与回收通道，无需新增面板项。
 bool removeAssetsKeepFiles(DataCatalog *cat, const QStringList &assetIds,
                            QString *error = nullptr);
-
-// ---- 孤儿受管文件扫描（治理面板「孤立受管文件」的数据面）----
-struct OrphanManagedDir
-{
-  QString relPath;   // 相对 artifacts/，如 "raw/ast-12"
-  QString absPath;
-  qint64 bytes = 0;
-  int fileCount = 0;
-};
-// 遍历 <projectDir>/artifacts/{raw,derived,intermediate,output}/<assetId> 一级
-// 目录：assetId 不在 catalog 资产表 → 孤儿。纯读盘 + catalog 只读查询；活
-// catalog 对象只能在属主线程读（DataCatalog 线程纪律照旧由调用方遵守）。
-QVector<OrphanManagedDir> scanOrphanManagedDirs(const QString &projectDir,
-                                                const DataCatalog *cat);
 
 // ---- 未决链接批量归位（与导入同一判据，不猜）----
 struct PendingProposal

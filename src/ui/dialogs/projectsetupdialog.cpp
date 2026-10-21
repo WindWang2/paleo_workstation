@@ -2,6 +2,8 @@
 #include "projectsetupdialog.h"
 #include "../../workflow/projectsetup.h"
 #include "../paleotheme.h"
+#include "../../domain/mappinghorizons.h"
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
 #include <QFileDialog>
@@ -49,7 +51,7 @@ ProjectSetupDialog::ProjectSetupDialog(ProjectSetupWorkflow *workflow, QWidget *
   connect(m_next, &QPushButton::clicked, this, [this] { if (m_steps->currentIndex() == 3) finish(); else m_steps->setCurrentIndex(m_steps->currentIndex() + 1); });
   connect(empty, &QPushButton::clicked, this, [this] { m_empty = true; finish(); });
   connect(m_workflow, &ProjectSetupWorkflow::previewReady, this, &ProjectSetupDialog::showPreview);
-  for (auto *edit : {m_points, m_wells, m_seismic, m_horizons, m_references, m_boundary, m_crs})
+  for (auto *edit : {m_points, m_wells, m_seismic, m_horizons, m_references, m_boundary, m_crs, m_paleomaps})
     connect(edit, &QLineEdit::textEdited, this, [this] { m_dirty = true; ++m_revision; });
   showStep(0);
 }
@@ -63,6 +65,7 @@ QWidget *ProjectSetupDialog::pathRow(QLineEdit *edit, bool directory, const QStr
     if (path.isEmpty()) return;
     edit->setText(QDir::fromNativeSeparators(path)); m_dirty = true; ++m_revision;
     if (edit == m_root) discover();
+    if (edit == m_paleomaps) scan();
     if (edit == m_points) { m_lastPointFile = path; for (auto *box : m_fields) box->clear(); m_crs->clear(); scan(); }
   });
   return row;
@@ -108,8 +111,22 @@ QWidget *ProjectSetupDialog::sourcesPage()
   const QList<QPair<QString, QLineEdit *>> rows{{tr("井数据文件夹"), m_wells}, {tr("地震文件夹"), m_seismic}, {tr("层位文件夹"), m_horizons}, {tr("参考资料文件夹"), m_references}};
   for (const auto &row : rows) { row.second->setPlaceholderText(tr("可选，留空即可跳过")); form->addRow(row.first, pathRow(row.second, true)); }
   m_boundary->setPlaceholderText(tr("可选；未提供时，使用地震数据生成覆盖范围"));
+  m_paleomaps = new QLineEdit(page); m_paleomaps->setObjectName(QStringLiteral("projectPaleomapsEdit"));
+  m_paleomaps->setPlaceholderText(tr("可选：现有古地理图目录，也可填写单个图件路径"));
+  connect(m_paleomaps, &QLineEdit::editingFinished, this, [this] { if (m_dirty) scan(); });
+  form->addRow(tr("现有古地理图"), pathRow(m_paleomaps, true));
   form->addRow(tr("测区范围矢量"), pathRow(m_boundary, false, tr("面矢量 (*.gpkg *.shp *.geojson);;所有文件 (*)"))); layout->addLayout(form);
-  auto *note = new QLabel(tr("自动按井名关联测井、时深、录井及照片；井分层表与地震层位面分别管理。空文件、旧工程和完全重复的分层记录会在确认页说明。"), page); note->setWordWrap(true); layout->addWidget(note); layout->addStretch();
+  m_normalizeMaps = new QCheckBox(tr("自动识别微相、整理三级相与系统纹理（保留原图）"), page); m_normalizeMaps->setChecked(true); layout->addWidget(m_normalizeMaps);
+  m_maps = new QTableWidget(0, 3, page); m_maps->setObjectName(QStringLiteral("projectPaleomapChoices"));
+  m_maps->setHorizontalHeaderLabels({tr("导入图件（配套文件按套）"), tr("所属层位"), tr("格式／配套文件")});
+  m_maps->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); m_maps->setEditTriggers(QAbstractItemView::NoEditTriggers); m_maps->hide();
+  layout->addWidget(m_maps, 1);
+  connect(m_maps, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
+    if (item->column() != 0 || item->row() >= m_preview.maps.size()) return;
+    auto &map = m_preview.maps[item->row()]; map.included = item->checkState() == Qt::Checked; ++m_revision;
+    m_mapChoices.insert(map.path, QVariantMap{{"included", map.included}, {"horizon", map.horizon}});
+  });
+  auto *note = new QLabel(tr("井资料按井名关联。古地理图默认优先同名 GPKG、取消勾选预览图，可改选 SHP；SHP、SHX、DBF 必须齐全，投影、编码和样式一并保存。空文件、旧工程和重复分层会在确认页说明。"), page); note->setWordWrap(true); layout->addWidget(note);
   return page;
 }
 QWidget *ProjectSetupDialog::reviewPage()
@@ -126,6 +143,7 @@ ProjectSetupSources ProjectSetupDialog::sources() const
 {
   if (m_empty) return {};
   ProjectSetupSources s; s.root = m_root->text().trimmed(); s.points = m_points->text().trimmed(); s.wells = m_wells->text().trimmed(); s.seismic = m_seismic->text().trimmed(); s.horizons = m_horizons->text().trimmed(); s.references = m_references->text().trimmed(); s.boundary = m_boundary->text().trimmed();
+  s.paleomaps = m_paleomaps->text().trimmed(); s.normalizeMaps = m_normalizeMaps->isChecked(); s.mapChoices = m_mapChoices;
   for (auto it = m_fields.cbegin(); it != m_fields.cend(); ++it) if (!it.value()->currentText().isEmpty()) s.pointMapping.insert(it.key(), it.value()->currentText());
   if (s.pointMapping.isEmpty()) s.pointMapping = m_initialMapping;
   s.wellTargets = m_preview.wellTargets;
@@ -144,6 +162,7 @@ void ProjectSetupDialog::discover()
   m_discoveredRoot = m_root->text().trimmed();
   const auto s = ProjectSetupWorkflow::discover(m_discoveredRoot);
   m_points->setText(s.points); m_wells->setText(s.wells); m_seismic->setText(s.seismic); m_horizons->setText(s.horizons); m_references->setText(s.references);
+  m_paleomaps->setText(s.paleomaps); m_mapChoices.clear();
   m_lastPointFile = s.points;
   for (auto *box : m_fields) box->clear(); m_crs->clear();
   if (m_name->text() == tr("未命名工程")) m_name->setText(QFileInfo(s.root).fileName());
@@ -159,6 +178,7 @@ void ProjectSetupDialog::setExistingProject(const QString &path, const ProjectSe
   m_discoveredRoot = s.root; m_root->setText(s.root);
   m_points->setText(s.points); m_lastPointFile = s.points; m_wells->setText(s.wells); m_seismic->setText(s.seismic);
   m_horizons->setText(s.horizons); m_references->setText(s.references); m_boundary->setText(s.boundary);
+  m_paleomaps->setText(s.paleomaps); m_normalizeMaps->setChecked(s.normalizeMaps); m_mapChoices = s.mapChoices;
   m_initialMapping = s.pointMapping; m_preview.wellTargets = s.wellTargets;
   m_crs->setText(s.pointMapping.value("crs").toString()); scan();
 }
@@ -172,6 +192,7 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
 {
   if (m_scanRevision != m_revision) { scan(); return; }
   m_preview = p; m_busy = false; m_dirty = false;
+  showMaps(p);
   m_assignments->setRowCount(p.logWellNames.size()); m_assignments->setVisible(!p.logWellNames.isEmpty());
   m_assignments->setMaximumHeight(m_assignments->horizontalHeader()->sizeHint().height() +
       qMin(4, m_assignments->rowCount()) * m_assignments->verticalHeader()->defaultSectionSize() +
@@ -197,16 +218,46 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
   }
   m_crs->setText(p.sourceCrs); m_pointPreview->setRowCount(p.pointRows.size());
   for (int row = 0; row < p.pointRows.size(); ++row) for (int col = 0; col < 3; ++col) m_pointPreview->setItem(row, col, new QTableWidgetItem(p.pointRows[row].value(col)));
-  QString text = tr("将建立：%1 口井、%2 条井分层、%3 份测井、%4 个地震文件、%5 个层位面、%6 份其他资料。\n生成井点、井名标注和有效地震覆盖范围，并随工程保存。\n共 %7 个文件。\n").arg(p.wells).arg(p.tops).arg(p.logs).arg(p.seismic).arg(p.horizons).arg(p.references).arg(p.paths.size());
+  refreshReview();
+  m_status->setText(p.errors.isEmpty() ? tr("识别完成；可继续设置或直接核对创建。") : tr("部分资料需要调整，详细原因见确认页。")); m_next->setEnabled(true);
+}
+void ProjectSetupDialog::showMaps(const ProjectSetupPreview &p)
+{
+  QSignalBlocker block(m_maps); m_mapChoices.clear();
+  m_maps->setRowCount(p.maps.size()); m_maps->setVisible(!p.maps.isEmpty());
+  for (int row = 0; row < p.maps.size(); ++row) {
+    const auto &map = p.maps[row];
+    m_mapChoices.insert(map.path, QVariantMap{{"included", map.included}, {"horizon", map.horizon}});
+    auto *item = new QTableWidgetItem(QFileInfo(map.path).fileName()); item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+    item->setCheckState(map.included ? Qt::Checked : Qt::Unchecked); item->setToolTip(map.path + '\n' + map.problem); m_maps->setItem(row, 0, item);
+    auto *horizon = new QComboBox(m_maps); horizon->addItem(tr("请选择层位"), QString());
+    for (const auto &name : mappingHorizons()) horizon->addItem(name, name);
+    horizon->setCurrentIndex(qMax(0, horizon->findData(map.horizon))); m_maps->setCellWidget(row, 1, horizon);
+    connect(horizon, &QComboBox::activated, this, [this, row, horizon] {
+      auto &map = m_preview.maps[row]; map.horizon = horizon->currentData().toString(); ++m_revision;
+      m_mapChoices.insert(map.path, QVariantMap{{"included", map.included}, {"horizon", map.horizon}});
+    });
+    m_maps->setItem(row, 2, new QTableWidgetItem(map.problem.isEmpty()
+        ? tr("%1 · %2 个文件").arg(QFileInfo(map.path).suffix().toUpper()).arg(map.members.size()) : map.problem));
+  }
+}
+void ProjectSetupDialog::refreshReview()
+{
+  const auto &p = m_preview;
+  QString text = tr("将建立：%1 口井、%2 条井分层、%3 份测井、%4 个地震文件、%5 个层位面、%6 份其他资料。\n生成井点、井名标注和有效地震覆盖范围，并随工程保存。\n共 %7 个资料文件，另按套导入下列古地理图：\n").arg(p.wells).arg(p.tops).arg(p.logs).arg(p.seismic).arg(p.horizons).arg(p.references).arg(p.paths.size());
+  int maps = 0;
+  for (const auto &map : p.maps) if (map.included) { ++maps; text += tr("%1 · %2 · 配套 %3 个文件\n").arg(map.horizon, QFileInfo(map.path).fileName()).arg(map.members.size()); }
+  text += tr("已选 %1 套古地理图。\n").arg(maps);
   if (!p.sourceCrs.isEmpty()) text += tr("资料坐标系：%1\n").arg(p.sourceCrs);
   if (!p.errors.isEmpty()) text += tr("\n需要调整（也可清空对应来源后跳过）：\n") + p.errors.join('\n');
   if (!p.notes.isEmpty()) text += tr("\n识别说明：\n") + p.notes.join('\n');
-  m_review->setPlainText(text); m_status->setText(p.errors.isEmpty() ? tr("识别完成；可继续设置或直接核对创建。") : tr("部分资料需要调整，详细原因见确认页。")); m_next->setEnabled(true);
+  m_review->setPlainText(text);
 }
 void ProjectSetupDialog::showStep(int step)
 {
   m_pages->setCurrentIndex(step); m_previous->setEnabled(step > 0); m_next->setText(step == 3 ? (m_existingPath.isEmpty() ? tr("创建并导入") : tr("保存设置并导入")) : tr("下一步（本步可跳过）"));
   if ((step == 1 || step == 3) && m_dirty) scan();
+  else if (step == 3) refreshReview();
 }
 void ProjectSetupDialog::finish()
 {
@@ -214,5 +265,7 @@ void ProjectSetupDialog::finish()
   if (name.isEmpty() || name == "." || name == ".." || name.contains(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]"))) || m_output->text().trimmed().isEmpty()) { m_empty = false; m_status->setText(tr("请填写有效的工程名称和保存位置。")); return; }
   if (!m_empty && (m_busy || m_dirty)) { m_status->setText(tr("请等待本次识别完成后再创建。")); if (!m_busy) scan(); return; }
   if (!m_empty && !m_preview.errors.isEmpty()) { m_status->setText(tr("请调整有问题的资料来源，或将其清空后重新识别。")); return; }
+  if (!m_empty) for (const auto &map : m_preview.maps)
+    if (map.included && (!map.problem.isEmpty() || !isMappingHorizon(map.horizon))) { m_status->setText(tr("请在其他资料页检查图件配套文件并选择层位：%1").arg(QFileInfo(map.path).fileName())); m_steps->setCurrentIndex(2); return; }
   accept();
 }

@@ -10,6 +10,10 @@
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTabBar>
+#include <QTableWidget>
+#include <QCheckBox>
+#include "../src/services/paleomapfiles.h"
+#include "../src/services/paleotaskservice.h"
 #include "../src/io/welltable.h"
 #include "../src/io/wellfileparsers.h"
 #include "../src/io/ziparchive.h"
@@ -182,14 +186,91 @@ private slots:
     QgisProjectService project; PaleoProjectStore store; DataImportService service(&store); FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
     ProjectSetupDialog dialog(&workflow); dialog.setSourceRoot(root); dialog.show();
     QTRY_VERIFY_WITH_TIMEOUT(dialog.preview().wells == 20, 90000);
+    auto *maps = dialog.findChild<QTableWidget *>("projectPaleomapChoices"); QVERIFY(maps);
+    int selected = 0; for (int row = 0; row < maps->rowCount(); ++row) if (maps->item(row, 0)->checkState() == Qt::Checked) ++selected;
+    QCOMPARE(selected, 3);
+    maps->item(0, 0)->setCheckState(Qt::Unchecked); QVERIFY(!dialog.preview().maps[0].included);
+    maps->item(0, 0)->setCheckState(Qt::Checked); QVERIFY(dialog.preview().maps[0].included);
     const QString image = qEnvironmentVariable("PALEO_SETUP_SCREENSHOT");
-    if (!image.isEmpty()) { dialog.findChild<QTabBar *>()->setCurrentIndex(3); QTest::qWait(100); QVERIFY(dialog.grab().save(image)); }
+    if (!image.isEmpty()) {
+      dialog.findChild<QTabBar *>()->setCurrentIndex(2); QTest::qWait(100); QVERIFY(dialog.grab().save(image + ".sources.png"));
+      dialog.findChild<QTabBar *>()->setCurrentIndex(3); QTest::qWait(100); QVERIFY(dialog.grab().save(image));
+    }
   }
   void realSample() {
     const QString root = qEnvironmentVariable("PALEO_SETUP_SAMPLE_ROOT"); if (root.isEmpty()) QSKIP("Set PALEO_SETUP_SAMPLE_ROOT for read-only real data verification");
     const auto sources = discoverProjectSources(root); const auto p = scanProjectSources(sources);
     QVERIFY2(p.errors.isEmpty(), qPrintable(p.errors.join('\n'))); QCOMPARE(p.wells, 20); QCOMPARE(p.tops, 516); QCOMPARE(p.logs, 21); QCOMPARE(p.seismic, 1); QCOMPARE(p.horizons, 8); QCOMPARE(p.sourceCrs, QString("EPSG:32649"));
     for (const auto &path : p.paths) QVERIFY(!path.contains(QStringLiteral("_旧项目工作区")));
+    QCOMPARE(QFileInfo(sources.paleomaps).fileName(), QStringLiteral("古地理图"));
+    int maps = 0; for (const auto &map : p.maps) if (map.included) { ++maps; QCOMPARE(QFileInfo(map.path).suffix(), QString("gpkg")); QVERIFY(!map.horizon.isEmpty()); QVERIFY(map.problem.isEmpty()); }
+    QCOMPARE(maps, 3);
+  }
+  void mapBundlesValidateAndKeepStyles() {
+    QTemporaryDir dir; QString error;
+    const auto path = dir.filePath("D61_map.shp");
+    QVERIFY(write(path, "shape")); QVERIFY(write(dir.filePath("D61_map.shx"), "index"));
+    ProjectSetupSources s; s.paleomaps = dir.path(); auto p = scanProjectSources(s);
+    QCOMPARE(p.maps.size(), 1); QVERIFY(!p.maps[0].included); QVERIFY(!p.maps[0].problem.isEmpty());
+    QVERIFY(write(dir.filePath("D61_map.dbf"), "attributes")); QVERIFY(write(dir.filePath("D61_map.cpg"), "UTF-8"));
+    QVERIFY(write(dir.filePath("D61_map.qml"), "style"));
+    const auto members = PaleoMapFiles::members(path, &error); QCOMPARE(members.size(), 5);
+    QVariantMap hashes; for (const auto &member : members) hashes.insert(member, DataCatalog::sha256FileHex(member));
+    QVERIFY(write(dir.filePath("D61_map.dbf"), "changed"));
+    QVERIFY(PaleoMapFiles::copyDataset(path, dir.filePath("copy"), [] { return false; }, &error, hashes).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("预览")));
+    const auto gpkg = dir.filePath("D62_map.gpkg"); QVERIFY(write(gpkg, "package"));
+    QVERIFY(write(gpkg + ".qml", "package-specific style"));
+    QVERIFY(PaleoMapFiles::members(gpkg, &error).contains(gpkg + ".qml"));
+  }
+  void realMapWizardImportAndReopen() {
+    const QString root = qEnvironmentVariable("PALEO_SETUP_SAMPLE_ROOT"); if (root.isEmpty()) QSKIP("Set PALEO_SETUP_SAMPLE_ROOT");
+    QTemporaryDir dir; QString error;
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service, [&service](const QString &path) { service.setProjectDir(QFileInfo(path).absolutePath()); });
+    LayerManifest manifest(dir.filePath("metadata/project.sqlite"));
+    QgisLayerService layers(&project, &manifest); PaleoTaskService tasks;
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports); workflow.setMapImportServices(&layers, &tasks);
+    ProjectSetupSources s; s.paleomaps = QDir(root).filePath(QStringLiteral("古地理图"));
+    const auto p = scanProjectSources(s); QVERIFY(p.errors.isEmpty());
+    ProjectSetupSources single; single.paleomaps = QDir(s.paleomaps).filePath("D61_historical_facies_map.shp");
+    const auto singlePreview = scanProjectSources(single); QCOMPARE(singlePreview.maps.size(), 1); QVERIFY(singlePreview.maps[0].included);
+    QCOMPARE(p.projectCrs, QString("EPSG:32649"));
+    QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
+    // Create first so the manifest parent directory exists before map publication.
+    const auto path = dir.filePath("project.qgz"); QVERIFY2(workflow.create(path, s, p, &error), qPrintable(error));
+    QVERIFY2(manifest.open(&error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 90000); QVERIFY2(finished[0][1].toBool(), qPrintable(finished[0][0].toString()));
+    int maps = 0, features = 0;
+    for (const auto &asset : service.catalog()->assets()) if (asset.type == "paleogeographic_map") {
+      ++maps; const auto current = service.catalog()->currentVersion(asset.id); QCOMPARE(current.stage, QString("DERIVED"));
+      auto *layer = qobject_cast<QgsVectorLayer *>(layers.instantiate(current.extra.value("layer_id").toString(), &error));
+      QVERIFY2(layer, qPrintable(error)); features += int(layer->featureCount());
+    }
+    QCOMPARE(maps, 3); QCOMPARE(features, 32); QCOMPARE(manifest.all().size(), 6);
+    QVERIFY(project.writeProject()); project.closeProject(); QVERIFY(project.openProject(path));
+    QCOMPARE(workflow.currentSources().paleomaps, s.paleomaps); QCOMPARE(workflow.currentSources().mapChoices.size(), p.maps.size());
+    const auto before = service.catalog()->assets().size(); finished.clear();
+    QVERIFY(workflow.applySources(workflow.currentSources(), p, &error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 90000); QVERIFY2(finished[0][1].toBool(), qPrintable(finished[0][0].toString()));
+    QCOMPARE(service.catalog()->assets().size(), before);
+    auto shapePreview = p;
+    for (auto &map : shapePreview.maps) map.included = map.horizon == "D61" && QFileInfo(map.path).suffix() == "shp";
+    finished.clear(); QVERIFY(workflow.applySources(s, shapePreview, &error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 90000); QVERIFY2(finished[0][1].toBool(), qPrintable(finished[0][0].toString()));
+    QCOMPARE(service.catalog()->assets().size(), before + 1);
+    bool checkedShape = false;
+    for (const auto &asset : service.catalog()->assets()) if (asset.type == "paleogeographic_map" && asset.format == "shp") {
+      for (const auto &raw : service.catalog()->versionsForAsset(asset.id)) if (raw.stage == "RAW") {
+        const auto members = raw.extra.value("bundle_members").toList(); QCOMPARE(members.size(), 6);
+        for (const auto &member : members) {
+          const auto row = member.toMap(); const auto managed = QFileInfo(service.catalog()->versionFilePath(raw)).dir().filePath(row.value("file").toString());
+          QVERIFY(QFileInfo::exists(managed)); QCOMPARE(DataCatalog::sha256FileHex(managed), row.value("sha256").toString());
+        }
+        checkedShape = true;
+      }
+    }
+    QVERIFY(checkedShape);
   }
   void realSampleImport() {
     const QString root = qEnvironmentVariable("PALEO_SETUP_SAMPLE_ROOT");

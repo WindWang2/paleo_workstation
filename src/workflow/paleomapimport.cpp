@@ -88,7 +88,7 @@ bool prepare(DataCatalog *catalog, const QString &projectDir, const QString &sta
   const auto name = QFileInfo(path).fileName();
   const auto relative = "artifacts/" + DataCatalog::managedPath("raw", assetId, versionId, name);
   const auto copyDirectory = QFileInfo(QDir(stageDir).filePath(relative)).absolutePath();
-  const auto parts = PaleoMapFiles::copyDataset(path, copyDirectory, cancelled, error);
+  const auto parts = PaleoMapFiles::copyDataset(path, copyDirectory, cancelled, error, request.expectedHashes);
   if (cancelled())
     return false;
   if (parts.isEmpty())

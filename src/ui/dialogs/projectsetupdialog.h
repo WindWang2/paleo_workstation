@@ -12,6 +12,7 @@ class QStackedWidget;
 class QTabBar;
 class QTableWidget;
 class QPlainTextEdit;
+class QCheckBox;
 class ProjectSetupDialog : public QDialog
 {
   Q_OBJECT
@@ -31,6 +32,8 @@ private:
   void discover();
   void scan();
   void showPreview(const ProjectSetupPreview &preview);
+  void refreshReview();
+  void showMaps(const ProjectSetupPreview &preview);
   void showStep(int step);
   void finish();
   ProjectSetupWorkflow *m_workflow;
@@ -43,6 +46,10 @@ private:
   QTableWidget *m_pointPreview;
   QTableWidget *m_assignments;
   QPlainTextEdit *m_review;
+  QLineEdit *m_paleomaps;
+  QCheckBox *m_normalizeMaps;
+  QTableWidget *m_maps;
+  QVariantMap m_mapChoices;
   ProjectSetupPreview m_preview;
   QString m_discoveredRoot, m_lastPointFile;
   QString m_existingPath;

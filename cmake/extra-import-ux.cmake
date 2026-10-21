@@ -15,6 +15,7 @@ target_sources(paleo_store PRIVATE src/metadata/nativereference.cpp)
 target_sources(paleo_qgis PRIVATE src/qgis/projectnativegrid.cpp)
 target_sources(paleo_io PRIVATE src/io/welltable.cpp src/io/welltableimport.cpp
   src/io/projectsetupscan.cpp src/io/projectboundary.cpp src/io/horizonnativegrid.cpp src/io/welltabletext.cpp src/io/welltableprojection.cpp)
-target_sources(paleo_workflow PRIVATE src/workflow/projectsetup.cpp)
+target_sources(paleo_io PRIVATE src/io/projectsetupmaps.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/projectsetup.cpp src/workflow/projectsetupmaps.cpp)
 target_sources(paleo_ui PRIVATE src/ui/dialogs/projectsetupdialog.cpp src/ui/paleomainwindow_projectsetup.cpp)
 add_paleo_test(tst_projectsetup LIBS paleo_ui paleo_io)

@@ -33,9 +33,11 @@ inline const QStringList &rasterFamily()
 }
 // 「主件全名 + 后缀串」特判（大小写不敏感）：ESRI 元数据（x.shp →
 // x.shp.xml）与 GDAL 统计/直方图（x.tif → x.tif.aux.xml，QGIS 渲染即写）。
+// QGIS 也可使用 x.gpkg.qml / x.shp.qml，全名样式与元数据同样随主件保存。
 inline const QStringList &nameSuffixes()
 {
-  static const QStringList list{QStringLiteral("xml"), QStringLiteral("aux.xml")};
+  static const QStringList list{QStringLiteral("xml"), QStringLiteral("aux.xml"),
+                               QStringLiteral("qml"), QStringLiteral("qmd")};
   return list;
 }
 } // namespace paleo::sidecars

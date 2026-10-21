@@ -72,12 +72,14 @@ ProjectSetupSources discoverProjectSources(const QString &root)
   s.seismic = find({QStringLiteral("地震"), "seismic"});
   s.horizons = find({QStringLiteral("层位"), "horizons"});
   s.references = find({QStringLiteral("参考资料"), "references"});
+  s.paleomaps = find({QStringLiteral("古地理图"), QStringLiteral("现有古地理图"), "paleomaps", "historical_facies_map"});
   return s;
 }
 
 ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::function<bool()> &cancelled)
 {
   ProjectSetupPreview out;
+  scanProjectMaps(s, &out, cancelled);
   QSet<QString> seen;
   struct Candidate { QString path, type; paleo::io::WellTable table; };
   QVector<Candidate> tables;
@@ -90,6 +92,7 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
     for (const auto &file : collect(path, out.notes, cancelled)) {
       if (cancelled && cancelled()) { out.errors << QObject::tr("已取消扫描"); return out; }
       const QString key = QFileInfo(file).canonicalFilePath();
+      if (QFileInfo(s.paleomaps).isDir() && key.startsWith(QFileInfo(s.paleomaps).canonicalFilePath() + '/')) continue;
       if (seen.contains(key)) continue;
       seen.insert(key);
       if (!QFileInfo(file).size()) { out.notes << QObject::tr("空文件已跳过：%1").arg(file); continue; }
@@ -153,6 +156,8 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
     out.notes << QObject::tr("井名冲突：%1 内部井名为 %2，请在上方归属表确认建议或保留内部井名。").arg(QFileInfo(path).fileName(), content);
   }
   if (!out.sourceCrs.isEmpty() && !validNativeCrs(out.sourceCrs)) out.errors << QObject::tr("无法识别资料坐标系：%1，请填写有效的 EPSG 编号。").arg(out.sourceCrs);
+  if (out.sourceCrs.isEmpty() && s.points.isEmpty() && !out.seismic && !out.horizons)
+    for (const auto &map : out.maps) if (map.included && !map.crs.isEmpty()) { out.sourceCrs = map.crs; break; }
   out.projectCrs = out.sourceCrs;
   if (!out.pointRows.isEmpty() && !out.sourceCrs.isEmpty()) {
     out.projectCrs = metricNativeCrs(out.sourceCrs, out.pointRows.first().value(1).toDouble(), out.pointRows.first().value(2).toDouble());

@@ -172,3 +172,10 @@ sourceArea.stats 记录 points/wells/seismic/horizons/references/boundary、poin
 的 DERIVED；井点与测区仍按 catalog 生成受管 GeoJSON，并由 manifest 持久声明。
 georeference.kind=crs 时 sourceCrs 为原生投影声明；与 similarity2d 分开读取，
 按精确投影操作绑定既有工程计算网格，不再拟合第二遍仿射。
+
+现有古地理图来源保存为 sourceArea.stats.paleomaps；mapChoices 逐主件保存 included
+与 horizon，normalizeMaps 保存自动三级相整理选项。引导按套预览文件数、校验缺件，
+默认优先同名 GPKG 并取消预览图，允许逐套选择格式和修改层位。
+执行复用 PaleoMapLibrary：完整 RAW 文件组与可选 DERIVED 分开保存，层位按确认值
+传入，配套文件（含 `<主件>.qml`）一并校验；预览后增删或修改成员须重新识别。
+图件在常规资料导入提交后串行处理，沿用任务会话、取消、去重和图层声明。

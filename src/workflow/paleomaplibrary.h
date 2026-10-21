@@ -17,6 +17,7 @@ struct Request {
   QString folder, horizon;
   bool inferHorizons = true, normalizeFacies = true;
   QString microfaciesField;
+  QVariantMap expectedHashes; // Optional preview fingerprints for every dataset member.
 };
 struct Result { QStringList assets, errors; int unchanged = 0; bool cancelled = false; };
 PaleoTask *importMaps(DataCatalog *catalog, QgisLayerService *layers, PaleoTaskService *tasks,

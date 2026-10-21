@@ -265,7 +265,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // ---- W4 拆分段（实现在 paleomainwindow_attach.cpp）----
     // attachWorkflows 入口只做幂等守卫 + 页创建 + 顺序编排；每页接线一段：
     void attachPaleomapLibrary(DataPage *page);
-    void wireDataImportRequests(DataPage *page, DataImportService *service, DataPreviewTabs *preview);
+    void wireDataImportRequests(DataPage *dataPage, DataImportService *importSvc, DataPreviewTabs *preview);
     void attachProjectDashboard(DataPage *dataPage, DataPreviewTabs *preview);
     void attachDataPage(DataPage *dataPage, WellCorrelationPanel *corrPanel,
                         DataImportService *importSvc, PaleoTaskService *taskSvc);

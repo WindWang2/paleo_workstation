@@ -371,7 +371,7 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
                 runFilesImportAt(importSvc, picked);
                 return;
               }
-              const QString path = picked.first();
+              const QString &path = picked.first();
               auto *wf = folderImportWorkflow();
               if (!wf)
                 return;

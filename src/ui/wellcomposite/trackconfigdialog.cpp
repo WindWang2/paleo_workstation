@@ -123,7 +123,7 @@ void TrackConfigDialog::buildUi()
   curveLay->addWidget(m_curveTable);
 
   auto *gridRow = new QHBoxLayout();
-  m_gridCheck = new QCheckBox(tr("重叠网格"), m_curveGroup);
+  m_gridCheck = new QCheckBox(tr("浅灰背景网格"), m_curveGroup);
   m_gridCheck->setChecked(m_initial.showGrid());
   gridRow->addWidget(m_gridCheck);
   gridRow->addWidget(new QLabel(tr("密度:"), m_curveGroup));
@@ -133,7 +133,7 @@ void TrackConfigDialog::buildUi()
   m_gridDensityCombo->addItem(tr("4 等分"), 2);
   m_gridDensityCombo->addItem(tr("10 分含次网格"), 3);
   const int gIdx = m_gridDensityCombo->findData(m_initial.gridDensity());
-  m_gridDensityCombo->setCurrentIndex(gIdx >= 0 ? gIdx : 2);
+  m_gridDensityCombo->setCurrentIndex(gIdx >= 0 ? gIdx : 3);
   gridRow->addWidget(m_gridDensityCombo);
   gridRow->addStretch(1);
   curveLay->addLayout(gridRow);

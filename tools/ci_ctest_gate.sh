@@ -7,7 +7,8 @@
 #
 # #501 绿灯通胀防回归（两处接线）：
 #   1) 串行重跑放行记账：重跑通过时把本轮失败项逐条 append 到
-#      tools/flaky-ledger.jsonl（gitignore 的本地台账），并跑
+#      tools/flaky-ledger.jsonl（gitignore 不入库；CI linux job 经 actions/cache
+#      restore/save 跨 run 持久累计），并跑
 #      tools/check_flaky_ledger.py 输出聚合——同一测试累计命中 ≥3 次打
 #      ::warning::（警告档起步；PALEO_FLAKY_STRICT=1 传 --strict 升红）。
 #      放行不再无痕。
@@ -124,7 +125,16 @@ if [ "$rc2" -eq 0 ] && [ -n "$failed_names" ]; then
   if command -v python3 >/dev/null 2>&1; then
     flaky_args=""
     if [ "${PALEO_FLAKY_STRICT:-0}" = "1" ]; then flaky_args="--strict"; fi
-    python3 "$script_dir/check_flaky_ledger.py" $flaky_args || true
+    # strict 档不得吞掉检查器的非零退出（此前 `|| true` 让 --strict 形同虚设）；
+    # 警告档检查器本身只打 ::warning:: 返回 0，行为不变。
+    if ! python3 "$script_dir/check_flaky_ledger.py" $flaky_args; then
+      if [ -n "$flaky_args" ]; then
+        echo "::error::flaky 台账 strict 检查失败（PALEO_FLAKY_STRICT=1）——同一测试累计入账已达阈值"
+        rc2=1
+      else
+        echo "::warning::check_flaky_ledger.py 非零退出（警告档，不阻断）"
+      fi
+    fi
   fi
 fi
 exit "$rc2"

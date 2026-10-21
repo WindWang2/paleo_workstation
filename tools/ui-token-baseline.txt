@@ -19,4 +19,5 @@
 #           setSpacing(2) 硬编码改 tokens.spacingXs（违规面清零）；同批清
 #           compositebody.cpp 两条 stale——fillRect(flagRect) rgb 与
 #           setPen(Qt::white) 例外源码已不存在（#564 改码未重钉））。
-354
+#           → 353（单井曲线网格改用浅色主题令牌，再移除一条纸面灰色字面量例外）。
+353

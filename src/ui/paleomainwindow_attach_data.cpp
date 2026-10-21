@@ -355,10 +355,10 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
               const QString filter = (kind == QLatin1String("seismic"))
                                          ? tr("地震数据文件 (*.sgy *.segy);;All files (*)")
                                          : ((kind == QLatin1String("well_log"))
-                                                ? tr("测井与柱状图文件 (*.las *.xml *.txt *.csv);;All files (*)")
+                                                ? tr("测井与柱状图文件 (*.las *.dlis *.lis *.xml *.txt *.csv *.tsv);;All files (*)")
                                                 : ((kind == QLatin1String("files"))
-                                                       ? tr("资料文件 (*.pdf *.ppt *.pptx *.doc *.docx *.png *.jpg *.jpeg *.tif *.tiff *.las *.xml *.csv *.dat *.gpkg *.shp *.geojson);;All files (*)")
-                                                       : tr("数据文件 (*.las *.xml *.csv *.dat *.gpkg *.shp *.tif *.img);;All files (*)")));
+                                                       ? tr("资料文件 (*.pdf *.ppt *.pptx *.doc *.docx *.png *.jpg *.jpeg *.tif *.tiff *.las *.dlis *.lis *.xml *.txt *.csv *.tsv *.dat *.gpkg *.shp *.geojson);;All files (*)")
+                                                       : tr("数据文件 (*.las *.dlis *.lis *.xml *.txt *.csv *.tsv *.dat *.gpkg *.shp *.tif *.img);;All files (*)")));
               // 多选文件导入：一个文件走原单文件向导；多个文件走与文件夹
               // 导入同一套确认表（可逐行改类型，识别不了的按分类器落
               // document/unknown → 辅助资料）。
@@ -371,7 +371,7 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
                 runFilesImportAt(importSvc, picked);
                 return;
               }
-              const QString path = picked.first();
+              const QString &path = picked.first();
               auto *wf = folderImportWorkflow();
               if (!wf)
                 return;

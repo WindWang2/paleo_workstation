@@ -17,6 +17,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
+#include <QPlainTextEdit>
 #include <QSet>
 #include <QSpinBox>
 #include <QTableWidget>
@@ -57,6 +58,7 @@
 #include "../src/ui/pages/dataopswidgets.h"
 
 #include "helpers/dataopsfixture.h"
+#include "importuxfixtures.h"
 
 using paleo::tests::dataops::DataOpsFixture;
 using paleo::tests::dataops::driveModalNextTick;
@@ -72,6 +74,18 @@ class TestPanels : public QObject
   Q_OBJECT
 
   private:
+    static void captureImportQa(QWidget *widget, const QString &name, const QSize &size)
+    {
+      const QString requested = qEnvironmentVariable("PALEO_IMPORT_QA_DIR");
+      if (requested.isEmpty()) return;
+      const QDir output(QDir(requested).absolutePath());
+      if (!QDir().mkpath(output.absolutePath())) return;
+      widget->resize(size);
+      widget->show();
+      QApplication::processEvents();
+      widget->grab().save(output.absoluteFilePath(name + QStringLiteral(".png")));
+    }
+
     // Declares `count` single-factor layers plus `other` non-factor layers in
     // a temp manifest; caller keeps `dir` alive for the manifest's sqlite db.
     void seedManifest(LayerManifest *m, int factors, int others)
@@ -146,6 +160,497 @@ class TestPanels : public QObject
     }
 
   private slots:
+    void folderConfirm_directPreviewAndExplicitWell()
+    {
+      FolderPreviewRow row;
+      row.path = QStringLiteral("/audit/one.csv");
+      row.classifiedType = QStringLiteral("well_log");
+      row.summary = QStringLiteral("井 A1 · 1 条曲线 GR(API) · MD(m) 100–102");
+      row.dataPreview = QStringLiteral("MD\tGR\n100\t42\n101\t43");
+      row.suggestedWellId = QStringLiteral("well-a1");
+      row.sourceSha256 = QStringLiteral("preview-content-a");
+      bool called = false;
+      QMap<QString, QString> targets;
+      QMap<QString, QString> expectedHashes;
+      PaleoFolderConfirm::Hooks hooks;
+      hooks.importAllWithWells = [&called, &targets, &expectedHashes](const QMap<QString, QString> &,
+          const QStringList &, const QMap<QString, QString> &wells,
+          const QMap<QString, QString> &hashes, const QStringList &, const QStringList &, auto done) {
+        called = true;
+        targets = wells;
+        expectedHashes = hashes;
+        done({}, QStringLiteral("源文件已变化，请重新选择"));
+      };
+      QDialog dialog;
+      PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {row}, hooks);
+      auto *confirm = dialog.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"));
+      QVERIFY(confirm && !confirm->isHidden() && confirm->isEnabled());
+      QVERIFY(!dialog.findChild<QPushButton *>(QStringLiteral("folderNextButton")));
+      QVERIFY(!dialog.findChild<QPushButton *>(QStringLiteral("folderBackButton")));
+      QVERIFY(!dialog.findChild<QComboBox *>(QStringLiteral("folderWell0")));
+      auto *data = dialog.findChild<QPlainTextEdit *>(QStringLiteral("folderDataPreview"));
+      QVERIFY(data && data->isReadOnly());
+      QVERIFY(data->toPlainText().contains(QStringLiteral("GR(API)")));
+      QVERIFY(data->toPlainText().contains(QStringLiteral("100\t42")));
+      confirm->click();
+      QVERIFY(called);
+      QVERIFY(targets.isEmpty()); // 自动建议不冒充用户显式覆盖。
+      QCOMPARE(expectedHashes.value(row.path), QStringLiteral("preview-content-a"));
+      QVERIFY(confirm->isEnabled());
+      QCOMPARE(dialog.findChild<QLabel *>(QStringLiteral("folderErrorReport"))->text(),
+               QStringLiteral("源文件已变化，请重新选择"));
+    }
+
+    void folderConfirm_missingIdentityRequiresChoiceAndRetryKeepsIt()
+    {
+      FolderPreviewRow row;
+      row.path = QStringLiteral("/audit/nameless.csv");
+      row.classifiedType = QStringLiteral("well_log");
+      row.needsWellChoice = true;
+      row.availableWells.insert(QStringLiteral("well-a1"), QStringLiteral("A1"));
+      row.proposedWellName = QStringLiteral("B2");
+      row.issues = {QStringLiteral("文件没有井名，请选择归属")};
+      row.sourceSha256 = QStringLiteral("first-preview-content");
+      QMap<QString, QString> targets;
+      PaleoFolderConfirm::Hooks hooks;
+      hooks.importAllWithWells = [&targets, &row](const QMap<QString, QString> &,
+          const QStringList &, const QMap<QString, QString> &wells,
+          const QMap<QString, QString> &, const QStringList &, const QStringList &, auto done) {
+        targets = wells;
+        FolderRowResult result;
+        result.path = row.path;
+        result.classifiedType = row.classifiedType;
+        result.outcome = FolderRowResult::Outcome::Failed;
+        result.message = QStringLiteral("源文件暂不可读");
+        done({result}, {});
+      };
+      QString retryTarget;
+      QString retryHash;
+      hooks.importRowWithWell = [&retryTarget, &retryHash](const QString &path,
+          const QString &, const QString &well, const QString &expectedHash) {
+        retryTarget = well;
+        retryHash = expectedHash;
+        FolderRowResult result;
+        result.path = path;
+        result.outcome = FolderRowResult::Outcome::Imported;
+        result.entityName = QStringLiteral("B2");
+        return result;
+      };
+      QDialog dialog;
+      PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {row}, hooks);
+      auto *confirm = dialog.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"));
+      auto *choice = dialog.findChild<QComboBox *>(QStringLiteral("folderWell0"));
+      QVERIFY(confirm && choice && !confirm->isEnabled());
+      // 新建必须显式选择；仅有建议井名不会自动创建。
+      QCOMPARE(choice->currentIndex(), 0);
+      choice->setCurrentIndex(choice->findData(QStringLiteral("new:B2")));
+      QVERIFY(confirm->isEnabled());
+      confirm->click();
+      QCOMPARE(targets.value(row.path), QStringLiteral("new:B2"));
+      auto *retry = dialog.findChild<QPushButton *>(QStringLiteral("folderRetry"));
+      QVERIFY(retry);
+      retry->click();
+      QCOMPARE(retryTarget, QStringLiteral("new:B2"));
+      QCOMPARE(retryHash, QStringLiteral("first-preview-content"));
+      QVERIFY(dialog.findChild<QLabel *>(QStringLiteral("folderErrorReport"))->isHidden());
+      QCOMPARE(dialog.findChild<QLabel *>(QStringLiteral("folderSummary"))->text(),
+               QStringLiteral("入库 1，未决 0，失败 0"));
+    }
+
+    void folderConfirm_invalidRowDoesNotBlockOtherFiles()
+    {
+      FolderPreviewRow invalid;
+      invalid.path = QStringLiteral("/audit/bad.xml");
+      invalid.classifiedType = QStringLiteral("well_log");
+      invalid.importBlocked = true;
+      invalid.needsWellChoice = true;
+      invalid.issues = {QStringLiteral("XML 没有有效曲线")};
+      QDialog dialog;
+      PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {invalid}, {});
+      QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"))->isEnabled());
+      QVERIFY(!dialog.findChild<QComboBox *>(QStringLiteral("folderWell0")));
+      const auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("folderTable"));
+      QVERIFY(table->item(0, 3)->text().contains(QStringLiteral("XML 没有有效曲线")));
+    }
+
+    void folderConfirm_legacyHookDoesNotOfferUnsupportedSkip_data()
+    {
+      QTest::addColumn<bool>("forcedHook");
+      QTest::newRow("importAll") << false;
+      QTest::newRow("importAllWithForced") << true;
+    }
+
+    void folderConfirm_legacyHookDoesNotOfferUnsupportedSkip()
+    {
+      QFETCH(bool, forcedHook);
+      FolderPreviewRow row;
+      row.path = QStringLiteral("/audit/one.csv");
+      row.classifiedType = QStringLiteral("tabular");
+      if (forcedHook) row.decision = QStringLiteral("skip");
+      bool called = false;
+      QMap<QString, QString> overrides;
+      QStringList forced;
+      PaleoFolderConfirm::Hooks hooks;
+      const auto done = [&](const QMap<QString, QString> &types, auto complete) {
+        called = true;
+        overrides = types;
+        complete({}, QStringLiteral("暂不可读"));
+      };
+      if (forcedHook)
+        hooks.importAllWithForced = [&](const auto &types, const auto &paths, auto complete) {
+          forced = paths;
+          done(types, complete);
+        };
+      else hooks.importAll = done;
+      QDialog dialog;
+      PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {row}, hooks);
+      auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("folderTable"));
+      QVERIFY(!table->item(0, 0)->data(Qt::CheckStateRole).isValid());
+      QVERIFY(!(table->item(0, 0)->flags() & Qt::ItemIsUserCheckable));
+      auto *type = dialog.findChild<QComboBox *>(QStringLiteral("folderType0"));
+      QVERIFY(type->isEnabled());
+      type->setCurrentIndex(type->findData(QStringLiteral("reference")));
+      if (forcedHook) dialog.findChild<QPushButton *>(QStringLiteral("folderForceImport0"))->click();
+      dialog.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"))->click();
+      QVERIFY(called);
+      QCOMPARE(overrides.value(row.path), QStringLiteral("reference"));
+      QCOMPARE(forced, forcedHook ? QStringList{row.path} : QStringList{});
+    }
+
+    void folderConfirm_closeInFlightCancelsOnlyOnce_data()
+    {
+      QTest::addColumn<int>("action");
+      QTest::newRow("reject") << 0;
+      QTest::newRow("close") << 1;
+      QTest::newRow("escape") << 2;
+      QTest::newRow("destroy") << 3;
+    }
+
+    void folderConfirm_closeInFlightCancelsOnlyOnce()
+    {
+      QFETCH(int, action);
+      FolderPreviewRow row;
+      row.path = QStringLiteral("/audit/one.csv");
+      row.classifiedType = QStringLiteral("well_log");
+      int cancellations = 0;
+      FolderImportWorkflow::ImportDone finish;
+      PaleoFolderConfirm::Hooks hooks;
+      hooks.cancelImport = [&] { ++cancellations; };
+      hooks.importAllWithWells = [&](const auto &, const auto &, const auto &,
+          const auto &, const auto &, const auto &, auto done) { finish = done; };
+      auto *dialog = new QDialog;
+      PaleoFolderConfirm::buildFolderConfirmDialog(dialog, QStringLiteral("/audit"), {row}, hooks);
+      dialog->show();
+      dialog->findChild<QPushButton *>(QStringLiteral("folderConfirmButton"))->click();
+      QVERIFY(finish);
+      if (action == 0) dialog->reject();
+      else if (action == 1) dialog->close();
+      else if (action == 2) QTest::keyClick(dialog, Qt::Key_Escape);
+      else { delete dialog; dialog = nullptr; }
+      QCOMPARE(cancellations, 1);
+      delete dialog;
+      QCOMPARE(cancellations, 1);
+      finish({}, QStringLiteral("已取消")); // 窗口析构后的异步回包安全丢弃。
+    }
+
+    void folderConfirm_closeCompletedDoesNotCancelAnotherBatch()
+    {
+      FolderPreviewRow row;
+      row.path = QStringLiteral("/audit/one.csv");
+      row.classifiedType = QStringLiteral("well_log");
+      int cancellations = 0;
+      PaleoFolderConfirm::Hooks hooks;
+      hooks.cancelImport = [&] { ++cancellations; };
+      hooks.importAllWithWells = [&](const auto &, const auto &, const auto &,
+          const auto &, const auto &, const auto &, auto done) {
+        FolderRowResult result;
+        result.path = row.path;
+        result.outcome = FolderRowResult::Outcome::Imported;
+        done({result}, {});
+      };
+      QDialog dialog;
+      PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {row}, hooks);
+      dialog.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"))->click();
+      dialog.reject();
+      QCOMPARE(cancellations, 0);
+    }
+
+    void folderConfirm_uncheckConflictSkipsIdentityRequirement()
+    {
+      FolderPreviewRow conflict;
+      conflict.path = QStringLiteral("/audit/conflict.csv");
+      conflict.classifiedType = QStringLiteral("well_log");
+      conflict.needsWellChoice = true;
+      conflict.issues = {QStringLiteral("与已有曲线同名：GR")};
+      conflict.sourceSha256 = QStringLiteral("conflict-hash");
+      FolderPreviewRow valid;
+      valid.path = QStringLiteral("/audit/valid.xml");
+      valid.classifiedType = QStringLiteral("well_log");
+      valid.sourceSha256 = QStringLiteral("valid-hash");
+      QStringList skips;
+      QMap<QString, QString> targets, hashes;
+      bool called = false;
+      PaleoFolderConfirm::Hooks hooks;
+      hooks.importAllWithWells = [&](const QMap<QString, QString> &, const QStringList &,
+          const QMap<QString, QString> &wells, const QMap<QString, QString> &expected,
+          const QStringList &skipped, const QStringList &, auto done) {
+        called = true;
+        skips = skipped;
+        targets = wells;
+        hashes = expected;
+        done({}, QStringLiteral("暂不可读"));
+      };
+      QDialog dialog;
+      PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {conflict, valid}, hooks);
+      auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("folderTable"));
+      auto *confirm = dialog.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"));
+      auto *well = dialog.findChild<QComboBox *>(QStringLiteral("folderWell0"));
+      QVERIFY(table && confirm && well && !confirm->isEnabled());
+      QCOMPARE(table->item(0, 0)->checkState(), Qt::Checked);
+      QCOMPARE(table->item(1, 0)->checkState(), Qt::Checked);
+      QVERIFY(table->item(0, 3)->text().contains(QStringLiteral("保留两份")));
+      table->item(0, 0)->setCheckState(Qt::Unchecked);
+      QVERIFY(confirm->isEnabled());
+      const auto estimate = dialog.findChild<QLabel *>(QStringLiteral("folderEstimateLabel"))->text();
+      QVERIFY(estimate.contains(QStringLiteral("将导入 1 项")));
+      QVERIFY(estimate.contains(QStringLiteral("本次跳过 1")));
+      QVERIFY(!well->isEnabled());
+      QVERIFY(!dialog.findChild<QComboBox *>(QStringLiteral("folderType0"))->isEnabled());
+      confirm->click();
+      QVERIFY(called);
+      QCOMPARE(skips, QStringList{conflict.path});
+      QVERIFY(targets.isEmpty());
+      QCOMPARE(hashes.value(conflict.path), conflict.sourceSha256);
+      QCOMPARE(hashes.value(valid.path), valid.sourceSha256);
+      QVERIFY(confirm->isEnabled());
+      QCOMPARE(table->item(0, 0)->checkState(), Qt::Unchecked);
+      table->item(0, 0)->setCheckState(Qt::Checked);
+      QVERIFY(well->isEnabled());
+      QVERIFY(!confirm->isEnabled());
+    }
+
+    void folderConfirm_forceImportDoesNotOverrideUncheckedRow()
+    {
+      FolderPreviewRow row;
+      row.path = QStringLiteral("/audit/duplicate.csv");
+      row.classifiedType = QStringLiteral("well_log");
+      row.decision = QStringLiteral("skip");
+      QStringList forced, skipped;
+      PaleoFolderConfirm::Hooks hooks;
+      hooks.importAllWithWells = [&](const QMap<QString, QString> &, const QStringList &force,
+          const QMap<QString, QString> &, const QMap<QString, QString> &,
+          const QStringList &skips, const QStringList &, auto done) {
+        forced = force;
+        skipped = skips;
+        done({}, QStringLiteral("暂不可读"));
+      };
+      QDialog dialog;
+      PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {row}, hooks);
+      auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("folderTable"));
+      auto *force = dialog.findChild<QPushButton *>(QStringLiteral("folderForceImport0"));
+      QVERIFY(table && force && force->isEnabled());
+      table->item(0, 0)->setCheckState(Qt::Unchecked);
+      QVERIFY(!force->isEnabled());
+      force->click();
+      table->item(0, 0)->setCheckState(Qt::Checked);
+      QVERIFY(force->isEnabled());
+      force->click();
+      table->item(0, 0)->setCheckState(Qt::Unchecked);
+      dialog.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"))->click();
+      QVERIFY(forced.isEmpty());
+      QCOMPARE(skipped, QStringList{row.path});
+    }
+
+    void folderConfirm_conflictChoicePreservesXmlWhileImportingCsv()
+    {
+      QTemporaryDir temporary;
+      QVERIFY(temporary.isValid());
+      const QString project = temporary.filePath(QStringLiteral("project"));
+      QVERIFY(QDir().mkpath(project));
+      FolderStack stack(project + QStringLiteral("/metadata.sqlite"), project);
+      const QString xml = temporary.filePath(QStringLiteral("source/composite.xml"));
+      const QString conflict = temporary.filePath(QStringLiteral("source/gr.csv"));
+      const QString valid = temporary.filePath(QStringLiteral("source/res.csv"));
+      QVERIFY(ImportUxFixtures::write(xml, ImportUxFixtures::xml()));
+      QVERIFY(ImportUxFixtures::write(conflict, ImportUxFixtures::csv("A1", "GR[API]")));
+      QVERIFY(ImportUxFixtures::write(valid, ImportUxFixtures::csv()));
+      QString error;
+      const auto original = stack.svc.importProjectFileEx(xml, &error);
+      QVERIFY2(!original.assetId.isEmpty(), qPrintable(error));
+      auto *catalog = stack.svc.catalog();
+      const auto before = catalog->currentVersion(original.assetId);
+      const int assetCount = catalog->assets().size();
+      FolderImportWorkflow workflow(&stack.svc, nullptr);
+      const QStringList paths{conflict, valid};
+      QVector<FolderPreviewRow> preview;
+      workflow.previewFilesAsync(paths, [&](const auto &rows, const auto &err) {
+        preview = rows;
+        error = err;
+      });
+      QVERIFY2(error.isEmpty(), qPrintable(error));
+      QCOMPARE(preview.size(), 2);
+      int conflictRow = -1;
+      for (int row = 0; row < preview.size(); ++row)
+        if (preview[row].path == conflict) conflictRow = row;
+      QVERIFY(conflictRow >= 0);
+      QVERIFY(preview[conflictRow].issues.join(QLatin1Char('\n')).contains(QStringLiteral("同名")));
+      QVector<FolderRowResult> results;
+      PaleoFolderConfirm::Hooks hooks;
+      hooks.importAllWithWells = [&](const auto &overrides, const auto &forced,
+          const auto &targets, const auto &hashes, const auto &skipped,
+          const auto &previewed, auto done) {
+        workflow.importFiles(paths, overrides, forced, [&](const auto &rows, const auto &err) {
+          results = rows;
+          error = err;
+          done(rows, err);
+        }, targets, hashes, skipped, previewed);
+      };
+      QDialog dialog;
+      PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, temporary.path(), preview, hooks);
+      auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("folderTable"));
+      // XML 主文件已真实入库：确认表展示同井 GR 冲突与正常 RES CSV 的识别结果。
+      captureImportQa(&dialog, QStringLiteral("import-confirm-conflict-and-valid"), QSize(1100, 650));
+      table->item(conflictRow, 0)->setCheckState(Qt::Unchecked);
+      auto *confirm = dialog.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"));
+      QVERIFY(confirm->isEnabled());
+      confirm->click();
+      QVERIFY2(error.isEmpty(), qPrintable(error));
+      QCOMPARE(results.size(), 2);
+      for (const auto &result : results)
+        QCOMPARE(result.outcome, result.path == conflict ? FolderRowResult::Outcome::Skipped
+                                                        : FolderRowResult::Outcome::Imported);
+      QCOMPARE(catalog->assets().size(), assetCount + 1);
+      QCOMPARE(catalog->currentVersion(original.assetId).id, before.id);
+      QCOMPARE(catalog->currentVersion(original.assetId).sha256, before.sha256);
+      QCOMPARE(catalog->wellsMatchingName(QStringLiteral("A1")).size(), 1);
+    }
+
+    void folderConfirm_manualLogReclassificationRequiresExplicitWell()
+    {
+      FolderPreviewRow row;
+      row.path = QStringLiteral("/audit/unrecognized.txt");
+      row.classifiedType = QStringLiteral("tabular");
+      row.availableWells.insert(QStringLiteral("well-a1"), QStringLiteral("A1"));
+      QDialog dialog;
+      PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {row}, {});
+      auto *type = dialog.findChild<QComboBox *>(QStringLiteral("folderType0"));
+      auto *confirm = dialog.findChild<QPushButton *>(QStringLiteral("folderConfirmButton"));
+      QVERIFY(type && confirm && confirm->isEnabled());
+      QVERIFY(!dialog.findChild<QComboBox *>(QStringLiteral("folderWell0")));
+      type->setCurrentIndex(type->findData(QStringLiteral("well_log")));
+      auto *well = dialog.findChild<QComboBox *>(QStringLiteral("folderWell0"));
+      QVERIFY(well && !well->isHidden());
+      QVERIFY(!confirm->isEnabled());
+      well->setCurrentIndex(well->findData(QStringLiteral("well-a1")));
+      QVERIFY(confirm->isEnabled());
+      well->setCurrentIndex(0);
+      QVERIFY(!confirm->isEnabled());
+      // 改成参考资料时不需井身份，且不重复生成控件。
+      type->setCurrentIndex(type->findData(QStringLiteral("reference")));
+      QVERIFY(well->isHidden());
+      QVERIFY(confirm->isEnabled());
+      type->setCurrentIndex(type->findData(QStringLiteral("well_log")));
+      QCOMPARE(dialog.findChildren<QComboBox *>(QStringLiteral("folderWell0")).size(), 1);
+      QVERIFY(!confirm->isEnabled());
+    }
+
+    void dataTree_importedXmlAndCsvShowCurveSummaryAndKeepAssetActivation()
+    {
+      QTemporaryDir temporary;
+      QVERIFY(temporary.isValid());
+      const QString project = temporary.filePath(QStringLiteral("project"));
+      QVERIFY(QDir().mkpath(project));
+      FolderStack stack(project + QStringLiteral("/metadata.sqlite"), project);
+      const QString xmlPath = temporary.filePath(QStringLiteral("source/composite.xml"));
+      const QString csvPath = temporary.filePath(QStringLiteral("source/resistivity.csv"));
+      QVERIFY(ImportUxFixtures::write(xmlPath, ImportUxFixtures::xml()));
+      QVERIFY(ImportUxFixtures::write(csvPath, ImportUxFixtures::csv()));
+      QString error;
+      const auto xml = stack.svc.importProjectFileEx(xmlPath, &error);
+      QVERIFY2(!xml.assetId.isEmpty(), qPrintable(error));
+      const auto csv = stack.svc.importProjectFileEx(csvPath, &error);
+      QVERIFY2(!csv.assetId.isEmpty(), qPrintable(error));
+      const auto wells = stack.svc.catalog()->wellsMatchingName(QStringLiteral("A1"));
+      QCOMPARE(wells.size(), 1);
+      const QString wellId = wells.first();
+      PreviewDocService document(&stack.svc);
+      DataListPanel panel;
+      panel.setDocService(&document);
+      panel.refreshAssetTable();
+      auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+      QVERIFY(tree);
+      QMap<QString, QTreeWidgetItem *> logNodes;
+      for (QTreeWidgetItemIterator item(tree); *item; ++item)
+        if ((*item)->data(0, Qt::UserRole + 2).toString() == QLatin1String("well_log") &&
+            (*item)->data(0, Qt::UserRole + 1).toString() == wellId)
+          logNodes.insert((*item)->data(0, Qt::UserRole).toString(), *item);
+      QCOMPARE(logNodes.size(), 2);
+      QVERIFY(logNodes.contains(xml.assetId) && logNodes.contains(csv.assetId));
+      QVERIFY(logNodes[xml.assetId]->text(0).contains(QStringLiteral("3条曲线")));
+      QVERIFY(logNodes[xml.assetId]->text(1).contains(QStringLiteral("GR")));
+      QVERIFY(logNodes[xml.assetId]->text(1).contains(QStringLiteral("RHOB")));
+      QVERIFY(logNodes[csv.assetId]->text(0).contains(QStringLiteral("1条曲线")));
+      QVERIFY(logNodes[csv.assetId]->text(1).contains(QStringLiteral("RES")));
+      QVERIFY(logNodes[xml.assetId]->toolTip(0).contains(QStringLiteral("主文件")));
+      QVERIFY(logNodes[csv.assetId]->toolTip(0).contains(QStringLiteral("成员")));
+      if (!qEnvironmentVariable("PALEO_IMPORT_QA_DIR").isEmpty()) {
+        tree->expandAll();
+        captureImportQa(&panel, QStringLiteral("data-tree-xml-and-csv"), QSize(1100, 700));
+      }
+      QSignalSpy activated(&panel, &DataListPanel::assetWellActivated);
+      for (auto node = logNodes.cbegin(); node != logNodes.cend(); ++node) {
+        const auto version = stack.svc.catalog()->currentVersion(node.key());
+        QVERIFY(node.value()->text(0).contains(QStringLiteral("测井数据")));
+        QVERIFY(node.value()->toolTip(0).contains(QStringLiteral("v1")));
+        QVERIFY(!node.value()->text(0).contains(node.key()));
+        QVERIFY(!node.value()->toolTip(0).contains(version.id));
+        QCOMPARE(node.value()->childCount(), 0); // 单位仍是资产，避免曲线叶误删整文件。
+        emit tree->itemActivated(node.value(), 0);
+        QCOMPARE(activated.count(), 1);
+        QCOMPARE(activated.first().at(0).toString(), node.key());
+        QCOMPARE(activated.first().at(1).toString(), wellId);
+        activated.clear();
+      }
+    }
+
+    void dataTree_legacyLogWithoutMetadataKeepsFilenameAndPrimary()
+    {
+      QTemporaryDir temporary;
+      QVERIFY(temporary.isValid());
+      DataImportService service(nullptr, nullptr);
+      service.setProjectDir(temporary.path());
+      CatalogEntity well;
+      well.id = QStringLiteral("legacy-well");
+      well.name = QStringLiteral("A1");
+      well.entityType = QStringLiteral("well");
+      QVERIFY(service.catalog()->addEntity(well));
+      CatalogAsset asset;
+      asset.id = QStringLiteral("legacy-log");
+      asset.displayName = QStringLiteral("old.las");
+      asset.type = QStringLiteral("well_log");
+      QVERIFY(service.catalog()->addAsset(asset));
+      EntityAssetLink link;
+      link.entityType = QStringLiteral("well");
+      link.entityId = well.id;
+      link.assetId = asset.id;
+      link.role = QStringLiteral("well_log");
+      QVERIFY(service.catalog()->addLink(link));
+      PreviewDocService document(&service);
+      DataListPanel panel;
+      panel.setDocService(&document);
+      panel.refreshAssetTable();
+      auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+      QVERIFY(tree);
+      QTreeWidgetItem *legacy = nullptr;
+      for (QTreeWidgetItemIterator item(tree); *item; ++item)
+        if ((*item)->data(0, Qt::UserRole).toString() == asset.id &&
+            (*item)->data(0, Qt::UserRole + 1).toString() == well.id) legacy = *item;
+      QVERIFY(legacy);
+      QVERIFY(legacy->text(0).contains(QStringLiteral("old.las")));
+      QVERIFY(legacy->text(0).contains(QStringLiteral("主文件")));
+      QVERIFY(!legacy->text(0).contains(QStringLiteral("条曲线")));
+    }
+
     // ---- DataPage ----
     void dataPage_importButtonsEmitKind()
     {
@@ -1324,9 +1829,12 @@ class TestPanels : public QObject
       QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井位/heads.dat")),
           QByteArrayLiteral("#WellHead File From SMI\n#Name X Y KB TD\n"
                             "A1  1.0  2.0  0.0  2000.0\n")));
-      // Z9.las 引用不存在的井 → 未决行。
-      QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("Z9.las")),
-                        QByteArrayLiteral("~Well\nWELL. Z9 : WELL\n~A DEPT\n1.0\n")));
+      // 井分层引用不存在的井 → 未决行。（well_log 在新流程里必须先显式选井，
+      // 不会产生未决行；tops 引用未知井仍落未决链接——「查看未决」的真实路径。）
+      QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井分层"))));
+      QVERIFY(writeFile(QDir(root).filePath(QString::fromUtf8("井分层/tops.dat")),
+          QByteArrayLiteral("#WellTops File From SMI\n#WellName  Name  MD\n"
+                            "Ghost9   D61   2150.0\n")));
 
       FolderStack st(tmp.filePath(QStringLiteral("m.sqlite")), projectDir);
       QString err;
@@ -1355,8 +1863,8 @@ class TestPanels : public QObject
       QVERIFY(page);
       auto *table = page->findChild<QTableWidget *>(QStringLiteral("assetTable"));
       QVERIFY(table);
-      QCOMPARE(table->rowCount(), 1); // 只有 Z9 那条未决资产
-      QVERIFY(table->item(0, 0)->text().contains(QStringLiteral("Z9")));
+      QCOMPARE(table->rowCount(), 1); // 只有 tops 那条未决资产
+      QVERIFY(table->item(0, 0)->text().contains(QStringLiteral("tops")));
       QVERIFY(!page->findChild<QWidget *>(QStringLiteral("unresolvedFilterBar"))->isHidden());
     }
 
@@ -1517,7 +2025,8 @@ class TestPanels : public QObject
       const QString lockedPath = QDir(root).filePath(QStringLiteral("locked.las"));
       const QString nodatPath = QDir(root).filePath(QStringLiteral("nodat.dat"));
       QVERIFY(writeFile(lockedPath, QByteArrayLiteral(
-          "~Well\nWELL. A1 : WELL\n~A DEPT\n1.0\n")));
+          "~Well\nWELL. A1 : WELL\n"
+          "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n1.0 50.0\n")));
       QVERIFY(writeFile(nodatPath, QByteArrayLiteral("a,b\n1,2\n")));
 #ifdef Q_OS_WIN
       HANDLE lockedHandle = CreateFileW(
@@ -2358,6 +2867,8 @@ int main(int argc, char *argv[])
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
   QApplication app(argc, argv);
+  if (!qEnvironmentVariable("PALEO_IMPORT_QA_DIR").isEmpty())
+    PaleoTheme::pinRenderEnvironment();
   TestPanels tc;
   return QTest::qExec(&tc, argc, argv);
 }

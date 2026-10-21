@@ -177,7 +177,9 @@ private slots:
         stackFull->importSvc->catalog()->entities(QStringLiteral("well")).size();
     QCOMPARE(refAssets, 3);
 
-    // 中断：首行执行后取消——已处理行保留。
+    // 中断：执行段首行回调即取消——整批回滚不入库（执行段取消新语义：
+    // 取消零半成品，已处理行只在报告里如实标失败；与 tst_import 的
+    // cancelMidImportLeavesCatalogConsistent 同一口径）。
     const QString rootPart = makeArea(part);
     const QString projPart = part.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projPart));
@@ -189,12 +191,12 @@ private slots:
             [&](int, int total, const QString &) {
               if (total == 0)
                 return true; // 扫描段（哈希期）放行
-              return seen++ < 0; // 执行段：首行回调即取消（行已处理，保留）
+              return seen++ < 0; // 执行段：首行回调即取消
             });
     QVERIFY(err.contains(QStringLiteral("已取消")));
     QCOMPARE(cut.size(), 1); // 取消时已处理的行照常在结果里
-    QCOMPARE(countBy(cut, FolderRowResult::Outcome::Imported), 1);
-    QVERIFY(stackPart->importSvc->catalog()->assets().size() >= 1);
+    QCOMPARE(countBy(cut, FolderRowResult::Outcome::Failed), 1); // 整批回滚，行标失败
+    QCOMPARE(stackPart->importSvc->catalog()->assets().size(), 0); // 零入库
 
     // 续跑：同目录全量重跑——收敛到与参照完全相同的目录状态。
     const QVector<FolderRowResult> resume =

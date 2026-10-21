@@ -1217,9 +1217,10 @@ void TestDataPreview::officePreviewSelectsRawAndHistoricalVersions()
 
 void TestDataPreview::xml_compositeSheetDefaultsToChartAndSwitches()
 {
-  // 井道图 XML（工作表名「测井曲线-补充」——综合图解析器按前缀认、分类器
-  // 精确名单认不出 → unknown → 兜底 .xml 分支）：默认「井道图」档，
-  // 「数据列表」档可切、可切回。
+  // 工作表名「测井曲线-补充」——分类器现已按前缀识别（原精确名单缺口已修）：
+  // 纯曲线工作簿是 well_log，预览走测井标签页（内嵌同一 WellCompositePanel
+  // 井道图），曲线即图表数据。非曲线工作簿仍走 xmlViewStack 兜底分支——
+  // 兄弟用例 xml_workbookKeepsChartDefaultAndTableSwitch 覆盖。
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
   QVERIFY(st != nullptr);
@@ -1229,37 +1230,25 @@ void TestDataPreview::xml_compositeSheetDefaultsToChartAndSwitches()
   QString err;
   const QString id = st->importSvc->importProjectFile(src, &err);
   QVERIFY2(!id.isEmpty(), qPrintable(err));
+  QCOMPARE(st->importSvc->catalog()->assetById(id).type, QStringLiteral("well_log"));
 
   st->preview->openAsset(id);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
   QVERIFY(tabs);
   QWidget *page = tabs->widget(tabs->currentIndex());
-  auto *viewStack = page->findChild<QStackedWidget *>(QStringLiteral("xmlViewStack"));
-  QVERIFY2(viewStack, ".xml 预览应带「井道图/数据列表」切换栈");
-  auto *btnComposite =
-      page->findChild<QToolButton *>(QStringLiteral("btnXmlCompositeView"));
-  auto *btnTable =
-      page->findChild<QToolButton *>(QStringLiteral("btnXmlTableView"));
-  QVERIFY(btnComposite);
-  QVERIFY(btnTable);
-  // 默认停在综合柱状图档（原井道图预览语义不变）。
-  QCOMPARE(viewStack->currentIndex(), 0);
-  QVERIFY(btnComposite->isChecked());
-  QCOMPARE(viewStack->widget(0)->objectName(),
-           QStringLiteral("wellCompositePanel")); // 0 档 = 井道图面板本体
-
-  btnTable->click();
-  QCOMPARE(viewStack->currentIndex(), 1);
-  QVERIFY(btnTable->isChecked());
-  QVERIFY(!btnComposite->isChecked());
-  QTRY_VERIFY(viewStack->currentWidget()->findChild<QTableWidget *>());
-  auto *table = viewStack->currentWidget()->findChild<QTableWidget *>();
-  QVERIFY(table);
-  QVERIFY(table->rowCount() >= 3);
-
-  btnComposite->click();
-  QCOMPARE(viewStack->currentIndex(), 0);
-  QVERIFY(btnComposite->isChecked());
+  auto *panel =
+      page->findChild<WellComposite::WellCompositePanel *>(QStringLiteral("wellCompositePanel"));
+  QVERIFY2(panel, "曲线工作簿预览应带井道图面板");
+  // 该夹具索引列是「深度」而非 MD——轴语义闸不把未声明基准冒充 MD 上综合图：
+  // GR 不出图，原位提示说明原因（原始数据保留，业务入口不静默错画）。
+  const WellComposite::ComprehensiveWellData data = panel->currentData();
+  for (const auto &curve : data.continuousCurves)
+    QVERIFY2(curve.name != QStringLiteral("GR"),
+             "DEPTH 未声明 MD 的曲线不应画上综合图");
+  auto *hint = page->findChild<QLabel *>(QStringLiteral("lasPendingHint"));
+  QVERIFY(hint);
+  QTRY_VERIFY_WITH_TIMEOUT(!hint->isHidden(), 5000);
+  QVERIFY(hint->text().contains(QStringLiteral("MD")));
 }
 
 void TestDataPreview::xml_workbookKeepsChartDefaultAndTableSwitch()

@@ -37,6 +37,39 @@ bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
   return false;
 }
 
+bool DataCatalog::updateEntity(const CatalogEntity &e, QString *error)
+{
+  if (!checkWriteThread("updateEntity", error))
+    return false;
+  if (!ensureOpen(error))
+    return false;
+  const int row = m_idx.entityRow(e.id);
+  if (e.id.isEmpty() || row < 0)
+  {
+    setError(error, QStringLiteral("updateEntity: unknown entity id: %1").arg(e.id));
+    return false;
+  }
+  if (m_entities.at(row).entityType != e.entityType)
+  {
+    // 索引按 (id,type) 键——改类型会让 D5 邻接索引失真；类型不可经更新改换。
+    setError(error, QStringLiteral("updateEntity: entityType mismatch for %1").arg(e.id));
+    return false;
+  }
+  const CatalogEntity old = m_entities.at(row);
+  m_entities[row] = e; // 行位不动：m_entityRow/m_entitiesByType 索引无需维护
+  m_dirtyEntities.insert(e.id);
+  if (save(error))
+  {
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::UpdateEntity;
+    op.entity = e;
+    recordOp(std::move(op));
+    return true;
+  }
+  m_entities[row] = old; // 回滚
+  return false;
+}
+
 bool DataCatalog::hasEntity(const QString &id) const
 {
   if (!noteRead("hasEntity"))

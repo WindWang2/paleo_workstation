@@ -22,6 +22,9 @@ struct ComprehensiveWellData;
 namespace TrackOps
 {
 
+// 标准首屏：岩性 / 三孔隙 / 电阻率各最多三根；其余曲线保留为隐藏辅助道。
+QList<std::shared_ptr<WellTrack>> standardCurveTracks(const QVector<CurveData> &curves);
+
 // D1.5 导出该道 CSV：曲线道 = 深度,曲线1,曲线2,...（NaN 留空）；区间道 =
 // 顶深,底深,名称[,备注]；符号道 = 顶深,底深,符号。带 UTF-8 BOM 头方便 Excel。
 QString exportTrackCsv(const WellTrack &track);

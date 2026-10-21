@@ -1,5 +1,6 @@
 // 层：视图
 #include "curveconfigdialog.h"
+#include "trackops.h"
 #include "ui/paleoicons.h"
 #include "../paleotheme.h"
 
@@ -176,7 +177,7 @@ void CurveConfigDialog::setupUi()
 
   m_btnResetDefault = new QPushButton(tr("恢复标准测井组合"), btnBox);
   PaleoTheme::applyThemedStyleSheet(m_btnResetDefault, themedBtnStyle);
-  m_btnResetDefault->setToolTip(tr("按标准地质类别（岩性/三孔隙/电阻率）重置曲线道分道"));
+  m_btnResetDefault->setToolTip(tr("显示关键岩性、三孔隙和电阻率曲线；辅助曲线默认隐藏，可勾选恢复"));
   btnLay->addWidget(m_btnResetDefault);
 
   btnLay->addStretch(1);
@@ -269,8 +270,9 @@ void CurveConfigDialog::loadFromCanvas()
       if (ct)
       {
         item.curves = ct->curves();
-        for (const auto &c : ct->curves())
-          m_allCurves.append(c);
+        if (ct->participatesInStandardLayout())
+          for (const auto &c : ct->curves())
+            m_allCurves.append(c);
       }
     }
 
@@ -728,80 +730,26 @@ void CurveConfigDialog::onResetDefault()
   if (firstCurveIdx == -1)
     firstCurveIdx = m_tracks.size();
 
-  // 移除所有曲线道
-  for (int i = m_tracks.size() - 1; i >= 0; --i)
-  {
-    if (m_tracks[i].type == TrackType::Curve)
-      m_tracks.removeAt(i);
-  }
-
-  const auto isLitho = [](const QString &name) {
-    const QString n = name.toUpper();
-    return n.startsWith(QStringLiteral("GR")) || n.startsWith(QStringLiteral("CAL")) ||
-           n.startsWith(QStringLiteral("SP")) || n.startsWith(QStringLiteral("BS")) ||
-           n.startsWith(QStringLiteral("AZIM"));
-  };
-  const auto isPorosity = [](const QString &name) {
-    const QString n = name.toUpper();
-    return n.startsWith(QStringLiteral("AC")) || n.startsWith(QStringLiteral("DEN")) ||
-           n.startsWith(QStringLiteral("CNL")) || n.startsWith(QStringLiteral("POR")) ||
-           n.startsWith(QStringLiteral("CPOR")) || n.startsWith(QStringLiteral("PHIF"));
-  };
-  const auto isResistivity = [](const QString &name) {
-    const QString n = name.toUpper();
-    return n.startsWith(QStringLiteral("RT")) || n.startsWith(QStringLiteral("RXO")) ||
-           n.startsWith(QStringLiteral("RD")) || n.startsWith(QStringLiteral("RS")) ||
-           n.startsWith(QStringLiteral("ILD")) || n.startsWith(QStringLiteral("ILM")) ||
-           n.startsWith(QStringLiteral("AT"));
-  };
-
-  QVector<CurveData> lithoCurves;
-  QVector<CurveData> poroCurves;
-  QVector<CurveData> resCurves;
-  QVector<CurveData> otherCurves;
-
-  for (const auto &c : m_allCurves)
-  {
-    if (isLitho(c.name)) lithoCurves.append(c);
-    else if (isPorosity(c.name)) poroCurves.append(c);
-    else if (isResistivity(c.name)) resCurves.append(c);
-    else otherCurves.append(c);
-  }
-
+  // 结果道保留身份和对话框中已选的显隐，避免把置信度混入常规曲线池。
   QList<WellTrackConfigItem> newCurveTracks;
-  const auto addGroup = [&newCurveTracks](const QString &baseTitle, const QVector<CurveData> &group) {
-    for (int i = 0; i < group.size(); i += 4)
-    {
-      WellTrackConfigItem item;
-      item.type = TrackType::Curve;
-      item.title = (group.size() > 4) ? QStringLiteral("%1 (%2)").arg(baseTitle).arg(i / 4 + 1) : baseTitle;
-      item.width = 180.0;
-      item.visible = true;
-      for (int j = 0; j < 4 && (i + j) < group.size(); ++j)
-        item.curves.append(group.at(i + j));
-      newCurveTracks.append(item);
-    }
-  };
+  for (const auto &item : m_tracks)
+    if (const auto curve = std::dynamic_pointer_cast<CurveTrack>(item.trackRef))
+      if (!curve->participatesInStandardLayout()) newCurveTracks << item;
 
-  if (!lithoCurves.isEmpty()) addGroup(tr("岩性测井"), lithoCurves);
-  if (!poroCurves.isEmpty()) addGroup(tr("三孔隙测井"), poroCurves);
-  if (!resCurves.isEmpty()) addGroup(tr("电阻率测井"), resCurves);
-  if (!otherCurves.isEmpty()) addGroup(tr("辅助曲线"), otherCurves);
+  for (int i = m_tracks.size() - 1; i >= 0; --i)
+    if (m_tracks[i].type == TrackType::Curve) m_tracks.removeAt(i);
 
-  if (lithoCurves.isEmpty() && poroCurves.isEmpty() && resCurves.isEmpty() && otherCurves.isEmpty())
+  const auto defaults = TrackOps::standardCurveTracks(m_allCurves);
+  QList<WellTrackConfigItem> standard;
+  for (const auto &track : defaults)
   {
-    for (int i = 0; i < m_allCurves.size(); i += 4)
-    {
-      WellTrackConfigItem item;
-      item.type = TrackType::Curve;
-      item.title = (i == 0) ? tr("常规测井") : tr("辅助曲线");
-      item.width = 180.0;
-      item.visible = true;
-      for (int j = 0; j < 4 && (i + j) < m_allCurves.size(); ++j)
-        item.curves.append(m_allCurves.at(i + j));
-      newCurveTracks.append(item);
-    }
+    WellTrackConfigItem item;
+    item.type = TrackType::Curve; item.title = track->title(); item.width = track->width();
+    item.visible = track->isVisible();
+    item.curves = std::static_pointer_cast<CurveTrack>(track)->curves();
+    standard << item;
   }
+  newCurveTracks = standard + newCurveTracks;
 
   int insertPos = qBound(0, firstCurveIdx, static_cast<int>(m_tracks.size()));
   for (const auto &item : newCurveTracks)

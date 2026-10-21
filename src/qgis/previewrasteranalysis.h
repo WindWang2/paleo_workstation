@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #pragma once
 #include <functional>
+#include <vector>
 class PaleoTaskService;
 class QObject;
 
@@ -110,6 +111,49 @@ QVector<Extremum> localExtrema(QgsRasterLayer *layer, int band = 1,
                                int window = 5, double prominence = 0.0,
                                int maxCount = 200,
                                const std::function<bool()> &cancelled = {});
+
+// ---- 稳健显著性尺度（纯计算，无 QGIS 依赖，便于合成栅格单测）----
+// 极值的「显著性」= |v − 邻域有效像元均值|（即局部残差）。阈值不能用全局
+// σ：全局 σ 量的是整面的区域起伏（构造趋势），而 window 内残差量的是局部
+// 粗糙度，二者量纲相同但尺度可差一到两个数量级——平滑层位面上全局 σ×0.5
+// 会滤光所有真实极值。改用「全部有效像元局部残差」的稳健尺度：
+//   scale = 1.4826·MAD(r)            （正态下与 σ 一致，抗极值/尖峰污染）
+//   MAD=0（多数像元残差相同，如平面上少量尖峰）→ 1.2533·mean|r − median(r)|
+//   仍为 0（完全平坦/无残差）→ 0（此时也不存在严格极值）
+// 阈值 = k·scale，默认 k=3（残差分布的 3σ 离群口径）。全程确定性：
+// 固定扫描序 + nth_element 求中位数 + 稳定排序（显著性降序，再按行列）。
+struct ExtremaGrid
+{
+  int width = 0;
+  int height = 0;
+  std::vector<double> values;       // 行主序，width*height
+  std::vector<unsigned char> valid; // 0 = nodata / 非有限
+  bool ok(int x, int y) const { return valid[std::size_t(y) * width + x] != 0; }
+  double at(int x, int y) const { return values[std::size_t(y) * width + x]; }
+};
+struct GridExtremum
+{
+  int x = 0;
+  int y = 0;
+  double value = 0.0;
+  double prominence = 0.0;
+  bool peak = false;
+};
+constexpr double kRobustProminenceK = 3.0;
+double robustResidualScale(const ExtremaGrid &grid, int window = 5,
+                           const std::function<bool()> &cancelled = {});
+std::vector<GridExtremum> gridExtrema(const ExtremaGrid &grid, int window,
+                                      double minProminence, int maxCount,
+                                      const std::function<bool()> &cancelled = {});
+// 稳健阈值版：minProminence = k·robustResidualScale。
+std::vector<GridExtremum> robustGridExtrema(const ExtremaGrid &grid, int window = 5,
+                                            double k = kRobustProminenceK,
+                                            int maxCount = 100,
+                                            const std::function<bool()> &cancelled = {});
+QVector<Extremum> robustLocalExtrema(QgsRasterLayer *layer, int band = 1,
+                                     int window = 5, double k = kRobustProminenceK,
+                                     int maxCount = 100,
+                                     const std::function<bool()> &cancelled = {});
 
 void requestExtrema(const QString &uri, PaleoTaskService *tasks,
                     QObject *receiver,

@@ -252,12 +252,14 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
           outImage->rgba = std::move(slice.rgba);
           outStats->columns = slice.width;
           outStats->tracesRead = slice.columnsRead;
-          // B-2（full-audit-20261021）：把 vendor 的线号弧长换算成米——
-          // 引擎的 distances 在 il/xl 线号空间累计，消费端
-          // （seismicsectioncanvas 的 columnDistancesM）按米使用；线号步长 ×
-          // 线距 ≠ 1 米的测网上横向比例尺与沿剖面对象定位会系统性错位。
-          // per-column inlineNos/xlineNos + SgyCoordinateMapper 仿射换算；
-          // 仿射不可得时保留线号口径（如实降级，不合成）。
+          // columnDistances 保持线号弧长口径：权威消费端
+          // SectionGeometry::fromColumns 以 pathPoints 线号折线为横轴、按
+          // mapPath 自行换算成米；此前（B-2）把它替换成米或在仿射不可得时
+          // 清空，前者让 fromColumns 把米当线号二次换算，后者让剖面退回
+          // 25m 默认道距（任意线总长/井位定位错位）。米口径另走
+          // columnDistancesM（仿射可得才填，不合成）。
+          outStats->columnDistances = std::move(slice.distances);
+          outStats->columnDistancesM.clear();
           {
             const auto mapper =
                 seismic::SgyCoordinateMapper::Fit(*volume->Index());
@@ -281,14 +283,7 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
                                   fit.d * dIl + fit.e * dXl);
                 meters[std::size_t(c)] = float(acc);
               }
-              outStats->columnDistances = std::move(meters);
-            }
-            else
-            {
-              // F-1（终审结转，R2-SF-2 的被点名分支）：仿射不可得时
-              // slice.distances 是线号单位——按米消费的通道不留静默错值，
-              // 清空交消费端自述兜底口径（与 BuildLineSection 回落同款）。
-              Q_UNUSED(slice.distances);
+              outStats->columnDistancesM = std::move(meters);
             }
           }
           int missing = 0;
@@ -319,10 +314,10 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
         return QString();
       return QString::fromStdString(err);
     }
-    // R2-SF-2（full-audit-20261021 独立复审）：回落路径只有线号单位距离且
-    // 无 per-column 线号输出可换算——清空交消费端兜底口径（其自述的默认
-    // 道距），不留「线号冒充米」的静默错值。
-    outStats->columnDistances.clear();
+    // 回落路径：BuildLineSection 的 columnDistances 是线号弧长（与引擎路径
+    // 同口径，供 SectionGeometry 换算）；无 per-column 线号可做米换算，
+    // columnDistancesM 留空（不合成）。
+    outStats->columnDistancesM.clear();
     return QString();
   };
 

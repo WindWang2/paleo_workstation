@@ -37,7 +37,7 @@ using TrackConfigItem = WellTrackConfigItem;
 // 4. 支持将多曲线道解散为独立单曲线道（每道 1 根曲线）；
 // 5. 支持单个曲线从多曲线道拆出为独立道；
 // 6. 支持井道重命名与显示隐藏；
-// 7. 支持一键恢复标准地质组合（岩性/三孔隙/电阻率/辅助）。
+// 7. 支持一键恢复标准地质组合（岩性/三孔隙/电阻率，辅助默认隐藏）。
 class CurveConfigDialog : public QDialog
 {
   Q_OBJECT
@@ -48,6 +48,9 @@ public:
 
   // 将配置应用到画布
   void applyConfiguration();
+
+  // 面板提供完整源曲线池，已被用户从当前布局移除的曲线也能恢复默认组合。
+  void setCurvePool(const QVector<CurveData> &curves) { m_allCurves = curves; }
 
   // 获取当前配置列表（供测试验证）
   const QList<WellTrackConfigItem> &trackItems() const { return m_tracks; }

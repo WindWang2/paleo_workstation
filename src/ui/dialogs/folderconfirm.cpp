@@ -42,6 +42,14 @@ QString folderTypeLabel(const QString &type)
       {QStringLiteral("image_reference"), QObject::tr("图像")},
       {QStringLiteral("single_factor_package"), QObject::tr("单因素数据包")},
       {QStringLiteral("outsource_workbook"), QObject::tr("外部成果工作簿")},
+      {QStringLiteral("auxiliary"), QObject::tr("辅助资料")},
+      {QStringLiteral("boundary"), QObject::tr("工区边界")},
+      {QStringLiteral("facies_polygons"), QObject::tr("沉积相多边形")},
+      {QStringLiteral("facies_schema"), QObject::tr("沉积相分类体系")},
+      {QStringLiteral("paleogeographic_map"), QObject::tr("古地理图")},
+      {QStringLiteral("seismic_prediction"), QObject::tr("地震相预测")},
+      {QStringLiteral("tops"), QObject::tr("井分层")},
+      {QStringLiteral("wells_prediction"), QObject::tr("测井相预测")},
       {QStringLiteral("reference"), QObject::tr("参考资料")},
       {QStringLiteral("unknown"), QObject::tr("未知")}};
   return kLabels.value(type, type); // 词表外类型裸显 id（type 仍存 item data）

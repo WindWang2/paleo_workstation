@@ -130,12 +130,13 @@ void DataListPanel::batchChangeType()
     emit entityRefreshRequested();
   }
 
+  const QString typeLabel = PaleoFolderConfirm::folderTypeLabel(newType);
   if (m_history)
-    m_history->push(tr("批量改类型 → %1（%2 项）").arg(newType).arg(ids.size()));
+    m_history->push(tr("批量改类型 → %1（%2 项）").arg(typeLabel).arg(ids.size()));
   if (!failures.isEmpty())
     showBatchFailureDetail(this, tr("批量改类型"), failures);
   else
-    emit statusMessage(tr("已把 %1 个资产类型改为 %2（可撤销）").arg(ids.size()).arg(newType));
+    emit statusMessage(tr("已把 %1 个资产类型改为 %2（可撤销）").arg(ids.size()).arg(typeLabel));
 }
 
 void DataListPanel::batchRemoveSoft()

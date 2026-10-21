@@ -190,6 +190,7 @@ add_paleo_test(tst_previewmap_assets LIBS paleo_ui)
 target_compile_definitions(tst_previewmap_assets PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_wellbasemap LIBS paleo_ui)  # #14 井位类页面 GIS 底图（本地夹具，不联网）
+add_paleo_test(tst_onlinebasemap LIBS paleo_qgis) # 在线预设/URI/主图叠加/工程持久化（不联网）
 target_compile_definitions(tst_wellbasemap PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_previewmap_perf LIBS paleo_ui)

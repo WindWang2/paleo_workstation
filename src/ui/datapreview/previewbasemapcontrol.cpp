@@ -35,8 +35,12 @@ PreviewBasemapControl::PreviewBasemapControl(PreviewMapPage *page, QObject *proj
   m_combo->setObjectName(prefix + QStringLiteral("OnlineBasemap"));
   m_combo->setAccessibleName(tr("GIS 底图"));
   m_combo->addItem(tr("底图：无"), ob::noneId());
-  for (const auto &source : ob::sources())
+  for (const auto &source : ob::sources()) {
     m_combo->addItem(tr("底图：%1").arg(source.title), source.id);
+    m_combo->setItemData(m_combo->count() - 1,
+                        source.description + QLatin1Char('\n') + source.attribution +
+                            QLatin1Char('\n') + source.termsUrl, Qt::ToolTipRole);
+  }
   lay->addWidget(m_combo);
 
   m_more = new QToolButton(this);
@@ -78,7 +82,7 @@ void PreviewBasemapControl::updateAvailability()
   const bool canvasOk = m_page && ob::canOverlay(m_page->mapCanvas()->canvas(), &reason);
   m_unavailableReason = canvasOk ? QString() : reason;
   m_combo->setEnabled(canvasOk);
-  m_combo->setToolTip(canvasOk ? tr("叠加开源免费在线底图（需联网）；工程自带离线底图时默认不叠加。"
+  m_combo->setToolTip(canvasOk ? tr("叠加在线底图（需联网，各来源条款见选项提示）；工程自带离线底图时默认不叠加。"
                                     "自定义瓦片源见设置 basemap/onlineSources 或「更多底图」")
                                : reason + tr("；仍可在「更多底图」加载同坐标系的本地文件或工程图层"));
 }

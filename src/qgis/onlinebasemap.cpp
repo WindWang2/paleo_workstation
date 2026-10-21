@@ -5,6 +5,12 @@
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
+#include <qgsdatasourceuri.h>
+#include <qgshttpheaders.h>
+#include <qgslayertree.h>
+#include <qgslayertreelayer.h>
+#include <qgsnetworkaccessmanager.h>
+#include <qgsproviderregistry.h>
 
 #include <QCryptographicHash>
 #include <QJsonArray>
@@ -15,12 +21,53 @@
 #include <QSettings>
 #include <QTimer>
 #include <QUrl>
+#include <QXmlStreamWriter>
 
 namespace paleo::onlinebasemap {
 namespace {
 const char *kSourcesKey = "basemap/onlineSources";
 const char *kScope = "paleo";
 const char *kEntry = "survey/onlineBasemap";
+const QString kUserAgent = QStringLiteral("PaleoWorkbench (+https://github.com/WindWang2/paleo_workstation)");
+
+QString gdalXyzUri(const Source &source)
+{
+  QString xml;
+  QXmlStreamWriter writer(&xml);
+  writer.writeStartElement(QStringLiteral("GDAL_WMS"));
+  writer.writeStartElement(QStringLiteral("Service"));
+  writer.writeAttribute(QStringLiteral("name"), QStringLiteral("TMS"));
+  QString url = source.url;
+  for (const auto &axis : {QStringLiteral("x"), QStringLiteral("y"), QStringLiteral("z")})
+    url.replace(QLatin1Char('{') + axis + QLatin1Char('}'), QStringLiteral("${%1}").arg(axis));
+  writer.writeTextElement(QStringLiteral("ServerUrl"), url);
+  writer.writeEndElement();
+  writer.writeStartElement(QStringLiteral("DataWindow"));
+  writer.writeTextElement(QStringLiteral("UpperLeftX"), QStringLiteral("-20037508.342789244"));
+  writer.writeTextElement(QStringLiteral("UpperLeftY"), QStringLiteral("20037508.342789244"));
+  writer.writeTextElement(QStringLiteral("LowerRightX"), QStringLiteral("20037508.342789244"));
+  writer.writeTextElement(QStringLiteral("LowerRightY"), QStringLiteral("-20037508.342789244"));
+  writer.writeTextElement(QStringLiteral("TileLevel"), QString::number(source.zmax));
+  writer.writeTextElement(QStringLiteral("TileCountX"), QStringLiteral("1"));
+  writer.writeTextElement(QStringLiteral("TileCountY"), QStringLiteral("1"));
+  writer.writeTextElement(QStringLiteral("YOrigin"), QStringLiteral("top"));
+  writer.writeEndElement();
+  writer.writeTextElement(QStringLiteral("Projection"), QStringLiteral("EPSG:3857"));
+  writer.writeTextElement(QStringLiteral("BlockSizeX"), QStringLiteral("256"));
+  writer.writeTextElement(QStringLiteral("BlockSizeY"), QStringLiteral("256"));
+  writer.writeTextElement(QStringLiteral("BandsCount"), QStringLiteral("4"));
+  writer.writeTextElement(QStringLiteral("OverviewCount"), QString::number(source.zmax));
+  writer.writeTextElement(QStringLiteral("UserAgent"), kUserAgent);
+  writer.writeTextElement(QStringLiteral("MaxConnections"), QStringLiteral("2"));
+  writer.writeTextElement(QStringLiteral("Timeout"), QStringLiteral("15"));
+  writer.writeTextElement(QStringLiteral("ZeroBlockHttpCodes"), QStringLiteral("204,404"));
+  writer.writeStartElement(QStringLiteral("Cache"));
+  // GDAL 原生缓存（默认用户缓存目录），至少 7 天；不预取瓦片。
+  writer.writeTextElement(QStringLiteral("Expires"), QStringLiteral("604800"));
+  writer.writeEndElement();
+  writer.writeEndElement();
+  return xml;
+}
 
 QString projectKey(const QgsProject *project)
 {
@@ -37,13 +84,38 @@ QString noneId() { return QStringLiteral("none"); }
 QVector<Source> sources()
 {
   QVector<Source> out{
-      {QStringLiteral("osm"), QObject::tr("街道"), QStringLiteral("https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
-       QObject::tr("© OpenStreetMap 贡献者（ODbL）"), 19},
-      {QStringLiteral("esri_imagery"), QObject::tr("卫星"),
+      {QStringLiteral("osm"), QObject::tr("街道（OpenStreetMap）"), QStringLiteral("https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
+       QObject::tr("© OpenStreetMap 贡献者（ODbL）"), 19,
+       QObject::tr("开放街道数据，适合道路与地名参考；仅按当前视野浏览，不批量下载。"),
+       QStringLiteral("https://operations.osmfoundation.org/policies/tiles/")},
+      {QStringLiteral("esri_imagery"), QObject::tr("卫星影像（Esri，受使用条款约束）"),
        QStringLiteral("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"),
-       QObject::tr("影像 © Esri, Maxar, Earthstar Geographics 等（遵守 Esri 使用条款）"), 19},
-      {QStringLiteral("opentopomap"), QObject::tr("地形"), QStringLiteral("https://tile.opentopomap.org/{z}/{x}/{y}.png"),
-       QObject::tr("© OpenStreetMap 贡献者, SRTM | 样式 © OpenTopoMap（CC-BY-SA）"), 17}};
+       QObject::tr("影像 © Esri, Maxar, Earthstar Geographics 等（遵守 Esri 使用条款）"), 19,
+       QObject::tr("保留的既有影像服务，属于商业授权服务，并非开源底图。"),
+       QStringLiteral("https://www.esri.com/en-us/legal/terms/full-master-agreement")},
+      {QStringLiteral("opentopomap"), QObject::tr("地形（OpenTopoMap）"), QStringLiteral("https://tile.opentopomap.org/{z}/{x}/{y}.png"),
+       QObject::tr("© OpenStreetMap 贡献者, SRTM | 样式 © OpenTopoMap（CC-BY-SA）"), 17,
+       QObject::tr("含等高线与地名的地形图，适合地貌参考。"), QStringLiteral("https://opentopomap.org/about")},
+      {QStringLiteral("nasa_blue_marble"), QObject::tr("NASA 全球真彩影像（概览）"),
+       QStringLiteral("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_NextGeneration/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg"),
+       QObject::tr("影像：NASA GIBS / ESDIS，Blue Marble（MODIS）"), 8,
+       QObject::tr("全球拼接影像，适合区域概览；原生最高 8 级，不是实时或高分辨率卫星影像。"),
+       QStringLiteral("https://nasa-gibs.github.io/gibs-api-docs/#data-use-guidance-and-acknowledgements")},
+      {QStringLiteral("nasa_relief_bathymetry"), QObject::tr("NASA 全球地形与海底地貌（概览）"),
+       QStringLiteral("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg"),
+       QObject::tr("影像：NASA GIBS / ESDIS，Blue Marble 地形与海底地貌"), 8,
+       QObject::tr("全球地形晕渲与海底地貌，适合盆地及陆海背景；原生最高 8 级。"),
+       QStringLiteral("https://nasa-gibs.github.io/gibs-api-docs/#data-use-guidance-and-acknowledgements")},
+      {QStringLiteral("nasa_aster_color"), QObject::tr("NASA ASTER 彩色地形"),
+       QStringLiteral("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/ASTER_GDEM_Color_Shaded_Relief/default/GoogleMapsCompatible_Level12/{z}/{y}/{x}.jpeg"),
+       QObject::tr("影像：NASA GIBS / ESDIS，ASTER GDEM（METI / NASA）"), 12,
+       QObject::tr("彩色高程晕渲，适合地貌与构造背景；原生最高 12 级，覆盖范围外可能无数据。"),
+       QStringLiteral("https://nasa-gibs.github.io/gibs-api-docs/#data-use-guidance-and-acknowledgements")},
+      {QStringLiteral("nasa_aster_gray"), QObject::tr("NASA ASTER 灰度地形"),
+       QStringLiteral("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/ASTER_GDEM_Greyscale_Shaded_Relief/default/GoogleMapsCompatible_Level12/{z}/{y}/{x}.jpeg"),
+       QObject::tr("影像：NASA GIBS / ESDIS，ASTER GDEM（METI / NASA）"), 12,
+       QObject::tr("灰度地形晕渲，便于叠加彩色地质图件；原生最高 12 级，覆盖范围外可能无数据。"),
+       QStringLiteral("https://nasa-gibs.github.io/gibs-api-docs/#data-use-guidance-and-acknowledgements")}};
   const auto doc = QJsonDocument::fromJson(QSettings().value(kSourcesKey).toByteArray());
   for (const auto &v : doc.array()) {
     const auto o = v.toObject();
@@ -92,6 +164,9 @@ void watchFailures(QgsMapCanvas *canvas, QgsMapLayer *context, int timeoutMs,
                    const std::function<void(const QString &)> &onFailure)
 {
   if (!canvas || !context) return;
+  // 主图重复选择同一预设会复用图层，不重复安装失败通知。
+  if (context->property("paleoBasemapFailureWatchInstalled").toBool()) return;
+  context->setProperty("paleoBasemapFailureWatchInstalled", true);
   QObject::connect(canvas, &QgsMapCanvas::renderErrorOccurred, context,
                    [onFailure](const QString &error, QgsMapLayer *layer) {
                      if (layer && !layer->customProperty(QStringLiteral("paleoOnlineBasemap")).toString().isEmpty())
@@ -106,17 +181,34 @@ void watchFailures(QgsMapCanvas *canvas, QgsMapLayer *context, int timeoutMs,
 
 QString xyzUri(const Source &source)
 {
-  // URL 里的 & 等需百分号编码，否则被当成 URI 键分隔符。
-  return QStringLiteral("type=xyz&url=%1&zmax=%2&zmin=0")
-      .arg(QString::fromLatin1(QUrl::toPercentEncoding(source.url, "/:{}")))
-      .arg(source.zmax);
+  QgsDataSourceUri uri;
+  uri.setParam(QStringLiteral("type"), QStringLiteral("xyz"));
+  uri.setParam(QStringLiteral("crs"), QStringLiteral("EPSG:3857"));
+  uri.setParam(QStringLiteral("format"), QString());
+  uri.setParam(QStringLiteral("url"), source.url);
+  uri.setParam(QStringLiteral("zmax"), QString::number(source.zmax));
+  uri.setParam(QStringLiteral("zmin"), QStringLiteral("0"));
+  uri.setHttpHeaders(QgsHttpHeaders(QVariantMap{{QStringLiteral("User-Agent"),
+      kUserAgent}}));
+  return QString::fromUtf8(uri.encodedUri());
 }
 
-QgsMapLayer *createLayer(const Source &source, QObject *parent)
+QgsMapLayer *createLayer(const Source &source, QObject *parent, QString *error)
 {
   if (source.url.isEmpty()) return nullptr;
-  auto *layer = new QgsRasterLayer(xyzUri(source), QObject::tr("在线底图：%1").arg(source.title), QStringLiteral("wms"));
+  auto *network = QgsNetworkAccessManager::instance();
+  if (!network->cache()) network->setupDefaultProxyAndCache();
+  const auto title = QObject::tr("在线底图：%1").arg(source.title);
+  auto *layer = QgsProviderRegistry::instance()->providerMetadata(QStringLiteral("wms"))
+      ? new QgsRasterLayer(xyzUri(source), title, QStringLiteral("wms")) : nullptr;
+  // 裁剪的 vendored QGIS 可能没有 WMS 插件；由 QGIS 的 GDAL provider
+  // 驱动原生 TMS/缓存，不在应用层实现瓦片请求或地图渲染。
+  if (!layer || !layer->isValid()) {
+    delete layer;
+    layer = new QgsRasterLayer(gdalXyzUri(source), title, QStringLiteral("gdal"));
+  }
   if (!layer->isValid()) {
+    if (error) *error = QObject::tr("在线瓦片图层无法创建：%1").arg(layer->error().summary());
     delete layer;
     return nullptr;
   }
@@ -125,6 +217,49 @@ QgsMapLayer *createLayer(const Source &source, QObject *parent)
   layer->setCustomProperty(QStringLiteral("paleoBasemap"), true); // 全图范围不计入（XYZ 范围是全球）
   layer->setCustomProperty(QStringLiteral("paleoBasemapAttribution"), source.attribution);
   return layer;
+}
+
+QgsMapLayer *addPresetToProject(QgsProject *project, const QString &id, QString *error)
+{
+  QString reason;
+  if (!project || !canOverlay(project->crs(), &reason)) {
+    if (error) *error = project ? reason : QObject::tr("请先打开工程");
+    return nullptr;
+  }
+  const auto source = sourceById(id);
+  if (source.id.isEmpty()) {
+    if (error) *error = QObject::tr("在线底图预设不存在：%1").arg(id);
+    return nullptr;
+  }
+  QgsMapLayer *selected = nullptr;
+  for (auto *layer : project->mapLayers())
+    if (layer->customProperty(QStringLiteral("paleoOnlineBasemap")).toString() == id) {
+      selected = layer;
+      break;
+    }
+  auto *root = project->layerTreeRoot();
+  if (!selected) {
+    selected = createLayer(source, nullptr, error);
+    if (!selected) {
+      return nullptr;
+    }
+    project->addMapLayer(selected, false);
+    root->addLayer(selected);
+    if (root->hasCustomLayerOrder()) {
+      auto order = root->customLayerOrder();
+      order.removeAll(selected);
+      order.append(selected);
+      root->setCustomLayerOrder(order);
+    }
+  }
+  // 选择在线底图时保留其它底图供切换，只关闭它们的显示。
+  for (auto *node : root->findLayers())
+    if (node->layer() && node->layer()->customProperty(QStringLiteral("paleoBasemap")).toBool())
+      node->setItemVisibilityChecked(node->layer() == selected);
+  if (auto *node = root->findLayer(selected->id()))
+    node->setItemVisibilityCheckedParentRecursive(true);
+  saveChoice(project, id);
+  return selected;
 }
 
 void destroyLayer(QgsMapLayer *layer)

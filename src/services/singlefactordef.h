@@ -20,6 +20,19 @@ struct SingleFactorDefinition
   QVariantMap defaultParams; // 生成参数默认值（field/cellSize/…）
 };
 
+// 面向用户的地质语义（单位、有效域、推荐取值规则）。技术字段映射仍由 UI
+// 「高级」区与 WellAttributeStore 承担；此处不猜测未登记字段名。
+struct FactorGeologicalProfile
+{
+  QString factorId;
+  QString unit;              // 显示单位：m、无量纲 0–1、mD…
+  QString validRange;        // 有效域文案，如 [0,+∞) m
+  QString ruleSentence;      // 「采用…」一句，给提取结果摘要用
+  QString note;              // 补充：同层段 MD、不用 GR 切砂等
+  bool wellPointExtraction = true; // false = 走等厚/距离等专属算法
+  bool supportsAutoMode = false;   // UI 可提供「推荐地质口径」
+};
+
 class SingleFactorRegistry
 {
   public:
@@ -29,6 +42,8 @@ class SingleFactorRegistry
     static SingleFactorDefinition byId(const QString &factorId, bool *ok = nullptr);
     // 稳定 id → 显示名（未知 id 原样返回）。
     static QString titleFor(const QString &factorId);
+    // 地质语义档案；未知 id → ok=false，返回空档案。
+    static FactorGeologicalProfile geologicalProfile(const QString &factorId, bool *ok = nullptr);
 };
 
 // 主线6 冻结契约：未接入引擎的 processing id（实现属数据方向版图，见

@@ -550,6 +550,8 @@ QgsVectorLayer *FaultInterpretationController::ensureMapLayer(const QString &crs
         m_mapLayer = layer;
         if (proj)
             proj->addMapLayer(m_mapLayer);
+        else
+            layer->setParent(this); // 无工程时由控制器持有，避免 memory 图层泄漏
     }
 
     // 3. 重新绑定选择信号（避免重复连接）并整刷要素

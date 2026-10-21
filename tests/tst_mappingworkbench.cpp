@@ -217,7 +217,7 @@ public:
   QTcpServer server;
   QList<QJsonObject> bodies;
   int modelRequests = 0;
-  bool hold = false, failPredict = false, queued = false, holdPoll = false;
+  bool hold = false, failPredict = false, queued = false, holdPoll = false, holdModels = false;
   // opt-04 E2E 缺口：远端 200 但无可用模型 / 无输出（predictions 为空）。
   bool emptyModels = false, emptyPredictions = false;
   QJsonObject pending;
@@ -242,6 +242,7 @@ public:
           int status = 200;
           if (path.endsWith("/models")) {
             ++modelRequests;
+            if (holdModels) { buffer->clear(); return; }
             if (emptyModels)
               response = {{"models", QJsonArray{}}};
             else
@@ -487,6 +488,130 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void directWellPredictionRejectsUnsafeTextIndex_data() {
+    QTest::addColumn<QByteArray>("axis");
+    QTest::newRow("unit-missing") << QByteArray("MD");
+    QTest::newRow("unit-unknown") << QByteArray("MD[league]");
+    QTest::newRow("time") << QByteArray("TIME[ms]");
+    QTest::newRow("tvd") << QByteArray("TVD[m]");
+  }
+  void directWellPredictionRejectsUnsafeTextIndex() {
+    QFETCH(QByteArray, axis);
+    WellApiServer server;
+    WellApiEnvironment environment(server);
+    Fixture fixture;
+    QVERIFY(fixture.init());
+    QVERIFY(!fixture.well(QStringLiteral("A"), 10, 20).isEmpty());
+    for (const auto &asset : fixture.catalog.assets()) {
+      if (asset.type != QLatin1String("well_log")) continue;
+      const auto versions = fixture.catalog.versionsForAsset(asset.id);
+      QVERIFY(!versions.isEmpty());
+      const QString managedLogPath =
+          DataCatalog::resolvedVersionPath(fixture.dir.path(), versions.first());
+      // 受管字节落盘即只读（dataimport_session）——模拟来源内容被替换前先放开写权限。
+      QFile::setPermissions(managedLogPath,
+                            QFile::permissions(managedLogPath) | QFileDevice::WriteOwner);
+      QFile file(managedLogPath);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      const QByteArray text = axis + ",GR[API]\n1000,20\n1001,30\n";
+      QCOMPARE(file.write(text), qint64(text.size()));
+    }
+    WellPredictionService service;
+    service.bindCatalog(&fixture.catalog, fixture.dir.path());
+    qRegisterMetaType<RemotePredictionResult>();
+    QSignalSpy completed(&service, &RemotePredictionService::completed);
+    QSignalSpy failed(&service, &RemotePredictionService::failed);
+    RemotePredictionRequest request;
+    request.id = QStringLiteral("strict-md");
+    request.kind = QStringLiteral("wells");
+    request.horizon = QStringLiteral("D61");
+    request.facies = fixture.work.facies(request.horizon);
+    const QVariantMap formation{{QStringLiteral("formation"), QStringLiteral("D61")},
+        {QStringLiteral("top_md"), 1000.0}, {QStringLiteral("base_md"), 1100.0},
+        {QStringLiteral("unit_type"), QStringLiteral("段")}};
+    request.wells = {QVariantMap{{QStringLiteral("id"), QStringLiteral("A")},
+        {QStringLiteral("name"), QStringLiteral("A")},
+        {QStringLiteral("vector_formations"), QVariantList{formation}}}};
+    service.start(request);
+    QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty() || !failed.isEmpty(), 10000);
+    QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().at(1).toString()));
+    QCOMPARE(server.modelRequests, 0);
+    QVERIFY(server.bodies.isEmpty());
+    const auto result = completed.first().first().value<RemotePredictionResult>();
+    QCOMPARE(result.points.size(), 1);
+    const auto point = result.points.first().toMap();
+    QCOMPARE(point.value(QStringLiteral("prediction_status")).toString(), QStringLiteral("未预测"));
+    QVERIFY(point.value(QStringLiteral("prediction_reason")).toString().contains(QStringLiteral("MD")));
+  }
+  void predictionPreparationRejectsNonMdTextWithoutMockFallback() {
+    Fixture fixture;
+    QVERIFY(fixture.init());
+    QVERIFY(!fixture.well(QStringLiteral("A"), 10, 20).isEmpty());
+    bool replaced = false;
+    for (const auto &asset : fixture.catalog.assets()) {
+      if (asset.type != QLatin1String("well_log")) continue;
+      const auto versions = fixture.catalog.versionsForAsset(asset.id);
+      QVERIFY(!versions.isEmpty());
+      const QString managedLogPath =
+          DataCatalog::resolvedVersionPath(fixture.dir.path(), versions.first());
+      // 受管字节落盘即只读（dataimport_session）——模拟来源内容被替换前先放开写权限。
+      QFile::setPermissions(managedLogPath,
+                            QFile::permissions(managedLogPath) | QFileDevice::WriteOwner);
+      QFile file(managedLogPath);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      const QByteArray text("TIME[ms],GR[API]\n1000,20\n1001,30\n");
+      QCOMPARE(file.write(text), qint64(text.size()));
+      file.close();
+      replaced = true;
+    }
+    QVERIFY(replaced);
+    QSignalSpy errors(&fixture.work, &MappingWorkbench::errorOccurred);
+    QString error;
+    QVERIFY2(fixture.work.predict(QStringLiteral("D61"), QStringLiteral("wells"), {QStringLiteral("A")}, &error), qPrintable(error));
+    QTRY_VERIFY(!fixture.work.busy());
+    QCOMPARE(errors.count(), 1);
+    QVERIFY(errors.first().first().toString().contains(QStringLiteral("MD")));
+    QVERIFY(fixture.latest(QStringLiteral("wells_prediction")).isEmpty());
+  }
+  void predictionLogAcceptsUnifiedMdAndRejectsOtherAxes() {
+    Fixture fixture;
+    QVERIFY(fixture.init());
+    const auto add = [&](const QString &id, const QByteArray &bytes) -> QString {
+      const QString path = fixture.dir.filePath(id + QStringLiteral(".csv"));
+      QFile file(path);
+      if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()) return {};
+      file.close();
+      CatalogAsset asset;
+      asset.id = id;
+      asset.type = QStringLiteral("well_log");
+      asset.format = QStringLiteral("csv");
+      CatalogVersion version;
+      version.id = id + QStringLiteral("-v");
+      version.assetId = id;
+      version.stage = QStringLiteral("RAW");
+      version.versionNumber = 1;
+      version.managed = false;
+      version.path = path;
+      version.fileName = QFileInfo(path).fileName();
+      if (!fixture.catalog.addAsset(asset) || !fixture.catalog.addVersion(version)) return {};
+      return version.id;
+    };
+    const auto md = add(QStringLiteral("md"), "MD[ft],GR[API]\n1000,20\n1001,30\n");
+    QVERIFY(!md.isEmpty());
+    const auto log = fixture.work.predictionLog(md);
+    QVERIFY2(log.ok, qPrintable(log.error));
+    QCOMPARE(log.curveNames, QStringList({"MD", "GR"}));
+    QVERIFY(std::abs(log.curves.first().values.first() - 304.8) < 1e-8);
+    QCOMPARE(log.curves.first().unit, QStringLiteral("m"));
+    for (const auto &axis : {QByteArray("TIME[ms]"), QByteArray("TVD[m]"), QByteArray("DEPTH[m]"), QByteArray("MD[league]")}) {
+      const auto version = add(QString::fromLatin1(axis).replace(QLatin1Char('/'), QLatin1Char('_')), axis + ",GR[API]\n1000,20\n1001,30\n");
+      QVERIFY(!version.isEmpty());
+      const auto rejected = fixture.work.predictionLog(version);
+      QVERIFY(!rejected.ok);
+      QVERIFY(!rejected.error.isEmpty());
+      QVERIFY(rejected.curves.isEmpty());
+    }
+  }
   void scaleSettingsAreRestoredInANewProcess() {
     auto &preferences = FaciesDisplaySettings::instance();
     if (qEnvironmentVariableIsSet("PALEO_SCALE_SETTINGS_CHILD")) {
@@ -2299,6 +2424,22 @@ private slots:
     QCOMPARE(panel.views().size(), 1);
     QVERIFY(first->findChild<QToolButton *>("referenceRemoveView")->isEnabled());
     QCOMPARE(first->findChild<QToolButton *>("referenceRemoveView")->text(), QStringLiteral("−"));
+    // D-12（full-audit-20261020）：关最后视图有空态引导；再添加可恢复；
+    // 最后视图的移除提示如实说明后果（#547 允许关全部，不改可点性）。
+    QVERIFY(first->findChild<QToolButton *>("referenceRemoveView")->toolTip()
+                .contains(QStringLiteral("最后一个")));
+    auto *emptyHint = panel.findChild<QLabel *>("referenceEmptyHint");
+    auto *countLabel = panel.findChild<QLabel *>("referenceViewCount");
+    QVERIFY(emptyHint && countLabel);
+    QVERIFY(!emptyHint->isVisibleTo(&panel));
+    first->findChild<QToolButton *>("referenceRemoveView")->click();
+    QCOMPARE(panel.views().size(), 0);
+    QVERIFY(emptyHint->isVisibleTo(&panel));
+    QCOMPARE(countLabel->text(), QStringLiteral("0 个视图"));
+    panel.findChild<QPushButton *>("referenceAddView")->click();
+    QCOMPARE(panel.views().size(), 1);
+    QVERIFY(!emptyHint->isVisibleTo(&panel));
+    QCOMPARE(panel.views().first()->sourceId(), QString());
     panel.setSources({}, QString());
     QVERIFY(firstLayer.isNull());
     QVERIFY(!first->hasReference());
@@ -2755,6 +2896,120 @@ private slots:
   }
   // 智能预测的测井预测按地层（井 tops 的组/段）组织成矢量：每井每地层一行，
   // 优势微相 = 累计厚度最大的相；与数据管理的预测同一张表，请求带入该表。
+  // 预测专项 review M1：进行中的准备检查被 bindCatalog / cancelPrediction 中止时，
+  // 必须发出 wellReadinessReady（带中止原因），否则面板卡在「正在检查…」。
+  void wellReadinessAbortedByCatalogRebindRecoversPanel() {
+    WellApiServer server;
+    server.holdModels = true; // 卡住 GET /models，使检查停在途中
+    WellApiEnvironment environment(server);
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\n")));
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+      {QVariantMap{{"well_id", "A"}, {"top_md", 1000.0}, {"base_md", 1120.0},
+        {"lithology", QStringLiteral("维护砂岩")}, {"facies", QStringLiteral("原解释")}}}, &error));
+    installRemotePrediction(&f.work, RemotePredictConfig{}, nullptr, {}, &f.work);
+    MappingWorkbenchPage page("predict", &f.work);
+    page.setHorizon("D61");
+    auto *kind = page.findChild<QComboBox *>("predictionKind");
+    kind->setCurrentIndex(kind->findData(QStringLiteral("wells")));
+    auto *inputs = page.findChild<QListWidget *>("workbenchInputs");
+    QCOMPARE(inputs->count(), 1);
+    inputs->item(0)->setCheckState(Qt::Checked);
+    auto *check = page.findChild<QPushButton *>("wellReadinessCheck");
+    auto *summary = page.findChild<QLabel *>("wellReadinessSummary");
+    QVERIFY(check && summary);
+    QTRY_VERIFY(check->isEnabled());
+    QSignalSpy readiness(&f.work, &MappingWorkbench::wellReadinessReady);
+    check->click();
+    QTRY_COMPARE(server.modelRequests, 1);
+    QTRY_VERIFY(summary->text().contains(QStringLiteral("正在检查")));
+    QVERIFY(!check->isEnabled());
+    QCOMPARE(readiness.size(), 0);
+    f.work.bindCatalog(&f.catalog, f.dir.path()); // → cancelPrediction；修复前不发信号
+    QTRY_COMPARE_WITH_TIMEOUT(readiness.size(), 1, 5000);
+    const auto abortMsg = readiness.first()[2].toString();
+    QVERIFY2(!abortMsg.isEmpty(), "中止必须带原因，面板才能离开「正在检查」");
+    QVERIFY2(abortMsg.contains(QStringLiteral("中止")), qPrintable(abortMsg));
+    QTRY_VERIFY(check->isEnabled());
+    QVERIFY2(summary->text().contains(QStringLiteral("未完成")) ||
+             summary->text().contains(QStringLiteral("中止")),
+             qPrintable(summary->text()));
+    // 放开服务后再跑通一次，证明 m_readinessId 已清干净。
+    server.holdModels = false;
+    check->click();
+    QTRY_COMPARE_WITH_TIMEOUT(readiness.size(), 2, 10000);
+    QVERIFY2(readiness.last()[2].toString().isEmpty(), qPrintable(readiness.last()[2].toString()));
+    QCOMPARE(readiness.last()[1].toList().size(), 1);
+    QVERIFY(readiness.last()[1].toList().first().toMap().value("ready").toBool());
+  }
+
+  // 预测专项 P0：批量逐井准备检查——与正式运行同一条规则链，干跑只查模型
+  // 清单（不 POST /predict、不写成果），逐井给出可预测/不可预测原因。
+  void wellReadinessDryRunReportsPerWellReasonsWithoutPredicting() {
+    WellApiServer server;
+    WellApiEnvironment environment(server);
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    for (const auto &name : {"A", "B", "C"}) {
+      QVERIFY(!f.well(name, 10, 20).isEmpty());
+      // B 只有 D62 分层：缺当前层位 D61 → 不可预测。
+      const QString d61 = QStringLiteral("%1 D61 1000 0 0 -1000 1000 -99999\n").arg(name);
+      QVERIFY(f.tops(name, QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n%1%2 D62 1060 0 0 -1060 1060 -99999\n")
+                               .arg(QString(name) == "B" ? QString() : d61, name)));
+      QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+        {QVariantMap{{"well_id", name}, {"top_md", 1000.0}, {"base_md", 1120.0},
+          {"lithology", QStringLiteral("维护砂岩")}, {"facies", QStringLiteral("原解释")}}}, &error));
+    }
+    installRemotePrediction(&f.work, RemotePredictConfig{}, nullptr, {}, &f.work);
+    MappingWorkbenchPage page("predict", &f.work);
+    page.setHorizon("D61");
+    auto *kind = page.findChild<QComboBox *>("predictionKind");
+    kind->setCurrentIndex(kind->findData(QStringLiteral("wells")));
+    QSignalSpy readiness(&f.work, &MappingWorkbench::wellReadinessReady);
+    QVERIFY2(f.work.checkWellReadiness("D61", {"A", "B", "C"}, &error), qPrintable(error));
+    QVERIFY(!f.work.busy()); // 干跑不占用正式运行
+    QTRY_COMPARE_WITH_TIMEOUT(readiness.size(), 1, 10000);
+    QCOMPARE(readiness.first()[0].toString(), QString("D61"));
+    QVERIFY2(readiness.first()[2].toString().isEmpty(), qPrintable(readiness.first()[2].toString()));
+    const auto wells = readiness.first()[1].toList();
+    QCOMPARE(wells.size(), 3);
+    QHash<QString, QVariantMap> byId;
+    for (const auto &v : wells) byId.insert(v.toMap().value("id").toString(), v.toMap());
+    QVERIFY(byId["A"].value("ready").toBool());
+    QVERIFY(byId["C"].value("ready").toBool());
+    QVERIFY(!byId["B"].value("ready").toBool());
+    QVERIFY2(byId["B"].value("reason").toString().contains("D61"), qPrintable(byId["B"].value("reason").toString()));
+    QCOMPARE(server.modelRequests, 1);
+    QCOMPARE(server.bodies.size(), 0);                  // 没有提交任何预测
+    QVERIFY(f.latest("wells_prediction").isEmpty());    // 没有写成果
+    // 与正式运行口径一致：随后正式运行 A+B+C，只有 A、C 提交。
+    QVERIFY2(f.work.predict("D61", "wells", {"A", "B", "C"}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 10000);
+    QCOMPARE(server.bodies.size(), 2);
+
+    // 界面：勾选全部井 → 「检查可预测井」→ 汇总与逐井原因。
+    auto *inputs = page.findChild<QListWidget *>("workbenchInputs");
+    QCOMPARE(inputs->count(), 3);
+    for (int i = 0; i < inputs->count(); ++i) inputs->item(i)->setCheckState(Qt::Checked);
+    auto *check = page.findChild<QPushButton *>("wellReadinessCheck");
+    QVERIFY(check);
+    QTRY_VERIFY(check->isEnabled()); // 勾选变化后下一轮事件循环刷新
+    check->click();
+    auto *summary = page.findChild<QLabel *>("wellReadinessSummary");
+    QTRY_VERIFY_WITH_TIMEOUT(summary->text().contains(QStringLiteral("口不可预测")), 10000);
+    QCOMPARE(summary->text(), QStringLiteral("3 口井 / 2 口可预测 / 1 口不可预测"));
+    auto *toggle = page.findChild<QPushButton *>("wellReadinessToggle");
+    QVERIFY(!toggle->isHidden());
+    toggle->click();
+    auto *reasons = page.findChild<QListWidget *>("wellReadinessReasons");
+    QVERIFY(!reasons->isHidden());
+    QCOMPARE(reasons->count(), 3);
+  }
+
   void wellsRemoteApiProducesCurrentFormationVectorAndUpdatesArea() {
     WellApiServer server;
     WellApiEnvironment environment(server);
@@ -3649,9 +3904,12 @@ private slots:
     QCOMPARE(mapping[1].toMap().value("vote_count").toInt(), 2);
     QCOMPARE(mapping[1].toMap().value("facies_code").toInt(), 2);
     auto *raster = qobject_cast<QgsRasterLayer *>(f.layers.instantiate(id, &error)); QVERIFY(raster);
+    // B-01（2026-10-19 审计第三轮）：SMI 点栅格 extent 半格外扩后，相图
+    // 栅格像素中心对齐到样本点本身（x=10·c）——旧配准像素中心在样本间
+    // 半格处（x=10·c+5），正是被修复的半道间距错位。采样点随配准校正。
     for (int column = 0; column < 4; ++column) {
       bool ok = false;
-      const double code = raster->dataProvider()->sample(QgsPointXY(column * 10 + 5, 65), 1, &ok);
+      const double code = raster->dataProvider()->sample(QgsPointXY(column * 10, 65), 1, &ok);
       QVERIFY(ok); QCOMPARE(int(code), column % 2 == 0 ? 7 : 2);
     }
   }
@@ -4915,6 +5173,58 @@ private slots:
     page.commandButton("delete")->click();
     QCOMPARE(intent.last()[0].toString(), QString("delete"));
     QCOMPARE(intent.last()[1].toMap().value("layer").toString(), layer1);
+  }
+  void backgroundConsistencyReportPublishesAcrossFilesystems() {
+    // C-2（full-audit-20261021）：后台一致性报告的暂存目录必须建在目标
+    // 目录（工程 artifacts/reports 内）——旧实现写默认临时目录再 rename
+    // 进工程，跨文件系统（/tmp 独立 tmpfs 的常见 Linux 布局）恒 EXDEV，
+    // 报告永远发布失败。TMPDIR 指到 /dev/shm 构造跨文件系统红态。
+    const QByteArray priorTmp = qgetenv("TMPDIR");
+    {
+      QTemporaryDir shmProbe(QStringLiteral("/dev/shm/paleo-c2-probe-XXXXXX"));
+      if (!shmProbe.isValid() || shmProbe.path() == QDir::tempPath())
+        QSKIP("需要与默认临时目录不同的文件系统（/dev/shm）");
+    }
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(!f.well("B", 300, 200).isEmpty());
+    QString error;
+    QVERIFY(f.work.predict("D61", "wells", {"A", "B"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    const auto wells = f.latest("wells_prediction");
+    QVERIFY(!wells.isEmpty());
+    // 比对需要两侧：补地震相预测（与 faciesConsistencyReportsWellVsSeismic
+    // 同夹具口径）。
+    const auto input = f.seismic();
+    QVERIFY(!input.isEmpty());
+    QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+
+    PaleoTaskService tasks;
+    f.work.setTaskService(&tasks);
+    QSignalSpy ready(&f.work, &MappingWorkbench::consistencyReady);
+    QSignalSpy failed(&f.work, &MappingWorkbench::errorOccurred);
+    qputenv("TMPDIR", "/dev/shm");
+    QVERIFY(f.work.startFaciesConsistency(wells, &error));
+    QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 30000);
+    if (!priorTmp.isEmpty())
+      qputenv("TMPDIR", priorTmp.constData());
+    else
+      qunsetenv("TMPDIR");
+    QVERIFY2(ready.size() == 1,
+             qPrintable(failed.isEmpty() ? QStringLiteral("consistencyReady 未发出")
+                                         : failed.first().first().toString()));
+    const QVariantMap report = ready.first().first().toMap();
+    const QString path = report.value("report_path").toString();
+    QVERIFY2(!path.isEmpty(), "报告必须带发布路径");
+    QVERIFY2(QFile::exists(path), qPrintable(path));
+    QVERIFY(path.startsWith(f.dir.path())); // 落在工程内，非系统临时区
+    // 暂存目录随发布清理，不留 .consistency-* 残留
+    const QStringList leftovers = QDir(f.dir.filePath("artifacts/reports"))
+                                      .entryList({QStringLiteral(".consistency-*")},
+                                                 QDir::Dirs | QDir::NoDotAndDotDot);
+    QCOMPARE(leftovers.size(), 0);
   }
 };
 int main(int argc, char **argv) {

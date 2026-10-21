@@ -49,6 +49,8 @@ private slots:
     void jsonRoundTrip();
     void rejectsMalformedJson();
     void insertFaultRestoresWithCounters();
+    void emptyStickHasNoLongitudinalRange();   // L2.1
+    void extrapolatedSentinelIsOneFact();      // L2.2
 };
 
 void TestFaultSet::addFaultAssignsUniqueIdsAndNames()
@@ -108,8 +110,8 @@ void TestFaultSet::stickCrudAndSectionQuery()
     const auto sticks = set.sticksForSection(ref);
     QCOMPARE(sticks.size(), 1);
     QCOMPARE(sticks.first().first, f1);
-    QCOMPARE(sticks.first().second.twtMinMs(), 100.0);
-    QCOMPARE(sticks.first().second.twtMaxMs(), 500.0);
+    QCOMPARE(sticks.first().second.twtMinMs().value(), 100.0);
+    QCOMPARE(sticks.first().second.twtMaxMs().value(), 500.0);
 
     FaultSectionRef arb;
     arb.kind = FaultSectionRef::Arbitrary;
@@ -209,6 +211,76 @@ void TestFaultSet::insertFaultRestoresWithCounters()
     QString assigned;
     set.addStick(f2, makeStick(QString(), FaultSectionRef::Inline, 11), &assigned);
     QVERIFY(assigned != QStringLiteral("s-9"));
+}
+
+// L2.1（#593）：空棒不得返回 0.0 冒充合法范围——消费端会把「TWT 0–0 ms」
+// 当真显示。纵向单位由 verticalDomain 定（TwtMs=毫秒 / Depth=米），域不进
+// min/max 的语义，但消费端必须据此贴标签。
+void TestFaultSet::emptyStickHasNoLongitudinalRange()
+{
+    FaultStick s = makeStick(QStringLiteral("s-empty"), FaultSectionRef::Inline, 12);
+    s.points.clear(); // fromMap 不校验点数：旧 JSON/坏数据可恢复出空棒
+    QVERIFY(!s.twtMinMs().has_value());
+    QVERIFY(!s.twtMaxMs().has_value());
+
+    // 有样点时范围照旧（含恰好 0 ms 的合法下界——0 与空态可分辨）。
+    FaultStick zero = makeStick(QStringLiteral("s-zero"), FaultSectionRef::Inline, 13);
+    zero.points = {{0.0, 0.0}, {1.0, 250.0}};
+    QCOMPARE(zero.twtMinMs().value(), 0.0);
+    QCOMPARE(zero.twtMaxMs().value(), 250.0);
+
+    // 深度域棒：同一对存取器返回米，域在 verticalDomain 上如实带着。
+    FaultStick deep = makeStick(QStringLiteral("s-deep"), FaultSectionRef::Inline, 14);
+    deep.verticalDomain = VerticalDomain::Depth;
+    deep.points = {{0.0, 1200.0}, {1.0, 1800.0}};
+    QCOMPARE(deep.verticalDomain, VerticalDomain::Depth);
+    QCOMPARE(deep.twtMinMs().value(), 1200.0);
+
+    // round-trip 后域不丢（fromMap 缺键按 TWT 读）。
+    const FaultStick back = FaultStick::fromMap(deep.toMap());
+    QCOMPARE(back.verticalDomain, VerticalDomain::Depth);
+    QCOMPARE(back.twtMaxMs().value(), 1800.0);
+    QVERIFY(!FaultStick::fromMap(s.toMap()).twtMinMs().has_value());
+}
+
+// L2.2（#593）：kExtrapolatedPointIndex 与 provenance==Extrapolated 是同一
+// 事实的两种记法；缺 pointIndex 键的旧 JSON 兜底 -1 = 「不归属棒上点」，
+// 与外推不可混同。判定一律走 isExtrapolated()。
+void TestFaultSet::extrapolatedSentinelIsOneFact()
+{
+    QVERIFY(FaultSurfaceVertex::kExtrapolatedPointIndex != -1); // 两个哨兵互不相同
+
+    FaultSurfaceVertex measured;
+    measured.pointIndex = 3;
+    QVERIFY(!measured.isExtrapolated());
+
+    FaultSurfaceVertex legacy;
+    legacy.pointIndex = -1; // 旧 JSON 缺键的兜底
+    QVERIFY(!legacy.isExtrapolated());
+
+    FaultSurfaceVertex extrapolated;
+    extrapolated.pointIndex = FaultSurfaceVertex::kExtrapolatedPointIndex;
+    extrapolated.provenance = MeshProvenance::Extrapolated;
+    QVERIFY(extrapolated.isExtrapolated());
+    QVERIFY(extrapolated.pointIndex < 0); // 与实测点序号可分辨
+
+    // fromMap 如实保留两种记法，且兜底值不外推成「外推顶点」。
+    QVariantMap m;
+    m[QStringLiteral("x")] = 1.0;
+    m[QStringLiteral("y")] = 2.0;
+    m[QStringLiteral("z")] = 3.0;
+    m[QStringLiteral("stickId")] = QStringLiteral("s-1");
+    const FaultSurfaceVertex noKey = FaultSurfaceMesh::fromMap(
+        QVariantMap{{QStringLiteral("vertices"), QVariantList{m}}}).vertices.first();
+    QCOMPARE(noKey.pointIndex, -1);
+    QVERIFY(!noKey.isExtrapolated());
+
+    m[QStringLiteral("pointIndex")] = FaultSurfaceVertex::kExtrapolatedPointIndex;
+    m[QStringLiteral("provenance")] = QStringLiteral("extrapolated");
+    const FaultSurfaceVertex withKey = FaultSurfaceMesh::fromMap(
+        QVariantMap{{QStringLiteral("vertices"), QVariantList{m}}}).vertices.first();
+    QCOMPARE(withKey.pointIndex, FaultSurfaceVertex::kExtrapolatedPointIndex);
+    QVERIFY(withKey.isExtrapolated());
 }
 
 QTEST_MAIN(TestFaultSet)

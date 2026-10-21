@@ -481,6 +481,17 @@ private slots:
       if (li.lithoName == QStringLiteral("白云岩") && li.topDepth == 1000.0f)
         foundLitho = true;
     QVERIFY(foundLitho);
+
+    // #582（H3）：派生写回曾把沉积相三级行全按 category=「沉积微相」写出，
+    // 读回 3 行全落 microRows、major/subRows 为空——同一顶底区间由 1 条三级
+    // 记录变 3 条微相记录（区间数 ×3），相/亚相名丢失。
+    QCOMPARE(reparsed.faciesIntervals.size(), 1);
+    const FaciesInterval fi = reparsed.faciesIntervals.first();
+    QCOMPARE(fi.topDepth, 1000.0f);
+    QCOMPARE(fi.bottomDepth, 2000.0f);
+    QCOMPARE(fi.majorFacies, QStringLiteral("三角洲相"));
+    QCOMPARE(fi.subFacies, QStringLiteral("三角洲前缘"));
+    QCOMPARE(fi.microFacies, QStringLiteral("河口坝"));
   }
 
   // #477：SpreadsheetML 数值格必须 ss:Type="Number" 且深度不得截断成固定

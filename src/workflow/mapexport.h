@@ -1,5 +1,6 @@
 // 层：功能
 #pragma once
+#include <QHash>
 #include <QString>
 #include <QVector>
 #include <functional>
@@ -56,9 +57,13 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
 
 // Worker has already copied and hashed files into a private root on the same
 // filesystem. Owner only renames them and applies one atomic catalogue journal.
+// idMap（可空）带出「撞号重映射」：窗口期内 live catalog 已占用 staging 侧
+// 分配的 ast-N/ver-N 时，发布前换新号并改写引用/路径（C-3，#480 P3-3 口径
+// ——无关写不再整批判废导出）；调用方应据此改写结果中的资产/版本 id。
 bool publishMapExportJournal(DataCatalog *catalog, const QString &projectDir,
                              const QString &stagingRoot,
-                             const QVector<CatalogOp> &ops, QString *error);
+                             const QVector<CatalogOp> &ops, QString *error,
+                             QHash<QString, QString> *idMap = nullptr);
 
 struct MapProductExportOutcome {
   QString assetId, sha256, managedPath, error;

@@ -259,6 +259,11 @@ bool FrameworkStore::save( const Framework &fw, QString *error )
   QString ferr;
   if ( !batch.flush( &ferr ) )
   {
+    // K-3（=20261020 A-16，full-audit-20261021 复核仍成立）：flush 失败是
+    // 本函数唯一不清孤儿受管文件的失败路径（对照 :198/:210/:251）——批次
+    // 没落库，刚写的 ver-N 字节就地清掉，保持「字节在、元数据不在」的
+    // 半截状态不出现。
+    QFile::remove( abs );
     if ( error )
       *error = ferr;
     return false;

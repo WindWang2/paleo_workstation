@@ -22,6 +22,7 @@
 #include "wellfileparsers.h"
 
 #include <QCryptographicHash>
+#include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -45,6 +46,7 @@
 #include <algorithm>
 #include <cstdio>
 #include "dataimport_internal.h"
+#include "importrecovery.h"
 
 using paleo::dataimport_detail::setError;
 using paleo::dataimport_detail::readFileOrEmpty;
@@ -288,6 +290,8 @@ DataImportService::runInline(const std::function<void(ImportSession &)> &produce
   if (!s)
     return nullptr;
   produce(*s);
+  if (!s->intentPrepared && !paleo::dataimport_detail::writeImportIntent(*s, &s->commitPreparationError))
+    s->error = s->commitPreparationError;
   QString cerr;
   commitImport(*s, &cerr, /*allowConflict=*/false);
   return s;
@@ -309,6 +313,7 @@ bool DataImportService::moveStagedFiles(ImportSession &s, QStringList *moved,
   for (const QString &f : std::as_const(files))
   {
     const QString rel = root.relativeFilePath(f);
+    if (rel == QLatin1String("commit-intent.json")) continue;
     if (!rel.startsWith(QLatin1String("artifacts/")) ||
         rel.split(QLatin1Char('/')).contains(QStringLiteral("..")))
     {
@@ -339,12 +344,13 @@ bool DataImportService::moveStagedFiles(ImportSession &s, QStringList *moved,
   return true;
 }
 
-static void removeMovedFiles(const QStringList &moved)
+static bool removeMovedFiles(const QStringList &moved)
 {
+  bool removed = true;
   for (const QString &f : moved)
   {
     QFile::setPermissions(f, QFile::permissions(f) | QFileDevice::WriteOwner);
-    QFile::remove(f);
+    if (!QFile::remove(f) && QFileInfo::exists(f)) removed = false;
     // 受管版本目录（raw/<ast>/<ver> 与 derived/…）空了顺手收掉。
     QDir d = QFileInfo(f).absoluteDir();
     for (int i = 0; i < 3 && d.isEmpty(); ++i)
@@ -354,6 +360,7 @@ static void removeMovedFiles(const QStringList &moved)
         break;
     }
   }
+  return removed;
 }
 
 void DataImportService::emitSessionEvents(const ImportSession &s, bool committed)
@@ -401,7 +408,7 @@ void DataImportService::failSession(ImportSession &s, const QString &message)
     s.fileResult.message = message;
     emit importFailed(QString(), s.fileSourcePath, message);
   }
-  s.discardStaging();
+  if (!s.recoveryPending) s.discardStaging();
 }
 
 DataImportService::CommitStatus
@@ -416,6 +423,14 @@ DataImportService::commitImport(ImportSession &s, QString *error, bool allowConf
   }
   if (s.committed)
     return CommitStatus::Committed;
+  if (s.cancelled)
+  {
+    const QString message = s.error.isEmpty()
+        ? QCoreApplication::translate("DataImportService", "已取消，本批数据未入库") : s.error;
+    failSession(s, message);
+    setError(error, message);
+    return CommitStatus::Failed;
+  }
   if (s.epoch != m_catalogEpoch || s.projectDir != m_projectDir)
   {
     const QString msg = QStringLiteral("工程已切换，导入结果已丢弃");
@@ -451,9 +466,18 @@ DataImportService::commitImport(ImportSession &s, QString *error, bool allowConf
 
   QStringList moved;
   QString merr;
+  if (!s.commitPreparationError.isEmpty() || (!s.intentPrepared && QDir(s.stagingRoot).exists()))
+  {
+    merr = s.commitPreparationError.isEmpty()
+        ? QCoreApplication::translate("DataImportService", "导入暂存尚未准备完成，请重试。") : s.commitPreparationError;
+    failSession(s, merr);
+    setError(error, merr);
+    return CommitStatus::Failed;
+  }
+  s.recoveryPending = QFileInfo::exists(s.stagingRoot + QStringLiteral("/commit-intent.json"));
   if (!moveStagedFiles(s, &moved, &merr))
   {
-    removeMovedFiles(moved);
+    s.recoveryPending = !removeMovedFiles(moved);
     const QString msg = QStringLiteral("导入提交失败：%1").arg(merr);
     failSession(s, msg);
     setError(error, msg);
@@ -462,13 +486,14 @@ DataImportService::commitImport(ImportSession &s, QString *error, bool allowConf
   QString aerr;
   if (!m_catalog->applyJournal(ops, &aerr))
   {
-    removeMovedFiles(moved);
+    s.recoveryPending = !removeMovedFiles(moved);
     const QString msg = QStringLiteral("导入提交失败：%1").arg(aerr);
     failSession(s, msg);
     setError(error, msg);
     return CommitStatus::Failed;
   }
   s.committed = true;
+  s.recoveryPending = false;
   s.discardStaging();
   emitSessionEvents(s, /*committed=*/true);
   // B3：派生/栅格资产 Lazy ensure 金字塔（近零开销）——最终路径已落位。

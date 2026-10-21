@@ -34,6 +34,15 @@ struct FolderPreviewRow
   // 「未决（B9）」「歧义: …」等。导入前给确认表预显；入库后被行结果的实体列
   // 覆盖。纯展示串，视图不再回查 plan。
   QString entityPreview;
+  QString summary;
+  QStringList issues;
+  bool importBlocked = false;
+  QString suggestedWellId;
+  QMap<QString, QString> availableWells;
+  QString proposedWellName;
+  bool needsWellChoice = false;
+  QString dataPreview;
+  QString sourceSha256; // 预览绑定内容；确认/重试必须核验同一份字节
 };
 
 // 导入行结果（两阶段导入 / 单行重导 / plan 执行共用口径）。

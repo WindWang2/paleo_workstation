@@ -1561,13 +1561,6 @@
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/compositebody.cpp",
-    "rule": "rgb",
-    "source": "p.fillRect(flagRect, QColor(27, 115, 208, 215));",
-    "count": 1,
-    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
-  },
-  {
     "file": "src/ui/wellcomposite/compositeheader.cpp",
     "rule": "rgb",
     "source": "p.fillRect(ghost, QColor(27, 115, 208, 200));",
@@ -2427,13 +2420,6 @@
     "source": "print.fault = QColor(QStringLiteral(\"#000000\"));",
     "count": 1,
     "reason": "方向 27 连井相图/剖面断层的地质数据符号色（DESIGN.md 数据配色不随 UI 主题改写）；精确登记既有源码。"
-  },
-  {
-    "file": "src/ui/wellcomposite/compositebody.cpp",
-    "rule": "qt-color",
-    "source": "p.setPen(Qt::white);",
-    "count": 1,
-    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
     "file": "src/ui/wellcomposite/trackcolumns.cpp",

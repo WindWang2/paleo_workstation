@@ -265,11 +265,12 @@ class PaleoMainWindow : public SARibbonMainWindow
     // ---- W4 拆分段（实现在 paleomainwindow_attach.cpp）----
     // attachWorkflows 入口只做幂等守卫 + 页创建 + 顺序编排；每页接线一段：
     void attachPaleomapLibrary(DataPage *page);
-    void wireDataImportRequests(DataPage *page, DataImportService *service, DataPreviewTabs *preview);
+    void wireDataImportRequests(DataPage *dataPage, DataImportService *importSvc, DataPreviewTabs *preview);
     void attachProjectDashboard(DataPage *dataPage, DataPreviewTabs *preview);
     void attachDataPage(DataPage *dataPage, WellCorrelationPanel *corrPanel,
                         DataImportService *importSvc, PaleoTaskService *taskSvc);
     void attachPredictPage(PredictPage *predictPage, PredictionWorkflow *pred);
+    void attachConstraintMapSelection(ConstraintPage *constraintPage);
     void attachConstraintPage(ConstraintPage *constraintPage, ConstraintWorkflow *constraint);
     void attachComposePage(ComposePage *composePage, CompositionWorkflow *compose,
                            QgisLayoutService *layoutSvc);
@@ -285,6 +286,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 绘制或保存约束后：勾选 constraints.<层位>，套约束线样式并刷新画布。
     // 主图层不是线时，再勾上已声明的线伴随视图。
     void showDrawnConstraintLines(const QString &horizon);
+    void attachConstraintDrawController(ConstraintPage *constraintPage, ConstraintWorkflow *constraint);
     // 方向 47：realization 面同画布上图 + 不确定性图签。成员/统计面各按
     // 同集合互斥显隐（成员换成员、统计换统计），差值面独立可叠。
     // badgeTitle 空 = 关图签。
@@ -300,6 +302,8 @@ class PaleoMainWindow : public SARibbonMainWindow
                                              QgisEditingService *editSvc,
                                              QgisLayoutService *layoutSvc,
                                              PaleoTaskService *taskSvc);
+    // 底栏「发布」页：库路径/当前清单/只读态（§6）三面均从工程存储注入。
+    void attachReleasePanel(PaleoProjectStore *store);
     // attachMapping 三段：发布门（m_refreshPublishGate 本体）→ 导出接线 →
     // 版本状态机。
     void attachMappingPublishGate(ComposePage *composePage, MapVersionController *versions,

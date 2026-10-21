@@ -2,6 +2,7 @@
 // 预测管线：任务行三件套 + predict/cancelPrediction/finishPrediction/ensureInputVersion。
 // 从 mappingworkbench.cpp 析出——行为守恒平移（goal/core-deepening A-R2）：
 // 函数体逐字未动，仅按子域归位到独立 TU。
+#include <QDebug>
 #include "mappingworkbench.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
@@ -11,6 +12,7 @@
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
 #include "../io/lasparser.h"
+#include "../io/welllogread.h"
 #include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
@@ -27,12 +29,14 @@
 #include "assetops.h"
 #include "constraintimport.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "evidencerecord.h"
 #include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
 #include "wellpredictionservice.h"
 #include "workflows.h"
 #include <QDateTime>
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -179,16 +183,12 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     seen.insert(row.value("id").toString());
     request.sourceVersionIds << row.value("parents").toStringList();
     if (kind == "wells") {
-      auto well = row;
       const auto logVersion = row.value("log_version_id").toString();
       logPaths << (logVersion.isEmpty()
                        ? QString()
                        : DataCatalog::resolvedVersionPath(
                              m_dir, m_catalog->versionById(logVersion)));
-      well.insert("vector_intervals", WellAttributeStore::rows(m_dir, m_layers, false, row.value("id").toString()));
-      well.insert("vector_factors", WellAttributeStore::rows(m_dir, m_layers, true, row.value("id").toString(), h));
-      well.insert("vector_formations", WellAttributeStore::rows(m_dir, m_layers, WellAttributeStore::Table::Formations, row.value("id").toString()));
-      request.wells << well;
+      request.wells << wellRequestEntry(row, h);
     }
   }
   if (seen.size() != QSet<QString>(ids.cbegin(), ids.cend()).size()) {
@@ -358,9 +358,17 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
         const auto st = registrar.stage("horizon", request.horizon + "-prediction-input",
                                         request.horizon + ".dat", &error);
         const QStringList parents = horizonVersion.isEmpty() ? QStringList() : QStringList{horizonVersion};
-        if (!st.isValid() || !registrar.commitExternal(st, inputSnapshot->filePath("horizon.dat"),
-            parents, horizonPath, {{"horizon", request.horizon}, {"horizon_input_snapshot", true},
-                                  {"z_units", "ms"}}, &error)) {
+        // algo-atom：输入快照经 publishArtifacts（commitExternal 等价）
+        AlgorithmRunResult snapRun =
+            paleo::runResultFromOutputPath( inputSnapshot->filePath( QStringLiteral( "horizon.dat" ) ) );
+        snapRun.diagnostics.insert( QStringLiteral( "asset_role" ),
+                                    QStringLiteral( "horizon_input_snapshot" ) );
+        QVariantMap snapExtra;
+        snapExtra.insert( QStringLiteral( "horizon" ), request.horizon );
+        snapExtra.insert( QStringLiteral( "horizon_input_snapshot" ), true );
+        snapExtra.insert( QStringLiteral( "z_units" ), QStringLiteral( "ms" ) );
+        if (!st.isValid() || !paleo::publishArtifacts( registrar, st, snapRun, parents, horizonPath,
+                                                       snapExtra, &error )) {
           m_request = {};
           m_predictionParameters.clear();
           endPredictionTask(error);
@@ -372,6 +380,13 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       }
       m_predictionParameters.insert("valid_cells", clustered.validCells);
       m_predictionParameters.insert("cluster_facies_mapping", clustered.clusterMapping);
+      // B-06：读取失败的 inline 缩水如实进参数留痕（消费方：版本 extra 与
+      // 预测详情）——空 warnings 不写字段，历史结果不受扰。
+      if (!clustered.warnings.isEmpty()) {
+        m_predictionParameters.insert("cluster_warnings", clustered.warnings);
+        for (const QString &warning : clustered.warnings)
+          qWarning() << "seismic cluster:" << warning;
+      }
       m_predictionParameters.insert("labeling_method", "well_majority_with_observed_facies_fallback");
       m_predictionParameters.insert("fallback_seed", 42);
       m_request.wells = clustered.supportingWells;
@@ -450,6 +465,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   }
   // 测井：后台读各井曲线深度范围 → 回主线程补进请求 → 提交预测服务。
   auto cancelled = std::make_shared<std::atomic_bool>(false);
+  auto preparationError = std::make_shared<QString>();
   m_prepareCancelled = cancelled;
   if (m_task)
     m_task->reportDetail(tr("后台读取 %1 口井的测井曲线").arg(logPaths.size()));
@@ -460,12 +476,20 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       m_task->reportDetail(tr("读取测井曲线 %1/%2").arg(done).arg(total));
   });
   connect(watcher, &QFutureWatcherBase::finished, this,
-          [this, watcher, id = request.id, cancelled] {
+          [this, watcher, id = request.id, cancelled, preparationError] {
     const auto ranges = watcher->result();
     watcher->deleteLater();
     if (m_request.id != id || cancelled->load())
       return;
     m_prepareCancelled.reset();
+    if (!preparationError->isEmpty()) {
+      m_request = {};
+      m_predictionParameters.clear();
+      endPredictionTask(*preparationError);
+      emit predictionBusyChanged(false);
+      emit errorOccurred(*preparationError);
+      return;
+    }
     for (qsizetype i = 0; i < m_request.wells.size() && i < ranges.size(); ++i) {
       auto well = m_request.wells[i].toMap();
       const bool measured = std::isfinite(ranges[i].first) &&
@@ -482,20 +506,28 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   });
   watcher->setFuture(QtConcurrent::run(
       paleo::tasks::pool(m_taskSvc),
-      [logPaths, cancelled](QPromise<QVector<QPair<double, double>>> &promise) {
+      [logPaths, cancelled, preparationError](QPromise<QVector<QPair<double, double>>> &promise) {
         promise.setProgressRange(0, int(logPaths.size()));
         QVector<QPair<double, double>> ranges;
         for (const auto &path : logPaths) {
           if (cancelled->load())
             break;
           double top = std::numeric_limits<double>::infinity(), bottom = -top;
-          QStringList names;
+          LasHeaderInfo header;
           QList<LasCurve> curves;
-          if (!path.isEmpty() &&
-              LasParser::parse(path, names, curves, nullptr) &&
-              !curves.isEmpty())
+          const bool explicitAxis = !path.isEmpty() && WellLogRead::detect(path) != WellLogFormat::Las;
+          QString readError;
+          const bool parsed = !path.isEmpty() && WellLogRead::parse(path, header, curves, &readError) && !curves.isEmpty();
+          const double scale = parsed ? LasParser::depthUnitToMeters(curves.first().unit) : 0.0;
+          if (explicitAxis && (!parsed || header.indexBasis != QLatin1String("MD") || scale <= 0.0)) {
+            *preparationError = QCoreApplication::translate("MappingWorkbench", "%1：预测需要可读取且声明米或英尺单位的 MD 测深；请检查索引基准和单位。%2")
+                .arg(QFileInfo(path).fileName(), readError);
+            break;
+          }
+          if (parsed)
             for (double d : curves.first().values)
               if (std::isfinite(d)) {
+                if (explicitAxis) d *= scale;
                 top = std::min(top, d);
                 bottom = std::max(bottom, d);
               }
@@ -508,6 +540,17 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
 }
 void MappingWorkbench::cancelPrediction() {
   cancelPredictionTask();
+  // 准备检查干跑不占 m_request（busy()=false），原先此处不会 cancel 测井服务，
+  // 也不会清 m_readinessId——面板一直等 wellReadinessReady，卡在「正在检查…」。
+  if (!m_readinessId.isEmpty()) {
+    const QString horizon = m_readinessHorizon;
+    m_readinessId.clear();
+    m_readinessHorizon.clear();
+    m_readinessMissing.clear();
+    if (m_wellRemote)
+      m_wellRemote->cancel();
+    emit wellReadinessReady(horizon, {}, tr("检查已中止：工区已切换或预测已取消"));
+  }
   // 先摘 m_request 再取消服务：服务在 cancel() 里同步 emit failed(id,"已取消")，
   // 而 failed 槽按 id == m_request.id 过滤（mappingworkbench.cpp）。原先顺序
   // 是「先取消服务、再清 m_request」，于是用户主动取消被翻译成 errorOccurred，

@@ -557,8 +557,14 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
         if ( std::fabs( sample.x - query.x ) <= ex && std::fabs( sample.y - query.y ) <= ey &&
              std::fabs( sample.z - query.z ) <= ez )
         {
-          queryCoincidentWithStatic = true;
-          queryGaussian = table.forward( sample.value );
+          // 首个重合样本定分（邻域按距离升序 → 最近），与 2D 核 sgs.cpp:315
+          // 的 break 语义一致；本循环还要把全部静态样本并入邻域，不能 break——
+          // 漏这层保护时取到的是邻域中最后一个重合样本得分。
+          if ( !queryCoincidentWithStatic )
+          {
+            queryCoincidentWithStatic = true;
+            queryGaussian = table.forward( sample.value );
+          }
         }
       }
       const std::size_t staticCount = neighborhood.size();

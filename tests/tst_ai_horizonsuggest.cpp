@@ -19,7 +19,6 @@ private slots:
   void fetcherErrorPropagation();
   void invalidRadiusOrWindow();
   void suggestionFieldsIntegrity();
-  void mutationDemonstration_seedsMustBeAnchored();
   void cooperativeCancellationStopsExpansion();
   void logitScorerRejectedOutsideProbabilityDomain();
   // #479 去平方化（QSet 去重 + 最近邻距离场）的行为锚定：多种子扩张的
@@ -127,36 +126,73 @@ void TestAiHorizonSuggest::invalidRadiusOrWindow()
 
 void TestAiHorizonSuggest::suggestionFieldsIntegrity()
 {
-  TrackingSuggestion sug;
-  sug.inlineNo = 101;
-  sug.xlineNo = 202;
-  sug.sampleIndex = 303;
-  sug.score = 0.95f;
-  sug.confidence = 0.88f;
-  sug.isSeed = true;
-  sug.sourceInline = 100;
-  sug.sourceXline = 200;
+  if (!PaleoOnnxService::runtimeAvailable())
+    QSKIP("onnxruntime 不在 vendor 树中");
 
-  QCOMPARE(sug.inlineNo, 101);
-  QCOMPARE(sug.xlineNo, 202);
-  QCOMPARE(sug.sampleIndex, 303);
-  QVERIFY(sug.score > 0.9f);
-  QVERIFY(sug.confidence > 0.8f);
-  QVERIFY(sug.isSeed);
-  QCOMPARE(sug.sourceInline, 100);
-}
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(OnnxFixtureWriter::writeTraceScorer(
+      dir.filePath(QStringLiteral("scorer.onnx")), 8.0f, 0.0f));
+  PaleoOnnxService svc;
+  svc.setModelRoot(dir.path());
 
-void TestAiHorizonSuggest::mutationDemonstration_seedsMustBeAnchored()
-{
-  // 变异测试示范：追踪种子点必须具备锚定属性，评分不应越界
-  TrackingSuggestion seedSug;
-  seedSug.isSeed = true;
-  seedSug.score = 1.0f;
-  seedSug.confidence = 1.0f;
+  TrackingSeed a;
+  a.inlineNo = 10;
+  a.xlineNo = 20;
+  a.sampleIndex = 500;
+  TrackingSeed b;
+  b.inlineNo = 10;
+  b.xlineNo = 24;
+  b.sampleIndex = 700;
 
-  QVERIFY(seedSug.isSeed);
-  QVERIFY(seedSug.score >= 0.0f && seedSug.score <= 1.0f);
-  QVERIFY(seedSug.confidence >= 0.0f && seedSug.confidence <= 1.0f);
+  TraceWindowFetcher fetch = [](int, int, int, int, QVector<float> &out, QString &) {
+    out = QVector<float>(64, 0.0f); // 全零道窗 → p≡0.5（概率域内）
+    return true;
+  };
+
+  QVector<TrackingSuggestion> out;
+  QString err;
+  const bool ok = suggestHorizonTracking(&svc, QStringLiteral("scorer"),
+                                         {a, b}, 64, 2, fetch, {}, &out, &err);
+  QVERIFY2(ok, qPrintable(err));
+  QVERIFY2(out.size() > 2, qPrintable(QString::number(out.size())));
+
+  // 字段完整性：跑真实引擎后逐条查输出域与追溯链——原实现只在本函数内给
+  // 结构体赋字面量再读回，无论 suggestHorizonTracking 怎么坏都恒绿。
+  const auto pickedAt = [&out](int il, int xl) {
+    for (const TrackingSuggestion &s : out)
+      if (s.inlineNo == il && s.xlineNo == xl)
+        return true;
+    return false;
+  };
+  int seeds = 0;
+  for (const TrackingSuggestion &s : out)
+  {
+    // 输出域：score/confidence 恒在概率域（logits 型 scorer 由域守卫整跑拒绝）
+    QVERIFY2(s.score >= 0.0f && s.score <= 1.0f,
+             qPrintable(QStringLiteral("score=%1").arg(double(s.score))));
+    QVERIFY2(s.confidence >= 0.0f && s.confidence <= 1.0f,
+             qPrintable(QStringLiteral("confidence=%1").arg(double(s.confidence))));
+    // 追溯链：来源道必须是本次输出里的某一条已定拾取（否则建议无锚可查）
+    QVERIFY2(pickedAt(s.sourceInline, s.sourceXline),
+             qPrintable(QStringLiteral("来源 (%1,%2) 不在输出中")
+                            .arg(s.sourceInline)
+                            .arg(s.sourceXline)));
+    if (s.isSeed)
+    {
+      ++seeds;
+      QCOMPARE(s.sourceInline, s.inlineNo); // 种子行自引用（锚定属性）
+      QCOMPARE(s.sourceXline, s.xlineNo);
+      QCOMPARE(s.score, 1.0f); // 解释员给定的锚不经模型：满置信
+      QCOMPARE(s.confidence, 1.0f);
+    }
+    else
+    {
+      QVERIFY2(!(s.sourceInline == s.inlineNo && s.sourceXline == s.xlineNo),
+               "扩张建议不得把自己当来源");
+    }
+  }
+  QCOMPARE(seeds, 2);
 }
 
 void TestAiHorizonSuggest::cooperativeCancellationStopsExpansion()

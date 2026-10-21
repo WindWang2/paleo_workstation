@@ -1,6 +1,9 @@
 // 层：功能
 #include "aiassistworkflow.h"
 
+#include <memory>
+#include <mutex>
+
 #include <QDir>
 #include <QFile>
 #include <QHash>
@@ -356,6 +359,33 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
   products.append( conf );
 
   QStringList layerIds;
+  // #588 L4.2：三段产物原先逐段 return false——已 commit 的外部资产与已声明
+  // 图层留在盘上，「失败」被上报而部分产物实际留存。改为一次 BatchSave 事务：
+  // 任一段失败即整批回滚（内层 commit 的 transaction.abort() 冒泡到本批），
+  // 已登记的版本、已落盘的受管字节与已下的图层声明一并回收（顺序同
+  // MappingWorkbench::removeProduct：先下架声明、再删受管文件）。
+  DataCatalog::BatchSave transaction(m_catalog);
+  struct Committed
+  {
+    QString layerId;
+    QString path;
+  };
+  QVector<Committed> committed;
+  QStringList declaredIds;
+  const auto discardCommitted = [&]() {
+    if ( !declaredIds.isEmpty() )
+      m_layers->removeDeclarations( declaredIds );
+    for ( const Committed &c : committed )
+    {
+      // 受管字节在 commit 后被置只读，Windows 删只读文件会失败——先恢复可写。
+      QFile::setPermissions( c.path, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                         QFileDevice::ReadUser );
+      QFile::remove( c.path );
+    }
+    committed.clear();
+    declaredIds.clear();
+    layerIds.clear();
+  };
   for ( const Product &p : products )
   {
     QString stageErr;
@@ -363,6 +393,8 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
     if ( !st.isValid() )
     {
       *error = stageErr;
+      discardCommitted();
+      transaction.abort();
       return false;
     }
     QJsonObject prov = provCommon;
@@ -374,7 +406,12 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
                            : writeBandRaster( st.absolutePath, rows, cols, GDT_Byte, 255.0,
                                                               p.bytes.constData(), grid, provJson, error );
     if ( !written )
+    {
+      QFile::remove( st.absolutePath );
+      discardCommitted();
+      transaction.abort();
       return false;
+    }
     const QStringList parents = !grid.sourcePath.isEmpty()
                                   ? registrar.parentVersionIdsFor( QStringList { grid.sourcePath } )
                                   : QStringList();
@@ -384,6 +421,9 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
                                     &commitErr ) )
     {
       *error = commitErr;
+      QFile::remove( st.absolutePath );
+      discardCommitted();
+      transaction.abort();
       return false;
     }
     LayerDeclaration decl;
@@ -394,8 +434,23 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
     decl.group = QStringLiteral( "03_Predict" );
     decl.title = p.title;
     if ( !m_layers->declare( decl, error ) )
+    {
+      discardCommitted();
+      transaction.abort();
       return false;
+    }
+    committed.append( Committed { p.layerId, st.absolutePath } );
+    declaredIds.append( p.layerId );
     layerIds.append( p.layerId );
+  }
+  QString flushErr;
+  if ( !transaction.flush( &flushErr ) )
+  {
+    // 整批落盘失败：catalog 内存已由 BatchSave 回滚到批次前，受管字节与
+    // 图层声明同步回收——不留下「盘上有、库里无」的孤儿产物。
+    *error = tr( "AI 相分类产品登记落盘失败：%1" ).arg( flushErr );
+    discardCommitted();
+    return false;
   }
   m_lastProductLayerIds = layerIds;
 
@@ -436,9 +491,34 @@ AiAssistWorkflow::GridFetch AiAssistWorkflow::horizonGridFetch( QgisLayerService
 {
   // 返回可拷贝的取数闭包（classifyTiles/startClassification/聊天执行器共用
   // 契约：NaN = 缺）。池线程调用——声明解析在调用时做，数据集按调用开关。
-  return [layers]( int row0, int col0, int rows, int cols, QVector<float> &out,
-                   QString &err ) -> bool {
-    const QString path = horizonRasterPath( layers );
+  //
+  // 生命周期：闭包在池线程执行，绝不能触碰 QgisLayerService（主线程对象，可能
+  // 已析构）。在调用线程（主线程）解析路径快照，并以 layers 为 context 订阅声明
+  // 变更信号在主线程刷新快照——service 析构时连接自动断开，池线程只读加锁快照。
+  struct PathSnapshot
+  {
+    std::mutex mutex;
+    QString path;
+  };
+  auto snapshot = std::make_shared<PathSnapshot>();
+  snapshot->path = horizonRasterPath( layers );
+  if ( layers )
+  {
+    auto refresh = [snapshot, guard = QPointer<QgisLayerService>( layers )]( const QString & ) {
+      const QString path = horizonRasterPath( guard.data() );
+      std::lock_guard<std::mutex> lock( snapshot->mutex );
+      snapshot->path = path;
+    };
+    QObject::connect( layers, &QgisLayerService::layerDeclared, layers, refresh );
+    QObject::connect( layers, &QgisLayerService::horizonReleased, layers, refresh );
+  }
+  return [snapshot]( int row0, int col0, int rows, int cols, QVector<float> &out,
+                     QString &err ) -> bool {
+    QString path;
+    {
+      std::lock_guard<std::mutex> lock( snapshot->mutex );
+      path = snapshot->path;
+    }
     if ( path.isEmpty() || !QFile::exists( path ) )
     {
       err = QObject::tr( "未找到活动层位的栅格声明（horizon.%1）——先导入/生成层位栅格" )

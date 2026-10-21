@@ -440,12 +440,13 @@ private slots:
     secOptions.maxColumns = 32;
 
     std::shared_ptr<const seismic::SgySliceImage> secImage;
+    seismic::SgySectionStats secStats;
     PaleoTask *secTask = seismicService.startSectionExtraction(
         volume,
         pathPoints,
         secOptions,
-        [&](bool success, std::shared_ptr<const seismic::SgySliceImage> img, const seismic::SgySectionStats &, const QString &) {
-          if (success) secImage = img;
+        [&](bool success, std::shared_ptr<const seismic::SgySliceImage> img, const seismic::SgySectionStats &stats, const QString &) {
+          if (success) { secImage = img; secStats = stats; }
         });
     QVERIFY(secTask != nullptr);
     QSignalSpy secFin(secTask, &PaleoTask::finished);
@@ -453,6 +454,22 @@ private slots:
     QVERIFY(secImage != nullptr);
     QVERIFY(secImage->width > 0);
     QCOMPARE(secImage->height, 64);
+
+    // 米口径在 columnDistancesM（columnDistances 保持线号弧长，供
+    // SectionGeometry 换算）。本夹具 25m 正交测网（xline 步 25m X 向、
+    // inline 步 25m Y 向），对角路径 (1,1)→(10,10) 的米弧长 =
+    // 9·√(25²+25²) ≈ 318.20m；线号弧长 9·√2 ≈ 12.73。容差 1m。
+    QCOMPARE(int(secStats.columnDistances.size()), secImage->width);
+    QVERIFY(std::abs(double(secStats.columnDistances.back()) - 9.0 * std::sqrt(2.0)) < 1.0);
+    QCOMPARE(int(secStats.columnDistancesM.size()), secImage->width);
+    QVERIFY(secStats.columnDistancesM.size() >= 2);
+    QVERIFY2(std::abs(double(secStats.columnDistancesM.back()) - 9.0 * 25.0 * std::sqrt(2.0)) < 1.0,
+             qPrintable(QStringLiteral("剖面总长 %1m（期望 ~318.2m）")
+                            .arg(secStats.columnDistancesM.back())));
+    for (std::size_t c = 1; c < secStats.columnDistancesM.size(); ++c)
+      QVERIFY(secStats.columnDistancesM[c] >= secStats.columnDistancesM[c - 1]); // 单调累计
+    for (std::size_t c = 1; c < secStats.columnDistances.size(); ++c)
+      QVERIFY(secStats.columnDistances[c] >= secStats.columnDistances[c - 1]); // 单调累计
   }
 };
 

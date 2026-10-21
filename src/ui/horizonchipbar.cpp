@@ -24,7 +24,7 @@ static void applyChipStyle( QToolButton *chip, const QColor &zone )
     const QString faded = QStringLiteral( "rgba(%1,%2,%3,0.45)" )
                               .arg( zone.red() ).arg( zone.green() ).arg( zone.blue() );
     return PaleoTheme::metricStyleSheet(QStringLiteral(
-               "QToolButton { border-radius: %8px; padding: {spacing.xs}px {spacing.md}px;"
+               "QToolButton { border-radius: %8px; padding: {spacing.xs}px {spacing.sm}px;"
                " background: %1; border: 1px solid %2; color: %3; }"
                "QToolButton:checked { background: %4; border-color: %4; color: %5; }"
                "QToolButton:hover:!checked { border-color: %6; }"
@@ -110,11 +110,15 @@ void HorizonChipBar::reloadHorizons()
 {
   // 层位名单是工程级参数（AreaRules）——工程打开后按新词表重建；旧 chip
   // 连同其连接一并销毁，激活态交由 applyActive 按当前 selection 恢复。
+  // D-02（full-audit-20261021）：deleteLater 的旧 chip 在事件循环运行前仍
+  // 是本对象的子项——紧随其后的 buildChips/applyActive/chipNames 经
+  // findChildren 会命中新旧两代（chipNames 双计数、状态操作打在死对象上）。
+  // reload 无用户点击在飞，直接 delete 即刻回收。
   const auto chips = findChildren<QToolButton *>();
   for ( QToolButton *chip : chips )
   {
     layout()->removeWidget( chip );
-    chip->deleteLater();
+    delete chip;
   }
   buildChips();
   applyActive( m_selection ? m_selection->activeHorizon() : QString() );

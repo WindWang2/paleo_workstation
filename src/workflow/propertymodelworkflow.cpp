@@ -4,6 +4,7 @@
 
 #include "../catalog/datacatalog.h"
 #include "../io/lasparser.h"
+#include "../io/welllogread.h"
 #include "../services/jobrunner.h"
 #include "../services/projectdata.h"
 #include "../services/welllogset.h"
@@ -199,6 +200,15 @@ bool PropertyModelWorkflow::loadSurface(const QString &path, paleo::stratgrid::S
     setError(error, QStringLiteral("层位栅格 %1 没有波段").arg(path));
     return false;
   }
+  // #415 同族：cols*rows int 乘法溢出——回绕后 resize 按小数组分配、
+  // GDALRasterIO 按真实维度写即越界。预算同 mapping/depthconversion 的 4M 闸。
+  const qint64 cells = static_cast<qint64>(cols) * rows;
+  if (cells > 4000000LL)
+  {
+    GDALClose(ds);
+    setError(error, QStringLiteral("层位栅格 %1 超出像元预算（%2 格 > 4M）").arg(path).arg(cells));
+    return false;
+  }
   const double skew = std::max(std::fabs(gt[2]), std::fabs(gt[4]));
   const double scale = 1.0 + std::fabs(gt[1]) + std::fabs(gt[5]);
   if (skew > 1e-6 * scale)
@@ -216,7 +226,7 @@ bool PropertyModelWorkflow::loadSurface(const QString &path, paleo::stratgrid::S
   GDALRasterBandH band = GDALGetRasterBand(ds, 1);
   int flag = 0;
   const double nodata = GDALGetRasterNoDataValue(band, &flag);
-  std::vector<float> z(static_cast<std::size_t>(cols * rows));
+  std::vector<float> z(static_cast<std::size_t>(cells));
   const CPLErr rc = GDALRasterIO(band, GF_Read, 0, 0, cols, rows, z.data(), cols, rows,
                                   GDT_Float32, 0, 0);
   GDALClose(ds);
@@ -1145,10 +1155,21 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     if (ref.column < 1 || ref.path.isEmpty())
       continue;
 
-    QStringList names;
+    LasHeaderInfo header;
     QList<LasCurve> curves;
-    if (!LasParser::parse(ref.path, names, curves, nullptr) || ref.column >= curves.size())
+    QString readError;
+    const bool explicitAxis = WellLogRead::detect(ref.path) != WellLogFormat::Las;
+    if (!WellLogRead::parse(ref.path, header, curves, &readError) || ref.column >= curves.size())
+    {
+      if (explicitAxis) { setError(error, tr("%1：测井曲线无法读取：%2").arg(ent.name, readError)); return {}; }
       continue;
+    }
+    if (explicitAxis && header.indexBasis != QLatin1String("MD"))
+    {
+      setError(error, tr("%1：属性建模需要 MD 测深，文件 %2 的索引基准为 %3；请先提供明确的 MD 数据或完成深度转换。")
+          .arg(ent.name, QFileInfo(ref.path).fileName(), header.indexBasis.isEmpty() ? tr("未声明") : header.indexBasis));
+      return {};
+    }
 
     const QVector<double> &depth = curves.at(0).values;
     const QVector<double> &vals = curves.at(ref.column).values;
@@ -1156,6 +1177,12 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     // #166：深度道单位 → 米制 MD（轨迹/层位都是米）。FT 族 ×0.3048；
     // 空/未知单位沿用旧口径按米处理。
     const double unitScale = LasParser::depthUnitToMeters(curves.at(0).unit);
+    if (explicitAxis && unitScale <= 0.0)
+    {
+      setError(error, tr("%1：文件 %2 的 MD 单位未知（%3），请声明米或英尺单位后重试。")
+          .arg(ent.name, QFileInfo(ref.path).fileName(), curves.at(0).unit));
+      return {};
+    }
     const double mdScale = unitScale > 0.0 ? unitScale : 1.0;
     struct Sample
     {

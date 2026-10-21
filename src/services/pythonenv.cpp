@@ -38,6 +38,10 @@ PythonEnvService::~PythonEnvService()
   }
   if ( m_proc )
   {
+    // #588-L4.4：先断开进程信号再 kill+wait——waitForFinished 可能同步触发
+    // finished/errorOccurred 槽（半销毁对象上 emit 是 UB），且析构后上层也
+    // 不该再收到 busyChanged/stepFinished。
+    disconnect( m_proc, nullptr, this, nullptr );
     m_proc->kill();
     m_proc->waitForFinished( 3000 );
   }

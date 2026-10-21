@@ -28,6 +28,8 @@
 #include "constraintfactorjobs_internal.h"
 #include "constraintworkflow_internal.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
+#include "algorithmadapters.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
@@ -446,10 +448,13 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
 
   QString commitErr;
   const bool fieldContours = job.structural || !job.contourMethod.isEmpty();
-  if ( !registrar.commitExternal( st, job.outputPath, parents,
-                                  fieldContours ? QStringLiteral( "paleo_field_contours" )
-                                                : QStringLiteral( "gdal_contour_c_api" ),
-                                  extra, &commitErr ) )
+  // algo-atom P1-extend：等值线发布经 publishArtifacts
+  const QString contourSource =
+      fieldContours ? QStringLiteral( "paleo_field_contours" )
+                    : QStringLiteral( "gdal_contour_c_api" );
+  const AlgorithmRunResult runResult = paleo::runResultFromOutputPath( job.outputPath );
+  if ( !paleo::publishArtifacts( registrar, st, runResult, parents, contourSource, extra,
+                                 &commitErr ) )
   {
     if ( !sameFile( st.absolutePath, job.rasterPath ) )
       removeIfPresent( st.absolutePath );
@@ -649,7 +654,11 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
     parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
   }
 
-  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_cartographic_work" ), runParams, error );
+  // algo-atom P2：cartographic_work 经 ProcessingAlgorithmAdapter
+  paleo::ProcessingAlgorithmAdapter adapter( proc );
+  const AlgorithmRunResult cartoRun =
+      adapter.runById( QStringLiteral( "paleo:paleo_cartographic_work" ), runParams, error );
+  const QVariantMap results = paleo::processingResultsFromRunResult( cartoRun );
   const QString outPath = results.value( QStringLiteral( "OUTPUT" ) ).toString();
   QString qcPath = results.value( QStringLiteral( "QC" ) ).toString();
   if ( qcPath.isEmpty() && !outPath.isEmpty() )
@@ -767,9 +776,12 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
   extra.insert( QStringLiteral( "unresolved_crossings" ), qc.value( QStringLiteral( "unresolved_crossings" ) ) );
   extra.insert( QStringLiteral( "levels" ), hashParams.value( QStringLiteral( "levels" ) ) );
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
+  // algo-atom P1-extend：cartographic_work 经 publishArtifacts
+  const AlgorithmRunResult runResult = paleo::runResultFromOutputPath( outPath );
   QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, parentIds, QStringLiteral( "paleo:paleo_cartographic_work" ), extra,
-                                  &commitErr ) )
+  if ( !paleo::publishArtifacts(
+           registrar, st, runResult, parentIds,
+           QStringLiteral( "paleo:paleo_cartographic_work" ), extra, &commitErr ) )
   {
     discard();
     paleo::workflow_detail::setError( error, commitErr );

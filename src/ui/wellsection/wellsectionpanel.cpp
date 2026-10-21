@@ -7,6 +7,7 @@
 #include "ui/paleotheme.h"
 #include "../seismicsection/seismiccolormap.h"
 #include "wellsectiondialogs.h"
+#include "../notifications/paleonotify.h"
 
 #include <QActionGroup>
 #include <QCursor>
@@ -378,12 +379,11 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   });
   connect(m_fitBtn, &QToolButton::clicked, this, [this] { fitToView(); });
   connect(m_exportBtn, &QToolButton::clicked, this, [this] {
-    const QString path = QFileDialog::getSaveFileName(
-        this, tr("导出剖面图"), QString(),
-        tr("PNG 图片 (*.png);;PDF 文档 (*.pdf);;SVG 矢量图 (*.svg);;"
-           "层位井深表 CSV (*.csv)"));
-    if (!path.isEmpty())
-      exportTo(path);
+    const QString path = QFileDialog::getSaveFileName(this, tr("导出剖面图"), QString(),
+        tr("PNG 图片 (*.png);;PDF 文档 (*.pdf);;SVG 矢量图 (*.svg);;层位井深表 CSV (*.csv)"));
+    if (!path.isEmpty() && !exportTo(path)) // L5.3：导出失败不再静默（旧实现丢弃返回值）
+      PaleoNotify::critical(this, tr("导出失败"),
+                            tr("写入失败，请检查路径与写入权限：%1").arg(path));
   });
 
   // ---- 版头 + 视图 + 空态（同格叠加）----

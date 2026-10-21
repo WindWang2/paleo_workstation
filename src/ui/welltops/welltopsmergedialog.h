@@ -25,6 +25,9 @@ public:
 
 private:
   void rebuildSummary();
+  // 冲突行取值列文本（L1.5：走 tr——英文界面不漏「空」）。静态：调用点在
+  // 构造（成员函数）内，不需要 this。
+  static QString valueText(const WellTopRecord &r);
 
   QVector<WellTopsEdit::MergeRow> m_rows;
   QTableWidget *m_table = nullptr;

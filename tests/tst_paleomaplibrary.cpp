@@ -37,6 +37,7 @@
 #include <qgsrenderer.h>
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/qgis/paleomapsource.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/metadata/layermanifest.h"
@@ -233,6 +234,92 @@ private slots:
     QCOMPARE(cat->currentVersion(raw.assetId).id, raw.id); QCOMPARE(cat->versionsForAsset(raw.assetId).size(), 1);
     QString error; QVERIFY(!PaleoMapLibrary::importMaps(cat, &f.layers, &f.tasks, request, this, {}, &error)); QVERIFY(!error.isEmpty());
   }
+  // C-10（full-audit-20261020）：#579 的回收防线只盖 assetIds 路径——文件重导入
+  // 命中软删资产必须拒绝（不得「导入成功但数据树仍隐藏」，也不得在恢复时产生
+  // 同源双资产）；declareMaps 不得为删除态资产声明图层（画布/数据树可见性一致）。
+  void fileReimportOfSoftDeletedMapRejectedAndDeclareMapsSkipsRecycled() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("D61/map.shp");
+    QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D61"; request.normalizeFacies = false;
+    const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); auto *cat = f.importer.catalog();
+    const auto id = imported.assets.first();
+    const auto versionsBefore = cat->versionsForAsset(id).size();
+    paleo::dataops::RecycleBin bin; bin.load(cat);
+    bin.remove(id, "paleogeographic_map", "map", "test"); QVERIFY(bin.save());
+
+    // 同文件同层位重导入：命中软删资产 → 拒绝并提示，catalog 不动
+    const auto reimported = f.run(request);
+    QVERIFY(!reimported.errors.isEmpty());
+    QVERIFY(reimported.assets.isEmpty());
+    QVERIFY2(reimported.errors.join("\n").contains(QString::fromUtf8("可回收清单")),
+             qPrintable(reimported.errors.join("\n")));
+    QCOMPARE(cat->versionsForAsset(id).size(), versionsBefore);
+
+    // declareMaps：删除态资产不进图层声明；恢复后重新声明回归
+    QTemporaryDir declareDir;
+    QgisProjectService project2; LayerManifest manifest2{declareDir.filePath("m.sqlite")};
+    QgisLayerService layers2{&project2, &manifest2};
+    QVERIFY(project2.createProject(declareDir.filePath("p.qgz"))); QVERIFY(manifest2.open());
+    QVERIFY(PaleoMapLibrary::declareMaps(cat, &layers2).isEmpty());
+    const auto current = cat->currentVersion(id);
+    const QString removedLayerId = current.extra.value("layer_id", "paleomap." + current.id).toString();
+    QVERIFY(!removedLayerId.isEmpty());
+    QVector<LayerDeclaration> rows; QString manifestError;
+    QVERIFY(manifest2.readAll(&rows, &manifestError));
+    QStringList declaredIds; for (const auto &row : rows) declaredIds << row.layerId;
+    QVERIFY2(!declaredIds.contains(removedLayerId), qPrintable(removedLayerId));
+    QVERIFY(bin.restore(id)); QVERIFY(bin.save());
+    QVERIFY(PaleoMapLibrary::declareMaps(cat, &layers2).isEmpty());
+    rows.clear(); QVERIFY(manifest2.readAll(&rows, &manifestError));
+    declaredIds.clear(); for (const auto &row : rows) declaredIds << row.layerId;
+    QVERIFY(declaredIds.contains(removedLayerId));
+  }
+  // C-14（full-audit-20261020）：copyDataset 失败自清——第二个成员 copy 失败
+  //（目标已存在，QFile::copy 拒绝覆写）时整目录回收，不留半拷孤儿字节。
+  void copyDatasetFailureCleansDirectory() {
+    QTemporaryDir source, target;
+    const auto path = source.filePath("half.shp");
+    QVERIFY(shape(path));
+    QDir().mkpath(target.path());
+    // 预置目标目录内同名 .shx：拷贝 .shp 成功、拷 .shx 时 QFile::copy 失败。
+    QFile preexisting(target.filePath("half.shx"));
+    QVERIFY(preexisting.open(QIODevice::WriteOnly)); preexisting.close();
+    QString error;
+    const auto copied = PaleoMapFiles::copyDataset(path, target.path(), {}, &error);
+    QVERIFY(copied.isEmpty());
+    QVERIFY2(!error.isEmpty(), "copy 失败必须报错");
+    QVERIFY2(!QFile::exists(target.filePath("half.shp")), "失败后目录必须自清");
+    QVERIFY(QFile::exists(source.filePath("half.shp"))); // 源不动
+  }
+  // C-11（full-audit-20261020）：角点是 SEG-Y 道头原值（单位随工区 CRS）——
+  // 度制坐标（|x|≤360 且 |y|≤90）下 /1e6 是量级失真的伪面积，surveyArea 如实
+  // 返回 -1（消费端按「未登记边界」兜底）；米制照常计算。
+  void surveyAreaRejectsDegreeLikeCorners() {
+    QVector<QVector<QPair<double, double>>> degreePoly;
+    degreePoly << QVector<QPair<double, double>>{{1.0, 1.0}, {2.0, 1.0}, {2.0, 2.0}, {1.0, 2.0}};
+    QCOMPARE(PaleoMapSource::surveyArea(degreePoly), -1.0);
+    QVector<QVector<QPair<double, double>>> meterPoly;
+    meterPoly << QVector<QPair<double, double>>{{1000.0, 2000.0}, {6000.0, 2000.0},
+                                                {6000.0, 7000.0}, {1000.0, 7000.0}};
+    QCOMPARE(PaleoMapSource::surveyArea(meterPoly), 25.0); // 5km × 5km
+  }
+  // B-03/A-14 导入侧（full-audit-20261020）：members() 消费 domain/sidecarvocab
+  // 单一词表——dbf 属性索引（ain/aih）与统计文件随主件拷贝（此前导入不全）。
+  void paleomapMembersIncludeDbfIndexSidecars() {
+    QTemporaryDir source;
+    const auto path = source.filePath("idx.shp");
+    QVERIFY(shape(path));
+    const QDir dir = QFileInfo(path).absoluteDir();
+    for (const char *ext : {"ain", "aih", "atx"})
+      QVERIFY(QFile(dir.filePath(QStringLiteral("idx.%1").arg(QLatin1String(ext)))).open(QIODevice::WriteOnly));
+    QString err;
+    const auto got = PaleoMapFiles::members(path, &err);
+    QVERIFY2(!got.isEmpty(), qPrintable(err));
+    QVERIFY(got.contains(dir.filePath(QStringLiteral("idx.ain"))));
+    QVERIFY(got.contains(dir.filePath(QStringLiteral("idx.aih"))));
+    QVERIFY(got.contains(dir.filePath(QStringLiteral("idx.atx"))));
+    QVERIFY(got.contains(dir.filePath(QStringLiteral("idx.qml")))); // shape() 附带样式文件同卷
+  }
   void existingMapMissingCompanionDoesNotPublish() {
     Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("map.shp");
     QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}));
@@ -266,7 +353,10 @@ private slots:
     const auto imported = f.run(request); QVERIFY(imported.errors.isEmpty()); const auto id = imported.assets.first(); auto *cat = f.importer.catalog();
     PreviewDocService doc(&f.importer); DataListPanel list; list.setDocService(&doc); list.refreshAssetTable();
     auto *remove = list.findChild<QToolButton *>("dataDeleteButton"); QVERIFY(remove); QVERIFY(!remove->isEnabled());
+    // §35/D-11：禁用必须带 reason tooltip；启用后还原动作说明。
+    QVERIFY2(remove->toolTip().contains(QString::fromUtf8("请先在列表中选择数据")), qPrintable(remove->toolTip()));
     list.selectAssetInViews(id); QVERIFY(remove->isEnabled());
+    QVERIFY2(!remove->toolTip().contains(QString::fromUtf8("请先")), qPrintable(remove->toolTip()));
     auto *normalize = list.findChild<QToolButton *>("dataNormalizePaleomapButton"); QVERIFY(normalize); QVERIFY(normalize->isEnabled());
     QSignalSpy intent(&list, &DataListPanel::normalizePaleomapsRequested); normalize->click(); QCOMPARE(intent.size(), 1);
     QCOMPARE(intent.first().first().toStringList(), QStringList{id});
@@ -545,9 +635,9 @@ private slots:
     survey.corners = {{0, 0}, {10000, 0}, {10000, 15000}, {0, 15000}}; QVERIFY(cat->addEntity(survey));
     ProjectStatisticsPage page(cat); page.resize(700, 900); page.show(); QTest::qWait(100);
     auto *scroll = page.findChild<QScrollArea *>("dashboardScroll"); QVERIFY(scroll);
-    QCOMPARE(page.findChild<QLabel *>("count_well")->text(), QString("1 / 8"));
+    QCOMPARE(page.findChild<QLabel *>("count_well")->text(), QString("1 / 1")); // 只列本工程出现过的层位（D61）
     QCOMPARE(page.findChild<QProgressBar *>("coverage_well")->value(), 1);
-    const auto cards = page.findChildren<QFrame *>("dashboardHorizonCard"); QCOMPARE(cards.size(), 8);
+    const auto cards = page.findChildren<QFrame *>("dashboardHorizonCard"); QCOMPARE(cards.size(), 1);
     const auto qa = qEnvironmentVariable("PALEO_PALEOMAP_QA_DIR");
     for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
       PaleoTheme::applyTheme(theme);
@@ -564,7 +654,7 @@ private slots:
     PaleoTheme::applyLightTheme();
     CatalogEntity well; well.id = "live-well"; well.entityType = "well"; well.name = "A1"; QVERIFY(cat->addEntity(well));
     QTRY_COMPARE(page.findChild<QLabel *>("dashboardWells")->text(), QString("21 口"));
-    QCOMPARE(page.findChildren<QFrame *>("dashboardHorizonCard").size(), 8);
+    QCOMPARE(page.findChildren<QFrame *>("dashboardHorizonCard").size(), 1);
   }
   void statisticsCountRegisteredWorkAndUnionOverlappingSurveyAreas() {
     Fixture f; QVERIFY(f.init()); auto *cat = f.importer.catalog();
@@ -575,8 +665,22 @@ private slots:
     survey.id = "survey-b"; survey.name = "S2"; survey.corners = {{500, 0}, {1500, 0}, {1500, 1000}, {500, 1000}}; QVERIFY(cat->addEntity(survey));
     const auto stats = ProjectAreaSummary::snapshot(cat); QCOMPARE(stats.value("wells").toInt(), 2); QCOMPARE(stats.value("positioned_wells").toInt(), 1);
     QCOMPARE(stats.value("survey_area_km2").toDouble(), 1.5); QCOMPARE(stats.value("seismic_surveys").toInt(), 2);
-    QVERIFY(!stats.value("horizons").toList().isEmpty());
+    QVERIFY(stats.value("horizons").toList().isEmpty()); // 无层位资料 → 不显示内置默认层位
     ProjectStatisticsPage page(cat); QCOMPARE(page.findChildren<QFrame *>("dashboardHorizonCard").size(), stats.value("horizons").toList().size());
+  }
+  void emptyProjectHasNoDatasetHorizons() {
+    // 新建空工程：内置默认层序界面名单（竞赛数据集 C3…D72）不得出现在分层位进度。
+    Fixture f; QVERIFY(f.init()); auto *cat = f.importer.catalog();
+    const auto stats = ProjectAreaSummary::snapshot(cat);
+    QVERIFY(stats.value("horizons").toList().isEmpty());
+    for (const auto &v : stats.value("stage_counts").toMap()) QCOMPARE(v.toInt(), 0);
+    ProjectStatisticsPage page(cat);
+    QVERIFY(page.findChildren<QFrame *>("dashboardHorizonCard").isEmpty());
+    QCOMPARE(page.findChild<QLabel *>("count_well")->text(), QString("0 / 0"));
+    // 导入层位界面后（竞赛数据集导入路径）该层位正常出现。
+    CatalogEntity sb; sb.id = "sb-D61"; sb.entityType = "sequence_boundary"; sb.name = "D61"; QVERIFY(cat->addEntity(sb));
+    const auto after = ProjectAreaSummary::snapshot(cat).value("horizons").toList();
+    QCOMPARE(after.size(), 1); QCOMPARE(after.first().toMap().value("horizon").toString(), QString("D61"));
   }
   void navigationAndBaseMapChoiceRespectHorizon() {
     Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("D61/map.shp"); QVERIFY(shape(path));

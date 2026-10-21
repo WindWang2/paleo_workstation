@@ -405,6 +405,71 @@ private slots:
     QVERIFY(!img.isNull());
   }
 
+  // ---- D.10 图例超 2×7 条不再静默 break 丢行 ----
+  void testLegendPaintKeepsAllRows()
+  {
+    QList<LegendGenerator::LegendEntry> entries;
+    for (int i = 0; i < 20; ++i)
+    {
+      LegendGenerator::LegendEntry e;
+      e.symbol = QStringLiteral("岩性%1").arg(i);
+      e.detail = QStringLiteral("岩性");
+      e.swatch = QColor(QStringLiteral("#FFE082"));
+      entries << e;
+    }
+    QImage img(600, 160, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::white);
+    QPainter p(&img);
+    ExportEngine::applyExportRenderHints(p);
+    const qreal used = LegendGenerator::paint(p, QRectF(4, 4, 492, 152), entries);
+    p.end();
+    QVERIFY(used > 0);
+
+    // 第 15 条起落在第三列（左缘 + 2/3 宽）：旧实现 col>=2 静默 break，该
+    // 区域全白；新实现按列数自适应，必须着墨（色块/文字）。
+    const int x0 = 4 + 2 * (492 / 3);
+    bool ink = false;
+    for (int y = 4; y < 156 && !ink; ++y)
+      for (int x = x0; x < 496 && !ink; ++x)
+        if (img.pixelColor(x, y) != QColor(Qt::white))
+          ink = true;
+    QVERIFY2(ink, "third legend column blank: entries beyond 2x7 silently dropped");
+  }
+
+  // ---- D.7 纹理画刷缓存：同参复用同一 tile，映射重载后失效 ----
+  void testPatternBrushCacheReuse()
+  {
+    // 从干净态开始，键数断言不依赖其它用例的调用史
+    clearPatternBrushCache();
+    QCOMPARE(patternBrushCacheKeyCount(), 0);
+
+    const QColor unique(QStringLiteral("#123456"));
+    const QBrush b1 = LithologyPatternFactory::getBrush(QStringLiteral("细砂岩"), unique);
+    QCOMPARE(b1.style(), Qt::TexturePattern);
+    QVERIFY(!b1.texture().isNull());
+    QCOMPARE(patternBrushCacheKeyCount(), 1);
+
+    // 同参再取：命中缓存，键数不增（重绘不再逐段重造 tile）
+    const QBrush b2 = LithologyPatternFactory::getBrush(QStringLiteral("细砂岩"), unique);
+    QVERIFY(!b2.texture().isNull());
+    QCOMPARE(patternBrushCacheKeyCount(), 1);
+
+    // 换底色 → 另一条缓存键（不复用异色 tile）
+    const QBrush b3 = LithologyPatternFactory::getBrush(QStringLiteral("细砂岩"),
+                                                        QColor(QStringLiteral("#654321")));
+    QVERIFY(!b3.texture().isNull());
+    QCOMPARE(patternBrushCacheKeyCount(), 2);
+
+    // 词表未命中的兜底分支同样进缓存
+    const QBrush b4 = LithologyPatternFactory::getBrush(QStringLiteral("未知岩性"));
+    QVERIFY(!b4.texture().isNull());
+    QCOMPARE(patternBrushCacheKeyCount(), 3);
+
+    // 相名→花纹映射重载后缓存显式失效（缓存键不随映射换，防陈旧 tile）
+    PatternCatalog::reloadFaciesMap();
+    QCOMPARE(patternBrushCacheKeyCount(), 0);
+  }
+
   // ---- D4.5/D4.6/D4.7 导出 ----
   void testExportPng()
   {

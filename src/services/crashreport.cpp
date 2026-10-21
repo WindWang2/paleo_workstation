@@ -19,6 +19,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QObject>
 
 #include <cerrno>
 #include <csignal>
@@ -454,9 +455,12 @@ QString recoveryNoticeText(const SessionStart &start)
 {
   if (!start.previousDirtyExit)
     return QString();
+  // #588-C12：本函数返回值直接上用户可见面（ErrorHub 详情/main 提示）——数据层
+  // 返回值不在 i18n 门禁扫描面内，文案必须自带 tr() 翻译入口（同 dataexport.cpp
+  // 的 QObject::tr 口径），否则闸门绿灯掩盖零翻译文案。
   if (start.lastReportPath.isEmpty())
-    return QStringLiteral("上次未能正常退出 Paleo（没有生成崩溃报告）。");
-  return QStringLiteral("上次未能正常退出 Paleo。崩溃报告已保存在：%1")
+    return QObject::tr("上次未能正常退出 Paleo（没有生成崩溃报告）。");
+  return QObject::tr("上次未能正常退出 Paleo。崩溃报告已保存在：%1")
       .arg(start.lastReportPath);
 }
 

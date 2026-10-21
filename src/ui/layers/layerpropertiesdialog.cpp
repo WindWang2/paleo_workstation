@@ -433,6 +433,9 @@ class PaleoPageFactory : public QgsMapLayerConfigWidgetFactory
         Q_UNUSED(canvas);
         Q_UNUSED(dockWidget);
         // 页面字段/样式上下文由 dialog 侧统一解析（与测试直取通道同一条路径）。
+        // 注意：nullptr 返回即把空页交给 QGIS 无保护解引用——注册侧
+        // （openLayerProperties）已按 canCreateBusinessPage 守卫，能走到
+        // 这里的 m_layerId 必然可造页。
         return qobject_cast<QgsMapLayerConfigWidget *>(
             m_host->createBusinessPage(m_layerId, parent));
     }
@@ -457,14 +460,22 @@ LayerPropertiesDialog::~LayerPropertiesDialog()
         delete m_messageBar; // 自造持有的 QgsMessageBar（Deps 缺省时）
 }
 
+bool LayerPropertiesDialog::canCreateBusinessPage(const QString &layerId) const
+{
+    // 与 createBusinessPage 的 nullptr 契约同源（未知 layerId = 既无声明
+    // 也不在工程）：判定只读，不建页、无副作用。
+    if (layerId.isEmpty())
+        return false;
+    const DeclMatch decl = findDeclaration(m_layerService, layerId);
+    return decl.found || resolveLayer(m_layerService, layerId) != nullptr;
+}
+
 QWidget *LayerPropertiesDialog::createBusinessPage(const QString &layerId, QWidget *parent)
 {
-    if (layerId.isEmpty())
-        return nullptr;
+    if (!canCreateBusinessPage(layerId))
+        return nullptr; // 未知 layerId（既无声明也不在工程）——条件单一权威在上
     const DeclMatch decl = findDeclaration(m_layerService, layerId);
     QgsMapLayer *layer = resolveLayer(m_layerService, layerId);
-    if (!decl.found && !layer)
-        return nullptr; // 未知 layerId（既无声明也不在工程）
 
     auto *page = new PaleoLayerConfigPage(
         layer, m_canvas, layerId, decl.found ? decl.decl : LayerDeclaration(), decl.found,
@@ -507,9 +518,18 @@ void LayerPropertiesDialog::openLayerProperties(const QString &layerId)
 
     // 业务页挂进原生壳（须在 show/exec 之前）。工厂非 QObject——挂对话框
     // destroyed 删除，保证活到对话框销毁。
-    auto *factory = new PaleoPageFactory(this, layerId);
-    connect(native, &QObject::destroyed, native, [factory] { delete factory; });
-    native->addPropertiesPageFactory(factory);
+    // 守卫：PaleoPageFactory::createWidget 会把 createBusinessPage 的结果
+    // 直交 QGIS 原生壳，而 QGIS 侧对 nullptr 页无保护（qgslayerproperties
+    // dialog 源码：createWidget→mConfigWidgets<<page→addPage→page->
+    // syncToLayer(mLayer) 全无空检查）。当前解析链使该路径不可达，
+    // 这里按同一 nullptr 契约收口：页不可造时不挂工厂，原生壳不带 Paleo
+    // 页，也不把 nullptr 交给 QGIS（L5.5）。
+    if (canCreateBusinessPage(layerId))
+    {
+        auto *factory = new PaleoPageFactory(this, layerId);
+        connect(native, &QObject::destroyed, native, [factory] { delete factory; });
+        native->addPropertiesPageFactory(factory);
+    }
 
     if (isOffscreen())
     {

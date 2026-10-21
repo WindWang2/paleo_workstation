@@ -10,16 +10,21 @@
 
 #include <QComboBox>
 #include <QFile>
+#include <QFileInfo>
+#include <QFutureWatcher>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
+#include <QImage>
 #include <QLabel>
 #include <QPixmap>
 #include <QPushButton>
 #include <QSet>
 #include <QTableWidget>
+#include <QThreadPool>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QtConcurrent>
 
 #include <algorithm>
 #include <cmath>
@@ -39,6 +44,11 @@ enum
   kColStatus,
   kColCount
 };
+
+// D.4：面板缩略边长（imagelod 解码期降采样——面板刷新不引全图解码）与
+// 缩略图缓存封顶（同 entitypanel geoSummaryCache 口径：无界缓存 → 封顶清空）。
+constexpr int kThumbEdge = 64;
+constexpr int kThumbCacheMax = 256;
 
 QString roleText(const QString &role)
 {
@@ -244,6 +254,8 @@ void WellAttachmentPanel::refresh()
   m_table->setRowCount(0);
   // 实际显示行（软删过滤后）——表行号 ↔ 数据索引靠它对齐。
   QVector<paleo::WellAttachmentRow> shown;
+  // 未命中缓存的缩略图（键, 路径）——收口后一次性后台解码（D.4）。
+  QVector<QPair<QString, QString>> decodeJobs;
   for (const paleo::WellAttachmentRow &r : std::as_const(m_rows))
   {
     if (m_recycle && m_recycle->isRemoved(r.assetId))
@@ -252,15 +264,24 @@ void WellAttachmentPanel::refresh()
     const int row = m_table->rowCount();
     m_table->insertRow(row);
     auto *thumb = new QTableWidgetItem;
-    if (!r.path.isEmpty() && QFile::exists(r.path))
-    {
-      // 面板缩略 64px（imagelod 解码期降采样——面板刷新不引全图解码）。
-      const paleo::imagelod::TrackImage ti =
-          paleo::imagelod::loadThumbnail(r.path, 64);
-      if (!ti.isNull())
-        thumb->setIcon(QIcon(QPixmap::fromImage(ti.thumbnail)));
-    }
     thumb->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    const QString key = thumbnailKey(r.path);
+    if (!key.isEmpty())
+    {
+      const auto it = m_thumbCache.constFind(key);
+      if (it != m_thumbCache.constEnd())
+        thumb->setIcon(QIcon(*it)); // 缓存命中——零解码
+      else
+      {
+        // 待解码标记（完成回调按键落地，不靠行号）；同键在途不重复排队。
+        thumb->setData(Qt::UserRole, key);
+        if (!m_thumbPending.contains(key))
+        {
+          m_thumbPending.insert(key);
+          decodeJobs.append({key, r.path});
+        }
+      }
+    }
     m_table->setItem(row, kColThumb, thumb);
 
     auto *file = new QTableWidgetItem(r.fileName);
@@ -306,6 +327,8 @@ void WellAttachmentPanel::refresh()
                     : PaleoTheme::ItemTextColor::Success);
     m_table->setItem(row, kColStatus, status);
   }
+  if (!decodeJobs.isEmpty())
+    decodeThumbnails(decodeJobs); // 后台解码，GUI 线程不等（D.4）
   m_rows = shown; // 表行号 ↔ m_rows 从此一一对齐
   m_updating = false;
   m_clearBtn->setEnabled(false);
@@ -313,6 +336,77 @@ void WellAttachmentPanel::refresh()
   setWindowTitle(m_wellBox->currentText().isEmpty()
                      ? tr("井附件管理")
                      : tr("井附件管理 — %1").arg(m_wellBox->currentText()));
+}
+
+QString WellAttachmentPanel::thumbnailKey(const QString &path)
+{
+  if (path.isEmpty())
+    return QString();
+  const QFileInfo fi(path);
+  if (!fi.isFile() || fi.size() <= 0)
+    return QString();
+  // 同路径文件被替换（字节/时间变了）→ 换键重解码，不拿旧缩略图冒充分新。
+  return QStringLiteral("%1|%2|%3")
+      .arg(path, QString::number(fi.size()),
+           QString::number(fi.lastModified().toMSecsSinceEpoch()));
+}
+
+void WellAttachmentPanel::decodeThumbnails(
+    const QVector<QPair<QString, QString>> &jobs)
+{
+  // D.4：解码搬到工作线程——loadThumbnail 线程安全（只交 QImage）；
+  // QPixmap 不是线程安全的，fromImage 与缓存写入都在完成回调（GUI 线程）做
+  // （imagelod.h 口径）。失败图也回传（键要清 pending，下次刷新重试）。
+  using Batch = QVector<QPair<QString, QImage>>;
+  auto *watcher = new QFutureWatcher<Batch>(this);
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
+    const Batch batch =
+        watcher->future().resultCount() > 0 ? watcher->result() : Batch{};
+    watcher->deleteLater();
+    QHash<QString, QPixmap> decoded;
+    for (const auto &kv : batch)
+    {
+      m_thumbPending.remove(kv.first);
+      if (!kv.second.isNull())
+        decoded.insert(kv.first, QPixmap::fromImage(kv.second));
+    }
+    applyThumbnailBatch(decoded);
+  });
+  watcher->setFuture(QtConcurrent::run(QThreadPool::globalInstance(),
+                                       [jobs]() -> Batch {
+    Batch out;
+    out.reserve(jobs.size());
+    for (const auto &job : jobs)
+    {
+      const paleo::imagelod::TrackImage ti =
+          paleo::imagelod::loadThumbnail(job.second, kThumbEdge);
+      out.append({job.first, ti.thumbnail}); // 失败 = 空图（键照常回传）
+    }
+    return out;
+  }));
+}
+
+void WellAttachmentPanel::applyThumbnailBatch(
+    const QHash<QString, QPixmap> &decoded)
+{
+  if (decoded.isEmpty() || !m_table)
+    return;
+  if (m_thumbCache.size() + decoded.size() > kThumbCacheMax)
+    m_thumbCache.clear(); // 封顶清空（同 entitypanel geoSummaryCache 口径）
+  for (auto it = decoded.cbegin(); it != decoded.cend(); ++it)
+    m_thumbCache.insert(it.key(), it.value());
+  // 按键落到当前还在显示、仍标待解码的行——表已重建的行不受影响。
+  for (int row = 0; row < m_table->rowCount(); ++row)
+  {
+    if (auto *item = m_table->item(row, kColThumb))
+    {
+      const QString key = item->data(Qt::UserRole).toString();
+      if (key.isEmpty() || !m_thumbCache.contains(key))
+        continue;
+      item->setIcon(QIcon(m_thumbCache.value(key)));
+      item->setData(Qt::UserRole, QString()); // 清待解码标记
+    }
+  }
 }
 
 void WellAttachmentPanel::applyCellEdit(int row, QTableWidgetItem *item,

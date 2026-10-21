@@ -36,8 +36,14 @@ class LayerPropertiesDialog : public QObject
     ~LayerPropertiesDialog() override;
 
     // Paleo 业务页（只读字段 + 「在数据页查看资产」按钮）；offscreen 测试
-    // 通道，openLayerProperties 内部复用。未知 layerId → nullptr。
+    // 通道，openLayerProperties 内部复用。未知 layerId → nullptr——
+    // 该 nullptr 契约由 canCreateBusinessPage 收口：openLayerProperties
+    // 只在页可造时挂 PaleoPageFactory，nullptr 不会交给对空页无保护的
+    // QGIS 原生属性壳（createWidget→addPage→page->syncToLayer）。
     QWidget *createBusinessPage(const QString &layerId, QWidget *parent = nullptr);
+    // createBusinessPage 的 nullptr 条件判定（不建页、不产副作用）：工厂
+    // 挂载前置守卫与测试共用同一判定，防两处条件漂移。
+    bool canCreateBusinessPage(const QString &layerId) const;
 
   public slots:
     // 按图层类型分发原生属性对话框；offscreen（platformName=="offscreen"）

@@ -146,9 +146,13 @@ ContourStepRange suggestContourStepAndRange( double dataMin, double dataMax,
       step = span / std::max( n, 4 );
   }
 
+  // decimals 推导与 spinDecimals（:27-37）同源同款循环（取绝对值 + s>0 保护：
+  // step<=0 时旧循环会把 decimals 兜到 6，与 spinDecimals 的 0 分歧）。两者
+  // 差在文档化的偏移上——suggest 侧 start/end 走 decimals+2、step 走
+  // decimals+1（contourlevels.h 的上游契约），spinDecimals 另做 [2,6] 钳制。
   int decimals = 0;
-  double s = step;
-  while ( s < 1.0 - 1e-12 && decimals < 6 )
+  double s = std::abs( step );
+  while ( s > 0 && s < 1.0 - 1e-12 && decimals < 6 )
   {
     s *= 10.0;
     ++decimals;

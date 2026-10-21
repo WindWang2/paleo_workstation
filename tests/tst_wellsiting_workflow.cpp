@@ -19,6 +19,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
 
 // 方向34 井网辅助编排测试（Oracle 2/4 + 端到端面）：
 //   · planned 隔离红线——含 planned 井场景下，诊断/评估的实井输入集
@@ -89,6 +92,7 @@ class TestWellSitingWorkflow : public QObject
     void candidatesEndToEnd();
     void evaluationImprovement();
     void scenarioPersistenceReopen();
+    void scenarioSchemaVersionGate();
     void exports();
     void cleanupTestCase();
 };
@@ -436,6 +440,56 @@ void TestWellSitingWorkflow::scenarioPersistenceReopen()
   paleo::siting::ScenarioSet set;
   QVERIFY( reopen.load( set, &error ) );
   QCOMPARE( set.scenarios.size(), 1 );
+}
+
+// A.6：落盘 schema_version 读侧必须校验。载荷形状演进后，本构建不认识的
+// schema_version 要显式拒读——不能按当前 fromMap 静默误解析（对照 metastore
+// 的 user_version 门与 mapversionstore 的 snapshot_schema 指纹门）。
+void TestWellSitingWorkflow::scenarioSchemaVersionGate()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString metaPath = dir.filePath( QStringLiteral( "project.sqlite" ) );
+  WellSitingStore store( metaPath );
+  QString error;
+  QVERIFY2( store.open( &error ), qPrintable( error ) );
+
+  paleo::siting::ScenarioSet set;
+  QVERIFY2( store.save( set, &error ), qPrintable( error ) );
+  paleo::siting::ScenarioSet back;
+  QVERIFY2( store.load( back, &error ), qPrintable( error ) );
+  QCOMPARE( back.scenarios.size(), 0 );
+
+  // 手改库：把 payload 的 schema_version 抬到本构建不认识的版本。
+  const QString conn = QStringLiteral( "tst_wellsiting_schema_gate" );
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase( QStringLiteral( "QSQLITE" ), conn );
+    db.setDatabaseName( metaPath );
+    QVERIFY( db.open() );
+    QSqlQuery read( db );
+    QVERIFY2( read.exec( QStringLiteral(
+                  "SELECT payload FROM well_siting_scenarios WHERE id='current'" ) ),
+              qPrintable( read.lastError().text() ) );
+    QVERIFY( read.next() );
+    QJsonObject root = QJsonDocument::fromJson( read.value( 0 ).toString().toUtf8() ).object();
+    QVERIFY( root.value( QStringLiteral( "schema_version" ) ).toInt() == 1 );
+    root.insert( QStringLiteral( "schema_version" ), 99 );
+    QSqlQuery update( db );
+    update.prepare( QStringLiteral(
+        "UPDATE well_siting_scenarios SET payload=? WHERE id='current'" ) );
+    update.addBindValue(
+        QString::fromUtf8( QJsonDocument( root ).toJson( QJsonDocument::Compact ) ) );
+    QVERIFY2( update.exec(), qPrintable( update.lastError().text() ) );
+    db.close();
+  }
+  if ( QSqlDatabase::contains( conn ) )
+    QSqlDatabase::removeDatabase( conn );
+
+  WellSitingStore tampered( metaPath );
+  QVERIFY( tampered.open( &error ) );
+  paleo::siting::ScenarioSet refused;
+  QVERIFY( !tampered.load( refused, &error ) );
+  QVERIFY2( error.contains( QStringLiteral( "schema_version" ) ), qPrintable( error ) );
 }
 
 void TestWellSitingWorkflow::exports()

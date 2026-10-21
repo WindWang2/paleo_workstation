@@ -3,6 +3,7 @@
 #include <QScopeGuard>
 #include <memory>
 #include "../src/services/paleotaskservice.h"
+#include "../src/services/algorithmspec.h"
 #include <QLabel>
 #include <QTreeWidget>
 
@@ -86,6 +87,25 @@ private slots:
   }
 
   // goal/ui-experience-polish：任务列表键盘可达（↓ 首选行、↓/↑ 移动）。
+
+  void specPortSummaryOnTooltip()
+  {
+    PaleoTaskService service;
+    TaskPanel panel( nullptr, &service );
+    panel.show();
+    auto *task = service.beginExternal( QStringLiteral( "constraint idw" ) );
+    task->setNavigationContext( { { QStringLiteral( "algorithm_id" ),
+                                    QStringLiteral( "paleo:paleo_constraint_idw" ) } } );
+    panel.refresh();
+    auto *list = panel.findChild<QTreeWidget *>( QStringLiteral( "busyList" ) );
+    QVERIFY( list );
+    QTRY_VERIFY( list->topLevelItemCount() >= 1 );
+    const QString tip = list->topLevelItem( 0 )->toolTip( 1 );
+    QVERIFY2( tip.contains( QStringLiteral( "INPUT(vector)" ) ), qPrintable( tip ) );
+    QVERIFY2( tip.contains( QStringLiteral( "OUTPUT(raster)" ) ), qPrintable( tip ) );
+    task->finishExternal();
+  }
+
   void keyboardNavigationOnBusyList()
   {
     PaleoProjectStore store;

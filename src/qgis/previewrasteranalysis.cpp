@@ -2,6 +2,7 @@
 #include "previewrasteranalysis.h"
 #include "../services/paleotaskservice.h"
 #include <QCache>
+#include <QCoreApplication>
 #include <QFileInfo>
 #include <memory>
 
@@ -69,7 +70,7 @@ void requestSummary(const QString &uri, PaleoTaskService *tasks,
       [uri, summary](PaleoTask *running) {
         QgsRasterLayer layer(uri, "statistics", "gdal");
         if (!layer.isValid())
-          return QStringLiteral("无法读取预览栅格");
+          return QCoreApplication::translate("PreviewRasterAnalysis", "无法读取预览栅格");
         running->reportStage("scan", 5);
         *summary = summarize(&layer);
         return QString();
@@ -107,7 +108,7 @@ void requestHistogram(const QString &uri, int bins, PaleoTaskService *tasks,
       [uri, bins, result](PaleoTask *running) {
         QgsRasterLayer layer(uri, "histogram", "gdal");
         if (!layer.isValid())
-          return QStringLiteral("无法读取预览栅格");
+          return QCoreApplication::translate("PreviewRasterAnalysis", "无法读取预览栅格");
         running->reportStage("scan", 5);
         *result = histogram(&layer, bins);
         return QString();
@@ -346,8 +347,14 @@ QVector<ProfileSample> sampleProfile( QgsRasterLayer *layer, const QgsPointXY &p
     if ( ext.contains( p ) )
     {
       bool ok = false;
-      const double v = layer->dataProvider()->sample( p, 1, &ok );
-      s.valid = ok && std::isfinite( v );
+      auto *provider = layer->dataProvider();
+      const double v = provider->sample( p, 1, &ok );
+      // ok 只承诺「越界/band 非法」（qgsrasterdataprovider.h sample 文档）——
+      // nodata 哨兵仍按真实值返回，需按源 nodata 自行屏蔽（与
+      // composeattribution/mappingartifactwriter 的 isNoData 口径一致）。
+      const bool noData = ok && provider->sourceHasNoDataValue( 1 ) &&
+                          v == provider->sourceNoDataValue( 1 );
+      s.valid = ok && !noData && std::isfinite( v );
       s.value = s.valid ? v : 0.0;
     }
     out.append( s );
@@ -355,90 +362,212 @@ QVector<ProfileSample> sampleProfile( QgsRasterLayer *layer, const QgsPointXY &p
   return out;
 }
 
-QVector<Extremum> localExtrema(QgsRasterLayer *layer, int band, int window,
-                               double prominence, int maxCount,
-                               const std::function<bool()> &cancelled) {
-  QVector<Extremum> out;
-  if ( !layer || !layer->isValid() || !layer->dataProvider() || window < 3 )
-    return out;
+namespace {
+// 邻域统计：中心 (x,y) 的 window 内有效邻居均值与严格极值判定。
+struct Neighbourhood
+{
+  double mean = 0.0;
+  int n = 0;
+  bool isMax = true;
+  bool isMin = true;
+};
+Neighbourhood neighbourhood(const ExtremaGrid &g, int x, int y, int half,
+                            double v, bool needExtremum)
+{
+  Neighbourhood nb;
+  for (int dy = -half; dy <= half; ++dy)
+    for (int dx = -half; dx <= half; ++dx)
+    {
+      if (dx == 0 && dy == 0)
+        continue;
+      if (!g.ok(x + dx, y + dy))
+        continue;
+      const double nv = g.at(x + dx, y + dy);
+      nb.mean += nv;
+      ++nb.n;
+      if (needExtremum)
+      {
+        if (nv >= v)
+          nb.isMax = false;
+        if (nv <= v)
+          nb.isMin = false;
+      }
+    }
+  if (nb.n > 0)
+    nb.mean /= nb.n;
+  return nb;
+}
+
+double medianInPlace(std::vector<double> &v)
+{
+  const std::size_t mid = v.size() / 2;
+  std::nth_element(v.begin(), v.begin() + std::ptrdiff_t(mid), v.end());
+  double m = v[mid];
+  if (v.size() % 2 == 0)
+  {
+    const double lo = *std::max_element(v.begin(), v.begin() + std::ptrdiff_t(mid));
+    m = 0.5 * (m + lo);
+  }
+  return m;
+}
+
+ExtremaGrid readGrid(QgsRasterLayer *layer, int band)
+{
+  ExtremaGrid g;
+  if (!layer || !layer->isValid() || !layer->dataProvider())
+    return g;
   const int w = layer->width();
   const int h = layer->height();
-  if ( w <= 0 || h <= 0 )
-    return out;
-  const int half = window / 2;
-
+  if (w <= 0 || h <= 0)
+    return g;
   // 读整块（预览栅格是小网格；大图走 summarize 的缓存口径不受此影响）。
   std::unique_ptr<QgsRasterBlock> block(
-      layer->dataProvider()->block( band, layer->extent(), w, h ) );
-  if ( !block )
-    return out;
+      layer->dataProvider()->block(band, layer->extent(), w, h));
+  if (!block)
+    return g;
+  g.width = w;
+  g.height = h;
+  g.values.assign(std::size_t(w) * h, 0.0);
+  g.valid.assign(std::size_t(w) * h, 0);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+    {
+      // nodata 哨兵不是真实数据：块读取必须先 isNoData 再 value（#589 C.14）。
+      if (block->isNoData(y, x))
+        continue;
+      const double v = block->value(y, x);
+      if (!std::isfinite(v))
+        continue;
+      g.values[std::size_t(y) * w + x] = v;
+      g.valid[std::size_t(y) * w + x] = 1;
+    }
+  return g;
+}
 
-  struct Cand
+QVector<Extremum> toMapExtrema(QgsRasterLayer *layer, const ExtremaGrid &g,
+                               const std::vector<GridExtremum> &cells)
+{
+  QVector<Extremum> out;
+  const QgsRectangle ext = layer->extent();
+  const double muppX = ext.width() / g.width;
+  const double muppY = ext.height() / g.height;
+  for (const auto &c : cells)
   {
-    int x = 0;
-    int y = 0;
-    double v = 0.0;
-    double prom = 0.0;
-    bool peak = false;
-  };
-  QVector<Cand> cands;
-  for ( int y = half; y < h - half; y += 1 )
+    Extremum e;
+    e.pos = QgsPointXY(ext.xMinimum() + (c.x + 0.5) * muppX,
+                       ext.yMaximum() - (c.y + 0.5) * muppY);
+    e.value = c.value;
+    e.peak = c.peak;
+    out.append(e);
+  }
+  return out;
+}
+} // namespace
+
+double robustResidualScale(const ExtremaGrid &g, int window,
+                           const std::function<bool()> &cancelled)
+{
+  if (window < 3 || g.width <= 0 || g.height <= 0)
+    return 0.0;
+  const int half = window / 2;
+  std::vector<double> residuals;
+  for (int y = half; y < g.height - half; ++y)
+  {
+    if (cancelled && cancelled())
+      return 0.0;
+    for (int x = half; x < g.width - half; ++x)
+    {
+      if (!g.ok(x, y))
+        continue;
+      const double v = g.at(x, y);
+      const Neighbourhood nb = neighbourhood(g, x, y, half, v, false);
+      if (nb.n == 0)
+        continue;
+      residuals.push_back(v - nb.mean);
+    }
+  }
+  if (residuals.empty())
+    return 0.0;
+  std::vector<double> work = residuals;
+  const double med = medianInPlace(work);
+  for (std::size_t i = 0; i < residuals.size(); ++i)
+    work[i] = std::abs(residuals[i] - med);
+  double meanAbs = 0.0;
+  for (double d : work)
+    meanAbs += d;
+  meanAbs /= double(work.size());
+  const double mad = medianInPlace(work);
+  if (mad > 0.0)
+    return 1.4826 * mad;
+  return 1.2533 * meanAbs; // MAD=0 回落；完全平坦时为 0
+}
+
+std::vector<GridExtremum> gridExtrema(const ExtremaGrid &g, int window,
+                                      double minProminence, int maxCount,
+                                      const std::function<bool()> &cancelled)
+{
+  std::vector<GridExtremum> cands;
+  if (window < 3 || g.width <= 0 || g.height <= 0)
+    return cands;
+  const int half = window / 2;
+  for (int y = half; y < g.height - half; ++y)
   {
     if (cancelled && cancelled())
       return {};
-    for ( int x = half; x < w - half; x += 1 )
+    for (int x = half; x < g.width - half; ++x)
     {
-      const double v = block->value( y, x );
-      if ( !std::isfinite( v ) )
+      if (!g.ok(x, y))
         continue;
-      double mean = 0.0;
-      int n = 0;
-      bool isMax = true;
-      bool isMin = true;
-      for ( int dy = -half; dy <= half && ( isMax || isMin ); ++dy )
-      {
-        for ( int dx = -half; dx <= half; ++dx )
-        {
-          if ( dx == 0 && dy == 0 )
-            continue;
-          const double nv = block->value( y + dy, x + dx );
-          if ( !std::isfinite( nv ) )
-            continue;
-          mean += nv;
-          ++n;
-          if ( nv >= v )
-            isMax = false;
-          if ( nv <= v )
-            isMin = false;
-        }
-      }
-      if ( n == 0 || ( !isMax && !isMin ) )
+      const double v = g.at(x, y);
+      const Neighbourhood nb = neighbourhood(g, x, y, half, v, true);
+      if (nb.n == 0 || (!nb.isMax && !nb.isMin))
         continue;
-      if ( n > 0 )
-        mean /= n;
-      const double prom = std::abs( v - mean );
-      if ( prom < prominence )
+      const double prom = std::abs(v - nb.mean);
+      if (prom < minProminence)
         continue;
-      cands.append( { x, y, v, prom, isMax } );
+      cands.push_back({x, y, v, prom, nb.isMax});
     }
   }
-  // 按显著性降序取前 maxCount。
-  std::sort( cands.begin(), cands.end(),
-             []( const Cand &a, const Cand &b ) { return a.prom > b.prom; } );
-  const QgsRectangle ext = layer->extent();
-  const double muppX = ext.width() / w;
-  const double muppY = ext.height() / h;
-  for ( int i = 0; i < cands.size() && out.size() < maxCount; ++i )
-  {
-    const Cand &c = cands.at( i );
-    Extremum e;
-    e.pos = QgsPointXY( ext.xMinimum() + ( c.x + 0.5 ) * muppX,
-                        ext.yMaximum() - ( c.y + 0.5 ) * muppY );
-    e.value = c.v;
-    e.peak = c.peak;
-    out.append( e );
-  }
-  return out;
+  // 按显著性降序取前 maxCount；扫描序天然按 (y,x) 升序，stable_sort 保证并列确定。
+  std::stable_sort(cands.begin(), cands.end(),
+                   [](const GridExtremum &a, const GridExtremum &b) {
+                     return a.prominence > b.prominence;
+                   });
+  if (maxCount >= 0 && cands.size() > std::size_t(maxCount))
+    cands.resize(std::size_t(maxCount));
+  return cands;
+}
+
+std::vector<GridExtremum> robustGridExtrema(const ExtremaGrid &g, int window,
+                                            double k, int maxCount,
+                                            const std::function<bool()> &cancelled)
+{
+  const double scale = robustResidualScale(g, window, cancelled);
+  if (cancelled && cancelled())
+    return {};
+  return gridExtrema(g, window, k * scale, maxCount, cancelled);
+}
+
+QVector<Extremum> localExtrema(QgsRasterLayer *layer, int band, int window,
+                               double prominence, int maxCount,
+                               const std::function<bool()> &cancelled) {
+  if (window < 3)
+    return {};
+  const ExtremaGrid g = readGrid(layer, band);
+  if (g.width <= 0)
+    return {};
+  return toMapExtrema(layer, g, gridExtrema(g, window, prominence, maxCount, cancelled));
+}
+
+QVector<Extremum> robustLocalExtrema(QgsRasterLayer *layer, int band, int window,
+                                     double k, int maxCount,
+                                     const std::function<bool()> &cancelled) {
+  if (window < 3)
+    return {};
+  const ExtremaGrid g = readGrid(layer, band);
+  if (g.width <= 0)
+    return {};
+  return toMapExtrema(layer, g, robustGridExtrema(g, window, k, maxCount, cancelled));
 }
 
 void requestExtrema(const QString &uri, PaleoTaskService *tasks,
@@ -446,8 +575,9 @@ void requestExtrema(const QString &uri, PaleoTaskService *tasks,
                     std::function<void(const QVector<Extremum> &)> ready) {
   if (!tasks) {
     QgsRasterLayer layer(uri, "extrema", "gdal");
-    const auto stats = summarize(&layer);
-    ready(localExtrema(&layer, 1, 5, stats.valid ? stats.stdDev * .5 : 0, 100));
+    // 显著性阈值 = k·局部残差稳健尺度（见头文件 robustResidualScale）；
+    // 旧口径「全局 σ×0.5」把平滑层位面上的真实极值全部滤掉。
+    ready(robustLocalExtrema(&layer, 1, 5, kRobustProminenceK, 100));
     return;
   }
   auto result = std::make_shared<QVector<Extremum>>();
@@ -455,12 +585,10 @@ void requestExtrema(const QString &uri, PaleoTaskService *tasks,
       QObject::tr("计算地层栅格极值"), [uri, result](PaleoTask *running) {
         QgsRasterLayer layer(uri, "extrema", "gdal");
         if (!layer.isValid())
-          return QStringLiteral("无法读取地层栅格");
+          return QCoreApplication::translate("PreviewRasterAnalysis", "无法读取地层栅格");
         running->reportStage("scan", 5);
-        const auto stats = summarize(&layer);
-        *result =
-            localExtrema(&layer, 1, 5, stats.valid ? stats.stdDev * .5 : 0, 100,
-                         [running] { return running->cancelRequested(); });
+        *result = robustLocalExtrema(&layer, 1, 5, kRobustProminenceK, 100,
+                                     [running] { return running->cancelRequested(); });
         return QString();
       });
   QObject::connect(receiver, &QObject::destroyed, task,
@@ -485,7 +613,7 @@ void requestProfile(const QString &uri, const QgsPointXY &p1,
       [uri, p1, p2, result](PaleoTask *running) {
         QgsRasterLayer layer(uri, "profile", "gdal");
         if (!layer.isValid())
-          return QStringLiteral("无法读取剖面栅格");
+          return QCoreApplication::translate("PreviewRasterAnalysis", "无法读取剖面栅格");
         running->reportStage("scan", 5);
         *result = sampleProfile(&layer, p1, p2, 200);
         return QString();
@@ -532,7 +660,7 @@ QString bigRasterHint( QgsRasterLayer *layer )
     return QString();
   if ( hasPyramids( layer ) )
     return QString();
-  return QStringLiteral( "大图（%1 MB）且无金字塔——首次全图渲染较慢，可继续交互；"
+  return QCoreApplication::translate("PreviewRasterAnalysis", "大图（%1 MB）且无金字塔——首次全图渲染较慢，可继续交互；"
                          "建议对该栅格构建金字塔加速" )
       .arg( fileSizeBytes( path ) / ( 1024.0 * 1024.0 ), 0, 'f', 0 );
 }

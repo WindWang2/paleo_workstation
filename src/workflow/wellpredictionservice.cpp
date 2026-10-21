@@ -4,13 +4,17 @@
 #include "../domain/faciescatalog.h"
 #include "../domain/faciestaxonomy.h"
 #include "../domain/welllogfacies.h"
+#include "../domain/wellnumeric.h"
 #include "../io/welllogread.h"
 #include "../qgis/wellattributestore.h"
 #include "../services/futuretask.h"
 #include "../services/projectdata.h"
 #include "../services/welllogset.h"
 #include "wellsectionworkflow.h"
+#include <QDebug>
 #include <QFutureWatcher>
+#include <QFileInfo>
+#include <QCoreApplication>
 #include <QJsonDocument>
 #include <QSet>
 #include <QTimer>
@@ -59,6 +63,7 @@ QString WellPredictionService::statusHint() const {
 }
 void WellPredictionService::cancel() {
   ++m_generation;
+  m_dryRun = false;
   if (m_cancelled) m_cancelled->store(true);
   m_cancelled.reset();
   m_request = {};
@@ -72,8 +77,12 @@ void WellPredictionService::fail(const QString &reason) {
   if (m_index >= 0 && m_index < m_runs.size())
     detail = tr("%1 · %2：%3").arg(m_data[m_runs[m_index].well].wellName,
                                   m_runs[m_index].prediction.group, reason);
+  const bool dryRun = m_dryRun;
   cancel();
-  emit failed(id, detail);
+  if (dryRun)
+    emit readinessReady(id, {}, detail);
+  else
+    emit failed(id, detail);
 }
 void WellPredictionService::skip(int well, const QString &reason) {
   if (m_skipped.contains(well)) return;
@@ -95,6 +104,12 @@ void WellPredictionService::configure(const WellFaciesConfig &config) {
   }
 }
 void WellPredictionService::start(const RemotePredictionRequest &request) {
+  if (m_dryRun && !m_request.id.isEmpty()) {
+    // 正式运行（或新检查）取代进行中的准备检查：如实收口，不让界面停在“检查中”。
+    const QString previous = m_request.id;
+    cancel();
+    emit readinessReady(previous, {}, tr("检查已中止：已开始新的预测或检查"));
+  }
   cancel();
   m_request = request;
   m_schema = request.facies;
@@ -122,6 +137,32 @@ void WellPredictionService::start(const RemotePredictionRequest &request) {
       prepare();
     }
   });
+}
+void WellPredictionService::check(const RemotePredictionRequest &request) {
+  start(request);   // start() 先 cancel()（清 m_dryRun），再异步起跑
+  m_dryRun = true;
+}
+void WellPredictionService::reportReadiness() {
+  QVariantList wells;
+  QSet<int> planned;
+  QHash<int, QStringList> groups;
+  for (const auto &run : m_runs) {
+    planned.insert(run.well);
+    groups[run.well] << run.prediction.group;
+  }
+  for (int i = 0; i < m_request.wells.size(); ++i) {
+    const auto well = m_request.wells[i].toMap();
+    const bool ready = !m_skipped.contains(i) && planned.contains(i);
+    QString reason = m_skipped.value(i);
+    if (!ready && reason.isEmpty())
+      reason = tr("没有可调用的测井相模型");
+    wells << QVariantMap{{"id", well.value("id")}, {"name", well.value("name")},
+                         {"ready", ready}, {"reason", ready ? QString() : reason},
+                         {"groups", groups.value(i)}};
+  }
+  const QString id = m_request.id;
+  cancel();
+  emit readinessReady(id, wells, {});
 }
 void WellPredictionService::prepare() {
   struct Source {
@@ -185,6 +226,7 @@ void WellPredictionService::prepare() {
   }
   const auto generation = m_generation;
   auto cancelled = std::make_shared<std::atomic_bool>(false);
+  auto readErrors = std::make_shared<QHash<int, QString>>();
   m_cancelled = cancelled;
   auto *watcher = new QFutureWatcher<QVector<WellComposite::ComprehensiveWellData>>(this);
   emit progress(m_request.id, 1);
@@ -195,24 +237,25 @@ void WellPredictionService::prepare() {
     emit progress(m_request.id, 1 + done * 9 / std::max(1, int(total)));
     emit detailChanged(m_request.id, tr("读取测井曲线 %1/%2").arg(done).arg(total));
   });
-  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation] {
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, readErrors] {
     const auto data = watcher->result();
     watcher->deleteLater();
     if (generation != m_generation) return;
     m_cancelled.reset(); m_data = data;
     for (int i = 0; i < m_data.size(); ++i) {
       WellAttributeStore::apply(m_request.wells[i].toMap().value("vector_intervals").toList(), &m_data[i]);
-      if (m_data[i].continuousCurves.isEmpty()) skip(i, tr("测井曲线解析失败或没有有效 MD 数据"));
+      if (readErrors->contains(i)) skip(i, readErrors->value(i));
+      else if (m_data[i].continuousCurves.isEmpty()) skip(i, tr("测井曲线解析失败或没有有效 MD 数据"));
     }
     m_results.resize(m_data.size());
-    if (m_skipped.size() == m_data.size()) return finish();
+    if (m_skipped.size() == m_data.size()) return m_dryRun ? reportReadiness() : finish();
     emit detailChanged(m_request.id, tr("获取远端测井模型及输入要求"));
     emit progress(m_request.id, 10);
     m_service.fetchModels();
   });
   watcher->setFuture(QtConcurrent::run(
       paleo::tasks::pool(m_tasks),
-      [sources, cancelled](
+      [sources, cancelled, readErrors](
           QPromise<QVector<WellComposite::ComprehensiveWellData>> &promise) {
         promise.setProgressRange(0, int(sources.size()));
         QVector<WellComposite::ComprehensiveWellData> data;
@@ -220,41 +263,50 @@ void WellPredictionService::prepare() {
           if (cancelled->load())
             break;
           auto well = source.data;
-          QHash<QString, LasDoc> docs;
+          QHash<QString, QPair<LasHeaderInfo, LasDoc>> docs;
           double top = std::numeric_limits<double>::infinity(), base = -top;
           for (const auto &ref : source.curves) {
             if (cancelled->load())
               break;
-            if (!docs.contains(ref.path))
-              docs.insert(ref.path, WellLogRead::parseDoc(ref.path));
-            const auto &doc = docs[ref.path];
+            if (!docs.contains(ref.path)) {
+              LasHeaderInfo header;
+              LasDoc parsed;
+              parsed.ok = WellLogRead::parse(ref.path, header, parsed.curves, &parsed.error);
+              parsed.curveNames = header.curveNames;
+              docs.insert(ref.path, {header, parsed});
+            }
+            const auto &header = docs[ref.path].first;
+            const auto &doc = docs[ref.path].second;
+            const bool explicitAxis = WellLogRead::detect(ref.path) != WellLogFormat::Las;
+            const auto unitScale = doc.curves.isEmpty() ? std::optional<double>() :
+                paleo::wellnumeric::depthScaleToMetres(doc.curves.first().unit);
+            if (explicitAxis && (!doc.ok || header.indexBasis != QLatin1String("MD") || !unitScale)) {
+              readErrors->insert(int(data.size()), QCoreApplication::translate("WellPredictionService", "%1：预测需要已声明米或英尺单位的 MD 测深，当前基准为 %2；请检查索引与单位。%3")
+                  .arg(QFileInfo(ref.path).fileName(), header.indexBasis.isEmpty() ? QCoreApplication::translate("WellPredictionService", "未声明") : header.indexBasis, doc.error));
+              well.continuousCurves.clear();
+              break;
+            }
             if (doc.curves.isEmpty() || ref.column < 1 ||
                 ref.column >= doc.curves.size())
               continue;
             // 预测输入使用测深（MD）；其他深度域不能直接当成 MD。
-            LasHeaderInfo header;
-            if (!WellLogRead::parseHeader(ref.path, header) ||
-                header.indexBasis != "MD")
+            if (header.indexBasis != "MD")
               continue;
             WellComposite::CurveData curve;
             curve.name = ref.mnemonic;
             curve.unit = doc.curves[ref.column].unit;
             const auto &depth = doc.curves.first();
-            const bool feet =
-                depth.unit.compare("ft", Qt::CaseInsensitive) == 0;
-            if (!depth.unit.isEmpty() && !feet &&
-                depth.unit.compare("m", Qt::CaseInsensitive) != 0)
+            QString reason;
+            if (!normalizeDepthCurve(depth.values, doc.curves[ref.column].values,
+                                     depth.unit, &curve, &reason)) {
+              qWarning().noquote() << "well prediction: skip curve" << ref.mnemonic
+                                   << "of" << ref.path << "-" << reason;
               continue;
-            for (double d : depth.values) {
-              d *= feet ? 0.3048 : 1.0;
-              curve.depths << float(d);
-              if (std::isfinite(d)) {
-                top = std::min(top, double(curve.depths.last()));
-                base = std::max(base, double(curve.depths.last()));
-              }
             }
-            for (double value : doc.curves[ref.column].values)
-              curve.values << float(value);
+            if (!curve.depths.isEmpty()) {
+              top = std::min(top, double(curve.depths.first()));
+              base = std::max(base, double(curve.depths.last()));
+            }
             well.continuousCurves.append(curve);
           }
           well.minDepth = top;
@@ -299,6 +351,7 @@ void WellPredictionService::plan(const QVector<WellFaciesModel> &models) {
     if (!planned.ready()) { skip(i, planned.reason); continue; }
     for (const auto &run : planned.runs) m_runs.append({i, run});
   }
+  if (m_dryRun) return reportReadiness(); // 干跑：止于计划，不发 POST /predict
   m_index = -1;
   next();
 }

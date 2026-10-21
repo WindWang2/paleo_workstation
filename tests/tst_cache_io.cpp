@@ -21,6 +21,7 @@ class CacheIoTests : public QObject
     void detectUtf8();
     void strictUtf8RejectsTruncatedTail(); // #477
     void detectGb18030();
+    void detectGb18030TailCharNotMistakenForTruncatedUtf8(); // #588
     void detectBomVariants();
     void decodeGbWellFile();
     // D7.3 路径规范化
@@ -82,6 +83,34 @@ void CacheIoTests::detectGb18030()
   QVERIFY(gb.size() > text.size()); // 中文占双字节
   QCOMPARE(EncodingDetect::detect(gb), TextEncoding::GB18030);
   QCOMPARE(EncodingDetect::decodeText(gb), text);
+}
+
+// #588：GB18030 样本尾字落在 GBK 里 lead∈[0xE0,0xEF] 的 1024 个汉字时
+// （唰=e0a7/唷=e0a1/刖=ebbe），UTF-8 视角是一个「缺一个续字节的三字节序列」
+// ——trimIncompleteUtf8Tail 旧码把这两个字节整段剥掉，剩下纯 ASCII 前缀，
+// detect() 判成 Utf8，末字符静默变成 U+FFFD。
+void CacheIoTests::detectGb18030TailCharNotMistakenForTruncatedUtf8()
+{
+  QStringEncoder enc("GB18030", QStringConverter::Flag::Stateless);
+  QVERIFY(enc.isValid());
+
+  const QString text = QStringLiteral("WELL.  A-1 : 唰");
+  const QByteArray gb = enc.encode(text);
+  // 尾两字节正是 GB lead + trail（0xE0 0xA7）。
+  QVERIFY(gb.endsWith("\xe0\xa7"));
+  QCOMPARE(EncodingDetect::detect(gb), TextEncoding::GB18030);
+  QCOMPARE(EncodingDetect::decodeText(gb), text);
+
+  // 同形态的另一组 GBK 字（唷=e0a1 / 刖=ebbe）同样成立。
+  const QString text2 = QStringLiteral("井号：唷刖");
+  const QByteArray gb2 = enc.encode(text2);
+  QCOMPARE(EncodingDetect::detect(gb2), TextEncoding::GB18030);
+  QCOMPARE(EncodingDetect::decodeText(gb2), text2);
+
+  // 反向：真被截断的 UTF-8 样本（剥尾后仍留多字节证据）仍是 Utf8，
+  // 不因本次收紧而误判成 GB18030。
+  const QByteArray whole = QStringLiteral("井名：基准井-中").toUtf8();
+  QCOMPARE(EncodingDetect::detect(whole.left(whole.size() - 1)), TextEncoding::Utf8);
 }
 
 void CacheIoTests::detectBomVariants()

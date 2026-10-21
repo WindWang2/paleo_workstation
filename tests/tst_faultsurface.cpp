@@ -96,6 +96,7 @@ private slots:
     void segmentMeshIndexRejectsDegenerateInput();
     void hundredByTwoHundredUnderThreeSeconds();
     void polylineCurtainCut();
+    void multiChainCutReportsDroppedSegments(); // B-10（full-audit-20261020）
 };
 
 void TestFaultSurface::planarDipAndTopology()
@@ -390,6 +391,30 @@ void TestFaultSurface::hundredByTwoHundredUnderThreeSeconds()
     QVERIFY2(topo.ok, qPrintable(topo.message));
     qInfo("fault-surface perf: %lld ms for %d x %d (budget 3000 ms, ratio %f)",
           static_cast<long long>(elapsed), kSections, kPoints, double(elapsed) / 3000.0);
+}
+
+// B-10（full-audit-20261020）：平面切拓扑条带交出多条不连通链时，主链外的
+// 丢弃段不再静默——measureSlip message 如实点名（最小侵入：单主链语义保持，
+// 丢弃段计数上报；滑距区间只基于主链的事实随之可见）。
+void TestFaultSurface::multiChainCutReportsDroppedSegments()
+{
+    paleo::fault::FaultSurfaceMesh mesh;
+    // 两条互不连通的竖直条带（x=0 与 x=100，y∈[-50,50]，z∈[0,100]）——
+    // 水平面切出两条不连通交线链（主链外还有一整条被丢）。
+    mesh.vertices = {
+        {0, -50, 0, QStringLiteral("a1"), 0}, {0, 50, 0, QStringLiteral("a1"), 1},
+        {0, -50, 100, QStringLiteral("a2"), 0}, {0, 50, 100, QStringLiteral("a2"), 1},
+        {100, -50, 0, QStringLiteral("b1"), 0}, {100, 50, 0, QStringLiteral("b1"), 1},
+        {100, -50, 100, QStringLiteral("b2"), 0}, {100, 50, 100, QStringLiteral("b2"), 1},
+    };
+    mesh.triangles = {{0, 1, 2}, {1, 3, 2}, {4, 5, 6}, {5, 7, 6}};
+    HorizonPlane foot;
+    foot.nx = 0; foot.ny = 0; foot.nz = 1; foot.d = 10;
+    HorizonPlane hang = foot; hang.d = 20;
+    const SlipCurve curve = measureSlip(mesh, foot, hang);
+    QVERIFY2(curve.ok(), qPrintable(curve.message));
+    QVERIFY2(curve.message.contains(QStringLiteral("多链")), qPrintable(curve.message));
+    QVERIFY2(curve.message.contains(QStringLiteral("下盘")), qPrintable(curve.message));
 }
 
 // ---- 任意折线 curtain 求交（连井剖面断层投绘）----

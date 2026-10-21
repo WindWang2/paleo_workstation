@@ -55,7 +55,8 @@ struct SattrSectionHeader
 bool writeSattrSection(const QString &path, const SattrSectionHeader &header,
                        const QVector<float> &values, QString *error = nullptr);
 
-// 读回：头逐字段 + 值块。cancelled 非∅时逐样协作检查（crossplot 大图复用）。
+// 读回：头逐字段 + 值块。cancelled 返回真=已取消（值块整读后协作检查一次；
+// crossplot 大图复用；B-04 统一「已取消？」语义）。
 // 文件长/魔数/版本/尺寸不自洽 → 如实失败，不静默截断。
 bool readSattrSection(const QString &path, SattrSectionHeader *header,
                       QVector<float> *values, QString *error = nullptr,

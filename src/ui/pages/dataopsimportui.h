@@ -22,7 +22,6 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
-#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
@@ -34,6 +33,7 @@
 #include <QVBoxLayout>
 
 #include "../paleotheme.h"
+#include "../notifications/paleonotify.h"
 #include "dataops/dataopsimportlogic.h"
 
 namespace paleo::dataops
@@ -166,8 +166,9 @@ public:
     connect(m_close, &QToolButton::clicked, this, [this] {
       if (!m_queue.hasPending())
         hide();
-      else if (QMessageBox::question(this, tr("导入进行中"),
-                                     tr("还有未完成项，仍要收起面板？")) == QMessageBox::Yes)
+      // D.2：确认走 PaleoNotify::ask（ErrorHub 入账），不用裸 QMessageBox。
+      else if (PaleoNotify::ask(this, tr("导入进行中"),
+                                tr("还有未完成项，仍要收起面板？")))
         hide();
     });
     // RetryWait → Queued 的自动驱动拍（D8.2 自动重试）；同时刷整体 ETA（B2）。

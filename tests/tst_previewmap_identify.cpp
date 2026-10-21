@@ -26,6 +26,7 @@ class TestPreviewIdentify : public QObject
     }
 
     void pointIdentifyHitsVectorFeature();
+  void canvasDrawingOrderYieldsTopmostFirst();
     void pointIdentifyMissIsEmpty();
     void pointIdentifyRespectsTolerance();
     void rectIdentifyReturnsMultiple();
@@ -36,6 +37,7 @@ class TestPreviewIdentify : public QObject
     void rasterPointGivesNearestAndBilinear();
     void rasterPointOutsideExtentIsMiss();
     void pointIdentifyAcrossMixedLayers();
+    void pointIdentifyCapsPerLayer();
     void rectIdentifyEmptyRectIsEmpty();
 
   private:
@@ -97,6 +99,35 @@ void TestPreviewIdentify::pointIdentifyHitsVectorFeature()
   QCOMPARE(results.at(0).layerName, QStringLiteral("grid"));
   QCOMPARE(results.at(0).attributes.value(QStringLiteral("name")).toString(),
            QStringLiteral("p2_3"));
+}
+
+void TestPreviewIdentify::canvasDrawingOrderYieldsTopmostFirst()
+{
+  // 层序契约钉死（R2-1 复审）：canvas()->layers() 的 index 0 = 视觉最
+  // 顶层，识别结果序 = 输入序（先命中视觉最上层）。两层都在 (200,300)
+  // 放一个点要素。
+  std::unique_ptr<QgsVectorLayer> bottom(makeGridLayer(0));
+  bottom->setName(QStringLiteral("bottom"));
+  {
+    QgsFeature f(bottom->fields());
+    f.setAttribute(QStringLiteral("name"), QStringLiteral("bottom_hit"));
+    f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(200.0, 300.0)));
+    bottom->dataProvider()->addFeature(f);
+  }
+  bottom->updateExtents();
+  std::unique_ptr<QgsVectorLayer> top(makeGridLayer(0));
+  top->setName(QStringLiteral("top"));
+  {
+    QgsFeature f(top->fields());
+    f.setAttribute(QStringLiteral("name"), QStringLiteral("top_hit"));
+    f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(200.0, 300.0)));
+    top->dataProvider()->addFeature(f);
+  }
+  top->updateExtents();
+  const auto results = m_core.identifyPoint({top.get(), bottom.get()}, QgsPointXY(200.0, 300.0), 0.5);
+  QCOMPARE(results.size(), 2);
+  QCOMPARE(results.at(0).layerName, QStringLiteral("top"));
+  QCOMPARE(results.at(1).layerName, QStringLiteral("bottom"));
 }
 
 void TestPreviewIdentify::pointIdentifyMissIsEmpty()
@@ -219,7 +250,8 @@ void TestPreviewIdentify::rasterPointOutsideExtentIsMiss()
 void TestPreviewIdentify::pointIdentifyAcrossMixedLayers()
 {
   // 混合层（矢量在上、栅格在下）：点查同时命中矢量要素与栅格取值，
-  // 结果序 = 层序（视顶到视底）。
+  // 结果序 = 层序（视顶到视底）。canvas()->layers() 的 index 0 即视觉
+  // 最顶层（R2-1 复审核实），输入序即视觉序，无需反转。
   std::unique_ptr<QgsVectorLayer> vl(makeGridLayer(4));
   std::unique_ptr<QgsRasterLayer> rl(makeTinyRaster());
   QVERIFY(rl && rl->isValid());
@@ -231,6 +263,28 @@ void TestPreviewIdentify::pointIdentifyAcrossMixedLayers()
            QStringLiteral("p2_3"));
   QVERIFY(results.at(1).isRaster); // 栅格在后
   QCOMPARE(results.at(1).rasterValueNearest, 2.0);
+}
+
+void TestPreviewIdentify::pointIdentifyCapsPerLayer()
+{
+  std::unique_ptr<QgsVectorLayer> vl(makeGridLayer(8)); // 8×8 = 64 个格点
+  const QgsPointXY origin(0.0, 0.0);
+  const double wideTol = 1000.0; // 容差矩形罩住全层
+  // 不设每层上限：全局 200 条内全命中（预览页点击识别的既有口径）。
+  QCOMPARE(m_core.identifyPoint({vl.get()}, origin, wideTol).size(), 64);
+  // 每层上限 25：悬停识别路径显式传小值——密要素区单层不再吃满全局预算，
+  // 候选也在取要素前截断（D.20：此前逐 fid 各发一次 provider 查询）。
+  const auto capped = m_core.identifyPoint({vl.get()}, origin, wideTol, 25);
+  QCOMPARE(capped.size(), 25);
+  // 截断后走合成 setFilterFids 单次查询：命中的仍是真实相交要素。
+  const QgsRectangle filter(-1000, -1000, 1000, 1000);
+  for (const PreviewIdentifyResult &r : capped)
+  {
+    QVERIFY(!r.layerName.isEmpty());
+    QVERIFY(r.geometry.intersects(filter));
+  }
+  // 上限 1 也如实只回一条（防呆：cap 不塌成 0 或全量）。
+  QCOMPARE(m_core.identifyPoint({vl.get()}, origin, wideTol, 1).size(), 1);
 }
 
 void TestPreviewIdentify::rectIdentifyEmptyRectIsEmpty()

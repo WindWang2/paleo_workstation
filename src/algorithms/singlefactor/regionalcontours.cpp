@@ -256,8 +256,13 @@ RegionalContourResult regionalContours( const PreparedInput &input, const GridSp
     {
       std::vector<Segment> segments;
       marchingSquaresSegments( grid, regionValues, regionMask, level, &segments );
-      const double toleranceSq = 1e-12 *
-                                 std::max( std::abs( grid.pixelWidth ), std::abs( grid.pixelHeight ) );
+      // 缝合容差（距离量纲，平方后与 squaredDist 的距离² 同源比较）：
+      // marching squares 共享边两侧参数序相同 → 交叉点逐位重合（实测 gap=0），
+      // 容差只兜浮点往返噪声，按像元尺寸（格网的长度尺度）取相对量级。
+      // 旧写法 1e-12×像元尺寸量纲是「距离×像元」，与距离²不同源。
+      const double tolerance =
+          1e-9 * std::max( std::abs( grid.pixelWidth ), std::abs( grid.pixelHeight ) );
+      const double toleranceSq = tolerance * tolerance;
       std::vector<std::vector<Point2>> lines;
       stitchSegments( segments, toleranceSq, &lines );
       for ( auto &line : lines )

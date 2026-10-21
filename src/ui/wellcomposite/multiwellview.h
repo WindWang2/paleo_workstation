@@ -11,6 +11,7 @@
 #include "wellcompositepanel.h"
 
 class QListWidget;
+class QLabel;
 
 // ui/wellcomposite/multiwellview — D5.x 多井对比容器
 //
@@ -97,6 +98,8 @@ private:
   QStringList m_availableWells;
   QStringList m_selectedWells;
   QList<WellCompositePanel *> m_panels; // 槽位数组（可含 nullptr）
+  // D.8 当前布局在用的占位标签（relayout 每轮重建，旧标签出布局后即删）
+  QList<QLabel *> m_placeholders;
   QWidget *m_overlay = nullptr;
   bool m_syncingScroll = false;
 

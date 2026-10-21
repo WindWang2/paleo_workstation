@@ -19,6 +19,7 @@ private slots:
   void binsSamplePoints();
   void countsCollisions();
   void rejectsMalformedHeaders();
+  void rejectsExtremeLineNumbersWithoutOverflow(); // #595 L4.1
   void writesGeoTiffWithGeotransform();
   void writesPaleoSurveyMetadata();
 
@@ -182,6 +183,45 @@ void TestHorizonBinner::rejectsMalformedHeaders()
       "0.0 0.0 111.0 100 200\n",
       &b, &err));
   QVERIFY2(err.contains(QStringLiteral("rotated or non-orthogonal")), qPrintable(err));
+}
+
+// #595（L4.1）：分箱索引用 int 减法算 row/col，而 inline/crossline 取自数据行
+// 的任意 32 位取值——inl - p1Inline 溢出即有符号溢出 UB（UBSAN abort），且回绕
+// 后的值可能骗过界检、越界写 b.z。改 qint64 后这些点如实计入 rejected。
+void TestHorizonBinner::rejectsExtremeLineNumbersWithoutOverflow()
+{
+  const QByteArray head = QByteArray(
+      "# Grid_size:2x2\n"
+      "# P1:        1,        1,     0.00000,     0.00000\n"
+      "# P2:        1,        2,    10.00000,     0.00000\n"
+      "# P3:        2,        2,    10.00000,    10.00000\n"
+      "# Z_units: ms\n");
+  // inline = INT_MIN：INT_MIN - p1Inline(1) 在 int 上溢出（UB）。
+  const QByteArray body = QByteArrayLiteral("0.0 0.0 111.0 -2147483648 -2147483648\n");
+
+  BinnedHorizon b;
+  QString err;
+  QVERIFY2(binHorizon(head + body, &b, &err), qPrintable(err));
+  QCOMPARE(b.z.size(), 4);
+  QCOMPARE(b.rejected, 1); // 越界点只计数，不写入
+  QCOMPARE(b.filledCells, 0);
+  for (const float v : b.z)
+    QCOMPARE(v, -9999.0f); // 无像元被写坏
+
+  // 另一侧：inline = INT_MAX、crossline = INT_MAX 同理（row 回绕成大正数）。
+  const QByteArray body2 = QByteArrayLiteral("0.0 0.0 111.0 2147483647 2147483647\n");
+  BinnedHorizon b2;
+  QVERIFY2(binHorizon(head + body2, &b2, &err), qPrintable(err));
+  QCOMPARE(b2.rejected, 1);
+  QCOMPARE(b2.filledCells, 0);
+
+  // 合法点不受影响（p1Inline=1 → row = 1 - (2 - 1) = 0，col = 2 - 1 = 1）。
+  const QByteArray body3 = QByteArrayLiteral("0.0 0.0 111.0 2 2\n");
+  BinnedHorizon b3;
+  QVERIFY2(binHorizon(head + body3, &b3, &err), qPrintable(err));
+  QCOMPARE(b3.rejected, 0);
+  QCOMPARE(b3.filledCells, 1);
+  QCOMPARE(b3.z.at(0 * 2 + 1), 111.0f);
 }
 
 void TestHorizonBinner::writesGeoTiffWithGeotransform()

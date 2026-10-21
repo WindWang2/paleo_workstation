@@ -1203,7 +1203,10 @@ using paleo::io_detail::addIssue;
             const uchar padCount = uchar(lrBuf.at(padPos));
             trim += int(padCount);
           }
-          if (trim > lrBuf.size())
+          // A-02（full-audit-20261021）：本段 trailer 只能消耗本段体——
+          // lrBuf 是跨段累计缓冲，仅按总量校验会让损坏的 padcount 把前段
+          // 字节一并切掉（姊妹实现 lisparser.cpp 的 PR 段是段内扣除口径）。
+          if (trim > lrBuf.size() || trim > int(bodyLen))
           {
             if (error)
               *error = QCoreApplication::translate("DlisParser", "段尾（校验/尾长/填充）越界（段长 %1）")

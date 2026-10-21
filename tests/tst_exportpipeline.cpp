@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QDialogButtonBox>
 #include <QLabel>
+#include <QTableWidget>
 #include <QAction>
 #include "../src/ui/paleomainwindow.h"
 #include "../src/qgis/geologicalmaplayout.h"
@@ -98,6 +99,21 @@ private slots:
     const auto other = registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", "D62"); QVERIFY2(!other.isEmpty(), qPrintable(error));
     QVERIFY(first != other); QCOMPARE(cat.currentVersion(first).sha256, cat.currentVersion(other).sha256);
     QCOMPARE(registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", "D61"), first); QCOMPARE(cat.assets().size(), 2);
+  }
+  void projectLevelExportDoesNotStealHorizonScopedVersion() {
+    // C-01 回归：空层位（工区级）导出不得复用带层位登记的既有同字节版本——
+    // 复用+按本层位回写 extra 会把既有版本的层位归属清空，下游按 horizon
+    // 归集错位。期望：新资产登记，既有版本层位保持不变。
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path()));
+    QImage image(24, 24, QImage::Format_ARGB32); image.fill(Qt::darkGray); const auto path = tmp.filePath("scoped.png"); QVERIFY(image.save(path)); QString error;
+    const auto scoped = registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", "D61"); QVERIFY2(!scoped.isEmpty(), qPrintable(error));
+    QCOMPARE(cat.currentVersion(scoped).extra.value("horizon").toString(), QLatin1String("D61"));
+    const auto projectLevel = registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", QString()); QVERIFY2(!projectLevel.isEmpty(), qPrintable(error));
+    QVERIFY(projectLevel != scoped); QCOMPARE(cat.assets().size(), 2);
+    QCOMPARE(cat.currentVersion(scoped).extra.value("horizon").toString(), QLatin1String("D61"));
+    QCOMPARE(cat.currentVersion(projectLevel).extra.value("horizon").toString(), QString());
+    // 同域重导仍正确 dedup：工区级第二次注册复用工区级资产。
+    QCOMPARE(registerMapPdfAsset(&cat, tmp.path(), path, nullptr, nullptr, &error, "png", QString()), projectLevel);
   }
   void changedInputCannotBeRegisteredAsAHistoricalMap() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
@@ -222,6 +238,32 @@ private slots:
     QVERIFY(dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->isEnabled());
     QVERIFY(QDir(tmp.path()).entryList({"paleo_export_*"}, QDir::Dirs).isEmpty());
   }
+  // L5.4：RAW scope 下某资产没有 RAW 版本时，行内下拉必须显式占位、汇总点名该
+  // 资产、导出按钮禁用，且 request() 不再把空 versionId 送进 DataRequest
+  // （原先下游只回一条主语为空的「来源版本缺失：」，资产还被静默排除）。
+  void rawScopeWithoutRawVersionIsNamedAndBlocked() {
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
+    CatalogAsset asset; asset.id = cat.nextAssetId(); asset.displayName = "fixture.gpkg"; asset.type = "boundary"; asset.format = "gpkg"; QVERIFY(cat.addAsset(asset));
+    CatalogVersion version; version.id = cat.nextVersionId(); version.assetId = asset.id; version.stage = "OUTPUT";
+    version.managed = false; version.path = FIXTURE_GPKG; version.fileName = "fixture.gpkg"; version.sha256 = DataCatalog::sha256FileHex(version.path); QVERIFY(cat.addVersion(version));
+    DataExportDialog dialog(&cat, {asset.id}, &tasks);
+    auto *scope = dialog.findChild<QComboBox *>("dataExportScope"); QVERIFY(scope);
+    scope->setCurrentIndex(1); // 原始文件（RAW）
+    auto *summary = dialog.findChild<QLabel *>("dataExportSummary"); QVERIFY(summary);
+    auto *versions = dialog.findChild<QTableWidget *>("dataExportVersions"); QVERIFY(versions);
+    auto *combo = qobject_cast<QComboBox *>(versions->cellWidget(0, 1)); QVERIFY(combo);
+    QCOMPARE(combo->count(), 1);                       // 显式占位项，不留空下拉
+    QVERIFY(combo->currentData().toString().isEmpty());
+    QVERIFY(!combo->isEnabled());
+    QVERIFY(summary->text().contains(QStringLiteral("没有 RAW")));
+    QVERIFY(summary->text().contains(asset.displayName));
+    QVERIFY(!dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->isEnabled());
+    QVERIFY(dialog.request().versionIds.isEmpty());    // 空 id 不进请求
+    // 换回「当前成果」即恢复可选：占位与提示都退场。
+    scope->setCurrentIndex(0);
+    QVERIFY(summary->text().contains(QStringLiteral("正在检查")));
+    QCOMPARE(dialog.request().versionIds, QStringList{version.id});
+  }
   void worldFilesAndTransparentPaperKeepTheOriginalLayout() {
     QTemporaryDir tmp; QgsProject project; auto *layer = points(project);
     PaleoGeologicalMapLayout::Settings settings;
@@ -321,6 +363,56 @@ private slots:
     const auto result = PaleoLayoutExport::exportLayout(layout->layout(), tmp.filePath("map.tif"), PaleoLayoutExport::Format::Tiff, 72, {});
     if (PaleoLayoutExport::formatAvailable(PaleoLayoutExport::Format::Tiff)) { QVERIFY2(result.ok, qPrintable(result.error)); QVERIFY(!QImage(result.files.first()).isNull()); }
     else { QVERIFY(!result.ok); QVERIFY(!result.error.isEmpty()); }
+  }
+  void unrelatedCatalogWriteDuringExportDoesNotDiscardResult() {
+    // C-3（full-audit-20261021）：导出窗口期内的无关 catalog 写（导入/预测/
+    // 另一导出发布）此前把整批判废为「工程数据已变化」。#480 P3-3 口径：
+    // 输入提交时已冻结进 staging；发布撞号由 remap 换新号 + applyJournal
+    // 事务兜底。此处构造最坏形状——导出启动后立刻在 live catalog 显式占用
+    // staging 快照将分配的 ast-1..ast-50，断言导出仍登记成功且结果 id 有效。
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
+    QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "D61";
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings); QVERIFY(layout);
+    PaleoGeologicalExport::Request request; request.destination = tmp.filePath("exports/maps/D61"); request.dpi = 72;
+    // 双格式 = 同一 journal 含两个 AddAsset（R2-MF-1：重映射须避让同批
+    // 自有 id——噪声只消耗 ast-1 时，若把撞号 ast-1 映到 journal 自有的
+    // ast-2，重放即 duplicate 整批失败）。
+    request.registerInProject = true;
+    request.formats = {PaleoLayoutExport::Format::Png, PaleoLayoutExport::Format::Pdf};
+    request.context = {{"horizon", "D61"}};
+    bool called = false; PaleoGeologicalExport::Result result;
+    QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this, [&](const auto &r) { result = r; called = true; }));
+    // 噪声只消耗 ast-1：journal 自有的 ast-2 保持未被 live 占用——旧重映射
+    // 把撞号 ast-1 映到 nextAssetId()=ast-2（journal 自有）→ 重放 duplicate。
+    {
+      CatalogAsset noise;
+      noise.id = QStringLiteral("ast-1");
+      noise.type = QStringLiteral("well_log");
+      noise.format = QStringLiteral("las");
+      QString err;
+      QVERIFY2(cat.addAsset(noise, &err), qPrintable(err));
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(called, 30000);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QVERIFY(!result.cancelled);
+    QCOMPARE(result.assetIds.size(), 2);
+    // 未撞号的 ast-2 原号保留；撞号的 ast-1 映到 live/journal 双避让的新号
+    // （≥ast-3）。
+    const bool keptTwo = result.assetIds.contains(QStringLiteral("ast-2"));
+    const int remapped = int(result.assetIds.removeAll(QStringLiteral("ast-2")));
+    QVERIFY2(keptTwo && remapped == 1, "未撞号 id 应原号保留");
+    QCOMPARE(result.assetIds.size(), 1);
+    QVERIFY2(result.assetIds.first() != QStringLiteral("ast-1") &&
+                 result.assetIds.first() != QStringLiteral("ast-2"),
+             "撞号 id 必须重映射为双避让新号（R2-MF-1）");
+    result.assetIds.append(QStringLiteral("ast-2"));
+    for (const QString &published : result.assetIds) {
+      QVERIFY(!cat.assetById(published).id.isEmpty());
+      const auto version = cat.currentVersion(published);
+      QCOMPARE(version.stage, QString("OUTPUT"));
+      QCOMPARE(version.extra.value("horizon").toString(), QString("D61"));
+      QVERIFY(QFileInfo::exists(cat.versionFilePath(version)));
+    }
   }
 };
 int main(int argc, char **argv) {

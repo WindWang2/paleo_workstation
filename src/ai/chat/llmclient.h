@@ -148,10 +148,14 @@ private:
   QPointer<QNetworkReply> m_reply = nullptr;
   QTimer *m_timer = nullptr;
   QByteArray m_buffer;      // SSE 半包缓冲（fed to LlmStreamParser）
-  QByteArray m_body;        // 非流式累积体
+  QByteArray m_body;        // 原始应答累积体（非流式解析 + 非 SSE 判别共用）
   qint64 m_received = 0;    // 已收字节数（流式与非流式共用，用于上限判定）
   LlmStreamParser m_parser;
   int m_generation = 0;     // 世代号：cancel/send 后作废迟到信号
+  // 本轮是否真见过 SSE 事件（增量/工具帧/[DONE]）：stream=true 却收到普通
+  // JSON 应答时的判别依据（#588）——没见过事件又确是 chat completions 形状，
+  // 按非流式解析，不把零增量当成功 finishUp。
+  bool m_sawStreamEvent = false;
   int m_promptTokens = 0;
   int m_completionTokens = 0;
 };

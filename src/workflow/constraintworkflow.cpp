@@ -25,6 +25,7 @@
 #include "../services/singlefactordef.h"
 #include "boundarysemantics.h"             // 相界地质语义类型词表
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "mappingworkflow.h"
 
 #include <QDateTime>
@@ -1173,13 +1174,18 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
         idwExtra.insert(QStringLiteral("field"), field);
         idwExtra.insert(QStringLiteral("cell_size"), cellSize);
         idwExtra.insert(QStringLiteral("constrained"), hasConstraints);
+        // algo-atom P1：经统一 publishArtifacts（等价 commitExternal）
+        const AlgorithmRunResult runResult =
+            paleo::runResultFromProcessingOutput( results );
         QString commitErr;
-        if (!registrar.commitExternal(
-                st, outPath, registrar.parentVersionIdsFor(parentPaths),
-                QStringLiteral("paleo:paleo_constraint_idw"), idwExtra,
-                &commitErr,
-                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
-          paleo::workflow_detail::setError(error, commitErr);
+        if ( !paleo::publishArtifacts(
+                 registrar, st, runResult,
+                 registrar.parentVersionIdsFor( parentPaths ),
+                 QStringLiteral( "paleo:paleo_constraint_idw" ), idwExtra,
+                 &commitErr,
+                 fingerprint.sha256.isEmpty() ? nullptr : &fingerprint ) )
+        {
+          paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
 

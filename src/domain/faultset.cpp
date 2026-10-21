@@ -8,6 +8,8 @@
 
 #include <algorithm>
 
+#include <optional>
+
 namespace paleo::fault {
 
 namespace {
@@ -73,29 +75,26 @@ FaultSectionRef FaultSectionRef::fromMap(const QVariantMap &m)
 
 // ---- FaultStick ----
 
-double FaultStick::twtMinMs() const
+// 空棒返回 nullopt（L2.1 / #593）：旧实现返回 0.0，消费端于是把空棒显示成
+// 「TWT 0–0 ms」——0.0 与合法 TWT 0 ms 不可分辨。单位由 verticalDomain 定
+// （TwtMs=毫秒 / Depth=米），消费端据此贴标签，不得一律写 ms。
+std::optional<double> FaultStick::twtMinMs() const
 {
-    double v = 0.0;
-    bool first = true;
-    for (const auto &pt : points) {
-        if (first || pt.second < v) {
-            v = pt.second;
-            first = false;
-        }
-    }
+    if (points.isEmpty())
+        return std::nullopt;
+    double v = points.first().second;
+    for (const auto &pt : points)
+        v = std::min(v, pt.second);
     return v;
 }
 
-double FaultStick::twtMaxMs() const
+std::optional<double> FaultStick::twtMaxMs() const
 {
-    double v = 0.0;
-    bool first = true;
-    for (const auto &pt : points) {
-        if (first || pt.second > v) {
-            v = pt.second;
-            first = false;
-        }
-    }
+    if (points.isEmpty())
+        return std::nullopt;
+    double v = points.first().second;
+    for (const auto &pt : points)
+        v = std::max(v, pt.second);
     return v;
 }
 
@@ -341,6 +340,10 @@ FaultSurfaceMesh FaultSurfaceMesh::fromMap(const QVariantMap &m)
         vert.y = vm.value(QStringLiteral("y")).toDouble();
         vert.z = vm.value(QStringLiteral("z")).toDouble();
         vert.stickId = vm.value(QStringLiteral("stickId")).toString();
+        // 缺 pointIndex 键（旧 JSON）兜底 -1 = 「不归属任何棒上点」，与
+        // provenance 缺省 Measured 同义——两者都不是外推；外推顶点的两种记法
+        // （provenance=Extrapolated + pointIndex=kExtrapolatedPointIndex）由
+        // 成面核写入时一次配齐（L2.2 / #593）。
         vert.pointIndex = vm.value(QStringLiteral("pointIndex"), -1).toInt();
         vert.provenance = provenanceFromTag(vm.value(kProvenanceKey));
         mesh.vertices.append(vert);

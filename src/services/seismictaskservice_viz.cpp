@@ -21,8 +21,10 @@
 #include <QUuid>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <vector>
 
 namespace seismic {
@@ -114,10 +116,17 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
   }
 
   // A3（wave/deepen-perf）同路径取代语义：拖动连发的新瓦片请求立即取消旧
-  // 在途任务——引擎按瓦片粒度协作中止，被顶替的整图读取不再占并发闸排队
-  // （消费侧另有采样号世代过滤，双保险）。
+  // 在途任务并标记 superseded——引擎按瓦片粒度协作中止，被顶替的整图读取
+  // 不再占并发闸排队；被顶替任务的回调静默丢弃（不产伪「已取消」失败，
+  // 口径同体传播/属性扫描顶替；消费侧另有采样号世代过滤，双保险）。
   if (QPointer<PaleoTask> stale = inFlightTiledTasks_.value(sf3pPath))
+  {
+    if (const auto staleFlag = tiledSuperseded_.value(sf3pPath))
+      staleFlag->store(true);
     stale->requestCancel();
+  }
+  const auto superseded = std::make_shared<std::atomic_bool>(false);
+  tiledSuperseded_.insert(sf3pPath, superseded);
 
   const QString title = tr("瓦片渐进时间片 (采样 %1)").arg(sampleIndex);
   auto outImage = std::make_shared<SgySliceImage>();
@@ -179,10 +188,14 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
   // quiet：时间片瓦片是拖动交互取数，不拉起任务中心。
   PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true); // D6.4 ≤4 并发闸
   inFlightTiledTasks_.insert(sf3pPath, task); // A3 取代登记（同键新值顶替旧句柄）
-  connect(task, &PaleoTask::finished, this, [this, sf3pPath, task, outImage, onFinished]() {
+  connect(task, &PaleoTask::finished, this, [this, sf3pPath, task, superseded, outImage, onFinished]() {
     // A3：终态即出取代表（仅当仍指向本任务——后来者已顶替则留给后来者清理）
     if (inFlightTiledTasks_.value(sf3pPath) == task)
       inFlightTiledTasks_.remove(sf3pPath);
+    if (tiledSuperseded_.value(sf3pPath) == superseded)
+      tiledSuperseded_.remove(sf3pPath);
+    if (superseded->load())
+      return; // 被顶替：静默丢弃（不报取消不报错）
     if (!onFinished)
       return;
     if (task->state() == PaleoTask::State::Succeeded)

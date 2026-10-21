@@ -11,6 +11,7 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QSqlDatabase>
+#include <QSqlError>
 #include <QSqlQuery>
 
 // catalogstore 主 TU（方向 99 拆分后）：openProject 编排（建库/JSON 迁移/
@@ -192,6 +193,68 @@ using paleo::catalog_detail::loadTables;
     }
     return jsonPath + QStringLiteral(".migrated-") +
            QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddTHHmmsszzzZ"));
+  }
+
+  // H2：「sqlite 文件在」≠「权威库在」。migrateFromJson（attachWritable 建库后
+  // replaceAll 才 renameAside(json)）与 rewritePrimary（quarantine 先 remove 再
+  // attachWritable）的崩溃窗口都会留下零长/无表 sqlite。把它当权威空库放行，
+  // JSON/.bak 恢复链就永远不可达——工程以空目录成功打开，真实数据退化成盘上
+  // 孤儿文件。开库前先探一次 sqlite_master（只读、不建表、不写 pragma）。
+  // 只有 SchemaLess 一档改判：探不动（坏头/锁/WAL 只读不可读）时不夺权，
+  // 照旧交给 openExisting 的可写连接与它既有的 recover 链——只读探针不得
+  // 把「可写连接本可恢复的库」误判成坏库。
+  enum class SqliteProbe
+  {
+    Missing,    // 文件不在
+    Usable,     // 有 catalog 表——权威
+    SchemaLess, // 能打开且 sqlite_master 可读，但零表
+    Unreadable  // 打不开/读不出（坏头、锁、缺 entities 的异构库）
+  };
+
+  SqliteProbe probeSqlite(const QString &path, const QString &connectionName)
+  {
+    if (!QFileInfo::exists(path))
+      return SqliteProbe::Missing;
+    SqliteProbe probe = SqliteProbe::Unreadable;
+    {
+      QSqlDatabase db = MetaStore::openConnection(path, connectionName, nullptr, true,
+                                                  kCatalogUserVersion);
+      if (db.isValid() && db.isOpen())
+      {
+        QSqlQuery q(db);
+        if (q.exec(QStringLiteral(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='entities'")) &&
+            q.next())
+          probe = SqliteProbe::Usable;
+        else if (q.lastError().type() != QSqlError::NoError)
+          probe = SqliteProbe::Unreadable; // 坏头等：sqlite_master 本身读不出
+        else
+        {
+          // 有表但不是 catalog 的四表族：按读不出处理（不得当空库覆盖）。
+          QSqlQuery any(db);
+          probe = (any.exec(QStringLiteral("SELECT 1 FROM sqlite_master WHERE type='table'")) &&
+                   !any.next())
+                      ? SqliteProbe::SchemaLess
+                      : SqliteProbe::Unreadable;
+        }
+      }
+    }
+    forgetConnection(connectionName);
+    return probe;
+  }
+
+  // 「无表主库」时决定能否安全建空库：有 .bak 代或 json.migrated 说明数据可能
+  // 还在恢复源里，必须先走 recover；一样都没有才按崩溃残留重建空工程。
+  bool anyRecoverySource(const QString &sqlitePath, const QString &jsonPath)
+  {
+    for (int gen = 1; gen <= 9; ++gen)
+    {
+      const QString candidate = gen == 1 ? sqlitePath + QStringLiteral(".bak")
+                                         : sqlitePath + QStringLiteral(".bak.%1").arg(gen);
+      if (QFileInfo::exists(candidate))
+        return true;
+    }
+    return QFileInfo::exists(jsonPath + QStringLiteral(".migrated"));
   }
 
   bool renameAside(const QString &src, const QString &dest)
@@ -446,11 +509,15 @@ bool CatalogStore::openExisting(bool readOnly, Tables *out, QString *error)
       step = Step::Schema;
       stepErr = QStringLiteral("unsupported catalog schema epoch %1").arg(epoch);
     }
-    else if (!readOnly && !applyWritablePragmas(db, &stepErr))
-      step = Step::Failed;
-    else if (!readOnly && !execScript(db, kSchemaSql, &stepErr))
-      step = Step::Failed;
+    // A.1：integrity_check 必须先于任何会写盘的动作（WAL/journal pragma、
+    // DDL）。否则损坏库一打开就被改写成「看似可写」，坏块被 pragma/DDL 的
+    // 副产物盖住；且 pragma/DDL 失败原先被路由成硬错误直接 return false，
+    // .bak/JSON 恢复链永远够不着——损坏库可能永远打不开工程。
     else if (!integrityOk(db, &stepErr))
+      step = Step::Corrupt;
+    else if (!readOnly && !applyWritablePragmas(db, &stepErr))
+      step = Step::Corrupt; // 同上：写盘前置动作失败按损坏走 recover，不硬拒
+    else if (!readOnly && !execScript(db, kSchemaSql, &stepErr))
       step = Step::Corrupt;
     else if (!readOnly)
     {
@@ -557,8 +624,15 @@ bool CatalogStore::openProject(const QString &projectDir, bool readOnly, Tables 
   }
   m_sqlitePath = sqlitePathFor(m_projectDir);
   const QString jsonPath = jsonPathFor(m_projectDir);
-  const bool haveSqlite = QFileInfo::exists(m_sqlitePath);
   const bool haveJson = QFileInfo::exists(jsonPath);
+  const bool sqliteFilePresent = QFileInfo::exists(m_sqlitePath);
+  // H2：权威性按「库可用」判，不按「文件在」判（详见 probeSqlite）。零长/无表
+  // 库让位给 JSON 迁移 / .bak 恢复链；其余档位（含探不动）照旧走
+  // openExisting——它自己的 recover 链负责坏库。
+  const QString probeName = catalogConnectionName(this, m_sqlitePath, true);
+  const bool schemaLessPrimary =
+      sqliteFilePresent && probeSqlite(m_sqlitePath, probeName) == SqliteProbe::SchemaLess;
+  const bool haveSqlite = sqliteFilePresent && !schemaLessPrimary;
 
   if (!haveSqlite)
   {
@@ -610,6 +684,11 @@ bool CatalogStore::openProject(const QString &projectDir, bool readOnly, Tables 
     }
     if (haveJson)
       return migrateFromJson(out, error);
+    // 无表主库（零长/异构空库）且有恢复源：数据可能在 .bak 代或
+    // json.migrated 里，先走 recover；一样都没有才按崩溃残留重建空工程
+    // （这一档没有数据可丢——createEmpty 的崩溃窗口正是它的来源）。
+    if (schemaLessPrimary && anyRecoverySource(m_sqlitePath, jsonPath))
+      return recover(QStringLiteral("catalog sqlite has no tables"), out, error);
     return createEmpty(out, error);
   }
   return openExisting(readOnly, out, error);

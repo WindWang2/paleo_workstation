@@ -8,6 +8,7 @@
 
 #include <QComboBox>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QImage>
 #include <QLabel>
 #include <QProgressBar>
@@ -497,9 +498,15 @@ void SeismicSectionDockWidget::onExportSnapshot() {
     if (filePath.isEmpty())
         return;
 
-    QImage img(m_canvas->size(), QImage::Format_ARGB32_Premultiplied);
-    m_canvas->render(&img);
-    if (img.save(filePath)) {
+    // 导出走画布自带 2× 渲染 API（与复制/打印同口径，D.11）：按 1× 逻辑
+    // 尺寸直存会让导出的 PNG 分辨率只有其它路径的一半。JPEG 后缀不走
+    // exportPng——该入口固定按 PNG 编码，改后缀会写出名实不符的文件。
+    const QString suffix = QFileInfo(filePath).suffix().toLower();
+    const bool ok = (suffix == QLatin1String("jpg") ||
+                     suffix == QLatin1String("jpeg"))
+                        ? m_canvas->grabCanvasImage(2.0).save(filePath)
+                        : m_canvas->exportPng(filePath);
+    if (ok) {
         PaleoNotify::information(this, tr("导出成功"), tr("剖面图件已成功保存到:\n%1").arg(filePath));
     } else {
         PaleoNotify::critical(this, tr("导出失败"), tr("保存图像文件失败，请检查文件写入权限。"));

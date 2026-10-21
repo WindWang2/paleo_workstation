@@ -425,6 +425,10 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
         };
         SgySliceImage slice;
         std::string extractErr;
+        // B-3（full-audit-20261021，登记不修）：vendored SgyVolume 仅有整剖面
+        // ExtractSlice（无采样窗读口），相干时间切片只需 ±tH 小窗却逐线解码
+        // nS 全样——IO 放大 ≈ nS/(2tH+1)（典型 ~300×）。根治需 vendor 增窗
+        // 读 API（集成边界外）；此注释把口径写进代码，防后来者误判读法已最优。
         if (!volume->ExtractSlice(SgySliceType::Inline, ilVals[std::size_t(il)],
                                   slice, extractErr, sliceProgress))
         {
@@ -453,20 +457,28 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
         task->reportBytes(done, totalUnits);
       }
 
-      task->reportStage(QStringLiteral("compute"), 50);
       std::vector<float> coh(slab.size(),
                              std::numeric_limits<float>::quiet_NaN());
       const double ilSp = std::hypot(mapper.fit().a, mapper.fit().d) *
                           attrAxisMeanStep(ilVals);
       const double xlSp = std::hypot(mapper.fit().b, mapper.fit().e) *
                           attrAxisMeanStep(xlVals);
+      // B-4（full-audit-20261021）：算阶段逐 inline 入账——此前读段结束即
+      // 停在 50%，整个 semblance 计算期间进度恒半程、结束跳满（账本与实际
+      // 工作量脱节）。
       paleo::seisattr::semblanceCoherenceWeighted(
           slab.data(), nIl, nXl, slabN, params.coherenceIlHalf,
           params.coherenceXlHalf, params.coherenceTimeHalf, ilSp, xlSp,
           params.coherenceWeighting == 1
               ? paleo::seisattr::CoherenceWeightMode::InverseDistance
               : paleo::seisattr::CoherenceWeightMode::Equal,
-          coh.data());
+          coh.data(),
+          [&task, done, totalUnits, nIl, nXl](int doneIl) {
+            task->reportStage(
+                QStringLiteral("compute"),
+                int((done + qint64(doneIl) * nXl) * 100 / totalUnits));
+            task->reportBytes(done + qint64(doneIl) * nXl, totalUnits);
+          });
       AttrScanStats stats;
       for (int il = 0; il < nIl; ++il)
         for (int xl = 0; xl < nXl; ++xl)
@@ -476,13 +488,14 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
           result->values[std::size_t(il * nXl + xl)] = v;
           stats.add(v);
         }
-      task->reportBytes(totalUnits, totalUnits); // 算阶段整段补足
       if (stats.any())
       {
         result->valueMin = stats.vMin;
         result->valueMax = stats.vMax;
       }
       result->validCells = stats.valid;
+      // 算段只覆盖内域（[ilHalf, nIl-ilHalf)），完成标记在此入账。
+      task->reportBytes(totalUnits, totalUnits);
     }
     else
     {

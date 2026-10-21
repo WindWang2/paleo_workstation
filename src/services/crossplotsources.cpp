@@ -4,10 +4,13 @@
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyvolume.h"
 #include "io/lascache.h"
+#include "io/welllogread.h"
+#include "domain/wellnumeric.h"
 #include "io/sattrio.h"
 #include "io/segyreader.h"
 #include "welllogset.h"
 #include <QDataStream>
+#include <QCoreApplication>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
@@ -79,14 +82,11 @@ bool CrossplotSources::attributeSection(const QString &path,
   };
   if (!out)
     return fail(QStringLiteral("SATR 输出为空"));
-  // 读回器收敛在 io/sattrio（与服务写端同一格式定义，防漂移）；协作取消
-  // 语义保持：读值途中取消 → 如实报已取消。
+  // 读回器收敛在 io/sattrio（与服务写端同一格式定义，防漂移）；取消谓词
+  // 直传「已取消？」语义（B-04 后不再需要调用方双负补偿）。
   paleo::sattr::SattrSectionHeader header;
   QVector<float> values;
-  const std::function<bool()> cancelled =
-      ctl.cancelled ? std::function<bool()>([&ctl] { return !ctl.cancelled(); })
-                    : std::function<bool()>();
-  if (!paleo::sattr::readSattrSection(path, &header, &values, error, cancelled))
+  if (!paleo::sattr::readSattrSection(path, &header, &values, error, ctl.cancelled))
     return false;
   const QString section = header.section;
   AttributeSection a;
@@ -159,12 +159,36 @@ SampleResult CrossplotSources::load(const QVector<SourceSpec> &specs,
   }
   if (specs[0].choice.kind == "well") {
     QVector<Channel> channels;
+    QHash<QString, QPair<LasHeaderInfo, LasDoc>> documents;
     for (const auto &s : specs) {
       if (s.choice.kind != "well" || s.well.wellId != specs[0].well.wellId)
         return fail(QStringLiteral("井曲线交会须选择同一口井的通道"));
-      const auto doc = LasCache::shared().load(s.path);
+      if (!documents.contains(s.path)) {
+        LasHeaderInfo header;
+        LasDoc parsed;
+        if (WellLogRead::detect(s.path) == WellLogFormat::Las) {
+          parsed = LasCache::shared().load(s.path);
+          header.indexBasis = QStringLiteral("MD");
+        } else {
+          parsed.ok = WellLogRead::parse(s.path, header, parsed.curves, &parsed.error);
+          parsed.curveNames = header.curveNames;
+        }
+        documents.insert(s.path, {header, parsed});
+      }
+      const auto &header = documents[s.path].first;
+      const auto &doc = documents[s.path].second;
       if (!doc.ok || doc.curves.isEmpty())
         return fail(doc.error);
+      const bool explicitAxis = WellLogRead::detect(s.path) != WellLogFormat::Las;
+      const auto scale = paleo::wellnumeric::depthScaleToMetres(doc.curves.first().unit);
+      if (explicitAxis && (header.indexBasis != QLatin1String("MD") || !scale))
+        return fail(QCoreApplication::translate("CrossplotSources", "%1：交会需要已声明米或英尺单位的 MD 测深；当前索引为 %2、单位为 %3，请先转换。")
+            .arg(QFileInfo(s.path).fileName(), header.indexBasis.isEmpty() ? QCoreApplication::translate("CrossplotSources", "未声明") : header.indexBasis,
+                 doc.curves.first().unit));
+      QVector<double> depths = doc.curves.first().values;
+      // Known units share one metre axis. Legacy LAS without usable metadata
+      // retains its former numeric-as-metres convention.
+      if (scale) for (double &depth : depths) depth *= *scale;
       // 并集名可能是 GR、GR#列号、GR@基名；文件里的列名仍是原助记符。
       const LasCurve *curve = nullptr;
       for (const LasCurve &c : doc.curves)
@@ -203,7 +227,7 @@ SampleResult CrossplotSources::load(const QVector<SourceSpec> &specs,
                           curve->unit,
                           s.well.wellId,
                           s.versionId,
-                          doc.curves[0].values,
+                          depths,
                           curve->values,
                           s.well.x,
                           s.well.y,

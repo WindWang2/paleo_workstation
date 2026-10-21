@@ -28,6 +28,8 @@
 #include "constraintfactorjobs_internal.h"
 #include "constraintworkflow_internal.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
+#include "algorithmadapters.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include "workflows.h"
@@ -304,11 +306,16 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
         insertStrategyId(
             params,
             extra); // 方向67：策略包 id 进血缘（旧约束 IDW = 词表 "idw"）
+        // algo-atom P1：constraint_idw 经统一 publishArtifacts（等价 commitExternal）
+        const AlgorithmRunResult runResult =
+            paleo::runResultFromProcessingOutput( results );
         QString commitErr;
-        if (!registrar.commitExternal(
-                st, outPath, parentIds, def.processingAlgId, extra, &commitErr,
-                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
-          paleo::workflow_detail::setError(error, commitErr);
+        if ( !paleo::publishArtifacts(
+                 registrar, st, runResult, parentIds, def.processingAlgId, extra,
+                 &commitErr,
+                 fingerprint.sha256.isEmpty() ? nullptr : &fingerprint ) )
+        {
+          paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
 
@@ -414,12 +421,16 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
         extra.insert(QStringLiteral("engine"), def.processingAlgId);
         extra.insert(QStringLiteral("top_layer_id"), topId);
         extra.insert(QStringLiteral("base_layer_id"), baseId);
+        // algo-atom P1-extend：isopach 经 publishArtifacts
+        const AlgorithmRunResult runResult =
+            paleo::runResultFromProcessingOutput( results );
         QString commitErr;
-        if (!registrar.commitExternal(
-                st, outPath, registrar.parentVersionIdsFor(parentPaths),
-                def.processingAlgId, extra, &commitErr,
-                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
-          paleo::workflow_detail::setError(error, commitErr);
+        if ( !paleo::publishArtifacts(
+                 registrar, st, runResult, registrar.parentVersionIdsFor( parentPaths ),
+                 def.processingAlgId, extra, &commitErr,
+                 fingerprint.sha256.isEmpty() ? nullptr : &fingerprint ) )
+        {
+          paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
 
@@ -554,12 +565,16 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
             QStringLiteral("manifest_layer_id"),
             QStringLiteral("factor.%1.%2").arg(horizon, factorId)); // C4 反链
         extra.insert(QStringLiteral("points_layer_id"), pointsId);
+        // algo-atom P1-extend：distance_transform 经 publishArtifacts
+        const AlgorithmRunResult runResult =
+            paleo::runResultFromProcessingOutput( results );
         QString commitErr;
-        if (!registrar.commitExternal(
-                st, outPath, registrar.parentVersionIdsFor(parentPaths),
-                def.processingAlgId, extra, &commitErr,
-                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
-          paleo::workflow_detail::setError(error, commitErr);
+        if ( !paleo::publishArtifacts(
+                 registrar, st, runResult, registrar.parentVersionIdsFor( parentPaths ),
+                 def.processingAlgId, extra, &commitErr,
+                 fingerprint.sha256.isEmpty() ? nullptr : &fingerprint ) )
+        {
+          paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
 
@@ -979,12 +994,16 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
         inheritMockFlag(PaleoWorkflowDerivedCatalog(this), parentIds, extra);
         insertStrategyId(
             params, extra); // 方向67：策略包 id 进血缘（structural_idw 词表项）
+        // algo-atom P1-extend：structural_idw 经 publishArtifacts
+        const AlgorithmRunResult runResult =
+            paleo::runResultFromProcessingOutput( results );
         QString commitErr;
-        if (!registrar.commitExternal(
-                st, outPath, parentIds, engineId, extra, &commitErr,
-                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
+        if ( !paleo::publishArtifacts(
+                 registrar, st, runResult, parentIds, engineId, extra, &commitErr,
+                 fingerprint.sha256.isEmpty() ? nullptr : &fingerprint ) )
+        {
           discard();
-          paleo::workflow_detail::setError(error, commitErr);
+          paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
 
@@ -1054,7 +1073,7 @@ bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const 
               QFile::remove(file);
           }
         },
-        error);
+        error, QStringLiteral( "paleo:paleo_surfer_idw" ) );
   }
   if ( !computeLocalDirectionJob( &job ) )
   {
@@ -1110,7 +1129,7 @@ bool ConstraintWorkflow::factorBusy() const {
 bool ConstraintWorkflow::runFactorWork(
     const QString &title, std::function<QString(PaleoTask *)> compute,
     std::function<bool(QString *)> publish, std::function<void()> cleanup,
-    QString *error) {
+    QString *error, const QString &algorithmId ) {
   if (!m_factorTasks) {
     const auto err = compute(nullptr);
     if (!err.isEmpty()) {
@@ -1146,6 +1165,12 @@ bool ConstraintWorkflow::runFactorWork(
   const auto session = m_factorTasks->session();
   QPointer<PaleoTask> task = m_factorTasks->beginExternal(title);
   m_factorJobTask = task;
+  if ( !algorithmId.isEmpty() )
+  {
+    QVariantMap nav = task->navigationContext();
+    nav.insert( QStringLiteral( "algorithm_id" ), algorithmId );
+    task->setNavigationContext( nav );
+  }
   emit factorJobStateChanged(true);
   connect(task, &PaleoTask::changed, this, [this, task] {
     if (task && task->running())
@@ -1213,8 +1238,12 @@ bool ConstraintWorkflow::runFactorAlgorithm(
     std::function<bool(const QVariantMap &, QString *)> publish,
     QString *error) {
   if (!m_factorTasks) {
-    const auto results = m_proc->run(engine, params, error);
-    return !results.isEmpty() && publish(results, error);
+    // algo-atom P2：同步路径经 ProcessingAlgorithmAdapter
+    paleo::ProcessingAlgorithmAdapter adapter( m_proc.data() );
+    const AlgorithmRunResult runResult = adapter.runById( engine, params, error );
+    if ( !runResult.ok )
+      return false;
+    return publish( paleo::processingResultsFromRunResult( runResult ), error );
   }
   struct Source {
     QString key, uri, provider, type, crs;
@@ -1295,10 +1324,17 @@ bool ConstraintWorkflow::runFactorAlgorithm(
             task->reportStage("build", qBound(0, qRound(p), 95));
         };
         QString error;
-        *results = proc->run(engine, options, &error, hooks);
-        if (results->isEmpty() && error.isEmpty() && !cancel())
-          error = QStringLiteral("计算没有返回成果");
-        if (!error.isEmpty() || cancel() || results->isEmpty())
+        // algo-atom P2：异步路径经 ProcessingAlgorithmAdapter
+        paleo::ProcessingAlgorithmAdapter adapter( proc );
+        const AlgorithmRunResult runResult =
+            adapter.runById( engine, options, &error, hooks );
+        *results = paleo::processingResultsFromRunResult( runResult );
+        if ( !runResult.ok && error.isEmpty() && !cancel() )
+          error = runResult.error.isEmpty() ? QStringLiteral( "计算没有返回成果" )
+                                            : runResult.error;
+        if ( results->isEmpty() && error.isEmpty() && !cancel() )
+          error = QStringLiteral( "计算没有返回成果" );
+        if ( !error.isEmpty() || cancel() || results->isEmpty() )
           return error;
         const auto actual = paleo::workflow_detail::outputPathOf(*results);
         if (QDir::cleanPath(actual) != QDir::cleanPath(path)) {
@@ -1347,7 +1383,7 @@ bool ConstraintWorkflow::runFactorAlgorithm(
                          stem + ".support.tif", stem + ".samples.gpkg"})
           QFile::remove(file);
       },
-      error);
+      error, engine );
 }
 
 void ConstraintWorkflow::cancelFactorTask() {

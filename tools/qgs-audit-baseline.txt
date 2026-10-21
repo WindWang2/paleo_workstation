@@ -15,6 +15,35 @@
 # 从 paleomainwindow_workbench.cpp 平移到 _wells/_commands.cpp（原文件仍
 # 有直连故仍在册）——同一份代码换文件承载，不是新增泄漏面；后续收敛时
 # 这三个文件按同一批处理。
+
+# E-2（full-audit-20261021，full-audit-20261021 批次）：扫描面从 workflow+ui
+# 扩到全部非视图模块（domain/catalog/io/metadata/services/algorithms/
+# workflow/linkage/ai）——algorithms 16 + linkage 4 + services 1 的存量直连
+# 此前对三道闸全部隐形。新增 21 文件按 #539 初冻口径入册（现状冻结区，
+# 收敛计划同既有批次纪律：数据层直连收进 src/qgis 封装后删行）。
+# identifytool 两文件维持册外（#604 在修的已知新增红，不重复登记）。
+
+src/algorithms/constraintbarriers.cpp
+src/algorithms/constraintbarriers.h
+src/algorithms/distancetransform.cpp
+src/algorithms/faciespolygonize.cpp
+src/algorithms/mincurvature.cpp
+src/algorithms/paleoalgorithms.cpp
+src/algorithms/paleoalgorithms.h
+src/algorithms/singlefactor/cartographicworkfile.h
+src/algorithms/singlefactor/constraintparse.cpp
+src/algorithms/singlefactor/localdirectionalgorithm.cpp
+src/algorithms/singlefactor/localdirectionalgorithm.h
+src/algorithms/singlefactor/singlefactor_internal.h
+src/algorithms/singlefactor/structuralalgorithm.cpp
+src/algorithms/singlefactor/structuralalgorithm.h
+src/algorithms/welldist.cpp
+src/algorithms/welldistance_internal.h
+src/linkage/seismicmaplink.cpp
+src/linkage/seismicmaplink.h
+src/linkage/wellmaplink.cpp
+src/linkage/wellmaplink.h
+src/services/crashreport.cpp
 src/ui/paleomainwindow_workbench_commands.cpp
 src/ui/paleomainwindow_workbench_wells.cpp
 src/ui/attributetablepanel.cpp

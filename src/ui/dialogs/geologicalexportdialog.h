@@ -12,7 +12,6 @@ class QLineEdit;
 class QSpinBox;
 class QDoubleSpinBox;
 class QTimer;
-class PaleoLayoutPreview;
 class GeologicalExportDialog : public QDialog {
   Q_OBJECT
 public:
@@ -31,7 +30,10 @@ private:
   Builder m_builder;
   PaleoGeologicalMapLayout::Settings m_settings;
   std::unique_ptr<PaleoLayoutExport::LayoutHandle> m_layout;
-  PaleoLayoutPreview *m_preview;
+  // #531/E.7：预览薄壳经 src/qgis 工厂面消费（layoutexport.h 只前向声明
+  // QWidget）——视图层不 include layoutpreview.h，不往 ui_qtwidgets_notes
+  // 传递债记边。
+  QWidget *m_preview;
   QTimer *m_rebuildTimer;
   QComboBox *m_kind, *m_paper, *m_orientation, *m_destinationMode;
   QString m_projectDirectory;

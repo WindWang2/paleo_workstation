@@ -91,6 +91,15 @@ std::vector<QRgb> Seismic3DColorMap::buildLut() const
         return lut;
     }
     const int n = static_cast<int>(stops_.size());
+    // 单 stop 无从插值（stops_[k+1] 越界——QVector operator[] 无边界检查），
+    // 同 #412 对 Seismic3DTransferFunction::buildLutRgba 的守卫：整体取该 stop 色。
+    if (n == 1)
+    {
+        const QColor c(stops_.first().color);
+        for (auto &px : lut)
+            px = qRgba(c.red(), c.green(), c.blue(), 255);
+        return lut;
+    }
     for (int i = 0; i < 256; ++i)
     {
         float pos = i / 255.0f;

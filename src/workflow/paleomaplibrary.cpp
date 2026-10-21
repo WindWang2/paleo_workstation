@@ -19,8 +19,19 @@
 namespace PaleoMapLibrary {
 QStringList declareMaps(DataCatalog *catalog, QgisLayerService *layers) {
   QStringList errors; if (!catalog || !layers) return errors;
+  // C-10（full-audit-20261020）：删除态（可回收清单内）资产不声明图层——
+  // 数据树按回收清单隐藏，图层声明面不过滤会造成画布与数据树可见性矛盾。
+  QSet<QString> removed;
+  {
+    bool readable = false;
+    const auto recycled = paleo::readJsonFile(paleo::dataopsSidecarPath(catalog, "recycle_bin.json"),
+                                              "paleomap recycle", &readable).object();
+    if (readable)
+      for (const auto &value : recycled.value("removed").toArray())
+        removed.insert(value.toObject().value("assetId").toString());
+  }
   for (const auto &asset : catalog->assets()) {
-    if (asset.type != "paleogeographic_map") continue;
+    if (asset.type != "paleogeographic_map" || removed.contains(asset.id)) continue;
     for (const auto &v : catalog->versionsForAsset(asset.id)) {
       if (!v.extra.value("spatial").toBool()) continue;
       LayerDeclaration d; d.layerId = v.extra.value("layer_id", "paleomap." + v.id).toString(); d.horizon = v.extra.value("horizon").toString();
@@ -46,6 +57,11 @@ PaleoTask *importMaps(DataCatalog *catalog, QgisLayerService *layers, PaleoTaskS
       if (error) *error = QObject::tr("选中的图件已删除，请先从可回收清单恢复"); return nullptr;
     }
   const auto recycleHash = DataCatalog::sha256FileHex(recyclePath);
+  // C-10：文件导入路径与 assetIds 路径同享回收防线——removed 集传入 worker，
+  // prepare 按 sourceUri 匹配到删除态资产时拒绝。
+  QSet<QString> removedAssetIds;
+  for (const auto &value : recycled.value("removed").toArray())
+    removedAssetIds.insert(value.toObject().value("assetId").toString());
   struct Job { std::unique_ptr<QTemporaryDir> stage; std::unique_ptr<DataCatalog> catalog; Result result; QStringList directories; };
   auto job = std::make_shared<Job>(); const auto directory = catalog->projectDir();
   job->stage = std::make_unique<QTemporaryDir>(QDir(directory).filePath(".paleomap-import-XXXXXX"));
@@ -54,7 +70,7 @@ PaleoTask *importMaps(DataCatalog *catalog, QgisLayerService *layers, PaleoTaskS
   if (!job->catalog) { if (error) *error = QObject::tr("无法准备图件目录快照"); return nullptr; }
   const auto sequence = catalog->mutationSeq(); QPointer<DataCatalog> owner(catalog); QPointer<QgisLayerService> layerService(layers);
   QPointer<QObject> target(receiver ? receiver : tasks); const auto horizons = mappingHorizons();
-  auto *task = tasks->start(request.assetIds.isEmpty() ? QObject::tr("导入现有古地理图") : QObject::tr("整理三级古地理图"), [job, request, directory, horizons](PaleoTask *task) -> QString {
+  auto *task = tasks->start(request.assetIds.isEmpty() ? QObject::tr("导入现有古地理图") : QObject::tr("整理三级古地理图"), [job, request, directory, horizons, removedAssetIds](PaleoTask *task) -> QString {
     const auto cancelled = [task] { return task->cancelRequested(); };
     auto files = PaleoMapFiles::discover(request.files, request.folder, cancelled);
     auto ids = request.assetIds; ids.removeDuplicates();
@@ -76,7 +92,7 @@ PaleoTask *importMaps(DataCatalog *catalog, QgisLayerService *layers, PaleoTaskS
       { job->result.errors << QObject::tr("图件 %1 缺少有效原件或层位，未整理").arg(existing); continue; }
       QString error; PaleoMapImport::Prepared result;
       if (!PaleoMapImport::prepare(cat, directory, job->stage->path(), path, horizon, request, cancelled, &result,
-                                  &error, existing)) {
+                                  &error, existing, removedAssetIds)) {
         if (cancelled()) return {};
         if (error.isEmpty()) return QObject::tr("图件准备失败：%1").arg(path);
         job->result.errors << QFileInfo(path).fileName() + ": " + error;

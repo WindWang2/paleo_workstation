@@ -62,6 +62,14 @@ public:
   static QPixmap createPatternPixmap(const QString &patternType, const QColor &bg, const QColor &fg);
 };
 
+// D.7 纹理画刷缓存（QPixmapCache，键前缀 paleo-wc-*）：getBrush 命中即复用
+// tile，悬停/滚动触发的全量重绘不再逐可见区间重造 QPixmap / 重解析 SVG。
+// 缓存键只含解析后的图案键与颜色——相名→花纹映射重载
+// （PatternCatalog::reloadFaciesMap）后键不换，须显式失效防陈旧纹理。
+void clearPatternBrushCache();
+// 测试钩子：缓存登记的键数（clearPatternBrushCache 后归零）
+int patternBrushCacheKeyCount();
+
 // 井道抽象基类
 class WellTrack
 {

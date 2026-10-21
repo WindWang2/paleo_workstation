@@ -89,6 +89,9 @@ using paleo::ui_detail::kBorder;
       std::function<void(const QString &)> doubleClicked;
       std::function<void(int, int)> reorderRequested;
 
+      // K-1（=20261020 D-06）：删列项前作废拖拽裸指针（防 UAF）。
+      void cancelDrag() { m_dragColumn = nullptr; m_dragIndex = -1; m_dragging = false; }
+
     protected:
       void mousePressEvent(QGraphicsSceneMouseEvent *e) override
       {
@@ -846,6 +849,7 @@ void WellCorrelationPanel::rebuildScene()
 
   m_emptyLabel->setVisible(m_wells.isEmpty());
 
+  static_cast<CorrelationScene *>(m_scene)->cancelDrag(); // K-1：防悬垂
   for (QGraphicsPathItem *it : m_columnItems)
   {
     m_scene->removeItem(it);

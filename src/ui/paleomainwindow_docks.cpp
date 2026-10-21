@@ -45,6 +45,8 @@
 #include <qgsmaplayer.h>
 
 #include <QDockWidget>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -141,6 +143,27 @@ QWidget *makeStartupPage()
 
 // 中央面：startup 页（index 0）叠在工作区（画布面/数据面/地层对比）之下。
 // 启动页按钮接线与 setCentralWidget 亦在此段（原行序 425-632）。
+namespace
+{
+// 中央区被停靠面板压窄时 chip 不压到 sizeHint 以下省略成「…」（DESIGN.md），
+// 改为 chip 条单独横向滚动；宽度充足时与原先一致。
+QScrollArea *wrapHorizonChipsInScroll(QWidget *chips, QWidget *parent)
+{
+  auto *scroll = new QScrollArea(parent);
+  scroll->setObjectName(QStringLiteral("horizonChipScroll"));
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setWidgetResizable(false);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  scroll->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+  scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  scroll->setStyleSheet(QStringLiteral("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }"));
+  scroll->setWidget(chips);
+  scroll->setFixedHeight(chips->sizeHint().height() + scroll->horizontalScrollBar()->sizeHint().height());
+  return scroll;
+}
+} // namespace
+
 void PaleoMainWindow::buildCenterArea()
 {
   // ---- center: startup page stacked under the workspace ----
@@ -176,8 +199,7 @@ void PaleoMainWindow::buildCenterArea()
             if (statusBar())
               statusBar()->showMessage(reason, 8000);
           });
-  chipsLay->addWidget(chips);
-  chipsLay->addStretch(1);
+  chipsLay->addWidget(wrapHorizonChipsInScroll(chips, chipsRow), 1);
   // 方向35：多期演化动览——步进序 = mappingHorizons()，定格导出为 intent
   //（壳侧在 attachMappingExport 接画布抓帧与 OUTPUT 资产登记）。
   auto *player = new EvolutionPlayerPanel(m_selection, m_layerSvc, chipsRow);

@@ -28,15 +28,15 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   // DERIVED 转换件，缺失检查与「用系统程序打开」必须锚在原件上；
   // Office 原件交给本机编辑页。
   if ((asset.type == QLatin1String("document") ||
-       asset.type == QLatin1String("outsource_workbook")) &&
-      chosenId.isEmpty())
-    for (const CatalogVersion &cv : cat->versionsForAsset(assetId))
-      if (cv.stage == QLatin1String("RAW"))
-      {
-        sourceVersion = cv;
-        abs = m_doc->absolutePathForVersion(cv);
-        break;
-      }
+       asset.type == QLatin1String("outsource_workbook")) && chosenId.isEmpty())
+  {
+    const CatalogVersion rawOriginal = latestRawVersion(cat, assetId);
+    if (!rawOriginal.id.isEmpty())
+    {
+      sourceVersion = rawOriginal;
+      abs = m_doc->absolutePathForVersion(rawOriginal);
+    }
+  }
 
   const auto links = cat->linksForAsset(assetId);
   // 已决井链接 → 多井标签的「井」下拉框数据源（未决链接不进列表，§4）。
@@ -122,7 +122,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     auto *office = new OfficePreviewWidget(
         abs, sourceVersion.managed ? QString() : sourceVersion.sha256, host,
         m_doc ? m_doc->taskService() : nullptr);
-    const QString editAsset = assetId;
+    const QString &editAsset = assetId; // 引用绑定：lambda 捕获时才拷一份
     const QString editParent = sourceVersion.id;
     connect(office, &OfficePreviewWidget::editSaved, host, [this, office, editAsset, editParent](const QString &saved) {
       if (!m_doc || !m_doc->catalog()) return;

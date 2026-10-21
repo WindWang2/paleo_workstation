@@ -7,6 +7,32 @@
 
 namespace seismic {
 
+namespace {
+// 单点宽松表由 (depth, timeMs) 反推常速；timeMs <= 0（缺测记 0）推不出
+// 有意义速度——std::max(1e-3, 0) 兜底会给出约 2×10⁹ m/s 的常速，
+// DepthToTwtMs 随之返回微秒级伪值而不是报错（L1.2 / #592）。合法速度带
+// 与构造器/setVelocity/isValid 同界 [100, 20000)。
+constexpr double kMinVelocityMPerS = 100.0;
+constexpr double kMaxVelocityMPerS = 20000.0;
+
+// 推出单点常速；推不出（时间 <= 0 或落在合法速度带外）→ false，两个方向的
+// 换算都返回 NaN（如实报错，不静默给伪值）。
+bool singlePointVelocity(const TdPoint &pt, double fallbackVelocity, double *velocityOut)
+{
+    if (pt.depthM <= 1e-3) {
+        *velocityOut = fallbackVelocity;
+        return true;
+    }
+    if (pt.timeMs <= 0.0)
+        return false;
+    const double v = (pt.depthM * 2000.0) / pt.timeMs;
+    if (!(v > kMinVelocityMPerS && v < kMaxVelocityMPerS))
+        return false;
+    *velocityOut = v;
+    return true;
+}
+} // namespace
+
 TimeDepthModel::TimeDepthModel()
     : m_velocity(2500.0)
 {
@@ -15,13 +41,14 @@ TimeDepthModel::TimeDepthModel()
 TimeDepthModel::TimeDepthModel(double velocityMPerS)
     // 与 setVelocity/setCalibration 同界 [100,20000)：界外按缺省 2500 回落，
     // 手改时深 JSON 的越界值不再静默生效（opt-02 边界对称）。
-    : m_velocity(velocityMPerS > 100.0 && velocityMPerS < 20000.0 ? velocityMPerS
-                                                                  : 2500.0)
+    : m_velocity(velocityMPerS > kMinVelocityMPerS && velocityMPerS < kMaxVelocityMPerS
+                     ? velocityMPerS
+                     : 2500.0)
 {
 }
 
 void TimeDepthModel::setVelocity(double velocityMPerS) {
-    if (velocityMPerS > 100.0 && velocityMPerS < 20000.0) {
+    if (velocityMPerS > kMinVelocityMPerS && velocityMPerS < kMaxVelocityMPerS) {
         m_velocity = velocityMPerS;
     }
 }
@@ -91,9 +118,11 @@ double TimeDepthModel::DepthToTwtMs(double depthM) const {
     return std::numeric_limits<double>::quiet_NaN();
 
     if (m_points.size() == 1) {
-        const double v = m_points[0].depthM > 1e-3
-            ? (m_points[0].depthM * 2000.0) / std::max(1e-3, m_points[0].timeMs)
-            : m_velocity;
+        // 单点表推不出合法常速（timeMs<=0 的缺测点/速度带外）→ 两个方向都
+        // 返回 NaN，不静默给微秒级伪值。
+        double v = 0.0;
+        if (!singlePointVelocity(m_points[0], m_velocity, &v))
+            return std::numeric_limits<double>::quiet_NaN();
         return (depthM * 2000.0) / v;
     }
 
@@ -141,9 +170,9 @@ double TimeDepthModel::TwtMsToDepth(double twtMs) const {
     return std::numeric_limits<double>::quiet_NaN();
 
     if (m_points.size() == 1) {
-        const double v = m_points[0].depthM > 1e-3
-            ? (m_points[0].depthM * 2000.0) / std::max(1e-3, m_points[0].timeMs)
-            : m_velocity;
+        double v = 0.0;
+        if (!singlePointVelocity(m_points[0], m_velocity, &v))
+            return std::numeric_limits<double>::quiet_NaN();
         return (twtMs * v) / 2000.0;
     }
 
@@ -177,7 +206,8 @@ double TimeDepthModel::TwtMsToDepth(double twtMs) const {
 }
 
 bool TimeDepthModel::isValid() const {
-    return m_velocity > 100.0 && m_velocity < 20000.0 && std::isfinite(m_velocity);
+    return m_velocity > kMinVelocityMPerS && m_velocity < kMaxVelocityMPerS &&
+           std::isfinite(m_velocity);
 }
 
 } // namespace seismic

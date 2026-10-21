@@ -47,7 +47,8 @@ WellXmlKind sniffWellXml(const QByteArray &content)
         for (const QXmlStreamAttribute &a : xml.attributes())
         {
           const QString v = a.value().toString().trimmed().toLower();
-          if (kSheetNames.contains(v))
+          if (kSheetNames.contains(v) || v.startsWith(QStringLiteral("测井曲线-")) ||
+              v.startsWith(QStringLiteral("离散曲线-")))
             hasNamedSheet = true;
           // 井斜工作表（io/wellcompositexml collectSheetRows 用前缀匹配，
           // 这里同口径：测井曲线表优先级更高，先判 hasNamedSheet）。

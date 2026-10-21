@@ -13,21 +13,20 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
-namespace
-{
 // 冲突按全字段判定（sameValues 含 X/Y/Z/Time）——值列必须展示全部字段，
 // 否则用户被要求裁决一个看不见差异的冲突（评审轮 2 Medium）。
 // 单行 + 列宽自适应内容 + 同文 tooltip（固定行高下双行文本会被裁掉，轮 3 M1）。
-QString valueText(const WellTopRecord &r)
+// L1.5：取值列文案走 tr（成员上下文）——「空」旧实现裸 QStringLiteral，英文
+// 界面表格单元格漏中文。
+QString WellTopsMergeDialog::valueText(const WellTopRecord &r)
 {
   auto f = [](bool has, double v) {
-    return has ? WellTopsEdit::formatDepth(v) : QStringLiteral("空");
+    return has ? WellTopsEdit::formatDepth(v) : tr("空");
   };
-  return QStringLiteral("MD %1 TVD %2 X %3 Y %4 Z %5 T %6")
+  return tr("MD %1 TVD %2 X %3 Y %4 Z %5 T %6")
       .arg(f(r.hasMd, r.md), f(r.hasTvd, r.tvd), f(r.hasX, r.x), f(r.hasY, r.y),
            f(r.hasX || r.hasY, r.z), f(r.hasTime, r.timeMs));
 }
-} // namespace
 
 WellTopsMergeDialog::WellTopsMergeDialog(const QVector<WellTopsEdit::MergeRow> &rows,
                                          QWidget *parent)

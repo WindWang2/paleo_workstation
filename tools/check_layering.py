@@ -700,11 +700,18 @@ QGS_HEADER_RE = re.compile(r"^qgs[a-z0-9_]*\.h$")
 
 
 def collect_qgs_audit():
-    """(--qgs-audit 数据面) → 直连外部 qgs* 头的文件集合（src/workflow +
-    src/ui，qgs_audit_whitelist 豁免后；返回 src/ 相对路径）。
-    repo src/qgis/ 封装头（归一后落在 qgis/ 且文件存在）不算直连。"""
+    """(--qgs-audit 数据面) → 直连外部 qgs* 头的文件集合（非视图全部模块，
+    qgs_audit_whitelist 豁免后；返回 src/ 相对路径）。
+    repo src/qgis/ 封装头（归一后落在 qgis/ 且文件存在）不算直连。
+    E-2（full-audit-20261021）：扫描面从 workflow+ui 扩到全部非视图模块
+    （domain/catalog/io/metadata/services/algorithms/workflow/linkage/ai）——
+    此前 algorithms/linkage/services 的 qgs* 直连对三道闸全部隐形（外部
+    <qgs*.h> 经 norm_include 归一成幽灵同目录路径后任何 include 规则都不
+    触发）。新增面按 #539 初冻口径入 qgs-audit-baseline.txt。"""
     offenders = set()
-    for path in iter_files_under(("workflow", "ui")):
+    for path in iter_files_under(("domain", "catalog", "io", "metadata",
+                                  "services", "algorithms", "workflow",
+                                  "linkage", "ai", "ui")):
         rel = "src/" + os.path.relpath(path, SRC).replace(os.sep, "/")
         if rel in QGS_AUDIT_WHITELIST:
             continue

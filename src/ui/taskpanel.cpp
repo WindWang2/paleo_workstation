@@ -4,6 +4,7 @@
 
 #include "../metadata/paleoprojectstore.h"
 #include "../services/paleotaskservice.h"
+#include "../services/algorithmspec.h"
 
 #include <QHideEvent>
 #include <QLabel>
@@ -141,7 +142,24 @@ void TaskPanel::updateTaskRow(QTreeWidgetItem *row, PaleoTask *task)
                                           : task->layerId());
   row->setText(1, task->title() + (task->detailText().isEmpty()
                                     ? QString() : "\n" + task->detailText()));
-  row->setToolTip(1, task->detailText());
+  {
+    QString tip = task->detailText();
+    const QString algId =
+        task->navigationContext().value( QStringLiteral( "algorithm_id" ) ).toString();
+    if ( !algId.isEmpty() )
+    {
+      const QString ports = AlgorithmSpecRegistry::portSummaryText( algId );
+      if ( !ports.isEmpty() )
+      {
+        if ( tip.isEmpty() )
+          tip = ports;
+        else
+          tip += QStringLiteral( "\n" ) + ports;
+      }
+    }
+    row->setToolTip( 1, tip );
+  }
+
   row->setText(3, task->running() ? task->etaText() : QString());
 
   // Progress column: indeterminate tasks get a marquee bar.

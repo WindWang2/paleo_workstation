@@ -75,19 +75,15 @@ bool parseNumericCell(const QString &text, bool *has, double *out)
   return true;
 }
 
-QString rowSummaryText(const WellTopRecord &r)
-{
-  return QStringLiteral("MD %1 · TVD %2")
-      .arg(r.hasMd ? QString::number(r.md, 'f', 3) : QStringLiteral("空"),
-           r.hasTvd ? QString::number(r.tvd, 'f', 3) : QStringLiteral("空"));
-}
+} // namespace
 
-QString diffText(const WellTopsEdit::DiffSummary &d)
+// L1.5：差异摘要文案走 tr（成员上下文）——旧实现裸 QStringLiteral，英文
+// 界面状态行/版本溯源漏出「改」。静态成员：调用点均在对话框成员函数内。
+QString WellTopsEditorDialog::diffText(const WellTopsEdit::DiffSummary &d)
 {
-  return QStringLiteral("+%1 / −%2 / 改%3")
+  return tr("+%1 / −%2 / 改%3")
       .arg(QString::number(d.added), QString::number(d.removed), QString::number(d.changed));
 }
-} // namespace
 
 WellTopsEditorDialog::WellTopsEditorDialog(DataCatalog *catalog, const QString &projectDir,
                                            const QString &assetId, QWidget *parent)

@@ -3,7 +3,7 @@
 #include "../domain/wellnumeric.h"
 #include "../services/futuretask.h"
 #include "derivedassets.h"
-#include "io/lasparser.h"
+#include "io/welllogread.h"
 #include "io/wellfileparsers.h"
 #include "services/welllogset.h"
 #include <QDir>
@@ -409,16 +409,24 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
                                    : refs.first().sourceVersionId;
       if (!m_logs.contains(cacheKey)) {
         LasDoc doc;
-        doc.ok = LasParser::parse(refs.first().path, doc.curveNames, doc.curves,
-                                  &doc.error);
+        LasHeaderInfo header;
+        const auto &path = refs.first().path;
+        doc.ok = WellLogRead::parse(path, header, doc.curves, &doc.error);
+        doc.curveNames = header.curveNames;
+        if (doc.ok && WellLogRead::detect(path) != WellLogFormat::Las && header.indexBasis != QLatin1String("MD")) {
+          doc.ok = false;
+          doc.curves.clear();
+          doc.error = tr("剖面叠加需要 MD 测深，索引基准为 %1；请先完成深度转换")
+              .arg(header.indexBasis.isEmpty() ? tr("未声明") : header.indexBasis);
+        }
         m_logs.insert(cacheKey, doc);
       }
       const auto &doc = m_logs[cacheKey];
       if (!doc.ok || doc.curves.size() < 2) {
         // #480 P3-1：坏文件不再静默——解析失败写进对齐状态（同单位未知口径），
         // 剖面曲线缺失有感知。
-        out.alignmentStatus += tr(" · 测井文件解析失败（%1），曲线未叠加")
-                                   .arg(QFileInfo(refs.first().path).fileName());
+        out.alignmentStatus += tr(" · 测井文件解析失败（%1），曲线未叠加：%2")
+                                   .arg(QFileInfo(refs.first().path).fileName(), doc.error);
         continue;
       }
       const WellCurveRef *gr = nullptr;
@@ -486,7 +494,10 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
         curve.depthsM.push_back(d);
         curve.twtMs.push_back(t);
         curve.values.push_back(sample);
-        if (std::isfinite(sample) && sample > -999.0f && sample < 99999.0f)
+        // 空值判定走 domain 权威口径（C.4 / #589）：此前这里硬编码第三套
+        // 阈值——-9999.0 在 wellnumeric/welllogfacies 链是哨兵（判缺失），
+        // 在这里却算合法样值并进 min/max 统计，把曲线量程压成 -9999。
+        if (!paleo::wellnumeric::isNullCurveValue(sample))
         {
           vMin = std::min(vMin, sample);
           vMax = std::max(vMax, sample);

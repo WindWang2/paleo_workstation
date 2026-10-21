@@ -39,6 +39,56 @@ private slots:
   }
   // opt-04：validate 此前对"缺证据"与"证据健康"都返回空列表，四个调用点
   // 只消费 Blocking，于是早期版本可静默通过发布校验。缺证据必须显式告警。
+  // 预测专项 P0：成果来源三分（真实模型 / 模拟 Mock / 人工修订）必须显式
+  // 落在证据链与界面摘要里；Mock 输入的派生与修订不得被「洗白」成真实模型
+  // 结果；无独立验证数据时如实写「尚无独立验证」，置信度只是模型分数。
+  void provenanceSeparatesModelMockAndRevision() {
+    InputRef log{"v2", "a2", "A.las", "well_log", "", 1, "def", "RAW", false};
+    const auto real = build({log}, {{"method", "remote-well-facies-api-v2"},
+                                    {"model_names", QStringList{"m1"}}}, {});
+    const auto rp = real.value("provenance").toMap();
+    QCOMPARE(rp.value("kind").toString(), QString("model_prediction"));
+    QCOMPARE(rp.value("based_on_mock").toBool(), false);
+    QCOMPARE(rp.value("validation").toString(), QString("unvalidated"));
+    QCOMPARE(rp.value("confidence_semantics").toString(), QString("model_score"));
+    QVERIFY2(summary(real).contains(QStringLiteral("模型预测")), qPrintable(summary(real)));
+    QVERIFY2(summary(real).contains(QStringLiteral("尚无独立验证")), qPrintable(summary(real)));
+    QVERIFY(!summary(real).contains(QStringLiteral("准确率")));
+
+    const auto mock = build({log}, {{"method", "mock-horizon-window-kmeans-well-majority-v2"},
+                                    {"mock", true}}, {});
+    QCOMPARE(mock.value("provenance").toMap().value("kind").toString(), QString("mock"));
+    QVERIFY2(summary(mock).contains(QStringLiteral("模拟")), qPrintable(summary(mock)));
+
+    // 派生自 Mock 输入但本版本 extra 未打 mock 标记：仍须识别为模拟来源。
+    InputRef mockInput{"v3", "a3", "mock map", "facies", "seismic_mock_prediction", 1, "x", "DERIVED", true};
+    const auto derived = build({mockInput}, {{"method", "paleo:paleo_facies_fusion"}}, {});
+    QCOMPARE(derived.value("provenance").toMap().value("based_on_mock").toBool(), true);
+    QCOMPARE(derived.value("provenance").toMap().value("kind").toString(), QString("mock"));
+
+    // 人工修订：保持「修订」身份，同时保留其底图是否来自 Mock。
+    const auto revised = build({mockInput}, {{"method", "manual-edit-copy"}, {"mock", true}}, {});
+    const auto vp = revised.value("provenance").toMap();
+    QCOMPARE(vp.value("kind").toString(), QString("manual_revision"));
+    QCOMPARE(vp.value("based_on_mock").toBool(), true);
+    QVERIFY2(summary(revised).contains(QStringLiteral("人工修订")), qPrintable(summary(revised)));
+    QVERIFY2(summary(revised).contains(QStringLiteral("模拟")), qPrintable(summary(revised)));
+
+    // 只有真的带了独立验证指标才可声称已验证。
+    const auto validated = build({log}, {{"method", "remote-well-facies-api-v2"},
+                                         {"model_names", QStringList{"m1"}},
+                                         {"validation_metrics", QVariantMap{{"holdout_wells", 4}}}}, {});
+    QCOMPARE(validated.value("provenance").toMap().value("validation").toString(), QString("validated"));
+    // 空值指标不得抬成已验证（review L3）。
+    const auto emptyMetrics = build({log}, {{"method", "remote-well-facies-api-v2"},
+                                            {"model_names", QStringList{"m1"}},
+                                            {"validation_metrics", QVariantMap{{"note", ""}, {"", 1}}}}, {});
+    QCOMPARE(emptyMetrics.value("provenance").toMap().value("validation").toString(), QString("unvalidated"));
+    // 来源块不进参数指纹（同参数同指纹）。
+    QCOMPARE(real.value("parameter_hash"), build({log}, {{"method", "remote-well-facies-api-v2"},
+                                                         {"model_names", QStringList{"m1"}}}, {}).value("parameter_hash"));
+  }
+
   void validateWarnsOnMissingEvidence() {
     const auto empty = validate({});
     QCOMPARE(empty.size(), 1);

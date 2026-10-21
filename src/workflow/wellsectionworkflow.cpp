@@ -9,6 +9,7 @@
 #include "io/lasalias.h"
 #include "io/lascache.h"
 #include "io/lasdoc.h"
+#include "io/welllogread.h"
 #include "io/wellfileparsers.h"
 #include "metadata/faultsetstore.h"
 #include "sectionworkbench.h"
@@ -373,7 +374,18 @@ void WellSectionWorkflow::loadCurveBodies(Shared &shared,
   for (const QString &path : order) {
     if (task && task->cancelRequested())
       return;
-    const LasDoc doc = LasCache::shared().load(path);
+    const bool explicitAxis = WellLogRead::detect(path) != WellLogFormat::Las;
+    LasDoc doc;
+    LasHeaderInfo header;
+    if (explicitAxis) {
+      doc.ok = WellLogRead::parse(path, header, doc.curves, &doc.error);
+      doc.curveNames = header.curveNames;
+      if (doc.ok && header.indexBasis != QLatin1String("MD")) {
+        doc.ok = false;
+        doc.error = tr("连井剖面需要 MD 测深，当前索引为 %1；请先转换")
+            .arg(header.indexBasis.isEmpty() ? tr("未声明") : header.indexBasis);
+      }
+    } else doc = LasCache::shared().load(path);
     if (!doc.ok || doc.curves.size() < 2) {
       // #480 P3-1：坏文件不再静默——剖面曲线缺失必须可感知（warnings 通道，
       // 与单位未知同口径：井名 + 文件名 + 原因）。
@@ -381,8 +393,8 @@ void WellSectionWorkflow::loadCurveBodies(Shared &shared,
           shared.wells.value(
               shared.entries.value(byPath.value(path).first()).wellIndex)
               .name;
-      shared.warnings << tr("井 %1 的测井文件解析失败（%2），曲线未加载")
-                             .arg(name, QFileInfo(path).fileName());
+      shared.warnings << tr("井 %1 的测井文件解析失败（%2），曲线未加载：%3")
+                             .arg(name, QFileInfo(path).fileName(), doc.error);
       continue;
     }
     const QString unit = doc.curves.at(0).unit.trimmed().toUpper();

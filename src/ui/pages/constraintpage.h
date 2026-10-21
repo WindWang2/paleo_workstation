@@ -8,6 +8,7 @@
 class ConstraintWorkflow;
 class QComboBox;
 class QLabel;
+class QListWidget;
 class QShowEvent;
 class QTableWidget;
 class QVBoxLayout;
@@ -97,6 +98,8 @@ class ConstraintPage : public QWidget
     // ---- 方向23：已绘约束线编辑面 ----
     void constraintParametersRequested(const QString &horizon, const QStringList &ids, const QVariantMap &patch);
     void constraintSelectionChanged(const QString &horizon, const QStringList &ids);
+    // 双击约束行：在地图上选中并缩放到该线（定位问题约束）。
+    void constraintLocateRequested(const QString &horizon, const QString &constraintId);
     void editConstraintVerticesRequested(const QString &horizon);
     void constraintDeleteRequested(const QString &horizon, const QString &constraintId);
     void constraintSemanticChangeRequested(const QString &horizon, const QString &constraintId,
@@ -121,6 +124,7 @@ class ConstraintPage : public QWidget
     void wireFactorTableSelection(QTableWidget *factors);
     void buildConstraintArea(QWidget *content, QVBoxLayout *lay, QComboBox *horizons,
                              QLabel *cellCaption);
+    void wireConstraintListSelection(QListWidget *list);
     void buildFactorResultsSection(QWidget *content, QVBoxLayout *lay);
     void buildTailSections(QWidget *content, QVBoxLayout *lay);
     void wireWorkflowFeedback(ConstraintWorkflow *wf);
@@ -133,8 +137,19 @@ class ConstraintPage : public QWidget
     void updateOperationGuidance();
     // 主线6：等厚引擎行（顶/底构造面选择）的可见性与清单填充。
     void updateEngineRows();
+    // E.2：updateEngineRows 拆段（原函数体 230 行 > #502 防增长闸 200 行阈值）——
+    // 方法→参数组/协变量/方向参数可见性、结构 IDW 边界/格网行、等厚顶底面
+    // 清单填充各自成函数；行为与原单体实现逐行等价。
+    void updateInterpolationVisibility(bool interpolant, const QString &selectedMethod,
+                                       bool isopach, bool confidence);
+    void updateStructuralIdwSection(bool interpolant, const QString &selectedMethod);
+    void fillIsopachSurfaceCombos(const QString &horizon);
+    // updateEngineRows 析出的两个下拉重建段（file_budget 防增长闸）。
+    void rebuildCovariateCombo();
+    void rebuildBoundaryCombo( QComboBox *boundaryCombo );
     void invalidateWellFactors();
     void updateWellFactorActionState();
+    void refreshWellFactorGeoHint();
     void markInputsStale();
     void loadSelectedConstraintLine();
     // 按当前成图方法重算逐条约束「可用/参与」状态、提示与就绪门（不重读 store）。

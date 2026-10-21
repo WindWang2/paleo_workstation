@@ -20,6 +20,7 @@
 #include <qgsfeaturerequest.h>
 #include <qgsfields.h>
 #include <qgsgeometry.h>
+#include <qgsgeos.h>
 #include <qgspointxy.h>
 #include <qgsrectangle.h>
 #include <qgscoordinatereferencesystem.h>
@@ -37,6 +38,19 @@
 #include <memory>
 #include <numbers> // std::numbers::pi——M_PI 在 MSVC <cmath> 下不定义
 #include <vector>
+
+namespace paleo::algorithms
+{
+PreparedHull::PreparedHull( const QgsGeometry &hull )
+{
+  if ( hull.isNull() || hull.isEmpty() )
+    return;
+  mGeos = std::make_unique<QgsGeos>( hull.constGet() );
+  mGeos->prepareGeometry();
+}
+PreparedHull::~PreparedHull() = default;
+bool PreparedHull::contains( double x, double y ) const { return mGeos && mGeos->contains( x, y ); }
+} // namespace paleo::algorithms
 
 // ---------------------------------------------------------------------------
 // Shared helpers (file-local)
@@ -597,6 +611,8 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     hull = QgsGeometry::unaryUnion( hullGeoms ).convexHull();
   const bool clipToHull = !hull.isNull() && !hull.isEmpty() &&
                           QgsWkbTypes::geometryType( hull.wkbType() ) == Qgis::GeometryType::Polygon;
+  // 凸包只转 GEOS + prepare 一次；逐格点判定与旧 hull.contains( x, y ) 同谓词、逐格一致。
+  const paleo::algorithms::PreparedHull preparedHull( clipToHull ? hull : QgsGeometry() );
 
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0,
                          extent.yMaximum(), 0.0, -cellSize };
@@ -780,7 +796,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
         rowBuf[c] = PALEO_NODATA; // barrier cell (or walled-in) — no interpolation
         continue;
       }
-      if ( clipToHull && !hull.contains( x, y ) )
+      if ( clipToHull && !preparedHull.contains( x, y ) )
       {
         rowBuf[c] = PALEO_NODATA;
         continue;

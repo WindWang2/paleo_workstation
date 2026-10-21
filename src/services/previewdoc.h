@@ -126,6 +126,8 @@ class PreviewDocService : public QObject
     // （sawAscii 如实报）。WRAP YES / 无 ~C 与 lasAt 同一拒绝语义。
     static bool lasHeaderAt(const QString &absPath, LasHeaderInfo *out,
                             QString *error = nullptr);
+    bool wellLogHeaderAt(const QString &absPath, LasHeaderInfo *out,
+                         QString *error = nullptr) const;
     static bool wellHeadsAt(const QString &absPath, QVector<WellHeadRecord> *out,
                             QString *error = nullptr);
     static bool wellTopsAt(const QString &absPath, QVector<WellTopRecord> *out,

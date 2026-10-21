@@ -1,6 +1,7 @@
 // 层：数据
 #include "sequenceframework.h"
 
+#include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 
@@ -11,6 +12,16 @@ namespace SequenceFramework
 
 namespace
 {
+
+  // 用户可见文案统一走 tr()（C.3 / #589）：fromJson 的错误消息经
+  // catalog/frameworkstore.cpp:93 → sequenceframeworkpanel.cpp:383
+  // 「格架载入失败：%1」直达用户，但它是「值返回函数」——首参不是
+  // setter/控件构造，tools/check_i18n.py 的三类入口模式扫不到，
+  // lupdate 也只认 QCoreApplication::translate。
+  QString tr( const char *s )
+  {
+    return QCoreApplication::translate( "SequenceFramework", s );
+  }
 
   // 同级排序：ordinal 升序，ordinal 相等按 name（稳定、可复现）。
   void sortSiblings( QVector<FrameworkUnit> &out )
@@ -220,32 +231,32 @@ Framework fromJson( const QJsonObject &obj, QString *error )
   {
     const QJsonValue v = obj.value( QStringLiteral( "schema_version" ) );
     if ( !v.isDouble() )
-      return fail( QStringLiteral( "格架 schema_version 不是数字" ) );
+      return fail( tr( "格架 schema_version 不是数字" ) );
     fw.schemaVersion = v.toInt();
   }
   // 未来版本信号：高于本二进制所知的版本如实报错，不静默截断字段。
   if ( fw.schemaVersion > kSchemaVersion )
-    return fail( QStringLiteral( "格架 schema_version 过新：%1" ).arg( fw.schemaVersion ) );
+    return fail( tr( "格架 schema_version 过新：%1" ).arg( fw.schemaVersion ) );
   fw.name = obj.value( QStringLiteral( "name" ) ).toString();
 
   const QJsonValue uv = obj.value( QStringLiteral( "units" ) );
   if ( !uv.isArray() )
-    return fail( QStringLiteral( "格架 units 缺失或不是数组" ) );
+    return fail( tr( "格架 units 缺失或不是数组" ) );
   for ( const QJsonValue &v : uv.toArray() )
   {
     if ( !v.isObject() )
-      return fail( QStringLiteral( "格架 units 含非对象成员" ) );
+      return fail( tr( "格架 units 含非对象成员" ) );
     const QJsonObject o = v.toObject();
     FrameworkUnit u;
     u.id = o.value( QStringLiteral( "id" ) ).toString();
     if ( u.id.isEmpty() )
-      return fail( QStringLiteral( "格架单元 id 为空" ) );
+      return fail( tr( "格架单元 id 为空" ) );
     u.parentId = o.value( QStringLiteral( "parent_id" ) ).toString();
     u.name = o.value( QStringLiteral( "name" ) ).toString();
     bool levelOk = false;
     u.level = levelFromToken( o.value( QStringLiteral( "level" ) ).toString(), &levelOk );
     if ( !levelOk )
-      return fail( QStringLiteral( "格架单元 %1 的 level 非法" ).arg( u.id ) );
+      return fail( tr( "格架单元 %1 的 level 非法" ).arg( u.id ) );
     u.ordinal = o.value( QStringLiteral( "ordinal" ) ).toInt();
     u.topBoundary = o.value( QStringLiteral( "top_boundary" ) ).toString();
     u.baseBoundary = o.value( QStringLiteral( "base_boundary" ) ).toString();
@@ -257,16 +268,16 @@ Framework fromJson( const QJsonObject &obj, QString *error )
 
   const QJsonValue mv = obj.value( QStringLiteral( "markers" ) );
   if ( !mv.isArray() )
-    return fail( QStringLiteral( "格架 markers 缺失或不是数组" ) );
+    return fail( tr( "格架 markers 缺失或不是数组" ) );
   for ( const QJsonValue &v : mv.toArray() )
   {
     if ( !v.isObject() )
-      return fail( QStringLiteral( "格架 markers 含非对象成员" ) );
+      return fail( tr( "格架 markers 含非对象成员" ) );
     const QJsonObject o = v.toObject();
     MarkerBed m;
     m.id = o.value( QStringLiteral( "id" ) ).toString();
     if ( m.id.isEmpty() )
-      return fail( QStringLiteral( "标志层 id 为空" ) );
+      return fail( tr( "标志层 id 为空" ) );
     m.name = o.value( QStringLiteral( "name" ) ).toString();
     m.unitId = o.value( QStringLiteral( "unit_id" ) ).toString();
     for ( const QJsonValue &nv : o.value( QStringLiteral( "layer_names" ) ).toArray() )

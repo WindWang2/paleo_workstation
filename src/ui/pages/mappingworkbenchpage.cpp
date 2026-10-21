@@ -8,6 +8,7 @@
 #include "../../domain/singlefactorrequest.h"
 #include "../../services/singlefactordef.h"
 #include "../../workflow/mappingworkbench.h"
+#include "wellreadinesspanel.h"
 #include "pageshared.h"
 #include "ui/paleotheme.h"
 #include <QComboBox>
@@ -45,18 +46,15 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_refreshTimer->setSingleShot(true);
   connect(m_refreshTimer, &QTimer::timeout, this, [this] { if (isVisible()) refresh(); });
   setObjectName("mappingWorkbench." + mode);
-
   auto *scroll = new QScrollArea(this);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
   auto *body = new QWidget(scroll);
   body->setObjectName("mappingWorkbenchBody." + mode);
   scroll->setWidget(body);
-
   auto *outer = new QVBoxLayout(this);
   outer->setContentsMargins(0, 0, 0, 0);
   outer->addWidget(scroll);
-
   auto *layout = new QVBoxLayout(body);
   layout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
   layout->setSpacing(PaleoTheme::tokens().spacingSm);
@@ -173,13 +171,14 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
                 : Qt::Unchecked);
       updateState();
     });
-    auto *run = new QHBoxLayout;
-    run->addWidget(button("predict", tr("运行预测")));
-    run->addWidget(button("wellattributes", tr("岩性与相属性")));
-    // 与工区维护的地层相表共用一条最终结果。
-    run->addWidget(button("wellformations", tr("地层相属性")));
-    run->addWidget(button("cancel", tr("取消")));
+    auto *run = new QGridLayout;  // 两行网格，避免四钮挤一行撑破窄停靠栏
+    run->addWidget(button("predict", tr("运行预测")), 0, 0);
+    run->addWidget(button("cancel", tr("取消")), 0, 1);
+    run->addWidget(button("wellattributes", tr("岩性与相属性")), 1, 0);
+    run->addWidget(button("wellformations", tr("地层相属性")), 1, 1);  // 与地层相表共用结果
     layout->addLayout(run);
+    layout->addWidget(new WellReadinessPanel(workbench, m_inputs, [this] { return std::pair{m_horizon,
+        m_kind->currentData() == "wells" ? checkedInputs() : QStringList()}; }, body));
     m_progress = new QProgressBar(body);
     m_progress->setObjectName("workbenchPredictionProgress");
     m_progress->setAccessibleName(tr("预测进度"));
@@ -667,6 +666,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
             m_horizon.clear();
             setHorizon(saved);
           });
+  paleo::pagesinternal::shrinkComboBoxesToDock(body);
   refresh();
 }
 QPushButton *MappingWorkbenchPage::commandButton(const QString &name) const {

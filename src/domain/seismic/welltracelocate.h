@@ -15,6 +15,9 @@
 #include <string>
 #include <vector>
 
+#include <QCoreApplication>
+#include <QString>
+
 #include "sgycoordinatemapper.h" // → vendor/sbm SgyCoordinateMapper（#135 中心化拟合）
 #include "sectionaxis.h"
 
@@ -23,7 +26,10 @@ namespace seismic {
 struct WellTraceLocation
 {
     bool ok = false;
-    std::string error;      //!< 失败原因（人读）
+    //!< 失败原因（人读）：中文源串走 translate，消费端嵌进自己的 tr() 模板
+    //!< （seismicsectiondock_wells.cpp）——此前这里写死英文，拼出中英混排。
+    //!< std::string 持 UTF-8（QString::toStdString）。
+    std::string error;
     bool outOfCoverage = false;
     double inlineF = 0.0;   //!< 连续解
     double xlineF = 0.0;
@@ -63,7 +69,9 @@ inline WellTraceLocation locateWellTrace(const SgyIndex &index, const SgyCoordin
     if (!(out.inlineF >= ilLo - ilHalf && out.inlineF <= ilHi + ilHalf &&
           out.xlineF >= xlLo - xlHalf && out.xlineF <= xlHi + xlHalf)) {
         out.outOfCoverage = true;
-        out.error = "well head is outside the survey coverage";
+        out.error = QCoreApplication::translate("SeismicWellTraceLocate",
+                                                "井口在测网覆盖范围外")
+                        .toStdString();
         return out;
     }
     if (haveIl) {
@@ -78,7 +86,9 @@ inline WellTraceLocation locateWellTrace(const SgyIndex &index, const SgyCoordin
     }
     out.column = sectionColumnForLine(index.xlineValues, index.xlineMin, out.xlineNo);
     if (out.column < 0) {
-        out.error = "snapped xline is not on the inline section axis";
+        out.error = QCoreApplication::translate("SeismicWellTraceLocate",
+                                                "吸附后的交会线不在 IL 剖面列轴上")
+                        .toStdString();
         return out;
     }
     out.ok = true;

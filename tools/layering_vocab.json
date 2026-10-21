@@ -5,7 +5,10 @@
     "layers: 目录 -> 层标记词表值；non_view: 反向 ui/ 扫描覆盖目录（视图/组装根/测试壳豁免）；",
     "qtwidgets 禁令目录 = non_view 去掉 qgis（QGIS 封装按契约豁免 QtWidgets）。",
     "qgs_audit_whitelist: --qgs-audit（#472）豁免文件（src/ 相对路径）——语义是",
-    "「该文件直连外部 qgs* 头是已裁决例外」，新条目须在 PR 里给出理由；空表 = 无豁免。"
+    "「该文件直连外部 qgs* 头是已裁决例外」，新条目须在 PR 里给出理由；空表 = 无豁免。",
+    "现册 2 条（2026-10-19）：ui/maptools/identifytool.{h,cpp}——QgsMapTool 子类是",
+    "视图原生控件（控件即视图口径，AGENTS.md 批 3 方向），与 qgis-spread 初冻基线内",
+    "同目录 paleomaptools/paleoshapetools/sitingpicktool 等同族；#552 引入时漏登。"
   ],
   "layers": {
     "domain": "数据",
@@ -45,5 +48,8 @@
     "metadata/wellsectionstore.h",
     "metadata/faultsetstore.h"
   ],
-  "qgs_audit_whitelist": []
+  "qgs_audit_whitelist": [
+    "src/ui/maptools/identifytool.cpp",
+    "src/ui/maptools/identifytool.h"
+  ]
 }

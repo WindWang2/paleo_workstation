@@ -4,6 +4,35 @@
 #include <qgsprocessingprovider.h>
 #include <qgsrectangle.h>
 
+#include <memory>
+
+class QgsGeometry;
+class QgsGeos;
+
+namespace paleo::algorithms
+{
+// IDW 凸包裁剪的逐格点 point-in-polygon 判定（实现见 paleoalgorithms.cpp）。
+// 旧实现逐格点调 QgsGeometry::contains( x, y )：每次都新建一个未 prepare 的
+// QgsGeos（整个凸包重新转 GEOS）再 GEOSContains。这里只转换一次并
+// prepareGeometry()，之后走 GEOSPreparedContains——同一个 GEOS 精确谓词
+//（prepared 只加索引，不改判定；边界点同样判 false），裁剪掩码逐格一致，
+// tst_algorithms 逐点/逐格对照旧 API 断言。
+class PreparedHull
+{
+  public:
+    explicit PreparedHull( const QgsGeometry &hull );
+    ~PreparedHull();
+    PreparedHull( const PreparedHull & ) = delete;
+    PreparedHull &operator=( const PreparedHull & ) = delete;
+    bool isValid() const { return static_cast<bool>( mGeos ); }
+    // 与 QgsGeometry::contains( double x, double y ) 同语义；无效凸包判 false。
+    bool contains( double x, double y ) const;
+
+  private:
+    std::unique_ptr<QgsGeos> mGeos;
+};
+} // namespace paleo::algorithms
+
 // algorithms/ — production Paleo Processing algorithms (C++ only, no Python).
 // Registered on PaleoProvider (id "paleo"), distinct from the spikes provider.
 

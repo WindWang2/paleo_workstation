@@ -79,7 +79,6 @@ int countItemNodes(const QTreeWidgetItem *it)
 // 资产级增/删/改落到节点级更新；变更面超阈值回全量兜底（阈值口径见
 // datalist.h kNavReconcile* 注释与 ledger 定案）。
 
-
 QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
 {
   QVector<NavNodeSpec> tops;
@@ -178,48 +177,7 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
       sub.eid = w.id;
       sub.type = l.role;
 
-      const QString roleDisplay = catalogRoleDisplay(l.role);
-      QString detailDisplay;
-      if (l.role == QLatin1String("well_log"))
-      {
-        detailDisplay = a.displayName;
-        sub.icon = QStringLiteral("mIconLineLayer.svg");
-      }
-      else if (l.role == QLatin1String("tops"))
-      {
-        detailDisplay = a.displayName;
-        sub.icon = QStringLiteral("mActionOpenTable.svg");
-      }
-      else if (l.role == QLatin1String("time_depth"))
-      {
-        detailDisplay = a.displayName;
-        sub.icon = QStringLiteral("mActionOpenTable.svg");
-      }
-      else if (l.role == QLatin1String("well_head"))
-      {
-        detailDisplay = a.displayName;
-        sub.icon = QStringLiteral("mIconPointLayer.svg");
-      }
-      else
-      {
-        sub.icon = QStringLiteral("mActionOpenTable.svg");
-      }
-      if (l.role == QLatin1String("well_log") && !l.unresolved)
-      {
-        const QString kind = l.isPrimary ? tr("主文件") : tr("成员");
-        sub.text0 = tr("%1 · %2 (%3)").arg(a.displayName, kind, roleDisplay);
-        sub.text1 = tr("%1 · %2").arg(kind, a.displayName);
-      }
-      else
-      {
-        sub.text0 = QStringLiteral("%1 (%2)").arg(a.displayName, roleDisplay);
-        sub.text1 = detailDisplay;
-      }
-      if (l.unresolved)
-      {
-        sub.warning = true; // 待复核色（现取随主题）
-        sub.text1 = tr("未决关联");
-      }
+      describeWellAssetNode(sub, a, l);
       wellItem.children.append(sub);
     }
 
@@ -458,25 +416,9 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
     return naturalNameSort(a.displayName, b.displayName);
   });
   {
-    NavNodeSpec horRoot;
-    horRoot.text0 = tr("层位 (%1)").arg(horAssets.size());
-    horRoot.text1 = tr("解释层位数据");
-    horRoot.type = QStringLiteral("category");
-    horRoot.icon = QStringLiteral("mActionOpenTable.svg");
-    horRoot.expanded = false;
-
-    for (const CatalogAsset &a : horAssets)
-    {
-      NavNodeSpec hItem;
-      hItem.text0 = a.displayName;
-      hItem.id = a.id;
-      hItem.type = QStringLiteral("horizon");
-      hItem.icon = QStringLiteral("mActionOpenTable.svg");
-      // 网格规格不在 catalog 里（按文件名臆造 411×641 已回收）——如实标类型。
-      hItem.text1 = tr("层位网格");
-      horRoot.children.append(hItem);
-    }
-    seismicRoot.children.append(horRoot);
+    // E.4/E.5：层位分组分支拆去 datalist_navspec_internal.h（函数体规模 +
+    // 巨型文件双闸）——口径不变。
+    appendHorizonNavBranch(seismicRoot, horAssets);
   }
   tops.append(seismicRoot);
 
@@ -570,58 +512,7 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
   std::sort(auxAssets.begin(), auxAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
     return naturalNameSort(a.displayName, b.displayName);
   });
-  {
-    NavNodeSpec auxRoot;
-    auxRoot.text0 = tr("辅助资料 (%1)").arg(auxAssets.size());
-    auxRoot.text1 = tr("参考相图 / 文档 / 图片");
-    auxRoot.type = QStringLiteral("category");
-    auxRoot.sub = QStringLiteral("auxiliary");
-    auxRoot.icon = QStringLiteral("mActionFolder.svg");
-    // 有文档/参考图时保持展开。导入的 pptx 落在「参考资料」下，
-    // 顶级组收拢时文件名不会出现在视野里。
-    auxRoot.expanded = !auxAssets.isEmpty();
-
-    NavNodeSpec faciesBranch;
-    faciesBranch.text0 = tr("参考相图");
-    faciesBranch.type = QStringLiteral("category");
-    faciesBranch.icon = QStringLiteral("mIconPolygonLayer.svg");
-    faciesBranch.expanded = true;
-
-    NavNodeSpec docBranch;
-    docBranch.text0 = tr("参考资料");
-    docBranch.type = QStringLiteral("category");
-    docBranch.icon = QStringLiteral("mActionFolder.svg");
-    docBranch.expanded = true;
-
-    for (const CatalogAsset &a : auxAssets)
-    {
-      const bool isGeo = a.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive) || a.type == QLatin1String("boundary");
-      NavNodeSpec it;
-      it.text0 = a.displayName;
-      it.id = a.id;
-      it.type = QStringLiteral("auxiliary");
-      it.icon = isGeo ? QStringLiteral("mIconPolygonLayer.svg") : QStringLiteral("mActionOpenTable.svg");
-      if (isGeo)
-        it.text1 = tr("GeoJSON 矢量相图");
-      else if (a.displayName.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
-        it.text1 = tr("PDF 文档");
-      else if (a.displayName.endsWith(QLatin1String(".pptx"), Qt::CaseInsensitive))
-        it.text1 = tr("PPT 演示文稿");
-      else if (a.displayName.endsWith(QLatin1String(".png"), Qt::CaseInsensitive))
-        it.text1 = tr("图像");
-      else if (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive))
-        it.text1 = tr("XML 数据表");
-      else
-        it.text1 = a.type;
-      if (isGeo)
-        faciesBranch.children.append(it);
-      else
-        docBranch.children.append(it);
-    }
-    auxRoot.children.append(faciesBranch);
-    auxRoot.children.append(docBranch);
-    tops.append(auxRoot);
-  }
+  tops.append(buildAuxiliaryNavSpec(auxAssets));
 
   // 1b. 计划井 (Planned：方向34 布井候选)——虚拟部署实体，独立成组
   // 与实井分组隔开；显示名同走实体改写表，软删实体不显示。

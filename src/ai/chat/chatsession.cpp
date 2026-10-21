@@ -67,7 +67,25 @@ QString ChatSessionStore::directory() {
 }
 
 QString ChatSessionStore::pathFor(const QString &sessionId) {
+  // 会话 id 直接进文件名：必须是「单段安全名」——否则 load/remove/save 会
+  // 顺着拼接路径逃出 sessions 目录（remove 会删掉指向的任意文件）。校验
+  // 范式同本模块 ai/modelregistry.cpp 的 isSafeModelName：空/./.. 与任何
+  // 路径分隔符、驱动器冒号、NUL 一律拒绝（含 Windows 侧反斜杠与冒号）。
+  if (!isSafeSessionId(sessionId))
+    return QString();
   return directory() + QLatin1Char('/') + sessionId + QStringLiteral(".json");
+}
+
+bool ChatSessionStore::isSafeSessionId(const QString &sessionId) {
+  if (sessionId.isEmpty() || sessionId == QLatin1String(".") ||
+      sessionId == QLatin1String(".."))
+    return false;
+  for (const QChar &ch : sessionId) {
+    if (ch == QLatin1Char('/') || ch == QLatin1Char('\\') ||
+        ch == QLatin1Char(':') || ch == QChar(0))
+      return false;
+  }
+  return true;
 }
 
 QString ChatSessionStore::newSessionId() {
@@ -90,7 +108,13 @@ bool ChatSessionStore::save(const ChatSession &session, QString *error) {
       *error = QObject::tr("会话缺少 id");
     return false;
   }
-  QSaveFile file(pathFor(session.id));
+  const QString path = pathFor(session.id);
+  if (path.isEmpty()) {
+    if (error)
+      *error = QObject::tr("会话 id 含非法路径字符");
+    return false;
+  }
+  QSaveFile file(path);
   const QByteArray bytes =
     QJsonDocument(session.toJson()).toJson(QJsonDocument::Compact);
   if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() ||
@@ -104,7 +128,13 @@ bool ChatSessionStore::save(const ChatSession &session, QString *error) {
 
 bool ChatSessionStore::load(const QString &sessionId, ChatSession *out,
                             QString *error) {
-  QFile file(pathFor(sessionId));
+  const QString path = pathFor(sessionId);
+  if (path.isEmpty()) {
+    if (error)
+      *error = QObject::tr("会话 id 含非法路径字符");
+    return false;
+  }
+  QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) {
     if (error)
       *error = file.errorString();
@@ -125,7 +155,13 @@ bool ChatSessionStore::load(const QString &sessionId, ChatSession *out,
 }
 
 bool ChatSessionStore::remove(const QString &sessionId, QString *error) {
-  QFile file(pathFor(sessionId));
+  const QString path = pathFor(sessionId);
+  if (path.isEmpty()) {
+    if (error)
+      *error = QObject::tr("会话 id 含非法路径字符");
+    return false;
+  }
+  QFile file(path);
   if (file.exists() && !file.remove()) {
     if (error)
       *error = file.errorString();

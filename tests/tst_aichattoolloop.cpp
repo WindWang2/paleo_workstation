@@ -17,6 +17,7 @@
 #include <QTimer>
 
 #include <atomic>
+#include <thread>
 #include <functional>
 #include <memory>
 
@@ -28,6 +29,7 @@
 #include "../src/ai/onnxfixture.h"
 #include "../src/ai/onnxpredictionservice.h"
 #include "../src/catalog/datacatalog.h"
+#include "../src/domain/arearules.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
@@ -210,6 +212,9 @@ private slots:
   // 方向77：工程上下文只读工具（query_project）的端到端闭环 + 预算协同。
   void queryProjectLoopAnswersWithWellNames();
   void projectBriefStaysInSystemPromptWithinBudget();
+  // 健壮性：horizonGridFetch 闭包在池线程运行，不得在 QgisLayerService 析构后
+  // 触碰它；声明变更须在主线程刷新快照。
+  void horizonGridFetchSurvivesLayerServiceDestruction();
 
 private:
   struct Fixture {
@@ -910,6 +915,51 @@ int main(int argc, char *argv[]) {
   const int rc = QTest::qExec(&tc, argc, argv);
   QgisRuntime::shutdown();
   return rc;
+}
+
+void TestAiChatToolLoop::horizonGridFetchSurvivesLayerServiceDestruction() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QgisProjectService projectSvc;
+  QVERIFY(projectSvc.createProject(dir.filePath(QStringLiteral("proj.qgz"))));
+  LayerManifest manifest{dir.filePath(QStringLiteral("project.sqlite"))};
+  QVERIFY(manifest.open());
+  auto *layers = new QgisLayerService(&projectSvc, &manifest);
+  const AiAssistWorkflow::GridFetch fetch = AiAssistWorkflow::horizonGridFetch(layers);
+
+  // 1) 声明一张真实 1x2 GTiff 层位栅格：快照须经主线程信号刷新，池线程读到值。
+  const QString tif = dir.filePath(QStringLiteral("h.tif"));
+  {
+    GDALDriverH drv = GDALGetDriverByName("GTiff");
+    GDALDatasetH ds = GDALCreate(drv, tif.toUtf8().constData(), 2, 1, 1, GDT_Float32, nullptr);
+    QVERIFY(ds);
+    float px[2] = {1.5f, 2.5f};
+    QCOMPARE(GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Write, 0, 0, 2, 1, px, 2, 1,
+                          GDT_Float32, 0, 0), CE_None);
+    GDALClose(ds);
+  }
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral("horizon.%1.depth").arg(AreaRules::active().targetHorizon);
+  decl.type = QStringLiteral("raster");
+  decl.source = tif;
+  decl.title = QStringLiteral("h");
+  QString error;
+  QVERIFY2(layers->declare(decl, &error), qPrintable(error));
+  QVector<float> out;
+  QString err;
+  bool ok = false;
+  std::thread([&] { ok = fetch(0, 0, 1, 2, out, err); }).join();
+  QVERIFY2(ok, qPrintable(err));
+  QCOMPARE(out.size(), 2);
+  QCOMPARE(out[1], 2.5f);
+
+  // 2) service 析构后，池线程调用不得解引用悬垂指针（ASan 下即为 UAF 断言）。
+  delete layers;
+  ok = false;
+  out.clear();
+  std::thread([&] { ok = fetch(0, 0, 1, 2, out, err); }).join();
+  QVERIFY2(ok, qPrintable(err)); // 最后快照仍有效，且未触碰已析构对象
+  QCOMPARE(out[0], 1.5f);
 }
 
 #include "tst_aichattoolloop.moc"

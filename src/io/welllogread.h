@@ -48,6 +48,11 @@ class WellLogRead
     static bool parse(const QString &path, LasHeaderInfo &header,
                       QList<LasCurve> &curves, QString *error = nullptr,
                       QList<LasIssue> *issues = nullptr);
+    // 已持有 detect 结果的调用方用这版——parse 内部不再重复嗅探（每文件
+    // 每轮省 2-3 次文件打开 + 64KB 头读，C-8）。
+    static bool parse(const QString &path, WellLogFormat format,
+                      LasHeaderInfo &header, QList<LasCurve> &curves,
+                      QString *error = nullptr, QList<LasIssue> *issues = nullptr);
 
     // 表头快照（welllogset 目录扫描）。LAS/DLIS/LIS 保持 header-only；
     // XML/文本验证整份文件后返回快照，避免坏行以成功表头进入正式目录。

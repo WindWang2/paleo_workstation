@@ -515,9 +515,10 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
           double top = std::numeric_limits<double>::infinity(), bottom = -top;
           LasHeaderInfo header;
           QList<LasCurve> curves;
-          const bool explicitAxis = !path.isEmpty() && WellLogRead::detect(path) != WellLogFormat::Las;
+          const auto format = path.isEmpty() ? WellLogFormat::Unknown : WellLogRead::detect(path);
+          const bool explicitAxis = format != WellLogFormat::Las;
           QString readError;
-          const bool parsed = !path.isEmpty() && WellLogRead::parse(path, header, curves, &readError) && !curves.isEmpty();
+          const bool parsed = !path.isEmpty() && WellLogRead::parse(path, format, header, curves, &readError) && !curves.isEmpty();
           const double scale = parsed ? LasParser::depthUnitToMeters(curves.first().unit) : 0.0;
           if (explicitAxis && (!parsed || header.indexBasis != QLatin1String("MD") || scale <= 0.0)) {
             *preparationError = QCoreApplication::translate("MappingWorkbench", "%1：预测需要可读取且声明米或英尺单位的 MD 测深；请检查索引基准和单位。%2")

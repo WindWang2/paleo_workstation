@@ -87,7 +87,9 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
       // 方向 D1：确认动作在对话框内经本出口发起——此刻读「复制进工程」勾选：
       // 不勾选（默认）只建索引；勾选恢复旧受管复制。
       wf->setLinkExternal(!PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr));
-      *cancelImport = wf->importFolder(dir, overrides, forcePaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths);
+      // 确认表「显示名」列：编辑过的行（≠原文件 basename）随批透传后端。
+      *cancelImport = wf->importFolder(dir, overrides, forcePaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths,
+                                       PaleoFolderConfirm::folderImportNameOverrides(dlgPtr));
     };
     hooks.importedWellHead = [wf](const QString &rowPath) {
       return wf->importedWellHeadAsset(rowPath);
@@ -157,7 +159,9 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
               // 方向 D1：与 runFolderImportAt 同口径——确认时读「复制进工程」
               // 勾选；默认（不勾选）只建索引。
               wf->setLinkExternal(!PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr));
-              *cancelImport = wf->importFiles(paths, overrides, forceImportPaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths);
+              // 确认表「显示名」列：与文件夹导入同一贯通口径。
+              *cancelImport = wf->importFiles(paths, overrides, forceImportPaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths,
+                                              PaleoFolderConfirm::folderImportNameOverrides(dlgPtr));
             };
         hooks.importedWellHead = [wf](const QString &rowPath) {
           return wf->importedWellHeadAsset(rowPath);

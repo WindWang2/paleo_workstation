@@ -106,4 +106,13 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
 // buildFolderConfirmDialog 搭建（或勾选框已销毁）→ false（保持只建索引默认）。
 bool folderImportCopyIntoProject(const QDialog *dlg);
 
+// 「显示名」列（folderTable 末列，可编辑）的覆盖收集：源路径 → 编辑后名称。
+// 只收录「trim 后非空且不同于原文件 basename」的行——未动的行不发 override
+//（io 侧空白值同样回退 basename）。显示名只改数据页/确认表展示名，物理
+// 文件名恒不动。壳在 importAllWithWells 出口里读它（同
+// folderImportCopyIntoProject 模式）透传 FolderImportWorkflow::importFolder/
+// importFiles 的 nameOverrides 尾参；未勾选跳过的行即使编辑了也不会导入
+//（io 侧 skippedPaths 先行跳过，map 里的多余条目无害）。
+QMap<QString, QString> folderImportNameOverrides(const QDialog *dlg);
+
 } // namespace PaleoFolderConfirm

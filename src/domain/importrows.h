@@ -43,6 +43,9 @@ struct FolderPreviewRow
   bool needsWellChoice = false;
   QString dataPreview;
   QString sourceSha256; // 预览绑定内容；确认/重试必须核验同一份字节
+  // 确认表「显示名」列的默认值（预览期填原文件 basename）；导入后成为资产
+  // displayName（物理 fileName 恒不动）。确认表编辑该列 → nameOverrides。
+  QString displayName;
 };
 
 // 导入行结果（两阶段导入 / 单行重导 / plan 执行共用口径）。

@@ -74,12 +74,15 @@ class FolderImportWorkflow : public QObject
                                     const QString &wellTarget = {},
                                     const QString &expectedHash = {});
     // 整批导入：异步（任务池在场）或同步；done 总在 GUI 线程调用。
+    // nameOverrides：确认表「显示名」列——源路径 → 编辑后显示名（空 = 原
+    // 文件 basename；io 侧空白值忽略）。透传 DataImportService::produceFolder。
     CancelImport importFolder(const QString &dir, const QMap<QString, QString> &overrides,
                       const ImportDone &done,
                       const QMap<QString, QString> &wellTargets = {},
                       const QMap<QString, QString> &expectedHashes = {},
                       const QStringList &skippedPaths = {},
-                      const QStringList &previewedPaths = {});
+                      const QStringList &previewedPaths = {},
+                      const QMap<QString, QString> &nameOverrides = {});
     // 同上 + 「仍导入」改判（T2 确认表跳过策略）：forceImportPaths 是用户
     // 对「重复→跳过」行点了「仍导入」的源路径集合——plan 里这些行改判
     // as_new_version（同字节结局交内部 dedup：AlreadyStored + 补挂）。
@@ -90,7 +93,8 @@ class FolderImportWorkflow : public QObject
                       const QMap<QString, QString> &wellTargets = {},
                       const QMap<QString, QString> &expectedHashes = {},
                       const QStringList &skippedPaths = {},
-                      const QStringList &previewedPaths = {});
+                      const QStringList &previewedPaths = {},
+                      const QMap<QString, QString> &nameOverrides = {});
     // 单文件导入（数据页「导入」按钮）：同 importFolder 的双路径语义。
     // linkExternal 默认 true（方向：UI 默认只建索引）；displayName 非空 →
     // 覆盖资产显示名（导入时命名）。
@@ -99,12 +103,14 @@ class FolderImportWorkflow : public QObject
                     bool linkExternal = true, const QString &displayName = {});
     // 多选文件导入（文件列表口径）：与 importFolder 同一确认表/任务池/台账
     // 语义；预览 importActiveChanged 抑制逐文件预览标签口径相同。
+    // nameOverrides 口径同 importFolder 的「显示名」列。
     CancelImport importFiles(const QStringList &paths, const QMap<QString, QString> &overrides,
                      const QStringList &forceImportPaths, const ImportDone &done,
                      const QMap<QString, QString> &wellTargets = {},
                      const QMap<QString, QString> &expectedHashes = {},
                      const QStringList &skippedPaths = {},
-                     const QStringList &previewedPaths = {});
+                     const QStringList &previewedPaths = {},
+                     const QMap<QString, QString> &nameOverrides = {});
     void previewFilesAsync(
         const QStringList &paths,
         const std::function<void(const QVector<FolderPreviewRow> &,

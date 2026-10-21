@@ -1386,6 +1386,45 @@ private slots:
              QStringLiteral("B2_log.las"));
   }
 
+  // 批量确认表「显示名」列（nameOverrides）：经 plan 贯通到资产 displayName；
+  // 空白 override 忽略回退原文件 basename；版本物理 fileName 恒不动。
+  void batchNameOverridesApplied()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString a = tmp.filePath(QStringLiteral("E5_log.las"));
+    QVERIFY(writeFile(a, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n300.0 70.0\n")));
+    const QString b = tmp.filePath(QStringLiteral("F6_log.las"));
+    QVERIFY(writeFile(b, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n400.0 80.0\n")));
+
+    QString err;
+    const auto rows = svc.importFiles({a, b}, &err, {}, {}, {},
+                                      {{a, QStringLiteral("E5 井 * 新名字")},
+                                       {b, QStringLiteral("   ")}});
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(rows.at(0).outcome, FolderRowResult::Outcome::Imported);
+    QCOMPARE(rows.at(1).outcome, FolderRowResult::Outcome::Imported);
+    // 编辑过的显示名生效；空白 override 回退原文件 basename
+    QCOMPARE(svc.catalog()->assetById(rows.at(0).assetId).displayName,
+             QStringLiteral("E5 井 * 新名字"));
+    QCOMPARE(svc.catalog()->assetById(rows.at(1).assetId).displayName,
+             QStringLiteral("F6_log.las"));
+    // 物理文件名不随显示名改动
+    QCOMPARE(svc.catalog()->currentVersion(rows.at(0).assetId).fileName,
+             QStringLiteral("E5_log.las"));
+  }
+
   // 新 SHA-256 仍追加新资产。已决 well_log 不再把后导入的那份顶成唯一
   // 主关联：首份保持 isPrimary / ordinal 0，后份非主 / ordinal 1，两条都在。
   void newShaVersionDemotesPreviousPrimaryLink()

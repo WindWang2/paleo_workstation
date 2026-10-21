@@ -373,6 +373,21 @@ void MappingWorkbench::setWellPredictionService(WellPredictionService *service) 
       if (id != m_request.id) return;
       emit predictionDetailChanged(detail);
     });
+    connect(service, &WellPredictionService::readinessReady, this,
+            [this](const QString &id, const QVariantList &wells, const QString &error) {
+      if (id.isEmpty() || id != m_readinessId) return; // 迟到/被取代的检查不回显
+      const QString horizon = m_readinessHorizon;
+      const QStringList missing = m_readinessMissing;
+      m_readinessId.clear();
+      m_readinessHorizon.clear();
+      m_readinessMissing.clear();
+      QVariantList rows = wells;
+      if (error.isEmpty())
+        for (const auto &idMissing : missing)
+          rows << QVariantMap{{"id", idMissing}, {"name", idMissing}, {"ready", false},
+                              {"reason", tr("缺少可读源文件、测井曲线或有效井坐标")}};
+      emit wellReadinessReady(horizon, rows, error);
+    });
   }
   connectPredictionService(service);
   emit predictionStatusChanged();

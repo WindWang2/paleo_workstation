@@ -20,9 +20,18 @@ public:
   void bindCatalog(DataCatalog *catalog, const QString &dir);
   QString statusHint() const;
   void start(const RemotePredictionRequest &request) override;
+  // 预测专项 P0：批量逐井准备检查（干跑）。与 start() 走同一条
+  // prepare（后台读曲线/分层/岩性）→ GET /models → plan
+  // （planWellFaciesFormationRun）链路，规则与正式运行完全一致；只是不发
+  // POST /predict、不产出结果。完成发 readinessReady。
+  void check(const RemotePredictionRequest &request);
   void cancel() override;
 signals:
   void detailChanged(const QString &requestId, const QString &detail);
+  // wells：每口请求井一行 {id, name, ready, reason, groups}；error 非空 =
+  // 整批无法检查（服务未配置/模型列表失败），此时 wells 为空。
+  void readinessReady(const QString &requestId, const QVariantList &wells,
+                      const QString &error);
 private:
   PaleoTaskService *m_tasks = nullptr;
   void configure(const WellFaciesConfig &config);
@@ -30,6 +39,7 @@ private:
   void plan(const QVector<WellFaciesModel> &models);
   void next();
   void finish();
+  void reportReadiness();
   void fail(const QString &reason);
   void skip(int well, const QString &reason);
   WellFaciesService m_service;
@@ -45,6 +55,7 @@ private:
   QVariantList m_schema;
   QMap<int, QString> m_skipped;
   int m_index = -1;
+  bool m_dryRun = false;
   quint64 m_generation = 0;
   std::shared_ptr<std::atomic_bool> m_cancelled;
 };

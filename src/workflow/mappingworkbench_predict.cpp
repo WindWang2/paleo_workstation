@@ -180,16 +180,12 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     seen.insert(row.value("id").toString());
     request.sourceVersionIds << row.value("parents").toStringList();
     if (kind == "wells") {
-      auto well = row;
       const auto logVersion = row.value("log_version_id").toString();
       logPaths << (logVersion.isEmpty()
                        ? QString()
                        : DataCatalog::resolvedVersionPath(
                              m_dir, m_catalog->versionById(logVersion)));
-      well.insert("vector_intervals", WellAttributeStore::rows(m_dir, m_layers, false, row.value("id").toString()));
-      well.insert("vector_factors", WellAttributeStore::rows(m_dir, m_layers, true, row.value("id").toString(), h));
-      well.insert("vector_formations", WellAttributeStore::rows(m_dir, m_layers, WellAttributeStore::Table::Formations, row.value("id").toString()));
-      request.wells << well;
+      request.wells << wellRequestEntry(row, h);
     }
   }
   if (seen.size() != QSet<QString>(ids.cbegin(), ids.cend()).size()) {
@@ -516,6 +512,17 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
 }
 void MappingWorkbench::cancelPrediction() {
   cancelPredictionTask();
+  // 准备检查干跑不占 m_request（busy()=false），原先此处不会 cancel 测井服务，
+  // 也不会清 m_readinessId——面板一直等 wellReadinessReady，卡在「正在检查…」。
+  if (!m_readinessId.isEmpty()) {
+    const QString horizon = m_readinessHorizon;
+    m_readinessId.clear();
+    m_readinessHorizon.clear();
+    m_readinessMissing.clear();
+    if (m_wellRemote)
+      m_wellRemote->cancel();
+    emit wellReadinessReady(horizon, {}, tr("检查已中止：工区已切换或预测已取消"));
+  }
   // 先摘 m_request 再取消服务：服务在 cancel() 里同步 emit failed(id,"已取消")，
   // 而 failed 槽按 id == m_request.id 过滤（mappingworkbench.cpp）。原先顺序
   // 是「先取消服务、再清 m_request」，于是用户主动取消被翻译成 errorOccurred，

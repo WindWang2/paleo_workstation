@@ -25,6 +25,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSpinBox>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 using namespace paleo::pagesinternal;
@@ -86,23 +87,29 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   paramsLay->setContentsMargins(0, 0, 0, 0);
   paramsLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
-  paramsLay->addWidget(caption(tr("输入数据 (逗号分隔浮点数)"), paramsArea));
-  auto *inputEdit = new QLineEdit(paramsArea);
+  // 预测专项 P1：通用 ONNX 模型没有登记地质输入映射——原始张量（名称 /
+  // 形状 / 逗号分隔浮点数组）只作「高级 / 调试」入口，默认折叠；不预填
+  // 任何默认张量，避免测试值被当作真实地质输入。
+  QWidget *advBody = nullptr;
+  auto *advLay = buildOnnxAdvanced(paramsArea, paramsLay, &advBody);
+
+  advLay->addWidget(caption(tr("输入数据 (逗号分隔浮点数)"), advBody));
+  auto *inputEdit = new QLineEdit(advBody);
   inputEdit->setObjectName(QStringLiteral("onnxInputEdit"));
   inputEdit->setPlaceholderText(tr("例如: 0.0, 1.0"));
-  paramsLay->addWidget(inputEdit);
+  advLay->addWidget(inputEdit);
 
-  paramsLay->addWidget(caption(tr("输入形状 (逗号分隔整数)"), paramsArea));
-  auto *shapeEdit = new QLineEdit(paramsArea);
+  advLay->addWidget(caption(tr("输入形状 (逗号分隔整数)"), advBody));
+  auto *shapeEdit = new QLineEdit(advBody);
   shapeEdit->setObjectName(QStringLiteral("onnxShapeEdit"));
   shapeEdit->setPlaceholderText(tr("例如: 1, 1"));
-  paramsLay->addWidget(shapeEdit);
+  advLay->addWidget(shapeEdit);
 
-  paramsLay->addWidget(caption(tr("输入名称"), paramsArea));
-  auto *nameEdit = new QLineEdit(paramsArea);
+  advLay->addWidget(caption(tr("输入名称"), advBody));
+  auto *nameEdit = new QLineEdit(advBody);
   nameEdit->setObjectName(QStringLiteral("onnxInputNameEdit"));
-  nameEdit->setText(QStringLiteral("x"));
-  paramsLay->addWidget(nameEdit);
+  nameEdit->setPlaceholderText(tr("例如: x"));
+  advLay->addWidget(nameEdit);
 
   // 输出网格是工区合同（PROJECT_AREA_PLAN §3）：标定层位栅格 + 同一套
   // geotransform，行/列/像元来自 project_area.json 的 onnx_grid——尺寸
@@ -136,9 +143,16 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   connect(algos, &QComboBox::currentIndexChanged, this, refreshForm);
   connect(types, &QComboBox::currentIndexChanged, this, refreshForm);
 
+  // 预测专项 P0：准备检查结论（进入页面即可见；层位/算法/类型变化即重算）。
+  buildReadinessRow(lay);
+
   auto *run = new QPushButton(tr("运行预测"), this);
   run->setObjectName(QStringLiteral("runButton"));
   lay->addWidget(run);
+  const auto recheck = [this] { updateReadiness(); };
+  connect(horizons, &QComboBox::currentIndexChanged, this, recheck);
+  connect(algos, &QComboBox::currentIndexChanged, this, recheck);
+  connect(types, &QComboBox::currentIndexChanged, this, recheck);
 
   // m2(A) 任务化运行面：忙碌时露取消按钮与进度条（DESIGN.md：>1s 的任务
   // 显示进度条；无进度回调的算法进度停在 0，不伪造）。
@@ -165,6 +179,8 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   connect(mamcl, &QPushButton::clicked, this, [this] { emit mamclLaunchRequested(); });
 
   connect(run, &QPushButton::clicked, this, [this, horizons, algos] {
+    if (property("paleo.page.ready").isValid() && !property("paleo.page.ready").toBool())
+      return; // 准备检查未通过：原因已在 predictReadinessLabel / tooltip
     const QString horizon = horizons->currentText();
     const QString algId = algos->currentData().toString();
     QVariantMap params;
@@ -219,6 +235,48 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
 #endif
   }
   refreshHistory();
+  updateReadiness();
+}
+
+// 预测专项 P1：原始张量「高级 / 调试」折叠区（自构造函数拆出，#502 函数行数闸）。
+QVBoxLayout *PredictPage::buildOnnxAdvanced(QWidget *parent, QVBoxLayout *into, QWidget **body)
+{
+  auto *advToggle = new QToolButton(parent);
+  advToggle->setObjectName(QStringLiteral("onnxAdvancedToggle"));
+  advToggle->setText(tr("高级 / 调试：原始张量输入"));
+  advToggle->setCheckable(true);
+  advToggle->setChecked(false);
+  advToggle->setArrowType(Qt::RightArrow);
+  advToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  advToggle->setToolTip(tr("仅供模型调试：手工给出输入张量名称、形状与数值"));
+  into->addWidget(advToggle);
+  auto *advBody = new QWidget(parent);
+  advBody->setObjectName(QStringLiteral("onnxAdvancedBody"));
+  auto *advLay = new QVBoxLayout(advBody);
+  advLay->setContentsMargins(0, 0, 0, 0);
+  advLay->setSpacing(PaleoTheme::tokens().spacingSm);
+  advBody->hide();
+  into->addWidget(advBody);
+  connect(advToggle, &QToolButton::toggled, this,
+          [this](bool on) { setOnnxAdvancedExpanded(on); });
+  *body = advBody;
+  return advLay;
+}
+
+// 预测专项 P0：准备检查结论 + 测井相面板跳转（自构造函数拆出）。
+void PredictPage::buildReadinessRow(QVBoxLayout *lay)
+{
+  auto *readiness = new QLabel(this);
+  readiness->setObjectName(QStringLiteral("predictReadinessLabel"));
+  readiness->setWordWrap(true);
+  readiness->setAccessibleName(tr("预测准备检查"));
+  lay->addWidget(readiness);
+  auto *jump = new QPushButton(tr("前往测井相预测面板"), this);
+  jump->setObjectName(QStringLiteral("openWellFaciesButton"));
+  jump->setToolTip(tr("测井相预测按井读取曲线与分层，在井综合显示的测井相面板运行"));
+  jump->hide();
+  lay->addWidget(jump);
+  connect(jump, &QPushButton::clicked, this, [this] { emit wellFaciesPanelRequested(); });
 }
 
 void PredictPage::setHorizons(const QStringList &horizons)
@@ -228,6 +286,7 @@ void PredictPage::setHorizons(const QStringList &horizons)
     combo->clear();
     combo->addItems(horizons); // clear/addItems 触发 currentIndexChanged → 历史清单随层位刷新
   }
+  updateReadiness();
 }
 
 void PredictPage::setAlgorithms(const QStringList &algIds)
@@ -262,6 +321,7 @@ void PredictPage::setAlgorithms(const QStringList &algIds)
       status->clear();
   }
 #endif
+  updateReadiness();
 }
 
 QVariantMap PredictPage::parseInputParams()
@@ -277,8 +337,11 @@ QVariantMap PredictPage::parseInputParams()
   const QString inStr = inputEdit->text().trimmed();
   if (inStr.isEmpty())
   {
+    // 不用默认张量兜底：通用 ONNX 模型没有登记地质输入映射，必须显式给出。
+    setOnnxAdvancedExpanded(true);
     if (status)
-      status->setText(tr("输入数据不能为空"));
+      status->setText(tr("该 ONNX 模型未登记地质输入映射，无法从工程数据自动组织输入；"
+                         "如需调试运行，请在「高级 / 调试」中填写输入数据、形状与名称"));
     return {};
   }
   const QStringList inParts = inStr.split(QLatin1Char(','), Qt::SkipEmptyParts);
@@ -330,9 +393,14 @@ QVariantMap PredictPage::parseInputParams()
     shapeList.append(val);
   }
 
-  QString nameStr = nameEdit->text().trimmed();
+  const QString nameStr = nameEdit->text().trimmed();
   if (nameStr.isEmpty())
-    nameStr = QStringLiteral("x");
+  {
+    setOnnxAdvancedExpanded(true);
+    if (status)
+      status->setText(tr("输入名称不能为空"));
+    return {};
+  }
 
   QVariantMap params;
   params.insert(QStringLiteral("input"), inList);
@@ -356,21 +424,7 @@ void PredictPage::rebuildSchemaForm()
   const QString algId = algos->currentData().toString();
   onnxArea->setVisible(algId.startsWith(QLatin1String("onnx:")));
 
-  if (auto *types = child<QComboBox>(this, "predictTypeCombo"))
-  {
-    const QString ptype = types->currentData().toString();
-    auto *status = child<QLabel>(this, "statusLabel");
-    if (ptype == QLatin1String("well_log_facies"))
-    {
-      if (status && (status->text().isEmpty() || status->text().contains(tr("测井相"))))
-        status->setText(tr("测井相预测请转至测井相解释面板（井综合显示/测井相解释）进行"));
-    }
-    else
-    {
-      if (status && status->text().contains(tr("测井相预测请转至")))
-        status->clear();
-    }
-  }
+  // 测井相的转去提示已收口到 updateReadiness（predictReadinessLabel + 跳转钮）。
 
   // 重建前按 key 快照已填值——切换算法/预测类型触发的重建对同名参数保留
   // 用户输入（联动不吞状态）。快照存页面属性：跨多次重建（如 smoothing →
@@ -600,9 +654,10 @@ void PredictPage::setRunBusy(bool busy)
 
   const QString busyTip = busy ? tr("预测正在运行——完成后自动恢复，或点取消") : QString();
 
-  if (run)
+  setProperty("paleo.page.runbusy", busy);
+  if (run && busy)
   {
-    run->setEnabled(!busy);
+    run->setEnabled(false);
     run->setToolTip(busyTip);
   }
   if (auto *types = child<QComboBox>(this, "predictTypeCombo"))
@@ -643,7 +698,83 @@ void PredictPage::setRunBusy(bool busy)
   }
   if (busy && status)
     status->setText(tr("正在运行预测…"));
-  setProperty("paleo.page.runbusy", busy);
+  if (!busy)
+    updateReadiness(); // 结束忙碌：按准备检查恢复按钮与原因
+}
+
+void PredictPage::setOnnxAdvancedExpanded(bool expanded)
+{
+  auto *toggle = child<QToolButton>(this, "onnxAdvancedToggle");
+  auto *body = child<QWidget>(this, "onnxAdvancedBody");
+  if (body)
+    body->setVisible(expanded);
+  if (toggle)
+  {
+    const QSignalBlocker block(toggle);
+    toggle->setChecked(expanded);
+    toggle->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+  }
+}
+
+void PredictPage::updateReadiness()
+{
+  auto *label = child<QLabel>(this, "predictReadinessLabel");
+  auto *run = child<QPushButton>(this, "runButton");
+  auto *jump = child<QPushButton>(this, "openWellFaciesButton");
+  auto *horizons = child<QComboBox>(this, "horizonCombo");
+  auto *algos = child<QComboBox>(this, "algoCombo");
+  auto *types = child<QComboBox>(this, "predictTypeCombo");
+  if (!label || !run || !horizons || !algos || !types)
+    return;
+  const QString horizon = horizons->currentText().trimmed();
+  const QString algId = algos->currentData().toString();
+  const QString algText = algos->currentText();
+  const bool wellLog = types->currentData().toString() == QLatin1String("well_log_facies");
+
+  // 状态：可运行 / 需配置（可运行但需手工输入）/ 不可运行（附原因与下一步）。
+  bool ready = true;
+  QString text;
+  if (wellLog)
+  {
+    ready = false;
+    text = tr("测井相预测按井读取曲线、分层并匹配模型，请在测井相预测面板运行；"
+              "本页用于层位级沉积相 / 地震相预测");
+  }
+  else if (horizon.isEmpty())
+  {
+    ready = false;
+    text = tr("不可运行：工程中没有可用层位。请先在「数据管理」导入层位或井分层");
+  }
+  else if (algId.isEmpty())
+  {
+    ready = false;
+#if PALEO_HAVE_ORT
+    text = PaleoOnnxService::runtimeAvailable()
+               ? tr("不可运行：没有可用的预测算法或模型（<工程>/models 下无可用 .onnx）")
+               : tr("不可运行：没有可用的预测算法；ONNX 运行时不可用");
+#else
+    text = tr("不可运行：没有可用的预测算法");
+#endif
+  }
+  else if (algId.startsWith(QLatin1String("onnx:")))
+  {
+    text = tr("需配置：层位 %1 · 模型 %2。该模型未登记地质输入映射，不能从工程数据自动"
+              "组织输入；仅可在「高级 / 调试」中手工提供张量运行，结果仅供调试")
+               .arg(horizon, algText);
+  }
+  else
+  {
+    text = tr("可运行：层位 %1 · 算法 %2（输入图层与数据在运行时再次校验）")
+               .arg(horizon, algText);
+  }
+  label->setText(text);
+  if (jump)
+    jump->setVisible(wellLog);
+  setProperty("paleo.page.ready", ready);
+  if (property("paleo.page.runbusy").toBool())
+    return; // 忙碌态由 setRunBusy 管
+  run->setEnabled(ready);
+  run->setToolTip(ready ? QString() : text);
 }
 
 void PredictPage::updateProgress(int percent)

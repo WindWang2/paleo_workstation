@@ -8,6 +8,7 @@
 #include "../../domain/singlefactorrequest.h"
 #include "../../services/singlefactordef.h"
 #include "../../workflow/mappingworkbench.h"
+#include "wellreadinesspanel.h"
 #include "pageshared.h"
 #include "ui/paleotheme.h"
 #include <QComboBox>
@@ -45,18 +46,15 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_refreshTimer->setSingleShot(true);
   connect(m_refreshTimer, &QTimer::timeout, this, [this] { if (isVisible()) refresh(); });
   setObjectName("mappingWorkbench." + mode);
-
   auto *scroll = new QScrollArea(this);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
   auto *body = new QWidget(scroll);
   body->setObjectName("mappingWorkbenchBody." + mode);
   scroll->setWidget(body);
-
   auto *outer = new QVBoxLayout(this);
   outer->setContentsMargins(0, 0, 0, 0);
   outer->addWidget(scroll);
-
   auto *layout = new QVBoxLayout(body);
   layout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
   layout->setSpacing(PaleoTheme::tokens().spacingSm);
@@ -180,6 +178,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     run->addWidget(button("wellformations", tr("地层相属性")));
     run->addWidget(button("cancel", tr("取消")));
     layout->addLayout(run);
+    layout->addWidget(new WellReadinessPanel(workbench, m_inputs, [this] { return std::pair{m_horizon,
+        m_kind->currentData() == "wells" ? checkedInputs() : QStringList()}; }, body));
     m_progress = new QProgressBar(body);
     m_progress->setObjectName("workbenchPredictionProgress");
     m_progress->setAccessibleName(tr("预测进度"));

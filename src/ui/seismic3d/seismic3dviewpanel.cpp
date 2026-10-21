@@ -434,75 +434,6 @@ void Seismic3DViewPanel::updateQualityLabel(const QString &quality) {
     emit lodChanged(text);
 }
 
-void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
-    // #158：换体/清体先中止旧体在途的切片读取（结果按槽位句柄丢弃）。
-    for (std::size_t si = 0; si < slotTasks_.size(); ++si)
-        supersedeInFlightSlice(si);
-    viewport_->setVolume(volume);
-
-    const bool loaded = volume && volume->IsLoaded();
-    // 无体（如切到无地震的工程）时切片控件禁用，不再对旧 SEG-Y 发起读取。
-    for (QWidget *w : {static_cast<QWidget *>(inlineSlider_), static_cast<QWidget *>(inlineSpin_),
-                       static_cast<QWidget *>(xlineSlider_), static_cast<QWidget *>(xlineSpin_),
-                       static_cast<QWidget *>(timeSlider_), static_cast<QWidget *>(timeSpin_)})
-        if (w)
-            w->setEnabled(loaded);
-    if (!loaded) {
-        return;
-    }
-
-    const int inlMin = volume->InlineMin();
-    const int inlMax = volume->InlineMax();
-    const int xlMin = volume->XlineMin();
-    const int xlMax = volume->XlineMax();
-    const int sampleMax = volume->SampleMax();
-
-    inlineSlider_->blockSignals(true);
-    inlineSpin_->blockSignals(true);
-    inlineSlider_->setRange(inlMin, inlMax);
-    inlineSpin_->setRange(inlMin, inlMax);
-    // 数值中点未必是真实测线号（测网步长>1/边缘缺线很常见），吸附到
-    // 最近真实线号——否则初始提取静默失败，视口只剩包围盒线框。
-    const int midInl = volume->FindNearestInlineValue((inlMin + inlMax) / 2.0);
-    inlineSlider_->setValue(midInl);
-    inlineSpin_->setValue(midInl);
-    inlineSlider_->blockSignals(false);
-    inlineSpin_->blockSignals(false);
-
-    xlineSlider_->blockSignals(true);
-    xlineSpin_->blockSignals(true);
-    xlineSlider_->setRange(xlMin, xlMax);
-    xlineSpin_->setRange(xlMin, xlMax);
-    const int midXl = volume->FindNearestXlineValue((xlMin + xlMax) / 2.0);
-    xlineSlider_->setValue(midXl);
-    xlineSpin_->setValue(midXl);
-    xlineSlider_->blockSignals(false);
-    xlineSpin_->blockSignals(false);
-
-    timeSlider_->blockSignals(true);
-    timeSpin_->blockSignals(true);
-    timeSlider_->setRange(0, sampleMax);
-    timeSpin_->setRange(0, sampleMax);
-    const int midTime = sampleMax / 2;
-    timeSlider_->setValue(midTime);
-    timeSpin_->setValue(midTime);
-    timeSlider_->blockSignals(false);
-    timeSpin_->blockSignals(false);
-
-    updateTimeMsLabel(midTime);
-
-    // Initial 3D slices extraction
-    requestSliceUpdate(SeismicSliceSlot::Inline, SgySliceType::Inline, midInl);
-    requestSliceUpdate(SeismicSliceSlot::Crossline, SgySliceType::Xline, midXl);
-    requestSliceUpdate(SeismicSliceSlot::Time, SgySliceType::Time, midTime);
-
-    checkMemoryBudget(); // D3.8 体量 > RAM/2 → 提示分页通道
-
-    // 体积变化时重发体渲染堆叠层
-    if (stackMode_)
-        requestStackLayers();
-}
-
 std::shared_ptr<SgyVolume> Seismic3DViewPanel::volume() const {
     return viewport_->volume();
 }
@@ -880,11 +811,17 @@ void Seismic3DViewPanel::buildRenderControls(QHBoxLayout *lay, QWidget *bar) {
     connect(btnTf_, &QToolButton::toggled, this, [this](bool on) {
         setTransferFunctionEnabled(on);
     });
-    // D7.2 任意剖面：斜剖面/栅栏互斥；拾取结束（提交/取消）回写按钮态
+    // D7.2 任意剖面：斜剖面/栅栏互斥；拾取结束（提交/取消）回写按钮态。
+    // D-07（full-audit-20261020）：无体不可入拾取时按钮弹回——按钮态必须
+    // 反映可操作真值，不得卡按下态等一个不会来的 sectionPickModeChanged。
     connect(btnOblique_, &QToolButton::toggled, this, [this](bool on) {
         if (on) {
             btnFence_->setChecked(false);
-            enterObliqueSectionPick();
+            if (!enterObliqueSectionPick()) {
+                btnOblique_->setChecked(false);
+                QgsMessageLog::logMessage(tr("斜剖面拾取需要先加载地震体"),
+                                          QStringLiteral("Seismic3D"), Qgis::MessageLevel::Info);
+            }
         } else if (viewport_ && viewport_->isSectionPickMode()) {
             viewport_->setSectionPickMode(false);
         }
@@ -892,7 +829,11 @@ void Seismic3DViewPanel::buildRenderControls(QHBoxLayout *lay, QWidget *bar) {
     connect(btnFence_, &QToolButton::toggled, this, [this](bool on) {
         if (on) {
             btnOblique_->setChecked(false);
-            enterFenceSectionPick();
+            if (!enterFenceSectionPick()) {
+                btnFence_->setChecked(false);
+                QgsMessageLog::logMessage(tr("栅栏剖面拾取需要先加载地震体"),
+                                          QStringLiteral("Seismic3D"), Qgis::MessageLevel::Info);
+            }
         } else if (viewport_ && viewport_->isSectionPickMode()) {
             viewport_->setSectionPickMode(false);
         }
@@ -1241,16 +1182,18 @@ void Seismic3DViewPanel::applyTransferFunction() {
 }
 
 // ---- D7.2 任意斜剖面 / 栅栏 ----
-void Seismic3DViewPanel::enterObliqueSectionPick() {
+bool Seismic3DViewPanel::enterObliqueSectionPick() {
     if (!viewport_ || !volume() || !volume()->IsLoaded())
-        return;
+        return false;
     viewport_->setSectionPickMode(true, /*autoCommitAtTwo=*/true);
+    return true;
 }
 
-void Seismic3DViewPanel::enterFenceSectionPick() {
+bool Seismic3DViewPanel::enterFenceSectionPick() {
     if (!viewport_ || !volume() || !volume()->IsLoaded())
-        return;
+        return false;
     viewport_->setSectionPickMode(true, /*autoCommitAtTwo=*/false);
+    return true;
 }
 
 // 拾取路径 → 任意剖面取数（服务异步；BuildLineSection 同步回落）→ 贴入 3D。
@@ -1262,13 +1205,14 @@ void Seismic3DViewPanel::requestLineSection(const std::vector<glm::ivec2> &pathP
 
     if (taskSvc_) {
         QPointer<Seismic3DViewPanel> guard(this);
+        const quint64 generation = volumeGeneration_;
         SgySectionOptions options; // 默认：≤2048 列、最近道（数值可靠）
         taskSvc_->startSectionExtraction(
             vol, pathPoints, options,
-            [guard, pathPoints](bool success, std::shared_ptr<const SgySliceImage> image,
+            [guard, pathPoints, generation](bool success, std::shared_ptr<const SgySliceImage> image,
                                 const SgySectionStats &stats, const QString &error) {
-                if (!guard)
-                    return;
+                if (!guard || guard->volumeGeneration_ != generation)
+                    return; // 换体作废：旧体剖面不贴新体
                 if (success && image && image->width > 1) {
                     guard->cachedLineImage_ = *image;
                     guard->cachedLinePath_ = pathPoints;
@@ -1620,12 +1564,13 @@ void Seismic3DViewPanel::requestStackLayers() {
         request.sampleCount = sampleMax + 1;
         stackExtracting_ = true;
         stackTargetLayers_ = layerCount;
+        const quint64 generation = volumeGeneration_;
         QPointer<Seismic3DViewPanel> guard(this);
         taskSvc_->startVoxelWindow(
             pagedPath_, request,
-            [guard, samples](bool ok, const engine::VoxelWindow &window, const QString &error) {
-                if (!guard)
-                    return;
+            [guard, samples, generation](bool ok, const engine::VoxelWindow &window, const QString &error) {
+                if (!guard || guard->volumeGeneration_ != generation)
+                    return; // 换体作废：旧体结果不贴新体
                 guard->stackExtracting_ = false;
                 const QString cancelledMark =
                     QCoreApplication::translate("SeismicTaskService", "体素窗口读取已取消");
@@ -1665,15 +1610,18 @@ void Seismic3DViewPanel::requestStackLayersPerLayer(const std::vector<int> &samp
     stackExtracting_ = true;
     stackTargetLayers_ = layerCount;
     auto remaining = std::make_shared<int>(layerCount);
+    const quint64 generation = volumeGeneration_;
     for (int i = 0; i < layerCount; ++i) {
         const int sample = samples[std::size_t(i)];
         const int layerIdx = i;
         QPointer<Seismic3DViewPanel> guard(this);
-        auto dispatch = [this, guard, vol, sample, layerIdx, remaining]() {
+        auto dispatch = [this, guard, vol, sample, layerIdx, remaining, generation]() {
             if (taskSvc_) {
                 taskSvc_->startSliceExtraction(
                     vol, SgySliceType::Time, sample,
-                    [guard, layerIdx, sample, remaining](bool ok, std::shared_ptr<const SgySliceImage> img, const QString &) {
+                    [guard, layerIdx, sample, remaining, generation](bool ok, std::shared_ptr<const SgySliceImage> img, const QString &) {
+                        if (guard && guard->volumeGeneration_ != generation)
+                            return; // 换体作废：旧体结果不贴新体
                         if (ok && img && guard) {
                             guard->cachedStackImages_[std::size_t(layerIdx)] = *img; // D7.1
                             guard->cachedStackSamples_[std::size_t(layerIdx)] = sample;

@@ -263,6 +263,7 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
       setError(error, q.lastError().text());
       return false;
     }
+    int lastOrd = -1;
     while (q.next())
     {
       EntityAssetLink l;
@@ -275,9 +276,17 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
       l.ordinal = q.value(7).toInt();
       l.note = q.value(8).toString();
       const int ord = q.value(0).toInt();
+      if (ord < 0)
+      {
+        // A-13（full-audit-20261020）：负 ord 行此前静默丢弃无告警——与同函数
+        // unsafeVersion 行/巨值 ord 口径对齐，外部损坏可见（行为不变）。
+        qWarning("catalogstore: skip link row with negative ord=%d (asset %s)",
+                 ord, qPrintable(l.assetId));
+        continue;
+      }
       if (ord == out->links.size())
         out->links.append(l);
-      else if (ord >= 0)
+      else
       {
         // FA-004：损坏/手改库的 ord 巨值会让 resize 做天文数字分配（工程
         // 打开即崩）。正常增量写的 ord 恒连续——与已读行数偏离过大按损坏
@@ -288,10 +297,16 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
                    ord, static_cast<qint64>(out->links.size()));
           continue;
         }
+        if (ord <= lastOrd)
+          // A-13：ORDER BY ord 下 ord 不增即重复——静默覆盖前一行同样掩盖
+          // 损坏；如实告警（覆盖行为保持，行为不变）。
+          qWarning("catalogstore: duplicate link ord=%d overwrites previous row (asset %s)",
+                   ord, qPrintable(l.assetId));
         if (ord > out->links.size())
           out->links.resize(ord + 1);
         out->links[ord] = l;
       }
+      lastOrd = ord;
     }
   }
   absorbSeqs(out);

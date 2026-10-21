@@ -33,6 +33,7 @@ public:
     static QSize physicalViewportSize(int w, int h, qreal devicePixelRatio);
 
     void setVolume(std::shared_ptr<SgyVolume> volume);
+    void clearStackLayers(); // D-05/SF-1：换体清堆叠层 GPU ready 态（旧体平面不残留）
     [[nodiscard]] std::shared_ptr<SgyVolume> volume() const { return volume_; }
 
     bool updateSlice(

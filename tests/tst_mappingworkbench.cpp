@@ -2299,6 +2299,22 @@ private slots:
     QCOMPARE(panel.views().size(), 1);
     QVERIFY(first->findChild<QToolButton *>("referenceRemoveView")->isEnabled());
     QCOMPARE(first->findChild<QToolButton *>("referenceRemoveView")->text(), QStringLiteral("−"));
+    // D-12（full-audit-20261020）：关最后视图有空态引导；再添加可恢复；
+    // 最后视图的移除提示如实说明后果（#547 允许关全部，不改可点性）。
+    QVERIFY(first->findChild<QToolButton *>("referenceRemoveView")->toolTip()
+                .contains(QStringLiteral("最后一个")));
+    auto *emptyHint = panel.findChild<QLabel *>("referenceEmptyHint");
+    auto *countLabel = panel.findChild<QLabel *>("referenceViewCount");
+    QVERIFY(emptyHint && countLabel);
+    QVERIFY(!emptyHint->isVisibleTo(&panel));
+    first->findChild<QToolButton *>("referenceRemoveView")->click();
+    QCOMPARE(panel.views().size(), 0);
+    QVERIFY(emptyHint->isVisibleTo(&panel));
+    QCOMPARE(countLabel->text(), QStringLiteral("0 个视图"));
+    panel.findChild<QPushButton *>("referenceAddView")->click();
+    QCOMPARE(panel.views().size(), 1);
+    QVERIFY(!emptyHint->isVisibleTo(&panel));
+    QCOMPARE(panel.views().first()->sourceId(), QString());
     panel.setSources({}, QString());
     QVERIFY(firstLayer.isNull());
     QVERIFY(!first->hasReference());

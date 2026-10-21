@@ -201,8 +201,10 @@ ZipListResult zipListBytes( const QByteArray &archive )
       return result;
     }
   }
-  if ( static_cast<std::uint64_t>( directoryOffset ) + directorySize >
-       static_cast<std::uint64_t>( archive.size() ) )
+  // 减法判界（#381 同族）：加法在 directoryOffset 近 2^64 时回绕穿闸，
+  // 随后 qint64 换负下标读缓冲区之前的内存。
+  if ( directoryOffset > static_cast<std::uint64_t>( archive.size() ) ||
+       directorySize > static_cast<std::uint64_t>( archive.size() ) - directoryOffset )
   {
     result.error = QStringLiteral( "ZIP 中央目录偏移越界" );
     return result;
@@ -378,6 +380,11 @@ bool zipExtractBytes( const QByteArray &archive, const QString &entryName, QByte
   };
   if ( item->method == 0 )
   {
+    if ( raw.size() != static_cast<int>( item->uncompressedSize ) )
+      return fail( QStringLiteral( "条目「%1」stored 长度与声明不符（%2，期望 %3）" )
+                       .arg( entryName )
+                       .arg( raw.size() )
+                       .arg( item->uncompressedSize ) );
     if ( !verifyCrc( raw ) )
       return false;
     *out = raw;

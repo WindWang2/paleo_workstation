@@ -1,6 +1,7 @@
 // 层：数据
 #include "paleomapfiles.h"
 #include "../catalog/datacatalog.h"
+#include "../domain/sidecarvocab.h"
 #include <QCryptographicHash>
 #include <QDirIterator>
 #include <QFile>
@@ -36,18 +37,22 @@ QStringList members(const QString &path, QString *error) {
   QFileInfo main(path); if (!main.isFile()) { if (error) *error = QObject::tr("图件文件不存在：%1").arg(path); return {}; }
   const auto extension = main.suffix().toLower();
   QStringList out{main.absoluteFilePath()};
-  const bool shape = extension == "shp";
-  const QStringList sidecars = shape ? QStringList{"shx", "dbf", "prj", "cpg", "qix", "sbn", "sbx", "qmd", "qml"}
-      : QStringList{"tfw", "tifw", "jgw", "jpgw", "pgw", "pngw", "wld", "prj", "qml"};
+  // B-03/A-14：sidecar 词表统一 domain/sidecarvocab.h——shp 族并入 dbf
+  // 属性索引 7 项（此前导入不全）；栅格族含 world/投影/样式。
+  const QStringList &sidecars = extension == "shp" ? paleo::sidecars::shpFamily()
+      : paleo::sidecars::rasterFamily();
   QSet<QString> present;
   for (const auto &info : main.absoluteDir().entryInfoList(QDir::Files)) {
-    if ((info.completeBaseName().compare(main.completeBaseName(), Qt::CaseInsensitive) == 0 && sidecars.contains(info.suffix().toLower())) ||
-        info.fileName().compare(main.fileName() + ".xml", Qt::CaseInsensitive) == 0 ||
-        info.fileName().compare(main.fileName() + ".aux.xml", Qt::CaseInsensitive) == 0) {
+    const bool suffixHit = info.completeBaseName().compare(main.completeBaseName(), Qt::CaseInsensitive) == 0
+        && sidecars.contains(info.suffix().toLower());
+    bool nameSuffixHit = false;
+    for (const auto &nameSuffix : paleo::sidecars::nameSuffixes())
+      if (info.fileName().compare(main.fileName() + QLatin1Char('.') + nameSuffix, Qt::CaseInsensitive) == 0) { nameSuffixHit = true; break; }
+    if (suffixHit || nameSuffixHit) {
       out << info.absoluteFilePath(); present.insert(info.suffix().toLower());
     }
   }
-  if (shape && (!present.contains("shx") || !present.contains("dbf"))) {
+  if (extension == "shp" && (!present.contains("shx") || !present.contains("dbf"))) {
     if (error) *error = QObject::tr("Shapefile 配套文件不完整（须含 SHP、SHX、DBF）：%1").arg(path);
     return {};
   }
@@ -65,12 +70,12 @@ QVariantList copyDataset(const QString &source, const QString &directory, const 
   const auto files = members(source, error); if (files.isEmpty() || !QDir().mkpath(directory)) return {};
   QVariantList result;
   for (const auto &path : files) {
-    if (cancelled && cancelled()) return {};
+    if (cancelled && cancelled()) { QDir(directory).removeRecursively(); return {}; }
     const auto target = QDir(directory).filePath(QFileInfo(path).fileName());
-    if (!QFile::copy(path, target)) { if (error) *error = QObject::tr("无法复制图件配套文件：%1").arg(path); return {}; }
+    if (!QFile::copy(path, target)) { if (error) *error = QObject::tr("无法复制图件配套文件：%1").arg(path); QDir(directory).removeRecursively(); return {}; }
     const auto hash = DataCatalog::sha256FileHex(target, error, cancelled);
     const auto original = DataCatalog::sha256FileHex(path, error, cancelled);
-    if (hash.isEmpty() || hash != original) { if (error) *error = QObject::tr("图件在导入期间发生变化：%1").arg(path); return {}; }
+    if (hash.isEmpty() || hash != original) { if (error) *error = QObject::tr("图件在导入期间发生变化：%1").arg(path); QDir(directory).removeRecursively(); return {}; }
     result << QVariantMap{{"file", QFileInfo(path).fileName()}, {"sha256", hash}, {"bytes", QFileInfo(target).size()}};
     QFile::setPermissions(target, QFileDevice::ReadOwner | QFileDevice::ReadGroup | QFileDevice::ReadOther);
   }

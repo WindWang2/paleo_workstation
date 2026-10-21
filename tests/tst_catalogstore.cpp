@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QRegularExpression>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -525,6 +526,7 @@ private slots:
   void futureSchemaEpochRefusesWithoutBak();
   void unsafeVersionInsertedLaterIsSkippedButKept();
   void corruptLinkOrdSkippedNotHugeResize();
+  void negativeAndDuplicateLinkOrdsWarnOnLoad(); // A-13（full-audit-20261020）
   void rollbackLeavesSqliteUnchanged();
 };
 
@@ -989,6 +991,53 @@ void TestCatalogStore::corruptLinkOrdSkippedNotHugeResize()
     QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
     QCOMPARE(tables.links.size(), 1);
     QCOMPARE(tables.links.at(0).entityId, QStringLiteral("ent-1"));
+    store.close();
+  }
+}
+
+// A-13（full-audit-20261020）：负 ord 与重复 ord 链接行不再静默丢弃/覆盖——
+// 装载告警如实可见、其余行装载不受影响（行为不变，只补可见性）。
+void TestCatalogStore::negativeAndDuplicateLinkOrdsWarnOnLoad()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sqlitePath = CatalogStore::sqlitePathFor(dir.path());
+  QString err;
+
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    EntityAssetLink a;
+    a.entityType = QStringLiteral("well");
+    a.entityId = QStringLiteral("ent-1");
+    a.assetId = QStringLiteral("ast-1");
+    a.role = QStringLiteral("log");
+    EntityAssetLink b = a;
+    b.entityId = QStringLiteral("ent-2");
+    QVERIFY2(store.begin(&err), qPrintable(err));
+    QVERIFY2(store.upsertLink(0, a, &err), qPrintable(err));
+    QVERIFY2(store.upsertLink(1, b, &err), qPrintable(err));
+    QVERIFY2(store.commit(&err), qPrintable(err));
+    store.close();
+  }
+  // 模拟手改/损坏：一行负 ord。注：ord 是 INTEGER PRIMARY KEY（rowid 别名），
+  // 重复 ord 在本 schema 下不可构造——装载侧的重复告警是纵深防御，不在此测。
+  QVERIFY2(execSql(sqlitePath,
+                   QStringLiteral("UPDATE entity_asset_links SET ord = -5 WHERE entity_id = 'ent-1'"),
+                   &err),
+           qPrintable(err));
+
+  {
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression("negative ord=-5"));
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    // 负 ord 行跳过并告警；其余行装载不受影响（ord=1 落位后留 ord=0 空档——
+    // 与修复前同一装载行为，只补可见性）。
+    QCOMPARE(tables.links.size(), 2);
+    QCOMPARE(tables.links.at(1).entityId, QStringLiteral("ent-2"));
+    QVERIFY(tables.links.at(0).entityId.isEmpty());
     store.close();
   }
 }

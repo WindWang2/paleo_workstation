@@ -33,7 +33,7 @@ public:
   void setReference(QgsMapLayer *layer, const QVariantMap &metadata);
   void clearReference(const QString &message = {});
   void setViewActive(bool active);
-  void setCanRemove(bool canRemove);
+  void setRemoveHint(bool lastView); // D-12：#547 允许关最后视图——仅换提示，不改可点性
   QgsMapCanvas *canvas() const;
 
 signals:
@@ -85,6 +85,7 @@ private:
   QScrollArea *m_scroll;
   QHBoxLayout *m_row;
   QLabel *m_count;
+  QLabel *m_emptyHint = nullptr; // D-12：全部视图关闭后的空态引导
   QList<MappingReferencePanel *> m_views;
   QVariantList m_sources;
   QString m_horizon;

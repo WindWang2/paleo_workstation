@@ -124,6 +124,9 @@ void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *
             [this, horizons, factors](const QString &h, const QString &f) {
               if (h == horizons->currentText() &&
                   f == factorIdOfRow(factors, checkedRow(factors))) {
+                // D-13（full-audit-20261020）：行内容归属键——提取完成时表内
+                // 行即属（层位, 因子），建议函数据此校验归属。
+                setProperty("paleo.page.wellRowsKey", h + QChar(0x1f) + f);
                 refreshWellFactorResults();
                 static_cast<CollapsibleSection *>(child<QWidget>(this, "wellFactorDetailsSection"))->setExpanded(true);
                 refreshFactorResults();
@@ -233,6 +236,7 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
 }
 void ConstraintPage::invalidateWellFactors() {
   if (auto *table = findChild<QTableWidget *>(QStringLiteral("wellFactorTable"))) table->setRowCount(0);
+  setProperty("paleo.page.wellRowsKey", QString()); // D-13：清表即弃行归属
   if (auto *hint = findChild<QLabel *>(QStringLiteral("wellFactorHint")))
     hint->setText(tr("当前口径尚未提取井点因子。选择字段后提取；解释厚度采用同一 MD 层段。"));
   markInputsStale(); updateWellFactorActionState();
@@ -305,22 +309,32 @@ void ConstraintPage::applySuggestedContourInterval()
     setProperty("paleo.page.contourIntervalUser", false);
   if (property("paleo.page.contourIntervalUser").toBool())
     return;
+  // D-13（full-audit-20261020）：井点行归属守卫。换勾瞬间勾选互斥 handler 先于
+  // 清表 handler 执行，表内仍是上一因子的提取行——workflow 在场时行内容必须
+  // 归属当前（层位, 因子）才参与建议；不归属 → count 视 0（走既有 step<=0
+  // 分支：残留 0 回 20 / 保留用户值），不再用跨因素旧值域伪造建议。
+  // wf==nullptr（测试壳）保持旧行为，既有四断言不动。
+  auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+  const bool rowsBelongToFactor =
+      !wf || property("paleo.page.wellRowsKey").toString() == key;
 
   double lo = std::numeric_limits<double>::infinity();
   double hi = -lo;
   int count = 0;
-  if (auto *table = child<QTableWidget>(this, "wellFactorTable")) {
-    for (int row = 0; row < table->rowCount(); ++row) {
-      const auto *item = table->item(row, 1);
-      if (!item)
-        continue;
-      bool ok = false;
-      const double value = item->text().toDouble(&ok);
-      if (!ok || !std::isfinite(value))
-        continue;
-      lo = std::min(lo, value);
-      hi = std::max(hi, value);
-      ++count;
+  if (rowsBelongToFactor) {
+    if (auto *table = child<QTableWidget>(this, "wellFactorTable")) {
+      for (int row = 0; row < table->rowCount(); ++row) {
+        const auto *item = table->item(row, 1);
+        if (!item)
+          continue;
+        bool ok = false;
+        const double value = item->text().toDouble(&ok);
+        if (!ok || !std::isfinite(value))
+          continue;
+        lo = std::min(lo, value);
+        hi = std::max(hi, value);
+        ++count;
+      }
     }
   }
   const double step = count >= 2 ? niceContourSixth(lo, hi) : 0.0;
@@ -328,6 +342,9 @@ void ConstraintPage::applySuggestedContourInterval()
   if (!(step > 0.0)) {
     if (spin->value() == 0.0 && !checkedFactorIsStructural())
       spin->setValue(20.0);
+    // R2-1/MF-1（full-audit-20261020）：无可用建议时复位默认 tooltip——
+    // 上一因素的「（旧极差）」文案不得冒充当前因素的数值依据残留。
+    spin->setToolTip(tr("默认约为当前单因素有效值极差的 1/6，可再改。"));
     setProperty("paleo.page.contourIntervalKey", key);
     return;
   }
@@ -349,6 +366,9 @@ void ConstraintPage::restoreWellFactorDisplay() {
   const QString factor = factorIdOfRow(factors, checkedRow(factors));
   if (factor.isEmpty())
     return;
-  if (wf->restoreWellFactors(h->currentText(), factor, wellFactorParams()))
+  if (wf->restoreWellFactors(h->currentText(), factor, wellFactorParams())) {
+    // D-13：恢复出的行属（层位, 因子）——写入归属键供建议函数校验。
+    setProperty("paleo.page.wellRowsKey", h->currentText() + QChar(0x1f) + factor);
     refreshWellFactorResults();
+  }
 }

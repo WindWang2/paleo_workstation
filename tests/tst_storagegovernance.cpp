@@ -113,6 +113,49 @@ private slots:
     const auto after = qvariant_cast<Report>(scanned.last().first());
     QVERIFY(after.complete); QCOMPARE(after.orphans.size(), 0);
   }
+  // B-03/A-14（full-audit-20261020）：bundle 与非 bundle 版本同权族扫描——
+  // 导入后由 QGIS/GDAL 生成的 .aux.xml/.qix/.qml（shp）与 .tfw/.aux.xml/.qml
+  // （栅格）此前被误报孤儿（bundle 版本以 bundle_members.isEmpty() 为门完全
+  // 跳过族扫描），用户确认回收即删样式/统计文件。
+  void generatedSidecarsAndBundleVersionsStayReferenced() {
+    QTemporaryDir dir; DataCatalog cat; QVERIFY(cat.open(dir.path()));
+    // bundle 版本（paleomap 导入形态：bundle_members 已登记 shx/dbf）
+    CatalogAsset a; a.id = "pm"; a.type = "paleogeographic_map";
+    a.displayName = "pm.shp"; QVERIFY(cat.addAsset(a));
+    CatalogVersion v; v.id = "pm-raw"; v.assetId = a.id; v.stage = "RAW";
+    v.path = DataCatalog::managedPath(v.stage, v.assetId, v.id, "pm.shp");
+    QVERIFY(!v.path.isEmpty());
+    QVERIFY(write(QDir(dir.path()).filePath(v.path), 11));
+    const QString vAbs = QDir(dir.path()).filePath(v.path);
+    const QDir vdir = QFileInfo(vAbs).absoluteDir();
+    QVERIFY(write(vdir.filePath(QStringLiteral("pm.shx")), 5));
+    QVERIFY(write(vdir.filePath(QStringLiteral("pm.dbf")), 9));
+    v.extra.insert(QStringLiteral("bundle_members"),
+                   QVariantList{QVariantMap{{"file", "pm.shx"}, {"sha256", "x"}},
+                                QVariantMap{{"file", "pm.dbf"}, {"sha256", "y"}}});
+    QVERIFY(cat.addVersion(v));
+    // 导入后 QGIS/GDAL 在受管版本目录旁生成：统计/直方图、空间索引、样式。
+    QVERIFY(write(vdir.filePath(QStringLiteral("pm.shp.aux.xml")), 3));
+    QVERIFY(write(vdir.filePath(QStringLiteral("pm.qix")), 3));
+    QVERIFY(write(vdir.filePath(QStringLiteral("pm.qml")), 3));
+    // 非 bundle 栅格版本：tif 主件 + world 文件 + 统计 + 样式。
+    CatalogAsset r; r.id = "rs"; r.type = "paleogeographic_map";
+    r.displayName = "rs.tif"; QVERIFY(cat.addAsset(r));
+    CatalogVersion rv; rv.id = "rs-raw"; rv.assetId = r.id; rv.stage = "RAW";
+    rv.path = DataCatalog::managedPath(rv.stage, rv.assetId, rv.id, "rs.tif");
+    QVERIFY(!rv.path.isEmpty());
+    QVERIFY(write(QDir(dir.path()).filePath(rv.path), 17));
+    const QDir rdir = QFileInfo(QDir(dir.path()).filePath(rv.path)).absoluteDir();
+    QVERIFY(write(rdir.filePath(QStringLiteral("rs.tfw")), 5));
+    QVERIFY(write(rdir.filePath(QStringLiteral("rs.tif.aux.xml")), 5));
+    QVERIFY(write(rdir.filePath(QStringLiteral("rs.qml")), 4));
+    QVERIFY(cat.addVersion(rv));
+    const auto report = scan(snapshot(&cat)); QVERIFY(report.complete);
+    QCOMPARE(report.orphans.size(), 0);
+    // bundle 成员（2）+ 族命中（aux.xml/qix/qml，3）；栅格族命中（tfw/aux.xml/qml，3）。
+    QCOMPARE(report.versionSidecars.value(QStringLiteral("pm-raw")).size(), 5);
+    QCOMPARE(report.versionSidecars.value(QStringLiteral("rs-raw")).size(), 3);
+  }
   void exactAggregationOrphansAndReasons() {
     QTemporaryDir dir; DataCatalog cat; QVERIFY(cat.open(dir.path())); QVERIFY(seed(cat, dir.path()));
     const QString orphan = "raw/unregistered/file.dat";

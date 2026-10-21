@@ -190,10 +190,14 @@ void MappingReferencePanel::updateLink()
   m_view->setLinked(m_linked->isChecked());
 }
 
-void MappingReferencePanel::setCanRemove(bool)
+// D-12（full-audit-20261020）：#547 裁决允许关闭最后一个视图——按钮恒可点，
+// 仅当要关的是最后一个视图时换提示（原 setCanRemove 的 bool 是死参，恒
+// setEnabled(true)，误导维护者以为存在「至少一视图」保护）。
+void MappingReferencePanel::setRemoveHint(bool lastView)
 {
   m_remove->setEnabled(true);
-  m_remove->setToolTip(tr("关闭此证据"));
+  m_remove->setToolTip(lastView ? tr("将关闭最后一个证据视图（可随时再添加）")
+                                 : tr("关闭此证据"));
 }
 
 MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject *project,
@@ -231,6 +235,16 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   m_row->setAlignment(Qt::AlignLeft);
   m_scroll->setWidget(body);
   layout->addWidget(m_scroll, 1);
+  // D-12（full-audit-20261020）：空态引导——全部视图关闭后仅「0 个视图」
+  // 计数与空白滚动区，新用户无从得知可恢复；§42.4 空态暖引导同仓既有口径。
+  m_emptyHint = new QLabel(tr("无证据视图——点「添加视图」恢复对照"), this);
+  m_emptyHint->setObjectName(QStringLiteral("referenceEmptyHint"));
+  m_emptyHint->setWordWrap(true);
+  m_emptyHint->setAlignment(Qt::AlignCenter);
+  m_emptyHint->setAttribute(Qt::WA_TransparentForMouseEvents);
+  PaleoTheme::applyThemedStyleSheet(m_emptyHint, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  m_emptyHint->hide();
+  layout->addWidget(m_emptyHint);
   connect(add, &QPushButton::clicked, this, [this] { addView(); });
   addView();
   addView();
@@ -273,7 +287,7 @@ void MappingEvidencePanel::layoutViews()
     auto *view = m_views[i];
     view->setFixedWidth(kReferenceViewWidth);
     view->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    view->setCanRemove(m_views.size() > 1);
+    view->setRemoveHint(m_views.size() == 1);
     view->setAccessibleName(tr("证据视图 %1").arg(i + 1));
     m_row->addWidget(view);
     view->show();
@@ -286,6 +300,8 @@ void MappingEvidencePanel::layoutViews()
     body->resize(width, qMax(body->height(), m_scroll->viewport()->height()));
   m_row->activate();
   m_count->setText(tr("%1 个视图").arg(m_views.size()));
+  m_scroll->setVisible(!m_views.isEmpty()); // D-12：空态收起滚动区，展示引导
+  m_emptyHint->setVisible(m_views.isEmpty());
 }
 
 void MappingEvidencePanel::setSources(const QVariantList &sources, const QString &horizon)

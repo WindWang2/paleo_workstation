@@ -330,13 +330,23 @@ QWidget *DataPreviewTabs::buildHorizonContent(
           tifPath, m_doc ? m_doc->taskService() : nullptr, page,
           [page, statsRaster,
            styleTouched](const PreviewRasterAnalysis::BandSummary &sum) {
-          if (!sum.valid || !statsRaster)
-            return;
           const auto update = [page](const char *name, const QString &text) {
             if (auto *label =
                     page->findChild<QLabel *>(QString::fromLatin1(name)))
               label->setText(text);
           };
+          if (!sum.valid || !statsRaster) {
+            if (!statsRaster)
+              return;
+            // 失败/取消也落地：不让「计算中…」永远挂着（诚实状态）。
+            const QString unavailable = QObject::tr("不可用");
+            update("horizonStatMin", unavailable);
+            update("horizonStatMax", unavailable);
+            update("horizonStatMean", unavailable);
+            update("horizonStatStd", unavailable);
+            update("horizonStatValid", unavailable);
+            return;
+          }
           update("horizonStatMin", QString::number(sum.min, 'f', 2));
           update("horizonStatMax", QString::number(sum.max, 'f', 2));
           update("horizonStatMean", QString::number(sum.mean, 'f', 2));

@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QComboBox>
@@ -119,6 +120,7 @@ class TestPreviewMapAssets : public QObject
     void rasterAnalysisStretchAndRamps();
     void previewRasterReadSideSkipsNodata();
     void robustExtremaScaleOnSyntheticGrids();
+    void rasterRequestFailureStillCallsReady();
     void statesHelpersContract();
     void documentTabNotMapFramework();
     void wellHeadMapLabelToggleWorks();
@@ -1259,6 +1261,42 @@ void TestPreviewMapAssets::robustExtremaScaleOnSyntheticGrids()
     QVERIFY(ex.front().prominence < 0.5 * globalSigma); // 旧阈值下必被滤掉
     QVERIFY(gridExtrema(g, 5, 0.5 * globalSigma, 100).empty());
   }
+}
+
+// B-05/D-03（full-audit-20261022）：request* 家族失败/取消必须也回调 ready
+// （valid=false / 空集）——旧实现只在 Succeeded 回调，坏 URI 让 TOC 快速面板
+// 静默保留上一图层的统计（诚实状态条款）。
+void TestPreviewMapAssets::rasterRequestFailureStillCallsReady()
+{
+  PaleoProjectStore store;
+  PaleoTaskService tasks(&store);
+  QObject ctx;
+  const QString badUri = QStringLiteral("/nonexistent/raster-for-failure-test.tif");
+
+  int summaryCalls = 0;
+  bool summaryValid = true;
+  PreviewRasterAnalysis::requestSummary(
+      badUri, &tasks, &ctx,
+      [&](const PreviewRasterAnalysis::BandSummary &s) {
+        summaryValid = s.valid;
+        ++summaryCalls;
+      });
+  int extremaCalls = 0;
+  int extremaCount = -1;
+  PreviewRasterAnalysis::requestExtrema(
+      badUri, &tasks, &ctx,
+      [&](const QVector<PreviewRasterAnalysis::Extremum> &e) {
+        extremaCount = e.size();
+        ++extremaCalls;
+      });
+  QElapsedTimer guard;
+  guard.start();
+  while ((summaryCalls < 1 || extremaCalls < 1) && guard.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+  QCOMPARE(summaryCalls, 1);
+  QVERIFY(!summaryValid);
+  QCOMPARE(extremaCalls, 1);
+  QCOMPARE(extremaCount, 0);
 }
 
 void TestPreviewMapAssets::statesHelpersContract()

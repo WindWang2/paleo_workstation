@@ -84,6 +84,10 @@ void requestSummary(const QString &uri, PaleoTaskService *tasks,
                          rasterKey(uri) == key) {
                        cache.insert(key, new BandSummary(*summary));
                        ready(*summary);
+                     } else {
+                       // 失败/取消/文件中途变更也必须回调（valid=false）——
+                       // 否则面板静默保留上一图层的统计值（DESIGN 诚实状态）。
+                       ready(BandSummary{});
                      }
                    });
 }
@@ -122,6 +126,8 @@ void requestHistogram(const QString &uri, int bins, PaleoTaskService *tasks,
                          rasterKey(uri) == identity) {
                        cache.insert(key, new Histogram(*result));
                        ready(*result);
+                     } else {
+                       ready(Histogram{}); // 同 requestSummary：失败也回调（valid=false）
                      }
                    });
 }
@@ -545,6 +551,9 @@ std::vector<GridExtremum> robustGridExtrema(const ExtremaGrid &g, int window,
   const double scale = robustResidualScale(g, window, cancelled);
   if (cancelled && cancelled())
     return {};
+  // scale=0（完全平坦）时 neighbourhood 的严格比较（nv>=v/nv<=v 置反双标志）
+  // 已使全部内域格出局，阈值 0 不会放行任何候选——tst_previewmap_assets
+  // robustExtremaScaleOnSyntheticGrids 第 1) 例钉住「平坦 → 空集」。
   return gridExtrema(g, window, k * scale, maxCount, cancelled);
 }
 
@@ -596,6 +605,8 @@ void requestExtrema(const QString &uri, PaleoTaskService *tasks,
   QObject::connect(task, &PaleoTask::finished, receiver, [task, result, ready] {
     if (task->state() == PaleoTask::State::Succeeded)
       ready(*result);
+    else
+      ready({}); // 失败/取消也回调（空集）——极值标注不留旧图层的点
   });
 }
 void requestProfile(const QString &uri, const QgsPointXY &p1,
@@ -624,6 +635,8 @@ void requestProfile(const QString &uri, const QgsPointXY &p1,
   QObject::connect(task, &PaleoTask::finished, receiver, [task, result, ready] {
     if (task->state() == PaleoTask::State::Succeeded)
       ready(*result);
+    else
+      ready({}); // 失败/取消也回调（空剖面），与 requestExtrema 同口径
   });
 }
 

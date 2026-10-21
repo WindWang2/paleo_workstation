@@ -248,20 +248,30 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
 void WellCompositeBody::wheelEvent(QWheelEvent *event)
 {
   if (!m_canvas) return;
+  const int delta = event->angleDelta().y();
+  if (delta == 0) { event->ignore(); return; }
 
-  // D2.10 滚轮修饰：Shift ×5 加速、Ctrl ×0.2 微调
-  double factor = event->angleDelta().y() > 0 ? 1.2 : 0.8333;
+  // 测井可视化统一惯例：裸滚轮 = 上下滚动深度；Ctrl+滚轮 = 调整深度比例尺。
+  if (event->modifiers() & Qt::ControlModifier)
+  {
+    // Ctrl+Shift ×5 加速缩放
+    double factor = delta > 0 ? 1.2 : 0.8333;
+    if (event->modifiers() & Qt::ShiftModifier)
+      factor = factor > 1.0 ? 7.0 : 0.14;
+    // D2.4 锚点：鼠标模式取光标深度，中心模式取视口中点
+    const double anchor = m_canvas->wheelZoomAtMouse()
+                              ? m_canvas->yToDepth(event->position().y())
+                              : m_canvas->yToDepth(height() * 0.5);
+    m_canvas->setZoomFactor(m_canvas->zoomFactor() * factor, anchor);
+    event->accept();
+    return;
+  }
+
+  // 每档滚动视口可见深度的 1/8（任意比例尺下手感一致）；Shift ×5 快速翻页
+  double step = m_canvas->visibleDepthSpan() / 8.0 * (delta / 120.0);
   if (event->modifiers() & Qt::ShiftModifier)
-    factor = factor > 1.0 ? 7.0 : 0.14;
-  else if (event->modifiers() & Qt::ControlModifier)
-    factor = factor > 1.0 ? 1.04 : 0.96;
-
-  // D2.4 锚点：鼠标模式取光标深度，中心模式取视口中点
-  const double anchor = m_canvas->wheelZoomAtMouse()
-                            ? m_canvas->yToDepth(event->position().y())
-                            : m_canvas->yToDepth(height() * 0.5);
-
-  m_canvas->setZoomFactor(m_canvas->zoomFactor() * factor, anchor);
+    step *= 5.0;
+  m_canvas->setScrollDepth(m_canvas->scrollDepth() - step);
   event->accept();
 }
 

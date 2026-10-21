@@ -34,7 +34,10 @@ void WellCompositePanel::syncSessionToTracks()
     if (t->type() == TrackType::Formation)
     {
       auto ft = std::static_pointer_cast<FormationTrack>(t);
-      if (!doc.formationIntervals.isEmpty())
+      // 层序/砂层组同为 FormationTrack，但数据源不同，不能被分层覆盖
+      if (ft->title() == tr("层序"))
+        ft->setIntervals(doc.sequenceIntervals);
+      else if (ft->title() != tr("砂层组") && !doc.formationIntervals.isEmpty())
         ft->setIntervals(doc.formationIntervals);
     }
     else if (t->type() == TrackType::Lithology)
@@ -100,7 +103,7 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
     for (const auto &name : {"btnWellAttributes", "btnWellFormations", "btnWellFactors"}) if (auto *button = findChild<QToolButton *>(name)) {
       button->setEnabled(available);
       button->setToolTip(available && QString::fromLatin1(name) == QStringLiteral("btnWellAttributes")
-          ? tr("查看或编辑井段岩性与相解释；井段相解释可含源文件解释和预测回写值，默认隐藏，可在图道配置中显示对照")
+          ? tr("查看或编辑井段岩性与相解释；沉积相道含源文件解释和预测回写值，可在图道配置中调整")
           : reason);
     }
   });
@@ -127,15 +130,16 @@ void WellCompositePanel::showWellAttributes(const ComprehensiveWellData &data) {
     }
   }
   if (!hasLithology && !data.lithologyIntervals.isEmpty()) {
-    auto track = std::make_shared<LithologyTrack>(tr("岩性分析"), 80.0);
+    auto track = std::make_shared<LithologyTrack>(tr("岩性"), 90.0);
     track->setIntervals(data.lithologyIntervals); m_canvas->addTrack(track);
   }
   if (!hasFacies && !data.faciesIntervals.isEmpty()) {
-    auto track = std::make_shared<FaciesCompoundTrack>(tr("井段相解释"), 180.0);
-    track->setIntervals(data.faciesIntervals); track->setVisible(false); m_canvas->addTrack(track);
+    auto track = std::make_shared<FaciesCompoundTrack>(tr("沉积相"), 180.0);
+    track->setIntervals(data.faciesIntervals); m_canvas->addTrack(track);
   }
   if (m_legendWidget) m_legendWidget->setWellData(m_data);
   m_hiddenBar->setTracks(currentSpecs());
+  updateDefaultLayoutButton();
   m_canvas->updateAll();
 }
 void WellCompositePanel::clearFaciesPrediction() {
@@ -272,6 +276,7 @@ void WellCompositePanel::onTrackVisibilityChanged(int trackIndex)
 
 void WellCompositePanel::onTrackOrderOrWidthChanged()
 {
+  updateDefaultLayoutButton();
   // D1.8 会话记忆（道序/宽度/显隐/打印开关）
   WellCompositeStore::saveSessionTracks(m_projectName, m_wellName, currentSpecs());
 
@@ -313,7 +318,7 @@ void WellCompositePanel::applySpecsIncrementally(const QList<TrackSpec> &specs)
       if (!track || reordered.contains(track)) continue;
       const bool legacyInterpretation = track != m_predictionTrack &&
           track->type() == TrackType::FaciesCompound &&
-          (spec.title == tr("维护相") || spec.title == tr("沉积相"));
+          (spec.title == tr("维护相") || spec.title == tr("沉积相") || spec.title == tr("井段相解释"));
       if (TrackRegistry::typeIdForEnum(track->type()) == spec.typeId &&
           (track->title() == spec.title || legacyInterpretation))
       { match = track; break; }
@@ -325,6 +330,11 @@ void WellCompositePanel::applySpecsIncrementally(const QList<TrackSpec> &specs)
     match->setWidth(spec.width);
     match->setVisible(spec.visible);
     match->setPrintIncluded(spec.printIncluded);
+    if (auto litho = std::dynamic_pointer_cast<LithologyTrack>(match))
+    {
+      litho->setGrainQuantum(spec.params.value(QStringLiteral("grainQuantum"), litho->grainQuantum()).toDouble());
+      litho->setWidthEncoding(spec.params.value(QStringLiteral("widthEncoding"), litho->widthEncoding()).toBool());
+    }
     if (auto curve = std::dynamic_pointer_cast<CurveTrack>(match))
     {
       curve->setShowGrid(spec.showGrid());
@@ -364,6 +374,62 @@ void WellCompositePanel::saveSessionState() const
   if (m_wellName.isEmpty())
     return;
   WellCompositeStore::saveSessionTracks(m_projectName, m_wellName, currentSpecs());
+}
+
+namespace
+{
+bool isResultTrack(const std::shared_ptr<WellTrack> &t, const std::shared_ptr<WellTrack> &prediction,
+                   const std::shared_ptr<WellTrack> &confidence,
+                   const QList<std::shared_ptr<WellTrack>> &dominant)
+{
+  return t && (t == prediction || t == confidence || dominant.contains(t));
+}
+} // namespace
+
+bool WellCompositePanel::isDefaultLayout() const
+{
+  const ComprehensiveWellData doc = m_editSession ? m_editSession->document() : m_data;
+  QList<TrackSpec> current;
+  for (const auto &t : m_canvas->tracks())
+  {
+    if (!t || isResultTrack(t, m_predictionTrack, m_confidenceTrack, m_dominantTracks)) continue;
+    TrackSpec spec = TrackRegistry::instance().captureSpec(t);
+    if (spec.typeId.isEmpty()) spec.typeId = TrackRegistry::typeIdForEnum(t->type());
+    current << spec;
+  }
+  QList<TrackSpec> defaults;
+  for (const auto &t : TrackOps::defaultLayoutTracks(doc, m_scaleCombo->currentText()))
+  {
+    TrackSpec spec = TrackRegistry::instance().captureSpec(t);
+    if (spec.typeId.isEmpty()) spec.typeId = TrackRegistry::typeIdForEnum(t->type());
+    defaults << spec;
+  }
+  return TrackOps::layoutSignature(current) == TrackOps::layoutSignature(defaults);
+}
+
+void WellCompositePanel::updateDefaultLayoutButton()
+{
+  if (!m_btnDefaultLayout) return;
+  const bool hasData = m_canvas && m_canvas->trackCount() > 0;
+  m_btnDefaultLayout->setEnabled(hasData && !isDefaultLayout());
+}
+
+void WellCompositePanel::restoreDefaultLayout()
+{
+  const ComprehensiveWellData doc = m_editSession ? m_editSession->document() : m_data;
+  auto tracks = TrackOps::defaultLayoutTracks(doc, m_scaleCombo->currentText());
+  for (const auto &t : m_canvas->tracks())
+    if (isResultTrack(t, m_predictionTrack, m_confidenceTrack, m_dominantTracks))
+      tracks << t; // 预测结果道不属于模板，原样保留
+  m_canvas->setTracks(tracks);
+  m_canvas->setScaleRatio(m_scaleCombo->currentText());
+  m_canvas->setDepthUnitLabel(m_depthFeet ? QStringLiteral("ft") : QString());
+  m_canvas->setHighContrast(m_highContrast);
+  refreshTwtLabels();
+  m_canvas->syncScrollBars();
+  m_canvas->updateAll();
+  m_hiddenBar->setTracks(currentSpecs());
+  onTrackOrderOrWidthChanged(); // 记忆落盘 + 按钮复位
 }
 
 void WellCompositePanel::restoreSessionState()

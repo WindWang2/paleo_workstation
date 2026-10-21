@@ -171,6 +171,12 @@ signals:
 public slots:
   // D2.7 Ctrl+G
   void openGotoDepthDialog();
+  // 一键恢复默认测井查看模板（深度/地层/岩性/测井曲线×3/沉积相/层序）；保留预测结果道
+  void restoreDefaultLayout();
+
+public:
+  // 当前道布局是否与默认模板一致（「恢复默认」按钮据此启用）
+  bool isDefaultLayout() const;
 
 private slots:
   void exportCurrent(ExportEngine::Format format);      // D4.5/D4.6/D4.7
@@ -200,6 +206,7 @@ private:
   // D1.8 会话记忆读写（按井+项目）
   void saveSessionState() const;
   void restoreSessionState();
+  void updateDefaultLayoutButton();
   QList<TrackSpec> currentSpecs() const;
   void applySpecsIncrementally(const QList<TrackSpec> &specs);
 
@@ -235,6 +242,7 @@ private:
   QToolButton *m_btnZoomIn = nullptr;
   QToolButton *m_btnResetZoom = nullptr;
   QToolButton *m_btnConfigCurves = nullptr;
+  QToolButton *m_btnDefaultLayout = nullptr; // 一键恢复默认测井查看
   QToolButton *m_btnBookmarks = nullptr;
   QToolButton *m_btnGoto = nullptr;
   QToolButton *m_btnSnap = nullptr;

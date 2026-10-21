@@ -367,7 +367,9 @@ void TestWellLogSet::oracle6_skipsMissingUnparsedAndUnresolved()
   QVERIFY(blob.contains(missingPath));
   QVERIFY(blob.contains(QStringLiteral("文件不存在")));
   QVERIFY(blob.contains(junkPath));
-  QVERIFY(blob.contains(QStringLiteral("no curve definitions")));
+  // junk.txt 由新文本曲线解析器拒收（.txt 不再回落 LAS 解析）——第二行
+  // 列数与表头不一致即失败，断言该理由而非 LAS 时代的 "no curve definitions"。
+  QVERIFY(blob.contains(QStringLiteral("数据列数与表头不一致")));
   QVERIFY(blob.contains(QStringLiteral("ast-nover")));
   QVERIFY(!blob.contains(hiddenPath));
 

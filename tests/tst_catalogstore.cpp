@@ -1042,11 +1042,12 @@ void TestCatalogStore::negativeAndDuplicateLinkOrdsWarnOnLoad()
     CatalogStore store;
     CatalogStore::Tables tables;
     QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
-    // 负 ord 行跳过并告警；其余行装载不受影响（ord=1 落位后留 ord=0 空档——
-    // 与修复前同一装载行为，只补可见性）。
-    QCOMPARE(tables.links.size(), 2);
-    QCOMPARE(tables.links.at(1).entityId, QStringLiteral("ent-2"));
-    QVERIFY(tables.links.at(0).entityId.isEmpty());
+    // 负 ord 行跳过并告警；其余行按表序追加、不 resize 补位（#602 起跳号
+    // 不再生成空 id 幻影行，见 catalogstore_json.cpp「跳号也不得 resize 补位」）。
+    QCOMPARE(tables.links.size(), 1);
+    QCOMPARE(tables.links.at(0).entityId, QStringLiteral("ent-2"));
+    for (const auto &l : tables.links)
+      QVERIFY(!l.entityId.isEmpty()); // 无幻影行
     store.close();
   }
 }

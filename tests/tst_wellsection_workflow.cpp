@@ -268,6 +268,49 @@ wellsection::Well gridWell(const QString &name, int inl, int xl, bool withTd) {
 class TestWellSectionWorkflow : public QObject {
   Q_OBJECT
 private slots:
+  void unifiedCurveBodiesRequireMdAndUnits_data() {
+    QTest::addColumn<QString>("format");
+    QTest::addColumn<QString>("axis");
+    QTest::addColumn<bool>("accepted");
+    QTest::addColumn<double>("expectedDepth");
+    QTest::newRow("csv-md") << QStringLiteral("csv") << QStringLiteral("MD[m]") << true << 1000.0;
+    QTest::newRow("csv-feet") << QStringLiteral("csv") << QStringLiteral("MD[ft]") << true << 304.8;
+    QTest::newRow("xml-md") << QStringLiteral("xml") << QStringLiteral("MD[m]") << true << 1000.0;
+    QTest::newRow("csv-time") << QStringLiteral("csv") << QStringLiteral("TIME[ms]") << false << 0.0;
+    QTest::newRow("csv-tvd") << QStringLiteral("csv") << QStringLiteral("TVD[m]") << false << 0.0;
+    QTest::newRow("xml-depth-unknown") << QStringLiteral("xml") << QStringLiteral("深度[m]") << false << 0.0;
+    QTest::newRow("csv-unit-missing") << QStringLiteral("csv") << QStringLiteral("MD") << false << 0.0;
+  }
+  void unifiedCurveBodiesRequireMdAndUnits() {
+    QFETCH(QString, format);
+    QFETCH(QString, axis);
+    QFETCH(bool, accepted);
+    QFETCH(double, expectedDepth);
+    QTemporaryDir dir;
+    DataCatalog catalog;
+    QString error;
+    QVERIFY(catalog.open(dir.path(), &error));
+    QVERIFY(addEntity(catalog, QStringLiteral("W"), QStringLiteral("W"), true, 10, 20, 2000));
+    const QString path = dir.filePath(QStringLiteral("source.") + format);
+    const QString text = format == QLatin1String("xml")
+        ? QStringLiteral("<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\"><Worksheet ss:Name=\"测井曲线-W井\"><Table><Row><Cell><Data>%1</Data></Cell><Cell><Data>GR[API]</Data></Cell></Row><Row><Cell><Data>1000</Data></Cell><Cell><Data>20</Data></Cell></Row><Row><Cell><Data>1001</Data></Cell><Cell><Data>30</Data></Cell></Row></Table></Worksheet></Workbook>").arg(axis)
+        : axis + QStringLiteral(",GR[API]\n1000,20\n1001,30\n");
+    QVERIFY(writeText(path, text));
+    QVERIFY(addFileLink(catalog, QStringLiteral("W"), QStringLiteral("well_log"), QStringLiteral("curve"), path, QStringLiteral("well_log"), &error));
+    WellSectionWorkflow workflow(&catalog);
+    QSignalSpy ready(&workflow, &WellSectionWorkflow::sectionReady);
+    workflow.request({QStringLiteral("W")}, {QStringLiteral("GR")});
+    QCOMPARE(ready.size(), 1);
+    const auto wells = ready.first().at(1).value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.size(), 1);
+    if (accepted) {
+      QCOMPARE(wells.first().curves.size(), 1);
+      QVERIFY(std::abs(wells.first().curves.first().depths.first() - expectedDepth) < 1e-4);
+    } else {
+      QVERIFY(wells.first().curves.isEmpty());
+      QVERIFY(ready.first().at(2).toStringList().join(QLatin1Char('\n')).contains(QStringLiteral("曲线未加载")));
+    }
+  }
   // 图片道（core 井附件 + depthMd 锚）：facade imagesFor 收录/排除面 +
   // workflow 全链（collectCoreImages 清单 → 任务线程 QImage 装载 →
   // sectionReady 带 Well::images，md 升序）。无锚/未决/坏文件如实跳过。

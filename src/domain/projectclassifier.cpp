@@ -105,15 +105,20 @@ ProjectClassification classifyProjectPath(const QString &path)
 ProjectClassification classifyProjectImport(const QString &path, const QByteArray &content)
 {
   const QString ext = lowerAscii(QFileInfo(path).suffix());
-  if (ext == QLatin1String("xml"))
+  const QByteArray probe = content.trimmed();
+  // 文件内容自声明优先；不要求用户先修正扩展名。
+  const QByteArray upper = probe.toUpper();
+  if (upper.contains("~V") && (upper.contains("~W") || upper.contains("~C")))
+    return {QStringLiteral("well_log"), QStringLiteral("las"), QStringLiteral("input")};
+  if (probe.startsWith('<') || probe.startsWith("\xEF\xBB\xBF<"))
   {
     const WellXmlKind kind = sniffWellXml(content);
     if (kind == WellXmlKind::WellHead)
-      return {QStringLiteral("well_head"), ext, QStringLiteral("input")};
+      return {QStringLiteral("well_head"), QStringLiteral("xml"), QStringLiteral("input")};
     if (kind == WellXmlKind::WellLog)
-      return {QStringLiteral("well_log"), ext, QStringLiteral("input")};
+      return {QStringLiteral("well_log"), QStringLiteral("xml"), QStringLiteral("input")};
     if (kind == WellXmlKind::WellDeviation)
-      return {QStringLiteral("well_deviation"), ext, QStringLiteral("input")};
+      return {QStringLiteral("well_deviation"), QStringLiteral("xml"), QStringLiteral("input")};
     // 判不出 → 参考（§3）
   }
   const auto byPath = classifyProjectPath(path);
@@ -139,6 +144,26 @@ ProjectClassification classifyProjectImport(const QString &path, const QByteArra
       type = QStringLiteral("well_head");
     if (!type.isEmpty())
       return {type, ext, QStringLiteral("input")};
+  }
+  // 只把明确索引列的文本提议为曲线；完整语法/数值由读取器校验。
+  if (!probe.startsWith('<'))
+  {
+    for (const QByteArray &raw : probe.split('\n'))
+    {
+      QString line = QString::fromUtf8(raw).trimmed();
+      if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+        continue;
+      line.remove(QLatin1Char('"')); // 引号只用于候选识别，读取器仍严格校验闭合/转义。
+      static const QRegularExpression indexHeader(QStringLiteral(
+          "(?:^|[,;\\t])\\s*(DEPTH|DEPT|MD|TVD|TVDSS|TIME|深度|井深)(?:\\s*\\[[^\\]]*\\]|\\s*\\([^)]*\\))?\\s*(?:[,;\\t]|$)"),
+          QRegularExpression::CaseInsensitiveOption);
+      static const QRegularExpression spacedIndex(QStringLiteral(
+          "^(DEPTH|DEPT|MD|TVD|TVDSS|TIME|深度|井深)(?:\\[[^\\]]*\\]|\\([^)]*\\))?\\s+\\S+"),
+          QRegularExpression::CaseInsensitiveOption);
+      if (indexHeader.match(line).hasMatch() || spacedIndex.match(line).hasMatch())
+        return {QStringLiteral("well_log"), ext, QStringLiteral("input")};
+      break;
+    }
   }
   return byPath;
 }

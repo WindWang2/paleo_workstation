@@ -147,6 +147,8 @@ private slots:
   void propertymodel_ftDepthConvertedToMeters();
   void sectionworkbench_showsNonPrimaryCurve();
   void propertymodel_horizonPickUsesCommitOrderAcrossAssets();
+  void unifiedFormatsReachMdConsumers_data();
+  void unifiedFormatsReachMdConsumers();
 };
 
 void TestWellLogConsumers::petrophys_readsRtFromNonPrimaryFile()
@@ -554,6 +556,78 @@ void TestWellLogConsumers::propertymodel_horizonPickUsesCommitOrderAcrossAssets(
       paleo::stratgrid::Aggregator::ThicknessWeightedMean, 2.0, &err);
   QVERIFY2(err.isEmpty(), qPrintable(err));
   QCOMPARE(QFileInfo(req.topPath).fileName(), QStringLiteral("TOP_new_v1.tif"));
+}
+
+void TestWellLogConsumers::unifiedFormatsReachMdConsumers_data()
+{
+  QTest::addColumn<QString>("format");
+  QTest::addColumn<QString>("axis");
+  QTest::addColumn<bool>("accepted");
+  QTest::addColumn<double>("firstDepth");
+  QTest::newRow("csv-md-metres") << QStringLiteral("csv") << QStringLiteral("MD[m]") << true << 1000.0;
+  QTest::newRow("csv-md-feet") << QStringLiteral("csv") << QStringLiteral("MD[ft]") << true << 304.8;
+  QTest::newRow("xml-md") << QStringLiteral("xml") << QStringLiteral("MD(m)") << true << 1000.0;
+  QTest::newRow("csv-tvd") << QStringLiteral("csv") << QStringLiteral("TVD[m]") << false << 0.0;
+  QTest::newRow("csv-time") << QStringLiteral("csv") << QStringLiteral("TIME[ms]") << false << 0.0;
+  QTest::newRow("xml-unknown-depth") << QStringLiteral("xml") << QStringLiteral("深度[m]") << false << 0.0;
+  QTest::newRow("csv-unknown-unit") << QStringLiteral("csv") << QStringLiteral("MD[league]") << false << 0.0;
+}
+
+void TestWellLogConsumers::unifiedFormatsReachMdConsumers()
+{
+  QFETCH(QString, format);
+  QFETCH(QString, axis);
+  QFETCH(bool, accepted);
+  QFETCH(double, firstDepth);
+  QTemporaryDir dir;
+  const QString primary = dir.filePath(QStringLiteral("primary.las"));
+  const QString extra = dir.filePath(QStringLiteral("additional.") + format);
+  QVERIFY(writeLas(primary, {{QStringLiteral("DEPT"), {1000, 1001}}, {QStringLiteral("GR"), {40, 50}}}));
+  {
+    QFile file(extra);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QByteArray content;
+    if (format == QLatin1String("xml"))
+      content = QStringLiteral("<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\"><Worksheet ss:Name=\"测井曲线-W井\"><Table><Row><Cell><Data>%1</Data></Cell><Cell><Data>RT[ohm.m]</Data></Cell></Row><Row><Cell><Data>1000</Data></Cell><Cell><Data>8.5</Data></Cell></Row><Row><Cell><Data>1001</Data></Cell><Cell><Data>9.5</Data></Cell></Row></Table></Worksheet></Workbook>").arg(axis).toUtf8();
+    else content = (axis + QStringLiteral(",RT[ohm.m]\n1000,8.5\n1001,9.5\n")).toUtf8();
+    QCOMPARE(file.write(content), qint64(content.size()));
+  }
+  DataCatalog catalog;
+  QVERIFY(catalog.open(dir.path()));
+  QString error;
+  QVERIFY(addHorizon(&catalog, QStringLiteral("top"), QStringLiteral("TOP"), dir.filePath(QStringLiteral("TOP.tif")), &error));
+  QVERIFY(addHorizon(&catalog, QStringLiteral("bot"), QStringLiteral("BOT"), dir.filePath(QStringLiteral("BOT.tif")), &error));
+  QVERIFY2(addWellLogs(&catalog, QStringLiteral("W"), 10, 20,
+      {{QStringLiteral("p"), QStringLiteral("pv"), primary, true, 0},
+       {QStringLiteral("a"), QStringLiteral("av"), extra, false, 1}}, &error), qPrintable(error));
+  PropertyModelWorkflow workflow(&catalog, dir.path());
+  const auto request = workflow.requestFromCatalog(QStringLiteral("TOP"), QStringLiteral("BOT"),
+      QStringLiteral("RT"), 1, paleo::stratgrid::Aggregator::ThicknessWeightedMean, 2.0, &error);
+  if (accepted)
+  {
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(request.wells.size(), std::size_t(1));
+    QVERIFY(std::abs(request.wells.front().curve.front().md - firstDepth) < 1e-6);
+    QCOMPARE(request.wells.front().curve.front().value, 8.5);
+  }
+  else
+  {
+    QVERIFY(request.wells.empty());
+    QVERIFY2(!error.isEmpty(), "Non-MD or unknown units must produce a visible error");
+  }
+  SectionWorkbench section(&catalog);
+  const auto wells = section.sectionWells();
+  QCOMPARE(wells.size(), std::size_t(1));
+  bool found = false;
+  for (const auto &curve : wells.front().curves)
+    if (curve.curveName == QLatin1String("RT"))
+    {
+      found = true;
+      QVERIFY(!curve.depthsM.empty());
+      QVERIFY(std::abs(curve.depthsM.front() - firstDepth) < 1e-4);
+    }
+  QCOMPARE(found, accepted);
+  if (!accepted) QVERIFY(wells.front().alignmentStatus.contains(QStringLiteral("曲线未叠加")));
 }
 
 QTEST_MAIN(TestWellLogConsumers)

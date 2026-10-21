@@ -27,7 +27,10 @@ struct SgySectionStats {
     int duplicateColumns = 0; // columns that reuse a trace read for another column
     int missingColumns = 0;   // no trace (or a rule mismatch) - stored as NaN
     int readRanges = 0;       // contiguous trace ranges actually read
-    std::vector<float> columnDistances; // cumulative distance per column
+    std::vector<float> columnDistances; // cumulative distance per column (grid/line-number units)
+    // Cumulative distance per column in metres (inline/xline affine fit).
+    // Empty when no affine fit is available - never synthesised.
+    std::vector<float> columnDistancesM;
 };
 
 // Builds a line section from raw amplitudes.

@@ -4,6 +4,7 @@
 #include "ui/paleotheme.h"
 #include "services/paleotaskservice.h"
 #include "ui/wellcomposite/wellcompositepanel.h"
+#include "ui/wellcomposite/curveconfigdialog.h"
 #include "workflow/wellfaciesworkflow.h"
 #include <QDir>
 #include <QFile>
@@ -668,6 +669,41 @@ private slots:
     QVERIFY(dominantTracks().isEmpty());
     QVERIFY(panel.currentData().lithologyIntervals.isEmpty());
     QVERIFY(panel.currentData().faciesIntervals.isEmpty());
+  }
+  void attributeRefreshDoesNotOverwritePrediction()
+  {
+    WellCompositePanel panel;
+    QVERIFY(panel.loadWellData(well()));
+    WellFaciesResult result;
+    FaciesInterval predicted;
+    predicted.topDepth = 1000; predicted.bottomDepth = 1016;
+    predicted.majorFacies = QStringLiteral("三角洲");
+    predicted.subFacies = QStringLiteral("前缘"); predicted.microFacies = QStringLiteral("河口坝");
+    result.hierarchyIntervals = {predicted};
+    result.confidence.name = "confidence";
+    result.confidence.depths = {1000, 1016}; result.confidence.values = {.8f, .9f};
+    panel.showFaciesPrediction(result);
+    auto edited = well();
+    auto interpreted = predicted; interpreted.microFacies = QStringLiteral("分流河道");
+    edited.faciesIntervals = {interpreted};
+    panel.showWellAttributes(edited);
+    std::shared_ptr<WellTrack> prediction, confidence, interpretation;
+    for (const auto &track : panel.canvas()->tracks())
+    {
+      if (track->title() == QStringLiteral("预测相")) prediction = track;
+      if (track->title() == QStringLiteral("预测置信度")) confidence = track;
+      if (track->title() == QStringLiteral("井段相解释")) interpretation = track;
+    }
+    QVERIFY(prediction); QVERIFY(confidence); QVERIFY(interpretation);
+    QVERIFY(!interpretation->isVisible());
+    QCOMPARE(std::static_pointer_cast<FaciesCompoundTrack>(prediction)->intervals().first().microFacies,
+             QStringLiteral("河口坝"));
+    CurveConfigDialog dialog(panel.canvas());
+    dialog.onResetDefault(); dialog.applyConfiguration();
+    QVERIFY(panel.canvas()->tracks().contains(confidence));
+    panel.showFaciesPrediction(result); // 再次预测应清除旧结果道，保留井段解释。
+    QVERIFY(!panel.canvas()->tracks().contains(confidence));
+    QVERIFY(panel.canvas()->tracks().contains(interpretation));
   }
   void closeDuringPrediction() {
     Server server;

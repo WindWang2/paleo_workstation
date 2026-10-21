@@ -2072,13 +2072,6 @@
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/trackcurves.cpp",
-    "rule": "hex",
-    "source": "painter.setPen(QPen(isMinor ? QColor(QStringLiteral(\"#F8FAFB\")) : QColor(QStringLiteral(\"#F1F3F5\")),",
-    "count": 2,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
     "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "si.seriesColor = QColor(QStringLiteral(\"#C8E6C9\"));",

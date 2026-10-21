@@ -300,6 +300,10 @@ public:
   bool setCurveAt(int idx, const CurveData &curve);
   bool removeCurveAt(int idx);
 
+  // 预测置信度等结果道不参与常规曲线组合重置。
+  bool participatesInStandardLayout() const { return m_standardLayout; }
+  void setParticipatesInStandardLayout(bool on) { m_standardLayout = on; }
+
   // D1.7 重叠网格开关（默认开）
   bool showGrid() const { return m_showGrid; }
   void setShowGrid(bool on) { m_showGrid = on; }
@@ -320,7 +324,8 @@ private:
   qreal m_width = 170.0;
   QVector<CurveData> m_curves; // 最多 4 根曲线
   bool m_showGrid = true;
-  int m_gridDensity = 2;
+  bool m_standardLayout = true;
+  int m_gridDensity = 3;
 };
 
 // 8. 符号道 (SymbolTrack)

@@ -11,7 +11,7 @@
 
 // ui/wellcomposite/hiddentrackbar — D1.10 隐藏道管理条
 //
-// 画布底部的 chip 列：列出当前被隐藏的道（标题 chip），点击恢复显示。
+// 画布底部的 chip 列：列出当前被隐藏的道（标题 chip），点击恢复显示；超过四项时余项收进原生菜单。
 // 无隐藏道时整条自动隐藏（不占布局空间——QSizePolicy::Fixed + hide）。
 
 namespace WellComposite

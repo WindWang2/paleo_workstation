@@ -10,6 +10,7 @@
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QAbstractButton>
 #include <QToolButton>
 #include <QVariantMap>
 
@@ -1113,7 +1114,7 @@ void FactorPageTests::thicknessSamplesInsideCollapsibleSection()
   QCOMPARE( caption->text().contains( QStringLiteral( "厚度样本" ) ), true );
 
   // 折叠后仍能 findChild（objectName 不因折叠失效），且表隐藏。
-  auto *toggle = section->findChild<QToolButton *>();
+  auto *toggle = section->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"));
   QVERIFY( toggle != nullptr );
   toggle->setChecked(true);
   QVERIFY(table->isVisibleTo(section));
@@ -1329,7 +1330,7 @@ void FactorPageTests::strategyPackDrivesMethodCombo()
 void FactorPageTests::cokrigingCovariateControls()
 {
   ConstraintPage page( nullptr );
-  page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QToolButton *>()->setChecked(true);
+  page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"))->setChecked(true);
   page.show();
   auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
   auto *covariate = page.findChild<QComboBox *>( QStringLiteral( "factorCovariateCombo" ) );
@@ -1656,7 +1657,7 @@ void FactorPageTests::methodParameterVisibilityAndFamilies() {
   ConstraintPage page(nullptr); page.show();
   // 高级参数可按需展开；方法切换仍只呈现实际消费的参数。
   for (const char *name : {"factorAdvancedOptionsSection", "factorDirectionParametersSection"})
-    page.findChild<QWidget *>(QString::fromLatin1(name))->findChild<QToolButton *>()->setChecked(true);
+    page.findChild<QWidget *>(QString::fromLatin1(name))->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"))->setChecked(true);
   auto *method = page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
   const auto visible = [&page](const char *name) { return page.findChild<QWidget *>(QString::fromLatin1(name))->isVisibleTo(&page); };
   QVERIFY(visible("factorIdwParameters")); QVERIFY(!visible("factorVariogramParameters"));
@@ -1691,7 +1692,7 @@ void FactorPageTests::methodParameterVisibilityAndFamilies() {
   if (!qa.isEmpty()) {
     QDir().mkpath(qa); page.resize(420, 960);
     for (const char *section : {"factorAdvancedOptionsSection", "factorDirectionParametersSection"})
-      page.findChild<QWidget *>(QString::fromLatin1(section))->findChild<QToolButton *>()->setChecked(false);
+      page.findChild<QWidget *>(QString::fromLatin1(section))->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"))->setChecked(false);
     for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
       PaleoTheme::applyTheme(theme);
       method->setCurrentIndex(method->findData(QStringLiteral("local_direction_idw")));
@@ -1764,7 +1765,7 @@ void FactorPageTests::guidedPreparationAndPinnedActions()
   field->setCurrentIndex(0);
   QCOMPARE(next->property("target").toString(), QStringLiteral("extractWellFactorsButton"));
   QVERIFY(hint->text().contains(QStringLiteral("先提取并保存")));
-  auto *advanced = page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QToolButton *>();
+  auto *advanced = page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"));
   QVERIFY(!advanced->isChecked());
   page.resize(280, 420);
   QCoreApplication::processEvents();

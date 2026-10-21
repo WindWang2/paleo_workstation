@@ -86,7 +86,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   entityLay->setSpacing(PaleoTheme::tokens().spacingSm);
   entityLay->setAlignment(Qt::AlignTop);
   // ---- p5a：实体角色槽与资产属性视图 ----
-  entityLay->addWidget(caption(tr("数据属性与设置"), this));
+  // 停靠标题已是「数据属性」，不再重复一行同义小标题。
   auto *viewEmpty = new QLabel(this);
   viewEmpty->setObjectName(QStringLiteral("entityViewEmptyLabel"));
   viewEmpty->setWordWrap(true);

@@ -626,6 +626,20 @@ void TestSeismic3DViz::viewportObliquePickCommits() {
     // 两击（俯视下分落体两侧——fixture 网格 3×4，取映射后必不同格的两点）
     QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 150));
     QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(300, 150));
+
+    // 已有一个拾取点时，Ctrl 临时旋转不能被橡皮线悬停分支吞掉。
+    viewport.setInertiaEnabled(false);
+    const auto beforeRotation = viewport.camera().state();
+    QTest::mousePress(&viewport, Qt::LeftButton, Qt::ControlModifier, QPoint(200, 150));
+    QMouseEvent rotateMove(QEvent::MouseMove, QPointF(176, 150), QPointF(176, 150),
+                          Qt::NoButton, Qt::LeftButton, Qt::ControlModifier);
+    QApplication::sendEvent(&viewport, &rotateMove);
+    QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::ControlModifier, QPoint(176, 150));
+    QCOMPARE(viewport.camera().Yaw(), beforeRotation.yaw + 6.0f);
+    QVERIFY(viewport.isSectionPickMode());
+    QCOMPARE(committed.count(), 0);
+    viewport.setPresetView(SeismicCameraController::PresetView::Top);
+
     QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 250));
     QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(100, 250));
 

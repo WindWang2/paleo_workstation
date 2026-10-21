@@ -20,4 +20,5 @@
 #           compositebody.cpp 两条 stale——fillRect(flagRect) rgb 与
 #           setPen(Qt::white) 例外源码已不存在（#564 改码未重钉））。
 #           → 353（单井曲线网格改用浅色主题令牌，再移除一条纸面灰色字面量例外）。
-353
+#           → 350（二维地震预览图例共用振幅 LUT，再移除三条固定 RGB 例外）。
+350

@@ -40,7 +40,7 @@ src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:373
 src/ui/datapreview/datapreviewtabs_content.cpp:fn:buildContent:203
 src/ui/datapreview/datapreviewtabs_survey.cpp:fn:buildSurveyAreaContent:327
 src/ui/datapreview/datapreviewtabs_well.cpp:fn:buildWellBody:254
-src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:777
+src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:770
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:263
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:289
@@ -78,7 +78,6 @@ src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:403
 src/ui/seismic3d/seismic3dviewpanel.cpp:file:1775
 src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildUi:253
-src/ui/seismic3d/seismic3dviewportwidget.cpp:file:1003
 src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:783
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupDisplayBar:255
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupUi:386

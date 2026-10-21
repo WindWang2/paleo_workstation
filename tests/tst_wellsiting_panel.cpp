@@ -128,10 +128,20 @@ void TestWellSitingPanel::mapPlacementAddsPlannedWell()
   QCOMPARE( s.wf.plannedWells().size(), 1 );
   QVERIFY( plannedTable->item( 0, 0 )->text().contains( QStringLiteral( "计划井" ) ) );
 
-  // 评估标签实时刷新（基线 vs 方案两行）。
+  // 评估标签实时刷新（基线 vs 方案两行）。D.3：评估改后台线程异步跑，
+  // 标签由 evaluationAsyncDone 落地——泵事件等它（不冻界面是本条修复点）。
   auto *evalLabel = panel.findChild<QLabel *>( QStringLiteral( "sitingEvalLabel" ) );
-  QVERIFY( evalLabel->text().contains( QStringLiteral( "基线" ) ) );
+  QVERIFY( evalLabel != nullptr );
+  for ( int i = 0;
+        i < 500 && !evalLabel->text().contains( QStringLiteral( "基线" ) ); ++i )
+    QTest::qWait( 10 );
+  QVERIFY2( evalLabel->text().contains( QStringLiteral( "基线" ) ),
+            qPrintable( evalLabel->text() ) );
   QVERIFY( evalLabel->text().contains( QStringLiteral( "方案" ) ) );
+  // 忙面收尾：进度条/取消钮隐藏，重动词复位可用。
+  QVERIFY( panel.findChild<QWidget *>( QStringLiteral( "sitingEvalProgress" ) )->isHidden() );
+  QVERIFY( panel.findChild<QWidget *>( QStringLiteral( "sitingEvalCancelButton" ) )->isHidden() );
+  QVERIFY( panel.findChild<QPushButton *>( QStringLiteral( "sitingEvalButton" ) )->isEnabled() );
 
   // 计划井表列 0 带 id（删除/改名按 id 走）。
   const QString id = plannedTable->item( 0, 0 )->data( Qt::UserRole ).toString();

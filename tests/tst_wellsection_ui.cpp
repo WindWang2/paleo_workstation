@@ -9,6 +9,7 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QSpinBox>
@@ -1034,6 +1035,107 @@ class TestWellSectionUi : public QObject
                "栅状图剖面内的解释来源按钮应显式隐藏");
     }
 
+    // ---- D.22：栅内层位连线断开/重连随 fence-<n> 节落库 + 读回灌面板 ----
+    // 旧实现 fence saveToStore 的 links 恒 {} 且 loadFromStore 从不读
+    // rec.linkOverrides——面板内编辑只活内存，rebuild 重建面板即丢。
+    void fenceStoreLinkOverrideRoundTrip()
+    {
+      QVector<WellSectionPanel::WellChoice> choices;
+      const char *ids[2] = {"a1", "b2"};
+      for (int i = 0; i < 2; ++i) {
+        WellSectionPanel::WellChoice c;
+        c.id = QLatin1String(ids[i]);
+        c.name = c.id;
+        c.hasCoordinates = true;
+        c.x = i * 200.0;
+        c.y = 0;
+        choices << c;
+      }
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const QString dbPath = QDir(dir.path()).filePath(
+          QStringLiteral("fence-link.project.sqlite"));
+      metadata::WellSectionStore store(dbPath);
+      QString err;
+      QVERIFY2(store.open(&err), qPrintable(err));
+
+      WellSectionFenceWidget::Params fp;
+      fp.choices = choices;
+      fp.store = &store;
+      WellSectionFenceWidget fence(fp);
+      fence.setSections({QStringList({"a1", "b2"})});
+      auto *p0 = fence.sectionPanel(0);
+      QVERIFY(p0);
+      // 灌井（toggleLink 按缝寻址，两端井须在列）后断开一条连线：用户
+      // 动作 → fence 权威态 + fence-1 节落库。
+      auto wells = wells4();
+      wells.remove(2, 2); // 留 C-2 / A5 两口 = 当前剖面井序
+      p0->setSection(wells);
+      const int total = p0->linkCount();
+      QVERIFY(total > 0);
+      p0->toggleLink(0, QStringLiteral("D61"), false);
+      QCOMPARE(p0->linkCount(), total - 1);
+      const auto rec = store.load(QStringLiteral("fence-1"), &err);
+      QVERIFY2(rec.valid(), qPrintable(err));
+      QCOMPARE(rec.linkOverrides.size(), 1);
+      QCOMPARE(rec.linkOverrides.first().connected, false);
+
+      // 同库新实例（rebuild 全层面板重建）：连线改接读回灌进新面板——
+      // 断开的连线不复活、计数不回升；纯读回不推版本。
+      WellSectionFenceWidget fence2(fp);
+      auto *q0 = fence2.sectionPanel(0);
+      QVERIFY(q0);
+      q0->setSection(wells);
+      QCOMPARE(q0->linkCount(), total - 1);
+      QCOMPARE(q0->linkOverrides().size(), 1);
+      QCOMPARE(store.load(QStringLiteral("fence-1"), &err).version,
+               rec.version);
+    }
+
+    // ---- D.21：剖面内改井序 → 井网预览随权威态重喂 ----
+    // 旧实现 wellIdsChanged 处理器只更新权威态/列表/tab/store，右侧
+    // FencePreview 不刷新——折线（按剖面取色）与交点井放大点停在旧井序上。
+    void fencePreviewFollowsWellReorder()
+    {
+      QVector<WellSectionPanel::WellChoice> choices;
+      const char *ids[2] = {"C-2", "A5"};
+      for (int i = 0; i < 2; ++i) {
+        WellSectionPanel::WellChoice c;
+        c.id = QLatin1String(ids[i]);
+        c.name = c.id;
+        c.hasCoordinates = true;
+        c.x = i * 200.0;
+        c.y = 0;
+        choices << c;
+      }
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      metadata::WellSectionStore store(QDir(dir.path()).filePath(
+          QStringLiteral("fence-preview.project.sqlite")));
+      QString err;
+      QVERIFY2(store.open(&err), qPrintable(err));
+
+      WellSectionFenceWidget::Params fp;
+      fp.choices = choices;
+      fp.store = &store;
+      WellSectionFenceWidget fence(fp);
+      fence.setSections({QStringList({"C-2", "A5"})});
+      auto *p0 = fence.sectionPanel(0);
+      QVERIFY(p0);
+      auto wells = wells4();
+      wells.remove(2, 2); // 留 C-2 / A5 = 当前剖面井序
+      p0->setSection(wells);
+      QCOMPARE(fence.previewSectionWells(0), QStringList({"C-2", "A5"}));
+
+      // 用户改井序（moveWell → wellIdsChanged）：预览模型跟随新序，
+      // 且与 store 落库的权威态一致。
+      p0->moveWell(0, 1);
+      QCOMPARE(fence.previewSectionWells(0), QStringList({"A5", "C-2"}));
+      QCOMPARE(fence.sectionWellIds(0), QStringList({"A5", "C-2"}));
+      QCOMPARE(store.load(QStringLiteral("fence-1"), &err).wellIds,
+               QStringList({"A5", "C-2"}));
+    }
+
     // ---- 相代码充填道 + 三曲线叠加道（渲染冒烟 + 模板 round-trip）----
     void faciesTrackAndTripleCurve()
     {
@@ -1593,6 +1695,53 @@ class TestWellSectionUi : public QObject
                               .arg(vh2)));
     }
 
+    // L3.13：裸滚轮纵向平移一步 = 视口可见深度的 1/8——旧实现直接用原始
+    // angleDelta（≈120 场景像素），同一档位对应的深度跨度随 pxPerMeter
+    // （0.02~40）剧烈变化（深剖面一档只走约 3 m）。
+    void wheelPanStepDepthNormalized()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.resize(1400, 720);
+      panel.setSection(wells4());
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      panel.fitToView();
+
+      auto *view = panel.findChild<QGraphicsView *>(
+          QStringLiteral("wellSectionView"));
+      QVERIFY(view);
+      const QPoint vp = view->viewport()->rect().center();
+      // 先放大两档，使图体明显高于视口（纵向可滚，且步长不触边界钳位）。
+      QWheelEvent zoom(QPointF(vp), view->viewport()->mapToGlobal(vp),
+                       QPoint(0, 0), QPoint(0, 120), Qt::NoButton,
+                       Qt::ControlModifier, Qt::NoScrollPhase, false);
+      for (int i = 0; i < 2; ++i)
+        QApplication::sendEvent(view->viewport(), &zoom);
+      QApplication::processEvents();
+      auto *vbar = view->verticalScrollBar();
+      const int maxV = vbar->maximum();
+      const int vh = view->viewport()->height();
+      QVERIFY2(maxV >= qRound(vh / 8.0), "放大后图体应足够高于视口");
+      const int mid = maxV / 2;
+      QVERIFY2(mid >= qRound(vh / 8.0), "中位应留有一步空间");
+      vbar->setValue(mid);
+
+      QWheelEvent pan(QPointF(vp), view->viewport()->mapToGlobal(vp),
+                      QPoint(0, 0), QPoint(0, 120), Qt::NoButton,
+                      Qt::NoModifier, Qt::NoScrollPhase, false);
+      QApplication::sendEvent(view->viewport(), &pan);
+      // 一步 = 视口高的 1/8（旧实现为原始 120 场景像素，两值不同即分辨）。
+      QCOMPARE(vbar->value(), mid - qRound(vh / 8.0));
+      // 深度跨度口径：一档走过的米数 = 当前视口可见深度的 1/8。
+      const double movedM = (mid - vbar->value()) / panel.pxPerMeter();
+      QVERIFY2(std::fabs(movedM - (vh / 8.0) / panel.pxPerMeter()) <=
+                   1.0 / panel.pxPerMeter() + 1e-9,
+               qPrintable(QStringLiteral("一档走过 %1 m，期望 ≈ %2 m")
+                              .arg(movedM)
+                              .arg((vh / 8.0) / panel.pxPerMeter())));
+    }
+
     // 拉伸超宽：autofit 把 gap 顶到 maxGap 后场景仍窄于视口 → 视图须钉
     // 左上（AlignCenter 居中会让井柱相对版头右移半个差值，版头漂移）。
     void headerAlignWhenSceneNarrower()
@@ -1830,6 +1979,13 @@ class TestWellSectionUi : public QObject
       const QByteArray svgText = svg.readAll();
       QVERIFY(svgText.size() > 1000);
       QVERIFY(svgText.contains("<svg"));
+
+      // L5.3：失败路径返回 false（UI 侧据此弹反馈，不再静默）——目标
+      // 目录不存在时 CSV/PNG/SVG 三条路都如实失败。
+      const QString badDir = dir.filePath(QStringLiteral("no_such_dir"));
+      QVERIFY(!panel.exportTo(badDir + QStringLiteral("/tops.csv")));
+      QVERIFY(!panel.exportTo(badDir + QStringLiteral("/section.png")));
+      QVERIFY(!panel.exportTo(badDir + QStringLiteral("/section.svg")));
     }
 
     // ---- QGIS 侧联动面：剖面线位带 + 井点闪烁（offscreen canvas）----

@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QComboBox>
+#include <QFileInfo>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
@@ -202,6 +203,43 @@ private slots:
         ->setText(QStringLiteral("v1"));
     panel.findChild<QPushButton *>(QStringLiteral("createReleaseButton"))->click();
     uipolish::capturePanel(&panel, QStringLiteral("releasepanel"));
+  }
+
+  // §6 单写实例降级：工程库被另一实例持锁（工程存储只读）时发布页不得写
+  // project.sqlite——创建入口禁用、只读连接不建库、空态文案如实说明；
+  // 解除降级后入口恢复、创建照常。
+  void readOnlyInstanceCannotCreateRelease()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString db = dir.filePath(QStringLiteral("meta.sqlite"));
+    QVector<LayerDeclaration> manifest = {decl(QStringLiteral("facies.T1"))};
+
+    ReleasePanel panel;
+    bool readOnly = true;
+    panel.setProviders([db] { return db; },
+                       [&manifest] { return manifest; },
+                       [&readOnly] { return readOnly; });
+
+    auto *createBtn = panel.findChild<QPushButton *>(QStringLiteral("createReleaseButton"));
+    QVERIFY(createBtn);
+    QVERIFY(!createBtn->isEnabled());
+    QVERIFY(!QFileInfo::exists(db)); // 只读实例不建库（#80）
+
+    auto *list = panel.findChild<QTreeWidget *>(QStringLiteral("releaseList"));
+    QCOMPARE(list->topLevelItemCount(), 1);
+    QVERIFY2(list->topLevelItem(0)->text(0).contains(QStringLiteral("只读")),
+             qPrintable(list->topLevelItem(0)->text(0)));
+
+    readOnly = false;
+    panel.refresh();
+    QVERIFY(createBtn->isEnabled());
+    QSignalSpy createdSpy(&panel, &ReleasePanel::releaseCreated);
+    panel.findChild<QLineEdit *>(QStringLiteral("releaseNameEdit"))
+        ->setText(QStringLiteral("v1"));
+    createBtn->click();
+    QCOMPARE(createdSpy.count(), 1);
+    QCOMPARE(createdSpy.at(0).at(0).toString(), QStringLiteral("rel-1"));
   }
 };
 

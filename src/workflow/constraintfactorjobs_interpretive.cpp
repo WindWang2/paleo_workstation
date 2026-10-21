@@ -28,6 +28,7 @@
 #include "../services/singlefactordef.h"
 #include "boundarysemantics.h"             // 相界地质语义类型词表
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
 #include <QDateTime>
@@ -579,9 +580,12 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   extra.insert( QStringLiteral( "unresolved_crossings" ), qc.value( QStringLiteral( "unresolved_crossings" ) ) );
   extra.insert( QStringLiteral( "levels" ), hashParams.value( QStringLiteral( "levels" ) ) );
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
+  // algo-atom P1-extend：解释性制图工作场经 publishArtifacts
+  const AlgorithmRunResult runResult = paleo::runResultFromOutputPath( job.workPath );
   QString commitErr;
-  if ( !registrar.commitExternal( st, job.workPath, parentIds, QStringLiteral( "paleo:paleo_cartographic_work" ), extra,
-                                  &commitErr ) )
+  if ( !paleo::publishArtifacts(
+           registrar, st, runResult, parentIds,
+           QStringLiteral( "paleo:paleo_cartographic_work" ), extra, &commitErr ) )
   {
     if ( !sameFile( st.absolutePath, job.rasterPath ) )
       removeIfPresent( st.absolutePath );
@@ -656,8 +660,12 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   contourExtra.insert( QStringLiteral( "analysis_sha256" ), job.analysisSha );
   contourExtra.insert( QStringLiteral( "contour_feature_count" ),
                        contourFeatureCountOf( job.contourPath ) );
-  if ( !registrar.commitExternal( contourSt, job.contourPath, contourParents, QStringLiteral( "gdal_contour_c_api" ),
-                                  contourExtra, &commitErr ) )
+  // algo-atom P1-extend：解释性等值线经 publishArtifacts
+  const AlgorithmRunResult contourRun =
+      paleo::runResultFromOutputPath( job.contourPath );
+  if ( !paleo::publishArtifacts(
+           registrar, contourSt, contourRun, contourParents,
+           QStringLiteral( "gdal_contour_c_api" ), contourExtra, &commitErr ) )
   {
     if ( !sameFile( contourSt.absolutePath, job.rasterPath ) )
       removeIfPresent( contourSt.absolutePath );

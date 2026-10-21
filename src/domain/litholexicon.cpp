@@ -242,8 +242,11 @@ LithoLexicon LithoLexicon::fromJson(const QByteArray &json, QString *error)
   return fromMap(doc.object().toVariantMap(), error);
 }
 
-LithoLexicon LithoLexicon::fromProject(const QString &projectDir, const DataCatalog * /*catalog*/)
+LithoLexicon LithoLexicon::fromProject(const QString &projectDir, QString *error,
+                                        const DataCatalog * /*catalog*/)
 {
+  if (error)
+    error->clear();
   LithoLexicon lex = defaultLexicon();
   if (projectDir.isEmpty())
     return lex;
@@ -265,7 +268,18 @@ LithoLexicon LithoLexicon::fromProject(const QString &projectDir, const DataCata
           merged.addRule(r);
         return merged;
       }
+      // 坏 JSON 拒用并如实外露（同 project_area.json 纪律，arearules.cpp
+      // loadFromProjectDir）：此前这里把 err 丢掉、静默下探 project_area.json
+      // 后回落默认词表，用户在词表损坏时零提示。现在返回默认词表 + *error，
+      // 由调用方决定怎么呈现——不再继续下探别的来源（已有一个来源明示损坏）。
+      if (error)
+        *error = err;
+      return lex;
     }
+    // 词表在但读不开（权限/占用）：同样不静默当作没有自定义词表。
+    if (error)
+      *error = f.errorString();
+    return lex;
   }
 
   // 检查 project_area.json 是否内嵌 litho_lexicon

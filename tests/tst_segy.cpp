@@ -529,6 +529,46 @@ class TestSegy : public QObject
       QVERIFY(!errCorruptNs.isEmpty());
     }
 
+    // A-11（full-audit-20261020）：变道长文件穿透并行 eligibility（只抽查前
+    // 8 道）——固定步长读位撞上 0<ns<binNs 必须整体转顺序扫描（顺序按实际
+    // ns 推进是权威路径），不得产出错位索引并落盘缓存。
+    void parallelEligibilityMissesLateVariableNs()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const QString path = dir.filePath(QStringLiteral("latevar.sgy"));
+      const QString cacheDir = dir.filePath(QStringLiteral("idx"));
+      // binNs=10（固定步长 280B）；前 8 道 ns=10 过 eligibility 抽查；其后
+      // 交替 ns=8/12（272/288B，物理布局真实变长）；tail=8×280+3×560=3920
+      // 恰被 280 整除——eligibility 的整除前提不破坏。
+      SyntheticSegyConfig cfg;
+      cfg.binNs = 10;
+      cfg.traceCount = 14;
+      cfg.customTraces.resize(14);
+      for (int i = 0; i < 14; ++i)
+      {
+        cfg.customTraces[i].lineNo = 1001 + i; // inline 全程变化（非 ordinal 方言）
+        cfg.customTraces[i].ns = (i < 8) ? 10 : ((i % 2 == 0) ? 8 : 12);
+      }
+      QVERIFY(writeSegyFile(path, buildSyntheticSegy(cfg)));
+
+      SegyReader sequential;
+      QString errS;
+      QVERIFY2(sequential.open(path, &errS), qPrintable(errS)); // 顺序 = 真实布局基准
+      QCOMPARE(sequential.traceCount(), qint64(14));
+
+      SegyReader cached;
+      QString errC;
+      QVERIFY2(cached.openCached(path, cacheDir, &errC), qPrintable(errC));
+      QCOMPARE(cached.traceCount(), sequential.traceCount());
+      SegyIndexStore::StoredIndex reference, got;
+      QVERIFY(sequential.snapshot(&reference));
+      QVERIFY(cached.snapshot(&got));
+      QCOMPARE(got.offsets, reference.offsets);   // 修复前：固定步长错位
+      QCOMPARE(got.inlineNos, reference.inlineNos);
+      QCOMPARE(got.xlineNos, reference.xlineNos);
+    }
+
     // P1-03 / BIZ-03: Partial scan resumption with bad traces resumes from exact byte offset
     void partialScanResumptionWithBadTraces()
     {

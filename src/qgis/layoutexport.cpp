@@ -820,6 +820,24 @@ PaleoLayoutPreview::~PaleoLayoutPreview() = default;
 void PaleoLayoutPreview::setCurrentLayout(QgsPrintLayout *layout) { m_view->setCurrentLayout(layout); }
 void PaleoLayoutPreview::zoomFull() { m_view->zoomFull(); }
 
+namespace PaleoLayoutExport {
+
+QWidget *createLayoutPreview(QWidget *parent) { return new PaleoLayoutPreview(parent); }
+
+// 回收本厂产物用 dynamic_cast 而非 qobject_cast：PaleoLayoutPreview 无信号槽、
+// 不带 Q_OBJECT（不为其引入 moc 依赖）。preview 非本厂产物时安全 no-op。
+void setLayoutPreviewLayout(QWidget *preview, QgsPrintLayout *layout) {
+  if (auto *shell = dynamic_cast<PaleoLayoutPreview *>(preview))
+    shell->setCurrentLayout(layout);
+}
+
+void zoomLayoutPreviewFull(QWidget *preview) {
+  if (auto *shell = dynamic_cast<PaleoLayoutPreview *>(preview))
+    shell->zoomFull();
+}
+
+} // namespace PaleoLayoutExport
+
 namespace {
 const QString kSnapRoot = QStringLiteral("qgis");
 const QString kSnapLayers = QStringLiteral("projectlayers");
@@ -867,11 +885,17 @@ bool PaleoLayoutExport::captureProjectSnapshot(const QgsProject *project,
     if (!layer->writeLayerXml(layerEl, doc, context))
       return fail(QObject::tr("图层「%1」序列化失败").arg(layer->name()));
     layersEl.appendChild(layerEl);
-    // memory 图层的 XML 只有字段定义没有要素：要素在 GUI 线程拷出（值类型，
-    // 隐式共享只读），worker 重建后灌回私有图层。
+    // memory 图层的 XML 只有字段定义没有要素：要素必须在 GUI 线程一次性拷出
+    // 成值（QgsFeature 隐式共享、只读），worker 重建后灌回私有图层。若只存
+    // 指向活图层的 QgsVectorLayerFeatureSource，特征拷贝就落到 worker 线程去
+    // 读 GUI 线程的 provider——活图层被销毁或编辑即悬空/竞态（#589 C.17）。
     if (vector && vector->providerType() == QLatin1String("memory")) {
-      out.memorySources.insert(
-          layer->id(), std::make_shared<QgsVectorLayerFeatureSource>(vector));
+      QgsFeatureList features;
+      QgsFeature feature;
+      auto iterator = vector->getFeatures(QgsFeatureRequest());
+      while (iterator.nextFeature(feature))
+        features.append(feature);
+      out.memoryFeatures.insert(layer->id(), features);
     }
   }
 
@@ -934,7 +958,7 @@ PaleoLayoutExport::rebuildProject(const ProjectSnapshot &snapshot,
     // 失败。但导出产物少层必须可核实——逐层收集 warning（调用方呈现）。
     // memory 层无持久源、要素在下方灌回，不参与有效性判断。
     const bool readOk = layer->readLayerXml(layerEl, context);
-    const bool memoryBacked = snapshot.memorySources.contains(layer->id());
+    const bool memoryBacked = snapshot.memoryFeatures.contains(layer->id());
     if ((!readOk || !layer->isValid()) && !memoryBacked && warnings) {
       QString name = layer->name();
       if (name.isEmpty()) {
@@ -950,12 +974,11 @@ PaleoLayoutExport::rebuildProject(const ProjectSnapshot &snapshot,
                               .arg(name.isEmpty() ? QObject::tr("未命名图层") : name));
     }
     if (auto *vector = qobject_cast<QgsVectorLayer *>(layer.get())) {
-      const auto source = snapshot.memorySources.value(vector->id());
-      if (source && vector->dataProvider()) {
+      if (snapshot.memoryFeatures.contains(vector->id()) && vector->dataProvider()) {
+        // 要素来自 GUI 线程拷出的值快照（隐式共享只读），本线程只读、不碰活图层。
+        const auto features = snapshot.memoryFeatures.value(vector->id());
         QgsFeatureList batch;
-        QgsFeature feature;
-        auto iterator = source->getFeatures(QgsFeatureRequest());
-        while (iterator.nextFeature(feature)) {
+        for (const auto &feature : features) {
           batch.append(feature);
           if (batch.size() >= 1024) {
             vector->dataProvider()->addFeatures(batch);

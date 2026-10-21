@@ -403,11 +403,16 @@ void RemotePredictionRouter::runLocalFallback(quint64 runId,
                                    // m_ownedLocal 持有到 router 析构，指针稳定。
   QPointer<RemotePredictionRouter> self(this);
   m_fallbackPool.start([this, self, runId, request, stageError, local] {
+    // C-15（full-audit-20261020）：关停窗口守卫——池线程执行中 router 可能恰在
+    // 析构（quit 场景池等待超时/未等），invokeMethod 的上下文对象不得用裸 this；
+    // self 失效即静默放弃本次本地降级结算。
+    if (!self)
+      return;
     QVector<int> cells;
     QString localError;
     const bool ok = local && local->predict(request, cells, &localError);
-    // 排队回 router 线程结算：QObject 析构会清掉自己队列中的挂起调用，
-    // 析构后此 lambda 不会触达 this。
+    // 排队回 router 线程结算：内层以 QPointer 复核（已入队调用会被析构清掉，
+    // 双保险）；self 失效即不再触达 this。
     QMetaObject::invokeMethod(this,
                               [this, self, runId, request, stageError, ok,
                                cells, localError] {

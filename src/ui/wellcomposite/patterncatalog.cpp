@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。（tools/ui-token-exceptions.json 精确计数）。
 #include "patterncatalog.h"
+#include "wellcompositetrack.h"
 
 #include <QDir>
 #include <QFile>
@@ -410,6 +411,9 @@ void PatternCatalog::reloadFaciesMap()
 {
   g_faciesMapLoaded = false;
   g_faciesMap.clear();
+  // D.7：映射变了但纹理画刷缓存键不换（键只含解析后的图案键/颜色）——
+  // 显式失效，防陈旧 tile 继续被复用。
+  clearPatternBrushCache();
 }
 
 QString PatternCatalog::faciesPatternKey(const QString &faciesName)

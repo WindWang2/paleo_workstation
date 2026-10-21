@@ -420,3 +420,12 @@ int PaleoLayoutItemPalette::resolveMetadataId( int coreType, const QString &vari
   }
   return registry->metadataIdForItemType( coreType );
 }
+
+QString PaleoLayoutItemPalette::itemDisplayName( int itemMetadataId ) const
+{
+  QgsLayoutItemGuiRegistry *registry = QgsGui::layoutItemGuiRegistry();
+  if ( !registry || itemMetadataId < 0 )
+    return QString();
+  const QgsLayoutItemAbstractGuiMetadata *metadata = registry->itemMetadata( itemMetadataId );
+  return metadata ? localizedItemName( metadata->visibleName() ) : QString();
+}

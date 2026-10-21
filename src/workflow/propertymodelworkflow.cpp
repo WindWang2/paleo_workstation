@@ -200,6 +200,15 @@ bool PropertyModelWorkflow::loadSurface(const QString &path, paleo::stratgrid::S
     setError(error, QStringLiteral("层位栅格 %1 没有波段").arg(path));
     return false;
   }
+  // #415 同族：cols*rows int 乘法溢出——回绕后 resize 按小数组分配、
+  // GDALRasterIO 按真实维度写即越界。预算同 mapping/depthconversion 的 4M 闸。
+  const qint64 cells = static_cast<qint64>(cols) * rows;
+  if (cells > 4000000LL)
+  {
+    GDALClose(ds);
+    setError(error, QStringLiteral("层位栅格 %1 超出像元预算（%2 格 > 4M）").arg(path).arg(cells));
+    return false;
+  }
   const double skew = std::max(std::fabs(gt[2]), std::fabs(gt[4]));
   const double scale = 1.0 + std::fabs(gt[1]) + std::fabs(gt[5]);
   if (skew > 1e-6 * scale)
@@ -217,7 +226,7 @@ bool PropertyModelWorkflow::loadSurface(const QString &path, paleo::stratgrid::S
   GDALRasterBandH band = GDALGetRasterBand(ds, 1);
   int flag = 0;
   const double nodata = GDALGetRasterNoDataValue(band, &flag);
-  std::vector<float> z(static_cast<std::size_t>(cols * rows));
+  std::vector<float> z(static_cast<std::size_t>(cells));
   const CPLErr rc = GDALRasterIO(band, GF_Read, 0, 0, cols, rows, z.data(), cols, rows,
                                   GDT_Float32, 0, 0);
   GDALClose(ds);

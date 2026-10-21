@@ -75,6 +75,31 @@ private:
 private slots:
   void initTestCase() { QVERIFY(tempDir_.isValid()); }
 
+  // B-04（full-audit-20261020）：取消谓词统一「已取消？」语义——
+  // 谓词返回假（未取消）必须照常读回；返回真（已取消）必须如实报取消。
+  void sectionCancelPredicateSemantics()
+  {
+    const SattrSectionHeader out = makeSectionHeader();
+    const QVector<float> values = makeSectionValues(out);
+    const QString path = tempDir_.filePath(QStringLiteral("cancel_pred.sattr"));
+    QString err;
+    QVERIFY2(paleo::sattr::writeSattrSection(path, out, values, &err),
+             qPrintable(err));
+
+    SattrSectionHeader in;
+    QVector<float> readBack;
+    QVERIFY2(paleo::sattr::readSattrSection(path, &in, &readBack, &err,
+                                            [] { return false; }),
+             qPrintable(err));
+    QCOMPARE(readBack.size(), values.size());
+
+    err.clear();
+    QVector<float> ignored;
+    QVERIFY(!paleo::sattr::readSattrSection(path, &in, &ignored, &err,
+                                            [] { return true; }));
+    QVERIFY2(err.contains(QStringLiteral("已取消")), qPrintable(err));
+  }
+
   void sectionRoundTrip()
   {
     const SattrSectionHeader out = makeSectionHeader();
@@ -116,6 +141,33 @@ private slots:
       if (!std::isnan(a))
         QCOMPARE(b, a); // 小端 f32 逐位 round-trip
     }
+  }
+
+  // #588-C11：取消回调口径与全仓一致（true = 已取消）。历史上 readSattrSection
+  // 按「继续」谓词消费，唯一调用方只能双重取反补偿；任何按常规口径传参的
+  // 调用方都会在首次调用即被误判为已取消。
+  void sectionReadCancelContract()
+  {
+    const SattrSectionHeader h = makeSectionHeader();
+    const QVector<float> values = makeSectionValues(h);
+    const QString path = tempDir_.filePath(QStringLiteral("cancel.sattr"));
+    QString err;
+    QVERIFY2(paleo::sattr::writeSattrSection(path, h, values, &err),
+             qPrintable(err));
+
+    SattrSectionHeader in;
+    QVector<float> v;
+    // 谓词返回 false（未取消）→ 正常读回。
+    QVERIFY2(paleo::sattr::readSattrSection(path, &in, &v, &err,
+                                            [] { return false; }),
+             qPrintable(err));
+    QCOMPARE(v.size(), values.size());
+
+    // 谓词返回 true（已取消）→ 如实报已取消，不静默读完。
+    err.clear();
+    QVERIFY(!paleo::sattr::readSattrSection(path, &in, &v, &err,
+                                            [] { return true; }));
+    QVERIFY2(err.contains(QStringLiteral("已取消")), qPrintable(err));
   }
 
   void sectionRejectsCorruption()

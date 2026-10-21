@@ -2,6 +2,11 @@
 #include "faciesmappingworkflow.h"
 
 #include "derivedassets.h"
+#include "algorithmadapters.h"
+#include "nativecppadapter.h"
+#include "nativeinputs_facies.h"
+#include "../algorithms/faciesmapping/evidencesynthesis.h"
+#include "algorithmpublish.h"
 #include "workflows_internal.h"
 
 #include "../catalog/datacatalog.h"
@@ -403,11 +408,20 @@ FaciesMappingWorkflow::DraftFaciesComputed FaciesMappingWorkflow::runCompute(
   }
   SynthesisOptions synthesisOptions;
   synthesisOptions.assignThreshold = request.assignThreshold;
-  SynthesisResult synthesis = synthesizeFaciesRegions( boundaries.regions, sources,
-                                                       synthesisOptions, &control );
-  if ( synthesis.status != Status::Ok )
-    return fail( tr( "证据合成失败：%1" )
-                     .arg( QString::fromStdString( synthesis.message ) ) );
+  // algo-atom：faciesmapping:synthesize 经 NativeCppAdapter
+  paleo::SynthesizeFaciesInputs synIn;
+  synIn.regions = &boundaries.regions;
+  synIn.sources = &sources;
+  synIn.options = synthesisOptions;
+  synIn.control = &control;
+  SynthesisResult synthesis;
+  QString synErr;
+  paleo::NativeCppAdapter native;
+  const AlgorithmRunResult synRun = native.runSynthesizeFacies( synIn, &synthesis, &synErr );
+  if ( !synRun.ok )
+    return fail( synErr.isEmpty()
+                     ? tr( "证据合成失败：%1" ).arg( QString::fromStdString( synthesis.message ) )
+                     : synErr );
   if ( !report( 0.7, tr( "证据合成完成" ) ) )
     return fail( tr( "已取消" ) );
 
@@ -533,9 +547,14 @@ bool FaciesMappingWorkflow::commitComputed( const DraftFaciesRequest &request,
   QVariantMap draftExtra = computed->extra;
   draftExtra.insert( QStringLiteral( "asset_role" ), QStringLiteral( "draft" ) );
   QString commitErr;
-  if ( !registrar.commit( draftStaging, parents,
-                          QStringLiteral( "paleo:facies_draft_mapping" ), draftExtra,
-                          &commitErr ) )
+  // algo-atom：草稿已写在 staging 路径 → publishArtifacts ≡ commit
+  AlgorithmRunResult draftRun =
+      paleo::runResultFromOutputPath( draftStaging.absolutePath, QStringLiteral( "OUTPUT" ) );
+  draftRun.diagnostics.insert( QStringLiteral( "algorithm_id" ),
+                               QStringLiteral( "paleo:facies_draft_mapping" ) );
+  if ( !paleo::publishArtifacts( registrar, draftStaging, draftRun, parents,
+                                 QStringLiteral( "paleo:facies_draft_mapping" ), draftExtra,
+                                 &commitErr ) )
     return fail( commitErr );
 
   // ---- QA 报告 JSON：DERIVED 资产 + 版本 ---------------------------------
@@ -579,9 +598,14 @@ bool FaciesMappingWorkflow::commitComputed( const DraftFaciesRequest &request,
                       computed->extra.value( QStringLiteral( "param_hash" ) ) );
   reportExtra.insert( QStringLiteral( "draft_asset_id" ), draftStaging.assetId );
   reportExtra.insert( QStringLiteral( "draft_version_id" ), draftStaging.versionId );
-  if ( !registrar.commit( reportStaging, { draftStaging.versionId },
-                          QStringLiteral( "paleo:facies_draft_mapping" ), reportExtra,
-                          &commitErr ) )
+  AlgorithmRunResult reportRun =
+      paleo::runResultFromOutputPath( reportStaging.absolutePath, QStringLiteral( "OUTPUT" ) );
+  reportRun.diagnostics.insert( QStringLiteral( "algorithm_id" ),
+                                QStringLiteral( "paleo:facies_draft_mapping" ) );
+  if ( !paleo::publishArtifacts( registrar, reportStaging, reportRun,
+                                 QStringList{ draftStaging.versionId },
+                                 QStringLiteral( "paleo:facies_draft_mapping" ), reportExtra,
+                                 &commitErr ) )
     return fail( commitErr );
 
   // ---- declare：正常图层管线（不产游离图层） -----------------------------

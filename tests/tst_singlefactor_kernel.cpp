@@ -430,6 +430,24 @@ void SingleFactorKernelTests::autoParameters()
   noScale.coverage = CoverageMode::WellSupported;
   noScale.searchRadius.reset();
   QVERIFY( !resolveParameters( lone, GridSpec{}, &noScale ).empty() );
+
+  // B-11（full-audit-20261020）：井点样本超交互预算先拒——meanNearestSpacing
+  // 是 O(n²) 且先于 gridBudgetOk 样本闸执行，>2e4 井点不再给无响应假象，
+  // 直接拒绝（拒绝而非静默降档，#149 口径）。
+  PreparedInput huge;
+  huge.samples.reserve( 20001 );
+  for ( int i = 0; i < 20001; ++i ) {
+    Sample sample;
+    sample.stableRowId = QStringLiteral( "w%1" ).arg( i ).toStdString();
+    sample.x = double( i % 141 );
+    sample.y = double( i / 141 );
+    sample.value = 1.0;
+    huge.samples.push_back( sample );
+  }
+  ResolvedParameters hugeParams = plain();
+  const std::string hugeError = resolveParameters( huge, GridSpec{}, &hugeParams );
+  QVERIFY2( !hugeError.empty(), "超预算样本必须拒绝" );
+  QVERIFY2( hugeError.find( "20000" ) != std::string::npos, hugeError.c_str() );
 }
 
 void SingleFactorKernelTests::domainGridAndBudget()

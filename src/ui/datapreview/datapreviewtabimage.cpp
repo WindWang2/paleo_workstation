@@ -12,6 +12,7 @@ using namespace paleo::datapreview_detail;
 #include "../../domain/wellrecords.h"     // WellTopRecord/TimeDepthTable（domain 纯数据）
 #include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
 #include "../../io/lasdoc.h"              // LasCurve（白名单：数据模型）
+#include "../../services/imagelod.h"      // 图片 LOD：解码期降采样装载（未配准大图护栏）
 #include "../../services/previewdoc.h"    // 唯一数据门面——解析/解码/SHA/PDF 编排全经它（W1）
 #include "../../services/welllogset.h"    // 井曲线并集（综合柱状图；只读 ~C 头）
 #include "../../services/paleotaskservice.h" // PaleoTask 进度/取消（地震转码区）
@@ -152,13 +153,24 @@ QWidget *DataPreviewTabs::buildImageReferenceContent(
   auto *scroll = new QScrollArea(host);
   scroll->setWidgetResizable(true);
   auto *imgLabel = new QLabel(scroll);
-  QPixmap pm(abs);
-  if (pm.isNull())
+  // 图片 LOD 通道（QImageReader 解码期降采样）而非 QPixmap 全分辨率解码：
+  // 与上面的配准栅格路径对齐大图防护——那条有 GDAL overview + 大图提示，
+  // 未配准这条同样不能把任意大小的原图整张解进 GUI 线程。边取显示宽
+  // （560）的两倍：够缩放副本与高 DPI，内存不随原图像素涨。
+  constexpr int kUnregisteredImageEdge = 1120;
+  const paleo::imagelod::TrackImage img =
+      paleo::imagelod::loadThumbnail(abs, kUnregisteredImageEdge);
+  if (img.isNull())
   {
     lay->addWidget(failureState(assetId, tr("无法解析图片"), host), 1);
     return host;
   }
-  imgLabel->setPixmap(pm.scaledToWidth(560, Qt::SmoothTransformation)); // 按面板宽缩放
+  imgLabel->setPixmap(
+      QPixmap::fromImage(img.thumbnail).scaledToWidth(560, Qt::SmoothTransformation)); // 按面板宽缩放
+  // 降采样过的图如实说明原图像素，避免用户误以为图件本身就这么糊。
+  if (img.fullSize.isValid() && img.thumbnail.size() != img.fullSize)
+    imgLabel->setToolTip(tr("原图 %1×%2 像素，预览已降采样显示")
+                             .arg(img.fullSize.width()).arg(img.fullSize.height()));
   scroll->setWidget(imgLabel);
   lay->addWidget(scroll, 1);
   auto *regGuideBtn = new QPushButton(tr("去配准…"), host);

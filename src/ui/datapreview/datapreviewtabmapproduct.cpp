@@ -167,10 +167,10 @@ QWidget *DataPreviewTabs::buildMapProductContent(
               QStringLiteral("mapProductStatValid"));
       page->addAnalysisTab(tr("统计"), statsPage);
       const QPointer<QgsRasterLayer> statsRaster = rawRaster;
-      const auto *initialRenderer = rawRaster->renderer();
+      const auto styleTouched = rasterStyleTouchedGuard(page, statsRaster); // 「样式未换」哨兵
       PreviewRasterAnalysis::requestSummary(
           abs, m_doc ? m_doc->taskService() : nullptr, page,
-          [page, statsRaster, initialRenderer,
+          [page, statsRaster, styleTouched,
            continuousStyle](const PreviewRasterAnalysis::BandSummary &sum) {
             if (!sum.valid || !statsRaster)
               return;
@@ -186,7 +186,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
             update(
                 "mapProductStatValid",
                 QStringLiteral("%1%").arg(sum.validRatio() * 100, 0, 'f', 1));
-            if (continuousStyle && statsRaster->renderer() == initialRenderer) {
+            if (continuousStyle && !*styleTouched) {
               PreviewRasterAnalysis::applyPseudoColorRenderer(
                   statsRaster, 1, sum.min, sum.max,
                   *PreviewRasterAnalysis::rampPreset(

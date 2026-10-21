@@ -27,6 +27,15 @@ const char kEnvKey[] = "PALEO_LLM_API_KEY";
 // 响应体上限（字节）：流式与非流式共用，超出即判失败——防故障/恶意服务耗尽内存
 // （与 WellFaciesConfig 的同款纪律，只是阈值按对话场景下调到 8MiB）。
 constexpr qint64 kMaxResponseBytes = 8ll * 1024 * 1024;
+
+// 应答是不是普通 chat completions JSON（choices 数组）——「stream=true 却
+// 收到非 SSE 应答」的判别式之一（#588）：SSE 解析器对普通 JSON 一个事件都
+// 切不出，若按流式收尾就会把零增量当成功 finishUp，空答复冒充成功。
+bool isChatCompletionsJson(const QByteArray &body) {
+  const QJsonDocument document = QJsonDocument::fromJson(body);
+  return document.isObject() &&
+         document.object().value(QStringLiteral("choices")).isArray();
+}
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -368,6 +377,7 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
   const int generation = ++m_generation;
   m_body.clear();
   m_received = 0;
+  m_sawStreamEvent = false;
   m_parser = LlmStreamParser();
   m_promptTokens = 0;
   m_completionTokens = 0;
@@ -389,18 +399,23 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
       return;
     }
     m_received += chunk.size();
-    if (!m_config.stream) {
-      m_body.append(chunk);
+    // 原始应答两种模式都累积（上限判定已在上方统一计数）——stream=true 收到
+    // 非 SSE 应答时要拿得到整段 body 转非流式解析（#588）。
+    m_body.append(chunk);
+    if (!m_config.stream)
       return;
-    }
     QStringList deltas;
     bool done = false;
     QString parseError;
     m_parser.feed(chunk, &deltas, &done, &parseError);
     for (const QString &text : deltas)
       emit deltaReceived(text);
-    for (const ChatToolCall &call : m_parser.takeCompleteCalls())
+    const QVector<ChatToolCall> calls = m_parser.takeCompleteCalls();
+    for (const ChatToolCall &call : calls)
       emit toolCallReceived(call);
+    // 本轮是否真见过 SSE 事件（增量/工具帧/[DONE]）——非 SSE 应答的判别依据。
+    if (!deltas.isEmpty() || done || !calls.isEmpty() || !parseError.isEmpty())
+      m_sawStreamEvent = true;
     if (!parseError.isEmpty()) {
       fail(LlmErrorKind::Malformed, parseError);
       return;
@@ -424,7 +439,10 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
     const bool ok = reply->error() == QNetworkReply::NoError;
     const int status =
       reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QString contentType =
+      reply->header(QNetworkRequest::ContentTypeHeader).toString();
     const QByteArray tail = reply->readAll();
+    m_body.append(tail); // 收尾残余并入口径（非流式解析/非 SSE 判别共用）
     const QString detail = reply->errorString();
     reply->deleteLater();
     // 分类顺序：先看 HTTP 状态码，再看传输层错误——Qt 会把 401/403/404/5xx
@@ -457,6 +475,23 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
       return;
     }
     if (m_config.stream) {
+      // stream=true 也可能收到非 SSE 应答：服务端无视请求体里的 stream 参数
+      // 直接回普通 chat completions JSON（Content-Type 非 event-stream），或
+      // 回了 200 带 error 信封。SSE 解析器对此一个事件都切不出，按流式收尾
+      // 就是「零增量 + finishUp(stop)」——把空答复当成功，不报错（#588）。
+      // 判别优先级：本轮真解析出过 SSE 事件 → 一律按流式办（内容类型不可信，
+      // 代理改写 Content-Type 不能把真流式判成非流式）；一个事件都没有时，
+      // 内容类型明示非 event-stream、或 body 确是 chat completions 形状，
+      // 即整段转非流式解析（缺 choices 等字段如实报 Malformed）。
+      if (!m_sawStreamEvent) {
+        const bool contentTypeMismatch =
+          !contentType.trimmed().isEmpty() &&
+          !contentType.contains(QStringLiteral("text/event-stream"));
+        if (contentTypeMismatch || isChatCompletionsJson(m_body)) {
+          handleNonStreamReply(m_body);
+          return;
+        }
+      }
       // [DONE] 缺失但连接已正常关闭：把缓冲里最后一个事件兜底 flush。
       if (!tail.isEmpty()) {
         QStringList deltas;
@@ -475,7 +510,11 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
                m_parser.completionTokens);
       return;
     }
-    handleNonStreamReply(m_body);
+    // C-6（full-audit-20261021）：非流式应答并入 finished 时刻读出的尾部
+    // 字节——与流式分支同款兜底。Qt 文档建议在 finished 里读取剩余缓冲；
+    // 若平台/管线在最后一个 readyRead 与 finished 之间留有未投递字节，
+    // 截断的 JSON 会被误报成 Malformed。
+    handleNonStreamReply(m_body + tail);
   });
 }
 

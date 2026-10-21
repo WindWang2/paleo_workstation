@@ -494,7 +494,10 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
         curve.depthsM.push_back(d);
         curve.twtMs.push_back(t);
         curve.values.push_back(sample);
-        if (std::isfinite(sample) && sample > -999.0f && sample < 99999.0f)
+        // 空值判定走 domain 权威口径（C.4 / #589）：此前这里硬编码第三套
+        // 阈值——-9999.0 在 wellnumeric/welllogfacies 链是哨兵（判缺失），
+        // 在这里却算合法样值并进 min/max 统计，把曲线量程压成 -9999。
+        if (!paleo::wellnumeric::isNullCurveValue(sample))
         {
           vMin = std::min(vMin, sample);
           vMax = std::max(vMax, sample);

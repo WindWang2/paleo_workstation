@@ -14,8 +14,6 @@ public:
   MappingReferenceCanvas(QgsMapCanvas *mainCanvas, QgsProject *project,
                          QWidget *parent = nullptr);
   ~MappingReferenceCanvas() override;
-  static QgsMapLayer *loadReference(const LayerDeclaration &declaration,
-                                   QgsMapLayer *existing, const QString &stylesRoot);
   void setReference(QgsMapLayer *layer, const QVariantMap &metadata);
   void clearReference();
   bool hasReference() const;

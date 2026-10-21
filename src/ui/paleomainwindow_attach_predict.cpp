@@ -19,6 +19,7 @@
 #include <qgsmessagelog.h>
 
 #include <QLabel>
+#include <QStatusBar>
 #include <QDir>
 #include <QFileInfo>
 #include <QStandardPaths>
@@ -188,6 +189,17 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
     auto *pyenv = new PythonEnvService(envRoot, this);
     auto *mamcl = new MamclTool(pyenv, this);
     connect(predictPage, &PredictPage::mamclLaunchRequested, mamcl, &MamclTool::open);
+    // 预测专项：测井相预测的实际运行面在「数据管理」里井的综合显示（测井相
+    // 面板，WellFaciesWorkflow）。主入口跳过去并说明下一步，不让用户猜。
+    connect(predictPage, &PredictPage::wellFaciesPanelRequested, this,
+            [this, status] {
+              showPage(QStringLiteral("data"));
+              const QString hint = tr("已切到「数据管理」：在数据列表中打开一口井的综合显示，"
+                                   "在测井相面板选择模型、检查输入并运行预测");
+              if (status)
+                status->setText(hint); // 切回预测页仍可见
+              statusBar()->showMessage(hint, 10000);
+            });
     connect(mamcl, &MamclTool::busyChanged, predictPage, &PredictPage::setMamclBusy);
     connect(mamcl, &MamclTool::statusMessage, predictPage,
             [status](const QString &msg) {

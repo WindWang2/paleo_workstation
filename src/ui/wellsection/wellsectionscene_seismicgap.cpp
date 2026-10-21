@@ -356,7 +356,11 @@ void GapItem::paintSeismic(QPainter *p, const QRectF &exposed,
       return tvdDomain ? w.mdOf(display + off) : display + off;
     };
 
-    m_img = QImage(devRect.size(), QImage::Format_ARGB32_Premultiplied);
+    // D.23：位图按非预乘 ARGB32 建——下面逐像素写的是 QColor::rgba() 的
+    // 非预乘值（SampleColorMap 恒 alpha=255，此处只改 alpha）。建成
+    // Premultiplied 会让 drawImage 把这些值当作已预乘，叠合结果比主题
+    // seismicOpacity 想要的更亮/发白（与 2D 剖面画布观感不一致）。
+    m_img = QImage(devRect.size(), QImage::Format_ARGB32);
     m_img.fill(Qt::transparent);
     for (int dy = 0; dy < devRect.height(); ++dy)
     {

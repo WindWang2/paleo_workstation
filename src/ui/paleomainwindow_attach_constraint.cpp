@@ -47,6 +47,24 @@
 // ---------------------------------------------------------------------------
 // 约束页接线：绘制捕获 + IDW 插值（W4 拆分段）
 // ---------------------------------------------------------------------------
+void PaleoMainWindow::attachConstraintDrawController(ConstraintPage *constraintPage,
+                                                    ConstraintWorkflow *constraint)
+{
+  if (!m_canvasCtl)
+    return;
+  auto *drawCtl = new ConstraintDrawController(m_canvasCtl, constraint, this);
+  connect(constraintPage, &ConstraintPage::drawConstraintRequested, drawCtl,
+          [drawCtl](const QString &horizon, const QString &shape, int faciesCode) {
+            drawCtl->startCapture(horizon, shape, faciesCode);
+          });
+  connect(drawCtl, &ConstraintDrawController::captureFailed, this,
+          [](const QString &err) {
+            QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+          });
+  connect(drawCtl, &ConstraintDrawController::captureFinished, this,
+          [this](const QString &horizon, const QString &) { showDrawnConstraintLines(horizon); });
+}
+
 void PaleoMainWindow::showDrawnConstraintLines(const QString &horizon)
 {
   if (horizon.isEmpty() || !m_layerSvc)
@@ -77,6 +95,44 @@ void PaleoMainWindow::showDrawnConstraintLines(const QString &horizon)
     m_profileSvc->captureCurrentAsTheme(QgisLayerProfileService::pageThemeName(currentPage()));
 }
 
+void PaleoMainWindow::attachConstraintMapSelection(ConstraintPage *constraintPage)
+{
+  connect(constraintPage, &ConstraintPage::constraintSelectionChanged, this,
+          [this](const QString &horizon, const QStringList &ids) {
+    if (!m_layerSvc)
+      return;
+    auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
+    if (!layer)
+      return;
+    QgsFeatureIds selection;
+    QgsFeature feature;
+    auto features = layer->getFeatures();
+    while (features.nextFeature(feature))
+      if (ids.contains(feature.attribute(QStringLiteral("id")).toString()))
+        selection.insert(feature.id());
+    layer->selectByIds(selection);
+  });
+  connect(constraintPage, &ConstraintPage::constraintLocateRequested, this,
+          [this](const QString &horizon, const QString &id) {
+    if (!m_layerSvc || !m_canvasCtl || !m_canvasCtl->canvas())
+      return;
+    auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
+    if (!layer)
+      return;
+    QgsFeatureIds selection;
+    QgsFeature feature;
+    auto features = layer->getFeatures();
+    while (features.nextFeature(feature))
+      if (feature.attribute(QStringLiteral("id")).toString() == id)
+        selection.insert(feature.id());
+    if (selection.isEmpty())
+      return;
+    layer->selectByIds(selection);
+    m_canvasCtl->canvas()->zoomToSelected(layer);
+    m_canvasCtl->canvas()->refresh();
+  });
+}
+
 void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                                            ConstraintWorkflow *constraint)
 {
@@ -90,20 +146,7 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 statusBar()->showMessage(error);
             });
     // 约束页端到端: 绘制请求 → 画布上的捕获工具 → workflow 提交 (§42).
-    if (m_canvasCtl)
-    {
-      auto *drawCtl = new ConstraintDrawController(m_canvasCtl, constraint, this);
-      connect(constraintPage, &ConstraintPage::drawConstraintRequested, drawCtl,
-              [drawCtl](const QString &horizon, const QString &shape, int faciesCode) {
-                drawCtl->startCapture(horizon, shape, faciesCode);
-              });
-      connect(drawCtl, &ConstraintDrawController::captureFailed, this,
-              [](const QString &err) {
-                QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-              });
-      connect(drawCtl, &ConstraintDrawController::captureFinished, this,
-              [this](const QString &horizon, const QString &) { showDrawnConstraintLines(horizon); });
-    }
+    attachConstraintDrawController(constraintPage, constraint);
     connect(constraintPage, &ConstraintPage::runIdwRequested, this,
             [this, constraint, constraintPage](const QString &horizon) {
               auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
@@ -577,21 +620,7 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 showDrawnConstraintLines(horizon);
               });
     }
-    connect(constraintPage, &ConstraintPage::constraintSelectionChanged, this,
-            [this](const QString &horizon, const QStringList &ids) {
-      if (!m_layerSvc)
-        return;
-      auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
-      if (!layer)
-        return;
-      QgsFeatureIds selection;
-      QgsFeature feature;
-      auto features = layer->getFeatures();
-      while (features.nextFeature(feature))
-        if (ids.contains(feature.attribute(QStringLiteral("id")).toString()))
-          selection.insert(feature.id());
-      layer->selectByIds(selection);
-    });
+    attachConstraintMapSelection(constraintPage);
     const auto beginConstraintEdit = [this, constraintPage](const QString &horizon) -> QgsVectorLayer * {
       if (!m_layerSvc)
         return nullptr;

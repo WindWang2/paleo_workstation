@@ -1,5 +1,6 @@
 // 层：数据
 #pragma once
+#include <functional>
 
 // seismicattr — 地震属性核函数库（纯数值，无 Qt/GIS 依赖）。
 // 输入输出均为平凡 float 缓冲；体输入布局与 engine::VoxelWindow 逐位同构：
@@ -90,10 +91,13 @@ enum class CoherenceWeightMode
   InverseDistance = 1
 };
 
+// progress（可空）：每完成一个 inline 行回调 doneIl——供调用方做任务进度
+// 记账（B-4，full-audit-20261021；默认空 = 原行为）。
 void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,
                                 int ilHalf, int xlHalf, int timeHalf,
                                 double ilSpacing, double xlSpacing,
-                                CoherenceWeightMode mode, float *out);
+                                CoherenceWeightMode mode, float *out,
+                                const std::function<void(int doneIl)> &progress = {});
 
 // ---- 甜点 ---------------------------------------------------------------------
 // sweetness = envelope / sqrt(max(freqHz, fMin))，fMin=1e-3 Hz（负瞬时频率

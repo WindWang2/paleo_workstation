@@ -82,14 +82,11 @@ bool CrossplotSources::attributeSection(const QString &path,
   };
   if (!out)
     return fail(QStringLiteral("SATR 输出为空"));
-  // 读回器收敛在 io/sattrio（与服务写端同一格式定义，防漂移）；协作取消
-  // 语义保持：读值途中取消 → 如实报已取消。
+  // 读回器收敛在 io/sattrio（与服务写端同一格式定义，防漂移）；取消谓词
+  // 直传「已取消？」语义（B-04 后不再需要调用方双负补偿）。
   paleo::sattr::SattrSectionHeader header;
   QVector<float> values;
-  const std::function<bool()> cancelled =
-      ctl.cancelled ? std::function<bool()>([&ctl] { return !ctl.cancelled(); })
-                    : std::function<bool()>();
-  if (!paleo::sattr::readSattrSection(path, &header, &values, error, cancelled))
+  if (!paleo::sattr::readSattrSection(path, &header, &values, error, ctl.cancelled))
     return false;
   const QString section = header.section;
   AttributeSection a;

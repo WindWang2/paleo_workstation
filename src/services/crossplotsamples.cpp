@@ -37,6 +37,8 @@ void xy(const Grid &g, int pixel, double &x, double &y) {
   x = g.transform[0] + col * g.transform[1] + row * g.transform[2];
   y = g.transform[3] + col * g.transform[4] + row * g.transform[5];
 }
+// B-05/A-15（full-audit-20261020）：交会采样内存预算（对齐 #468 sgs 闸口径）。
+constexpr std::uint64_t kMaxSamplingBytes = 4ull << 30;
 } // namespace
 bool CrossplotSamples::validate(const SampleSet &s, QString *error) {
   const bool ok =
@@ -147,6 +149,19 @@ SampleResult CrossplotSamples::planes(const QVector<Plane> &planes,
   auto &s = r.samples;
   s.grid = planes[0].grid;
   const auto size = std::size_t(s.grid.rows) * std::size_t(s.grid.cols);
+  // B-05/A-15（full-audit-20261020）：采样内存预算闸——对齐 #468「拒绝而非
+  // 钳制」口径；抽稀会篡改交会样本口径，超限只报数。
+  {
+    const std::uint64_t bytes =
+        std::uint64_t(size) * (8 * std::uint64_t(planes.size()) + 16);
+    if (bytes > kMaxSamplingBytes)
+      return fail(QStringLiteral("平面采样内存预算超限（%1×%2 像素 × %3 通道 ≈ %4 GB > %5 GB）——请先重采样或裁剪")
+                      .arg(s.grid.cols)
+                      .arg(s.grid.rows)
+                      .arg(planes.size())
+                      .arg(double(bytes) / (1ull << 30), 0, 'f', 1)
+                      .arg(double(kMaxSamplingBytes) / (1ull << 30), 0, 'f', 0));
+  }
   for (const auto &p : planes) {
     if (p.grid.rows != s.grid.rows || p.grid.cols != s.grid.cols ||
         p.values.size() != size || p.grid.transform != s.grid.transform ||
@@ -193,6 +208,7 @@ SampleResult CrossplotSamples::rasters(const QVector<RasterSource> &sources,
   GDALAllRegister();
   QVector<Plane> planes;
   Grid reference;
+  std::uint64_t planesTotal = 0; // B-05：持久 plane 累计（每源 8 B/px × 参考网格）
   for (int si = 0; si < sources.size(); ++si) {
     if (stop(ctl))
       return fail(QStringLiteral("已取消"), true);
@@ -216,6 +232,20 @@ SampleResult CrossplotSamples::rasters(const QVector<RasterSource> &sources,
     if (!band)
       return fail(QStringLiteral("栅格波段不存在"));
     const auto count = std::size_t(grid.cols) * std::size_t(grid.rows);
+    // B-05/A-15（full-audit-20261020）：峰值 = 持久 planes 累计 + 当前源的
+    // values(8B/px)+mask(1B/px)——VRT 可用极小磁盘声明巨网格，不能等
+    // bad_alloc 再兜底。
+    planesTotal += std::uint64_t(std::size_t(reference.cols)) *
+                   std::uint64_t(std::size_t(reference.rows)) * 8;
+    {
+      const std::uint64_t peak = planesTotal + std::uint64_t(count) * 9;
+      if (peak > kMaxSamplingBytes)
+        return fail(QStringLiteral("栅格采样内存预算超限（当前 %1×%2 像素，累计峰值 ≈ %3 GB > %4 GB）——请先重采样或裁剪栅格")
+                        .arg(grid.cols)
+                        .arg(grid.rows)
+                        .arg(double(peak) / (1ull << 30), 0, 'f', 1)
+                        .arg(double(kMaxSamplingBytes) / (1ull << 30), 0, 'f', 0));
+    }
     std::vector<double> values(count);
     std::vector<unsigned char> mask(count);
     // Row strips keep cancellation responsive while retaining sequential GDAL

@@ -95,6 +95,51 @@ private slots:
       }
   }
 
+  // B-01 生产侧回归：SMI 点栅格的 extent 半格外扩（p1−s/2 起、N·s 宽）——
+  // 像元边界落在最近样本 Voronoi 边界（半倍 spacing）上，而不是样本线上。
+  void scatterExtentCoversSampleVoronoiCells()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString sgy = dir.filePath(QStringLiteral("vol.sgy"));
+    const QString smi = dir.filePath(QStringLiteral("h.dat"));
+    QVERIFY(writeFile(sgy, buildVolume()));
+    QVERIFY(writeFile(smi, buildHorizon(100.0)));
+    QTemporaryDir cache;
+    const auto result = clusterSeismicHorizon(
+        sgy, smi, cache.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QCOMPARE(result.extent, QRectF(-5.0, -10.0, 40.0, 80.0)); // sX=10, sY=20
+  }
+  // B-01 投票侧回归：extent 半格外扩口径下，恰在样本线上的井精确命中本
+  // 样本格（旧口径 y 向错一整格、外半带零票）。每样本格给唯一簇号，
+  // 井码=所在样本格簇号 → 每票必须落回自己的格。
+  void scatterVoteBinsAlignToNearestSampleVoronoi()
+  {
+    SeismicClusterResult grid;
+    grid.columns = 4; grid.rows = 4;
+    grid.extent = QRectF(-5.0, -10.0, 40.0, 80.0);
+    grid.cells.resize(16);
+    for (int il = 0; il < 4; ++il)
+      for (int xl = 0; xl < 4; ++xl)
+        grid.cells[(3 - il) * 4 + xl] = il * 4 + xl + 1;
+    grid.validCells = 16;
+    QVector<SeismicClusterWell> wells;
+    for (int il = 0; il < 4; ++il)
+      for (int xl = 0; xl < 4; ++xl)
+        wells.append({QStringLiteral("w%1_%2").arg(il).arg(xl), QStringLiteral("v1"),
+                      10.0 * xl, 20.0 * il, grid.cells[(3 - il) * 4 + xl]});
+    const auto result = labelSeismicClusters(grid, wells);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QCOMPARE(result.supportingWells.size(), wells.size());
+    for (int i = 0; i < wells.size(); ++i) {
+      const auto row = result.supportingWells.at(i).toMap();
+      QVERIFY2(row.value("voted").toBool(),
+               qPrintable(QStringLiteral("井 %1 零票").arg(wells.at(i).id)));
+      QCOMPARE(row.value("cluster_id").toInt(), wells.at(i).code);
+    }
+  }
+
   // 同一体、层位挪到 TWT 160ms：窗（148-172ms → 样本 37-43）落在恒 1.0
   // 背景上——窗外签名（88-112ms 异常）不得影响特征，全体同簇 codes[0]。
   void scatterWindowIgnoresSignaturesOutsideWindow()

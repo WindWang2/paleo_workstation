@@ -17,6 +17,9 @@
 #include "boundaryeditrules.h"              // 方向 39：相界类型编辑语义门禁
 #include "boundarysemantics.h"              // 相界地质语义类型词表
 #include "derivedassets.h"
+#include "algorithmpublish.h"
+#include "algorithmadapters.h"
+#include "atomicjob.h"
 #include "mappingworkflow.h"
 
 #include <QDir>
@@ -266,16 +269,10 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   params.insert( QStringLiteral( "INPUTS" ), inputs );
   params.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
-  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_facies_fusion" ), params, error );
-  if ( results.isEmpty() )
-    return false;
-
-  const QString outPath = paleo::workflow_detail::outputPathOf( results );
-  if ( outPath.isEmpty() )
-  {
-    paleo::workflow_detail::setError( error, tr( "facies fusion returned no output path" ) );
-    return false;
-  }
+  // algo-atom：Processing run+publish 经 AtomicJob 薄助手
+  paleo::ProcessingAlgorithmAdapter adapter( proc );
+  const AlgorithmSpec fusionSpec =
+      AlgorithmSpecRegistry::spec( QStringLiteral( "paleo:paleo_facies_fusion" ) );
   QVariantMap fusionExtra;
   fusionExtra.insert( QStringLiteral( "factors" ), factorLayerIds );
   fusionExtra.insert( QStringLiteral( "horizon" ), horizon );
@@ -283,14 +280,14 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   const QStringList fusionParents = registrar.parentVersionIdsFor( parentPaths );
   fusionExtra.insert( QStringLiteral( "evidence" ),
                       paleo::workflow_detail::evidenceRecord( m_catalog, fusionParents, fusionExtra ) );
-  QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, fusionParents,
-                                  QStringLiteral( "paleo:paleo_facies_fusion" ), fusionExtra,
-                                  &commitErr ) )
-  {
-    paleo::workflow_detail::setError( error, commitErr );
+  paleo::AtomicProcessingDest dest;
+  dest.registrar = &registrar;
+  dest.staging = st;
+  dest.parentVersionIds = fusionParents;
+  dest.sourceUri = QStringLiteral( "paleo:paleo_facies_fusion" );
+  dest.extra = fusionExtra;
+  if ( !paleo::runProcessingAndPublish( adapter, fusionSpec, params, dest, error ) )
     return false;
-  }
 
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "composite.%1" ).arg( horizon );
@@ -444,12 +441,16 @@ bool CompositionWorkflow::computeFaciesPolygons( FaciesPolygonJob &job, QgisProc
   hooks.cancelled = cancelled;
   hooks.progress = progress;
   QString runErr;
-  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_facies_polygonize" ), alg, &runErr, hooks );
-  if ( results.isEmpty() )
+  // algo-atom P2：polygonize 经 ProcessingAlgorithmAdapter
+  paleo::ProcessingAlgorithmAdapter adapter( proc );
+  const AlgorithmRunResult polyRun = adapter.runById(
+      QStringLiteral( "paleo:paleo_facies_polygonize" ), alg, &runErr, hooks );
+  if ( !polyRun.ok )
   {
     job.error = !runErr.isEmpty() ? runErr : tr( "facies polygonize produced no results" );
     return false;
   }
+  const QVariantMap results = paleo::processingResultsFromRunResult( polyRun );
   job.outputPath = paleo::workflow_detail::outputPathOf( results );
   if ( job.outputPath.isEmpty() )
   {
@@ -490,11 +491,13 @@ bool CompositionWorkflow::commitFaciesPolygons( FaciesPolygonJob &job, QString *
   const QStringList faciesParents = job.registrar.parentVersionIdsFor( job.parentPaths );
   faciesExtra.insert( QStringLiteral( "evidence" ),
                       paleo::workflow_detail::evidenceRecord( m_catalog, faciesParents, faciesExtra ) );
+  // algo-atom P1-extend：polygonize 经 publishArtifacts
+  const AlgorithmRunResult polyResult =
+      paleo::runResultFromOutputPath( job.outputPath );
   QString commitErr;
-  if ( !job.registrar.commitExternal( job.staging, job.outputPath,
-                                      faciesParents,
-                                      QStringLiteral( "paleo:paleo_facies_polygonize" ), faciesExtra,
-                                      &commitErr ) )
+  if ( !paleo::publishArtifacts(
+           job.registrar, job.staging, polyResult, faciesParents,
+           QStringLiteral( "paleo:paleo_facies_polygonize" ), faciesExtra, &commitErr ) )
     return fail( commitErr );
 
   LayerDeclaration decl;

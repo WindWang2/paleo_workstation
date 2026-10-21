@@ -87,6 +87,35 @@ private slots:
     f = OGR_L_GetNextFeature(layer); QVERIFY(f); QCOMPARE(OGR_F_GetFieldAsDouble(f, valueField), 0.123456789);
     OGR_F_Destroy(f); GDALClose(dataset);
   }
+  // #588 B.12：交换格式导出的产物清单只收本次写出的文件。目标目录若被复用
+  // 或预置了无关文件，不能把它们当导出产物返回——调用方对 files 逐项算
+  // sha256 写 manifest。修复前 files->clear() 后按目录全收。
+  void exchangeExportReportsOnlyItsOwnFiles() {
+    QTemporaryDir tmp;
+    const auto source = tmp.filePath("input.gpkg");
+    auto dataset = GDALCreate(GDALGetDriverByName("GPKG"), source.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr); QVERIFY(dataset);
+    auto layer = GDALDatasetCreateLayer(dataset, "factor", nullptr, wkbPoint, nullptr); QVERIFY(layer);
+    auto field = OGR_Fld_Create("factor_value", OFTReal); QCOMPARE(OGR_L_CreateField(layer, field, true), OGRERR_NONE); OGR_Fld_Destroy(field);
+    auto feature = OGR_F_Create(OGR_L_GetLayerDefn(layer));
+    OGR_F_SetFieldDouble(feature, 0, 1.5);
+    QCOMPARE(OGR_L_CreateFeature(layer, feature), OGRERR_NONE); OGR_F_Destroy(feature);
+    GDALClose(dataset);
+    // 复用/预置目录：放一个与本次导出无关的文件。
+    const auto destination = tmp.filePath("reused"); QVERIFY(QDir().mkpath(destination));
+    QFile unrelated(QDir(destination).filePath("unrelated.txt"));
+    QVERIFY(unrelated.open(QIODevice::WriteOnly)); unrelated.write("not an export artifact"); unrelated.close();
+    QStringList files; QVariantMap description; QString error;
+    QVERIFY2(PaleoDataExportWriter::write(source, destination, DataFormat::GeoPackage, &files, &description, &error), qPrintable(error));
+    QCOMPARE(files.first(), QDir(destination).filePath("data.gpkg"));
+    QVERIFY2(!files.contains(QDir(destination).filePath("unrelated.txt")),
+             qPrintable(files.join("\n")));
+    // 驱动侧车（.csvt 等）仍是产物：新目录下照收。
+    const auto csvDirectory = tmp.filePath("csv-fresh"); QVERIFY(QDir().mkpath(csvDirectory));
+    files.clear();
+    QVERIFY2(PaleoDataExportWriter::write(source, csvDirectory, DataFormat::Csv, &files, &description, &error), qPrintable(error));
+    QVERIFY(files.contains(QDir(csvDirectory).filePath("data_1.csv")));
+    QVERIFY2(files.contains(QDir(csvDirectory).filePath("data_1.csvt")), qPrintable(files.join("\n")));
+  }
   void originalsAndHistoryAreByteExact() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path()));
     const auto raw = add(cat, "同名.dat", "old raw\n"); QVERIFY(!raw.isEmpty());

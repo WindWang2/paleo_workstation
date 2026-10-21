@@ -2,6 +2,7 @@
 #include "entitypanel.h"
 #include "../../workflow/derivationworkflow.h"
 #include <QHideEvent>
+#include <QSet>
 #include <QShowEvent>
 #include "datalistops.h"
 #include "derivationgraph.h"
@@ -28,25 +29,19 @@
 #include <QScrollArea>
 #include <QToolButton>
 #include <QFile>
-#include <QFormLayout>
 #include <QFrame>
-#include <QHeaderView>
-#include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QLabel>
-#include <QScrollArea>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include <QToolButton>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <functional>
 #include <memory>
 #include <tuple>
-#include "../paleotheme.h"
 
 using namespace paleo::pagesinternal;
 
@@ -86,7 +81,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   entityLay->setSpacing(PaleoTheme::tokens().spacingSm);
   entityLay->setAlignment(Qt::AlignTop);
   // ---- p5a：实体角色槽与资产属性视图 ----
-  entityLay->addWidget(caption(tr("数据属性与设置"), this));
+  // 停靠标题已是「数据属性」，不再重复一行同义小标题。
   auto *viewEmpty = new QLabel(this);
   viewEmpty->setObjectName(QStringLiteral("entityViewEmptyLabel"));
   viewEmpty->setWordWrap(true);
@@ -711,9 +706,13 @@ void EntityPanel::beginDeleteEntity(const QString &entityId)
     return;
   if (dlg.assetsToRecycle())
   {
-    // 资产一并软删。
+    // 资产一并软删。D-01：过滤 unresolved（幽灵回收条目）+ 按资产去重。
+    QSet<QString> recycled;
     for (const EntityAssetLink &l : m_ctx.cat->linksForEntity(entityId))
     {
+      if (l.unresolved || recycled.contains(l.assetId))
+        continue;
+      recycled.insert(l.assetId);
       const CatalogAsset a = m_ctx.cat->assetById(l.assetId);
       if (m_stack)
         m_stack->push(new SoftDeleteCmd(m_ctx, a.id, a.displayName, a.type, true));

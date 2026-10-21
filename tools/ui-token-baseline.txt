@@ -15,4 +15,8 @@
 #           行已改为读外观色，例外随之失效删除）。
 #           → 357（参考图复用 PreviewMapCanvas，移除旧窗口的纸面色例外）。
 #           → 356（三级分类编辑器复用模板配色，移除旧表格的颜色字面量）。
-356
+#           → 354（2026-10-19 全仓审计第三轮 G1-02：#552 识别弹窗 m_fields
+#           setSpacing(2) 硬编码改 tokens.spacingXs（违规面清零）；同批清
+#           compositebody.cpp 两条 stale——fillRect(flagRect) rgb 与
+#           setPen(Qt::white) 例外源码已不存在（#564 改码未重钉））。
+354

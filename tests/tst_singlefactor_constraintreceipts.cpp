@@ -806,6 +806,76 @@ private slots:
       QVERIFY( !d.consumed );
   }
 
+  // 场景 A–E：就绪状态单一事实来源（替代「硬屏障>0 且方向线>0」门控）。
+  void readinessStatesFollowPlanNotLineFamilies()
+  {
+    ConstraintMethodContext context;
+    context.horizon = QStringLiteral( "H1" );
+    const auto rowsOf = []( const QStringList &ids ) {
+      QVector<QVariantMap> out;
+      for ( const QVariantMap &r : planRows() )
+        if ( ids.contains( r.value( QStringLiteral( "id" ) ).toString() ) )
+          out << r;
+      return out;
+    };
+    // A/B：无任何约束——IDW、克里金、SGS 都允许运行。
+    for ( const QString &m : { QStringLiteral( "local_direction_idw" ), QStringLiteral( "kriging" ),
+                               QStringLiteral( "sgs" ), QStringLiteral( "surfer_idw" ) } )
+    {
+      context.methodId = m;
+      const ConstraintReadiness r = assessConstraintReadiness( planConstraintUse( {}, context ) );
+      QCOMPARE( r.state, ConstraintReadinessState::NoneRunnable );
+      QVERIFY2( r.runAllowed, qPrintable( m ) );
+    }
+    // C：只有硬屏障——支持屏障的方法消费，不要求方向线。
+    context.methodId = QStringLiteral( "surfer_idw" );
+    ConstraintReadiness r = assessConstraintReadiness( planConstraintUse( rowsOf( { "b_full" } ), context ) );
+    QCOMPARE( r.state, ConstraintReadinessState::Consumed );
+    QVERIFY( r.runAllowed );
+    // D：只有方向线——局部方向 IDW 消费，不要求硬屏障。
+    context.methodId = QStringLiteral( "local_direction_idw" );
+    r = assessConstraintReadiness( planConstraintUse( rowsOf( { "d_main" } ), context ) );
+    QCOMPARE( r.state, ConstraintReadinessState::Consumed );
+    QVERIFY( r.runAllowed );
+    // E：地统计不读逐线约束——有线但不参与，仍可运行且明确说明。
+    context.methodId = QStringLiteral( "kriging" );
+    r = assessConstraintReadiness( planConstraintUse( rowsOf( { "b_full", "d_main" } ), context ) );
+    QCOMPARE( r.state, ConstraintReadinessState::PresentUnused );
+    QVERIFY( r.runAllowed );
+    QVERIFY( r.message.contains( QStringLiteral( "未使用" ) ) );
+    // 状态 4：只有无效线——不参与计算，但不阻止普通插值。
+    context.methodId = QStringLiteral( "local_direction_idw" );
+    r = assessConstraintReadiness( planConstraintUse( rowsOf( { "b_zero" } ), context ) );
+    QCOMPARE( r.state, ConstraintReadinessState::InvalidExcluded );
+    QVERIFY( r.runAllowed );
+    // 状态 5：方法会因约束参数越界整次拒绝——必须阻止并说明。
+    ConstraintUsePlan blocked;
+    blocked.blocking = 1;
+    r = assessConstraintReadiness( blocked );
+    QCOMPARE( r.state, ConstraintReadinessState::RequiredUnmet );
+    QVERIFY( !r.runAllowed );
+  }
+
+  // 场景 K：删除/停用约束后同一计划口径重新判定，计数与就绪一致。
+  void readinessFollowsDeleteAndDisable()
+  {
+    ConstraintMethodContext context;
+    context.horizon = QStringLiteral( "H1" );
+    context.methodId = QStringLiteral( "surfer_idw" );
+    QVector<QVariantMap> rows;
+    for ( const QVariantMap &r : planRows() )
+      if ( r.value( QStringLiteral( "id" ) ).toString() == QLatin1String( "b_full" ) )
+        rows << r;
+    QCOMPARE( rows.size(), 1 );
+    QCOMPARE( assessConstraintReadiness( planConstraintUse( rows, context ) ).state, ConstraintReadinessState::Consumed );
+    QVariantMap disabled = rows.first();
+    disabled.insert( QStringLiteral( "params_json" ), QStringLiteral( R"({"semantic":"hard_barrier","enabled":false})" ) );
+    const ConstraintUsePlan off = planConstraintUse( { disabled }, context );
+    QCOMPARE( off.consumed, 0 );
+    QVERIFY( assessConstraintReadiness( off ).runAllowed );
+    QCOMPARE( assessConstraintReadiness( planConstraintUse( {}, context ) ).state, ConstraintReadinessState::NoneRunnable );
+  }
+
   void availabilityCounts()
   {
     ConstraintMethodContext context;

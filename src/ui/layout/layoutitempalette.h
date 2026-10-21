@@ -87,6 +87,12 @@ class PaleoLayoutItemPalette : public QWidget
     //! buttons whose type is unavailable in this QGIS build.
     QList<int> itemMetadataIds() const { return m_buttonMetadataIds; }
 
+    //! Localized display name for a GUI-registry metadata id — the same
+    //! vocabulary the palette buttons use (L5.2: the designer shell's Items
+    //! menu re-emits these ids and must not fall back to QGIS's English
+    //! visibleName()). Empty for an unknown/invalid id.
+    QString itemDisplayName( int itemMetadataId ) const;
+
     // Public triggers for hosts that surface the same interactions outside the
     // palette widget (e.g. the designer shell's Items menu): they emit the
     // signals below, which attach() has already wired to the interactive

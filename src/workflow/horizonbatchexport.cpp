@@ -315,7 +315,7 @@ struct Batch
     // ---- 登记 catalog（OUTPUT；受管副本即成品，不留游离文件）----------------
     QString sha, managed, err;
     for (const auto &file : exported.files) {
-      const auto assetId = registerMapPdfAsset(catalog, request.projectDir, file, &sha, &managed, &err, ext);
+      const auto assetId = registerMapPdfAsset(catalog, request.projectDir, file, &sha, &managed, &err, ext, horizon);
       if (assetId.isEmpty()) { fail(horizon, err); return; }
       outcome.files << managed; outcome.assetIds << assetId;
       if (outcome.assetId.isEmpty()) {
@@ -387,7 +387,6 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
     QMap<QString, QStringList> layerIds;
     QPointer<QgsPrintLayout> ownerLayout;
     QPointer<DataCatalog> ownerCatalog;
-    quint64 sequence = 0;
     std::unique_ptr<QTemporaryDir> staging, external;
     std::unique_ptr<DataCatalog> catalog;
     QVector<CatalogOp> journal;
@@ -401,7 +400,6 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
   job->request.horizonLayers.clear();
   job->ownerLayout = request.layout;
   job->ownerCatalog = request.catalog;
-  job->sequence = request.catalog->mutationSeq();
   for (auto it = request.horizonLayers.cbegin();
        it != request.horizonLayers.cend(); ++it) {
     job->layerIds[it.key()] = {};
@@ -492,10 +490,14 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
             const int at = keys.indexOf(outcome.horizon);
             const auto base = batchBaseName(naming.project, outcome.horizon, naming.date,
                                             at < 0 ? 0 : at);
+            int fileIndex = 0;
             for (const auto &path : outcome.files) {
+              // 单文件沿用批量基名；多文件加序号后缀——受管文件名在 dedup
+              // 复用（同层位同字节）时会重复，按名拷贝必撞且到发布期才失败。
               const auto name = outcome.files.size() == 1
                                     ? base + QLatin1Char('.') + naming.ext
-                                    : QFileInfo(path).fileName();
+                                    : base + QStringLiteral("-%1").arg(++fileIndex)
+                                          + QLatin1Char('.') + naming.ext;
               if (!QFile::copy(path, job->external->filePath(name))) {
                 copyError = QObject::tr("无法写入批量导出文件：%1").arg(name);
                 break;
@@ -524,10 +526,12 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
   QObject::connect(task, &PaleoTask::finished, tasks, [job, task, tasks, done] {
     if (job->ownerLayout)
       job->ownerLayout->setProperty(kBusy, QVariant());
+    // C-3（full-audit-20261021）：摘除 mutationSeq 陈旧判据（#480 P3-3 口径
+    // ——批量出图输入在提交时已冻结进 staging，窗口期内的无关 catalog 写
+    // 不再整批判废分钟级长任务；真冲突由 applyJournal 事务失败如实上报）。
     const bool stale =
         task->session() != tasks->session() || !job->ownerCatalog ||
-        job->ownerCatalog->projectDir() != job->request.projectDir ||
-        job->ownerCatalog->mutationSeq() != job->sequence;
+        job->ownerCatalog->projectDir() != job->request.projectDir;
     QString why;
     if (stale) {
       task->discardPublication();
@@ -546,9 +550,21 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
         externalPlaced = QDir().rename(job->external->path(), job->request.outputDirectory);
         if (!externalPlaced) why = QObject::tr("无法提交批量图件目录");
       }
+      QHash<QString, QString> idMap;
       if (why.isEmpty() && !publishMapExportJournal(job->ownerCatalog, job->request.projectDir,
-                                                   job->staging->path(), job->journal, &why)) {
+                                                   job->staging->path(), job->journal, &why, &idMap)) {
         if (externalPlaced) QDir(job->request.outputDirectory).removeRecursively();
+      } else {
+        // C-3：撞号重映射——结果里的资产 id 换成发布实际入库的新号。
+        for (auto &outcome : job->result.horizons) {
+          if (!outcome.ok) continue;
+          if (const auto it = idMap.constFind(outcome.assetId); it != idMap.constEnd())
+            outcome.assetId = it.value();
+          for (auto &asset : outcome.assetIds) {
+            if (const auto it = idMap.constFind(asset); it != idMap.constEnd())
+              asset = it.value();
+          }
+        }
       }
       if (!why.isEmpty()) task->failPublication(why);
       else if (externalPlaced) job->result.directory = job->request.outputDirectory;

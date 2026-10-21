@@ -80,9 +80,12 @@ GridInfo gridOf(const QList<ResolvedInput> &inputs, const FrozenGrid &frozen,
     auto *r = (input.missing || !input.layer)
                   ? nullptr
                   : qobject_cast<QgsRasterLayer *>(input.layer);
+    // D-04（full-audit-20261021）：退化范围栅格（宽/高为 0 的 geotransform）
+    // 与另两条网格来源路径同口径拒绝——下游 replayAt/replay 按 extent 宽高
+    // 除算像元，cw/ch 为 0 时产出 inf/UB 而非如实拒算。
     if (!r || !r->isValid() || !r->dataProvider() || r->width() <= 0 ||
-        r->height() <= 0) {
-      out.reason = QStringLiteral("冻结网格无法重建：首个栅格输入缺失");
+        r->height() <= 0 || r->extent().isEmpty()) {
+      out.reason = QStringLiteral("冻结网格无法重建：首个栅格输入缺失或退化");
       return out;
     }
     out.grid = {r->extent(), r->width(), r->height()};

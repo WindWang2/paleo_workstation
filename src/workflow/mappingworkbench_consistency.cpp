@@ -229,7 +229,18 @@ QVariantMap MappingWorkbench::consistencyImpl(const QString &layerId,
   };
   if (background && m_taskSvc) {
     auto report = std::make_shared<QVariantMap>();
-    auto temporary = std::make_shared<QTemporaryDir>();
+    // C-2（full-audit-20261021）：暂存目录建在目标目录内（同文件系统）——
+    // 此前用默认 /tmp 再 QFile::rename 进工程目录，/tmp 为独立 tmpfs 的常见
+    // Linux 布局下 rename 恒 EXDEV，整个后台一致性功能无法产出报告。同目录
+    // 暂存与仓内惯例一致（mappingworkbench_predict 的 staging、
+    // horizonbatchexport 的交付目录同款）。
+    const QString reportDir = m_dir + "/artifacts/reports";
+    if (!QDir().mkpath(reportDir)) {
+      fail(error, tr("无法创建报告目录：%1").arg(reportDir));
+      return {};
+    }
+    auto temporary = std::make_shared<QTemporaryDir>(
+        reportDir + "/.consistency-XXXXXX");
     if (!temporary->isValid()) {
       fail(error, tr("无法创建报告暂存目录"));
       return {};
@@ -237,7 +248,6 @@ QVariantMap MappingWorkbench::consistencyImpl(const QString &layerId,
     const QString tempPath = temporary->filePath("report.json");
     const auto catalog = m_catalog;
     const QString projectDir = m_dir;
-    const quint64 sequence = m_catalog->mutationSeq();
     auto *task = m_taskSvc->start(
         tr("%1 测井相与地震相一致性比较").arg(d.horizon),
         [compute, report, temporary, tempPath](PaleoTask *running) mutable {
@@ -258,15 +268,18 @@ QVariantMap MappingWorkbench::consistencyImpl(const QString &layerId,
           return QString();
         });
     connect(task, &PaleoTask::finished, this,
-            [this, task, catalog, projectDir, sequence, report, temporary,
+            [this, task, catalog, projectDir, report, temporary,
              tempPath] {
               if (task->state() != PaleoTask::State::Succeeded) {
                 if (task->state() == PaleoTask::State::Failed)
                   emit errorOccurred(task->errorText());
                 return;
               }
+              // C-3 同族（full-audit-20261021）：一致性报告的样本在提交时
+              // 冻结、发布只是同文件系统 rename——此前 mutationSeq 判据让
+              // 窗口期内任何无关 catalog 写静默丢弃整份报告（连错误提示都
+              // 没有）。catalog/目录/session 守卫保留。
               if (catalog != m_catalog || m_dir != projectDir || !catalog ||
-                  sequence != catalog->mutationSeq() ||
                   task->session() != m_taskSvc->session()) {
                 task->discardPublication();
                 return;

@@ -167,6 +167,33 @@ class TestLayoutPalette : public QObject
       QVERIFY( shapeIds.at( 0 ) != shapeIds.at( 1 ) );
     }
 
+    // L5.2：设计器「项」菜单复用 itemDisplayName()——它必须与面板按钮同一份
+    // 本地化词表（localizedItemName(visibleName)），否则同一元素集在壳内呈现
+    // 两种语言（菜单原样直显 QGIS 英文 visibleName）。
+    void itemDisplayNameMatchesPaletteButtons()
+    {
+      const QList<int> ids = m_palette->itemMetadataIds();
+      QVERIFY( !ids.isEmpty() );
+
+      const QList<QToolButton *> all = groupButtons( *m_palette, "mainElements" )
+                                     + groupButtons( *m_palette, "secondaryElements" );
+      for ( int id : ids )
+      {
+        if ( id < 0 )
+          continue; // unavailable in this QGIS build
+        const QString name = m_palette->itemDisplayName( id );
+        QVERIFY2( !name.isEmpty(), qPrintable( QString::number( id ) ) );
+        bool onSomeButton = false;
+        for ( QToolButton *b : all )
+          if ( b->text() == name )
+            onSomeButton = true;
+        QVERIFY2( onSomeButton, qPrintable( name ) ); // 与某个面板按钮同文
+      }
+      // 无效 id 不得崩，也不得编造名字。
+      QVERIFY( m_palette->itemDisplayName( -1 ).isEmpty() );
+      QVERIFY( m_palette->itemDisplayName( 99999 ).isEmpty() );
+    }
+
     void addItemNowMapLandsCenteredOnPage()
     {
       std::unique_ptr<QgsPrintLayout> layout( makeLayout() );

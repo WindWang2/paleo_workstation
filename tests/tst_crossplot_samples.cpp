@@ -22,6 +22,7 @@ private slots:
   void attributeHorizon();
   void satrSource();
   void unifiedWellSourcesNormalizeMdAndRejectUnsafeAxes();
+  void samplingBudgetGate(); // B-05/A-15（full-audit-20261020）
 };
 void TestSamples::depthAlignment() {
   Channel a{"GR", "API", "well-A", "ver-a", {0, 1, 2, 3, 4}, {1, 2, 3, 4, 5},
@@ -320,4 +321,27 @@ void TestSamples::unifiedWellSourcesNormalizeMdAndRejectUnsafeAxes() {
 }
 
 QTEST_APPLESS_MAIN(TestSamples)
+
+// B-05/A-15（full-audit-20261020）：采样内存预算闸——VRT 可用极小磁盘声明
+// 巨网格（30000² ≈ 单源 values+mask 8.1 GB，超 4 GiB 预算），必须在分配前
+// 拒绝并报数，而不是 bad_alloc 整进程崩溃。
+void TestSamples::samplingBudgetGate() {
+  QTemporaryDir dir;
+  GDALAllRegister();
+  QFile vrt(dir.filePath("huge.vrt"));
+  QVERIFY(vrt.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  QVERIFY(vrt.write(
+              "<VRTDataset rasterXSize=\"30000\" rasterYSize=\"30000\">"
+              "<GeoTransform>100, 2, 0, 200, 0, -2</GeoTransform>"
+              "<VRTRasterBand dataType=\"Float32\" band=\"1\">"
+              "<NoDataValue>-9999</NoDataValue></VRTRasterBand>"
+              "</VRTDataset>") > 0);
+  vrt.close();
+  const auto r = CrossplotSamples::rasters(
+      {{dir.filePath("huge.vrt"), "attribute", "v0", "layer0"},
+       {dir.filePath("huge.vrt"), "horizon", "v1", "layer1"}});
+  QVERIFY(!r.ok);
+  QVERIFY2(r.error.contains(QStringLiteral("预算超限")), qPrintable(r.error));
+  // 对照：小栅格照常通过（闸不误伤正常路径，rasterPairs 已覆盖正向）。
+}
 #include "tst_crossplot_samples.moc"

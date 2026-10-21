@@ -16,6 +16,14 @@ namespace
       return QString();
     return dec.decode(raw);
   }
+
+  bool hasHighBytes(const QByteArray &raw)
+  {
+    for (char c : raw)
+      if (static_cast<uchar>(c) >= 0x80)
+        return true;
+    return false;
+  }
 } // namespace
 
 namespace
@@ -51,7 +59,10 @@ namespace
       else
         return raw; // 无合法首字节：交严格校验报错
       const qsizetype have = back; // lead 之后的续字节个数
-      if (have < qsizetype(extra + 1))
+      // #588：完整性判据是「续字节数 ≥ 该首字节所需数」，即 have < extra。
+      // 旧码 have < extra + 1 把恰好完整的尾序列（如 UTF-8 三字节汉字的
+      // 末两字节）也整段剥掉，白丢一个已解对的字符。
+      if (have < extra)
         return raw.left(last - back); // 不完整：剥掉整个半截序列
       return raw;
     }
@@ -119,15 +130,20 @@ TextEncoding EncodingDetect::detect(const QByteArray &sample)
        (static_cast<uchar>(sample[0]) == 0xFE && static_cast<uchar>(sample[1]) == 0xFF)))
     return TextEncoding::Utf8; // UTF-16 → stripBom 转 UTF-8
 
-  if (isStrictUtf8(trimIncompleteUtf8Tail(sample)))
+  if (!hasHighBytes(sample))
+    return TextEncoding::Utf8; // 纯 ASCII 是 UTF-8 子集
+
+  // 样本可能是 UTF-8 文件被截断的前缀：剥掉尾部半截序列再判严格 UTF-8。
+  const QByteArray trimmed = trimIncompleteUtf8Tail(sample);
+  // 但「被截断」这个解释只在剥完仍留下多字节证据时才算成立：ASCII 前缀 +
+  // 尾两字节同样可以是一个完整的 GB18030 汉字（GBK 里 lead∈[0xE0,0xEF] 的
+  // 1024 个，如 唰=e0a7/唷=e0a1/刖=ebbe）——旧码无条件采纳截断解释，把这些
+  // 汉字整段剥掉后按纯 ASCII 判成 UTF-8，末字符静默变成 U+FFFD。
+  // （逐行解码是本仓主用法：行界在 \n，行尾半截序列只可能是坏文件，按 GB
+  // 解出真字比吞成 U+FFFD 更贴近真实；反方向那一形态已在上面分支覆盖。）
+  if (isStrictUtf8(trimmed) && (trimmed.size() == sample.size() || hasHighBytes(trimmed)))
     return TextEncoding::Utf8;
 
-  // 非 UTF-8：出现 GB 首字节就按 GB18030 试解码；解出的串没有 U+FFFD 才认。
-  bool hasHighByte = false;
-  for (char c : sample)
-    if (static_cast<uchar>(c) >= 0x80) { hasHighByte = true; break; }
-  if (!hasHighByte)
-    return TextEncoding::Utf8; // 纯 ASCII 是 UTF-8 子集
   {
     // GB 文本常以 ASCII 段开头（"~VERSION…"）——只要含高位字节就按 GB 试解。
     const QString s = decodeGb(sample);

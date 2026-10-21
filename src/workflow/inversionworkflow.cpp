@@ -6,10 +6,14 @@
 #include "../services/seismictaskservice.h"
 
 #include "../algorithms/inversion/bandlimit.h"
+#include "algorithmadapters.h"
+#include "nativecppadapter.h"
+#include "nativeinputs_inversion.h"
 #include "../algorithms/inversion/sparse.h"
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QScopeGuard>
 #include <QUuid>
 
@@ -560,24 +564,38 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
             if (ilIdx >= 0 && xlIdx >= 0 && n == nS && n > 0) {
                 float *dst = volume.data() + (size_t(ilIdx) * size_t(nXl) + size_t(xlIdx)) * size_t(nS);
                 if (sparse) {
-                    paleo::inversion::SparseSpikeOptions opt;
-                    opt.lambda = job->req.lambda;
-                    opt.maxIterations = job->req.maxIterations;
-                    const auto r = paleo::inversion::sparseSpikeInversion(samples, n, dtMs,
-                                                                          job->wavelet, lowPtr, opt);
-                    if (r.ok) {
-                        std::copy(r.impedance.begin(), r.impedance.end(), dst);
-                        sumStat[size_t(threadIdx)] += r.residualEnergyRatio;
+                    // algo-atom：inversion:sparse_spike 经 NativeCppAdapter
+                    paleo::SparseSpikeInputs sin;
+                    sin.trace = samples;
+                    sin.n = n;
+                    sin.sampleIntervalMs = dtMs;
+                    sin.wavelet = &job->wavelet;
+                    sin.lowFreq = lowPtr;
+                    sin.options.lambda = job->req.lambda;
+                    sin.options.maxIterations = job->req.maxIterations;
+                    paleo::inversion::SparseSpikeResult sr;
+                    paleo::NativeCppAdapter native;
+                    const AlgorithmRunResult run = native.runSparseSpike(sin, &sr, nullptr);
+                    if (run.ok) {
+                        std::copy(sr.impedance.begin(), sr.impedance.end(), dst);
+                        sumStat[size_t(threadIdx)] += sr.residualEnergyRatio;
                         okTrace = true;
                     }
                 } else {
-                    paleo::inversion::BandlimitedOptions opt;
-                    opt.lowCutHz = job->req.lowCutHz;
-                    const auto r = paleo::inversion::bandlimitedInversion(samples, n, dtMs,
-                                                                          &job->wavelet, lowPtr, opt);
-                    if (r.ok) {
-                        std::copy(r.impedance.begin(), r.impedance.end(), dst);
-                        sumStat[size_t(threadIdx)] += r.lowFreqVarianceFraction;
+                    // algo-atom：inversion:bandlimited 经 NativeCppAdapter
+                    paleo::BandlimitedInputs bin;
+                    bin.trace = samples;
+                    bin.n = n;
+                    bin.sampleIntervalMs = dtMs;
+                    bin.wavelet = &job->wavelet;
+                    bin.lowFreq = lowPtr;
+                    bin.options.lowCutHz = job->req.lowCutHz;
+                    paleo::inversion::BandlimitedResult br;
+                    paleo::NativeCppAdapter native;
+                    const AlgorithmRunResult run = native.runBandlimited(bin, &br, nullptr);
+                    if (run.ok) {
+                        std::copy(br.impedance.begin(), br.impedance.end(), dst);
+                        sumStat[size_t(threadIdx)] += br.lowFreqVarianceFraction;
                         okTrace = true;
                     }
                 }
@@ -763,6 +781,19 @@ InversionWorkflow::PublishResult InversionWorkflow::publishInversionJob(
     result.versionId = staging.versionId;
     result.relativePath = staging.relativePath;
     return result;
+}
+
+void InversionWorkflow::reclaimTempVolume(const QString &tempVolumePath)
+{
+    // C-4（full-audit-20261021）：受管发布（commitExternal 拷贝进工程）后/
+    // 失败收尾时由编排方调用——目录名只认 paleo-inv- 前缀（computeInversionJob
+    // 的生成口径），防误删。
+    if (tempVolumePath.isEmpty())
+        return;
+    const QFileInfo info(tempVolumePath);
+    if (!info.dir().dirName().startsWith(QStringLiteral("paleo-inv-")))
+        return;
+    QDir(info.dir()).removeRecursively();
 }
 
 } // namespace paleo::inv

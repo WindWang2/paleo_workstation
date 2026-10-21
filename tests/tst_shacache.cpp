@@ -49,6 +49,9 @@ private slots:
     ShaCache &cache = ShaCache::shared();
     cache.setDiskFile(QString());
     cache.invalidate();
+    // A-01 节流与本用例语义（逐 miss 后的盘上指纹形状）解耦：恢复「每 miss
+    // 落盘」口径（setDiskFile 换代后首 miss 本就立即落盘）。
+    cache.setDiskSaveThrottle(0, 1);
     cache.setDiskFile(shaJson, false);
 
     // 默认口径首算：磁盘 3 段条目。
@@ -130,6 +133,7 @@ private slots:
     ShaCache &cache = ShaCache::shared();
     cache.setDiskFile(QString());
     cache.invalidate();
+    cache.setDiskSaveThrottle(0, 1); // A-01：与节流时序解耦
     cache.setDiskFile(oldSha, false);
 
     QString hashed;
@@ -204,6 +208,64 @@ private slots:
     QCOMPARE(parts.size(), 3);
     QCOMPARE(parts.at(2), shaB);
 #endif
+  }
+  // A-01（full-audit-20261021）：miss 路径磁盘层节流——宽阈值下后续 miss
+  // 不再每次全表落盘，flushDisk()/invalidate 强制刷后全量可见。修复前每个
+  // miss 都在持锁临界区内全表序列化 + 同步写盘（批量导入写放大）。
+  void diskWritesThrottledOnMiss()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString shaJson = dir.filePath(QStringLiteral("sha.json"));
+    ShaCache &cache = ShaCache::shared();
+    cache.setDiskFile(QString());
+    cache.invalidate();
+    // 测试口径：1 小时 / 64 条——除换代后首 miss 外全部走惰性脏记。
+    cache.setDiskSaveThrottle(3600 * 1000, 64);
+    cache.setDiskFile(shaJson, false);
+
+    QStringList shas;
+    for (int i = 0; i < 8; ++i)
+    {
+      const QString f = dir.filePath(QStringLiteral("throttle-%1.bin").arg(i));
+      {
+        QFile file(f);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write(QByteArray::fromRawData("payload", 7) + QByteArray::number(i)) > 0);
+      }
+      QString err;
+      const QString sha = cache.sha256Hex(f, &err);
+      QVERIFY2(!sha.isEmpty(), qPrintable(err));
+      shas << sha;
+    }
+    {
+      // 换代后首 miss 立即落盘（1 条）；其余 7 条在节流窗内不落盘——
+      // 修复前这里会是 8 条。
+      QFile j(shaJson);
+      QVERIFY(j.open(QIODevice::ReadOnly));
+      const QJsonObject obj = QJsonDocument::fromJson(j.readAll()).object();
+      QCOMPARE(obj.size(), 1);
+      QVERIFY(obj.contains(PathCanon::canonicalize(dir.filePath(QStringLiteral("throttle-0.bin")))));
+    }
+    cache.flushDisk(); // 强制刷（invalidate 是清表语义，不适用此处）
+    {
+      QFile j(shaJson);
+      QVERIFY(j.open(QIODevice::ReadOnly));
+      const QJsonObject obj = QJsonDocument::fromJson(j.readAll()).object();
+      QCOMPARE(obj.size(), 8);
+      QCOMPARE(obj.value(PathCanon::canonicalize(dir.filePath(QStringLiteral("throttle-7.bin"))))
+                   .toString()
+                   .section(QLatin1Char('|'), -1),
+               shas.last());
+    }
+    // 命中路径零写副作用：内存命中不产生新落盘（flushDisk 无脏可刷）。
+    const qint64 before = QFileInfo(shaJson).lastModified().toMSecsSinceEpoch();
+    QString err;
+    QCOMPARE(cache.sha256Hex(dir.filePath(QStringLiteral("throttle-3.bin")), &err), shas.at(3));
+    cache.flushDisk();
+    QCOMPARE(QFileInfo(shaJson).lastModified().toMSecsSinceEpoch(), before);
+    // 恢复默认节流口径，不污染后续用例。
+    cache.setDiskSaveThrottle(1000, 64);
   }
 };
 

@@ -531,11 +531,12 @@ namespace
     // ---- plan 期 sha256：≤200MB 才算；SEG-Y 留空、永不因 plan 去重拦截。
     // 哈希是 plan 期的主要重活——每个待哈希文件回调一次扫描进度（枚举本身
     // 只 stat，不报；>200MB 不哈希的文件无回调，重活在执行段另有行进度）。
+    int seenFiles = 0;
     for (PlannedItem &item : plan.items)
     {
       if (item.size <= 0 || item.size > kPlanHashLimitBytes)
         continue;
-      reportScan(plan.items.size(), item.path);
+      reportScan(++seenFiles, item.path);
       if (cancelled)
         break;
       QString herr;

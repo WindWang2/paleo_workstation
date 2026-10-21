@@ -47,6 +47,7 @@
 #include <QRectF>
 #include <QRegularExpression>
 #include <QScrollBar>
+#include <QSet>
 #include <QSizePolicy>
 #include <QSlider>
 #include <QSpinBox>
@@ -62,6 +63,9 @@
 #include <QVariant>
 #include <QVector>
 #include <QWidget>
+
+#include <functional> // std::function（geoJsonTableRow 取值回调）
+#include <memory>     // std::shared_ptr（rasterStyleTouchedGuard 哨兵）
 
 // ---- 项目内依赖（照 datapreviewtabs.cpp 的 include 列表，不逐个编译错误补）----
 #include "datapreviewtabs.h"
@@ -135,6 +139,126 @@ inline void addRasterPyramidHint(PreviewDocService *doc, QgsRasterLayer *raster,
                        rasterGuard->triggerRepaint();
                      });
     doc->ensureRasterPyramidVersion(assetId);
+  }
+}
+
+// 迟到的统计回调只在「用户没换过栅格符号」时套用默认色带。QgsRasterLayer
+// ::setRenderer 会 delete 旧渲染器——捕获 renderer 裸指针做地址比较，在 TOC
+// 改色带/拉伸后即悬垂（UB；分配器复用地址还会误判成「没换过」）。改用 TOC 的
+// 样式变更信号置位：TOC 快调是本预览里唯一替换 renderer 的用户入口。
+inline std::shared_ptr<bool> rasterStyleTouchedGuard(
+    PreviewMapPage *page, const QPointer<QgsRasterLayer> &layer)
+{
+  const auto touched = std::make_shared<bool>(false);
+  QObject::connect(page->tocPanel(), &PreviewTocPanel::rasterStyleChanged, page,
+                   [layer, touched](QgsRasterLayer *changed) {
+                     if (changed == layer)
+                       *touched = true;
+                   });
+  return touched;
+}
+
+// 文档/工作簿资产的 RAW 原件锚定：取**最高号** RAW（口径同层位预览的 RAW
+// 选取）。relocateVersionSource 重定位成功后是「追加新 RAW、旧死路径记录留
+// 表」，第一条 RAW 恒为最初那个已不存在的路径——取第一条会让预览永远停在
+// 「找不到源文件」，且每次重试都白往 catalog 追加一条重复 RAW。空 id =
+// 该资产没有 RAW 版本。
+inline CatalogVersion latestRawVersion(const DataCatalog *cat, const QString &assetId)
+{
+  CatalogVersion raw;
+  for (const CatalogVersion &cv : cat->versionsForAsset(assetId))
+    if (cv.stage == QLatin1String("RAW") && cv.versionNumber >= raw.versionNumber)
+      raw = cv;
+  return raw;
+}
+
+// GeoJSON 预览的属性键与要素计数。规模护栏：整份 QJsonDocument 解析是 GUI
+// 线程上的整读 + 全量 DOM 构建，大 GeoJSON 直接冻住建标签（1000 行截断只
+// 作用于表格，管不到解析与键收集）。阈值内保持原口径（DOM）；超阈值不解
+// DOM——属性键走服务层流式摘要（io/streaming：无 DOM、不整读、内存平坦），
+// 表格行由调用方从 OGR 图层流取（地图路径本来就要开它，不重复劳动）。
+// 失败时 *error 非空（调用方据此出失败态）。
+struct GeoJsonPreviewKeys
+{
+  QStringList propKeys;
+  qint64 featureCount = 0;
+  bool domPreview = false; // 真 = doc 已全量解析（表格行的 DOM 来源）
+  QJsonDocument doc;
+};
+
+inline GeoJsonPreviewKeys geoJsonPreviewKeys(PreviewDocService *doc, const QString &abs,
+                                            QString *error)
+{
+  constexpr qint64 kDomLimitBytes = 8 * 1024 * 1024;
+  GeoJsonPreviewKeys out;
+  out.domPreview = QFileInfo(abs).size() <= kDomLimitBytes;
+  if (!out.domPreview)
+  {
+    PreviewDocService::GeoJsonSummary summary;
+    if (!PreviewDocService::geoJsonSummaryAt(abs, &summary, error))
+      return out;
+    out.propKeys = summary.propKeys; // 服务层已排序去重
+    out.featureCount = summary.featureCount;
+    return out;
+  }
+  if (!doc || !doc->geoJsonDocumentAt(abs, &out.doc, error))
+    return out;
+  const QJsonArray features =
+      out.doc.object().value(QStringLiteral("features")).toArray();
+  out.featureCount = features.size();
+  // 键查重走哈希：QStringList::contains 是 O(K) 线性扫，要素数×键数的
+  // 字符串比较在大文件上是 GUI 线程热点。
+  QSet<QString> seenKeys;
+  for (const QJsonValue &fv : features)
+  {
+    const QJsonObject props =
+        fv.toObject().value(QStringLiteral("properties")).toObject();
+    for (auto it = props.begin(); it != props.end(); ++it)
+      if (!seenKeys.contains(it.key()))
+      {
+        seenKeys.insert(it.key());
+        out.propKeys.append(it.key());
+      }
+  }
+  return out;
+}
+
+// GeoJSON 属性值序列化（DOM 路径；null 与嵌套数组如实呈现）。
+inline QString geoJsonValueText(const QJsonValue &val)
+{
+  if (val.isDouble())
+    return QString::number(val.toDouble());
+  if (val.isString())
+    return val.toString();
+  if (val.isBool())
+    return val.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+  if (val.isNull())
+    return QStringLiteral("null");
+  return QString::fromUtf8(
+      QJsonDocument(val.toArray()).toJson(QJsonDocument::Compact));
+}
+
+// GeoJSON 属性表行装配：行数据来源两条（阈值内 DOM 要素 / 超阈值 OGR 要素
+// 流），单元格口径统一（序号 / 几何类型 / 属性值逐列经 valueAt 取）。
+inline void geoJsonTableRow(QTableWidget *table, int row, const QString &geomType,
+                            const std::function<QString(int)> &valueAt)
+{
+  auto *idItem = new QTableWidgetItem(QString::number(row + 1));
+  idItem->setTextAlignment(Qt::AlignCenter);
+  idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
+  table->setItem(row, 0, idItem);
+
+  auto *geomItem =
+      new QTableWidgetItem(geomType.isEmpty() ? QStringLiteral("—") : geomType);
+  geomItem->setTextAlignment(Qt::AlignCenter);
+  geomItem->setFlags(geomItem->flags() & ~Qt::ItemIsEditable);
+  table->setItem(row, 1, geomItem);
+
+  for (int c = 0; c + 2 < table->columnCount(); ++c)
+  {
+    auto *valItem = new QTableWidgetItem(valueAt(c));
+    valItem->setFlags(valItem->flags() & ~Qt::ItemIsEditable);
+    table->setItem(row, c + 2, valItem);
   }
 }
 

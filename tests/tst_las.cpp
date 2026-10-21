@@ -668,6 +668,22 @@ void TestLas::legacyParseSharesGuardAndEncodingWithParseDoc()
       if (i.category == LasIssue::Category::Encoding)
         sawEncodingNotice = true;
     QVERIFY2(sawEncodingNotice, "GB18030 头段嗅探必须发 Encoding 告警");
+
+    // #588（B.1）：readWellInfo / parseHeader 两条快照入口此前用 QTextStream
+    // 默认编解码逐行读，绕开 parseDoc 的 EncodingDetect 嗅探——同一文件的
+    // 井名在这里解成乱码，wellsMatchingName 零匹配、井曲线行全落「未决」。
+    QString snapshotWell;
+    QString snapshotErr;
+    QVERIFY2(LasParser::readWellInfo(path, snapshotWell, &snapshotErr),
+             qPrintable(snapshotErr));
+    QCOMPARE(snapshotWell, QStringLiteral("井一"));
+
+    LasHeaderInfo header;
+    QString headerErr;
+    QVERIFY2(LasParser::parseHeader(path, header, &headerErr), qPrintable(headerErr));
+    QCOMPARE(header.wellName, QStringLiteral("井一"));
+    QCOMPARE(header.curveNames, QStringList({QStringLiteral("DEPT"), QStringLiteral("GR伽马")}));
+    QVERIFY(header.sawAscii);
   }
 
   // 复位兜底（上文断言失败路径已各自恢复，这里幂等再保险）。

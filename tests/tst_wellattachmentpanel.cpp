@@ -264,6 +264,35 @@ class TestWellAttachmentPanel : public QObject
 {
   Q_OBJECT
   private slots:
+    // D.4：缩略图后台解码 + 缓存命中——refresh（catalog.changed / 每次锚深
+    // 落库都会触发）不再对全部附件整体同步重解码。
+    void thumbnailCacheAndAsyncDecode()
+    {
+      Fixture fx;
+      QVERIFY2(fx.build(), qPrintable(fx.err));
+      paleo::dataops::RecycleBin recycle;
+      recycle.load(&fx.cat);
+
+      WellAttachmentPanel panel(&fx.cat, &recycle);
+      panel.setWell(QStringLiteral("well-1"));
+      QTableWidget *table = tableOf(panel);
+      QVERIFY(table != nullptr);
+      QCOMPARE(table->rowCount(), 2);
+      const auto iconsFilled = [table] {
+        for (int r = 0; r < table->rowCount(); ++r)
+          if (table->item(r, 0)->icon().isNull())
+            return false;
+        return true;
+      };
+      // 首次：后台解码——泵事件等它落地（GUI 线程不解码、不卡界面）。
+      for (int i = 0; i < 500 && !iconsFilled(); ++i)
+        QTest::qWait(10);
+      QVERIFY2(iconsFilled(), "缩略图未在超时内落地");
+      // 二次刷新：缓存命中——图标同步在位，无需再等（不再整体重解码）。
+      panel.refresh();
+      QVERIFY2(iconsFilled(), "缓存命中后刷新应同步带图标");
+    }
+
     void crudRoundTrip()
     {
       Fixture fx;

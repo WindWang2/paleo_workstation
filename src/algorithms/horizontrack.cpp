@@ -349,9 +349,11 @@ PropagateResult propagateVolumeWindowed(
 
   // 逐列倾角引导历史（IL 向）：colHist 每列 K 项按 IL 升序存最近拾取样点
   // （逻辑序 = IL 序），colCount 记当前列历史长度。K = 0 引导关闭。
+  // colCount 用 int（K = dipHistoryPicks 无上界）：窄型计数（如 uint8）会在
+  // 第 256 次回绕，「最近 K 个拾取」的滑动窗不变量被静默破坏。
   const int K = std::max(options.dipHistoryPicks, 0);
   std::vector<int> colHist;
-  std::vector<std::uint8_t> colCount;
+  std::vector<int> colCount;
   if (K > 0)
   {
     colHist.assign(static_cast<std::size_t>(nXl) * K, 0);
@@ -359,7 +361,7 @@ PropagateResult propagateVolumeWindowed(
   }
   const auto histReset = [&]() {
     if (K > 0)
-      std::fill(colCount.begin(), colCount.end(), std::uint8_t(0));
+      std::fill(colCount.begin(), colCount.end(), 0);
   };
   const auto histPush = [&](std::size_t xl, int sample) {
     if (K == 0)

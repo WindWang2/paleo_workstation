@@ -770,8 +770,9 @@ OnnxTensor PaleoOnnxService::runTensor( const QString &inputName, const QVector<
   if ( entry )
   {
     const QByteArray inNameUtf8 = inputName.toUtf8();
-    if ( !runFirstOutput( entry->session, inNameUtf8, input, shape, &result, &failMsg ) )
-      failedModel = m_loaded; // 失败时 failMsg 已由 runFirstOutput 写入
+    // 失败时 failedModel 沿用锁内捕获的 m_loaded 快照（C-02：此处锁外再读
+    // m_loaded 是 QString 数据竞争 + 冗余——767 行锁内已置同值）。
+    runFirstOutput( entry->session, inNameUtf8, input, shape, &result, &failMsg );
     QMutexLocker lock( &m_mutex );
     releaseEntryLocked( entry );
   }

@@ -70,10 +70,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
-#include <QMessageBox>
-#include <QPushButton>
 #include <QSet>
 #include <QDebug>
+
+#include "../ui/notifications/paleonotify.h" // 用户裁决确认统一出口（DESIGN.md 收敛契约）
 
 #include <qgsproject.h>
 #include <qgsmaplayer.h>
@@ -497,15 +497,17 @@ bool AppContext::acquireProjectLock(const QString &projectDir, bool creating, QS
                              !qobject_cast<QApplication *>(QCoreApplication::instance()));
     if (!isHeadless)
     {
-      QMessageBox box;
-      box.setIcon(QMessageBox::Warning);
-      box.setWindowTitle(tr("工程已被另一个实例锁定"));
-      box.setText(tr("工程目录正被另一个 Paleo 实例编辑：\n%1\n\n同一工程同时只允许一个写实例。\n是否以只读模式继续打开？").arg(lockErr));
-      auto *btnReadOnly = box.addButton(tr("只读打开"), QMessageBox::AcceptRole);
-      auto *btnCancel = box.addButton(tr("取消"), QMessageBox::RejectRole);
-      box.setDefaultButton(btnReadOnly);
-      box.exec();
-      readOnly = box.clickedButton() != btnCancel;
+      // 用户裁决走 PaleoNotify 统一确认出口（DESIGN.md「全局统一走
+      // ui/notifications/paleonotify.h 的 ask / askSaveDiscard 收口，消除
+      // 散弹式裸 QMessageBox 调用」）。按钮角色/默认键与迁移前逐一对应：
+      // 接受键（AcceptRole，原「只读打开」）且为默认键，拒绝键（RejectRole，
+      // 「取消」）——按钮文案取应用其余确认面一致的标准对，语义由正文
+      // 「是否以只读模式继续打开？」说清。
+      readOnly = PaleoNotify::ask(
+          nullptr, tr("工程已被另一个实例锁定"),
+          tr("工程目录正被另一个 Paleo 实例编辑：\n%1\n\n同一工程同时只允许一个写实例。\n是否以只读模式继续打开？").arg(lockErr),
+          PaleoNotify::AskButtons::OkCancel, PaleoNotify::AskDefault::Accept,
+          PaleoNotify::AskIcon::Warning);
     }
   }
   if (!readOnly)
@@ -573,6 +575,20 @@ void AppContext::releaseProjectSession()
   }
   m_faultStore = FaultSetStore(QString(), nullptr);
   m_wellsitingStore = WellSitingStore(QString(), nullptr);
+
+  // 无工程窗口期的项目级全局态（#589 C.15）：
+  //  · AreaRules 保留已关闭工区的 project_area.json 参数（层位名单/分类
+  //    规则/SEG-Y 偏移/ONNX 网格/标定层位），下一轮无工程动作会按旧工区数据
+  //    行事——显式 reset() 回内置默认（setProjectDir("") 同义，arearules.cpp
+  //    已提供该入口）。
+  //  · 聊天工具上下文仍绑在已关闭工程的 catalog/projectDir/horizon 上：
+  //    catalog 只在 setProjectDir 时开关、关闭路径不关，故 query_project 的
+  //    catalog->isOpen() 校验拦不住，助手会继续拿旧工程数据作答。按「无工程」
+  //    重绑——query/lineage 如实报「未绑定工程目录」，brief 回落「未打开」。
+  AreaRules::reset();
+  if (m_aiChat) {
+    bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc, nullptr, QString());
+  }
 
   emit projectReadOnlyChanged(false);
 }

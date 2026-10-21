@@ -1,8 +1,10 @@
 // 层：数据（测试壳。被测对象是等值线服务对分析栅格的只读提取。）
 #include <QtTest/QtTest>
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QPointF>
 #include <QTemporaryDir>
 #include <QVector>
@@ -14,6 +16,7 @@
 #include <ogr_srs_api.h>
 
 #include "../src/qgis/factorcontour.h"
+#include "../src/services/paleotaskservice.h"
 
 namespace
 {
@@ -124,6 +127,8 @@ private slots:
   void coneStaysNearTheCircle();
   void fixedLevelApiRejectsEmptyAndNonFinite();
   void intervalContoursIgnoreNodata();
+  void blockedOutputLeavesPreviousContentIntact();
+  void failedRequestKeepsPreviousOutput();
 };
 
 void SingleFactorContourTests::constantFieldHasNoFalseLoops()
@@ -341,9 +346,74 @@ void SingleFactorContourTests::intervalContoursIgnoreNodata()
     QVERIFY2( line.level >= 5.0 && line.level <= 395.0, qPrintable( QString::number( line.level ) ) );
 }
 
+// #588 B.13：等值线 GPKG 落盘是「同目录临时文件 + 成功后原子替换」。目标
+// 路径被占用（此处为目录）导致替换失败时必须报错、清理临时文件、且不毁既有
+// 内容——修复前先 QFile::remove 旧产物再 GDALCreate，创建/替换失败即
+// 「两边都没有输出」。
+void SingleFactorContourTests::blockedOutputLeavesPreviousContentIntact()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString raster = dir.filePath( QStringLiteral( "blocked.tif" ) );
+  QVector<float> values( 64, 5.0f );
+  values[27] = 50.0f;
+  QVERIFY( writeGrid( raster, 8, 8, 0, 80, 10, values, -9999.0f ) );
+
+  const QString blocked = dir.filePath( QStringLiteral( "contours.gpkg" ) );
+  QVERIFY( QDir().mkpath( blocked ) );
+  QFile marker( QDir( blocked ).filePath( QStringLiteral( "keep.txt" ) ) );
+  QVERIFY( marker.open( QIODevice::WriteOnly ) );
+  QCOMPARE( marker.write( "previous" ), qint64( 8 ) );
+  marker.close();
+
+  QString err;
+  QVERIFY( !FactorContourService::generateContours( raster, blocked, 1.0, &err ) );
+  QVERIFY2( !err.isEmpty(), "替换失败必须给出错误" );
+  QFile kept( QDir( blocked ).filePath( QStringLiteral( "keep.txt" ) ) );
+  QVERIFY2( kept.open( QIODevice::ReadOnly ), "失败不得毁掉目标路径下的既有内容" );
+  QCOMPARE( kept.readAll(), QByteArray( "previous" ) );
+  kept.close();
+  QVERIFY2( !QFileInfo::exists( dir.filePath( QStringLiteral( "contours.gpkg.tmp" ) ) ),
+            "失败路径不得残留临时文件" );
+}
+
+// #588 B.13：异步入口的失败/取消路径同样不许删正式输出。等值线落盘已是
+// 「临时文件 + 成功后原子替换」，失败时正式产物保持调用前状态；这里再
+// QFile::remove(outputGpkg) 会把上一版好产物一起删掉——用户拿到错误，
+// 新旧两边都没有输出。
+void SingleFactorContourTests::failedRequestKeepsPreviousOutput()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString output = dir.filePath( QStringLiteral( "contours.gpkg" ) );
+  QFile previous( output );
+  QVERIFY( previous.open( QIODevice::WriteOnly ) );
+  const QByteArray contents( "previous output" );
+  QCOMPARE( previous.write( contents ), qint64( contents.size() ) );
+  previous.close();
+
+  PaleoTaskService tasks;
+  bool finished = false;
+  bool succeeded = true;
+  FactorContourService::requestContours( dir.filePath( QStringLiteral( "missing.tif" ) ),
+                                         output, 1.0, &tasks, this,
+                                         [&finished, &succeeded]( bool ok, const QString & ) {
+                                           finished = true;
+                                           succeeded = ok;
+                                         } );
+  QTRY_VERIFY_WITH_TIMEOUT( finished, 10000 );
+  QVERIFY( !succeeded );
+  QFile kept( output );
+  QVERIFY2( kept.open( QIODevice::ReadOnly ), "失败不得删掉上一版产物" );
+  QCOMPARE( kept.readAll(), contents );
+}
+
 int main( int argc, char *argv[] )
 {
   GDALAllRegister();
+  // 异步入口（requestContours）经 PaleoTaskService 排队回调回主线程，
+  // 需要 QCoreApplication 实例才有事件循环可派发。
+  QCoreApplication app( argc, argv );
   SingleFactorContourTests tests;
   return QTest::qExec( &tests, argc, argv );
 }

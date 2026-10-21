@@ -67,6 +67,8 @@ void ShaCache::setDiskFile(const QString &path, bool lazy)
   m_diskFile = path;
   m_disk.clear();
   m_diskAge.clear();
+  m_diskDirtyCount = 0;
+  m_lastDiskSaveMs = 0; // A-01：换代后首个 miss 立即落盘（保留「算一次即持久」的会话起点语义）
   m_diskPending = lazy && !path.isEmpty();
   if (!lazy && !path.isEmpty())
     loadDiskLocked();
@@ -76,6 +78,54 @@ void ShaCache::setMemoryLimit(int entries)
 {
   QMutexLocker lock(&m_mutex);
   m_memLimit = qMax(16, entries);
+}
+
+void ShaCache::setDiskSaveThrottle(qint64 intervalMs, int dirtyEntries)
+{
+  QMutexLocker lock(&m_mutex);
+  m_diskSaveIntervalMs = qMax<qint64>(0, intervalMs);
+  m_diskDirtyThreshold = qMax(1, dirtyEntries);
+}
+
+void ShaCache::flushDisk()
+{
+  QMutexLocker lock(&m_mutex);
+  flushDiskLocked();
+}
+
+void ShaCache::flushDiskLocked()
+{
+  if (m_diskDirtyCount <= 0 || m_diskFile.isEmpty())
+    return;
+  while (m_disk.size() > m_diskLimit)
+  {
+    QString oldest;
+    qint64 best = std::numeric_limits<qint64>::max();
+    for (auto it = m_diskAge.constBegin(); it != m_diskAge.constEnd(); ++it)
+      if (it.value() < best)
+      {
+        best = it.value();
+        oldest = it.key();
+      }
+    if (oldest.isEmpty())
+      break;
+    m_diskAge.remove(oldest);
+    m_disk.remove(oldest);
+  }
+  saveDiskLocked();
+  m_diskDirtyCount = 0;
+  m_lastDiskSaveMs = QDateTime::currentMSecsSinceEpoch();
+}
+
+void ShaCache::maybeSaveDiskLocked()
+{
+  if (m_diskDirtyCount <= 0 || m_diskFile.isEmpty())
+    return;
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  if (m_diskDirtyCount < m_diskDirtyThreshold &&
+      m_lastDiskSaveMs > 0 && now - m_lastDiskSaveMs < m_diskSaveIntervalMs)
+    return;
+  flushDiskLocked(); // 调用方已持锁（sha256Hex 临界区内）
 }
 
 QString ShaCache::sha256Hex(const QString &path, QString *error, Fingerprint fp)
@@ -160,31 +210,16 @@ QString ShaCache::sha256Hex(const QString &path, QString *error, Fingerprint fp)
         ? QStringLiteral("%1|%2|%3|%4").arg(mtime).arg(size).arg(ino).arg(sha)
         : QStringLiteral("%1|%2|%3").arg(mtime).arg(size).arg(sha));
     m_diskAge.insert(canon, QDateTime::currentMSecsSinceEpoch());
-    saveDiskLocked(); // 惰性持久化：算一次大文件的哈希值得立即落盘
+    // A-01：节流落盘——此前每次 miss 都在持锁临界区内全表序列化 + 同步写
+    // 盘（表 3 万条时万级文件导入 ≈ 数十 GB 写放大，且磁盘 IO 期间阻塞并发
+    // 哈希查询）；收缩扫描（O(表大小)）一并挪到落盘时刻。
+    ++m_diskDirtyCount;
+    maybeSaveDiskLocked();
   }
   // 内存层收缩：按指纹代内任意序截断（哈希表本身无 LRU 语义，超限丢旧即可
   // ——哈希重算成本有限，不值得为它建完整 LRU）。
   while (m_mem.size() > m_memLimit)
     m_mem.erase(m_mem.begin());
-  if (diskGen == m_diskGeneration)
-  {
-    while (m_disk.size() > m_diskLimit)
-    {
-      // 磁盘层按最近命中时间收缩。
-      QString oldest;
-      qint64 best = std::numeric_limits<qint64>::max();
-      for (auto it = m_diskAge.constBegin(); it != m_diskAge.constEnd(); ++it)
-        if (it.value() < best)
-        {
-          best = it.value();
-          oldest = it.key();
-        }
-      if (oldest.isEmpty())
-        break;
-      m_diskAge.remove(oldest);
-      m_disk.remove(oldest);
-    }
-  }
   return sha;
 }
 
@@ -192,13 +227,23 @@ void ShaCache::invalidate(const QString &path)
 {
   QMutexLocker lock(&m_mutex);
   if (m_diskPending) { m_diskPending = false; if (!path.isEmpty()) loadDiskLocked(); }
+  const auto forcedSaveLocked = [&] {
+    // 显式失效 = 用户可见的写路径语义：强制刷（不吞节流窗口）。
+    if (m_diskFile.isEmpty())
+    {
+      m_diskDirtyCount = 0;
+      return;
+    }
+    saveDiskLocked();
+    m_diskDirtyCount = 0;
+    m_lastDiskSaveMs = QDateTime::currentMSecsSinceEpoch();
+  };
   if (path.isEmpty())
   {
     m_mem.clear();
     m_disk.clear();
     m_diskAge.clear();
-    if (!m_diskFile.isEmpty())
-      saveDiskLocked();
+    forcedSaveLocked();
     return;
   }
   const QString canon = PathCanon::canonicalize(path);
@@ -206,8 +251,8 @@ void ShaCache::invalidate(const QString &path)
     it = it.key().startsWith(canon + QLatin1Char('|')) ? m_mem.erase(it) : ++it;
   m_disk.remove(canon);
   m_diskAge.remove(canon);
-  if (!m_diskFile.isEmpty())
-    saveDiskLocked();
+  m_diskDirtyCount = qMax(m_diskDirtyCount, 1);
+  forcedSaveLocked();
 }
 
 ShaCache::Counts ShaCache::counts() const

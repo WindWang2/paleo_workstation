@@ -92,6 +92,12 @@ class LayerTreePanel : public QWidget
     void duplicateCurrentLayer();
     void exportCurrentStyle();
     void importCurrentStyle();
+    // 样式 .qml 落盘/读取核心（对话框只负责取路径）：QSaveFile 原子写 +
+    // write() 返回值校验，导出失败不覆盖用户选定文件；读取/导入失败如实回
+    // false + 原因串（B.17——旧实现把 QGIS 错误串与写结果全部丢弃）。
+    // error 为 nullptr 时忽略原因。测试经 LayerTreePanelStyleTestAccess 直达。
+    bool exportStyleTo(QgsMapLayer *layer, const QString &path, QString *error = nullptr);
+    bool importStyleFrom(QgsMapLayer *layer, const QString &path, QString *error = nullptr);
     // 在父组内重排当前节点。toIndex 是移动前的子序号；0 为所在组最上层。
     void moveCurrentNode(int toIndex);
     int currentNodeIndex(int *siblingCount = nullptr) const;
@@ -131,4 +137,9 @@ class LayerTreePanel : public QWidget
     bool m_refreshQueued = false;
     QSet<QgsMapLayer *> m_pendingOrderLayers; // 待回填自定义序的移动图层集
     bool m_orderSyncQueued = false;
+
+    // 测试直达样式 IO 核心（offscreen 下对话框路径被 noFileDialogs 纪律
+    // 短路，失败分支只能经私有方法验证——同 derivedsink/depthtools 的
+    // TestAccess 先例）。
+    friend class LayerTreePanelStyleTestAccess;
 };

@@ -654,6 +654,27 @@ private slots:
     QCOMPARE(back.wellIds, ids);
   }
 
+  // L2.4：零口井剖面往返后不得变成一口空 id 的井。splitEscaped 的 keepEmpty
+  // 只保段间/尾随空段；整格为空（well_ids 落空串）必须读回零段。
+  void sectionStoreZeroWellsRoundTripsAsEmpty() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = QDir(dir.path()).filePath(QStringLiteral(
+        "zero.project.sqlite"));
+    metadata::WellSectionStore store(dbPath);
+    QString err;
+    QVERIFY2(store.open(&err), qPrintable(err));
+    const auto rec = store.save(QStringLiteral("default"), QStringList(), {},
+                                wellsection::DepthDomain::MD, std::nullopt, &err);
+    QVERIFY2(rec.valid(), qPrintable(err));
+    QCOMPARE(rec.wellIds.size(), 0);
+    metadata::WellSectionStore reopened(dbPath);
+    const auto back = reopened.load(QStringLiteral("default"), &err);
+    QVERIFY2(back.valid(), qPrintable(err));
+    QCOMPARE(back.wellIds.size(), 0); // 不是 1 口空 id 的井
+    QCOMPARE(rec.version, back.version);
+  }
+
   void sectionStoreDepthDomain() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());

@@ -75,6 +75,10 @@ bool write(const QString &source, const QString &destination,
   const auto fail = [error](const QString &message) { if (error) *error = message; return false; };
   if (cancel && cancel()) return fail(QObject::tr("导出已取消"));
   const auto stem = QDir(destination).filePath("data");
+  // 目标目录可能是复用/预置的：先登记既有文件，结束时只收本次写出的产物
+  // （调用方对 files 逐项算 sha256 写 manifest，无关文件不能混进来）。
+  const QDir destinationDir(destination);
+  const QStringList preexisting = destinationDir.entryList(QDir::Files);
   QgsRasterLayer raster(source, QStringLiteral("data"), QStringLiteral("gdal"));
   if (raster.isValid()) {
     if (format != F::Exchange && format != F::GeoTiff)
@@ -154,8 +158,13 @@ bool write(const QString &source, const QString &destination,
   description->insert("format", driver);
   description->insert("layers", layers);
   // Includes .dbf/.shx/.prj/.cpg and other files actually written by the driver.
-  files->clear();
-  for (const auto &file : QDir(destination).entryList(QDir::Files)) *files << QDir(destination).filePath(file);
+  // 复用目录里预置的文件不是本次产物，排除（B.12）。
+  for (const auto &file : destinationDir.entryList(QDir::Files)) {
+    if (preexisting.contains(file))
+      continue;
+    const auto path = destinationDir.filePath(file);
+    if (!files->contains(path)) *files << path;
+  }
   return true;
 }
 }

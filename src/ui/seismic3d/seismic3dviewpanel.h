@@ -84,8 +84,8 @@ public:
     [[nodiscard]] const Seismic3DTransferFunction &transferFunction() const { return tf_; }
 
     // D7.2 任意剖面：两点=斜剖面 / N 点=栅栏（视口拾取 → 服务取数 → 贴入 3D）
-    void enterObliqueSectionPick();   // 两点自动提交
-    void enterFenceSectionPick();     // 回车/双击提交
+    bool enterObliqueSectionPick();   // 两点自动提交；无体不可入返回 false
+    bool enterFenceSectionPick();     // 回车/双击提交；无体不可入返回 false
     void requestLineSection(const std::vector<glm::ivec2> &pathPoints);
     void clearLineSection();
     [[nodiscard]] bool isLineSectionReady() const { return viewport_ && viewport_->isLineSectionReady(); }
@@ -208,12 +208,16 @@ private:
 
     // A2（wave/deepen-perf）拖动链路取数合并：
     // slotTasks_     —— 在途任务句柄：新请求顶替时 requestCancel（引擎协作
-    //                  中止，不再为已被拖过的索引跑完全程）
+    //                  中止，不再为已经被拖过的索引跑完全程）
     // slotSuperseded_—— 本端主动取消标记（回调据此免打「提取失败」告警）
     // slotCoarse_    —— 槽位内容取自粗 LOD（松手精化只需重取这些槽位）
     std::array<QPointer<PaleoTask>, 3> slotTasks_{};
     std::array<bool, 3> slotSuperseded_{};
     std::array<bool, 3> slotCoarse_{};
+
+    // D-05（full-audit-20261020）换体世代号：堆叠层/任意剖面回调无槽位句柄
+    // 可顶替，setVolume 自增后在途回调整体作废（旧体平面不得贴新体几何）。
+    quint64 volumeGeneration_ = 0;
 
     // D3.x 显示控制行控件
     QComboBox *cboColorMap_ = nullptr;

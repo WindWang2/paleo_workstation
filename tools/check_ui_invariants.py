@@ -104,7 +104,10 @@ def scan(root: Path):
         # setStyleSheet(...) 实参可能跨行——先按语句聚合到调用起始行。
         for m in re.finditer(r"setStyleSheet\s*\(", text):
             start = text.count("\n", 0, m.start()) + 1
-            window = text[m.end():m.end() + 400]
+            # E-8（full-audit-20261021）：实参全文参与扫描（不再截 400 字符
+            # 窗口）——长样式表（本仓 ribbon/qss 面偏长）尾部 hex 与括号
+            # 配对截断点落在窗口外时静默漏检。
+            window = text[m.end():]
             # 截到平衡右括号（近似：下一个未配对的 ')'）。
             depth, cut = 1, 0
             for ch in window:

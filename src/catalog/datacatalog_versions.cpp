@@ -302,6 +302,24 @@ bool DataCatalog::updateVersionExtra(const QString &versionId, const QVariantMap
       setError(error, QStringLiteral("版本证据快照不可就地修改；请保存新版本: %1").arg(it.key()));
       return false;
     }
+  // C-5（full-audit-20261021）：真 no-op 短路——与单键重载同口径。查询路径
+  // 反复回写同一 patch（如连井剖面岩性装配的落选标注）此前每次都走
+  // save + ++mutationSeq + changed：既抬发布闸门又刷 UI 重算。
+  {
+    bool anyChange = false;
+    for (auto it = extra.cbegin(); it != extra.cend(); ++it)
+    {
+      const QVariant old = prevExtra.value(it.key());
+      if (it.value().isValid() != old.isValid() ||
+          (it.value().isValid() && it.value() != old))
+      {
+        anyChange = true;
+        break;
+      }
+    }
+    if (!anyChange)
+      return true;
+  }
   for (auto it = extra.begin(); it != extra.end(); ++it)
     m_versions[row].extra.insert(it.key(), it.value());
   m_dirtyVersions.insert(versionId);

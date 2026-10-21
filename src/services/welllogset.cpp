@@ -1,6 +1,8 @@
 // 层：数据
 #include "welllogset.h"
 
+#include <QDebug>
+
 #include "catalog/datacatalog.h"
 #include "io/timedeptool.h"     // 方向44：TIME 基准逆插值
 #include "io/welllogread.h"     // 方向44：LAS/DLIS/LIS 统一分派（无感格式差异）
@@ -372,6 +374,11 @@ bool WellLogSet::readCurveTvd(const WellCurveRef &ref,
   out->versionId = ref.sourceVersionId;
   out->column = ref.column;
   const int n = qMin(depths.values.size(), values.values.size());
+  // 无轨迹/轨迹无效时 MD 顶替 TVD 是显式回退（B-08）：留痕让 QC 与下游
+  // 深度域消费方能察觉，不再静默。
+  const bool tvdByTrajectory = survey && survey->isValid();
+  if (!tvdByTrajectory)
+    qWarning() << "welllogset: 无有效井斜轨迹，TVD 以 MD 顶替（" << ref.path << "）";
   for (int i = 0; i < n; ++i)
   {
     const double md = depths.values.at(i) * scale;
@@ -379,7 +386,7 @@ bool WellLogSet::readCurveTvd(const WellCurveRef &ref,
       continue;
     out->md.append(md);
     out->values.append(values.values.at(i));
-    out->tvd.append(survey && survey->isValid() ? survey->tvdAt(md) : md);
+    out->tvd.append(tvdByTrajectory ? survey->tvdAt(md) : md);
   }
   if (out->md.isEmpty())
   {

@@ -20,8 +20,12 @@ class ReleasePanel : public QWidget
 
     // dbPath: project sqlite path (ReleaseStore location). manifestProvider:
     // the CURRENT declared set — snapshotted by createRelease.
+    // readOnlyProvider: 单写实例降级（§6）——工程被另一实例持锁（工程存储
+    // setReadOnly(true)）时为真：面板禁用创建，且 ReleaseStore 走只读连接
+    // （不建表、createRelease 显式拒绝）。缺省 nullptr = 恒可写。
     void setProviders(std::function<QString()> dbPath,
-                      std::function<QVector<LayerDeclaration>()> manifestProvider);
+                      std::function<QVector<LayerDeclaration>()> manifestProvider,
+                      std::function<bool()> readOnlyProvider = nullptr);
 
     void refresh(); // reload releases + repopulate diff combos
 
@@ -30,6 +34,10 @@ class ReleasePanel : public QWidget
     void statusMessage(const QString &text);
 
   private:
+    // 当前实例对工程库是否只读（无 provider 时可写）。
+    bool projectReadOnly() const { return m_readOnlyProvider && m_readOnlyProvider(); }
+
     std::function<QString()> m_dbPath;
     std::function<QVector<LayerDeclaration>()> m_manifestProvider;
+    std::function<bool()> m_readOnlyProvider;
 };

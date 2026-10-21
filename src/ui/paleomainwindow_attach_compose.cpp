@@ -47,6 +47,43 @@
 // ---------------------------------------------------------------------------
 // 编图页接线：因子融合 + 相面多边形化（W4 拆分段）
 // ---------------------------------------------------------------------------
+
+namespace {
+
+// 批量出图参数对话框（输出格式 / DPI）——从 attachComposePage 抽出：该函数体
+// 规模受 file-budget 冻结值约束（只缩不涨），这段纯模态取值独立成辅函数更稳。
+// tr 走 PaleoMainWindow 上下文（静态调用），译文随主窗、不进 QObject 上下文。
+bool askHorizonBatchExportOptions(QWidget *parent, PaleoHorizonBatchExport::Format *format,
+                                  double *dpi)
+{
+  QDialog options(parent);
+  options.setWindowTitle(PaleoMainWindow::tr("按层位批量导出"));
+  auto *form = new QFormLayout(&options);
+  auto *formatBox = new QComboBox(&options); // 下拉项过 tr()——用户可见文案，漏翻译即漏扫（同 folderconfirm.cpp:39 口径）
+  formatBox->addItem(PaleoMainWindow::tr("PDF"), int(PaleoHorizonBatchExport::Format::Pdf));
+  formatBox->addItem(PaleoMainWindow::tr("PNG"), int(PaleoHorizonBatchExport::Format::Png));
+  formatBox->addItem(PaleoMainWindow::tr("SVG"), int(PaleoHorizonBatchExport::Format::Svg));
+  if (PaleoLayoutExport::formatAvailable(PaleoLayoutExport::Format::Tiff))
+    formatBox->addItem(PaleoMainWindow::tr("TIFF"), int(PaleoHorizonBatchExport::Format::Tiff));
+  auto *dpiBox = new QSpinBox(&options);
+  dpiBox->setRange(72, 1200);
+  dpiBox->setValue(300);
+  form->addRow(PaleoMainWindow::tr("输出格式"), formatBox);
+  form->addRow(PaleoMainWindow::tr("分辨率（DPI）"), dpiBox);
+  auto *buttons =
+      new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &options);
+  form->addRow(buttons);
+  QObject::connect(buttons, &QDialogButtonBox::accepted, &options, &QDialog::accept);
+  QObject::connect(buttons, &QDialogButtonBox::rejected, &options, &QDialog::rejected);
+  if (options.exec() != QDialog::Accepted)
+    return false;
+  *format = PaleoHorizonBatchExport::Format(formatBox->currentData().toInt());
+  *dpi = dpiBox->value();
+  return true;
+}
+
+} // namespace
+
 void PaleoMainWindow::attachComposePage(ComposePage *composePage,
                                         CompositionWorkflow *compose,
                                         QgisLayoutService *layoutSvc)
@@ -397,33 +434,26 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
                   PaleoHorizonBatchExport::resolveHorizonLayers(m_layerSvc);
               request.catalog = catalog;
               request.projectDir = projectDir;
-              request.dpi = 300.0;
-              request.format = PaleoHorizonBatchExport::Format::Pdf;
-              QDialog options(this); options.setWindowTitle(tr("按层位批量导出"));
-              auto *form = new QFormLayout(&options);
-              auto *format = new QComboBox(&options); // 下拉项过 tr()——用户可见文案，漏翻译即漏扫（同 folderconfirm.cpp:39 口径）
-              format->addItem(tr("PDF"), int(PaleoHorizonBatchExport::Format::Pdf));
-              format->addItem(tr("PNG"), int(PaleoHorizonBatchExport::Format::Png));
-              format->addItem(tr("SVG"), int(PaleoHorizonBatchExport::Format::Svg));
-              if (PaleoLayoutExport::formatAvailable(PaleoLayoutExport::Format::Tiff))
-                format->addItem(tr("TIFF"), int(PaleoHorizonBatchExport::Format::Tiff));
-              auto *dpi = new QSpinBox(&options); dpi->setRange(72, 1200); dpi->setValue(300);
-              form->addRow(tr("输出格式"), format); form->addRow(tr("分辨率（DPI）"), dpi);
-              auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &options);
-              form->addRow(buttons);
-              connect(buttons, &QDialogButtonBox::accepted, &options, &QDialog::accept);
-              connect(buttons, &QDialogButtonBox::rejected, &options, &QDialog::reject);
-              if (options.exec() != QDialog::Accepted) return;
+              PaleoHorizonBatchExport::Format format = PaleoHorizonBatchExport::Format::Pdf;
+              double dpi = 300.0;
+              if (!askHorizonBatchExportOptions(this, &format, &dpi))
+                return;
               const auto destination = QFileDialog::getExistingDirectory(this, tr("选择批量图件导出父目录"));
               if (destination.isEmpty()) return;
-              request.format = PaleoHorizonBatchExport::Format(format->currentData().toInt());
-              request.dpi = dpi->value();
+              request.format = format;
+              request.dpi = dpi;
               request.outputDirectory = QDir(destination).filePath("paleo_horizons_" +
                   QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") + "_" + QUuid::createUuid().toString(QUuid::Id128).left(8));
 
 
+              // D.24：done 由 receiver 为 PaleoTaskService（AppContext 持有、
+              // 比窗口活得久）的连接调用，窗口在出图任务在飞时被销毁即解引用
+              // 已释放的 this——按 geologicalexport/mapexport/paleomaplibrary
+              // 同族口径用 QPointer 守窗口本体（startAsync 不接收 context 对象，
+              // 守卫只能落在 report 内）。
+              const QPointer<PaleoMainWindow> self(this);
               const QPointer<QWidget> page(composePage);
-              const auto report = [this, page](const PaleoHorizonBatchExport::Result &result,
+              const auto report = [self, page](const PaleoHorizonBatchExport::Result &result,
                                                bool cancelled) {
                 QStringList lines{result.summary()};
                 if (!result.directory.isEmpty()) lines << tr("导出目录：%1").arg(result.directory);
@@ -432,7 +462,8 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
                 for (const auto &outcome : result.horizons)
                   lines << (outcome.ok ? tr("· %1 → %2").arg(outcome.horizon, outcome.file)
                                        : tr("· %1 失败：%2").arg(outcome.horizon, outcome.error));
-                PaleoNotify::report(this, tr("批量出图"), lines.join(QLatin1Char('\n')));
+                if (self)
+                  PaleoNotify::report(self, tr("批量出图"), lines.join(QLatin1Char('\n')));
                 if (page)
                   if (auto *status = page->findChild<QLabel *>(QStringLiteral("statusLabel")))
                     status->setText(result.summary());

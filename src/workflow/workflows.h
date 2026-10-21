@@ -282,7 +282,8 @@ class ConstraintWorkflow : public QObject
     bool runFactorWork(const QString &title,
                        std::function<QString(PaleoTask *)> compute,
                        std::function<bool(QString *)> publish,
-                       std::function<void()> cleanup, QString *error);
+                       std::function<void()> cleanup, QString *error,
+                       const QString &algorithmId = QString());
     bool runFactorAlgorithm(
         const QString &horizon, const QString &engine,
         const QVariantMap &params,

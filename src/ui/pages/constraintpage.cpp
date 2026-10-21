@@ -224,7 +224,11 @@ void ConstraintPage::wireFactorTableSelection( QTableWidget *factors )
                  property( kFactorGenProp ).toMap().value( factorIdOfRow( factors, newRow ) ).toString();
              if ( !newLayer.isEmpty() )
                emit factorVisibilityRequested( newLayer, true );
-             // 换因素后按该因素的井点值极差重设等值距；没有值域时，
+             // 换因素后先把逐井表按已保存提取恢复到新因素（#544 口径在
+             // itemChanged 路径的漏网：不恢复则 applySuggestedContourInterval
+             // 按旧因素的值域算等值距默认值，错误默认会被静默提交）。
+             restoreWellFactorDisplay();
+             // 再按该因素的井点值极差重设等值距；没有值域时，
              // 非结构因素若残留自动态 0 则回到 20，避免间距必须为正却提交 0。
              applySuggestedContourInterval();
              updateFactorActionStates();

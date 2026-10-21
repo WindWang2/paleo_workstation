@@ -64,6 +64,21 @@ extern "C" int lstat64(const char *path, struct stat64 *out) noexcept {
 }
 #endif
 
+namespace {
+// 顶级导航根按文本前缀定位：#565 之后树顶新增「工区概况」「现有古地理图」
+// 「工区图件输出」三根，实体分组整体后移——索引式断言随根结构反复脆断
+// （曾致 topLevelItem(1) 指向空根、child(0) 空指针段错误），改按文本查找。
+QTreeWidgetItem *topLevelRootByPrefix(QTreeWidget *tree, const QString &prefix)
+{
+  if (!tree)
+    return nullptr;
+  for (int i = 0; i < tree->topLevelItemCount(); ++i)
+    if (tree->topLevelItem(i)->text(0).startsWith(prefix))
+      return tree->topLevelItem(i);
+  return nullptr;
+}
+} // namespace
+
 class TestAssetPaging : public QObject {
   Q_OBJECT
 private slots:
@@ -181,9 +196,10 @@ private slots:
     QVERIFY(table->rowCount() <= table->property("paleo.pageSize").toInt());
   }
   // 数据导航树（用户契约）：大 catalog（>200，原降级分页树阈值）不再走
-  // 「测区+当页拍平」——完整实体树，顶级五组（测区/测井/地震/成果图件/
-  // 辅助资料）全部默认收拢；已挂井曲线只在井节点下（无「未关联曲线」
-  // 重复面）；树形视图下分页器隐藏（树滚动，不分页）。
+  // 「测区+当页拍平」——完整实体树，实体分组（测井/地震/成果图件/辅助资料
+  // /计划井）全部默认收拢；#565 起树顶另有「工区概况」（按设计默认展开）、
+  // 「现有古地理图」「工区图件输出」三根；已挂井曲线只在井节点下（无
+  // 「未关联曲线」重复面）；树形视图下分页器隐藏（树滚动，不分页）。
   void navTreeFullStructureBeyondPagingThreshold() {
     QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 300));
     DataImportService importer; importer.setProjectDir(dir.path()); PreviewDocService doc(&importer);
@@ -194,17 +210,33 @@ private slots:
     QVERIFY(tree);
     QVERIFY2(tree->topLevelItemCount() >= 5,
              qPrintable(QStringLiteral("top=%1").arg(tree->topLevelItemCount())));
-    QCOMPARE(tree->topLevelItem(0)->text(0), QStringLiteral("测区"));
-    QVERIFY(tree->topLevelItem(1)->text(0).startsWith(QStringLiteral("测井 (300 井)")));
-    QCOMPARE(tree->topLevelItem(2)->text(0), QStringLiteral("地震 (0)"));
-    QCOMPARE(tree->topLevelItem(3)->text(0), QStringLiteral("成果图件 (0)"));
-    QCOMPARE(tree->topLevelItem(4)->text(0), QStringLiteral("辅助资料 (0)"));
-    for (int i = 0; i < tree->topLevelItemCount(); ++i)
-      QVERIFY2(!tree->topLevelItem(i)->isExpanded(),
-               qPrintable(tree->topLevelItem(i)->text(0)));
+    // 顶级根按文本定位（#565 新增三根后索引整体后移，不再钉位次）。
+    auto *overviewRoot = topLevelRootByPrefix(tree, QStringLiteral("工区概况"));
+    auto *paleomapRoot = topLevelRootByPrefix(tree, QStringLiteral("现有古地理图"));
+    auto *outputRoot = topLevelRootByPrefix(tree, QStringLiteral("工区图件输出"));
+    auto *seismicRoot = topLevelRootByPrefix(tree, QStringLiteral("地震 ("));
+    auto *productRoot = topLevelRootByPrefix(tree, QStringLiteral("成果图件 ("));
+    auto *auxRoot = topLevelRootByPrefix(tree, QStringLiteral("辅助资料 ("));
+    QVERIFY(overviewRoot && paleomapRoot && outputRoot);
+    QVERIFY(seismicRoot && productRoot && auxRoot);
+    QTreeWidgetItem *wellRoot = topLevelRootByPrefix(tree, QStringLiteral("测井 ("));
+    QVERIFY2(wellRoot != nullptr, "测井根缺失");
+    QCOMPARE(wellRoot->text(0), QStringLiteral("测井 (300 井)"));
+    QCOMPARE(seismicRoot->text(0), QStringLiteral("地震 (0)"));
+    QCOMPARE(productRoot->text(0), QStringLiteral("成果图件 (0)"));
+    QCOMPARE(auxRoot->text(0), QStringLiteral("辅助资料 (0)"));
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+      QTreeWidgetItem *root = tree->topLevelItem(i);
+      // 「工区概况」按 #565 设计默认展开（看板/工区地图常驻视野）；
+      // 「辅助资料」有子节点时按产品规则展开（datalist_tree.cpp 渲染段：
+      // 避免已导入文档停在收拢组里），同样不参与收拢断言。
+      const QString t = root->text(0);
+      if (t == QStringLiteral("工区概况") || t.startsWith(QStringLiteral("辅助资料 (")))
+        continue;
+      QVERIFY2(!root->isExpanded(), qPrintable(t));
+    }
 
     // 300 口井全挂在「测井」组下（合成夹具每井一条已决 LAS，无未关联面）。
-    QTreeWidgetItem *wellRoot = tree->topLevelItem(1);
     QCOMPARE(wellRoot->childCount(), 300);
     for (int i = 0; i < wellRoot->childCount(); ++i) {
       QVERIFY(!wellRoot->child(i)->text(0).startsWith(QStringLiteral("未关联曲线")));
@@ -233,7 +265,8 @@ private slots:
 
     auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
     QVERIFY(tree);
-    QTreeWidgetItem *wellRoot = tree->topLevelItem(1);
+    QTreeWidgetItem *wellRoot = topLevelRootByPrefix(tree, QStringLiteral("测井 ("));
+    QVERIFY2(wellRoot != nullptr, "测井根缺失");
     wellRoot->setExpanded(true);
     wellRoot->child(0)->setExpanded(true);
     const QString lasId =
@@ -251,9 +284,11 @@ private slots:
     panel.refreshAssetTable();
     auto *tree2 = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
     QVERIFY(tree2);
-    QVERIFY2(tree2->topLevelItem(1)->isExpanded(),
+    QTreeWidgetItem *wellRoot2 = topLevelRootByPrefix(tree2, QStringLiteral("测井 ("));
+    QVERIFY2(wellRoot2 != nullptr, "测井根缺失");
+    QVERIFY2(wellRoot2->isExpanded(),
              "rebuild must preserve expanded top-level groups");
-    QVERIFY2(tree2->topLevelItem(1)->child(0)->isExpanded(),
+    QVERIFY2(wellRoot2->child(0)->isExpanded(),
              "rebuild must preserve expanded child nodes");
   }
 
@@ -298,7 +333,8 @@ private slots:
           return root->child(i);
       return nullptr;
     };
-    QTreeWidgetItem *wellRoot = tree->topLevelItem(1);
+    QTreeWidgetItem *wellRoot = topLevelRootByPrefix(tree, QStringLiteral("测井 ("));
+    QVERIFY2(wellRoot != nullptr, "测井根缺失");
     QTreeWidgetItem *w0 = findWell(wellRoot, wells.at(0).id);
     QTreeWidgetItem *w1 = findWell(wellRoot, wells.at(1).id);
     QTreeWidgetItem *w2 = findWell(wellRoot, wells.at(2).id);
@@ -330,7 +366,8 @@ private slots:
     branch0->setExpanded(true);
     panel.refreshAssetTable();
     auto *tree2 = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
-    QTreeWidgetItem *wellRoot2 = tree2->topLevelItem(1);
+    QTreeWidgetItem *wellRoot2 = topLevelRootByPrefix(tree2, QStringLiteral("测井 ("));
+    QVERIFY2(wellRoot2 != nullptr, "测井根缺失");
     QTreeWidgetItem *w0r = findWell(wellRoot2, wells.at(0).id);
     QTreeWidgetItem *w1r = findWell(wellRoot2, wells.at(1).id);
     QVERIFY(w0r && w1r);
@@ -351,7 +388,8 @@ private slots:
     panel.refreshAssetTable(); panel.applyListFilter(); QCoreApplication::processEvents();
     auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
     QVERIFY(tree);
-    QTreeWidgetItem *wellRoot = tree->topLevelItem(1);
+    QTreeWidgetItem *wellRoot = topLevelRootByPrefix(tree, QStringLiteral("测井 ("));
+    QVERIFY2(wellRoot != nullptr, "测井根缺失");
     QCOMPARE(wellRoot->childCount(), 5);
     // 初建（空树 → 全量插入超阈值）走全量兜底。
     QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::FullRebuild));
@@ -513,7 +551,8 @@ private slots:
     panel.refreshAssetTable(); panel.applyListFilter(); QCoreApplication::processEvents();
     auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
     QVERIFY(tree);
-    QTreeWidgetItem *wellRoot = tree->topLevelItem(1);
+    QTreeWidgetItem *wellRoot = topLevelRootByPrefix(tree, QStringLiteral("测井 ("));
+    QVERIFY2(wellRoot != nullptr, "测井根缺失");
     QTreeWidgetItem *wellItem = nullptr;
     for (int i = 0; i < wellRoot->childCount(); ++i)
       if (wellRoot->child(i)->data(0, Qt::UserRole + 1).toString() == wellId)

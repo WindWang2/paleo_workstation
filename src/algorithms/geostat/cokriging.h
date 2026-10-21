@@ -45,9 +45,14 @@ struct CoKrigingModel
 
   bool valid() const
   {
+    // D2（同 kriging.cpp modelUsable / sgs 入口）：零信号模型
+    // （nugget=sill=0，γ≡0）会让加边方程组只剩 Lagrange 行，LU 判奇异
+    // → 每格失败而 Status 仍 Ok（整幅 nodata 的静默陷阱）。协/主两个
+    // 变差都要过总基台闸：γ22 零信号同样使次级块秩亏。
     return std::fabs( crossCorrelation ) <= 1.0 + 1e-12 && primary.range > 0 &&
-           primary.nugget >= 0 && primary.sill >= 0 && secondary.range > 0 &&
-           secondary.nugget >= 0 && secondary.sill >= 0;
+           primary.nugget >= 0 && primary.sill >= 0 && primary.nugget + primary.sill > 0 &&
+           secondary.range > 0 && secondary.nugget >= 0 && secondary.sill >= 0 &&
+           secondary.nugget + secondary.sill > 0;
   }
 
   // 交叉半方差（对称：γ12 是 h 的偶函数）。

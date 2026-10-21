@@ -425,9 +425,11 @@ void ConstraintPage::updateFactorActionStates()
   if (known && interpolantEngine(def.processingAlgId) && property("paleo.page.fieldsbound").toBool()) {
     auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
     auto *h = child<QComboBox>(this, "horizonCombo");
-    if (!property("paleo.page.constraintsready").toBool()) {
+    // 未刷新约束计划前视为「无约束可运行」；只有计划判定会被拒绝时才阻止。
+    const QVariant constraintsReady = property("paleo.page.constraintsready");
+    if (constraintsReady.isValid() && !constraintsReady.toBool()) {
       generate->setEnabled(false);
-      generate->setToolTip(tr("步骤 2：先绘制或导入本层位的间隔线和方向线"));
+      generate->setToolTip(property("paleo.page.constraintreadinessmessage").toString());
       generate->setProperty("preparationTarget", QStringLiteral("constraintFamiliesSection"));
     } else if (!wf || !h ||
                wf->preparedWellFactorVersion(h->currentText(), factorIdOfRow(factors, r),

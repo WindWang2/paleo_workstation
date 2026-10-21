@@ -112,7 +112,14 @@ FaciesQaResult runFaciesQa( const std::vector<FaciesMapUnit> &units,
   for ( const QaConstraintLine &constraint : constraints )
   {
     if ( constraint.points.size() < 2 )
+    {
+      // 保槽：退化约束（点数 <2）也必须占位。检测器 4 用同一个 c 双索引
+      // constraintGeoms[c]（几何）与 constraints[c].id（血缘）——少一个槽位
+      // 就整体前移，冲突证据会记成另一条约束线的 id（空槽由消费侧
+      // !constraintGeoms[c] 跳过，makeLineString 失败同理保槽）。
+      constraintGeoms.push_back( GeomPtr() );
       continue;
+    }
     constraintGeoms.push_back( makeLineString( ctx.handle, constraint.points ) );
   }
 

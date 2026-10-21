@@ -537,6 +537,78 @@ QStringList orderWellsByPosition(const QStringList &ids,
   return out;
 }
 
+int nearestWellWithin(const QVector<Well> &wellsWithCoords, double x, double y,
+                      double tolMapUnits) {
+  int best = -1;
+  double bestD2 = tolMapUnits * tolMapUnits;
+  for (int i = 0; i < wellsWithCoords.size(); ++i) {
+    const Well &w = wellsWithCoords.at(i);
+    if (!w.hasCoordinates())
+      continue;
+    const double dx = w.x - x, dy = w.y - y;
+    const double d2 = dx * dx + dy * dy;
+    if (best < 0 ? d2 <= bestD2 : d2 < bestD2) {
+      best = i;
+      bestD2 = d2;
+    }
+  }
+  return best;
+}
+
+QStringList orderWellsNearestNeighbor(const QStringList &ids,
+                                      const QVector<Well> &wellsWithCoords) {
+  const auto locate = [&](const QString &id) -> const Well * {
+    for (const Well &w : wellsWithCoords)
+      if (w.id == id)
+        return &w;
+    return nullptr;
+  };
+  QVector<int> pending; // 有坐标井的 ids 下标
+  QStringList tail;     // 缺坐标（保原相对序排末）
+  for (int i = 0; i < ids.size(); ++i) {
+    const Well *w = locate(ids.at(i));
+    if (w && w->hasCoordinates())
+      pending << i;
+    else
+      tail << ids.at(i);
+  }
+  if (pending.isEmpty())
+    return ids;
+  // 起点：最西端（x 最小；并列 y 最小；再并列取先出现者）
+  int start = 0;
+  for (int k = 1; k < pending.size(); ++k) {
+    const Well *a = locate(ids.at(pending.at(k)));
+    const Well *b = locate(ids.at(pending.at(start)));
+    if (a->x < b->x || (a->x == b->x && a->y < b->y))
+      start = k;
+  }
+  QVector<bool> used(pending.size(), false);
+  used[start] = true;
+  QStringList out;
+  out << ids.at(pending.at(start));
+  const Well *cur = locate(ids.at(pending.at(start)));
+  for (int step = 1; step < pending.size(); ++step) {
+    int next = -1;
+    double bestD2 = std::numeric_limits<double>::max();
+    for (int k = 0; k < pending.size(); ++k) {
+      if (used.at(k))
+        continue;
+      const Well *cand = locate(ids.at(pending.at(k)));
+      const double dx = cand->x - cur->x, dy = cand->y - cur->y;
+      const double d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) { // 严格小于：距离并列取先出现者（确定性）
+        bestD2 = d2;
+        next = k;
+      }
+    }
+    used[next] = true;
+    out << ids.at(pending.at(next));
+    cur = locate(ids.at(pending.at(next)));
+  }
+  out << tail;
+  return out;
+}
+
 QVector<double> wellPathFractions(const QVector<Well> &wells) {
   QVector<double> out;
   if (wells.isEmpty())

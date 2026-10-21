@@ -601,6 +601,62 @@ private slots:
     QCOMPARE(orderWellsByPosition({"A"}, pos), QStringList({"A"}));
   }
 
+  // ---- 连井剖面「按空间关系重排」：最近邻链 + 最近井查找 ----
+  void orderWellsNearestNeighborChains() {
+    QVector<Well> wells;
+    const double xs[4] = {0.0, 10.0, 20.0, 5.0};
+    const char *names[4] = {"A", "B", "C", "D"};
+    for (int i = 0; i < 4; ++i) {
+      Well w;
+      w.id = QLatin1String(names[i]);
+      w.x = xs[i];
+      w.y = 0.0;
+      wells << w;
+    }
+    // 起点 = 最西端 A；其后贪心最近：A→D(5)→B(10)→C(20)
+    QCOMPARE(orderWellsNearestNeighbor({"A", "B", "C", "D"}, wells),
+             QStringList({"A", "D", "B", "C"}));
+    // 乱序输入同结果（序由空间决定，不由输入序决定）
+    QCOMPARE(orderWellsNearestNeighbor({"C", "D", "B", "A"}, wells),
+             QStringList({"A", "D", "B", "C"}));
+    // 缺坐标井保原序排末（orderWellsByPosition 同口径）
+    Well noCoord;
+    noCoord.id = QStringLiteral("E");
+    wells << noCoord;
+    QCOMPARE(orderWellsNearestNeighbor({"E", "A", "B", "C", "D"}, wells),
+             QStringList({"A", "D", "B", "C", "E"}));
+    // 单井 / 空集 / 全缺坐标 → 原序
+    QCOMPARE(orderWellsNearestNeighbor({"A"}, wells), QStringList({"A"}));
+    QCOMPARE(orderWellsNearestNeighbor({}, wells), QStringList({}));
+    Well noCoord2;
+    noCoord2.id = QStringLiteral("F");
+    QCOMPARE(orderWellsNearestNeighbor({"E", "F"}, {noCoord, noCoord2}),
+             QStringList({"E", "F"}));
+  }
+
+  void nearestWellWithinTolerance() {
+    QVector<Well> wells;
+    const double xs[2] = {0.0, 100.0};
+    for (int i = 0; i < 2; ++i) {
+      Well w;
+      w.id = QString::fromLatin1("W%1").arg(i);
+      w.x = xs[i];
+      w.y = 0.0;
+      wells << w;
+    }
+    QCOMPARE(nearestWellWithin(wells, 3.0, 4.0, 10.0), 0);  // 距 W0 = 5 ≤ 10
+    QCOMPARE(nearestWellWithin(wells, 50.0, 0.0, 10.0), -1); // 两都超容差
+    QCOMPARE(nearestWellWithin(wells, 95.0, 0.0, 10.0), 1);  // 距 W1 = 5
+    QCOMPARE(nearestWellWithin(wells, 0.0, 0.0, 0.0), 0);    // 零距离零容差命中
+    // 容差边界：恰好压线命中
+    QCOMPARE(nearestWellWithin(wells, 10.0, 0.0, 10.0), 0);
+    // 缺坐标井不参与（前置一口无坐标井后下标整体 +1）
+    Well noCoord;
+    noCoord.id = QStringLiteral("N");
+    wells.prepend(noCoord);
+    QCOMPARE(nearestWellWithin(wells, 3.0, 4.0, 10.0), 1);
+  }
+
   // ---- 栅状图自动布点（最小交叉启发式）----
   void fencePlanning() {
     // 3×2 井网（x 步 100 跨 200、y 步 80——PCA 主轴 = x 向）。

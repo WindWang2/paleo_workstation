@@ -60,6 +60,8 @@ class DataPreviewTabs : public QWidget
 
     // 打开测区全景地图画布（可以用 QGIS 画布）
     void openSurveyArea();
+    // 文件菜单优先作用于正在查看的地图预览；返回是否已由当前预览处理。
+    bool applyBasemapToCurrentMap(const QString &spec);
     void openProjectDashboard();
 
     // 任务服务（wave2 D1）：接上后地震标签的「索引+SHA 复验+测线解码」进

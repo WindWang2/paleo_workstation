@@ -10,6 +10,7 @@
 
 #include <QBoxLayout>
 #include <QLabel>
+#include <QTabWidget>
 
 namespace {
 // 显示井位/井点的预览页 → 控件对象名前缀。
@@ -24,6 +25,15 @@ QString basemapPrefix(const QString &pageName)
   return prefixes.value(pageName);
 }
 } // namespace
+
+bool DataPreviewTabs::applyBasemapToCurrentMap(const QString &spec)
+{
+  if (!isVisible() || !m_tabs || !m_tabs->currentWidget()) return false;
+  auto *control = m_tabs->currentWidget()->findChild<PreviewBasemapControl *>();
+  if (!control || !control->isVisible()) return false;
+  control->applyChoice(spec);
+  return true;
+}
 
 QWidget *DataPreviewTabs::attachOnlineBasemap(QWidget *content)
 {

@@ -129,18 +129,17 @@ bool PreviewBasemapControl::applyChoice(const QString &spec, bool remember)
 {
   if (!m_page) return false;
   auto *canvas = m_page->mapCanvas()->canvas();
-  if (auto *old = ob::findLayer(m_page->mapCanvas()->layers())) {
-    m_page->removeMapLayer(old);
-    ob::destroyLayer(old);
-  }
   const bm::Choice choice = bm::decode(spec);
   QString note;
   auto *layer = bm::build(spec, canvas, m_project, m_page, &note);
   if (choice.kind != bm::Kind::None && !layer) {
-    selectInCombo(ob::noneId());
-    m_current = ob::noneId();
+    selectInCombo(m_current);
     setStatus(tr("底图未加载：%1").arg(note));
     return false;
+  }
+  if (auto *old = ob::findLayer(m_page->mapCanvas()->layers())) {
+    m_page->removeMapLayer(old);
+    ob::destroyLayer(old);
   }
   m_current = choice.kind == bm::Kind::None ? ob::noneId() : spec;
   if (remember) bm::saveChoice(m_project, m_current);
@@ -154,6 +153,7 @@ bool PreviewBasemapControl::applyChoice(const QString &spec, bool remember)
       });
     }
   }
+  m_page->selectBasemap(layer);
   const QString attribution = paleo::mapreference::attribution(canvas);
   QStringList parts;
   if (!note.isEmpty()) parts << note;

@@ -248,6 +248,28 @@ bool PreviewMapCanvas::isLayerVisible( const QgsMapLayer *layer ) const
   return m_visible.value( layer, true );
 }
 
+void PreviewMapCanvas::selectBasemap( QgsMapLayer *selected )
+{
+  if (m_projectBound || (selected && !m_layers.contains(selected))) return;
+  // 临时显隐属于此画布，按图层 ID 保存；换源时只保留仍在本画布的层。
+  const auto previous = property("paleoPreviewBasemapVisibility").toMap();
+  QVariantMap saved;
+  if (!selected) {
+    for (auto *layer : std::as_const(m_layers))
+      if (previous.contains(layer->id())) m_visible[layer] = previous.value(layer->id()).toBool();
+  } else {
+    for (auto *layer : std::as_const(m_layers)) {
+      if (layer == selected || !layer->customProperty(QStringLiteral("paleoBasemap")).toBool()) continue;
+      saved.insert(layer->id(), previous.value(layer->id(), m_visible.value(layer, true)));
+      m_visible[layer] = false;
+    }
+    m_visible[selected] = true;
+  }
+  setProperty("paleoPreviewBasemapVisibility", saved);
+  syncCanvasLayers();
+  if (m_canvas) m_canvas->refresh();
+}
+
 void PreviewMapCanvas::setLayerOpacity( QgsMapLayer *layer, double opacity )
 {
   if ( !layer || !m_layers.contains( layer ) )

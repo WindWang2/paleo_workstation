@@ -27,7 +27,7 @@ public:
                         QLabel *status = nullptr);
 
   // 应用选择串（none / 预置 id / xyz:URL / file:路径 / layer:图层 id）。
-  // 成功返回 true 并按工程记忆；失败保持「无」并在状态里写原因。
+  // 成功返回 true 并按工程记忆；失败保留当前底图并在状态里写原因。
   bool applyChoice(const QString &spec, bool remember = true);
   QString currentChoice() const { return m_current; }
   QString statusText() const;

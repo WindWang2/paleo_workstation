@@ -654,6 +654,13 @@ void PreviewMapPage::addMapLayer( QgsMapLayer *layer, const QString &name,
   // mapLayersChanged 由 canvas layersChanged 统一转发（不双发）。
 }
 
+void PreviewMapPage::selectBasemap( QgsMapLayer *layer )
+{
+  m_canvas->selectBasemap(layer);
+  for (auto *entry : m_canvas->layers())
+    m_toc->setLayerVisibleInUi(entry, m_canvas->isLayerVisible(entry));
+}
+
 void PreviewMapPage::addMapLayerAtBottom( QgsMapLayer *layer, const QString &name )
 {
   if ( !layer )

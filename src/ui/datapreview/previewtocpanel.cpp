@@ -490,9 +490,11 @@ void PreviewTocPanel::rebuildQuickPanel()
     return;
   }
   m_suppressSignals = true;
-  if ( auto *rl = qobject_cast<QgsRasterLayer *>( l ) )
+  if ( auto *rl = qobject_cast<QgsRasterLayer *>( l );
+       rl && !rl->customProperty(QStringLiteral("paleoBasemap")).toBool() )
   {
     m_quickPanel->setCurrentIndex( 1 );
+    // 底图保留原生 RGB 样式。全球 XYZ 不能按分析栅格扫描统计/直方图。
     const QPointer<QgsRasterLayer> selected = rl;
     PreviewRasterAnalysis::requestSummary(
         rl->source(), m_tasks, this,
@@ -545,6 +547,7 @@ void PreviewTocPanel::rebuildQuickPanel()
 
 void PreviewTocPanel::applyRasterStyle( QgsRasterLayer *rl )
 {
+  if (!rl || rl->customProperty(QStringLiteral("paleoBasemap")).toBool()) return;
   const QString rampId = m_rampCombo->currentData().toString();
   const auto *preset = PreviewRasterAnalysis::rampPreset( rampId );
   if ( !preset )

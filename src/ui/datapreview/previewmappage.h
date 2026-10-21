@@ -49,6 +49,7 @@ class PreviewMapPage : public QWidget
     PaleoDecorationManager *decorations() const { return m_decor; }
     void setTaskService(PaleoTaskService *tasks);
     PreviewTocPanel *tocPanel() const { return m_toc; }
+    void selectBasemap( QgsMapLayer *layer );
     PreviewIdentifyPanel *identifyPanel() const { return m_identify; }
     PreviewProfilePanel *profilePanel() const { return m_profile; }
 

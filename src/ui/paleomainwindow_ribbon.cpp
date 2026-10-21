@@ -48,6 +48,8 @@ void addOnlineBasemapMenu(QMenu *fileMenu, QgisProjectService *projectService,
                        QLatin1Char('\n') + source.termsUrl);
     QObject::connect(action, &QAction::triggered, window,
                      [projectService, canvasController, window, id = source.id] {
+      for (auto *preview : window->findChildren<DataPreviewTabs *>())
+        if (preview->applyBasemapToCurrentMap(id)) return;
       if (!projectService || projectService->isOpening() || projectService->projectPath().isEmpty()) return;
       QString error;
       auto *layer = paleo::onlinebasemap::addPresetToProject(projectService->project(), id, &error);

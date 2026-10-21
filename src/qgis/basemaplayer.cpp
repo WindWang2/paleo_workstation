@@ -35,8 +35,10 @@ void setError(QString *error, const QString &text)
 
 bool isXyzLayer(const QgsMapLayer *layer)
 {
-  return layer && layer->providerType() == QLatin1String("wms") &&
-         layer->source().contains(QLatin1String("type=xyz"));
+  return layer && ((layer->providerType() == QLatin1String("wms") &&
+                    layer->source().contains(QLatin1String("type=xyz"))) ||
+                   (layer->providerType() == QLatin1String("gdal") &&
+                    layer->source().startsWith(QLatin1String("<GDAL_WMS>"))));
 }
 } // namespace
 
@@ -118,14 +120,8 @@ QgsMapLayer *createXyz(const QString &url, QObject *parent, QString *error)
   source.id = encode({Kind::Xyz, url.trimmed()});
   source.url = url.trimmed();
   source.title = displayName({Kind::Xyz, source.url});
-  auto *layer = new QgsRasterLayer(onlinebasemap::xyzUri(source), source.title, QStringLiteral("wms"));
-  if (!layer->isValid()) {
-    setError(error, QObject::tr("瓦片源无法创建：%1").arg(layer->error().summary().left(160)));
-    delete layer;
-    return nullptr;
-  }
-  layer->setParent(parent);
-  mark(layer, source.id, source.title);
+  auto *layer = onlinebasemap::createLayer(source, parent, error);
+  if (layer) mark(layer, source.id, source.title);
   return layer;
 }
 
@@ -249,7 +245,7 @@ QgsMapLayer *build(const QString &spec, QgsMapCanvas *canvas, QObject *projectOb
     if (source.url.isEmpty())
       error = QObject::tr("在线底图源无效：%1").arg(choice.value);
     else if (onlinebasemap::canOverlay(canvas, &error))
-      layer = onlinebasemap::createLayer(source, parent);
+      layer = onlinebasemap::createLayer(source, parent, &error);
     if (!layer && error.isEmpty()) error = QObject::tr("在线底图源无效：%1").arg(source.title);
     break;
   }

@@ -45,7 +45,9 @@ QString WellFaciesConfig::validateUrl(const QUrl &url, bool allowInsecureHttp) {
       !isLoopbackHost(url.host()))
     return QObject::tr("测井相预测服务必须使用 https://（http 会明文传输 API "
                        "密钥与井数据）；确需内网 http 请在「预测服务」勾选"
-                       "「允许不加密的 HTTP」");
+                       "「允许不加密的 HTTP」，或在配置文件写入 "
+                       "\"allowInsecureHttp\": true，或设置环境变量 "
+                       "PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP=1");
   return {};
 }
 WellFaciesConfig WellFaciesConfig::load() {
@@ -57,12 +59,9 @@ WellFaciesConfig WellFaciesConfig::load() {
       c.baseUrl = QUrl(j.value("baseUrl").toString());
     c.apiKey = j.value("apiKey").toString().toUtf8();
     c.allowInsecureHttp = j.value("allowInsecureHttp").toBool(false);
-    // 旧配置只存了 http 地址和密钥，没有「允许不加密」开关。那是用户已经
-    // 选定的服务，按明文传输继续用，否则「预测相」会一直停在地址校验。
-    if (!j.contains(QLatin1String("allowInsecureHttp"))
-        && c.baseUrl.scheme().compare(QLatin1String("http"), Qt::CaseInsensitive) == 0
-        && !c.apiKey.trimmed().isEmpty())
-      c.allowInsecureHttp = true;
+    // 安全：不再为缺少该字段的旧配置自动开启明文 http（会静默明文发送
+    // API 密钥）。http 必须显式开启：配置 allowInsecureHttp=true、环境变量
+    // PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP=1 或 CMake 缺省允许 http。
   }
   if (qEnvironmentVariableIsSet("PALEO_WELL_FACIES_URL"))
     c.baseUrl = QUrl(qEnvironmentVariable("PALEO_WELL_FACIES_URL"));
@@ -71,15 +70,19 @@ WellFaciesConfig WellFaciesConfig::load() {
   if (qEnvironmentVariable("PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP") ==
       QLatin1String("1"))
     c.allowInsecureHttp = true;
-  // 2026-10-19 产品裁决：预测相缺省接入自建推理服务（地址与密钥明文内置，
-  // 用户明示豁免安全约束——不设 https 门槛、不入钥匙串）。兜底仅在用户
-  // 配置文件与 env 都未给出地址时生效；显式配置永远优先。
+  // 安全收口（预测专项，取代 #598 的明文内置地址与密钥）：源码不得携带
+  // 服务凭据。缺省地址只能由构建期 CMake 缓存变量
+  // PALEO_WELL_FACIES_DEFAULT_URL 注入（打包机本地给出，不入库）；API 密钥
+  // 永不内置，必须经「预测服务」设置（钥匙串）、配置文件或
+  // PALEO_WELL_FACIES_API_KEY 提供。显式配置永远优先。
+#ifdef PALEO_WELL_FACIES_DEFAULT_URL
   if (c.baseUrl.isEmpty()) {
-    c.baseUrl = QUrl(QStringLiteral("http://118.178.238.153:3100/api/v1"));
-    c.apiKey = QByteArrayLiteral(
-        "ak_898f9c760120bdf8bb37f4547192922f776d495766fbf82a");
+    c.baseUrl = QUrl(QStringLiteral(PALEO_WELL_FACIES_DEFAULT_URL));
+#ifdef PALEO_WELL_FACIES_DEFAULT_ALLOW_HTTP
     c.allowInsecureHttp = true;
+#endif
   }
+#endif
   return c;
 }
 bool WellFaciesConfig::save(QString *error, bool writeKeyToFile) const {
@@ -109,6 +112,17 @@ bool WellFaciesConfig::save(QString *error, bool writeKeyToFile) const {
     *error = f.errorString();
   return false;
 }
+namespace {
+// 服务端错误/进度文本可能回显请求头里的密钥；空密钥时 QString::replace("", …)
+// 会在每个字符边界插入占位符，必须先跳过。
+QString redactKey(QString text, const QByteArray &apiKey) {
+  if (apiKey.isEmpty())
+    return text;
+  text.replace(QString::fromUtf8(apiKey), QStringLiteral("[密钥已隐藏]"));
+  return text;
+}
+} // namespace
+
 WellFaciesService::WellFaciesService(QObject *parent) : QObject(parent) {
   m_poll.setSingleShot(true);
   connect(&m_poll, &QTimer::timeout, this, [this] {
@@ -249,10 +263,10 @@ void WellFaciesService::request(const QString &path, const QJsonObject &body,
           if (!json.value("code").toString().isEmpty())
             detail.prepend(json.value("code").toString() +
                            QStringLiteral(": "));
-          detail.replace(QString::fromUtf8(m_config.apiKey),
-                         QStringLiteral("[密钥已隐藏]"));
           return fail(
-              tr("测井相服务请求失败（HTTP %1）：%2").arg(http).arg(detail));
+              tr("测井相服务请求失败（HTTP %1）：%2")
+                  .arg(http)
+                  .arg(redactKey(detail, m_config.apiKey)));
         }
         if (networkError != QNetworkReply::NoError ||
             parse.error != QJsonParseError::NoError || !document.isObject())
@@ -332,11 +346,10 @@ void WellFaciesService::handlePrediction(const QJsonObject &json) {
     if (error.isEmpty())
       error = QString::fromUtf8(QJsonDocument(json.value("error").toObject())
                                     .toJson(QJsonDocument::Compact));
-    error.replace(QString::fromUtf8(m_config.apiKey),
-                  QStringLiteral("[密钥已隐藏]"));
     return fail(
         tr("测井相推理%1：%2")
-            .arg(status == "failed" ? tr("失败") : tr("已取消"), error));
+            .arg(status == "failed" ? tr("失败") : tr("已取消"),
+                 redactKey(error, m_config.apiKey)));
   }
   if (!QStringList{"queued", "preprocessing", "predicting"}.contains(status))
     return fail(tr("未知推理状态：%1").arg(status));
@@ -349,9 +362,11 @@ void WellFaciesService::handlePrediction(const QJsonObject &json) {
   if (m_jobId.isEmpty())
     return fail(tr("推理已受理，但响应缺少任务 ID"));
   rememberAcceptedJob(m_key, m_jobId);
-  emit progress(
-      qBound(0, json.value("progress").toInt(), 100),
+  // 服务端进度文本同样可能回显请求头（含密钥）：与错误文本一样脱敏后再上屏。
+  const QString message = redactKey(
       json.value("latestMessage")
-          .toString(json.value("message").toString(tr("等待推理完成"))));
+          .toString(json.value("message").toString(tr("等待推理完成"))),
+      m_config.apiKey);
+  emit progress(qBound(0, json.value("progress").toInt(), 100), message);
   m_poll.start(qBound(100, json.value("pollAfterMs").toInt(2000), 30000));
 }

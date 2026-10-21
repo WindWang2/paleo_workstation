@@ -219,23 +219,36 @@ void DataListPanel::buildSearchActions(QWidget *searchRow, QHBoxLayout *layout, 
   actions->addWidget(exportData);
   auto *remove = new QToolButton(row);
   remove->setObjectName("dataDeleteButton"); remove->setText(tr("删除…"));
-  remove->setToolTip(tr("删除选中数据到可回收清单，可撤销或恢复；永久清理在可回收清单中操作"));
+  const QString removeActionTip = tr("删除选中数据到可回收清单，可撤销或恢复；永久清理在可回收清单中操作");
+  remove->setToolTip(removeActionTip);
   remove->setEnabled(false);
-  connect(this, &DataListPanel::selectionCountChanged, remove, [this, remove](int count, int) {
-    remove->setEnabled(count > 0 && m_doc && m_doc->catalog() && !m_doc->catalog()->refusesWrites());
+  // §35/D-11（full-audit-20261020）：禁用必须带 reason tooltip。
+  connect(this, &DataListPanel::selectionCountChanged, remove, [this, remove, removeActionTip](int count, int) {
+    const bool writable = m_doc && m_doc->catalog() && !m_doc->catalog()->refusesWrites();
+    remove->setEnabled(count > 0 && writable);
+    remove->setToolTip(count <= 0    ? tr("请先在列表中选择数据")
+                       : !writable   ? tr("工程只读，不能删除")
+                                     : removeActionTip);
   });
   connect(remove, &QToolButton::clicked, this, &DataListPanel::batchRemoveSoft);
   actions->addWidget(remove);
   auto *normalize = new QToolButton(row);
   normalize->setObjectName("dataNormalizePaleomapButton"); normalize->setText(tr("三级相…"));
-  normalize->setToolTip(tr("将选中现有古地理图整理为相／亚相／微相，使用系统纹理"));
+  const QString normalizeActionTip = tr("将选中现有古地理图整理为相／亚相／微相，使用系统纹理");
+  normalize->setToolTip(normalizeActionTip);
   normalize->setEnabled(false);
-  connect(this, &DataListPanel::selectionCountChanged, normalize, [this, normalize](int, int) {
+  // §35/D-11：启用条件可见——需选中现有古地理图且工程可写（DESIGN 2026-10-19）。
+  connect(this, &DataListPanel::selectionCountChanged, normalize, [this, normalize, normalizeActionTip](int, int) {
     bool enabled = false;
-    if (m_doc && m_doc->catalog() && !m_doc->catalog()->refusesWrites())
+    const bool writable = m_doc && m_doc->catalog() && !m_doc->catalog()->refusesWrites();
+    if (writable)
       for (const auto &id : currentAssetSelection())
         enabled |= m_doc->catalog()->assetById(id).type == "paleogeographic_map";
     normalize->setEnabled(enabled);
+    normalize->setToolTip(enabled                  ? normalizeActionTip
+                          : !writable              ? tr("工程只读，不能整理三级相")
+                          : currentAssetSelection().isEmpty() ? tr("请先在列表中选择数据")
+                                                    : tr("选中现有古地理图后可用"));
   });
   connect(normalize, &QToolButton::clicked, this, &DataListPanel::normalizeSelectedPaleomaps);
   actions->addWidget(normalize);

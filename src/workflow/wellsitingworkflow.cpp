@@ -1,5 +1,9 @@
 // 层：功能
 #include "wellsitingworkflow.h"
+#include "algorithmadapters.h"
+#include "nativecppadapter.h"
+#include "nativeinputs_wellsiting.h"
+#include "../algorithms/wellsiting/wellsiting.h"
 #include "workflowerrors_internal.h" // raiseToErrorHub：#556 吞错路径收口
 
 #include "../catalog/datacatalog.h"
@@ -404,18 +408,26 @@ bool WellSitingWorkflow::runDiagnosis( const WellSitingParams &params, QString *
   }
 
   const paleo::wellsiting::SitingOptions options = kernelOptions( params );
-  const paleo::wellsiting::SitingField field =
-      paleo::wellsiting::sampleField( domain, wellPoints( wells ), options );
-  if ( field.status != paleo::wellsiting::Status::Ok )
+  // algo-atom：wellsiting:diagnose_coverage 经 NativeCppAdapter
+  const std::vector<paleo::wellsiting::Point2> wellsPts = wellPoints( wells );
+  paleo::DiagnoseCoverageInputs diagIn;
+  diagIn.domain = &domain;
+  diagIn.wells = &wellsPts;
+  diagIn.options = options;
+  paleo::wellsiting::SitingField field;
+  paleo::wellsiting::CoverageReport report;
+  QString diagErr;
+  paleo::NativeCppAdapter native;
+  const AlgorithmRunResult diagRun =
+      native.runDiagnoseCoverage( diagIn, &report, &field, &diagErr );
+  if ( !diagRun.ok )
   {
     if ( error )
-      *error = QString::fromStdString( field.message );
+      *error = diagErr.isEmpty() ? QString::fromStdString( field.message ) : diagErr;
     // 旧参数的空洞图层不残留：覆写空 FeatureCollection（声明保留）。
     writeHolesLayer( paleo::wellsiting::CoverageReport{} );
     return false;
   }
-  const paleo::wellsiting::CoverageReport report =
-      paleo::wellsiting::describeField( field );
 
   QVariantMap summary;
   summary.insert( QStringLiteral( "ok" ), true );

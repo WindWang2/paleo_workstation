@@ -235,10 +235,14 @@ struct Seg {
 
 bool nearlySame(Vec3 a, Vec3 b, double tol) { return len(a - b) <= tol; }
 
-QVector<Vec3> chainSegments(const QVector<Seg> &segs, double tol)
+QVector<Vec3> chainSegments(const QVector<Seg> &segs, double tol, int *droppedSegments)
 {
     if (segs.isEmpty())
+    {
+        if (droppedSegments)
+            *droppedSegments = 0;
         return {};
+    }
     QVector<char> used(segs.size(), 0);
     QVector<Vec3> poly;
     used[0] = 1;
@@ -268,6 +272,15 @@ QVector<Vec3> chainSegments(const QVector<Seg> &segs, double tol)
                 grew = true;
             }
         }
+    }
+    // B-10（full-audit-20261020）：平面切拓扑条带可交出多条不连通链（U 形
+    // 断面被同一剖面切两刀）。仍返回 segs[0] 所在主链，但未消费段数经
+    // droppedSegments 如实上报——调用方写进 message，不再静默丢链。
+    if (droppedSegments) {
+        int dropped = 0;
+        for (int i = 0; i < used.size(); ++i)
+            dropped += used[i] ? 0 : 1;
+        *droppedSegments = dropped;
     }
     QVector<Vec3> collapsed;
     for (const Vec3 &p : poly) {
@@ -815,8 +828,9 @@ SlipCurve measureSlip(const paleo::fault::FaultSurfaceMesh &mesh, const HorizonP
     for (const auto &v : mesh.vertices)
         scale = std::max(scale, 1.0 + std::fabs(v.x) + std::fabs(v.y) + std::fabs(v.z));
     const double tol = 1e-6 * scale;
-    const QVector<Vec3> foot = chainSegments(meshPlaneSegments(mesh, footwall), tol);
-    const QVector<Vec3> hang = chainSegments(meshPlaneSegments(mesh, hanging), tol);
+    int footDropped = 0, hangDropped = 0;
+    const QVector<Vec3> foot = chainSegments(meshPlaneSegments(mesh, footwall), tol, &footDropped);
+    const QVector<Vec3> hang = chainSegments(meshPlaneSegments(mesh, hanging), tol, &hangDropped);
     if (foot.size() < 2 || hang.size() < 2) {
         curve.status = SurfaceBuildStatus::NoIntersection;
         curve.message = QStringLiteral("层位面与断面没有成对交线");
@@ -901,6 +915,9 @@ SlipCurve measureSlip(const paleo::fault::FaultSurfaceMesh &mesh, const HorizonP
     curve.heaveMin = heaveMin;
     curve.heaveMax = heaveMax;
     curve.message = QStringLiteral("交线样本 %1，弧长 %2").arg(curve.samples.size()).arg(curve.length, 0, 'f', 3);
+    if (footDropped || hangDropped) // B-10：多链交线——滑距区间只基于主链，如实点名
+        curve.message += QStringLiteral("；交线多链（主链外丢弃段 下盘 %1 + 上盘 %2——滑距区间未覆盖）")
+                             .arg(footDropped).arg(hangDropped);
     return curve;
 }
 
@@ -950,7 +967,8 @@ SectionCut intersectSurfaceWithSection(const paleo::fault::FaultSurfaceMesh &mes
     double scale = 1;
     for (const auto &v : mesh.vertices)
         scale = std::max(scale, 1.0 + std::fabs(v.x) + std::fabs(v.y) + std::fabs(v.z));
-    const QVector<Vec3> poly = chainSegments(meshPlaneSegments(mesh, plane), 1e-6 * scale);
+    int droppedSegments = 0;
+    const QVector<Vec3> poly = chainSegments(meshPlaneSegments(mesh, plane), 1e-6 * scale, &droppedSegments);
     if (poly.size() < 2) {
         cut.status = SurfaceBuildStatus::NoIntersection;
         cut.message = QStringLiteral("断面不穿过该剖面");
@@ -970,6 +988,8 @@ SectionCut intersectSurfaceWithSection(const paleo::fault::FaultSurfaceMesh &mes
         cut.hits.append(hit);
     }
     cut.message = QStringLiteral("交点 %1").arg(cut.hits.size());
+    if (droppedSegments) // B-10：多链交线——回投只含主链，如实点名
+        cut.message += QStringLiteral("；交线多链（主链外丢弃段 %1 未回投）").arg(droppedSegments);
     return cut;
 }
 

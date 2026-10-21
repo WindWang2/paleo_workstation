@@ -2004,8 +2004,9 @@ private slots:
     };
 
     // 全量：两行都入库，实体在 owner 线程提交时建成。progress 分两段（T2
-    // 扫描期进度）：plan 哈希段 total==0（两个小文件各一次），执行段
-    // total==2 递增到 2。
+    // 扫描期进度）：plan 哈希段 total==0（两个小文件各一次，done=已见文件
+    // 数递增——A-03：旧实现恒发 plan.items.size()，违背 reportScan 的
+    // 「已见文件数」契约），执行段 total==2 递增到 2。
     QVector<int> progressSeen;
     QVector<int> totalsSeen;
     int assetsBeforeCommit = -1;
@@ -2021,7 +2022,7 @@ private slots:
     QCOMPARE(assetsBeforeCommit, 0); // produce 期活 catalog 零写入
     QCOMPARE(totalsSeen, QVector<int>({0, 0, 2, 2}));
     QCOMPARE(rows.size(), 2);
-    QCOMPARE(progressSeen, QVector<int>({2, 2, 1, 2}));
+    QCOMPARE(progressSeen, QVector<int>({1, 2, 1, 2}));
     QCOMPARE(importedSpy.count(), 2); // 提交后按原序发射
     using Outcome = FolderRowResult::Outcome;
     for (const auto &r : rows)

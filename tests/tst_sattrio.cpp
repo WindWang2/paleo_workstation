@@ -75,6 +75,31 @@ private:
 private slots:
   void initTestCase() { QVERIFY(tempDir_.isValid()); }
 
+  // B-04（full-audit-20261020）：取消谓词统一「已取消？」语义——
+  // 谓词返回假（未取消）必须照常读回；返回真（已取消）必须如实报取消。
+  void sectionCancelPredicateSemantics()
+  {
+    const SattrSectionHeader out = makeSectionHeader();
+    const QVector<float> values = makeSectionValues(out);
+    const QString path = tempDir_.filePath(QStringLiteral("cancel_pred.sattr"));
+    QString err;
+    QVERIFY2(paleo::sattr::writeSattrSection(path, out, values, &err),
+             qPrintable(err));
+
+    SattrSectionHeader in;
+    QVector<float> readBack;
+    QVERIFY2(paleo::sattr::readSattrSection(path, &in, &readBack, &err,
+                                            [] { return false; }),
+             qPrintable(err));
+    QCOMPARE(readBack.size(), values.size());
+
+    err.clear();
+    QVector<float> ignored;
+    QVERIFY(!paleo::sattr::readSattrSection(path, &in, &ignored, &err,
+                                            [] { return true; }));
+    QVERIFY2(err.contains(QStringLiteral("已取消")), qPrintable(err));
+  }
+
   void sectionRoundTrip()
   {
     const SattrSectionHeader out = makeSectionHeader();

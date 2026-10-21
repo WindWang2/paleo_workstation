@@ -1,7 +1,9 @@
 // tst_wellfaciesconfig — 测井相预测服务配置的传输安全与密钥落盘（#133）。
 #include <QtTest>
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -61,6 +63,21 @@ private slots:
     QVERIFY(c.baseUrl.isEmpty());
     QVERIFY(!c.allowInsecureHttp);
     QVERIFY(!WellFaciesConfig::validateUrl(c.baseUrl, false).isEmpty());
+  }
+
+  void loadWithoutConfigInjectsNoBuiltinCredential()
+  {
+    // 预测专项（安全）：无配置文件、无 env 时 load() 不得兜底注入源码内置
+    // 的服务地址或 API 密钥——明文密钥进源码即随仓库/安装包扩散。只有在
+    // 构建期显式给出 PALEO_WELL_FACIES_DEFAULT_URL（CMake 缓存变量，不入库）
+    // 时才有缺省地址，且密钥仍须用户配置（钥匙串 / env / 配置文件）。
+    QFile::remove(WellFaciesConfig::path());
+    const WellFaciesConfig c = WellFaciesConfig::load();
+    QVERIFY2(c.apiKey.isEmpty(), "load() must not ship a built-in API key");
+#ifndef PALEO_WELL_FACIES_DEFAULT_URL
+    QVERIFY(c.baseUrl.isEmpty());
+    QVERIFY(!c.allowInsecureHttp);
+#endif
   }
 
   void validateUrl_data()
@@ -134,6 +151,32 @@ private slots:
     const WellFaciesConfig back = WellFaciesConfig::load();
     QCOMPARE(back.apiKey, QByteArray("k"));
     QVERIFY(back.allowInsecureHttp);
+  }
+
+  void legacyHttpConfigWithoutOptInIsRefused()
+  {
+    // M1：旧配置只有 http 地址 + 密钥、没有 allowInsecureHttp 字段时，
+    // 不得自动开启明文传输；必须显式开启，且报错要说明开启方式。
+    QDir().mkpath(QFileInfo(WellFaciesConfig::path()).absolutePath());
+    QFile f(WellFaciesConfig::path());
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    const QJsonObject legacy{{QStringLiteral("baseUrl"), QStringLiteral("http://10.0.0.5:3100/api/v1")},
+                             {QStringLiteral("apiKey"), QStringLiteral("legacy-k")}};
+    f.write(QJsonDocument(legacy).toJson());
+    f.close();
+    const WellFaciesConfig c = WellFaciesConfig::load();
+    QCOMPARE(c.baseUrl, QUrl(QStringLiteral("http://10.0.0.5:3100/api/v1")));
+    QCOMPARE(c.apiKey, QByteArray("legacy-k"));
+    QVERIFY(!c.allowInsecureHttp);
+    const QString err = WellFaciesConfig::validateUrl(c.baseUrl, c.allowInsecureHttp);
+    QVERIFY(!err.isEmpty());
+    QVERIFY2(err.contains(QStringLiteral("allowInsecureHttp")), qPrintable(err));
+    QVERIFY2(err.contains(QStringLiteral("PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP=1")), qPrintable(err));
+    // 显式环境变量开启后才允许。
+    qputenv("PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP", "1");
+    QVERIFY(WellFaciesConfig::load().allowInsecureHttp);
+    qunsetenv("PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP");
+    QFile::remove(WellFaciesConfig::path());
   }
 
   void envOverrides()

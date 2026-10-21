@@ -22,6 +22,8 @@ private slots:
   void mutationDemonstration_corruptEntryDetected();
   void crcMismatchRejectedAfterExtract(); // #477
   void zip64CentralDirectoryWraparoundRejected(); // #382
+  void zip64DirectoryOffsetWraparoundRejected(); // A-10（full-audit-20261020）
+  void storedEntrySizeMismatchRejected();
 
 private:
   static QByteArray makeStoredZip(const QMap<QString, QByteArray> &files);
@@ -325,3 +327,65 @@ void TestIoZipArchiveUnit::zip64CentralDirectoryWraparoundRejected()
 
 QTEST_GUILESS_MAIN(TestIoZipArchiveUnit)
 #include "tst_io_ziparchive_unit.moc"
+
+// A-10（full-audit-20261020）：EOCD64 的 directoryOffset 取近 2^64 值、
+// directorySize 取可回绕组合时，加法判界 (offset + size > len) 穿闸，
+// 随后 qint64 换负下标读缓冲区之前的内存。修复后按减法判界拒绝。
+void TestIoZipArchiveUnit::zip64DirectoryOffsetWraparoundRejected()
+{
+  QByteArray archive;
+  archive.append("local-data-padding-not-relevant", 30);
+  const int zip64Offset = archive.size();
+  // EOCD64（56 字节）
+  archive.append("\x50\x4b\x06\x06", 4); // 签名
+  writeU64(archive, 44);  // 记录长 - 12
+  writeU16(archive, 45);  // version made by
+  writeU16(archive, 45);  // version needed
+  writeU32(archive, 0);   // disk
+  writeU32(archive, 0);   // cd disk
+  writeU64(archive, 1);   // 本盘条目数
+  writeU64(archive, 1);   // 总条目数
+  writeU64(archive, 200); // directory size
+  writeU64(archive, 0xFFFFFFFFFFFFFF9CULL); // directory offset = 2^64 - 100
+  // locator（20 字节）
+  archive.append("\x50\x4b\x06\x07", 4);
+  writeU32(archive, 0);
+  writeU64(archive, static_cast<quint64>(zip64Offset));
+  writeU32(archive, 1);
+  // EOCD（22 字节）：count 哨兵触发 ZIP64 解析
+  archive.append("\x50\x4b\x05\x06", 4);
+  writeU16(archive, 0);
+  writeU16(archive, 0);
+  writeU16(archive, 0xFFFF); // 本盘条目数 = 哨兵
+  writeU16(archive, 0xFFFF); // 总条目数 = 哨兵
+  writeU32(archive, 0xFFFFFFFF);
+  writeU32(archive, 0xFFFFFFFF);
+  writeU16(archive, 0);
+
+  const ZipListResult listing = zipListBytes(archive);
+  QVERIFY(!listing.ok);
+  QVERIFY2(listing.error.contains(QStringLiteral("偏移越界")), qPrintable(listing.error));
+}
+
+// stored 条目 compressedSize != uncompressedSize 的声明矛盾必须拒绝：
+// 即便 CRC 与实际字节恰好一致，也不得交出与声明不符长度的数据。
+void TestIoZipArchiveUnit::storedEntrySizeMismatchRejected()
+{
+  QMap<QString, QByteArray> inputFiles;
+  inputFiles.insert(QStringLiteral("m.txt"), QByteArrayLiteral("MISMATCH"));
+  QByteArray zipBytes = makeStoredZip(inputFiles);
+
+  // 中央目录条目 +24 处是 uncompressedSize：由 8 改成 9（compressedSize 保持 8）。
+  const int eocd = zipBytes.lastIndexOf("PK\x05\x06");
+  QVERIFY(eocd > 0);
+  const quint32 cdOffset = static_cast<quint32>(static_cast<unsigned char>(zipBytes.at(eocd + 16))) |
+                           (static_cast<quint32>(static_cast<unsigned char>(zipBytes.at(eocd + 17))) << 8) |
+                           (static_cast<quint32>(static_cast<unsigned char>(zipBytes.at(eocd + 18))) << 16) |
+                           (static_cast<quint32>(static_cast<unsigned char>(zipBytes.at(eocd + 19))) << 24);
+  zipBytes[static_cast<int>(cdOffset) + 24] = '\x09';
+
+  QByteArray out;
+  QString err;
+  QVERIFY(!zipExtractBytes(zipBytes, QStringLiteral("m.txt"), &out, &err));
+  QVERIFY2(err.contains(QStringLiteral("stored 长度与声明不符")), qPrintable(err));
+}

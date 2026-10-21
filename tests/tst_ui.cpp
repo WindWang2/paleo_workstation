@@ -771,8 +771,9 @@ class TestUiShell : public QObject
       QVERIFY(!leftDock2->isVisible()); // saveState round-trip: dock stays hidden
 
       QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
-      QCOMPARE(s.value(QStringLiteral("lastPage")).toString(),
-               QStringLiteral("constraint"));
+      // D-04（2026-10-19 审计）：lastPage 读取侧已随 #565 删除（恢复固定
+      // 打开工区看板），写入随之移除——不再产死数据。
+      QVERIFY(s.value(QStringLiteral("lastPage")).toString().isEmpty());
 
       // Canvas extent → .qgz custom property. setExtent adjusts to the canvas
       // aspect ratio, so compare against the *actual* extent, not the request.

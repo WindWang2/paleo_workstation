@@ -272,6 +272,7 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
       setError(error, q.lastError().text());
       return false;
     }
+    int lastOrd = -1;
     while (q.next())
     {
       EntityAssetLink l;
@@ -284,9 +285,17 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
       l.ordinal = q.value(7).toInt();
       l.note = q.value(8).toString();
       const int ord = q.value(0).toInt();
+      if (ord < 0)
+      {
+        // A-13（full-audit-20261020）：负 ord 行此前静默丢弃无告警——与同函数
+        // unsafeVersion 行/巨值 ord 口径对齐，外部损坏可见（行为不变）。
+        qWarning("catalogstore: skip link row with negative ord=%d (asset %s)",
+                 ord, qPrintable(l.assetId));
+        continue;
+      }
       if (ord == out->links.size())
         out->links.append(l);
-      else if (ord >= 0)
+      else
       {
         // FA-004：损坏/手改库的 ord 巨值会让 resize 做天文数字分配（工程
         // 打开即崩）。正常增量写的 ord 恒连续——与已读行数偏离过大按损坏
@@ -297,12 +306,16 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
                    ord, static_cast<qint64>(out->links.size()));
           continue;
         }
+        if (ord <= lastOrd)
+          qWarning("catalogstore: duplicate link ord=%d retained (asset %s)",
+                   ord, qPrintable(l.assetId));
         // 跳号也不得 resize 补位：默认构造的 EntityAssetLink 是空 id 幻影
         // 链接行，随后经 links()/toJson/replaceAllLinks 永久回流（查询侧
         // 跳过空 id 所以看不见，整表重写却把它写回盘）。按表序追加保住这
         // 一行；ord 的致密化由下一次 replaceAllLinks（ord = 行号）完成。
         out->links.append(l);
       }
+      lastOrd = ord;
     }
   }
   absorbSeqs(out);

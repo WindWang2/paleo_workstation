@@ -16,12 +16,14 @@
 namespace paleo::exporting {
 namespace {
 bool stopped(const Cancel &cancel) { return cancel && cancel(); }
-// QTemporaryDir 的随机段是 6 个字母数字；只认本仓五个导出暂存根的字面量，
-// 不碰用户自己的隐藏目录。
+// QTemporaryDir 的随机段是 6 个字母数字；只认本仓导出/导入暂存根的字面量，
+// 不碰用户自己的隐藏目录。根清单须与各创建点保持同口径（B-02：#540 清扫器
+// 漏了 .mapbook-/.thickness-/.paleomap-import- 三个现存创建点）。
 constexpr int kStaleStagingHours = 24;
 bool isStagingRootName(const QString &name) {
   static const QStringList prefixes{".map-products-", ".paleo-map-", ".horizon-export-",
-                                    ".paleo-batch-", ".paleo-export-"};
+                                    ".paleo-batch-", ".paleo-export-",
+                                    ".mapbook-", ".thickness-", ".paleomap-import-"};
   for (const auto &prefix : prefixes) {
     if (!name.startsWith(prefix)) continue;
     const auto suffix = name.mid(prefix.size());

@@ -6,6 +6,7 @@
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/workflow/derivedassets.h"
+#include "../src/workflow/algorithmpublish.h"
 
 // wave3/derived-publish T26 — 派生产物登记：厚度/ONNX/processing 输出不再写
 // QDir::temp()（重启即死链，autoplan pass-2 H4），全部落 catalog 受管的
@@ -43,6 +44,9 @@ private slots:
   void failedCatalogWriteKeepsNoAsset();
   void generatedEvidenceUsesActualParentsAndRoles();
   void computationalInputAndManualRolesRemainDistinct();
+  // algo-atom P1：publishArtifacts 包装 commitExternal，行为对拍。
+  void publishArtifactsMatchesCommitExternal();
+  void publishArtifactsRejectsFailedRun();
 
 private:
   static bool writeBytes(const QString &path, const QByteArray &bytes)
@@ -505,6 +509,83 @@ void TestDerivedAssets::computationalInputAndManualRolesRemainDistinct() {
   QCOMPARE(evidence.value("interpretation_references").toList().size(), 3);
   QCOMPARE(evidence.value("computational_parent_versions").toStringList(), QStringList{source.versionId});
   QVERIFY(evidence.value("interpretation_references").toList()[2].toMap().value("tombstone").toBool());
+}
+
+
+void TestDerivedAssets::publishArtifactsMatchesCommitExternal()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  DataCatalog cat;
+  QVERIFY( cat.open( dir.path() ) );
+
+  CatalogAsset parent;
+  parent.id = QStringLiteral( "ast-pub-1" );
+  parent.type = QStringLiteral( "horizon" );
+  parent.format = QStringLiteral( "dat" );
+  parent.displayName = QStringLiteral( "pts.dat" );
+  QVERIFY( cat.addAsset( parent ) );
+  CatalogVersion parentVer;
+  parentVer.id = QStringLiteral( "ver-pub-1" );
+  parentVer.assetId = parent.id;
+  parentVer.stage = QStringLiteral( "RAW" );
+  parentVer.versionNumber = 1;
+  parentVer.path = DataCatalog::managedPath( QStringLiteral( "raw" ), parent.id, parentVer.id,
+                                             QStringLiteral( "pts.dat" ) );
+  QVERIFY( cat.addVersion( parentVer ) );
+
+  DerivedAssetRegistrar registrar( &cat, dir.path() );
+  DerivedStaging st = registrar.stage( QStringLiteral( "constraint_idw_raster" ),
+                                       QStringLiteral( "T1 约束 IDW" ),
+                                       QStringLiteral( "IDW_T1.tif" ) );
+  QVERIFY( st.isValid() );
+  const QByteArray payload = "constraint-idw-publish-bytes";
+  QVERIFY( writeBytes( st.absolutePath, payload ) );
+
+  QVariantMap results;
+  results.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
+  const AlgorithmRunResult runResult = paleo::runResultFromProcessingOutput( results );
+  QVERIFY( runResult.ok );
+  QCOMPARE( runResult.artifacts.size(), 1 );
+  QCOMPARE( runResult.artifacts.first().portId, QStringLiteral( "OUTPUT" ) );
+
+  QVariantMap extra;
+  extra.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+  extra.insert( QStringLiteral( "cell_size" ), 1.0 );
+  QString err;
+  QVERIFY2( paleo::publishArtifacts( registrar, st, runResult, QStringList{ parentVer.id },
+                                     QStringLiteral( "paleo:paleo_constraint_idw" ), extra, &err ),
+            qPrintable( err ) );
+
+  const CatalogVersion v = cat.versionById( st.versionId );
+  QCOMPARE( v.stage, QStringLiteral( "DERIVED" ) );
+  QCOMPARE( v.sourceUri, QStringLiteral( "paleo:paleo_constraint_idw" ) );
+  QCOMPARE( v.parentVersionIds, QStringList{ parentVer.id } );
+  QCOMPARE( v.extra.value( QStringLiteral( "field" ) ).toString(), QStringLiteral( "z" ) );
+  QString shaErr;
+  QCOMPARE( v.sha256, DataCatalog::sha256FileHex( st.absolutePath, &shaErr ) );
+  QVERIFY( !QFileInfo( st.absolutePath ).isWritable() );
+}
+
+void TestDerivedAssets::publishArtifactsRejectsFailedRun()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  DataCatalog cat;
+  QVERIFY( cat.open( dir.path() ) );
+  DerivedAssetRegistrar registrar( &cat, dir.path() );
+  const DerivedStaging st = registrar.stage( QStringLiteral( "constraint_idw_raster" ),
+                                             QStringLiteral( "fail case" ),
+                                             QStringLiteral( "IDW_fail.tif" ) );
+  QVERIFY( st.isValid() );
+  AlgorithmRunResult bad;
+  bad.ok = false;
+  bad.error = QStringLiteral( "engine cancelled" );
+  QString err;
+  QVERIFY( !paleo::publishArtifacts( registrar, st, bad, {},
+                                     QStringLiteral( "paleo:paleo_constraint_idw" ), {}, &err ) );
+  QVERIFY( err.contains( QStringLiteral( "engine cancelled" ) ) );
+  QVERIFY( cat.versionById( st.versionId ).id.isEmpty() );
 }
 
 QTEST_MAIN(TestDerivedAssets)

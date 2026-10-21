@@ -2,58 +2,62 @@
   "schema": 1,
   "doc": "CI 已知红项分诊名单（#497）：master 连续全红期间，红分两类——本名单登记的已知红项由 triage job（tools/ci_triage_reds.py）降级为 ::warning 并链接 issue；未知红项才让 triage job 红（exit 1）。名单不是放行通道：lint/linux/windows required checks 的红仍是红（context 名与本门禁语义互不影响），本名单只负责「红得明白」。纪律：① 条目必须带 issue 链接与 owner；② review_due 到期即降级失效（按未知红处理）——续期须改日期并在 reason 补一轮证据，否则转正式修复；③ golden 类预算只缩不涨（#475）：超差抽样点数超登记值即红，收敛建议同步收紧；④ 测试转绿即删条目（triage 的 STALE NOTE 会点名）；⑤ 名单变更须走显式 PR——triage job 对本文件 paths diff 输出 ::notice 点名。与 tools/documented_redset.json 的分工：彼处管 ctest 级文档化红项分类（env_redset 消费），此处管 CI job 级分诊降级；同一红项两处登记时 reason 互引。",
   "lanes": {
-    "gating": ["lint", "linux", "windows"],
-    "observation": ["linux-perf", "linux-asan"]
+    "gating": [
+      "lint",
+      "linux",
+      "windows"
+    ],
+    "observation": [
+      "linux-perf",
+      "linux-asan"
+    ]
   },
   "entries": [
-    {"id": "wellcomposite-golden-17of48", "scope": "test", "match": "tst_wellcomposite_visual",
-     "lanes": ["linux", "windows"],
-     "category": "golden-tolerance",
-     "issue": 475, "owner": "WindWang2", "added": "2026-10-17",
-     "review_due": "2027-01-16",
-     "reason": "testGoldenImageSampling 17/48 抽样点超容差（门限 4）；3b22a9c 全量基线已在重构前出现，需单独定位——golden 渲染超容差本质是功能回归候选，与墙钟抖动不同类（TODOS.md P2 master 验证红项对账；同 tools/documented_redset.json 条目）",
-     "budget": {"metric": "golden_points_over", "value": 17}},
-    {"id": "cache-las-ratio-gate", "scope": "test", "match": "tst_cache_las",
-     "lanes": ["linux-perf", "linux"],
-     "category": "perf-budget",
-     "issue": 475, "owner": "WindWang2", "added": "2026-10-17",
-     "review_due": "2027-01-16",
-     "reason": "secondOpenUnder5ms 磁盘命中耗时 <0.5×冷解析比率门（perf 标签，仅 linux-perf 观察车道可见）；env_redset.json 已按 localdeps 路线豁免，本条覆盖其余路线出现同类红时的 CI 分诊（tools/documented_redset.json 同源条目）"},
-    {"id": "singlefactor-l-median", "scope": "test", "match": "tst_singlefactor_perf",
-     "lanes": ["linux-perf"],
-     "category": "perf-budget",
-     "issue": 475, "owner": "WindWang2", "added": "2026-10-17",
-     "review_due": "2027-01-16",
-     "reason": "proposedBudgets 的 L 中位数超 15000ms（master 隔离复跑 20089ms）；依赖宿主算力，perf 标签不进必过门禁（tools/documented_redset.json 同源条目）"},
-    {"id": "file-budget-strict-grown-20261018", "scope": "test", "match": "file_budget_strict",
-     "lanes": ["linux", "windows"],
-     "category": "gate-red",
-     "issue": 538, "owner": "WindWang2", "added": "2026-10-18",
-     "review_due": "2027-01-18",
-     "reason": "【2026-10-20 复核：红因已从「5 个回升条目」翻转为「8 个可收紧 NOTE」，且非严格档 file_budget 已转绿（python3 tools/check_file_budget.py exit 0——8 个 NOTE 在非严格档仅提示不红），故原 file-budget-grown-20261018 条目按纪律 ④ 删除，严格档红由本条单条承载】本树实测 python3 tools/check_file_budget.py --strict exit 1，输出 8 条 NOTE：folderconfirm.cpp [fn:buildFolderConfirmDialog] 342<346、datalist_tree.cpp [file] 1084<1094 与 [fn:buildNavTreeSpec] 663<676、wellsitingpanel.cpp [fn:WellSitingPanel] 253<263、paleomainwindow_attach_compose.cpp [fn:attachComposePage] 399<405、paleomainwindow_attach_shell.cpp [fn:attachShellSurfaces] 554<578、wellsectionpanel.cpp [fn:WellSectionPanel] 455<456、welltopseditordialog.cpp [file] 1006<1010——全部是其他批次收敛后冻结值高于现值（新增 0 / 回升 0）。#538 接线时已完成只缩不涨对账（删 3 行回到阈值内 + 下调 5 个冻结值，tools/file-budget-baseline.txt 头注有账）；原 5 个回升条目（editingtoolbar / mappingworkbenchpage ×2 / attach_compose / compositebody paintEvent）已随所属修复员落地转绿。收敛动作 = infra 统一下调 tools/file-budget-baseline.txt 这 8 行（行数明细见各批 baselineNotes 汇总），非本岗代码面"},
-    {"id": "ui-tokens-stale-exceptions-20261020", "scope": "test", "match": "ui_tokens",
-     "lanes": ["linux", "windows"],
-     "category": "gate-red",
-     "issue": 540, "owner": "WindWang2", "added": "2026-10-20",
-     "review_due": "2027-01-20",
-     "reason": "【2026-10-20 新增登记】#540-6 把 src/ui/wellcomposite/compositebody.cpp 的 p.fillRect(flagRect, QColor(27, 115, 208, 215)) 与 p.setPen(Qt::white) 两处字面量换成 PaleoTheme token（commit 5a3cbe83），但 tools/ui-token-exceptions.json 里同文件同 rule 的两条例外未同步清理，classify() 判 stale——非严格档 exit 1（`return int(bool(violations or stale) or ratchet_fail)`，tools/check_ui_tokens.py:212），与严格档同因。本树实测：python3 tools/check_ui_tokens.py 与 --strict 均 exit 1，输出 candidates 491 / exceptions 491 / violations 0 / staleExceptions [[compositebody.cpp, rgb, QColor(27, 115, 208, 215)], [compositebody.cpp, qt-color, Qt::white]]（tools/check_ui_tokens.py:83 stale 判定 = used[key] != item[\"count\"]）。收敛动作 = infra 删 tools/ui-token-exceptions.json 这两条 + 同 commit 把 tools/ui-token-baseline.txt 由 356 下调到 354（例外条目数只降不升，头注变更记录同步补一行）——删例外文件属闸门数据面，不属修复员代码面"},
-    {"id": "ui-tokens-strict-stale-exceptions-20261020", "scope": "test", "match": "ui_tokens_strict",
-     "lanes": ["linux", "windows"],
-     "category": "gate-red",
-     "issue": 540, "owner": "WindWang2", "added": "2026-10-20",
-     "review_due": "2027-01-20",
-     "reason": "ui_tokens --strict 的同一 stale 例外红（明细与收敛动作见 ui-tokens-stale-exceptions-20261020）；严格档另叠例外计数 ratchet：删两条例外后 tools/ui-token-baseline.txt 必须同 commit 由 356 降到 354，否则 strict 下「例外数 354 < baseline 356」判收缩即红（tools/check_ui_tokens.py:197 ratchet_lines 口径）"},
-    {"id": "layering-transitive-ui-notes-20261020", "scope": "test", "match": "layering_transitive",
-     "lanes": ["linux", "windows"],
-     "category": "gate-red",
-     "issue": 533, "owner": "WindWang2", "added": "2026-10-20",
-     "review_due": "2027-01-20",
-     "reason": "【2026-10-20 新增登记】--transitive 的 ui_qtwidgets_notes 实测 7 > baseline 6（本树 QGIS 头可解析时实跑：func 0 / ui 7 / heavy_edges 52 / heavy_tus 50，仅 ui 超冻结 1）。差额边现为 src/ui/maptools/identifytool.h:6 → qgis/maptoolviewapi.h -> [qgs] qgsmaptool.h -> <QGestureEvent>@26（#552 引入、晚于 #518 基线更新；#533 已删 faciespartitiontool 2 条边、ui-shell 批次已删 geologicalexportdialog.cpp:22 → qgis/layoutpreview.h 1 条边，差额主体换人未归零）。注：ctest 项 layering_transitive 不注入 QGIS_PREFIX（CMakeLists.txt:1019-1026 口径），deb 闭包构建下该指标自动降级不闸、本车道可能不红；lint 车道 Source gates 显式给 QGIS_PREFIX 恒红，由 lint-source-gates-red-20261018（job scope）承载。收敛动作 = 裁决 src/qgis 薄壳与视图层边界的计数口径后删该 include 边或改基线（tools/transitive-baseline.txt 头注有账）"},
-    {"id": "lint-source-gates-red-20261018", "scope": "job", "match": "lint",
-     "lanes": ["lint"],
-     "category": "gate-red",
-     "issue": 540, "owner": "WindWang2", "added": "2026-10-18",
-     "review_due": "2027-01-18",
-     "reason": "lint 车道 Source gates 的红（#540-7：triage needs lint，含红闸即恒红，故按 job-scope 登记而非留未知红）。【2026-10-20 复核：原句末「qgs-audit/qgis-spread 两步已转绿（#523 封装收敛 + 基线删 4 行）」在本树实测为真——python3 tools/check_layering.py --qgs-audit --strict 与 tools/check_qgis_spread.py --strict 均 exit 0（qgs-audit 直连 116 = baseline 116 / 新增 0；qgis-spread 散布 149 = baseline 149 / 新增 0）；但原 bullet ②「ui_size --strict 2 个条目」与 bullet ③「file_budget --strict 5 个条目」已过期：ui_size 两档本树 clean（python3 tools/check_ui_size.py --strict exit 0，>1000 行 10 个 / baseline 10 条，对应 test-scope 条目已按纪律 ④ 删除），file_budget --strict 的红因从「5 个回升」翻转为「8 个可收紧」（见 file-budget-strict-grown-20261018）。本车道 20 条命令本树实测 2 条 exit 1（docs_drift 已于同日刷新文档转绿，见句末）：① check_layering.py --transitive（QGIS_PREFIX 全闸口径）ui_qtwidgets_notes 7>6——差额边现为 src/ui/maptools/identifytool.h:6 → qgis/maptoolviewapi.h -> [qgs] qgsmaptool.h -> <QGestureEvent>@26（#552 引入；#533 删 faciespartitiontool 2 条、ui-shell 批次删 geologicalexportdialog.cpp→layoutpreview.h 1 条后差额主体换人未归零），口径裁决见 tools/transitive-baseline.txt 头注与 layering-transitive-ui-notes-20261020；② check_file_budget.py --strict 8 个可收紧 NOTE（见 file-budget-strict-grown-20261018）；③ check_ui_tokens.py --strict 2 条 stale 例外（#540-6 换 token 后 tools/ui-token-exceptions.json 未同步，见 ui-tokens-stale-exceptions-20261020）。docs_drift 本树已转绿（2026-10-20 刷新 docs/UI_LAYER_PLAN.md W8 家族表 26→27 TU + 补 _workbench_editflow.cpp 行，python3 tools/check_docs_drift.py exit 0）"}
+    {
+      "id": "cache-las-ratio-gate",
+      "scope": "test",
+      "match": "tst_cache_las",
+      "lanes": [
+        "linux-perf",
+        "linux"
+      ],
+      "category": "perf-budget",
+      "issue": 475,
+      "owner": "WindWang2",
+      "added": "2026-10-17",
+      "review_due": "2027-01-16",
+      "reason": "secondOpenUnder5ms 磁盘命中耗时 <0.5×冷解析比率门（perf 标签，仅 linux-perf 观察车道可见）；env_redset.json 已按 localdeps 路线豁免，本条覆盖其余路线出现同类红时的 CI 分诊（tools/documented_redset.json 同源条目）"
+    },
+    {
+      "id": "singlefactor-l-median",
+      "scope": "test",
+      "match": "tst_singlefactor_perf",
+      "lanes": [
+        "linux-perf"
+      ],
+      "category": "perf-budget",
+      "issue": 475,
+      "owner": "WindWang2",
+      "added": "2026-10-17",
+      "review_due": "2027-01-16",
+      "reason": "proposedBudgets 的 L 中位数超 15000ms（master 隔离复跑 20089ms）；依赖宿主算力，perf 标签不进必过门禁（tools/documented_redset.json 同源条目）"
+    },
+    {
+      "id": "lint-source-gates-red-20261018",
+      "scope": "job",
+      "match": "lint",
+      "lanes": [
+        "lint"
+      ],
+      "category": "gate-red",
+      "issue": 540,
+      "owner": "WindWang2",
+      "added": "2026-10-18",
+      "review_due": "2027-01-18",
+      "reason": "lint 车道 Source gates 三处红（#540-7：triage needs lint，含红闸即恒红，故按 job-scope 登记而非留未知红）：① --transitive 带 QGIS_PREFIX 实测 ui_qtwidgets_notes 7>baseline 6——#531 导出链封装新增的 src/qgis/layoutpreview.h（PaleoLayoutPreview : QWidget 薄壳）被 geologicalexportdialog.cpp include 带入 1 条视图层记录边（设计后果；#533 相面修复员已删掉原 2 条 faciespartitiontool 边，净剩 1 条差额，两文件均不属本岗可改范围，口径裁决见 AGENTS.md 与 tools/transitive-baseline.txt 头注）；② ui_size --strict 2 个条目（见 ui-size-strict-grown-20261018）；③ #538 新接线的 file_budget --strict 5 个条目（见 file-budget-strict-grown-20261018）。qgs-audit/qgis-spread 两步已转绿（#523 封装收敛 + 基线删 4 行）（2026-10-19 审计第三轮：file_budget/ui_size 族红已修复转绿、对应条目已删；本 job 级条目覆盖剩余 lint Source gates 红，当前为 layering_transitive 的 ui_qtwidgets_notes #533 裁决挂起项）",
+      "steps": [
+        "Source gates"
+      ]
+    }
   ]
 }

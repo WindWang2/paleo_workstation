@@ -22,6 +22,19 @@ QVariantMap inspect(const QString &path, QString *error) {
   return {{"source_type", "raster"}, {"spatial", layer.crs().isValid()}, {"crs", layer.crs().toWkt()}};
 }
 double surveyArea(const QVector<QVector<QPair<double, double>>> &polygons) {
+  // C-11（full-audit-20261020）：角点是 SEG-Y 道头原值（单位随工区 CRS），本层
+  // 无 CRS 语境——度制坐标（全部 |x|≤360 且 |y|≤90）下 /1e6 得到的「km²」
+  // 是量级失真 1e10 级的伪面积（CRS_ASSUMPTION_AUDIT §2.3 的冻结期量级闸
+  // 前置防线）。如实返回 -1，消费端按「未登记边界」兜底呈现。
+  bool sawPoint = false, degreeLike = true;
+  for (const auto &poly : polygons)
+    for (const auto &p : poly) {
+      if (!std::isfinite(p.first) || !std::isfinite(p.second)) continue;
+      sawPoint = true;
+      if (std::abs(p.first) > 360.0 || std::abs(p.second) > 90.0)
+        degreeLike = false;
+    }
+  if (sawPoint && degreeLike) return -1;
   QVector<QgsGeometry> shapes;
   for (const auto &points : polygons) {
     QgsPolylineXY ring; for (const auto &p : points) {

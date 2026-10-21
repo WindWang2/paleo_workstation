@@ -329,6 +329,54 @@ void showFolderFailureReport(QLabel *errorReport, const QString &dir,
   errorReport->show();
 }
 
+// 导入完成后预览聚焦哪个资产：优先井头文件；无井头时回落到最后一个导入
+// 成功/未决的文档类行（#549/#566 引入的口径，抽出以守住 buildFolderConfirmDialog
+// 的 file_budget 冻结面——行为零变更）。
+QString pickPreviewFocusAsset(const QVector<FolderRowResult> &rows, const QString &wellHeadAssetId)
+{
+  using Outcome = FolderRowResult::Outcome;
+  QString focusAssetId = wellHeadAssetId;
+  if (!focusAssetId.isEmpty())
+    return focusAssetId;
+  for (const FolderRowResult &rowRes : rows)
+  {
+    if (rowRes.assetId.isEmpty())
+      continue;
+    if (rowRes.outcome != Outcome::Imported && rowRes.outcome != Outcome::Unresolved)
+      continue;
+    const QString type = rowRes.classifiedType;
+    const bool document =
+        type == QLatin1String("document") || type == QLatin1String("image_reference") ||
+        type == QLatin1String("reference") || type == QLatin1String("unknown");
+    if (document)
+      focusAssetId = rowRes.assetId;
+  }
+  return focusAssetId;
+}
+
+// T2 大小估算：预览期一行估算（将导入多少/多大/跳过多少）+ 每行大小进
+// 路径 tooltip——不动四列结构（既有测试与结果列控件挂点不迁移）。
+static void annotateFolderRowSizes(QTableWidget *table, const QVector<FolderPreviewRow> &preview)
+{
+  for (int r = 0; r < preview.size() && r < table->rowCount(); ++r)
+  {
+    if (preview.at(r).sizeBytes < 0)
+      continue;
+    QTableWidgetItem *pathItem = table->item(r, 0);
+    if (!pathItem)
+      continue;
+    const qint64 b = preview.at(r).sizeBytes;
+    const QString human = b >= 1024 * 1024 * 1024
+                              ? QStringLiteral("%1 GB").arg(b / 1073741824.0, 0, 'f', 1)
+                              : b >= 1024 * 1024
+                                    ? QStringLiteral("%1 MB").arg(b / 1048576.0, 0, 'f', 1)
+                                    : b >= 1024
+                                          ? QStringLiteral("%1 KB").arg(b / 1024.0, 0, 'f', 1)
+                                          : QStringLiteral("%1 B").arg(b);
+    pathItem->setToolTip(QObject::tr("%1\n大小 %2").arg(pathItem->toolTip(), human));
+  }
+}
+
 void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
                               const QVector<FolderPreviewRow> &preview,
                               const Hooks &hooks)
@@ -374,25 +422,7 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   review->hide();
   lay->addWidget(review);
 
-  // T2 大小估算：预览期一行估算（将导入多少/多大/跳过多少）+ 每行大小进
-  // 路径 tooltip——不动四列结构（既有测试与结果列控件挂点不迁移）。
-  for (int r = 0; r < preview.size() && r < table->rowCount(); ++r)
-  {
-    if (preview.at(r).sizeBytes < 0)
-      continue;
-    QTableWidgetItem *pathItem = table->item(r, 0);
-    if (!pathItem)
-      continue;
-    const qint64 b = preview.at(r).sizeBytes;
-    const QString human = b >= 1024 * 1024 * 1024
-                              ? QStringLiteral("%1 GB").arg(b / 1073741824.0, 0, 'f', 1)
-                              : b >= 1024 * 1024
-                                    ? QStringLiteral("%1 MB").arg(b / 1048576.0, 0, 'f', 1)
-                                    : b >= 1024
-                                          ? QStringLiteral("%1 KB").arg(b / 1024.0, 0, 'f', 1)
-                                          : QStringLiteral("%1 B").arg(b);
-    pathItem->setToolTip(QObject::tr("%1\n大小 %2").arg(pathItem->toolTip(), human));
-  }
+  annotateFolderRowSizes(table, preview);
   auto *estimate = new QLabel(dlg);
   estimate->setObjectName(QStringLiteral("folderEstimateLabel"));
   estimate->setText(folderEstimateText(preview));
@@ -617,25 +647,8 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
         if (r >= results->size() || results->at(r).outcome != Outcome::Failed)
           combos[r]->setEnabled(false);
       cancel->setText(QObject::tr("关闭"));
-      QString focusAssetId = wellHeadAssetId;
-      if (focusAssetId.isEmpty())
-      {
-        for (const FolderRowResult &rowRes : res)
-        {
-          if (rowRes.assetId.isEmpty())
-            continue;
-          if (rowRes.outcome != Outcome::Imported && rowRes.outcome != Outcome::Unresolved)
-            continue;
-          const QString type = rowRes.classifiedType;
-          const bool document =
-              type == QLatin1String("document") || type == QLatin1String("image_reference") ||
-              type == QLatin1String("reference") || type == QLatin1String("unknown");
-          if (document)
-            focusAssetId = rowRes.assetId;
-        }
-      }
-      if (hooks.previewAsset && !focusAssetId.isEmpty())
-        hooks.previewAsset(focusAssetId);
+      const QString focusAssetId = pickPreviewFocusAsset(res, wellHeadAssetId);
+      if (hooks.previewAsset && !focusAssetId.isEmpty()) hooks.previewAsset(focusAssetId);
       // PROJECT_FILE_DESIGN：「从工区文件夹新建」的工程把本次导入统计写回
       // project.paleo.sourceArea（目录不匹配时 stampSourceArea 自拒，不污染
       // 普通导入路径下的工程）。

@@ -595,7 +595,7 @@ void PaleoMainWindow::saveWindowState()
              m_currentPage == QLatin1String("correlation") && !m_beforeCorrelationWindowState.isEmpty()
                  ? m_beforeCorrelationWindowState : saveState());
   s.setValue(QStringLiteral("windowDockIntent"), m_dockManager->captureIntent());
-  s.setValue(QStringLiteral("lastPage"), m_currentPage);
+  // lastPage 不再写入：#565 起恢复侧固定打开工区看板（读取已删，写即死写）。
 }
 
 void PaleoMainWindow::restoreWindowState()

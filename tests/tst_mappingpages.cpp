@@ -10,6 +10,7 @@
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QAbstractButton>
 #include <QToolButton>
 #include <QVariantMap>
 
@@ -72,7 +73,9 @@ class PredictPageTests : public QObject
     void predictTypeSwitchRebuildsForm();       // m2(A)：类型切换联动重建（值保留）
     void runBusyLifecycleAndCancel();
     void busyStateSurvivesPageHideShow();
-    void schemaValidationFailureRefusesRun();           // m2(A)：任务化忙碌/取消/进度
+    void schemaValidationFailureRefusesRun();
+    void readinessSummaryGatesRun();                    // 预测专项 P0：准备检查
+    void onnxRawTensorInputIsCollapsedAdvanced();       // 预测专项 P1：张量入口降级为高级/调试           // m2(A)：任务化忙碌/取消/进度
     void historyListFiltersAndShows();          // m2(A)：历史清单过滤/显示/刷新
 
   private:
@@ -341,6 +344,9 @@ void PredictPageTests::predictTypeSwitchRebuildsForm()
 void PredictPageTests::runBusyLifecycleAndCancel()
 {
   PredictPage page(nullptr, nullptr);
+  // 预测专项：运行按钮受准备检查约束——给出可运行上下文（层位 + 算法）。
+  page.setHorizons({QStringLiteral("T1")});
+  page.setAlgorithms({QStringLiteral("paleo:x")});
   auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
   auto *cancel = page.findChild<QPushButton *>(QStringLiteral("cancelRunButton"));
   auto *bar = page.findChild<QProgressBar *>(QStringLiteral("runProgressBar"));
@@ -388,6 +394,8 @@ LayerDeclaration PredictPageTests::makeDecl(const QString &layerId, const QStrin
 void PredictPageTests::busyStateSurvivesPageHideShow()
 {
   PredictPage page(nullptr, nullptr);
+  page.setHorizons({QStringLiteral("T1")});
+  page.setAlgorithms({QStringLiteral("paleo:x")});
   auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
   auto *cancel = page.findChild<QPushButton *>(QStringLiteral("cancelRunButton"));
   QVERIFY(run && cancel);
@@ -410,6 +418,7 @@ void PredictPageTests::busyStateSurvivesPageHideShow()
 void PredictPageTests::schemaValidationFailureRefusesRun()
 {
   PredictPage page(nullptr, nullptr);
+  page.setHorizons({QStringLiteral("T1")});
   page.setAlgorithms({QStringLiteral("paleo:paleo_constraint_idw")});
   auto *algos = page.findChild<QComboBox *>(QStringLiteral("algoCombo"));
   auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
@@ -431,6 +440,105 @@ void PredictPageTests::schemaValidationFailureRefusesRun()
   run->click();
   QCOMPARE(runSpy.count(), 1);
   QVERIFY2(status->text().isEmpty(), qPrintable(status->text()));
+}
+
+void PredictPageTests::readinessSummaryGatesRun()
+{
+  PredictPage page(nullptr, nullptr);
+  auto *ready = page.findChild<QLabel *>(QStringLiteral("predictReadinessLabel"));
+  auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
+  auto *jump = page.findChild<QPushButton *>(QStringLiteral("openWellFaciesButton"));
+  QVERIFY(ready && run && jump);
+  QSignalSpy runSpy(&page, &PredictPage::runRequested);
+
+  // 无层位、无算法：不可运行，按钮禁用且 tooltip 给出真实原因与下一步。
+  QVERIFY2(ready->text().contains(QStringLiteral("不可运行")), qPrintable(ready->text()));
+  QVERIFY(!run->isEnabled());
+  QVERIFY(run->toolTip().contains(QStringLiteral("层位")));
+  run->click();
+  QCOMPARE(runSpy.count(), 0);
+
+  page.setHorizons({QStringLiteral("T1")});
+  QVERIFY2(ready->text().contains(QStringLiteral("算法")), qPrintable(ready->text()));
+  QVERIFY(!run->isEnabled());
+
+  page.setAlgorithms({QStringLiteral("paleo:paleo_geological_smoothing")});
+  QVERIFY2(ready->text().contains(QStringLiteral("可运行")) &&
+               !ready->text().contains(QStringLiteral("不可运行")),
+           qPrintable(ready->text()));
+  QVERIFY(ready->text().contains(QStringLiteral("T1")));
+  QVERIFY(run->isEnabled());
+  QVERIFY(jump->isHidden());
+
+  // 测井相：主入口明确转去测井相面板（不在本页假装可跑），提供跳转。
+  QSignalSpy jumpSpy(&page, &PredictPage::wellFaciesPanelRequested);
+  page.findChild<QComboBox *>(QStringLiteral("predictTypeCombo"))->setCurrentIndex(2);
+  QVERIFY(!run->isEnabled());
+  QVERIFY(!run->toolTip().isEmpty());
+  QVERIFY(!jump->isHidden());
+  QVERIFY2(ready->text().contains(QStringLiteral("测井相")), qPrintable(ready->text()));
+  jump->click();
+  QCOMPARE(jumpSpy.count(), 1);
+
+  // 回到沉积相恢复可运行；忙碌期间禁用，结束后按准备结果恢复。
+  page.findChild<QComboBox *>(QStringLiteral("predictTypeCombo"))->setCurrentIndex(0);
+  QVERIFY(run->isEnabled());
+  page.setRunBusy(true);
+  QVERIFY(!run->isEnabled());
+  page.setRunBusy(false);
+  QVERIFY(run->isEnabled());
+  page.setHorizons({});
+  QVERIFY(!run->isEnabled());
+}
+
+void PredictPageTests::onnxRawTensorInputIsCollapsedAdvanced()
+{
+  PredictPage page(nullptr, nullptr);
+  page.setHorizons({QStringLiteral("T1")});
+  page.setAlgorithms({QStringLiteral("onnx:toy")});
+  auto *toggle = page.findChild<QToolButton *>(QStringLiteral("onnxAdvancedToggle"));
+  auto *body = page.findChild<QWidget *>(QStringLiteral("onnxAdvancedBody"));
+  auto *input = page.findChild<QLineEdit *>(QStringLiteral("onnxInputEdit"));
+  auto *ready = page.findChild<QLabel *>(QStringLiteral("predictReadinessLabel"));
+  auto *status = page.findChild<QLabel *>(QStringLiteral("statusLabel"));
+  QVERIFY(toggle && body && input && ready && status);
+  // 默认折叠：普通用户不面对张量名/形状/原始浮点数组。
+  QVERIFY(body->isHidden());
+  QVERIFY(toggle->text().contains(QStringLiteral("高级")));
+  QVERIFY(body->isAncestorOf(input));
+  // 通用 ONNX 无地质输入映射：如实说明需在高级/调试中手工给张量，不默认填 {0}。
+  QVERIFY2(ready->text().contains(QStringLiteral("输入映射")), qPrintable(ready->text()));
+  QVERIFY(input->text().isEmpty());
+
+  QSignalSpy spy(&page, &PredictPage::runRequested);
+  page.findChild<QPushButton *>(QStringLiteral("runButton"))->click();
+  QCOMPARE(spy.count(), 0);
+  QVERIFY2(status->text().contains(QStringLiteral("高级")), qPrintable(status->text()));
+  QVERIFY(!body->isHidden()); // 校验失败自动展开到需要填写的位置
+
+  // review L1：输入名称不预填、不静默兜底为 "x"；数据与形状齐全但名称为空仍拒绝。
+  auto *shape = page.findChild<QLineEdit *>(QStringLiteral("onnxShapeEdit"));
+  auto *name = page.findChild<QLineEdit *>(QStringLiteral("onnxInputNameEdit"));
+  QVERIFY(shape && name);
+  QVERIFY(name->text().isEmpty());
+  QVERIFY(!name->placeholderText().isEmpty());
+  input->setText(QStringLiteral("1.0"));
+  shape->setText(QStringLiteral("1"));
+  toggle->click(); // 先折叠，验证拒绝时会重新展开
+  QVERIFY(body->isHidden());
+  page.findChild<QPushButton *>(QStringLiteral("runButton"))->click();
+  QCOMPARE(spy.count(), 0);
+  QVERIFY2(status->text().contains(QStringLiteral("名称")), qPrintable(status->text()));
+  QVERIFY(!body->isHidden());
+  name->setText(QStringLiteral("x"));
+  page.findChild<QPushButton *>(QStringLiteral("runButton"))->click();
+  QCOMPARE(spy.count(), 1);
+  QCOMPARE(spy.first().at(2).toMap().value(QStringLiteral("inputName")).toString(), QStringLiteral("x"));
+
+  toggle->click(); // 折叠
+  QVERIFY(body->isHidden());
+  toggle->click(); // 展开
+  QVERIFY(!body->isHidden());
 }
 
 void PredictPageTests::historyListFiltersAndShows()
@@ -1006,7 +1114,7 @@ void FactorPageTests::thicknessSamplesInsideCollapsibleSection()
   QCOMPARE( caption->text().contains( QStringLiteral( "厚度样本" ) ), true );
 
   // 折叠后仍能 findChild（objectName 不因折叠失效），且表隐藏。
-  auto *toggle = section->findChild<QToolButton *>();
+  auto *toggle = section->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"));
   QVERIFY( toggle != nullptr );
   toggle->setChecked(true);
   QVERIFY(table->isVisibleTo(section));
@@ -1222,7 +1330,7 @@ void FactorPageTests::strategyPackDrivesMethodCombo()
 void FactorPageTests::cokrigingCovariateControls()
 {
   ConstraintPage page( nullptr );
-  page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QToolButton *>()->setChecked(true);
+  page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"))->setChecked(true);
   page.show();
   auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
   auto *covariate = page.findChild<QComboBox *>( QStringLiteral( "factorCovariateCombo" ) );
@@ -1549,7 +1657,7 @@ void FactorPageTests::methodParameterVisibilityAndFamilies() {
   ConstraintPage page(nullptr); page.show();
   // 高级参数可按需展开；方法切换仍只呈现实际消费的参数。
   for (const char *name : {"factorAdvancedOptionsSection", "factorDirectionParametersSection"})
-    page.findChild<QWidget *>(QString::fromLatin1(name))->findChild<QToolButton *>()->setChecked(true);
+    page.findChild<QWidget *>(QString::fromLatin1(name))->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"))->setChecked(true);
   auto *method = page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
   const auto visible = [&page](const char *name) { return page.findChild<QWidget *>(QString::fromLatin1(name))->isVisibleTo(&page); };
   QVERIFY(visible("factorIdwParameters")); QVERIFY(!visible("factorVariogramParameters"));
@@ -1584,7 +1692,7 @@ void FactorPageTests::methodParameterVisibilityAndFamilies() {
   if (!qa.isEmpty()) {
     QDir().mkpath(qa); page.resize(420, 960);
     for (const char *section : {"factorAdvancedOptionsSection", "factorDirectionParametersSection"})
-      page.findChild<QWidget *>(QString::fromLatin1(section))->findChild<QToolButton *>()->setChecked(false);
+      page.findChild<QWidget *>(QString::fromLatin1(section))->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"))->setChecked(false);
     for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
       PaleoTheme::applyTheme(theme);
       method->setCurrentIndex(method->findData(QStringLiteral("local_direction_idw")));
@@ -1657,7 +1765,7 @@ void FactorPageTests::guidedPreparationAndPinnedActions()
   field->setCurrentIndex(0);
   QCOMPARE(next->property("target").toString(), QStringLiteral("extractWellFactorsButton"));
   QVERIFY(hint->text().contains(QStringLiteral("先提取并保存")));
-  auto *advanced = page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QToolButton *>();
+  auto *advanced = page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"));
   QVERIFY(!advanced->isChecked());
   page.resize(280, 420);
   QCoreApplication::processEvents();

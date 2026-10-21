@@ -7,6 +7,7 @@
 
 class PredictionWorkflow;
 class QgisLayerService;
+class QVBoxLayout;
 
 // ui/pages/predictpage.h — ①智能预测页（自 pagepanels 拆出，公共形状不变：
 // objectName/信号签名/ctor 签名全保留）。
@@ -40,10 +41,19 @@ class PredictPage : public QWidget
     void showResultRequested(const QString &layerId);
     // 外部工具「地震多属性智能分析 (MAMCL)」→ 壳走 MamclTool 编排启动。
     void mamclLaunchRequested();
+    // 预测专项：测井相预测在测井相面板执行；主入口的「前往测井相面板」。
+    void wellFaciesPanelRequested();
 
   private:
+    QVBoxLayout *buildOnnxAdvanced(QWidget *parent, QVBoxLayout *into, QWidget **body);
+    void buildReadinessRow(QVBoxLayout *lay);
     QVariantMap parseInputParams();                    // onnx:* 三控件（行为不变）
     void rebuildSchemaForm();                          // paramsFormArea 按算法 schema 重建
     bool collectSchemaParams(QVariantMap *out);        // schema 控件 → QVariantMap
     void refreshHistory();                             // historyList ← manifest 当前层位声明
+    // 预测专项 P0：准备检查（predictReadinessLabel + runButton 可用性/原因）。
+    // 只判页面真实掌握的事实（层位/算法/类型/运行库/输入映射），数据级校验
+    // 仍由 workflow 在运行时做——不另立一套与推理不一致的规则。
+    void updateReadiness();
+    void setOnnxAdvancedExpanded(bool expanded);
 };

@@ -59,6 +59,7 @@ QString WellPredictionService::statusHint() const {
 }
 void WellPredictionService::cancel() {
   ++m_generation;
+  m_dryRun = false;
   if (m_cancelled) m_cancelled->store(true);
   m_cancelled.reset();
   m_request = {};
@@ -72,8 +73,12 @@ void WellPredictionService::fail(const QString &reason) {
   if (m_index >= 0 && m_index < m_runs.size())
     detail = tr("%1 · %2：%3").arg(m_data[m_runs[m_index].well].wellName,
                                   m_runs[m_index].prediction.group, reason);
+  const bool dryRun = m_dryRun;
   cancel();
-  emit failed(id, detail);
+  if (dryRun)
+    emit readinessReady(id, {}, detail);
+  else
+    emit failed(id, detail);
 }
 void WellPredictionService::skip(int well, const QString &reason) {
   if (m_skipped.contains(well)) return;
@@ -95,6 +100,12 @@ void WellPredictionService::configure(const WellFaciesConfig &config) {
   }
 }
 void WellPredictionService::start(const RemotePredictionRequest &request) {
+  if (m_dryRun && !m_request.id.isEmpty()) {
+    // 正式运行（或新检查）取代进行中的准备检查：如实收口，不让界面停在“检查中”。
+    const QString previous = m_request.id;
+    cancel();
+    emit readinessReady(previous, {}, tr("检查已中止：已开始新的预测或检查"));
+  }
   cancel();
   m_request = request;
   m_schema = request.facies;
@@ -122,6 +133,32 @@ void WellPredictionService::start(const RemotePredictionRequest &request) {
       prepare();
     }
   });
+}
+void WellPredictionService::check(const RemotePredictionRequest &request) {
+  start(request);   // start() 先 cancel()（清 m_dryRun），再异步起跑
+  m_dryRun = true;
+}
+void WellPredictionService::reportReadiness() {
+  QVariantList wells;
+  QSet<int> planned;
+  QHash<int, QStringList> groups;
+  for (const auto &run : m_runs) {
+    planned.insert(run.well);
+    groups[run.well] << run.prediction.group;
+  }
+  for (int i = 0; i < m_request.wells.size(); ++i) {
+    const auto well = m_request.wells[i].toMap();
+    const bool ready = !m_skipped.contains(i) && planned.contains(i);
+    QString reason = m_skipped.value(i);
+    if (!ready && reason.isEmpty())
+      reason = tr("没有可调用的测井相模型");
+    wells << QVariantMap{{"id", well.value("id")}, {"name", well.value("name")},
+                         {"ready", ready}, {"reason", ready ? QString() : reason},
+                         {"groups", groups.value(i)}};
+  }
+  const QString id = m_request.id;
+  cancel();
+  emit readinessReady(id, wells, {});
 }
 void WellPredictionService::prepare() {
   struct Source {
@@ -205,7 +242,7 @@ void WellPredictionService::prepare() {
       if (m_data[i].continuousCurves.isEmpty()) skip(i, tr("测井曲线解析失败或没有有效 MD 数据"));
     }
     m_results.resize(m_data.size());
-    if (m_skipped.size() == m_data.size()) return finish();
+    if (m_skipped.size() == m_data.size()) return m_dryRun ? reportReadiness() : finish();
     emit detailChanged(m_request.id, tr("获取远端测井模型及输入要求"));
     emit progress(m_request.id, 10);
     m_service.fetchModels();
@@ -299,6 +336,7 @@ void WellPredictionService::plan(const QVector<WellFaciesModel> &models) {
     if (!planned.ready()) { skip(i, planned.reason); continue; }
     for (const auto &run : planned.runs) m_runs.append({i, run});
   }
+  if (m_dryRun) return reportReadiness(); // 干跑：止于计划，不发 POST /predict
   m_index = -1;
   next();
 }

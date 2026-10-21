@@ -512,10 +512,12 @@ add_library(paleo_qgis STATIC
   src/qgis/mappingreferencecanvas.cpp
   src/qgis/previewmaptools.cpp                      # P2 D1.2 预览工具注册表（量测/identify/剖面线）
   src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）
+  src/qgis/identifytool.cpp                         # 主画布识别浏览（经 IdentifyPresenter 驱动视图弹层）
   src/qgis/previewidentify.cpp                      # P2 D7 identify 查询核心（空间索引缓存+栅格插值）
   src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
   src/qgis/seismicsectiontool.cpp
   src/qgis/wellattributestore.cpp
+  src/qgis/geostatrasterio.cpp                      # algo-atom P2：geostat 适配器 CRS 句柄 + Float32 写口
 )
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io paleo_services) # #483 qgislayerservice→ErrorHub
 
@@ -574,6 +576,8 @@ add_library(paleo_services STATIC
   src/services/singlefactordef.cpp                  # m2：单因素定义注册表
   src/services/faciesdisplaysettings.cpp
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
+  src/services/algorithmspec.cpp                    # algo-atom P0：AlgorithmSpec 静态契约表
+  src/services/nativerunners.cpp                    # algo-atom：hztrack 等 services 侧 native 包装
   src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架
   src/services/jobrunner.cpp                        # 方向20：统一三段式 JobRunner（作业框架）
@@ -621,6 +625,7 @@ add_library(paleo_workflow STATIC
   src/workflow/xmlpreviewsession.cpp
   src/workflow/stratigraphicwebsession.cpp
   src/workflow/mappingworkbench.cpp
+  src/workflow/mappingworkbench_readiness.cpp     # 预测专项：测井批量准备检查（干跑）
   src/workflow/mappingworkbench_predict.cpp       # 预测管线（predict/finish/任务行）——core-deepening A-R2 拆分
   src/workflow/mappingworkbench_edit.cpp          # 编辑副本/资产移除/约束导入——core-deepening A-R2 拆分
   src/workflow/mappingworkbench_compose.cpp       # 融合合成管线——core-deepening A-R2 拆分
@@ -654,6 +659,9 @@ add_library(paleo_workflow STATIC
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
   src/workflow/aiassistworkflow.cpp
   src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
+  src/workflow/algorithmpublish.cpp                # algo-atom P1：publishArtifacts 统一发布面
+  src/workflow/atomicjob.cpp                       # algo-atom：Processing run+publish 薄助手
+  src/workflow/algorithmadapters.cpp               # algo-atom P2：Processing/NativeCpp 适配器
   src/workflow/welltopseditorworkflow.cpp           # 方向 32：分层编辑版本化提交/回滚/合并编排
   src/workflow/wellsitingworkflow.cpp               # 方向34：井网辅助编排（诊断/候选/方案/planned）
   src/workflow/storagegovernancecontroller.cpp
@@ -670,6 +678,7 @@ add_library(paleo_ui STATIC
   src/ui/paleostartupscreen.cpp
   src/ui/paleomainwindow_paleomaps.cpp
   src/ui/pages/datalist_paleomaps.cpp
+  src/ui/pages/datalist_auxnav.cpp
   src/ui/pages/datalist_importbuttons.cpp
   src/ui/pages/mappingeditbasis.cpp
   src/ui/pages/mappingbasemapselector.cpp
@@ -730,6 +739,7 @@ add_library(paleo_ui STATIC
   src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧
   src/ui/pages/wellsitingpanel.cpp                 # 方向34：布井辅助面板（验证页页签）
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
+  src/ui/pages/wellreadinesspanel.cpp               # 预测专项：测井批量准备检查面板
   src/ui/pages/predictpage.cpp                     # W5b ①智能预测
   src/ui/pages/constraintpage.cpp                  # W5b ②约束与单因素（方向96：ctor 编排 + 因子清单面）
   src/ui/pages/constraintpage_wellfactors.cpp      # 方向96：井点因子域 TU
@@ -744,7 +754,6 @@ add_library(paleo_ui STATIC
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
   src/ui/maptools/sitingpicktool.cpp               # 方向34：地图布点拾取工具
-  src/ui/maptools/identifytool.cpp                 # 主画布识别浏览
   src/ui/maptools/identifypopup.cpp
   src/ui/maptools/paleoshapetools.cpp              # wave/shapetools
   src/ui/correlationpanel.cpp
@@ -826,6 +835,7 @@ add_library(paleo_ui STATIC
   src/ui/seismic3d/volumeframerenderer.cpp
   src/ui/seismic3d/seismic3dviewportwidget.cpp
   src/ui/seismic3d/seismic3dviewpanel.cpp
+  src/ui/seismic3d/seismic3dviewpanel_volume.cpp            # 换体入口 TU（full-audit-20261020 拆分）
   src/ui/seismicsection/seismicsectioncanvas.cpp   # 2D 任意线/井剖面 dock
   src/ui/seismicsection/seismicsectiondockwidget.cpp
   src/ui/paleotheme.cpp                            # DESIGN.md 字体/色 token
@@ -994,7 +1004,13 @@ endfunction()
 # QtWidgets 词表禁令 + 层标记硬检查；词表外置 tools/layering_vocab.json
 # （scripts/new_module.sh 同步维护）。baseline 已归零，--strict 是防回升闸门
 # （非空即红）；selftest 单独成项——扫描器自身坏掉不能静默变绿。 ----
+# E-13（full-audit-20261020）：python3 缺失时 ~36 个源码闸门 ctest 项会静默
+# 不注册（ctest 全绿假象）——配置错不能静默变绿，显式 FATAL_ERROR 早失败。
 find_program(PALEO_PYTHON3 NAMES python3 python)
+if(NOT PALEO_PYTHON3)
+  message(FATAL_ERROR "未找到 python3——源码闸门（layering/ui/i18n/file_budget 等）"
+          "无法注册；安装 python3 后重新 configure（政策见 BUILDING.md）")
+endif()
 if(PALEO_PYTHON3)
   add_test(NAME layering COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py)
@@ -1045,12 +1061,19 @@ add_test(NAME qgis_spread_strict COMMAND ${PALEO_PYTHON3}
          ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py --strict)
 add_test(NAME qgis_spread_selftest COMMAND ${PALEO_PYTHON3}
          ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py --selftest)
-set_tests_properties(qgis_spread qgis_spread_strict PROPERTIES LABELS layering)
+# E-12（full-audit-20261020）：与其余源码闸门同口径——无标签 ctest 项 +
+# WORKING_DIRECTORY 双保险（AGENTS.md「构建与测试布线」节声明）。
+set_tests_properties(qgis_spread qgis_spread_strict qgis_spread_selftest
+                     PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   #（triage job 消费前，本地/ctest 先过一遍名单合法性与解析器回归）。
   add_test(NAME ci_known_reds COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/ci_triage_reds.py --validate)
   add_test(NAME ci_triage_reds_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/ci_triage_reds.py --selftest)
+  # E-11（full-audit-20261020）部分收口：flaky 台账检查器 selftest 接闸——
+  # 此前零注册（检查器自身坏掉不能静默变绿；跨 run 聚合接线见 #501 后续）。
+  add_test(NAME flaky_ledger_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_flaky_ledger.py --selftest)
   # goal/ui-experience-polish：UI 不变量闸门——DESIGN.md Motion 禁编排动画
   #（src/ui 零 QPropertyAnimation/QEasingCurve/setAnimated(true)）+ QSS 裸
   # hex 零容忍（token 单一真源 = paleotheme；baseline 只缩不涨，strict 防回升）。
@@ -1129,7 +1152,7 @@ set_tests_properties(qgis_spread qgis_spread_strict PROPERTIES LABELS layering)
   set_tests_properties(layering layering_strict layering_selftest
                        layering_symbol_audit layering_transitive
                        layering_qgs_audit
-                       ci_known_reds ci_triage_reds_selftest
+                       ci_known_reds ci_triage_reds_selftest flaky_ledger_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        ui_size ui_size_strict ui_size_selftest
@@ -1168,6 +1191,8 @@ add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,
 add_paleo_test(tst_domain LIBS paleo_domain)
 add_paleo_test(tst_faciescatalog LIBS paleo_domain) # #409：formationPrediction 统一口径回归
 add_paleo_test(tst_jobrunner LIBS paleo_services paleo_ui_deps)  # 方向20：JobRunner 三段式框架断言
+add_paleo_test(tst_algorithm_spec LIBS paleo_services)  # algo-atom P0：Spec ↔ initAlgorithm / schema 对齐
+add_paleo_test(tst_algorithm_adapters LIBS paleo_workflow)  # algo-atom P2：Processing/NativeCpp 适配器契约
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_faciessliver LIBS paleo_algorithms)  # A11：小图斑吸收新旧实现对拍 + 可取消 + 大网格耗时
@@ -1299,6 +1324,7 @@ add_paleo_test(tst_standardelements LIBS paleo_qgis) # 方向25：标准图件�
 add_paleo_test(tst_layoutpersistence LIBS paleo_qgis) # 方向25：布局随工程 QGZ round-trip
 add_paleo_test(tst_layouttemplatelibrary LIBS paleo_workflow) # 方向25：模板库（qpt→catalog 版本 + 库表）
 add_paleo_test(tst_horizonbatchexport LIBS paleo_workflow) # 方向25：按层位组批量出图 + catalog 登记
+add_paleo_test(tst_horizonbatchexport_diag LIBS paleo_workflow) # #541 诊断套件（此前 582 行零注册覆盖幻影；2026-10-19 审计 E-04 接闸）
 # ---- wave/data-foundation ----
 add_paleo_test(tst_catalog LIBS paleo_store)
 add_paleo_test(tst_catalogroles LIBS paleo_store)   # 方向92：角色词表单源

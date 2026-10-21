@@ -140,6 +140,9 @@ class ConstraintPage : public QWidget
                                        bool isopach, bool confidence);
     void updateStructuralIdwSection(bool interpolant, const QString &selectedMethod);
     void fillIsopachSurfaceCombos(const QString &horizon);
+    // updateEngineRows 析出的两个下拉重建段（file_budget 防增长闸）。
+    void rebuildCovariateCombo();
+    void rebuildBoundaryCombo( QComboBox *boundaryCombo );
     void invalidateWellFactors();
     void updateWellFactorActionState();
     void markInputsStale();

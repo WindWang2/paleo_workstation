@@ -388,6 +388,11 @@ bool zipExtractBytes( const QByteArray &archive, const QString &entryName, QByte
   };
   if ( item->method == 0 )
   {
+    if ( raw.size() != static_cast<int>( item->uncompressedSize ) )
+      return fail( QStringLiteral( "条目「%1」stored 长度与声明不符（%2，期望 %3）" )
+                       .arg( entryName )
+                       .arg( raw.size() )
+                       .arg( item->uncompressedSize ) );
     if ( !verifyCrc( raw ) )
       return false;
     *out = raw;

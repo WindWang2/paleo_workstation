@@ -703,4 +703,9 @@ void SeismicSliceRenderer::ClearSlot(QOpenGLFunctions_3_3_Core *gl, SeismicSlice
     }
 }
 
+void SeismicSliceRenderer::ClearStackLayers(QOpenGLFunctions_3_3_Core *gl) {
+    Q_UNUSED(gl);
+    stackReady_.fill(false); // D-05/SF-1：纹理/VBO 保留复用，渲染按 ready 跳过
+}
+
 } // namespace seismic

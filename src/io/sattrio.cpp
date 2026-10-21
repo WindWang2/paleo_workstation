@@ -211,10 +211,9 @@ bool readSattrSection(const QString &path, SattrSectionHeader *header,
     return fail(QStringLiteral("SATR 值块截断：%1").arg(path));
   if (cancelled && cancelled())
   {
-    // 协作取消发生在读值途中 → 如实报已取消。回调口径：返回 true = 已取消
-    // （与 DataCatalog::sha256FileHex / PaleoTask::cancelRequested 等全仓
-    // 取消回调一致）——此处历史上按「继续」谓词消费，唯一调用方只能双重
-    // 取反补偿，任何按常规口径传参的调用方都会被误判为已取消（#588-C11）。
+    // B-04（full-audit-20261020）：取消谓词统一「已取消？」语义（与
+    // cluster::Control/SegyOptions/PaleoTask 同约定）——此前实现是反转的
+    //「继续？」语义，靠唯一调用方双负补偿，新调用方按命名直传即整读失败。
     return fail(QStringLiteral("SATR 读回已取消"));
   }
   return true;

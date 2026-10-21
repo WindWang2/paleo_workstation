@@ -224,6 +224,8 @@ private slots:
   // ---- Oracle 7 身份唯一与调度让位（07 方向 Round C，G4/G5）----
   void duplicateDeclarationKeepsItemIdentityUnique();
   void ownPoolSaturationDoesNotBlockDequeue();
+  // B-01（full-audit-20261022）：批量任务 Low 优先级——同池排队时交互任务先出队。
+  void batchTasksYieldPoolToInteractivePriority();
 
   // ---- Oracle 5 熔断 ----
   void fatalErrorTripsBreakerAndStopsBatch();
@@ -823,6 +825,53 @@ void TestBatchJobQueue::ownPoolSaturationDoesNotBlockDequeue()
   QVERIFY(runToCompletion());
   const BatchReport r = m_queue->report();
   QCOMPARE(r.succeeded, 3);
+}
+
+// B-01（full-audit-20261022）：批量作业在共享池上必须以 Low 优先级排队——
+// 池 1 线程被批首项占住、批次项与交互任务同在池队列时，交互任务先出队。
+// 旧实现批量任务硬编码 High：排队的交互任务被整批压住，「让位交互」闸
+// （非本批任务占满池）结构性不可达。断言基于 QThreadPool 同池优先级出队
+// 顺序，确定性无墙钟。
+void TestBatchJobQueue::batchTasksYieldPoolToInteractivePriority()
+{
+  setUp(2);
+  m_tasks->setMaxWorkerThreads(1); // 唯一池线程：首项占住，次项池上排队
+  auto probe = m_probe;
+  const BatchSpec s = makeSpec(
+      QStringLiteral("prio"),
+      {QStringLiteral("H1"), QStringLiteral("H2")},
+      {QStringLiteral("m1")}, 2);
+
+  int taskAdds = 0;
+  QObject ctx;
+  connect(m_tasks.get(), &PaleoTaskService::taskAdded, &ctx,
+          [&](PaleoTask *) { ++taskAdds; });
+
+  QString err;
+  QVERIFY2(m_queue->start(s, &err), qPrintable(err));
+  // 首项占住池线程（闸门关闭），次项已出队建任务（池队列中）。
+  QVERIFY(pumpUntil([probe] { return probe->computeCalls.load() >= 1; }));
+  QVERIFY(pumpUntil([&taskAdds] { return taskAdds >= 2; }));
+  QCOMPARE(m_queue->runningCount(), 2);
+
+  // 交互任务（Normal 优先级）后到，却必须先于排队的批任务出队。
+  // 注意用 5 参显式 Normal：start 的 3/4 参重载走池默认优先级 0（=Low）。
+  m_tasks->start(QStringLiteral("interactive"), [probe](PaleoTask *) {
+    probe->note(QStringLiteral("interactive"));
+    return QString();
+  }, QString(), PaleoTask::Priority::Normal);
+  probe->gateOpen.store(1);
+  QVERIFY(runToCompletion());
+
+  const QStringList order = probe->executed;
+  const int interactive = order.indexOf(QStringLiteral("interactive"));
+  const int second = order.indexOf(QStringLiteral("H2|m1"));
+  QVERIFY2(interactive >= 0, "交互任务未开跑");
+  QVERIFY2(second >= 0, qPrintable(QStringLiteral("批任务缺失: ") + order.join(QLatin1Char(','))));
+  QVERIFY2(interactive < second,
+           qPrintable(QStringLiteral("批量抢在交互前: ") + order.join(QLatin1Char(','))));
+  const BatchReport r = m_queue->report();
+  QCOMPARE(r.succeeded, 2);
 }
 
 // ---- Oracle 5 熔断 ----

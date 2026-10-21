@@ -850,10 +850,16 @@ private slots:
           bDone = true;
         });
     QVERIFY(b != nullptr);
-    QVERIFY(fix.waitFor([&] { return aDone && bDone; }));
-    QCOMPARE(a->state(), PaleoTask::State::Cancelled); // 取代语义本体
+    // #588-L4.3：被顶替的旧任务回调静默丢弃（不再发伪「已取消」失败回调，
+    // 口径同体传播/属性扫描顶替）——只等新请求 B 收尾，再确认 A 的 finished
+    // 已投递过且回调一次都没到。
+    QVERIFY(fix.waitFor([&] { return bDone; }));
+    QCoreApplication::processEvents();
+    QCoreApplication::processEvents(); // 前者的排队回调（若有）也投递
+    QVERIFY2(!aDone, "被顶替任务不得发回调（静默丢弃）");
     QVERIFY(!aOk);
-    QVERIFY(aErr.contains(QStringLiteral("取消")));
+    QVERIFY(aErr.isEmpty());
+    QCOMPARE(a->state(), PaleoTask::State::Cancelled); // 取代语义本体
     QVERIFY(bOk); // 新请求照常成功（被取消的是旧请求）
     QVERIFY(bErr.isEmpty());
     QVERIFY(fix.waitFor([&] { return fix.seismic.activeTaskCount() == 0; }));

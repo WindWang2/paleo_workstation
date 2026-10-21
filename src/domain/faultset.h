@@ -8,6 +8,8 @@
 #include <QVector>
 #include <QVariantMap>
 
+#include <optional>
+
 // domain/faultset — 断层解释数据模型（goal/fault-interpretation）。
 // 纯值类型，无 Qgs* 依赖（§25：domain 不漏 QGIS）；全部经 QVariantMap /
 // JSON 往返以落 project.sqlite（types.h 同款约定）。
@@ -52,13 +54,17 @@ struct FaultStick {
     QString interpreter;
     VerticalDomain verticalDomain = VerticalDomain::TwtMs;
 
-    double twtMinMs() const;
-    double twtMaxMs() const;
-    QVariantMap toMap() const;
-    static FaultStick fromMap(const QVariantMap &m);
-
     bool operator==(const FaultStick &o) const;
     bool operator!=(const FaultStick &o) const { return !(*this == o); }
+
+    // 棒上有纵向样点才算有范围。空棒返回 nullopt——不返回 0.0（0 会被消费端
+    // 当成合法 TWT 0 ms，空棒于是显示成「TWT 0–0 ms」）。命名沿用 TWT
+    // （历史）：Depth 域时返回的是米，单位由 verticalDomain 定，消费端据此
+    // 贴标签，不得一律写 ms（L2.1 / #593）。
+    std::optional<double> twtMinMs() const;
+    std::optional<double> twtMaxMs() const;
+    QVariantMap toMap() const;
+    static FaultStick fromMap(const QVariantMap &m);
 };
 
 // 上盘方向：沿切割多边形首边绘制方向的左/右侧（Unknown = 未定）。
@@ -85,13 +91,20 @@ struct FaultHorizonCut {
 
 // 顶点来历：实测（断棒上的拾取点）或外推（边界自动生长生成）。
 // 外推顶点不是实测数据，消费面必须能把它与实测段分开（不混充实测）。
+//
+// 哨兵口径（L2.2 / #593）：provenance == Extrapolated 与
+// pointIndex == kExtrapolatedPointIndex 是同一事实的两种记法——缺一即不足以
+// 判定，fromMap 对两者都如实保留（缺 pointIndex 键的旧 JSON 兜底 -1 =
+// 「不归属任何棒上点」，与 provenance 缺省 Measured 同义，都不是外推）。
+// 判定一律走 isExtrapolated()，不要在消费端只比 pointIndex。
 enum class MeshProvenance { Measured = 0, Extrapolated = 1 };
 
 // 断面三角网。顶点就是断棒上的点（stickId + pointIndex）；外推顶点
 // pointIndex 记为 kExtrapolatedPointIndex（stickId 仍指它延长的棒）。
 // 空 mesh = 尚未成面。坐标是测网标架下的地图 XY + 向下为正的纵向值。
 struct FaultSurfaceVertex {
-    // 外推顶点哨兵：不是棒上任何实测点。
+    // 外推顶点哨兵：不是棒上任何实测点。实测点用 >= 0 的棒上点序号；
+    // -1 = 旧 JSON 缺 pointIndex 键的兜底（「不归属任何棒上点」，不是外推）。
     static constexpr int kExtrapolatedPointIndex = -2;
 
     double x = 0;
@@ -101,6 +114,9 @@ struct FaultSurfaceVertex {
     int pointIndex = -1;
     MeshProvenance provenance = MeshProvenance::Measured;
 
+    // 外推 = provenance 显式标记。pointIndex 只是定位线索（渲染端据 >= 0 把
+    // 顶点归到棒上画线），不外推到判定上——两种记法同时成立才算（见
+    // MeshProvenance 上方口径注）。
     bool isExtrapolated() const { return provenance == MeshProvenance::Extrapolated; }
     bool operator==(const FaultSurfaceVertex &o) const;
     bool operator!=(const FaultSurfaceVertex &o) const { return !(*this == o); }

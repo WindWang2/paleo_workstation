@@ -1,5 +1,7 @@
 #include <QtTest>
 #include <QCoreApplication>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
@@ -18,6 +20,8 @@ private slots:
   void messageRoundTripKeepsRoleAndToolFrames();
   void unknownRoleDegradesToUserNotAssistant();
   void sessionRoundTripAndStoreLivesOutsideProject();
+  // #588 B.15：会话 id 路径逃逸加固的回归网。
+  void sessionIdRejectsPathTraversal();
   void streamParserReassemblesSplitChunksAndDone();
   void streamParserAccumulatesToolCallArguments();
   // #278：首帧 arguments:"" 是「分片未齐」不是「无参」——不得提前派发。
@@ -124,6 +128,62 @@ void TestAiChat::sessionRoundTripAndStoreLivesOutsideProject() {
   ChatSession anonymous;
   QVERIFY(!ChatSessionStore::save(anonymous, &error));
   QVERIFY(!error.isEmpty());
+}
+
+// #588 B.15：会话 id 直接进文件名——pathFor 必须校验单段安全名，否则
+// load/remove/save 会顺着拼接路径逃出 sessions 目录（remove 会删掉指向的
+// 任意文件）。现网调用方传入的 id 均来自 listIds() 的文件名（暂不可达），
+// 这里是加固缺口的回归网。
+void TestAiChat::sessionIdRejectsPathTraversal() {
+  const QString root = ChatSessionStore::directory();
+  QVERIFY(!root.isEmpty());
+
+  // 合法 id：路径仍解析在 sessions 目录内。
+  QVERIFY(!ChatSessionStore::pathFor(QStringLiteral("abc-123")).isEmpty());
+  QVERIFY(ChatSessionStore::isSafeSessionId(QStringLiteral("abc-123")));
+
+  // 逃逸形状一律拒绝：空、.、..、反斜杠（Windows 分隔符）、冒号（驱动器）、
+  // NUL、带目录段的绝对/相对路径。
+  const QStringList hostile = {
+    QString(), QStringLiteral("."), QStringLiteral(".."),
+    QStringLiteral("../paleo"),
+    QStringLiteral("../../etc/passwd"),
+    QStringLiteral("/etc/passwd"),
+    QStringLiteral("sessions/../../evil"),
+    QStringLiteral("..\\..\\evil"),
+    QStringLiteral("C:\\evil"),
+    QStringLiteral("a\0b"),
+  };
+  for (const QString &id : hostile) {
+    QVERIFY2(!ChatSessionStore::isSafeSessionId(id),
+             qPrintable(QStringLiteral("必须拒绝的会话 id：%1").arg(id)));
+    QVERIFY2(ChatSessionStore::pathFor(id).isEmpty(),
+             qPrintable(QStringLiteral("pathFor 不得为非法 id 产出路径：%1").arg(id)));
+    ChatSession session;
+    session.id = id;
+    QString error;
+    QVERIFY2(!ChatSessionStore::save(session, &error),
+             qPrintable(QStringLiteral("save 必须拒绝非法 id：%1").arg(id)));
+    QVERIFY(!error.isEmpty());
+    QVERIFY2(!ChatSessionStore::load(id, nullptr, &error),
+             qPrintable(QStringLiteral("load 必须拒绝非法 id：%1").arg(id)));
+    QVERIFY2(!ChatSessionStore::remove(id, &error),
+             qPrintable(QStringLiteral("remove 必须拒绝非法 id：%1").arg(id)));
+  }
+
+  // remove 对非法 id 不得真删文件：在 sessions 目录旁放一个哨兵文件，用
+  // 逃逸 id 指向它，删调用必须失败且哨兵仍在。
+  const QString sentinel = root + QStringLiteral("/../sentinel-do-not-delete.txt");
+  {
+    QFile out(sentinel);
+    QVERIFY(out.open(QIODevice::WriteOnly));
+    out.write("keep");
+    out.close();
+  }
+  QString error;
+  QVERIFY(!ChatSessionStore::remove(QStringLiteral("../sentinel-do-not-delete"), &error));
+  QVERIFY(QFileInfo::exists(sentinel));
+  QVERIFY(QFile::remove(sentinel));
 }
 
 void TestAiChat::streamParserReassemblesSplitChunksAndDone() {

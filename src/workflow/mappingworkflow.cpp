@@ -12,6 +12,7 @@
 #include "../services/paleotaskservice.h"
 #include "../services/projectdata.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "mapexport.h"
 #include "workflows.h"
 #include <QTemporaryDir>
@@ -647,9 +648,14 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
   }
   if ( !QFile::exists( st.absolutePath ) )
     return; // 没有可定位的井
+  // algo-atom：厚度井位层经 publishArtifacts（staging 路径 ≡ commit）
   QString commitErr;
-  if ( !registrar.commit( st, {}, QStringLiteral( "mappingworkflow/thickness_wells" ),
-                          {}, &commitErr ) )
+  AlgorithmRunResult wellsRun =
+      paleo::runResultFromOutputPath( st.absolutePath, QStringLiteral( "OUTPUT" ) );
+  wellsRun.diagnostics.insert( QStringLiteral( "asset_role" ), QStringLiteral( "thickness_wells" ) );
+  if ( !paleo::publishArtifacts( registrar, st, wellsRun, {},
+                                 QStringLiteral( "mappingworkflow/thickness_wells" ), {},
+                                 &commitErr ) )
   {
     qWarning() << "thickness wells version registration failed:" << commitErr;
     raiseToErrorHub( ErrorHub::Level::Error, QStringLiteral( "mapping" ),
@@ -808,9 +814,14 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     fallbackExtra.insert( QStringLiteral( "rows" ), rows );
     fallbackExtra.insert( QStringLiteral( "cols" ), cols );
     fallbackExtra.insert( QStringLiteral( "wells" ), pts.size() );
+    // algo-atom：井点厚度回落栅格经 publishArtifacts
     QString commitErr;
-    if ( !registrar.commit( st, {}, QStringLiteral( "mappingworkflow/thickness_fallback" ),
-                            fallbackExtra, &commitErr ) )
+    AlgorithmRunResult fbRun =
+        paleo::runResultFromOutputPath( st.absolutePath, QStringLiteral( "OUTPUT" ) );
+    fbRun.diagnostics.insert( QStringLiteral( "asset_role" ), QStringLiteral( "thickness_fallback" ) );
+    if ( !paleo::publishArtifacts( registrar, st, fbRun, {},
+                                   QStringLiteral( "mappingworkflow/thickness_fallback" ),
+                                   fallbackExtra, &commitErr ) )
       return fail( commitErr );
 
     LayerDeclaration decl;
@@ -902,9 +913,15 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
   extra.insert( QStringLiteral( "contributing_wells" ), contributing.size() );
   const QStringList parents = registrar.parentVersionIdsFor(
       QStringList{ rasterTop.path, rasterBase.path } );
+  // algo-atom：主等厚栅格经 publishArtifacts（独立 staging，非多端口单 RunResult——
+  // wells/fallback/main 是三份 DERIVED 资产，各自 stage+publish）
   QString commitErr;
-  if ( !registrar.commit( st, parents, QStringLiteral( "mappingworkflow/thickness" ),
-                          extra, &commitErr ) )
+  AlgorithmRunResult thRun =
+      paleo::runResultFromOutputPath( st.absolutePath, QStringLiteral( "OUTPUT" ) );
+  thRun.diagnostics.insert( QStringLiteral( "asset_role" ), QStringLiteral( "thickness_raster" ) );
+  if ( !paleo::publishArtifacts( registrar, st, thRun, parents,
+                                 QStringLiteral( "mappingworkflow/thickness" ), extra,
+                                 &commitErr ) )
     return fail( commitErr );
 
   LayerDeclaration decl;

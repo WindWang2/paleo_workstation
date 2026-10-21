@@ -367,8 +367,14 @@ private slots:
       qunsetenv("PALEO_WELL_FACIES_CONFIG");
     else
       qputenv("PALEO_WELL_FACIES_CONFIG", previous);
-    QVERIFY(loaded.allowInsecureHttp);
-    QVERIFY(WellFaciesConfig::validateUrl(loaded.baseUrl, loaded.allowInsecureHttp).isEmpty());
+    // M1：旧配置（http + 密钥、无 allowInsecureHttp 字段）不得被自动放行明文
+    // 传输；须显式开启，且拒绝理由要给出开启方式。
+    QVERIFY(!loaded.allowInsecureHttp);
+    const QString refusal =
+        WellFaciesConfig::validateUrl(loaded.baseUrl, loaded.allowInsecureHttp);
+    QVERIFY(!refusal.isEmpty());
+    QVERIFY2(refusal.contains(QStringLiteral("allowInsecureHttp")), qPrintable(refusal));
+    QVERIFY(WellFaciesConfig::validateUrl(loaded.baseUrl, true).isEmpty());
   }
   void labelRemainsVisibleInsideLongInterval() {
     TextTrack track(QStringLiteral("预测相"), 100);

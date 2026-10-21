@@ -44,6 +44,14 @@ QVariantMap snapshot(const DataCatalog *cat) {
   return {{"wells", wells.size()}, {"positioned_wells", positioned}, {"seismic_surveys", surveys.size()},
       {"assets", cat->assets().size()}, {"versions", versions}, {"paleomaps", mapCount}, {"outputs", outputCount},
       {"survey_area_km2", PaleoMapSource::surveyArea(polygons)},
-      {"well_envelope_km2", positioned > 1 ? (maxX - minX) * (maxY - minY) / 1000000. : 0.}, {"horizons", horizons}, {"stage_counts", counts}};
+      // C-11（full-audit-20261020）：井位坐标同样无 CRS 语境——度制（|x|≤360
+      // 且 |y|≤90）下 /1e6 是伪面积，如实给 -1（与 surveyArea 同口径）。
+      {"well_envelope_km2", positioned > 1
+          ? ((std::abs(minX) <= 360. && std::abs(maxX) <= 360. &&
+              std::abs(minY) <= 90. && std::abs(maxY) <= 90.)
+                 ? -1.
+                 : (maxX - minX) * (maxY - minY) / 1000000.)
+          : 0.},
+      {"horizons", horizons}, {"stage_counts", counts}};
 }
 }

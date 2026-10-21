@@ -9,11 +9,12 @@
 #include <memory>
 #include <qgscoordinatereferencesystem.h>
 #include <qgscoordinatetransformcontext.h>
+#include <qgsfeature.h>
 
 class QgsProject;
-class QgsVectorLayerFeatureSource;
 class QgsLayout;
 class QgsPrintLayout;
+class QWidget;
 class QgisLayerService;
 class QgisProjectService;
 
@@ -37,10 +38,11 @@ namespace PaleoLayoutExport
 {
 
 // Capture declarations on their owner thread; reconstruct private QGIS objects
-// in the worker. Memory features are read from immutable feature sources there.
+// in the worker. Memory features are copied out as values on the owner thread —
+// the worker never touches the live layer's provider.
 struct ProjectSnapshot {
   QDomDocument xml;
-  QHash<QString, std::shared_ptr<QgsVectorLayerFeatureSource>> memorySources;
+  QHash<QString, QgsFeatureList> memoryFeatures;
   QgsCoordinateReferenceSystem crs;
   QgsCoordinateTransformContext transformContext;
   QString ellipsoid, title, homePath;
@@ -164,5 +166,16 @@ ExportOutcome exportLayout( QgsPrintLayout *layout, const QString &outPath, Form
 // Builds the thickness map print layout on project (A4 landscape with map, title, legend, scalebar, north arrow, CRS caption).
 QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectService *projectSvc,
                                        const QString &horizon, QString *error = nullptr );
+
+// ---- 版面预览小部件（#531 薄壳的工厂面）----
+// PaleoLayoutPreview（layoutpreview.h）是 QgsLayoutView 的 QWidget 薄壳，其
+// 头必含 <QWidget>——视图层直接 include 即向 ui_qtwidgets_notes 传递债记一笔
+// （tools/transitive-baseline.txt 头注：#533 差额 1 条）。与
+// qgisprocessingservice.h 的 createAlgorithmDialog 同口径：头文件只留 QWidget
+// 前向声明，消费 TU 不再被迫吃 QtWidgets；定义在 .cpp（回收本厂产物需完整
+// 类型）。两个操作都是 no-op 守卫（preview 非本厂产物时安全返回）。
+QWidget *createLayoutPreview( QWidget *parent = nullptr );
+void setLayoutPreviewLayout( QWidget *preview, QgsPrintLayout *layout );
+void zoomLayoutPreviewFull( QWidget *preview );
 
 } // namespace PaleoLayoutExport

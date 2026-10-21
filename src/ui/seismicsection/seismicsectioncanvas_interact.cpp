@@ -122,24 +122,28 @@ void SeismicSectionCanvas::mouseReleaseEvent(QMouseEvent *event) {
         m_isPanning = false;
         m_draggingCurtain = false;
         setCursor(Qt::CrossCursor);
-        // D4.4：断层折线收笔（≥2 点才算线）
-        if (m_pickMode == SectionPickMode::Fault && m_faultDraft.size() >= 2) {
+    }
+    // D4.4：断层折线收笔/清理对任意释放键生效（L3.12）——旧实现只写在
+    // 左/中键分支里：左键起草后以其它键释放，草稿既不清除也不收笔，红色
+    // 虚线残留并继续随鼠标生长，直到下一次左键按下。左键 = 收笔（≥2 点
+    // 才算线）；其它键 = 放弃草稿。
+    if (m_pickMode == SectionPickMode::Fault && !m_faultDraft.isEmpty()) {
+        if (event->button() == Qt::LeftButton && m_faultDraft.size() >= 2) {
             QVector<QPair<double, double>> fracPts;
             for (const auto &pt : m_faultDraft)
                 fracPts.append({pt.first / std::max(1, m_traces - 1), pt.second});
             emit faultDrawn(fracPts);
-            m_faultDraft.clear();
-            update();
-            return;
         }
         m_faultDraft.clear();
-        // D2.11：左键原地点击（未拖动）→ 道拾取事件（道头卡/解释拾取入口）。
-        // 点击与 hover 共用同一取数函数：行号按点击像素解析（旧实现 TimeSlice
-        // 分支硬编码 sample 0，上报的是首行幅值而非点击行）。
-        if (event->button() == Qt::LeftButton && !m_pressMoved && hasData() &&
-            viewportRect().contains(event->pos()) && m_pickMode == SectionPickMode::None) {
-            updateHoverInfo(event->pos(), /*clicked=*/true);
-        }
+        update();
+        return;
+    }
+    // D2.11：左键原地点击（未拖动）→ 道拾取事件（道头卡/解释拾取入口）。
+    // 点击与 hover 共用同一取数函数：行号按点击像素解析（旧实现 TimeSlice
+    // 分支硬编码 sample 0，上报的是首行幅值而非点击行）。
+    if (event->button() == Qt::LeftButton && !m_pressMoved && hasData() &&
+        viewportRect().contains(event->pos()) && m_pickMode == SectionPickMode::None) {
+        updateHoverInfo(event->pos(), /*clicked=*/true);
     }
 }
 

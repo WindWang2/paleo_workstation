@@ -77,6 +77,7 @@ class TestEvolutionKernel : public QObject
     void refusesDifferentOrigin();
     void refusesDifferentCrs();
     void refusesEmptyCoverage();
+    void refusesSouthUpGrid();
 
     // Oracle 2：构造已知位移的相带对 → 位移方向/幅度断言。
     void syntheticDisplacement();
@@ -131,6 +132,26 @@ void TestEvolutionKernel::refusesEmptyCoverage()
   const EvolutionResult result = compareFacies( a, b );
   QCOMPARE( result.status, Status::InvalidInput );
   QVERIFY( !result.message.empty() );
+}
+
+// GridSpec 契约（north-up：pixelHeight < 0）必须过同源拒算门。南向上
+// （pixelHeight > 0）格网放过去会让图幅框反相、onFrame 的 y 区间恒空，
+// 边界位移统计静默错值——入口拒算而非近似。
+void TestEvolutionKernel::refusesSouthUpGrid()
+{
+  FaciesCoverage a = coverage( "H2", makeGrid( 20, 20, 10 ), { patch( 1, 0, 0, 100, 100 ) } );
+  FaciesCoverage b = coverage( "H1", makeGrid( 20, 20, 10 ), { patch( 1, 0, 0, 100, 100 ) } );
+  b.grid.pixelHeight = 10; // 南向上：行向北，与契约相反
+  const EvolutionResult result = compareFacies( a, b );
+  QCOMPARE( result.status, Status::InvalidInput );
+  QVERIFY( result.message.find( "格网口径" ) != std::string::npos );
+
+  // 早期相同样南向上也拒（两期都拒，不只看晚期）。
+  FaciesCoverage c = a;
+  c.grid.pixelHeight = 10;
+  const EvolutionResult both = compareFacies( c, b );
+  QCOMPARE( both.status, Status::InvalidInput );
+  QVERIFY( both.message.find( "格网口径" ) != std::string::npos );
 }
 
 void TestEvolutionKernel::syntheticDisplacement()

@@ -121,6 +121,14 @@ def load_reds(path=None):
             except (KeyError, TypeError, AssertionError):
                 return None, fail2(f"known-reds budget 非法（metric ∈ "
                                    f"{sorted(BUDGET_METRICS)}, value ≥ 0）：{e!r}")
+        # E-10：job-scope 条目可选 steps（失败步骤前缀表，只缩不涨语义的步骤版）。
+        steps_of_entry = e.get("steps")
+        if steps_of_entry is not None:
+            if e["scope"] != "job" or not isinstance(steps_of_entry, list) \
+                    or not steps_of_entry or any(not isinstance(s, str) or not s.strip()
+                                                 for s in steps_of_entry):
+                return None, fail2(f"known-reds steps 仅 job-scope 条目可用且须为非空"
+                                   f"字符串数组：{e!r}")
         if e["match"] in entries:
             return None, fail2(f"known-reds match 重复：{e['match']}")
         entries[e["match"]] = dict(e, lanes=lanes_of_entry)
@@ -236,17 +244,26 @@ def golden_over_count(test_name, details):
 
 
 def parse_jobs(path):
-    """gh api jobs 输出 → {job名: conclusion}（job 名即 lane 名，本仓无 name: 覆写）。
+    """gh api jobs 输出 → ({job名: conclusion}, {job名: {step名: conclusion}})。
 
-    解析失败返回 None（调用方 exit 2）——空映射不能当「全绿」静默放行。
+    job 名即 lane 名（本仓无 name: 覆写）；steps 供 job-scope 登记按失败步骤
+    精确覆盖（E-10：lint 无测试级日志，条目只应盖住登记理由涉及的步骤，
+    其余失败步骤如 clang-tidy 仍是未知红）。解析失败返回 (None, None)
+    （调用方 exit 2）——空映射不能当「全绿」静默放行。
     """
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-        return {str(j["name"]): j.get("conclusion") for j in data.get("jobs", [])}
+        conclusions, steps = {}, {}
+        for j in data.get("jobs", []):
+            name = str(j["name"])
+            conclusions[name] = j.get("conclusion")
+            steps[name] = {str(s.get("name")): s.get("conclusion")
+                           for s in (j.get("steps") or []) if s.get("name")}
+        return conclusions, steps
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"FAIL jobs 解析失败：{exc}", file=sys.stderr)
-        return None
+        return None, None
 
 
 # ---------------- 分诊 ----------------
@@ -255,10 +272,11 @@ def issue_link(entry):
     return f"#{entry['issue']}"
 
 
-def classify(reds, jobs, lane_logs, today=None, out=None, summary_fh=None):
+def classify(reds, jobs, lane_logs, today=None, out=None, summary_fh=None, lane_steps=None):
     """分诊主流程。返回 exit code（0/1）。
 
-    jobs: {lane: conclusion or None}；lane_logs: {lane: 日志根目录 or None}。
+    jobs: {lane: conclusion or None}；lane_logs: {lane: 日志根目录 or None}；
+    lane_steps: {lane: {step名: conclusion}}（gh api jobs 的 steps，可缺省）。
     两遍走：先解析全部日志（测试红集/flaky/golden 明细），再按 job 结论分诊——
     golden 明细与 STALE 判定不依赖车道迭代顺序。
     """
@@ -290,6 +308,28 @@ def classify(reds, jobs, lane_logs, today=None, out=None, summary_fh=None):
         if conclusion not in ("failure",):
             if conclusion in ("cancelled", "skipped"):
                 print(f"NOTE {lane}: conclusion={conclusion}，本轮不参与分诊", file=out)
+                continue
+            if conclusion == "success":
+                continue
+            # E-10（full-audit-20261020）：timed_out（gating 车道 90/120/240 分钟
+            # 超时是真实出口）此前静默跳过、triage 照样绿——观察档告警，gating
+            # 按未知红处理。作业缺位（None——gh api 分页/改名边缘）记 NOTE 可见
+            # 但不红，防假阳。
+            if conclusion is None:
+                print(f"NOTE {lane}: 作业缺位（jobs.json 无此条目——分页/改名？），"
+                      f"本轮不参与分诊", file=out)
+                continue
+            why = "超时" if conclusion == "timed_out" else f"conclusion={conclusion}"
+            if lane_obs:
+                print(f"::warning::观察档 {lane} {why}（"
+                      f"不阻断）——须分诊登记", file=out)
+                obs_warn.append((lane, "<job>", None))
+            else:
+                print(f"::error title=未知红项 ({lane})::{lane} {why}"
+                      f"（gating 车道不参与分诊即静默，须修复或登记）",
+                      file=out)
+                unknown_err.append((lane, "<job>"))
+                rc = 1
             continue
         if lane_obs:
             print(f"::warning::观察档 {lane} 本轮红（continue-on-error，不阻断）——"
@@ -297,10 +337,39 @@ def classify(reds, jobs, lane_logs, today=None, out=None, summary_fh=None):
         if not failed_tests:
             entry = entries.get(lane)
             if entry and entry.get("scope") == "job" and lane in entry.get("lanes", all_lanes):
+                # E-10：job-scope 条目同受 review_due 强制（此前该路径无到期检查，
+                # 条目到期后仍继续降级——「不死条目」）。
+                if str(entry["review_due"]) < today:
+                    print(f"::error title=已知红项复审到期 ({lane})::{lane} 的 job 级登记"
+                          f"（{issue_link(entry)}）review_due={entry['review_due']} 已过期——"
+                          f"降级失效按未知红处理：要么续期（改 review_due + 补证据）要么转正式修复",
+                          file=out)
+                    unknown_err.append((lane, "<job>"))
+                    rc = 1
+                    continue
+                # E-10：steps 精度——登记了 steps 的条目只覆盖列出的失败步骤
+                #（前缀匹配，容忍步骤名尾注）；未覆盖的失败步骤（如 clang-tidy）
+                # 仍是未知红。未登记 steps 的条目维持整 job 降级（存量语义）。
+                covered_steps = [str(s) for s in (entry.get("steps") or [])]
+                failed_steps = sorted(
+                    s for s, c in (lane_steps or {}).get(lane, {}).items()
+                    if c == "failure")
+                uncovered = [s for s in failed_steps
+                             if not any(s.startswith(cs) for cs in covered_steps)] \
+                    if covered_steps else []
                 hit_matches.add(lane)
                 print(f"::warning title=已知红项 ({lane})::{lane} job 级红已登记"
-                      f"（{issue_link(entry)}：{entry['reason']}）", file=out)
+                      f"（{issue_link(entry)}：{entry['reason']}"
+                      f"{'，覆盖步骤 ' + str([s for s in failed_steps if s not in uncovered]) if covered_steps else ''}）",
+                      file=out)
                 known_warn.append((lane, lane, entry))
+                if uncovered:
+                    print(f"::error title=未知红项 ({lane})::lint 失败步骤未登记覆盖："
+                          f"{uncovered}（条目只覆盖 {[s for s in failed_steps if s not in uncovered]}）"
+                          f"——新红须修复或分步骤登记（PR 改名单）", file=out)
+                    for s in uncovered:
+                        unknown_err.append((lane, f"step:{s}"))
+                    rc = 1
             elif lane_obs:
                 print(f"::warning::观察档 {lane} job 红（无测试级明细——构建/安装/环境级），"
                       f"须分诊登记", file=out)
@@ -358,11 +427,20 @@ def classify(reds, jobs, lane_logs, today=None, out=None, summary_fh=None):
             known_warn.append((lane, test, entry))
 
     # STALE：lane 日志已解析、登记项本轮未命中（测试转绿或 job 绿）→ 名单可收缩。
+    # E-10：job-scope 条目（如 lint）的车道永无测试日志可解析——此前永不被
+    # 点名收缩；车道 conclusion==success 同样是「登记未红」的可收缩信号。
     parsed_lanes = set(lane_failed)
     for match, entry in sorted(entries.items()):
         if match in hit_matches:
             continue
         if not (set(entry.get("lanes", all_lanes)) & parsed_lanes):
+            green_lanes = [l for l in entry.get("lanes", all_lanes)
+                           if jobs.get(l) == "success"]
+            if not green_lanes:
+                continue
+            print(f"NOTE known-reds 可收缩：{match} 所在车道本轮绿"
+                  f"（{green_lanes}，job-scope 条目无日志可解析——车道绿即未红）——"
+                  f"测试转绿即删条目（{issue_link(entry)}）", file=out)
             continue
         print(f"NOTE known-reds 可收缩：{match} 本轮未红（登记车道日志已解析）——"
               f"测试转绿即删条目（{issue_link(entry)}）", file=out)
@@ -395,7 +473,8 @@ def selftest():
     import datetime
     failures = 0
 
-    def run_case(name, reds_obj, jobs, lane_logs, expect_rc, must_contain=(), today=None):
+    def run_case(name, reds_obj, jobs, lane_logs, expect_rc, must_contain=(), today=None,
+                 lane_steps=None):
         nonlocal failures
         buf = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
@@ -409,7 +488,8 @@ def selftest():
                     with open(fpath, "w", encoding="utf-8") as fh:
                         fh.write(content)
                 real_logs[lane] = d
-            rc = classify(reds_obj, jobs, real_logs, today=today or "2026-10-17", out=buf)
+            rc = classify(reds_obj, jobs, real_logs, today=today or "2026-10-17", out=buf,
+                          lane_steps=lane_steps)
             text = buf.getvalue()
             if rc != expect_rc:
                 print(f"SELFTEST FAIL {name}: rc={rc} 期望 {expect_rc}\n{text}")
@@ -532,19 +612,47 @@ def selftest():
     with tempfile.TemporaryDirectory() as tmp:
         jp = os.path.join(tmp, "jobs.json")
         with open(jp, "w", encoding="utf-8") as fh:
-            json.dump({"jobs": [{"name": "linux", "conclusion": "failure"},
-                                {"name": "linux-perf", "conclusion": "failure"}]}, fh)
-        if parse_jobs(jp) != {"linux": "failure", "linux-perf": "failure"}:
-            print("SELFTEST FAIL parse_jobs: 结论映射不符")
+            json.dump({"jobs": [
+                {"name": "linux", "conclusion": "failure",
+                 "steps": [{"name": "Build", "conclusion": "failure"}]},
+                {"name": "linux-perf", "conclusion": "failure"}]}, fh)
+        if parse_jobs(jp) != ({"linux": "failure", "linux-perf": "failure"},
+                              {"linux": {"Build": "failure"}, "linux-perf": {}}):
+            print("SELFTEST FAIL parse_jobs: 结论/步骤映射不符")
             failures += 1
-        if parse_jobs(os.path.join(tmp, "missing.json")) is not None:
-            print("SELFTEST FAIL parse_jobs: 解析失败应返回 None（exit 2 通道）")
+        if parse_jobs(os.path.join(tmp, "missing.json")) != (None, None):
+            print("SELFTEST FAIL parse_jobs: 解析失败应返回 (None, None)（exit 2 通道）")
             failures += 1
+
+    # ---- E-10（full-audit-20261020）三盲区夹具 ----
+    # (a) job-scope 条目复审到期 → 降级失效 rc 1（此前该路径无到期检查，条目永生）
+    entry_job_overdue = dict(entry_job, review_due="2026-01-01")
+    run_case("job-red-overdue", reds_with(entry_job_overdue), {"lint": "failure"},
+             {"lint": {}}, 1, ("复审到期", "job 级登记"))
+    # (b) steps 精度：登记只盖 Source gates，clang-tidy 步骤失败仍是未知红 rc 1
+    entry_job_steps = dict(entry_job, steps=["Source gates"])
+    run_case("job-red-uncovered-step", reds_with(entry_job_steps), {"lint": "failure"},
+             {"lint": {}}, 1,
+             ("失败步骤未登记覆盖", "clang-tidy", "job 级红已登记"),
+             lane_steps={"lint": {"Source gates": "failure", "clang-tidy gate": "failure"}})
+    run_case("job-red-covered-step", reds_with(entry_job_steps), {"lint": "failure"},
+             {"lint": {}}, 0, ("job 级红已登记",),
+             lane_steps={"lint": {"Source gates": "failure", "Install Qt6": "success"}})
+    # (c) gating 车道超时 → 未知红 rc 1（此前静默跳过）；作业缺位 → NOTE 不红
+    run_case("lane-timed-out", base_reds, {"windows": "timed_out"}, {}, 1,
+             ("超时", "gating 车道不参与分诊"))
+    run_case("lane-startup-failure", base_reds, {"linux": "startup_failure"}, {}, 1,
+             ("conclusion=startup_failure",))
+    run_case("lane-missing", base_reds, {}, {}, 0, ("作业缺位", "不参与分诊"))
+    # (d) job-scope 条目所在车道本轮绿 → STALE 可收缩（此前 lint 永无日志、
+    #      条目永不被点名收缩）
+    run_case("job-red-stale", reds_with(entry_job), {"lint": "success"}, {}, 0,
+             ("可收缩", "job-scope"))
 
     if failures:
         print(f"selftest：{failures} 处夹具失败")
         return 1
-    print("selftest 通过：11 分诊夹具 + 4 名单校验夹具 + 2 jobs 解析夹具全部命中预期。")
+    print("selftest 通过：18 分诊夹具（含 E-10 七例）+ 4 名单校验夹具 + 2 jobs 解析夹具全部命中预期。")
     return 0
 
 
@@ -591,7 +699,7 @@ def main(argv=None):
     unknown_lanes = set(lane_logs) - set(reds["gating"]) - set(reds["observation"])
     if unknown_lanes:
         return fail2(f"--logs 车道未在名单 lanes 登记：{sorted(unknown_lanes)}")
-    jobs = parse_jobs(jobs_path)
+    jobs, steps = parse_jobs(jobs_path)
     if jobs is None:
         return 2
     summary_fh = None
@@ -599,7 +707,7 @@ def main(argv=None):
     if summary_path:
         summary_fh = open(summary_path, "a", encoding="utf-8")
     try:
-        return classify(reds, jobs, lane_logs, summary_fh=summary_fh)
+        return classify(reds, jobs, lane_logs, summary_fh=summary_fh, lane_steps=steps)
     finally:
         if summary_fh:
             summary_fh.close()

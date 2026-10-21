@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 
+#include <QVariantMap>
 #include <QWidget>
 
 class QTableWidget;
@@ -10,6 +11,7 @@ class QSpinBox;
 class QLineEdit;
 class QLabel;
 class QPushButton;
+class QVBoxLayout;
 
 // wellsitingpanel — 井网辅助面板（方向 34，验证页「布井辅助」页签）。
 // 视图只发意图/只读 workflow 结果：诊断/候选/评估/方案/导出按钮直调
@@ -41,6 +43,8 @@ class WellSitingPanel : public QWidget
     void removeSelectedPlanned();
     void renameSelectedPlanned();
     void refreshEvaluation();
+    // D.3：异步评估交付（GUI 线程）——成功上指标，失败/取消如实说明。
+    void onEvaluationAsyncDone( const QVariantMap &evaluation, const QString &error );
     void saveScenarioFromInput();
     void deleteSelectedScenario();
     void exportScenarioCsv();
@@ -51,5 +55,12 @@ class WellSitingPanel : public QWidget
     void refreshScenarioTable();
     void refreshCandidateTable();
     void refreshDiagnosisLabels();
+    // D.3：方案评估段自建（ctor 拆出，file-budget 函数体规模闸）。
+    void buildEvaluationSection( QVBoxLayout *lay );
+    // D.3：忙面（不确定进度条 + 取消钮 + 禁重动词）与指标文本上屏。
+    void setEvalBusy( bool busy );
+    void applyEvaluation( const QVariantMap &evaluation );
     WellSitingWorkflow *m_wf = nullptr;
+    bool m_evalBusy = false;    // 在飞评估（单飞——忙期新意图只登记待办）
+    bool m_evalPending = false; // 忙期到达的新意图：落地后补跑一次
 };

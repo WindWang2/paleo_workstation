@@ -54,6 +54,26 @@ QLabel *ConstraintPage::buildFieldAndCellRows( QVBoxLayout *lay )
 
 void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
 {
+  auto *taskCaption = caption( tr( "计算目标（推荐起点）" ), content );
+  taskCaption->setObjectName( QStringLiteral( "factorTaskCaption" ) );
+  lay->addWidget( taskCaption );
+  auto *task = new QComboBox( content );
+  task->setObjectName( QStringLiteral( "factorTaskCombo" ) );
+  task->addItem( tr( "快速查看井点趋势" ), QStringLiteral( "local_direction_idw" ) );
+  task->addItem( tr( "考虑断层或沉积相界约束" ), QStringLiteral( "local_direction_idw" ) );
+  task->addItem( tr( "考虑沉积展布方向" ), QStringLiteral( "local_direction_idw" ) );
+  task->addItem( tr( "地统计估计并检查误差" ), QStringLiteral( "kriging" ) );
+  task->addItem( tr( "分析多种可能的模拟结果" ), QStringLiteral( "sgs" ) );
+  task->addItem( tr( "手动选择高级算法…" ), QString() );
+  task->setAccessibleName( tr( "计算目标" ) );
+  lay->addWidget( task );
+  auto *taskNote = new QLabel( content );
+  PaleoTheme::applyThemedStyleSheet( taskNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
+  taskNote->setObjectName( QStringLiteral( "factorTaskNote" ) );
+  taskNote->setWordWrap( true );
+  taskNote->setText( tr( "推荐只提供合理起点；是否消费约束以当前方法能力为准，见下方说明。" ) );
+  lay->addWidget( taskNote );
+
   auto *methodCaption = caption( tr( "成图方法" ), content );
   methodCaption->setObjectName( QStringLiteral( "factorMethodCaption" ) );
   lay->addWidget( methodCaption );
@@ -93,6 +113,14 @@ void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
   updateStrategyNote();
   connect( method, &QComboBox::currentIndexChanged, method, updateStrategyNote );
   lay->addWidget( strategyNote );
+  connect( task, &QComboBox::currentIndexChanged, this, [task, method]() {
+    const QString id = task->currentData().toString();
+    if ( id.isEmpty() )
+      return;
+    const int i = method->findData( id );
+    if ( i >= 0 )
+      method->setCurrentIndex( i );
+  } );
 
   auto *coverageCaption = caption( tr( "覆盖方式" ), content );
   coverageCaption->setObjectName( QStringLiteral( "factorCoverageCaption" ) );
@@ -383,6 +411,100 @@ void ConstraintPage::buildSurfaceRow( QVBoxLayout *lay )
   lay->addWidget( surfaceRow );
 }
 
+void ConstraintPage::rebuildCovariateCombo()
+{
+  auto *covariateCombo = findChild<QComboBox *>( QStringLiteral( "factorCovariateCombo" ) );
+  if ( !covariateCombo )
+    return;
+  const QString keep = covariateCombo->currentData().toString();
+  covariateCombo->blockSignals( true );
+  covariateCombo->clear();
+  covariateCombo->addItem( tr( "请选择协变量栅格" ), QString() );
+  if ( auto *svc = qobject_cast<QgisLayerService *>( property( kLayersProp ).value<QObject *>() ) )
+  {
+    QVector<LayerDeclaration> declared;
+    if ( svc->tryDeclared( &declared ) )
+    {
+      for ( const LayerDeclaration &d : declared )
+      {
+        if ( d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
+          continue;
+        covariateCombo->addItem( d.title.isEmpty() ? d.layerId : d.title, d.layerId );
+      }
+    }
+  }
+  const int idx = covariateCombo->findData( keep );
+  covariateCombo->setCurrentIndex( idx >= 0 ? idx : 0 );
+  covariateCombo->blockSignals( false );
+}
+
+void ConstraintPage::rebuildBoundaryCombo( QComboBox *boundaryCombo )
+{
+  // 成图边界只要面：boundary.* 在前，测区面 survey.area 次之。约束线
+  // （constraints.<层位>）、等值线和井点不是面，不能出现在这个下拉里——
+  // 否则会显示成 constraints.C6，算到算法深处才报「没有有效 polygon」。
+  // 默认值不得盲选第 0 项：回填上次选择，否则依次落 boundary.* /
+  // survey.area，都不在才留空，交给生成门控引导选择。
+  const QString keep = boundaryCombo->currentData().toString();
+  boundaryCombo->blockSignals( true );
+  boundaryCombo->clear();
+  if ( auto *svc = qobject_cast<QgisLayerService *>(
+           property( kLayersProp ).value<QObject *>() ) )
+  {
+    const QVector<LayerDeclaration> declared = svc->declared();
+    const auto isVector = []( const LayerDeclaration &d ) {
+      return d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) == 0;
+    };
+    const auto excluded = []( const LayerDeclaration &d ) {
+      const QString id = d.layerId;
+      return id.startsWith( QLatin1String( "constraints." ) ) ||
+             id.startsWith( QLatin1String( "contours." ) ) ||
+             id == QLatin1String( "wells" ) ||
+             id.startsWith( QLatin1String( "wells." ) ) ||
+             id.startsWith( QLatin1String( "welllog." ) );
+    };
+    const auto dedicated = []( const LayerDeclaration &d ) {
+      return d.layerId.startsWith( QLatin1String( "boundary." ) );
+    };
+    const auto survey = []( const LayerDeclaration &d ) {
+      return d.layerId == QLatin1String( "survey.area" );
+    };
+    const auto labelFor = []( const LayerDeclaration &d ) {
+      if ( !d.title.isEmpty() )
+        return d.title;
+      if ( d.layerId == QLatin1String( "survey.area" ) )
+        return QObject::tr( "测区范围" );
+      return d.layerId;
+    };
+    for ( int pass = 0; pass < 3; ++pass )
+      for ( const LayerDeclaration &d : declared )
+      {
+        if ( !isVector( d ) || excluded( d ) )
+          continue;
+        if ( ( pass == 0 && !dedicated( d ) ) || ( pass == 1 && !survey( d ) ) ||
+             ( pass == 2 && ( dedicated( d ) || survey( d ) ) ) )
+          continue;
+        boundaryCombo->addItem( labelFor( d ), d.layerId );
+      }
+  }
+  int idx = boundaryCombo->findData( keep );
+  if ( idx < 0 )
+  {
+    for ( int i = 0; i < boundaryCombo->count(); ++i )
+    {
+      if ( boundaryCombo->itemData( i ).toString().startsWith( QLatin1String( "boundary." ) ) )
+      {
+        idx = i;
+        break;
+      }
+    }
+  }
+  if ( idx < 0 )
+    idx = boundaryCombo->findData( QStringLiteral( "survey.area" ) );
+  boundaryCombo->setCurrentIndex( idx );
+  boundaryCombo->blockSignals( false );
+}
+
 void ConstraintPage::updateEngineRows()
 {
   // 等厚引擎行：勾选因素的 processingAlgId 是 isopach 时展开并按当前层位
@@ -407,7 +529,26 @@ void ConstraintPage::updateEngineRows()
     confidence = known && def.processingAlgId == SingleFactorContracts::confidenceEngineId();
     interpolant = !known || interpolantEngine( def.processingAlgId );
   }
+  const QString selectedMethod = child<QComboBox>(this, "factorMethodCombo")->currentData().toString();
+  // E.2：三段拆分（原 230 行单体 > #502 防增长闸）——顺序与口径不变。
+  updateInterpolationVisibility( interpolant, selectedMethod, isopach, confidence );
+  updateStructuralIdwSection( interpolant, selectedMethod );
+
+  row->setVisible( isopach );
+  if ( !isopach )
+    return;
+
+  fillIsopachSurfaceCombos( horizons ? horizons->currentText() : QString() );
+}
+
+// E.2 拆段 1/3：插值引擎域可见性——插值方法段/参数组/协变量/方向参数/
+// 覆盖方式/约束提示随「是否插值引擎 + 当前方法」联动。
+void ConstraintPage::updateInterpolationVisibility( bool interpolant,
+                                                    const QString &selectedMethod,
+                                                    bool isopach, bool confidence )
+{
   const QStringList interpolationNames = {
+      QStringLiteral( "factorTaskCaption" ), QStringLiteral( "factorTaskCombo" ), QStringLiteral( "factorTaskNote" ),
       QStringLiteral( "factorMethodCaption" ), QStringLiteral( "factorMethodCombo" ),
       QStringLiteral( "factorCoverageCaption" ), QStringLiteral( "factorCoverageCombo" ),
       QStringLiteral( "factorAdvancedSection" ), QStringLiteral( "factorAdvancedOptionsSection" ),
@@ -419,7 +560,6 @@ void ConstraintPage::updateEngineRows()
       widget->setVisible( interpolant );
   }
 
-  const QString selectedMethod = child<QComboBox>(this, "factorMethodCombo")->currentData().toString();
   const bool idw = selectedMethod == QLatin1String("structural_idw") || selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("surfer_idw");
   const bool kriging = selectedMethod == QLatin1String("kriging") || selectedMethod == QLatin1String("local_direction_kriging") || selectedMethod == QLatin1String("cokriging") || selectedMethod == QLatin1String("sgs");
   for (const auto &entry : QVector<QPair<QString, bool>>{
@@ -429,29 +569,7 @@ void ConstraintPage::updateEngineRows()
        {QStringLiteral("factorNeighborhoodParameters"), selectedMethod == QLatin1String("structural_idw") || selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("local_direction_kriging")},
        {QStringLiteral("factorNoParametersLabel"), selectedMethod == QLatin1String("legacy")}})
     findChild<QWidget *>(entry.first)->setVisible(interpolant && entry.second);
-  if ( auto *covariateCombo = findChild<QComboBox *>( QStringLiteral( "factorCovariateCombo" ) ) )
-  {
-    const QString keep = covariateCombo->currentData().toString();
-    covariateCombo->blockSignals( true );
-    covariateCombo->clear();
-    covariateCombo->addItem( tr( "请选择协变量栅格" ), QString() );
-    if ( auto *svc = qobject_cast<QgisLayerService *>( property( kLayersProp ).value<QObject *>() ) )
-    {
-      QVector<LayerDeclaration> declared;
-      if ( svc->tryDeclared( &declared ) )
-      {
-        for ( const LayerDeclaration &d : declared )
-        {
-          if ( d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
-            continue;
-          covariateCombo->addItem( d.title.isEmpty() ? d.layerId : d.title, d.layerId );
-        }
-      }
-    }
-    const int idx = covariateCombo->findData( keep );
-    covariateCombo->setCurrentIndex( idx >= 0 ? idx : 0 );
-    covariateCombo->blockSignals( false );
-  }
+  rebuildCovariateCombo();
   const bool covariateVisible = interpolant && selectedMethod == QLatin1String( "cokriging" );
   for ( const char *name : { "factorCovariateCombo", "factorCrossCorrelationSpin" } )
   {
@@ -490,14 +608,17 @@ void ConstraintPage::updateEngineRows()
   findChild<QWidget *>(QStringLiteral("directionFamilySection"))->setVisible(interpolant);
   child<QLabel>(this, "factorConstraintHint")->setVisible(interpolant);
   if (auto *caption = child<QLabel>(this, "factorConstraintCaption"))
-    caption->setText(interpolant ? tr("约束线 · 先准备间隔线和方向线，再提取井点")
+    caption->setText(interpolant ? tr("约束线 · 可选：考虑断层或展布方向时绘制")
                                 : tr("约束线 · 用于绕障距离计算"));
-  // WS-C5：结构 IDW 专属行——成图边界（面图层）+ 格网分辨率。
-  auto *method = child<QComboBox>( this, "factorMethodCombo" );
+}
+
+// E.2 拆段 2/3：WS-C5 结构 IDW 专属行——成图边界（面图层）+ 格网分辨率。
+void ConstraintPage::updateStructuralIdwSection( bool interpolant,
+                                                 const QString &selectedMethod )
+{
   auto *boundaryCombo = child<QComboBox>( this, "factorBoundaryCombo" );
-  const QString methodId = method ? method->currentData().toString() : QString();
   const bool structural =
-      interpolant && methodId == QLatin1String( "structural_idw" );
+      interpolant && selectedMethod == QLatin1String( "structural_idw" );
   for ( const QString &name :
         { QStringLiteral( "factorBoundaryCaption" ), QStringLiteral( "factorBoundaryRow" ),
           QStringLiteral( "factorGridCaption" ), QStringLiteral( "factorGridResolutionSpin" ) } )
@@ -517,77 +638,17 @@ void ConstraintPage::updateEngineRows()
     child<QLabel>(this, "factorCellSizeCaption")->setVisible(!structural);
   }
   if ( structural && boundaryCombo )
-  {
-    // 成图边界只要面：boundary.* 在前，测区面 survey.area 次之。约束线
-    // （constraints.<层位>）、等值线和井点不是面，不能出现在这个下拉里——
-    // 否则会显示成 constraints.C6，算到算法深处才报「没有有效 polygon」。
-    // 默认值不得盲选第 0 项：回填上次选择，否则依次落 boundary.* /
-    // survey.area，都不在才留空，交给生成门控引导选择。
-    const QString keep = boundaryCombo->currentData().toString();
-    boundaryCombo->blockSignals( true );
-    boundaryCombo->clear();
-    if ( auto *svc = qobject_cast<QgisLayerService *>(
-             property( kLayersProp ).value<QObject *>() ) )
-    {
-      const QVector<LayerDeclaration> declared = svc->declared();
-      const auto isVector = []( const LayerDeclaration &d ) {
-        return d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) == 0;
-      };
-      const auto excluded = []( const LayerDeclaration &d ) {
-        const QString id = d.layerId;
-        return id.startsWith( QLatin1String( "constraints." ) ) ||
-               id.startsWith( QLatin1String( "contours." ) ) ||
-               id == QLatin1String( "wells" ) ||
-               id.startsWith( QLatin1String( "wells." ) ) ||
-               id.startsWith( QLatin1String( "welllog." ) );
-      };
-      const auto dedicated = []( const LayerDeclaration &d ) {
-        return d.layerId.startsWith( QLatin1String( "boundary." ) );
-      };
-      const auto survey = []( const LayerDeclaration &d ) {
-        return d.layerId == QLatin1String( "survey.area" );
-      };
-      const auto labelFor = []( const LayerDeclaration &d ) {
-        if ( !d.title.isEmpty() )
-          return d.title;
-        if ( d.layerId == QLatin1String( "survey.area" ) )
-          return QObject::tr( "测区范围" );
-        return d.layerId;
-      };
-      for ( int pass = 0; pass < 3; ++pass )
-        for ( const LayerDeclaration &d : declared )
-        {
-          if ( !isVector( d ) || excluded( d ) )
-            continue;
-          if ( ( pass == 0 && !dedicated( d ) ) || ( pass == 1 && !survey( d ) ) ||
-               ( pass == 2 && ( dedicated( d ) || survey( d ) ) ) )
-            continue;
-          boundaryCombo->addItem( labelFor( d ), d.layerId );
-        }
-    }
-    int idx = boundaryCombo->findData( keep );
-    if ( idx < 0 )
-    {
-      for ( int i = 0; i < boundaryCombo->count(); ++i )
-      {
-        if ( boundaryCombo->itemData( i ).toString().startsWith( QLatin1String( "boundary." ) ) )
-        {
-          idx = i;
-          break;
-        }
-      }
-    }
-    if ( idx < 0 )
-      idx = boundaryCombo->findData( QStringLiteral( "survey.area" ) );
-    boundaryCombo->setCurrentIndex( idx );
-    boundaryCombo->blockSignals( false );
-  }
+    rebuildBoundaryCombo( boundaryCombo );
+}
 
-  row->setVisible( isopach );
-  if ( !isopach )
+// E.2 拆段 3/3：等厚引擎顶/底构造面清单——按当前层位列已声明栅格
+// （构造面随层位声明；层位无关的也列），回填上次选择。
+void ConstraintPage::fillIsopachSurfaceCombos( const QString &horizon )
+{
+  auto *topCombo = child<QComboBox>( this, "factorTopSurfaceCombo" );
+  auto *baseCombo = child<QComboBox>( this, "factorBaseSurfaceCombo" );
+  if ( !topCombo || !baseCombo )
     return;
-
-  const QString horizon = horizons ? horizons->currentText() : QString();
   const QString keepTop = topCombo->currentData().toString();
   const QString keepBase = baseCombo->currentData().toString();
   auto fill = [&]( QComboBox *combo, const QString &keep ) {

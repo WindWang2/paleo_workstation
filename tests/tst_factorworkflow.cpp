@@ -549,6 +549,43 @@ class TestFactorWorkflow : public QObject
       QVERIFY(lex.isSand(QStringLiteral("细砂岩")));
     }
 
+    void lithoLexiconProjectCorruptJsonReportsError()
+    {
+      // C.2（#589）：工程级 litho_lexicon.json 损坏时 fromProject 必须把原因
+      // 交出来（*error 非空），不能再静默回落默认词表——与 project_area.json
+      // 「坏 JSON 如实报错拒用」同纪律（arearules.cpp）。
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      QFile f(tmp.filePath(QStringLiteral("litho_lexicon.json")));
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("{ not json");
+      f.close();
+
+      QString err;
+      const auto lex = paleo::domain::LithoLexicon::fromProject(tmp.path(), &err);
+      QVERIFY2(!err.isEmpty(), "坏 JSON 必须报错，不得静默回落");
+      QCOMPARE(lex.name(), QStringLiteral("default")); // 拒用坏词表 → 默认词表
+      QVERIFY(lex.isSand(QStringLiteral("细砂岩")));
+
+      // 同时存在 project_area.json 内嵌词表时也不下探——已有一个来源明示损坏。
+      QFile area(tmp.filePath(QStringLiteral("project_area.json")));
+      QVERIFY(area.open(QIODevice::WriteOnly));
+      area.write(R"({"litho_lexicon":{"name":"area_custom","rules":[]}})");
+      area.close();
+      QString err2;
+      const auto stillDefault = paleo::domain::LithoLexicon::fromProject(tmp.path(), &err2);
+      QVERIFY2(!err2.isEmpty(), "坏 JSON 报错不得被 project_area.json 冲掉");
+      QCOMPARE(stillDefault.name(), QStringLiteral("default"));
+
+      // 无工程词表：无错、默认词表。
+      QTemporaryDir clean;
+      QVERIFY(clean.isValid());
+      QString noErr;
+      const auto cleanLex = paleo::domain::LithoLexicon::fromProject(clean.path(), &noErr);
+      QVERIFY2(noErr.isEmpty(), qPrintable(noErr));
+      QCOMPARE(cleanLex.name(), QStringLiteral("default"));
+    }
+
     void explicitWellFactorExtractionAndAllMethods() {
       Fixture f; QVERIFY(initFixture(f)); QString err;
       const QString path = f.dir.filePath(QStringLiteral("factors.geojson"));

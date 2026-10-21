@@ -101,6 +101,26 @@ void RegistrationWorkflow::applyProvisionalRegistration(
                           QStringLiteral(".provisional.geojson");
   const QString outAbs = QDir(outDir).filePath(outName);
 
+  // 派生 GeoJSON 已写出即置只读；其后任一环节失败都必须把这份「无目录
+  // 记录」的受管字节收掉——否则每次重试再落一份，artifacts/derived 下
+  // 孤儿累积（#588 B.9；对照 mapexport.cpp:147-153 显式 remove）。
+  // outAbs 刚被 setPermissions 为只读，Windows 删只读文件会失败，先恢复
+  // 可写再删；目录是本次 mkpath 新建的，收掉空的版本目录与其上的资产
+  // 目录（只收空的——同名资产此前的版本目录不动）。
+  const auto discardDerived = [&outAbs, &outDir]() {
+    if (QFile::exists(outAbs))
+    {
+      QFile::setPermissions(outAbs, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                       QFileDevice::ReadUser);
+      QFile::remove(outAbs);
+    }
+    const QString assetDir = QFileInfo(outDir).absolutePath();
+    if (QDir(outDir).isEmpty())
+      QDir().rmdir(outDir);
+    if (QDir(assetDir).isEmpty())
+      QDir().rmdir(assetDir);
+  };
+
   QString terr;
   int featureCount = 0;
   double bounds[4] = {0, 0, 0, 0};
@@ -128,6 +148,7 @@ void RegistrationWorkflow::applyProvisionalRegistration(
   QString verr;
   if (!cat->addVersion(d, &verr))
   {
+    discardDerived();
     fail(verr);
     return;
   }
@@ -143,6 +164,7 @@ void RegistrationWorkflow::applyProvisionalRegistration(
   QString derr;
   if (!m_layerSvc->declare(decl, &derr))
   {
+    discardDerived();
     fail(derr);
     return;
   }

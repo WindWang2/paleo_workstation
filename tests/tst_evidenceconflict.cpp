@@ -56,6 +56,30 @@ private slots:
     QVERIFY(byCode(findings, "consistent_sources").isEmpty());
   }
 
+  void minorityAgreeingWithTargetIsNotReportedAsContradiction() {
+    // C.1（#589）：该意见编码与图斑一致、只是被其他意见票数压过时，文案
+    // 不能再声称「与图斑相 N 矛盾」（自相矛盾 + 引向并不存在的取舍）。
+    // 人工归因 [A:2, B:2, C:3]、target=3 → 多数方 2，C 被标 minority_opinion。
+    const QList<Opinion> opinions{makeOpinion("well", "井 A", "log-a", 2),
+                                  makeOpinion("well", "井 B", "log-b", 2),
+                                  makeOpinion("seismic", "剖面 S1", "seis-c", 3)};
+    const auto findings = analyze(opinions, 3, kTarget, {{"status", "manual"}});
+    const auto finding = byCode(findings, "minority_opinion");
+    QCOMPARE(finding.value("evidence").toMap().value("label").toString(), QString("剖面 S1"));
+    QVERIFY(finding.value("message").toString().contains(QStringLiteral("与图斑一致但被")));
+    QVERIFY(!finding.value("message").toString().contains(QStringLiteral("矛盾")));
+    QVERIFY(finding.value("basis").toString().contains(QStringLiteral("与图斑一致")));
+    QVERIFY(!finding.value("suggestion").toString().contains(QStringLiteral("取舍")));
+    // 与图斑不一致的少数方仍照旧报矛盾（文案未被削弱）。
+    const QList<Opinion> conflicting{makeOpinion("well", "井 A", "log-a", 2),
+                                     makeOpinion("seismic", "剖面 S1", "seis-c", 3),
+                                     makeOpinion("seismic", "剖面 S2", "seis-d", 3)};
+    const auto stillConflicting = byCode(analyze(conflicting, 3, kTarget, {{"status", "manual"}}),
+                                         "minority_opinion");
+    QCOMPARE(stillConflicting.value("evidence").toMap().value("label").toString(), QString("井 A"));
+    QVERIFY(stillConflicting.value("message").toString().contains(QStringLiteral("与图斑相 3 空间矛盾")));
+  }
+
   void singleFactorVersusTargetClassification() {
     const QList<Opinion> opinions{makeOpinion("single_factor", "砂地比", "sf-v3", 1)};
     const auto findings = analyze(opinions, 2, kTarget, {{"status", "ok"}});

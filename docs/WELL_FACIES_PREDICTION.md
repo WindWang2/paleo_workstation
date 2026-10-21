@@ -7,6 +7,19 @@
 首次使用在「预测服务」填入服务地址和 API 密钥。**没有缺省地址**（#133：
 不再硬编码任何第三方地址），请向服务提供方索取正式地址。
 
+2026-10-20 预测专项：#598 曾把一个服务地址与 API 密钥明文写进
+`WellFaciesConfig::load()` 作兜底，已撤除——**源码与安装包不再携带任何 API
+密钥**。打包机若需要开箱即用的缺省地址，在本地配置期给出（不入库）：
+
+```bash
+cmake -S . -B build -DPALEO_WELL_FACIES_DEFAULT_URL=https://facies.example.org/api/v1
+# 仅当该缺省地址确为内网 http 时再加：-DPALEO_WELL_FACIES_DEFAULT_ALLOW_HTTP=ON
+```
+
+密钥仍须由用户在「预测服务」填写（钥匙串）或经 `PALEO_WELL_FACIES_API_KEY`
+提供；未配置密钥时面板如实显示「请在「预测服务」配置 API 密钥」。曾经入库的
+那把密钥已随公开仓库历史暴露，**须由服务维护者轮换**（本仓库改动无法替代轮换）。
+
 传输安全（#133）：
 
 - 只接受 `https://`。`http://` 仅对本机回环（`localhost` / `127.x` / `::1`）

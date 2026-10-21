@@ -150,7 +150,7 @@ protected:
     const int labelHeight = QFontMetrics(bodyFont).height();
     p.setFont(bodyFont);
     p.setPen(PaleoTheme::tokens().textMuted);
-    p.drawText(QRect(2, 4, leftMargin - 4, 18), Qt::AlignCenter, QStringLiteral("TWT (ms)"));
+    p.drawText(QRect(2, 4, leftMargin - 4, 18), Qt::AlignCenter, QObject::tr("TWT (ms)"));
 
     if (m_dtMs > 0.0 && m_img.height() > 0)
     {

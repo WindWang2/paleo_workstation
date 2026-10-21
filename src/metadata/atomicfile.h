@@ -17,6 +17,7 @@
 #include <windows.h>
 #include <io.h>
 #else
+#include <fcntl.h>
 #include <cstdio>
 #include <unistd.h>
 #endif
@@ -33,6 +34,35 @@ inline bool paleoSyncFile(QFile &file)
   return ::_commit(fd) == 0;
 #else
   return ::fsync(fd) == 0;
+#endif
+}
+
+// rename 只改目录项：文件内容 fsync 过，父目录的目录项还没落盘，掉电后
+// 替换可能静默回退到旧文件（新内容成孤儿 inode）。目录 fd 的 fsync 让
+// rename 本身也持久——paleoReplaceFile 之后必须调（Windows 侧
+// MoveFileExW 的 MOVEFILE_WRITE_THROUGH 只覆盖被移动的文件）。
+inline bool paleoSyncDir(const QString &dirPath)
+{
+#ifdef Q_OS_WIN
+  // 目录句柄要 FILE_FLAG_BACKUP_SEMANTICS（否则 CreateFileW 拒开目录）。
+  // FILE_READ_ATTRIBUTES 足够 FlushFileBuffers 刷目录项。
+  const HANDLE handle = CreateFileW(reinterpret_cast<LPCWSTR>(dirPath.utf16()),
+                                    FILE_READ_ATTRIBUTES,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                    nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+  if (handle == INVALID_HANDLE_VALUE)
+    return false;
+  const bool ok = FlushFileBuffers(handle) != 0;
+  CloseHandle(handle);
+  return ok;
+#else
+  const QByteArray native = QFile::encodeName(dirPath);
+  const int fd = ::open(native.constData(), O_RDONLY | O_DIRECTORY);
+  if (fd < 0)
+    return false;
+  const bool ok = ::fsync(fd) == 0;
+  ::close(fd);
+  return ok;
 #endif
 }
 
@@ -165,6 +195,13 @@ inline bool paleoWriteFileAtomic(const QString &destination,
     QFile::remove(tmpPath);
     return false;
   }
+
+  // 目录项也要落盘：只 fsync 文件的话，掉电后这次替换可能静默回退到旧
+  // 文件（新内容变成孤儿 inode）。目标已替换成功——刷目录失败如实告警，
+  // 不把已完成的写报成失败（调用方重试只会重写同一内容）。
+  if (!paleoSyncDir(dir.absolutePath()))
+    qWarning("atomic write: parent directory fsync failed for %s",
+             qPrintable(dir.absolutePath()));
 
   return true;
 }
@@ -321,6 +358,12 @@ public:
         *errorMessage = QStringLiteral("提交原子替换失败：%1 -> %2").arg(m_stagePath, m_destination);
       return false;
     }
+
+    // 同 paleoWriteFileAtomic：rename 的目录项也要落盘才算真提交。
+    const QDir destinationDir = QFileInfo(m_destination).dir();
+    if (!paleoSyncDir(destinationDir.absolutePath()))
+      qWarning("atomic transaction: parent directory fsync failed for %s",
+               qPrintable(destinationDir.absolutePath()));
 
     // 替换成功后清除 .running 脏标记
     QFile::remove(m_runningMarkerPath);

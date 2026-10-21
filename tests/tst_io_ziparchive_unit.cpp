@@ -21,9 +21,17 @@ private slots:
   void extractNonExistentEntry();
   void mutationDemonstration_corruptEntryDetected();
   void crcMismatchRejectedAfterExtract(); // #477
+  void zip64CentralDirectoryWraparoundRejected(); // #382
+  void zip64DirectoryOffsetWraparoundRejected(); // A-10（full-audit-20261020）
+  void storedEntrySizeMismatchRejected();
 
 private:
   static QByteArray makeStoredZip(const QMap<QString, QByteArray> &files);
+  // 真包 + ZIP64 EOCD/locator，中央目录的 offset/size/条目数由调用方指定
+  // （用于喂加法回绕的攻击值）。
+  static QByteArray makeZip64Archive(quint64 directoryOffset, quint64 directorySize,
+                                     quint64 entries, quint32 *realCdOffset = nullptr,
+                                     quint32 *realCdSize = nullptr);
 };
 
 static void writeU16(QByteArray &b, quint16 v)
@@ -38,6 +46,12 @@ static void writeU32(QByteArray &b, quint32 v)
   b.append(static_cast<char>((v >> 8) & 0xFF));
   b.append(static_cast<char>((v >> 16) & 0xFF));
   b.append(static_cast<char>((v >> 24) & 0xFF));
+}
+
+static void writeU64(QByteArray &b, quint64 v)
+{
+  writeU32(b, static_cast<quint32>(v & 0xFFFFFFFFULL));
+  writeU32(b, static_cast<quint32>(v >> 32));
 }
 
 QByteArray TestIoZipArchiveUnit::makeStoredZip(const QMap<QString, QByteArray> &files)
@@ -111,6 +125,58 @@ QByteArray TestIoZipArchiveUnit::makeStoredZip(const QMap<QString, QByteArray> &
   writeU32(archive, cdOffset);
   writeU16(archive, 0); // comment len
 
+  return archive;
+}
+
+// 真包（一条 stored 条目）+ ZIP64 EOCD / locator。EOCD 的 size/offset/count
+// 全填哨兵，真值由 EOCD64 覆写——directoryOffset/directorySize 因此完全由
+// 调用方控制，正是 #382 里被加法回绕穿闸的那两个字段。realCdOffset/realCdSize
+// 非空时回填真实中央目录位置，供「同形但不回绕」的对照用例使用。
+QByteArray TestIoZipArchiveUnit::makeZip64Archive(quint64 directoryOffset,
+                                                  quint64 directorySize, quint64 entries,
+                                                  quint32 *realCdOffset, quint32 *realCdSize)
+{
+  QMap<QString, QByteArray> files;
+  files.insert(QStringLiteral("a.txt"), QByteArrayLiteral("AAA"));
+  QByteArray archive = makeStoredZip(files);
+  // 去掉普通 EOCD（22 字节），换成 ZIP64 三件套。
+  archive.chop(22);
+
+  const quint32 cdSize = 46 + 5; // 中央目录头 46 + 名字 5
+  const quint32 cdOffset = static_cast<quint32>(archive.size()) - cdSize;
+  const quint32 zip64EocdOffset = static_cast<quint32>(archive.size());
+  if (realCdOffset)
+    *realCdOffset = cdOffset;
+  if (realCdSize)
+    *realCdSize = cdSize;
+
+  // ZIP64 end of central directory record（56 字节）
+  archive.append("\x50\x4b\x06\x06", 4);
+  writeU64(archive, 44); // size of zip64 EOCD record
+  writeU16(archive, 45); // version made by
+  writeU16(archive, 45); // version needed
+  writeU32(archive, 0);  // number of this disk
+  writeU32(archive, 0);  // disk with start of CD
+  writeU64(archive, entries);         // total entries this disk
+  writeU64(archive, entries);         // total entries
+  writeU64(archive, directorySize);   // size of CD
+  writeU64(archive, directoryOffset); // offset of CD
+
+  // ZIP64 end of central directory locator（20 字节）
+  archive.append("\x50\x4b\x06\x07", 4);
+  writeU32(archive, 0); // disk with zip64 EOCD
+  writeU64(archive, zip64EocdOffset);
+  writeU32(archive, 1); // total number of disks
+
+  // 普通 EOCD：三个字段全哨兵 → 读面必须走 ZIP64 路径取真值
+  archive.append("\x50\x4b\x05\x06", 4);
+  writeU16(archive, 0);
+  writeU16(archive, 0);
+  writeU16(archive, 0xFFFF);
+  writeU16(archive, 0xFFFF);
+  writeU32(archive, 0xFFFFFFFF);
+  writeU32(archive, 0xFFFFFFFF);
+  writeU16(archive, 0);
   return archive;
 }
 
@@ -229,5 +295,97 @@ void TestIoZipArchiveUnit::crcMismatchRejectedAfterExtract()
   QCOMPARE(cleanOut, inputFiles.value(QStringLiteral("payload.bin")));
 }
 
+// #382：ZIP64 中央目录边界加法回绕致野读。directoryOffset/directorySize 是
+// EOCD64 里攻击者可控的 u64；旧闸用加法判界，directoryOffset 取
+// 0xFFFFFFFF80000000、directorySize 取 0x80000000 时和在 2^64 上回绕成 0
+// 穿闸，随后 directoryEnd/offset 换 qint64 得负值，readU32 以负下标越读。
+void TestIoZipArchiveUnit::zip64CentralDirectoryWraparoundRejected()
+{
+  static const quint64 kWrappedOffset = 0xFFFFFFFF80000000ULL; // 作 qint64 = INT_MIN
+  static const quint64 kWrappedSize = 0x80000000ULL;           // 2^31
+
+  const QByteArray zipBytes =
+      makeZip64Archive(kWrappedOffset, kWrappedSize, /*entries=*/1);
+
+  const ZipListResult list = zipListBytes(zipBytes);
+  QVERIFY2(!list.ok, "加法回绕的 ZIP64 中央目录边界必须被拒（不得进入条目读）");
+  QVERIFY2(list.error.contains(QStringLiteral("越界")), qPrintable(list.error));
+
+  // 同一条 ZIP64 路径、offset/size 是真实值（不回绕）时照常列出——
+  // 证明闸拒的是回绕值，不是「带 ZIP64 的包」本身。
+  quint32 cdOffset = 0, cdSize = 0;
+  const QByteArray real =
+      makeZip64Archive(0, 0, /*entries=*/1, &cdOffset, &cdSize);
+  const ZipListResult zero = zipListBytes(real);
+  QVERIFY2(!zero.ok, "directorySize=0 的包不能把任意数据当条目读");
+  const QByteArray sane = makeZip64Archive(cdOffset, cdSize, /*entries=*/1);
+  const ZipListResult saneList = zipListBytes(sane);
+  QVERIFY2(saneList.ok, qPrintable(saneList.error));
+  QCOMPARE(saneList.entries.size(), 1);
+  QCOMPARE(saneList.entries.first().name, QStringLiteral("a.txt"));
+}
+
 QTEST_GUILESS_MAIN(TestIoZipArchiveUnit)
 #include "tst_io_ziparchive_unit.moc"
+
+// A-10（full-audit-20261020）：EOCD64 的 directoryOffset 取近 2^64 值、
+// directorySize 取可回绕组合时，加法判界 (offset + size > len) 穿闸，
+// 随后 qint64 换负下标读缓冲区之前的内存。修复后按减法判界拒绝。
+void TestIoZipArchiveUnit::zip64DirectoryOffsetWraparoundRejected()
+{
+  QByteArray archive;
+  archive.append("local-data-padding-not-relevant", 30);
+  const int zip64Offset = archive.size();
+  // EOCD64（56 字节）
+  archive.append("\x50\x4b\x06\x06", 4); // 签名
+  writeU64(archive, 44);  // 记录长 - 12
+  writeU16(archive, 45);  // version made by
+  writeU16(archive, 45);  // version needed
+  writeU32(archive, 0);   // disk
+  writeU32(archive, 0);   // cd disk
+  writeU64(archive, 1);   // 本盘条目数
+  writeU64(archive, 1);   // 总条目数
+  writeU64(archive, 200); // directory size
+  writeU64(archive, 0xFFFFFFFFFFFFFF9CULL); // directory offset = 2^64 - 100
+  // locator（20 字节）
+  archive.append("\x50\x4b\x06\x07", 4);
+  writeU32(archive, 0);
+  writeU64(archive, static_cast<quint64>(zip64Offset));
+  writeU32(archive, 1);
+  // EOCD（22 字节）：count 哨兵触发 ZIP64 解析
+  archive.append("\x50\x4b\x05\x06", 4);
+  writeU16(archive, 0);
+  writeU16(archive, 0);
+  writeU16(archive, 0xFFFF); // 本盘条目数 = 哨兵
+  writeU16(archive, 0xFFFF); // 总条目数 = 哨兵
+  writeU32(archive, 0xFFFFFFFF);
+  writeU32(archive, 0xFFFFFFFF);
+  writeU16(archive, 0);
+
+  const ZipListResult listing = zipListBytes(archive);
+  QVERIFY(!listing.ok);
+  QVERIFY2(listing.error.contains(QStringLiteral("偏移越界")), qPrintable(listing.error));
+}
+
+// stored 条目 compressedSize != uncompressedSize 的声明矛盾必须拒绝：
+// 即便 CRC 与实际字节恰好一致，也不得交出与声明不符长度的数据。
+void TestIoZipArchiveUnit::storedEntrySizeMismatchRejected()
+{
+  QMap<QString, QByteArray> inputFiles;
+  inputFiles.insert(QStringLiteral("m.txt"), QByteArrayLiteral("MISMATCH"));
+  QByteArray zipBytes = makeStoredZip(inputFiles);
+
+  // 中央目录条目 +24 处是 uncompressedSize：由 8 改成 9（compressedSize 保持 8）。
+  const int eocd = zipBytes.lastIndexOf("PK\x05\x06");
+  QVERIFY(eocd > 0);
+  const quint32 cdOffset = static_cast<quint32>(static_cast<unsigned char>(zipBytes.at(eocd + 16))) |
+                           (static_cast<quint32>(static_cast<unsigned char>(zipBytes.at(eocd + 17))) << 8) |
+                           (static_cast<quint32>(static_cast<unsigned char>(zipBytes.at(eocd + 18))) << 16) |
+                           (static_cast<quint32>(static_cast<unsigned char>(zipBytes.at(eocd + 19))) << 24);
+  zipBytes[static_cast<int>(cdOffset) + 24] = '\x09';
+
+  QByteArray out;
+  QString err;
+  QVERIFY(!zipExtractBytes(zipBytes, QStringLiteral("m.txt"), &out, &err));
+  QVERIFY2(err.contains(QStringLiteral("stored 长度与声明不符")), qPrintable(err));
+}

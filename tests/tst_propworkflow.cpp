@@ -179,6 +179,7 @@ private slots:
   void embeddedSurfacesDoNotClaimParents();
   void relativeSurfacePathsResolveForParents();
   void rasterWithoutGeoreferenceIsRejected();
+  void oversizedRasterIsRejectedByCellBudget();
   void requestFromCatalogBuildsWellsAndHorizons();
   void deviatedWellUsesTrajectoryStations();
   // ---- 方向20：JobRunner 迁移面的行为等价断言（异步 startJob 路径） ----
@@ -610,6 +611,35 @@ void TestPropWorkflow::rasterWithoutGeoreferenceIsRejected()
   QVERIFY2(err.contains(QStringLiteral("no georeference")), qPrintable(err));
   QCOMPARE(grid.cols, 0);
   QCOMPARE(grid.rows, 0);
+}
+
+// #415 同族（#588 B.8）：cols*rows int 乘法溢出——回绕后 resize 按小数组
+// 分配、GDALRasterIO 按真实维度写即越界。workflow 层像元预算 4M（同
+// mappingworkflow/depthconversion 闸）：超限必须在读入整幅栅格前拒绝，
+// 且不留下半初始化的输出网格。
+void TestPropWorkflow::oversizedRasterIsRejectedByCellBudget()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString path = tmp.filePath(QStringLiteral("huge.tif"));
+  GDALDriverH drv = GDALGetDriverByName("GTiff");
+  QVERIFY(drv);
+  // 5000×1000 = 5,000,000 格 > 4M；只建头不写像元（读入前就该被挡掉）。
+  GDALDatasetH ds =
+      GDALCreate(drv, path.toUtf8().constData(), 5000, 1000, 1, GDT_Float32, nullptr);
+  QVERIFY(ds);
+  double gt[6] = {0.0, 1.0, 0.0, 1000.0, 0.0, -1.0};
+  GDALSetGeoTransform(ds, gt);
+  GDALClose(ds);
+
+  SurfaceGrid grid;
+  QString err;
+  QVERIFY(!PropertyModelWorkflow::loadSurface(path, &grid, &err));
+  QVERIFY2(err.contains(QStringLiteral("像元预算")), qPrintable(err));
+  QVERIFY2(err.contains(QStringLiteral("5000000")), qPrintable(err));
+  QCOMPARE(grid.cols, 0);
+  QCOMPARE(grid.rows, 0);
+  QVERIFY(grid.z.empty());
 }
 
 void TestPropWorkflow::requestFromCatalogBuildsWellsAndHorizons()

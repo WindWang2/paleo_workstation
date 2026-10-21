@@ -66,6 +66,67 @@ QString fingerprint( const QVariant &value )
   return QString::fromLatin1( QCryptographicHash::hash( json, QCryptographicHash::Sha256 ).toHex() );
 }
 
+// 预测专项 P0：成果来源三分。kind ∈ model_prediction / mock /
+// manual_revision / derived；based_on_mock 沿输入传染（Mock 派生、Mock 底图
+// 的人工修订都不得被当作真实模型结果）；validation 只有 extra 真带独立验证
+// 指标才为 validated；confidence_semantics 恒为 model_score（置信度是模型
+// 输出分数，不是准确率）。
+static QVariantMap provenanceOf( const QVector<InputRef> &inputs, const QVariantMap &extra )
+{
+  int mockInputs = 0;
+  for ( const InputRef &in : inputs )
+    if ( in.mock )
+      ++mockInputs;
+  const QString method = extra.value( QStringLiteral( "method" ) ).toString();
+  const QString kindKey = extra.value( QStringLiteral( "kind" ) ).toString();
+  const bool basedOnMock = extra.value( QStringLiteral( "mock" ) ).toBool() || mockInputs > 0 ||
+                           method.startsWith( QLatin1String( "mock" ) );
+  const bool revised = method == QLatin1String( "manual-edit-copy" ) ||
+                       kindKey == QLatin1String( "edited_facies" ) ||
+                       !extra.value( QStringLiteral( "spatial_edit_events" ) ).toList().isEmpty();
+  const auto nonEmpty = [&extra]( const char *k ) {
+    const QVariant v = extra.value( QLatin1String( k ) );
+    return v.isValid() && !v.isNull() && !v.toString().isEmpty() ? true
+           : v.typeId() == QMetaType::QStringList ? !v.toStringList().isEmpty()
+           : v.typeId() == QMetaType::QVariantList ? !v.toList().isEmpty() : false;
+  };
+  const bool model = nonEmpty( "model_names" ) || nonEmpty( "model" ) || nonEmpty( "execution_engine" ) ||
+                     nonEmpty( "prediction_model" ) || method.startsWith( QLatin1String( "remote" ) ) ||
+                     method.startsWith( QLatin1String( "onnx" ) );
+  const QString kind = revised ? QStringLiteral( "manual_revision" )
+                       : basedOnMock ? QStringLiteral( "mock" )
+                       : model ? QStringLiteral( "model_prediction" )
+                               : QStringLiteral( "derived" );
+  // validated 要求至少一项「有意义」的指标：非空键 + 非空/非空容器值。
+  // 空 map、全空字符串、占位 null 仍算未验证（避免 {{"note",""}} 被抬成已验证）。
+  const QVariantMap metrics = extra.value( QStringLiteral( "validation_metrics" ) ).toMap();
+  bool meaningful = false;
+  for ( auto it = metrics.constBegin(); it != metrics.constEnd(); ++it )
+  {
+    if ( it.key().trimmed().isEmpty() )
+      continue;
+    const QVariant &v = it.value();
+    if ( !v.isValid() || v.isNull() )
+      continue;
+    if ( v.typeId() == QMetaType::QString && v.toString().trimmed().isEmpty() )
+      continue;
+    if ( v.typeId() == QMetaType::QVariantMap && v.toMap().isEmpty() )
+      continue;
+    if ( v.typeId() == QMetaType::QVariantList && v.toList().isEmpty() )
+      continue;
+    if ( v.typeId() == QMetaType::QStringList && v.toStringList().isEmpty() )
+      continue;
+    meaningful = true;
+    break;
+  }
+  return { { QStringLiteral( "kind" ), kind },
+           { QStringLiteral( "based_on_mock" ), basedOnMock },
+           { QStringLiteral( "mock_input_count" ), mockInputs },
+           { QStringLiteral( "validation" ), meaningful ? QStringLiteral( "validated" )
+                                                        : QStringLiteral( "unvalidated" ) },
+           { QStringLiteral( "confidence_semantics" ), QStringLiteral( "model_score" ) } };
+}
+
 QVariantMap build( const QVector<InputRef> &inputs, const QVariantMap &extra,
                    const QVariantMap &software )
 {
@@ -151,6 +212,7 @@ QVariantMap build( const QVector<InputRef> &inputs, const QVariantMap &extra,
                    { QStringLiteral( "support" ), support },
                    { QStringLiteral( "software" ), software } };
   out.insert("extension_version", 1);
+  out.insert( QStringLiteral( "provenance" ), provenanceOf( inputs, extra ) );
   out.insert("records", records);
   if ( extra.contains( QStringLiteral( "facies" ) ) )
     out.insert( QStringLiteral( "facies_schema_hash" ), fingerprint( extra.value( QStringLiteral( "facies" ) ) ) );
@@ -167,7 +229,25 @@ QString summary( const QVariantMap &evidence )
       return tr("证据链无法验证：%1").arg(finding.toMap().value("message").toString());
   const QVariantMap model = evidence.value( QStringLiteral( "model" ) ).toMap();
   const QVariantMap wells = evidence.value( QStringLiteral( "support" ) ).toMap().value( QStringLiteral( "wells" ) ).toMap();
-  QString text = tr( "输入 %1 个版本 · 方法 %2 · 参数指纹 %3" )
+  // 来源身份打头：真实模型 / 模拟 / 人工修订一眼可辨；旧证据（无 provenance
+  // 块）不猜测来源，只按 model.mock 如实标模拟。
+  const QVariantMap prov = evidence.value( QStringLiteral( "provenance" ) ).toMap();
+  const QString pk = prov.value( QStringLiteral( "kind" ) ).toString();
+  const bool basedOnMock = prov.value( QStringLiteral( "based_on_mock" ), model.value( QStringLiteral( "mock" ) ) ).toBool();
+  QString head;
+  if ( pk == QLatin1String( "manual_revision" ) )
+    head = basedOnMock ? tr( "人工修订（底图为模拟结果）" ) : tr( "人工修订" );
+  else if ( pk == QLatin1String( "mock" ) || ( pk.isEmpty() && basedOnMock ) )
+    head = tr( "模拟/Mock 结果 · 不代表真实模型预测" );
+  else if ( pk == QLatin1String( "model_prediction" ) )
+    head = tr( "模型预测" );
+  // derived（单因素等非预测派生）不加来源头，摘要与此前一致。
+  if ( pk == QLatin1String( "model_prediction" ) || pk == QLatin1String( "manual_revision" ) )
+    head += prov.value( QStringLiteral( "validation" ) ).toString() == QLatin1String( "validated" )
+                ? tr( " · 有独立验证记录" )
+                : tr( " · 尚无独立验证" );
+  QString text = head.isEmpty() ? QString() : head + QStringLiteral( " · " );
+  text += tr( "输入 %1 个版本 · 方法 %2 · 参数指纹 %3" )
                      .arg( evidence.value( QStringLiteral( "inputs" ) ).toList().size() )
                      .arg( model.value( QStringLiteral( "method" ) ).toString(),
                            evidence.value( QStringLiteral( "parameter_hash" ) ).toString().left( 12 ) );

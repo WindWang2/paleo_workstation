@@ -278,18 +278,26 @@ void main() {
     return true;
 }
 
-// D3.1：堆叠层 = 水平切片（与 Time 槽同几何布局），层序即精渲调度单位
+// D3.1：堆叠层 = 水平切片（与 Time 槽同几何布局），层序即精渲调度单位。
+// D.14：Initialize 前（GL 未就绪）到达的层在此暂存，Initialize 后由
+// ReplayStagedStackLayers 补传——面板 glReady 只重发三槽切片不补堆叠层，
+// 直接丢弃会静默丢 16 层（stackMode_ 仍为真却一层不显示）。
 bool SeismicSliceRenderer::UpdateStackLayer(
     QOpenGLFunctions_3_3_Core *gl,
     int layerIdx,
     const SgyVolume &volume,
     int sampleIndex,
     const SgySliceImage &image) {
+    if (layerIdx < 0 || layerIdx >= kMaxStackLayers)
+        return false;
+    if (!initialized_) {
+        stagedStackLayers_[layerIdx] = {sampleIndex, image}; // 同层末次覆盖
+        return true;
+    }
     const std::size_t expectBytes = static_cast<std::size_t>(image.width) * image.height * 4;
     const bool rgbaUsable = image.rgba.size() == expectBytes;
     const bool valuesUsable = tfEnabled_ && !image.values.empty();
-    if (!gl || !initialized_ || layerIdx < 0 || layerIdx >= kMaxStackLayers ||
-        image.width <= 0 || image.height <= 0 || (!rgbaUsable && !valuesUsable)) {
+    if (!gl || image.width <= 0 || image.height <= 0 || (!rgbaUsable && !valuesUsable)) {
         return false;
     }
     const auto vertices = BuildSliceVertices(volume, SgySliceType::Time, sampleIndex);
@@ -309,6 +317,34 @@ bool SeismicSliceRenderer::UpdateStackLayer(
 void SeismicSliceRenderer::SetStackLayerVisible(int layerIdx, bool visible) {
     if (layerIdx >= 0 && layerIdx < kMaxStackLayers)
         stackVisibleLayer_[static_cast<std::size_t>(layerIdx)] = visible;
+}
+
+bool SeismicSliceRenderer::IsStackLayerReady(int layerIdx) const {
+    if (layerIdx < 0 || layerIdx >= kMaxStackLayers)
+        return false;
+    return stackReady_[static_cast<std::size_t>(layerIdx)];
+}
+
+// D.13：换体清场——四槽与堆叠层就绪位清零（几何/纹理按体归一化，旧体的
+// 继续绘制即错位）。纯 CPU 标志操作，无需当前 GL 上下文；纹理对象保留，
+// 下次 UpdateStackLayer 走 TexSubImage/TexImage 重写。slotVisible_ 是用户
+// 显隐偏好，不随体重置。
+void SeismicSliceRenderer::ResetForVolumeChange() {
+    slotReady_.fill(false);
+    indexCounts_.fill(0);
+    for (auto &indices : dynamicIndices_)
+        indices.clear();
+    stackReady_.fill(false);
+    stagedStackLayers_.clear(); // 旧体暂存的层对新体无效
+}
+
+// D.14：Initialize 后补传暂存堆叠层（volume 未就绪则丢弃——面板在体就绪后
+// 会重发；暂存容器无论如何清空，不跨 initializeGL 残留）。
+void SeismicSliceRenderer::ReplayStagedStackLayers(QOpenGLFunctions_3_3_Core *gl, const SgyVolume &volume) {
+    if (volume.IsLoaded())
+        for (const auto &[layerIdx, staged] : stagedStackLayers_)
+            UpdateStackLayer(gl, layerIdx, volume, staged.sampleIndex, staged.image);
+    stagedStackLayers_.clear();
 }
 
 void SeismicSliceRenderer::SetSliceAlpha(float alpha) {
@@ -665,6 +701,11 @@ void SeismicSliceRenderer::ClearSlot(QOpenGLFunctions_3_3_Core *gl, SeismicSlice
         indexCounts_[slotIndex] = 0;
         dynamicIndices_[slotIndex].clear();
     }
+}
+
+void SeismicSliceRenderer::ClearStackLayers(QOpenGLFunctions_3_3_Core *gl) {
+    Q_UNUSED(gl);
+    stackReady_.fill(false); // D-05/SF-1：纹理/VBO 保留复用，渲染按 ready 跳过
 }
 
 } // namespace seismic

@@ -179,6 +179,9 @@ class TestLayerProperties : public QObject
     }
 
     // (d) 未知 layerId → 无操作（无对话框、不崩）；createBusinessPage → nullptr。
+    // L5.5：nullptr 契约的守卫面 canCreateBusinessPage 同源判定——页不可造
+    // 时 openLayerProperties 不挂 PaleoPageFactory，空页到不了对 nullptr
+    // 无保护的 QGIS 原生壳（createWidget→addPage→page->syncToLayer）。
     void unknownLayerIdIsNoOp()
     {
       QTemporaryDir tmp;
@@ -192,6 +195,45 @@ class TestLayerProperties : public QObject
       QVERIFY2(findNativeDialog() == nullptr, "unknown layerId must be a no-op");
       QVERIFY(dlg.createBusinessPage(QStringLiteral("ghost.layer")) == nullptr);
       QVERIFY(dlg.createBusinessPage(QString()) == nullptr);
+      QVERIFY2(!dlg.canCreateBusinessPage(QStringLiteral("ghost.layer")),
+               "unknown layerId: business page must not be creatable");
+      QVERIFY2(!dlg.canCreateBusinessPage(QString()),
+               "empty layerId must not be creatable");
+    }
+
+    // (d2) L5.5 守卫正面：可解析层（声明+实例化 / 手工层按原生 id 兜底）
+    // canCreateBusinessPage 为真，工厂照挂——原生壳里业务页在位（守卫不
+    // 误拦）；不可解析层为假，工厂不挂（nullptr 不进 QGIS）。
+    void businessPageGuardMatchesResolvableLayers()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+      QVERIFY(manifest.open());
+      QgisLayerService svc(nullptr, &manifest);
+      QVERIFY(svc.declare(decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))));
+      QgsMapLayer *layer = svc.instantiate(QStringLiteral("facies.T1"));
+      QVERIFY(layer != nullptr);
+
+      auto *manual = new QgsVectorLayer(QStringLiteral("Point?field=id:integer"),
+                                        QStringLiteral("手工点层"), QStringLiteral("memory"));
+      QVERIFY(manual->isValid());
+      QgsProject::instance()->addMapLayer(manual);
+
+      LayerPropertiesDialog dlg(&svc, LayerPropertiesDialog::Deps{});
+      QVERIFY2(dlg.canCreateBusinessPage(QStringLiteral("facies.T1")),
+               "declared + instantiated layer must be creatable");
+      QVERIFY2(dlg.canCreateBusinessPage(manual->id()),
+               "manual layer must resolve via QgsMapLayer::id() fallback");
+      QVERIFY(!dlg.canCreateBusinessPage(QStringLiteral("ghost.layer")));
+      QVERIFY(!dlg.canCreateBusinessPage(QString()));
+
+      // 端到端：可造 → 原生壳里业务页在位（守卫不误拦已知层）。
+      dlg.openLayerProperties(QStringLiteral("facies.T1"));
+      QDialog *native = findNativeDialog();
+      QVERIFY2(native, "offscreen must construct the native properties dialog");
+      QVERIFY2(native->findChild<QLabel *>(QStringLiteral("paleoPropLayerId")),
+               "guard must not block a creatable business page");
     }
 
     // (e) mesh 等其他类型 → 无操作（不崩、无对话框）。

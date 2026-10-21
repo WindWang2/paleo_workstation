@@ -19,7 +19,6 @@
 #include <QTimer>
 #include <QUuid>
 #include <QVBoxLayout>
-#include "../../qgis/layoutpreview.h"
 
 GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::Settings &settings,
     Builder builder, bool hasInputs, QWidget *parent, const QStringList &unboundLayers, const QString &projectDirectory)
@@ -85,7 +84,7 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
     rebuild();
   };
   m_status = new QLabel(controls); m_status->setWordWrap(true); form->addRow(m_status);
-  m_preview = new PaleoLayoutPreview(splitter); m_preview->setObjectName("mapExportPreview");
+  m_preview = PaleoLayoutExport::createLayoutPreview(splitter); m_preview->setObjectName("mapExportPreview");
   splitter->addWidget(scroll); splitter->addWidget(m_preview); splitter->setStretchFactor(1, 1);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
   buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
@@ -119,10 +118,10 @@ void GeologicalExportDialog::rebuild() {
   std::unique_ptr<PaleoLayoutExport::LayoutHandle> replacement(m_builder(m_settings, &error));
   const bool valid = bool(replacement);
   if (replacement) {
-    m_preview->setCurrentLayout(replacement->layout());
+    PaleoLayoutExport::setLayoutPreviewLayout(m_preview, replacement->layout());
     m_layout = std::move(replacement);
-    m_preview->zoomFull();
-    QTimer::singleShot(0, m_preview, [this] { m_preview->zoomFull(); });
+    PaleoLayoutExport::zoomLayoutPreviewFull(m_preview);
+    QTimer::singleShot(0, m_preview, [this] { PaleoLayoutExport::zoomLayoutPreviewFull(m_preview); });
   }
   const bool format = m_png->isChecked() || m_pdf->isChecked() || m_svg->isChecked() || m_tiff->isChecked();
   m_save->setEnabled(valid && format && !m_directory->text().isEmpty());

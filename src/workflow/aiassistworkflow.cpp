@@ -356,6 +356,33 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
   products.append( conf );
 
   QStringList layerIds;
+  // #588 L4.2：三段产物原先逐段 return false——已 commit 的外部资产与已声明
+  // 图层留在盘上，「失败」被上报而部分产物实际留存。改为一次 BatchSave 事务：
+  // 任一段失败即整批回滚（内层 commit 的 transaction.abort() 冒泡到本批），
+  // 已登记的版本、已落盘的受管字节与已下的图层声明一并回收（顺序同
+  // MappingWorkbench::removeProduct：先下架声明、再删受管文件）。
+  DataCatalog::BatchSave transaction(m_catalog);
+  struct Committed
+  {
+    QString layerId;
+    QString path;
+  };
+  QVector<Committed> committed;
+  QStringList declaredIds;
+  const auto discardCommitted = [&]() {
+    if ( !declaredIds.isEmpty() )
+      m_layers->removeDeclarations( declaredIds );
+    for ( const Committed &c : committed )
+    {
+      // 受管字节在 commit 后被置只读，Windows 删只读文件会失败——先恢复可写。
+      QFile::setPermissions( c.path, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                         QFileDevice::ReadUser );
+      QFile::remove( c.path );
+    }
+    committed.clear();
+    declaredIds.clear();
+    layerIds.clear();
+  };
   for ( const Product &p : products )
   {
     QString stageErr;
@@ -363,6 +390,8 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
     if ( !st.isValid() )
     {
       *error = stageErr;
+      discardCommitted();
+      transaction.abort();
       return false;
     }
     QJsonObject prov = provCommon;
@@ -374,7 +403,12 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
                            : writeBandRaster( st.absolutePath, rows, cols, GDT_Byte, 255.0,
                                                               p.bytes.constData(), grid, provJson, error );
     if ( !written )
+    {
+      QFile::remove( st.absolutePath );
+      discardCommitted();
+      transaction.abort();
       return false;
+    }
     const QStringList parents = !grid.sourcePath.isEmpty()
                                   ? registrar.parentVersionIdsFor( QStringList { grid.sourcePath } )
                                   : QStringList();
@@ -384,6 +418,9 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
                                     &commitErr ) )
     {
       *error = commitErr;
+      QFile::remove( st.absolutePath );
+      discardCommitted();
+      transaction.abort();
       return false;
     }
     LayerDeclaration decl;
@@ -394,8 +431,23 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
     decl.group = QStringLiteral( "03_Predict" );
     decl.title = p.title;
     if ( !m_layers->declare( decl, error ) )
+    {
+      discardCommitted();
+      transaction.abort();
       return false;
+    }
+    committed.append( Committed { p.layerId, st.absolutePath } );
+    declaredIds.append( p.layerId );
     layerIds.append( p.layerId );
+  }
+  QString flushErr;
+  if ( !transaction.flush( &flushErr ) )
+  {
+    // 整批落盘失败：catalog 内存已由 BatchSave 回滚到批次前，受管字节与
+    // 图层声明同步回收——不留下「盘上有、库里无」的孤儿产物。
+    *error = tr( "AI 相分类产品登记落盘失败：%1" ).arg( flushErr );
+    discardCommitted();
+    return false;
   }
   m_lastProductLayerIds = layerIds;
 

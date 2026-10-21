@@ -52,7 +52,10 @@ class CatalogStore
     // readOnly：库不存在则成功且 out 为空，不建文件（#80）。
     // 可写且两边都不存在：建空库，revision 记 1。
     // 只有 catalog.json：解析后单事务导入，并把 json 改名为 .migrated。
-    // sqlite 已在：它是权威，json 原样留着。
+    // sqlite 已在且带 catalog 表：它是权威，json 原样留着。
+    // sqlite 文件在但无表（零长/异构库——崩溃窗口残留）：不算权威，按
+    // JSON 迁移 / .bak 恢复链处理，否则工程会以空目录成功打开而真实数据
+    // 退化成盘上孤儿文件（#H2）。
     bool openProject(const QString &projectDir, bool readOnly, Tables *out, QString *error);
 
     bool recovered() const { return m_recovered; }

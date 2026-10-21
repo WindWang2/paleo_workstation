@@ -174,6 +174,7 @@ private slots:
   // issue #293：斜向单格宽屏障墙发散 / 离谱值回归 + 停滞判失败。
   void diagonalBarrierWallsConverge();
   void stalledIterationFails();
+  void looseConvergenceNotJudgedStalled();
 
   // 质量面。
   void distanceToDataAnalytic();
@@ -535,6 +536,24 @@ void TestGridSolver::stalledIterationFails()
   QVERIFY(!solveMinimumCurvature(fx.points, fx.geom, params, nullptr, &z, &st, &err));
   QVERIFY(!err.isEmpty());
   QVERIFY(z.empty()); // 失败路径不发布结果
+}
+
+// L3.6：停滞守卫预算与收敛阈同源。convergence 松于绝对预算（1% 极差）时，
+// 按调用方自身容差已收敛的运行不能被绝对阈误判成停滞——旧实现一律按 1%
+// 极差判，本例（convergence=1e9，首遍即按自身容差收敛）会被判失败。
+void TestGridSolver::looseConvergenceNotJudgedStalled()
+{
+  Fixture fx(sinusoidF);
+  GriddingParams params;
+  params.maxSweeps = 1;
+  params.convergence = 1e9; // 相对极差 1e9 倍：首遍必「已收敛」
+  std::vector<float> z;
+  GriddingStats st;
+  QString err;
+  QVERIFY2(solveMinimumCurvature(fx.points, fx.geom, params, nullptr, &z, &st, &err),
+           qPrintable(err));
+  QVERIFY(st.converged);
+  QVERIFY(!z.empty());
 }
 
 void TestGridSolver::distanceToDataAnalytic()

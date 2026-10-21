@@ -52,6 +52,10 @@ public:
 
     void UpdateFromVolume(QOpenGLFunctions_3_3_Core *gl, const SgyVolume &volume);
 
+    // D.13 换体清场：任意线路径随旧体作废（调用方 CPU 侧同步清），井/第二体
+    // 轮廓成员不动、按新体归一化重建——只换基准不清数据。
+    void ResetForVolumeChange(QOpenGLFunctions_3_3_Core *gl, const SgyVolume &volume);
+
     void UpdateLineSection(
         QOpenGLFunctions_3_3_Core *gl,
         const SgyVolume &volume,

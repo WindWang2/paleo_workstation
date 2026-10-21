@@ -85,19 +85,27 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
     return fail( shaErr.isEmpty() ? QObject::tr( "无法计算 SHA-256: %1" ).arg( pdfPath )
                                   : shaErr );
 
-  // §3 dedup：同 SHA-256 已在库 → 复用既有版本的资产，不新增。
-  CatalogVersion existing = catalog->versionBySha256( sha );
-  if (!horizon.isEmpty()) {
-    existing = {};
-    for (const auto &candidate : catalog->versions())
-      if (candidate.sha256.compare(sha, Qt::CaseInsensitive) == 0 && candidate.stage == "OUTPUT" &&
-          candidate.extra.value("horizon").toString() == horizon && catalog->assetById(candidate.assetId).format == format) {
+  // §3 dedup：同 SHA-256 且同层位域（含空↔空）的 OUTPUT 版本 → 复用既有
+  // 版本的资产，不新增。层位域必须严格同域：空层位导出不得复用带层位登记
+  // 的既有版本（否则调用侧按本层位回写 extra 会把既有版本的层位归属清空，
+  // C-01）；带层位导出同样不得复用工区级版本。
+  CatalogVersion existing;
+  for (const auto &candidate : catalog->versions())
+    if (candidate.sha256.compare(sha, Qt::CaseInsensitive) == 0 && candidate.stage == "OUTPUT" &&
+        candidate.extra.value("horizon").toString() == horizon && catalog->assetById(candidate.assetId).format == format) {
+      // 在盘复核（R2-1）：陈旧 OUTPUT 版本（sha 在册、受管文件已删）不得
+      // 复用——旧 versionBySha256 路径有此复核，改线性扫描后须保留，否则
+      // dedup 返回悬空 managed 路径，批量导出到发布期才失败。
+      const QString onDisk = catalog->versionFilePath(candidate);
+      QString verifyError;
+      if (QFile::exists(onDisk) &&
+          DataCatalog::sha256FileHex(onDisk, &verifyError).compare(sha, Qt::CaseInsensitive) == 0) {
         existing = candidate; break;
       }
-  }
+    }
   if ( !existing.id.isEmpty() && existing.stage == "OUTPUT" &&
        catalog->assetById(existing.assetId).format == format &&
-       (horizon.isEmpty() || existing.extra.value("horizon").toString() == horizon) )
+       existing.extra.value("horizon").toString() == horizon )
   {
     if ( sha256Out )
       *sha256Out = sha;

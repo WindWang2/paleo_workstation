@@ -7,6 +7,8 @@
 
 #include <cmath>
 
+#include <QString>
+
 #include "domain/seismic/welltracelocate.h"
 
 using seismic::SgyCoordinateMapper;
@@ -141,6 +143,9 @@ private slots:
     // 拒绝而不是钳取。
     loc = seismic::locateWellTrace(idx, mapper, 1016.0, 2100.0);
     QVERIFY(!loc.ok);
+    // L1.1（#592）：失败原因是人读的中文源串（消费端嵌进自己的 tr() 模板，
+    // 此前写死英文 → 中英混排）。
+    QVERIFY(QString::fromStdString(loc.error).contains(QStringLiteral("覆盖范围外")));
   }
 
   void invalidFitIsReportedNotGuessed()

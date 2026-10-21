@@ -258,31 +258,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
   }
 
   // Release management tab in the bottom dock.
-  if (store)
-    if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
-    {
-      auto *releasePanel = new ReleasePanel(bottomTabs);
-      releasePanel->setObjectName(QStringLiteral("releasePanel"));
-      releasePanel->setProviders(
-          [store]() { return store->metaDbPath(); },
-          [this]() {
-            QVector<LayerDeclaration> declared;
-            QString manifestErr;
-            if (m_layerSvc && !m_layerSvc->tryDeclared(&declared, &manifestErr))
-              QgsMessageLog::logMessage(tr("发布面板：图层清单读取失败：%1")
-                                          .arg(manifestErr),
-                                      QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-            return declared;
-          });
-      connect(releasePanel, &ReleasePanel::statusMessage, this,
-              [](const QString &msg) {
-                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Info);
-              });
-      if (m_projectSvc)
-        connect(m_projectSvc, &QgisProjectService::projectOpened, releasePanel,
-                &ReleasePanel::refresh);
-      bottomTabs->addTab(releasePanel, tr("发布"));
-    }
+  attachReleasePanel(store);
 
   // Task panel replaces the placeholder in the 任务 tab (index 1); attribute
   // table joins as its own tab, fed by the instantiated-layer set.
@@ -774,4 +750,42 @@ void PaleoMainWindow::showAttributeTable(const QString &layerId) {
   m_bottomDock->setUserWantsVisible(true);
   m_bottomDock->setProgrammaticVisible(true);
   m_bottomDock->raise();
+}
+
+// 底栏「发布」页（§44 发布语义 UI）。三个注入面全部来自工程存储：
+// 库路径、当前图层清单、以及 §6 单写实例降级的只读态——工程被另一实例
+// 持锁时发布页不得往 project.sqlite 写 releases 行（只读连接不建表，
+// createRelease 显式拒绝）。
+void PaleoMainWindow::attachReleasePanel(PaleoProjectStore *store)
+{
+  if (!store)
+    return;
+  if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+  {
+    auto *releasePanel = new ReleasePanel(bottomTabs);
+    releasePanel->setObjectName(QStringLiteral("releasePanel"));
+    releasePanel->setProviders(
+        [store]() { return store->metaDbPath(); },
+        [this]() {
+          QVector<LayerDeclaration> declared;
+          QString manifestErr;
+          if (m_layerSvc && !m_layerSvc->tryDeclared(&declared, &manifestErr))
+            QgsMessageLog::logMessage(tr("发布面板：图层清单读取失败：%1")
+                                          .arg(manifestErr),
+                                      QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+          return declared;
+        },
+        [store]() { return store->isReadOnly(); });
+    connect(releasePanel, &ReleasePanel::statusMessage, this,
+            [](const QString &msg) {
+              QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Info);
+            });
+    if (m_projectSvc)
+      connect(m_projectSvc, &QgisProjectService::projectOpened, releasePanel,
+              &ReleasePanel::refresh);
+    // 锁状态变化（持锁/放锁）即时反映到创建入口，不等到下一次开工程。
+    connect(store, &PaleoProjectStore::readOnlyChanged, releasePanel,
+            &ReleasePanel::refresh);
+    bottomTabs->addTab(releasePanel, tr("发布"));
+  }
 }

@@ -3,6 +3,11 @@
 #include "perfbudget_relax.h"
 #include <QtTest>
 #include <QAction>
+#include <QByteArray>
+#include <QDomDocument>
+#include <QDomNode>
+#include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QLabel>
 #include <QLineEdit>
@@ -16,8 +21,10 @@
 #include <qgslayertreeview.h>
 #include <qgslayertreeviewindicator.h>
 #include <qgsmaplayer.h>
+#include <qgsnullsymbolrenderer.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
+#include <qgsreadwritecontext.h>
 #include <qgsvectorlayer.h>
 
 #include "../src/metadata/layermanifest.h"
@@ -25,6 +32,41 @@
 #include "../src/services/errorhub.h"
 #include "../src/ui/layers/layertreepanel.h"
 #include "uipolish_capture.h"
+
+// B.17：导出必败的测试层——writeSymbology 置错误串并返回 false，复现
+// 「QGIS 返回错误串被忽略」路径（真实层的 writeSymbology 基本不失败，用桩
+// 把该分支钉住；QgsVectorLayer::writeSymbology 是 final，故取可覆写的
+// QgsRasterLayer）。exportNamedStyle 在该分支不赋值 doc（半成品空文档），
+// 旧实现会把它 Truncate 写进用户选定文件。
+class FailingStyleExportLayer : public QgsRasterLayer
+{
+  public:
+    using QgsRasterLayer::QgsRasterLayer;
+    bool writeSymbology(QDomNode &, QDomDocument &, QString &errorMessage,
+                        const QgsReadWriteContext &,
+                        QgsMapLayer::StyleCategories) const override
+    {
+        errorMessage = QStringLiteral("stub symbology failure");
+        return false;
+    }
+};
+
+// offscreen 下对话框路径被 noFileDialogs 纪律短路——样式 IO 核心的失败
+// 分支经 TestAccess 直达（layertreepanel.h 的 friend 先例）。
+class LayerTreePanelStyleTestAccess
+{
+  public:
+    static bool exportStyleTo(LayerTreePanel *panel, QgsMapLayer *layer, const QString &path,
+                              QString *error)
+    {
+        return panel->exportStyleTo(layer, path, error);
+    }
+    static bool importStyleFrom(LayerTreePanel *panel, QgsMapLayer *layer, const QString &path,
+                                QString *error)
+    {
+        return panel->importStyleFrom(layer, path, error);
+    }
+};
 
 // Fixture path: prefer the build-provided define, else derive from this file's
 // location so standalone g++ builds work too (tst_layerservice convention).
@@ -1026,6 +1068,103 @@ class TestLayerTreePanel : public QObject
         importAct->trigger();
         QVERIFY(vl->isValid()); // 未崩、层未被动坏
       }
+    }
+
+    // B.17：样式 .qml 导出/加载核心——QSaveFile 原子写 + write() 返回值
+    // 校验 + QGIS 错误串与导入返回值如实上抛。旧实现三处全丢：导出失败
+    // 仍 Truncate 写空/半成品文档、write() 返回值不查、导入失败静默。
+    void styleIoCoreReportsFailuresAndWritesAtomically()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
+
+      auto *vl = new QgsVectorLayer(QStringLiteral("Point?field=id:integer"),
+                                    QStringLiteral("样式层"), QStringLiteral("memory"));
+      QVERIFY(vl->isValid());
+      QgsProject::instance()->addMapLayer(vl);
+
+      const QString path = tmp.filePath(QStringLiteral("style.qml"));
+      QString err;
+
+      // 导出：文件落盘、非空、可解析（QSaveFile commit 后的成品）。
+      QVERIFY2(LayerTreePanelStyleTestAccess::exportStyleTo(&panel, vl, path, &err),
+               qPrintable(err));
+      QFileInfo info(path);
+      QVERIFY2(info.size() > 0, "exported qml must be non-empty");
+      {
+        QDomDocument doc;
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QVERIFY2(doc.setContent(&f), "exported qml must parse");
+      }
+
+      // 导出失败（QGIS 侧错误串）：不写文件、不覆盖用户选定文件、错误上抛。
+      // 预置哨兵内容——旧代码此刻会把空文档 Truncate 烙进去。
+      FailingStyleExportLayer broken(QStringLiteral("/nonexistent/style-src.tif"),
+                                     QStringLiteral("broken"));
+      const QByteArray sentinel("SENTINEL-KEEP-ME");
+      {
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        QVERIFY(f.write(sentinel) == sentinel.size());
+      }
+      QVERIFY(!LayerTreePanelStyleTestAccess::exportStyleTo(&panel, &broken, path, &err));
+      QVERIFY2(!err.isEmpty(), "export failure must surface the QGIS error string");
+      {
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QCOMPARE(f.readAll(), sentinel); // 用户文件原样保留
+      }
+
+      // 写入失败（目标路径不可开）：返回 false + 原因，不留半成品文件。
+      const QString badPath = tmp.filePath(QStringLiteral("no_such_dir/style.qml"));
+      QVERIFY(!LayerTreePanelStyleTestAccess::exportStyleTo(&panel, vl, badPath, &err));
+      QVERIFY2(!err.isEmpty(), "write failure must report a reason");
+      QVERIFY(!QFile::exists(badPath));
+
+      // 成功导出覆盖既有文件（与上面的失败不覆盖对照）：哨兵被成品替换。
+      QVERIFY2(LayerTreePanelStyleTestAccess::exportStyleTo(&panel, vl, path, &err),
+               qPrintable(err));
+      {
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QVERIFY(f.readAll() != sentinel);
+      }
+
+      // 加载失败（结构完好但不是 qgis 样式）：false + QGIS 错误串，
+      // 且层渲染器不动（旧实现静默丢弃）。
+      const QString notStyle = tmp.filePath(QStringLiteral("not-style.qml"));
+      {
+        QFile f(notStyle);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("<notqgis/>");
+      }
+      vl->setRenderer(new QgsNullSymbolRenderer());
+      QCOMPARE(vl->renderer()->type(), QStringLiteral("nullSymbol"));
+      QVERIFY(!LayerTreePanelStyleTestAccess::importStyleFrom(&panel, vl, notStyle, &err));
+      QVERIFY2(!err.isEmpty(), "import failure must surface the QGIS error string");
+      QCOMPARE(vl->renderer()->type(), QStringLiteral("nullSymbol"));
+
+      // 加载失败（读取失败：文件不存在）。
+      QVERIFY(!LayerTreePanelStyleTestAccess::importStyleFrom(
+          &panel, vl, tmp.filePath(QStringLiteral("ghost.qml")), &err));
+      QVERIFY2(!err.isEmpty(), "missing file must report a reason");
+
+      // 往返：新源层（默认 singleSymbol）导出 → 第二层（null 渲染）导入 →
+      // 渲染器恢复（vl 的渲染器已被上面的失败用例改成 null，不能复用）。
+      QgsVectorLayer src(QStringLiteral("Point?field=id:integer"),
+                         QStringLiteral("src"), QStringLiteral("memory"));
+      const QString roundtripPath = tmp.filePath(QStringLiteral("roundtrip.qml"));
+      QVERIFY2(LayerTreePanelStyleTestAccess::exportStyleTo(&panel, &src, roundtripPath, &err),
+               qPrintable(err));
+      QgsVectorLayer second(QStringLiteral("Point?field=id:integer"),
+                            QStringLiteral("second"), QStringLiteral("memory"));
+      second.setRenderer(new QgsNullSymbolRenderer());
+      QCOMPARE(second.renderer()->type(), QStringLiteral("nullSymbol"));
+      QVERIFY2(LayerTreePanelStyleTestAccess::importStyleFrom(&panel, &second, roundtripPath, &err),
+               qPrintable(err));
+      QCOMPARE(second.renderer()->type(), QStringLiteral("singleSymbol"));
     }
 
     // goal7 W2（F 域）：refreshIndicators 不得在逐节点循环里反复全表读

@@ -28,6 +28,10 @@ private slots:
   // 无临时同胞残留（若有人把 fsync/commit 路径改坏，这里当场红）。
   void durabilityRegression_fsyncThenReplace();
   void durabilityRegression_transactionCommit();
+  // A.7：rename 的持久性靠父目录 fsync——原子写/事务提交都必须在替换后
+  // 刷目录项（否则掉电后替换静默回退到旧文件）。这里钉住 paleoSyncDir 对
+  // 真实目录成功、对不存在的目录如实失败。
+  void durabilityRegression_parentDirectoryFsync();
 };
 
 void TestMetadataAtomicFile::normalWriteNewFile()
@@ -373,6 +377,26 @@ void TestMetadataAtomicFile::durabilityRegression_transactionCommit()
   QVERIFY(!PaleoAtomicTransaction::hasDirtyMarker(target));
   const QStringList entries = QDir(tmp.path()).entryList(QDir::Files | QDir::Hidden);
   QCOMPARE(entries, QStringList{QStringLiteral("tx_fsync.bin")});
+}
+
+void TestMetadataAtomicFile::durabilityRegression_parentDirectoryFsync()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  QVERIFY(paleoSyncDir(tmp.path()));
+  // 不存在的目录：如实失败（不静默当成功——调用方靠它判定持久性）。
+  QVERIFY(!paleoSyncDir(QDir(tmp.path()).filePath(QStringLiteral("no/such/dir"))));
+
+  // 原子写整链走通：文件落盘 + 目录项落盘 + 无临时残留。
+  const QString target = QDir(tmp.path()).filePath(QStringLiteral("dir_fsync.bin"));
+  QString err;
+  QVERIFY2(paleoWriteFileAtomic(target, QByteArrayLiteral("durable"), &err), qPrintable(err));
+  QFile f(target);
+  QVERIFY(f.open(QIODevice::ReadOnly));
+  QCOMPARE(f.readAll(), QByteArrayLiteral("durable"));
+  f.close();
+  const QStringList entries = QDir(tmp.path()).entryList(QDir::Files | QDir::Hidden);
+  QCOMPARE(entries, QStringList{QStringLiteral("dir_fsync.bin")});
 }
 
 QTEST_MAIN(TestMetadataAtomicFile)

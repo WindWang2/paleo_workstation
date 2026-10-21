@@ -62,8 +62,11 @@ public:
   // 默认权威词表（等价于原 master 硬编码逻辑 + 歧义词优先级定案）
   static LithoLexicon defaultLexicon();
 
-  // 从工程读取扩展词表（优先工程目录 litho_lexicon.json、project_area.json litho_lexicon 节点、catalog extra 声明，无则回退 defaultLexicon）
-  static LithoLexicon fromProject(const QString &projectDir, const DataCatalog *catalog = nullptr);
+  // 从工程读取扩展词表（优先工程目录 litho_lexicon.json、project_area.json litho_lexicon 节点，无则回退 defaultLexicon）。
+  // 坏 JSON（语法错）如实报错拒用：*error 置原因、返回 defaultLexicon()，
+  // 调用方决定怎么呈现——不静默回落（同 project_area.json 纪律，arearules.cpp）。
+  static LithoLexicon fromProject(const QString &projectDir, QString *error = nullptr,
+                                  const DataCatalog *catalog = nullptr);
 
   // 归类判词
   LithoClassification classify(const QString &rawLitho) const;
@@ -81,6 +84,8 @@ public:
   QVariantMap toMap() const;
   static LithoLexicon fromMap(const QVariantMap &map, QString *error = nullptr);
   QByteArray toJson(bool indented = true) const;
+  // 解析失败：*error 置原因并返回 defaultLexicon()——返回空表会让「坏词表」
+  // 与「无词表」不可分辨；是否拒用由调用方按 error 决定。
   static LithoLexicon fromJson(const QByteArray &json, QString *error = nullptr);
 
   QString name() const { return m_name; }

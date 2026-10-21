@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "mappingreferencecanvas.h"
+#include "mappingreferenceloader.h"
 #include "facieshierarchyrenderer.h"
 #include "faciesmaplegend.h"
 #include "factorstylewriter.h"
@@ -39,9 +40,8 @@ MappingReferenceCanvas::MappingReferenceCanvas(QgsMapCanvas *mainCanvas,
 MappingReferenceCanvas::~MappingReferenceCanvas() { clearReference(); }
 bool MappingReferenceCanvas::hasReference() const { return !m_layer.isNull(); }
 
-QgsMapLayer *MappingReferenceCanvas::loadReference(const LayerDeclaration &declaration,
-                                                 QgsMapLayer *existing,
-                                                 const QString &stylesRoot)
+QgsMapLayer *MappingReferenceLoader::load(const LayerDeclaration &declaration, QgsMapLayer *existing,
+                                          const QString &stylesRoot)
 {
   std::unique_ptr<QgsMapLayer> layer;
   if (existing) layer.reset(existing->clone());

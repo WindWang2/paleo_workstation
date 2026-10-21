@@ -3,11 +3,57 @@
 #include "wellcompositetrack.h"
 #include "patterncatalog.h"
 #include "../../domain/faciescatalog.h"
+#include <QPixmapCache>
+#include <QSet>
 #include <QSvgRenderer>
 #include <QPainterPath>
 
+namespace
+{
+// D.7 纹理画刷缓存：键只含解析后的图案键与颜色——同一 (键,底色,纹色) 的
+// tile 进 QPixmapCache 复用，悬停/滚动触发的全量重绘不再逐可见区间重造
+// QPixmap / 重解析 SVG。键登记在册，供相名→花纹映射重载后按名精确失效。
+QSet<QString> g_brushCacheKeys;
+
+// 颜色缓存键片段：非法色（缺省）用固定串占位，避免 name() 空串互相碰撞
+QString colorKeyPart(const QColor &c)
+{
+  return c.isValid() ? c.name(QColor::HexArgb) : QStringLiteral("none");
+}
+
+template <typename MakeTile>
+QBrush cachedTextureBrush(const QString &cacheKey, MakeTile makeTile)
+{
+  QPixmap pm;
+  if (!QPixmapCache::find(cacheKey, &pm))
+  {
+    pm = makeTile();
+    if (!pm.isNull())
+    {
+      QPixmapCache::insert(cacheKey, pm);
+      g_brushCacheKeys.insert(cacheKey);
+    }
+  }
+  return QBrush(pm);
+}
+} // namespace
+
 namespace WellComposite
 {
+
+void clearPatternBrushCache()
+{
+  // QPixmapCache 无前缀删除 API：按登记键逐个移除，不清全局缓存
+  for (const QString &key : g_brushCacheKeys)
+    QPixmapCache::remove(key);
+  g_brushCacheKeys.clear();
+}
+
+int patternBrushCacheKeyCount()
+{
+  return static_cast<int>(g_brushCacheKeys.size());
+}
+
 // ----------------------------------------------------------------------------
 // LithologyPatternFactory: 生成标准石油地质岩性填充纹理
 // ----------------------------------------------------------------------------
@@ -84,10 +130,16 @@ QBrush LithologyPatternFactory::getBrush(const QString &lithoName, const QColor 
   if (PatternCatalog::lookupLithology(lithoName, &def))
   {
     const QColor bg = baseBg.isValid() ? baseBg : def.bg;
-    QPixmap pm = createPatternPixmap(def.key, bg, def.fg);
-    if (pm.isNull())
-      pm = PatternCatalog::createLithoPattern(def.key, bg, def.fg);
-    return QBrush(pm);
+    // D.7 画刷缓存：tile 按 (key,bg,fg) 命中 QPixmapCache——岩性道逐区间
+    // fillRect 不再每段重造 QPixmap。
+    const QString cacheKey = QStringLiteral("paleo-wc-litho-%1-%2-%3")
+                                 .arg(def.key, colorKeyPart(bg), colorKeyPart(def.fg));
+    return cachedTextureBrush(cacheKey, [def, bg] {
+      QPixmap pm = createPatternPixmap(def.key, bg, def.fg);
+      if (pm.isNull())
+        pm = PatternCatalog::createLithoPattern(def.key, bg, def.fg);
+      return pm;
+    });
   }
 
   QString pat = QStringLiteral("mudstone");
@@ -140,8 +192,15 @@ QBrush LithologyPatternFactory::getBrush(const QString &lithoName, const QColor 
     fg = QColor(QStringLiteral("#212121"));
   }
 
-  QPixmap pm = createPatternPixmap(pat, bg, fg);
-  return QBrush(pm);
+  // D.7 画刷缓存：兜底分支的 tile 同样按 (pat,bg,fg) 命中 QPixmapCache。
+  const QString cacheKey = QStringLiteral("paleo-wc-litho-%1-%2-%3")
+                               .arg(pat, colorKeyPart(bg), colorKeyPart(fg));
+  return cachedTextureBrush(cacheKey, [pat, bg, fg] {
+    QPixmap pm = createPatternPixmap(pat, bg, fg);
+    if (pm.isNull())
+      pm = PatternCatalog::createLithoPattern(pat, bg, fg);
+    return pm;
+  });
 }
 
 // ----------------------------------------------------------------------------
@@ -293,13 +352,19 @@ QBrush FaciesPatternFactory::getBrush(const QString &patternTypeOrName, const QC
   const auto appearance = FaciesCatalog::appearance({{"name", patternTypeOrName}, {"texture", patternTypeOrName}});
   const auto path = FaciesCatalog::fillPath(appearance.value("texture").toString());
   if (!path.isEmpty()) {
-    QPixmap tile(96, 48);
-    tile.fill(QColor(appearance.value("color").toString()));
-    QSvgRenderer svg(path);
-    QPainter painter(&tile);
-    svg.render(&painter);
-    painter.end();
-    return QBrush(tile);
+    // D.7 SVG 纹理 tile 按 (path,color) 缓存：QSvgRenderer 解析 + QPixmap
+    // 分配若每次重绘都做，悬停/滚动全量重绘时按可见区间数反复付解析代价。
+    const QString colorName = appearance.value("color").toString();
+    const QString cacheKey = QStringLiteral("paleo-wc-facies-svg-%1-%2").arg(path, colorName);
+    return cachedTextureBrush(cacheKey, [path, colorName] {
+      QPixmap tile(96, 48);
+      tile.fill(QColor(colorName));
+      QSvgRenderer svg(path);
+      QPainter painter(&tile);
+      svg.render(&painter);
+      painter.end();
+      return tile;
+    });
   }
 
   QString pat = QStringLiteral("distributary_channel");
@@ -316,13 +381,8 @@ QBrush FaciesPatternFactory::getBrush(const QString &patternTypeOrName, const QC
     if (!baseBg.isValid())
       bg = QColor(QStringLiteral("#FFE082"));
     fg = QColor(QStringLiteral("#E65100"));
-    QPixmap pm = createPatternPixmap(pat, bg, fg);
-    if (pm.isNull())
-      pm = PatternCatalog::createLithoPattern(pat, bg, fg);
-    return QBrush(pm);
   }
-
-  if (key == QLatin1String("distributary_channel") || key.contains(QStringLiteral("分流河道")) || key.contains(QStringLiteral("水下河道")))
+  else if (key == QLatin1String("distributary_channel") || key.contains(QStringLiteral("分流河道")) || key.contains(QStringLiteral("水下河道")))
   {
     pat = QStringLiteral("distributary_channel");
     if (!baseBg.isValid()) bg = QColor(QStringLiteral("#FFE082"));
@@ -389,8 +449,16 @@ QBrush FaciesPatternFactory::getBrush(const QString &patternTypeOrName, const QC
     fg = QColor(QStringLiteral("#4E342E"));
   }
 
-  QPixmap pm = createPatternPixmap(pat, bg, fg);
-  return QBrush(pm);
+  // D.7 画刷缓存：程序化 tile 按 (pat,bg,fg) 命中 QPixmapCache——微相道逐
+  // 区间 fillRect 不再每段重造 QPixmap。
+  const QString cacheKey = QStringLiteral("paleo-wc-facies-%1-%2-%3")
+                               .arg(pat, colorKeyPart(bg), colorKeyPart(fg));
+  return cachedTextureBrush(cacheKey, [pat, bg, fg] {
+    QPixmap pm = createPatternPixmap(pat, bg, fg);
+    if (pm.isNull())
+      pm = PatternCatalog::createLithoPattern(pat, bg, fg);
+    return pm;
+  });
 }
 
 } // namespace WellComposite

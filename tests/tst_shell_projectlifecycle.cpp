@@ -32,6 +32,8 @@
 
 #include "../src/app/appcontext.h"
 #include "../src/catalog/datacatalog.h"
+#include "../src/domain/arearules.h"
+#include "../src/workflow/aichatcontroller.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/metadata/projectlock.h"
 #include "../src/qgis/qgiscanvascontroller.h"
@@ -727,6 +729,15 @@ private slots:
       QVERIFY(m_ctx->faultCtl()->faultSet().faultCount() == 0);
     if (m_ctx->wellsitingWf())
       QVERIFY(m_ctx->wellsitingWf()->scenarios().isEmpty());
+
+    // #589 C.15：无工程窗口期的项目级全局态也要清——AreaRules 回内置默认
+    // （不保留已关闭工区的层位/规则参数），聊天工具上下文解绑（query_project
+    // 的 catalog->isOpen() 校验拦不住「关闭路径不关」的 catalog，必须靠解绑
+    // 让工具如实报「未绑定工程目录」，brief 回落「未打开」）。
+    QCOMPARE(AreaRules::activeProjectDir(), QString());
+    if (m_ctx->aiChat())
+      QVERIFY2(m_ctx->aiChat()->projectBrief().contains(QStringLiteral("未打开")),
+               qPrintable(m_ctx->aiChat()->projectBrief()));
   }
 };
 

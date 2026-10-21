@@ -2,6 +2,7 @@
 #include "cuttingsdoc.h"
 
 #include "encodingdetect.h"
+#include "lasparser.h" // LasParser::fileSizeLimit（大文件防护共用口径）
 
 #include <QFile>
 #include <QFileInfo>
@@ -562,6 +563,17 @@ CuttingsTable readCuttingsFile( const QString &path )
     if ( !file.open( QIODevice::ReadOnly ) )
     {
       table.error = QStringLiteral( "文件读取失败：%1（%2）" ).arg( path, file.errorString() );
+      return table;
+    }
+    // #588：同函数的 xlsx/xml 分支经 readWorkbook 有大小闸
+    // （kMaxWorkbookBytes，FA-002），文本分支此前整读无闸——调用方
+    // wellsectionworkflow 也不设闸，大文本岩屑表在渲染路径上 OOM。这里补
+    // 导入管线共用的大文件口径（LasParser::fileSizeLimit，测试可收紧）。
+    if (file.size() > LasParser::fileSizeLimit())
+    {
+      table.error = QStringLiteral( "岩屑录井文本文件过大（%1 MB 上限），拒收：%2" )
+                        .arg( LasParser::fileSizeLimit() / ( 1024 * 1024 ) )
+                        .arg( path );
       return table;
     }
     const QString content = EncodingDetect::decodeText( file.readAll() );

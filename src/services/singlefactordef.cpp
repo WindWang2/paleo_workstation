@@ -128,3 +128,85 @@ QString SingleFactorRegistry::titleFor( const QString &factorId )
   const SingleFactorDefinition d = byId( factorId, &ok );
   return ok ? d.title : factorId;
 }
+
+FactorGeologicalProfile SingleFactorRegistry::geologicalProfile( const QString &factorId, bool *ok )
+{
+  const auto setOk = [&]( bool v ) {
+    if ( ok )
+      *ok = v;
+  };
+  FactorGeologicalProfile p;
+  p.factorId = factorId;
+  if ( factorId == QLatin1String( "sandthick" ) )
+  {
+    p.unit = QStringLiteral( "m" );
+    p.validRange = QStringLiteral( "[0, +∞) m" );
+    p.ruleSentence = QStringLiteral( "采用解释砂厚（MD，同一层段）" );
+    p.note = QStringLiteral( "只认解释岩性段；GR 截断等推断岩性不得当作已确认砂厚。" );
+    p.supportsAutoMode = true;
+    setOk( true );
+    return p;
+  }
+  if ( factorId == QLatin1String( "sandratio" ) )
+  {
+    p.unit = QStringLiteral( "无量纲" );
+    p.validRange = QStringLiteral( "[0, 1]" );
+    p.ruleSentence = QStringLiteral( "采用解释砂厚 ÷ 地层厚度（MD，同一层段）" );
+    p.note = QStringLiteral( "砂厚与层厚须同一层位与深度基准；分母为零、缺值或比值越出 [0,1] 的井排除。"
+                             "优先直读已维护的砂地比字段，否则按厚度相除；不用 GR 切砂冒充解释。" );
+    p.supportsAutoMode = true;
+    setOk( true );
+    return p;
+  }
+  if ( factorId == QLatin1String( "strathick" ) )
+  {
+    p.unit = QStringLiteral( "m" );
+    p.validRange = QStringLiteral( "(0, +∞) m（负值→NoData）" );
+    p.ruleSentence = QStringLiteral( "采用顶−底构造面等厚（不走井点插值）" );
+    p.note = QStringLiteral( "与井点砂厚/砂地比流程分开；负厚度按契约置为 NoData。" );
+    p.wellPointExtraction = false;
+    setOk( true );
+    return p;
+  }
+  if ( factorId == QLatin1String( "poro" ) )
+  {
+    p.unit = QStringLiteral( "小数或 %" );
+    p.validRange = QStringLiteral( "按工程字段口径" );
+    p.ruleSentence = QStringLiteral( "采用井点孔隙度属性直读（登记字段）" );
+    p.note = QStringLiteral( "只读工程已维护字段（如 poro/porosity/PHIE）；不静默把无关助记符当成孔隙度。" );
+    p.supportsAutoMode = true;
+    setOk( true );
+    return p;
+  }
+  if ( factorId == QLatin1String( "perm" ) )
+  {
+    p.unit = QStringLiteral( "mD" );
+    p.validRange = QStringLiteral( "[0, +∞) mD" );
+    p.ruleSentence = QStringLiteral( "采用井点渗透率属性直读（登记字段）" );
+    p.note = QStringLiteral( "只读工程已维护字段（如 perm/permeability）；负值不参与。" );
+    p.supportsAutoMode = true;
+    setOk( true );
+    return p;
+  }
+  if ( factorId == QLatin1String( "welldist" ) )
+  {
+    p.unit = QStringLiteral( "m" );
+    p.validRange = QStringLiteral( "[0, +∞) m" );
+    p.ruleSentence = QStringLiteral( "采用绕障距离变换（不走井点插值）" );
+    p.note = QStringLiteral( "与井点因素提取流程分开；障碍来自硬屏障约束线。" );
+    p.wellPointExtraction = false;
+    setOk( true );
+    return p;
+  }
+  if ( factorId == QLatin1String( "confidence" ) )
+  {
+    p.unit = QStringLiteral( "[0, 1]" );
+    p.validRange = QStringLiteral( "[0, 1]" );
+    p.ruleSentence = QStringLiteral( "采用预测置信度面（待接入真实通道）" );
+    p.wellPointExtraction = false;
+    setOk( true );
+    return p;
+  }
+  setOk( false );
+  return p;
+}

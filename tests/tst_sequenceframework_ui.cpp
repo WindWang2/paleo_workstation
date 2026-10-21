@@ -289,10 +289,13 @@ private slots:
     table2->item( 0, 0 )->setCheckState( Qt::Checked );
     QVERIFY( panel.applySuggestions() );
     QCOMPARE( versionCount(), versionsBefore + 1 );
-    const QString acceptedLayer = panel.suggestions().isEmpty()
-                                      ? QString()
-                                      : QString(); // 应用后清空候选表
-    Q_UNUSED( acceptedLayer )
+    // 应用后清空候选表（sequenceframeworkpanel.cpp:425-426：m_suggestions.clear()
+    // + rebuildSuggestionTable()）——原写法是三元两个分支都返回 QString() 后
+    // Q_UNUSED，注释声称的性质从未被校验。
+    QVERIFY( panel.suggestions().isEmpty() );
+    auto *table3 = findTable( &panel, QStringLiteral( "sfSuggestionTable" ) );
+    QVERIFY( table3 != nullptr );
+    QCOMPARE( table3->rowCount(), 0 );
     const Framework &after = service.framework();
     int withC6 = 0;
     for ( const MarkerBed &m : after.markers )

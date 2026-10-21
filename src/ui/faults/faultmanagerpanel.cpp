@@ -339,9 +339,17 @@ void FaultManagerPanel::refreshTree()
         for (const FaultStick &s : f.sticks) {
             auto *stickItem = new QTreeWidgetItem(faultItem);
             stickItem->setText(0, s.section.displayName);
-            stickItem->setText(1, tr("TWT %1–%2 ms")
-                                         .arg(qRound(s.twtMinMs()))
-                                         .arg(qRound(s.twtMaxMs())));
+            // L2.1（#593）：空棒（旧 JSON / 点数不足的恢复路径）没有纵向范围，
+            // 不得显示成「TWT 0–0 ms」；深度域的棒也不得标成毫秒。
+            const auto lo = s.twtMinMs();
+            const auto hi = s.twtMaxMs();
+            if (!lo.has_value() || !hi.has_value()) {
+                stickItem->setText(1, tr("无纵向样值"));
+            } else if (s.verticalDomain == VerticalDomain::Depth) {
+                stickItem->setText(1, tr("深度 %1–%2 m").arg(qRound(*lo)).arg(qRound(*hi)));
+            } else {
+                stickItem->setText(1, tr("TWT %1–%2 ms").arg(qRound(*lo)).arg(qRound(*hi)));
+            }
         }
         for (const FaultHorizonCut &c : f.cuts) {
             auto *cutItem = new QTreeWidgetItem(faultItem);

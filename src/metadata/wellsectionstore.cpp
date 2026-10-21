@@ -53,9 +53,13 @@ QString unescapeField(const QString &in)
 // 转义要留给下一层；单元格再各自 unescapeField）。默认空段丢弃；
 // keepEmpty 供定长行（如链接覆盖四字段）使用——空 topName 落库成
 // "l;r;;1"，丢空段会把行切成 3 段、整行被当坏行静默丢弃。
+// 空输入恒零段：keepEmpty 只影响段间/尾随空段，不把「整格为空」放大成
+// 一段空文本——否则零口井剖面（well_ids 落空串）往返后变成一口空 id 的井。
 QStringList splitEscaped(const QString &in, QChar sep, bool keepEmpty = false)
 {
     QStringList out;
+    if (in.isEmpty())
+        return out;
     QString cur;
     bool esc = false;
     for (const QChar c : in) {

@@ -315,7 +315,7 @@ struct Batch
     // ---- 登记 catalog（OUTPUT；受管副本即成品，不留游离文件）----------------
     QString sha, managed, err;
     for (const auto &file : exported.files) {
-      const auto assetId = registerMapPdfAsset(catalog, request.projectDir, file, &sha, &managed, &err, ext);
+      const auto assetId = registerMapPdfAsset(catalog, request.projectDir, file, &sha, &managed, &err, ext, horizon);
       if (assetId.isEmpty()) { fail(horizon, err); return; }
       outcome.files << managed; outcome.assetIds << assetId;
       if (outcome.assetId.isEmpty()) {
@@ -490,10 +490,14 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
             const int at = keys.indexOf(outcome.horizon);
             const auto base = batchBaseName(naming.project, outcome.horizon, naming.date,
                                             at < 0 ? 0 : at);
+            int fileIndex = 0;
             for (const auto &path : outcome.files) {
+              // 单文件沿用批量基名；多文件加序号后缀——受管文件名在 dedup
+              // 复用（同层位同字节）时会重复，按名拷贝必撞且到发布期才失败。
               const auto name = outcome.files.size() == 1
                                     ? base + QLatin1Char('.') + naming.ext
-                                    : QFileInfo(path).fileName();
+                                    : base + QStringLiteral("-%1").arg(++fileIndex)
+                                          + QLatin1Char('.') + naming.ext;
               if (!QFile::copy(path, job->external->filePath(name))) {
                 copyError = QObject::tr("无法写入批量导出文件：%1").arg(name);
                 break;

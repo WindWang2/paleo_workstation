@@ -1960,7 +1960,10 @@ class TestUiShell : public QObject
       auto *kindBox=page->findChild<QComboBox *>("predictionKind");QVERIFY(kindBox);QVERIFY(kindBox->findData(QStringLiteral("seismic"))>=0);kindBox->setCurrentIndex(kindBox->findData(QStringLiteral("seismic")));
       auto *run=m_win->findChild<QAction *>("ribbonRunPrediction");QVERIFY(run && run->isEnabled());run->trigger();QVERIFY(m_ctx->mappingWorkbench()->busy());QVERIFY(!run->isEnabled());QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->busy(),5000);
       const auto id=page->selectedLayer();QVERIFY(!id.isEmpty());auto *layer=m_ctx->layerSvc()->layer(id);QVERIFY(layer);QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(layer));QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),layer);
-      auto *decor=m_win->findChild<PaleoDecorationManager *>();QVERIFY(decor);QVERIFY(decor->isNorthArrowEnabled());QVERIFY(decor->isScaleBarEnabled());QVERIFY(decor->legendTitle().contains("D61"));QVERIFY(decor->legendTitle().contains("Mock"));
+      auto *decor=m_win->findChild<PaleoDecorationManager *>();QVERIFY(decor);QVERIFY(decor->isNorthArrowEnabled());QVERIFY(decor->isScaleBarEnabled());
+      // 图例经 legendRefresh（50ms 单发去抖，#528）在 layersChanged 之后才重算——
+      // 等去抖落地再断言同一内容，不放宽断言本身。
+      QTRY_VERIFY(decor->legendTitle().contains("D61"));QVERIFY(decor->legendTitle().contains("Mock"));
       const auto mapVersion=m_ctx->mappingWorkbench()->versionForLayer(id);
       page->commandButton("catalog")->click(); QCOMPARE(m_win->currentPage(),QString("data"));
       auto *dataPage=m_win->findChild<DataPage *>(); QVERIFY(dataPage);
@@ -2004,7 +2007,10 @@ class TestUiShell : public QObject
       QCOMPARE(referenceCanvas->extent().center(),mainCanvas->extent().center());
       linked->setChecked(false); const auto independentExtent=referenceCanvas->extent(); mainCanvas->setExtent(QgsRectangle(200,300,500,600)); QCOMPARE(referenceCanvas->extent(),independentExtent);
       linked->setChecked(true); QCOMPARE(referenceCanvas->extent().center(),mainCanvas->extent().center());
-      QPointer<QgsMapLayer> mainLayer=layer;d62->click();QVERIFY(mainLayer.isNull());QVERIFY(reference && reference->isValid());QCOMPARE(referenceCanvas->layers().first(),reference.data());QVERIFY(decor->legendTitle().contains("D62"));
+      QPointer<QgsMapLayer> mainLayer=layer;d62->click();QVERIFY(mainLayer.isNull());QVERIFY(reference && reference->isValid());QCOMPARE(referenceCanvas->layers().first(),reference.data());
+      // #528（DESIGN.md「无内容时隐藏，不回退显示整套分类」）：D62 尚无可见相图件，
+      // 图例经去抖刷新后隐藏，且不得残留 D61 成果的标题。
+      QTRY_VERIFY(decor->legendFacies().isEmpty());QVERIFY(!decor->legendTitle().contains("D61"));
       d61->click();QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));QTRY_COMPARE(page->selectedLayer(),id);page->commandButton("show")->click();ref->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
       if (PaleoTheme::currentTheme() != PaleoTheme::Theme::Light) PaleoTheme::applyLightTheme();
       m_win->resize(1600,1000);m_win->show();QTest::qWait(350);

@@ -46,3 +46,11 @@ artifacts/portable/
 
 # 本机调试凭据与环境（测井相服务等），严禁入库
 /local/
+
+# 仓库根运行残留（#484 / ci-repo-hygiene）：QGIS 临时样式库、GDAL .aux.xml 旁车、
+# 取证快照与打包副本——不入库
+/*_styles.db
+/*.aux.xml
+/goal-loop-prompts.zip
+/r[0-9]*-red-set.txt
+/leak-test-root/

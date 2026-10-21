@@ -234,6 +234,62 @@ class TestWellFacies : public QObject {
   QTemporaryDir m_cacheHome;
   QJsonArray m_referenceReport;
 private slots:
+  void depthUnitAliases() {
+    for (const char *u : {"m", "M", "M.", " meters ", "METRES", "metre", ""})
+      QCOMPARE(depthUnitToMeters(QString::fromLatin1(u)), 1.0);
+    for (const char *u : {"ft", "F", "FT.", "FEET", "foot"})
+      QCOMPARE(depthUnitToMeters(QString::fromLatin1(u)), 0.3048);
+    for (const char *u : {"S", "MS", "KM", "INCH"})
+      QVERIFY(!std::isfinite(depthUnitToMeters(QString::fromLatin1(u))));
+  }
+  void normalizeDecreasingDepthSortsPairs() {
+    // 负 STEP 的 LAS：深度递减，样点须随深度一起翻转，而不是被判为非递增拒绝。
+    WellComposite::CurveData c;
+    QString reason;
+    QVERIFY(normalizeDepthCurve({1003, 1002, 1001, 1000}, {13, 12, 11, 10},
+                                QStringLiteral("M"), &c, &reason));
+    QCOMPARE(c.depths, (QVector<float>{1000, 1001, 1002, 1003}));
+    QCOMPARE(c.values, (QVector<float>{10, 11, 12, 13}));
+  }
+  void normalizeDropsNonFiniteDepthAndDuplicates() {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    WellComposite::CurveData c;
+    QString reason;
+    QVERIFY(normalizeDepthCurve({100, nan, 101, 101, 102}, {1, 99, 2, 77, nan},
+                                QStringLiteral("ft."), &c, &reason));
+    QCOMPARE(c.depths.size(), 3);
+    QCOMPARE(c.values.size(), 3);
+    QCOMPARE(c.depths[0], float(100 * 0.3048));
+    QCOMPARE(c.values[1], 2.0f); // 同深度保留首个样点
+    QVERIFY(std::isnan(c.values[2])); // 数值空值保留给下游按缺测处理
+    for (int i = 1; i < c.depths.size(); ++i)
+      QVERIFY(c.depths[i] > c.depths[i - 1]);
+  }
+  void normalizeRejectsUnknownUnitWithReason() {
+    WellComposite::CurveData c;
+    QString reason;
+    QVERIFY(!normalizeDepthCurve({1, 2}, {1, 2}, QStringLiteral("MS"), &c, &reason));
+    QVERIFY(reason.contains(QStringLiteral("MS")));
+    QVERIFY(!normalizeDepthCurve({1, 2}, {1}, QStringLiteral("m"), &c, &reason));
+    QVERIFY(!reason.isEmpty());
+  }
+  void normalizedDecreasingCurveFeedsPrepareInput() {
+    // 端到端：把夹具 GR 反转成负 STEP 形态，规范化后与原井输入逐行一致。
+    auto d = well();
+    auto &gr = d.continuousCurves.first();
+    QVector<double> depths, values;
+    for (qsizetype i = gr.depths.size() - 1; i >= 0; --i) {
+      depths.append(gr.depths[i]);
+      values.append(gr.values[i]);
+    }
+    const auto expected = prepareWellFaciesInput(well(), model());
+    QVERIFY2(expected.ready(), qPrintable(expected.reason));
+    QString reason;
+    QVERIFY(normalizeDepthCurve(depths, values, QStringLiteral("METERS"), &gr, &reason));
+    const auto input = prepareWellFaciesInput(d, model());
+    QVERIFY2(input.ready(), qPrintable(input.reason));
+    QCOMPARE(input.rows, expected.rows);
+  }
   void initTestCase() { qputenv("XDG_DATA_HOME", m_cacheHome.path().toUtf8()); }
   void cleanupTestCase() {
     const QString report =

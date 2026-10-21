@@ -115,3 +115,16 @@ target_compile_definitions(tst_horizontrackperf PRIVATE
 # 空态报因/DERIVED 锚源登记/直接成格留洞/RSS 比率门/传播比率门
 # （数值核滑窗/倾角引导面在 tst_horizontrack）
 add_paleo_test(tst_horizontracksvc LIBS paleo_services)
+# #136：传播墙钟比率门（propagationCostRatioGate）拆到 perf 车道——同一源文件
+# 以 PALEO_HZ3D_PERF_LANE 另编一份、仅跑该用例；功能断言（含 RSS 比率门）
+# 留在上面的功能门项里。perf 标签 + RUN_SERIAL 由顶层 _paleo_perf_tests 统一挂。
+add_executable(tst_horizontracksvc_perf tests/tst_horizontracksvc.cpp)
+paleo_test_link_sandbox(tst_horizontracksvc_perf)
+target_link_libraries(tst_horizontracksvc_perf PRIVATE paleo_services Qt6::Test)
+target_compile_definitions(tst_horizontracksvc_perf PRIVATE
+  FIXTURE_GPKG="${FIXTURE_GPKG}" PALEO_HZ3D_PERF_LANE=1)
+add_test(NAME tst_horizontracksvc_perf COMMAND tst_horizontracksvc_perf
+         propagationCostRatioGate
+         -o "${PALEO_QTEST_FIRST_RUN_DIR}/tst_horizontracksvc_perf.txt,txt")
+paleo_test_sandbox(tst_horizontracksvc_perf)
+set_tests_properties(tst_horizontracksvc_perf PROPERTIES LABELS services)

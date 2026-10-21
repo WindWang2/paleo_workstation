@@ -1,6 +1,9 @@
 // 层：功能
 #include "aiassistworkflow.h"
 
+#include <memory>
+#include <mutex>
+
 #include <QDir>
 #include <QFile>
 #include <QHash>
@@ -488,9 +491,34 @@ AiAssistWorkflow::GridFetch AiAssistWorkflow::horizonGridFetch( QgisLayerService
 {
   // 返回可拷贝的取数闭包（classifyTiles/startClassification/聊天执行器共用
   // 契约：NaN = 缺）。池线程调用——声明解析在调用时做，数据集按调用开关。
-  return [layers]( int row0, int col0, int rows, int cols, QVector<float> &out,
-                   QString &err ) -> bool {
-    const QString path = horizonRasterPath( layers );
+  //
+  // 生命周期：闭包在池线程执行，绝不能触碰 QgisLayerService（主线程对象，可能
+  // 已析构）。在调用线程（主线程）解析路径快照，并以 layers 为 context 订阅声明
+  // 变更信号在主线程刷新快照——service 析构时连接自动断开，池线程只读加锁快照。
+  struct PathSnapshot
+  {
+    std::mutex mutex;
+    QString path;
+  };
+  auto snapshot = std::make_shared<PathSnapshot>();
+  snapshot->path = horizonRasterPath( layers );
+  if ( layers )
+  {
+    auto refresh = [snapshot, guard = QPointer<QgisLayerService>( layers )]( const QString & ) {
+      const QString path = horizonRasterPath( guard.data() );
+      std::lock_guard<std::mutex> lock( snapshot->mutex );
+      snapshot->path = path;
+    };
+    QObject::connect( layers, &QgisLayerService::layerDeclared, layers, refresh );
+    QObject::connect( layers, &QgisLayerService::horizonReleased, layers, refresh );
+  }
+  return [snapshot]( int row0, int col0, int rows, int cols, QVector<float> &out,
+                     QString &err ) -> bool {
+    QString path;
+    {
+      std::lock_guard<std::mutex> lock( snapshot->mutex );
+      path = snapshot->path;
+    }
     if ( path.isEmpty() || !QFile::exists( path ) )
     {
       err = QObject::tr( "未找到活动层位的栅格声明（horizon.%1）——先导入/生成层位栅格" )

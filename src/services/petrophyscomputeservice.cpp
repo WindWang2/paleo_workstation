@@ -15,6 +15,7 @@
 #include "io/lascache.h"
 #include "io/lasparser.h"
 #include "io/laswriter.h"
+#include "io/welllogread.h"
 #include "io/wellfileparsers.h" // parseTimeDepthText（方向44 TIME 基准对齐）
 #include "metadata/paleoprojectstore.h"
 #include "errorhub.h" // #556：深度单位假设/非单调 NaN 风险入账（用户可见）
@@ -511,6 +512,23 @@ bool onDriverFile(const CurvePiece &piece, const WellMergePlan &plan)
   return QDir::cleanPath(piece.path) == QDir::cleanPath(plan.driverPath);
 }
 
+bool additionalLogGridIsMd(const QString &path, QString basis, const QList<LasCurve> &curves,
+                          QString *error, const QString &driverBasis = QStringLiteral("MD"))
+{
+  const auto format = WellLogRead::detect(path);
+  if (format != WellLogFormat::Text && format != WellLogFormat::SpreadsheetXml) return true;
+  if (basis.isEmpty())
+  {
+    LasHeaderInfo header;
+    if (!WellLogRead::parseHeader(path, header, error)) return false;
+    basis = header.indexBasis;
+  }
+  if (basis == QLatin1String("MD") && driverBasis == QLatin1String("MD") &&
+      !curves.isEmpty() && paleo::wellnumeric::depthScaleToMetres(curves.first().unit)) return true;
+  if (error) *error = QObject::tr("%1：测井计算需要明确且一致的 MD 基准和米/英尺单位；请先校正索引元数据。").arg(path);
+  return false;
+}
+
 bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePlan &plan,
                     QVector<LasCurve> *out, QString *error,
                     QStringList *alignNotes = nullptr)
@@ -524,11 +542,13 @@ bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePl
       *error = doc.ok ? QStringLiteral("LAS 无曲线") : doc.error;
       return false;
     }
+    if (!additionalLogGridIsMd(well.lasPath, {}, doc.curves, error)) return false;
     *out = doc.curves;
     return true;
   }
 
   const LasDoc driver = LasCache::shared().load(plan.driverPath);
+  if (!additionalLogGridIsMd(plan.driverPath, plan.driverBasis, driver.curves, error)) return false;
   if (!driver.ok || driver.curves.isEmpty())
   {
     *error = driver.ok ? QStringLiteral("LAS 无曲线") : driver.error;
@@ -592,6 +612,7 @@ bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePl
     std::stable_sort(pieces.begin(), pieces.end(),
                      [](const CurvePiece &a, const CurvePiece &b) { return a.column < b.column; });
     const LasDoc doc = LasCache::shared().load(path);
+    if (!additionalLogGridIsMd(path, plan.basisByPath.value(path), doc.curves, error, plan.driverBasis)) return false;
     // #166：副文件深度换到 driver 深度单位后再插值（M/FT 混用的 logset 不错位）；
     // 降序深度（STEP<0）先整体反转，而非静默判不可用全 NaN。
     QVector<double> srcDepth = doc.ok && !doc.curves.isEmpty() ? doc.curves.at(0).values

@@ -108,7 +108,9 @@ struct CatalogOp
     SetLinkUnresolved,
     SetLinkPrimary,
     MarkDownstreamStale,
-    UpdateVersionExtra // 方向 79：版本 extra 就地更新（锚深后补编辑）
+    UpdateVersionExtra, // 方向 79：版本 extra 就地更新（锚深后补编辑）
+    UpdateEntity // 就地更新既有实体（F5 坐标回填）：追加在末尾——
+                 // 中间插入会挪动既有枚举值，陈旧 .obj 与新鲜 obj 混链即错位
   };
   Kind kind = Kind::AddAsset;
   CatalogEntity entity;
@@ -218,6 +220,9 @@ class DataCatalog : public QObject
 
     // 变更：每次落盘（原子写：temp + rename），revision 单调递增。
     bool addEntity(const CatalogEntity &e, QString *error = nullptr);
+    // 就地更新既有实体（按 id；entityType 不许改换）。走 journal——
+    // staging 副本上记录，applyJournal 重放（F5：井位表回填测井建井的坐标）。
+    bool updateEntity(const CatalogEntity &e, QString *error = nullptr);
     bool addAsset(const CatalogAsset &a, QString *error = nullptr);
     bool addVersion(const CatalogVersion &v, QString *error = nullptr);
     bool addLink(const EntityAssetLink &l, QString *error = nullptr);

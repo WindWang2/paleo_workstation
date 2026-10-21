@@ -376,12 +376,21 @@ void WellCompositeBody::mouseMoveEvent(QMouseEvent *event)
   const double d = m_canvas->yToDepth(event->pos().y());
   m_canvas->setHoverDepth(d);
 
-  const int trackIdx = m_canvas->trackIndexAtX(event->pos().x());
-  if (trackIdx >= 0)
+  ImageDepthItem image;
+  if (imageAt(event->pos(), &image))
   {
-    const QString tip = m_canvas->toolTipFor(trackIdx, d);
-    if (!tip.isEmpty())
-      setToolTip(tip);
+    setToolTip(tr("双击放大查看照片"));
+    setCursor(Qt::PointingHandCursor);
+  }
+  else if (const int trackIdx = m_canvas->trackIndexAtX(event->pos().x()); trackIdx >= 0)
+  {
+    setToolTip(m_canvas->toolTipFor(trackIdx, d));
+    setCursor(Qt::ArrowCursor);
+  }
+  else
+  {
+    setToolTip(QString());
+    setCursor(Qt::ArrowCursor);
   }
 
   event->accept();
@@ -444,6 +453,15 @@ void WellCompositeBody::mouseReleaseEvent(QMouseEvent *event)
 void WellCompositeBody::mouseDoubleClickEvent(QMouseEvent *event)
 {
   if (!m_canvas) return;
+  // Qt 的双击序列前面已有一次 press；结束漫游，防止非模态窗口打开后残留拖拽。
+  m_isPanning = false;
+  ImageDepthItem image;
+  if (event->button() == Qt::LeftButton && imageAt(event->pos(), &image))
+  {
+    emit m_canvas->imagePreviewRequested(image);
+    event->accept();
+    return;
+  }
 
   // D2.3 深度标尺道上双击 = 加标注钉意图（面板弹输入框并持久化 sidecar）
   const int trackIdx = m_canvas->trackIndexAtX(event->pos().x());
@@ -523,12 +541,35 @@ void WellCompositeBody::contextMenuEvent(QContextMenuEvent *event)
   event->accept();
 }
 
+bool WellCompositeBody::imageAt(const QPoint &pos, ImageDepthItem *item) const
+{
+  if (!m_canvas || !rect().contains(pos)) return false;
+  const int trackIndex = m_canvas->trackIndexAtX(pos.x());
+  if (trackIndex < 0) return false;
+  const auto track = std::dynamic_pointer_cast<ImageTrack>(m_canvas->tracks().at(trackIndex));
+  if (!track) return false;
+  const int visibleIndex = m_canvas->visibleTrackIndices().indexOf(trackIndex);
+  QRectF bodyRect = m_canvas->trackBodyRect(visibleIndex);
+  bodyRect.setHeight(height());
+  const int index = track->imageIndexAt(pos, bodyRect, m_canvas->scrollDepth(), m_canvas->pxPerMeter());
+  if (index < 0) return false;
+  if (item) *item = track->items().at(index);
+  return true;
+}
+
 void WellCompositeBody::openTrackContextMenu(const QPoint &pos, int trackIndex)
 {
   m_lastContextMenuTrack = trackIndex;
   const auto track = m_canvas->tracks().at(trackIndex); // 拷贝 shared_ptr：tracks() 按值返回，后续跨 exec()
   QMenu menu(this);
   menu.setObjectName(QStringLiteral("wellCompositeTrackMenu"));
+  ImageDepthItem image;
+  QAction *actImage = nullptr;
+  if (imageAt(mapFromGlobal(pos), &image))
+  {
+    actImage = menu.addAction(tr("放大查看照片…"));
+    menu.addSeparator();
+  }
 
   QAction *actHide = menu.addAction(tr("隐藏该道"));
   QAction *actDuplicate = menu.addAction(tr("复制该道"));
@@ -544,7 +585,11 @@ void WellCompositeBody::openTrackContextMenu(const QPoint &pos, int trackIndex)
   if (!picked)
     return;
 
-  if (picked == actHide)
+  if (picked == actImage)
+  {
+    emit m_canvas->imagePreviewRequested(image);
+  }
+  else if (picked == actHide)
   {
     track->setVisible(false);
     m_canvas->syncScrollBars();

@@ -253,7 +253,7 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
       opinion.sourceKind = QStringLiteral("well");
       opinion.label = well.value("well_name").toString();
       opinion.versionId = QStringLiteral("welllog.formations:%1").arg(well.value("entity_id").toString());
-      opinion.detail = tr("井口位于图斑内（%1, %2）；本层位地层优势相")
+      opinion.detail = tr("井口位于图斑内（%1, %2）；本层位分层沉积微相")
                            .arg(well.value("x").toDouble(), 0, 'f', 0)
                            .arg(well.value("y").toDouble(), 0, 'f', 0);
       opinion.faciesCode = well.value("formation_facies_code").toInt();

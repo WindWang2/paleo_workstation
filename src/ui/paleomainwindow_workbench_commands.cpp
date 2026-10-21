@@ -530,7 +530,7 @@ void PaleoMainWindow::runWorkbenchCommand(
   else if (action == "wellattributes")
     message = tr("已打开测井矢量属性表；保存后更新井道与单因素输入。");
   else if (action == "wellformations")
-    message = tr("已打开地层相属性表；每口井每个地层（组/段）一行，预测输出即该地层的相，可直接维护。");
+    message = tr("已打开分层沉积相属性表；每口井每个地层单元（组/段）一行。解释微相用于维护当前解释，预测微相保留模型结果；厚度、占比和覆盖率来自相段汇总，直接改名不重算。");
   else if (action == "cancel")
     message = tr("已请求取消预测。");
   else if (action == "show")

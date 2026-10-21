@@ -179,6 +179,7 @@ signals:
   void trackConfigRequested(int trackIndex);
   void trackCsvRequested(int trackIndex);
   void trackDuplicationRequested(int trackIndex);
+  void imagePreviewRequested(const WellComposite::ImageDepthItem &item);
 
   // 跳深度意图（右键菜单/工具条；面板弹 Ctrl+G 对话框）
   void gotoDepthRequested();
@@ -324,6 +325,7 @@ protected:
 
 private:
   void openTrackContextMenu(const QPoint &pos, int trackIndex);
+  bool imageAt(const QPoint &pos, ImageDepthItem *item) const;
 
   WellCompositeCanvas *m_canvas = nullptr;
   bool m_isPanning = false;

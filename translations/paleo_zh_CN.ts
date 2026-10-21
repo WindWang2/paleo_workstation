@@ -8980,6 +8980,10 @@ Crossline: %3 ~ %4</source>
         <source>井段修订失败，已撤销本次修改</source>
         <translation>井段修订失败，已撤销本次修改</translation>
     </message>
+    <message>
+        <source>井口位于图斑内（%1, %2）；本层位分层沉积微相</source>
+        <translation>井口位于图斑内（%1, %2）；本层位分层沉积微相</translation>
+    </message>
 </context>
 <context>
     <name>MappingWorkbenchPage</name>
@@ -9803,6 +9807,14 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="783"/>
         <source>请先复制相图为编辑副本</source>
         <translation>请先复制相图为编辑副本</translation>
+    </message>
+    <message>
+        <source>分层沉积相属性</source>
+        <translation>分层沉积相属性</translation>
+    </message>
+    <message>
+        <source>每口井在当前地层内厚度最大的微相作为预测结果，并关联亚相和相；结果按井、按地层写入「测井分层沉积相属性」表，与数据管理共用</source>
+        <translation>每口井在当前地层内厚度最大的微相作为预测结果，并关联亚相和相；结果按井、按地层写入「测井分层沉积相属性」表，与数据管理共用</translation>
     </message>
 </context>
 <context>
@@ -14028,6 +14040,10 @@ SHA-256：%2</translation>
         <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="200"/>
         <source>错误历史</source>
         <translation>错误历史</translation>
+    </message>
+    <message>
+        <source>已打开分层沉积相属性表；每口井每个地层单元（组/段）一行。解释微相用于维护当前解释，预测微相保留模型结果；厚度、占比和覆盖率来自相段汇总，直接改名不重算。</source>
+        <translation>已打开分层沉积相属性表；每口井每个地层单元（组/段）一行。解释微相用于维护当前解释，预测微相保留模型结果；厚度、占比和覆盖率来自相段汇总，直接改名不重算。</translation>
     </message>
 </context>
 <context>
@@ -24447,6 +24463,74 @@ SHA-256：%2</translation>
         <source>井点因子新增失败</source>
         <translation>井点因子新增失败</translation>
     </message>
+    <message>
+        <source>分层沉积相必须按井/地层唯一，地层名不能为空</source>
+        <translation>分层沉积相必须按井/地层唯一，地层名不能为空</translation>
+    </message>
+    <message>
+        <source>分层沉积相更新失败，井段已恢复</source>
+        <translation>分层沉积相更新失败，井段已恢复</translation>
+    </message>
+    <message>
+        <source>分层沉积相更新失败，已撤销本次更新</source>
+        <translation>分层沉积相更新失败，已撤销本次更新</translation>
+    </message>
+    <message>
+        <source>分层沉积相的井 ID、地层名或顶底深无效</source>
+        <translation>分层沉积相的井 ID、地层名或顶底深无效</translation>
+    </message>
+    <message>
+        <source>分层沉积相的厚度必须为非负有限数值，占比和覆盖率为 0–1</source>
+        <translation>分层沉积相的厚度必须为非负有限数值，占比和覆盖率为 0–1</translation>
+    </message>
+    <message>
+        <source>分层解释微相</source>
+        <translation>分层解释微相</translation>
+    </message>
+    <message>
+        <source>分层预测微相</source>
+        <translation>分层预测微相</translation>
+    </message>
+    <message>
+        <source>同一口井的地层名重复，未更新分层沉积相</source>
+        <translation>同一口井的地层名重复，未更新分层沉积相</translation>
+    </message>
+    <message>
+        <source>已分类厚度覆盖率（0–1）</source>
+        <translation>已分类厚度覆盖率（0–1）</translation>
+    </message>
+    <message>
+        <source>微相厚度构成</source>
+        <translation>微相厚度构成</translation>
+    </message>
+    <message>
+        <source>无法开始分层沉积相更新</source>
+        <translation>无法开始分层沉积相更新</translation>
+    </message>
+    <message>
+        <source>更新测井分层沉积相</source>
+        <translation>更新测井分层沉积相</translation>
+    </message>
+    <message>
+        <source>最大厚度占比（0–1）</source>
+        <translation>最大厚度占比（0–1）</translation>
+    </message>
+    <message>
+        <source>最大厚度并列</source>
+        <translation>最大厚度并列</translation>
+    </message>
+    <message>
+        <source>最大累计厚度（m）</source>
+        <translation>最大累计厚度（m）</translation>
+    </message>
+    <message>
+        <source>测井分层沉积相属性</source>
+        <translation>测井分层沉积相属性</translation>
+    </message>
+    <message>
+        <source>测井分层沉积相属性表正在编辑，请先保存或放弃编辑，再运行预测</source>
+        <translation>测井分层沉积相属性表正在编辑，请先保存或放弃编辑，再运行预测</translation>
+    </message>
 </context>
 <context>
     <name>WellComposite::CurveConfigDialog</name>
@@ -25158,6 +25242,14 @@ SHA-256：%2</translation>
         <source>删除该道</source>
         <translation>删除该道</translation>
     </message>
+    <message>
+        <source>双击放大查看照片</source>
+        <translation>双击放大查看照片</translation>
+    </message>
+    <message>
+        <source>放大查看照片…</source>
+        <translation>放大查看照片…</translation>
+    </message>
 </context>
 <context>
     <name>WellComposite::WellCompositePanel</name>
@@ -25669,6 +25761,14 @@ SHA-256：%2</translation>
         <location filename="../src/ui/wellcomposite/paneledit.cpp" line="227"/>
         <source>暂无预设。导出一次后可经 sidecar 保存。</source>
         <translation>暂无预设。导出一次后可经 sidecar 保存。</translation>
+    </message>
+    <message>
+        <source>分层沉积相属性</source>
+        <translation>分层沉积相属性</translation>
+    </message>
+    <message>
+        <source>点击此键恢复全井段；双击照片放大查看，双击其他道体位置复位</source>
+        <translation>点击此键恢复全井段；双击照片放大查看，双击其他道体位置复位</translation>
     </message>
     <message>
         <location filename="../src/ui/wellcomposite/paneltracks.cpp" line="103"/>
@@ -33245,6 +33345,73 @@ SHA-256：%2</translation>
         <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="1761"/>
         <source>从剖面移除</source>
         <translation>从剖面移除</translation>
+    </message>
+</context>
+<context>
+    <name>CoreImageViewer</name>
+    <message>
+        <source>仅有内嵌图片，按现有分辨率显示。</source>
+        <translation>仅有内嵌图片，按现有分辨率显示。</translation>
+    </message>
+    <message>
+        <source>原图读取完成后可查看原始大小</source>
+        <translation>原图读取完成后可查看原始大小</translation>
+    </message>
+    <message>
+        <source>原图：%1 × %2 像素</source>
+        <translation>原图：%1 × %2 像素</translation>
+    </message>
+    <message>
+        <source>原始大小（100%）</source>
+        <translation>原始大小（100%）</translation>
+    </message>
+    <message>
+        <source>岩心照片 — %1</source>
+        <translation>岩心照片 — %1</translation>
+    </message>
+    <message>
+        <source>岩心照片放大视图</source>
+        <translation>岩心照片放大视图</translation>
+    </message>
+    <message>
+        <source>放大</source>
+        <translation>放大</translation>
+    </message>
+    <message>
+        <source>无法启动原图读取；请关闭窗口后重试。</source>
+        <translation>无法启动原图读取；请关闭窗口后重试。</translation>
+    </message>
+    <message>
+        <source>无法读取原图；如有缩略图，可继续查看缩略图。</source>
+        <translation>无法读取原图；如有缩略图，可继续查看缩略图。</translation>
+    </message>
+    <message>
+        <source>正在读取原图…</source>
+        <translation>正在读取原图…</translation>
+    </message>
+    <message>
+        <source>没有可显示的照片。</source>
+        <translation>没有可显示的照片。</translation>
+    </message>
+    <message>
+        <source>测深：%1–%2 m</source>
+        <translation>测深：%1–%2 m</translation>
+    </message>
+    <message>
+        <source>滚轮缩放，按住左键拖动浏览；关闭窗口返回井道。</source>
+        <translation>滚轮缩放，按住左键拖动浏览；关闭窗口返回井道。</translation>
+    </message>
+    <message>
+        <source>缩小</source>
+        <translation>缩小</translation>
+    </message>
+    <message>
+        <source>适应窗口</source>
+        <translation>适应窗口</translation>
+    </message>
+    <message>
+        <source>锚深：%1 m</source>
+        <translation>锚深：%1 m</translation>
     </message>
 </context>
 </TS>

@@ -69,7 +69,7 @@ LAS 文件 ──PreviewDocService::lasAt──▶ QVector<CurveData>│
 
 - 比例尺：QComboBox（可编辑）5 预设 + 自适应；缩放时反向换算 `1:N` 联动回写。
 - 滚轮 = 锚点缩放（光标深度为锚）；左/中键拖拽 = 纵向平移深度 + 横向平移道；
-  双击 = 复位；单击（位移<4px）发 depthClicked。
+  双击照片发 imagePreviewRequested，由面板打开非模态原图检视；其他道体双击 = 复位；单击（位移<4px）发 depthClicked。
 - CurveConfigDialog 是唯一的道管理面（模态）。
 
 ## 6. 已知硬编码 / 臆造残留清单（Phase 0 审计）

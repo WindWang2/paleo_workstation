@@ -23,7 +23,7 @@
 
 **Files:** 无（环境）
 
-- [ ] **Step 1: 确认基线并建 worktree**
+- [x] **Step 1: 确认基线并建 worktree**
 
 ```bash
 cd C:/Users/wangj.KEVIN/projects/paleo_workstation
@@ -32,7 +32,7 @@ git rev-parse master origin/master   # 两者一致则以 master 为基线；不
 git worktree add ../paleo_workstation-indexed-mgmt -b codex/indexed-data-mgmt-section-snapping master
 ```
 
-- [ ] **Step 2: 把规格与本计划文件带入 worktree 并提交**
+- [x] **Step 2: 把规格与本计划文件带入 worktree 并提交**
 
 ```bash
 cd ../paleo_workstation-indexed-mgmt
@@ -42,7 +42,7 @@ cp ../paleo_workstation/docs/superpowers/plans/2026-10-21-indexed-data-mgmt-and-
 git add docs/superpowers && git commit -m "docs: 索引式数据管理与连井剖面画线吸附——规格与实现计划"
 ```
 
-- [ ] **Step 3: 配置构建（localdeps，参 BUILDING.md Windows 节）**
+- [x] **Step 3: 配置构建（localdeps，参 BUILDING.md Windows 节）**
 
 ```powershell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
@@ -67,7 +67,7 @@ cmake --build build -j8
 - Modify: `src/catalog/datacatalog_assets.cpp`
 - Test: `tests/tst_catalog.cpp`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `tests/tst_catalog.cpp` 新增用例（沿用该文件既有临时工程 fixture 模式）：
 
@@ -101,12 +101,12 @@ void TestCatalog::renameAssetPersists()
 
 （若 `tst_catalog.cpp` 无 `close()` 先例，改为作用域析构后重开；测试函数名按该文件既有命名风格调整。）
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 `cmake --build build -j8 --target tst_catalog && ctest --test-dir build -R '^tst_catalog$' --output-on-failure`
 预期：编译失败 `'renameAsset' is not a member of 'DataCatalog'`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `datacatalog.h`（`updateLink` 声明后）：
 
@@ -159,12 +159,12 @@ bool DataCatalog::renameAsset(const QString &assetId, const QString &newName, QS
 }
 ```
 
-- [ ] **Step 4: 跑绿**
+- [x] **Step 4: 跑绿**
 
 `cmake --build build -j8 --target tst_catalog && ctest --test-dir build -R '^tst_catalog$' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src/catalog tests/tst_catalog.cpp && git commit -m "feat(catalog): 数据资产重命名 API renameAsset——就地更新 displayName，物理文件名不动"`
 
@@ -181,7 +181,7 @@ bool DataCatalog::renameAsset(const QString &assetId, const QString &newName, QS
 - Modify: `src/ui/pages/datalist.cpp:930-936`（F2 扩展到资产）
 - Test: `tests/tst_panels_dataops.cpp`（菜单矩阵断言更新 + 命令用例）
 
-- [ ] **Step 1: 写失败测试（矩阵 + 命令）**
+- [x] **Step 1: 写失败测试（矩阵 + 命令）**
 
 矩阵用例（`tst_panels_dataops.cpp:136-192` 区域，更新既有期望列表——单资产期望含 `"renameAsset"`，位置紧随 `"openPreview"` 之后；多资产期望列表也含 `"renameAsset"`）：
 
@@ -205,12 +205,12 @@ void TestPanelsDataops::renameAssetCmdUndoRedo()
 }
 ```
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 `cmake --build build -j8 --target tst_panels_dataops && ctest --test-dir build -R '^tst_panels_dataops$' --output-on-failure`
 预期：编译失败（`RenameAssetCmd` 不存在）或矩阵断言失败。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `dataopscommands.h` 尾部（namespace 结束前）：
 
@@ -329,12 +329,12 @@ dispatch（`:572` 区域）加分支：
 
 CMake：`datalist_indexops.cpp` 加进 ui 库源列表（找到 `datalist_batch.cpp` 所在源清单同处添加；先 `grep -rn "datalist_batch.cpp" CMakeLists.txt cmake/ src/` 定位）。
 
-- [ ] **Step 4: 跑绿 + 闸门**
+- [x] **Step 4: 跑绿 + 闸门**
 
 `cmake --build build -j8 --target tst_panels_dataops && ctest --test-dir build -R '^tst_panels_dataops$' --output-on-failure && ctest --test-dir build -R '^layering' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src/ui tests/tst_panels_dataops.cpp CMakeLists.txt cmake && git commit -m "feat(dataops): 数据对象重命名——右键/F2 入口 + RenameAssetCmd 可撤销，写路径走 catalog renameAsset"`
 
@@ -350,7 +350,7 @@ CMake：`datalist_indexops.cpp` 加进 ui 库源列表（找到 `datalist_batch.
 - Modify: `src/ui/paleomainwindow_attach_data.cpp:405-438`（向导第 2 页加名称框与复制勾选）
 - Test: `tests/tst_import.cpp`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `tests/tst_import.cpp`（沿用该文件临时工程 + DataImportService fixture）：
 
@@ -372,12 +372,12 @@ void TestImport::importDisplayNameOptionHonored()
 }
 ```
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 `cmake --build build -j8 --target tst_import && ctest --test-dir build -R '^tst_import$' --output-on-failure`
 预期：编译失败（`ImportOptions` 无 `displayName` 成员）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `dataimportservice.h` `ImportOptions`（`:36-42`）加一行：
 
@@ -439,12 +439,12 @@ void TestImport::importDisplayNameOptionHonored()
 
 （`QCheckBox`/`QLineEdit` include 按文件头现存情况补。）
 
-- [ ] **Step 4: 跑绿**
+- [x] **Step 4: 跑绿**
 
 `cmake --build build -j8 --target tst_import && ctest --test-dir build -R '^tst_import$' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src/io src/workflow src/ui/paleomainwindow_attach_data.cpp tests/tst_import.cpp && git commit -m "feat(io): 导入时命名——ImportOptions.displayName 贯通，单文件向导加名称框与「复制进工程」勾选"`
 
@@ -461,7 +461,7 @@ void TestImport::importDisplayNameOptionHonored()
 - Modify: 确认表调用点（`src/ui/paleomainwindow_project.cpp:58-175` 多文件链；文件夹导入 `runFolderImport` 所在文件）：接受后 `wf->setLinkExternal(!dlg.copyIntoProject())`
 - Test: `tests/tst_import.cpp`（io 层贯通）+ FolderImportWorkflow 测试（先 `grep -rln "FolderImportWorkflow" tests/` 定位；无则在 `tst_import.cpp` 末尾加，伞式链接足够）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 io 层（`tst_import.cpp`）：
 
@@ -506,12 +506,12 @@ void TestImport::folderImportWorkflowDefaultsToLinkExternal()
 
 （签名细节按 `importFiles` 实际参数序调整；若该测试放别处，保持同一断言意图。）
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 `cmake --build build -j8 --target tst_import && ctest --test-dir build -R '^tst_import$' --output-on-failure`
 预期：编译失败（`ImportSession` 无 `linkExternal`）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `dataimportservice.h` `ImportSession`（`wellTargets` 声明旁）：
 
@@ -558,12 +558,12 @@ private 成员区加 `bool m_linkExternal = true;`。
 
 （拖入链 `externalImportRequested` 若不经确认表，则走成员默认 true——即只建索引，符合 D1。）
 
-- [ ] **Step 4: 跑绿 + 既有导入回归**
+- [x] **Step 4: 跑绿 + 既有导入回归**
 
 `cmake --build build -j8 --target tst_import && ctest --test-dir build -R '^tst_import$' --output-on-failure`
 预期：PASS。注意：`tst_import.cpp` 中钉「默认受管」的用例是 io 层（直调 `importProjectFile`/默认 session），不受影响；若有经 `FolderImportWorkflow` 的既有用例期望受管，按 D1 新口径改为显式 `wf.setLinkExternal(false)`。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src/io src/workflow src/ui tests/tst_import.cpp && git commit -m "feat(io): UI 导入默认只建索引——ImportSession.linkExternal 贯通批量/文件夹/拖入链，受管复制降级为确认表勾选项"`
 
@@ -581,7 +581,7 @@ private 成员区加 `bool m_linkExternal = true;`。
 - Modify: `src/ui/paleomainwindow_project.cpp`（调用点组装 nameOverrides）
 - Test: `tests/tst_import.cpp`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```cpp
 void TestImport::batchNameOverridesApplied()
@@ -598,12 +598,12 @@ void TestImport::batchNameOverridesApplied()
 
 （`importFiles` 参数序按修改后签名对齐。）
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 `cmake --build build -j8 --target tst_import && ctest --test-dir build -R '^tst_import$' --output-on-failure`
 预期：编译失败（签名/字段不存在）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `ingestplan.h` `PlannedItem` 加：
 
@@ -632,12 +632,12 @@ void TestImport::batchNameOverridesApplied()
 
 `folderimport.h/.cpp`：`importFolder`/`importFiles` 各加尾参 `const QMap<QString, QString> &nameOverrides = {}`，produce lambda 捕获并透传到 `produceFolder/produceFiles`。
 
-- [ ] **Step 4: 跑绿**
+- [x] **Step 4: 跑绿**
 
 `cmake --build build -j8 --target tst_import && ctest --test-dir build -R '^tst_import$' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src && git commit -m "feat(io): 批量确认表显示名列——nameOverrides 经 plan 贯通到资产 displayName"`
 
@@ -652,7 +652,7 @@ void TestImport::batchNameOverridesApplied()
 - Modify: `src/domain/wellsection.cpp`（`orderWellsByPosition` 实现 `:474-538` 之后）
 - Test: `tests/tst_wellsection.cpp`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```cpp
 void TestWellsection::orderWellsNearestNeighborChains()
@@ -688,12 +688,12 @@ void TestWellsection::nearestWellWithinTolerance()
 
 （`Well` 的坐标有效性接口以 `src/domain/wellsection.h:105` 的实际定义为准——若有 `setCoordinates`/构造参数按它写。）
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 `cmake --build build -j8 --target tst_wellsection && ctest --test-dir build -R '^tst_wellsection$' --output-on-failure`
 预期：编译失败（函数未声明）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `wellsection.h`（`orderWellsByPosition` 声明旁）：
 
@@ -788,12 +788,12 @@ QStringList orderWellsNearestNeighbor(const QStringList &ids,
 
 （`#include <limits>` 按文件头现存情况补。）
 
-- [ ] **Step 4: 跑绿**
+- [x] **Step 4: 跑绿**
 
 `cmake --build build -j8 --target tst_wellsection && ctest --test-dir build -R '^tst_wellsection$' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src/domain tests/tst_wellsection.cpp && git commit -m "feat(domain): 连井空间算法——最近邻链排序 orderWellsNearestNeighbor + 最近井查找 nearestWellWithin"`
 
@@ -806,7 +806,7 @@ QStringList orderWellsNearestNeighbor(const QStringList &ids,
 - Modify: `src/workflow/sectionworkbench.cpp`（`wellRoute` `:254-280` 附近同文件加方法）
 - Test: `tests/tst_wellsection_workflow.cpp`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```cpp
 void TestWellsectionWorkflow::spatiallyOrderedWellsModes()
@@ -834,12 +834,12 @@ void TestWellsectionWorkflow::wellSnapWellsOnlyValidCoords()
 
 （井 id 以 fixture 实际建井口径为准——`wellRoute` 用 catalog 实体 id，测试照它。）
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 `cmake --build build -j8 --target tst_wellsection_workflow && ctest --test-dir build -R '^tst_wellsection_workflow$' --output-on-failure`
 预期：编译失败。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `sectionworkbench.h`（`wellRoute` 声明旁）：
 
@@ -893,12 +893,12 @@ QVector<Well> SectionWorkbench::wellSnapWells() {
 
 （关键：先读 `src/domain/wellsection.h:105` 的 `Well` 定义与 `src/ui/wellsection/wellsectionpanel.cpp:1350-1387` 的既有构造方式，照抄同一真值口径。）
 
-- [ ] **Step 4: 跑绿**
+- [x] **Step 4: 跑绿**
 
 `cmake --build build -j8 --target tst_wellsection_workflow && ctest --test-dir build -R '^tst_wellsection_workflow$' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src/workflow tests/tst_wellsection_workflow.cpp && git commit -m "feat(workflow): SectionWorkbench 空间排序（nearest/pca）与吸附井集 wellSnapWells"`
 
@@ -912,7 +912,7 @@ QVector<Well> SectionWorkbench::wellSnapWells() {
 - Modify: `src/linkage/seismicmaplink.h:61` + `src/linkage/seismicmaplink.cpp:253-267`（`onSectionPathCaptured` 加 `wellIds` 参）
 - Test: 纯逻辑已被 Task 6 覆盖；本任务靠 Task 10 的对话框联动测试与手测（QGIS 画布鼠标事件合成成本高，既有 `tst_sectionlifecycle` 保证生命周期不回归——跑它）
 
-- [ ] **Step 1: 改工具（头文件）**
+- [x] **Step 1: 改工具（头文件）**
 
 ```cpp
 // 层：QGIS 封装
@@ -971,7 +971,7 @@ private:
 };
 ```
 
-- [ ] **Step 2: 改工具（实现）**
+- [x] **Step 2: 改工具（实现）**
 
 ```cpp
 // 层：QGIS 封装
@@ -1170,7 +1170,7 @@ void SeismicSectionTool::keyPressEvent(QKeyEvent *e) {
 
 （`QgsSnappingConfig` 的 `type()/tolerance()` 成员名以 vendored QGIS 4.2 头为准——若字段名有出入，回退硬编码 12 像素并在代码注释写明原因。`Well` 若有 `name` 字段，tooltip 用 `w.name`。）
 
-- [ ] **Step 3: `SeismicMapLink::onSectionPathCaptured` 加参**
+- [x] **Step 3: `SeismicMapLink::onSectionPathCaptured` 加参**
 
 `seismicmaplink.h:61`：
 
@@ -1190,12 +1190,12 @@ void SeismicSectionTool::keyPressEvent(QKeyEvent *e) {
                  : tr("地图拾取任意剖面"));
 ```
 
-- [ ] **Step 4: 编译 + 生命周期回归**
+- [x] **Step 4: 编译 + 生命周期回归**
 
 `cmake --build build -j8 --target paleo_qgis && cmake --build build -j8 --target tst_sectionlifecycle && ctest --test-dir build -R 'tst_sectionlifecycle|tst_sections_alignment' --output-on-failure`
 预期：编译过（壳的 connect 暂时签名不匹配——Task 9 同步改，故此处允许壳目标暂时编译失败；若必须整树绿才能跑测试，先完成 Task 9 Step 1 再跑本步）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src/qgis src/linkage && git commit -m "feat(qgis): 剖面画线井位吸附——容差内最近井吸附预览、吸附顶点收集井序、信号携带有序 wellIds"`
 
@@ -1206,7 +1206,7 @@ void SeismicSectionTool::keyPressEvent(QKeyEvent *e) {
 **Files:**
 - Modify: `src/ui/paleomainwindow_sections.cpp:224-242`（工具创建/激活处）与 `:140-153`（提取完成处）
 
-- [ ] **Step 1: 实现**
+- [x] **Step 1: 实现**
 
 工具创建 connect（`:224-242`）改为：
 
@@ -1255,12 +1255,12 @@ void SeismicSectionTool::keyPressEvent(QKeyEvent *e) {
           });
 ```
 
-- [ ] **Step 2: 编译 + 相关测试**
+- [x] **Step 2: 编译 + 相关测试**
 
 `cmake --build build -j8 && ctest --test-dir build -R 'tst_sectionlifecycle|tst_sections_alignment' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 `git add src/ui/paleomainwindow_sections.cpp && git commit -m "feat(ui): 壳接线剖面吸附——激活前注入井集、吸附井序同步对话框、提取成功即唤回设置对话框"`
 
@@ -1275,7 +1275,7 @@ void SeismicSectionTool::keyPressEvent(QKeyEvent *e) {
 - Modify: `src/ui/paleomainwindow_sections.cpp`（spatialReorderRequested 接线）
 - Test: `tests/tst_sections_alignment.cpp`（若无对话框既有用例，按该文件既有 fixture 新建）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```cpp
 void TestSectionsAlignment::applyWellOrderReordersAndChecks()
@@ -1310,12 +1310,12 @@ void TestSectionsAlignment::spatialReorderButtonGateAndSignal()
 }
 ```
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 `cmake --build build -j8 --target tst_sections_alignment && ctest --test-dir build -R '^tst_sections_alignment$' --output-on-failure`
 预期：编译失败（方法/信号不存在）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `sectionsetupdialog.h`：
 
@@ -1471,12 +1471,12 @@ QStringList SectionSetupDialog::checkedWellIds() const {
           });
 ```
 
-- [ ] **Step 4: 跑绿 + 闸门**
+- [x] **Step 4: 跑绿 + 闸门**
 
 `cmake --build build -j8 --target tst_sections_alignment && ctest --test-dir build -R '^tst_sections_alignment$' --output-on-failure && ctest --test-dir build -R '^(layering|ui_size|file_budget|ui_invariants)$' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src/ui tests/tst_sections_alignment.cpp CMakeLists.txt cmake && git commit -m "feat(ui): 连井设置对话框——吸附井序落盘 applyWellOrder + 按空间关系重排（最近邻链/主轴投影）"`
 
@@ -1491,7 +1491,7 @@ QStringList SectionSetupDialog::checkedWellIds() const {
 - Modify: `src/workflow/assetops.cpp`
 - Test: `tests/tst_assetops.cpp`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```cpp
 void TestAssetops::removeKeepFilesDeletesIndexOnly()
@@ -1523,12 +1523,12 @@ void TestAssetops::scanOrphanManagedDirsFindsUntracked()
 }
 ```
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 `cmake --build build -j8 --target tst_assetops && ctest --test-dir build -R '^tst_assetops$' --output-on-failure`
 预期：编译失败（函数不存在）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `assetops.h`（`purgeManagedFiles` 声明之后）：
 
@@ -1608,12 +1608,12 @@ QVector<OrphanManagedDir> scanOrphanManagedDirs(const QString &projectDir,
 
 （`QDir`/`QDirIterator` include 按文件头现存情况补。）
 
-- [ ] **Step 4: 跑绿**
+- [x] **Step 4: 跑绿**
 
 `cmake --build build -j8 --target tst_assetops && ctest --test-dir build -R '^tst_assetops$' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src/workflow tests/tst_assetops.cpp && git commit -m "feat(workflow): 索引级删除 removeAssetsKeepFiles（文件一律不动）+ 孤儿受管目录扫描 scanOrphanManagedDirs"`
 
@@ -1627,16 +1627,16 @@ QVector<OrphanManagedDir> scanOrphanManagedDirs(const QString &projectDir,
 - Modify: `src/ui/pages/datalist_indexops.cpp`（实现 `removeFromCatalogKeepFiles`）
 - Test: `tests/tst_panels_dataops.cpp`（矩阵期望更新——与 Task 2 同一断言区，一并核对）
 
-- [ ] **Step 1: 更新矩阵测试期望**
+- [x] **Step 1: 更新矩阵测试期望**
 
 `contextMenuActions` 资产面期望列表统一加 `"removeFromCatalog"`（紧随 `"removeSoft"` 之后；单资产无 `removeSoft` 时缀在 `"exportManifest"` 位——按实际矩阵序断言）。
 
-- [ ] **Step 2: 跑红**
+- [x] **Step 2: 跑红**
 
 `cmake --build build -j8 --target tst_panels_dataops && ctest --test-dir build -R '^tst_panels_dataops$' --output-on-failure`
 预期：矩阵断言失败。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `dataopspanelops.h` `contextMenuActions`（`:446-447` 之后）：
 
@@ -1690,12 +1690,12 @@ void DataListPanel::removeFromCatalogKeepFiles()
 
 （`PaleoNotify::warn` 的确切静态面以 `paleonotify.h` 现存方法为准——无 warn 则用既有 ask/信息面。）
 
-- [ ] **Step 4: 跑绿 + 闸门**
+- [x] **Step 4: 跑绿 + 闸门**
 
 `cmake --build build -j8 --target tst_panels_dataops && ctest --test-dir build -R '^(tst_panels_dataops|layering.*)$' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 `git add src/ui tests/tst_panels_dataops.cpp && git commit -m "feat(dataops): 「从目录移除（保留文件）…」——索引级删除入口，确认文案明示不可撤销与孤儿去向"`
 
@@ -1709,7 +1709,7 @@ void DataListPanel::removeFromCatalogKeepFiles()
 - Modify: `src/ui/pages/datalist_undo.cpp:600-650`（治理对话框与控制器接线区，补 orphans 连接）
 - Test: 扫描数据面已在 Task 11 覆盖；本任务 UI 接线靠手测 + 既有治理测试不回归（先 `grep -rln "StorageGovernance" tests/` 找既有测试一并跑）
 
-- [ ] **Step 1: 控制器加扫描面**
+- [x] **Step 1: 控制器加扫描面**
 
 `storagegovernancecontroller.h`：
 
@@ -1732,7 +1732,7 @@ void StorageGovernanceController::scanOrphans()
 
 （成员名以该文件实际持有的工程目录/catalog 成员为准。）
 
-- [ ] **Step 2: 对话框加区块**
+- [x] **Step 2: 对话框加区块**
 
 `storagegovernancedialog.h/.cpp`：加「孤立受管文件」分组——`QTableWidget`（列：相对路径 / 大小 / 文件数）+「扫描孤立文件」`QPushButton`（objectName `orphanScanBtn`）+「删除选中…」+「在文件管理器中显示」。信号：
 
@@ -1743,7 +1743,7 @@ void StorageGovernanceController::scanOrphans()
 
 `setOrphans(const QVector<paleo::assetops::OrphanManagedDir> &)` 填表。删除动作走强确认（`PaleoNotify::ask`，文案「将永久删除孤立受管文件，不可恢复」）后经控制器执行（控制器加 `deleteOrphanDirs(relPaths)` 槽：逐目录 `QDir(abs).removeRecursively()`，`resolvedVersionPath` 同源容器守卫——路径必须落在 `artifacts/` 内，完成后重扫）。
 
-- [ ] **Step 3: 接线 + 测试**
+- [x] **Step 3: 接线 + 测试**
 
 `datalist_undo.cpp` 治理对话框接线区补：
 
@@ -1756,7 +1756,7 @@ void StorageGovernanceController::scanOrphans()
 跑：`cmake --build build -j8 && ctest --test-dir build -R 'storage|governance|tst_assetops' --output-on-failure -E 'core|perf'`
 预期：PASS（正则按既有治理测试实际名调整）。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 `git add src && git commit -m "feat(ui): 存储治理「孤立受管文件」——扫描/列表/删除/定位，承接索引级删除的副本去向"`
 
@@ -1772,19 +1772,19 @@ void StorageGovernanceController::scanOrphans()
 - Modify: `docs/SECTIONS_ALIGNMENT_PLAN.md:31-37`（吸附/井序/重排行为）
 - Modify: `TODOS.md`（无需新增；确认无相关递延项被遗忘即可）
 
-- [ ] **Step 1: 文档更新（按上述锚点改写，与实现口径一致）**
+- [x] **Step 1: 文档更新（按上述锚点改写，与实现口径一致）**
 
-- [ ] **Step 2: docs_drift 与 i18n 闸**
+- [x] **Step 2: docs_drift 与 i18n 闸**
 
 `ctest --test-dir build -R '^(docs_drift|i18n|ui_tokens|qgis_versions)$' --output-on-failure`
 预期：PASS。
 
-- [ ] **Step 3: 全量回归（linux/windows 车道口径）**
+- [x] **Step 3: 全量回归（linux/windows 车道口径）**
 
 `ctest --test-dir build -j8 --output-on-failure -LE 'core|perf'`
 预期：全绿；如有与本次口径调整相关的既有用例变红（例如钉旧导入默认的 UI 级用例），按 D1/D2/D4 新口径修正用例并在提交信息中说明。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 `git add docs TODOS.md && git commit -m "docs: 索引式导入/对象命名/删索引保文件/剖面吸附——口径与操作矩阵同步"`
 

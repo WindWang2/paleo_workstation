@@ -29,6 +29,7 @@
 #include "assetops.h"
 #include "constraintimport.h"
 #include "derivedassets.h"
+#include "algorithmpublish.h"
 #include "evidencerecord.h"
 #include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
@@ -489,8 +490,17 @@ bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
   QStringList parents;
   if (!schemaVersion(h).isEmpty())
     parents << schemaVersion(h);
-  const bool ok = r.commit(st, parents, "facies-schema",
-                           {{"horizon", h}, {"facies", normalized}, {"facies_schema", "paleo_facies_hierarchy_v1"}, {"prediction_level", "micro_facies"}}, error);
+  // algo-atom：相图式元数据经 publishArtifacts（staging 路径 ≡ commit；非 Processing OUTPUT，但仍是 DERIVED 登记）
+  AlgorithmRunResult schemaRun = paleo::runResultFromOutputPath( st.absolutePath );
+  schemaRun.diagnostics.insert( QStringLiteral( "asset_role" ), QStringLiteral( "facies_schema" ) );
+  const QVariantMap schemaExtra = {
+    { QStringLiteral( "horizon" ), h },
+    { QStringLiteral( "facies" ), normalized },
+    { QStringLiteral( "facies_schema" ), QStringLiteral( "paleo_facies_hierarchy_v1" ) },
+    { QStringLiteral( "prediction_level" ), QStringLiteral( "micro_facies" ) },
+  };
+  const bool ok = paleo::publishArtifacts( r, st, schemaRun, parents,
+                                           QStringLiteral( "facies-schema" ), schemaExtra, error );
   if (ok) {
     // facies-ux 3：在场的测井相点层跟随新分类重着色。
     const auto schemas = WellAttributeStore::faciesSchemas(m_catalog);
@@ -719,9 +729,12 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
     actual = st.absolutePath;
     attested.path = actual;
   }
-  if (!r.commitExternal(st, actual, parents,
-                        extra.value("method", kind).toString(), extra, error,
-                        fingerprint ? &attested : nullptr)) {
+  // algo-atom P1-extend：MappingWorkbench::record 经 publishArtifacts
+  // （覆盖 polygonize / 编图产品等走 record 的算法类产出）
+  const AlgorithmRunResult runResult = paleo::runResultFromOutputPath(actual);
+  if (!paleo::publishArtifacts(r, st, runResult, parents,
+                               extra.value("method", kind).toString(), extra, error,
+                               fingerprint ? &attested : nullptr)) {
     if (fingerprint)
       QFile::remove(actual);
     return {};

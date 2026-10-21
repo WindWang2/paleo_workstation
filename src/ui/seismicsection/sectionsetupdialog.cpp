@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QTableWidget>
@@ -60,6 +61,16 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   clear->setObjectName("clearSectionRoute");
   clear->setToolTip(tr("移除地图上的剖面路线；剖面视图保留至下一次提取"));
   left->addWidget(clear);
+  auto *reorder = new QPushButton(tr("按空间关系重排"), this);
+  reorder->setObjectName("spatialReorderBtn");
+  reorder->setToolTip(tr("对勾选井按井位空间关系自动排序：最近邻链或沿主轴投影"));
+  auto *reorderMenu = new QMenu(reorder);
+  auto *nearestAct = reorderMenu->addAction(tr("最近邻链（从最西端起贪心连接）"));
+  nearestAct->setObjectName("spatialReorderNearest");
+  auto *pcaAct = reorderMenu->addAction(tr("沿主轴投影排序"));
+  pcaAct->setObjectName("spatialReorderPca");
+  reorder->setMenu(reorderMenu);
+  left->addWidget(reorder);
   auto *right = new QGroupBox(tr("选中井 · 时深对齐"), this);
   columns->addWidget(right, 2);
   auto *form = new QFormLayout(right);
@@ -120,13 +131,14 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   m_message->setObjectName("sectionSetupMessage");
   m_message->setWordWrap(true);
   layout->addWidget(m_message);
-  auto gateBuild = [this, build] {
+  auto gateBuild = [this, build, reorder] {
     int selected = 0;
     for (int i = 0; i < m_wells->count(); ++i)
       selected += m_wells->item(i)->checkState() == Qt::Checked;
     build->setEnabled(selected >= 2);
     build->setToolTip(selected < 2 ? tr("至少勾选两口坐标不同的井")
                                    : tr("按列表从上到下生成剖面"));
+    reorder->setEnabled(selected >= 2);
   };
   connect(m_wells, &QListWidget::itemChanged, this, gateBuild);
   gateBuild();
@@ -149,6 +161,10 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
           &SectionSetupDialog::drawRequested);
   connect(clear, &QPushButton::clicked, this,
           &SectionSetupDialog::clearRequested);
+  connect(nearestAct, &QAction::triggered, this,
+          [this] { emit spatialReorderRequested(QStringLiteral("nearest"), checkedWellIds()); });
+  connect(pcaAct, &QAction::triggered, this,
+          [this] { emit spatialReorderRequested(QStringLiteral("pca"), checkedWellIds()); });
   connect(apply, &QPushButton::clicked, this, [this] {
     if (auto *item = m_wells->currentItem())
       emit calibrationRequested(
@@ -204,6 +220,8 @@ void SectionSetupDialog::setWells(const QVariantList &wells) {
   for (int i = 0; i < m_wells->count(); ++i)
     checkedCount += m_wells->item(i)->checkState() == Qt::Checked;
   findChild<QPushButton *>("buildWellSection")->setEnabled(checkedCount >= 2);
+  if (auto *reorderBtn = findChild<QPushButton *>("spatialReorderBtn"))
+    reorderBtn->setEnabled(checkedCount >= 2);
 }
 void SectionSetupDialog::setSavedSections(const QVariantList &sections) {
   m_saved->clear();

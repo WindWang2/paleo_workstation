@@ -142,11 +142,8 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             if (*drawingFromSetup)
             {
               *drawingFromSetup = false;
-              if (!ok)
-              {
-                setup->show();
-                setup->raise();
-              }
+              setup->show(); // 成功也唤回：接着做时深对齐/保存版本（吸附成线即回）
+              setup->raise();
             }
             if (!ok)
               report(error);
@@ -221,7 +218,8 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   // R4 信号化（方向 49）：任意剖面捕获工具归壳持有——linkage 只发
   // sectionCaptureRequested 意图（先例 threewaylocator）；工具的路径完成
   // 接回 linkage 的折线提取入口，Esc 取消直通其取消信号。
-  connect(link, &SeismicMapLink::sectionCaptureRequested, this, [this] {
+  connect(link, &SeismicMapLink::sectionCaptureRequested, this,
+          [this, workbench, setup] {
     QgsMapCanvas *canvas = m_canvasCtl ? m_canvasCtl->canvas() : nullptr;
     if (!canvas)
       return;
@@ -230,6 +228,12 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
       m_sectionCaptureTool = new SeismicSectionTool(canvas);
       connect(m_sectionCaptureTool, &SeismicSectionTool::sectionPathCaptured,
               m_sectionLink, &SeismicMapLink::onSectionPathCaptured);
+      // 吸附成线的井序同步回设置对话框（≥2 口 → 勾选与顺序随吸附序）。
+      connect(m_sectionCaptureTool, &SeismicSectionTool::sectionPathCaptured,
+              setup, [setup](const QVector<QgsPointXY> &, const QStringList &wellIds) {
+                if (wellIds.size() >= 2)
+                  setup->applyWellOrder(wellIds);
+              });
       connect(m_sectionCaptureTool, &SeismicSectionTool::captureCancelled,
               m_sectionLink, &SeismicMapLink::sectionCaptureCancelled);
       // 画布先死则置空不 delete（工具析构会碰已死场景的橡皮带——
@@ -238,6 +242,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
         m_sectionCaptureTool = nullptr;
       });
     }
+    m_sectionCaptureTool->setSnapWells(workbench->wellSnapWells()); // 每次激活前刷新井集
     canvas->setMapTool(m_sectionCaptureTool);
   });
   connect(setup, &SectionSetupDialog::buildRequested, this,
@@ -253,6 +258,11 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
               line << QgsPointXY(p.x, p.y);
             link->triggerSectionFromMapPolyline(
                 line, QObject::tr("连井剖面 · %1 口井").arg(ids.size()));
+          });
+  // 「按空间关系重排」：算法在 workbench（domain 纯函数），结果落回列表。
+  connect(setup, &SectionSetupDialog::spatialReorderRequested, this,
+          [workbench, setup](const QString &mode, const QStringList &ids) {
+            setup->applyWellOrder(workbench->spatiallyOrderedWells(ids, mode));
           });
   connect(
       setup, &SectionSetupDialog::calibrationRequested, this,

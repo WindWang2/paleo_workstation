@@ -398,6 +398,135 @@ private slots:
     QVERIFY(cat2.links().isEmpty());
   }
 
+  // 索引级删除（只删数据对象，文件一律不动）：受管副本与外链源文件都保留；
+  // 血缘保护透传（被派生引用的资产拒绝且索引不动）。
+  void removeKeepFilesDeletesIndexOnly()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QDir dir(tmp.path());
+    DataCatalog cat;
+    QString err;
+    QVERIFY(cat.open(dir.absolutePath(), &err));
+
+    ManagedAsset raw;
+    QVERIFY(makeManagedAsset(cat, dir, QStringLiteral("ast-keep"), &raw));
+
+    // 外链资产：工程外源文件。
+    const QString extSrc = dir.filePath(QStringLiteral("outside/external.las"));
+    QVERIFY(writeFile(extSrc, QByteArray("EXTERNAL BYTES\n")));
+    CatalogAsset ext;
+    ext.id = QStringLiteral("ast-ext");
+    ext.type = QStringLiteral("well_log");
+    ext.format = QStringLiteral("las");
+    ext.displayName = QStringLiteral("external.las");
+    QVERIFY(cat.addAsset(ext, &err));
+    CatalogVersion ev;
+    ev.id = QStringLiteral("ver-ext");
+    ev.assetId = ext.id;
+    ev.stage = QStringLiteral("RAW");
+    ev.versionNumber = 1;
+    ev.managed = false;
+    ev.path = extSrc;
+    ev.sha256 = DataCatalog::sha256FileHex(extSrc, &err);
+    ev.fileName = QStringLiteral("external.las");
+    QVERIFY(cat.addVersion(ev, &err));
+
+    // 派生资产引用 raw.v1 → raw 受血缘保护。
+    CatalogAsset derived;
+    derived.id = QStringLiteral("ast-der-keep");
+    derived.type = QStringLiteral("thickness");
+    derived.format = QStringLiteral("tif");
+    derived.displayName = QStringLiteral("thickness.tif");
+    QVERIFY(cat.addAsset(derived, &err));
+    CatalogVersion dv;
+    dv.id = QStringLiteral("ver-der-keep");
+    dv.assetId = derived.id;
+    dv.stage = QStringLiteral("DERIVED");
+    dv.versionNumber = 1;
+    dv.managed = false;
+    dv.path = dir.filePath(QStringLiteral("outside/derived.tif"));
+    dv.fileName = QStringLiteral("thickness.tif");
+    dv.parentVersionIds = QStringList{raw.v1};
+    QVERIFY(cat.addVersion(dv, &err));
+
+    // 血缘保护：引用方在库 → 拒绝且索引不动。
+    QString kerr;
+    QVERIFY(!removeAssetsKeepFiles(&cat, {raw.assetId}, &kerr));
+    QVERIFY(!cat.assetById(raw.assetId).id.isEmpty());
+    QVERIFY(QFileInfo::exists(raw.v1Abs));
+
+    // 先删引用方，再删受管 + 外链两组：索引删净、文件全在。
+    QVERIFY(removeAssetsKeepFiles(&cat, {derived.id}, &kerr));
+    QVERIFY(removeAssetsKeepFiles(&cat, {raw.assetId, ext.id}, &kerr));
+    QVERIFY(cat.assetById(raw.assetId).id.isEmpty());
+    QVERIFY(cat.assetById(ext.id).id.isEmpty());
+    QVERIFY(cat.versionsForAsset(raw.assetId).isEmpty());
+    QVERIFY(QFileInfo::exists(raw.v1Abs));   // 受管副本保留（孤儿，治理面收）
+    QVERIFY(QFileInfo::exists(raw.v2Abs));
+    QVERIFY(QFileInfo::exists(extSrc));      // 外链源文件永不碰
+
+    // 重开 catalog：索引删除持久化，文件仍在。
+    DataCatalog cat2;
+    QVERIFY(cat2.open(dir.absolutePath(), &err));
+    QVERIFY(cat2.assets().isEmpty());
+    QVERIFY(QFileInfo::exists(raw.v1Abs));
+    QVERIFY(QFileInfo::exists(extSrc));
+  }
+
+  // 孤儿受管目录扫描：artifacts/<stage>/ 下无 catalog 对应的资产目录被列出
+  //（字节数/文件数就位），在册资产目录不列。受管文件按生产口径落在
+  // artifacts/raw/<assetId>/（版本 path = "raw/..."，不含 artifacts 前缀）。
+  void scanOrphanManagedDirsFindsUntracked()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QDir dir(tmp.path());
+    DataCatalog cat;
+    QString err;
+    QVERIFY(cat.open(dir.absolutePath(), &err));
+
+    // 在册受管资产：文件真实落在 artifacts/raw/ast-tracked/。
+    CatalogAsset tracked;
+    tracked.id = QStringLiteral("ast-tracked");
+    tracked.type = QStringLiteral("well_log");
+    tracked.format = QStringLiteral("las");
+    tracked.displayName = QStringLiteral("tracked.las");
+    QVERIFY(cat.addAsset(tracked, &err));
+    const QString trackedRel =
+        QStringLiteral("raw/ast-tracked/ver-t/a.las");
+    const QString trackedAbs =
+        dir.filePath(QStringLiteral("artifacts/") + trackedRel);
+    QVERIFY(writeFile(trackedAbs, QByteArray("TRACKED BYTES\n")));
+    CatalogVersion tv;
+    tv.id = QStringLiteral("ver-t");
+    tv.assetId = tracked.id;
+    tv.stage = QStringLiteral("RAW");
+    tv.versionNumber = 1;
+    tv.managed = true;
+    tv.path = trackedRel;
+    tv.sha256 = DataCatalog::sha256FileHex(trackedAbs, &err);
+    tv.fileName = QStringLiteral("a.las");
+    QVERIFY(cat.addVersion(tv, &err));
+
+    // 孤儿目录：raw/ast-orphan/…（无 catalog 对应）。
+    const QString orphanFile =
+        dir.filePath(QStringLiteral("artifacts/raw/ast-orphan/ver-x/orphan.las"));
+    QVERIFY(writeFile(orphanFile, QByteArray("ORPHAN BYTES\n")));
+
+    const auto orphans = scanOrphanManagedDirs(dir.absolutePath(), &cat);
+    QCOMPARE(orphans.size(), 1);
+    QCOMPARE(orphans.first().relPath, QStringLiteral("raw/ast-orphan"));
+    QCOMPARE(orphans.first().fileCount, 1);
+    QVERIFY(orphans.first().bytes > 0);
+    QVERIFY(orphans.first().absPath.endsWith(QStringLiteral("ast-orphan")));
+
+    // 索引级删除后，受管目录转为孤儿被扫出——D4「留待治理」的落点。
+    QVERIFY(removeAssetsKeepFiles(&cat, {tracked.id}, &err));
+    const auto after = scanOrphanManagedDirs(dir.absolutePath(), &cat);
+    QCOMPARE(after.size(), 2); // ast-tracked（刚删）+ ast-orphan（原有）
+  }
+
   void pendingResolveProposesExactlyOneMatchOnly()
   {
     QTemporaryDir tmp;

@@ -1,6 +1,7 @@
 // 层：视图
 #include "folderconfirm_internal.h"
 #include "../../domain/projectclassifier.h"
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
 #include <QDir>
@@ -78,6 +79,9 @@ void DialogState::beginImport() {
   cancellationRequested = false;
   table->setEnabled(false);
   confirm->setEnabled(false);
+  // 「复制进工程」勾选随确认快照进 workflow（hooks 出口读取）——导入期间
+  // 锁死，避免导入中再改造成「以为本批生效」的假意图。
+  if (copyCheck) copyCheck->setEnabled(false);
   hint->setText(QObject::tr("正在导入；完成后逐项显示结果。"));
   for (auto *choice : typeChoices) choice->setEnabled(false);
   for (auto *choice : wellChoices) choice->setEnabled(false);
@@ -104,6 +108,7 @@ void DialogState::applyResults(const QVector<FolderRowResult> &rows, const QStri
   if (rows.isEmpty() && !error.isEmpty()) {
     errors->setText(error);
     errors->show();
+    if (copyCheck) copyCheck->setEnabled(true); // 整批失败：放开调整后可再确认
     for (int row = 0; row < typeChoices.size(); ++row)
       typeChoices[row]->setEnabled(preview[row].typeEditable && !preview[row].skipped &&
           !isFixedAuxiliaryPath(preview[row].path));

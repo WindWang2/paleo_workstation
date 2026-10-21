@@ -430,6 +430,10 @@ struct ImportSession
   bool cancelled = false;
   bool recoveryPending = false; // 保留未能清理的提交意图，重开工程时恢复
   QMap<QString, QString> wellTargets; // 源路径 → 确认表选择，produce 线程独占
+  // UI 默认只建索引（方向 D1）：produce 期输入，整批入口（produceFolder/
+  // produceFiles → produceItem）逐行下传 ImportOptions.linkExternal；
+  // io 层默认保持受管语义（false）——翻转只发生在 workflow/UI 侧。
+  bool linkExternal = false;
   QMap<QString, QString> expectedSourceHashes; // 预览时内容摘要，禁止旧确认导入新字节
   QStringList skippedPaths; // 用户保留现有数据：跳过本次文件，不创建任何实体
   // 预览时展示过的源路径全集（含跳过/重复行）。非空时 produceFolder 对执行期

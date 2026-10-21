@@ -610,6 +610,7 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
   opts.forceType = item.type; // 恒下传——与分类器同值时是无害同值
   opts.targetWellId = s.wellTargets.value(item.path);
   opts.expectedSourceSha256 = expected;
+  opts.linkExternal = s.linkExternal; // 方向 D1：session 级「只建索引」逐行下传
   const ImportResult res = importOneFile(s, item.path, opts, &ferr);
   row.message = res.message.isEmpty() ? ferr : res.message;
   row.assetId = res.assetId;

@@ -380,6 +380,7 @@ QVector<FolderRowResult> FolderImportWorkflow::runInlineImport(
     return {};
   }
   session->wellTargets = wellTargets;
+  session->linkExternal = m_linkExternal; // 方向 D1：同步路径注入「只建索引」
   session->expectedSourceHashes = expectedHashes;
   session->skippedPaths = skippedPaths;
   session->previewedPaths = previewedPaths;
@@ -462,10 +463,12 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
   {
     return makeImportJob(
         tr("导入工区文件夹"),
-        [dir, overrides, forceImportPaths, wellTargets, expectedHashes, skippedPaths, previewedPaths](
+        [dir, overrides, forceImportPaths, wellTargets, expectedHashes, skippedPaths, previewedPaths,
+         linkExternal = m_linkExternal](
             ImportSession &s,
             const std::function<bool(int, int, const QString &)> &progress) {
           s.wellTargets = wellTargets;
+          s.linkExternal = linkExternal; // 方向 D1：入队时值快照（worker 不回读 this）
           s.expectedSourceHashes = expectedHashes;
           s.skippedPaths = skippedPaths;
           s.previewedPaths = previewedPaths;
@@ -525,10 +528,12 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
   {
     return makeImportJob(
         tr("导入所选文件"),
-        [paths, overrides, forceImportPaths, wellTargets, expectedHashes, skippedPaths, previewedPaths](
+        [paths, overrides, forceImportPaths, wellTargets, expectedHashes, skippedPaths, previewedPaths,
+         linkExternal = m_linkExternal](
             ImportSession &s,
             const std::function<bool(int, int, const QString &)> &progress) {
           s.wellTargets = wellTargets;
+          s.linkExternal = linkExternal; // 方向 D1：入队时值快照（worker 不回读 this）
           s.expectedSourceHashes = expectedHashes;
           s.skippedPaths = skippedPaths;
           s.previewedPaths = previewedPaths;

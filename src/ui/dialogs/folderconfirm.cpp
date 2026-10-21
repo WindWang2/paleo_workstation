@@ -8,6 +8,7 @@
 #include <memory>
 
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -324,6 +325,14 @@ QString folderEstimateText(const QVector<FolderPreviewRow> &rows,
   return text;
 }
 
+bool folderImportCopyIntoProject(const QDialog *dlg)
+{
+  const auto *check =
+      dlg ? dlg->findChild<QCheckBox *>(QStringLiteral("folderImportCopyCheck"))
+          : nullptr;
+  return check && check->isChecked();
+}
+
 void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
                               const QVector<FolderPreviewRow> &preview,
                               const Hooks &hooks)
@@ -389,6 +398,18 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   });
   state->errors->hide();
   layout->addWidget(state->errors);
+  // 方向 D1：默认只建索引（不复制字节进工程）；勾选后才走旧受管复制。
+  // 文案与单文件向导 singleImportCopyCheck 同款（两处同一口径）。
+  state->copyCheck =
+      new QCheckBox(QObject::tr("将文件复制进工程目录（受管副本）"), dlg);
+  state->copyCheck->setObjectName(QStringLiteral("folderImportCopyCheck"));
+  state->copyCheck->setToolTip(
+      QObject::tr("默认只建立索引引用原文件，不复制；勾选后复制进工程 artifacts/raw"));
+  layout->addWidget(state->copyCheck);
+  // 与行跳过勾选同一纪律：壳没给 importAllWithWells 出口时勾选无人读取
+  //（无法兑现），不展示。
+  if (!hooks.importAllWithWells)
+    state->copyCheck->hide();
   auto *buttons = new QDialogButtonBox(dlg);
   state->confirm = buttons->addButton(QObject::tr("确认导入"), QDialogButtonBox::AcceptRole);
   state->confirm->setObjectName(QStringLiteral("folderConfirmButton"));

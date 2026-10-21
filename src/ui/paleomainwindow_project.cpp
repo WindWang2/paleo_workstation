@@ -77,13 +77,16 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
                                       const QString &expectedHash) {
       return wf->importFolderRow(path, force, nullptr, target, expectedHash);
     };
-    hooks.importAllWithWells = [wf, dir, cancelImport](const QMap<QString, QString> &overrides,
+    hooks.importAllWithWells = [wf, dir, cancelImport, dlgPtr = &dlg](const QMap<QString, QString> &overrides,
                                         const QStringList &forcePaths,
                                         const QMap<QString, QString> &wellTargets,
                                         const QMap<QString, QString> &expectedHashes,
                                         const QStringList &skippedPaths,
                                         const QStringList &previewedPaths,
                                         FolderImportWorkflow::ImportDone done) {
+      // 方向 D1：确认动作在对话框内经本出口发起——此刻读「复制进工程」勾选：
+      // 不勾选（默认）只建索引；勾选恢复旧受管复制。
+      wf->setLinkExternal(!PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr));
       *cancelImport = wf->importFolder(dir, overrides, forcePaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths);
     };
     hooks.importedWellHead = [wf](const QString &rowPath) {
@@ -144,13 +147,16 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
           return wf->importFolderRow(path, force, nullptr, target, expectedHash);
         };
         hooks.importAllWithWells =
-            [wf, paths, cancelImport](const QMap<QString, QString> &overrides,
+            [wf, paths, cancelImport, dlgPtr = &dlg](const QMap<QString, QString> &overrides,
                         const QStringList &forceImportPaths,
                         const QMap<QString, QString> &wellTargets,
                         const QMap<QString, QString> &expectedHashes,
                         const QStringList &skippedPaths,
                         const QStringList &previewedPaths,
                         FolderImportWorkflow::ImportDone done) {
+              // 方向 D1：与 runFolderImportAt 同口径——确认时读「复制进工程」
+              // 勾选；默认（不勾选）只建索引。
+              wf->setLinkExternal(!PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr));
               *cancelImport = wf->importFiles(paths, overrides, forceImportPaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths);
             };
         hooks.importedWellHead = [wf](const QString &rowPath) {

@@ -101,6 +101,7 @@ add_library(paleo_qgis STATIC
   src/qgis/qgisprojectservice_map.cpp
   src/qgis/projectmapreference.cpp
   src/qgis/onlinebasemap.cpp
+  src/qgis/basemaplayer.cpp
   src/qgis/qgislayerservice.cpp
   src/qgis/qgiscanvascontroller.cpp
   src/qgis/qgiseditingservice.cpp

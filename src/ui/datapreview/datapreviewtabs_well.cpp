@@ -29,7 +29,7 @@ QWidget *DataPreviewTabs::buildWellFilteredContent(
     const QString wellId = wells.front().first;
     m_wellEntityOfAsset[assetId] = wellId;
     m_titleSuffixOfAsset[assetId] = wells.front().second;
-    lay->addWidget(buildWellBody(asset, abs, wellId, wells.front().second, host), 1);
+    lay->addWidget(attachOnlineBasemap(buildWellBody(asset, abs, wellId, wells.front().second, host)), 1);
     return host;
   }
   // T31 死胡同文案：多井 tab 无井可挂（下拉会是空的）时不留空白页——
@@ -89,7 +89,7 @@ QWidget *DataPreviewTabs::buildWellFilteredContent(
       bodyLay->addWidget(stateLabel(tr("先选择一口井"), bodyHost), 1);
     else
     {
-      bodyLay->addWidget(buildWellBody(asset, abs, wellId, wname, bodyHost), 1);
+      bodyLay->addWidget(attachOnlineBasemap(buildWellBody(asset, abs, wellId, wname, bodyHost)), 1);
       if (asset.type == QLatin1String("well_head"))
         emit wellSelected(wellId); // §4：选中时地图同时高亮该井
     }

@@ -183,6 +183,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/datapreviewtabs_content.cpp    # 方向97：buildContent 总分发析出
   src/ui/datapreview/datapreviewtabs_survey.cpp     # 方向97：测区全景（openSurveyArea）析出
   src/ui/datapreview/datapreviewtabs_basemap.cpp    # 测区全景在线底图切换（街道/卫星/地形）
+  src/ui/datapreview/previewbasemapcontrol.cpp      # #14 井位类视图共用 GIS 底图控件
   src/ui/datapreview/datapreviewtabs_well.cpp       # 方向97：井过滤族正文 + LAS 挂起应用析出
   src/ui/datapreview/datapreviewtabs_overlay.cpp    # 方向97：D2.10 同目录组图析出
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs

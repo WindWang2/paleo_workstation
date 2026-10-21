@@ -9,6 +9,7 @@ class ConstraintWorkflow;
 class QComboBox;
 class QLabel;
 class QListWidget;
+class QPushButton;
 class QShowEvent;
 class QTableWidget;
 class QVBoxLayout;
@@ -135,6 +136,9 @@ class ConstraintPage : public QWidget
     void updateFactorActionStates();
     // 复用动作的可用性，显示当前图件、阻断原因和可定位的下一步。
     void updateOperationGuidance();
+    // 反馈 #19：IPO 步骤条（输入/处理/输出 三态）与可选约束段的自动展开。
+    void updateIpoStepper(const QString &horizon, int row, const QPushButton *generate,
+                          const QString &nextTarget);
     // 主线6：等厚引擎行（顶/底构造面选择）的可见性与清单填充。
     void updateEngineRows();
     // E.2：updateEngineRows 拆段（原函数体 230 行 > #502 防增长闸 200 行阈值）——

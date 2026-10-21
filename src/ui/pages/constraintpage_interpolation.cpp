@@ -605,6 +605,8 @@ void ConstraintPage::updateInterpolationVisibility( bool interpolant,
   child<QLabel>(this, "factorStrategyNote")->setVisible(interpolant);
   findChild<QWidget *>(QStringLiteral("wellFactorSection"))->setVisible(interpolant);
   findChild<QWidget *>(QStringLiteral("constraintFamiliesSection"))->setVisible(!isopach && !confidence);
+  if (auto *optional = findChild<QWidget *>(QStringLiteral("factorConstraintsOptionalSection")))
+    optional->setVisible(!isopach && !confidence);
   findChild<QWidget *>(QStringLiteral("directionFamilySection"))->setVisible(interpolant);
   child<QLabel>(this, "factorConstraintHint")->setVisible(interpolant);
   if (auto *caption = child<QLabel>(this, "factorConstraintCaption"))

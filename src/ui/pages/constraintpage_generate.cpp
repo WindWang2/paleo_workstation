@@ -381,7 +381,7 @@ void ConstraintPage::updateFactorActionStates()
   if (!horizon || horizon->currentText().trimmed().isEmpty())
   {
     generate->setEnabled(false);
-    generate->setToolTip(tr("步骤 1：请先打开工程并选择层位"));
+    generate->setToolTip(tr("输入：请先打开工程并选择层位"));
     generate->setProperty("preparationTarget", QStringLiteral("horizonCombo"));
     contour->setEnabled(false);
     contour->setToolTip(generate->toolTip());
@@ -418,7 +418,7 @@ void ConstraintPage::updateFactorActionStates()
     if (!top || !base || top->currentData().toString().isEmpty() ||
         base->currentData().toString().isEmpty() || top->currentData() == base->currentData()) {
       generate->setEnabled(false);
-      generate->setToolTip(tr("步骤 2：选择不同的顶、底构造面，按现有等厚算法计算地层厚度"));
+      generate->setToolTip(tr("输入：选择不同的顶、底构造面，按现有等厚算法计算地层厚度"));
       generate->setProperty("preparationTarget", QStringLiteral("factorTopSurfaceCombo"));
     }
   }
@@ -436,7 +436,7 @@ void ConstraintPage::updateFactorActionStates()
                                              wellFactorParams())
                    .isEmpty()) {
       generate->setEnabled(false);
-      generate->setToolTip(tr("步骤 2：先提取并保存当前地层的井点数据"));
+      generate->setToolTip(tr("输入：先提取并保存当前地层的井点数据"));
       generate->setProperty("preparationTarget", QStringLiteral("extractWellFactorsButton"));
     }
     // 必需的协变量不能因高级参数折叠而被忽略；定位入口会展开其所在分组。
@@ -446,7 +446,7 @@ void ConstraintPage::updateFactorActionStates()
         covariate->currentData().toString().isEmpty())
     {
       generate->setEnabled(false);
-      generate->setToolTip(tr("步骤 3：协克里金需选择协变量栅格，请在高级插值参数中补齐"));
+      generate->setToolTip(tr("处理：协克里金需选择协变量栅格，请在高级插值参数中补齐"));
       generate->setProperty("preparationTarget", QStringLiteral("factorCovariateCombo"));
     }
   }
@@ -464,7 +464,7 @@ void ConstraintPage::updateFactorActionStates()
   if ( layerId.isEmpty() )
   {
     contour->setEnabled( false );
-    contour->setToolTip(tr("步骤 3：先计算并保存本层位的等值面"));
+    contour->setToolTip(tr("输出：先计算并保存本层位的等值面"));
   }
   else if ( !levelsReady )
   {
@@ -541,7 +541,7 @@ void ConstraintPage::updateOperationGuidance()
   else if (generate->property("preparationTarget") == QStringLiteral("constraintFamiliesSection"))
   {
     target = QStringLiteral("constraintFamiliesSection");
-    action = tr("去准备");
+    action = tr("添加约束");
   }
   else if (generate->property("preparationTarget") == QStringLiteral("extractWellFactorsButton"))
   {
@@ -567,6 +567,7 @@ void ConstraintPage::updateOperationGuidance()
   next->setProperty("target", target);
   next->setToolTip(tr("定位到下一步操作"));
   hint->setText(text);
+  updateIpoStepper(h, row, generate, target);
   if (auto *contourHint = child<QLabel>(this, "factorContourHint"))
   {
     const auto *contour = child<QPushButton>(this, "contourButton");
@@ -636,7 +637,7 @@ void ConstraintPage::noteRunStage( const QString &stage, int percent )
 }
 
 void ConstraintPage::buildFactorResultsSection(QWidget *content, QVBoxLayout *lay) {
-  lay->addWidget(caption(tr("5 · 查看成果与后续编图"), content));
+  lay->addWidget(caption(tr("成果版本 · 显示预览、追溯来源、发布到编图"), content));
   auto *hint = new QLabel(tr("井点数据、等值面和等值线自动保存为工程版本。后续编图引用具体版本，保"
                              "留输入数据、约束及算法参数来源。"),
                           content);
@@ -733,4 +734,48 @@ void ConstraintPage::refreshFactorResults() {
   }
   empty->setVisible(table->rowCount() == 0);
   table->setVisible(table->rowCount() > 0);
+  updateOperationGuidance(); // 成果数变化 → IPO 步骤条「输出」态
+}
+
+void ConstraintPage::updateIpoStepper(const QString &horizon, int row, const QPushButton *generate,
+                                      const QString &nextTarget)
+{
+  auto *stepper = child<QLabel>(this, "factorIpoStepper");
+  if (!stepper || property("paleo.page.runbusy").toBool())
+    return; // 任务运行中保持原阶段，避免默认 target 误判回「输入」
+  // 输入就绪：层位 + 因素已选，且门控不再指向输入阶段（井点提取/字段维护/选因素）。
+  const bool inputTarget = nextTarget == QLatin1String("horizonCombo")
+      || nextTarget == QLatin1String("factorTable")
+      || nextTarget == QLatin1String("extractWellFactorsButton")
+      || nextTarget == QLatin1String("maintainWellFactorsButton")
+      || nextTarget == QLatin1String("factorModeCombo");
+  const bool inputDone = !horizon.trimmed().isEmpty() && row >= 0 && !inputTarget;
+  const QString staleKey = QStringLiteral("paleo.page.factorstale.%1").arg(horizon);
+  const QString factorId = factorIdOfRow(child<QTableWidget>(this, "factorTable"), row);
+  const bool stale = property(staleKey.toUtf8().constData()).toStringList().contains(factorId);
+  const bool processDone = inputDone && !checkedFactorLayerId().isEmpty() && !stale;
+  const auto *results = child<QTableWidget>(this, "factorResultsTable");
+  const bool outputReady = processDone && results && results->rowCount() > 0;
+  const auto mark = [](bool done, bool current) {
+    return done ? QStringLiteral("✓") : current ? QStringLiteral("▶") : QStringLiteral("○");
+  };
+  const int stage = !inputDone ? 0 : !processDone ? 1 : 2;
+  stepper->setProperty("stage", stage);
+  stepper->setText(tr("%1 输入  →  %2 处理  →  %3 输出")
+                       .arg(mark(inputDone, stage == 0), mark(processDone, stage == 1),
+                            mark(outputReady, stage == 2)));
+  stepper->setToolTip(stage == 0 ? tr("当前：准备输入（层位、因素、井点数据）")
+                      : stage == 1 ? (generate && generate->isEnabled()
+                                          ? tr("当前：输入已就绪，按默认参数即可生成")
+                                          : tr("当前：处理阶段尚有必需项"))
+                                   : tr("当前：预览成果，可提取等值线或发布到编图"));
+  // 已有约束（旧工程）时自动展开可选约束段一次，保证已绘内容可见。
+  auto *optional = dynamic_cast<CollapsibleSection *>(findChild<QWidget *>(QStringLiteral("factorConstraintsOptionalSection")));
+  auto *list = child<QListWidget>(this, "constraintList");
+  const QString autoKey = QStringLiteral("paleo.page.constraintsautoexpanded.%1").arg(horizon);
+  if (optional && list && list->count() > 0 && !property(autoKey.toUtf8().constData()).toBool())
+  {
+    setProperty(autoKey.toUtf8().constData(), true);
+    optional->setExpanded(true);
+  }
 }

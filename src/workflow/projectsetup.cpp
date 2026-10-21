@@ -70,6 +70,7 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
   bool ok = false;
   auto file = readProjectFile(paleoProjectFilePath(directory), &ok, error);
   if (!ok) return false;
+  const auto previous = file;
   file.sourceAreaRoot = sources.root;
   file.sourceStats = {{"points", sources.points}, {"wells", sources.wells}, {"seismic", sources.seismic},
       {"horizons", sources.horizons}, {"references", sources.references}, {"boundary", sources.boundary},
@@ -87,10 +88,16 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
     reference.kind = QStringLiteral("crs"); reference.sourceCrs = preview.projectCrs; reference.targetCrs = QStringLiteral("EPSG:4326");
     reference.provenance = tr("新建工程：井点字段或矢量声明的原生坐标系；原始资料及字段对应保留在 sourceArea。");
     file.georeference = reference;
-    if (!m_project->updateMapConfiguration(file, error)) return false;
-    if (m_imports->importService()) m_imports->importService()->setGeoreference(reference);
   }
   if (!writeProjectFile(directory, file, error)) return false;
+  // Refresh the service from the newly persisted source settings too; later
+  // map saves must not replace them with the previous in-memory configuration.
+  if (!m_project->updateMapConfiguration(file, error)) {
+    QString restoreError;
+    if (!writeProjectFile(directory, previous, &restoreError) && error) *error += '\n' + restoreError;
+    return false;
+  }
+  if (file.georeference && m_imports->importService()) m_imports->importService()->setGeoreference(*file.georeference);
   const quint64 session = m_project->sessionId();
   QTimer::singleShot(0, this, [this, preview, session] {
     if (!m_project || m_project->sessionId() != session || !m_imports) return;

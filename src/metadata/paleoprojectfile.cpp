@@ -259,7 +259,7 @@ bool writeProjectFile(const QString &projectDir, const PaleoProjectFile &file,
           {QStringLiteral("enabled"), file.basemapEnabled},
           {QStringLiteral("topo"), file.basemapTopo},
           {QStringLiteral("hillshade"), file.basemapHillshade}}}});
-  if (!file.sourceAreaRoot.isEmpty())
+  if (!file.sourceAreaRoot.isEmpty() || !file.sourceStats.isEmpty())
   {
     QJsonObject s;
     s.insert(QStringLiteral("root"), file.sourceAreaRoot);

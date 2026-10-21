@@ -171,8 +171,10 @@ private slots:
     QCOMPARE(service.catalog()->entities("well").size(), 1);
     QCOMPARE(service.catalog()->entities("well").first().surfaceX, 233240.46);
     QCOMPARE(workflow.currentSources().pointMapping.value("well").toString(), QString("ID"));
+    QCOMPARE(project.mapConfiguration().sourceStats.value("pointMapping").toMap().value("well").toString(), QString("ID"));
     project.closeProject(); QVERIFY(project.openProject(target));
     QVERIFY(project.georeference().has_value()); QCOMPARE(project.georeference()->sourceCrs, QString("EPSG:32649"));
+    QCOMPARE(workflow.currentSources().pointMapping.value("well").toString(), QString("ID"));
     QVERIFY(!workflow.create(target, s, p, &error));
   }
   void realWizardPreview() {

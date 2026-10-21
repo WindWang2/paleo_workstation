@@ -27,11 +27,16 @@
 - tst_projectsetup：15 通过，含真实资料全量入库；350 个文件、导入失败 0；
   20 井、516 条分层、1 个地震测网；8 个层位与井点、范围共 10 个受管图层。
   保存后重读 catalog，核对分层数量；QGIS 实例化井点和范围图层，核对要素数与投影坐标。
-- 回归：wellfileparsers 61、horizonbinner 9、import_ux 50、folderimport 26、
-  projectdata 7、catalogstore 16；与新增套件合计 184 通过，0 失败、0 跳过。
+- 回归：wellfileparsers 61、horizonbinner 9、import_ux 50、folderimport 27、
+  projectdata 7、catalogstore 16；与新增套件合计 185 通过，0 失败、0 跳过。
 - 原生四步向导截图复查通过，确认页明确列出 A18 的内部井名冲突与归属选择。
 - layering strict / qgs-audit / symbol-audit / selftest / transitive strict
   （显式 QGIS 头目录）、qgis_spread strict、ui_invariants / ui_size /
   file_budget strict、i18n、ui_tokens、qgis_versions、docs_drift、known-reds 校验通过。
 
 基线只收紧：file-budget 中 buildCenterArea 208→201；其余基线无增长。
+
+PR #630 同步 master（#627–#629）后，保留“默认只建索引”和显示名覆盖参数，
+井表映射另行透传；以默认外链 RAW 模式重新跑完真实资料入库。另补齐无总目录时
+sourceArea.stats 的保存，并同步运行中的工程配置；自定义 ID/E/N 字段在保存、
+重开及“工程资料设置”中均保留。主程序全量重编译通过。

@@ -1,14 +1,17 @@
+// 层：测试壳
 #include <QtTest>
 #include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QFile>
 #include <QDir>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <ogr_api.h>
 
 #include "../src/catalog/datacatalog.h"
 #include "perfbudget_relax.h"
@@ -127,6 +130,7 @@ private slots:
   void backupRecoveryRefusedOnSchemaMismatch();  // T5：未来版本不走 .bak 回退
   void bothCorruptRefusesWrites();               // T5：主/bak 都坏 → 拒写态
   void wellsGeoJsonKeepsOldFileOnFailedWrite();  // T6：写失败不截断旧文件
+  void surveyGeoJsonContainsClosedPolygonRing();
   void lockedReadOnlyRefusesMutationsButReadsFine(); // T4
   void thousandEntityQueryBudget();              // T3：catalog.sqlite 触发条件量化
   void sqliteOpenCostAttribution();              // 方向21：sqlite 稳态 open 的成本归因
@@ -1677,6 +1681,43 @@ void TestCatalog::bothCorruptRefusesWrites()
 }
 
 // T6：写盘失败（目标目录只读）不截断既有 wells.geojson——QSaveFile 语义。
+void TestCatalog::surveyGeoJsonContainsClosedPolygonRing()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QString error;
+  QVERIFY2(cat.open(dir.path(), &error), qPrintable(error));
+  CatalogEntity survey;
+  survey.id = QStringLiteral("survey-test");
+  survey.entityType = QStringLiteral("seismic_survey");
+  survey.name = QStringLiteral("test-survey");
+  survey.corners = {{0, 0}, {12793, 0}, {12793, 16406}, {0, 16406}};
+  QVERIFY2(cat.addEntity(survey, &error), qPrintable(error));
+  const QString path = dir.filePath(QStringLiteral("layers/survey.geojson"));
+  QVERIFY2(cat.writeSurveyGeoJson(path, &error), qPrintable(error));
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  const auto features = QJsonDocument::fromJson(file.readAll()).object()
+                            .value(QStringLiteral("features")).toArray();
+  QCOMPARE(features.size(), 1);
+  const auto geometry = features.first().toObject().value(QStringLiteral("geometry")).toObject();
+  const auto rings = geometry.value(QStringLiteral("coordinates")).toArray();
+  QCOMPARE(rings.size(), 1);
+  const auto exterior = rings.first().toArray();
+  QCOMPARE(exterior.size(), 5);
+  QCOMPARE(exterior.first(), exterior.last());
+  QCOMPARE(exterior.at(2).toArray(), (QJsonArray{12793, 16406}));
+  const auto json = QJsonDocument(geometry).toJson(QJsonDocument::Compact);
+  OGRGeometryH polygon = OGR_G_CreateGeometryFromJson(json.constData());
+  QVERIFY(polygon);
+  const bool valid = OGR_G_IsValid(polygon);
+  const double area = OGR_G_Area(polygon);
+  OGR_G_DestroyGeometry(polygon);
+  QVERIFY(valid);
+  QCOMPARE(area, 12793.0 * 16406.0);
+}
+
 void TestCatalog::wellsGeoJsonKeepsOldFileOnFailedWrite()
 {
   QTemporaryDir dir;

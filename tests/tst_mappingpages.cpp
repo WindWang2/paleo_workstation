@@ -623,6 +623,9 @@ class FactorPageTests : public QObject
     void constraintDoubleClickRequestsLocate();
     void methodParameterVisibilityAndFamilies();
     void guidedPreparationAndPinnedActions();
+    void ipoStagesAndProgressiveDisclosure();
+    void oneClickExtractThenGenerateStopsWithReason();
+    void fallbackToolsGroupedUnderMoreTools();
     void strategyPackDrivesMethodCombo(); // 方向67：词表驱动下拉 + 参数预览 + strategy_id 载荷
     void cokrigingCovariateControls();    // 方向91：协变量下拉只在协克里金可见，并写入参数
     void contourIntervalResetsAcrossFactorTypes(); // 方向04 D9：等值距自动态不跨因素类型残留
@@ -1736,7 +1739,9 @@ void FactorPageTests::wellFactorExtractionPayload() {
 void FactorPageTests::methodParameterVisibilityAndFamilies() {
   ConstraintPage page(nullptr); page.show();
   // 高级参数可按需展开；方法切换仍只呈现实际消费的参数。
-  for (const char *name : {"factorAdvancedOptionsSection", "factorDirectionParametersSection"})
+  // #19：约束族收进「可选约束」折叠段，展开该段后断言不变。
+  for (const char *name : {"factorAdvancedOptionsSection", "factorConstraintsOptionalSection",
+                           "factorDirectionParametersSection"})
     page.findChild<QWidget *>(QString::fromLatin1(name))->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"))->setChecked(true);
   auto *method = page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
   const auto visible = [&page](const char *name) { return page.findChild<QWidget *>(QString::fromLatin1(name))->isVisibleTo(&page); };
@@ -1786,6 +1791,151 @@ void FactorPageTests::methodParameterVisibilityAndFamilies() {
       QVERIFY(body->grab().save(qa + QStringLiteral("/kriging-") + name + QStringLiteral(".png")));
     }
     PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
+  }
+}
+
+void FactorPageTests::oneClickExtractThenGenerateStopsWithReason()
+{
+  // 反馈 #19：一键「提取并生成」驱动原两按钮；失败/门控拒绝/未能启动都停下并说明原因。
+  ConstraintPage page(nullptr);
+  page.show();
+  auto *oneClick = page.findChild<QPushButton *>(QStringLiteral("factorOneClickButton"));
+  auto *generate = page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"));
+  auto *extract = page.findChild<QPushButton *>(QStringLiteral("extractWellFactorsButton"));
+  auto *status = page.findChild<QLabel *>(QStringLiteral("statusLabel"));
+  auto *progress = page.findChild<QProgressBar *>(QStringLiteral("factorProgressBar"));
+  QVERIFY(oneClick && generate && extract && status && progress);
+  QCOMPARE(oneClick->text(), QStringLiteral("提取并生成"));
+  QCOMPARE(generate->text(), QStringLiteral("生成单因素图"));
+  QVERIFY(!oneClick->isEnabled()); // 无层位/因素
+  page.setHorizons({QStringLiteral("D61")});
+  page.findChild<QTableWidget *>(QStringLiteral("factorTable"))->item(0, 0)->setCheckState(Qt::Checked);
+  page.setWellFactorFields({QVariantMap{{"id", "sand"}, {"label", "砂厚"}}});
+  QVERIFY2(extract->isEnabled(), qPrintable(extract->toolTip()));
+  QVERIFY(!generate->isEnabled());
+  QVERIFY2(oneClick->isEnabled(), qPrintable(oneClick->toolTip()));
+  QVERIFY(oneClick->toolTip().contains(QStringLiteral("自动")));
+
+  // 1) 提取任务失败 → 停下并带出失败原因，不触发生成。
+  QSignalSpy extracted(&page, &ConstraintPage::extractWellFactorsRequested);
+  QSignalSpy generated(&page, &ConstraintPage::generateFactorRequested);
+  auto conn = connect(&page, &ConstraintPage::extractWellFactorsRequested, &page,
+                      [&page] { page.setRunBusy(true); });
+  oneClick->click();
+  QCOMPARE(extracted.count(), 1);
+  QCOMPARE(page.property("paleo.page.oneclick").toString(), QStringLiteral("extract"));
+  QVERIFY(!oneClick->isEnabled());
+  page.noteRunStage(QStringLiteral("计算"), 40);
+  QVERIFY2(progress->format().contains(QStringLiteral("一键 1/2")), qPrintable(progress->format()));
+  page.setProperty("paleo.page.runoutcome", QStringLiteral("井 W1 缺少分层"));
+  page.setRunBusy(false);
+  QTRY_VERIFY(page.property("paleo.page.oneclick").toString().isEmpty());
+  QVERIFY2(status->text().contains(QStringLiteral("一键成图已停止")), qPrintable(status->text()));
+  QVERIFY(status->text().contains(QStringLiteral("缺少分层")));
+  QCOMPARE(generated.count(), 0);
+
+  // 2) 提取成功但生成仍被门控（此处无工作流登记井点版本）→ 停下说明，不硬发生成。
+  oneClick->click();
+  QCOMPARE(extracted.count(), 2);
+  page.setRunBusy(false);
+  QTRY_VERIFY(page.property("paleo.page.oneclick").toString().isEmpty());
+  QVERIFY2(status->text().contains(QStringLiteral("井点已提取，但暂不能生成")), qPrintable(status->text()));
+  QCOMPARE(generated.count(), 0);
+
+  // 3) 提取被同步拒绝（未进入忙态）→ 立即停下。
+  disconnect(conn);
+  status->setText(QStringLiteral("当前层位缺少井位"));
+  oneClick->click();
+  QCOMPARE(extracted.count(), 3);
+  QTRY_VERIFY(page.property("paleo.page.oneclick").toString().isEmpty());
+  QVERIFY2(status->text().contains(QStringLiteral("一键成图已停止：当前层位缺少井位")), qPrintable(status->text()));
+  QVERIFY(oneClick->isEnabled()); // 可重试；逐步按钮仍在
+  QVERIFY(extract->isEnabled());
+}
+
+void FactorPageTests::fallbackToolsGroupedUnderMoreTools()
+{
+  ConstraintPage page(nullptr);
+  page.show();
+  QCoreApplication::processEvents();
+  auto *more = page.findChild<QWidget *>(QStringLiteral("factorMoreToolsSection"));
+  auto *body = page.findChild<QWidget *>(QStringLiteral("constraintPageBody"));
+  auto *results = page.findChild<QWidget *>(QStringLiteral("factorResultsEmptyHint"));
+  auto *output = page.findChild<QWidget *>(QStringLiteral("factorOutputStageCaption"));
+  QVERIFY(more && body && results && output);
+  for (const char *name : {"factorLegacySection", "thicknessSection", "realizationSection",
+                           "runIdwButton", "thicknessTable", "realizationPanel"}) {
+    auto *w = page.findChild<QWidget *>(QString::fromLatin1(name));
+    QVERIFY2(w && more->isAncestorOf(w), name);
+    QVERIFY2(!w->isVisible(), name); // 默认收起
+  }
+  const auto y = [body](QWidget *w) { return w->mapTo(body, QPoint(0, 0)).y(); };
+  QVERIFY(y(output) < y(more));
+  QVERIFY(y(results) < y(more));
+  more->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"))->setChecked(true);
+  QVERIFY(page.findChild<QWidget *>(QStringLiteral("factorLegacySection"))->isVisible());
+}
+
+void FactorPageTests::ipoStagesAndProgressiveDisclosure()
+{
+  // 反馈 #19：输入 → 处理 → 输出 三段式；约束与高级参数默认收起但仍可达。
+  ConstraintPage page(nullptr);
+  page.resize(420, 760);
+  page.show();
+  QCoreApplication::processEvents();
+  auto *body = page.findChild<QWidget *>(QStringLiteral("constraintPageBody"));
+  auto *stepper = page.findChild<QLabel *>(QStringLiteral("factorIpoStepper"));
+  auto *inputStage = page.findChild<QLabel *>(QStringLiteral("factorInputStageCaption"));
+  auto *processStage = page.findChild<QLabel *>(QStringLiteral("factorSettingsCaption"));
+  auto *outputStage = page.findChild<QLabel *>(QStringLiteral("factorOutputStageCaption"));
+  auto *optional = page.findChild<QWidget *>(QStringLiteral("factorConstraintsOptionalSection"));
+  auto *families = page.findChild<QWidget *>(QStringLiteral("constraintFamiliesSection"));
+  auto *advanced = page.findChild<QWidget *>(QStringLiteral("factorAdvancedSection"));
+  auto *next = page.findChild<QPushButton *>(QStringLiteral("factorNextStepButton"));
+  auto *table = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
+  QVERIFY(body && stepper && inputStage && processStage && outputStage && optional && families
+          && advanced && next && table);
+  // 三段标题按 I → P → O 自上而下排列；井点数据属于输入段，等值线/成果属于输出段。
+  const auto y = [body](QWidget *w) { return w->mapTo(body, QPoint(0, 0)).y(); };
+  auto *wells = page.findChild<QWidget *>(QStringLiteral("wellFactorSection"));
+  auto *method = page.findChild<QWidget *>(QStringLiteral("factorMethodCombo"));
+  auto *contour = page.findChild<QWidget *>(QStringLiteral("factorContourSection"));
+  auto *results = page.findChild<QWidget *>(QStringLiteral("factorResultsEmptyHint"));
+  QVERIFY(wells && method && contour && results);
+  QVERIFY(y(inputStage) < y(table));
+  QVERIFY(y(table) < y(wells));
+  QVERIFY(y(wells) < y(processStage));
+  QVERIFY(y(processStage) < y(method));
+  QVERIFY(y(method) < y(optional));
+  QVERIFY(y(optional) < y(outputStage));
+  QVERIFY(y(outputStage) < y(contour));
+  QVERIFY(y(contour) < y(results));
+  // 约束是处理段的可选项：默认收起，但控件仍在（旧工程/原入口兼容）。
+  QVERIFY(optional->isAncestorOf(families));
+  QVERIFY(!families->isVisible());
+  QVERIFY(!advanced->isVisible());
+  for (const char *name : {"directionButton", "breakLineButton", "constraintList", "factorPowerSpin",
+                           "runIdwButton", "contourButton", "factorResultsTable"})
+    QVERIFY2(page.findChild<QWidget *>(QString::fromLatin1(name)), name);
+  // 步骤条：未选层位/因素时停在「输入」。
+  QCOMPARE(stepper->property("stage").toInt(), 0);
+  QVERIFY(stepper->text().contains(QStringLiteral("▶ 输入")));
+  page.setHorizons({QStringLiteral("D61")});
+  QTest::mouseClick(table->viewport(), Qt::LeftButton, Qt::NoModifier,
+                   table->visualItemRect(table->item(0, 1)).center());
+  page.setWellFactorFields({QVariantMap{{"id", "sand"}, {"label", "砂厚"}}});
+  // 井点尚未提取 → 仍是输入阶段，下一步指向输入段控件而非约束。
+  QCOMPARE(stepper->property("stage").toInt(), 0);
+  QVERIFY(next->property("target").toString() != QStringLiteral("constraintFamiliesSection"));
+  // 门控需要约束时，「下一步」展开收起的可选段并定位（渐进展开仍可达）。
+  next->setProperty("target", QStringLiteral("constraintFamiliesSection"));
+  next->click();
+  QCoreApplication::processEvents();
+  QVERIFY(families->isVisible());
+  const QString qa = qEnvironmentVariable("PALEO_SINGLEFACTOR_QA_DIR");
+  if (!qa.isEmpty()) {
+    QDir().mkpath(qa);
+    QVERIFY(page.grab().save(qa + QStringLiteral("/ipo-after.png")));
   }
 }
 

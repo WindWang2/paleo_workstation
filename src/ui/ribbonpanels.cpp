@@ -44,10 +44,11 @@
 #include <QSpinBox>
 #include <QSignalBlocker>
 #include <QToolButton>
+#include <QWidgetAction>
 
 // Ribbon 命令组：每个页签按「做事的顺序」排组——数据管理（导入 → 列表 →
-// 预览）、智能预测（运行 → 叠加对照 → 编辑 → 地图 → 结果）、单因素图（约束
-// → 插值 → 连井 → 编辑 → 地图 → 结果）、智能编图（编图链 → 编辑 → 地图 →
+// 预览）、智能预测（运行 → 叠加对照 → 编辑 → 地图 → 结果）、单因素图（输入
+// → 处理 → 输出 → 编辑 → 更多）、智能编图（编图链 → 编辑 → 地图 →
 // 图件输出 → 版本）、验证（验证 → 联动定位 → 地图 → 发布）。
 // 页面板按钮是状态源：ribbon 动作经 PaleoRibbon::mirror 镜像它们。
 // ---------------------------------------------------------------------------
@@ -329,56 +330,11 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     addLarge(panel(cat, tr("结果"), "ribbonPanel.predict.result"), toValidate);
   }
 
-  // ================= 单因素图 =================
+  // ================= 单因素图 =================（反馈 #19：buildConstraintRibbon）
   if (SARibbonCategory *cat = categoryForPage(QStringLiteral("constraint")))
-  {
-    SARibbonPanel *p = panel(cat, tr("约束编辑"), "ribbonPanel.constraint.draw");
-    auto *drawBtn = constraint ? constraint->findChild<QPushButton *>(QStringLiteral("drawButton"))
-                               : nullptr;
-    auto *shape = constraint ? constraint->findChild<QComboBox *>(QStringLiteral("shapeCombo"))
-                             : nullptr;
-    if (QAction *draw = mirrored(constraint, "drawButton", tr("绘制约束"),
-                                 icon("mActionCaptureLine.svg"), "ribbonDrawConstraint"))
-    {
-      // 拆分按钮：主体按参数面板当前形状画；下拉直接挑形状开画（改的是
-      // 同一个 shapeCombo，参数面板随之显示）。
-      if (shape && drawBtn)
-      {
-        auto *menu = new QMenu(this);
-        menu->setObjectName(QStringLiteral("ribbonConstraintShapeMenu"));
-        for (int i = 0; i < shape->count(); ++i)
-          menu->addAction(shape->itemText(i), this, [shape, drawBtn, i] {
-            shape->setCurrentIndex(i);
-            drawBtn->click();
-          });
-        draw->setMenu(menu);
-        p->addSmallAction(draw, QToolButton::MenuButtonPopup);
-      }
-      else
-        addSmall(p, draw);
-    }
-    addLarge(p, paramsAct);
-    SARibbonPanel *ip = panel(cat, tr("插值计算"), "ribbonPanel.constraint.idw");
-    QAction *runFactor = mirrored(constraint, "generateFactorButton", tr("生成单因素图"),
-                                  icon("mActionStart.svg"), "ribbonRunIdw", false, false);
-    if (auto *method = constraint ? constraint->findChild<QComboBox *>(QStringLiteral("factorMethodCombo")) : nullptr) {
-      const auto updateMethod = [runFactor, method] {
-        if (runFactor) runFactor->setText(QObject::tr("计算 · %1").arg(method->currentText()));
-      };
-      updateMethod(); connect(method, &QComboBox::currentIndexChanged, this, updateMethod);
-    }
-    addLarge(ip, runFactor, true);
-    addLarge(p, mirrored(constraint, "directionButton", tr("方向线族"), icon("mActionCaptureLine.svg"), "ribbonDrawDirection", false, false));
-    addLarge(p, mirrored(constraint, "breakLineButton", tr("打断线族"), icon("mActionCaptureLine.svg"), "ribbonDrawBreakLine", false, false));
-    if (wellSectionAct)
-    {
-      SARibbonPanel *cp = panel(cat, tr("连井分析"), "ribbonPanel.constraint.correlation");
-      addLarge(cp, wellSectionAct);
-    }
-    addEditingPanel(cat, editTb);
-    navPanel(cat);
-    addLarge(panel(cat, tr("结果"), "ribbonPanel.constraint.result"), toValidate);
-  }
+    buildConstraintRibbon(cat, constraint, editTb,
+                          {paramsAct, toValidate, wellSectionAct, panAct, identifyAct, zoomInAct,
+                           zoomOutAct, fullAct});
 
   // ================= 智能编图 =================
   if (SARibbonCategory *cat = categoryForPage(QStringLiteral("compose")))
@@ -449,7 +405,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   }
 
   if (auto *sections = findChild<QAction *>("sectionWorkbenchAction")) {
-    for (const auto &page : {"data", "predict", "constraint", "compose"})
+    for (const auto &page : {"data", "predict", "compose"}) // 单因素图页在「更多」菜单
       if (auto *cat = categoryForPage(QString::fromLatin1(page)))
         addLarge(panel(cat, tr("井震剖面"), "ribbonPanel.sections"), sections);
   }
@@ -479,9 +435,11 @@ void addPartitionPanel(SARibbonCategory *category, PaleoEditingToolbar *toolbar)
   sync();
 }
 }
-void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb)
+void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb,
+                                      bool compact)
 {
-  addFaciesDisplayPanel(category);
+  if (!compact)
+    addFaciesDisplayPanel(category);
   if (!category || !editTb)
     return;
   SARibbonPanel *p = category->addPanel(tr("要素编辑"));
@@ -541,6 +499,8 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   session->addSmallAction(editTb->actionEditMode());
   session->addSmallAction(editTb->actionSave());
   session->addSmallAction(editTb->actionCancel());
+  if (compact)
+    return; // 相图显示 / 捕捉与撤销 由调用方放进溢出菜单（addEditingSettingsMenu）
   auto *settings = category->addPanel(tr("捕捉与撤销"));
   settings->setObjectName(QStringLiteral("ribbonEditingSettingsPanel"));
   const auto mirrorSpin = [settings](QSpinBox *source, const QString &name, const QString &prefix) {
@@ -562,6 +522,163 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   settings->addSmallAction(editTb->actionUndo());
   settings->addSmallAction(editTb->actionRedo());
 
+}
+
+// ---------------------------------------------------------------------------
+// 单因素图页签（反馈 #19）：自 buildRibbonPanels 析出（file_budget 防增长闸）。
+// 反馈 #19：按 输入 → 处理 → 输出 三组排布，与参数面板三段一致；少用组
+//（连井、井震剖面、地图导航、相图显示、捕捉与撤销）收进「更多」溢出菜单，
+// 动作对象不变（objectName/快捷键/帮助清单照常命中）。
+// shared = {参数, 送交验证, 连井剖面, 平移, 识别, 放大, 缩小, 全图}（可为空）。
+void PaleoMainWindow::buildConstraintRibbon(SARibbonCategory *cat, ConstraintPage *constraint,
+                                            PaleoEditingToolbar *editTb,
+                                            const QList<QAction *> &shared)
+{
+  const auto at = [&shared](int i) { return i < shared.size() ? shared.at(i) : nullptr; };
+  QAction *paramsAct = at(0), *toValidate = at(1), *wellSectionAct = at(2), *panAct = at(3),
+          *identifyAct = at(4), *zoomInAct = at(5), *zoomOutAct = at(6), *fullAct = at(7);
+  const auto icon = [](const char *name) { return PaleoIcons::qgisTheme(QLatin1String(name)); };
+  const auto newAction = [this](const QString &text, const QIcon &ic, const QString &tip,
+                                const char *name) {
+    auto *a = new QAction(ic, text, this);
+    a->setObjectName(QLatin1String(name));
+    if (!tip.isEmpty()) {
+      a->setToolTip(tip);
+      a->setWhatsThis(tip);
+    }
+    return a;
+  };
+  const auto mirrored = [&newAction](QWidget *page, const char *buttonName, const QString &text,
+                                     const QIcon &ic, const char *actionName,
+                                     bool syncText = false, bool hideSource = true) -> QAction * {
+    auto *b = page ? page->findChild<QAbstractButton *>(QLatin1String(buttonName)) : nullptr;
+    if (!b)
+      return nullptr;
+    QAction *a = newAction(text, ic, QString(), actionName);
+    PaleoRibbon::mirror(a, b, syncText, hideSource);
+    return a;
+  };
+  const auto addLarge = [](SARibbonPanel *p, QAction *a, bool run = false) {
+    if (!p || !a)
+      return;
+    p->addLargeAction(a);
+    if (run)
+      PaleoRibbon::markRun(PaleoRibbon::buttonFor(p, a));
+  };
+  const auto addSmall = [](SARibbonPanel *p, QAction *a) {
+    if (p && a)
+      p->addSmallAction(a);
+  };
+  const auto panel = [](SARibbonCategory *c, const QString &title, const char *name) {
+    SARibbonPanel *p = c->addPanel(title);
+    p->setObjectName(QLatin1String(name));
+    return p;
+  };
+  SARibbonPanel *inp = panel(cat, tr("输入"), "ribbonPanel.constraint.input");
+  addLarge(inp, paramsAct);
+  addLarge(inp, mirrored(constraint, "extractWellFactorsButton", tr("提取井点"),
+                         icon("mIconPointLayer.svg"), "ribbonExtractWellFactors", false, false));
+
+  SARibbonPanel *ip = panel(cat, tr("处理"), "ribbonPanel.constraint.idw");
+  addLarge(ip, mirrored(constraint, "factorOneClickButton", tr("提取并生成"),
+                        icon("processingModel.svg"), "ribbonFactorOneClick", false, false), true);
+  QAction *runFactor = mirrored(constraint, "generateFactorButton", tr("生成单因素图"),
+                                icon("mActionStart.svg"), "ribbonRunIdw", false, false);
+  if (auto *method = constraint ? constraint->findChild<QComboBox *>(QStringLiteral("factorMethodCombo")) : nullptr) {
+    const auto updateMethod = [runFactor, method] {
+      if (runFactor) runFactor->setText(QObject::tr("生成 · %1").arg(method->currentText()));
+    };
+    updateMethod(); connect(method, &QComboBox::currentIndexChanged, this, updateMethod);
+  }
+  addLarge(ip, runFactor);
+  // 约束属于处理段的可选项：小按钮。
+  auto *drawBtn = constraint ? constraint->findChild<QPushButton *>(QStringLiteral("drawButton"))
+                             : nullptr;
+  auto *shape = constraint ? constraint->findChild<QComboBox *>(QStringLiteral("shapeCombo"))
+                           : nullptr;
+  if (QAction *draw = mirrored(constraint, "drawButton", tr("绘制约束"),
+                               icon("mActionCaptureLine.svg"), "ribbonDrawConstraint"))
+  {
+    // 拆分按钮：主体按参数面板当前形状画；下拉直接挑形状开画。
+    if (shape && drawBtn)
+    {
+      auto *menu = new QMenu(this);
+      menu->setObjectName(QStringLiteral("ribbonConstraintShapeMenu"));
+      for (int i = 0; i < shape->count(); ++i)
+        menu->addAction(shape->itemText(i), this, [shape, drawBtn, i] {
+          shape->setCurrentIndex(i);
+          drawBtn->click();
+        });
+      draw->setMenu(menu);
+      ip->addSmallAction(draw, QToolButton::MenuButtonPopup);
+    }
+    else
+      addSmall(ip, draw);
+  }
+  addSmall(ip, mirrored(constraint, "directionButton", tr("方向线族"), icon("mActionCaptureLine.svg"), "ribbonDrawDirection", false, false));
+  addSmall(ip, mirrored(constraint, "breakLineButton", tr("打断线族"), icon("mActionCaptureLine.svg"), "ribbonDrawBreakLine", false, false));
+
+  SARibbonPanel *op = panel(cat, tr("输出"), "ribbonPanel.constraint.result");
+  addLarge(op, mirrored(constraint, "contourButton", tr("提取等值线"),
+                        icon("mActionAddLayer.svg"), "ribbonFactorContour", false, false));
+  addLarge(op, toValidate);
+
+  addEditingPanel(cat, editTb, /*compact=*/true);
+
+  // 溢出：「更多」菜单（objectName ribbonConstraintMoreMenu）。
+  SARibbonPanel *mp = panel(cat, tr("更多"), "ribbonPanel.constraint.more");
+  QAction *more = newAction(tr("更多"), icon("mActionOptions.svg"),
+                            tr("连井剖面、井震剖面、地图导航、相图显示、捕捉与撤销"),
+                            "ribbonConstraintMoreAction");
+  auto *menu = new QMenu(this);
+  menu->setObjectName(QStringLiteral("ribbonConstraintMoreMenu"));
+  menu->addSection(tr("剖面"));
+  if (wellSectionAct)
+    menu->addAction(wellSectionAct);
+  if (auto *sections = findChild<QAction *>("sectionWorkbenchAction"))
+    menu->addAction(sections);
+  if (panAct) {
+    menu->addSection(tr("地图"));
+    for (QAction *a : {panAct, identifyAct, zoomInAct, zoomOutAct, fullAct})
+      if (a)
+        menu->addAction(a);
+  }
+  addEditingSettingsMenu(menu, editTb);
+  more->setMenu(menu);
+  mp->addLargeAction(more, QToolButton::InstantPopup);
+}
+
+void PaleoMainWindow::addEditingSettingsMenu(QMenu *menu, PaleoEditingToolbar *editTb)
+{
+  if (!menu)
+    return;
+  menu->addSection(tr("相图显示"));
+  auto *facies = new QWidgetAction(menu);
+  facies->setObjectName(QStringLiteral("ribbonFaciesDisplayMenuAction"));
+  facies->setDefaultWidget(new FaciesDisplayControl(menu));
+  menu->addAction(facies);
+  if (!editTb)
+    return;
+  menu->addSection(tr("捕捉与撤销"));
+  const auto mirrorSpin = [menu](QSpinBox *source, const QString &name, const QString &prefix) {
+    auto *spin = new QSpinBox(menu);
+    spin->setObjectName(name);
+    spin->setRange(source->minimum(), source->maximum());
+    spin->setPrefix(prefix);
+    spin->setSuffix(source->suffix());
+    spin->setToolTip(source->toolTip());
+    spin->setAccessibleName(source->accessibleName());
+    spin->setValue(source->value());
+    QObject::connect(spin, &QSpinBox::valueChanged, source, &QSpinBox::setValue);
+    QObject::connect(source, &QSpinBox::valueChanged, spin, &QSpinBox::setValue);
+    auto *wa = new QWidgetAction(menu);
+    wa->setDefaultWidget(spin);
+    menu->addAction(wa);
+  };
+  mirrorSpin(editTb->snapToleranceSpin(), QStringLiteral("ribbonConstraintSnapToleranceSpin"), tr("捕捉 "));
+  mirrorSpin(editTb->undoDepthSpin(), QStringLiteral("ribbonConstraintUndoDepthSpin"), tr("撤销 "));
+  menu->addAction(editTb->actionUndo());
+  menu->addAction(editTb->actionRedo());
 }
 
 void PaleoMainWindow::addFaciesDisplayPanel(SARibbonCategory *category) {

@@ -75,7 +75,7 @@ src/ui/paleomainwindow_sections.cpp:fn:attachSections:295
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:477
 src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:298
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
-src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:403
+src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:358
 src/ui/seismic3d/seismic3dviewpanel.cpp:file:1775
 src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildUi:253
 src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:783

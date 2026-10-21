@@ -13,6 +13,7 @@
 #include <QDoubleSpinBox>
 #include <QFileInfo>
 #include <QHeaderView>
+#include <QLabel>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QScrollArea>
@@ -46,7 +47,17 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   outer->setContentsMargins( 0, 0, 0, 0 );
   outer->addWidget( scroll );
 
-  lay->addWidget( caption( tr( "1 · 选择层位与因素" ), this ) );
+  // 反馈 #19：输入 → 处理 → 输出（IPO）三段式。顶部步骤条始终说明当前所处阶段，
+  // 默认只露最少参数；约束、高级插值、兼容入口均为渐进展开。
+  auto *stepper = new QLabel( content );
+  stepper->setObjectName( QStringLiteral( "factorIpoStepper" ) );
+  stepper->setAccessibleName( tr( "单因素成图步骤" ) );
+  stepper->setTextFormat( Qt::PlainText );
+  stepper->setWordWrap( true );
+  lay->addWidget( stepper );
+  auto *inputStage = caption( tr( "① 输入 · 层位、因素与井点数据" ), this );
+  inputStage->setObjectName( QStringLiteral( "factorInputStageCaption" ) );
+  lay->addWidget( inputStage );
   lay->addWidget( caption( tr( "当前层位" ), this ) );
   auto *horizons = new QComboBox( this );
   horizons->setObjectName( QStringLiteral( "horizonCombo" ) );
@@ -108,8 +119,6 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   inputHint->setObjectName(QStringLiteral("factorInputHint"));
   inputHint->setWordWrap(true);
   lay->addWidget(inputHint);
-  auto *inputCaption = caption(tr("2 · 准备本层位数据"), content);
-  lay->addWidget(inputCaption);
 
   // 方向 96：自此处起 ctor 按原文行序分解为构建段（段图见 constraintpage.h；
   // 调用序 = 原文行序，创建序/连接序逐行保持）。
@@ -123,18 +132,19 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->removeWidget(surfaceInputs);
   lay->insertWidget(lay->indexOf(findChild<QWidget *>(QStringLiteral("wellFactorSection"))) + 1,
                     surfaceInputs);
-  auto *contourSection = new CollapsibleSection(tr("4 · 计算等值线（等值面保存后）"), content);
+  auto *outputStage = caption(tr("③ 输出 · 预览、保存与发布"), content);
+  outputStage->setObjectName(QStringLiteral("factorOutputStageCaption"));
+  lay->addWidget(outputStage);
+  auto *contourSection = new CollapsibleSection(tr("可选：提取等值线（等值面保存后）"), content);
   contourSection->setObjectName(QStringLiteral("factorContourSection"));
   lay->addWidget(contourSection);
   buildContourSection( contourSection->container(), contourSection->containerLayout() );
   wireFactorTableSelection( factors );
   buildConstraintArea( content, lay, horizons, cellCaption );
-  // 约束区依赖算法参数控件；保持数据准备的顺序：约束 → 提取。
   auto *constraints = findChild<QWidget *>(QStringLiteral("constraintFamiliesSection"));
   lay->removeWidget(constraints);
-  lay->insertWidget(lay->indexOf(inputCaption) + 1, constraints);
   auto *methodCaption = findChild<QLabel *>(QStringLiteral("factorMethodCaption"));
-  auto *settingsCaption = caption(tr("3 · 设置等值面参数"), content);
+  auto *settingsCaption = caption(tr("② 处理 · 成图方法（默认即可直接生成）"), content);
   settingsCaption->setObjectName(QStringLiteral("factorSettingsCaption"));
   lay->insertWidget(lay->indexOf(methodCaption), settingsCaption);
   auto *advanced = findChild<QWidget *>(QStringLiteral("factorAdvancedSection"));
@@ -145,8 +155,27 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   options->containerLayout()->addWidget(advanced);
   options->setExpanded(false);
   lay->insertWidget(advancedIndex, options);
+  // 约束（断层/边界/方向线）属于处理阶段的可选项，默认收起；门控需要时
+  //「下一步」按钮会展开并定位（见 updateOperationGuidance）。已有约束的
+  // 旧工程在 refresh 时自动展开，避免已绘约束被“藏起来”。
+  auto *optionalConstraints = new CollapsibleSection(tr("可选：断层 / 边界 / 方向约束"), content);
+  optionalConstraints->setObjectName(QStringLiteral("factorConstraintsOptionalSection"));
+  optionalConstraints->containerLayout()->addWidget(constraints);
+  optionalConstraints->setExpanded(false);
+  lay->insertWidget(lay->indexOf(options) + 1, optionalConstraints);
   buildFactorResultsSection(content, lay);
   buildTailSections( content, lay );
+  // 反馈 #19：兜底工具（原始字段 IDW / 厚度样本 / 不确定性集合）统一收进输出段
+  // 末尾的「更多工具」折叠段；各自仍是独立折叠段，objectName 不变。
+  auto *moreTools = new CollapsibleSection(tr("更多工具"), content);
+  moreTools->setObjectName(QStringLiteral("factorMoreToolsSection"));
+  for (const char *name : {"factorLegacySection", "thicknessSection", "realizationSection"})
+    if (auto *w = findChild<QWidget *>(QString::fromLatin1(name))) {
+      lay->removeWidget(w);
+      moreTools->containerLayout()->addWidget(w);
+    }
+  moreTools->setExpanded(false);
+  lay->addWidget(moreTools);
   // 主操作与就绪提示固定在滚动区外，长表单中始终可见。
   auto *actionBar = new QWidget(this);
   actionBar->setObjectName(QStringLiteral("factorActionBar"));

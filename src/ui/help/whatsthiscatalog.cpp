@@ -73,6 +73,9 @@ QList<WhatsThisEntry> whatsThisEntries()
     // ---- 单因素图页 ----
     {"ConstraintPage", "factorTable", QT_TRANSLATE_NOOP("PaleoWhatsThis", "单因素图清单：勾选一行作为当前要生成或查看的因素，并显示其输入与状态。"), nullptr},
     {"ConstraintPage", "factorMethodCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择单因素图的成图方法，如本地方向插值或克里金。"), nullptr},
+    {"ConstraintPage", "factorOneClickButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "一键成图：先提取并保存井点数据，成功后自动按当前参数生成单因素图；任一步失败或被约束门控拒绝即停下并说明原因。"), nullptr},
+    {"ConstraintPage", "extractWellFactorsButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按当前取值方式提取当前地层的井点数据，保存为可复用的井点版本。"), nullptr},
+    {"ConstraintPage", "contourButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "从当前因素已保存的单因素图提取等值线，并保存为新的成果版本。"), nullptr},
     {"ConstraintPage", "generateFactorButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按所选方法和参数生成勾选的单因素图。"), nullptr},
     {"ConstraintPage", "drawButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制所选形状的约束。"), nullptr},
     {"ConstraintPage", "constraintList", QT_TRANSLATE_NOOP("PaleoWhatsThis", "已有约束列表；选中后可修改属性或删除。"), nullptr},

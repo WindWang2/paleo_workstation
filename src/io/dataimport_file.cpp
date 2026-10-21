@@ -160,19 +160,22 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   if (!DataCatalog::isSafePathSegment(fi.fileName()))
     return fail(QStringLiteral("文件名不是合法路径段: %1").arg(fi.fileName()));
 
-  // 流式算一遍源文件 SHA-256：dedup 查询与外链入库留底共用这一趟。
-  // #561 血缘复验加强档：此 sha 是 dedup 身份与外链版本 sha256 留底的单
-  // 一来源，指纹带 inode——「同 mtime+size 换内容」不再命中旧缓存值。
-  QString shaErr;
+  // §3 + F2（review-security）：源侧 SHA-256 一律流式真算（logFileDigest），
+  // 不走 ShaCache——缓存指纹信 mtime+size（Windows 无 inode），同步工具保时
+  // 间戳换内容会让 dedup 误命中「字节已在库」、新数据静默丢失。dedup 身份、
+  // 外链留底、预览指纹复核共用这一趟真哈希；命中性能损失由库内复核兜底
+  // （versionBySha256 本就真哈希库内副本）。
   ProjectClassification cls = classifyImportFile(sourcePath);
   if (!options.forceType.isEmpty()) cls.type = options.forceType;
-  const QString sourceSha = cls.type == QLatin1String("well_log")
-      ? paleo::dataimport_detail::logFileDigest(sourcePath)
-      : ShaCache::shared().sha256Hex(sourcePath, &shaErr, ShaCache::Fingerprint::MtimeSizeInode);
+  const QString sourceSha = paleo::dataimport_detail::logFileDigest(sourcePath);
   if (sourceSha.isEmpty())
-    return fail(shaErr.isEmpty() ? QStringLiteral("cannot hash %1").arg(sourcePath) : shaErr);
+    return fail(QCoreApplication::translate("DataImportService", "无法读取或哈希源文件：%1").arg(sourcePath));
   if (!options.expectedSourceSha256.isEmpty() && sourceSha != options.expectedSourceSha256)
+  {
+    // 预期指纹来自预览（plan 期缓存值可能已失真）——让缓存失效，下次预览重算。
+    ShaCache::shared().invalidate(sourcePath);
     return fail(QCoreApplication::translate("DataImportService", "文件内容已不同于预览：%1。请重新生成预览后确认。").arg(sourcePath));
+  }
 
   // 确认表「改类型」：forceType 覆盖分类器结果（其余分类字段保留）。
   if (!options.forceType.isEmpty())

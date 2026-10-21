@@ -2,6 +2,7 @@
 #include "ingestplan.h"
 
 #include "dataimport_internal.h" // rollbackFailedRow 声明（executePlannedItem 共用）
+#include "dataimport_log.h"    // logFileDigest（dedup 命中的源侧真复核）
 #include "shacache.h"
 #include "importrecovery.h"
 
@@ -567,7 +568,23 @@ namespace
       if (!dupVersionBySha.contains(item.sha256))
         dupVersionBySha.insert(item.sha256,
                                catalog.versionBySha256(item.sha256).id);
-      const QString vid = dupVersionBySha.value(item.sha256);
+      QString vid = dupVersionBySha.value(item.sha256);
+      if (!vid.isEmpty())
+      {
+        // F2（review-security）：plan 期哈希走 ShaCache，指纹信 mtime+size
+        // （Windows 无 inode）——同步工具保时间戳换内容会让旧哈希误命中库内
+        // 版本。命中即对源文件真哈希复核；失真则换成真值重查，并让缓存失
+        // 效自愈（下次扫描重算）。
+        const QString fresh = paleo::dataimport_detail::logFileDigest(item.path);
+        if (!fresh.isEmpty() && fresh.compare(item.sha256, Qt::CaseInsensitive) != 0)
+        {
+          item.sha256 = fresh;
+          ShaCache::shared().invalidate(item.path);
+          if (!dupVersionBySha.contains(fresh))
+            dupVersionBySha.insert(fresh, catalog.versionBySha256(fresh).id);
+          vid = dupVersionBySha.value(fresh);
+        }
+      }
       if (!vid.isEmpty())
       {
         item.duplicateOfVersionId = vid;

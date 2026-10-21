@@ -4,6 +4,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDir>
+#include <QFileInfo>
 #include <QLabel>
 #include <QPushButton>
 #include <QTableWidget>
@@ -15,7 +16,8 @@ void showFailures(DialogState &state) {
   for (const auto &row : state.results)
     if (row.outcome == FolderRowResult::Outcome::Failed)
       failures << QObject::tr("%1：%2").arg(QDir(state.directory).relativeFilePath(row.path),
-          row.message.isEmpty() ? QObject::tr("导入失败") : row.message);
+          row.message.isEmpty() ? QObject::tr("导入失败，未写入工程；请检查文件后重试")
+                                : row.message);
   QString text = failures.mid(0, 5).join(QLatin1Char('\n'));
   if (failures.size() > 5) text += QObject::tr("\n…等共 %1 项失败").arg(failures.size());
   state.errors->setText(text);
@@ -83,8 +85,14 @@ void DialogState::beginImport() {
   const auto done = [state](const QVector<FolderRowResult> &rows, const QString &error) {
     if (state->dialog) state->applyResults(rows, error);
   };
+  // F1（review-security）：预览展示过的路径全集随确认传入执行——执行期
+  // 目录重扫多出的文件（预览后落盘）由 io 层一律跳过并提示重新预览。
+  QStringList previewedPaths;
+  previewedPaths.reserve(preview.size());
+  for (const auto &row : preview) previewedPaths << row.path;
   if (hooks.importAllWithWells)
-    hooks.importAllWithWells(overrides, forced, targets, expectedHashes, skippedPaths, done);
+    hooks.importAllWithWells(overrides, forced, targets, expectedHashes, skippedPaths,
+                             previewedPaths, done);
   else if (hooks.importAllWithForced) hooks.importAllWithForced(overrides, forcePaths, done);
   else if (hooks.importAll) hooks.importAll(overrides, done);
   else done({}, QObject::tr("导入服务未接线"));
@@ -109,12 +117,19 @@ void DialogState::applyResults(const QVector<FolderRowResult> &rows, const QStri
   results.fill(FolderRowResult{}, preview.size());
   QString wellHead;
   bool unresolved = false;
+  QStringList unreviewed; // 预览后新出现、被 io 层跳过的文件（无预览行可对应）
   const auto state = shared_from_this();
   for (const auto &result : rows) {
     int row = -1;
     for (int index = 0; index < preview.size(); ++index)
       if (preview[index].path == result.path) { row = index; break; }
-    if (row < 0) continue;
+    if (row < 0)
+    {
+      if (result.outcome == FolderRowResult::Outcome::Skipped)
+        unreviewed << QStringLiteral("%1：%2").arg(
+            QFileInfo(result.path).fileName(), result.message);
+      continue;
+    }
     results[row] = result;
     const bool failed = result.outcome == FolderRowResult::Outcome::Failed;
     typeChoices[row]->setEnabled(failed && preview[row].typeEditable &&
@@ -130,6 +145,17 @@ void DialogState::applyResults(const QVector<FolderRowResult> &rows, const QStri
   summary->show();
   showFailures(*this);
   showUnresolved->setVisible(unresolved);
+  if (!unreviewed.isEmpty())
+  {
+    // 与 showFailures 共用 errors 区：追加而非覆盖（失败清单可能已在里面）。
+    const QString note = QObject::tr("以下 %1 个文件在预览后才出现，未随本批导入；"
+                                     "如需导入请重新打开导入预览：\n%2")
+                             .arg(unreviewed.size())
+                             .arg(unreviewed.join(QLatin1Char('\n')));
+    const QString existing = errors->text();
+    errors->setText(existing.isEmpty() ? note : existing + QLatin1Char('\n') + note);
+    errors->show();
+  }
   cancel->setText(QObject::tr("关闭"));
   hint->setText(QObject::tr("导入完成；失败原因在原行显示，可修正后重试。"));
   const QString focus = pickPreviewFocusAsset(rows, wellHead);
@@ -168,5 +194,10 @@ void DialogState::retryRow(int row) {
   }
   summary->setText(folderImportSummaryText(results));
   showFailures(*this);
+  // UX（review-ux）：重试可能改变未决行集合——「查看未决」随最新结果刷新。
+  bool anyUnresolved = false;
+  for (const auto &r : results)
+    anyUnresolved |= r.outcome == FolderRowResult::Outcome::Unresolved;
+  showUnresolved->setVisible(anyUnresolved);
 }
 } // namespace PaleoFolderConfirm::detail

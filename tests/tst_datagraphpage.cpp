@@ -119,25 +119,17 @@ class TestDataGraphPage : public QObject
       const QString v1Abs = DataCatalog::resolvedVersionPath(project, v1);
       QVERIFY2(!v1Abs.isEmpty(), "受管版本应解析在工程内");
       QCOMPARE(readAll(v1Abs), v1Bytes);
-      // 3) 关联：井未建时导入只留未决链接；建井后走数据管理的「未决归位」
-      //    （与导入同一判据，恰一候选才挂）把链接挂到真实井上。
+      // 3) 关联（新语义）：内容井名 E2E-1 明确——导入时自动建井并直接挂
+      //    主关联，不再留未决链接。「未决归位」机制本身由 tst_assetops 覆盖。
       {
-        bool pending = false;
+        QString autoWell;
+        for (const auto &well : cat->entities(QStringLiteral("well")))
+          if (well.name == QStringLiteral("E2E-1")) autoWell = well.id;
+        QVERIFY2(!autoWell.isEmpty(), "内容井名应在导入时自动建井");
+        bool resolved = false;
         for (const auto &l : cat->linksForAsset(assetId))
-          pending = pending || l.unresolved || l.entityId.isEmpty();
-        QVERIFY2(pending, "无井时 LAS 导入应留未决链接");
-        CatalogEntity w;
-        w.id = cat->nextEntityId(QStringLiteral("well"));
-        w.entityType = QStringLiteral("well");
-        w.name = QStringLiteral("E2E-1");
-        QVERIFY2(cat->addEntity(w, &err), qPrintable(err));
-        const auto proposals = paleo::assetops::proposablePendingLinks(cat);
-        QVector<int> picks;
-        for (const auto &p : proposals)
-          if (p.assetId == assetId && p.wellId == w.id)
-            picks << p.linkIndex;
-        QCOMPARE(picks.size(), 1);
-        QCOMPARE(paleo::assetops::applyPendingResolutions(cat, picks, &err), 1);
+          resolved = resolved || (!l.unresolved && l.entityId == autoWell);
+        QVERIFY2(resolved, "LAS 主关联应直接挂到自动建的井");
       }
       QVector<EntityAssetLink> links;
       for (const auto &l : cat->linksForAsset(assetId))

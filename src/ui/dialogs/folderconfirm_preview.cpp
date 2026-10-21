@@ -48,6 +48,22 @@ void addWellChoice(const std::shared_ptr<DialogState> &state, int row) {
         choice->setCurrentIndex(0);
         return;
       }
+      // F4（review-security）：撞名不新建——输入与已有井精确同名时直接改选
+      // 已有井并告知，不留「新建井:X」却静默并入旧 X 的假意图。
+      for (auto it = state->preview[row].availableWells.cbegin();
+           it != state->preview[row].availableWells.cend(); ++it)
+        if (it.value().trimmed().compare(name, Qt::CaseInsensitive) == 0)
+        {
+          const int existIdx = choice->findData(it.key());
+          if (existIdx >= 0)
+          {
+            choice->setCurrentIndex(existIdx); // 重入本槽把目标写为已有井 id
+            state->errors->setText(QObject::tr("井 %1 已存在，已为你改选已有井；数据将归入该井。")
+                                       .arg(it.value()));
+            state->errors->show();
+            return;
+          }
+        }
       target = QStringLiteral("new:") + name;
       int index = choice->findData(target);
       if (index < 0) {

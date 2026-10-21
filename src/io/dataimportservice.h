@@ -116,6 +116,9 @@ class DataImportService : public QObject
     // 单行重导（确认表「重试」）：forceType 口径同 typeOverrides 的单值
     // （空=按分类器；非法值忽略）。返回与 importFolder 相同口径的行结果；
     // 失败时 *error 带行 message。
+    // 注意：此入口无预览指纹复核（F3，review-security）——显式单行「仍导入」
+    // 语义下可接受；需要指纹保护的调用方走 importFolderRowWithWell /
+    // runInlineImport 注入 expectedSourceHashes 的路径。
     FolderRowResult importFolderRow(const QString &sourcePath,
                                     const QString &forceType = QString(),
                                     QString *error = nullptr);
@@ -428,6 +431,9 @@ struct ImportSession
   QMap<QString, QString> wellTargets; // 源路径 → 确认表选择，produce 线程独占
   QMap<QString, QString> expectedSourceHashes; // 预览时内容摘要，禁止旧确认导入新字节
   QStringList skippedPaths; // 用户保留现有数据：跳过本次文件，不创建任何实体
+  // 预览时展示过的源路径全集（含跳过/重复行）。非空时 produceFolder 对执行期
+  // 重扫多出的路径一律 Skipped——「确认表所见即所执行」，新文件须重新预览。
+  QStringList previewedPaths;
   bool intentPrepared = false;
   QString commitPreparationError;
 

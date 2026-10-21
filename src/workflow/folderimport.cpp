@@ -371,7 +371,7 @@ QVector<FolderRowResult> FolderImportWorkflow::runInlineImport(
     const std::function<void(ImportSession &)> &produce,
     const QMap<QString, QString> &wellTargets,
     const QMap<QString, QString> &expectedHashes, QString *error,
-    const QStringList &skippedPaths)
+    const QStringList &skippedPaths, const QStringList &previewedPaths)
 {
   if (error) error->clear();
   const auto session = m_svc ? m_svc->beginImport() : nullptr;
@@ -382,6 +382,7 @@ QVector<FolderRowResult> FolderImportWorkflow::runInlineImport(
   session->wellTargets = wellTargets;
   session->expectedSourceHashes = expectedHashes;
   session->skippedPaths = skippedPaths;
+  session->previewedPaths = previewedPaths;
   produce(*session);
   QString commitError;
   m_svc->commitImport(*session, &commitError);
@@ -417,7 +418,9 @@ FolderImportWorkflow::importFolderRow(const QString &path, const QString &forceT
     else {
       res.path = path;
       res.outcome = FolderRowResult::Outcome::Failed;
-      res.message = error ? *error : tr("导入失败");
+      res.message = (error && !error->isEmpty())
+          ? *error
+          : tr("导入失败，未写入工程；请检查文件后重试。文件：%1").arg(path);
     }
   }
   emit importActiveChanged(false);
@@ -429,9 +432,11 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
                                         const ImportDone &done,
                                         const QMap<QString, QString> &wellTargets,
                                         const QMap<QString, QString> &expectedHashes,
-                                        const QStringList &skippedPaths)
+                                        const QStringList &skippedPaths,
+                                        const QStringList &previewedPaths)
 {
-  return importFolder(dir, overrides, QStringList{}, done, wellTargets, expectedHashes, skippedPaths);
+  return importFolder(dir, overrides, QStringList{}, done, wellTargets, expectedHashes, skippedPaths,
+                      previewedPaths);
 }
 
 FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QString &dir,
@@ -440,7 +445,8 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
                                         const ImportDone &done,
                                         const QMap<QString, QString> &wellTargets,
                                         const QMap<QString, QString> &expectedHashes,
-                                        const QStringList &skippedPaths)
+                                        const QStringList &skippedPaths,
+                                        const QStringList &previewedPaths)
 {
   if (!m_svc)
   {
@@ -456,12 +462,13 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
   {
     return makeImportJob(
         tr("导入工区文件夹"),
-        [dir, overrides, forceImportPaths, wellTargets, expectedHashes, skippedPaths](
+        [dir, overrides, forceImportPaths, wellTargets, expectedHashes, skippedPaths, previewedPaths](
             ImportSession &s,
             const std::function<bool(int, int, const QString &)> &progress) {
           s.wellTargets = wellTargets;
           s.expectedSourceHashes = expectedHashes;
           s.skippedPaths = skippedPaths;
+          s.previewedPaths = previewedPaths;
           DataImportService::produceFolder(s, dir, overrides, forceImportPaths, progress);
         },
         dir, done);
@@ -471,7 +478,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
   QString importErr;
   const auto res = runInlineImport([&](ImportSession &session) {
     DataImportService::produceFolder(session, dir, overrides, forceImportPaths);
-  }, wellTargets, expectedHashes, &importErr, skippedPaths);
+  }, wellTargets, expectedHashes, &importErr, skippedPaths, previewedPaths);
   emit importActiveChanged(false);
   recordLedger(dir, started, res, importErr);
   if (done)
@@ -501,7 +508,8 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
                                        const ImportDone &done,
                                        const QMap<QString, QString> &wellTargets,
                                         const QMap<QString, QString> &expectedHashes,
-                                        const QStringList &skippedPaths)
+                                        const QStringList &skippedPaths,
+                                        const QStringList &previewedPaths)
 {
   if (!m_svc)
   {
@@ -517,12 +525,13 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
   {
     return makeImportJob(
         tr("导入所选文件"),
-        [paths, overrides, forceImportPaths, wellTargets, expectedHashes, skippedPaths](
+        [paths, overrides, forceImportPaths, wellTargets, expectedHashes, skippedPaths, previewedPaths](
             ImportSession &s,
             const std::function<bool(int, int, const QString &)> &progress) {
           s.wellTargets = wellTargets;
           s.expectedSourceHashes = expectedHashes;
           s.skippedPaths = skippedPaths;
+          s.previewedPaths = previewedPaths;
           DataImportService::produceFiles(s, paths, overrides, forceImportPaths, progress);
         },
         ledgerDir, done);
@@ -532,7 +541,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
   QString importErr;
   const auto res = runInlineImport([&](ImportSession &session) {
     DataImportService::produceFiles(session, paths, overrides, forceImportPaths);
-  }, wellTargets, expectedHashes, &importErr, skippedPaths);
+  }, wellTargets, expectedHashes, &importErr, skippedPaths, previewedPaths);
   emit importActiveChanged(false);
   recordLedger(ledgerDir, started, res, importErr);
   if (done)

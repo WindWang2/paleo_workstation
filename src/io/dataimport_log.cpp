@@ -27,6 +27,13 @@ QString ensureWell(DataCatalog &cat, const QString &name, QString *error)
     reject(error, tr("请输入新井名称。"));
     return {};
   }
+  // F6（review-security）：规范化后为空的名字（如 "-"、"___"）会让
+  // wellsMatchingName 恒零匹配、井名互撞检测失效——拒绝建井。
+  if (DataCatalog::normalizeWellName(name).isEmpty())
+  {
+    reject(error, tr("井名 %1 不是有效名称（缺少字母或数字），请检查文件的井名字段。").arg(name));
+    return {};
+  }
   const auto matches = cat.wellsMatchingName(name);
   if (matches.size() == 1 && cat.entityById(matches.first()).name.trimmed().compare(
           name.trimmed(), Qt::CaseInsensitive) == 0) return matches.first();
@@ -163,7 +170,16 @@ QString importInspectedLog(FamilyContext &ctx)
   QString target = ctx.targetWellId;
   QString error;
   if (target.startsWith(QLatin1String("new:")))
-    target = ensureWell(*ctx.cat, target.mid(4), &error);
+  {
+    const QString name = target.mid(4).trimmed();
+    // F4（review-security）：「新建井」撞名不静默并入——已有精确同名井时如实
+    // 拒绝，由用户改选已有井或改名；并入只能发生在用户知情处（预览/确认表）。
+    for (const auto &well : ctx.cat->entities(QStringLiteral("well")))
+      if (well.name.trimmed().compare(name, Qt::CaseInsensitive) == 0)
+        return tr("井 %1 已存在：未新建井，本文件暂未导入。如需归入该井，请重新预览并选择「已有井」。")
+            .arg(name);
+    target = ensureWell(*ctx.cat, name, &error);
+  }
   else if (!target.isEmpty())
   {
     const auto well = ctx.cat->entityById(target);

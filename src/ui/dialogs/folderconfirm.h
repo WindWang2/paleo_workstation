@@ -55,6 +55,7 @@ struct Hooks
                      const QMap<QString, QString> &wellTargets,
                      const QMap<QString, QString> &expectedHashes,
                      const QStringList &skippedPaths,
+                     const QStringList &previewedPaths,
                      std::function<void(const QVector<FolderRowResult> &,
                                         const QString &)> done)> importAllWithWells;
   // 确认完成后按行源文件名反查刚入库的井口资产（空 → 不开预览）。

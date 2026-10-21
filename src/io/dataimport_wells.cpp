@@ -131,6 +131,34 @@ QString importWellHeadFamily(FamilyContext &ctx)
       if (matches.size() == 1)
       {
         wid = matches.front(); // 已有井：直接挂，不另建
+        // F5（review-security）：测井导入先建的井没有坐标（unknown/无
+        // hasSurface）——井位表命中时回填坐标与状态，否则该井被剖面/地图
+        // 静默排除。已有坐标的井不动（先到的坐标优先，不静默改写）。
+        // 更新走 updateEntity → staging journal → 提交时重放。
+        CatalogEntity w = cat->entityById(wid);
+        if (w.entityType == QLatin1String("well") &&
+            (w.coordinateStatus == QLatin1String("unknown") || !w.hasSurface))
+        {
+          w.hasSurface = true;
+          w.surfaceX = r.x;
+          w.surfaceY = r.y;
+          w.kb = r.kb;
+          w.td = r.td;
+          double lonDeg = 0.0, latDeg = 0.0;
+          if (ctx.s->georeference &&
+              applyGeoreference(*ctx.s->georeference, r.x, r.y, &lonDeg, &latDeg))
+          {
+            w.coordinateStatus = QStringLiteral("ok");
+            w.extra.insert(QStringLiteral("projectLon"), lonDeg);
+            w.extra.insert(QStringLiteral("projectLat"), latDeg);
+          }
+          else
+          {
+            w.coordinateStatus = QStringLiteral("untransformed");
+          }
+          if (!cat->updateEntity(w, error))
+            return *error;
+        }
       }
       else
       {

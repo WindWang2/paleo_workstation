@@ -175,7 +175,7 @@ class TestPanels : public QObject
       PaleoFolderConfirm::Hooks hooks;
       hooks.importAllWithWells = [&called, &targets, &expectedHashes](const QMap<QString, QString> &,
           const QStringList &, const QMap<QString, QString> &wells,
-          const QMap<QString, QString> &hashes, const QStringList &, auto done) {
+          const QMap<QString, QString> &hashes, const QStringList &, const QStringList &, auto done) {
         called = true;
         targets = wells;
         expectedHashes = hashes;
@@ -215,7 +215,7 @@ class TestPanels : public QObject
       PaleoFolderConfirm::Hooks hooks;
       hooks.importAllWithWells = [&targets, &row](const QMap<QString, QString> &,
           const QStringList &, const QMap<QString, QString> &wells,
-          const QMap<QString, QString> &, const QStringList &, auto done) {
+          const QMap<QString, QString> &, const QStringList &, const QStringList &, auto done) {
         targets = wells;
         FolderRowResult result;
         result.path = row.path;
@@ -337,7 +337,7 @@ class TestPanels : public QObject
       PaleoFolderConfirm::Hooks hooks;
       hooks.cancelImport = [&] { ++cancellations; };
       hooks.importAllWithWells = [&](const auto &, const auto &, const auto &,
-          const auto &, const auto &, auto done) { finish = done; };
+          const auto &, const auto &, const auto &, auto done) { finish = done; };
       auto *dialog = new QDialog;
       PaleoFolderConfirm::buildFolderConfirmDialog(dialog, QStringLiteral("/audit"), {row}, hooks);
       dialog->show();
@@ -362,7 +362,7 @@ class TestPanels : public QObject
       PaleoFolderConfirm::Hooks hooks;
       hooks.cancelImport = [&] { ++cancellations; };
       hooks.importAllWithWells = [&](const auto &, const auto &, const auto &,
-          const auto &, const auto &, auto done) {
+          const auto &, const auto &, const auto &, auto done) {
         FolderRowResult result;
         result.path = row.path;
         result.outcome = FolderRowResult::Outcome::Imported;
@@ -393,7 +393,7 @@ class TestPanels : public QObject
       PaleoFolderConfirm::Hooks hooks;
       hooks.importAllWithWells = [&](const QMap<QString, QString> &, const QStringList &,
           const QMap<QString, QString> &wells, const QMap<QString, QString> &expected,
-          const QStringList &skipped, auto done) {
+          const QStringList &skipped, const QStringList &, auto done) {
         called = true;
         skips = skipped;
         targets = wells;
@@ -439,7 +439,7 @@ class TestPanels : public QObject
       PaleoFolderConfirm::Hooks hooks;
       hooks.importAllWithWells = [&](const QMap<QString, QString> &, const QStringList &force,
           const QMap<QString, QString> &, const QMap<QString, QString> &,
-          const QStringList &skips, auto done) {
+          const QStringList &skips, const QStringList &, auto done) {
         forced = force;
         skipped = skips;
         done({}, QStringLiteral("暂不可读"));
@@ -497,12 +497,13 @@ class TestPanels : public QObject
       QVector<FolderRowResult> results;
       PaleoFolderConfirm::Hooks hooks;
       hooks.importAllWithWells = [&](const auto &overrides, const auto &forced,
-          const auto &targets, const auto &hashes, const auto &skipped, auto done) {
+          const auto &targets, const auto &hashes, const auto &skipped,
+          const auto &previewed, auto done) {
         workflow.importFiles(paths, overrides, forced, [&](const auto &rows, const auto &err) {
           results = rows;
           error = err;
           done(rows, err);
-        }, targets, hashes, skipped);
+        }, targets, hashes, skipped, previewed);
       };
       QDialog dialog;
       PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, temporary.path(), preview, hooks);

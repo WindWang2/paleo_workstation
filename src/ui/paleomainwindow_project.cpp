@@ -82,8 +82,9 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
                                         const QMap<QString, QString> &wellTargets,
                                         const QMap<QString, QString> &expectedHashes,
                                         const QStringList &skippedPaths,
+                                        const QStringList &previewedPaths,
                                         FolderImportWorkflow::ImportDone done) {
-      *cancelImport = wf->importFolder(dir, overrides, forcePaths, std::move(done), wellTargets, expectedHashes, skippedPaths);
+      *cancelImport = wf->importFolder(dir, overrides, forcePaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths);
     };
     hooks.importedWellHead = [wf](const QString &rowPath) {
       return wf->importedWellHeadAsset(rowPath);
@@ -148,8 +149,9 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
                         const QMap<QString, QString> &wellTargets,
                         const QMap<QString, QString> &expectedHashes,
                         const QStringList &skippedPaths,
+                        const QStringList &previewedPaths,
                         FolderImportWorkflow::ImportDone done) {
-              *cancelImport = wf->importFiles(paths, overrides, forceImportPaths, std::move(done), wellTargets, expectedHashes, skippedPaths);
+              *cancelImport = wf->importFiles(paths, overrides, forceImportPaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths);
             };
         hooks.importedWellHead = [wf](const QString &rowPath) {
           return wf->importedWellHeadAsset(rowPath);

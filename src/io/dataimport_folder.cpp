@@ -202,6 +202,9 @@ QVector<FolderPreviewRow> DataImportService::previewRowsFromPlan(const IngestPla
     r.path = item.path;
     r.classifiedType = item.type;
     r.decision = item.decision; // plan 期决策（重复→跳过等）随行进确认表
+    // F2（review-security）：plan 期 sha（重复命中已真复核）随行进预览——
+    // 全类型行获得确认后执行的内容指纹，不再只有 well_log 有。
+    r.sourceSha256 = item.sha256;
     r.sizeBytes = item.size;    // T2 大小估算（族项 = 主件字节）
     r.entityPreview = entityPreviewFor(item);
     fillDisplay(r);
@@ -397,6 +400,36 @@ void DataImportService::produceFromPlan(
   QString errText;
   QString *const error = &errText;
 
+  // F1（review-security）：预览集非空时，执行期 plan 里任何预览时没展示过的
+  // 路径一律不执行（目录重扫可能收入预览后才落盘的文件）——落 Skipped 行并
+  // 提示重新预览，保持「确认表所见即所执行」。
+  if (!sess.previewedPaths.isEmpty())
+  {
+    const QSet<QString> previewed(sess.previewedPaths.begin(), sess.previewedPaths.end());
+    QVector<PlannedItem> confirmed;
+    confirmed.reserve(plan.items.size());
+    int lateCount = 0;
+    for (const PlannedItem &item : plan.items)
+    {
+      if (previewed.contains(item.path))
+      {
+        confirmed.append(item);
+        continue;
+      }
+      ++lateCount;
+      FolderRowResult row;
+      row.path = item.path;
+      row.classifiedType = item.type;
+      row.outcome = FolderRowResult::Outcome::Skipped;
+      row.message = QCoreApplication::translate(
+          "DataImportService",
+          "该文件在预览后才出现，本次未导入；如需导入请重新生成预览。");
+      sess.rows.append(row);
+    }
+    if (lateCount > 0)
+      plan.items = confirmed;
+  }
+
   // 确认表「改类型」：合法 override 并进 item.type（生效类型）；非法 override
   // 忽略——不落进资产类型。D5：阶段归属按生效类型算——改成 well_head 的行
   // 回阶段 1，井建得够早排前的阶段 2 行仍能挂上。
@@ -430,7 +463,8 @@ void DataImportService::produceFromPlan(
   // 协作取消；入库在 owner 线程 commitImport 一次事务落盘。幂等——
   // decision==skip 或 (path,sha) 已注册的项不再登记；重跑同清单每行
   // Skipped、零增量。
-  sess.rows = executeIngestPlan(plan, sess, progress, error);
+  auto executedRows = executeIngestPlan(plan, sess, progress, error);
+  sess.rows += executedRows; // 保留 F1 预挂的「预览后出现」Skipped 行
   sess.error = errText;
 }
 
@@ -501,6 +535,8 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
   const QString expected = s.expectedSourceHashes.value(item.path);
   if (!expected.isEmpty() && paleo::dataimport_detail::logFileDigest(item.path) != expected)
   {
+    // 真哈希不符——若预期值来自 plan 期缓存（可能已失真），让缓存失效自愈。
+    ShaCache::shared().invalidate(item.path);
     row.outcome = FolderRowResult::Outcome::Failed;
     row.message = QCoreApplication::translate("DataImportService", "文件内容与预览时不同，暂未导入：%1。请重新打开导入预览后确认。").arg(item.path);
     return row;

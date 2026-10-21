@@ -4,12 +4,14 @@
 #include <QTemporaryDir>
 #include <cmath>
 #include <memory>
+#include <algorithm>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/io/importclassification.h"
 #include "../src/io/importrecovery.h"
 #include "../src/io/ingestplan.h"
+#include "../src/io/shacache.h"
 #include "../src/io/welllogread.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/services/welllogset.h"
@@ -403,6 +405,163 @@ private slots:
     QVERIFY(h.catalog()->links().isEmpty());
     QVERIFY(rawFiles(h.project).isEmpty());
     QCOMPARE(bytesAt(path), replacement);
+  }
+
+  // F1（review-security）：预览确认后、执行前新落盘的文件不得随批入库——
+  // 执行期目录重扫与预览路径集差分，多出一律 Skipped 并提示重新预览。
+  void lateArrivingFilesAreSkippedNotImported()
+  {
+    Harness h;
+    const QString dir = h.temporary.filePath(QStringLiteral("late"));
+    QVERIFY(QDir().mkpath(dir));
+    const QString first = dir + QStringLiteral("/first.csv");
+    QVERIFY(ImportUxFixtures::write(first, ImportUxFixtures::csv("A1")));
+    QString error;
+    const auto preview = h.service->previewFolder(dir, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(preview.size(), 1);
+    QCOMPARE(preview.first().path, first);
+    // 用户审阅窗口内，另一进程向源目录写入新文件。
+    const QString late = dir + QStringLiteral("/late.csv");
+    QVERIFY(ImportUxFixtures::write(late, ImportUxFixtures::csv("B1", "GR[API]")));
+
+    auto session = h.service->beginImport();
+    for (const auto &row : preview)
+      session->previewedPaths << row.path; // 确认表传入的「所见」全集
+    DataImportService::produceFolder(*session, dir, {}, {});
+    QCOMPARE(session->rows.size(), 2);
+    const auto firstRow = std::find_if(session->rows.begin(), session->rows.end(),
+                                       [&](const auto &r) { return r.path == first; });
+    const auto lateRow = std::find_if(session->rows.begin(), session->rows.end(),
+                                      [&](const auto &r) { return r.path == late; });
+    QVERIFY(firstRow != session->rows.end() && lateRow != session->rows.end());
+    QCOMPARE(firstRow->outcome, RowOutcome::Imported);
+    QCOMPARE(lateRow->outcome, RowOutcome::Skipped);
+    QVERIFY(lateRow->message.contains(QStringLiteral("预览后才出现")));
+    QVERIFY2(h.service->commitImport(*session, &error) == Commit::Committed,
+             qPrintable(error));
+    // 晚到文件零痕迹：B1 井不存在、资产/raw 只有 first 的份。
+    QVERIFY(h.wellId(QStringLiteral("B1")).isEmpty());
+    QCOMPARE(h.catalog()->assets().size(), 1);
+    QCOMPARE(rawFiles(h.project).size(), 1);
+    QCOMPARE(h.curves(QStringLiteral("A1")).size(), 1);
+  }
+
+  // F2（review-security）：同尺寸换内容 + 保 mtime（同步工具做法）——dedup
+  // 决策不信 ShaCache 缓存指纹，按真哈希导入为新数据，不静默报「已在库」。
+  void staleCacheDoesNotSuppressChangedBytes()
+  {
+    Harness h;
+    const QByteArray original = ImportUxFixtures::csv("A1", "RES[ohm.m]", "1000,10\n1001,20\n");
+    const QString path = h.source(QStringLiteral("a1.csv"), original);
+    QVERIFY(!path.isEmpty());
+    QString error;
+    const auto first = h.service->importProjectFileEx(path, &error);
+    QVERIFY2(first.outcome == Outcome::Imported, qPrintable(error));
+    QCOMPARE(h.catalog()->assets().size(), 1);
+    QCOMPARE(h.curves(QStringLiteral("A1")).size(), 1);
+
+    // 污染源缓存：换同尺寸内容并把 mtime 拨回原值——指纹（mtime|size）不变，
+    // ShaCache 仍会返回旧内容的哈希（bug 场景的真实构造）。
+    ShaCache::shared().invalidate(path);
+    QString primeErr;
+    const QString cachedOriginal =
+        ShaCache::shared().sha256Hex(path, &primeErr, ShaCache::Fingerprint::MtimeSizeInode);
+    QCOMPARE(cachedOriginal, DataCatalog::sha256FileHex(path));
+    const QDateTime modified = QFileInfo(path).lastModified();
+    const QByteArray swapped = ImportUxFixtures::csv("A1", "RES[ohm.m]", "1000,10\n1001,21\n");
+    QCOMPARE(swapped.size(), original.size());
+    QVERIFY(swapped != original);
+    QVERIFY(ImportUxFixtures::write(path, swapped));
+    QFile touched(path);
+    QVERIFY(touched.open(QIODevice::ReadWrite));
+    QVERIFY(touched.setFileTime(modified, QFileDevice::FileModificationTime));
+    touched.close();
+    QString staleErr;
+    const QString stale = ShaCache::shared().sha256Hex(path, &staleErr,
+                                                       ShaCache::Fingerprint::MtimeSizeInode);
+    QCOMPARE(stale, cachedOriginal); // 缓存确实陈旧（返回旧内容的哈希）
+    QVERIFY(stale != DataCatalog::sha256FileHex(path)); // 真哈希已变
+
+    // 重导：不得 AlreadyStored——新字节必须如实成为新数据来源。
+    const auto second = h.service->importProjectFileEx(path, &error);
+    QVERIFY2(second.outcome == Outcome::Imported, qPrintable(error));
+    QVERIFY(second.assetId != first.assetId);
+    QCOMPARE(h.catalog()->assets().size(), 2);
+    // 同名曲线两来源并存（别名机制），互不覆盖。
+    QCOMPARE(h.curves(QStringLiteral("A1")).size(), 2);
+  }
+
+  // F4（review-security）：显式「新建井：X」撞上已有井 X——拒绝并入，行如实
+  // 失败并提示改选已有井；已有井与库零改动。
+  void explicitNewWellCollidingExistingNameIsRejected()
+  {
+    Harness h;
+    const QString first = h.source(QStringLiteral("a1.csv"), ImportUxFixtures::csv("A1"));
+    QVERIFY(!first.isEmpty());
+    QString error;
+    QVERIFY2(h.service->importProjectFileEx(first, &error).outcome == Outcome::Imported,
+             qPrintable(error));
+    const QString existing = h.wellId(QStringLiteral("A1"));
+    QVERIFY(!existing.isEmpty());
+    QCOMPARE(h.catalog()->assets().size(), 1);
+
+    // 第二份文件内容井名是 B1，但用户显式选「新建井：A1」（与既有井撞名）。
+    const QString second =
+        h.source(QStringLiteral("b1.csv"), ImportUxFixtures::csv("B1", "GR[API]"));
+    QVERIFY(!second.isEmpty());
+    auto session = h.service->beginImport();
+    session->wellTargets.insert(second, QStringLiteral("new:A1"));
+    DataImportService::produceFiles(*session, {second}, {}, {});
+    QCOMPARE(session->rows.size(), 1);
+    QCOMPARE(session->rows.first().outcome, RowOutcome::Failed);
+    QVERIFY(session->rows.first().message.contains(QStringLiteral("已存在")));
+    QVERIFY2(h.service->commitImport(*session, &error) == Commit::Committed,
+             qPrintable(error));
+    // 零并入：A1 仍一口井、资产仍 1 个、B1 未建。
+    QCOMPARE(h.catalog()->entities(QStringLiteral("well")).size(), 1);
+    QCOMPARE(h.catalog()->assets().size(), 1);
+    QVERIFY(h.wellId(QStringLiteral("B1")).isEmpty());
+    QCOMPARE(rawFiles(h.project).size(), 1);
+  }
+
+  // F5（review-security）：测井先建的井无坐标；井位表命中该井时回填坐标与
+  // 状态（updateEntity 经 staging/journal），重开工程后坐标仍在。
+  void wellheadImportBackfillsLogCreatedWellCoordinates()
+  {
+    Harness h;
+    const QString logPath = h.source(QStringLiteral("a1.csv"), ImportUxFixtures::csv("A1"));
+    QVERIFY(!logPath.isEmpty());
+    QString error;
+    QVERIFY2(h.service->importProjectFileEx(logPath, &error).outcome == Outcome::Imported,
+             qPrintable(error));
+    const QString wid = h.wellId(QStringLiteral("A1"));
+    QVERIFY(!wid.isEmpty());
+    const auto before = h.catalog()->entityById(wid);
+    QCOMPARE(before.coordinateStatus, QStringLiteral("unknown"));
+    QVERIFY(!before.hasSurface);
+
+    // 井位表（路径段「井位」触发 well_head 分类）带来 A1 坐标。
+    const QString headsPath = h.source(
+        QStringLiteral("井位/heads.dat"),
+        QByteArrayLiteral("#WellHead File From SMI\n#Name X Y KB TD\n"
+                          "A1 3.5 4.5 10.0 2100.0\n"));
+    QVERIFY(!headsPath.isEmpty());
+    QVERIFY2(h.service->importProjectFileEx(headsPath, &error).outcome == Outcome::Imported,
+             qPrintable(error));
+    const auto after = h.catalog()->entityById(wid);
+    QVERIFY(after.hasSurface);
+    QCOMPARE(after.surfaceX, 3.5);
+    QCOMPARE(after.surfaceY, 4.5);
+    QCOMPARE(after.kb, 10.0);
+    QCOMPARE(after.td, 2100.0);
+    QVERIFY(after.coordinateStatus != QStringLiteral("unknown"));
+    // journal 重放进持久化：重开后坐标不丢。
+    h.reopen();
+    const auto reopened = h.catalog()->entityById(wid);
+    QVERIFY(reopened.hasSurface);
+    QCOMPARE(reopened.surfaceX, 3.5);
+    QCOMPARE(reopened.surfaceY, 4.5);
   }
 
   void sameMnemonicDifferentValuesRetainsBothSources()

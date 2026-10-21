@@ -72,15 +72,19 @@ class FolderImportWorkflow : public QObject
                       const ImportDone &done,
                       const QMap<QString, QString> &wellTargets = {},
                       const QMap<QString, QString> &expectedHashes = {},
-                      const QStringList &skippedPaths = {});
+                      const QStringList &skippedPaths = {},
+                      const QStringList &previewedPaths = {});
     // 同上 + 「仍导入」改判（T2 确认表跳过策略）：forceImportPaths 是用户
     // 对「重复→跳过」行点了「仍导入」的源路径集合——plan 里这些行改判
     // as_new_version（同字节结局交内部 dedup：AlreadyStored + 补挂）。
+    // previewedPaths：预览展示过的源路径全集；非空时执行期目录重扫多出的
+    // 文件一律 Skipped（F1：确认表所见即所执行）。
     CancelImport importFolder(const QString &dir, const QMap<QString, QString> &overrides,
                       const QStringList &forceImportPaths, const ImportDone &done,
                       const QMap<QString, QString> &wellTargets = {},
                       const QMap<QString, QString> &expectedHashes = {},
-                      const QStringList &skippedPaths = {});
+                      const QStringList &skippedPaths = {},
+                      const QStringList &previewedPaths = {});
     // 单文件导入（数据页「导入」按钮）：同 importFolder 的双路径语义。
     void importFile(const QString &kind, const QString &path,
                     std::function<void(const QString &assetId, const QString &error)> done);
@@ -90,7 +94,8 @@ class FolderImportWorkflow : public QObject
                      const QStringList &forceImportPaths, const ImportDone &done,
                      const QMap<QString, QString> &wellTargets = {},
                      const QMap<QString, QString> &expectedHashes = {},
-                     const QStringList &skippedPaths = {});
+                     const QStringList &skippedPaths = {},
+                     const QStringList &previewedPaths = {});
     void previewFilesAsync(
         const QStringList &paths,
         const std::function<void(const QVector<FolderPreviewRow> &,
@@ -143,7 +148,8 @@ class FolderImportWorkflow : public QObject
         const std::function<void(ImportSession &)> &produce,
         const QMap<QString, QString> &wellTargets,
         const QMap<QString, QString> &expectedHashes, QString *error,
-        const QStringList &skippedPaths = {});
+        const QStringList &skippedPaths = {},
+        const QStringList &previewedPaths = {});
     // 方向 30：整批导入完成后写台账（.paleo/import_ledger.json，窗口 50 批）。
     // 写失败 qWarning 如实留痕，不挡导入主路径。
     void recordLedger(const QString &dir, const QDateTime &started,

@@ -194,12 +194,12 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 变更、buildShell 六段按原文行序分解仅加函数边界、构造期 connect 55 条
 序列对拍唯一偏移 = ErrorHub 计数两条前移（wireErrorHubStatus 合并原两段）。
 
-**实测（2026-10-20，master + fix-review worktree）：paleomainwindow.cpp 1015 行（家族 27 TU）**
+**实测（2026-10-22，project-setup-wizard worktree）：paleomainwindow.cpp 1015 行（家族 28 TU）**
 （#473 拆分：`_workbench.cpp` 1250→525 行 + `_workbench_commands/_wells` 承载；
 #516 新增 `_references.cpp` 参考面板域；#573 新增 `_workbench_editflow.cpp`
 编图编辑流域——家族 26→27 TU）
 
-家族全表（`src/ui/paleomainwindow_*.cpp` 27 TU + 本体 1 行 = 表 28 行，平铺不
+家族全表（`src/ui/paleomainwindow_*.cpp` 28 TU + 本体 1 行 = 表 29 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：
 
@@ -232,6 +232,7 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 | `_shortcuts.cpp` | 42 | 页快捷键域（方向 63 注册表，#312 自成 TU）：Ctrl+1..6/Ctrl+Tab |
 | `_workbench_evidence.cpp` | 41 | 证据面板/局部图谱联动接线（#473 拆分承载） |
 | `_attach_python.cpp` | 36 | Python 控制台/REPL 接线（方向 68） |
+| `_projectsetup.cpp` | 25 | 新建工程可选资料向导接线 |
 | `_faults.cpp` | 27 | 断层解释壳接线（方向 7）：剖面 dock 编排器 + 管理面板 dock |
 
 （`paleoribbon.cpp`/`ribbonpanels.cpp` 是 ribbon 命令组构建与镜像绑定的

@@ -1,5 +1,6 @@
 // 层：数据
 #include "paleoprojectfile.h"
+#include "nativereference.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -108,6 +109,7 @@ QJsonObject paleoGeoreferenceToJson(const PaleoGeoreference &g)
   }
   QJsonObject o;
   o.insert(QStringLiteral("kind"), g.kind);
+  if (!g.sourceCrs.isEmpty()) o.insert(QStringLiteral("sourceCrs"), g.sourceCrs);
   o.insert(QStringLiteral("targetCrs"), g.targetCrs);
   o.insert(QStringLiteral("anchor"), anchor);
   o.insert(QStringLiteral("params"), params);
@@ -123,6 +125,13 @@ bool paleoGeoreferenceFromJson(const QJsonObject &o, PaleoGeoreference *g,
 {
   g->kind = o.value(QStringLiteral("kind")).toString(
       QStringLiteral("similarity2d"));
+  if (g->kind == QLatin1String("crs")) {
+    g->sourceCrs = o.value(QStringLiteral("sourceCrs")).toString();
+    g->targetCrs = QStringLiteral("EPSG:4326");
+    g->provenance = o.value(QStringLiteral("provenance")).toString();
+    if (g->isComplete()) return true;
+    setErr(error, QStringLiteral("工程原生坐标系无效")); return false;
+  }
   if (g->kind != QLatin1String("similarity2d"))
   {
     setErr(error, QStringLiteral("georeference.kind '%1' 不支持").arg(g->kind));
@@ -171,6 +180,7 @@ bool paleoGeoreferenceFromJson(const QJsonObject &o, PaleoGeoreference *g,
 
 bool PaleoGeoreference::isComplete() const
 {
+  if (kind == QLatin1String("crs")) return validNativeCrs(sourceCrs);
   return std::isfinite(anchorLonDeg) && std::isfinite(anchorLatDeg) &&
          std::abs(anchorLonDeg) <= 180.0 && std::abs(anchorLatDeg) < 90.0 &&
          std::isfinite(metersPerDegLon) && metersPerDegLon > 0.0 &&
@@ -186,6 +196,7 @@ bool applyGeoreference(const PaleoGeoreference &g, double x, double y,
 {
   if (!g.isComplete() || !std::isfinite(x) || !std::isfinite(y))
     return false;
+  if (g.kind == QLatin1String("crs")) return nativeToGeographic(g.sourceCrs, x, y, lonDeg, latDeg);
   const double e = g.a * x - g.b * y + g.tE;
   const double n = g.b * x + g.a * y + g.tN;
   const double lon = g.anchorLonDeg + e / g.metersPerDegLon;

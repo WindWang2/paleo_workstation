@@ -27,6 +27,7 @@
 struct PaleoGeoreference
 {
   QString kind = QStringLiteral("similarity2d");
+  QString sourceCrs; // kind=crs: native input coordinates, no fitted affine
   QString targetCrs; // 如 "EPSG:4326"
 
   double anchorLonDeg = 0.0;   // 切平面锚点（E/N 的度换算基准）

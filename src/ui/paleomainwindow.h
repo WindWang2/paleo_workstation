@@ -392,6 +392,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 「导入工区文件夹」：分类确认表（可改类型）→ 两阶段导入 → 计数汇总，
     // 确认后只打开井口标签（§3/autoplan-design）。
     void runFolderImport(DataImportService *svc);
+    void runNewProject(const QString &sourceRoot = {}, bool supplement = false);
+    void attachProjectSetupAction(QMenu *menu);
     // 已知目录的入口变体（「从工区文件夹新建」复用同一确认框流程）。
     void runFolderImportAt(DataImportService *svc, const QString &dir);
     // 「多选文件导入」：与文件夹导入同一确认表/两阶段导入语义，数据源是

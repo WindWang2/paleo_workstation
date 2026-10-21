@@ -607,6 +607,7 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
 
   QString ferr;
   ImportOptions opts;
+  opts.tableMapping = s.tableMappings.value(item.path);
   opts.forceType = item.type; // 恒下传——与分类器同值时是无害同值
   opts.targetWellId = s.wellTargets.value(item.path);
   opts.expectedSourceSha256 = expected;

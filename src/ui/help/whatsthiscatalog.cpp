@@ -39,7 +39,7 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"PaleoMainWindow", "statusScale", QT_TRANSLATE_NOOP("PaleoWhatsThis", "当前地图比例尺。"), nullptr},
     {"PaleoMainWindow", "statusCrs", QT_TRANSLATE_NOOP("PaleoWhatsThis", "坐标系：未配准的工程显示「工程坐标 · 米 · 未投影」（局部坐标，不是经纬度）；已配准的工程显示地图坐标系代号（没有代号时显示坐标系名称）。"), nullptr},
     {"PaleoMainWindow", "statusHorizon", QT_TRANSLATE_NOOP("PaleoWhatsThis", "当前层位；各页的编图与预测都针对这个层位。"), nullptr},
-    {"PaleoMainWindow", "newProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "新建一个空的 Paleo 工程文件（.qgz）。"), nullptr},
+    {"PaleoMainWindow", "newProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "通过可跳过的引导创建 Paleo 工程，可自动识别井点、井资料、地震和层位；也可创建空白工程。"), nullptr},
     {"PaleoMainWindow", "openProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "打开已有的 Paleo 工程。"), nullptr},
     {"PaleoMainWindow", "importFromFolderButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择工区文件夹：已有工程直接打开，否则在该文件夹内新建工程并导入其中的数据。"), nullptr},
     {"PaleoMainWindow", "recentProjectsList", QT_TRANSLATE_NOOP("PaleoWhatsThis", "最近打开的工程，双击或回车即可打开。"), nullptr},

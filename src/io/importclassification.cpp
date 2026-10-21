@@ -1,11 +1,18 @@
 // 层：数据
 #include "importclassification.h"
 #include "welllogtext.h"
+#include "welltable.h"
+#include <QFileInfo>
 #include <QFile>
 #include <QXmlStreamReader>
 
 ProjectClassification classifyImportFile(const QString &path)
 {
+  if (paleo::io::isWellTableContainer(path) && QFileInfo(path).size() <= 64ll * 1024 * 1024) {
+    const auto table = paleo::io::readWellTable(path);
+    if (!table.type.isEmpty() && !table.mapping.value(QStringLiteral("headerless")).toBool())
+      return {table.type, QFileInfo(path).suffix().toLower(), QStringLiteral("input")};
+  }
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) return classifyProjectPath(path);
   const QByteArray prefix = file.read(65536);

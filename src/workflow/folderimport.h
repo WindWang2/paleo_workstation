@@ -7,6 +7,7 @@
 #include <QMap>
 #include <QString>
 #include <QVector>
+#include <QVariantMap>
 #include <functional>
 #include <memory>
 
@@ -95,7 +96,8 @@ class FolderImportWorkflow : public QObject
                      const QMap<QString, QString> &wellTargets = {},
                      const QMap<QString, QString> &expectedHashes = {},
                      const QStringList &skippedPaths = {},
-                     const QStringList &previewedPaths = {});
+                     const QStringList &previewedPaths = {},
+                     const QMap<QString, QVariantMap> &tableMappings = {});
     void previewFilesAsync(
         const QStringList &paths,
         const std::function<void(const QVector<FolderPreviewRow> &,

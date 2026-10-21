@@ -44,6 +44,7 @@ QVector<CatalogRoleInfo> builtinCatalogRoles()
   add("reference", "misc", 30, QStringLiteral("参考资料"));
   add("framework_unit", "misc", 31, QStringLiteral("格架单元"));
   add("siting_note", "misc", 32, QStringLiteral("部署依据"));
+  add("boundary", "misc", 33, QStringLiteral("测区范围"));
 
   return t;
 }

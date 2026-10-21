@@ -1,5 +1,6 @@
 // 层：数据
 #include "horizonbinner.h"
+#include "horizonnativegrid.h"
 #include "ioerrors_internal.h"
 
 #include "../catalog/datacatalog.h"
@@ -264,6 +265,7 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
   b.dy = (h.p3y - h.p2y) / (h.gridRows - 1);
   b.originX = h.p1x;
   b.originY = h.p1y + (h.gridRows - 1) * b.dy;
+  if (!nativeHorizonGrid(text, h, &b, error)) return false;
   if (!(b.dx > 0.0) || !(b.dy > 0.0) || !std::isfinite(b.dx) || !std::isfinite(b.dy) ||
       !std::isfinite(b.originX) || !std::isfinite(b.originY))
   {
@@ -364,8 +366,9 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
     return false;
   }
 
-  double gt[6] = {b.originX, b.dx, 0.0, b.originY, 0.0, -b.dy};
+  double gt[6] = {b.originX, b.dx, b.rowX, b.originY, b.columnY, -b.dy};
   GDALSetGeoTransform(ds, gt);
+  GDALSetMetadataItem(ds, "PALEO_XY_MAX_RESIDUAL_M", QByteArray::number(b.geometryResidualM, 'g', 12).constData(), nullptr);
   GDALSetRasterNoDataValue(GDALGetRasterBand(ds, 1), kNoData);
 
   const auto setIntMetadata = [ds](const char *key, int value) {

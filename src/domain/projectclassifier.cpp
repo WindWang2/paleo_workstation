@@ -26,6 +26,17 @@ namespace
       parts.append(lowerAscii(p));
     return parts;
   }
+  bool hasLasSections(const QByteArray &prefix)
+  {
+    if (prefix.contains('\0')) return false;
+    bool version = false, data = false;
+    for (const auto &raw : prefix.split('\n')) {
+      const auto line = raw.trimmed().toUpper();
+      version |= line.startsWith("~V");
+      data |= line.startsWith("~W") || line.startsWith("~C");
+    }
+    return version && data;
+  }
 } // namespace
 
 ProjectClassification classifyProjectPath(const QString &path)
@@ -108,7 +119,7 @@ ProjectClassification classifyProjectImport(const QString &path, const QByteArra
   const QByteArray probe = content.trimmed();
   // 文件内容自声明优先；不要求用户先修正扩展名。
   const QByteArray upper = probe.toUpper();
-  if (upper.contains("~V") && (upper.contains("~W") || upper.contains("~C")))
+  if (hasLasSections(content))
     return {QStringLiteral("well_log"), QStringLiteral("las"), QStringLiteral("input")};
   if (probe.startsWith('<') || probe.startsWith("\xEF\xBB\xBF<"))
   {

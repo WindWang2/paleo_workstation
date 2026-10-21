@@ -160,3 +160,15 @@ sourceArea）+ `readProjectFile`/`writeProjectFile`/`missingMembers`。
 - 不把数据文件清单写进 `project.paleo`（那是 catalog.json 的职责，
   清单只管束成员）。
 - 不做多工程并行管理器（一次一个工程，QGIS app 同语义）。
+
+## 新建向导与资料设置（2026-10-22）
+
+GUI“新建工程”与尚无工程的“从工区文件夹新建”统一进入四步可跳过向导。
+默认在选定保存位置下建立同名工程目录，资料源与工程位置分离；已有工程目录
+仍走打开/收养。命令行 openPath 的既有就地创建契约保留。
+sourceArea.stats 记录 points/wells/seismic/horizons/references/boundary、pointMapping
+与井名冲突的显式归属选择 wellTargets，
+供“工程资料设置”恢复。XLSX/点矢量的原件为 RAW，规范井表为带 parentVersionIds
+的 DERIVED；井点与测区仍按 catalog 生成受管 GeoJSON，并由 manifest 持久声明。
+georeference.kind=crs 时 sourceCrs 为原生投影声明；与 similarity2d 分开读取，
+按精确投影操作绑定既有工程计算网格，不再拟合第二遍仿射。

@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <cmath>
 
 namespace
 {
@@ -73,8 +74,13 @@ bool CatalogStore::upsertEntity(const CatalogEntity &e, QString *error)
   q.addBindValue(e.surfaceX);
   q.addBindValue(e.surfaceY);
   q.addBindValue(e.hasSurface ? 1 : 0);
-  q.addBindValue(e.kb);
-  q.addBindValue(e.td);
+  // The legacy schema has NOT NULL numeric columns. Explicit missing flags
+  // preserve optional values without presenting a stored placeholder as data.
+  auto extra = e.extra;
+  extra.insert(QStringLiteral("kbMissing"), !std::isfinite(e.kb));
+  extra.insert(QStringLiteral("tdMissing"), !std::isfinite(e.td));
+  q.addBindValue(std::isfinite(e.kb) ? e.kb : 0.0);
+  q.addBindValue(std::isfinite(e.td) ? e.td : 0.0);
   q.addBindValue(textArg(e.coordinateStatus));
   q.addBindValue(e.inlineMin);
   q.addBindValue(e.inlineMax);
@@ -83,7 +89,7 @@ bool CatalogStore::upsertEntity(const CatalogEntity &e, QString *error)
   q.addBindValue(e.sampleIntervalUs);
   q.addBindValue(e.startTimeMs);
   q.addBindValue(textArg(cornersToJson(e.corners)));
-  q.addBindValue(textArg(mapToJson(e.extra)));
+  q.addBindValue(textArg(mapToJson(extra)));
   if (!q.exec())
   {
     setError(error, q.lastError().text());

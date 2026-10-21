@@ -132,6 +132,7 @@ void PaleoMainWindow::buildRibbon()
     viaStartup(tr("新建工程(&N)…"), "mActionFileNew.svg", "newProjectButton");
     viaStartup(tr("打开工程(&O)…"), "mActionFileOpen.svg", "openProjectButton");
     viaStartup(tr("从工区文件夹新建(&I)…"), "mIconFolderOpen.svg", "importFromFolderButton");
+    attachProjectSetupAction(menu);
     menu->addSeparator()->setObjectName(QStringLiteral("fileMenuSaveAnchor"));
     auto *exportMap = menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionSaveAsPDF.svg")), tr("导出工程地图／地质图…"));
     exportMap->setObjectName(QStringLiteral("fileExportGeologicalMap"));

@@ -1,0 +1,37 @@
+# 新建工程与资料生成（2026-10-22）
+
+新建入口以原生四步向导收集工程名称/位置、井点、其他资料、确认；资料全部可跳过，
+支持直接创建空白工程。已有工程仍直接打开；文件菜单提供“工程资料设置”补充导入。
+
+数据链：XLSX / CSV / TSV / TXT / 点矢量识别井名、XY、可选 KB/TD；字段与工作表可调整。
+原件保持 RAW，规范井表登记 DERIVED 并保存 parentVersionIds；TVD 与 MD 分开保存。
+缺失 KB/TD 用显式缺失标记适配既有 NOT NULL 数据库，不把缺失显示成零。
+分层总表与拆分表按完整记录集合去重；旧工程、缓存、空文件默认跳过。
+
+井点与地震覆盖范围沿用 catalog → 受管 GeoJSON → manifest 图层的生产链；面矢量
+生成独立 study_area，保留各要素及多部件几何，避免伪造为地震采集测网。
+原生投影记录为 georeference.kind=crs，精确绑定 QGIS 转换上下文；保留旧 similarity2d。
+明确声明投影的层位文件按实际 XY/线道号建立网格，保留旋转及最大拟合误差；超半像元拒收。
+
+真实资料核对：20 井、516 条分层、21 LAS、1 SEG-Y、8 层位；A18_log.las 内部井名
+实际为 Zhuang181，确认页列明冲突并提供“关联 A18 / 保留内部井名”的显式选择。
+归属选择保存进工程；执行时按唯一井名解析已建立实体，不改原始 LAS。
+
+井位多工作表默认只选首张可识别表，预览与执行共用同一映射；可切换工作表。
+同一分层记录同时提供 MD/TVD 时分别保留，缺失值按既有 wellnumeric 词表识别。
+规范井表使用制表符，井名包含空格时仍能正确重开。
+
+验证（2026-10-22，Windows / vendored QGIS）：
+
+- 独立 build/setup/out 完整编译主程序与测试，-j8；未替换日常运行目录。
+- tst_projectsetup：15 通过，含真实资料全量入库；350 个文件、导入失败 0；
+  20 井、516 条分层、1 个地震测网；8 个层位与井点、范围共 10 个受管图层。
+  保存后重读 catalog，核对分层数量；QGIS 实例化井点和范围图层，核对要素数与投影坐标。
+- 回归：wellfileparsers 61、horizonbinner 9、import_ux 50、folderimport 26、
+  projectdata 7、catalogstore 16；与新增套件合计 184 通过，0 失败、0 跳过。
+- 原生四步向导截图复查通过，确认页明确列出 A18 的内部井名冲突与归属选择。
+- layering strict / qgs-audit / symbol-audit / selftest / transitive strict
+  （显式 QGIS 头目录）、qgis_spread strict、ui_invariants / ui_size /
+  file_budget strict、i18n、ui_tokens、qgis_versions、docs_drift、known-reds 校验通过。
+
+基线只收紧：file-budget 中 buildCenterArea 208→201；其余基线无增长。

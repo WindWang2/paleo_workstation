@@ -58,7 +58,8 @@ bool DataCatalog::exportCatalogJson(const QString &path, QString *error) const
 bool DataCatalog::writeSurveyGeoJson(const QString &path, QString *error) const
 {
   QJsonArray features;
-  for (const auto &survey : entities(QStringLiteral("seismic_survey"))) {
+  const auto areas = entities(QStringLiteral("seismic_survey")) + entities(QStringLiteral("study_area"));
+  for (const auto &survey : areas) {
     if (survey.corners.size() < 3) continue;
     double xmin = std::numeric_limits<double>::infinity(), ymin = xmin;
     double xmax = -xmin, ymax = -xmin;
@@ -70,15 +71,19 @@ bool DataCatalog::writeSurveyGeoJson(const QString &path, QString *error) const
       ymin = std::min(ymin, corner.second); ymax = std::max(ymax, corner.second);
     }
     if (finiteCorners < 3 || !(xmin < xmax && ymin < ymax)) continue;
-    QJsonArray ring{QJsonArray{xmin, ymin}, QJsonArray{xmax, ymin}, QJsonArray{xmax, ymax},
-                    QJsonArray{xmin, ymax}, QJsonArray{xmin, ymin}};
+    QJsonArray ring;
+    for (const auto &corner : survey.corners)
+      if (std::isfinite(corner.first) && std::isfinite(corner.second)) ring.append(QJsonArray{corner.first, corner.second});
+    if (ring.first() != ring.last()) ring.append(ring.first());
     // Polygon 的 coordinates 是环数组；QJsonArray{ring} 会调用拷贝构造，
     // 把必要的外层数组丢掉，导致 OGR 读到空几何。
     QJsonArray rings;
     rings.append(ring);
     features.append(QJsonObject{{"type", "Feature"},
         {"properties", QJsonObject{{"id", survey.id}, {"name", survey.name}}},
-        {"geometry", QJsonObject{{"type", "Polygon"}, {"coordinates", rings}}}});
+        {"geometry", survey.extra.contains(QStringLiteral("boundaryGeometry"))
+             ? QJsonObject::fromVariantMap(survey.extra.value(QStringLiteral("boundaryGeometry")).toMap())
+             : QJsonObject{{"type", "Polygon"}, {"coordinates", rings}}}});
   }
   const QJsonObject root{{"type", "FeatureCollection"},
       {"crs", QJsonObject{{"type", "name"}, {"properties", QJsonObject{{"name", localGridCrsWkt()}}}}},

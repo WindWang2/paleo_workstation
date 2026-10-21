@@ -22,6 +22,8 @@
 #include "segyreader.h"
 #include "wellcompositexml.h"
 #include "wellfileparsers.h"
+#include "welltable.h"
+#include "projectboundary.h"
 
 #include <QCryptographicHash>
 #include <QJsonArray>
@@ -218,58 +220,16 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     for (auto &issue : logInfo.issues) issue.replace(validatedLogPath, sourcePath);
     parseSummary = logInfo.summary;
   }
-  if (textWellInput)
-  {
-    QFile source(sourcePath);
-    if (!source.open(QIODevice::ReadOnly))
-      return fail(QCoreApplication::translate("DataImportService", "无法读取井表 %1：%2")
-                      .arg(sourcePath, source.errorString()));
-    // #387：井文本大文件闸——与 LAS 500MB 同口径（fileSizeLimit 可被测试收紧）。
-    if (source.size() > LasParser::fileSizeLimit())
-      return fail(QCoreApplication::translate("DataImportService", "井表过大（%1 MB 上限）：%2")
-                      .arg(LasParser::fileSizeLimit() / (1024 * 1024))
-                      .arg(sourcePath));
-    // #561：上限内整读 readAll（数百 MB 级峰值）改流式逐行——解析核与整读
-    // 版同一实现（wellfileparsers 两路共用），报告/错误口径不变；哈希随读
-    // 喂，读毕与 sourceSha 比对（等价旧「对 readAll 字节重哈希」的突变复验）。
-    QCryptographicHash streamHash(QCryptographicHash::Sha256);
-    QString ioErr;
-    bool parsed = false;
-    if (cls.type == QLatin1String("well_head"))
-    {
-      const auto rows = parseWellHeadDevice(&source, &streamHash, &wellReport, &ioErr);
-      if (rows) { parsedHeads = *rows; parsed = true; }
-    }
-    else if (cls.type == QLatin1String("well_stratification"))
-    {
-      const auto rows = parseWellTopsDevice(&source, &streamHash, &wellReport, &ioErr);
-      if (rows) { parsedTops = *rows; parsed = true; }
-    }
-    else if (cls.type == QLatin1String("time_depth"))
-    {
-      const auto table = parseTimeDepthDevice(&source, &streamHash, &wellReport, &ioErr);
-      if (table) { parsedTd = *table; parsed = true; }
-    }
-    else
-    {
-      const auto table = parseDeviationDevice(&source, &streamHash, &wellReport, &ioErr);
-      if (table) { parsedDev = *table; parsed = true; }
-    }
-    if (!parsed)
-      return fail(QCoreApplication::translate("DataImportService", "读取井表失败 %1：%2")
-                      .arg(sourcePath,
-                           ioErr.isEmpty() ? source.errorString() : ioErr));
-    if (QString::fromLatin1(streamHash.result().toHex()) != sourceSha)
-      return fail(QCoreApplication::translate("DataImportService", "井表读取期间内容发生变化，请重试：%1").arg(sourcePath));
-    parseSummary = wellParseSummary(wellReport);
-    if (wellReport.acceptedRows == 0)
-      return fail(QCoreApplication::translate("DataImportService", "井表没有可用数据行：%1；%2")
-                      .arg(sourcePath, parseSummary));
+  paleo::io::ValidatedWellInput tableInput;
+  if (textWellInput) {
+    auto mapping = options.tableMapping;
+    if (s.georeference && s.georeference->kind == QLatin1String("crs")) mapping.insert(QStringLiteral("projectCrs"), s.georeference->sourceCrs);
+    if (!paleo::io::readImportWellInput(sourcePath, cls.type, sourceSha, mapping, &tableInput, error)) return fail(*error);
+    parsedHeads = tableInput.heads; parsedTops = tableInput.tops;
+    parsedTd = tableInput.td; parsedDev = tableInput.deviation;
+    wellReport = tableInput.report; parseSummary = wellParseSummary(wellReport);
   }
 
-  // §3 dedup：同一 SHA-256 已在库 → 不新建资产/版本/主关联；只把现在恰好能
-  // 匹配到一口井的未决关联补挂上（不建井、不并井）。versionBySha256 只认
-  // 文件仍在且重哈希一致的版本——受管文件丢失/被改的旧条目不再冒充命中，
   // 重导据此走全新导入（issue #5）。
   const CatalogVersion existing =
       cat->versionBySha256(sourceSha);
@@ -319,6 +279,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   version.id = versionId;
   version.assetId = assetId;
   version.stage = QStringLiteral("RAW");
+  if (!tableInput.normalized.isEmpty()) version.extra.insert(QStringLiteral("wellTableParsed"), true);
   if (textWellInput)
   {
     version.extra.insert(QStringLiteral("wellParseReport"), QVariantMap{
@@ -394,6 +355,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     return fail(*error);
 
   // ---- 实体解析与关联（角色沿用已有名字）----
+  if (!paleo::io::storeNormalizedWellTable(s, version, tableInput.normalized, error)) return fail(*error);
   QString manifestLayerId;
   paleo::dataimport_detail::FamilyContext ctx;
   ctx.cat = cat;
@@ -427,6 +389,8 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     branchErr = paleo::dataimport_detail::importHorizonFamily(ctx);
   else if (cls.type == QLatin1String("seismic"))
     branchErr = paleo::dataimport_detail::importSeismicFamily(ctx);
+  else if (cls.type == QLatin1String("boundary"))
+    branchErr = paleo::dataimport_detail::importProjectBoundary(ctx);
   else
     branchErr = paleo::dataimport_detail::importAuxReferenceFamily(ctx);
   if (!branchErr.isEmpty())
@@ -478,7 +442,8 @@ int DataImportService::attachResolvableLinks(DataCatalog *cat, const CatalogAsse
       return 0;
     }
     QStringList names;
-    for (const WellTopRecord &t : parseWellTopsText(f.readAll()))
+    const auto tops = paleo::io::isWellTableContainer(sourcePath) ? paleo::io::readWellTable(sourcePath).tops : parseWellTopsText(f.readAll());
+    for (const WellTopRecord &t : tops)
       if (!names.contains(t.wellName))
         names.append(t.wellName);
     for (const QString &n : names)
@@ -503,7 +468,8 @@ int DataImportService::attachResolvableLinks(DataCatalog *cat, const CatalogAsse
       setError(error, QStringLiteral("cannot read %1").arg(sourcePath));
       return 0;
     }
-    const QVector<WellHeadRecord> rows = parseWellHeadText(f.readAll());
+    const QVector<WellHeadRecord> rows = paleo::io::isWellTableContainer(sourcePath)
+        ? paleo::io::readWellTable(sourcePath).heads : parseWellHeadText(f.readAll());
     QHash<QString, int> normRowCount;
     for (const WellHeadRecord &r : rows)
       normRowCount[DataCatalog::normalizeWellName(r.name)] += 1;

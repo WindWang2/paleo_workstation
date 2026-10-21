@@ -6,6 +6,7 @@
 #include "paleomainwindow.h"
 #include "paleomainwindow_internal.h"
 #include "uienv_internal.h"
+#include "../workflow/projectsetup.h"
 
 #include "paleodockmanager.h"
 #include "paleoviewport.h" // PaleoViewportStack + PaleoPanelHost
@@ -338,16 +339,7 @@ void PaleoMainWindow::buildCenterArea()
     connect(newBtn, &QPushButton::clicked, this, [this] {
       if (isOffscreen() || !m_projectSvc)
         return;
-      const QString p = QFileDialog::getSaveFileName(
-          this, tr("新建工程"), QString(), tr("Paleo 工程 (*.qgz)"));
-      if (p.isEmpty())
-        return;
-      // #282：新建前同样先问当前工程脏状态。
-      if (!maybeSaveProject())
-        return;
-      if (!m_projectSvc->createProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        PaleoNotify::critical(this, tr("新建工程失败"),
-                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
+      runNewProject();
     });
   // PROJECT_FILE_DESIGN：从工区文件夹新建——选目录后
   //   已有 project.paleo → 直接打开（幂等，不重建）；
@@ -360,8 +352,10 @@ void PaleoMainWindow::buildCenterArea()
         return;
       const QString dir =
           QFileDialog::getExistingDirectory(this, tr("从工区文件夹新建工程"));
-      if (!dir.isEmpty())
-        openPath(dir); // 脏状态检查在 openPath 内（#282）
+      if (!dir.isEmpty()) {
+        if (ProjectSetupWorkflow::containsProject(dir)) openPath(dir);
+        else runNewProject(dir);
+      } // 脏状态检查在 openPath 内（#282）
     });
   if (auto *list = startup->findChild<QListWidget *>(QStringLiteral("recentProjectsList")))
     connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {

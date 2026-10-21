@@ -39,6 +39,13 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
   m_registered->setChecked(configuration.georeference.has_value());
   fields->addRow(m_registered);
   PaleoGeoreference g = configuration.georeference.value_or(PaleoGeoreference{});
+  const bool native = g.kind == QLatin1String("crs");
+  if (native) {
+    reference->setTitle(tr("工程原生坐标系"));
+    description->setText(tr("地质数据使用已声明的原生投影坐标；地图按精确投影转换显示，不需要再拟合局部网格配准。"));
+    auto *source = new QLabel(g.sourceCrs, reference); source->setWordWrap(true);
+    fields->addRow(tr("资料／计算坐标系"), source);
+  }
   if (!configuration.georeference) g.a = 1;
   const QStringList captions = {tr("a（缩放 × cos 旋转角）"), tr("b（缩放 × sin 旋转角）"),
       tr("东向平移 tE（米）"), tr("北向平移 tN（米）"), tr("锚点经度（度）"),
@@ -53,13 +60,15 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
     spin->setFont(PaleoTheme::monoFont());
     spin->setObjectName(QStringLiteral("georeferenceParameter%1").arg(i));
     spin->setEnabled(m_registered->isChecked());
-    fields->addRow(captions[i], spin);
+    if (!native) fields->addRow(captions[i], spin);
+    else spin->hide();
     m_parameters << spin;
     connect(m_registered, &QCheckBox::toggled, spin, &QWidget::setEnabled);
   }
   auto *formula = new QLabel(tr("E = a·x − b·y + tE；N = b·x + a·y + tN\n经度 = 锚点经度 + E / 每经度米数\n纬度 = 锚点纬度 + N / 每纬度米数"), reference);
   formula->setWordWrap(true);
-  fields->addRow(formula);
+  if (!native) fields->addRow(formula);
+  else formula->hide();
   m_provenance = new QLineEdit(g.provenance, reference);
   fields->addRow(tr("参数来源"), m_provenance);
   if (!g.controlPoints.isEmpty()) {
@@ -114,10 +123,12 @@ PaleoProjectFile ProjectMapSettingsDialog::configuration() const
   if (m_registered->isChecked()) {
     auto g = file.georeference.value_or(PaleoGeoreference{});
     g.targetCrs = QStringLiteral("EPSG:4326");
+    if (g.kind != QLatin1String("crs")) {
     g.a = m_parameters[0]->value(); g.b = m_parameters[1]->value();
     g.tE = m_parameters[2]->value(); g.tN = m_parameters[3]->value();
     g.anchorLonDeg = m_parameters[4]->value(); g.anchorLatDeg = m_parameters[5]->value();
     g.metersPerDegLon = m_parameters[6]->value(); g.metersPerDegLat = m_parameters[7]->value();
+    }
     g.provenance = m_provenance->text();
     file.georeference = g;
   } else file.georeference.reset();

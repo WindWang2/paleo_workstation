@@ -26,6 +26,7 @@ struct BinnedHorizon
   int rejected = 0;      // 越界点不写入，只计入拒绝数（plan §3）
   double dx = 0, dy = 0; // 像元尺寸（米）
   double originX = 0, originY = 0; // 北向上左上角
+  double rowX = 0, columnY = 0, geometryResidualM = 0; // native XY affine grid, residual recorded
   double zMin = 0, zMax = 0;
   int filledCells = 0;
   bool hasInlineRange = false, hasXlineRange = false;

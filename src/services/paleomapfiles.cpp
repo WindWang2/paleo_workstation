@@ -12,6 +12,17 @@
 #include <QObject>
 #include <algorithm>
 namespace PaleoMapFiles {
+namespace {
+bool memberOf(const QFileInfo &main, const QFileInfo &info) {
+  if (main.absolutePath() != info.absolutePath()) return false;
+  if (main.fileName().compare(info.fileName(), Qt::CaseInsensitive) == 0) return true;
+  const auto &sidecars = main.suffix().compare("shp", Qt::CaseInsensitive) == 0 ? paleo::sidecars::shpFamily() : paleo::sidecars::rasterFamily();
+  if (info.completeBaseName().compare(main.completeBaseName(), Qt::CaseInsensitive) == 0 && sidecars.contains(info.suffix().toLower())) return true;
+  for (const auto &suffix : paleo::sidecars::nameSuffixes())
+    if (info.fileName().compare(main.fileName() + '.' + suffix, Qt::CaseInsensitive) == 0) return true;
+  return false;
+}
+}
 QStringList discover(const QStringList &files, const QString &folder, const std::function<bool()> &cancelled) {
   const QStringList extensions{"shp", "gpkg", "geojson", "json", "tif", "tiff", "img", "png", "jpg", "jpeg", "pdf", "svg"};
   QStringList out; QSet<QString> seen;
@@ -39,16 +50,9 @@ QStringList members(const QString &path, QString *error) {
   QStringList out{main.absoluteFilePath()};
   // B-03/A-14：sidecar 词表统一 domain/sidecarvocab.h——shp 族并入 dbf
   // 属性索引 7 项（此前导入不全）；栅格族含 world/投影/样式。
-  const QStringList &sidecars = extension == "shp" ? paleo::sidecars::shpFamily()
-      : paleo::sidecars::rasterFamily();
   QSet<QString> present;
   for (const auto &info : main.absoluteDir().entryInfoList(QDir::Files)) {
-    const bool suffixHit = info.completeBaseName().compare(main.completeBaseName(), Qt::CaseInsensitive) == 0
-        && sidecars.contains(info.suffix().toLower());
-    bool nameSuffixHit = false;
-    for (const auto &nameSuffix : paleo::sidecars::nameSuffixes())
-      if (info.fileName().compare(main.fileName() + QLatin1Char('.') + nameSuffix, Qt::CaseInsensitive) == 0) { nameSuffixHit = true; break; }
-    if (suffixHit || nameSuffixHit) {
+    if (memberOf(main, info)) {
       out << info.absoluteFilePath(); present.insert(info.suffix().toLower());
     }
   }
@@ -66,15 +70,26 @@ QString inferredHorizon(const QString &path, const QStringList &horizons, const 
   }
   return found.size() == 1 ? found.first() : fallback;
 }
-QVariantList copyDataset(const QString &source, const QString &directory, const std::function<bool()> &cancelled, QString *error) {
-  const auto files = members(source, error); if (files.isEmpty() || !QDir().mkpath(directory)) return {};
+QVariantList copyDataset(const QString &source, const QString &directory, const std::function<bool()> &cancelled, QString *error,
+                         const QVariantMap &expectedHashes) {
+  const auto files = members(source, error); if (files.isEmpty()) return {};
+  for (auto it = expectedHashes.cbegin(); it != expectedHashes.cend(); ++it)
+    if (memberOf(QFileInfo(source), QFileInfo(it.key())) && !files.contains(it.key())) {
+      if (error) *error = QObject::tr("预览中的图件配套文件已缺失，请重新识别：%1").arg(it.key());
+      return {};
+    }
   QVariantList result;
+  if (!QDir().mkpath(directory)) return {};
   for (const auto &path : files) {
     if (cancelled && cancelled()) { QDir(directory).removeRecursively(); return {}; }
     const auto target = QDir(directory).filePath(QFileInfo(path).fileName());
     if (!QFile::copy(path, target)) { if (error) *error = QObject::tr("无法复制图件配套文件：%1").arg(path); QDir(directory).removeRecursively(); return {}; }
     const auto hash = DataCatalog::sha256FileHex(target, error, cancelled);
     const auto original = DataCatalog::sha256FileHex(path, error, cancelled);
+    if (!expectedHashes.isEmpty() && (!expectedHashes.contains(path) || original != expectedHashes.value(path).toString())) {
+      if (error) *error = QObject::tr("图件配套文件在预览后发生变化，请重新识别：%1").arg(path);
+      QDir(directory).removeRecursively(); return {};
+    }
     if (hash.isEmpty() || hash != original) { if (error) *error = QObject::tr("图件在导入期间发生变化：%1").arg(path); QDir(directory).removeRecursively(); return {}; }
     result << QVariantMap{{"file", QFileInfo(path).fileName()}, {"sha256", hash}, {"bytes", QFileInfo(target).size()}};
     QFile::setPermissions(target, QFileDevice::ReadOwner | QFileDevice::ReadGroup | QFileDevice::ReadOther);

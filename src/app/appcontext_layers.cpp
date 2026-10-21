@@ -167,6 +167,8 @@ void AppContext::refreshSurveyLayer()
   // 无有效测区（角点 ≥3）不落测区图层——空工程的地图/图层树保持空态
   //（T31 契约）；测区被移除时把此前的占位层一并撤下。
   bool hasSurvey = false;
+  for (const auto &area : m_import->catalog()->entities(QStringLiteral("study_area")))
+    if (area.corners.size() >= 3) { hasSurvey = true; break; }
   for (const auto &survey : m_import->catalog()->entities(QStringLiteral("seismic_survey")))
     if (survey.corners.size() >= 3) { hasSurvey = true; break; }
   if (!hasSurvey) {

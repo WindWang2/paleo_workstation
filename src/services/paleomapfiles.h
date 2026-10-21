@@ -10,6 +10,7 @@ QStringList members(const QString &path, QString *error);
 QString inferredHorizon(const QString &path, const QStringList &horizons, const QString &fallback);
 // Copy and hash every member; changes to DBF/PRJ are part of dataset identity.
 QVariantList copyDataset(const QString &source, const QString &directory,
-                        const std::function<bool()> &cancelled, QString *error);
+                        const std::function<bool()> &cancelled, QString *error,
+                        const QVariantMap &expectedHashes = {});
 QString fingerprint(const QVariantList &members);
 }

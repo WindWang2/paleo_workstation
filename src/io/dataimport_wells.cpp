@@ -247,6 +247,12 @@ QString importWellTopsFamily(FamilyContext &ctx)
     {
       QStringList tried{n};
       WellBind bind = resolveWell(cat, n);
+      if (bind.unresolved && bind.candidates.isEmpty() &&
+          ctx.version.extra.value(QStringLiteral("wellTableParsed")).toBool()) {
+        const auto id = ensureNamedImportWell(*cat, n, error);
+        if (id.isEmpty()) return *error;
+        bind = resolveWell(cat, n);
+      }
       if (bind.unresolved && bind.candidates.isEmpty() && names.size() == 1)
       {
         bind = resolveWell(cat, stem); // 单井文件的文件名主名回退

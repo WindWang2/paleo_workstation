@@ -57,6 +57,7 @@ class QgisProjectService : public QObject
     const PaleoProjectFile &mapConfiguration() const { return m_mapConfiguration; }
     bool updateMapConfiguration(const PaleoProjectFile &configuration, QString *error = nullptr);
     void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
+    bool isReadOnly() const { return m_readOnly; }
 
     // 关闭当前工程（#152/#153）：发 projectAboutToClose → clear() → 清路径
     // → 发 projectClosed。未打开工程时为空操作。关闭后 writeProject() 拒写

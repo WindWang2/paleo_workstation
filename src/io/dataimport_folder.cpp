@@ -630,6 +630,7 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
 
   QString ferr;
   ImportOptions opts;
+  opts.tableMapping = s.tableMappings.value(item.path);
   opts.forceType = item.type; // 恒下传——与分类器同值时是无害同值
   opts.displayName = item.displayName; // 确认表「显示名」override（空 = 原文件 basename）
   opts.targetWellId = s.wellTargets.value(item.path);

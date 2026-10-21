@@ -16,6 +16,7 @@
 #include <QXmlStreamReader>
 
 #include <cmath>
+#include <algorithm>
 #include <functional>
 #include <limits>
 
@@ -151,7 +152,7 @@ namespace
       else if (m.time < 0 && tokenMatches(t, {QStringLiteral("time")}))
         m.time = i;
     }
-    if (m.well < 0 || m.top < 0 || m.md < 0)
+    if (m.well < 0 || m.top < 0 || (m.md < 0 && m.tvd < 0 && m.time < 0))
       return false;
     *map = m;
     return true;
@@ -169,8 +170,8 @@ namespace
     bool valid = ctx.textColumn(t, 0, "Name", &r.name);
     valid &= ctx.column(t, 1, "X", &r.x, true);
     valid &= ctx.column(t, 2, "Y", &r.y, true);
-    valid &= ctx.column(t, 3, "KB", &r.kb, true);
-    valid &= ctx.column(t, 4, "TotalDepth", &r.td, true);
+    if (!ctx.column(t, 3, "KB", &r.kb, false)) r.kb = qQNaN();
+    if (!ctx.column(t, 4, "TotalDepth", &r.td, false)) r.td = qQNaN();
     if (!valid || r.name.isEmpty())
     {
       ++ctx.report.rejectedRows;
@@ -192,6 +193,7 @@ namespace
   struct TopsLineState
   {
     bool headerChecked = false;
+    bool explicitDepthBasis = false;
     TopsColumnMap cmap;
     bool byName = false;
   };
@@ -205,10 +207,12 @@ namespace
       return;
     if (line.startsWith(QLatin1Char('#')))
     {
+      if (line == QLatin1String("# PaleoDepthBasis: explicit")) st.explicitDepthBasis = true;
       if (!st.headerChecked)
       {
         st.headerChecked = true;
         st.byName = sniffTopsColumnMap(splitTokens(line.mid(1)), &st.cmap);
+        if (st.byName && st.cmap.md < 0) st.explicitDepthBasis = true;
       }
       return;
     }
@@ -225,8 +229,8 @@ namespace
       }
       bool namesValid = ctx.textColumn(t, st.cmap.well, "WellName", &r.wellName);
       namesValid &= ctx.textColumn(t, st.cmap.top, "Name", &r.topName);
-      r.hasMd = ctx.column(t, st.cmap.md, "MD", &r.md, true);
-      if (!r.hasMd || !namesValid)
+      if (st.cmap.md >= 0) r.hasMd = ctx.column(t, st.cmap.md, "MD", &r.md, !st.explicitDepthBasis);
+      if (!namesValid || (!r.hasMd && !st.explicitDepthBasis))
       {
         ++ctx.report.rejectedRows;
         return;
@@ -237,14 +241,15 @@ namespace
         r.z = std::numeric_limits<double>::quiet_NaN();
       if (st.cmap.tvd >= 0) r.hasTvd = ctx.column(t, st.cmap.tvd, "TVD", &r.tvd, false);
       if (st.cmap.time >= 0) r.hasTime = ctx.column(t, st.cmap.time, "Time(ms)", &r.timeMs, false);
+      if (!r.hasMd && !r.hasTvd && !r.hasTime) { ++ctx.report.rejectedRows; return; }
       tops.append(r);
       ++ctx.report.acceptedRows;
       return;
     }
     bool namesValid = ctx.textColumn(t, 0, "WellName", &r.wellName);
     namesValid &= ctx.textColumn(t, 1, "Name", &r.topName);
-    r.hasMd = ctx.column(t, 2, "MD", &r.md, true);
-    if (!r.hasMd || !namesValid)
+    r.hasMd = ctx.column(t, 2, "MD", &r.md, !st.explicitDepthBasis);
+    if (!namesValid || (!r.hasMd && !st.explicitDepthBasis))
     {
       ++ctx.report.rejectedRows;
       return;
@@ -258,6 +263,7 @@ namespace
     }
     if (t.size() >= 7) r.hasTvd = ctx.column(t, 6, "TVD", &r.tvd, false);
     if (t.size() >= 8) r.hasTime = ctx.column(t, 7, "Time(ms)", &r.timeMs, false);
+    if (!r.hasMd && !r.hasTvd && !r.hasTime) { ++ctx.report.rejectedRows; return; }
     tops.append(r);
     ++ctx.report.acceptedRows;
   }
@@ -631,6 +637,8 @@ QByteArray writeWellTopsText(const QVector<WellTopRecord> &tops)
   QString out;
   out.reserve(tops.size() * 96 + 128);
   out += QStringLiteral("#WellTops File From Paleo\r\n");
+  if (std::any_of(tops.begin(), tops.end(), [](const auto &r) { return !r.hasMd && (r.hasTvd || r.hasTime); }))
+    out += QStringLiteral("# PaleoDepthBasis: explicit\r\n");
   out += QStringLiteral("#WellName    Name         MD           X            Y            Z            TVD          Time(ms)\r\n");
   for (const WellTopRecord &r : tops)
   {

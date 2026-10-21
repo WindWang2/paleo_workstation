@@ -10,6 +10,7 @@
 #include "welllogread.h" // 方向44：井名提取分派
 #include "../domain/projectclassifier.h"
 #include "wellfileparsers.h"
+#include "welltable.h"
 #include "../metadata/paleoprojectfile.h"
 
 #include <QDir>
@@ -346,7 +347,8 @@ namespace
     const QByteArray prefix = readFilePrefix(path, kIdentityPeekBytes);
     if (prefix.isEmpty())
       return; // 读不了：导入期如实失败，plan 不猜
-    const QVector<WellHeadRecord> rows = parseWellHeadText(prefix);
+    const QVector<WellHeadRecord> rows = paleo::io::isWellTableContainer(path)
+        ? paleo::io::readWellTable(path).heads : parseWellHeadText(prefix);
     QHash<QString, int> normCount;
     for (const WellHeadRecord &r : rows)
       normCount[DataCatalog::normalizeWellName(r.name)] += 1;
@@ -424,7 +426,9 @@ namespace
   {
     QStringList names;
     const QByteArray prefix = readFilePrefix(item.path, kIdentityPeekBytes);
-    for (const WellTopRecord &t : parseWellTopsText(prefix))
+    const auto tops = paleo::io::isWellTableContainer(item.path)
+        ? paleo::io::readWellTable(item.path).tops : parseWellTopsText(prefix);
+    for (const WellTopRecord &t : tops)
       if (!names.contains(t.wellName))
         names.append(t.wellName);
     if (names.size() == 1)

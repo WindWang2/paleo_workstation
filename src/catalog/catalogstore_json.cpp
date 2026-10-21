@@ -193,8 +193,8 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
       e.surfaceX = q.value(3).toDouble();
       e.surfaceY = q.value(4).toDouble();
       e.hasSurface = q.value(5).toInt() != 0;
-      e.kb = q.value(6).toDouble();
-      e.td = q.value(7).toDouble();
+      e.kb = q.value(6).isNull() ? qQNaN() : q.value(6).toDouble();
+      e.td = q.value(7).isNull() ? qQNaN() : q.value(7).toDouble();
       e.coordinateStatus = q.value(8).toString();
       e.inlineMin = q.value(9).toDouble();
       e.inlineMax = q.value(10).toDouble();
@@ -204,6 +204,9 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
       e.startTimeMs = q.value(14).toDouble();
       e.corners = cornersFromJsonText(q.value(15).toString());
       e.extra = mapFromJson(q.value(16).toString());
+      if (e.extra.value(QStringLiteral("kbMissing")).toBool()) e.kb = qQNaN();
+      if (e.extra.value(QStringLiteral("tdMissing")).toBool()) e.td = qQNaN();
+      e.extra.remove(QStringLiteral("kbMissing")); e.extra.remove(QStringLiteral("tdMissing"));
       out->entities.append(e);
     }
   }
@@ -434,8 +437,8 @@ bool CatalogStore::fromJson(const QJsonObject &root, Tables *out, QString *error
     e.surfaceX = o.value(QStringLiteral("surface_x")).toDouble();
     e.surfaceY = o.value(QStringLiteral("surface_y")).toDouble();
     e.hasSurface = o.value(QStringLiteral("has_surface")).toBool();
-    e.kb = o.value(QStringLiteral("kb")).toDouble();
-    e.td = o.value(QStringLiteral("td")).toDouble();
+    e.kb = o.value(QStringLiteral("kb")).toDouble(qQNaN());
+    e.td = o.value(QStringLiteral("td")).toDouble(qQNaN());
     e.coordinateStatus = o.value(QStringLiteral("coordinate_status")).toString();
     e.inlineMin = o.value(QStringLiteral("inline_min")).toDouble();
     e.inlineMax = o.value(QStringLiteral("inline_max")).toDouble();

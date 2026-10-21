@@ -224,6 +224,7 @@ QString importHorizonFamily(FamilyContext &ctx)
       derived.extra.insert(QStringLiteral("collisions"), binned.collisions);
       derived.extra.insert(QStringLiteral("rejected"), binned.rejected);
       derived.extra.insert(QStringLiteral("grid_rows"), binned.rows);
+      derived.extra.insert(QStringLiteral("xy_max_residual_m"), binned.geometryResidualM);
       derived.extra.insert(QStringLiteral("grid_cols"), binned.cols);
       derived.extra.insert(QStringLiteral("z_units"), QStringLiteral("ms"));
       derived.extra.insert(QStringLiteral("z_min"), binned.zMin);
@@ -471,6 +472,7 @@ QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
           derived.extra.insert(QStringLiteral("collisions"), binned.collisions);
           derived.extra.insert(QStringLiteral("rejected"), binned.rejected);
           derived.extra.insert(QStringLiteral("grid_rows"), binned.rows);
+      derived.extra.insert(QStringLiteral("xy_max_residual_m"), binned.geometryResidualM);
           derived.extra.insert(QStringLiteral("grid_cols"), binned.cols);
           derived.extra.insert(QStringLiteral("z_units"), QStringLiteral("ms"));
           derived.extra.insert(QStringLiteral("z_min"), binned.zMin);

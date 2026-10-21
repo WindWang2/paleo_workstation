@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "projectmapreference.h"
+#include "projectnativegrid.h"
 #include "catalog/datacatalog.h"
 #include "qgiserrors_internal.h"
 #include <QFileInfo>
@@ -66,6 +67,8 @@ bool configure(QgsProject *project, const std::optional<PaleoGeoreference> &refe
   project->setTransformContext(context);
   project->removeEntry("paleo", "localTransformTargets");
   if (!reference) return true;
+  if (reference->kind == QLatin1String("crs"))
+    return configureNativeProjectGrid(project, reference->sourceCrs, mapCrs, error);
   const auto fail = [&](const QString &message) {
     paleo::qgis_detail::setError(error, message);
     return false;

@@ -93,6 +93,8 @@ namespace
     add(QStringLiteral("other"), QStringLiteral("planned"), false,
         QStringLiteral("其他"),
         QStringLiteral("兜底角色。"));
+    add(QStringLiteral("boundary"), QStringLiteral("study_area"), false,
+        QStringLiteral("测区范围"), QStringLiteral("工程范围矢量，独立于地震采集几何。"));
     return t;
   }
 } // namespace

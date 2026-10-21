@@ -56,6 +56,7 @@ QString ensureWell(DataCatalog &cat, const QString &name, QString *error)
 }
 }
 
+QString ensureNamedImportWell(DataCatalog &cat, const QString &name, QString *error) { return ensureWell(cat, name, error); }
 bool inspectLog(const QString &path, LogInspection &out, QString *error)
 {
   out = {};
@@ -173,6 +174,11 @@ QString importInspectedLog(FamilyContext &ctx)
 {
   QString target = ctx.targetWellId;
   QString error;
+  if (target.startsWith(QLatin1String("name:"))) {
+    const auto matches = ctx.cat->wellsMatchingName(target.mid(5));
+    if (matches.size() != 1) return tr("确认的目标井不存在或有重名，请重新选择归属。");
+    target = matches.first();
+  }
   if (target.startsWith(QLatin1String("new:")))
   {
     const QString name = target.mid(4).trimmed();
@@ -226,9 +232,9 @@ bool validateDuplicateLogTarget(DataCatalog &cat, const QString &assetId,
 {
   if (choice.isEmpty()) return true;
   QString target = choice;
-  if (choice.startsWith(QLatin1String("new:")))
+  if (choice.startsWith(QLatin1String("new:")) || choice.startsWith(QLatin1String("name:")))
   {
-    const QString name = choice.mid(4).trimmed();
+    const QString name = choice.mid(choice.indexOf(':') + 1).trimmed();
     target.clear();
     for (const auto &well : cat.entities(QStringLiteral("well")))
       if (well.name.trimmed().compare(name, Qt::CaseInsensitive) == 0)

@@ -17,6 +17,7 @@
 #include "datapreview/datapreviewtabs.h" // mapConfigurationChanged 重开测区标签
 #include "../qgis/qgiscanvascontroller.h" // mapConfigurationChanged → zoomToFullExtent
 #include "../qgis/qgisprojectservice.h"
+#include "../qgis/onlinebasemap.h"
 
 #include <qgis.h> // Qgis::version()（方向63 关于框）
 
@@ -25,12 +26,55 @@
 #include <QHBoxLayout>
 #include <QMenu>
 #include <QPoint>
+#include <QPointer>
 #include <QPushButton>
 #include <QStatusBar>
 #include <QTimer>
 #include <QToolButton>
 
 using paleo::mainwindow_internal::pageLabels;
+
+namespace {
+void addOnlineBasemapMenu(QMenu *fileMenu, QgisProjectService *projectService,
+                          QgisCanvasController *canvasController, QMainWindow *window)
+{
+  auto *menu = fileMenu->addMenu(QObject::tr("网络底图预设"));
+  menu->setObjectName(QStringLiteral("onlineBasemapPresetsMenu"));
+  menu->setToolTipsVisible(true);
+  for (const auto &source : paleo::onlinebasemap::sources()) {
+    auto *action = menu->addAction(source.title);
+    action->setObjectName(QStringLiteral("onlineBasemapPreset.") + source.id);
+    action->setToolTip(source.description + QLatin1Char('\n') + source.attribution +
+                       QLatin1Char('\n') + source.termsUrl);
+    QObject::connect(action, &QAction::triggered, window,
+                     [projectService, canvasController, window, id = source.id] {
+      if (!projectService || projectService->isOpening() || projectService->projectPath().isEmpty()) return;
+      QString error;
+      auto *layer = paleo::onlinebasemap::addPresetToProject(projectService->project(), id, &error);
+      if (!layer) {
+        PaleoNotify::warning(window, QObject::tr("在线底图未加载"), error);
+        return;
+      }
+      window->statusBar()->showMessage(QObject::tr("在线底图已加入图层树，正在按当前视野加载"), 5000);
+      if (canvasController) {
+        QPointer<QMainWindow> guard(window);
+        paleo::onlinebasemap::watchFailures(canvasController->canvas(), layer, 15000,
+                                            [guard](const QString &message) {
+          if (guard) guard->statusBar()->showMessage(message, 10000);
+        });
+      }
+    });
+  }
+  QObject::connect(fileMenu, &QMenu::aboutToShow, menu, [menu, projectService, canvasController] {
+    QString reason;
+    const bool ready = projectService && !projectService->isOpening() && !projectService->projectPath().isEmpty();
+    const bool enabled = ready && canvasController &&
+        paleo::onlinebasemap::canOverlay(canvasController->canvas(), &reason);
+    menu->menuAction()->setEnabled(enabled);
+    menu->setToolTip(ready ? reason : QObject::tr("请先打开工程并设置地理坐标配准"));
+  });
+}
+} // namespace
 
 void PaleoMainWindow::buildRibbon()
 {
@@ -130,6 +174,7 @@ void PaleoMainWindow::buildRibbon()
         }
         if (m_canvasCtl) QTimer::singleShot(0, this, [this] { m_canvasCtl->zoomToFullExtent(); });
       });
+    addOnlineBasemapMenu(menu, m_projectSvc, m_canvasCtl, this);
     QAction *home =
         menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mIconFolderHome.svg")), tr("起始页(&H)"));
     connect(home, &QAction::triggered, this, [this] { showStartup(); });

@@ -12,8 +12,8 @@ class QgsProject;
 class QgsMapLayer;
 class QObject;
 
-// 在线 XYZ 瓦片底图（街道/卫星/地形）：工程不自带离线底图时的开源免费兜底。
-// 源清单 = 内置三项 + 用户设置 QSettings「basemap/onlineSources」追加的
+// 在线 XYZ 瓦片底图：开放数据预设与既有商业影像，分别标明来源和条款。
+// 源清单 = 内置预设 + 用户设置 QSettings「basemap/onlineSources」追加的
 // 自定义源（JSON 数组，元素 {id,title,url,attribution,zmax}）。瓦片按 Web
 // 墨卡托出图，只在工程有真实地理/投影坐标系时可叠加；工程坐标系（ENGCRS
 // 本地网格）上拒绝叠加，避免错位。
@@ -24,6 +24,8 @@ struct Source {
   QString url;         // XYZ 模板：{x}/{y}/{z}
   QString attribution; // 版权/条款，必须随图显示
   int zmax = 19;
+  QString description;
+  QString termsUrl;
 };
 
 QString noneId();
@@ -39,7 +41,10 @@ void watchFailures(QgsMapCanvas *canvas, QgsMapLayer *layer, int timeoutMs,
                    const std::function<void(const QString &)> &onFailure);
 QString xyzUri(const Source &source);
 // 建 XYZ 栅格层（customProperty paleoOnlineBasemap/paleoBasemapAttribution 已设）。
-QgsMapLayer *createLayer(const Source &source, QObject *parent = nullptr);
+QgsMapLayer *createLayer(const Source &source, QObject *parent = nullptr, QString *error = nullptr);
+// 显式选择主图预设：图层置底、复用同源图层、隐藏其它 GIS 底图；地质层不动。
+// 工程持有图层，保存 .qgz 后随工程恢复；无地理配准时拒绝加载。
+QgsMapLayer *addPresetToProject(QgsProject *project, const QString &id, QString *error = nullptr);
 void destroyLayer(QgsMapLayer *layer); // deleteLater
 // 层列表里的在线底图层（无则空）——不缓存裸指针，层可能已被 TOC 移除。
 QgsMapLayer *findLayer(const QList<QgsMapLayer *> &layers);

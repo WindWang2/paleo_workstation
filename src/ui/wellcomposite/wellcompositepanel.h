@@ -1,6 +1,9 @@
 // 层：视图
 #pragma once
 
+#include <functional>
+class QBoxLayout;
+
 #include <QComboBox>
 #include <QLabel>
 #include <QToolButton>
@@ -207,6 +210,8 @@ private:
   void saveSessionState() const;
   void restoreSessionState();
   void updateDefaultLayoutButton();
+  void connectDefaultLayoutButton();
+  void setupLayoutButtons(QWidget *topBar, QBoxLayout *topLay, const std::function<QString()> &style);
   QList<TrackSpec> currentSpecs() const;
   void applySpecsIncrementally(const QList<TrackSpec> &specs);
 

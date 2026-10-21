@@ -11,7 +11,7 @@
 #include "domain/wellcompositemodel.h"
 #include "qgis/qgisruntime.h"
 #include "ui/paleotheme.h"
-#include "ui/wellcomposite/lithologystyle.h"
+#include "domain/lithologystyle.h"
 #include "ui/wellcomposite/trackops.h"
 #include "ui/wellcomposite/wellcompositecanvas.h"
 #include "ui/wellcomposite/wellcompositepanel.h"

@@ -1,4 +1,4 @@
-// 层：视图
+// 层：数据
 #include "lithologystyle.h"
 
 #include <QRegularExpression>

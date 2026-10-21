@@ -1,7 +1,7 @@
 // 层：视图
 // 综合图道·基础六道（标尺/文本/地层/岩性/取芯/图片）与道内数据访问器——自 wellcompositetrack.cpp 拆出（方向 66，行为零变更）
 #include "wellcompositetrack.h"
-#include "lithologystyle.h"
+#include "../../domain/lithologystyle.h"
 #include "services/imagelod.h"
 #include "ui/paleotheme.h"
 #include <QCoreApplication>
@@ -298,7 +298,7 @@ void LithologyTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 
     // 颜色取自岩性解释（「黑色砂岩」= 砂岩花纹 + 砂岩宽度 + 黑色底）；深色底换浅色花纹线。
     const QColor fill = fillColor(it);
-    const QColor ink = fill.lightness() < 110 ? QColor(QStringLiteral("#E6E6E6")) : QColor();
+    const QColor ink = fill.lightness() < 110 ? PaleoTheme::tokens(PaleoTheme::Theme::Light).surfaceAlt : QColor();
     painter.fillRect(block, LithologyPatternFactory::getBrush(it.lithoName, fill, ink));
 
     // 岩性块轮廓：上下界线 + 右侧宽度边
@@ -310,7 +310,7 @@ void LithologyTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     // 高度粒度刻度：自块顶起每个粒度一格，层厚 35 / 粒度 10 → 3 道刻度 + 半格（3.5 个粒度）
     if (quantumPx >= 6.0)
     {
-      painter.setPen(QPen(QColor(QStringLiteral("#546E7A")), 1.0));
+      painter.setPen(QPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted, 1.0));
       const double thick = double(it.bottomDepth) - double(it.topDepth);
       for (int k = 1; k * m_grainQuantum < thick - 1e-6; ++k)
       {

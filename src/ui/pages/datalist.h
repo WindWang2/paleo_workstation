@@ -22,6 +22,7 @@
 #include "../../services/datagraph.h"
 
 class PreviewDocService;
+class CatalogAsset;
 class QHBoxLayout;
 class QVBoxLayout;
 class QStackedWidget;
@@ -231,6 +232,8 @@ class DataListPanel : public QWidget
     QVector<NavNodeSpec> buildNavTreeSpec() const;
     QVector<NavNodeSpec> buildPaleomapNavSpec() const;
     NavNodeSpec buildOverviewNavSpec() const;
+    // 辅助资料分支（参考相图/参考资料；实现在 datalist_auxnav.cpp）。
+    NavNodeSpec buildAuxiliaryNavSpec(const QList<CatalogAsset> &auxAssets) const;
     void renderNavChildren(QTreeWidgetItem *parent, const QVector<NavNodeSpec> &specs);
     void rebuildNavTree(const QVector<NavNodeSpec> &specs);
     bool reconcileNavTree(const QVector<NavNodeSpec> &specs);

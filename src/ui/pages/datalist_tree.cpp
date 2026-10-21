@@ -69,16 +69,6 @@ int countItemNodes(const QTreeWidgetItem *it)
   return n;
 }
 
-// 辅助资料文档的类型说明（按扩展名）。
-QString auxDocKind(const CatalogAsset &a)
-{
-  const QString n = a.displayName.toLower();
-  return n.endsWith(QLatin1String(".pdf"))    ? DataListPanel::tr("PDF 文档")
-         : n.endsWith(QLatin1String(".pptx")) ? DataListPanel::tr("PPT 演示文稿")
-         : n.endsWith(QLatin1String(".png"))  ? DataListPanel::tr("图像")
-         : n.endsWith(QLatin1String(".xml"))  ? DataListPanel::tr("XML 数据表")
-                                              : a.type;
-}
 } // namespace
 
 // ---- 方向 92：树蓝图（NavNodeSpec）------------------------------------------------
@@ -579,43 +569,7 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
   std::sort(auxAssets.begin(), auxAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
     return naturalNameSort(a.displayName, b.displayName);
   });
-  {
-    NavNodeSpec auxRoot;
-    auxRoot.text0 = tr("辅助资料 (%1)").arg(auxAssets.size());
-    auxRoot.text1 = tr("参考相图 / 文档 / 图片");
-    auxRoot.type = QStringLiteral("category");
-    auxRoot.sub = QStringLiteral("auxiliary");
-    auxRoot.icon = QStringLiteral("mActionFolder.svg");
-    // 有文档/参考图时保持展开：导入的 pptx 落在「参考资料」下，收拢时看不到。
-    auxRoot.expanded = !auxAssets.isEmpty();
-
-    NavNodeSpec faciesBranch;
-    faciesBranch.text0 = tr("参考相图");
-    faciesBranch.type = QStringLiteral("category");
-    faciesBranch.icon = QStringLiteral("mIconPolygonLayer.svg");
-    faciesBranch.expanded = true;
-
-    NavNodeSpec docBranch;
-    docBranch.text0 = tr("参考资料");
-    docBranch.type = QStringLiteral("category");
-    docBranch.icon = QStringLiteral("mActionFolder.svg");
-    docBranch.expanded = true;
-
-    for (const CatalogAsset &a : auxAssets)
-    {
-      const bool isGeo = a.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive) || a.type == QLatin1String("boundary");
-      NavNodeSpec it;
-      it.text0 = a.displayName;
-      it.id = a.id;
-      it.type = QStringLiteral("auxiliary");
-      it.icon = isGeo ? QStringLiteral("mIconPolygonLayer.svg") : QStringLiteral("mActionOpenTable.svg");
-      it.text1 = isGeo ? tr("GeoJSON 矢量相图") : auxDocKind(a);
-      (isGeo ? faciesBranch : docBranch).children.append(it);
-    }
-    auxRoot.children.append(faciesBranch);
-    auxRoot.children.append(docBranch);
-    tops.append(auxRoot);
-  }
+  tops.append(buildAuxiliaryNavSpec(auxAssets));
 
   // 1b. 计划井 (Planned：方向34 布井候选)——虚拟部署实体，独立成组
   // 与实井分组隔开；显示名同走实体改写表，软删实体不显示。

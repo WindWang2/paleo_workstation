@@ -383,10 +383,34 @@ void ConstraintPage::buildSurfaceRow( QVBoxLayout *lay )
   lay->addWidget( surfaceRow );
 }
 
-namespace
+void ConstraintPage::rebuildCovariateCombo()
 {
-// WS-C5：结构 IDW 成图边界下拉（从 updateEngineRows 拆出，#502 函数行数闸）。
-void fillStructuralBoundaryCombo( QComboBox *boundaryCombo, QgisLayerService *svc )
+  auto *covariateCombo = findChild<QComboBox *>( QStringLiteral( "factorCovariateCombo" ) );
+  if ( !covariateCombo )
+    return;
+  const QString keep = covariateCombo->currentData().toString();
+  covariateCombo->blockSignals( true );
+  covariateCombo->clear();
+  covariateCombo->addItem( tr( "请选择协变量栅格" ), QString() );
+  if ( auto *svc = qobject_cast<QgisLayerService *>( property( kLayersProp ).value<QObject *>() ) )
+  {
+    QVector<LayerDeclaration> declared;
+    if ( svc->tryDeclared( &declared ) )
+    {
+      for ( const LayerDeclaration &d : declared )
+      {
+        if ( d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
+          continue;
+        covariateCombo->addItem( d.title.isEmpty() ? d.layerId : d.title, d.layerId );
+      }
+    }
+  }
+  const int idx = covariateCombo->findData( keep );
+  covariateCombo->setCurrentIndex( idx >= 0 ? idx : 0 );
+  covariateCombo->blockSignals( false );
+}
+
+void ConstraintPage::rebuildBoundaryCombo( QComboBox *boundaryCombo )
 {
   // 成图边界只要面：boundary.* 在前，测区面 survey.area 次之。约束线
   // （constraints.<层位>）、等值线和井点不是面，不能出现在这个下拉里——
@@ -396,7 +420,8 @@ void fillStructuralBoundaryCombo( QComboBox *boundaryCombo, QgisLayerService *sv
   const QString keep = boundaryCombo->currentData().toString();
   boundaryCombo->blockSignals( true );
   boundaryCombo->clear();
-  if ( svc )
+  if ( auto *svc = qobject_cast<QgisLayerService *>(
+           property( kLayersProp ).value<QObject *>() ) )
   {
     const QVector<LayerDeclaration> declared = svc->declared();
     const auto isVector = []( const LayerDeclaration &d ) {
@@ -451,7 +476,6 @@ void fillStructuralBoundaryCombo( QComboBox *boundaryCombo, QgisLayerService *sv
   boundaryCombo->setCurrentIndex( idx );
   boundaryCombo->blockSignals( false );
 }
-} // namespace
 
 void ConstraintPage::updateEngineRows()
 {
@@ -499,29 +523,7 @@ void ConstraintPage::updateEngineRows()
        {QStringLiteral("factorNeighborhoodParameters"), selectedMethod == QLatin1String("structural_idw") || selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("local_direction_kriging")},
        {QStringLiteral("factorNoParametersLabel"), selectedMethod == QLatin1String("legacy")}})
     findChild<QWidget *>(entry.first)->setVisible(interpolant && entry.second);
-  if ( auto *covariateCombo = findChild<QComboBox *>( QStringLiteral( "factorCovariateCombo" ) ) )
-  {
-    const QString keep = covariateCombo->currentData().toString();
-    covariateCombo->blockSignals( true );
-    covariateCombo->clear();
-    covariateCombo->addItem( tr( "请选择协变量栅格" ), QString() );
-    if ( auto *svc = qobject_cast<QgisLayerService *>( property( kLayersProp ).value<QObject *>() ) )
-    {
-      QVector<LayerDeclaration> declared;
-      if ( svc->tryDeclared( &declared ) )
-      {
-        for ( const LayerDeclaration &d : declared )
-        {
-          if ( d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
-            continue;
-          covariateCombo->addItem( d.title.isEmpty() ? d.layerId : d.title, d.layerId );
-        }
-      }
-    }
-    const int idx = covariateCombo->findData( keep );
-    covariateCombo->setCurrentIndex( idx >= 0 ? idx : 0 );
-    covariateCombo->blockSignals( false );
-  }
+  rebuildCovariateCombo();
   const bool covariateVisible = interpolant && selectedMethod == QLatin1String( "cokriging" );
   for ( const char *name : { "factorCovariateCombo", "factorCrossCorrelationSpin" } )
   {
@@ -587,7 +589,7 @@ void ConstraintPage::updateEngineRows()
     child<QLabel>(this, "factorCellSizeCaption")->setVisible(!structural);
   }
   if ( structural && boundaryCombo )
-    fillStructuralBoundaryCombo( boundaryCombo, qobject_cast<QgisLayerService *>( property( kLayersProp ).value<QObject *>() ) );
+    rebuildBoundaryCombo( boundaryCombo );
 
   row->setVisible( isopach );
   if ( !isopach )

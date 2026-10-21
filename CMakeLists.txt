@@ -1678,7 +1678,7 @@ set(_paleo_perf_tests
   tst_singlefactor_perf tst_singlefactor_contourbudget tst_singlefactor_guilatency
   tst_ui_blocking tst_mem_budget tst_perf_las tst_perf_segyindex tst_perf_catalog
   tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
-  tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
+  tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_horizontracksvc_perf tst_timedepthperf
   tst_wellcomposite_perf tst_cache_las tst_welllogset_perf tst_geostat_perf
   tst_lasperf tst_dataperf_index tst_coldstart tst_inversion_perf
   # full-audit F10：吞吐比率断言（largeFieldThroughputRatio）无预热/无最小时

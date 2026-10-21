@@ -30,9 +30,13 @@ namespace PaleoFolderConfirm
 // importAll 断言用）。
 struct Hooks
 {
+  std::function<void()> cancelImport;
   // 行重试：对话框已按当前下拉算好 forceType；实现走 FolderImportWorkflow。
   std::function<FolderRowResult(const QString &path, const QString &forceType)>
       importRow;
+  std::function<FolderRowResult(const QString &path, const QString &forceType,
+                                const QString &wellTarget,
+                                const QString &expectedHash)> importRowWithWell;
   // 整批导入：done(rows, importErr) 总在 GUI 线程回调。
   std::function<void(const QMap<QString, QString> &overrides,
                      std::function<void(const QVector<FolderRowResult> &,
@@ -46,6 +50,14 @@ struct Hooks
                      std::function<void(const QVector<FolderRowResult> &,
                                         const QString &)> done)>
       importAllWithForced;
+  std::function<void(const QMap<QString, QString> &overrides,
+                     const QStringList &forceImportPaths,
+                     const QMap<QString, QString> &wellTargets,
+                     const QMap<QString, QString> &expectedHashes,
+                     const QStringList &skippedPaths,
+                     const QStringList &previewedPaths,
+                     std::function<void(const QVector<FolderRowResult> &,
+                                        const QString &)> done)> importAllWithWells;
   // 确认完成后按行源文件名反查刚入库的井口资产（空 → 不开预览）。
   std::function<QString(const QString &rowPath)> importedWellHead;
   // 「查看未决」→ 数据页切未决过滤。
@@ -79,7 +91,9 @@ void writeFolderRowResult(QTableWidget *table, int row, const FolderRowResult &r
 QString folderImportSummaryText(const QVector<FolderRowResult> &rows);
 // 预览期估算文案（T2 大小估算）：「将导入 n 项 · 约 12.4 MB（重复跳过 n，
 // 枚举跳过 n）」——大小未知的行计入「大小未知」；无行回空串。
-QString folderEstimateText(const QVector<FolderPreviewRow> &rows);
+QString folderEstimateText(const QVector<FolderPreviewRow> &rows,
+                           const QStringList &skippedPaths = {},
+                           const QStringList &forceImportPaths = {});
 // 确认对话框整体搭建（类型表 + CRS 说明句 + 确认/取消/查看未决 + 行重试
 // 接线）。hooks 为空出口对应行为跳过；dlg.exec() 由调用方负责。
 void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,

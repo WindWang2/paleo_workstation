@@ -22,6 +22,7 @@
 #include <cmath>
 #include <memory>
 #include "../src/algorithms/paleoalgorithms.h"
+#include <cstring>
 
 // Acceptance for the production Paleo algorithms: provider registers on
 // QgsProcessingRegistry; each algorithm runs on synthetic inputs through the
@@ -321,6 +322,136 @@ private slots:
     QVERIFY2( px2[4 * 5 + 4] > 7.5f, qPrintable( QString::number( px2[4 * 5 + 4] ) ) );
     QVERIFY2( px2[0] == -9999.0f, qPrintable( QString::number( px2[0] ) ) );
 
+    delete lines;
+    delete pts;
+  }
+
+  // perf/IDW hull：PreparedHull（prepare 一次 + GEOSPreparedContains）必须与旧
+  // QgsGeometry::contains( x, y ) 逐点同判——含凸包顶点、边中点、边延长线等
+  // 边界退化点（GEOS 精确谓词下边界点 contains 均为 false）。
+  void preparedHullMatchesUnpreparedContains()
+  {
+    const QVector<QVector<QgsPointXY>> rings = {
+      // 轴对齐矩形、菱形、不规则凸多边形（由散点取凸包）
+      { { 0, 0 }, { 4, 0 }, { 4, 3 }, { 0, 3 }, { 0, 0 } },
+      { { 2, -1 }, { 5, 2 }, { 2, 5 }, { -1, 2 }, { 2, -1 } },
+    };
+    QVector<QgsGeometry> hulls;
+    for ( const auto &r : rings )
+      hulls << QgsGeometry::fromPolylineXY( r ).convexHull();
+    QgsMultiPointXY scatter;
+    for ( int i = 0; i < 64; ++i )
+      scatter << QgsPointXY( 3.0 * std::cos( i * 0.37 ) + 0.013 * i, 2.0 * std::sin( i * 0.91 ) - 0.007 * i );
+    hulls << QgsGeometry::fromMultiPointXY( scatter ).convexHull();
+
+    int checked = 0, inside = 0;
+    for ( const QgsGeometry &hull : hulls )
+    {
+      QVERIFY( !hull.isNull() );
+      const paleo::algorithms::PreparedHull prepared( hull );
+      QVERIFY( prepared.isValid() );
+      QVector<QgsPointXY> probes;
+      const QgsRectangle bb = hull.boundingBox();
+      for ( int iy = -4; iy <= 44; ++iy )
+        for ( int ix = -4; ix <= 44; ++ix )
+          probes << QgsPointXY( bb.xMinimum() + ix * bb.width() / 40.0, bb.yMinimum() + iy * bb.height() / 40.0 );
+      for ( auto v = hull.vertices_begin(); v != hull.vertices_end(); ++v )
+        probes << QgsPointXY( ( *v ).x(), ( *v ).y() );
+      const QgsPolylineXY ext = hull.asPolygon().value( 0 );
+      for ( int i = 0; i + 1 < ext.size(); ++i )
+        probes << QgsPointXY( 0.5 * ( ext[i].x() + ext[i + 1].x() ), 0.5 * ( ext[i].y() + ext[i + 1].y() ) );
+      for ( const QgsPointXY &p : probes )
+      {
+        const bool ref = hull.contains( p.x(), p.y() );
+        QVERIFY2( prepared.contains( p.x(), p.y() ) == ref,
+                  qPrintable( QStringLiteral( "mismatch at (%1,%2)" ).arg( p.x(), 0, 'g', 17 ).arg( p.y(), 0, 'g', 17 ) ) );
+        ++checked;
+        inside += ref ? 1 : 0;
+      }
+    }
+    QVERIFY( checked > 5000 );
+    QVERIFY( inside > 0 && inside < checked ); // 两类结果都覆盖到
+    // 空/无效凸包：与旧路径「clipToHull=false」一致——不裁剪由调用方门控，这里只保证不崩、判 false。
+    const paleo::algorithms::PreparedHull empty( ( QgsGeometry() ) );
+    QVERIFY( !empty.isValid() );
+    QVERIFY( !empty.contains( 0, 0 ) );
+  }
+
+  // perf/IDW hull 端到端：带凸包裁剪的输出栅格必须与「无裁剪输出 + 旧
+  // QgsGeometry::contains 逐格掩码」逐位一致（float 按位比较，不设容差）。
+  void constraintIdwHullClipPreparedIdentical()
+  {
+    ensurePaleo();
+    auto *pts = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:3857&field=z:double" ),
+                                    QStringLiteral( "pts" ), QStringLiteral( "memory" ) );
+    QVERIFY( pts->isValid() );
+    QList<QgsFeature> feats;
+    for ( int i = 0; i < 23; ++i )
+    {
+      QgsFeature f( pts->fields() );
+      f.setGeometry( QgsGeometry::fromPointXY( QgsPointXY( std::fmod( i * 7.31, 40.0 ), std::fmod( i * 3.17, 30.0 ) ) ) );
+      f.setAttribute( QStringLiteral( "z" ), 10.0 + std::sin( i * 0.7 ) * 5.0 );
+      feats << f;
+    }
+    QVERIFY( pts->dataProvider()->addFeatures( feats ) );
+    pts->updateExtents();
+
+    // 斜置菱形环（非轴对齐，边穿过若干格心附近）→ 凸包裁剪。
+    auto *lines = new QgsVectorLayer( QStringLiteral( "LineString?crs=EPSG:3857" ), QStringLiteral( "cons" ),
+                                      QStringLiteral( "memory" ) );
+    QVERIFY( lines->isValid() );
+    const QgsPolylineXY ring = { QgsPointXY( 20, 1.5 ), QgsPointXY( 38.5, 15 ), QgsPointXY( 20, 28.5 ),
+                                 QgsPointXY( 1.5, 15 ), QgsPointXY( 20, 1.5 ) };
+    QgsFeature lf;
+    lf.setGeometry( QgsGeometry::fromPolylineXY( ring ) );
+    QVERIFY( lines->dataProvider()->addFeatures( QList<QgsFeature>() << lf ) );
+    lines->updateExtents();
+    const QgsGeometry hull = QgsGeometry::fromPolylineXY( ring ).convexHull();
+
+    const QgsProcessingAlgorithm *alg =
+        QgsApplication::processingRegistry()->algorithmById( QStringLiteral( "paleo:paleo_constraint_idw" ) );
+    QVERIFY( alg );
+    QgsProcessingContext ctx;
+    QgsProcessingFeedback fb;
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( pts ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 0.25 );
+    const QString plainPath = mDir.filePath( QStringLiteral( "idw_hull_plain.tif" ) );
+    params.insert( QStringLiteral( "OUTPUT" ), plainPath );
+    QVERIFY( !alg->run( params, ctx, &fb ).isEmpty() );
+    const QString clipPath = mDir.filePath( QStringLiteral( "idw_hull_clip.tif" ) );
+    params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( lines ) );
+    params.insert( QStringLiteral( "OUTPUT" ), clipPath );
+    QVERIFY( !alg->run( params, ctx, &fb ).isEmpty() );
+
+    int w = 0, h = 0, w2 = 0, h2 = 0;
+    QVector<float> plain, clip;
+    QVERIFY( readRaster( plainPath, w, h, plain ) );
+    QVERIFY( readRaster( clipPath, w2, h2, clip ) );
+    QCOMPARE( w2, w );
+    QCOMPARE( h2, h );
+    GDALDatasetH ds = GDALOpen( clipPath.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY( ds );
+    double gt[6];
+    QCOMPARE( GDALGetGeoTransform( ds, gt ), CE_None );
+    GDALClose( ds );
+    const double cellSize = gt[1];
+    int in = 0, out = 0;
+    for ( int r = 0; r < h; ++r )
+    {
+      const double y = gt[3] - ( r + 0.5 ) * cellSize; // 与算法同式：extent.yMaximum() - (r+0.5)*cellSize
+      for ( int c = 0; c < w; ++c )
+      {
+        const double x = gt[0] + ( c + 0.5 ) * cellSize;
+        const qsizetype i = static_cast<qsizetype>( r ) * w + c;
+        const float expected = hull.contains( x, y ) ? plain[i] : -9999.0f;
+        QVERIFY2( std::memcmp( &expected, &clip[i], sizeof( float ) ) == 0,
+                  qPrintable( QStringLiteral( "cell r=%1 c=%2 expected %3 got %4" ).arg( r ).arg( c ).arg( expected ).arg( clip[i] ) ) );
+        ( expected == -9999.0f ? out : in )++;
+      }
+    }
+    QVERIFY2( in > 100 && out > 100, qPrintable( QStringLiteral( "in=%1 out=%2" ).arg( in ).arg( out ) ) );
     delete lines;
     delete pts;
   }

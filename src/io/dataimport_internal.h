@@ -61,6 +61,8 @@ struct FamilyContext
   QVector<WellTopRecord> parsedTops;
   TimeDepthTable parsedTd;
   DeviationTable parsedDev;
+  QString logWellName;
+  QString targetWellId;
 };
 
 // 井身份解析结果（原 DataImportService 私有嵌套 WellBind 迁此，字段逐字）。

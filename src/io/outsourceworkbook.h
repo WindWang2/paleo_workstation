@@ -4,6 +4,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <QByteArray>
 
 // 方向41：外委资料批量读取（上游 Drawing/drawing/single_factor/workflow.py
 // @27fdb998a32d7a7f50d7e6ef0d2ebb3a5d06378f 的扫描口径）。
@@ -43,6 +44,10 @@ struct WorkbookReadResult
 
 // 按扩展名分派（.xml → SpreadsheetML，.xlsx → OOXML）。不抛异常。
 WorkbookReadResult readWorkbook( const QString &path );
+
+// Content-selected SpreadsheetML adapter; keeps the caller's source identity
+// when the file extension differs. Uses the same cell and XML safety checks.
+WorkbookReadResult readSpreadsheetMlWorkbook( const QString &path, const QByteArray &bytes );
 
 struct WorkbookScanEntry
 {

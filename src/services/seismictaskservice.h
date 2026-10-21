@@ -765,9 +765,9 @@ public:
 
   // D5.2 任意线提取缓存查询：同（体身份×路径×提取选项）重复提取直接命中。
   // 命中时 stats 一并从缓存条目取回（真实道距；绝不合成近似值）。
-  // B-2（full-audit-20261021）：columnDistances 的权威口径是米（引擎路径
-  // 经 SgyCoordinateMapper 仿射换算；仿射不可得的回落路径为线号单位——
-  // 消费端应对缺 distances 的剖面按自身兜底口径如实标注）。
+  // columnDistances 为线号弧长（SectionGeometry::fromColumns 的输入口径）；
+  // columnDistancesM 为经 SgyCoordinateMapper 仿射换算的米弧长（仿射不可得
+  // 或回落路径时为空，不合成）。
   std::shared_ptr<const SgySliceImage> cachedSection(
       const std::vector<glm::ivec2> &pathPoints, std::shared_ptr<const SgyVolume> volume,
       const SgySectionOptions &options, SgySectionStats *stats = nullptr) const;

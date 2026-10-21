@@ -226,6 +226,8 @@ void WellPredictionPanel::rebuildList() {
 void WellPredictionPanel::setLog(const LasDoc &log) {
   m_log = log;
   rebuildTracks();
+  if (!log.ok && !log.error.isEmpty())
+    m_status->setText(tr("测井曲线暂不可用：%1").arg(log.error));
 }
 void WellPredictionPanel::refreshWell() {
   m_intervals->setRowCount(0);

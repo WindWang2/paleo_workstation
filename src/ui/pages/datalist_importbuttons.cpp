@@ -10,7 +10,7 @@ void DataListPanel::buildImportButtons(QVBoxLayout *importLay, QWidget *importSe
     {"importWells", QT_TR_NOOP("导入井数据"), "wells",
      QT_TR_NOOP("选择一个或多个井位/分层文件入库")},
     {"importWellLogs", QT_TR_NOOP("导入测井数据"), "well_log",
-     QT_TR_NOOP("选择 LAS 测井曲线或 XML/Excel 综合柱状图入库，可多选")},
+     QT_TR_NOOP("选择 LAS、DLIS、LIS、SpreadsheetML XML 或 CSV/TXT/TSV 测井数据，可多选并预览")},
     {"importSeismic", QT_TR_NOOP("导入地震数据"), "seismic",
      QT_TR_NOOP("选择 SEG-Y 等地震数据文件入库，可多选")},
     {"importBoundary", QT_TR_NOOP("导入边界数据"), "boundary",

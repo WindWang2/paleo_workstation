@@ -738,6 +738,18 @@ bool parseNumericCell( const QString &raw, double *value )
   return true;
 }
 
+WorkbookReadResult readSpreadsheetMlWorkbook( const QString &path, const QByteArray &bytes )
+{
+  if ( bytes.size() > kMaxWorkbookBytes )
+  {
+    WorkbookReadResult result;
+    result.path = path;
+    result.error = QCoreApplication::translate( "OutsourceWorkbook", "SpreadsheetML 文件超过大小上限，请拆分后重试：%1" ).arg( path );
+    return result;
+  }
+  return readSpreadsheetMl( path, bytes );
+}
+
 WorkbookReadResult readWorkbook( const QString &path )
 {
   WorkbookReadResult result;

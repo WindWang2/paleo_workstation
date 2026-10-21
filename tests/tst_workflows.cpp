@@ -440,6 +440,9 @@ private slots:
 
   void writeOnnxRasterMultiClassWithNaNDoesNotConvertToClass0()
   {
+#if !PALEO_HAVE_ORT
+    QSKIP( "writeOnnxRaster 仅在 PALEO_HAVE_ORT 构建中存在（本地未 vendored onnxruntime）" );
+#else
     QTemporaryDir dir;
     QVERIFY( dir.isValid() );
     const QString outPath = dir.filePath( QStringLiteral( "multiclass_nan.tif" ) );
@@ -486,6 +489,7 @@ private slots:
     QCOMPARE( px[0], -9999.0f );
     // Pixel 1 MUST be 1.0f (argmax class 1)
     QCOMPARE( px[1], 1.0f );
+#endif
   }
 
   void publishPredictionJobCleansStagingOnFailure()

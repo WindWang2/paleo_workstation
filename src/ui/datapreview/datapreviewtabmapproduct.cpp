@@ -172,30 +172,17 @@ QWidget *DataPreviewTabs::buildMapProductContent(
           abs, m_doc ? m_doc->taskService() : nullptr, page,
           [page, statsRaster, styleTouched,
            continuousStyle](const PreviewRasterAnalysis::BandSummary &sum) {
-            const auto update = [page](const char *name, const QString &text) {
-              if (auto *label =
-                      page->findChild<QLabel *>(QString::fromLatin1(name)))
-                label->setText(text);
-            };
             if (!sum.valid || !statsRaster) {
-              if (!statsRaster)
-                return;
-              // 失败/取消也落地：不让「计算中…」永远挂着（诚实状态）。
-              const QString unavailable = QObject::tr("不可用");
-              update("mapProductStatMin", unavailable);
-              update("mapProductStatMax", unavailable);
-              update("mapProductStatMean", unavailable);
-              update("mapProductStatStd", unavailable);
-              update("mapProductStatValid", unavailable);
+              if (statsRaster) // 失败/取消也落地，不留「计算中…」（诚实状态）
+                markStatsUnavailable(page, "mapProductStat");
               return;
             }
-            update("mapProductStatMin", QString::number(sum.min, 'f', 2));
-            update("mapProductStatMax", QString::number(sum.max, 'f', 2));
-            update("mapProductStatMean", QString::number(sum.mean, 'f', 2));
-            update("mapProductStatStd", QString::number(sum.stdDev, 'f', 2));
-            update(
-                "mapProductStatValid",
-                QStringLiteral("%1%").arg(sum.validRatio() * 100, 0, 'f', 1));
+            setStatLabel(page, "mapProductStatMin", QString::number(sum.min, 'f', 2));
+            setStatLabel(page, "mapProductStatMax", QString::number(sum.max, 'f', 2));
+            setStatLabel(page, "mapProductStatMean", QString::number(sum.mean, 'f', 2));
+            setStatLabel(page, "mapProductStatStd", QString::number(sum.stdDev, 'f', 2));
+            setStatLabel(page, "mapProductStatValid",
+                         QStringLiteral("%1%").arg(sum.validRatio() * 100, 0, 'f', 1));
             if (continuousStyle && !*styleTouched) {
               PreviewRasterAnalysis::applyPseudoColorRenderer(
                   statsRaster, 1, sum.min, sum.max,

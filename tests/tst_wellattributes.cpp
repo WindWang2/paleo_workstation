@@ -274,8 +274,8 @@ private slots:
     QCOMPARE(layer->fields().indexOf("horizon"), -1); // 地层表用 formation 列
     QVERIFY(layer->fields().indexOf("dominant_facies") >= 0);
     QCOMPARE(layer->fields().at(layer->fields().indexOf("dominant_facies")).alias(),
-             QString("地层相")); // 智能预测侧不出现「优势」字样
-    QCOMPARE(layer->name(), QString("测井地层相属性"));
+             QString("分层解释微相")); // 按地层单元汇总的解释微相
+    QCOMPARE(layer->name(), QString("测井分层沉积相属性"));
     // 地层相与岩性表只在属性表里维护，不出现在图层树。
     QVERIFY(layer->flags().testFlag(QgsMapLayer::Private));
     QgsProject *project = layer->project();

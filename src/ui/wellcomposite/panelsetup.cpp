@@ -122,7 +122,7 @@ void WellCompositePanel::setupUi()
   m_btnResetZoom = new QToolButton(topBar);
   m_btnResetZoom->setObjectName(QStringLiteral("btnCompResetZoom"));
   m_btnResetZoom->setText(tr("全井适应"));
-  m_btnResetZoom->setToolTip(tr("双击道内任意位置或点击此键恢复全井段"));
+  m_btnResetZoom->setToolTip(tr("点击此键恢复全井段；双击照片放大查看，双击其他道体位置复位"));
   PaleoTheme::applyThemedStyleSheet(m_btnResetZoom, themedBtnStyle);
   topLay->addWidget(m_btnResetZoom);
 
@@ -295,7 +295,7 @@ void WellCompositePanel::setupUi()
   topLay->addWidget(m_lblReadout);
 
   for (const auto &entry : {qMakePair(QStringLiteral("btnWellAttributes"), tr("岩性与相属性")),
-                            qMakePair(QStringLiteral("btnWellFormations"), tr("地层优势相属性")),
+                            qMakePair(QStringLiteral("btnWellFormations"), tr("分层沉积相属性")),
                             qMakePair(QStringLiteral("btnWellFactors"), tr("井点因子属性"))}) {
     auto *button = new QToolButton(topBar);
     button->setObjectName(entry.first); button->setText(entry.second);

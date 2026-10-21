@@ -118,10 +118,10 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_kind->addItem(tr("地震体 → 微相栅格（预测服务）"), "seismic");
     m_kind->addItem(tr("测井 → 当前地层预测微相"), "wells");
     // 井点的相 = 该井在当前层位地层（本层位顶 → 下一层位顶）内厚度最大的相，
-    // 与数据管理逐组预测写同一张「测井地层相属性」表。
+    // 与数据管理逐组预测写同一张「测井分层沉积相属性」表。
     m_kind->setItemData(m_kind->count() - 1,
                         tr("每口井在当前地层内厚度最大的微相作为预测结果，并关联亚相和相；"
-                           "结果按井、按地层写入「测井地层相属性」表，与数据管理共用"),
+                           "结果按井、按地层写入「测井分层沉积相属性」表，与数据管理共用"),
                         Qt::ToolTipRole);
     form->addRow(tr("预测类型"), m_kind);
     m_horizonSourceRow = new QWidget(body);
@@ -175,7 +175,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     run->addWidget(button("predict", tr("运行预测")), 0, 0);
     run->addWidget(button("cancel", tr("取消")), 0, 1);
     run->addWidget(button("wellattributes", tr("岩性与相属性")), 1, 0);
-    run->addWidget(button("wellformations", tr("地层相属性")), 1, 1);  // 与地层相表共用结果
+    run->addWidget(button("wellformations", tr("分层沉积相属性")), 1, 1);  // 与分层沉积相表共用结果
     layout->addLayout(run);
     layout->addWidget(new WellReadinessPanel(workbench, m_inputs, [this] { return std::pair{m_horizon,
         m_kind->currentData() == "wells" ? checkedInputs() : QStringList()}; }, body));

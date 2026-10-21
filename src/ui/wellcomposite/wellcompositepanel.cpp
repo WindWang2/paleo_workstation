@@ -4,6 +4,7 @@
 #include "derivedsink.h"
 #include "editsession.h"
 #include "../paleotheme.h"
+#include "../dialogs/coreimageviewer.h"
 #include "../shortcuts/shortcutcatalog.h"
 #include "../help/whatsthiscatalog.h"
 #include <QFile>
@@ -22,6 +23,8 @@ WellCompositePanel::WellCompositePanel(QWidget *parent)
   : QWidget(parent)
 {
   setupUi();
+  connect(m_canvas, &WellCompositeCanvas::imagePreviewRequested, this,
+          [this](const ImageDepthItem &item) { PaleoCoreImageViewer::open(item, m_wellName, this); });
 
   // D2.7 Ctrl+G 跳深度（方向63：键序登记在 shortcuts/shortcutcatalog）
   auto *shortcut = paleo::shortcuts::bindShortcut(QStringLiteral("wellcomposite.gotoDepth"), this);

@@ -803,6 +803,7 @@ add_library(paleo_ui STATIC
   src/ui/dialogs/storagegovernancedialog.cpp
   src/ui/dialogs/cataloghealthdialog.cpp           # 方向30：工区体检对话框（分类计数 + 跳转意图）
   src/ui/dialogs/depthanchordialog.cpp            # 方向79：井附件锚深编辑（预览+输入+清锚）
+  src/ui/dialogs/coreimageviewer.cpp              # 单井岩心照片非模态放大检视
   src/ui/pages/wellattachmentpanel.cpp           # 方向79：井附件管理面板（清单/行内编辑/软删意图）
   src/ui/webviewpanel.cpp                          # embedded web shell (lazy, degradable)
   src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图（D1.11 道头基类）

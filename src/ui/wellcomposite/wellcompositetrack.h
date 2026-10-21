@@ -279,6 +279,12 @@ public:
   void setItems(const QVector<ImageDepthItem> &items) { m_items = items; }
   QVector<ImageDepthItem> items() const { return m_items; }
 
+  // 绘制与放大拾取共用同一矩形（包括单点锚、等比留白和视口裁切）。
+  QRectF imageRect(int index, const QRectF &bodyRect,
+                   double topDepth, double pxPerMeter) const;
+  int imageIndexAt(const QPointF &pos, const QRectF &bodyRect,
+                   double topDepth, double pxPerMeter) const;
+
   void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
   void paintBody(QPainter &painter, const QRectF &bodyRect,
                  double topDepth, double bottomDepth, double pxPerMeter) override;

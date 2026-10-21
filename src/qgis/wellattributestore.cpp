@@ -54,7 +54,7 @@ bool reconnectBridgeSlot(QgsLayerTree *root, QgsLayerTreeRegistryBridge *bridge,
       QMetaObject::normalizedSignature(slot));
   return sig >= 0 && slt >= 0 && QMetaObject::connect(root, sig, bridge, slt);
 }
-// 岩性与地层相是属性表，不是地图图层。整份测井结果不进图层树，
+// 岩性与分层沉积相是属性表，不是地图图层。整份测井结果不进图层树，
 // 避免按层位和相展开。图层本身留在工程里，属性表仍能打开。
 void detachAttributeTableFromLegend(QgsMapLayer *layer) {
   if (!layer)
@@ -267,7 +267,7 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
   declaration.source = uri(dir, table);
   declaration.group = "00_Data";
   declaration.title = table == Table::Factors ? tr("井点单因素属性")
-                       : table == Table::Formations ? tr("测井地层相属性")
+                       : table == Table::Formations ? tr("测井分层沉积相属性")
                                                     : tr("测井岩性与相属性");
   if (!layers->layer(id)) {
     bool declared = false;
@@ -275,7 +275,7 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
     for (const auto &d : layers->declared())
       if (d.layerId == id) {
         declared = true;
-        // 旧工程的声明可能带旧标题（「测井地层优势相属性」）或搬家前的
+        // 旧工程的声明可能带旧标题或搬家前的
         // 绝对路径——可写时按当前口径 upsert，只读时沿用旧声明。
         stale = d.title != declaration.title || d.source != declaration.source;
       }
@@ -294,7 +294,7 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
   auto *layer = qobject_cast<QgsVectorLayer *>(layers->instantiate(id, error));
   if (!layer)
     return nullptr;
-  if (layer->name() != declaration.title && !catalog->refusesWrites())
+  if (layer->name() != declaration.title)
     layer->setName(declaration.title);
   layer->setReadOnly(catalog->refusesWrites());
   // 旧工程在首次写入预测时补齐状态字段，保留原有属性和行。
@@ -311,7 +311,7 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
       layer->updateFields();
     }
   }
-  // 地图符号只服务于仍留在图层树里的井点单因素。岩性与地层相
+  // 地图符号只服务于仍留在图层树里的井点单因素。岩性与分层沉积相
   // 同样记一份样式，但随后退出图层树，图例不再按层位和相展开。
   if (table == Table::Formations)
     QgisStyleService::applyWellFormationLayerStyle(layer, faciesSchemas(catalog));
@@ -341,15 +341,15 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
       {"formation", tr("地层")},
       {"unit_type", tr("层级（组/段）")},
       {"thickness_md", tr("地层厚度 MD（m）")},
-      // 地层表的「相」就是该地层的预测输出（厚度最大者）——列名直接叫
-      // 地层相，不再出现「优势」字样（2026-10-10 用户要求）。
-      {"dominant_facies", tr("地层相")},
-      {"predicted_dominant", tr("预测相")},
-      {"dominant_thickness_md", tr("相厚度（m）")},
-      {"dominant_ratio", tr("相厚度占比（0–1）")},
-      {"coverage", tr("预测覆盖率（0–1）")},
-      {"tie", tr("厚度并列")},
-      {"facies_composition", tr("相厚度构成")},
+      // 按地层单元汇总的沉积微相；解释可修订，预测值独立保留。
+      // 存储字段名保持兼容，不能把分层汇总误命名成一个新的相类别。
+      {"dominant_facies", tr("分层解释微相")},
+      {"predicted_dominant", tr("分层预测微相")},
+      {"dominant_thickness_md", tr("最大累计厚度（m）")},
+      {"dominant_ratio", tr("最大厚度占比（0–1）")},
+      {"coverage", tr("已分类厚度覆盖率（0–1）")},
+      {"tie", tr("最大厚度并列")},
+      {"facies_composition", tr("微相厚度构成")},
       {"source", tr("来源")}};
   for (auto it = aliases.cbegin(); it != aliases.cend(); ++it) {
     const int index = layer->fields().indexOf(it.key());
@@ -420,7 +420,7 @@ bool validate(QgsVectorLayer *layer, DataCatalog *catalog, Table table,
       const auto formation = row.value("formation").toString().trimmed();
       const auto key = id + QChar(0x1f) + formation;
       if (formation.isEmpty() || keys.contains(key))
-        return fail(error, tr("地层相必须按井/地层唯一，地层名不能为空"));
+        return fail(error, tr("分层沉积相必须按井/地层唯一，地层名不能为空"));
       keys.insert(key);
       if (!span(row))
         return fail(error, tr("地层顶底深必须有限且底深大于顶深"));
@@ -437,7 +437,7 @@ bool validate(QgsVectorLayer *layer, DataCatalog *catalog, Table table,
               name == QLatin1String("coverage")) &&
              n > 1 + 1e-9))
           return fail(error,
-                      tr("地层相的厚度必须为非负有限数值，占比和覆盖率为 0–1"));
+                      tr("分层沉积相的厚度必须为非负有限数值，占比和覆盖率为 0–1"));
       }
     } else if (!factors) {
       if (!span(row))
@@ -625,11 +625,11 @@ bool mergeFormations(DataCatalog *catalog, const QString &dir,
     if (row.value("formation").toString().trimmed().isEmpty() ||
         !span(row) || catalog->entityById(row.value("well_id").toString())
                               .entityType != "well")
-      return fail(error, tr("地层相的井 ID、地层名或顶底深无效"));
+      return fail(error, tr("分层沉积相的井 ID、地层名或顶底深无效"));
     if (!faciesCode(row.value("facies_code")))
       return fail(error, tr("相编码必须为 1–32767 的整数或空值"));
     if (batch.contains(keyOf(row)))
-      return fail(error, tr("同一口井的地层名重复，未更新地层相"));
+      return fail(error, tr("同一口井的地层名重复，未更新分层沉积相"));
     batch.insert(keyOf(row));
   }
   auto *layer = open(catalog, dir, layers, Table::Formations, true, error);
@@ -637,7 +637,7 @@ bool mergeFormations(DataCatalog *catalog, const QString &dir,
     return false;
   if (layer->isEditable())
     return fail(error,
-                tr("测井地层相属性表正在编辑，请先保存或放弃编辑，再运行预测"));
+                tr("测井分层沉积相属性表正在编辑，请先保存或放弃编辑，再运行预测"));
   if (!validate(layer, catalog, Table::Formations, error))
     return false;
   QMap<QString, QgsFeatureId> existing;
@@ -648,8 +648,8 @@ bool mergeFormations(DataCatalog *catalog, const QString &dir,
                         f.attribute("formation").toString().trimmed(),
                     f.id());
   if (!layer->startEditing())
-    return fail(error, tr("无法开始地层相更新"));
-  layer->beginEditCommand(tr("更新测井地层相"));
+    return fail(error, tr("无法开始分层沉积相更新"));
+  layer->beginEditCommand(tr("更新测井分层沉积相"));
   bool ok = true;
   for (const auto &value : updates) {
     const auto row = value.toMap();
@@ -695,7 +695,7 @@ bool mergeFormations(DataCatalog *catalog, const QString &dir,
     layer->rollBack();
     return fail(error, error && !error->isEmpty()
                            ? *error
-                           : tr("地层相更新失败，已撤销本次更新"));
+                           : tr("分层沉积相更新失败，已撤销本次更新"));
   }
   layer->endEditCommand();
   return commit(layer, error);
@@ -748,7 +748,7 @@ bool mergeIntervalsAndFormations(DataCatalog *catalog, const QString &dir,
       layer->rollBack();
   }
   return fail(error,
-              firstErr.isEmpty() ? tr("地层相更新失败，井段已恢复") : firstErr);
+              firstErr.isEmpty() ? tr("分层沉积相更新失败，井段已恢复") : firstErr);
 }
 bool seedFactors(DataCatalog *catalog, const QString &dir,
                  QgisLayerService *layers, const QVariantList &updates,

@@ -314,9 +314,10 @@ void ConstraintPage::updateWellFactorActionState() {
   button->setEnabled(ready && hasHorizon && !busy);
   button->setToolTip(busy          ? tr("正在计算，可取消")
                      : !hasHorizon ? tr("输入：请先打开工程并选择层位")
-                     : ready       ? tr("后台提取当前地层数据，保存井点版本后再计算等值面")
+                     : ready       ? tr("后台提取当前地层数据，保存井点版本后再生成单因素图")
                                    : tr("请勾选因子并选择真实提取字段"));
   refreshWellFactorGeoHint();
+  updateOneClickState();
 }
 void ConstraintPage::refreshWellFactorResults() {
   auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());

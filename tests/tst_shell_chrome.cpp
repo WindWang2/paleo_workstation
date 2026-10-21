@@ -346,6 +346,16 @@ private slots:
           bad << QStringLiteral("%1/%2: '%3'").arg(id, key, b->whatsThis());
       }
     }
+    // 反馈 #19：单因素图页的撤销/重做收进「更多」溢出菜单——同样计数并要求帮助。
+    if (auto *menu = win.findChild<QMenu *>(QStringLiteral("ribbonConstraintMoreMenu")))
+      for (const QAction *a : menu->actions()) {
+        const QString key = a->text().simplified();
+        if (key != QStringLiteral("撤销") && key != QStringLiteral("重做"))
+          continue;
+        ++seen;
+        if (a->whatsThis().isEmpty() || a->whatsThis().contains(QStringLiteral("数据列表")))
+          bad << QStringLiteral("constraint-more/%1: '%2'").arg(key, a->whatsThis());
+      }
     QVERIFY2(seen >= 6, qPrintable(QStringLiteral("found only %1 undo/redo ribbon buttons").arg(seen)));
     QVERIFY2(bad.isEmpty(), qPrintable(bad.join(QLatin1Char('\n'))));
   }

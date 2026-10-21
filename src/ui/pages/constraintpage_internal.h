@@ -22,6 +22,7 @@ namespace paleo::constraintpage_internal
 // 状态（无成员设计，走动态属性——与 pagepanels.cpp 同一惯例）：
 // factorId -> 已生成 layerId。
 inline constexpr const char kFactorGenProp[] = "paleo.page.factorgen";
+inline constexpr const char kOneClickProp[] = "paleo.page.oneclick"; // 反馈 #19 一键成图状态
 
 inline QString factorIdOfRow( const QTableWidget *table, int row )
 {

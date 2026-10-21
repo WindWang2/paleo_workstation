@@ -165,6 +165,17 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->insertWidget(lay->indexOf(options) + 1, optionalConstraints);
   buildFactorResultsSection(content, lay);
   buildTailSections( content, lay );
+  // 反馈 #19：兜底工具（原始字段 IDW / 厚度样本 / 不确定性集合）统一收进输出段
+  // 末尾的「更多工具」折叠段；各自仍是独立折叠段，objectName 不变。
+  auto *moreTools = new CollapsibleSection(tr("更多工具"), content);
+  moreTools->setObjectName(QStringLiteral("factorMoreToolsSection"));
+  for (const char *name : {"factorLegacySection", "thicknessSection", "realizationSection"})
+    if (auto *w = findChild<QWidget *>(QString::fromLatin1(name))) {
+      lay->removeWidget(w);
+      moreTools->containerLayout()->addWidget(w);
+    }
+  moreTools->setExpanded(false);
+  lay->addWidget(moreTools);
   // 主操作与就绪提示固定在滚动区外，长表单中始终可见。
   auto *actionBar = new QWidget(this);
   actionBar->setObjectName(QStringLiteral("factorActionBar"));

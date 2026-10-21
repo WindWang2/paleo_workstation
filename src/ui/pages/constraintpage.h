@@ -137,6 +137,13 @@ class ConstraintPage : public QWidget
     // 复用动作的可用性，显示当前图件、阻断原因和可定位的下一步。
     void updateOperationGuidance();
     // 反馈 #19：IPO 步骤条（输入/处理/输出 三态）与可选约束段的自动展开。
+    // 一键「提取并生成」：startOneClick 发起；忙态结束后 continueOneClick 推进或
+    // failOneClick 停下并说明原因（状态在页属性 kOneClickProp）。
+    void startOneClick();
+    void continueOneClick();
+    void failOneClick(const QString &reason);
+    void failOneClickWithStatus(const QString &fallback);
+    void updateOneClickState();
     void updateIpoStepper(const QString &horizon, int row, const QPushButton *generate,
                           const QString &nextTarget);
     // 主线6：等厚引擎行（顶/底构造面选择）的可见性与清单填充。

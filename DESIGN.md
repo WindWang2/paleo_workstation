@@ -335,6 +335,14 @@ token——沿用 surface-alt 卡底 + border 1px + rounded.md（卡片既有口
 | 2026-10-07 | 工程配准与底图（用户要求） | 文件菜单增加「工程坐标与底图…」，使用原生 Qt 表单与 QgsProjectionSelectionWidget，沿用字体、间距和次级文字 token。有效配准工程的状态栏显示地图 CRS、WGS84 经纬度及底图来源；无配准工程保留局部米坐标文案。 |
 | 2026-10-08 | 错误呈现唯一真源（方向 76） | 方向 54 并行 ErrorHub 及未装配呈现栈（NotificationManager/NotificationCard/ErrorHistoryModel/ErrorHistoryDock）删除；全局 `ErrorHub` 为唯一错误真源，三级呈现归 `NotificationCenter`/`ToastCard`/`ErrorHistoryPanel`/`PaleoNotify`；状态栏错误徽标改订全局 hub（此前误订未装配 hub，count 恒 0 永久隐藏）|
 
+### 2026-10-21 — 单因素图 IPO 三段（反馈 #19）
+
+参数面板与 ribbon 单因素图页统一为“输入（层位/因素/井点）→ 处理（方法，
+约束可选且默认收起）→ 输出（预览/等值线/发布）”。主按钮“生成单因素图”，
+另设一键“提取并生成”（提取井点 → 生成，受约束门控，失败即停并说明原因）。
+兜底工具（原始字段 IDW/厚度样本/不确定性集合）收进“更多工具”；ribbon 少用组
+收进“更多”菜单。下文 10-13 条目的四步口径由此取代。
+
 ### 2026-10-13 — 单因素图步骤与证据
 
 单因素图按“1 绘制/导入间隔线与方向线 → 2 获取本地层井点数据 →

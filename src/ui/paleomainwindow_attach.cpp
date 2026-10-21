@@ -703,7 +703,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     for (const char *name : {"ribbonImportFolder", "ribbonImportWells", "ribbonImportWellLogs",
                              "ribbonImportSeismic", "ribbonImportBoundary",
                              "ribbonSaveVersion", "ribbonExportPdf", "ribbonDesignerAction",
-                             "ribbonRunPrediction", "ribbonRunIdw", "ribbonRunValidation",
+                             "ribbonRunPrediction", "ribbonRunIdw", "ribbonFactorOneClick", "ribbonRunValidation",
                              "ribbonThicknessChain"})
       if (auto *a = findChild<QAction *>(QLatin1String(name)))
         PaleoRibbon::applyGate(a, ok ? QString() : reason);

@@ -215,8 +215,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
             });
   } else if (mode == "constraint") {
     label(
-        tr("主流程在「编图流程」页：先绘制或导入间隔线、方向线，再获取本地层的砂厚、砂地比等数据，"
-           "计算并保存等值面、等值线。此页管理已保存的图件与版本，供后续编图引用。"));
+        tr("主流程在「编图流程」页，按输入 → 处理 → 输出：提取井点数据，按默认方法（约束可选）生成单因素图，"
+           "再预览、提取等值线或发布。此页管理已保存的图件与版本，供后续编图引用。"));
     m_points = new QComboBox(body);
     m_points->setObjectName("workbenchPoints");
     m_points->setAccessibleName(tr("样点图层"));

@@ -1174,11 +1174,34 @@ class TestUiShell : public QObject
       auto *act =
           m_win->findChild<QAction *>(QStringLiteral("ribbonWellSectionAction"));
       QVERIFY(act);
-      // 三页共享的「连井分析」ribbon 面板在位。
-      for (const char *name : {"ribbonPanel.constraint.correlation",
-                               "ribbonPanel.predict.correlation",
+      // 预测/编图页的「连井分析」ribbon 面板在位；单因素图页（反馈 #19）收进
+      //「更多」溢出菜单，入口仍是同一颗 QAction。
+      for (const char *name : {"ribbonPanel.predict.correlation",
                                "ribbonPanel.compose.correlation"})
         QVERIFY2(m_win->findChild<QWidget *>(QLatin1String(name)), name);
+      auto *moreMenu = m_win->findChild<QMenu *>(QStringLiteral("ribbonConstraintMoreMenu"));
+      QVERIFY(moreMenu);
+      QVERIFY(moreMenu->actions().contains(act));
+      // 单因素图页签 = 输入 / 处理 / 输出 / 要素编辑 / 更多；少用组不再占独立面板。
+      if (SARibbonCategory *cat = m_win->categoryForPage(QStringLiteral("constraint"))) {
+        for (const char *name : {"ribbonPanel.constraint.input", "ribbonPanel.constraint.idw",
+                                 "ribbonPanel.constraint.result", "ribbonPanel.constraint.more",
+                                 "ribbonEditPanel"})
+          QVERIFY2(cat->findChild<SARibbonPanel *>(QLatin1String(name)), name);
+        for (const char *name : {"ribbonFaciesDisplayPanel", "ribbonEditingSettingsPanel",
+                                 "ribbonNavPanel", "ribbonPanel.constraint.correlation",
+                                 "ribbonPanel.sections"})
+          QVERIFY2(!cat->findChild<SARibbonPanel *>(QLatin1String(name)), name);
+      }
+      // 所有命令仍可达：动作对象在主窗，溢出菜单收纳导航/显示/捕捉撤销。
+      for (const char *name : {"ribbonDrawConstraint", "ribbonDrawDirection", "ribbonDrawBreakLine",
+                               "ribbonRunIdw", "ribbonFactorOneClick", "ribbonExtractWellFactors",
+                               "ribbonFactorContour", "ribbonToValidateAction"})
+        QVERIFY2(m_win->findChild<QAction *>(QLatin1String(name)), name);
+      for (const char *name : {"ribbonPanAction", "ribbonZoomFullAction", "ribbonFaciesDisplayMenuAction"})
+        if (auto *a = m_win->findChild<QAction *>(QLatin1String(name)))
+          QVERIFY2(moreMenu->actions().contains(a), name);
+      QVERIFY(moreMenu->findChild<QSpinBox *>(QStringLiteral("ribbonConstraintSnapToleranceSpin")));
 
       m_win->showPage(QStringLiteral("constraint"));
       dock->setVisible(false);

@@ -5,6 +5,7 @@
 
 #include <QKeyEvent>
 #include <QResizeEvent>
+#include <QSignalBlocker>
 #include <cmath>
 
 #include "trackops.h"
@@ -558,8 +559,15 @@ void WellCompositeCanvas::syncScrollBars()
   if (totalW > bodyW)
   {
     m_hScrollBar->setVisible(true);
-    m_hScrollBar->setRange(0, static_cast<int>(std::round(totalW - bodyW)));
+    // 道宽变化（如隐藏预测相道）后先把偏移夹回新范围，再静默同步滑块值：
+    // 否则拖拽沿用旧偏移被突然夹紧、或 setRange 夹值发 valueChanged 写回
+    // 陈旧滑块值，画面会跳。
+    const int maxH = static_cast<int>(std::round(totalW - bodyW));
+    m_hScrollOffset = qBound(0.0, m_hScrollOffset, static_cast<double>(maxH));
+    const QSignalBlocker blocker(m_hScrollBar);
+    m_hScrollBar->setRange(0, maxH);
     m_hScrollBar->setPageStep(static_cast<int>(std::round(bodyW)));
+    m_hScrollBar->setValue(static_cast<int>(std::round(m_hScrollOffset)));
   }
   else
   {

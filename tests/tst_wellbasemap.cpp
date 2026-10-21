@@ -212,13 +212,14 @@ private slots:
     QVERIFY(control->statusText().contains(QStringLiteral("没有坐标系")));
     QCOMPARE(paleo::onlinebasemap::savedChoice(project), QStringLiteral("file:") + tif);
 
-    // 换成地理坐标系底图：未配准的工程坐标系无法转换 → 拒绝，旧底图撤下、回到「无」。
+    // 未配准的工程坐标系无法转换 → 拒绝，保留当前可用底图与选择。
+    auto *previous = control->basemapLayer();
     const QString geo = makeTiff(tmp.filePath("geo.tif"), 110, 30, 1, 4326);
     QVERIFY(!control->applyChoice(QStringLiteral("file:") + geo));
-    QVERIFY(!control->basemapLayer());
+    QCOMPARE(control->basemapLayer(), previous);
     QVERIFY(control->statusText().contains(QStringLiteral("无法转换")));
-    QCOMPARE(control->comboBox()->currentIndex(), 0);
-    QCOMPARE(page->mapCanvas()->layers().size(), before);
+    QCOMPARE(control->currentChoice(), QStringLiteral("file:") + tif);
+    QCOMPARE(page->mapCanvas()->layers().size(), before + 1);
     QCOMPARE(paleo::onlinebasemap::savedChoice(project), QStringLiteral("file:") + tif); // 失败不覆盖记忆
 
     // 记忆的选择在其它井位页自动恢复（分层落图页）。

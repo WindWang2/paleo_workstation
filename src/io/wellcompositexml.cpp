@@ -316,8 +316,34 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
         if (outData.wellName.isEmpty() && !row.first().isEmpty())
           outData.wellName = row.first().trimmed();
 
+        // 道名含「层序」的行是层序单元，不混入地层单位
         if (fi.bottomDepth > fi.topDepth && !fi.name.isEmpty())
-          outData.formationIntervals.append(fi);
+        {
+          if (fi.unitType.contains(QStringLiteral("层序")))
+            outData.sequenceIntervals.append(fi);
+          else
+            outData.formationIntervals.append(fi);
+        }
+      }
+    }
+    else if (sheetName.contains(QStringLiteral("层序道")))
+    {
+      // 与砂层组道同列布局：['井号','道名','层号','顶深',…,'底深',…]
+      static const QVector<QColor> seqColors = {
+          QColor(QStringLiteral("#D1C4E9")), QColor(QStringLiteral("#B3E5FC")),
+          QColor(QStringLiteral("#C8E6C9")), QColor(QStringLiteral("#FFE0B2"))};
+      for (int r = 1; r < rows.size(); ++r)
+      {
+        const QStringList &row = rows.at(r);
+        if (row.size() < 7) continue;
+        FormationInterval fi;
+        fi.name = row.at(2).trimmed();
+        fi.unitType = row.at(1).trimmed();
+        fi.topDepth = row.at(3).trimmed().toFloat();
+        fi.bottomDepth = row.at(6).trimmed().toFloat();
+        fi.color = seqColors.at(outData.sequenceIntervals.size() % seqColors.size());
+        if (fi.bottomDepth > fi.topDepth && !fi.name.isEmpty())
+          outData.sequenceIntervals.append(fi);
       }
     }
     else if (sheetName.contains(QStringLiteral("砂层组道")))

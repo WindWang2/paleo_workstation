@@ -138,7 +138,7 @@ private slots:
       if (tracks.at(i)->type() == WellComposite::TrackType::Lithology)
       {
         lithologyAt = i;
-        QCOMPARE(tracks.at(i)->title(), QStringLiteral("岩性道"));
+        QCOMPARE(tracks.at(i)->title(), QStringLiteral("岩性"));
       }
       if (firstCurve < 0 && tracks.at(i)->type() == WellComposite::TrackType::Curve)
         firstCurve = i;

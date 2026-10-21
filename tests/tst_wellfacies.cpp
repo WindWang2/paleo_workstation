@@ -754,10 +754,10 @@ private slots:
     {
       if (track->title() == QStringLiteral("预测相")) prediction = track;
       if (track->title() == QStringLiteral("预测置信度")) confidence = track;
-      if (track->title() == QStringLiteral("井段相解释")) interpretation = track;
+      if (track->title() == QStringLiteral("沉积相") && track != prediction) interpretation = track;
     }
     QVERIFY(prediction); QVERIFY(confidence); QVERIFY(interpretation);
-    QVERIFY(!interpretation->isVisible());
+    QVERIFY(interpretation->isVisible()); // 沉积相（相/亚相/微相）属默认测井查看模板
     QCOMPARE(std::static_pointer_cast<FaciesCompoundTrack>(prediction)->intervals().first().microFacies,
              QStringLiteral("河口坝"));
     CurveConfigDialog dialog(panel.canvas());

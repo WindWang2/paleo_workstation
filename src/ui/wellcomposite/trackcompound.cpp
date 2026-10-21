@@ -366,8 +366,8 @@ void FaciesCompoundTrack::paintHeader(QPainter &painter, const QRectF &headerRec
   painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted); // text-muted
 
   painter.drawText(rMaj, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "相"));
-  painter.drawText(rSub, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "亚"));
-  painter.drawText(rMic, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "微"));
+  painter.drawText(rSub, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "亚相"));
+  painter.drawText(rMic, Qt::AlignCenter, QCoreApplication::translate("WellCompositeTrack", "微相"));
 
   painter.restore();
 }

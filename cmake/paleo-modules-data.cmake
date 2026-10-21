@@ -19,6 +19,7 @@ add_library(paleo_domain STATIC
   src/domain/types.cpp
   src/domain/litholexicon.cpp
   src/domain/wellcompositemodel.cpp
+  src/domain/lithologystyle.cpp
   src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）
   src/domain/welltopsedit.cpp                       # 方向 32：分层校验/差异/合并/批量纯函数
   src/domain/projectclassifier.cpp                  # §3 path/extension classifier + xml sniff

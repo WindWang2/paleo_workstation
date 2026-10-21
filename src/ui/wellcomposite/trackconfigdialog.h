@@ -69,6 +69,7 @@ private:
   QCheckBox *m_gridCheck = nullptr;
   QComboBox *m_gridDensityCombo = nullptr;
   QWidget *m_curveGroup = nullptr;
+  QDoubleSpinBox *m_quantumSpin = nullptr; // 岩性道高度粒度（深度单位，0=关闭）
   bool m_curveFamily = false;
 };
 

@@ -486,10 +486,15 @@ private slots:
     QVERIFY(panel.loadLasCurves(QStringLiteral("TEST_WELL_1"), curves, forms));
     // LAS 预览是测区井：徽章不标参考井
     QVERIFY(!panel.isReferenceWell());
-    // 无真实相数据时不展示沉积相道（不臆造相序）；最末道为曲线道
+    // 无真实相数据时不展示沉积相道（不臆造相序）；最末可见道为测井曲线道
+    // （可推导的地层系统组合道作为隐藏道排在其后，可从隐藏道条恢复）
     for (const auto &t : panel.canvas()->tracks())
       QVERIFY(t->type() != TrackType::FaciesCompound);
-    QCOMPARE(panel.canvas()->tracks().last()->type(), TrackType::Curve);
+    std::shared_ptr<WellTrack> lastVisible;
+    for (const auto &t : panel.canvas()->tracks())
+      if (t->isVisible()) lastVisible = t;
+    QVERIFY(lastVisible);
+    QCOMPARE(lastVisible->type(), TrackType::Curve);
 
     // 验证初始视口与全井深度匹配
     QCOMPARE(panel.canvas()->minDepth(), 1000.0);

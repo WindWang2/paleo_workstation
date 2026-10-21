@@ -9,6 +9,7 @@
 #include "exportengine.h"
 #include "hiddentrackbar.h"
 #include "wellpositionlegendwidget.h"
+#include <QBoxLayout>
 #include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -154,13 +155,7 @@ void WellCompositePanel::setupUi()
   PaleoTheme::applyThemedStyleSheet(m_btnSnap, themedBtnStyle);
   topLay->addWidget(m_btnSnap);
 
-  // 测井道配置与排列管理按钮
-  m_btnConfigCurves = new QToolButton(topBar);
-  m_btnConfigCurves->setObjectName(QStringLiteral("btnConfigCurves"));
-  m_btnConfigCurves->setText(tr("测井道配置"));
-  m_btnConfigCurves->setToolTip(tr("打开测井道配置与排列管理：支持调整所有井道顺序、合并与解散测井曲线道"));
-  PaleoTheme::applyThemedStyleSheet(m_btnConfigCurves, themedBtnStyle);
-  topLay->addWidget(m_btnConfigCurves);
+  setupLayoutButtons(topBar, topLay, themedBtnStyle); // 测井道配置 + 恢复默认
 
   m_faciesModel = new QComboBox(topBar);
   m_faciesModel->setObjectName(QStringLiteral("faciesPredictionModel"));
@@ -396,19 +391,14 @@ void WellCompositePanel::setupUi()
   connect(m_canvas, &WellCompositeCanvas::trackVisibilityChanged, this, &WellCompositePanel::onTrackVisibilityChanged);
   connect(m_canvas, &WellCompositeCanvas::trackOrderChanged, this, &WellCompositePanel::onTrackOrderOrWidthChanged);
   connect(m_canvas, &WellCompositeCanvas::trackWidthChanged, this, &WellCompositePanel::onTrackOrderOrWidthChanged);
+  connectDefaultLayoutButton();
   connect(m_canvas, &WellCompositeCanvas::gotoDepthRequested, this, &WellCompositePanel::openGotoDepthDialog);
-  connect(m_hiddenBar, &HiddenTrackBar::trackRestoreRequested, this, [this](const QString &title) {
-    for (int i = 0; i < m_canvas->trackCount(); ++i)
-    {
-      if (m_canvas->tracks().at(i)->title() == title && !m_canvas->tracks().at(i)->isVisible())
-      {
-        m_canvas->tracks().at(i)->setVisible(true);
-        m_canvas->syncScrollBars();
-        m_canvas->updateAll();
-        emit m_canvas->trackVisibilityChanged(i);
-        return;
-      }
-    }
+  connect(m_hiddenBar, &HiddenTrackBar::trackRestoreIndexRequested, this, [this](int i) {
+    if (i < 0 || i >= m_canvas->trackCount() || m_canvas->tracks().at(i)->isVisible()) return;
+    m_canvas->tracks().at(i)->setVisible(true);
+    m_canvas->syncScrollBars();
+    m_canvas->updateAll();
+    emit m_canvas->trackVisibilityChanged(i);
   });
 
   // ---- 深度交互接线（D2.2/D2.3）----
@@ -444,4 +434,33 @@ void WellCompositePanel::setupUi()
   setWellName(QString(), false);
 }
 
+} // namespace WellComposite
+
+namespace WellComposite
+{
+void WellCompositePanel::setupLayoutButtons(QWidget *topBar, QBoxLayout *topLay, const std::function<QString()> &style)
+{
+  // 测井道配置与排列管理按钮
+  m_btnConfigCurves = new QToolButton(topBar);
+  m_btnConfigCurves->setObjectName(QStringLiteral("btnConfigCurves"));
+  m_btnConfigCurves->setText(tr("测井道配置"));
+  m_btnConfigCurves->setToolTip(tr("打开测井道配置与排列管理：支持调整所有井道顺序、合并与解散测井曲线道"));
+  PaleoTheme::applyThemedStyleSheet(m_btnConfigCurves, style);
+  topLay->addWidget(m_btnConfigCurves);
+  // 一键恢复默认测井查看（仅当前布局偏离默认模板时可用）
+  m_btnDefaultLayout = new QToolButton(topBar);
+  m_btnDefaultLayout->setObjectName(QStringLiteral("btnDefaultLayout"));
+  m_btnDefaultLayout->setText(tr("恢复默认"));
+  m_btnDefaultLayout->setAccessibleName(tr("恢复默认测井查看"));
+  m_btnDefaultLayout->setToolTip(tr("一键恢复默认测井查看：深度道、地层道、岩性道、三个测井曲线道（有 GR 时含 GR）、沉积相（相/亚相/微相）、层序（有数据时）"));
+  m_btnDefaultLayout->setEnabled(false);
+  PaleoTheme::applyThemedStyleSheet(m_btnDefaultLayout, style);
+  topLay->addWidget(m_btnDefaultLayout);
+}
+
+void WellCompositePanel::connectDefaultLayoutButton()
+{
+  connect(m_btnDefaultLayout, &QToolButton::clicked, this, &WellCompositePanel::restoreDefaultLayout);
+  connect(m_canvas, &WellCompositeCanvas::trackRemoved, this, [this](int) { updateDefaultLayoutButton(); });
+}
 } // namespace WellComposite

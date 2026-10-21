@@ -1,6 +1,7 @@
 // 层：视图
 // 综合图道·基础六道（标尺/文本/地层/岩性/取芯/图片）与道内数据访问器——自 wellcompositetrack.cpp 拆出（方向 66，行为零变更）
 #include "wellcompositetrack.h"
+#include "../../domain/lithologystyle.h"
 #include "services/imagelod.h"
 #include "ui/paleotheme.h"
 #include <QCoreApplication>
@@ -260,6 +261,32 @@ void LithologyTrack::paintHeader(QPainter &painter, const QRectF &headerRect, do
   paintHeaderChrome(painter, headerRect, QStringLiteral("岩性花纹"), QString());
 }
 
+QRectF LithologyTrack::blockRect(const LithologyInterval &it, const QRectF &bodyRect,
+                                 double topDepth, double pxPerMeter) const
+{
+  const qreal y0 = bodyRect.top() + (it.topDepth - topDepth) * pxPerMeter;
+  const qreal y1 = bodyRect.top() + (it.bottomDepth - topDepth) * pxPerMeter;
+  const double frac = m_widthEncoding ? LithologyStyle::widthFraction(it.lithoName) : 1.0;
+  return QRectF(bodyRect.left(), y0, qMax<qreal>(4.0, bodyRect.width() * frac), qMax<qreal>(3.0, y1 - y0));
+}
+
+QVector<double> LithologyTrack::quantumCells(double thickness, double quantum)
+{
+  if (!(thickness > 0.0)) return {};
+  if (!(quantum > 0.0)) return {thickness};
+  QVector<double> cells;
+  double rest = thickness;
+  // 1e-6 容差：浮点深度（float 顶底）下 30.0000001 不额外生出一个零高度格
+  while (rest > quantum + 1e-6 * quantum) { cells << quantum; rest -= quantum; }
+  if (rest > 1e-6 * quantum) cells << rest;
+  return cells;
+}
+
+QColor LithologyTrack::fillColor(const LithologyInterval &it)
+{
+  return LithologyStyle::resolveFillColor(it.lithoName, it.baseColor);
+}
+
 void LithologyTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
                                double topDepth, double bottomDepth, double pxPerMeter)
 {
@@ -273,31 +300,55 @@ void LithologyTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   font.setPointSize(PaleoTheme::tokens().labelPt);
   painter.setFont(font);
 
+  const qreal quantumPx = m_grainQuantum > 0.0 ? m_grainQuantum * pxPerMeter : 0.0;
   for (const auto &it : m_intervals)
   {
     if (it.bottomDepth < topDepth || it.topDepth > bottomDepth)
       continue;
 
-    const qreal y0 = bodyRect.top() + (it.topDepth - topDepth) * pxPerMeter;
-    const qreal y1 = bodyRect.top() + (it.bottomDepth - topDepth) * pxPerMeter;
-    const QRectF blockRect(bodyRect.left(), y0, bodyRect.width(), qMax<qreal>(3.0, y1 - y0));
+    const QRectF block = blockRect(it, bodyRect, topDepth, pxPerMeter);
 
-    // 使用标准地质岩性图案画刷填充
-    const QBrush brush = LithologyPatternFactory::getBrush(it.lithoName, it.baseColor);
-    painter.fillRect(blockRect, brush);
+    // 颜色取自岩性解释（「黑色砂岩」= 砂岩花纹 + 砂岩宽度 + 黑色底）；深色底换浅色花纹线。
+    const QColor fill = fillColor(it);
+    // 灰调化后中间调偏多，阈值 135：中深色底一律换浅色花纹线保证纹理对比
+    const QColor ink = fill.lightness() < 135 ? PaleoTheme::tokens(PaleoTheme::Theme::Light).surfaceAlt : QColor();
+    painter.fillRect(block, LithologyPatternFactory::getBrush(it.lithoName, fill, ink));
 
-    // 岩性分界线
+    // 岩性块轮廓：上下界线 + 右侧宽度边
     painter.setPen(QPen(QColor(QStringLiteral("#78909C")), 1.0, Qt::SolidLine));
-    painter.drawLine(blockRect.topLeft(), blockRect.topRight());
-    painter.drawLine(blockRect.bottomLeft(), blockRect.bottomRight());
+    painter.drawLine(QPointF(bodyRect.left(), block.top()), QPointF(block.right(), block.top()));
+    painter.drawLine(QPointF(bodyRect.left(), block.bottom()), QPointF(block.right(), block.bottom()));
+    painter.drawLine(block.topRight(), block.bottomRight());
 
-    // 高度允许时在右侧半透明贴注岩性名
-    if (blockRect.height() >= 18.0)
+    // 高度粒度格：格与格之间画贯穿岩性块全宽的分隔线；余数格按真实高度（35/10 → 末格 0.5 个粒度）。
+    // 屏上一格不足 6 px 时不画分隔线（避免糊成一片）。
+    if (quantumPx >= 6.0)
     {
-      const QRectF tagRect(blockRect.left() + 4, blockRect.top() + 2, blockRect.width() - 8, 14);
-      painter.fillRect(tagRect, QColor(255, 255, 255, 180));
+      painter.setPen(QPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted, 1.0));
+      const QVector<double> cells = quantumCells(double(it.bottomDepth) - double(it.topDepth), m_grainQuantum);
+      double acc = 0.0;
+      for (int k = 0; k + 1 < cells.size(); ++k)
+      {
+        acc += cells.at(k);
+        const qreal y = block.top() + acc * pxPerMeter;
+        painter.drawLine(QPointF(block.left(), y), QPointF(block.right(), y));
+      }
+    }
+
+    // 岩性名：右侧留白足够时写在留白处，否则半透明贴在块上
+    if (block.height() >= 18.0)
+    {
+      const qreal spare = bodyRect.right() - block.right();
+      const qreal textW = painter.fontMetrics().horizontalAdvance(it.lithoName) + 6.0;
+      const bool inSpare = spare >= textW;
+      // 留白放得下就写在留白处（不遮花纹/宽度）；否则半透明贴签横跨全道
+      const QRectF tagRect = inSpare ? QRectF(block.right() + 2, block.top() + 2, spare - 4, 14)
+                                     : QRectF(bodyRect.left() + 2, block.top() + 2, bodyRect.width() - 4, 14);
+      if (!inSpare)
+        painter.fillRect(tagRect, QColor(255, 255, 255, 180));
       painter.setPen(QColor(QStringLiteral("#263238")));
-      painter.drawText(tagRect, Qt::AlignCenter, it.lithoName);
+      painter.drawText(tagRect, Qt::AlignCenter,
+                       painter.fontMetrics().elidedText(it.lithoName, Qt::ElideRight, int(tagRect.width())));
     }
   }
 
@@ -535,9 +586,15 @@ QString LithologyTrack::trackToolTip(double depth) const
   if (idx < 0)
     return title();
   const auto &li = m_intervals.at(idx);
-  return QStringLiteral("%1\n%2\n%3 ~ %4 m")
-      .arg(title(), li.lithoName,
-           QString::number(li.topDepth, 'f', 1), QString::number(li.bottomDepth, 'f', 1));
+  QString text = QStringLiteral("%1\n%2\n%3 ~ %4 m")
+                     .arg(title(), li.lithoName,
+                          QString::number(li.topDepth, 'f', 1), QString::number(li.bottomDepth, 'f', 1));
+  if (m_grainQuantum > 0.0)
+    text += QCoreApplication::translate("WellCompositeTrack", "\n厚度 %1 = %2 个高度粒度（粒度 %3）")
+                .arg(QString::number(li.bottomDepth - li.topDepth, 'g', 4),
+                     QString::number(LithologyStyle::heightInQuanta(li.bottomDepth - li.topDepth, m_grainQuantum), 'g', 4),
+                     QString::number(m_grainQuantum, 'g', 4));
+  return text;
 }
 
 } // namespace WellComposite

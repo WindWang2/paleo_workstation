@@ -177,7 +177,7 @@ void CurveConfigDialog::setupUi()
 
   m_btnResetDefault = new QPushButton(tr("恢复标准测井组合"), btnBox);
   PaleoTheme::applyThemedStyleSheet(m_btnResetDefault, themedBtnStyle);
-  m_btnResetDefault->setToolTip(tr("显示关键岩性、三孔隙和电阻率曲线；辅助曲线默认隐藏，可勾选恢复"));
+  m_btnResetDefault->setToolTip(tr("显示三个默认测井曲线道（有 GR 时含 GR，其余按 SP、深电阻率、密度、声波、中子优先）；辅助曲线默认隐藏，可勾选恢复"));
   btnLay->addWidget(m_btnResetDefault);
 
   btnLay->addStretch(1);

@@ -217,10 +217,21 @@ void TrackRegistry::ensureBuiltins()
                 noParams});
 
   registerType({QStringLiteral("litho"), QStringLiteral("岩性道"), 80.0, true,
-                [](const TrackSpec &) -> std::shared_ptr<WellTrack> {
-                  return std::make_shared<LithologyTrack>();
+                [](const TrackSpec &spec) -> std::shared_ptr<WellTrack> {
+                  auto t = std::make_shared<LithologyTrack>();
+                  t->setGrainQuantum(spec.params.value(QStringLiteral("grainQuantum"), 1.0).toDouble());
+                  t->setWidthEncoding(spec.params.value(QStringLiteral("widthEncoding"), true).toBool());
+                  return t;
                 },
-                noParams});
+                [](const std::shared_ptr<WellTrack> &track) {
+                  TrackSpec spec;
+                  if (auto lt = std::dynamic_pointer_cast<LithologyTrack>(track))
+                  {
+                    spec.params.insert(QStringLiteral("grainQuantum"), lt->grainQuantum());
+                    spec.params.insert(QStringLiteral("widthEncoding"), lt->widthEncoding());
+                  }
+                  return spec;
+                }});
 
   registerType({QStringLiteral("core"), QStringLiteral("取芯道"), 65.0, true,
                 [](const TrackSpec &) -> std::shared_ptr<WellTrack> {

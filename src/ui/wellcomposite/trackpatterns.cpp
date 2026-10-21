@@ -123,21 +123,23 @@ QPixmap LithologyPatternFactory::createPatternPixmap(const QString &patternType,
   return pm;
 }
 
-QBrush LithologyPatternFactory::getBrush(const QString &lithoName, const QColor &baseBg)
+QBrush LithologyPatternFactory::getBrush(const QString &lithoName, const QColor &baseBg,
+                                        const QColor &fgOverride)
 {
   // D4.2 花纹库扩充：30+ 种岩性先经 PatternCatalog 关键词最长匹配
   PatternDef def;
   if (PatternCatalog::lookupLithology(lithoName, &def))
   {
     const QColor bg = baseBg.isValid() ? baseBg : def.bg;
+    const QColor fg = fgOverride.isValid() ? fgOverride : def.fg;
     // D.7 画刷缓存：tile 按 (key,bg,fg) 命中 QPixmapCache——岩性道逐区间
     // fillRect 不再每段重造 QPixmap。
     const QString cacheKey = QStringLiteral("paleo-wc-litho-%1-%2-%3")
-                                 .arg(def.key, colorKeyPart(bg), colorKeyPart(def.fg));
-    return cachedTextureBrush(cacheKey, [def, bg] {
-      QPixmap pm = createPatternPixmap(def.key, bg, def.fg);
+                                 .arg(def.key, colorKeyPart(bg), colorKeyPart(fg));
+    return cachedTextureBrush(cacheKey, [def, bg, fg] {
+      QPixmap pm = createPatternPixmap(def.key, bg, fg);
       if (pm.isNull())
-        pm = PatternCatalog::createLithoPattern(def.key, bg, def.fg);
+        pm = PatternCatalog::createLithoPattern(def.key, bg, fg);
       return pm;
     });
   }
@@ -191,6 +193,9 @@ QBrush LithologyPatternFactory::getBrush(const QString &lithoName, const QColor 
     if (!baseBg.isValid()) bg = QColor(QStringLiteral("#CFD8DC"));
     fg = QColor(QStringLiteral("#212121"));
   }
+
+  if (fgOverride.isValid())
+    fg = fgOverride;
 
   // D.7 画刷缓存：兜底分支的 tile 同样按 (pat,bg,fg) 命中 QPixmapCache。
   const QString cacheKey = QStringLiteral("paleo-wc-litho-%1-%2-%3")

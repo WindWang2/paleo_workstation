@@ -172,6 +172,8 @@ struct ComprehensiveWellData
   QVector<QPair<double, QString>> standardHorizons;
   QVector<StratigraphyInterval> stratigraphyIntervals;
   QVector<FaciesInterval> faciesIntervals;
+  // 层序地层单元（SQ1/SQ2… 或 体系域）；XML「层序道」工作表或地层单位道「道名=层序」行，可缺省
+  QVector<FormationInterval> sequenceIntervals;
 
   bool isEmpty() const;
 };

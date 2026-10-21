@@ -9,6 +9,7 @@
 #include "wellpositionlegendwidget.h"
 #include <QFile>
 #include <QFileInfo>
+#include <QToolButton>
 
 namespace WellComposite
 {
@@ -46,6 +47,7 @@ void WellCompositePanel::applyComprehensiveData(const ComprehensiveWellData &dat
   // D2.x sidecar + D1.8 会话记忆
   loadSidecar();
   restoreSessionState();
+  updateDefaultLayoutButton();
   emit wellLoaded(data.wellName);
   emit faciesDataChanged(m_data);
   emit comprehensiveXmlLoaded(true);
@@ -133,43 +135,14 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
 
   m_canvas->setDepthRange(minD, maxD);
 
-  // 1. 地层系统组组合道 (系 | 统 | 组) —— 仅当分层名能映射出系/统时才展示，
-  //    否则不摆一个大量留空的组合道（地层单位道已覆盖真实分层）。
-  if (!formations.isEmpty())
-  {
-    auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
-    stratTrack->autoDeriveStratigraphy(formations, minD, maxD);
-    // intervals() 按值返回：先绑定到局部再取迭代器（两次调用 = 两个不同临时对象）。
-    const auto derived = stratTrack->intervals();
-    const bool anySystem = std::any_of(derived.cbegin(), derived.cend(),
-                                       [](const StratigraphyInterval &si) { return !si.system.isEmpty(); });
-    if (anySystem)
-      m_canvas->addTrack(stratTrack);
-  }
-
-  // 2. 深度标尺道 (DepthScaleTrack)
-  auto scaleTrack = std::make_shared<DepthScaleTrack>(68.0);
-  scaleTrack->setScaleRatio(m_scaleCombo->currentText());
-  m_canvas->addTrack(scaleTrack);
-
-  // 3. 地层道 (FormationTrack) —— 若有分层数据
-  if (!formations.isEmpty())
-  {
-    auto formTrack = std::make_shared<FormationTrack>(QStringLiteral("地层"), 80.0);
-    formTrack->setIntervals(formations);
-    m_canvas->addTrack(formTrack);
-  }
-
-  // LAS 与综合 XML 共用默认图道配置；全部曲线仍可从隐藏道恢复。
-  for (const auto &track : TrackOps::standardCurveTracks(curves))
-    m_canvas->addTrack(track);
-
+  // LAS 与综合 XML 共用默认测井查看模板；全部曲线仍可从隐藏道恢复。
   // 沉积相道：无真实相数据时不展示（不臆造相序）。
   m_data.wellName = wellName;
   m_data.minDepth = minD;
   m_data.maxDepth = maxD;
   m_data.continuousCurves = curves;
   m_data.formationIntervals = formations;
+  m_canvas->setTracks(TrackOps::defaultLayoutTracks(m_data, m_scaleCombo->currentText()));
   if (m_legendWidget)
     m_legendWidget->setWellData(m_data);
 
@@ -179,9 +152,9 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
     syncSessionToTracks();
   });
 
-  const QList<TrackSpec> mem = WellCompositeStore::loadSessionTracks(m_projectName, m_wellName);
   restoreSessionState();
   m_canvas->setScaleRatio(m_scaleCombo->currentText());
+  updateDefaultLayoutButton();
   emit faciesDataChanged(m_data);
   return true;
 }
@@ -201,7 +174,18 @@ void WellCompositePanel::setLithologyIntervals(const QVector<LithologyInterval> 
   m_canvas->setDepthRange(lo, hi);
   m_data.minDepth = lo;
   m_data.maxDepth = hi;
-  auto track = std::make_shared<LithologyTrack>(tr("岩性道"), 80.0);
+  for (const auto &existing : m_canvas->tracks())
+    if (existing && existing->type() == TrackType::Lithology)
+    {
+      std::static_pointer_cast<LithologyTrack>(existing)->setIntervals(items);
+      if (m_legendWidget)
+        m_legendWidget->setWellData(m_data);
+      m_canvas->updateAll();
+      updateDefaultLayoutButton();
+      emit faciesDataChanged(m_data);
+      return;
+    }
+  auto track = std::make_shared<LithologyTrack>(tr("岩性"), 90.0);
   track->setIntervals(items);
   int insertAt = m_canvas->tracks().size();
   const auto tracks = m_canvas->tracks();
@@ -216,6 +200,7 @@ void WellCompositePanel::setLithologyIntervals(const QVector<LithologyInterval> 
   m_canvas->insertTrack(insertAt, track);
   if (m_legendWidget)
     m_legendWidget->setWellData(m_data);
+  updateDefaultLayoutButton();
   emit faciesDataChanged(m_data);
 }
 
@@ -239,6 +224,7 @@ void WellCompositePanel::setCoreImages(const QVector<ImageDepthItem> &items)
   m_canvas->addTrack(track);
   if (m_legendWidget)
     m_legendWidget->setWellData(m_data);
+  updateDefaultLayoutButton();
 }
 
 void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
@@ -250,92 +236,8 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
   // D2.x 标志层线（渲染/吸附/读数/gap 数据面）
   m_canvas->setMarkerLines(data.standardHorizons);
 
-  // 1. 地层系统组组合道：文档真实地层系统数据，或分层名能映射出系/统时展示。
-  if (!data.stratigraphyIntervals.isEmpty() || !data.formationIntervals.isEmpty())
-  {
-    auto stratTrack = std::make_shared<StratigraphyCompoundTrack>(QStringLiteral("地层"), 145.0);
-    if (!data.stratigraphyIntervals.isEmpty())
-    {
-      stratTrack->setIntervals(data.stratigraphyIntervals);
-      m_canvas->addTrack(stratTrack);
-    }
-    else
-    {
-      stratTrack->autoDeriveStratigraphy(data.formationIntervals, data.minDepth, data.maxDepth);
-      const auto derived = stratTrack->intervals(); // 按值返回，绑定局部后再迭代
-      const bool anySystem = std::any_of(derived.cbegin(), derived.cend(),
-                                         [](const StratigraphyInterval &si) { return !si.system.isEmpty(); });
-      if (anySystem)
-        m_canvas->addTrack(stratTrack);
-    }
-  }
-
-  // 2. 地层单位道
-  if (!data.formationIntervals.isEmpty())
-  {
-    auto formTrack = std::make_shared<FormationTrack>(QStringLiteral("地层单位"), 75.0);
-    formTrack->setIntervals(data.formationIntervals);
-    m_canvas->addTrack(formTrack);
-  }
-
-  // 3. 砂层组道（细分层道）
-  if (!data.sandIntervals.isEmpty())
-  {
-    auto sandTrack = std::make_shared<FormationTrack>(QStringLiteral("砂层组"), 60.0);
-    sandTrack->setIntervals(data.sandIntervals);
-    m_canvas->addTrack(sandTrack);
-  }
-
-  // 4. 沉积旋回与符号道
-  if (!data.symbolItems.isEmpty())
-  {
-    auto symTrack = std::make_shared<SymbolTrack>(QStringLiteral("沉积旋回"), 50.0);
-    symTrack->setItems(data.symbolItems);
-    m_canvas->addTrack(symTrack);
-  }
-
-  // 5. 岩性道（标准地质岩性花纹填充）
-  if (!data.lithologyIntervals.isEmpty())
-  {
-    auto lithoTrack = std::make_shared<LithologyTrack>(QStringLiteral("岩性分析"), 80.0);
-    lithoTrack->setIntervals(data.lithologyIntervals);
-    m_canvas->addTrack(lithoTrack);
-  }
-
-  // 6. 深度标尺道（居中基准）
-  auto scaleTrack = std::make_shared<DepthScaleTrack>(64.0);
-  scaleTrack->setScaleRatio(m_scaleCombo->currentText());
-  m_canvas->addTrack(scaleTrack);
-
-  // 7. 取芯道
-  if (!data.coreBarrels.isEmpty())
-  {
-    auto coreTrack = std::make_shared<CoreTrack>(QStringLiteral("取心数据"), 65.0);
-    coreTrack->setBarrels(data.coreBarrels);
-    m_canvas->addTrack(coreTrack);
-  }
-
-  // 连续与离散曲线共用曲线池；辅助与实测物性曲线默认隐藏。
-  for (const auto &track : TrackOps::standardCurveTracks(
-           TrackOps::combinedCurvePool(data.continuousCurves, data.discreteCurves)))
-    m_canvas->addTrack(track);
-
-  // 10. 文本道
-  if (!data.textIntervals.isEmpty())
-  {
-    auto textTrack = std::make_shared<TextTrack>(QStringLiteral("解释结论/取样"), 120.0);
-    textTrack->setIntervals(data.textIntervals);
-    m_canvas->addTrack(textTrack);
-  }
-
-  // 11. 沉积相组合道（规范放置在最右侧）
-  if (!data.faciesIntervals.isEmpty())
-  {
-    auto faciesTrack = std::make_shared<FaciesCompoundTrack>(tr("井段相解释"), 180.0);
-    faciesTrack->setIntervals(data.faciesIntervals);
-    faciesTrack->setVisible(false);
-    m_canvas->addTrack(faciesTrack);
-  }
+  // 默认测井查看模板：深度 → 地层 → 岩性 → 测井曲线×3 → 沉积相 → 层序；其余数据道隐藏保留。
+  m_canvas->setTracks(TrackOps::defaultLayoutTracks(data, m_scaleCombo->currentText()));
 
   m_canvas->setScaleRatio(m_scaleCombo->currentText());
 }

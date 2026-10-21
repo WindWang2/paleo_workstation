@@ -83,7 +83,7 @@ src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupDisplayBar:255
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupUi:386
 src/ui/shortcuts/shortcutcatalog.cpp:fn:catalogEntries:228
 src/ui/wellcomposite/compositebody.cpp:fn:paintEvent:202
-src/ui/wellcomposite/panelsetup.cpp:fn:setupUi:422
+src/ui/wellcomposite/panelsetup.cpp:fn:setupUi:411
 src/ui/wellcomposite/wellpositionlegendwidget.cpp:fn:setupUi:262
 src/ui/wellsection/wellsectiondialogs.cpp:fn:WellSectionTracksDialog:257
 src/ui/wellsection/wellsectionpanel.cpp:file:1541

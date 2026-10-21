@@ -50,7 +50,9 @@ enum class TrackType
 class LithologyPatternFactory
 {
 public:
-  static QBrush getBrush(const QString &lithoName, const QColor &baseBg = QColor());
+  // fgOverride 有效时替换花纹线色（深色岩性如「黑色砂岩」用浅色线保证纹理可见）
+  static QBrush getBrush(const QString &lithoName, const QColor &baseBg = QColor(),
+                         const QColor &fgOverride = QColor());
   static QPixmap createPatternPixmap(const QString &patternType, const QColor &bg, const QColor &fg);
 };
 
@@ -233,6 +235,21 @@ public:
 
   QString trackToolTip(double depth) const override;
 
+  // 宽度编码：不同岩性按 LithologyStyle 宽度表占不同道宽（关闭则满宽，旧样式）
+  bool widthEncoding() const { return m_widthEncoding; }
+  void setWidthEncoding(bool on) { m_widthEncoding = on; }
+  // 高度粒度（深度单位）：层厚 / 粒度 = 显示的粒度个数；<=0 关闭粒度刻度
+  double grainQuantum() const { return m_grainQuantum; }
+  void setGrainQuantum(double quantum) { m_grainQuantum = quantum; }
+  // 高度粒度格：自层顶起每 quantum 一格，余数单独成格（35/10 → 10,10,10,5）；
+  // quantum<=0 或厚度<=0 返回单格整层
+  static QVector<double> quantumCells(double thickness, double quantum);
+  // 区间块几何（绘制与测试共用）：左对齐，宽 = 道宽 × 宽度比例，高按深度比例尺
+  QRectF blockRect(const LithologyInterval &it, const QRectF &bodyRect,
+                   double topDepth, double pxPerMeter) const;
+  // 区间填充色（名称颜色词优先，其次区间颜色属性）
+  static QColor fillColor(const LithologyInterval &it);
+
   void paintHeader(QPainter &painter, const QRectF &headerRect, double currentDepth) override;
   void paintBody(QPainter &painter, const QRectF &bodyRect,
                  double topDepth, double bottomDepth, double pxPerMeter) override;
@@ -240,6 +257,8 @@ public:
 private:
   qreal m_width = 75.0;
   QVector<LithologyInterval> m_intervals;
+  bool m_widthEncoding = true;
+  double m_grainQuantum = 1.0;
 };
 
 // 5. 取芯道 (CoreTrack)

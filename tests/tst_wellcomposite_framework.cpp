@@ -60,7 +60,10 @@ private slots:
       }
     }
     QCOMPARE(visible, 3);
-    QCOMPARE(visibleNames, (QStringList{"GR", "SP", "CALI", "AC", "DEN", "CNL", "RLLD", "RLLS", "RXO"}));
+    // 默认三个单曲线「测井曲线」道：GR 必选，其后 SP、深电阻率
+    QCOMPARE(visibleNames, (QStringList{"GR", "SP", "RLLD"}));
+    for (const auto &track : tracks)
+      if (track->isVisible()) QCOMPARE(track->title(), QStringLiteral("测井曲线"));
     QCOMPARE(allNames.size(), curves.size());
     QVERIFY(allNames.contains("GR_2"));
     QVERIFY(allNames.contains("POR"));
@@ -125,7 +128,7 @@ private slots:
       return out;
     };
     QCOMPARE(names(xml), names(las));
-    QCOMPARE(names(xml), (QStringList{"GR", "SP", "AC", "ZDEN", "CNCF", "RLLD"}));
+    QCOMPARE(names(xml), (QStringList{"GR", "SP", "RLLD"})); // 默认三曲线：GR + SP + 深电阻率
     const QString screenshot = qEnvironmentVariable("PALEO_WELL_LAYOUT_SCREENSHOT");
     if (!screenshot.isEmpty())
     {

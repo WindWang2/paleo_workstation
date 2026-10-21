@@ -1,6 +1,7 @@
 // 层：视图
 // 综合图道·曲线充填与符号（CurveTrack 1-4 根合并 / SymbolTrack）——自 wellcompositetrack.cpp 拆出（方向 66，行为零变更）
 #include "wellcompositetrack.h"
+#include "depthtools.h"
 #include "ui/paleotheme.h"
 #include <algorithm>
 #include <cmath>
@@ -175,19 +176,38 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   painter.setClipRect(bodyRect);
   painter.fillRect(bodyRect, PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
 
-  // D4.11/D1.7 网格系统：密度可配（0 无 / 1 两分 / 2 四分 / 3 十分含次网格），
-  // 次网格（1/10）仅在密度 3 时叠加；重叠网格开关关闭时完全不画。
-  if (m_showGrid && m_gridDensity > 0)
+  // 纸面网格：浅灰实线，主次线均在曲线下方；深度线锚定实际深度，滚动不漂移。
+  if (m_showGrid && m_gridDensity > 0 && std::isfinite(pxPerMeter) && pxPerMeter > 0.0 &&
+      std::isfinite(topDepth) && std::isfinite(bottomDepth) && bottomDepth >= topDepth)
   {
+    const auto &paper = PaleoTheme::tokens(PaleoTheme::Theme::Light);
     const int divisions = m_gridDensity == 1 ? 2 : (m_gridDensity == 2 ? 4 : 10);
+    const bool antialias = painter.testRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::Antialiasing, false);
     for (int div = 1; div < divisions; ++div)
     {
-      const bool isMinor = (m_gridDensity == 3 && div % 5 != 0 && div != 5);
-      painter.setPen(QPen(isMinor ? QColor(QStringLiteral("#F8FAFB")) : QColor(QStringLiteral("#F1F3F5")),
-                          1.0, isMinor ? Qt::DotLine : Qt::DashLine));
-      const qreal gx = bodyRect.left() + bodyRect.width() * (div / static_cast<qreal>(divisions));
-      painter.drawLine(QPointF(gx, bodyRect.top()), QPointF(gx, bodyRect.bottom()));
+      const bool minor = m_gridDensity == 3 && div != 5;
+      painter.setPen(QPen(minor ? paper.surfaceAlt : paper.border, 1.0));
+      const qreal x = bodyRect.left() + bodyRect.width() * div / divisions;
+      painter.drawLine(QPointF(x, bodyRect.top()), QPointF(x, bodyRect.bottom()));
     }
+    double majorStep = DepthTools::niceStepFor(pxPerMeter, 36.0);
+    if (majorStep * pxPerMeter < 36.0)
+      majorStep *= std::pow(10.0, std::ceil(std::log10(36.0 / (majorStep * pxPerMeter))));
+    const double minorStep = majorStep / (m_gridDensity == 3 ? 5.0 : 1.0);
+    const double first = std::ceil(topDepth / minorStep);
+    const double last = std::floor(bottomDepth / minorStep);
+    // 只迭代可见高度，极小/极大比例尺也不生成无界网格。
+    const int count = qBound(0, static_cast<int>(qMin(last - first + 1.0, bodyRect.height() + 1.0)), 10000);
+    for (int i = 0; i < count; ++i)
+    {
+      const double d = (first + i) * minorStep;
+      const bool major = std::abs(d / majorStep - std::round(d / majorStep)) < 1e-6;
+      painter.setPen(QPen(major ? paper.border : paper.surfaceAlt, 1.0));
+      const qreal y = bodyRect.top() + (d - topDepth) * pxPerMeter;
+      painter.drawLine(QPointF(bodyRect.left(), y), QPointF(bodyRect.right(), y));
+    }
+    painter.setRenderHint(QPainter::Antialiasing, antialias);
   }
 
   // 遍历绘制道内的 1 至 4 根曲线

@@ -7,6 +7,7 @@
 target_sources(paleo_ui PRIVATE
   src/ui/wellcomposite/trackregistry.cpp        # D1.1/D1.2 道规格与类型注册表
   src/ui/wellcomposite/trackops.cpp             # D1.5/D1.9 CSV 导出/复制/注入
+  src/ui/wellcomposite/standardcurvetracks.cpp   # 单井默认曲线组合
   src/ui/wellcomposite/wellcompositestore.cpp   # D1.8 会话 + sidecar 持久化
   src/ui/wellcomposite/hiddentrackbar.cpp       # D1.10 隐藏道管理条
   src/ui/wellcomposite/trackconfigdialog.cpp    # D1.6/D1.7 道配置/多曲线编辑器

@@ -47,6 +47,16 @@ struct WellFaciesPlan {
   bool ready() const { return !runs.isEmpty(); }
 };
 
+// 深度单位换算到米的系数：m/M/METER(S)/METRE(S) → 1，ft/F/FT/FEET/FOOT → 0.3048，
+// 空单位按米；容忍首尾空白与 LAS 常见的尾随 '.'。无法识别返回 NaN。
+double depthUnitToMeters(const QString &unit);
+// 把 LAS 读出的（深度,值）对规范化成预测输入口径：按单位换算成米，丢弃非有限
+// 深度（中间空深度），按深度稳定升序（兼容负 STEP 的递减 LAS），同深度保留
+// 首个样点。单位无法识别或长度不一致时返回 false 并给出 reason。
+bool normalizeDepthCurve(const QVector<double> &depths, const QVector<double> &values,
+                         const QString &depthUnit, WellComposite::CurveData *curve,
+                         QString *reason);
+
 WellFaciesInput
 prepareWellFaciesInput(const WellComposite::ComprehensiveWellData &data,
                        const WellFaciesModel &model);

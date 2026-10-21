@@ -338,6 +338,18 @@ void PreviewTocPanel::setAssetKey( const QString &assetKey )
   m_assetKey = assetKey;
 }
 
+void PreviewTocPanel::addLayerAtBottom( QgsMapLayer *layer, const QString &name, const QString &sourcePath )
+{
+  addLayer( layer, name, sourcePath );
+  for ( int i = 0; i < m_rows.size(); ++i )
+    if ( m_rows[i].layer == layer && i != m_rows.size() - 1 )
+    {
+      m_rows.append( m_rows.takeAt( i ) );
+      rebuildList();
+      break;
+    }
+}
+
 void PreviewTocPanel::addLayer( QgsMapLayer *layer, const QString &name, const QString &sourcePath,
                                 bool defaultVisible )
 {

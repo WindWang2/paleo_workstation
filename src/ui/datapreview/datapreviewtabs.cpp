@@ -550,7 +550,7 @@ void DataPreviewTabs::rebuildAssetTab(const QString &assetId)
   pageLay->addWidget(loading, 1);
   loading->repaint(); // 「正在读取」先可见，随后同步读
   m_buildingContent = true;
-  QWidget *content = buildContent(assetId, page);
+  QWidget *content = attachOnlineBasemap(buildContent(assetId, page));
   m_buildingContent = false;
   loading->setVisible(false); // 保留在树里，便于测试/诊断读取中态
   pageLay->addWidget(content ? content : stateLabel(tr("无法生成预览"), page, true), 1);
@@ -585,7 +585,7 @@ void DataPreviewTabs::openAsset(const QString &assetId)
   loading->repaint(); // 「正在读取」+文件名在同步读取前先可见（§4）
 
   m_buildingContent = true;
-  QWidget *content = buildContent(assetId, page);
+  QWidget *content = attachOnlineBasemap(buildContent(assetId, page));
   m_buildingContent = false;
   loading->setVisible(false); // 读取完成；隐藏但保留节点便于测试断言该状态
   pageLay->addWidget(content ? content : stateLabel(tr("无法生成预览"), page, true), 1);

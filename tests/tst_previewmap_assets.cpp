@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QComboBox>
 
 #include "helpers/previewfixture.h"
 #include "../src/catalog/datacatalog.h"
@@ -8,6 +9,8 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/previewrasteranalysis.h"
+#include <cmath>
+#include <functional>
 #include "../src/qgis/mappingartifactwriter.h"
 #include "../src/domain/faciescatalog.h"
 #include "../src/qgis/qgisruntime.h"
@@ -108,12 +111,14 @@ class TestPreviewMapAssets : public QObject
     void surveyPageUsesFramework();
     void surveyPageHealsAfterDataReady();
     void surveyPageHealsWhenProjectLands();
+    void surveyOnlineBasemapSwitcher();
     void surveyPageHealsBasemapClone();
     void attributeTableDialogFilters();
     void attributeTableDialogPagesWithoutRescan();
     void profilePanelExportsCsvAndPng();
     void rasterAnalysisStretchAndRamps();
     void previewRasterReadSideSkipsNodata();
+    void robustExtremaScaleOnSyntheticGrids();
     void statesHelpersContract();
     void documentTabNotMapFramework();
     void wellHeadMapLabelToggleWorks();
@@ -822,6 +827,65 @@ void TestPreviewMapAssets::surveyPageHealsWhenProjectLands()
   QCOMPARE(band->asGeometry().boundingBox(), QgsRectangle(1000, 2000, 1002, 2003));
 }
 
+// 在线 XYZ 底图：工程坐标系禁用并提示；真实坐标系下切换街道/卫星/地形，
+// 底图压在最底层、署名可见、选择按工程记忆。
+void TestPreviewMapAssets::surveyOnlineBasemapSwitcher()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
+  auto *project = st->projectSvc.project();
+  project->setCrs(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+  st->preview->setProject(project);
+  st->preview->openSurveyArea();
+  auto *combo = st->preview->findChild<QComboBox *>(QStringLiteral("surveyOnlineBasemap"));
+  QVERIFY(combo);
+  QVERIFY(!combo->isEnabled());
+  QVERIFY(combo->toolTip().contains(QStringLiteral("工程坐标系无法叠加在线底图")));
+
+  project->setCrs(QgsCoordinateReferenceSystem(QStringLiteral("EPSG:3857")));
+  st->preview->openSurveyArea();
+  combo = st->preview->findChild<QComboBox *>(QStringLiteral("surveyOnlineBasemap"));
+  QVERIFY(combo);
+  QVERIFY(combo->isEnabled());
+  QVERIFY(combo->count() >= 4);
+  auto *cv = st->preview->findChild<QgsMapCanvas *>(QStringLiteral("surveyMapCanvas"));
+  QVERIFY(cv);
+  const auto online = [&cv]() -> QgsMapLayer * {
+    for (auto *l : cv->layers())
+      if (!l->customProperty("paleoOnlineBasemap").toString().isEmpty()) return l;
+    return nullptr;
+  };
+  QVERIFY(!online());
+  for (const QString id : {QStringLiteral("osm"), QStringLiteral("esri_imagery"), QStringLiteral("opentopomap")}) {
+    combo->setCurrentIndex(combo->findData(id));
+    auto *layer = online();
+    QVERIFY(layer);
+    QCOMPARE(layer->customProperty("paleoOnlineBasemap").toString(), id);
+    QVERIFY(layer->source().contains(QStringLiteral("type=xyz")));
+    QCOMPARE(cv->layers().last(), layer); // 最底层
+    auto *attribution = st->preview->findChild<QLabel *>(QStringLiteral("surveyBasemapAttribution"));
+    QVERIFY(attribution);
+    QVERIFY(!attribution->text().isEmpty());
+    const auto qa = qEnvironmentVariable("PALEO_BASEMAP_QA_DIR"); // 联网截图（可选）
+    if (!qa.isEmpty()) {
+      auto *page = cv->window();
+      page->resize(1280, 820); page->show();
+      cv->setExtent(QgsRectangle(12900000, 4780000, 13020000, 4880000)); cv->refresh();
+      QTest::qWait(500); QTRY_VERIFY_WITH_TIMEOUT(!cv->isDrawing(), 30000); QTest::qWait(300);
+      QVERIFY(page->grab().save(qa + QStringLiteral("/basemap-%1.png").arg(id)));
+    }
+  }
+  // 按工程记忆：重建页恢复上次选择。
+  st->preview->openSurveyArea();
+  combo = st->preview->findChild<QComboBox *>(QStringLiteral("surveyOnlineBasemap"));
+  cv = st->preview->findChild<QgsMapCanvas *>(QStringLiteral("surveyMapCanvas"));
+  QCOMPARE(combo->currentData().toString(), QStringLiteral("opentopomap"));
+  QVERIFY(online());
+  combo->setCurrentIndex(0);
+  QVERIFY(!online());
+}
+
 // 底图克隆同走建页快照——底图层在建页后注册进工程（配准落地时
 // refreshBasemaps 补挂），重激活重建必须把新底图克隆进来。
 void TestPreviewMapAssets::surveyPageHealsBasemapClone()
@@ -1075,6 +1139,126 @@ void TestPreviewMapAssets::previewRasterReadSideSkipsNodata()
   QVERIFY2(!profile.first().valid, "nodata 像元的剖面样本必须 invalid");
   QVERIFY(profile.last().valid);
   QCOMPARE(profile.last().value, 10.0);
+}
+
+namespace {
+PreviewRasterAnalysis::ExtremaGrid makeGrid(int w, int h, const std::function<double(int, int)> &f)
+{
+  PreviewRasterAnalysis::ExtremaGrid g;
+  g.width = w;
+  g.height = h;
+  g.values.resize(std::size_t(w) * h);
+  g.valid.assign(std::size_t(w) * h, 1);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      g.values[std::size_t(y) * w + x] = f(x, y);
+  return g;
+}
+} // namespace
+
+// 稳健显著性尺度：k·1.4826·MAD(局部残差)，MAD=0 回落 1.2533·mean|r−med|，
+// 平坦为 0。合成栅格覆盖平坦/单峰/噪声/nodata 边缘/区域趋势五种形态。
+void TestPreviewMapAssets::robustExtremaScaleOnSyntheticGrids()
+{
+  using namespace PreviewRasterAnalysis;
+  // 1) 平坦：尺度 0，无严格极值。
+  {
+    const auto g = makeGrid(20, 20, [](int, int) { return 7.0; });
+    QCOMPARE(robustResidualScale(g, 5), 0.0);
+    QVERIFY(robustGridExtrema(g, 5).empty());
+  }
+  // 2) 平面上单峰：多数残差为 0 → MAD=0 走 mean 回落（>0），只认出这一个峰。
+  {
+    const auto g = makeGrid(21, 21, [](int x, int y) { return (x == 10 && y == 10) ? 50.0 : 10.0; });
+    const double scale = robustResidualScale(g, 5);
+    QVERIFY(scale > 0.0);
+    const auto ex = robustGridExtrema(g, 5);
+    QCOMPARE(int(ex.size()), 1);
+    QCOMPARE(ex.front().x, 10);
+    QCOMPARE(ex.front().y, 10);
+    QVERIFY(ex.front().peak);
+    QCOMPARE(ex.front().value, 50.0);
+  }
+  // 3) 确定性伪随机噪声（σ≈1）+ 一个 20 倍噪声幅度的峰与一个洼：
+  //    尺度落在噪声量级，强峰/强洼排前两位，噪声极值几乎全被滤除。
+  {
+    quint32 state = 12345u;
+    auto noise = [&state] {
+      double acc = 0.0; // 12 个均匀数之和 −6 ≈ N(0,1)
+      for (int i = 0; i < 12; ++i)
+      {
+        state = state * 1664525u + 1013904223u;
+        acc += double(state >> 8) / double(1u << 24);
+      }
+      return acc - 6.0;
+    };
+    auto g = makeGrid(64, 64, [&](int, int) { return 100.0 + noise(); });
+    g.values[std::size_t(20) * 64 + 20] += 20.0;
+    g.values[std::size_t(40) * 64 + 45] -= 20.0;
+    const double scale = robustResidualScale(g, 5);
+    QVERIFY2(scale > 0.5 && scale < 2.0, qPrintable(QString::number(scale)));
+    const auto ex = robustGridExtrema(g, 5);
+    QVERIFY(ex.size() >= 2);
+    // 噪声不刷屏：相对「无阈值严格极值」数量，稳健阈值至少滤掉 90%。
+    const auto strict = gridExtrema(g, 5, 0.0, -1);
+    QVERIFY2(ex.size() * 10 <= strict.size(),
+             qPrintable(QStringLiteral("%1 / %2").arg(ex.size()).arg(strict.size())));
+    QVERIFY(ex[0].prominence >= ex[1].prominence);
+    bool sawPeak = false, sawLow = false;
+    for (std::size_t i = 0; i < 2; ++i)
+    {
+      sawPeak |= ex[i].peak && ex[i].x == 20 && ex[i].y == 20;
+      sawLow |= !ex[i].peak && ex[i].x == 45 && ex[i].y == 40;
+    }
+    QVERIFY(sawPeak && sawLow);
+    // 确定性：同输入重复计算逐项一致。
+    const auto again = robustGridExtrema(g, 5);
+    QCOMPARE(again.size(), ex.size());
+    for (std::size_t i = 0; i < ex.size(); ++i)
+      QVERIFY(again[i].x == ex[i].x && again[i].y == ex[i].y && again[i].prominence == ex[i].prominence);
+  }
+  // 4) nodata 边缘：右半为 nodata（值写成 −9999 哨兵但 valid=0），平滑斜面上
+  //    一个小鼓包；nodata 不参与残差/极值，边缘像元不得被误判为峰。
+  {
+    auto g = makeGrid(30, 20, [](int x, int y) {
+      const double bump = std::exp(-((x - 8) * (x - 8) + (y - 10) * (y - 10)) / 4.0);
+      return 0.1 * x + 3.0 * bump;
+    });
+    for (int y = 0; y < 20; ++y)
+      for (int x = 15; x < 30; ++x)
+      {
+        g.values[std::size_t(y) * 30 + x] = -9999.0;
+        g.valid[std::size_t(y) * 30 + x] = 0;
+      }
+    const auto ex = robustGridExtrema(g, 5);
+    QVERIFY(!ex.empty());
+    QVERIFY(ex.front().peak);
+    QCOMPARE(ex.front().x, 8);
+    QCOMPARE(ex.front().y, 10);
+    for (const auto &e : ex)
+      QVERIFY2(e.x < 13, "nodata 边缘不得产生极值");
+    // 全 nodata：尺度 0、无极值、不崩。
+    auto empty = g;
+    std::fill(empty.valid.begin(), empty.valid.end(), 0);
+    QCOMPARE(robustResidualScale(empty, 5), 0.0);
+    QVERIFY(robustGridExtrema(empty, 5).empty());
+  }
+  // 5) 强区域趋势 + 局部鼓包（层位面的典型形态）：全局 σ×0.5 远大于鼓包的
+  //    局部显著性（旧口径滤光），稳健尺度仍保留该真实极值。
+  {
+    const auto g = makeGrid(60, 60, [](int x, int y) {
+      const double bump = 2.0 * std::exp(-((x - 30) * (x - 30) + (y - 25) * (y - 25)) / 6.0);
+      return 0.2 * x + 0.1 * y + bump;
+    });
+    double mean = 0.0, sq = 0.0;
+    for (double v : g.values) { mean += v; sq += v * v; }
+    mean /= g.values.size();
+    const double globalSigma = std::sqrt(sq / g.values.size() - mean * mean);
+    const auto ex = robustGridExtrema(g, 5);
+    QVERIFY(!ex.empty());
+    QVERIFY(ex.front().prominence < 0.5 * globalSigma); // 旧阈值下必被滤掉
+    QVERIFY(gridExtrema(g, 5, 0.5 * globalSigma, 100).empty());
+  }
 }
 
 void TestPreviewMapAssets::statesHelpersContract()

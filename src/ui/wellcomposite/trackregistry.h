@@ -46,7 +46,7 @@ struct TrackSpec
   QVariantMap curveOverrides() const { return params.value(QStringLiteral("curveOverrides")).toMap(); }
   void setCurveOverrides(const QVariantMap &ov) { params.insert(QStringLiteral("curveOverrides"), ov); }
   bool showGrid() const { return params.value(QStringLiteral("showGrid"), true).toBool(); }
-  int gridDensity() const { return params.value(QStringLiteral("gridDensity"), 2).toInt(); }
+  int gridDensity() const { return params.value(QStringLiteral("gridDensity"), 3).toInt(); }
 };
 
 // 道类型注册项

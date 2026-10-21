@@ -24763,6 +24763,11 @@ SHA-256：%2</translation>
         <source>常规测井</source>
         <translation>常规测井</translation>
     </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/curveconfigdialog.cpp" line="180"/>
+        <source>显示关键岩性、三孔隙和电阻率曲线；辅助曲线默认隐藏，可勾选恢复</source>
+        <translation>显示关键岩性、三孔隙和电阻率曲线；辅助曲线默认隐藏，可勾选恢复</translation>
+    </message>
 </context>
 <context>
     <name>WellComposite::EditSession</name>
@@ -24897,6 +24902,16 @@ SHA-256：%2</translation>
         <location filename="../src/ui/wellcomposite/hiddentrackbar.cpp" line="82"/>
         <source>点击恢复显示「%1」道</source>
         <translation>点击恢复显示「%1」道</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/hiddentrackbar.cpp" line="81"/>
+        <source>更多隐藏道（%1）</source>
+        <translation>更多隐藏道（%1）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/hiddentrackbar.cpp" line="82"/>
+        <source>选择要恢复显示的图道</source>
+        <translation>选择要恢复显示的图道</translation>
     </message>
 </context>
 <context>
@@ -25074,6 +25089,11 @@ SHA-256：%2</translation>
         <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="197"/>
         <source>曲线颜色</source>
         <translation>曲线颜色</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="126"/>
+        <source>浅灰背景网格</source>
+        <translation>浅灰背景网格</translation>
     </message>
 </context>
 <context>
@@ -25649,6 +25669,41 @@ SHA-256：%2</translation>
         <location filename="../src/ui/wellcomposite/paneledit.cpp" line="227"/>
         <source>暂无预设。导出一次后可经 sidecar 保存。</source>
         <translation>暂无预设。导出一次后可经 sidecar 保存。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/paneltracks.cpp" line="103"/>
+        <source>井段相解释</source>
+        <translation>井段相解释</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/paneltracks.cpp" line="103"/>
+        <source>查看或编辑井段岩性与相解释；井段相解释可含源文件解释和预测回写值，默认隐藏，可在图道配置中显示对照</source>
+        <translation>查看或编辑井段岩性与相解释；井段相解释可含源文件解释和预测回写值，默认隐藏，可在图道配置中显示对照</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/standardcurvetracks.cpp" line="44"/>
+        <source>岩性测井</source>
+        <translation>岩性测井</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/standardcurvetracks.cpp" line="45"/>
+        <source>三孔隙测井</source>
+        <translation>三孔隙测井</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/standardcurvetracks.cpp" line="46"/>
+        <source>电阻率测井</source>
+        <translation>电阻率测井</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/standardcurvetracks.cpp" line="62"/>
+        <source>常规测井</source>
+        <translation>常规测井</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/standardcurvetracks.cpp" line="75"/>
+        <source>辅助曲线 %1</source>
+        <translation>辅助曲线 %1</translation>
     </message>
 </context>
 <context>

@@ -35,9 +35,25 @@
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
+#include <mutex>
 #include <thread>
 
 namespace {
+// The stdin reader thread outlives app.exec(); it may only post to the
+// application while this gate holds a live target. main() clears it under the
+// mutex before teardown, so no post can race QApplication destruction.
+struct PostGate {
+  std::mutex mutex;
+  QObject *target = nullptr;
+  template <typename F> bool post(F &&fn) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (!target) return false;
+    QMetaObject::invokeMethod(target, std::forward<F>(fn), Qt::QueuedConnection);
+    return true;
+  }
+  void close() { std::lock_guard<std::mutex> lock(mutex); target = nullptr; }
+};
+PostGate &postGate() { static auto *gate = new PostGate; return *gate; } // intentionally leaked: reader may outlive statics
 QString tr(const char *text) { return QCoreApplication::translate("OfficePreviewRenderer", text); }
 void send(const QJsonObject &message)
 {
@@ -88,12 +104,13 @@ int main(int argc, char **argv)
   deadline.start(120000);
   // Parent sends small JSON commands; blocking stdin belongs to a reader thread.
   // EOF is the lifetime boundary. No input or painting is handled by Paleo's GUI.
-  std::thread([state, &app, output, error] {
+  postGate().target = &app;
+  std::thread([state, output, error] {
     std::string line;
     while (std::getline(std::cin, line)) {
       if (line.size() > 1024) break;
       const QByteArray bytes(line.data(), int(line.size()));
-      QMetaObject::invokeMethod(&app, [state, bytes, output, error] {
+      const bool posted = postGate().post([state, bytes, output, error] {
         if (!state->alive.load()) return;
         const QJsonObject command = QJsonDocument::fromJson(bytes).object();
         if (command.value("type") != "page" || !state->ready.load()) return;
@@ -152,9 +169,10 @@ int main(int argc, char **argv)
           error(tr("无法渲染文档页面")); return;
         }
         send({{"type", "page"}, {"index", index}, {"request", request}, {"file", file}});
-      }, Qt::QueuedConnection);
+      });
+      if (!posted) return; // application already shutting down
     }
-    QMetaObject::invokeMethod(&app, &QCoreApplication::quit, Qt::QueuedConnection);
+    postGate().post([] { QCoreApplication::quit(); });
   }).detach();
   QTimer layoutPoll;
   layoutPoll.setInterval(40);
@@ -251,6 +269,7 @@ int main(int argc, char **argv)
   });
   const int result = app.exec();
   state->alive.store(false);
+  postGate().close();
   // Engine teardown has queued GUI dependencies; the OS owns isolated cleanup.
   std::exit(result);
 }

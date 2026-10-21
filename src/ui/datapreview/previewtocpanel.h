@@ -43,6 +43,8 @@ class PreviewTocPanel : public QWidget
     // defaultVisible 是首次加入的可见位；同资产重开时按 D4.7 记忆恢复。
     void addLayer( QgsMapLayer *layer, const QString &name, const QString &sourcePath,
                    bool defaultVisible = true );
+    // 同 addLayer，但置于列表底部（底图层）。
+    void addLayerAtBottom( QgsMapLayer *layer, const QString &name, const QString &sourcePath );
     void removeLayer( QgsMapLayer *layer );
     void clear();
     int layerCount() const;

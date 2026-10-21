@@ -654,6 +654,16 @@ void PreviewMapPage::addMapLayer( QgsMapLayer *layer, const QString &name,
   // mapLayersChanged 由 canvas layersChanged 统一转发（不双发）。
 }
 
+void PreviewMapPage::addMapLayerAtBottom( QgsMapLayer *layer, const QString &name )
+{
+  if ( !layer )
+    return;
+  m_canvas->insertLayer( m_canvas->layers().size(), layer );
+  m_toc->addLayerAtBottom( layer, name, QString() );
+  if ( m_overview )
+    m_overview->syncLayers( m_canvas->layers() );
+}
+
 void PreviewMapPage::removeMapLayer( QgsMapLayer *layer )
 {
   if ( !layer )

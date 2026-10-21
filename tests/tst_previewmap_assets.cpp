@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QComboBox>
 
 #include "helpers/previewfixture.h"
 #include "../src/catalog/datacatalog.h"
@@ -110,6 +111,7 @@ class TestPreviewMapAssets : public QObject
     void surveyPageUsesFramework();
     void surveyPageHealsAfterDataReady();
     void surveyPageHealsWhenProjectLands();
+    void surveyOnlineBasemapSwitcher();
     void surveyPageHealsBasemapClone();
     void attributeTableDialogFilters();
     void attributeTableDialogPagesWithoutRescan();
@@ -823,6 +825,65 @@ void TestPreviewMapAssets::surveyPageHealsWhenProjectLands()
   auto *band = st->preview->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand"));
   QVERIFY(band);
   QCOMPARE(band->asGeometry().boundingBox(), QgsRectangle(1000, 2000, 1002, 2003));
+}
+
+// 在线 XYZ 底图：工程坐标系禁用并提示；真实坐标系下切换街道/卫星/地形，
+// 底图压在最底层、署名可见、选择按工程记忆。
+void TestPreviewMapAssets::surveyOnlineBasemapSwitcher()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
+  auto *project = st->projectSvc.project();
+  project->setCrs(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+  st->preview->setProject(project);
+  st->preview->openSurveyArea();
+  auto *combo = st->preview->findChild<QComboBox *>(QStringLiteral("surveyOnlineBasemap"));
+  QVERIFY(combo);
+  QVERIFY(!combo->isEnabled());
+  QVERIFY(combo->toolTip().contains(QStringLiteral("工程坐标系无法叠加在线底图")));
+
+  project->setCrs(QgsCoordinateReferenceSystem(QStringLiteral("EPSG:3857")));
+  st->preview->openSurveyArea();
+  combo = st->preview->findChild<QComboBox *>(QStringLiteral("surveyOnlineBasemap"));
+  QVERIFY(combo);
+  QVERIFY(combo->isEnabled());
+  QVERIFY(combo->count() >= 4);
+  auto *cv = st->preview->findChild<QgsMapCanvas *>(QStringLiteral("surveyMapCanvas"));
+  QVERIFY(cv);
+  const auto online = [&cv]() -> QgsMapLayer * {
+    for (auto *l : cv->layers())
+      if (!l->customProperty("paleoOnlineBasemap").toString().isEmpty()) return l;
+    return nullptr;
+  };
+  QVERIFY(!online());
+  for (const QString id : {QStringLiteral("osm"), QStringLiteral("esri_imagery"), QStringLiteral("opentopomap")}) {
+    combo->setCurrentIndex(combo->findData(id));
+    auto *layer = online();
+    QVERIFY(layer);
+    QCOMPARE(layer->customProperty("paleoOnlineBasemap").toString(), id);
+    QVERIFY(layer->source().contains(QStringLiteral("type=xyz")));
+    QCOMPARE(cv->layers().last(), layer); // 最底层
+    auto *attribution = st->preview->findChild<QLabel *>(QStringLiteral("surveyBasemapAttribution"));
+    QVERIFY(attribution);
+    QVERIFY(!attribution->text().isEmpty());
+    const auto qa = qEnvironmentVariable("PALEO_BASEMAP_QA_DIR"); // 联网截图（可选）
+    if (!qa.isEmpty()) {
+      auto *page = cv->window();
+      page->resize(1280, 820); page->show();
+      cv->setExtent(QgsRectangle(12900000, 4780000, 13020000, 4880000)); cv->refresh();
+      QTest::qWait(500); QTRY_VERIFY_WITH_TIMEOUT(!cv->isDrawing(), 30000); QTest::qWait(300);
+      QVERIFY(page->grab().save(qa + QStringLiteral("/basemap-%1.png").arg(id)));
+    }
+  }
+  // 按工程记忆：重建页恢复上次选择。
+  st->preview->openSurveyArea();
+  combo = st->preview->findChild<QComboBox *>(QStringLiteral("surveyOnlineBasemap"));
+  cv = st->preview->findChild<QgsMapCanvas *>(QStringLiteral("surveyMapCanvas"));
+  QCOMPARE(combo->currentData().toString(), QStringLiteral("opentopomap"));
+  QVERIFY(online());
+  combo->setCurrentIndex(0);
+  QVERIFY(!online());
 }
 
 // 底图克隆同走建页快照——底图层在建页后注册进工程（配准落地时

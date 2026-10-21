@@ -172,6 +172,7 @@ class DataPreviewTabs : public QWidget
                                  const QVector<EntityAssetLink> &links,
                                  QWidget *host, QVBoxLayout *lay);
     QWidget *buildSurveyAreaContent(QWidget *page);
+    void attachOnlineBasemap(QWidget *content); // 在线 XYZ 底图切换（datapreviewtabs_basemap.cpp）
     void rebuildAssetTab(const QString &assetId); // 重试或切换版本后重建内容
     // buildContent 在途时收到的重建请求（服务层转换失败信号在 ensure* 内
     // 同步发射会重入到这里）——外层 buildContent 读到的已是最终态，顺延到

@@ -40,6 +40,7 @@ void DataPreviewTabs::openSurveyArea()
 
   QWidget *content = buildSurveyAreaContent(page);
   pageLay->addWidget(content ? content : stateLabel(tr("无法生成测区地图"), page, true), 1);
+  if (content) attachOnlineBasemap(content);
 
   const int idx = m_tabs->addTab(page, PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")), tr("测区全景地图"));
   m_pageOfAsset.insert(key, page);

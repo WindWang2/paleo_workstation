@@ -43,12 +43,17 @@ int absorbSmallParts( QVector<int> &grid, int cols, int rows, double cellArea,
 {
   if ( !( minArea > 0.0 ) && minCells <= 1 )
     return 0;
-  if ( cols <= 0 || rows <= 0 || grid.size() != static_cast<qsizetype>( cols ) * rows )
+  const qsizetype total = static_cast<qsizetype>( cols ) * rows;
+  if ( cols <= 0 || rows <= 0 || grid.size() != total )
+    return 0;
+  // 标号/并查集按 int 下标；超过 int 范围的网格无法安全标号，原样返回（不合并）
+  // 而不是让 cols*rows 在 int 上溢出成负数/截断后越界访问。
+  if ( total > std::numeric_limits<int>::max() )
     return 0;
   const auto isCancelled = [&cancelled] { return cancelled && cancelled(); };
 
   // ---- 一次 4 连通标号 ---------------------------------------------------
-  const int n = cols * rows;
+  const int n = static_cast<int>( total );
   std::vector<int> lab( n, -1 );
   std::vector<Part> parts;
   std::vector<int> stack;

@@ -39,6 +39,7 @@ class DataImportService : public QObject
       QString forceType;         // 非空 → 跳过分类器结果改用此类型（确认表「改类型」）
       QString targetWellId;      // 显式选择；new:<井名> 仅来自用户新建意图
       QString expectedSourceSha256; // 用户已确认的预览内容，不得被后续源替换绕过
+      QString displayName;       // 非空 → 资产显示名（默认原文件 basename；物理 fileName 恒不动）
     };
 
     explicit DataImportService(PaleoProjectStore *store = nullptr, QObject *parent = nullptr);

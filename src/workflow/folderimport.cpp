@@ -551,7 +551,8 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
 
 void FolderImportWorkflow::importFile(
     const QString &kind, const QString &path,
-    std::function<void(const QString &assetId, const QString &error)> done)
+    std::function<void(const QString &assetId, const QString &error)> done,
+    bool linkExternal, const QString &displayName)
 {
   if (!m_svc)
   {
@@ -565,10 +566,12 @@ void FolderImportWorkflow::importFile(
   {
     auto job = std::make_shared<ImportJob>();
     job->title = tr("导入 %1").arg(kind);
-    job->produce = [path, kind](ImportSession &s, PaleoTask *) {
+    job->produce = [path, kind, linkExternal, displayName](ImportSession &s, PaleoTask *) {
       DataImportService::ImportOptions options;
       if (isClassifierType(kind))
         options.forceType = kind;
+      options.linkExternal = linkExternal;
+      options.displayName = displayName;
       DataImportService::produceFile(s, path, options);
       if (!s.fileResult.assetId.isEmpty())
         s.error.clear(); // 任务态口径同旧：拿到资产 id 即成功
@@ -588,6 +591,8 @@ void FolderImportWorkflow::importFile(
   DataImportService::ImportOptions options;
   if (isClassifierType(kind))
     options.forceType = kind;
+  options.linkExternal = linkExternal;
+  options.displayName = displayName;
   const QString assetId = m_svc->importProjectFile(path, options, &err);
   if (done)
     done(assetId, err);

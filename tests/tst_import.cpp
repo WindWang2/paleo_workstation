@@ -1348,6 +1348,44 @@ private slots:
     QCOMPARE(reloaded.linksForAsset(asset).first().entityId, wells.first());
   }
 
+  // 导入时命名：ImportOptions.displayName 非空 → 资产显示名按用户给定；
+  // 版本物理 fileName 恒为原文件名；空 displayName → 回退原文件 basename。
+  void importDisplayNameOptionHonored()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString src = tmp.filePath(QStringLiteral("A9_log.las"));
+    QVERIFY(writeFile(src, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
+    DataImportService::ImportOptions opts;
+    opts.displayName = QStringLiteral("A9 主测井曲线");
+    QString err;
+    const auto res = svc.importProjectFileEx(src, opts, &err);
+    QVERIFY2(res.outcome != DataImportService::ImportOutcome::Failed, qPrintable(err));
+    QCOMPARE(svc.catalog()->assetById(res.assetId).displayName,
+             QStringLiteral("A9 主测井曲线"));
+    // 版本物理文件名保持原文件名
+    QCOMPARE(svc.catalog()->currentVersion(res.assetId).fileName,
+             QStringLiteral("A9_log.las"));
+
+    // 空 displayName → 回退原文件名
+    const QString src2 = tmp.filePath(QStringLiteral("B2_log.las"));
+    QVERIFY(writeFile(src2, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n200.0 60.0\n")));
+    const auto res2 = svc.importProjectFileEx(src2, {}, &err);
+    QVERIFY2(res2.outcome != DataImportService::ImportOutcome::Failed, qPrintable(err));
+    QCOMPARE(svc.catalog()->assetById(res2.assetId).displayName,
+             QStringLiteral("B2_log.las"));
+  }
+
   // 新 SHA-256 仍追加新资产。已决 well_log 不再把后导入的那份顶成唯一
   // 主关联：首份保持 isPrimary / ordinal 0，后份非主 / ordinal 1，两条都在。
   void newShaVersionDemotesPreviousPrimaryLink()

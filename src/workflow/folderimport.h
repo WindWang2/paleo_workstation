@@ -86,8 +86,11 @@ class FolderImportWorkflow : public QObject
                       const QStringList &skippedPaths = {},
                       const QStringList &previewedPaths = {});
     // 单文件导入（数据页「导入」按钮）：同 importFolder 的双路径语义。
+    // linkExternal 默认 true（方向：UI 默认只建索引）；displayName 非空 →
+    // 覆盖资产显示名（导入时命名）。
     void importFile(const QString &kind, const QString &path,
-                    std::function<void(const QString &assetId, const QString &error)> done);
+                    std::function<void(const QString &assetId, const QString &error)> done,
+                    bool linkExternal = true, const QString &displayName = {});
     // 多选文件导入（文件列表口径）：与 importFolder 同一确认表/任务池/台账
     // 语义；预览 importActiveChanged 抑制逐文件预览标签口径相同。
     CancelImport importFiles(const QStringList &paths, const QMap<QString, QString> &overrides,

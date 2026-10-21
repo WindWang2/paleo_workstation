@@ -292,9 +292,13 @@ bool WellLogSet::mdAxisInMetres(const WellCurveRef &ref, const QList<LasCurve> &
   axis->clear();
   const bool legacy = ref.format.isEmpty() || ref.format == QLatin1String("las") ||
       ref.format == QLatin1String("dlis") || ref.format == QLatin1String("lis");
-  const auto scale = paleo::wellnumeric::depthScaleToMetres(curves.first().unit);
+  const QString unit = curves.first().unit.trimmed();
+  const auto scale = paleo::wellnumeric::depthScaleToMetres(unit);
+  // legacy（LAS/DLIS/LIS）空单位沿用「按米」惯例；未知非空单位与 readCurveTvd
+  // 同口径拒收——原样数值冒充米轴会把 DM 井画成 10 倍错位。
   if ((!ref.indexBasis.isEmpty() && ref.indexBasis != QLatin1String("MD")) ||
-      (!legacy && (ref.indexBasis.isEmpty() || !scale)))
+      (!legacy && (ref.indexBasis.isEmpty() || !scale)) ||
+      (legacy && !unit.isEmpty() && !scale))
   {
     if (error) *error = QCoreApplication::translate("WellLogSet",
         "%1：综合井图需要明确的 MD 测深和米/英尺单位，当前为 %2 [%3]；原始数据保留，请补充元数据或完成转换。")
@@ -359,15 +363,23 @@ bool WellLogSet::readCurveTvd(const WellCurveRef &ref,
   }
   double scale = 1.0;
   if (strictAxis) scale = *paleo::wellnumeric::depthScaleToMetres(depths.unit);
-  const QString unit = depths.unit.trimmed().toUpper();
-  if (unit == QLatin1String("FT") || unit == QLatin1String("F"))
-    scale = 0.3048;
-  else if (!strictAxis && unit != QLatin1String("M") && !unit.isEmpty())
+  // legacy（LAS/DLIS/LIS）接受面与 mdAxisInMetres 同词表（wellnumeric）：
+  // 别名 METERS/FOOT/FEET 等同样可折算，未知非空单位如实拒收（R2-S3）。
+  const QString unit = depths.unit.trimmed();
+  const auto legacyScale = paleo::wellnumeric::depthScaleToMetres(unit);
+  if (!strictAxis)
   {
-    if (error)
-      *error = QStringLiteral("%1: 深度单位未知（%2），不猜折算")
-                   .arg(ref.path, depths.unit.trimmed());
-    return false;
+    if (unit.isEmpty())
+      scale = 1.0; // legacy 空单位沿用按米惯例
+    else if (legacyScale)
+      scale = *legacyScale;
+    else
+    {
+      if (error)
+        *error = QStringLiteral("%1: 深度单位未知（%2），不猜折算")
+                     .arg(ref.path, unit);
+      return false;
+    }
   }
 
   out->path = ref.path;

@@ -22,6 +22,7 @@
 #include "ui/wellcomposite/trackconfigdialog.h"
 #include "ui/wellcomposite/wellcompositestore.h"
 #include "ui/wellcomposite/wellcompositepanel.h"
+#include "ui/wellcomposite/editsession.h"
 #include "domain/wellcompositemodel.h"
 #include "qgis/qgisruntime.h"
 
@@ -739,6 +740,52 @@ private slots:
     // 两端有限照常插值（回归保护）。
     c.values = {0.10f, 0.20f};
     QCOMPARE(c.valueAtDepth(1002.0f), 0.14f);
+  }
+
+  // D-01（full-audit-20261022）：编辑会话同步按数据源身份路由，不按标题——
+  // 用户把「层序」道改名后，层序区间不得被分层区间静默覆盖。
+  void renamedSequenceTrackKeepsSequenceDataUnderSessionSync()
+  {
+    ComprehensiveWellData data;
+    data.wellName = QStringLiteral("W-D01");
+    data.minDepth = 1000;
+    data.maxDepth = 1100;
+    FormationInterval layers;
+    layers.topDepth = 1000;
+    layers.bottomDepth = 1050;
+    layers.name = QStringLiteral("F1");
+    data.formationIntervals = {layers};
+    FormationInterval seqIv;
+    seqIv.topDepth = 1020;
+    seqIv.bottomDepth = 1080;
+    seqIv.name = QStringLiteral("S1");
+    data.sequenceIntervals = {seqIv};
+    data.standardHorizons = {{1000.0, QStringLiteral("TOP")}, {1100.0, QStringLiteral("BOTTOM")}};
+
+    WellCompositeStore::clearSessionTracks({}, data.wellName);
+    WellCompositePanel panel;
+    QVERIFY(panel.loadWellData(data));
+
+    const auto sequenceTrack = [&panel]() -> std::shared_ptr<FormationTrack> {
+      for (const auto &t : panel.canvas()->tracks())
+        if (t && t->type() == TrackType::Formation &&
+            std::static_pointer_cast<FormationTrack>(t)->source() ==
+                FormationTrack::FormationSource::Sequence)
+          return std::static_pointer_cast<FormationTrack>(t);
+      return {};
+    };
+    auto seq = sequenceTrack();
+    QVERIFY(seq);
+    QCOMPARE(seq->intervals().size(), 1);
+    seq->setTitle(QStringLiteral("层序 副本")); // 用户经道配置改名
+    // 任一编辑会话操作（拖标志层）触发 documentChanged → syncSessionToTracks。
+    QVERIFY(panel.editSession()->moveMarker(QStringLiteral("TOP"), 1005.0));
+    seq = sequenceTrack();
+    QVERIFY(seq);
+    QCOMPARE(seq->title(), QStringLiteral("层序 副本"));
+    QCOMPARE(seq->intervals().size(), 1);
+    QVERIFY2(qFuzzyCompare(seq->intervals().first().topDepth, 1020.0f),
+             "层序道被分层区间覆盖（标题判据回潮）");
   }
 };
 

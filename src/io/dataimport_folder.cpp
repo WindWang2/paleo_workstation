@@ -411,6 +411,9 @@ void DataImportService::produceFromPlan(
   sess.error.clear();
   QString errText;
   QString *const error = &errText;
+  // 行序契约（dataimportservice.h）：well_head/执行行在前、Skipped 行缀尾——
+  // F1 迟到行先暂存，等执行行落定后追加。
+  QVector<FolderRowResult> lateRows;
 
   // F1（review-security）：预览集非空时，执行期 plan 里任何预览时没展示过的
   // 路径一律不执行（目录重扫可能收入预览后才落盘的文件）——落 Skipped 行并
@@ -420,7 +423,6 @@ void DataImportService::produceFromPlan(
     const QSet<QString> previewed(sess.previewedPaths.begin(), sess.previewedPaths.end());
     QVector<PlannedItem> confirmed;
     confirmed.reserve(plan.items.size());
-    int lateCount = 0;
     for (const PlannedItem &item : plan.items)
     {
       if (previewed.contains(item.path))
@@ -428,7 +430,6 @@ void DataImportService::produceFromPlan(
         confirmed.append(item);
         continue;
       }
-      ++lateCount;
       FolderRowResult row;
       row.path = item.path;
       row.classifiedType = item.type;
@@ -436,9 +437,9 @@ void DataImportService::produceFromPlan(
       row.message = QCoreApplication::translate(
           "DataImportService",
           "该文件在预览后才出现，本次未导入；如需导入请重新生成预览。");
-      sess.rows.append(row);
+      lateRows.append(row);
     }
-    if (lateCount > 0)
+    if (!lateRows.isEmpty())
       plan.items = confirmed;
   }
 
@@ -485,7 +486,8 @@ void DataImportService::produceFromPlan(
   // decision==skip 或 (path,sha) 已注册的项不再登记；重跑同清单每行
   // Skipped、零增量。
   auto executedRows = executeIngestPlan(plan, sess, progress, error);
-  sess.rows += executedRows; // 保留 F1 预挂的「预览后出现」Skipped 行
+  sess.rows += executedRows;
+  sess.rows += lateRows; // F1 迟到 Skipped 行按契约缀尾
   sess.error = errText;
 }
 

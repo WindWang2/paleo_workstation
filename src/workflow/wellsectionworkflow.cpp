@@ -374,11 +374,12 @@ void WellSectionWorkflow::loadCurveBodies(Shared &shared,
   for (const QString &path : order) {
     if (task && task->cancelRequested())
       return;
-    const bool explicitAxis = WellLogRead::detect(path) != WellLogFormat::Las;
+    const auto format = WellLogRead::detect(path);
+    const bool explicitAxis = format != WellLogFormat::Las;
     LasDoc doc;
     LasHeaderInfo header;
     if (explicitAxis) {
-      doc.ok = WellLogRead::parse(path, header, doc.curves, &doc.error);
+      doc.ok = WellLogRead::parse(path, format, header, doc.curves, &doc.error);
       doc.curveNames = header.curveNames;
       if (doc.ok && header.indexBasis != QLatin1String("MD")) {
         doc.ok = false;

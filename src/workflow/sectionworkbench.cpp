@@ -438,9 +438,10 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
         LasDoc doc;
         LasHeaderInfo header;
         const auto &path = refs.first().path;
-        doc.ok = WellLogRead::parse(path, header, doc.curves, &doc.error);
+        const auto format = WellLogRead::detect(path);
+        doc.ok = WellLogRead::parse(path, format, header, doc.curves, &doc.error);
         doc.curveNames = header.curveNames;
-        if (doc.ok && WellLogRead::detect(path) != WellLogFormat::Las && header.indexBasis != QLatin1String("MD")) {
+        if (doc.ok && format != WellLogFormat::Las && header.indexBasis != QLatin1String("MD")) {
           doc.ok = false;
           doc.curves.clear();
           doc.error = tr("剖面叠加需要 MD 测深，索引基准为 %1；请先完成深度转换")

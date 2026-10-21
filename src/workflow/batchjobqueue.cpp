@@ -907,8 +907,11 @@ void BatchQueue::startOnSlot( int slotIndex, int itemIndex )
   const QString title =
       QObject::tr( "批次作业 %1 · %2" ).arg( item.horizon, item.methodId );
   // layerId 传层位：store 的 busy 门据此挡同层并发起算。
+  // 批量属后台批处理：Low 优先级让 D4.6「让位交互」在池队列层生效
+  // （High 会抢在排队的交互任务前出队，让位闸结构性不可达）。
   PaleoTask *task =
-      slot->runner->start( title, shared, cb, item.horizon, /*quiet=*/false );
+      slot->runner->start( title, shared, cb, item.horizon, /*quiet=*/false,
+                           PaleoTask::Priority::Low );
   if ( !task )
   {
     // 忙则拒绝（槽位刚空但上一任务尚未清理）——该项回队首重试。

@@ -120,6 +120,20 @@
 
 namespace paleo::datapreview_detail {
 
+// 统计页标签写入（B-05 失败回调的诚实状态面）：成功逐项写数值，失败/取消
+// 五标签一次落「不可用」——层位/成图两个统计页共用，label 名 = 前缀+后缀。
+inline void setStatLabel(QWidget *page, const char *name, const QString &text)
+{
+  if (auto *label = page->findChild<QLabel *>(QString::fromLatin1(name)))
+    label->setText(text);
+}
+inline void markStatsUnavailable(QWidget *page, const char *prefix)
+{
+  const QString unavailable = QObject::tr("不可用");
+  for (const char *suffix : {"Min", "Max", "Mean", "Std", "Valid"})
+    setStatLabel(page, (QString::fromLatin1(prefix) + QLatin1String(suffix)).toLatin1(), unavailable);
+}
+
 // 大图提示与概览预热（层位/配准影像共用）。保留提示条插入时机及 host 生命周期。
 inline void addRasterPyramidHint(PreviewDocService *doc, QgsRasterLayer *raster,
                                  const QString &assetId, QWidget *host, QVBoxLayout *layout)

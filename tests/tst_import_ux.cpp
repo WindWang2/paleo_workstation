@@ -438,6 +438,8 @@ private slots:
     QCOMPARE(firstRow->outcome, RowOutcome::Imported);
     QCOMPARE(lateRow->outcome, RowOutcome::Skipped);
     QVERIFY(lateRow->message.contains(QStringLiteral("预览后才出现")));
+    // A-08：行序契约——Skipped 迟到行缀尾，不插到执行行之前。
+    QVERIFY2(firstRow < lateRow, "迟到 Skipped 行排在执行行前");
     QVERIFY2(h.service->commitImport(*session, &error) == Commit::Committed,
              qPrintable(error));
     // 晚到文件零痕迹：B1 井不存在、资产/raw 只有 first 的份。
@@ -605,6 +607,10 @@ private slots:
     const auto rejected = h.service->importProjectFileEx(second, &error);
     QCOMPARE(rejected.outcome, Outcome::Failed);
     QVERIFY(!error.isEmpty());
+    // A-01：单模糊命中必须说「规范化后相同」，不能谎报「对应多口井」。
+    QVERIFY2(error.contains(QStringLiteral("规范化")),
+             qPrintable(QStringLiteral("文案: ") + error));
+    QVERIFY(!error.contains(QStringLiteral("多口井")));
     QCOMPARE(h.catalog()->assets().size(), 1);
     QCOMPARE(h.catalog()->entities(QStringLiteral("well")).size(), 1);
     QCOMPARE(h.curves().size(), 1);

@@ -219,8 +219,13 @@ public:
   ///
   /// Job 以 **shared_ptr 共享所有权** 传给三段：compute 在 worker 上写入的结果，
   /// commit 段必须能看到同一份对象——按值传会得到互不可见的两份副本。
+  ///
+  /// priority 默认 High（用户交互路径原语义）；后台批处理调用方传 Low——
+  /// D4.6 的「让位交互」在池队列层生效：批量任务不再抢在排队的交互任务
+  /// 之前出队（否则 pump 的让位闸「非本批任务占满池」结构性不可达）。
   PaleoTask *start(const QString &title, std::shared_ptr<Job> job, Callbacks cb,
-                   const QString &layerId = QString(), bool quiet = false)
+                   const QString &layerId = QString(), bool quiet = false,
+                   PaleoTask::Priority priority = PaleoTask::Priority::High)
   {
     assertOwnerThread("JobRunner::start");
     if (busy() || !job)
@@ -303,7 +308,7 @@ public:
                                 }
                                 return QString();
                               },
-                                layerId, PaleoTask::Priority::High, quiet)
+                                layerId, priority, quiet)
                           : nullptr;
     if (!task)
       return nullptr;

@@ -1,6 +1,8 @@
 // 层：数据
 #include "welllogtext_internal.h"
 
+#include "encodingdetect.h"
+
 #include <QCoreApplication>
 #include <QFile>
 #include <QRegularExpression>
@@ -21,8 +23,18 @@ bool isIndex(const QString &name)
 {
   static const QStringList names = {QStringLiteral("DEPTH"), QStringLiteral("DEPT"),
       QStringLiteral("MD"), QStringLiteral("TVD"), QStringLiteral("TVDSS"),
-      QStringLiteral("TIME"), QStringLiteral("深度")};
+      QStringLiteral("TIME"), QStringLiteral("深度"), QStringLiteral("井深")};
   return names.contains(name.toUpper());
+}
+
+// 表头行分隔符判定：tab → 逗号 → 分号（与 projectclassifier 的 [,;\t] 词表
+// 对齐——分类器提议过的分隔符读取器必须读得回来）→ 空白。
+QChar pickDelimiter(const QString &headerLine)
+{
+  return headerLine.contains(QLatin1Char('\t')) ? QLatin1Char('\t')
+      : headerLine.contains(QLatin1Char(',')) ? QLatin1Char(',')
+      : headerLine.contains(QLatin1Char(';')) ? QLatin1Char(';')
+                                               : QChar();
 }
 
 bool fail(const QString &path, int line, const QString &message, QString *error,
@@ -39,7 +51,22 @@ bool split(const QString &line, QChar delimiter, QStringList &cells)
 {
   if (delimiter.isNull())
   {
-    cells = line.trimmed().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    // 空白分隔逐 token 收集：与分隔符分支同列预算（kMaxColumns）早退，
+    // 不先物化整行 QStringList——病态超宽单行在 256 列处即失败。
+    const QString trimmed = line.trimmed();
+    const int n = trimmed.size();
+    int i = 0;
+    while (i < n)
+    {
+      while (i < n && trimmed.at(i).isSpace()) ++i;
+      const int start = i;
+      while (i < n && !trimmed.at(i).isSpace()) ++i;
+      if (i > start)
+      {
+        if (cells.size() >= kMaxColumns) return false;
+        cells.append(trimmed.mid(start, i - start));
+      }
+    }
     return true;
   }
   QString cell;
@@ -66,9 +93,9 @@ bool split(const QString &line, QChar delimiter, QStringList &cells)
 
 bool readText(const QByteArray &bytes, Table &table, QString &wellName, QString &error, int &errorLine)
 {
-  QStringDecoder decoder(QStringDecoder::Utf8);
-  QString content = decoder(bytes);
-  if (decoder.hasError()) { error = QCoreApplication::translate("WellLogText", "文本不是有效 UTF-8 编码"); return false; }
+  // 与井表生态（encodingdetect.h）同口径：UTF-8 优先、GB18030 兜底——
+  // 工区里含中文井名/表头的 GB 文本曲线与井口/分层文件一样常见。
+  QString content = EncodingDetect::decodeText(bytes);
   if (content.startsWith(QChar(0xfeff))) content.remove(0, 1);
   const QStringList lines = content.split(QLatin1Char('\n'));
   QChar delimiter;
@@ -92,8 +119,7 @@ bool readText(const QByteArray &bytes, Table &table, QString &wellName, QString 
       continue;
     }
     if (table.headers.isEmpty())
-      delimiter = line.contains(QLatin1Char('\t')) ? QLatin1Char('\t') :
-          (line.contains(QLatin1Char(',')) ? QLatin1Char(',') : QChar());
+      delimiter = Detail::pickDelimiter(line);
     QStringList values;
     if (!split(line, delimiter, values)) { error = QCoreApplication::translate("WellLogText", "引号未闭合或列数超过上限"); return false; }
     if (!table.headers.isEmpty() && values.size() != table.headers.size())
@@ -111,16 +137,14 @@ namespace WellLogText
 {
 bool sniffText(const QByteArray &content)
 {
-  QString text = QString::fromUtf8(content);
+  QString text = EncodingDetect::decodeText(content);
   if (text.startsWith(QChar(0xfeff))) text.remove(0, 1);
   for (const QString &raw : text.split(QLatin1Char('\n')))
   {
     const QString line = raw.trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) continue;
     QStringList cells;
-    const QChar separator = line.contains(QLatin1Char('\t')) ? QLatin1Char('\t') :
-        (line.contains(QLatin1Char(',')) ? QLatin1Char(',') : QChar());
-    if (!Detail::split(line, separator, cells) || cells.size() < 2) return false;
+    if (!Detail::split(line, Detail::pickDelimiter(line), cells) || cells.size() < 2) return false;
     for (const auto &cell : cells)
       if (Detail::isIndex(Detail::column(cell).name)) return true;
     return false;

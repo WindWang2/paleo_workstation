@@ -41,6 +41,7 @@ QList<std::shared_ptr<WellTrack>> defaultLayoutTracks(const ComprehensiveWellDat
   if (!data.formationIntervals.isEmpty())
   {
     auto form = std::make_shared<FormationTrack>(tr("地层"), 75.0);
+    form->setSource(FormationTrack::FormationSource::Layers);
     form->setIntervals(data.formationIntervals);
     tracks << form;
     if (stratHasData) { strat->setVisible(false); hidden << strat; }
@@ -76,6 +77,7 @@ QList<std::shared_ptr<WellTrack>> defaultLayoutTracks(const ComprehensiveWellDat
   if (!data.sequenceIntervals.isEmpty())
   {
     auto seq = std::make_shared<FormationTrack>(tr("层序"), 70.0);
+    seq->setSource(FormationTrack::FormationSource::Sequence);
     seq->setIntervals(data.sequenceIntervals);
     tracks << seq;
   }
@@ -92,6 +94,7 @@ QList<std::shared_ptr<WellTrack>> defaultLayoutTracks(const ComprehensiveWellDat
   if (!data.sandIntervals.isEmpty())
   {
     auto t = std::make_shared<FormationTrack>(tr("砂层组"), 60.0);
+    t->setSource(FormationTrack::FormationSource::SandGroup);
     t->setIntervals(data.sandIntervals); t->setVisible(false); hidden << t;
   }
   if (!data.symbolItems.isEmpty())

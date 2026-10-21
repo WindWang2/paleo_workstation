@@ -317,6 +317,71 @@ private slots:
     QVERIFY(curves.isEmpty());
     QCOMPARE(issues.last().category, LasIssue::Category::Oversize);
   }
+
+  void gb18030WellNameAndChineseIndexDecode()
+  {
+    // A-02：井表生态同口径——GB18030 中文井名/表头的文本曲线必须可读回。
+    // GBK 字节：某=C4B3、井=BEAE（表头用 MD——「深度」有意不声明基准）。
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("gb.csv"));
+    const QByteArray gbBytes = QByteArray("# Well: ")
+        + QByteArray::fromHex("c4b3") + QByteArray("1") + QByteArray::fromHex("beae")
+        + QByteArray("\n")
+        + QByteArray("MD[m],")
+        + QByteArray::fromHex("beae") // 井：曲线名带中文，GB 解码全链生效
+        + QByteArray("-GR[API]\n1000,20\n1001,30\n");
+    QVERIFY(write(path, gbBytes));
+    QCOMPARE(WellLogRead::detect(path), WellLogFormat::Text);
+    LasHeaderInfo header;
+    QString error;
+    QVERIFY2(WellLogRead::parseHeader(path, header, &error), qPrintable(error));
+    QCOMPARE(header.wellName, QStringLiteral("某1井"));
+    QCOMPARE(header.indexBasis, QStringLiteral("MD"));
+    const auto doc = WellLogRead::parseDoc(path);
+    QVERIFY2(doc.ok, qPrintable(doc.error));
+    QCOMPARE(doc.curves.at(0).values.size(), 2);
+    QCOMPARE(doc.curves.at(0).values.at(0), 1000.0);
+    QCOMPARE(doc.curves.at(0).unit, QStringLiteral("m"));
+  }
+
+  void jingshenIndexAndSemicolonDelimiterRoundTrip()
+  {
+    // A-03：分类器提议过的词表读取器必须读得回——井深表头、分号分隔。
+    QTemporaryDir dir;
+    const QString jingshen = dir.filePath(QStringLiteral("js.csv"));
+    QVERIFY(write(jingshen, "井深[m],GR[API]\n100,5\n101,6\n"));
+    QCOMPARE(WellLogRead::detect(jingshen), WellLogFormat::Text);
+    const auto js = WellLogRead::parseDoc(jingshen);
+    QVERIFY2(js.ok, qPrintable(js.error));
+    QCOMPARE(js.curveNames, QStringList({"井深", "GR"}));
+    QCOMPARE(js.curves.at(0).values.at(0), 100.0);
+
+    const QString semi = dir.filePath(QStringLiteral("semi.csv"));
+    QVERIFY(write(semi, "DEPTH[m];GR[API]\n100;5\n101;6\n"));
+    QCOMPARE(WellLogRead::detect(semi), WellLogFormat::Text);
+    const auto sd = WellLogRead::parseDoc(semi);
+    QVERIFY2(sd.ok, qPrintable(sd.error));
+    QCOMPARE(sd.curveNames, QStringList({"DEPTH", "GR"}));
+    QCOMPARE(sd.curves.at(1).values.at(1), 6.0);
+  }
+
+  void wideWhitespaceLineFailsFast()
+  {
+    // A-06：空白分隔超宽单行在 256 列预算处早退——修前先物化整行 QStringList，
+    // 错误落在第 2 行「列数与表头不一致」；修后在表头行即「列数超过上限」。
+    QByteArray header = QByteArrayLiteral("MD");
+    for (int i = 0; i < 300; ++i)
+      header += QByteArray(" C") + QByteArray::number(i);
+    header += QByteArray("\n100 1 2 3\n");
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("wide.txt"));
+    QVERIFY(write(path, header));
+    QList<LasIssue> issues;
+    const auto doc = WellLogRead::parseDoc(path, &issues);
+    QVERIFY(!doc.ok);
+    QVERIFY2(doc.error.contains(QStringLiteral("列数超过上限")),
+             qPrintable(doc.error));
+  }
 };
 QTEST_GUILESS_MAIN(TestWellLogText)
 #include "tst_welllogtext.moc"

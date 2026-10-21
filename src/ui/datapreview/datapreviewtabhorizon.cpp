@@ -330,19 +330,17 @@ QWidget *DataPreviewTabs::buildHorizonContent(
           tifPath, m_doc ? m_doc->taskService() : nullptr, page,
           [page, statsRaster,
            styleTouched](const PreviewRasterAnalysis::BandSummary &sum) {
-          if (!sum.valid || !statsRaster)
+          if (!sum.valid || !statsRaster) {
+            if (statsRaster) // 失败/取消也落地，不留「计算中…」（诚实状态）
+              markStatsUnavailable(page, "horizonStat");
             return;
-          const auto update = [page](const char *name, const QString &text) {
-            if (auto *label =
-                    page->findChild<QLabel *>(QString::fromLatin1(name)))
-              label->setText(text);
-          };
-          update("horizonStatMin", QString::number(sum.min, 'f', 2));
-          update("horizonStatMax", QString::number(sum.max, 'f', 2));
-          update("horizonStatMean", QString::number(sum.mean, 'f', 2));
-          update("horizonStatStd", QString::number(sum.stdDev, 'f', 2));
-          update("horizonStatValid",
-                 QStringLiteral("%1%").arg(sum.validRatio() * 100, 0, 'f', 1));
+          }
+          setStatLabel(page, "horizonStatMin", QString::number(sum.min, 'f', 2));
+          setStatLabel(page, "horizonStatMax", QString::number(sum.max, 'f', 2));
+          setStatLabel(page, "horizonStatMean", QString::number(sum.mean, 'f', 2));
+          setStatLabel(page, "horizonStatStd", QString::number(sum.stdDev, 'f', 2));
+          setStatLabel(page, "horizonStatValid",
+                       QStringLiteral("%1%").arg(sum.validRatio() * 100, 0, 'f', 1));
           if (!*styleTouched) {
             PreviewRasterAnalysis::applyPseudoColorRenderer(
                 statsRaster, 1, sum.min, sum.max,
@@ -517,6 +515,8 @@ QWidget *DataPreviewTabs::buildHorizonContent(
             tifPath, p1, p2, tasks, page,
             [page, p1, p2, total](
                 const QVector<PreviewRasterAnalysis::ProfileSample> &samples) {
+              if (samples.isEmpty())
+                return; // 读取失败/取消的空回调不留空「剖面 N」图例项
               QVector<PreviewProfilePanel::Sample> pts;
               pts.reserve(samples.size());
               for (const auto &sm : samples)

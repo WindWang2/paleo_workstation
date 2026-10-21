@@ -34,9 +34,15 @@ LasDoc MappingWorkbench::predictionLog(const QString &versionId) const {
   LasHeaderInfo header;
   result.ok = WellLogRead::parse(path, header, result.curves, &result.error);
   result.curveNames = header.curveNames;
-  if (result.ok && WellLogRead::detect(path) != WellLogFormat::Las) {
-    const auto scale = result.curves.isEmpty() ? std::optional<double>() :
-        paleo::wellnumeric::depthScaleToMetres(result.curves.first().unit);
+  // 米制归一对全部格式生效：预测区间的入库侧（normalizeDepthCurve）对 LAS 与
+  // 文本曲线都已归一到米，对比视图必须同口径，否则英尺井的曲线与相带错轴。
+  // 空单位与入库侧同约定按米（不猜未知非空单位，如实拒收）。
+  if (result.ok) {
+    const QString unit = result.curves.isEmpty() ? QString()
+                                                 : result.curves.first().unit.trimmed();
+    const auto scale = result.curves.isEmpty() ? std::optional<double>()
+        : unit.isEmpty() ? std::optional<double>(1.0)
+                         : paleo::wellnumeric::depthScaleToMetres(unit);
     if (header.indexBasis != QLatin1String("MD") || !scale) {
       result.ok = false;
       result.error = tr("%1：测井预测对比需要已声明米或英尺单位的 MD 测深；当前索引为 %2，单位为 %3，请先转换后查看。")
@@ -44,7 +50,8 @@ LasDoc MappingWorkbench::predictionLog(const QString &versionId) const {
                result.curves.isEmpty() ? tr("未知") : result.curves.first().unit);
       result.curves.clear();
     } else {
-      for (double &depth : result.curves.first().values) depth *= *scale;
+      if (*scale != 1.0)
+        for (double &depth : result.curves.first().values) depth *= *scale;
       result.curves.first().unit = QStringLiteral("m");
     }
   }

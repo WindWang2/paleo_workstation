@@ -548,12 +548,14 @@ bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePl
   }
 
   const LasDoc driver = LasCache::shared().load(plan.driverPath);
-  if (!additionalLogGridIsMd(plan.driverPath, plan.driverBasis, driver.curves, error)) return false;
+  // 先报解析失败再过 MD 闸：驱动文件损坏时把真因（解析错误）透传出去，
+  // 而不是误导用户去「校正索引元数据」。
   if (!driver.ok || driver.curves.isEmpty())
   {
     *error = driver.ok ? QStringLiteral("LAS 无曲线") : driver.error;
     return false;
   }
+  if (!additionalLogGridIsMd(plan.driverPath, plan.driverBasis, driver.curves, error)) return false;
 
   QVector<LasCurve> merged;
   merged.append(driver.curves.at(0));
@@ -612,6 +614,12 @@ bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePl
     std::stable_sort(pieces.begin(), pieces.end(),
                      [](const CurvePiece &a, const CurvePiece &b) { return a.column < b.column; });
     const LasDoc doc = LasCache::shared().load(path);
+    // 与 driver 路径同序：解析失败先透传真因，MD 闸只对读得出来的曲线生效。
+    if (!doc.ok || doc.curves.isEmpty())
+    {
+      *error = doc.ok ? QStringLiteral("LAS 无曲线") : doc.error;
+      return false;
+    }
     if (!additionalLogGridIsMd(path, plan.basisByPath.value(path), doc.curves, error, plan.driverBasis)) return false;
     // #166：副文件深度换到 driver 深度单位后再插值（M/FT 混用的 logset 不错位）；
     // 降序深度（STEP<0）先整体反转，而非静默判不可用全 NaN。

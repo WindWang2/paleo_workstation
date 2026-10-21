@@ -172,20 +172,17 @@ QWidget *DataPreviewTabs::buildMapProductContent(
           abs, m_doc ? m_doc->taskService() : nullptr, page,
           [page, statsRaster, styleTouched,
            continuousStyle](const PreviewRasterAnalysis::BandSummary &sum) {
-            if (!sum.valid || !statsRaster)
+            if (!sum.valid || !statsRaster) {
+              if (statsRaster) // 失败/取消也落地，不留「计算中…」（诚实状态）
+                markStatsUnavailable(page, "mapProductStat");
               return;
-            const auto update = [page](const char *name, const QString &text) {
-              if (auto *label =
-                      page->findChild<QLabel *>(QString::fromLatin1(name)))
-                label->setText(text);
-            };
-            update("mapProductStatMin", QString::number(sum.min, 'f', 2));
-            update("mapProductStatMax", QString::number(sum.max, 'f', 2));
-            update("mapProductStatMean", QString::number(sum.mean, 'f', 2));
-            update("mapProductStatStd", QString::number(sum.stdDev, 'f', 2));
-            update(
-                "mapProductStatValid",
-                QStringLiteral("%1%").arg(sum.validRatio() * 100, 0, 'f', 1));
+            }
+            setStatLabel(page, "mapProductStatMin", QString::number(sum.min, 'f', 2));
+            setStatLabel(page, "mapProductStatMax", QString::number(sum.max, 'f', 2));
+            setStatLabel(page, "mapProductStatMean", QString::number(sum.mean, 'f', 2));
+            setStatLabel(page, "mapProductStatStd", QString::number(sum.stdDev, 'f', 2));
+            setStatLabel(page, "mapProductStatValid",
+                         QStringLiteral("%1%").arg(sum.validRatio() * 100, 0, 'f', 1));
             if (continuousStyle && !*styleTouched) {
               PreviewRasterAnalysis::applyPseudoColorRenderer(
                   statsRaster, 1, sum.min, sum.max,
@@ -245,6 +242,8 @@ QWidget *DataPreviewTabs::buildMapProductContent(
               [page, p1, p2,
                total](const QVector<PreviewRasterAnalysis::ProfileSample>
                           &samples) {
+                if (samples.isEmpty())
+                  return; // 读取失败/取消的空回调不留空「剖面 N」图例项
                 QVector<PreviewProfilePanel::Sample> pts;
                 pts.reserve(samples.size());
                 for (const auto &sm : samples)

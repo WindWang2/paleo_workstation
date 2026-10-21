@@ -172,21 +172,22 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --transitive)
   # #532：--qgs-audit（PALEO_QGIS_PLAN §2「QGIS 迁移成本只许落在 src/qgis」
   # 在 include 级的唯一机械执行者）接入 ctest——此前全仓零接线，include 级
-  # 直连可以无声增长。接线前在本树复跑转绿：116 个直连文件全部在册
-  #（#523 导出链封装收敛后新增 0、可收缩 0），--strict 口径与
+  # 直连可以无声增长。接线时 116 个直连文件全部在册（#523 导出链封装
+  # 收敛后新增 0、可收缩 0）；full-audit-20261021 E-2 扫描面扩到全部
+  # 非视图模块后冻结为 137（见基线头注），--strict 口径与
   # qgis_spread_strict 一致（可收缩即红，收敛一个删一行）。
   add_test(NAME layering_qgs_audit COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --qgs-audit --strict)
   # #497：CI 红项分诊名单（docs/ci/known-reds.json）结构校验 + 分诊器夹具
-add_test(NAME qgis_spread COMMAND ${PALEO_PYTHON3}
+  add_test(NAME qgis_spread COMMAND ${PALEO_PYTHON3}
          ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py)
-add_test(NAME qgis_spread_strict COMMAND ${PALEO_PYTHON3}
+  add_test(NAME qgis_spread_strict COMMAND ${PALEO_PYTHON3}
          ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py --strict)
-add_test(NAME qgis_spread_selftest COMMAND ${PALEO_PYTHON3}
+  add_test(NAME qgis_spread_selftest COMMAND ${PALEO_PYTHON3}
          ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py --selftest)
-# E-12（full-audit-20261020）：与其余源码闸门同口径——无标签 ctest 项 +
-# WORKING_DIRECTORY 双保险（AGENTS.md「构建与测试布线」节声明）。
-set_tests_properties(qgis_spread qgis_spread_strict qgis_spread_selftest
+  # E-12（full-audit-20261020）：与其余源码闸门同口径——无标签 ctest 项 +
+  # WORKING_DIRECTORY 双保险（AGENTS.md「构建与测试布线」节声明）。
+  set_tests_properties(qgis_spread qgis_spread_strict qgis_spread_selftest
                      PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   #（triage job 消费前，本地/ctest 先过一遍名单合法性与解析器回归）。
   add_test(NAME ci_known_reds COMMAND ${PALEO_PYTHON3}

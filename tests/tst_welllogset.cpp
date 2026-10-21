@@ -7,6 +7,7 @@
 #include <QTextStream>
 
 #include "catalog/datacatalog.h"
+#include "io/lasdoc.h" // LasCurve（mdAxisInMetres 夹具）
 #include "services/welllogset.h"
 #include "perfbudget_relax.h"
 
@@ -113,6 +114,7 @@ private slots:
   void ordersByOrdinalVersionNumberThenVersionId();
   void readsCurrentVersionOnly();
   void doesNotElectPrimaryWhenMarkedFileIsMissing();
+  void mdAxisRejectsUnknownLegacyUnitAndScalesFeet();
 };
 
 void TestWellLogSet::oracle1_ordersFilesAndUnionsCurvesWithoutDepth()
@@ -633,6 +635,45 @@ void TestWellLogSet::doesNotElectPrimaryWhenMarkedFileIsMissing()
   QVERIFY(!c->canonical);
   QCOMPARE(b->sourceVersionId, QStringLiteral("ver-b"));
   QCOMPARE(c->sourceVersionId, QStringLiteral("ver-c"));
+}
+
+// B-02：legacy（LAS/DLIS/LIS）深度轴——未知非空单位（DM）必须与 readCurveTvd
+// 同口径拒收（原样数值冒充米轴 = 10 倍错位），FT 换算，空单位沿用按米惯例。
+void TestWellLogSet::mdAxisRejectsUnknownLegacyUnitAndScalesFeet()
+{
+  const auto makeCurves = [](const char *unit) {
+    LasCurve depth;
+    depth.name = QStringLiteral("DEPT");
+    depth.unit = QString::fromLatin1(unit);
+    depth.values = {1000.0, 1001.0, 1002.0};
+    return QList<LasCurve>{depth};
+  };
+  WellCurveRef ref; // legacy 判据：format 空
+  ref.path = QStringLiteral("/tmp/well.las");
+  ref.indexBasis = QStringLiteral("MD");
+  QString error;
+  QVector<double> axis;
+
+  QVERIFY(!WellLogSet::mdAxisInMetres(ref, makeCurves("DM"), &axis, &error));
+  QVERIFY(!error.isEmpty());
+  QVERIFY(error.contains(QStringLiteral("DM")));
+  QVERIFY(axis.isEmpty());
+
+  error.clear();
+  QVERIFY(WellLogSet::mdAxisInMetres(ref, makeCurves("FT"), &axis, &error));
+  QVERIFY(error.isEmpty());
+  QCOMPARE(axis.size(), 3);
+  QVERIFY(std::abs(axis.first() - 1000.0 * 0.3048) < 1e-9);
+
+  error.clear();
+  QVERIFY(WellLogSet::mdAxisInMetres(ref, makeCurves(""), &axis, &error));
+  QVERIFY(error.isEmpty());
+  QCOMPARE(axis.first(), 1000.0); // 空单位按米直通（legacy 惯例保持）
+
+  error.clear();
+  ref.format = QStringLiteral("text");
+  QVERIFY(!WellLogSet::mdAxisInMetres(ref, makeCurves(""), &axis, &error)); // 非 legacy 空单位仍拒
+  QVERIFY(!error.isEmpty());
 }
 
 QTEST_MAIN(TestWellLogSet)

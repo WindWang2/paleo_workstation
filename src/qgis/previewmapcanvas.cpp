@@ -2,6 +2,7 @@
 #include "previewmapcanvas.h"
 #include "projectmapreference.h"
 #include "mappingartifactwriter.h"
+#include "onlinebasemap.h"
 
 #include "../catalog/datacatalog.h" // localGridCrsWkt（datum-free 工程网格）
 
@@ -50,6 +51,7 @@ PreviewMapCanvas::PreviewMapCanvas( QWidget *parent )
 
   m_canvas = new QgsMapCanvas( this );
   m_canvas->setObjectName( QStringLiteral( "previewMapInnerCanvas" ) );
+  paleo::onlinebasemap::enableResponsiveForeground(m_canvas);
   m_canvas->enableAntiAliasing( true );
   m_canvas->setCanvasColor( Qt::white ); // 地图按纸面白底（DESIGN.md 数据符号不随暗色）
   m_canvas->setFocusPolicy( Qt::ClickFocus );

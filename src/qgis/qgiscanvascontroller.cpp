@@ -3,6 +3,7 @@
 
 #include "qgisprojectservice.h"
 #include "projectmapreference.h"
+#include "onlinebasemap.h"
 #include "../catalog/datacatalog.h"
 
 #include <qgsmapcanvas.h>
@@ -68,6 +69,7 @@ QgsMapCanvas *QgisCanvasController::canvas()
   if ( !m_canvas )
   {
     m_canvas = new QgsMapCanvas( nullptr ); // parentless; embedder may reparent
+    paleo::onlinebasemap::enableResponsiveForeground(m_canvas);
     m_canvas->enableAntiAliasing( true );
     m_canvas->setCanvasColor( QColor( QStringLiteral( "#FFFFFF" ) ) ); // DESIGN.md colors.surface
     // 捕捉原生启用（QGIS_NATIVE_ADOPTION）：QgsMapToolCapture/编辑工具经

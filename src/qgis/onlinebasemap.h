@@ -18,6 +18,8 @@ class QObject;
 // 墨卡托出图，只在工程有真实地理/投影坐标系时可叠加；工程坐标系（ENGCRS
 // 本地网格）上拒绝叠加，避免错位。
 namespace paleo::onlinebasemap {
+// 联网背景未完成时，QGIS 单独绘制可见矢量与原生标注，避免井点等待瓦片。
+void enableResponsiveForeground(QgsMapCanvas *canvas);
 struct Source {
   QString id;          // 稳定键（none/osm/esri_imagery/opentopomap/自定义）
   QString title;       // 显示名

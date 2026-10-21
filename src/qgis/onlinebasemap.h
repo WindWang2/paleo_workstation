@@ -43,7 +43,8 @@ QgsMapLayer *createLayer(const Source &source, QObject *parent = nullptr);
 void destroyLayer(QgsMapLayer *layer); // deleteLater
 // 层列表里的在线底图层（无则空）——不缓存裸指针，层可能已被 TOC 移除。
 QgsMapLayer *findLayer(const QList<QgsMapLayer *> &layers);
-// 每工程记忆：写入工程条目 + 本机设置（按工程路径分键）。
+// 每工程记忆：写入工程条目 + 本机设置（按工程路径分键）。自定义 XYZ
+// 地址（xyz:URL，可能带访问密钥）只进本机设置，工程条目只记 "xyz" 标记。
 QString savedChoice(const QgsProject *project);
 void saveChoice(QgsProject *project, const QString &id);
 } // namespace paleo::onlinebasemap

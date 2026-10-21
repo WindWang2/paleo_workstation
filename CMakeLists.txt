@@ -487,6 +487,7 @@ add_library(paleo_qgis STATIC
   src/qgis/qgisprojectservice_map.cpp
   src/qgis/projectmapreference.cpp
   src/qgis/onlinebasemap.cpp
+  src/qgis/basemaplayer.cpp
   src/qgis/qgislayerservice.cpp
   src/qgis/qgiscanvascontroller.cpp
   src/qgis/qgiseditingservice.cpp
@@ -782,6 +783,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/datapreviewtabs_content.cpp    # 方向97：buildContent 总分发析出
   src/ui/datapreview/datapreviewtabs_survey.cpp     # 方向97：测区全景（openSurveyArea）析出
   src/ui/datapreview/datapreviewtabs_basemap.cpp    # 测区全景在线底图切换（街道/卫星/地形）
+  src/ui/datapreview/previewbasemapcontrol.cpp      # #14 井位类视图共用 GIS 底图控件
   src/ui/datapreview/datapreviewtabs_well.cpp       # 方向97：井过滤族正文 + LAS 挂起应用析出
   src/ui/datapreview/datapreviewtabs_overlay.cpp    # 方向97：D2.10 同目录组图析出
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
@@ -1365,6 +1367,9 @@ add_paleo_test(tst_previewmap_identify LIBS paleo_qgis)
 add_paleo_test(tst_previewmap_page LIBS paleo_ui)
 add_paleo_test(tst_previewmap_assets LIBS paleo_ui)
 target_compile_definitions(tst_previewmap_assets PRIVATE
+  PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+add_paleo_test(tst_wellbasemap LIBS paleo_ui)  # #14 井位类页面 GIS 底图（本地夹具，不联网）
+target_compile_definitions(tst_wellbasemap PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_previewmap_perf LIBS paleo_ui)
 target_compile_definitions(tst_previewmap_perf PRIVATE

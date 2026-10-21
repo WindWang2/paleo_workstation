@@ -122,6 +122,7 @@ QgsMapLayer *createLayer(const Source &source, QObject *parent)
   }
   layer->setParent(parent);
   layer->setCustomProperty(QStringLiteral("paleoOnlineBasemap"), source.id);
+  layer->setCustomProperty(QStringLiteral("paleoBasemap"), true); // 全图范围不计入（XYZ 范围是全球）
   layer->setCustomProperty(QStringLiteral("paleoBasemapAttribution"), source.attribution);
   return layer;
 }
@@ -143,7 +144,7 @@ QString savedChoice(const QgsProject *project)
   if (project) {
     bool ok = false;
     const QString v = project->readEntry(kScope, kEntry, QString(), &ok);
-    if (ok && !v.isEmpty()) return v;
+    if (ok && !v.isEmpty() && v != QLatin1String("xyz")) return v;
   }
   const QString key = projectKey(project);
   return key.isEmpty() ? noneId() : QSettings().value(key, noneId()).toString();
@@ -151,7 +152,9 @@ QString savedChoice(const QgsProject *project)
 
 void saveChoice(QgsProject *project, const QString &id)
 {
-  if (project) project->writeEntry(kScope, kEntry, id);
+  // 自定义 XYZ 地址可能带访问密钥：只记在本机设置，工程文件里只留标记。
+  const bool privateUrl = id.startsWith(QLatin1String("xyz:"));
+  if (project) project->writeEntry(kScope, kEntry, privateUrl ? QStringLiteral("xyz") : id);
   const QString key = projectKey(project);
   if (!key.isEmpty()) QSettings().setValue(key, id);
 }

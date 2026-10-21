@@ -211,10 +211,32 @@ void TrackRegistry::ensureBuiltins()
                 noParams});
 
   registerType({QStringLiteral("formation"), QStringLiteral("地层分层道"), 80.0, true,
-                [](const TrackSpec &) -> std::shared_ptr<WellTrack> {
-                  return std::make_shared<FormationTrack>();
+                [](const TrackSpec &spec) -> std::shared_ptr<WellTrack> {
+                  auto t = std::make_shared<FormationTrack>();
+                  // D-01：数据源身份随 spec 持久化/恢复（标题可被用户改名）。
+                  const QString source = spec.params.value(QStringLiteral("formationSource")).toString();
+                  if (source == QLatin1String("sequence"))
+                    t->setSource(FormationTrack::FormationSource::Sequence);
+                  else if (source == QLatin1String("sand"))
+                    t->setSource(FormationTrack::FormationSource::SandGroup);
+                  return t;
                 },
-                noParams});
+                [](const std::shared_ptr<WellTrack> &track) {
+                  TrackSpec spec;
+                  if (auto ft = std::dynamic_pointer_cast<FormationTrack>(track))
+                    switch (ft->source())
+                    {
+                      case FormationTrack::FormationSource::Sequence:
+                        spec.params.insert(QStringLiteral("formationSource"), QStringLiteral("sequence"));
+                        break;
+                      case FormationTrack::FormationSource::SandGroup:
+                        spec.params.insert(QStringLiteral("formationSource"), QStringLiteral("sand"));
+                        break;
+                      case FormationTrack::FormationSource::Layers:
+                        break; // 缺省即分层，不写（旧会话文件兼容）
+                    }
+                  return spec;
+                }});
 
   registerType({QStringLiteral("litho"), QStringLiteral("岩性道"), 80.0, true,
                 [](const TrackSpec &spec) -> std::shared_ptr<WellTrack> {

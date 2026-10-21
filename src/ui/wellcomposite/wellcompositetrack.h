@@ -188,11 +188,19 @@ private:
 class FormationTrack : public WellTrack
 {
 public:
+  // 数据源身份（非展示标题）：同一 FormationTrack 类承载分层/层序/砂层组
+  // 三种数据源，编辑会话同步与持久化都按此路由——标题可被用户任意改名，
+  // 不能当身份判据（D-01）。
+  enum class FormationSource { Layers, Sequence, SandGroup };
+
   explicit FormationTrack(const QString &title = QCoreApplication::translate("WellCompositeTrack", "地层单位"), qreal width = 75.0);
   TrackType type() const override { return TrackType::Formation; }
   QString title() const override { return m_title; }
   qreal width() const override { return m_width; }
   void setWidth(qreal w) override { m_width = w; }
+
+  FormationSource source() const { return m_source; }
+  void setSource(FormationSource source) { m_source = source; }
 
   void setIntervals(const QVector<FormationInterval> &intervals) { m_intervals = intervals; }
   void addInterval(const FormationInterval &interval) { m_intervals.append(interval); }
@@ -210,6 +218,7 @@ public:
 
 private:
   qreal m_width = 75.0;
+  FormationSource m_source = FormationSource::Layers;
   QVector<FormationInterval> m_intervals;
 };
 

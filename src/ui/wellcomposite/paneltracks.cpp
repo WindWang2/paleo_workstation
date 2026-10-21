@@ -34,11 +34,20 @@ void WellCompositePanel::syncSessionToTracks()
     if (t->type() == TrackType::Formation)
     {
       auto ft = std::static_pointer_cast<FormationTrack>(t);
-      // 层序/砂层组同为 FormationTrack，但数据源不同，不能被分层覆盖
-      if (ft->title() == tr("层序"))
-        ft->setIntervals(doc.sequenceIntervals);
-      else if (ft->title() != tr("砂层组") && !doc.formationIntervals.isEmpty())
-        ft->setIntervals(doc.formationIntervals);
+      // 层序/砂层组同为 FormationTrack 但数据源不同——按数据源身份路由，
+      // 不能按标题（用户可经道配置改名，改名层序道曾被分层区间覆盖）。
+      switch (ft->source())
+      {
+        case FormationTrack::FormationSource::Sequence:
+          ft->setIntervals(doc.sequenceIntervals);
+          break;
+        case FormationTrack::FormationSource::SandGroup:
+          break; // 砂层组不受分层编辑会话同步（与旧标题判据同语义）
+        case FormationTrack::FormationSource::Layers:
+          if (!doc.formationIntervals.isEmpty())
+            ft->setIntervals(doc.formationIntervals);
+          break;
+      }
     }
     else if (t->type() == TrackType::Lithology)
     {

@@ -161,6 +161,7 @@ std::shared_ptr<WellTrack> duplicateTrack(const std::shared_ptr<WellTrack> &trac
   {
     auto src = std::static_pointer_cast<FormationTrack>(track);
     auto t = std::make_shared<FormationTrack>(src->title(), src->width());
+    t->setSource(src->source()); // D-01：复制道保持数据源身份（标题可已改名）
     t->setIntervals(src->intervals());
     return t;
   }

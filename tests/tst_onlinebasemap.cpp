@@ -4,6 +4,8 @@
 #include <QTemporaryDir>
 #include <QImage>
 #include <QUrl>
+#include <algorithm>
+#include <memory>
 #include "../src/qgis/onlinebasemap.h"
 #include <qgsapplication.h>
 #include <qgscoordinatereferencesystem.h>
@@ -40,6 +42,21 @@ private slots:
       QCOMPARE(ob::sourceById(id).zmax, 8);
     for (const auto &id : {QStringLiteral("nasa_aster_color"), QStringLiteral("nasa_aster_gray")})
       QCOMPARE(ob::sourceById(id).zmax, 12);
+    const auto presets = ob::sources();
+    const int nasa = int(std::find_if(presets.cbegin(), presets.cend(), [](const auto &s) {
+      return s.id.startsWith(QStringLiteral("nasa_"));
+    }) - presets.cbegin());
+    for (const auto &id : {QStringLiteral("esri_imagery"), QStringLiteral("esri_street"),
+                           QStringLiteral("esri_topo"), QStringLiteral("esri_light_gray"),
+                           QStringLiteral("esri_dark_gray"), QStringLiteral("esri_relief")}) {
+      const auto source = ob::sourceById(id);
+      QVERIFY(!source.url.isEmpty());
+      const int index = int(std::find_if(presets.cbegin(), presets.cend(), [&id](const auto &s) {
+        return s.id == id;
+      }) - presets.cbegin());
+      QVERIFY(index < nasa);
+    }
+    QCOMPARE(ob::sourceById(QStringLiteral("esri_relief")).zmax, 13);
   }
 
   void xyzUriPreservesTemplateAndIdentifiesApplication()

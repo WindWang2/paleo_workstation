@@ -1,6 +1,28 @@
 # 公开网络底图预设（2026-10-21）
 
 主地图入口为「文件 → 网络底图预设」；数据预览下拉复用同一清单。
+常用选项优先列 OSM 街道与 Esri 影像、街道、地形、浅灰、深灰、晕渲；
+NASA 图层作为补充来源排在后面。Esri 是公开网络服务，不标为开源数据。
+
+Esri 的服务标识分别为 `World_Imagery`、`World_Street_Map`、`World_Topo_Map`、
+`Canvas/World_Light_Gray_Base`、`Canvas/World_Dark_Gray_Base`、`World_Shaded_Relief`。
+均读取官方 MapServer 元数据核验；晕渲最高 13 级，其余预设出于兼容与请求
+规模考虑使用到 19 级（不把服务目录声明的 23 级直接带入 GDAL 大尺寸栅格）。
+
+访问验证：OSM 和六个 Esri 服务均返回 HTTP 200 及有效 PNG/JPEG 签名。
+本机请求关闭了显式 HTTP 代理，但出口探测仍为 US；这些结果仅证明该线路
+可达，不能标注为已通过中国大陆直连测试。大陆可用性需在实际运营商线路
+验证，代码和界面没有写入“大陆保证可用”的承诺。
+另尝试 ITDOG 大陆运营商多节点 HTTP 检测，提交 Esri 影像瓦片 URL 后要求
+验证码，未继续，因此不采用页面默认示例结果作为可达性证据。
+
+Esri 官方链接：
+[访问域名与 CDN](https://support.esri.com/zh-cn/knowledge-base/faq-what-are-the-required-firewall-domain-exceptions-to-000012925)、
+[服务使用条款](https://doc.arcgis.com/zh-cn/arcgis-online/reference/access-use-constraints.htm)、
+[传统栅格服务生命周期](https://blog.esrij.com/archives/69487)。街道、地形、灰底
+属于传统服务，官方计划在 2029 年底退出；晕渲计划在 2028 年 3 月退出，
+后续应迁移到提供者支持的替代服务。
+
 新增以下无需 API key 的 NASA GIBS 图层，均为 EPSG:3857 XYZ 形式：
 
 | 预设 | 稳定 ID | 官方图层标识 | 原生最高级 |
@@ -44,6 +66,8 @@ OpenTopoMap 地形及 Esri 影像稳定 ID 保留，Esri 明确标为受商业�
 另以应用标识逐项核验四个 NASA 全球 0 级瓦片：HTTP 200、image/jpeg、JPEG
 签名有效。独立联网 smoke 程序还通过 QGIS GDAL provider 对四个预设分别
 读取全球 0 级瓦片，四项均 `rasterRead=1`，退出 0，未做批量预取。
+OSM 与六个 Esri 预设也逐项经同一 QGIS GDAL provider 读取，七项均
+`rasterRead=1`，退出 0；这些联网读取同样仅代表当前境外出口线路。
 主窗菜单与预览工具条通过 MSVC /Zs；layering、Qgs 审计、QGIS 散布、
 文件规模、UI 规模、不变量、UI token 和 i18n 闸门通过，无基线变更。
 尚未替换用户本机可执行文件或完成全量应用链接与桌面交互验收。

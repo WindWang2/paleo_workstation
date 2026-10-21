@@ -135,6 +135,7 @@ add_library(paleo_ui STATIC
   src/ui/dialogs/geologicalexportdialog.cpp
   src/ui/dialogs/dataexportdialog.cpp
   src/ui/pages/datalist_batch.cpp                  # 数据页·批量操作与上下文菜单
+  src/ui/pages/datalist_indexops.cpp             # 数据页·索引级操作（数据对象重命名等，datalist 部分类拆分）
   src/ui/pages/datalist_association.cpp
   src/ui/pages/datalist_dnd.cpp                    # 数据页·拖拽与外部文件处理
   src/ui/pages/datalist_undo.cpp                   # 数据页·撤销重做与治理对话框

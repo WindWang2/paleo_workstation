@@ -1158,8 +1158,9 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     LasHeaderInfo header;
     QList<LasCurve> curves;
     QString readError;
-    const bool explicitAxis = WellLogRead::detect(ref.path) != WellLogFormat::Las;
-    if (!WellLogRead::parse(ref.path, header, curves, &readError) || ref.column >= curves.size())
+    const auto format = WellLogRead::detect(ref.path);
+    const bool explicitAxis = format != WellLogFormat::Las;
+    if (!WellLogRead::parse(ref.path, format, header, curves, &readError) || ref.column >= curves.size())
     {
       if (explicitAxis) { setError(error, tr("%1：测井曲线无法读取：%2").arg(ent.name, readError)); return {}; }
       continue;

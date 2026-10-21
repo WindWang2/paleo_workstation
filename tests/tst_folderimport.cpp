@@ -243,6 +243,78 @@ private slots:
     QVERIFY(!stack->importSvc->catalog()->assets().isEmpty());
   }
 
+  // 方向 D1：FolderImportWorkflow 默认只建索引（linkExternal 成员默认
+  // true）——整批/文件清单链的同步路径产外链版本（managed==false、path
+  // 指回源）；setLinkExternal(false)（确认表「复制进工程」勾选的后端半边）
+  // 恢复旧受管复制语义（managed==true、副本落 artifacts/raw）。
+  void defaultsToLinkExternal()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString first = stageFixture(tmp, QStringLiteral("src_area"),
+                                       QStringLiteral("A1.Las"));
+    QVERIFY(!first.isEmpty());
+    // 第二份 LAS 字节须不同——同字节命中 §3 dedup（只补挂不新建资产），
+    // 测不到第二份的 managed 口径。
+    const QString second = tmp.filePath(QStringLiteral("A2.las"));
+    {
+      QFile f(second);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A2 : WELL\n"
+              "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n");
+    }
+
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataCatalog *cat = stack->importSvc->catalog();
+
+    FolderImportWorkflow wf(stack->importSvc.get(), nullptr); // 无任务服务 → 同步路径
+    QVERIFY(wf.linkExternal()); // 默认即「只建索引」，不用调 setter
+    bool done = false;
+    QString err;
+    wf.importFolder(tmp.filePath(QStringLiteral("src_area")), {},
+                    [&done, &err](const QVector<FolderRowResult> &, const QString &e) {
+                      done = true;
+                      err = e;
+                    });
+    QVERIFY(done);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(cat->assets().size(), 1);
+    const CatalogVersion linked = cat->currentVersion(cat->assets().first().id);
+    QVERIFY(!linked.managed);
+    QCOMPARE(QDir::cleanPath(linked.path),
+             QDir::cleanPath(QFileInfo(first).absoluteFilePath()));
+    QVERIFY(!linked.sha256.isEmpty());
+
+    // 勾选「复制进工程」→ setLinkExternal(false)：第二份 LAS 走受管复制。
+    wf.setLinkExternal(false);
+    QVERIFY(!wf.linkExternal());
+    bool done2 = false;
+    QString err2;
+    wf.importFiles({second}, {}, {},
+                   [&done2, &err2](const QVector<FolderRowResult> &, const QString &e) {
+                     done2 = true;
+                     err2 = e;
+                   });
+    QVERIFY(done2);
+    QVERIFY2(err2.isEmpty(), qPrintable(err2));
+    QCOMPARE(cat->assets().size(), 2);
+    const QString secondAbs = QDir::cleanPath(QFileInfo(second).absoluteFilePath());
+    bool sawManaged = false;
+    for (const CatalogAsset &a : cat->assets())
+      if (QDir::cleanPath(QFileInfo(cat->currentVersion(a.id).sourceUri)
+                              .absoluteFilePath()) == secondAbs)
+      {
+        const CatalogVersion v = cat->currentVersion(a.id);
+        QVERIFY(v.managed);
+        QVERIFY(v.path.startsWith(QStringLiteral("artifacts/raw/")));
+        sawManaged = true;
+      }
+    QVERIFY(sawManaged);
+  }
+
   // 文件名回查：导入后的井口资产按行源文件名定位。
   void importedWellHeadAssetResolvesByName()
   {

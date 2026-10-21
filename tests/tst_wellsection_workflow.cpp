@@ -2356,6 +2356,47 @@ private slots:
     QVERIFY(!wells[0].timeDepth.has_value());
     QVERIFY(!wells[1].timeDepth.has_value());
   }
+
+  // 连井剖面「按空间关系重排」+ 画线吸附井集（wellRoute 同坐标口径）。
+  void workbenchSpatialOrderAndSnapWells() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    // W1(0,0) W2(10,0) W3(20,0) W4(5,0)；N5 无坐标
+    QVERIFY(addEntity(cat, QStringLiteral("W1"), QStringLiteral("A1"), true,
+                      0.0, 0.0, 1000));
+    QVERIFY(addEntity(cat, QStringLiteral("W2"), QStringLiteral("A2"), true,
+                      10.0, 0.0, 1000));
+    QVERIFY(addEntity(cat, QStringLiteral("W3"), QStringLiteral("A3"), true,
+                      20.0, 0.0, 1000));
+    QVERIFY(addEntity(cat, QStringLiteral("W4"), QStringLiteral("A4"), true,
+                      5.0, 0.0, 1000));
+    QVERIFY(addEntity(cat, QStringLiteral("N5"), QStringLiteral("A5"), false,
+                      0.0, 0.0, 1000));
+    SectionWorkbench wb(&cat);
+    const QStringList in{QStringLiteral("W1"), QStringLiteral("W2"),
+                         QStringLiteral("W3"), QStringLiteral("W4")};
+    QCOMPARE(wb.spatiallyOrderedWells(in, QStringLiteral("nearest")),
+             QStringList({QStringLiteral("W1"), QStringLiteral("W4"),
+                          QStringLiteral("W2"), QStringLiteral("W3")}));
+    // 共线井主轴 = x 向：pca 序与最近邻序一致
+    QCOMPARE(wb.spatiallyOrderedWells(in, QStringLiteral("pca")),
+             QStringList({QStringLiteral("W1"), QStringLiteral("W4"),
+                          QStringLiteral("W2"), QStringLiteral("W3")}));
+    // 未知 mode → 原序
+    QCOMPARE(wb.spatiallyOrderedWells(in, QStringLiteral("bogus")), in);
+    // 吸附井集：只含有效坐标井，id/name/x/y 就位
+    const auto snap = wb.wellSnapWells();
+    QCOMPARE(snap.size(), 4);
+    QCOMPARE(snap.first().id, QStringLiteral("W1"));
+    QCOMPARE(snap.first().name, QStringLiteral("A1"));
+    QCOMPARE(snap.first().x, 0.0);
+    QCOMPARE(snap.first().y, 0.0);
+    for (const auto &w : snap)
+      QVERIFY(w.hasCoordinates());
+  }
 };
 
 QTEST_GUILESS_MAIN(TestWellSectionWorkflow)

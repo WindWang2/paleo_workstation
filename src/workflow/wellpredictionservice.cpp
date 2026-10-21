@@ -264,20 +264,24 @@ void WellPredictionService::prepare() {
             break;
           auto well = source.data;
           QHash<QString, QPair<LasHeaderInfo, LasDoc>> docs;
+          QHash<QString, WellLogFormat> formats; // 每路径一次嗅探（C-8）
           double top = std::numeric_limits<double>::infinity(), base = -top;
           for (const auto &ref : source.curves) {
             if (cancelled->load())
               break;
             if (!docs.contains(ref.path)) {
+              const auto format = WellLogRead::detect(ref.path);
+              formats.insert(ref.path, format);
               LasHeaderInfo header;
               LasDoc parsed;
-              parsed.ok = WellLogRead::parse(ref.path, header, parsed.curves, &parsed.error);
+              parsed.ok = WellLogRead::parse(ref.path, format,
+                                             header, parsed.curves, &parsed.error);
               parsed.curveNames = header.curveNames;
               docs.insert(ref.path, {header, parsed});
             }
             const auto &header = docs[ref.path].first;
             const auto &doc = docs[ref.path].second;
-            const bool explicitAxis = WellLogRead::detect(ref.path) != WellLogFormat::Las;
+            const bool explicitAxis = formats.value(ref.path) != WellLogFormat::Las;
             const auto unitScale = doc.curves.isEmpty() ? std::optional<double>() :
                 paleo::wellnumeric::depthScaleToMetres(doc.curves.first().unit);
             if (explicitAxis && (!doc.ok || header.indexBasis != QLatin1String("MD") || !unitScale)) {

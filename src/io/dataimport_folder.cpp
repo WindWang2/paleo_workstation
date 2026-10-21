@@ -207,6 +207,7 @@ QVector<FolderPreviewRow> DataImportService::previewRowsFromPlan(const IngestPla
     r.sourceSha256 = item.sha256;
     r.sizeBytes = item.size;    // T2 大小估算（族项 = 主件字节）
     r.entityPreview = entityPreviewFor(item);
+    r.displayName = QFileInfo(item.path).fileName(); // 「显示名」列默认值 = 原文件名
     fillDisplay(r);
     rows.append(r);
   }
@@ -218,25 +219,28 @@ QVector<FolderPreviewRow> DataImportService::previewRowsFromPlan(const IngestPla
     r.skipped = true;
     r.skipReason = s.note;
     r.sizeBytes = s.size; // 枚举期跳过行也带大小（用户看得见它占了多少）
+    r.displayName = QFileInfo(s.path).fileName(); // 跳过行不导入，仅作展示默认
     fillDisplay(r);
     rows.append(r);
   }
   return rows;
 }
 
-QVector<FolderRowResult>
-DataImportService::importFolder(const QString &dirPath, QString *error)
+QVector<FolderRowResult> DataImportService::importFolder(const QString &dirPath,
+                                                        QString *error)
 {
-  return importFolder(dirPath, error, QMap<QString, QString>{}, {}, {});
+  return importFolder(dirPath, error, QMap<QString, QString>{}, {}, {}, {});
 }
 
 QVector<FolderRowResult>
 DataImportService::importFolder(
     const QString &dirPath, QString *error,
     const QMap<QString, QString> &typeOverrides,
-    const std::function<bool(int, int, const QString &)> &progress)
+    const std::function<bool(int, int, const QString &)> &progress,
+    const QMap<QString, QString> &nameOverrides)
 {
-  return importFolder(dirPath, error, typeOverrides, QStringList{}, progress);
+  return importFolder(dirPath, error, typeOverrides, QStringList{}, progress,
+                      nameOverrides);
 }
 
 QVector<FolderRowResult>
@@ -244,12 +248,14 @@ DataImportService::importFolder(
     const QString &dirPath, QString *error,
     const QMap<QString, QString> &typeOverrides,
     const QStringList &forceImportPaths,
-    const std::function<bool(int, int, const QString &)> &progress)
+    const std::function<bool(int, int, const QString &)> &progress,
+    const QMap<QString, QString> &nameOverrides)
 {
   if (error)
     error->clear(); // 成功路径不写 error——先清掉调用方复用的旧值
   const auto s = runInline([&](ImportSession &sess) {
-    produceFolder(sess, dirPath, typeOverrides, forceImportPaths, progress);
+    produceFolder(sess, dirPath, typeOverrides, forceImportPaths, progress,
+                  nameOverrides);
   });
   if (!s)
   {
@@ -264,12 +270,13 @@ QVector<FolderRowResult>
 DataImportService::importFiles(
     const QStringList &paths, QString *error, const QMap<QString, QString> &typeOverrides,
     const QStringList &forceImportPaths,
-    const std::function<bool(int, int, const QString &)> &progress)
+    const std::function<bool(int, int, const QString &)> &progress,
+    const QMap<QString, QString> &nameOverrides)
 {
   if (error)
     error->clear();
   const auto s = runInline([&](ImportSession &sess) {
-    produceFiles(sess, paths, typeOverrides, forceImportPaths, progress);
+    produceFiles(sess, paths, typeOverrides, forceImportPaths, progress, nameOverrides);
   });
   if (!s)
   {
@@ -296,7 +303,8 @@ QVector<FolderPreviewRow> DataImportService::previewFiles(const QStringList &pat
 void DataImportService::produceFolder(
     ImportSession &sess, const QString &dirPath, const QMap<QString, QString> &typeOverrides,
     const QStringList &forceImportPaths,
-    const std::function<bool(int, int, const QString &)> &progress)
+    const std::function<bool(int, int, const QString &)> &progress,
+    const QMap<QString, QString> &nameOverrides)
 {
   sess.rows.clear();
   sess.error.clear();
@@ -341,13 +349,15 @@ void DataImportService::produceFolder(
                             ? QStringLiteral("目录里没有可导入的文件: %1").arg(dirPath)
                             : plan.issues.join(QStringLiteral("\n")));
   }
-  produceFromPlan(sess, std::move(plan), typeOverrides, forceImportPaths, progress);
+  produceFromPlan(sess, std::move(plan), typeOverrides, forceImportPaths, progress,
+                  nameOverrides);
 }
 
 void DataImportService::produceFiles(
     ImportSession &sess, const QStringList &paths, const QMap<QString, QString> &typeOverrides,
     const QStringList &forceImportPaths,
-    const std::function<bool(int, int, const QString &)> &progress)
+    const std::function<bool(int, int, const QString &)> &progress,
+    const QMap<QString, QString> &nameOverrides)
 {
   sess.rows.clear();
   sess.error.clear();
@@ -385,7 +395,8 @@ void DataImportService::produceFiles(
                             ? QStringLiteral("所选文件里没有可导入项")
                             : plan.issues.join(QStringLiteral("\n")));
   }
-  produceFromPlan(sess, std::move(plan), typeOverrides, forceImportPaths, progress);
+  produceFromPlan(sess, std::move(plan), typeOverrides, forceImportPaths, progress,
+                  nameOverrides);
 }
 
 // plan 后半段（目录/文件列表两口径共享）：确认表「改类型」override 并入 →
@@ -393,12 +404,16 @@ void DataImportService::produceFiles(
 void DataImportService::produceFromPlan(
     ImportSession &sess, IngestPlan plan, const QMap<QString, QString> &typeOverrides,
     const QStringList &forceImportPaths,
-    const std::function<bool(int, int, const QString &)> &progress)
+    const std::function<bool(int, int, const QString &)> &progress,
+    const QMap<QString, QString> &nameOverrides)
 {
   sess.rows.clear();
   sess.error.clear();
   QString errText;
   QString *const error = &errText;
+  // 行序契约（dataimportservice.h）：well_head/执行行在前、Skipped 行缀尾——
+  // F1 迟到行先暂存，等执行行落定后追加。
+  QVector<FolderRowResult> lateRows;
 
   // F1（review-security）：预览集非空时，执行期 plan 里任何预览时没展示过的
   // 路径一律不执行（目录重扫可能收入预览后才落盘的文件）——落 Skipped 行并
@@ -408,7 +423,6 @@ void DataImportService::produceFromPlan(
     const QSet<QString> previewed(sess.previewedPaths.begin(), sess.previewedPaths.end());
     QVector<PlannedItem> confirmed;
     confirmed.reserve(plan.items.size());
-    int lateCount = 0;
     for (const PlannedItem &item : plan.items)
     {
       if (previewed.contains(item.path))
@@ -416,7 +430,6 @@ void DataImportService::produceFromPlan(
         confirmed.append(item);
         continue;
       }
-      ++lateCount;
       FolderRowResult row;
       row.path = item.path;
       row.classifiedType = item.type;
@@ -424,9 +437,9 @@ void DataImportService::produceFromPlan(
       row.message = QCoreApplication::translate(
           "DataImportService",
           "该文件在预览后才出现，本次未导入；如需导入请重新生成预览。");
-      sess.rows.append(row);
+      lateRows.append(row);
     }
-    if (lateCount > 0)
+    if (!lateRows.isEmpty())
       plan.items = confirmed;
   }
 
@@ -446,6 +459,15 @@ void DataImportService::produceFromPlan(
   if (retype)
     orderIngestPlanItems(plan.items);
 
+  // 确认表「显示名」列：按源路径并入 item.displayName（空白值忽略，回退
+  // 原文件 basename——与单文件 ImportOptions.displayName 同一口径）。
+  for (PlannedItem &item : plan.items)
+  {
+    const QString name = nameOverrides.value(item.path).trimmed();
+    if (!name.isEmpty())
+      item.displayName = name;
+  }
+
   // 「仍导入」改判（T2）：只翻 plan 期 sha 重复行（decision==skip 且带
   // duplicateOfVersionId）；枚举期跳过行（软链逃逸等）不在用户改判面。
   if (!forceImportPaths.isEmpty())
@@ -464,7 +486,8 @@ void DataImportService::produceFromPlan(
   // decision==skip 或 (path,sha) 已注册的项不再登记；重跑同清单每行
   // Skipped、零增量。
   auto executedRows = executeIngestPlan(plan, sess, progress, error);
-  sess.rows += executedRows; // 保留 F1 预挂的「预览后出现」Skipped 行
+  sess.rows += executedRows;
+  sess.rows += lateRows; // F1 迟到 Skipped 行按契约缀尾
   sess.error = errText;
 }
 
@@ -609,8 +632,10 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
   ImportOptions opts;
   opts.tableMapping = s.tableMappings.value(item.path);
   opts.forceType = item.type; // 恒下传——与分类器同值时是无害同值
+  opts.displayName = item.displayName; // 确认表「显示名」override（空 = 原文件 basename）
   opts.targetWellId = s.wellTargets.value(item.path);
   opts.expectedSourceSha256 = expected;
+  opts.linkExternal = s.linkExternal; // 方向 D1：session 级「只建索引」逐行下传
   const ImportResult res = importOneFile(s, item.path, opts, &ferr);
   row.message = res.message.isEmpty() ? ferr : res.message;
   row.assetId = res.assetId;

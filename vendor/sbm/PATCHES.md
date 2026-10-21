@@ -142,3 +142,15 @@ O(1e20)，灾难性抵消——精确仿射的 2×4 测网拟出 rms=2 m（FMA �
 - 上层 `SeismicTranscodeReport` 转码摘要与 JSON 同时展示清洗数；
   `tst_io_seismicquality` 对拍 direct/voxel/legacy/mmap、SF3C 单/多次读、Paged L0
   与服务报告，`tst_io_robustness` 钉住旧属性/反演 null 传播。
+
+## P14 · #611：SgySectionStats 新增 columnDistancesM（米弧长口径）
+
+- `Data/Sgy/SgySectionBuilder.h` 的 `SgySectionStats` 增补
+  `columnDistancesM`（`std::vector<double>`）：剖面列间累计**米**弧长。
+  与既有 `columnDistances`（线号弧长）并存，两口径互不替代。
+- 填充规则：`seismictaskservice_slice.cpp` 在 inline/xline 仿射可得时按
+  步长×√(dx²+dy²) 累计；仿射不可得（任意线 legacy 源）时保持**空**——
+  never-synthesized 契约，消费方见空即知无米制信息，回落路径同步 clear。
+- 消费面：`SectionGeometry`/canvas 道距标注（tst_seismic_index 米口径断言）。
+  上游同步重放本补丁时若漏此字段，`seismictaskservice_slice.cpp` 编译失败
+  即为显性信号。

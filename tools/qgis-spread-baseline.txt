@@ -19,7 +19,7 @@
 # 基线机制裁决（#539）：本表与 qgs-audit-baseline 采用「初冻基线 + 只缩不涨」，
 # 与已归零的 layering-baseline 不同期——非空不判红，新增才红，可收缩（--strict）
 # 才红。裁决全文与按目录分批收敛计划见 AGENTS.md「闸门基线纪律」节。
-# 条目数：149（ui 100）（workflow 49）
+# 条目数：初冻 149（ui 100）（workflow 49）；E-2 扩面（下条）后现值 172。
 # E-2（full-audit-20261021）：扫描面从 workflow+ui 扩到全部非视图模块
 # （domain/catalog/io/metadata/services/algorithms/workflow/linkage/ai）。
 # 新增 23 文件按 #539 初冻口径入册（algorithms/linkage/services 的存量

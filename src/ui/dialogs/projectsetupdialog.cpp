@@ -77,7 +77,7 @@ QWidget *ProjectSetupDialog::projectPage()
   m_root = new QLineEdit(page); m_root->setObjectName(QStringLiteral("projectSourceRootEdit")); m_root->setPlaceholderText(tr("可选：选择井、地震、层位等资料所在的总目录"));
   form->addRow(tr("工程名称"), m_name); form->addRow(tr("工程保存位置"), pathRow(m_output, true)); form->addRow(tr("资料总目录（可选）"), pathRow(m_root, true));
   layout->addLayout(form);
-  auto *note = new QLabel(tr("将在保存位置下新建同名工程文件夹。原资料保留，工程保存导入副本及生成图层；地震体登记外部链接。"), page); note->setWordWrap(true); layout->addWidget(note); layout->addStretch();
+  auto *note = new QLabel(tr("将在保存位置下新建同名工程文件夹。原资料保留，工程默认登记资料索引并保存生成图层；移动资料后可重新定位。"), page); note->setWordWrap(true); layout->addWidget(note); layout->addStretch();
   connect(m_root, &QLineEdit::editingFinished, this, &ProjectSetupDialog::discover);
   return page;
 }

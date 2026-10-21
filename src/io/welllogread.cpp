@@ -155,13 +155,19 @@ bool WellLogRead::parse(const QString &path, LasHeaderInfo &header,
                         QList<LasCurve> &curves, QString *error,
                         QList<LasIssue> *issues)
 {
+  return parse(path, detect(path), header, curves, error, issues);
+}
+
+bool WellLogRead::parse(const QString &path, WellLogFormat format,
+                        LasHeaderInfo &header, QList<LasCurve> &curves,
+                        QString *error, QList<LasIssue> *issues)
+{
   header = {};
   curves.clear();
   if (error) error->clear();
   LasHeaderInfo parsedHeader;
   QList<LasCurve> parsedCurves;
   bool ok = false;
-  const auto format = detect(path);
   switch (format)
   {
     case WellLogFormat::Dlis:

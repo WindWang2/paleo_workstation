@@ -499,12 +499,23 @@ void PreviewTocPanel::rebuildQuickPanel()
     PreviewRasterAnalysis::requestSummary(
         rl->source(), m_tasks, this,
         [this, selected](const PreviewRasterAnalysis::BandSummary &sum) {
-          if (!sum.valid || !selected || currentLayer() != selected)
+          if (!selected || currentLayer() != selected)
             return;
           const bool suppressed = m_suppressSignals;
           m_suppressSignals = true;
-          m_minSpin->setValue(sum.min);
-          m_maxSpin->setValue(sum.max);
+          if (!sum.valid) {
+            // 读取失败/取消也必须清值：留着 min/max 描述的是上一图层（诚实状态）。
+            m_minSpin->setValue(0);
+            m_maxSpin->setValue(0);
+            const QString tip = QObject::tr("统计不可用：栅格读取失败");
+            m_minSpin->setToolTip(tip);
+            m_maxSpin->setToolTip(tip);
+          } else {
+            m_minSpin->setValue(sum.min);
+            m_maxSpin->setValue(sum.max);
+            m_minSpin->setToolTip(QString());
+            m_maxSpin->setToolTip(QString());
+          }
           m_suppressSignals = suppressed;
         });
   }
@@ -564,6 +575,8 @@ void PreviewTocPanel::applyRasterStyle( QgsRasterLayer *rl )
         if (!selected || currentLayer() != selected ||
             generation != m_styleGeneration)
           return;
+        if (!hist.valid)
+          return; // 直方图读取失败：保留当前渲染，不套 0..1 假拉伸
         auto *rl = selected.data();
 
         const bool quantile = stretch == PreviewRasterAnalysis::Stretch::HistEq;

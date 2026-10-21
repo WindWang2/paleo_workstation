@@ -109,7 +109,7 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
       if (!error.isEmpty()) summary += '\n' + error;
       if (!saved) summary += '\n' + m_project->lastErrors().join('\n');
       emit finished(summary, !failed && error.isEmpty() && saved);
-    }, preview.wellTargets, preview.hashes, {}, preview.paths, preview.mappings);
+    }, preview.wellTargets, preview.hashes, {}, preview.paths, {}, preview.mappings);
   });
   return true;
 }

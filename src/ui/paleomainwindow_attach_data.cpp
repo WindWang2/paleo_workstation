@@ -40,6 +40,9 @@
 #include <QWizard>
 #include <QWizardPage>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QFileInfo>
+#include <QLineEdit>
 
 // ---------------------------------------------------------------------------
 // 数据页接线：门面绑定 / catalog 联动 / 预览分栏 / 导入意图（W4 拆分段）
@@ -416,6 +419,15 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
               crsNote->setWordWrap(true);
               PaleoTheme::applyThemedStyleSheet(crsNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
               reviewLayout->addWidget(crsNote);
+              auto *nameLabel = new QLabel(tr("数据对象名称："), reviewPage);
+              reviewLayout->addWidget(nameLabel);
+              auto *nameEdit = new QLineEdit(QFileInfo(path).fileName(), reviewPage);
+              nameEdit->setObjectName(QStringLiteral("singleImportNameEdit"));
+              reviewLayout->addWidget(nameEdit);
+              auto *copyCheck = new QCheckBox(tr("将文件复制进工程目录（受管副本）"), reviewPage);
+              copyCheck->setObjectName(QStringLiteral("singleImportCopyCheck"));
+              copyCheck->setToolTip(tr("默认只建立索引引用原文件，不复制；勾选后复制进工程 artifacts/raw"));
+              reviewLayout->addWidget(copyCheck);
               wizard.addPage(reviewPage);
               connect(&wizard, &QWizard::currentIdChanged, &wizard, [=](int) {
                 review->setText(tr("%1\n将作为「%2」导入工程。")
@@ -435,7 +447,7 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
                     QgsMessageLog::logMessage(
                         QObject::tr("导入失败：%1").arg(err),
                         QStringLiteral("Paleo"), Qgis::Critical);
-                });
+                }, !copyCheck->isChecked(), nameEdit->text());
             });
 }
 

@@ -39,7 +39,11 @@ QString ensureWell(DataCatalog &cat, const QString &name, QString *error)
           name.trimmed(), Qt::CaseInsensitive) == 0) return matches.first();
   if (!matches.isEmpty())
   {
-    reject(error, tr("井名 %1 对应多口井，请选择已有井。没有创建或合并数据。").arg(name));
+    if (matches.size() == 1)
+      reject(error, tr("井名 %1 与已有井 %2 规范化后相同（原始名不同），请显式选择该井后再导入。没有创建或合并数据。")
+                 .arg(name, cat.entityById(matches.first()).name));
+    else
+      reject(error, tr("井名 %1 对应多口井，请选择已有井。没有创建或合并数据。").arg(name));
     return {};
   }
   CatalogEntity well;

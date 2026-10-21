@@ -8,6 +8,7 @@
 #include <memory>
 
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -109,6 +110,19 @@ void populateFolderConfirmTable(QTableWidget *table, const QString &rootDir,
     table->setItem(r, 1, new QTableWidgetItem);
     table->setItem(r, 2, new QTableWidgetItem);
     table->setItem(r, 3, new QTableWidgetItem);
+    // 「显示名」列（末列，可编辑）：默认原文件 basename（预览期已填进
+    // row.displayName）；编辑后成 nameOverrides 送达后端，只改资产显示名，
+    // 物理文件名恒不动。跳过行不导入——该列同步锁死不放开编辑。
+    // 表只有 4 列（旧式测试壳直调本函数）时该列不存在，如实不写。
+    if (table->columnCount() >= 5)
+    {
+      auto *nameItem = new QTableWidgetItem(
+          row.displayName.isEmpty() ? QFileInfo(row.path).fileName() : row.displayName);
+      nameItem->setToolTip(QObject::tr("数据页展示的显示名；物理文件名不变"));
+      if (row.skipped)
+        nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+      table->setItem(r, 4, nameItem);
+    }
 
     auto *combo = new QComboBox(table);
     combo->setObjectName(QStringLiteral("folderType%1").arg(r));
@@ -140,7 +154,7 @@ void populateFolderConfirmTable(QTableWidget *table, const QString &rootDir,
     if (row.skipped)
     {
       table->item(r, 3)->setText(QObject::tr("跳过：%1").arg(row.skipReason));
-      for (int c = 0; c < 4; ++c)
+      for (int c = 0; c < table->columnCount(); ++c)
         table->item(r, c)->setFlags(table->item(r, c)->flags() & ~Qt::ItemIsEnabled);
     }
     else
@@ -324,6 +338,38 @@ QString folderEstimateText(const QVector<FolderPreviewRow> &rows,
   return text;
 }
 
+bool folderImportCopyIntoProject(const QDialog *dlg)
+{
+  const auto *check =
+      dlg ? dlg->findChild<QCheckBox *>(QStringLiteral("folderImportCopyCheck"))
+          : nullptr;
+  return check && check->isChecked();
+}
+
+QMap<QString, QString> folderImportNameOverrides(const QDialog *dlg)
+{
+  QMap<QString, QString> overrides;
+  const auto *table =
+      dlg ? dlg->findChild<QTableWidget *>(QStringLiteral("folderTable")) : nullptr;
+  if (!table || table->columnCount() < 5)
+    return overrides; // 旧壳/未搭建对话框：无显示名列可读
+  for (int r = 0; r < table->rowCount(); ++r)
+  {
+    const QTableWidgetItem *pathItem = table->item(r, 0);
+    const QTableWidgetItem *nameItem = table->item(r, 4);
+    if (!pathItem || !nameItem)
+      continue;
+    const QString path = pathItem->data(Qt::UserRole).toString();
+    const QString name = nameItem->text().trimmed();
+    if (path.isEmpty() || name.isEmpty())
+      continue; // 空白 override 不收录（io 侧同样按空白忽略，回退 basename）
+    if (name == QFileInfo(path).fileName())
+      continue; // 与原名不同才收录——列默认值即原文件 basename
+    overrides.insert(path, name);
+  }
+  return overrides;
+}
+
 void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
                               const QVector<FolderPreviewRow> &preview,
                               const Hooks &hooks)
@@ -346,18 +392,23 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   crs->setWordWrap(true);
   PaleoTheme::applyThemedStyleSheet(crs, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   layout->addWidget(crs);
-  state->table = new QTableWidget(0, 4, dlg);
+  state->table = new QTableWidget(0, 5, dlg);
   auto *table = state->table;
   table->setObjectName(QStringLiteral("folderTable"));
   table->setAccessibleName(QObject::tr("导入数据确认表"));
   table->setAccessibleDescription(hooks.importAllWithWells
-      ? QObject::tr("显示识别类型、内容摘要与目标井；取消勾选可跳过该文件，确认后直接导入")
-      : QObject::tr("显示识别类型、内容摘要与目标井；确认后直接导入"));
+      ? QObject::tr("显示识别类型、显示名、内容摘要与目标井；取消勾选可跳过该文件，确认后直接导入")
+      : QObject::tr("显示识别类型、显示名、内容摘要与目标井；确认后直接导入"));
   table->setHorizontalHeaderLabels({QObject::tr("路径"), QObject::tr("类型"),
-      QObject::tr("目标实体"), QObject::tr("内容 / 结果")});
+      QObject::tr("目标实体"), QObject::tr("内容 / 结果"), QObject::tr("显示名")});
   table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-  table->horizontalHeader()->setStretchLastSection(true);
-  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+  table->horizontalHeader()->setStretchLastSection(true); // 显示名列随窗宽伸缩
+  // 只有「显示名」列的 item 带 Qt::ItemIsEditable——编辑触发器对它生效；
+  // 其余列默认不可编辑，触发器开着也不会进编辑态。
+  table->setEditTriggers(QAbstractItemView::EditKeyPressed |
+                         QAbstractItemView::SelectedClicked |
+                         QAbstractItemView::DoubleClicked);
   table->setSelectionBehavior(QAbstractItemView::SelectRows);
   table->setWordWrap(true);
   layout->addWidget(table, 1);
@@ -389,6 +440,18 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   });
   state->errors->hide();
   layout->addWidget(state->errors);
+  // 方向 D1：默认只建索引（不复制字节进工程）；勾选后才走旧受管复制。
+  // 文案与单文件向导 singleImportCopyCheck 同款（两处同一口径）。
+  state->copyCheck =
+      new QCheckBox(QObject::tr("将文件复制进工程目录（受管副本）"), dlg);
+  state->copyCheck->setObjectName(QStringLiteral("folderImportCopyCheck"));
+  state->copyCheck->setToolTip(
+      QObject::tr("默认只建立索引引用原文件，不复制；勾选后复制进工程 artifacts/raw"));
+  layout->addWidget(state->copyCheck);
+  // 与行跳过勾选同一纪律：壳没给 importAllWithWells 出口时勾选无人读取
+  //（无法兑现），不展示。
+  if (!hooks.importAllWithWells)
+    state->copyCheck->hide();
   auto *buttons = new QDialogButtonBox(dlg);
   state->confirm = buttons->addButton(QObject::tr("确认导入"), QDialogButtonBox::AcceptRole);
   state->confirm->setObjectName(QStringLiteral("folderConfirmButton"));

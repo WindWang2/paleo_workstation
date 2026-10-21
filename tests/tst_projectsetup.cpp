@@ -159,15 +159,19 @@ private slots:
   }
   void createWorkflowAndReopen() {
     QTemporaryDir dir;
-    const auto path = xlsx(dir.filePath("input/points.xlsx"), "UTM49N", {{QStringLiteral("井号"), "X", "Y"}, {"A1", "233240.46", "3997621.12"}});
+    const auto path = xlsx(dir.filePath("input/points.xlsx"), "UTM49N", {{"ID", "E", "N"}, {"A1", "233240.46", "3997621.12"}});
     QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
     connect(&project, &QgisProjectService::projectOpened, &service, [&service](const QString &p) { service.setProjectDir(QFileInfo(p).absolutePath()); });
     FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
-    ProjectSetupSources s; s.points = path; const auto p = scanProjectSources(s); QVERIFY(p.errors.isEmpty()); QString error;
+    ProjectSetupSources s; s.points = path; s.pointMapping = {{"well", "ID"}, {"x", "E"}, {"y", "N"}};
+    const auto p = scanProjectSources(s); QVERIFY(p.errors.isEmpty()); QString error;
     QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
     const auto target = dir.filePath("output/project.qgz"); QVERIFY2(workflow.create(target, s, p, &error), qPrintable(error));
     QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000); QVERIFY2(finished.first()[1].toBool(), qPrintable(finished.first()[0].toString()));
-    QCOMPARE(service.catalog()->entities("well").size(), 1); project.closeProject(); QVERIFY(project.openProject(target));
+    QCOMPARE(service.catalog()->entities("well").size(), 1);
+    QCOMPARE(service.catalog()->entities("well").first().surfaceX, 233240.46);
+    QCOMPARE(workflow.currentSources().pointMapping.value("well").toString(), QString("ID"));
+    project.closeProject(); QVERIFY(project.openProject(target));
     QVERIFY(project.georeference().has_value()); QCOMPARE(project.georeference()->sourceCrs, QString("EPSG:32649"));
     QVERIFY(!workflow.create(target, s, p, &error));
   }
@@ -199,6 +203,7 @@ private slots:
     auto config = project.mapConfiguration(); PaleoGeoreference reference; reference.kind = "crs"; reference.sourceCrs = p.projectCrs; reference.targetCrs = "EPSG:4326"; config.georeference = reference;
     QVERIFY2(project.updateMapConfiguration(config, &error), qPrintable(error)); service.setGeoreference(reference);
     auto session = service.beginImport(); QVERIFY(session);
+    session->linkExternal = true; // Current UI default: indexed RAW, managed derived layers.
     session->wellTargets = p.wellTargets;
     session->tableMappings = p.mappings;
     session->expectedSourceHashes = p.hashes;

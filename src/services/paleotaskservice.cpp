@@ -312,7 +312,10 @@ PaleoTask *PaleoTaskService::start(const QString &title,
                                    const QString &layerId, bool quiet)
 {
   PaleoTask *task = createTask(title, layerId, quiet);
-  m_pool->start(new TaskRunner(task, std::move(work)));
+  // 头注释口径「3/4 参版默认 Normal」：显式传 Normal（池默认是 0=Low，
+  // 不传会把交互任务压到与预取/批量同档）。
+  m_pool->start(new TaskRunner(task, std::move(work)),
+                static_cast<int>(PaleoTask::Priority::Normal));
   return task;
 }
 

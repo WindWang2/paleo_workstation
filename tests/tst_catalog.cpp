@@ -149,6 +149,9 @@ private slots:
   // #476：versions(asset_id, version_number) 唯一口径——同资产同版本号
   // 重复必须拒绝（对照 mapversionstore 的 UNIQUE INDEX）。
   void duplicateAssetVersionNumberRejected();
+  // 数据对象重命名（方向：数据资产自定义名称）：renameAsset 就地更新
+  // displayName 并持久化；同名无操作不涨 revision。
+  void renameAssetPersists();
 };
 
 void TestCatalog::roundTripsThroughJson()
@@ -2772,6 +2775,55 @@ void TestCatalog::mapExtraNoopDoesNotBumpMutationSeq()
   QCOMPARE(cat.versionById(QStringLiteral("ver-1"))
                .extra.value(QStringLiteral("cuttingsNote")).toString(),
            QStringLiteral("主打"));
+}
+
+// 数据对象重命名（方向：数据资产自定义名称）：renameAsset 就地更新
+// assets.displayName——立即可读、重开持久化；物理文件名（CatalogVersion::fileName）
+// 不动。同名调用是无操作成功（不落盘不涨 revision，removeStaleVersions 同口径）；
+// 纯空白名与未知 id 拒绝。
+void TestCatalog::renameAssetPersists()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QString assetId;
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    CatalogAsset a;
+    a.id = cat.nextAssetId();
+    assetId = a.id;
+    a.type = QStringLiteral("well_log");
+    a.format = QStringLiteral("las");
+    a.displayName = QStringLiteral("A1_log.las");
+    QVERIFY(cat.addAsset(a));
+    CatalogVersion v;
+    v.id = cat.nextVersionId();
+    v.assetId = a.id;
+    v.stage = QStringLiteral("RAW");
+    v.fileName = QStringLiteral("A1_log.las");
+    QVERIFY(cat.addVersion(v));
+    // 重命名成功并立即可读
+    QVERIFY(cat.renameAsset(a.id, QStringLiteral("A1 主测井")));
+    QCOMPARE(cat.assetById(a.id).displayName, QStringLiteral("A1 主测井"));
+    // 版本物理文件名不随显示名改动
+    QCOMPARE(cat.currentVersion(a.id).fileName, QStringLiteral("A1_log.las"));
+    // 同名调用 = 无操作成功（不涨 revision）
+    const int rev = cat.catalogRevision();
+    QVERIFY(cat.renameAsset(a.id, QStringLiteral("A1 主测井")));
+    QCOMPARE(cat.catalogRevision(), rev);
+    // 空名/纯空白拒绝
+    QVERIFY(!cat.renameAsset(a.id, QStringLiteral("   ")));
+    // 未知 id 拒绝
+    QVERIFY(!cat.renameAsset(QStringLiteral("ast-9999"), QStringLiteral("x")));
+    // staging 副本拒绝（journal 无 rename op，removeAsset 同一先例）
+    auto staging = cat.createStagingCopy(dir.filePath(QStringLiteral("overlay")));
+    QVERIFY(staging);
+    QVERIFY(!staging->renameAsset(a.id, QStringLiteral("z")));
+  }
+  // 重开工程持久化（既有销毁-重开模式）
+  DataCatalog cat2;
+  QVERIFY(cat2.open(dir.path()));
+  QCOMPARE(cat2.assetById(assetId).displayName, QStringLiteral("A1 主测井"));
 }
 
 QTEST_MAIN(TestCatalog)

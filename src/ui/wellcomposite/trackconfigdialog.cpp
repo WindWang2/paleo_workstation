@@ -94,6 +94,20 @@ void TrackConfigDialog::buildUi()
   m_printCheck->setChecked(m_initial.printIncluded);
   form->addRow(QString(), m_printCheck);
 
+  if (m_initial.typeId == QStringLiteral("litho"))
+  {
+    m_quantumSpin = new QDoubleSpinBox(this);
+    m_quantumSpin->setObjectName(QStringLiteral("lithoGrainQuantum"));
+    m_quantumSpin->setRange(0.0, 1000.0);
+    m_quantumSpin->setDecimals(2);
+    m_quantumSpin->setSingleStep(0.5);
+    m_quantumSpin->setSuffix(QStringLiteral(" m"));
+    m_quantumSpin->setSpecialValueText(tr("关闭"));
+    m_quantumSpin->setValue(m_initial.params.value(QStringLiteral("grainQuantum"), 1.0).toDouble());
+    m_quantumSpin->setToolTip(tr("岩性块按此深度间隔分格（层厚 35、粒度 10 → 10/10/10/5 四格）；屏上每格不足 6 px 时不画分隔线"));
+    form->addRow(tr("高度粒度:"), m_quantumSpin);
+  }
+
   root->addLayout(form);
 
   // ---- 曲线族配置区（D1.7 多曲线组合编辑器）----
@@ -272,6 +286,9 @@ void TrackConfigDialog::gatherResult()
     spec.params.insert(QStringLiteral("showGrid"), m_gridCheck->isChecked());
     spec.params.insert(QStringLiteral("gridDensity"), m_gridDensityCombo->currentData().toInt());
   }
+
+  if (m_quantumSpin)
+    spec.params.insert(QStringLiteral("grainQuantum"), m_quantumSpin->value());
 
   m_result = spec;
 }

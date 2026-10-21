@@ -241,6 +241,9 @@ public:
   // 高度粒度（深度单位）：层厚 / 粒度 = 显示的粒度个数；<=0 关闭粒度刻度
   double grainQuantum() const { return m_grainQuantum; }
   void setGrainQuantum(double quantum) { m_grainQuantum = quantum; }
+  // 高度粒度格：自层顶起每 quantum 一格，余数单独成格（35/10 → 10,10,10,5）；
+  // quantum<=0 或厚度<=0 返回单格整层
+  static QVector<double> quantumCells(double thickness, double quantum);
   // 区间块几何（绘制与测试共用）：左对齐，宽 = 道宽 × 宽度比例，高按深度比例尺
   QRectF blockRect(const LithologyInterval &it, const QRectF &bodyRect,
                    double topDepth, double pxPerMeter) const;

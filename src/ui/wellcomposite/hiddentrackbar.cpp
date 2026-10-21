@@ -48,6 +48,14 @@ int HiddenTrackBar::hiddenCount() const
   return n;
 }
 
+QString HiddenTrackBar::chipText(const TrackSpec &spec)
+{
+  const QStringList names = spec.curveNames();
+  if (names.isEmpty())
+    return spec.title;
+  return QStringLiteral("%1 · %2").arg(spec.title, names.join(QStringLiteral("/")));
+}
+
 void HiddenTrackBar::rebuild()
 {
   // 同时清理旧控件和 stretch，反复切井不累积布局项。
@@ -69,8 +77,9 @@ void HiddenTrackBar::rebuild()
 
   QMenu *moreMenu = nullptr;
   int shown = 0;
-  for (const auto &spec : m_specs)
+  for (int specIndex = 0; specIndex < m_specs.size(); ++specIndex)
   {
+    const TrackSpec &spec = m_specs.at(specIndex);
     if (spec.visible) continue;
     // 默认隐藏的辅助道可能很多，余项收进原生菜单，避免撑宽单井视图。
     if (shown++ >= 3 && hidden > 4)
@@ -85,18 +94,21 @@ void HiddenTrackBar::rebuild()
         more->setMenu(moreMenu);
         layout()->addWidget(more);
       }
-      auto *action = moreMenu->addAction(spec.title);
-      connect(action, &QAction::triggered, this, [this, title = spec.title] { emit trackRestoreRequested(title); },
-              Qt::QueuedConnection);
+      auto *action = moreMenu->addAction(chipText(spec));
+      connect(action, &QAction::triggered, this, [this, title = spec.title, specIndex] {
+        emit trackRestoreRequested(title);
+        emit trackRestoreIndexRequested(specIndex);
+      }, Qt::QueuedConnection);
       continue;
     }
     auto *chip = new QToolButton(this);
-    chip->setText(spec.title);
-    chip->setToolTip(tr("点击恢复显示「%1」道").arg(spec.title));
+    chip->setText(chipText(spec));
+    chip->setToolTip(tr("点击恢复显示「%1」道").arg(chipText(spec)));
     chip->setCursor(Qt::PointingHandCursor);
     const QString title = spec.title;
-    connect(chip, &QToolButton::clicked, this, [this, title]() {
+    connect(chip, &QToolButton::clicked, this, [this, title, specIndex]() {
       emit trackRestoreRequested(title);
+      emit trackRestoreIndexRequested(specIndex);
     });
     layout()->addWidget(chip);
   }

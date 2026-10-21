@@ -81,15 +81,14 @@ QList<std::shared_ptr<WellTrack>> standardCurveTracks(const QVector<CurveData> &
     used.insert(idx);
     tracks << track;
   }
+  // 辅助曲线同样叫「测井曲线」（隐藏道条以曲线助记名区分）
   std::shared_ptr<CurveTrack> auxiliary;
-  int auxiliaryCount = 0;
   for (int i = 0; i < curves.size(); ++i)
   {
     if (used.contains(i)) continue;
     if (!auxiliary || auxiliary->curveCount() == 4)
     {
-      auxiliary = std::make_shared<CurveTrack>(
-          QCoreApplication::translate("WellComposite::WellCompositePanel", "辅助曲线 %1").arg(++auxiliaryCount), 180.0);
+      auxiliary = std::make_shared<CurveTrack>(defaultCurveTrackTitle(), 180.0);
       auxiliary->setVisible(false);
       tracks << auxiliary;
     }

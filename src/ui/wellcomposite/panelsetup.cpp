@@ -393,18 +393,12 @@ void WellCompositePanel::setupUi()
   connect(m_canvas, &WellCompositeCanvas::trackWidthChanged, this, &WellCompositePanel::onTrackOrderOrWidthChanged);
   connectDefaultLayoutButton();
   connect(m_canvas, &WellCompositeCanvas::gotoDepthRequested, this, &WellCompositePanel::openGotoDepthDialog);
-  connect(m_hiddenBar, &HiddenTrackBar::trackRestoreRequested, this, [this](const QString &title) {
-    for (int i = 0; i < m_canvas->trackCount(); ++i)
-    {
-      if (m_canvas->tracks().at(i)->title() == title && !m_canvas->tracks().at(i)->isVisible())
-      {
-        m_canvas->tracks().at(i)->setVisible(true);
-        m_canvas->syncScrollBars();
-        m_canvas->updateAll();
-        emit m_canvas->trackVisibilityChanged(i);
-        return;
-      }
-    }
+  connect(m_hiddenBar, &HiddenTrackBar::trackRestoreIndexRequested, this, [this](int i) {
+    if (i < 0 || i >= m_canvas->trackCount() || m_canvas->tracks().at(i)->isVisible()) return;
+    m_canvas->tracks().at(i)->setVisible(true);
+    m_canvas->syncScrollBars();
+    m_canvas->updateAll();
+    emit m_canvas->trackVisibilityChanged(i);
   });
 
   // ---- 深度交互接线（D2.2/D2.3）----

@@ -270,6 +270,18 @@ QRectF LithologyTrack::blockRect(const LithologyInterval &it, const QRectF &body
   return QRectF(bodyRect.left(), y0, qMax<qreal>(4.0, bodyRect.width() * frac), qMax<qreal>(3.0, y1 - y0));
 }
 
+QVector<double> LithologyTrack::quantumCells(double thickness, double quantum)
+{
+  if (!(thickness > 0.0)) return {};
+  if (!(quantum > 0.0)) return {thickness};
+  QVector<double> cells;
+  double rest = thickness;
+  // 1e-6 容差：浮点深度（float 顶底）下 30.0000001 不额外生出一个零高度格
+  while (rest > quantum + 1e-6 * quantum) { cells << quantum; rest -= quantum; }
+  if (rest > 1e-6 * quantum) cells << rest;
+  return cells;
+}
+
 QColor LithologyTrack::fillColor(const LithologyInterval &it)
 {
   return LithologyStyle::resolveFillColor(it.lithoName, it.baseColor);
@@ -307,15 +319,18 @@ void LithologyTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     painter.drawLine(QPointF(bodyRect.left(), block.bottom()), QPointF(block.right(), block.bottom()));
     painter.drawLine(block.topRight(), block.bottomRight());
 
-    // 高度粒度刻度：自块顶起每个粒度一格，层厚 35 / 粒度 10 → 3 道刻度 + 半格（3.5 个粒度）
+    // 高度粒度格：格与格之间画贯穿岩性块全宽的分隔线；余数格按真实高度（35/10 → 末格 0.5 个粒度）。
+    // 屏上一格不足 6 px 时不画分隔线（避免糊成一片）。
     if (quantumPx >= 6.0)
     {
       painter.setPen(QPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted, 1.0));
-      const double thick = double(it.bottomDepth) - double(it.topDepth);
-      for (int k = 1; k * m_grainQuantum < thick - 1e-6; ++k)
+      const QVector<double> cells = quantumCells(double(it.bottomDepth) - double(it.topDepth), m_grainQuantum);
+      double acc = 0.0;
+      for (int k = 0; k + 1 < cells.size(); ++k)
       {
-        const qreal y = block.top() + k * quantumPx;
-        painter.drawLine(QPointF(block.right() - 4.0, y), QPointF(block.right(), y));
+        acc += cells.at(k);
+        const qreal y = block.top() + acc * pxPerMeter;
+        painter.drawLine(QPointF(block.left(), y), QPointF(block.right(), y));
       }
     }
 

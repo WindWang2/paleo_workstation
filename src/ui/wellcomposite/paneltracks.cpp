@@ -245,6 +245,11 @@ void WellCompositePanel::onTrackConfigRequested(int trackIndex)
   track->setVisible(spec.visible);
   track->setPrintIncluded(spec.printIncluded);
 
+  if (auto lt = std::dynamic_pointer_cast<LithologyTrack>(track))
+  {
+    lt->setGrainQuantum(spec.params.value(QStringLiteral("grainQuantum"), lt->grainQuantum()).toDouble());
+    lt->setWidthEncoding(spec.params.value(QStringLiteral("widthEncoding"), lt->widthEncoding()).toBool());
+  }
   if (auto ct = std::dynamic_pointer_cast<CurveTrack>(track))
   {
     ct->setShowGrid(spec.showGrid());

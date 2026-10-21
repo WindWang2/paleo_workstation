@@ -27,10 +27,14 @@ public:
   // 以 spec 列表驱动（仅显示 visible=false 的项）
   void setTracks(const QList<TrackSpec> &specs);
   int hiddenCount() const;
+  // chip 文本：曲线道追加曲线助记名作副文本（同名「测井曲线」道可区分），如「测井曲线 · SP」
+  static QString chipText(const TrackSpec &spec);
 
 signals:
   // 用户点击某隐藏道 chip 请求恢复其显示
   void trackRestoreRequested(const QString &trackTitle);
+  // 同上，携带 spec 序号（= 画布道序号），同名道精确恢复
+  void trackRestoreIndexRequested(int trackIndex);
 
 private:
   void rebuild();

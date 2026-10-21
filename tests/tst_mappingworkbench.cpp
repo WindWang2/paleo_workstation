@@ -573,6 +573,29 @@ private slots:
     QVERIFY(errors.first().first().toString().contains(QStringLiteral("MD")));
     QVERIFY(fixture.latest(QStringLiteral("wells_prediction")).isEmpty());
   }
+  void predictionWellWithoutLogFallsBackToMockDepth() {
+    // R2-M1 回归：有坐标、无测井链接的井必须走 depth_mock 合成井段（0/120），
+    // 不以空文件名报「需要 MD 测深」（C-8 重构曾丢 !path.isEmpty() 守卫）。
+    Fixture fixture;
+    QVERIFY(fixture.init());
+    CatalogEntity e;
+    e.id = QStringLiteral("MOCKW");
+    e.name = QStringLiteral("MOCKW");
+    e.entityType = QStringLiteral("well");
+    e.hasSurface = true;
+    e.surfaceX = 10;
+    e.surfaceY = 20;
+    e.coordinateStatus = QStringLiteral("untransformed");
+    QVERIFY(fixture.catalog.addEntity(e));
+    QVERIFY(fixture.tops(e.id, QStringLiteral(
+        "#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n"
+        "MOCKW D61 1000 0 0 -1000 1000 -99999\n")));
+    QSignalSpy errors(&fixture.work, &MappingWorkbench::errorOccurred);
+    QString error;
+    QVERIFY2(fixture.work.predict(QStringLiteral("D61"), QStringLiteral("wells"), {e.id}, &error), qPrintable(error));
+    QTRY_VERIFY(!fixture.work.busy());
+    QCOMPARE(errors.count(), 0);
+  }
   void predictionLogAcceptsUnifiedMdAndRejectsOtherAxes() {
     Fixture fixture;
     QVERIFY(fixture.init());

@@ -363,15 +363,23 @@ bool WellLogSet::readCurveTvd(const WellCurveRef &ref,
   }
   double scale = 1.0;
   if (strictAxis) scale = *paleo::wellnumeric::depthScaleToMetres(depths.unit);
-  const QString unit = depths.unit.trimmed().toUpper();
-  if (unit == QLatin1String("FT") || unit == QLatin1String("F"))
-    scale = 0.3048;
-  else if (!strictAxis && unit != QLatin1String("M") && !unit.isEmpty())
+  // legacy（LAS/DLIS/LIS）接受面与 mdAxisInMetres 同词表（wellnumeric）：
+  // 别名 METERS/FOOT/FEET 等同样可折算，未知非空单位如实拒收（R2-S3）。
+  const QString unit = depths.unit.trimmed();
+  const auto legacyScale = paleo::wellnumeric::depthScaleToMetres(unit);
+  if (!strictAxis)
   {
-    if (error)
-      *error = QStringLiteral("%1: 深度单位未知（%2），不猜折算")
-                   .arg(ref.path, depths.unit.trimmed());
-    return false;
+    if (unit.isEmpty())
+      scale = 1.0; // legacy 空单位沿用按米惯例
+    else if (legacyScale)
+      scale = *legacyScale;
+    else
+    {
+      if (error)
+        *error = QStringLiteral("%1: 深度单位未知（%2），不猜折算")
+                     .arg(ref.path, unit);
+      return false;
+    }
   }
 
   out->path = ref.path;

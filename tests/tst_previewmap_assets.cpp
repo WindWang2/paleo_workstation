@@ -1289,14 +1289,37 @@ void TestPreviewMapAssets::rasterRequestFailureStillCallsReady()
         extremaCount = e.size();
         ++extremaCalls;
       });
+  // R2-S2：直方图/剖面失败路径同样必须回调（valid=false / 空集）。
+  int histCalls = 0;
+  bool histValid = true;
+  PreviewRasterAnalysis::requestHistogram(
+      badUri, 64, &tasks, &ctx,
+      [&](const PreviewRasterAnalysis::Histogram &h) {
+        histValid = h.valid;
+        ++histCalls;
+      });
+  int profileCalls = 0;
+  int profileCount = -1;
+  const QgsPointXY a(0, 0), b(1, 1);
+  PreviewRasterAnalysis::requestProfile(
+      badUri, a, b, &tasks, &ctx,
+      [&](const QVector<PreviewRasterAnalysis::ProfileSample> &s) {
+        profileCount = s.size();
+        ++profileCalls;
+      });
   QElapsedTimer guard;
   guard.start();
-  while ((summaryCalls < 1 || extremaCalls < 1) && guard.elapsed() < 30000)
+  while ((summaryCalls < 1 || extremaCalls < 1 || histCalls < 1 || profileCalls < 1) &&
+         guard.elapsed() < 30000)
     QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
   QCOMPARE(summaryCalls, 1);
   QVERIFY(!summaryValid);
   QCOMPARE(extremaCalls, 1);
   QCOMPARE(extremaCount, 0);
+  QCOMPARE(histCalls, 1);
+  QVERIFY(!histValid);
+  QCOMPARE(profileCalls, 1);
+  QCOMPARE(profileCount, 0);
 }
 
 void TestPreviewMapAssets::statesHelpersContract()

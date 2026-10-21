@@ -855,7 +855,7 @@ void TestBatchJobQueue::batchTasksYieldPoolToInteractivePriority()
   QCOMPARE(m_queue->runningCount(), 2);
 
   // 交互任务（Normal 优先级）后到，却必须先于排队的批任务出队。
-  // 注意用 5 参显式 Normal：start 的 3/4 参重载走池默认优先级 0（=Low）。
+  // 用 5 参显式 Normal：与 3/4 参默认同值（本轮已落实），显式写出便于读者。
   m_tasks->start(QStringLiteral("interactive"), [probe](PaleoTask *) {
     probe->note(QStringLiteral("interactive"));
     return QString();

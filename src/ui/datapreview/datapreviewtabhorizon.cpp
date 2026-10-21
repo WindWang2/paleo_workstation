@@ -527,6 +527,8 @@ QWidget *DataPreviewTabs::buildHorizonContent(
             tifPath, p1, p2, tasks, page,
             [page, p1, p2, total](
                 const QVector<PreviewRasterAnalysis::ProfileSample> &samples) {
+              if (samples.isEmpty())
+                return; // 读取失败/取消的空回调不留空「剖面 N」图例项
               QVector<PreviewProfilePanel::Sample> pts;
               pts.reserve(samples.size());
               for (const auto &sm : samples)

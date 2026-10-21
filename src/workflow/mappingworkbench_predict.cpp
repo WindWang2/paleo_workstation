@@ -516,7 +516,9 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
           LasHeaderInfo header;
           QList<LasCurve> curves;
           const auto format = path.isEmpty() ? WellLogFormat::Unknown : WellLogRead::detect(path);
-          const bool explicitAxis = format != WellLogFormat::Las;
+          // 空路径（有坐标无测井链接的井）不算 explicitAxis——保持 depth_mock
+          // 回退路径，不以空文件名报 MD 测深错误（R2-M1：C-8 重构曾丢守卫）。
+          const bool explicitAxis = !path.isEmpty() && format != WellLogFormat::Las;
           QString readError;
           const bool parsed = !path.isEmpty() && WellLogRead::parse(path, format, header, curves, &readError) && !curves.isEmpty();
           const double scale = parsed ? LasParser::depthUnitToMeters(curves.first().unit) : 0.0;

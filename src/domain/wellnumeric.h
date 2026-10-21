@@ -28,6 +28,23 @@ inline bool isUsable(double value)
   return std::isfinite(value) && !isNull(value);
 }
 
+// 曲线/属性值的空值口径（C.4 / #589）：精确哨兵之外再加一条范围带。LAS /
+// SEG-Y 的占位写法不限于上面那四个精确值（-99995 / -1e30 / 1e30 都在野外
+// 流传），范围带把它们一并归缺失。
+// 坐标/海拔等合法负值域**不得**改用这个口径——那里仍用 isNull 精确匹配
+// （见文件头注释：范围比较会把合法负坐标/海拔抹成缺失）。
+// 消费点（welllogfacies 曲线插值、workflow/sectionworkbench 的 min/max
+// 统计）一律走这里，不再各自硬编码阈值——同一数值不得在一条链判缺失、
+// 另一条链判数据。
+inline constexpr double kCurveNullBelow = -99990.0;
+inline constexpr double kCurveNullAbove = 1e29;
+
+inline bool isNullCurveValue(double value)
+{
+  return !std::isfinite(value) || isNull(value) || value <= kCurveNullBelow ||
+         value >= kCurveNullAbove;
+}
+
 enum class NumberKind { Value, Empty, NonNumeric, NonFinite, NullSentinel };
 inline NumberKind parse(const QString &token, double *out)
 {

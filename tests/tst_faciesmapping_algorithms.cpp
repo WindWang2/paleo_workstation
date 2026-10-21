@@ -100,6 +100,7 @@ class TestFaciesMappingAlgorithms : public QObject
     // ---- 阶段4：QA 检测器 --------------------------------------------------
     void qaDetectsUnclosedOverlapIsland();
     void qaConstraintCrossingLocated();
+    void qaConstraintIndexAlignedAfterDegenerate();
     void qaWellCoverageRadius();
     void qaReproducibleDiagnostics();
 
@@ -647,6 +648,36 @@ void TestFaciesMappingAlgorithms::qaConstraintCrossingLocated()
   QVERIFY( std::abs( conflict->location.x - 5.0 ) < 1e-6 );
   QVERIFY( conflict->location.y >= -5 && conflict->location.y <= 15 );
   // 只有一条冲突：区外/共线不误报。
+  int conflicts = 0;
+  for ( const FaciesQaIssue &issue : result.issues )
+    if ( issue.type == FaciesQaIssueType::ConstraintConflict )
+      conflicts++;
+  QCOMPARE( conflicts, 1 );
+}
+
+// D8：退化约束（点数 <2）不建几何但必须保槽。检测器 4 用同一个 c 双索引
+// constraintGeoms[c]（几何）与 constraints[c].id（血缘）——缺槽位时整体
+// 前移，冲突证据会记成另一条约束线的 id（本例会记成退化项的 id）。
+void TestFaciesMappingAlgorithms::qaConstraintIndexAlignedAfterDegenerate()
+{
+  FaciesMapUnit unit;
+  unit.regionId = "u1";
+  unit.geometry = rect( 0, 0, 10, 10 );
+  QaConstraintLine degenerate;
+  degenerate.id = "fault_degenerate";
+  degenerate.points = { { 1, 1 } }; // 单点：不建几何
+  QaConstraintLine fault;
+  fault.id = "fault_ok";
+  fault.points = { { 5, -5 }, { 5, 15 } }; // 竖直穿越
+
+  const FaciesQaResult result = runFaciesQa( { unit }, {}, { degenerate, fault } );
+  QCOMPARE( result.status, paleo::singlefactor::Status::Ok );
+  const FaciesQaIssue *conflict =
+      firstIssue( result, FaciesQaIssueType::ConstraintConflict );
+  QVERIFY( conflict );
+  QCOMPARE( conflict->regionIds.front(), std::string( "u1" ) );
+  QCOMPARE( conflict->relatedIds.front(), std::string( "fault_ok" ) );
+  QCOMPARE( conflict->metric, 2.0 ); // 进出各一：两个交叉点
   int conflicts = 0;
   for ( const FaciesQaIssue &issue : result.issues )
     if ( issue.type == FaciesQaIssueType::ConstraintConflict )

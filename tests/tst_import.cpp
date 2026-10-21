@@ -1552,6 +1552,34 @@ private slots:
     QVERIFY(subFacies.contains(QString::fromUtf8("滩坝")));
     // 未配准：不生成地图图层
     QVERIFY(stack->manifest->all().isEmpty());
+
+    // #588（B.3）：图例字典整读 + 全量 DOM（内存常为文件 3-10 倍）此前无大小
+    // 闸——数百 MB～GB 级 .geojson 走导入即 OOM/冻结。收紧共用大文件闸后
+    // 导入本身不受影响（aux/reference 照常登记），只是不建图例字典（阶段 D
+    // 的附带产物，与打不开文件时同属 best-effort）。
+    {
+      const QString gatedPath = tmp.filePath(QStringLiteral("facies_gated.geojson"));
+      {
+        QFile f(gatedPath);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(QByteArrayLiteral(
+            "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\","
+            "\"properties\":{\"相\":\"三角洲前缘\"},\"geometry\":{\"type\":\"Point\","
+            "\"coordinates\":[0,0]}}]}"));
+        f.close();
+      }
+      err.clear();
+      const qint64 kRestoreLimit = LasParser::fileSizeLimit();
+      LasParser::setFileSizeLimit(8);
+      const QString gatedAssetId = svc.importProjectFile(gatedPath, &err);
+      LasParser::setFileSizeLimit(kRestoreLimit);
+      QVERIFY2(!gatedAssetId.isEmpty(), qPrintable(err));
+      const auto gatedLinks = cat->linksForAsset(gatedAssetId);
+      QCOMPARE(gatedLinks.size(), 1);
+      const CatalogEntity gatedAux = cat->entityById(gatedLinks.front().entityId);
+      QVERIFY2(!gatedAux.extra.contains(QStringLiteral("legend")),
+               "超限的 GeoJSON 不得整读建图例字典");
+    }
   }
 
   // D11 手工仿射：变换只动 position 前两分量，属性原样；平移+缩放+旋转

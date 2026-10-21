@@ -60,10 +60,28 @@ bool readFloatRaster(const QString &path, RasterGrid *grid, std::vector<float> *
   grid->rows = GDALGetRasterYSize(ds);
   GDALGetGeoTransform(ds, grid->gt);
   GDALRasterBandH band = GDALGetRasterBand(ds, 1);
+  if (!band || grid->cols < 1 || grid->rows < 1)
+  {
+    GDALClose(ds);
+    if (error)
+      *error = QStringLiteral("无法读取栅格 %1").arg(path);
+    return false;
+  }
   int flag = 0;
   grid->nodata = GDALGetRasterNoDataValue(band, &flag);
   grid->hasNodata = flag != 0;
-  const std::size_t n = std::size_t(grid->rows) * std::size_t(grid->cols);
+  // #415 同族：维度相乘无预算——46341² 级尺寸下 size_t 乘积本身不溢出，
+  // 但会按真实维度分配后由 GDALRasterIO 越界写；预算同 mapping/
+  // depthconversion 的 4M 闸。
+  const qint64 cells = static_cast<qint64>(grid->cols) * grid->rows;
+  if (cells > 4000000LL)
+  {
+    GDALClose(ds);
+    if (error)
+      *error = QStringLiteral("栅格 %1 超出像元预算（%2 格 > 4M）").arg(path).arg(cells);
+    return false;
+  }
+  const std::size_t n = std::size_t(cells);
   out->resize(n);
   const bool ok = GDALRasterIO(band, GF_Read, 0, 0, grid->cols, grid->rows, out->data(),
                                grid->cols, grid->rows, GDT_Float32, 0, 0) == CE_None;
@@ -612,7 +630,11 @@ QString SurfaceGriddingWorkflow::isopachBetweenRasters(const QString &topTif,
     b.dy = std::fabs(top.gt[5]);
     b.originX = top.gt[0];
     b.originY = top.gt[3];
-    b.z.resize(int(n));
+    // #415 同族：size_t→int 截断后 resize 按小数组分配、循环按真实维度写
+    // 即越界。readFloatRaster 已上 4M 闸，此处显式断言尺寸可入 int。
+    if (n > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+      return QStringLiteral("等厚像元数超出可登记范围：%1").arg(qulonglong(n));
+    b.z.resize(static_cast<int>(n));
     float zMin = std::numeric_limits<float>::max();
     float zMax = std::numeric_limits<float>::lowest();
     int filled = 0;

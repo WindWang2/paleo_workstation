@@ -1,6 +1,10 @@
 // 层：数据（测试壳位于 tests/，被测对象为约束参数存储）
 #include <QtTest/QtTest>
 
+#ifdef Q_OS_WIN
+#include <windows.h> // 持零共享句柄构造「主文件被占用」（B.5 失败窗口）
+#endif
+
 #include "io/constraintstore.h"
 
 #include <gdal.h>
@@ -28,6 +32,7 @@ class SingleFactorStoreTests : public QObject
     void migrationRefusesForeignSrs();
     void migrationAbortsWhenWalCheckpointBusy();
     void restoreFileFromBackupRemovesWalResidue();
+    void restoreFileFromBackupKeepsSiteIntactWhenMoveFails(); // #588 B.5
 };
 
 void SingleFactorStoreTests::extendedParametersReopen()
@@ -389,6 +394,80 @@ void SingleFactorStoreTests::restoreFileFromBackupRemovesWalResidue()
   QFile still( main );
   QVERIFY( still.open( QIODevice::ReadOnly ) );
   QCOMPARE( still.readAll(), QByteArray( "BBBB" ) );
+}
+
+// #588（B.5）：次序的失败窗口。旧次序 {-wal, -shm, 主文件} 里主文件腾位失败
+// （Windows 句柄未关即恒失败；POSIX 用只读目录等价构造「主文件动不了」）时，
+// -wal/-shm 已被删掉而旧主文件仍在盘上——下次打开丢失 WAL 里已提交的帧。
+// 新次序先改名腾位，失败即整体放弃：现场三件一件不动。
+void SingleFactorStoreTests::restoreFileFromBackupKeepsSiteIntactWhenMoveFails()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString main = dir.filePath( QStringLiteral( "locked.gpkg" ) );
+  const QString backup = dir.filePath( QStringLiteral( "locked.bak" ) );
+  {
+    QFile a( main );
+    QVERIFY( a.open( QIODevice::WriteOnly ) );
+    a.write( "AAAA" );
+    QFile b( backup );
+    QVERIFY( b.open( QIODevice::WriteOnly ) );
+    b.write( "BBBB" );
+    QFile wal( main + QStringLiteral( "-wal" ) );
+    QVERIFY( wal.open( QIODevice::WriteOnly ) );
+    wal.write( "committed-frames" );
+    QFile shm( main + QStringLiteral( "-shm" ) );
+    QVERIFY( shm.open( QIODevice::WriteOnly ) );
+    shm.write( "shared-index" );
+  }
+
+#ifdef Q_OS_WIN
+  // 对主文件持零共享句柄：rename/remove 主文件必败，而 -wal/-shm 是别的文件、
+  // 不受影响——正是「主文件换不掉而伴生件已被删」的那个窗口。
+  HANDLE mainLock = CreateFileW( reinterpret_cast<LPCWSTR>( main.utf16() ), GENERIC_READ,
+                                 FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                 FILE_ATTRIBUTE_NORMAL, nullptr );
+  QVERIFY( mainLock != INVALID_HANDLE_VALUE );
+#else
+  // POSIX：目录去掉写权限 → 主文件改名/删除与伴生件删除一同失败（整体放弃，
+  // 见下方断言）。Windows 侧目录只读挡不住目录内操作，故用上面的持柄构造。
+  const QFile::Permissions original = QFile::permissions( dir.path() );
+  QVERIFY( QFile::setPermissions( dir.path(), QFileDevice::ReadOwner | QFileDevice::ExeOwner |
+                                               QFileDevice::ReadGroup | QFileDevice::ExeGroup |
+                                               QFileDevice::ReadOther | QFileDevice::ExeOther ) );
+#endif
+
+  QString err;
+  QVERIFY2( !ConstraintStore::restoreFileFromBackup( main, backup, &err ),
+            "主文件腾位失败必须整体放弃，不得留下被删了 WAL 的旧主文件" );
+  QVERIFY2( !err.isEmpty(), qPrintable( err ) );
+
+  // 现场三件一件没动：主文件 + -wal + -shm 全在（WAL 里已提交的帧不丢）。
+  QVERIFY( QFile::exists( main ) );
+  QVERIFY( QFile::exists( main + QStringLiteral( "-wal" ) ) );
+  QVERIFY( QFile::exists( main + QStringLiteral( "-shm" ) ) );
+  QFile still( main );
+  QVERIFY( still.open( QIODevice::ReadOnly ) );
+  QCOMPARE( still.readAll(), QByteArray( "AAAA" ) );
+
+#ifdef Q_OS_WIN
+  CloseHandle( mainLock );
+#else
+  QVERIFY( QFile::setPermissions( dir.path(), original ) );
+#endif
+
+  // 障碍解除后同一调用照常成功——证明上面败的是腾位，不是逻辑。
+  QString err2;
+  QVERIFY2( ConstraintStore::restoreFileFromBackup( main, backup, &err2 ), qPrintable( err2 ) );
+  QVERIFY( !QFile::exists( main + QStringLiteral( "-wal" ) ) );
+  QVERIFY( !QFile::exists( main + QStringLiteral( "-shm" ) ) );
+  QFile restored( main );
+  QVERIFY( restored.open( QIODevice::ReadOnly ) );
+  QCOMPARE( restored.readAll(), QByteArray( "BBBB" ) );
+  // 腾位副本不得残留（清不掉也只是副本，但正常路径必须清掉）。
+  const QStringList leftovers = QDir( dir.path() ).entryList( QStringList()
+      << QStringLiteral( "*.restore-old-*" ), QDir::Files );
+  QVERIFY2( leftovers.isEmpty(), qPrintable( leftovers.join( QLatin1Char( ',' ) ) ) );
 }
 
 QTEST_MAIN( SingleFactorStoreTests )

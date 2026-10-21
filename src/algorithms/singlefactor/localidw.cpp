@@ -353,9 +353,13 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
                         : static_cast<int>( engine.krigingIndex.size() );
       engine.krigingIndex.queryNearest( query.x, query.y, k, engine.krigingParams.searchRadius, &neighborhood );
 
-      if ( ( engine.krigingParams.searchRadius > 0 &&
-             static_cast<int>( neighborhood.size() ) < engine.krigingParams.minPoints ) ||
-           neighborhood.empty() )
+      // 覆盖闸口径（krigingsurface.h：克里金侧 = 半径闸 + krigingMinPoints）。
+      // DomainExtrapolation 下 resolveParameters 把 searchRadius reset 成空值
+      // （support.cpp），纯最近 K 模式——此时 minPoints 闸不能再挂在半径分支上
+      // （否则恒假、只剩 empty()，配置的 krigingMinPoints 被无声绕过）。最少 1
+      // 口井才建方程；krigingMinPoints<=0（钳后）时与 empty() 等价。
+      const int krigingMinPoints = std::max( engine.krigingParams.minPoints, 1 );
+      if ( static_cast<int>( neighborhood.size() ) < krigingMinPoints )
       {
         krigingUnavailable = true;
       }

@@ -194,46 +194,44 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 变更、buildShell 六段按原文行序分解仅加函数边界、构造期 connect 55 条
 序列对拍唯一偏移 = ErrorHub 计数两条前移（wireErrorHubStatus 合并原两段）。
 
-**实测（2026-10-19，全仓审计第三轮）：paleomainwindow.cpp 1015 行（家族 27 TU）**
-（2026-10-17 issue-sweep 实测为 26 TU；#578 从 _attach.cpp 拆出 run 状态承载后 +1）
+**实测（2026-10-20，master + fix-review worktree）：paleomainwindow.cpp 1015 行（家族 27 TU）**
 （#473 拆分：`_workbench.cpp` 1250→525 行 + `_workbench_commands/_wells` 承载；
-#516 新增 `_references.cpp` 参考面板域）
+#516 新增 `_references.cpp` 参考面板域；#573 新增 `_workbench_editflow.cpp`
+编图编辑流域——家族 26→27 TU）
 
-**实测（2026-10-21，master-lint 修复）：paleomainwindow.cpp 1015 行（家族 27 TU）**
-（#573 新增 `_workbench_editflow.cpp` 编图元素修改依据流，110 行）
-
-家族全表（`src/ui/paleomainwindow*.cpp` 共 27 TU，平铺不建子目录；行数为
-当日实测，#318 文案改动后与 #312 落点微差——漂移护栏按 ±20% 容差盯本行）：
+家族全表（`src/ui/paleomainwindow_*.cpp` 27 TU + 本体 1 行 = 表 28 行，平铺不
+建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
+±20% 容差盯本行）：
 
 | TU | 行数 | 域（各 TU 头注释口径） |
 |---|---|---|
-| `paleomainwindow.cpp` | 919 | 本体：壳生命周期域——构造/析构/关窗、buildShell 六段编排 |
-| `_workbench.cpp` | 525 | 编图工作台 attachWorkbench 主函数（#473 拆分后；参考窗口经 `_references.cpp` 面板化） |
-| `_workbench_commands.cpp` | 416 | attachWorkbench 命令分发链（#473 拆分承载，行为守恒平移） |
-| `_workbench_evidence.cpp` | 41 | 证据面板/局部图谱联动接线（#473 拆分承载） |
-| `_workbench_editflow.cpp` | 110 | 编图元素修改与修改依据记录流（#573） |
-| `_workbench_wells.cpp` | 326 | 井预测面板 dock/自动保存/修订链（#473 拆分承载） |
-| `_references.cpp` | 66 | 参考证据面板域（#516：showMappingReference/MappingReferencePanel 编排） |
-| `_attach.cpp` | 770 | 壳接线聚合胶水：attachWorkflows 入口 + 静态辅助 + 跨页图层显隐 |
-| `_attach_constraint.cpp` | 728 | 约束与单因素页接线（W4 段；#299 矢量属性维护/#301 realization 异步增量） |
-| `_attach_shell.cpp` | 661 | 壳面与全局组件接线（W4 段） |
-| `_attach_models.cpp` | 642 | 属性建模/相图/时深转换接线（W4 段） |
-| `_docks.cpp` | 597 | 壳构建域（#312）：中央面/左 dock/右栏/底栏/地震/连井/3D/Web dock 族 |
-| `_wellsection.cpp` | 421 | 连井剖面 dock 壳层编排：取数/井间缝/去抖刷新/逐工区井集持久化 |
-| `_attach_mapping.cpp` | 387 | 编图流水线与版本域接线（W4 段：导出接线/版本状态机/发布门） |
-| `_attach_compose.cpp` | 342 | 综合编图页接线（W4 段） |
-| `_attach_data.cpp` | 332 | 数据管理页接线（W4 段） |
-| `_sections.cpp` | 317 | 地震剖面窗壳接线（sectionsetup/剖面路径橡皮筋） |
-| `_ribbon.cpp` | 241 | ribbon 骨架域（#312）：buildRibbon 页签/文件菜单/全局按钮组 |
+| `paleomainwindow.cpp` | 1015 | 本体：壳生命周期域——构造/析构/关窗、buildShell 六段编排 |
+| `_attach.cpp` | 881 | 壳接线聚合胶水：attachWorkflows 入口 + 静态辅助 + 跨页图层显隐 |
+| `_attach_constraint.cpp` | 800 | 约束与单因素页接线（W4 段；#299 矢量属性维护/#301 realization 异步增量） |
+| `_attach_shell.cpp` | 791 | 壳面与全局组件接线（W4 段） |
+| `_attach_models.cpp` | 683 | 属性建模/相图/时深转换接线（W4 段） |
+| `_workbench.cpp` | 631 | 编图工作台 attachWorkbench 主函数（#473 拆分后；参考窗口经 `_references.cpp` 面板化） |
+| `_docks.cpp` | 607 | 壳构建域（#312）：中央面/左 dock/右栏/底栏/地震/连井/3D/Web dock 族 |
+| `_workbench_commands.cpp` | 568 | attachWorkbench 命令分发链（#473 拆分承载，行为守恒平移） |
+| `_wellsection.cpp` | 538 | 连井剖面 dock 壳层编排：取数/井间缝/去抖刷新/逐工区井集持久化 |
+| `_attach_compose.cpp` | 488 | 综合编图页接线（W4 段） |
+| `_attach_data.cpp` | 462 | 数据管理页接线（W4 段） |
+| `_attach_mapping.cpp` | 418 | 编图流水线与版本域接线（W4 段：导出接线/版本状态机/发布门） |
+| `_workbench_wells.cpp` | 360 | 井预测面板 dock/自动保存/修订链（#473 拆分承载） |
+| `_sections.cpp` | 319 | 地震剖面窗壳接线（sectionsetup/剖面路径橡皮筋） |
+| `_ribbon.cpp` | 258 | ribbon 骨架域（#312）：buildRibbon 页签/文件菜单/全局按钮组 |
+| `_pages.cpp` | 239 | 页切换域（#312）：showPage 六页编排/dock 保存恢复/底栏自动露出 |
+| `_project.cpp` | 210 | 工程打开/导入编排入口域（#312）：openPath/确认表/懒建编排器 |
+| `_attach_predict.cpp` | 209 | 智能预测页接线（W4 段） |
 | `_attach_validate.cpp` | 205 | 验证与布井辅助接线（W4 段） |
-| `_pages.cpp` | 202 | 页切换域（#312）：showPage 六页编排/dock 保存恢复/底栏自动露出 |
-| `_attach_predict.cpp` | 193 | 智能预测页接线（W4 段） |
 | `_status.cpp` | 186 | 状态栏域（#312）：层位/坐标/比例尺/CRS 读数 + 工程进度 |
-| `_project.cpp` | 153 | 工程打开/导入编排入口域（#312）：openPath/确认表/懒建编排器 |
-| `_paleomaps.cpp` | 56 | 现有古地理图导入、层位归属与目录恢复接线 |
+| `_workbench_editflow.cpp` | 110 | 编图编辑流域（#573：attachMappingEditFlow/runMappingEditFlow——参考版本取证/依据启用/拓扑检查/矢量导出/图件输出） |
+| `_paleomaps.cpp` | 101 | 现有古地理图导入、层位归属与目录恢复接线 |
 | `_errorhub.cpp` | 89 | 错误呈现域（方向 64，#312 自成 TU）：错误历史 dock/错误胶囊 |
-| `_attach_python.cpp` | 36 | Python 控制台/REPL 接线（方向 68） |
+| `_references.cpp` | 66 | 参考证据面板域（#516：showMappingReference/MappingReferencePanel 编排） |
 | `_shortcuts.cpp` | 42 | 页快捷键域（方向 63 注册表，#312 自成 TU）：Ctrl+1..6/Ctrl+Tab |
+| `_workbench_evidence.cpp` | 41 | 证据面板/局部图谱联动接线（#473 拆分承载） |
+| `_attach_python.cpp` | 36 | Python 控制台/REPL 接线（方向 68） |
 | `_faults.cpp` | 27 | 断层解释壳接线（方向 7）：剖面 dock 编排器 + 管理面板 dock |
 
 （`paleoribbon.cpp`/`ribbonpanels.cpp` 是 ribbon 命令组构建与镜像绑定的

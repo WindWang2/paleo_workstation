@@ -137,6 +137,9 @@ class WellSectionPanel : public QWidget
     // 解释来源按钮可见性（fence 剖面隐藏——选择态语义面在主剖面 workflow
     // + 工程库，栅内不放死按钮；方向 98）。
     void setLithoSourceButtonVisible(bool visible);
+    // 用户拖排改井序（D.21：fence 面板内改序后须通知井网预览重喂，
+    // 测试直接驱动该动作断言预览跟随权威态）。
+    void moveWell(int from, int to);
 
   signals:
     void dataRequested(const QStringList &wellIds, const QStringList &mnemonics);
@@ -175,7 +178,6 @@ class WellSectionPanel : public QWidget
     // 井对 id 间接寻址的改接（菜单动作重建安全）。
     void toggleLinkForPair(const QString &aId, const QString &bId,
                            const QString &topName, bool connect);
-    void moveWell(int from, int to); // 用户拖排
     void removeWellAt(int index);    // 用户右键移除
     void rebuildGapWidths();         // 间距模式/井集/gapPx 变化后重算逐缝宽
     void openWellsDialog();

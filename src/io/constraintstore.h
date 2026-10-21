@@ -27,11 +27,12 @@ public:
   bool append(const QString &horizon, const QString &id, const QString &wkt,
               const QString &type, int faciesCode, QString *error = nullptr, double weight = 1.0);
   // 加法式参数。旧 append 不写这两列的值。schemaVersion 与 paramsJson 一起保存。
+  // （参数名与 .cpp 定义逐字一致——readability-inconsistent-declaration-parameter-name）
   bool appendExtended(const QString &horizon, const QString &id, const QString &wkt,
-                      const QString &type, int code, const QString &parameters,
-                      int schema, QString *error = nullptr, double weight = 1.0);
+                      const QString &type, int faciesCode, const QString &paramsJson,
+                      int schemaVersion, QString *error = nullptr, double weight = 1.0);
   // 文件不存在时失败，不创建数据库。失败回滚，不改已有要素。
-  bool updateParameters(const QString &id, const QString &parameters, int schema,
+  bool updateParameters(const QString &id, const QString &paramsJson, int schemaVersion,
                         const QString &semanticType, QString *error = nullptr);
   // P3：仅在缺失时建 constraints 表/字段/审计表（与首次 append 同一 schema），
   // 不改动既有行——供绘制前自动开启编辑会话（空工程首次绘制也进撤销栈）。
@@ -73,14 +74,14 @@ public:
   // 字节级还原：主文件 + 伴生 -wal/-shm 三件一起从备份恢复。只换主文件不删
   // WAL 脚手架的话，SQLite 下次打开会把遗留帧重放到「还原后的旧主文件」上
   // （帧校验链不校验与主库的同一性）→ 备份页+新页嵌合库。调用前须关闭本文件
-  // 的全部连接（Windows 句柄未关时 remove 恒失败）。
+  // 的全部连接（Windows 句柄未关时改名/删除恒失败，此时整体放弃、现场不动）。
   static bool restoreFileFromBackup(const QString &gpkgPath, const QString &backupPath,
                                     QString *error = nullptr);
 
 private:
   bool appendInternal(const QString &horizon, const QString &id, const QString &wkt,
-                      const QString &type, int code, const QString *parameters,
-                      int schema, QString *error, double weight);
+                      const QString &type, int faciesCode, const QString *paramsJson,
+                      int schemaVersion, QString *error, double weight);
   // migrateLegacyCrs 的独占窗体实现（经 m_enqueue 单写者队列调用）。
   bool migrateLegacyCrsLocked(QString *error, QString *backupPathOut);
 

@@ -16,6 +16,7 @@ class TimeDepthModelTests : public QObject
     void lenientMonotoneTableUnchanged();
     void velocityBoundsSymmetric();
     void strictRejectsNegativeFirstPoint(); // #476
+    void singlePointZeroTimeDoesNotInventVelocity(); // L1.2
 };
 
 // #476：setCheckshots strict 路径此前不查首点负深度/负时间（setPoints 有
@@ -93,6 +94,36 @@ void TimeDepthModelTests::velocityBoundsSymmetric()
   TimeDepthModel m(2000.0);
   m.setVelocity(30000.0);
   QCOMPARE(m.DepthToTwtMs(1000.0), 1000.0); // 仍是 2000 m/s
+}
+
+// L1.2（#592）：宽松口径的单点表且该点 timeMs==0（缺测记 0）时，旧实现用
+// std::max(1e-3, 0) 兜底推出约 2×10⁹ m/s 常速，DepthToTwtMs 返回微秒级伪值
+// 而不是报错。现在推不出合法速度带内的常速 → 两个方向都 NaN。
+void TimeDepthModelTests::singlePointZeroTimeDoesNotInventVelocity()
+{
+  TimeDepthModel zero;
+  zero.setPoints({{1000.0, 0.0}});
+  QCOMPARE(zero.points().size(), std::size_t{1});
+  QVERIFY(std::isnan(zero.DepthToTwtMs(500.0)));
+  QVERIFY(std::isnan(zero.TwtMsToDepth(0.0005)));
+
+  // 单点但速度落在合法带外（时差过小）同样不编速度。
+  TimeDepthModel absurd;
+  absurd.setPoints({{1000.0, 0.5}}); // 4×10⁶ m/s
+  QVERIFY(std::isnan(absurd.DepthToTwtMs(500.0)));
+  QVERIFY(std::isnan(absurd.TwtMsToDepth(200.0)));
+
+  // 合法单点表照常反推常速（1000 m / 400 ms → 5000 m/s，双向互逆）。
+  TimeDepthModel ok;
+  ok.setPoints({{1000.0, 400.0}});
+  QVERIFY(std::abs(ok.DepthToTwtMs(500.0) - 200.0) < 1e-6);
+  QVERIFY(std::abs(ok.TwtMsToDepth(200.0) - 500.0) < 1e-6);
+
+  // 近零深度单点仍回落缺省速度（深度太浅无从反推，不是脏数据）。
+  TimeDepthModel shallow;
+  shallow.setPoints({{0.0005, 400.0}});
+  QVERIFY(std::abs(shallow.DepthToTwtMs(2500.0) -
+                   TimeDepthModel().DepthToTwtMs(2500.0)) < 1e-9);
 }
 
 QTEST_GUILESS_MAIN(TimeDepthModelTests)

@@ -672,18 +672,44 @@ bool ConstraintStore::restoreFileFromBackup(const QString &gpkgPath,
     return bad(QObject::tr("严重：备份不存在或不可读，保持现场不动：%1").arg(backupPath));
   // -wal/-shm 是迁移连接留下的 WAL 脚手架：只换主文件的话，SQLite 下次打开
   // 对着「还原后的旧主文件」重放遗留帧（帧校验和链不校验与主库同一性），
-  // 产出备份页+迁移页的嵌合库——三件一起还原。删除顺序：先 -wal/-shm 后
-  // 主文件——伴生件删除失败时主文件仍在盘上（R2-03：反序会把现网主文件
-  // 先删掉、错误路径套错误路径）。
-  for (const QString &suffix : {QStringLiteral("-wal"), QStringLiteral("-shm"),
-                                QString()}) {
+  // 产出备份页+迁移页的嵌合库——三件一起还原。
+  //
+  // #588：次序的失败窗口。旧次序 {-wal, -shm, 主文件} 里主文件删除失败
+  // （Windows 句柄未关即恒失败，见 constraintstore.h 的调用前提）时，-wal/-shm
+  // 已被删掉而旧主文件仍在盘上：下次打开丢失 WAL 里已提交的帧。改为「先把主
+  // 文件改名腾位 → 删伴生件 → 用备份落位 → 清腾位文件」，任一步失败都把主
+  // 文件改名回去，现场始终落在「旧主文件 + 旧 WAL」或「备份 + 无 WAL」二者
+  // 之一，不存在半途。
+  QString aside;
+  for (int attempt = 0; attempt < 64; ++attempt) {
+    aside = gpkgPath + QStringLiteral(".restore-old-") +
+            QString::number(QDateTime::currentMSecsSinceEpoch()) +
+            (attempt == 0 ? QString() : QStringLiteral("-%1").arg(attempt));
+    if (!QFile::exists(aside))
+      break;
+  }
+  if (QFile::exists(aside))
+    return bad(QObject::tr("严重：腾位文件名被占用，保持现场不动：%1").arg(aside));
+  if (QFile::exists(gpkgPath) && !QFile::rename(gpkgPath, aside))
+    return bad(QObject::tr("严重：无法腾出待还原文件 %1（文件被占用？）").arg(gpkgPath));
+  // 现场回滚：把腾位的主文件改回原位。改不回去时如实报双重故障。
+  const auto rollback = [&](const QString &message) {
+    if (QFile::exists(aside) && !QFile::rename(aside, gpkgPath))
+      return bad(QObject::tr("严重：%1；且无法把 %2 改回 %3，请人工恢复").arg(message, aside,
+                                                                             gpkgPath));
+    return bad(message);
+  };
+  for (const QString &suffix : {QStringLiteral("-wal"), QStringLiteral("-shm")}) {
     const QString target = gpkgPath + suffix;
     if (QFile::exists(target) && !QFile::remove(target))
-      return bad(QObject::tr("严重：无法移除待还原文件 %1（文件被占用？）").arg(target));
+      return rollback(QObject::tr("严重：无法移除待还原文件 %1（文件被占用？）").arg(target));
   }
   if (!QFile::copy(backupPath, gpkgPath) ||
       QFileInfo(backupPath).size() != QFileInfo(gpkgPath).size())
-    return bad(QObject::tr("严重：从备份还原失败，原文件可能缺失，备份在 %1").arg(backupPath));
+    return rollback(
+        QObject::tr("严重：从备份还原失败，原文件可能缺失，备份在 %1").arg(backupPath));
+  // 腾位文件：清不掉也只是个残留副本，不影响库的打开。
+  QFile::remove(aside);
   return true;
 }
 

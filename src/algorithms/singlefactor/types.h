@@ -165,8 +165,10 @@ struct ResolvedParameters
   double variogramAnisotropyRatio = 0; // <=0 = 用方位拟合结果；>=1 显式覆盖
   // 克里金邻域：0 = 分量内全部样本（远场平台口径，每格 O(n³)）；>0 封顶 64。
   int krigingMaxPoints = 16;
-  // 只作用于「半径闸」：邻域少于该值即不算克里金。IDW 侧的 minPoints 是另一口径
-  //（正权重个数闸），两者不自动同步——生产入口目前固定 1。
+  // 克里金邻域最少点数：邻域少于该值即不算克里金（该格回落 IDW）。无半径的
+  // 最近 K 模式同样生效——DomainExtrapolation 下 searchRadius 被 reset 成空值
+  // （support.cpp），半径分支恒假，此闸是那里唯一的最少点数兜底。IDW 侧的
+  // minPoints 是另一口径（正权重个数闸），两者不自动同步——生产入口固定 1。
   int krigingMinPoints = 1;
   double variogramFitR2 = 0;   // 自动拟合的拟合优度（可负；未拟合时为 0）
   double variogramFitRmse = 0; // 同上
@@ -190,6 +192,10 @@ struct PreparedInput
   int duplicateExtraRows = 0;
   int conflictRows = 0;
   std::string valueUnit;
+  // prepareSamples 是否把全部样本值 ×0.01（百分数→比例）。该变换改变栅格
+  // 数值却不进 ResolvedParameters，指纹侧必须单独记键，否则同一
+  // parameter_hash 会对应两张相差 100 倍的栅格（血缘去重误判同参数）。
+  bool percentToFraction = false;
   bool localEngineeringGrid = false;
 };
 

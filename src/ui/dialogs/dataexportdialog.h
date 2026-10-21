@@ -23,6 +23,10 @@ private:
   void refreshVersions();
   void schedulePreview();
   void updateAvailability();
+  // L5.4：行内取不到版本 id 的资产显示名（RAW scope 下没有 RAW 版本的行）。
+  QStringList rowsMissingVersion() const;
+  // L5.4：汇总文案出口——缺 RAW 版本的提示常驻，不被预览/检查文案覆盖。
+  void applySummary(const QString &base);
   DataCatalog *m_catalog;
   PaleoTaskService *m_tasks;
   QPointer<PaleoTask> m_previewTask;

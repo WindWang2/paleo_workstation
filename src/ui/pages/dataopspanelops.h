@@ -20,7 +20,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
-#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRadioButton>
@@ -28,6 +27,7 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
+#include "../notifications/paleonotify.h"
 #include "../paleotheme.h"
 #include "dataops/dataopsexport.h"
 #include "dataops/dataopsmodel.h"
@@ -170,17 +170,13 @@ private:
 };
 
 // 改型失败明细对话框（D1.5 失败路径：列出未改成的资产 + 原因）。
+// D.5：报告型提示走 PaleoNotify::report（ErrorHub 历史入账 + 模态全文）。
 inline void showBatchFailureDetail(QWidget *parent, const QString &title,
                                    const QStringList &failures)
 {
-  QMessageBox box(parent);
-  box.setObjectName(QStringLiteral("batchFailureDialog"));
-  box.setWindowTitle(title);
-  box.setIcon(QMessageBox::Warning);
-  box.setText(QObject::tr("部分操作未完成（%1 项）：").arg(failures.size()));
-  box.setDetailedText(failures.join(QLatin1Char('\n')));
-  box.setStandardButtons(QMessageBox::Ok);
-  box.exec();
+  PaleoNotify::report(parent, title,
+                      QObject::tr("部分操作未完成（%1 项）：").arg(failures.size()) +
+                          QLatin1Char('\n') + failures.join(QLatin1Char('\n')));
 }
 
 // ---- D1.6 可回收清单对话框（方向 30 收编：占用统计/滞留天数/物理删除）----
@@ -231,9 +227,9 @@ public:
     connect(m_restoreAll, &QPushButton::clicked, this, [this] { emit restoreAllRequested(); });
     connect(m_purge, &QPushButton::clicked, this, [this] {
       // D5.5：清空记录不可撤销（历史移除时间丢失）——显式确认并说明。
-      if (QMessageBox::question(this, tr("清空可回收清单"),
-                                tr("清空后这些软删记录将不可恢复。\n（catalog 中的资产记录不受影响）\n继续？")) ==
-          QMessageBox::Yes)
+      // D.5：确认走 PaleoNotify::ask（ErrorHub 入账），不用裸 QMessageBox。
+      if (PaleoNotify::ask(this, tr("清空可回收清单"),
+                           tr("清空后这些软删记录将不可恢复。\n（catalog 中的资产记录不受影响）\n继续？")))
         emit purgeAllRequested();
     });
     connect(m_purgeSelected, &QPushButton::clicked, this, [this] {
@@ -241,13 +237,14 @@ public:
       if (ids.isEmpty())
         return;
       // 物理删除 = 不可撤销的磁盘 + catalog 双清——强确认（列出后果）。
-      if (QMessageBox::question(
+      // D.5：不可逆操作的确认同样走 PaleoNotify::ask。
+      if (PaleoNotify::ask(
               this, tr("物理删除"),
               tr("将把选中的 %1 个资产从 catalog 与磁盘上彻底删除：\n"
                  "· 版本历史与链接一并清除，不可恢复；\n"
                  "· 受管文件字节被删除（外链源文件不动）；\n"
                  "· 被其他资产派生引用（血缘）的资产会被拒绝并说明。\n继续？")
-                  .arg(ids.size())) == QMessageBox::Yes)
+                  .arg(ids.size())))
         emit purgeRequested(ids);
     });
     connect(m_close, &QPushButton::clicked, this, &QDialog::reject);
@@ -378,7 +375,8 @@ inline QString exportRowsToFile(QWidget *parent, const QVector<AssetRowInfo> &ro
       json ? exportJson(rows, f) : exportCsv(rows, f).toUtf8();
   if (!writeExportFile(csvPath, content))
   {
-    QMessageBox::warning(parent, QObject::tr("导出失败"),
+    // D.5：写入失败走统一错误通道（ErrorHub 入账），不用裸 QMessageBox。
+    PaleoNotify::warning(parent, QObject::tr("导出失败"),
                          QObject::tr("无法写入文件：%1").arg(csvPath));
     return QString();
   }

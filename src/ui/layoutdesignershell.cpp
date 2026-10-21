@@ -457,7 +457,8 @@ void PaleoLayoutDesignerShell::buildItemsMenu()
     QgsLayoutItemAbstractGuiMetadata *metadata = QgsGui::layoutItemGuiRegistry()->itemMetadata( metadataId );
     if ( !metadata )
       continue;
-    QAction *a = menu->addAction( PaleoIcons::themed(metadata->creationIcon()), tr( "添加 %1" ).arg( metadata->visibleName() ) );
+    // L5.2：元素名走面板同一份本地化词表（itemDisplayName），不直显 QGIS 英文名。
+    QAction *a = menu->addAction( PaleoIcons::themed(metadata->creationIcon()), tr( "添加 %1" ).arg( m_palette->itemDisplayName( metadataId ) ) );
     a->setObjectName( QStringLiteral( "menuAddItem_%1" ).arg( metadataId ) );
     connect( a, &QAction::triggered, this, [this, metadataId]() { m_palette->requestItem( metadataId ); } );
   }

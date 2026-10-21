@@ -1,4 +1,4 @@
-// 层：界面
+// 层：视图
 #include "wellreadinesspanel.h"
 #include "../../workflow/mappingworkbench.h"
 #include <QHBoxLayout>

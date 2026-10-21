@@ -1,5 +1,5 @@
 #pragma once
-// 层：界面
+// 层：视图
 // 预测专项 P0：测井预测的批量逐井准备检查面板（编图台 predict 模式）。
 // 只呈现 MappingWorkbench::checkWellReadiness 的结论，不含任何判定规则。
 #include <QStringList>

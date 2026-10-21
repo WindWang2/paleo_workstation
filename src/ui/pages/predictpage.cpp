@@ -138,8 +138,11 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
 
   // 表单重建同时监听算法与预测类型（联动：schema 解析上下文 = 当前算法 +
   // 当前类型；换类型按默认值重建，保持表单无隐藏状态）。
+  // D.6：只接 currentIndexChanged——用户一次选择会同时发 activated 与
+  // currentIndexChanged，双接同一槽 = 一遍选择两遍全量重建（删旧控件 +
+  // 快照 carry + 按 schema 重建）；且程序化 setCurrentIndex（setAlgorithms
+  // 重填、测试驱动）只发 currentIndexChanged，接 activated 会漏重建。
   const auto refreshForm = [this] { rebuildSchemaForm(); };
-  connect(algos, &QComboBox::activated, this, refreshForm);
   connect(algos, &QComboBox::currentIndexChanged, this, refreshForm);
   connect(types, &QComboBox::currentIndexChanged, this, refreshForm);
 

@@ -5,6 +5,7 @@
 #include "paleotheme.h"
 
 #include <QComboBox>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -106,7 +107,16 @@ ReleasePanel::ReleasePanel(QWidget *parent)
       emit statusMessage(tr("发布名称不能为空"));
       return;
     }
+    // §6 单写实例降级：工程被另一实例持锁时发布页不得写 project.sqlite
+    // （readOnlyProvider 由工程存储的只读态驱动）。过了这道闸才具名落库，
+    // 刷新/对比路径的 store 也按同一只读态打开（见 refresh/diff）。
+    if (projectReadOnly())
+    {
+      emit statusMessage(tr("工程被另一个实例锁定——只读，无法创建发布"));
+      return;
+    }
     ReleaseStore store(path);
+    store.setReadOnly(false); // 已过只读闸：显式可写
     QString err;
     if (!store.open(&err))
     {
@@ -145,6 +155,7 @@ ReleasePanel::ReleasePanel(QWidget *parent)
       return;
     }
     ReleaseStore store(m_dbPath());
+    store.setReadOnly(projectReadOnly()); // 只读实例不建表、不写（§6）
     QString openErr;
     if (!store.open(&openErr))
     {
@@ -173,10 +184,12 @@ ReleasePanel::ReleasePanel(QWidget *parent)
 }
 
 void ReleasePanel::setProviders(std::function<QString()> dbPath,
-                                std::function<QVector<LayerDeclaration>()> manifestProvider)
+                                std::function<QVector<LayerDeclaration>()> manifestProvider,
+                                std::function<bool()> readOnlyProvider)
 {
   m_dbPath = std::move(dbPath);
   m_manifestProvider = std::move(manifestProvider);
+  m_readOnlyProvider = std::move(readOnlyProvider);
   refresh();
 }
 
@@ -192,6 +205,10 @@ void ReleasePanel::refresh()
   comboA->clear();
   comboB->clear();
 
+  // 单写实例降级（§6）：只读实例禁用创建入口（读面/对比照常）。
+  if (auto *createBtn = findChild<QPushButton *>(QStringLiteral("createReleaseButton")))
+    createBtn->setEnabled(!projectReadOnly());
+
   // 空态文案：不留白板（无工程 / 库打不开 / 还没有发布，三种含义分清）。
   const auto showEmptyGuidance = [list](const QString &text) {
     auto *it = new QTreeWidgetItem(list, {text}); // 构造即挂树
@@ -206,7 +223,17 @@ void ReleasePanel::refresh()
     return;
   }
 
+  // 只读实例：发布库走只读连接（不建表、不写——§6）。可写时才建 schema。
+  const bool readOnly = projectReadOnly();
+  // 只读 + 库文件还没建（新工程/从未发布）：不得建库（#80），按空态处理，
+  // 不报「发布库打开失败」。
+  if (readOnly && !QFileInfo::exists(m_dbPath()))
+  {
+    showEmptyGuidance(tr("还没有发布 — 工程被另一个实例锁定（只读），不能创建发布"));
+    return;
+  }
   ReleaseStore store(m_dbPath());
+  store.setReadOnly(readOnly);
   QString openErr;
   if (!store.open(&openErr))
   {
@@ -225,7 +252,10 @@ void ReleasePanel::refresh()
     comboB->addItem(label, r.id);
   }
   if (list->topLevelItemCount() == 0)
-    showEmptyGuidance(tr("还没有发布 — 在下方填名称后点「创建发布」"));
+  {
+    showEmptyGuidance(readOnly ? tr("还没有发布 — 工程被另一个实例锁定（只读），不能创建发布")
+                               : tr("还没有发布 — 在下方填名称后点「创建发布」"));
+  }
   if (comboB->count() > 1)
     comboB->setCurrentIndex(comboB->count() - 1); // newest as the default "to"
 }

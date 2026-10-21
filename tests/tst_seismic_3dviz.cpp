@@ -37,9 +37,15 @@ private slots:
 
     // ---- 块1 TF ----
     void tfModelBasics();
+    void colorMapSingleStopLut();
     void tfEditorDragUpdatesAlpha();
     void tfOffscreenRealtimePixels();
     void panelTfZeroRefetch();
+
+    // ---- 块1b 体渲染堆叠层暂存（GL 未就绪不静默丢层）----
+    void stackLayerStagedBeforeGlReady();
+    void stackLayerClearOnVolumeSwitch();
+    void stackLayerStagedReplayAfterInit();
 
     // ---- 块2 任意斜剖面 / 栅栏 ----
     void lineSectionOffscreenPixels();
@@ -134,6 +140,167 @@ void TestSeismic3DViz::tfModelBasics() {
     QCOMPARE(bytes.size(), std::size_t(4));
     QCOMPARE(bytes[1], static_cast<unsigned char>(255));
     QCOMPARE(bytes[3], static_cast<unsigned char>(0));
+}
+
+// ---- 块1（L3.10）：单控制点 colormap 不得越界读 stops_[1] ----
+// 同族 Seismic3DTransferFunction::buildLutRgba 已有 #412 单 stop 守卫；
+// Seismic3DColorMap::buildLut 原先只判 isEmpty，n==1 时 while 立假、
+// stops_[k+1] 越界（QVector operator[] 无边界检查）。
+void TestSeismic3DViz::colorMapSingleStopLut() {
+    Seismic3DColorMap cmap;
+    cmap.setStops({Seismic3DColorStop{0.5f, qRgb(10, 20, 30)}});
+    QCOMPARE(cmap.stops().size(), 1);
+    const std::vector<QRgb> lut = cmap.buildLut();
+    QCOMPARE(lut.size(), std::size_t(256));
+    for (const QRgb c : lut)
+        QCOMPARE(c, qRgb(10, 20, 30)); // 单点整体取该 stop 色（含 alpha 255）
+
+    // 空 stops 仍是灰兜底（既有语义不动）
+    Seismic3DColorMap empty;
+    const std::vector<QRgb> grey = empty.buildLut();
+    QCOMPARE(grey.size(), std::size_t(256));
+    QCOMPARE(grey[0], qRgba(128, 128, 128, 255));
+}
+
+// ---- 块1b（D.14）：GL 未就绪时堆叠层暂存而非静默丢弃 ----
+// 面板 glReady 只重发三槽切片不补堆叠层；此前 updateStackLayer 直接
+// return false，首帧 paint 前开体渲染会静默丢 16 层（stackMode_ 真、
+// 一层不显示）。视口不 show → 不建 GL 上下文，本用例不依赖 GL 环境。
+void TestSeismic3DViz::stackLayerStagedBeforeGlReady() {
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    Seismic3DViewportWidget viewport;
+    viewport.resize(400, 300);
+    viewport.setVolume(vol);
+    QVERIFY(!viewport.isGlReady());
+
+    SgySliceImage img;
+    std::string err;
+    QVERIFY(vol->ExtractSlice(SgySliceType::Time, vol->SampleMax() / 2, img, err));
+    QVERIFY(img.width > 0 && img.height > 0);
+
+    for (int layer = 0; layer < 4; ++layer)
+        QVERIFY2(viewport.updateStackLayer(layer, vol->SampleMax() / 2, img),
+                 qPrintable(QStringLiteral("第 %1 层应暂存而非丢弃").arg(layer)));
+    QVERIFY(viewport.hasPendingStackLayers());
+
+    // 同一 layerIdx 重复入列只留最后一次（实现侧去重；暂存容器不无限追加）
+    QVERIFY(viewport.updateStackLayer(2, vol->SampleMax() / 2, img));
+    QVERIFY(viewport.hasPendingStackLayers());
+
+    // 越界层号仍拒绝（不进暂存）
+    QVERIFY(!viewport.updateStackLayer(SeismicSliceRenderer::kMaxStackLayers, 0, img));
+    QVERIFY(!viewport.updateStackLayer(-1, 0, img));
+
+    // 换体丢弃未上传的堆叠层（层按体归一化，旧体层对新体无效）
+    viewport.setVolume(vol);
+    QVERIFY(!viewport.hasPendingStackLayers());
+}
+
+// ---- 块1c（D.13）：堆叠层按体而异——换体清场后旧层不再就绪、可重传 ----
+// 渲染器原语层断言（视口侧 setVolume 的 ResetForVolumeChange 调用依赖它）。
+void TestSeismic3DViz::stackLayerClearOnVolumeSwitch() {
+    QSurfaceFormat format;
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    QOffscreenSurface surface;
+    surface.setFormat(format);
+    surface.create();
+    if (!surface.isValid())
+        QSKIP("offscreen surface unavailable");
+    QOpenGLContext context;
+    context.setFormat(format);
+    if (!context.create() || !context.makeCurrent(&surface))
+        QSKIP("OpenGL context could not be created in this environment");
+    QOpenGLFunctions_3_3_Core gl;
+    if (!gl.initializeOpenGLFunctions())
+        QSKIP("OpenGL 3.3 Core functions not available");
+
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    SeismicSliceRenderer renderer;
+    QVERIFY(renderer.Initialize(&gl));
+
+    SgySliceImage img;
+    std::string err;
+    QVERIFY(vol->ExtractSlice(SgySliceType::Time, vol->SampleMax() / 2, img, err));
+    QVERIFY(!img.values.empty());
+    // TF 模式：values 直传（与面板堆叠通道同一口径）
+    Seismic3DTransferFunction tf;
+    tf.setStops({{0.0f, qRgb(60, 60, 60), 1.0f},
+                 {1.0f, qRgb(200, 200, 200), 1.0f}});
+    QVERIFY(renderer.SetTransferFunction(&gl, tf.buildLutRgba(), true));
+
+    QVERIFY(renderer.UpdateStackLayer(&gl, 0, *vol, vol->SampleMax() / 2, img));
+    QVERIFY(renderer.IsStackLayerReady(0));
+    QVERIFY(!renderer.IsStackLayerReady(1));
+    QVERIFY(!renderer.IsStackLayerReady(SeismicSliceRenderer::kMaxStackLayers)); // 越界安全
+
+    // 换体清场：就绪位清零（纹理对象保留复用），旧体几何不再绘制
+    renderer.ResetForVolumeChange();
+    QVERIFY(!renderer.IsStackLayerReady(0));
+
+    // 清场后同一层索引可重传（复用同一 GL 对象）
+    QVERIFY(renderer.UpdateStackLayer(&gl, 0, *vol, vol->SampleMax() / 2, img));
+    QVERIFY(renderer.IsStackLayerReady(0));
+
+    renderer.Cleanup(&gl);
+}
+
+// ---- 块1d（D.14）：Initialize 前到达的堆叠层暂存 → Initialize 后补传 ----
+// 面板 glReady 只重发三槽切片不补堆叠层，渲染器内暂存是唯一兜底。
+void TestSeismic3DViz::stackLayerStagedReplayAfterInit() {
+    QSurfaceFormat format;
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    QOffscreenSurface surface;
+    surface.setFormat(format);
+    surface.create();
+    if (!surface.isValid())
+        QSKIP("offscreen surface unavailable");
+    QOpenGLContext context;
+    context.setFormat(format);
+    if (!context.create() || !context.makeCurrent(&surface))
+        QSKIP("OpenGL context could not be created in this environment");
+    QOpenGLFunctions_3_3_Core gl;
+    if (!gl.initializeOpenGLFunctions())
+        QSKIP("OpenGL 3.3 Core functions not available");
+
+    auto vol = loadFixtureVolume();
+    QVERIFY(vol != nullptr);
+
+    SeismicSliceRenderer renderer;
+    SgySliceImage img;
+    std::string err;
+    QVERIFY(vol->ExtractSlice(SgySliceType::Time, vol->SampleMax() / 2, img, err));
+    QVERIFY(!img.values.empty());
+    Seismic3DTransferFunction tf;
+    tf.setStops({{0.0f, qRgb(60, 60, 60), 1.0f},
+                 {1.0f, qRgb(200, 200, 200), 1.0f}});
+
+    // Initialize 前：暂存而非丢弃（同层末次覆盖）
+    QVERIFY(renderer.UpdateStackLayer(&gl, 0, *vol, vol->SampleMax() / 2, img));
+    QVERIFY(renderer.UpdateStackLayer(&gl, 1, *vol, vol->SampleMax() / 2, img));
+    QVERIFY(renderer.HasStagedStackLayers());
+    QVERIFY(!renderer.UpdateStackLayer(&gl, SeismicSliceRenderer::kMaxStackLayers, *vol, 0, img));
+
+    QVERIFY(renderer.Initialize(&gl));
+    QVERIFY(renderer.SetTransferFunction(&gl, tf.buildLutRgba(), true));
+    renderer.ReplayStagedStackLayers(&gl, *vol);
+    QVERIFY(renderer.IsStackLayerReady(0));
+    QVERIFY(renderer.IsStackLayerReady(1));
+    QVERIFY(!renderer.HasStagedStackLayers()); // 补传后暂存容器清空
+
+    // 换体清场连带暂存层作废
+    QVERIFY(renderer.UpdateStackLayer(&gl, 2, *vol, vol->SampleMax() / 2, img));
+    renderer.Cleanup(&gl);
+    QVERIFY(renderer.UpdateStackLayer(&gl, 3, *vol, vol->SampleMax() / 2, img)); // 清理后再入 → 暂存
+    renderer.ResetForVolumeChange();
+    QVERIFY(!renderer.HasStagedStackLayers());
+
+    renderer.Cleanup(&gl);
 }
 
 // ---- 块1：TF 编辑器（拖拽改不透明度 → 信号实时外发）----

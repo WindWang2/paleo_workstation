@@ -30,6 +30,36 @@ namespace
 {
 using paleo::qgis_detail::setError;
 
+// 等值线 GPKG 落盘走「同目录临时文件 + 成功后原子替换」（#588 B.13）：
+// 直接 remove 旧文件再 GDALCreate，一旦创建失败（磁盘满/权限/驱动缺失）
+// 旧产物已被删除，用户拿到错误却两边都没有输出。
+QString stagingPathFor( const QString &outputGpkg )
+{
+  return outputGpkg + QStringLiteral( ".tmp" );
+}
+
+// 写成功后把临时文件换成正式产物；失败（含临时文件缺失）返回 false，
+// 此时正式产物保持调用前状态（不存在或仍是上一版）。
+bool commitStagingGpkg( const QString &stagingGpkg, const QString &outputGpkg,
+                        QString *error )
+{
+  if ( !QFile::exists( stagingGpkg ) )
+  {
+    setError( error, QStringLiteral( "contour run reported success but '%1' is missing" )
+                          .arg( stagingGpkg ) );
+    return false;
+  }
+  QFile::remove( outputGpkg );
+  if ( !QFile::rename( stagingGpkg, outputGpkg ) )
+  {
+    setError( error, QStringLiteral( "cannot move contour output into place: %1" )
+                          .arg( outputGpkg ) );
+    QFile::remove( stagingGpkg );
+    return false;
+  }
+  return true;
+}
+
 } // namespace
 
 namespace FactorContourService
@@ -94,8 +124,9 @@ bool generateWithOption(const QString &rasterPath, const QString &outputGpkg,
     }
   }
 
-  // GPKG 输出（OGR 面）；同路径重生成 → 先移除旧文件保证幂等。
-  QFile::remove( outputGpkg );
+  // GPKG 输出（OGR 面）：先写临时文件再原子替换，失败不影响旧产物。
+  const QString stagingGpkg = stagingPathFor( outputGpkg );
+  QFile::remove( stagingGpkg );
   GDALDriverH drv = GDALGetDriverByName( "GPKG" );
   if ( !drv )
   {
@@ -103,7 +134,7 @@ bool generateWithOption(const QString &rasterPath, const QString &outputGpkg,
     GDALClose( src );
     return false;
   }
-  GDALDatasetH ds = GDALCreate( drv, outputGpkg.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
+  GDALDatasetH ds = GDALCreate( drv, stagingGpkg.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
   if ( !ds )
   {
     setError( error, QStringLiteral( "cannot create contour output '%1'" ).arg( outputGpkg ) );
@@ -122,6 +153,7 @@ bool generateWithOption(const QString &rasterPath, const QString &outputGpkg,
   {
     setError( error, QStringLiteral( "cannot create layer 'contours' in '%1'" ).arg( outputGpkg ) );
     GDALClose( ds );
+    QFile::remove( stagingGpkg );
     GDALClose( src );
     return false;
   }
@@ -158,14 +190,10 @@ bool generateWithOption(const QString &rasterPath, const QString &outputGpkg,
   if ( rc != CE_None )
   {
     setError( error, QStringLiteral( "GDALContourGenerateEx failed (rc=%1)" ).arg( int( rc ) ) );
+    QFile::remove( stagingGpkg );
     return false;
   }
-  if ( !QFile::exists( outputGpkg ) )
-  {
-    setError( error, QStringLiteral( "contour run reported success but '%1' is missing" ).arg( outputGpkg ) );
-    return false;
-  }
-  return true;
+  return commitStagingGpkg( stagingGpkg, outputGpkg, error );
 }
 } // namespace
 
@@ -370,7 +398,9 @@ bool writeFieldContourGpkg( const QString &outputGpkg, OGRSpatialReferenceH srs,
                             const paleo::singlefactor::FieldContourResult &result,
                             QString *error )
 {
-  QFile::remove( outputGpkg );
+  // 同 generateWithOption：临时文件 + 原子替换，失败不毁旧产物。
+  const QString stagingGpkg = stagingPathFor( outputGpkg );
+  QFile::remove( stagingGpkg );
   GDALDriverH drv = GDALGetDriverByName( "GPKG" );
   if ( !drv )
   {
@@ -378,7 +408,7 @@ bool writeFieldContourGpkg( const QString &outputGpkg, OGRSpatialReferenceH srs,
     OSRDestroySpatialReference( srs );
     return false;
   }
-  GDALDatasetH ds = GDALCreate( drv, outputGpkg.toUtf8().constData(), 0, 0, 0,
+  GDALDatasetH ds = GDALCreate( drv, stagingGpkg.toUtf8().constData(), 0, 0, 0,
                                 GDT_Unknown, nullptr );
   if ( !ds )
   {
@@ -393,6 +423,7 @@ bool writeFieldContourGpkg( const QString &outputGpkg, OGRSpatialReferenceH srs,
   {
     setError( error, QStringLiteral( "cannot create layer 'contours' in '%1'" ).arg( outputGpkg ) );
     GDALClose( ds );
+    QFile::remove( stagingGpkg );
     return false;
   }
   createFieldDef( layer, "level", OFTReal );
@@ -455,14 +486,10 @@ bool writeFieldContourGpkg( const QString &outputGpkg, OGRSpatialReferenceH srs,
   if ( !wrote )
   {
     setError( error, writeErr );
+    QFile::remove( stagingGpkg );
     return false;
   }
-  if ( !QFile::exists( outputGpkg ) )
-  {
-    setError( error, QStringLiteral( "contour run reported success but '%1' is missing" ).arg( outputGpkg ) );
-    return false;
-  }
-  return true;
+  return commitStagingGpkg( stagingGpkg, outputGpkg, error );
 }
 } // namespace
 
@@ -720,8 +747,9 @@ void requestContours(const QString &rasterPath, const QString &outputGpkg,
             rasterPath, outputGpkg, interval, &error,
             [running] { return running->cancelRequested(); },
             [running](double p) { running->reportStage("build", qRound(p)); });
-        if (!ok || running->cancelRequested())
-          QFile::remove(outputGpkg);
+        // 不删正式输出：等值线走「临时文件 + 成功后原子替换」，失败/取消时
+        // 正式产物保持调用前状态（不存在或仍是上一版）。这里再 remove 会把
+        // 上一版好产物一起删掉，用户拿到错误却两边都没有输出（#588 B.13）。
         return ok ? QString() : error;
       },
       {}, true);

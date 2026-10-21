@@ -13,6 +13,7 @@
 
 #include <QComboBox>
 #include <QLabel>
+#include <QPdfView>
 #include <QPushButton>
 #include <QSpinBox>
 
@@ -79,6 +80,8 @@ private slots:
   void managedMissingShowsNoRelocateButton();
   void relocateViaTabsRebuildsPreview();
   void relocateViaTabsMismatchKeepsDeadEndThenRecovers();
+  // document 分支（#597 H4）：重定位后预览锚最高号 RAW，不是表中第一条。
+  void relocatedDocumentPreviewAnchorsLatestRaw();
 
 private:
   // 搭一台外链地震资产：源从 tmp 里导入（SEG-Y 一律外链），返回 (assetId, verId, 源路径)。
@@ -342,6 +345,53 @@ void TestRelocate::relocateViaTabsMismatchKeepsDeadEndThenRecovers()
   // 再挑对文件：恢复。
   QVERIFY(pv.relocateMissingSourceWith(ex.assetId, ex.versionId, right));
   QVERIFY(!pv.isMissingSourceState(ex.assetId));
+}
+
+// #597 H4：外链 document 资产重定位后，重建的预览必须锚到**新追加**的那条
+// RAW（最高号），而不是「表中第一条 RAW」——relocateVersionSource 是追加语义，
+// 第一条 RAW 恒为重定位前那条已不存在的死路径；锚它就会让预览永远停在
+// 「找不到源文件」，且用户每次重试都白往 catalog 追加一条重复 RAW。
+// （此前测试只走 mini_seismic.sgy 的 seismic 分支，document 分支无覆盖。）
+void TestRelocate::relocatedDocumentPreviewAnchorsLatestRaw()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  // 外链 PDF（document 分支）：链接外部导入，不复制进工程目录。
+  const QString src = tmp.filePath(QStringLiteral("doc/tiny.pdf"));
+  QVERIFY(QDir().mkpath(QFileInfo(src).absolutePath()));
+  QVERIFY(QFile::copy(fixture(QStringLiteral("tiny.pdf")), src));
+  QString err;
+  DataImportService::ImportOptions opt;
+  opt.linkExternal = true;
+  const QString assetId = st->importSvc->importProjectFile(src, opt, &err);
+  QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+  const CatalogVersion v1 = st->importSvc->catalog()->currentVersion(assetId);
+  QVERIFY2(!v1.managed, "链接外部导入必须是外链版本");
+  QCOMPARE(v1.stage, QStringLiteral("RAW"));
+
+  const QString moved = tmp.filePath(QStringLiteral("elsewhere/tiny.pdf"));
+  QVERIFY(QDir().mkpath(QFileInfo(moved).absolutePath()));
+  QVERIFY(QFile::rename(src, moved));
+
+  DataPreviewTabs pv;
+  pv.setImportService(st->importSvc.get());
+  pv.openAsset(assetId);
+  QVERIFY(pv.isMissingSourceState(assetId)); // 死胡同成立
+  QVERIFY(pv.relocateMissingSourceWith(assetId, v1.id, moved));
+
+  // 重定位 = 追加新 RAW、旧死路径记录留表：表里第一条 RAW 仍是已消失的旧路径。
+  const QVector<CatalogVersion> versions =
+      st->importSvc->catalog()->versionsForAsset(assetId);
+  QCOMPARE(versions.size(), 2);
+  QVERIFY(versions.first().versionNumber < versions.last().versionNumber);
+  QVERIFY2(!QFile::exists(versions.first().path),
+           "旧死路径记录应原样留在表里（版本记录不可变）");
+  // 预览锚到新 RAW → 死胡同解除，回到 QtPdf 正文。
+  QVERIFY2(!pv.isMissingSourceState(assetId),
+           "重定位后 document 预览不得仍停在「找不到源文件」");
+  QVERIFY2(pv.findChild<QPdfView *>(QStringLiteral("pdfView")),
+           "重定位后 document 预览应回到 QtPdf 正文");
 }
 
 int main(int argc, char *argv[])

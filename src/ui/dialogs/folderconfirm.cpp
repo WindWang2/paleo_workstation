@@ -300,6 +300,35 @@ QString folderEstimateText(const QVector<FolderPreviewRow> &rows)
   return text;
 }
 
+// T2 错误行报告：失败行明细（路径: 原因，至多 5 行 + 「等 n 项」）写进 errorReport
+// 标签，无失败则隐藏。从 buildFolderConfirmDialog 抽出（E.3：该函数体规模受
+// file-budget 冻结值约束、只缩不涨，这段自成一体的报告逻辑独立成辅函数）。
+void showFolderFailureReport(QLabel *errorReport, const QString &dir,
+                             const QVector<FolderRowResult> &res)
+{
+  QStringList failures;
+  for (const FolderRowResult &rowRes : res)
+    if (rowRes.outcome == FolderRowResult::Outcome::Failed)
+      failures.append(
+          QObject::tr("%1：%2")
+              .arg(QDir::isAbsolutePath(rowRes.path)
+                       ? QDir(dir).relativeFilePath(rowRes.path)
+                       : rowRes.path,
+                   rowRes.message.isEmpty() ? QObject::tr("导入失败")
+                                            : rowRes.message));
+  if (failures.isEmpty())
+  {
+    errorReport->hide();
+    return;
+  }
+  const int shown = qMin(5, failures.size());
+  QString text = failures.mid(0, shown).join(QLatin1Char('\n'));
+  if (failures.size() > shown)
+    text += QObject::tr("\n…等共 %1 项失败").arg(failures.size());
+  errorReport->setText(text);
+  errorReport->show();
+}
+
 // 导入完成后预览聚焦哪个资产：优先井头文件；无井头时回落到最后一个导入
 // 成功/未决的文档类行（#549/#566 引入的口径，抽出以守住 buildFolderConfirmDialog
 // 的 file_budget 冻结面——行为零变更）。
@@ -605,28 +634,7 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
       }
       summary->setText(folderImportSummaryText(*results));
       summary->show();
-      // T2 错误行报告：失败行明细（至多 5 行 + 余量计数）；无失败则隐藏。
-      QStringList failures;
-      for (const FolderRowResult &rowRes : res)
-        if (rowRes.outcome == FolderRowResult::Outcome::Failed)
-          failures.append(
-              QObject::tr("%1：%2")
-                  .arg(QDir::isAbsolutePath(rowRes.path)
-                           ? QDir(dir).relativeFilePath(rowRes.path)
-                           : rowRes.path,
-                       rowRes.message.isEmpty() ? QObject::tr("导入失败")
-                                                : rowRes.message));
-      if (!failures.isEmpty())
-      {
-        const int shown = qMin(5, failures.size());
-        QString text = failures.mid(0, shown).join(QLatin1Char('\n'));
-        if (failures.size() > shown)
-          text += QObject::tr("\n…等共 %1 项失败").arg(failures.size());
-        errorReport->setText(text);
-        errorReport->show();
-      }
-      else
-        errorReport->hide();
+      showFolderFailureReport(errorReport, dir, res);
       // 有未决行才露「查看未决」入口（T31）。
       bool anyUnresolved = false;
       for (const auto &rowRes : *results)

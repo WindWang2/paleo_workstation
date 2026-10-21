@@ -158,10 +158,14 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   for (const auto &well : wells) ids << well.id;
   const auto lithologies = sandMetric ? lithology.lithologiesFor(ids, &lithologyWarnings) : QHash<QString, QVector<wellsection::LithoSegment>>();
   // 岩性词表是循环不变量（projectDir/catalog 在整轮里不变）：提前一次构造。
-  // 原实现逐井调 fromProject——W 口井 = W×(读盘+JSON 解析+两遍默认词表重建)。
+  // 原实现逐井调 fromProject——W 口井 = W×(读盘+JSON 解析+两遍默认词表重建）。
+  QString lexiconError;
   const paleo::domain::LithoLexicon lex = metrics
-      ? paleo::domain::LithoLexicon::fromProject(wf->projectDir(), wf->catalog())
+      ? paleo::domain::LithoLexicon::fromProject(wf->projectDir(), &lexiconError, wf->catalog())
       : paleo::domain::LithoLexicon::defaultLexicon();
+  // 坏词表不再静默回落：原因进用户可见的 sandReason（同 lithologiesFor 警告口径）。
+  if (!lexiconError.isEmpty())
+    lithologyWarnings << ConstraintWorkflow::tr("岩性词表：%1（已回退内置词表）").arg(lexiconError);
   QHash<QString, int> byId, byName;
   // 目录井按行认领记录（entity id）：规范化名碰撞守卫——目标行已被另一口
   // 目录井认领时，后来的井不合并进该行（原实现改写 row.id/name，前一口井

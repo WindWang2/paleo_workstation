@@ -271,10 +271,12 @@ private slots:
     std::shared_ptr<const SgySliceImage> first, second;
     QElapsedTimer clock;
     clock.start();
-    svc.startSectionExtraction(volume, path, SgySectionOptions{},
+    // 未命中：走真实提取，起一个 quiet 任务（返回非空任务句柄）。
+    PaleoTask *firstTask = svc.startSectionExtraction(volume, path, SgySectionOptions{},
         [&](bool ok, std::shared_ptr<const SgySliceImage> img, const SgySectionStats &, const QString &) {
           if (ok) { first = img; ++finished; }
         });
+    QVERIFY(firstTask != nullptr);
     QTRY_COMPARE_WITH_TIMEOUT(finished, 1, 30000);
     const qint64 firstMs = clock.elapsed();
     QVERIFY(first != nullptr);
@@ -282,18 +284,20 @@ private slots:
 
     clock.restart();
     int secondFinished = 0;
-    svc.startSectionExtraction(volume, path, SgySectionOptions{},
+    // 命中：直接出缓存、经单发 QTimer 回调——不再起提取任务（返回空句柄）。
+    // 这条确定性行为断言取代原「第二次更快」的墙钟口径：非 perf 套件在并行
+    // 门禁车道里做相对墙钟断言，perfbudget 放宽机制救不了，也未登记红名单。
+    PaleoTask *secondTask = svc.startSectionExtraction(volume, path, SgySectionOptions{},
         [&](bool ok, std::shared_ptr<const SgySliceImage> img, const SgySectionStats &, const QString &) {
           if (ok) { second = img; ++secondFinished; }
         });
+    QVERIFY2(secondTask == nullptr, "缓存命中不得再起提取任务");
     QTRY_COMPARE_WITH_TIMEOUT(secondFinished, 1, 5000);
     const qint64 secondMs = clock.elapsed();
     QVERIFY(second != nullptr);
     QCOMPARE(second->width, first->width);
     QCOMPARE(second->values, first->values);
     qInfo("section cache: first=%lldms second=%lldms", firstMs, secondMs);
-    QVERIFY2(secondMs <= firstMs + 3,
-             qPrintable(QStringLiteral("cache hit %1 not faster than %2").arg(secondMs).arg(firstMs)));
     // RUNTIME-04 钉死：缓存命中的单发 QTimer 必须在事件循环回收后清干净
     // （deleteLater 的延迟删除由 QTRY 的循环处理），不得残留子对象。
     QVERIFY(svc.findChildren<QTimer *>().isEmpty());

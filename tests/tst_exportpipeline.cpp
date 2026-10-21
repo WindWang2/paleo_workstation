@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QDialogButtonBox>
 #include <QLabel>
+#include <QTableWidget>
 #include <QAction>
 #include "../src/ui/paleomainwindow.h"
 #include "../src/qgis/geologicalmaplayout.h"
@@ -236,6 +237,32 @@ private slots:
     dialog.findChild<QLineEdit *>("dataExportDirectory")->setText(tmp.path());
     QVERIFY(dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->isEnabled());
     QVERIFY(QDir(tmp.path()).entryList({"paleo_export_*"}, QDir::Dirs).isEmpty());
+  }
+  // L5.4：RAW scope 下某资产没有 RAW 版本时，行内下拉必须显式占位、汇总点名该
+  // 资产、导出按钮禁用，且 request() 不再把空 versionId 送进 DataRequest
+  // （原先下游只回一条主语为空的「来源版本缺失：」，资产还被静默排除）。
+  void rawScopeWithoutRawVersionIsNamedAndBlocked() {
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
+    CatalogAsset asset; asset.id = cat.nextAssetId(); asset.displayName = "fixture.gpkg"; asset.type = "boundary"; asset.format = "gpkg"; QVERIFY(cat.addAsset(asset));
+    CatalogVersion version; version.id = cat.nextVersionId(); version.assetId = asset.id; version.stage = "OUTPUT";
+    version.managed = false; version.path = FIXTURE_GPKG; version.fileName = "fixture.gpkg"; version.sha256 = DataCatalog::sha256FileHex(version.path); QVERIFY(cat.addVersion(version));
+    DataExportDialog dialog(&cat, {asset.id}, &tasks);
+    auto *scope = dialog.findChild<QComboBox *>("dataExportScope"); QVERIFY(scope);
+    scope->setCurrentIndex(1); // 原始文件（RAW）
+    auto *summary = dialog.findChild<QLabel *>("dataExportSummary"); QVERIFY(summary);
+    auto *versions = dialog.findChild<QTableWidget *>("dataExportVersions"); QVERIFY(versions);
+    auto *combo = qobject_cast<QComboBox *>(versions->cellWidget(0, 1)); QVERIFY(combo);
+    QCOMPARE(combo->count(), 1);                       // 显式占位项，不留空下拉
+    QVERIFY(combo->currentData().toString().isEmpty());
+    QVERIFY(!combo->isEnabled());
+    QVERIFY(summary->text().contains(QStringLiteral("没有 RAW")));
+    QVERIFY(summary->text().contains(asset.displayName));
+    QVERIFY(!dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->isEnabled());
+    QVERIFY(dialog.request().versionIds.isEmpty());    // 空 id 不进请求
+    // 换回「当前成果」即恢复可选：占位与提示都退场。
+    scope->setCurrentIndex(0);
+    QVERIFY(summary->text().contains(QStringLiteral("正在检查")));
+    QCOMPARE(dialog.request().versionIds, QStringList{version.id});
   }
   void worldFilesAndTransparentPaperKeepTheOriginalLayout() {
     QTemporaryDir tmp; QgsProject project; auto *layer = points(project);

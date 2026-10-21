@@ -8,6 +8,7 @@
 #include <QTreeWidget>
 #include <QShortcut>
 #include <QFile>
+#include <cmath>
 
 // wave/ux-polish：视觉取证截图只经 PALEO_UI_CAPTURE 开关落盘（tst_ui.cpp
 // 同款惯例）——路径形如 $PALEO_UI_CAPTURE/<name>.png，未设则完全跳过；
@@ -71,6 +72,38 @@ private slots:
     WellCompositePanel panel;
     uipolish::capturePanel(&panel, QStringLiteral("wellcomposite_empty"),
                            QSize(1000, 700));
+  }
+
+  // ---- #412 短边裁口径：depths/values 不等长时 valueAtDepth 不得越界读 ----
+  // 道头实时读数（paintHeader）与悬停 tooltip 都经本函数取值；坏数据井
+  // （上游裁剪只补一半 values）下 QVector::at 越界在 release 无边界检查。
+  void testCurveValueAtDepthShortSideGuard()
+  {
+    CurveData bad;
+    bad.name = QStringLiteral("GR");
+    bad.depths = {1000.0f, 1100.0f, 1200.0f, 1300.0f, 1400.0f};
+    bad.values = {10.0f, 20.0f}; // 短边：values 只有 2 个
+
+    // 全区间取值都收敛到 values 短边内（末值 20）：不越界、不 NaN
+    for (const float d : {1005.0f, 1150.0f, 1250.0f, 1399.0f})
+    {
+      const float v = bad.valueAtDepth(d);
+      QVERIFY2(std::isfinite(v), "short-side read produced non-finite value");
+      QVERIFY(v >= 10.0f && v <= 20.0f);
+    }
+    // 端点口径不变
+    QCOMPARE(bad.valueAtDepth(1000.0f), 10.0f);
+    QCOMPARE(bad.valueAtDepth(1400.0f), 20.0f);
+
+    // 等长数据插值口径不变（回归）
+    CurveData ok;
+    ok.depths = {1000.0f, 1100.0f, 1200.0f};
+    ok.values = {10.0f, 20.0f, 30.0f};
+    QCOMPARE(ok.valueAtDepth(1150.0f), 25.0f);
+
+    // 空曲线仍如实 NaN（缺失不伪造 0）
+    CurveData empty;
+    QVERIFY(!std::isfinite(empty.valueAtDepth(1200.0f)));
   }
 
   void testLithologyPatterns()

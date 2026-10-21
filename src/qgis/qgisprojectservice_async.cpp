@@ -141,7 +141,7 @@ bool QgisProjectService::openProjectAsync(const QString &input)
         return;
       }
       if (!ok)
-        state->warnings << QStringLiteral("工程清单无法读取：%1").arg(error);
+        state->warnings << tr("工程清单无法读取：%1").arg(error);
       if (ok) {
         state->georeference = pf.georeference;
         state->mapConfiguration = pf;
@@ -149,11 +149,11 @@ bool QgisProjectService::openProjectAsync(const QString &input)
         if (state->input.endsWith(".paleo", Qt::CaseInsensitive))
           state->path = QDir(dir).filePath(pf.qgz);
         for (const auto &member : missingMembers(dir, pf))
-          state->warnings << QStringLiteral("工程成员缺失：%1").arg(member);
+          state->warnings << tr("工程成员缺失：%1").arg(member);
       }
     }
     const QFileInfo file(state->path);
-    if (!file.isFile()) { state->error = QStringLiteral("工程 QGIS 成员不存在"); return; }
+    if (!file.isFile()) { state->error = tr("工程 QGIS 成员不存在"); return; }
     state->size = file.size(); state->modified = file.lastModified();
     if (state->cancelled.load()) return;
     state->project = std::make_unique<QgsProject>();
@@ -161,20 +161,20 @@ bool QgisProjectService::openProjectAsync(const QString &input)
                      [target = state.get()](const QDomDocument &doc) { target->document = doc.cloneNode(true).toDocument(); });
     const auto loadingConnection = QObject::connect(state->project.get(), &QgsProject::loadingLayer, state->project.get(),
                      [&promise](const QString &name) { promise.setProgressValueAndText(
-                         std::max(10, promise.future().progressValue()), QStringLiteral("后台加载图层：%1").arg(name)); });
+                         std::max(10, promise.future().progressValue()), tr("后台加载图层：%1").arg(name)); });
     const auto loadedConnection = QObject::connect(state->project.get(), &QgsProject::layerLoaded, state->project.get(),
                      [&promise](int done, int total) { promise.setProgressValue(total > 0 ? 10 + 65 * done / total : 10); });
     // QGIS 的 DontLoadLayouts 契约允许后台读项目；3D 控件同样留在 GUI 恢复。
     const bool loaded = state->project->read(state->path,
         Qgis::ProjectReadFlag::DontLoadLayouts | Qgis::ProjectReadFlag::DontLoad3DViews);
     if (!loaded || state->document.isNull()) {
-      state->error = state->project->error().isEmpty() ? QStringLiteral("工程解析失败") : state->project->error();
+      state->error = state->project->error().isEmpty() ? tr("工程解析失败") : state->project->error();
       state->project.reset();
       return;
     }
     if (state->cancelled.load()) { state->project.reset(); return; }
     if (prepareData) {
-      promise.setProgressValueAndText(76, QStringLiteral("后台读取目录库、井数据与模型索引"));
+      promise.setProgressValueAndText(76, tr("后台读取目录库、井数据与模型索引"));
       prepareData([state] { return state->cancelled.load(); });
     }
     if (state->cancelled.load()) { state->project.reset(); return; }
@@ -200,7 +200,7 @@ bool QgisProjectService::openProjectAsync(const QString &input)
     // QgsLayerTree 由 unique_ptr 持有，不是 QgsProject 的 QObject 子对象。
     state->project->layerTreeRoot()->moveToThread(ownerThread);
     state->project->moveToThread(ownerThread);
-    promise.setProgressValueAndText(80, QStringLiteral("后台读取完成，准备恢复视图"));
+    promise.setProgressValueAndText(80, tr("后台读取完成，准备恢复视图"));
   });
   watcher->setFuture(m_openFuture);
   return true;

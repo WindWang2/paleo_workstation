@@ -577,7 +577,16 @@ void View::wheelEvent(QWheelEvent *e)
   }
   QScrollBar *bar = (mods & Qt::ShiftModifier) ? horizontalScrollBar()
                                              : verticalScrollBar();
-  bar->setValue(bar->value() - delta);
+  // L3.13：平移步长归一——旧实现一步直接用原始 angleDelta（≈120 场景
+  // 像素），同一档位对应的深度跨度随 pxPerMeter（0.02~40）剧烈变化（深
+  // 剖面一档只走约 3 m）。纵向按「视口可见深度的 1/8」走（任意缩放下
+  // 每档跨度一致）；横向按固定 48 px 走（与地震剖面画布裸滚轮惯例
+  // seismicsectioncanvas_interact.cpp 对齐）。
+  const double steps = delta / 120.0;
+  const int stepPx = (mods & Qt::ShiftModifier)
+                         ? qRound(steps * 48.0)
+                         : qRound(steps * qMax(1, viewport()->height()) / 8.0);
+  bar->setValue(bar->value() - stepPx);
   e->accept();
 }
 

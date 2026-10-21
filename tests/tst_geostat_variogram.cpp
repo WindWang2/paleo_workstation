@@ -163,6 +163,7 @@ private slots:
   void anisotropicFieldStrikeRangeExceedsDipRange();
   void fitResidualWithinThreshold();
   void invalidInputs();
+  void oversizedLagRatioIsSkipped();
 };
 
 void GeostatVariogramTests::modelShapes()
@@ -290,6 +291,27 @@ void GeostatVariogramTests::invalidInputs()
 
   ExperimentalVariogram degenerate; // 无实验点
   QVERIFY( fitVariogram( degenerate, VariogramModelType::Spherical ).status == Status::InvalidInput );
+}
+
+// D5：h/lag 超过 int 表示范围的对必须被跳过而非取值后回绕成巨量 size_t
+// 下标（旧码 static_cast<int>(h/lag) 在 x86 产 INT_MIN，穿过 >= nLags 守卫
+// 后写 sumH/sumGamma/pairCount 造成堆越界）。远距对不进任何桶，正常近距
+// 对仍按原口径落桶。
+void GeostatVariogramTests::oversizedLagRatioIsSkipped()
+{
+  const std::vector<Sample> samples = { Sample{ 0, 0, 1 },        Sample{ 5, 5, 2 },
+                                       Sample{ 6, 5, 3 },        Sample{ 1e10, 0, 4 },
+                                       Sample{ 0, -1e10, 5 } };
+  const ExperimentalVariogram ev = experimentalVariogram( samples, 1.0, 8 );
+  QVERIFY2( ev.status == Status::Ok, qPrintable( QString::fromStdString( ev.message ) ) );
+  QCOMPARE( ev.nLags, 8 );
+  int binned = 0;
+  for ( int count : ev.pairCount )
+    binned += count;
+  // 3 个近距对（A-B 7.07、A-C 7.81、B-C 1）入桶；4 个 ~1e10 远距对全部跳过
+  QCOMPARE( binned, 3 );
+  QCOMPARE( ev.pairCount[static_cast<std::size_t>( 1 )], 1 ); // B-C 间距 1
+  QCOMPARE( ev.pairCount[static_cast<std::size_t>( 7 )], 2 ); // A-B / A-C
 }
 
 QTEST_MAIN( GeostatVariogramTests )

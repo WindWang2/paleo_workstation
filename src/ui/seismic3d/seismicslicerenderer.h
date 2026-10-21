@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -108,6 +109,16 @@ public:
     void SetStackVisible(bool visible) { stackVisible_ = visible; }
     [[nodiscard]] bool IsStackVisible() const { return stackVisible_; }
     void SetStackLayerVisible(int layerIdx, bool visible);
+    // D.13 换体清场：堆叠层几何/纹理按体归一化，换体即失效。纹理对象保留
+    // 复用（下次 UpdateStackLayer 走 TexSubImage/TexImage 重写），只清零就绪位。
+    void ResetForVolumeChange();
+    [[nodiscard]] bool IsStackLayerReady(int layerIdx) const;
+
+    // D.14：GL 未就绪（Initialize 前）时 UpdateStackLayer 暂存层数据，
+    // ReplayStagedStackLayers 在 Initialize 后补传——面板 glReady 只重发三槽
+    // 切片，不补堆叠层；不补传则 stackMode_ 为真却一层不显示。
+    void ReplayStagedStackLayers(QOpenGLFunctions_3_3_Core *gl, const SgyVolume &volume);
+    [[nodiscard]] bool HasStagedStackLayers() const { return !stagedStackLayers_.empty(); }
 
     void SetVisible(bool value) { visible_ = value; }
     [[nodiscard]] bool IsVisible() const { return visible_; }
@@ -139,6 +150,13 @@ private:
     std::array<bool, kMaxStackLayers> stackReady_{};
     std::array<bool, kMaxStackLayers> stackVisibleLayer_{};
     bool stackVisible_ = false;
+
+    // D.14：Initialize 前到达的堆叠层暂存（key = layerIdx，同层末次覆盖）
+    struct StagedStackLayer {
+        int sampleIndex = 0;
+        SgySliceImage image;
+    };
+    std::map<int, StagedStackLayer> stagedStackLayers_;
 
     // D3.3 透明度
     float sliceAlpha_ = 1.0f;

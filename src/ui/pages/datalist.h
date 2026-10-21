@@ -232,6 +232,10 @@ class DataListPanel : public QWidget
     QVector<NavNodeSpec> buildNavTreeSpec() const;
     QVector<NavNodeSpec> buildPaleomapNavSpec() const;
     NavNodeSpec buildOverviewNavSpec() const;
+    // E.4/E.5：层位分组分支（buildNavTreeSpec 拆出——巨型文件与函数体规模
+    // 双闸；定义在 datalist_navspec_internal.h，保持 tr() 上下文不变）。
+    void appendHorizonNavBranch(NavNodeSpec &seismicRoot,
+                                const QList<CatalogAsset> &horAssets) const;
     // 辅助资料分支（参考相图/参考资料；实现在 datalist_auxnav.cpp）。
     NavNodeSpec buildAuxiliaryNavSpec(const QList<CatalogAsset> &auxAssets) const;
     void renderNavChildren(QTreeWidgetItem *parent, const QVector<NavNodeSpec> &specs);

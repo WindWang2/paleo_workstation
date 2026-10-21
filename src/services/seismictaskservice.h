@@ -821,10 +821,12 @@ private:
                                 const SgySectionOptions &options);
 
   // A3（wave/deepen-perf）同路径瓦片请求取代：startTimeSliceTiled 对同一
-  // .sf3p 的新请求启动即取消旧在途任务（引擎按瓦片粒度协作中止——被顶替
-  // 的整图读取不再排队占并发闸）。仅服务所在线程访问（start/finished 均
-  // 队列回主线程）。
+  // .sf3p 的新请求启动即取消旧在途任务并标记 superseded（旧任务回调静默
+  // 丢弃——被顶替的任务不再发伪「已取消」失败回调，口径同体传播/属性扫描
+  // 顶替）。引擎按瓦片粒度协作中止——被顶替的整图读取不再排队占并发闸。
+  // 仅服务所在线程访问（start/finished 均队列回主线程）。
   QHash<QString, QPointer<PaleoTask>> inFlightTiledTasks_;
+  QHash<QString, std::shared_ptr<std::atomic_bool>> tiledSuperseded_;
 
   // goal/horizon-3d — 同体体传播顶替：新传播启动即取消旧在途任务并标记
   // superseded（旧任务回调静默丢弃——cancelled≠failed 口径同切片顶替）。

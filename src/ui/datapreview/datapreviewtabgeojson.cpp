@@ -113,24 +113,23 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
     DataCatalog *cat, const CatalogAsset &asset, const CatalogVersion &v,
     const QString &abs, const QString &assetId, QWidget *host, QVBoxLayout *lay)
 {
-  QJsonDocument doc;
+  // 矢量层（私有，不进 QgsProject）——先建层再取属性键：大文件路径的键集合
+  // 与表格行都从这份图层读，不再为同一份文件开第二遍解析。
+  auto *vlayer = new QgsVectorLayer(abs, asset.displayName, QStringLiteral("ogr"));
+  vlayer->setParent(host);
+  // setOverrideCrs(vlayer->crs()) 在 addMapLayer 之前取值——退化 ENGCRS 必须
+  // 就地恢复，否则画布跟随的是 GDAL 归一化后的错对象。
+  MappingArtifactWriter::restoreVectorCrs(vlayer);
+
+  // 规模护栏与属性键收集（阈值内 DOM / 超阈值流式摘要）见 geoJsonPreviewKeys。
   QString gerr;
-  if (!m_doc->geoJsonDocumentAt(abs, &doc, &gerr))
+  const GeoJsonPreviewKeys keys = geoJsonPreviewKeys(m_doc, abs, &gerr);
+  if (!gerr.isEmpty())
   {
     lay->addWidget(failureState(assetId, gerr, host), 1);
     return host;
   }
-  const QJsonArray features = doc.object().value(QStringLiteral("features")).toArray();
-  QStringList propKeys;
-  for (const QJsonValue &fv : features)
-  {
-    const QJsonObject props = fv.toObject()
-                                  .value(QStringLiteral("properties"))
-                                  .toObject();
-    for (auto it = props.begin(); it != props.end(); ++it)
-      if (!propKeys.contains(it.key()))
-        propKeys.append(it.key());
-  }
+  const QStringList &propKeys = keys.propKeys;
 
   // 寻找沉积相分类字段候选 (相、亚相、微相、facies 等)
   QStringList faciesCandidates;
@@ -165,13 +164,6 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
     activeFaciesField = QStringLiteral("相");
   else if (!faciesCandidates.isEmpty())
     activeFaciesField = faciesCandidates.first();
-
-  // 矢量层（私有，不进 QgsProject）
-  auto *vlayer = new QgsVectorLayer(abs, asset.displayName, QStringLiteral("ogr"));
-  vlayer->setParent(host);
-  // setOverrideCrs(vlayer->crs()) 在 addMapLayer 之前取值——退化 ENGCRS 必须
-  // 就地恢复，否则画布跟随的是 GDAL 归一化后的错对象。
-  MappingArtifactWriter::restoreVectorCrs(vlayer);
 
   // 顶部操作与空间提示工具栏
   auto *topBar = new QWidget(host);
@@ -521,44 +513,52 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   table->setColumnCount(headers.size());
   table->setHorizontalHeaderLabels(headers);
 
-  const int maxRows = qMin(features.size(), 1000);
+  // 表格行装配：DOM 要素 / OGR 要素流两条来源，单元格口径见 geoJsonTableRow。
+  constexpr int kGeoJsonPreviewRows = 1000;
+  const int maxRows =
+      static_cast<int>(qMin(keys.featureCount, qint64(kGeoJsonPreviewRows)));
   table->setRowCount(maxRows);
-  for (int r = 0; r < maxRows; ++r)
+  if (keys.domPreview)
   {
-    const QJsonObject feat = features.at(r).toObject();
-    const QString geomType = feat.value(QStringLiteral("geometry")).toObject().value(QStringLiteral("type")).toString();
-    const QJsonObject props = feat.value(QStringLiteral("properties")).toObject();
-
-    auto *idItem = new QTableWidgetItem(QString::number(r + 1));
-    idItem->setTextAlignment(Qt::AlignCenter);
-    idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
-    table->setItem(r, 0, idItem);
-
-    auto *geomItem = new QTableWidgetItem(geomType.isEmpty() ? QStringLiteral("—") : geomType);
-    geomItem->setTextAlignment(Qt::AlignCenter);
-    geomItem->setFlags(geomItem->flags() & ~Qt::ItemIsEditable);
-    table->setItem(r, 1, geomItem);
-
-    for (int c = 0; c < propKeys.size(); ++c)
+    const QJsonArray features =
+        keys.doc.object().value(QStringLiteral("features")).toArray();
+    for (int r = 0; r < maxRows; ++r)
     {
-      const QString &key = propKeys.at(c);
-      const QJsonValue val = props.value(key);
-      QString valStr;
-      if (val.isDouble())
-        valStr = QString::number(val.toDouble());
-      else if (val.isString())
-        valStr = val.toString();
-      else if (val.isBool())
-        valStr = val.toBool() ? QStringLiteral("true") : QStringLiteral("false");
-      else if (val.isNull())
-        valStr = QStringLiteral("null");
-      else
-        valStr = QString::fromUtf8(QJsonDocument(val.toArray()).toJson(QJsonDocument::Compact));
-
-      auto *valItem = new QTableWidgetItem(valStr);
-      valItem->setFlags(valItem->flags() & ~Qt::ItemIsEditable);
-      table->setItem(r, c + 2, valItem);
+      const QJsonObject feat = features.at(r).toObject();
+      const QJsonObject props =
+          feat.value(QStringLiteral("properties")).toObject();
+      geoJsonTableRow(
+          table, r,
+          feat.value(QStringLiteral("geometry"))
+              .toObject()
+              .value(QStringLiteral("type"))
+              .toString(),
+          [&props, &propKeys](int c) {
+            return geoJsonValueText(props.value(propKeys.at(c)));
+          });
     }
+  }
+  else if (vlayer)
+  {
+    // 超阈值：表格行与地图共用同一份 OGR 图层，流式取前 kGeoJsonPreviewRows 条。
+    int r = 0;
+    QgsFeatureIterator it = vlayer->getFeatures();
+    QgsFeature feat;
+    while (r < maxRows && it.nextFeature(feat))
+    {
+      geoJsonTableRow(
+          table, r,
+          feat.hasGeometry()
+              ? QgsWkbTypes::displayString(feat.geometry().wkbType())
+              : QString(),
+          [&feat, &propKeys](int c) {
+            const QVariant val = feat.attribute(propKeys.at(c));
+            return val.isNull() ? QStringLiteral("null") : val.toString();
+          });
+      ++r;
+    }
+    if (r < maxRows)
+      table->setRowCount(r); // 实际取到的行数（少于计数即如实收窄）
   }
   table->horizontalHeader()->setStretchLastSection(true);
   table->resizeColumnsToContents();
@@ -569,11 +569,11 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   tablePageLay->setContentsMargins(0, 0, 0, 0);
   tablePageLay->setSpacing(PaleoTheme::tokens().spacingXs);
   tablePageLay->addWidget(table, 1);
-  if (features.size() > maxRows)
+  if (keys.featureCount > maxRows)
     tablePageLay->addWidget(
         caption8(tr("已截断，仅显示前 %1 条（共 %2 条）")
                      .arg(maxRows)
-                     .arg(features.size()),
+                     .arg(keys.featureCount),
                  tablePage));
   viewStack->addWidget(tablePage);
 

@@ -99,10 +99,14 @@ void Seismic3DViewportWidget::initializeGL() {
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
 
-    sliceRenderer_.Initialize(this);
-    frameRenderer_.Initialize(this);
-    horizonRenderer_.Initialize(this);
-    faultRenderer_.Initialize(this);
+    // D.15：Initialize 失败不能装作就绪——isGlReady() 为真会让看门狗永不切 2D 拼接回退
+    const bool renderersOk = sliceRenderer_.Initialize(this) && frameRenderer_.Initialize(this) &&
+                             horizonRenderer_.Initialize(this) && faultRenderer_.Initialize(this);
+    if (!renderersOk) {
+        sliceRenderer_.Cleanup(this); frameRenderer_.Cleanup(this);
+        horizonRenderer_.Cleanup(this); faultRenderer_.Cleanup(this);
+        return;
+    }
     if (faultMeshPending_) {
         faultRenderer_.Update(this, faultMesh_);
         faultMeshPending_ = false;
@@ -152,6 +156,10 @@ void Seismic3DViewportWidget::initializeGL() {
         }
     }
     pendingProperty_.clear();
+
+    // D.14：GL 前暂存的堆叠层在此补传（面板 glReady 只重发三槽切片，不补堆叠层）
+    if (volume_)
+        sliceRenderer_.ReplayStagedStackLayers(this, *volume_);
 
     fpsClock_.start();
     emit glReady();
@@ -283,10 +291,13 @@ void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
     activeSectionPath_.clear();
     sectionPickPoints_.clear();
     sectionHoverValid_ = false;
+    sliceRenderer_.ResetForVolumeChange(); // D.13/D.14：槽位/堆叠层/暂存层按体而异，换体作废
     initialFitDone_ = false;
     if (glInitialized_ && volume_ && volume_->IsLoaded()) {
         makeCurrent();
-        frameRenderer_.UpdateFromVolume(this, *volume_);
+        // D.13：换体即换归一化基准——按体而异的 GL 几何必须重建/清除（错位/越界）
+        frameRenderer_.ResetForVolumeChange(this, *volume_);
+        horizonRenderer_.UpdateHorizons(this, *volume_, horizonItems_); // 层位面按新体重建
         if (width() > 0 && height() > 0) {
             fitToBounds();
             initialFitDone_ = true;
@@ -785,16 +796,6 @@ SeismicSliceSlot Seismic3DViewportWidget::pickSliceAt(const QPointF &pos) const 
             const float y = -((static_cast<float>(plane.index) / std::max(1.0f, static_cast<float>(volume_->SampleMax()))) - 0.5f) * vScale;
             corners = {{{xMin, y, zMin}, {xMax, y, zMin}, {xMax, y, zMax}, {xMin, y, zMax}}};
         }
-        // 投影 + 点在四边形内测试（符号一致法）
-        int inside = 0;
-        for (const glm::vec3 &c : corners) {
-            const glm::vec4 clip = mvp * glm::vec4(c, 1.0f);
-            if (clip.w <= 1e-4f) { inside = -99; break; }
-            const float sx = (clip.x / clip.w * 0.5f + 0.5f) * width();
-            const float sy = (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * height();
-            const float cross = (sx - pos.x()) * (sx - pos.x()) + (sy - pos.y()) * (sy - pos.y());
-            (void)cross;
-        }
         // 简化：屏幕空间四边形（凸）— 用角点连线做 point-in-polygon
         bool allSame = true;
         bool lastSign = false;
@@ -853,9 +854,8 @@ int Seismic3DViewportWidget::draggedSliceIndex(SeismicSliceSlot slot, const QPoi
 bool Seismic3DViewportWidget::updateStackLayer(int layerIdx, int sampleIndex, const SgySliceImage &image) {
     if (!volume_)
         return false;
-    if (!glInitialized_) {
-        return false; // GL 未就绪时堆叠层由面板在 glReady 后重发
-    }
+    if (!glInitialized_) // D.14：GL 未就绪 → 渲染器内暂存，initializeGL 后补传
+        return sliceRenderer_.UpdateStackLayer(this, layerIdx, *volume_, sampleIndex, image);
     makeCurrent();
     const bool ok = sliceRenderer_.UpdateStackLayer(this, layerIdx, *volume_, sampleIndex, image);
     doneCurrent();

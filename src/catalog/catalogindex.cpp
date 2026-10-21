@@ -143,16 +143,29 @@ bool CatalogIndex::verifyAgainst(const QVector<CatalogEntity> &entities,
       *mismatch = what;
     return false;
   };
-  // 行号表对账。
+  // 行号表对账。索引缺项（entityRow == -1）本身就是一种分歧：旧口径写成
+  // `entityRow(...) != i && entityRow(...) >= 0`，把「缺项」整类放空——
+  // indexHealthy() 自称「true = 完全一致」并不成立（空 id 行按设计不入索引，
+  // 同样如实算分歧，不静默）。
   for (int i = 0; i < entities.size(); ++i)
-    if (entityRow(entities.at(i).id) != i && entityRow(entities.at(i).id) >= 0)
+    if (entityRow(entities.at(i).id) != i)
       return fail(QStringLiteral("entity row %1").arg(entities.at(i).id));
   for (int i = 0; i < assets.size(); ++i)
-    if (assetRow(assets.at(i).id) != i && assetRow(assets.at(i).id) >= 0)
+    if (assetRow(assets.at(i).id) != i)
       return fail(QStringLiteral("asset row %1").arg(assets.at(i).id));
   for (int i = 0; i < versions.size(); ++i)
-    if (versionRow(versions.at(i).id) != i && versionRow(versions.at(i).id) >= 0)
+    if (versionRow(versions.at(i).id) != i)
       return fail(QStringLiteral("version row %1").arg(versions.at(i).id));
+  // D5.3：类型 → 行集对账（此前完全不对账——entitiesByType 漂移没人发现）。
+  QHash<QString, QVector<int>> wantTypes;
+  for (int i = 0; i < entities.size(); ++i)
+  {
+    const QString &type = entities.at(i).entityType;
+    if (!type.isEmpty())
+      wantTypes[type].append(i);
+  }
+  if (wantTypes != m_entitiesByType)
+    return fail(QStringLiteral("entitiesByType"));
   // 邻接表对账（线性重算 vs 索引）。
   QHash<QString, QVector<int>> wantVersions, wantLinksE, wantLinksA, wantSha;
   for (int i = 0; i < versions.size(); ++i)

@@ -53,7 +53,11 @@ constexpr int kMinDim = 4;                    // i±2 模板需要的最小网�
 constexpr int kIdwNeighbors = 8;              // 初始化 IDW 的近邻数
 // 停滞守卫（issue #293）：遍数耗尽后末遍更新量仍超过数据极差的该倍数 →
 // 判失败不发布结果。收敛阈默认 1e-4 量级，1% 是「差着两个数量级」的空转。
+// 调用方可调 convergence（gridsolver.h:57）：阈本身松于该绝对预算时
+// （如 convergence=5%），「按自身容差已收敛」的正当运行不能又被绝对预算
+// 判停滞——预算取两者较大值，与收敛判据同源。
 constexpr double kStallBudget = 1e-2;
+constexpr double kStallToleranceMultiple = 100.0; // 停滞 = 末遍更新 > 100× 收敛阈
 
 // ---- 静态 2D KD-tree（中位数分裂；仅服务本核的近邻查询）--------------------
 
@@ -87,7 +91,11 @@ struct KdTree
     build(mid + 1, hi, depth + 1);
   }
 
-  // k 近邻（距离² 升序）。maxHeap 语义：队首是当前 k 个中最差者。
+  // k 近邻（距离² **降序**：out.back() 是最近者、out.front() 最远）。
+  // maxHeap 语义：堆顶存 −dist² 的最大值 = 最小距离² = 当前 k 个中的最近者，
+  // 回填时自堆顶写入 out 尾部——照「升序」用 front() 当最近邻会静默取到
+  // 最远点。现有两处消费（distanceToData 的 k=1、IDW 初值全量遍历）与
+  // 顺序无关；新增消费方需要升序时自行反转。
   void knn(double qx, double qy, int k, std::vector<std::pair<double, int>> &out) const
   {
     out.clear();
@@ -614,7 +622,11 @@ bool solveMinimumCurvature(const std::vector<ScatterPoint> &points,
     // 1%（远大于收敛阈 1e-4 量级），说明松弛在屏障邻域空转/极限环——继续
     // 只会发布数值荒谬的栅格（旧行为 ok=true + ±1e22 量级值，只能靠
     // PALEO_CONVERGED=0 元数据事后察觉）。如实判失败，不发布结果。
-    if (maxDelta > kStallBudget * zRange)
+    // 预算与收敛阈同源：convergence 松于 kStallBudget 时按 100× 容差计，
+    // 否则调用方自己的收敛判据会被这个绝对阈误判成停滞。
+    const double stallBudget =
+        std::max( kStallBudget, kStallToleranceMultiple * params.convergence );
+    if (maxDelta > stallBudget * zRange)
       return fail(QStringLiteral(
                       "iteration stalled: final delta %1 is %2× the data range after "
                       "%3 sweeps — refusing to publish a non-converged grid")

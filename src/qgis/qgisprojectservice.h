@@ -29,7 +29,7 @@ class QgisProjectService : public QObject
 
     QgsProject *project() const;                    // never null after open/create
     bool openProject(const QString &qgzPath);       // resolves manifest placeholders on demand
-    bool openProjectAsync(const QString &path);
+    bool openProjectAsync(const QString &input);
     // Called on the owner thread to capture a worker-only preparation closure.
     // The worker receives a cancel predicate and must stop between stages.
     using OpenPreparation =

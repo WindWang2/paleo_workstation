@@ -457,25 +457,9 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
     return naturalNameSort(a.displayName, b.displayName);
   });
   {
-    NavNodeSpec horRoot;
-    horRoot.text0 = tr("层位 (%1)").arg(horAssets.size());
-    horRoot.text1 = tr("解释层位数据");
-    horRoot.type = QStringLiteral("category");
-    horRoot.icon = QStringLiteral("mActionOpenTable.svg");
-    horRoot.expanded = false;
-
-    for (const CatalogAsset &a : horAssets)
-    {
-      NavNodeSpec hItem;
-      hItem.text0 = a.displayName;
-      hItem.id = a.id;
-      hItem.type = QStringLiteral("horizon");
-      hItem.icon = QStringLiteral("mActionOpenTable.svg");
-      // 网格规格不在 catalog 里（按文件名臆造 411×641 已回收）——如实标类型。
-      hItem.text1 = tr("层位网格");
-      horRoot.children.append(hItem);
-    }
-    seismicRoot.children.append(horRoot);
+    // E.4/E.5：层位分组分支拆去 datalist_navspec_internal.h（函数体规模 +
+    // 巨型文件双闸）——口径不变。
+    appendHorizonNavBranch(seismicRoot, horAssets);
   }
   tops.append(seismicRoot);
 

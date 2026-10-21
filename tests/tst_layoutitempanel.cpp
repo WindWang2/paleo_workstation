@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QLabel>
 #include <QPushButton>
+#include <QSet>
 
 #include "../src/ui/layout/layoutitempanel.h"
 #include "../src/qgis/qgisruntime.h"
@@ -278,6 +279,29 @@ class TestLayoutItemPanel : public QObject
       panel.setItem( label );
       QVERIFY( !applyBtn->isEnabled() );
       QVERIFY( !applyBtn->toolTip().isEmpty() );
+    }
+
+    // L5.1：比例尺预设按钮文案必须来自字面量 tr()——原先表里存 const char*
+    // 运行期串（tr(p.text)），lupdate 提取不到，这三个用户可见串在 ts 里缺席。
+    // 本测试钉住「三个预设都在、文案非空且互不相同」，防回退到不可提取形态。
+    void scalebarPresetButtonsCarryTranslatableText()
+    {
+      QgsProject project;
+      QgsPrintLayout layout( &project );
+
+      PaleoLayoutItemPanel panel;
+      const QStringList ids{ QStringLiteral( "presetSingleBoxButton" ),
+                             QStringLiteral( "presetDoubleBoxButton" ),
+                             QStringLiteral( "presetLineTicksButton" ) };
+      QSet<QString> texts;
+      for ( const QString &id : ids )
+      {
+        QPushButton *btn = panel.findChild<QPushButton *>( id );
+        QVERIFY2( btn != nullptr, qPrintable( id ) );
+        QVERIFY2( !btn->text().isEmpty(), qPrintable( id ) );
+        texts.insert( btn->text() );
+      }
+      QCOMPARE( texts.size(), ids.size() ); // 三条预设文案互不相同
     }
 };
 

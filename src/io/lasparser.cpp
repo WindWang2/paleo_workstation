@@ -9,7 +9,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
-#include <QTextStream>
 
 #include <cmath>
 #include <cstdint>
@@ -232,10 +231,12 @@ bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
   enum class Section { None, Version, Well, Curves, Other };
   Section section = Section::None;
   bool sawCurves = false;
-  QTextStream in(&f);
-  while (!in.atEnd())
+  // #588：逐行原始字节 + EncodingDetect 解码（与 parseDoc 的 scanHeaderBytes
+  // 同口径）。QTextStream 默认按 UTF-8 解，GB18030 的 LAS 在这里解出的井名
+  // 是乱码——wellsMatchingName 零匹配，井曲线行全落「未决」链接。
+  while (!f.atEnd())
   {
-    const QString line = in.readLine().trimmed();
+    const QString line = EncodingDetect::decodeText(f.readLine()).trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
     if (line.startsWith(QLatin1Char('~')))
@@ -305,10 +306,12 @@ bool LasParser::readWellInfo(const QString &path, QString &wellName, QString *er
 
   // 只需 ~W 段的 WELL item——读到 ~C 即止。
   bool inWell = false;
-  QTextStream in(&f);
-  while (!in.atEnd())
+  // #588：同 parseHeader/parseDoc——QTextStream 默认 UTF-8 会把 GB18030
+  // 井名解成乱码（wellsMatchingName 随之零匹配）。逐行原始字节 +
+  // EncodingDetect 解码，口径单源化。
+  while (!f.atEnd())
   {
-    const QString line = in.readLine().trimmed();
+    const QString line = EncodingDetect::decodeText(f.readLine()).trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
     if (line.startsWith(QLatin1Char('~')))

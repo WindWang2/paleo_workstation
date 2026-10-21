@@ -99,7 +99,8 @@ public:
   static QList<LegendEntry> collect(const ComprehensiveWellData &data,
                                     const QList<std::shared_ptr<WellTrack>> &tracks);
 
-  // 绘制图例区到 painter（自动分两列）；返回占用高度
+  // 绘制图例区到 painter（自动分列：下限两列，条目多时按需加列，不丢行）；
+  // 返回占用高度
   static qreal paint(QPainter &painter, const QRectF &rect, const QList<LegendEntry> &entries);
 
   // 图例文本行（TSV；测试与文档用）

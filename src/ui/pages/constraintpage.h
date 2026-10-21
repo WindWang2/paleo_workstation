@@ -133,6 +133,13 @@ class ConstraintPage : public QWidget
     void updateOperationGuidance();
     // 主线6：等厚引擎行（顶/底构造面选择）的可见性与清单填充。
     void updateEngineRows();
+    // E.2：updateEngineRows 拆段（原函数体 230 行 > #502 防增长闸 200 行阈值）——
+    // 方法→参数组/协变量/方向参数可见性、结构 IDW 边界/格网行、等厚顶底面
+    // 清单填充各自成函数；行为与原单体实现逐行等价。
+    void updateInterpolationVisibility(bool interpolant, const QString &selectedMethod,
+                                       bool isopach, bool confidence);
+    void updateStructuralIdwSection(bool interpolant, const QString &selectedMethod);
+    void fillIsopachSurfaceCombos(const QString &horizon);
     // updateEngineRows 析出的两个下拉重建段（file_budget 防增长闸）。
     void rebuildCovariateCombo();
     void rebuildBoundaryCombo( QComboBox *boundaryCombo );

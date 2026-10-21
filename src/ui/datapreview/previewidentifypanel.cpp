@@ -9,6 +9,7 @@
 #include <QComboBox>
 #include <QFile>
 #include <QFileDialog>
+#include <QHash>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -24,6 +25,8 @@
 #include <QVBoxLayout>
 
 #include <qgsexpression.h>
+#include <qgsfeature.h>
+#include <qgsfeaturerequest.h>
 #include <qgsvectorlayer.h>
 
 namespace
@@ -323,8 +326,9 @@ int PreviewAttributeTableDialog::pageCount() const
 
 void PreviewAttributeTableDialog::goToPage( int page )
 {
-  const int pages = pageCount();
-  m_page = pages > 0 ? qBound( 0, page, pages - 1 ) : 0;
+  // 页码钳制交给 rebuild（它反正要取一遍过滤结果）——原先在这里先调一次
+  // pageCount() 再 rebuild()，翻一页就是两遍整层扫描。
+  m_page = qMax( 0, page );
   rebuild();
 }
 
@@ -374,14 +378,37 @@ void PreviewAttributeTableDialog::rebuild()
 {
   m_table->setSortingEnabled( false );
   m_table->setRowCount( 0 );
+  // 过滤结果只扫一遍：页数、页码钳制、空态判断都从这一次扫描的结果推
+  // （原先 rebuild/pageCount/空态各扫一遍，翻一页实为 4 遍整层迭代）。
   const QStringList ids = filteredFeatureIds();
+  const int pages = ( ids.size() + pageSize() - 1 ) / pageSize();
+  m_page = pages > 0 ? qBound( 0, m_page, pages - 1 ) : 0;
   const int from = m_page * pageSize();
   const int to = qMin( ids.size(), from + pageSize() );
+  // 本页要素一次批量取回（按 fid 集合的单次提供者查询）——逐行各发一次
+  // getFeatures(fid) 在数万要素的层上翻一页就是上百次查询。
+  QHash<QgsFeatureId, QgsFeature> pageFeatures;
+  if ( to > from && m_layer )
+  {
+    QgsFeatureIds fids;
+    fids.reserve( to - from );
+    for ( int i = from; i < to; ++i )
+      fids << ids.at( i ).toLongLong();
+    QgsFeatureRequest req;
+    req.setFilterFids( fids );
+    QgsFeatureIterator it = m_layer->getFeatures( req );
+    QgsFeature f;
+    while ( it.nextFeature( f ) )
+      pageFeatures.insert( f.id(), f );
+  }
+  // 字段表在行循环外取一次（fields() 返回值拷贝，逐格取即逐格拷贝）。
+  const QgsFields fields = m_layer ? m_layer->fields() : QgsFields();
   for ( int i = from; i < to; ++i )
   {
-    QgsFeature f;
-    if ( !m_layer->getFeatures( QgsFeatureRequest( ids.at( i ).toLongLong() ) ).nextFeature( f ) )
+    const auto found = pageFeatures.constFind( ids.at( i ).toLongLong() );
+    if ( found == pageFeatures.constEnd() )
       continue;
+    const QgsFeature &f = found.value();
     const int row = m_table->rowCount();
     m_table->insertRow( row );
     auto *fidItem = new QTableWidgetItem( ids.at( i ) );
@@ -400,18 +427,17 @@ void PreviewAttributeTableDialog::rebuild()
                                             : v.toString();
       }
       auto *item = new QTableWidgetItem( text );
-      if ( fieldIdx >= 0 && fieldIdx < m_layer->fields().size() &&
-           m_layer->fields().at( fieldIdx ).type() == QVariant::Double )
+      if ( fieldIdx >= 0 && fieldIdx < fields.size() &&
+           fields.at( fieldIdx ).type() == QVariant::Double )
         item->setFont( mono9() );
       m_table->setItem( row, c, item );
     }
   }
   m_table->setSortingEnabled( true );
-  const int pages = pageCount();
   m_pageLabel->setText( pages > 0 ? QStringLiteral( "%1 / %2" ).arg( m_page + 1 ).arg( pages )
                                   : QStringLiteral( "0 / 0" ) );
   if ( m_emptyLabel )
-    m_emptyLabel->setVisible( filteredFeatureIds().isEmpty() );
+    m_emptyLabel->setVisible( ids.isEmpty() );
   m_prevBtn->setEnabled( m_page > 0 );
   m_nextBtn->setEnabled( m_page + 1 < pages );
 }

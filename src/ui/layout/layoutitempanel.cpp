@@ -147,19 +147,21 @@ PaleoLayoutItemPanel::PaleoLayoutItemPanel( QWidget *parent )
   auto *presetCaption = new QLabel( tr( "比例尺预设" ), business );
   auto *presetRow = new QHBoxLayout();
   presetRow->setSpacing(PaleoTheme::tokens().spacingXs); // DESIGN spacing.xs
+  // L5.1：预设文案走字面量 tr()——原来表里存 const char* 运行期串
+  // （tr(p.text)），lupdate 提取不到，这三个用户可见串在 ts 里缺席。
   const struct
   {
       const char *objectName;
-      const char *text;
+      const QString text;
       int preset;
   } presets[] = {
-    { "presetSingleBoxButton", "单厢简洁", 0 },
-    { "presetDoubleBoxButton", "黑白双厢", 1 },
-    { "presetLineTicksButton", "线段刻度", 2 },
+    { "presetSingleBoxButton", tr( "单厢简洁" ), 0 },
+    { "presetDoubleBoxButton", tr( "黑白双厢" ), 1 },
+    { "presetLineTicksButton", tr( "线段刻度" ), 2 },
   };
   for ( const auto &p : presets )
   {
-    auto *btn = new QPushButton( tr( p.text ), business );
+    auto *btn = new QPushButton( p.text, business );
     btn->setObjectName( QString::fromLatin1( p.objectName ) );
     const int preset = p.preset;
     connect( btn, &QPushButton::clicked, this, [this, preset] { applyScalebarPreset( preset ); } );

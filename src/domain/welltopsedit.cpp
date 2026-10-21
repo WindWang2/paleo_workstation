@@ -12,6 +12,16 @@ namespace WellTopsEdit
 {
 namespace
 {
+// 用户可见文案统一走 tr()（C.3 / #589）：本文件的文案（issueKindLabel 的
+// 12 个标签 + validate() 的校验消息）经 welltopseditordialog.cpp:679 的
+// QListWidgetItem 直达用户，但它们是「值返回函数」——首参不是 setter/控件
+// 构造，tools/check_i18n.py 的三类入口模式扫不到，lupdate 也只认
+// QCoreApplication::translate。上下文 "WellTopsEdit" 与既有哨兵消息一致。
+QString tr(const char *s)
+{
+  return QCoreApplication::translate("WellTopsEdit", s);
+}
+
 // 层名键：去首尾空白 + 忽略大小写（DC.dat 层名惯例全大写，但统一时
 // 「c3」与「C3」应视为同名）。
 QString topKey(const QString &name)
@@ -47,7 +57,7 @@ const double kEps = 1e-6;
 
 QString depthText(const WellTopRecord &r)
 {
-  return r.hasMd ? QString::number(r.md, 'f', 3) : QStringLiteral("空");
+  return r.hasMd ? QString::number(r.md, 'f', 3) : tr("空");
 }
 } // namespace
 
@@ -86,29 +96,29 @@ QString issueKindLabel(IssueKind kind)
   switch (kind)
   {
     case IssueKind::EmptyName:
-      return QStringLiteral("层名为空");
+      return tr("层名为空");
     case IssueKind::WhitespaceName:
-      return QStringLiteral("层名含空白");
+      return tr("层名含空白");
     case IssueKind::EmptyWellName:
-      return QStringLiteral("井名为空");
+      return tr("井名为空");
     case IssueKind::SentinelValue:
-      return QStringLiteral("命中缺失哨兵值");
+      return tr("命中缺失哨兵值");
     case IssueKind::HalfCoordinateGroup:
-      return QStringLiteral("X/Y 半组");
+      return tr("X/Y 半组");
     case IssueKind::DuplicateName:
-      return QStringLiteral("层名重复（叠置）");
+      return tr("层名重复（叠置）");
     case IssueKind::SameDepth:
-      return QStringLiteral("同深叠置");
+      return tr("同深叠置");
     case IssueKind::TvdOverMd:
-      return QStringLiteral("TVD 超过 MD");
+      return tr("TVD 超过 MD");
     case IssueKind::MdOutOfRange:
-      return QStringLiteral("MD 越界");
+      return tr("MD 越界");
     case IssueKind::Inversion:
-      return QStringLiteral("层序倒置");
+      return tr("层序倒置");
     case IssueKind::DanglingName:
-      return QStringLiteral("悬空层名");
+      return tr("悬空层名");
     case IssueKind::MissingTop:
-      return QStringLiteral("层位缺失（空洞）");
+      return tr("层位缺失（空洞）");
   }
   return QString();
 }
@@ -123,46 +133,55 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
     const WellTopRecord &r = rows.at(i);
     if (r.topName.trimmed().isEmpty())
       issues.append({IssueKind::EmptyName, i,
-                     QStringLiteral("第 %1 行：层名为空").arg(i + 1)});
+                     tr("第 %1 行：层名为空").arg(i + 1)});
     else if (std::any_of(r.topName.cbegin(), r.topName.cend(),
                          [](QChar c) { return c.isSpace(); }))
       issues.append({IssueKind::WhitespaceName, i,
-                     QStringLiteral("第 %1 行：层名「%2」含空白——DC.dat 按空白分列，"
-                                    "含空白的层名写盘即损坏")
+                     tr("第 %1 行：层名「%2」含空白——DC.dat 按空白分列，"
+                        "含空白的层名写盘即损坏")
                          .arg(QString::number(i + 1), r.topName)});
     if (r.hasX != r.hasY)
       issues.append({IssueKind::HalfCoordinateGroup, i,
-                     QStringLiteral("第 %1 行（%2）：X/Y 只有一列有效——DC.dat 三列"
-                                    "同组写出，缺列按哨兵落盘")
+                     tr("第 %1 行（%2）：X/Y 只有一列有效——DC.dat 三列"
+                        "同组写出，缺列按哨兵落盘")
                          .arg(QString::number(i + 1), r.topName)});
     if (r.wellName.trimmed().isEmpty())
       issues.append({IssueKind::EmptyWellName, i,
-                     QStringLiteral("第 %1 行：井名为空——写盘后该行无法解析归属").arg(
+                     tr("第 %1 行：井名为空——写盘后该行无法解析归属").arg(
                          QString::number(i + 1))});
     // #414：井名含空白与层名同害——按空白分列的格式下 "My Well" 回读列位移、
     // 行被拒（静默丢行）；旧代码只查层名不对称。
     else if (std::any_of(r.wellName.cbegin(), r.wellName.cend(),
                          [](QChar c) { return c.isSpace(); }))
       issues.append({IssueKind::WhitespaceName, i,
-                     QStringLiteral("第 %1 行：井名「%2」含空白——按空白分列写盘即损坏")
+                     tr("第 %1 行：井名「%2」含空白——按空白分列写盘即损坏")
                          .arg(QString::number(i + 1), r.wellName)});
     if (r.hasMd)
     {
-      if (r.md < 0)
+      // 哨兵先行（L2.3 / #593）：sentinelCols 只查 TVD/X/Y/Time 四列，MD 列
+      // 此前漏在词表外——-99999 会被下面的 md<0 分支降级报成「MD 为负值」，
+      // 而 welltopsedit.h:27 对 SentinelValue 的注释写的是「数值列命中共享
+      // 缺失哨兵词表」。语义不变（保存仍被拦），只是提示归位。
+      if (paleo::wellnumeric::isNull(r.md))
+        issues.append({IssueKind::SentinelValue, i,
+                       tr("第 %1 行（%2）：MD 列值 %3 命中空值哨兵，缺失请清空单元格")
+                           .arg(QString::number(i + 1), r.topName,
+                                QString::number(r.md, 'f', 3))});
+      else if (r.md < 0)
         issues.append({IssueKind::MdOutOfRange, i,
-                       QStringLiteral("第 %1 行（%2）：MD 为负值 %3")
+                       tr("第 %1 行（%2）：MD 为负值 %3")
                            .arg(QString::number(i + 1), r.topName,
                                 QString::number(r.md, 'f', 3))});
       else if (ctx.hasTd && r.md > ctx.td + kEps)
         issues.append({IssueKind::MdOutOfRange, i,
-                       QStringLiteral("第 %1 行（%2）：MD %3 超过井 TD %4")
+                       tr("第 %1 行（%2）：MD %3 超过井 TD %4")
                            .arg(QString::number(i + 1), r.topName,
                                 QString::number(r.md, 'f', 3),
                                 QString::number(ctx.td, 'f', 3))});
     }
     if (r.hasMd && r.hasTvd && r.tvd > r.md + kEps)
       issues.append({IssueKind::TvdOverMd, i,
-                     QStringLiteral("第 %1 行（%2）：TVD %3 大于 MD %4")
+                     tr("第 %1 行（%2）：TVD %3 大于 MD %4")
                          .arg(QString::number(i + 1), r.topName,
                               QString::number(r.tvd, 'f', 3),
                               QString::number(r.md, 'f', 3))});
@@ -177,7 +196,7 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
       for (const auto &c : sentinelCols)
         if (c.has && paleo::wellnumeric::isNull(c.v))
           issues.append({IssueKind::SentinelValue, i,
-                         QCoreApplication::translate("WellTopsEdit", "第 %1 行（%2）：%3 列值 %4 命中空值哨兵，缺失请清空单元格")
+                         tr("第 %1 行（%2）：%3 列值 %4 命中空值哨兵，缺失请清空单元格")
                              .arg(QString::number(i + 1), r.topName,
                                   QString::fromLatin1(c.col),
                                   QString::number(c.v, 'f', 3))});
@@ -196,7 +215,7 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
         continue;
       for (int i : it.value())
         issues.append({IssueKind::DuplicateName, i,
-                       QStringLiteral("第 %1 行（%2）：层名与第 %3 行重复（共 %4 行）")
+                       tr("第 %1 行（%2）：层名与第 %3 行重复（共 %4 行）")
                            .arg(QString::number(i + 1), rows.at(i).topName,
                                 QString::number(it.value().front() + 1),
                                 QString::number(it.value().size()))});
@@ -222,7 +241,7 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
         {
           const int i = byMd.at(g).second;
           issues.append({IssueKind::SameDepth, i,
-                         QStringLiteral("第 %1 行（%2）：MD %3 与第 %4 行相同")
+                         tr("第 %1 行（%2）：MD %3 与第 %4 行相同")
                              .arg(QString::number(i + 1), rows.at(i).topName,
                                   depthText(rows.at(i)), QString::number(first + 1))});
         }
@@ -258,8 +277,8 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
         const bool inverted = iShallower ? (mdI > mdJ + kEps) : (mdJ > mdI + kEps);
         if (!inverted)
           continue;
-        const QString msg = QStringLiteral("第 %1 行（%2，MD %3）与第 %4 行（%5，MD %6）："
-                                           "层序 %7 浅于 %8 但深度更大")
+        const QString msg = tr("第 %1 行（%2，MD %3）与第 %4 行（%5，MD %6）："
+                               "层序 %7 浅于 %8 但深度更大")
                                 .arg(QString::number(i + 1), rows.at(i).topName,
                                      QString::number(mdI, 'f', 3),
                                      QString::number(j + 1), rows.at(j).topName,
@@ -273,7 +292,7 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
     for (int i = 0; i < rows.size(); ++i)
       if (!rows.at(i).topName.trimmed().isEmpty() && !order.contains(topKey(rows.at(i).topName)))
         issues.append({IssueKind::DanglingName, i,
-                       QStringLiteral("第 %1 行：层名「%2」不在层序格架词表内")
+                       tr("第 %1 行：层名「%2」不在层序格架词表内")
                            .arg(QString::number(i + 1), rows.at(i).topName)});
 
     // 3c) 空洞：格架层位缺失（警告）。锚 = 按层序最近的既有浅侧行。
@@ -297,12 +316,12 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
         }
       }
       const QString below = (k + 1 < ctx.framework.size()) ? ctx.framework.at(k + 1)
-                                                           : QStringLiteral("井底");
+                                                           : tr("井底");
       issues.append({IssueKind::MissingTop, anchor,
-                     QStringLiteral("缺失层位「%1」（按层序应位于 %2 与 %3 之间）")
+                     tr("缺失层位「%1」（按层序应位于 %2 与 %3 之间）")
                          .arg(ctx.framework.at(k),
                               anchor >= 0 ? rows.at(anchor).topName
-                                          : QStringLiteral("最浅层之上"),
+                                          : tr("最浅层之上"),
                               below)});
     }
   }

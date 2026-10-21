@@ -697,6 +697,37 @@ bool checkHorizonName(const QString &horizonName, QString *error)
   return ok;
 }
 
+// #588-B7：派生资产 CSV 一律 QSaveFile 原子写并逐块校验 write() 返回值——
+// 磁盘满/IO 出错时如实失败（cancelWriting 不留半截文件），绝不把截断文件
+// 按字节算 sha256 登记进 catalog（与 saveSession #284、io 侧同口径）。
+// writeRows 逐行写入并回报是否成功。
+template <typename WriteRows>
+bool writeDerivedCsv(const QString &filePath, const QByteArray &header,
+                     WriteRows writeRows, QString *error)
+{
+  QSaveFile f(filePath);
+  if (!f.open(QIODevice::WriteOnly))
+  {
+    if (error)
+      *error = QStringLiteral("无法写文件 %1").arg(filePath);
+    return false;
+  }
+  if (f.write(header) != qint64(header.size()) || !writeRows(f))
+  {
+    f.cancelWriting();
+    if (error)
+      *error = QStringLiteral("文件写入失败（磁盘满？）%1").arg(filePath);
+    return false;
+  }
+  if (!f.commit())
+  {
+    if (error)
+      *error = QStringLiteral("文件提交失败 %1").arg(filePath);
+    return false;
+  }
+  return true;
+}
+
 // goal/horizon-3d — 层位资产文件体（CSV + 可选层位栅格 GeoTIFF +
 // LayerDeclaration 回填）：registerHorizonAsset（IDW 网格化拾取）与
 // registerPropagatedHorizonAsset（直接成格前沿）共用——同一文件格式与
@@ -713,28 +744,37 @@ QString writeHorizonAssetFiles(const SeismicHorizonGrid &grid,
                                         : QFileInfo(outputDir).fileName())
                                .arg(horizonName);
   const QString filePath = outputDir + QLatin1Char('/') + fileName;
-  QFile f(filePath);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  QString csvError;
+  if (!writeDerivedCsv(
+          filePath, QByteArrayLiteral("inline,xline,twt_ms,confidence\n"),
+          [&grid](QSaveFile &f) {
+            for (int gi = 0; gi < grid.inlineCount; ++gi)
+              for (int gx = 0; gx < grid.xlineCount; ++gx)
+              {
+                const double twt =
+                    grid.twtMs[std::size_t(gi) * grid.xlineCount + gx];
+                if (!std::isfinite(twt))
+                  continue;
+                const float conf =
+                    grid.confidence[std::size_t(gi) * grid.xlineCount + gx];
+                const QByteArray line =
+                    QStringLiteral("%1,%2,%3,%4\n")
+                        .arg(grid.inlineMin + gi * grid.inlineStep)
+                        .arg(grid.xlineMin + gx * grid.xlineStep)
+                        .arg(QString::number(twt, 'f', 2))
+                        .arg(QString::number(conf, 'f', 3))
+                        .toUtf8();
+                if (f.write(line) != qint64(line.size()))
+                  return false;
+              }
+            return true;
+          },
+          &csvError))
   {
     if (error)
-      *error = QStringLiteral("无法写层位文件 %1").arg(filePath);
+      *error = csvError;
     return QString();
   }
-  f.write("inline,xline,twt_ms,confidence\n");
-  for (int gi = 0; gi < grid.inlineCount; ++gi)
-    for (int gx = 0; gx < grid.xlineCount; ++gx)
-    {
-      const double twt = grid.twtMs[std::size_t(gi) * grid.xlineCount + gx];
-      if (!std::isfinite(twt))
-        continue;
-      f.write(QStringLiteral("%1,%2,%3,%4\n")
-                  .arg(grid.inlineMin + gi * grid.inlineStep)
-                  .arg(grid.xlineMin + gx * grid.xlineStep)
-                  .arg(QString::number(twt, 'f', 2))
-                  .arg(QString::number(grid.confidence[std::size_t(gi) * grid.xlineCount + gx], 'f', 3))
-                  .toUtf8());
-    }
-  f.close();
 
   // goal/horizon-autotrack — 层位栅格 GeoTIFF（拾取网格 → 既有 horizonbinner
   // 管线装箱，不开平行层位格式）+ LayerDeclaration 回填供调用方声明上图。
@@ -976,28 +1016,42 @@ QString SeismicTaskService::registerFaultAsset(
   QDir().mkpath(outputDir);
   const QString fileName = QStringLiteral("seismic_%1_fault.csv").arg(faultName);
   const QString filePath = outputDir + QLatin1Char('/') + fileName;
-  QFile f(filePath);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  QString csvError;
+  if (!writeDerivedCsv(
+          filePath,
+          QByteArrayLiteral(
+              "segment_id,section_type,section_index,trace_frac,twt_ms\n"),
+          [&faults](QSaveFile &f) {
+            for (const SeismicFaultSegment &seg : faults)
+            {
+              const QString st =
+                  seg.sectionType == SgySliceType::Inline
+                      ? QStringLiteral("inline")
+                      : (seg.sectionType == SgySliceType::Xline
+                             ? QStringLiteral("xline")
+                             : QStringLiteral("time"));
+              for (const auto &pt : seg.points)
+              {
+                const QByteArray line =
+                    QStringLiteral("%1,%2,%3,%4,%5\n")
+                        .arg(seg.id)
+                        .arg(st)
+                        .arg(seg.sectionIndex)
+                        .arg(QString::number(pt.first, 'f', 4))
+                        .arg(QString::number(pt.second, 'f', 2))
+                        .toUtf8();
+                if (f.write(line) != qint64(line.size()))
+                  return false;
+              }
+            }
+            return true;
+          },
+          &csvError))
   {
     if (error)
-      *error = QStringLiteral("无法写断层文件 %1").arg(filePath);
+      *error = csvError;
     return QString();
   }
-  f.write("segment_id,section_type,section_index,trace_frac,twt_ms\n");
-  for (const SeismicFaultSegment &seg : faults)
-  {
-    const QString st = seg.sectionType == SgySliceType::Inline
-        ? QStringLiteral("inline")
-        : (seg.sectionType == SgySliceType::Xline ? QStringLiteral("xline")
-                                                  : QStringLiteral("time"));
-    for (const auto &pt : seg.points)
-      f.write(QStringLiteral("%1,%2,%3,%4,%5\n")
-                  .arg(seg.id).arg(st).arg(seg.sectionIndex)
-                  .arg(QString::number(pt.first, 'f', 4))
-                  .arg(QString::number(pt.second, 'f', 2))
-                  .toUtf8());
-  }
-  f.close();
 
   CatalogAsset asset;
   asset.id = QStringLiteral("seis_fault_%1_%2").arg(seismicAssetId).arg(faultName);
@@ -1164,17 +1218,28 @@ bool SeismicTaskService::loadSession(const QString &sgyPath,
 bool SeismicTaskService::exportPicksCsv(const QList<SeismicPick> &picks,
                                         const QString &filePath, QString *error)
 {
-  QFile f(filePath);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  QString csvError;
+  if (!writeDerivedCsv(
+          filePath,
+          QByteArrayLiteral(
+              "id,inline,xline,twt_ms,sample,confidence,interpreter,horizon\n"),
+          [&picks](QSaveFile &f) {
+            for (const SeismicPick &p : picks)
+            {
+              const QByteArray line =
+                  QStringLiteral("%1,%2\n").arg(p.id).arg(horizonCsvLine(p))
+                      .toUtf8();
+              if (f.write(line) != qint64(line.size()))
+                return false;
+            }
+            return true;
+          },
+          &csvError))
   {
     if (error)
-      *error = QStringLiteral("无法写 %1").arg(filePath);
+      *error = csvError;
     return false;
   }
-  f.write("id,inline,xline,twt_ms,sample,confidence,interpreter,horizon\n");
-  for (const SeismicPick &p : picks)
-    f.write(QStringLiteral("%1,%2\n").arg(p.id).arg(horizonCsvLine(p)).toUtf8());
-  f.close();
   return true;
 }
 

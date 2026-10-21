@@ -135,6 +135,26 @@ void CoKrigingTests::rejectsInvalidInputs()
   const std::vector<Sample> nonfinite = { { 0, 0, std::numeric_limits<double>::quiet_NaN() } };
   CoKrigingSolver nanSamples( nonfinite, secondarySamples( 5 ), model, CoKrigingParams{} );
   QVERIFY( !nanSamples.valid() );
+
+  // D2：零信号模型（nugget=sill=0，γ≡0）不得穿过协克里金入口——
+  // 否则加边方程组只剩 Lagrange 行，每格 LU 判奇异、整幅 nodata 而
+  // Status 仍 Ok（kriging.cpp modelUsable / sgs 入口同款闸）。
+  // 主/协任一变差零基台都拒（γ22 零信号同样使次级块秩亏）。
+  CoKrigingModel zeroPrimarySignal = model;
+  zeroPrimarySignal.primary.nugget = 0;
+  zeroPrimarySignal.primary.sill = 0;
+  CoKrigingSolver zeroPrimary( primarySamples(), secondarySamples( 5 ), zeroPrimarySignal,
+                               CoKrigingParams{} );
+  QVERIFY( !zeroPrimary.valid() );
+  QVERIFY( !zeroPrimary.solveAt( 5, 5 ).ok );
+
+  CoKrigingModel zeroSecondarySignal = model;
+  zeroSecondarySignal.secondary.nugget = 0;
+  zeroSecondarySignal.secondary.sill = 0;
+  CoKrigingSolver zeroSecondary( primarySamples(), secondarySamples( 5 ), zeroSecondarySignal,
+                                 CoKrigingParams{} );
+  QVERIFY( !zeroSecondary.valid() );
+  QVERIFY( !zeroSecondary.solveAt( 5, 5 ).ok );
 }
 
 // γ(0)=0 口径：估值点落在主变量井位上 → 估值=井值、方差=0（解析精确）。

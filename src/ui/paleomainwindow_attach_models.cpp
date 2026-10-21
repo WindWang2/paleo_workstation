@@ -592,19 +592,31 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
   }
   if (!canvas || !canvas->hasData())
     return;
-  const bool timeLike = canvas->orientation() == seismic::SectionOrientation::TimeSlice;
-  const int prefer[3] = {timeLike ? 2 : 1, timeLike ? 1 : 0, timeLike ? 0 : 2};
-  for (int n : prefer)
+  // D.12：刻面按剖面身份挑，不按尺寸猜。方形测网（ni==nj）下横测线剖面的
+  // 道数=inline 数=nj 与中纵测线切片（axis1→ni 宽）同为 (nj,nk) 尺寸，仅比
+  // 尺寸会把中纵测线的相带贴到横测线剖面上——叠加层尺寸校验
+  // （seismicsectioncanvas_render.cpp）拦不住，静默显示错切内容。身份来自
+  // 画布当前剖面：纵测线剖面列=xline 轴（axis1，宽 ni）、横测线剖面列=
+  // inline 轴（axis0，宽 nj）、时间片全网格（axis2，ni×nj）；身份缺失
+  // （任意线/未挂 SectionRef）不贴，宁缺勿错。
+  int facet = -1;
+  if (canvas->orientation() == seismic::SectionOrientation::TimeSlice)
   {
-    if (!bakedOk[n])
-      continue;
-    if (canvas->traceCount() == baked[n].width && canvas->sampleCount() == baked[n].height)
-    {
-      canvas->setZoneOverlay(baked[n]);
-      canvas->setZoneOverlayAlpha(overlayAlpha);
-      break;
-    }
+    facet = 2;
   }
+  else
+  {
+    const seismic::SectionRef ref = canvas->sectionRef();
+    if (ref.valid && ref.type == seismic::SgySliceType::Inline)
+      facet = 1;
+    else if (ref.valid && ref.type == seismic::SgySliceType::Xline)
+      facet = 0;
+  }
+  if (facet < 0 || !bakedOk[facet] || canvas->traceCount() != baked[facet].width ||
+      canvas->sampleCount() != baked[facet].height)
+    return;
+  canvas->setZoneOverlay(baked[facet]);
+  canvas->setZoneOverlayAlpha(overlayAlpha);
 }
 
 // goal/attr-volume — 属性体 3D 预览 → 视口喂入：预览（三中位面 + 堆叠层）

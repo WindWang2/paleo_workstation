@@ -12,6 +12,8 @@
 #include "../../workflow/workflows.h"
 #include "../../workflow/constraintuseplan.h"
 
+#include "../notifications/paleonotify.h"
+
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QHash>
@@ -22,7 +24,6 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
-#include <QMessageBox>
 #include <QMenu>
 #include <QPushButton>
 #include <QSet>
@@ -362,20 +363,20 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
     auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
     if (!wf)
       return;
-    if (QMessageBox::question(this, tr("约束库坐标系迁移"),
-                              tr("将把规范本地工程网格坐标系登记进约束库（只补元数据，不动几何/属性/FID）。\n"
-                                 "迁移前生成字节级备份，提交后重新打开校验，校验失败用备份原样还原。继续？")) != QMessageBox::Yes)
+    if (!PaleoNotify::ask(this, tr("约束库坐标系迁移"),
+                          tr("将把规范本地工程网格坐标系登记进约束库（只补元数据，不动几何/属性/FID）。\n"
+                             "迁移前生成字节级备份，提交后重新打开校验，校验失败用备份原样还原。继续？")))
       return;
     QString error, backup;
     if (wf->migrateConstraintLayerCrs(&error, &backup))
     {
-      QMessageBox::information(this, tr("约束库坐标系迁移"),
-                               tr("迁移完成。备份：%1").arg(QDir::toNativeSeparators(backup)));
+      PaleoNotify::report(this, tr("约束库坐标系迁移"),
+                          tr("迁移完成。备份：%1").arg(QDir::toNativeSeparators(backup)));
       refreshConstraintList();
     }
     else
     {
-      QMessageBox::warning(this, tr("约束库坐标系迁移"),
+      PaleoNotify::warning(this, tr("约束库坐标系迁移"),
                            error.isEmpty() ? tr("迁移失败") : error);
     }
   });

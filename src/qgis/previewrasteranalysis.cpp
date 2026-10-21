@@ -2,6 +2,7 @@
 #include "previewrasteranalysis.h"
 #include "../services/paleotaskservice.h"
 #include <QCache>
+#include <QCoreApplication>
 #include <QFileInfo>
 #include <memory>
 
@@ -69,7 +70,7 @@ void requestSummary(const QString &uri, PaleoTaskService *tasks,
       [uri, summary](PaleoTask *running) {
         QgsRasterLayer layer(uri, "statistics", "gdal");
         if (!layer.isValid())
-          return QStringLiteral("无法读取预览栅格");
+          return QCoreApplication::translate("PreviewRasterAnalysis", "无法读取预览栅格");
         running->reportStage("scan", 5);
         *summary = summarize(&layer);
         return QString();
@@ -107,7 +108,7 @@ void requestHistogram(const QString &uri, int bins, PaleoTaskService *tasks,
       [uri, bins, result](PaleoTask *running) {
         QgsRasterLayer layer(uri, "histogram", "gdal");
         if (!layer.isValid())
-          return QStringLiteral("无法读取预览栅格");
+          return QCoreApplication::translate("PreviewRasterAnalysis", "无法读取预览栅格");
         running->reportStage("scan", 5);
         *result = histogram(&layer, bins);
         return QString();
@@ -346,8 +347,14 @@ QVector<ProfileSample> sampleProfile( QgsRasterLayer *layer, const QgsPointXY &p
     if ( ext.contains( p ) )
     {
       bool ok = false;
-      const double v = layer->dataProvider()->sample( p, 1, &ok );
-      s.valid = ok && std::isfinite( v );
+      auto *provider = layer->dataProvider();
+      const double v = provider->sample( p, 1, &ok );
+      // ok 只承诺「越界/band 非法」（qgsrasterdataprovider.h sample 文档）——
+      // nodata 哨兵仍按真实值返回，需按源 nodata 自行屏蔽（与
+      // composeattribution/mappingartifactwriter 的 isNoData 口径一致）。
+      const bool noData = ok && provider->sourceHasNoDataValue( 1 ) &&
+                          v == provider->sourceNoDataValue( 1 );
+      s.valid = ok && !noData && std::isfinite( v );
       s.value = s.valid ? v : 0.0;
     }
     out.append( s );
@@ -388,6 +395,9 @@ QVector<Extremum> localExtrema(QgsRasterLayer *layer, int band, int window,
       return {};
     for ( int x = half; x < w - half; x += 1 )
     {
+      // nodata 哨兵不是真实数据：块读取必须先 isNoData 再 value（#589 C.14）。
+      if ( block->isNoData( y, x ) )
+        continue;
       const double v = block->value( y, x );
       if ( !std::isfinite( v ) )
         continue;
@@ -400,6 +410,8 @@ QVector<Extremum> localExtrema(QgsRasterLayer *layer, int band, int window,
         for ( int dx = -half; dx <= half; ++dx )
         {
           if ( dx == 0 && dy == 0 )
+            continue;
+          if ( block->isNoData( y + dy, x + dx ) )
             continue;
           const double nv = block->value( y + dy, x + dx );
           if ( !std::isfinite( nv ) )
@@ -455,7 +467,7 @@ void requestExtrema(const QString &uri, PaleoTaskService *tasks,
       QObject::tr("计算地层栅格极值"), [uri, result](PaleoTask *running) {
         QgsRasterLayer layer(uri, "extrema", "gdal");
         if (!layer.isValid())
-          return QStringLiteral("无法读取地层栅格");
+          return QCoreApplication::translate("PreviewRasterAnalysis", "无法读取地层栅格");
         running->reportStage("scan", 5);
         const auto stats = summarize(&layer);
         *result =
@@ -485,7 +497,7 @@ void requestProfile(const QString &uri, const QgsPointXY &p1,
       [uri, p1, p2, result](PaleoTask *running) {
         QgsRasterLayer layer(uri, "profile", "gdal");
         if (!layer.isValid())
-          return QStringLiteral("无法读取剖面栅格");
+          return QCoreApplication::translate("PreviewRasterAnalysis", "无法读取剖面栅格");
         running->reportStage("scan", 5);
         *result = sampleProfile(&layer, p1, p2, 200);
         return QString();
@@ -532,7 +544,7 @@ QString bigRasterHint( QgsRasterLayer *layer )
     return QString();
   if ( hasPyramids( layer ) )
     return QString();
-  return QStringLiteral( "大图（%1 MB）且无金字塔——首次全图渲染较慢，可继续交互；"
+  return QCoreApplication::translate("PreviewRasterAnalysis", "大图（%1 MB）且无金字塔——首次全图渲染较慢，可继续交互；"
                          "建议对该栅格构建金字塔加速" )
       .arg( fileSizeBytes( path ) / ( 1024.0 * 1024.0 ), 0, 'f', 0 );
 }

@@ -53,9 +53,14 @@ std::string gridLabel( const GridSpec &g )
          " @(" + std::to_string( g.originX ) + "," + std::to_string( g.originY ) + ")";
 }
 
+// 同源拒算门的格网可用性口径 = GridSpec 契约（singlefactor/types.h：
+// north-up 时 pixelWidth > 0、pixelHeight < 0，行向南）全项执行，与
+// geostat/types.h 的 isValid() 强闸同口径。南向上（pixelHeight > 0）的
+// 格网若放过去，下面图幅框计算整体反相（frameMinY > frameMaxY），
+// onFrame 的 y 区间恒空 → 边界位移统计静默错值——入口拒算。
 bool gridUsable( const GridSpec &g )
 {
-  return g.cols > 0 && g.rows > 0 && g.pixelWidth != 0 && g.pixelHeight != 0;
+  return g.cols > 0 && g.rows > 0 && g.pixelWidth > 0 && g.pixelHeight < 0;
 }
 
 // 每相面片 → GEOS 并集，按 faciesCode 分组。返回码表（升序在调用侧收口）。

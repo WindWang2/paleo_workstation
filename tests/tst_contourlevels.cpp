@@ -16,6 +16,7 @@ private slots:
   void normalIntervalUnchanged();
   void capBoundaryInclusive();
   void autoPathUnaffected();
+  void autoDecimalsFollowStep();
   void estimateHandlesDegenerateInputs();
 
 private:
@@ -91,6 +92,23 @@ void TestContourLevels::autoPathUnaffected()
   QVERIFY( !plan.tooManyLevels );
   QVERIFY( !plan.levels.empty() );
   QVERIFY( plan.levels.size() <= 20 );
+}
+
+void TestContourLevels::autoDecimalsFollowStep()
+{
+  // L3.2：suggest 的 decimals 推导与 spinDecimals 同源同款循环——自动路径
+  // 的取整位数由 step 决定。0~0.05 值域 → step=0.005 → 4 位，级别列 11 条。
+  const std::vector<double> grid = ramp( 0.0, 0.05, 16 );
+  paleo::singlefactor::ContourLevelPlan plan;
+  QVERIFY( paleo::singlefactor::autoContourLevels( grid, {}, &plan ) );
+  QVERIFY( !plan.tooManyLevels );
+  QCOMPARE( plan.decimals, 4 );
+  QCOMPARE( plan.step, 0.005 );
+  QCOMPARE( plan.levels.size(), std::size_t( 11 ) );
+  QCOMPARE( plan.levels.front(), 0.0 );
+  QCOMPARE( plan.levels.back(), 0.05 );
+  for ( double level : plan.levels )
+    QVERIFY( std::isfinite( level ) );
 }
 
 void TestContourLevels::estimateHandlesDegenerateInputs()

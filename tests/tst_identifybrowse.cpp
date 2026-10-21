@@ -30,8 +30,15 @@ void TestIdentifyBrowse::switchesFloatingHits()
   QCOMPARE(popup.findChild<QLabel *>(QStringLiteral("identifyCounter"))->text(), QStringLiteral("2 / 2"));
   popup.findChild<QToolButton *>(QStringLiteral("identifyPrev"))->click();
   QCOMPARE(popup.index(), 0);
+  // 空命中必须收起弹层（identifypopup.cpp:80-84 的 hide() 分支）：先把弹层
+  // 挂起来再清空——从未 show 的窗口 isVisible() 恒 false，原断言对「空命中
+  // 隐藏」这一被测行为零保护（删掉 hide() 也照样绿）。
+  popup.showNear(QPoint(0, 0));
+  QVERIFY2(!popup.isHidden(), "showNear 之后弹层不得仍处于隐藏态");
   popup.setHits({});
-  QVERIFY(!popup.isVisible());
+  QVERIFY2(popup.isHidden(), "空命中时必须 hide() 收起弹层");
+  QCOMPARE(popup.count(), 0);
+  QCOMPARE(popup.index(), 0);
 }
 
 int main(int argc, char **argv)

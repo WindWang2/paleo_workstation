@@ -15,6 +15,10 @@ private slots:
   void incrementalLinkAndMutatedLinks();
   void prefixSequenceTracking();
   void mutationDemonstration_shaNormalization();
+  // A.2：verifyAgainst 的「true = 完全一致」必须真的完全一致——索引缺项与
+  // entitiesByType 漂移都是分歧，旧口径把缺项整类放空且完全不对账类型面。
+  void verifyAgainstFlagsMissingIndexEntry();
+  void verifyAgainstFlagsEntitiesByTypeDrift();
 };
 
 void TestCatalogCatalogIndex::emptyIndexQueries()
@@ -182,6 +186,80 @@ void TestCatalogCatalogIndex::mutationDemonstration_shaNormalization()
   const QVector<int> hits = index.versionRowsForSha(QStringLiteral("cafebabe"));
   QCOMPARE(hits.size(), 1);
   QCOMPARE(hits.at(0), 0);
+}
+
+// A.2：表里多出一行而索引没登记（entityRow == -1）也是分歧。旧口径写成
+// `entityRow(...) != i && entityRow(...) >= 0`，缺项恒不触发 fail——
+// indexHealthy() 自称「true = 完全一致」并不成立。
+void TestCatalogCatalogIndex::verifyAgainstFlagsMissingIndexEntry()
+{
+  QVector<CatalogEntity> entities;
+  CatalogEntity e1;
+  e1.id = QStringLiteral("well-1");
+  e1.entityType = QStringLiteral("well");
+  entities.append(e1);
+  CatalogEntity e2;
+  e2.id = QStringLiteral("well-2");
+  e2.entityType = QStringLiteral("well");
+  entities.append(e2);
+
+  CatalogIndex index;
+  index.rebuild(entities, {}, {}, {});
+
+  QString mismatch;
+  QVERIFY2(index.verifyAgainst(entities, {}, {}, {}, &mismatch), qPrintable(mismatch));
+
+  // 表追加一行、索引不重建：必须报缺项。
+  CatalogEntity e3;
+  e3.id = QStringLiteral("well-3");
+  e3.entityType = QStringLiteral("well");
+  entities.append(e3);
+  QVERIFY(!index.verifyAgainst(entities, {}, {}, {}, &mismatch));
+  QVERIFY2(mismatch.contains(QStringLiteral("entity row")), qPrintable(mismatch));
+
+  // 资产侧同口径（独立索引，避免实体缺项先报）。
+  QVector<CatalogAsset> assets;
+  CatalogAsset a1;
+  a1.id = QStringLiteral("ast-1");
+  assets.append(a1);
+  CatalogIndex assetIndex;
+  assetIndex.rebuild({}, assets, {}, {});
+  CatalogAsset a2;
+  a2.id = QStringLiteral("ast-2");
+  assets.append(a2);
+  QVERIFY(!assetIndex.verifyAgainst({}, assets, {}, {}, &mismatch));
+  QVERIFY2(mismatch.contains(QStringLiteral("asset row")), qPrintable(mismatch));
+}
+
+// A.2：entitiesByType 此前完全不对账——类型漂移（行号键不变）无人发现。
+void TestCatalogCatalogIndex::verifyAgainstFlagsEntitiesByTypeDrift()
+{
+  QVector<CatalogEntity> entities;
+  CatalogEntity e1;
+  e1.id = QStringLiteral("well-1");
+  e1.entityType = QStringLiteral("well");
+  entities.append(e1);
+  CatalogEntity e2;
+  e2.id = QStringLiteral("seismic-1");
+  e2.entityType = QStringLiteral("seismic_line");
+  entities.append(e2);
+
+  CatalogIndex index;
+  index.rebuild(entities, {}, {}, {});
+  QCOMPARE(index.entityCountByType(QStringLiteral("well")), 1);
+
+  QString mismatch;
+  QVERIFY2(index.verifyAgainst(entities, {}, {}, {}, &mismatch), qPrintable(mismatch));
+
+  // 表改了类型、索引没重建：类型→行集面必须报分歧。
+  entities[0].entityType = QStringLiteral("fault");
+  QVERIFY(!index.verifyAgainst(entities, {}, {}, {}, &mismatch));
+  QVERIFY2(mismatch.contains(QStringLiteral("entitiesByType")), qPrintable(mismatch));
+
+  // 索引侧重建后恢复一致（证明是索引漂移、不是表的问题）。
+  index.rebuild(entities, {}, {}, {});
+  QVERIFY2(index.verifyAgainst(entities, {}, {}, {}, &mismatch), qPrintable(mismatch));
+  QCOMPARE(index.entityCountByType(QStringLiteral("fault")), 1);
 }
 
 QTEST_GUILESS_MAIN(TestCatalogCatalogIndex)

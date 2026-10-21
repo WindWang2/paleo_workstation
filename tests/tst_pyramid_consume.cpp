@@ -68,8 +68,12 @@ class TestPyramidConsume : public QObject
       QVERIFY(!QFile::exists(tif + QStringLiteral(".ovr"))); // 无层级 → 无边车
     }
 
-    // 大图消费口径：全图视口读块（画布重渲的 IO 路径）改前/改后。
-    void overviewSpeedsUpViewportBlockRead()
+    // 大图消费口径：全图视口读块（画布重渲的 IO 路径）改前/改后。钉的是功能
+    // 契约——.ovr 落地、provider 认得概览、概览在场时同一视口读块仍成功且
+    // 尺寸就位；时长只作 qInfo 证据：本套件非 perf 标签、非 RUN_SERIAL，在
+    // 默认并行门禁车道里做相对墙钟断言，perfbudget 放宽机制救不了（它只认
+    // 绝对预算），也未登记任何红名单——原 `afterMs*3 < beforeMs+40` 正是如此。
+    void overviewPyramidsServeViewportBlockRead()
     {
       QTemporaryDir dir;
       // 4096×4096 f32 ≈ 64MB：够触发降采样读的量级，测试期可承受。
@@ -82,8 +86,8 @@ class TestPyramidConsume : public QObject
         QgsRasterLayer layer(tif, QStringLiteral("big"), QStringLiteral("gdal"));
         QVERIFY(layer.isValid());
         QVERIFY(!PreviewRasterAnalysisHasPyramidsFor(&layer));
-        beforeMs = timedViewportBlock(&layer);
-        QVERIFY(beforeMs >= 0);
+        std::unique_ptr<QgsRasterBlock> before = timedViewportBlock(&layer, &beforeMs);
+        QVERIFY2(before != nullptr, "无概览时视口读块必须成功");
       }
 
       // 建外部概览（.ovr）——受管 RAW 字节不动。
@@ -97,38 +101,43 @@ class TestPyramidConsume : public QObject
 
       // 「改后」：重开层（provider 重新发现 .ovr）同一视口读块。
       qint64 afterMs = -1;
+      std::unique_ptr<QgsRasterBlock> after;
       {
         QgsRasterLayer layer(tif, QStringLiteral("big"), QStringLiteral("gdal"));
         QVERIFY(layer.isValid());
         QVERIFY(PreviewRasterAnalysisHasPyramidsFor(&layer));
-        afterMs = timedViewportBlock(&layer);
+        after = timedViewportBlock(&layer, &afterMs);
       }
       qInfo("PERF viewport-block before(ms): %lld  after(ms): %lld", beforeMs,
             afterMs);
-      // 机器无关断言：读块时长显著下降（概览降采样读 < 直读；CI 抖动留裕量）。
-      QVERIFY2(afterMs * 3 < beforeMs + 40,
-               qPrintable(QStringLiteral("before=%1ms after=%2ms — overviews "
-                                         "must speed the decimated read")
-                              .arg(beforeMs)
-                              .arg(afterMs)));
+      // 读块失败（nullptr/空块）时原实现返回 -1，`-3 < beforeMs + 40` 恒真——
+      // 假绿；现在读块结果本身必须成立。
+      QVERIFY2(after != nullptr, "有概览时视口读块必须成功");
+      QCOMPARE(after->width(), 900);
+      QCOMPARE(after->height(), 700);
     }
 
   private:
     // 画布重渲的等价 IO：按视口分辨率（全图 extent × ~900×700）读一块。
-    static qint64 timedViewportBlock(QgsRasterLayer *layer)
+    // 失败返回 nullptr 并把 *ms 置 -1——调用方必须判空，不得只比时长。
+    static std::unique_ptr<QgsRasterBlock> timedViewportBlock(QgsRasterLayer *layer,
+                                                              qint64 *ms)
     {
-      auto *provider = layer->dataProvider();
+      if (ms)
+        *ms = -1;
+      auto *provider = layer ? layer->dataProvider() : nullptr;
       if (!provider)
-        return -1;
+        return nullptr;
       const QgsRectangle ext = layer->extent();
       QElapsedTimer t;
       t.start();
-      std::unique_ptr<QgsRasterBlock> block(
-          provider->block(1, ext, 900, 700));
-      const qint64 ms = t.elapsed();
+      std::unique_ptr<QgsRasterBlock> block(provider->block(1, ext, 900, 700));
+      const qint64 elapsed = t.elapsed();
       if (!block || block->isEmpty())
-        return -1;
-      return ms;
+        return nullptr;
+      if (ms)
+        *ms = elapsed;
+      return block;
     }
 
     static bool PreviewRasterAnalysisHasPyramidsFor(QgsRasterLayer *layer)

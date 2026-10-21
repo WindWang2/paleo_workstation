@@ -324,12 +324,12 @@ QWidget *DataPreviewTabs::buildHorizonContent(
     addStat(tr("有效像元占比"), tr("计算中…"),
             QStringLiteral("horizonStatValid"));
     page->addAnalysisTab(tr("统计"), statsPage);
-    const QPointer<QgsRasterLayer> statsRaster = rasterRaw;
-    const auto *initialRenderer = rasterRaw->renderer();
-    PreviewRasterAnalysis::requestSummary(
-        tifPath, m_doc ? m_doc->taskService() : nullptr, page,
-        [page, statsRaster,
-         initialRenderer](const PreviewRasterAnalysis::BandSummary &sum) {
+      const QPointer<QgsRasterLayer> statsRaster = rasterRaw;
+      const auto styleTouched = rasterStyleTouchedGuard(page, statsRaster); // 「样式未换」哨兵
+      PreviewRasterAnalysis::requestSummary(
+          tifPath, m_doc ? m_doc->taskService() : nullptr, page,
+          [page, statsRaster,
+           styleTouched](const PreviewRasterAnalysis::BandSummary &sum) {
           if (!sum.valid || !statsRaster)
             return;
           const auto update = [page](const char *name, const QString &text) {
@@ -343,7 +343,7 @@ QWidget *DataPreviewTabs::buildHorizonContent(
           update("horizonStatStd", QString::number(sum.stdDev, 'f', 2));
           update("horizonStatValid",
                  QStringLiteral("%1%").arg(sum.validRatio() * 100, 0, 'f', 1));
-          if (true && statsRaster->renderer() == initialRenderer) {
+          if (!*styleTouched) {
             PreviewRasterAnalysis::applyPseudoColorRenderer(
                 statsRaster, 1, sum.min, sum.max,
                 *PreviewRasterAnalysis::rampPreset(

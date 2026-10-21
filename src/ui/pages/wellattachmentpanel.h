@@ -1,6 +1,9 @@
 // 层：视图
 #pragma once
 #include <QDialog>
+#include <QHash>
+#include <QPixmap>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -58,6 +61,13 @@ class WellAttachmentPanel : public QDialog
     void setStatus(const QString &text, bool success); // 空串 = 清
     QString statusStyleSheet() const;
 
+    // D.4：缩略图缓存键（path|size|mtime——文件被替换即换键重解码）与
+    // 后台解码落地。refresh 由 catalog.changed 触发（任何 catalog 变更、
+    // 每次锚深落库都会走到），无缓存 + 同步解码会让附件多的井整体卡顿。
+    static QString thumbnailKey(const QString &path);
+    void decodeThumbnails(const QVector<QPair<QString, QString>> &jobs); // (键, 路径)
+    void applyThumbnailBatch(const QHash<QString, QPixmap> &decoded);
+
     enum class StatusTone { Clear, Success, Error };
 
     DataCatalog *m_cat = nullptr;
@@ -71,4 +81,6 @@ class WellAttachmentPanel : public QDialog
     QPushButton *m_clearBtn = nullptr;
     QPushButton *m_removeBtn = nullptr;
     bool m_updating = false; // 程序化刷新期间屏蔽 itemChanged 回声
+    QHash<QString, QPixmap> m_thumbCache; // 缩略图缓存（GUI 线程专用）
+    QSet<QString> m_thumbPending;         // 已排队未落地的键（防同批重复解码）
 };

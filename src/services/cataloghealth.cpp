@@ -191,7 +191,10 @@ QVector<HealthIssue> verifyExternalShas(
       issues.append(i);
       continue;
     }
-    if (actual != v.sha256)
+    // 留底摘要可能是大写十六进制（合法 SHA 表示，catalog 原样载入无规范化），
+    // 大小写敏感比对会把合法资产误报成 ShaMismatch——同 dataexport.cpp:66
+    // 与 datacatalog_versions.cpp:233/:414 的 CaseInsensitive 口径。
+    if (actual.compare(v.sha256, Qt::CaseInsensitive) != 0)
     {
       HealthIssue i = makeIssue(
           IssueKind::ShaMismatch, v.fileName.isEmpty() ? v.path : v.fileName,

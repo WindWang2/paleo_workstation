@@ -10,6 +10,7 @@
 #include "../../qgis/qgislayerorganizer.h"
 #include "../../qgis/qgislayerservice.h"
 #include "../../services/errorhub.h"
+#include "../notifications/paleonotify.h"
 #include "../shortcuts/shortcutcatalog.h"
 
 #include <qgslayertree.h>
@@ -36,6 +37,7 @@
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
+#include <QSaveFile>
 #include <QStyle>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -651,6 +653,69 @@ void LayerTreePanel::duplicateCurrentLayer()
 
 // ---- 导出/加载样式 ----
 
+bool LayerTreePanel::exportStyleTo(QgsMapLayer *layer, const QString &path, QString *error)
+{
+  if (!layer || path.isEmpty())
+  {
+    if (error)
+      *error = tr("没有可导出的图层。");
+    return false;
+  }
+  QDomDocument doc;
+  QString styleErr;
+  layer->exportNamedStyle(doc, styleErr);
+  if (!styleErr.isEmpty())
+  {
+    if (error)
+      *error = styleErr;
+    return false;
+  }
+  // 原子写：临时文件落盘后 commit 才替换目标——导出失败（含写入失败）
+  // 不会把空/半成品文档烙进用户选定文件（B.17：旧代码 QFile Truncate
+  // 直写，err 与 write() 返回值全部丢弃）。
+  QSaveFile f(path);
+  const QByteArray bytes = doc.toByteArray(2);
+  if (!f.open(QIODevice::WriteOnly) || f.write(bytes) != bytes.size() || !f.commit())
+  {
+    if (error)
+      *error = f.errorString();
+    return false;
+  }
+  return true;
+}
+
+bool LayerTreePanel::importStyleFrom(QgsMapLayer *layer, const QString &path, QString *error)
+{
+  if (!layer || path.isEmpty())
+  {
+    if (error)
+      *error = tr("没有可导入样式的图层。");
+    return false;
+  }
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    if (error)
+      *error = tr("无法读取文件：%1").arg(path);
+    return false;
+  }
+  QDomDocument doc;
+  if (!doc.setContent(&f))
+  {
+    if (error)
+      *error = tr("不是有效的样式文件。");
+    return false;
+  }
+  QString styleErr;
+  if (!layer->importNamedStyle(doc, styleErr) || !styleErr.isEmpty())
+  {
+    if (error)
+      *error = styleErr.isEmpty() ? tr("样式导入失败。") : styleErr;
+    return false;
+  }
+  return true;
+}
+
 void LayerTreePanel::exportCurrentStyle()
 {
   QgsMapLayer *layer = m_view->layerTreeModel() ? m_view->currentLayer() : nullptr;
@@ -661,13 +726,9 @@ void LayerTreePanel::exportCurrentStyle()
       layer->name() + QStringLiteral(".qml"), tr("QGIS 样式文件 (*.qml)"));
   if (path.isEmpty())
     return;
-  QDomDocument doc;
   QString err;
-  layer->exportNamedStyle(doc, err);
-  QFile f(path);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-    return;
-  f.write(doc.toByteArray(2));
+  if (!exportStyleTo(layer, path, &err))
+    PaleoNotify::warning(this, tr("导出样式"), err);
 }
 
 void LayerTreePanel::importCurrentStyle()
@@ -679,14 +740,9 @@ void LayerTreePanel::importCurrentStyle()
       this, tr("加载样式"), QString(), tr("QGIS 样式文件 (*.qml)"));
   if (path.isEmpty())
     return;
-  QFile f(path);
-  if (!f.open(QIODevice::ReadOnly))
-    return;
-  QDomDocument doc;
-  if (!doc.setContent(&f))
-    return; // 坏 .qml：静默放弃导入（对话框流程可后续接消息栏）
   QString err;
-  layer->importNamedStyle(doc, err);
+  if (!importStyleFrom(layer, path, &err))
+    PaleoNotify::warning(this, tr("加载样式"), err);
 }
 
 // ---- 筛选 ----

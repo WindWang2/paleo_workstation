@@ -207,27 +207,16 @@ std::vector<std::vector<Point2>> ringArcs( const std::vector<Point2> &ring, std:
     for ( std::size_t k = 0; k <= j; ++k )
       forward.push_back( ring[k] );
   }
+  // 后退弧 = 环上递减方向（0 之后回绕到 n-1），与 forward 的递增方向互补。
+  // 旧实现 j<=i 与 j>i 两个分支循环体逐字相同：j>i 时从 i 递减永不等于 j，
+  // 只能靠 k==0 break 兜住 → 得到「i → 0 → j」的绕远链而非真正反向弧
+  // （i=2,j=7 时是 2,1,0,7），且 j==0 时末尾还会重复压入 ring[j]。
+  // 两条弧都只是 tryReroute 的候选（短者优先、过校验才用），语义上应是
+  // 真正的反向弧。
   std::vector<Point2> backward;
-  if ( j <= i )
-  {
-    for ( std::size_t k = i; k != j; --k )
-    {
-      backward.push_back( ring[k] );
-      if ( k == 0 )
-        break;
-    }
-    backward.push_back( ring[j] );
-  }
-  else
-  {
-    for ( std::size_t k = i; k != j; --k )
-    {
-      backward.push_back( ring[k] );
-      if ( k == 0 )
-        break;
-    }
-    backward.push_back( ring[j] );
-  }
+  for ( std::size_t k = i; k != j; k = ( k == 0 ? n - 1 : k - 1 ) )
+    backward.push_back( ring[k] );
+  backward.push_back( ring[j] );
   if ( forward.size() <= backward.size() )
   {
     arcs.push_back( std::move( forward ) );

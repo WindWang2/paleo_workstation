@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QSaveFile>
 #include <QXmlStreamReader>
 #include <cmath>
 #include <limits>
@@ -805,9 +806,10 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
     xml += QStringLiteral("</Table></Worksheet>\n");
   }
 
-  // 文本道（含沉积相三级行，读回时可再分流）
-  const auto writeTextSheet = [&xml](const QString &sheetName, const QString &category,
-                                     const auto &rows) {
+  // 文本道（含沉积相三级行，读回时可再分流）。道名逐行自带：读面按 row.at(1)
+  // 分派 majorRows/subRows/microRows（见 parseComprehensiveWellXml 文本道分支），
+  // 写死单一 category 会把相/亚相行全部读回成微相，区间数 ×3。
+  const auto writeTextSheet = [&xml](const QString &sheetName, const auto &rows) {
     xml += QStringLiteral("<Worksheet ss:Name=\"%1\"><Table>\n").arg(sheetName);
     xml += QStringLiteral("<Row>");
     writeCell(xml, 0, QStringLiteral("井号"));
@@ -825,7 +827,7 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
     {
       xml += QStringLiteral("<Row>");
       writeCell(xml, 0, r.well);
-      writeCell(xml, 1, category);
+      writeCell(xml, 1, r.category);
       writeCell(xml, 2, QString());
       writeCellF(xml, r.top);
       writeCell(xml, 4, QString());
@@ -844,14 +846,16 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
     struct Row
     {
       QString well;
+      QString category;
       double top = 0, bottom = 0;
       QString text;
     };
     QVector<Row> rows;
     for (const auto &ti : data.textIntervals)
-      rows << Row{data.wellName, ti.topDepth, ti.bottomDepth,
-                  ti.category.isEmpty() ? ti.text : ti.text};
-    writeTextSheet(QStringLiteral("文本道"), QStringLiteral("取样结论"), rows);
+      rows << Row{data.wellName,
+                  ti.category.isEmpty() ? QStringLiteral("取样结论") : ti.category,
+                  ti.topDepth, ti.bottomDepth, ti.text};
+    writeTextSheet(QStringLiteral("文本道"), rows);
   }
 
   if (!data.faciesIntervals.isEmpty())
@@ -859,17 +863,26 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
     struct Row
     {
       QString well;
+      QString category;
       double top = 0, bottom = 0;
       QString text;
     };
     QVector<Row> rows;
     for (const auto &fi : data.faciesIntervals)
     {
-      rows << Row{data.wellName, fi.topDepth, fi.bottomDepth, fi.majorFacies};
-      rows << Row{data.wellName, fi.topDepth, fi.bottomDepth, fi.subFacies};
-      rows << Row{data.wellName, fi.topDepth, fi.bottomDepth, fi.microFacies};
+      // 三级行各带自己的 category：相/亚相/微相分别写「沉积相」「沉积亚相」
+      // 「沉积微相」，读回才能按 tier 分流回去。
+      if (!fi.majorFacies.isEmpty())
+        rows << Row{data.wellName, QStringLiteral("沉积相"), fi.topDepth, fi.bottomDepth,
+                    fi.majorFacies};
+      if (!fi.subFacies.isEmpty())
+        rows << Row{data.wellName, QStringLiteral("沉积亚相"), fi.topDepth, fi.bottomDepth,
+                    fi.subFacies};
+      if (!fi.microFacies.isEmpty())
+        rows << Row{data.wellName, QStringLiteral("沉积微相"), fi.topDepth, fi.bottomDepth,
+                    fi.microFacies};
     }
-    writeTextSheet(QStringLiteral("文本道-相"), QStringLiteral("沉积微相"), rows);
+    writeTextSheet(QStringLiteral("文本道-相"), rows);
   }
 
   // D3.11 编辑审计工作表（manifest 风格操作历史）
@@ -900,14 +913,22 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
 bool writeComprehensiveWellXmlFile(const ComprehensiveWellData &data, const QString &filePath,
                                    const QStringList &auditLines, QString *errorMsg)
 {
-  QFile f(filePath);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  const QByteArray xml = writeComprehensiveWellXml(data, auditLines);
+  // #588：QSaveFile 原子写 + 校验 write()——QFile+Truncate 直接覆写会在磁盘满/
+  // IO 错时于目标路径留下截断 XML，同时返回 true 宣称成功。
+  QSaveFile f(filePath);
+  if (!f.open(QIODevice::WriteOnly))
   {
     if (errorMsg)
       *errorMsg = QStringLiteral("无法写入文件: %1").arg(filePath);
     return false;
   }
-  f.write(writeComprehensiveWellXml(data, auditLines));
+  if (f.write(xml) != xml.size() || !f.commit())
+  {
+    if (errorMsg)
+      *errorMsg = QStringLiteral("写入不完整: %1").arg(filePath);
+    return false;
+  }
   return true;
 }
 

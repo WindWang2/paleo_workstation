@@ -301,6 +301,8 @@ class PaleoMainWindow : public SARibbonMainWindow
                                              QgisEditingService *editSvc,
                                              QgisLayoutService *layoutSvc,
                                              PaleoTaskService *taskSvc);
+    // 底栏「发布」页：库路径/当前清单/只读态（§6）三面均从工程存储注入。
+    void attachReleasePanel(PaleoProjectStore *store);
     // attachMapping 三段：发布门（m_refreshPublishGate 本体）→ 导出接线 →
     // 版本状态机。
     void attachMappingPublishGate(ComposePage *composePage, MapVersionController *versions,

@@ -38,23 +38,23 @@ bool intact(const QString &project, const CatalogVersion &raw, const std::functi
 } // namespace
 namespace PaleoMapImport
 {
-bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, const QString &path,
+bool prepare(DataCatalog *catalog, const QString &projectDir, const QString &stageDir, const QString &path,
              const QString &horizon, const PaleoMapLibrary::Request &request, const std::function<bool()> &cancelled,
-             Prepared *out, QString *error, const QString &existingAsset, const QSet<QString> &removedAssetIds)
+             Prepared *result, QString *error, const QString &existingAsset, const QSet<QString> &removedAssetIds)
 {
   CatalogVersion current;
   if (!existingAsset.isEmpty())
-    current = cat->currentVersion(existingAsset);
+    current = catalog->currentVersion(existingAsset);
   else
   {
     // C-10（full-audit-20261020）：文件导入按 sourceUri+horizon 匹配现有资产时，
     // 删除态（可回收清单内）资产不得被静默复活——同文件命中删除态资产即拒绝，
     // 提示先恢复或永久删除（另建新资产会在恢复时产生同源双资产）。
     bool removedMatch = false;
-    for (const auto &asset : cat->assets())
+    for (const auto &asset : catalog->assets())
       if (asset.type == "paleogeographic_map")
       {
-        const auto v = cat->currentVersion(asset.id);
+        const auto v = catalog->currentVersion(asset.id);
         if (v.sourceUri == path && v.extra.value("horizon") == horizon)
         {
           if (removedAssetIds.contains(asset.id))
@@ -73,18 +73,18 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
     }
   }
   const auto oldRaw = current.extra.contains("source_raw_version_id")
-                          ? cat->versionById(current.extra.value("source_raw_version_id").toString())
+                          ? catalog->versionById(current.extra.value("source_raw_version_id").toString())
                           : current;
   if (!existingAsset.isEmpty() &&
-      (cat->assetById(existingAsset).type != "paleogeographic_map" || oldRaw.stage != "RAW" ||
-       oldRaw.assetId != existingAsset || !intact(project, oldRaw, cancelled)))
+      (catalog->assetById(existingAsset).type != "paleogeographic_map" || oldRaw.stage != "RAW" ||
+       oldRaw.assetId != existingAsset || !intact(projectDir, oldRaw, cancelled)))
   {
     if (error) *error = QObject::tr("原图或配套文件缺失／已变化，不能整理；请重新导入完整原图");
     return false;
   }
   const auto sourceUri = existingAsset.isEmpty() ? path : oldRaw.sourceUri;
-  const auto assetId = current.id.isEmpty() ? cat->nextAssetId() : current.assetId;
-  const auto versionId = cat->nextVersionId();
+  const auto assetId = current.id.isEmpty() ? catalog->nextAssetId() : current.assetId;
+  const auto versionId = catalog->nextVersionId();
   const auto name = QFileInfo(path).fileName();
   const auto relative = "artifacts/" + DataCatalog::managedPath("raw", assetId, versionId, name);
   const auto copyDirectory = QFileInfo(QDir(stageDir).filePath(relative)).absolutePath();
@@ -97,7 +97,7 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
     return false;
   }
   const auto fingerprint = PaleoMapFiles::fingerprint(parts);
-  const auto schema = schemaFor(cat, horizon);
+  const auto schema = schemaFor(catalog, horizon);
   const auto policy =
       QString::fromLatin1(QCryptographicHash::hash(QJsonDocument::fromVariant(
                                                        QVariantMap{{"normalizer", 2},
@@ -108,20 +108,20 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
                                                    QCryptographicHash::Sha256)
                               .toHex());
   const bool reuse = !oldRaw.id.isEmpty() && oldRaw.extra.value("bundle_sha256") == fingerprint &&
-                     intact(project, oldRaw, cancelled);
+                     intact(projectDir, oldRaw, cancelled);
   if (reuse && current.extra.value("normalization_policy") == policy &&
       (existingAsset.isEmpty() || current.extra.value("mapping_product").toBool()) &&
-      DataCatalog::sha256FileHex(DataCatalog::resolvedVersionPath(project, current), nullptr, cancelled) ==
+      DataCatalog::sha256FileHex(DataCatalog::resolvedVersionPath(projectDir, current), nullptr, cancelled) ==
           current.sha256)
   {
     QDir(copyDirectory).removeRecursively();
-    out->unchanged = true;
+    result->unchanged = true;
     return true;
   }
   if (reuse)
     QDir(copyDirectory).removeRecursively();
   const auto rawPath =
-      reuse ? DataCatalog::resolvedVersionPath(project, oldRaw) : QDir(stageDir).filePath(relative);
+      reuse ? DataCatalog::resolvedVersionPath(projectDir, oldRaw) : QDir(stageDir).filePath(relative);
   auto metadata = reuse ? oldRaw.extra : PaleoMapSource::inspect(rawPath, error);
   if (metadata.isEmpty())
   {
@@ -163,7 +163,7 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
     conversionError = QObject::tr("图件缺少有效坐标系，请先完成配准后重试三级相整理");
   else if (faciesPolygon)
   {
-    derived.id = cat->nextVersionId();
+    derived.id = catalog->nextVersionId();
     derived.assetId = assetId;
     derived.stage = "DERIVED";
     derived.managed = true;
@@ -187,24 +187,24 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
     return false;
   }
   if (!conversionError.isEmpty())
-    out->warnings << QObject::tr("%1：原图已保存，仅供参考；三级相副本未生成：%2").arg(name, conversionError);
+    result->warnings << QObject::tr("%1：原图已保存，仅供参考；三级相副本未生成：%2").arg(name, conversionError);
   else
     raw.extra.insert("normalization_policy", policy);
   if (!reuse)
   {
     CatalogAsset asset{assetId, "paleogeographic_map", QFileInfo(path).suffix().toLower(), name};
-    if ((current.id.isEmpty() && !cat->addAsset(asset, error)) || !cat->addVersion(raw, error))
+    if ((current.id.isEmpty() && !catalog->addAsset(asset, error)) || !catalog->addVersion(raw, error))
     {
-      out->fatal = true;
+      result->fatal = true;
       return false;
     }
-    out->directories << QFileInfo(relative).path();
+    result->directories << QFileInfo(relative).path();
   }
   else if (conversionError.isEmpty() && converted.isEmpty())
   {
-    if (!cat->updateVersionExtra(raw.id, "normalization_policy", policy, error))
+    if (!catalog->updateVersionExtra(raw.id, "normalization_policy", policy, error))
     {
-      out->fatal = true;
+      result->fatal = true;
       return false;
     }
   }
@@ -226,16 +226,16 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
     derived.parentVersionIds = {raw.id};
     derived.sha256 =
         DataCatalog::sha256FileHex(QDir(stageDir).filePath(derived.path), error, cancelled);
-    if (derived.sha256.isEmpty() || !cat->addVersion(derived, error))
+    if (derived.sha256.isEmpty() || !catalog->addVersion(derived, error))
     {
-      out->fatal = true;
+      result->fatal = true;
       return false;
     }
     QFile::setPermissions(QDir(stageDir).filePath(derived.path),
                           QFileDevice::ReadOwner | QFileDevice::ReadGroup | QFileDevice::ReadOther);
-    out->directories << QFileInfo(derived.path).path();
+    result->directories << QFileInfo(derived.path).path();
   }
-  out->assetId = assetId;
+  result->assetId = assetId;
   return true;
 }
 } // namespace PaleoMapImport

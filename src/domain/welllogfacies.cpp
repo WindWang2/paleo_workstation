@@ -1,6 +1,7 @@
 // 层：数据
 #include "welllogfacies.h"
 #include "faciestaxonomy.h"
+#include "wellnumeric.h"
 #include <QCoreApplication>
 #include <QHash>
 #include <QJsonDocument>
@@ -23,11 +24,12 @@ template <class T> const T *at(const QVector<T> &items, double depth) {
       best = &i;
   return best;
 }
+// 空值口径统一由 wellnumeric 出（C.4 / #589）：此前这里自带一套「精确三哨兵
+// + 范围带」，与 wellnumeric 的四哨兵精确词表、以及 workflow 消费点的第三套
+// 硬编码阈值各说各话——同一数值在一条链判缺失、另一条链判数据。行为不变
+// （四个精确哨兵都在范围带覆盖内），只是不再有第二份口径。
 bool isNullLogValue(double v) {
-  if (!std::isfinite(v)) return true;
-  if (v == -9999.0 || v == -999.25 || v == -999.0 || v <= -99990.0 || v >= 1e29)
-    return true;
-  return false;
+  return paleo::wellnumeric::isNullCurveValue(v);
 }
 bool curveValue(const CurveData &c, double d, double *value, double maxGap = -1.0) {
   const auto it = std::lower_bound(c.depths.cbegin(), c.depths.cend(), d);

@@ -201,8 +201,13 @@ QVariantList analyze(const QList<Opinion> &opinions, int targetFaciesCode,
       const bool spatial = spatialKind(op.sourceKind);
       const QString conflictType = spatial ? QStringLiteral("spatial_contradiction")
                                           : QStringLiteral("interpretation_contradiction");
+      // 该意见编码与图斑一致、只是被其他意见票数压过时：不能输出「与图斑
+      // 相 N 矛盾」——它同时声称该意见既是相 N 又与相 N 矛盾，且把用户引向
+      // 一场并不存在的取舍（规则 2 只跳过 op.faciesCode == majorityCode）。
+      // basis 的「与图斑一致」专支已有，message/suggestion 须与它同源。
+      const bool agreesWithTarget = op.faciesCode == targetFaciesCode;
       QString basis;
-      if (op.faciesCode != targetFaciesCode)
+      if (!agreesWithTarget)
         basis = QStringLiteral("『%1』解释为相 %2（版本 %3），图斑为相 %4")
                     .arg(displayName(op))
                     .arg(op.faciesCode)
@@ -215,25 +220,37 @@ QVariantList analyze(const QList<Opinion> &opinions, int targetFaciesCode,
                     .arg(shortVersion(op.versionId))
                     .arg(majorityOpinionCount)
                     .arg(majorityCode);
-      if (op.faciesCode != targetFaciesCode && majorityOpinionCount > 0)
+      if (!agreesWithTarget && majorityOpinionCount > 0)
         basis += QStringLiteral("；%1 个意见判为相 %2").arg(majorityOpinionCount).arg(majorityCode);
       if (op.weight > 0.0 && op.weight < 1.0)
         basis += QStringLiteral("；该意见占重放像元 %1%").arg(percent(op.weight));
       const QString message =
-          spatial
-              ? QStringLiteral("『%1』判为相 %2（版本 %3），与图斑相 %4 空间矛盾")
+          agreesWithTarget
+              ? QStringLiteral("『%1』判为相 %2（版本 %3），与图斑一致但被 %4 个相 %5 的意见压过")
                     .arg(displayName(op))
                     .arg(op.faciesCode)
                     .arg(shortVersion(op.versionId))
-                    .arg(targetFaciesCode)
-              : QStringLiteral("『%1』判为相 %2（版本 %3），与图斑相 %4 的解释相矛盾")
+                    .arg(majorityOpinionCount)
+                    .arg(majorityCode)
+              : spatial
+                    ? QStringLiteral("『%1』判为相 %2（版本 %3），与图斑相 %4 空间矛盾")
+                          .arg(displayName(op))
+                          .arg(op.faciesCode)
+                          .arg(shortVersion(op.versionId))
+                          .arg(targetFaciesCode)
+                    : QStringLiteral("『%1』判为相 %2（版本 %3），与图斑相 %4 的解释相矛盾")
+                          .arg(displayName(op))
+                          .arg(op.faciesCode)
+                          .arg(shortVersion(op.versionId))
+                          .arg(targetFaciesCode);
+      const QString suggestion =
+          agreesWithTarget
+              ? QStringLiteral("复核图斑编码与多数方相 %1 的差异（『%2』与图斑一致但票数不足）")
+                    .arg(majorityCode)
                     .arg(displayName(op))
-                    .arg(op.faciesCode)
-                    .arg(shortVersion(op.versionId))
-                    .arg(targetFaciesCode);
-      const QString suggestion = spatial
-                                    ? QStringLiteral("定位『%1』复核解释与图斑边界").arg(displayName(op))
-                                    : QStringLiteral("复核『%1』意见与图斑分类的取舍，必要时人工裁决").arg(displayName(op));
+              : spatial
+                    ? QStringLiteral("定位『%1』复核解释与图斑边界").arg(displayName(op))
+                    : QStringLiteral("复核『%1』意见与图斑分类的取舍，必要时人工裁决").arg(displayName(op));
       add(QStringLiteral("Warning"), QStringLiteral("minority_opinion"), conflictType, kindOrOther(op),
           displayName(op), op.versionId, message, basis, suggestion, locatorFor(op));
     }

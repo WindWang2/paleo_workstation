@@ -201,10 +201,11 @@ ZipListResult zipListBytes( const QByteArray &archive )
       return result;
     }
   }
-  // 减法判界（#381 同族）：加法在 directoryOffset 近 2^64 时回绕穿闸，
-  // 随后 qint64 换负下标读缓冲区之前的内存。
-  if ( directoryOffset > static_cast<std::uint64_t>( archive.size() ) ||
-       directorySize > static_cast<std::uint64_t>( archive.size() ) - directoryOffset )
+  const std::uint64_t archiveSize = static_cast<std::uint64_t>( archive.size() );
+  // #382：一律用减法判界——directoryOffset/directorySize 是攻击者可控的 u64
+  // （ZIP64 路径由 EOCD64 覆写），加法在 2^64−56 量级回绕成 0 穿过旧闸，
+  // 随后 directoryEnd/offset 换 qint64 得负值，readU32 以负下标越读。
+  if ( directorySize > archiveSize || directoryOffset > archiveSize - directorySize )
   {
     result.error = QStringLiteral( "ZIP 中央目录偏移越界" );
     return result;
@@ -215,7 +216,14 @@ ZipListResult zipListBytes( const QByteArray &archive )
     return result;
   }
   // 条目硬上界 = 中央目录声明的范围（不是整个包）：声言 directorySize=0 的包
-  // 不能把包内任意数据当条目读。
+  // 不能把包内任意数据当条目读。上面减法闸已把 directoryOffset/directorySize
+  // 一并压进 [0, archiveSize]，故此处换 qint64 必为非负；仍显式兜底，防后续
+  // 改动松开闸门时静默退回负下标越读。
+  if ( directoryOffset > archiveSize )
+  {
+    result.error = QStringLiteral( "ZIP 中央目录偏移越界" );
+    return result;
+  }
   const qint64 directoryEnd = static_cast<qint64>( directoryOffset ) + static_cast<qint64>( directorySize );
   qint64 offset = static_cast<qint64>( directoryOffset );
   for ( std::uint64_t i = 0; i < count; ++i )

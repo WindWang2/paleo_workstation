@@ -310,7 +310,8 @@ void LithologyTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 
     // 颜色取自岩性解释（「黑色砂岩」= 砂岩花纹 + 砂岩宽度 + 黑色底）；深色底换浅色花纹线。
     const QColor fill = fillColor(it);
-    const QColor ink = fill.lightness() < 110 ? PaleoTheme::tokens(PaleoTheme::Theme::Light).surfaceAlt : QColor();
+    // 灰调化后中间调偏多，阈值 135：中深色底一律换浅色花纹线保证纹理对比
+    const QColor ink = fill.lightness() < 135 ? PaleoTheme::tokens(PaleoTheme::Theme::Light).surfaceAlt : QColor();
     painter.fillRect(block, LithologyPatternFactory::getBrush(it.lithoName, fill, ink));
 
     // 岩性块轮廓：上下界线 + 右侧宽度边

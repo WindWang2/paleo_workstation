@@ -130,10 +130,21 @@ QColor colorFromName(const QString &lithoName, QString *colorWord)
   return found;
 }
 
+QColor muteColor(const QColor &c)
+{
+  if (!c.isValid()) return c;
+  float h = 0, s = 0, l = 0, a = 1;
+  c.getHslF(&h, &s, &l, &a);
+  if (s < kNeutralSaturation || h < 0) return c; // 黑/白/灰保持中性
+  s = float(qMin<double>(s, kMutedMaxSaturation));
+  l = float(qBound(kMutedMinLightness, double(l), kMutedMaxLightness));
+  return QColor::fromHslF(h, s, l, a);
+}
+
 QColor resolveFillColor(const QString &lithoName, const QColor &fallback)
 {
   const QColor c = colorFromName(lithoName);
-  return c.isValid() ? c : fallback;
+  return muteColor(c.isValid() ? c : fallback);
 }
 
 double heightInQuanta(double thickness, double quantum)

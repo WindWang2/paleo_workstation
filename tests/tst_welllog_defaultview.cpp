@@ -257,8 +257,47 @@ private slots:
     QVERIFY(!colorFromName(QStringLiteral("灰岩")).isValid());
     QVERIFY(!colorFromName(QStringLiteral("白云岩")).isValid());
     QVERIFY(!colorFromName(QStringLiteral("灰质泥岩")).isValid());
-    // 无颜色词 → 区间颜色属性
-    QCOMPARE(resolveFillColor(QStringLiteral("细砂岩"), QColor("#123456")), QColor("#123456"));
+    // 无颜色词 → 区间颜色属性（同样灰调化）
+    QCOMPARE(resolveFillColor(QStringLiteral("细砂岩"), QColor("#123456")), muteColor(QColor("#123456")));
+  }
+
+  void mutedPalette_data()
+  {
+    QTest::addColumn<QString>("name");
+    for (const char *n : {"红色泥岩", "紫红色泥岩", "绿色泥岩", "灰绿色泥岩", "黄色砂岩", "蓝色灰岩", "棕红色砂岩", "土黄色砂岩"})
+      QTest::newRow(n) << QString::fromUtf8(n);
+  }
+  void mutedPalette()
+  {
+    using namespace LithologyStyle;
+    QFETCH(QString, name);
+    const QColor raw = colorFromName(name);
+    QVERIFY(raw.isValid());
+    const QColor muted = resolveFillColor(name, QColor());
+    QVERIFY2(muted.hslSaturationF() <= kMutedMaxSaturation + 0.01,
+             qPrintable(QStringLiteral("%1 s=%2").arg(muted.name()).arg(muted.hslSaturationF())));
+    QVERIFY(muted.lightnessF() >= kMutedMinLightness - 0.01 && muted.lightnessF() <= kMutedMaxLightness + 0.01);
+    // 色相保留（±6°），仍可辨认
+    const int dh = qAbs(muted.hslHue() - raw.hslHue());
+    QVERIFY2(qMin(dh, 360 - dh) <= 6, qPrintable(QStringLiteral("hue %1→%2").arg(raw.hslHue()).arg(muted.hslHue())));
+    QVERIFY(muted.hslSaturationF() > 0.05); // 不是纯灰：带一点原色
+  }
+  void mutedKeepsNeutrals()
+  {
+    using namespace LithologyStyle;
+    for (const char *n : {"黑色砂岩", "灰色泥岩", "白色砂岩", "灰黑色页岩", "深灰色泥岩", "浅灰色泥岩", "灰白色砂岩"})
+    {
+      const QString name = QString::fromUtf8(n);
+      QCOMPARE(resolveFillColor(name, QColor()), colorFromName(name));
+    }
+    QCOMPARE(muteColor(QColor(Qt::black)), QColor(Qt::black));
+    QCOMPARE(muteColor(QColor(Qt::white)), QColor(Qt::white));
+    QVERIFY(!muteColor(QColor()).isValid());
+    // 显式属性色同样灰调化：纯红 → 灰红
+    const QColor red = muteColor(QColor(255, 0, 0));
+    QVERIFY(red.hslSaturationF() <= kMutedMaxSaturation + 0.01);
+    QCOMPARE(red.hslHue(), 0);
+    QVERIFY(red.red() > red.green() && red.green() == red.blue());
   }
 
   void grainQuantum()

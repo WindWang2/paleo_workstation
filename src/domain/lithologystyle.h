@@ -34,7 +34,14 @@ QString matchedWidthKeyword(const QString &lithoName, const QVector<WidthRule> &
 
 // 从岩性名解析颜色词；ok 为 false 时返回无效色
 QColor colorFromName(const QString &lithoName, QString *colorWord = nullptr);
-// 最终填充色：名称颜色词优先，其次区间颜色属性 fallback
+// 灰调化：保留色相，HSL 饱和度封顶 kMutedMaxSaturation、明度夹到 [kMutedMinLightness, kMutedMaxLightness]；
+// 近中性色（饱和度 < kNeutralSaturation，即黑/白/灰）原样返回。红 → 灰里带一点红，绿 → 灰绿。
+inline constexpr double kMutedMaxSaturation = 0.18;
+inline constexpr double kMutedMinLightness = 0.28;
+inline constexpr double kMutedMaxLightness = 0.86;
+inline constexpr double kNeutralSaturation = 0.08;
+QColor muteColor(const QColor &c);
+// 最终填充色：名称颜色词优先，其次区间颜色属性 fallback；两者都经 muteColor 灰调化
 QColor resolveFillColor(const QString &lithoName, const QColor &fallback);
 
 // 高度粒度换算：厚度 / 粒度（quantum<=0 返回 0）

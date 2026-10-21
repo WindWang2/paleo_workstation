@@ -72,9 +72,13 @@ bool DataCatalog::writeSurveyGeoJson(const QString &path, QString *error) const
     if (finiteCorners < 3 || !(xmin < xmax && ymin < ymax)) continue;
     QJsonArray ring{QJsonArray{xmin, ymin}, QJsonArray{xmax, ymin}, QJsonArray{xmax, ymax},
                     QJsonArray{xmin, ymax}, QJsonArray{xmin, ymin}};
+    // Polygon 的 coordinates 是环数组；QJsonArray{ring} 会调用拷贝构造，
+    // 把必要的外层数组丢掉，导致 OGR 读到空几何。
+    QJsonArray rings;
+    rings.append(ring);
     features.append(QJsonObject{{"type", "Feature"},
         {"properties", QJsonObject{{"id", survey.id}, {"name", survey.name}}},
-        {"geometry", QJsonObject{{"type", "Polygon"}, {"coordinates", QJsonArray{ring}}}}});
+        {"geometry", QJsonObject{{"type", "Polygon"}, {"coordinates", rings}}}});
   }
   const QJsonObject root{{"type", "FeatureCollection"},
       {"crs", QJsonObject{{"type", "name"}, {"properties", QJsonObject{{"name", localGridCrsWkt()}}}}},

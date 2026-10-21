@@ -21325,6 +21325,71 @@ SHA-256：%2</translation>
         <source>计算 · %1</source>
         <translation>计算 · %1</translation>
     </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="55"/>
+        <source>色标:</source>
+        <translation>色标:</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="59"/>
+        <source>二维地震剖面色标</source>
+        <translation>二维地震剖面色标</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="60"/>
+        <source>切换振幅色标；剖面和右侧图例同步更新，无需重新读取测线</source>
+        <translation>切换振幅色标；剖面和右侧图例同步更新，无需重新读取测线</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="84"/>
+        <source>无法创建剖面图像</source>
+        <translation>无法创建剖面图像</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="119"/>
+        <source>选择一条测线解码</source>
+        <translation>选择一条测线解码</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="61"/>
+        <source>红白蓝 (双极)</source>
+        <translation>红白蓝 (双极)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="61"/>
+        <source>灰度 (单极)</source>
+        <translation>灰度 (单极)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="61"/>
+        <source>彩虹谱 (相图)</source>
+        <translation>彩虹谱 (相图)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="62"/>
+        <source>蓝白红 (反双极)</source>
+        <translation>蓝白红 (反双极)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="62"/>
+        <source>黑-白-蓝 (纸面)</source>
+        <translation>黑-白-蓝 (纸面)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="62"/>
+        <source>红-白-黑 (纸面)</source>
+        <translation>红-白-黑 (纸面)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="63"/>
+        <source>绿-白-品红</source>
+        <translation>绿-白-品红</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="63"/>
+        <source>青-白-橙</source>
+        <translation>青-白-橙</translation>
+    </message>
 </context>
 <context>
     <name>QgisConstraintEditSession</name>
@@ -24782,6 +24847,11 @@ SHA-256：%2</translation>
         <source>常规测井</source>
         <translation>常规测井</translation>
     </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/curveconfigdialog.cpp" line="180"/>
+        <source>显示关键岩性、三孔隙和电阻率曲线；辅助曲线默认隐藏，可勾选恢复</source>
+        <translation>显示关键岩性、三孔隙和电阻率曲线；辅助曲线默认隐藏，可勾选恢复</translation>
+    </message>
 </context>
 <context>
     <name>WellComposite::EditSession</name>
@@ -24916,6 +24986,16 @@ SHA-256：%2</translation>
         <location filename="../src/ui/wellcomposite/hiddentrackbar.cpp" line="82"/>
         <source>点击恢复显示「%1」道</source>
         <translation>点击恢复显示「%1」道</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/hiddentrackbar.cpp" line="81"/>
+        <source>更多隐藏道（%1）</source>
+        <translation>更多隐藏道（%1）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/hiddentrackbar.cpp" line="82"/>
+        <source>选择要恢复显示的图道</source>
+        <translation>选择要恢复显示的图道</translation>
     </message>
 </context>
 <context>
@@ -25093,6 +25173,11 @@ SHA-256：%2</translation>
         <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="197"/>
         <source>曲线颜色</source>
         <translation>曲线颜色</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="126"/>
+        <source>浅灰背景网格</source>
+        <translation>浅灰背景网格</translation>
     </message>
 </context>
 <context>
@@ -25684,6 +25769,41 @@ SHA-256：%2</translation>
     <message>
         <source>点击此键恢复全井段；双击照片放大查看，双击其他道体位置复位</source>
         <translation>点击此键恢复全井段；双击照片放大查看，双击其他道体位置复位</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/paneltracks.cpp" line="103"/>
+        <source>井段相解释</source>
+        <translation>井段相解释</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/paneltracks.cpp" line="103"/>
+        <source>查看或编辑井段岩性与相解释；井段相解释可含源文件解释和预测回写值，默认隐藏，可在图道配置中显示对照</source>
+        <translation>查看或编辑井段岩性与相解释；井段相解释可含源文件解释和预测回写值，默认隐藏，可在图道配置中显示对照</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/standardcurvetracks.cpp" line="44"/>
+        <source>岩性测井</source>
+        <translation>岩性测井</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/standardcurvetracks.cpp" line="45"/>
+        <source>三孔隙测井</source>
+        <translation>三孔隙测井</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/standardcurvetracks.cpp" line="46"/>
+        <source>电阻率测井</source>
+        <translation>电阻率测井</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/standardcurvetracks.cpp" line="62"/>
+        <source>常规测井</source>
+        <translation>常规测井</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/standardcurvetracks.cpp" line="75"/>
+        <source>辅助曲线 %1</source>
+        <translation>辅助曲线 %1</translation>
     </message>
 </context>
 <context>
@@ -31521,6 +31641,18 @@ SHA-256：%2</translation>
         <location filename="../src/ui/seismic3d/seismic3dviewportwidget.cpp" line="716"/>
         <source>，回车/双击提交栅栏</source>
         <translation>，回车/双击提交栅栏</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismic3d/seismic3dviewportwidget.cpp" line="76"/>
+        <source>任意位置左键拖拽旋转（含剖面）；Alt+左键移动切片；右键/中键/Shift+左键平移；滚轮缩放
+方向键旋转；+/- 缩放；双击居中复位</source>
+        <translation>任意位置左键拖拽旋转（含剖面）；Alt+左键移动切片；右键/中键/Shift+左键平移；滚轮缩放
+方向键旋转；+/- 缩放；双击居中复位</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismic3d/seismic3dviewportwidget.cpp" line="723"/>
+        <source>拾取模式：单击拾取剖面路径点（顶面）%1；Ctrl+左键临时旋转；Shift+左键平移；Esc 取消</source>
+        <translation>拾取模式：单击拾取剖面路径点（顶面）%1；Ctrl+左键临时旋转；Shift+左键平移；Esc 取消</translation>
     </message>
 </context>
 <context>

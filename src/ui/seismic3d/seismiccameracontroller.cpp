@@ -105,7 +105,8 @@ void SeismicCameraController::FitToBounds(
 }
 
 void SeismicCameraController::Rotate(float dx, float dy) {
-    yaw_ += dx * 0.25f;
+    // 拖动的是地震体：左拖时可见表面向左，轨道相机方位角取反向。
+    yaw_ -= dx * 0.25f;
     pitch_ += dy * 0.25f;
     pitch_ = std::clamp(pitch_, -89.0f, 89.0f);
 }

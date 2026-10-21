@@ -73,7 +73,7 @@ Seismic3DViewportWidget::Seismic3DViewportWidget(QWidget *parent)
 
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
-    setToolTip(tr("左键拖拽旋转；右键/Shift+左键拖拽平移；滚轮缩放（Shift 横向平移）\n"
+    setToolTip(tr("任意位置左键拖拽旋转（含剖面）；Alt+左键移动切片；右键/中键/Shift+左键平移；滚轮缩放\n"
                   "方向键旋转；+/- 缩放；双击居中复位"));
 
     // D3.11 惯性旋转：松手后按速度衰减续转（16ms 节拍）
@@ -459,12 +459,13 @@ void Seismic3DViewportWidget::fitToBounds() {
 }
 
 void Seismic3DViewportWidget::mousePressEvent(QMouseEvent *event) {
+    dragMode_ = DragMode::None;
     lastMousePos_ = event->position();
     rotateVelocity_ = QPointF(0, 0);
     inertiaTimer_.stop();
     // D7.2 剖面拾取模式：左键消费为拾取点（不进旋转/拖面分支）
     if (sectionPickActive_ && event->button() == Qt::LeftButton &&
-        !(event->modifiers() & Qt::ControlModifier)) {
+        !(event->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier))) {
         glm::ivec2 grid;
         if (pickTopPlaneGrid(event->position(), grid)) {
             // 与末点重合（抖动/双击次击）不入列
@@ -480,19 +481,16 @@ void Seismic3DViewportWidget::mousePressEvent(QMouseEvent *event) {
         return;
     }
     if (event->button() == Qt::LeftButton && !(event->modifiers() & Qt::ShiftModifier)) {
-        // D3.2：点中切片面 → 拖面（Ctrl 按住强制旋转，避免抢交互）
-        if (event->modifiers() & Qt::ControlModifier) {
-            dragMode_ = DragMode::Rotate;
-        } else {
+        // 任意位置默认旋转；移动切片必须显式按住 Alt，不抢占剖面上的旋转。
+        dragMode_ = DragMode::Rotate;
+        if (event->modifiers() & Qt::AltModifier) {
             const SeismicSliceSlot hit = pickSliceAt(event->position());
             if (hit != SeismicSliceSlot::Line && sliceRenderer_.IsSlotVisible(hit) &&
                 sliceRenderer_.IsSlotReady(hit)) {
                 dragMode_ = DragMode::SliceDrag;
                 dragSlot_ = hit;
                 setCursor(Qt::SizeAllCursor);
-                return;
             }
-            dragMode_ = DragMode::Rotate;
         }
     } else if (event->button() == Qt::RightButton || event->button() == Qt::MiddleButton ||
                (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ShiftModifier))) {
@@ -504,7 +502,7 @@ void Seismic3DViewportWidget::mousePressEvent(QMouseEvent *event) {
 
 void Seismic3DViewportWidget::mouseMoveEvent(QMouseEvent *event) {
     // D7.2 拾取悬停点刷新（橡皮线跟手）
-    if (sectionPickActive_ && !sectionPickPoints_.empty()) {
+    if (sectionPickActive_ && dragMode_ == DragMode::None && !sectionPickPoints_.empty()) {
         glm::ivec2 grid;
         if (pickTopPlaneGrid(event->position(), grid) && grid != sectionHoverPoint_) {
             sectionHoverPoint_ = grid;
@@ -514,12 +512,11 @@ void Seismic3DViewportWidget::mouseMoveEvent(QMouseEvent *event) {
         return;
     }
     if (dragMode_ == DragMode::None) {
-        // D3.2 悬停高亮提示：落在切片面上给拖拽光标
-        if (!sliceRenderer_.IsStackVisible()) {
-            const SeismicSliceSlot hit = pickSliceAt(event->position());
-            setCursor((hit != SeismicSliceSlot::Line && sliceRenderer_.IsSlotReady(hit))
-                          ? Qt::SizeAllCursor : Qt::ArrowCursor);
-        }
+        // 仅 Alt 手势提示切片移动，普通悬停不再误示为拖面。
+        const auto hit = (event->modifiers() & Qt::AltModifier) && !sliceRenderer_.IsStackVisible()
+            ? pickSliceAt(event->position()) : SeismicSliceSlot::Line;
+        setCursor(hit != SeismicSliceSlot::Line && sliceRenderer_.IsSlotReady(hit)
+                      ? Qt::SizeAllCursor : Qt::ArrowCursor);
         return;
     }
 
@@ -723,11 +720,11 @@ void Seismic3DViewportWidget::setSectionPickMode(bool enabled, bool autoCommitAt
     sectionHoverValid_ = false;
     if (enabled) {
         setCursor(Qt::CrossCursor);
-        setToolTip(tr("拾取模式：单击拾取剖面路径点（顶面）%1；Esc 取消")
+        setToolTip(tr("拾取模式：单击拾取剖面路径点（顶面）%1；Ctrl+左键临时旋转；Shift+左键平移；Esc 取消")
                        .arg(autoCommitAtTwo ? tr("，两点自动成剖") : tr("，回车/双击提交栅栏")));
     } else {
         setCursor(Qt::ArrowCursor);
-        setToolTip(tr("左键拖拽旋转；右键/Shift+左键拖拽平移；滚轮缩放（Shift 横向平移）\n"
+        setToolTip(tr("任意位置左键拖拽旋转（含剖面）；Alt+左键移动切片；右键/中键/Shift+左键平移；滚轮缩放\n"
                       "方向键旋转；+/- 缩放；双击居中复位"));
     }
     emit sectionPickModeChanged(sectionPickActive_);

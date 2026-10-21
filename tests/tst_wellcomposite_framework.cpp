@@ -6,11 +6,15 @@
 #include <QPainter>
 #include <QTableWidget>
 #include <QToolButton>
+#include <QMenu>
+#include <QLayout>
 
 #include <cmath>
 #include <limits>
 
 #include "ui/wellcomposite/trackregistry.h"
+#include "ui/wellcomposite/curveconfigdialog.h"
+#include "ui/paleotheme.h"
 #include "ui/wellcomposite/trackops.h"
 #include "ui/wellcomposite/wellcompositetrack.h"
 #include "ui/wellcomposite/wellcompositecanvas.h"
@@ -29,6 +33,130 @@ class TestWellCompositeFramework : public QObject
   Q_OBJECT
 
 private slots:
+  void initTestCase() { PaleoTheme::pinRenderEnvironment(); }
+  void testStandardLayoutKeepsAuxiliaryCurvesAvailable()
+  {
+    QVector<CurveData> curves;
+    for (const QString &name : QStringList{"GR", "SP", "CALI", "AC", "DEN", "CNL",
+                                          "RLLD", "RLLS", "RXO", "GR_2", "AZIM", "CO2", "UNKNOWN"})
+    {
+      CurveData c; c.name = name; c.depths = {1000, 1010}; c.values = {10, 20};
+      curves << c;
+    }
+    CurveData lab = curves.first(); lab.name = "POR"; lab.mode = CurveDisplayMode::Discrete;
+    curves << lab;
+    WellCompositeCanvas canvas;
+    const auto tracks = TrackOps::standardCurveTracks(curves);
+    QStringList visibleNames, allNames;
+    int visible = 0;
+    for (const auto &track : tracks)
+    {
+      canvas.addTrack(track);
+      if (track->isVisible()) ++visible;
+      for (const auto &c : std::static_pointer_cast<CurveTrack>(track)->curves())
+      {
+        allNames << c.name;
+        if (track->isVisible()) visibleNames << c.name;
+      }
+    }
+    QCOMPARE(visible, 3);
+    QCOMPARE(visibleNames, (QStringList{"GR", "SP", "CALI", "AC", "DEN", "CNL", "RLLD", "RLLS", "RXO"}));
+    QCOMPARE(allNames.size(), curves.size());
+    QVERIFY(allNames.contains("GR_2"));
+    QVERIFY(allNames.contains("POR"));
+    CurveConfigDialog dialog(&canvas);
+    dialog.onResetDefault(); dialog.applyConfiguration();
+    int restored = 0;
+    for (const auto &track : canvas.tracks())
+      if (track->isVisible()) ++restored;
+    QCOMPARE(restored, 3);
+    const auto fallback = TrackOps::standardCurveTracks({curves.last()});
+    QCOMPARE(fallback.size(), 1);
+    QVERIFY(fallback.first()->isVisible());
+  }
+
+  void testHiddenAuxiliaryTracksStayCompact()
+  {
+    HiddenTrackBar bar;
+    QList<TrackSpec> specs;
+    for (int i = 0; i < 30; ++i)
+    {
+      TrackSpec spec; spec.typeId = "curve"; spec.title = QString::number(i); spec.visible = false;
+      specs << spec;
+    }
+    bar.setTracks(specs);
+    QCOMPARE(bar.hiddenCount(), 30);
+    QCOMPARE(bar.findChildren<QToolButton *>().size(), 4);
+    QCOMPARE(bar.findChild<QMenu *>()->actions().size(), 27);
+    QSignalSpy restored(&bar, &HiddenTrackBar::trackRestoreRequested);
+    bar.findChild<QMenu *>()->actions().last()->trigger();
+    QTRY_COMPARE(restored.size(), 1);
+    QCOMPARE(restored.first().first().toString(), QStringLiteral("29"));
+    const int items = bar.layout()->count();
+    bar.setTracks(specs);
+    QCOMPARE(bar.layout()->count(), items);
+  }
+
+  void testLasAndCompositeUseTheSameDefaultTracks()
+  {
+    ComprehensiveWellData data;
+    data.wellName = "UT-StandardComposite"; data.minDepth = 1000; data.maxDepth = 1100;
+    for (const QString &name : QStringList{"CO2", "ZDEN", "CNCF", "GR", "AC", "RLLD", "AZIM", "SP"})
+    {
+      CurveData c; c.name = name;
+      c.color = QColor::fromHsv((data.continuousCurves.size() * 67 + 100) % 360, 180, 160);
+      for (int i = 0; i <= 1000; ++i)
+      {
+        c.depths << 1000.0f + i * .1f;
+        c.values << static_cast<float>(50 + 30 * std::sin(i * .025 + data.continuousCurves.size()));
+      }
+      data.continuousCurves << c;
+    }
+    WellCompositeStore::clearSessionTracks({}, data.wellName);
+    WellCompositeStore::clearSessionTracks({}, "UT-StandardLas");
+    WellCompositePanel xml, las;
+    QVERIFY(xml.loadWellData(data));
+    QVERIFY(las.loadLasCurves("UT-StandardLas", data.continuousCurves, {}));
+    auto names = [](const WellCompositePanel &panel) {
+      QStringList out;
+      for (const auto &track : panel.canvas()->tracks())
+        if (track->type() == TrackType::Curve && track->isVisible())
+          for (const auto &c : std::static_pointer_cast<CurveTrack>(track)->curves()) out << c.name;
+      return out;
+    };
+    QCOMPARE(names(xml), names(las));
+    QCOMPARE(names(xml), (QStringList{"GR", "SP", "AC", "ZDEN", "CNCF", "RLLD"}));
+    const QString screenshot = qEnvironmentVariable("PALEO_WELL_LAYOUT_SCREENSHOT");
+    if (!screenshot.isEmpty())
+    {
+      xml.resize(1100, 720); xml.canvas()->setScaleRatio(QStringLiteral("自适应")); xml.show(); QTest::qWait(100);
+      QVERIFY(xml.grab().save(screenshot));
+    }
+  }
+
+  void testCurveGridUsesDepthCoordinatesAndCanBeDisabled()
+  {
+    CurveTrack track;
+    track.setGridDensity(3);
+    const auto paper = PaleoTheme::tokens(PaleoTheme::Theme::Light).surface;
+    auto render = [&track](double top) {
+      QImage image(180, 180, QImage::Format_RGB32); image.fill(Qt::magenta);
+      QPainter painter(&image);
+      track.paintBody(painter, QRectF(0, 0, 180, 180), top, top + 18, 10);
+      return image;
+    };
+    const auto before = render(1000);
+    QVERIFY(before.pixelColor(90, 25) != paper); // 纵线
+    QVERIFY(before.pixelColor(25, 50) != paper); // 1005 m 主深度线
+    QVERIFY(before.pixelColor(25, 25) == paper);
+    const auto scrolled = render(1000.5);
+    QCOMPARE(before.pixelColor(25, 50), scrolled.pixelColor(25, 45));
+    track.setShowGrid(false);
+    const auto disabled = render(1000);
+    QCOMPARE(disabled.pixelColor(90, 25), paper);
+    QCOMPARE(disabled.pixelColor(25, 50), paper);
+  }
+
   // ---- D1.2 注册表 ----
   void testRegistryBuiltins()
   {
@@ -378,8 +506,15 @@ private slots:
   }
 
   // ---- 会话曲线配置恢复：重开后道内曲线集与用户最后一次 TrackConfig 一致 ----
+  void testSessionCurveConfigRestore_data()
+  {
+    QTest::addColumn<QString>("trackTitle");
+    QTest::newRow("existing-title") << QStringLiteral("岩性测井");
+    QTest::newRow("custom-title") << QStringLiteral("自定义曲线组合");
+  }
   void testSessionCurveConfigRestore()
   {
+    QFETCH(QString, trackTitle);
     const QString project = QStringLiteral("UT-CurveRestore-P");
     const QString well = QStringLiteral("UT-CurveRestore-W");
     WellCompositeStore::clearSessionTracks(project, well);
@@ -404,7 +539,7 @@ private slots:
     // 用户把默认「岩性测井」道（GR）改为 DEN+RT 并收窄 DEN 量程，记忆落盘
     TrackSpec edited;
     edited.typeId = QStringLiteral("curve");
-    edited.title = QStringLiteral("岩性测井");
+    edited.title = trackTitle;
     edited.width = 180.0;
     edited.setCurveNames({QStringLiteral("DEN"), QStringLiteral("RT")});
     QVariantMap denOverride;
@@ -424,10 +559,10 @@ private slots:
     std::shared_ptr<CurveTrack> litho;
     for (const auto &t : canvas->tracks())
     {
-      if (t && t->title() == QStringLiteral("岩性测井"))
+      if (t && t->title() == trackTitle)
         litho = std::dynamic_pointer_cast<CurveTrack>(t);
     }
-    QVERIFY2(litho, "默认分组须含岩性测井道");
+    QVERIFY2(litho, "会话须恢复原始标题与曲线配置");
     QCOMPARE(litho->curves().size(), 2);
     QCOMPARE(litho->curves().at(0).name, QStringLiteral("DEN"));
     QCOMPARE(litho->curves().at(1).name, QStringLiteral("RT"));

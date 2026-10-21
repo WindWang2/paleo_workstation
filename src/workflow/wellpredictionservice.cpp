@@ -11,6 +11,7 @@
 #include "../services/projectdata.h"
 #include "../services/welllogset.h"
 #include "wellsectionworkflow.h"
+#include <QDebug>
 #include <QFutureWatcher>
 #include <QFileInfo>
 #include <QCoreApplication>
@@ -295,18 +296,17 @@ void WellPredictionService::prepare() {
             curve.name = ref.mnemonic;
             curve.unit = doc.curves[ref.column].unit;
             const auto &depth = doc.curves.first();
-            if (!unitScale && !depth.unit.isEmpty())
+            QString reason;
+            if (!normalizeDepthCurve(depth.values, doc.curves[ref.column].values,
+                                     depth.unit, &curve, &reason)) {
+              qWarning().noquote() << "well prediction: skip curve" << ref.mnemonic
+                                   << "of" << ref.path << "-" << reason;
               continue;
-            for (double d : depth.values) {
-              d *= unitScale.value_or(1.0);
-              curve.depths << float(d);
-              if (std::isfinite(d)) {
-                top = std::min(top, double(curve.depths.last()));
-                base = std::max(base, double(curve.depths.last()));
-              }
             }
-            for (double value : doc.curves[ref.column].values)
-              curve.values << float(value);
+            if (!curve.depths.isEmpty()) {
+              top = std::min(top, double(curve.depths.first()));
+              base = std::max(base, double(curve.depths.last()));
+            }
             well.continuousCurves.append(curve);
           }
           well.minDepth = top;

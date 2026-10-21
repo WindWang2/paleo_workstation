@@ -1,5 +1,4 @@
 // 层：视图
-// token 例外：DESIGN 数据符号例外：地震振幅色带（红白蓝 grad 三档，自 datapreviewtabs_internal.h 迁入）；图表 chrome 已转 token。（tools/ui-token-exceptions.json 精确计数）。
 #pragma once
 
 // 方向97（datapreviewtabs 拆分）：地震剖面对面板——自 datapreviewtabs_internal.h
@@ -8,6 +7,9 @@
 // 自包含修复：internal.h 版依赖包含方自带 nicestep.h，此头自带。
 
 #include <QColor>
+#include <QComboBox>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QFont>
 #include <QFontMetrics>
 #include <QImage>
@@ -25,16 +27,48 @@
 #include "../../domain/seismic/nicestep.h" // seismic::NiceStep（时间轴刻度）
 #include "../../domain/sectiontrace.h"     // SegyTrace/SegySectionGrid
 #include "../paleotheme.h"
+#include "../seismicsection/seismiccolormap.h"
 
 namespace paleo::datapreview_detail {
 
-// 地震剖面：一条 inline/crossline 的红白蓝双极振幅渲染（§4/§7：只解码这一条）。
-// 时间轴与色标：左侧显示 TWT(ms) 时间刻度轴，右侧显示红白蓝振幅色标与极性标注。
+// 地震剖面：一条 inline/crossline 的可切换振幅色标渲染（§4/§7：只解码这一条）。
+// 时间轴与色标：左侧显示 TWT(ms) 时间刻度轴，右侧色标与剖面共用当前调色板。
 // D61 标定：井的 D61 分层经时深表换算成 ms 后，在剖面上画一条水平标记线。
 class SectionPanel : public QWidget
 {
 public:
   SectionPanel(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(320, 260); }
+  seismic::SectionColorMapType colorMap() const { return m_colorMap; }
+  void setColorMap(seismic::SectionColorMapType type)
+  {
+    if (static_cast<int>(type) < 0 || static_cast<int>(type) >= seismic::kSectionColorMapCount) return;
+    m_colorMap = type;
+    if (!m_img.isNull()) updateColorTable();
+    update();
+  }
+  QWidget *createColorMapControl(QWidget *parent)
+  {
+    auto *control = new QWidget(parent);
+    auto *layout = new QHBoxLayout(control);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(PaleoTheme::tokens().spacingXs);
+    auto *label = new QLabel(QObject::tr("色标:"), control);
+    PaleoTheme::applyThemedStyleSheet(label, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    auto *combo = new QComboBox(control);
+    combo->setObjectName(QStringLiteral("previewSectionColorMap"));
+    combo->setAccessibleName(QObject::tr("二维地震剖面色标"));
+    combo->setToolTip(QObject::tr("切换振幅色标；剖面和右侧图例同步更新，无需重新读取测线"));
+    combo->addItems({QObject::tr("红白蓝 (双极)"), QObject::tr("灰度 (单极)"), QObject::tr("彩虹谱 (相图)"),
+                     QObject::tr("蓝白红 (反双极)"), QObject::tr("黑-白-蓝 (纸面)"), QObject::tr("红-白-黑 (纸面)"),
+                     QObject::tr("绿-白-品红"), QObject::tr("青-白-橙")});
+    combo->setCurrentIndex(static_cast<int>(m_colorMap));
+    connect(combo, &QComboBox::currentIndexChanged, this, [this](int index) {
+      setColorMap(static_cast<seismic::SectionColorMapType>(index));
+    });
+    layout->addWidget(label);
+    layout->addWidget(combo);
+    return control;
+  }
   void setTraces(const QVector<SegyTrace> &traces, float dtUs, double t0Ms,
                  const QString &readWarning = {})
   {
@@ -46,12 +80,14 @@ public:
     const int w = qMax(1, traces.size());
     const SegySectionGrid grid = SegySectionGrid::forTraces(traces, dtUs, t0Ms);
     const int h = grid.rows;
-    m_img = QImage(w, h, QImage::Format_ARGB32_Premultiplied);
-    m_img.fill(qRgb(255, 255, 255));
+    m_img = QImage(w, h, QImage::Format_Indexed8);
+    if (m_img.isNull()) { setError(QObject::tr("无法创建剖面图像")); return; }
+    updateColorTable();
+    m_img.fill(0);
     float amp = 1e-6f;
     for (const SegyTrace &t : traces)
       for (float s : t.samples)
-        amp = qMax(amp, qAbs(s));
+        if (std::isfinite(s)) amp = qMax(amp, qAbs(s));
     for (int x = 0; x < w; ++x)
     {
       const SegyTrace &t = traces.at(x);
@@ -59,18 +95,11 @@ public:
       {
         float sample = 0.0f;
         if (!grid.sampleAt(t, y, dtUs, t0Ms, &sample)) continue;
+        if (!std::isfinite(sample)) continue;
         const float v = std::clamp((sample / amp) * 1.35f, -1.0f, 1.0f);
-        const float mag = std::pow(std::abs(v), 0.85f);
-        const float k = 1.0f - mag;
-        QRgb color;
-        if (v < 0.0f) {
-            // Deep blue to white (Trough)
-            color = qRgb(static_cast<int>(217 * k), static_cast<int>(230 * k), 255);
-        } else {
-            // White to deep red (Peak)
-            color = qRgb(255, static_cast<int>(224 * k), static_cast<int>(214 * k));
-        }
-        m_img.setPixel(x, y, color);
+        const int index = qRound(v * 127.0f) + 128;
+        // 极弱负振幅仍使用负极性颜色，不能被量化到零后染成正极性。
+        m_img.setPixel(x, y, v < 0.0f ? qMin(127, index) : index);
       }
     }
     m_maxAmp = amp;
@@ -205,9 +234,8 @@ protected:
     const int barH = std::max(20, dst.height() - labelHeight - PaleoTheme::tokens().spacingLg);
 
     QLinearGradient grad(barX, barTop, barX, barTop + barH);
-    grad.setColorAt(0.0, QColor(220, 38, 38));   // Red Peak
-    grad.setColorAt(0.5, QColor(255, 255, 255)); // White Zero
-    grad.setColorAt(1.0, QColor(25, 118, 210));  // Blue Trough
+    for (int i = 0; i < 255; ++i)
+      grad.setColorAt(i / 254.0, QColor::fromRgb(m_img.color(255 - i)));
 
     p.setBrush(grad);
     p.setPen(QPen(PaleoTheme::tokens().border, 1.0));
@@ -246,6 +274,16 @@ protected:
   }
 
 private:
+  void updateColorTable()
+  {
+    // 0 保留给缺测；1..255 表达 [-1,1]，128 为零振幅。换色只更新调色板。
+    QVector<QRgb> table(256);
+    table[0] = qRgb(255, 255, 255);
+    for (int i = 1; i < 256; ++i)
+      table[i] = seismic::SampleColorMap(m_colorMap, (i - 128) / 127.0f);
+    m_img.setColorTable(table);
+  }
+  seismic::SectionColorMapType m_colorMap = seismic::SectionColorMapType::RedWhiteBlue;
   QImage m_img;
   QString m_caption;
   QString m_error;

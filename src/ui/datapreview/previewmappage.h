@@ -54,6 +54,7 @@ class PreviewMapPage : public QWidget
 
     // ---- 层管理（画布 + TOC 双写；层所有权仍归分支父子树）----
     void addMapLayer( QgsMapLayer *layer, const QString &name, const QString &sourcePath );
+    void addMapLayerAtBottom( QgsMapLayer *layer, const QString &name ); // 底图：压在所有层之下
     void removeMapLayer( QgsMapLayer *layer );
     void clearMapLayers();
     int mapLayerCount() const;

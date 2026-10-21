@@ -413,27 +413,6 @@
     "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
   },
   {
-    "file": "src/ui/datapreview/previewsectionpanel.h",
-    "rule": "rgb",
-    "source": "grad.setColorAt(0.0, QColor(220, 38, 38));",
-    "count": 1,
-    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
-  },
-  {
-    "file": "src/ui/datapreview/previewsectionpanel.h",
-    "rule": "rgb",
-    "source": "grad.setColorAt(0.5, QColor(255, 255, 255));",
-    "count": 1,
-    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
-  },
-  {
-    "file": "src/ui/datapreview/previewsectionpanel.h",
-    "rule": "rgb",
-    "source": "grad.setColorAt(1.0, QColor(25, 118, 210));",
-    "count": 1,
-    "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
-  },
-  {
     "file": "src/ui/datapreview/datapreviewtabwelllog.cpp",
     "rule": "hex",
     "source": "QColor(QStringLiteral(\"#80CBC4\")), QColor(QStringLiteral(\"#80DEEA\")),",
@@ -2062,13 +2041,6 @@
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#D97706\")), 1.5));",
     "count": 1,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/trackcurves.cpp",
-    "rule": "hex",
-    "source": "painter.setPen(QPen(isMinor ? QColor(QStringLiteral(\"#F8FAFB\")) : QColor(QStringLiteral(\"#F1F3F5\")),",
-    "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {

@@ -1,6 +1,7 @@
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
+#include <QScrollBar>
 #include <QSignalSpy>
 #include <QTest>
 #include <QToolButton>
@@ -289,6 +290,59 @@ private slots:
     QVERIFY(tsv.contains(QStringLiteral("曲线\t单位\tn\tmin\tmax\tmean\tstd")));
     QVERIFY(tsv.contains(QStringLiteral("泥岩\t12.0\t")));
     QVERIFY(tsv.contains(QStringLiteral("标志层计数\t1")));
+  }
+
+  // ---- 问题 15：隐藏道（如预测相）后横向拖拽不跳 ----
+  void testHorizontalPanAfterHidingTracks()
+  {
+    WellCompositeCanvas canvas;
+    canvas.resize(500, 400);
+    canvas.show();
+    QApplication::processEvents();
+    canvas.setDepthRange(1000.0, 2000.0);
+    QVector<std::shared_ptr<TextTrack>> tracks;
+    for (int i = 0; i < 6; ++i)
+    {
+      tracks << std::make_shared<TextTrack>(QStringLiteral("T%1").arg(i), 150.0);
+      canvas.addTrack(tracks.last());
+    }
+    auto *body = canvas.findChild<WellCompositeBody *>();
+    QScrollBar *hbar = nullptr;
+    for (auto *sb : canvas.findChildren<QScrollBar *>())
+      if (sb->orientation() == Qt::Horizontal) hbar = sb;
+    QVERIFY(body && hbar);
+    const double bodyW = body->width();
+
+    // 鼠标向左拖 400px：偏移 400，滑块值同步
+    QTest::mousePress(body, Qt::LeftButton, Qt::NoModifier, QPoint(450, 100));
+    QTest::mouseMove(body, QPoint(50, 100));
+    QTest::mouseRelease(body, Qt::LeftButton, Qt::NoModifier, QPoint(50, 100));
+    QCOMPARE(canvas.hScrollOffset(), 400.0);
+    QCOMPARE(hbar->value(), 400);
+
+    // 隐藏两道（面板“显示预测相”关闭走同一路径）：偏移夹到新上限
+    tracks[4]->setVisible(false);
+    tracks[5]->setVisible(false);
+    canvas.syncScrollBars();
+    const double maxH = canvas.totalTracksWidth() - bodyW;
+    QCOMPARE(canvas.hScrollOffset(), maxH);
+    QCOMPARE(hbar->maximum(), qRound(maxH));
+    QCOMPARE(hbar->value(), qRound(maxH));
+
+    // 之后逐像素拖拽：偏移单调、每步变化不超过鼠标位移
+    QTest::mousePress(body, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    double prev = canvas.hScrollOffset();
+    for (int x = 110; x <= 160; x += 10)
+    {
+      QTest::mouseMove(body, QPoint(x, 100));
+      const double cur = canvas.hScrollOffset();
+      QVERIFY2(cur <= prev && prev - cur <= 10.0 + 1e-9,
+               qPrintable(QStringLiteral("jump %1 -> %2").arg(prev).arg(cur)));
+      prev = cur;
+    }
+    QTest::mouseRelease(body, Qt::LeftButton, Qt::NoModifier, QPoint(160, 100));
+    QCOMPARE(canvas.hScrollOffset(), maxH - 60.0);
+    QCOMPARE(hbar->value(), qRound(maxH - 60.0));
   }
 
   // ---- D1.3/D1.4 道头拖拽换位与分隔线 ----

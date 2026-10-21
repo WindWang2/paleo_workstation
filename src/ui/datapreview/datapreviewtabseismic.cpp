@@ -107,6 +107,23 @@ using namespace paleo::datapreview_detail;
 // 共享辅助（caption8/qssHex/SectionPanel 等）已由 datapreviewtabs_internal.h 提供。
 // 参数全是 buildContent 已算好的量，本函数不重算、不改语义。
 
+namespace {
+QWidget *makeSeismic2DTab(QWidget *parent, SectionPanel *panel, QWidget *bar, QLabel *tieCaption)
+{
+  auto *page = new QWidget(parent);
+  page->setObjectName(QStringLiteral("seismic2DContainer"));
+  auto *layout = new QVBoxLayout(page);
+  const auto &theme = PaleoTheme::tokens();
+  layout->setContentsMargins(theme.spacingSm, theme.spacingSm, theme.spacingSm, theme.spacingSm);
+  layout->setSpacing(theme.spacingXs);
+  layout->addWidget(caption8(QObject::tr("选择一条测线解码"), page));
+  layout->addWidget(new PaleoToolRow(bar, page));
+  layout->addWidget(tieCaption);
+  layout->addWidget(panel, 1);
+  return page;
+}
+}
+
 QWidget *DataPreviewTabs::buildSeismicContent(
     DataCatalog *cat, const CatalogAsset &asset, const CatalogVersion &v,
     const QString &abs, const QString &assetId,
@@ -194,6 +211,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   decode();
   barLay->addWidget(mode);
   barLay->addWidget(no);
+  barLay->addWidget(panel->createColorMapControl(bar));
   if (initialInline >= 0)
     barLay->addWidget(caption8(tr("%1 所在测线").arg(tieWellName), bar)); // §4 旁注
   barLay->addStretch(1);
@@ -211,15 +229,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   });
 
   // 1. 二维测线 (2D)
-  auto *w2d = new QWidget(modeTabs);
-  w2d->setObjectName(QStringLiteral("seismic2DContainer"));
-  auto *lay2d = new QVBoxLayout(w2d);
-  lay2d->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
-  lay2d->setSpacing(PaleoTheme::tokens().spacingXs);
-  lay2d->addWidget(caption8(tr("选择一条测线解码"), w2d));
-  lay2d->addWidget(bar);
-  lay2d->addWidget(tieCaption);
-  lay2d->addWidget(panel, 1);
+  auto *w2d = makeSeismic2DTab(modeTabs, panel, bar, tieCaption);
   modeTabs->addTab(w2d, tr("二维测线 (2D)"));
 
   // 2. 三维立体 (3D)

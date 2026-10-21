@@ -508,6 +508,9 @@ private slots:
 #endif
   }
 
+#ifdef PALEO_HZ3D_PERF_LANE
+  // 墙钟比率门只编进 perf 车道可执行 tst_horizontracksvc_perf（#136：墙钟
+  // 不进必过功能门；阈值未动，ctest -L perf / linux-perf job 照跑）。
   // 性能比率门（禁绝对墙钟）：体传播总时 ≤ 8×（剖面数 × 热态切片提取基线）
   void propagationCostRatioGate()
   {
@@ -541,6 +544,7 @@ private slots:
                             .arg(extractMs)
                             .arg(smallVol_->InlineCount())));
   }
+#endif // PALEO_HZ3D_PERF_LANE
 };
 
 QTEST_MAIN(TestHorizonTrackSvc)

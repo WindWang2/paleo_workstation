@@ -1,6 +1,8 @@
 // 层：视图
 #include "wellcompositepanel.h"
 #include "curveconfigdialog.h"
+#include "trackops.h"
+#include "hiddentrackbar.h"
 #include "derivedsink.h"
 #include "editsession.h"
 #include "../paleotheme.h"
@@ -54,7 +56,10 @@ WellCompositePanel::~WellCompositePanel()
 void WellCompositePanel::openCurveConfigDialog()
 {
   CurveConfigDialog dlg(m_canvas, this);
+  dlg.setCurvePool(TrackOps::combinedCurvePool(m_data.continuousCurves, m_data.discreteCurves));
   dlg.exec();
+  m_hiddenBar->setTracks(currentSpecs());
+  onTrackOrderOrWidthChanged();
 }
 
 void WellCompositePanel::setWellName(const QString &name, bool reference)

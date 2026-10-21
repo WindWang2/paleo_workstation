@@ -19,6 +19,8 @@
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/ui/datapreview/previewsectionpanel.h"
+#include "../src/ui/paleotheme.h"
 #include "../src/ui/wellcomposite/wellcompositepanel.h"
 #include "../src/ui/decorations/paleodecorations.h"
 #include <qgsmapcanvas.h>
@@ -78,6 +80,7 @@ private slots:
   void timeDepthEmptyShowsNoTable();
   void horizonShowsRejectedAndCollisions();
   void seismicTabLabelsAndTieMarker();
+  void seismicPreviewColorMapsRecolorImageAndLegend();
   void seismicDecodeRunsThroughTaskService();
   // UIV-02(#280)：体加载未完成的关标签 → 页销毁取消任务；迟到回调对已
   // 销毁 3D 面板的 QPointer 守卫早退（曾是对空 QPointer 解引用崩溃）。
@@ -896,6 +899,68 @@ void TestDataPreview::horizonShowsRejectedAndCollisions()
   QVERIFY(btn->isEnabled()); // 有派生栅格 → 可用
 }
 
+void TestDataPreview::seismicPreviewColorMapsRecolorImageAndLegend()
+{
+  PaleoTheme::ensureApplicationFonts();
+  using paleo::datapreview_detail::SectionPanel;
+  using seismic::SectionColorMapType;
+  SectionPanel panel;
+  panel.resize(600, 360);
+  std::unique_ptr<QWidget> controls(panel.createColorMapControl(nullptr));
+  auto *combo = controls->findChild<QComboBox *>(QStringLiteral("previewSectionColorMap"));
+  QVERIFY(combo);
+  QCOMPARE(combo->count(), seismic::kSectionColorMapCount);
+  QVector<SegyTrace> traces(3);
+  traces[0].samples.fill(1.0f, 100);
+  traces[1].samples.fill(-1.0f, 100);
+  traces[2].samples.fill(qQNaN(), 100);
+  panel.setTraces(traces, 2000.0f, 20.0);
+  panel.setTieMarker(QStringLiteral("A1 标定"), 22.0);
+  const auto render = [&] {
+    QImage image(panel.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    panel.render(&image);
+    return image;
+  };
+  for (int i = 0; i < seismic::kSectionColorMapCount; ++i)
+  {
+    combo->setCurrentIndex(i);
+    const auto type = static_cast<SectionColorMapType>(i);
+    QCOMPARE(panel.colorMap(), type);
+    const auto image = render();
+    QCOMPARE(image.pixelColor(90, 180).rgb(), seismic::SampleColorMap(type, 1.0f));
+    // 放大后的中间道中心可能跨半个目标像素，允许双线性重采样的 2/255 误差。
+    const QColor actual = image.pixelColor(302, 180);
+    const QColor expected(seismic::SampleColorMap(type, -1.0f));
+    QVERIFY(std::abs(actual.red() - expected.red()) <= 2);
+    QVERIFY(std::abs(actual.green() - expected.green()) <= 2);
+    QVERIFY(std::abs(actual.blue() - expected.blue()) <= 2);
+    QCOMPARE(image.pixelColor(500, 180), QColor(Qt::white)); // 缺测不能被涂成有效振幅。
+    if (type == SectionColorMapType::Grayscale)
+    {
+      const auto legend = image.pixelColor(556, 80);
+      QCOMPARE(legend.red(), legend.green());
+      QCOMPARE(legend.red(), legend.blue());
+    }
+    const QString capture = qEnvironmentVariable("PALEO_SEISMIC_PREVIEW_CAPTURE");
+    if (!capture.isEmpty() && (i == 0 || i == 1 || i == 3))
+      QVERIFY(image.save(capture + QStringLiteral("-%1.png").arg(i)));
+  }
+  combo->setCurrentIndex(static_cast<int>(SectionColorMapType::Grayscale));
+  panel.clearImage();
+  panel.setTraces(traces, 2000.0f, 40.0);
+  QCOMPARE(panel.colorMap(), SectionColorMapType::Grayscale); // 换测线保持选择。
+  QCOMPARE(render().pixelColor(90, 180), QColor(Qt::white));
+  traces[0].samples.fill(-.0001f, 100);
+  traces[1].samples.fill(.0001f, 100);
+  traces[2].samples.fill(1.0f, 100);
+  panel.setTraces(traces, 2000.0f, 20.0);
+  panel.setColorMap(SectionColorMapType::RedWhiteBlue);
+  const auto weak = render();
+  QVERIFY(weak.pixelColor(90, 180).blue() > weak.pixelColor(90, 180).red());
+  QVERIFY(weak.pixelColor(302, 180).red() > weak.pixelColor(302, 180).blue());
+}
+
 // §4：地震标签 纵测线/横测线 切换；A1 D61 标定经 TD 表得到 ms。
 void TestDataPreview::seismicTabLabelsAndTieMarker()
 {
@@ -916,6 +981,16 @@ void TestDataPreview::seismicTabLabelsAndTieMarker()
   QVERIFY(no);
   QCOMPARE(no->minimum(), 1000); // mini_seismic 冻结测网 inline 1000–1002
   QCOMPARE(no->maximum(), 1002);
+
+  auto *colors = page->findChild<QComboBox *>(QStringLiteral("previewSectionColorMap"));
+  QVERIFY(colors);
+  QCOMPARE(colors->count(), seismic::kSectionColorMapCount);
+  colors->setCurrentIndex(1);
+  bool recolored = false;
+  for (QWidget *child : page->findChildren<QWidget *>())
+    if (auto *section = dynamic_cast<paleo::datapreview_detail::SectionPanel *>(child))
+      recolored = section->colorMap() == seismic::SectionColorMapType::Grayscale;
+  QVERIFY(recolored);
 
   // A1 的 D61 TVD 1935 落在 A1_TD 可用范围内 → 有数值标定。
   auto *tie = page->findChild<QLabel *>(QStringLiteral("tieLabel"));

@@ -21309,6 +21309,71 @@ SHA-256：%2</translation>
         <source>计算 · %1</source>
         <translation>计算 · %1</translation>
     </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="55"/>
+        <source>色标:</source>
+        <translation>色标:</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="59"/>
+        <source>二维地震剖面色标</source>
+        <translation>二维地震剖面色标</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="60"/>
+        <source>切换振幅色标；剖面和右侧图例同步更新，无需重新读取测线</source>
+        <translation>切换振幅色标；剖面和右侧图例同步更新，无需重新读取测线</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="84"/>
+        <source>无法创建剖面图像</source>
+        <translation>无法创建剖面图像</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="119"/>
+        <source>选择一条测线解码</source>
+        <translation>选择一条测线解码</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="61"/>
+        <source>红白蓝 (双极)</source>
+        <translation>红白蓝 (双极)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="61"/>
+        <source>灰度 (单极)</source>
+        <translation>灰度 (单极)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="61"/>
+        <source>彩虹谱 (相图)</source>
+        <translation>彩虹谱 (相图)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="62"/>
+        <source>蓝白红 (反双极)</source>
+        <translation>蓝白红 (反双极)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="62"/>
+        <source>黑-白-蓝 (纸面)</source>
+        <translation>黑-白-蓝 (纸面)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="62"/>
+        <source>红-白-黑 (纸面)</source>
+        <translation>红-白-黑 (纸面)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="63"/>
+        <source>绿-白-品红</source>
+        <translation>绿-白-品红</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewsectionpanel.h" line="63"/>
+        <source>青-白-橙</source>
+        <translation>青-白-橙</translation>
+    </message>
 </context>
 <context>
     <name>QgisConstraintEditSession</name>
@@ -31421,6 +31486,18 @@ SHA-256：%2</translation>
         <location filename="../src/ui/seismic3d/seismic3dviewportwidget.cpp" line="716"/>
         <source>，回车/双击提交栅栏</source>
         <translation>，回车/双击提交栅栏</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismic3d/seismic3dviewportwidget.cpp" line="76"/>
+        <source>任意位置左键拖拽旋转（含剖面）；Alt+左键移动切片；右键/中键/Shift+左键平移；滚轮缩放
+方向键旋转；+/- 缩放；双击居中复位</source>
+        <translation>任意位置左键拖拽旋转（含剖面）；Alt+左键移动切片；右键/中键/Shift+左键平移；滚轮缩放
+方向键旋转；+/- 缩放；双击居中复位</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismic3d/seismic3dviewportwidget.cpp" line="723"/>
+        <source>拾取模式：单击拾取剖面路径点（顶面）%1；Ctrl+左键临时旋转；Shift+左键平移；Esc 取消</source>
+        <translation>拾取模式：单击拾取剖面路径点（顶面）%1；Ctrl+左键临时旋转；Shift+左键平移；Esc 取消</translation>
     </message>
 </context>
 <context>

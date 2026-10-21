@@ -37,6 +37,7 @@ private slots:
     void initTestCase();
     void cameraControllerBasics();
     void cameraControllerPresetsAndFit();
+    void draggedSurfaceFollowsHorizontalPointer();
     void sliceRendererGeometryAndSlots();
     void viewPanelUiAndInteractions();
     void viewPanelAsyncSliceLoading();
@@ -84,7 +85,7 @@ void TestSeismic3D::cameraControllerBasics() {
 
     // Rotate
     cam.Rotate(20.0f, -10.0f);
-    QCOMPARE(cam.Yaw(), -45.0f + 20.0f * 0.25f);
+    QCOMPARE(cam.Yaw(), -45.0f - 20.0f * 0.25f);
     QCOMPARE(cam.Pitch(), 35.0f - 10.0f * 0.25f);
 
     // Pan
@@ -98,6 +99,22 @@ void TestSeismic3D::cameraControllerBasics() {
     QVERIFY(cam.Distance() < distBefore);
     cam.Zoom(-1.0f); // Zoom out
     QVERIFY(std::abs(cam.Distance() - distBefore) < 0.01f);
+}
+
+void TestSeismic3D::draggedSurfaceFollowsHorizontalPointer() {
+    SeismicCameraController camera;
+    camera.SetFrontView();
+    const glm::vec4 frontPoint(0.0f, 0.0f, 2.0f, 1.0f);
+    const auto screenX = [&] {
+        const auto clip = camera.BuildProjectionMatrix(1.0f) * camera.BuildViewMatrix() * frontPoint;
+        return clip.x / clip.w;
+    };
+    const float center = screenX();
+    camera.Rotate(-30.0f, 0.0f);
+    QVERIFY(screenX() < center); // 看见的表面向左，不能只断言角度的符号。
+    camera.SetFrontView();
+    camera.Rotate(30.0f, 0.0f);
+    QVERIFY(screenX() > center);
 }
 
 void TestSeismic3D::cameraControllerPresetsAndFit() {

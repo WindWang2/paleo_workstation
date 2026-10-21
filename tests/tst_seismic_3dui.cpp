@@ -149,6 +149,36 @@ private slots:
                        m_settingsDir.path());
   }
 
+  void leftDragRotatesAtEveryViewportPosition()
+  {
+    Seismic3DViewportWidget viewport;
+    viewport.resize(640, 480);
+    viewport.setInertiaEnabled(false);
+    QSignalSpy cameraChanged(&viewport, &Seismic3DViewportWidget::cameraChanged);
+    QSignalSpy slicesChanged(&viewport, &Seismic3DViewportWidget::sliceDragged);
+    const auto mouse = [&](QEvent::Type type, QPointF point, Qt::MouseButton button,
+                           Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+      QMouseEvent event(type, point, point, button, buttons, modifiers);
+      QApplication::sendEvent(&viewport, &event);
+    };
+    for (const QPointF start : {QPointF(20, 20), QPointF(320, 240), QPointF(620, 460)})
+    {
+      viewport.camera().Reset();
+      const auto before = viewport.camera().state();
+      mouse(QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+      mouse(QEvent::MouseMove, start + QPointF(-24, 0), Qt::NoButton, Qt::LeftButton);
+      mouse(QEvent::MouseButtonRelease, start + QPointF(-24, 0), Qt::LeftButton, Qt::NoButton);
+      QCOMPARE(viewport.camera().Yaw(), before.yaw + 6.0f);
+      QCOMPARE(viewport.camera().Pitch(), before.pitch);
+      QVERIFY(viewport.camera().Target() == before.target);
+    }
+    QCOMPARE(cameraChanged.size(), 3);
+    QCOMPARE(slicesChanged.size(), 0);
+    const float beforeKey = viewport.camera().Yaw();
+    QTest::keyClick(&viewport, Qt::Key_Left);
+    QVERIFY(viewport.camera().Yaw() > beforeKey);
+  }
+
   // ---- D3.5 colormap：8 预设 + 自定义 + 重着色 + 反转 ----
   void colormapPresetsAndCustom()
   {
@@ -650,19 +680,19 @@ private slots:
     panel.setVolume(volume); // 无任务服务 → 同步提取
     QVERIFY(QTest::qWaitFor([&]() { return !panel.isFallbackActive(); }, 4000));
 
-    // 模拟视口拖切片面：直接在视口中心按下拖动（应命中某切片面）
+    // 显式 Alt+左键移动切片，普通左键已改为任意点旋转。
     QWidget *vp = panel.viewport();
     const QPoint center = vp->rect().center();
     const int before = panel.currentInline();
     QSignalSpy ilSpy(&panel, &Seismic3DViewPanel::inlineChanged);
     QSignalSpy xlSpy(&panel, &Seismic3DViewPanel::crosslineChanged);
-    QTest::mousePress(vp, Qt::LeftButton, Qt::NoModifier, center);
+    QTest::mousePress(vp, Qt::LeftButton, Qt::AltModifier, center);
     for (int step = 1; step <= 8; ++step)
     {
       QTest::mouseMove(vp, center + QPoint(step * 14, step * 4));
       QTest::qWait(10);
     }
-    QTest::mouseRelease(vp, Qt::LeftButton, Qt::NoModifier, center + QPoint(112, 32));
+    QTest::mouseRelease(vp, Qt::LeftButton, Qt::AltModifier, center + QPoint(112, 32));
     QTest::qWait(200);
 
     // 拖动要么命中切片面（changed 信号），要么是旋转（不炸即过）——

@@ -19,4 +19,5 @@
 #           setSpacing(2) 硬编码改 tokens.spacingXs（违规面清零）；同批清
 #           compositebody.cpp 两条 stale——fillRect(flagRect) rgb 与
 #           setPen(Qt::white) 例外源码已不存在（#564 改码未重钉））。
-354
+#           → 351（二维地震预览图例共用振幅 LUT，移除三条固定 RGB 例外）。
+351

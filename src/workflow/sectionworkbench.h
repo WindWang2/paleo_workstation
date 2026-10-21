@@ -2,6 +2,7 @@
 #pragma once
 #include "catalog/datacatalog.h"
 #include "domain/seismic/sectionwellprojector.h"
+#include "domain/wellsection.h" // wellsection::Well（wellSnapWells 吸附井集）
 #include "io/lasdoc.h"
 #include "services/projectdata.h"
 #include <QObject>
@@ -40,6 +41,14 @@ public:
                    double *shiftMs, QString *status);
   QString wellForSource(const QString &path, const QString &name);
   std::vector<glm::dvec2> wellRoute(const QStringList &ids, QString *error);
+  // 「按空间关系重排」：mode "nearest"=最近邻链 / "pca"=主轴投影（domain
+  // orderWellsNearestNeighbor / orderWellsByPosition）；井坐标取工程井实体
+  // （coordinateStatus ok/untransformed 且有限，与 wellRoute 同口径）。
+  // 未知 mode 原样返回。
+  QStringList spatiallyOrderedWells(const QStringList &ids, const QString &mode);
+  // 画线吸附井集：有效坐标井（口径同上）的 id/name/x/y，供 SeismicSectionTool
+  // 做最近井吸附（wellsection::Well 只填坐标身份字段）。
+  QVector<wellsection::Well> wellSnapWells();
   bool save(const QString &name, const std::vector<glm::dvec2> &route,
             const QString &seismicPath, const QString &horizon, QString *error);
   QVariantMap restore(const QString &versionId, QString *error,

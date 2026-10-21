@@ -635,9 +635,9 @@ private slots:
     survey.corners = {{0, 0}, {10000, 0}, {10000, 15000}, {0, 15000}}; QVERIFY(cat->addEntity(survey));
     ProjectStatisticsPage page(cat); page.resize(700, 900); page.show(); QTest::qWait(100);
     auto *scroll = page.findChild<QScrollArea *>("dashboardScroll"); QVERIFY(scroll);
-    QCOMPARE(page.findChild<QLabel *>("count_well")->text(), QString("1 / 8"));
+    QCOMPARE(page.findChild<QLabel *>("count_well")->text(), QString("1 / 1")); // 只列本工程出现过的层位（D61）
     QCOMPARE(page.findChild<QProgressBar *>("coverage_well")->value(), 1);
-    const auto cards = page.findChildren<QFrame *>("dashboardHorizonCard"); QCOMPARE(cards.size(), 8);
+    const auto cards = page.findChildren<QFrame *>("dashboardHorizonCard"); QCOMPARE(cards.size(), 1);
     const auto qa = qEnvironmentVariable("PALEO_PALEOMAP_QA_DIR");
     for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
       PaleoTheme::applyTheme(theme);
@@ -654,7 +654,7 @@ private slots:
     PaleoTheme::applyLightTheme();
     CatalogEntity well; well.id = "live-well"; well.entityType = "well"; well.name = "A1"; QVERIFY(cat->addEntity(well));
     QTRY_COMPARE(page.findChild<QLabel *>("dashboardWells")->text(), QString("21 口"));
-    QCOMPARE(page.findChildren<QFrame *>("dashboardHorizonCard").size(), 8);
+    QCOMPARE(page.findChildren<QFrame *>("dashboardHorizonCard").size(), 1);
   }
   void statisticsCountRegisteredWorkAndUnionOverlappingSurveyAreas() {
     Fixture f; QVERIFY(f.init()); auto *cat = f.importer.catalog();
@@ -665,8 +665,22 @@ private slots:
     survey.id = "survey-b"; survey.name = "S2"; survey.corners = {{500, 0}, {1500, 0}, {1500, 1000}, {500, 1000}}; QVERIFY(cat->addEntity(survey));
     const auto stats = ProjectAreaSummary::snapshot(cat); QCOMPARE(stats.value("wells").toInt(), 2); QCOMPARE(stats.value("positioned_wells").toInt(), 1);
     QCOMPARE(stats.value("survey_area_km2").toDouble(), 1.5); QCOMPARE(stats.value("seismic_surveys").toInt(), 2);
-    QVERIFY(!stats.value("horizons").toList().isEmpty());
+    QVERIFY(stats.value("horizons").toList().isEmpty()); // 无层位资料 → 不显示内置默认层位
     ProjectStatisticsPage page(cat); QCOMPARE(page.findChildren<QFrame *>("dashboardHorizonCard").size(), stats.value("horizons").toList().size());
+  }
+  void emptyProjectHasNoDatasetHorizons() {
+    // 新建空工程：内置默认层序界面名单（竞赛数据集 C3…D72）不得出现在分层位进度。
+    Fixture f; QVERIFY(f.init()); auto *cat = f.importer.catalog();
+    const auto stats = ProjectAreaSummary::snapshot(cat);
+    QVERIFY(stats.value("horizons").toList().isEmpty());
+    for (const auto &v : stats.value("stage_counts").toMap()) QCOMPARE(v.toInt(), 0);
+    ProjectStatisticsPage page(cat);
+    QVERIFY(page.findChildren<QFrame *>("dashboardHorizonCard").isEmpty());
+    QCOMPARE(page.findChild<QLabel *>("count_well")->text(), QString("0 / 0"));
+    // 导入层位界面后（竞赛数据集导入路径）该层位正常出现。
+    CatalogEntity sb; sb.id = "sb-D61"; sb.entityType = "sequence_boundary"; sb.name = "D61"; QVERIFY(cat->addEntity(sb));
+    const auto after = ProjectAreaSummary::snapshot(cat).value("horizons").toList();
+    QCOMPARE(after.size(), 1); QCOMPARE(after.first().toMap().value("horizon").toString(), QString("D61"));
   }
   void navigationAndBaseMapChoiceRespectHorizon() {
     Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("D61/map.shp"); QVERIFY(shape(path));

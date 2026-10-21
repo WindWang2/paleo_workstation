@@ -9,13 +9,14 @@
 
 #include <QFileInfo>
 #include <QHash>
+#include <QCoreApplication>
 
 #include <algorithm>
 #include <cmath>
 
-// 已决 well_log 的只读并集。wellLogFiles/wellCurveIndex 只走
-// LasParser::parseHeader（遇 ~A 即停），不读数据体、不写 catalog——例外是
-// readCurveTvd（goal/well-trajectory：按列读数据体 + 轨迹逐点 MD→TVD）。
+// 已决 well_log 的只读并集。目录优先使用受管版本元数据，缺失时由
+// WellLogRead 读取格式表头；旧 XML/文本回退可能读取数据体，但不写 catalog。
+// readCurveTvd 显式读取采样，并通过轨迹逐点 MD→TVD。
 // wellLogFiles 与 wellCurveIndex 各扫一次，告警来自同一套判定。
 
 namespace
@@ -26,6 +27,8 @@ namespace
     QString baseName;
     QString versionId;
     QString path;
+    QString indexBasis;
+    QString format;
     int column = -1;
     bool primary = false;
     bool aliased = false;
@@ -64,6 +67,8 @@ namespace
         item.baseName = base;
         item.versionId = file.versionId;
         item.path = file.path;
+        item.indexBasis = file.indexBasis;
+        item.format = file.format;
         item.column = col;
         item.primary = file.isPrimary;
         if (n == 0)
@@ -170,7 +175,7 @@ namespace
       }
       LasHeaderInfo header;
       QString error;
-      if (!WellLogRead::parseHeader(path, header, &error))
+      if (!WellLogSet::storedHeader(version, &header) && !WellLogRead::parseHeader(path, header, &error))
       {
         addWarning(warnings, QStringLiteral("%1: %2").arg(path, error));
         continue;
@@ -238,6 +243,8 @@ namespace
       ref.mnemonic = item.mnemonic;
       ref.sourceVersionId = item.versionId;
       ref.path = item.path;
+      ref.indexBasis = item.indexBasis;
+      ref.format = item.format;
       ref.column = item.column;
       ref.canonical = item.primary && !item.aliased;
       refs.append(ref);
@@ -264,6 +271,41 @@ QVector<WellCurveRef> WellLogSet::wellCurveIndex(const DataCatalog *catalog,
   return refsFromItems(scanned.items);
 }
 
+bool WellLogSet::storedHeader(const CatalogVersion &version, LasHeaderInfo *out)
+{
+  if (!out || !version.managed) return false;
+  const QStringList names = version.extra.value(QStringLiteral("logCurveNames")).toStringList();
+  if (names.size() < 2) return false;
+  *out = {};
+  out->curveNames = names;
+  out->wellName = version.extra.value(QStringLiteral("logWellName")).toString();
+  out->indexBasis = version.extra.value(QStringLiteral("logIndexBasis")).toString();
+  out->sawAscii = true;
+  return true;
+}
+
+bool WellLogSet::mdAxisInMetres(const WellCurveRef &ref, const QList<LasCurve> &curves,
+                              QVector<double> *axis, QString *error)
+{
+  if (error) error->clear();
+  if (!axis || curves.isEmpty()) return false;
+  axis->clear();
+  const bool legacy = ref.format.isEmpty() || ref.format == QLatin1String("las") ||
+      ref.format == QLatin1String("dlis") || ref.format == QLatin1String("lis");
+  const auto scale = paleo::wellnumeric::depthScaleToMetres(curves.first().unit);
+  if ((!ref.indexBasis.isEmpty() && ref.indexBasis != QLatin1String("MD")) ||
+      (!legacy && (ref.indexBasis.isEmpty() || !scale)))
+  {
+    if (error) *error = QCoreApplication::translate("WellLogSet",
+        "%1：综合井图需要明确的 MD 测深和米/英尺单位，当前为 %2 [%3]；原始数据保留，请补充元数据或完成转换。")
+        .arg(QFileInfo(ref.path).fileName(), ref.indexBasis, curves.first().unit);
+    return false;
+  }
+  *axis = curves.first().values;
+  if (scale && *scale != 1.0) for (double &value : *axis) value *= *scale;
+  return true;
+}
+
 bool WellLogSet::readCurveTvd(const WellCurveRef &ref,
                               const paleo::WellDeviationSurvey *survey,
                               WellCurveTvdSamples *out, QString *error)
@@ -286,8 +328,9 @@ bool WellLogSet::readCurveTvd(const WellCurveRef &ref,
 
   QStringList names;
   QList<LasCurve> curves;
+  LasHeaderInfo header;
   QString perr;
-  if (!WellLogRead::parseCurves(ref.path, names, curves, &perr))
+  if (!WellLogRead::parse(ref.path, header, curves, &perr))
   {
     if (error)
       *error = QStringLiteral("%1: %2").arg(ref.path, perr);
@@ -304,11 +347,22 @@ bool WellLogSet::readCurveTvd(const WellCurveRef &ref,
 
   const LasCurve &depths = curves.at(0);
   const LasCurve &values = curves.at(ref.column);
+  const auto format = WellLogRead::detect(ref.path);
+  const bool strictAxis = format == WellLogFormat::Text || format == WellLogFormat::SpreadsheetXml;
+  if (strictAxis && (header.indexBasis != QLatin1String("MD") ||
+                    !paleo::wellnumeric::depthScaleToMetres(depths.unit)))
+  {
+    if (error) *error = QCoreApplication::translate("WellLogSet",
+        "%1：需要明确的 MD 基准和米/英尺单位，当前为 %2 [%3]；请补充源文件元数据后重试。")
+        .arg(ref.path, header.indexBasis, depths.unit);
+    return false;
+  }
   double scale = 1.0;
+  if (strictAxis) scale = *paleo::wellnumeric::depthScaleToMetres(depths.unit);
   const QString unit = depths.unit.trimmed().toUpper();
   if (unit == QLatin1String("FT") || unit == QLatin1String("F"))
     scale = 0.3048;
-  else if (unit != QLatin1String("M") && !unit.isEmpty())
+  else if (!strictAxis && unit != QLatin1String("M") && !unit.isEmpty())
   {
     if (error)
       *error = QStringLiteral("%1: 深度单位未知（%2），不猜折算")

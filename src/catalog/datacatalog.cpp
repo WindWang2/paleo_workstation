@@ -309,6 +309,7 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
     switch (op.kind)
     {
       case CatalogOp::Kind::AddEntity: ok = addEntity(op.entity, &opErr); break;
+      case CatalogOp::Kind::UpdateEntity: ok = updateEntity(op.entity, &opErr); break;
       case CatalogOp::Kind::AddAsset: ok = addAsset(op.asset, &opErr); break;
       case CatalogOp::Kind::AddVersion: ok = addVersion(op.version, &opErr); break;
       case CatalogOp::Kind::AddLink: ok = addLink(op.link, &opErr); break;

@@ -31,6 +31,8 @@ class CatalogHealthDialog;
 class StorageGovernanceController;
 class StorageGovernanceDialog;
 class AssetEntityChoiceModel;
+struct CatalogAsset;
+struct EntityAssetLink;
 
 namespace paleo::dataops
 {
@@ -224,11 +226,13 @@ class DataListPanel : public QWidget
   private:
     // 方向34：计划井可见性过滤器（setPlannedVisibilityFilter 注入，可空）。
     std::function<bool(const QString &id)> m_plannedVisible;
-    void buildImportButtons(QVBoxLayout *layout, QWidget *parent);
+    void buildImportButtons(QVBoxLayout *importLay, QWidget *importSection);
     void buildDataOpsUi();          // P3 增量 UI（过滤条/队列/视图页）
     void refreshAssetTree();
     // ---- 方向 92：树蓝图 + 增量通道（定义与实现见 datalist_tree.cpp）----
     struct NavNodeSpec;             // 树蓝图节点（纯数据，无 widget）
+    void describeWellAssetNode(NavNodeSpec &node, const CatalogAsset &asset,
+                               const EntityAssetLink &link) const;
     QVector<NavNodeSpec> buildNavTreeSpec() const;
     QVector<NavNodeSpec> buildPaleomapNavSpec() const;
     NavNodeSpec buildOverviewNavSpec() const;

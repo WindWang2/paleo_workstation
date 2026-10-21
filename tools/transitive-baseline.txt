@@ -51,7 +51,7 @@
 #（出闸边数不变，受染面 28→4）；func/ui 两指标无变化（ui 差额 1 条仍为
 # #533 known-red，见 docs/ci/known-reds.json）。
 func_qtwidgets_edges: 0
-ui_qtwidgets_notes: 6
+ui_qtwidgets_notes: 5
 heavy_edges: 52
 heavy_tus: 50
 # ---- 2026-10-19 审计第三轮 G1-06（已被 #578 超越）----

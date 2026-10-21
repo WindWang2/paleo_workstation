@@ -18,6 +18,7 @@
 #include "../io/wellcompositexml.h"
 #include "../io/wellfileparsers.h"
 #include "paleotaskservice.h"
+#include "welllogset.h"
 #include "sectiondoc.h" // SectionDoc 完整定义（信号载荷构造/metatype 注册）
 #include "seismictaskservice.h"
 
@@ -322,11 +323,30 @@ bool PreviewDocService::lasHeaderAt(const QString &absPath, LasHeaderInfo *out,
                                     QString *error)
 {
   LasHeaderInfo info;
-  if (!WellLogRead::parseHeader(absPath, info, error))
-    return false;
-  if (out)
-    *out = info;
+  if (!WellLogRead::parseHeader(absPath, info, error)) return false;
+  if (out) *out = info;
   return true;
+}
+
+bool PreviewDocService::wellLogHeaderAt(const QString &absPath, LasHeaderInfo *out,
+                                      QString *error) const
+{
+  LasHeaderInfo info;
+  if (const auto *cat = catalog())
+  {
+    QDir metadata = QFileInfo(cat->catalogPath()).absoluteDir();
+    metadata.cdUp();
+    metadata.cdUp();
+    for (const auto &version : cat->versions())
+      if (DataCatalog::resolvedVersionPath(metadata.absolutePath(), version) == absPath &&
+          WellLogSet::storedHeader(version, &info))
+      {
+        if (out) *out = info;
+        if (error) error->clear();
+        return true;
+      }
+  }
+  return lasHeaderAt(absPath, out, error);
 }
 
 bool PreviewDocService::wellHeadsAt(const QString &absPath,

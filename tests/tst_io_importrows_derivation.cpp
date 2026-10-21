@@ -18,7 +18,7 @@ class TestIoImportRowsDerivation : public QObject
 
 private slots:
   void displayTypeFollowsClassifierAndPathRules();
-  void unresolvedWellRowPreviewsPendingName();
+  void wellLogPreviewUsesContentIdentityNotFileName();
 };
 
 namespace {
@@ -92,7 +92,7 @@ void TestIoImportRowsDerivation::displayTypeFollowsClassifierAndPathRules()
   QVERIFY(docRow.typeEditable);
 }
 
-void TestIoImportRowsDerivation::unresolvedWellRowPreviewsPendingName()
+void TestIoImportRowsDerivation::wellLogPreviewUsesContentIdentityNotFileName()
 {
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
@@ -106,9 +106,25 @@ void TestIoImportRowsDerivation::unresolvedWellRowPreviewsPendingName()
   QString err;
   const QVector<FolderPreviewRow> rows = svc.previewFiles({las}, &err);
   QCOMPARE(rows.size(), 1);
-  // 新工程（零井实体）：井类行零匹配 → 预显「未决（名字）」，不猜、不静默。
-  QVERIFY2(rows.first().entityPreview.startsWith(QStringLiteral("未决")),
-           qPrintable(rows.first().entityPreview));
+  // #603 内容身份：井名只取文件内容，文件名（A1）不再作为井名猜测；读不出
+  // 内容的行如实阻断并给原因——不猜、不静默。
+  const FolderPreviewRow &bad = rows.first();
+  QVERIFY2(!bad.entityPreview.contains(QStringLiteral("A1")), qPrintable(bad.entityPreview));
+  QVERIFY(bad.importBlocked);
+  QVERIFY(!bad.issues.isEmpty());
+
+  // 零井实体 + 文件内容声明井名 → 预显「新井（来自文件内容）」，名字取内容不取文件名。
+  const QString good = dir.filePath(QStringLiteral("import/B2.las"));
+  QVERIFY(writeFile(good, QByteArrayLiteral(
+      "~V\nVERS. 2.0:\nWRAP. NO:\n~W\nNULL. -999.25:\nWELL. W-INT:\n"
+      "~C\nDEPT.M :\nGR.API :\n~A\n100 1\n101 2\n102 3\n")));
+  const QVector<FolderPreviewRow> goodRows = svc.previewFiles({good}, &err);
+  QCOMPARE(goodRows.size(), 1);
+  QVERIFY2(!goodRows.first().importBlocked, qPrintable(goodRows.first().issues.join(';')));
+  QCOMPARE(goodRows.first().proposedWellName, QStringLiteral("W-INT"));
+  QVERIFY2(goodRows.first().entityPreview.contains(QStringLiteral("W-INT")) &&
+               !goodRows.first().entityPreview.contains(QStringLiteral("B2")),
+           qPrintable(goodRows.first().entityPreview));
 }
 
 QTEST_GUILESS_MAIN(TestIoImportRowsDerivation)

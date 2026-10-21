@@ -18,6 +18,7 @@
 #include <QMetaObject>
 #include <QTimer>
 #include <QVariantMap>
+#include <memory>
 
 using paleo::ui_detail::isOffscreen;
 
@@ -60,48 +61,55 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
   if (!svc || isOffscreen())
     return;
   auto *wf = folderImportWorkflow();
-  QString err;
-  const auto preview = wf ? wf->previewFolder(dir, &err)
-                          : QVector<FolderPreviewRow>();
-  if (preview.isEmpty())
-  {
-    PaleoNotify::warning(this, tr("导入工区文件夹"),
-                         err.isEmpty() ? tr("目录里没有可导入的文件") : err);
-    return;
-  }
-
-  QDialog dlg(this);
-  PaleoFolderConfirm::Hooks hooks;
-  hooks.importRow = [wf](const QString &path, const QString &force) {
-    return wf->importFolderRow(path, force, nullptr);
-  };
-  hooks.importAll = [wf, dir](const QMap<QString, QString> &overrides,
-                              FolderImportWorkflow::ImportDone done) {
-    wf->importFolder(dir, overrides, std::move(done));
-  };
-  hooks.importedWellHead = [wf](const QString &rowPath) {
-    return wf->importedWellHeadAsset(rowPath);
-  };
-  hooks.showUnresolved = [this] {
-    showPage(QStringLiteral("data"));
-    if (auto *page = findChild<DataPage *>())
-      page->setUnresolvedFilter(true);
-  };
-  // 保持旧语义：井口入库的预览标签排队到对话框信号处理完成后开。
-  hooks.previewAsset = [this](const QString &assetId) {
-    QMetaObject::invokeMethod(
-        this,
-        [this, assetId] {
-          if (m_previewTabs)
-            m_previewTabs->openAsset(assetId);
-        },
-        Qt::QueuedConnection);
-  };
-  hooks.stampSourceArea = [this, dir](const QVariantMap &stats) {
-    stampSourceArea(dir, stats);
-  };
-  PaleoFolderConfirm::buildFolderConfirmDialog(&dlg, dir, preview, hooks);
-  dlg.exec();
+  if (!wf) return;
+  wf->previewFolderAsync(dir, [this, wf, dir](const QVector<FolderPreviewRow> &preview,
+                                             const QString &error) {
+    if (preview.isEmpty()) {
+      PaleoNotify::warning(this, tr("导入工区文件夹"),
+          error.isEmpty() ? tr("目录里没有可导入的文件") : error);
+      return;
+    }
+    QDialog dlg(this);
+    PaleoFolderConfirm::Hooks hooks;
+    auto cancelImport = std::make_shared<FolderImportWorkflow::CancelImport>();
+    hooks.cancelImport = [cancelImport] { if (*cancelImport) (*cancelImport)(); };
+    hooks.importRowWithWell = [wf](const QString &path, const QString &force, const QString &target,
+                                      const QString &expectedHash) {
+      return wf->importFolderRow(path, force, nullptr, target, expectedHash);
+    };
+    hooks.importAllWithWells = [wf, dir, cancelImport](const QMap<QString, QString> &overrides,
+                                        const QStringList &forcePaths,
+                                        const QMap<QString, QString> &wellTargets,
+                                        const QMap<QString, QString> &expectedHashes,
+                                        const QStringList &skippedPaths,
+                                        const QStringList &previewedPaths,
+                                        FolderImportWorkflow::ImportDone done) {
+      *cancelImport = wf->importFolder(dir, overrides, forcePaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths);
+    };
+    hooks.importedWellHead = [wf](const QString &rowPath) {
+      return wf->importedWellHeadAsset(rowPath);
+    };
+    hooks.showUnresolved = [this] {
+      showPage(QStringLiteral("data"));
+      if (auto *page = findChild<DataPage *>())
+        page->setUnresolvedFilter(true);
+    };
+    // 保持旧语义：井口入库的预览标签排队到对话框信号处理完成后开。
+    hooks.previewAsset = [this](const QString &assetId) {
+      QMetaObject::invokeMethod(
+          this,
+          [this, assetId] {
+            if (m_previewTabs)
+              m_previewTabs->openAsset(assetId);
+          },
+          Qt::QueuedConnection);
+    };
+    hooks.stampSourceArea = [this, dir](const QVariantMap &stats) {
+      stampSourceArea(dir, stats);
+    };
+    PaleoFolderConfirm::buildFolderConfirmDialog(&dlg, dir, preview, hooks);
+    dlg.exec();
+  });
 }
 
 void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList &paths)
@@ -129,14 +137,21 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
         }
         QDialog dlg(this);
         PaleoFolderConfirm::Hooks hooks;
-        hooks.importRow = [wf](const QString &path, const QString &force) {
-          return wf->importFolderRow(path, force, nullptr);
+        auto cancelImport = std::make_shared<FolderImportWorkflow::CancelImport>();
+        hooks.cancelImport = [cancelImport] { if (*cancelImport) (*cancelImport)(); };
+        hooks.importRowWithWell = [wf](const QString &path, const QString &force, const QString &target,
+                                      const QString &expectedHash) {
+          return wf->importFolderRow(path, force, nullptr, target, expectedHash);
         };
-        hooks.importAllWithForced =
-            [wf, paths](const QMap<QString, QString> &overrides,
+        hooks.importAllWithWells =
+            [wf, paths, cancelImport](const QMap<QString, QString> &overrides,
                         const QStringList &forceImportPaths,
+                        const QMap<QString, QString> &wellTargets,
+                        const QMap<QString, QString> &expectedHashes,
+                        const QStringList &skippedPaths,
+                        const QStringList &previewedPaths,
                         FolderImportWorkflow::ImportDone done) {
-              wf->importFiles(paths, overrides, forceImportPaths, std::move(done));
+              *cancelImport = wf->importFiles(paths, overrides, forceImportPaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths);
             };
         hooks.importedWellHead = [wf](const QString &rowPath) {
           return wf->importedWellHeadAsset(rowPath);

@@ -77,6 +77,52 @@
 //   - 图例/上图/参考窗（显示编排域）→ 下方三个工厂（留在本 TU，含
 //     Qt::white 纸面色 token 例外所在行）
 // ---------------------------------------------------------------------------
+
+namespace {
+// D-03（full-audit-20261021）：一致性报告结果面——复用同一实例（按名查找，
+// 缺则建并接井联动），每次报告刷新内容 + raise。此前每次完成 new 一个无
+// 模式对话框，重复运行堆积。well_layer 随每次报告经属性刷新（井联动读
+// 属性，不吃首份报告的陈旧捕获）。
+void showConsistencyReport(
+    PaleoMainWindow *window, const QVariantMap &report,
+    QgisCanvasController *canvasCtl, QgisLayerService *layerSvc,
+    QgisProjectService *projectSvc,
+    const std::function<void(const QString &, QString *)> &show) {
+  auto *dialog = window->findChild<FaciesConsistencyDialog *>(
+      QStringLiteral("faciesConsistencyDialog"));
+  if (!dialog) {
+    dialog = new FaciesConsistencyDialog(window);
+    dialog->setObjectName(QStringLiteral("faciesConsistencyDialog"));
+    QObject::connect(dialog, &FaciesConsistencyDialog::wellActivated, window,
+            [canvasCtl, layerSvc, projectSvc, show, dialog](const QString &,
+                                                            double x, double y) {
+              const QString wellLayer = dialog->property("wellLayer").toString();
+              QString ignored;
+              show(wellLayer, &ignored);
+              QgsPointXY point(x, y);
+              auto *canvas = canvasCtl->canvas();
+              if (auto *layer = layerSvc->layer(wellLayer)) {
+                try {
+                  point = QgsCoordinateTransform(
+                              layer->crs(),
+                              canvas->mapSettings().destinationCrs(),
+                              projectSvc->project())
+                              .transform(point);
+                } catch (const QgsCsException &) {
+                }
+              }
+              canvas->setCenter(point);
+              canvasCtl->canvas()->refresh();
+            });
+  }
+  dialog->setProperty("wellLayer", report.value("well_layer").toString());
+  dialog->setReport(report);
+  dialog->show();
+  dialog->raise();
+  dialog->activateWindow();
+}
+} // namespace
+
 void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInteraction *evidence) {
   if (!workbench || property("workbenchAttached").toBool())
     return;
@@ -218,32 +264,11 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                     QgisLayerProfileService::pageThemeName(currentPage()));
             }
           });
+  // D-03（full-audit-20261021）：结果面复用（showConsistencyReport 内实现）。
   connect(workbench, &MappingWorkbench::consistencyReady, this,
           [this, show](const QVariantMap &report) {
-            auto *dialog = new FaciesConsistencyDialog(this);
-            dialog->setReport(report);
-            const auto wellLayer = report.value("well_layer").toString();
-            connect(
-                dialog, &FaciesConsistencyDialog::wellActivated, this,
-                [this, show, wellLayer](const QString &, double x, double y) {
-                  QString ignored;
-                  show(wellLayer, &ignored);
-                  QgsPointXY point(x, y);
-                  auto *canvas = m_canvasCtl->canvas();
-                  if (auto *layer = m_layerSvc->layer(wellLayer)) {
-                    try {
-                      point = QgsCoordinateTransform(
-                                  layer->crs(),
-                                  canvas->mapSettings().destinationCrs(),
-                                  m_projectSvc->project())
-                                  .transform(point);
-                    } catch (const QgsCsException &) {
-                    }
-                  }
-                  canvas->setCenter(point);
-                  m_canvasCtl->canvas()->refresh();
-                });
-            dialog->show();
+            showConsistencyReport(this, report, m_canvasCtl, m_layerSvc,
+                                  m_projectSvc, show);
           });
   for (auto *page : pages) {
     page->setHorizon(m_selection->activeHorizon());

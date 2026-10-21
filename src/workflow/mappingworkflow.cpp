@@ -381,7 +381,6 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
   const QString directory = m_projectDir;
   QPointer<DataCatalog> catalog(m_catalog);
   auto *data = m_projectData;
-  const auto sequence = m_catalog->mutationSeq();
   auto *task = m_tasks->start(
       tr("%1 厚度计算").arg(horizon),
       [job, directory, horizon](PaleoTask *task) {
@@ -407,11 +406,12 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
       });
   m_chainTask = task;
   connect(task, &PaleoTask::finished, this,
-          [this, job, catalog, directory, data, sequence, horizon, task] {
+          [this, job, catalog, directory, data, horizon, task] {
+            // C-3 同族（full-audit-20261021）：摘除 mutationSeq 陈旧判据
+            //（#480 P3-3 口径——厚度链输入提交时已冻结，无关写不再判废）。
             const bool stale = task->session() != m_tasks->session() ||
                                catalog != m_catalog || data != m_projectData ||
-                               directory != m_projectDir || !catalog ||
-                               catalog->mutationSeq() != sequence;
+                               directory != m_projectDir || !catalog;
             if (stale) {
               task->discardPublication();
               return;
@@ -423,13 +423,26 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
             if (m_constraints)
               m_constraints->setThicknessSamples(job->rows, job->message);
             QString error = job->error;
+            QHash<QString, QString> idMap; // R2-SF-1：撞号重映射表
             if (job->ok && publishMapExportJournal(catalog, directory,
                                                    job->staging->path(),
-                                                   job->journal, &error)) {
+                                                   job->journal, &error, &idMap)) {
               for (auto decl : job->outputs) {
                 const auto relative =
                     QDir(job->staging->path()).relativeFilePath(decl.source);
                 decl.source = QDir(directory).filePath(relative);
+                // R2-SF-1：声明源路径里的 ast-N/ver-N 段随发布换新号——
+                // 否则撞号批次的图层声明指向不存在的受管路径（静默死链）。
+                if (!idMap.isEmpty()) {
+                  QStringList segs = decl.source.split(QLatin1Char('/'));
+                  bool changed = false;
+                  for (QString &seg : segs) {
+                    const auto it = idMap.constFind(seg);
+                    if (it != idMap.constEnd()) { seg = it.value(); changed = true; }
+                  }
+                  if (changed)
+                    decl.source = segs.join(QLatin1Char('/'));
+                }
                 if (!m_layers->declare(decl, &error))
                   break;
               }

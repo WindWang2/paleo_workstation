@@ -310,6 +310,28 @@ void DataImportService::startNextConversion()
       m_convRawVersionId = v.id;
       break;
     }
+  // A-04（full-audit-20261021）：出队执行端补 RAW 存在性复核（与入队端
+  // queueConversion 同守卫）——排队窗口内源版本被物理删除时，旧实现以空
+  // 输入参数起 soffice（QFileInfo("").completeBaseName() 生成 /.pdf 隐藏名），
+  // 用户看到的是 stderr 原文而非既定文案；同时清掉陈旧血统值。
+  if (rawAbs.isEmpty() || !QFile::exists(rawAbs))
+  {
+    m_convRawVersionId.clear();
+    const QString msg = tr("原始文件缺失，无法转换");
+    m_convErrors.insert(m_convCurrent, msg);
+    if (m_convCurrentExt == QLatin1String("xlsx"))
+      emit workbookXlsxFailed(m_convCurrent, msg);
+    else
+      emit documentPdfFailed(m_convCurrent, msg);
+    m_convPending.remove(m_convCurrent);
+    m_convProc = nullptr; // 未起进程：直接收尾并继续下一单
+    m_convCurrent.clear();
+    m_convCurrentExt.clear();
+    m_convCurrentVersionId.clear();
+    m_convOutFile.clear();
+    startNextConversion();
+    return;
+  }
 
   const QString relDir = QStringLiteral("artifacts/derived/%1/%2")
                              .arg(m_convCurrent, m_convCurrentVersionId);

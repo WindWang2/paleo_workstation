@@ -50,7 +50,7 @@ src/ui/edittools/editingtoolbar.cpp:fn:buildUi:232
 src/ui/edittools/vertexeditortools.cpp:file:1318
 src/ui/edittools/vertexeditortools.cpp:fn:deleteVertexAtMapPoint:245
 src/ui/pages/composepage.cpp:fn:ComposePage:422
-src/ui/pages/constraintpage_constraints.cpp:fn:buildConstraintArea:365
+src/ui/pages/constraintpage_constraints.cpp:fn:buildConstraintArea:357
 src/ui/pages/constraintpage_interpolation.cpp:fn:buildAdvancedSection:207
 src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:351
 src/ui/pages/datalist.cpp:fn:DataListPanel:480
@@ -58,7 +58,7 @@ src/ui/pages/datalist.cpp:fn:buildDataOpsUi:337
 src/ui/pages/datalist_table.cpp:fn:renderAssetPage:388
 src/ui/pages/datalist_tree.cpp:file:1032
 src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:612
-src/ui/pages/entitypanel.cpp:file:1620
+src/ui/pages/entitypanel.cpp:file:1619
 src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
 src/ui/pages/entitypanel.cpp:fn:refresh:782
 src/ui/pages/mappingworkbenchpage.cpp:file:1637
@@ -69,13 +69,13 @@ src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:253
 src/ui/paleomainwindow.cpp:file:1015
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:412
 src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:399
-src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:706
+src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:692
 src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:262
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:554
 src/ui/paleomainwindow_docks.cpp:fn:buildCenterArea:208
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:295
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:477
-src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:319
+src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:298
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:403
 src/ui/seismic3d/seismic3dviewpanel.cpp:file:1775

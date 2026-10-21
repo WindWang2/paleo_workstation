@@ -355,8 +355,12 @@ namespace cacheio
   }
   void putStr(QByteArray *out, const QString &s)
   {
-    const QByteArray utf8 = s.toUtf8();
-    putU16(out, static_cast<quint16>(qMin<qsizetype>(0xFFFF, utf8.size())));
+    // A-05（full-audit-20261021）：长度字段必须 == 实写字节数——此前超 64KB
+    // 的字符串截短长度前缀却追加全部字节，解码侧按前缀推进后错位（该条目
+    // 整体自愈删除，不崩溃但静默丢缓存）。超限内容就地截断，与读侧口径
+    // 一致（str() 只读前缀声明的字节数）。
+    const QByteArray utf8 = s.toUtf8().left(0xFFFF);
+    putU16(out, static_cast<quint16>(utf8.size()));
     out->append(utf8.constData(), static_cast<int>(utf8.size()));
   }
 

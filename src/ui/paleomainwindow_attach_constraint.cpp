@@ -95,6 +95,44 @@ void PaleoMainWindow::showDrawnConstraintLines(const QString &horizon)
     m_profileSvc->captureCurrentAsTheme(QgisLayerProfileService::pageThemeName(currentPage()));
 }
 
+void PaleoMainWindow::attachConstraintMapSelection(ConstraintPage *constraintPage)
+{
+  connect(constraintPage, &ConstraintPage::constraintSelectionChanged, this,
+          [this](const QString &horizon, const QStringList &ids) {
+    if (!m_layerSvc)
+      return;
+    auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
+    if (!layer)
+      return;
+    QgsFeatureIds selection;
+    QgsFeature feature;
+    auto features = layer->getFeatures();
+    while (features.nextFeature(feature))
+      if (ids.contains(feature.attribute(QStringLiteral("id")).toString()))
+        selection.insert(feature.id());
+    layer->selectByIds(selection);
+  });
+  connect(constraintPage, &ConstraintPage::constraintLocateRequested, this,
+          [this](const QString &horizon, const QString &id) {
+    if (!m_layerSvc || !m_canvasCtl || !m_canvasCtl->canvas())
+      return;
+    auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
+    if (!layer)
+      return;
+    QgsFeatureIds selection;
+    QgsFeature feature;
+    auto features = layer->getFeatures();
+    while (features.nextFeature(feature))
+      if (feature.attribute(QStringLiteral("id")).toString() == id)
+        selection.insert(feature.id());
+    if (selection.isEmpty())
+      return;
+    layer->selectByIds(selection);
+    m_canvasCtl->canvas()->zoomToSelected(layer);
+    m_canvasCtl->canvas()->refresh();
+  });
+}
+
 void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                                            ConstraintWorkflow *constraint)
 {
@@ -582,40 +620,7 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 showDrawnConstraintLines(horizon);
               });
     }
-    connect(constraintPage, &ConstraintPage::constraintSelectionChanged, this,
-            [this](const QString &horizon, const QStringList &ids) {
-      if (!m_layerSvc)
-        return;
-      auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
-      if (!layer)
-        return;
-      QgsFeatureIds selection;
-      QgsFeature feature;
-      auto features = layer->getFeatures();
-      while (features.nextFeature(feature))
-        if (ids.contains(feature.attribute(QStringLiteral("id")).toString()))
-          selection.insert(feature.id());
-      layer->selectByIds(selection);
-    });
-    connect(constraintPage, &ConstraintPage::constraintLocateRequested, this,
-            [this](const QString &horizon, const QString &id) {
-      if (!m_layerSvc || !m_canvasCtl || !m_canvasCtl->canvas())
-        return;
-      auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
-      if (!layer)
-        return;
-      QgsFeatureIds selection;
-      QgsFeature feature;
-      auto features = layer->getFeatures();
-      while (features.nextFeature(feature))
-        if (feature.attribute(QStringLiteral("id")).toString() == id)
-          selection.insert(feature.id());
-      if (selection.isEmpty())
-        return;
-      layer->selectByIds(selection);
-      m_canvasCtl->canvas()->zoomToSelected(layer);
-      m_canvasCtl->canvas()->refresh();
-    });
+    attachConstraintMapSelection(constraintPage);
     const auto beginConstraintEdit = [this, constraintPage](const QString &horizon) -> QgsVectorLayer * {
       if (!m_layerSvc)
         return nullptr;

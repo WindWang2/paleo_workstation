@@ -8,6 +8,7 @@
 class ConstraintWorkflow;
 class QComboBox;
 class QLabel;
+class QListWidget;
 class QShowEvent;
 class QTableWidget;
 class QVBoxLayout;
@@ -123,6 +124,7 @@ class ConstraintPage : public QWidget
     void wireFactorTableSelection(QTableWidget *factors);
     void buildConstraintArea(QWidget *content, QVBoxLayout *lay, QComboBox *horizons,
                              QLabel *cellCaption);
+    void wireConstraintListSelection(QListWidget *list);
     void buildFactorResultsSection(QWidget *content, QVBoxLayout *lay);
     void buildTailSections(QWidget *content, QVBoxLayout *lay);
     void wireWorkflowFeedback(ConstraintWorkflow *wf);

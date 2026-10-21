@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QSet>
 #include <QToolButton>
 
 #include "../src/domain/mappinghorizons.h"
@@ -94,6 +95,15 @@ class TestChips : public QObject
         for ( const QString &h : mappingHorizons() )
             QVERIFY( !bar.isChipActive( h ) );
         QCOMPARE( bar.chipNames(), before );
+
+        // D-02（full-audit-20261021）：reload 后同一事件循环步内即时查询只
+        // 反映新名单——旧实现 deleteLater 窗口内 findChildren 命中新旧两代，
+        // chipNames() 双计数（8 层位返回 16 条）。
+        bar.reloadHorizons();
+        const QStringList reloaded = bar.chipNames();
+        QCOMPARE( reloaded, mappingHorizons() );
+        QCOMPARE( reloaded.size(), 8 );
+        QCOMPARE( QSet<QString>( reloaded.cbegin(), reloaded.cend() ).size(), 8 );
     }
 
     // 阶段E — 无栅格声明的层位 chip 禁用 + 固定原因 tooltip；

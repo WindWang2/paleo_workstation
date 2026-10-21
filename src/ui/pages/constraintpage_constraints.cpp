@@ -33,6 +33,26 @@
 using namespace paleo::pagesinternal;
 using namespace paleo::constraintpage_internal;
 
+void ConstraintPage::wireConstraintListSelection(QListWidget *list)
+{
+  list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  connect(list, &QListWidget::itemSelectionChanged, this, [this, list] {
+    QStringList ids;
+    for (const auto *item : list->selectedItems())
+      ids.append(item->data(Qt::UserRole).toString());
+    auto *h = child<QComboBox>(this, "horizonCombo");
+    emit constraintSelectionChanged(h ? h->currentText() : QString(), ids);
+    updateFactorActionStates();
+  });
+  connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *item) {
+    if (!item)
+      return;
+    auto *h = child<QComboBox>(this, "horizonCombo");
+    emit constraintLocateRequested(h ? h->currentText() : QString(), item->data(Qt::UserRole).toString());
+  });
+  list->setToolTip(tr("双击在地图上定位该约束"));
+}
+
 void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QComboBox *horizons,
                                           QLabel *cellCaption )
 {
@@ -57,22 +77,7 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   auto *list = new QListWidget( this );
   list->setObjectName( QStringLiteral( "constraintList" ) );
   list->setAccessibleName( tr( "约束列表" ) );
-  list->setSelectionMode(QAbstractItemView::ExtendedSelection);
-  connect(list, &QListWidget::itemSelectionChanged, this, [this, list] {
-    QStringList ids;
-    for (const auto *item : list->selectedItems())
-      ids.append(item->data(Qt::UserRole).toString());
-    auto *h = child<QComboBox>(this, "horizonCombo");
-    emit constraintSelectionChanged(h ? h->currentText() : QString(), ids);
-    updateFactorActionStates();
-  });
-  connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *item) {
-    if (!item)
-      return;
-    auto *h = child<QComboBox>(this, "horizonCombo");
-    emit constraintLocateRequested(h ? h->currentText() : QString(), item->data(Qt::UserRole).toString());
-  });
-  list->setToolTip(tr("双击在地图上定位该约束"));
+  wireConstraintListSelection(list);
   lay->addWidget( list, 1 );
   connect( list, &QListWidget::currentItemChanged, this, [this]( QListWidgetItem *, QListWidgetItem * ) {
     loadSelectedConstraintLine();

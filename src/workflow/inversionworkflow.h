@@ -134,6 +134,11 @@ public:
     };
     PublishResult publishInversionJob(const InversionJob &job, DerivedAssetRegistrar &registrar,
                                       QString *error = nullptr) const;
+
+    // C-4（full-audit-20261021）：回收 computeInversionJob 的 paleo-inv-* 暂存
+    // 树（整幅阻抗体可达数百 MB，此前任何结局都永留系统临时区、全仓无清扫
+    // 器）。只认 paleo-inv- 前缀目录；空串/异名路径为无操作。
+    static void reclaimTempVolume(const QString &tempVolumePath);
 };
 
 } // namespace paleo::inv

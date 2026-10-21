@@ -13,6 +13,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QScopeGuard>
 #include <QUuid>
 
@@ -780,6 +781,19 @@ InversionWorkflow::PublishResult InversionWorkflow::publishInversionJob(
     result.versionId = staging.versionId;
     result.relativePath = staging.relativePath;
     return result;
+}
+
+void InversionWorkflow::reclaimTempVolume(const QString &tempVolumePath)
+{
+    // C-4（full-audit-20261021）：受管发布（commitExternal 拷贝进工程）后/
+    // 失败收尾时由编排方调用——目录名只认 paleo-inv- 前缀（computeInversionJob
+    // 的生成口径），防误删。
+    if (tempVolumePath.isEmpty())
+        return;
+    const QFileInfo info(tempVolumePath);
+    if (!info.dir().dirName().startsWith(QStringLiteral("paleo-inv-")))
+        return;
+    QDir(info.dir()).removeRecursively();
 }
 
 } // namespace paleo::inv

@@ -45,7 +45,10 @@ SRC = os.path.join(REPO, "src")
 VOCAB = os.path.join(REPO, "tools", "layering_vocab.json")
 BASELINE = os.path.join(REPO, "tools", "qgis-spread-baseline.txt")
 
-SCAN_DIRS = ("workflow", "ui")
+# E-2（full-audit-20261021）：扫描面与 check_layering --qgs-audit 对齐——
+# 从 workflow+ui 扩到全部非视图模块；新增面按 #539 初冻口径入基线。
+SCAN_DIRS = ("domain", "catalog", "io", "metadata", "services", "algorithms",
+             "workflow", "linkage", "ai", "ui")
 SUFFIXES = (".h", ".cpp")
 
 # 逐文件豁免的脚本内补充面（与词表 qgs_audit_whitelist 取并集）。
@@ -204,7 +207,9 @@ def run_check(strict=False, baseline_path=None):
               f"请删除该行）")
     n_wf = len([p for p in offenders if p.split("/")[1] == "workflow"])
     n_ui = len([p for p in offenders if p.split("/")[1] == "ui"])
-    print(f"qgis-spread：散布文件 {len(offenders)}（workflow {n_wf} + ui {n_ui}；"
+    n_other = len(offenders) - n_wf - n_ui
+    extra = f" + 非视图其他模块 {n_other}" if n_other else ""
+    print(f"qgis-spread：散布文件 {len(offenders)}（workflow {n_wf} + ui {n_ui}{extra}；"
           f"baseline {len(baseline)}，残留 {len(residue)}，新增 {len(new)}，"
           f"可收缩 {len(shrunk)}）——符号级现状冻结、只缩不涨；豁免面见 "
           f"tools/layering_vocab.json qgs_audit_whitelist（+脚本内附加清单）。")

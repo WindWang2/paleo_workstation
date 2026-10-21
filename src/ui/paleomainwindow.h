@@ -270,6 +270,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void attachDataPage(DataPage *dataPage, WellCorrelationPanel *corrPanel,
                         DataImportService *importSvc, PaleoTaskService *taskSvc);
     void attachPredictPage(PredictPage *predictPage, PredictionWorkflow *pred);
+    void attachConstraintMapSelection(ConstraintPage *constraintPage);
     void attachConstraintPage(ConstraintPage *constraintPage, ConstraintWorkflow *constraint);
     void attachComposePage(ComposePage *composePage, CompositionWorkflow *compose,
                            QgisLayoutService *layoutSvc);

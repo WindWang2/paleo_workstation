@@ -190,9 +190,112 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
   return assetId;
 }
 
+namespace {
+// C-3（full-audit-20261021）：staging 侧分配的 ast-N/ver-N 序号取自任务启动
+// 时的 catalog 快照——窗口期内任何无关写（导入、预测落版本、另一导出发布）
+// 都会占用同号 id，重放 addAsset/addVersion 即撞「duplicate id」。发布前把
+// 撞号 id 重映射为 live 新号，并同步改写后续引用与受管路径段；无撞号时
+// 原样返回。#480 P3-3 同口径：输入在提交时已冻结，无关写不再整批判废长
+// 任务；真冲突仍由 applyJournal 的事务快照失败如实上报。
+QVector<CatalogOp> remapCollidingJournalIds(DataCatalog *live,
+                                            const QVector<CatalogOp> &ops,
+                                            QHash<QString, QString> &idMap)
+{
+  // R2-MF-1（full-audit-20261021 独立复审）：新号必须同时避让 live 已占
+  // 与「同批 journal 自有 id」——只查 live 会把撞号 ast-N 映射到本批下一
+  // 个 ast-(N+1)（live 无、journal 有），重放 addAsset 同 id 两次 → 整批
+  // 失败（恰在批量导出 + 一笔无关写的目标场景）。
+  QSet<QString> journalAssetIds, journalVersionIds;
+  for (const CatalogOp &op : ops)
+  {
+    if (op.kind == CatalogOp::Kind::AddAsset)
+      journalAssetIds.insert(op.asset.id);
+    else if (op.kind == CatalogOp::Kind::AddVersion)
+      journalVersionIds.insert(op.version.id);
+  }
+  QHash<QString, QString> assetMap, versionMap;
+  for (const CatalogOp &op : ops)
+  {
+    if (op.kind == CatalogOp::Kind::AddAsset &&
+        !live->assetById(op.asset.id).id.isEmpty())
+    {
+      QString next = live->nextAssetId();
+      while (journalAssetIds.contains(next))
+        next = live->nextAssetId();
+      assetMap.insert(op.asset.id, next);
+    }
+    else if (op.kind == CatalogOp::Kind::AddVersion &&
+             !live->versionById(op.version.id).id.isEmpty())
+    {
+      QString next = live->nextVersionId();
+      while (journalVersionIds.contains(next))
+        next = live->nextVersionId();
+      versionMap.insert(op.version.id, next);
+    }
+  }
+  if (assetMap.isEmpty() && versionMap.isEmpty())
+    return ops;
+  const auto rewritePathSegments = [&](QString &path) {
+    if (path.isEmpty())
+      return;
+    QStringList segs = path.split(QLatin1Char('/'));
+    bool changed = false;
+    for (QString &seg : segs)
+    {
+      if (const auto it = assetMap.constFind(seg); it != assetMap.constEnd())
+      {
+        seg = it.value();
+        changed = true;
+      }
+      else if (const auto it = versionMap.constFind(seg); it != versionMap.constEnd())
+      {
+        seg = it.value();
+        changed = true;
+      }
+    }
+    if (changed)
+      path = segs.join(QLatin1Char('/'));
+  };
+  QVector<CatalogOp> out = ops;
+  for (CatalogOp &op : out)
+  {
+    switch (op.kind)
+    {
+      case CatalogOp::Kind::AddAsset:
+        if (const auto it = assetMap.constFind(op.asset.id); it != assetMap.constEnd())
+          op.asset.id = it.value();
+        break;
+      case CatalogOp::Kind::AddVersion:
+        if (const auto it = assetMap.constFind(op.version.assetId); it != assetMap.constEnd())
+          op.version.assetId = it.value();
+        if (const auto it = versionMap.constFind(op.version.id); it != versionMap.constEnd())
+          op.version.id = it.value();
+        rewritePathSegments(op.version.path);
+        break;
+      case CatalogOp::Kind::AddLink:
+        if (const auto it = assetMap.constFind(op.link.assetId); it != assetMap.constEnd())
+          op.link.assetId = it.value();
+        break;
+      case CatalogOp::Kind::UpdateVersionExtra:
+        if (const auto it = versionMap.constFind(op.id); it != versionMap.constEnd())
+          op.id = it.value();
+        break;
+      default: // AddEntity/UpdateLink 等位置或实体引用 op：导出链不产生，
+        break; // 重放语义见 applyJournal 的事务快照
+    }
+  }
+  for (auto it = assetMap.cbegin(); it != assetMap.cend(); ++it)
+    idMap.insert(it.key(), it.value());
+  for (auto it = versionMap.cbegin(); it != versionMap.cend(); ++it)
+    idMap.insert(it.key(), it.value());
+  return out;
+}
+} // namespace
+
 bool publishMapExportJournal(DataCatalog *catalog, const QString &projectDir,
                              const QString &stagingRoot,
-                             const QVector<CatalogOp> &ops, QString *error) {
+                             const QVector<CatalogOp> &ops, QString *error,
+                             QHash<QString, QString> *idMap) {
   QStringList moved;
   const auto fail = [&](const QString &why) {
     for (const auto &path : moved) {
@@ -203,13 +306,16 @@ bool publishMapExportJournal(DataCatalog *catalog, const QString &projectDir,
       *error = why;
     return false;
   };
-  for (const auto &op : ops) {
-    if (op.kind != CatalogOp::Kind::AddVersion || !op.version.managed)
+  QHash<QString, QString> remapped;
+  const QVector<CatalogOp> replay = remapCollidingJournalIds(catalog, ops, remapped);
+  for (int i = 0; i < ops.size(); ++i) {
+    if (ops.at(i).kind != CatalogOp::Kind::AddVersion || !ops.at(i).version.managed)
       continue;
+    // 源路径按原 id（staging 侧文件已按原 id 落盘），目标按重映射后的 id。
     const auto source =
-        DataCatalog::resolvedVersionPath(stagingRoot, op.version);
+        DataCatalog::resolvedVersionPath(stagingRoot, ops.at(i).version);
     const auto target =
-        DataCatalog::resolvedVersionPath(projectDir, op.version);
+        DataCatalog::resolvedVersionPath(projectDir, replay.at(i).version);
     if (source.isEmpty() || target.isEmpty() || QFile::exists(target))
       return fail(QObject::tr("导出成果路径不安全或已存在"));
     if (!QDir().mkpath(QFileInfo(target).absolutePath()) ||
@@ -218,8 +324,10 @@ bool publishMapExportJournal(DataCatalog *catalog, const QString &projectDir,
     moved.append(target);
   }
   QString why;
-  if (!catalog || !catalog->applyJournal(ops, &why))
+  if (!catalog || !catalog->applyJournal(replay, &why))
     return fail(why);
+  if (idMap)
+    *idMap = remapped;
   return true;
 }
 
@@ -257,7 +365,6 @@ PaleoTask *startMapProductExport(MapProducer produce, PaleoTaskService *tasks,
     return nullptr;
   }
   job->catalog = catalog->createStagingCopy(job->staging->path());
-  const auto sequence = catalog->mutationSeq();
   QPointer<DataCatalog> owner(catalog);
   auto *task = tasks->start(title, [job, produce, name, destination,
                                     format](PaleoTask *task) {
@@ -292,10 +399,13 @@ PaleoTask *startMapProductExport(MapProducer produce, PaleoTaskService *tasks,
   QPointer<QObject> target(receiver ? receiver : tasks);
   QObject::connect(
       task, &PaleoTask::finished, tasks,
-      [job, task, tasks, owner, sequence, directory, target, done] {
+      [job, task, tasks, owner, directory, target, done] {
+        // C-3（full-audit-20261021）：摘除「开始时 mutationSeq」陈旧判据
+        // （#480 P3-3 口径——导出输入在提交时已冻结进 staging，窗口期内的
+        // 无关 catalog 写不再整批判废导出；真冲突由 applyJournal 事务失败
+        // 如实上报）。session/工程目录守卫保留。
         const bool stale = task->session() != tasks->session() || !owner ||
-                           owner->projectDir() != directory ||
-                           owner->mutationSeq() != sequence;
+                           owner->projectDir() != directory;
         job->outcome.cancelled = task->cancelRequested() || stale;
         if (task->state() == PaleoTask::State::Failed &&
             job->outcome.error.isEmpty())
@@ -304,12 +414,17 @@ PaleoTask *startMapProductExport(MapProducer produce, PaleoTaskService *tasks,
           task->discardPublication();
         if (!job->outcome.cancelled &&
             task->state() == PaleoTask::State::Succeeded) {
+          QHash<QString, QString> idMap;
           if (!publishMapExportJournal(owner, directory, job->staging->path(),
-                                       job->journal, &job->outcome.error))
+                                       job->journal, &job->outcome.error, &idMap))
             task->failPublication(job->outcome.error);
-          else
+          else {
+            if (const auto it = idMap.constFind(job->outcome.assetId);
+                it != idMap.constEnd())
+              job->outcome.assetId = it.value();
             job->outcome.managedPath = owner->versionFilePath(
                 owner->currentVersion(job->outcome.assetId));
+          }
         }
         if (job->outcome.cancelled || !job->outcome.error.isEmpty()) {
           job->outcome.assetId.clear();

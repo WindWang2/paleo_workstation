@@ -50,6 +50,8 @@ public:
                   .arg(m_server.serverPort()));
   }
   int requestCount() const { return m_requests; }
+  // C-1（full-audit-20261021）：捕获完整请求（头+体），供请求体内容断言。
+  QVector<QByteArray> requestBodies() const { return m_bodies; }
 
 private:
   void serve(QTcpSocket *sock) {
@@ -67,6 +69,7 @@ private:
         header.section("Content-Length:", 1, 1).section("\r", 0, 0).trimmed().toInt();
       if (buf->mid(headerEnd + 4).size() < contentLength)
         return;
+      m_bodies.append(QByteArray(buf->constData(), headerEnd + 4 + contentLength));
       *buf = buf->mid(headerEnd + 4 + contentLength);
       respond(sock);
     });
@@ -123,6 +126,7 @@ private:
   Mode m_mode = Mode::Stream;
   QTcpServer m_server;
   int m_requests = 0;
+  QVector<QByteArray> m_bodies;
 };
 
 class TestAiChatController : public QObject {
@@ -472,6 +476,16 @@ void TestAiChatController::retryLastResendsWithoutDuplicatingUserMessage() {
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
            "重发的一轮必须结束");
   QCOMPARE(server.requestCount(), 2);
+  // C-1（full-audit-20261021）：重试轮请求必须与首轮同口径携带领域工具——
+  // 此前 retryLast 手工复制上送序列时漏了 tools()，重试轮静默失去工具调用。
+  const QVector<QByteArray> bodies = server.requestBodies();
+  QCOMPARE(bodies.size(), 2);
+  QVERIFY2(bodies.first().contains("\"tools\""),
+           "首轮请求应携带 tools");
+  QVERIFY2(bodies.at(1).contains("\"tools\""),
+           "重试轮请求必须携带 tools（C-1 回归）");
+  QVERIFY2(bodies.at(1).contains("paleo."),
+           "重试轮 tools 应含领域工具定义");
   const QVector<ChatMessage> messages = controller.messages();
   QCOMPARE(messages.size(), 2); // user + assistant，无重复 user
   QCOMPARE(messages.first().role, ChatRole::User);

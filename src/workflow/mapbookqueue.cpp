@@ -189,7 +189,6 @@ struct Exporter::AsyncRun {
   QVector<CatalogOp> journal;
   QPointer<DataCatalog> ownerCatalog;
   QPointer<PaleoTask> task;
-  quint64 sequence = 0;
   QString error;
 };
 
@@ -223,7 +222,6 @@ PaleoTask *Exporter::start(const Request &request) {
     else {
       job->catalog = request.catalog->createStagingCopy(job->staging->path());
       job->ownerCatalog = request.catalog;
-      job->sequence = request.catalog->mutationSeq();
     }
   }
   auto *task = m_tasks->start(
@@ -279,23 +277,32 @@ PaleoTask *Exporter::start(const Request &request) {
                   task->detailText());
   });
   connect(task, &PaleoTask::finished, this, [this, job, task] {
+    // C-3（full-audit-20261021）：摘除 mutationSeq 陈旧判据（#480 P3-3 口径
+    // ——地图册输入在提交时已冻结进 staging，窗口期内的无关 catalog 写不再
+    // 整批判废长导出；真冲突由 applyJournal 事务失败如实上报）。
     const bool stale =
         task->session() != m_tasks->session() ||
         (job->catalog &&
          (!job->ownerCatalog ||
-          job->ownerCatalog->projectDir() != job->request.projectDir ||
-          job->ownerCatalog->mutationSeq() != job->sequence));
+          job->ownerCatalog->projectDir() != job->request.projectDir));
     auto &result = job->state.result;
     QString error;
+    QHash<QString, QString> idMap; // C-3：撞号重映射表
     if (stale) {
       task->discardPublication();
       error = tr("工程数据已变化，导出成果未登记，请重新导出");
     } else if (job->catalog && !publishMapExportJournal(job->ownerCatalog,
                                                         job->request.projectDir,
                                                         job->staging->path(),
-                                                        job->journal, &error)) {
+                                                        job->journal, &error,
+                                                        &idMap)) {
       task->failPublication(error);
     } else if (job->catalog) {
+      // C-3：撞号重映射——registeredIds 换成发布实际入库的新号再解析路径。
+      for (auto &id : result.registeredIds) {
+        if (const auto it = idMap.constFind(id); it != idMap.constEnd())
+          id = it.value();
+      }
       result.registered.clear();
       for (const auto &id : result.registeredIds)
         result.registered.append(job->ownerCatalog->versionFilePath(

@@ -58,7 +58,6 @@ PaleoTask *start(PaleoLayoutExport::LayoutHandle *layout, DataCatalog *catalog, 
   job->output = std::make_unique<QTemporaryDir>(destination.absoluteDir().filePath(".paleo-map-XXXXXX"));
   if (!job->managed->isValid() || !job->output->isValid()) return fail(QObject::tr("无法创建图件暂存目录"));
   job->catalog = catalog->createStagingCopy(job->managed->path());
-  const auto sequence = catalog->mutationSeq();
   QPointer<DataCatalog> owner(catalog);
   QPointer<QObject> target(receiver ? receiver : tasks);
   auto *task = tasks->start(QObject::tr("导出地质图：%1").arg(destination.fileName()),
@@ -207,15 +206,25 @@ PaleoTask *start(PaleoLayoutExport::LayoutHandle *layout, DataCatalog *catalog, 
     return {};
   });
   QObject::connect(task, &PaleoTask::finished, tasks,
-      [job, request, projectDirectory, owner, sequence, task, tasks, target, done] {
-    const bool stale = !owner || owner->projectDir() != projectDirectory || (request.registerInProject && owner->mutationSeq() != sequence) || task->session() != tasks->session();
+      [job, request, projectDirectory, owner, task, tasks, target, done] {
+    // C-3（full-audit-20261021）：摘除 mutationSeq 陈旧判据（#480 P3-3 口径
+    // ——无关 catalog 写不再整批判废导出；真冲突由 applyJournal 事务失败
+    // 如实上报）。session/工程目录守卫保留。
+    const bool stale = !owner || owner->projectDir() != projectDirectory || task->session() != tasks->session();
     job->result.cancelled = task->cancelRequested() || stale;
     if (stale) task->discardPublication();
     if (!job->result.cancelled && task->state() == PaleoTask::State::Succeeded) {
+      QHash<QString, QString> idMap;
       if (!QDir().rename(job->output->path(), request.destination)) job->result.error = QObject::tr("无法提交图件目录，目标可能已存在");
-      else if (request.registerInProject && !publishMapExportJournal(owner, projectDirectory, job->managed->path(), job->journal, &job->result.error))
+      else if (request.registerInProject && !publishMapExportJournal(owner, projectDirectory, job->managed->path(), job->journal, &job->result.error, &idMap))
         QDir(request.destination).removeRecursively();
       else {
+        if (const auto it = idMap.constFind(job->result.pdfAssetId); it != idMap.constEnd())
+          job->result.pdfAssetId = it.value();
+        for (auto &id : job->result.assetIds) {
+          if (const auto it = idMap.constFind(id); it != idMap.constEnd())
+            id = it.value();
+        }
         job->result.directory = QFileInfo(request.destination).absoluteFilePath();
         if (!job->result.pdfAssetId.isEmpty()) job->result.pdfPath = owner->versionFilePath(owner->currentVersion(job->result.pdfAssetId));
         for (auto &file : job->result.files) file = QDir(job->result.directory).filePath(file);

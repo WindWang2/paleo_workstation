@@ -99,9 +99,9 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     return false;
   }
   QgsMapLayer *previous = m_instances.value(decl.layerId).data();
-  const bool replace = previous && (decl.type == QLatin1String("mbtiles")
+  const bool replace = previous && (!previous->isValid() || (decl.type == QLatin1String("mbtiles")
       ? previous->customProperty("paleoBasemapPath").toString() != QFileInfo(QDir(QFileInfo(svcProject(m_projectSvc)->fileName()).absolutePath()).filePath(decl.source)).absoluteFilePath()
-      : previous->source() != decl.source);
+      : previous->source() != decl.source));
   if (replace)
   {
     if (auto *vector = qobject_cast<QgsVectorLayer *>(previous))

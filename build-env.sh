@@ -1,0 +1,44 @@
+#!/bin/sh
+# MSVC x64 + Ninja 构建环境（纯 sh 拼装，绕开被沙箱阻断的 cmd.exe/vcvars64）
+MSVC_ROOT='C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130'
+SDK_VER='10.0.22621.0'
+SDK_ROOT="C:/Program Files (x86)/Windows Kits/10"
+
+# 编译器/链接器/资源编译器
+VC_BIN="$MSVC_ROOT/bin/Hostx64/x64"
+# 工具链的 include/lib
+VC_INC="$MSVC_ROOT/include"
+VC_LIB="$MSVC_ROOT/lib/x64"
+# Windows SDK
+SDK_INC_UCR="$SDK_ROOT/Include/$SDK_VER/ucrt"
+SDK_INC_UM="$SDK_ROOT/Include/$SDK_VER/um"
+SDK_INC_SH="$SDK_ROOT/Include/$SDK_VER/shared"
+SDK_LIB_UCR="$SDK_ROOT/Lib/$SDK_VER/ucrt/x64"
+SDK_LIB_UM="$SDK_ROOT/Lib/$SDK_VER/um/x64"
+
+DEPS='C:/Users/wangj.KEVIN/paleo-qgis-deps/Library'
+QGIS_PREFIX='C:/Users/wangj.KEVIN/paleo-qgis-prefix'
+CMAKE_BIN='/c/deps/vcpkg/downloads/tools/cmake-4.4.0-windows/cmake-4.4.0-windows-x86_64/bin'
+
+# 注意：**不要导出 INCLUDE / LIB**。
+# CMake 的 Ninja 生成器已把全部 -I/-external:I 写进 build.ninja，
+# 再导出 INCLUDE/LIB 会被 CL 当作隐式附加 include，与 Qt 头的
+# 内部顺序冲突（表现为 qstring.h 里 QStringPrivate 未定义）。
+# 只保留 PATH（含 cl/link/rc），include/lib 由 ninja 显式传递。
+
+# PATH 用 POSIX 格式（Git Bash 可解析）；SDK bin 提供 rc.exe/mt.exe
+SDK_BIN="/c/Program Files (x86)/Windows Kits/10/bin/$SDK_VER/x64"
+export PATH="$VC_BIN:$SDK_BIN:/c/Users/wangj.KEVIN/paleo-qgis-deps/Library/bin:/c/Users/wangj.KEVIN/paleo-qgis-prefix/bin:$CMAKE_BIN:$PATH"
+
+unset INCLUDE LIB
+# INCLUDE/LIB 只放MSVC + Windows SDK 的 C++ 标准库/系统头。
+# **不放** deps（paleo-qgis-deps）—— 它带一套裁剪过的 Qt 6.11.2 头
+# （Library/include/qt6），一旦混入就会抢在真 Qt 6.8.0 头前面，
+# 表现为 qstring.h 里 QStringPrivate 未定义 / DataPointer 未知类型。
+export INCLUDE='C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include;C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt;C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\um;C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\shared'
+export LIB='C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\lib\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\ucrt\x64;C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\um\x64'
+
+export CMAKE_MAKE_PROGRAM='C:/deps/vcpkg/downloads/tools/ninja-1.13.2-windows/ninja.exe'
+export CMAKE_CXX_COMPILER="$VC_BIN/cl.exe"
+export CMAKE_PREFIX_PATH="$DEPS"
+export QGIS_PREFIX

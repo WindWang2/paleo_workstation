@@ -12,7 +12,9 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildPaleomapNavSpec() const 
     if (asset.type != "paleogeographic_map" || m_recycle.isRemoved(asset.id)) continue;
     const auto v = cat->currentVersion(asset.id); const auto h = v.extra.value("horizon").toString();
     NavNodeSpec leaf; leaf.id = asset.id; leaf.type = "paleomap"; leaf.text0 = asset.displayName;
-    leaf.text1 = tr("v%1 · %2 个配套文件").arg(v.versionNumber).arg(v.extra.value("bundle_members").toList().size());
+    leaf.text1 = v.extra.value("mapping_product").toBool()
+        ? tr("v%1 · 三级相／系统纹理").arg(v.versionNumber)
+        : tr("v%1 · 原图参考").arg(v.versionNumber);
     leaf.tooltip0 = tr("层位：%1\n%2").arg(h, v.path); leaf.icon = "mIconPolygonLayer.svg";
     byHorizon[h].append(leaf); ++count;
   }
@@ -56,4 +58,15 @@ DataListPanel::NavNodeSpec DataListPanel::buildOverviewNavSpec() const
   map.id = QStringLiteral("survey_area"); map.type = QStringLiteral("survey_area");
   map.icon = QStringLiteral("mActionZoomFullExtent.svg"); root.children.append(map);
   return root;
+}
+
+void DataListPanel::normalizeSelectedPaleomaps()
+{
+  if (!m_doc || !m_doc->catalog() || m_doc->catalog()->refusesWrites()) return;
+  QStringList ids;
+  for (const auto &id : currentAssetSelection())
+    if (m_doc->catalog()->assetById(id).type == "paleogeographic_map") ids << id;
+  if (ids.isEmpty()) { emit statusMessage(tr("请先选择现有古地理图")); return; }
+  ids.sort();
+  emit normalizePaleomapsRequested(ids);
 }

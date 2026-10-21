@@ -11,7 +11,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QScopeGuard>
 
+#include <qgsmaplayer.h>
+#include <qgspathresolver.h>
 #include <qgsproject.h>
 
 #include <cstdio>
@@ -339,6 +342,12 @@ bool QgisProjectService::writeProject()
     return false;
   }
 
+  QString basemapError;
+  if (!prepareBasemapMembers(&basemapError)) {
+    m_errors << basemapError;
+    return false;
+  }
+
   // §37: mirror the manifest's declared set into project custom properties so
   // the .qgz is a projection of ALL declarations — QgsProject::write() only
   // persists instantiated layers. An embed failure fails the write: saving
@@ -371,7 +380,24 @@ bool QgisProjectService::writeProject()
     fi.completeBaseName() + QStringLiteral( ".tmp.%1" ).arg( fi.suffix() ) );
 
   QFile::remove( tmpPath );
-  if ( !m_project->write( tmpPath ) )
+  bool written = false;
+  {
+    QMap<QString, QVariant> basemapPaths;
+    const auto restorePaths = qScopeGuard([this, &basemapPaths] {
+      for (auto it = basemapPaths.cbegin(); it != basemapPaths.cend(); ++it)
+        if (auto *layer = m_project->mapLayer(it.key()))
+          layer->setCustomProperty("paleoBasemapPath", it.value());
+    });
+    for (auto *layer : m_project->mapLayers())
+      if (layer->customProperty("paleoBasemap").toBool()) {
+        const auto path = layer->customProperty("paleoBasemapPath");
+        if (path.toString().isEmpty()) continue;
+        basemapPaths.insert(layer->id(), path);
+        layer->setCustomProperty("paleoBasemapPath", m_project->pathResolver().writePath(path.toString()));
+      }
+    written = m_project->write(tmpPath);
+  }
+  if ( !written )
   {
     const QString err = m_project->error();
     m_errors << ( err.isEmpty() ? tr( "写入工程失败：%1" ).arg( tmpPath ) : err );

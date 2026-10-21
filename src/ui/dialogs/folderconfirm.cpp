@@ -325,6 +325,29 @@ QString pickPreviewFocusAsset(const QVector<FolderRowResult> &rows, const QStrin
   return focusAssetId;
 }
 
+// T2 大小估算：预览期一行估算（将导入多少/多大/跳过多少）+ 每行大小进
+// 路径 tooltip——不动四列结构（既有测试与结果列控件挂点不迁移）。
+static void annotateFolderRowSizes(QTableWidget *table, const QVector<FolderPreviewRow> &preview)
+{
+  for (int r = 0; r < preview.size() && r < table->rowCount(); ++r)
+  {
+    if (preview.at(r).sizeBytes < 0)
+      continue;
+    QTableWidgetItem *pathItem = table->item(r, 0);
+    if (!pathItem)
+      continue;
+    const qint64 b = preview.at(r).sizeBytes;
+    const QString human = b >= 1024 * 1024 * 1024
+                              ? QStringLiteral("%1 GB").arg(b / 1073741824.0, 0, 'f', 1)
+                              : b >= 1024 * 1024
+                                    ? QStringLiteral("%1 MB").arg(b / 1048576.0, 0, 'f', 1)
+                                    : b >= 1024
+                                          ? QStringLiteral("%1 KB").arg(b / 1024.0, 0, 'f', 1)
+                                          : QStringLiteral("%1 B").arg(b);
+    pathItem->setToolTip(QObject::tr("%1\n大小 %2").arg(pathItem->toolTip(), human));
+  }
+}
+
 void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
                               const QVector<FolderPreviewRow> &preview,
                               const Hooks &hooks)
@@ -370,25 +393,7 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   review->hide();
   lay->addWidget(review);
 
-  // T2 大小估算：预览期一行估算（将导入多少/多大/跳过多少）+ 每行大小进
-  // 路径 tooltip——不动四列结构（既有测试与结果列控件挂点不迁移）。
-  for (int r = 0; r < preview.size() && r < table->rowCount(); ++r)
-  {
-    if (preview.at(r).sizeBytes < 0)
-      continue;
-    QTableWidgetItem *pathItem = table->item(r, 0);
-    if (!pathItem)
-      continue;
-    const qint64 b = preview.at(r).sizeBytes;
-    const QString human = b >= 1024 * 1024 * 1024
-                              ? QStringLiteral("%1 GB").arg(b / 1073741824.0, 0, 'f', 1)
-                              : b >= 1024 * 1024
-                                    ? QStringLiteral("%1 MB").arg(b / 1048576.0, 0, 'f', 1)
-                                    : b >= 1024
-                                          ? QStringLiteral("%1 KB").arg(b / 1024.0, 0, 'f', 1)
-                                          : QStringLiteral("%1 B").arg(b);
-    pathItem->setToolTip(QObject::tr("%1\n大小 %2").arg(pathItem->toolTip(), human));
-  }
+  annotateFolderRowSizes(table, preview);
   auto *estimate = new QLabel(dlg);
   estimate->setObjectName(QStringLiteral("folderEstimateLabel"));
   estimate->setText(folderEstimateText(preview));

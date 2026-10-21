@@ -56,7 +56,8 @@ class AppContext : public QObject
 {
   Q_OBJECT
   public:
-    explicit AppContext(const QString &qgisPrefix, QObject *parent = nullptr);
+    explicit AppContext(const QString &qgisPrefix, QObject *parent = nullptr,
+                        const std::function<void()> &applicationCreated = {});
     ~AppContext() override;
     bool ready() const { return m_ready; }
 

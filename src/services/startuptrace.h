@@ -18,8 +18,9 @@
 //     只落一次盘；重复调用返回 false）。
 //
 // 分段词表（tst_startup_trace 断言次序；新增段先扩测试）：
-//   main_entry → pre_qt_ready → qgis_app_ready → services_ready →
-//   theme_ready → main_window_ready → window_shown → first_paint
+//   main_entry → pre_qt_ready → startup_screen_shown → qgis_app_ready →
+//   services_ready → theme_ready → main_window_ready → window_shown →
+//   first_paint → startup_screen_closed
 namespace StartupTrace
 {
 struct Segment

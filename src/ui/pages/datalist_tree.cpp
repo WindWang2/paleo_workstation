@@ -79,7 +79,6 @@ int countItemNodes(const QTreeWidgetItem *it)
 // 资产级增/删/改落到节点级更新；变更面超阈值回全量兜底（阈值口径见
 // datalist.h kNavReconcile* 注释与 ledger 定案）。
 
-
 QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
 {
   QVector<NavNodeSpec> tops;

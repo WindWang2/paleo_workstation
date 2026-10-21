@@ -13,6 +13,7 @@
 #include <qgsexception.h>
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
+#include <qgsproviderregistry.h>
 #include <qgsrasterlayer.h>
 
 namespace paleo::mapreference {
@@ -156,14 +157,25 @@ QgsRectangle mapExtent(QgsMapCanvas *canvas, const QgsRectangle &extent,
 
 QString mbtilesUri(const QString &path)
 {
-  return QStringLiteral("type=mbtiles&url=%1").arg(QString::fromLatin1(
-      QUrl::toPercentEncoding(QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath()).toString())));
+  // crs/format 参数与工程文件里 QGIS 自存的 mbtiles 数据源同构——4.2.0 的
+  // XYZ/wms provider 缺 crs（与 format 空值占位）时 isValid() 拒载，离线
+  // 底图整层实例化失败（「离线底图不存在或无法读取」）。
+  return QStringLiteral("crs=EPSG%3A3857&format&type=mbtiles&url=%1")
+      .arg(QString::fromLatin1(
+          QUrl::toPercentEncoding(QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath()).toString())));
 }
 
 QgsRasterLayer *offlineBasemap(const QString &path, const QString &title, QObject *parent)
 {
   if (!QFileInfo(path).isFile()) return nullptr;
-  auto *layer = new QgsRasterLayer(mbtilesUri(path), title, QStringLiteral("wms"));
+  auto *layer = QgsProviderRegistry::instance()->providerMetadata(QStringLiteral("wms"))
+      ? new QgsRasterLayer(mbtilesUri(path), title, QStringLiteral("wms")) : nullptr;
+  // Minimal vendored builds may not ship the WMS plugin. The native GDAL
+  // provider reads the same offline MBTiles and persists a relocatable file URI.
+  if (!layer || !layer->isValid()) {
+    delete layer;
+    layer = new QgsRasterLayer(QFileInfo(path).absoluteFilePath(), title, QStringLiteral("gdal"));
+  }
   if (!layer->isValid()) { delete layer; return nullptr; }
   layer->setParent(parent);
   layer->setCustomProperty("paleoBasemap", true);

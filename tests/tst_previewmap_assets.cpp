@@ -8,6 +8,8 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/previewrasteranalysis.h"
+#include "../src/qgis/mappingartifactwriter.h"
+#include "../src/domain/faciescatalog.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
@@ -19,9 +21,13 @@
 #include "../src/ui/datapreview/previewprofilepanel.h"
 #include "../src/ui/datapreview/previewtocpanel.h"
 #include "../src/ui/datapreview/previewmapstates.h"
+#include "../src/ui/datapreview/previewsectionpanel.h"
+#include "../src/ui/paleotheme.h"
+#include "../src/services/paleotaskservice.h"
 #include "../src/ui/decorations/paleodecorations.h"
 
 #include <qgscategorizedsymbolrenderer.h>
+#include <qgsexpressioncontextutils.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
 #include <qgsmapcanvas.h>
@@ -29,9 +35,11 @@
 #include <qgsrastershaderfunction.h>
 #include <qgsrubberband.h>
 #include <qgsrasterlayer.h>
+#include <qgsrendercontext.h>
 #include <qgssinglebandpseudocolorrenderer.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgsvectorlayer.h>
+#include <qgsvectorlayerlabeling.h>
 #include <gdal.h>
 #include <QCheckBox>
 #include <QComboBox>
@@ -109,6 +117,12 @@ class TestPreviewMapAssets : public QObject
     void wellHeadMapLabelToggleWorks();
     void mapProductRasterPagePreview();
     void mapProductVectorPagePreview();
+    void historicalMapPreviewUsesSingleFaciesLabel();
+    void actualHistoricalMapPreviews();
+    void wellPredictionPreviewRendersPoints();
+    void rawHorizonPreviewUsesTaskService();
+    void actualProjectMapPreviews();
+    void actualProjectSeismicPreviews();
 
 };
 
@@ -155,7 +169,7 @@ void TestPreviewMapAssets::propertiesOwnVersionControls()
   const QString derived = combo->currentData().toString();
   combo->setCurrentIndex(combo->count() - 1); // RAW version is last.
   QTest::qWait(50);
-  QVERIFY(!st->preview->findChild<QgsMapCanvas *>("horizonMapCanvas"));
+  QVERIFY(st->preview->findChild<QgsMapCanvas *>("horizonMapCanvas"));
   combo = details.findChild<QComboBox *>("previewVersionCombo");
   QVERIFY(combo);
   combo->setCurrentIndex(combo->findData(derived));
@@ -350,11 +364,15 @@ void TestPreviewMapAssets::horizonVersionSwitchesToRawAndBack()
     return -1;
   }();
   QVERIFY(rawIdx >= 0);
-  combo->setCurrentIndex(rawIdx); // 切 RAW → 散点信息卡（无地图）
+  combo->setCurrentIndex(rawIdx); // RAW also renders actual Z values.
   QTest::qWait(50);               // rebuildAssetTab 完成（旧页 deleteLater 已清）
   QWidget *rawPage = tabs->widget(tabs->currentIndex());
-  QVERIFY(!rawPage->findChild<QgsMapCanvas *>(QStringLiteral("horizonMapCanvas")));
-  QVERIFY(rawPage->findChild<QLabel *>(QStringLiteral("stateText")));
+  auto *rawCanvas = rawPage->findChild<QgsMapCanvas *>(QStringLiteral("horizonMapCanvas"));
+  QVERIFY(rawCanvas);
+  QCOMPARE(rawCanvas->layers().size(), 1);
+  auto *rawRaster = qobject_cast<QgsRasterLayer *>(rawCanvas->layers().first());
+  QVERIFY(rawRaster && rawRaster->isValid());
+  QVERIFY(dynamic_cast<QgsSingleBandPseudoColorRenderer *>(rawRaster->renderer()));
   auto *comboRaw =
       rawPage->findChild<QComboBox *>(QStringLiteral("previewVersionCombo"));
   QVERIFY(comboRaw); // RAW 页自己的版本下拉（旧 combo 已随重建销毁）
@@ -1167,6 +1185,305 @@ void TestPreviewMapAssets::mapProductVectorPagePreview()
                      !state->text().contains(QStringLiteral("未配准"))));
 }
 
+void TestPreviewMapAssets::historicalMapPreviewUsesSingleFaciesLabel()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath("proj"));
+  QVERIFY(st);
+  const auto schema = FaciesCatalog::defaults();
+  const auto leaf = schema.first().toMap();
+  const auto name = leaf.value("name").toString();
+  QFile file(tmp.filePath("historical.geojson"));
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  const QVariantMap feature{{"type", "Feature"},
+      {"properties", QVariantMap{{"name", name}, {"facies_label", name}, {"facies_code", leaf.value("code")}}},
+      {"geometry", QVariantMap{{"type", "Polygon"}, {"coordinates", QVariantList{QVariant::fromValue(QVariantList{
+          QVariantList{0, 0}, QVariantList{1000, 0}, QVariantList{1000, 1000}, QVariantList{0, 1000}, QVariantList{0, 0}})}}}}};
+  file.write(QJsonDocument::fromVariant(QVariantMap{{"type", "FeatureCollection"},
+      {"features", QVariantList{feature}}}).toJson());
+  file.close();
+  CatalogAsset asset;
+  asset.id = "historical-map"; asset.type = "paleogeographic_map"; asset.displayName = "historical";
+  CatalogVersion version;
+  version.id = "historical-v1"; version.assetId = asset.id; version.path = file.fileName();
+  version.managed = false;
+  version.extra = {{"mapping_product", true}, {"layer_type", "vector"}, {"facies", schema}};
+  st->importSvc->catalog()->addAsset(asset); st->importSvc->catalog()->addVersion(version);
+  st->preview->openAsset(asset.id);
+  auto *canvas = st->preview->findChild<QgsMapCanvas *>("mapProductCanvas");
+  QVERIFY(canvas); QCOMPARE(canvas->layers().size(), 1);
+  auto *layer = qobject_cast<QgsVectorLayer *>(canvas->layers().first());
+  QVERIFY(layer && layer->labeling());
+  QCOMPARE(layer->customProperty("paleo/faciesLabelMode").toInt(), 2);
+  QgsFeature row; QVERIFY(layer->getFeatures().nextFeature(row));
+  QVERIFY(!row.geometry().isEmpty());
+  auto context = layer->createExpressionContext(); context.setFeature(row);
+  QgsExpression expression(layer->labeling()->settings().fieldName);
+  QCOMPARE(expression.evaluate(&context).toString(), name);
+  // An explicit combined mode also collapses identical name/facies values.
+  MappingArtifactWriter::applyFaciesLabels(layer, 3);
+  expression = QgsExpression(layer->labeling()->settings().fieldName);
+  QCOMPARE(expression.evaluate(&context).toString(), name);
+  row.setAttribute("name", "A1"); context.setFeature(row);
+  QCOMPARE(expression.evaluate(&context).toString(), QString("A1\n") + name);
+}
+
+void TestPreviewMapAssets::wellPredictionPreviewRendersPoints()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath("proj"));
+  QVERIFY(st);
+  const QString path = tmp.filePath("wells.geojson");
+  QVariantList points;
+  for (int i = 0; i < 20; ++i)
+    points << QVariantMap{{"x", 2000.0 + (i % 5) * 1500},
+                          {"y", 1000.0 + (i / 5) * 1800},
+                          {"well_name", QString("A%1").arg(i + 1)},
+                          {"facies_code", 1 + i % 6},
+                          {"facies_intervals", "[]"}};
+  QString error;
+  QVERIFY2(MappingArtifactWriter::points(path, points, &error), qPrintable(error));
+  CatalogAsset asset;
+  asset.id = "well-prediction";
+  asset.type = "wells_prediction";
+  asset.format = "geojson";
+  asset.displayName = "D61-wells_prediction";
+  CatalogVersion version;
+  version.id = "prediction-v1";
+  version.assetId = asset.id;
+  version.path = path;
+  version.managed = false;
+  version.extra = {{"mapping_product", true}, {"layer_type", "vector"},
+                   {"facies", FaciesCatalog::defaults()}};
+  st->importSvc->catalog()->addAsset(asset);
+  st->importSvc->catalog()->addVersion(version);
+  st->preview->resize(1200, 900);
+  st->preview->show();
+  st->preview->openAsset(asset.id);
+  auto *page = st->preview->findChild<PreviewMapPage *>("mapProductPreviewPage");
+  QVERIFY(page);
+  QTest::qWait(100);
+  auto *canvas = page->mapCanvas();
+  canvas->zoomToFullExtent();
+  QCOMPARE(canvas->layerCount(), 1);
+  auto *layer = qobject_cast<QgsVectorLayer *>(canvas->layerAt(0));
+  QVERIFY(layer && layer->isValid());
+  QCOMPARE(layer->featureCount(), 20);
+  QCOMPARE(layer->customProperty("paleo/faciesLabelMode").toInt(), 3);
+  // Count map pixels, excluding decorations/overview: a valid layer alone
+  // did not catch the regression where every category matched "unknown".
+  layer->setLabelsEnabled(false);
+  const QImage image = canvas->renderSnapshot(800);
+  QVERIFY(!image.isNull());
+  int visibleWells = 0;
+  auto features = layer->getFeatures();
+  QgsFeature feature;
+  const auto settings = canvas->canvas()->mapSettings();
+  while (features.nextFeature(feature)) {
+    const auto point = feature.geometry().asPoint();
+    const auto pixel = settings.mapToPixel().transform(point);
+    const double ratio = double(image.width()) / settings.outputSize().width();
+    const QPoint center(qRound(pixel.x() * ratio), qRound(pixel.y() * ratio));
+    QVERIFY(center.y() >= 40 && center.y() < image.height() - 40);
+    bool ink = false;
+    for (int y = center.y() - 8; y <= center.y() + 8; ++y)
+      for (int x = center.x() - 8; x <= center.x() + 8; ++x)
+        if (image.rect().contains(x, y) && image.pixelColor(x, y).lightness() < 235)
+          ink = true;
+    visibleWells += ink;
+  }
+  QCOMPARE(visibleWells, 20);
+}
+
+void TestPreviewMapAssets::actualHistoricalMapPreviews()
+{
+  const auto root = qEnvironmentVariable("PALEO_PALEOMAP_VERIFY_PROJECT");
+  if (root.isEmpty()) QSKIP("Set PALEO_PALEOMAP_VERIFY_PROJECT for actual historical-map previews");
+  DataCatalog source; source.setLockedReadOnly(true); QString error;
+  QVERIFY2(source.open(root, &error), qPrintable(error));
+  QTemporaryDir tmp; auto st = makeStack(tmp.filePath("proj")); QVERIFY(st);
+  st->preview->resize(1440, 1100); st->preview->show();
+  int maps = 0, features = 0;
+  for (const auto &asset : source.assets()) {
+    auto version = source.currentVersion(asset.id);
+    if (asset.type != "paleogeographic_map" || !version.extra.value("polygon").toBool()) continue;
+    version.path = DataCatalog::resolvedVersionPath(root, version); version.managed = false;
+    st->importSvc->catalog()->addAsset(asset); st->importSvc->catalog()->addVersion(version);
+    st->preview->openAsset(asset.id);
+    QTest::qWait(100);
+    auto *page = st->preview->findChild<PreviewMapPage *>("mapProductPreviewPage"); QVERIFY(page);
+    auto *canvas = page->mapCanvas();
+    auto *layer = qobject_cast<QgsVectorLayer *>(canvas->layerAt(0)); QVERIFY(layer && layer->labeling());
+    QCOMPARE(layer->customProperty("paleo/faciesLabelMode").toInt(), 2);
+    QgsExpression expression(layer->labeling()->settings().fieldName);
+    auto context = layer->createExpressionContext();
+    auto iterator = layer->getFeatures(); QgsFeature feature;
+    while (iterator.nextFeature(feature)) {
+      context.setFeature(feature);
+      QCOMPARE(expression.evaluate(&context).toString(), feature.attribute("microfacies").toString());
+      ++features;
+    }
+    canvas->zoomToFullExtent();
+    const auto image = canvas->renderSnapshot(1000); QVERIFY(!image.isNull());
+    QVERIFY(image.width() > 600 && image.height() > 600);
+    int ink = 0;
+    for (int y = 0; y < image.height(); ++y)
+      for (int x = 0; x < image.width(); ++x) ink += image.pixelColor(x, y).lightness() < 240;
+    QVERIFY(ink > 10000);
+    const auto output = qEnvironmentVariable("PALEO_PALEOMAP_PREVIEW_OUTPUT");
+    if (!output.isEmpty()) {
+      QVERIFY(QDir().mkpath(output));
+      QVERIFY(image.save(QDir(output).filePath(version.extra.value("horizon").toString() + "-single-label.png")));
+    }
+    ++maps;
+    st->preview->closeAllTabs();
+  }
+  QCOMPARE(maps, 3); QCOMPARE(features, 32);
+}
+
+void TestPreviewMapAssets::rawHorizonPreviewUsesTaskService()
+{
+  QTemporaryDir tmp;
+  PaleoTaskService tasks;
+  auto st = makeStack(tmp.filePath("proj"));
+  QVERIFY(st);
+  const auto ids = importAll(*st, tmp);
+  QString rawId;
+  for (const auto &version : st->importSvc->catalog()->versionsForAsset(ids.d61))
+    if (version.stage == "RAW") rawId = version.id;
+  QVERIFY(!rawId.isEmpty());
+  st->preview->setTaskService(&tasks);
+  st->preview->openVersion(rawId);
+  st->preview->closeAllTabs(); // Late results must not reconstruct a closed page.
+  QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+  QTRY_VERIFY_WITH_TIMEOUT([&tasks] {
+    for (auto *task : tasks.tasks()) if (task->running()) return false;
+    return true;
+  }(), 5000);
+  QCOMPARE(st->preview->tabCount(), 0);
+  st->preview->resize(1200, 900);
+  st->preview->show();
+  st->preview->openVersion(rawId);
+  QTRY_VERIFY_WITH_TIMEOUT(st->preview->findChild<QgsMapCanvas *>("horizonMapCanvas"), 5000);
+  auto *canvas = st->preview->findChild<QgsMapCanvas *>("horizonMapCanvas");
+  QCOMPARE(canvas->layers().size(), 1);
+  QVERIFY(canvas->layers().first()->isValid());
+  bool succeeded = false;
+  for (auto *task : tasks.tasks())
+    succeeded |= task->title() == QStringLiteral("准备原始层位预览") &&
+                 task->state() == PaleoTask::State::Succeeded;
+  QVERIFY(succeeded);
+}
+
+void TestPreviewMapAssets::actualProjectMapPreviews()
+{
+  const QString root = qEnvironmentVariable("PALEO_PREVIEW_PROJECT");
+  if (root.isEmpty()) QSKIP("Set PALEO_PREVIEW_PROJECT for real dataset rendering");
+  DataImportService service;
+  service.catalog()->setLockedReadOnly(true);
+  service.setProjectDir(root);
+  QVERIFY2(service.catalogOpenError().isEmpty(), qPrintable(service.catalogOpenError()));
+  QVERIFY(!service.catalog()->recoveredFromBackup());
+  DataPreviewTabs preview;
+  preview.setImportService(&service);
+  preview.resize(1400, 1000);
+  preview.show();
+  const QString output = qEnvironmentVariable("PALEO_PREVIEW_OUTPUT");
+  if (!output.isEmpty()) QVERIFY(QDir().mkpath(output));
+  int predictions = 0, horizons = 0;
+  for (const auto &asset : service.catalog()->assets()) {
+    if (asset.type != "wells_prediction" && asset.type != "horizon") continue;
+    const auto version = service.catalog()->currentVersion(asset.id);
+    preview.openAsset(asset.id);
+    QTest::qWait(100);
+    QTRY_VERIFY_WITH_TIMEOUT(preview.findChild<PreviewMapPage *>(), 30000);
+    auto *page = preview.findChild<PreviewMapPage *>();
+    auto *canvas = page->mapCanvas();
+    canvas->zoomToFullExtent();
+    QVERIFY(!canvas->fullExtent().isEmpty());
+    const auto image = canvas->renderSnapshot(1000);
+    QVERIFY(!image.isNull());
+    int ink = 0;
+    for (int y = 0; y < image.height(); ++y)
+      for (int x = 0; x < image.width(); ++x)
+        ink += image.pixelColor(x, y).lightness() < 235;
+    QVERIFY2(ink > 100, qPrintable(asset.displayName + ": blank map"));
+    if (asset.type == "wells_prediction") {
+      auto *layer = qobject_cast<QgsVectorLayer *>(canvas->layerAt(0));
+      QVERIFY(layer);
+      QCOMPARE(layer->featureCount(), 20);
+      // Check every point against the renderer, so labels cannot hide missing
+      // symbols in an otherwise non-white snapshot.
+      QgsRenderContext context = QgsRenderContext::fromMapSettings(canvas->canvas()->mapSettings());
+      context.expressionContext().appendScope(QgsExpressionContextUtils::layerScope(layer));
+      auto *renderer = layer->renderer();
+      renderer->startRender(context, layer->fields());
+      auto features = layer->getFeatures();
+      QgsFeature feature;
+      int symbols = 0;
+      while (features.nextFeature(feature)) {
+        context.expressionContext().setFeature(feature);
+        symbols += renderer->symbolForFeature(feature, context) != nullptr;
+      }
+      renderer->stopRender(context);
+      QCOMPARE(symbols, 20);
+      ++predictions;
+    } else ++horizons;
+    qInfo().noquote() << "PREVIEW_RENDERED" << asset.displayName << version.id << "ink" << ink;
+    if (!output.isEmpty()) {
+      QVERIFY(image.save(output + "/" + asset.id + "-map.png"));
+      if (version.extra.value("horizon") == "D61" || (asset.type == "horizon" && horizons == 1))
+        QVERIFY(preview.grab().save(output + "/" + asset.id + "-preview.png"));
+    }
+    preview.closeAllTabs();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+  }
+  QCOMPARE(predictions, 8);
+  QCOMPARE(horizons, 8);
+}
+
+void TestPreviewMapAssets::actualProjectSeismicPreviews()
+{
+  const QString root = qEnvironmentVariable("PALEO_PREVIEW_PROJECT");
+  if (root.isEmpty()) QSKIP("Set PALEO_PREVIEW_PROJECT for real seismic previews");
+  DataImportService service;
+  service.catalog()->setLockedReadOnly(true);
+  service.setProjectDir(root);
+  QVERIFY2(service.catalogOpenError().isEmpty(), qPrintable(service.catalogOpenError()));
+  QVERIFY(!service.catalog()->recoveredFromBackup());
+  DataPreviewTabs preview;
+  preview.setImportService(&service);
+  preview.resize(1400, 1000);
+  preview.show();
+  int sections = 0;
+  for (const auto &asset : service.catalog()->assets()) {
+    if (asset.type != "seismic") continue;
+    preview.openAsset(asset.id);
+    auto *mode = preview.findChild<QComboBox *>("lineMode");
+    auto *number = preview.findChild<QSpinBox *>("lineSpin");
+    QVERIFY(mode && number);
+    paleo::datapreview_detail::SectionPanel *panel = nullptr;
+    for (auto *child : preview.findChildren<QWidget *>())
+      if (auto *section = dynamic_cast<paleo::datapreview_detail::SectionPanel *>(child)) panel = section;
+    QVERIFY(panel);
+    for (int direction = 0; direction < 2; ++direction) {
+      mode->setCurrentIndex(direction);
+      number->setValue(number->minimum() + (number->maximum() - number->minimum()) / 2);
+      QTRY_VERIFY_WITH_TIMEOUT(panel->hasImage(), 30000);
+      QTest::qWait(100);
+      const QString output = qEnvironmentVariable("PALEO_PREVIEW_OUTPUT");
+      if (!output.isEmpty()) {
+        QVERIFY(QDir().mkpath(output));
+        QVERIFY(preview.grab().save(output + QString("/seismic-%1.png").arg(direction)));
+      }
+      qInfo().noquote() << "SEISMIC_PREVIEW_RENDERED" << mode->currentData().toString() << number->value();
+      ++sections;
+    }
+    preview.closeAllTabs();
+  }
+  QCOMPARE(sections, 2);
+}
+
 int main(int argc, char *argv[])
 {
   if (!QgisRuntime::initialize(QStringLiteral("/usr")))
@@ -1175,6 +1492,9 @@ int main(int argc, char *argv[])
     return 1;
   }
   TestPreviewMapAssets tc;
+  if (!qEnvironmentVariableIsEmpty("PALEO_PREVIEW_OUTPUT") ||
+      !qEnvironmentVariableIsEmpty("PALEO_PALEOMAP_PREVIEW_OUTPUT"))
+    PaleoTheme::applyLightTheme();
   const int rc = QTest::qExec(&tc, argc, argv);
   QgisRuntime::shutdown();
   return rc;

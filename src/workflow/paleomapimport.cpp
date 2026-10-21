@@ -40,10 +40,12 @@ namespace PaleoMapImport
 {
 bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, const QString &path,
              const QString &horizon, const PaleoMapLibrary::Request &request, const std::function<bool()> &cancelled,
-             Prepared *out, QString *error)
+             Prepared *out, QString *error, const QString &existingAsset)
 {
   CatalogVersion current;
-  for (const auto &asset : cat->assets())
+  if (!existingAsset.isEmpty())
+    current = cat->currentVersion(existingAsset);
+  else for (const auto &asset : cat->assets())
     if (asset.type == "paleogeographic_map")
     {
       const auto v = cat->currentVersion(asset.id);
@@ -56,6 +58,14 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
   const auto oldRaw = current.extra.contains("source_raw_version_id")
                           ? cat->versionById(current.extra.value("source_raw_version_id").toString())
                           : current;
+  if (!existingAsset.isEmpty() &&
+      (cat->assetById(existingAsset).type != "paleogeographic_map" || oldRaw.stage != "RAW" ||
+       oldRaw.assetId != existingAsset || !intact(project, oldRaw, cancelled)))
+  {
+    if (error) *error = QObject::tr("原图或配套文件缺失／已变化，不能整理；请重新导入完整原图");
+    return false;
+  }
+  const auto sourceUri = existingAsset.isEmpty() ? path : oldRaw.sourceUri;
   const auto assetId = current.id.isEmpty() ? cat->nextAssetId() : current.assetId;
   const auto versionId = cat->nextVersionId();
   const auto name = QFileInfo(path).fileName();
@@ -73,7 +83,7 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
   const auto schema = schemaFor(cat, horizon);
   const auto policy =
       QString::fromLatin1(QCryptographicHash::hash(QJsonDocument::fromVariant(
-                                                       QVariantMap{{"normalizer", 1},
+                                                       QVariantMap{{"normalizer", 2},
                                                                    {"facies", schema},
                                                                    {"normalize", request.normalizeFacies},
                                                                    {"micro_field", request.microfaciesField}})
@@ -83,6 +93,7 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
   const bool reuse = !oldRaw.id.isEmpty() && oldRaw.extra.value("bundle_sha256") == fingerprint &&
                      intact(project, oldRaw, cancelled);
   if (reuse && current.extra.value("normalization_policy") == policy &&
+      (existingAsset.isEmpty() || current.extra.value("mapping_product").toBool()) &&
       DataCatalog::sha256FileHex(DataCatalog::resolvedVersionPath(project, current), nullptr, cancelled) ==
           current.sha256)
   {
@@ -111,7 +122,7 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
     raw.versionNumber = current.id.isEmpty() ? 1 : current.versionNumber + 1;
     raw.path = relative;
     raw.fileName = name;
-    raw.sourceUri = path;
+    raw.sourceUri = sourceUri;
     metadata.insert("horizon", horizon);
     metadata.insert("paleomap", true);
     metadata.insert("kind", "existing_paleomap");
@@ -151,6 +162,13 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
     if (converted.isEmpty())
       QDir(QFileInfo(destination).absolutePath()).removeRecursively();
   }
+  if (!existingAsset.isEmpty() && converted.isEmpty())
+  {
+    if (error) *error = !conversionError.isEmpty() ? conversionError
+        : faciesPolygon ? QObject::tr("未识别到微相字段，请指定原图中的微相字段名后重试")
+                        : QObject::tr("仅已配准的矢量面图件可整理三级相；图片和 PDF 请先矢量化");
+    return false;
+  }
   if (!conversionError.isEmpty())
     out->warnings << QObject::tr("%1：原图已保存，仅供参考；三级相副本未生成：%2").arg(name, conversionError);
   else
@@ -185,9 +203,9 @@ bool prepare(DataCatalog *cat, const QString &project, const QString &stageDir, 
     converted.insert("source_raw_version_id", raw.id);
     converted.insert("source_bundle_sha256", fingerprint);
     converted.insert("normalization_policy", policy);
-    converted.insert("method", "existing-paleomap-hierarchy-v1");
+    converted.insert("method", "existing-paleomap-hierarchy-v2");
     derived.extra = converted;
-    derived.sourceUri = path;
+    derived.sourceUri = sourceUri;
     derived.parentVersionIds = {raw.id};
     derived.sha256 =
         DataCatalog::sha256FileHex(QDir(stageDir).filePath(derived.path), error, cancelled);

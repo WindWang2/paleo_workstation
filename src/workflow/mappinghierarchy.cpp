@@ -39,9 +39,9 @@ QString encode(const QVariantList &list) {
 } // namespace
 QString MappingWorkbench::displayMode(const QString &id) const {
   auto *layer = m_layers->layer(id);
-  return layer ? layer->customProperty("paleo/faciesDisplayMode", "auto")
-                     .toString()
-               : QStringLiteral("auto");
+  return FaciesHierarchy::productDisplayMode(versionForLayer(id).extra.value("kind").toString(),
+      layer ? layer->customProperty("paleo/faciesDisplayMode", "auto").toString()
+            : QStringLiteral("auto"));
 }
 QString MappingWorkbench::resolvedLevel(const QString &id) const {
   return FaciesHierarchy::resolveLevel(displayMode(id), m_displayScale, displayThresholds());

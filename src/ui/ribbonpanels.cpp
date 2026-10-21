@@ -26,7 +26,7 @@
 #include <qgsmapcanvas.h>
 #include <qgsmaptoolpan.h>
 #include <qgsmaptoolzoom.h>
-#include "maptools/identifytool.h"
+#include "maptools/identifypopup.h"
 #include <qgsproject.h>
 #include <qgslayertree.h>
 #include <qgsvectorlayer.h>
@@ -184,7 +184,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     fullAct = newAction(tr("全图"), icon("mActionZoomFullExtent.svg"), tr("缩放到全部图层"),
                         "ribbonZoomFullAction");
     connect(fullAct, &QAction::triggered, this, [this] { m_canvasCtl->zoomToFullExtent(); });
-    identifyAct = toolAction(new PaleoIdentifyTool(cv), tr("识别"), icon("mActionIdentify.svg"),
+    identifyAct = toolAction(createIdentifyTool(cv, new IdentifyPopup(cv)), tr("识别"), icon("mActionIdentify.svg"),
                              tr("指针落到要素上时显示悬浮信息，多个命中可切换"),
                              "ribbonIdentifyAction");
   }

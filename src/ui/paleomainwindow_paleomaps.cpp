@@ -1,6 +1,7 @@
 // 层：视图
 #include "paleomainwindow.h"
 #include "pages/datapage.h"
+#include "pages/datalist.h"
 #include "notifications/paleonotify.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/mappinghorizons.h"
@@ -29,6 +30,41 @@ void PaleoMainWindow::attachPaleomapLibrary(DataPage *page) {
   };
   if (m_projectSvc) connect(m_projectSvc, &QgisProjectService::projectOpened, this, restore);
   restore();
+  connect(page->listPanel(), &DataListPanel::normalizePaleomapsRequested, this,
+          [this](const QStringList &ids) {
+    auto *catalog = m_previewDoc ? m_previewDoc->catalog() : nullptr;
+    if (!catalog || catalog->refusesWrites()) return;
+    const auto directory = catalog->projectDir(); const auto sequence = catalog->mutationSeq();
+    QDialog dialog(this); dialog.setObjectName("paleomapNormalizeDialog");
+    dialog.setWindowTitle(tr("整理三级相与系统纹理"));
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *hint = new QLabel(tr("整理选中的 %1 套现有古地理图，沿用各自层位。从工程保存的原件识别微相，补齐相 → 亚相 → 微相，并应用系统纹理和分级图例。生成新的三级相版本，原图及历史版本保留。无法识别的类别会报告原因，不猜测归属。").arg(ids.size()), &dialog);
+    hint->setWordWrap(true); hint->setTextFormat(Qt::PlainText); layout->addWidget(hint);
+    auto *form = new QFormLayout;
+    auto *field = new QLineEdit(&dialog); field->setObjectName("paleomapNormalizeField");
+    field->setPlaceholderText(tr("自动识别；自定义字段如 SEDCLASS"));
+    form->addRow(tr("微相字段"), field); layout->addLayout(form);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(tr("开始整理"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted) return;
+    if (!m_previewDoc || m_previewDoc->catalog() != catalog || catalog->projectDir() != directory || catalog->mutationSeq() != sequence) {
+      PaleoNotify::warning(this, tr("三级相整理未开始"), tr("工程或目录已变化，请重新选择图件")); return;
+    }
+    PaleoMapLibrary::Request request; request.assetIds = ids; request.microfaciesField = field->text().trimmed();
+    QString error;
+    auto *task = PaleoMapLibrary::importMaps(catalog, m_layerSvc, m_taskSvc, request, this,
+        [this](const PaleoMapLibrary::Result &result) {
+      const auto message = result.cancelled ? tr("三级相整理已取消")
+          : tr("三级相整理：处理 %1 项，内容未变 %2 项，问题 %3 项").arg(result.assets.size()).arg(result.unchanged).arg(result.errors.size());
+      statusBar()->showMessage(message, 15000);
+      if (!result.errors.isEmpty()) PaleoNotify::warning(this, tr("三级相整理"), message + "\n" + result.errors.join("\n"));
+    }, &error);
+    statusBar()->showMessage(task ? tr("正在后台整理三级相与纹理，可在任务中心取消") : error, 15000);
+  });
   connect(page, &DataPage::importRequested, this, [this](const QString &kind) {
     if (kind != "paleomap" && kind != "paleomap_folder") return;
     PaleoMapLibrary::Request request;

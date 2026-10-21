@@ -250,7 +250,8 @@ void SeismicMapLink::onSectionTraceClicked(
   }
 }
 
-void SeismicMapLink::onSectionPathCaptured(const QVector<QgsPointXY> &points)
+void SeismicMapLink::onSectionPathCaptured(const QVector<QgsPointXY> &points,
+                                           const QStringList &wellIds)
 {
   if (!m_canvas) return;
   QVector<QgsPointXY> local;
@@ -263,5 +264,8 @@ void SeismicMapLink::onSectionPathCaptured(const QVector<QgsPointXY> &points)
     }
     local << transformed;
   }
-  triggerSectionFromMapPolyline(local, tr("地图拾取任意剖面"));
+  triggerSectionFromMapPolyline(
+      local, wellIds.size() >= 2
+                 ? tr("连井剖面 · %1 口井").arg(wellIds.size())
+                 : tr("地图拾取任意剖面"));
 }

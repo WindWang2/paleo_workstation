@@ -4,6 +4,7 @@
 
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QToolButton>
 
 namespace WellComposite
@@ -49,18 +50,11 @@ int HiddenTrackBar::hiddenCount() const
 
 void HiddenTrackBar::rebuild()
 {
-  // 清掉旧 chip（保留无——本控件没有固定子件）
-  const auto children_ = findChildren<QToolButton *>();
-  for (auto *btn : children_)
+  // 同时清理旧控件和 stretch，反复切井不累积布局项。
+  while (auto *item = layout()->takeAt(0))
   {
-    btn->setParent(nullptr);
-    delete btn;
-  }
-  const auto labels = findChildren<QLabel *>();
-  for (auto *lbl : labels)
-  {
-    lbl->setParent(nullptr);
-    delete lbl;
+    delete item->widget();
+    delete item;
   }
 
   const int hidden = hiddenCount();
@@ -73,10 +67,29 @@ void HiddenTrackBar::rebuild()
   auto *lbl = new QLabel(tr("隐藏道:"), this);
   layout()->addWidget(lbl);
 
+  QMenu *moreMenu = nullptr;
+  int shown = 0;
   for (const auto &spec : m_specs)
   {
-    if (spec.visible)
+    if (spec.visible) continue;
+    // 默认隐藏的辅助道可能很多，余项收进原生菜单，避免撑宽单井视图。
+    if (shown++ >= 3 && hidden > 4)
+    {
+      if (!moreMenu)
+      {
+        auto *more = new QToolButton(this);
+        more->setText(tr("更多隐藏道（%1）").arg(hidden - 3));
+        more->setToolTip(tr("选择要恢复显示的图道"));
+        more->setPopupMode(QToolButton::InstantPopup);
+        moreMenu = new QMenu(more);
+        more->setMenu(moreMenu);
+        layout()->addWidget(more);
+      }
+      auto *action = moreMenu->addAction(spec.title);
+      connect(action, &QAction::triggered, this, [this, title = spec.title] { emit trackRestoreRequested(title); },
+              Qt::QueuedConnection);
       continue;
+    }
     auto *chip = new QToolButton(this);
     chip->setText(spec.title);
     chip->setToolTip(tr("点击恢复显示「%1」道").arg(spec.title));

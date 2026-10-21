@@ -10,6 +10,8 @@
 #include "trackregistry.h"
 #include <QDialog>
 #include <QFileDialog>
+#include <QSet>
+#include <algorithm>
 #include <QMap>
 #include "../notifications/paleonotify.h"
 #include <QSignalBlocker>
@@ -40,7 +42,7 @@ void WellCompositePanel::syncSessionToTracks()
       auto lt = std::static_pointer_cast<LithologyTrack>(t);
       lt->setIntervals(doc.lithologyIntervals);
     }
-    else if (t->type() == TrackType::FaciesCompound)
+    else if (t->type() == TrackType::FaciesCompound && t != m_predictionTrack)
     {
       auto fc = std::static_pointer_cast<FaciesCompoundTrack>(t);
       fc->setIntervals(doc.faciesIntervals);
@@ -96,7 +98,10 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
   connect(workflow, &WellFaciesWorkflow::resultCleared, this, &WellCompositePanel::clearFaciesPrediction);
   connect(workflow, &WellFaciesWorkflow::attributeAvailabilityChanged, this, [this](bool available, const QString &reason) {
     for (const auto &name : {"btnWellAttributes", "btnWellFormations", "btnWellFactors"}) if (auto *button = findChild<QToolButton *>(name)) {
-      button->setEnabled(available); button->setToolTip(reason);
+      button->setEnabled(available);
+      button->setToolTip(available && QString::fromLatin1(name) == QStringLiteral("btnWellAttributes")
+          ? tr("查看或编辑井段岩性与相解释；井段相解释可含源文件解释和预测回写值，默认隐藏，可在图道配置中显示对照")
+          : reason);
     }
   });
   connect(workflow, &WellFaciesWorkflow::attributesReady, this, &WellCompositePanel::showWellAttributes);
@@ -116,7 +121,7 @@ void WellCompositePanel::showWellAttributes(const ComprehensiveWellData &data) {
     if (track->type() == TrackType::Lithology) {
       if (data.lithologyIntervals.isEmpty()) m_canvas->removeTrack(i);
       else { std::static_pointer_cast<LithologyTrack>(track)->setIntervals(data.lithologyIntervals); hasLithology = true; }
-    } else if (track->type() == TrackType::FaciesCompound) {
+    } else if (track->type() == TrackType::FaciesCompound && track != m_predictionTrack) {
       if (data.faciesIntervals.isEmpty()) m_canvas->removeTrack(i);
       else { std::static_pointer_cast<FaciesCompoundTrack>(track)->setIntervals(data.faciesIntervals); hasFacies = true; }
     }
@@ -126,10 +131,11 @@ void WellCompositePanel::showWellAttributes(const ComprehensiveWellData &data) {
     track->setIntervals(data.lithologyIntervals); m_canvas->addTrack(track);
   }
   if (!hasFacies && !data.faciesIntervals.isEmpty()) {
-    auto track = std::make_shared<FaciesCompoundTrack>(tr("维护相"), 180.0);
-    track->setIntervals(data.faciesIntervals); m_canvas->addTrack(track);
+    auto track = std::make_shared<FaciesCompoundTrack>(tr("井段相解释"), 180.0);
+    track->setIntervals(data.faciesIntervals); track->setVisible(false); m_canvas->addTrack(track);
   }
   if (m_legendWidget) m_legendWidget->setWellData(m_data);
+  m_hiddenBar->setTracks(currentSpecs());
   m_canvas->updateAll();
 }
 void WellCompositePanel::clearFaciesPrediction() {
@@ -158,6 +164,7 @@ void WellCompositePanel::showFaciesPrediction(const WellFaciesResult &result) {
     labels = legacy;
   }
   auto confidence = std::make_shared<CurveTrack>(tr("预测置信度"), 140.0);
+  confidence->setParticipatesInStandardLayout(false);
   confidence->addCurve(result.confidence);
   m_predictionTrack = labels; m_confidenceTrack = confidence;
   labels->setVisible(m_btnShowFacies->isChecked()); confidence->setVisible(m_btnShowFacies->isChecked());
@@ -292,46 +299,62 @@ QList<TrackSpec> WellCompositePanel::currentSpecs() const
 void WellCompositePanel::applySpecsIncrementally(const QList<TrackSpec> &specs)
 {
   // D1.1 道增删改不重建面板：按 spec 列表增量调整既有道（顺序/宽度/可见性/
-  // 打印开关按「类型+标题」匹配）；匹配不上的忽略（数据驱动的道可能改名）。
+  // 打印开关按「类型+标题」匹配）；旧自定义曲线道按名字从完整曲线池重建。
   if (specs.isEmpty())
     return;
 
   QList<std::shared_ptr<WellTrack>> reordered;
+  QSet<QString> restoredCurves;
   for (const auto &spec : specs)
   {
-    for (const auto &t : m_canvas->tracks())
+    std::shared_ptr<WellTrack> match;
+    for (const auto &track : m_canvas->tracks())
     {
-      if (!t)
-        continue;
-      const QString typeId = TrackRegistry::typeIdForEnum(t->type());
-      if (typeId == spec.typeId && t->title() == spec.title)
-      {
-        t->setWidth(spec.width);
-        t->setVisible(spec.visible);
-        t->setPrintIncluded(spec.printIncluded);
-        if (auto ct = std::dynamic_pointer_cast<CurveTrack>(t))
-        {
-          ct->setShowGrid(spec.showGrid());
-          ct->setGridDensity(spec.gridDensity());
-          // 曲线集/量程同样是会话记忆（TrackConfig 写进 spec.params）：
-          // 重开/数据重载后恢复用户配置的曲线，而非回退到按助记名分组的
-          // 默认道。restoreSessionState 在 m_data 填充后被调用，名字可解析；
-          // 数据未到的名字静默跳过（与 onTrackConfigRequested 同语义）。
-          if (!spec.curveNames().isEmpty())
-            TrackOps::injectCurvesFromWellData(*ct, spec, m_data);
-        }
-        reordered << t;
-        break;
-      }
+      if (!track || reordered.contains(track)) continue;
+      const bool legacyInterpretation = track != m_predictionTrack &&
+          track->type() == TrackType::FaciesCompound &&
+          (spec.title == tr("维护相") || spec.title == tr("沉积相"));
+      if (TrackRegistry::typeIdForEnum(track->type()) == spec.typeId &&
+          (track->title() == spec.title || legacyInterpretation))
+      { match = track; break; }
     }
+    // 默认组合变更后，旧会话的自定义曲线道仍按原配置恢复。
+    if (!match && spec.typeId == QStringLiteral("curve") && !spec.curveNames().isEmpty())
+      match = TrackRegistry::instance().createTrack(spec);
+    if (!match) continue;
+    match->setWidth(spec.width);
+    match->setVisible(spec.visible);
+    match->setPrintIncluded(spec.printIncluded);
+    if (auto curve = std::dynamic_pointer_cast<CurveTrack>(match))
+    {
+      curve->setShowGrid(spec.showGrid());
+      curve->setGridDensity(spec.gridDensity());
+      if (!spec.curveNames().isEmpty())
+      {
+        const auto original = curve->curves();
+        if (!TrackOps::injectCurvesFromWellData(*curve, spec, m_data))
+        { curve->setCurves(original); continue; }
+      }
+      for (const auto &item : curve->curves()) restoredCurves.insert(item.name);
+    }
+    reordered << match;
   }
-  // 记忆外的道（新建/数据新加）保持尾部
-  for (const auto &t : m_canvas->tracks())
-    if (t && !reordered.contains(t))
-      reordered << t;
-
-  if (reordered.size() == m_canvas->trackCount())
-    m_canvas->setTracks(reordered);
+  // 新数据中的曲线保留默认可见性；已由旧配置恢复的曲线不再重复附加。
+  for (const auto &track : m_canvas->tracks())
+  {
+    if (!track || reordered.contains(track)) continue;
+    if (auto curve = std::dynamic_pointer_cast<CurveTrack>(track))
+    {
+      auto remaining = curve->curves();
+      remaining.erase(std::remove_if(remaining.begin(), remaining.end(), [&restoredCurves](const CurveData &c) {
+        return restoredCurves.contains(c.name);
+      }), remaining.end());
+      if (remaining.isEmpty()) continue;
+      curve->setCurves(remaining);
+    }
+    reordered << track;
+  }
+  m_canvas->setTracks(reordered);
   m_canvas->syncScrollBars();
   m_canvas->updateAll();
 }

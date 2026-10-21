@@ -5,6 +5,7 @@
 #include "../../services/previewdoc.h"
 #include "../../services/paleotaskservice.h"
 #include "editsession.h"
+#include "trackops.h"
 #include "wellpositionlegendwidget.h"
 #include <QFile>
 #include <QFileInfo>
@@ -159,66 +160,9 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
     m_canvas->addTrack(formTrack);
   }
 
-  // 4. 曲线道 —— 按助记名语义分道（H3：经 TrackSpec/注册表装配，配置对话框可改）
-  const auto isLitho = [](const QString &name) {
-    const QString n = name.toUpper();
-    return n.startsWith(QStringLiteral("GR")) || n.startsWith(QStringLiteral("CAL")) ||
-           n.startsWith(QStringLiteral("SP")) || n.startsWith(QStringLiteral("BS")) ||
-           n.startsWith(QStringLiteral("AZIM"));
-  };
-  const auto isPorosity = [](const QString &name) {
-    const QString n = name.toUpper();
-    return n.startsWith(QStringLiteral("AC")) || n.startsWith(QStringLiteral("DEN")) ||
-           n.startsWith(QStringLiteral("CNL")) || n.startsWith(QStringLiteral("POR")) ||
-           n.startsWith(QStringLiteral("CPOR")) || n.startsWith(QStringLiteral("PHIF"));
-  };
-
-  QVector<CurveData> lithoCurves;
-  QVector<CurveData> poroCurves;
-  QVector<CurveData> resCurves;
-  QVector<CurveData> otherCurves;
-
-  for (const auto &c : curves)
-  {
-    if (isLitho(c.name)) lithoCurves.append(c);
-    else if (isPorosity(c.name)) poroCurves.append(c);
-    else if (c.name.toUpper().startsWith(QStringLiteral("RT"))) resCurves.append(c);
-    else otherCurves.append(c);
-  }
-
-  const auto addTrackGroup = [this](const QString &baseTitle, const QVector<CurveData> &group) {
-    for (int i = 0; i < group.size(); i += 4)
-    {
-      QString title = baseTitle;
-      if (group.size() > 4)
-        title += QStringLiteral(" (%1)").arg(i / 4 + 1);
-      auto track = std::make_shared<CurveTrack>(title, 180.0);
-      for (int j = 0; j < 4 && (i + j) < group.size(); ++j)
-        track->addCurve(group.at(i + j));
-      m_canvas->addTrack(track);
-    }
-  };
-
-  if (!lithoCurves.isEmpty())
-    addTrackGroup(QStringLiteral("岩性测井"), lithoCurves);
-  if (!poroCurves.isEmpty())
-    addTrackGroup(QStringLiteral("三孔隙测井"), poroCurves);
-  if (!resCurves.isEmpty())
-    addTrackGroup(QStringLiteral("电阻率测井"), resCurves);
-  if (!otherCurves.isEmpty())
-    addTrackGroup(QStringLiteral("辅助曲线"), otherCurves);
-
-  if (lithoCurves.isEmpty() && poroCurves.isEmpty() && resCurves.isEmpty() && otherCurves.isEmpty())
-  {
-    for (int i = 0; i < curves.size(); i += 4)
-    {
-      auto track = std::make_shared<CurveTrack>(
-          i == 0 ? QStringLiteral("常规测井") : QStringLiteral("辅助曲线"), 180.0);
-      for (int j = 0; j < 4 && (i + j) < curves.size(); ++j)
-        track->addCurve(curves.at(i + j));
-      m_canvas->addTrack(track);
-    }
-  }
+  // LAS 与综合 XML 共用默认图道配置；全部曲线仍可从隐藏道恢复。
+  for (const auto &track : TrackOps::standardCurveTracks(curves))
+    m_canvas->addTrack(track);
 
   // 沉积相道：无真实相数据时不展示（不臆造相序）。
   m_data.wellName = wellName;
@@ -299,6 +243,7 @@ void WellCompositePanel::setCoreImages(const QVector<ImageDepthItem> &items)
 
 void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
 {
+  clearFaciesPrediction();
   m_canvas->clearTracks();
   m_canvas->setDepthRange(data.minDepth, data.maxDepth);
 
@@ -370,55 +315,10 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
     m_canvas->addTrack(coreTrack);
   }
 
-  // 8. 曲线道（连续物理曲线：4 根合并）
-  if (!data.continuousCurves.isEmpty())
-  {
-    for (int i = 0; i < data.continuousCurves.size(); i += 4)
-    {
-      bool hasGR = false, hasNeutronDensity = false, hasGas = false, hasRes = false, hasInterp = false;
-      for (int j = 0; j < 4 && (i + j) < data.continuousCurves.size(); ++j)
-      {
-        const QString &cn = data.continuousCurves.at(i + j).name.toUpper();
-        if (cn.contains(QStringLiteral("GR")) || cn.contains(QStringLiteral("CALI")) || cn.contains(QStringLiteral("SP"))) hasGR = true;
-        if (cn.contains(QStringLiteral("CNCF")) || cn.contains(QStringLiteral("ZDEN")) || cn.contains(QStringLiteral("AC")) || cn.contains(QStringLiteral("PE"))) hasNeutronDensity = true;
-        if (cn.contains(QStringLiteral("RPC")) || cn.contains(QStringLiteral("RAC")) || cn.contains(QStringLiteral("RT")) || cn.contains(QStringLiteral("RXO"))) hasRes = true;
-        if ((cn.startsWith(QLatin1Char('C')) && cn.length() <= 3) || cn.contains(QStringLiteral("TG")) || cn.contains(QStringLiteral("CO2"))) hasGas = true;
-        if (cn.contains(QStringLiteral("PIGN")) || cn.contains(QStringLiteral("KINT")) || cn.contains(QStringLiteral("SUWI"))) hasInterp = true;
-      }
-
-      QString title;
-      if (hasInterp)
-        title = QStringLiteral("储层物性解释");
-      else if (hasGas)
-        title = QStringLiteral("气测录井烃类");
-      else if (hasGR && hasRes)
-        title = QStringLiteral("常规/电阻率");
-      else if (hasNeutronDensity)
-        title = QStringLiteral("三孔隙度/密度");
-      else if (hasRes)
-        title = QStringLiteral("电阻率测井");
-      else
-        title = QStringLiteral("测井道 %1").arg(i / 4 + 1);
-
-      auto curveTrack = std::make_shared<CurveTrack>(title, 180.0);
-      for (int j = 0; j < 4 && (i + j) < data.continuousCurves.size(); ++j)
-        curveTrack->addCurve(data.continuousCurves.at(i + j));
-      m_canvas->addTrack(curveTrack);
-    }
-  }
-
-  // 9. 离散曲线道
-  if (!data.discreteCurves.isEmpty())
-  {
-    for (int i = 0; i < data.discreteCurves.size(); i += 4)
-    {
-      const QString title = (i == 0) ? QStringLiteral("实测物性分析") : QStringLiteral("地化/生烃潜量");
-      auto discTrack = std::make_shared<CurveTrack>(title, 160.0);
-      for (int j = 0; j < 4 && (i + j) < data.discreteCurves.size(); ++j)
-        discTrack->addCurve(data.discreteCurves.at(i + j));
-      m_canvas->addTrack(discTrack);
-    }
-  }
+  // 连续与离散曲线共用曲线池；辅助与实测物性曲线默认隐藏。
+  for (const auto &track : TrackOps::standardCurveTracks(
+           TrackOps::combinedCurvePool(data.continuousCurves, data.discreteCurves)))
+    m_canvas->addTrack(track);
 
   // 10. 文本道
   if (!data.textIntervals.isEmpty())
@@ -431,8 +331,9 @@ void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
   // 11. 沉积相组合道（规范放置在最右侧）
   if (!data.faciesIntervals.isEmpty())
   {
-    auto faciesTrack = std::make_shared<FaciesCompoundTrack>(QStringLiteral("沉积相"), 180.0);
+    auto faciesTrack = std::make_shared<FaciesCompoundTrack>(tr("井段相解释"), 180.0);
     faciesTrack->setIntervals(data.faciesIntervals);
+    faciesTrack->setVisible(false);
     m_canvas->addTrack(faciesTrack);
   }
 

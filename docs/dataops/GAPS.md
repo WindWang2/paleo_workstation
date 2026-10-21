@@ -20,9 +20,11 @@
   catalog 记录留存。
 - **正路**：`removeEntity`（带链接处置语义）。
 
-### G-1.3 资产删除 API（removeAsset）
-- **本波**：同上软删（`batchRemoveSoft` → 回收清单）。
-- **正路**：`removeAsset`（或带 purge 的两段式）。
+### G-1.3 资产删除 API（removeAsset）——已收口
+- `removeAssets`（纯索引删除，血缘/staging 保护）+ `assetops::purgeAssets`
+  （索引+文件双清）+ `assetops::removeAssetsKeepFiles`（只删索引，文件一律
+  不动——UI 入口「从目录移除（保留文件）…」，受管副本转孤儿后由既有存储
+  治理扫描发现回收）均已落地。
 
 ### G-1.4 资产类型更新 API
 - **本波**：`AssetOverrideStore`（`.paleo/asset_overrides.json`）——

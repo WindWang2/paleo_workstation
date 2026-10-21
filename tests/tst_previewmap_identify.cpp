@@ -26,6 +26,7 @@ class TestPreviewIdentify : public QObject
     }
 
     void pointIdentifyHitsVectorFeature();
+  void canvasDrawingOrderYieldsTopmostFirst();
     void pointIdentifyMissIsEmpty();
     void pointIdentifyRespectsTolerance();
     void rectIdentifyReturnsMultiple();
@@ -97,6 +98,35 @@ void TestPreviewIdentify::pointIdentifyHitsVectorFeature()
   QCOMPARE(results.at(0).layerName, QStringLiteral("grid"));
   QCOMPARE(results.at(0).attributes.value(QStringLiteral("name")).toString(),
            QStringLiteral("p2_3"));
+}
+
+void TestPreviewIdentify::canvasDrawingOrderYieldsTopmostFirst()
+{
+  // 层序契约钉死（R2-1 复审）：canvas()->layers() 的 index 0 = 视觉最
+  // 顶层，识别结果序 = 输入序（先命中视觉最上层）。两层都在 (200,300)
+  // 放一个点要素。
+  std::unique_ptr<QgsVectorLayer> bottom(makeGridLayer(0));
+  bottom->setName(QStringLiteral("bottom"));
+  {
+    QgsFeature f(bottom->fields());
+    f.setAttribute(QStringLiteral("name"), QStringLiteral("bottom_hit"));
+    f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(200.0, 300.0)));
+    bottom->dataProvider()->addFeature(f);
+  }
+  bottom->updateExtents();
+  std::unique_ptr<QgsVectorLayer> top(makeGridLayer(0));
+  top->setName(QStringLiteral("top"));
+  {
+    QgsFeature f(top->fields());
+    f.setAttribute(QStringLiteral("name"), QStringLiteral("top_hit"));
+    f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(200.0, 300.0)));
+    top->dataProvider()->addFeature(f);
+  }
+  top->updateExtents();
+  const auto results = m_core.identifyPoint({top.get(), bottom.get()}, QgsPointXY(200.0, 300.0), 0.5);
+  QCOMPARE(results.size(), 2);
+  QCOMPARE(results.at(0).layerName, QStringLiteral("top"));
+  QCOMPARE(results.at(1).layerName, QStringLiteral("bottom"));
 }
 
 void TestPreviewIdentify::pointIdentifyMissIsEmpty()
@@ -219,7 +249,8 @@ void TestPreviewIdentify::rasterPointOutsideExtentIsMiss()
 void TestPreviewIdentify::pointIdentifyAcrossMixedLayers()
 {
   // 混合层（矢量在上、栅格在下）：点查同时命中矢量要素与栅格取值，
-  // 结果序 = 层序（视顶到视底）。
+  // 结果序 = 层序（视顶到视底）。canvas()->layers() 的 index 0 即视觉
+  // 最顶层（R2-1 复审核实），输入序即视觉序，无需反转。
   std::unique_ptr<QgsVectorLayer> vl(makeGridLayer(4));
   std::unique_ptr<QgsRasterLayer> rl(makeTinyRaster());
   QVERIFY(rl && rl->isValid());

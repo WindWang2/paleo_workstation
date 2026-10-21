@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "mappingreferencecanvas.h"
+#include "mappingreferenceloader.h"
 #include "facieshierarchyrenderer.h"
 #include "faciesmaplegend.h"
 #include "factorstylewriter.h"
@@ -39,9 +40,8 @@ MappingReferenceCanvas::MappingReferenceCanvas(QgsMapCanvas *mainCanvas,
 MappingReferenceCanvas::~MappingReferenceCanvas() { clearReference(); }
 bool MappingReferenceCanvas::hasReference() const { return !m_layer.isNull(); }
 
-QgsMapLayer *MappingReferenceCanvas::loadReference(const LayerDeclaration &declaration,
-                                                 QgsMapLayer *existing,
-                                                 const QString &stylesRoot)
+QgsMapLayer *MappingReferenceLoader::load(const LayerDeclaration &declaration, QgsMapLayer *existing,
+                                          const QString &stylesRoot)
 {
   std::unique_ptr<QgsMapLayer> layer;
   if (existing) layer.reset(existing->clone());
@@ -69,10 +69,11 @@ void MappingReferenceCanvas::setReference(QgsMapLayer *layer, const QVariantMap 
   setOverrideCrs(layer->crs());
   setLayers({layer});
   m_schema = metadata.value("facies").toList();
-  // 参考视图保留所选版本/图层的手动显示层级；自动模式才随本视图比例尺切换。
-  layer->setCustomProperty("paleo/faciesDisplayMode", metadata.value("display_mode",
-      layer->customProperty("paleo/faciesDisplayMode", "auto")));
   const auto kind = metadata.value("kind").toString();
+  // Keep explicit display choices; prediction products retain microfacies
+  // when older versions still store the generic automatic mode.
+  layer->setCustomProperty("paleo/faciesDisplayMode", FaciesHierarchy::productDisplayMode(kind,
+      metadata.value("display_mode", layer->customProperty("paleo/faciesDisplayMode", "auto")).toString()));
   const auto valueSource = metadata.value("value_source").toString();
   const bool analysis = paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
   const bool cartographic = paleo::singlefactor::rejectsQuantitativeUse(kind, valueSource);

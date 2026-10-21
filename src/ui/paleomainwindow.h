@@ -285,6 +285,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 绘制或保存约束后：勾选 constraints.<层位>，套约束线样式并刷新画布。
     // 主图层不是线时，再勾上已声明的线伴随视图。
     void showDrawnConstraintLines(const QString &horizon);
+    void attachConstraintDrawController(ConstraintPage *constraintPage, ConstraintWorkflow *constraint);
     // 方向 47：realization 面同画布上图 + 不确定性图签。成员/统计面各按
     // 同集合互斥显隐（成员换成员、统计换统计），差值面独立可叠。
     // badgeTitle 空 = 关图签。

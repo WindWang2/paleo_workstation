@@ -79,7 +79,6 @@ int countItemNodes(const QTreeWidgetItem *it)
 // 资产级增/删/改落到节点级更新；变更面超阈值回全量兜底（阈值口径见
 // datalist.h kNavReconcile* 注释与 ledger 定案）。
 
-
 QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
 {
   QVector<NavNodeSpec> tops;
@@ -570,58 +569,7 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
   std::sort(auxAssets.begin(), auxAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
     return naturalNameSort(a.displayName, b.displayName);
   });
-  {
-    NavNodeSpec auxRoot;
-    auxRoot.text0 = tr("辅助资料 (%1)").arg(auxAssets.size());
-    auxRoot.text1 = tr("参考相图 / 文档 / 图片");
-    auxRoot.type = QStringLiteral("category");
-    auxRoot.sub = QStringLiteral("auxiliary");
-    auxRoot.icon = QStringLiteral("mActionFolder.svg");
-    // 有文档/参考图时保持展开。导入的 pptx 落在「参考资料」下，
-    // 顶级组收拢时文件名不会出现在视野里。
-    auxRoot.expanded = !auxAssets.isEmpty();
-
-    NavNodeSpec faciesBranch;
-    faciesBranch.text0 = tr("参考相图");
-    faciesBranch.type = QStringLiteral("category");
-    faciesBranch.icon = QStringLiteral("mIconPolygonLayer.svg");
-    faciesBranch.expanded = true;
-
-    NavNodeSpec docBranch;
-    docBranch.text0 = tr("参考资料");
-    docBranch.type = QStringLiteral("category");
-    docBranch.icon = QStringLiteral("mActionFolder.svg");
-    docBranch.expanded = true;
-
-    for (const CatalogAsset &a : auxAssets)
-    {
-      const bool isGeo = a.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive) || a.type == QLatin1String("boundary");
-      NavNodeSpec it;
-      it.text0 = a.displayName;
-      it.id = a.id;
-      it.type = QStringLiteral("auxiliary");
-      it.icon = isGeo ? QStringLiteral("mIconPolygonLayer.svg") : QStringLiteral("mActionOpenTable.svg");
-      if (isGeo)
-        it.text1 = tr("GeoJSON 矢量相图");
-      else if (a.displayName.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
-        it.text1 = tr("PDF 文档");
-      else if (a.displayName.endsWith(QLatin1String(".pptx"), Qt::CaseInsensitive))
-        it.text1 = tr("PPT 演示文稿");
-      else if (a.displayName.endsWith(QLatin1String(".png"), Qt::CaseInsensitive))
-        it.text1 = tr("图像");
-      else if (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive))
-        it.text1 = tr("XML 数据表");
-      else
-        it.text1 = a.type;
-      if (isGeo)
-        faciesBranch.children.append(it);
-      else
-        docBranch.children.append(it);
-    }
-    auxRoot.children.append(faciesBranch);
-    auxRoot.children.append(docBranch);
-    tops.append(auxRoot);
-  }
+  tops.append(buildAuxiliaryNavSpec(auxAssets));
 
   // 1b. 计划井 (Planned：方向34 布井候选)——虚拟部署实体，独立成组
   // 与实井分组隔开；显示名同走实体改写表，软删实体不显示。

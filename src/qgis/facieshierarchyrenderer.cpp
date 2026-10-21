@@ -119,8 +119,13 @@ QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
 }
 QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
                    const QString &level) {
+  // Standalone previews do not provide a display level. The legend already
+  // defaults to microfacies; its category expression must use the same level,
+  // otherwise all known codes fall through to a nonexistent unknown symbol.
+  const QString resolvedLevel = FaciesHierarchy::levels().contains(level)
+      ? level : QStringLiteral("micro_facies");
   MappingArtifactWriter::applyFaciesStyle(layer, schema);
-  const auto entries = legend(layer, schema, level);
+  const auto entries = legend(layer, schema, resolvedLevel);
   if (auto *v = qobject_cast<QgsVectorLayer *>(layer)) {
     const bool wellResult = v->fields().indexOf("facies_intervals") >= 0;
     auto *base = dynamic_cast<QgsCategorizedSymbolRenderer *>(v->renderer());
@@ -132,8 +137,8 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
                 v->fields().indexOf("facies_display_level") >= 0
             ? QStringLiteral("CASE WHEN \"facies_display_level\" IN ('facies', 'sub_facies', 'micro_facies') "
                              "THEN \"facies_display_level\" ELSE %1 END")
-                  .arg(QgsExpression::quotedString(level))
-            : QgsExpression::quotedString(level);
+                  .arg(QgsExpression::quotedString(resolvedLevel))
+            : QgsExpression::quotedString(resolvedLevel);
     QString keyExpression = "CASE ", nameExpression = "CASE ";
     bool hasCodes = false;
     for (const auto &entry : entries) {
@@ -211,7 +216,7 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
           new QgsPalettedRasterRenderer(r->dataProvider(), 1, classes));
     }
   }
-  layer->setCustomProperty("paleo/faciesResolvedLevel", level);
+  layer->setCustomProperty("paleo/faciesResolvedLevel", resolvedLevel);
   layer->setCustomProperty("paleo/faciesDisplayLegend", entries);
   FaciesMapLegend::install(layer);
   layer->triggerRepaint();

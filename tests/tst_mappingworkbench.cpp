@@ -671,6 +671,51 @@ private slots:
     selection.setActiveHorizon("D62"); node->setItemVisibilityCheckedParentRecursive(true);
     controller.canvas()->setCurrentLayer(layer); QTRY_VERIFY(!mode->isEnabled());
   }
+  void predictionProductsKeepMicrofaciesAtEveryScale() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto schema = FaciesCatalog::defaults();
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    for (const QString kind : {QStringLiteral("wells_prediction"), QStringLiteral("seismic_prediction")}) {
+      const bool wells = kind == "wells_prediction";
+      const auto staged = registrar.stage(kind, kind, wells ? "points.geojson" : "grid.tif", &error);
+      QVERIFY(staged.isValid());
+      if (wells)
+        QVERIFY(MappingArtifactWriter::points(staged.absolutePath,
+            {QVariantMap{{"x", 10}, {"y", 10}, {"facies_code", 1}},
+             QVariantMap{{"x", 20}, {"y", 20}, {"facies_code", 2}}}, &error));
+      else
+        QVERIFY(MappingArtifactWriter::raster(staged.absolutePath, {1, 2}, 2, 1, QRectF(0, 0, 30, 30), &error));
+      const QString id = "product." + staged.versionId;
+      // Legacy projects recorded automatic display although the codes were microfacies.
+      QVERIFY(registrar.commit(staged, {}, "fixture", {{"kind", kind}, {"facies", schema},
+          {"horizon", "D61"}, {"layer_id", id}, {"mapping_product", true},
+          {"prediction_level", "micro_facies"}, {"display_mode", "auto"}, {"mock", !wells}}, &error));
+      LayerDeclaration declaration;
+      declaration.layerId = id; declaration.horizon = "D61";
+      declaration.type = wells ? "vector" : "raster";
+      declaration.source = staged.absolutePath;
+      QVERIFY(f.layers.declare(declaration, &error));
+      auto *layer = f.layers.instantiate(id, &error);
+      QVERIFY2(layer, qPrintable(error));
+      layer->setCustomProperty("paleo/faciesDisplayMode", "auto");
+      f.work.styleLayer(id);
+      for (double scale : {1000., 100000., 10000000.}) {
+        f.work.updateDisplayScale(scale);
+        QCOMPARE(f.work.displayMode(id), QString("micro_facies"));
+        QCOMPARE(f.work.resolvedLevel(id), QString("micro_facies"));
+        QCOMPARE(layer->customProperty("paleo/faciesResolvedLevel").toString(), QString("micro_facies"));
+        for (const auto &entry : f.work.displayLegend(id))
+          QCOMPARE(entry.toMap().value("level").toString(), QString("micro_facies"));
+      }
+      QgsMapCanvas main;
+      MappingReferenceCanvas reference(&main, f.project.project());
+      reference.setReference(layer->clone(), {{"kind", kind}, {"facies", schema}, {"display_mode", "auto"}});
+      for (double scale : {1000., 100000., 10000000.}) {
+        reference.canvas()->zoomScale(scale);
+        QCOMPARE(reference.canvas()->layers().first()->customProperty("paleo/faciesResolvedLevel").toString(), QString("micro_facies"));
+      }
+    }
+  }
   void changedScaleSettingsRefreshExistingReferenceViews() {
     Fixture f; QVERIFY(f.init()); QString error;
     const auto previous = f.work.displayThresholds();
@@ -2632,6 +2677,7 @@ private slots:
     QTRY_VERIFY(!f.work.busy());
     const auto original = f.latest("wells_prediction");
     QVERIFY(!original.isEmpty());
+    QCOMPARE(f.work.versionForLayer(original).extra.value("display_mode").toString(), QString("micro_facies"));
     // #409：isWellPrediction 契约——预测层 true、非预测层/空 id false。
     QVERIFY(f.work.isWellPrediction(original));
     QVERIFY(!f.work.isWellPrediction(QStringLiteral("不存在层")));
@@ -3605,6 +3651,9 @@ private slots:
     const auto id = f.latest("seismic_prediction"); QVERIFY(!id.isEmpty());
     const auto version = f.work.versionForLayer(id);
     QVERIFY(version.extra.value("mock").toBool());
+    QCOMPARE(version.extra.value("display_mode").toString(), QString("micro_facies"));
+    f.work.updateDisplayScale(1000000);
+    QCOMPARE(f.work.resolvedLevel(id), QString("micro_facies"));
     QCOMPARE(version.extra.value("window_half_ms").toDouble(), 12.0);
     QVERIFY(version.parentVersionIds.contains(current)); QVERIFY(version.parentVersionIds.contains(tail));
     QVERIFY(!version.parentVersionIds.contains(old));
@@ -3616,9 +3665,12 @@ private slots:
     QCOMPARE(mapping[1].toMap().value("vote_count").toInt(), 2);
     QCOMPARE(mapping[1].toMap().value("facies_code").toInt(), 2);
     auto *raster = qobject_cast<QgsRasterLayer *>(f.layers.instantiate(id, &error)); QVERIFY(raster);
+    // B-01（2026-10-19 审计第三轮）：SMI 点栅格 extent 半格外扩后，相图
+    // 栅格像素中心对齐到样本点本身（x=10·c）——旧配准像素中心在样本间
+    // 半格处（x=10·c+5），正是被修复的半道间距错位。采样点随配准校正。
     for (int column = 0; column < 4; ++column) {
       bool ok = false;
-      const double code = raster->dataProvider()->sample(QgsPointXY(column * 10 + 5, 65), 1, &ok);
+      const double code = raster->dataProvider()->sample(QgsPointXY(column * 10, 65), 1, &ok);
       QVERIFY(ok); QCOMPARE(int(code), column % 2 == 0 ? 7 : 2);
     }
   }

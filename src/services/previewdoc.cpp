@@ -7,6 +7,7 @@
 #include "../domain/wellrecords.h"        // WellHeadRecord 等（wellHeadsAt 出参；方向 59 起显式）
 #include "../io/dataimportservice.h"
 #include "../io/geojsonaffine.h"
+#include "../io/horizonbinner.h"
 #include "../io/lascache.h"
 #include "../io/lasdoc.h" // LasCurve/LasDoc/LasHeaderInfo（契约类型；解析入口不再直触）
 #include "../io/outsourceworkbook.h" // readWorkbook（workbookPreviewAt 出参来源）
@@ -25,6 +26,7 @@
 #include <QFileInfo>
 #include <QSet>
 #include <QTimer>
+#include <QTemporaryDir>
 
 namespace
 {
@@ -241,6 +243,47 @@ void PreviewDocService::setTaskService(PaleoTaskService *svc)
     else
       m_seismicTaskSvc->setTaskService(m_taskSvc);
   }
+}
+
+void PreviewDocService::requestHorizonPreview(
+    const QString &source, QObject *receiver,
+    std::function<void(const HorizonPreview &)> ready)
+{
+  auto result = std::make_shared<HorizonPreview>();
+  result->storage = std::make_shared<QTemporaryDir>();
+  const auto work = [source, result](PaleoTask *task) -> QString {
+    QFile input(source);
+    if (!result->storage->isValid() || !input.open(QIODevice::ReadOnly))
+      return QStringLiteral("无法读取原始层位或创建预览目录");
+    if (input.size() > 500LL * 1024 * 1024)
+      return QStringLiteral("层位文件超过 500 MB 预览上限");
+    const auto bytes = input.readAll();
+    if (input.error() != QFileDevice::NoError) return input.errorString();
+    if (task && task->cancelRequested()) return QStringLiteral("已取消");
+    BinnedHorizon grid;
+    QString error;
+    if (!binHorizon(bytes, &grid, &error)) return error;
+    if (!grid.filledCells) return QStringLiteral("层位中没有可显示的有效 Z 值");
+    if (task && task->cancelRequested()) return QStringLiteral("已取消");
+    result->path = result->storage->filePath(QStringLiteral("horizon.tif"));
+    if (!writeHorizonGeoTiff(grid, result->path, &error)) return error;
+    result->rows = grid.rows; result->columns = grid.cols;
+    result->filled = grid.filledCells; result->rejected = grid.rejected;
+    result->minimum = grid.zMin; result->maximum = grid.zMax;
+    return {};
+  };
+  if (!m_taskSvc) {
+    result->error = work(nullptr);
+    ready(*result);
+    return;
+  }
+  auto *task = m_taskSvc->start(tr("准备原始层位预览"), work, {}, true);
+  connect(receiver, &QObject::destroyed, task, &PaleoTask::requestCancel);
+  connect(task, &PaleoTask::finished, receiver, [task, result, ready] {
+    if (task->state() != PaleoTask::State::Succeeded)
+      result->error = task->errorText().isEmpty() ? tr("已取消") : task->errorText();
+    ready(*result);
+  });
 }
 
 QString PreviewDocService::targetHorizon()

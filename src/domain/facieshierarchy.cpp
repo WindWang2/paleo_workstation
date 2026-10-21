@@ -22,6 +22,12 @@ bool validThresholds(const ScaleThresholds &thresholds) {
       thresholds.faciesToSubfacies > thresholds.subfaciesToMicrofacies &&
       thresholds.subfaciesToMicrofacies > 0;
 }
+QString productDisplayMode(const QString &kind, const QString &mode) {
+  if ((kind == QLatin1String("wells_prediction") || kind == QLatin1String("seismic_prediction")) &&
+      (mode.isEmpty() || mode == QLatin1String("auto")))
+    return QStringLiteral("micro_facies");
+  return mode.isEmpty() ? QStringLiteral("auto") : mode;
+}
 QString resolveLevel(const QString &mode, double scale, const ScaleThresholds &thresholds) {
   if (levels().contains(mode))
     return mode;

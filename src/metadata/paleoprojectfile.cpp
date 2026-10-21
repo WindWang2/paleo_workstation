@@ -383,6 +383,8 @@ QStringList missingMembers(const QString &projectDir,
       {QStringLiteral("manifest"), file.manifest},
       {QStringLiteral("gpkg"), file.gpkg},
       {QStringLiteral("areaRules"), file.areaRules},
+      {QStringLiteral("basemap.topo"), file.basemapTopo},
+      {QStringLiteral("basemap.hillshade"), file.basemapHillshade},
   };
   for (auto it = members.constBegin(); it != members.constEnd(); ++it)
   {

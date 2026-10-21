@@ -10,6 +10,8 @@
 #include <QFontInfo>
 #include <QImage>
 #include <QLabel>
+#include <QMenu>
+#include <QProgressBar>
 #include <QPainter>
 #include <QPalette>
 #include <QSettings>
@@ -22,6 +24,11 @@
 #include <QWidget>
 
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/paleoribbon.h"
+#include "../src/ui/paleostartupscreen.h"
+#include "../src/ui/layers/layertreepanel.h"
+#include <SARibbon.h>
+#include <qgslayertreeview.h>
 #include "../src/ui/paleoviewport.h"
 #include "../src/ui/pages/pageshared.h"
 #include "../src/ui/paleoemptystate.h"
@@ -44,6 +51,95 @@ class TestUxTheme : public QObject
     void initTestCase()
     {
       QVERIFY2(PaleoTheme::ensureApplicationFonts(), "vendored fonts must register");
+    }
+
+    void contextMenuTextRemainsVisibleUnderRibbonTheme()
+    {
+      PaleoRibbon::prepareLibrary();
+      SARibbonMainWindow host;
+      LayerTreePanel panel(nullptr, nullptr, nullptr, &host);
+      auto *popup = panel.treeView()->findChild<QMenu *>();
+      QVERIFY(popup);
+      QMenu &menu = *popup;
+      auto *normal = new QAction(QStringLiteral("图层属性 / Layer properties"), &menu);
+      auto *disabled = new QAction(QStringLiteral("不可用 / Unavailable"), &menu);
+      disabled->setEnabled(false);
+      // Keep the samples visible when a high-DPI screen makes the real menu scroll.
+      menu.insertAction(menu.actions().first(), disabled);
+      menu.insertAction(disabled, normal);
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark,
+                               PaleoTheme::Theme::Light})
+      {
+        PaleoTheme::applyTheme(theme);
+        PaleoRibbon::applyTheme(&host, PaleoTheme::shellStyleSheet());
+        menu.show();
+        QTest::qWait(10);
+        const auto image = menu.grab().toImage().scaled(menu.size())
+                               .convertToFormat(QImage::Format_RGB32);
+        if (!qEnvironmentVariableIsEmpty("PALEO_MENU_CAPTURE"))
+        {
+          image.save(qEnvironmentVariable("PALEO_MENU_CAPTURE") +
+                     (theme == PaleoTheme::Theme::Light ? "-light.png" : "-dark.png"));
+        }
+        const auto &t = PaleoTheme::tokens();
+        for (auto *action : {normal, disabled})
+        {
+          const auto rect = menu.actionGeometry(action).adjusted(30, 3, -12, -3);
+          QVERIFY(image.rect().contains(rect));
+          const QColor expected = action->isEnabled() ? t.text : t.textDisabled;
+          int ink = 0;
+          for (int y = rect.top(); y <= rect.bottom(); ++y)
+            for (int x = rect.left(); x <= rect.right(); ++x)
+            {
+              const auto color = image.pixelColor(x, y);
+              if (std::abs(color.red() - expected.red()) < 30 &&
+                  std::abs(color.green() - expected.green()) < 30 &&
+                  std::abs(color.blue() - expected.blue()) < 30)
+                ++ink;
+            }
+          QVERIFY2(ink > 30, qPrintable(QStringLiteral("Menu text missing: %1 (%2 pixels)")
+                                           .arg(action->text()).arg(ink)));
+        }
+        menu.hide();
+      }
+    }
+
+    void startupScreenShowsStageWithoutOtherWindowsOrClickDismissal()
+    {
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark})
+      {
+        PaleoTheme::applyTheme(theme);
+        PaleoStartupScreen screen;
+        screen.setStage(QStringLiteral("正在加载地图引擎与工作区…"));
+        screen.show();
+        QTest::qWait(10);
+        for (QWidget *window : QApplication::topLevelWidgets())
+          if (window->isVisible())
+            QCOMPARE(window, &screen);
+        auto *stage = screen.findChild<QLabel *>(QStringLiteral("startupStage"));
+        auto *progress = screen.findChild<QProgressBar *>(QStringLiteral("startupProgress"));
+        auto *title = screen.findChild<QLabel *>(QStringLiteral("startupTitle"));
+        QVERIFY(stage && progress && title);
+        QCOMPARE(screen.windowType(), Qt::SplashScreen);
+        QCOMPARE(progress->minimum(), 0);
+        QCOMPARE(progress->maximum(), 0);
+        QVERIFY(!progress->isTextVisible());
+        QVERIFY(screen.rect().contains(stage->geometry()));
+        QVERIFY(title->width() >= title->fontMetrics().horizontalAdvance(title->text()));
+        QTest::mouseClick(&screen, Qt::LeftButton);
+        QVERIFY(screen.isVisible());
+        screen.setStage(QStringLiteral("正在准备工作界面…"));
+        QCOMPARE(stage->text(), QStringLiteral("正在准备工作界面…"));
+        QCOMPARE(stage->textFormat(), Qt::PlainText);
+        const auto image = screen.grab().toImage();
+        QCOMPARE(image.pixelColor(6, 6), PaleoTheme::tokens().surface);
+        if (!qEnvironmentVariableIsEmpty("PALEO_STARTUP_SCREEN_CAPTURE"))
+          image.save(qEnvironmentVariable("PALEO_STARTUP_SCREEN_CAPTURE") +
+                     (theme == PaleoTheme::Theme::Light ? "-light.png" : "-dark.png"));
+        screen.close();
+        QVERIFY(!screen.isVisible());
+      }
+      PaleoTheme::applyLightTheme();
     }
 
     void previewChartsAndFallbackFollowLiveTheme()

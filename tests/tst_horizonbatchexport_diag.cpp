@@ -579,4 +579,4 @@ int main( int argc, char *argv[] )
   return rc;
 }
 
-#include "tst_horizonbatchexport.moc"
+#include "tst_horizonbatchexport_diag.moc"

@@ -2,6 +2,7 @@
 // 预测管线：任务行三件套 + predict/cancelPrediction/finishPrediction/ensureInputVersion。
 // 从 mappingworkbench.cpp 析出——行为守恒平移（goal/core-deepening A-R2）：
 // 函数体逐字未动，仅按子域归位到独立 TU。
+#include <QDebug>
 #include "mappingworkbench.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
@@ -372,6 +373,13 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       }
       m_predictionParameters.insert("valid_cells", clustered.validCells);
       m_predictionParameters.insert("cluster_facies_mapping", clustered.clusterMapping);
+      // B-06：读取失败的 inline 缩水如实进参数留痕（消费方：版本 extra 与
+      // 预测详情）——空 warnings 不写字段，历史结果不受扰。
+      if (!clustered.warnings.isEmpty()) {
+        m_predictionParameters.insert("cluster_warnings", clustered.warnings);
+        for (const QString &warning : clustered.warnings)
+          qWarning() << "seismic cluster:" << warning;
+      }
       m_predictionParameters.insert("labeling_method", "well_majority_with_observed_facies_fallback");
       m_predictionParameters.insert("fallback_seed", 42);
       m_request.wells = clustered.supportingWells;

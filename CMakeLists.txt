@@ -512,6 +512,7 @@ add_library(paleo_qgis STATIC
   src/qgis/mappingreferencecanvas.cpp
   src/qgis/previewmaptools.cpp                      # P2 D1.2 预览工具注册表（量测/identify/剖面线）
   src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）
+  src/qgis/identifytool.cpp                         # 主画布识别浏览（经 IdentifyPresenter 驱动视图弹层）
   src/qgis/previewidentify.cpp                      # P2 D7 identify 查询核心（空间索引缓存+栅格插值）
   src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
   src/qgis/seismicsectiontool.cpp
@@ -667,8 +668,10 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/paleostartupscreen.cpp
   src/ui/paleomainwindow_paleomaps.cpp
   src/ui/pages/datalist_paleomaps.cpp
+  src/ui/pages/datalist_auxnav.cpp
   src/ui/pages/datalist_importbuttons.cpp
   src/ui/pages/mappingeditbasis.cpp
   src/ui/pages/mappingbasemapselector.cpp
@@ -743,7 +746,6 @@ add_library(paleo_ui STATIC
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
   src/ui/maptools/sitingpicktool.cpp               # 方向34：地图布点拾取工具
-  src/ui/maptools/identifytool.cpp                 # 主画布识别浏览
   src/ui/maptools/identifypopup.cpp
   src/ui/maptools/paleoshapetools.cpp              # wave/shapetools
   src/ui/correlationpanel.cpp
@@ -1167,6 +1169,7 @@ endif()
 # docs/progress/devex.md 对比表；单参 = 伞式旧式契约，保留 5 个作为兼容样本）----
 add_paleo_test(tst_runtime LIBS paleo_qgis)                 # metadata,qgis
 add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
+add_paleo_test(tst_basemap_project LIBS paleo_qgis)
 add_paleo_test(tst_background_open LIBS paleo_workflow)
 add_paleo_test(tst_officepreview LIBS paleo_ui)
 add_paleo_test(tst_identifybrowse LIBS paleo_ui)
@@ -1229,6 +1232,8 @@ add_paleo_test(tst_panels_dataops)                     # 伞式（dataops 族，
 set_tests_properties(tst_panels_dataops PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_wellattributes LIBS paleo_ui)
+add_paleo_test(tst_project_wellinputs LIBS paleo_ui)
+add_paleo_test(tst_project_paleomaps LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
 add_paleo_test(tst_perf LIBS paleo_qgis paleo_services paleo_algorithms)
@@ -1303,6 +1308,7 @@ add_paleo_test(tst_standardelements LIBS paleo_qgis) # 方向25：标准图件�
 add_paleo_test(tst_layoutpersistence LIBS paleo_qgis) # 方向25：布局随工程 QGZ round-trip
 add_paleo_test(tst_layouttemplatelibrary LIBS paleo_workflow) # 方向25：模板库（qpt→catalog 版本 + 库表）
 add_paleo_test(tst_horizonbatchexport LIBS paleo_workflow) # 方向25：按层位组批量出图 + catalog 登记
+add_paleo_test(tst_horizonbatchexport_diag LIBS paleo_workflow) # #541 诊断套件（此前 582 行零注册覆盖幻影；2026-10-19 审计 E-04 接闸）
 # ---- wave/data-foundation ----
 add_paleo_test(tst_catalog LIBS paleo_store)
 add_paleo_test(tst_catalogroles LIBS paleo_store)   # 方向92：角色词表单源
@@ -1416,6 +1422,10 @@ target_compile_definitions(tst_seismicmapping PRIVATE
 
 # ---- application ----
 add_executable(paleo src/app/main.cpp)
+if(WIN32)
+  # Qt's entry-point target follows this property; double-clicking opens only UI.
+  set_target_properties(paleo PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
 target_link_libraries(paleo PRIVATE paleo_core)
 
 # ---- goal/perf-systematize 簇1：启动分段仪表 + 比率门 ----

@@ -330,8 +330,14 @@ private slots:
 int main( int argc, char *argv[] )
 {
   // Runtime owns the whole init sequence — no QgsApplication in test mains.
-  if ( !QgisRuntime::initialize( QStringLiteral( "/usr" ) ) )
+  bool startupHookCalled = false;
+  if ( !QgisRuntime::initialize( QStringLiteral( "/usr" ), [&startupHookCalled] {
+         Q_ASSERT( QCoreApplication::instance() );
+         startupHookCalled = true;
+       } ) )
     qFatal( "QgisRuntime::initialize failed" );
+  if ( !startupHookCalled )
+    qFatal( "startup presentation hook was not called" );
   TestRuntime tc;
   const int rc = QTest::qExec( &tc, argc, argv );
   QgisRuntime::shutdown();

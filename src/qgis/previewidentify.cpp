@@ -111,7 +111,11 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
   const double tol = qMax( 0.0, toleranceMapUnits );
   QgsRectangle filter( point.x() - tol, point.y() - tol, point.x() + tol, point.y() + tol );
 
-  // 层序自顶而下——先命中的在上面（结果面板序 = 视觉序）。
+  // 层序自顶而下——先命中的在上面（结果面板序 = 视觉序）。注意
+  // QgsMapCanvas::layers() 的 index 0 即视觉最顶层（qgsmapsettings.h
+  // setLayers 文档「layer with index 0 will be on top」；PreviewTocPanel
+  // layerOrderChanged 直喂同序）——直接顺序遍历即可，勿反转（R2-1 复审
+  // 曾误判为绘制序自底而上，特此钉死）。
   for ( QgsMapLayer *ml : layers )
   {
     if ( !ml )

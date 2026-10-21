@@ -55,7 +55,7 @@ IdentifyPopup::IdentifyPopup(QWidget *parent)
   auto *fields = new QWidget(this);
   m_fields = new QVBoxLayout(fields);
   m_fields->setContentsMargins(0, 0, 0, 0);
-  m_fields->setSpacing(2);
+  m_fields->setSpacing(tokens.spacingXs);
   layout->addWidget(fields);
   setMinimumWidth(220);
   setMaximumWidth(320);
@@ -129,14 +129,28 @@ void IdentifyPopup::showNear(const QPoint &anchor)
   raise();
 }
 
+void IdentifyPopup::presentHits(const QVector<IdentifyHit> &hits, const QPoint &anchor)
+{
+  setHits(hits);
+  showNear(anchor);
+}
+
+void IdentifyPopup::dismissHits()
+{
+  hide();
+  setHits({});
+}
+
 void IdentifyPopup::enterEvent(QEnterEvent *event)
 {
   QFrame::enterEvent(event);
+  m_pointerInside = true;
   emit pointerInside(true);
 }
 
 void IdentifyPopup::leaveEvent(QEvent *event)
 {
   QFrame::leaveEvent(event);
+  m_pointerInside = false;
   emit pointerInside(false);
 }

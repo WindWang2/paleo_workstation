@@ -164,7 +164,12 @@ SeismicClusterResult clusterSeismicHorizon(
     result.columns = h.gridCols;
     result.rows = h.gridRows;
     // 原始点坐标与像元边界对齐；这里只定义分布图网格，不生成中间时间栅格。
-    result.extent = QRectF(h.p1x, h.p1y,
+    // SMI 样本落在 p1 + i·spacing 的点栅格上（格心），像元边界须在半倍
+    // spacing 处（最近样本 Voronoi 分区）：extent 半格外扩，使投票方
+    // seismicclusterlabels 的 floor 分箱在样本线上精确命中、边界带不再
+    // 整体偏半道间距（B-01；TimeRaster 路径栅格 extent 天然像元边对齐，
+    // 不经此处）。相图栅格配准同源本 extent，随本口径一致校正。
+    result.extent = QRectF(h.p1x - spacingX / 2, h.p1y - spacingY / 2,
                           h.gridCols * spacingX, h.gridRows * spacingY);
     QByteArray occupied(result.rows * result.columns, '\0');
     const QRegularExpression spaces(QStringLiteral("\\s+"));
@@ -207,12 +212,15 @@ SeismicClusterResult clusterSeismicHorizon(
   QVector<int> cells;
   int sampled = 0;
   int lineIndex = 0;
+  int droppedInlines = 0;
   for (auto it = lines.cbegin(); it != lines.cend(); ++it) {
     if (stopped()) { result.error = QStringLiteral("已取消"); return result; }
     QVector<SegyTrace> traces;
     QString error;
-    if (!reader.readInline(it.key(), &traces, &error, &options))
+    if (!reader.readInline(it.key(), &traces, &error, &options)) {
+      ++droppedInlines;
       continue;
+    }
     QMap<int, const SegyTrace *> byXline;
     for (const auto &trace : traces) byXline[trace.xlineNo] = &trace;
     for (const auto &entry : it.value()) {
@@ -303,6 +311,9 @@ SeismicClusterResult clusterSeismicHorizon(
   result.cells.fill(-9999, count);
   for (int i = 0; i < cells.size(); ++i) result.cells[cells[i]] = classCodes[labels[i]];
   result.validCells = cells.size();
+  if (droppedInlines > 0)
+    result.warnings.append(QStringLiteral("有 %1 条 inline 读取失败被跳过，相带覆盖缩水（详见日志）")
+                               .arg(droppedInlines));
   report(100);
   return result;
 }

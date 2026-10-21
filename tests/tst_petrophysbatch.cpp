@@ -158,6 +158,7 @@ private slots:
   void testPanelAssetIdsMapToWellEntities();
   void testRerunAndNewMnemonicKeepCatalogConsistent();
   void testMergeNormalizesDepthUnitAndDescendingFile();
+  void testMergeReportsDriverParseFailureAsParseError();
 };
 
 void TestPetroPhysBatch::testValidationRejects()
@@ -855,6 +856,76 @@ void TestPetroPhysBatch::testMergeNormalizesDepthUnitAndDescendingFile()
   for (int i = 0; i <= 4; ++i)
     QVERIFY2(std::isfinite(vals.at(i)) && std::fabs(vals.at(i) - (0.20 + 0.01 * i)) < 1e-4,
              qPrintable(QStringLiteral("row %1: %2").arg(i).arg(vals.at(i))));
+}
+
+// B-03：驱动文件解析失败必须透传解析错误，而不是先落 MD 闸文案
+// 「请先校正索引元数据」误导诊断方向。目录 extra 里带 MD 基准（storedHeader
+// 短路文件读），文件本体损坏 → LasCache::load 失败 → 真因上抛。
+void TestPetroPhysBatch::testMergeReportsDriverParseFailureAsParseError()
+{
+  QTemporaryDir dir;
+  const QString projDir = dir.path();
+  const QString badCsv = projDir + QStringLiteral("/bad.csv");
+  {
+    QFile f(badCsv);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write("garbage that no log parser accepts\n\n\n");
+  }
+  DataCatalog catalog;
+  QVERIFY(catalog.open(projDir));
+  QString err;
+  CatalogEntity e;
+  e.id = QStringLiteral("well-B03");
+  e.entityType = QStringLiteral("well");
+  e.name = QStringLiteral("B03");
+  QVERIFY(catalog.addEntity(e, &err));
+  CatalogAsset a;
+  a.id = catalog.nextAssetId();
+  a.type = QStringLiteral("well_log");
+  a.format = QStringLiteral("csv");
+  a.displayName = QStringLiteral("bad.csv");
+  QVERIFY(catalog.addAsset(a, &err));
+  CatalogVersion v;
+  v.id = catalog.nextVersionId();
+  v.assetId = a.id;
+  v.stage = QStringLiteral("RAW");
+  v.versionNumber = 1;
+  v.managed = false;
+  v.path = badCsv;
+  v.fileName = QStringLiteral("bad.csv");
+  QVariantMap extra;
+  extra.insert(QStringLiteral("logIndexBasis"), QStringLiteral("MD"));
+  extra.insert(QStringLiteral("logCurveNames"), QStringList{QStringLiteral("MD"), QStringLiteral("GR")});
+  v.extra = extra;
+  QVERIFY(catalog.addVersion(v, &err));
+  EntityAssetLink l;
+  l.entityType = QStringLiteral("well");
+  l.entityId = QStringLiteral("well-B03");
+  l.assetId = a.id;
+  l.role = QStringLiteral("well_log");
+  l.isPrimary = true;
+  l.ordinal = 0;
+  QVERIFY(catalog.addLink(l, &err));
+
+  PaleoProjectStore store;
+  PaleoTaskService tasks(&store);
+  PetroPhysTaskService svc(&tasks, &store);
+  PetroPhysTaskService::BatchRequest r;
+  r.wells.append({QStringLiteral("well-B03"), badCsv, QString()});
+  r.formula = Formula::Expression;
+  r.expression = QStringLiteral("GR");
+  r.outputMnemonic = QStringLiteral("GRX");
+  r.writeProduct = false;
+  PetroPhysTaskService::BatchResult res;
+  QVERIFY(runBatch(svc, r, &catalog, QString(), &res));
+  QVERIFY(!res.ok);
+  QCOMPARE(res.wells.size(), 1);
+  const QString wellError = res.wells.at(0).error;
+  QVERIFY2(!wellError.isEmpty(), "井级错误为空");
+  QVERIFY2(!wellError.contains(QStringLiteral("校正索引元数据")),
+           qPrintable(QStringLiteral("误导文案: ") + wellError));
+  QVERIFY2(wellError.contains(QStringLiteral("bad.csv")),
+           qPrintable(QStringLiteral("缺少真因: ") + wellError));
 }
 
 QTEST_MAIN(TestPetroPhysBatch)

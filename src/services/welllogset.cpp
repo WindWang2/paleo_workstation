@@ -292,9 +292,13 @@ bool WellLogSet::mdAxisInMetres(const WellCurveRef &ref, const QList<LasCurve> &
   axis->clear();
   const bool legacy = ref.format.isEmpty() || ref.format == QLatin1String("las") ||
       ref.format == QLatin1String("dlis") || ref.format == QLatin1String("lis");
-  const auto scale = paleo::wellnumeric::depthScaleToMetres(curves.first().unit);
+  const QString unit = curves.first().unit.trimmed();
+  const auto scale = paleo::wellnumeric::depthScaleToMetres(unit);
+  // legacy（LAS/DLIS/LIS）空单位沿用「按米」惯例；未知非空单位与 readCurveTvd
+  // 同口径拒收——原样数值冒充米轴会把 DM 井画成 10 倍错位。
   if ((!ref.indexBasis.isEmpty() && ref.indexBasis != QLatin1String("MD")) ||
-      (!legacy && (ref.indexBasis.isEmpty() || !scale)))
+      (!legacy && (ref.indexBasis.isEmpty() || !scale)) ||
+      (legacy && !unit.isEmpty() && !scale))
   {
     if (error) *error = QCoreApplication::translate("WellLogSet",
         "%1：综合井图需要明确的 MD 测深和米/英尺单位，当前为 %2 [%3]；原始数据保留，请补充元数据或完成转换。")

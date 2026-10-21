@@ -603,6 +603,44 @@ private slots:
     QCOMPARE(log.curveNames, QStringList({"MD", "GR"}));
     QVERIFY(std::abs(log.curves.first().values.first() - 304.8) < 1e-8);
     QCOMPARE(log.curves.first().unit, QStringLiteral("m"));
+    // C-7：英尺 LAS 与文本曲线同口径归一到米——预测区间入库侧已归一，
+    // 对比视图跳过 LAS 会把英尺深度与米制相带画在同一根轴上。
+    const auto lasOf = [&fixture](const QString &id, const char *unit) -> QString {
+      const QString path = fixture.dir.filePath(id + QStringLiteral(".las"));
+      QFile file(path);
+      const QByteArray body =
+          QByteArray("~V\nVERS. 2.0:\n~W\nWELL. FTWELL:\n~C\nDEPT.") + unit +
+          QByteArray(" :\nGR.API :\n~A\n1000 20\n1001 30\n");
+      if (!file.open(QIODevice::WriteOnly) || file.write(body) != body.size()) return {};
+      file.close();
+      CatalogAsset asset;
+      asset.id = id;
+      asset.type = QStringLiteral("well_log");
+      asset.format = QStringLiteral("las");
+      CatalogVersion version;
+      version.id = id + QStringLiteral("-v");
+      version.assetId = id;
+      version.stage = QStringLiteral("RAW");
+      version.versionNumber = 1;
+      version.managed = false;
+      version.path = path;
+      version.fileName = QFileInfo(path).fileName();
+      if (!fixture.catalog.addAsset(asset) || !fixture.catalog.addVersion(version)) return {};
+      return version.id;
+    };
+    const auto ftLas = lasOf(QStringLiteral("ftlas"), "FT");
+    QVERIFY(!ftLas.isEmpty());
+    const auto ftLog = fixture.work.predictionLog(ftLas);
+    QVERIFY2(ftLog.ok, qPrintable(ftLog.error));
+    QVERIFY(std::abs(ftLog.curves.first().values.first() - 304.8) < 1e-8);
+    QCOMPARE(ftLog.curves.first().unit, QStringLiteral("m"));
+    // 未知非空单位（DM）如实拒收，不静默当米。
+    const auto dmLas = lasOf(QStringLiteral("dmlas"), "DM");
+    QVERIFY(!dmLas.isEmpty());
+    const auto dmLog = fixture.work.predictionLog(dmLas);
+    QVERIFY(!dmLog.ok);
+    QVERIFY(dmLog.error.contains(QStringLiteral("DM")));
+    QVERIFY(dmLog.curves.isEmpty());
     for (const auto &axis : {QByteArray("TIME[ms]"), QByteArray("TVD[m]"), QByteArray("DEPTH[m]"), QByteArray("MD[league]")}) {
       const auto version = add(QString::fromLatin1(axis).replace(QLatin1Char('/'), QLatin1Char('_')), axis + ",GR[API]\n1000,20\n1001,30\n");
       QVERIFY(!version.isEmpty());

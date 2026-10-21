@@ -53,6 +53,12 @@ class FolderImportWorkflow : public QObject
     DataImportService *importService() const; // 服务已析构 → nullptr
     void setTaskService(PaleoTaskService *taskSvc) { m_taskSvc = taskSvc; }
 
+    // UI 导入默认只建索引（方向 D1）：整批/文件夹/文件清单链在 session 配置点
+    // 统一注入 ImportSession.linkExternal；false = 恢复旧受管复制默认（确认表
+    // 「复制进工程」勾选）。默认 true。
+    void setLinkExternal(bool on) { m_linkExternal = on; }
+    bool linkExternal() const { return m_linkExternal; }
+
     // 确认表预览：与 importFolder 同一枚举/分类口径，只列行不导入。
     QVector<FolderPreviewRow> previewFolder(const QString &dir, QString *error = nullptr);
     QString classifyFile(const QString &path) const;
@@ -68,12 +74,15 @@ class FolderImportWorkflow : public QObject
                                     const QString &wellTarget = {},
                                     const QString &expectedHash = {});
     // 整批导入：异步（任务池在场）或同步；done 总在 GUI 线程调用。
+    // nameOverrides：确认表「显示名」列——源路径 → 编辑后显示名（空 = 原
+    // 文件 basename；io 侧空白值忽略）。透传 DataImportService::produceFolder。
     CancelImport importFolder(const QString &dir, const QMap<QString, QString> &overrides,
                       const ImportDone &done,
                       const QMap<QString, QString> &wellTargets = {},
                       const QMap<QString, QString> &expectedHashes = {},
                       const QStringList &skippedPaths = {},
-                      const QStringList &previewedPaths = {});
+                      const QStringList &previewedPaths = {},
+                      const QMap<QString, QString> &nameOverrides = {});
     // 同上 + 「仍导入」改判（T2 确认表跳过策略）：forceImportPaths 是用户
     // 对「重复→跳过」行点了「仍导入」的源路径集合——plan 里这些行改判
     // as_new_version（同字节结局交内部 dedup：AlreadyStored + 补挂）。
@@ -84,18 +93,24 @@ class FolderImportWorkflow : public QObject
                       const QMap<QString, QString> &wellTargets = {},
                       const QMap<QString, QString> &expectedHashes = {},
                       const QStringList &skippedPaths = {},
-                      const QStringList &previewedPaths = {});
+                      const QStringList &previewedPaths = {},
+                      const QMap<QString, QString> &nameOverrides = {});
     // 单文件导入（数据页「导入」按钮）：同 importFolder 的双路径语义。
+    // linkExternal 默认 true（方向：UI 默认只建索引）；displayName 非空 →
+    // 覆盖资产显示名（导入时命名）。
     void importFile(const QString &kind, const QString &path,
-                    std::function<void(const QString &assetId, const QString &error)> done);
+                    std::function<void(const QString &assetId, const QString &error)> done,
+                    bool linkExternal = true, const QString &displayName = {});
     // 多选文件导入（文件列表口径）：与 importFolder 同一确认表/任务池/台账
     // 语义；预览 importActiveChanged 抑制逐文件预览标签口径相同。
+    // nameOverrides 口径同 importFolder 的「显示名」列。
     CancelImport importFiles(const QStringList &paths, const QMap<QString, QString> &overrides,
                      const QStringList &forceImportPaths, const ImportDone &done,
                      const QMap<QString, QString> &wellTargets = {},
                      const QMap<QString, QString> &expectedHashes = {},
                      const QStringList &skippedPaths = {},
-                     const QStringList &previewedPaths = {});
+                     const QStringList &previewedPaths = {},
+                     const QMap<QString, QString> &nameOverrides = {});
     void previewFilesAsync(
         const QStringList &paths,
         const std::function<void(const QVector<FolderPreviewRow> &,
@@ -159,6 +174,9 @@ class FolderImportWorkflow : public QObject
     // 处理器里的 recordLedger/finish 回调必须看到「服务已不在」而不是悬垂指针。
     QPointer<DataImportService> m_svc;
     PaleoTaskService *m_taskSvc = nullptr;
+    // 方向 D1：批次级「只建索引」开关（默认 true）。produce 跑在 worker 上——
+    // 任务池 lambda 在 GUI 线程创建时按值快照本成员，worker 不回读 this。
+    bool m_linkExternal = true;
     QList<std::shared_ptr<ImportJob>> m_importQueue;
     std::shared_ptr<ImportJob> m_activeImport;
 };

@@ -39,6 +39,7 @@ class DataImportService : public QObject
       QString forceType;         // 非空 → 跳过分类器结果改用此类型（确认表「改类型」）
       QString targetWellId;      // 显式选择；new:<井名> 仅来自用户新建意图
       QString expectedSourceSha256; // 用户已确认的预览内容，不得被后续源替换绕过
+      QString displayName;       // 非空 → 资产显示名（默认原文件 basename；物理 fileName 恒不动）
     };
 
     explicit DataImportService(PaleoProjectStore *store = nullptr, QObject *parent = nullptr);
@@ -91,6 +92,9 @@ class DataImportService : public QObject
     // 析——LAS 排序在井口前也照常挂到 A1。返回行按处理序排：well_head 行在
     // 前、其余行随后（各按路径排序）、Skipped 行缀在最后。
     // 行类型 = domain/importrows.h 的裸类型（二期别名已下线，全仓库直呼）。
+    // nameOverrides（o2/o3/importFiles 尾参）：确认表「显示名」列——key 是
+    // 源路径，value 是编辑后的显示名（空白值忽略，回退原文件 basename；
+    // 物理 fileName 恒不动）。
     QVector<FolderRowResult> importFolder(const QString &dirPath, QString *error = nullptr);
     // typeOverrides：确认表里用户改过类型的行——key 是源路径，value 是目标类型。
     // 只认分类器词表内的类型（projectClassifierTypes()）；非法值忽略，行按
@@ -102,7 +106,8 @@ class DataImportService : public QObject
         const QString &dirPath, QString *error,
         const QMap<QString, QString> &typeOverrides,
         const std::function<bool(int done, int total, const QString &path)> &progress =
-            {});
+            {},
+        const QMap<QString, QString> &nameOverrides = {});
     // 同上 + 「仍导入」改判（T2 确认表跳过策略）：forceImportPaths 里的
     // 「重复→跳过」行改判 as_new_version——同字节重登记交内部 dedup
     // （AlreadyStored + 补挂），不破坏 plan 期其余决策。
@@ -111,7 +116,8 @@ class DataImportService : public QObject
         const QMap<QString, QString> &typeOverrides,
         const QStringList &forceImportPaths,
         const std::function<bool(int done, int total, const QString &path)> &progress =
-            {});
+            {},
+        const QMap<QString, QString> &nameOverrides = {});
 
     // 单行重导（确认表「重试」）：forceType 口径同 typeOverrides 的单值
     // （空=按分类器；非法值忽略）。返回与 importFolder 相同口径的行结果；
@@ -138,12 +144,13 @@ class DataImportService : public QObject
     // 多选文件导入（文件列表口径）：与 importFolder 同一分类/身份匹配/
     // 去重/两阶段排序与确认表语义，来源是显式文件清单（目录成员如实跳行，
     // 提示走「导入工区文件夹」入口）。typeOverrides/forceImportPaths/progress
-    // 口径同 importFolder。
+    // 口径同 importFolder；nameOverrides 口径同 importFolder 的「显示名」列。
     QVector<FolderRowResult> importFiles(
         const QStringList &paths, QString *error = nullptr,
         const QMap<QString, QString> &typeOverrides = {},
         const QStringList &forceImportPaths = {},
-        const std::function<bool(int done, int total, const QString &path)> &progress = {});
+        const std::function<bool(int done, int total, const QString &path)> &progress = {},
+        const QMap<QString, QString> &nameOverrides = {});
     // 确认表预览（文件列表口径）：与 previewFolder 同一行语义，来源为文件清单。
     QVector<FolderPreviewRow> previewFiles(const QStringList &paths, QString *error = nullptr);
 
@@ -274,7 +281,8 @@ class DataImportService : public QObject
     static void produceFolder(
         ImportSession &s, const QString &dirPath, const QMap<QString, QString> &typeOverrides,
         const QStringList &forceImportPaths,
-        const std::function<bool(int done, int total, const QString &path)> &progress = {});
+        const std::function<bool(int done, int total, const QString &path)> &progress = {},
+        const QMap<QString, QString> &nameOverrides = {});
     static void produceFile(ImportSession &s, const QString &sourcePath,
                             const ImportOptions &options);
     static QVector<FolderPreviewRow> producePreview(
@@ -284,7 +292,8 @@ class DataImportService : public QObject
     static void produceFiles(
         ImportSession &s, const QStringList &paths, const QMap<QString, QString> &typeOverrides,
         const QStringList &forceImportPaths,
-        const std::function<bool(int done, int total, const QString &path)> &progress = {});
+        const std::function<bool(int done, int total, const QString &path)> &progress = {},
+        const QMap<QString, QString> &nameOverrides = {});
     static QVector<FolderPreviewRow> producePreviewForFiles(
         ImportSession &s, const QStringList &paths, QString *error,
         const std::function<bool(int filesSeen, const QString &path)> &scanProgress = {});
@@ -305,7 +314,8 @@ class DataImportService : public QObject
     static void produceFromPlan(
         ImportSession &s, IngestPlan plan, const QMap<QString, QString> &typeOverrides,
         const QStringList &forceImportPaths,
-        const std::function<bool(int done, int total, const QString &path)> &progress = {});
+        const std::function<bool(int done, int total, const QString &path)> &progress = {},
+        const QMap<QString, QString> &nameOverrides = {});
     // owner 线程内联：begin → produce → commit。off-thread → nullptr。
     std::shared_ptr<ImportSession>
     runInline(const std::function<void(ImportSession &)> &produce);
@@ -429,6 +439,10 @@ struct ImportSession
   bool cancelled = false;
   bool recoveryPending = false; // 保留未能清理的提交意图，重开工程时恢复
   QMap<QString, QString> wellTargets; // 源路径 → 确认表选择，produce 线程独占
+  // UI 默认只建索引（方向 D1）：produce 期输入，整批入口（produceFolder/
+  // produceFiles → produceItem）逐行下传 ImportOptions.linkExternal；
+  // io 层默认保持受管语义（false）——翻转只发生在 workflow/UI 侧。
+  bool linkExternal = false;
   QMap<QString, QString> expectedSourceHashes; // 预览时内容摘要，禁止旧确认导入新字节
   QStringList skippedPaths; // 用户保留现有数据：跳过本次文件，不创建任何实体
   // 预览时展示过的源路径全集（含跳过/重复行）。非空时 produceFolder 对执行期

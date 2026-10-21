@@ -501,4 +501,36 @@ private:
   CatalogEntity m_e;
 };
 
+// ---- 数据资产重命名（方向：数据对象自定义名称；catalog renameAsset 写路径）----
+class RenameAssetCmd : public DataOpCommand
+{
+public:
+  RenameAssetCmd(DataOpsContext ctx, QString assetId, QString prevName, QString nextName)
+    : m_ctx(ctx), m_assetId(std::move(assetId))
+    , m_prev(std::move(prevName)), m_next(std::move(nextName))
+  {
+  }
+  void redo() override
+  {
+    if (!m_ctx.valid())
+      return;
+    m_ctx.cat->renameAsset(m_assetId, m_next);
+  }
+  void undo() override
+  {
+    if (!m_ctx.valid())
+      return;
+    m_ctx.cat->renameAsset(m_assetId, m_prev);
+  }
+  QString text() const override
+  {
+    return QObject::tr("重命名 %1 → %2").arg(m_prev, m_next);
+  }
+  QByteArray id() const override { return QByteArray(); } // 不并栈
+
+private:
+  DataOpsContext m_ctx;
+  QString m_assetId, m_prev, m_next;
+};
+
 } // namespace paleo::dataops

@@ -6,6 +6,7 @@
 #include "ui/seismicsection/sectionsetupdialog.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "workflow/sectionworkbench.h"
+#include <QAction>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFile>
@@ -333,6 +334,66 @@ private slots:
     QTest::qWait(50);
     dialog.grab().save("/tmp/paleo-section-setup.png");
   }
+  // 吸附井序落盘：applyWellOrder 把给定序置顶并勾选，其余保相对序置未勾选。
+  void applyWellOrderReordersAndChecks() {
+    SectionSetupDialog dialog;
+    QVariantList rows{QVariantMap{{"id", "A"}, {"name", "A"}, {"coordinates", true}},
+                      QVariantMap{{"id", "B"}, {"name", "B"}, {"coordinates", true}},
+                      QVariantMap{{"id", "C"}, {"name", "C"}, {"coordinates", true}},
+                      QVariantMap{{"id", "D"}, {"name", "D"}, {"coordinates", true}}};
+    dialog.setWells(rows);
+    dialog.applyWellOrder({"C", "A"});
+    QCOMPARE(dialog.checkedWellIds(), QStringList({"C", "A"}));
+    auto *list = dialog.findChild<QListWidget *>("sectionWells");
+    QVERIFY(list);
+    QCOMPARE(list->count(), 4);
+    // 列表序 = 吸附序置顶，其余保持原相对序缀后
+    QCOMPARE(list->item(0)->data(Qt::UserRole).toMap().value("id").toString(),
+             QString("C"));
+    QCOMPARE(list->item(1)->data(Qt::UserRole).toMap().value("id").toString(),
+             QString("A"));
+    QCOMPARE(list->item(2)->data(Qt::UserRole).toMap().value("id").toString(),
+             QString("B"));
+    QCOMPARE(list->item(3)->data(Qt::UserRole).toMap().value("id").toString(),
+             QString("D"));
+    // 未知 id 不落行（吸附后井被删的边界——按现存行落）
+    dialog.applyWellOrder({"D", "ZZ"});
+    QCOMPARE(dialog.checkedWellIds(), QStringList({"D"}));
+    // 门控：勾选 <2 时生成与重排按钮双双收回
+    QVERIFY(!dialog.findChild<QPushButton *>("buildWellSection")->isEnabled());
+    QVERIFY(!dialog.findChild<QPushButton *>("spatialReorderBtn")->isEnabled());
+    dialog.applyWellOrder({"D", "B"});
+    QVERIFY(dialog.findChild<QPushButton *>("buildWellSection")->isEnabled());
+    QVERIFY(dialog.findChild<QPushButton *>("spatialReorderBtn")->isEnabled());
+  }
+
+  // 「按空间关系重排」菜单：勾选 <2 禁用；动作发 spatialReorderRequested
+  // （mode + 当前勾选井列表序）。
+  void spatialReorderButtonGateAndSignal() {
+    SectionSetupDialog dialog;
+    QVariantList rows{QVariantMap{{"id", "A"}, {"name", "A"}, {"coordinates", true}},
+                      QVariantMap{{"id", "B"}, {"name", "B"}, {"coordinates", true}},
+                      QVariantMap{{"id", "D"}, {"name", "D"}, {"coordinates", true}}};
+    dialog.setWells(rows);
+    auto *btn = dialog.findChild<QPushButton *>("spatialReorderBtn");
+    QVERIFY(btn);
+    QVERIFY(!btn->isEnabled()); // 勾选 <2 禁用
+    dialog.applyWellOrder({"B", "D"});
+    QVERIFY(btn->isEnabled());
+    QSignalSpy spy(&dialog, &SectionSetupDialog::spatialReorderRequested);
+    auto *nearest = dialog.findChild<QAction *>("spatialReorderNearest");
+    QVERIFY(nearest);
+    nearest->trigger();
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy[0][0].toString(), QString("nearest"));
+    QCOMPARE(spy[0][1].toStringList(), QStringList({"B", "D"}));
+    auto *pca = dialog.findChild<QAction *>("spatialReorderPca");
+    QVERIFY(pca);
+    pca->trigger();
+    QCOMPARE(spy.count(), 2);
+    QCOMPARE(spy[1][0].toString(), QString("pca"));
+  }
+
   void extractionAndCachePreserveDistanceScale() {
     const QString catalogPath = "/home/kevin/projects/paleo_data/artifacts/metadata/catalog.sqlite";
     if (!QFile::exists(catalogPath)) return;

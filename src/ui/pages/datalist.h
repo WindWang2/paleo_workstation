@@ -176,6 +176,8 @@ class DataListPanel : public QWidget
     // ---- 方向 79：井附件管理 ----
     void showWellAttachments(const QString &wellId); // 树「岩心照片」双击入口
     void removeAssetsSoft(const QStringList &assetIds); // 软删执行面（树/面板共用）
+    void renameSelectedAsset(); // datalist_indexops.cpp：重命名单选数据对象
+    void removeFromCatalogKeepFiles(); // datalist_indexops.cpp：索引级删除（文件一律不动）
     // ---- D3.2 外部文件拖入 → 导入队列 ----
     void handleExternalFiles(const QStringList &paths);
     // ---- D7 视图形态 ----

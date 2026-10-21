@@ -929,10 +929,10 @@ void DataListPanel::buildDataOpsUi()
   addShortcut("data.list.selectFiltered", "scSelectFiltered",
               [this] { selectByCurrentFilter(); });
   addShortcut("data.list.rename", "scRename", [this] {
-    // D4.1：树内实体节点 F2 → 实体重命名意图（EntityPanel/壳接）。
+    // 实体节点 F2 → 实体重命名意图（EntityPanel/壳接）；单选数据资产 F2 → 数据对象重命名。
     const QStringList ents = currentEntitySelection();
-    if (!ents.isEmpty())
-      emit entityRenameRequested(ents.front());
+    if (!ents.isEmpty()) { emit entityRenameRequested(ents.front()); return; }
+    if (currentAssetSelection().size() == 1) renameSelectedAsset();
   });
   addShortcut("data.list.shortcuts", "scShortcuts", [this] {
     emit shortcutsDialogRequested();

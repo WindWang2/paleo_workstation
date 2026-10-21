@@ -310,7 +310,8 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   asset.id = assetId;
   asset.type = cls.type;
   asset.format = cls.format;
-  asset.displayName = fi.fileName();
+  asset.displayName = options.displayName.trimmed().isEmpty() ? fi.fileName()
+                                                              : options.displayName.trimmed();
   if (!textWellInput && !cat->addAsset(asset, error))
     return fail(*error);
 

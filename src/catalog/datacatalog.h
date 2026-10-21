@@ -70,7 +70,7 @@ struct CatalogAsset
   QString id;
   QString type;         // 分类器类型（well_log / horizon / seismic / ...）
   QString format;       // 小写扩展名
-  QString displayName;  // 原始文件 basename
+  QString displayName;  // 导入时 = 源文件 basename；renameAsset 可改写（版本物理 fileName 不动）
 };
 
 struct CatalogVersion
@@ -228,6 +228,12 @@ class DataCatalog : public QObject
     bool addLink(const EntityAssetLink &l, QString *error = nullptr);
     // 更改单条关联；资产身份不变，同角色主关联冲突原子降级。
     bool updateLink(int index, const EntityAssetLink &link, QString *error = nullptr);
+
+    // 重命名数据资产（方向：数据对象自定义名称）：就地更新 assets.displayName。
+    // 物理文件名（CatalogVersion::fileName）不动。trim 后为空 → false+error；
+    // 同名 → true 无落盘（不空涨 revision，removeStaleVersions 同口径）。
+    // staging 副本拒绝（journal 无此 op——removeAsset 同一先例）。
+    bool renameAsset(const QString &assetId, const QString &newName, QString *error = nullptr);
 
     // 版本 extra 就地更新（方向 79 锚深后补编辑通道）。契约（定案判据
     // 「审计面与撤销语义」记录于 ledger 与 docs/progress）：导入元数据

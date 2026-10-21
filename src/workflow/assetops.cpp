@@ -527,4 +527,17 @@ int applyPendingResolutions(DataCatalog *cat, const QVector<int> &linkIndexes,
   return attached;
 }
 
+bool removeAssetsKeepFiles(DataCatalog *cat, const QStringList &assetIds,
+                           QString *error)
+{
+  if (!cat)
+  {
+    firstError(error, QStringLiteral("catalog is null"));
+    return false;
+  }
+  // 文件一律不动——removeAssets 本就只删索引（含血缘/staging 保护），
+  // 这里只是给「不接 purgeManagedFiles」的调用面一个显式名字。
+  return cat->removeAssets(assetIds, error);
+}
+
 } // namespace paleo::assetops

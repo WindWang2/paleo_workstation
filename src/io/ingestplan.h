@@ -44,6 +44,7 @@ struct PlannedItem
   QString duplicateOfVersionId;             // plan 期 sha 去重命中版本 id
   QString decision = QStringLiteral("accept"); // accept | skip | as_new_version
   QString note;
+  QString displayName;       // 确认表「显示名」列 override；空 = 原文件 basename
 };
 
 struct IngestPlan

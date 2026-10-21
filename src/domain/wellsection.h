@@ -209,6 +209,16 @@ FencePlan planFence(const QVector<Well> &wells, int targetSections);
 QStringList orderWellsByPosition(const QStringList &ids,
                                  const QVector<Well> &wellsWithCoords);
 
+// 最近邻链排序（连井剖面「按空间关系重排」）：从最西端井（x 最小；并列
+// y 最小；再并列输入序）起，每步取未访问井中平方距离最近者（距离并列取
+// 输入序靠前者）。缺坐标井保原相对序排末（orderWellsByPosition 同口径）。
+QStringList orderWellsNearestNeighbor(const QStringList &ids,
+                                      const QVector<Well> &wellsWithCoords);
+// 最近井查找（画线吸附）：返回 (x,y) 的 tol 地图单位内平方距离最近的有
+// 坐标井下标；并列取先出现者；无命中 → -1。
+int nearestWellWithin(const QVector<Well> &wellsWithCoords, double x, double y,
+                      double tolMapUnits);
+
 // 断层投绘：along ∈ [0,1] 井路径累计长分数，depth 为深度 m（z 向下正）。
 // 由断面 mesh ∩ 井径 curtain 求得（workflow 编排，渲染归视图）。
 struct FaultTracePoint {

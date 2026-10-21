@@ -278,6 +278,33 @@ std::vector<glm::dvec2> SectionWorkbench::wellRoute(const QStringList &ids,
   }
   return route;
 }
+QStringList SectionWorkbench::spatiallyOrderedWells(const QStringList &ids,
+                                                    const QString &mode) {
+  syncProject();
+  const QVector<wellsection::Well> wells = wellSnapWells();
+  if (mode == QLatin1String("nearest"))
+    return wellsection::orderWellsNearestNeighbor(ids, wells);
+  if (mode == QLatin1String("pca"))
+    return wellsection::orderWellsByPosition(ids, wells);
+  return ids; // 未知 mode 原样返回（调用方拼错不改序）
+}
+QVector<wellsection::Well> SectionWorkbench::wellSnapWells() {
+  syncProject();
+  QVector<wellsection::Well> out;
+  for (const auto &w : m_data.wells()) {
+    if ((w.coordinateStatus != QLatin1String("ok") &&
+         w.coordinateStatus != QLatin1String("untransformed")) ||
+        !std::isfinite(w.surfaceX) || !std::isfinite(w.surfaceY))
+      continue; // 与 wellRoute 同口径：无效坐标井不进吸附集
+    wellsection::Well snap;
+    snap.id = w.id;
+    snap.name = w.name;
+    snap.x = w.surfaceX;
+    snap.y = w.surfaceY;
+    out << snap;
+  }
+  return out;
+}
 std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     const std::shared_ptr<std::atomic_bool> &stop) {
   syncProject();

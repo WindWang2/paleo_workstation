@@ -76,3 +76,16 @@ QSettings `dataops/importPresets`：名称 → `{dirs: [...], typeMap:
 ```
 
 导入按钮（`importWells` 等）路径不变——壳的既有编排。
+
+## 9. 存储方式与数据对象命名（索引式导入）
+
+- **默认只建索引**：单文件向导、批量/文件夹确认表、拖入队列的导入默认
+  外链（`managed=false` + 源文件绝对路径 + 流式 SHA-256），不在工程目录
+  产生副本；向导/确认表的「将文件复制进工程目录（受管副本）」勾选切回
+  受管复制。SEG-Y 一律外链不变；io 层 `ImportOptions` 默认值仍为受管
+  （脚本口径稳定），默认翻转在 `FolderImportWorkflow` 编排层。
+- **导入时命名**：向导第 2 步「数据对象名称」与批量确认表「显示名」列
+  可改资产显示名（`ImportOptions.displayName` / `nameOverrides` 经
+  `PlannedItem` 贯通）；空/空白回退源文件 basename。版本物理 `fileName`
+  恒不随显示名改动，入库后可随时右键「重命名数据对象…」或 F2 再改
+  （`DataCatalog::renameAsset`，可撤销）。

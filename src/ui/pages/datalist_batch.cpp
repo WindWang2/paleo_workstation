@@ -524,6 +524,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     const char *text;
   } kTitles[] = {
     {"openPreview", QT_TR_NOOP("打开预览")},
+    {"renameAsset", QT_TR_NOOP("重命名数据对象…")},
     {"showVersions", QT_TR_NOOP("版本与回滚…")},
     {"gridHorizon", QT_TR_NOOP("网格化…")},
     {"editTops", QT_TR_NOOP("编辑分层…")},
@@ -538,6 +539,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     {"changeType", QT_TR_NOOP("改类型…")},
     {"exportManifest", QT_TR_NOOP("导出清单 CSV/JSON…")},
     {"removeSoft", QT_TR_NOOP("删除（可恢复）…")},
+    {"removeFromCatalog", QT_TR_NOOP("从目录移除（保留文件）…")},
     {"showInFolder", QT_TR_NOOP("在文件管理器中显示")},
     {"openExternal", QT_TR_NOOP("用系统程序打开")},
     {"renameEntity", QT_TR_NOOP("重命名实体…")},
@@ -572,6 +574,8 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     batchExportData();
   else if (key == QLatin1String("openPreview") || key == QLatin1String("openPreviewAll"))
     batchOpenPreview();
+  else if (key == QLatin1String("renameAsset"))
+    renameSelectedAsset();
   else if (key == QLatin1String("showVersions"))
     showVersionTable();
   else if (key == QLatin1String("gridHorizon"))
@@ -598,6 +602,8 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     batchExportManifest();
   else if (key == QLatin1String("removeSoft"))
     batchRemoveSoft();
+  else if (key == QLatin1String("removeFromCatalog"))
+    removeFromCatalogKeepFiles();
   else if (key == QLatin1String("showInFolder"))
   {
     const QSet<QString> ids = currentAssetSelection();

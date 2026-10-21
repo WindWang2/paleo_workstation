@@ -160,6 +160,46 @@ bool DataCatalog::removeAssets(const QStringList &assetIds, QString *error)
   return false;
 }
 
+// 数据对象重命名（方向：数据资产自定义名称）：就地更新 displayName，
+// 物理文件名不动。契约同 removeAssets——staging 副本拒绝（journal 无此 op），
+// save 失败内存还原；同名是真 no-op，不落盘不空涨 revision。
+bool DataCatalog::renameAsset(const QString &assetId, const QString &newName, QString *error)
+{
+  if (!checkWriteThread("renameAsset", error))
+    return false;
+  if (!ensureOpen(error))
+    return false;
+  if (m_staging)
+  {
+    setError(error, QStringLiteral("staging copy does not support renameAsset (journal has no rename op)"));
+    return false;
+  }
+  const QString trimmed = newName.trimmed();
+  if (trimmed.isEmpty())
+  {
+    setError(error, QStringLiteral("asset display name must not be empty"));
+    return false;
+  }
+  const int row = m_idx.assetRow(assetId);
+  if (row < 0)
+  {
+    setError(error, QStringLiteral("asset not found: %1").arg(assetId));
+    return false;
+  }
+  if (m_assets.at(row).displayName == trimmed)
+    return true; // 无操作成功：不落盘不涨 revision
+  const QString prev = m_assets.at(row).displayName;
+  m_assets[row].displayName = trimmed;
+  m_dirtyAssets.insert(assetId);
+  if (save(error))
+  {
+    ++m_mutationSeq; // 同 removeAssets 口径：成功变更推进基线序号（无 journal op）
+    return true;
+  }
+  m_assets[row].displayName = prev;
+  return false;
+}
+
 QString DataCatalog::nextAssetId()
 {
   if (!noteRead("nextAssetId"))

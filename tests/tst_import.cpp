@@ -1348,6 +1348,83 @@ private slots:
     QCOMPARE(reloaded.linksForAsset(asset).first().entityId, wells.first());
   }
 
+  // 导入时命名：ImportOptions.displayName 非空 → 资产显示名按用户给定；
+  // 版本物理 fileName 恒为原文件名；空 displayName → 回退原文件 basename。
+  void importDisplayNameOptionHonored()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString src = tmp.filePath(QStringLiteral("A9_log.las"));
+    QVERIFY(writeFile(src, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
+    DataImportService::ImportOptions opts;
+    opts.displayName = QStringLiteral("A9 主测井曲线");
+    QString err;
+    const auto res = svc.importProjectFileEx(src, opts, &err);
+    QVERIFY2(res.outcome != DataImportService::ImportOutcome::Failed, qPrintable(err));
+    QCOMPARE(svc.catalog()->assetById(res.assetId).displayName,
+             QStringLiteral("A9 主测井曲线"));
+    // 版本物理文件名保持原文件名
+    QCOMPARE(svc.catalog()->currentVersion(res.assetId).fileName,
+             QStringLiteral("A9_log.las"));
+
+    // 空 displayName → 回退原文件名
+    const QString src2 = tmp.filePath(QStringLiteral("B2_log.las"));
+    QVERIFY(writeFile(src2, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n200.0 60.0\n")));
+    const auto res2 = svc.importProjectFileEx(src2, {}, &err);
+    QVERIFY2(res2.outcome != DataImportService::ImportOutcome::Failed, qPrintable(err));
+    QCOMPARE(svc.catalog()->assetById(res2.assetId).displayName,
+             QStringLiteral("B2_log.las"));
+  }
+
+  // 批量确认表「显示名」列（nameOverrides）：经 plan 贯通到资产 displayName；
+  // 空白 override 忽略回退原文件 basename；版本物理 fileName 恒不动。
+  void batchNameOverridesApplied()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString a = tmp.filePath(QStringLiteral("E5_log.las"));
+    QVERIFY(writeFile(a, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n300.0 70.0\n")));
+    const QString b = tmp.filePath(QStringLiteral("F6_log.las"));
+    QVERIFY(writeFile(b, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n400.0 80.0\n")));
+
+    QString err;
+    const auto rows = svc.importFiles({a, b}, &err, {}, {}, {},
+                                      {{a, QStringLiteral("E5 井 * 新名字")},
+                                       {b, QStringLiteral("   ")}});
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(rows.at(0).outcome, FolderRowResult::Outcome::Imported);
+    QCOMPARE(rows.at(1).outcome, FolderRowResult::Outcome::Imported);
+    // 编辑过的显示名生效；空白 override 回退原文件 basename
+    QCOMPARE(svc.catalog()->assetById(rows.at(0).assetId).displayName,
+             QStringLiteral("E5 井 * 新名字"));
+    QCOMPARE(svc.catalog()->assetById(rows.at(1).assetId).displayName,
+             QStringLiteral("F6_log.las"));
+    // 物理文件名不随显示名改动
+    QCOMPARE(svc.catalog()->currentVersion(rows.at(0).assetId).fileName,
+             QStringLiteral("E5_log.las"));
+  }
+
   // 新 SHA-256 仍追加新资产。已决 well_log 不再把后导入的那份顶成唯一
   // 主关联：首份保持 isPrimary / ordinal 0，后份非主 / ordinal 1，两条都在。
   void newShaVersionDemotesPreviousPrimaryLink()
@@ -2516,6 +2593,54 @@ private slots:
     QCOMPARE(importedSpy.count(), kN);
     QCOMPARE(DataCatalog::threadViolationCount(), 0);
     QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
+  }
+
+  // 方向 D1：ImportSession.linkExternal 贯通整批入口（produceFiles →
+  // produceItem → importOneFile）——true 时产外链版本（managed=false、path
+  // 指回源、sha256 入库冻结），工程 artifacts/raw 下无该资产受管目录；
+  // io 层默认 false 保持受管语义（翻转只发生在 workflow/UI 侧）。
+  void sessionLinkExternalProducesUnmanagedVersion()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+
+    const QString src = tmp.filePath(QStringLiteral("L1.las"));
+    QVERIFY(writeFile(src, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. L1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n")));
+
+    const std::shared_ptr<ImportSession> session = svc.beginImport();
+    QVERIFY(session);
+    session->linkExternal = true;
+    DataImportService::produceFiles(*session, {src}, {}, {});
+    QCOMPARE(session->rows.size(), 1);
+    QCOMPARE(session->rows.first().outcome, FolderRowResult::Outcome::Imported);
+    QString err;
+    QCOMPARE(svc.commitImport(*session, &err), DataImportService::CommitStatus::Committed);
+
+    // 按 sourceUri 匹配源路径定位刚导入的资产（比行序/类型过滤更稳）。
+    const QString srcAbs = QDir::cleanPath(QFileInfo(src).absoluteFilePath());
+    QString assetId;
+    for (const CatalogAsset &a : cat->assets())
+      if (QDir::cleanPath(QFileInfo(cat->currentVersion(a.id).sourceUri)
+                              .absoluteFilePath()) == srcAbs)
+        assetId = a.id;
+    QVERIFY2(!assetId.isEmpty(), "linkExternal 导入的资产未按 sourceUri 找到");
+    const CatalogVersion v = cat->currentVersion(assetId);
+    QVERIFY(!v.managed);                                  // 外链，不复制
+    QCOMPARE(QDir::cleanPath(v.path), srcAbs);            // 路径指回源
+    QVERIFY(!v.sha256.isEmpty());                         // 入库时冻结摘要
+    QCOMPARE(v.sha256, sha256OfFile(src));
+    // 工程受管区没有该资产的字节目录。
+    QVERIFY(!QDir(QDir(projectDir).filePath(
+                      QStringLiteral("artifacts/raw/") + assetId))
+                 .exists());
+    QCOMPARE(cat->assets().size(), 1);
   }
 
   void folderImportRejectsBadRoots()

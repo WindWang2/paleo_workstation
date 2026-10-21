@@ -22,6 +22,37 @@
 #include <qgsrubberband.h>
 #include <qgsgeometry.h>
 
+// 剖面画布 → 地图定位接线（attachSections 拆出：hover 十字标 + 点击居中，
+// TimeSlice 域按测网几何换算）。只用入参局部，无壳成员。
+namespace {
+void wireSectionTraceLocate(SeismicMapLink *link,
+                            seismic::SeismicSectionDockWidget *dock) {
+  auto locate = [link, dock](bool clicked, int trace, double time, double depth,
+                             float amp, double x, double y) {
+    if (dock->canvas()->orientation() ==
+        seismic::SectionOrientation::TimeSlice) {
+      const auto grid = link->gridGeometry();
+      if (!grid.valid)
+        return;
+      const double inl = y, xl = x;
+      grid.inlineXlineToXy(inl, xl, &x, &y);
+    }
+    if (clicked)
+      link->onSectionTraceClicked(trace, time, depth, amp, x, y);
+    else
+      link->onSectionTraceHovered(trace, time, depth, amp, x, y);
+  };
+  QObject::connect(dock->canvas(), &seismic::SeismicSectionCanvas::traceHovered, link,
+          [locate](int a, double b, double c, float d, double e, double f) {
+            locate(false, a, b, c, d, e, f);
+          });
+  QObject::connect(dock->canvas(), &seismic::SeismicSectionCanvas::traceClicked, link,
+          [locate](int a, double b, double c, float d, double e, double f) {
+            locate(true, a, b, c, d, e, f);
+          });
+}
+} // namespace
+
 void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   m_sectionLink = link;
   if (!link || !m_seismicSectionDock || !m_previewDoc)
@@ -114,39 +145,14 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
               refresh();
             }
           });
-  auto locate = [link, dock](bool clicked, int trace, double time, double depth,
-                             float amp, double x, double y) {
-    if (dock->canvas()->orientation() ==
-        seismic::SectionOrientation::TimeSlice) {
-      const auto grid = link->gridGeometry();
-      if (!grid.valid)
-        return;
-      const double inl = y, xl = x;
-      grid.inlineXlineToXy(inl, xl, &x, &y);
-    }
-    if (clicked)
-      link->onSectionTraceClicked(trace, time, depth, amp, x, y);
-    else
-      link->onSectionTraceHovered(trace, time, depth, amp, x, y);
-  };
-  connect(dock->canvas(), &seismic::SeismicSectionCanvas::traceHovered, link,
-          [locate](int a, double b, double c, float d, double e, double f) {
-            locate(false, a, b, c, d, e, f);
-          });
-  connect(dock->canvas(), &seismic::SeismicSectionCanvas::traceClicked, link,
-          [locate](int a, double b, double c, float d, double e, double f) {
-            locate(true, a, b, c, d, e, f);
-          });
+  wireSectionTraceLocate(link, dock);
   connect(link, &SeismicMapLink::sectionExtractedFromMap, this,
           [report, setup, drawingFromSetup](bool ok, const QString &error) {
             if (*drawingFromSetup)
             {
               *drawingFromSetup = false;
-              if (!ok)
-              {
-                setup->show();
-                setup->raise();
-              }
+              setup->show(); // 成功也唤回：接着做时深对齐/保存版本（吸附成线即回）
+              setup->raise();
             }
             if (!ok)
               report(error);
@@ -221,7 +227,8 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   // R4 信号化（方向 49）：任意剖面捕获工具归壳持有——linkage 只发
   // sectionCaptureRequested 意图（先例 threewaylocator）；工具的路径完成
   // 接回 linkage 的折线提取入口，Esc 取消直通其取消信号。
-  connect(link, &SeismicMapLink::sectionCaptureRequested, this, [this] {
+  connect(link, &SeismicMapLink::sectionCaptureRequested, this,
+          [this, workbench, setup] {
     QgsMapCanvas *canvas = m_canvasCtl ? m_canvasCtl->canvas() : nullptr;
     if (!canvas)
       return;
@@ -230,6 +237,12 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
       m_sectionCaptureTool = new SeismicSectionTool(canvas);
       connect(m_sectionCaptureTool, &SeismicSectionTool::sectionPathCaptured,
               m_sectionLink, &SeismicMapLink::onSectionPathCaptured);
+      // 吸附成线的井序同步回设置对话框（≥2 口 → 勾选与顺序随吸附序）。
+      connect(m_sectionCaptureTool, &SeismicSectionTool::sectionPathCaptured,
+              setup, [setup](const QVector<QgsPointXY> &, const QStringList &wellIds) {
+                if (wellIds.size() >= 2)
+                  setup->applyWellOrder(wellIds);
+              });
       connect(m_sectionCaptureTool, &SeismicSectionTool::captureCancelled,
               m_sectionLink, &SeismicMapLink::sectionCaptureCancelled);
       // 画布先死则置空不 delete（工具析构会碰已死场景的橡皮带——
@@ -238,6 +251,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
         m_sectionCaptureTool = nullptr;
       });
     }
+    m_sectionCaptureTool->setSnapWells(workbench->wellSnapWells()); // 每次激活前刷新井集
     canvas->setMapTool(m_sectionCaptureTool);
   });
   connect(setup, &SectionSetupDialog::buildRequested, this,
@@ -253,6 +267,11 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
               line << QgsPointXY(p.x, p.y);
             link->triggerSectionFromMapPolyline(
                 line, QObject::tr("连井剖面 · %1 口井").arg(ids.size()));
+          });
+  // 「按空间关系重排」：算法在 workbench（domain 纯函数），结果落回列表。
+  connect(setup, &SectionSetupDialog::spatialReorderRequested, this,
+          [workbench, setup](const QString &mode, const QStringList &ids) {
+            setup->applyWellOrder(workbench->spatiallyOrderedWells(ids, mode));
           });
   connect(
       setup, &SectionSetupDialog::calibrationRequested, this,

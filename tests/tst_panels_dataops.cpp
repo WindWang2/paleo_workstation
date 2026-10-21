@@ -146,7 +146,13 @@ class TestPanelsDataOps : public QObject
         QVERIFY(singleActs.contains(QStringLiteral("setPrimary")));
         QVERIFY(singleActs.contains(QStringLiteral("editRole")));
         QVERIFY(singleActs.contains(QStringLiteral("openExternal")));
+        // 数据对象重命名：单资产（非 mixed）给入口，紧随「打开预览」。
+        QVERIFY(singleActs.contains(QStringLiteral("renameAsset")));
+        QCOMPARE(singleActs.indexOf(QStringLiteral("renameAsset")),
+                 singleActs.indexOf(QStringLiteral("openPreview")) + 1);
         QVERIFY(!singleActs.contains(QStringLiteral("removeSoft")));
+        // 索引级删除（只删数据对象，文件一律不动）：单/多/混合资产面都给。
+        QVERIFY(singleActs.contains(QStringLiteral("removeFromCatalog")));
         // goal/gridding-surface-ops：非层位单资产不给「网格化」。
         QVERIFY(!singleActs.contains(QStringLiteral("gridHorizon")));
         ContextMenuSpec singleHorizon = singleResolved;
@@ -167,6 +173,7 @@ class TestPanelsDataOps : public QObject
         QVERIFY(multiActs.contains(QStringLiteral("attachToEntity")));
         QVERIFY(multiActs.contains(QStringLiteral("exportManifest")));
         QVERIFY(multiActs.contains(QStringLiteral("removeSoft")));
+        QVERIFY(multiActs.contains(QStringLiteral("removeFromCatalog")));
         QVERIFY(multiActs.contains(QStringLiteral("openPreviewAll")));
         QVERIFY(!multiActs.contains(QStringLiteral("openExternal")));
         // 异构选中：资产 + 实体 → 公共子集（资产操作）+ 实体定位，不给实体 CRUD。
@@ -177,6 +184,7 @@ class TestPanelsDataOps : public QObject
         mixed.entityCount = 1;
         const QStringList mixedActs = contextMenuActions(mixed);
         QVERIFY(mixedActs.contains(QStringLiteral("focusEntities")));
+        QVERIFY(mixedActs.contains(QStringLiteral("removeFromCatalog")));
         QVERIFY(!mixedActs.contains(QStringLiteral("renameEntity")));
         QVERIFY(!mixedActs.contains(QStringLiteral("deleteEntity")));
         // 纯实体：实体 CRUD 面。
@@ -1487,6 +1495,42 @@ class TestPanelsDataOps : public QObject
                 freePrimary = l.isPrimary;
         QVERIFY(a1Primary);  // 撤销恢复 A1.las 为主
         QVERIFY(!freePrimary);
+    }
+
+    void dataops_d5_renameAssetCmdUndoRedo()
+    {
+        using namespace paleo::dataops;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog()); // astResolved 显示名 "A1.las"
+        // 与 dataops_d5_mergeAdjacentSameKind 同一装配：valid() 要求五指针齐。
+        DataOpsContext ctx;
+        ctx.cat = svc.catalog();
+        TagStore tags;
+        AssetOverrideStore ovs;
+        EntityOverrideStore evs;
+        RecycleBin bin;
+        tags.load(ctx.cat);
+        ovs.load(ctx.cat);
+        evs.load(ctx.cat);
+        bin.load(ctx.cat);
+        ctx.tags = &tags;
+        ctx.assetOverrides = &ovs;
+        ctx.entityOverrides = &evs;
+        ctx.recycle = &bin;
+        RenameAssetCmd cmd(ctx, fx.astResolved, QStringLiteral("A1.las"),
+                           QStringLiteral("新名字"));
+        cmd.redo();
+        QCOMPARE(svc.catalog()->assetById(fx.astResolved).displayName,
+                 QStringLiteral("新名字"));
+        cmd.undo();
+        QCOMPARE(svc.catalog()->assetById(fx.astResolved).displayName,
+                 QStringLiteral("A1.las"));
+        // 不并栈契约：id() 为空。
+        QVERIFY(cmd.id().isEmpty());
     }
 
     void dataops_d5_undoRedoButtonsShowOperationName()

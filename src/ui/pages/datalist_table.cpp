@@ -1,5 +1,6 @@
 // 层：视图
 #include "datalist.h"
+#include "../dialogs/folderconfirm.h"
 #include "../../services/previewdoc.h" // m_doc->… 成员调用需完整类型
 #include "datalistops.h"
 #include "assetentitychoicemodel.h"
@@ -72,7 +73,7 @@ void DataListPanel::refreshAssetTable()
     typeFilter->addItem(tr("所有类型"), QString());
     for (const QString &t : types)
     {
-      QString label = t;
+      QString label = PaleoFolderConfirm::folderTypeLabel(t);
       if (t == QLatin1String("well_log")) label = tr("测井曲线 (well_log)");
       else if (t == QLatin1String("well_head")) label = tr("井位/井身 (well_head)");
       else if (t == QLatin1String("tops")) label = tr("井分层 (tops)");

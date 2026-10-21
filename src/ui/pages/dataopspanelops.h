@@ -8,6 +8,8 @@
 //   · 上下文菜单矩阵（D1.3：单选/多选/异构选中分流）+ 单项操作
 #pragma once
 
+#include "../dialogs/folderconfirm.h"
+
 #include <QCheckBox>
 #include <QClipboard>
 #include <QHeaderView>
@@ -147,7 +149,8 @@ public:
     lay->addWidget(m_names);
     m_combo = new QComboBox(this);
     m_combo->setObjectName(QStringLiteral("batchTypeCombo"));
-    m_combo->addItems(typeVocab);
+    for (const QString &type : typeVocab)
+      m_combo->addItem(PaleoFolderConfirm::folderTypeLabel(type), type);
     lay->addWidget(m_combo);
     m_note = new QLabel(this);
     m_note->setWordWrap(true);
@@ -160,7 +163,7 @@ public:
     lay->addWidget(box);
   }
   void setNote(const QString &n) { m_note->setText(n); }
-  QString chosenType() const { return m_combo->currentText(); }
+  QString chosenType() const { return m_combo->currentData().toString(); }
   int chosenIndex() const { return m_combo->currentIndex(); }
 
 private:

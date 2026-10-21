@@ -97,6 +97,8 @@ class ConstraintPage : public QWidget
     // ---- 方向23：已绘约束线编辑面 ----
     void constraintParametersRequested(const QString &horizon, const QStringList &ids, const QVariantMap &patch);
     void constraintSelectionChanged(const QString &horizon, const QStringList &ids);
+    // 双击约束行：在地图上选中并缩放到该线（定位问题约束）。
+    void constraintLocateRequested(const QString &horizon, const QString &constraintId);
     void editConstraintVerticesRequested(const QString &horizon);
     void constraintDeleteRequested(const QString &horizon, const QString &constraintId);
     void constraintSemanticChangeRequested(const QString &horizon, const QString &constraintId,
@@ -145,6 +147,7 @@ class ConstraintPage : public QWidget
     void rebuildBoundaryCombo( QComboBox *boundaryCombo );
     void invalidateWellFactors();
     void updateWellFactorActionState();
+    void refreshWellFactorGeoHint();
     void markInputsStale();
     void loadSelectedConstraintLine();
     // 按当前成图方法重算逐条约束「可用/参与」状态、提示与就绪门（不重读 store）。

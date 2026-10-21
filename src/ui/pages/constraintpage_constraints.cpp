@@ -50,7 +50,7 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   auto *cell = findChild<QDoubleSpinBox *>( QStringLiteral( "factorCellSizeSpin" ) );
 
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md：单因素区与约束区分组
-  auto *constraintCaption = caption(tr("约束线 · 先准备间隔线和方向线，再提取井点"), this);
+  auto *constraintCaption = caption(tr("约束线 · 可选：考虑断层或展布方向时绘制"), this);
   constraintCaption->setObjectName(QStringLiteral("factorConstraintCaption"));
   constraintCaption->setWordWrap(true);
   lay->addWidget(constraintCaption);
@@ -66,6 +66,13 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
     emit constraintSelectionChanged(h ? h->currentText() : QString(), ids);
     updateFactorActionStates();
   });
+  connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *item) {
+    if (!item)
+      return;
+    auto *h = child<QComboBox>(this, "horizonCombo");
+    emit constraintLocateRequested(h ? h->currentText() : QString(), item->data(Qt::UserRole).toString());
+  });
+  list->setToolTip(tr("双击在地图上定位该约束"));
   lay->addWidget( list, 1 );
   connect( list, &QListWidget::currentItemChanged, this, [this]( QListWidgetItem *, QListWidgetItem * ) {
     loadSelectedConstraintLine();
@@ -652,7 +659,10 @@ void ConstraintPage::applyConstraintUsePlan()
       item->setToolTip( status );
     }
   }
-  setProperty( "paleo.page.constraintsready", plan.availableBarriers > 0 && plan.availableDirections > 0 );
+  // 单一事实来源：约束线可选；只有当前方法会因约束整次拒绝时才阻止生成。
+  const paleo::singlefactor::ConstraintReadiness readiness = paleo::singlefactor::assessConstraintReadiness( plan );
+  setProperty( "paleo.page.constraintsready", readiness.runAllowed );
+  setProperty( "paleo.page.constraintreadinessmessage", readiness.message );
   if ( auto *hint = child<QLabel>( this, "factorConstraintHint" ) )
   {
     QString text = tr( "本层位：%1 条间隔线、%2 条方向线可用" ).arg( plan.availableBarriers ).arg( plan.availableDirections );
@@ -669,7 +679,7 @@ void ConstraintPage::applyConstraintUsePlan()
     text += tr( "。当前方法实际参与 %1 条" ).arg( plan.consumed );
     if ( plan.blocking > 0 )
       text += tr( "，%1 条参数越界会使运行被拒绝" ).arg( plan.blocking );
-    text += tr( "。%1 绘制、导入自动保存；顶点编辑需保存编辑会话。准备两类线后，再提取井点数据。" )
+    text += tr( "。%1 绘制、导入自动保存；顶点编辑需保存编辑会话。" )
                 .arg( plan.capabilityNote );
     hint->setToolTip(text);
     QString summary = tr("本层位：%1 条间隔线、%2 条方向线可用；当前方法参与 %3 条。")
@@ -680,9 +690,7 @@ void ConstraintPage::applyConstraintUsePlan()
       summary += tr("%1 条未类型化，请指定约束语义。").arg(untyped);
     if (plan.blocking > 0)
       summary += tr("%1 条参数越界，需修正后运行。").arg(plan.blocking);
-    summary += property("paleo.page.constraintsready").toBool()
-                   ? tr("两类线已就绪，可提取井点数据。")
-                   : tr("提取井点前，两类线需各至少 1 条有效约束。");
+    summary += readiness.message;
     hint->setText(summary);
   }
   updateFactorActionStates();

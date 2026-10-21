@@ -54,6 +54,26 @@ QLabel *ConstraintPage::buildFieldAndCellRows( QVBoxLayout *lay )
 
 void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
 {
+  auto *taskCaption = caption( tr( "计算目标（推荐起点）" ), content );
+  taskCaption->setObjectName( QStringLiteral( "factorTaskCaption" ) );
+  lay->addWidget( taskCaption );
+  auto *task = new QComboBox( content );
+  task->setObjectName( QStringLiteral( "factorTaskCombo" ) );
+  task->addItem( tr( "快速查看井点趋势" ), QStringLiteral( "local_direction_idw" ) );
+  task->addItem( tr( "考虑断层或沉积相界约束" ), QStringLiteral( "local_direction_idw" ) );
+  task->addItem( tr( "考虑沉积展布方向" ), QStringLiteral( "local_direction_idw" ) );
+  task->addItem( tr( "地统计估计并检查误差" ), QStringLiteral( "kriging" ) );
+  task->addItem( tr( "分析多种可能的模拟结果" ), QStringLiteral( "sgs" ) );
+  task->addItem( tr( "手动选择高级算法…" ), QString() );
+  task->setAccessibleName( tr( "计算目标" ) );
+  lay->addWidget( task );
+  auto *taskNote = new QLabel( content );
+  PaleoTheme::applyThemedStyleSheet( taskNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
+  taskNote->setObjectName( QStringLiteral( "factorTaskNote" ) );
+  taskNote->setWordWrap( true );
+  taskNote->setText( tr( "推荐只提供合理起点；是否消费约束以当前方法能力为准，见下方说明。" ) );
+  lay->addWidget( taskNote );
+
   auto *methodCaption = caption( tr( "成图方法" ), content );
   methodCaption->setObjectName( QStringLiteral( "factorMethodCaption" ) );
   lay->addWidget( methodCaption );
@@ -93,6 +113,14 @@ void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
   updateStrategyNote();
   connect( method, &QComboBox::currentIndexChanged, method, updateStrategyNote );
   lay->addWidget( strategyNote );
+  connect( task, &QComboBox::currentIndexChanged, this, [task, method]() {
+    const QString id = task->currentData().toString();
+    if ( id.isEmpty() )
+      return;
+    const int i = method->findData( id );
+    if ( i >= 0 )
+      method->setCurrentIndex( i );
+  } );
 
   auto *coverageCaption = caption( tr( "覆盖方式" ), content );
   coverageCaption->setObjectName( QStringLiteral( "factorCoverageCaption" ) );
@@ -520,6 +548,7 @@ void ConstraintPage::updateInterpolationVisibility( bool interpolant,
                                                     bool isopach, bool confidence )
 {
   const QStringList interpolationNames = {
+      QStringLiteral( "factorTaskCaption" ), QStringLiteral( "factorTaskCombo" ), QStringLiteral( "factorTaskNote" ),
       QStringLiteral( "factorMethodCaption" ), QStringLiteral( "factorMethodCombo" ),
       QStringLiteral( "factorCoverageCaption" ), QStringLiteral( "factorCoverageCombo" ),
       QStringLiteral( "factorAdvancedSection" ), QStringLiteral( "factorAdvancedOptionsSection" ),
@@ -579,7 +608,7 @@ void ConstraintPage::updateInterpolationVisibility( bool interpolant,
   findChild<QWidget *>(QStringLiteral("directionFamilySection"))->setVisible(interpolant);
   child<QLabel>(this, "factorConstraintHint")->setVisible(interpolant);
   if (auto *caption = child<QLabel>(this, "factorConstraintCaption"))
-    caption->setText(interpolant ? tr("约束线 · 先准备间隔线和方向线，再提取井点")
+    caption->setText(interpolant ? tr("约束线 · 可选：考虑断层或展布方向时绘制")
                                 : tr("约束线 · 用于绕障距离计算"));
 }
 

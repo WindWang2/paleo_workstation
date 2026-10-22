@@ -5,9 +5,13 @@
 #include "welltabletext.h"
 #include "../domain/wellnumeric.h"
 #include <QFileInfo>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QTextStream>
 #include <cmath>
+#include <algorithm>
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
 
@@ -151,6 +155,26 @@ QString wellSourceCrsHint(const QString &text) { return inferredCrs(text); }
 QVector<WellTopRecord> readWellTableBases(const QString &path)
 {
   const auto extension = QFileInfo(path).suffix().toLower();
+  if (extension == "dat") {
+    QFile file(path); if (!file.open(QIODevice::ReadOnly)) return {};
+    const auto bytes = file.readAll(); const auto tops = parseWellTopsText(bytes);
+    QVector<WellTopRecord> out;
+    for (const auto &line : bytes.split('\n')) {
+      const QByteArray prefix("# PaleoLayerInterval: "); if (!line.startsWith(prefix)) continue;
+      const auto row = QJsonDocument::fromJson(line.mid(prefix.size())).object();
+      const auto current = std::find_if(tops.cbegin(), tops.cend(), [&](const auto &top) {
+        return top.wellName == row.value("well").toString() && top.topName == row.value("layer").toString();
+      });
+      if (current == tops.cend() || current->hasMd != row.contains("topMd") || current->hasTvd != row.contains("topTvd")) continue;
+      if ((current->hasMd && std::abs(current->md - row.value("topMd").toDouble()) >= .001) ||
+          (current->hasTvd && std::abs(current->tvd - row.value("topTvd").toDouble()) >= .001)) continue;
+      WellTopRecord base; base.wellName = current->wellName; base.topName = current->topName;
+      base.hasMd = row.contains("baseMd"); base.md = row.value("baseMd").toDouble();
+      base.hasTvd = row.contains("baseTvd"); base.tvd = row.value("baseTvd").toDouble();
+      if (base.hasMd || base.hasTvd) out << base;
+    }
+    return out;
+  }
   const auto workbook = extension == "xlsx" ? readWorkbook(path) : readWellDelimitedTable(path);
   WellTable out;
   if (workbook.ok) for (const auto &sheet : workbook.sheets) parseSheet(out, sheet, {}, true);
@@ -182,12 +206,33 @@ WellTable readWellTable(const QString &path, const QVariantMap &mapping)
   if (wb.format == QLatin1String("headerless")) out.mapping.insert(QStringLiteral("headerless"), true);
   if (!projectWellCoordinates(&out.heads, out.crs, mapping.value("projectCrs").toString(), &out.error)) return out;
   if (out.type.isEmpty()) out.error = QStringLiteral("未识别到井名与坐标，或层位与深度列，请调整字段对应关系");
-  if (out.type == QLatin1String("well_stratification")) out.normalized = writeWellTopsText(out.tops);
+  if (out.type == QLatin1String("well_stratification")) {
+    WellTable bases;
+    for (const auto &sheet : wb.sheets) {
+      if (!mapping.value("sheet").toString().isEmpty() && sheet.name != mapping.value("sheet").toString()) continue;
+      parseSheet(bases, sheet, mapping, true);
+    }
+    out.normalized = writeWellLayerTable(out.tops, bases.tops);
+  }
   else {
     QTextStream stream(&out.normalized);
     stream.setRealNumberPrecision(17);
     for (const auto &h : out.heads) stream << h.name << '\t' << h.x << '\t' << h.y << '\t' << (std::isfinite(h.kb) ? QString::number(h.kb, 'g', 17) : "-99999") << '\t' << (std::isfinite(h.td) ? QString::number(h.td, 'g', 17) : "-99999") << '\n';
   }
   return out;
+}
+QByteArray writeWellLayerTable(const QVector<WellTopRecord> &tops, const QVector<WellTopRecord> &bases) {
+    auto bytes = writeWellTopsText(tops);
+    for (const auto &base : bases) {
+      const auto top = std::find_if(tops.cbegin(), tops.cend(), [&](const auto &t) { return t.wellName == base.wellName && t.topName == base.topName; });
+      if (top == tops.cend()) continue;
+      QJsonObject row{{"well", base.wellName}, {"layer", base.topName}};
+      if (top->hasMd) row.insert("topMd", top->md);
+      if (top->hasTvd) row.insert("topTvd", top->tvd);
+      if (base.hasMd && (!top->hasMd || base.md > top->md)) row.insert("baseMd", base.md);
+      if (base.hasTvd && (!top->hasTvd || base.tvd > top->tvd)) row.insert("baseTvd", base.tvd);
+      bytes += "# PaleoLayerInterval: " + QJsonDocument(row).toJson(QJsonDocument::Compact) + '\n';
+    }
+    return bytes;
 }
 }

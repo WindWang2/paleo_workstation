@@ -50,10 +50,12 @@ bool storeNormalizedWellTable(ImportSession &s, const CatalogVersion &raw, const
   if (!s.ensureStagingRoot(error)) return false;
   CatalogVersion v;
   v.id = s.cat->nextVersionId(); v.assetId = raw.assetId;
-  v.stage = QStringLiteral("DERIVED"); v.versionNumber = 2; v.managed = true;
+  v.stage = QStringLiteral("DERIVED"); v.versionNumber = s.cat->currentVersion(raw.assetId).versionNumber + 1; v.managed = true;
   v.fileName = QStringLiteral("well_data.dat");
   v.path = QStringLiteral("artifacts/") + DataCatalog::managedPath(QStringLiteral("derived"), v.assetId, v.id, v.fileName);
   v.sourceUri = raw.sourceUri; v.parentVersionIds = {raw.id};
+  for (const auto &input : raw.extra.value("depthResolution").toMap().value("input_versions").toStringList())
+    if (!v.parentVersionIds.contains(input)) v.parentVersionIds << input;
   v.sha256 = QString::fromLatin1(QCryptographicHash::hash(text, QCryptographicHash::Sha256).toHex());
   v.extra = raw.extra;
   v.extra.insert(QStringLiteral("generatedFrom"), raw.id);

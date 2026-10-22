@@ -1,4 +1,5 @@
 // 层：数据
+#include "welltable.h"
 // 方向57：从 dataimportservice.cpp 按格式族析出。公共 API（dataimportservice.h）
 // 零改动；跨族共享辅助（setError/readFileOrEmpty/FamilyContext）经
 // dataimport_internal.h；importOneFile 分支体族函数亦声明于该头。
@@ -489,6 +490,7 @@ void DataImportService::produceFromPlan(
   sess.rows += executedRows;
   sess.rows += lateRows; // F1 迟到 Skipped 行按契约缀尾
   sess.error = errText;
+  if (sess.error.isEmpty() && !sess.cancelled && !paleo::io::resolveImportedWellDepths(sess, error)) sess.error = errText;
 }
 
 // ---------------------------------------------------------------------------

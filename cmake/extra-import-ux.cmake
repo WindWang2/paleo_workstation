@@ -15,6 +15,7 @@ endif()
 target_sources(paleo_store PRIVATE src/metadata/nativereference.cpp)
 target_sources(paleo_qgis PRIVATE src/qgis/projectnativegrid.cpp)
 target_sources(paleo_io PRIVATE src/io/welltable.cpp src/io/welltableimport.cpp
+  src/io/cuttingsimport.cpp src/io/welllayerdepthimport.cpp
   src/io/projectsetupscan.cpp src/io/projectboundary.cpp src/io/horizonnativegrid.cpp src/io/welltabletext.cpp src/io/welltableprojection.cpp)
 target_sources(paleo_io PRIVATE src/io/projectsetupmaps.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/projectsetup.cpp src/workflow/projectsetupmaps.cpp)

@@ -139,6 +139,9 @@ CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet )
     const QString rawBase = cell( baseColumn );
     const QString rawLitho = cell( lithoColumn );
     const QString rawColor = cell( colorColumn );
+    // 录井常写「浅灰/灰黑」；显示词表以「色」分界，保留原表且统一副本词面。
+    const QString color = QRegularExpression(QStringLiteral("^[浅深灰黑白黄红绿紫褐棕蓝]{1,3}$")).match(rawColor).hasMatch()
+        ? rawColor + QStringLiteral("色") : rawColor;
     if ( rawTop.isEmpty() && rawBase.isEmpty() && rawLitho.isEmpty() )
       continue; // 全空行：无信息可判，直接跳过（与上游口径一致）
     const int rowNumber =
@@ -175,8 +178,8 @@ CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet )
     CuttingsInterval interval;
     interval.topMd = topMd;
     interval.baseMd = baseMd;
-    interval.litho = ( !rawColor.isEmpty() && !rawLitho.startsWith( rawColor ) )
-                         ? rawColor + rawLitho
+    interval.litho = ( !color.isEmpty() && !rawLitho.startsWith( color ) )
+                         ? color + rawLitho
                          : rawLitho;
     interval.description = cell( descriptionColumn );
     interval.rowNumber = rowNumber;

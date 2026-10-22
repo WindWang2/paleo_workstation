@@ -16,6 +16,16 @@ QVector<WellTopRecord> previewWellBases(DataCatalog *catalog, const QString &wel
     if (link.role == "tops" && !link.unresolved && (version.id.isEmpty() || link.isPrimary)) {
       version = catalog->currentVersion(link.assetId); if (link.isPrimary) break;
     }
+  // 新导入的受管标准表已保留顶/底界；不依赖外链原件或 Office 工作簿。
+  const auto name = DataCatalog::normalizeWellName(catalog->entityById(wellId).name);
+  const auto managed = catalog->versionFilePath(version);
+  if (version.managed && QFileInfo(managed).suffix().compare("dat", Qt::CaseInsensitive) == 0) {
+    auto stored = paleo::io::readWellTableBases(managed);
+    stored.erase(std::remove_if(stored.begin(), stored.end(), [&](const auto &base) {
+      return DataCatalog::normalizeWellName(base.wellName) != name;
+    }), stored.end());
+    if (!stored.isEmpty()) return stored;
+  }
   QSet<QString> seen;
   while (version.stage != "RAW" && !version.parentVersionIds.isEmpty() && !seen.contains(version.id)) {
     seen.insert(version.id); version = catalog->versionById(version.parentVersionIds.first());
@@ -31,7 +41,6 @@ QVector<WellTopRecord> previewWellBases(DataCatalog *catalog, const QString &wel
   const auto originals = paleo::io::readWellTable(path).tops;
   const auto bases = paleo::io::readWellTableBases(path);
   if (DataCatalog::sha256FileHex(path) != version.sha256) return unavailable();
-  const auto name = DataCatalog::normalizeWellName(catalog->entityById(wellId).name);
   QVector<WellTopRecord> out;
   for (const auto &base : bases) {
     if (DataCatalog::normalizeWellName(base.wellName) != name) continue;

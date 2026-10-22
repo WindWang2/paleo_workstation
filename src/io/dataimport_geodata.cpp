@@ -47,6 +47,8 @@
 #include <algorithm>
 #include <cstdio>
 #include "dataimport_internal.h"
+#include "projectcoordinates.h"
+#include "welltable.h"
 
 using paleo::dataimport_detail::setError;
 using paleo::dataimport_detail::readFileOrEmpty;
@@ -178,7 +180,8 @@ QString importHorizonFamily(FamilyContext &ctx)
             .arg(LasParser::fileSizeLimit() / (1024 * 1024))
             .arg(sourcePath);
       BinnedHorizon binned;
-      if (!binHorizon(f.readAll(), &binned, error))
+      const auto horizonText = f.readAll();
+      if (!binHorizon(horizonText, &binned, error))
         return *error;
 
       const QString derivedVersionId =
@@ -206,6 +209,10 @@ QString importHorizonFamily(FamilyContext &ctx)
                         .arg(QFileInfo(stagedTif).absolutePath());
       if (!writeHorizonGeoTiff(binned, stagedTif, error))
         return *error;
+      auto sourceCrs = paleo::io::wellSourceCrsHint(QString::fromUtf8(horizonText.left(8192)));
+      if (sourceCrs.isEmpty()) sourceCrs = ctx.inputCrs;
+      const auto targetCrs = s.georeference && s.georeference->kind == "crs" ? s.georeference->sourceCrs : QString();
+      if (!paleo::io::projectRasterFile(stagedTif, targetCrs, error, sourceCrs)) return *error;
       QFile::setPermissions(stagedTif, QFileDevice::ReadOwner | QFileDevice::ReadUser |
                                            QFileDevice::ReadGroup | QFileDevice::ReadOther);
       // B3：派生时间栅格同批接线——Lazy ensure 瓦片金字塔（近零开销）。提交
@@ -463,7 +470,8 @@ QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
                 .arg(LasParser::fileSizeLimit() / (1024 * 1024))
                 .arg(sourcePath);
           BinnedHorizon binned;
-          if (!binHorizon(source.readAll(), &binned, error))
+          const auto horizonText = source.readAll();
+          if (!binHorizon(horizonText, &binned, error))
             return error ? *error : QStringLiteral("horizon binning failed");
           derived.id = cat->nextVersionId();
           derived.assetId = existing.assetId;
@@ -497,6 +505,10 @@ QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
                             .arg(QFileInfo(dst).absolutePath());
           if (!writeHorizonGeoTiff(binned, dst, error))
             return error ? *error : QStringLiteral("horizon raster write failed");
+          auto sourceCrs = paleo::io::wellSourceCrsHint(QString::fromUtf8(horizonText.left(8192)));
+          if (sourceCrs.isEmpty()) sourceCrs = s.tableMappings.value(sourcePath).value("crs").toString();
+          const auto targetCrs = s.georeference && s.georeference->kind == "crs" ? s.georeference->sourceCrs : QString();
+          if (!paleo::io::projectRasterFile(dst, targetCrs, error, sourceCrs)) return *error;
           QFile::setPermissions(dst, QFileDevice::ReadOwner | QFileDevice::ReadUser |
                                      QFileDevice::ReadGroup | QFileDevice::ReadOther);
           if (!cat->addVersion(derived, error))

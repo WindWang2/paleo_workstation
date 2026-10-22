@@ -2,6 +2,7 @@
 #include "projectsetupscan.h"
 #include "importclassification.h"
 #include "welltable.h"
+#include "projectcoordinates.h"
 #include "wellfileparsers.h"
 #include "welllogread.h"
 #include "../metadata/nativereference.h"
@@ -15,7 +16,7 @@
 namespace {
 bool excluded(const QString &name)
 {
-  return name.startsWith('.') || name.startsWith("~$") ||
+  return name.startsWith('.') || name.startsWith("~$") || (name.startsWith("_") && (name.contains(QStringLiteral("备份")) || name.contains("backup", Qt::CaseInsensitive))) ||
       QStringList{"_旧项目工作区", "artifacts", "basemap", "backup", "backups", "备份", "旧项目", "缓存"}.contains(name, Qt::CaseInsensitive);
 }
 QStringList collect(const QString &path, QStringList &notes, const std::function<bool()> &cancelled)
@@ -124,7 +125,7 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
         if (input.open(QIODevice::ReadOnly)) {
           const QString crs = paleo::io::wellSourceCrsHint(QString::fromUtf8(input.read(8192)));
           if (out.sourceCrs.isEmpty()) out.sourceCrs = crs;
-          else if (!crs.isEmpty() && !sameNativeCrs(out.sourceCrs, crs)) out.errors << QObject::tr("层位坐标系与井点不一致，请先统一坐标或暂不导入：%1").arg(file);
+          out.mappings[file].insert("crs", crs);
         }
       }
       else if (cls.type != QLatin1String("well_head") && cls.type != QLatin1String("boundary") && cls.type != QLatin1String("time_depth")) ++out.references;
@@ -163,9 +164,18 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
     out.projectCrs = metricNativeCrs(out.sourceCrs, out.pointRows.first().value(1).toDouble(), out.pointRows.first().value(2).toDouble());
     if (!sameNativeCrs(out.sourceCrs, out.projectCrs)) {
       out.notes << QObject::tr("井点将转换到米制工程坐标 %1，原经纬度保留在源表。").arg(out.projectCrs);
-      if (out.horizons || out.seismic) out.errors << QObject::tr("井点为经纬度且同时选择了地震或层位，请先确认它们的米制坐标基础后分别导入。");
+
     }
   }
+  if (!s.projectCrs.trimmed().isEmpty()) out.projectCrs = s.projectCrs.trimmed();
+  if (!out.projectCrs.isEmpty() && !paleo::io::isMetricProjectCrs(out.projectCrs))
+    out.errors << QObject::tr("工程基准必须为有效的米制投影坐标系：%1").arg(out.projectCrs);
+  if (!s.points.isEmpty() && out.sourceCrs.isEmpty() && !out.projectCrs.isEmpty()) out.errors << QObject::tr("请先声明井点资料的源坐标系；工程基准不能代替源坐标系。");
+  for (const auto &path : out.paths) {
+    if (out.types.value(path) != "horizon" && out.types.value(path) != "seismic") continue;
+    if (out.mappings[path].value("crs").toString().isEmpty()) out.mappings[path].insert("crs", out.sourceCrs);
+  }
+  if (!out.projectCrs.isEmpty()) out.notes << QObject::tr("工程基准：%1；空间派生资料统一转换，源资料保留。").arg(out.projectCrs);
   if (!s.points.isEmpty() && out.sourceCrs.isEmpty()) out.notes << QObject::tr("井点坐标系未确定：将按局部工程坐标保存；设置坐标系后可叠加网络底图。");
   if (out.logs > out.wells && out.wells) out.notes << QObject::tr("测井份数多于井数：同井多版资料分别保留，不自动混合曲线。");
   return out;

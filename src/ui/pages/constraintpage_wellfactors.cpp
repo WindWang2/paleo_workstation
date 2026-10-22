@@ -216,6 +216,20 @@ void ConstraintPage::refreshWellFactorFields() {
 void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
   setProperty("paleo.page.fieldsbound", true);
   QVariantMap old = wellFactorParams();
+  if (auto *table = child<QTableWidget>(this, "factorTable")) {
+    const QSignalBlocker blocker(table);
+    QStringList names; for (const auto &field : fields) names << field.toMap().value("id").toString().toLower();
+    for (int row = 0; row < table->rowCount(); ++row) {
+      const auto id = factorIdOfRow(table, row);
+      const bool hidden = (id == "poro" && !names.contains("poro") && !names.contains("porosity") && !names.contains("phie")) ||
+                          (id == "perm" && !names.contains("perm") && !names.contains("permeability"));
+      table->setRowHidden(row, hidden);
+      if (hidden && table->item(row, 0)->checkState() == Qt::Checked) table->item(row, 0)->setCheckState(Qt::Unchecked);
+    }
+    int height = qMax(table->horizontalHeader()->height(), table->horizontalHeader()->sizeHint().height()) + 2 * table->frameWidth();
+    for (int row = 0; row < table->rowCount(); ++row) if (!table->isRowHidden(row)) height += table->rowHeight(row);
+    table->setFixedHeight(height + PaleoTheme::tokens().spacingXs);
+  }
   auto *factors = child<QTableWidget>(this, "factorTable");
   const QString factor = factorIdOfRow(factors, checkedRow(factors));
   const auto *horizon = child<QComboBox>(this, "horizonCombo");
@@ -320,6 +334,7 @@ void ConstraintPage::updateWellFactorActionState() {
   updateOneClickState();
 }
 void ConstraintPage::refreshWellFactorResults() {
+  suggestFactorCellSize();
   auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
   auto *table = child<QTableWidget>(this, "wellFactorTable"); if (!wf || !table) return;
   table->setRowCount(0);

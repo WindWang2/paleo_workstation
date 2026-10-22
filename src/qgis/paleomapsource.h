@@ -8,6 +8,6 @@ namespace PaleoMapSource {
 QVariantMap inspect(const QString &path, QString *error);
 // Empty result with no error means this is not a recognized microfacies polygon.
 QVariantMap normalizeFacies(const QString &source, const QString &output, const QVariantList &schema,
-                           const QString &microField, const std::function<bool()> &cancelled, QString *error);
+                           const QString &microField, const std::function<bool()> &cancelled, QString *error, const QString &targetCrs = {});
 double surveyArea(const QVector<QVector<QPair<double, double>>> &polygons);
 }

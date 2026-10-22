@@ -2,6 +2,7 @@
 #include "projectsetup.h"
 #include "folderimport.h"
 #include "../io/projectsetupscan.h"
+#include "../io/projectcoordinates.h"
 #include "../io/dataimportservice.h"
 #include "../metadata/paleoprojectfile.h"
 #include "../metadata/nativereference.h"
@@ -40,6 +41,7 @@ bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources
   const auto fail = [&](const QString &message) { if (error) *error = message; return false; };
   if (!m_project || !m_imports) return fail(tr("工程或导入服务未就绪"));
   if (!preview.errors.isEmpty()) return fail(preview.errors.join('\n'));
+  if (!preview.projectCrs.isEmpty() && !paleo::io::isMetricProjectCrs(preview.projectCrs)) return fail(tr("工程基准必须为有效的米制投影坐标系"));
   PaleoProjectFile configuration;
   if (!preview.projectCrs.isEmpty()) {
     PaleoGeoreference reference;
@@ -67,6 +69,7 @@ ProjectSetupSources ProjectSetupWorkflow::currentSources() const
   s.seismic = file.sourceStats.value("seismic").toString(); s.horizons = file.sourceStats.value("horizons").toString();
   s.references = file.sourceStats.value("references").toString(); s.boundary = file.sourceStats.value("boundary").toString();
   s.paleomaps = file.sourceStats.value("paleomaps").toString();
+  s.projectCrs = file.georeference && file.georeference->kind == QLatin1String("crs") ? file.georeference->sourceCrs : QString();
   s.normalizeMaps = file.sourceStats.value("normalizeMaps", true).toBool();
   s.mapChoices = file.sourceStats.value("mapChoices").toMap();
   s.pointMapping = file.sourceStats.value("pointMapping").toMap();

@@ -47,6 +47,7 @@
 #include <qgscoordinatetransform.h>
 #include <qgsproject.h>
 #include <qgsvectorlayer.h>
+#include <qgsrasterlayer.h>
 #include <qgsmaprenderersequentialjob.h>
 #include "../src/qgis/facieshierarchyrenderer.h"
 
@@ -293,7 +294,7 @@ private slots:
   void realSample() {
     const QString root = qEnvironmentVariable("PALEO_SETUP_SAMPLE_ROOT"); if (root.isEmpty()) QSKIP("Set PALEO_SETUP_SAMPLE_ROOT for read-only real data verification");
     const auto sources = discoverProjectSources(root); const auto p = scanProjectSources(sources);
-    QVERIFY2(p.errors.isEmpty(), qPrintable(p.errors.join('\n'))); QCOMPARE(p.wells, 20); QCOMPARE(p.tops, 516); QCOMPARE(p.logs, 21); QCOMPARE(p.seismic, 1); QCOMPARE(p.horizons, 8); QCOMPARE(p.sourceCrs, QString("EPSG:32649"));
+    QVERIFY2(p.errors.isEmpty(), qPrintable(p.errors.join('\n'))); QCOMPARE(p.wells, 20); QCOMPARE(p.tops, 520); QCOMPARE(p.logs, 21); QCOMPARE(p.seismic, 1); QCOMPARE(p.horizons, 8); QCOMPARE(p.sourceCrs, QString("EPSG:32649"));
     for (const auto &path : p.paths) QVERIFY(!path.contains(QStringLiteral("_旧项目工作区")));
     QCOMPARE(QFileInfo(sources.paleomaps).fileName(), QStringLiteral("古地理图"));
     int maps = 0; for (const auto &map : p.maps) if (map.included) { ++maps; QCOMPARE(QFileInfo(map.path).suffix(), QString("gpkg")); QVERIFY(!map.horizon.isEmpty()); QVERIFY(map.problem.isEmpty()); }
@@ -325,10 +326,11 @@ private slots:
     QgisLayerService layers(&project, &manifest); PaleoTaskService tasks;
     FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports); workflow.setMapImportServices(&layers, &tasks);
     ProjectSetupSources s; s.paleomaps = QDir(root).filePath(QStringLiteral("古地理图"));
+    s.projectCrs = qEnvironmentVariable("PALEO_SETUP_PROJECT_CRS");
     const auto p = scanProjectSources(s); QVERIFY(p.errors.isEmpty());
     ProjectSetupSources single; single.paleomaps = QDir(s.paleomaps).filePath("D61_historical_facies_map.shp");
     const auto singlePreview = scanProjectSources(single); QCOMPARE(singlePreview.maps.size(), 1); QVERIFY(singlePreview.maps[0].included);
-    QCOMPARE(p.projectCrs, QString("EPSG:32649"));
+    QCOMPARE(p.projectCrs, s.projectCrs.isEmpty() ? QString("EPSG:32649") : s.projectCrs);
     QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
     // Create first so the manifest parent directory exists before map publication.
     const auto path = dir.filePath("project.qgz"); QVERIFY2(workflow.create(path, s, p, &error), qPrintable(error));
@@ -339,6 +341,8 @@ private slots:
       ++maps; const auto current = service.catalog()->currentVersion(asset.id); QCOMPARE(current.stage, QString("DERIVED"));
       auto *layer = qobject_cast<QgsVectorLayer *>(layers.instantiate(current.extra.value("layer_id").toString(), &error));
       QVERIFY2(layer, qPrintable(error)); features += int(layer->featureCount());
+      QCOMPARE(layer->crs().authid(), p.projectCrs);
+      if (p.projectCrs == QLatin1String("EPSG:3857")) QVERIFY(layer->extent().xMinimum() > 10000000.);
       for (const auto &level : {QString("facies"), QString("sub_facies"), QString("micro_facies")}) {
         FaciesHierarchyRenderer::apply(layer, current.extra.value("facies").toList(), level);
         QgsMapSettings settings; settings.setDestinationCrs(project.project()->crs());
@@ -423,7 +427,17 @@ private slots:
       const auto segments = lithology.lithologiesFor({well.id}).value(well.id); if (!segments.isEmpty()) ++rockWells;
       qInfo() << well.name << "tops" << tops.size() << "lithology" << segments.size();
     }
-    QCOMPARE(topCount, 516); QCOMPARE(rockWells, 20);
+    QCOMPARE(topCount, 520); QCOMPARE(rockWells, 20);
+    const auto factorRows = data.importedWellFactors("D61", &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error)); QCOMPARE(factorRows.size(), 20);
+    int validRatios = 0;
+    for (const auto &row : factorRows) if (row.toMap().contains("sand_ratio")) ++validRatios;
+    QCOMPARE(validRatios, 10); // Incomplete/conflicting source intervals stay null.
+    for (const auto &decl : manifest.all()) if (decl.layerId.startsWith("horizon.")) {
+      auto *raster = qobject_cast<QgsRasterLayer *>(layers.instantiate(decl.layerId, &error));
+      QVERIFY(raster && raster->isValid()); QCOMPARE(raster->crs().authid(), QString("EPSG:32649"));
+    }
+
     QString a4;
     for (const auto &well : service.catalog()->entities("well")) if (well.name == "A4") a4 = well.id;
     QVERIFY(!a4.isEmpty()); QString log;

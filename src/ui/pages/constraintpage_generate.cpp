@@ -75,17 +75,17 @@ void ConstraintPage::buildGenerateSection( QWidget *content, QVBoxLayout *lay )
   // 本页主操作（DESIGN.md primary 三用途之一）：生成单因素图突出；
   // 其余动作保持常规面并按组分隔。
   // 反馈 #19：一键默认路径「提取并生成」= 提取井点 → 生成单因素图，逐步按钮保留。
-  auto *oneClick = new QPushButton(tr("提取并生成"), content);
+  auto *oneClick = new QPushButton(tr("生成单因素图"), content);
   oneClick->setObjectName(QStringLiteral("factorOneClickButton"));
   oneClick->setEnabled(false);
   oneClick->setAccessibleName(tr("一键提取井点并生成单因素图"));
-  actions->addWidget(oneClick, 1);
+  markPrimaryButton(oneClick); actions->addWidget(oneClick, 1);
   connect(oneClick, &QPushButton::clicked, this, &ConstraintPage::startOneClick);
   auto *generate = new QPushButton(tr("生成单因素图"), this);
   generate->setObjectName( QStringLiteral( "generateFactorButton" ) );
   generate->setEnabled( false ); // 先勾选一个单因素（updateFactorActionStates 管 tooltip）
   markPrimaryButton( generate );
-  actions->addWidget( generate, 1 );
+  actions->addWidget( generate, 1 ); generate->hide();
   auto *cancel = new QPushButton( tr( "取消" ), content );
   cancel->setObjectName( QStringLiteral( "factorCancelButton" ) );
   cancel->setEnabled( false );
@@ -805,7 +805,7 @@ void ConstraintPage::updateOneClickState()
     return;
   const bool busy = property("paleo.page.runbusy").toBool();
   const QString prep = generate->property("preparationTarget").toString();
-  const bool canExtract = extract && extract->isEnabled() && extract->isVisibleTo(this)
+  const bool canExtract = extract && extract->isEnabled()
       && prep == QLatin1String("extractWellFactorsButton");
   const bool enabled = !busy && (generate->isEnabled() || canExtract);
   oneClick->setEnabled(enabled);

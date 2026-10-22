@@ -63,6 +63,7 @@ struct FamilyContext
   DeviationTable parsedDev;
   QString logWellName;
   QString targetWellId;
+  QString inputCrs;
 };
 
 // 井身份解析结果（原 DataImportService 私有嵌套 WellBind 迁此，字段逐字）。
@@ -85,6 +86,7 @@ QString importWellTopsFamily(FamilyContext &ctx);
 QString importDeviationFamily(FamilyContext &ctx);
 QString importHorizonFamily(FamilyContext &ctx);
 QString importSeismicFamily(FamilyContext &ctx);
+bool prepareSeismicCoordinates(FamilyContext &ctx, const QString &sourceCrs);
 QString importAuxReferenceFamily(FamilyContext &ctx);
 QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
                              const CatalogVersion &existing, const QString &sourcePath,

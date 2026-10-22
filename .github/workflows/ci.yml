@@ -192,7 +192,15 @@ jobs:
         run: ./paleo-dev bootstrap fetch-only
       - name: Build
         id: build
-        run: ./paleo-dev build
+        # Hundreds of full -g test executables exhausted the runner at final link.
+        # Keep optimization and source/line stacks (-g1), without local-variable DWARF.
+        # Configure the cache first; paleo-dev retains these flags on its own configure.
+        run: |
+          QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr" \
+          LD_LIBRARY_PATH="$PWD/vendor/prefix/usr/lib/x86_64-linux-gnu:$PWD/vendor/prefix/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            cmake -S . -B build -G Ninja \
+              -DCMAKE_CXX_FLAGS_RELWITHDEBINFO='-O2 -g1 -DNDEBUG'
+          ./paleo-dev build
       # #501 flaky 台账跨 run 持久化：tools/flaky-ledger.jsonl 不入库（gitignore），
       # 此前每次 run 都从空台账起算，「同一测试累计 ≥3 次」永远到不了。restore 取
       # 最近一份，save 用 run 唯一 key（cache 不可覆盖写）且 always() 落盘——红 run

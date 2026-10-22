@@ -57,6 +57,8 @@ using paleo::io_detail::setError;
 bool parseHorizonHeader(const QByteArray &text, HorizonHeader *out, QString *error)
 {
   HorizonHeader h;
+  const auto projectionHeader = text.left(8192).toUpper();
+  const bool nativeGrid = projectionHeader.contains("# PROJECTION: UTM") || projectionHeader.contains("# PROJECTION: EPSG:");
   const QString data = QString::fromUtf8(text);
   for (const QString &raw : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
                                         Qt::SkipEmptyParts))
@@ -165,12 +167,14 @@ bool parseHorizonHeader(const QByteArray &text, HorizonHeader *out, QString *err
   // 像元尺寸由此非零——dx=0/dy=0 的退化网格不该落盘。
   if (!std::isfinite(h.p1x) || !std::isfinite(h.p1y) || !std::isfinite(h.p2x) ||
       !std::isfinite(h.p2y) || !std::isfinite(h.p3x) || !std::isfinite(h.p3y) ||
-      h.p2x <= h.p1x || h.p3y <= h.p2y)
+      (!nativeGrid && (h.p2x <= h.p1x || h.p3y <= h.p2y)))
   {
     setError(error, QStringLiteral("horizon P-corner geometry is degenerate"));
     return false;
   }
-  if (std::abs(h.p2y - h.p1y) > 1e-3 || std::abs(h.p3x - h.p2x) > 1e-3)
+  // Native projected grids are validated from every XY/inline/xline below.
+  // Their real corners may rotate; legacy local grids retain the old contract.
+  if (!nativeGrid && (std::abs(h.p2y - h.p1y) > 1e-3 || std::abs(h.p3x - h.p2x) > 1e-3))
   {
     setError(error, QStringLiteral("horizon grid is rotated or non-orthogonal"));
     return false;
@@ -266,7 +270,7 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
   b.originX = h.p1x;
   b.originY = h.p1y + (h.gridRows - 1) * b.dy;
   if (!nativeHorizonGrid(text, h, &b, error)) return false;
-  if (!(b.dx > 0.0) || !(b.dy > 0.0) || !std::isfinite(b.dx) || !std::isfinite(b.dy) ||
+  if (std::hypot(b.dx, b.columnY) <= 0 || std::hypot(b.rowX, b.dy) <= 0 || !std::isfinite(b.dx) || !std::isfinite(b.dy) ||
       !std::isfinite(b.originX) || !std::isfinite(b.originY))
   {
     setError(error, QStringLiteral("horizon header has invalid grid spacing"));

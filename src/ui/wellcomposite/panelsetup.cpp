@@ -17,7 +17,49 @@
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QMenu>
+#include <QSet>
 #include <QVBoxLayout>
+
+namespace {
+void appendReadout(QVBoxLayout *root, QLabel *depth, QLabel *status) {
+  auto *row = new QHBoxLayout; row->addWidget(depth); row->addWidget(status, 1);
+  status->setWordWrap(true); root->addLayout(row); depth->show(); status->show();
+}
+void compactToolbar(QWidget *topBar, QBoxLayout *layout, const QSet<QWidget *> &frequent) {
+  auto *more = new QToolButton(topBar);
+  more->setObjectName(QStringLiteral("wellPreviewOptions"));
+  more->setText(WellComposite::WellCompositePanel::tr("更多"));
+  more->setPopupMode(QToolButton::InstantPopup);
+  auto *menu = new QMenu(more); more->setMenu(menu);
+  const auto controls = topBar->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
+  for (auto *control : controls) {
+    if (control == more || frequent.contains(control)) continue;
+    layout->removeWidget(control); control->hide();
+    // Proxy actions retain the original widgets' ownership and findChild API.
+    if (auto *button = qobject_cast<QToolButton *>(control)) {
+      auto *action = button->menu() ? menu->addMenu(button->menu()) : menu->addAction(button->text());
+      action->setText(button->text()); action->setToolTip(button->toolTip());
+      action->setCheckable(button->isCheckable());
+      QObject::connect(menu, &QMenu::aboutToShow, action, [button, action] {
+        action->setEnabled(button->isEnabled()); action->setChecked(button->isChecked());
+      });
+      if (!button->menu()) QObject::connect(action, &QAction::triggered, button, &QToolButton::click);
+    } else if (auto *combo = qobject_cast<QComboBox *>(control)) {
+      auto *choices = menu->addMenu(combo->accessibleName());
+      QObject::connect(menu, &QMenu::aboutToShow, choices, [combo, choices] { choices->setEnabled(combo->isEnabled()); });
+      QObject::connect(choices, &QMenu::aboutToShow, combo, [combo, choices] {
+        choices->clear();
+        for (int i = 0; i < combo->count(); ++i) {
+          auto *action = choices->addAction(combo->itemText(i)); action->setCheckable(true);
+          action->setChecked(i == combo->currentIndex());
+          QObject::connect(action, &QAction::triggered, combo, [combo, i] { combo->setCurrentIndex(i); });
+        }
+      });
+    }
+  }
+  layout->addWidget(more);
+}
+}
 
 namespace WellComposite
 {
@@ -308,13 +350,13 @@ void WellCompositePanel::setupUi()
   });
   topLay->addWidget(m_lblStatus);
 
-  rootLay->addWidget(new PaleoToolRow(topBar, this));
+  compactToolbar(topBar, topLay, {m_lblWellName, m_scaleCombo, m_btnResetZoom, m_btnGoto, m_btnConfigCurves, m_btnPredictFacies, m_btnExport});
+  rootLay->addWidget(topBar); appendReadout(rootLay, m_lblReadout, m_lblStatus);
   m_faciesStatus = new QLabel(this);
   m_faciesStatus->setObjectName(QStringLiteral("lblFaciesPredictionStatus"));
   m_faciesStatus->setWordWrap(true);
   rootLay->addWidget(m_faciesStatus);
 
-  // 中央综合柱状图画布
   m_canvas = new WellCompositeCanvas(this);
   m_canvas->setObjectName(QStringLiteral("wellCompositeCanvas"));
   rootLay->addWidget(m_canvas, 1);

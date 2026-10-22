@@ -51,7 +51,7 @@ ProjectSetupDialog::ProjectSetupDialog(ProjectSetupWorkflow *workflow, QWidget *
   connect(m_next, &QPushButton::clicked, this, [this] { if (m_steps->currentIndex() == 3) finish(); else m_steps->setCurrentIndex(m_steps->currentIndex() + 1); });
   connect(empty, &QPushButton::clicked, this, [this] { m_empty = true; finish(); });
   connect(m_workflow, &ProjectSetupWorkflow::previewReady, this, &ProjectSetupDialog::showPreview);
-  for (auto *edit : {m_points, m_wells, m_seismic, m_horizons, m_references, m_boundary, m_crs, m_paleomaps})
+  for (auto *edit : {m_points, m_wells, m_seismic, m_horizons, m_references, m_boundary, m_crs, m_projectCrs, m_paleomaps})
     connect(edit, &QLineEdit::textEdited, this, [this] { m_dirty = true; ++m_revision; });
   showStep(0);
 }
@@ -79,6 +79,11 @@ QWidget *ProjectSetupDialog::projectPage()
   m_output = new QLineEdit(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QStringLiteral("/Paleo"), page); m_output->setObjectName(QStringLiteral("projectDirectoryEdit"));
   m_root = new QLineEdit(page); m_root->setObjectName(QStringLiteral("projectSourceRootEdit")); m_root->setPlaceholderText(tr("可选：选择井、地震、层位等资料所在的总目录"));
   form->addRow(tr("工程名称"), m_name); form->addRow(tr("工程保存位置"), pathRow(m_output, true)); form->addRow(tr("资料总目录（可选）"), pathRow(m_root, true));
+  m_projectCrs = new QLineEdit(page);
+  m_projectCrs->setObjectName(QStringLiteral("projectBaselineCrsEdit"));
+  m_projectCrs->setPlaceholderText(tr("自动沿用资料坐标；可指定 EPSG:32649 等米制投影"));
+  m_projectCrs->setToolTip(tr("统一井点、地震、层位和相图的计算基准。转换另存工程副本；未知坐标资料需先声明来源，不能仅修改标签。"));
+  form->addRow(tr("工程基准坐标系"), m_projectCrs);
   layout->addLayout(form);
   auto *note = new QLabel(tr("将在保存位置下新建同名工程文件夹。原资料保留，工程默认登记资料索引并保存生成图层；移动资料后可重新定位。"), page); note->setWordWrap(true); layout->addWidget(note); layout->addStretch();
   connect(m_root, &QLineEdit::editingFinished, this, &ProjectSetupDialog::discover);
@@ -147,7 +152,7 @@ ProjectSetupSources ProjectSetupDialog::sources() const
   for (auto it = m_fields.cbegin(); it != m_fields.cend(); ++it) if (!it.value()->currentText().isEmpty()) s.pointMapping.insert(it.key(), it.value()->currentText());
   if (s.pointMapping.isEmpty()) s.pointMapping = m_initialMapping;
   s.wellTargets = m_preview.wellTargets;
-  s.pointMapping.insert("crs", m_crs->text().trimmed()); return s;
+  s.pointMapping.insert("crs", m_crs->text().trimmed()); s.projectCrs = m_projectCrs->text().trimmed(); return s;
 }
 QString ProjectSetupDialog::projectPath() const
 {
@@ -180,7 +185,7 @@ void ProjectSetupDialog::setExistingProject(const QString &path, const ProjectSe
   m_horizons->setText(s.horizons); m_references->setText(s.references); m_boundary->setText(s.boundary);
   m_paleomaps->setText(s.paleomaps); m_normalizeMaps->setChecked(s.normalizeMaps); m_mapChoices = s.mapChoices;
   m_initialMapping = s.pointMapping; m_preview.wellTargets = s.wellTargets;
-  m_crs->setText(s.pointMapping.value("crs").toString()); scan();
+  m_crs->setText(s.pointMapping.value("crs").toString()); m_projectCrs->setText(s.projectCrs); scan();
 }
 void ProjectSetupDialog::scan()
 {
@@ -199,7 +204,7 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
       2 * m_assignments->frameWidth() + PaleoTheme::tokens().spacingSm);
   int assignmentRow = 0;
   for (auto it = p.logWellNames.cbegin(); it != p.logWellNames.cend(); ++it, ++assignmentRow) {
-    const QString path = it.key();
+    const QString &path = it.key();
     m_assignments->setItem(assignmentRow, 0, new QTableWidgetItem(QFileInfo(path).fileName()));
     m_assignments->setItem(assignmentRow, 1, new QTableWidgetItem(it.value()));
     auto *choice = new QComboBox(m_assignments);
@@ -258,6 +263,10 @@ void ProjectSetupDialog::showStep(int step)
   m_pages->setCurrentIndex(step); m_previous->setEnabled(step > 0); m_next->setText(step == 3 ? (m_existingPath.isEmpty() ? tr("创建并导入") : tr("保存设置并导入")) : tr("下一步（本步可跳过）"));
   if ((step == 1 || step == 3) && m_dirty) scan();
   else if (step == 3) refreshReview();
+}
+ProjectSetupPreview ProjectSetupDialog::preview() const {
+  if (!m_empty) return m_preview;
+  ProjectSetupPreview result; result.projectCrs = m_projectCrs->text().trimmed(); return result;
 }
 void ProjectSetupDialog::finish()
 {

@@ -87,6 +87,7 @@ class ProjectDataFacade : public QObject
 {
   Q_OBJECT
   public:
+    QVariantList importedWellFactors(const QString &horizon, QString *error = nullptr) const;
     explicit ProjectDataFacade(QObject *parent = nullptr);
     ~ProjectDataFacade() override;
 

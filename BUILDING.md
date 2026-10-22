@@ -400,3 +400,10 @@ JSON 落 `build/incremental-baseline.jsonl` 可追趋势。Linux 无 MSVC 增量
 `incremental-baseline-linux` 上传（retention 90 天）。看趋势：run 页面
 下载 artifact，逐行对比 tu_ratio/step_ratio；绝对时长只记录不设门
 （runner 世代不同不可比）。
+
+### CI Linux 的调试信息体积
+
+Linux 必过车道使用 RelWithDebInfo 的 `-O2 -g1 -DNDEBUG`：保留符号和源码行位置，
+减少全量测试可执行文件的 DWARF 磁盘占用，防止链接末期耗尽 runner 磁盘。
+只在该 CI job 预置 CMake 缓存，随后仍走 `paleo-dev build` 并运行全部目标及测试；
+本机默认 RelWithDebInfo 和 sanitizer 车道不受影响。

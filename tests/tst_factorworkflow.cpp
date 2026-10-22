@@ -57,6 +57,7 @@
 #include "../src/workflow/mapversioncontroller.h"
 #include "../src/workflow/mappingworkbench.h"
 #include "../src/domain/litholexicon.h"
+#include "../src/io/wellfactorfile.h"
 #include "../src/metadata/mapversionstore.h"
 
 #include <QCoreApplication>
@@ -357,6 +358,44 @@ class TestFactorWorkflow : public QObject
     }
 
   private slots:
+    void importedFactorFilesDriveExtractionAndGeneration() {
+      Fixture f; QVERIFY(initFixture(f)); QString error;
+      const QString input = f.dir.filePath("A_factors.csv");
+      QFile csv(input); QVERIFY(csv.open(QIODevice::WriteOnly));
+      csv.write("well_name,horizon,sand_thick,sand_ratio,log_layer_thickness_md,quality\n"
+                "A1,D61,0,0,100,complete\nA2,D61,25,0.25,100,complete\n"
+                "A3,D61,50,0.5,100,complete\nA4,D61,,,100,incomplete-source\n"); csv.close();
+      const auto parsed = paleo::io::readWellFactorFile(input, &error);
+      QCOMPARE(parsed.size(), 4);
+      for (int i = 0; i < 4; ++i) {
+        CatalogEntity entity; entity.id = QString("well-%1").arg(i + 1);
+        entity.name = QString("A%1").arg(i + 1); entity.entityType = "well";
+        entity.hasSurface = true; entity.surfaceX = (i % 2) * 100.; entity.surfaceY = (i / 2) * 100.;
+        entity.coordinateStatus = "untransformed";
+        QVERIFY2(f.catalog.addEntity(entity, &error), qPrintable(error));
+      }
+      CatalogAsset asset; asset.id = "factor-input"; asset.type = "tabular"; asset.displayName = "factors";
+      QVERIFY2(f.catalog.addAsset(asset, &error), qPrintable(error));
+      CatalogVersion version; version.id = "factor-v1"; version.assetId = asset.id;
+      version.versionNumber = 1; version.stage = "RAW"; version.path = input; version.managed = false;
+      version.extra.insert("wellFactors", parsed);
+      QVERIFY2(f.catalog.addVersion(version, &error), qPrintable(error));
+      const auto heads = f.dir.filePath("wells.geojson");
+      QVERIFY2(f.catalog.writeWellsGeoJson(heads, &error), qPrintable(error));
+      QVERIFY2(f.layers.declare(decl("wells.D61", "D61", "vector", heads), &error), qPrintable(error));
+      ConstraintWorkflow workflow(&f.proc, &f.layers); workflow.setCatalog(&f.catalog, f.dir.path());
+      QVariantMap params{{"factorMode", "auto"}, {"method", "surfer_idw"}, {"cellSize", 5.}};
+      QVERIFY2(workflow.extractWellFactors("D61", "sandratio", params, &error), qPrintable(error));
+      const auto rows = workflow.wellFactorRows(); QCOMPARE(rows.size(), 4);
+      QCOMPARE(rows[0].toMap().value("value").toDouble(), 0.);
+      QCOMPARE(rows[1].toMap().value("value").toDouble(), .25);
+      QVERIFY(!rows[3].toMap().contains("value"));
+      QVERIFY(rows[3].toMap().value("reason").toString().contains("incomplete-source"));
+      QVERIFY2(workflow.generateFactor("D61", "sandratio", params, &error), qPrintable(error));
+      bool parentFound = false;
+      for (const auto &v : f.catalog.versions()) parentFound |= v.parentVersionIds.contains(version.id);
+      QVERIFY(parentFound);
+    }
     void initTestCase()
     {
       QVERIFY( QgsApplication::instance() != nullptr );

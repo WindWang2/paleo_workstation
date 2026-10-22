@@ -56,8 +56,8 @@ private slots:
   void optionalTemplatesPreserveDefaultsAndHistoricalClassification() {
     const auto defaults = FaciesCatalog::defaults();
     const auto templates = FaciesTaxonomy::templates();
-    QCOMPARE(defaults.size(), 7);
-    QCOMPARE(templates.size(), 43);
+    QCOMPARE(defaults.size(), 27);
+    QCOMPARE(templates.size(), 91);
     QCOMPARE(templates.mid(0, defaults.size()), defaults);
     QVariantList normalized;
     QString error;
@@ -70,7 +70,7 @@ private slots:
                qPrintable(row.value("name").toString()));
     }
     for (const auto &label : {QStringLiteral("河道充填"), QStringLiteral("浅湖泥"),
-                              QStringLiteral("前三角洲泥")})
+                              QStringLiteral("三角洲相 / 前三角洲亚相 / 前三角洲泥")})
       QVERIFY(!FaciesTaxonomy::resolve(templates, label, &error).isEmpty());
     const auto historical = FaciesTaxonomy::place(
         {{"code", 97}, {"name", "河流相"}, {"facies", "河流相"}, {"color", "#123456"}});
@@ -111,8 +111,24 @@ private slots:
     complete.insert("name", QStringLiteral("自定义显示名"));
     QCOMPARE(FaciesTaxonomy::place(complete), complete);
   }
-  void taxonomyIsAThreeLevelTree() {
+  void requestedEnvironmentsAreAvailableForWellClassification() {
     const auto schema = FaciesCatalog::defaults();
+    QString error; QVariantList normalized;
+    QVERIFY2(FaciesTaxonomy::normalize(schema, &normalized, &error), qPrintable(error));
+    QSet<QString> microfacies, phases;
+    for (const auto &value : schema) {
+      const auto row = value.toMap();
+      microfacies.insert(row.value("microfacies").toString()); phases.insert(row.value("facies").toString());
+      QVERIFY2(!FaciesCatalog::fillPath(row.value("texture").toString()).isEmpty(), qPrintable(row.value("microfacies").toString()));
+    }
+    for (const auto *name : {"河漫滩", "滨浅湖泥", "砂坝", "半深湖泥", "深湖泥", "主水道", "主水道间", "辫状水道", "辫状水道间", "浊积水道", "湖泥", "浅海陆架泥", "风暴砂", "潮汐砂脊"})
+      QVERIFY2(microfacies.contains(QString::fromUtf8(name)), name);
+    QVERIFY(phases.contains(QStringLiteral("近岸水下扇相")));
+    // The same microfacies in different environments requires a full hierarchy.
+    QVERIFY(FaciesTaxonomy::resolve(schema, QStringLiteral("浊积水道")).isEmpty());
+  }
+  void taxonomyIsAThreeLevelTree() {
+    const auto schema = FaciesCatalog::defaults().mid(0, 7);
     QCOMPARE(schema.size(), 7);
     QVariantList normalized;
     QString error;

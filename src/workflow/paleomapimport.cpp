@@ -4,6 +4,7 @@
 #include "../qgis/paleomapsource.h"
 #include "../services/paleomapfiles.h"
 #include "paleomapimport_internal.h"
+#include "../metadata/paleoprojectfile.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -42,6 +43,8 @@ bool prepare(DataCatalog *catalog, const QString &projectDir, const QString &sta
              const QString &horizon, const PaleoMapLibrary::Request &request, const std::function<bool()> &cancelled,
              Prepared *result, QString *error, const QString &existingAsset, const QSet<QString> &removedAssetIds)
 {
+  const auto configuration = readProjectFile(paleoProjectFilePath(projectDir));
+  const auto targetCrs = configuration.georeference && configuration.georeference->kind == "crs" ? configuration.georeference->sourceCrs : QString();
   CatalogVersion current;
   if (!existingAsset.isEmpty())
     current = catalog->currentVersion(existingAsset);
@@ -100,7 +103,7 @@ bool prepare(DataCatalog *catalog, const QString &projectDir, const QString &sta
   const auto schema = schemaFor(catalog, horizon);
   const auto policy =
       QString::fromLatin1(QCryptographicHash::hash(QJsonDocument::fromVariant(
-                                                       QVariantMap{{"normalizer", 2},
+                                                       QVariantMap{{"normalizer", 3}, {"project_crs", targetCrs},
                                                                    {"facies", schema},
                                                                    {"normalize", request.normalizeFacies},
                                                                    {"micro_field", request.microfaciesField}})
@@ -173,7 +176,7 @@ bool prepare(DataCatalog *catalog, const QString &projectDir, const QString &sta
     const auto destination = QDir(stageDir).filePath(derived.path);
     QDir().mkpath(QFileInfo(destination).absolutePath());
     converted = PaleoMapSource::normalizeFacies(rawPath, destination, schema, request.microfaciesField,
-                                                cancelled, &conversionError);
+                                                cancelled, &conversionError, targetCrs);
     if (cancelled())
       return false;
     if (converted.isEmpty())

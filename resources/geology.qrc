@@ -343,4 +343,10 @@
   <file alias="strata/micro_levee_fill.svg">geology/strata/micro_levee_fill.svg</file>
   <file alias="strata/micro_mouth_bar_fill.svg">geology/strata/micro_mouth_bar_fill.svg</file>
   <file alias="strata/micro_sheet_sand_fill.svg">geology/strata/micro_sheet_sand_fill.svg</file>
+  <file alias="strata/micro_lake_mud_fill.svg">geology/strata/micro_lake_mud_fill.svg</file>
+  <file alias="strata/micro_turbidite_fill.svg">geology/strata/micro_turbidite_fill.svg</file>
+  <file alias="strata/micro_fan_channel_fill.svg">geology/strata/micro_fan_channel_fill.svg</file>
+  <file alias="strata/micro_braided_channel_fill.svg">geology/strata/micro_braided_channel_fill.svg</file>
+  <file alias="strata/micro_storm_sand_fill.svg">geology/strata/micro_storm_sand_fill.svg</file>
+  <file alias="strata/micro_tidal_ridge_fill.svg">geology/strata/micro_tidal_ridge_fill.svg</file>
 </qresource></RCC>

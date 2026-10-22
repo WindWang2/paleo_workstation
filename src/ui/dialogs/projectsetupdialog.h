@@ -20,7 +20,7 @@ public:
   explicit ProjectSetupDialog(ProjectSetupWorkflow *workflow, QWidget *parent = nullptr);
   QString projectPath() const;
   ProjectSetupSources sources() const;
-  ProjectSetupPreview preview() const { return m_empty ? ProjectSetupPreview{} : m_preview; }
+  ProjectSetupPreview preview() const;
   void setSourceRoot(const QString &root);
   void setExistingProject(const QString &path, const ProjectSetupSources &sources);
 private:
@@ -37,7 +37,7 @@ private:
   void showStep(int step);
   void finish();
   ProjectSetupWorkflow *m_workflow;
-  QLineEdit *m_name, *m_output, *m_root, *m_points, *m_wells, *m_seismic, *m_horizons, *m_references, *m_boundary, *m_crs;
+  QLineEdit *m_name, *m_output, *m_root, *m_points, *m_wells, *m_seismic, *m_horizons, *m_references, *m_boundary, *m_crs, *m_projectCrs;
   QMap<QString, QComboBox *> m_fields;
   QStackedWidget *m_pages;
   QTabBar *m_steps;

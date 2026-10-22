@@ -81,5 +81,197 @@
       "自然堤",
       "natural_levee"
     ]
+  },
+  {
+    "code": 9,
+    "name": "前三角洲泥",
+    "facies": "三角洲相",
+    "subfacies": "前三角洲亚相",
+    "microfacies": "前三角洲泥",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3"
+  },
+  {
+    "code": 11,
+    "name": "沼泽沉积",
+    "facies": "三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "沼泽沉积",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#B4C9A0"
+  },
+  {
+    "code": 12,
+    "name": "远砂坝",
+    "facies": "三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "远砂坝",
+    "texture": "strata/micro_mouth_bar_fill.svg",
+    "color": "#F2D28B"
+  },
+  {
+    "code": 16,
+    "name": "深湖泥",
+    "facies": "湖泊相",
+    "subfacies": "深湖亚相",
+    "microfacies": "深湖泥",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3"
+  },
+  {
+    "code": 17,
+    "name": "半深湖泥",
+    "facies": "湖泊相",
+    "subfacies": "半深湖亚相",
+    "microfacies": "半深湖泥",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3"
+  },
+  {
+    "code": 44,
+    "name": "河漫滩",
+    "facies": "三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "河漫滩",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9"
+  },
+  {
+    "code": 45,
+    "name": "浊积水道",
+    "facies": "三角洲相",
+    "subfacies": "前三角洲亚相",
+    "microfacies": "浊积水道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": [
+      "前三角洲浊积水道"
+    ]
+  },
+  {
+    "code": 46,
+    "name": "滨浅湖泥",
+    "facies": "湖泊相",
+    "subfacies": "滨浅湖",
+    "microfacies": "滨浅湖泥",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3"
+  },
+  {
+    "code": 47,
+    "name": "砂坝",
+    "facies": "湖泊相",
+    "subfacies": "滨浅湖",
+    "microfacies": "砂坝",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#FFF9C4"
+  },
+  {
+    "code": 48,
+    "name": "浊积水道",
+    "facies": "湖泊相",
+    "subfacies": "半深湖亚相",
+    "microfacies": "浊积水道",
+    "texture": "strata/micro_turbidite_fill.svg",
+    "color": "#D3DAC3",
+    "aliases": [
+      "半深湖浊积水道"
+    ]
+  },
+  {
+    "code": 49,
+    "name": "浊积水道",
+    "facies": "湖泊相",
+    "subfacies": "深湖亚相",
+    "microfacies": "浊积水道",
+    "texture": "strata/micro_turbidite_fill.svg",
+    "color": "#D3DAC3",
+    "aliases": [
+      "深湖浊积水道"
+    ]
+  },
+  {
+    "code": 50,
+    "name": "主水道",
+    "facies": "近岸水下扇相",
+    "subfacies": "扇根",
+    "microfacies": "主水道",
+    "texture": "strata/micro_fan_channel_fill.svg",
+    "color": "#FFE082"
+  },
+  {
+    "code": 51,
+    "name": "主水道间",
+    "facies": "近岸水下扇相",
+    "subfacies": "扇根",
+    "microfacies": "主水道间",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3"
+  },
+  {
+    "code": 52,
+    "name": "辫状水道",
+    "facies": "近岸水下扇相",
+    "subfacies": "扇中",
+    "microfacies": "辫状水道",
+    "texture": "strata/micro_braided_channel_fill.svg",
+    "color": "#FFE082"
+  },
+  {
+    "code": 53,
+    "name": "辫状水道间",
+    "facies": "近岸水下扇相",
+    "subfacies": "扇中",
+    "microfacies": "辫状水道间",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3"
+  },
+  {
+    "code": 54,
+    "name": "浊积水道",
+    "facies": "近岸水下扇相",
+    "subfacies": "扇缘",
+    "microfacies": "浊积水道",
+    "texture": "strata/micro_turbidite_fill.svg",
+    "color": "#D3DAC3",
+    "aliases": [
+      "扇缘浊积水道"
+    ]
+  },
+  {
+    "code": 55,
+    "name": "湖泥",
+    "facies": "近岸水下扇相",
+    "subfacies": "扇缘",
+    "microfacies": "湖泥",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3"
+  },
+  {
+    "code": 56,
+    "name": "浅海陆架泥",
+    "facies": "浅海相",
+    "subfacies": "浅海陆架亚相",
+    "microfacies": "浅海陆架泥",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3"
+  },
+  {
+    "code": 57,
+    "name": "风暴砂",
+    "facies": "浅海相",
+    "subfacies": "浅海陆架亚相",
+    "microfacies": "风暴砂",
+    "texture": "strata/micro_storm_sand_fill.svg",
+    "color": "#F4E7B6"
+  },
+  {
+    "code": 58,
+    "name": "潮汐砂脊",
+    "facies": "浅海相",
+    "subfacies": "浅海陆架亚相",
+    "microfacies": "潮汐砂脊",
+    "texture": "strata/micro_tidal_ridge_fill.svg",
+    "color": "#F4E7B6"
   }
 ]

@@ -108,6 +108,7 @@ class ConstraintPage : public QWidget
   protected:
     void showEvent(QShowEvent *event) override;
   private:
+    void suggestFactorCellSize();
     // 方向 96 拆 TU：ctor 按原文行序分解为下列构建段（创建序/连接序逐行
     // 保持；实现分布 constraintpage_wellfactors/_interpolation/_generate/
     // _constraints/_sections.cpp）。跨段指针约定：objectName 命中控件一律

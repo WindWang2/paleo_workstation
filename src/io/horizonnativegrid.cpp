@@ -53,7 +53,7 @@ bool nativeHorizonGrid(const QByteArray &text, const HorizonHeader &h, BinnedHor
   double residual = 0;
   for (const auto &p : points) residual = std::max(residual, std::hypot(ax[0] + ax[1]*p.col + ax[2]*p.row - p.x, ay[0] + ay[1]*p.col + ay[2]*p.row - p.y));
   const double cell = std::min(std::hypot(ax[1], ay[1]), std::hypot(ax[2], ay[2]));
-  if (!(cell > 0) || residual > cell * 0.5) { if (error) *error = QStringLiteral("层位 XY 无法表示为规则网格（最大误差 %1 m），请先重采样后导入").arg(residual); return false; }
+  if (!(cell > 0) || std::abs(ax[1]*ay[2] - ax[2]*ay[1]) < cell * cell * 1e-9 || residual > cell * 0.5) { if (error) *error = QStringLiteral("层位 XY 无法表示为规则网格（最大误差 %1 m），请先重采样后导入").arg(residual); return false; }
   grid->originX = ax[0]; grid->originY = ay[0]; grid->dx = ax[1]; grid->dy = -ay[2];
   grid->rowX = ax[2]; grid->columnY = ay[1]; grid->geometryResidualM = residual;
   return true;

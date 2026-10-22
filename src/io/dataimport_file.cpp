@@ -23,6 +23,7 @@
 #include "wellcompositexml.h"
 #include "wellfileparsers.h"
 #include "welltable.h"
+#include "wellfactorfile.h"
 #include "projectboundary.h"
 
 #include <QCryptographicHash>
@@ -198,6 +199,9 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
        cls.type == QLatin1String("time_depth") ||
        (cls.type == QLatin1String("well_deviation") && cls.format != QLatin1String("xml")));
   QString parseSummary;
+  const auto importedFactors = paleo::io::isWellFactorFile(sourcePath)
+      ? paleo::io::readWellFactorFile(sourcePath, error) : QVariantList{};
+  if (paleo::io::isWellFactorFile(sourcePath) && importedFactors.isEmpty()) return fail(*error);
   paleo::dataimport_detail::LogInspection logInfo;
   const bool wellLogInput = !fixedAux && cls.type == QLatin1String("well_log");
   std::unique_ptr<QTemporaryDir> logSnapshot;
@@ -276,6 +280,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     return fail(*error);
 
   CatalogVersion version;
+  if (!importedFactors.isEmpty()) version.extra.insert(QStringLiteral("wellFactors"), importedFactors);
   version.id = versionId;
   version.assetId = assetId;
   version.stage = QStringLiteral("RAW");
@@ -375,6 +380,8 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   ctx.parsedDev = std::move(parsedDev);
   ctx.logWellName = logInfo.header.wellName;
   ctx.targetWellId = options.targetWellId;
+  ctx.inputCrs = options.tableMapping.value("crs").toString();
+  if (cls.type == "seismic" && !paleo::dataimport_detail::prepareSeismicCoordinates(ctx, options.tableMapping.value("crs").toString())) return fail(*error);
   QString branchErr;
   if (cls.type == QLatin1String("well_head") && !fixedAux)
     branchErr = paleo::dataimport_detail::importWellHeadFamily(ctx);

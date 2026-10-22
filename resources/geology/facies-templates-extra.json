@@ -9,15 +9,6 @@
     "color": "#E8D5B0"
   },
   {
-    "code": 9,
-    "name": "前三角洲泥",
-    "facies": "三角洲相",
-    "subfacies": "前三角洲亚相",
-    "microfacies": "前三角洲泥",
-    "texture": "strata/micro_bay_fill.svg",
-    "color": "#B0BEC5"
-  },
-  {
     "code": 10,
     "name": "浅湖泥",
     "facies": "湖泊相",
@@ -25,24 +16,6 @@
     "microfacies": "浅湖泥",
     "texture": "strata/micro_bay_fill.svg",
     "color": "#C8D8C8"
-  },
-  {
-    "code": 11,
-    "name": "沼泽沉积",
-    "facies": "三角洲相",
-    "subfacies": "三角洲平原",
-    "microfacies": "沼泽沉积",
-    "texture": "strata/micro_bay_fill.svg",
-    "color": "#B4C9A0"
-  },
-  {
-    "code": 12,
-    "name": "远砂坝",
-    "facies": "三角洲相",
-    "subfacies": "三角洲前缘",
-    "microfacies": "远砂坝",
-    "texture": "strata/micro_mouth_bar_fill.svg",
-    "color": "#F2D28B"
   },
   {
     "code": 13,
@@ -70,24 +43,6 @@
     "microfacies": "河漫滩",
     "texture": "strata/micro_bay_fill.svg",
     "color": "#D7CCC8"
-  },
-  {
-    "code": 16,
-    "name": "深湖泥",
-    "facies": "湖泊相",
-    "subfacies": "深湖亚相",
-    "microfacies": "深湖泥",
-    "texture": "strata/micro_bay_fill.svg",
-    "color": "#9FA8A0"
-  },
-  {
-    "code": 17,
-    "name": "半深湖泥",
-    "facies": "湖泊相",
-    "subfacies": "半深湖亚相",
-    "microfacies": "半深湖泥",
-    "texture": "strata/micro_bay_fill.svg",
-    "color": "#B2BFB2"
   },
   {
     "code": 18,
@@ -325,5 +280,335 @@
     "microfacies": "混杂堆积",
     "texture": "strata/micro_bay_fill.svg",
     "color": "#C0C0B8"
+  },
+  {
+    "code": 59,
+    "name": "水下分流河道",
+    "facies": "扇三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "水下分流河道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": []
+  },
+  {
+    "code": 60,
+    "name": "河口坝",
+    "facies": "扇三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "河口坝",
+    "texture": "strata/micro_mouth_bar_fill.svg",
+    "color": "#FFF176",
+    "aliases": []
+  },
+  {
+    "code": 61,
+    "name": "席状砂",
+    "facies": "扇三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "席状砂",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#FFF9C4",
+    "aliases": []
+  },
+  {
+    "code": 62,
+    "name": "水下分流间湾",
+    "facies": "扇三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "水下分流间湾",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": []
+  },
+  {
+    "code": 63,
+    "name": "分流河道",
+    "facies": "扇三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "分流河道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": []
+  },
+  {
+    "code": 64,
+    "name": "分流间湾",
+    "facies": "扇三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "分流间湾",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": []
+  },
+  {
+    "code": 65,
+    "name": "天然堤",
+    "facies": "扇三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "天然堤",
+    "texture": "strata/micro_levee_fill.svg",
+    "color": "#E8D5B5",
+    "aliases": []
+  },
+  {
+    "code": 66,
+    "name": "前三角洲泥",
+    "facies": "扇三角洲相",
+    "subfacies": "前三角洲亚相",
+    "microfacies": "前三角洲泥",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3",
+    "aliases": []
+  },
+  {
+    "code": 67,
+    "name": "远砂坝",
+    "facies": "扇三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "远砂坝",
+    "texture": "strata/micro_mouth_bar_fill.svg",
+    "color": "#F2D28B",
+    "aliases": []
+  },
+  {
+    "code": 68,
+    "name": "河漫滩",
+    "facies": "扇三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "河漫滩",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": []
+  },
+  {
+    "code": 69,
+    "name": "浊积水道",
+    "facies": "扇三角洲相",
+    "subfacies": "前三角洲亚相",
+    "microfacies": "浊积水道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": []
+  },
+  {
+    "code": 70,
+    "name": "水下分流河道",
+    "facies": "曲流河三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "水下分流河道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": []
+  },
+  {
+    "code": 71,
+    "name": "河口坝",
+    "facies": "曲流河三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "河口坝",
+    "texture": "strata/micro_mouth_bar_fill.svg",
+    "color": "#FFF176",
+    "aliases": []
+  },
+  {
+    "code": 72,
+    "name": "席状砂",
+    "facies": "曲流河三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "席状砂",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#FFF9C4",
+    "aliases": []
+  },
+  {
+    "code": 73,
+    "name": "水下分流间湾",
+    "facies": "曲流河三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "水下分流间湾",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": []
+  },
+  {
+    "code": 74,
+    "name": "分流河道",
+    "facies": "曲流河三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "分流河道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": []
+  },
+  {
+    "code": 75,
+    "name": "分流间湾",
+    "facies": "曲流河三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "分流间湾",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": []
+  },
+  {
+    "code": 76,
+    "name": "天然堤",
+    "facies": "曲流河三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "天然堤",
+    "texture": "strata/micro_levee_fill.svg",
+    "color": "#E8D5B5",
+    "aliases": []
+  },
+  {
+    "code": 77,
+    "name": "前三角洲泥",
+    "facies": "曲流河三角洲相",
+    "subfacies": "前三角洲亚相",
+    "microfacies": "前三角洲泥",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3",
+    "aliases": []
+  },
+  {
+    "code": 78,
+    "name": "远砂坝",
+    "facies": "曲流河三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "远砂坝",
+    "texture": "strata/micro_mouth_bar_fill.svg",
+    "color": "#F2D28B",
+    "aliases": []
+  },
+  {
+    "code": 79,
+    "name": "河漫滩",
+    "facies": "曲流河三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "河漫滩",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": []
+  },
+  {
+    "code": 80,
+    "name": "浊积水道",
+    "facies": "曲流河三角洲相",
+    "subfacies": "前三角洲亚相",
+    "microfacies": "浊积水道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": []
+  },
+  {
+    "code": 81,
+    "name": "水下分流河道",
+    "facies": "辫状河三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "水下分流河道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": []
+  },
+  {
+    "code": 82,
+    "name": "河口坝",
+    "facies": "辫状河三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "河口坝",
+    "texture": "strata/micro_mouth_bar_fill.svg",
+    "color": "#FFF176",
+    "aliases": []
+  },
+  {
+    "code": 83,
+    "name": "席状砂",
+    "facies": "辫状河三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "席状砂",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#FFF9C4",
+    "aliases": []
+  },
+  {
+    "code": 84,
+    "name": "水下分流间湾",
+    "facies": "辫状河三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "水下分流间湾",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": []
+  },
+  {
+    "code": 85,
+    "name": "分流河道",
+    "facies": "辫状河三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "分流河道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": []
+  },
+  {
+    "code": 86,
+    "name": "分流间湾",
+    "facies": "辫状河三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "分流间湾",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": []
+  },
+  {
+    "code": 87,
+    "name": "天然堤",
+    "facies": "辫状河三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "天然堤",
+    "texture": "strata/micro_levee_fill.svg",
+    "color": "#E8D5B5",
+    "aliases": []
+  },
+  {
+    "code": 88,
+    "name": "前三角洲泥",
+    "facies": "辫状河三角洲相",
+    "subfacies": "前三角洲亚相",
+    "microfacies": "前三角洲泥",
+    "texture": "strata/micro_lake_mud_fill.svg",
+    "color": "#D0E3D3",
+    "aliases": []
+  },
+  {
+    "code": 89,
+    "name": "远砂坝",
+    "facies": "辫状河三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "远砂坝",
+    "texture": "strata/micro_mouth_bar_fill.svg",
+    "color": "#F2D28B",
+    "aliases": []
+  },
+  {
+    "code": 90,
+    "name": "河漫滩",
+    "facies": "辫状河三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "河漫滩",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": []
+  },
+  {
+    "code": 91,
+    "name": "浊积水道",
+    "facies": "辫状河三角洲相",
+    "subfacies": "前三角洲亚相",
+    "microfacies": "浊积水道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": []
   }
 ]

@@ -38,6 +38,7 @@ class SingleFactorRegistry
   public:
     // §10 内置词表（固定顺序）。
     static QVector<SingleFactorDefinition> builtins();
+    static bool isImplemented(const QString &factorId);
     // byId 未命中 → ok=false 并返回空定义。
     static SingleFactorDefinition byId(const QString &factorId, bool *ok = nullptr);
     // 稳定 id → 显示名（未知 id 原样返回）。

@@ -44,9 +44,10 @@ QLabel *ConstraintPage::buildFieldAndCellRows( QVBoxLayout *lay )
   cell->setObjectName( QStringLiteral( "factorCellSizeSpin" ) );
   cell->setRange( 0.0001, 1.0e9 );
   cell->setDecimals( 4 );
-  cell->setValue( 1.0 );
+  cell->setValue( 50.0 );
   cell->setAccessibleName( tr( "单因素像元大小" ) );
   cell->setToolTip(tr("输出栅格每个像元的边长，单位与工程坐标系一致。数值越小，细节和计算量越多。"));
+  connect(cell, &QDoubleSpinBox::valueChanged, this, [this] { setProperty("paleo.page.cellSizeManual", true); });
   useMono( cell );
   lay->addWidget( cell );
   return cellCaption;
@@ -59,7 +60,7 @@ void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
   lay->addWidget( taskCaption );
   auto *task = new QComboBox( content );
   task->setObjectName( QStringLiteral( "factorTaskCombo" ) );
-  task->addItem( tr( "快速查看井点趋势" ), QStringLiteral( "local_direction_idw" ) );
+  task->addItem( tr( "快速查看井点趋势" ), QStringLiteral( "surfer_idw" ) );
   task->addItem( tr( "考虑断层或沉积相界约束" ), QStringLiteral( "local_direction_idw" ) );
   task->addItem( tr( "考虑沉积展布方向" ), QStringLiteral( "local_direction_idw" ) );
   task->addItem( tr( "地统计估计并检查误差" ), QStringLiteral( "kriging" ) );
@@ -93,7 +94,7 @@ void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
   }
   method->addItem( tr( "序贯高斯模拟（SGS）" ), QStringLiteral( "sgs" ) );
   method->setItemData(method->count() - 1, tr("序贯高斯模拟按变差模型生成实现集合，输出均值与标准差；逐线方向/屏障参数不参与地统求解。"), Qt::ToolTipRole);
-  const int defaultMethod = method->findData( QStringLiteral( "local_direction_idw" ) );
+  const int defaultMethod = method->findData( QStringLiteral( "surfer_idw" ) );
   if ( defaultMethod >= 0 )
     method->setCurrentIndex( defaultMethod );
   method->setAccessibleName( tr( "成图方法" ) );

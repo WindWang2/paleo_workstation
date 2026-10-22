@@ -9,6 +9,8 @@
 #include <memory>
 #include <qgsvectorfilewriter.h>
 #include <qgsvectorlayer.h>
+#include <qgscoordinatetransform.h>
+#include <qgsexception.h>
 namespace
 {
 int field(const QgsFields &fields, const QStringList &names)
@@ -33,7 +35,7 @@ QString key(const QVariantMap &row)
 namespace PaleoMapSource
 {
 QVariantMap normalizeFacies(const QString &source, const QString &output, const QVariantList &schema,
-                            const QString &microField, const std::function<bool()> &cancelled, QString *error)
+                            const QString &microField, const std::function<bool()> &cancelled, QString *error, const QString &targetCrs)
 {
   QgsVectorLayer layer(source, "source", "ogr");
   if (!layer.isValid() || layer.geometryType() != Qgis::GeometryType::Polygon)
@@ -113,8 +115,11 @@ QVariantMap normalizeFacies(const QString &source, const QString &output, const 
   options.driverName = "GPKG";
   options.layerName = "facies";
   options.fileEncoding = "UTF-8";
+  const auto destinationCrs = targetCrs.isEmpty() ? layer.crs() : QgsCoordinateReferenceSystem(targetCrs);
+  QgsCoordinateTransform transform(layer.crs(), destinationCrs, QgsCoordinateTransformContext());
+  if (!destinationCrs.isValid()) { if (error) *error = QObject::tr("工程基准坐标系无效"); return {}; }
   std::unique_ptr<QgsVectorFileWriter> writer(QgsVectorFileWriter::create(
-      output, outputFields, layer.wkbType(), layer.crs(), QgsCoordinateTransformContext(), options));
+      output, outputFields, layer.wkbType(), destinationCrs, QgsCoordinateTransformContext(), options));
   if (!writer || writer->hasError() != QgsVectorFileWriter::NoError)
   {
     if (error)
@@ -134,7 +139,10 @@ QVariantMap normalizeFacies(const QString &source, const QString &output, const 
     auto attrs = FaciesCatalog::attributes(normalized, code);
     attrs.insert("color", FaciesCatalog::appearance(FaciesCatalog::find(normalized, code)).value("color"));
     QgsFeature converted(outputFields);
-    converted.setGeometry(feature.geometry());
+    auto geometry = feature.geometry();
+    try { if (layer.crs() != destinationCrs) geometry.transform(transform); }
+    catch (const QgsCsException &) { if (error) *error = QObject::tr("相图坐标转换失败"); return {}; }
+    converted.setGeometry(geometry);
     QgsAttributes attributes;
     for (const auto i : originalFields)
       attributes << feature.attribute(i);
@@ -166,7 +174,7 @@ QVariantMap normalizeFacies(const QString &source, const QString &output, const 
           {"source_suffix", "|layername=facies"},
           {"spatial", layer.crs().isValid()},
           {"polygon", true},
-          {"crs", layer.crs().toWkt()},
+          {"crs", destinationCrs.toWkt()},
           {"feature_count", layer.featureCount()},
           {"facies_schema", "paleo_facies_hierarchy_v1"},
           {"prediction_level", "micro_facies"},

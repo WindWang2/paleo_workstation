@@ -210,3 +210,8 @@ FactorGeologicalProfile SingleFactorRegistry::geologicalProfile( const QString &
   setOk( false );
   return p;
 }
+
+bool SingleFactorRegistry::isImplemented(const QString &factorId) {
+  bool known = false; byId(factorId, &known);
+  return known && factorId != QLatin1String("confidence");
+}

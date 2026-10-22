@@ -8,6 +8,7 @@
 struct ProjectSetupSources
 {
   QString root, points, wells, seismic, horizons, references, boundary, paleomaps;
+  QString projectCrs; // Explicit computation CRS; empty chooses the detected metric CRS.
   bool normalizeMaps = true;
   QVariantMap mapChoices; // path -> { included, horizon }
   QVariantMap pointMapping; // sheet / well / x / y / kb / td / crs

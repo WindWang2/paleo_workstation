@@ -702,7 +702,7 @@ void FactorPageTests::dualZoneWidgetsAndLegacyNames()
   // 双区新件。
   auto *factors = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
   QVERIFY( factors != nullptr );
-  QCOMPARE( factors->rowCount(), 7 ); // 词表行
+  QCOMPARE( factors->rowCount(), 6 ); // Only implemented factors; confidence is a contract.
   QCOMPARE( factors->columnCount(), 4 ); // 勾选/名称/输入/状态
   QCOMPARE( factors->item( 0, 1 )->text(), QStringLiteral( "砂体厚度" ) );
   // #430：输入列改为可读词面（不再暴露 raw inputAssetType）。
@@ -715,7 +715,7 @@ void FactorPageTests::dualZoneWidgetsAndLegacyNames()
   auto *contour = page.findChild<QPushButton *>(QStringLiteral("contourButton"));
   QVERIFY( field && cell && generate && interval && contour );
   QCOMPARE( field->text(), QStringLiteral( "z" ) );
-  QCOMPARE( cell->value(), 1.0 );
+  QCOMPARE( cell->value(), 50.0 );
   QCOMPARE( interval->value(), 20.0 );
   // 禁用态带 reason tooltip（DESIGN.md）。
   QVERIFY( !generate->isEnabled() );
@@ -983,6 +983,7 @@ void FactorPageTests::wellFactorCacheInvalidatesOnLayerFileEdit()
   QVERIFY( factors );
   // ctor 取数发生在 bindLayerService 之前——绑定后首次刷新必然 miss（键加入
   // wells 声明与文件态），计一次后进入稳态。
+  factors->item( 0, 0 )->setCheckState( Qt::Unchecked );
   factors->item( 0, 0 )->setCheckState( Qt::Checked );
   const int primed = page.property( "paleo.page.fieldrefreshcount" ).toInt();
   factors->item( 0, 0 )->setCheckState( Qt::Unchecked );
@@ -1008,6 +1009,7 @@ void FactorPageTests::generateFactorPayload()
   field->setText( QStringLiteral( "sand_thick" ) );
   cell->setValue( 2.5 );
 
+  factors->item(0, 0)->setCheckState(Qt::Unchecked);
   // 未勾选 → 生成按钮禁用，点击无信号。
   QSignalSpy spy( &page, &ConstraintPage::generateFactorRequested );
   auto *generate = page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"));
@@ -1198,7 +1200,7 @@ void FactorPageTests::nativeMethodContourAndBusyStates()
   auto *save = page.findChild<QPushButton *>( QStringLiteral( "constraintParamSaveButton" ) );
   auto *source = page.findChild<QLabel *>( QStringLiteral( "factorContourSourceLabel" ) );
   QVERIFY( method && coverage && power && advanced && cancel && save && source );
-  QCOMPARE( method->currentData().toString(), QStringLiteral( "local_direction_idw" ) );
+  QCOMPARE( method->currentData().toString(), QStringLiteral( "surfer_idw" ) );
   QCOMPARE( coverage->currentData().toString(), QStringLiteral( "well_supported" ) );
   QCOMPARE( power->value(), 2.0 );
   QVERIFY( power->toolTip().contains( QStringLiteral( "0.5" ) ) );
@@ -1219,7 +1221,7 @@ void FactorPageTests::nativeMethodContourAndBusyStates()
   page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
   QCOMPARE( generated.count(), 1 );
   const QVariantMap local = generated.at( 0 ).at( 2 ).toMap();
-  QCOMPARE( local.value( QStringLiteral( "method" ) ).toString(), QStringLiteral( "local_direction_idw" ) );
+  QCOMPARE( local.value( QStringLiteral( "method" ) ).toString(), QStringLiteral( "surfer_idw" ) );
   QCOMPARE( local.value( QStringLiteral( "coverage" ) ).toString(), QStringLiteral( "well_supported" ) );
   QCOMPARE( local.value( QStringLiteral( "power" ) ).toDouble(), 2.0 );
   QCOMPARE( local.value( QStringLiteral( "wellClusterLocality" ) ).toBool(), false );
@@ -1229,10 +1231,9 @@ void FactorPageTests::nativeMethodContourAndBusyStates()
 
   factors->item( 5, 0 )->setCheckState( Qt::Checked );
   QVERIFY( !method->isVisibleTo( &page ) );
-  factors->item( 6, 0 )->setCheckState( Qt::Checked );
+  QCOMPARE(factors->rowCount(), 6); // Confidence engine is unavailable and omitted.
   auto *generate = page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) );
-  QVERIFY( !generate->isEnabled() );
-  QVERIFY( generate->toolTip().contains( QStringLiteral( "尚未接入" ) ) );
+  QVERIFY(generate->isEnabled());
 
   factors->item( 0, 0 )->setCheckState( Qt::Checked );
   page.noteFactorLayer( QStringLiteral( "sandthick" ), QStringLiteral( "factor.T1.sandthick" ) );
@@ -1302,10 +1303,10 @@ void FactorPageTests::strategyPackDrivesMethodCombo()
     QVERIFY2( index >= 0, qPrintable( QStringLiteral( "词表策略 %1 未出现在下拉" ).arg( pack.id ) ) );
     QCOMPARE( method->itemText( index ), pack.label );
   }
-  QCOMPARE( method->currentData().toString(), QStringLiteral( "local_direction_idw" ) );
+  QCOMPARE( method->currentData().toString(), QStringLiteral( "surfer_idw" ) );
   // 默认项参数预览 = 词表 geologicalNote。
   const paleo::singlefactor::SurfaceMethodPack *defaultPack =
-      paleo::singlefactor::surfaceMethodPack( QStringLiteral( "local_direction_idw" ) );
+      paleo::singlefactor::surfaceMethodPack( QStringLiteral( "surfer_idw" ) );
   QVERIFY( defaultPack );
   QCOMPARE( note->text(), defaultPack->geologicalNote );
 
@@ -1430,10 +1431,10 @@ void FactorPageTests::parseLevelsDroppedTokensAreRefused()
   auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
   horizons->setCurrentIndex( 0 );
   QVariantMap generated;
-  generated.insert( QStringLiteral( "poro" ), QStringLiteral( "factor.T1.poro" ) );
+  generated.insert( QStringLiteral( "sandthick" ), QStringLiteral( "factor.T1.sandthick" ) );
   page.setProperty( "paleo.page.factorgen", generated );
   auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
-  factors->item( 3, 0 )->setCheckState( Qt::Checked ); // poro
+  factors->item( 0, 0 )->setCheckState( Qt::Checked ); // poro
   auto *mode = page.findChild<QComboBox *>( QStringLiteral( "factorContourModeCombo" ) );
   mode->setCurrentIndex( mode->findData( QStringLiteral( "cartographic_detour" ) ) );
   auto *levels = page.findChild<QLineEdit *>( QStringLiteral( "factorContourLevelsEdit" ) );
@@ -1478,10 +1479,10 @@ void FactorPageTests::parseLevelsAboveCapCountsDropped()
   auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
   horizons->setCurrentIndex( 0 );
   QVariantMap generated;
-  generated.insert( QStringLiteral( "poro" ), QStringLiteral( "factor.T1.poro" ) );
+  generated.insert( QStringLiteral( "sandthick" ), QStringLiteral( "factor.T1.sandthick" ) );
   page.setProperty( "paleo.page.factorgen", generated );
   auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
-  factors->item( 3, 0 )->setCheckState( Qt::Checked ); // poro
+  factors->item( 0, 0 )->setCheckState( Qt::Checked ); // poro
   auto *mode = page.findChild<QComboBox *>( QStringLiteral( "factorContourModeCombo" ) );
   mode->setCurrentIndex( mode->findData( QStringLiteral( "cartographic_detour" ) ) );
   auto *levelsEdit = page.findChild<QLineEdit *>( QStringLiteral( "factorContourLevelsEdit" ) );
@@ -1614,6 +1615,7 @@ void FactorPageTests::structuralBoundaryComboPrefersPolygonDefaults()
 void FactorPageTests::geologicalAutoModeAndTaskRecommendation()
 {
   ConstraintPage page(nullptr);
+  page.findChild<QWidget *>("factorDataDetailsSection")->findChild<QAbstractButton *>("collapsibleSectionToggle")->setChecked(true);
   page.setHorizons({QStringLiteral("D61")});
   auto *table = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
   table->item(1, 0)->setCheckState(Qt::Checked); // sandratio
@@ -1738,12 +1740,14 @@ void FactorPageTests::wellFactorExtractionPayload() {
 
 void FactorPageTests::methodParameterVisibilityAndFamilies() {
   ConstraintPage page(nullptr); page.show();
+  page.findChild<QWidget *>("factorBasicSettingsSection")->findChild<QAbstractButton *>("collapsibleSectionToggle")->setChecked(true);
   // 高级参数可按需展开；方法切换仍只呈现实际消费的参数。
   // #19：约束族收进「可选约束」折叠段，展开该段后断言不变。
   for (const char *name : {"factorAdvancedOptionsSection", "factorConstraintsOptionalSection",
                            "factorDirectionParametersSection"})
     page.findChild<QWidget *>(QString::fromLatin1(name))->findChild<QAbstractButton *>(QStringLiteral("collapsibleSectionToggle"))->setChecked(true);
   auto *method = page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
+  method->setCurrentIndex(method->findData(QStringLiteral("local_direction_idw")));
   const auto visible = [&page](const char *name) { return page.findChild<QWidget *>(QString::fromLatin1(name))->isVisibleTo(&page); };
   QVERIFY(visible("factorIdwParameters")); QVERIFY(!visible("factorVariogramParameters"));
   QVERIFY(visible("factorDirectionRatioSpin"));
@@ -1805,7 +1809,7 @@ void FactorPageTests::oneClickExtractThenGenerateStopsWithReason()
   auto *status = page.findChild<QLabel *>(QStringLiteral("statusLabel"));
   auto *progress = page.findChild<QProgressBar *>(QStringLiteral("factorProgressBar"));
   QVERIFY(oneClick && generate && extract && status && progress);
-  QCOMPARE(oneClick->text(), QStringLiteral("提取并生成"));
+  QCOMPARE(oneClick->text(), QStringLiteral("生成单因素图"));
   QCOMPARE(generate->text(), QStringLiteral("生成单因素图"));
   QVERIFY(!oneClick->isEnabled()); // 无层位/因素
   page.setHorizons({QStringLiteral("D61")});
@@ -1880,6 +1884,8 @@ void FactorPageTests::ipoStagesAndProgressiveDisclosure()
 {
   // 反馈 #19：输入 → 处理 → 输出 三段式；约束与高级参数默认收起但仍可达。
   ConstraintPage page(nullptr);
+  page.findChild<QWidget *>("factorDataDetailsSection")->findChild<QAbstractButton *>("collapsibleSectionToggle")->setChecked(true);
+  page.findChild<QWidget *>("factorBasicSettingsSection")->findChild<QAbstractButton *>("collapsibleSectionToggle")->setChecked(true);
   page.resize(420, 760);
   page.show();
   QCoreApplication::processEvents();
@@ -1904,8 +1910,8 @@ void FactorPageTests::ipoStagesAndProgressiveDisclosure()
   QVERIFY(wells && method && contour && results);
   QVERIFY(y(inputStage) < y(table));
   QVERIFY(y(table) < y(wells));
-  QVERIFY(y(wells) < y(processStage));
-  QVERIFY(y(processStage) < y(method));
+  QVERIFY(y(table) < y(page.findChild<QWidget *>("factorDataDetailsSection")));
+  QVERIFY(page.findChild<QWidget *>("factorBasicSettingsSection")->isAncestorOf(method));
   QVERIFY(y(method) < y(optional));
   QVERIFY(y(optional) < y(outputStage));
   QVERIFY(y(outputStage) < y(contour));
@@ -1954,7 +1960,7 @@ void FactorPageTests::guidedPreparationAndPinnedActions()
   QVERIFY(scroll && table && hint && next && generate && bar && method);
   QVERIFY(hint->text().contains(QStringLiteral("选择层位")));
   page.setHorizons({QStringLiteral("D61")});
-  QVERIFY(hint->text().contains(QStringLiteral("请选择一个因素")));
+  QCOMPARE(table->item(0, 0)->checkState(), Qt::Checked);
   QCoreApplication::processEvents();
   // 点名称即可选择，取消仍通过原生复选框；不会只高亮却操作另一个因素。
   QTest::mouseClick(table->viewport(), Qt::LeftButton, Qt::NoModifier,
@@ -1983,7 +1989,7 @@ void FactorPageTests::guidedPreparationAndPinnedActions()
   QCoreApplication::processEvents();
   QCOMPARE(bar->pos(), fixedPosition);
   QVERIFY(page.rect().contains(bar->geometry()));
-  QVERIFY(generate->isVisibleTo(&page));
+  QVERIFY(page.findChild<QPushButton *>("factorOneClickButton")->isVisibleTo(&page));
   next->click();
   QTRY_VERIFY(scroll->verticalScrollBar()->value() < scroll->verticalScrollBar()->maximum());
   QVERIFY(capture(QStringLiteral("02-constraints-light")));
@@ -1999,7 +2005,7 @@ void FactorPageTests::guidedPreparationAndPinnedActions()
   QCoreApplication::processEvents();
   QCOMPARE(page.width(), 280);
   QVERIFY(page.rect().contains(bar->geometry()));
-  QVERIFY(generate->isVisibleTo(&page));
+  QVERIFY(page.findChild<QPushButton *>("factorOneClickButton")->isVisibleTo(&page));
   QVERIFY(capture(QStringLiteral("03-narrow-light")));
   page.resize(420, 760);
   // 换到非插值引擎时不展示不适用的字段/高级参数，输入提示明确。
@@ -2011,9 +2017,7 @@ void FactorPageTests::guidedPreparationAndPinnedActions()
   next->click();
   QCoreApplication::processEvents();
   QVERIFY(capture(QStringLiteral("04-surfaces-light")));
-  table->item(6, 0)->setCheckState(Qt::Checked);
-  QVERIFY(hint->text().contains(QStringLiteral("尚未接入")));
-  QVERIFY(next->isHidden());
+  QCOMPARE(table->rowCount(), 6); // Unimplemented confidence is omitted.
   table->item(0, 0)->setCheckState(Qt::Checked);
   page.noteFactorLayer(QStringLiteral("sandthick"), QStringLiteral("factor.D61.sandthick"));
   auto *mode = page.findChild<QComboBox *>(QStringLiteral("factorContourModeCombo"));

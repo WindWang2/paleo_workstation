@@ -2,12 +2,14 @@
 #include "importclassification.h"
 #include "welllogtext.h"
 #include "welltable.h"
+#include "wellfactorfile.h"
 #include <QFileInfo>
 #include <QFile>
 #include <QXmlStreamReader>
 
 ProjectClassification classifyImportFile(const QString &path)
 {
+  if (paleo::io::isWellFactorFile(path)) return {QStringLiteral("tabular"), QStringLiteral("csv"), QStringLiteral("input")};
   if (paleo::io::isWellTableContainer(path) && QFileInfo(path).size() <= 64ll * 1024 * 1024) {
     const auto table = paleo::io::readWellTable(path);
     if (!table.type.isEmpty() && !table.mapping.value(QStringLiteral("headerless")).toBool())

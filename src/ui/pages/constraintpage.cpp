@@ -86,6 +86,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   int row = 0;
   for ( const SingleFactorDefinition &def : SingleFactorRegistry::builtins() )
   {
+    if (!SingleFactorRegistry::isImplemented(def.factorId)) continue;
     factors->insertRow( row );
     auto *check = new QTableWidgetItem();
     check->setFlags( Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable );
@@ -122,7 +123,10 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
 
   // 方向 96：自此处起 ctor 按原文行序分解为构建段（段图见 constraintpage.h；
   // 调用序 = 原文行序，创建序/连接序逐行保持）。
-  buildWellFactorSection( content, lay, horizons, factors );
+  auto *dataDetails = new CollapsibleSection(tr("数据与取值详情"), content);
+  dataDetails->setObjectName(QStringLiteral("factorDataDetailsSection"));
+  buildWellFactorSection(dataDetails->container(), dataDetails->containerLayout(), horizons, factors);
+  dataDetails->setExpanded(false); lay->addWidget(dataDetails);
   QLabel *cellCaption = buildFieldAndCellRows( lay );
   buildMethodSection( content, lay );
   buildBoundaryRows( content, lay );
@@ -130,13 +134,14 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   buildSurfaceRow( lay );
   auto *surfaceInputs = findChild<QWidget *>(QStringLiteral("factorSurfaceRow"));
   lay->removeWidget(surfaceInputs);
-  lay->insertWidget(lay->indexOf(findChild<QWidget *>(QStringLiteral("wellFactorSection"))) + 1,
+  lay->insertWidget(lay->indexOf(dataDetails) + 1,
                     surfaceInputs);
   auto *outputStage = caption(tr("③ 输出 · 预览、保存与发布"), content);
   outputStage->setObjectName(QStringLiteral("factorOutputStageCaption"));
   lay->addWidget(outputStage);
   auto *contourSection = new CollapsibleSection(tr("可选：提取等值线（等值面保存后）"), content);
   contourSection->setObjectName(QStringLiteral("factorContourSection"));
+  contourSection->setExpanded(false);
   lay->addWidget(contourSection);
   buildContourSection( contourSection->container(), contourSection->containerLayout() );
   wireFactorTableSelection( factors );
@@ -163,6 +168,13 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   optionalConstraints->containerLayout()->addWidget(constraints);
   optionalConstraints->setExpanded(false);
   lay->insertWidget(lay->indexOf(options) + 1, optionalConstraints);
+  auto *settings = new CollapsibleSection(tr("成图设置（默认即可）"), content);
+  settings->setObjectName(QStringLiteral("factorBasicSettingsSection"));
+  for (const char *name : {"factorCellSizeCaption", "factorCellSizeSpin", "factorTaskCaption", "factorTaskCombo",
+       "factorSettingsCaption", "factorMethodCaption", "factorMethodCombo", "factorStrategyNote", "factorTaskNote", "factorCoverageCaption", "factorCoverageCombo",
+       "factorBoundaryCaption", "factorBoundaryRow", "factorGridCaption", "factorGridResolutionSpin"})
+    if (auto *widget = findChild<QWidget *>(QString::fromLatin1(name))) { lay->removeWidget(widget); settings->containerLayout()->addWidget(widget); }
+  settings->setExpanded(false); lay->insertWidget(lay->indexOf(options), settings);
   buildFactorResultsSection(content, lay);
   buildTailSections( content, lay );
   // 反馈 #19：兜底工具（原始字段 IDW / 厚度样本 / 不确定性集合）统一收进输出段
@@ -193,6 +205,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   refreshWellFactorFields();
   refreshConstraintList();
   refreshFactorResults();
+  if (factors->rowCount()) factors->item(0, 0)->setCheckState(Qt::Checked);
   updateFactorActionStates();
 }
 

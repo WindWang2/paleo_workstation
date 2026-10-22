@@ -151,8 +151,10 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   const QString baseName = params.value(QStringLiteral("baseHorizon"), baseHorizonFor(horizon)).toString();
   const QStringList requested{params.value(QStringLiteral("valueField"), params.value(QStringLiteral("field"))).toString(),
       params.value(QStringLiteral("numeratorField")).toString(), params.value(QStringLiteral("denominatorField")).toString()};
-  const bool metrics = params.isEmpty() || requested.contains(layerThickness) || requested.contains(sandThickness);
-  const bool sandMetric = params.isEmpty() || requested.contains(sandThickness);
+  const bool autoSand = params.value("factorMode") == QLatin1String("auto") &&
+      QStringList{"sandthick", "sandratio"}.contains(params.value("factorId").toString());
+  const bool metrics = params.isEmpty() || autoSand || requested.contains(layerThickness) || requested.contains(sandThickness);
+  const bool sandMetric = params.isEmpty() || autoSand || requested.contains(sandThickness);
   const auto wells = data.wells();
   QStringList ids, lithologyWarnings;
   for (const auto &well : wells) ids << well.id;
@@ -178,6 +180,11 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     if (!byName.contains(name))
       byName.insert(name, i);
   }
+  QHash<QString, QVariantMap> importedByWell;
+  for (const auto &value : data.importedWellFactors(horizon, error)) {
+    const auto row = value.toMap(); importedByWell.insert(DataCatalog::normalizeWellName(row.value("well_name").toString()), row);
+  }
+  if (error && !error->isEmpty()) return {};
   for (const ProjectWell &well : wells) {
     if (cancelled && cancelled()) {
       if (error)
@@ -216,6 +223,22 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     claimedBy.insert(index, well.id);
     byId.insert(well.id, index);
     byName.insert(DataCatalog::normalizeWellName(well.name), index);
+    const auto imported = importedByWell.value(DataCatalog::normalizeWellName(well.name));
+    for (auto i = imported.cbegin(); i != imported.cend(); ++i)
+      if (paleo::singlefactor::parseNumeric(i.value())) row.attributes.insert(i.key(), i.value());
+    row.maintainedThickness = !imported.isEmpty();
+    row.maintainedSand = !imported.isEmpty();
+    if (imported.contains("sand_thick")) {
+      row.attributes.insert(sandThickness, imported.value("sand_thick"));
+      row.sandSource = imported.value("source").toString() + " · " + imported.value("quality").toString();
+    }
+    if (!imported.isEmpty()) {
+      row.provenance.insert("imported_factor_version", imported.value("_source_version"));
+      row.provenance.insert("input_quality", imported.value("quality"));
+      if (!imported.contains("sand_thick")) row.sandReason = imported.value("quality").toString();
+      if (!imported.contains("log_layer_thickness_md")) row.thicknessReason = imported.value("quality").toString();
+      out.paths << imported.value("_source_path").toString();
+    }
     const auto maintained = maintainedByWell.value(well.id);
     if (maintained.size() > 1) {
       if (error) *error = ConstraintWorkflow::tr("井点属性表中同井/层位存在重复行，请先修正");
@@ -230,9 +253,13 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
         if (i.key() != QLatin1String("well_id") && i.key() != QLatin1String("well_name") &&
             i.key() != QLatin1String("horizon") && !i.value().isNull())
           row.attributes.insert(i.key(), i.value());
-      row.maintainedThickness = paleo::singlefactor::parseNumeric(values.value(layerThickness)).has_value();
-      row.maintainedSand = paleo::singlefactor::parseNumeric(values.value(sandThickness)).has_value();
-      if (row.maintainedSand) row.sandSource = ConstraintWorkflow::tr("井点单因素属性表");
+      row.maintainedThickness = row.maintainedThickness || paleo::singlefactor::parseNumeric(values.value(layerThickness)).has_value();
+      row.maintainedSand = row.maintainedSand || paleo::singlefactor::parseNumeric(values.value(sandThickness)).has_value();
+      if (paleo::singlefactor::parseNumeric(values.value(sandThickness))) {
+        row.sandSource = ConstraintWorkflow::tr("井点单因素属性表");
+        if (!paleo::singlefactor::parseNumeric(values.value("sand_thick"))) row.attributes.remove("sand_thick");
+        if (!paleo::singlefactor::parseNumeric(values.value("sand_ratio"))) row.attributes.remove("sand_ratio");
+      }
     }
     if (!metrics) continue;
     double top = qQNaN(), base = qQNaN();
@@ -261,6 +288,10 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
       } else if (!lithologyWarnings.isEmpty()) row.sandReason += QStringLiteral("; ") + lithologyWarnings.join(QStringLiteral("; "));
     } else if (std::isfinite(top) && std::isfinite(base)) {
       row.thicknessReason = ConstraintWorkflow::tr("分层倒置或层厚为零"); row.sandReason = row.thicknessReason;
+    }
+    if (!imported.isEmpty()) {
+      if (!paleo::singlefactor::parseNumeric(row.attributes.value(layerThickness))) row.thicknessReason = imported.value("quality").toString();
+      if (!paleo::singlefactor::parseNumeric(row.attributes.value(sandThickness))) row.sandReason = imported.value("quality").toString();
     }
     const bool usesRawSand = sandMetric && !row.maintainedSand;
     const bool usesRawTops = !row.maintainedThickness || usesRawSand;
@@ -485,6 +516,7 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
                               ConstraintWorkflow::tr(" ÷ ") +
                               sourceOfField(request.denominatorField)
                         : sourceOfField(request.valueField);
+    if (!r.provenance.value("input_quality").toString().isEmpty()) valueSource += QStringLiteral(" · ") + r.provenance.value("input_quality").toString();
     const bool contributing = value && reason.isEmpty();
     QVariantMap row = r.provenance;
     row.insert("well_id", r.id); row.insert("well_name", r.name); row.insert("horizon", source.horizon);
@@ -783,14 +815,14 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
     if (task)
       task->reportStage("parse", 5);
     QString err;
+    QVariantMap decided = params;
+    decided.insert(QStringLiteral("factorId"), factorId);
     const auto source =
-        sourceFor(&detached, horizon, params, &err, &frozen, &maintained, cancelled);
+        sourceFor(&detached, horizon, decided, &err, &frozen, &maintained, cancelled);
     if (!err.isEmpty())
       return err;
     if (task)
       task->reportStage("build", 60);
-    QVariantMap decided = params;
-    decided.insert(QStringLiteral("factorId"), factorId);
     if (!computeExtraction(source, decided, *result, &err, cancelled))
       return err.isEmpty() ? tr("井点提取失败") : err;
     if (task)

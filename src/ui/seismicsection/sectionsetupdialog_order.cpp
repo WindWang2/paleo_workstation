@@ -6,6 +6,7 @@
 #include <QListWidget>
 #include <QMap>
 #include <QPushButton>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QVariantMap>
 
@@ -33,9 +34,15 @@ void SectionSetupDialog::applyWellOrder(const QStringList &ids) {
       item->setToolTip(tr("缺少有效井口坐标"));
     }
   };
+  // 去重（保首次出现序）：调用方传入的吸附井序理论上已去重，但折线回环等
+  // 路径仍可能带来重复 id——重复项会让同一口井在列表里出现两行（并双计
+  // 勾选数），故在此兜底，与「不增删井行」契约一致（一行一井）。
+  QSet<QString> added;
   for (const QString &id : ids)
-    if (rows.contains(id))
+    if (rows.contains(id) && !added.contains(id)) {
       addRow(id, true);
+      added.insert(id);
+    }
   for (const QString &id : rest)
     addRow(id, false);
   if (m_wells->count())

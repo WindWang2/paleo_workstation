@@ -55,6 +55,7 @@ class QgisProjectService : public QObject
     void setGeoreference(const PaleoGeoreference &reference);
     void clearGeoreference();
     const PaleoProjectFile &mapConfiguration() const { return m_mapConfiguration; }
+    static bool validateMapReference(const PaleoProjectFile &configuration, QString *error);
     bool updateMapConfiguration(const PaleoProjectFile &configuration, QString *error = nullptr);
     void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
     bool isReadOnly() const { return m_readOnly; }

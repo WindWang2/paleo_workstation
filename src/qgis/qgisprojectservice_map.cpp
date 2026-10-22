@@ -142,6 +142,12 @@ void QgisProjectService::clearGeoreference()
   emit mapConfigurationChanged();
 }
 
+bool QgisProjectService::validateMapReference(const PaleoProjectFile &configuration, QString *error)
+{
+  QgsProject validation;
+  return paleo::mapreference::configure(&validation, configuration.georeference, configuration.mapCrs, error);
+}
+
 bool QgisProjectService::updateMapConfiguration(const PaleoProjectFile &configuration, QString *error)
 {
   const auto fail = [&](const QString &text) {

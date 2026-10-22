@@ -20,6 +20,7 @@ bool configureNativeProjectGrid(QgsProject *project, const QString &sourceCrs, c
       QString operation = QStringLiteral("+proj=noop");
       if (source != crs) {
         QgsCoordinateTransform native(source, crs, context);
+        if (!native.isValid()) { if (error) *error = QObject::tr("无法建立原生坐标转换：%1").arg(id); return false; }
         native.setAllowFallbackTransforms(false);
         native.transform(QgsPointXY(0, 0));
         operation = native.instantiatedCoordinateOperationDetails().proj;
@@ -27,7 +28,10 @@ bool configureNativeProjectGrid(QgsProject *project, const QString &sourceCrs, c
       }
       // Geological algorithms retain one engineering grid; its numeric values
       // are already in sourceCrs. Bind an exact native operation, no affine fit.
-      context.addCoordinateOperation(local, crs, operation, false);
+      if (!context.addCoordinateOperation(local, crs, operation, false)) {
+        if (error) *error = QObject::tr("无法注册工程坐标转换：%1").arg(id);
+        return false;
+      }
     }
   } catch (const QgsCsException &e) { if (error) *error = e.what(); return false; }
   project->setTransformContext(context);

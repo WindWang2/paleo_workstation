@@ -4,6 +4,7 @@
 // （沿用 tst_mapsnapshot_scale 口径：qInfo 记录实测，不设墙钟断言——
 //  不声称没有实测的数据通过性能验收，也不伪造硬门）。
 #include "../src/catalog/datacatalog.h"
+#include "../src/domain/faciescatalog.h"
 #include "../src/io/constraintstore.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
@@ -264,6 +265,8 @@ private slots:
     Fixture f;
     QVERIFY(f.init());
     QString error;
+    QVERIFY2(f.work.saveFacies("D61", FaciesCatalog::defaults().mid(0, 7), &error), qPrintable(error)); // six thresholds below classify seven explicit classes
+
     // 大网格单因素（500×500）：重放采样必须钳在上限内。
     const auto source = f.dir.filePath("big-samples.geojson");
     QVERIFY(MappingArtifactWriter::points(
@@ -351,6 +354,17 @@ private slots:
     const auto wells = wellsSnapshot.value("wells_in_feature").toList();
     QVERIFY(wells.size() <= 500); // 有界
     qInfo().noquote() << "BASELINE wells matched:" << wells.size();
+    timer.restart();
+    for (int n = 0; n < 10; ++n) {
+      const auto summary = f.work.featureEvidenceSummary(composed, {fid});
+      QCOMPARE(summary.value("feature_uid").toString(), uid);
+      QCOMPARE(summary.value("geometry_hash"), wellsSnapshot.value("geometry_hash"));
+      QVERIFY(summary.value("details_deferred").toBool());
+      QVERIFY(!summary.contains("attribution"));
+      QVERIFY(!summary.contains("wells_in_feature"));
+      QCOMPARE(summary.value("interpretation"), wellsSnapshot.value("interpretation"));
+    }
+    qInfo().noquote() << "SUMMARY 10 selections with 10k entities(ms):" << timer.elapsed();
   }
   // X8/X9：反查行字段与索引新鲜度如实上报；目录删除来源版本后
   // stale_sources 按目录核验命中；任务服务在场时同步走后台、不阻塞查询。

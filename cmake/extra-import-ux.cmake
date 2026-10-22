@@ -29,3 +29,11 @@ add_paleo_test(tst_projectsetup LIBS paleo_ui paleo_io)
 add_paleo_test(tst_projectcoordinates LIBS paleo_io paleo_services)
 add_paleo_test(tst_geologyux LIBS paleo_ui)
 target_sources(paleo_ui PRIVATE src/ui/pages/constraintpage_defaults.cpp)
+
+target_sources(paleo_ui PRIVATE src/ui/pages/mappingworkbenchpage_evidence.cpp
+  src/ui/pages/mappingworkbenchpage_evidence_detail.cpp)
+
+if(PALEO_PYTHON3)
+  add_test(NAME geology_preparation COMMAND ${PALEO_PYTHON3}
+    ${CMAKE_SOURCE_DIR}/tools/test_geology_preparation.py)
+endif()

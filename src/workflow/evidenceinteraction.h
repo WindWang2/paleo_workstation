@@ -28,6 +28,7 @@ public:
   bool canGoBack() const;
   void back();
   void refresh();
+  void setDetailsEnabled(bool enabled);
   void reset();
   QVariantMap snapshot() const { return m_snapshot; }
 signals:
@@ -49,4 +50,5 @@ private:
   QVector<SelectionTarget> m_back;
   SelectionTarget m_lastPrimary;
   bool m_receiving = false;
+  bool m_detailsEnabled = false;
 };

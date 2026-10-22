@@ -151,7 +151,7 @@ void EvidenceInteraction::capture(const QString &id) {
   const auto h = m_workbench->declaration(id).horizon;
   if (!h.isEmpty() && h != m_selection->activeHorizon()) return;
   const auto ids = m_workbench->selectedFeatures(id);
-  m_snapshot = m_workbench->featureEvidence(id, ids);
+  m_snapshot = m_detailsEnabled ? m_workbench->featureEvidence(id, ids) : m_workbench->featureEvidenceSummary(id, ids);
   if (ids.size() > 1) m_snapshot.insert("records", m_workbench->evidence(id, ids));
   m_snapshot.insert("project_id", projectId());
   m_snapshot.insert("project_session", m_project ? QVariant(m_project->sessionId()) : QVariant());
@@ -191,7 +191,7 @@ void EvidenceInteraction::receive(const SelectionTarget &target, const QString &
     ids << fid;
     if (origin != "map" && !m_primary->showFeature(target.featureUid, false, &error)) emit navigationFailed(error);
   }
-  m_snapshot = m_workbench->featureEvidence(target.layerId, ids);
+  m_snapshot = m_detailsEnabled ? m_workbench->featureEvidence(target.layerId, ids) : m_workbench->featureEvidenceSummary(target.layerId, ids);
   m_snapshot.insert("project_id", projectId()); m_snapshot.insert("project_session", m_project ? QVariant(m_project->sessionId()) : QVariant());
   if (!m_snapshot.contains("error") && layer) {
     auto current = target;
@@ -207,6 +207,11 @@ void EvidenceInteraction::receive(const SelectionTarget &target, const QString &
 void EvidenceInteraction::refresh() {
   if (!m_selection || m_selection->target().isEmpty()) return;
   receive(m_selection->target(), "refresh", m_selection->targetGeneration());
+}
+void EvidenceInteraction::setDetailsEnabled(bool enabled) {
+  if (m_detailsEnabled == enabled) return;
+  m_detailsEnabled = enabled;
+  refresh();
 }
 void EvidenceInteraction::navigate(const QVariantMap &evidence, bool locate) {
   if (!m_selection || !m_workbench || !m_layers) return;

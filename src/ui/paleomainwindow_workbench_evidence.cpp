@@ -15,6 +15,9 @@ void PaleoMainWindow::attachWorkbenchEvidence(EvidenceInteraction *evidence,
                                               const QList<MappingWorkbenchPage *> &pages) {
   connect(evidence, &EvidenceInteraction::navigationFailed, this, [this](const QString &error) { statusBar()->showMessage(error, 12000); });
   for (auto *page : pages) {
+    connect(page, &MappingWorkbenchPage::evidenceDetailsRequested, evidence, [evidence, page](bool enabled) {
+      if (page->isVisible()) evidence->setDetailsEnabled(enabled);
+    });
     connect(page, &MappingWorkbenchPage::targetLayerChanged, evidence, [evidence, page](const QString &id) {
       if (page->isVisible()) evidence->setLayer(id);
     });

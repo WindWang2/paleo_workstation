@@ -5,6 +5,7 @@
 
 # ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见
 # docs/progress/devex.md 对比表；单参 = 伞式旧式契约，保留 5 个作为兼容样本）----
+add_paleo_test(tst_portableenvironment LIBS paleo_app)
 add_paleo_test(tst_runtime LIBS paleo_qgis)                 # metadata,qgis
 add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
 add_paleo_test(tst_basemap_project LIBS paleo_qgis)

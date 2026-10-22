@@ -237,6 +237,10 @@ void StratigraphicWebSession::launch()
   auto environment = QProcessEnvironment::systemEnvironment();
   environment.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
   environment.insert(QStringLiteral("PYTHONDONTWRITEBYTECODE"), QStringLiteral("1"));
+  // 项目数据文件是 UTF-8（Linux 开发侧缺省口径）；中文 Windows 的 Python 缺省
+  // GBK 会在 open() 读井数据/连井图 JSON 时直接 UnicodeDecodeError——UTF-8 模式
+  // 统一口径（Linux 上本就等效 UTF-8，零行为变化）。
+  environment.insert(QStringLiteral("PYTHONUTF8"), QStringLiteral("1"));
   m_process.setProcessEnvironment(environment);
   m_process.start(python, {QStringLiteral("-B"), project.absoluteFilePath(QStringLiteral("run.py")),
       QStringLiteral("--host"), m_endpoint.host(), QStringLiteral("--port"),

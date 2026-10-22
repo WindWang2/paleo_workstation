@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonObject>
 #include <QString>
 #include <functional>
 
@@ -72,4 +73,5 @@ class QgisRuntime
     static bool isInitialized();
     static int providerCount();          // -1 if not initialized
     static QString srsDbPath();          // empty if not initialized
+    static QJsonObject coordinateRuntimeReport(); // real QGIS + GDAL EPSG/transform checks
 };

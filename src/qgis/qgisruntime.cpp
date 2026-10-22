@@ -2,9 +2,15 @@
 #include "qgisruntime.h"
 
 #include <QCoreApplication>
+#include <QJsonArray>
+#include <cmath>
+#include <ogr_spatialref.h>
+#include <cpl_error.h>
 
 #include <qgsapplication.h>
 #include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransform.h>
+#include <qgsexception.h>
 #include <qgsproviderregistry.h>
 #include <qgsgui.h>
 #include <qgseditorwidgetregistry.h>
@@ -94,4 +100,49 @@ QString QgisRuntime::srsDbPath()
   if ( !isInitialized() )
     return QString();
   return QgsApplication::srsDatabaseFilePath();
+}
+
+QJsonObject QgisRuntime::coordinateRuntimeReport()
+{
+  QJsonArray errors;
+  QJsonObject checks;
+  const auto check = [&](const QString &name, bool ok, const QString &detail) {
+    checks.insert(name, ok);
+    if (!ok) errors.append(detail);
+  };
+  check(QStringLiteral("srsDatabase"), QFileInfo(srsDbPath()).isReadable(),
+        QStringLiteral("QGIS coordinate database is missing or unreadable: %1").arg(srsDbPath()));
+  const QgsCoordinateReferenceSystem source(QStringLiteral("EPSG:32649"));
+  const QgsCoordinateReferenceSystem target(QStringLiteral("EPSG:4326"));
+  check(QStringLiteral("qgisEpsg32649"), source.isValid() && !source.toWkt().isEmpty(),
+        QStringLiteral("QGIS cannot resolve EPSG:32649"));
+  check(QStringLiteral("qgisEpsg4326"), target.isValid(), QStringLiteral("QGIS cannot resolve EPSG:4326"));
+  bool qgisTransform = false;
+  try {
+    QgsCoordinateTransform transform(source, target, QgsCoordinateTransformContext());
+    const auto point = transform.transform(QgsPointXY(233240.46, 3997621.12));
+    qgisTransform = transform.isValid() && std::abs(point.x() - 108.037366) < .000001
+        && std::isfinite(point.y());
+  } catch (const QgsCsException &) {}
+  check(QStringLiteral("qgisTransform"), qgisTransform, QStringLiteral("QGIS UTM49N to WGS84 transform failed"));
+  OGRSpatialReference ogrSource, ogrTarget;
+  const bool ogrCrs = ogrSource.importFromEPSG(32649) == OGRERR_NONE
+      && ogrTarget.importFromEPSG(4326) == OGRERR_NONE;
+  check(QStringLiteral("gdalEpsg32649"), ogrCrs, QString::fromUtf8(CPLGetLastErrorMsg()));
+  bool gdalTransform = false;
+  if (ogrCrs) {
+    ogrSource.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    ogrTarget.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    auto *transform = OGRCreateCoordinateTransformation(&ogrSource, &ogrTarget);
+    double x = 233240.46, y = 3997621.12;
+    gdalTransform = transform && transform->Transform(1, &x, &y)
+        && std::abs(x - 108.037366) < .000001 && std::isfinite(y);
+    if (transform) OCTDestroyCoordinateTransformation(transform);
+  }
+  check(QStringLiteral("gdalTransform"), gdalTransform, QStringLiteral("GDAL UTM49N to WGS84 transform failed"));
+  return {{"ok", errors.isEmpty()}, {"checks", checks}, {"errors", errors},
+      {"executable", QCoreApplication::applicationFilePath()}, {"workingDirectory", QDir::currentPath()},
+      {"qgisPrefix", QgsApplication::prefixPath()}, {"srsDatabase", srsDbPath()},
+      {"projData", qEnvironmentVariable("PROJ_DATA")}, {"projLib", qEnvironmentVariable("PROJ_LIB")},
+      {"gdalData", qEnvironmentVariable("GDAL_DATA")}};
 }

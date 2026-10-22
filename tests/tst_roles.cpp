@@ -29,14 +29,14 @@ private slots:
 void TestRoles::defaultsContainWellAndSurveyVocab()
 {
   const RoleRegistry reg = RoleRegistry::defaults();
-  // well 11 角色 + survey 7 角色全量已知——缺一个都算词表缺口。
+  // well 12 角色（#642 补登 reference）+ survey 7 角色全量已知——缺一个都算词表缺口。
   const QStringList wellRoles{
       QStringLiteral("well_head"), QStringLiteral("well_log"),
       QStringLiteral("trajectory"), QStringLiteral("tops"),
       QStringLiteral("time_depth"), QStringLiteral("core"),
       QStringLiteral("cuttings"), QStringLiteral("lab_analysis"),
       QStringLiteral("interpretation"), QStringLiteral("qc"),
-      QStringLiteral("other")};
+      QStringLiteral("reference"), QStringLiteral("other")};
   const QStringList surveyRoles{
       QStringLiteral("seismic_volume"), QStringLiteral("geometry"),
       QStringLiteral("velocity"), QStringLiteral("horizon"),
@@ -73,7 +73,7 @@ void TestRoles::forEntityFiltersByEntityType()
 {
   const RoleRegistry reg = RoleRegistry::defaults();
   const QVector<RoleDef> wellDefs = reg.forEntity(QStringLiteral("well"));
-  QCOMPARE(wellDefs.size(), 11);
+  QCOMPARE(wellDefs.size(), 12); // #642：reference 补登后 well 段 12 角色
   QCOMPARE(wellDefs.first().role, QStringLiteral("well_head"));
   QCOMPARE(wellDefs.last().role, QStringLiteral("other")); // other 收尾
   for (const RoleDef &d : wellDefs)

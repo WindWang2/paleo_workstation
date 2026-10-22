@@ -5,6 +5,7 @@
 #include <QtTest>
 #include <QSet>
 #include <QTemporaryDir>
+#include "support/paleo_test_tempdir.h"
 #include <QSignalSpy>
 
 #include "../src/catalog/datacatalog.h"
@@ -87,7 +88,7 @@ private slots:
   // previewFolder 只列行不入库（确认表数据源的纯查询契约）。
   void previewListsWithoutImport()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString srcDir = tmp.filePath(QStringLiteral("src_area"));
     QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
@@ -117,7 +118,7 @@ private slots:
   // 空目录 → 空行集（错误可为空——空表契约由确认表呈现）。
   void previewEmptyDir()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
@@ -137,7 +138,7 @@ private slots:
   // 台账落首文件所在目录。
   void importFilesSyncPathAndLedger()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString srcDir = tmp.filePath(QStringLiteral("loose"));
     QVERIFY(QDir().mkpath(srcDir));
@@ -208,7 +209,7 @@ private slots:
   // 双发 true→false。
   void importFolderSyncPathTogglesActive()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
                           QStringLiteral("ExportWellHead.dat")).isEmpty());
@@ -249,7 +250,7 @@ private slots:
   // 恢复旧受管复制语义（managed==true、副本落 artifacts/raw）。
   void defaultsToLinkExternal()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString first = stageFixture(tmp, QStringLiteral("src_area"),
                                        QStringLiteral("A1.Las"));
@@ -318,7 +319,7 @@ private slots:
   // 文件名回查：导入后的井口资产按行源文件名定位。
   void importedWellHeadAssetResolvesByName()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString staged =
         stageFixture(tmp, QStringLiteral("src_area"),
@@ -352,7 +353,7 @@ private slots:
   // 第一份同名资产）。两份内容不同（各自入库、各自资产）。
   void importedWellHeadAssetResolvesSameNameBySourcePath()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString first = stageFixture(tmp, QStringLiteral("src_area/a"),
                                        QStringLiteral("ExportWellHead.dat"));
@@ -404,7 +405,7 @@ private slots:
   // importFolderRow：forceType 覆盖分类（视图按当前下拉值算好后传入）。
   void importFolderRowForceType()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString staged =
         stageFixture(tmp, QStringLiteral("src_area"),
@@ -440,7 +441,7 @@ private slots:
   // importFile 同步路径（无任务服务）：返回 assetId 非空。
   void importFileSyncPath()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
@@ -471,7 +472,7 @@ private slots:
   // 相等才回填 project.paleo 的 sourceAreaRoot。
   void stampSourceAreaDirGate()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
@@ -506,7 +507,7 @@ private slots:
   // 如实列出候选、不打开任何工程（旧实现直接 openProjectAsync(a.qgz)）。
   void openPathRefusesAmbiguousQgzDirectory()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString dir = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(dir));
@@ -558,7 +559,7 @@ private slots:
 // previewActiveChanged 双发。
 void previewFolderAsyncOnTaskPool()
   {
-  QTemporaryDir tmp;
+  PaleoTempDir tmp;
   QVERIFY(tmp.isValid());
   QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
                         QStringLiteral("ExportWellHead.dat")).isEmpty());
@@ -601,7 +602,7 @@ void previewFolderAsyncOnTaskPool()
 // 信号在对应作业回调之前发出（壳的逐文件标签抑制口径不变）。
 void concurrentWorkflowImportsCommitOnGuiThread()
   {
-  QTemporaryDir tmp;
+  PaleoTempDir tmp;
   QVERIFY(tmp.isValid());
   const QString projectDir = tmp.filePath(QStringLiteral("proj"));
   QVERIFY(QDir().mkpath(projectDir));
@@ -690,7 +691,7 @@ void concurrentWorkflowImportsCommitOnGuiThread()
 // 新 session 自动重做，结局正确（不丢 GUI 写入、不重复入库）。
 void workflowImportRetriesOnConcurrentCatalogWrite()
   {
-  QTemporaryDir tmp;
+  PaleoTempDir tmp;
   QVERIFY(tmp.isValid());
   const QString projectDir = tmp.filePath(QStringLiteral("proj"));
   QVERIFY(QDir().mkpath(projectDir));
@@ -736,7 +737,7 @@ void workflowImportRetriesOnConcurrentCatalogWrite()
 // 的行报成「已入库」，回调如实收到丢弃原因；源文件字节不受影响。
 void folderImportSurvivesServiceTeardownHonestly()
 {
-  QTemporaryDir tmp;
+  PaleoTempDir tmp;
   QVERIFY(tmp.isValid());
   const QString projectDir = tmp.filePath(QStringLiteral("proj"));
   QVERIFY(QDir().mkpath(projectDir));
@@ -801,7 +802,7 @@ void folderImportSurvivesServiceTeardownHonestly()
 // 新工程资产数不变、源文件字节不变。
 void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
 {
-  QTemporaryDir tmp;
+  PaleoTempDir tmp;
   QVERIFY(tmp.isValid());
   const QString projectA = tmp.filePath(QStringLiteral("projA"));
   const QString projectB = tmp.filePath(QStringLiteral("projB"));
@@ -913,7 +914,7 @@ void batchTerminalGuardDiscardsProducedCatalog_data()
 void batchTerminalGuardDiscardsProducedCatalog()
 {
   QFETCH(bool, cancel);
-  QTemporaryDir temporary;
+  PaleoTempDir temporary;
   QVERIFY(temporary.isValid());
   const QString projectDir = temporary.filePath(QStringLiteral("project"));
   QVERIFY(QDir().mkpath(projectDir));
@@ -969,7 +970,7 @@ void batchTerminalGuardDiscardsProducedCatalog()
 
 void batchCancellationHandleGuardsCommitAndKeepsSameSourceJob()
 {
-  QTemporaryDir temporary;
+  PaleoTempDir temporary;
   QVERIFY(temporary.isValid());
   const QString projectDir = temporary.filePath(QStringLiteral("project"));
   QVERIFY(QDir().mkpath(projectDir));
@@ -1023,7 +1024,7 @@ void batchCancellationHandleGuardsCommitAndKeepsSameSourceJob()
 
 void queuedBatchCancellationHandleNeverStartsWorker()
 {
-  QTemporaryDir temporary;
+  PaleoTempDir temporary;
   QVERIFY(temporary.isValid());
   const QString projectDir = temporary.filePath(QStringLiteral("project"));
   QVERIFY(QDir().mkpath(projectDir));
@@ -1060,7 +1061,7 @@ void queuedBatchCancellationHandleNeverStartsWorker()
 
 void singleFileImportCancelledDiscardsCommit()
 {
-  QTemporaryDir tmp;
+  PaleoTempDir tmp;
   QVERIFY(tmp.isValid());
   const QString projectDir = tmp.filePath(QStringLiteral("proj"));
   QVERIFY(QDir().mkpath(projectDir));
@@ -1104,7 +1105,7 @@ void singleFileImportCancelledDiscardsCommit()
 // 后结局 Imported（同字节结局 = AlreadyStored + 补挂口径）。
 void importFolderForceImportFlipsDuplicate()
   {
-  QTemporaryDir tmp;
+  PaleoTempDir tmp;
   QVERIFY(tmp.isValid());
   const QString staged =
       stageFixture(tmp, QStringLiteral("src_area"),
@@ -1139,7 +1140,7 @@ void importFolderForceImportFlipsDuplicate()
 // importAllWithForced 时出现）、改判集合送达壳出口。
 void folderConfirmEstimateForceImportAndErrorReport()
   {
-  QTemporaryDir tmp;
+  PaleoTempDir tmp;
   QVERIFY(tmp.isValid());
   const QString staged =
       stageFixture(tmp, QStringLiteral("src_area"),
@@ -1193,7 +1194,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
   // ---- 方向 30：确认表归位预览列（plan 期身份匹配预显）----
   void previewEntityPreviewShowsPlacement()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
                           QStringLiteral("ExportWellHead.dat")).isEmpty());
@@ -1242,7 +1243,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
   // ---- 方向 30：好坏混合导入零静默 + 台账落盘（Oracle 1）----
   void mixedGoodBadImportIsHonestAndLedgered()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
                           QStringLiteral("ExportWellHead.dat")).isEmpty());

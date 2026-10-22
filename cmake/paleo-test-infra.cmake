@@ -273,6 +273,12 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_lo_pin.py)
   add_test(NAME lo_pin_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_lo_pin.py --selftest)
+  # #642：角色双表一致性——catalogroles（UI 树面）与 roleregistry（链接
+  # 词表）的 key 集合必须相等；selftest 合成夹具验证漏登形态能打红。
+  add_test(NAME role_tables COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_role_tables.py)
+  add_test(NAME role_tables_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_role_tables.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        layering_symbol_audit layering_transitive
                        layering_qgs_audit
@@ -285,10 +291,12 @@ if(PALEO_PYTHON3)
                        qgis_resources_selftest env_redset_validate env_redset_selftest
                        pin_osgeo4w_selftest docs_drift docs_drift_selftest
                        lo_pin lo_pin_selftest
+                       role_tables role_tables_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   set_tests_properties(qgis_resources_selftest env_redset_validate env_redset_selftest
                        pin_osgeo4w_selftest docs_drift docs_drift_selftest
                        lo_pin lo_pin_selftest
+                       role_tables role_tables_selftest
                        PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
 endif()
 # 方向 81：paleo-dev.ps1 单元自检（AST 抽函数 + 合成夹具；-Mutate 换回 #297

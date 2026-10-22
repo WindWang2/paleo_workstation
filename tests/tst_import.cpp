@@ -1,6 +1,7 @@
 #include <QtTest>
 #include "importuxfixtures.h"
 #include <QTemporaryDir>
+#include "support/paleo_test_tempdir.h"
 #include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QThreadPool>
@@ -180,7 +181,7 @@ private slots:
   // 数十毫秒级即回，两端都不贴边。
   void documentTeardownDoesNotBlockOnInflightConversion()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -238,7 +239,7 @@ private slots:
   // 且从不清理（每个转换进程在 /tmp 永久遗留一个 profile）。
   void documentConversionProfileDirIsRandomAndCleanedUp()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -366,7 +367,7 @@ private slots:
   // converterVersion/converterPlatform——跨平台差异可追溯）。
   void vendoredDocumentConversionRoundTrip()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -436,7 +437,7 @@ private slots:
   // 程序打开」的驱动面）。空串注入 = 强制不可用（部署/测试出口语义）。
   void converterUnavailableFailsHonestly()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -481,7 +482,7 @@ private slots:
       }
     } envGuard;
 
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -565,7 +566,7 @@ private slots:
 
   void lockedReadOnlyImportRefusedEarly()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
@@ -586,7 +587,7 @@ private slots:
   // 井位 → 20 井实体（untransformed、surface 坐标），多井文件=每井一条关联。
   void wellHeadCreatesEntitiesAndLinks()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -614,7 +615,7 @@ private slots:
   // A1.Las → 挂 well-A1；受管 RAW 落盘只读且 SHA-256 与源一致；无图层声明。
   void managedRawChecksumAndReadOnly()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -651,7 +652,7 @@ private slots:
   // DC.dat → 多井分层文件挂多条 tops 关联。
   void topsFileLinksEveryWell()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -681,7 +682,7 @@ private slots:
   // 时深：井名列（# Well : A1）→ well-A1 + time_depth 关联。
   void timeDepthBindsByWellColumn()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -702,7 +703,7 @@ private slots:
   // 双候选不得猜井或未决入库；显式选择后导入，归属与主文件状态可持久化。
   void ambiguousWellNameRequiresExplicitTarget()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithAliasWells(projectDir));
@@ -748,7 +749,7 @@ private slots:
   // 内容井名明确且无同名井时新建井；文件名 Ghost 不得覆盖内容名 Ghost9。
   void contentWellNameCreatesNewWellWithoutFilenameGuess()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir));
@@ -787,7 +788,7 @@ private slots:
   // 无内容井名时，文件名不能创建井或猜已有井；显式选择可完成同一份数据导入。
   void filenameOnlyLogRequiresExplicitTarget()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir));
@@ -828,7 +829,7 @@ private slots:
   //（实体 id 留空、备注记名），不再静默丢掉或挂 aux（§3 修订）。
   void topsFileLeavesUnmatchedNamesUnresolved()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir));
@@ -875,7 +876,7 @@ private slots:
   // 井口行恰好匹配一口已有井 → 挂 well_head，不另建井（§3）。
   void wellHeadRowMatchingExistingWellDoesNotDuplicate()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir));
@@ -914,7 +915,7 @@ private slots:
   // 井口文件内同一规范化井名出现两行 → 两行都 unresolved，不建井（§3）。
   void wellHeadDuplicateNormalizedNameStaysUnresolved()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -949,7 +950,7 @@ private slots:
   // 井口行同时匹配两口已有井 → 标 unresolved，实体 id 留空，不新建不合并（§3）。
   void wellHeadRowMatchingTwoWellsStaysUnresolved()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithAliasWells(projectDir));
@@ -983,7 +984,7 @@ private slots:
   // A1 落点压在栅格非空像元上（半像元容差）。
   void horizonDerivedRasterAndCrs()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1051,7 +1052,7 @@ private slots:
   // 文件名不在 8 界面集合 → 未决层位实体 + unresolved 关联，不进图层清单。
   void unknownHorizonStaysPending()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1076,7 +1077,7 @@ private slots:
   // 地震外链：版本 managed=false + 源绝对路径；survey 几何冻结；源缺失可检测。
   void seismicExternalLinkAndGeometry()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1113,7 +1114,7 @@ private slots:
   // §3 外链篡改：源文件字节变了 → 打开时 SHA-256 校验失败、报固定文案，不解码。
   void externalShaMismatchBlocksOpen()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1143,7 +1144,7 @@ private slots:
   // §3 dedup：同一 SHA-256 再导入 → 不新建资产/版本/主关联，报「字节已在库」。
   void sameShaReimportDoesNotDuplicate()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1190,7 +1191,7 @@ private slots:
 
   void missingManagedRawCanBeReimported()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1215,7 +1216,7 @@ private slots:
   // staging 残留。重开工程后导入必须成功落到不冲突路径，staging 被清扫。
   void orphanedManagedFilesFromCrashedCommitDoNotBlockImport()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     const QString orphanDir = QDir(projectDir).filePath(QStringLiteral("artifacts/raw/ast-1/ver-1"));
     const QString staleStaging =
@@ -1252,7 +1253,7 @@ private slots:
 
   void sweepStaleStagingRemovesLeftovers()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.path();
     QCOMPARE(DataImportService::sweepStaleStaging(projectDir), 0);
     QVERIFY(QDir().mkpath(QDir(projectDir).filePath(QStringLiteral("artifacts/staging/a/raw"))));
@@ -1263,7 +1264,7 @@ private slots:
 
   void missingDerivedHorizonCanBeRebuilt()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1292,8 +1293,8 @@ private slots:
 
   void managedImportRejectsSymlinkedDestination()
   {
-    QTemporaryDir tmp;
-    QTemporaryDir outside;
+    PaleoTempDir tmp;
+    PaleoTempDir outside;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1311,7 +1312,7 @@ private slots:
   // 内容井名首次导入即归属；重导同字节幂等，不重复建井或追加关联。
   void reimportContentIdentifiedLogKeepsExistingAssociation()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir));
@@ -1352,7 +1353,7 @@ private slots:
   // 版本物理 fileName 恒为原文件名；空 displayName → 回退原文件 basename。
   void importDisplayNameOptionHonored()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir));
@@ -1390,7 +1391,7 @@ private slots:
   // 空白 override 忽略回退原文件 basename；版本物理 fileName 恒不动。
   void batchNameOverridesApplied()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir));
@@ -1429,7 +1430,7 @@ private slots:
   // 主关联：首份保持 isPrimary / ordinal 0，后份非主 / ordinal 1，两条都在。
   void newShaVersionDemotesPreviousPrimaryLink()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1483,7 +1484,7 @@ private slots:
   // 两条已决 well_log 共存；第一份为主且 ordinal 0，第二份非主且 ordinal 1。
   void consecutiveResolvedLasKeepsFirstPrimary()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir));
@@ -1537,7 +1538,7 @@ private slots:
   // 内容明确的两份不同井 LAS 各自创建独立井，首份均为主文件，不产生未决关联。
   void consecutiveContentNamedLasCreateDistinctWells()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1586,7 +1587,7 @@ private slots:
   // §3 路径卫生：文件名含换行/控制字符或 ".." → 这一行如实失败，不入库。
   void unsafeFileNameRejected()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1636,7 +1637,7 @@ private slots:
   // 阶段 D：GeoJSON 图例字典（相/亚相/微相 distinct 值）落辅助实体。
   void geojsonLegendDictionaryCollected()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1697,7 +1698,7 @@ private slots:
   // 顺序（缩放→旋转→平移）按公式校验；输出带 paleo_provisional_affine。
   void geoAffineTransformProducesDerivedCopy()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString in = tmp.filePath(QStringLiteral("in.geojson"));
     {
       QFile f(in);
@@ -1770,7 +1771,7 @@ private slots:
   // 阶段 D：参考资料目录 / HZ28-6-1 命名的 XML 固定辅助参考，不按内容挂井。
   void hz28XmlStaysAuxiliaryReference()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     // 预置井 A1，验证不会并进去
@@ -1804,7 +1805,7 @@ private slots:
   // 缺失源 → 失败信号，无登记。
   void importMissingSourceFails()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -1831,7 +1832,7 @@ private slots:
   // dedup 行报「字节已在库」。
   void folderImportWellHeadsFirstAndIsolatesFailures()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2077,7 +2078,7 @@ private slots:
   // 回调按行推进；返回 false 协作取消时整批回滚，不影响此前成功批次。
   void folderImportProducedOnWorkerCommittedOnOwner()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2192,7 +2193,7 @@ private slots:
   // revision 原样、已落位的受管字节撤回、暂存根删除（不留孤儿文件）。
   void failingCommitSurfacesErrorAndRollsBack()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2262,7 +2263,7 @@ private slots:
   // 审计 02 M-8：工程切换后旧 session 不得提交进新工程。
   void projectSwitchDiscardsSession()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2290,7 +2291,7 @@ private slots:
   // 拒绝（不再 marshal），beginImport/commitImport 同理。
   void liveCatalogRefusesWritesFromWorker()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2330,7 +2331,7 @@ private slots:
   // 执行段中途取消整批不入库；报告、活库、落盘与暂存清理保持一致，重跑完整导入。
   void cancelMidImportLeavesCatalogConsistent()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2426,7 +2427,7 @@ private slots:
   // 被撤销的版本（那会挂出指向不存在资产的链接）。
   void failedFolderRowCommitsNothing()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2495,7 +2496,7 @@ private slots:
     const int n = qEnvironmentVariableIntValue("PALEO_IMPORT_SCALE", &okScale);
     if (!okScale || n < 100)
       QSKIP("PALEO_IMPORT_SCALE not set — import scale probe skipped");
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2532,7 +2533,7 @@ private slots:
   // 用新 session 重做，直到全部入库。
   void manyConcurrentImportsDoNotDeadlock()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2601,7 +2602,7 @@ private slots:
   // io 层默认 false 保持受管语义（翻转只发生在 workflow/UI 侧）。
   void sessionLinkExternalProducesUnmanagedVersion()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2645,7 +2646,7 @@ private slots:
 
   void folderImportRejectsBadRoots()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2698,7 +2699,7 @@ private slots:
   // typeOverrides 把行重定向到用户改过的类型（forceType 落进资产类型）。
   void folderPreviewMatchesImportOrderAndOverridesApply()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2756,7 +2757,7 @@ private slots:
   // 类型序（override 后行序不再等于预览序，UI 按路径回行）。
   void folderImportRetypedWellHeadRejoinsPhaseOne()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2821,7 +2822,7 @@ private slots:
     QVERIFY(isClassifierType(QStringLiteral("well_log")));
     QVERIFY(!isClassifierType(QStringLiteral("not_a_type")));
 
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2859,7 +2860,7 @@ private slots:
     QVERIFY(isDefaultReferencePath(QString::fromUtf8("/a/参考资料/doc.pdf")));
     QVERIFY(!isDefaultReferencePath(QString::fromUtf8("/a/普通/doc.pdf")));
 
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir)); // 预置 well-A1
@@ -2919,7 +2920,7 @@ private slots:
   // 与 importFolder 相同；修文件后再导成功；非法 forceType 忽略。
   void importFolderRowReimportsSingleFile()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -2967,7 +2968,7 @@ private slots:
   // 井域 reference；零匹配 → 原辅助实体路径。
   void wellAttachmentLinksCoreCuttingsLabAndReference()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -3064,7 +3065,7 @@ private slots:
     if (src.isEmpty() || !QDir(src).exists())
       QSKIP("PALEO_REAL_PROJECT_AREA not set — folder real-data smoke skipped");
 
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -3136,7 +3137,7 @@ private slots:
   // 全保留（双轨：本槽是增广不是替换）。
   void miniFixtureProjectMeetsImportDomainInvariants()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const MkProjectFixture::RunResult run =
         MkProjectFixture::buildMiniProject(tmp.path());
@@ -3251,7 +3252,7 @@ private slots:
   // LAS: ~V/~W/~C/~A parsed; 3 curves × 4 rows; NULL token → NaN.
   void lasParsesCurvesAndNulls()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
     const QString lasPath = tmp.filePath(QStringLiteral("w01.las"));
     QVERIFY(writeFile(lasPath, QByteArrayLiteral(
@@ -3303,7 +3304,7 @@ private slots:
   // WRAP YES → hard error; missing file → error.
   void lasFailureModes()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     QVERIFY(tmp.isValid());
 
     const QString wrapPath = tmp.filePath(QStringLiteral("wrap.las"));
@@ -3333,7 +3334,7 @@ private slots:
   // catalog 零增量。
   void planDedupMarksDuplicateAndDecidesSkip()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -3382,7 +3383,7 @@ private slots:
   // 资产/版本/链接/实体计数一条不增（不重复登记）。
   void folderPlanRerunRegistersNothingTwice()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -3436,7 +3437,7 @@ private slots:
   // 全组）；散件不归组。执行把整族拷进同一受管 RAW 版本目录。
   void shapefileFamilyGroupsIntoOneItem()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -3496,7 +3497,7 @@ private slots:
   // AlreadyStored + 指回已存在资产。
   void singleFileImportBuildsOneItemPlan()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -3527,7 +3528,7 @@ private slots:
   // 歧义井名：plan 期如实标记，执行无显式归属时拒绝入库；用户选择后成功。
   void planAmbiguityRequiresExplicitTarget()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithAliasWells(projectDir)); // 两口同名 "dup" 井
@@ -3575,7 +3576,7 @@ private slots:
   // 与 catalog.sqlite（及 catalog.sqlite-wal）落盘字节在构建前后完全一致。
   void buildIngestPlanLeavesCatalogUntouched()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
@@ -3644,7 +3645,7 @@ private slots:
   // 不当作源数据出行；数据文件照常分类。工程之内的子目录仍拒。
   void inPlaceProjectSkipsBundleMembers()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir); // createProject 已写 project.paleo
@@ -3695,7 +3696,7 @@ private slots:
   // DLIS 的 ORIGIN.WELL-NAME 同口径。格式字段如实（dlis/lis）。
   void dlisAndLisClassifyBindAndKeepFirstPrimary()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj44"));
     QVERIFY(QDir().mkpath(projectDir));
     QVERIFY(seedCatalogWithSingleWell(projectDir)); // 预置 A1
@@ -3792,7 +3793,7 @@ private slots:
   // 截断 DLIS 必须以真实解析错误拒绝，零新增资产/井/链接，不伪装为可用数据。
   void truncatedDlisRejectedBeforeRegistration()
   {
-    QTemporaryDir tmp;
+    PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj44t"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);

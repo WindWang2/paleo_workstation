@@ -1,7 +1,10 @@
 // 层：组装根
 #include "appcontext.h"
+#include "portableenvironment.h"
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonArray>
 #include "../workflow/wellfaciesworkflow.h"
 #include "../workflow/workflows.h"
 #include "../linkage/selectioncontext.h"
@@ -116,22 +119,7 @@ int main(int argc, char *argv[])
   if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND"))
     qputenv("QSG_RHI_BACKEND", "opengl");
 
-  // 便携包形态（exe 同目录带 plugins/platforms/qwindows.dll）自解析插件路径：
-  // conda 构建的 Qt6Core 不认 qt.conf，双击 exe（无启动器 env）时平台插件
-  // 找不到。开发/构建目录没有该布局时保持不动，不影响既有环境注入。
-  if (qEnvironmentVariableIsEmpty("QT_PLUGIN_PATH") && argc > 0)
-  {
-    const QString exeDir = QFileInfo(QString::fromLocal8Bit(argv[0])).absolutePath();
-    if (QFileInfo::exists(exeDir + QStringLiteral("/plugins/platforms/qwindows.dll")))
-    {
-      qputenv("QT_PLUGIN_PATH", QFile::encodeName(exeDir + QStringLiteral("/plugins")));
-      // WebEngine 子进程按 DLL 的 conda 相对布局找 lib/qt6/bin/——便携包把
-      // 进程放在 exe 同目录，启动器靠 PATH 掩盖；直启没有 PATH，显式指路。
-      const QString weProc = exeDir + QStringLiteral("/QtWebEngineProcess.exe");
-      if (QFileInfo::exists(weProc))
-        qputenv("QTWEBENGINEPROCESS_PATH", QFile::encodeName(weProc));
-    }
-  }
+  const auto portable = initializePortableEnvironment();
 
   // Parse command line arguments early, before OpenGL, Qt resources, and crash handler.
   // Critical for --help / -h: terminates cleanly without installing CrashReport handlers,
@@ -139,6 +127,8 @@ int main(int argc, char *argv[])
   QString qgisPrefix = qEnvironmentVariable("QGIS_PREFIX_PATH", QgisRuntime::defaultPrefixPath());
   QString targetPath;
   QString cliLocale;
+  bool checkRuntime = false;
+  QString runtimeReportPath;
   for (int i = 1; i < argc; ++i)
   {
     const QString arg = QString::fromLocal8Bit(argv[i]);
@@ -150,9 +140,14 @@ int main(int argc, char *argv[])
                   "  --locale <locale>    Alias for --lang\n"
                   "  --prefix <path>      Set custom QGIS prefix directory\n"
                   "  --qgis-prefix <path> Set custom QGIS prefix directory\n"
+                  "  --check-runtime     Check bundled CRS databases and transformations\n"
+                  "  --report <path>     Write the runtime check as JSON\n"
                   "  --help, -h           Show this help message and exit\n");
       return 0;
     }
+    else if (arg == QStringLiteral("--check-runtime")) checkRuntime = true;
+    else if (arg == QStringLiteral("--report") && i + 1 < argc)
+      runtimeReportPath = QString::fromLocal8Bit(argv[++i]);
     else if (arg == QStringLiteral("--prefix") || arg == QStringLiteral("--qgis-prefix"))
     {
       if (i + 1 < argc)
@@ -191,6 +186,27 @@ int main(int argc, char *argv[])
   // 故 CLI 值在此先写回 env，经 initialize 的常规序无例外生效。
   if (!qgisPrefix.isEmpty())
     qputenv("QGIS_PREFIX_PATH", qgisPrefix.toUtf8());
+
+  if (checkRuntime) {
+    QJsonObject report;
+    if (!portable.missing.isEmpty())
+      report = {{"ok", false}, {"errors", QJsonArray::fromStringList(portable.missing)}};
+    else if (QgisRuntime::initialize(qgisPrefix))
+      report = QgisRuntime::coordinateRuntimeReport();
+    else report = {{"ok", false}, {"errors", QJsonArray{QStringLiteral("QGIS initialization failed")}}};
+    const auto bytes = QJsonDocument(report).toJson();
+    bool written = true;
+    if (!runtimeReportPath.isEmpty()) {
+      QFile output(runtimeReportPath);
+      written = output.open(QIODevice::WriteOnly) && output.write(bytes) == bytes.size();
+    }
+    std::fwrite(bytes.constData(), 1, size_t(bytes.size()), stdout);
+    std::fflush(stdout);
+    // 诊断子进程：结果已落盘即达意，跳过 QgsApplication 退出清理——便携包
+    // 启动器以退出码为闸，退出阶段（exitQgis/析构）偶发的崩溃会把
+    // 已经全部通过的检查误报成失败。
+    return written && report.value(QStringLiteral("ok")).toBool() ? 0 : 1;
+  }
 
   // OpenGL 3.3 Core Profile default format must precede QApplication / QgsApplication
   // so that shared OpenGL contexts across the application (including QtWebEngine,

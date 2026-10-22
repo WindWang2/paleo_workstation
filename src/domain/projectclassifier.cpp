@@ -182,12 +182,14 @@ ProjectClassification classifyProjectImport(const QString &path, const QByteArra
 QStringList projectClassifierTypes()
 {
   // 与 classifyProjectPath/classifyProjectImport 的输出对齐（确认表词表）；
-  // "reference" 是确认表伪类型，其余全部可由分类器产出。
+  // "reference" 是确认表伪类型；"boundary" 供测区范围入口显式选择，
+  // 通用矢量不按文件名猜测是否为测区；其余可由分类器产出。
   return {QStringLiteral("well_head"),        QStringLiteral("well_log"),
           QStringLiteral("well_stratification"), QStringLiteral("time_depth"),
           QStringLiteral("well_deviation"),    QStringLiteral("horizon"),
           QStringLiteral("seismic"),           QStringLiteral("tabular"),
-          QStringLiteral("geojson"),           QStringLiteral("document"),
+          QStringLiteral("geojson"),           QStringLiteral("boundary"),
+          QStringLiteral("document"),
           QStringLiteral("image_reference"),   QStringLiteral("single_factor_package"),
           QStringLiteral("outsource_workbook"), QStringLiteral("reference"),
           QStringLiteral("unknown")};

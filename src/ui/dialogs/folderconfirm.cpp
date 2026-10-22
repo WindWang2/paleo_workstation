@@ -44,7 +44,7 @@ QString folderTypeLabel(const QString &type)
       {QStringLiteral("single_factor_package"), QObject::tr("单因素数据包")},
       {QStringLiteral("outsource_workbook"), QObject::tr("外部成果工作簿")},
       {QStringLiteral("auxiliary"), QObject::tr("辅助资料")},
-      {QStringLiteral("boundary"), QObject::tr("工区边界")},
+      {QStringLiteral("boundary"), QObject::tr("测区范围")},
       {QStringLiteral("facies_polygons"), QObject::tr("沉积相多边形")},
       {QStringLiteral("facies_schema"), QObject::tr("沉积相分类体系")},
       {QStringLiteral("paleogeographic_map"), QObject::tr("古地理图")},

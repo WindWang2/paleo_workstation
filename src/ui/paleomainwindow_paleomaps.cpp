@@ -3,6 +3,7 @@
 #include "pages/datapage.h"
 #include "pages/datalist.h"
 #include "notifications/paleonotify.h"
+#include "dialogs/importsourcedialog.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/mappinghorizons.h"
 #include "../linkage/selectioncontext.h"
@@ -67,9 +68,12 @@ void PaleoMainWindow::attachPaleomapLibrary(DataPage *page) {
   });
   connect(page, &DataPage::importRequested, this, [this](const QString &kind) {
     if (kind != "paleomap" && kind != "paleomap_folder") return;
+    if (!m_projectSvc || m_projectSvc->projectPath().isEmpty() || isProjectReadOnly() || m_projectSvc->isOpening()) return;
+    const auto session = m_projectSvc->sessionId();
+    ImportSourceDialog source(kind, this);
+    if (source.exec() != QDialog::Accepted || m_projectSvc->sessionId() != session) return;
     PaleoMapLibrary::Request request;
-    if (kind == "paleomap_folder") request.folder = QFileDialog::getExistingDirectory(this, tr("导入古地理图文件夹"));
-    else request.files = QFileDialog::getOpenFileNames(this, tr("导入现有古地理图"), {}, tr("古地理图 (*.shp *.gpkg *.geojson *.tif *.tiff *.img *.png *.jpg *.jpeg *.pdf *.svg);;所有文件 (*)"));
+    request.folder = source.folder(); request.files = source.files();
     if (request.folder.isEmpty() && request.files.isEmpty()) return;
     QDialog dialog(this); dialog.setObjectName("paleomapImportDialog"); dialog.setWindowTitle(tr("古地理图层位归属"));
     auto *layout = new QVBoxLayout(&dialog); auto *form = new QFormLayout;
@@ -88,6 +92,9 @@ void PaleoMainWindow::attachPaleomapLibrary(DataPage *page) {
     buttons->button(QDialogButtonBox::Ok)->setText(tr("开始导入")); buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept); connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     if (dialog.exec() != QDialog::Accepted) return;
+    if (m_projectSvc->sessionId() != session || isProjectReadOnly()) {
+      PaleoNotify::warning(this, tr("导入古地理图"), tr("工程已变化，请重新选择资料。")); return;
+    }
     request.normalizeFacies = normalize->isChecked(); request.microfaciesField = microField->text().trimmed();
     request.horizon = horizon->currentText(); request.inferHorizons = infer->isChecked(); QString error;
     auto *task = PaleoMapLibrary::importMaps(m_previewDoc ? m_previewDoc->catalog() : nullptr, m_layerSvc, m_taskSvc, request, this,

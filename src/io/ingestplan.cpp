@@ -9,6 +9,7 @@
 #include "importclassification.h"
 #include "welllogread.h" // 方向44：井名提取分派
 #include "../domain/projectclassifier.h"
+#include "../domain/sidecarvocab.h"
 #include "wellfileparsers.h"
 #include "welltable.h"
 #include "../metadata/paleoprojectfile.h"
@@ -185,15 +186,20 @@ namespace
 
   // ---- shp 族归组 ----------------------------------------------------------
   //
-  // .shp/.shx/.dbf/.prj 同主名 → 单个 PlannedItem（主件 .shp，members 收全组
+  // 同主名 SHP 及 domain 词表中的配套文件 → 单个 PlannedItem（主件 .shp，members 收全组
   // 排序路径）。必备件 .shp/.shx/.dbf 缺一不强行归组——各自成项如实单列。
   // #321：.cpg 记 DBF 代码页，必须跟着 .dbf 走。受管副本旁缺它，OGR 按默认
   // 代码页读 DBF，中文属性乱码；回收侧（storagegovernance）早已把它当边车。
-  bool isShpMemberExt(const QString &ext)
+  QString shapefileStem(const QFileInfo &info)
   {
-    return ext == QLatin1String("shp") || ext == QLatin1String("shx") ||
-           ext == QLatin1String("dbf") || ext == QLatin1String("prj") ||
-           ext == QLatin1String("cpg");
+    for (const auto &suffix : paleo::sidecars::nameSuffixes()) {
+      const auto tail = QStringLiteral(".shp.") + suffix;
+      if (info.fileName().endsWith(tail, Qt::CaseInsensitive))
+        return info.fileName().chopped(tail.size()).toLower();
+    }
+    const auto ext = info.suffix().toLower();
+    return ext == QLatin1String("shp") || paleo::sidecars::shpFamily().contains(ext)
+        ? info.completeBaseName().toLower() : QString();
   }
 
   void groupShapefileFamilies(QVector<PlannedItem> &items)
@@ -202,8 +208,9 @@ namespace
     for (int i = 0; i < items.size(); ++i)
     {
       const QFileInfo fi(items.at(i).path);
-      if (isShpMemberExt(fi.suffix().toLower()))
-        groups[{fi.absolutePath(), fi.completeBaseName()}].append(i);
+      const auto stem = shapefileStem(fi);
+      if (!stem.isEmpty())
+        groups[{fi.absolutePath(), stem}].append(i);
     }
     QSet<int> absorbed;
     for (auto it = groups.begin(); it != groups.end(); ++it)
@@ -682,7 +689,18 @@ IngestPlan buildIngestPlanForFiles(const QStringList &paths,
   if (!paths.isEmpty())
     plan.root = QFileInfo(paths.first()).absolutePath(); // 台账/溯源用公共父目录
   QSet<QString> seen;
-  for (const QString &path : paths)
+  QStringList expanded = paths;
+  // 文件选择器只选 SHP 主件时，仍按完整数据集预览及复制。
+  for (const auto &path : paths)
+  {
+    const QFileInfo main(path);
+    if (main.suffix().compare("shp", Qt::CaseInsensitive) != 0 || !main.isFile())
+      continue;
+    for (const auto &member : main.absoluteDir().entryInfoList(QDir::Files))
+      if (shapefileStem(member) == main.completeBaseName().toLower())
+        expanded << member.absoluteFilePath();
+  }
+  for (const QString &path : expanded)
   {
     // 同一文件被重复选中（多选框按住 Ctrl 再点）只计一次。
     const QString key = QDir::cleanPath(QFileInfo(path).absoluteFilePath());

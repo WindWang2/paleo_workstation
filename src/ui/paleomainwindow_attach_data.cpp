@@ -14,6 +14,7 @@
 #include "../services/previewdoc.h"
 #include "../catalog/datacatalog.h"
 #include "dialogs/folderconfirm.h"
+#include "dialogs/importsourcedialog.h"
 #include "correlationpanel.h"
 #include "datapreview/datapreviewtabs.h"
 #include "pages/pagepanels.h"
@@ -350,28 +351,17 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
     connect(dataPage, &DataPage::importRequested, this,
             [this, importSvc, preview](const QString &kind) {
               if (kind.startsWith(QLatin1String("paleomap"))) return;
-              if (kind == QLatin1String("folder"))
+              if (!m_projectSvc || m_projectSvc->projectPath().isEmpty() || isProjectReadOnly() || m_projectSvc->isOpening()) return;
+              const auto session = m_projectSvc->sessionId();
+              ImportSourceDialog source(kind, this);
+              if (source.exec() != QDialog::Accepted) return;
+              if (m_projectSvc->sessionId() != session) { PaleoNotify::warning(this, tr("导入资料"), tr("工程已变化，请重新选择资料。")); return; }
+              if (!source.folder().isEmpty()) { runFolderImportAt(importSvc, source.folder(), kind); return; }
+              const auto picked = source.files();
+              if (picked.isEmpty()) return;
+              if (picked.size() > 1 || kind == "files" || QFileInfo(picked.first()).suffix().compare("shp", Qt::CaseInsensitive) == 0)
               {
-                runFolderImport(importSvc);
-                return;
-              }
-              const QString filter = (kind == QLatin1String("seismic"))
-                                         ? tr("地震数据文件 (*.sgy *.segy);;All files (*)")
-                                         : ((kind == QLatin1String("well_log"))
-                                                ? tr("测井与柱状图文件 (*.las *.dlis *.lis *.xml *.txt *.csv *.tsv);;All files (*)")
-                                                : ((kind == QLatin1String("files"))
-                                                       ? tr("资料文件 (*.pdf *.ppt *.pptx *.doc *.docx *.png *.jpg *.jpeg *.tif *.tiff *.las *.dlis *.lis *.xml *.txt *.csv *.tsv *.dat *.gpkg *.shp *.geojson);;All files (*)")
-                                                       : tr("数据文件 (*.las *.dlis *.lis *.xml *.txt *.csv *.tsv *.dat *.gpkg *.shp *.tif *.img);;All files (*)")));
-              // 多选文件导入：一个文件走原单文件向导；多个文件走与文件夹
-              // 导入同一套确认表（可逐行改类型，识别不了的按分类器落
-              // document/unknown → 辅助资料）。
-              const QStringList picked = QFileDialog::getOpenFileNames(
-                  this, tr("导入 %1").arg(kind), QString(), filter);
-              if (picked.isEmpty())
-                return;
-              if (picked.size() > 1 || kind == "files")
-              {
-                runFilesImportAt(importSvc, picked);
+                runFilesImportAt(importSvc, picked, kind);
                 return;
               }
               const QString &path = picked.first();
@@ -379,6 +369,8 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
               if (!wf)
                 return;
               QString effectiveType = wf->classifyFile(path);
+              const auto preferred = ImportSourceDialog::preferredType(kind, path);
+              if (!preferred.isEmpty()) effectiveType = preferred;
               QWizard wizard(this);
               wizard.setObjectName(QStringLiteral("singleImportDialog"));
               wizard.setWindowTitle(tr("导入数据"));
@@ -435,18 +427,19 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
               });
               if (wizard.exec() != QDialog::Accepted)
                 return;
+              if (m_projectSvc->sessionId() != session || isProjectReadOnly()) {
+                PaleoNotify::warning(this, tr("导入资料"), tr("工程已变化，请重新选择资料。")); return;
+              }
               effectiveType = typeCombo->currentData().toString();
               // D1b：LAS 解析/SEG-Y 索引等大文件在任务池跑——无任务服务时保持
               // 同步旧路径。imported 信号照常排队回 GUI（预览标签在终态后开）。
               // D1b：LAS 解析/SEG-Y 索引等大文件在任务池跑（编排在
               // FolderImportWorkflow）；imported 信号照常排队回 GUI。
               if (auto *wf = folderImportWorkflow())
-                wf->importFile(effectiveType, path, [](const QString &assetId,
+                wf->importFile(effectiveType, path, [window = QPointer<PaleoMainWindow>(this)](const QString &assetId,
                                               const QString &err) {
-                  if (assetId.isEmpty())
-                    QgsMessageLog::logMessage(
-                        QObject::tr("导入失败：%1").arg(err),
-                        QStringLiteral("Paleo"), Qgis::Critical);
+                  if (assetId.isEmpty() && window)
+                    PaleoNotify::warning(window, QObject::tr("导入失败"), err);
                 }, !copyCheck->isChecked(), nameEdit->text());
             });
 }

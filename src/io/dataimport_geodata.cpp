@@ -21,6 +21,7 @@
 #include "segyreader.h"
 #include "wellcompositexml.h"
 #include "wellfileparsers.h"
+#include "cuttingsimport.h"
 
 #include <QCryptographicHash>
 #include <QJsonArray>
@@ -352,6 +353,12 @@ QString importAuxReferenceFamily(FamilyContext &ctx)
       link.entityType = QStringLiteral("well");
       link.assetId = assetId;
       link.role = attachmentRoleForKeywords(ctx.fi.absolutePath());
+      const bool cuttingsTable = QStringList{"xlsx", "xml", "csv", "tsv", "txt"}.contains(ctx.fi.suffix().toLower()) &&
+          (stem.contains(QStringLiteral("岩屑")) || stem.contains(QStringLiteral("岩性")) || link.role == "cuttings");
+      if (cuttingsTable) {
+        if (!paleo::io::storeImportedCuttings(*ctx.s, ctx.version, sourcePath, error)) return *error;
+        link.role = QStringLiteral("cuttings");
+      }
       if (!wellId.isEmpty())
       {
         link.entityId = wellId;

@@ -94,6 +94,21 @@ LayerTreePanel::LayerTreePanel(QgsProject *project, QgsMapCanvas *canvas,
             [this](const QModelIndex &parent, int first, int last) {
               queueCustomOrderSync(parent, first, last);
             });
+    // 勾选已有节点不触发 rowsInserted。旧工程或其它操作保留的自定义
+    // 绘制序仍可能把图件压到不透明栅格之下；用户再次勾选时按树位补齐。
+    connect(m_project->layerTreeRoot(), &QgsLayerTreeNode::visibilityChanged, this,
+            [this](QgsLayerTreeNode *node) {
+      if (!node || !node->isVisible()) return;
+      auto *root = m_project->layerTreeRoot();
+      if (auto *item = qobject_cast<QgsLayerTreeLayer *>(node)) {
+        if (item->layer()) QgisLayerOrganizer::slotIntoCustomOrder(root, item->layer());
+      } else if (auto *group = qobject_cast<QgsLayerTreeGroup *>(node)) {
+        const auto children = group->findLayers();
+        for (auto it = children.crbegin(); it != children.crend(); ++it)
+          if ((*it)->isVisible() && (*it)->layer()) QgisLayerOrganizer::slotIntoCustomOrder(root, (*it)->layer());
+      }
+      if (m_canvas) m_canvas->refresh();
+    });
   }
 
   // 空态卡片：共享组件 PaleoEmptyStateLabel（token 活体样式 + 宿主 resize

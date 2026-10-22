@@ -15,6 +15,9 @@
 #include "../src/services/paleomapfiles.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/io/welltable.h"
+#include "../src/io/cuttingsdoc.h"
+#include "../src/workflow/wellsectionworkflow.h"
+#include "../src/domain/lithologystyle.h"
 #include "../src/io/wellfileparsers.h"
 #include "../src/io/ziparchive.h"
 #include "../src/io/projectsetupscan.h"
@@ -22,6 +25,7 @@
 #include "../src/io/dataimportservice.h"
 #include "../src/io/horizonbinner.h"
 #include "../src/services/projectdata.h"
+#include "../src/services/previewdoc.h"
 #include "../src/workflow/folderimport.h"
 #include "../src/workflow/projectsetup.h"
 #include "../src/qgis/qgisruntime.h"
@@ -35,9 +39,14 @@
 #include "../src/ui/dialogs/projectsetupdialog.h"
 #include "../src/ui/dialogs/projectmapsettingsdialog.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/ui/wellcomposite/wellcompositepanel.h"
+#include "../src/ui/wellcomposite/wellcompositecanvas.h"
 #include <qgscoordinatetransform.h>
 #include <qgsproject.h>
 #include <qgsvectorlayer.h>
+#include <qgsmaprenderersequentialjob.h>
+#include "../src/qgis/facieshierarchyrenderer.h"
 
 class TestProjectSetup : public QObject
 {
@@ -59,6 +68,39 @@ class TestProjectSetup : public QObject
     return paleo::io::zipWriteArchive(path, {{"xl/workbook.xml", workbook}, {"xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Target=\"worksheets/sheet1.xml\"/></Relationships>"}, {"xl/worksheets/sheet1.xml", xml}}, {}, &error) ? path : QString();
   }
 private slots:
+  void interpretedTablesAreReadyOnImport() {
+    QTemporaryDir source, projectDir; QString error;
+    const auto heads = xlsx(source.filePath("heads.xlsx"), "data", {{"WELL", "X", "Y"}, {"A4", "10", "20"}, {"B4", "30", "40"}});
+    const auto tops = xlsx(source.filePath("tops.xlsx"), "data", {{"WELL", QStringLiteral("层位"), QStringLiteral("顶界垂深(m)"), QStringLiteral("底界垂深(m)")}, {"A4", "D61", "100", "150"}, {"A4", "D62", "150", "200"}, {"B4", "D61", "80", "110"}});
+    const auto cuttings = xlsx(source.filePath(QStringLiteral("A4/A4岩屑录井数据.xlsx")), "Sheet1", {{QStringLiteral("顶深(m)"), QStringLiteral("底深(m)"), QStringLiteral("岩石定名"), QStringLiteral("颜色"), QStringLiteral("岩性描述")}, {"120", "180", QStringLiteral("泥岩"), QStringLiteral("深灰"), QStringLiteral("保留描述，含换行\n第二行")}});
+    const auto td = source.filePath("A4_td.dat"); QVERIFY(write(td, "# Well : A4\n0 0 0 0\n100 100 100 120\n200 200 200 240\n"));
+    PaleoProjectStore store; DataImportService service(&store); service.setProjectDir(projectDir.path());
+    auto session = service.beginImport(); QVERIFY(session); session->linkExternal = true;
+    DataImportService::produceFiles(*session, {heads, tops, td, cuttings}, {{heads, "well_head"}, {tops, "well_stratification"}, {td, "time_depth"}}, {});
+    QVERIFY2(session->error.isEmpty(), qPrintable(session->error));
+    for (const auto &row : session->rows) QVERIFY2(row.outcome != FolderRowResult::Outcome::Failed, qPrintable(row.message));
+    QVERIFY2(service.commitImport(*session, &error) == DataImportService::CommitStatus::Committed, qPrintable(error));
+    auto *cat = service.catalog(); QCOMPARE(cat->entities("well").size(), 2); CatalogEntity well;
+    for (const auto &candidate : cat->entities("well")) if (candidate.name == "A4") well = candidate;
+    ProjectDataFacade data; data.setCatalog(cat); const auto layers = data.topsFor(well.id);
+    QCOMPARE(layers.size(), 2); QCOMPARE(layers[0].md, 120.0); QCOMPARE(layers[1].md, 180.0); QCOMPARE(layers[1].tvd, 150.0);
+    CatalogVersion normalized, rock;
+    for (const auto &link : cat->linksForEntity(well.id)) {
+      if (link.role == "tops") normalized = cat->currentVersion(link.assetId);
+      if (link.role == "cuttings") rock = cat->currentVersion(link.assetId);
+    }
+    QVERIFY(normalized.managed); QVERIFY(normalized.extra.contains("depthResolution"));
+    const auto bases = paleo::io::readWellTableBases(cat->versionFilePath(normalized)); QCOMPARE(bases.size(), 3); QCOMPARE(bases[1].md, 240.0); QCOMPARE(bases[1].tvd, 200.0);
+    QVERIFY(rock.managed); QCOMPARE(rock.fileName, QString("cuttings.csv"));
+    const auto table = paleo::io::readCuttingsFile(cat->versionFilePath(rock)); QVERIFY(table.ok); QCOMPARE(table.intervals.size(), 1);
+    QCOMPARE(table.intervals[0].description, QStringLiteral("保留描述，含换行\n第二行"));
+    QCOMPARE(WellComposite::LithologyStyle::colorFromName(table.intervals[0].litho), QColor("#616161"));
+    QVERIFY(QFile::remove(tops)); QVERIFY(QFile::remove(cuttings));
+    WellSectionWorkflow lithology(cat); QCOMPARE(lithology.lithologiesFor({well.id}).value(well.id).size(), 1);
+    PreviewDocService doc(&service); QVector<WellTopRecord> display; QHash<QString, double> displayBases;
+    doc.wellTopsForLog(well.id, &display, nullptr, &displayBases);
+    QCOMPARE(displayBases.size(), 2); QCOMPARE(displayBases.value("D61"), 180.0); QCOMPARE(displayBases.value("D62"), 240.0);
+  }
   void pointsOptionalAndMapping() {
     QTemporaryDir dir;
     const auto path = xlsx(dir.filePath("points.xlsx"), "UTM49N", {{QStringLiteral("井号"), QStringLiteral("井口横坐标X_UTM49N(m)"), QStringLiteral("井口纵坐标Y_UTM49N(m)")}, {"A1", "233240.46", "3997621.12"}, {"A2", "bad", "1"}});
@@ -72,11 +114,12 @@ private slots:
   }
   void stratificationDepthAndSubsets() {
     QTemporaryDir dir;
-    const QVector<QStringList> rows{{QStringLiteral("层位"), QStringLiteral("顶界垂深(m)")}, {"D61", "100"}, {"D62", "120"}};
+    const QVector<QStringList> rows{{QStringLiteral("层位"), QStringLiteral("顶界垂深(m)"), QStringLiteral("底界垂深(m)")}, {"D61", "100", "120"}, {"D62", "120", "130"}};
     auto path = xlsx(dir.filePath(QStringLiteral("井/总表.xlsx")), "A1", rows);
     xlsx(dir.filePath(QStringLiteral("井/A1/分层.xlsx")), "A1", rows);
     const auto table = paleo::io::readWellTable(path);
     QCOMPARE(table.tops.size(), 2); QVERIFY(table.tops[0].hasTvd); QVERIFY(!table.tops[0].hasMd);
+    const auto bases = paleo::io::readWellTableBases(path); QCOMPARE(bases.size(), 2); QCOMPARE(bases[1].tvd, 130.0); QVERIFY(!bases[1].hasMd);
     ProjectSetupSources s; s.wells = dir.filePath(QStringLiteral("井"));
     const auto p = scanProjectSources(s); QCOMPARE(p.tops, 2); QCOMPARE(p.paths.size(), 1); QVERIFY(!p.notes.isEmpty());
   }
@@ -246,6 +289,20 @@ private slots:
       ++maps; const auto current = service.catalog()->currentVersion(asset.id); QCOMPARE(current.stage, QString("DERIVED"));
       auto *layer = qobject_cast<QgsVectorLayer *>(layers.instantiate(current.extra.value("layer_id").toString(), &error));
       QVERIFY2(layer, qPrintable(error)); features += int(layer->featureCount());
+      for (const auto &level : {QString("facies"), QString("sub_facies"), QString("micro_facies")}) {
+        FaciesHierarchyRenderer::apply(layer, current.extra.value("facies").toList(), level);
+        QgsMapSettings settings; settings.setDestinationCrs(project.project()->crs());
+        settings.setTransformContext(project.project()->transformContext()); settings.setLayers({layer});
+        settings.setOutputSize(QSize(700, 800)); settings.setBackgroundColor(Qt::white);
+        QgsCoordinateTransform transform(layer->crs(), settings.destinationCrs(), settings.transformContext());
+        settings.setExtent(transform.transformBoundingBox(layer->extent()));
+        QgsMapRendererSequentialJob job(settings); job.start(); job.waitForFinished();
+        int painted = 0; const auto image = job.renderedImage();
+        for (int y = 0; y < image.height(); ++y) for (int x = 0; x < image.width(); ++x)
+          if (image.pixelColor(x, y) != QColor(Qt::white)) ++painted;
+        qInfo() << current.id << level << "painted" << painted << "errors" << job.errors().size();
+        QVERIFY2(painted > 1000, qPrintable(current.fileName + " " + level));
+      }
     }
     QCOMPARE(maps, 3); QCOMPARE(features, 32); QCOMPARE(manifest.all().size(), 6);
     QVERIFY(project.writeProject()); project.closeProject(); QVERIFY(project.openProject(path));
@@ -309,7 +366,34 @@ private slots:
     QVERIFY(project.writeProject());
     DataCatalog reopened; QVERIFY(reopened.open(dir.path(), &error));
     ProjectDataFacade data; data.setCatalog(&reopened, dir.path());
-    int topCount = 0; for (const auto &well : reopened.entities("well")) topCount += data.topsFor(well.id).size(); QCOMPARE(topCount, 516);
+    int topCount = 0, rockWells = 0; WellSectionWorkflow lithology(&reopened);
+    for (const auto &well : reopened.entities("well")) {
+      const auto tops = data.topsFor(well.id); topCount += tops.size();
+      for (const auto &top : tops) QVERIFY2(std::isfinite(top.md), qPrintable(well.name + " " + top.horizon));
+      const auto segments = lithology.lithologiesFor({well.id}).value(well.id); if (!segments.isEmpty()) ++rockWells;
+      qInfo() << well.name << "tops" << tops.size() << "lithology" << segments.size();
+    }
+    QCOMPARE(topCount, 516); QCOMPARE(rockWells, 20);
+    QString a4;
+    for (const auto &well : service.catalog()->entities("well")) if (well.name == "A4") a4 = well.id;
+    QVERIFY(!a4.isEmpty()); QString log;
+    for (const auto &link : service.catalog()->linksForEntity(a4)) if (link.role == "well_log" && link.isPrimary) log = link.assetId;
+    QVERIFY(!log.isEmpty());
+    DataPreviewTabs preview; preview.setImportService(&service); preview.openAsset(log);
+    auto *panel = preview.findChild<WellComposite::WellCompositePanel *>("wellCompositePanel"); QVERIFY(panel);
+    QTRY_COMPARE_WITH_TIMEOUT(panel->currentData().lithologyIntervals.size(), 703, 30000);
+    QCOMPARE(panel->currentData().formationIntervals.size(), 28);
+    for (const auto &base : paleo::io::readWellTableBases(QDir(root).filePath(QStringLiteral("井/分层数据总表.xlsx")))) {
+      if (base.wellName != "A4" || !base.hasTvd) continue;
+      for (const auto &layer : panel->currentData().formationIntervals)
+        if (layer.name == base.topName && base.tvd > layer.topDepth) QVERIFY(std::abs(double(layer.bottomDepth) - base.tvd) < .001);
+    }
+    auto *canvas = panel->findChild<WellComposite::WellCompositeCanvas *>(); QVERIFY(canvas);
+    bool hasRockTrack = false;
+    for (const auto &track : canvas->tracks()) if (track->type() == WellComposite::TrackType::Lithology) hasRockTrack = true;
+    QVERIFY(hasRockTrack);
+    const auto capture = qEnvironmentVariable("PALEO_IMPORT_ROCK_CAPTURE");
+    if (!capture.isEmpty()) { preview.resize(1450, 1050); preview.show(); QTest::qWait(100); canvas->setScrollDepth(1690); QTest::qWait(100); QVERIFY(panel->grab().save(capture)); }
     QCOMPARE(manifest.all().size(), 10); // eight horizons + wells + area
   }
 };

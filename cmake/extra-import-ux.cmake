@@ -2,6 +2,7 @@ target_sources(paleo_io PRIVATE src/io/dataimport_log.cpp src/io/importrecovery.
                                src/io/importclassification.cpp)
 add_paleo_test(tst_import_ux LIBS paleo_services paleo_io)
 add_paleo_test(tst_import_preview LIBS paleo_ui)
+target_sources(paleo_services PRIVATE src/services/previewwelltops.cpp src/services/previewwellbases.cpp)
 add_paleo_test(tst_import_performance LIBS paleo_workflow paleo_services paleo_io)
 # UI helpers registered here to avoid editing the shared module source table.
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/ui/dialogs/folderconfirm_preview.cpp")
@@ -14,6 +15,7 @@ endif()
 target_sources(paleo_store PRIVATE src/metadata/nativereference.cpp)
 target_sources(paleo_qgis PRIVATE src/qgis/projectnativegrid.cpp)
 target_sources(paleo_io PRIVATE src/io/welltable.cpp src/io/welltableimport.cpp
+  src/io/cuttingsimport.cpp src/io/welllayerdepthimport.cpp
   src/io/projectsetupscan.cpp src/io/projectboundary.cpp src/io/horizonnativegrid.cpp src/io/welltabletext.cpp src/io/welltableprojection.cpp)
 target_sources(paleo_io PRIVATE src/io/projectsetupmaps.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/projectsetup.cpp src/workflow/projectsetupmaps.cpp)

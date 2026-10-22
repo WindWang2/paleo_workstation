@@ -36,6 +36,14 @@
 #include <ogr_srs_api.h>
 #include <qgsvectorlayer.h>
 #include <qgsmapcanvas.h>
+#include <qgsmaprenderersequentialjob.h>
+#include <qgsproject.h>
+#include <qgslayertree.h>
+#include <qgslayertreemodel.h>
+#include <qgssinglesymbolrenderer.h>
+#include <qgsfillsymbol.h>
+#include "../src/ui/layers/layertreepanel.h"
+#include "../src/ui/pages/mappingworkbenchpage.h"
 #include <qgsrenderer.h>
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/qgisprojectservice.h"
@@ -133,6 +141,25 @@ class TestPaleomapLibrary : public QObject {
     GDALClose(ds); return true;
   }
 private slots:
+  void checkingLayerRepairsStaleDrawOrder() {
+    QObject context; Fixture f; QVERIFY(f.init()); f.project.setParent(&context);
+    QTemporaryDir source; const auto path = source.filePath("map.shp"); QVERIFY(microShape(path, {QVariantMap{{"microfacies", QStringLiteral("分流河道")}}}));
+    PaleoMapLibrary::Request request; request.files = {path}; request.horizon = "D62";
+    const auto result = f.run(request); QVERIFY(result.errors.isEmpty());
+    const auto version = f.importer.catalog()->currentVersion(result.assets.first());
+    auto *map = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(version.extra.value("layer_id").toString())); QVERIFY(map);
+    auto *mask = map->clone(); mask->setRenderer(new QgsSingleSymbolRenderer(QgsFillSymbol::createSimple({{"color", "255,255,255,255"}, {"outline_style", "no"}}).release()));
+    auto *root = f.project.project()->layerTreeRoot(); f.project.project()->addMapLayer(mask, false); root->addLayer(mask);
+    root->setCustomLayerOrder(QList<QgsMapLayer *>{mask, map}); root->setHasCustomLayerOrder(true);
+    QgisCanvasController controller(&context); auto *canvas = controller.canvas();
+    LayerTreePanel panel(f.project.project(), canvas, &f.layers);
+    auto *model = panel.layerTreeModel(); auto *node = root->findLayer(map->id()); QVERIFY(node);
+    const auto index = model->node2index(node);
+    QVERIFY(model->setData(index, Qt::Unchecked, Qt::CheckStateRole));
+    QVERIFY(model->setData(index, Qt::Checked, Qt::CheckStateRole));
+    QVERIFY(root->customLayerOrder().indexOf(map) < root->customLayerOrder().indexOf(mask));
+    QTRY_VERIFY(!canvas->layers().isEmpty()); QTRY_COMPARE(canvas->layers().first(), map);
+  }
   void initTestCase() { PaleoTheme::pinRenderEnvironment(); }
   void offlineBasemapButtonAndFileMenuOpenProjectImportDialog() {
     Fixture f; QVERIFY(f.init()); QgisCanvasController controller; SelectionContext selection;
@@ -866,6 +893,47 @@ private slots:
       list.setParent(nullptr); selector.setParent(nullptr);
       ProjectStatisticsPage statistics(f.importer.catalog()); statistics.resize(1100, 500); statistics.show(); QTest::qWait(100);
       QVERIFY(statistics.grab().save(qa + "/project-statistics.png"));
+    }
+  }
+  void realImportedMapMainCanvas() {
+    const QString root = qEnvironmentVariable("PALEO_SETUP_SAMPLE_ROOT"); if (root.isEmpty()) QSKIP("Set PALEO_SETUP_SAMPLE_ROOT");
+    QObject context; Fixture f; QVERIFY(f.init());
+    auto config = f.project.mapConfiguration(); PaleoGeoreference ref; ref.kind = "crs"; ref.sourceCrs = "EPSG:32649"; ref.targetCrs = "EPSG:4326"; config.georeference = ref;
+    QString error; QVERIFY2(f.project.updateMapConfiguration(config, &error), qPrintable(error));
+    PaleoMapLibrary::Request request; request.files = {QDir(root).filePath(QStringLiteral("古地理图/D62_historical_facies_map.gpkg"))}; request.horizon = "D62";
+    auto result = f.run(request); QVERIFY2(result.errors.isEmpty(), qPrintable(result.errors.join('\n'))); QCOMPARE(result.assets.size(), 1);
+    const auto snapshot = qEnvironmentVariable("PALEO_MAP_PROJECT_SNAPSHOT");
+    if (!snapshot.isEmpty()) {
+      QVERIFY(f.project.openProject(QDir(snapshot).filePath("comp.qgz")));
+      f.importer.setProjectDir(snapshot); f.work.bindCatalog(f.importer.catalog(), snapshot);
+      QVERIFY(PaleoMapLibrary::declareMaps(f.importer.catalog(), &f.layers).isEmpty()); result.assets.clear();
+      for (const auto &asset : f.importer.catalog()->assets())
+        if (asset.type == "paleogeographic_map" && f.importer.catalog()->currentVersion(asset.id).extra.value("horizon") == "D62") result.assets << asset.id;
+      QCOMPARE(result.assets.size(), 1);
+      qInfo() << "existing project configuration" << f.project.project()->crs().authid();
+    }
+    f.project.setParent(&context); QgisCanvasController controller(&context);
+    controller.setLayerResolver([&](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection; selection.setActiveHorizon("D62");
+    PredictionWorkflow prediction(&f.processing, &f.layers); CompositionWorkflow composition(&f.processing, &f.layers); ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, &f.importer, nullptr, &f.processing, &f.store); window.attachWorkbench(&f.work);
+    window.resize(1400, 1000); window.show();
+    const auto v = f.importer.catalog()->currentVersion(result.assets.first()); const auto id = v.extra.value("layer_id").toString();
+    const auto raw = f.importer.catalog()->versionById(v.parentVersionIds.first());
+    for (const auto &shownId : {id, raw.extra.value("layer_id").toString()})
+    for (const auto &mode : {QString("constraint"), QString("compose")}) {
+      window.showPage(mode); QTest::qWait(150);
+      auto *page = window.findChild<MappingWorkbenchPage *>("mappingWorkbench." + mode); QVERIFY(page);
+      page->commandRequested("show", {{"horizon", "D62"}, {"layer", shownId}}); QTest::qWait(150);
+      auto *canvas = controller.canvas(); QVERIFY(canvas->layers().contains(f.layers.layer(shownId)));
+      QgsMapRendererSequentialJob job(canvas->mapSettings()); job.start(); job.waitForFinished();
+      const auto image = job.renderedImage(); int painted = 0;
+      for (int y = 0; y < image.height(); ++y) for (int x = 0; x < image.width(); ++x)
+        if (image.pixelColor(x, y) != QColor(Qt::white)) ++painted;
+      qInfo() << shownId << mode << "painted" << painted << "extent" << canvas->extent().toString() << "crs" << canvas->mapSettings().destinationCrs().authid();
+      QVERIFY(painted > 1000);
+      const auto qa = qEnvironmentVariable("PALEO_PALEOMAP_QA_DIR"); if (!qa.isEmpty()) { QDir().mkpath(qa); QVERIFY(window.grab().save(qa + "/imported-map-" + mode + ".png")); }
     }
   }
 };

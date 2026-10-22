@@ -109,6 +109,21 @@ using namespace paleo::datapreview_detail;
 // 参数是 buildContent 已算好的量；段内的 page 是本段新建的 PreviewMapPage，
 // 与 buildContent 那个被 Q_UNUSED 丢弃的 page 形参同名但无关，故不收。
 
+namespace {
+QVector<WellComposite::FormationInterval> displayedFormations(
+    QVector<WellComposite::FormationInterval> formations, const QVector<WellComposite::CurveData> &curves)
+{
+  double maximumDepth = -std::numeric_limits<double>::infinity();
+  for (const auto &curve : curves)
+    for (const auto depth : curve.depths) if (std::isfinite(depth)) maximumDepth = qMax(maximumDepth, double(depth));
+  for (auto &formation : formations)
+    if (!std::isfinite(formation.bottomDepth)) formation.bottomDepth = static_cast<float>(maximumDepth);
+  formations.erase(std::remove_if(formations.begin(), formations.end(),
+      [](const auto &formation) { return !std::isfinite(formation.bottomDepth) || formation.bottomDepth <= formation.topDepth; }), formations.end());
+  return formations;
+}
+}
+
 QWidget *DataPreviewTabs::buildWellLogContent(
     DataCatalog *cat, const CatalogAsset &asset, const CatalogVersion &v,
     const QString &abs, const QString &assetId,
@@ -143,6 +158,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
 
   // 查询该井是否有关联分层数据 (DC.dat)
   QVector<WellComposite::FormationInterval> formationIntervals;
+  QStringList formationWarnings;
   if (!linkedWell.isEmpty())
   {
     static const QVector<QColor> kFormColors = {
@@ -151,45 +167,19 @@ QWidget *DataPreviewTabs::buildWellLogContent(
         QColor(QStringLiteral("#80CBC4")), QColor(QStringLiteral("#80DEEA")),
         QColor(QStringLiteral("#90CAF9")), QColor(QStringLiteral("#B39DDB"))};
 
-    const auto wLinks = cat->linksForEntity(linkedWell);
-    for (const auto &lk : wLinks)
+    QVector<WellTopRecord> wellTops;
+    QHash<QString, double> wellBases;
+    m_doc->wellTopsForLog(linkedWell, &wellTops, &formationWarnings, &wellBases);
+    for (int ti = 0; ti < wellTops.size(); ++ti)
     {
-      if (lk.role == QLatin1String("tops"))
-      {
-        CatalogAsset topsAsset = cat->assetById(lk.assetId);
-        CatalogVersion topsVer = cat->currentVersion(lk.assetId);
-        QString topsPath = m_doc->absolutePathForVersion(topsVer);
-        {
-          QVector<WellTopRecord> tops;
-          if (!topsPath.isEmpty() && m_doc->wellTopsAt(topsPath, &tops))
-          {
-            const QString normWell = DataCatalog::normalizeWellName(wells.isEmpty() ? QString() : wells.front().second);
-            QVector<WellTopRecord> wellTops;
-            for (const auto &tr : tops)
-            {
-              if (normWell.isEmpty() || DataCatalog::normalizeWellName(tr.wellName) == normWell)
-                wellTops.append(tr);
-            }
-            std::sort(wellTops.begin(), wellTops.end(), [](const WellTopRecord &a, const WellTopRecord &b) {
-              return a.md < b.md;
-            });
-            for (int ti = 0; ti < wellTops.size(); ++ti)
-            {
-              WellComposite::FormationInterval fi;
-              fi.name = wellTops.at(ti).topName;
-              fi.topDepth = static_cast<float>(wellTops.at(ti).md);
-              fi.bottomDepth = static_cast<float>((ti + 1 < wellTops.size()) ? wellTops.at(ti + 1).md : (wellTops.at(ti).md + 50.0));
-              fi.color = kFormColors.at(ti % kFormColors.size());
-              // 井道图上的分层就是这次预测的段井道。组名仍标成组，不能冒充段。
-              fi.unitType = fi.name.trimmed().endsWith(QStringLiteral("组"))
-                                ? QStringLiteral("组")
-                                : QStringLiteral("段");
-              formationIntervals.append(fi);
-            }
-          }
-        }
-        break;
-      }
+      WellComposite::FormationInterval fi;
+      fi.name = wellTops.at(ti).topName;
+      fi.topDepth = static_cast<float>(wellTops.at(ti).md);
+      fi.bottomDepth = static_cast<float>(wellBases.value(fi.name, ti + 1 < wellTops.size() ? wellTops.at(ti + 1).md : qQNaN()));
+      fi.color = kFormColors.at(ti % kFormColors.size());
+      // 井道图上的分层就是这次预测的段井道。组名仍标成组，不能冒充段。
+      fi.unitType = fi.name.trimmed().endsWith(QStringLiteral("组")) ? QStringLiteral("组") : QStringLiteral("段");
+      formationIntervals.append(fi);
     }
   }
 
@@ -293,7 +283,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   const QPointer<WellComposite::WellCompositePanel> compFill(compPanel);
   const std::function<void(const QList<LasCurve> &, const QHash<QString, LasDoc> &)> fillCurves =
       [compFill, hintFill, names, coreImages,
-       wellTitle, formationIntervals, lithology, wellCurves, compositeFromWell, abs,
+       wellTitle, formationIntervals, formationWarnings, lithology, wellCurves, compositeFromWell, abs,
        currentBasis = header.indexBasis, currentFormat = asset.format](
           const QList<LasCurve> &curves, const QHash<QString, LasDoc> &siblings) {
         if (curves.size() != names.size())
@@ -312,7 +302,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
         if (compFill)
         {
           QVector<WellComposite::CurveData> compCurves;
-          QStringList axisWarnings;
+          QStringList axisWarnings = formationWarnings;
           QSet<QString> warnedPaths;
           if (!compositeFromWell)
           {
@@ -348,7 +338,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
               ++colorIndex;
             }
           }
-          compFill->loadLasCurves(wellTitle, compCurves, formationIntervals);
+          compFill->loadLasCurves(wellTitle, compCurves, displayedFormations(formationIntervals, compCurves));
           if (hintFill && !axisWarnings.isEmpty())
           {
             hintFill->setText(axisWarnings.join(QLatin1Char('\n')));

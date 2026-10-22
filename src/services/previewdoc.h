@@ -132,6 +132,10 @@ class PreviewDocService : public QObject
                             QString *error = nullptr);
     static bool wellTopsAt(const QString &absPath, QVector<WellTopRecord> *out,
                            QString *error = nullptr);
+    // 综合井图的只读显示副本：优先原始 MD，否则按测斜／MD-TVD 对照换算。
+    // 无换算资料时按直井等深展示并告警；不修改工程中的原始分层深度。
+    void wellTopsForLog(const QString &wellId, QVector<WellTopRecord> *out,
+                        QStringList *warnings = nullptr, QHash<QString, double> *bases = nullptr) const;
     static bool timeDepthAt(const QString &absPath, TimeDepthTable *out,
                             QString *error = nullptr);
 

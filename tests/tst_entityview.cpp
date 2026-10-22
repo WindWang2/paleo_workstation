@@ -191,7 +191,7 @@ void TestEntityView::slotsEnumerateRegistryRolesIncludingEmpty()
 
   const EntityView view = entityDataView(cat, QStringLiteral("well-A1"));
   QCOMPARE(view.entity.id, QStringLiteral("well-A1"));
-  QCOMPARE(view.roleSlots.size(), 11);
+  QCOMPARE(view.roleSlots.size(), 12); // #642：reference 补登后 well 槽位 12
   QCOMPARE(view.roleSlots.first().def.role, QStringLiteral("well_head"));
   QCOMPARE(view.roleSlots.last().def.role, QStringLiteral("other"));
   for (const RoleSlot &s : view.roleSlots)

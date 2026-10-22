@@ -153,7 +153,7 @@ void TestRoles::fromJsonOverridesAndAdds()
   QVERIFY(log->ordered);                                           // 未写字段保留
 
   QCOMPARE(reg.find(QStringLiteral("tops"))->display, QStringLiteral("分层顶"));
-  QCOMPARE(reg.forEntity(QStringLiteral("well")).size(), 12);     // 11 + custom
+  QCOMPARE(reg.forEntity(QStringLiteral("well")).size(), 13);     // 12 内置（#642 补 reference）+ custom
   QCOMPARE(reg.forEntity(QStringLiteral("seismic_survey")).size(), 8); // 7 + tops
   QCOMPARE(reg.forEntity(QStringLiteral("seismic_survey")).last().display,
            QStringLiteral("调查分层"));
@@ -176,7 +176,7 @@ void TestRoles::fromJsonOverridesAndAdds()
   QVERIFY(!junkReg.isKnown(QStringLiteral("not_an_object")));
   QVERIFY(!junkReg.isKnown(QString()));
   const RoleRegistry plain = RoleRegistry::fromJson(QJsonObject());
-  QCOMPARE(plain.forEntity(QStringLiteral("well")).size(), 11);
+  QCOMPARE(plain.forEntity(QStringLiteral("well")).size(), 12); // #642 补登 reference
 }
 
 // catalog.open() 读 <projectDir>/project_area.json 的 roles 节——工程自定义
@@ -220,7 +220,7 @@ void TestRoles::openWithoutAreaFileYieldsDefaults()
   QVERIFY(cat.roleRegistry().isKnown(QStringLiteral("well_head")));
   QVERIFY(cat.roleRegistry().isKnown(QStringLiteral("seismic_volume")));
   QVERIFY(!cat.roleRegistry().isKnown(QStringLiteral("survey_bom")));
-  QCOMPARE(cat.roleRegistry().forEntity(QStringLiteral("well")).size(), 11);
+  QCOMPARE(cat.roleRegistry().forEntity(QStringLiteral("well")).size(), 12); // #642 补登 reference
 }
 
 void TestRoles::corruptAreaFileStillOpensWithDefaults()

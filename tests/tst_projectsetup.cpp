@@ -72,11 +72,12 @@ private slots:
   }
   void stratificationDepthAndSubsets() {
     QTemporaryDir dir;
-    const QVector<QStringList> rows{{QStringLiteral("层位"), QStringLiteral("顶界垂深(m)")}, {"D61", "100"}, {"D62", "120"}};
+    const QVector<QStringList> rows{{QStringLiteral("层位"), QStringLiteral("顶界垂深(m)"), QStringLiteral("底界垂深(m)")}, {"D61", "100", "120"}, {"D62", "120", "130"}};
     auto path = xlsx(dir.filePath(QStringLiteral("井/总表.xlsx")), "A1", rows);
     xlsx(dir.filePath(QStringLiteral("井/A1/分层.xlsx")), "A1", rows);
     const auto table = paleo::io::readWellTable(path);
     QCOMPARE(table.tops.size(), 2); QVERIFY(table.tops[0].hasTvd); QVERIFY(!table.tops[0].hasMd);
+    const auto bases = paleo::io::readWellTableBases(path); QCOMPARE(bases.size(), 2); QCOMPARE(bases[1].tvd, 130.0); QVERIFY(!bases[1].hasMd);
     ProjectSetupSources s; s.wells = dir.filePath(QStringLiteral("井"));
     const auto p = scanProjectSources(s); QCOMPARE(p.tops, 2); QCOMPARE(p.paths.size(), 1); QVERIFY(!p.notes.isEmpty());
   }

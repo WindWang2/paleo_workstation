@@ -83,7 +83,7 @@ QString inferredCrs(const QString &text)
   }
   return {};
 }
-void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m)
+void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m, bool bases = false)
 {
   const auto &h = sheet.headers;
   const int name = column(h, {QStringLiteral("井号"), QStringLiteral("井名"), "WELL", "WELLNAME", "NAME"}, m.value("well").toString());
@@ -92,8 +92,10 @@ void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m
   const int kb = column(h, {"KB", QStringLiteral("补心海拔")}, m.value("kb").toString());
   const int td = column(h, {"TD", QStringLiteral("完钻井深"), QStringLiteral("总井深")}, m.value("td").toString());
   const int top = column(h, {QStringLiteral("层位"), QStringLiteral("层名"), "HORIZON", "TOP"});
-  const int md = column(h, {"MD", QStringLiteral("顶界测深"), QStringLiteral("顶深")});
-  const int tvd = column(h, {"TVD", QStringLiteral("顶界垂深"), QStringLiteral("顶垂深")});
+  const int md = column(h, bases ? QStringList{"BOTTOM_MD", "BASE_MD", QStringLiteral("底界测深"), QStringLiteral("底测深")}
+                                : QStringList{"MD", QStringLiteral("顶界测深"), QStringLiteral("顶深")});
+  const int tvd = column(h, bases ? QStringList{"BOTTOM_TVD", "BASE_TVD", QStringLiteral("底界垂深"), QStringLiteral("底垂深")}
+                                 : QStringList{"TVD", QStringLiteral("顶界垂深"), QStringLiteral("顶垂深")});
   const bool heads = name >= 0 && x >= 0 && y >= 0;
   const bool tops = top >= 0 && (md >= 0 || tvd >= 0);
   if (!heads && !tops) return;
@@ -146,6 +148,14 @@ void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m
 }
 
 QString wellSourceCrsHint(const QString &text) { return inferredCrs(text); }
+QVector<WellTopRecord> readWellTableBases(const QString &path)
+{
+  const auto extension = QFileInfo(path).suffix().toLower();
+  const auto workbook = extension == "xlsx" ? readWorkbook(path) : readWellDelimitedTable(path);
+  WellTable out;
+  if (workbook.ok) for (const auto &sheet : workbook.sheets) parseSheet(out, sheet, {}, true);
+  return out.tops;
+}
 bool isWellTableContainer(const QString &path)
 {
   return QStringList{"xlsx", "gpkg", "shp", "geojson", "csv", "tsv", "txt"}.contains(QFileInfo(path).suffix().toLower());

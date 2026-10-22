@@ -41,7 +41,7 @@ src/ui/datapreview/datapreviewtabs_content.cpp:fn:buildContent:203
 src/ui/datapreview/datapreviewtabs_survey.cpp:fn:buildSurveyAreaContent:327
 src/ui/datapreview/datapreviewtabs_well.cpp:fn:buildWellBody:254
 src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:770
-src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:263
+src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:238
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:289
 src/ui/edittools/editingtoolbar.cpp:file:1107

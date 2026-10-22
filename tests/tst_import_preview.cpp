@@ -11,8 +11,11 @@
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/previewdoc.h"
 #include "../src/services/welllogset.h"
+#include "../src/domain/wellrecords.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
 #include "../src/ui/wellcomposite/wellcompositepanel.h"
+#include "../src/ui/wellcomposite/wellcompositecanvas.h"
+#include "../src/ui/paleotheme.h"
 #include "importuxfixtures.h"
 
 namespace
@@ -81,7 +84,95 @@ class TestImportPreview : public QObject
 {
   Q_OBJECT
 private slots:
-  void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); }
+  void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); PaleoTheme::pinRenderEnvironment(); }
+  void tvdOnlyTopsUseTimeDepthPairsAndDoNotCollapseAtZero() {
+    PreviewStack stack; QString error;
+    const auto log = stack.source("A1.csv", ImportUxFixtures::csv("A1", "GR[API]", "0,10\n1000,20\n2200,30\n2300,40\n"));
+    const auto logId = stack.imports->importProjectFile(log, &error); QVERIFY2(!logId.isEmpty(), qPrintable(error));
+    DataImportService::ImportOptions options; options.forceType = "well_stratification";
+    const auto tops = stack.source("tops.dat", "#WellTops File From Paleo\n# PaleoDepthBasis: explicit\n"
+        "A1 D82 -99999 -99999 -99999 -99999 2136 -99999\n"
+        "A1 D61 -99999 -99999 -99999 -99999 1894 -99999\n"
+        "A1 X -99999 -99999 -99999 -99999 0 -99999\n");
+    const auto topsId = stack.imports->importProjectFile(tops, options, &error); QVERIFY2(!topsId.isEmpty(), qPrintable(error));
+    options.forceType = "time_depth"; options.linkExternal = true;
+    const auto td = stack.source("A1_td.dat", "#TimeDepth File From SMI\n# Well : A1\n0 0 0 0\n1000 -1000 1000 1000\n2300 -2300 2300 2300\n");
+    QVERIFY2(!stack.imports->importProjectFile(td, options, &error).isEmpty(), qPrintable(error));
+    stack.preview->openAsset(logId); auto *panel = stack.currentPanel(); QVERIFY(panel);
+    const auto data = panel->currentData(); QCOMPARE(data.formationIntervals.size(), 3);
+    QCOMPARE(data.formationIntervals[0].name, QString("X")); QCOMPARE(data.formationIntervals[0].topDepth, 0.0f);
+    QCOMPARE(data.formationIntervals[1].name, QString("D61")); QCOMPARE(data.formationIntervals[1].topDepth, 1894.0f);
+    QCOMPARE(data.formationIntervals[1].bottomDepth, 2136.0f);
+    QCOMPARE(data.formationIntervals[2].name, QString("D82")); QCOMPARE(data.formationIntervals[2].topDepth, 2136.0f);
+    QCOMPARE(data.formationIntervals[2].bottomDepth, 2300.0f);
+    QVector<WellTopRecord> original; QVERIFY(PreviewDocService::wellTopsAt(stack.imports->absolutePath(topsId), &original));
+    QCOMPARE(original.size(), 3); for (const auto &top : original) QVERIFY(!top.hasMd); // 只改显示副本
+    auto *hint = stack.currentPage()->findChild<QLabel *>("lasPendingHint"); QVERIFY(hint); QVERIFY(hint->text().contains("MD/TVD"));
+  }
+  void tvdDisplayMappingInterpolatesAndRejectsAmbiguousPairs() {
+    PreviewStack stack; QString error; DataImportService::ImportOptions options;
+    const auto log = stack.imports->importProjectFile(stack.source("A1.csv", ImportUxFixtures::csv()), &error); QVERIFY(!log.isEmpty());
+    options.forceType = "well_stratification";
+    const auto tops = stack.source("tops.dat", "#WellTops File From Paleo\n# PaleoDepthBasis: explicit\n"
+        "A1 D61 -99999 -99999 -99999 -99999 150 -99999\nA1 D62 220 -99999 -99999 -99999 180 -99999\n");
+    QVERIFY(!stack.imports->importProjectFile(tops, options, &error).isEmpty());
+    options.forceType = "time_depth"; options.linkExternal = true;
+    const auto td = stack.source("td.dat", "#TimeDepth File From SMI\n# Well : A1\n0 0 0 0\n1 -100 100 120\n2 -200 200 240\n");
+    QVERIFY2(!stack.imports->importProjectFile(td, options, &error).isEmpty(), qPrintable(error));
+    PreviewDocService doc(stack.imports.get()); QVector<WellTopRecord> result; QStringList warnings;
+    const auto well = onlyWellId(*stack.imports->catalog()); doc.wellTopsForLog(well, &result, &warnings);
+    QCOMPARE(result.size(), 2); QCOMPARE(result[0].md, 180.0); QCOMPARE(result[1].md, 220.0);
+    QVERIFY(!warnings.isEmpty());
+    // 修订对照文件为重复 TVD、多解 MD；不把 TVD 直接冒充 MD。
+    QVERIFY(ImportUxFixtures::write(td,
+        "#TimeDepth File From SMI\n# Well : A1\n0 0 0 0\n1 -100 100 120\n2 -100 100 240\n"));
+    doc.wellTopsForLog(well, &result, &warnings);
+    QCOMPARE(result.size(), 1); QCOMPARE(result.first().md, 220.0); QVERIFY(warnings.join(' ').contains("不单调"));
+    options.forceType = "well_deviation";
+    const auto deviation = stack.source("A1_dev.dat", "# Well : A1\n0 60 0\n1000 60 0\n");
+    QVERIFY2(!stack.imports->importProjectFile(deviation, options, &error).isEmpty(), qPrintable(error));
+    doc.wellTopsForLog(well, &result, &warnings); QCOMPARE(result.size(), 2);
+    const auto converted = std::find_if(result.cbegin(), result.cend(), [](const auto &top) { return top.topName == "D61"; });
+    QVERIFY(converted != result.cend()); QVERIFY(std::abs(converted->md - 300.0) < 0.001); QVERIFY(warnings.join(' ').contains("按测斜"));
+  }
+  void noSurveyUsesExplicitStraightWellDisplayWarning() {
+    PreviewStack stack; QString error; QVERIFY(!stack.imports->importProjectFile(stack.source("A1.csv", ImportUxFixtures::csv()), &error).isEmpty());
+    DataImportService::ImportOptions options; options.forceType = "well_stratification";
+    QVERIFY(!stack.imports->importProjectFile(stack.source("tops.dat", "#WellTops File From Paleo\n# PaleoDepthBasis: explicit\nA1 D61 -99999 -99999 -99999 -99999 1100 -99999\n"), options, &error).isEmpty());
+    PreviewDocService doc(stack.imports.get()); QVector<WellTopRecord> result; QStringList warnings;
+    doc.wellTopsForLog(onlyWellId(*stack.imports->catalog()), &result, &warnings);
+    QCOMPARE(result.size(), 1); QCOMPARE(result[0].md, 1100.0); QVERIFY(warnings.join(' ').contains("按直井等深显示"));
+  }
+  void realProjectSnapshotHasAllA1FormationDepths() {
+    const auto root = qEnvironmentVariable("PALEO_TOPS_PROJECT_SNAPSHOT");
+    if (root.isEmpty()) QSKIP("Opt in with a read-only project snapshot");
+    const auto prepared = DataCatalog::prepareOpen(root, true); QVERIFY(prepared); QVERIFY(prepared->isOpen());
+    DataImportService imports; imports.catalog()->setLockedReadOnly(true); imports.setProjectDir(root, prepared);
+    QVERIFY(imports.catalog()->refusesWrites()); PreviewDocService doc(&imports); QString a1, logId;
+    int count = 0;
+    for (const auto &well : imports.catalog()->entities("well")) {
+      QVector<WellTopRecord> tops; QStringList warnings; doc.wellTopsForLog(well.id, &tops, &warnings); count += tops.size();
+      if (well.name == "A1") {
+        a1 = well.id; QCOMPARE(tops.size(), 27);
+        auto d61 = std::find_if(tops.cbegin(), tops.cend(), [](const auto &top) { return top.topName == "D61"; });
+        auto d82 = std::find_if(tops.cbegin(), tops.cend(), [](const auto &top) { return top.topName == "D82"; });
+        QVERIFY(d61 != tops.cend()); QCOMPARE(d61->md, 1894.0); QVERIFY(d82 != tops.cend()); QCOMPARE(d82->md, 2136.0);
+      }
+    }
+    QCOMPARE(count, 516); QVERIFY(!a1.isEmpty());
+    for (const auto &link : imports.catalog()->linksForEntity(a1)) if (link.role == "well_log" && !link.unresolved) { logId = link.assetId; break; }
+    QVERIFY(!logId.isEmpty()); DataPreviewTabs preview; preview.setImportService(&imports); preview.openAsset(logId);
+    auto *panel = preview.findChild<WellComposite::WellCompositePanel *>("wellCompositePanel"); QVERIFY(panel);
+    const auto data = panel->currentData(); QCOMPARE(data.formationIntervals.size(), 27);
+    auto last = std::find_if(data.formationIntervals.cbegin(), data.formationIntervals.cend(), [](const auto &layer) { return layer.name == "D82"; });
+    QVERIFY(last != data.formationIntervals.cend()); QCOMPARE(last->topDepth, 2136.0f); QCOMPARE(last->bottomDepth, 2160.0f);
+    const auto capture = qEnvironmentVariable("PALEO_TOPS_PREVIEW_CAPTURE");
+    if (!capture.isEmpty()) {
+      preview.resize(1400, 950); preview.show(); QTest::qWait(100);
+      if (auto *canvas = panel->findChild<WellComposite::WellCompositeCanvas *>()) canvas->setScrollDepth(2100);
+      QTest::qWait(100); panel->grab().save(capture);
+    }
+  }
 
   void realMixedImportOpensBothAssetsWithPerSourceMetricDepths()
   {

@@ -52,7 +52,7 @@ QString tileAttribution(const QString &path)
 }
 }
 
-bool configure(QgsProject *project, const std::optional<PaleoGeoreference> &reference,
+static bool configurePrepared(QgsProject *project, const std::optional<PaleoGeoreference> &reference,
                const QString &mapCrs, QString *error)
 {
   if (!project) return false;
@@ -130,6 +130,22 @@ bool configure(QgsProject *project, const std::optional<PaleoGeoreference> &refe
   project->setTransformContext(context);
   project->setCrs(destination);
   project->writeEntry("paleo", "localTransformTargets", targets);
+  return true;
+}
+
+bool configure(QgsProject *project, const std::optional<PaleoGeoreference> &reference,
+               const QString &mapCrs, QString *error)
+{
+  if (!project) return false;
+  QgsProject prepared;
+  prepared.setTransformContext(project->transformContext());
+  prepared.writeEntry("paleo", "localTransformTargets", project->readListEntry("paleo", "localTransformTargets"));
+  if (!configurePrepared(&prepared, reference, mapCrs, error)) return false;
+  // Publish only a complete configuration; a failed registration must not
+  // switch a working map back to the engineering grid.
+  project->setTransformContext(prepared.transformContext());
+  project->setCrs(prepared.crs());
+  project->writeEntry("paleo", "localTransformTargets", prepared.readListEntry("paleo", "localTransformTargets"));
   return true;
 }
 

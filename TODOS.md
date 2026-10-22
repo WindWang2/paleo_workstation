@@ -1,3 +1,9 @@
+## P3 — QGIS CRS 缓存生命周期修复后恢复缓存（2026-10-22）
+
+- **What:** 跟进 QGIS CRS 的 PROJ 主对象跨线程生命周期：创建线程退出后，共享实例仍有效且可投影，之后恢复 `QgisRuntime` 的 CRS 缓存。当前已关闭 CRS 实例缓存，坐标转换缓存保留。
+- **验收:** `tst_projectsetup::nativeProjectionAfterWorkerExit` 在启用 CRS 缓存时通过，异步打开工程后勾选相图及新建工程均正常；对比大工程打开与交互耗时。
+- **证据:** `docs/progress/native-crs-lifetime.md`。不可仅检查 `isValid()` 或以单线程创建成功代替线程退出验证。
+
 ## P3 — 井点因子实际值标注（备份分支需求提取，2026-10-18）
 
 - **What:** 井号与 `factor_value` 双行标注，预览和编图共用规则；保留比值原口径，

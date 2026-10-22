@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 
 #include <qgsapplication.h>
+#include <qgscoordinatereferencesystem.h>
 #include <qgsproviderregistry.h>
 #include <qgsgui.h>
 #include <qgseditorwidgetregistry.h>
@@ -53,6 +54,12 @@ bool QgisRuntime::initialize( const QString &prefixPath,
   if ( applicationCreated )
     applicationCreated();
   QgsApplication::initQgis();
+  // QGIS 4.2 CRS cache entries can outlive the worker which owns their PROJ
+  // master object. Its TLS cleanup leaves shared entries valid but without a
+  // projection (empty WKT), breaking later imports and map rendering. Keep
+  // CRS instances independent across workers until that upstream lifetime
+  // defect is fixed. Coordinate-transform caching remains enabled.
+  QgsCoordinateReferenceSystem::invalidateCache(/*disableCache=*/true);
   // Embedding applications must register QGIS's native attribute editors;
   // initQgis() initializes providers, while QgisApp normally does this step.
   QgsGui::editorWidgetRegistry()->initEditors();

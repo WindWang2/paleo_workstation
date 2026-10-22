@@ -40,6 +40,15 @@ bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources
   const auto fail = [&](const QString &message) { if (error) *error = message; return false; };
   if (!m_project || !m_imports) return fail(tr("工程或导入服务未就绪"));
   if (!preview.errors.isEmpty()) return fail(preview.errors.join('\n'));
+  PaleoProjectFile configuration;
+  if (!preview.projectCrs.isEmpty()) {
+    PaleoGeoreference reference;
+    reference.kind = QStringLiteral("crs"); reference.sourceCrs = preview.projectCrs;
+    reference.targetCrs = QStringLiteral("EPSG:4326");
+    configuration.georeference = reference;
+  }
+  // Check coordinates before creating files or closing the active project.
+  if (!QgisProjectService::validateMapReference(configuration, error)) return false;
   const QString directory = QFileInfo(path).absolutePath();
   if (QFileInfo::exists(path) || QFileInfo::exists(paleoProjectFilePath(directory))) return fail(tr("该位置已有工程，请选择新的工程目录或打开已有工程。"));
   if (!QDir().mkpath(directory)) return fail(tr("无法创建工程目录：%1").arg(directory));

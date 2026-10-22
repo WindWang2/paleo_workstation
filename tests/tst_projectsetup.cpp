@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QThread>
+#include <QSemaphore>
 #include <cmath>
 #include <QComboBox>
 #include <QDir>
@@ -199,6 +201,54 @@ private slots:
     QgsProject project; QVERIFY2(paleo::mapreference::configure(&project, g, "EPSG:3857", &error), qPrintable(error));
     QgsCoordinateTransform ct(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()), QgsCoordinateReferenceSystem("EPSG:4326"), project.transformContext());
     const auto actual = ct.transform(QgsPointXY(233240.46, 3997621.12)); QVERIFY(std::abs(actual.x() - lon) < 1e-8); QVERIFY(std::abs(actual.y() - lat) < 1e-8);
+  }
+  void nativeProjectionAfterWorkerExit() {
+    QgsCoordinateReferenceSystem::invalidateCache();
+    QgsCoordinateTransform::invalidateCache();
+    QSemaphore ready, release;
+    QgsCoordinateReferenceSystem shared;
+    auto worker = std::unique_ptr<QThread>(QThread::create([&] {
+      const QgsCoordinateReferenceSystem source("EPSG:32649");
+      shared = source; ready.release(); release.acquire();
+    }));
+    worker->start(); ready.acquire();
+    const QgsCoordinateReferenceSystem borrowed("EPSG:32649");
+    const bool validBeforeExit = !borrowed.toWkt().isEmpty();
+    release.release(); worker->wait();
+    QVERIFY(validBeforeExit);
+    QgsCoordinateTransform transferred(shared, QgsCoordinateReferenceSystem("EPSG:4326"), QgsCoordinateTransformContext());
+    const auto transferredPoint = transferred.transform(QgsPointXY(233240.46, 3997621.12));
+    QVERIFY(std::abs(transferredPoint.x() - 108.037366) < .000001);
+    PaleoGeoreference reference; reference.kind = "crs"; reference.sourceCrs = "EPSG:32649"; reference.targetCrs = "EPSG:4326";
+    QgsProject project; QString error;
+    QVERIFY2(paleo::mapreference::configure(&project, reference, "EPSG:3857", &error), qPrintable(error));
+    QgsCoordinateTransform mapped(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()),
+        QgsCoordinateReferenceSystem("EPSG:4326"), project.transformContext());
+    const auto point = mapped.transform(QgsPointXY(233240.46, 3997621.12));
+    QVERIFY(std::abs(point.x() - 108.037366) < .000001);
+  }
+  void invalidReferenceDoesNotChangeProject() {
+    PaleoGeoreference reference; reference.kind = "crs"; reference.sourceCrs = "EPSG:32649"; reference.targetCrs = "EPSG:4326";
+    QgsProject project; QString error;
+    QVERIFY2(paleo::mapreference::configure(&project, reference, "EPSG:3857", &error), qPrintable(error));
+    const auto before = project.transformContext();
+    const auto targets = project.readListEntry("paleo", "localTransformTargets");
+    reference.sourceCrs = "EPSG:0";
+    QVERIFY(!paleo::mapreference::configure(&project, reference, "EPSG:3857", &error));
+    QCOMPARE(project.crs().authid(), QString("EPSG:3857"));
+    QVERIFY(project.transformContext() == before);
+    QCOMPARE(project.readListEntry("paleo", "localTransformTargets"), targets);
+  }
+  void invalidCoordinatesDoNotCreateEmptyProject() {
+    QTemporaryDir dir; QString error;
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    const auto previous = dir.filePath("existing.qgz"); QVERIFY(project.createProject(previous));
+    ProjectSetupPreview preview; preview.projectCrs = "EPSG:0";
+    const auto target = dir.filePath("new/project.qgz");
+    QVERIFY(!workflow.create(target, {}, preview, &error));
+    QVERIFY(!error.isEmpty()); QVERIFY(!QFileInfo::exists(dir.filePath("new")));
+    QCOMPARE(project.projectPath(), previous);
   }
   void emptyWizard() {
     QgisProjectService project; PaleoProjectStore store; DataImportService service(&store); FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);

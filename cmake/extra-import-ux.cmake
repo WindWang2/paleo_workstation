@@ -18,4 +18,5 @@ target_sources(paleo_io PRIVATE src/io/welltable.cpp src/io/welltableimport.cpp
 target_sources(paleo_io PRIVATE src/io/projectsetupmaps.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/projectsetup.cpp src/workflow/projectsetupmaps.cpp)
 target_sources(paleo_ui PRIVATE src/ui/dialogs/projectsetupdialog.cpp src/ui/paleomainwindow_projectsetup.cpp)
+target_sources(paleo_ui PRIVATE src/ui/dialogs/importsourcedialog.cpp)
 add_paleo_test(tst_projectsetup LIBS paleo_ui paleo_io)

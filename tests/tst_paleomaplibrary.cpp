@@ -19,6 +19,8 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QLabel>
+#include <QListWidget>
+#include <QWizard>
 #include <QProgressBar>
 #include <QIcon>
 #include <qgssymbollayer.h>
@@ -43,6 +45,7 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/io/dataimportservice.h"
+#include "../src/io/ingestplan.h"
 #include "../src/services/previewdoc.h"
 #include "../src/services/storagegovernance.h"
 #include "../src/services/dataexport.h"
@@ -53,6 +56,8 @@
 #include "../src/workflow/mappingworkbench.h"
 #include "../src/workflow/workflows.h"
 #include "../src/ui/pages/datalist.h"
+#include "../src/ui/pages/datapage.h"
+#include "../src/ui/dialogs/importsourcedialog.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/linkage/selectioncontext.h"
@@ -128,6 +133,129 @@ class TestPaleomapLibrary : public QObject {
   }
 private slots:
   void initTestCase() { PaleoTheme::pinRenderEnvironment(); }
+  void sourceDialogValidatesAndKeepsSelectionUntilConfirmation() {
+    QTemporaryDir source; const auto path = source.filePath("points.xlsx");
+    QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("fixture"); file.close();
+    ImportSourceDialog dialog("wells");
+    auto *confirm = dialog.findChild<QPushButton *>("importSourceConfirm"); QVERIFY(confirm);
+    QVERIFY(!confirm->isEnabled()); QVERIFY(dialog.fileFilter().contains("*.xlsx"));
+    QSignalSpy accepted(&dialog, &QDialog::accepted);
+    dialog.accept(); QCOMPARE(accepted.count(), 0);
+    dialog.setSources({path, path}); QCOMPARE(dialog.files().size(), 1); QVERIFY(confirm->isEnabled());
+    dialog.setSources({source.filePath("missing.xlsx")}); dialog.accept(); QCOMPARE(accepted.count(), 0);
+    QVERIFY(!dialog.findChild<QLabel *>("importSourceError")->text().isEmpty());
+    dialog.setSources({path});
+    auto *list = dialog.findChild<QListWidget *>("importSourceFileList"); list->item(0)->setSelected(true);
+    dialog.findChild<QPushButton *>("importSourceRemoveFiles")->click(); QVERIFY(dialog.files().isEmpty()); QVERIFY(!confirm->isEnabled());
+    dialog.setSources({path}, true); dialog.accept(); QCOMPARE(accepted.count(), 0); // 文件不能当目录
+    dialog.setSources({source.path()}, true); QVERIFY(dialog.files().isEmpty()); dialog.accept(); QCOMPARE(accepted.count(), 1);
+    QCOMPARE(dialog.folder(), source.path());
+  }
+  void everyImportButtonOpensSourceDialogAndCancelLeavesCatalogUntouched() {
+    Fixture f; QVERIFY(f.init()); QgisCanvasController controller; SelectionContext selection;
+    PredictionWorkflow prediction(&f.processing, &f.layers); CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, &f.importer, nullptr, &f.processing, &f.store, nullptr, nullptr, &f.tasks);
+    const QList<QPair<QString, QString>> buttons{{"importWells", "wells"}, {"importWellLogs", "well_log"},
+        {"importSeismic", "seismic"}, {"importBoundary", "boundary"}, {"importFolder", "folder"},
+        {"importFiles", "files"}, {"importPaleomap", "paleomap"}, {"importPaleomapFolder", "paleomap_folder"}};
+    for (const auto &[name, kind] : buttons) {
+      auto *button = window.findChild<QPushButton *>(name); QVERIFY2(button, qPrintable(name)); QVERIFY2(button->isEnabled(), qPrintable(name));
+      bool shown = false, correctMode = false;
+      QTimer::singleShot(0, &window, [&] {
+        auto *dialog = window.findChild<ImportSourceDialog *>("dataImportSourceDialog");
+        if (!dialog) { if (auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget())) modal->reject(); return; }
+        shown = dialog->property("importKind").toString() == kind;
+        correctMode = dialog->findChild<QComboBox *>("importSourceMode")->currentIndex() == (kind.endsWith("folder") ? 1 : 0);
+        const auto qa = qEnvironmentVariable("PALEO_PALEOMAP_QA_DIR");
+        if (!qa.isEmpty()) dialog->grab().save(qa + "/" + kind + "-import-source.png");
+        dialog->reject();
+      });
+      button->click(); QVERIFY2(shown, qPrintable(name)); QVERIFY2(correctMode, qPrintable(name));
+      QVERIFY(f.importer.catalog()->assets().isEmpty());
+    }
+  }
+  void boundaryButtonConfirmsAsSurveyAreaAndImports() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("polygon.geojson");
+    QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{},"geometry":{"type":"Polygon","coordinates":[[[108,36],[108.1,36],[108.1,36.1],[108,36.1],[108,36]]]}}]})"); file.close();
+    QgisCanvasController controller; SelectionContext selection;
+    PredictionWorkflow prediction(&f.processing, &f.layers); CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, &f.importer, nullptr, &f.processing, &f.store, nullptr, nullptr, &f.tasks);
+    bool reviewed = false;
+    QTimer::singleShot(0, &window, [&] {
+      auto *dialog = window.findChild<ImportSourceDialog *>(); if (!dialog) return;
+      dialog->setSources({path}); dialog->accept();
+      QTimer::singleShot(0, &window, [&] {
+        auto *wizard = window.findChild<QWizard *>("singleImportDialog"); if (!wizard) return;
+        reviewed = wizard->findChild<QComboBox *>("singleImportTypeCombo")->currentData().toString() == QStringLiteral("boundary");
+        wizard->next(); wizard->button(QWizard::FinishButton)->click();
+      });
+    });
+    window.findChild<QPushButton *>("importBoundary")->click(); QVERIFY(reviewed);
+    QTRY_COMPARE_WITH_TIMEOUT(f.importer.catalog()->assets().size(), 1, 20000);
+    QCOMPARE(f.importer.catalog()->assets().first().type, QString("boundary"));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.importer.catalog()->entities("study_area").isEmpty(), 20000);
+  }
+  void selectedShapefileExpandsAndCopiesItsDataset() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("area.shp"); QVERIFY(shape(path));
+    QFile fullStyle(source.filePath("area.shp.qml")); QVERIFY(fullStyle.open(QIODevice::WriteOnly)); fullStyle.write("<qgis/>"); fullStyle.close();
+    const auto plan = buildIngestPlanForFiles({path, path}, *f.importer.catalog());
+    QCOMPARE(plan.items.size(), 1); QCOMPARE(plan.items.first().members.size(), 6); // SHP/SHX/DBF/PRJ/QML/全名 QML
+    auto selected = plan; selected.items[0].type = "boundary";
+    const auto result = executeIngestPlan(selected, f.importer);
+    QCOMPARE(result.size(), 1); QVERIFY2(!result.first().assetId.isEmpty(), qPrintable(result.first().message));
+    const auto asset = f.importer.catalog()->assets().first();
+    const auto managed = DataCatalog::resolvedVersionPath(f.dir.path(), f.importer.catalog()->currentVersion(asset.id));
+    QVERIFY(QFileInfo::exists(QFileInfo(managed).absoluteDir().filePath("area.qml")));
+    QVERIFY(QFileInfo::exists(QFileInfo(managed).absoluteDir().filePath("area.shp.qml")));
+    QgsVectorLayer copied(managed, "copied", "ogr"); QVERIFY(copied.isValid()); QCOMPARE(copied.featureCount(), 1);
+  }
+  void boundaryFileAndFolderReachReviewAndCanCancel() {
+    for (bool directory : {false, true}) {
+      Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("area.shp"); QVERIFY(shape(path));
+      QgisCanvasController controller; SelectionContext selection;
+      PredictionWorkflow prediction(&f.processing, &f.layers); CompositionWorkflow composition(&f.processing, &f.layers);
+      ValidationWorkflow validation(&f.layers, &f.store);
+      PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+      window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, &f.importer, nullptr, &f.processing, &f.store, nullptr, nullptr, &f.tasks);
+      bool reviewed = false, boundaryDefault = false;
+      QTimer poll; poll.setInterval(10); connect(&poll, &QTimer::timeout, &window, [&] {
+        if (auto *dialog = window.findChild<ImportSourceDialog *>(); dialog && dialog->isVisible()) {
+          dialog->setSources({directory ? source.path() : path}, directory); dialog->accept();
+        }
+        if (auto *dialog = window.findChild<QDialog *>("folderImportDialog"); dialog && dialog->isVisible()) {
+          reviewed = true; auto *type = dialog->findChild<QComboBox *>("folderType0");
+          boundaryDefault = type && type->currentData().toString() == QStringLiteral("boundary");
+          dialog->reject();
+        }
+      }); poll.start();
+      window.findChild<QPushButton *>("importBoundary")->click();
+      QTRY_VERIFY_WITH_TIMEOUT(reviewed, 20000); poll.stop(); QVERIFY(boundaryDefault);
+      QVERIFY(f.importer.catalog()->assets().isEmpty());
+    }
+  }
+  void paleomapSourceContinuesToHorizonDialogAndCancelDoesNotImport() {
+    Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("D61.shp"); QVERIFY(shape(path));
+    QgisCanvasController controller; SelectionContext selection;
+    PredictionWorkflow prediction(&f.processing, &f.layers); CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, &f.importer, nullptr, &f.processing, &f.store, nullptr, nullptr, &f.tasks);
+    bool reviewed = false;
+    QTimer::singleShot(0, &window, [&] {
+      auto *dialog = window.findChild<ImportSourceDialog *>(); if (!dialog) return;
+      dialog->setSources({path}); dialog->accept();
+      QTimer::singleShot(0, &window, [&] {
+        auto *settings = window.findChild<QDialog *>("paleomapImportDialog"); if (!settings) return;
+        reviewed = settings->findChild<QComboBox *>("paleomapImportHorizon") != nullptr; settings->reject();
+      });
+    });
+    window.findChild<QPushButton *>("importPaleomap")->click(); QVERIFY(reviewed); QVERIFY(f.importer.catalog()->assets().isEmpty());
+  }
   void existingMapNormalizationDialogRunsTheRegisteredMapFlow() {
     Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("D61/map.shp");
     QVERIFY(microShape(path, {QVariantMap{{"microfacies", "河口坝"}}}, "SEDCLASS"));

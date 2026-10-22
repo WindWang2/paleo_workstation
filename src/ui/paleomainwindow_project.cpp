@@ -8,6 +8,7 @@
 
 #include "datapreview/datapreviewtabs.h" // m_previewTabs->openAsset 需完整类型
 #include "dialogs/folderconfirm.h" // PaleoFolderConfirm（T22 确认表）
+#include "dialogs/importsourcedialog.h"
 #include "notifications/paleonotify.h"
 #include "pages/pagepanels.h" // DataPage（未解析过滤入口）
 #include "../workflow/folderimport.h"
@@ -56,13 +57,13 @@ FolderImportWorkflow *PaleoMainWindow::folderImportWorkflow()
 }
 
 void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
-                                        const QString &dir)
+                                        const QString &dir, const QString &kind)
 {
-  if (!svc || isOffscreen())
+  if (!svc || (kind.isEmpty() && isOffscreen()))
     return;
   auto *wf = folderImportWorkflow();
   if (!wf) return;
-  wf->previewFolderAsync(dir, [this, wf, dir](const QVector<FolderPreviewRow> &preview,
+  wf->previewFolderAsync(dir, [this, wf, dir, kind](const QVector<FolderPreviewRow> &preview,
                                              const QString &error) {
     if (preview.isEmpty()) {
       PaleoNotify::warning(this, tr("导入工区文件夹"),
@@ -112,17 +113,22 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
     hooks.stampSourceArea = [this, dir](const QVariantMap &stats) {
       stampSourceArea(dir, stats);
     };
-    PaleoFolderConfirm::buildFolderConfirmDialog(&dlg, dir, preview, hooks);
+    auto rows = preview;
+    for (auto &row : rows) {
+      const auto preferred = ImportSourceDialog::preferredType(kind, row.path);
+      if (row.typeEditable && !preferred.isEmpty() && row.typeVocab.contains(preferred)) row.displayType = preferred;
+    }
+    PaleoFolderConfirm::buildFolderConfirmDialog(&dlg, dir, rows, hooks);
     dlg.exec();
   });
 }
 
-void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList &paths)
+void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList &paths, const QString &kind)
 {
   // 多选文件导入：复用文件夹确认表（同一分类/改类型/仍导入/重试语义），
   // 数据源换文件清单。台账/标题用首文件所在目录；sourceArea 回写是目录
   // 专属（PROJECT_FILE_DESIGN），文件清单不 stamp。
-  if (!svc || paths.isEmpty() || isOffscreen())
+  if (!svc || paths.isEmpty() || (kind.isEmpty() && isOffscreen()))
     return;
   auto *wf = folderImportWorkflow();
   if (!wf)
@@ -132,7 +138,7 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
       tr("%n 个所选文件", nullptr, paths.size());
   wf->previewFilesAsync(
       paths,
-      [this, wf, paths, displayDir](const QVector<FolderPreviewRow> &preview,
+      [this, wf, paths, displayDir, kind](const QVector<FolderPreviewRow> &preview,
                                     const QString &err) {
         if (preview.isEmpty())
         {
@@ -180,7 +186,12 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
               m_previewTabs->openAsset(assetId);
           });
         };
-        PaleoFolderConfirm::buildFolderConfirmDialog(&dlg, displayDir, preview, hooks);
+        auto rows = preview;
+        for (auto &row : rows) {
+          const auto preferred = ImportSourceDialog::preferredType(kind, row.path);
+          if (row.typeEditable && !preferred.isEmpty() && row.typeVocab.contains(preferred)) row.displayType = preferred;
+        }
+        PaleoFolderConfirm::buildFolderConfirmDialog(&dlg, displayDir, rows, hooks);
         dlg.exec();
       });
 }

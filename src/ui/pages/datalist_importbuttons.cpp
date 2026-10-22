@@ -4,6 +4,7 @@
 void DataListPanel::buildImportButtons(QVBoxLayout *importLay, QWidget *importSection) {
   const struct { const char *name; const char *text; const char *kind; const char *desc; }
       kImports[] = {
+    {"importOfflineBasemap", QT_TR_NOOP("导入工程离线底图"), "offline_basemap", QT_TR_NOOP("将 MBTiles、GeoTIFF 等底图及配套文件复制进工程，供地图离线显示")},
     {"importPaleomap", QT_TR_NOOP("导入现有古地理图"), "paleomap", QT_TR_NOOP("按层位管理古地理图，Shapefile 配套文件作为一项")},
     {"importPaleomapFolder", QT_TR_NOOP("导入古地理图文件夹"), "paleomap_folder", QT_TR_NOOP("递归导入并识别图件层位")},
     {"importFiles", QT_TR_NOOP("导入文件"), "files", QT_TR_NOOP("选择一个或多个资料文件导入")},

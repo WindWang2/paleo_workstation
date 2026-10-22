@@ -94,7 +94,7 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
     auto *browse = new QPushButton(tr("选择…"), row);
     line->addWidget(edit, 1); line->addWidget(browse);
     connect(browse, &QPushButton::clicked, this, [this, edit] {
-      const auto selected = QFileDialog::getOpenFileName(this, tr("选择已下载的离线底图"), edit->text(), tr("离线瓦片 (*.mbtiles)"));
+      const auto selected = QFileDialog::getOpenFileName(this, tr("选择已下载的离线底图"), edit->text(), tr("离线栅格底图 (*.mbtiles *.tif *.tiff *.img *.gpkg *.png *.jpg *.jpeg)"));
       if (!selected.isEmpty()) edit->setText(selected);
     });
     mapForm->addRow(caption, row);

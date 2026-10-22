@@ -692,6 +692,7 @@ void PaleoMainWindow::addDataImportRibbon(SARibbonCategory *category, DataPage *
   auto *panel = category->addPanel(tr("数据导入")); panel->setObjectName("ribbonPanel.data.import");
   const struct { const char *button; const char *action; const char *text; const char *icon; bool large; } entries[] = {
     {"importPaleomap", "ribbonImportPaleomap", QT_TR_NOOP("导入现有古地理图"), "mIconPolygonLayer.svg", true},
+    {"importOfflineBasemap", "ribbonImportOfflineBasemap", QT_TR_NOOP("导入离线底图"), "mIconRasterLayer.svg", false},
     {"importPaleomapFolder", "ribbonImportPaleomapFolder", QT_TR_NOOP("导入图件文件夹"), "mIconFolderOpen.svg", false},
     {"importFiles", "ribbonImportFiles", QT_TR_NOOP("导入文件"), "mActionFileOpen.svg", false},
     {"importFolder", "ribbonImportFolder", QT_TR_NOOP("导入工区文件夹"), "mIconFolderOpen.svg", true},

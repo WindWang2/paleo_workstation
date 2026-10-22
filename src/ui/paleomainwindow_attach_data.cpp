@@ -15,6 +15,7 @@
 #include "../catalog/datacatalog.h"
 #include "dialogs/folderconfirm.h"
 #include "dialogs/importsourcedialog.h"
+#include "dialogs/offlinebasemapdialog.h"
 #include "correlationpanel.h"
 #include "datapreview/datapreviewtabs.h"
 #include "pages/pagepanels.h"
@@ -115,7 +116,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
       QString toolsReason;
       if (enabled && m_tools)
         toolsOk = m_tools->check(QString(), &toolsReason);
-      for (const char *name : {"importWells", "importWellLogs", "importSeismic",
+      for (const char *name : {"importOfflineBasemap", "importWells", "importWellLogs", "importSeismic",
                                "importBoundary", "importFolder", "importFiles", "importPaleomap", "importPaleomapFolder"})
         if (auto *btn = findChild<QPushButton *>(QLatin1String(name)))
         {
@@ -351,6 +352,7 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
     connect(dataPage, &DataPage::importRequested, this,
             [this, importSvc, preview](const QString &kind) {
               if (kind.startsWith(QLatin1String("paleomap"))) return;
+              if (kind == QLatin1String("offline_basemap")) { openOfflineBasemapImport(m_projectSvc, m_layerSvc, m_taskSvc, this); return; }
               if (!m_projectSvc || m_projectSvc->projectPath().isEmpty() || isProjectReadOnly() || m_projectSvc->isOpening()) return;
               const auto session = m_projectSvc->sessionId();
               ImportSourceDialog source(kind, this);

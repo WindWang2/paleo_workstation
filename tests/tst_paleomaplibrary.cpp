@@ -58,6 +58,7 @@
 #include "../src/ui/pages/datalist.h"
 #include "../src/ui/pages/datapage.h"
 #include "../src/ui/dialogs/importsourcedialog.h"
+#include "../src/ui/dialogs/offlinebasemapdialog.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/linkage/selectioncontext.h"
@@ -133,6 +134,24 @@ class TestPaleomapLibrary : public QObject {
   }
 private slots:
   void initTestCase() { PaleoTheme::pinRenderEnvironment(); }
+  void offlineBasemapButtonAndFileMenuOpenProjectImportDialog() {
+    Fixture f; QVERIFY(f.init()); QgisCanvasController controller; SelectionContext selection;
+    PredictionWorkflow prediction(&f.processing, &f.layers); CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, &f.importer, nullptr, &f.processing, &f.store, nullptr, nullptr, &f.tasks);
+    auto *button = window.findChild<QPushButton *>("importOfflineBasemap"); QVERIFY(button); QVERIFY(button->isEnabled()); button->click();
+    auto *dialog = window.findChild<OfflineBasemapDialog *>(); QVERIFY(dialog); QVERIFY(dialog->isVisible());
+    auto *confirm = dialog->findChild<QPushButton *>("offlineBasemapConfirm"); QVERIFY(confirm); QVERIFY(!confirm->isEnabled());
+    const auto qa = qEnvironmentVariable("PALEO_PALEOMAP_QA_DIR");
+    if (!qa.isEmpty()) dialog->grab().save(qa + "/offline-basemap-import.png");
+    dialog->findChild<QLineEdit *>("offlineBasemapPath")->setText(f.dir.filePath("missing.tif"));
+    confirm->click(); QVERIFY(!dialog->findChild<QLabel *>("offlineBasemapError")->text().isEmpty());
+    QVERIFY(f.importer.catalog()->assets().isEmpty()); dialog->reject(); QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    auto *action = window.findChild<QAction *>("projectOfflineBasemapAction"); QVERIFY(action); action->trigger();
+    dialog = window.findChild<OfflineBasemapDialog *>(); QVERIFY(dialog); QVERIFY(dialog->isVisible()); dialog->reject();
+    QVERIFY(f.project.mapConfiguration().basemapTopo.isEmpty());
+  }
   void sourceDialogValidatesAndKeepsSelectionUntilConfirmation() {
     QTemporaryDir source; const auto path = source.filePath("points.xlsx");
     QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("fixture"); file.close();

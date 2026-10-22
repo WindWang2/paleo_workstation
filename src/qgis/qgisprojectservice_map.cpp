@@ -1,18 +1,22 @@
 // 层：QGIS 封装
 #include "qgisprojectservice.h"
 #include "projectmapreference.h"
+#include "onlinebasemap.h"
 #include "qgiserrors_internal.h"
+#include "../services/paleomapfiles.h"
 #include <QDir>
 #include <QCryptographicHash>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QSaveFile>
+#include <QTemporaryDir>
 #include <cmath>
 #include <memory>
 #include <qgsproject.h>
 #include <qgspathresolver.h>
 #include <qgsrasterlayer.h>
+#include <qgslayertree.h>
 
 namespace {
 void embedMapConfiguration(QgsProject *project, const PaleoProjectFile &file)
@@ -40,6 +44,23 @@ bool projectLocalBasemap(const QDir &directory, QString path, QString *local, QS
     return true;
   }
   QFile source(sourceInfo.canonicalFilePath());
+  if (sourceInfo.suffix().compare("mbtiles", Qt::CaseInsensitive) != 0) {
+    if (!directory.mkpath("basemap")) return fail(QObject::tr("无法创建底图目录"));
+    QTemporaryDir stage(directory.filePath("basemap/.settings-XXXXXX"));
+    QString detail;
+    const auto members = PaleoMapFiles::copyDataset(sourceInfo.absoluteFilePath(), stage.path(), {}, &detail);
+    if (members.isEmpty()) return fail(detail);
+    const auto relativeDir = "basemap/" + PaleoMapFiles::fingerprint(members);
+    if (QFileInfo::exists(directory.filePath(relativeDir))) for (const auto &value : members) {
+      const auto member = value.toMap(); QFile saved(directory.filePath(relativeDir + '/' + member.value("file").toString()));
+      QCryptographicHash digest(QCryptographicHash::Sha256);
+      if (!saved.open(QIODevice::ReadOnly) || !digest.addData(&saved) ||
+          QString::fromLatin1(digest.result().toHex()) != member.value("sha256").toString()) return fail(QObject::tr("工程中的底图副本损坏"));
+    }
+    if (!QFileInfo::exists(directory.filePath(relativeDir)) && !QDir().rename(stage.path(), directory.filePath(relativeDir)))
+      return fail(QObject::tr("无法保存底图文件组"));
+    *local = relativeDir + '/' + sourceInfo.fileName(); return true;
+  }
   if (!source.open(QIODevice::ReadOnly)) return fail(source.errorString());
   QCryptographicHash hash(QCryptographicHash::Sha256);
   if (!hash.addData(&source)) return fail(source.errorString());
@@ -163,10 +184,18 @@ bool QgisProjectService::updateMapConfiguration(const PaleoProjectFile &configur
   if (!projectLocalBasemap(directory, configuration.basemapTopo, &file.basemapTopo, error) ||
       !projectLocalBasemap(directory, configuration.basemapHillshade, &file.basemapHillshade, error)) return false;
   if (!writeProjectFile(directory.path(), file, error)) return false;
+  const bool activateOffline = file.basemapEnabled && (file.basemapTopo != m_mapConfiguration.basemapTopo ||
+      file.basemapHillshade != m_mapConfiguration.basemapHillshade || !m_mapConfiguration.basemapEnabled);
   m_mapConfiguration = file;
   m_georeference = file.georeference;
   if (!m_georeference) m_project->removeEntry("paleo", "georeference");
   applyMapConfiguration();
+  if (activateOffline) {
+    paleo::onlinebasemap::saveChoice(m_project, paleo::onlinebasemap::noneId());
+    for (auto *layer : m_project->mapLayers())
+      if (!layer->customProperty("paleoOnlineBasemap").toString().isEmpty())
+        if (auto *node = m_project->layerTreeRoot()->findLayer(layer->id())) node->setItemVisibilityChecked(false);
+  }
   m_project->setDirty(true);
   emit mapConfigurationChanged();
   return true;

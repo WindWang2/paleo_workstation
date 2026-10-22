@@ -145,6 +145,9 @@ void PaleoMainWindow::buildRibbon()
       if (auto *button = findChild<QPushButton *>(QStringLiteral("exportPdfButton"))) button->click();
     });
 
+    auto *offline = menu->addAction(tr("导入工程离线底图…")); offline->setObjectName("projectOfflineBasemapAction");
+    connect(menu, &QMenu::aboutToShow, this, [this, offline] { auto *button = findChild<QPushButton *>("importOfflineBasemap"); offline->setEnabled(button && button->isEnabled()); });
+    connect(offline, &QAction::triggered, this, [this] { if (auto *button = findChild<QPushButton *>("importOfflineBasemap")) button->click(); });
     auto *mapSettings = menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionMapSettings.svg")), tr("工程坐标与底图…"));
     mapSettings->setObjectName(QStringLiteral("projectMapSettingsAction"));
     connect(menu, &QMenu::aboutToShow, this, [this, mapSettings] {

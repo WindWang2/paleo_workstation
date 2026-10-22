@@ -171,7 +171,8 @@ QString mbtilesUri(const QString &path)
 QgsRasterLayer *offlineBasemap(const QString &path, const QString &title, QObject *parent)
 {
   if (!QFileInfo(path).isFile()) return nullptr;
-  auto *layer = QgsProviderRegistry::instance()->providerMetadata(QStringLiteral("wms"))
+  const bool tiles = QFileInfo(path).suffix().compare("mbtiles", Qt::CaseInsensitive) == 0;
+  auto *layer = tiles && QgsProviderRegistry::instance()->providerMetadata(QStringLiteral("wms"))
       ? new QgsRasterLayer(mbtilesUri(path), title, QStringLiteral("wms")) : nullptr;
   // Minimal vendored builds may not ship the WMS plugin. The native GDAL
   // provider reads the same offline MBTiles and persists a relocatable file URI.
@@ -183,7 +184,7 @@ QgsRasterLayer *offlineBasemap(const QString &path, const QString &title, QObjec
   layer->setParent(parent);
   layer->setCustomProperty("paleoBasemap", true);
   layer->setCustomProperty("paleoBasemapPath", QFileInfo(path).absoluteFilePath());
-  layer->setCustomProperty("paleoBasemapAttribution", tileAttribution(path));
+  layer->setCustomProperty("paleoBasemapAttribution", tiles ? tileAttribution(path) : QObject::tr("本地离线底图：%1").arg(QFileInfo(path).fileName()));
   return layer;
 }
 

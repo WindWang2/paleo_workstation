@@ -2261,13 +2261,13 @@ class TestPanels : public QObject
       QVERIFY(header);
       QVERIFY(header->text().contains(QStringLiteral("A1")));
 
-      // 词表 11 槽仍全枚举（136e39fc 井附件通道扩位 cuttings/lab_analysis
-      // 后 9→11）。well_log 按文件拆行：主文件、未决、mid、old，
-      // 所以总行数是 14。井头打头，其他收尾。
-      QCOMPARE(roleTable->rowCount(), 14);
+      // 词表 12 槽仍全枚举（136e39fc 井附件通道扩位后 9→11；#642 补登
+      // reference 后 11→12）。well_log 按文件拆行：主文件、未决、mid、old，
+      // 所以总行数是 15。井头打头，其他收尾。
+      QCOMPARE(roleTable->rowCount(), 15);
       QCOMPARE(roleTable->item(0, 0)->text(), QString::fromUtf8("井身/井位"));
       QCOMPARE(roleTable->item(1, 0)->text(), QString::fromUtf8("测井曲线"));
-      QCOMPARE(roleTable->item(13, 0)->text(), QString::fromUtf8("其他"));
+      QCOMPARE(roleTable->item(14, 0)->text(), QString::fromUtf8("其他"));
 
       // 井头槽：primary = 资产名 + 当前版本号（v3，非字面 v1）。
       const QString headPrimary = roleTable->item(0, 1)->text();

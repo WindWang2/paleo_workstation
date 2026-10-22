@@ -50,6 +50,13 @@ namespace
     add(QStringLiteral("qc"), QStringLiteral("well"), false,
         QStringLiteral("质量控制"),
         QStringLiteral("QC 报告与附件。"));
+    // #642：catalogroles 侧历来有 reference（misc 组），词表侧漏登——
+    // 含 reference 链接的工程每次装载都刷「未知角色」。井附件参考分支
+    // 实际挂 well 域（wellAttachmentLinksCoreCuttingsLabAndReference），
+    // 补齐与 catalogroles 同名同中文名。
+    add(QStringLiteral("reference"), QStringLiteral("well"), false,
+        QStringLiteral("参考资料"),
+        QStringLiteral("参考资料挂井（报告/图件/照片等井相关文档）。"));
     add(QStringLiteral("other"), QStringLiteral("well"), false,
         QStringLiteral("其他"),
         QStringLiteral("兜底角色。"));

@@ -74,7 +74,7 @@ void TestCatalogRoles::tableIntegrity()
                         QStringLiteral("other")}));
   QCOMPARE(miscFamily,
            QStringList({QStringLiteral("reference"), QStringLiteral("framework_unit"),
-                        QStringLiteral("siting_note")}));
+                        QStringLiteral("siting_note"), QStringLiteral("boundary")}));
 
   // 同名跨族角色裸查命中表序首个（井段在前，与 RoleRegistry 约定一致）。
   const CatalogRoleInfo *interp = catalogRoleInfo(QStringLiteral("interpretation"));

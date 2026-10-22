@@ -204,7 +204,7 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
       2 * m_assignments->frameWidth() + PaleoTheme::tokens().spacingSm);
   int assignmentRow = 0;
   for (auto it = p.logWellNames.cbegin(); it != p.logWellNames.cend(); ++it, ++assignmentRow) {
-    const QString path = it.key();
+    const QString &path = it.key();
     m_assignments->setItem(assignmentRow, 0, new QTableWidgetItem(QFileInfo(path).fileName()));
     m_assignments->setItem(assignmentRow, 1, new QTableWidgetItem(it.value()));
     auto *choice = new QComboBox(m_assignments);

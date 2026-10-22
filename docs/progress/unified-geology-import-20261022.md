@@ -29,3 +29,13 @@
 - Python 区间计算 4/4 通过；独立核验 20 个每井因子文件、公式缓存、所有 LAS 曲线和全部 SEG-Y 振幅、GPKG 几何及 SRID；导出的分类 JSON 与全部 SVG 和程序资源一致。
 - 分层 strict / symbol / transitive / Qgs audit、QGIS spread、文件和 UI 规模、UI 令牌/不变量、i18n、QGIS 版本、CI 脚本及文档漂移闸门通过，基线无新增。
 - 本地便携版更新后 `--check-runtime` 报告 ok=true，GDAL/QGIS 的 EPSG:32649、4326 及实际转换检查全部为 true；旧 exe 单独保留备份。
+
+## 2026-10-23 — PR #637 CI 收尾
+
+首轮云端结果：Linux 在最后一批测试链接时明确报 `No space left on device`，尚未进入测试；Windows 在 bootstrap 因 freetype 2.13.3-5 与旧锁 2.13.3-4 不符而停止；clang-tidy 唯一告警为工程引导 `it.key()` 的不必要复制。
+
+工程引导改为 const 引用，异步回调仍按值捕获路径。运行标准 `tools/pin_osgeo4w.py` 对照官方完整索引刷新 114 包闭包，唯一变化是 freetype 的发行包修订号，QGIS/Qt 等版本未变，漂移校验继续保留。
+
+Linux 必过 CI 先将 RelWithDebInfo 缓存设置为 `-O2 -g1 -DNDEBUG`，再走原 `paleo-dev build`。保留优化、符号和源码行位置，减少数百个完整 DWARF 测试程序的磁盘开销；所有构建目标和两段测试保留。本机开发和 sanitizer 车道继续原配置。
+
+本轮本机构建通过；工程引导与简化布局回归 2/2 通过。OSGeo4W 锁工具自检、CI 脚本及自检、QGIS 版本、分层/规模和文档闸门通过；YAML 与 Bash 语法检查通过，独立 CMake 缓存验证确认 -g1 在 wrapper 再次 configure 后保留。云端复跑结果另行验证，不把本地通过等同为 CI 全绿。

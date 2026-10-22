@@ -16,6 +16,7 @@ class QPlainTextEdit;
 class QTimer;
 class QShowEvent;
 class QVBoxLayout;
+class QTabWidget;
 class MappingWorkbenchPage : public QWidget {
   Q_OBJECT
 public:
@@ -51,6 +52,7 @@ signals:
   // X10：反查结果行激活 = 定位命中图斑本身（区别于证据来源定位）。
   void reverseHitActivated(const QVariantMap &hit);
   void evidenceBackRequested();
+  void evidenceDetailsRequested(bool enabled);
   void evidenceGraphRequested(const QVariantMap &snapshot);
 
 protected:
@@ -63,6 +65,16 @@ private:
   void refreshInputs();
   void buildFaciesSchema(QWidget *schemaBody);
   void buildReferenceEntry(QWidget *body, QVBoxLayout *layout);
+  void renderEvidenceAttributionTargets(const QVariantMap &snapshot);
+  void renderEvidenceAttribution(const QVariantMap &snapshot);
+  void buildEvidenceSection(QWidget *group, QVBoxLayout *layout);
+  void buildEvidenceEditor(QWidget *group, QVBoxLayout *layout);
+  void buildEvidenceSources(QWidget *group, QTabWidget *tabs);
+  void buildEvidenceReview(QWidget *group, QTabWidget *tabs);
+  void buildEvidenceHistory(QWidget *group, QTabWidget *tabs);
+  void wireEvidenceControls();
+  bool evidenceDetailsVisible() const;
+  QPushButton *evidenceButton(const QString &name, const QString &text, QWidget *parent);
   void scheduleRefresh();
   void updateState();
   void refreshEvidenceCommandGates();
@@ -114,6 +126,8 @@ private:
   QListWidget *m_reverseResults = nullptr;
   QString m_lastReverseKind, m_lastReverseArgument; // 最近一次反查（同步完自动重发）
   QVariantMap m_evidenceSnapshot;
+  QVariantMap m_renderedEvidenceSnapshot;
+  bool m_evidenceRendered = false;
   bool m_evidenceSnapshotOwned = false;
   int m_historyPage = 0;
   QString m_historyTarget;

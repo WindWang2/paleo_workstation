@@ -182,6 +182,8 @@ public:
                       const QString &evidenceId, QString *error);
   // View snapshot: immutable values only; old/malformed data is explicit.
   QVariantMap featureEvidence(const QString &id, const QList<qint64> &ids) const;
+  // Editing summary: no spatial-source scans or frozen raster replay.
+  QVariantMap featureEvidenceSummary(const QString &id, const QList<qint64> &ids) const;
   // 图斑级计算归因：用成果保存时冻结的输入版本重放确定性融合决策。
   // 返回值对象（status ok/unresolved/manual + inputs[] 决策分布）；不做任何
   // 地质支持关系推断。layerId 为相面成果或其编辑副本；f 为选中图斑。

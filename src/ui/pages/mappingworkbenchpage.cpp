@@ -390,238 +390,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   evidenceGroup->setObjectName("workbenchEvidence");
   evidenceGroup->setSaveCollapsedState(false);
   auto *groupLayout = new QVBoxLayout(evidenceGroup);
-  auto *tabs = new QTabWidget(evidenceGroup);
-  tabs->setObjectName("faciesEvidenceTabs");
-  groupLayout->addWidget(tabs);
-  auto *information = new QWidget(tabs);
-  auto *evidenceLayout = new QVBoxLayout(information);
-  tabs->addTab(information, tr("对象与来源"));
-  auto *revisionPage = new QWidget(tabs);
-  auto *revisionLayout = new QVBoxLayout(revisionPage);
-  tabs->addTab(revisionPage, tr("解释与核验"));
-  auto *historyPage = new QWidget(tabs);
-  auto *historyLayout = new QVBoxLayout(historyPage);
-  tabs->addTab(historyPage, tr("修订历史"));
-  evidenceLayout->addWidget(new QLabel(tr("已登记的人工关联"), information));
-  m_evidence = new QListWidget(evidenceGroup);
-  m_evidence->setObjectName("faciesEvidenceList");
-  m_evidence->setAccessibleName(tr("解释证据列表"));
-  m_evidence->setMinimumHeight(80);
-  evidenceLayout->addWidget(m_evidence);
-  m_interpretationState = new QLabel(evidenceGroup);
-  m_interpretationState->setObjectName("faciesInterpretationState");
-  m_interpretationState->setTextFormat(Qt::PlainText);
-  m_interpretationState->setWordWrap(true);
-  evidenceLayout->addWidget(m_interpretationState);
-  m_quality = new QLabel(evidenceGroup);
-  m_quality->setObjectName("faciesEvidenceQuality");
-  m_quality->setTextFormat(Qt::PlainText);
-  m_quality->setWordWrap(true);
-  evidenceLayout->addWidget(m_quality);
-  m_generationEvidence = new QListWidget(evidenceGroup);
-  m_generationEvidence->setObjectName("faciesGenerationEvidence");
-  m_generationEvidence->setAccessibleName(tr("生成来源版本"));
-  m_generationEvidence->setMaximumHeight(120);
-  evidenceLayout->addWidget(new QLabel(tr("生成来源与局部空间候选"), information));
-  evidenceLayout->addWidget(m_generationEvidence);
-  connect(m_generationEvidence, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
-    emit evidenceActivated(item->data(Qt::UserRole).toMap());
-  });
-  // G08/G12 全工程证据反查：按类型/检索词查反向索引（可重建检索结构），
-  // 双击结果行复用证据定位链路跳到图斑。
-  evidenceLayout->addWidget(new QLabel(tr("证据反查（全工程）"), information));
-  auto *reverseRow = new QHBoxLayout;
-  m_reverseKind = new QComboBox(information);
-  m_reverseKind->setObjectName("evidenceReverseKind");
-  m_reverseKind->setAccessibleName(tr("反查类型"));
-  m_reverseKind->addItem(tr("本层位待复核图斑"), QStringLiteral("pending_review"));
-  m_reverseKind->addItem(tr("有反驳证据的图斑"), QStringLiteral("contradicted"));
-  m_reverseKind->addItem(tr("失效或缺失来源"), QStringLiteral("stale_sources"));
-  m_reverseKind->addItem(tr("引用所选来源版本"), QStringLiteral("references_source"));
-  m_reverseKind->addItem(tr("全文检索（证据文本/操作人/证据号）"), QStringLiteral("search"));
-  reverseRow->addWidget(m_reverseKind, 1);
-  m_reverseText = new QLineEdit(information);
-  m_reverseText->setObjectName("evidenceReverseText");
-  m_reverseText->setAccessibleName(tr("反查检索词"));
-  m_reverseText->setPlaceholderText(tr("检索词（版本号类型可留空）"));
-  reverseRow->addWidget(m_reverseText, 1);
-  reverseRow->addWidget(button("reverseQuery", tr("反查")));
-  evidenceLayout->addLayout(reverseRow);
-  m_reverseResults = new QListWidget(evidenceGroup);
-  m_reverseResults->setObjectName("evidenceReverseResults");
-  m_reverseResults->setAccessibleName(tr("证据反查结果"));
-  m_reverseResults->setMaximumHeight(100);
-  evidenceLayout->addWidget(m_reverseResults);
-  connect(m_reverseResults, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
-    // 反查命中行的主目标是图斑本身（layer/version/feature_uid），不是其
-    // 证据来源——走独立信号，由交互层 navigateFeature 定位。
-    emit reverseHitActivated(item->data(Qt::UserRole).toMap());
-  });
-  connect(m_generationEvidence, &QListWidget::currentRowChanged, this, [this] {
-    if (auto *button = commandButton("locateEvidence")) button->setEnabled(m_generationEvidence->currentItem() || m_evidence->currentItem());
-    if (auto *button = commandButton("useEvidenceSource")) {
-      const auto row = m_generationEvidence->currentItem() ? m_generationEvidence->currentItem()->data(Qt::UserRole).toMap() : QVariantMap();
-      button->setEnabled(!row.value("source_feature_uid").toString().isEmpty() && m_evidenceSource->findData(row.value("source_layer")) >= 0);
-    }
-  });
-  connect(m_evidence, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
-    emit evidenceActivated(item->data(Qt::UserRole + 1).toMap());
-  });
-  m_evidenceSource = new QComboBox(evidenceGroup);
-  m_evidenceSource->setObjectName("faciesEvidenceSource");
-  m_evidenceSource->setAccessibleName(tr("证据来源图件"));
-  revisionLayout->addWidget(m_evidenceSource);
-  auto *sourceHint = new QLabel(
-      tr("图件来源引用其已保存版本；手工解释可不选来源。"), evidenceGroup);
-  sourceHint->setWordWrap(true);
-  revisionLayout->addWidget(sourceHint);
-  m_evidenceText = new QPlainTextEdit(evidenceGroup);
-  m_evidenceText->setObjectName("faciesEvidenceText");
-  m_evidenceText->setAccessibleName(tr("手工解释证据内容"));
-  m_evidenceText->setPlaceholderText(
-      tr("输入井段、地震反射、单因素特征或专家解释；证据按上方编辑层级记录。"));
-  m_evidenceText->setMaximumHeight(100);
-  revisionLayout->addWidget(m_evidenceText);
-  auto *semantics = new QFormLayout;
-  m_evidenceRole = new QComboBox(evidenceGroup);
-  m_evidenceRole->setObjectName("faciesEvidenceRole");
-  m_evidenceRole->addItem(tr("参考（不推断支持）"), "REFERENCES");
-  m_evidenceRole->addItem(tr("支持解释"), "SUPPORTED_BY");
-  m_evidenceRole->addItem(tr("反驳解释"), "CONTRADICTED_BY");
-  m_evidenceRole->addItem(tr("约束解释"), "CONSTRAINED_BY");
-  semantics->addRow(tr("证据作用"), m_evidenceRole);
-  m_evidenceType = new QComboBox(evidenceGroup);
-  m_evidenceType->setObjectName("faciesEvidenceType");
-  for (const auto &entry : QList<QPair<QString, QString>>{{tr("人工观察"), "manual"}, {tr("井资料"), "well"},
-      {tr("地震资料"), "seismic"}, {tr("单因素成果"), "single_factor"}, {tr("地质约束"), "constraint"},
-      {tr("地质规则"), "rule"}, {tr("参考资料"), "reference"}, {tr("计算成果"), "computation"}})
-    m_evidenceType->addItem(entry.first, entry.second);
-  semantics->addRow(tr("证据类型"), m_evidenceType);
-  m_sourceFeatureUid = new QLineEdit(evidenceGroup);
-  m_sourceFeatureUid->setObjectName("faciesEvidenceSourceFeatureUid");
-  m_sourceFeatureUid->setPlaceholderText(tr("可选：来源的稳定图元 UID"));
-  m_sourceFeatureUid->setToolTip(tr("可从空间候选选择；该字段只指定关联，不修改来源图元"));
-  semantics->addRow(tr("来源图元"), m_sourceFeatureUid);
-  m_evidenceActor = new QLineEdit(workbench->localOperator(), evidenceGroup);
-  m_evidenceActor->setObjectName("faciesEvidenceActor");
-  m_evidenceActor->setToolTip(tr("须为 local:名称；保存时一律写入本机操作人，此字段不代表账户认证"));
-  semantics->addRow(tr("本地操作人"), m_evidenceActor);
-  m_evidenceReason = new QLineEdit(evidenceGroup);
-  m_evidenceReason->setObjectName("faciesEvidenceReason");
-  m_evidenceReason->setPlaceholderText(tr("关联、修订或审核的理由（必填）"));
-  semantics->addRow(tr("修改理由"), m_evidenceReason);
-  m_reviewState = new QComboBox(evidenceGroup);
-  m_reviewState->setObjectName("faciesInterpretationReview");
-  for (const auto &entry : QList<QPair<QString, QString>>{{tr("拟议"), "Proposed"}, {tr("待复核"), "NeedsReview"},
-      {tr("已确认"), "Confirmed"}, {tr("已驳回"), "Rejected"}, {tr("存在争议"), "Disputed"}, {tr("已替代"), "Superseded"}})
-    m_reviewState->addItem(entry.first, entry.second);
-  semantics->addRow(tr("解释结论"), m_reviewState);
-  m_verification = new QComboBox(evidenceGroup);
-  m_verification->setObjectName("faciesEvidenceVerification");
-  m_verification->addItem(tr("未核验"), "Unverified"); m_verification->addItem(tr("已核验"), "Verified"); m_verification->addItem(tr("数据争议"), "Disputed");
-  semantics->addRow(tr("数据核验"), m_verification);
-  revisionLayout->addLayout(semantics);
-  auto *evidenceButtons = new QHBoxLayout;
-  evidenceButtons->addWidget(button("addEvidence", tr("添加证据")));
-  evidenceButtons->addWidget(button("removeEvidence", tr("移除选中证据")));
-  revisionLayout->addLayout(evidenceButtons);
-  auto *reviewButtons = new QHBoxLayout;
-  reviewButtons->addWidget(button("updateEvidence", tr("修订关联")));
-  reviewButtons->addWidget(button("verifyEvidence", tr("记录数据核验")));
-  revisionLayout->addWidget(button("reviewInterpretation", tr("保存解释结论")));
-  revisionLayout->addLayout(reviewButtons);
-  auto *navigation = new QHBoxLayout;
-  navigation->addWidget(button("locateEvidence", tr("定位证据来源")));
-  navigation->addWidget(button("evidenceGraph", tr("查看局部证据图谱")));
-  m_evidenceBack = new QPushButton(tr("返回上一图斑"), evidenceGroup);
-  m_evidenceBack->setObjectName("evidenceBack");
-  m_evidenceBack->setAccessibleName(m_evidenceBack->text());
-  m_evidenceBack->setEnabled(false);
-  m_evidenceBack->setToolTip(
-      tr("返回反查或图谱导航之前选中的图斑（只回溯研究目标，不回溯来源高亮）"));
-  connect(m_evidenceBack, &QPushButton::clicked, this,
-          [this] { emit evidenceBackRequested(); });
-  navigation->addWidget(m_evidenceBack);
-  evidenceLayout->addLayout(navigation);
-  auto *useSource = new QPushButton(tr("将候选作为关联来源"), evidenceGroup);
-  useSource->setObjectName("workbench.useEvidenceSource");
-  useSource->setAccessibleName(useSource->text());
-  evidenceLayout->addWidget(useSource);
-  useSource->setEnabled(false);
-  useSource->setToolTip(tr("请选择已定位的稳定来源图元；支持或反驳的作用需人工明确选择"));
-  connect(useSource, &QPushButton::clicked, this, [this, tabs] {
-    auto *item = m_generationEvidence->currentItem(); if (!item) return;
-    const auto row = item->data(Qt::UserRole).toMap();
-    const int source = m_evidenceSource->findData(row.value("source_layer"));
-    if (source < 0) return;
-    m_evidenceSource->setCurrentIndex(source);
-    m_sourceFeatureUid->setText(row.value("source_feature_uid").toString());
-    m_evidenceText->setPlainText(row.value("name").toString());
-    tabs->setCurrentIndex(1);
-  });
-  m_evidenceHistory = new QPlainTextEdit(evidenceGroup);
-  m_evidenceHistory->setObjectName("faciesEvidenceHistory");
-  m_evidenceHistory->setReadOnly(true);
-  m_evidenceHistory->setAccessibleName(tr("解释修订历史"));
-  m_evidenceHistory->setMaximumHeight(180);
-  historyLayout->addWidget(m_evidenceHistory);
-  auto *historyNavigation = new QHBoxLayout;
-  historyNavigation->addWidget(button("historyOlder", tr("更早历史")));
-  historyNavigation->addWidget(button("historyNewer", tr("较新历史")));
-  historyLayout->addLayout(historyNavigation);
-  // G03/G04：计算归因 tab——冻结输入重放、上游回执与井空间关联的只读事实。
-  auto *attributionPage = new QWidget(tabs);
-  auto *attributionLayout = new QVBoxLayout(attributionPage);
-  tabs->addTab(attributionPage, tr("计算归因"));
-  m_attributionSummary = new QLabel(attributionPage);
-  m_attributionSummary->setObjectName("faciesAttributionSummary");
-  m_attributionSummary->setTextFormat(Qt::PlainText);
-  m_attributionSummary->setWordWrap(true);
-  attributionLayout->addWidget(m_attributionSummary);
-  m_attributionDetail = new QPlainTextEdit(attributionPage);
-  m_attributionDetail->setObjectName("faciesAttributionDetail");
-  m_attributionDetail->setReadOnly(true);
-  m_attributionDetail->setAccessibleName(tr("计算归因详情"));
-  attributionLayout->addWidget(m_attributionDetail);
-  // X14：可定位对象——图斑内井与带定位信息的冲突来源，双击复用证据导航。
-  attributionLayout->addWidget(new QLabel(tr("可定位对象"), attributionPage));
-  m_attributionTargets = new QListWidget(attributionPage);
-  m_attributionTargets->setObjectName("attributionTargets");
-  m_attributionTargets->setAccessibleName(tr("可定位对象"));
-  m_attributionTargets->setMaximumHeight(120);
-  connect(m_attributionTargets, &QListWidget::itemActivated, this,
-          [this](QListWidgetItem *item) {
-            emit evidenceActivated(item->data(Qt::UserRole).toMap());
-          });
-  attributionLayout->addWidget(m_attributionTargets);
-  // #440：按键只刷新证据按钮使能，不在界面线程重算图斑证据。
-  connect(m_evidenceReason, &QLineEdit::textChanged, this, [this] { refreshEvidenceCommandGates(); });
-  connect(m_evidenceActor, &QLineEdit::textChanged, this, [this] { refreshEvidenceCommandGates(); });
-  connect(m_evidenceText, &QPlainTextEdit::textChanged, this,
-          [this] { refreshEvidenceCommandGates(); });
-  connect(m_evidence, &QListWidget::currentRowChanged, this, [this] {
-    const auto row = m_evidence->currentItem() ? m_evidence->currentItem()->data(Qt::UserRole + 1).toMap() : QVariantMap{};
-    if (m_evidenceRole && !row.isEmpty() && !row.value("quality_error").toBool()) {
-      const QSignalBlocker text(m_evidenceText), role(m_evidenceRole), type(m_evidenceType), verify(m_verification);
-      m_evidenceText->setPlainText(row.value("text").toString());
-      m_sourceFeatureUid->setText(row.value("source_feature_uid").toString());
-      m_evidenceRole->setCurrentIndex(qMax(0, m_evidenceRole->findData(row.value("role", "REFERENCES"))));
-      m_evidenceType->setCurrentIndex(qMax(0, m_evidenceType->findData(row.value("type", "manual"))));
-      m_verification->setCurrentIndex(qMax(0, m_verification->findData(row.value("verification", "Unverified"))));
-    }
-    auto *b = commandButton("removeEvidence");
-    b->setEnabled(nativeSelectionMatchesEvidence() && selectedLayer().startsWith("draft.") &&
-                  m_evidence->currentItem() && !row.value("quality_error").toBool());
-    b->setToolTip(b->isEnabled() ? tr("移除此条证据，可撤销")
-                                 : tr("请先选择编辑副本中的证据"));
-    if (auto *locate = commandButton("locateEvidence")) locate->setEnabled(m_evidence->currentItem() || m_generationEvidence->currentItem());
-    const auto actorText = m_evidenceActor->text().trimmed();
-    const bool localActorOk = actorText.startsWith(QStringLiteral("local:"))
-        && !actorText.mid(6).trimmed().isEmpty();
-    const bool ready = nativeSelectionMatchesEvidence() && selectedLayer().startsWith("draft.") && !row.isEmpty() && !row.value("quality_error").toBool() &&
-        m_workbench->selectedFeatures(selectedLayer()).size() == 1 && !m_evidenceReason->text().trimmed().isEmpty() && localActorOk;
-    commandButton("updateEvidence")->setEnabled(ready); commandButton("verifyEvidence")->setEnabled(ready);
-  });
+  buildEvidenceSection(evidenceGroup, groupLayout);
   evidenceGroup->setCollapsed(mode == "compose");
   layout->addWidget(evidenceGroup);
   appearance->setCollapsed(false); // DESIGN.md: groups start expanded.
@@ -764,6 +533,7 @@ void MappingWorkbenchPage::scheduleRefresh() {
 }
 void MappingWorkbenchPage::showEvent(QShowEvent *event) {
   QWidget::showEvent(event);
+  emit evidenceDetailsRequested(evidenceDetailsVisible());
   if (m_refreshPending) refresh();
 }
 void MappingWorkbenchPage::refresh() {
@@ -1054,7 +824,7 @@ void MappingWorkbenchPage::updateState() {
   const bool ownsTarget = m_evidenceSnapshotOwned &&
       (m_evidenceSnapshot.isEmpty() || m_evidenceSnapshot.value("layer_id").toString() == selectedLayer());
   // #440：选择未变时复用已有详情快照，避免每次 updateState 都跑空间相交。
-  const bool selectionMatchesCache = !m_evidenceSnapshot.isEmpty()
+  const bool selectionMatchesCache = !m_evidenceSnapshot.isEmpty() && m_evidenceSnapshot.value("details_deferred").toBool() != evidenceDetailsVisible()
       && m_evidenceSnapshot.value("layer_id").toString() == selectedLayer()
       && ((evidenceSelection.isEmpty() && !m_evidenceSnapshot.contains("feature_id"))
           || (evidenceSelection.size() == 1 && m_evidenceSnapshot.contains("feature_id")
@@ -1064,7 +834,7 @@ void MappingWorkbenchPage::updateState() {
   if (ownsTarget || selectionMatchesCache) {
     detailSnapshot = m_evidenceSnapshot;
   } else {
-    detailSnapshot = m_workbench->featureEvidence(selectedLayer(), evidenceSelection);
+    detailSnapshot = evidenceDetailsVisible() ? m_workbench->featureEvidence(selectedLayer(), evidenceSelection) : m_workbench->featureEvidenceSummary(selectedLayer(), evidenceSelection);
     if (evidenceSelection.size() > 1)
       detailSnapshot.insert("records", m_workbench->evidence(selectedLayer(), evidenceSelection));
   }
@@ -1150,7 +920,7 @@ void MappingWorkbenchPage::updateState() {
 void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
   if (action == "historyOlder" || action == "historyNewer") {
     m_historyPage += action == "historyOlder" ? 1 : -1;
-    m_historyPage = qMax(0, m_historyPage); renderEvidenceSnapshot(m_evidenceSnapshot); return;
+    m_historyPage = qMax(0, m_historyPage); m_evidenceRendered = false; renderEvidenceSnapshot(m_evidenceSnapshot); return;
   }
   if (action == "evidenceGraph") { emit evidenceGraphRequested(m_evidenceSnapshot); return; }
   if (action == "reverseQuery" && m_reverseKind) {
@@ -1369,7 +1139,13 @@ void MappingWorkbenchPage::setReverseResults(const QVariantList &rows,
 }
 
 void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
+  if (m_evidenceRendered && m_renderedEvidenceSnapshot == snapshot) return;
+  m_renderedEvidenceSnapshot = snapshot; m_evidenceRendered = true;
   m_evidenceSnapshot = snapshot;
+  if (auto *summary = findChild<QLabel *>("faciesEvidenceSelectionSummary")) {
+    summary->setText(snapshot.contains("feature_id") ? tr("%1 · 当前图斑已保存 %2 条证据").arg(snapshot.value("horizon").toString()).arg(snapshot.value("records").toList().size()) : tr("请先在地图中选中图斑，再添加解释证据。"));
+    summary->setToolTip(snapshot.value("feature_uid").toString());
+  }
   if (!m_interpretationState) return;
   const auto currentEvidence = m_evidence->currentItem()
       ? m_evidence->currentItem()->data(Qt::UserRole).toString() : QString();
@@ -1409,6 +1185,7 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
     const auto severity = finding.value("severity").toString();
     quality << tr("%1：%2（来源 %3）").arg(severity == "Blocking" ? tr("阻断") : severity == "Error" ? tr("错误") : severity == "Warning" ? tr("警告") : tr("提示"), finding.value("message").toString(), finding.value("source_version").toString());
   }
+  if (snapshot.value("details_deferred").toBool()) quality << tr("详细来源与空间核查在展开更多详情时加载；保存时仍执行完整校验。");
   m_quality->setText(quality.isEmpty() ? tr("未发现已登记证据的完整性问题；缺失证据不等于已有支持") : quality.mid(0, 30).join("\n"));
   {
     const auto selected = m_generationEvidence->currentItem() ? m_generationEvidence->currentItem()->data(Qt::UserRole).toMap().value("id") : QVariant();
@@ -1426,194 +1203,7 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
       if (row.value("id") == selected) m_generationEvidence->setCurrentItem(item);
     }
   }
-  // G03/G04 计算归因：状态摘要 + 逐输入决策分布 + 上游回执 + 井空间关联。
-  if (m_attributionSummary && m_attributionDetail) {
-    const auto attribution = snapshot.value("attribution").toMap();
-    QStringList summary;
-    if (attribution.isEmpty()) {
-      summary << tr("非面状成果或未选中图斑：无计算归因");
-    } else {
-      const auto status = attribution.value("status").toString();
-      if (status == QLatin1String("ok")) {
-        const auto inputs = attribution.value("inputs").toList();
-        QStringList parts;
-        for (const auto &value : inputs.mid(0, 8)) {
-          const auto input = value.toMap();
-          parts << tr("优先级 %1（%2%）")
-                      .arg(input.value("priority").toString())
-                      .arg(qRound(input.value("fraction").toDouble() * 100));
-        }
-        summary << tr("形成依据：保存时冻结的输入按优先级重放——%1")
-                       .arg(parts.isEmpty() ? tr("全部像元无有效输入") : parts.join(tr("、")));
-        const auto fidelity = attribution.value("fidelity").toString();
-        if (fidelity == QLatin1String("exact")) {
-          summary << tr("重放与成果网格逐像元同口径");
-        } else if (fidelity == QLatin1String("approximate")) {
-          QStringList reasons;
-          for (const auto &r : attribution.value("fidelity_reasons").toList())
-            reasons << r.toString();
-          summary << tr("近似重放：%1").arg(reasons.join(tr("；")));
-        }
-        if (attribution.contains("consistent_fraction"))
-          summary << tr("重放分布与图斑相编码一致率 %1%（平滑聚合可能吸收少数像元）")
-                      .arg(qRound(attribution.value("consistent_fraction").toDouble() * 100));
-      } else if (status == QLatin1String("manual")) {
-        summary << tr("人工图斑：无自动分类过程，依据以人工解释记录为准");
-      } else {
-        summary << tr("归因不可确定：%1").arg(attribution.value("message").toString());
-      }
-      if (!attribution.value("draft_note").toString().isEmpty())
-        summary << attribution.value("draft_note").toString();
-    }
-    m_attributionSummary->setText(summary.join("\n"));
-    QStringList detail;
-    const auto inputs = attribution.value("inputs").toList();
-    if (!inputs.isEmpty())
-      detail << tr("【实际参与输入（重放决策）】");
-    for (const auto &value : inputs.mid(0, 32)) {
-      const auto input = value.toMap();
-      QStringList line;
-      line << tr("· %1（优先级 %2，版本 %3…）")
-                  .arg(input.value("title", input.value("layer_id")).toString())
-                  .arg(input.value("priority").toString())
-                  .arg(input.value("version_id").toString().left(8));
-      line << tr("决策 %1，覆盖 %2 个采样像元（%3%）")
-                  .arg(input.value("decision").toString())
-                  .arg(input.value("cells").toLongLong())
-                  .arg(qRound(input.value("fraction").toDouble() * 100));
-      const auto alignment = input.value("alignment").toString();
-      if (!alignment.isEmpty()) {
-        line << (alignment == QLatin1String("grid_defining")
-                     ? tr("网格同口径")
-                     : alignment == QLatin1String("aligned")
-                           ? tr("网格对齐")
-                           : alignment == QLatin1String("resampled")
-                                 ? tr("重采样近似")
-                                 : alignment == QLatin1String("sampled_fallback")
-                                       ? tr("逐点取样")
-                                       : alignment == QLatin1String("categorical_nearest")
-                                             ? tr("相点最近邻")
-                                             : alignment);
-      }
-      if (input.contains("value_min"))
-        line << tr("值域 %1–%2")
-                    .arg(input.value("value_min").toDouble(), 0, 'f', 1)
-                    .arg(input.value("value_max").toDouble(), 0, 'f', 1);
-      detail << line.join(tr("，"));
-      const auto receipts = input.value("upstream_receipts").toMap();
-      if (!receipts.isEmpty()) {
-        QStringList receiptParts;
-        if (receipts.contains("constraints_consumed"))
-          receiptParts << tr("消费约束 %1 条")
-                              .arg(receipts.value("constraints_consumed").toList().size());
-        if (receipts.contains("constraints_unused"))
-          receiptParts << tr("未用约束 %1 条")
-                              .arg(receipts.value("constraints_unused").toList().size());
-        if (receipts.contains("engine_samples_used"))
-          receiptParts << tr("参与井样 %1")
-                              .arg(receipts.value("engine_samples_used").toList().size());
-        detail << tr("  上游单因素回执：%1（约束被该因素消费 ≠ 决定了本图斑相分类）")
-                      .arg(receiptParts.join(tr("，")));
-      }
-    }
-    const auto unresolved = attribution.value("unresolved").toList();
-    if (!unresolved.isEmpty()) {
-      detail << tr("【未确定】");
-      for (const auto &value : unresolved.mid(0, 16)) {
-        const auto row = value.toMap();
-        detail << tr("· %1：%2").arg(row.value("layer_id").toString(),
-                                    row.value("reason").toString());
-      }
-    }
-    const auto wells = snapshot.value("wells_in_feature").toList();
-    if (!wells.isEmpty()) {
-      detail << tr("【井口位于图斑内的井（空间事实，不自动表示相支持）】");
-      for (const auto &value : wells.mid(0, 50)) {
-        const auto well = value.toMap();
-        QStringList line{tr("· %1（%2, %3）")
-                             .arg(well.value("well_name").toString())
-                             .arg(well.value("x").toDouble(), 0, 'f', 0)
-                             .arg(well.value("y").toDouble(), 0, 'f', 0)};
-        if (well.contains("formation_facies_code"))
-          line << tr("本层位解释相编码 %1").arg(well.value("formation_facies_code").toInt());
-        detail << line.join(tr("，"));
-      }
-    }
-    if (snapshot.contains("wells_in_feature_truncated"))
-      detail << tr("（井列表已按 500 上限截断）");
-    // G06 证据冲突分析结果：分级 + 类型 + 定位 + 建议（不合成置信度）。
-    const auto conflicts = snapshot.value("conflicts").toList();
-    if (!conflicts.isEmpty()) {
-      detail << tr("【多源证据冲突分析（%1 条）】").arg(conflicts.size());
-      for (const auto &value : conflicts.mid(0, 30)) {
-        const auto finding = value.toMap();
-        detail << tr("· [%1] %2（%3）\n  %4\n  建议：%5")
-                      .arg(finding.value("severity").toString(),
-                           finding.value("message").toString(),
-                           finding.value("conflict_type").toString(),
-                           finding.value("basis").toString(),
-                           finding.value("suggestion").toString());
-      }
-    }
-    const auto seismic = snapshot.value("seismic_sources");
-    if (!seismic.toList().isEmpty())
-      detail << tr("【地震证据来源】%1 条（版本事实；详见生成来源）")
-                  .arg(seismic.toList().size());
-    m_attributionDetail->setPlainText(
-        detail.isEmpty() ? tr("暂无计算归因信息") : detail.join("\n"));
-    if (m_attributionTargets) {
-      m_attributionTargets->clear();
-      // 行数据按 EvidenceInteraction::navigate 的入参口径组织：井走实体坐标，
-      // 单因素冲突走来源版本。
-      if (snapshot.contains("wells_in_feature_unavailable")) {
-        auto *item = new QListWidgetItem(
-            snapshot.value("wells_in_feature_unavailable").toString(),
-            m_attributionTargets);
-        item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-      }
-      for (const auto &value : wells.mid(0, 200)) {
-        const auto well = value.toMap();
-        auto *item = new QListWidgetItem(
-            tr("井 %1（%2, %3）")
-                .arg(well.value("well_name", well.value("entity_id")).toString())
-                .arg(well.value("x").toDouble(), 0, 'f', 0)
-                .arg(well.value("y").toDouble(), 0, 'f', 0),
-            m_attributionTargets);
-        item->setData(Qt::UserRole,
-                      QVariantMap{{"entity_id", well.value("entity_id")},
-                                  {"has_coordinates", true},
-                                  {"x", well.value("x")},
-                                  {"y", well.value("y")},
-                                  {"horizon", snapshot.value("horizon")}});
-        item->setToolTip(tr("双击定位井口"));
-      }
-      for (const auto &value : conflicts.mid(0, 200)) {
-        const auto finding = value.toMap();
-        const auto evidence = finding.value("evidence").toMap();
-        const auto locator = evidence.value("locator").toMap();
-        QVariantMap row;
-        if (!locator.value("entity_id").toString().isEmpty())
-          row = {{"entity_id", locator.value("entity_id")},
-                 {"has_coordinates", locator.value("has_coordinates", true)},
-                 {"x", locator.value("x")}, {"y", locator.value("y")},
-                 {"horizon", snapshot.value("horizon")}};
-        else if (!locator.value("version_id").toString().isEmpty())
-          row = {{"source_version", locator.value("version_id")},
-                 {"horizon", snapshot.value("horizon")}};
-        if (row.isEmpty())
-          continue;
-        auto *item = new QListWidgetItem(
-            tr("[%1] %2 · %3")
-                .arg(finding.value("severity").toString(),
-                     finding.value("conflict_type").toString(),
-                     evidence.value("label").toString()),
-            m_attributionTargets);
-        item->setData(Qt::UserRole, row);
-        item->setToolTip(tr("双击定位冲突来源：%1")
-                             .arg(finding.value("message").toString()));
-      }
-    }
-  }
+  renderEvidenceAttribution(snapshot);
   const auto events = interpretation.value("history").toList();
   const int pages = qMax(1, (int(events.size()) + 49) / 50);
   m_historyPage = qBound(0, m_historyPage, pages - 1);

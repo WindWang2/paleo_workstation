@@ -9,7 +9,15 @@
 #include "../src/workflow/workflows.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
 #include <QtTest>
+#include "../src/ui/paleotheme.h"
 #include <QLabel>
+#include <QPlainTextEdit>
+#include <QTabWidget>
+#include <QElapsedTimer>
+#include <QDir>
+#include <qgsmaprenderersequentialjob.h>
+#include <qgsmapsettings.h>
+#include <qgscollapsiblegroupbox.h>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
@@ -58,6 +66,83 @@ bool anyHighlight(EvidenceInteraction &interaction) {
 class TestEvidenceSelection : public QObject {
   Q_OBJECT
 private slots:
+  void detailsAreDeferredWithoutChangingNativeOrGraphTarget() {
+    Fixture f; QVERIFY2(f.init(), qPrintable(f.error));
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    QgisCanvasController canvas;
+    EvidenceInteraction interaction(&f.work, &selection, &f.data.layers, &f.data.projectSvc, &canvas);
+    f.layer->selectByIds({f.a.id()});
+    interaction.navigateGraphNode(f.graphNode(f.b));
+    const auto target = selection.target();
+    QVERIFY(interaction.snapshot().value("details_deferred").toBool());
+    QVERIFY(!interaction.snapshot().contains("spatial_candidates"));
+    interaction.setDetailsEnabled(true);
+    QCOMPARE(selection.target().featureUid, target.featureUid);
+    QCOMPARE(f.layer->selectedFeatureIds(), QgsFeatureIds{f.a.id()});
+    QVERIFY(!interaction.snapshot().value("details_deferred").toBool());
+    QVERIFY(interaction.snapshot().contains("spatial_candidates"));
+    interaction.setDetailsEnabled(false);
+    QVERIFY(interaction.snapshot().value("details_deferred").toBool());
+    QCOMPARE(selection.target().featureUid, target.featureUid);
+  }
+  void compactEditorPreservesDraftAndSelectionOnRepeatedSnapshots() {
+    Fixture f; QVERIFY2(f.init(), qPrintable(f.error));
+    MappingWorkbenchPage page("compose", &f.work); page.setHorizon("D61"); page.selectLayer(f.draft);
+    f.layer->selectByIds({f.a.id()});
+    auto snapshot = f.work.featureEvidenceSummary(f.draft, {f.a.id()});
+    snapshot.insert("records", QVariantList{QVariantMap{{"id", "saved"}, {"text", "saved evidence"}}});
+    page.setEvidenceSnapshot(snapshot);
+    auto *list = page.findChild<QListWidget *>("faciesEvidenceList"); QVERIFY(list);
+    list->setCurrentRow(0); auto *item = list->item(0);
+    auto *text = page.findChild<QPlainTextEdit *>("faciesEvidenceText"); QVERIFY(text);
+    text->setPlainText("unsaved explanation");
+    page.setEvidenceSnapshot(snapshot);
+    QCOMPARE(list->item(0), item); QCOMPARE(text->toPlainText(), QString("unsaved explanation"));
+    auto *section = page.findChild<QWidget *>("evidenceAdvancedSection"); QVERIFY(section);
+    auto *toggle = section->findChild<QPushButton *>("collapsibleSectionToggle"); QVERIFY(toggle); QVERIFY(!toggle->isChecked());
+    if (const auto path = qEnvironmentVariable("PALEO_EVIDENCE_CAPTURE"); !path.isEmpty()) {
+      auto *group = page.findChild<QgsCollapsibleGroupBox *>("workbenchEvidence"); QVERIFY(group);
+      group->setCollapsed(false); page.resize(450, 1000); page.show();
+      QCoreApplication::processEvents(); QVERIFY(group->grab().save(path));
+    }
+    QSignalSpy details(&page, &MappingWorkbenchPage::evidenceDetailsRequested);
+    toggle->setChecked(true); QCOMPARE(details.count(), 1); QCOMPARE(details.first().first().toBool(), true);
+    QCOMPARE(text->toPlainText(), QString("unsaved explanation"));
+  }
+  void historicalCoverageRenderBenchmark() {
+    const auto before = qEnvironmentVariable("PALEO_MAP_BEFORE");
+    const auto after = qEnvironmentVariable("PALEO_MAP_AFTER");
+    const auto output = qEnvironmentVariable("PALEO_MAP_CAPTURE_DIR");
+    if (before.isEmpty() || after.isEmpty() || output.isEmpty()) QSKIP("Optional local source-map render benchmark");
+    QVERIFY(QDir().mkpath(output));
+    for (const auto &horizon : {QStringLiteral("D61"), QStringLiteral("D62"), QStringLiteral("D63")}) {
+      const auto filename = horizon + "_historical_facies_map.gpkg";
+      QList<qint64> timings;
+      for (const auto &folder : {before, after}) {
+        QgsVectorLayer layer(QDir(folder).filePath(filename), horizon, "ogr");
+        QVERIFY2(layer.isValid(), qPrintable(layer.error().message()));
+        QCOMPARE(layer.featureCount(), horizon == "D61" ? 13 : horizon == "D62" ? 9 : 10);
+        bool style = false; layer.loadNamedStyle(QDir(folder).filePath(filename + ".qml"), style); QVERIFY(style);
+        QgsMapSettings settings; settings.setLayers({&layer}); settings.setDestinationCrs(layer.crs());
+        settings.setExtent(layer.extent()); settings.setOutputSize(QSize(1000, 1000));
+        settings.setBackgroundColor(Qt::white);
+        qint64 sum = 0;
+        for (int n = 0; n < 4; ++n) {
+          QElapsedTimer timer; timer.start();
+          QgsMapRendererSequentialJob job(settings); job.start(); job.waitForFinished();
+          if (n) sum += timer.nsecsElapsed();
+          const auto image = job.renderedImage(); QVERIFY(!image.isNull());
+          int ink = 0;
+          for (int y = 0; y < image.height(); y += 5) for (int x = 0; x < image.width(); x += 5)
+            if (image.pixelColor(x,y) != QColor(Qt::white)) ++ink;
+          QVERIFY(ink > 100);
+          if (n == 3) QVERIFY(image.save(QDir(output).filePath(horizon + (folder == before ? "-before.png" : "-after.png"))));
+        }
+        timings << sum / 3;
+      }
+      qInfo().noquote() << horizon << "render mean ms before/after" << timings[0] / 1000000.0 << timings[1] / 1000000.0;
+    }
+  }
   void nativeSelectionAndClearRemovePreviousGraphHighlight() {
     Fixture f; QVERIFY2(f.init(), qPrintable(f.error));
     SelectionContext selection; selection.setActiveHorizon("D61");
@@ -162,7 +247,7 @@ int main(int argc, char **argv) {
   if (qgetenv("QT_QPA_PLATFORM").isEmpty()) qputenv("QT_QPA_PLATFORM", "offscreen");
   QgsApplication app(argc, argv, false);
   app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true);
-  QgsApplication::initQgis(); TestEvidenceSelection test;
+  QgsApplication::initQgis(); PaleoTheme::ensureApplicationFonts(); app.setFont(PaleoTheme::bodyFont()); TestEvidenceSelection test;
   const int result = QTest::qExec(&test, argc, argv); QgsApplication::exitQgis(); return result;
 }
 #include "tst_evidenceselection.moc"

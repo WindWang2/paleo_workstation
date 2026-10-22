@@ -1137,25 +1137,26 @@ private slots:
     page.setHorizon("D61");
     auto *tree = page.findChild<QTreeWidget *>("faciesHierarchyTree");
     QVERIFY(tree);
-    QCOMPARE(tree->topLevelItemCount(), 1);
+    QCOMPARE(tree->topLevelItemCount(), 4);
     QCOMPARE(tree->topLevelItem(0)->text(0), QStringLiteral("三角洲相"));
-    QCOMPARE(tree->topLevelItem(0)->childCount(), 2);
+    QCOMPARE(tree->topLevelItem(0)->childCount(), 3);
     int leaves = 0;
-    for (int i = 0; i < tree->topLevelItem(0)->childCount(); ++i) {
-      auto *branch = tree->topLevelItem(0)->child(i);
+    for (int root = 0; root < tree->topLevelItemCount(); ++root)
+    for (int i = 0; i < tree->topLevelItem(root)->childCount(); ++i) {
+      auto *branch = tree->topLevelItem(root)->child(i);
       for (int j = 0; j < branch->childCount(); ++j) {
         QVERIFY(!branch->child(j)->text(1).isEmpty());
         ++leaves;
       }
     }
-    QCOMPARE(leaves, 7);
+    QCOMPARE(leaves, 27);
     QSignalSpy commands(&page, &MappingWorkbenchPage::commandRequested);
     auto *save = page.commandButton("schema");
     QVERIFY(save);
     save->click();
     QCOMPARE(commands.size(), 1);
     const auto schema = commands.last()[1].toMap().value("facies").toList();
-    QCOMPARE(schema.size(), 7);
+    QCOMPARE(schema.size(), 27);
     QCOMPARE(schema.first().toMap().value("aliases").toStringList(),
              FaciesCatalog::defaults().first().toMap().value("aliases").toStringList());
     const auto screenshot = qEnvironmentVariable("PALEO_FACIES_HIERARCHY_SCREENSHOT");
@@ -1168,9 +1169,10 @@ private slots:
     QVERIFY(table);
     table->removeRow(0);
     int remaining = 0;
-    for (int i = 0; i < tree->topLevelItem(0)->childCount(); ++i)
-      remaining += tree->topLevelItem(0)->child(i)->childCount();
-    QCOMPARE(remaining, 6);
+    for (int root = 0; root < tree->topLevelItemCount(); ++root)
+    for (int i = 0; i < tree->topLevelItem(root)->childCount(); ++i)
+      remaining += tree->topLevelItem(root)->child(i)->childCount();
+    QCOMPARE(remaining, 26);
   }
   void optionalTemplateSelectionKeepsTheProjectCodeAndOtherRows() {
     Fixture f;
@@ -1181,8 +1183,8 @@ private slots:
     auto *table = page.findChild<QTableWidget *>("faciesSchema");
     auto *apply = page.findChild<QPushButton *>("applyFaciesTemplate");
     QVERIFY(library); QVERIFY(table); QVERIFY(apply);
-    QCOMPARE(library->count(), 43);
-    QCOMPARE(table->rowCount(), 7);
+    QCOMPARE(library->count(), 91);
+    QCOMPARE(table->rowCount(), 27);
     int index = -1;
     for (int i = 0; i < library->count(); ++i)
       if (library->itemData(i).toMap().value("name").toString() == QStringLiteral("河道充填")) index = i;
@@ -1195,7 +1197,7 @@ private slots:
     page.commandButton("schema")->click();
     QCOMPARE(commands.size(), 1);
     const auto schema = commands.first()[1].toMap().value("facies").toList();
-    QCOMPARE(schema.size(), 7);
+    QCOMPARE(schema.size(), 27);
     QCOMPARE(schema.first().toMap().value("code").toInt(), 101);
     QCOMPARE(schema.first().toMap().value("facies").toString(), QStringLiteral("河流相"));
     QCOMPARE(schema.first().toMap().value("subfacies").toString(), QStringLiteral("河床亚相"));
@@ -2664,7 +2666,7 @@ private slots:
     hierarchical.insert("subfacies", "三角洲前缘");
     hierarchical.insert("microfacies", "水下分流河道");
     schema[0] = hierarchical;
-    QCOMPARE(schema.size(), 7);
+    QCOMPARE(schema.size(), 27);
     for (const auto &v : schema) {
       auto f = v.toMap();
       QVERIFY(!f.value("name").toString().contains("Mock"));
@@ -3919,6 +3921,8 @@ private slots:
   }
   void seismicMockUsesLatestWellMajoritiesAndRecordsTheirVersions() {
     Fixture f; QVERIFY(f.init()); QString error;
+    QVERIFY2(f.work.saveFacies("D61", FaciesCatalog::defaults().mid(0, 7), &error), qPrintable(error)); // explicit seven-class numerical fixture
+
     DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
     const auto volume = registrar.stage("seismic", "volume", "volume.sgy", &error);
     QVERIFY(volume.isValid());
@@ -4206,6 +4210,8 @@ private slots:
     Fixture f;
     QVERIFY(f.init());
     QString error;
+    QVERIFY2(f.work.saveFacies("D61", FaciesCatalog::defaults().mid(0, 7), &error), qPrintable(error)); // explicit seven-class numerical fixture
+
     const auto source = f.dir.filePath("sand-ratio-samples.geojson");
     QVERIFY(MappingArtifactWriter::points(
         source,
@@ -4497,6 +4503,8 @@ private slots:
     Fixture f;
     QVERIFY(f.init());
     QString error;
+    QVERIFY2(f.work.saveFacies("D61", FaciesCatalog::defaults().mid(0, 7), &error), qPrintable(error)); // explicit seven-class numerical fixture
+
     const auto source = f.dir.filePath("samples.geojson");
     QVariantList points{QVariantMap{{"x", 0}, {"y", 0}, {"z", 0}},
                         QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},

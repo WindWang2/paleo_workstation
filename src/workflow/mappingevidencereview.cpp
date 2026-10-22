@@ -111,6 +111,33 @@ QVariantList MappingWorkbench::evidence(const QString &id, const QList<qint64> &
   }
   return result;
 }
+QVariantMap MappingWorkbench::featureEvidenceSummary(const QString &id, const QList<qint64> &ids) const {
+  const auto version = versionForLayer(id);
+  QVariantMap out{{"layer_id", id}, {"horizon", declaration(id).horizon},
+      {"version_id", version.id}, {"asset_id", version.assetId}, {"details_deferred", true},
+      {"generation_records", version.extra.value("evidence").toMap().value("records")}};
+  auto *layer = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(id)) : nullptr;
+  if (!layer || ids.isEmpty()) return out;
+  const auto feature = layer->getFeature(ids.first());
+  if (!feature.isValid()) { out.insert("error", tr("选中要素已不存在")); return out; }
+  const auto identity = target(feature, version, declaration(id).horizon);
+  for (auto it = identity.cbegin(); it != identity.cend(); ++it) out.insert(it.key(), it.value());
+  QVariantList records; QVariantMap interpretation; QString error;
+  if (!read(feature, &records, &interpretation, &error)) { out.insert("error", error); return out; }
+  // Spatial/health observations are transient query facts, not saved assertions.
+  for (auto &value : records) {
+    auto row = value.toMap();
+    for (const auto *key : {"source_missing", "source_stale", "source_feature_missing", "spatial_intersection", "spatial_query", "spatial_message", "source_current_version"}) row.remove(QLatin1String(key));
+    row.insert("spatial_state", "deferred"); value = row;
+  }
+  out.insert("feature_id", feature.id()); out.insert("records", records);
+  out.insert("interpretation", interpretation);
+  auto findings = paleo::evidence::check(records, interpretation, identity);
+  if (feature.fields().indexOf(MappingFeatureIdentity::ReviewField) >= 0 && feature.attribute(MappingFeatureIdentity::ReviewField).toBool())
+    findings << QVariantMap{{"severity", "Warning"}, {"code", "identity_changed"}, {"message", tr("图斑经过分割或合并，继承关系和空间证据需要复核")}};
+  out.insert("quality", findings);
+  return out;
+}
 QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qint64> &ids) const {
   QVariantMap out{{"layer_id", id}, {"horizon", declaration(id).horizon}, {"records", QVariantList{}}};
   const auto version = versionForLayer(id);

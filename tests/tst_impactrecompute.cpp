@@ -8,6 +8,7 @@
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/workflow/workflows.h"
+#include "../src/domain/faciescatalog.h"
 #include "../src/workflow/mappingworkbench.h"
 #include <QDateTime>
 #include <QFile>
@@ -49,7 +50,8 @@ class TestImpactRecompute : public QObject {
           });
       processing.setProject(project.project());
       work.bindCatalog(&catalog, dir.path());
-      return true;
+      QString faciesError;
+      return work.saveFacies(QStringLiteral("D61"), FaciesCatalog::defaults().mid(0, 7), &faciesError);
     }
     QString latest(const QString &kind) {
       QString found;

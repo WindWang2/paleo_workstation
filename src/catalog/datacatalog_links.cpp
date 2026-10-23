@@ -295,6 +295,33 @@ bool DataCatalog::setLinkPrimary(int index, QString *error)
   m_idx.linksMutated(m_links);
   return false;
 }
+bool DataCatalog::clearLinkPrimary(int index, QString *error)
+{
+  if (!checkWriteThread("clearLinkPrimary", error))
+    return false;
+  if (!ensureOpen(error))
+    return false;
+  if (index < 0 || index >= m_links.size())
+  {
+    setError(error, QStringLiteral("link index out of range: %1").arg(index));
+    return false;
+  }
+  EntityAssetLink &l = m_links[index];
+  if (l.unresolved || l.entityId.isEmpty())
+  {
+    setError(error, QStringLiteral("link %1 is not a resolved link").arg(index));
+    return false;
+  }
+  if (!l.isPrimary)
+    return true;
+  const EntityAssetLink previousLink = l;
+  l.isPrimary = false;
+  m_dirtyLinkOrds.insert(index);
+  if (save(error))
+    return true;
+  m_links[index] = previousLink;
+  return false;
+}
 
 // ---- wave/data-integrity：role 词表违例诊断面 ----
 // 带「未知角色: / 角色与实体类型不符: 」note 标记的链接（addLink/attachLink

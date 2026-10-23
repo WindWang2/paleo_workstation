@@ -319,7 +319,7 @@ void TestDataPreview::wellLogPreviewShowsCuttingsLithologyTrack()
     if (track->type() != WellComposite::TrackType::Lithology)
       continue;
     hasLithology = true;
-    QCOMPARE(track->title(), QStringLiteral("岩性道"));
+    QCOMPARE(track->title(), QStringLiteral("岩性"));
   }
   QVERIFY2(hasLithology, "cuttings linked to the well must produce a lithology track");
   QCOMPARE(panel->currentData().lithologyIntervals.size(), 2);

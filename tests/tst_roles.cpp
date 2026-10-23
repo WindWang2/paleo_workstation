@@ -96,8 +96,10 @@ void TestRoles::forEntityFiltersByEntityType()
   QCOMPARE(surveyDefs.at(5).role, QStringLiteral("interpretation"));
   QCOMPARE(surveyDefs.at(5).display, QStringLiteral("调查解释"));
 
-  // 无词表的实体类型与空类型 → 如实空集。
-  QVERIFY(reg.forEntity(QStringLiteral("auxiliary")).isEmpty());
+  // 未识井的参考附件挂 auxiliary。空类型仍无从归属。
+  const QVector<RoleDef> auxDefs = reg.forEntity(QStringLiteral("auxiliary"));
+  QCOMPARE(auxDefs.size(), 1);
+  QCOMPARE(auxDefs.first().role, QStringLiteral("reference"));
   QVERIFY(reg.forEntity(QString()).isEmpty());
   // sequence_boundary 自方向 28「格架先行」起有词表了：格架资产对本界面的
   // 归属角色 framework_unit（建议阶段 OUTPUT）。原先的「无词表 → 空集」

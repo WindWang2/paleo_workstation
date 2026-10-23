@@ -68,7 +68,8 @@ bool projectRasterFile(const QString &path, const QString &target, QString *erro
   }
   from.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER); to.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
   if (from.IsSame(&to)) { GDALClose(input); return true; }
-  const auto destination = path + QStringLiteral(".projected.tif");
+  // .partial 不会被 moveStagedFiles 提交。失败留下的 warp 结果不得用其它后缀进工程。
+  const auto destination = path + QStringLiteral(".partial");
   QByteArray encoded = target.toUtf8();
   char *args[] = {const_cast<char *>("-t_srs"), encoded.data(), const_cast<char *>("-r"),
                   const_cast<char *>("bilinear"), nullptr};
@@ -107,24 +108,34 @@ bool projectSegyFile(const QString &source, const QString &output, const QString
     return fail(error, QStringLiteral("当前地震格式不能安全转换坐标，请提供固定道长 SEG-Y"));
   const qint64 stride = 240 + samples * bytes;
   if ((input.size() - 3600) % stride) return fail(error, QStringLiteral("地震道长不一致，已拒绝坐标转换"));
-  if (!QFile::copy(source, output)) return fail(error, QStringLiteral("无法创建地震坐标转换副本"));
-  QFile::setPermissions(output, QFile::permissions(output) | QFileDevice::WriteOwner);
-  QFile copy(output);
-  if (!copy.open(QIODevice::ReadWrite)) return fail(error, QStringLiteral("无法写入地震副本"));
+  const QString partial = output + QStringLiteral(".partial");
+  QFile::remove(partial);
+  if (!QFile::copy(source, partial)) return fail(error, QStringLiteral("无法创建地震坐标转换副本"));
+  QFile::setPermissions(partial, QFile::permissions(partial) | QFileDevice::WriteOwner);
+  QFile copy(partial);
+  const auto abortPartial = [&](const QString &message) {
+    copy.close();
+    QFile::remove(partial);
+    return fail(error, message);
+  };
+  if (!copy.open(QIODevice::ReadWrite)) return abortPartial(QStringLiteral("无法写入地震副本"));
   for (qint64 offset = 3600; offset < copy.size(); offset += stride) {
-    if (!copy.seek(offset)) return fail(error, QStringLiteral("无法定位地震道头"));
+    if (!copy.seek(offset)) return abortPartial(QStringLiteral("无法定位地震道头"));
     auto trace = copy.read(240);
     const int ns = trace.size() == 240 ? qFromBigEndian<quint16>(trace.constData() + 114) : -1;
     if ((ns && ns != samples) || !transformHeader(trace, ct.get(), sourceReference.IsGeographic()) || !copy.seek(offset) || copy.write(trace) != 240)
-      return fail(error, QStringLiteral("地震坐标转换失败；未发布半成品"));
+      return abortPartial(QStringLiteral("地震坐标转换失败；未发布半成品"));
   }
   for (int line = 0; line < 40; ++line) {
     if (line != 38 && !header.mid(line * 80, 80).toUpper().contains("EPSG")) continue;
     const auto text = QStringLiteral("C%1 CRS %2; COORDINATES TRANSFORMED; SAMPLES UNCHANGED")
         .arg(line + 1, 2, 10, QLatin1Char('0')).arg(target).toLatin1().left(80).leftJustified(80, ' ');
     if (!copy.seek(line * 80) || copy.write(text) != 80)
-      return fail(error, QStringLiteral("无法保存地震坐标声明"));
+      return abortPartial(QStringLiteral("无法保存地震坐标声明"));
   }
+  copy.close();
+  QFile::remove(output);
+  if (!QFile::rename(partial, output)) return abortPartial(QStringLiteral("无法发布地震坐标转换结果"));
   return true;
 }
 }

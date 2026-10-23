@@ -12,6 +12,7 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/workflow/workflows.h"
 #include "../src/workflow/derivedassets.h"
+#include "../src/domain/faciescatalog.h"
 #include "../src/workflow/mappingworkbench.h"
 #include "helpers/simulatemissingfile.h"
 #include <QDateTime>
@@ -53,7 +54,9 @@ class TestComposeAttribution : public QObject {
           });
       processing.setProject(project.project());
       work.bindCatalog(&catalog, dir.path());
-      return true;
+      QString faciesError;
+      // 数值夹具钉七类。默认库已是 27 类，6 个阈值会被 N−1 闸拒绝。
+      return work.saveFacies(QStringLiteral("D61"), FaciesCatalog::defaults().mid(0, 7), &faciesError);
     }
     QString latest(const QString &kind) {
       QString found;

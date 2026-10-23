@@ -321,7 +321,9 @@ QgsMapLayer *createLayer(const Source &source, QObject *parent, QString *error)
   auto *network = QgsNetworkAccessManager::instance();
   if (!network->cache()) network->setupDefaultProxyAndCache();
   const auto title = QObject::tr("在线底图：%1").arg(source.title);
-  auto *layer = QgsProviderRegistry::instance()->providerMetadata(QStringLiteral("wms"))
+  // file:// 模板若走 wms/xyz，层可以 isValid 但不同步解本地瓦片，block() 得到 nan。
+  const bool localTemplate = source.url.startsWith(QLatin1String("file:"), Qt::CaseInsensitive);
+  auto *layer = !localTemplate && QgsProviderRegistry::instance()->providerMetadata(QStringLiteral("wms"))
       ? new QgsRasterLayer(xyzUri(source), title, QStringLiteral("wms")) : nullptr;
   // 裁剪的 vendored QGIS 可能没有 WMS 插件；由 QGIS 的 GDAL provider
   // 驱动原生 TMS/缓存，不在应用层实现瓦片请求或地图渲染。

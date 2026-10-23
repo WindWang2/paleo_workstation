@@ -151,6 +151,21 @@ private slots:
     QCOMPARE(result.size(), 0);
     QVERIFY2(warnings.join(' ').contains(QStringLiteral("不在测斜范围内")), qPrintable(warnings.join(' ')));
   }
+  void tvdPastLastStationIsNotExtrapolated() {
+    PreviewStack stack; QString error; DataImportService::ImportOptions options;
+    QVERIFY(!stack.imports->importProjectFile(stack.source("A1.csv", ImportUxFixtures::csv()), &error).isEmpty());
+    options.forceType = "well_stratification";
+    const auto tops = stack.source("tops.dat", "#WellTops File From Paleo\n# PaleoDepthBasis: explicit\n"
+        "A1 DEEP -99999 -99999 -99999 -99999 900 -99999\n");
+    QVERIFY2(!stack.imports->importProjectFile(tops, options, &error).isEmpty(), qPrintable(error));
+    options.forceType = "well_deviation";
+    // 60° 井斜，MD 0–1000 的垂深约 500。TVD 900 会沿末站外推，不得画成已测 MD。
+    const auto deviation = stack.source("A1_dev.dat", "# Well : A1\n0 60 0\n1000 60 0\n");
+    QVERIFY2(!stack.imports->importProjectFile(deviation, options, &error).isEmpty(), qPrintable(error));
+    PreviewDocService doc(stack.imports.get()); QVector<WellTopRecord> result; QStringList warnings;
+    doc.wellTopsForLog(onlyWellId(*stack.imports->catalog()), &result, &warnings);
+    QCOMPARE(result.size(), 0);
+  }
   void noSurveyUsesExplicitStraightWellDisplayWarning() {
     PreviewStack stack; QString error; QVERIFY(!stack.imports->importProjectFile(stack.source("A1.csv", ImportUxFixtures::csv()), &error).isEmpty());
     DataImportService::ImportOptions options; options.forceType = "well_stratification";

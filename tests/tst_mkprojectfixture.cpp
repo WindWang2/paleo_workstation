@@ -114,7 +114,13 @@ void TstMkProjectFixture::importFullChain()
   DataCatalog cat;
   QString err;
   QVERIFY2(cat.open(m_run.projectDir, &err), qPrintable(err));
-  QCOMPARE(int(cat.versions().size()), kExpectedImports);
+  int rawVersions = 0, derivedVersions = 0;
+  for (const CatalogVersion &v : cat.versions()) {
+    if (v.stage == QLatin1String("RAW")) ++rawVersions;
+    else if (v.stage == QLatin1String("DERIVED")) ++derivedVersions;
+  }
+  QCOMPARE(rawVersions, kExpectedImports);
+  QCOMPARE(derivedVersions, 4); // 井口规范化 well_data.dat + 三份岩屑 cuttings.csv
 }
 
 void TstMkProjectFixture::projectRoundTrip()

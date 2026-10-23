@@ -5,7 +5,9 @@
 #include <QApplication>
 #include <QDir>
 #include <QTimer>
+#include <QSet>
 #include <QTreeWidget>
+#include "domain/faciestaxonomy.h"
 #include <QShortcut>
 #include <QFile>
 #include <cmath>
@@ -428,7 +430,11 @@ private slots:
     WellLegendDialog dialog(data);
     auto *tree = dialog.findChild<QTreeWidget *>("wellFaciesHierarchyLegend");
     QVERIFY(tree);
-    QCOMPARE(tree->topLevelItemCount(), 2);
+    // 默认库相级 + 井上自定义「河流相」。叶子 = 库内微相 + 边滩。
+    QSet<QString> libraryFacies;
+    for (const auto &row : FaciesTaxonomy::library())
+      libraryFacies.insert(row.toMap().value(QStringLiteral("facies")).toString());
+    QCOMPARE(tree->topLevelItemCount(), libraryFacies.size() + 1);
     int leaves = 0;
     bool custom = false;
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
@@ -447,7 +453,7 @@ private slots:
         }
       }
     }
-    QCOMPARE(leaves, 8);
+    QCOMPARE(leaves, FaciesTaxonomy::library().size() + 1);
     QVERIFY(custom);
   }
   void testWellPositionLegendWidgetAndSync()

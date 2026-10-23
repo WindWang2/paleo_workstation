@@ -57,6 +57,10 @@ namespace
     add(QStringLiteral("reference"), QStringLiteral("well"), false,
         QStringLiteral("参考资料"),
         QStringLiteral("参考资料挂井（报告/图件/照片等井相关文档）。"));
+    // 未识井的参考附件挂 auxiliary。同名第二定义，诊断按实体类型命中，不再刷类型不符。
+    add(QStringLiteral("reference"), QStringLiteral("auxiliary"), false,
+        QStringLiteral("参考资料"),
+        QStringLiteral("未能挂井的参考资料。"));
     add(QStringLiteral("other"), QStringLiteral("well"), false,
         QStringLiteral("其他"),
         QStringLiteral("兜底角色。"));

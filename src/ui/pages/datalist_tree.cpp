@@ -16,6 +16,7 @@
 #include <functional>
 
 #include <QFont>
+#include <QSignalBlocker>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QQueue>
@@ -712,6 +713,7 @@ void DataListPanel::rebuildNavTree(const QVector<NavNodeSpec> &specs)
   const int vpos = m_tree->verticalScrollBar()
                        ? m_tree->verticalScrollBar()->value()
                        : 0;
+  const QSignalBlocker blockTree(m_tree);
   m_tree->clear();
   renderNavChildren(nullptr, specs);
   // 还原展开态与滚动位（快照见上）——无匹配键的项保持构建默认态。

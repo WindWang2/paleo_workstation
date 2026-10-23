@@ -270,6 +270,8 @@ class DataCatalog : public QObject
     // 挂接契约的另一半）。只动链接标志，不复制版本字节。index 越界 /
     // 链接未决或实体 id 为空 → false。
     bool setLinkPrimary(int index, QString *error = nullptr);
+    // 撤销「第一次设主」：该角色原先没有主文件时，把这一条的主标记清掉。
+    bool clearLinkPrimary(int index, QString *error = nullptr);
 
     // 物理删除资产（方向 30 回收站「物理删除」的 catalog 面）：一次事务删除
     // 资产行 + 其全部版本行 + 其全部链接行。血缘保护——待删版本被其他资产的

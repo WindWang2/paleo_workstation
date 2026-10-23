@@ -9,6 +9,7 @@
 #include "../domain/mappinghorizons.h"
 #include "../qgis/qgisprojectservice.h"
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QTimer>
@@ -53,9 +54,49 @@ bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources
   if (!QgisProjectService::validateMapReference(configuration, error)) return false;
   const QString directory = QFileInfo(path).absolutePath();
   if (QFileInfo::exists(path) || QFileInfo::exists(paleoProjectFilePath(directory))) return fail(tr("该位置已有工程，请选择新的工程目录或打开已有工程。"));
+  const QString previous = m_project->projectPath();
+  const bool createdDir = !QFileInfo::exists(directory);
   if (!QDir().mkpath(directory)) return fail(tr("无法创建工程目录：%1").arg(directory));
-  if (!m_project->createProject(path)) return fail(m_project->lastErrors().join('\n'));
-  return applySources(sources, preview, error);
+  const auto discardNewProject = [&] {
+    m_project->closeProject();
+    if (createdDir) {
+      QDir(directory).removeRecursively();
+    } else {
+      QFile::remove(path);
+      QFile::remove(paleoProjectFilePath(directory));
+    }
+  };
+  if (!m_project->createProject(path)) {
+    const QString message = m_project->lastErrors().join('\n');
+    // 锁失败等早退还停在上一工程，不能 close。只有已经切走或清单写失败才回滚。
+    const bool switched = m_project->projectPath() == path;
+    const bool closedByFailure = !previous.isEmpty() && m_project->projectPath().isEmpty();
+    if (switched)
+      m_project->closeProject();
+    if (createdDir && (switched || closedByFailure || m_project->projectPath() != path))
+      QDir(directory).removeRecursively();
+    else if (switched || closedByFailure) {
+      QFile::remove(path);
+      QFile::remove(paleoProjectFilePath(directory));
+    }
+    if ((switched || closedByFailure) && !previous.isEmpty() && m_project->projectPath().isEmpty() &&
+        !m_project->openProject(previous))
+      return fail(message + '\n' + m_project->lastErrors().join('\n'));
+    return fail(message);
+  }
+  if (!QFileInfo::exists(paleoProjectFilePath(directory))) {
+    const QString message = m_project->lastErrors().join('\n');
+    discardNewProject();
+    if (!previous.isEmpty() && !m_project->openProject(previous))
+      return fail((message.isEmpty() ? tr("写入工程清单失败") : message) + '\n' + m_project->lastErrors().join('\n'));
+    return fail(message.isEmpty() ? tr("写入工程清单失败") : message);
+  }
+  if (applySources(sources, preview, error)) return true;
+  const QString message = error && !error->isEmpty() ? *error : tr("新建工程失败");
+  discardNewProject();
+  if (!previous.isEmpty() && !m_project->openProject(previous) && error)
+    return fail(message + '\n' + m_project->lastErrors().join('\n'));
+  return fail(message);
 }
 ProjectSetupSources ProjectSetupWorkflow::currentSources() const
 {

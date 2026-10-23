@@ -2138,7 +2138,7 @@ class TestPanels : public QObject
       QVERIFY(retry);
       retry->click();
       QVERIFY(table->item(rBad, 3)->text().contains(QString::fromUtf8("失败")));
-      QVERIFY(table->item(rBad, 3)->text().contains(QString::fromUtf8("没有可用数据行")));
+      QVERIFY(table->item(rBad, 3)->text().contains(QString::fromUtf8("没有可用表头")));
       QCOMPARE(summary->text(), QString::fromUtf8("入库 3，未决 0，失败 1"));
       for (const CatalogAsset &asset : st.svc.catalog()->assets())
         QVERIFY(asset.displayName != QLatin1String("bad.dat"));

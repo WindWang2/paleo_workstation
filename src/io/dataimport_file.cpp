@@ -241,6 +241,9 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   {
     if (wellLogInput && !paleo::dataimport_detail::validateDuplicateLogTarget(
             *cat, existing.assetId, options.targetWellId, error)) return fail(*error);
+    if (wellLogInput && !logInfo.sourceAnnotations.isEmpty() &&
+        !cat->updateVersionExtra(existing.id, QVariantMap{{"synthetic_input", true},
+          {"input_source_annotations", logInfo.sourceAnnotations}}, error)) return fail(*error);
     const CatalogAsset existingAsset =
         cat->assetById(existing.assetId);
     if (existingAsset.type == QLatin1String("horizon"))
@@ -307,6 +310,10 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     version.extra.insert(QStringLiteral("logIndexBasis"), logInfo.header.indexBasis);
     version.extra.insert(QStringLiteral("logSummary"), logInfo.summary);
     version.extra.insert(QStringLiteral("logIssues"), logInfo.issues);
+    if (!logInfo.sourceAnnotations.isEmpty()) {
+      version.extra.insert(QStringLiteral("synthetic_input"), true);
+      version.extra.insert(QStringLiteral("input_source_annotations"), logInfo.sourceAnnotations);
+    }
   }
 
   // SEG-Y 一律外链（plan §3：966 MB 体不复制）。其余默认受管 RAW。

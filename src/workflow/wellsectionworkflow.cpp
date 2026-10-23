@@ -906,6 +906,7 @@ private:
       seg.provenance = v.fileName.isEmpty()
                            ? WellSectionWorkflow::tr("岩屑录井")
                            : WellSectionWorkflow::tr("岩屑录井（%1）").arg(v.fileName);
+      if (!interval.source.isEmpty()) seg.provenance += QStringLiteral("；") + interval.source;
       segments.push_back(seg);
     }
     m_cuttingsParsed.insert(v.id, segments);

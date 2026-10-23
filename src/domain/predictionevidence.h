@@ -34,6 +34,7 @@ struct InputRef
   QString role = QStringLiteral("DERIVED_FROM");
   QString horizon;
   bool missing = false;
+  bool syntheticInput = false; // 合成输入与服务替身 mock 分开标识。
 };
 
 // 规范化参数（去簿记字段）与其指纹。

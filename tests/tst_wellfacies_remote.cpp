@@ -150,6 +150,7 @@ QJsonObject schemaModel(const QString &id, const QJsonArray &curves, int window,
                         const QJsonArray &categorical = {QStringLiteral("段")}) {
   return {{"id", id}, {"name", id}, {"version", "v1"},
           {"inputSchema", QJsonObject{{"formationGroup", QStringLiteral("恩平组")}, {"curves", curves},
+                                      {"labels", QJsonArray{QStringLiteral("河口坝")}},
                                       {"categoricalFields", categorical}, {"window", window}}}};
 }
 } // namespace

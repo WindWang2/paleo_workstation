@@ -74,6 +74,8 @@ QString fingerprint( const QVariant &value )
 static QVariantMap provenanceOf( const QVector<InputRef> &inputs, const QVariantMap &extra )
 {
   int mockInputs = 0;
+  int syntheticInputs = 0;
+  for (const InputRef &in : inputs) if (in.syntheticInput) ++syntheticInputs;
   for ( const InputRef &in : inputs )
     if ( in.mock )
       ++mockInputs;
@@ -122,6 +124,8 @@ static QVariantMap provenanceOf( const QVector<InputRef> &inputs, const QVariant
   return { { QStringLiteral( "kind" ), kind },
            { QStringLiteral( "based_on_mock" ), basedOnMock },
            { QStringLiteral( "mock_input_count" ), mockInputs },
+           { QStringLiteral( "synthetic_input" ), syntheticInputs > 0 || extra.value("synthetic_input").toBool() },
+           { QStringLiteral( "synthetic_input_count" ), syntheticInputs },
            { QStringLiteral( "validation" ), meaningful ? QStringLiteral( "validated" )
                                                         : QStringLiteral( "unvalidated" ) },
            { QStringLiteral( "confidence_semantics" ), QStringLiteral( "model_score" ) } };
@@ -144,6 +148,7 @@ QVariantMap build( const QVector<InputRef> &inputs, const QVariantMap &extra,
                    { QStringLiteral( "sha256" ), in.sha256 },
                    { QStringLiteral( "stage" ), in.stage },
                    { QStringLiteral( "mock" ), in.mock },
+                   { QStringLiteral( "synthetic_input" ), in.syntheticInput },
                    { QStringLiteral("role"), in.role },
                    { QStringLiteral("horizon"), in.horizon },
                    { QStringLiteral("missing"), in.missing } };
@@ -246,6 +251,8 @@ QString summary( const QVariantMap &evidence )
     head += prov.value( QStringLiteral( "validation" ) ).toString() == QLatin1String( "validated" )
                 ? tr( " · 有独立验证记录" )
                 : tr( " · 尚无独立验证" );
+  if (prov.value(QStringLiteral("synthetic_input")).toBool())
+    head += head.isEmpty() ? tr("含合成输入") : tr(" · 含合成输入");
   QString text = head.isEmpty() ? QString() : head + QStringLiteral( " · " );
   text += tr( "输入 %1 个版本 · 方法 %2 · 参数指纹 %3" )
                      .arg( evidence.value( QStringLiteral( "inputs" ) ).toList().size() )

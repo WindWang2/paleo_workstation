@@ -2036,6 +2036,7 @@ private slots:
                                                               "段"),
                                                           QStringLiteral(
                                                               "岩性")}},
+                                                     {"labels", QJsonArray{QStringLiteral("河口坝")}},
                                                      {"window", 128}}}}}}};
                                      } else {
                                        // predict：128 行全标「河口坝」→ 一段。

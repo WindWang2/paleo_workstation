@@ -39,6 +39,7 @@ private slots:
   void cuttingsSheetMissingColumnIsHonest();
   void cuttingsSheetBadRowsSkippedIntoIssues();
   void cuttingsSheetDescriptionColumnOptional();
+  void cuttingsSourceIsPreserved();
   void cuttingsCsvQuotedDelimitersAndNewlines();
   void cuttingsCsvMismatchedColumnsRejectedWithIssue();
   // 方向 95：mkproject mini 数据集对拍——生产链消费的实文件作解析样本
@@ -168,6 +169,19 @@ void IoWorkbookEdgeTests::cuttingsSheetStandardHeaders()
   QCOMPARE(table.intervals[1].topMd, 150.0);
   QCOMPARE(table.intervals[1].litho, QStringLiteral("泥岩"));
   QVERIFY(table.issues.isEmpty());
+}
+
+void IoWorkbookEdgeTests::cuttingsSourceIsPreserved()
+{
+  const auto table = paleo::io::parseCuttingsSheet(cuttingsSheet(
+      {QStringLiteral("顶深"), QStringLiteral("底深"), QStringLiteral("岩性"),
+       QStringLiteral("数据来源"), QStringLiteral("描述")},
+      {{"100", "150", QStringLiteral("细砂岩"), QStringLiteral("GR推导（合成）"), "note"},
+       {"150", "200", QStringLiteral("泥岩"), "", ""}}));
+  QVERIFY2(table.ok, qPrintable(table.error));
+  QCOMPARE(table.intervals[0].source, QStringLiteral("GR推导（合成）"));
+  QCOMPARE(table.intervals[0].description, QStringLiteral("note"));
+  QVERIFY(table.intervals[1].source.isEmpty());
 }
 
 void IoWorkbookEdgeTests::cuttingsSheetDialectHeaders()

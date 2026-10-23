@@ -33,7 +33,8 @@ enum ColumnRole
   BaseColumn = 2,
   LithoColumn = 3,
   DescriptionColumn = 4,
-  ColorColumn = 5
+  ColorColumn = 5,
+  SourceColumn = 6
 };
 
 QHash<QString, int> cuttingsDialect()
@@ -58,6 +59,8 @@ QHash<QString, int> cuttingsDialect()
                               QStringLiteral( "备注" ) } );
     add( ColorColumn, { QStringLiteral( "颜色" ), QStringLiteral( "色" ),
                         QStringLiteral( "color" ) } );
+    add(SourceColumn, {QStringLiteral("数据来源"), QStringLiteral("来源"),
+                        QStringLiteral("source"), QStringLiteral("provenance")});
     return d;
   }();
   return dialect;
@@ -84,7 +87,7 @@ CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet )
   table.sheetName = sheet.name;
 
   const QHash<QString, int> dialect = cuttingsDialect();
-  int topColumn = -1, baseColumn = -1, lithoColumn = -1, descriptionColumn = -1, colorColumn = -1;
+  int topColumn = -1, baseColumn = -1, lithoColumn = -1, descriptionColumn = -1, colorColumn = -1, sourceColumn = -1;
   for ( int c = 0; c < sheet.headers.size(); ++c )
   {
     const auto it = dialect.constFind( normalizeCuttingsHeader( sheet.headers.at( c ) ).toLower() );
@@ -107,6 +110,9 @@ CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet )
       case ColorColumn:
         if ( colorColumn < 0 )
           colorColumn = c;
+        break;
+      case SourceColumn:
+        if (sourceColumn < 0) sourceColumn = c;
         break;
       default:
         if ( descriptionColumn < 0 )
@@ -183,6 +189,7 @@ CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet )
                          : rawLitho;
     interval.description = cell( descriptionColumn );
     interval.rowNumber = rowNumber;
+    interval.source = cell(sourceColumn);
     table.intervals.append( interval );
   }
   std::stable_sort( table.intervals.begin(), table.intervals.end(),

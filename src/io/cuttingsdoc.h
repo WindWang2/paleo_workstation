@@ -30,6 +30,7 @@ struct CuttingsInterval
   QString litho;
   QString description; // 描述列可选；无该列时为空
   int rowNumber = 0;   // 工作簿/文本表内物理行号（issues 归因用）
+  QString source; // 原表数据来源；空表示未声明，不等同于实测。
 };
 
 struct CuttingsTable

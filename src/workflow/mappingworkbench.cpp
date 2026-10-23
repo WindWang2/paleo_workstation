@@ -524,7 +524,7 @@ QVariantList MappingWorkbench::inputs(const QString &kind) const {
       QString logVersion;
       for (const auto &link : m_catalog->linksForEntity(well.id))
         if (!link.unresolved &&
-            QStringList{"well_log", "well_head", "tops", "time_depth", "interpretation", "core"}.contains(
+            QStringList{"well_log", "well_head", "tops", "time_depth", "interpretation", "cuttings", "core"}.contains(
                 link.role)) {
           const auto v = m_catalog->currentVersion(link.assetId);
           if (!v.id.isEmpty() &&
@@ -711,9 +711,11 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
   extra.insert("group", group);
   extra.insert("created_at",
                QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-  for (const auto &parent : parents)
-    if (m_catalog->versionById(parent).extra.value("mock").toBool())
-      extra.insert("mock", true);
+  for (const auto &parent : parents) {
+    const auto source = m_catalog->versionById(parent).extra;
+    if (source.value("mock").toBool()) extra.insert("mock", true);
+    if (source.value("synthetic_input").toBool()) extra.insert("synthetic_input", true);
+  }
   if (!extra.contains("facies"))
     extra.insert("facies", facies(h));
   // facies-ux 5：证据链（输入版本 + 模型/参数指纹 + 支撑井/地震属性 + 软件版本）。

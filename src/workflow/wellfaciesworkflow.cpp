@@ -453,13 +453,14 @@ void WellFaciesWorkflow::updateInput(bool restoreCache) {
   if (reason.isEmpty()) {
     const auto schemas = WellAttributeStore::faciesSchemas(m_catalog);
     for (auto &run : m_plan.runs) {
-      if (!FaciesTaxonomy::normalize(schemas.value(run.group, FaciesCatalog::defaults()),
-                                     &run.input.facies, &reason)) break;
+      if (!bindWellFaciesClasses(run.model, schemas.value(run.group, FaciesCatalog::defaults()),
+                                 &run.input, &reason)) break;
     }
   }
   emit planChanged(reason.isEmpty() ? planSummary() : QString());
   emit availabilityChanged(reason.isEmpty(), reason);
-  if (!reason.isEmpty() || !restoreCache)
+  if (!reason.isEmpty()) { m_plan.runs.clear(); return; }
+  if (!restoreCache)
     return;
   QVector<WellFaciesResult> cached;
   for (const auto &run : m_plan.runs) {

@@ -175,7 +175,10 @@ QSet<QString> DataListPanel::currentAssetSelection() const
     if (m_doc->catalog()->assetById(*it).id.isEmpty() || m_recycle.isRemoved(*it)) it = out.erase(it);
     else ++it;
   }
-  // 软删资产不在表里——选中集只含现存可见资产。
+  // 隐藏视图延迟刷新；旧选区不能把已被筛掉的资产带入批量操作。
+  QSet<QString> visible;
+  for (const auto &row : m_filteredRows) visible.insert(row.assetId);
+  out.intersect(visible);
   return out;
 }
 

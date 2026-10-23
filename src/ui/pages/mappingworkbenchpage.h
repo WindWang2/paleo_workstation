@@ -1,11 +1,13 @@
 // 层：视图
 #pragma once
 #include <QVariantMap>
+#include <QMap>
 #include <QWidget>
 class MappingWorkbench;
 class QListWidget;
 class QTreeWidget;
 class QComboBox;
+class QCheckBox;
 class QLineEdit;
 class QDoubleSpinBox;
 class QLabel;
@@ -39,6 +41,7 @@ public:
   // G05/G09：影响分析成功后回喂页面——「按最近影响报告受控重算」按钮的
   // 可用条件（无影响报告时禁用并给 reason，不再让点击后吃错误）。
   void setImpactAvailable(bool ready);
+  void markFaciesSaved() { m_faciesDirty = false; m_faciesDrafts.remove(m_horizon); }
   // X9：索引后台同步完成后自动重发最近一次反查（仅存 kind+argument，
   // 不重新读控件——避免层位/输入变化把查询口径悄悄换掉）。
   void reissueReverseQuery();
@@ -64,6 +67,8 @@ private:
   void buildBaseMapStep(QWidget *body, QVBoxLayout *layout);
   void refreshInputs();
   void buildFaciesSchema(QWidget *schemaBody);
+  void wireFaciesUpdates();
+  QVariantList faciesRows() const;
   void buildReferenceEntry(QWidget *body, QVBoxLayout *layout);
   void renderEvidenceAttributionTargets(const QVariantMap &snapshot);
   void renderEvidenceAttribution(const QVariantMap &snapshot);
@@ -93,6 +98,7 @@ private:
   bool m_impactReady = false; // 最近一次影响分析成功（recompute 按钮门控）
   QListWidget *m_inputs = nullptr;
   QTreeWidget *m_results;
+  QCheckBox *m_allHorizons = nullptr;
   QComboBox *m_kind = nullptr, *m_points = nullptr, *m_factor = nullptr;
   QLineEdit *m_field = nullptr, *m_thresholds = nullptr;
   QWidget *m_horizonSourceRow = nullptr;
@@ -101,6 +107,9 @@ private:
   QDoubleSpinBox *m_cell = nullptr, *m_interval = nullptr;
   QProgressBar *m_progress = nullptr;
   QTableWidget *m_facies = nullptr;
+  QMap<QString, QVariantList> m_faciesDrafts;
+  bool m_faciesDirty = false, m_loadingFacies = false;
+  QTimer *m_schemaRefresh = nullptr;
   QComboBox *m_editFacies = nullptr;
   QComboBox *m_displayLevel = nullptr, *m_editLevel = nullptr, *m_evidenceSource = nullptr;
   QComboBox *m_featureDisplayLevel = nullptr;

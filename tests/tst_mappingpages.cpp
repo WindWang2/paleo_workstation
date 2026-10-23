@@ -10,6 +10,9 @@
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QTreeWidget>
+#include <QGroupBox>
+#include "../src/ui/propertymodel/propertymodelpanel.h"
 #include <QAbstractButton>
 #include <QToolButton>
 #include <QVariantMap>
@@ -2412,7 +2415,62 @@ class WorkbenchPageTests : public QObject
   private slots:
     void evidenceBackButtonReflectsCanGoBack();
     void attributionTargetsListAndActivationPayload();
+    void faciesDraftSurvivesNavigationAndExternalRefresh();
+    void propertyParametersFollowSelectedMethodWithoutLosingValues();
 };
+
+void WorkbenchPageTests::faciesDraftSurvivesNavigationAndExternalRefresh()
+{
+  QTemporaryDir dir;
+  LayerManifest manifest(dir.filePath(QStringLiteral("draft.sqlite")));
+  QVERIFY(manifest.open());
+  QgisLayerService layers(nullptr, &manifest);
+  MappingWorkbench workbench(&layers, nullptr, nullptr, nullptr);
+  MappingWorkbenchPage page(QStringLiteral("compose"), &workbench);
+  page.setHorizon(QStringLiteral("C3"));
+  auto *table = page.findChild<QTableWidget *>(QStringLiteral("faciesSchema"));
+  auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("faciesHierarchyTree"));
+  QVERIFY(table && tree && table->rowCount() > 1);
+  const int originalRows = table->rowCount();
+  table->item(0, 1)->setText(QStringLiteral("未保存的微相"));
+  table->removeRow(originalRows - 1);
+  QCoreApplication::processEvents();
+  QSignalSpy resets(tree->model(), &QAbstractItemModel::modelReset);
+  page.setHorizon(QStringLiteral("D61"));
+  QTRY_COMPARE(resets.count(), 1);
+  QCOMPARE(table->rowCount(), originalRows);
+  page.setHorizon(QStringLiteral("C3"));
+  QCOMPARE(table->rowCount(), originalRows - 1);
+  QCOMPARE(table->item(0, 1)->text(), QStringLiteral("未保存的微相"));
+  emit workbench.faciesChanged(QStringLiteral("C3"));
+  QCOMPARE(table->item(0, 1)->text(), QStringLiteral("未保存的微相"));
+  emit workbench.catalogBound();
+  QCOMPARE(table->rowCount(), originalRows);
+  QVERIFY(table->item(0, 1)->text() != QStringLiteral("未保存的微相"));
+}
+
+void WorkbenchPageTests::propertyParametersFollowSelectedMethodWithoutLosingValues()
+{
+  PropertyModelPanel panel;
+  auto *method = panel.findChild<QComboBox *>(QStringLiteral("propMethodCombo"));
+  auto *sgs = panel.findChild<QGroupBox *>(QStringLiteral("propSgsGroup"));
+  auto *objects = panel.findChild<QGroupBox *>(QStringLiteral("propObjectGroup"));
+  auto *power = panel.findChild<QDoubleSpinBox *>(QStringLiteral("propPowerSpin"));
+  auto *width = panel.findChild<QDoubleSpinBox *>(QStringLiteral("propObjectWidthSpin"));
+  QVERIFY(method && sgs && objects && power && width);
+  QVERIFY(sgs->isHidden()); QVERIFY(width->isHidden());
+  power->setValue(3.5);
+  method->setCurrentIndex(method->findData(1));
+  QVERIFY(!sgs->isHidden()); QVERIFY(power->isHidden());
+  objects->setChecked(true);
+  QVERIFY(!width->isHidden());
+  width->setValue(315.0);
+  objects->setChecked(false); objects->setChecked(true);
+  QCOMPARE(width->value(), 315.0);
+  method->setCurrentIndex(method->findData(0));
+  QCOMPARE(power->value(), 3.5);
+  QVERIFY(sgs->isHidden()); QVERIFY(!power->isHidden());
+}
 
 void WorkbenchPageTests::evidenceBackButtonReflectsCanGoBack()
 {

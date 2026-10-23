@@ -12,6 +12,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QHBoxLayout>
+#include <QGridLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -215,7 +216,7 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   m_count->setObjectName(QStringLiteral("referenceViewCount"));
   auto *add = new QPushButton(tr("添加视图"), this);
   add->setObjectName(QStringLiteral("referenceAddView"));
-  add->setToolTip(tr("在右侧追加一个较窄的视图，多出的视图用横向滚动条查看"));
+  add->setToolTip(tr("添加参考视图，按两列排列，可滚动查看更多证据"));
   tools->addWidget(m_count);
   tools->addStretch();
   tools->addWidget(add);
@@ -229,10 +230,9 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   auto *body = new QWidget(m_scroll);
   body->setObjectName(QStringLiteral("referenceViewsRow"));
   body->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Expanding);
-  m_row = new QHBoxLayout(body);
+  m_row = new QGridLayout(body);
   m_row->setContentsMargins(0, 0, 0, 0);
   m_row->setSpacing(tokens.spacingSm);
-  m_row->setAlignment(Qt::AlignLeft);
   m_scroll->setWidget(body);
   layout->addWidget(m_scroll, 1);
   // D-12（full-audit-20261020）：空态引导——全部视图关闭后仅「0 个视图」
@@ -281,23 +281,20 @@ void MappingEvidencePanel::layoutViews()
 {
   while (QLayoutItem *item = m_row->takeAt(0))
     delete item;
-  // 单张视图固定较窄，横向追加；剩余宽度留白，不把视图拉满停靠区。
-  constexpr int kReferenceViewWidth = 420;
+  // DESIGN：按两列共享空间；第三个视图从下一行开始。
   for (qsizetype i = 0; i < m_views.size(); ++i) {
     auto *view = m_views[i];
-    view->setFixedWidth(kReferenceViewWidth);
-    view->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    view->setMinimumSize(240, 200);
+    view->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     view->setRemoveHint(m_views.size() == 1);
     view->setAccessibleName(tr("证据视图 %1").arg(i + 1));
-    m_row->addWidget(view);
+    m_row->addWidget(view, int(i) / 2, int(i) % 2);
     view->show();
   }
-  const int gaps = qMax(0, int(m_views.size()) - 1) * m_row->spacing();
   auto *body = m_scroll->widget();
-  const int width = int(m_views.size()) * kReferenceViewWidth + gaps;
-  body->setMinimumWidth(width);
-  if (body->width() < width)
-    body->resize(width, qMax(body->height(), m_scroll->viewport()->height()));
+  body->setMinimumWidth(0);
+  m_row->setColumnStretch(0, 1);
+  m_row->setColumnStretch(1, m_views.size() > 1 ? 1 : 0);
   m_row->activate();
   m_count->setText(tr("%1 个视图").arg(m_views.size()));
   m_scroll->setVisible(!m_views.isEmpty()); // D-12：空态收起滚动区，展示引导

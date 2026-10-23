@@ -23,6 +23,8 @@ MappingEditBasis::MappingEditBasis(MappingWorkbench *workbench, QWidget *parent)
                              "随后新建、改类和共边修改会自动记录这些依据；修改说明后需重新启用。"),
                           group);
   hint->setWordWrap(true);
+  hint->setToolTip(hint->text());
+  hint->setText(tr("填写解释说明和修改目的，启用后开始绘制。"));
   layout->addWidget(hint);
   auto *capture = new QPushButton(tr("选取当前显示的参考证据"), group);
   capture->setObjectName("workbench.captureEditEvidence");

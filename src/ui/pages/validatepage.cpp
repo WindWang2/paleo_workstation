@@ -142,6 +142,7 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   resTable->setSelectionMode(QAbstractItemView::SingleSelection);
   resTable->verticalHeader()->setVisible(false);
   resTable->horizontalHeader()->setStretchLastSection(true);
+  resTable->hide();
   lay->addWidget(resTable, 1);
   // T24：残差行双击与问题行同一条 locateRequested——列 0 上挂
   // layerId/WKT/payload（populate 写入），三视图按同一载荷联动。
@@ -170,7 +171,22 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   table->setSelectionMode(QAbstractItemView::SingleSelection);
   table->verticalHeader()->setVisible(false);
   table->horizontalHeader()->setStretchLastSection(true);
+  table->setColumnHidden(1, true);
+  table->setColumnHidden(3, true);
+  table->horizontalHeader()->setStretchLastSection(false);
+  table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+  table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+  table->setWordWrap(true);
   lay->addWidget(table, 1);
+  auto *issueDetails = new QLabel(this);
+  issueDetails->setObjectName(QStringLiteral("validationIssueDetails"));
+  issueDetails->setWordWrap(true);
+  issueDetails->setTextFormat(Qt::PlainText);
+  issueDetails->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+  lay->addWidget(issueDetails);
+  connect(table, &QTableWidget::currentCellChanged, issueDetails, [table, issueDetails](int row) {
+    issueDetails->setText(table->item(row, 2) ? table->item(row, 2)->toolTip() : QString());
+  });
   connect(table, &QTableWidget::itemActivated, this, [this, table](QTableWidgetItem *it) {
     if (!it)
       return;
@@ -300,10 +316,11 @@ void ValidatePage::populateResult() {
     for (auto *it : {code, msg, layer})
       it->setFlags(it->flags() & ~Qt::ItemIsEditable);
     table->setItem(row, 1, code);
-    msg->setToolTip(v.message);
+    msg->setToolTip(tr("%1\n代码：%2\n图层：%3").arg(v.message, v.code, v.layerId));
     table->setItem(row, 2, msg);
     table->setItem(row, 3, layer);
   }
+  table->resizeRowsToContents();
 
   // ---- D61 逐井残差表（autoplan §5C）--------------------------------------
   auto *resTable = child<QTableWidget>(this, "residualTable");
@@ -313,6 +330,7 @@ void ValidatePage::populateResult() {
   clearCellWidgets(resTable);
   resTable->setRowCount(0);
   const QVariantList rows = wf->lastResidualRows();
+  resTable->setVisible(!rows.isEmpty());
   if (rows.isEmpty())
   {
     // 空残差表两种含义要分清（T25）：D61 栅格缺失/打不开时工作流会
@@ -365,9 +383,11 @@ void ValidatePage::clearResults()
   {
     clearCellWidgets(residuals);
     residuals->setRowCount(0);
+    residuals->hide();
   }
   if (auto *status = child<QLabel>(this, "statusLabel"))
     status->clear();
+  if (auto *details = child<QLabel>(this, "validationIssueDetails")) details->clear();
   if (auto *summary = child<QLabel>(this, "residualSummaryLabel"))
     summary->setText(tr("还没有计算 %1 残差").arg(PreviewDocService::targetHorizon()));
 }

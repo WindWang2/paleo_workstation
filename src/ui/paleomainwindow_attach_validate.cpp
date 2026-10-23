@@ -20,6 +20,7 @@
 #include <QStackedLayout>
 
 #include <QStatusBar>
+#include <QSet>
 #include <QTabWidget>
 
 // ---------------------------------------------------------------------------
@@ -74,24 +75,26 @@ void PaleoMainWindow::attachValidatePage(ValidatePage *validatePage,
               const double timeMs =
                   payload.value(QStringLiteral("time_ms"), -1.0).toDouble();
               DataCatalog *cat = m_previewDoc->catalog();
-              QString assetId, firstSeismic;
+              QSet<QString> candidates;
+              const QString requested = payload.value(QStringLiteral("asset_id")).toString();
               for (const EntityAssetLink &l : cat->links())
               {
                 if (l.unresolved || l.role != QLatin1String("seismic_volume") ||
                     l.assetId.isEmpty())
                   continue;
-                if (firstSeismic.isEmpty())
-                  firstSeismic = l.assetId;
                 const CatalogEntity s = cat->entityById(l.entityId);
                 if (s.entityType == QLatin1String("seismic_survey") &&
                     line >= s.inlineMin && line <= s.inlineMax &&
-                    (assetId.isEmpty() || l.isPrimary))
-                  assetId = l.assetId;
+                    (requested.isEmpty() || requested == l.assetId))
+                  candidates.insert(l.assetId);
               }
-              if (assetId.isEmpty())
-                assetId = firstSeismic;
-              if (assetId.isEmpty())
+              if (candidates.size() != 1) {
+                statusBar()->showMessage(candidates.isEmpty()
+                    ? tr("没有匹配该剖面的地震资料，请在数据管理中检查测区与资料关联")
+                    : tr("多个地震资料包含该测线，无法唯一定位；请在数据管理中选择对应资料"), 12000);
                 return;
+              }
+              const QString assetId = *candidates.cbegin();
               showPage(QStringLiteral("data"));
               m_previewTabs->openSeismicLine(
                   assetId, QStringLiteral("inline"), line, timeMs);

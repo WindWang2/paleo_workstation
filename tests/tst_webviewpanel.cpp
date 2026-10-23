@@ -1,5 +1,7 @@
 #include <QtTest>
 #include <QApplication>
+#include <QAction>
+#include <QDir>
 #include <QDockWidget>
 #include <QLabel>
 #include <QLineEdit>
@@ -10,6 +12,7 @@
 
 #include "../src/ui/webviewpanel.h"
 #include "../src/ui/paleomainwindow.h"
+#include "../src/ui/paleotheme.h"
 
 // WebViewPanel contract under offscreen: the engine never initializes on a
 // headless platform, setUrl() reports failure honestly, the panel degrades
@@ -20,6 +23,39 @@ class TestWebViewPanel : public QObject
   Q_OBJECT
 
 private slots:
+  void recoveryActionMirrorsAvailabilityAndTriggersRetry()
+  {
+    WebViewPanel panel;
+    QAction retry;
+    QSignalSpy attempts(&retry, &QAction::triggered);
+    panel.setRecoveryAction(&retry);
+    panel.showError(QUrl(QStringLiteral("http://127.0.0.1:8771/workspace.html")),
+                    QStringLiteral("连接失败，请检查服务地址或启动本地服务。"));
+    panel.resize(1000, 600);
+    panel.show();
+    auto *button = panel.findChild<QPushButton *>(QStringLiteral("webRecoveryButton"));
+    QVERIFY(button && button->isVisibleTo(&panel));
+    retry.setEnabled(false);
+    QVERIFY(!button->isEnabled());
+    QTest::mouseClick(button, Qt::LeftButton);
+    QCOMPARE(attempts.count(), 0);
+    retry.setEnabled(true);
+    QVERIFY(button->isEnabled());
+    QTest::mouseClick(button, Qt::LeftButton);
+    QCOMPARE(attempts.count(), 1);
+    const auto capture = qEnvironmentVariable("PALEO_RECOVERY_CAPTURE");
+    if (!capture.isEmpty()) {
+      QVERIFY(QDir().mkpath(capture));
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
+        PaleoTheme::applyTheme(theme);
+        QTest::qWait(80);
+        QVERIFY(panel.grab().save(capture + (theme == PaleoTheme::Theme::Light
+            ? "/recovery-light.png" : "/recovery-dark.png")));
+      }
+      PaleoTheme::applyLightTheme();
+    }
+  }
+
   void engineStaysAbsentOnOffscreen()
   {
     WebViewPanel panel;
@@ -217,6 +253,7 @@ int main(int argc, char *argv[])
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
   QApplication app(argc, argv);
+  PaleoTheme::applyLightTheme(); // 与应用相同：先加载字体/主题，再创建控件。
   TestWebViewPanel tc;
   return QTest::qExec(&tc, argc, argv);
 }

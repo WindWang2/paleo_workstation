@@ -121,6 +121,7 @@ void StratigraphicWebPage::buildRibbon(SARibbonCategory *category)
     }
   };
   connect(open, &QAction::triggered, this, connectService);
+  m_web->setRecoveryAction(open);
   connect(m_address, &QLineEdit::returnPressed, this, connectService);
   connect(m_session, &StratigraphicWebSession::busyChanged, m_address,
           [this](bool busy) { m_address->setEnabled(!busy); });

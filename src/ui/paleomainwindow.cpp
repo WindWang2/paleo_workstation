@@ -198,8 +198,8 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   }
 
   m_dockManager->captureDefaultLayout();
-  showStartup(); // §42.1: first-run lands on the startup page
   restoreWindowState();
+  showStartup(); // Restore dock intent first; the home page has no project panels.
 
   // 方向63：快捷键注册表健康度进启动日志（冲突 warning / 遮蔽 info），
   // 外壳控件按清单回填 whatsThis（页面板在 attachWorkflows 末尾再补一轮）。
@@ -423,20 +423,9 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
   timer->start(100);
 }
 
-void PaleoMainWindow::showStartup()
-{
-  if (m_currentPage == QLatin1String("correlation"))
-    restoreCorrelationDocks();
-  setProjectReadOnly(false);
-  m_currentPage = QStringLiteral("startup");
-  if (m_dataListDock)
-    m_dataListDock->setProgrammaticVisible(false);
-  if (m_centerStack)
-    m_centerStack->setCurrentIndex(0);
-}
-
 void PaleoMainWindow::onProjectOpened()
 {
+  if (m_rightDock) m_rightDock->setProgrammaticVisible(m_rightDock->userWantsVisible());
   if (m_centerStack)
     m_centerStack->setCurrentIndex(1); // startup -> workspace canvas
 

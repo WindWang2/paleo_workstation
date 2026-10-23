@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QFontDatabase>
 #include <QFontInfo>
+#include <QTextLayout>
 #include <QImage>
 #include <QLabel>
 #include <QMenu>
@@ -408,6 +409,19 @@ class TestUxTheme : public QObject
 
     // mono 数字面：JetBrains Mono 9pt（DESIGN.md mono token），解析命中
     // vendor 家族而非系统替换。
+    void monoChineseUnitsHaveGlyphs()
+    {
+      PaleoTheme::applyLightTheme();
+      QTextLayout layout(QStringLiteral("未登记边界 口 项"), PaleoTheme::monoFont());
+      layout.beginLayout();
+      layout.createLine().setLineWidth(1000);
+      layout.endLayout();
+      const auto runs = layout.glyphRuns();
+      QVERIFY(!runs.isEmpty());
+      for (const auto &run : runs)
+        for (const auto glyph : run.glyphIndexes()) QVERIFY(glyph != 0);
+    }
+
     void monoFontIsJetBrainsNinePt()
     {
       const QFont f = PaleoTheme::monoFont();
@@ -697,6 +711,10 @@ class TestUxTheme : public QObject
           tinted.pixmap(8, 8).toImage().convertToFormat(QImage::Format_ARGB32);
       QVERIFY(qRed(img.pixel(4, 4)) > 150);
       QCOMPARE(qAlpha(img.pixel(0, 0)), 0);
+      QPixmap colored(8, 8);
+      colored.fill(QColor(20, 100, 220));
+      const auto preserved = PaleoIcons::tintForDarkTheme(QIcon(colored)).pixmap(8, 8).toImage();
+      QCOMPARE(preserved.pixelColor(4, 4), QColor(20, 100, 220));
       PaleoTheme::applyLightTheme();
     }
 

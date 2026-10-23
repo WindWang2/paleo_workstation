@@ -407,13 +407,7 @@ void PaleoLayoutDesignerShell::buildChrome()
   navLay->addWidget( m_pageSpin );
   m_statusBar->addWidget( navigator );
 
-  for ( QAction *a : ntb->actions() )
-  {
-    auto *btn = new QToolButton( m_statusBar );
-    btn->setDefaultAction( a );
-    btn->setToolButtonStyle( Qt::ToolButtonTextBesideIcon ); // actions are text-only
-    m_statusBar->addPermanentWidget( btn );
-  }
+  // 缩放动作只保留顶部导航工具栏，底栏保留页码导航。
 }
 
 void PaleoLayoutDesignerShell::buildFileMenu()

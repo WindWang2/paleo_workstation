@@ -503,9 +503,9 @@ void EntityPanel::setMultiContext(const QStringList &entityIds,
   refresh();
 }
 
-// D4.9 多选批量概要。
 void EntityPanel::refreshMultiSummary()
 {
+  if (auto *bar = findChild<QWidget *>(QStringLiteral("entityCrudBar"))) bar->hide();
   auto *content = findChild<QWidget *>(QStringLiteral("entityViewContent"));
   auto *empty = findChild<QLabel *>(QStringLiteral("entityViewEmptyLabel"));
   auto *header = findChild<QLabel *>(QStringLiteral("entityViewHeader"));
@@ -771,8 +771,12 @@ void EntityPanel::setContext(const QString &entityId, const QString &assetId)
 {
   m_entityId = entityId;
   m_assetId = assetId;
+  if (auto *crud = findChild<QWidget *>(QStringLiteral("entityCrudBar")))
+    crud->setVisible(!m_entityId.isEmpty() &&
+                     m_assetId != QLatin1String("project_dashboard") &&
+                     m_assetId != QLatin1String("survey_area"));
+
   m_versionId.clear(); m_graphSelected.clear(); m_preserveGraphOnce = false;
-  // 单一上下文覆盖多选批量概要态（D4.9 的回落路径）。
   m_multiAssetIds.clear();
   m_multiEntityIds.clear();
 }
@@ -790,7 +794,6 @@ void EntityPanel::refresh()
   QWidget *root = this;
   if (!root)
     return;
-  // D4.9 多选态：批量概要（多资产选中时优先生效；单选/空选回落常规三态）。
   if (m_multiAssetIds.size() > 1)
   {
     refreshMultiSummary();
@@ -825,7 +828,6 @@ void EntityPanel::refresh()
   const QString entityId = m_entityId;
   const QString assetId = m_assetId;
 
-  // 空态：工程未开
   if (!cat || !cat->isOpen())
   {
     empty->setText(tr("工程还没打开 — 打开工程后在左侧列表选择实体，"
@@ -835,7 +837,6 @@ void EntityPanel::refresh()
     return;
   }
 
-  // 实体与资产均未选：指引下一步（地图/列表点选）
   if (entityId.isEmpty() && assetId.isEmpty())
   {
     empty->setText(tr("在左侧数据列表选择实体或资产，这里按角色词表显示"
@@ -845,7 +846,6 @@ void EntityPanel::refresh()
     return;
   }
 
-  // 情况 1：选中了测区全景
   if (assetId == QLatin1String("survey_area") || assetId == QLatin1String("project_dashboard"))
   {
     empty->setVisible(false);

@@ -244,9 +244,9 @@ QList<ShortcutEntry> catalogEntries()
   const char *drawTool = QT_TRANSLATE_NOOP("PaleoShortcuts", "地图绘制工具（焦点内）");
   const char *editTool = QT_TRANSLATE_NOOP("PaleoShortcuts", "地图编辑工具（焦点内）");
   const char *vertexTool = QT_TRANSLATE_NOOP("PaleoShortcuts", "节点编辑工具（焦点内）");
-  out << make("layers.remove", QKeySequence(Qt::Key_Delete), "main", S, "map",
+  out << make("layers.remove", QKeySequence(Qt::Key_Delete), "main/layer-tree", S, "map",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "删除图层树中所选的图层或组（正在编辑的图层会被拒绝）"),
-              QT_TRANSLATE_NOOP("PaleoShortcuts", "图层树"), "src/ui/layers/layertreepanel.cpp")
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "图层树"), "src/ui/layers/layertreepanel.cpp", Qt::WidgetWithChildrenShortcut)
       << make("map.draw.finish", QKeySequence(Qt::Key_Return), "main/map/draw-tool", K, "map",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "完成当前绘制"), drawTool,
               "src/ui/maptools/paleomaptools.cpp")

@@ -35,7 +35,7 @@ void PropertyModelPanel::buildUi()
   lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
   lay->setSpacing(PaleoTheme::tokens().spacingSm);
 
-  auto *form = new QFormLayout();
+  auto *form = new QFormLayout(); form->setObjectName(QStringLiteral("propBaseForm"));
   form->setSpacing(PaleoTheme::tokens().spacingSm);
   m_top = new QLineEdit();
   m_top->setObjectName(QStringLiteral("propTopEdit"));
@@ -362,8 +362,15 @@ void PropertyModelPanel::syncEnabledState()
   m_layers->setEnabled(!m_busy);
   m_agg->setEnabled(!m_busy);
   m_power->setEnabled(!m_busy && method() == 0);
+  if (auto *form = findChild<QFormLayout *>(QStringLiteral("propBaseForm")))
+    form->setRowVisible(m_power, method() == 0);
+  m_power->setVisible(method() == 0);
   m_method->setEnabled(!m_busy);
   m_sgsGroup->setEnabled(!m_busy && method() == 1);
+  m_sgsGroup->setVisible(method() == 1);
   m_facies->setEnabled(!m_busy);
   m_objectGroup->setEnabled(!m_busy);
+  if (auto *form = qobject_cast<QFormLayout *>(m_objectGroup->layout()))
+    for (int row = 0; row < form->rowCount(); ++row)
+      form->setRowVisible(row, m_objectGroup->isChecked());
 }

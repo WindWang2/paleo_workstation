@@ -206,12 +206,10 @@ void DataListPanel::showWellAttachments(const QString &wellId)
 
 void DataListPanel::buildSearchActions(QWidget *searchRow, QHBoxLayout *layout, QWidget *advanced)
 {
-  auto *row = new QWidget(searchRow->parentWidget()); row->setObjectName("dataAssetActions");
+  auto *row = new QWidget(advanced); row->setObjectName("dataAssetActions");
   auto *actions = new QHBoxLayout(row); actions->setContentsMargins(0, 0, 0, 0);
   actions->setSpacing(PaleoTheme::tokens().spacingXs);
-  if (auto *parent = qobject_cast<QVBoxLayout *>(searchRow->parentWidget()->layout()))
-    parent->insertWidget(parent->indexOf(searchRow) + 1, row);
-  else layout->addWidget(row);
+  static_cast<QVBoxLayout *>(advanced->layout())->insertWidget(0, row);
   auto *exportData = new QToolButton(row);
   exportData->setObjectName("dataExportButton");
   exportData->setText(tr("导出数据…"));

@@ -108,16 +108,21 @@ void DataPage::wireDataOps()
               cat = doc->catalog();
             if (!cat)
               return;
-            const int idx = paleo::dataops::indexOfLink(
-                cat, assetId, QStringLiteral("well_log"), entityId);
-            QString err;
-            if (idx < 0 || !cat->setLinkPrimary(idx, &err))
+            const QString role = QStringLiteral("well_log");
+            if (paleo::dataops::indexOfLink(cat, assetId, role, entityId) < 0)
             {
-              emit statusMessage(tr("设为主文件失败：%1")
-                                     .arg(err.isEmpty() ? tr("找不到这条测井关联") : err));
+              emit statusMessage(tr("设为主文件失败：找不到这条测井关联"));
               return;
             }
-            QTimer::singleShot(0, this, [this] { refreshAssetTable(); });
+            QString previous;
+            for (const auto &link : cat->linksForEntity(entityId))
+              if (!link.unresolved && link.role == role && link.isPrimary)
+                previous = link.assetId;
+            if (previous == assetId) return;
+            QTimer::singleShot(0, this, [this, entityId, assetId, role, previous] {
+              m_listPanel->pushCommand(new SetPrimaryCmd(
+                  m_listPanel->opsContext(), assetId, role, entityId, previous));
+            });
           });
   // 树内 F2/菜单实体意图 → 实体面板执行（同一套对话框/命令栈）。
   connect(m_listPanel, &DataListPanel::entityRenameRequested, m_entityPanel,

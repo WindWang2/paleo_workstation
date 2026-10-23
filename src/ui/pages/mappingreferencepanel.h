@@ -9,7 +9,7 @@ class QComboBox;
 class QLabel;
 class QPushButton;
 class QToolButton;
-class QHBoxLayout;
+class QGridLayout;
 class QScrollArea;
 class QgsMapCanvas;
 class QgsMapLayer;
@@ -83,7 +83,7 @@ private:
   QgsMapCanvas *m_mainCanvas; // 非拥有；宿主与现有参考画布共享生命周期。
   QgsProject *m_project;
   QScrollArea *m_scroll;
-  QHBoxLayout *m_row;
+  QGridLayout *m_row;
   QLabel *m_count;
   QLabel *m_emptyHint = nullptr; // D-12：全部视图关闭后的空态引导
   QList<MappingReferencePanel *> m_views;

@@ -103,8 +103,7 @@ private slots:
     for (const ShortcutConflict &c : registry().shadows())
       pairs << c.first.id + QLatin1Char('|') + c.second.id;
     pairs.sort();
-    QCOMPARE(pairs, (QStringList{QStringLiteral("layers.remove|data.assets.remove"),
-                                 QStringLiteral("layers.remove|map.vertex.delete")}));
+    QVERIFY2(pairs.isEmpty(), qPrintable(pairs.join('\n')));
   }
 
   // Oracle 2 变异：故意注册重复键能被打红。
@@ -188,7 +187,8 @@ private slots:
     QVERIFY2(!e.id.isEmpty(), qPrintable(id));
     QCOMPARE(e.key, key);
     QCOMPARE(e.binding, Binding::Shortcut);
-    QCOMPARE(e.qtContext, Qt::WindowShortcut); // 散装时全是 QShortcut/QAction 缺省上下文
+    QCOMPARE(e.qtContext, id == QStringLiteral("layers.remove")
+        ? Qt::WidgetWithChildrenShortcut : Qt::WindowShortcut);
   }
 
   // 源码闸：全仓 src/ 只有 ui/shortcuts 能落键序（防散装回潮）。
@@ -274,11 +274,14 @@ private slots:
   void boundActionFiresOffscreen()
   {
     QWidget win;
+    win.setFocusPolicy(Qt::StrongFocus);
     auto *remove = new QAction(QStringLiteral("remove"), &win);
     bindAction(QStringLiteral("layers.remove"), remove);
     win.addAction(remove);
     QSignalSpy spy(remove, &QAction::triggered);
     showActive(&win);
+    win.setFocus();
+    QTRY_VERIFY(win.hasFocus());
     QTest::keyClick(&win, Qt::Key_Delete);
     QCOMPARE(spy.count(), 1);
   }

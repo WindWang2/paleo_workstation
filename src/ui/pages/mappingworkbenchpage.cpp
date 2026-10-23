@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：地质相模型表格中可编辑的颜色值。（tools/ui-token-exceptions.json 精确计数）。
 #include "mappingworkbenchpage.h"
+#include <QCheckBox>
 #include "../faciesdisplaycontrol.h"
 #include "../../domain/predictionevidence.h"
 #include "../../domain/faciescatalog.h"
@@ -124,6 +125,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
                            "结果按井、按地层写入「测井分层沉积相属性」表，与数据管理共用"),
                         Qt::ToolTipRole);
     form->addRow(tr("预测类型"), m_kind);
+    m_kind->setCurrentIndex(m_kind->findData(QStringLiteral("wells")));
     m_horizonSourceRow = new QWidget(body);
     auto *horizonSource = new QHBoxLayout(m_horizonSourceRow);
     horizonSource->setContentsMargins(0, 0, 0, 0);
@@ -296,6 +298,10 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_results->header()->setSectionResizeMode(0, QHeaderView::Stretch);
   m_results->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
   layout->addWidget(m_results);
+  m_allHorizons = new QCheckBox(tr("查看全部层位的图件"), body);
+  m_allHorizons->setObjectName(QStringLiteral("workbenchAllHorizons"));
+  layout->addWidget(m_allHorizons);
+  connect(m_allHorizons, &QCheckBox::toggled, this, &MappingWorkbenchPage::refresh);
   m_resultHint = label(QString());
   m_resultHint->setObjectName("workbenchResultHint");
   PaleoTheme::applyThemedStyleSheet(m_resultHint, [] {
@@ -393,7 +399,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   buildEvidenceSection(evidenceGroup, groupLayout);
   evidenceGroup->setCollapsed(mode == "compose");
   layout->addWidget(evidenceGroup);
-  appearance->setCollapsed(false); // DESIGN.md: groups start expanded.
+  appearance->setCollapsed(true);
   auto *details = new QgsCollapsibleGroupBox(tr("来源与生成参数"), body);
   details->setObjectName("workbenchProvenance");
   details->setSaveCollapsedState(false);
@@ -403,7 +409,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_details->setWordWrap(true);
   detailsLayout->addWidget(m_details);
   layout->addWidget(details);
-  details->setCollapsed(false);
+  details->setCollapsed(true);
   m_details->setTextInteractionFlags(Qt::TextSelectableByMouse);
   m_details->setObjectName("workbenchDetails");
   auto *schema = new QgsCollapsibleGroupBox(tr("当前层位相分类"), body);
@@ -414,7 +420,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   sl->addWidget(schemaBody);
   buildFaciesSchema(schemaBody);
   layout->addWidget(schema);
-  schema->setCollapsed(false);
+  schema->setCollapsed(true);
   layout->addStretch();
   connect(m_results, &QTreeWidget::currentItemChanged, this,
           [this] { updateState(); emit targetLayerChanged(selectedLayer()); });
@@ -427,14 +433,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
           });
   connect(workbench, &MappingWorkbench::changed, this,
           &MappingWorkbenchPage::scheduleRefresh);
-  connect(workbench, &MappingWorkbench::faciesChanged, this,
-          [this](const QString &h) {
-            if (h != m_horizon)
-              return;
-            const auto saved = m_horizon;
-            m_horizon.clear();
-            setHorizon(saved);
-          });
+  wireFaciesUpdates();
   paleo::pagesinternal::shrinkComboBoxesToDock(body);
   refresh();
 }
@@ -456,33 +455,6 @@ QStringList MappingWorkbenchPage::checkedInputs() const {
       if (m_inputs->item(i)->checkState() == Qt::Checked)
         ids << m_inputs->item(i)->data(Qt::UserRole).toString();
   return ids;
-}
-void MappingWorkbenchPage::setHorizon(const QString &h) {
-  if (m_horizon == h)
-    return;
-  m_horizon = h; emit horizonChanged(h);
-  m_evidenceSnapshotOwned = false; m_evidenceSnapshot.clear();
-  // 层位切换后反查结果属于旧层位上下文——清空，避免双击定位错层。
-  if (m_reverseResults) m_reverseResults->clear();
-  m_lastReverseKind.clear();
-  m_lastReverseArgument.clear();
-  if (m_horizonFile) m_horizonFile->clear();
-  showMessage(QString());
-  refresh();
-  const auto schema = m_workbench->facies(h);
-  if (m_thresholds) m_thresholds->setPlaceholderText(
-      tr("%1 个微相需填写 %2 个递增阈值（按编码顺序）").arg(schema.size()).arg(qMax(0, int(schema.size()) - 1)));
-  m_facies->setRowCount(schema.size());
-  for (int i = 0; i < schema.size(); ++i) {
-    auto f = schema[i].toMap();
-    m_facies->setItem(i, 0, new QTableWidgetItem(f.value("code").toString()));
-    m_facies->item(i, 0)->setData(Qt::UserRole, f);
-    m_facies->setItem(i, 1, new QTableWidgetItem(f.value("name").toString()));
-    m_facies->setItem(i, 2, new QTableWidgetItem(f.value("color").toString()));
-    int c = 3;
-    for (const auto &key : {"facies", "subfacies", "microfacies", "texture"})
-      m_facies->setItem(i, c++, new QTableWidgetItem(f.value(key).toString()));
-  }
 }
 void MappingWorkbenchPage::refreshInputs() {
   if (!m_inputs)
@@ -570,6 +542,8 @@ void MappingWorkbenchPage::refresh() {
                    });
   for (const auto &v : all) {
     auto row = v.toMap();
+    const QString rowHorizon = row.value("horizon").toString();
+    if (!m_allHorizons->isChecked() && !rowHorizon.isEmpty() && rowHorizon != m_horizon) continue;
     auto *item = new QTreeWidgetItem(
         m_results, {row.value("name").toString(),
                     row.value("version").toInt() > 0
@@ -579,7 +553,6 @@ void MappingWorkbenchPage::refresh() {
     item->setToolTip(0, row.value("path").toString());
     if (row.value("id").toString() == selected)
       m_results->setCurrentItem(item);
-    const QString rowHorizon = row.value("horizon").toString();
     if (m_points && row.value("type") == "vector" &&
         !row.value("kind").toString().startsWith("constraint") &&
         (rowHorizon.isEmpty() || rowHorizon == m_horizon))

@@ -289,7 +289,7 @@ void PaleoMainWindow::buildCenterArea()
     if (on) {
       m_preMaxWindowState = saveState();
       m_dataListDock->setProgrammaticVisible(false);
-      m_rightDock->hide();
+      m_rightDock->setProgrammaticVisible(false);
     } else if (!m_preMaxWindowState.isEmpty()) {
       restoreState(m_preMaxWindowState);
       m_preMaxWindowState.clear();
@@ -476,7 +476,7 @@ void PaleoMainWindow::buildPageDocks()
 {
   // ---- right dock: per-page panel stack (placeholders until attachWorkflows) ----
   // 标题随页（pageDockTitles()）；ribbon 里的「参数」钮就是它的 toggleViewAction。
-  m_rightDock = new QDockWidget(pageDockTitles().first(), this);
+  m_rightDock = new PaleoDockWidget(pageDockTitles().first(), this);
   m_rightDock->setObjectName(QStringLiteral("pagePanelDock"));
   auto *panelHost = new PaleoPanelHost(m_rightDock);
   panelHost->setObjectName(QStringLiteral("rightPanelHost"));

@@ -744,12 +744,10 @@ void EntityPanel::setDocService(PreviewDocService *doc)
 }
 void EntityPanel::setVersionContext(const QString &assetId, const QString &versionId)
 {
-  m_assetId = assetId; m_versionId = versionId;
-  m_entityId = m_doc ? m_doc->entityIdForAsset(assetId) : QString();
-  // 图内点选仍保留当前图及无关分支的降透明度；预览外部换版本重建子图。
-  m_preserveGraphOnce = m_preserveGraphOnce && m_graphSelected == versionId;
-  if (!m_preserveGraphOnce) m_graphSelected = versionId;
-  m_multiAssetIds.clear(); m_multiEntityIds.clear();
+  const bool preserve = m_preserveGraphOnce && m_graphSelected == versionId;
+  setContext(m_doc ? m_doc->entityIdForAsset(assetId) : QString(), assetId);
+  m_versionId = versionId; m_graphSelected = versionId;
+  m_preserveGraphOnce = preserve;
   refresh();
 }
 void EntityPanel::refreshDerivation()

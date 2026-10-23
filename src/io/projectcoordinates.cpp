@@ -78,7 +78,13 @@ bool projectRasterFile(const QString &path, const QString &target, QString *erro
                                &input, options, &usage);
   GDALWarpAppOptionsFree(options); GDALClose(input);
   if (!output) { QFile::remove(destination); return fail(error, QStringLiteral("栅格转换到工程基准坐标系失败")); }
-  GDALSetMetadataItem(output, "PALEO_CRS_WKT", coordinateWkt(target).toUtf8().constData(), nullptr);
+  const auto targetWkt = coordinateWkt(target);
+  if (targetWkt.isEmpty() ||
+      GDALSetMetadataItem(output, "PALEO_CRS_WKT", targetWkt.toUtf8().constData(), nullptr) != CE_None) {
+    GDALClose(output);
+    QFile::remove(destination);
+    return fail(error, QStringLiteral("无法保存工程坐标系声明"));
+  }
   GDALClose(output);
   // Both files are private staged outputs; never replace external source files.
   if (!QFile::remove(path) || !QFile::rename(destination, path)) return fail(error, QStringLiteral("无法保存坐标转换栅格"));

@@ -608,7 +608,9 @@ private slots:
       auto *box = dlg->findChild<QDialogButtonBox *>();
       if (!combo || !box)
         return false;
-      combo->setCurrentText(QStringLiteral("tops"));
+      const int tops = combo->findData(QStringLiteral("tops"));
+      if (tops < 0) return false;
+      combo->setCurrentIndex(tops);
       box->button(QDialogButtonBox::Ok)->click();
       return true;
     };
@@ -640,8 +642,11 @@ private slots:
     for (int r = 0; r < table->rowCount(); ++r)
       if (table->item(r, 0)->data(Qt::UserRole).toString() == target)
         QVERIFY(table->isRowHidden(r));
-    // 注：currentAssetSelection 仍会含 target——D1.10 语义要求 m_pageSelection
-    // 保留被过滤 id 以便清过滤后还原选区（同文件既有测试钉死），不是缺陷。
+    // 筛掉的目标不参与批量命令；清过滤后按身份恢复选区。
+    QVERIFY(!panel.currentAssetSelection().contains(target));
+    typeFilter->setCurrentIndex(0);
+    panel.applyListFilter();
+    QVERIFY(panel.currentAssetSelection().contains(target));
   }
 
   // C1（方向 01）：批量打标签 N 条命令一次收口刷新——旧缺陷 N 项选中即

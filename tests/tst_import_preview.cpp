@@ -135,6 +135,22 @@ private slots:
     const auto converted = std::find_if(result.cbegin(), result.cend(), [](const auto &top) { return top.topName == "D61"; });
     QVERIFY(converted != result.cend()); QVERIFY(std::abs(converted->md - 300.0) < 0.001); QVERIFY(warnings.join(' ').contains("按测斜"));
   }
+  void tvdBeyondSurveyIsNotDrawnAtNearestMd() {
+    PreviewStack stack; QString error; DataImportService::ImportOptions options;
+    QVERIFY(!stack.imports->importProjectFile(stack.source("A1.csv", ImportUxFixtures::csv()), &error).isEmpty());
+    options.forceType = "well_stratification";
+    const auto tops = stack.source("tops.dat", "#WellTops File From Paleo\n# PaleoDepthBasis: explicit\n"
+        "A1 DEEP -99999 -99999 -99999 -99999 50 -99999\n");
+    QVERIFY2(!stack.imports->importProjectFile(tops, options, &error).isEmpty(), qPrintable(error));
+    options.forceType = "well_deviation";
+    // 水平井：垂深几乎不增加。TVD 50 够不着，tvdToMd 会返回最近 MD（可以是 0），不得画出来。
+    const auto deviation = stack.source("A1_dev.dat", "# Well : A1\n0 90 0\n1000 90 0\n");
+    QVERIFY2(!stack.imports->importProjectFile(deviation, options, &error).isEmpty(), qPrintable(error));
+    PreviewDocService doc(stack.imports.get()); QVector<WellTopRecord> result; QStringList warnings;
+    doc.wellTopsForLog(onlyWellId(*stack.imports->catalog()), &result, &warnings);
+    QCOMPARE(result.size(), 0);
+    QVERIFY2(warnings.join(' ').contains(QStringLiteral("不在测斜范围内")), qPrintable(warnings.join(' ')));
+  }
   void noSurveyUsesExplicitStraightWellDisplayWarning() {
     PreviewStack stack; QString error; QVERIFY(!stack.imports->importProjectFile(stack.source("A1.csv", ImportUxFixtures::csv()), &error).isEmpty());
     DataImportService::ImportOptions options; options.forceType = "well_stratification";

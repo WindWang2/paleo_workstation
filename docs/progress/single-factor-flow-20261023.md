@@ -23,15 +23,15 @@
 ## 验证
 
 - Windows / RelWithDebInfo：`paleo` 与相关测试目标构建通过，编译并行度 `-j8`。
-- Qt 测试串行执行，7 个相关套件通过：`tst_mappingpages`、`tst_factorworkflow`、
+- 同步主分支 `c45f089a` 后，Qt 测试串行执行，8 个相关套件通过：`tst_mappingpages`、`tst_factorworkflow`、
   `tst_singlefactor_acquisition`、`tst_singlefactor_strategy`、`tst_singlefactor_structural`、
-  `tst_singlefactor_constraintuse`、`tst_singlefactor_contours`。工作流 48 项通过，
+  `tst_singlefactor_constraintuse`、`tst_singlefactor_contours`、`tst_shell_chrome`。工作流 49 项通过，
   外部真实工区用例因 `PALEO_REAL_PROJECT_AREA` 未设置而跳过，不作为真实工区验收。
 - 新增回归覆盖：重建工作流与图层清单后复用保存结果；强制重算与井点文件变化；
   比值/厚度默认值域及实际 QGIS 渲染器范围；读取 100 m 井层厚、无约束线成图并记录
   MD 口径；分层原件底界从 200 改为 250 后自动得到 150 m 新厚度。
-- `tst_shell_chrome::singleFactorRibbonFollowsFourSteps` 定向通过，检查四组顺序、
-  导入入口及重复成图动作归入更多菜单。没有声称完整 shell 套件通过。
+- 完整 `tst_shell_chrome` 20 项通过，包含四组顺序、导入入口、重复成图动作归入更多
+  菜单与命令帮助检查。补齐两个线矢量导入入口的帮助目录条目，沿用镜像同步。
 - 12 项源码闸门通过：layering strict / symbol / transitive / qgs audit、QGIS spread、
   UI invariants / size / file budget、i18n、UI tokens、QGIS versions、docs drift。
   所有基线保持原值。

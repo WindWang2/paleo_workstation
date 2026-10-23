@@ -115,11 +115,6 @@ void DataListPanel::batchChangeType()
   if (m_virtualView && !updatedRows.isEmpty())
   {
     m_virtualView->updateRows(updatedRows);
-    if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
-    {
-      m_selKeep.snapshot(m_tree, table);
-      m_pageSelection.unite(m_selKeep.ids());
-    }
     m_tableDirty = true; // 类型列文案按新行快照重灌（samePage 不挡脏标记）
     applyListFilter();
     emit entityRefreshRequested();

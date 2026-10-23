@@ -95,7 +95,7 @@ class DataListPanel : public QWidget
     paleo::datagraph::Presentation graphPresentation() const;
 
     // ---- D1 选中面 ----
-    QSet<QString> currentAssetSelection() const;      // 表+树聚合
+    QSet<QString> currentAssetSelection() const;      // 统一身份选区，限当前过滤集
     QStringList currentEntitySelection() const;       // 树中井节点
     paleo::dataops::SelectionMix currentSelectionMix() const;
 
@@ -258,7 +258,11 @@ class DataListPanel : public QWidget
     QPointer<StorageGovernanceDialog> m_storageDialog;
     QHash<QString, AssetEntityChoiceModel *> m_entityChoiceModels;
     QVector<paleo::dataops::AssetRowInfo> m_pageRows, m_filteredRows;
-    QSet<QString> m_pageSelection;
+    QSet<QString> m_pageSelection, m_visibleAssetIds;
+    bool m_restoringSelection = false;
+    void wireAssetSelection();
+    void syncAssetSelection(QAbstractItemView *view);
+    void restoreAssetSelection();
     int m_assetPage = 0;
     int m_assetSortColumn = -1;
     bool m_tableDirty = true;

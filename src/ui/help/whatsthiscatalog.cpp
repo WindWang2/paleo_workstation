@@ -81,6 +81,8 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"ConstraintPage", "constraintList", QT_TRANSLATE_NOOP("PaleoWhatsThis", "已有约束列表；选中后可修改属性或删除。"), nullptr},
     {"ConstraintPage", "directionButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制当前层位的方向线族约束线；语义由右侧下拉选——方向引导定供源方向（各向异性轴）、解释软边界减弱跨线影响、制图绕行只调整解释性等值线；仅支持约束的插值方法会消费它。"), nullptr},
     {"ConstraintPage", "breakLineButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制当前层位的间隔线族约束线；语义由右侧下拉选——硬屏障阻断跨线传播、等值线止于该线，等值停止只终止提线、不改变插值数值；仅支持约束的插值方法会消费它。"), nullptr},
+    {"ConstraintPage", "barrierImportButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "导入线状矢量作为当前层位的间隔线族约束，按所选硬屏障或等值停止语义使用；此步骤可跳过。"), nullptr},
+    {"ConstraintPage", "directionImportButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "导入线状矢量作为当前层位的方向线族约束，按所选方向引导、解释软边界或制图绕行语义使用；此步骤可跳过。"), nullptr},
 
     // ---- 智能编图页 ----
     {"ComposePage", "thicknessChainButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按所选层位生成等厚图：等时差（双向 ms）× 层间速度 IDW → 厚度栅格；需先在顶部层位 chip 选择层位。"), nullptr},

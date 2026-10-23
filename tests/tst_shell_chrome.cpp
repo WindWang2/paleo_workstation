@@ -14,6 +14,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QSettings>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QToolButton>
@@ -27,6 +28,8 @@
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/pages/datalist.h"
 #include "../src/ui/pages/pageshared.h"
+#include "../src/ui/edittools/editingtoolbar.h"
+#include <qgsvectorlayer.h>
 
 class TestShellChrome : public QObject
 {
@@ -95,6 +98,33 @@ private slots:
       QDir().mkpath(qa);
       QVERIFY(win.grab().save(qa + QStringLiteral("/shell-four-steps.png")));
     }
+  }
+
+  void homeRoundTripRestoresParameterDockIntent()
+  {
+    QTemporaryDir project;
+    QgisCanvasController canvas(m_ctx);
+    PaleoMainWindow win(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(), m_ctx->toolSvc(),
+                        m_ctx->selection());
+    const auto closeProject = qScopeGuard([this] { m_ctx->projectSvc()->closeProject(); });
+    win.show();
+    QVERIFY(m_ctx->projectSvc()->createProject(project.filePath(QStringLiteral("review.qgz"))));
+    win.showPage(QStringLiteral("predict"));
+    auto *right = win.findChild<PaleoDockWidget *>(QStringLiteral("pagePanelDock"));
+    QVERIFY(right);
+    right->show();
+    QVERIFY(right->userWantsVisible());
+    QVERIFY(!right->isHidden());
+    win.showStartup();
+    QVERIFY(right->isHidden());
+    win.showPage(QStringLiteral("predict"));
+    QVERIFY(right->userWantsVisible());
+    QVERIFY2(!right->isHidden(), "Parameters stay hidden after Home -> Predict");
+    right->hide();
+    win.showStartup();
+    win.showPage(QStringLiteral("predict"));
+    QVERIFY(right->isHidden());
+    QVERIFY(!right->userWantsVisible());
   }
 
   // 基线（非回归场景）：纯切页时左 dock 随页策略显隐，且不丢「用户想看」。
@@ -555,25 +585,44 @@ private slots:
     win.attachWorkbench(m_ctx->mappingWorkbench());
     win.resize(1440, 900);
     win.show();
-    int total = 0;
+    auto *editing = win.findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+    QVERIFY(editing);
+    QgsVectorLayer target(QStringLiteral("Polygon?crs=EPSG:3857"), QStringLiteral("help-target"), QStringLiteral("memory"));
+    QVERIFY(target.isValid());
+    const auto resetTarget = qScopeGuard([editing] {
+      editing->setCurrentLayer(nullptr);
+      editing->setLayers({});
+    });
+    editing->setLayerFilter({});
+    QSet<QString> coveredPages;
+    QSet<QAction *> coveredActions;
     QStringList missing;
-    for (const QString &id : paleo::pagesinternal::kPageIds)
-    {
-      win.showPage(id);
-      QWidget *cat = win.categoryForPage(id);
-      QVERIFY(cat);
-      for (auto *b : cat->findChildren<QToolButton *>())
-      {
-        if (!b->inherits("SARibbonToolButton") || !b->isVisibleTo(cat))
-          continue;
-        ++total;
-        if (b->whatsThis().simplified().isEmpty())
-          missing << QStringLiteral("%1/%2 (%3)").arg(id, b->objectName(), b->text().simplified());
+    for (bool hasTarget : {false, true}) {
+      for (const QString &id : paleo::pagesinternal::kPageIds) {
+        win.showPage(id);
+        // 页面切换会重算编辑目标；在每一页覆盖无目标与有目标两种布局。
+        editing->setLayers(hasTarget ? QList<QgsVectorLayer *>{&target} : QList<QgsVectorLayer *>{});
+        editing->setCurrentLayer(hasTarget ? &target : nullptr);
+        QCOMPARE(editing->actionSelect()->isEnabled(), hasTarget);
+        QWidget *cat = win.categoryForPage(id);
+        QVERIFY(cat);
+        bool hasCommand = false;
+        for (auto *b : cat->findChildren<QToolButton *>()) {
+          if (!b->inherits("SARibbonToolButton") || !b->isVisibleTo(cat))
+            continue;
+          hasCommand = true;
+          if (auto *action = b->defaultAction()) coveredActions.insert(action);
+          if (b->whatsThis().simplified().isEmpty())
+            missing << QStringLiteral("%1/%2 (%3)").arg(id, b->objectName(), b->text().simplified());
+        }
+        QVERIFY2(hasCommand, qPrintable(id));
+        coveredPages.insert(id);
       }
     }
-    QVERIFY2(total >= 90, qPrintable(QStringLiteral("only %1 visible ribbon buttons seen").arg(total)));
-    QVERIFY2(missing.isEmpty(), qPrintable(QStringLiteral("%1 of %2 ribbon buttons have no help:\n%3")
-                                               .arg(missing.size()).arg(total).arg(missing.join(QLatin1Char('\n')))));
+    QCOMPARE(coveredPages.size(), paleo::pagesinternal::kPageIds.size());
+    for (auto *action : {editing->actionSelect(), editing->actionEditMode(), editing->actionSave(), editing->actionCancel()})
+      QVERIFY2(coveredActions.contains(action), qPrintable(action->text()));
+    QVERIFY2(missing.isEmpty(), qPrintable(missing.join(QLatin1Char('\n'))));
   }
 
   // C（通用门控接入既有 QAction，必须是本文件最后一个用例：它会开关 AppContext 里的工程）：

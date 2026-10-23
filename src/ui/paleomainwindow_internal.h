@@ -24,6 +24,7 @@ struct PageDockState
   PaleoDockWidget *wellSection;
   bool previewMaximized;
   bool bottomAutoShown;
+  PaleoDockWidget *right = nullptr;
 };
 
 void applyPageDockPolicy(const QString &pageId, const PageDockState &s,

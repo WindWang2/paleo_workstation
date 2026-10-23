@@ -49,6 +49,9 @@ class PaleoTempDir
                       QDirIterator::Subdirectories);
       while (it.hasNext()) {
         const QFileInfo info(it.next());
+        // 文件符号链接会被当成文件列出；setPermissions 在 POSIX 上跟随链接。
+        if (info.isSymLink())
+          continue;
         if (!info.isWritable())
           QFile::setPermissions(info.absoluteFilePath(),
                                 info.permissions() | QFileDevice::WriteOwner);

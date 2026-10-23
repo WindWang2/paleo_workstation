@@ -48,8 +48,6 @@ void DataListPanel::refreshAssetTable()
   if (!table || !m_doc)
     return;
   loadStoresForCatalog();
-  m_selKeep.snapshot(m_tree, table);
-  m_pageSelection.unite(m_selKeep.ids());
   DataCatalog *cat = m_doc->catalog();
   for (auto *model : m_entityChoiceModels) model->deleteLater();
   m_entityChoiceModels.clear();

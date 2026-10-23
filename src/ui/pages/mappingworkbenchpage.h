@@ -72,8 +72,8 @@ private:
   void buildReferenceEntry(QWidget *body, QVBoxLayout *layout);
   void renderEvidenceAttributionTargets(const QVariantMap &snapshot);
   void renderEvidenceAttribution(const QVariantMap &snapshot);
-  void buildEvidenceSection(QWidget *group, QVBoxLayout *layout);
-  void buildEvidenceEditor(QWidget *group, QVBoxLayout *layout);
+  void buildEvidenceSection(QWidget *parent, QVBoxLayout *layout);
+  void buildEvidenceEditor(QWidget *parent, QVBoxLayout *layout);
   void buildEvidenceSources(QWidget *group, QTabWidget *tabs);
   void buildEvidenceReview(QWidget *group, QTabWidget *tabs);
   void buildEvidenceHistory(QWidget *group, QTabWidget *tabs);

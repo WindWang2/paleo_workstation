@@ -11,6 +11,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -21,6 +22,7 @@ void DataListPanel::applyListFilter()
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
   if (!table)
     return;
+  const QScopedValueRollback<bool> restoring(m_restoringSelection, true);
   syncLegacyControlsIntoFilter();
   // 可见集 = 行快照 × FilterGroup × 激活标签（D2.2/D2.4）。
   QSet<QString> visibleIds;
@@ -42,6 +44,7 @@ void DataListPanel::applyListFilter()
                            : m_assetSortColumn == 2 ? QStringLiteral("entity") : QStringLiteral("name");
   if (m_assetSortColumn >= 0) sortAssetRows(&filtered, sortField, m_assetSortAscending);
   m_filteredRows = filtered;
+  m_visibleAssetIds = visibleIds;
   const bool paged = m_rows.size() > 200;
   const int pageSize = qMax(1, table->viewport()->height() / qMax(1, table->verticalHeader()->defaultSectionSize()));
   const int pages = qMax(1, int((filtered.size() + pageSize - 1) / pageSize));
@@ -145,6 +148,8 @@ void DataListPanel::applyListFilter()
       restoreColumnState(QStringLiteral("assetVirtualTable"),
                          m_virtualView->horizontalHeader());
   }
+  restoreAssetSelection();
+  refreshSelectionBadge();
 }
 
 void DataListPanel::setUnresolvedFilter(bool on)
@@ -271,6 +276,15 @@ void DataListPanel::syncLegacyControlsIntoFilter()
 void DataListPanel::applyFilterGroup(const paleo::dataops::FilterGroup &g)
 {
   m_filter = g;
+  // 这是替换整组条件（含空组），旧输入框不能把已删除的条件带回来。
+  if (auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"))) {
+    const QSignalBlocker block(search);
+    search->clear();
+  }
+  if (auto *type = findChild<QComboBox *>(QStringLiteral("assetTypeFilter"))) {
+    const QSignalBlocker block(type);
+    type->setCurrentIndex(0);
+  }
   if (m_filterBar)
     m_filterBar->setOrMode(g.orMode);
   applyListFilter();

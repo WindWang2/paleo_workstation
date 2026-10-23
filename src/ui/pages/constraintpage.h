@@ -13,6 +13,7 @@ class QPushButton;
 class QShowEvent;
 class QTableWidget;
 class QVBoxLayout;
+struct SingleFactorDefinition;
 
 // ui/pages/constraintpage.h — ②约束与单因素页（自 pagepanels 拆出，公共
 // 形状不变：objectName/信号签名/ctor 签名全保留）。
@@ -109,6 +110,9 @@ class ConstraintPage : public QWidget
     void showEvent(QShowEvent *event) override;
   private:
     void suggestFactorCellSize();
+    void arrangeFactorFlow(QWidget *content, QVBoxLayout *layout);
+    void refreshFactorDefaultsHint();
+    SingleFactorDefinition factorDefinition(const QString &factorId, bool *ok = nullptr) const;
     // 方向 96 拆 TU：ctor 按原文行序分解为下列构建段（创建序/连接序逐行
     // 保持；实现分布 constraintpage_wellfactors/_interpolation/_generate/
     // _constraints/_sections.cpp）。跨段指针约定：objectName 命中控件一律

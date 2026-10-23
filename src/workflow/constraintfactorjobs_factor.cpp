@@ -80,6 +80,11 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
   QVariantMap params = inputParams;
+  if (factorId == QLatin1String("strathick") && params.contains("factorSource") &&
+      params.value("factorSource") != QLatin1String("wells") && params.value("factorSource") != QLatin1String("surfaces")) {
+    paleo::workflow_detail::setError(error, tr("未知地层厚度来源，请选择井分层厚度或构造面相减"));
+    return false;
+  }
   QgisProcessingService *proc = m_proc.data();
   QgisLayerService *layers = m_layers.data();
   if ( !proc || !layers )
@@ -88,7 +93,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
   bool known = false;
-  const SingleFactorDefinition def = SingleFactorRegistry::byId( factorId, &known );
+  const SingleFactorDefinition def = SingleFactorRegistry::byId(factorId, &known, params.value("factorSource").toString());
   if ( !known )
   {
     paleo::workflow_detail::setError( error, tr( "未知单因素 id：%1" ).arg( factorId ) );
@@ -97,6 +102,8 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
 
   if (!prepareFactorInputs(horizon, factorId, params, error))
     return false;
+  if (factorId == QLatin1String("strathick") && params.contains("factorSource"))
+    params.insert(QStringLiteral("depthDomain"), params.value("factorSource") == QLatin1String("wells") ? QStringLiteral("MD") : QStringLiteral("surface_difference"));
   if (def.processingAlgId == QLatin1String("paleo:paleo_constraint_idw") &&
       params.value("method").toString() != QLatin1String("structural_idw")) {
     const auto pointsId =
@@ -815,7 +822,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
   if ( params.contains( QStringLiteral( "denominatorField" ) ) )
     runParams.insert( QStringLiteral( "DENOMINATOR_FIELD" ), params.value( QStringLiteral( "denominatorField" ) ) );
   runParams.insert( QStringLiteral( "VALUE_RANGE" ),
-                    params.value( QStringLiteral( "valueRange" ), QStringLiteral( "ratio_0_1" ) ) );
+                    params.value(QStringLiteral("valueRange"), def.defaultParams.value(QStringLiteral("valueRange"), QStringLiteral("data"))) );
   runParams.insert( QStringLiteral( "BOUNDARY" ), QVariant::fromValue( boundary ) );
   if ( interpArea )
     runParams.insert( QStringLiteral( "INTERPOLATION_AREA" ), QVariant::fromValue( interpArea ) );

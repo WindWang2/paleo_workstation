@@ -628,6 +628,7 @@ class FactorPageTests : public QObject
     void guidedPreparationAndPinnedActions();
     void ipoStagesAndProgressiveDisclosure();
     void oneClickExtractThenGenerateStopsWithReason();
+    void fourStepFlowKeepsAcquisitionVisibleAndLinesOptional();
     void fallbackToolsGroupedUnderMoreTools();
     void strategyPackDrivesMethodCombo(); // 方向67：词表驱动下拉 + 参数预览 + strategy_id 载荷
     void cokrigingCovariateControls();    // 方向91：协变量下拉只在协克里金可见，并写入参数
@@ -767,8 +768,14 @@ void FactorPageTests::strathickEngineRowsAndPayload()
   factors->item( 0, 0 )->setCheckState( Qt::Checked );
   QVERIFY( !surfaceRow->isVisibleTo( &page ) );
 
-  // strathick（第 3 行）勾选 → 行展开；#430 要求顶/底面不同才开放生成。
+  // 地层厚度默认井分层 MD；构造面口径必须显式选择。
   factors->item( 2, 0 )->setCheckState( Qt::Checked );
+  auto *source = page.findChild<QComboBox *>(QStringLiteral("factorSourceCombo"));
+  QVERIFY(source);
+  QCOMPARE(source->currentData().toString(), QStringLiteral("wells"));
+  QVERIFY(!surfaceRow->isVisibleTo(&page));
+  QVERIFY(page.findChild<QPushButton *>(QStringLiteral("extractWellFactorsButton"))->isEnabled());
+  source->setCurrentIndex(source->findData(QStringLiteral("surfaces")));
   QVERIFY( surfaceRow->isVisibleTo( &page ) );
   auto *generate = page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) );
   QVERIFY( !generate->isEnabled() );
@@ -1422,7 +1429,7 @@ void FactorPageTests::contourIntervalDefaultsToSixthOfFactorRange()
   table->setItem( 0, 1, new QTableWidgetItem( QStringLiteral( "10" ) ) );
   table->setItem( 1, 1, new QTableWidgetItem( QStringLiteral( "70" ) ) );
   factors->item( 0, 0 )->setCheckState( Qt::Checked ); // 换因素后按新极差重算
-  QCOMPARE( spin->value(), 10.0 );                     // (70-10)/6 = 10
+  QCOMPARE( spin->value(), 20.0 );                     // 厚度建议值域 0–100 m，整刻度间距 20 m。
 }
 
 // 方向04 D10：「10, abc, 30」不再静默解析成 [10,30]——按钮提示脏 token，
@@ -1812,8 +1819,8 @@ void FactorPageTests::oneClickExtractThenGenerateStopsWithReason()
   auto *status = page.findChild<QLabel *>(QStringLiteral("statusLabel"));
   auto *progress = page.findChild<QProgressBar *>(QStringLiteral("factorProgressBar"));
   QVERIFY(oneClick && generate && extract && status && progress);
-  QCOMPARE(oneClick->text(), QStringLiteral("生成单因素图"));
-  QCOMPARE(generate->text(), QStringLiteral("生成单因素图"));
+  QCOMPARE(oneClick->text(), QStringLiteral("生成等值图"));
+  QCOMPARE(generate->text(), QStringLiteral("生成等值图"));
   QVERIFY(!oneClick->isEnabled()); // 无层位/因素
   page.setHorizons({QStringLiteral("D61")});
   page.findChild<QTableWidget *>(QStringLiteral("factorTable"))->item(0, 0)->setCheckState(Qt::Checked);
@@ -1915,7 +1922,8 @@ void FactorPageTests::ipoStagesAndProgressiveDisclosure()
   QVERIFY(y(table) < y(wells));
   QVERIFY(y(table) < y(page.findChild<QWidget *>("factorDataDetailsSection")));
   QVERIFY(page.findChild<QWidget *>("factorBasicSettingsSection")->isAncestorOf(method));
-  QVERIFY(y(method) < y(optional));
+  QVERIFY(y(optional) < y(processStage));
+  QVERIFY(y(processStage) < y(method));
   QVERIFY(y(optional) < y(outputStage));
   QVERIFY(y(outputStage) < y(contour));
   QVERIFY(y(contour) < y(results));
@@ -1928,7 +1936,7 @@ void FactorPageTests::ipoStagesAndProgressiveDisclosure()
     QVERIFY2(page.findChild<QWidget *>(QString::fromLatin1(name)), name);
   // 步骤条：未选层位/因素时停在「输入」。
   QCOMPARE(stepper->property("stage").toInt(), 0);
-  QVERIFY(stepper->text().contains(QStringLiteral("▶ 输入")));
+  QVERIFY(stepper->text().contains(QStringLiteral("▶ 获取单因素")));
   page.setHorizons({QStringLiteral("D61")});
   QTest::mouseClick(table->viewport(), Qt::LeftButton, Qt::NoModifier,
                    table->visualItemRect(table->item(0, 1)).center());
@@ -1946,6 +1954,38 @@ void FactorPageTests::ipoStagesAndProgressiveDisclosure()
     QDir().mkpath(qa);
     QVERIFY(page.grab().save(qa + QStringLiteral("/ipo-after.png")));
   }
+}
+
+void FactorPageTests::fourStepFlowKeepsAcquisitionVisibleAndLinesOptional()
+{
+  ConstraintPage page(nullptr);
+  page.setHorizons({QStringLiteral("D61")});
+  page.resize(420, 900); page.show(); QCoreApplication::processEvents();
+  auto *acquire = page.findChild<QPushButton *>(QStringLiteral("extractWellFactorsButton"));
+  auto *details = page.findChild<QWidget *>(QStringLiteral("factorDataDetailsSection"));
+  auto *lines = page.findChild<QWidget *>(QStringLiteral("factorConstraintsOptionalSection"));
+  auto *map = page.findChild<QLabel *>(QStringLiteral("factorSettingsCaption"));
+  auto *contours = page.findChild<QLabel *>(QStringLiteral("factorOutputStageCaption"));
+  auto *body = page.findChild<QWidget *>(QStringLiteral("constraintPageBody"));
+  QVERIFY(acquire && details && lines && map && contours && body);
+  QVERIFY(acquire->isVisibleTo(&page));
+  QVERIFY(!details->isAncestorOf(acquire));
+  QVERIFY(!page.findChild<QWidget *>(QStringLiteral("constraintFamiliesSection"))->isVisibleTo(&page));
+  const auto y = [body](QWidget *widget) { return widget->mapTo(body, QPoint()).y(); };
+  QVERIFY(y(acquire) < y(lines)); QVERIFY(y(lines) < y(map)); QVERIFY(y(map) < y(contours));
+  const auto stepper = page.findChild<QLabel *>(QStringLiteral("factorIpoStepper"))->text();
+  for (const auto &step : {QStringLiteral("获取单因素"), QStringLiteral("间隔/方向线"), QStringLiteral("等值图"), QStringLiteral("等值线")})
+    QVERIFY(stepper.contains(step));
+  QSignalSpy acquired(&page, &ConstraintPage::extractWellFactorsRequested);
+  acquire->click(); QCOMPARE(acquired.size(), 1);
+  QVERIFY(!acquired.last()[2].toMap().value("forceRefresh").toBool());
+  page.findChild<QPushButton *>(QStringLiteral("recomputeWellFactorsButton"))->click();
+  QCOMPARE(acquired.size(), 2); QVERIFY(acquired.last()[2].toMap().value("forceRefresh").toBool());
+  auto *factors = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
+  factors->item(1, 0)->setCheckState(Qt::Checked);
+  QCOMPARE(page.findChild<QDoubleSpinBox *>(QStringLiteral("contourIntervalSpin"))->value(), 0.1);
+  QVERIFY(page.findChild<QLabel *>(QStringLiteral("factorMapDefaultsHint"))->text().contains(QStringLiteral("0–1")));
+  QVERIFY(!page.findChild<QPushButton *>(QStringLiteral("contourButton"))->isEnabled());
 }
 
 void FactorPageTests::guidedPreparationAndPinnedActions()
@@ -1994,7 +2034,8 @@ void FactorPageTests::guidedPreparationAndPinnedActions()
   QVERIFY(page.rect().contains(bar->geometry()));
   QVERIFY(page.findChild<QPushButton *>("factorOneClickButton")->isVisibleTo(&page));
   next->click();
-  QTRY_VERIFY(scroll->verticalScrollBar()->value() < scroll->verticalScrollBar()->maximum());
+  auto *acquire = page.findChild<QPushButton *>(QStringLiteral("extractWellFactorsButton"));
+  QTRY_VERIFY(scroll->viewport()->rect().contains(QRect(acquire->mapTo(scroll->viewport(), QPoint()), acquire->size())));
   QVERIFY(capture(QStringLiteral("02-constraints-light")));
   // 推荐地质口径下无需选字段；下一步直接是提取。
   page.setProperty("paleo.page.constraintsready", true);
@@ -2007,12 +2048,20 @@ void FactorPageTests::guidedPreparationAndPinnedActions()
   page.resize(280, 420);
   QCoreApplication::processEvents();
   QCOMPARE(page.width(), 280);
+  QStringList wide;
+  for (const auto *widget : scroll->widget()->findChildren<QWidget *>())
+    if (widget->isVisibleTo(&page) && widget->minimumSizeHint().width() > scroll->viewport()->width() - 16)
+      wide << QStringLiteral("%1 (%2): %3").arg(widget->objectName(), QLatin1String(widget->metaObject()->className()))
+                  .arg(widget->minimumSizeHint().width());
+  QVERIFY2(scroll->horizontalScrollBar()->maximum() == 0, qPrintable(wide.join(QLatin1Char('\n'))));
   QVERIFY(page.rect().contains(bar->geometry()));
   QVERIFY(page.findChild<QPushButton *>("factorOneClickButton")->isVisibleTo(&page));
   QVERIFY(capture(QStringLiteral("03-narrow-light")));
   page.resize(420, 760);
   // 换到非插值引擎时不展示不适用的字段/高级参数，输入提示明确。
   table->item(2, 0)->setCheckState(Qt::Checked);
+  auto *source = page.findChild<QComboBox *>(QStringLiteral("factorSourceCombo"));
+  source->setCurrentIndex(source->findData(QStringLiteral("surfaces")));
   QVERIFY(page.findChild<QWidget *>(QStringLiteral("wellFactorSection"))->isHidden());
   QVERIFY(page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->isHidden());
   QVERIFY(page.findChild<QLabel *>(QStringLiteral("factorInputHint"))->text().contains(QStringLiteral("无需提取井点")));

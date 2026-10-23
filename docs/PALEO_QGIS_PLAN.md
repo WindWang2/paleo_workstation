@@ -6,6 +6,11 @@
 适用范围：Paleo Workbench C++ 主程序 / QGIS Vendor 集成层
 核心原则：QGIS 负责 GIS，Paleo Workbench 负责地质业务。
 
+2026-10-23 增补：单因素采用获取井值、可选约束线、生成等值图、可选等值线四步流程。
+地层厚度默认采用井分层 MD 厚度；构造面差值为显式选择的独立来源。功能层恢复与校验
+已保存井值、编排计算及登记口径，数据层提供因素值域建议，QGIS 封装负责图层与渲染，
+视图只发送请求与展示状态。交付与验证见 `docs/progress/single-factor-flow-20261023.md`。
+
 2026-10-09 增补（用户排除 LibreOffice，并要求原件可编辑）：DOC/DOCX/XLS/XLSX/PPT/PPTX
 原件由本机静态页 ranuts/document（OnlyOffice WASM，无文档服务器）打开。功能层只在
 127.0.0.1 上托管编辑页和当前原件，异步核对 SHA；视图用既有 WebViewPanel 显示页面。

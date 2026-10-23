@@ -8,6 +8,7 @@
 #include <QTemporaryDir>
 #include <QSemaphore>
 #include <QScopeGuard>
+#include <limits>
 
 #include <qgsapplication.h>
 #include <qgscolorramp.h>
@@ -358,6 +359,85 @@ class TestFactorWorkflow : public QObject
     }
 
   private slots:
+    void savedWellFactorsAreReadAcrossWorkflowAndLayerRestart()
+    {
+      Fixture f; QVERIFY(initFixture(f)); QString error; QVERIFY2(setupWells(f, &error), qPrintable(error));
+      const QVariantMap params{{"factorMode", "direct"}, {"valueField", "z"}};
+      ConstraintWorkflow first(&f.proc, &f.layers); first.setCatalog(&f.catalog, f.dir.path());
+      QVERIFY2(first.extractWellFactors("T1", "sandthick", params, &error), qPrintable(error));
+      const auto version = first.preparedWellFactorVersion("T1", "sandthick", params);
+      QVERIFY(!version.isEmpty()); const auto count = f.catalog.versions().size();
+      LayerManifest manifest(f.dir.filePath("reopened.sqlite")); QVERIFY(manifest.open());
+      QgisLayerService layers(&f.projectSvc, &manifest);
+      ConstraintWorkflow reopened(&f.proc, &layers); reopened.setCatalog(&f.catalog, f.dir.path());
+      QSignalSpy ready(&reopened, &ConstraintWorkflow::wellFactorsExtracted);
+      QSignalSpy busy(&reopened, &ConstraintWorkflow::factorJobStateChanged);
+      QVERIFY2(reopened.startWellFactorExtraction("T1", "sandthick", params, &error), qPrintable(error));
+      QCOMPARE(reopened.preparedWellFactorVersion("T1", "sandthick", params), version);
+      QCOMPARE(f.catalog.versions().size(), count); QCOMPARE(ready.size(), 1); QCOMPARE(busy.size(), 0);
+      QCOMPARE(reopened.wellFactorRows(), first.wellFactorRows());
+      QVERIFY(reopened.wellFactorMessage().contains(QStringLiteral("已读取")));
+      auto force = params; force.insert("forceRefresh", true);
+      QVERIFY2(first.startWellFactorExtraction("T1", "sandthick", force, &error), qPrintable(error));
+      QCOMPARE(f.catalog.versions().size(), count + 1);
+      QVERIFY(first.preparedWellFactorVersion("T1", "sandthick", params) != version);
+      QFile changed(f.dir.filePath("wells.geojson")); QVERIFY(changed.open(QIODevice::Append));
+      changed.write("\n "); changed.close();
+      QVERIFY(first.preparedWellFactorVersion("T1", "sandthick", params).isEmpty());
+      QVERIFY2(first.startWellFactorExtraction("T1", "sandthick", params, &error), qPrintable(error));
+      QCOMPARE(f.catalog.versions().size(), count + 2);
+      QVERIFY(!first.preparedWellFactorVersion("T1", "sandthick", params).isEmpty());
+    }
+
+    void geologicalDefaultsKeepRatiosAndThicknessSeparate()
+    {
+      const double missing = std::numeric_limits<double>::quiet_NaN();
+      const auto ratio = SingleFactorRegistry::mapDefaults("sandratio", 0.2, 0.8);
+      QCOMPARE(ratio.minimum, 0.0); QCOMPARE(ratio.maximum, 1.0); QCOMPARE(ratio.contourInterval, 0.1);
+      const auto thick = SingleFactorRegistry::mapDefaults("sandthick", 5.0, 42.0);
+      QCOMPARE(thick.minimum, 0.0); QCOMPARE(thick.maximum, 50.0); QCOMPARE(thick.unit, QStringLiteral("m"));
+      QVERIFY(SingleFactorRegistry::mapDefaults("sandthick", 10.0, 183.0).maximum >= 183.0);
+      QVERIFY(!SingleFactorRegistry::mapDefaults("sandthick", missing, missing).hasRange);
+      Fixture f; QVERIFY(initFixture(f));
+      const auto path = makeSurfaceRaster(f.dir.filePath("thickness.tif"), {5, 10, 20, 30, 42, 5, 10, 20, 30});
+      QgsRasterLayer raster(path, "thickness", "gdal"); QVERIFY(raster.isValid());
+      QVERIFY(FactorStyleWriter::applyTo(&raster, "sandthick"));
+      const auto *renderer = dynamic_cast<QgsSingleBandPseudoColorRenderer *>(raster.renderer());
+      QVERIFY(renderer); QCOMPARE(renderer->classificationMin(), 0.0); QCOMPARE(renderer->classificationMax(), 50.0);
+      QVERIFY(FactorStyleWriter::applyTo(&raster, "sandratio"));
+      renderer = dynamic_cast<QgsSingleBandPseudoColorRenderer *>(raster.renderer());
+      QCOMPARE(renderer->classificationMin(), 0.0); QCOMPARE(renderer->classificationMax(), 1.0);
+    }
+
+    void stratigraphicThicknessAcquiresMdAndGeneratesWithoutLines()
+    {
+      Fixture f; QVERIFY(initFixture(f)); QString error;
+      QVERIFY2(setupIntervalSourcedWells(f, &error, {{"w1", "A1", QStringLiteral("砂岩"), 10},
+          {"w2", "A2", QStringLiteral("泥岩"), 20}, {"w3", "A3", QStringLiteral("砂岩"), 30}}), qPrintable(error));
+      ConstraintWorkflow wf(&f.proc, &f.layers); wf.setCatalog(&f.catalog, f.dir.path());
+      QVariantMap params{{"factorMode", "auto"}, {"factorSource", "wells"}, {"method", "surfer_idw"}, {"cellSize", 2.0}};
+      QVERIFY2(wf.extractWellFactors("D61", "strathick", params, &error), qPrintable(error));
+      QCOMPARE(wf.wellFactorRows().size(), 3);
+      for (const auto &row : wf.wellFactorRows()) {
+        QVERIFY(row.toMap().value("contributing").toBool()); QCOMPARE(row.toMap().value("value").toDouble(), 100.0);
+      }
+      QVERIFY2(wf.generateFactor("D61", "strathick", params, &error), qPrintable(error));
+      bool found = false;
+      for (const auto &version : f.catalog.versions())
+        if (version.extra.value("kind") == QLatin1String("single_factor_raster") && version.extra.value("factor_id") == QLatin1String("strathick")) {
+          found = true; QCOMPARE(version.extra.value("factor_source").toString(), QStringLiteral("wells"));
+          QCOMPARE(version.extra.value("depth_domain").toString(), QStringLiteral("MD"));
+        }
+      QVERIFY(found);
+      QFile tops(f.dir.filePath("w1.dat")); QVERIFY(tops.open(QIODevice::ReadOnly));
+      auto contents = tops.readAll(); tops.close(); contents.replace("D62 200", "D62 250");
+      QVERIFY(tops.open(QIODevice::WriteOnly | QIODevice::Truncate)); tops.write(contents); tops.close();
+      QVERIFY(wf.preparedWellFactorVersion("D61", "strathick", params).isEmpty());
+      QVERIFY2(wf.startWellFactorExtraction("D61", "strathick", params, &error), qPrintable(error));
+      for (const auto &value : wf.wellFactorRows())
+        if (value.toMap().value("well_id") == QLatin1String("w1")) QCOMPARE(value.toMap().value("value").toDouble(), 150.0);
+    }
+
     void importedFactorFilesDriveExtractionAndGeneration() {
       Fixture f; QVERIFY(initFixture(f)); QString error;
       const QString input = f.dir.filePath("A_factors.csv");

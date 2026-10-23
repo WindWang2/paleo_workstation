@@ -2,6 +2,7 @@
 #include "singlefactordef.h"
 
 #include <QStringList>
+#include <cmath>
 
 // PALEO_QGIS_PLAN.md §10 内置单因素词表（固定顺序）。processingAlgId 分级
 //（mapping 主线6）：
@@ -31,9 +32,43 @@ namespace
     d.styleRef = QStringLiteral( "factor_%1" ).arg( id );
     d.defaultParams.insert( QStringLiteral( "field" ), field );
     d.defaultParams.insert( QStringLiteral( "cellSize" ), 1.0 );
+    d.defaultParams.insert(QStringLiteral("valueRange"),
+                          id == QLatin1String("sandratio") ? QStringLiteral("ratio_0_1") : QStringLiteral("data"));
     return d;
   }
 } // namespace
+
+FactorMapDefaults SingleFactorRegistry::mapDefaults(const QString &factorId, double observedMin,
+                                                     double observedMax)
+{
+  FactorMapDefaults result;
+  result.unit = geologicalProfile(factorId).unit;
+  if (factorId == QLatin1String("sandratio") || factorId == QLatin1String("confidence")) {
+    result.maximum = 1.0;
+    result.contourInterval = 0.1;
+    result.hasRange = true;
+    return result;
+  }
+  if (!std::isfinite(observedMin) || !std::isfinite(observedMax) || observedMin > observedMax)
+    return result;
+  result.minimum = observedMin;
+  result.maximum = observedMax;
+  if (factorId == QLatin1String("sandthick") || factorId == QLatin1String("strathick")) {
+    if (observedMin < 0.0) return result;
+    result.minimum = 0.0;
+    const double scale = observedMax > 0.0 ? std::pow(10.0, std::floor(std::log10(observedMax))) : 1.0;
+    const double value = observedMax / scale;
+    result.maximum = (value <= 1.0 ? 1.0 : value <= 2.0 ? 2.0 : value <= 5.0 ? 5.0 : 10.0) * scale;
+  }
+  if (result.minimum == result.maximum)
+    result.maximum = result.minimum + 1.0;
+  const double raw = (result.maximum - result.minimum) / 6.0;
+  const double scale = std::pow(10.0, std::floor(std::log10(raw)));
+  const double value = raw / scale;
+  result.contourInterval = (value < 1.5 ? 1.0 : value < 3.5 ? 2.0 : value < 7.5 ? 5.0 : 10.0) * scale;
+  result.hasRange = std::isfinite(result.contourInterval) && result.contourInterval > 0.0;
+  return result;
+}
 
 QString SingleFactorContracts::welldistEngineId()
 {
@@ -105,7 +140,7 @@ QVector<SingleFactorDefinition> SingleFactorRegistry::builtins()
   };
 }
 
-SingleFactorDefinition SingleFactorRegistry::byId( const QString &factorId, bool *ok )
+SingleFactorDefinition SingleFactorRegistry::byId( const QString &factorId, bool *ok, const QString &source )
 {
   const QVector<SingleFactorDefinition> all = builtins();
   for ( const SingleFactorDefinition &d : all )
@@ -114,6 +149,9 @@ SingleFactorDefinition SingleFactorRegistry::byId( const QString &factorId, bool
     {
       if ( ok )
         *ok = true;
+      if (factorId == QLatin1String("strathick") && source == QLatin1String("wells"))
+        return makeDef(factorId, d.title, QStringLiteral("wells"),
+                       QStringLiteral("井分层厚度（MD）插值"), QStringLiteral("log_layer_thickness_md"));
       return d;
     }
   }
@@ -129,7 +167,7 @@ QString SingleFactorRegistry::titleFor( const QString &factorId )
   return ok ? d.title : factorId;
 }
 
-FactorGeologicalProfile SingleFactorRegistry::geologicalProfile( const QString &factorId, bool *ok )
+FactorGeologicalProfile SingleFactorRegistry::geologicalProfile( const QString &factorId, bool *ok, const QString &source )
 {
   const auto setOk = [&]( bool v ) {
     if ( ok )
@@ -160,6 +198,15 @@ FactorGeologicalProfile SingleFactorRegistry::geologicalProfile( const QString &
   }
   if ( factorId == QLatin1String( "strathick" ) )
   {
+    if (source == QLatin1String("wells")) {
+      p.unit = QStringLiteral("m");
+      p.validRange = QStringLiteral("(0, +∞) m（MD）");
+      p.ruleSentence = QStringLiteral("优先读取已维护层厚，否则按井分层底深减顶深（MD，同层段）");
+      p.note = QStringLiteral("仅使用有效、正向的同井分层厚度；不与构造面高程差混用。");
+      p.supportsAutoMode = true;
+      setOk(true);
+      return p;
+    }
     p.unit = QStringLiteral( "m" );
     p.validRange = QStringLiteral( "(0, +∞) m（负值→NoData）" );
     p.ruleSentence = QStringLiteral( "采用顶−底构造面等厚（不走井点插值）" );

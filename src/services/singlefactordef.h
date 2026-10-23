@@ -33,6 +33,15 @@ struct FactorGeologicalProfile
   bool supportsAutoMode = false;   // UI 可提供「推荐地质口径」
 };
 
+struct FactorMapDefaults
+{
+  double minimum = 0.0;
+  double maximum = 0.0;
+  double contourInterval = 0.0;
+  QString unit;
+  bool hasRange = false;
+};
+
 class SingleFactorRegistry
 {
   public:
@@ -40,11 +49,16 @@ class SingleFactorRegistry
     static QVector<SingleFactorDefinition> builtins();
     static bool isImplemented(const QString &factorId);
     // byId 未命中 → ok=false 并返回空定义。
-    static SingleFactorDefinition byId(const QString &factorId, bool *ok = nullptr);
+    static SingleFactorDefinition byId(const QString &factorId, bool *ok = nullptr,
+                                       const QString &source = QString());
     // 稳定 id → 显示名（未知 id 原样返回）。
     static QString titleFor(const QString &factorId);
     // 地质语义档案；未知 id → ok=false，返回空档案。
-    static FactorGeologicalProfile geologicalProfile(const QString &factorId, bool *ok = nullptr);
+    static FactorGeologicalProfile geologicalProfile(const QString &factorId, bool *ok = nullptr,
+                                                     const QString &source = QString());
+    // 比值固定 0–1；厚度从 0 到覆盖实际最大井值的整刻度，不设地质上限。
+    static FactorMapDefaults mapDefaults(const QString &factorId, double observedMin,
+                                         double observedMax);
 };
 
 // 主线6 冻结契约：未接入引擎的 processing id（实现属数据方向版图，见

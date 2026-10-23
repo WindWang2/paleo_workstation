@@ -41,6 +41,7 @@ struct Input {
 struct Source {
   QVector<Input> rows;
   QStringList paths;
+  QStringList guardedPaths;
   QgsCoordinateReferenceSystem crs;
   bool hasMapSource = false;
   QString horizon;
@@ -138,8 +139,18 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
       out.rows << row;
     }
   }
-  if (captureOnly)
+  if (captureOnly) {
+    // Worker 随后会读取井分层与解释原件；在读前冻结文件状态，确保就地修改
+    // 也会让已保存井值失效，而非仅依赖目录中的父版本变化。
+    if (wf->catalog())
+      for (const auto &link : wf->catalog()->links())
+        if (!link.unresolved && QStringList{"tops", "interpretation", "cuttings"}.contains(link.role)) {
+          const auto version = wf->catalog()->currentVersion(link.assetId);
+          if (!version.id.isEmpty()) out.guardedPaths << DataCatalog::resolvedVersionPath(wf->projectDir(), version);
+        }
+    out.guardedPaths.removeDuplicates();
     return out;
+  }
   if (!wf->catalog()) return out;
   QHash<QString, QVariantList> maintainedByWell;
   for (const auto &v :
@@ -153,7 +164,8 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
       params.value(QStringLiteral("numeratorField")).toString(), params.value(QStringLiteral("denominatorField")).toString()};
   const bool autoSand = params.value("factorMode") == QLatin1String("auto") &&
       QStringList{"sandthick", "sandratio"}.contains(params.value("factorId").toString());
-  const bool metrics = params.isEmpty() || autoSand || requested.contains(layerThickness) || requested.contains(sandThickness);
+  const bool autoThickness = params.value("factorMode") == QLatin1String("auto") && params.value("factorId") == QLatin1String("strathick");
+  const bool metrics = params.isEmpty() || autoSand || autoThickness || requested.contains(layerThickness) || requested.contains(sandThickness);
   const bool sandMetric = params.isEmpty() || autoSand || requested.contains(sandThickness);
   const auto wells = data.wells();
   QStringList ids, lithologyWarnings;
@@ -444,7 +456,9 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
         value = take(layerThickness);
         if (!value)
           value = take(QStringLiteral("thickness"));
-        if (value)
+        if (value && *value <= 0.0) {
+          reason = ConstraintWorkflow::tr("地层厚度须为正数（MD），该井不参与插值"); value.reset();
+        } else if (value)
           valueSource = sourceOfField(layerThickness);
         else
           reason = fieldReason(r, layerThickness);
@@ -534,7 +548,7 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
   }
   {
     bool known = false;
-    const auto profile = SingleFactorRegistry::geologicalProfile(autoFactorId, &known);
+    const auto profile = SingleFactorRegistry::geologicalProfile(autoFactorId, &known, params.value("factorSource").toString());
     const int total = source.rows.size();
     const int okCount = features.size();
     const int missing = total - okCount;
@@ -577,7 +591,7 @@ namespace {
 QVariantMap extractionParams(const QVariantMap &params) {
   QVariantMap result;
   for (const auto &key :
-       {"factorMode", "valueField", "numeratorField", "denominatorField", "baseHorizon"})
+       {"factorMode", "valueField", "numeratorField", "denominatorField", "baseHorizon", "factorSource"})
     if (params.contains(key))
       result.insert(QString::fromLatin1(key), params.value(key));
   // 成图参数里的 field 是插值列名，不是提取口径。auto 不选字段，
@@ -586,6 +600,22 @@ QVariantMap extractionParams(const QVariantMap &params) {
       !result.contains("valueField") && params.contains("field"))
     result.insert("valueField", params.value("field"));
   return result;
+}
+
+bool savedFactorInputsCurrent(const DataCatalog *catalog, const QString &dir, const CatalogVersion &v) {
+  if (v.id.isEmpty() || !QFile::exists(DataCatalog::resolvedVersionPath(dir, v))) return false;
+  for (const auto &parent : v.parentVersionIds) {
+    const auto input = catalog->versionById(parent);
+    if (input.id.isEmpty() || catalog->currentVersion(input.assetId).id != parent) return false;
+  }
+  const auto states = v.extra.value("source_file_states").toMap();
+  for (auto it = states.cbegin(); it != states.cend(); ++it) {
+    const QFileInfo file(QDir(dir).absoluteFilePath(it.key()));
+    const auto state = it.value().toMap();
+    if (!file.exists() || file.size() != state.value("size").toLongLong() ||
+        file.lastModified().toMSecsSinceEpoch() != state.value("modified").toLongLong()) return false;
+  }
+  return true;
 }
 } // namespace
 
@@ -598,21 +628,8 @@ QString ConstraintWorkflow::preparedWellFactorVersion(const QString &horizon,
       m_preparedWellFactors.value("params").toMap() != extractionParams(params))
     return {};
   const auto v = catalog()->versionById(m_preparedWellFactors.value("version_id").toString());
-  if (v.id.isEmpty() || !QFile::exists(DataCatalog::resolvedVersionPath(projectDir(), v)))
+  if (!savedFactorInputsCurrent(catalog(), projectDir(), v))
     return {};
-  for (const auto &parent : v.parentVersionIds) {
-    const auto input = catalog()->versionById(parent);
-    if (input.id.isEmpty() || catalog()->currentVersion(input.assetId).id != parent)
-      return {};
-  }
-  const auto states = v.extra.value("source_file_states").toMap();
-  for (auto it = states.cbegin(); it != states.cend(); ++it) {
-    const QFileInfo file(QDir(projectDir()).absoluteFilePath(it.key()));
-    const auto state = it.value().toMap();
-    if (!file.exists() || file.size() != state.value("size").toLongLong() ||
-        file.lastModified().toMSecsSinceEpoch() != state.value("modified").toLongLong())
-      return {};
-  }
   for (const auto &d : layerService()->declared())
     if (d.layerId == m_preparedWellFactors.value("points_layer_id").toString() &&
         d.source.section('|', 0, 0) == DataCatalog::resolvedVersionPath(projectDir(), v))
@@ -637,6 +654,21 @@ bool ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QStrin
     if (v.extra.value("horizon") != horizon || v.extra.value("factor_id") != factorId ||
         extractionParams(v.extra) != extractionParams(params))
       continue;
+    if (savedFactorInputsCurrent(catalog(), projectDir(), v)) {
+      // 工程重开后可仅凭已登记版本恢复点图层，不重新读取全部井资料。
+      LayerDeclaration declaration;
+      declaration.layerId = QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId);
+      declaration.horizon = horizon;
+      declaration.type = QStringLiteral("vector");
+      declaration.source = DataCatalog::resolvedVersionPath(projectDir(), v) + QStringLiteral("|layername=samples");
+      declaration.group = QStringLiteral("04_SingleFactor/Samples");
+      declaration.title = tr("井点因子·%1").arg(SingleFactorRegistry::titleFor(factorId));
+      const auto declarations = layerService()->declared();
+      const bool present = std::any_of(declarations.cbegin(), declarations.cend(), [&declaration](const auto &d) {
+        return d.layerId == declaration.layerId && d.source == declaration.source;
+      });
+      if (!present && !layerService()->declare(declaration)) continue;
+    }
     const auto old = m_preparedWellFactors;
     m_preparedWellFactors = {
         {"horizon", horizon},
@@ -667,6 +699,14 @@ bool ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QStrin
 
 bool ConstraintWorkflow::startWellFactorExtraction(const QString &horizon, const QString &factorId,
                                                    const QVariantMap &params, QString *error) {
+  if (!params.value(QStringLiteral("forceRefresh")).toBool() &&
+      restoreWellFactors(horizon, factorId, params) &&
+      !preparedWellFactorVersion(horizon, factorId, params).isEmpty()) {
+    const auto version = catalog()->versionById(m_preparedWellFactors.value("version_id").toString());
+    m_wellFactorMessage = tr("已读取本层位已保存的单因素井值 v%1，无需重新计算。").arg(version.versionNumber);
+    emit wellFactorsExtracted(horizon, factorId);
+    return true;
+  }
   return extractWellFactorsImpl(horizon, factorId, params, error, false);
 }
 
@@ -731,7 +771,7 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
   }
   auto result = std::make_shared<FactorExtraction>();
   result->path = st.absolutePath;
-  for (const auto &path : frozen.paths) {
+  for (const auto &path : frozen.paths + frozen.guardedPaths) {
     const QFileInfo file(path);
     if (!file.isFile())
       continue;
@@ -932,7 +972,7 @@ bool ConstraintWorkflow::maintainWellFactors(const QString &horizon, QString *er
                          QVariantMap{{"size", file.size()},
                                      {"modified", file.lastModified().toMSecsSinceEpoch()}});
   };
-  for (const QString &path : captured.paths)
+  for (const QString &path : captured.paths + captured.guardedPaths)
     guardPath(path);
   guardPath(QDir(dir).filePath(QStringLiteral("artifacts/layers/well-log-attributes.gpkg")));
   auto publish = [this, source, horizon, guardedStates](QString *error) {
@@ -992,7 +1032,7 @@ bool ConstraintWorkflow::maintainWellFactors(const QString &horizon, QString *er
 bool ConstraintWorkflow::prepareFactorInputs(const QString &horizon, const QString &factorId,
                                               QVariantMap &params, QString *error) {
   if (!params.contains(QStringLiteral("factorMode")) || params.value(QStringLiteral("factorInputPrepared")).toBool()) return true;
-  bool known = false; const auto def = SingleFactorRegistry::byId(factorId, &known);
+  bool known = false; const auto def = SingleFactorRegistry::byId(factorId, &known, params.value("factorSource").toString());
   if (!known) { paleo::workflow_detail::setError(error, tr("未知单因素 id：%1").arg(factorId)); return false; }
   if (def.processingAlgId != QLatin1String("paleo:paleo_constraint_idw")) return true;
   const QString strategy = params.value(QStringLiteral("strategy_id")).toString();
@@ -1009,22 +1049,9 @@ bool ConstraintWorkflow::prepareFactorInputs(const QString &horizon, const QStri
   }
   QString version = preparedWellFactorVersion(horizon, factorId, params);
   QString points = m_preparedWellFactors.value("points_layer_id").toString();
-  if (version.isEmpty() && catalog()) {
-    // 表上看到的 vN 可能只是来源文件被原样重写、时间变了。文件还在就用来成图。
-    for (const auto &asset : catalog()->assets()) {
-      if (asset.type != QLatin1String("well_factor_points"))
-        continue;
-      const auto saved = catalog()->currentVersion(asset.id);
-      if (saved.extra.value("horizon") != horizon || saved.extra.value("factor_id") != factorId ||
-          extractionParams(saved.extra) != extractionParams(params))
-        continue;
-      const auto path = DataCatalog::resolvedVersionPath(projectDir(), saved);
-      if (path.isEmpty() || !QFile::exists(path))
-        continue;
-      version = saved.id;
-      points = QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId);
-      break;
-    }
+  if (version.isEmpty() && restoreWellFactors(horizon, factorId, params)) {
+    version = preparedWellFactorVersion(horizon, factorId, params);
+    points = m_preparedWellFactors.value("points_layer_id").toString();
   }
   if (version.isEmpty()) {
     if (m_factorTasks) {
@@ -1177,7 +1204,7 @@ QVariantList ConstraintWorkflow::savedFactorResults(const QString &horizon,
       type = tr("制图工作场");
     else
       continue;
-    rows << QVariantMap{{"type", type},
+    rows << QVariantMap{{"type", type}, {"kind", kind},
                         {"version_id", v.id},
                         {"asset_id", v.assetId},
                         {"version", v.versionNumber},

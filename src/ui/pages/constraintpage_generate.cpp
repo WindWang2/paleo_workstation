@@ -75,13 +75,13 @@ void ConstraintPage::buildGenerateSection( QWidget *content, QVBoxLayout *lay )
   // 本页主操作（DESIGN.md primary 三用途之一）：生成单因素图突出；
   // 其余动作保持常规面并按组分隔。
   // 反馈 #19：一键默认路径「提取并生成」= 提取井点 → 生成单因素图，逐步按钮保留。
-  auto *oneClick = new QPushButton(tr("生成单因素图"), content);
+  auto *oneClick = new QPushButton(tr("生成等值图"), content);
   oneClick->setObjectName(QStringLiteral("factorOneClickButton"));
   oneClick->setEnabled(false);
-  oneClick->setAccessibleName(tr("一键提取井点并生成单因素图"));
+  oneClick->setAccessibleName(tr("按推荐或当前参数生成等值图"));
   markPrimaryButton(oneClick); actions->addWidget(oneClick, 1);
   connect(oneClick, &QPushButton::clicked, this, &ConstraintPage::startOneClick);
-  auto *generate = new QPushButton(tr("生成单因素图"), this);
+  auto *generate = new QPushButton(tr("生成等值图"), this);
   generate->setObjectName( QStringLiteral( "generateFactorButton" ) );
   generate->setEnabled( false ); // 先勾选一个单因素（updateFactorActionStates 管 tooltip）
   markPrimaryButton( generate );
@@ -139,12 +139,15 @@ void ConstraintPage::buildGenerateSection( QWidget *content, QVBoxLayout *lay )
     const QString factorId = factorIdOfRow( factors, r );
     QVariantMap params;
     bool known = false;
-    const SingleFactorDefinition def = SingleFactorRegistry::byId( factorId, &known );
+    const SingleFactorDefinition def = factorDefinition(factorId, &known);
     params.insert( QStringLiteral( "field" ),
                    field->text().trimmed().isEmpty() && known
                        ? def.defaultParams.value( QStringLiteral( "field" ) )
                        : field->text().trimmed() );
     params.insert( QStringLiteral( "cellSize" ), cell->value() );
+    if (known) params.insert(QStringLiteral("valueRange"), def.defaultParams.value(QStringLiteral("valueRange")));
+    if (factorId == QLatin1String("strathick"))
+      params.insert(QStringLiteral("factorSource"), wellFactorParams().value(QStringLiteral("factorSource")));
     if (known && interpolantEngine(def.processingAlgId)) {
       const QVariantMap extraction = wellFactorParams();
       // auto：用已提取的井点因子（factor_value），不要退回隐藏的字段 z。
@@ -396,7 +399,7 @@ void ConstraintPage::updateFactorActionStates()
     return;
   }
   bool known = false;
-  const SingleFactorDefinition def = SingleFactorRegistry::byId( factorIdOfRow( factors, r ), &known );
+  const SingleFactorDefinition def = factorDefinition(factorIdOfRow(factors, r), &known);
   if ( known && def.processingAlgId == SingleFactorContracts::confidenceEngineId() )
   {
     generate->setEnabled( false );
@@ -503,7 +506,7 @@ void ConstraintPage::updateOperationGuidance()
   const auto *table = child<QTableWidget>(this, "factorTable");
   const int row = checkedRow(table);
   const QString factorId = factorIdOfRow(table, row);
-  const auto def = SingleFactorRegistry::byId(factorId);
+  const auto def = factorDefinition(factorId);
   const QString h = horizon->currentText();
   child<QLabel>(this, "factorRequestSummary")->setText(
       row < 0 ? tr("当前图件：尚未选择因素") : tr("当前图件：%1 · %2").arg(h.isEmpty() ? tr("未选层位") : h, def.title));
@@ -511,10 +514,11 @@ void ConstraintPage::updateOperationGuidance()
   if (row >= 0)
     inputNote = tr("输入：%1").arg(table->item(row, 2)->text());
   if (def.processingAlgId == QLatin1String("paleo:paleo_isopach"))
-    inputNote += tr("。选择不同的顶、底构造面计算厚度，无需提取井点字段。");
+    inputNote = tr("输入：选择不同的顶、底构造面计算厚度，与井分层 MD 厚度分开使用，无需提取井点。");
   else if (def.processingAlgId == SingleFactorContracts::welldistEngineId())
     inputNote += tr("。使用井位与硬屏障计算绕障距离，无需提取指标字段。");
   child<QLabel>(this, "factorInputHint")->setText(inputNote);
+  refreshFactorDefaultsHint();
 
   QString target = QStringLiteral("factorTable");
   QString action = tr("去选择");
@@ -603,7 +607,7 @@ void ConstraintPage::setRunBusy( bool busy )
   }
   // Freeze input controls while a captured request is being computed/published.
   for (const char *name :
-       {"horizonCombo", "factorTable", "wellFactorSection", "constraintFamiliesSection",
+       {"horizonCombo", "factorTable", "wellFactorSection", "factorSourceCombo", "constraintFamiliesSection",
         "factorMethodCombo", "factorCoverageCombo", "factorAdvancedOptionsSection",
         "factorCellSizeSpin", "factorSurfaceRow", "factorBoundaryRow",
         "factorGridResolutionSpin", "factorContourSection", "factorLegacySection"})
@@ -656,7 +660,7 @@ void ConstraintPage::buildFactorResultsSection(QWidget *content, QVBoxLayout *la
                           content);
   hint->setWordWrap(true);
   lay->addWidget(hint);
-  auto *empty = caption(tr("尚无已保存成果。先完成等值面计算，再提取等值线；结果会自动出现在这里。"), content);
+  auto *empty = caption(tr("尚无已保存成果。生成等值图后自动显示在这里；等值线按需生成。"), content);
   empty->setObjectName(QStringLiteral("factorResultsEmptyHint"));
   empty->setWordWrap(true);
   lay->addWidget(empty);
@@ -672,7 +676,7 @@ void ConstraintPage::buildFactorResultsSection(QWidget *content, QVBoxLayout *la
   results->setEditTriggers(QAbstractItemView::NoEditTriggers);
   results->setVisible(false);
   lay->addWidget(results);
-  auto *actions = new QHBoxLayout;
+  auto *actions = new QVBoxLayout;
   for (const auto &entry :
        QVector<QPair<QString, QString>>{{QStringLiteral("show"), tr("显示成果")},
                                         {QStringLiteral("graph"), tr("追溯数据来源")},
@@ -762,26 +766,38 @@ void ConstraintPage::updateIpoStepper(const QString &horizon, int row, const QPu
       || nextTarget == QLatin1String("extractWellFactorsButton")
       || nextTarget == QLatin1String("maintainWellFactorsButton")
       || nextTarget == QLatin1String("factorModeCombo");
-  const bool inputDone = !horizon.trimmed().isEmpty() && row >= 0 && !inputTarget;
+  bool inputDone = !horizon.trimmed().isEmpty() && row >= 0 && !inputTarget;
   const QString staleKey = QStringLiteral("paleo.page.factorstale.%1").arg(horizon);
   const QString factorId = factorIdOfRow(child<QTableWidget>(this, "factorTable"), row);
+  if (auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+      wf && interpolantEngine(factorDefinition(factorId).processingAlgId))
+    inputDone = !horizon.trimmed().isEmpty() && row >= 0 &&
+        !wf->preparedWellFactorVersion(horizon, factorId, wellFactorParams()).isEmpty();
   const bool stale = property(staleKey.toUtf8().constData()).toStringList().contains(factorId);
   const bool processDone = inputDone && !checkedFactorLayerId().isEmpty() && !stale;
   const auto *results = child<QTableWidget>(this, "factorResultsTable");
-  const bool outputReady = processDone && results && results->rowCount() > 0;
+  bool outputReady = false;
+  if (processDone && results)
+    for (int result = 0; result < results->rowCount(); ++result) {
+      const auto resultRow = results->item(result, 0)->data(Qt::UserRole).toMap();
+      const auto kind = resultRow.value("kind").toString();
+      outputReady |= resultRow.value("available").toBool() &&
+          (kind == QLatin1String("contour_lines") || kind == QLatin1String("single_factor_cartographic_contour"));
+    }
   const auto mark = [](bool done, bool current) {
     return done ? QStringLiteral("✓") : current ? QStringLiteral("▶") : QStringLiteral("○");
   };
-  const int stage = !inputDone ? 0 : !processDone ? 1 : 2;
+  const int stage = !inputDone ? 0 : !processDone ? 2 : 3;
   stepper->setProperty("stage", stage);
-  stepper->setText(tr("%1 输入  →  %2 处理  →  %3 输出")
-                       .arg(mark(inputDone, stage == 0), mark(processDone, stage == 1),
-                            mark(outputReady, stage == 2)));
-  stepper->setToolTip(stage == 0 ? tr("当前：准备输入（层位、因素、井点数据）")
-                      : stage == 1 ? (generate && generate->isEnabled()
+  const auto *lines = child<QListWidget>(this, "constraintList");
+  stepper->setText(tr("%1 获取单因素  →  %2 间隔/方向线（可选）  →  %3 等值图  →  %4 等值线（可选）")
+                       .arg(mark(inputDone, stage == 0), mark(lines && lines->count() > 0, false),
+                            mark(processDone, stage == 2), mark(outputReady, stage == 3)));
+  stepper->setToolTip(stage == 0 ? tr("当前：读取已保存单因素，或从井资料计算并保存")
+                      : stage == 2 ? (generate && generate->isEnabled()
                                           ? tr("当前：输入已就绪，按默认参数即可生成")
                                           : tr("当前：处理阶段尚有必需项"))
-                                   : tr("当前：预览成果，可提取等值线或发布到编图"));
+                                   : tr("等值图已保存。等值线可选，不生成也可用于后续编图。"));
   // 已有约束（旧工程）时自动展开可选约束段一次，保证已绘内容可见。
   auto *optional = dynamic_cast<CollapsibleSection *>(findChild<QWidget *>(QStringLiteral("factorConstraintsOptionalSection")));
   auto *list = child<QListWidget>(this, "constraintList");
@@ -835,10 +851,13 @@ void ConstraintPage::startOneClick()
     return;
   }
   setProperty(kOneClickProp, step);
+  setProperty("paleo.page.runoutcome", QString());
   (step == QLatin1String("generate") ? generate : extract)->click();
   // 任务启动是同步的（factorJobStateChanged(true) 在请求处理内发出）：
   // 点击返回后仍未进入忙态 = 同步拒绝 → 立即停下并说明原因。
-  if (!property("paleo.page.runbusy").toBool())
+  if (!property("paleo.page.runbusy").toBool() && step == QLatin1String("extract") && generate->isEnabled())
+    continueOneClick(); // 已保存井值的读取是同步完成，无需制造后台任务。
+  else if (!property("paleo.page.runbusy").toBool())
     failOneClickWithStatus(tr("任务未能启动"));
 }
 
@@ -861,7 +880,7 @@ void ConstraintPage::continueOneClick()
   if (step == QLatin1String("generate")) {
     setProperty(kOneClickProp, QString());
     if (auto *status = child<QLabel>(this, "statusLabel"))
-      status->setText(tr("一键成图完成：井点已提取，单因素图已生成并保存。"));
+      status->setText(tr("等值图已生成并保存；可直接使用，也可选生成等值线。"));
     updateOneClickState();
     return;
   }

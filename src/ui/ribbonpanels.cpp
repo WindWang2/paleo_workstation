@@ -581,13 +581,14 @@ void PaleoMainWindow::buildConstraintRibbon(SARibbonCategory *cat, ConstraintPag
     p->setObjectName(QLatin1String(name));
     return p;
   };
-  SARibbonPanel *inp = panel(cat, tr("输入"), "ribbonPanel.constraint.input");
+  SARibbonPanel *inp = panel(cat, tr("1. 获取单因素"), "ribbonPanel.constraint.input");
   addLarge(inp, paramsAct);
-  addLarge(inp, mirrored(constraint, "extractWellFactorsButton", tr("提取井点"),
+  addLarge(inp, mirrored(constraint, "extractWellFactorsButton", tr("获取单因素"),
                          icon("mIconPointLayer.svg"), "ribbonExtractWellFactors", false, false));
 
-  SARibbonPanel *ip = panel(cat, tr("处理"), "ribbonPanel.constraint.idw");
-  addLarge(ip, mirrored(constraint, "factorOneClickButton", tr("提取并生成"),
+  SARibbonPanel *lines = panel(cat, tr("2. 约束线（可选）"), "ribbonPanel.constraint.constraints");
+  SARibbonPanel *ip = panel(cat, tr("3. 生成等值图"), "ribbonPanel.constraint.idw");
+  addLarge(ip, mirrored(constraint, "factorOneClickButton", tr("生成等值图"),
                         icon("processingModel.svg"), "ribbonFactorOneClick", false, false), true);
   QAction *runFactor = mirrored(constraint, "generateFactorButton", tr("生成单因素图"),
                                 icon("mActionStart.svg"), "ribbonRunIdw", false, false);
@@ -597,7 +598,6 @@ void PaleoMainWindow::buildConstraintRibbon(SARibbonCategory *cat, ConstraintPag
     };
     updateMethod(); connect(method, &QComboBox::currentIndexChanged, this, updateMethod);
   }
-  addLarge(ip, runFactor);
   // 约束属于处理段的可选项：小按钮。
   auto *drawBtn = constraint ? constraint->findChild<QPushButton *>(QStringLiteral("drawButton"))
                              : nullptr;
@@ -617,15 +617,17 @@ void PaleoMainWindow::buildConstraintRibbon(SARibbonCategory *cat, ConstraintPag
           drawBtn->click();
         });
       draw->setMenu(menu);
-      ip->addSmallAction(draw, QToolButton::MenuButtonPopup);
+      lines->addSmallAction(draw, QToolButton::MenuButtonPopup);
     }
     else
-      addSmall(ip, draw);
+      addSmall(lines, draw);
   }
-  addSmall(ip, mirrored(constraint, "directionButton", tr("方向线族"), icon("mActionCaptureLine.svg"), "ribbonDrawDirection", false, false));
-  addSmall(ip, mirrored(constraint, "breakLineButton", tr("打断线族"), icon("mActionCaptureLine.svg"), "ribbonDrawBreakLine", false, false));
+  addLarge(lines, mirrored(constraint, "breakLineButton", tr("间隔线"), icon("mActionCaptureLine.svg"), "ribbonDrawBreakLine", false, false));
+  addLarge(lines, mirrored(constraint, "directionButton", tr("方向线"), icon("mActionCaptureLine.svg"), "ribbonDrawDirection", false, false));
+  addSmall(lines, mirrored(constraint, "barrierImportButton", tr("导入间隔线"), icon("mActionAddLayer.svg"), "ribbonImportBarrier", false, false));
+  addSmall(lines, mirrored(constraint, "directionImportButton", tr("导入方向线"), icon("mActionAddLayer.svg"), "ribbonImportDirection", false, false));
 
-  SARibbonPanel *op = panel(cat, tr("输出"), "ribbonPanel.constraint.result");
+  SARibbonPanel *op = panel(cat, tr("4. 等值线（可选）"), "ribbonPanel.constraint.result");
   addLarge(op, mirrored(constraint, "contourButton", tr("提取等值线"),
                         icon("mActionAddLayer.svg"), "ribbonFactorContour", false, false));
   addLarge(op, toValidate);
@@ -639,6 +641,8 @@ void PaleoMainWindow::buildConstraintRibbon(SARibbonCategory *cat, ConstraintPag
                             "ribbonConstraintMoreAction");
   auto *menu = new QMenu(this);
   menu->setObjectName(QStringLiteral("ribbonConstraintMoreMenu"));
+  menu->addSection(tr("逐步运行"));
+  if (runFactor) menu->addAction(runFactor);
   menu->addSection(tr("剖面"));
   if (wellSectionAct)
     menu->addAction(wellSectionAct);

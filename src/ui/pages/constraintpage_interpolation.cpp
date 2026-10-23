@@ -525,12 +525,14 @@ void ConstraintPage::updateEngineRows()
   {
     bool known = false;
     const SingleFactorDefinition def =
-        SingleFactorRegistry::byId( factorIdOfRow( factors, r ), &known );
+        factorDefinition(factorIdOfRow(factors, r), &known);
     isopach = known && def.processingAlgId == QLatin1String( "paleo:paleo_isopach" );
     confidence = known && def.processingAlgId == SingleFactorContracts::confidenceEngineId();
     interpolant = !known || interpolantEngine( def.processingAlgId );
   }
   const QString selectedMethod = child<QComboBox>(this, "factorMethodCombo")->currentData().toString();
+  for (const char *name : {"factorSourceCaption", "factorSourceCombo"})
+    child<QWidget>(this, name)->setVisible(factorIdOfRow(factors, r) == QLatin1String("strathick"));
   // E.2：三段拆分（原 230 行单体 > #502 防增长闸）——顺序与口径不变。
   updateInterpolationVisibility( interpolant, selectedMethod, isopach, confidence );
   updateStructuralIdwSection( interpolant, selectedMethod );
@@ -605,6 +607,7 @@ void ConstraintPage::updateInterpolationVisibility( bool interpolant,
   child<QWidget>(this, "factorCoverageCombo")->setVisible(interpolant && coverageParameter);
   child<QLabel>(this, "factorStrategyNote")->setVisible(interpolant);
   findChild<QWidget *>(QStringLiteral("wellFactorSection"))->setVisible(interpolant);
+  findChild<QWidget *>(QStringLiteral("wellFactorHint"))->setVisible(interpolant);
   findChild<QWidget *>(QStringLiteral("constraintFamiliesSection"))->setVisible(!isopach && !confidence);
   if (auto *optional = findChild<QWidget *>(QStringLiteral("factorConstraintsOptionalSection")))
     optional->setVisible(!isopach && !confidence);

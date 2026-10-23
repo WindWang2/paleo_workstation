@@ -55,7 +55,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   stepper->setTextFormat( Qt::PlainText );
   stepper->setWordWrap( true );
   lay->addWidget( stepper );
-  auto *inputStage = caption( tr( "① 输入 · 层位、因素与井点数据" ), this );
+  auto *inputStage = caption( tr( "1. 获取单因素" ), this );
   inputStage->setObjectName( QStringLiteral( "factorInputStageCaption" ) );
   lay->addWidget( inputStage );
   lay->addWidget( caption( tr( "当前层位" ), this ) );
@@ -93,7 +93,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
     check->setCheckState( Qt::Unchecked );
     check->setData( Qt::UserRole, def.factorId );
     auto *name = new QTableWidgetItem( def.title );
-    const QString inputLabel = def.inputAssetType == QLatin1String("horizon") ? tr("顶底构造面")
+    const QString inputLabel = def.factorId == QLatin1String("strathick") ? tr("井分层厚度（MD）")
+                               : def.inputAssetType == QLatin1String("horizon") ? tr("顶底构造面")
                                : def.inputAssetType == QLatin1String("prediction")
                                    ? tr("预测数据")
                                    : tr("当前地层井点数据");
@@ -136,10 +137,10 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->removeWidget(surfaceInputs);
   lay->insertWidget(lay->indexOf(dataDetails) + 1,
                     surfaceInputs);
-  auto *outputStage = caption(tr("③ 输出 · 预览、保存与发布"), content);
+  auto *outputStage = caption(tr("4. 生成等值线 · 可选"), content);
   outputStage->setObjectName(QStringLiteral("factorOutputStageCaption"));
   lay->addWidget(outputStage);
-  auto *contourSection = new CollapsibleSection(tr("可选：提取等值线（等值面保存后）"), content);
+  auto *contourSection = new CollapsibleSection(tr("等值线设置与生成"), content);
   contourSection->setObjectName(QStringLiteral("factorContourSection"));
   contourSection->setExpanded(false);
   lay->addWidget(contourSection);
@@ -149,7 +150,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   auto *constraints = findChild<QWidget *>(QStringLiteral("constraintFamiliesSection"));
   lay->removeWidget(constraints);
   auto *methodCaption = findChild<QLabel *>(QStringLiteral("factorMethodCaption"));
-  auto *settingsCaption = caption(tr("② 处理 · 成图方法（默认即可直接生成）"), content);
+  auto *settingsCaption = caption(tr("3. 生成等值图 · 使用推荐参数"), content);
   settingsCaption->setObjectName(QStringLiteral("factorSettingsCaption"));
   lay->insertWidget(lay->indexOf(methodCaption), settingsCaption);
   auto *advanced = findChild<QWidget *>(QStringLiteral("factorAdvancedSection"));
@@ -163,15 +164,15 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   // 约束（断层/边界/方向线）属于处理阶段的可选项，默认收起；门控需要时
   //「下一步」按钮会展开并定位（见 updateOperationGuidance）。已有约束的
   // 旧工程在 refresh 时自动展开，避免已绘约束被“藏起来”。
-  auto *optionalConstraints = new CollapsibleSection(tr("可选：断层 / 边界 / 方向约束"), content);
+  auto *optionalConstraints = new CollapsibleSection(tr("2. 间隔线 / 方向线 · 可选"), content);
   optionalConstraints->setObjectName(QStringLiteral("factorConstraintsOptionalSection"));
   optionalConstraints->containerLayout()->addWidget(constraints);
   optionalConstraints->setExpanded(false);
-  lay->insertWidget(lay->indexOf(options) + 1, optionalConstraints);
+  lay->insertWidget(lay->indexOf(settingsCaption), optionalConstraints);
   auto *settings = new CollapsibleSection(tr("成图设置（默认即可）"), content);
   settings->setObjectName(QStringLiteral("factorBasicSettingsSection"));
   for (const char *name : {"factorCellSizeCaption", "factorCellSizeSpin", "factorTaskCaption", "factorTaskCombo",
-       "factorSettingsCaption", "factorMethodCaption", "factorMethodCombo", "factorStrategyNote", "factorTaskNote", "factorCoverageCaption", "factorCoverageCombo",
+       "factorMethodCaption", "factorMethodCombo", "factorStrategyNote", "factorTaskNote", "factorCoverageCaption", "factorCoverageCombo",
        "factorBoundaryCaption", "factorBoundaryRow", "factorGridCaption", "factorGridResolutionSpin"})
     if (auto *widget = findChild<QWidget *>(QString::fromLatin1(name))) { lay->removeWidget(widget); settings->containerLayout()->addWidget(widget); }
   settings->setExpanded(false); lay->insertWidget(lay->indexOf(options), settings);
@@ -198,6 +199,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   actionLayout->addWidget(status);
   outer->setSpacing(0);
   outer->addWidget(actionBar);
+  arrangeFactorFlow(content, lay);
   lay->addStretch();
   wireWorkflowFeedback( wf );
   wireInputStaleness();

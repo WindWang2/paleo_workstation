@@ -125,6 +125,21 @@ class TestPanelsDataOps : public QObject
         QCOMPARE(primary(), fx.astResolved);
         page->listPanel()->redoOp();
         QCOMPARE(primary(), fx.astFree);
+        // 同一轮事件里连续发意图：撤销目标取执行时的主文件。
+        emit panel->wellLogSetPrimaryRequested(fx.wellA, fx.astResolved);
+        emit panel->wellLogSetPrimaryRequested(fx.wellA, fx.astFree);
+        QTest::qWait(1);
+        QCOMPARE(primary(), fx.astFree);
+        page->listPanel()->undoOp();
+        QCOMPARE(primary(), fx.astResolved);
+        // 排队后换工程，即使实体/资产身份碰巧相同，也不写入新工程。
+        emit panel->wellLogSetPrimaryRequested(fx.wellA, fx.astFree);
+        QTemporaryDir nextProject;
+        svc.setProjectDir(nextProject.path());
+        fx.build(svc.catalog());
+        QVERIFY(svc.catalog()->addLink(member));
+        QTest::qWait(1);
+        QCOMPARE(primary(), fx.astResolved);
     }
 
     // ---- D1 多选框架 -----------------------------------------------------

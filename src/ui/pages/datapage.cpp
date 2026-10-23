@@ -114,12 +114,16 @@ void DataPage::wireDataOps()
               emit statusMessage(tr("设为主文件失败：找不到这条测井关联"));
               return;
             }
-            QString previous;
-            for (const auto &link : cat->linksForEntity(entityId))
-              if (!link.unresolved && link.role == role && link.isPrimary)
-                previous = link.assetId;
-            if (previous == assetId) return;
-            QTimer::singleShot(0, this, [this, entityId, assetId, role, previous] {
+            const QPointer<DataCatalog> catalog(cat);
+            const auto path = cat->catalogPath();
+            QTimer::singleShot(0, this, [this, catalog, path, entityId, assetId, role] {
+              if (!catalog || catalog != m_listPanel->opsContext().cat ||
+                  !catalog->isOpen() || catalog->catalogPath() != path) return;
+              QString previous;
+              for (const auto &link : catalog->linksForEntity(entityId))
+                if (!link.unresolved && link.role == role && link.isPrimary)
+                  previous = link.assetId;
+              if (previous == assetId || indexOfLink(catalog, assetId, role, entityId) < 0) return;
               m_listPanel->pushCommand(new SetPrimaryCmd(
                   m_listPanel->opsContext(), assetId, role, entityId, previous));
             });

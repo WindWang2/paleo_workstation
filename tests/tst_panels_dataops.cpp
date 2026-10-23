@@ -29,6 +29,7 @@
 #include <QSet>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QStackedWidget>
 #include <QTemporaryDir>
 #include <QImage>
 #include <QPainter>
@@ -76,6 +77,97 @@ class TestPanelsDataOps : public QObject
   Q_OBJECT
 
   private slots:
+    void viewSwitchMultiSelectionExcludesHiddenAssets()
+    {
+        QTemporaryDir dir;
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        // Mirror the shell's single-asset activation cleanup.
+        connect(page.get(), &DataPage::assetActivated, page.get(), &DataPage::selectAsset);
+        auto *lp = page->listPanel();
+        lp->setViewMode(2);
+        auto *icons = lp->findChild<QListWidget *>(QStringLiteral("assetIconView"));
+        if (!icons) icons = lp->findChild<QListWidget *>();
+        QVERIFY(icons);
+        for (int i = 0; i < icons->count(); ++i)
+            if (icons->item(i)->data(Qt::UserRole).toString() == fx.astResolved)
+                icons->item(i)->setSelected(true);
+        QVERIFY(lp->currentAssetSelection().contains(fx.astResolved));
+        lp->setViewMode(1);
+        auto *table = lp->findChild<QTableWidget *>(QStringLiteral("assetTable"));
+        QVERIFY(table);
+        QItemSelection selection;
+        for (int row = 0; row < table->rowCount(); ++row)
+            if (table->item(row, 0)->data(Qt::UserRole).toString() != fx.astResolved)
+                selection.select(table->model()->index(row, 0), table->model()->index(row, 2));
+        table->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        QVERIFY(lp->currentAssetSelection().contains(fx.astFree));
+        QVERIFY2(!lp->currentAssetSelection().contains(fx.astResolved), "Hidden icon selection leaks into the active table's batch operations");
+    }
+
+    void versionFocusRestoresEntityActions()
+    {
+        QTemporaryDir dir;
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        page->selectAsset(QStringLiteral("project_dashboard"));
+        auto *panel = qobject_cast<EntityPanel *>(page->entityViewSection());
+        QVERIFY(panel);
+        auto *bar = panel->findChild<QWidget *>(QStringLiteral("entityCrudBar"));
+        QVERIFY(bar && bar->isHidden());
+        page->focusVersion(fx.astResolved, QString());
+        QVERIFY2(!bar->isHidden(), "Version focus keeps real entity's CRUD actions hidden");
+        panel->setMultiContext({fx.wellA, fx.wellB}, {fx.astResolved, fx.astPending});
+        QVERIFY(bar->isHidden());
+        page->focusVersion(fx.astResolved, QString());
+        QVERIFY(!bar->isHidden());
+    }
+
+    void assetSelectionSurvivesEveryViewAndReplacesPreviousSelection()
+    {
+        QTemporaryDir dir;
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        connect(page.get(), &DataPage::assetActivated, page.get(), &DataPage::selectAsset);
+        auto *lp = page->listPanel();
+        auto *stack = lp->findChild<QStackedWidget *>(QStringLiteral("dataViewStack"));
+        QVERIFY(stack);
+        QSet<QString> expected{fx.astResolved, fx.astFree};
+        lp->selectAllVisibleAssets();
+        for (int mode : {2, 4, 3, 0, 1, 2}) {
+            lp->setViewMode(mode);
+            auto *view = qobject_cast<QAbstractItemView *>(stack->currentWidget());
+            QVERIFY(view);
+            QSet<QString> restored;
+            for (const auto &index : view->selectionModel()->selectedRows())
+                restored.insert(index.data(Qt::UserRole).toString());
+            QCOMPARE(restored, lp->currentAssetSelection());
+            QItemSelection selection;
+            const auto collect = [&](const auto &self, const QModelIndex &parent) -> void {
+                for (int row = 0; row < view->model()->rowCount(parent); ++row) {
+                    const auto index = view->model()->index(row, 0, parent);
+                    if (expected.contains(index.data(Qt::UserRole).toString()))
+                        selection.select(index, index.siblingAtColumn(view->model()->columnCount(parent) - 1));
+                    self(self, index);
+                }
+            };
+            collect(collect, QModelIndex());
+            view->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+            QCOMPARE(lp->currentAssetSelection(), expected);
+            expected = expected.contains(fx.astResolved)
+                ? QSet<QString>{fx.astPending, fx.astFree} : QSet<QString>{fx.astResolved, fx.astFree};
+        }
+    }
+
     void filteredOutSelectionCannotReachBatchCommands()
     {
         QTemporaryDir dir;
@@ -94,6 +186,8 @@ class TestPanelsDataOps : public QObject
                                   QStringLiteral("no-such-asset"), false});
         lp->applyFilterGroup(filter);
         QVERIFY(lp->currentAssetSelection().isEmpty());
+        lp->applyFilterGroup({});
+        QCOMPARE(lp->currentAssetSelection(), QSet<QString>{fx.astResolved});
     }
 
     void entityPrimaryActionUsesSharedUndoStack()

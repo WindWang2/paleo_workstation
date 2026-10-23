@@ -45,7 +45,7 @@ private:
   void refreshSources();
   void updateCaption();
   void updateLink();
-  static QString category(const QVariantMap &source);
+  static QString category(const QVariantMap &row);
   QVariantMap selectedSource() const;
 
   PaleoDecorationManager *m_decor = nullptr;

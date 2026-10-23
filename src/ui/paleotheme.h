@@ -27,7 +27,7 @@ namespace PaleoTheme
   // DESIGN.md typography tokens。
   constexpr int kDisplayPt = 15; // 图件标题 chip、页级标题 (15pt)
   constexpr int kTitlePt = 12;   // 标题 (12pt)
-  constexpr int kBodyPt = 9;     // 正文基准（Noto Sans SC 9pt）
+  constexpr int kBodyPt = 9;     // 正文基准（IBM Plex Sans SC 9pt）
   constexpr int kLabelPt = 8;    // 次级标签 (8pt)
   constexpr int kMonoPt = 9;     // 数值/坐标/深度（JetBrains Mono 9pt，tnum 等宽）
 
@@ -97,7 +97,7 @@ namespace PaleoTheme
   // DESIGN.md：Windows→Microsoft YaHei UI，Linux→Noto Sans CJK SC）。
   bool ensureApplicationFonts();
 
-  // 正文字体：Noto Sans SC 9pt，退化链 Noto Sans CJK SC / Microsoft YaHei UI。
+  // 正文字体：IBM Plex Sans SC 9pt，内置 Noto Sans SC 及平台 CJK 家族回退。
   QFont bodyFont(int pointSize = kBodyPt);
   // 数字面字体：JetBrains Mono 9pt（tnum），退化 monospace。
   QFont monoFont(int pointSize = kMonoPt);

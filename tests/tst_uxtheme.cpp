@@ -8,6 +8,13 @@
 #include <QFile>
 #include <QFontDatabase>
 #include <QFontInfo>
+#include <QRawFont>
+#include <QSignalSpy>
+#include <QGridLayout>
+#include <QCryptographicHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <QTextLayout>
 #include <QImage>
 #include <QLabel>
@@ -401,6 +408,8 @@ class TestUxTheme : public QObject
     void vendoredFontsRegistered()
     {
       const QStringList families = QFontDatabase::families();
+      QVERIFY2(families.contains(QStringLiteral("IBM Plex Sans SC")),
+               "IBM Plex Sans SC (vendored) missing from QFontDatabase");
       QVERIFY2(families.contains(QStringLiteral("Noto Sans SC")),
                "Noto Sans SC (vendored) missing from QFontDatabase");
       QVERIFY2(families.contains(QStringLiteral("JetBrains Mono")),
@@ -436,14 +445,85 @@ class TestUxTheme : public QObject
       QCOMPARE(w1, w8);
     }
 
-    // 正文字体：Noto Sans SC 9pt（DESIGN.md body token）。
-    void bodyFontIsNotoSansScNinePt()
+    // 正文字体：IBM Plex Sans SC 9pt（DESIGN.md body token）。
+    void bodyFontIsPlexSansScNinePt()
     {
       const QFont f = PaleoTheme::bodyFont();
       QCOMPARE(f.pointSize(), PaleoTheme::kBodyPt);
       const QFontInfo info(f);
-      QVERIFY2(info.family() == QStringLiteral("Noto Sans SC"),
+      QVERIFY2(info.family() == QStringLiteral("IBM Plex Sans SC"),
                qPrintable(QStringLiteral("resolved family: ") + info.family()));
+    }
+
+    void bundledBodyWeightsAreRealFaces()
+    {
+      for (const auto weight : {QFont::Normal, QFont::Medium, QFont::DemiBold, QFont::Bold}) {
+        auto font = PaleoTheme::bodyFont(); font.setWeight(weight);
+        const auto raw = QRawFont::fromFont(font);
+        QVERIFY(raw.isValid());
+        QCOMPARE(raw.familyName(), QStringLiteral("IBM Plex Sans SC"));
+        QCOMPARE(raw.weight(), int(weight));
+        const auto os2 = raw.fontTable("OS/2");
+        QVERIFY(os2.size() >= 6);
+        QCOMPARE(int(quint8(os2[4])) * 256 + int(quint8(os2[5])), int(weight));
+        for (const auto ch : QStringLiteral("古地理编图砂泥岩孔隙度渗透率测井层位0123456789ABC"))
+          QVERIFY2(raw.supportsCharacter(ch), qPrintable(QString(ch)));
+      }
+    }
+
+    void bundledFontBytesMatchUpstreamLock()
+    {
+      QFile lock(QStringLiteral(":/paleo/fonts/ibm-plex.lock.json"));
+      QVERIFY(lock.open(QIODevice::ReadOnly));
+      const auto files = QJsonDocument::fromJson(lock.readAll()).object().value("files").toArray();
+      QCOMPARE(files.size(), 5); // 四个真实字重与原始许可。
+      for (const auto &value : files) {
+        const auto spec = value.toObject();
+        QFile font(QStringLiteral(":/paleo/fonts/") + spec.value("path").toString());
+        QVERIFY2(font.open(QIODevice::ReadOnly), qPrintable(font.fileName()));
+        QCOMPARE(font.size(), qint64(spec.value("bytes").toDouble()));
+        const auto bytes = font.readAll();
+        QCOMPARE(QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()),
+                 spec.value("sha256").toString());
+      }
+    }
+
+    void themeSwitchDoesNotReloadFonts()
+    {
+      QCoreApplication::processEvents();
+      QSignalSpy changes(qApp, &QGuiApplication::fontDatabaseChanged);
+      PaleoTheme::applyDarkTheme();
+      PaleoTheme::applyLightTheme();
+      QVERIFY(PaleoTheme::ensureApplicationFonts());
+      QCOMPARE(changes.size(), 0);
+    }
+
+    void bundledFontVisualSamples()
+    {
+      const auto dir = qEnvironmentVariable("PALEO_FONT_QA_DIR");
+      if (dir.isEmpty()) QSKIP("Set PALEO_FONT_QA_DIR to capture font comparisons");
+      QVERIFY(QDir().mkpath(dir));
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
+        PaleoTheme::applyTheme(theme);
+        QWidget sheet;
+        auto *grid = new QGridLayout(&sheet);
+        grid->setContentsMargins(24, 24, 24, 24); grid->setSpacing(16);
+        int column = 0;
+        for (const auto &family : {QStringLiteral("Noto Sans SC"), QStringLiteral("IBM Plex Sans SC")}) {
+          grid->addWidget(new QLabel(family), 0, column);
+          int row = 1;
+          for (const auto weight : {QFont::Normal, QFont::Medium, QFont::DemiBold, QFont::Bold}) {
+            auto *label = new QLabel(QStringLiteral("古地理编图 · 测井预测与单因素分析\nPaleo Workbench  0123456789  GR / SP / CALI"));
+            QFont font(family, 12); font.setWeight(weight); label->setFont(font);
+            grid->addWidget(label, row++, column);
+          }
+          auto *body = new QLabel(QStringLiteral("正文 9pt：砂地比 0.65  砂厚度 12.50 m\n井号 A13 · 层位 D61 · 水下分流河道"));
+          body->setFont(QFont(family, PaleoTheme::kBodyPt)); grid->addWidget(body, row, column++);
+        }
+        sheet.resize(1100, 520); sheet.show(); QCoreApplication::processEvents();
+        QVERIFY(sheet.grab().save(dir + (theme == PaleoTheme::Theme::Light ? "/font-light.png" : "/font-dark.png")));
+      }
+      PaleoTheme::applyLightTheme();
     }
 
     // 焦点环：2px #1B73D0，覆盖可聚焦控件（DESIGN.md focus-ring token）。

@@ -1,9 +1,17 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
   <qresource prefix="/paleo">
-    <file>fonts/NotoSansSC-Regular.otf</file>
-    <file>fonts/NotoSansSC-Bold.otf</file>
-    <file>fonts/JetBrainsMono-Regular.ttf</file>
-    <file>fonts/JetBrainsMono-Bold.ttf</file>
+    <file compress="6" threshold="10">fonts/IBMPlexSansSC-Regular.otf</file>
+    <file compress="6" threshold="10">fonts/IBMPlexSansSC-Medium.otf</file>
+    <file compress="6" threshold="10">fonts/IBMPlexSansSC-SemiBold.otf</file>
+    <file compress="6" threshold="10">fonts/IBMPlexSansSC-Bold.otf</file>
+    <file>fonts/OFL-IBMPlex.txt</file>
+    <file>fonts/OFL.txt</file>
+    <file>fonts/README.md</file>
+    <file>fonts/ibm-plex.lock.json</file>
+    <file compress="6" threshold="10">fonts/NotoSansSC-Regular.otf</file>
+    <file compress="6" threshold="10">fonts/NotoSansSC-Bold.otf</file>
+    <file compress="6" threshold="10">fonts/JetBrainsMono-Regular.ttf</file>
+    <file compress="6" threshold="10">fonts/JetBrainsMono-Bold.ttf</file>
   </qresource>
 </RCC>

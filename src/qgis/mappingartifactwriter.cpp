@@ -378,7 +378,7 @@ void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
                            ? Qgis::LabelPlacement::OrderedPositionsAroundPoint
                            : Qgis::LabelPlacement::OverPoint;
   QgsTextFormat format;
-  format.setFont(QFont(QStringLiteral("Noto Sans SC"), 9));
+  format.setFont(QFont(QStringLiteral("IBM Plex Sans SC"), 9));
   format.setSize(9);
   format.setSizeUnit(Qgis::RenderUnit::Points);
   format.setColor(QColor("#24303E"));

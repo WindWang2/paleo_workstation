@@ -34,7 +34,7 @@
 
 namespace
 {
-  // 图件字体族（DESIGN.md：Noto Sans SC——vendored 注册，跨平台一致；Linux
+  // 图件字体族（DESIGN.md：IBM Plex Sans SC——vendored 注册，跨平台一致；Linux
   // 无 vendored 注册的裸壳退化系统 Noto Sans CJK SC）。此前钉死系统族名
   // "Noto Sans CJK SC"：应用内已注册 vendored "Noto Sans SC" 却不取用，
   // 字体落到 fontconfig 替换（fc-match 实测可解析到 KR 变体），PDF 文本
@@ -43,6 +43,8 @@ namespace
   {
     static const QString resolved = [] {
       const QFontDatabase db;
+      if (db.families().contains(QLatin1String("IBM Plex Sans SC")))
+        return QStringLiteral("IBM Plex Sans SC");
       if (db.families().contains(QLatin1String("Noto Sans SC")))
         return QStringLiteral("Noto Sans SC");
       if (db.families().contains(QLatin1String("Noto Sans CJK SC")))

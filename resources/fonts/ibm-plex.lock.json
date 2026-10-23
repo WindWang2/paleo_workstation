@@ -1,0 +1,37 @@
+{
+  "upstream": "https://github.com/IBM/plex",
+  "commit": "71f558992315a12ca1f06a2215d57962a1992162",
+  "files": [
+    {
+      "path": "IBMPlexSansSC-Regular.otf",
+      "url": "https://raw.githubusercontent.com/IBM/plex/71f558992315a12ca1f06a2215d57962a1992162/packages/plex-sans-sc/fonts/complete/otf/hinted/IBMPlexSansSC-Regular.otf",
+      "bytes": 6975144,
+      "sha256": "fc42109cec4e0af7efd4d4d7f6de138d00e87b8b48987432808e43af33580530"
+    },
+    {
+      "path": "IBMPlexSansSC-Medium.otf",
+      "url": "https://raw.githubusercontent.com/IBM/plex/71f558992315a12ca1f06a2215d57962a1992162/packages/plex-sans-sc/fonts/complete/otf/hinted/IBMPlexSansSC-Medium.otf",
+      "bytes": 7098744,
+      "sha256": "0c6f731e82267b9c1159b5fd424ebfaec1d8e66d4f2924d2f4d75567ca98b750"
+    },
+    {
+      "path": "IBMPlexSansSC-Bold.otf",
+      "url": "https://raw.githubusercontent.com/IBM/plex/71f558992315a12ca1f06a2215d57962a1992162/packages/plex-sans-sc/fonts/complete/otf/hinted/IBMPlexSansSC-Bold.otf",
+      "bytes": 6812584,
+      "sha256": "cfd4c5a23c4924a45457c5d44b4e264b003d0f51cf60e6290a893c9ba5bec010"
+    },
+    {
+      "path": "OFL-IBMPlex.txt",
+      "url": "https://raw.githubusercontent.com/IBM/plex/71f558992315a12ca1f06a2215d57962a1992162/packages/plex-sans-sc/fonts/complete/otf/hinted/license.txt",
+      "bytes": 4360,
+      "sha256": "91c25c350d3cac39da2736d74f7ba37ef648f5237a4e330a240615bc8d8c4360"
+    },
+    {
+      "path": "IBMPlexSansSC-SemiBold.otf",
+      "url": "https://raw.githubusercontent.com/IBM/plex/71f558992315a12ca1f06a2215d57962a1992162/packages/plex-sans-sc/fonts/complete/otf/hinted/IBMPlexSansSC-SemiBold.otf",
+      "bytes": 7077708,
+      "sha256": "de742347a08883a5dc8328da496e45e7b661900204e307cfa4c07920a403b260"
+    }
+  ],
+  "version": "1.1.0"
+}

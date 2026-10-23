@@ -20,16 +20,16 @@ colors:
   error: "#E53935"            # 不一致 / 阻断错误
 typography:
   display:
-    fontFamily: Noto Sans SC
+    fontFamily: IBM Plex Sans SC
     fontWeight: 500
     fontSize: 15pt           # 图件标题 chip、页级标题
     letterSpacing: 0
   body:
-    fontFamily: Noto Sans SC
+    fontFamily: IBM Plex Sans SC
     fontSize: 9pt            # Qt pointSize —— 跟随 OS DPI 缩放
     lineHeight: 1.5
   label:
-    fontFamily: Noto Sans SC
+    fontFamily: IBM Plex Sans SC
     fontSize: 8pt            # ribbon 组名、图例、表格次级信息
     letterSpacing: 0.02em
   mono:
@@ -205,8 +205,8 @@ Alt+左键显式移动切片，右键／中键／Shift+左键平移，滚轮缩�
 
 ## Typography
 
-- **UI/正文/标签:** Noto Sans SC（vendor 打包，保证跨平台一致 + §33 渲染回归测试稳定）；Windows 退化 Microsoft YaHei UI，Linux 退化 Noto Sans CJK SC。
-- **数值/坐标/深度:** JetBrains Mono（vendor），tnum 等宽数字。
+- **UI/正文/标签:** IBM Plex Sans SC（vendor 完整 hinted OTF，Regular 400 / Medium 500 / SemiBold 600 / Bold 700；2026-10-24 用户要求更现代字体）。Noto Sans SC 保留为内置缺字与旧工程回退；Windows 再退化 Microsoft YaHei UI，Linux 再退化 Noto Sans CJK SC。字体通过 Qt 资源打入二进制，无系统安装或联网依赖。
+- **数值/坐标/深度:** JetBrains Mono（vendor），tnum 等宽数字。新建图件标题、图例与标签同步使用 IBM Plex Sans SC；既有工程保存的显式字体不覆盖。字重使用真实字体文件；字体注册每进程一次，切换主题不重复加载。
 - 数值标签混有中文单位或无数据说明时，中文回退到上述正文家族，不依赖系统 monospace 的缺字替代。深色图标保留原生形状、色彩和内部亮度关系，只提亮近黑中性描线；禁止逐通道加亮导致饱和。
 - **字阶（Qt pointSize）:** 正文 9pt 基准；标题 12pt；图件标题 15pt；次级标签 8pt。**有意偏离** Web 的 16px 规则：这是 Operate 面的专业工具密度，与 QGIS 本体一致；用 pointSize 而非 pixelSize 以跟随系统缩放。
 - 全部用户可见字符串走 `tr()`/翻译机制（§41.5 i18n 规则）。

@@ -632,7 +632,9 @@ class TestLayoutExport : public QObject
                 qPrintable( QStringLiteral( "figure font family '%1' not installed in process" ).arg( family ) ) );
       // DESIGN.md：图件字体 = vendored「Noto Sans SC」（跨平台一致）。
       // 注册在场时必须取用——钉死系统族名（如 Noto Sans CJK SC）即红。
-      if ( db.families().contains( QStringLiteral( "Noto Sans SC" ) ) )
+      if ( db.families().contains( QStringLiteral( "IBM Plex Sans SC" ) ) )
+        QCOMPARE( family, QStringLiteral( "IBM Plex Sans SC" ) );
+      else if ( db.families().contains( QStringLiteral( "Noto Sans SC" ) ) )
         QCOMPARE( family, QStringLiteral( "Noto Sans SC" ) );
     }
 

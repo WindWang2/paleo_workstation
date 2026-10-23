@@ -30,7 +30,7 @@ class QToolButton;
 // icon-over-text (ribbon-button spec); icons come from the vendored QGIS
 // default theme via PaleoIcons::qgisTheme (qrc-resolved, no repo assets),
 // falling back to text when a name resolves empty. 4px button spacing
-// (spacing xs), Noto Sans SC via the app font, no second signature element.
+// (spacing xs), IBM Plex Sans SC via the app font, no second signature element.
 // Disabled actions carry a reason tooltip (§35 discipline).
 //
 // Layer list: host-driven — setLayers() feeds candidates (or

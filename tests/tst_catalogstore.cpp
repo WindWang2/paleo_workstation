@@ -528,6 +528,8 @@ private slots:
   void corruptLinkOrdSkippedNotHugeResize();
   void negativeAndDuplicateLinkOrdsWarnOnLoad(); // A-13（full-audit-20261020）
   void rollbackLeavesSqliteUnchanged();
+  // #673：恢复写回失败不得用空库换掉主库，也不得把这份空壳轮转盖上 .bak。
+  void failedRewriteDoesNotReplaceRecoverySource();
   // H2：零长 sqlite（migrateFromJson/rewritePrimary 崩溃窗口的残留）不得被
   // 当权威空库放行——JSON 迁移链必须可达，否则数据退化成盘上孤儿文件。
   void emptySqliteDoesNotShadowJsonMigration();
@@ -1086,6 +1088,181 @@ void TestCatalogStore::rollbackLeavesSqliteUnchanged()
     QCOMPARE(tables.entities.size(), 1);
     QVERIFY(hasEntityId(tables, QStringLiteral("well-A")));
     QVERIFY(!hasEntityId(tables, QStringLiteral("well-B")));
+    store.close();
+  }
+}
+
+// #673：主库损坏、.bak 完好。打开后内存里有井。rewritePrimary 在隔离主库之前
+// 先写旁路；replaceAll 失败则删旁路，主库与 .bak 字节都不变。再打开仍走
+// .bak。另两段：失败写回留下的空壳（有表、无 revision）不得轮转；有 revision
+// 的合法空目录仍是权威，第二次打开照常做 .bak。
+void TestCatalogStore::failedRewriteDoesNotReplaceRecoverySource()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sqlitePath = CatalogStore::sqlitePathFor(dir.path());
+  const QString bakPath = sqlitePath + QStringLiteral(".bak");
+  QString err;
+
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    QVERIFY2(commitEntity(&store, wellNamed(QStringLiteral("well-A"), QStringLiteral("A")), &err),
+             qPrintable(err));
+    store.close();
+  }
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    QVERIFY(QFile::exists(bakPath));
+    QVERIFY(hasEntityId(tables, QStringLiteral("well-A")));
+    store.close();
+  }
+
+  QFile::remove(sqlitePath + QStringLiteral("-wal"));
+  QFile::remove(sqlitePath + QStringLiteral("-shm"));
+  const QByteArray junk("not a database!!!!");
+  {
+    QFile f(sqlitePath);
+    QVERIFY2(f.open(QIODevice::WriteOnly | QIODevice::Truncate), qPrintable(f.errorString()));
+    QCOMPARE(f.write(junk), static_cast<qint64>(junk.size()));
+    QVERIFY(f.flush());
+  }
+
+  bool bakOk = false;
+  const QByteArray bakBefore = readAllBytes(bakPath, &bakOk);
+  QVERIFY(bakOk);
+  QVERIFY(!bakBefore.isEmpty());
+
+  {
+    CatalogStore store;
+    CatalogStore::Tables recovered;
+    QVERIFY2(store.openProject(dir.path(), false, &recovered, &err), qPrintable(err));
+    QVERIFY(store.recovered());
+    QVERIFY(store.needsPrimaryRewrite());
+    QVERIFY(hasEntityId(recovered, QStringLiteral("well-A")));
+
+    bool primaryOk = false;
+    QCOMPARE(readAllBytes(sqlitePath, &primaryOk), junk);
+    QVERIFY(primaryOk);
+
+    // 同资产两个 version_number>1：唯一索引让 replaceAll 在旁路提交前失败。
+    // 隔离（quarantineCorrupt）不得先于这次失败发生。
+    CatalogVersion v1;
+    v1.id = QStringLiteral("ver-2");
+    v1.assetId = QStringLiteral("ast-1");
+    v1.versionNumber = 2;
+    CatalogVersion v2;
+    v2.id = QStringLiteral("ver-3");
+    v2.assetId = QStringLiteral("ast-1");
+    v2.versionNumber = 2;
+    recovered.versions.append(v1);
+    recovered.versions.append(v2);
+    const bool rewrote = store.rewritePrimary(recovered, true, &err);
+    QVERIFY2(!rewrote, qPrintable(err.isEmpty() ? QStringLiteral("rewritePrimary succeeded") : err));
+    QVERIFY2(err.contains(QStringLiteral("UNIQUE"), Qt::CaseInsensitive), qPrintable(err));
+    QVERIFY(store.needsPrimaryRewrite());
+    QVERIFY(!store.isWritable());
+    store.close();
+  }
+
+  bool primaryAfterOk = false;
+  QCOMPARE(readAllBytes(sqlitePath, &primaryAfterOk), junk);
+  QVERIFY(primaryAfterOk);
+  bool bakAfterOk = false;
+  QCOMPARE(readAllBytes(bakPath, &bakAfterOk), bakBefore);
+  QVERIFY(bakAfterOk);
+  QVERIFY(!QFile::exists(sqlitePath + QStringLiteral(".rewrite")));
+  QVERIFY(!QFile::exists(sqlitePath + QStringLiteral(".rewrite-wal")));
+  QVERIFY(!QFile::exists(sqlitePath + QStringLiteral(".rewrite-shm")));
+  QCOMPARE(filesNamed(sqlitePath, QStringLiteral("catalog.sqlite.corrupt-*")).size(), 0);
+
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    QVERIFY(store.recovered());
+    QVERIFY(hasEntityId(tables, QStringLiteral("well-A")));
+    QCOMPARE(readAllBytes(bakPath, &bakAfterOk), bakBefore);
+    QVERIFY(bakAfterOk);
+    store.close();
+  }
+
+  // 空壳已经落在主路径上（旧失败写回的残留）：有 .bak 时不得当权威，也不得轮转。
+  QTemporaryDir shellDir;
+  QVERIFY(shellDir.isValid());
+  const QString shellSqlite = CatalogStore::sqlitePathFor(shellDir.path());
+  const QString shellBak = shellSqlite + QStringLiteral(".bak");
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(shellDir.path(), false, &tables, &err), qPrintable(err));
+    QVERIFY2(commitEntity(&store, wellNamed(QStringLiteral("well-A"), QStringLiteral("A")), &err),
+             qPrintable(err));
+    store.close();
+  }
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(shellDir.path(), false, &tables, &err), qPrintable(err));
+    QVERIFY(QFile::exists(shellBak));
+    store.close();
+  }
+  bool shellBakOk = false;
+  const QByteArray shellBakBefore = readAllBytes(shellBak, &shellBakOk);
+  QVERIFY(shellBakOk);
+  const QStringList shellBakNames = filesNamed(shellSqlite, QStringLiteral("catalog.sqlite.bak*"));
+  QFile::remove(shellSqlite + QStringLiteral("-wal"));
+  QFile::remove(shellSqlite + QStringLiteral("-shm"));
+  QVERIFY(QFile::remove(shellSqlite));
+  QVERIFY2(execSql(shellSqlite,
+                   QStringLiteral("CREATE TABLE entities (id TEXT PRIMARY KEY NOT NULL)"), &err),
+           qPrintable(err));
+  QVERIFY2(execSql(shellSqlite,
+                   QStringLiteral(
+                       "CREATE TABLE catalog_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)"),
+                   &err),
+           qPrintable(err));
+  for (int pass = 0; pass < 2; ++pass)
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(shellDir.path(), false, &tables, &err), qPrintable(err));
+    QVERIFY(store.recovered());
+    QVERIFY(hasEntityId(tables, QStringLiteral("well-A")));
+    store.close();
+  }
+  QCOMPARE(readAllBytes(shellBak, &shellBakOk), shellBakBefore);
+  QVERIFY(shellBakOk);
+  QCOMPARE(filesNamed(shellSqlite, QStringLiteral("catalog.sqlite.bak*")), shellBakNames);
+  QVERIFY(!QFile::exists(shellBak + QStringLiteral(".2")));
+
+  // 合法空目录：revision 在，零行不是损坏，第二次打开仍做 .bak。
+  QTemporaryDir emptyDir;
+  QVERIFY(emptyDir.isValid());
+  const QString emptySqlite = CatalogStore::sqlitePathFor(emptyDir.path());
+  const QString emptyBak = emptySqlite + QStringLiteral(".bak");
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(emptyDir.path(), false, &tables, &err), qPrintable(err));
+    QVERIFY(!store.recovered());
+    QCOMPARE(tables.entities.size(), 0);
+    QCOMPARE(tables.meta.revision, 1);
+    QVERIFY(!QFile::exists(emptyBak));
+    store.close();
+  }
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(emptyDir.path(), false, &tables, &err), qPrintable(err));
+    QVERIFY(!store.recovered());
+    QCOMPARE(tables.entities.size(), 0);
+    QCOMPARE(tables.meta.revision, 1);
+    QVERIFY(QFile::exists(emptyBak));
+    QVERIFY(QFileInfo(emptyBak).size() > 0);
     store.close();
   }
 }

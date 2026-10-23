@@ -311,7 +311,9 @@ private slots:
     QVERIFY(std::isnan(broken.mdOf(1180)));
     QVERIFY(dev.tvdDisplayable() && vert.tvdDisplayable());
     QVERIFY(!broken.tvdDisplayable());
-    // datumOffset TVD 域：Flatten 取 tvdOf(基准顶)；Elevation 取 kb。
+    // datumOffset TVD 域：Flatten 取 tvdOf(基准顶)；Elevation 取有限 kb。
+    // 缺省 kb 是 NaN，不是海平面——这里显式给补心。
+    dev.kb = 42.0;
     QCOMPARE(datumOffset(dev, Datum{DatumMode::Flatten, "A"}, DepthDomain::TVD),
              dev.tvdOf(500));
     QCOMPARE(datumOffset(dev, Datum{DatumMode::Elevation, QString()},
@@ -450,6 +452,14 @@ private slots:
       QCOMPARE(datumOffset(w, Datum{DatumMode::Flatten, "Z"}), 0.0);
       QCOMPARE(datumOffset(w, Datum{DatumMode::Flatten, QString()}), 0.0);
     }
+    // 缺省 kb 即缺数据（NaN），海拔偏移非有限；显式 0 仍是海平面。
+    Well unset;
+    QVERIFY(!std::isfinite(unset.kb));
+    QVERIFY(!std::isfinite(
+        datumOffset(unset, Datum{DatumMode::Elevation, QString()})));
+    Well sea = w1;
+    sea.kb = 0.0;
+    QCOMPARE(datumOffset(sea, Datum{DatumMode::Elevation, QString()}), 0.0);
     // 拉平 A：两井 A 顶显示深同为 0；并集 [0,1000] span 1000 → pad 40。
     const auto flat = depthWindow(ws, Datum{DatumMode::Flatten, "A"});
     QCOMPARE(flat.top, -40.0);

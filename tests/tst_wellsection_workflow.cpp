@@ -513,7 +513,7 @@ private slots:
   }
 
   // 补心海拔链路：catalog 实体 kb → ProjectWell → wellsection::Well
-  //（海拔基准面的取数前提；缺数据井 kb=0，海拔模式退化为井深模式）。
+  //（海拔基准面的取数前提）。缺 KB 见 missingKbNotAlignedAtSeaLevel。
   void kbPropagation() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -542,6 +542,104 @@ private slots:
                  wells[0],
                  wellsection::Datum{wellsection::DatumMode::Elevation, QString()}),
              25.5);
+  }
+
+  // catalog 井 A 的 KB 为 NaN、井 B 为 100、井 C 为 0，同一 MD 顶。
+  // request 填井后再进剖面：海拔模式下 A 不按 0 对齐（y 非有限，不是 y=MD）；
+  // 真实 KB 为 0 的 C 仍画在 y = MD。
+  void missingKbNotAlignedAtSeaLevel() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    auto addWell = [&](const QString &id, const QString &name, double kb,
+                       double x) {
+      CatalogEntity e;
+      e.id = id;
+      e.entityType = QStringLiteral("well");
+      e.name = name;
+      e.hasSurface = true;
+      e.surfaceX = x;
+      e.surfaceY = 0;
+      e.coordinateStatus = QStringLiteral("untransformed");
+      e.kb = kb;
+      return cat.addEntity(e);
+    };
+    QVERIFY(addWell(QStringLiteral("well-a"), QStringLiteral("A"), qQNaN(), 0));
+    QVERIFY(addWell(QStringLiteral("well-b"), QStringLiteral("B"), 100.0, 100));
+    QVERIFY(addWell(QStringLiteral("well-c"), QStringLiteral("C"), 0.0, 200));
+    QVERIFY(std::isnan(cat.entityById(QStringLiteral("well-a")).kb));
+    QCOMPARE(cat.entityById(QStringLiteral("well-c")).kb, 0.0);
+
+    const QString topsPath = dir.filePath(QStringLiteral("tops.dat"));
+    QVERIFY(writeText(
+        topsPath,
+        QStringLiteral(
+            "#WellTops File From SMI\n"
+            "#WellName    Name         MD           X            Y            Z            TVD          Time(ms)\n"
+            "A            D61          1000.000     0.000        0.000        -1000.000    1000.000     -99999.000\n"
+            "B            D61          1000.000     100.000      0.000        -900.000     1000.000     -99999.000\n"
+            "C            D61          1000.000     200.000      0.000        -1000.000    1000.000     -99999.000\n")));
+    QVERIFY(addFileLink(cat, QStringLiteral("well-a"), QStringLiteral("tops"),
+                        QStringLiteral("ast-tops-a"), topsPath,
+                        QStringLiteral("well_stratification"), &err));
+    QVERIFY(addFileLink(cat, QStringLiteral("well-b"), QStringLiteral("tops"),
+                        QStringLiteral("ast-tops-b"), topsPath,
+                        QStringLiteral("well_stratification"), &err));
+    QVERIFY(addFileLink(cat, QStringLiteral("well-c"), QStringLiteral("tops"),
+                        QStringLiteral("ast-tops-c"), topsPath,
+                        QStringLiteral("well_stratification"), &err));
+
+    WellSectionWorkflow wf(&cat);
+    QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+    wf.request({QStringLiteral("well-a"), QStringLiteral("well-b"),
+                QStringLiteral("well-c")},
+               {});
+    QCOMPARE(spy.size(), 1);
+    const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.size(), 3);
+    const wellsection::Well *a = nullptr;
+    const wellsection::Well *b = nullptr;
+    const wellsection::Well *c = nullptr;
+    for (const wellsection::Well &w : wells) {
+      if (w.id == QLatin1String("well-a"))
+        a = &w;
+      else if (w.id == QLatin1String("well-b"))
+        b = &w;
+      else if (w.id == QLatin1String("well-c"))
+        c = &w;
+    }
+    QVERIFY(a && b && c);
+    QVERIFY(std::isnan(a->kb));
+    QCOMPARE(b->kb, 100.0);
+    QCOMPARE(c->kb, 0.0);
+    const double md = a->topMd(QStringLiteral("D61"));
+    QCOMPARE(md, 1000.0);
+    QCOMPARE(b->topMd(QStringLiteral("D61")), md);
+    QCOMPARE(c->topMd(QStringLiteral("D61")), md);
+
+    // 剖面：显示深 = MD − datumOffset，y = (显示深 − 窗顶) × px（px=1，
+    // 与 SceneState::yForMd 同式）。画在 y = MD 即偏移 0。
+    const wellsection::Datum elev{wellsection::DatumMode::Elevation, QString()};
+    const double offA = wellsection::datumOffset(*a, elev);
+    const double offB = wellsection::datumOffset(*b, elev);
+    const double offC = wellsection::datumOffset(*c, elev);
+    QVERIFY(!std::isfinite(offA));
+    QCOMPARE(offB, 100.0);
+    QCOMPARE(offC, 0.0);
+    const auto window = wellsection::depthWindow(wells, elev);
+    // B 显示 900、C 显示 1000，跨度 100 → pad 5。A 不进窗。
+    QCOMPARE(window.top, 895.0);
+    QCOMPARE(window.base, 1005.0);
+    const double yMd = md - window.top;
+    const double yA = (md - offA) - window.top;
+    const double yB = (md - offB) - window.top;
+    const double yC = (md - offC) - window.top;
+    QCOMPARE(yMd, 105.0);
+    QVERIFY(!std::isfinite(yA)); // 不画，而不是画在 y = MD
+    QCOMPARE(yB, 5.0);
+    QCOMPARE(yC, yMd); // 海平面井仍按 0 对齐
   }
 
   // 井序/连线改接 round-trip 写回 project.sqlite 且版本号正确推进（Oracle #2）。

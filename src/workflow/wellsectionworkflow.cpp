@@ -232,8 +232,8 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       well.x = pw->surfaceX;
       well.y = pw->surfaceY;
     }
-    if (std::isfinite(pw->kb))
-      well.kb = pw->kb;
+    // 缺 KB（NaN）原样带上。真实 KB 为 0 是海平面，同样原样拷贝。
+    well.kb = pw->kb;
     if (m_catalog) {
       const double td = m_catalog->entityById(pw->id).td;
       if (std::isfinite(td) && td > 0.0)

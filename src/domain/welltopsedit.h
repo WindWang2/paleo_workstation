@@ -80,8 +80,9 @@ DiffSummary diff(const QVector<WellTopRecord> &oldRows, const QVector<WellTopRec
 // 返回改名行数。to 为空或与 from 规范化相等 → 0（不改）。
 int applyRename(QVector<WellTopRecord> *rows, const QString &from, const QString &to);
 
-// 基准整体位移：MD/TVD/Z 同加 delta（仅相应 has* 为真的列；坐标与时间
-// 不动）。位移后越界不在变换里拦——留给校验器逐行报 MdOutOfRange。
+// 基准整体位移：MD/TVD 加 delta；Z 为海拔（向上为正），深度正增量让 Z
+// 减同样的米数（仅 hasX 或 hasY 的行；无坐标行 Z 不动；X/Y 与时间不动）。
+// 位移后越界不在变换里拦——留给校验器逐行报 MdOutOfRange。
 int applyShift(QVector<WellTopRecord> *rows, double delta);
 
 // 按层删除：topName 规范化相等的行全部移除。返回删除行数。

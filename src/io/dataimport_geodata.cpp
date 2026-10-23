@@ -212,7 +212,12 @@ QString importHorizonFamily(FamilyContext &ctx)
       auto sourceCrs = paleo::io::wellSourceCrsHint(QString::fromUtf8(horizonText.left(8192)));
       if (sourceCrs.isEmpty()) sourceCrs = ctx.inputCrs;
       const auto targetCrs = s.georeference && s.georeference->kind == "crs" ? s.georeference->sourceCrs : QString();
-      if (!paleo::io::projectRasterFile(stagedTif, targetCrs, error, sourceCrs)) return *error;
+      if (!paleo::io::projectRasterFile(stagedTif, targetCrs, error, sourceCrs)) {
+        QFile::remove(stagedTif);
+        QFile::remove(stagedTif + QStringLiteral(".partial"));
+        QFile::remove(stagedTif + QStringLiteral(".partial.tif"));
+        return *error;
+      }
       QFile::setPermissions(stagedTif, QFileDevice::ReadOwner | QFileDevice::ReadUser |
                                            QFileDevice::ReadGroup | QFileDevice::ReadOther);
       // B3：派生时间栅格同批接线——Lazy ensure 瓦片金字塔（近零开销）。提交
@@ -508,7 +513,12 @@ QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
           auto sourceCrs = paleo::io::wellSourceCrsHint(QString::fromUtf8(horizonText.left(8192)));
           if (sourceCrs.isEmpty()) sourceCrs = s.tableMappings.value(sourcePath).value("crs").toString();
           const auto targetCrs = s.georeference && s.georeference->kind == "crs" ? s.georeference->sourceCrs : QString();
-          if (!paleo::io::projectRasterFile(dst, targetCrs, error, sourceCrs)) return *error;
+          if (!paleo::io::projectRasterFile(dst, targetCrs, error, sourceCrs)) {
+            QFile::remove(dst);
+            QFile::remove(dst + QStringLiteral(".partial"));
+            QFile::remove(dst + QStringLiteral(".partial.tif"));
+            return *error;
+          }
           QFile::setPermissions(dst, QFileDevice::ReadOwner | QFileDevice::ReadUser |
                                      QFileDevice::ReadGroup | QFileDevice::ReadOther);
           if (!cat->addVersion(derived, error))

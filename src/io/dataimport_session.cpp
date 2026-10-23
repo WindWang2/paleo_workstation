@@ -320,8 +320,8 @@ bool DataImportService::moveStagedFiles(ImportSession &s, QStringList *moved,
       setError(error, QStringLiteral("暂存文件路径非法: %1").arg(rel));
       return false;
     }
-    if (f.endsWith(QLatin1String(".partial")))
-      continue; // 半截产物（produce 失败分支已删；兜底不提交）
+    if (f.contains(QLatin1String(".partial")))
+      continue; // 半截产物，含 .partial.tif（produce 失败分支已删；兜底不提交）
     const QString dst = project.absoluteFilePath(rel);
     if (QFileInfo::exists(dst))
     {

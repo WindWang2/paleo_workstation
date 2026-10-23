@@ -24,7 +24,14 @@ struct DepthModel {
   QStringList inputs;
   double measured(double tvd) const {
     if (survey) {
+      // 末站姿态外延和首站之前的直线外延会回代命中，但不能写成已测 MD。
+      if (!std::isfinite(tvd) || survey->stations().isEmpty()) return qQNaN();
       const double md = survey->tvdToMd(tvd);
+      if (!std::isfinite(md)) return qQNaN();
+      const double lo = survey->stations().first().md;
+      const double hi = survey->stations().last().md;
+      const double tol = std::max(1e-3, 1e-6 * std::max(1.0, std::fabs(tvd)));
+      if (md + tol < lo || md - tol > hi) return qQNaN();
       return std::abs(survey->pointAt(md).tvd - tvd) < .01 ? md : qQNaN();
     }
     if (!valid) return qQNaN();

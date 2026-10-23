@@ -3,6 +3,7 @@
 #include "../metadata/storeerrors_internal.h"
 
 #include <QtGlobal>
+#include <QRegularExpression>
 
 #include <algorithm>
 
@@ -44,6 +45,20 @@ using paleo::store_detail::setError;
     l.note = l.note.isEmpty() ? diagnosis
                               : l.note + QStringLiteral("；") + diagnosis;
     qWarning() << "catalog:" << diagnosis;
+  }
+
+  // 只剥词表追加在备注尾部的诊断。用户写在中间的同样字样后面还有内容，不匹配结尾。
+  bool stripTrailingRoleDiagnosis(QString *note)
+  {
+    if (!note || note->isEmpty())
+      return false;
+    const QRegularExpression suffix(
+        QStringLiteral("(?:^|；)(?:未知角色: [A-Za-z0-9_]+|角色与实体类型不符: [A-Za-z0-9_]+ 于 [A-Za-z0-9_]+)$"));
+    const auto match = suffix.match(*note);
+    if (!match.hasMatch())
+      return false;
+    note->truncate(match.capturedStart() == 0 ? 0 : match.capturedStart());
+    return true;
   }
 
 } // namespace
@@ -318,9 +333,33 @@ bool DataCatalog::clearLinkPrimary(int index, QString *error)
   l.isPrimary = false;
   m_dirtyLinkOrds.insert(index);
   if (save(error))
+  {
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::ClearLinkPrimary;
+    op.index = index;
+    recordOp(std::move(op));
     return true;
+  }
   m_links[index] = previousLink;
   return false;
+}
+
+void DataCatalog::reconcileRoleNotes()
+{
+  bool changed = false;
+  for (int i = 0; i < m_links.size(); ++i)
+  {
+    if (!roleDiagnosis(m_links.at(i), m_roles).isEmpty())
+      continue;
+    QString note = m_links.at(i).note;
+    if (!stripTrailingRoleDiagnosis(&note))
+      continue;
+    m_links[i].note = note;
+    m_dirtyLinkOrds.insert(i);
+    changed = true;
+  }
+  if (changed && !m_lockedReadOnly && !m_staging)
+    save(nullptr);
 }
 
 // ---- wave/data-integrity：role 词表违例诊断面 ----
@@ -331,7 +370,7 @@ QVector<EntityAssetLink> DataCatalog::invalidRoleLinks() const
 {
   QVector<EntityAssetLink> out;
   for (const EntityAssetLink &l : m_links)
-    if (l.note.contains(kUnknownRoleMark) || l.note.contains(kRoleTypeMismatchMark))
+    if (!roleDiagnosis(l, m_roles).isEmpty())
       out.append(l);
   return out;
 }

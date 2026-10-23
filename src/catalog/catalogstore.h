@@ -85,7 +85,9 @@ class CatalogStore
     void rollback();
     bool inTransaction() const { return m_inTxn; }
 
-    // 关掉连接，必要时隔离损坏主文件，再建库并整表写入。一次事务。
+    // 先把整表写到旁路，replaceAll 提交并 fsync 之后才替换主库。
+    // 失败只删旁路：主库与 .bak 不动。损坏文件的隔离是替换前的复制，
+    // 不提前删除主库。
     bool rewritePrimary(const Tables &tables, bool quarantineCorrupt, QString *error);
 
     void close();

@@ -52,6 +52,7 @@
 #include "../src/services/jobrunner.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/services/singlefactordef.h"
+#include "../src/services/projectdata.h"
 #include "../src/workflow/workflows.h"
 #include "../src/workflow/constraintjobs.h" // #558：job 族完整定义（原内嵌 workflows.h）
 #include "../src/workflow/mapversioncontroller.h"
@@ -395,6 +396,31 @@ class TestFactorWorkflow : public QObject
       bool parentFound = false;
       for (const auto &v : f.catalog.versions()) parentFound |= v.parentVersionIds.contains(version.id);
       QVERIFY(parentFound);
+    }
+    void unmatchedWellFactorNameIsRejected() {
+      Fixture f; QVERIFY(initFixture(f)); QString error;
+      CatalogEntity entity; entity.id = "well-1"; entity.name = "A1"; entity.entityType = "well";
+      entity.hasSurface = true; entity.surfaceX = 0; entity.surfaceY = 0; entity.coordinateStatus = "untransformed";
+      QVERIFY2(f.catalog.addEntity(entity, &error), qPrintable(error));
+      CatalogAsset asset; asset.id = "factor-input"; asset.type = "tabular"; asset.displayName = "factors";
+      QVERIFY2(f.catalog.addAsset(asset, &error), qPrintable(error));
+      CatalogVersion version; version.id = "factor-v1"; version.assetId = asset.id;
+      version.versionNumber = 1; version.stage = "RAW"; version.managed = false;
+      version.extra.insert("wellFactors", QVariantList{
+          QVariantMap{{"well_name", "A-1"}, {"horizon", "D61"}, {"sand_thick", 12.0}}});
+      QVERIFY2(f.catalog.addVersion(version, &error), qPrintable(error));
+      ProjectDataFacade data; data.setCatalog(&f.catalog, f.dir.path());
+      const auto matched = data.importedWellFactors("D61", &error);
+      QVERIFY2(error.isEmpty(), qPrintable(error));
+      QCOMPARE(matched.size(), 1);
+      CatalogVersion typo = version;
+      typo.id = "factor-v2"; typo.versionNumber = 2;
+      typo.extra.insert("wellFactors", QVariantList{
+          QVariantMap{{"well_name", "A1-typo"}, {"horizon", "D61"}, {"sand_thick", 9.0}}});
+      QVERIFY2(f.catalog.addVersion(typo, &error), qPrintable(error));
+      const auto rejected = data.importedWellFactors("D61", &error);
+      QVERIFY(rejected.isEmpty());
+      QVERIFY2(error.contains(QStringLiteral("对不上任何井")), qPrintable(error));
     }
     void initTestCase()
     {

@@ -233,9 +233,14 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
   auto *factors = child<QTableWidget>(this, "factorTable");
   const QString factor = factorIdOfRow(factors, checkedRow(factors));
   const auto *horizon = child<QComboBox>(this, "horizonCombo");
+  const QString horizonText = horizon ? horizon->currentText() : QString();
   const bool changedFactor = property("paleo.page.extractionFactor").toString() != factor;
+  // 构造期会先勾上第一行，此时层位还是空的，探测被跳过并把口径锁成「自动」。
+  // 层位随后到达时因素没变，必须再探测，否则已保存的 direct 提取被藏起来。
+  const bool changedHorizon = property("paleo.page.extractionHorizon").toString() != horizonText;
   if (changedFactor) old.remove(QStringLiteral("valueField"));
   setProperty("paleo.page.extractionFactor", factor);
+  setProperty("paleo.page.extractionHorizon", horizonText);
   for (const auto &entry : QVector<QPair<QString, QString>>{
        {QStringLiteral("factorValueFieldCombo"), QStringLiteral("valueField")},
        {QStringLiteral("factorNumeratorFieldCombo"), QStringLiteral("numeratorField")},
@@ -257,7 +262,7 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
     }
     c->setCurrentIndex(index); c->blockSignals(false);
   }
-  if (changedFactor) {
+  if (changedFactor || changedHorizon) {
     auto *mode = child<QComboBox>(this, "factorModeCombo");
     bool known = false;
     const auto profile = SingleFactorRegistry::geologicalProfile(factor, &known);

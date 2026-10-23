@@ -13,6 +13,7 @@
 #include "pages/pagepanels.h" // DataPage（未解析过滤入口）
 #include "../workflow/folderimport.h"
 #include "../workflow/projectopen.h"
+#include "../qgis/qgisprojectservice.h"
 
 #include <QDialog>
 #include <QFileDialog>
@@ -63,8 +64,13 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
     return;
   auto *wf = folderImportWorkflow();
   if (!wf) return;
-  wf->previewFolderAsync(dir, [this, wf, dir, kind](const QVector<FolderPreviewRow> &preview,
+  const auto session = m_projectSvc ? m_projectSvc->sessionId() : 0;
+  wf->previewFolderAsync(dir, [this, wf, dir, kind, session](const QVector<FolderPreviewRow> &preview,
                                              const QString &error) {
+    if (!m_projectSvc || m_projectSvc->sessionId() != session || isProjectReadOnly() || m_projectSvc->isOpening()) {
+      PaleoNotify::warning(this, tr("导入工区文件夹"), tr("工程已变化，请重新选择资料。"));
+      return;
+    }
     if (preview.isEmpty()) {
       PaleoNotify::warning(this, tr("导入工区文件夹"),
           error.isEmpty() ? tr("目录里没有可导入的文件") : error);
@@ -78,13 +84,17 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
                                       const QString &expectedHash) {
       return wf->importFolderRow(path, force, nullptr, target, expectedHash);
     };
-    hooks.importAllWithWells = [wf, dir, cancelImport, dlgPtr = &dlg](const QMap<QString, QString> &overrides,
+    hooks.importAllWithWells = [this, wf, dir, cancelImport, dlgPtr = &dlg, session](const QMap<QString, QString> &overrides,
                                         const QStringList &forcePaths,
                                         const QMap<QString, QString> &wellTargets,
                                         const QMap<QString, QString> &expectedHashes,
                                         const QStringList &skippedPaths,
                                         const QStringList &previewedPaths,
                                         FolderImportWorkflow::ImportDone done) {
+      if (!m_projectSvc || m_projectSvc->sessionId() != session || isProjectReadOnly() || m_projectSvc->isOpening()) {
+        if (done) done({}, tr("工程已变化，请重新选择资料。"));
+        return;
+      }
       // 方向 D1：确认动作在对话框内经本出口发起——此刻读「复制进工程」勾选：
       // 不勾选（默认）只建索引；勾选恢复旧受管复制。
       wf->setLinkExternal(!PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr));
@@ -136,10 +146,15 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
   const QString displayDir =
       QFileInfo(paths.first()).absolutePath() + QStringLiteral("/") +
       tr("%n 个所选文件", nullptr, paths.size());
+  const auto session = m_projectSvc ? m_projectSvc->sessionId() : 0;
   wf->previewFilesAsync(
       paths,
-      [this, wf, paths, displayDir, kind](const QVector<FolderPreviewRow> &preview,
+      [this, wf, paths, displayDir, kind, session](const QVector<FolderPreviewRow> &preview,
                                     const QString &err) {
+        if (!m_projectSvc || m_projectSvc->sessionId() != session || isProjectReadOnly() || m_projectSvc->isOpening()) {
+          PaleoNotify::warning(this, tr("导入文件"), tr("工程已变化，请重新选择资料。"));
+          return;
+        }
         if (preview.isEmpty())
         {
           PaleoNotify::warning(this, tr("导入文件"),
@@ -155,13 +170,17 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
           return wf->importFolderRow(path, force, nullptr, target, expectedHash);
         };
         hooks.importAllWithWells =
-            [wf, paths, cancelImport, dlgPtr = &dlg](const QMap<QString, QString> &overrides,
+            [this, wf, paths, cancelImport, dlgPtr = &dlg, session](const QMap<QString, QString> &overrides,
                         const QStringList &forceImportPaths,
                         const QMap<QString, QString> &wellTargets,
                         const QMap<QString, QString> &expectedHashes,
                         const QStringList &skippedPaths,
                         const QStringList &previewedPaths,
                         FolderImportWorkflow::ImportDone done) {
+              if (!m_projectSvc || m_projectSvc->sessionId() != session || isProjectReadOnly() || m_projectSvc->isOpening()) {
+                if (done) done({}, tr("工程已变化，请重新选择资料。"));
+                return;
+              }
               // 方向 D1：与 runFolderImportAt 同口径——确认时读「复制进工程」
               // 勾选；默认（不勾选）只建索引。
               wf->setLinkExternal(!PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr));

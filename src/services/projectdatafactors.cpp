@@ -12,8 +12,12 @@ QVariantList ProjectDataFacade::importedWellFactors(const QString &horizon, QStr
       auto row = value.toMap();
       if (row.value("horizon").toString().compare(horizon, Qt::CaseInsensitive) != 0) continue;
       const auto key = DataCatalog::normalizeWellName(row.value("well_name").toString());
-      if (m_catalog->wellsMatchingName(key).size() > 1) {
-        if (error) *error = tr("井名 %1 对应多个井实体，不能自动关联单因素文件").arg(key);
+      const auto matches = m_catalog->wellsMatchingName(key);
+      if (matches.size() != 1) {
+        if (error)
+          *error = matches.isEmpty()
+                       ? tr("井名 %1 对不上任何井，不能自动关联单因素文件").arg(row.value("well_name").toString())
+                       : tr("井名 %1 对应多个井实体，不能自动关联单因素文件").arg(key);
         return {};
       }
       if (rows.contains(key)) {

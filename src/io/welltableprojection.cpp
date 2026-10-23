@@ -8,7 +8,11 @@
 namespace paleo::io {
 bool projectWellCoordinates(QVector<WellHeadRecord> *heads, const QString &source, const QString &destination, QString *error)
 {
-  if (destination.isEmpty() || source.isEmpty() || sameNativeCrs(source, destination)) return true;
+  if (destination.isEmpty() || sameNativeCrs(source, destination)) return true;
+  if (source.isEmpty()) {
+    if (error) *error = QObject::tr("井点坐标系未知，不能转换到工程坐标系");
+    return false;
+  }
   OGRSpatialReference from, to;
   if (from.SetFromUserInput(source.toUtf8().constData()) != OGRERR_NONE || to.SetFromUserInput(destination.toUtf8().constData()) != OGRERR_NONE) { if (error) *error = QObject::tr("井点坐标系无效"); return false; }
   from.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER); to.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);

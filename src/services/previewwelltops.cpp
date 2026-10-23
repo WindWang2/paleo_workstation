@@ -6,6 +6,7 @@
 #include "../domain/wellrecords.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 void PreviewDocService::wellTopsForLog(const QString &wellId, QVector<WellTopRecord> *out,
                                       QStringList *warnings, QHash<QString, double> *bases) const
@@ -42,14 +43,21 @@ void PreviewDocService::wellTopsForLog(const QString &wellId, QVector<WellTopRec
   const auto warn = [&](const QString &message) { if (warnings && !warnings->contains(message)) warnings->append(message); };
   if (needsConversion) {
     if (!surveyError.isEmpty()) warn(tr("测斜不可用，只有 TVD 的分层暂不绘制：%1").arg(surveyError));
-    else if (survey) warn(tr("分层 TVD 已按测斜转换为显示 MD，原始分层深度未改写。"));
+    else if (survey) warn(tr("分层 TVD 将按测斜转换为显示 MD；超出测斜范围的层不绘制，原始分层深度不改写。"));
     else if (validPairs) warn(tr("分层 TVD 已按时深表的 MD/TVD 对照定位，原始 MD 仍保留为空。"));
     else if (!pairs.isEmpty()) warn(tr("时深表的 MD/TVD 对照不足或不单调，只有 TVD 的分层暂不绘制。"));
     else warn(tr("分层只有 TVD，未提供测斜或 MD/TVD 对照；按直井等深显示，原始 MD 仍保留为空。"));
   }
   const auto measuredDepth = [&](double md, double tvd) {
     if (!std::isfinite(md) && std::isfinite(tvd) && surveyError.isEmpty()) {
-      if (survey) md = survey->tvdToMd(tvd);
+      if (survey) {
+        const double converted = survey->tvdToMd(tvd);
+        const double back = std::isfinite(converted) ? survey->tvdAt(converted) : std::numeric_limits<double>::quiet_NaN();
+        const double tol = std::max(1e-3, 1e-6 * std::max(1.0, std::fabs(tvd)));
+        // tvdToMd 够不着时返回最近 MD（水平井可以是 0），不得当成已测 MD。
+        if (std::isfinite(back) && std::fabs(back - tvd) <= tol) md = converted;
+        else warn(tr("部分分层垂深不在测斜范围内，暂不绘制，不自动外推。"));
+      }
       else if (validPairs) {
         const auto upper = std::lower_bound(pairs.cbegin(), pairs.cend(), tvd, [](const auto &pair, double value) { return pair.first < value; });
         if (upper != pairs.cend() && upper->first == tvd) md = upper->second;

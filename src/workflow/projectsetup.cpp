@@ -140,6 +140,11 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
       QString summary = tr("工程资料：已导入 %1，跳过 %2，待关联 %3，失败 %4。详细记录见任务与导入台账。").arg(imported).arg(skipped).arg(unresolved).arg(failed);
       if (!error.isEmpty()) summary += '\n' + error;
       if (!saved) summary += '\n' + m_project->lastErrors().join('\n');
+      // 用户取消文件批后不得再开古地理图任务；已取消不是下一阶段的启动条件。
+      if (error.contains(QStringLiteral("已取消"))) {
+        emit finished(summary, false);
+        return;
+      }
       importMaps(sources, preview, session, summary, !failed && error.isEmpty() && saved);
     }, preview.wellTargets, preview.hashes, {}, preview.paths, {}, preview.mappings);
   });

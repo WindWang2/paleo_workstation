@@ -75,11 +75,13 @@ private slots:
     QTemporaryDir source, projectDir; QString error;
     const auto heads = xlsx(source.filePath("heads.xlsx"), "data", {{"WELL", "X", "Y"}, {"A4", "10", "20"}, {"B4", "30", "40"}});
     const auto tops = xlsx(source.filePath("tops.xlsx"), "data", {{"WELL", QStringLiteral("层位"), QStringLiteral("顶界垂深(m)"), QStringLiteral("底界垂深(m)")}, {"A4", "D61", "100", "150"}, {"A4", "D62", "150", "200"}, {"B4", "D61", "80", "110"}});
-    const auto cuttings = xlsx(source.filePath(QStringLiteral("A4/A4岩屑录井数据.xlsx")), "Sheet1", {{QStringLiteral("顶深(m)"), QStringLiteral("底深(m)"), QStringLiteral("岩石定名"), QStringLiteral("颜色"), QStringLiteral("岩性描述")}, {"120", "180", QStringLiteral("泥岩"), QStringLiteral("深灰"), QStringLiteral("保留描述，含换行\n第二行")}});
+    const auto cuttings = xlsx(source.filePath(QStringLiteral("A4/A4岩屑录井数据.xlsx")), "Sheet1", {{QStringLiteral("顶深(m)"), QStringLiteral("底深(m)"), QStringLiteral("岩石定名"), QStringLiteral("颜色"), QStringLiteral("岩性描述"), QStringLiteral("数据来源")}, {"120", "180", QStringLiteral("泥岩"), QStringLiteral("深灰"), QStringLiteral("保留描述，含换行\n第二行"), QStringLiteral("GR推导（合成）")}});
     const auto td = source.filePath("A4_td.dat"); QVERIFY(write(td, "# Well : A4\n0 0 0 0\n100 100 100 120\n200 200 200 240\n"));
     PaleoProjectStore store; DataImportService service(&store); service.setProjectDir(projectDir.path());
     auto session = service.beginImport(); QVERIFY(session); session->linkExternal = true;
-    DataImportService::produceFiles(*session, {heads, tops, td, cuttings}, {{heads, "well_head"}, {tops, "well_stratification"}, {td, "time_depth"}}, {});
+    const auto log = source.filePath("A4.las");
+    QVERIFY(write(log, "~Version\nVERS. 2.0 :\nWRAP. NO :\n~Well\nWELL. A4 :\nNULL. -9999.25 :\n# PALEO_SYNTHETIC_INPUT test source\n~Curve\nDEPT.M :\nGR.API :\n~A\n120 60\n121 70\n"));
+    DataImportService::produceFiles(*session, {heads, tops, td, cuttings, log}, {{heads, "well_head"}, {tops, "well_stratification"}, {td, "time_depth"}}, {});
     QVERIFY2(session->error.isEmpty(), qPrintable(session->error));
     for (const auto &row : session->rows) QVERIFY2(row.outcome != FolderRowResult::Outcome::Failed, qPrintable(row.message));
     QVERIFY2(service.commitImport(*session, &error) == DataImportService::CommitStatus::Committed, qPrintable(error));
@@ -87,19 +89,26 @@ private slots:
     for (const auto &candidate : cat->entities("well")) if (candidate.name == "A4") well = candidate;
     ProjectDataFacade data; data.setCatalog(cat); const auto layers = data.topsFor(well.id);
     QCOMPARE(layers.size(), 2); QCOMPARE(layers[0].md, 120.0); QCOMPARE(layers[1].md, 180.0); QCOMPARE(layers[1].tvd, 150.0);
-    CatalogVersion normalized, rock;
+    CatalogVersion normalized, rock, logVersion;
     for (const auto &link : cat->linksForEntity(well.id)) {
       if (link.role == "tops") normalized = cat->currentVersion(link.assetId);
       if (link.role == "cuttings") rock = cat->currentVersion(link.assetId);
+      if (link.role == "well_log") logVersion = cat->currentVersion(link.assetId);
     }
     QVERIFY(normalized.managed); QVERIFY(normalized.extra.contains("depthResolution"));
     const auto bases = paleo::io::readWellTableBases(cat->versionFilePath(normalized)); QCOMPARE(bases.size(), 3); QCOMPARE(bases[1].md, 240.0); QCOMPARE(bases[1].tvd, 200.0);
     QVERIFY(rock.managed); QCOMPARE(rock.fileName, QString("cuttings.csv"));
     const auto table = paleo::io::readCuttingsFile(cat->versionFilePath(rock)); QVERIFY(table.ok); QCOMPARE(table.intervals.size(), 1);
     QCOMPARE(table.intervals[0].description, QStringLiteral("保留描述，含换行\n第二行"));
+    QCOMPARE(table.intervals[0].source, QStringLiteral("GR推导（合成）"));
+    QVERIFY(rock.extra.value("synthetic_input").toBool());
+    QVERIFY(!logVersion.id.isEmpty());
+    QVERIFY(logVersion.extra.value("synthetic_input").toBool());
+    QVERIFY(!logVersion.extra.value("input_source_annotations").toStringList().isEmpty());
     QCOMPARE(WellComposite::LithologyStyle::colorFromName(table.intervals[0].litho), QColor("#616161"));
     QVERIFY(QFile::remove(tops)); QVERIFY(QFile::remove(cuttings));
     WellSectionWorkflow lithology(cat); QCOMPARE(lithology.lithologiesFor({well.id}).value(well.id).size(), 1);
+    QVERIFY(lithology.lithologiesFor({well.id}).value(well.id).first().provenance.contains(QStringLiteral("GR推导（合成）")));
     PreviewDocService doc(&service); QVector<WellTopRecord> display; QHash<QString, double> displayBases;
     doc.wellTopsForLog(well.id, &display, nullptr, &displayBases);
     QCOMPARE(displayBases.size(), 2); QCOMPARE(displayBases.value("D61"), 180.0); QCOMPARE(displayBases.value("D62"), 240.0);

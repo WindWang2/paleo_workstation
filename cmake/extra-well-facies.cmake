@@ -1,4 +1,4 @@
-target_sources(paleo_domain PRIVATE src/domain/welllogfacies.cpp)
+target_sources(paleo_domain PRIVATE src/domain/welllogfacies.cpp src/domain/wellfaciescontract.cpp)
 target_sources(paleo_ai PRIVATE src/ai/wellfaciesservice.cpp src/ai/wellfacieskeystore.cpp)
 target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(paleo_ai PUBLIC paleo_domain Qt6::Network)
@@ -17,6 +17,7 @@ target_sources(paleo_workflow PRIVATE src/workflow/wellfaciesworkflow.cpp)
 add_paleo_test(tst_wellfacies LIBS paleo_ui paleo_io)
 add_paleo_test(tst_wellfaciesconfig LIBS paleo_ai)  # #133 https 强制/loopback 例外/密钥不落 JSON
 add_paleo_test(tst_wellfacies_remote LIBS paleo_ai)  # 预测专项：远端服务 mock-HTTP 合同边界
+add_paleo_test(tst_wellfaciescontract LIBS paleo_ai)
 # 预测专项（安全）：测井相服务缺省地址只允许构建期注入（打包机本地
 # -DPALEO_WELL_FACIES_DEFAULT_URL=...），不入库；API 密钥从不内置。
 set(PALEO_WELL_FACIES_DEFAULT_URL "" CACHE STRING "Optional build-time default well-facies service URL (no credentials)")

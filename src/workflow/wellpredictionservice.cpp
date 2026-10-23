@@ -183,6 +183,14 @@ void WellPredictionService::prepare() {
     Source source;
     source.data.wellName = well.value("name").toString();
     source.curves = WellLogSet::wellCurveIndex(m_catalog, m_dir, id);
+    for (const auto &curve : source.curves)
+      if (!curve.sourceVersionId.isEmpty()) m_request.sourceVersionIds << curve.sourceVersionId;
+    // 编图输入选择可能来自旧快照，实际消费的岩屑来源也必须保留。
+    for (const auto &link : m_catalog->linksForEntity(id))
+      if (!link.unresolved && link.role == QLatin1String("cuttings")) {
+        const auto version = m_catalog->currentVersion(link.assetId);
+        if (!version.id.isEmpty()) m_request.sourceVersionIds << version.id;
+      }
     // 编图与砂地比、厚度、残差同一套层序，不跟 20kou 这类主分层。
     source.tops = project.topsForMapping(id);
     QString topsVersion;
@@ -351,8 +359,14 @@ void WellPredictionService::plan(const QVector<WellFaciesModel> &models) {
   m_runs.clear(); m_results.resize(m_data.size());
   for (int i = 0; i < m_data.size(); ++i) {
     if (m_skipped.contains(i)) continue;
-    const auto planned = planWellFaciesFormationRun(m_data[i], models, m_request.horizon);
+    auto planned = planWellFaciesFormationRun(m_data[i], models, m_request.horizon);
     if (!planned.ready()) { skip(i, planned.reason); continue; }
+    QString classError;
+    for (auto &run : planned.runs) {
+      if (!bindWellFaciesClasses(run.model, m_schema, &run.input, &classError)) break;
+      m_schema = run.input.facies; // 保存模型全类别，编码不随本次实际命中类别改变。
+    }
+    if (!classError.isEmpty()) { skip(i, classError); continue; }
     for (const auto &run : planned.runs) m_runs.append({i, run});
   }
   if (m_dryRun) return reportReadiness(); // 干跑：止于计划，不发 POST /predict
@@ -369,7 +383,6 @@ void WellPredictionService::next() {
   emit detailChanged(m_request.id, tr("远端预测 %1 · %2（%3/%4）").arg(m_data[run.well].wellName,
       run.prediction.group).arg(m_index + 1).arg(m_runs.size()));
   auto input = run.prediction.input;
-  input.facies = m_schema;
   m_service.predict(run.prediction.model, m_data[run.well].wellName, input);
 }
 void WellPredictionService::finish() {

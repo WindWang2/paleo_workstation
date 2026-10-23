@@ -249,6 +249,7 @@ public:
               response = {{"models", QJsonArray{QJsonObject{
                 {"id", "m1"}, {"name", "test-model"}, {"version", "v2"},
                 {"inputSchema", QJsonObject{{"formationGroup", ""}, {"curves", QJsonArray{"GR"}},
+                  {"labels", QJsonArray{QStringLiteral("河口坝"), QStringLiteral("分流河道")}},
                   {"categoricalFields", QJsonArray{QStringLiteral("段"), QStringLiteral("岩性")}}, {"window", 1}}}}}}};
           } else if (path.endsWith("/predict")) {
             const auto body = QJsonDocument::fromJson(buffer->mid(end + 4, length)).object();
@@ -3311,6 +3312,10 @@ private slots:
     // 不依赖回退；待预测层位仍是 D62（非默认层位）。
     QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\nA D63 1180 0 0 -1180 1180 -99999\n")));
     QString error;
+    for (const auto &link : f.catalog.linksForEntity("A"))
+      if (link.role == "well_log")
+        QVERIFY(f.catalog.updateVersionExtra(f.catalog.currentVersion(link.assetId).id,
+          "synthetic_input", true, &error));
     QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
       {QVariantMap{{"well_id", "A"}, {"top_md", 1000.0}, {"base_md", 1120.0},
         {"lithology", QStringLiteral("维护砂岩")}, {"facies", QStringLiteral("原解释")}}}, &error));
@@ -3335,7 +3340,13 @@ private slots:
                               : qPrintable(errors.last()[0].toString()));
     const auto version = f.work.versionForLayer(product);
     QCOMPARE(version.extra.value("horizon").toString(), QString("D62"));
+    QVERIFY(version.extra.value("synthetic_input").toBool());
     const auto evidence = version.extra.value("evidence").toMap();
+    QVERIFY(evidence.value("provenance").toMap().value("synthetic_input").toBool());
+    bool syntheticParent = false;
+    for (const auto &input : evidence.value("inputs").toList())
+      syntheticParent |= input.toMap().value("synthetic_input").toBool();
+    QVERIFY(syntheticParent);
     QCOMPARE(evidence.value("schema").toString(), QString("paleo_evidence_v1"));
     QVERIFY(!evidence.value("inputs").toList().isEmpty());
     for (const auto &in : evidence.value("inputs").toList())
@@ -4712,6 +4723,9 @@ private slots:
     QVERIFY(!f.well("B", 30, 40).isEmpty());
     // 预测类型下拉新增本地 Mock 首项后按下标定位会错位——按 data 取。
     kind->setCurrentIndex(kind->findData(QStringLiteral("wells")));
+    // 隐藏页不自动刷新；测井已是默认类型时 setCurrentIndex 不发变化信号。
+    page.refresh();
+    QCOMPARE(inputs->count(), 2);
     const int inputHeight = inputs->minimumHeight();
     inputs->item(0)->setCheckState(Qt::Checked);
     select->click(); // A partial selection becomes all, not none.

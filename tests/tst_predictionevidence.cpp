@@ -42,6 +42,16 @@ private slots:
   // 预测专项 P0：成果来源三分（真实模型 / 模拟 Mock / 人工修订）必须显式
   // 落在证据链与界面摘要里；Mock 输入的派生与修订不得被「洗白」成真实模型
   // 结果；无独立验证数据时如实写「尚无独立验证」，置信度只是模型分数。
+  void syntheticInputRemainsDistinctFromMock() {
+    InputRef log; log.versionId = "v1"; log.syntheticInput = true;
+    const auto evidence = build({log}, {{"method", "remote-well-facies-api-v2"}}, {});
+    const auto provenance = evidence.value("provenance").toMap();
+    QVERIFY(provenance.value("synthetic_input").toBool());
+    QVERIFY(!provenance.value("based_on_mock").toBool());
+    QCOMPARE(provenance.value("validation").toString(), QString("unvalidated"));
+    QVERIFY(evidence.value("inputs").toList().first().toMap().value("synthetic_input").toBool());
+    QVERIFY(summary(evidence).contains(QStringLiteral("含合成输入")));
+  }
   void provenanceSeparatesModelMockAndRevision() {
     InputRef log{"v2", "a2", "A.las", "well_log", "", 1, "def", "RAW", false};
     const auto real = build({log}, {{"method", "remote-well-facies-api-v2"},

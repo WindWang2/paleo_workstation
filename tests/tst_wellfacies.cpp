@@ -166,6 +166,7 @@ public:
                   {"version", m.version},
                   {"inputSchema",
                    QJsonObject{{"formationGroup", m.formationGroup},
+                               {"labels", QJsonArray::fromStringList(m.labels)},
                                {"curves", QJsonArray{"GR"}},
                                {"categoricalFields",
                                 QJsonArray{QStringLiteral("段"),
@@ -180,9 +181,12 @@ public:
             const QString modelId = body.value("modelVersionId").toString();
             predictModels << modelId;
             predictRows << w.value("rows").toArray().size();
+            QString declaredLabel = QStringLiteral("河口坝");
+            for (const auto &m : models)
+              if (m.id == modelId && !m.labels.isEmpty()) declaredLabel = m.labels.first();
             result = response(w.value("rows").toArray(),
                               w.value("wellName").toString(),
-                              labels.value(modelId, QStringLiteral("河口坝")));
+                              labels.value(modelId, declaredLabel));
             if (hold || (!holdModel.isEmpty() && holdModel == modelId))
               return;
             if (!failModel.isEmpty() && failModel == modelId) {
@@ -235,6 +239,17 @@ class TestWellFacies : public QObject {
   QTemporaryDir m_cacheHome;
   QJsonArray m_referenceReport;
 private slots:
+  void serviceRejectsUndeclaredKnownClass() {
+    Server server;
+    server.labels.insert("model-1", QStringLiteral("席状砂"));
+    WellFaciesService service; service.configure(server.config());
+    QSignalSpy done(&service, &WellFaciesService::completed);
+    QSignalSpy failed(&service, &WellFaciesService::failed);
+    service.predict(model(), "W-1", prepareWellFaciesInput(well(), model()));
+    QTRY_COMPARE_WITH_TIMEOUT(failed.size(), 1, 5000);
+    QCOMPARE(done.size(), 0);
+    QVERIFY(failed.first().first().toString().contains(QStringLiteral("模型声明")));
+  }
   void depthUnitAliases() {
     for (const char *u : {"m", "M", "M.", " meters ", "METRES", "metre", ""})
       QCOMPARE(depthUnitToMeters(QString::fromLatin1(u)), 1.0);

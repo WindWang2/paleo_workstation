@@ -322,7 +322,7 @@ bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
   }
   QStringList labels;
   for (const auto &iv : out.intervals) labels << iv.text;
-  if (!FaciesTaxonomy::extend(input.facies, labels, &out.facies, error)) return false;
+  if (!resolveWellFaciesClasses(input, labels, &out.facies, error)) return false;
   for (auto &iv : out.intervals) {
     const auto leaf = FaciesTaxonomy::resolve(out.facies, iv.text, error);
     if (leaf.isEmpty()) return false;

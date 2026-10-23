@@ -163,9 +163,14 @@ void WellFaciesService::fetchModels() {
 void WellFaciesService::predict(const WellFaciesModel &model,
                                 const QString &wellName,
                                 const WellFaciesInput &input) {
+  auto bound = input;
+  QString classError;
+  if (!bindWellFaciesClasses(model, input.facies, &bound, &classError)) return fail(classError);
   const QString key = QString::fromLatin1(
       QCryptographicHash::hash(
-          QJsonDocument(QJsonObject{{"modelId", model.id},
+          QJsonDocument(QJsonObject{{"modelId", model.id}, {"modelVersion", model.version},
+                                    {"modelLabels", QJsonArray::fromStringList(bound.modelLabels)},
+                                    {"facies", QJsonArray::fromVariantList(bound.facies)},
                                     {"wellName", wellName},
                                     {"rows", input.rows}})
               .toJson(QJsonDocument::Compact),
@@ -175,7 +180,7 @@ void WellFaciesService::predict(const WellFaciesModel &model,
   cancel();
   m_elapsed.start();
   m_modelId = model.id;
-  m_input = input;
+  m_input = bound;
   m_wellName = wellName;
   m_key = key;
   if (!known.isEmpty()) {

@@ -14,6 +14,7 @@ struct WellFaciesModel {
 struct WellFaciesInput {
   QJsonArray rows;
   QVariantList facies; // 冻结的三级分类；空时使用内置模板
+  QStringList modelLabels; // 模型声明的全部输出类别；绑定后禁止接收集合外结果。
   QString reason;
   bool ready() const { return reason.isEmpty() && !rows.isEmpty(); }
 };
@@ -60,6 +61,11 @@ bool normalizeDepthCurve(const QVector<double> &depths, const QVector<double> &v
 WellFaciesInput
 prepareWellFaciesInput(const WellComposite::ComprehensiveWellData &data,
                        const WellFaciesModel &model);
+// 在提交或准备检查前冻结全部模型微相的三级归属，点名未知/歧义类别。
+bool bindWellFaciesClasses(const WellFaciesModel &model, const QVariantList &schema,
+                           WellFaciesInput *input, QString *error);
+bool resolveWellFaciesClasses(const WellFaciesInput &input, const QStringList &labels,
+                              QVariantList *schema, QString *error);
 bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
                            const WellFaciesInput &input,
                            WellFaciesResult *result, QString *error);

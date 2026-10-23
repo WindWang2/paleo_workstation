@@ -13,6 +13,7 @@ struct LogInspection
   QString summary;
   QStringList issues;
   QString preview;
+  QStringList sourceAnnotations;
 };
 bool inspectLog(const QString &path, LogInspection &out, QString *error);
 void fillLogPreview(const DataCatalog &cat, FolderPreviewRow &row);

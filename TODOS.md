@@ -1,3 +1,13 @@
+## P2 — 完整编图套件的界面断言排查（2026-10-24）
+
+本机 `tst_mappingworkbench` 完整运行为96通过、4失败、1跳过。失败项为
+`hierarchyPanelShowsAndPreservesTheTree`（异步树尚为空）、
+`evidencePanelAddsViewsAndPreservesOtherSelections`（旧横排断言与当前两列布局）、
+`wellReadinessAbortedByCatalogRebindRecoversPanel`（重绑后摘要状态）、
+`panelSelectionAndBusyFollowActualState`（跨层结果列表）。需按DESIGN与异步刷新契约
+核实实现/断言，保留有意义的交互验收，不靠跳过用例转绿。测井协议、准备检查、结果落库及
+合成来源证据链的专项运行通过；详见 `docs/progress/well-facies-data-support-20261024.md`。
+
 ## 整体审查后续：任务与操作模型（2026-10-23）
 
 界面减负、草稿/定位/快捷键和局部刷新修复见 `docs/progress/ui-simplification-20261023.md`。

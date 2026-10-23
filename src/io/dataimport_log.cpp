@@ -64,6 +64,17 @@ bool inspectLog(const QString &path, LogInspection &out, QString *error)
   QList<LasIssue> issues;
   LasDoc doc;
   if (!WellLogRead::parse(path, out.header, doc.curves, error, &issues)) return false;
+  // 只采纳 LAS 头内显式来源注记；不把缺少注记推断为实测。
+  if (WellLogRead::detect(path) == WellLogFormat::Las) {
+    QFile file(path);
+    if (file.open(QIODevice::ReadOnly))
+      for (const auto &line : file.read(1024 * 1024).split('\n')) {
+        const auto text = line.trimmed();
+        if (text.toUpper().startsWith("~A")) break;
+        if (text.startsWith("# PALEO_SYNTHETIC_INPUT"))
+          out.sourceAnnotations << QString::fromUtf8(text);
+      }
+  }
   doc.curveNames = out.header.curveNames;
   if (doc.curves.size() < 2 || doc.curves.first().values.isEmpty())
     return reject(error, tr("%1：没有可用的索引和测井曲线，请检查数据表头。").arg(path));

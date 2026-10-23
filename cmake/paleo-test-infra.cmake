@@ -135,6 +135,8 @@ if(NOT PALEO_PYTHON3)
           "无法注册；安装 python3 后重新 configure（政策见 BUILDING.md）")
 endif()
 if(PALEO_PYTHON3)
+  add_test(NAME well_facies_input_audit COMMAND ${PALEO_PYTHON3}
+           -m unittest discover -s ${CMAKE_SOURCE_DIR}/tests -p test_audit_well_facies_inputs.py)
   add_test(NAME layering COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py)
   add_test(NAME layering_strict COMMAND ${PALEO_PYTHON3}

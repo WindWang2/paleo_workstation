@@ -66,6 +66,7 @@ QVariantMap evidenceRecord( const DataCatalog *catalog, const QStringList &paren
                                            pv.sha256,
                                            pv.stage,
                                            pv.extra.value( QStringLiteral( "mock" ) ).toBool() };
+      inputs.last().syntheticInput = pv.extra.value("synthetic_input").toBool();
       auto &input = inputs.last();
       input.horizon = pv.extra.value(QStringLiteral("horizon")).toString();
       if (!computationalParents.contains(parent) && referencesByVersion.contains(parent)) {

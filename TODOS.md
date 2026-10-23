@@ -7,6 +7,7 @@
 - **P2 / R05、R09：统一旧新工作流与保存作用域。** 先列兼容工具能力清单，再迁移到同一命令/状态模型；区分保存工程、编辑、成果版本、发布和独立 Web 工程，保留各自撤销和版本契约。
 - **P2 / R07：预测前置条件。** 默认入口已改测井；Mock 所需的有效测井预测、层位资料等在点击前显示缺失项和准备入口，与功能层同一规则。
 - **P2 / R14：数据操作编排下沉。** “设主文件”已接既有共享撤销栈；将 SetPrimaryCmd 等数据操作从 ui/pages/dataops 迁入功能层，视图只发意图。
+- **P2：Windows 万条资产基准分阶段测量。** `tst_assetpaging::scaleRenderingFilteringSortingSelection` 在旧全量基准循环触发默认 5 分钟超时，采样为 `resolvedVersionPath → canonicalFilePath → GetFileAttributesExW`。拆分夹具、旧基准、刷新/过滤/定位计时，复核路径规范化成本与测试预算；取得完整结果前不报告提速倍数，不用单纯提高超时掩盖耗时。证据见 `docs/progress/ui-state-regressions-20261023.md`。
 
 ## P3 — QGIS CRS 缓存生命周期修复后恢复缓存（2026-10-22）
 

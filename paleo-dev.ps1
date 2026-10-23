@@ -1,4 +1,4 @@
-# paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
+﻿# paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
 # Verbs: bootstrap [fetch-only] | build | test | selfcheck | checkenv | ensure-resources | clean-vendor <dep>
 #   bootstrap fetch-only : 只取依赖（OSGeo4W + ORT），不编译不自检——CI 用它让
 #                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。
@@ -27,6 +27,7 @@ $Build = Join-Path $Root 'build'
 $Vendor = Join-Path $Root 'vendor'
 
 function Enter-MsvcEnvironment {
+  $env:VSLANG = '1033' # 有英文语言包时优先用英文；实际依赖前缀仍须验证。
   if (Get-Command cl.exe -ErrorAction SilentlyContinue) { return }
   $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
   if (-not (Test-Path $vswhere)) { throw 'Visual Studio Build Tools not found' }
@@ -41,6 +42,68 @@ function Enter-MsvcEnvironment {
       [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
     }
   }
+  $env:VSLANG = '1033'
+}
+
+function Repair-NinjaMsvcDependencyPrefix([string]$BuildDirectory) {
+  $script:MsvcDependencyPrefixNeedsClean = $false
+  # CMake 3.29 的本地化探测可能把 UTF-8/系统代码页解错。只设 VSLANG
+  # 不足：没有安装英文 clui.dll 时 cl 仍输出中文。探测实际输出字节。
+  $rules = Join-Path $BuildDirectory 'CMakeFiles/rules.ninja'
+  if (-not (Test-Path $rules)) { return }
+  $source = Join-Path $BuildDirectory 'paleo-dependency-probe.cpp'
+  $header = Join-Path $BuildDirectory 'paleo-dependency-probe.h'
+  $object = Join-Path $BuildDirectory 'paleo-dependency-probe.obj'
+  [IO.File]::WriteAllText($header, '#pragma once', [Text.Encoding]::ASCII)
+  [IO.File]::WriteAllText($source, '#include "paleo-dependency-probe.h"', [Text.Encoding]::ASCII)
+  $bytes = [Text.Encoding]::GetEncoding(28591) # 一字节映射，不改写原始依赖前缀。
+  $probe = New-Object Diagnostics.Process
+  $probe.StartInfo.FileName = (Get-Command cl.exe -ErrorAction Stop).Source
+  $probe.StartInfo.Arguments = '/nologo /c /showIncludes /Fo"' + $object + '" "' + $source + '"'
+  $probe.StartInfo.UseShellExecute = $false
+  $probe.StartInfo.CreateNoWindow = $true
+  $probe.StartInfo.RedirectStandardOutput = $true
+  $probe.StartInfo.RedirectStandardError = $true
+  $probe.StartInfo.StandardOutputEncoding = $bytes
+  $null = $probe.Start()
+  $output = $probe.StandardOutput.ReadToEnd()
+  $errorText = $probe.StandardError.ReadToEnd()
+  $probe.WaitForExit()
+  if ($probe.ExitCode -ne 0) { throw "MSVC dependency probe failed: $errorText" }
+  $prefix = [regex]::Match($output, '(?m)^([^\r\n]*?)[A-Za-z]:[\\/][^\r\n]*paleo-dependency-probe\.h\r?$')
+  if (-not $prefix.Success) { throw 'MSVC dependency probe did not report its header' }
+  # cl 直启和 Ninja 子进程可能使用不同控制台代码页，不能只相信显示的文字。
+  # 用真实 Ninja 编译一张极小夹具，并要求 deps 数据库确实记录该头文件。
+  $raw = $prefix.Groups[1].Value
+  $systemEncoding = [Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage)
+  $candidates = @($raw,
+    $bytes.GetString([Text.Encoding]::UTF8.GetBytes($systemEncoding.GetString($bytes.GetBytes($raw)))),
+    $bytes.GetString($systemEncoding.GetBytes([Text.Encoding]::UTF8.GetString($bytes.GetBytes($raw))))) | Select-Object -Unique
+  $verified = $null
+  Push-Location $BuildDirectory
+  try {
+    foreach ($candidate in $candidates) {
+      $fixture = "msvc_deps_prefix = $candidate`nrule compile`n  command = cl.exe /nologo /c /showIncludes /Fopaleo-dependency-probe.obj paleo-dependency-probe.cpp`n  deps = msvc`nbuild paleo-dependency-probe.obj: compile paleo-dependency-probe.cpp`n"
+      [IO.File]::WriteAllBytes((Join-Path $BuildDirectory 'paleo-dependency-probe.ninja'), $bytes.GetBytes($fixture))
+      & ninja -f paleo-dependency-probe.ninja -t clean | Out-Null
+      & cmake --build $BuildDirectory --target paleo-dependency-probe.obj -- -f paleo-dependency-probe.ninja | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw 'Ninja dependency probe compile failed' }
+      $dependencies = & ninja -f paleo-dependency-probe.ninja -t deps paleo-dependency-probe.obj
+      if (($dependencies -join "`n") -match 'paleo-dependency-probe\.h') { $verified = $candidate; break }
+    }
+  } finally { Pop-Location }
+  if ($null -eq $verified) { throw 'Ninja failed to record the dependency probe header' }
+  $stamp = Join-Path $BuildDirectory '.paleo-msvc-dependency-prefix'
+  $identity = [Convert]::ToBase64String($bytes.GetBytes($verified))
+  $script:MsvcDependencyPrefixNeedsClean = -not (Test-Path $stamp) -or
+      [IO.File]::ReadAllText($stamp) -ne $identity
+  [IO.File]::WriteAllText($stamp, $identity, [Text.Encoding]::ASCII)
+  $original = $bytes.GetString([IO.File]::ReadAllBytes($rules))
+  $replacement = 'msvc_deps_prefix = ' + $verified
+  $updated = [regex]::Replace($original, '(?m)^msvc_deps_prefix =[^\r\n]*', $replacement)
+  if ($original -eq $updated) { return }
+  [IO.File]::WriteAllBytes($rules, $bytes.GetBytes($updated))
+  Write-Host 'Ninja MSVC include prefix aligned with compiler output bytes.'
 }
 
 function Enter-VendorEnvironment {
@@ -336,6 +399,15 @@ switch ($Verb) {
       cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
     }
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+    Repair-NinjaMsvcDependencyPrefix $Build
+    if ($script:MsvcDependencyPrefixNeedsClean) {
+      # 首次修复不能沿用已经漏头依赖的对象；后续 configure 只补前缀，不反复清库。
+      cmake --build $Build --target clean
+      if ($LASTEXITCODE -ne 0) {
+        Remove-Item -LiteralPath (Join-Path $Build '.paleo-msvc-dependency-prefix') -ErrorAction SilentlyContinue
+        throw 'Clean after MSVC dependency-prefix repair failed'
+      }
+    }
     # CI 上 -k 0：ninja 不在第一个错误处停，一轮暴露全部 MSVC 编译错误（#134）。
     # #230：AGENTS.md「构建/测试一律 -j8 以内」——min(核数, 8)，PALEO_JOBS 可调低。
     $jobs = [Math]::Min([Environment]::ProcessorCount, 8)

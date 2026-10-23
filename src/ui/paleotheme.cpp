@@ -41,6 +41,10 @@ namespace
     const char *family;
   };
   const FontSpec kVendoredFonts[] = {
+      {":/paleo/fonts/IBMPlexSansSC-Regular.otf", "IBM Plex Sans SC"},
+      {":/paleo/fonts/IBMPlexSansSC-Medium.otf", "IBM Plex Sans SC"},
+      {":/paleo/fonts/IBMPlexSansSC-SemiBold.otf", "IBM Plex Sans SC"},
+      {":/paleo/fonts/IBMPlexSansSC-Bold.otf", "IBM Plex Sans SC"},
       {":/paleo/fonts/NotoSansSC-Regular.otf", "Noto Sans SC"},
       {":/paleo/fonts/NotoSansSC-Bold.otf", "Noto Sans SC"},
       {":/paleo/fonts/JetBrainsMono-Regular.ttf", "JetBrains Mono"},
@@ -240,28 +244,27 @@ namespace PaleoTheme
 
   bool ensureApplicationFonts()
   {
-    bool all = true;
-    for (const FontSpec &spec : kVendoredFonts)
-    {
-      const int id = QFontDatabase::addApplicationFont(QLatin1String(spec.path));
-      if (id < 0)
-      {
-        all = false;
-        qWarning("paleo: vendored font %s failed to register — falling back to "
-                 "system fonts (Windows: Microsoft YaHei UI, Linux: Noto Sans CJK SC)",
-                 spec.path);
+    // 切换主题会重入；同一字体不重复注册，避免字体库增长与重复解析 CJK。
+    static const bool loaded = [] {
+      bool all = true;
+      for (const FontSpec &spec : kVendoredFonts) {
+        const int id = QFontDatabase::addApplicationFont(QLatin1String(spec.path));
+        if (id < 0 || !QFontDatabase::applicationFontFamilies(id).contains(QLatin1String(spec.family))) {
+          all = false;
+          qWarning("paleo: vendored font %s failed to register; using the fallback families", spec.path);
+        }
       }
-    }
-    if (all)
-      qInfo("paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)");
-    return all;
+      if (all) qInfo("paleo: vendored fonts registered (IBM Plex Sans SC + Noto Sans SC + JetBrains Mono)");
+      return all;
+    }();
+    return loaded;
   }
 
   QFont bodyFont(int pointSize)
   {
     QFont f;
     // DESIGN.md 退化链：vendor → 平台 CJK → 微软雅黑。
-    f.setFamilies({QStringLiteral("Noto Sans SC"),
+    f.setFamilies({QStringLiteral("IBM Plex Sans SC"), QStringLiteral("Noto Sans SC"),
                    QStringLiteral("Noto Sans CJK SC"),
                    QStringLiteral("Microsoft YaHei UI")});
     f.setPointSize(pointSize);
@@ -271,7 +274,7 @@ namespace PaleoTheme
   QFont monoFont(int pointSize)
   {
     QFont f;
-    f.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Noto Sans SC"),
+    f.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("IBM Plex Sans SC"), QStringLiteral("Noto Sans SC"),
                    QStringLiteral("Noto Sans CJK SC"), QStringLiteral("Microsoft YaHei UI"),
                    QStringLiteral("monospace")});
     f.setPointSize(pointSize);

@@ -20,7 +20,7 @@ class QgsTextFormat;
 // 每个工厂负责同一件事：创建元素 → 套 Paleo 图件默认值 → addLayoutItem →
 // 按 DESIGN.md「画布内装饰」位约定定位（指北针左上、比例尺左下、图例右上、
 // 图件标题左上；标题 15pt / 副题 9pt / 署名 8pt；字体族 = figureFontFamily
-// vendored "Noto Sans SC" 优先链，进程内解析一次缓存）。
+// vendored "IBM Plex Sans SC" 优先链，进程内解析一次缓存）。
 // 定位基准是**地图项的 scene 矩形**（装饰随地图走）或**页面**（标题块/署名），
 // 这样同一工厂既能给整幅模板排版，也能给设计器「添加标准元素」菜单用——
 // 用户加完再拖。所有权：全部项经 addLayoutItem 交给 layout（QGraphicsScene
@@ -59,7 +59,7 @@ bool applyPageSetup( QgsPrintLayout *layout, const PageSetup &setup );
 
 // ---- 图件文本/装饰共用助手 --------------------------------------------------
 
-//! DESIGN.md 字阶的图件文本格式（vendored "Noto Sans SC" 优先链，pt 单位）。
+//! DESIGN.md 字阶的图件文本格式（vendored "IBM Plex Sans SC" 优先链，pt 单位）。
 QgsTextFormat figureTextFormat( double sizePt );
 
 //! QGIS 自带指北针 SVG 的第一个可用路径（svgPaths 搜索）；无则空串（退化「N」标注）。

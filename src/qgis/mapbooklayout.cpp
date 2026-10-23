@@ -34,7 +34,7 @@ namespace
   double pageHeight( bool landscape ) { return landscape ? 210.0 : 297.0; }
 
   // 标签字体（QGIS 4.x：setFont 已弃用，走 QgsTextFormat；字号单位 pt）。
-  // 字体族由 standardelements 图件工厂统一（vendored "Noto Sans SC" 优先
+  // 字体族由 standardelements 图件工厂统一（vendored "IBM Plex Sans SC" 优先
   // 链，含系统回落）——与 layoutexport 的薄别名同口径；此前这里硬编码
   // 系统族名 "Noto Sans CJK SC"，vendored 字体重叠环境下 PDF 文本无保证。
   QgsTextFormat labelFormat( const QString &family, double sizePt )

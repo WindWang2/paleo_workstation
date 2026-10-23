@@ -36,7 +36,7 @@ class TestDecorations : public QObject
     {
       PaleoTheme::pinRenderEnvironment();
       const QFontInfo info(qApp->font());
-      QVERIFY2(info.family() == QStringLiteral("Noto Sans SC"),
+      QVERIFY2(info.family() == QStringLiteral("IBM Plex Sans SC"),
                qPrintable(QStringLiteral("app font must resolve to the vendored "
                                          "family, got: ") + info.family()));
     }

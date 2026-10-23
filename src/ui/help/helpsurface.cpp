@@ -7,6 +7,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCoreApplication>
+#include <QFile>
 #include <QMenu>
 #include <QMessageBox>
 #include <QWhatsThis>
@@ -100,6 +101,14 @@ void HelpSurface::showAbout()
     m_aboutBox->setTextFormat(Qt::RichText);
     m_aboutBox->setStandardButtons(QMessageBox::Close);
     m_aboutBox->setModal(false);
+    QString licenses;
+    for (const auto &path : {QStringLiteral(":/paleo/fonts/README.md"),
+                             QStringLiteral(":/paleo/fonts/OFL-IBMPlex.txt"),
+                             QStringLiteral(":/paleo/fonts/OFL.txt")}) {
+      QFile file(path);
+      if (file.open(QIODevice::ReadOnly)) licenses += QString::fromUtf8(file.readAll()) + QLatin1Char('\n');
+    }
+    m_aboutBox->setDetailedText(licenses);
   }
   m_aboutBox->setText(lines.join(QStringLiteral("<br>")));
   m_aboutBox->show();

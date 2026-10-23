@@ -37,7 +37,7 @@ StratigraphicWebPage::StratigraphicWebPage(StratigraphicWebSession *session, QWi
     const auto &t = PaleoTheme::tokens();
     m_web->setPageStyleSheet(QStringLiteral(
         ":root { --ink:%1; --muted:%2; --blue:%3; --line:%4; --bg:%5; }"
-        "body { color:%1; background:%5; font-family:'Noto Sans SC','Noto Sans CJK SC',"
+        "body { color:%1; background:%5; font-family:'IBM Plex Sans SC','Noto Sans SC','Noto Sans CJK SC',"
         "'Microsoft YaHei UI',sans-serif; font-size:%6pt; }"
         "button,input,select,textarea { font:inherit; color:%1; border-color:%4; "
         "background:%7; border-radius:%8px; }"

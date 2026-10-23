@@ -510,7 +510,7 @@ namespace
   // 方向 25 起为单一事实源——这里只留薄别名，调用点写法不变）。
   QgsTextFormat labelFormat( const QString &family, double sizePt )
   {
-    Q_UNUSED( family ); // 字体族由工厂统一（vendored "Noto Sans SC" 优先链）
+    Q_UNUSED( family ); // 字体族由工厂统一（vendored "IBM Plex Sans SC" 优先链）
     return PaleoStandardElements::figureTextFormat( sizePt );
   }
 

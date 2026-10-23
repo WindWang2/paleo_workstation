@@ -4,6 +4,10 @@
 # 或用 QGIS_PREFIX_PATH 指向——QgisRuntime::defaultPrefixPath() 会优先识别
 # <exe>/../share/qgis/resources/srs.db 布局。
 include(GNUInstallDirs)
+# 字体已嵌入程序；安装树同时保留可独立阅读的许可与来源清单。
+install(FILES resources/fonts/OFL-IBMPlex.txt resources/fonts/OFL.txt
+              resources/fonts/README.md resources/fonts/ibm-plex.lock.json
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/paleo/licenses/fonts)
 
 if(NOT WIN32)
   # 安装树只用 $ORIGIN 相对 RUNPATH：不把源码树/构建树绝对路径带进安装产物。

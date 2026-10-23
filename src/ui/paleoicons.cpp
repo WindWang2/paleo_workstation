@@ -62,9 +62,11 @@ public:
             const QColor ink = mode == QIcon::Disabled ? t.textDisabled : t.textMuted;
             img.setPixel(x, y, mode == QIcon::Disabled
                 ? qRgba(ink.red(), ink.green(), ink.blue(), qAlpha(c))
-                : qRgba(qMin(255, qRed(c) + ink.red()),
-                        qMin(255, qGreen(c) + ink.green()),
-                        qMin(255, qBlue(c) + ink.blue()), qAlpha(c)));
+                // 保留原生图标的亮部、色彩与内部轮廓；只提亮近黑的中性描线。
+                : (qMax(qRed(c), qMax(qGreen(c), qBlue(c))) -
+                       qMin(qRed(c), qMin(qGreen(c), qBlue(c))) < 48 &&
+                   qGray(c) < qGray(ink.rgb()) / 2
+                    ? qRgba(ink.red(), ink.green(), ink.blue(), qAlpha(c)) : c));
           }
         pm = QPixmap::fromImage(img);
         pm.setDevicePixelRatio(scale);

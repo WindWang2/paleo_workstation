@@ -271,7 +271,9 @@ namespace PaleoTheme
   QFont monoFont(int pointSize)
   {
     QFont f;
-    f.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
+    f.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("Noto Sans SC"),
+                   QStringLiteral("Noto Sans CJK SC"), QStringLiteral("Microsoft YaHei UI"),
+                   QStringLiteral("monospace")});
     f.setPointSize(pointSize);
     f.setStyleHint(QFont::TypeWriter);
     f.setFeature(QFont::Tag("tnum"), 1);

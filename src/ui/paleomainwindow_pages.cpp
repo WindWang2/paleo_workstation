@@ -237,3 +237,17 @@ void PaleoMainWindow::syncBottomDockForTasks()
     m_bottomDock->setProgrammaticVisible(want);
   }
 }
+
+void PaleoMainWindow::showStartup()
+{
+  if (m_currentPage == QLatin1String("correlation"))
+    restoreCorrelationDocks();
+  setProjectReadOnly(false);
+  m_currentPage = QStringLiteral("startup");
+  if (m_leftDock) m_leftDock->setProgrammaticVisible(false);
+  if (m_rightDock) m_rightDock->setProgrammaticVisible(false);
+  if (m_dataListDock)
+    m_dataListDock->setProgrammaticVisible(false);
+  if (m_centerStack)
+    m_centerStack->setCurrentIndex(0);
+}

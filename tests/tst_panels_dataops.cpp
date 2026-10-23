@@ -76,6 +76,72 @@ class TestPanelsDataOps : public QObject
   Q_OBJECT
 
   private slots:
+    void filteredOutSelectionCannotReachBatchCommands()
+    {
+        QTemporaryDir dir;
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->listPanel();
+        lp->setViewMode(2);
+        lp->selectAssetInViews(fx.astResolved);
+        QVERIFY(lp->currentAssetSelection().contains(fx.astResolved));
+        lp->setViewMode(1);
+        paleo::dataops::FilterGroup filter;
+        filter.conditions.append({paleo::dataops::FilterDim::Search,
+                                  QStringLiteral("no-such-asset"), false});
+        lp->applyFilterGroup(filter);
+        QVERIFY(lp->currentAssetSelection().isEmpty());
+    }
+
+    void entityPrimaryActionUsesSharedUndoStack()
+    {
+        QTemporaryDir dir;
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        EntityAssetLink member;
+        member.entityType = QStringLiteral("well");
+        member.entityId = fx.wellA;
+        member.assetId = fx.astFree;
+        member.role = QStringLiteral("well_log");
+        member.isPrimary = false;
+        QVERIFY(svc.catalog()->addLink(member));
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *panel = qobject_cast<EntityPanel *>(page->entityViewSection());
+        QVERIFY(panel);
+        const auto primary = [&] {
+            for (const auto &link : svc.catalog()->linksForEntity(fx.wellA))
+                if (link.role == member.role && link.isPrimary) return link.assetId;
+            return QString();
+        };
+        QCOMPARE(primary(), fx.astResolved);
+        emit panel->wellLogSetPrimaryRequested(fx.wellA, fx.astFree);
+        QTRY_COMPARE(primary(), fx.astFree);
+        page->listPanel()->undoOp();
+        QCOMPARE(primary(), fx.astResolved);
+        page->listPanel()->redoOp();
+        QCOMPARE(primary(), fx.astFree);
+        // 同一轮事件里连续发意图：撤销目标取执行时的主文件。
+        emit panel->wellLogSetPrimaryRequested(fx.wellA, fx.astResolved);
+        emit panel->wellLogSetPrimaryRequested(fx.wellA, fx.astFree);
+        QTest::qWait(1);
+        QCOMPARE(primary(), fx.astFree);
+        page->listPanel()->undoOp();
+        QCOMPARE(primary(), fx.astResolved);
+        // 排队后换工程，即使实体/资产身份碰巧相同，也不写入新工程。
+        emit panel->wellLogSetPrimaryRequested(fx.wellA, fx.astFree);
+        QTemporaryDir nextProject;
+        svc.setProjectDir(nextProject.path());
+        fx.build(svc.catalog());
+        QVERIFY(svc.catalog()->addLink(member));
+        QTest::qWait(1);
+        QCOMPARE(primary(), fx.astResolved);
+    }
+
     // ---- D1 多选框架 -----------------------------------------------------
     void dataops_d1_extendedSelectionOnTreeAndTable()
     {
@@ -2744,6 +2810,7 @@ class TestPanelsDataOps : public QObject
         auto *lp = page->findChild<DataListPanel *>();
         auto *icon = page->findChild<QListWidget *>(QStringLiteral("assetIconView"));
         QVERIFY(icon);
+        lp->setViewMode(2); // 只在进入图标视图时装载，隐藏视图不再随筛选重建。
         QCOMPARE(icon->count(), 3);
         QCOMPARE(icon->viewMode(), QListView::IconMode);
         // 激活语义 = 打开预览（D7.1 图标态与表一致）。

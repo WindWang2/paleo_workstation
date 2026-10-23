@@ -897,9 +897,7 @@ QString PreviewMapPage::measureReadout() const
 
 void PreviewMapPage::showLowResSnapshot()
 {
-  const QImage img = m_canvas->renderSnapshot( 320 );
-  if ( !img.isNull() )
-    m_canvas->showPreviewOverlay( img );
+  primeRenderCache(); // 已缓存的当前资料/版本/视野先上屏；未命中直接异步正式渲染。
   m_canvas->canvas()->refresh();
 }
 

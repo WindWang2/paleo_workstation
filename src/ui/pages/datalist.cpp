@@ -329,9 +329,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   pl->addWidget(next);
   listLay->addWidget(pager);
   pager->hide();
-  connect(m_viewStack, &QStackedWidget::currentChanged, this, [this, pager](int mode) {
-    pager->setVisible(m_rows.size() > 200 && mode != 3);
-  });
+  connect(m_viewStack, &QStackedWidget::currentChanged, this, &DataListPanel::applyListFilter);
   connect(previous, &QPushButton::clicked, this, [this] { --m_assetPage; applyListFilter(); });
   connect(next, &QPushButton::clicked, this, [this] { ++m_assetPage; applyListFilter(); });
   table->horizontalHeader()->setSortIndicatorShown(false);

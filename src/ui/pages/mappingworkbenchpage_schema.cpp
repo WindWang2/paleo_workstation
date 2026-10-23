@@ -9,6 +9,10 @@
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTreeWidget>
+#include <QTimer>
+#include "../../workflow/mappingworkbench.h"
+#include <QLineEdit>
+#include <QListWidget>
 #include <QVBoxLayout>
 
 void MappingWorkbenchPage::buildFaciesSchema(QWidget *schemaBody) {
@@ -117,7 +121,80 @@ void MappingWorkbenchPage::buildFaciesSchema(QWidget *schemaBody) {
     }
     tree->expandAll();
   };
-  connect(m_facies, &QTableWidget::cellChanged, tree, rebuildTree);
-  connect(m_facies->model(), &QAbstractItemModel::rowsRemoved, tree, rebuildTree);
-  connect(m_facies->model(), &QAbstractItemModel::rowsInserted, tree, rebuildTree);
+  m_schemaRefresh = new QTimer(this);
+  m_schemaRefresh->setSingleShot(true);
+  connect(m_schemaRefresh, &QTimer::timeout, tree, rebuildTree);
+  const auto changed = [this] {
+    if (m_loadingFacies) return;
+    m_faciesDirty = true;
+    m_schemaRefresh->start(0);
+  };
+  connect(m_facies, &QTableWidget::cellChanged, this, changed);
+  connect(m_facies->model(), &QAbstractItemModel::rowsRemoved, this, changed);
+  connect(m_facies->model(), &QAbstractItemModel::rowsInserted, this, changed);
+}
+
+QVariantList MappingWorkbenchPage::faciesRows() const {
+  QVariantList rows;
+  const QStringList fields{"code", "name", "color", "facies", "subfacies", "microfacies", "texture"};
+  for (int r = 0; r < m_facies->rowCount(); ++r) {
+    QVariantMap row = m_facies->item(r, 0) ? m_facies->item(r, 0)->data(Qt::UserRole).toMap() : QVariantMap();
+    for (int c = 0; c < fields.size(); ++c)
+      row[fields[c]] = m_facies->item(r, c) ? m_facies->item(r, c)->text() : QString();
+    rows << row;
+  }
+  return rows;
+}
+
+void MappingWorkbenchPage::setHorizon(const QString &h) {
+  if (m_horizon == h)
+    return;
+  if (m_faciesDirty) m_faciesDrafts[m_horizon] = faciesRows();
+  m_horizon = h; emit horizonChanged(h);
+  m_evidenceSnapshotOwned = false; m_evidenceSnapshot.clear();
+  // 层位切换后反查结果属于旧层位上下文——清空，避免双击定位错层。
+  if (m_reverseResults) m_reverseResults->clear();
+  m_lastReverseKind.clear();
+  m_lastReverseArgument.clear();
+  if (m_horizonFile) m_horizonFile->clear();
+  showMessage(QString());
+  refresh();
+  const auto schema = m_faciesDrafts.value(h, m_workbench->facies(h));
+  m_faciesDirty = m_faciesDrafts.contains(h);
+  m_loadingFacies = true;
+  if (m_thresholds) m_thresholds->setPlaceholderText(
+      tr("%1 个微相需填写 %2 个递增阈值（按编码顺序）").arg(schema.size()).arg(qMax(0, int(schema.size()) - 1)));
+  m_facies->setRowCount(schema.size());
+  for (int i = 0; i < schema.size(); ++i) {
+    auto f = schema[i].toMap();
+    m_facies->setItem(i, 0, new QTableWidgetItem(f.value("code").toString()));
+    m_facies->item(i, 0)->setData(Qt::UserRole, f);
+    m_facies->setItem(i, 1, new QTableWidgetItem(f.value("name").toString()));
+    m_facies->setItem(i, 2, new QTableWidgetItem(f.value("color").toString()));
+    int c = 3;
+    for (const auto &key : {"facies", "subfacies", "microfacies", "texture"})
+      m_facies->setItem(i, c++, new QTableWidgetItem(f.value(key).toString()));
+  }
+  m_loadingFacies = false;
+  m_schemaRefresh->start(0);
+  if (m_faciesDirty) showMessage(tr("已恢复本层位未保存的分类草稿，请核对后保存分类。"));
+}
+
+void MappingWorkbenchPage::wireFaciesUpdates() {
+  connect(m_workbench, &MappingWorkbench::faciesChanged, this,
+          [this](const QString &h) {
+            if (h != m_horizon)
+              return;
+            if (m_faciesDirty) {
+              showMessage(tr("分类已更新；本页未保存的分类草稿已保留，请核对后保存。"));
+              return;
+            }
+            const auto saved = m_horizon;
+            m_horizon.clear();
+            setHorizon(saved);
+          });
+  connect(m_workbench, &MappingWorkbench::catalogBound, this, [this] {
+    m_faciesDrafts.clear(); m_faciesDirty = false;
+    const auto horizon = m_horizon; m_horizon.clear(); setHorizon(horizon);
+  });
 }

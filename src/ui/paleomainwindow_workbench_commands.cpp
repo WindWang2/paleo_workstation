@@ -449,6 +449,7 @@ WbCmdStep runWorkbenchLifecycleFamily(const WorkbenchCmdDeps &d,
     ok = d.workbench->startCompose(h, inputs, p, &error);
   else if (action == "schema") {
     ok = d.workbench->saveFacies(h, p.value("facies").toList(), &error);
+    if (ok) d.page->markFaciesSaved();
     auto *layer = d.canvasCtl->canvas()->currentLayer();
     d.legend(layer ? layer->customProperty("paleoLayerId").toString()
                    : QString());

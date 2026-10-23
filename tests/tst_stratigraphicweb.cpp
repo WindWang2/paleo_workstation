@@ -233,7 +233,7 @@ private slots:
     QCOMPARE(ready.count(), 1); // 切回不探测/刷新，不丢解释状态
     QCOMPARE(window.findChild<WebViewPanel *>(QStringLiteral("correlationWebView")), web);
     window.showStartup();
-    QVERIFY(!right->isHidden());
+    QVERIFY(right->isHidden()); // 首页收起无关 dock，用户显隐意愿仍保留。
     QCOMPARE(save->shortcut(), QKeySequence(QKeySequence::Save));
   }
   void realExternalWorkspaceSmoke()

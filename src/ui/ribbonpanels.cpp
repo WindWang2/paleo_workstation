@@ -499,6 +499,13 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   session->addSmallAction(editTb->actionEditMode());
   session->addSmallAction(editTb->actionSave());
   session->addSmallAction(editTb->actionCancel());
+  const auto syncTools = [p, session, editTb] {
+    const bool target = editTb->actionSelect()->isEnabled();
+    p->setVisible(target);
+    session->setVisible(target);
+  };
+  connect(editTb, &PaleoEditingToolbar::stateChanged, p, syncTools);
+  syncTools();
   if (compact)
     return; // 相图显示 / 捕捉与撤销 由调用方放进溢出菜单（addEditingSettingsMenu）
   auto *settings = category->addPanel(tr("捕捉与撤销"));

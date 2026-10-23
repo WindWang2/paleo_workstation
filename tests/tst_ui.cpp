@@ -2111,7 +2111,8 @@ class TestUiShell : public QObject
       QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(), vector);
       if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty()) {
         QDir().mkpath(qa);
-        QTest::qWait(120);
+        QTest::qWait(120); // 先让 queued refresh 启动，再等各画布实际完成。
+        QTRY_VERIFY(!firstReferenceCanvas->isDrawing() && !newReference->canvas()->isDrawing());
         QVERIFY(m_win->grab().save(qa + "/evidence-panels-light.png"));
       }
       const QRect panelGeometry = editingRef->geometry();
@@ -2123,6 +2124,11 @@ class TestUiShell : public QObject
       QCOMPARE(m_ctx->canvasCtl()->canvas()->mapTool(), drawTool);
       auto *thirdView = evidencePanel->views()[2];
       QVERIFY(thirdView->sourceId().isEmpty());
+      QCOMPARE(thirdView->geometry().left(), evidencePanel->views().first()->geometry().left());
+      QVERIFY(thirdView->geometry().top() > evidencePanel->views().first()->geometry().bottom());
+      QVERIFY(newReference->geometry().left() > evidencePanel->views().first()->geometry().right());
+      if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty())
+        QVERIFY(m_win->grab().save(qa + "/evidence-panels-three-light.png"));
       thirdView->findChild<QToolButton *>("referenceRemoveView")->click();
       QCOMPARE(evidencePanel->views().size(), 2);
       m_win->showPage("data");

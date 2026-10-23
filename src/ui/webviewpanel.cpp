@@ -3,6 +3,7 @@
 #include "paleotheme.h"
 
 #include <QCoreApplication>
+#include <QAction>
 #include <QDesktopServices>
 #include <QGuiApplication>
 #include <QDir>
@@ -92,6 +93,10 @@ WebViewPanel::WebViewPanel(QWidget *parent)
   m_statusLabel->setWordWrap(true);
   applyMutedStyle(m_statusLabel);
   lay->addWidget(m_statusLabel);
+  m_recoveryButton = new QPushButton(statusPage);
+  m_recoveryButton->setObjectName(QStringLiteral("webRecoveryButton"));
+  m_recoveryButton->hide();
+  lay->addWidget(m_recoveryButton, 0, Qt::AlignHCenter);
   m_externalButton = new QPushButton(tr("用系统浏览器打开"), statusPage);
   m_externalButton->setObjectName(QStringLiteral("webExternalButton"));
   m_externalButton->setVisible(false);
@@ -102,6 +107,20 @@ WebViewPanel::WebViewPanel(QWidget *parent)
   lay->addWidget(m_externalButton, 0, Qt::AlignHCenter);
   lay->addStretch(1);
   m_stack->addWidget(statusPage);
+}
+
+void WebViewPanel::setRecoveryAction(QAction *action)
+{
+  if (!action) return;
+  const auto sync = [this, action] {
+    m_recoveryButton->setText(tr("重试连接"));
+    m_recoveryButton->setToolTip(action->toolTip());
+    m_recoveryButton->setEnabled(action->isEnabled());
+  };
+  connect(m_recoveryButton, &QPushButton::clicked, action, &QAction::trigger);
+  connect(action, &QAction::changed, m_recoveryButton, sync);
+  sync();
+  m_recoveryButton->show();
 }
 
 bool WebViewPanel::isAllowedUrl(const QUrl &url)

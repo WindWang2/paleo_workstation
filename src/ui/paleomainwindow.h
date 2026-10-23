@@ -464,7 +464,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     bool m_previewMaximized = false;
     QByteArray m_preMaxWindowState;
     PaleoDockWidget *m_leftDock = nullptr;
-    QDockWidget *m_rightDock = nullptr;
+    PaleoDockWidget *m_rightDock = nullptr;
     PaleoDockWidget *m_bottomDock = nullptr;
     bool m_bottomDockAutoShown = false; // W2：任务驱动的自动露出（恢复用）
     // ---- wave/layer-platform：左 dock 图层平台（面板 + 档案工具条 + 服务） ----

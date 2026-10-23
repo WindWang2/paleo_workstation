@@ -161,6 +161,14 @@ QGIS 代码编辑器头的 Linux 构建中允许降级；Windows 使用已有 `C
 
 ## Windows 本机开发（localdeps 统一链，方向 72）
 
+`paleo-dev.ps1 build` 会用实际 MSVC + Ninja 的小型头文件夹具验证依赖前缀，
+修正本地化 `/showIncludes` 与控制台代码页造成的错误匹配。仅设置 `VSLANG`
+不足以解决未安装英文编译器语言包的机器。首次修复会清理生成目标后重建，
+避免新旧类布局混用；以后通过前缀记录保持正常增量构建，不反复清库。
+构建日志不应整屏泄漏 `/showIncludes` 行；可用 `ninja -C build -t deps`
+核对头文件确已登记。手工运行 CMake/Ninja 的本地化环境同样需要验证这项。
+`paleo-dev.ps1` 保留 UTF-8 BOM，以便 Windows PowerShell 5.1 正确解析中文字符串。
+
 **背景（历史注记，勿再踩）**：本机曾以 `C:/deps/Qt/6.8.0/msvc2022_64` 编译、
 而 QGIS 前缀与依赖闭包按 Qt 6.11 构建——两版 Qt 同进程混载，全量回归长期
 185 红/293（含 5 个伞式测试 0xc0000139 ENTRYPOINT_NOT_FOUND），只能靠

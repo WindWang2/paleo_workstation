@@ -56,7 +56,7 @@ void DataListPanel::applyListFilter()
   table->setProperty("paleo.totalAssets", m_rows.size());
   table->setProperty("paleo.pageSize", pageSize);
   if (auto *pager = findChild<QWidget *>(QStringLiteral("assetPager")))
-    // 树形视图（0）永不分页（完整实体树 + 滚动）；分组视图（3）自管懒载。
+    // 树形视图（0）展示完整实体树；虚拟表（3）自管 fetchMore。
     pager->setVisible(paged && (!m_viewStack ||
                                 (m_viewStack->currentIndex() != 0 &&
                                  m_viewStack->currentIndex() != 3)));
@@ -99,7 +99,8 @@ void DataListPanel::applyListFilter()
 
   // 树形视图过滤（P3：按可见 id 集 + 文本匹配递归）。
   const bool filtering = !m_filter.conditions.isEmpty() || !m_activeTag.isEmpty();
-  applyFilterToTree(visibleIds, filtering);
+  if (!m_viewStack || m_viewStack->currentIndex() == 0)
+    applyFilterToTree(visibleIds, filtering);
 
   // D2.9 空结果态：有过滤而零命中 → 放宽/清除快捷钮（空态指引行仍显示）。
   if (m_emptyState)
@@ -115,17 +116,19 @@ void DataListPanel::applyListFilter()
   }
 
   // D7 新视图页同口径重灌（图标/分组；虚拟模型给全量行——fetchMore 自管）。
-  if (m_iconView)
+  if (m_iconView && (!m_viewStack || m_viewStack->currentIndex() == 2 ||
+                     m_viewStack->currentIndex() == 4))
   {
     QVector<AssetRowInfo> vis;
     for (const AssetRowInfo &row : m_rows)
       if (visibleIds.contains(row.assetId))
         vis.append(row);
-    m_iconView->loadRows(paged ? m_pageRows : vis);
-    if (m_groupTree)
+    if (!m_viewStack || m_viewStack->currentIndex() == 2)
+      m_iconView->loadRows(paged ? m_pageRows : vis);
+    if (m_groupTree && (!m_viewStack || m_viewStack->currentIndex() == 4))
       m_groupTree->loadRows(paged ? m_pageRows : vis);
   }
-  if (m_virtualView)
+  if (m_virtualView && (!m_viewStack || m_viewStack->currentIndex() == 3))
   {
     QVector<AssetRowInfo> vis;
     for (const AssetRowInfo &row : m_rows)

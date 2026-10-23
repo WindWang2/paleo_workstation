@@ -56,6 +56,24 @@ void themedComboStyle(QWidget *w)
     });
 }
 
+QToolButton *displayOptionsButton(QWidget *parent) {
+    auto *button = new QToolButton(parent);
+    button->setObjectName(QStringLiteral("sectionDisplayOptions"));
+    button->setText(QObject::tr("显示与解释…"));
+    button->setAccessibleName(QObject::tr("展开显示调节、拾取与书签工具"));
+    button->setCheckable(true);
+    themedButtonStyle(button);
+    return button;
+}
+void insertDisplayOptions(QWidget *parent, QWidget *bar) {
+    if (auto *layout = qobject_cast<QVBoxLayout *>(parent->layout())) {
+        auto *host = new PaleoToolRow(bar, parent);
+        layout->insertWidget(1, host);
+        host->hide();
+        if (auto *toggle = parent->findChild<QToolButton *>(QStringLiteral("sectionDisplayOptions")))
+            QObject::connect(toggle, &QToolButton::toggled, host, &QWidget::setVisible);
+    }
+}
 } // namespace
 
 void SeismicSectionDockWidget::setupUi() {
@@ -86,10 +104,10 @@ void SeismicSectionDockWidget::setupUi() {
     setup->setToolTip(tr("选择连井顺序、绘制任意折线、调整逐井时深关系"));
     applyBtnStyle(setup);
     toolLay->addWidget(setup);
+    toolLay->addWidget(displayOptionsButton(toolbar));
     connect(setup, &QToolButton::clicked, this,
             &SeismicSectionDockWidget::setupRequested);
 
-    // Title Badge（中性徽章：不占 primary）
     m_lblTitle = new QLabel(tr("测线: 未加载"), toolbar);
     PaleoTheme::applyThemedStyleSheet(m_lblTitle, [] {
         const auto &t = PaleoTheme::tokens();
@@ -600,9 +618,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     // 显示控制行固定排在工具栏（index 0）之后、画布之前——setupDisplayBar
     // 在画布创建之后才调用（m_canvas 作接收者的连接需要它先在），但视觉
     // 位置不变。
-    if (auto *mainLay = qobject_cast<QVBoxLayout *>(parent->layout())) {
-        mainLay->insertWidget(1, new PaleoToolRow(bar, parent));
-    }
+    insertDisplayOptions(parent, bar);
 
     // ---- 信号接线 ----
     connect(m_cboDisplayMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {

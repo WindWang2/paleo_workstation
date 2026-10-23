@@ -10,6 +10,7 @@
 #include <QAbstractButton>
 #include <QAction>
 #include <QDockWidget>
+#include <QDir>
 #include <QLineEdit>
 #include <QMenu>
 #include <QSettings>
@@ -66,6 +67,38 @@ private slots:
   void initTestCase() { QVERIFY2(m_ctx->ready(), "AppContext failed to bring up QgisRuntime"); }
   void init() { clearSettings(); }
   void cleanup() { clearSettings(); }
+
+  void singleFactorRibbonFollowsFourSteps()
+  {
+    QgisCanvasController canvas(m_ctx);
+    PaleoMainWindow win(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(), m_ctx->toolSvc(), m_ctx->selection());
+    win.attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(), m_ctx->compositionWf(),
+                        m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(),
+                        m_ctx->processingSvc(), m_ctx->store(), m_ctx->editingSvc(),
+                        m_ctx->layoutSvc(), m_ctx->taskSvc());
+    win.resize(1440, 1000); win.show(); win.showPage(QStringLiteral("constraint"));
+    QCoreApplication::processEvents();
+    auto *category = win.categoryForPage(QStringLiteral("constraint")); QVERIFY(category);
+    int previous = -1;
+    for (const auto *name : {"ribbonPanel.constraint.input", "ribbonPanel.constraint.constraints",
+                             "ribbonPanel.constraint.idw", "ribbonPanel.constraint.result"}) {
+      auto *panel = category->findChild<SARibbonPanel *>(QString::fromLatin1(name)); QVERIFY(panel);
+      const int index = category->panelIndex(panel); QVERIFY(index > previous); previous = index;
+    }
+    for (const auto *name : {"ribbonExtractWellFactors", "ribbonDrawBreakLine", "ribbonDrawDirection",
+                             "ribbonImportBarrier", "ribbonImportDirection", "ribbonFactorOneClick", "ribbonFactorContour"})
+      QVERIFY2(win.findChild<QAction *>(QString::fromLatin1(name)), name);
+    auto *run = win.findChild<QAction *>(QStringLiteral("ribbonRunIdw"));
+    auto *more = win.findChild<QMenu *>(QStringLiteral("ribbonConstraintMoreMenu"));
+    QVERIFY(run && more && more->actions().contains(run));
+    for (const auto *button : category->findChildren<QToolButton *>())
+      QVERIFY(button->defaultAction() != run);
+    const QString qa = qEnvironmentVariable("PALEO_SINGLEFACTOR_QA_DIR");
+    if (!qa.isEmpty()) {
+      QDir().mkpath(qa);
+      QVERIFY(win.grab().save(qa + QStringLiteral("/shell-four-steps.png")));
+    }
+  }
 
   void homeRoundTripRestoresParameterDockIntent()
   {

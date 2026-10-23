@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "factorstylewriter.h"
 #include "qgiserrors_internal.h"
+#include "services/singlefactordef.h"
 
 #include <QColor>
 #include <QCryptographicHash>
@@ -79,6 +80,8 @@ bool applyTo(QgsRasterLayer *layer,const QString &factorId)
   const auto stats=layer->dataProvider()->bandStatistics(1);
   double low=stats.minimumValue,high=stats.maximumValue;
   if(!std::isfinite(low) || !std::isfinite(high) || low>high){delete ramp;return false;}
+  const auto defaults = SingleFactorRegistry::mapDefaults(factorId, low, high);
+  if (defaults.hasRange) { low = defaults.minimum; high = defaults.maximum; }
   if(low==high)high=low+1;
   auto *renderer=new QgsSingleBandPseudoColorRenderer(layer->dataProvider(),1,nullptr);
   renderer->setClassificationMin(low);renderer->setClassificationMax(high);

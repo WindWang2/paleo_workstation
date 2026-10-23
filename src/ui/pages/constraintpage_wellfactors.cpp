@@ -37,6 +37,17 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
   wellFactors->setObjectName(QStringLiteral("wellFactorSection"));
   auto *wellLay = panelLayout(wellFactors);
   wellLay->setContentsMargins(0, 0, 0, 0);
+  auto *sourceCaption = caption(tr("地层厚度来源"), content);
+  sourceCaption->setObjectName(QStringLiteral("factorSourceCaption")); lay->addWidget(sourceCaption);
+  auto *source = new QComboBox(content);
+  source->setObjectName(QStringLiteral("factorSourceCombo"));
+  source->setAccessibleName(tr("地层厚度来源"));
+  source->addItem(tr("井分层厚度（MD，默认）"), QStringLiteral("wells"));
+  source->addItem(tr("顶、底构造面相减（独立口径）"), QStringLiteral("surfaces"));
+  lay->addWidget(source);
+  connect(source, &QComboBox::currentIndexChanged, this, [this] {
+    invalidateWellFactors(); refreshWellFactorFields(); restoreWellFactorDisplay(); updateFactorActionStates();
+  });
   wellLay->addWidget(caption(tr("井点数据 · 选择字段并提取"), wellFactors));
   wellLay->addWidget(caption(tr("取值方式"), wellFactors));
   auto *factorMode = new QComboBox(wellFactors);
@@ -73,7 +84,7 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
     });
   }
   wellLay->addWidget(fieldSection);
-  auto *extract = new QPushButton(tr("提取并保存井点数据"), wellFactors);
+  auto *extract = new QPushButton(tr("获取单因素"), wellFactors);
   extract->setObjectName(QStringLiteral("extractWellFactorsButton"));
   auto *maintain = new QPushButton(tr("维护井点属性"), wellFactors);
   maintain->setObjectName(QStringLiteral("maintainWellFactorsButton"));
@@ -82,6 +93,10 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
   auto *actions = new QHBoxLayout;
   actions->setSpacing(PaleoTheme::tokens().spacingXs);
   actions->addWidget(extract, 1);
+  auto *recompute = new QPushButton(tr("重新读取并计算"), wellFactors);
+  recompute->setObjectName(QStringLiteral("recomputeWellFactorsButton"));
+  recompute->setToolTip(tr("忽略已保存结果，按当前井资料重新计算并另存新版本"));
+  actions->addWidget(recompute);
   actions->addWidget(maintain);
   wellLay->addLayout(actions);
   auto *detailSection = new CollapsibleSection(tr("查看逐井提取结果"), wellFactors);
@@ -95,7 +110,7 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
   wellTable->verticalHeader()->hide(); wellTable->horizontalHeader()->setStretchLastSection(true);
   wellTable->setMinimumHeight(120);
   detailSection->containerLayout()->addWidget(wellTable);
-  auto *wellHint = new QLabel(tr("选择字段后提取；解释砂厚和分层层厚采用 MD，同层段相除得到砂地比。"), wellFactors);
+  auto *wellHint = new QLabel(tr("优先读取已保存井值；缺少或来源变化时重新计算并保存。"), wellFactors);
   wellHint->setObjectName(QStringLiteral("wellFactorHint")); wellHint->setWordWrap(true);
   PaleoTheme::applyThemedStyleSheet(wellHint, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   wellLay->addWidget(wellHint);
@@ -125,6 +140,11 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
     const int r = checkedRow(factors); if (r < 0) return;
     emit extractWellFactorsRequested(factorIdOfRow(factors, r), horizons->currentText(), wellFactorParams());
   });
+  connect(recompute, &QPushButton::clicked, this, [this, factors, horizons] {
+    const int row = checkedRow(factors); if (row < 0) return;
+    auto params = wellFactorParams(); params.insert(QStringLiteral("forceRefresh"), true);
+    emit extractWellFactorsRequested(factorIdOfRow(factors, row), horizons->currentText(), params);
+  });
 }
 
 void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *horizons, QTableWidget *factors )
@@ -144,7 +164,6 @@ void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *
                 // 行即属（层位, 因子），建议函数据此校验归属。
                 setProperty("paleo.page.wellRowsKey", h + QChar(0x1f) + f);
                 refreshWellFactorResults();
-                static_cast<CollapsibleSection *>(child<QWidget>(this, "wellFactorDetailsSection"))->setExpanded(true);
                 refreshFactorResults();
                 updateFactorActionStates();
               }
@@ -170,10 +189,14 @@ void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *
 
 QVariantMap ConstraintPage::wellFactorParams() const {
   const auto value = [this](const char *name) { auto *c = findChild<QComboBox *>(QString::fromLatin1(name)); return c ? c->currentData().toString() : QString(); };
-  return {{QStringLiteral("factorMode"), value("factorModeCombo")},
+  QVariantMap params{{QStringLiteral("factorMode"), value("factorModeCombo")},
           {QStringLiteral("valueField"), value("factorValueFieldCombo")},
           {QStringLiteral("numeratorField"), value("factorNumeratorFieldCombo")},
           {QStringLiteral("denominatorField"), value("factorDenominatorFieldCombo")}};
+  const auto *table = findChild<QTableWidget *>(QStringLiteral("factorTable"));
+  if (factorIdOfRow(table, checkedRow(table)) == QLatin1String("strathick"))
+    params.insert(QStringLiteral("factorSource"), value("factorSourceCombo"));
+  return params;
 }
 void ConstraintPage::refreshWellFactorFields() {
   auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
@@ -255,7 +278,7 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
     QString selected = old.value(entry.second).toString();
     if (selected.isEmpty() && entry.second == QLatin1String("valueField")) {
       const auto *table = child<QTableWidget>(this, "factorTable"); const int r = checkedRow(table);
-      if (r >= 0) selected = SingleFactorRegistry::byId(factorIdOfRow(table, r)).defaultParams.value(QStringLiteral("field")).toString();
+      if (r >= 0) selected = factorDefinition(factorIdOfRow(table, r)).defaultParams.value(QStringLiteral("field")).toString();
     }
     if (selected.isEmpty() && entry.second == QLatin1String("numeratorField")) selected = QStringLiteral("log_sand_thickness_md");
     if (selected.isEmpty() && entry.second == QLatin1String("denominatorField")) selected = QStringLiteral("log_layer_thickness_md");
@@ -269,7 +292,7 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
   if (changedFactor || changedHorizon) {
     auto *mode = child<QComboBox>(this, "factorModeCombo");
     bool known = false;
-    const auto profile = SingleFactorRegistry::geologicalProfile(factor, &known);
+    const auto profile = SingleFactorRegistry::geologicalProfile(factor, &known, wellFactorParams().value("factorSource").toString());
     const bool direct = child<QComboBox>(this, "factorValueFieldCombo")->currentIndex() >= 0;
     const bool ratioAvailable = child<QComboBox>(this, "factorNumeratorFieldCombo")->currentIndex() >= 0 && child<QComboBox>(this, "factorDenominatorFieldCombo")->currentIndex() >= 0;
     const QString fieldMode = factor == QLatin1String("sandratio") && !direct && ratioAvailable ? QStringLiteral("ratio") : QStringLiteral("direct");
@@ -291,7 +314,7 @@ void ConstraintPage::invalidateWellFactors() {
   if (auto *table = findChild<QTableWidget *>(QStringLiteral("wellFactorTable"))) table->setRowCount(0);
   setProperty("paleo.page.wellRowsKey", QString()); // D-13：清表即弃行归属
   if (auto *hint = findChild<QLabel *>(QStringLiteral("wellFactorHint")))
-    hint->setText(tr("当前口径尚未提取井点因子。选择字段后提取；解释厚度采用同一 MD 层段。"));
+    hint->setText(tr("优先读取已保存井值；缺少或来源变化时重新计算并保存。"));
   markInputsStale(); updateWellFactorActionState();
   updateFactorActionStates();
 }
@@ -307,7 +330,8 @@ void ConstraintPage::refreshWellFactorGeoHint()
     return;
   }
   bool known = false;
-  const auto profile = SingleFactorRegistry::geologicalProfile(factorIdOfRow(child<QTableWidget>(this, "factorTable"), row), &known);
+  const auto profile = SingleFactorRegistry::geologicalProfile(factorIdOfRow(child<QTableWidget>(this, "factorTable"), row), &known,
+                                                              wellFactorParams().value("factorSource").toString());
   if (!known)
   {
     hint->clear();
@@ -333,12 +357,17 @@ void ConstraintPage::updateWellFactorActionState() {
   const bool busy = property("paleo.page.runbusy").toBool();
   const auto *horizon = child<QComboBox>(this, "horizonCombo");
   const bool hasHorizon = horizon && !horizon->currentText().trimmed().isEmpty();
+  const auto *factors = child<QTableWidget>(this, "factorTable");
+  const bool fromWells = interpolantEngine(factorDefinition(factorIdOfRow(factors, checkedRow(factors))).processingAlgId);
   // 井点提取是输入准备，与约束线相互独立（约束只在插值时汇合）。
-  button->setEnabled(ready && hasHorizon && !busy);
+  button->setVisible(fromWells);
+  button->setEnabled(fromWells && ready && hasHorizon && !busy);
   button->setToolTip(busy          ? tr("正在计算，可取消")
                      : !hasHorizon ? tr("输入：请先打开工程并选择层位")
-                     : ready       ? tr("后台提取当前地层数据，保存井点版本后再生成单因素图")
+                     : ready       ? tr("优先读取本层位已保存的单因素；缺少结果或来源变化时从井资料读取、计算并保存，供下次使用")
                                    : tr("请勾选因子并选择真实提取字段"));
+  if (auto *recompute = child<QPushButton>(this, "recomputeWellFactorsButton"))
+    recompute->setEnabled(button->isEnabled());
   refreshWellFactorGeoHint();
   updateOneClickState();
 }
@@ -354,29 +383,15 @@ void ConstraintPage::refreshWellFactorResults() {
     table->setItem(row, 0, new QTableWidgetItem(m.value(QStringLiteral("well_name")).toString()));
     auto *value = new QTableWidgetItem(m.contains(QStringLiteral("value")) ? QString::number(m.value(QStringLiteral("value")).toDouble(), 'g', 8) : QStringLiteral("—"));
     value->setFont(PaleoTheme::monoFont()); table->setItem(row, 1, value);
+    value->setData(Qt::UserRole, m.value(QStringLiteral("contributing")));
     auto *detail = new QTableWidgetItem(m.value(QStringLiteral("contributing")).toBool() ? m.value(QStringLiteral("source")).toString() : m.value(QStringLiteral("reason")).toString());
     detail->setToolTip(detail->text()); table->setItem(row, 2, detail);
   }
   child<QLabel>(this, "wellFactorHint")->setText(wf->wellFactorMessage());
   applySuggestedContourInterval();
+  refreshFactorDefaultsHint();
   updateFactorActionStates();
 }
-
-namespace {
-double niceContourSixth(double lo, double hi)
-{
-  if (!std::isfinite(lo) || !std::isfinite(hi) || !(hi > lo))
-    return 0.0;
-  const double raw = (hi - lo) / 6.0;
-  if (!(raw > 0.0) || !std::isfinite(raw))
-    return 0.0;
-  const double exponent = std::floor(std::log10(raw));
-  const double base = std::pow(10.0, exponent);
-  const double mantissa = raw / base;
-  const double nice = mantissa < 1.5 ? 1.0 : mantissa < 3.5 ? 2.0 : mantissa < 7.5 ? 5.0 : 10.0;
-  return nice * base;
-}
-} // namespace
 
 void ConstraintPage::applySuggestedContourInterval()
 {
@@ -409,7 +424,7 @@ void ConstraintPage::applySuggestedContourInterval()
     if (auto *table = child<QTableWidget>(this, "wellFactorTable")) {
       for (int row = 0; row < table->rowCount(); ++row) {
         const auto *item = table->item(row, 1);
-        if (!item)
+        if (!item || (item->data(Qt::UserRole).isValid() && !item->data(Qt::UserRole).toBool()))
           continue;
         bool ok = false;
         const double value = item->text().toDouble(&ok);
@@ -421,7 +436,8 @@ void ConstraintPage::applySuggestedContourInterval()
       }
     }
   }
-  const double step = count >= 2 ? niceContourSixth(lo, hi) : 0.0;
+  const auto defaults = SingleFactorRegistry::mapDefaults(factor, lo, hi);
+  const double step = defaults.hasRange && (count > 0 || factor == QLatin1String("sandratio")) ? defaults.contourInterval : 0.0;
   QSignalBlocker block(spin);
   if (!(step > 0.0)) {
     if (spin->value() == 0.0 && !checkedFactorIsStructural())
@@ -437,7 +453,8 @@ void ConstraintPage::applySuggestedContourInterval()
     ++decimals;
   spin->setDecimals(std::max(2, decimals - 1));
   spin->setValue(step);
-  spin->setToolTip(tr("默认约为当前单因素有效值极差的 1/6（%1 ~ %2）。").arg(lo, 0, 'g', 6).arg(hi, 0, 'g', 6));
+  spin->setToolTip(tr("按当前因素推荐值域 %1–%2 %3 设置，可调整。").arg(defaults.minimum, 0, 'g', 6)
+                       .arg(defaults.maximum, 0, 'g', 6).arg(defaults.unit));
   setProperty("paleo.page.contourIntervalKey", key);
   setProperty("paleo.page.contourIntervalUser", false);
 }

@@ -6,4 +6,5 @@ tests/fixtures/** -text
 # Vendored 字体与上游许可按锁定 SHA-256 原字节检出，跨平台禁止换行转换。
 resources/fonts/*.otf -text
 resources/fonts/*.ttf -text
-resources/fonts/OFL-IBMPlex.txt -text
+# 上游许可有原始行尾空格；保留原字节以匹配锁定哈希，仅该文件不做空白检查。
+resources/fonts/OFL-IBMPlex.txt -text -whitespace

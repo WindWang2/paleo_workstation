@@ -9,12 +9,80 @@
 
 #include <QItemSelection>
 #include <QItemSelectionModel>
+#include <QScopedValueRollback>
 #include <QListWidget>
 #include <QSignalBlocker>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
+#include <QStackedWidget>
+
+void DataListPanel::wireAssetSelection()
+{
+  auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
+  connect(table, &QTableWidget::itemSelectionChanged, this, [this, table] {
+    if (m_restoringSelection) return;
+    syncAssetSelection(table);
+    const auto ids = paleo::dataops::selectedAssetIds(table);
+    if (!ids.isEmpty() && (m_progSelect || ids.size() == 1))
+      emit assetActivated(table->selectedItems().first()->data(Qt::UserRole).toString());
+  });
+  for (QAbstractItemView *view : {static_cast<QAbstractItemView *>(m_iconView),
+                                static_cast<QAbstractItemView *>(m_virtualView),
+                                static_cast<QAbstractItemView *>(m_groupTree)})
+    connect(view->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            [this, view] { syncAssetSelection(view); });
+  connect(m_virtualView->model(), &QAbstractItemModel::rowsInserted, this, [this] {
+    if (!m_restoringSelection && m_viewStack->currentIndex() == 3) restoreAssetSelection();
+  });
+}
+
+void DataListPanel::syncAssetSelection(QAbstractItemView *view)
+{
+  if (m_restoringSelection || !view || !view->selectionModel()) return;
+  QSet<QString> selected;
+  for (const auto &index : view->selectionModel()->selectedRows())
+    if (m_visibleAssetIds.contains(index.data(Qt::UserRole).toString()))
+      selected.insert(index.data(Qt::UserRole).toString());
+  if (view == m_tree)
+    m_pageSelection = selected;
+  else {
+    // 仅替换本视图已展示的身份；跨分页或尚未 fetch 的选区保持不变。
+    if (auto *tree = qobject_cast<QTreeWidget *>(view)) {
+      for (QTreeWidgetItemIterator it(tree); *it; ++it)
+        m_pageSelection.remove((*it)->data(0, Qt::UserRole).toString());
+    } else {
+      for (int row = 0; row < view->model()->rowCount(); ++row)
+        m_pageSelection.remove(view->model()->index(row, 0).data(Qt::UserRole).toString());
+    }
+    m_pageSelection.unite(selected);
+  }
+  m_selKeep.snapshotIds(m_pageSelection);
+  refreshSelectionBadge();
+}
+
+void DataListPanel::restoreAssetSelection()
+{
+  if (!m_viewStack) return;
+  auto *view = qobject_cast<QAbstractItemView *>(m_viewStack->currentWidget());
+  if (!view) return;
+  const QScopedValueRollback<bool> restoring(m_restoringSelection, true);
+  const QSignalBlocker block(view);
+  if (auto *tree = qobject_cast<QTreeWidget *>(view)) {
+    for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+      const auto id = (*it)->data(0, Qt::UserRole).toString();
+      if (m_doc && m_doc->catalog() && !m_doc->catalog()->assetById(id).id.isEmpty())
+        (*it)->setSelected(m_visibleAssetIds.contains(id) && m_pageSelection.contains(id));
+    }
+  } else {
+    QItemSelection selection;
+    for (int row = 0; row < view->model()->rowCount(); ++row)
+      if (m_pageSelection.contains(view->model()->index(row, 0).data(Qt::UserRole).toString()))
+        selection.select(view->model()->index(row, 0), view->model()->index(row, view->model()->columnCount() - 1));
+    view->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+  }
+}
 
 void DataListPanel::selectAssetsForEntities(const QStringList &entityIds)
 {
@@ -62,9 +130,11 @@ void DataListPanel::selectAssetsForEntities(const QStringList &entityIds)
   table->selectionModel()->select(
       sel, QItemSelectionModel::Select | QItemSelectionModel::Rows);
   m_progSelect = false;
-  if (m_rows.size() > 200) m_pageSelection.unite(wanted);
+  m_pageSelection.unite(wanted);
   if (firstHit)
     table->scrollToItem(firstHit);
+  restoreAssetSelection();
+  refreshSelectionBadge();
 }
 
 void DataListPanel::selectAssetInViews(const QString &assetId)
@@ -151,40 +221,27 @@ void DataListPanel::selectAssetInViews(const QString &assetId)
       }
     }
   }
+  restoreAssetSelection();
   refreshSelectionBadge();
 }
 
 QSet<QString> DataListPanel::currentAssetSelection() const
 {
   using namespace paleo::dataops;
-  QSet<QString> out = selectedAssetIds(m_tree) + m_pageSelection;
-  if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
-    out += selectedAssetIds(table);
-  if (m_iconView)
-  {
-    for (QListWidgetItem *it : m_iconView->selectedItems())
-    {
-      const QString id = it->data(Qt::UserRole).toString();
-      if (!id.isEmpty())
-        out.insert(id);
-    }
-  }
+  QSet<QString> out = m_pageSelection & m_visibleAssetIds;
   // 树中的井、测线与统计节点不能冒充资产参与批量删除。
   if (!m_doc || !m_doc->catalog()) return {};
   for (auto it = out.begin(); it != out.end(); ) {
     if (m_doc->catalog()->assetById(*it).id.isEmpty() || m_recycle.isRemoved(*it)) it = out.erase(it);
     else ++it;
   }
-  // 隐藏视图延迟刷新；旧选区不能把已被筛掉的资产带入批量操作。
-  QSet<QString> visible;
-  for (const auto &row : m_filteredRows) visible.insert(row.assetId);
-  out.intersect(visible);
   return out;
 }
 
 QStringList DataListPanel::currentEntitySelection() const
 {
-  return paleo::dataops::selectedEntityIds(m_tree);
+  return !m_viewStack || m_viewStack->currentIndex() == 0
+      ? paleo::dataops::selectedEntityIds(m_tree) : QStringList();
 }
 
 paleo::dataops::SelectionMix DataListPanel::currentSelectionMix() const
@@ -198,38 +255,26 @@ paleo::dataops::SelectionMix DataListPanel::currentSelectionMix() const
 void DataListPanel::refreshSelectionBadge()
 {
   using namespace paleo::dataops;
+  const int assets = int(currentAssetSelection().size());
   if (auto *badge = findChild<SelectionBadge *>(QStringLiteral("selectionBadge")))
-    badge->setCount(int(currentAssetSelection().size()));
-  emit selectionCountChanged(int(currentAssetSelection().size()),
-                            currentEntitySelection().size());
+    badge->setCount(assets);
+  emit selectionCountChanged(assets, currentEntitySelection().size());
 }
 
 void DataListPanel::selectAllVisibleAssets()
 {
   using namespace paleo::dataops;
-  if (m_rows.size() > 200) {
-    m_pageSelection.clear();
-    for (const auto &row : m_filteredRows) m_pageSelection.insert(row.assetId);
-    m_selKeep.snapshotIds(m_pageSelection);
-    renderAssetPage();
-  }
-  if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
-    selectAllVisible(table);
-  // 树/图标视图同步全选（可见项）。
-  if (m_iconView)
-    m_iconView->selectAll();
+  m_pageSelection = m_visibleAssetIds;
+  restoreAssetSelection();
+  refreshSelectionBadge();
 }
 
 void DataListPanel::invertAssetSelection()
 {
   using namespace paleo::dataops;
-  if (m_rows.size() > 200) {
-    QSet<QString> inverted;
-    for (const auto &row : m_filteredRows) if (!m_pageSelection.contains(row.assetId)) inverted.insert(row.assetId);
-    m_pageSelection = inverted; renderAssetPage(); refreshSelectionBadge(); return;
-  }
-  if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
-    invertSelection(table);
+  m_pageSelection = m_visibleAssetIds - m_pageSelection;
+  restoreAssetSelection();
+  refreshSelectionBadge();
 }
 
 void DataListPanel::selectByCurrentFilter()

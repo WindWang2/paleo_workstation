@@ -46,6 +46,9 @@ namespace paleo::mainwindow_internal
 void applyPageDockPolicy(const QString &pageId, const PageDockState &s,
                          QMainWindow *window)
 {
+  if (s.right)
+    s.right->setProgrammaticVisible(pageId != QLatin1String("startup") &&
+        pageId != QLatin1String("correlation") && s.right->userWantsVisible() && !s.previewMaximized);
   s.dataList->setProgrammaticVisible(pageId == QLatin1String("data") &&
                                      s.dataList->userWantsVisible() && !s.previewMaximized);
 
@@ -171,7 +174,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
 
   paleo::mainwindow_internal::applyPageDockPolicy(
       pageId, {m_leftDock, m_dataListDock, m_bottomDock, m_wellSectionDock,
-               m_previewMaximized, m_bottomDockAutoShown}, this);
+               m_previewMaximized, m_bottomDockAutoShown, m_rightDock}, this);
 
   if (pageId == QLatin1String("correlation"))
   {

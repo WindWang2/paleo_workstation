@@ -276,7 +276,7 @@ void PaleoMainWindow::buildShell()
              paleo::mainwindow_internal::applyPageDockPolicy(
                  m_currentPage, {m_leftDock, m_dataListDock, m_bottomDock,
                                  m_wellSectionDock, m_previewMaximized,
-                                 m_bottomDockAutoShown}, this);
+                                m_bottomDockAutoShown, m_rightDock}, this);
          }
        }});
   const auto *screen = QGuiApplication::primaryScreen();

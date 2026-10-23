@@ -447,10 +447,11 @@ DataListPanel::DataListPanel(QWidget *parent)
   });
 
   connect(m_tree, &QTreeWidget::itemSelectionChanged, this, [this]() {
+    syncAssetSelection(m_tree);
     if (!m_tree)
       return;
     const QList<QTreeWidgetItem *> sel = m_tree->selectedItems();
-    if (sel.isEmpty())
+    if (sel.size() != 1)
       return;
     QTreeWidgetItem *item = sel.front();
     const QString wellId = item->data(0, Qt::UserRole + 1).toString();
@@ -510,27 +511,7 @@ DataListPanel::DataListPanel(QWidget *parent)
 
   applyListFilter();   // 空表也写计数
 
-  // 列表选中一条资产 → 中央预览标签（预览部件由 shell 持有，重选聚焦语义
-  // 由 DataPreviewTabs 实现）。
-  connect(table, &QTableWidget::itemSelectionChanged, this, [this, table]() {
-    // P3 D1：多选中不逐个开预览（批量打开走「打开预览」动作）；程序化多选
-    //（selectAssetsForEntities）保持旧行为——首个命中行激活。
-    const QList<QTableWidgetItem *> sel = table->selectedItems();
-    for (const auto &row : m_pageRows)
-      m_pageSelection.remove(row.assetId);
-    m_pageSelection.unite(paleo::dataops::selectedAssetIds(table));
-    refreshSelectionBadge(); // 空选/多选都刷新（徽标隐藏 = 0/1 选中）
-    if (sel.isEmpty())
-      return;
-    if (!m_progSelect && paleo::dataops::selectedAssetIds(table).size() > 1)
-      return;
-    const QString assetId = sel.front()->data(Qt::UserRole).toString();
-    if (!assetId.isEmpty())
-      emit assetActivated(assetId);
-  });
-  // 树选中联动徽标（实体/资产混合选中计数）。
-  connect(m_tree, &QTreeWidget::itemSelectionChanged, this,
-          [this] { refreshSelectionBadge(); });
+  wireAssetSelection();
 }
 
 bool DataListPanel::eventFilter(QObject *watched, QEvent *event)
@@ -749,9 +730,6 @@ void DataListPanel::buildDataOpsUi()
     if (it)
       emit assetActivated(it->data(Qt::UserRole).toString());
   });
-  connect(m_iconView, &QListWidget::itemSelectionChanged, this, [this] {
-    refreshSelectionBadge();
-  });
   connect(m_groupTree, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem *it, int) {
     if (it)
     {
@@ -760,8 +738,6 @@ void DataListPanel::buildDataOpsUi()
         emit assetActivated(id);
     }
   });
-  connect(m_groupTree, &QTreeWidget::itemSelectionChanged, this,
-          [this] { refreshSelectionBadge(); });
 
   // ---- D2 多维过滤条 + chip 行 + 未决快捷行 ----
   auto *filterWrap = new QWidget(listSection);

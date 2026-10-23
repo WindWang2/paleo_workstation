@@ -402,11 +402,13 @@ void TestPreviewMapPage::lowResSnapshotShowsOverlay()
   m_page->setRenderCacheIdentity(QStringLiteral("cached-snapshot"), QStringLiteral("v1"));
   const QSize size = m_page->mapCanvas()->canvas()->size();
   QImage image(size, QImage::Format_ARGB32); image.fill(Qt::white);
+  m_page->showLowResSnapshot();
+  QVERIFY(!m_page->mapCanvas()->overlayVisible()); // 未灌缓存时不铺低清帧。
   PreviewRenderCache::instance().store(PreviewRenderCache::makeKey(
       QStringLiteral("cached-snapshot"), QStringLiteral("v1"),
       m_page->mapCanvas()->currentExtent(), size.width(), size.height()), image);
   m_page->showLowResSnapshot();
-  QVERIFY(m_page->mapCanvas()->overlayVisible()); // 缓存先上，不再同步等待一次低清渲染。
+  QVERIFY(m_page->mapCanvas()->overlayVisible()); // 缓存命中才先上。
   // 真渲完成后 overlay 让位。
   QTRY_VERIFY_WITH_TIMEOUT(!m_page->mapCanvas()->overlayVisible(), 5000);
 }

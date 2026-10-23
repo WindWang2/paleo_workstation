@@ -194,7 +194,8 @@ double datumOffset(const Well &w, const Datum &d, DepthDomain domain) {
     return flattenOffset(w, d.flattenTop);
   }
   case DatumMode::Elevation:
-    return std::isfinite(w.kb) ? w.kb : 0.0;
+    // 缺 KB 不是海平面。调用方看到非有限值应跳过该井，不要画在 0。
+    return std::isfinite(w.kb) ? w.kb : std::numeric_limits<double>::quiet_NaN();
   case DatumMode::Depth:
     break;
   }
@@ -256,8 +257,11 @@ DepthWindow depthWindow(const QVector<Well> &wells, const Datum &datum,
     double lo = qQNaN(), hi = qQNaN();
     if (!wellRange(w, lo, hi))
       continue;
-    lo -= datumOffset(w, datum, domain);
-    hi -= datumOffset(w, datum, domain);
+    const double shift = datumOffset(w, datum, domain);
+    if (!std::isfinite(shift))
+      continue;
+    lo -= shift;
+    hi -= shift;
     top = std::isfinite(top) ? std::min(top, lo) : lo;
     base = std::isfinite(base) ? std::max(base, hi) : hi;
   }

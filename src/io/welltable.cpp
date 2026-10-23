@@ -28,8 +28,17 @@ int column(const QStringList &headers, const QStringList &aliases, const QString
     for (int i = 0; i < headers.size(); ++i)
       if (headers[i].trimmed().compare(alias, Qt::CaseInsensitive) == 0) return i;
   for (int i = 0; i < headers.size(); ++i)
-    for (const auto &alias : aliases)
-      if (alias.size() > 1 && headers[i].contains(alias, Qt::CaseInsensitive)) return i;
+    for (const auto &alias : aliases) {
+      if (alias.size() <= 1) continue;
+      const QString header = headers[i].trimmed();
+      // ASCII 别名按词边界，避免 MD 命中 BASE_MD / BOTTOM_MD。中文别名仍允许包含。
+      const bool ascii = !alias.contains(QRegularExpression(QStringLiteral("[^A-Za-z0-9_]")));
+      if (ascii) {
+        const QRegularExpression word(QStringLiteral("\\b%1\\b").arg(QRegularExpression::escape(alias)),
+                                       QRegularExpression::CaseInsensitiveOption);
+        if (word.match(header).hasMatch()) return i;
+      } else if (header.contains(alias, Qt::CaseInsensitive)) return i;
+    }
   return -1;
 }
 WorkbookReadResult vectorOrText(const QString &path)
@@ -104,9 +113,10 @@ void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m
   const bool tops = top >= 0 && (md >= 0 || tvd >= 0);
   if (!heads && !tops) return;
   if (tops && name < 0 && QRegularExpression(QStringLiteral("^(Sheet\\d*|说明|总表|分层)$"), QRegularExpression::CaseInsensitiveOption).match(sheet.name).hasMatch()) return;
-  const QString type = heads ? QStringLiteral("well_head") : QStringLiteral("well_stratification");
-  if (!out.type.isEmpty() && out.type != type) return;
-  out.type = type;
+  // 层位+深度优先：分层表即使重复了井口坐标，也不能被当成井口把层丢掉。
+  const QString type = tops ? QStringLiteral("well_stratification") : QStringLiteral("well_head");
+  if (!out.type.isEmpty() && out.type != type && !tops) return;
+  if (out.type.isEmpty() || tops) out.type = type;
   if (heads) {
     out.columns = h;
     out.mapping = {{"sheet", sheet.name}, {"well", h.value(name)}, {"x", h.value(x)}, {"y", h.value(y)}, {"kb", h.value(kb)}, {"td", h.value(td)}};
@@ -118,32 +128,32 @@ void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m
     ++line;
     if (r.join(QString()).trimmed().isEmpty()) continue;
     QString well = name >= 0 ? r.value(name).trimmed() : sheet.name.trimmed();
-    double a = 0, b = 0, measuredDepth = 0;
+    double xVal = 0, yVal = 0, measuredDepth = 0, tvdVal = 0;
     const bool hasMd = md >= 0 && wellNumber(r.value(md), &measuredDepth);
-    const bool hasTvd = tvd >= 0 && wellNumber(r.value(tvd), &a);
-    const bool valid = !well.isEmpty() && (heads
-        ? wellNumber(r.value(x), &a) && wellNumber(r.value(y), &b)
-        : !r.value(top).trimmed().isEmpty() && (hasMd || hasTvd));
-    if (!valid) {
+    const bool hasTvd = tvd >= 0 && wellNumber(r.value(tvd), &tvdVal);
+    const bool validHead = heads && !well.isEmpty() && wellNumber(r.value(x), &xVal) && wellNumber(r.value(y), &yVal);
+    const bool validTop = tops && !well.isEmpty() && !r.value(top).trimmed().isEmpty() && (hasMd || hasTvd);
+    if (!validHead && !validTop) {
       ++out.report.rejectedRows;
       out.report.issues << QStringLiteral("%1 第 %2 行：井名、坐标或层位深度无效，已跳过").arg(sheet.name).arg(line);
       continue;
     }
-    if (heads) {
+    if (validHead) {
       WellHeadRecord record;
-      record.name = well; record.x = a; record.y = b;
+      record.name = well; record.x = xVal; record.y = yVal;
       // Optional values remain unknown, never invent elevation/depth zero.
       record.kb = record.td = qQNaN();
       double optionalValue = 0;
       if (kb >= 0 && wellNumber(r.value(kb), &optionalValue)) record.kb = optionalValue;
       if (td >= 0 && wellNumber(r.value(td), &optionalValue)) record.td = optionalValue;
       out.heads << record;
-      if (out.preview.size() < 8) out.preview << QStringList{well, QString::number(a, 'g', 12), QString::number(b, 'g', 12)};
-    } else {
+      if (out.preview.size() < 8) out.preview << QStringList{well, QString::number(xVal, 'g', 12), QString::number(yVal, 'g', 12)};
+    }
+    if (validTop) {
       WellTopRecord record;
       record.wellName = well; record.topName = r.value(top).trimmed();
       record.hasMd = hasMd; record.md = measuredDepth;
-      record.hasTvd = hasTvd; record.tvd = a;
+      record.hasTvd = hasTvd; record.tvd = tvdVal;
       out.tops << record;
     }
     ++out.report.acceptedRows;
@@ -198,7 +208,12 @@ WellTable readWellTable(const QString &path, const QVariantMap &mapping)
     if (!mapping.value("sheet").toString().isEmpty() && sheet.name != mapping.value("sheet").toString()) continue;
     // A point preview and its import must describe the same selected sheet.
     // Stratification workbooks still aggregate all compatible well sheets.
-    if (out.type == QLatin1String("well_head")) continue;
+    // 井口表不把后续无关页并进来；但后页若是分层，仍要保留层位。
+    if (out.type == QLatin1String("well_head")) {
+      WellTable probe;
+      parseSheet(probe, sheet, mapping);
+      if (probe.type != QLatin1String("well_stratification")) continue;
+    }
     if (out.columns.isEmpty()) out.columns = sheet.headers;
     parseSheet(out, sheet, mapping);
   }

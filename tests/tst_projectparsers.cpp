@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <cmath>
 #include <QFile>
 #include <QTemporaryDir>
 
@@ -154,8 +155,13 @@ void TestProjectParsers::rejectsInvalidWellHeadRequiredColumns()
                         "missing_y 1 -99999 3 4\n"
                         "missing_td 1 2 3 -99999\n"
                         "infinite_x inf 2 3 4\n"));
-  QCOMPARE(rows.size(), 1);
-  QCOMPARE(rows.first().name, QStringLiteral("good"));
+  // KB/TD 缺失置空仍接收；X/Y 哨兵与非有限值仍拒。
+  QCOMPARE(rows.size(), 3);
+  QCOMPARE(rows.at(0).name, QStringLiteral("good"));
+  QCOMPARE(rows.at(1).name, QStringLiteral("bad_kb"));
+  QVERIFY(std::isnan(rows.at(1).kb));
+  QCOMPARE(rows.at(2).name, QStringLiteral("missing_td"));
+  QVERIFY(std::isnan(rows.at(2).td));
 }
 
 void TestProjectParsers::parsesWellTops()

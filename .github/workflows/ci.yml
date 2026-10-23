@@ -470,9 +470,15 @@ jobs:
           if-no-files-found: ignore
           path: build/Testing/
 
-  windows:
+  # #646：单 job 串行 432 项超 6h 预算。按 ctest 序号四等分，片内仍串行
+  # （QSettings NativeFormat 不跨进程隔离）。required check 名仍是下面的 windows。
+  windows-shard:
     runs-on: windows-latest
-    timeout-minutes: 240
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Cache vendor artifacts
@@ -494,21 +500,23 @@ jobs:
         shell: pwsh
         run: ./paleo-dev.ps1 build
       - name: Selfcheck
+        if: matrix.shard == 1
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
         run: ./paleo-dev.ps1 selfcheck
-      - name: Test (headless；QSettings 走测试私有注册表 hive（方向 81），保持串行)
+      - name: Test (headless；QSettings 走测试私有注册表 hive（方向 81），片内串行)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
-          PALEO_CTEST_ARGS: -LE perf # #136：墙钟预算类不进必过门禁
+          # -I start,,stride：四片各跑 1/4，片内保持串行。perf 仍不进必过门禁。
+          PALEO_CTEST_ARGS: "-LE perf -I ${{ matrix.shard }},,4"
         run: ./paleo-dev.ps1 test
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: selfcheck-windows
+          name: selfcheck-windows-${{ matrix.shard }}
           path: vendor/logs/
       - name: Stage test diagnostics
         if: always()
@@ -530,10 +538,45 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: test-logs-windows
+          name: test-logs-windows-${{ matrix.shard }}
           retention-days: 14
           if-no-files-found: ignore
           path: build/Testing/
+
+  # required check 名保持 windows。分片失败在这里汇总，日志并回 test-logs-windows。
+  windows:
+    runs-on: ubuntu-26.04
+    needs: [windows-shard]
+    if: always()
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Merge Windows shard logs
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p redlogs/windows
+          for shard in 1 2 3 4; do
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name "test-logs-windows-$shard" --dir "redlogs/windows/shard-$shard" \
+              || echo "::warning::test-logs-windows-$shard 缺失"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: test-logs-windows
+          retention-days: 14
+          if-no-files-found: ignore
+          path: redlogs/windows/
+      - name: Require every Windows test shard
+        if: always()
+        run: |
+          result='${{ needs.windows-shard.result }}'
+          echo "windows-shard: $result"
+          test "$result" = "success"
 
   # #497/#475：红项分诊汇总 job。master 长期全红期间，把红拆成两类——
   # docs/ci/known-reds.json 登记的已知红项降级 ::warning + issue 链接；

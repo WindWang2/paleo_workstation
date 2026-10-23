@@ -149,6 +149,15 @@ private slots:
     QCOMPARE(depths.tops.size(), 2); QVERIFY(depths.tops[0].hasMd); QVERIFY(depths.tops[0].hasTvd);
     QCOMPARE(depths.tops[0].md, 105.0); QCOMPARE(depths.tops[0].tvd, 100.0);
     QVERIFY(depths.tops[1].hasMd); QVERIFY(!depths.tops[1].hasTvd);
+    const auto mixed = xlsx(dir.filePath("mixed.xlsx"), "A1",
+                            {{"WELL", "X", "Y", "TOP", "MD"}, {"A1", "10", "20", "D61", "100"}, {"A1", "10", "20", "D62", "120"}});
+    const auto mixedTable = paleo::io::readWellTable(mixed);
+    QCOMPARE(mixedTable.type, QString("well_stratification"));
+    QCOMPARE(mixedTable.tops.size(), 2);
+    QCOMPARE(mixedTable.tops[0].topName, QString("D61"));
+    const auto baseOnly = xlsx(dir.filePath("base.xlsx"), "A1", {{"WELL", "BASE_MD"}, {"A1", "80"}});
+    const auto baseTable = paleo::io::readWellTable(baseOnly);
+    QVERIFY(baseTable.tops.isEmpty());
   }
   void vectorsAndText() {
     QTemporaryDir dir;

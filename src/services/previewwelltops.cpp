@@ -52,10 +52,12 @@ void PreviewDocService::wellTopsForLog(const QString &wellId, QVector<WellTopRec
     if (!std::isfinite(md) && std::isfinite(tvd) && surveyError.isEmpty()) {
       if (survey) {
         const double converted = survey->tvdToMd(tvd);
+        const auto &pts = survey->points();
         const double back = std::isfinite(converted) ? survey->tvdAt(converted) : std::numeric_limits<double>::quiet_NaN();
         const double tol = std::max(1e-3, 1e-6 * std::max(1.0, std::fabs(tvd)));
-        // tvdToMd 够不着时返回最近 MD（水平井可以是 0），不得当成已测 MD。
-        if (std::isfinite(back) && std::fabs(back - tvd) <= tol) md = converted;
+        const bool inSurvey = !pts.isEmpty() && converted + tol >= pts.first().md && converted - tol <= pts.last().md;
+        // 表前/表后外推以及够不着时的最近 MD 都不是已测深度。
+        if (inSurvey && std::isfinite(back) && std::fabs(back - tvd) <= tol) md = converted;
         else warn(tr("部分分层垂深不在测斜范围内，暂不绘制，不自动外推。"));
       }
       else if (validPairs) {

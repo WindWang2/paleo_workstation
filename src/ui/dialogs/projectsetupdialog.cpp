@@ -49,7 +49,12 @@ ProjectSetupDialog::ProjectSetupDialog(ProjectSetupWorkflow *workflow, QWidget *
   connect(m_previous, &QPushButton::clicked, this, [this] { m_steps->setCurrentIndex(m_steps->currentIndex() - 1); });
   connect(review, &QPushButton::clicked, this, [this] { m_steps->setCurrentIndex(3); });
   connect(m_next, &QPushButton::clicked, this, [this] { if (m_steps->currentIndex() == 3) finish(); else m_steps->setCurrentIndex(m_steps->currentIndex() + 1); });
-  connect(empty, &QPushButton::clicked, this, [this] { m_empty = true; finish(); });
+  connect(empty, &QPushButton::clicked, this, [this] {
+    m_empty = true;
+    m_blankLocked = true; // 先锁住，避免 finish/accept 重入事件时在途识别改写意图。
+    finish();
+    if (result() != QDialog::Accepted) { m_blankLocked = false; m_empty = false; }
+  });
   connect(m_workflow, &ProjectSetupWorkflow::previewReady, this, &ProjectSetupDialog::showPreview);
   for (auto *edit : {m_points, m_wells, m_seismic, m_horizons, m_references, m_boundary, m_crs, m_projectCrs, m_paleomaps})
     connect(edit, &QLineEdit::textEdited, this, [this] { m_dirty = true; ++m_revision; });
@@ -146,7 +151,7 @@ QWidget *ProjectSetupDialog::reviewPage()
 }
 ProjectSetupSources ProjectSetupDialog::sources() const
 {
-  if (m_empty) return {};
+  if (m_empty || m_blankLocked) return {};
   ProjectSetupSources s; s.root = m_root->text().trimmed(); s.points = m_points->text().trimmed(); s.wells = m_wells->text().trimmed(); s.seismic = m_seismic->text().trimmed(); s.horizons = m_horizons->text().trimmed(); s.references = m_references->text().trimmed(); s.boundary = m_boundary->text().trimmed();
   s.paleomaps = m_paleomaps->text().trimmed(); s.normalizeMaps = m_normalizeMaps->isChecked(); s.mapChoices = m_mapChoices;
   for (auto it = m_fields.cbegin(); it != m_fields.cend(); ++it) if (!it.value()->currentText().isEmpty()) s.pointMapping.insert(it.key(), it.value()->currentText());
@@ -189,12 +194,14 @@ void ProjectSetupDialog::setExistingProject(const QString &path, const ProjectSe
 }
 void ProjectSetupDialog::scan()
 {
+  if (m_blankLocked) return;
   m_scanRevision = m_revision;
   m_empty = false; m_busy = true; m_next->setEnabled(false); m_status->setText(tr("正在识别资料，完成前可继续修改或取消。"));
   m_workflow->scan(sources());
 }
 void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
 {
+  if (m_blankLocked) return;
   if (m_scanRevision != m_revision) { scan(); return; }
   m_preview = p; m_busy = false; m_dirty = false;
   showMaps(p);
@@ -265,14 +272,17 @@ void ProjectSetupDialog::showStep(int step)
   else if (step == 3) refreshReview();
 }
 ProjectSetupPreview ProjectSetupDialog::preview() const {
-  if (!m_empty) return m_preview;
-  ProjectSetupPreview result; result.projectCrs = m_projectCrs->text().trimmed(); return result;
+  if (m_empty || m_blankLocked) {
+    ProjectSetupPreview result; result.projectCrs = m_projectCrs->text().trimmed(); return result;
+  }
+  return m_preview;
 }
 void ProjectSetupDialog::finish()
 {
   const QString name = m_name->text().trimmed();
   if (name.isEmpty() || name == "." || name == ".." || name.contains(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]"))) || m_output->text().trimmed().isEmpty()) { m_empty = false; m_status->setText(tr("请填写有效的工程名称和保存位置。")); return; }
-  if (!m_empty && (m_busy || m_dirty)) { m_status->setText(tr("请等待本次识别完成后再创建。")); if (!m_busy) scan(); return; }
+  if (m_empty) { m_blankLocked = true; accept(); return; }
+  if (m_busy || m_dirty) { m_status->setText(tr("请等待本次识别完成后再创建。")); if (!m_busy) scan(); return; }
   if (!m_empty && !m_preview.errors.isEmpty()) { m_status->setText(tr("请调整有问题的资料来源，或将其清空后重新识别。")); return; }
   if (!m_empty) for (const auto &map : m_preview.maps)
     if (map.included && (!map.problem.isEmpty() || !isMappingHorizon(map.horizon))) { m_status->setText(tr("请在其他资料页检查图件配套文件并选择层位：%1").arg(QFileInfo(map.path).fileName())); m_steps->setCurrentIndex(2); return; }

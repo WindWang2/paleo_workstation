@@ -1930,7 +1930,7 @@ private slots:
     expectPath(0, QString::fromUtf8("井位/empty.dat"));
     QCOMPARE(rows.at(0).classifiedType, QStringLiteral("well_head"));
     QCOMPARE(rows.at(0).outcome, Outcome::Failed);
-    QVERIFY(rows.at(0).message.contains(QStringLiteral("井表没有可用数据行")));
+    QVERIFY(rows.at(0).message.contains(QStringLiteral("没有可用表头")));
     QVERIFY(rows.at(0).entityName.isEmpty());
 
     expectPath(1, QString::fromUtf8("井位/heads.dat"));
@@ -2939,7 +2939,7 @@ private slots:
         svc.importFolderRow(headsPath, QString(), &err);
     QCOMPARE(row.outcome, Outcome::Failed);
     QVERIFY(!err.isEmpty());
-    QVERIFY(row.message.contains(QStringLiteral("井表没有可用数据行")));
+    QVERIFY(row.message.contains(QStringLiteral("没有可用表头")));
     QCOMPARE(row.classifiedType, QStringLiteral("well_head"));
 
     // 修好文件再重导：入库 + 实体名，error 清空。
@@ -2985,7 +2985,7 @@ private slots:
     const QString corePhoto = QDir(tmp.path()).filePath(
         QString::fromUtf8("2.3岩心资料/A1岩心照片/A1,1849.35m.JPG"));
     const QString cuttings = QDir(tmp.path()).filePath(
-        QString::fromUtf8("2.4岩屑录井数据/A1岩屑录井数据.xlsx"));
+        QString::fromUtf8("2.4岩屑录井数据/A1岩屑录井数据.csv"));
     const QString thin = QDir(tmp.path()).filePath(
         QString::fromUtf8("2.6薄片岩矿鉴定/A3薄片鉴定/A31868.62粒间孔.JPG"));
     const QString seismo = QDir(tmp.path()).filePath(
@@ -3000,6 +3000,11 @@ private slots:
     for (const QString &p : {corePhoto, cuttings, thin, thinTextTrap, seismo, unrelated})
     {
       QVERIFY(QDir().mkpath(QFileInfo(p).absolutePath()));
+      // 岩屑必须是可解析表。假 JPEG 字节不再静默挂井。
+      if (p == cuttings) {
+        QVERIFY(writeFile(p, QStringLiteral("顶深,底深,岩性\n100,120,砂岩\n").toUtf8()));
+        continue;
+      }
       // 内容逐文件不同——同字节会被 SHA 去重成同一资产（§3 dedup），测不到
       // 每文件的挂井链接。
       QVERIFY(writeFile(p, QByteArrayLiteral("\xff\xd8\xff\xe0" "fake") +
@@ -3149,7 +3154,20 @@ private slots:
     QString err;
     QVERIFY2(cat.open(run.projectDir, &err), qPrintable(err));
     QCOMPARE(int(cat.assets().size()), 17);
-    QCOMPARE(int(cat.versions().size()), 17); // 每资产恰一个 RAW 版本
+    int rawVersions = 0, derivedVersions = 0;
+    int wellDataDerived = 0, cuttingsDerived = 0;
+    for (const CatalogVersion &v : cat.versions()) {
+      if (v.stage == QLatin1String("RAW")) ++rawVersions;
+      else if (v.stage == QLatin1String("DERIVED")) {
+        ++derivedVersions;
+        if (v.fileName == QLatin1String("well_data.dat")) ++wellDataDerived;
+        if (v.fileName == QLatin1String("cuttings.csv")) ++cuttingsDerived;
+      }
+    }
+    QCOMPARE(rawVersions, 17); // 资产数仍是 17；多出的是规范化井表和岩屑派生
+    QCOMPARE(derivedVersions, 4);
+    QCOMPARE(wellDataDerived, 1);
+    QCOMPARE(cuttingsDerived, 3);
 
     // 按文件名找版本（mini 件名在 manifest 内唯一）。
     const auto versionFor = [&cat](const QString &fileName) {

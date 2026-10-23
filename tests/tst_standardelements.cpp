@@ -138,7 +138,7 @@ class TestStandardElements : public QObject
     void legendContainsOnlyPresentAndEnabledClasses()
     {
       QgsVectorLayer layer("Polygon?field=facies_code:integer&crs=EPSG:3857", "facies", "memory");
-      const auto schema = FaciesCatalog::defaults();
+      const auto schema = FaciesCatalog::defaults().mid(0, 7); // 图例布局夹具钉原七类，不跟默认库涨到 27
       QVariantList allCodes;
       for (const auto &entry : schema) allCodes << entry.toMap().value("code");
       QgsFeatureList features;
@@ -172,7 +172,7 @@ class TestStandardElements : public QObject
       const auto path = directory.filePath("present-classes.tif");
       QVERIFY(MappingArtifactWriter::raster(path, {1, 5}, 2, 1, QRectF(0, 0, 200, 100), &error));
       QgsRasterLayer layer(path, "facies"); QVERIFY(layer.isValid());
-      const auto schema = FaciesCatalog::defaults();
+      const auto schema = FaciesCatalog::defaults().mid(0, 7); // 图例布局夹具钉原七类，不跟默认库涨到 27
       const auto actual = FaciesHierarchyRenderer::apply(&layer, schema, "micro_facies");
       QVariantList allCodes;
       for (const auto &entry : schema) allCodes << entry.toMap().value("code");
@@ -190,7 +190,7 @@ class TestStandardElements : public QObject
       QVERIFY(manager->addLayout(layout));
       const auto cleanup = qScopeGuard([manager, layout] { manager->removeLayout(layout); });
       auto *layer = new QgsVectorLayer("Polygon?field=facies_code:integer&crs=EPSG:3857", "微相结果 · v1", "memory");
-      const auto schema = FaciesCatalog::defaults();
+      const auto schema = FaciesCatalog::defaults().mid(0, 7); // 图例布局夹具钉原七类，不跟默认库涨到 27
       QgsFeatureList features;
       for (int i = 0; i < schema.size(); ++i) {
         QgsFeature feature(layer->fields());
@@ -247,7 +247,7 @@ class TestStandardElements : public QObject
     {
       QTemporaryDir dir;
       QVERIFY(dir.isValid());
-      const auto schema = FaciesCatalog::defaults();
+      const auto schema = FaciesCatalog::defaults().mid(0, 7); // 图例布局夹具钉原七类，不跟默认库涨到 27
       QVector<int> cells;
       for (const auto &value : schema) cells << value.toMap().value("code").toInt();
       QString error;

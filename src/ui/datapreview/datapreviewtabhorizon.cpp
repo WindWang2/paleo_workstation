@@ -532,12 +532,12 @@ QWidget *DataPreviewTabs::buildHorizonContent(
 
   lay->addWidget(page, 1);
 
-  // ---- D6.1/D6.2/D6.7：全图复位 → 缓存命中即上屏；未命中低清先行。 ----
+  // ---- 全图复位：缓存命中即上屏；未命中不铺同步低清帧。 ----
   QTimer::singleShot(0, host, [page]() {
     page->mapCanvas()->zoomToFullExtent();
     page->primeRenderCache();
     if (!page->mapCanvas()->overlayVisible())
-      page->showLowResSnapshot(); // D6.1 低清整图先上（后台精渲随后替换）
+      page->showLowResSnapshot(); // 缓存命中先上；未命中不铺同步低清帧，直接异步正式渲染
   });
   return host;
 }

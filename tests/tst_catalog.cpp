@@ -723,6 +723,11 @@ void TestCatalog::attachLinkResolvesUnresolvedAndDemotes()
   const auto promoted = cat.links();
   QVERIFY(promoted.at(0).isPrimary);
   QVERIFY(!promoted.at(1).isPrimary);
+  // #660：原先没有主文件时，撤销必须能把这条主标记清掉，不能留成永久主。
+  QVERIFY(cat.clearLinkPrimary(0, &err));
+  QVERIFY(!cat.links().at(0).isPrimary);
+  QVERIFY(!cat.links().at(1).isPrimary);
+  QVERIFY(cat.setLinkPrimary(0, &err));
 
   // 无主才补主：主关联解挂 → 无主 → 挂接补主；主仍在 → 挂接为成员
   QVERIFY(cat.setLinkUnresolved(0, &err));
@@ -1417,10 +1422,19 @@ void TestCatalog::knownRoleLinksStayOutOfInvalidSet()
   pending.note = QStringLiteral("候选: x1(well-X1), x2(well-X2)");
   QVERIFY(cat.addLink(pending));
 
-  QCOMPARE(cat.links().size(), 2);
+  EntityAssetLink auxiliaryReference = resolved;
+  auxiliaryReference.entityType = QStringLiteral("auxiliary");
+  auxiliaryReference.entityId = QStringLiteral("aux-1");
+  auxiliaryReference.role = QStringLiteral("reference");
+  auxiliaryReference.isPrimary = true;
+  QVERIFY(cat.addLink(auxiliaryReference));
+
+  QCOMPARE(cat.links().size(), 3);
   QVERIFY(cat.invalidRoleLinks().isEmpty());
   QVERIFY(cat.links().at(0).note.isEmpty());
   QCOMPARE(cat.links().at(1).note, QStringLiteral("候选: x1(well-X1), x2(well-X2)"));
+  QVERIFY2(!cat.links().at(2).note.contains(QStringLiteral("类型不符")),
+           qPrintable(cat.links().at(2).note));
 }
 
 

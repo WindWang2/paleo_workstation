@@ -2,6 +2,7 @@
 #include <QSet>
 #include <QtTest>
 #include <cmath>
+#include <limits>
 
 using namespace wellsection;
 
@@ -441,6 +442,9 @@ private slots:
     for (const Well &w : ws) {
       QCOMPARE(datumOffset(w, Datum{DatumMode::Depth, QString()}), 0.0);
       QCOMPARE(datumOffset(w, Datum{DatumMode::Elevation, QString()}), w.kb);
+      Well missingKb = w;
+      missingKb.kb = std::numeric_limits<double>::quiet_NaN();
+      QVERIFY(!std::isfinite(datumOffset(missingKb, Datum{DatumMode::Elevation, QString()})));
       QCOMPARE(datumOffset(w, Datum{DatumMode::Flatten, "A"}),
                flattenOffset(w, "A"));
       QCOMPARE(datumOffset(w, Datum{DatumMode::Flatten, "Z"}), 0.0);

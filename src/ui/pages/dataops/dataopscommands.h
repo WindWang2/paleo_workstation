@@ -184,8 +184,15 @@ public:
   }
   void undo() override
   {
-    if (!m_ctx.valid() || m_prevPrimary.isEmpty())
+    if (!m_ctx.valid())
       return;
+    if (m_prevPrimary.isEmpty())
+    {
+      const int idx = indexOfLink(m_ctx.cat, m_assetId, m_role, m_entityId);
+      if (idx >= 0)
+        m_ctx.cat->clearLinkPrimary(idx);
+      return;
+    }
     const int idx = indexOfLink(m_ctx.cat, m_prevPrimary, m_role, m_entityId);
     if (idx >= 0)
       m_ctx.cat->setLinkPrimary(idx);

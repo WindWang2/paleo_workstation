@@ -179,7 +179,7 @@ private slots:
     const auto templates = FaciesTaxonomy::templates();
     QVariantList schema;
     QgsFeatureList features;
-    for (const auto &label : {QStringLiteral("水下分流河道"), QStringLiteral("河道充填"), QStringLiteral("浅湖泥")}) {
+    for (const auto &label : {QStringLiteral("三角洲相 / 三角洲前缘 / 水下分流河道"), QStringLiteral("河道充填"), QStringLiteral("浅湖泥")}) {
       const auto row = FaciesTaxonomy::resolve(templates, label);
       QVERIFY(!row.isEmpty());
       const int i = features.size();

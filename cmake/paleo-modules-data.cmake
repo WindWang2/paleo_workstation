@@ -126,6 +126,7 @@ add_library(paleo_qgis STATIC
   src/qgis/qgislabelzorder.cpp                      # 标注随图层 z 序：给每层钉 rendering/labelsWithLayer（vendored QGIS 补丁）
   src/qgis/qgislayerorganizer.cpp                   # 图层树布局器：00_Data 置顶共享 + 层位组 + 组秩归位
   src/qgis/previewmapcanvas.cpp                     # P2 D1.1 预览画布封装（私有层容器+CRS+历史栈+渐进渲染）
+  src/qgis/dashboardsurveymap.cpp                   # PW-004 看板工区地图 QGIS 面（自 ui 收口）
   src/qgis/mappingreferencecanvas.cpp
   src/qgis/previewmaptools.cpp                      # P2 D1.2 预览工具注册表（量测/identify/剖面线）
   src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）

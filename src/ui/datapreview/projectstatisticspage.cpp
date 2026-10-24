@@ -392,8 +392,10 @@ void ProjectStatisticsPage::buildSurveyMapCard()
   m_mapCanvas->canvas()->setLayers({m_wellsLayer});
   m_boundaryBand = new QgsRubberBand(m_mapCanvas->canvas(), Qgis::GeometryType::Polygon);
   m_boundaryBand->setObjectName(QStringLiteral("dashboardSurveyRubberBand"));
-  m_boundaryBand->setColor(QColor(27, 115, 208, 16));
-  m_boundaryBand->setStrokeColor(QColor(QStringLiteral("#1B73D0")));
+  QColor boundaryFill = PaleoTheme::kColorPrimary;
+  boundaryFill.setAlpha(16);
+  m_boundaryBand->setColor(boundaryFill);
+  m_boundaryBand->setStrokeColor(PaleoTheme::kColorPrimary);
   m_boundaryBand->setWidth(2);
   m_boundaryBand->setLineStyle(Qt::DashLine);
   m_boundaryBand->show();
@@ -402,8 +404,9 @@ void ProjectStatisticsPage::buildSurveyMapCard()
   m_decorations->setObjectName(QStringLiteral("dashboardSurveyDecor"));
   m_decorations->setScaleBarEnabled(true);
   m_decorations->setNorthArrowEnabled(true);
-  auto *legend = new QLabel(tr("<span style=\"color:#1B73D0\">●</span>&nbsp;井位&nbsp;&nbsp;"
-                               "<span style=\"color:#1B73D0\">╌╌</span>&nbsp;工区范围"), mapCard);
+  auto *legend = new QLabel(tr("<span style=\"color:%1\">●</span>&nbsp;井位&nbsp;&nbsp;"
+                               "<span style=\"color:%1\">╌╌</span>&nbsp;工区范围")
+                                 .arg(qssHex(PaleoTheme::kColorPrimary), qssHex(PaleoTheme::kColorPrimary)), mapCard);
   legend->setTextFormat(Qt::RichText);
   PaleoTheme::applyThemedStyleSheet(legend, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   mapLay->addWidget(legend);

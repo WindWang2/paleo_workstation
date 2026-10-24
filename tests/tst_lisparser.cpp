@@ -28,6 +28,7 @@ class TestLisParser : public QObject
   private slots:
     void initTestCase();
     void readsFullCatalogFramesUnitsRaw();
+    void multiFileTapeWarnsAboutUnreadFiles();
     void mode1SpacingUnitsConvertedAndZeroRejected();
     void readsFullCatalogFramesUnitsTif();
     void sniffDistinguishesFormats();
@@ -501,6 +502,24 @@ void TestLisParser::mode1SpacingUnitsConvertedAndZeroRejected()
 
   const QString p2 = write(QStringLiteral("spu-zero.lis"), build(0.0, QString()));
   QVERIFY(!LisParser::parse(p2, header, curves, &error));
+}
+
+// PW-107：首个 File Trailer 之后的逻辑文件不再被静默丢弃——须有告警。
+void TestLisParser::multiFileTapeWarnsAboutUnreadFiles()
+{
+  const QByteArray one = buildMain().raw;
+  const QString path = write(QStringLiteral("multi.lis"),
+                             one + physicalRecord(129, QByteArray(56, ' ')) + one);
+  LasHeaderInfo header;
+  QList<LasCurve> curves;
+  QList<LasIssue> issues;
+  QString error;
+  QVERIFY2(LisParser::parse(path, header, curves, &error, &issues), qPrintable(error));
+  QCOMPARE(curves.at(0).values, QVector<double>({ 1500.0, 1500.25, 1500.5 }));
+  bool warned = false;
+  for (const LasIssue &i : issues)
+    warned = warned || i.message.contains(QStringLiteral("逻辑文件"));
+  QVERIFY(warned);
 }
 
 QTEST_MAIN(TestLisParser)

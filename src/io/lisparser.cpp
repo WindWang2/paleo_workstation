@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -385,17 +386,25 @@ using paleo::io_detail::addIssue;
       while (true)
       {
         // 杂数跳过：双字节前瞻（0x00/0x20 均匀区）
-        uchar probe[2] = { 1, 1 };
+        // PW-140：按块（≤4KB）读入后逐对扫描，不再每 2 字节一次 seek+read。
         while (m_pos + 4 <= m_size)
         {
-          if (!readAt(m_pos, probe, 2))
+          const qint64 pairs = (m_size - 4 - m_pos) / 2 + 1;
+          const int n = int(std::min<qint64>(4096, pairs * 2));
+          uchar probe[4096];
+          if (!readAt(m_pos, probe, n))
             return fail(error, QStringLiteral("读取失败于 %1").arg(m_pos),
                         Status::Invalid);
-          const bool padA = probe[0] == 0x00 || probe[0] == 0x20;
-          const bool padB = probe[1] == 0x00 || probe[1] == 0x20;
-          if (padA && padB)
-            m_pos += 2;
-          else
+          int i = 0;
+          for (; i + 1 < n; i += 2)
+          {
+            const bool padA = probe[i] == 0x00 || probe[i] == 0x20;
+            const bool padB = probe[i + 1] == 0x00 || probe[i + 1] == 0x20;
+            if (!(padA && padB))
+              break;
+          }
+          m_pos += i;
+          if (i < n)
             break;
         }
         if (m_pos >= m_size)
@@ -553,6 +562,18 @@ using paleo::io_detail::addIssue;
     if (t == QLatin1String(".1IN") || t == QLatin1String("0.1IN"))
       return 0.00254;
     return 0.0;
+  }
+
+  // PW-108：缺席值比较按通道表示码给容差——F16(49)/F32low(50) 精度不足以
+  // 精确复现条目 12 的缺席值，精确相等会把 -999.25 漏成真实样本。
+  bool lisIsAbsent(double v, double absent, int reprc)
+  {
+    if (v == absent)
+      return true;
+    if (!std::isfinite(v) || !std::isfinite(absent))
+      return false;
+    const double rel = (reprc == 49 || reprc == 50) ? 2e-3 : 1e-6;
+    return std::abs(v - absent) <= rel * std::max(1.0, std::abs(absent));
   }
 
   struct LogSet
@@ -983,7 +1004,7 @@ using paleo::io_detail::addIssue;
               const int slack = bytes - fixed * sp.samples;
               if (slack > 0)
                 c.skip(slack);
-              if (v == ls.absentValue)
+              if (lisIsAbsent(v, ls.absentValue, sp.reprc))
                 ls.flat.append(std::numeric_limits<double>::quiet_NaN());
               else
                 ls.flat.append(v);
@@ -1010,7 +1031,23 @@ using paleo::io_detail::addIssue;
           break; // 文本/引导/程序载入等：结构性跳过（无井曲线语义）
       }
       if (out.stoppedAtTrailer)
+      {
+        // PW-107：多文件磁带不再静默截断——数出后续逻辑文件并明示告警。
+        if (!stopAtFirstData)
+        {
+          int moreFiles = 0;
+          LogicalRecord more;
+          QString merr;
+          while (reader.next(&more, &merr, nullptr) == LogicalReader::Status::Ok)
+            if (more.type == RecFileHeader)
+              ++moreFiles;
+          if (moreFiles > 0)
+            addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
+                     QStringLiteral("多文件磁带：仅读取第一个逻辑文件，其后还有 %1 个逻辑文件未读")
+                         .arg(moreFiles));
+        }
         break;
+      }
     }
     return LisWalkResult::Ok;
   }

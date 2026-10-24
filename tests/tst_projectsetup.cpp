@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLineEdit>
+#include <QLabel>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTabBar>
@@ -76,6 +77,59 @@ class TestProjectSetup : public QObject
     return paleo::io::zipWriteArchive(path, {{"xl/workbook.xml", workbook}, {"xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Target=\"worksheets/sheet1.xml\"/></Relationships>"}, {"xl/worksheets/sheet1.xml", xml}}, {}, &error) ? path : QString();
   }
 private slots:
+  void projectLocationPreflightRejectsFilesAndLeavesNoFolders() {
+    QTemporaryDir root; QString error;
+    const auto target = root.filePath(QStringLiteral("nested/中文工程/中文工程.qgz"));
+    QVERIFY2(ProjectSetupWorkflow::checkProjectLocation(target, &error), qPrintable(error));
+    QVERIFY(!QFileInfo::exists(root.filePath("nested"))); QVERIFY(QDir(root.path()).entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden).isEmpty());
+    const auto blocker = root.filePath("blocked"); QVERIFY(write(blocker, "keep existing file"));
+    QVERIFY(!ProjectSetupWorkflow::checkProjectLocation(blocker + "/test17.qgz", &error));
+    QVERIFY(error.contains(blocker));
+    QVERIFY(QDir().mkpath(root.filePath("existing")));
+    QVERIFY(write(root.filePath("existing/project.paleo"), "keep existing manifest"));
+    QVERIFY(!ProjectSetupWorkflow::checkProjectLocation(root.filePath("existing/test17.qgz"), &error));
+    QVERIFY(error.contains(QStringLiteral("已有工程")));
+  }
+
+  void projectCreationFailurePreservesCurrentProjectAndWizardFields() {
+    QTemporaryDir root; QString error; const auto blocker = root.filePath("blocked"); QVERIFY(write(blocker, "do not remove"));
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    const auto previous = root.filePath("existing.qgz"); QVERIFY(project.createProject(previous));
+    QVERIFY(!workflow.create(blocker + "/test17/test17.qgz", {}, {}, &error)); QCOMPARE(project.projectPath(), previous);
+    ProjectSetupDialog dialog(&workflow);
+    auto *name = dialog.findChild<QLineEdit *>("projectNameEdit"); auto *output = dialog.findChild<QLineEdit *>("projectDirectoryEdit");
+    auto *points = dialog.findChild<QLineEdit *>("projectPointsEdit");
+    name->setText("test17"); output->setText(blocker); points->setText(root.filePath("source.xlsx"));
+    dialog.findChild<QPushButton *>("createEmptyProjectButton")->click();
+    QCOMPARE(dialog.result(), int(QDialog::Rejected)); QCOMPARE(name->text(), QString("test17")); QCOMPARE(points->text(), root.filePath("source.xlsx"));
+    QVERIFY(dialog.findChild<QLabel *>("projectSetupStatus")->text().contains(blocker));
+    output->setText(root.path()); dialog.findChild<QPushButton *>("createEmptyProjectButton")->click();
+    QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    dialog.showCreationError(QStringLiteral("系统错误 5：拒绝访问"));
+    QCOMPARE(name->text(), QString("test17")); QCOMPARE(points->text(), root.filePath("source.xlsx"));
+    QCOMPARE(dialog.findChild<QLabel *>("projectSetupStatus")->text(), QStringLiteral("系统错误 5：拒绝访问"));
+    project.closeProject();
+  }
+
+  void realProjectParentCanCreateAndReopenInPrivateSubdirectory() {
+    const auto parent = qEnvironmentVariable("PALEO_PROJECT_CREATE_TEST_PARENT");
+    if (parent.isEmpty()) QSKIP("Set explicit project parent for a private creation probe");
+    QTemporaryDir root(QDir(parent).filePath(".paleo-create-smoke-XXXXXX")); QVERIFY2(root.isValid(), qPrintable(root.errorString()));
+    // Exercise the original Qt directory operation in the same process as well.
+    const auto control = root.filePath("qt-control/test17"); QVERIFY(QDir().mkpath(control));
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service, [&service](const QString &p) { service.setProjectDir(QFileInfo(p).absolutePath()); });
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports); QString error;
+    QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
+    const auto target = root.filePath("test17/test17.qgz"); QVERIFY2(workflow.create(target, {}, {}, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000);
+    QVERIFY2(finished.first()[1].toBool(), qPrintable(finished.first()[0].toString()));
+    QVERIFY(QFileInfo::exists(root.filePath("test17/project.paleo")));
+    project.closeProject(); QVERIFY2(project.openProject(target), qPrintable(project.lastErrors().join('\n'))); project.closeProject();
+    qInfo() << "PROJECT_CREATE_PROBE parent=" << parent << "Qt_mkpath=true create=true reopen=true";
+  }
+
   void classificationsAgreeAcrossSetupFilesFolderAndRetry() {
     QTemporaryDir dir; const auto source = dir.filePath("source"); QString error;
     const auto heads = xlsx(source + "/coordinates.xlsx", "data", {{"WELL", "X", "Y"}, {"A1", "10", "20"}});
@@ -381,8 +435,10 @@ private slots:
     QCOMPARE(project.projectPath(), previous);
   }
   void emptyWizard() {
+    QTemporaryDir root;
     QgisProjectService project; PaleoProjectStore store; DataImportService service(&store); FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
-    ProjectSetupDialog dialog(&workflow); dialog.findChild<QPushButton *>("createEmptyProjectButton")->click(); QCOMPARE(dialog.result(), int(QDialog::Accepted)); QVERIFY(dialog.preview().paths.isEmpty());
+    ProjectSetupDialog dialog(&workflow); dialog.findChild<QLineEdit *>("projectDirectoryEdit")->setText(root.path());
+    dialog.findChild<QPushButton *>("createEmptyProjectButton")->click(); QCOMPARE(dialog.result(), int(QDialog::Accepted)); QVERIFY(dialog.preview().paths.isEmpty());
   }
   void partialSourcesCreateReopenAndRepair() {
     QTemporaryDir dir; QString error;

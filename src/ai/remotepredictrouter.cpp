@@ -10,6 +10,7 @@
 #include <QTimer>
 
 #include <cmath>
+#include <limits>
 
 // ai/ — 远端推理路由实现（方向51：全异步，零事件循环嵌套）。
 //
@@ -196,10 +197,13 @@ void HttpRemoteTransport::begin(int timeoutMs, Op op, QNetworkReply *reply,
     QVector<int> cells;
     cells.reserve(got.size());
     for (const QJsonValue &v : got) {
-      if (v.isNull() || !v.isDouble())
+      // PW-124：非整数（1.5、NaN 编码、越界）经 toInt() 会变 0 冒充相类 0——一律当 nodata。
+      const double d = v.isDouble() ? v.toDouble() : std::nan("");
+      if (v.isNull() || !v.isDouble() || !std::isfinite(d) || d != std::floor(d) ||
+          d < std::numeric_limits<int>::min() || d > std::numeric_limits<int>::max())
         cells.append(-9999);
       else
-        cells.append(v.toInt());
+        cells.append(static_cast<int>(d));
     }
     emit predictDone(runId, cells, {});
   });

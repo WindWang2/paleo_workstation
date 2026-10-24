@@ -46,6 +46,15 @@
 
 namespace {
 
+// 同步长操作的等待光标 RAII（构造即设、析构即还；异常路径不卡在等待态，R2-07②）。
+struct WaitCursorGuard
+{
+  WaitCursorGuard() { QApplication::setOverrideCursor(Qt::WaitCursor); }
+  ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
+  WaitCursorGuard(const WaitCursorGuard &) = delete;
+  WaitCursorGuard &operator=(const WaitCursorGuard &) = delete;
+};
+
 // 分支结局：Skip=本族不认领该 action（交给下一族）；Handled=认领且落入入口
 // 的公共消息逻辑；Return=分支已自行收尾（原分支内 early-return，直接返回，
 // 不走消息逻辑）。
@@ -133,11 +142,7 @@ WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
     // 最小满足；异步任务化在 full-audit 台账记为剩余工作）。
     // 光标 RAII：分析抛异常（bad_alloc 族）也不卡死在等待态（R2-07②）。
     d.self->statusBar()->showMessage(PaleoMainWindow::tr("正在分析影响（重放冻结输入）…"), 0);
-    const struct WaitCursorGuard
-    {
-      ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
-    } waitCursor;
-    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const WaitCursorGuard waitCursor;
     *d.lastImpact = d.workbench->analyzeLayerVersionImpact(id, h, &error);
     ok = !d.lastImpact->isEmpty();
     d.page->setImpactAvailable(ok);
@@ -196,11 +201,7 @@ WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
       const auto plan = d.workbench->recomputePlan(*d.lastImpact, &error);
       ok = !plan.isEmpty() && plan.value("status").toString() != QStringLiteral("empty");
       if (ok) {
-        const struct WaitCursorGuard
-        {
-          ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
-        } waitCursor;
-        QApplication::setOverrideCursor(Qt::WaitCursor);
+        const WaitCursorGuard waitCursor;
         const auto execution = d.workbench->executeRecompute(plan, &error);
         const auto results = execution.value("results").toList();
         int started = 0;

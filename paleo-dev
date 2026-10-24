@@ -16,7 +16,18 @@ paleo_multiarch() {
 paleo_deb_libpath() {
   local p="$PWD/vendor/prefix/usr/lib"
   local ma="$p/$(paleo_multiarch)"
-  if [ -d "$ma" ]; then echo "$ma:$p"; else echo "$p"; fi
+  # review-fix-ci：Debian alternatives / 私有子目录（blas、lapack、pulseaudio）
+  # 也入路径——fetch-deps 的顶层符号链接农场之前解包的旧 prefix 没有这些链接，
+  # 运行期 271 项测试 libblas.so.3 / 19 项 libpulsecommon 找不到（本机实锤）。
+  local out="$p"
+  if [ -d "$ma" ]; then
+    out="$ma:$p"
+    local sub
+    for sub in blas lapack pulseaudio; do
+      [ -d "$ma/$sub" ] && out="$out:$ma/$sub"
+    done
+  fi
+  echo "$out"
 }
 # deb 闭包里 PROJ/GDAL 是 distro 编译——默认数据路径指向 runner 上不存在的
 # /usr/share/{proj,gdal}，不显式导出则 proj.db 找不到：OSRImportFromEPSG /

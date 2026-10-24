@@ -1425,12 +1425,15 @@ void FactorPageTests::contourIntervalDefaultsToSixthOfFactorRange()
   page.applySuggestedContourInterval();
   QCOMPARE( spin->value(), 0.05 ); // 同一因素上用户改过的间距保留
 
-  table->setRowCount( 2 );
-  table->setItem( 0, 1, new QTableWidgetItem( QStringLiteral( "10" ) ) );
-  table->setItem( 1, 1, new QTableWidgetItem( QStringLiteral( "70" ) ) );
   factors->item( 0, 0 )->setCheckState( Qt::Checked ); // 换因素：#682 起手改值跟层位/因素走
   QCOMPARE( spin->value(), 0.05 );                     // 用户手设间距不被新极差覆写
 
+  // 换因素会 invalidateWellFactors（清空井点值表，待重新提取）——新因素的井点值
+  // 须在切换之后填入，否则重算面对空表（旧写法先填后切，断言实际跑在 0 行上）。
+  QCOMPARE( table->rowCount(), 0 );
+  table->setRowCount( 2 );
+  table->setItem( 0, 1, new QTableWidgetItem( QStringLiteral( "10" ) ) );
+  table->setItem( 1, 1, new QTableWidgetItem( QStringLiteral( "70" ) ) );
   page.setProperty( "paleo.page.contourIntervalUser", false ); // 未手改时按新极差重算
   page.applySuggestedContourInterval();
   QCOMPARE( spin->value(), 20.0 ); // 厚度建议值域 0–100 m，整刻度间距 20 m。
@@ -2611,8 +2614,10 @@ int main(int argc, char *argv[])
   app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
   app.initQgis();
 
-  // add_paleo_test 传入单一 -o 路径；多 qExec 会互相覆盖。每类跑完后另存一份，
-  // 保留合并文件给 ctest 门禁，失败时仍能看到 Predict/Factor 的 FAIL! 行。
+  // add_paleo_test 传入单一 -o 路径；多 qExec 会互相覆盖。每类跑完后另存一份
+  // （.<Class> 后缀），并把各类输出按序累积，全部跑完后整体回写 -o 主文件——
+  // 主文件即合并结果，triage/grep 主 txt 也能看到 Predict/Factor 的 FAIL! 行
+  // （review-fix-ci：旧实现主文件只剩最后一类 WorkbenchPageTests，失败被掩盖）。
   QString sharedOut;
   for (int i = 1; i + 1 < argc; ++i) {
     if (qstrcmp(argv[i], "-o") == 0) {
@@ -2620,12 +2625,16 @@ int main(int argc, char *argv[])
       break;
     }
   }
+  QByteArray merged;
   const auto runClass = [&](QObject &t, const char *tag) {
     const int code = QTest::qExec(&t, argc, argv);
     if (!sharedOut.isEmpty() && QFile::exists(sharedOut)) {
       const QString tagged = sharedOut + QLatin1Char('.') + QString::fromLatin1(tag);
       QFile::remove(tagged);
       QFile::copy(sharedOut, tagged);
+      QFile f(sharedOut);
+      if (f.open(QIODevice::ReadOnly))
+        merged += f.readAll();
     }
     return code;
   };
@@ -2646,6 +2655,11 @@ int main(int argc, char *argv[])
   {
     WorkbenchPageTests t;
     status |= runClass(t, "WorkbenchPageTests");
+  }
+  if (!sharedOut.isEmpty()) {
+    QFile f(sharedOut);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+      f.write(merged);
   }
   QgsApplication::exitQgis();
   return status;

@@ -1988,7 +1988,8 @@ class TestPanels : public QObject
       const int ovSize = ov.size();
 
       // 改成井类（≠分类器原类型 well_log）→ override 送达收集表（后端不再
-      // 整目录锁参考）；选回 well_log（=原类型）→ 不发覆盖，后端按原类型走。
+      // 整目录锁参考）。选回 well_log：#685 起「默认参考」行选回识别类型也是
+      // 显式覆盖（否则执行侧会套用参考默认值，用户选择被吞），故仍发 override。
       const QStringList vocab = projectClassifierTypes();
       combos.at(rOther)->setCurrentIndex(vocab.indexOf(QStringLiteral("well_head")));
       ov = PaleoFolderConfirm::collectFolderTypeOverrides(&table, preview, combos);
@@ -1996,8 +1997,8 @@ class TestPanels : public QObject
       QCOMPARE(ov.size(), ovSize);
       combos.at(rOther)->setCurrentIndex(vocab.indexOf(QStringLiteral("well_log")));
       ov = PaleoFolderConfirm::collectFolderTypeOverrides(&table, preview, combos);
-      QVERIFY(!ov.contains(preview.at(rOther).path)); // 同原类型 → 不成 override
-      QCOMPARE(ov.size(), ovSize - 1);
+      QCOMPARE(ov.value(preview.at(rOther).path), QStringLiteral("well_log"));
+      QCOMPARE(ov.size(), ovSize);
     }
 
     // 确认导入 → 结果行 + 汇总；失败行挂「重试」——按当前下拉类型重导单行，

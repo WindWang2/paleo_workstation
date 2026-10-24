@@ -72,8 +72,12 @@ private slots:
   void captureEvidence()
   {
     WellCompositePanel panel;
-    uipolish::capturePanel(&panel, QStringLiteral("wellcomposite_empty"),
-                           QSize(1000, 700));
+    QVERIFY(uipolish::capturePanel(&panel, QStringLiteral("wellcomposite_empty"),
+                                   QSize(1000, 700)));
+    panel.resize(1000, 700);
+    const QPixmap shot = panel.grab();
+    QVERIFY(!shot.isNull());
+    QCOMPARE(shot.size(), QSize(1000, 700));
   }
 
   // ---- #412 短边裁口径：depths/values 不等长时 valueAtDepth 不得越界读 ----

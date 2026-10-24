@@ -50,7 +50,11 @@ if(PALEO_ENABLE_ASAN OR PALEO_ENABLE_UBSAN)
   if(MSVC)
     message(FATAL_ERROR "sanitizer 档仅支持 GNU/Clang（MSVC 走 /fsanitize 手动档）")
   endif()
-  add_compile_options(-fno-omit-frame-pointer -g)
+  # review-fix-ci：调试信息级别可调。linux-asan CI 在 ~2225/2479 链接步磁盘
+  # 耗尽（-gz + ≥40G 余量仍不够）；ASan/UBSan 栈符号化只需行号表，CI 传
+  # -DPALEO_SANITIZER_DEBUG_FLAG=-g1 把调试段降到行号级。本地缺省仍 -g。
+  set(PALEO_SANITIZER_DEBUG_FLAG "-g" CACHE STRING "sanitizer 档调试信息旗标（-g / -g1）")
+  add_compile_options(-fno-omit-frame-pointer ${PALEO_SANITIZER_DEBUG_FLAG})
   add_link_options(-fno-omit-frame-pointer)
   # 方向70：budget 类断言感知 sanitizer 档（墙钟预算 ×3、RSS 增长断言跳过，
   # 见 tests/perfbudget_relax.h 与 devex.md build-asan 实测口径）。非

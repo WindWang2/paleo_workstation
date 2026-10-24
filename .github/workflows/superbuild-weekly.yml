@@ -50,6 +50,11 @@ jobs:
       # Qt6 走发行版包（superbuild 决策 D-QT：禁止 qt-everywhere 整块编译）；
       # flex/bison/nasm/python3 是 README preflight 追加检查项；其余为
       # PROJ(curl/sqlite) / GDAL / QGIS(expat/zip/ssl/X11/GL) 的系统开发面。
+      # review-fix-ci：近 3 次 weekly 均在 QGIS configure「Could NOT find Protobuf」
+      # 停住。按 QGIS final-4_2_3 顶层 CMakeLists 的 find_package 面补齐
+      # protobuf / nlohmann_json / exiv2 / GeographicLib / SpatiaLite / ZSTD /
+      # Draco / GSL / tasn1 / QScintilla / Qt6Keychain / QCA / Qt 私有与模块包
+      # （包名均在 resolute apt 索引核对存在；qwt/poly2tri 无 resolute 包，走 QGIS 内置）。
       - name: Install build deps
         run: sudo apt-get update && sudo apt-get install -y
           cmake ninja-build g++ pkg-config ccache
@@ -57,6 +62,10 @@ jobs:
           flex bison nasm python3
           libsqlite3-dev libtiff-dev libcurl4-openssl-dev libssl-dev libexpat1-dev libzip-dev
           libx11-dev libxkbcommon-dev libgl1-mesa-dev libopengl-dev
+          libprotobuf-dev protobuf-compiler nlohmann-json3-dev zlib1g-dev libzstd-dev
+          libexiv2-dev libgeographiclib-dev libspatialite-dev libdraco-dev libgsl-dev libtasn1-6-dev libpq-dev
+          qt6-base-private-dev qt6-positioning-dev qt6-declarative-dev qt6-multimedia-dev qt6-webengine-dev
+          libqscintilla2-qt6-dev qtkeychain-qt6-dev libqca-qt6-dev
           && sudo apt-get clean
       - name: Configure superbuild
         run: cmake -S vendor/superbuild -B "${RUNNER_TEMP}/sb-build" -G Ninja

@@ -1143,7 +1143,8 @@ private slots:
     page.setHorizon("D61");
     auto *tree = page.findChild<QTreeWidget *>("faciesHierarchyTree");
     QVERIFY(tree);
-    QCOMPARE(tree->topLevelItemCount(), 4);
+    // #647：层级树由 0 ms 单发 m_schemaRefresh 异步重建，需转事件循环。
+    QTRY_COMPARE(tree->topLevelItemCount(), 4);
     QCOMPARE(tree->topLevelItem(0)->text(0), QStringLiteral("三角洲相"));
     QCOMPARE(tree->topLevelItem(0)->childCount(), 3);
     int leaves = 0;
@@ -1174,11 +1175,14 @@ private slots:
     auto *table = page.findChild<QTableWidget *>("faciesSchema");
     QVERIFY(table);
     table->removeRow(0);
-    int remaining = 0;
-    for (int root = 0; root < tree->topLevelItemCount(); ++root)
-    for (int i = 0; i < tree->topLevelItem(root)->childCount(); ++i)
-      remaining += tree->topLevelItem(root)->child(i)->childCount();
-    QCOMPARE(remaining, 26);
+    const auto countLeaves = [tree] {
+      int remaining = 0;
+      for (int root = 0; root < tree->topLevelItemCount(); ++root)
+      for (int i = 0; i < tree->topLevelItem(root)->childCount(); ++i)
+        remaining += tree->topLevelItem(root)->child(i)->childCount();
+      return remaining;
+    };
+    QTRY_COMPARE(countLeaves(), 26);
   }
   void optionalTemplateSelectionKeepsTheProjectCodeAndOtherRows() {
     Fixture f;
@@ -5293,11 +5297,18 @@ private slots:
     QTRY_VERIFY(!f.work.busy());
     QCOMPARE(page.horizon(), QString("D62"));
     page.refresh(); // #346：changed 仅 scheduleRefresh，测例页未 show
-    // 结果列表跨层位列出成果（激活层位与预测层位不一致时不再清空）：
-    // D62 视图下 D61 的井预测成果仍在列表里。
-    QVERIFY(
-        page.findChild<QTreeWidget *>("workbenchResults")->topLevelItemCount() >
-        0);
+    // #647：缺省只列当前层位成果——D62 视图下看不到 D61 的井预测；
+    // 勾选「查看全部层位的图件」后跨层位列出（激活层位与预测层位不一致时不清空）。
+    auto *results = page.findChild<QTreeWidget *>("workbenchResults");
+    QVERIFY(results);
+    const int ownHorizonRows = results->topLevelItemCount(); // 无层位源数据行仍列出
+    auto *all = page.findChild<QCheckBox *>("workbenchAllHorizons");
+    QVERIFY(all);
+    QVERIFY(!all->isChecked());
+    all->setChecked(true); // toggled → refresh
+    QVERIFY(results->topLevelItemCount() > ownHorizonRows); // D61 成果现身
+    all->setChecked(false);
+    QCOMPARE(results->topLevelItemCount(), ownHorizonRows);
     page.setHorizon("D61");
     page.refresh();
     QVERIFY(

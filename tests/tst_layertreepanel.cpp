@@ -113,7 +113,10 @@ class TestLayerTreePanel : public QObject
     void captureEvidence()
     {
       LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
-      uipolish::capturePanel(&panel, QStringLiteral("layertree_empty"));
+      QVERIFY(panel.treeView());
+      QVERIFY(panel.treeView()->layerTreeModel());
+      QVERIFY(uipolish::capturePanel(&panel, QStringLiteral("layertree_empty")));
+      QVERIFY(!panel.grab().isNull());
     }
 
     // R1-D1：实例化失败的声明层不进树（无 indicator 可挂）——面板在树外

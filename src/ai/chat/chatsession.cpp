@@ -173,27 +173,26 @@ bool ChatSessionStore::remove(const QString &sessionId, QString *error) {
 QVector<ChatSession> ChatSessionStore::loadRecent(int limit) {
   QVector<ChatSession> out;
   QStringList ids = listIds();
-  QVector<QPair<QDateTime, QString>> ordered;
+  // PW-123：每个文件只解析一次——首遍载入的会话直接留用，不再按 id 重读。
+  QVector<ChatSession> loaded;
+  loaded.reserve(ids.size());
   for (const QString &id : ids) {
     ChatSession session;
     if (!load(id, &session, nullptr))
       continue;
-    ordered.append({session.updatedAt.isValid() ? session.updatedAt
-                                                : session.createdAt,
-                    id});
+    loaded.append(std::move(session));
   }
-  std::sort(ordered.begin(), ordered.end(),
-            [](const QPair<QDateTime, QString> &a,
-               const QPair<QDateTime, QString> &b) {
-              return a.first > b.first;
-            });
-  if (limit > 0 && ordered.size() > limit)
-    ordered.resize(limit);
-  for (const auto &entry : ordered) {
-    ChatSession session;
-    if (load(entry.second, &session, nullptr))
-      out.append(session);
-  }
+  const auto stamp = [](const ChatSession &s) {
+    return s.updatedAt.isValid() ? s.updatedAt : s.createdAt;
+  };
+  std::stable_sort(loaded.begin(), loaded.end(),
+                   [&](const ChatSession &a, const ChatSession &b) {
+                     return stamp(a) > stamp(b);
+                   });
+  if (limit > 0 && loaded.size() > limit)
+    loaded.resize(limit);
+  for (ChatSession &session : loaded)
+    out.append(std::move(session));
   return out;
 }
 

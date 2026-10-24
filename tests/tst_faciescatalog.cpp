@@ -38,6 +38,33 @@ class TestFaciesCatalog : public QObject
 {
   Q_OBJECT
 private slots:
+  void classPinsNearestAncestorWinsAndInvalidEntriesDrop() {
+    const QVariantMap leaf{{"code", 1}, {"facies", "河流"}, {"subfacies", "河道"}, {"microfacies", "主槽"}};
+    const QVariantMap other{{"code", 2}, {"facies", "湖泊"}, {"subfacies", "浅湖"}, {"microfacies", "湖泥"}};
+    QVERIFY(FaciesHierarchy::pinnedLevel({}, leaf).isEmpty());
+    QVariantMap pins{{FaciesHierarchy::key(leaf, "facies"), "micro_facies"}};
+    QCOMPARE(FaciesHierarchy::pinnedLevel(pins, leaf), QString("micro_facies"));
+    QVERIFY(FaciesHierarchy::pinnedLevel(pins, other).isEmpty());
+    pins.insert(FaciesHierarchy::key(leaf, "sub_facies"), "facies");
+    QCOMPARE(FaciesHierarchy::pinnedLevel(pins, leaf), QString("facies")); // nearest wins
+    pins.insert(FaciesHierarchy::key(leaf, "micro_facies"), "sub_facies");
+    QCOMPARE(FaciesHierarchy::pinnedLevel(pins, leaf), QString("sub_facies"));
+    // Round trip keeps valid pins; garbage keys/levels and non-object JSON are dropped.
+    const auto encoded = FaciesHierarchy::encodePins(pins);
+    QCOMPARE(FaciesHierarchy::parsePins(encoded), pins);
+    QVERIFY(FaciesHierarchy::parsePins(QString()).isEmpty());
+    QVERIFY(FaciesHierarchy::parsePins("[1,2]").isEmpty());
+    QVERIFY(FaciesHierarchy::parsePins("{\"x\":\"facies\",\"[\\\"a\\\"]\":\"auto\",\"[1]\":\"facies\"}").isEmpty());
+    QCOMPARE(FaciesHierarchy::parsePins("{\"[\\\"湖泊\\\"]\":\"sub_facies\",\"[]\":\"facies\"}").size(), 1);
+    QVERIFY(FaciesHierarchy::encodePins({{"bad", "facies"}}).isEmpty());
+    const auto candidates = FaciesHierarchy::pinCandidates({leaf, other,
+        QVariantMap{{"code", 3}, {"facies", "河流"}, {"subfacies", "河道"}, {"microfacies", "边滩"}}});
+    QCOMPARE(candidates.size(), 7); // 河流, 河流/河道, 2 leaves, 湖泊, 湖泊/浅湖, 湖泥
+    QSet<QString> keys;
+    for (const auto &c : candidates) keys.insert(c.toMap().value("key").toString());
+    QCOMPARE(keys.size(), 7);
+    QVERIFY(keys.contains(FaciesHierarchy::key(leaf, "sub_facies")));
+  }
   void configurableScaleThresholdsUseMapDenominators() {
     const FaciesHierarchy::ScaleThresholds custom{100000, 25000};
     QVERIFY(FaciesHierarchy::validThresholds(custom));

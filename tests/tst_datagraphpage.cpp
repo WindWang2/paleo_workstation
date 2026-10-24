@@ -3,6 +3,7 @@
 // 「返回上一图谱」只能回到用户真正请求过的图谱状态——单一入口（打开成果
 // 追溯/资料关联）不得在栈里留下中间态。
 #include <QtTest>
+#include <cmath>
 #include <QAbstractButton>
 #include <QComboBox>
 #include <QGraphicsObject>
@@ -26,6 +27,7 @@
 #include "../src/services/datagraph.h"
 #include "../src/services/previewdoc.h"
 #include "../src/ui/pages/datagraphpage.h"
+#include "../src/ui/pages/datagraphsceneitems.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/workflow/assetops.h"
 #include "../src/workflow/datagraphworkflow.h"
@@ -279,11 +281,10 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!ready.isEmpty() && ready.last().first().value<paleo::datagraph::Graph>().nodes.size() == 6, 15000);
     QCOMPARE(mode(graph), Mode::Knowledge);
     auto *graphView = graph.findChild<QGraphicsView *>("dataGraphView");
-    auto *panels = graph.findChild<QSplitter *>("dataGraphSplitter");
-    QVERIFY(panels); QCOMPARE(panels->count(), 3);
-    QCOMPARE(panels->widget(0)->objectName(), QString("dataGraphDetailsPanel"));
-    QCOMPARE(panels->widget(1), graphView);
-    QCOMPARE(panels->widget(2)->objectName(), QString("dataGraphRelationsPanel"));
+    auto *surface = graph.findChild<QWidget *>("dataGraphSurface"); QVERIFY(surface);
+    QCOMPARE(graphView->parentWidget(), surface);
+    QVERIFY(!graph.findChild<QSplitter *>("dataGraphSplitter"));
+    QVERIFY(graph.findChild<QWidget *>("dataGraphDetailsPanel")->isHidden());
     QVERIFY(graphView->width() > graph.width() / 2);
     graph.findChild<QToolButton *>("dataGraphFit")->click();
     QVERIFY2(graphView->transform().m11() >= .60,
@@ -320,6 +321,49 @@ private slots:
     QApplication::sendEvent(graphView->viewport(), &wheel);
     QVERIFY(graphView->transform().m11() > scale);
   }
+  void modernGraphDenseVisual() {
+    QTemporaryDir dir; DataImportService importer; importer.setProjectDir(dir.path());
+    PreviewDocService doc(&importer); auto *cat = importer.catalog(); QVERIFY(cat && cat->isOpen());
+    for (int i = 0; i < 10; ++i) {
+      CatalogEntity entity; entity.id = QString("w%1").arg(i); entity.name = QString("A%1 井").arg(i + 1); entity.entityType = "well";
+      QVERIFY(cat->addEntity(entity));
+      const QStringList names{QString("A%1_GR.las").arg(i + 1), QString("A%1_分层.csv").arg(i + 1), QString("A%1_岩心.pdf").arg(i + 1)};
+      for (int j = 0; j < names.size(); ++j) {
+        CatalogAsset file; file.id = entity.id + QString("-%1").arg(j); file.displayName = names[j]; file.type = j == 0 ? "well_log" : j == 1 ? "well_stratification" : "document";
+        QVERIFY(cat->addAsset(file)); EntityAssetLink link; link.assetId = file.id; link.entityId = entity.id; link.entityType = "well";
+        link.role = j == 0 ? "well_log" : j == 1 ? "tops" : "reference"; QVERIFY(cat->addLink(link));
+      }
+    }
+    DataGraphPage page; page.resize(1440, 940); page.setDocService(&doc); page.show();
+    auto *view = page.findChild<QGraphicsView *>("dataGraphView"); QVERIFY(view);
+    QTRY_VERIFY_WITH_TIMEOUT(view->isEnabled() && view->scene()->items().size() >= 40, 15000);
+    auto *left = page.findChild<QWidget *>("dataGraphDetailsPanel"); QVERIFY(left); QVERIFY(left->isHidden());
+    QCOMPARE(view->geometry(), view->parentWidget()->rect());
+    DataGraphNodeItem *focus = nullptr; QSet<QRgb> colors;
+    for (auto *item : view->scene()->items()) if (auto *node = dynamic_cast<DataGraphNodeItem *>(item)) {
+      QVERIFY(node->compact); QVERIFY(node->flags().testFlag(QGraphicsItem::ItemIgnoresTransformations));
+      QCOMPARE(node->connectionRect().width(), node->connectionRect().height());
+      colors.insert(node->networkColor().rgb()); if (node->node.entityId == "w4" && node->node.kind == paleo::datagraph::Kind::Entity) focus = node;
+    }
+    QVERIFY(colors.size() >= 4); QVERIFY(focus);
+    QVERIFY(paleo::tests::captureVisual(&page, "modern-file-graph-overview", QSize(1440, 940)));
+    page.show(); QTRY_VERIFY(view->isEnabled()); view->centerOn(focus);
+    QTest::mouseClick(view->viewport(), Qt::LeftButton, {}, view->mapFromScene(focus->pos()));
+    QTRY_VERIFY(left->isVisible()); QVERIFY(page.findChild<QWidget *>("dataGraphRelationsPanel")->isVisible());
+    QVERIFY(paleo::tests::captureVisual(&page, "modern-file-graph-focus", QSize(1440, 940)));
+    // Floating cards must yield the graph at small widths without horizontal overflow.
+    page.resize(760, 620); page.show(); QTRY_VERIFY(view->isEnabled());
+    QVERIFY(page.findChild<QWidget *>("dataGraphRelationsPanel")->isHidden());
+    QVERIFY(view->width() <= page.width());
+    auto *toggle = page.findChild<QToolButton *>("dataGraphRelationsToggle"); QVERIFY(toggle && toggle->isVisible());
+    toggle->click(); QVERIFY(page.findChild<QWidget *>("dataGraphRelationsPanel")->isVisible()); QVERIFY(left->isHidden());
+    toggle->click(); QVERIFY(left->isVisible());
+    const qreal diameter = focus->deviceTransform(view->viewportTransform()).mapRect(focus->connectionRect()).width();
+    const auto center = view->viewport()->rect().center();
+    QWheelEvent wheel(center, view->viewport()->mapToGlobal(center), {}, QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(view->viewport(), &wheel);
+    QVERIFY(std::abs(diameter - focus->deviceTransform(view->viewportTransform()).mapRect(focus->connectionRect()).width()) < .01);
+  }
   void initTestCase()
   {
     PaleoTheme::ensureApplicationFonts();
@@ -347,13 +391,15 @@ private slots:
     for (const QString &name : names) {
       auto *button = page.findChild<QToolButton *>(name);
       QVERIFY2(button, qPrintable(name));
-      QCOMPARE(button->parentWidget(), bar);
-      QVERIFY2(button->text().isEmpty(), qPrintable(name));
+      const bool navigation = name == "dataGraphFit" || name == "dataGraphZoomIn" || name == "dataGraphZoomOut";
+      if (navigation) QCOMPARE(button->parentWidget()->objectName(), QString("dataGraphZoomControls"));
+      else if (name != "dataGraphHistory") QCOMPARE(button->parentWidget(), bar);
+      if (name != "dataGraphHistory") QVERIFY2(button->text().isEmpty(), qPrintable(name));
       QVERIFY2(!button->icon().isNull(), qPrintable(name));
     }
     auto *summary = page.findChild<QLabel *>(QStringLiteral("dataGraphSummary"));
     QVERIFY(summary);
-    QCOMPARE(summary->parentWidget(), bar);
+    QCOMPARE(summary->parentWidget()->objectName(), QString("dataGraphSurface"));
     QVERIFY(button(page, QStringLiteral("预览文件 / 版本")));
     if (const QString shot = qEnvironmentVariable("PALEO_GRAPH_BAR_SHOT");
         !shot.isEmpty()) {

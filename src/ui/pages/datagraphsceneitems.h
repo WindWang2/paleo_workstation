@@ -18,17 +18,19 @@ public:
   bool compact = false;
   explicit DataGraphNodeItem(const Node &n, bool network = false) : node(n), compact(network) {
     setFlags(ItemIsSelectable | ItemIsFocusable);
+    setAcceptHoverEvents(true);
+    setFlag(ItemIgnoresTransformations, compact);
     setCursor(Qt::PointingHandCursor);
     setZValue(1);
     updateNode(n);
   }
   QRectF boundingRect() const override {
-    return compact ? QRectF(0, 0, 160, node.kind == Kind::Entity ? 80 : 56)
+    return compact ? QRectF(-78, -46, 156, 136)
                    : QRectF(0, 0, 260, node.kind == Kind::Entity ? 112 : 88);
   }
   void setCompact(bool value) {
     if (compact == value) return;
-    prepareGeometryChange(); compact = value; update();
+    prepareGeometryChange(); compact = value; setFlag(ItemIgnoresTransformations, compact); update();
   }
   void updateNode(const Node &n) {
     node = n;
@@ -40,6 +42,7 @@ public:
   }
   void paint(QPainter *p, const QStyleOptionGraphicsItem *,
              QWidget *) override {
+    if (compact) { paintNetworkNode(p); return; }
     const auto &t = PaleoTheme::tokens();
     p->setPen(QPen(isSelected() || hasFocus()                    ? t.focusRing
                    : node.stale || node.unresolved || node.cycle ? t.warning
@@ -55,21 +58,6 @@ public:
     p->setFont(font);
     p->setPen(t.text);
     const qreal lod = QStyleOptionGraphicsItem::levelOfDetailFromTransform(p->worldTransform());
-    if (compact) {
-      if (lod < .35) return;
-      const auto box = boundingRect().adjusted(t.spacingSm, t.spacingSm, -t.spacingSm, -t.spacingSm);
-      p->drawText(box.adjusted(0, 0, 0, -box.height() / 2), Qt::AlignCenter,
-          QFontMetrics(font).elidedText(node.title, Qt::ElideMiddle, int(box.width())));
-      if (lod < .65) return;
-      font.setBold(false); font.setPointSize(t.labelPt); p->setFont(font); p->setPen(t.textMuted);
-      const QString detail = node.unresolved ? QCoreApplication::translate("DataGraphPage", "待关联")
-          : node.stale ? QCoreApplication::translate("DataGraphPage", "已过期")
-          : node.cycle ? QCoreApplication::translate("DataGraphPage", "血缘环需核查")
-          : collection ? QCoreApplication::translate("DataGraphPage", "%1 份文件").arg(node.count) : stageText(node.stage);
-      p->drawText(box.adjusted(0, box.height() / 2, 0, 0), Qt::AlignCenter,
-          QFontMetrics(font).elidedText(detail, Qt::ElideRight, int(box.width())));
-      return;
-    }
     if (lod < .35)
       return;
     p->drawText(
@@ -110,6 +98,16 @@ public:
     p->drawText(QRectF(collection ? 26 : t.spacingSm, collection ? 78 : 58, collection ? 208 : 244, 19),
                 QFontMetrics(font).elidedText(state, Qt::ElideMiddle, 244));
   }
+  QRectF connectionRect() const;
+  QColor networkColor() const;
+  void paintNetworkNode(QPainter *p) const;
+  QPainterPath shape() const override {
+    if (!compact) return QGraphicsObject::shape();
+    QPainterPath path; path.addEllipse(connectionRect());
+    path.addRect(QRectF(-78, connectionRect().bottom() + 4, 156, 38)); return path;
+  }
+  void hoverEnterEvent(QGraphicsSceneHoverEvent *e) override { QGraphicsObject::hoverEnterEvent(e); update(); }
+  void hoverLeaveEvent(QGraphicsSceneHoverEvent *e) override { QGraphicsObject::hoverLeaveEvent(e); update(); }
   void mousePressEvent(QGraphicsSceneMouseEvent *e) override {
     QGraphicsObject::mousePressEvent(e);
     dispatch(false);

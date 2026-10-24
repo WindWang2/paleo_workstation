@@ -761,3 +761,39 @@ namespace PaleoTheme
              qssHex(t.surface), qssHex(t.textMuted));
   }
 } // namespace PaleoTheme
+
+// Graph-specific presentation, approved by the 2026-10-24 visual correction.
+namespace PaleoTheme {
+QColor graphColor(int category) {
+  static const QColor colors[] = {hx("#ED7F89"), hx("#9B87CD"), hx("#63CBA8"),
+                           hx("#F2B94B"), hx("#5ABDD2"), hx("#ECA06C")};
+  return colors[qBound(0, category, 5)];
+}
+QColor graphInkColor() { return hx("#1F2937"); }
+QColor graphCanvasColor() {
+  return currentTheme() == Theme::Dark ? hx("#1B212A") : hx("#FBFCFE");
+}
+QString graphSurfaceStyleSheet() {
+  const auto &t = tokens();
+  return QStringLiteral(
+      "#dataGraphToolBar { background: %1; border: none; }"
+      "#dataGraphToolBar QComboBox, #dataGraphToolBar QSpinBox { background: %1; border: 1px solid %2; border-radius: 8px; padding: 6px 10px; }"
+      "#dataGraphToolBar QComboBox::drop-down { border: none; background: transparent; width: 20px; }"
+      "#dataGraphToolBar QLineEdit { background: %1; border: 1px solid %2; border-radius: 10px; padding: 8px 12px; }"
+      "#dataGraphToolBar QToolButton, #dataGraphZoomControls QToolButton { border: none; border-radius: 8px; padding: 7px; background: transparent; }"
+      "#dataGraphToolBar QToolButton:hover, #dataGraphZoomControls QToolButton:hover { background: %3; }"
+      "QFrame#dataGraphDetailsPanel, QFrame#dataGraphRelationsPanel, #dataGraphZoomControls, #dataGraphSummary { background: %1; border: 1px solid %2; border-radius: 12px; }"
+      "#dataGraphSummary { padding: 10px 16px; color: %4; }"
+      "#dataGraphNodeDetails, #dataGraphRelations { border: none; background: transparent; }"
+      "#dataGraphRelations QHeaderView::section { background: %1; border: none; border-bottom: 1px solid %2; padding: 8px 4px; color: %4; }"
+      "#dataGraphDetailsPanel QPushButton, #dataGraphRelationsPanel QPushButton { border: 1px solid %2; border-radius: 8px; padding: 8px; background: %1; }"
+      "#dataGraphDetailsPanel QPushButton:hover, #dataGraphRelationsPanel QPushButton:hover { background: %3; }"
+      "#dataGraphDetailsPanel QToolButton, #dataGraphRelationsPanel QToolButton { border: none; background: transparent; padding: 4px; color: %4; }"
+      "#dataGraphDetailsPanel QLabel, #dataGraphRelationsPanel QLabel { background: transparent; border: none; }"
+      "#dataGraphRelationsPanel QScrollBar:vertical, #dataGraphDetailsPanel QScrollBar:vertical { background: transparent; width: 6px; margin: 0px; }"
+      "#dataGraphRelationsPanel QScrollBar::handle:vertical, #dataGraphDetailsPanel QScrollBar::handle:vertical { background: %4; min-height: 24px; border-radius: 3px; }"
+      "#dataGraphRelationsPanel QScrollBar::add-line:vertical, #dataGraphRelationsPanel QScrollBar::sub-line:vertical, #dataGraphDetailsPanel QScrollBar::add-line:vertical, #dataGraphDetailsPanel QScrollBar::sub-line:vertical { height: 0px; border: none; }"
+      "#dataGraphRelationsPanel QScrollBar::add-page:vertical, #dataGraphRelationsPanel QScrollBar::sub-page:vertical, #dataGraphDetailsPanel QScrollBar::add-page:vertical, #dataGraphDetailsPanel QScrollBar::sub-page:vertical { background: transparent; }")
+      .arg(t.surface.name(), t.border.name(), t.surfaceAlt.name(), t.textMuted.name());
+}
+}

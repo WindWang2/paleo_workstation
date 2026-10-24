@@ -106,6 +106,12 @@ url/sha256/layout 口径）。Windows 段剪掉 dict-*/语言 res/python/help/sh
 
 更低 glibc 宿主走 superbuild（"superbuild-on-oldest-target"）。
 
+### deb 闭包锁的信任根（PW-053）
+
+- **下载期**：`vendor/fetch-deps.sh` 对锁里每个 .deb 校验 size + SHA256，不符即删文件并失败（fail closed）；pool 与 snapshot 回退两条路都走同一校验。
+- **锁生成期**：锁由维护者主机 `apt-get --print-uris` 生成，来源可信度 = 该主机 apt 对 Ubuntu / qgis.org 仓库 `InRelease` 的 GPG 校验。脚本本身不再做签名校验，因此**只在干净、apt 源配置为官方签名仓库的主机/容器（ubuntu-26.04）上刷新锁**，并在 PR 中审阅锁 diff。
+- qgis.org 第三方源没有 snapshot 回退，上游删包会导致锁腐烂；由 `deb-lock.yml` 每周探测发现。
+
 ## QGIS prefix 解析顺序（CMakeLists.txt:16 起）
 
 主构建不写死 QGIS 位置，按序解析：

@@ -887,7 +887,22 @@ AppContext::~AppContext()
   // worker 排队回主线程的回包落地（导入链的旧 catInvoke BlockingQueued 已移除）。
   // 正常 GUI 退出时 main() 已先经 drainTasks() 在主窗口析构前排空（#163），
   // 这里是幂等兜底。
-  drainTasks();
+  if (!drainTasks())
+  {
+    // review M1：超时仍有不合作 worker（长 GDAL/QgsProcessing 调用不轮询取消）
+    // 在跑——它们的闭包持有服务裸指针（H-2）与 m_proc.data() 等。此时析构
+    // 任何依赖对象都是 use-after-free；泄漏优于 UAF：子对象全部脱父放生，
+    // manifest/versionStore/QgisRuntime 也不拆除（进程即将退出，由 OS 回收）。
+    qWarning("AppContext: leaking services/runtime — workers still running");
+    const QObjectList stuck = children();
+    for (QObject *child : stuck)
+      child->setParent(nullptr);
+    m_manifest = nullptr;
+    m_versionStore = nullptr;
+    m_projectLock.reset(); // 锁与 worker 无关：照常释放，免得下次启动误判占用
+    s_runtimeOwners.remove(this);
+    return;
+  }
   // 再按创建的逆序删除：后建者（workflow/linkage）依赖先建者（store/services），
   // 依赖方先走。children() 是创建顺序，正序删除会让 m_taskSvc/m_store 先于
   // DataImportService 等依赖方析构。

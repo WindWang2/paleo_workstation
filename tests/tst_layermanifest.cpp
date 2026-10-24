@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QCoreApplication>
+#include <QSqlDatabase>
 #include <thread>
 #include <atomic>
 
@@ -229,6 +230,39 @@ private slots:
     // 删不存在的 id：事务内循环照常提交（幂等），清单不变。
     QVERIFY(manifest.removeMany({QStringLiteral("不存在")}, &err));
     QCOMPARE(manifest.all().size(), 1);
+  }
+
+  // review M4：连接名不得以 QThread* 地址为键——短命线程退出后连接须移除
+  // （不泄漏），后续线程（可能复用同一地址）读清单须成功。
+  void shortLivedThreadsDoNotLeakOrReuseConnections()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = dir.filePath(QStringLiteral("project.sqlite"));
+    {
+      LayerManifest manifest(dbPath);
+      QString err;
+      QVERIFY2(manifest.open(&err), qPrintable(err));
+      LayerDeclaration decl;
+      decl.layerId = QStringLiteral("L1");
+      decl.type = QStringLiteral("raster");
+      QVERIFY2(manifest.upsert(decl, &err), qPrintable(err));
+    }
+    auto manifestConnections = [] {
+      int n = 0;
+      for (const QString &c : QSqlDatabase::connectionNames())
+        n += c.startsWith(QStringLiteral("paleo_layermanifest_")) ? 1 : 0;
+      return n;
+    };
+    const int before = manifestConnections();
+    for (int round = 0; round < 4; ++round)
+    {
+      int rows = -1;
+      std::thread worker([&] { rows = LayerManifest(dbPath).all().size(); });
+      worker.join();
+      QCOMPARE(rows, 1);
+    }
+    QCOMPARE(manifestConnections(), before);
   }
 };
 

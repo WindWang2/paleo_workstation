@@ -2,3 +2,5 @@
 # （#275 UIS-07 / #282 UIS-09 / #236 工程切换残留批）壳级回归。
 # 伞式（app 面全栈）：AppContext + PaleoMainWindow + attachWorkflows 真实壳驱动。
 add_paleo_test(tst_shell_projectlifecycle)
+# review M1：drainTasks 超时后 ~AppContext 不得在仍运行的 worker 脚下析构服务。
+add_paleo_test(tst_appcontext_drain)

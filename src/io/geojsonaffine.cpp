@@ -193,7 +193,9 @@ bool geoAffineTransformFile(const QString &inPath, const QString &outPath,
       *error = of.errorString();
     return false;
   }
-  if (of.write(QJsonDocument(root).toJson(QJsonDocument::Compact)) < 0 || !of.commit())
+  // 短写（0 < n < size）同样是失败：只查 <0 会让 commit 发布半截 GeoJSON。
+  const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Compact);
+  if (of.write(payload) != payload.size() || !of.commit())
   {
     if (error)
       *error = QStringLiteral("write failed: %1").arg(outPath);

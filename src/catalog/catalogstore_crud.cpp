@@ -207,6 +207,15 @@ bool CatalogStore::deleteVersion(const QString &id, QString *error)
 bool CatalogStore::replaceAllLinks(const QVector<EntityAssetLink> &links,
                                    QString *error)
 {
+  // review-fix-dataio：先整表 DELETE 再逐行 upsert——事务外调用时中途失败
+  // 会把链接表留空/半写（自动提交逐句落盘）。Q_ASSERT 在 Release 是空操作，
+  // 这里运行期拒绝；现有调用方（DataCatalog::flush、测试）均在 begin() 内。
+  Q_ASSERT(m_inTxn);
+  if (!m_inTxn)
+  {
+    setError(error, QStringLiteral("replaceAllLinks must run inside a transaction"));
+    return false;
+  }
   QSqlDatabase db = QSqlDatabase::database(m_connectionName);
   {
     QSqlQuery q(db);

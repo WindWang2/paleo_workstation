@@ -2,6 +2,7 @@
 #include "mamcltool.h"
 
 #include "../services/pythonenv.h"
+#include "../io/atomicwrite.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -283,14 +284,13 @@ void MamclTool::advance()
         // 规范化副本落 venv 目录（程序包目录保持原样），pip 装副本。
         const QString normPath = QDir( m_env->venvDir( venvName() ) )
                                      .filePath( QStringLiteral( "requirements.paleo.txt" ) );
-        QFile norm( normPath );
-        if ( !norm.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
+        // 原子整写并校验：半截依赖清单会让 pip 静默少装包。
+        QString writeErr;
+        if ( !paleo::writeFileAtomic( normPath, normalizedRequirements(), &writeErr ) )
         {
-          finish( false, tr( "无法写入依赖清单：%1" ).arg( normPath ) );
+          finish( false, tr( "无法写入依赖清单：%1（%2）" ).arg( normPath, writeErr ) );
           return;
         }
-        norm.write( normalizedRequirements() );
-        norm.close();
         m_env->installRequirements( venvName(), normPath );
       }
       return;

@@ -11,6 +11,7 @@
 #include "../qgis/qgislayerservice.h"
 #include "../services/jobrunner.h"
 #include "../services/paleotaskservice.h"
+#include "../io/atomicwrite.h"
 #include <QSaveFile>
 
 #include <QDir>
@@ -344,13 +345,13 @@ QString DepthConversionWorkflow::buildAndStoreModel(const VelocityModelBuildRequ
     return QString();
   }
   {
-    QFile out(st.absolutePath);
-    if (!out.open(QIODevice::WriteOnly))
+    // 原子整写 + 校验：短写/磁盘满不得把半截 VELOCITY_MODEL.json 登记成资产。
+    QString writeErr;
+    if (!paleo::writeJsonAtomic(st.absolutePath, QJsonDocument(model.toJson()), &writeErr))
     {
-      setError(error, QStringLiteral("写不了模型文件 %1").arg(st.absolutePath));
+      setError(error, QStringLiteral("写不了模型文件 %1（%2）").arg(st.absolutePath, writeErr));
       return QString();
     }
-    out.write(QJsonDocument(model.toJson()).toJson(QJsonDocument::Indented));
   }
 
   QVariantMap extra;

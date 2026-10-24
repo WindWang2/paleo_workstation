@@ -9,6 +9,8 @@
 #include "../qgis/composeattribution.h"
 #include "../services/jobrunner.h"
 #include "../services/paleotaskservice.h"
+#include "../io/atomicwrite.h"
+#include <QDebug>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -334,11 +336,12 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
     const auto path = m_dir + "/artifacts/reports/impact-" +
                       QUuid::createUuid().toString(QUuid::WithoutBraces).left(8) +
                       ".json";
-    QFile file(path);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-      file.write(doc.toJson(QJsonDocument::Indented));
+    // 原子整写并校验：写失败（磁盘满等）不得对外宣称 report_path 可用。
+    QString writeErr;
+    if (paleo::writeJsonAtomic(path, doc, &writeErr))
       out.insert("report_path", path);
-    }
+    else
+      qWarning() << "impact report write failed:" << writeErr;
   }
   return out;
 }
@@ -884,12 +887,11 @@ QVariantMap MappingWorkbench::compareWithRecomputeSource(const QString &layerId,
     const auto path = m_dir + "/artifacts/reports/compare-" +
                       QUuid::createUuid().toString(QUuid::WithoutBraces).left(8) +
                       ".json";
-    QFile file(path);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-      file.write(QJsonDocument(QJsonObject::fromVariantMap(out))
-                     .toJson(QJsonDocument::Indented));
+    QString writeErr;
+    if (paleo::writeJsonAtomic(path, QJsonDocument(QJsonObject::fromVariantMap(out)), &writeErr))
       out.insert("report_path", path);
-    }
+    else
+      qWarning() << "compare report write failed:" << writeErr;
   }
   return out;
 }

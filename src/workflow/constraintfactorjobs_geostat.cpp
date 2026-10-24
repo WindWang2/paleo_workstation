@@ -38,6 +38,7 @@
 #include "workflows.h"
 #include "constraintjobs.h" // #558：job 族完整定义（原内嵌 workflows.h）
 #include "workflows_internal.h"
+#include "../io/atomicwrite.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -157,13 +158,12 @@ QVariantMap variogramExtra( const paleo::geostat::VariogramModel &model, double 
 using paleo::geostat::CvPrediction;
 using paleo::geostat::leaveOneOut;
 
+// 原子整写 + 校验 write()==size：旧实现无视 write() 结果恒返回 true，磁盘满时
+// 半截 qc.json 会随临时目录一起发布。
 bool writeJsonFile( const QString &path, const QVariantMap &payload )
 {
-  QFile file( path );
-  if ( !file.open( QIODevice::WriteOnly ) )
-    return false;
-  file.write( QJsonDocument( QJsonObject::fromVariantMap( payload ) ).toJson( QJsonDocument::Compact ) );
-  return true;
+  return paleo::writeJsonAtomic( path, QJsonDocument( QJsonObject::fromVariantMap( payload ) ),
+                                 nullptr, QJsonDocument::Compact );
 }
 
 // ---- #554：computeGeostatJobWithService 按段拆分 ----

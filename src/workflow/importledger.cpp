@@ -285,7 +285,16 @@ bool ImportLedger::record(const LedgerBatch &batch, QString *error)
                    .arg(m_path, f.errorString());
     return false;
   }
-  f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+  // 短写必须当失败：显式校验字节数，失败即放弃本次提交（旧台账保持完好）。
+  const QByteArray ledgerBytes = QJsonDocument(root).toJson(QJsonDocument::Compact);
+  if (f.write(ledgerBytes) != ledgerBytes.size())
+  {
+    const QString detail = f.errorString();
+    f.cancelWriting();
+    if (error)
+      *error = QStringLiteral("导入台账写入不完整 %1：%2").arg(m_path, detail);
+    return false;
+  }
   if (!f.commit())
   {
     if (error)

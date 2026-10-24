@@ -10,6 +10,7 @@
 #include "../io/constraintstore.h"
 #include "../io/horizonbinner.h"
 #include "derivedassets.h"
+#include "../io/pathsegment.h"
 
 #include <qgsgeometry.h>
 #include <qgspointxy.h>
@@ -455,7 +456,11 @@ QString SurfaceGriddingWorkflow::gridHorizonText(const QString &horizon,
                                            .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
   if (!QDir().mkpath(tmpDir))
     return fail(QStringLiteral("无法创建网格化临时目录：%1").arg(tmpDir));
-  const QString tmpTif = QDir(tmpDir).filePath(QStringLiteral("GRID_%1_MINCURV.tif").arg(horizon));
+  // 层位名来自导入数据：临时文件名先净化成单个安全路径段——旧实现在受管
+  // 登记（registrar.stage 会拒绝不安全名字）之前就把 "T4/../../x" 原样拼进
+  // 路径写 GeoTIFF，可写出暂存目录之外。
+  const QString tmpTif = QDir(tmpDir).filePath(
+      QStringLiteral("GRID_%1_MINCURV.tif").arg(paleo::safeFileNameComponent(horizon)));
   QString writeErr;
   if (!writeHorizonGeoTiff(b, tmpTif, &writeErr))
   {

@@ -4,6 +4,7 @@
 
 #include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
+#include "../io/atomicwrite.h"
 #include "../io/wellfileparsers.h"
 #include "derivedassets.h"
 
@@ -30,32 +31,12 @@ bool readAllBytes(const QString &path, QByteArray *out, QString *error)
   return true;
 }
 
+// 原子落位：QSaveFile 旁写 + commit 整体替换（io/atomicwrite.h）。旧实现
+// 「写 .partial → 先删目标 → rename」在删与改名之间崩溃/掉电或改名失败
+// （Windows 杀软锁/权限）时会把唯一的版本文件连同暂存件一起丢掉。
 bool writeAtomic(const QString &path, const QByteArray &bytes, QString *error)
 {
-  const QString tmp = path + QStringLiteral(".partial");
-  {
-    QFile f(tmp);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-    {
-      setError(error, QStringLiteral("无法写入暂存文件：%1（%2）").arg(tmp, f.errorString()));
-      return false;
-    }
-    if (f.write(bytes) != bytes.size())
-    {
-      f.remove(); // 不留半截暂存件
-      setError(error, QStringLiteral("暂存文件写入不完整：%1").arg(tmp));
-      return false;
-    }
-  }
-  if (QFile::exists(path))
-    QFile::remove(path);
-  if (!QFile::rename(tmp, path))
-  {
-    QFile::remove(tmp); // 落位失败回收暂存件
-    setError(error, QStringLiteral("无法把暂存文件落位：%1 ← %2").arg(path, tmp));
-    return false;
-  }
-  return true;
+  return paleo::writeFileAtomic(path, bytes, error);
 }
 } // namespace
 

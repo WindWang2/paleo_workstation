@@ -120,6 +120,17 @@ void WellFaciesWorkflow::loadKeyFromKeychain() {
         updateInput();
       });
 }
+namespace {
+// review-fix-dataio：0600 权限只在 POSIX 有效；Windows 上不得宣称「仅当前用户可读写」。
+QString plaintextKeyNote() {
+#ifdef Q_OS_WIN
+  return QObject::tr("Windows 上文件权限继承目录 ACL，建议改用环境变量 "
+                     "PALEO_WELL_FACIES_API_KEY");
+#else
+  return QObject::tr("仅当前用户可读写");
+#endif
+}
+} // namespace
 void WellFaciesWorkflow::configure(const WellFaciesConfig &config,
                                    bool persist) {
   QString error;
@@ -128,6 +139,9 @@ void WellFaciesWorkflow::configure(const WellFaciesConfig &config,
     emit statusChanged(error);
     return;
   }
+  if (persist && !useKeychain)
+    emit statusChanged(tr("系统钥匙串不可用：API 密钥已以明文存入本机配置文件（%1）")
+                           .arg(plaintextKeyNote()));
   if (useKeychain)
     WellFaciesKeyStore::write(this, config.apiKey,
                               [this, config](bool ok, const QString &err) {
@@ -138,8 +152,8 @@ void WellFaciesWorkflow::configure(const WellFaciesConfig &config,
                                 config.save(&fileError, true);
                                 emit statusChanged(
                                     tr("API 密钥未能写入系统钥匙串（%1），已改存本机"
-                                       "配置文件（仅当前用户可读写）")
-                                        .arg(err));
+                                       "配置文件（明文；%2）")
+                                        .arg(err, plaintextKeyNote()));
                               });
   if (config.allowInsecureHttp &&
       config.baseUrl.scheme() == QLatin1String("http") &&

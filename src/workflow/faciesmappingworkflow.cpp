@@ -12,6 +12,7 @@
 #include "../catalog/datacatalog.h"
 #include "../io/constraintstore.h"
 #include "../qgis/qgislayerservice.h"
+#include "../io/atomicwrite.h"
 
 #include <qgscoordinatereferencesystem.h>
 #include <qgsfeature.h>
@@ -581,15 +582,9 @@ bool FaciesMappingWorkflow::commitComputed( const DraftFaciesRequest &request,
   for ( const paleo::faciesmapping::FaciesQaIssue &issue : computed->qaIssues )
     issues.append( issueToJson( issue ) );
   report.insert( QStringLiteral( "issues" ), issues );
-  QFile reportFile( reportStaging.absolutePath );
-  if ( !reportFile.open( QIODevice::WriteOnly ) )
+  // 原子整写 + 校验 write()==size（旧实现只查 <0，短写会放行）。
+  if ( !paleo::writeJsonAtomic( reportStaging.absolutePath, QJsonDocument( report ) ) )
     return fail( tr( "QA 报告写入失败：%1" ).arg( reportStaging.absolutePath ) );
-  if ( reportFile.write( QJsonDocument( report ).toJson( QJsonDocument::Indented ) ) < 0 )
-  {
-    reportFile.close();
-    return fail( tr( "QA 报告写入失败：%1" ).arg( reportStaging.absolutePath ) );
-  }
-  reportFile.close();
   QVariantMap reportExtra;
   reportExtra.insert( QStringLiteral( "asset_role" ), QStringLiteral( "qa_report" ) );
   reportExtra.insert( QStringLiteral( "issue_count" ),

@@ -379,10 +379,10 @@ void DataListPanel::setPrimaryForSelection()
     for (const EntityAssetLink &l : links)
       if (!l.unresolved && !l.isPrimary)
       {
-        // 前主关联（撤销时恢复）。
+        // 前主关联可能在另一个资产上，不能只在本资产的链接里找。
         QString prevPrimary;
-        for (const EntityAssetLink &o : links)
-          if (!o.unresolved && o.isPrimary && o.entityId == l.entityId && o.role == l.role)
+        for (const EntityAssetLink &o : m_ctx.cat->linksForEntity(l.entityId))
+          if (!o.unresolved && o.isPrimary && o.role == l.role)
             prevPrimary = o.assetId;
         pushCommand(new SetPrimaryCmd(m_ctx, id, l.role, l.entityId, prevPrimary));
         emit statusMessage(tr("已把 %1 设为主关联（可撤销）").arg(id));

@@ -30,14 +30,8 @@ int column(const QStringList &headers, const QStringList &aliases, const QString
   for (int i = 0; i < headers.size(); ++i)
     for (const auto &alias : aliases) {
       if (alias.size() <= 1) continue;
-      const QString header = headers[i].trimmed();
-      // ASCII 别名按词边界，避免 MD 命中 BASE_MD / BOTTOM_MD。中文别名仍允许包含。
-      const bool ascii = !alias.contains(QRegularExpression(QStringLiteral("[^A-Za-z0-9_]")));
-      if (ascii) {
-        const QRegularExpression word(QStringLiteral("\\b%1\\b").arg(QRegularExpression::escape(alias)),
-                                       QRegularExpression::CaseInsensitiveOption);
-        if (word.match(header).hasMatch()) return i;
-      } else if (header.contains(alias, Qt::CaseInsensitive)) return i;
+      // ASCII：词边界，并认 <别名>_NAME。不放宽 \b，故 MD 不命中 BASE_MD，WELL_NAME 仍命中 WELL。
+      if (::wellHeaderMatchesAlias(headers[i].trimmed(), alias)) return i;
     }
   return -1;
 }

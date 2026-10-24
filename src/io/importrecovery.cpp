@@ -76,7 +76,7 @@ bool writeImportIntent(ImportSession &session, QString *error)
   while (files.hasNext())
   {
     const QString path = files.next();
-    if (path.endsWith(QLatin1String(".partial"))) continue;
+    if (path.contains(QLatin1String(".partial"))) continue;
     const QString sha = hashFile(path);
     if (sha.isEmpty()) return fail(error, path);
     records.append(QJsonObject{{QStringLiteral("path"), QDir(session.stagingRoot).relativeFilePath(path)},

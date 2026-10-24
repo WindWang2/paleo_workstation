@@ -23,7 +23,11 @@ bool readImportWellInput(const QString &path, const QString &type, const QString
   if ((isWellTableContainer(path) && (type == QLatin1String("well_head") || type == QLatin1String("well_stratification"))) ||
       (type == QLatin1String("well_head") && QFileInfo(path).suffix().compare("dat", Qt::CaseInsensitive) == 0)) {
     const auto table = readWellTable(path, mapping);
-    if (!table.error.isEmpty() || table.type != type) return fail(table.error.isEmpty() ? QObject::tr("井表类型与字段不匹配") : table.error);
+    if (!table.error.isEmpty()) return fail(table.error);
+    // 井点槽把带层位的表强制成井口时，仍收下井口坐标和分层，而不是类型冲突。
+    const bool pointsSlotKeepsTops = type == QLatin1String("well_head")
+        && table.type == QLatin1String("well_stratification") && !table.heads.isEmpty();
+    if (table.type != type && !pointsSlotKeepsTops) return fail(QObject::tr("井表类型与字段不匹配"));
     out->heads = table.heads; out->tops = table.tops; out->report = table.report; out->normalized = table.normalized;
     ok = hash.addData(&source);
   } else if (type == QLatin1String("well_head")) {

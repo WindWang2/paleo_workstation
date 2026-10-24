@@ -39,9 +39,12 @@ QVector<CatalogRoleInfo> builtinCatalogRoles()
   add("fault", "seismic", 24, QStringLiteral("断层"));
   add("interpretation", "seismic", 25, QStringLiteral("调查解释"));
   add("other", "seismic", 26, QStringLiteral("其他"));
+  // role-entity: other planned
 
   // ---- misc 族（辅助/格架/部署挂接）----
   add("reference", "misc", 30, QStringLiteral("参考资料"));
+  // role-entity: reference well
+  // role-entity: reference auxiliary
   add("framework_unit", "misc", 31, QStringLiteral("格架单元"));
   add("siting_note", "misc", 32, QStringLiteral("部署依据"));
   add("boundary", "misc", 33, QStringLiteral("测区范围"));

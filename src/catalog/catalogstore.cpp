@@ -139,6 +139,64 @@ using paleo::catalog_detail::loadTables;
     QFile::remove(path + QStringLiteral("-shm"));
   }
 
+  // 连接已关。内容 fsync 失败则调用方不得用这份文件替换主库。
+  bool fsyncClosedFile(const QString &path, QString *error)
+  {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadWrite))
+    {
+      setError(error, QStringLiteral("cannot open %1 for fsync: %2").arg(path, file.errorString()));
+      return false;
+    }
+    if (!paleoSyncFile(file))
+    {
+      setError(error, QStringLiteral("cannot fsync %1").arg(path));
+      return false;
+    }
+    return true;
+  }
+
+  QString quarantineDest(const QString &src, const QString &primary, const QString &stamp)
+  {
+    if (src.endsWith(QStringLiteral("-wal")))
+      return primary + QStringLiteral("-wal.corrupt-") + stamp;
+    if (src.endsWith(QStringLiteral("-shm")))
+      return primary + QStringLiteral("-shm.corrupt-") + stamp;
+    return primary + QStringLiteral(".corrupt-") + stamp;
+  }
+
+  // 失败的 replaceAll 回滚后：表已在（attachWritable 建的），catalog_revision
+  // 没有，entities 是空的。合法空目录（createEmpty）一定写下 revision，
+  // 不得当成这种空壳。sqlite_master / revision 查询失败 → false。
+  // 没有 meta 表、已有 revision、或没有 entities 表 → *shell = false。
+  bool failedRewriteShell(QSqlDatabase &db, bool *shell, QString *error)
+  {
+    *shell = false;
+    QSqlQuery meta(db);
+    if (!meta.exec(QStringLiteral(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='catalog_meta'")))
+    {
+      setError(error, meta.lastError().text());
+      return false;
+    }
+    if (!meta.next())
+      return true;
+    QSqlQuery rev(db);
+    if (!rev.exec(QStringLiteral(
+            "SELECT 1 FROM catalog_meta WHERE key='catalog_revision'")))
+    {
+      setError(error, rev.lastError().text());
+      return false;
+    }
+    if (rev.next())
+      return true;
+    QSqlQuery n(db);
+    if (!n.exec(QStringLiteral("SELECT COUNT(*) FROM entities")) || !n.next())
+      return true; // 缺 entities 表不是这条空壳
+    *shell = n.value(0).toInt() == 0;
+    return true;
+  }
+
   enum class JsonRead
   {
     Ok,
@@ -196,13 +254,16 @@ using paleo::catalog_detail::loadTables;
   }
 
   // H2：「sqlite 文件在」≠「权威库在」。migrateFromJson（attachWritable 建库后
-  // replaceAll 才 renameAside(json)）与 rewritePrimary（quarantine 先 remove 再
-  // attachWritable）的崩溃窗口都会留下零长/无表 sqlite。把它当权威空库放行，
-  // JSON/.bak 恢复链就永远不可达——工程以空目录成功打开，真实数据退化成盘上
-  // 孤儿文件。开库前先探一次 sqlite_master（只读、不建表、不写 pragma）。
+  // replaceAll 才 renameAside(json)）的崩溃窗口会留下零长/无表 sqlite。把它
+  // 当权威空库放行，JSON/.bak 恢复链就永远不可达——工程以空目录成功打开，
+  // 真实数据退化成盘上孤儿文件。rewritePrimary 改为先写旁路，提交并 fsync
+  // 之后才替换主库；失败删旁路，不再把「有 entities 表的空库」留在主路径。
+  // 开库前先探一次 sqlite_master（只读、不建表、不写 pragma）。
   // 只有 SchemaLess 一档改判：探不动（坏头/锁/WAL 只读不可读）时不夺权，
   // 照旧交给 openExisting 的可写连接与它既有的 recover 链——只读探针不得
-  // 把「可写连接本可恢复的库」误判成坏库。
+  // 把「可写连接本可恢复的库」误判成坏库。有 revision 的合法空目录仍是
+  // Usable（零行不是损坏）；无 revision 的失败写回空壳在 openExisting 里
+  // 拒绝轮转，不在这里改判。
   enum class SqliteProbe
   {
     Missing,    // 文件不在
@@ -499,6 +560,9 @@ bool CatalogStore::openExisting(bool readOnly, Tables *out, QString *error)
   QString stepErr;
   int keep = 3;
   bool doRotate = false;
+  // 失败写回留下的空壳：有表、无 catalog_revision、entities 为零。
+  // 合法空目录有 revision，不走这里。
+  bool shell = false;
   {
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     int epoch = 1;
@@ -515,6 +579,15 @@ bool CatalogStore::openExisting(bool readOnly, Tables *out, QString *error)
     // .bak/JSON 恢复链永远够不着——损坏库可能永远打不开工程。
     else if (!integrityOk(db, &stepErr))
       step = Step::Corrupt;
+    else if (!failedRewriteShell(db, &shell, &stepErr))
+      step = Step::Corrupt;
+    else if (shell && anyRecoverySource(m_sqlitePath, jsonPathFor(m_projectDir)))
+    {
+      // 有恢复源就不是权威。先改判再写 pragma，避免 checkpoint 后把空壳
+      // 轮转盖上好的 .bak。
+      step = Step::Corrupt;
+      stepErr = QStringLiteral("catalog sqlite has no committed revision");
+    }
     else if (!readOnly && !applyWritablePragmas(db, &stepErr))
       step = Step::Corrupt; // 同上：写盘前置动作失败按损坏走 recover，不硬拒
     else if (!readOnly && !execScript(db, kSchemaSql, &stepErr))
@@ -538,7 +611,7 @@ bool CatalogStore::openExisting(bool readOnly, Tables *out, QString *error)
       if (!ckptOk)
         qWarning("catalog: wal_checkpoint failed for %s; skipping backup copy",
                  qPrintable(m_sqlitePath));
-      else
+      else if (!shell)
         doRotate = true;
       if (!doRotate)
       {
@@ -582,6 +655,7 @@ bool CatalogStore::openExisting(bool readOnly, Tables *out, QString *error)
     return m_open;
 
   // 拷贝前必须关掉连接（Windows 共享锁）。integrity 已通过，坏库不会进 .bak。
+  // 失败写回留下的空壳也不进 .bak（上面 shell 已经把 doRotate 按住）。
   // 本次 open 新建的库不走这里（create / JSON 迁移直接返回）。
   const QString path = m_sqlitePath;
   close();
@@ -703,6 +777,69 @@ bool CatalogStore::rewritePrimary(const Tables &tables, bool quarantineCorrupt, 
     return false;
   }
   close();
+
+  // 旁路与主库同目录，替换才是同卷 rename。失败只删旁路，主库与 .bak 不动。
+  const QString side = path + QStringLiteral(".rewrite");
+  removeSqliteFamily(side);
+  const auto discardSide = [&]() {
+    close();
+    removeSqliteFamily(side);
+    m_sqlitePath = path;
+  };
+
+  m_sqlitePath = side;
+  if (!attachWritable(error))
+  {
+    discardSide();
+    return false;
+  }
+  if (!replaceAll(tables, error))
+  {
+    discardSide();
+    return false;
+  }
+
+  bool checkpointed = false;
+  {
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery cq(db);
+    if (cq.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)")) && cq.next())
+      checkpointed = cq.value(0).toInt() == 0;
+    if (!checkpointed)
+    {
+      setError(error, cq.lastError().text().isEmpty()
+                          ? QStringLiteral("catalog rewrite checkpoint failed")
+                          : cq.lastError().text());
+    }
+  }
+  if (!checkpointed)
+  {
+    discardSide();
+    return false;
+  }
+
+  // 先关连接再 fsync / rename（Windows 共享锁）。checkpoint 已把 WAL 收进主文件。
+  close();
+  m_sqlitePath = path;
+  QString syncErr;
+  if (!fsyncClosedFile(side, &syncErr))
+  {
+    removeSqliteFamily(side);
+    setError(error, syncErr);
+    return false;
+  }
+  const QString sideWal = side + QStringLiteral("-wal");
+  if (QFileInfo::exists(sideWal) && QFileInfo(sideWal).size() > 0)
+  {
+    removeSqliteFamily(side);
+    setError(error, QStringLiteral("catalog rewrite wal not checkpointed"));
+    return false;
+  }
+  QFile::remove(sideWal);
+  QFile::remove(side + QStringLiteral("-shm"));
+
+  // 隔离是复制，不是先删主库。替换失败时连同这些副本一起撤掉。
+  QStringList quarantined;
   if (quarantineCorrupt)
   {
     const QString stamp =
@@ -712,29 +849,38 @@ bool CatalogStore::rewritePrimary(const Tables &tables, bool quarantineCorrupt, 
     {
       if (!QFileInfo::exists(src))
         continue;
-      QString dest;
-      if (src.endsWith(QStringLiteral("-wal")))
-        dest = path + QStringLiteral("-wal.corrupt-") + stamp;
-      else if (src.endsWith(QStringLiteral("-shm")))
-        dest = path + QStringLiteral("-shm.corrupt-") + stamp;
-      else
-        dest = path + QStringLiteral(".corrupt-") + stamp;
-      if (!QFileInfo::exists(dest) && !QFile::copy(src, dest))
+      const QString dest = quarantineDest(src, path, stamp);
+      if (!QFileInfo::exists(dest))
       {
-        setError(error, QStringLiteral("cannot quarantine %1").arg(src));
-        return false;
-      }
-      if (!QFile::remove(src))
-      {
-        setError(error, QStringLiteral("cannot remove quarantined %1").arg(src));
-        return false;
+        if (!QFile::copy(src, dest))
+        {
+          for (const QString &copied : quarantined)
+            QFile::remove(copied);
+          removeSqliteFamily(side);
+          setError(error, QStringLiteral("cannot quarantine %1").arg(src));
+          return false;
+        }
+        quarantined.append(dest);
       }
     }
   }
-  m_sqlitePath = path;
-  if (!attachWritable(error))
+
+  if (!paleoReplaceFile(side, path))
+  {
+    for (const QString &copied : quarantined)
+      QFile::remove(copied);
+    removeSqliteFamily(side);
+    setError(error, QStringLiteral("cannot replace catalog %1").arg(path));
     return false;
-  if (!replaceAll(tables, error))
+  }
+
+  // 旧 WAL 的 salt 对不上新主文件，但留着会让下次打开去套它。新内容已在主文件里。
+  QFile::remove(path + QStringLiteral("-wal"));
+  QFile::remove(path + QStringLiteral("-shm"));
+  if (!paleoSyncDir(QFileInfo(path).absolutePath()))
+    qWarning("catalog: parent directory fsync failed for %s", qPrintable(path));
+
+  if (!attachWritable(error))
     return false;
   m_recovered = false;
   m_recoveryReason.clear();

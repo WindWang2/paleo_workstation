@@ -10,11 +10,11 @@
 链接的工程都刷「未知角色: reference」并污染两表口径。本护栏把「两张表的
 key 集合相等」机械化，下次漏加直接打红。
 
-口径：只比对 key 集合（不比中文名/挂接域——两表职责不同，字段级对齐是
-另一回事）。解析用正则提取两类登记形态：
-  catalogroles.cpp: add("role", "group", order, ...)
-  roleregistry.cpp: add(QStringLiteral("role"), ...) 与手工
-                   t.append(RoleDef{QStringLiteral("role"), ...})
+口径：比较 (角色, 挂接域)。catalogroles 的第二个参数是 UI 分组，
+roleregistry 的第二个参数是实体类型。已写明的跨域复用用别名折到同一分组
+（seismic_survey→seismic，study_area/sequence_boundary/planned→misc）。
+分组表达不了的实体类型写在 catalogroles 的 `role-entity: <role> <type>` 行，
+删掉词表侧对应定义而注释还在，闸门变红。
 
 用法：
   tools/check_role_tables.py [--root PATH]
@@ -40,30 +40,64 @@ CATALOG_ROLES = "src/catalog/catalogroles.cpp"
 ROLE_REGISTRY = "src/catalog/roleregistry.cpp"
 
 # add("role", "group", 30, QStringLiteral("..."))
-RE_CATALOG = re.compile(r'add\("([a-z_]+)"\s*,')
+RE_CATALOG = re.compile(r'add\("([a-z_]+)"\s*,\s*"([a-z_]+)"')
 # add(QStringLiteral("role"), QStringLiteral("well"), ...)
-# t.append(RoleDef{QStringLiteral("role"), ...
-RE_REGISTRY = re.compile(
-    r'(?:add\(|t\.append\(RoleDef\{)QStringLiteral\("([a-z_]+)"\)')
+RE_REGISTRY_ADD = re.compile(
+    r'add\(\s*QStringLiteral\("([a-z_]+)"\)\s*,\s*QStringLiteral\("([a-z_]+)"\)')
+# t.append(RoleDef{QStringLiteral("role"), {QStringLiteral("sequence_boundary")}, ...
+RE_ROLEDEF = re.compile(
+    r'RoleDef\{\s*QStringLiteral\("([a-z_]+)"\)\s*,\s*\{([^}]*)\}')
+RE_TYPE = re.compile(r'QStringLiteral\("([a-z_]+)"\)')
+# 分组表达不了的实体类型。例：role-entity: reference auxiliary
+RE_ENTITY_LINE = re.compile(r'role-entity:\s*([a-z_]+)\s+([a-z_]+)')
+
+# 词表实体类型 → catalogroles 分组。已经写明的跨域复用走这张表，不另开分组。
+DOMAIN_ALIAS = {
+    "seismic_survey": "seismic",
+    "study_area": "misc",
+    "sequence_boundary": "misc",
+    "planned": "misc",
+}
 
 
-def extract(text: str, pattern) -> set:
-    return set(pattern.findall(text))
+def canon(domain: str) -> str:
+    return DOMAIN_ALIAS.get(domain, domain)
+
+
+def registry_pairs(text: str) -> set:
+    pairs = set(RE_REGISTRY_ADD.findall(text))
+    for role, body in RE_ROLEDEF.findall(text):
+        for entity in RE_TYPE.findall(body):
+            pairs.add((role, entity))
+    return pairs
 
 
 def check_pair(catalog_text: str, registry_text: str, label_a: str,
                label_b: str):
-    keys_a = extract(catalog_text, RE_CATALOG)
-    keys_b = extract(registry_text, RE_REGISTRY)
+    groups = set(RE_CATALOG.findall(catalog_text))
+    declared = set(RE_ENTITY_LINE.findall(catalog_text))
+    registry = registry_pairs(registry_text)
     problems = []
-    for missing in sorted(keys_a - keys_b):
+    for role, entity in sorted(registry):
+        if (role, entity) in declared:
+            continue
+        if (role, canon(entity)) in groups:
+            continue
         problems.append(
-            f"{label_a} 有而 {label_b} 无：{missing}——链接词表侧漏登，"
-            f"装载含该角色链接的工程会刷「未知角色」")
-    for extra in sorted(keys_b - keys_a):
+            f"{label_b} 有而 {label_a} 无：{role}@{entity}——挂接域没写进"
+            f"分组或 role-entity 行，删一侧定义时不能靠另一个同 key 蒙混")
+    for role, entity in sorted(declared):
+        if (role, entity) not in registry:
+            problems.append(
+                f"{label_a} 写了 {role}@{entity}，{label_b} 没有这条挂接域")
+    catalog_roles = {role for role, _group in groups}
+    registry_roles = {role for role, _entity in registry}
+    for missing in sorted(catalog_roles - registry_roles):
         problems.append(
-            f"{label_b} 有而 {label_a} 无：{extra}——UI 树面/分组侧漏登，"
-            f"该角色在树面上无名无组")
+            f"{label_a} 有而 {label_b} 无：{missing}——链接词表侧漏登")
+    for extra in sorted(registry_roles - catalog_roles):
+        problems.append(
+            f"{label_b} 有而 {label_a} 无：{extra}——UI 树面/分组侧漏登")
     return problems
 
 
@@ -77,7 +111,7 @@ def run(root: Path) -> int:
                           registry.read_text(encoding="utf-8"),
                           "catalogroles", "roleregistry")
     if not problems:
-        print("角色双表一致：catalogroles 与 roleregistry 的 key 集合相等。")
+        print("角色双表一致：catalogroles 与 roleregistry 的（角色, 挂接域）对齐。")
         return 0
     print(f"角色双表不一致（{len(problems)} 处）：")
     for p in problems:
@@ -91,14 +125,20 @@ def selftest() -> int:
     fixtures = [
         # (catalog, registry, expect_ok, 说明)
         ('add("a", "well", 0, x); add("b", "well", 1, y);',
-         'add(QStringLiteral("a"), z); add(QStringLiteral("b"), w);',
+         'add(QStringLiteral("a"), QStringLiteral("well"), z); '
+         'add(QStringLiteral("b"), QStringLiteral("well"), w);',
          True, "两表一致应绿"),
         ('add("a", "well", 0, x); add("reference", "misc", 30, y);',
-         'add(QStringLiteral("a"), z);',
+         'add(QStringLiteral("a"), QStringLiteral("well"), z);',
          False, "catalogroles 多 reference 应红"),
         ('add("a", "well", 0, x);',
-         'add(QStringLiteral("a"), z); t.append(RoleDef{QStringLiteral("boundary"), ...});',
+         'add(QStringLiteral("a"), QStringLiteral("well"), z); '
+         't.append(RoleDef{QStringLiteral("boundary"), {QStringLiteral("study_area")}, x});',
          False, "roleregistry 手工 append 多 boundary 应红"),
+        ('add("reference", "misc", 30, y);\n// role-entity: reference well\n'
+         '// role-entity: reference auxiliary\n',
+         'add(QStringLiteral("reference"), QStringLiteral("well"), z);',
+         False, "同 key、挂接域不同且一侧缺失应红"),
     ]
     failed = 0
     for catalog, registry, expect_ok, desc in fixtures:
@@ -111,7 +151,7 @@ def selftest() -> int:
             print(f"selftest PASS：{desc}")
     if failed:
         return 2
-    print("check_role_tables selftest 通过：3 夹具全部命中预期。")
+    print("check_role_tables selftest 通过：4 夹具全部命中预期。")
     return 0
 
 

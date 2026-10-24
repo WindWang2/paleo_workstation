@@ -108,7 +108,10 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
             out.sheets = table.sheets; out.columns = table.columns; out.pointRows = table.preview;
             out.pointMapping = table.mapping; out.sourceCrs = table.crs;
             if (!table.error.isEmpty() || table.heads.isEmpty()) { out.errors << QObject::tr("井点：%1").arg(table.error); continue; }
-            cls.type = QStringLiteral("well_head"); out.mappings.insert(file, table.mapping);
+            // 井点槽里带层位和顶深的表保持分层类型，避免导入时被 forceType 成井口后整文件拒绝。
+            cls.type = table.type == QLatin1String("well_stratification")
+                           ? table.type : QStringLiteral("well_head");
+            out.mappings.insert(file, table.mapping);
             for (const auto &h : table.heads) wellNames.insert(h.name);
             out.notes << table.report.issues;
           } else { tables << Candidate{file, cls.type, table}; continue; }

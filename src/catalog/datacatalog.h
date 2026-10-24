@@ -109,8 +109,9 @@ struct CatalogOp
     SetLinkPrimary,
     MarkDownstreamStale,
     UpdateVersionExtra, // 方向 79：版本 extra 就地更新（锚深后补编辑）
-    UpdateEntity // 就地更新既有实体（F5 坐标回填）：追加在末尾——
-                 // 中间插入会挪动既有枚举值，陈旧 .obj 与新鲜 obj 混链即错位
+    UpdateEntity, // 就地更新既有实体（F5 坐标回填）：追加在末尾——
+                  // 中间插入会挪动既有枚举值，陈旧 .obj 与新鲜 obj 混链即错位
+    ClearLinkPrimary // 撤销第一次设主。必须留在枚举末尾，避免旧 obj 错位。
   };
   Kind kind = Kind::AddAsset;
   CatalogEntity entity;
@@ -449,6 +450,8 @@ class DataCatalog : public QObject
     // 空数据（默认拒绝，杜绝 COW 竞态读）。
     bool noteRead(const char *what) const;
     void recordOp(CatalogOp op);
+    // 打开工程后，词表已认为合法的链接去掉尾部类型不符后缀。备注中间的同样字样不动。
+    void reconcileRoleNotes();
     bool save(QString *error = nullptr);
     bool commitStore(QString *error);
     void beginBatch();

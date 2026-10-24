@@ -404,8 +404,7 @@ void ConstraintPage::applySuggestedContourInterval()
     return;
   auto *horizons = child<QComboBox>(this, "horizonCombo");
   const QString key = (horizons ? horizons->currentText() : QString()) + QChar(0x1f) + factor;
-  if (property("paleo.page.contourIntervalKey").toString() != key)
-    setProperty("paleo.page.contourIntervalUser", false);
+  // 手改过的等值距跟层位和因素走，不因键变化被清掉。没改过时下面仍用新极差建议替换默认值。
   if (property("paleo.page.contourIntervalUser").toBool())
     return;
   // D-13（full-audit-20261020）：井点行归属守卫。换勾瞬间勾选互斥 handler 先于

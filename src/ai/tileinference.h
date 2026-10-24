@@ -41,6 +41,12 @@ struct TileClassGrid
 
 // 类数上限：argmax 为 quint8 且 255 = 无数据，可用类号 0..254（#143）。
 constexpr int kMaxTileClasses = 255;
+// PW-012：网格/tile 尺寸上限（尺寸可能来自 LLM 工具参数，须在分配前钳制）。
+// 网格总像元按 qint64 计算，超过 kMaxTileGridPixels 直接拒绝，杜绝 int 溢出。
+constexpr int kMaxTileGridSide = 32768;
+constexpr qint64 kMaxTileGridPixels = qint64( 64 ) * 1024 * 1024;
+constexpr int kMaxTileSide = 1024;
+constexpr int kMaxTileHalo = 64;
 
 // 模型输入净化（#143）：非有限样（NaN/±Inf，缺道/测网外）置 0 喂模型，
 // 并在 valid 掩膜中记为无数据（输出端置 255），不把 NaN 传进 ORT。

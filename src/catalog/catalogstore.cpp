@@ -31,11 +31,6 @@ using paleo::catalog_detail::kCatalogUserVersion;
 using paleo::catalog_detail::kSchemaSql;
 using paleo::catalog_detail::loadTables;
 
-  bool isSchemaReject(const QString &error)
-  {
-    return error.contains(QStringLiteral("newer than this build")) ||
-           error.contains(QStringLiteral("unsupported catalog schema"));
-  }
 
   bool readEpoch(QSqlDatabase &db, int *epoch, QString *error)
   {
@@ -226,12 +221,13 @@ using paleo::catalog_detail::loadTables;
       return JsonRead::Corrupt;
     }
     QString ferr;
-    if (!CatalogStore::fromJson(doc.object(), out, &ferr))
+    bool unsupported = false;
+    if (!CatalogStore::fromJson(doc.object(), out, &ferr, &unsupported))
     {
       setError(error, ferr);
       if (parseDetail)
         *parseDetail = ferr;
-      if (ferr.contains(QStringLiteral("unsupported catalog schema")))
+      if (unsupported) // PW-077：结构化标志，不匹配错误文本
         return JsonRead::Unsupported;
       return JsonRead::Corrupt;
     }
@@ -365,9 +361,7 @@ bool CatalogStore::migrateFromJson(Tables *out, QString *error)
   if (kind == JsonRead::Unsupported)
   {
     // 未来 JSON 不是损坏：不建 sqlite，不回退 .bak。
-    setError(error, perr.contains(QStringLiteral("unsupported catalog schema"))
-                        ? perr
-                        : QStringLiteral("unsupported catalog schema"));
+    setError(error, perr.isEmpty() ? QStringLiteral("unsupported catalog schema") : perr);
     return false;
   }
 
@@ -539,9 +533,10 @@ bool CatalogStore::recover(const QString &primaryError, Tables *out, QString *er
 bool CatalogStore::openExisting(bool readOnly, Tables *out, QString *error)
 {
   QString openErr;
-  if (!connectPrimary(readOnly, &openErr))
+  bool schemaRejected = false;
+  if (!connectPrimary(readOnly, &openErr, &schemaRejected))
   {
-    if (isSchemaReject(openErr))
+    if (schemaRejected) // PW-077：结构化判定（user_version 头探测），不匹配错误文本
     {
       setError(error, openErr);
       return false;
@@ -721,9 +716,7 @@ bool CatalogStore::openProject(const QString &projectDir, bool readOnly, Tables 
         return true;
       if (kind == JsonRead::Unsupported)
       {
-        setError(error, perr.contains(QStringLiteral("unsupported catalog schema"))
-                            ? perr
-                            : QStringLiteral("unsupported catalog schema"));
+        setError(error, perr.isEmpty() ? QStringLiteral("unsupported catalog schema") : perr);
         *out = Tables();
         return false;
       }

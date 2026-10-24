@@ -60,7 +60,7 @@ void WellSectionMapBand::setSectionPath(
   if (m_layer && source.isValid())
     transform = QgsCoordinateTransform(
         source, m_canvas->mapSettings().destinationCrs(),
-        QgsProject::instance());
+        m_canvas->mapSettings().transformContext()); // PW-068：与画布同一变换上下文
   m_band->reset(Qgis::GeometryType::Line);
   for (const auto &pt : points)
   {

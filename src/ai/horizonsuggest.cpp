@@ -1,4 +1,5 @@
 // 层：功能
+#include <cstdlib>
 #include "horizonsuggest.h"
 
 #include "onnxpredictionservice.h"
@@ -116,6 +117,15 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
     return fail( QObject::tr( "非法参数：window=%1 radius=%2" ).arg( windowSamples ).arg( radius ) );
   if ( !fetch )
     return fail( QObject::tr( "追踪建议需要道窗取数回调" ) );
+  // PW-013：纵深防御——radius 与种子坐标设上限，避免 seed±radius 整型溢出与
+  // O(seeds·(2r+1)²) 候选爆炸（调用方的工具层已先行拒绝）。
+  constexpr int kMaxRadius = 4096;
+  constexpr int kMaxCoordAbs = 100000000;
+  if ( radius > kMaxRadius )
+    return fail( QObject::tr( "非法参数：radius=%1 超过上限 %2" ).arg( radius ).arg( kMaxRadius ) );
+  for ( const TrackingSeed &seed : seeds )
+    if ( std::abs( seed.inlineNo ) > kMaxCoordAbs || std::abs( seed.xlineNo ) > kMaxCoordAbs )
+      return fail( QObject::tr( "非法种子点坐标 (%1,%2)" ).arg( seed.inlineNo ).arg( seed.xlineNo ) );
 
   OnnxModelMeta meta; // #144：meta 随加载取回，推理绑定模型名
   if ( onnx->loadModelMeta( model, &meta, error ) != OnnxLoadStatus::Ok )

@@ -84,5 +84,6 @@ class LasParser
     static QList<LasCurve> parseAsciiRows(const QByteArray &raw, qint64 asciiOffset,
                                           const QStringList &names, double nullValue,
                                           qint64 rowFrom, qint64 rowTo, qint64 *rowsTotal,
-                                          QList<LasIssue> *issues);
+                                          QList<LasIssue> *issues, bool wrap = false,
+                                          char delimiter = 0);
 };

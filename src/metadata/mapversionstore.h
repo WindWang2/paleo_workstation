@@ -56,7 +56,8 @@ class MapVersionStore
     bool isReadOnly() const { return m_readOnly; }
 
     int currentVersion(const QString &horizon) const;        // 0 = 无版本
-    MapVersion latest(const QString &horizon) const;         // version=0 when none
+    // version=0 when none; PW-111: SQL/connection failure is reported via error.
+    MapVersion latest(const QString &horizon, QString *error = nullptr) const;
     QVector<MapVersion> versions(const QString &horizon) const;
 
     // 版本号递增 + provenance 记录；state 起始 "Editing"。最近一次登记的

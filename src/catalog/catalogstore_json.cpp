@@ -414,6 +414,14 @@ QJsonObject CatalogStore::toJson(const Tables &tables)
 
 bool CatalogStore::fromJson(const QJsonObject &root, Tables *out, QString *error)
 {
+  return fromJson(root, out, error, nullptr);
+}
+
+bool CatalogStore::fromJson(const QJsonObject &root, Tables *out, QString *error,
+                            bool *schemaUnsupported)
+{
+  if (schemaUnsupported)
+    *schemaUnsupported = false;
   if (!out)
   {
     setError(error, QStringLiteral("catalog json destination is null"));
@@ -424,6 +432,8 @@ bool CatalogStore::fromJson(const QJsonObject &root, Tables *out, QString *error
   if (root.contains(schemaKey) && root.value(schemaKey).toInt() != kJsonSchemaVersion)
   {
     setError(error, QStringLiteral("unsupported catalog schema"));
+    if (schemaUnsupported)
+      *schemaUnsupported = true;
     return false;
   }
   out->meta.revision = root.value(QStringLiteral("catalog_revision")).toInt();

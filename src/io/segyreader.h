@@ -18,7 +18,7 @@ class QThreadPool;
 // （角点、inline/crossline 范围、采样间隔、起始时间），建立 inline/crossline
 // →文件偏移索引；样本不进内存（不再 readAll）。
 // 单条 inline 或 crossline 用 readInline/readCrossline 按需解码。
-// IBM 370 fp32（format 1）与 IEEE 754 fp32（format 5）解码保留。
+// 样点格式 1/2/3/5/8，大端与小端（PW-070）。
 // 纯数据类型（SegyOptions/SegyTrace/SegyGeometry/SegySectionGrid）在
 // domain/sectiontrace.h——视图层直接消费它们，不进本头。
 //
@@ -30,6 +30,30 @@ class SegyReader
 {
   public:
     SegyReader() = default;
+
+    // PW-070/071/125：三条扫描路径（顺序/并行/续扫）+ 探针 + 解码共用的道 ns 判定。
+    // ns 按 SEG-Y rev1/2 读作无符号 16 位。损坏判据显式：道头 ns 最高位置位
+    //（≥32768，老读者眼里的「负 ns」）而二进制头 ns <32768 → Corrupt；二进制头
+    // 自己就 ≥32768 的大道长文件不视为损坏。
+    enum class TraceNsClass
+    {
+        UseBinary, // 道头 ns=0：沿用二进制头
+        Normal,    // 道头 ns == 二进制头
+        Variable,  // 合法但不同于二进制头（变道长）
+        Corrupt    // 显式损坏——ns 字段按固定步长跳过
+    };
+    struct TraceNsInfo
+    {
+        TraceNsClass cls = TraceNsClass::Normal;
+        int ns = 0; // 有效样点数（Corrupt 时 = binNs，供固定步长跳过）
+    };
+    static TraceNsInfo classifyTraceNs(quint16 rawTraceNs, int binNs);
+    // 二进制头（400 字节）字节序判定：rev2 字节 3297-3300 常量 0x01020304 优先，
+    // 否则按格式码在大/小端下哪个合法判定。默认大端。
+    static bool detectLittleEndian(const unsigned char *bin400);
+    // 支持的样点格式：1 IBM fp32、2 int32、3 int16、5 IEEE fp32、8 int8；其它返回 0。
+    static int sampleBytesForFormat(int formatCode);
+    bool littleEndian() const { return m_littleEndian; }
 
     // 索引式打开：只读道头，不读样本。opts 可传进度/取消钩子（D1 异步）。
     bool open(const QString &path, QString *error = nullptr,
@@ -122,7 +146,7 @@ class SegyReader
     // 头解析：二进制头 + 扩展文本头 → 首道偏移（m_firstTraceOffset）与
     // ns/采样间隔/格式码等成员；binNs/binEnsTraces 供探针与 ordinal 收尾。
     bool parseSegyHeaders(QFile &file, const QString &path, qint64 fileSize,
-                          qint16 *binNs, int *binEnsTraces, QString *error);
+                          int *binNs, int *binEnsTraces, QString *error);
     // 探针：道头方言判定（inline 字恒定 → ordinal 索引；crossline 位恒 0 且
     // CDP 变化 → 取 CDP；72/76 恒 0 且 180/184 非零 → 角点取 CDP X/Y），结果
     // 落 m_dialect。探针顺序与拆分前一致（短路语义保留）。
@@ -130,7 +154,7 @@ class SegyReader
                       bool *ordinalIndex);
     // 扫描：顺序逐道读 240 字节道头建索引（方言经 m_dialect 取字）。
     // delayMs/firstLineWord/firstFieldRec/ordX/ordY 供 ordinal 收尾与几何。
-    bool scanTracesSequential(QFile &file, qint64 offset, qint64 fileSize, qint16 binNs,
+    bool scanTracesSequential(QFile &file, qint64 offset, qint64 fileSize, int binNs,
                               bool ordinalIndex, double *delayMs, qint32 *firstLineWord,
                               qint32 *firstFieldRec, QVector<double> *ordX,
                               QVector<double> *ordY, QString *error,
@@ -157,6 +181,8 @@ class SegyReader
     int m_samplesPerTrace = 0;
     float m_sampleIntervalUs = 0.0f;
     qint16 m_formatCode = 0;
+    bool m_littleEndian = false; // PW-070：文件字节序（经 dialectFlags bit2 随索引持久化）
+    int m_sampleBytes = 4;       // PW-070：每样点字节数（由格式码定）
     qint32 m_binLineNo = 0;
     qint64 m_firstTraceOffset = 0;
     QVector<IndexEntry> m_index;

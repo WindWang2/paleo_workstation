@@ -28,6 +28,8 @@ class TestLisParser : public QObject
   private slots:
     void initTestCase();
     void readsFullCatalogFramesUnitsRaw();
+    void multiFileTapeWarnsAboutUnreadFiles();
+    void mode1SpacingUnitsConvertedAndZeroRejected();
     void readsFullCatalogFramesUnitsTif();
     void sniffDistinguishesFormats();
     void multiPrStitchingWithTrailersAndPads();
@@ -41,6 +43,7 @@ class TestLisParser : public QObject
     void tvdProcessIndicatorSetsBasis();
     void headerScanMatchesFullParse();
     void headerScanPrChainBudgetCapped();
+    void headerScanByteBudgetWithoutData();
     void emptyFileFails();
 
   private:
@@ -451,6 +454,29 @@ void TestLisParser::headerScanPrChainBudgetCapped()
   QVERIFY2(LisParser::parseHeader(path, header, &okErr), qPrintable(okErr));
 }
 
+void TestLisParser::headerScanByteBudgetWithoutData()
+{
+  // PW-140：头扫描路径有字节预算——只有非数据记录的长文件不得无界遍历。
+  QByteArray b;
+  b += physicalRecord(128, fileHeaderPayload(QStringLiteral("HB")));
+  for (int i = 0; i < 40; ++i)
+    b += physicalRecord(34, wellsitePayload(QStringLiteral("W-HB")));
+  const QString path = write(QStringLiteral("hb.lis"), b);
+  LasHeaderInfo header;
+  QString error;
+  QList<LasIssue> issues;
+  const qint64 saved = LasParser::fileSizeLimit();
+  LasParser::setFileSizeLimit(256);
+  QVERIFY(!LisParser::parseHeader(path, header, &error, &issues));
+  LasParser::setFileSizeLimit(saved);
+  QVERIFY2(error.contains(QStringLiteral("头扫描超过上限")), qPrintable(error));
+  bool sawOversize = false;
+  for (const LasIssue &i : issues)
+    if (i.category == LasIssue::Category::Oversize)
+      sawOversize = true;
+  QVERIFY(sawOversize);
+}
+
 void TestLisParser::emptyFileFails()
 {
   const QString path = write(QStringLiteral("empty.lis"), QByteArray());
@@ -460,6 +486,64 @@ void TestLisParser::emptyFileFails()
   QString error;
   QVERIFY(!LisParser::parse(path, header, curves, &error));
   QVERIFY(!LisParser::sniff(path));
+}
+
+// PW-022：条目 9 帧距单位须换算到深度单位；模式 1 帧距 ≤0 拒绝。
+void TestLisParser::mode1SpacingUnitsConvertedAndZeroRejected()
+{
+  auto build = [](double spacing, const QString &units) {
+    LisDfsr d;
+    d.depthMode = 1;
+    d.depthReprc = 68;
+    d.depthUnits = QStringLiteral("M");
+    d.spacing = spacing;
+    d.spacingUnits = units;
+    d.direction = 255;
+    LisSpec gr;
+    gr.mnemonic = QStringLiteral("GR");
+    gr.reprc = 79;
+    d.specs = { gr };
+    QByteArray b;
+    b += physicalRecord(128, fileHeaderPayload(QStringLiteral("SPU")));
+    b += physicalRecord(34, wellsitePayload(QStringLiteral("W-SPU")));
+    b += physicalRecord(64, dfsrPayload(d));
+    QByteArray rec;
+    rec += f32Bytes(1000.0);
+    rec += u16be(1);
+    rec += u16be(2);
+    rec += u16be(3);
+    b += physicalRecord(0, rec);
+    return b;
+  };
+  LasHeaderInfo header;
+  QList<LasCurve> curves;
+  QString error;
+  const QString p1 = write(QStringLiteral("spu-cm.lis"), build(50.0, QStringLiteral("CM")));
+  QVERIFY2(LisParser::parse(p1, header, curves, &error), qPrintable(error));
+  QCOMPARE(curves.at(0).values.size(), 3);
+  QVERIFY(std::abs(curves.at(0).values.at(1) - 1000.5) < 1e-9);
+  QVERIFY(std::abs(curves.at(0).values.at(2) - 1001.0) < 1e-9);
+
+  const QString p2 = write(QStringLiteral("spu-zero.lis"), build(0.0, QString()));
+  QVERIFY(!LisParser::parse(p2, header, curves, &error));
+}
+
+// PW-107：首个 File Trailer 之后的逻辑文件不再被静默丢弃——须有告警。
+void TestLisParser::multiFileTapeWarnsAboutUnreadFiles()
+{
+  const QByteArray one = buildMain().raw;
+  const QString path = write(QStringLiteral("multi.lis"),
+                             one + physicalRecord(129, QByteArray(56, ' ')) + one);
+  LasHeaderInfo header;
+  QList<LasCurve> curves;
+  QList<LasIssue> issues;
+  QString error;
+  QVERIFY2(LisParser::parse(path, header, curves, &error, &issues), qPrintable(error));
+  QCOMPARE(curves.at(0).values, QVector<double>({ 1500.0, 1500.25, 1500.5 }));
+  bool warned = false;
+  for (const LasIssue &i : issues)
+    warned = warned || i.message.contains(QStringLiteral("逻辑文件"));
+  QVERIFY(warned);
 }
 
 QTEST_MAIN(TestLisParser)

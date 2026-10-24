@@ -4,6 +4,7 @@
 
 #include "../metadata/metastore.h"
 
+#include <QFile>
 #include <QFileInfo>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -101,8 +102,29 @@ bool CatalogStore::attachWritable(QString *error)
   return true;
 }
 
-bool CatalogStore::connectPrimary(bool readOnly, QString *error)
+namespace
 {
+  // PW-077：SQLite 文件头偏移 60 处 4 字节大端 user_version。打开失败后直接
+  // 读头判定「未来 schema」，不依赖 MetaStore 的错误文案。
+  // 返回 -1 = 不是可识别的 SQLite 头。
+  int probeSqliteUserVersion(const QString &path)
+  {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+      return -1;
+    const QByteArray h = f.read(100);
+    if (h.size() < 100 || !h.startsWith(QByteArrayLiteral("SQLite format 3")))
+      return -1;
+    const auto *p = reinterpret_cast<const uchar *>(h.constData()) + 60;
+    return int((quint32(p[0]) << 24) | (quint32(p[1]) << 16) | (quint32(p[2]) << 8) |
+               quint32(p[3]));
+  }
+} // namespace
+
+bool CatalogStore::connectPrimary(bool readOnly, QString *error, bool *schemaRejected)
+{
+  if (schemaRejected)
+    *schemaRejected = false;
   m_connectionName = catalogConnectionName(this, m_sqlitePath, readOnly);
   QString local;
   bool opened = false;
@@ -115,6 +137,8 @@ bool CatalogStore::connectPrimary(bool readOnly, QString *error)
   {
     forgetConnection(m_connectionName);
     m_connectionName.clear();
+    if (schemaRejected)
+      *schemaRejected = probeSqliteUserVersion(m_sqlitePath) > kCatalogUserVersion;
     setError(error, local.isEmpty() ? QStringLiteral("cannot open catalog sqlite") : local);
     return false;
   }

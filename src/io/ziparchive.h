@@ -55,6 +55,11 @@ ZipListResult zipListBytes( const QByteArray &archive );
 bool zipExtractBytes( const QByteArray &archive, const QString &entryName, QByteArray *out,
                       QString *error );
 
+// PW-074：解出 zipListBytes 已列出的条目（不重解中央目录）。多条目读取先列一次
+// 目录再逐条调用本函数；entry 须来自同一 archive 的列表。
+bool zipExtractEntry( const QByteArray &archive, const ZipEntry &entry, QByteArray *out,
+                      QString *error );
+
 // ---- 写面（方向67）----
 
 struct ZipWriteEntry

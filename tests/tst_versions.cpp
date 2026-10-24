@@ -533,6 +533,29 @@ class TestVersions : public QObject
         QVERIFY( !QFileInfo( pf1.fileName() ).isWritable() );
     }
 
+    // PW-023：冻结/发布须带上 sidecar（.shp 的 .shx/.dbf/.prj），否则发布物打不开。
+    void frozenVersionCarriesDatasetSidecars() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        const QString shp = f.dir.filePath("area.shp");
+        for (const QString ext : {QStringLiteral("shp"), QStringLiteral("shx"),
+                                  QStringLiteral("dbf"), QStringLiteral("prj")}) {
+            QFile file(f.dir.filePath("area." + ext));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(ext.toUtf8() + "-bytes");
+        }
+        LayerDeclaration decl; decl.layerId = "area.D61"; decl.horizon = "D61";
+        decl.type = "vector"; decl.source = shp;
+        const auto saved = f.versions.saveVersion("D61", "{}", &error, {decl});
+        QVERIFY2(saved.version > 0, qPrintable(error));
+        const auto layer = QJsonDocument::fromJson(saved.provenance.toUtf8()).object()
+                               .value("saved_layers").toArray().first().toObject();
+        QCOMPARE(layer.value("sidecars").toArray().size(), 3);
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        const auto published = f.versions.publish("D61", {decl}, summary, &error);
+        QVERIFY2(!published.isEmpty(), qPrintable(error));
+        QCOMPARE(QDir(published).entryList({"*.shx", "*.dbf", "*.prj"}, QDir::Files).size(), 3);
+    }
+
     void savedBytesAndPdfSurviveWorkingChanges() {
         Fixture f; QVERIFY(f.init()); QString error;
         const auto gpkg = makeFaciesGpkg(f.dir.filePath("working.gpkg"));

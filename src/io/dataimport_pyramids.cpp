@@ -47,7 +47,6 @@
 #include "dataimport_internal.h"
 
 using paleo::dataimport_detail::setError;
-using paleo::dataimport_detail::readFileOrEmpty;
 
 // ---- 栅格金字塔/概览族（B3 wave/deepen-perf：Lazy 瓦片 + GDAL .ovr）。
 
@@ -135,8 +134,17 @@ bool DataImportService::buildRasterOverviews(
     return true; // 小图无概览可建——成功语义（幂等）
   }
   GdalOverviewCtx ctx{buildProgress};
+  // PW-139：连续浮点网格（层位时间/厚度/属性）用 AVERAGE，NEAREST 会在缩小时混叠；
+  // 整型（类别/掩膜）保持 NEAREST 不造出不存在的类值。
+  const char *resampling = "NEAREST";
+  if (GDALGetRasterCount(ds) > 0)
+  {
+    const GDALDataType dt = GDALGetRasterDataType(GDALGetRasterBand(ds, 1));
+    if (dt == GDT_Float32 || dt == GDT_Float64)
+      resampling = "AVERAGE";
+  }
   const CPLErr err =
-      GDALBuildOverviews(ds, "NEAREST", levels.size(), levels.constData(), 0,
+      GDALBuildOverviews(ds, resampling, levels.size(), levels.constData(), 0,
                          nullptr, &gdalOverviewProgress, &ctx);
   GDALFlushCache(ds);
   GDALClose(ds);

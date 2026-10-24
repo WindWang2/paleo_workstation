@@ -1,4 +1,5 @@
 // 层：数据
+#include "boundedread.h" // PW-076
 #include "outsourceworkbook.h"
 
 #include "ziparchive.h"
@@ -6,11 +7,13 @@
 
 #include <QByteArray>
 #include <QDir>
+#include <QDate>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
 #include <QSet>
+#include <QTime>
 #include <QCoreApplication>
 #include <QRegularExpression>
 #include <QXmlStreamReader>
@@ -358,6 +361,11 @@ QVector<QString> readSharedStrings( const QByteArray &bytes )
         inItem = true;
         current.clear();
       }
+      else if ( inItem && name == QLatin1String( "rPh" ) )
+      {
+        // PW-141：注音（振假名/拼音）run 不属于单元格文本——整段跳过。
+        reader.skipCurrentElement();
+      }
       else if ( inItem && name == QLatin1String( "t" ) )
       {
         current += readCellText( reader ); // 富文本 <r><t> 串接
@@ -370,6 +378,92 @@ QVector<QString> readSharedStrings( const QByteArray &bytes )
     }
   }
   return values;
+}
+
+// PW-141：numFmt 是否日期/时间格式。内置 14-22、27-36、45-47、50-58；自定义
+// 格式码去掉引号串、[..] 段与转义后含 y/m/d/h/s 记日期。
+bool isDateFormatCode( const QString &code )
+{
+  QString stripped;
+  bool inQuote = false;
+  bool inBracket = false;
+  for ( int i = 0; i < code.size(); ++i )
+  {
+    const QChar c = code.at( i );
+    if ( inQuote ) { if ( c == QLatin1Char( '"' ) ) inQuote = false; continue; }
+    if ( inBracket ) { if ( c == QLatin1Char( ']' ) ) inBracket = false; continue; }
+    if ( c == QLatin1Char( '"' ) ) { inQuote = true; continue; }
+    if ( c == QLatin1Char( '[' ) ) { inBracket = true; continue; }
+    if ( c == QLatin1Char( '\\' ) || c == QLatin1Char( '_' ) || c == QLatin1Char( '*' ) ) { ++i; continue; }
+    stripped += c.toLower();
+  }
+  for ( const QChar c : stripped )
+    if ( c == QLatin1Char( 'y' ) || c == QLatin1Char( 'm' ) || c == QLatin1Char( 'd' ) ||
+         c == QLatin1Char( 'h' ) || c == QLatin1Char( 's' ) )
+      return true;
+  return false;
+}
+
+bool isBuiltinDateFormat( int id )
+{
+  return ( id >= 14 && id <= 22 ) || ( id >= 27 && id <= 36 ) || ( id >= 45 && id <= 47 ) ||
+         ( id >= 50 && id <= 58 );
+}
+
+// xl/styles.xml → 每个 cellXfs 下标是否日期样式。
+QVector<bool> readDateStyles( const QByteArray &bytes )
+{
+  QHash<int, bool> customDate;
+  QVector<bool> xfIsDate;
+  QXmlStreamReader reader( bytes );
+  bool inCellXfs = false;
+  while ( !reader.atEnd() )
+  {
+    const QXmlStreamReader::TokenType token = reader.readNext();
+    if ( token == QXmlStreamReader::StartElement )
+    {
+      const QStringView name = reader.name();
+      if ( name == QLatin1String( "numFmt" ) )
+        customDate.insert( reader.attributes().value( QStringLiteral( "numFmtId" ) ).toInt(),
+                           isDateFormatCode( reader.attributes().value( QStringLiteral( "formatCode" ) ).toString() ) );
+      else if ( name == QLatin1String( "cellXfs" ) )
+        inCellXfs = true;
+      else if ( inCellXfs && name == QLatin1String( "xf" ) )
+      {
+        const int id = reader.attributes().value( QStringLiteral( "numFmtId" ) ).toInt();
+        xfIsDate.append( customDate.contains( id ) ? customDate.value( id ) : isBuiltinDateFormat( id ) );
+      }
+    }
+    else if ( token == QXmlStreamReader::EndElement && reader.name() == QLatin1String( "cellXfs" ) )
+      inCellXfs = false;
+  }
+  return xfIsDate;
+}
+
+// Excel 序列日 → ISO 文本（整数日 yyyy-MM-dd；带小数加 HH:mm:ss）。1900 系
+// 含 1900-02-29 闰年 bug：serial ≥ 61 减一天；1904 系从 1904-01-01 起算。
+QString excelSerialToIso( double serial, bool date1904 )
+{
+  if ( !std::isfinite( serial ) || serial < 0 || serial > 2958465.0 )
+    return QString();
+  qint64 days = static_cast<qint64>( std::floor( serial ) );
+  const double frac = serial - static_cast<double>( days );
+  QDate base;
+  if ( date1904 )
+    base = QDate( 1904, 1, 1 );
+  else
+  {
+    base = QDate( 1899, 12, 31 );
+    if ( days >= 61 )
+      --days;
+  }
+  const QDate d = base.addDays( days );
+  const int secs = static_cast<int>( std::llround( frac * 86400.0 ) );
+  if ( secs <= 0 )
+    return d.toString( Qt::ISODate );
+  if ( secs >= 86400 )
+    return d.addDays( 1 ).toString( Qt::ISODate );
+  return d.toString( Qt::ISODate ) + QLatin1Char( ' ' ) + QTime( 0, 0 ).addSecs( secs ).toString( QStringLiteral( "HH:mm:ss" ) );
 }
 
 // "BC12" → 列号（1 基）；引用非法返回 -1。
@@ -392,9 +486,24 @@ int columnIndexFromRef( const QString &ref, int *rowNumber )
 }
 
 // 同一个内存 ZIP 读面解 OOXML 包（不落临时文件、不依赖 QMimeDatabase）。
-bool readZipEntry( const QByteArray &archive, const QString &entry, QByteArray *bytes, QString *error )
+// PW-074：目录只列一次（ZipListResult），逐条按已列条目解压。
+bool readZipEntry( const QByteArray &archive, const ZipListResult &listing, const QString &entry,
+                   QByteArray *bytes, QString *error )
 {
-  return zipExtractBytes( archive, entry, bytes, error );
+  if ( !listing.ok )
+  {
+    if ( error )
+      *error = listing.error;
+    return false;
+  }
+  const ZipEntry *item = listing.entry( entry );
+  if ( !item )
+  {
+    if ( error )
+      *error = QStringLiteral( "ZIP 内没有条目：%1" ).arg( entry );
+    return false;
+  }
+  return zipExtractEntry( archive, *item, bytes, error );
 }
 
 WorkbookReadResult readXlsx( const QString &path )
@@ -412,9 +521,10 @@ WorkbookReadResult readXlsx( const QString &path )
                        .arg( fileName, archiveError.isEmpty() ? QStringLiteral( "无法读取包" ) : archiveError );
     return result;
   }
+  const ZipListResult listing = zipListBytes( archive );
   QByteArray workbookBytes;
   QString entryError;
-  if ( !readZipEntry( archive, QStringLiteral( "xl/workbook.xml" ), &workbookBytes, &entryError ) )
+  if ( !readZipEntry( archive, listing, QStringLiteral( "xl/workbook.xml" ), &workbookBytes, &entryError ) )
   {
     result.error = QStringLiteral( "%1 不是 OOXML 工作簿：%2" ).arg( fileName, entryError );
     return result;
@@ -422,7 +532,7 @@ WorkbookReadResult readXlsx( const QString &path )
   QByteArray relBytes;
   QString relError;
   const bool hasRelationships =
-      readZipEntry( archive, QStringLiteral( "xl/_rels/workbook.xml.rels" ), &relBytes, &relError );
+      readZipEntry( archive, listing, QStringLiteral( "xl/_rels/workbook.xml.rels" ), &relBytes, &relError );
   const QHash<QString, QString> relationships =
       hasRelationships ? readRelationships( relBytes ) : QHash<QString, QString>();
   if ( !hasRelationships )
@@ -434,15 +544,30 @@ WorkbookReadResult readXlsx( const QString &path )
   QByteArray sharedBytes;
   QString sharedError;
   const bool hasSharedStrings =
-      readZipEntry( archive, QStringLiteral( "xl/sharedStrings.xml" ), &sharedBytes, &sharedError );
+      readZipEntry( archive, listing, QStringLiteral( "xl/sharedStrings.xml" ), &sharedBytes, &sharedError );
   const QVector<QString> sharedStrings = hasSharedStrings ? readSharedStrings( sharedBytes ) : QVector<QString>();
+
+  // PW-141：日期样式表 + 1904 日期系，数值格按样式转 ISO 日期而非留序列号。
+  QByteArray stylesBytes;
+  QString stylesError;
+  const QVector<bool> dateStyles =
+      readZipEntry( archive, listing, QStringLiteral( "xl/styles.xml" ), &stylesBytes, &stylesError )
+          ? readDateStyles( stylesBytes )
+          : QVector<bool>();
+  bool date1904 = false;
 
   QVector<QPair<QString, QString>> sheetTargets;
   {
     QXmlStreamReader reader( workbookBytes );
     while ( !reader.atEnd() )
     {
-      if ( reader.readNext() == QXmlStreamReader::StartElement &&
+      const QXmlStreamReader::TokenType wbToken = reader.readNext();
+      if ( wbToken == QXmlStreamReader::StartElement && reader.name() == QLatin1String( "workbookPr" ) )
+      {
+        const QString v = reader.attributes().value( QStringLiteral( "date1904" ) ).toString();
+        date1904 = ( v == QLatin1String( "1" ) || v.compare( QLatin1String( "true" ), Qt::CaseInsensitive ) == 0 );
+      }
+      if ( wbToken == QXmlStreamReader::StartElement &&
            reader.name() == QLatin1String( "sheet" ) &&
            ( reader.namespaceUri() == kMainNs || reader.namespaceUri().isEmpty() ) )
       {
@@ -485,7 +610,7 @@ WorkbookReadResult readXlsx( const QString &path )
   {
     QByteArray sheetBytes;
     QString sheetError;
-    if ( !readZipEntry( archive, item.second, &sheetBytes, &sheetError ) )
+    if ( !readZipEntry( archive, listing, item.second, &sheetBytes, &sheetError ) )
     {
       result.issues.append( QStringLiteral( "%1：工作表「%2」%3" ).arg( fileName, item.first, sheetError ) );
       continue;
@@ -562,6 +687,7 @@ WorkbookReadResult readXlsx( const QString &path )
         {
           const QString ref = reader.attributes().value( QStringLiteral( "r" ) ).toString();
           const QString type = reader.attributes().value( QStringLiteral( "t" ) ).toString();
+          const QString styleAttr = reader.attributes().value( QStringLiteral( "s" ) ).toString();
           int column = nextColumn;
           if ( !ref.isEmpty() )
           {
@@ -643,6 +769,20 @@ WorkbookReadResult readXlsx( const QString &path )
             isError = true;
             errorText = value;
           }
+          else if ( ( type.isEmpty() || type == QLatin1String( "n" ) ) && !styleAttr.isEmpty() &&
+                    !value.isEmpty() )
+          {
+            bool styleOk = false;
+            const int xf = styleAttr.toInt( &styleOk );
+            bool numOk = false;
+            const double serial = value.toDouble( &numOk );
+            if ( styleOk && numOk && xf >= 0 && xf < dateStyles.size() && dateStyles.at( xf ) )
+            {
+              const QString iso = excelSerialToIso( serial, date1904 );
+              if ( !iso.isEmpty() )
+                value = iso;
+            }
+          }
           if ( isError )
           {
             result.issues.append( QStringLiteral( "%1：工作表「%2」第 %3 行单元格公式错误值 %4，该格置空" )
@@ -684,20 +824,25 @@ WorkbookReadResult readXlsx( const QString &path )
   return result;
 }
 
-// 表头关键字命中（上游 _find_header_index：X/Y 用前缀匹配，其余用包含匹配）。
+// 表头关键字命中（PW-110）：分级——精确 > 前缀 > 包含，各级取首个。
+// 单字母 X/Y 不走「包含」级（否则 X 命中 INDEX、Y 命中 KELLY…）。
 int headerIndex( const QStringList &headers, const QString &keyword )
 {
   const QString target = keyword.toUpper();
+  const bool singleAxis = keyword == QLatin1String( "X" ) || keyword == QLatin1String( "Y" );
+  int prefix = -1;
+  int contains = -1;
   for ( int index = 0; index < headers.size(); ++index )
   {
-    const QString cleaned = headers.at( index ).toUpper();
-    if ( ( keyword == QLatin1String( "X" ) || keyword == QLatin1String( "Y" ) ) &&
-         cleaned.startsWith( keyword ) )
+    const QString cleaned = headers.at( index ).trimmed().toUpper();
+    if ( cleaned == target )
       return index;
-    if ( cleaned.contains( target ) )
-      return index;
+    if ( prefix < 0 && cleaned.startsWith( target ) )
+      prefix = index;
+    if ( !singleAxis && contains < 0 && cleaned.contains( target ) )
+      contains = index;
   }
-  return -1;
+  return prefix >= 0 ? prefix : contains;
 }
 
 QString valueAt( const QStringList &values, int index )
@@ -721,14 +866,31 @@ QString canonicalWellName( const QString &raw )
   return text.remove( QStringLiteral( "井" ) );
 }
 
-bool parseNumericCell( const QString &raw, double *value )
+bool parseNumericCell( const QString &raw, double *value, bool *isPercent )
 {
   QString text = raw.trimmed();
+  if ( isPercent )
+    *isPercent = false;
   if ( text.isEmpty() )
     return false;
-  text.remove( QLatin1Char( ',' ) );
   if ( text.endsWith( QLatin1Char( '%' ) ) )
+  {
+    // PW-109：百分号不静默丢弃——经 isPercent 告知调用方（值仍为百分数本身）。
     text.chop( 1 );
+    text = text.trimmed();
+    if ( isPercent )
+      *isPercent = true;
+  }
+  if ( text.contains( QLatin1Char( ',' ) ) )
+  {
+    // PW-109：只接受规范千分位（1,234 / 12,345.6）；"12,5" 之类的小数逗号
+    // 不再被剥成 125，而是如实拒绝。
+    static const QRegularExpression thousands(
+        QStringLiteral( "^[+-]?\\d{1,3}(,\\d{3})+(\\.\\d*)?$" ) );
+    if ( !thousands.match( text ).hasMatch() )
+      return false;
+    text.remove( QLatin1Char( ',' ) );
+  }
   bool ok = false;
   const double parsed = text.toDouble( &ok );
   if ( !ok || !paleo::wellnumeric::isUsable( parsed ) )
@@ -775,7 +937,11 @@ WorkbookReadResult readWorkbook( const QString &path )
       result.error = QStringLiteral( "无法打开文件：%1" ).arg( path );
       return result;
     }
-    return readSpreadsheetMl( path, file.readAll() );
+    file.close();
+    QByteArray xmlBytes;
+    if ( !paleo::io::readBoundedFile( path, paleo::io::kDefaultBoundedReadLimit, &xmlBytes, &result.error ) )
+      return result;
+    return readSpreadsheetMl( path, xmlBytes );
   }
   if ( suffix == QLatin1String( "xlsx" ) )
     return readXlsx( path ); // 非 ZIP/OOXML 由读面如实报因（不靠扩展名或 mime 猜测）
@@ -982,12 +1148,17 @@ namespace
 // 深度列口径：表头含「深度」的首列（顶深/底深/深度都算），不进曲线统计。
 int depthColumnIndex( const QStringList &headers )
 {
+  // PW-110：优先以「深度」开头的列（深度/深度(m)），其次才是顶深/底深等包含列。
+  int contains = -1;
   for ( int i = 0; i < headers.size(); ++i )
   {
-    if ( headers.at( i ).contains( QStringLiteral( "深度" ) ) )
+    const QString h = headers.at( i ).trimmed();
+    if ( h.startsWith( QStringLiteral( "深度" ) ) )
       return i;
+    if ( contains < 0 && h.contains( QStringLiteral( "深度" ) ) )
+      contains = i;
   }
-  return -1;
+  return contains;
 }
 
 } // namespace

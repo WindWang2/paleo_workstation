@@ -32,14 +32,6 @@ using paleo::io_detail::setError;
 void rollbackFailedRow(ImportSession &session,
                        const DataCatalog::StagingCheckpoint &cp);
 
-inline QString readFileOrEmpty(const QString &path)
-{
-  QFile f(path);
-  if (!f.open(QIODevice::ReadOnly))
-    return QString();
-  return QString::fromUtf8(f.readAll());
-}
-
 // importOneFile 分派壳构造、各族分支只读消费（manifestLayerId 由 horizon
 // 族回填——派生时间栅格的图层声明 id，分派壳收尾取用）。
 struct FamilyContext

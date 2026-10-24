@@ -7,6 +7,7 @@
 #include "encodingdetect.h"
 
 #include <QFile>
+#include <QBuffer>
 #include <QFileInfo>
 #include <QRegularExpression>
 
@@ -213,16 +214,59 @@ bool LasParser::parse(const QString &path, QStringList &curveNames,
   return true;
 }
 
+namespace
+{
+  // PW-016/017：行式头部读取（parseHeader/readWellInfo）的统一入口——
+  // 文件级嗅探一次编码（不再逐行嗅探）；UTF-16 BOM 文件整体转码为 UTF-8
+  // 后再按行读（逐字节 readLine 会把 UTF-16 切碎）。
+  struct LasLineSource
+  {
+    QIODevice *dev = nullptr;
+    QBuffer buffer;
+    TextEncoding enc = TextEncoding::Utf8;
+  };
+
+  bool openLasLineSource(QFile &f, LasLineSource *src, qint64 sizeLimit, QString *err)
+  {
+    const QByteArray sample = f.peek(64 * 1024);
+    if (EncodingDetect::hasUtf16Bom(sample))
+    {
+      if (f.size() > sizeLimit)
+      {
+        *err = QStringLiteral("UTF-16 LAS exceeds full-transcode guard: %1").arg(f.fileName());
+        return false;
+      }
+      src->buffer.setData(EncodingDetect::stripBom(f.readAll())); // 转码为 UTF-8
+      src->buffer.open(QIODevice::ReadOnly);
+      src->dev = &src->buffer;
+      src->enc = TextEncoding::Utf8;
+      return true;
+    }
+    src->dev = &f;
+    src->enc = EncodingDetect::detect(EncodingDetect::stripBom(sample));
+    return true;
+  }
+} // namespace
+
 bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
                             QString *error)
 {
   out = LasHeaderInfo{};
   out.indexBasis = QStringLiteral("MD"); // LAS 不声明基准，行业惯例 MD（lasparser.h）
   QFile f(path);
-  if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+  if (!f.open(QIODevice::ReadOnly))
   {
     setError(error, QStringLiteral("cannot open %1").arg(path));
     return false;
+  }
+  LasLineSource src;
+  {
+    QString err;
+    if (!openLasLineSource(f, &src, s_fileSizeLimit, &err))
+    {
+      setError(error, err);
+      return false;
+    }
   }
 
   // 与 parse() 同源的段状态机（Version/Well/Curves）；见到 ~A 段头即停——
@@ -234,9 +278,9 @@ bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
   // #588：逐行原始字节 + EncodingDetect 解码（与 parseDoc 的 scanHeaderBytes
   // 同口径）。QTextStream 默认按 UTF-8 解，GB18030 的 LAS 在这里解出的井名
   // 是乱码——wellsMatchingName 零匹配，井曲线行全落「未决」链接。
-  while (!f.atEnd())
+  while (!src.dev->atEnd())
   {
-    const QString line = EncodingDetect::decodeText(f.readLine()).trimmed();
+    const QString line = EncodingDetect::decodeAs(src.dev->readLine(), src.enc).trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
     if (line.startsWith(QLatin1Char('~')))
@@ -259,12 +303,13 @@ bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
     switch (section)
     {
       case Section::Version:
+        // PW-069：WRAP YES 由数据解析支持，头信息如实记录。
         if (it.mnem == QStringLiteral("WRAP") &&
             it.value.startsWith(QStringLiteral("YES"), Qt::CaseInsensitive))
-        {
-          setError(error, QStringLiteral("wrap mode (WRAP YES) is not supported: %1").arg(path));
-          return false;
-        }
+          out.wrap = true;
+        else if (it.mnem == QStringLiteral("DLM") &&
+                 it.value.trimmed().compare(QStringLiteral("COMMA"), Qt::CaseInsensitive) == 0)
+          out.delimiter = ',';
         break;
       case Section::Well:
         if (it.mnem == QStringLiteral("NULL"))
@@ -298,10 +343,19 @@ bool LasParser::readWellInfo(const QString &path, QString &wellName, QString *er
   wellName.clear();
 
   QFile f(path);
-  if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+  if (!f.open(QIODevice::ReadOnly))
   {
     setError(error, QStringLiteral("cannot open %1").arg(path));
     return false;
+  }
+  LasLineSource src;
+  {
+    QString err;
+    if (!openLasLineSource(f, &src, s_fileSizeLimit, &err))
+    {
+      setError(error, err);
+      return false;
+    }
   }
 
   // 只需 ~W 段的 WELL item——读到 ~C 即止。
@@ -309,9 +363,9 @@ bool LasParser::readWellInfo(const QString &path, QString &wellName, QString *er
   // #588：同 parseHeader/parseDoc——QTextStream 默认 UTF-8 会把 GB18030
   // 井名解成乱码（wellsMatchingName 随之零匹配）。逐行原始字节 +
   // EncodingDetect 解码，口径单源化。
-  while (!f.atEnd())
+  while (!src.dev->atEnd())
   {
-    const QString line = EncodingDetect::decodeText(f.readLine()).trimmed();
+    const QString line = EncodingDetect::decodeAs(src.dev->readLine(), src.enc).trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
     if (line.startsWith(QLatin1Char('~')))
@@ -384,6 +438,13 @@ namespace
     Section section = Section::None;
 
     // 头部编码统一嗅探（GB18030 井名不再乱码，D7.2 联动）。
+    // PW-017：UTF-16 下 stripBom 会转码，pos 与 raw 字节偏移不再同一坐标系——
+    // 调用方须先整体转码（parseDoc）或拒绝（区间流式读）。此处兜底拒绝。
+    if (EncodingDetect::hasUtf16Bom(raw))
+    {
+      out.error = QStringLiteral("UTF-16 encoded LAS must be transcoded before header scan");
+      return out;
+    }
     const QByteArray noBom = EncodingDetect::stripBom(raw);
     const TextEncoding enc =
         EncodingDetect::detect(noBom.left(qMin<qsizetype>(64 * 1024, noBom.size())));
@@ -408,7 +469,8 @@ namespace
       if (eol < n && noBom.at(eol) == '\r' && pos < n && noBom.at(pos) == '\n')
         ++pos;
 
-      const QString trimmed = EncodingDetect::decodeText(lineBytes).trimmed();
+      // PW-016：用文件级 enc 解码，不逐行再嗅探。
+      const QString trimmed = EncodingDetect::decodeAs(lineBytes, enc).trimmed();
       if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#')))
         continue;
       if (trimmed.startsWith(QLatin1Char('~')))
@@ -432,12 +494,25 @@ namespace
       switch (section)
       {
         case Section::Version:
+          // PW-069：WRAP YES / DLM 进头信息，数据段按其解析（不再拒绝）。
           if (it.mnem == QStringLiteral("WRAP") &&
               it.value.startsWith(QStringLiteral("YES"), Qt::CaseInsensitive))
           {
             out.sawWrapYes = true;
-            out.error = QStringLiteral("wrap mode (WRAP YES) is not supported");
-            return out;
+            out.header.wrap = true;
+          }
+          else if (it.mnem == QStringLiteral("DLM"))
+          {
+            const QString d = it.value.trimmed().toUpper();
+            if (d == QStringLiteral("COMMA"))
+              out.header.delimiter = ',';
+            else if (d == QStringLiteral("TAB") || d == QStringLiteral("SPACE"))
+              out.header.delimiter = 0; // 空白类与默认切分同口径
+            else if (!d.isEmpty())
+            {
+              out.error = QStringLiteral("unsupported LAS delimiter DLM=%1").arg(it.value);
+              return out;
+            }
           }
           break;
         case Section::Well:
@@ -513,7 +588,7 @@ double LasParser::depthUnitToMeters(const QString &unit)
 QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOffset,
                                           const QStringList &names, double nullValue,
                                           qint64 rowFrom, qint64 rowTo, qint64 *rowsTotal,
-                                          QList<LasIssue> *issues)
+                                          QList<LasIssue> *issues, bool wrap, char delimiter)
 {
   QList<LasCurve> cols;
   cols.reserve(names.size());
@@ -566,54 +641,96 @@ QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOff
 
   auto keep = [&](qint64 r) { return wantAll || (r >= from && r < to); };
 
+  // PW-069：WRAP YES——一行数据可折成多物理行，token 流连续收满 nCurves 才成
+  // 一行；DLM=COMMA——逗号切列（空字段 = NaN）；非 wrap 行多余 token 计数告警。
+  const bool comma = (delimiter == ',');
+  qint64 extraTokenRows = 0;
+  int col = 0; // wrap 模式跨物理行延续
+  auto pushToken = [&](const char *b, const char *e) {
+    bool ok = false;
+    const double v = (b < e) ? tokenToDouble(b, e, &ok) : nan();
+    if (ok && v == v && v != nullValue)
+    {
+      sawFinite[col] = true;
+      if (keep(row))
+        buckets[static_cast<std::size_t>(col)].append(v);
+    }
+    else if (keep(row))
+      buckets[static_cast<std::size_t>(col)].append(nan());
+    ++col;
+  };
+  auto isWs = [](char c) { return c == ' ' || c == '\t'; };
+
   while (i < n)
   {
     qint64 eol = i;
     while (eol < n && lineBase[eol] != '\n' && lineBase[eol] != '\r')
       ++eol;
     qint64 firstTok = i;
-    while (firstTok < eol && (lineBase[firstTok] == ' ' || lineBase[firstTok] == '\t'))
+    while (firstTok < eol && isWs(lineBase[firstTok]))
       ++firstTok;
     // #167：纯空白行与空行同义（不出数据行）——否则补满 NaN 成「深度也是 NaN」的幽灵行。
-    if (firstTok < eol)
+    if (firstTok < eol && nCurves > 0)
     {
-      int col = 0;
+      if (!wrap)
+        col = 0;
+      bool extra = false;
       qint64 p = firstTok;
-      while (p < eol && col < nCurves)
+      while (p < eol)
       {
-        while (p < eol && (lineBase[p] == ' ' || lineBase[p] == '\t'))
-          ++p;
-        if (p >= eol)
+        qint64 b, e;
+        if (comma)
+        {
+          qint64 q = p;
+          while (q < eol && lineBase[q] != ',')
+            ++q;
+          b = p;
+          e = q;
+          while (b < e && isWs(lineBase[b])) ++b;
+          while (e > b && isWs(lineBase[e - 1])) --e;
+          p = (q < eol) ? q + 1 : eol;
+        }
+        else
+        {
+          while (p < eol && isWs(lineBase[p]))
+            ++p;
+          if (p >= eol)
+            break;
+          qint64 q = p;
+          while (q < eol && !isWs(lineBase[q]))
+            ++q;
+          b = p;
+          e = q;
+          p = q;
+        }
+        if (col >= nCurves)
+        {
+          extra = true; // 非 wrap：多余 token（旧实现静默丢弃）
           break;
-        qint64 q = p;
-        while (q < eol && lineBase[q] != ' ' && lineBase[q] != '\t')
-          ++q;
-        bool ok = false;
-        const double v = tokenToDouble(lineBase + p, lineBase + q, &ok);
-        if (ok && v == v && v != nullValue)
-        {
-          sawFinite[col] = true;
-          if (keep(row))
-            buckets[static_cast<std::size_t>(col)].append(v);
         }
-        else if (keep(row))
+        pushToken(lineBase + b, lineBase + e);
+        if (wrap && col == nCurves)
         {
-          buckets[static_cast<std::size_t>(col)].append(nan());
+          ++row;
+          col = 0;
         }
-        ++col;
-        p = q;
       }
-      if (col < nCurves)
+      if (extra)
+        ++extraTokenRows;
+      if (!wrap)
       {
-        ++truncatedRows;
-        if (keep(row))
-          for (; col < nCurves; ++col)
-            buckets[static_cast<std::size_t>(col)].append(nan());
+        if (col < nCurves)
+        {
+          ++truncatedRows;
+          if (keep(row))
+            for (int c = col; c < nCurves; ++c)
+              buckets[static_cast<std::size_t>(c)].append(nan());
+        }
+        // #386：row 只计数据行——物理空行不计。流式 parseRange 的
+        // globalRow = row + 数据值下标依赖同一单位口径，空行计数会让
+        // 之后每个行窗偏移（整读/流式两路径结果不一致）。
+        ++row;
       }
-      // #386：row 只计数据行——物理空行不计。流式 parseRange 的
-      // globalRow = row + 数据值下标依赖同一单位口径，空行计数会让
-      // 之后每个行窗偏移（整读/流式两路径结果不一致）。
-      ++row;
     }
     if (eol >= n)
       break; // 尾行无行界符——处理完即结束
@@ -623,6 +740,18 @@ QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOff
     if (!wantAll && row >= to)
       break; // 区间查询：越过 to 即停（D1.4）
   }
+  if (wrap && col > 0)
+  {
+    // 折行数据在文件尾不足一整行：补 NaN 记一截断行。
+    ++truncatedRows;
+    if (keep(row))
+      for (int c = col; c < nCurves; ++c)
+        buckets[static_cast<std::size_t>(c)].append(nan());
+    ++row;
+  }
+  if (extraTokenRows > 0)
+    addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format, 0,
+             QStringLiteral("%1 行 token 多于曲线数（多余值已忽略）").arg(extraTokenRows));
   for (int c = 0; c < nCurves; ++c)
     cols[c].values = std::move(buckets[static_cast<std::size_t>(c)]);
   *rowsTotal = row;
@@ -663,7 +792,14 @@ LasDoc LasParser::parseDoc(const QString &path, QList<LasIssue> *issues)
   }
   CacheBudgetManager::instance()->noteLargeAllocation(
       QStringLiteral("LasParser::parseDoc(%1)").arg(info.fileName()), size);
-  const QByteArray raw = f.readAll();
+  QByteArray raw = f.readAll();
+  if (EncodingDetect::hasUtf16Bom(raw))
+  {
+    // PW-017：UTF-16 整体转码为 UTF-8，头扫描与数据行同一缓冲/同一偏移系。
+    raw = EncodingDetect::stripBom(raw);
+    addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Encoding, 0,
+             QStringLiteral("UTF-16 文件已整体转码为 UTF-8 解析"));
+  }
   HeaderScanResult header = scanHeaderBytes(raw, issues);
   if (!header.error.isEmpty())
   {
@@ -686,7 +822,8 @@ LasDoc LasParser::parseDoc(const QString &path, QList<LasIssue> *issues)
   qint64 rowsTotal = 0;
   const qint64 asciiOff = header.asciiDataOffset;
   doc.curves = parseAsciiRows(raw, asciiOff, header.header.curveNames,
-                              header.header.nullValue, 0, -1, &rowsTotal, issues);
+                              header.header.nullValue, 0, -1, &rowsTotal, issues,
+                              header.header.wrap, header.header.delimiter);
   for (int i = 0; i < doc.curves.size(); ++i)
   {
     doc.curves[i].unit =
@@ -708,6 +845,14 @@ namespace
   {
     // 头部按需读（不整读）：头段通常 < 64KB，最大扫 4MB 兜住病态长头。
     const QByteArray head = f.read(4 * 1024 * 1024);
+    if (EncodingDetect::hasUtf16Bom(head))
+    {
+      // PW-017：区间读按源文件字节偏移寻址，UTF-16 无法与转码缓冲对齐——明确拒绝。
+      if (error)
+        *error = QStringLiteral("%1: UTF-16 encoded LAS is not supported by range reads; "
+                                "use parseDoc or re-save as UTF-8").arg(path);
+      return false;
+    }
     *header = scanHeaderBytes(head, issues);
     if (!header->error.isEmpty())
     {
@@ -764,14 +909,25 @@ bool LasParser::parseRange(const QString &path, qint64 rowFrom, qint64 rowTo,
   // asciiDataOffset 在 scanHeader 内已含 BOM 补偿（绝对字节偏移）——勿再加。
   const qint64 asciiOff = header.asciiDataOffset;
 
-  if (f.size() <= 8 * 1024 * 1024)
+  // PW-069：折行/逗号分隔的数据行不能按物理行分块——走整读（受整读上限约束）。
+  const bool needsWhole = header.header.wrap || header.header.delimiter != 0;
+  if (needsWhole && f.size() > s_fileSizeLimit)
+  {
+    if (error)
+      *error = QStringLiteral("%1: WRAP/DLM LAS larger than full-read limit").arg(path);
+    addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::WrapMode, 0,
+             QStringLiteral("WRAP/DLM LAS larger than full-read limit"));
+    return false;
+  }
+  if (needsWhole || f.size() <= 8 * 1024 * 1024)
   {
     // 小文件：整读（一次盘 IO 比流式拼块省）。头部扫描后位置在 EOF——回卷。
     f.seek(0);
     const QByteArray raw = f.readAll();
     qint64 rowsTotal = 0;
     curves = parseAsciiRows(raw, asciiOff, names, header.header.nullValue,
-                            rowFrom, rowTo, &rowsTotal, issues);
+                            rowFrom, rowTo, &rowsTotal, issues,
+                            header.header.wrap, header.header.delimiter);
     fillUnits(&curves, header);
     curveNames = names;
     return true;
@@ -883,6 +1039,35 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
   const double nullValue = header.header.nullValue;
   bool monotonicDepth = true;
   double lastDepth = -std::numeric_limits<double>::infinity();
+
+  // PW-069：WRAP/DLM 走整读 + 共用行解析核，再按深度筛行。
+  if (header.header.wrap || header.header.delimiter != 0)
+  {
+    if (f.size() > s_fileSizeLimit)
+    {
+      if (error)
+        *error = QStringLiteral("%1: WRAP/DLM LAS larger than full-read limit").arg(path);
+      return false;
+    }
+    f.seek(0);
+    const QByteArray raw = f.readAll();
+    qint64 rowsTotal = 0;
+    const QList<LasCurve> all =
+        parseAsciiRows(raw, header.asciiDataOffset, names, nullValue, 0, -1, &rowsTotal,
+                       issues, header.header.wrap, header.header.delimiter);
+    const QVector<double> &depths = all.at(0).values;
+    for (int r = 0; r < depths.size(); ++r)
+    {
+      const double d = depths.at(r);
+      if (d == d && d >= fromDepth && d <= toDepth)
+        for (int c = 0; c < nCurves; ++c)
+          cols[c].values.append(all.at(c).values.value(r, nan()));
+    }
+    curves = cols;
+    fillUnits(&curves, header);
+    curveNames = names;
+    return true;
+  }
 
   // 流式逐行：DEPT 落在 [from,to] 内的行收；DEPT 单调递增时越过 to 即停。
   const qint64 fileSize = f.size();

@@ -522,12 +522,12 @@ SfPackageReadResult readSfPackage( const QString &path )
   QByteArray npzBytes;
   QByteArray checksumBytes;
   QString entryError;
-  if ( !zipExtractBytes( archive, kManifestEntry, &manifestBytes, &entryError ) )
+  if ( !zipExtractEntry( archive, *listing.entry( kManifestEntry ), &manifestBytes, &entryError ) )
   {
     result.error = QStringLiteral( "读取 manifest.json 失败：%1" ).arg( entryError );
     return result;
   }
-  if ( !zipExtractBytes( archive, kNpzEntry, &npzBytes, &entryError ) )
+  if ( !zipExtractEntry( archive, *listing.entry( kNpzEntry ), &npzBytes, &entryError ) )
   {
     result.error = QStringLiteral( "读取 surface.npz 失败：%1" ).arg( entryError );
     return result;
@@ -535,7 +535,7 @@ SfPackageReadResult readSfPackage( const QString &path )
   result.checksumPresent = result.zipEntries.contains( kChecksumEntry );
   if ( result.checksumPresent )
   {
-    if ( !zipExtractBytes( archive, kChecksumEntry, &checksumBytes, &entryError ) )
+    if ( !zipExtractEntry( archive, *listing.entry( kChecksumEntry ), &checksumBytes, &entryError ) )
     {
       result.error = QStringLiteral( "读取 checksum.json 失败：%1" ).arg( entryError );
       return result;
@@ -636,7 +636,7 @@ SfPackageReadResult readSfPackage( const QString &path )
     }
     QByteArray arrayBytes;
     QString arrayError;
-    if ( !zipExtractBytes( npzBytes, entry.name, &arrayBytes, &arrayError ) )
+    if ( !zipExtractEntry( npzBytes, entry, &arrayBytes /* PW-074 */, &arrayError ) )
     {
       result.issues.append(
           QStringLiteral( "surface.npz 条目 %1 读取失败：%2" ).arg( entry.name, arrayError ) );

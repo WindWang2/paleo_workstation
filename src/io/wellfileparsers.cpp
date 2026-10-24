@@ -47,13 +47,58 @@ namespace
 {
   using paleo::wellnumeric::NumberKind;
 
+  // PW-072：RFC 4180 引号规则——"a,b" 为一列，"" 为字面引号，引号外分隔。
+  // 单行解析（跨行引号字段按行截断，原样保留已读内容）。
+  QStringList splitQuoted(const QString &line, QChar delim)
+  {
+    QStringList out;
+    QString cur;
+    bool inQuotes = false;
+    bool fieldWasQuoted = false;
+    for (int i = 0; i < line.size(); ++i)
+    {
+      const QChar c = line.at(i);
+      if (inQuotes)
+      {
+        if (c == QLatin1Char('"'))
+        {
+          if (i + 1 < line.size() && line.at(i + 1) == QLatin1Char('"'))
+          {
+            cur.append(QLatin1Char('"'));
+            ++i;
+          }
+          else
+            inQuotes = false;
+        }
+        else
+          cur.append(c);
+      }
+      else if (c == delim)
+      {
+        out.append(cur);
+        cur.clear();
+        fieldWasQuoted = false;
+      }
+      else if (c == QLatin1Char('"') && !fieldWasQuoted && cur.trimmed().isEmpty())
+      {
+        cur.clear();
+        inQuotes = true;
+        fieldWasQuoted = true;
+      }
+      else
+        cur.append(c);
+    }
+    out.append(cur);
+    return out;
+  }
+
   QStringList splitTokens(const QString &line)
   {
     // 明确的列分隔符保留空列；空格分隔旧式 SMI 维持原有规则。
     if (line.contains(QLatin1Char('\t')))
-      return line.split(QLatin1Char('\t'), Qt::KeepEmptyParts);
+      return splitQuoted(line, QLatin1Char('\t'));
     if (line.contains(QLatin1Char(',')))
-      return line.split(QLatin1Char(','), Qt::KeepEmptyParts);
+      return splitQuoted(line, QLatin1Char(','));
     return line.trimmed().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
   }
 

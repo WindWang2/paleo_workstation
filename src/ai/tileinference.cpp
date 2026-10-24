@@ -19,9 +19,16 @@ QVector<InferenceTile> planInferenceTiles( int gridRows, int gridCols,
   QVector<InferenceTile> tiles;
   if ( gridRows <= 0 || gridCols <= 0 || tileRows <= 0 || tileCols <= 0 || halo < 0 )
     return tiles;
+  // PW-012：防溢出——网格总像元与 tile 数均按 qint64 计算并设上限。
+  if ( gridRows > kMaxTileGridSide || gridCols > kMaxTileGridSide
+       || qint64( gridRows ) * gridCols > kMaxTileGridPixels )
+    return tiles;
   const int rowSteps = ( gridRows + tileRows - 1 ) / tileRows;
   const int colSteps = ( gridCols + tileCols - 1 ) / tileCols;
-  tiles.reserve( rowSteps * colSteps );
+  const qint64 tileCount = qint64( rowSteps ) * colSteps;
+  if ( tileCount > kMaxTileGridPixels )
+    return tiles;
+  tiles.reserve( static_cast<qsizetype>( tileCount ) );
   for ( int r = 0; r < gridRows; r += tileRows )
   {
     const int innerR0 = r;
@@ -370,9 +377,12 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
     return fail( QStringLiteral( "no result sink" ) );
   if ( !onnx )
     return fail( QObject::tr( "tile inference needs an ONNX service" ) );
-  if ( req.gridRows <= 0 || req.gridCols <= 0 )
+  if ( req.gridRows <= 0 || req.gridCols <= 0 || req.gridRows > kMaxTileGridSide
+       || req.gridCols > kMaxTileGridSide
+       || qint64( req.gridRows ) * req.gridCols > kMaxTileGridPixels )
     return fail( QObject::tr( "invalid output grid %1×%2" ).arg( req.gridRows ).arg( req.gridCols ) );
-  if ( req.tileRows <= 0 || req.tileCols <= 0 || req.halo < 0 )
+  if ( req.tileRows <= 0 || req.tileCols <= 0 || req.halo < 0 || req.tileRows > kMaxTileSide
+       || req.tileCols > kMaxTileSide || req.halo > kMaxTileHalo )
     return fail( QObject::tr( "invalid tile geometry %1×%2 halo %3" )
                    .arg( req.tileRows )
                    .arg( req.tileCols )

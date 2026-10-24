@@ -24,6 +24,7 @@ private slots:
   void zip64CentralDirectoryWraparoundRejected(); // #382
   void zip64DirectoryOffsetWraparoundRejected(); // A-10（full-audit-20261020）
   void storedEntrySizeMismatchRejected();
+  void extractEntryFromSingleListing(); // PW-074
 
 private:
   static QByteArray makeStoredZip(const QMap<QString, QByteArray> &files);
@@ -326,6 +327,36 @@ void TestIoZipArchiveUnit::zip64CentralDirectoryWraparoundRejected()
 }
 
 QTEST_GUILESS_MAIN(TestIoZipArchiveUnit)
+// PW-074：列一次目录，逐条 zipExtractEntry 解出全部条目（stored/deflate），
+// 与按名 zipExtractBytes 结果逐字节一致。
+void TestIoZipArchiveUnit::extractEntryFromSingleListing()
+{
+  QVector<paleo::io::ZipWriteEntry> entries;
+  for ( int i = 0; i < 50; ++i )
+    entries << paleo::io::ZipWriteEntry{ QStringLiteral( "e%1.bin" ).arg( i ),
+                                         QByteArray( 100 + i, char( 'a' + i % 26 ) ) };
+  for ( const auto compression : { paleo::io::ZipCompression::Stored, paleo::io::ZipCompression::Deflate } )
+  {
+    paleo::io::ZipBuildOptions options;
+    options.compression = compression;
+    QString error;
+    const QByteArray archive = paleo::io::zipBuildArchive( entries, options, &error );
+    QVERIFY2( !archive.isEmpty(), qPrintable( error ) );
+    const paleo::io::ZipListResult listing = paleo::io::zipListBytes( archive );
+    QVERIFY2( listing.ok, qPrintable( listing.error ) );
+    QCOMPARE( listing.entries.size(), entries.size() );
+    for ( int i = 0; i < listing.entries.size(); ++i )
+    {
+      QByteArray viaEntry;
+      QByteArray viaName;
+      QVERIFY2( paleo::io::zipExtractEntry( archive, listing.entries.at( i ), &viaEntry, &error ), qPrintable( error ) );
+      QVERIFY( paleo::io::zipExtractBytes( archive, listing.entries.at( i ).name, &viaName, &error ) );
+      QCOMPARE( viaEntry, viaName );
+      QCOMPARE( viaEntry, entries.at( i ).data );
+    }
+  }
+}
+
 #include "tst_io_ziparchive_unit.moc"
 
 // A-10（full-audit-20261020）：EOCD64 的 directoryOffset 取近 2^64 值、

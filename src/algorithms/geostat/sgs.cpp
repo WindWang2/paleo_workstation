@@ -403,9 +403,21 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
         errors[static_cast<std::size_t>( worker )] = std::current_exception();
       }
     };
-    for ( int worker = 1; worker < workers; ++worker )
-      threads.emplace_back( runStripe, worker );
+    // review L4：建线程失败（资源耗尽 std::system_error）时已建线程仍 joinable，
+    // 异常逸出 = 其析构 std::terminate。失败即停止派生，未派出的条带由调用
+    // 线程顺序补跑——成果语义不变，只是并行度降级。
+    int launched = 1;
+    try
+    {
+      for ( ; launched < workers; ++launched )
+        threads.emplace_back( runStripe, launched );
+    }
+    catch ( ... )
+    {
+    }
     runStripe( 0 );
+    for ( int worker = launched; worker < workers; ++worker )
+      runStripe( worker );
     for ( std::thread &thread : threads )
       thread.join();
     for ( const std::exception_ptr &error : errors )

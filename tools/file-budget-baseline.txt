@@ -70,7 +70,7 @@ src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:262
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:548
 src/ui/paleomainwindow_docks.cpp:fn:buildCenterArea:201
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:283
-src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:477
+src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:433
 src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:298
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:358

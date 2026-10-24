@@ -57,6 +57,59 @@ fromStoreOverrides(const QVector<metadata::WellSectionLinkOverride> &in) {
 }
 } // namespace
 
+void PaleoMainWindow::clearWellSectionStores()
+{
+  if (m_wellSectionWf) {
+    m_wellSectionWf->setFaultSetStore(nullptr);
+    m_wellSectionWf->setLithoAssetSelections({});
+  }
+  if (m_wellSectionFence) m_wellSectionFence->setStore(nullptr, nullptr);
+  delete m_wellSectionStore; m_wellSectionStore = nullptr;
+  delete m_wellSectionFaultStore; m_wellSectionFaultStore = nullptr;
+  if (m_wellSectionPanel)
+    m_wellSectionPanel->setFaultsAvailable(false, tr("工程内无断层解释"));
+}
+
+bool PaleoMainWindow::bindWellSectionStores(PaleoProjectStore *store, QString *boundPath)
+{
+  if (!store || store->metaDbPath().isEmpty()) {
+    clearWellSectionStores(); boundPath->clear(); return false;
+  }
+  const bool sameProject = m_wellSectionStore && m_wellSectionFaultStore &&
+      *boundPath == store->metaDbPath() && m_wellSectionStore->isReadOnly() == store->isReadOnly();
+  QString error;
+  if (!sameProject) {
+    clearWellSectionStores();
+    boundPath->clear();
+    auto sections = std::make_unique<metadata::WellSectionStore>(store->metaDbPath(), store);
+    auto faults = std::make_unique<FaultSetStore>(store->metaDbPath(), store);
+    sections->setReadOnly(store->isReadOnly()); faults->setReadOnly(store->isReadOnly());
+    if (!sections->open(&error) || !faults->open(&error)) {
+      QgsMessageLog::logMessage(tr("连井剖面编辑库打开失败：%1").arg(error), QStringLiteral("Paleo"));
+      return false;
+    }
+    m_wellSectionStore = sections.release();
+    m_wellSectionFaultStore = faults.release();
+    *boundPath = store->metaDbPath();
+  }
+  m_wellSectionWf->setFaultSetStore(m_wellSectionFaultStore);
+  paleo::fault::FaultSet probe;
+  const bool has = m_wellSectionFaultStore->load(probe, &error) && probe.faultCount() > 0;
+  m_wellSectionPanel->setFaultsAvailable(has, has ? QString() : tr("工程内无断层解释"));
+  if (m_wellSectionBand) {
+    QgsVectorLayer *wells = nullptr;
+    const auto layers = QgsProject::instance()->mapLayers();
+    for (auto it = layers.cbegin(); it != layers.cend(); ++it)
+      if (auto *layer = qobject_cast<QgsVectorLayer *>(it.value()))
+        if (layer->customProperty(QStringLiteral("paleoLayerId")).toString() == QStringLiteral("wells")) {
+          wells = layer; break;
+        }
+    m_wellSectionBand->setWellLayer(wells, QStringLiteral("id"));
+  }
+  if (m_wellSectionFence) m_wellSectionFence->setStore(m_wellSectionStore, m_wellSectionFaultStore);
+  return true;
+}
+
 void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
                                         PaleoProjectStore *store)
 {
@@ -75,67 +128,11 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
   // 用户域/井距动作与井序/改接同一保存钩子。无工程库（store 空/未开工程）
   // 时编辑仅驻内存。
 
-  const auto rebindFenceStore = [this]() {
-    // 换工程：打开中的栅状图换到新 store（否则继续写旧工程的库；断层库
-    // 一并原子换绑——fence 各节工作流的 faultStore 指针随重建更新）。
-    if (m_wellSectionFence)
-      m_wellSectionFence->setStore(m_wellSectionStore,
-                                   m_wellSectionFaultStore);
-  };
-  // band 是窗口成员（attach 中创建）——lambda 逃逸出栈帧不能按引用捕
-  // 获局部变量（轮 2 High：catalog 去抖后调 bindStores 会解引用死栈槽）。
-  // 井位层解析：本仓约定 customProperty("paleoLayerId") 扫描（QGIS 自动
-  // 生成的 layer id 不是 "wells"——按 id 查恒空，轮 2 修正）。
-  const auto resolveWellLayer = [this]() -> QgsVectorLayer * {
-    const auto layers = QgsProject::instance()->mapLayers();
-    for (auto it = layers.cbegin(); it != layers.cend(); ++it)
-      if (auto *vl = qobject_cast<QgsVectorLayer *>(it.value()))
-        if (vl->customProperty(QStringLiteral("paleoLayerId")).toString() ==
-            QStringLiteral("wells"))
-          return vl;
-    return nullptr;
-  };
-  // #481 P2-5：同库不重建——300ms 去抖对每次 catalog 变更都会走这里，
-  // 旧实现无条件 delete/new + open + load，GUI 阻塞随库体积增长。
-  // 工程未换（源 metaDbPath 不变）时直接复用已开实例。
   const auto boundPath = std::make_shared<QString>();
-  const auto bindStores = [this, wf, panel, store, rebindFenceStore,
-                           resolveWellLayer, boundPath] {
-    if (!store)
-      return;
-    // sameProject 短路还须确认 store 已建过——裸 manifest 测试栈首调时空
-    // metaDbPath 恰为 ""，""=="" 会跳过创建，随后 load 解引用 null。
-    const bool sameProject =
-        m_wellSectionFaultStore && *boundPath == store->metaDbPath();
-    *boundPath = store->metaDbPath();
-    QString storeErr;
-    if (!sameProject) {
-      delete m_wellSectionStore; // 换工程释放旧实例（非 QObject，无父子回收）
-      m_wellSectionStore =
-          new metadata::WellSectionStore(store->metaDbPath(), store);
-      if (!m_wellSectionStore->open(&storeErr))
-        QgsMessageLog::logMessage(
-            tr("连井剖面编辑库打开失败：%1").arg(storeErr),
-            QStringLiteral("Paleo"));
-      // 断层投绘供数：断面 mesh ∩ 井径 curtain（换工程重绑）。
-      delete m_wellSectionFaultStore;
-      m_wellSectionFaultStore = new FaultSetStore(store->metaDbPath(), store);
-      if (!m_wellSectionFaultStore->open(&storeErr))
-        QgsMessageLog::logMessage(
-            tr("断层解释库打开失败：%1").arg(storeErr),
-            QStringLiteral("Paleo"));
-    }
-    wf->setFaultSetStore(m_wellSectionFaultStore);
-    paleo::fault::FaultSet probe;
-    const bool has = m_wellSectionFaultStore->load(probe, &storeErr) &&
-                     probe.faultCount() > 0;
-    panel->setFaultsAvailable(has,
-                              has ? QString() : tr("工程内无断层解释"));
-    // 井位层随工程重建——重解析（band 成员可能晚于首调创建，null 安全）。
-    if (m_wellSectionBand)
-      m_wellSectionBand->setWellLayer(resolveWellLayer(),
-                                      QStringLiteral("id"));
-    rebindFenceStore();
+  const auto sessionClosed = std::make_shared<bool>(false);
+  const auto bindStores = [this, store, boundPath, sessionClosed] {
+    if (*sessionClosed) { clearWellSectionStores(); boundPath->clear(); return false; }
+    return bindWellSectionStores(store, boundPath.get());
   };
   bindStores();
   connect(panel, &WellSectionPanel::faultsRequested, this,
@@ -281,12 +278,11 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
   auto *debounce = new QTimer(this);
   debounce->setSingleShot(true);
   debounce->setInterval(300);
-  const auto restoreWells = [this, wf, panel, store, bindStores]() {
+  const auto restoreWells = [this, wf, panel, bindStores]() {
     QStringList saved;
     QVector<wellsection::LinkOverride> overrides;
-    if (store)
+    if (bindStores() && m_wellSectionStore)
     {
-      bindStores(); // 换工程：编辑库 + 断层库一并重绑（旧实例由 bind 释放）
       QString err;
       const metadata::WellSectionRecord rec =
           m_wellSectionStore->load(QString::fromLatin1(kSectionId), &err);
@@ -519,15 +515,28 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             fence->show();
           });
   // #124：工程即将切换——作废在途取数/井间缝（迟到结果按世代丢弃）并清空
-  // 面板。新工程的井集由 catalog changed 去抖路径按新 catalogPath 恢复；
+  // 面板。新工程在 projectOpened 恢复，catalog 去抖仍负责后续数据刷新；
   // 恢复为空时面板保持空，不再残留上一工程的井。
-  if (m_projectSvc)
-    connect(m_projectSvc, &QgisProjectService::projectAboutToClose, panel, [wf, panel] {
+  if (m_projectSvc) {
+    connect(m_projectSvc, &QgisProjectService::projectAboutToClose, panel,
+            [this, wf, panel, sessionClosed, boundPath] {
+      *sessionClosed = true;
       wf->cancel();
       panel->setBusy(false);
       panel->setWarnings({});
       panel->setSection({});
+      clearWellSectionStores();
+      boundPath->clear();
     });
+    // AppContext 已先绑定工程元数据库；不依赖 catalogPath 是否变化或 300ms 去抖。
+    connect(m_projectSvc, &QgisProjectService::projectOpened, panel,
+            [this, wf, panel, sessionClosed, catalogPath, restoreWells, toChoices] {
+      *sessionClosed = false;
+      *catalogPath = m_previewDoc->catalog()->catalogPath();
+      panel->setWellChoices(toChoices(wf->wellChoices()));
+      restoreWells();
+    });
+  }
 
   // 初始装配同恢复路径。分层来源：先喂候选（面板对失效 id 自动回落
   // 默认），再按面板当前有效值同步 workflow——恢复口径单源在面板。

@@ -23,7 +23,9 @@
 //   2. QgsApplication ctor (it is a QApplication; exactly one per process).
 //   3. setPrefixPath() — vendor prefix or distro root ("/usr" on Arch). Must
 //      precede initQgis so provider/plugin/resource paths resolve against it.
-//   4. initQgis() — loads provider libs and locates srs.db.
+//   4. init() — resolves the embedded application's user profile.
+//   5. createDatabase() — creates/migrates qgis.db before user CRS queries.
+//   6. initQgis() — loads provider libs and locates srs.db.
 //
 // The QgsApplication is heap-allocated and owned by this runtime because its
 // lifetime must equal the process lifetime — stack construction in main()
@@ -57,6 +59,17 @@ bool QgisRuntime::initialize( const QString &prefixPath,
   QgsApplication::setPrefixPath(
       resolvePrefixPath( prefixPath, qEnvironmentVariable( "QGIS_PREFIX_PATH" ) ),
       /*useDefaultPaths=*/true );
+  // 嵌入模式构造函数尚未解析 profile；先 init，否则用户库路径只是相对
+  // qgis.db。initQgis() 加载 provider，不负责创建/迁移用户库。
+  QgsApplication::init();
+  // 在主题、面板或 provider 首次查询用户 CRS 前，使用 QGIS 原生迁移保留自定义 CRS。
+  QString databaseError;
+  if (!QgsApplication::createDatabase(&databaseError)) {
+    qCritical().noquote() << "QGIS user database initialization failed:"
+                          << QgsApplication::qgisUserDatabaseFilePath() << databaseError;
+    delete s_app; s_app = nullptr;
+    return false;
+  }
   if ( applicationCreated )
     applicationCreated();
   QgsApplication::initQgis();
@@ -143,6 +156,7 @@ QJsonObject QgisRuntime::coordinateRuntimeReport()
   return {{"ok", errors.isEmpty()}, {"checks", checks}, {"errors", errors},
       {"executable", QCoreApplication::applicationFilePath()}, {"workingDirectory", QDir::currentPath()},
       {"qgisPrefix", QgsApplication::prefixPath()}, {"srsDatabase", srsDbPath()},
+      {"userDatabase", QgsApplication::qgisUserDatabaseFilePath()},
       {"projData", qEnvironmentVariable("PROJ_DATA")}, {"projLib", qEnvironmentVariable("PROJ_LIB")},
       {"gdalData", qEnvironmentVariable("GDAL_DATA")}};
 }

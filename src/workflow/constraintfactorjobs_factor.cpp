@@ -1183,6 +1183,22 @@ bool ConstraintWorkflow::runFactorWork(
     if (task && task->running())
       emit factorJobProgress(task->percent(), task->stage());
   });
+  // PW-009：worker 绝不触碰真实任务（QPointer 判空-再用跨线程不安全，主线程
+  // 可能在两步之间删掉它）。worker 只拿一个由 shared_ptr 保活的代理任务；
+  // 代理的进度/详情在主线程转发给真实任务，真实任务的取消/销毁转发给代理。
+  std::shared_ptr<PaleoTask> proxy(PaleoTask::detachedProxy(title),
+                                   [](PaleoTask *t) { t->deleteLater(); });
+  PaleoTask *proxyRaw = proxy.get();
+  connect(proxyRaw, &PaleoTask::changed, task, [task, proxyRaw] {
+    if (!task || !task->running())
+      return;
+    if (!proxyRaw->stage().isEmpty())
+      task->reportStage(proxyRaw->stage(), proxyRaw->stagePercent());
+    if (!proxyRaw->detailText().isEmpty() && proxyRaw->detailText() != task->detailText())
+      task->reportDetail(proxyRaw->detailText());
+  });
+  connect(task, &PaleoTask::cancelAsked, proxyRaw, [proxyRaw] { proxyRaw->requestCancel(); });
+  connect(task, &QObject::destroyed, proxyRaw, [proxyRaw] { proxyRaw->requestCancel(); });
   auto *watcher = new QFutureWatcher<QString>(this);
   connect(task, &PaleoTask::cancelAsked, watcher,
           [watcher] { watcher->future().cancel(); });
@@ -1227,11 +1243,11 @@ bool ConstraintWorkflow::runFactorWork(
             watcher->deleteLater();
           });
   watcher->setFuture(QtConcurrent::run(paleo::tasks::pool(m_factorTasks),
-                                       [task, compute, pending] {
-                                         if (!task || task->cancelRequested())
+                                       [proxy, compute, pending] {
+                                         if (proxy->cancelRequested())
                                            return QString();
                                          try {
-                                           return compute(task);
+                                           return compute(proxy.get());
                                          } catch (const std::exception &e) {
                                            return QString::fromUtf8(e.what());
                                          } catch (...) {
@@ -1256,10 +1272,26 @@ bool ConstraintWorkflow::runFactorAlgorithm(
     QString key, uri, provider, type, crs;
     std::shared_ptr<QgsVectorLayerFeatureSource> features;
     Qgis::WkbType wkb;
+    // PW-032：栅格在 worker 上按 URI 重读——提交时记下文件大小/mtime，
+    // 计算前校验，输入在排队期间被改写则失败，不让成果与登记的输入版本错位。
+    qint64 rasterSize = -1;
+    qint64 rasterMtimeMs = -1;
   };
   std::vector<Source> sources;
   auto options = params;
   for (auto it = params.cbegin(); it != params.cend(); ++it) {
+    // PW-032：多图层参数（QVariantList 内嵌 QgsMapLayer*）不能把主线程活图层
+    // 直接交给 worker——此路径只快照顶层图层参数，嵌套的一律拒绝（改走同步路径
+    // 或由调用方展开为独立参数），不留跨线程活对象。
+    if (it.value().typeId() == QMetaType::QVariantList) {
+      const QVariantList list = it.value().toList();
+      for (const QVariant &v : list)
+        if (v.value<QgsMapLayer *>()) {
+          paleo::workflow_detail::setError(
+              error, tr("参数 %1 含多图层输入，异步单因素路径不支持").arg(it.key()));
+          return false;
+        }
+    }
     auto *layer = it.value().value<QgsMapLayer *>();
     if (!layer)
       continue;
@@ -1273,25 +1305,40 @@ bool ConstraintWorkflow::runFactorAlgorithm(
     if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
       source.features = std::make_shared<QgsVectorLayerFeatureSource>(vector);
       source.wkb = vector->wkbType();
+    } else {
+      const QFileInfo fi(source.uri);
+      if (fi.exists()) {
+        source.rasterSize = fi.size();
+        source.rasterMtimeMs = fi.lastModified().toMSecsSinceEpoch();
+      }
     }
     sources.push_back(std::move(source));
     options.remove(it.key());
   }
   auto results = std::make_shared<QVariantMap>();
   const QString path = params.value("OUTPUT").toString();
-  auto *proc = m_proc.data();
+  // PW-031：不再捕获裸指针。生命周期保证来自 AppContext::drainTasks（拆除前
+  // 排空任务池）；此处 QPointer 只是兜底——服务已拆则作业失败而不是悬垂调用。
+  QPointer<QgisProcessingService> procGuard = m_proc;
   return runFactorWork(
       tr("%1 单因素计算").arg(horizon),
-      [proc, sources, options, engine, results, path](PaleoTask *task) mutable {
+      [procGuard, sources, options, engine, results, path](PaleoTask *task) mutable {
         const auto cancel = [task] { return task && task->cancelRequested(); };
         std::vector<std::unique_ptr<QgsMapLayer>> layers;
         for (const auto &source : sources) {
           if (cancel())
             return QString();
           std::unique_ptr<QgsMapLayer> layer;
-          if (source.type == "raster")
+          if (source.type == "raster") {
+            if (source.rasterSize >= 0) {
+              const QFileInfo fi(source.uri);
+              if (!fi.exists() || fi.size() != source.rasterSize ||
+                  fi.lastModified().toMSecsSinceEpoch() != source.rasterMtimeMs)
+                return QStringLiteral("计算输入在排队期间已被修改：") + source.uri;
+            }
             layer = std::make_unique<QgsRasterLayer>(source.uri, source.key,
                                                      source.provider);
+          }
           else {
             auto vector = std::make_unique<QgsVectorLayer>(
                 QgsWkbTypes::displayString(source.wkb), source.key, "memory");
@@ -1332,6 +1379,9 @@ bool ConstraintWorkflow::runFactorAlgorithm(
         };
         QString error;
         // algo-atom P2：异步路径经 ProcessingAlgorithmAdapter
+        QgisProcessingService *proc = procGuard.data();
+        if ( !proc )
+          return QStringLiteral( "处理服务已关闭" );
         paleo::ProcessingAlgorithmAdapter adapter( proc );
         const AlgorithmRunResult runResult =
             adapter.runById( engine, options, &error, hooks );

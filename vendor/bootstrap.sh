@@ -36,10 +36,14 @@ echo "== vendor deps =="
 if { pacman -Q qgis 2>/dev/null | grep -qE 'qgis 4\.2\.'; } || \
    { command -v dpkg-query >/dev/null && dpkg-query -W -f='${Version}' qgis 2>/dev/null | grep -qE '^([0-9]+:)?4\.2\.' && [ -f /usr/include/qgis/qgsapplication.h ]; }; then
   note "qgis 4.2.x development files already installed system-wide"
-elif [ -f vendor/prefix/usr/include/qgis/qgsapplication.h ]; then
+elif [ -f vendor/prefix/usr/include/qgis/qgsapplication.h ] && \
+     [ "$(cat vendor/prefix/.paleo-deb-closure.sha256 2>/dev/null)" = \
+       "$(tr -d '\r' < vendor/deb-closure.lock | sha256sum | cut -d' ' -f1)" ]; then
   export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
-  note "vendored QGIS prefix present at $QGIS_PREFIX_PATH"
+  note "vendored QGIS prefix present at $QGIS_PREFIX_PATH (matches deb-closure.lock)"
 else
+  # review-fix-ci：prefix 存在但完成戳与锁不符（锁已更新/旧版无戳）→ 重新解包。
+  [ -d vendor/prefix/usr ] && echo "  vendored prefix stale vs vendor/deb-closure.lock — re-extracting"
   echo "  qgis system package absent — deb-closure fetch (ET1):"
   [ "${free_gb:-0}" -ge 15 ] || fail "disk ${free_gb}GB < 15GB" "free space for the vendored QGIS closure"
   # 已提交的锁是 Ubuntu 26.04 resolute 闭包，库链接到 GLIBC_2.43 符号（#76）：

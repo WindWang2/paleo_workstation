@@ -111,6 +111,9 @@ ExternalProject_Add(gdal
              -DCMAKE_PREFIX_PATH=${SUPERBUILD_PREFIX}   # 找到已装的 geos/proj
              -DBUILD_TESTING=OFF
              -DBUILD_PYTHON_BINDINGS=OFF
+             # review-fix-ci：Java/C# 绑定同样用不到（weekly 日志里 swig javadoc 刷屏耗时）
+             -DBUILD_JAVA_BINDINGS=OFF
+             -DBUILD_CSHARP_BINDINGS=OFF
              ${SUPERBUILD_RPATH_ARGS}
   DEPENDS geos proj
   STAMP_DIR ${SUPERBUILD_STAMP}/gdal

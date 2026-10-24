@@ -13,3 +13,6 @@ qt6-pdf-dev
 libgdal-dev
 libproj-dev
 libgeos-dev
+# review-fix-ci：libgpgme45 NEEDED libassuan.so.9，但锁生成机已装该运行时库，
+# apt --print-uris 不列已装依赖 → 闭包漏件、链接 paleo_mkproject 失败。显式列入种子。
+libassuan9

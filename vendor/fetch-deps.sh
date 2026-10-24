@@ -219,5 +219,9 @@ if [ "$UPDATE_LOCK" = 1 ]; then
   mv "$LOCK.tmp" "$LOCK"
   date -u +%Y%m%dT%H%M%SZ > "$SNAPSHOT_FILE" # snapshot 回退源的时间点（随锁提交）
 fi
+# review-fix-ci：完成戳 = 锁内容哈希。bootstrap 只在戳与当前锁一致时复用
+# 已有 prefix——锁更新（如补 qt6-5compat-dev / libassuan9）后旧 prefix 不再被
+# 静默沿用（本机实锤：10-01 的 prefix 缺 Qt6Core5Compat cmake 配置）。
+tr -d '\r' < "$LOCK" | sha256sum | cut -d' ' -f1 > "$PREFIX/.paleo-deb-closure.sha256"
 echo "  OK vendored $COUNT debs -> $PREFIX (lock: vendor/deb-closure.lock)"
 echo "  NOTE set QGIS_PREFIX_PATH=$PREFIX/usr and LD_LIBRARY_PATH=$PREFIX/usr/lib/<multiarch>:$PREFIX/usr/lib (./paleo-dev does this)"

@@ -594,6 +594,7 @@
 'http://archive.ubuntu.com/ubuntu/pool/main/libg/libgpg-error/libgpg-error-dev_1.58-2_amd64.deb' libgpg-error-dev_1.58-2_amd64.deb 140010 SHA256:36f11c8a384fcd87da7fee7ff035c3a05bfdede0bf9355a4e616c7f188ae5df0
 'http://archive.ubuntu.com/ubuntu/pool/main/g/gpgmepp/libgpgmepp-dev_2.0.0-2_amd64.deb' libgpgmepp-dev_2.0.0-2_amd64.deb 185516 SHA256:bd5f2aaa5f441239f1244d0d3179e9104b70345a352e7d3079a41cf55a34f178
 'http://archive.ubuntu.com/ubuntu/pool/main/liba/libassuan/libassuan-dev_3.0.2-2build1_amd64.deb' libassuan-dev_3.0.2-2build1_amd64.deb 98398 SHA256:8ea77256a59a09e1fd6c0d090be5b6463e376b1b4cf6754f6152a50ba512b6ab
+'http://archive.ubuntu.com/ubuntu/pool/main/liba/libassuan/libassuan9_3.0.2-2build1_amd64.deb' libassuan9_3.0.2-2build1_amd64.deb 41328 SHA256:5ff0d3cfbca10a8f0e0e47b7d8adeb01645d0542caf02775e820e1c983a47058
 'http://archive.ubuntu.com/ubuntu/pool/main/g/gpgme1.0/libgpgme-dev_2.0.1-2build1_amd64.deb' libgpgme-dev_2.0.1-2build1_amd64.deb 323394 SHA256:5538f9a84871494d11ddf05c6dc6dba4f3221e1dd0edf0aa2719f9abbe8e4657
 'http://archive.ubuntu.com/ubuntu/pool/main/p/poppler/libpoppler-dev_26.01.0-2ubuntu0.1_amd64.deb' libpoppler-dev_26.01.0-2ubuntu0.1_amd64.deb 5358 SHA256:435545c8e84b06eae3ffc51cd0655a3a4a861d8c2bef378c0cc8844ae104cf6c
 'http://archive.ubuntu.com/ubuntu/pool/main/p/poppler/libpoppler-private-dev_26.01.0-2ubuntu0.1_amd64.deb' libpoppler-private-dev_26.01.0-2ubuntu0.1_amd64.deb 187108 SHA256:bab6addf28fc5f220a3f5872b6ab1b706b0fe808064230dde4d16a3c711ae26c

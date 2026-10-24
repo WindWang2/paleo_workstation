@@ -11,7 +11,11 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QThread>
+#include <QSet>
 #include <QVariant>
+
+#include <atomic>
+#include <utility>
 
 namespace
 {
@@ -23,12 +27,42 @@ using paleo::store_detail::setError;
   // which is what makes reopen/roundtrip semantics work.
   // readOnly 实例走独立连接名（QSQLITE_OPEN_READONLY，#80）——同进程里可写
   // 与只读实例不得复用同一条连接。
+  // review M4：连接名不再取 QThread* 地址——池线程过期后地址会被新线程复用，
+  // contains() 为真而 database() 属于已死线程（返回无效 → 误报 driver 不可用）。
+  // 改用进程内单调递增、永不复用的线程序号；非主线程退出时（thread_local
+  // 析构）移除本线程建立的命名连接，不再随池线程过期泄漏。
+  std::atomic<quint64> s_threadSerial{0};
+
+  struct ThreadConnections
+  {
+    quint64 serial = ++s_threadSerial;
+    bool mainThread = QCoreApplication::instance() &&
+                      QThread::currentThread() == QCoreApplication::instance()->thread();
+    QSet<QString> names;
+    ~ThreadConnections()
+    {
+      // 主线程连接由工程关闭路径 closeConnectionsFor 收口；进程退出期不碰 QtSql。
+      if (mainThread)
+        return;
+      for (const QString &name : std::as_const(names))
+        QSqlDatabase::removeDatabase(name);
+    }
+  };
+
+  ThreadConnections &threadConnections()
+  {
+    thread_local ThreadConnections tc;
+    return tc;
+  }
+
   QString manifestConnectionName(const QString &path, bool readOnly)
   {
-    const quintptr tid = reinterpret_cast<quintptr>(QThread::currentThread());
-    return QStringLiteral("paleo_layermanifest_") + QString::number(qHash(path)) +
-           QStringLiteral("_") + QString::number(tid) +
-           (readOnly ? QStringLiteral("_ro") : QString());
+    ThreadConnections &tc = threadConnections();
+    const QString name = QStringLiteral("paleo_layermanifest_") + QString::number(qHash(path)) +
+                         QStringLiteral("_t") + QString::number(tc.serial) +
+                         (readOnly ? QStringLiteral("_ro") : QString());
+    tc.names.insert(name);
+    return name;
   }
 
   const QString kColumns = QStringLiteral("layer_id,horizon,type,source,style_ref,grp,title");

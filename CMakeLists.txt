@@ -20,6 +20,13 @@ else()
   # #134：MSVC 把花括号窄化（int→double 等）当硬错误 C2397，GCC/Clang 默认
   # 只告警——Linux 绿、Windows 红。这里升为错误，让 Linux CI 提前暴露。
   add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Werror=narrowing>)
+  # PW-025：与 MSVC /W4 对齐，GCC/Clang 也打开常规告警，让 Linux 开发者看到
+  # Windows 侧会报的问题。只告警、不 -Werror（存量告警先攒基线再按需收紧）；
+  # 可用 -DPALEO_EXTRA_WARNINGS=OFF 关闭（例如第三方头噪声过大时）。
+  option(PALEO_EXTRA_WARNINGS "Enable -Wall -Wextra on GCC/Clang" ON)
+  if(PALEO_EXTRA_WARNINGS)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wall> $<$<COMPILE_LANGUAGE:CXX>:-Wextra>)
+  endif()
 endif()
 
 include("${CMAKE_SOURCE_DIR}/cmake/paleo-build-options.cmake")

@@ -94,6 +94,9 @@ namespace DashboardSurveyMap
     band->setWidth( 2 );
     band->setLineStyle( Qt::DashLine );
     band->show();
+    // QgsRubberBand 挂在画布场景里，不是画布的 QObject 子对象——按名找不到
+    //（#697 起曾因此每次 update 提前返回，看板井位从不灌层）。存裸指针属性。
+    map->setProperty( kBand, QVariant::fromValue( static_cast<QObject *>( band ) ) );
     return map;
   }
 
@@ -110,7 +113,7 @@ namespace DashboardSurveyMap
       return;
     QgsMapCanvas *c = m->canvas();
     auto *vl = m->findChild<QgsVectorLayer *>( QString::fromLatin1( kWells ) );
-    auto *band = c->findChild<QgsRubberBand *>( QString::fromLatin1( kBand ) );
+    auto *band = qobject_cast<QgsRubberBand *>( m->property( kBand ).value<QObject *>() );
     if ( !vl || !band )
       return;
     // 内存层 truncate/重灌若与在飞渲染作业并发即堆损坏（0xc0000374）。

@@ -435,11 +435,16 @@ jobs:
       # 主 job 用 ./paleo-dev build 自带；linux-perf 的 Configure 同样显式给）。
       # -gz：目标文件与链接产物的调试段 zlib 压缩（调试信息不减，ASan 栈的
       # 文件:行号符号化不受影响），只作用于本 job，不改 CMakeLists 默认。
+      # review-fix-ci：-gz 仍在 ~2225/2479 链接步磁盘耗尽——再把调试级降到
+      # -g1（仅行号表，ASan/UBSan 栈仍有 文件:行号，丢的是局部变量/类型信息），
+      # 调试段体量约降一个量级。
       - name: Configure (ASAN+UBSAN)
         env:
           QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
           -DPALEO_ENABLE_ASAN=ON -DPALEO_ENABLE_UBSAN=ON
+          "-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG" "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG"
+          -DPALEO_SANITIZER_DEBUG_FLAG=-g1
           -DCMAKE_C_FLAGS=-gz -DCMAKE_CXX_FLAGS=-gz
           -DCMAKE_EXE_LINKER_FLAGS=-gz -DCMAKE_SHARED_LINKER_FLAGS=-gz -DCMAKE_MODULE_LINKER_FLAGS=-gz
       - name: Build

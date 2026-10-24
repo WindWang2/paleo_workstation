@@ -19,13 +19,16 @@ void PaleoMainWindow::runNewProject(const QString &sourceRoot, bool supplement)
   ProjectSetupDialog dialog(workflow, this);
   if (supplement) dialog.setExistingProject(m_projectSvc->projectPath(), workflow->currentSources());
   if (!sourceRoot.isEmpty()) dialog.setSourceRoot(sourceRoot);
-  if (dialog.exec() != QDialog::Accepted || !maybeSaveProject()) { workflow->deleteLater(); return; }
-  QString error;
-  const bool ok = supplement ? workflow->applySources(dialog.sources(), dialog.preview(), &error)
-                             : workflow->create(dialog.projectPath(), dialog.sources(), dialog.preview(), &error);
-  if (!ok) {
-    PaleoNotify::warning(this, tr("新建工程"), error); workflow->deleteLater();
+  while (dialog.exec() == QDialog::Accepted) {
+    if (!maybeSaveProject()) { workflow->deleteLater(); return; }
+    QString error;
+    const bool ok = supplement ? workflow->applySources(dialog.sources(), dialog.preview(), &error)
+                               : workflow->create(dialog.projectPath(), dialog.sources(), dialog.preview(), &error);
+    if (ok) return;
+    // Keep all selected sources, mappings and preview results for a retry.
+    dialog.showCreationError(error);
   }
+  workflow->deleteLater();
 }
 void PaleoMainWindow::attachProjectSetupAction(QMenu *menu)
 {

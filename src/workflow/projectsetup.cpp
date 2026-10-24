@@ -14,6 +14,50 @@
 #include <QFutureWatcher>
 #include <QTimer>
 #include <QtConcurrent>
+#include <QTemporaryDir>
+#include <QTemporaryFile>
+#include <filesystem>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
+namespace {
+bool restrictedProcess()
+{
+#ifdef Q_OS_WIN
+  HANDLE token = nullptr;
+  if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    const bool restricted = IsTokenRestricted(token);
+    CloseHandle(token);
+    return restricted;
+  }
+#endif
+  return false;
+}
+QString locationFailure(const QString &directory, const QString &reason)
+{
+  QString message = ProjectSetupWorkflow::tr("工程保存位置无法写入：%1\n原因：%2").arg(directory, reason);
+  message += restrictedProcess()
+      ? ProjectSetupWorkflow::tr("\n当前应用运行在受限权限环境中。请从桌面或资源管理器正常启动应用，或选择当前应用可写的保存位置。")
+      : ProjectSetupWorkflow::tr("\n请选择可写的保存位置，并检查目录权限、磁盘状态或安全软件的拦截记录。");
+  return message;
+}
+bool probeWritableDirectory(const QString &directory, QString *error, const QString &displayPath = {})
+{
+  QTemporaryFile probe(QDir(directory).filePath(QStringLiteral(".paleo-write-check-XXXXXX")));
+  if (probe.open() && probe.write("p", 1) == 1 && probe.flush() && probe.remove()) return true;
+  if (error) *error = locationFailure(displayPath.isEmpty() ? directory : displayPath, probe.errorString());
+  return false;
+}
+std::filesystem::path nativeDirectoryPath(const QString &directory)
+{
+#ifdef Q_OS_WIN
+  return std::filesystem::path(QDir::toNativeSeparators(directory).toStdWString());
+#else
+  return std::filesystem::u8path(directory.toUtf8().constData());
+#endif
+}
+}
 
 ProjectSetupWorkflow::ProjectSetupWorkflow(QgisProjectService *project, FolderImportWorkflow *imports, QObject *parent)
   : QObject(parent), m_project(project), m_imports(imports) {}
@@ -22,6 +66,28 @@ ProjectSetupSources ProjectSetupWorkflow::discover(const QString &root) { return
 bool ProjectSetupWorkflow::containsProject(const QString &root)
 {
   return QFileInfo::exists(paleoProjectFilePath(root)) || !QDir(root).entryList({QStringLiteral("*.qgz")}, QDir::Files).isEmpty();
+}
+bool ProjectSetupWorkflow::checkProjectLocation(const QString &path, QString *error)
+{
+  if (error) error->clear();
+  const auto fail = [&](const QString &message) { if (error) *error = message; return false; };
+  if (path.trimmed().isEmpty()) return fail(tr("请填写工程保存位置。"));
+  const QString directory = QFileInfo(path).absolutePath();
+  if (QFileInfo::exists(path) || QFileInfo::exists(paleoProjectFilePath(directory)))
+    return fail(tr("该位置已有工程文件：%1。请打开已有工程，或更换工程名称和保存位置。").arg(directory));
+  QString ancestor = directory;
+  while (!QFileInfo::exists(ancestor)) {
+    const QString parent = QFileInfo(ancestor).absolutePath();
+    if (parent == ancestor) return fail(tr("工程保存位置所在的磁盘或根目录不可用：%1").arg(directory));
+    ancestor = parent;
+  }
+  if (!QFileInfo(ancestor).isDir()) return fail(tr("工程保存路径被同名文件占用：%1").arg(ancestor));
+  if (ancestor == directory) return probeWritableDirectory(directory, error);
+  // Probe a private child of the nearest existing parent, so parent folders
+  // allowing subdirectories but not loose files are still valid destinations.
+  QTemporaryDir probe(QDir(ancestor).filePath(QStringLiteral(".paleo-directory-check-XXXXXX")));
+  if (!probe.isValid()) return fail(locationFailure(directory, probe.errorString()));
+  return probeWritableDirectory(probe.path(), error, directory);
 }
 void ProjectSetupWorkflow::scan(const ProjectSetupSources &sources)
 {
@@ -54,12 +120,16 @@ bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources
   // Check coordinates before creating files or closing the active project.
   if (!QgisProjectService::validateMapReference(configuration, error)) return false;
   const QString directory = QFileInfo(path).absolutePath();
-  if (QFileInfo::exists(path) || QFileInfo::exists(paleoProjectFilePath(directory)))
-    return fail(tr("该位置已有工程文件（%1）。若这是上次创建失败留下的，请先删除该文件后再创建。")
-                    .arg(QFileInfo::exists(path) ? path : paleoProjectFilePath(directory)));
+  if (!checkProjectLocation(path, error)) return false;
   const QString previous = m_project->projectPath();
-  const bool createdDir = !QFileInfo::exists(directory);
-  if (!QDir().mkpath(directory)) return fail(tr("无法创建工程目录：%1").arg(directory));
+  std::error_code directoryError;
+  const bool createdDir = std::filesystem::create_directories(nativeDirectoryPath(directory), directoryError);
+  if (directoryError) return fail(locationFailure(directory, tr("系统错误 %1：%2")
+      .arg(directoryError.value()).arg(QString::fromLocal8Bit(directoryError.message().c_str()))));
+  if (!probeWritableDirectory(directory, error)) {
+    if (createdDir) QDir().rmdir(directory); // Remove only this attempt's still-empty directory.
+    return false;
+  }
   const auto removeCreated = [&](QString *removeError) {
     if (m_imports && m_imports->importService()) {
       auto *svc = m_imports->importService();

@@ -19,6 +19,7 @@ class ProjectSetupDialog : public QDialog
 public:
   explicit ProjectSetupDialog(ProjectSetupWorkflow *workflow, QWidget *parent = nullptr);
   QString projectPath() const;
+  void showCreationError(const QString &error);
   ProjectSetupSources sources() const;
   ProjectSetupPreview preview() const;
   void setSourceRoot(const QString &root);

@@ -231,7 +231,8 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
   m_crs->setText(p.pointSourceCrs); m_pointPreview->setRowCount(p.pointRows.size());
   for (int row = 0; row < p.pointRows.size(); ++row) for (int col = 0; col < 3; ++col) m_pointPreview->setItem(row, col, new QTableWidgetItem(p.pointRows[row].value(col)));
   refreshReview();
-  m_status->setText(!p.errors.isEmpty() ? tr("工程配置需要调整，详细原因见确认页。")
+  const QString creationError = property("paleo.creationError").toString();
+  m_status->setText(!creationError.isEmpty() ? creationError : !p.errors.isEmpty() ? tr("工程配置需要调整，详细原因见确认页。")
       : !p.sourceProblems.isEmpty() ? tr("部分资料未通过检查；仍可创建工程并导入其余资料，详情见确认页。")
       : tr("识别完成；可继续设置或直接核对创建。")); m_next->setEnabled(true);
 }
@@ -278,6 +279,12 @@ void ProjectSetupDialog::refreshReview()
 }
 void ProjectSetupDialog::showStep(int step)
 {
+  QString locationError;
+  if (step > 0 && m_existingPath.isEmpty() &&
+      !ProjectSetupWorkflow::checkProjectLocation(projectPath(), &locationError)) {
+    showCreationError(locationError); return;
+  }
+  if (step > 0) setProperty("paleo.creationError", QVariant());
   m_pages->setCurrentIndex(step); m_previous->setEnabled(step > 0); m_next->setText(step == 3 ? (m_existingPath.isEmpty() ? tr("创建并导入") : tr("保存设置并导入")) : tr("下一步（本步可跳过）"));
   if ((step == 1 || step == 3) && m_dirty) scan();
   else if (step == 3) refreshReview();
@@ -292,8 +299,21 @@ void ProjectSetupDialog::finish()
 {
   const QString name = m_name->text().trimmed();
   if (name.isEmpty() || name == "." || name == ".." || name.contains(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]"))) || m_output->text().trimmed().isEmpty()) { m_empty = false; m_status->setText(tr("请填写有效的工程名称和保存位置。")); return; }
+  QString locationError;
+  if (m_existingPath.isEmpty() && !ProjectSetupWorkflow::checkProjectLocation(projectPath(), &locationError)) {
+    showCreationError(locationError); return;
+  }
+  setProperty("paleo.creationError", QVariant());
   if (m_empty) { m_blankLocked = true; accept(); return; }
   if (m_busy || m_dirty) { m_status->setText(tr("请等待本次识别完成后再创建。")); if (!m_busy) scan(); return; }
   if (!m_empty && !m_preview.errors.isEmpty()) { m_status->setText(tr("请调整有问题的资料来源，或将其清空后重新识别。")); return; }
   accept();
+}
+
+void ProjectSetupDialog::showCreationError(const QString &error)
+{
+  m_blankLocked = false;
+  setProperty("paleo.creationError", error);
+  m_steps->setCurrentIndex(0);
+  m_status->setText(error);
 }

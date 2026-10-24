@@ -215,3 +215,41 @@ QString EncodingDetect::decodeText(const QByteArray &raw)
   }
   return QString::fromUtf8(noBom);
 }
+
+bool EncodingDetect::hasUtf16Bom(const QByteArray &raw)
+{
+  if (raw.size() < 2)
+    return false;
+  const uchar b0 = static_cast<uchar>(raw[0]);
+  const uchar b1 = static_cast<uchar>(raw[1]);
+  return (b0 == 0xFF && b1 == 0xFE) || (b0 == 0xFE && b1 == 0xFF);
+}
+
+QString EncodingDetect::decodeAs(const QByteArray &bytes, TextEncoding enc)
+{
+  if (hasUtf16Bom(bytes))
+    return decodeText(bytes); // UTF-16 段：stripBom 负责转码
+  QByteArray b = bytes;
+  if (b.size() >= 3 && static_cast<uchar>(b[0]) == 0xEF &&
+      static_cast<uchar>(b[1]) == 0xBB && static_cast<uchar>(b[2]) == 0xBF)
+    b = b.mid(3);
+  switch (enc)
+  {
+    case TextEncoding::GB18030:
+    {
+      if (!hasHighBytes(b))
+        return QString::fromLatin1(b); // 纯 ASCII：两种编码等价
+      const QString s = decodeGb(b);
+      if (!s.isEmpty())
+        return s;
+      return decodeText(b);
+    }
+    case TextEncoding::Latin1:
+      return QString::fromLatin1(b);
+    case TextEncoding::Utf8:
+      if (isStrictUtf8(b))
+        return QString::fromUtf8(b);
+      return decodeText(b);
+  }
+  return decodeText(b);
+}

@@ -7,6 +7,7 @@
 #include "encodingdetect.h"
 
 #include <QFile>
+#include <QBuffer>
 #include <QFileInfo>
 #include <QRegularExpression>
 
@@ -213,16 +214,59 @@ bool LasParser::parse(const QString &path, QStringList &curveNames,
   return true;
 }
 
+namespace
+{
+  // PW-016/017：行式头部读取（parseHeader/readWellInfo）的统一入口——
+  // 文件级嗅探一次编码（不再逐行嗅探）；UTF-16 BOM 文件整体转码为 UTF-8
+  // 后再按行读（逐字节 readLine 会把 UTF-16 切碎）。
+  struct LasLineSource
+  {
+    QIODevice *dev = nullptr;
+    QBuffer buffer;
+    TextEncoding enc = TextEncoding::Utf8;
+  };
+
+  bool openLasLineSource(QFile &f, LasLineSource *src, qint64 sizeLimit, QString *err)
+  {
+    const QByteArray sample = f.peek(64 * 1024);
+    if (EncodingDetect::hasUtf16Bom(sample))
+    {
+      if (f.size() > sizeLimit)
+      {
+        *err = QStringLiteral("UTF-16 LAS exceeds full-transcode guard: %1").arg(f.fileName());
+        return false;
+      }
+      src->buffer.setData(EncodingDetect::stripBom(f.readAll())); // 转码为 UTF-8
+      src->buffer.open(QIODevice::ReadOnly);
+      src->dev = &src->buffer;
+      src->enc = TextEncoding::Utf8;
+      return true;
+    }
+    src->dev = &f;
+    src->enc = EncodingDetect::detect(EncodingDetect::stripBom(sample));
+    return true;
+  }
+} // namespace
+
 bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
                             QString *error)
 {
   out = LasHeaderInfo{};
   out.indexBasis = QStringLiteral("MD"); // LAS 不声明基准，行业惯例 MD（lasparser.h）
   QFile f(path);
-  if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+  if (!f.open(QIODevice::ReadOnly))
   {
     setError(error, QStringLiteral("cannot open %1").arg(path));
     return false;
+  }
+  LasLineSource src;
+  {
+    QString err;
+    if (!openLasLineSource(f, &src, s_fileSizeLimit, &err))
+    {
+      setError(error, err);
+      return false;
+    }
   }
 
   // 与 parse() 同源的段状态机（Version/Well/Curves）；见到 ~A 段头即停——
@@ -234,9 +278,9 @@ bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
   // #588：逐行原始字节 + EncodingDetect 解码（与 parseDoc 的 scanHeaderBytes
   // 同口径）。QTextStream 默认按 UTF-8 解，GB18030 的 LAS 在这里解出的井名
   // 是乱码——wellsMatchingName 零匹配，井曲线行全落「未决」链接。
-  while (!f.atEnd())
+  while (!src.dev->atEnd())
   {
-    const QString line = EncodingDetect::decodeText(f.readLine()).trimmed();
+    const QString line = EncodingDetect::decodeAs(src.dev->readLine(), src.enc).trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
     if (line.startsWith(QLatin1Char('~')))
@@ -298,10 +342,19 @@ bool LasParser::readWellInfo(const QString &path, QString &wellName, QString *er
   wellName.clear();
 
   QFile f(path);
-  if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+  if (!f.open(QIODevice::ReadOnly))
   {
     setError(error, QStringLiteral("cannot open %1").arg(path));
     return false;
+  }
+  LasLineSource src;
+  {
+    QString err;
+    if (!openLasLineSource(f, &src, s_fileSizeLimit, &err))
+    {
+      setError(error, err);
+      return false;
+    }
   }
 
   // 只需 ~W 段的 WELL item——读到 ~C 即止。
@@ -309,9 +362,9 @@ bool LasParser::readWellInfo(const QString &path, QString &wellName, QString *er
   // #588：同 parseHeader/parseDoc——QTextStream 默认 UTF-8 会把 GB18030
   // 井名解成乱码（wellsMatchingName 随之零匹配）。逐行原始字节 +
   // EncodingDetect 解码，口径单源化。
-  while (!f.atEnd())
+  while (!src.dev->atEnd())
   {
-    const QString line = EncodingDetect::decodeText(f.readLine()).trimmed();
+    const QString line = EncodingDetect::decodeAs(src.dev->readLine(), src.enc).trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
     if (line.startsWith(QLatin1Char('~')))
@@ -384,6 +437,13 @@ namespace
     Section section = Section::None;
 
     // 头部编码统一嗅探（GB18030 井名不再乱码，D7.2 联动）。
+    // PW-017：UTF-16 下 stripBom 会转码，pos 与 raw 字节偏移不再同一坐标系——
+    // 调用方须先整体转码（parseDoc）或拒绝（区间流式读）。此处兜底拒绝。
+    if (EncodingDetect::hasUtf16Bom(raw))
+    {
+      out.error = QStringLiteral("UTF-16 encoded LAS must be transcoded before header scan");
+      return out;
+    }
     const QByteArray noBom = EncodingDetect::stripBom(raw);
     const TextEncoding enc =
         EncodingDetect::detect(noBom.left(qMin<qsizetype>(64 * 1024, noBom.size())));
@@ -408,7 +468,8 @@ namespace
       if (eol < n && noBom.at(eol) == '\r' && pos < n && noBom.at(pos) == '\n')
         ++pos;
 
-      const QString trimmed = EncodingDetect::decodeText(lineBytes).trimmed();
+      // PW-016：用文件级 enc 解码，不逐行再嗅探。
+      const QString trimmed = EncodingDetect::decodeAs(lineBytes, enc).trimmed();
       if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#')))
         continue;
       if (trimmed.startsWith(QLatin1Char('~')))
@@ -663,7 +724,14 @@ LasDoc LasParser::parseDoc(const QString &path, QList<LasIssue> *issues)
   }
   CacheBudgetManager::instance()->noteLargeAllocation(
       QStringLiteral("LasParser::parseDoc(%1)").arg(info.fileName()), size);
-  const QByteArray raw = f.readAll();
+  QByteArray raw = f.readAll();
+  if (EncodingDetect::hasUtf16Bom(raw))
+  {
+    // PW-017：UTF-16 整体转码为 UTF-8，头扫描与数据行同一缓冲/同一偏移系。
+    raw = EncodingDetect::stripBom(raw);
+    addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Encoding, 0,
+             QStringLiteral("UTF-16 文件已整体转码为 UTF-8 解析"));
+  }
   HeaderScanResult header = scanHeaderBytes(raw, issues);
   if (!header.error.isEmpty())
   {
@@ -708,6 +776,14 @@ namespace
   {
     // 头部按需读（不整读）：头段通常 < 64KB，最大扫 4MB 兜住病态长头。
     const QByteArray head = f.read(4 * 1024 * 1024);
+    if (EncodingDetect::hasUtf16Bom(head))
+    {
+      // PW-017：区间读按源文件字节偏移寻址，UTF-16 无法与转码缓冲对齐——明确拒绝。
+      if (error)
+        *error = QStringLiteral("%1: UTF-16 encoded LAS is not supported by range reads; "
+                                "use parseDoc or re-save as UTF-8").arg(path);
+      return false;
+    }
     *header = scanHeaderBytes(head, issues);
     if (!header->error.isEmpty())
     {

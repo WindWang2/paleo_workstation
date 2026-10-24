@@ -25,6 +25,8 @@ class TestLas : public QObject
     void testWhitespaceOnlyAndCtrlZDoNotCreatePhantomRows();
     void legacyParseSharesGuardAndEncodingWithParseDoc();
     void parseRangeStreamingSurfacesTruncatedIssues();
+    void gbkHeaderLinesDecodedWithFileEncoding();
+    void utf16BomParsesViaTranscodeAndRangeRejects();
 
   private:
     QTemporaryDir m_tempDir;
@@ -753,6 +755,60 @@ void TestLas::parseRangeStreamingSurfacesTruncatedIssues()
     QVERIFY2(s1 == d1 || (qIsNaN(s1) && qIsNaN(d1)),
              QStringLiteral("row %1 GR: %2 != %3").arg(r).arg(s1).arg(d1).toUtf8().constData());
   }
+}
+
+// PW-016：GBK 文件中恰好是合法 UTF-8 的行（如「茂」）不得被逐行嗅探误解码。
+void TestLas::gbkHeaderLinesDecodedWithFileEncoding()
+{
+  QTemporaryDir dir;
+  const QString path = dir.filePath(QStringLiteral("gbk.las"));
+  const QString text = QStringLiteral(
+      "~V\nVERS. 2.0 :\nWRAP. NO :\n~W\nWELL.   茂1 : 井名\nNULL. -999.25 :\n"
+      "~C\nDEPT.M : 深度\nGR.API : 伽马\n~A\n100.0 50.0\n101.0 60.0\n");
+  QStringEncoder gbk("GB18030");
+  QFile f(path);
+  QVERIFY(f.open(QIODevice::WriteOnly));
+  f.write(gbk.encode(text));
+  f.close();
+  LasHeaderInfo h;
+  QString err;
+  QVERIFY2(LasParser::parseHeader(path, h, &err), qPrintable(err));
+  QCOMPARE(h.wellName, QStringLiteral("茂1"));
+  QString wn;
+  QVERIFY(LasParser::readWellInfo(path, wn, &err));
+  QCOMPARE(wn, QStringLiteral("茂1"));
+  const LasDoc doc = LasParser::parseDoc(path);
+  QVERIFY(doc.ok);
+  QCOMPARE(doc.curves.size(), 2);
+}
+
+// PW-017：UTF-16 BOM 文件整读须整体转码（数据偏移同一坐标系）；区间读明确拒绝。
+void TestLas::utf16BomParsesViaTranscodeAndRangeRejects()
+{
+  QTemporaryDir dir;
+  const QString path = dir.filePath(QStringLiteral("u16.las"));
+  const QString text = QStringLiteral(
+      "~V\nVERS. 2.0 :\nWRAP. NO :\n~W\nWELL. W1 :\nNULL. -999.25 :\n"
+      "~C\nDEPT.M :\nGR.API :\n~A\n100.0 50.0\n101.0 60.0\n");
+  QByteArray bytes("\xFF\xFE", 2);
+  bytes += QByteArray(reinterpret_cast<const char *>(text.utf16()), text.size() * 2);
+  QFile f(path);
+  QVERIFY(f.open(QIODevice::WriteOnly));
+  f.write(bytes);
+  f.close();
+  const LasDoc doc = LasParser::parseDoc(path);
+  QVERIFY2(doc.ok, qPrintable(doc.error));
+  QCOMPARE(doc.curves.size(), 2);
+  QCOMPARE(doc.curves.at(0).values.size(), 2);
+  QCOMPARE(doc.curves.at(1).values.at(1), 60.0);
+  LasHeaderInfo h;
+  QString err;
+  QVERIFY2(LasParser::parseHeader(path, h, &err), qPrintable(err));
+  QCOMPARE(h.wellName, QStringLiteral("W1"));
+  QList<LasCurve> curves;
+  QStringList names;
+  QVERIFY(!LasParser::parseRange(path, 0, 1, names, curves, &err));
+  QVERIFY(err.contains(QStringLiteral("UTF-16")));
 }
 
 QTEST_MAIN(TestLas)

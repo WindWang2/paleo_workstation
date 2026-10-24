@@ -23,10 +23,14 @@ public:
 
 private:
   void showResult(const QVariantList &wells, const QString &error);
+  void clearResult();
   MappingWorkbench *m_workbench;
   Selection m_selection;
   QPushButton *m_check = nullptr, *m_toggle = nullptr;
   QLabel *m_summary = nullptr;
   QListWidget *m_reasons = nullptr;
   bool m_checking = false;
+  bool m_errorShown = false;   // 当前摘要是「检查未完成」原因而非结论
+  bool m_recheckError = false; // 输入变化后待比对勾选再决定是否作废原因
+  QStringList m_checkedIds;    // 最近一次发起检查时的勾选
 };

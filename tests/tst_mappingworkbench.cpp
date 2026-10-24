@@ -3455,6 +3455,16 @@ private slots:
     QVERIFY2(summary->text().contains(QStringLiteral("未完成")) ||
              summary->text().contains(QStringLiteral("中止")),
              qPrintable(summary->text()));
+    // 中止原因跨事件循环仍在（重绑触发的输入重建不得把它清掉）……
+    QTest::qWait(50);
+    QVERIFY2(summary->text().contains(QStringLiteral("未完成")), qPrintable(summary->text()));
+    // ……但勾选真正变化后作废。
+    inputs = page.findChild<QListWidget *>("workbenchInputs");
+    QCOMPARE(inputs->count(), 1);
+    inputs->item(0)->setCheckState(Qt::Unchecked);
+    QTRY_VERIFY(summary->text().isEmpty());
+    inputs->item(0)->setCheckState(Qt::Checked);
+    QTRY_VERIFY(check->isEnabled());
     // 放开服务后再跑通一次，证明 m_readinessId 已清干净。
     server.holdModels = false;
     check->click();

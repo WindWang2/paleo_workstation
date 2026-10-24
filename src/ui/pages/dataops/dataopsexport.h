@@ -6,6 +6,7 @@
 
 #include <QDateTime>
 #include <QFile>
+#include <QSaveFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -122,11 +123,16 @@ inline QByteArray exportJson(const QVector<AssetRowInfo> &rows, const ExportFiel
 
 inline bool writeExportFile(const QString &path, const QByteArray &content)
 {
-  QFile f(path);
+  // PW-046：原子写 + 写满校验——磁盘满/部分写不再报"导出成功"。
+  QSaveFile f(path);
   if (!f.open(QIODevice::WriteOnly))
     return false;
-  f.write(content);
-  return true;
+  if (f.write(content) != content.size())
+  {
+    f.cancelWriting();
+    return false;
+  }
+  return f.commit();
 }
 
 } // namespace paleo::dataops

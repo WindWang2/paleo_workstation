@@ -189,7 +189,9 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
       // skips render() entirely; a miss re-renders and re-stores.
       const quint64 key = trackCacheKey(t, stripW, stripH, depthMin, depthMax, depthOffset);
       QPixmap pmData;
-      const auto cit = m_cache.constFind(t.mnemonic());
+      // PW-136：按「助记符#道序」入缓存——同列重复助记符不再互相挤掉
+      const QString cacheId = t.mnemonic() + QLatin1Char('#') + QString::number(i);
+      const auto cit = m_cache.constFind(cacheId);
       if (cit != m_cache.constEnd() && cit.value().key == key)
       {
         pmData = cit.value().pixmap;
@@ -200,7 +202,7 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
         const QImage img = t.render(stripW, stripH, depthMin, depthMax, depthOffset);
         if (!img.isNull())
           pmData = QPixmap::fromImage(img);
-        m_cache.insert(t.mnemonic(), CachedImage{key, img, pmData});
+        m_cache.insert(cacheId, CachedImage{key, pmData}); // PW-136：只存 pixmap，不双份
       }
 
       // Null pixmap (empty track / stub renderer): the pixmap is skipped,

@@ -2,6 +2,8 @@
 // token 例外：DESIGN 数据符号例外：地层关联标记的默认待复核语义色。（tools/ui-token-exceptions.json 精确计数）。
 #include "horizonmarkers.h"
 
+#include <memory>
+
 #include "../paleotheme.h"
 
 #include "correlationwellcolumn.h"
@@ -158,9 +160,16 @@ class MarkerLineItem : public QGraphicsLineItem
       // scene->clear()) delete this item while we are still on its stack.
       // The 0-timer keeps the emit off the item; rebuild() preserves the
       // grabbed line so the drag continues seamlessly after the rebuild.
-      QTimer::singleShot(0, m_set, [set = m_set, marker = m_marker,
-                                    well = m_wellId, pick]() {
-        set->setWellDepth(marker, well, pick);
+      // PW-136：拖动合帧——每次移动只更新最新深度，至多每 16ms 提交一次；
+      // 展平拖动时每次提交都会让该井全部道重渲染，逐事件提交会卡顿。
+      m_coalesce->pick = pick;
+      if (m_coalesce->queued)
+        return;
+      m_coalesce->queued = true;
+      QTimer::singleShot(16, m_set, [set = m_set, marker = m_marker,
+                                     well = m_wellId, state = m_coalesce]() {
+        state->queued = false;
+        set->setWellDepth(marker, well, state->pick);
       });
     }
 
@@ -172,6 +181,8 @@ class MarkerLineItem : public QGraphicsLineItem
     qreal m_pressDy = 0.0;
     qreal m_pressLineY = 0.0;
     float m_pressPick = kNaNf;
+    struct Coalesce { float pick = kNaNf; bool queued = false; };
+    std::shared_ptr<Coalesce> m_coalesce = std::make_shared<Coalesce>();
 };
 
 HorizonMarkerSet::HorizonMarkerSet(QObject *parent)

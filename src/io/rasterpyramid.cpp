@@ -30,11 +30,15 @@ using paleo::io_detail::ensureGdalRegistered;
 
   constexpr int kTileSize = 256;
   const char kLevelMagic[4] = {'P', 'Y', 'R', 'L'};
+  // PW-104：层文件头 = magic(4) + z/tilesX/tilesY/tileW/tileH(5×4) + 格式版本(4) = 28 字节。
+  // 旧版只写 24 字节、读侧却按 28 定位——此前的 z*.bin 全部错位，靠版本字段识别并重建。
+  constexpr qint64 kHeaderBytes = 28;
+  constexpr quint32 kLevelFormatVersion = 2;
   constexpr qint64 kDefaultTileBudget = 128LL * 1024 * 1024;
 
   qint64 headerSizeFor(int tilesX, int tilesY)
   {
-    return 28 + static_cast<qint64>(tilesX) * tilesY +      // state bytes
+    return kHeaderBytes + static_cast<qint64>(tilesX) * tilesY +      // state bytes
            static_cast<qint64>(tilesX) * tilesY * 8;        // offset table
   }
 
@@ -42,7 +46,7 @@ using paleo::io_detail::ensureGdalRegistered;
   // 之后）且整块 samples*4 字节不越过文件尾。offset=0（崩溃残片）必判非法。
   bool payloadOffsetInRange(qint64 payloadOff, int tileCount, int samples, qint64 fileSize)
   {
-    const qint64 payloadStart = 28 + static_cast<qint64>(tileCount) * 9;
+    const qint64 payloadStart = kHeaderBytes + static_cast<qint64>(tileCount) * 9;
     return payloadOff >= payloadStart &&
            payloadOff <= fileSize - static_cast<qint64>(samples) * 4;
   }
@@ -161,7 +165,25 @@ bool RasterPyramidService::ensureLevelFile(const QString &rasterPath,
 {
   const QString path = dirFor(rasterPath) + QStringLiteral("/z%1.bin").arg(z);
   if (QFile::exists(path))
-    return true;
+  {
+    QFile existing(path);
+    if (existing.open(QIODevice::ReadOnly))
+    {
+      const QByteArray h = existing.read(kHeaderBytes);
+      existing.close();
+      if (h.size() == kHeaderBytes && h.startsWith(QByteArray(kLevelMagic, 4)))
+      {
+        const auto *v = reinterpret_cast<const uchar *>(h.constData()) + 24;
+        const quint32 ver = quint32(v[0]) | quint32(v[1]) << 8 | quint32(v[2]) << 16 |
+                            quint32(v[3]) << 24;
+        const quint32 verBE = quint32(v[3]) | quint32(v[2]) << 8 | quint32(v[1]) << 16 |
+                              quint32(v[0]) << 24;
+        if (ver == kLevelFormatVersion || verBE == kLevelFormatVersion)
+          return true;
+      }
+    }
+    QFile::remove(path); // 旧 24 字节头/损坏：重建
+  }
   int lw = 0, lh = 0, tilesX = 0, tilesY = 0;
   levelGrid(meta, z, &lw, &lh, &tilesX, &tilesY);
   QByteArray header;
@@ -171,6 +193,8 @@ bool RasterPyramidService::ensureLevelFile(const QString &rasterPath,
   cacheio::putU32(&header, static_cast<quint32>(tilesY));
   cacheio::putU32(&header, static_cast<quint32>(qMin(kTileSize, lw)));
   cacheio::putU32(&header, static_cast<quint32>(qMin(kTileSize, lh)));
+  cacheio::putU32(&header, kLevelFormatVersion);
+  Q_ASSERT(header.size() == kHeaderBytes);
   const int n = tilesX * tilesY;
   header.append(QByteArray(n, '\0'));       // state 全 0（未建）
   header.append(QByteArray(n * 8, '\0'));   // offset table 全 0
@@ -327,7 +351,7 @@ bool RasterPyramidService::buildTile(const QString &rasterPath, const PyramidMet
     QFile f(path);
     if (f.open(QIODevice::ReadWrite))
     {
-      const qint64 statePos = 28 + static_cast<qint64>(y) * tilesX + x;
+      const qint64 statePos = kHeaderBytes + static_cast<qint64>(y) * tilesX + x;
         // #414：peek 空结果（截断文件）不判空即 at(0) 越界——读不到就当未建。
         if (f.seek(statePos))
         {
@@ -395,8 +419,8 @@ bool RasterPyramidService::buildTile(const QString &rasterPath, const PyramidMet
     return false;
   }
   const int n = tilesX * tilesY;
-  const qint64 statePos = 28 + static_cast<qint64>(y) * tilesX + x;
-  const qint64 offsetPos = 28 + n + (static_cast<qint64>(y) * tilesX + x) * 8;
+  const qint64 statePos = kHeaderBytes + static_cast<qint64>(y) * tilesX + x;
+  const qint64 offsetPos = kHeaderBytes + n + (static_cast<qint64>(y) * tilesX + x) * 8;
   if (f.seek(statePos))
   {
     // #414：peek 空结果当 state=0（未建）——截断 level 文件照重建，不越界读。
@@ -478,8 +502,8 @@ bool RasterPyramidService::tile(const QString &rasterPath, int z, int x, int y, 
   if (f.open(QIODevice::ReadOnly))
   {
     const int n = tilesX * tilesY;
-    const qint64 statePos = 28 + static_cast<qint64>(y) * tilesX + x;
-    const qint64 offsetPos = 28 + n + (static_cast<qint64>(y) * tilesX + x) * 8;
+    const qint64 statePos = kHeaderBytes + static_cast<qint64>(y) * tilesX + x;
+    const qint64 offsetPos = kHeaderBytes + n + (static_cast<qint64>(y) * tilesX + x) * 8;
     if (f.seek(statePos))
     {
       const QByteArray stb = f.peek(1); // #414：截断文件 peek 空——按无瓦片处理
@@ -567,9 +591,9 @@ RasterPyramidService::Stats RasterPyramidService::stats(const QString &rasterPat
     int lw = 0, lh = 0, tilesX = 0, tilesY = 0;
     levelGrid(meta, z, &lw, &lh, &tilesX, &tilesY);
     const int n = tilesX * tilesY;
-    if (f.size() < 28 + n + n * 8)
+    if (f.size() < kHeaderBytes + n + n * 8)
       continue;
-    f.seek(28);
+    f.seek(kHeaderBytes);
     const QByteArray states = f.read(n);
     for (char s : states)
     {

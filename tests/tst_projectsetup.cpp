@@ -523,7 +523,11 @@ private slots:
     const auto heads = dir.filePath("wellheads.csv"); QVERIFY(write(heads, "WELL,X,Y\nB1,bad,20\n"));
     QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
     FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
-    ProjectSetupDialog dialog(&workflow); dialog.setSourceRoot(dir.path());
+    ProjectSetupDialog dialog(&workflow);
+    // #694 起离开第一页就做保存位置预检；默认位置（Documents/Paleo）会被
+    // 本机安全软件拦截新编译的测试进程，测试改指私有临时目录保持密闭。
+    dialog.findChild<QLineEdit *>("projectDirectoryEdit")->setText(dir.filePath("out"));
+    dialog.setSourceRoot(dir.path());
     QTRY_VERIFY_WITH_TIMEOUT(dialog.preview().sourceProblems.contains(heads), 20000);
     auto *next = dialog.findChild<QPushButton *>("projectSetupNextButton"); QVERIFY(next); QVERIFY(next->isEnabled());
     auto *steps = dialog.findChild<QTabBar *>(); QVERIFY(steps); steps->setCurrentIndex(3);

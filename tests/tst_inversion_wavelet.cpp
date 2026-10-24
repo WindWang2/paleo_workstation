@@ -103,6 +103,9 @@ private slots:
   // #471：主元判据是矩阵尺度的相对阈值（1e-12·scale，与 linsolve 同口径）——
   // 接受/拒绝决策与道幅度量级无关（小幅不误判奇异，同结构大幅不误放行）。
   void pivotCriterionScaleInvariant();
+  // review-fix-numerics R3-5 / R3-6。
+  void rotatePhaseKeepsPhysicalAmplitude();
+  void extractToleratesMissingSamples();
 };
 
 void TestInversionWavelet::rickerShapeAndSpectrum()
@@ -361,6 +364,43 @@ void TestInversionWavelet::pivotCriterionScaleInvariant()
     // 不变性由「三个数量级下形状提取都成功且相关达标」断言承载，这正是
     // issue #471 的红绿判别点（旧绝对阈值在极小幅度档误判奇异）。
   }
+}
+
+
+void TestInversionWavelet::rotatePhaseKeepsPhysicalAmplitude()
+{
+  Wavelet w = makeRicker(25.0, 2.0, 128.0);
+  w.amplitudeScale = 3.0;
+  const Wavelet r = rotateWaveletPhase(w, 90.0);
+  double peakRot = 0.0;
+  for (float v : r.samples)
+    peakRot = std::max(peakRot, std::fabs(double(v)));
+  QVERIFY(std::fabs(peakRot - 1.0) < 1e-6);
+  // 相位旋转为全通：物理子波能量 Σ(scale·s)² 不变。
+  double eIn = 0.0, eOut = 0.0;
+  for (float v : w.samples)
+    eIn += std::pow(w.amplitudeScale * double(v), 2);
+  for (float v : r.samples)
+    eOut += std::pow(r.amplitudeScale * double(v), 2);
+  QVERIFY2(std::fabs(eOut / eIn - 1.0) < 0.02,
+           qPrintable(QString("能量比 %1").arg(eOut / eIn)));
+}
+
+void TestInversionWavelet::extractToleratesMissingSamples()
+{
+  const std::vector<ReflSpike> spikes = fixtureSpikes();
+  const Wavelet truth = makeRicker(25.0, 2.0, 128.0);
+  std::vector<float> trace = synthTrace(spikes, truth, 0.0, 1501, 2.0);
+  for (int i = 700; i < 720; ++i)
+    trace[std::size_t(i)] = std::numeric_limits<float>::quiet_NaN();
+  const WaveletExtractResult r = extractWavelet(trace.data(), int(trace.size()), 0.0, 2.0,
+                                                spikes.data(), int(spikes.size()), -64.0, 65);
+  QVERIFY2(r.ok, r.reason.c_str());
+  for (float v : r.wavelet.samples)
+    QVERIFY(std::isfinite(v));
+  const double c = corr(r.wavelet.samples, truth.samples);
+  QVERIFY2(c >= 0.95, qPrintable(QString("与真子波相关 %1").arg(c)));
+  QVERIFY(std::isfinite(r.fitCorrelation) && r.fitCorrelation >= 0.99);
 }
 
 QTEST_MAIN(TestInversionWavelet)

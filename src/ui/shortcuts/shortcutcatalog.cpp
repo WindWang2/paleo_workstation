@@ -73,6 +73,23 @@ ShortcutEntry make(const char *id, const QKeySequence &key, const char *context,
 constexpr Binding S = Binding::Shortcut;
 constexpr Binding K = Binding::KeyHandler;
 
+// PW-118：地图编辑撤销/重做（画布焦点内；与 data.list.* 作用域互斥）。
+// 独立成段以守 catalogEntries 函数预算；在目录链中的位置不变。
+QList<ShortcutEntry> mapEditUndoEntries()
+{
+  QList<ShortcutEntry> out;
+  out
+      << make("map.edit.undo", QKeySequence(QKeySequence::StandardKey::Undo), "main/map", S, "map",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销上一步地图要素编辑"),
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "地图画布"), "src/ui/edittools/editingtoolbar_shortcuts.cpp",
+              Qt::WidgetWithChildrenShortcut)
+      << make("map.edit.redo", QKeySequence(QKeySequence::StandardKey::Redo), "main/map", S, "map",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做被撤销的地图要素编辑"),
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "地图画布"), "src/ui/edittools/editingtoolbar_shortcuts.cpp",
+              Qt::WidgetWithChildrenShortcut);
+  return out;
+}
+
 struct BuiltRegistry
 {
   ShortcutRegistry registry;
@@ -256,18 +273,9 @@ QList<ShortcutEntry> catalogEntries()
       << make("map.edit.cancel", QKeySequence(Qt::Key_Escape), "main/map/edit-tool", K, "map",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "取消当前要素编辑并退出工具（移动工具先撤回拖动预览）"),
               editTool, "src/ui/edittools/editingtools.cpp")
-      // PW-118：地图编辑撤销/重做（画布焦点内；与 data.list.* 作用域互斥）。
-      << make("map.edit.undo", QKeySequence(QKeySequence::StandardKey::Undo), "main/map", S, "map",
-              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销上一步地图要素编辑"),
-              QT_TRANSLATE_NOOP("PaleoShortcuts", "地图画布"), "src/ui/edittools/editingtoolbar.cpp",
-              Qt::WidgetWithChildrenShortcut)
-      << make("map.edit.redo", QKeySequence(QKeySequence::StandardKey::Redo), "main/map", S, "map",
-              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做被撤销的地图要素编辑"),
-              QT_TRANSLATE_NOOP("PaleoShortcuts", "地图画布"), "src/ui/edittools/editingtoolbar.cpp",
-              Qt::WidgetWithChildrenShortcut)
+      << mapEditUndoEntries() // PW-118
       << make("map.vertex.delete", QKeySequence(Qt::Key_Delete), "main/map/vertex-tool", K, "map",
-              QT_TRANSLATE_NOOP("PaleoShortcuts", "删除光标处（按吸附结果）的节点"), vertexTool,
-              "src/ui/edittools/vertexeditortools.cpp")
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "删除光标处（按吸附结果）的节点"), vertexTool, "src/ui/edittools/vertexeditortools.cpp")
       << make("map.vertex.deleteBackspace", QKeySequence(Qt::Key_Backspace), "main/map/vertex-tool", K,
               "map", QT_TRANSLATE_NOOP("PaleoShortcuts", "同 Delete：删除光标处的节点"), vertexTool,
               "src/ui/edittools/vertexeditortools.cpp")

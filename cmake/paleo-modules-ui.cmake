@@ -114,6 +114,7 @@ add_library(paleo_ui STATIC
   src/ui/paleomainwindow_status.cpp              # 状态栏族（方向83）
   src/ui/paleomainwindow_errorhub.cpp            # 错误呈现域（方向64/83）
   src/ui/paleomainwindow_ribbon.cpp              # ribbon 骨架与面板菜单（方向83）
+  src/ui/paleomainwindow_seismic.cpp             # 地震体→停靠面板同步（file-budget 拆分）
   src/ui/paleomainwindow_shortcuts.cpp           # 页快捷键注册（方向63/83）
   src/ui/paleomainwindow_pages.cpp               # 页切换域（方向83）
   src/ui/paleomainwindow_project.cpp             # 工程打开/导入编排入口（方向83）
@@ -142,6 +143,7 @@ add_library(paleo_ui STATIC
   src/ui/pages/datalist_dnd.cpp                    # 数据页·拖拽与外部文件处理
   src/ui/pages/datalist_undo.cpp                   # 数据页·撤销重做与治理对话框
   src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧
+  src/ui/pages/entitypanel_crud.cpp                # D4.6 实体 CRUD
   src/ui/pages/wellsitingpanel.cpp                 # 方向34：布井辅助面板（验证页页签）
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
   src/ui/pages/wellreadinesspanel.cpp               # 预测专项：测井批量准备检查面板
@@ -169,6 +171,7 @@ add_library(paleo_ui STATIC
   src/ui/correlation/horizonmarkers.cpp
   src/ui/decorations/paleodecorations.cpp
   src/ui/edittools/editingtoolbar_partition.cpp
+  src/ui/edittools/editingtoolbar_shortcuts.cpp
   src/ui/edittools/editingtools.cpp                # wave/edit-tools
   src/ui/edittools/editingundostack.cpp
   src/ui/edittools/vertexpartitionvalidation.cpp
@@ -242,6 +245,7 @@ add_library(paleo_ui STATIC
   src/ui/seismic3d/seismicslicerenderer.cpp
   src/ui/seismic3d/volumeframerenderer.cpp
   src/ui/seismic3d/seismic3dviewportwidget.cpp
+  src/ui/seismic3d/seismic3dviewportwidget_scene.cpp
   src/ui/seismic3d/seismic3dviewpanel.cpp
   src/ui/seismic3d/seismic3dviewpanel_volume.cpp            # 换体入口 TU（full-audit-20261020 拆分）
   src/ui/seismicsection/seismicsectioncanvas.cpp   # 2D 任意线/井剖面 dock

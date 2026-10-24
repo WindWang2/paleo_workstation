@@ -861,8 +861,7 @@ void WellTopsEditorDialog::onBatchShift()
   spin->setObjectName(QStringLiteral("topsShiftSpin"));
   spin->setRange(-99999.0, 99999.0);
   spin->setDecimals(3);
-  // PW-138：分层记录不携带深度单位（不做换算），位移按文件原单位施加——
-  // 不再硬标「m」误导英尺数据。
+  // PW-138：分层记录无深度单位，位移按文件原单位施加（不再硬标「m」误导英尺数据）。
   spin->setValue(0.0);
   form->addRow(tr("位移量（文件深度单位；深度加深则海拔降低）"), spin);
   lay->addLayout(form);

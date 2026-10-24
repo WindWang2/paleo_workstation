@@ -41,8 +41,6 @@
 #include "editingtools.h"
 #include "../../qgis/faciespartitioneditor.h" // #533：相面捕获工具经此门面创建——faciespartitiontool.h 的 QtWidgets 边归 QGIS 封装层
 #include "vertexeditortools.h"
-#include "../shortcuts/shortcutcatalog.h"
-#include <QShortcut>
 
 // ui/edittools/ — PaleoEditingToolbar implementation notes:
 //
@@ -423,8 +421,7 @@ bool PaleoEditingToolbar::isEditing() const
 void PaleoEditingToolbar::buildUi()
 {
   mToolBar = new QToolBar( this );
-  // DESIGN.md ribbon-button：icon-over-text。图标 = vendor QGIS default
-  // 主题 svg（qrc 解析，安装路径无关）；QGIS 缺的语义走 PaleoIcons 自绘。
+  // DESIGN.md ribbon-button：icon-over-text；图标 = QGIS 主题 svg（qrc），缺的走 PaleoIcons 自绘。
   mToolBar->setToolButtonStyle( Qt::ToolButtonTextUnderIcon );
   mToolBar->setIconSize(PaleoIcons::toolbarSize()); // 9pt 正文的密度比，非 QGIS 24px
   if ( QLayout *toolLayout = mToolBar->layout() )
@@ -576,25 +573,7 @@ void PaleoEditingToolbar::buildUi()
                                 QStringLiteral( "mActionRedo.svg" ) );
 
   wireToolActions();
-
-  // PW-118：Ctrl+Z / Ctrl+Y 在地图画布焦点内驱动编辑撤销栈（走动作以复用
-  // enabled 状态与提示）。
-  if ( mCanvas )
-  {
-    auto *scUndo = paleo::shortcuts::bindShortcut( QStringLiteral( "map.edit.undo" ), mCanvas );
-    scUndo->setObjectName( QStringLiteral( "scMapEditUndo" ) );
-    connect( scUndo, &QShortcut::activated, mActionUndo, [this] {
-      if ( mActionUndo->isEnabled() )
-        mActionUndo->trigger();
-    } );
-    auto *scRedo = paleo::shortcuts::bindShortcut( QStringLiteral( "map.edit.redo" ), mCanvas );
-    scRedo->setObjectName( QStringLiteral( "scMapEditRedo" ) );
-    connect( scRedo, &QShortcut::activated, mActionRedo, [this] {
-      if ( mActionRedo->isEnabled() )
-        mActionRedo->trigger();
-    } );
-  }
-
+  installCanvasUndoShortcuts( mCanvas ); // PW-118
   connect( mActionSave, &QAction::triggered, this, &PaleoEditingToolbar::saveEditing );
   connect( mActionCancel, &QAction::triggered, this, [this] {
     // 一键 rollBack 整个编辑会话：有未提交命令时先确认（程序化 cancelEditing()

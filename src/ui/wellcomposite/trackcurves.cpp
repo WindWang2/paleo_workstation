@@ -11,6 +11,53 @@
 
 namespace WellComposite
 {
+
+namespace
+{
+// PW-101：逐像素行 min/max 抽稀状态——同一像素行内只保留首/最小/最大/末
+// 四点（保序），尖峰不丢，概览缩放下顶点数 ≤ 4×道高。
+struct PixelRowDecimator
+{
+  int key = INT_MIN;
+  QPointF first, min, max, last;
+  int count = 0, minIdx = 0, maxIdx = 0;
+
+  void add(const QPointF &pt)
+  {
+    if (count == 0)
+    {
+      first = min = max = pt;
+      minIdx = maxIdx = 0;
+    }
+    else
+    {
+      if (pt.x() < min.x()) { min = pt; minIdx = count; }
+      if (pt.x() > max.x()) { max = pt; maxIdx = count; }
+    }
+    last = pt;
+    ++count;
+  }
+
+  void flush(QVector<QPointF> &out)
+  {
+    if (count == 0)
+      return;
+    out.append(first);
+    if (count > 1)
+    {
+      const QPointF a = minIdx <= maxIdx ? min : max;
+      const QPointF b = minIdx <= maxIdx ? max : min;
+      if (a != first)
+        out.append(a);
+      if (b != a)
+        out.append(b);
+      if (last != b)
+        out.append(last);
+    }
+    count = 0;
+  }
+};
+} // namespace
 // ----------------------------------------------------------------------------
 // 7. 曲线道 (CurveTrack) — 支持合并显示 1 至 4 根曲线
 // ----------------------------------------------------------------------------
@@ -256,31 +303,12 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
       const double winTop = topDepth - 20.0;
       const double winBottom = bottomDepth + 20.0;
 
-      // PW-101：逐像素行 min/max 抽稀——同一像素行内多个样点只保留首/最小/
-      // 最大/末四点（保序），尖峰不丢，概览缩放下顶点数 ≤ 4×道高。
-      int rowKey = INT_MIN;
-      QPointF rowFirst, rowMin, rowMax, rowLast;
-      int rowCount = 0, rowMinIdx = 0, rowMaxIdx = 0;
-      const auto flushRow = [&] {
-        if (rowCount == 0)
-          return;
-        polyPoints.append(rowFirst);
-        if (rowCount > 1)
-        {
-          const QPointF a = rowMinIdx <= rowMaxIdx ? rowMin : rowMax;
-          const QPointF b = rowMinIdx <= rowMaxIdx ? rowMax : rowMin;
-          if (a != rowFirst)
-            polyPoints.append(a);
-          if (b != a)
-            polyPoints.append(b);
-          if (rowLast != b)
-            polyPoints.append(rowLast);
-        }
-        rowCount = 0;
-      };
+      // PW-101：逐像素行 min/max 抽稀（见 PixelRowDecimator）。
+      PixelRowDecimator row;
+      const auto flushRow = [&] { row.flush(polyPoints); };
       const auto breakLine = [&] {
         flushRow();
-        rowKey = INT_MIN;
+        row.key = INT_MIN;
         if (polyPoints.size() >= 2)
           painter.drawPolyline(polyPoints.constData(), static_cast<int>(polyPoints.size()));
         polyPoints.clear();
@@ -314,23 +342,12 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
           polyPoints.append(pt); // 无序数据不抽稀，保持原逐点语义
           continue;
         }
-        if (key != rowKey)
+        if (key != row.key)
         {
           flushRow();
-          rowKey = key;
+          row.key = key;
         }
-        if (rowCount == 0)
-        {
-          rowFirst = rowMin = rowMax = pt;
-          rowMinIdx = rowMaxIdx = 0;
-        }
-        else
-        {
-          if (x < rowMin.x()) { rowMin = pt; rowMinIdx = rowCount; }
-          if (x > rowMax.x()) { rowMax = pt; rowMaxIdx = rowCount; }
-        }
-        rowLast = pt;
-        ++rowCount;
+        row.add(pt);
       }
       breakLine();
     }

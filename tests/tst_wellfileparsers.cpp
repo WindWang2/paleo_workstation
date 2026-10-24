@@ -56,7 +56,19 @@ private slots:
   void baseMdHeaderIsNotStoredAsTopMd();
   void topDepthComesFromMdNotBaseMd();
   void stratTableWithoutSourceCrsKeepsImporting();
+  void csvQuotedFieldsFollowRfc4180();
 };
+
+// PW-072：引号内逗号不切列，"" 还原为字面引号。
+void WellFileParserTests::csvQuotedFieldsFollowRfc4180()
+{
+  WellParseReport report;
+  const auto rows = parseWellHeadText("\"W,1 \"\"A\"\"\",100,200,30,1500\n", &report);
+  QCOMPARE(rows.size(), 1);
+  QCOMPARE(rows.at(0).name, QStringLiteral("W,1 \"A\""));
+  QCOMPARE(rows.at(0).x, 100.0);
+  QCOMPARE(rows.at(0).y, 200.0);
+}
 
 void WellFileParserTests::sentinelVocabularyIsExact()
 {

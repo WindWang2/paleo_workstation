@@ -135,6 +135,8 @@ jobs:
           python3 tools/check_file_budget.py --selftest
           python3 tools/check_i18n.py
           python3 tools/check_i18n.py --selftest
+          python3 tools/check_ts_stale.py
+          python3 tools/check_ts_stale.py --selftest
           python3 tools/check_qgis_versions.py
           python3 tools/check_qgis_versions.py --selftest
           python3 tools/check_ci_scripts.py

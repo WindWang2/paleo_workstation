@@ -2124,8 +2124,8 @@ class TestUiShell : public QObject
       QCOMPARE(m_ctx->canvasCtl()->canvas()->mapTool(), drawTool);
       auto *thirdView = evidencePanel->views()[2];
       QVERIFY(thirdView->sourceId().isEmpty());
-      QCOMPARE(thirdView->geometry().left(), evidencePanel->views().first()->geometry().left());
-      QVERIFY(thirdView->geometry().top() > evidencePanel->views().first()->geometry().bottom());
+      QCOMPARE(thirdView->geometry().top(), evidencePanel->views().first()->geometry().top());
+      QVERIFY(thirdView->geometry().left() > newReference->geometry().right());
       QVERIFY(newReference->geometry().left() > evidencePanel->views().first()->geometry().right());
       if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty())
         QVERIFY(m_win->grab().save(qa + "/evidence-panels-three-light.png"));

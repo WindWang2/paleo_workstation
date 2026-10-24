@@ -11,16 +11,11 @@
 // 层：数据
 namespace paleo::singlefactor
 {
-namespace
+namespace detail
 {
-
-struct Segment
-{
-  Point2 a;
-  Point2 b;
-};
 
 // 网格 marching squares：区域内有限值格点提等值线段。北向上、像元中心采样。
+// 移出匿名命名空间仅为单测可直接验证鞍点/角点等于级别口径（见头文件）。
 void marchingSquaresSegments( const GridSpec &grid, const std::vector<double> &values,
                               const std::vector<std::uint8_t> &regionMask, double level,
                               std::vector<Segment> *out )
@@ -61,17 +56,18 @@ void marchingSquaresSegments( const GridSpec &grid, const std::vector<double> &v
         int code;
       };
       std::vector<EdgePoint> hits;
-      // 值恰等于级别也算穿级（对称场不漏检）；整边同值不算。
-      const auto crosses = [level]( double v0, double v1 ) {
-        return v0 != v1 && ( v0 - level ) * ( v1 - level ) <= 0.0;
-      };
-      if ( crosses( tl, tr ) )
+      // 二值分类 v ≥ level（与 fieldcontours 同口径）：角点恰等于级别归入“上方”，
+      // 每条边至多一个交点、每格 0/2/4 个交点。旧式“(v0−L)(v1−L) ≤ 0”在角点等于
+      // 级别时让相邻两条边都命中同一角点，给出 3 个交点而整格丢线，或 4 个交点被
+      // 误当鞍点连出伪线段。
+      const bool aTl = tl >= level, aTr = tr >= level, aBr = br >= level, aBl = bl >= level;
+      if ( aTl != aTr )
         hits.push_back( { Point2{ x0 + ( x1 - x0 ) * interp( tl, tr, level ), yTop }, 0 } );
-      if ( crosses( tr, br ) )
+      if ( aTr != aBr )
         hits.push_back( { Point2{ x1, yTop + ( yBot - yTop ) * interp( tr, br, level ) }, 1 } );
-      if ( crosses( br, bl ) )
+      if ( aBr != aBl )
         hits.push_back( { Point2{ x0 + ( x1 - x0 ) * interp( bl, br, level ), yBot }, 2 } );
-      if ( crosses( bl, tl ) )
+      if ( aBl != aTl )
         hits.push_back( { Point2{ x0, yTop + ( yBot - yTop ) * interp( tl, bl, level ) }, 3 } );
       if ( hits.size() == 2 )
       {
@@ -79,9 +75,12 @@ void marchingSquaresSegments( const GridSpec &grid, const std::vector<double> &v
       }
       else if ( hits.size() == 4 )
       {
-        // 鞍点：按中心均值消歧，避免交叉连线。
+        // 鞍点（tl/br 同类、tr/bl 另一类）：按中心均值消歧。中心与 tl 同类 → tl、br
+        // 经中心连通，切掉 tr 角 (0,1) 与 bl 角 (2,3)；否则切掉 tl 角 (0,3) 与 br 角
+        // (1,2)。旧实现按“中心 ≥ 级别”而非“中心与 tl 同类”选配对，tl 在下方时
+        // 连线方向反了（等值线穿过中心高值区）。
         const double center = 0.25 * ( tl + tr + br + bl );
-        if ( center >= level )
+        if ( ( center >= level ) == aTl )
         {
           out->push_back( Segment{ hits[0].p, hits[1].p } );
           out->push_back( Segment{ hits[2].p, hits[3].p } );
@@ -95,6 +94,14 @@ void marchingSquaresSegments( const GridSpec &grid, const std::vector<double> &v
     }
   }
 }
+
+} // namespace detail
+
+namespace
+{
+
+using detail::Segment;
+using detail::marchingSquaresSegments;
 
 double squaredDist( Point2 a, Point2 b )
 {

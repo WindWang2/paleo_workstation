@@ -23,6 +23,17 @@ using paleo::io_detail::setError;
 
   const float kNoData = -9999.0f;
 
+  // 逐行解码，避免只读文件头时拆分整份大文件；兼容 LF、CRLF、CR。
+  QString nextHorizonLine(const QByteArray &text, qsizetype *position)
+  {
+    const auto start = *position;
+    auto end = start;
+    const auto *bytes = text.constData();
+    while (end < text.size() && bytes[end] != '\r' && bytes[end] != '\n') ++end;
+    *position = end < text.size() ? end + 1 : end;
+    return QString::fromUtf8(bytes + start, end - start);
+  }
+
   bool grabDouble(const QString &line, int index, double *out)
   {
     // P 行是逗号分隔："# P1:      1315,      4165,     0.00000,     0.00000"
@@ -59,10 +70,11 @@ bool parseHorizonHeader(const QByteArray &text, HorizonHeader *out, QString *err
   HorizonHeader h;
   const auto projectionHeader = text.left(8192).toUpper();
   const bool nativeGrid = projectionHeader.contains("# PROJECTION: UTM") || projectionHeader.contains("# PROJECTION: EPSG:");
-  const QString data = QString::fromUtf8(text);
-  for (const QString &raw : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
-                                        Qt::SkipEmptyParts))
+  qsizetype position = 0;
+  while (position < text.size())
   {
+    const QString raw = nextHorizonLine(text, &position);
+    if (raw.isEmpty()) continue;
     const QString line = raw.trimmed();
     if (!line.startsWith(QLatin1Char('#')))
       break; // 头部结束（数据行开始）
@@ -188,10 +200,12 @@ HorizonScatter parseHorizonScatter(const QByteArray &text)
 {
   HorizonScatter out;
   bool ilSeen = false, xlSeen = false;
-  const QString data = QString::fromUtf8(text);
-  for (const QString &raw : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
-                                        Qt::SkipEmptyParts))
+  const QRegularExpression spaces(QStringLiteral("\\s+"));
+  qsizetype position = 0;
+  while (position < text.size())
   {
+    const QString raw = nextHorizonLine(text, &position);
+    if (raw.isEmpty()) continue;
     const QString line = raw.trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
     {
@@ -199,7 +213,7 @@ HorizonScatter parseHorizonScatter(const QByteArray &text)
       continue;
     }
     const QStringList t =
-        line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        line.split(spaces, Qt::SkipEmptyParts);
     if (t.size() < 3)
     {
       ++out.skipped;
@@ -290,14 +304,15 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
 
   QVector<bool> filled(cellCount, false);
 
-  const QString data = QString::fromUtf8(text);
-  for (const QString &raw : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
-                                        Qt::SkipEmptyParts))
+  const QRegularExpression spaces(QStringLiteral("\\s+"));
+  qsizetype position = 0;
+  while (position < text.size())
   {
+    const QString raw = nextHorizonLine(text, &position);
     const QString line = raw.trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
-    const QStringList t = line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    const QStringList t = line.split(spaces, Qt::SkipEmptyParts);
     if (t.size() < 5)
       continue;
     bool okInl = false, okXl = false, okZ = false;

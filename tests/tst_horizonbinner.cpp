@@ -1,5 +1,10 @@
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QElapsedTimer>
+#include <QCryptographicHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QDir>
 
 #include "../src/io/horizonbinner.h"
 
@@ -22,6 +27,7 @@ private slots:
   void rejectsExtremeLineNumbersWithoutOverflow(); // #595 L4.1
   void writesGeoTiffWithGeotransform();
   void writesPaleoSurveyMetadata();
+  void benchmarkLocalHorizons();
 
 private:
   QString fixturePath() const
@@ -36,6 +42,36 @@ private:
     return f.readAll();
   }
 };
+
+void TestHorizonBinner::benchmarkLocalHorizons()
+{
+  const auto root = qEnvironmentVariable("PALEO_HORIZON_BENCHMARK_INPUT");
+  if (root.isEmpty()) QSKIP("Set PALEO_HORIZON_BENCHMARK_INPUT for local benchmarks");
+  QJsonObject results;
+  qint64 total = 0;
+  for (const auto &name : QDir(root).entryList({"*.dat"}, QDir::Files, QDir::Name)) {
+    const auto bytes = readFile(QDir(root).filePath(name));
+    QVERIFY(!bytes.isEmpty());
+    BinnedHorizon grid; QString error; QElapsedTimer clock; clock.start();
+    QVERIFY2(binHorizon(bytes, &grid, &error), qPrintable(error));
+    const auto elapsed = clock.elapsed(); total += elapsed;
+    const auto digest = QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char *>(grid.z.constData()),
+        grid.z.size() * sizeof(float)), QCryptographicHash::Sha256).toHex();
+    QJsonObject record{{"sha256", QString::fromLatin1(digest)}, {"rows", grid.rows}, {"cols", grid.cols},
+      {"filled", grid.filledCells}, {"collisions", grid.collisions}, {"rejected", grid.rejected},
+      {"origin_x", grid.originX}, {"origin_y", grid.originY}, {"dx", grid.dx}, {"dy", grid.dy},
+      {"row_x", grid.rowX}, {"column_y", grid.columnY}, {"residual", grid.geometryResidualM},
+      {"z_min", grid.zMin}, {"z_max", grid.zMax}, {"elapsed_ms", elapsed}};
+    results.insert(name, record);
+    qInfo() << "horizon-benchmark" << name << elapsed << "ms" << grid.filledCells << digest;
+  }
+  QVERIFY(!results.isEmpty()); qInfo() << "horizon-benchmark total_ms" << total;
+  const auto output = qEnvironmentVariable("PALEO_HORIZON_BENCHMARK_OUTPUT");
+  if (!output.isEmpty()) {
+    QFile file(output); QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write(QJsonDocument(results).toJson()) > 0);
+  }
+}
 
 void TestHorizonBinner::parsesHeader()
 {
@@ -78,6 +114,19 @@ void TestHorizonBinner::binsSamplePoints()
   // 样本只覆盖前几千点 → 大量空道为 nodata
   QCOMPARE(b.z.at(0), -9999.0f);
   QVERIFY(b.collisions >= 0);
+  auto normalized = readFile(fixturePath());
+  normalized.replace("\r\n", "\n"); normalized.replace('\r', '\n');
+  while (normalized.endsWith('\n')) normalized.chop(1);
+  const auto scatter = parseHorizonScatter(normalized);
+  for (const QByteArray ending : {QByteArray("\n"), QByteArray("\r\n"), QByteArray("\r")}) {
+    auto variant = normalized; variant.replace("\n", ending);
+    BinnedHorizon other;
+    QVERIFY2(binHorizon(variant, &other, &err), qPrintable(err));
+    QCOMPARE(other.z, b.z); QCOMPARE(other.filledCells, b.filledCells);
+    QCOMPARE(other.collisions, b.collisions); QCOMPARE(other.rejected, b.rejected);
+    const auto points = parseHorizonScatter(variant);
+    QCOMPARE(points.points.size(), scatter.points.size()); QCOMPARE(points.skipped, scatter.skipped);
+  }
 }
 
 void TestHorizonBinner::countsCollisions()

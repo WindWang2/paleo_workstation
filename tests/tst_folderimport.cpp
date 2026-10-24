@@ -642,6 +642,16 @@ void concurrentWorkflowImportsCommitOnGuiThread()
   PaleoTaskService tasks(stack->store.get());
   FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
   QSignalSpy activeSpy(&wf, &FolderImportWorkflow::importActiveChanged);
+  QSet<qint64> finalStages;
+  bool invalidFinalEstimate = false;
+  connect(&tasks, &PaleoTaskService::taskAdded, &wf, [&](PaleoTask *task) {
+    connect(task, &PaleoTask::changed, &wf, [&, task] {
+      if (task->running() && task->stage() == QLatin1String("publish")) {
+        finalStages.insert(task->id());
+        invalidFinalEstimate |= task->percent() != -1 || task->etaText() != QLatin1String("--");
+      }
+    });
+  });
   int importedSignals = 0;
   QObject::connect(stack->importSvc.get(), &DataImportService::imported, &wf,
                    [&importedSignals] { ++importedSignals; });
@@ -682,6 +692,8 @@ void concurrentWorkflowImportsCommitOnGuiThread()
   for (int i = 0; i < kFiles; ++i)
     QCOMPARE(importedAtDone.at(kFolders + i), kFolders * 2 + i + 1);
   QCOMPARE(activeSpy.count(), 2 * kFolders);
+  QVERIFY(finalStages.size() >= kFolders);
+  QVERIFY(!invalidFinalEstimate);
   QCOMPARE(DataCatalog::threadViolationCount(), 0);
   QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
   QVERIFY(tasks.shutdown(5000));

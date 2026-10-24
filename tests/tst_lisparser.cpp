@@ -43,6 +43,7 @@ class TestLisParser : public QObject
     void tvdProcessIndicatorSetsBasis();
     void headerScanMatchesFullParse();
     void headerScanPrChainBudgetCapped();
+    void headerScanByteBudgetWithoutData();
     void emptyFileFails();
 
   private:
@@ -451,6 +452,29 @@ void TestLisParser::headerScanPrChainBudgetCapped()
   // 默认预算下同一文件头扫描照常成功（不误伤合法多 PR 拼接）
   QString okErr;
   QVERIFY2(LisParser::parseHeader(path, header, &okErr), qPrintable(okErr));
+}
+
+void TestLisParser::headerScanByteBudgetWithoutData()
+{
+  // PW-140：头扫描路径有字节预算——只有非数据记录的长文件不得无界遍历。
+  QByteArray b;
+  b += physicalRecord(128, fileHeaderPayload(QStringLiteral("HB")));
+  for (int i = 0; i < 40; ++i)
+    b += physicalRecord(34, wellsitePayload(QStringLiteral("W-HB")));
+  const QString path = write(QStringLiteral("hb.lis"), b);
+  LasHeaderInfo header;
+  QString error;
+  QList<LasIssue> issues;
+  const qint64 saved = LasParser::fileSizeLimit();
+  LasParser::setFileSizeLimit(256);
+  QVERIFY(!LisParser::parseHeader(path, header, &error, &issues));
+  LasParser::setFileSizeLimit(saved);
+  QVERIFY2(error.contains(QStringLiteral("头扫描超过上限")), qPrintable(error));
+  bool sawOversize = false;
+  for (const LasIssue &i : issues)
+    if (i.category == LasIssue::Category::Oversize)
+      sawOversize = true;
+  QVERIFY(sawOversize);
 }
 
 void TestLisParser::emptyFileFails()

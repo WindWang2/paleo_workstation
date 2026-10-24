@@ -646,6 +646,11 @@ using paleo::io_detail::addIssue;
 
   enum class LisWalkResult { Ok, Truncated, Invalid };
 
+  // PW-140：头扫描字节预算 = min(64MB, 整读上限)——随 setFileSizeLimit 可注入。
+  qint64 headerScanBudget()
+  {
+    return std::min<qint64>(64LL * 1024 * 1024, LasParser::fileSizeLimit());
+  }
   LisWalkResult walkRecords(QFile &f, bool stopAtFirstData, WalkOut &out,
                          QList<LasIssue> *issues, QString *error)
   {
@@ -677,6 +682,23 @@ using paleo::io_detail::addIssue;
       {
         if (error)
           *error = rerr;
+        return LisWalkResult::Invalid;
+      }
+      // PW-140：头扫描路径字节预算——无数据记录的病态/超大文件不得无界遍历。
+      if (stopAtFirstData && reader.pos() > headerScanBudget())
+      {
+        const QString msg = QStringLiteral("头扫描超过上限 %1 字节仍未遇到数据记录")
+                                .arg(headerScanBudget());
+        if (error)
+          *error = msg;
+        if (issues)
+        {
+          LasIssue issue;
+          issue.severity = LasIssue::Severity::Error;
+          issue.category = LasIssue::Category::Oversize;
+          issue.message = msg;
+          issues->append(issue);
+        }
         return LisWalkResult::Invalid;
       }
       if (!validRecordType(rec.type))

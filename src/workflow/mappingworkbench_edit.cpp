@@ -46,6 +46,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFutureWatcher>
+#include <QSet>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
@@ -261,6 +262,24 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   }
   QVariantList schema;
   if (!FaciesTaxonomy::normalize(previous.extra.value("facies").toList(), &schema, error)) return false;
+  // 画上与既有图件相同的相（全局相册定义完整、只是没进本图件历史版本相表）
+  // 是正常编辑：并入相表随新版本发布，不拦保存。相册里也没有的编码仍按
+  // 「未定义」拒绝（下面的 complete 校验兜底）。
+  {
+    QSet<int> known;
+    for (const auto &entry : schema) known.insert(entry.toMap().value("code").toInt());
+    auto painted = layer->getFeatures();
+    QgsFeature paintedFeature;
+    while (painted.nextFeature(paintedFeature)) {
+      bool codeOk = false;
+      const int code = paintedFeature.attribute("facies_code").toInt(&codeOk);
+      if (!codeOk || known.contains(code)) continue;
+      const auto leaf = FaciesCatalog::find(FaciesCatalog::defaults(), code);
+      if (!FaciesTaxonomy::complete(leaf)) continue;
+      schema << leaf;
+      known.insert(code);
+    }
+  }
   auto features = layer->getFeatures();
   QgsFeature feature;
   while (features.nextFeature(feature)) {
@@ -435,10 +454,14 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   }
   if (!MappingArtifactWriter::vectorSnapshot(layer, snapshotPath, error))
     return false;
+  // record() 同步发 productReady → 重新上图；用户正看着这张图，保持尺度。
+  suppressNextProductZoom();
   const auto output =
       record(snapshotPath, d.horizon, "edited_facies",
              previous.extra.value("title").toString(), "vector",
              evidenceParents, extra, error, "|layername=features", id);
+  if (output.isEmpty())
+    clearSuppressedProductZoom(); // 未发 productReady，别让标记殃及下次显示。
   if (!output.isEmpty()) {
     // #465：本批 spatial_edit_events 已随不可变版本 output 入档；重试时
     // versionForLayer(id) 返回的正是 output，事件经 previous.extra 继承。

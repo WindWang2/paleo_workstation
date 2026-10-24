@@ -304,12 +304,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               QString error;
               if (!show(id, &error))
                 statusBar()->showMessage(error, 10000);
-            }
-            if (h == m_selection->activeHorizon()) {
               if (workbench->versionForLayer(id).extra.value("result_scope").toString() == "current_formation")
                 wellDock->hide();
               else if (!workbench->wellPredictions(id).isEmpty())
                 openWells(id);
+            } else {
+              workbench->clearSuppressedProductZoom(); // 本次不上图：作废标记，别殃及用户下一次显示
             }
             for (auto *page : pages) {
               page->refresh();
@@ -586,7 +586,10 @@ PaleoMainWindow::WorkbenchShowFn PaleoMainWindow::makeWorkbenchShow(
     if (m_profileSvc)
       m_profileSvc->captureCurrentAsTheme(
           QgisLayerProfileService::pageThemeName(currentPage()));
-    m_canvasCtl->zoomToLayer(id);
+    // 保存编辑版本后的重新上图不打断当前尺度（用户正在看的就是这张图）；
+    // 其余显示（用户点名看某图件/新生成成果）维持缩放定位。
+    if (!workbench->consumeSuppressedProductZoom())
+      m_canvasCtl->zoomToLayer(id);
     canvas->freeze(wasFrozen);
     if (!wasFrozen) canvas->refresh();
     legend(id);

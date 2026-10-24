@@ -1,8 +1,17 @@
 // 层：视图
 #include "projectstatisticspage.h"
+#include "datapreviewtabs_internal.h"
 #include "../../catalog/datacatalog.h"
 #include "../../workflow/projectareasummary.h"
 #include "../paleotheme.h"
+#include "../decorations/paleodecorations.h"
+#include "../../qgis/previewmapcanvas.h"
+#include <qgsgeometry.h>
+#include <qgsmapcanvas.h>
+#include <qgsmaptoolpan.h>
+#include <qgsrectangle.h>
+#include <qgsrubberband.h>
+#include <qgsvectorlayer.h>
 #include <QEvent>
 #include <QFrame>
 #include <QGridLayout>
@@ -13,6 +22,9 @@
 #include <QScrollArea>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <cmath>
+
+using namespace paleo::datapreview_detail;
 
 namespace
 {
@@ -167,12 +179,16 @@ ProjectStatisticsPage::ProjectStatisticsPage(DataCatalog *catalog, QWidget *pare
   titles->addWidget(title);
   titles->addWidget(textLabel(tr("数据总览与项目进度 · 随已登记资料更新"), body, true));
   header->addLayout(titles, 1);
-  auto *map = new QPushButton(tr("工区地图"), body);
+  auto *map = new QPushButton(tr("打开全景地图"), body);
+  map->setToolTip(tr("打开带完整工具的工区全景地图页"));
   map->setObjectName("dashboardOpenMap");
   map->setEnabled(catalog && catalog->isOpen());
   connect(map, &QPushButton::clicked, this, &ProjectStatisticsPage::surveyMapRequested);
   header->addWidget(map);
   m_content->addLayout(header);
+  // 工区地图卡片惰性创建（showEvent → buildSurveyMapCard）：主窗口启动即
+  // 常驻看板（#565），无头测试构造窗口时不落 QGIS 画布/OpenGL，避免
+  // offscreen 下的堆损坏；看板真正显示时才建图并装数据。
   m_metrics = new QGridLayout;
   m_metrics->setSpacing(t.spacingSm);
   m_content->addLayout(m_metrics);
@@ -271,6 +287,62 @@ void ProjectStatisticsPage::refresh()
   m_content->insertWidget(m_content->count() - 2, envelope);
   m_columns = 0;
   arrangeCards();
+  refreshSurveyMap();
+}
+
+void ProjectStatisticsPage::refreshSurveyMap()
+{
+  if (!m_mapCanvas || !m_wellsLayer || !m_boundaryBand)
+    return;
+  m_wellsLayer->dataProvider()->truncate();
+  QgsRectangle extent;
+  if (m_catalog && m_catalog->isOpen())
+    for (const CatalogEntity &well : m_catalog->entities(QStringLiteral("well")))
+    {
+      if (!well.hasSurface || !std::isfinite(well.surfaceX) || !std::isfinite(well.surfaceY))
+        continue;
+      addMemoryPoint(m_wellsLayer, well.surfaceX, well.surfaceY, well.name, QStringLiteral("well"), well.id);
+      extent.combineExtentWith(QgsRectangle(well.surfaceX, well.surfaceY, well.surfaceX, well.surfaceY));
+    }
+  m_wellsLayer->updateExtents();
+  // 取界优先级与全景页一致：角点 → inline/xline → 井位并集 → 10 km 默认。
+  QgsGeometry surveyGeom;
+  CatalogEntity survey;
+  if (m_catalog && m_catalog->isOpen())
+  {
+    const auto surveys = m_catalog->entities(QStringLiteral("seismic_survey"));
+    if (!surveys.isEmpty())
+      survey = surveys.first();
+  }
+  if (survey.corners.size() >= 3)
+  {
+    QgsRectangle bounds;
+    for (const auto &c : survey.corners)
+      if (std::isfinite(c.first) && std::isfinite(c.second))
+        bounds.combineExtentWith(QgsRectangle(c.first, c.second, c.first, c.second));
+    if (!bounds.isEmpty())
+      surveyGeom = QgsGeometry::fromRect(bounds);
+  }
+  if (surveyGeom.isNull() && survey.inlineMax > survey.inlineMin && survey.xlineMax > survey.xlineMin)
+    surveyGeom = QgsGeometry::fromRect(QgsRectangle(survey.inlineMin, survey.xlineMin,
+                                                    survey.inlineMax, survey.xlineMax));
+  if (surveyGeom.isNull() && !extent.isNull())
+  {
+    if (extent.isEmpty())
+      extent.grow(50.0);
+    surveyGeom = QgsGeometry::fromRect(extent);
+  }
+  if (surveyGeom.isNull())
+    surveyGeom = QgsGeometry::fromRect(QgsRectangle(0, 0, 10000, 10000));
+  const auto localCrs = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  if (surveyGeom.isGeosValid())
+    m_boundaryBand->setToGeometry(surveyGeom, localCrs);
+  extent.combineExtentWith(surveyGeom.boundingBox());
+  if (extent.isEmpty())
+    extent = QgsRectangle(0, 0, 10000, 10000);
+  extent.scale(1.08);
+  m_mapCanvas->canvas()->setExtent(extent);
+  m_mapCanvas->canvas()->refresh();
 }
 
 bool ProjectStatisticsPage::eventFilter(QObject *watched, QEvent *event)
@@ -278,6 +350,60 @@ bool ProjectStatisticsPage::eventFilter(QObject *watched, QEvent *event)
   if (watched == m_scroll->viewport() && event->type() == QEvent::Resize)
     arrangeCards();
   return QWidget::eventFilter(watched, event);
+}
+
+void ProjectStatisticsPage::showEvent(QShowEvent *event)
+{
+  QWidget::showEvent(event);
+  if (!m_mapCanvas)
+    buildSurveyMapCard();
+}
+
+void ProjectStatisticsPage::buildSurveyMapCard()
+{
+  if (m_mapCanvas || !m_content || !m_scroll->widget())
+    return;
+  auto *body = m_scroll->widget();
+  // 工区地图直接进看板：井位 + 工区范围，零设置（滚轮缩放、拖拽漫游）；
+  // 底图/比例尺/网格等完整工具在「工区全景地图」页，头部按钮直达。
+  auto *mapCard = card(body);
+  mapCard->setObjectName("dashboardSurveyMapCard");
+  auto *mapLay = cardLayout(mapCard);
+  auto *mapTitle = textLabel(tr("工区地图"), mapCard);
+  PaleoTheme::applyThemedStyleSheet(mapTitle, [] { return PaleoTheme::sectionTitleStyleSheet(); });
+  mapLay->addWidget(mapTitle);
+  m_mapCanvas = new PreviewMapCanvas(mapCard);
+  m_mapCanvas->setObjectName(QStringLiteral("dashboardSurveyMap"));
+  m_mapCanvas->canvas()->setObjectName(QStringLiteral("dashboardSurveyMapCanvas"));
+  m_mapCanvas->setMinimumHeight(340);
+  mapLay->addWidget(m_mapCanvas);
+  auto *pan = new QgsMapToolPan(m_mapCanvas->canvas());
+  pan->setParent(m_mapCanvas->canvas());
+  m_mapCanvas->canvas()->setMapTool(pan);
+  m_wellsLayer = makeMemoryPointLayer(tr("井位"), mapCard);
+  m_wellsLayer->setObjectName(QStringLiteral("dashboardWellsLayer"));
+  styleSurveyWellLayer(m_wellsLayer);
+  m_mapCanvas->canvas()->setLayers({m_wellsLayer});
+  m_boundaryBand = new QgsRubberBand(m_mapCanvas->canvas(), Qgis::GeometryType::Polygon);
+  m_boundaryBand->setObjectName(QStringLiteral("dashboardSurveyRubberBand"));
+  m_boundaryBand->setColor(QColor(27, 115, 208, 16));
+  m_boundaryBand->setStrokeColor(QColor(QStringLiteral("#1B73D0")));
+  m_boundaryBand->setWidth(2);
+  m_boundaryBand->setLineStyle(Qt::DashLine);
+  m_boundaryBand->show();
+  // 地图要素（非设置）：比例尺 + 指北针 + 图例行。
+  m_decorations = new PaleoDecorationManager(m_mapCanvas->canvas(), m_mapCanvas->canvas());
+  m_decorations->setObjectName(QStringLiteral("dashboardSurveyDecor"));
+  m_decorations->setScaleBarEnabled(true);
+  m_decorations->setNorthArrowEnabled(true);
+  auto *legend = new QLabel(tr("<span style=\"color:#1B73D0\">●</span>&nbsp;井位&nbsp;&nbsp;"
+                               "<span style=\"color:#1B73D0\">╌╌</span>&nbsp;工区范围"), mapCard);
+  legend->setTextFormat(Qt::RichText);
+  PaleoTheme::applyThemedStyleSheet(legend, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  mapLay->addWidget(legend);
+  // 插在头部之后、指标卡之前，保持看板版面语义（地图在上）。
+  m_content->insertWidget(1, mapCard);
+  refreshSurveyMap();
 }
 void ProjectStatisticsPage::arrangeCards()
 {

@@ -4,6 +4,7 @@
 #include "../domain/seismic/timedepthmodel.h"
 #include "../io/segyreader.h"
 #include "../services/seismictaskservice.h"
+#include "../services/workerexceptionsink.h"
 
 #include "../algorithms/inversion/bandlimit.h"
 #include "algorithmadapters.h"
@@ -581,8 +582,12 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     std::mutex progressMutex;
     const int total = int(work.size());
     const int autoThreads = std::max(1, std::min(4, int(std::thread::hardware_concurrency())));
+    // review M3：显式 maxThreads 也夹到硬件并发（未知时按 4）——与 4 线程任务池
+    // 叠加时 64 线程只会超订、不会更快。
+    const unsigned hw = std::thread::hardware_concurrency();
+    const int hwCap = std::max(1, std::min(64, hw > 0 ? int(hw) : 4));
     const int nThreads = job->req.maxThreads > 0
-                             ? std::min(64, job->req.maxThreads)
+                             ? std::min(hwCap, job->req.maxThreads)
                              : autoThreads;
     const int chunk = (total + nThreads - 1) / nThreads;
 
@@ -665,13 +670,36 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
                 th.join();
         }
     });
-    for (int t = 1; t < nThreads; ++t)
-        pool.emplace_back(invertRange, t, std::min(total, t * chunk), std::min(total, (t + 1) * chunk));
-    invertRange(0, 0, std::min(total, chunk));
+    // review M3：线程入口异常（traces.at/vector 分配等）逃逸 = std::terminate
+    // 整个进程；经 WorkerExceptionSink（PW-014）转运，join 后按作业失败处理。
+    // 建线程失败（资源耗尽 std::system_error）同样转运，已建线程由 poolGuard join。
+    WorkerExceptionSink workerErrors;
+    auto guardedRange = workerErrors.wrap(invertRange);
+    for (int t = 1; t < nThreads; ++t) {
+        try {
+            pool.emplace_back(guardedRange, t, std::min(total, t * chunk),
+                              std::min(total, (t + 1) * chunk));
+        } catch (...) {
+            workerErrors.capture(std::current_exception());
+            aborted.store(true, std::memory_order_relaxed);
+            break;
+        }
+    }
+    guardedRange(0, 0, std::min(total, chunk));
     for (auto &th : pool)
     {
         if (th.joinable())
             th.join();
+    }
+    if (workerErrors.failed()) {
+        QString what = QStringLiteral("未知异常");
+        try {
+            workerErrors.rethrowIfAny();
+        } catch (const std::exception &e) {
+            what = QString::fromLocal8Bit(e.what());
+        } catch (...) {
+        }
+        return setError(&job->error, QStringLiteral("反演工作线程异常：%1").arg(what));
     }
     for (double v : sumStat) {
         if (sparse)

@@ -34,6 +34,17 @@ private slots:
     QVERIFY( !validNorthUpGeoTransform( negDx ) );
   }
 
+  void affineAcceptsRotationRejectsDegenerate()
+  {
+    const double rot[6] = { 0, 10, 2, 0, 2, -10 };
+    QVERIFY( paleo::workflow_detail::validAffineGeoTransform( rot ) );
+    QVERIFY( !paleo::workflow_detail::validNorthUpGeoTransform( rot ) );
+    const double deg[6] = { 0, 1, 1, 0, 1, 1 };
+    QString why;
+    QVERIFY( !paleo::workflow_detail::validAffineGeoTransform( deg, &why ) );
+    QVERIFY( !why.isEmpty() );
+  }
+
   void sameGridComparesOriginAndCrs()
   {
     const double a[6] = { 100, 10, 0, 500, 0, -10 };

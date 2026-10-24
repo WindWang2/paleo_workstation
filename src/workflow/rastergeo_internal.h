@@ -11,12 +11,35 @@
 
 namespace paleo::workflow_detail {
 
-inline bool validNorthUpGeoTransform( const double gt[6], QString *why = nullptr )
+// 通用仿射校验：有限且非退化（|det| > 0）。像元级运算（集合统计、时深逐
+// 像元换算）可接受旋转网格，但写出时必须原样带回旋转项。
+inline bool validAffineGeoTransform( const double gt[6], QString *why = nullptr )
 {
   auto fail = [why]( const QString &m ) { if ( why ) *why = m; return false; };
   for ( int i = 0; i < 6; ++i )
     if ( !std::isfinite( gt[i] ) )
       return fail( QStringLiteral( "地理变换含非有限值" ) );
+  if ( !( std::abs( gt[1] * gt[5] - gt[2] * gt[4] ) > 0.0 ) )
+    return fail( QStringLiteral( "地理变换退化（像元面积为 0）" ) );
+  return true;
+}
+
+inline bool readAffineGeoTransform( GDALDatasetH ds, double gt[6], QString *why = nullptr )
+{
+  if ( !ds || GDALGetGeoTransform( ds, gt ) != CE_None )
+  {
+    if ( why )
+      *why = QStringLiteral( "栅格没有地理参考（无地理变换）" );
+    return false;
+  }
+  return validAffineGeoTransform( gt, why );
+}
+
+inline bool validNorthUpGeoTransform( const double gt[6], QString *why = nullptr )
+{
+  auto fail = [why]( const QString &m ) { if ( why ) *why = m; return false; };
+  if ( !validAffineGeoTransform( gt, why ) )
+    return false;
   if ( gt[2] != 0.0 || gt[4] != 0.0 )
     return fail( QStringLiteral( "栅格有旋转/斜切（gt[2]=%1, gt[4]=%2），不支持" ).arg( gt[2] ).arg( gt[4] ) );
   if ( !( gt[1] > 0.0 ) )

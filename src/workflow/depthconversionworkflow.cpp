@@ -51,8 +51,8 @@ bool readDcGrid(const QString &path, DcGridSpec *g)
     return false;
   g->cols = GDALGetRasterXSize(ds);
   g->rows = GDALGetRasterYSize(ds);
-  // PW-010：无地理参考/旋转/非北向上一律拒绝（下游 dy=-gt[5] 依赖北向上）。
-  if (!paleo::workflow_detail::readNorthUpGeoTransform(ds, g->gt) || GDALGetRasterCount(ds) < 1)
+  // PW-010：无地理参考/退化仿射拒绝；旋转网格允许，写出时原样带回旋转项。
+  if (!paleo::workflow_detail::readAffineGeoTransform(ds, g->gt) || GDALGetRasterCount(ds) < 1)
   {
     GDALClose(ds);
     return false;
@@ -232,7 +232,9 @@ bool convertGridToDepthFile(const paleo::velmodel::VelocityModel &model,
   b.rows = g.rows;
   b.cols = g.cols;
   b.dx = g.gt[1];
-  b.dy = -g.gt[5]; // 北向上：行方向 gt[5] 为负
+  b.dy = -g.gt[5]; // 原样回写仿射（含旋转项），逐像元换算不改变网格
+  b.rowX = g.gt[2];
+  b.columnY = g.gt[4];
   b.originX = g.gt[0];
   b.originY = g.gt[3];
   b.hasInlineRange = g.hasInlineRange;

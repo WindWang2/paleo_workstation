@@ -113,7 +113,10 @@ SomResult som(const Matrix &x, const SomOptions &o, const Control &ctl) {
     const double eta = lr0 * std::pow(lr1 / lr0, t);
     // Floor keeps the Gaussian denominator finite when the radius decays to
     // zero; exp(-inf) then collapses influence onto the BMU itself.
-    const double radius = std::max(r0 * std::pow(r1 / r0, t), 1e-12);
+    // L11：finalRadius=0 时几何衰减 pow(0,t) 在 t>0 处恒 0，第 1 轮起邻域即塌缩
+    // 为仅 BMU（无排序期）。此时改用线性衰减 r0·(1−t)；r1>0 时口径不变。
+    const double radius = std::max(
+        r1 > 0 ? r0 * std::pow(r1 / r0, t) : r0 * (1.0 - t), 1e-12);
     const double denom = 2 * radius * radius;
     shuffleDeterministic(sequence.begin(), sequence.end(), rng);
     for (std::size_t s = 0; s < n; ++s) {
@@ -128,6 +131,8 @@ SomResult som(const Matrix &x, const SomOptions &o, const Control &ctl) {
         const double dx = gridX[u] - bx;
         const double dy = gridY[u] - by;
         const double h = std::exp(-(dx * dx + dy * dy) / denom);
+        if (h == 0.0)
+          continue; // L11：影响下溢为 0 的单元更新恒为恒等式，跳过 O(d) 循环（结果逐位不变）
         const double pull = eta * h;
         double *proto =
             r.prototypes.values.data() + std::ptrdiff_t(u) * std::ptrdiff_t(d);

@@ -97,6 +97,8 @@ private slots:
   // 异常区间（DEN<1.5 或 >3.0 口径示例）：两段越界被 NaN 断开 → 2 段，
   // 深度/样本数/端点逐项断言；全好曲线 → 0 段。
   void testAnomalyIntervals();
+  // review-fix-numerics L9：参考点恰在右结点且左结点 NaN → 取右结点值。
+  void resampleRightNodeExactWithNaNLeft();
 };
 
 void TestPetroPhys::testVshLinearAnalytic()
@@ -360,6 +362,17 @@ void TestPetroPhys::testAnomalyIntervals()
   QCOMPARE(static_cast<int>(anomalyIntervals(depths.data(), good.data(), 8, 1.5, 3.0).size()), 0);
   const std::vector<double> nanAll(8, kNan);
   QCOMPARE(static_cast<int>(anomalyIntervals(depths.data(), nanAll.data(), 8, 1.5, 3.0).size()), 0);
+}
+
+
+void TestPetroPhys::resampleRightNodeExactWithNaNLeft()
+{
+  const std::vector<double> src = {100.0, 101.0, 102.0};
+  const std::vector<double> val = {std::numeric_limits<double>::quiet_NaN(), 7.0, 9.0};
+  std::vector<double> out;
+  QVERIFY(resampleLinear({101.0}, src, val, out));
+  QCOMPARE(out.size(), std::size_t(1));
+  QCOMPARE(out[0], 7.0);
 }
 
 QTEST_MAIN(TestPetroPhys)

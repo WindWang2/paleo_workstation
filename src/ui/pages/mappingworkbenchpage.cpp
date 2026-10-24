@@ -353,7 +353,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_featureDisplayState = new QLabel(appearance);
   m_featureDisplayState->setObjectName("faciesFeatureDisplayState"); m_featureDisplayState->setWordWrap(true);
   m_featureDisplayState->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt)); // 次级状态标签按 label 字阶设字体（DESIGN.md typography.label 8pt，同 :100 m_status）
-  appearanceLayout->addWidget(m_featureDisplayState); appearanceLayout->addWidget(m_pins = new FaciesPinnedLevelList(appearance));
+  appearanceLayout->addWidget(m_featureDisplayState); auto *pinGroup = FaciesPinnedLevelList::createGroup(body, &m_pins); // 层级锁定单列一组
   connect(m_pins, &FaciesPinnedLevelList::pinRequested, this, [this](const QString &key, const QString &mode) {
     issue("pinFaciesLevel", {{"pin_key", key}, {"display_mode", mode}}); });
   connect(m_displayLevel, &QComboBox::currentIndexChanged, this, [this] {
@@ -389,7 +389,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   labelRow->addWidget(labelMode, 1);
   appearanceLayout->addLayout(labelRow);
   appearanceLayout->addWidget(button("labels", tr("应用标注到选中图件")));
-  layout->addWidget(appearance);
+  layout->addWidget(appearance); layout->addWidget(pinGroup);
   if (mode == "compose") buildDeliveryStep(body, layout);
   auto *evidenceGroup =
       new QgsCollapsibleGroupBox(tr("选中要素的解释证据"), body);

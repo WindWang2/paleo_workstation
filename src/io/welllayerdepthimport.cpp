@@ -1,4 +1,5 @@
 // 层：数据
+#include "boundedread.h" // PW-076
 #include "welltable.h"
 #include "wellfileparsers.h"
 #include "wellcompositexml.h"
@@ -12,9 +13,8 @@
 
 namespace {
 QByteArray contents(DataCatalog *cat, const CatalogVersion &version) {
-  QFile file(cat->versionFilePath(version));
-  if (!file.open(QIODevice::ReadOnly)) return {};
-  const auto bytes = file.readAll();
+  QByteArray bytes;
+  if (!paleo::io::readBoundedFile(cat->versionFilePath(version), paleo::io::kDefaultBoundedReadLimit, &bytes)) return {};
   return QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()) == version.sha256 ? bytes : QByteArray();
 }
 struct DepthModel {

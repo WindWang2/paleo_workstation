@@ -1,4 +1,5 @@
 // 层：数据
+#include "boundedread.h" // PW-076
 #include "outsourceworkbook.h"
 
 #include "ziparchive.h"
@@ -802,7 +803,11 @@ WorkbookReadResult readWorkbook( const QString &path )
       result.error = QStringLiteral( "无法打开文件：%1" ).arg( path );
       return result;
     }
-    return readSpreadsheetMl( path, file.readAll() );
+    file.close();
+    QByteArray xmlBytes;
+    if ( !paleo::io::readBoundedFile( path, paleo::io::kDefaultBoundedReadLimit, &xmlBytes, &result.error ) )
+      return result;
+    return readSpreadsheetMl( path, xmlBytes );
   }
   if ( suffix == QLatin1String( "xlsx" ) )
     return readXlsx( path ); // 非 ZIP/OOXML 由读面如实报因（不靠扩展名或 mime 猜测）

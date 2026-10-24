@@ -1,4 +1,5 @@
 // 层：数据
+#include "boundedread.h" // PW-076
 #include "projectsetupscan.h"
 #include "importclassification.h"
 #include "welltable.h"
@@ -128,7 +129,7 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
             out.notes << table.report.issues;
           } else { tables << Candidate{file, cls.type, table}; continue; }
         } else if (points) {
-          QFile f(file); if (f.open(QIODevice::ReadOnly)) for (const auto &h : parseWellHeadText(f.readAll())) wellNames.insert(h.name);
+          QByteArray headBytes; if (paleo::io::readBoundedFile(file, paleo::io::kDefaultBoundedReadLimit, &headBytes)) for (const auto &h : parseWellHeadText(headBytes)) wellNames.insert(h.name); else out.notes << QStringLiteral("井口文件过大或不可读，已跳过井名预扫：%1").arg(file); // PW-076
           cls.type = QStringLiteral("well_head"); out.sourceCrs = s.pointMapping.value("crs").toString();
         }
       }

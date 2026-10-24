@@ -15,7 +15,8 @@
 //
 // 距离在地图米：d² = (Δi·dx)² + (Δj·dy)² + (Δk·Δz)²。
 // Δz 为活柱平均层厚 (bot−top)/nk，没有活柱时取 1。dy 可负，平方后同正。
-// 权重 1/d^power（power 缺省 2）。
+// 权重 1/d^power（power 缺省 2）。种子多于 64 个时只用度量最近的 64 个（PW-090）。
+// verticalAnisotropy 乘垂向距离（>1 垂向相关更短，PW-134）。
 // 命中种子所在单元（同一 ijk）取该种子（多个精确命中取平均），不再与远处种子混合。
 //
 // 断层是地图 XY 上的竖直面帘（本轮不做断块错位）。柱心连线与任一段相交
@@ -66,14 +67,16 @@ using FillProgress = std::function<bool(double fraction)>;
 
 bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
              const std::vector<FaultSegment> &faults, double power, PropertyVolume *out,
-             const FillProgress &progress = {}, QString *error = nullptr);
+             const FillProgress &progress = {}, QString *error = nullptr,
+             double verticalAnisotropy = 1.0);
 
 // 断面体域阻断：邻接按单元 6 连通，柱心连线与三角网相交则断开。
 // 平面 FaultSegment 重载仍是整柱竖帘。本重载的权威分块在 cellBlock。
 // 空的 {} 与竖帘重载二义，调用处写成具体的 vector 类型。
 bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
              const std::vector<FaultTriangle> &mesh, double power, PropertyVolume *out,
-             const FillProgress &progress = {}, QString *error = nullptr);
+             const FillProgress &progress = {}, QString *error = nullptr,
+             double verticalAnisotropy = 1.0);
 
 // 粗化表 → 种子（无值或没有代表柱的层跳过）。
 std::vector<Seed> seedsFromUpscale(const UpscaleTable &table);

@@ -153,6 +153,7 @@ class TestGridSolver : public QObject
   Q_OBJECT
 
 private slots:
+    void largeOffsetMatchesUnshifted();
   // 守卫：超规模请求拒绝（审计 #33 同口径——拒绝而非 OOM 分配）。
   void guardRejectsOversizeGrid();
   void guardRejectsDegenerateInput();
@@ -713,6 +714,29 @@ void TestGridSolver::sampleBilinearSemantics()
   // 越界 → NaN。
   QVERIFY(std::isnan(sampleBilinear(z, g, -1.0, 50.0)));
   QVERIFY(std::isnan(sampleBilinear(z, g, 150.0, 50.0)));
+}
+
+void TestGridSolver::largeOffsetMatchesUnshifted()
+{
+  // PW-080：绝对高程 4e6 量级时 float 松弛不得假停滞/走样。
+  Fixture fx(quadraticF);
+  Fixture shifted(quadraticF);
+  for (ScatterPoint &p : shifted.points)
+    p.z += 4.0e6;
+  GriddingParams params;
+  std::vector<float> z0, z1;
+  GriddingStats st0, st1;
+  QString err;
+  QVERIFY2(solveMinimumCurvature(fx.points, fx.geom, params, nullptr, &z0, &st0, &err),
+           qPrintable(err));
+  QVERIFY2(solveMinimumCurvature(shifted.points, shifted.geom, params, nullptr, &z1, &st1, &err),
+           qPrintable(err));
+  QCOMPARE(z0.size(), z1.size());
+  double worst = 0.0;
+  for (std::size_t k = 0; k < z0.size(); ++k)
+    if (std::isfinite(z0[k]))
+      worst = std::max(worst, std::fabs((static_cast<double>(z1[k]) - 4.0e6) - z0[k]));
+  QVERIFY2(worst <= 0.6, qPrintable(QString::number(worst)));
 }
 
 QTEST_MAIN(TestGridSolver)

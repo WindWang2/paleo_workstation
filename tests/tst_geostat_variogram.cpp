@@ -158,6 +158,7 @@ class GeostatVariogramTests : public QObject
 {
   Q_OBJECT
 private slots:
+    void anisotropyBelowOneSwapsAxes();
   void modelShapes();
   void constantFieldIsZeroEverywhere();
   void anisotropicFieldStrikeRangeExceedsDipRange();
@@ -312,6 +313,32 @@ void GeostatVariogramTests::oversizedLagRatioIsSkipped()
   QCOMPARE( binned, 3 );
   QCOMPARE( ev.pairCount[static_cast<std::size_t>( 1 )], 1 ); // B-C 间距 1
   QCOMPARE( ev.pairCount[static_cast<std::size_t>( 7 )], 2 ); // A-B / A-C
+}
+
+void GeostatVariogramTests::anisotropyBelowOneSwapsAxes()
+{
+  // PW-037：ratio<1 等价于方位 +90° 且取倒数。
+  paleo::geostat::VariogramModel a;
+  a.type = paleo::geostat::VariogramModelType::Spherical;
+  a.nugget = 0.1;
+  a.sill = 1.0;
+  a.range = 100.0;
+  a.azimuthDeg = 30.0;
+  a.anisotropyRatio = 0.25;
+  paleo::geostat::VariogramModel b = a;
+  b.azimuthDeg = 120.0;
+  b.anisotropyRatio = 4.0;
+  for (const auto &[dx, dy] : {std::pair{10.0, 0.0}, std::pair{0.0, 30.0}, std::pair{-20.0, 15.0}})
+  {
+    QVERIFY(std::fabs(a.semivariance(dx, dy) - b.semivariance(dx, dy)) < 1e-12);
+    QVERIFY(std::fabs(a.semivariance(dx, dy, 5.0) - b.semivariance(dx, dy, 5.0)) < 1e-12);
+  }
+  // 各向同性对照：ratio<1 不再塌缩成各向同性。
+  paleo::geostat::VariogramModel iso = a;
+  iso.anisotropyRatio = 1.0;
+  QVERIFY(std::fabs(a.semivariance(30.0, 0.0) - iso.semivariance(30.0, 0.0)) > 1e-3 ||
+          std::fabs(a.semivariance(0.0, 30.0) - iso.semivariance(0.0, 30.0)) > 1e-3);
+
 }
 
 QTEST_MAIN( GeostatVariogramTests )

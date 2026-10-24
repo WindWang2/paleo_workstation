@@ -739,6 +739,12 @@ bool runGeostatCokriging( const GeostatRunContext &ctx, const std::vector<paleo:
     job->error = ConstraintWorkflow::tr( "协变量栅格在计算网格范围内无有效数据" );
     return false;
   }
+  // PW-019：模型假设协变量处于主变量单位/方差（γ12=ρ·γ1、γ22 取主基台），
+  // 原始协变量值必须先按配置点统计线性标定，否则估值随协变量单位缩放。
+  bool covariateRescaled = false;
+  secondarySamples = paleo::geostat::rescaleSecondaryToPrimary( secondarySamples, primaryZ, secondaryZ,
+                                                                &covariateRescaled );
+  cokrigingNode.insert( QStringLiteral( "secondary_rescaled_to_primary" ), covariateRescaled );
 
   paleo::geostat::CoKrigingModel coModel;
   coModel.primary = model;

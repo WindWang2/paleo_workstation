@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <random>
+#include <exception>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -179,8 +180,10 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
   result.sampleStd = table.sampleStd;
   // #325：模型标定到正态得分域。原值域基台与该域方差差几个量级，直接用会
   // 让 sqrt(variance) 的随机振幅整体缩放错误。块金/拱高比保持不变。
-  const VariogramModel gaussianModel =
-      detail::rescaleToGaussianDomain( model, detail::gaussianDomainVariance( table, sampleValues ) );
+  const VariogramModel gaussianModel = regularizedForKriging(
+      params.refitVariogramOnNormalScores
+          ? detail::refitOnNormalScores( model, table, deduped )
+          : detail::rescaleToGaussianDomain( model, detail::gaussianDomainVariance( table, sampleValues ) ) );
 
   // 静态样本邻域按索引原位取 deduped（detail::NeighborIndex 语义）。
   const detail::NeighborIndex index = detail::NeighborIndex::build( deduped );
@@ -203,8 +206,8 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
   std::vector<RealizationCounts> counts( static_cast<std::size_t>( R ) );
 
   const auto runRealization = [&]( int realization ) {
-    std::mt19937_64 rng( clamped.seed +
-                         static_cast<std::uint64_t>( realization ) * 0x9E3779B97F4A7C15ULL );
+    std::mt19937_64 rng(
+        detail::derivedStreamSeed( clamped.seed, static_cast<std::uint64_t>( realization ) ) );
     SimulatedLattice lattice;
     std::vector<std::uint32_t> staticNeighborhood;
     std::vector<CondPoint> simulatedNeighborhood;
@@ -383,17 +386,31 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
     const std::int64_t outputBytes = static_cast<std::int64_t>( R ) * cells64 * 8;
     const int workers =
         detail::workersForPeakBudget( std::min<int>( R, 4 ), outputBytes, workspacePerWorker );
+    // PW-082：worker 内异常（bad_alloc 等）逸出线程函数 = std::terminate，
+    // 主线程异常时未 join 的线程析构同样 terminate。每 worker 捕获存
+    // exception_ptr，全部 join 后重抛第一个。
     std::vector<std::thread> threads;
+    std::vector<std::exception_ptr> errors( static_cast<std::size_t>( workers ) );
     threads.reserve( static_cast<std::size_t>( workers ) - 1 );
-    for ( int worker = 1; worker < workers; ++worker )
-      threads.emplace_back( [&runRealization, worker, workers, R] {
+    const auto runStripe = [&runRealization, &errors, workers, R]( int worker ) {
+      try
+      {
         for ( int realization = worker; realization < R; realization += workers )
           runRealization( realization );
-      } );
-    for ( int realization = 0; realization < R; realization += workers )
-      runRealization( realization );
+      }
+      catch ( ... )
+      {
+        errors[static_cast<std::size_t>( worker )] = std::current_exception();
+      }
+    };
+    for ( int worker = 1; worker < workers; ++worker )
+      threads.emplace_back( runStripe, worker );
+    runStripe( 0 );
     for ( std::thread &thread : threads )
       thread.join();
+    for ( const std::exception_ptr &error : errors )
+      if ( error )
+        std::rethrow_exception( error );
   }
   else
   {

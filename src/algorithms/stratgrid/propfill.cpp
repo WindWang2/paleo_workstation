@@ -215,9 +215,161 @@ std::vector<Seed> seedsFromUpscale(const UpscaleTable &table)
   return seeds;
 }
 
+namespace
+{
+
+// PW-090：原实现每单元遍历块内全部种子，O(单元×种子)，大井/大网格不可用。
+// 种子 ≤ kIdwMaxNeighbors 时仍用全部种子（结果与旧版逐位一致）；更多时取度量
+// 距离最近的 kIdwMaxNeighbors 个——在 ijk 粗箱网格上按切比雪夫壳层扩展做精确 KNN。
+constexpr std::size_t kIdwMaxNeighbors = 64;
+
+class SeedIdwIndex
+{
+public:
+  SeedIdwIndex(const std::vector<Seed> &seeds, double sx, double sy, double sz, double power)
+      : m_seeds(seeds), m_sx(sx), m_sy(sy), m_sz(sz), m_power(power)
+  {
+    if (m_seeds.size() <= kIdwMaxNeighbors)
+      return;
+    int lo[3] = {m_seeds[0].i, m_seeds[0].j, m_seeds[0].k};
+    int hi[3] = {lo[0], lo[1], lo[2]};
+    for (const Seed &s : m_seeds)
+    {
+      const int c[3] = {s.i, s.j, s.k};
+      for (int a = 0; a < 3; ++a)
+      {
+        lo[a] = std::min(lo[a], c[a]);
+        hi[a] = std::max(hi[a], c[a]);
+      }
+    }
+    // 箱数约为种子数/8，三轴按跨度比例分配。
+    const double target = std::max(1.0, static_cast<double>(m_seeds.size()) / 8.0);
+    double span[3];
+    double vol = 1.0;
+    for (int a = 0; a < 3; ++a)
+    {
+      span[a] = static_cast<double>(hi[a] - lo[a] + 1);
+      vol *= span[a];
+    }
+    const double side = std::cbrt(vol / target);
+    for (int a = 0; a < 3; ++a)
+    {
+      m_lo[a] = lo[a];
+      m_bin[a] = std::max(1, static_cast<int>(std::ceil(side)));
+      m_n[a] = (hi[a] - lo[a]) / m_bin[a] + 1;
+    }
+    m_cells.assign(static_cast<std::size_t>(m_n[0]) * m_n[1] * m_n[2], {});
+    for (std::size_t s = 0; s < m_seeds.size(); ++s)
+    {
+      const Seed &sd = m_seeds[s];
+      m_cells[cellOf((sd.i - m_lo[0]) / m_bin[0], (sd.j - m_lo[1]) / m_bin[1],
+                     (sd.k - m_lo[2]) / m_bin[2])]
+          .push_back(static_cast<int>(s));
+    }
+    m_minStep = std::min({m_sx * m_bin[0], m_sy * m_bin[1], m_sz * m_bin[2]});
+  }
+
+  float estimate(int i, int j, int k) const
+  {
+    double exactSum = 0;
+    int exactN = 0;
+    double wsum = 0;
+    double vsum = 0;
+    auto accumulate = [&](const Seed &seed, double d2) {
+      if ((i == seed.i && j == seed.j && k == seed.k) || !(d2 > 0.0))
+      {
+        exactSum += seed.value;
+        ++exactN;
+        return;
+      }
+      const double w = 1.0 / std::pow(d2, m_power * 0.5);
+      wsum += w;
+      vsum += w * seed.value;
+    };
+    if (m_cells.empty())
+    {
+      for (const Seed &seed : m_seeds)
+        accumulate(seed, dist2(seed, i, j, k));
+    }
+    else
+    {
+      // 最大堆存当前最近 K 个 (d2, 下标)。
+      std::vector<std::pair<double, int>> heap;
+      heap.reserve(kIdwMaxNeighbors + 1);
+      const int c[3] = {std::clamp((i - m_lo[0]) / m_bin[0], 0, m_n[0] - 1),
+                        std::clamp((j - m_lo[1]) / m_bin[1], 0, m_n[1] - 1),
+                        std::clamp((k - m_lo[2]) / m_bin[2], 0, m_n[2] - 1)};
+      // 查询点在箱网格外时 c 已夹到最近箱：壳 r 内各箱到查询点仍至少相距
+      // (r-1) 个最小箱步（保守下界，KNN 精确）。
+      const int maxR = std::max({m_n[0], m_n[1], m_n[2]});
+      for (int r = 0; r <= maxR; ++r)
+      {
+        if (heap.size() >= kIdwMaxNeighbors)
+        {
+          const double bound = std::max(0, r - 1) * m_minStep;
+          if (bound * bound > heap.front().first)
+            break;
+        }
+        for (int x = c[0] - r; x <= c[0] + r; ++x)
+          for (int y = c[1] - r; y <= c[1] + r; ++y)
+            for (int z = c[2] - r; z <= c[2] + r; ++z)
+            {
+              if (std::max({std::abs(x - c[0]), std::abs(y - c[1]), std::abs(z - c[2])}) != r)
+                continue;
+              if (x < 0 || y < 0 || z < 0 || x >= m_n[0] || y >= m_n[1] || z >= m_n[2])
+                continue;
+              for (const int s : m_cells[cellOf(x, y, z)])
+              {
+                const double d2 = dist2(m_seeds[static_cast<std::size_t>(s)], i, j, k);
+                if (heap.size() < kIdwMaxNeighbors)
+                {
+                  heap.emplace_back(d2, s);
+                  std::push_heap(heap.begin(), heap.end());
+                }
+                else if (std::make_pair(d2, s) < heap.front())  // 并列按种子序，确定性
+                {
+                  std::pop_heap(heap.begin(), heap.end());
+                  heap.back() = {d2, s};
+                  std::push_heap(heap.begin(), heap.end());
+                }
+              }
+            }
+      }
+      std::sort(heap.begin(), heap.end());
+      for (const auto &[d2, s] : heap)
+        accumulate(m_seeds[static_cast<std::size_t>(s)], d2);
+    }
+    if (exactN > 0)
+      return static_cast<float>(exactSum / static_cast<double>(exactN));
+    if (wsum > 0.0)
+      return static_cast<float>(vsum / wsum);
+    return std::numeric_limits<float>::quiet_NaN();
+  }
+
+private:
+  double dist2(const Seed &seed, int i, int j, int k) const
+  {
+    const double hx = static_cast<double>(i - seed.i) * m_sx;
+    const double hy = static_cast<double>(j - seed.j) * m_sy;
+    const double hz = static_cast<double>(k - seed.k) * m_sz;
+    return hx * hx + hy * hy + hz * hz;
+  }
+  std::size_t cellOf(int x, int y, int z) const
+  {
+    return (static_cast<std::size_t>(z) * m_n[1] + y) * m_n[0] + x;
+  }
+
+  const std::vector<Seed> &m_seeds;
+  double m_sx, m_sy, m_sz, m_power;
+  int m_lo[3] = {0, 0, 0}, m_bin[3] = {1, 1, 1}, m_n[3] = {1, 1, 1};
+  double m_minStep = 0.0;
+  std::vector<std::vector<int>> m_cells;
+};
+} // namespace
+
 bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
              const std::vector<FaultSegment> &faults, double power, PropertyVolume *out,
-             const FillProgress &progress, QString *error)
+             const FillProgress &progress, QString *error, double verticalAnisotropy)
 {
   if (!out)
   {
@@ -227,6 +379,11 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
   if (!(power > 0.0) || !std::isfinite(power))
   {
     setError(error, QStringLiteral("IDW 幂次须为正有限值"));
+    return false;
+  }
+  if (!(verticalAnisotropy > 0.0) || !std::isfinite(verticalAnisotropy))
+  {
+    setError(error, QStringLiteral("垂向各向异性系数须为正有限值"));
     return false;
   }
   if (grid.nk < 1 || grid.ni < 1 || grid.nj < 1)
@@ -278,6 +435,12 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
       verticalStep = thickSum / static_cast<double>(nLive);
   }
 
+  // PW-090/PW-134：每块建一次近邻索引；hz 乘垂向各向异性系数。
+  std::vector<SeedIdwIndex> indexes;
+  indexes.reserve(byBlock.size());
+  for (const std::vector<Seed> &b : byBlock)
+    indexes.emplace_back(b, grid.dx, grid.dy, verticalStep * verticalAnisotropy, power);
+
   const int rows = grid.nj;
   int filled = 0;
   int unfilled = 0;
@@ -297,37 +460,7 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
       for (int k = 0; k < grid.nk; ++k)
       {
         const int idx = grid.cellIndex(i, j, k);
-        double exactSum = 0;
-        int exactN = 0;
-        double wsum = 0;
-        double vsum = 0;
-        for (const Seed &seed : bucket)
-        {
-          if (i == seed.i && j == seed.j && k == seed.k)
-          {
-            exactSum += seed.value;
-            ++exactN;
-            continue;
-          }
-          const double hx = static_cast<double>(i - seed.i) * grid.dx;
-          const double hy = static_cast<double>(j - seed.j) * grid.dy;
-          const double hz = static_cast<double>(k - seed.k) * verticalStep;
-          const double d2 = hx * hx + hy * hy + hz * hz;
-          if (!(d2 > 0.0))
-          {
-            exactSum += seed.value;
-            ++exactN;
-            continue;
-          }
-          const double w = 1.0 / std::pow(d2, power * 0.5);
-          wsum += w;
-          vsum += w * seed.value;
-        }
-        float value = kNan;
-        if (exactN > 0)
-          value = static_cast<float>(exactSum / static_cast<double>(exactN));
-        else if (wsum > 0.0)
-          value = static_cast<float>(vsum / wsum);
+        const float value = indexes[static_cast<std::size_t>(block)].estimate(i, j, k);
         local.values[static_cast<std::size_t>(idx)] = value;
         if (std::isfinite(value))
           ++filled;
@@ -395,7 +528,7 @@ bool projectToSection(const PropertyVolume &volume, const SectionGeometry &secti
 }
 
 bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds, const std::vector<FaultTriangle> &mesh,
-             double power, PropertyVolume *out, const FillProgress &progress, QString *error)
+             double power, PropertyVolume *out, const FillProgress &progress, QString *error, double verticalAnisotropy)
 {
   if (!out)
   {
@@ -405,6 +538,11 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds, const std::ve
   if (!(power > 0.0) || !std::isfinite(power))
   {
     setError(error, QStringLiteral("IDW 幂次须为正有限值"));
+    return false;
+  }
+  if (!(verticalAnisotropy > 0.0) || !std::isfinite(verticalAnisotropy))
+  {
+    setError(error, QStringLiteral("垂向各向异性系数须为正有限值"));
     return false;
   }
   if (grid.nk < 1 || grid.ni < 1 || grid.nj < 1)
@@ -528,6 +666,12 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds, const std::ve
       verticalStep = thickSum / static_cast<double>(nLive);
   }
 
+  // PW-090/PW-134：每块建一次近邻索引；hz 乘垂向各向异性系数。
+  std::vector<SeedIdwIndex> indexes;
+  indexes.reserve(byBlock.size());
+  for (const std::vector<Seed> &b : byBlock)
+    indexes.emplace_back(b, grid.dx, grid.dy, verticalStep * verticalAnisotropy, power);
+
   int filled = 0;
   int unfilled = 0;
   for (int j = 0; j < grid.nj; ++j)
@@ -546,37 +690,7 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds, const std::ve
           continue;
         }
         const std::vector<Seed> &bucket = byBlock[static_cast<std::size_t>(block)];
-        double exactSum = 0;
-        int exactN = 0;
-        double wsum = 0;
-        double vsum = 0;
-        for (const Seed &seed : bucket)
-        {
-          if (i == seed.i && j == seed.j && k == seed.k)
-          {
-            exactSum += seed.value;
-            ++exactN;
-            continue;
-          }
-          const double hx = static_cast<double>(i - seed.i) * grid.dx;
-          const double hy = static_cast<double>(j - seed.j) * grid.dy;
-          const double hz = static_cast<double>(k - seed.k) * verticalStep;
-          const double d2 = hx * hx + hy * hy + hz * hz;
-          if (!(d2 > 0.0))
-          {
-            exactSum += seed.value;
-            ++exactN;
-            continue;
-          }
-          const double w = 1.0 / std::pow(d2, power * 0.5);
-          wsum += w;
-          vsum += w * seed.value;
-        }
-        float value = kNan;
-        if (exactN > 0)
-          value = static_cast<float>(exactSum / static_cast<double>(exactN));
-        else if (wsum > 0.0)
-          value = static_cast<float>(vsum / wsum);
+        const float value = indexes[static_cast<std::size_t>(block)].estimate(i, j, k);
         local.values[static_cast<std::size_t>(idx)] = value;
         if (std::isfinite(value))
           ++filled;

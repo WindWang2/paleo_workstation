@@ -12,6 +12,8 @@ class TestGeostatNeighborhood : public QObject
   Q_OBJECT
 
 private slots:
+    void hugeQueryCoordinatesClampSafely();
+    void dedupeNonAdjacentNearDuplicates();
   void coincidentToleranceCheck();
   void dedupeSamplesAveraging();
   void neighborIndexEmptyAndSingle();
@@ -136,6 +138,31 @@ void TestGeostatNeighborhood::mutationDemonstration_ascendingDistanceOrder()
     QVERIFY(d2 >= prevD2);
     prevD2 = d2;
   }
+}
+
+void TestGeostatNeighborhood::dedupeNonAdjacentNearDuplicates()
+{
+  // PW-078：x 排序后近重合点被 y 不同的点隔开，旧实现只比 back() 漏合并。
+  const std::vector<Sample> input = { { 500000.0, 4000000.0, 10 }, { 500000.0001, 4000100.0, 20 },
+                                      { 500000.0002, 4000000.0, 30 }, { 500100, 4000050, 15 } };
+  int mergedCount = 0;
+  const std::vector<Sample> deduped = dedupeSamples( input, &mergedCount );
+  QCOMPARE( mergedCount, 1 );
+  QCOMPARE( deduped.size(), std::size_t( 3 ) );
+  QCOMPARE( deduped[0].value, 20.0 );
+
+}
+
+void TestGeostatNeighborhood::hugeQueryCoordinatesClampSafely()
+{
+  // PW-128：查询坐标远超 int 范围/NaN 时桶号须在 double 域夹紧（不触发 UB）。
+  const std::vector<Sample> pts = { { 0, 0, 1 }, { 10, 10, 2 } };
+  const NeighborIndex idx = NeighborIndex::build( pts );
+  std::vector<std::uint32_t> out;
+  idx.queryNearest( 1e12, -1e12, 1, 0.0, &out ); // floor 远超 INT_MAX
+  QCOMPARE( out.size(), std::size_t( 1 ) );
+  idx.queryNearest( std::numeric_limits<double>::quiet_NaN(), 0, 1, 0.0, &out );
+
 }
 
 QTEST_GUILESS_MAIN(TestGeostatNeighborhood)

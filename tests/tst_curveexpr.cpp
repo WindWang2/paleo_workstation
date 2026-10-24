@@ -30,6 +30,7 @@ class TestCurveExpr : public QObject
 {
   Q_OBJECT
 private slots:
+    void deepNestingRejected();
   // Oracle#2 主用例：四则/优先级/括号——`DEN - 0.5*NEU` 类逐点运算。
   void testArithmeticPrecedence();
   // 幂右结合 + 一元负号优先级（-2^2=-4、2^3^2=512、2^-2=0.25）。
@@ -252,6 +253,24 @@ void TestCurveExpr::testEvaluateMissingAndFunctions()
   QVERIFY(std::fabs(out[0] - 97.0) < 1e-12);
   // A=2: clamp→3 + 5 + 1 + 2 + 4 = 15
   QVERIFY(std::fabs(out[1] - 15.0) < 1e-12);
+}
+
+void TestCurveExpr::deepNestingRejected()
+{
+  std::string err;
+  const std::string deep = std::string(100000, '(') + "1" + std::string(100000, ')');
+  auto e = paleo::curveexpr::CompiledExpr::compile(deep, {}, &err);
+  QVERIFY(!err.empty());
+  std::string chain = "1";
+  for (int i = 0; i < 100000; ++i)
+    chain += "+1";
+  err.clear();
+  e = paleo::curveexpr::CompiledExpr::compile(chain, {}, &err);
+  QVERIFY(!err.empty());
+  err.clear();
+  e = paleo::curveexpr::CompiledExpr::compile(std::string(50, '(') + "1" + std::string(50, ')'), {}, &err);
+  QVERIFY(err.empty());
+
 }
 
 QTEST_MAIN(TestCurveExpr)

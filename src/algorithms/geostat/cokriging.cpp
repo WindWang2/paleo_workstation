@@ -68,6 +68,9 @@ CokrigingCore buildCore( const std::vector<Sample> &primarySamples,
   core.primary = buildIndex( primarySamples );
   core.secondary = buildIndex( secondarySamples );
   core.model = model;
+  // PW-018：高斯零块金病态——与 kriging/SGS 同口径施加块金下限。
+  core.model.primary = regularizedForKriging( model.primary );
+  core.model.secondary = regularizedForKriging( model.secondary );
   core.params = params;
   core.params.maxPrimary = clampNeighborhood( params.maxPrimary );
   core.params.maxSecondary = clampNeighborhood( params.maxSecondary );
@@ -632,6 +635,62 @@ ConstrainedKrigingPointResult ConstrainedKrigingSolver::solveAt( double x, doubl
   result.penaltyPasses = passes;
   result.ok = true;
   return result;
+}
+
+std::vector<Sample> rescaleSecondaryToPrimary( const std::vector<Sample> &secondary,
+                                               const std::vector<double> &primaryColocated,
+                                               const std::vector<double> &secondaryColocated,
+                                               bool *ok )
+{
+  auto stats = []( const std::vector<double> &values, double *mean, double *sd ) {
+    // 两遍法（避免 E[x²]−μ² 抵消）
+    std::size_t n = 0;
+    double sum = 0;
+    for ( double v : values )
+      if ( std::isfinite( v ) )
+      {
+        sum += v;
+        ++n;
+      }
+    if ( n == 0 )
+      return std::size_t( 0 );
+    *mean = sum / static_cast<double>( n );
+    double ss = 0;
+    for ( double v : values )
+      if ( std::isfinite( v ) )
+        ss += ( v - *mean ) * ( v - *mean );
+    *sd = std::sqrt( ss / static_cast<double>( n ) );
+    return n;
+  };
+  if ( ok )
+    *ok = false;
+  double mu1 = 0, sd1 = 0, mu2 = 0, sd2 = 0;
+  const std::size_t n1 = stats( primaryColocated, &mu1, &sd1 );
+  if ( n1 == 0 )
+    return secondary;
+  std::size_t n2 = 0;
+  if ( secondaryColocated.size() == primaryColocated.size() )
+    n2 = stats( secondaryColocated, &mu2, &sd2 );
+  if ( n2 < 2 || !( sd2 > 0 ) )
+  {
+    std::vector<double> field;
+    field.reserve( secondary.size() );
+    for ( const Sample &sample : secondary )
+      field.push_back( sample.value );
+    double fieldMean = 0, fieldSd = 0;
+    if ( stats( field, &fieldMean, &fieldSd ) == 0 )
+      return secondary;
+    if ( n2 == 0 )
+      mu2 = fieldMean;
+    sd2 = fieldSd;
+  }
+  const double gain = ( sd2 > 0 && sd1 > 0 ) ? sd1 / sd2 : 0.0;
+  std::vector<Sample> out = secondary;
+  for ( Sample &sample : out )
+    sample.value = mu1 + ( sample.value - mu2 ) * gain;
+  if ( ok )
+    *ok = true;
+  return out;
 }
 
 } // namespace paleo::geostat

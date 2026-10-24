@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <tuple>
 #include <vector>
 
 using namespace paleo::stratgrid;
@@ -48,6 +49,8 @@ class TestPropFill : public QObject
 {
   Q_OBJECT
 private slots:
+    void verticalAnisotropyScalesDepth();
+    void knnMatchesBruteForce();
   void singleSeedFillsConstantField();
   void symmetricMidpointIsMean();
   void faultBlocksCrossTalk();
@@ -348,6 +351,63 @@ void TestPropFill::readBlobRejectsOverflowingAxes()
   err.clear();
   QVERIFY(!readPropertyBlob(makeBlob((1 << 20) + 1, 1, 1), &back, nullptr, &err)); // 超轴上限
   QVERIFY(!err.isEmpty());
+}
+
+void TestPropFill::knnMatchesBruteForce()
+{
+  // PW-090：>64 个种子时只取度量最近 64 个；与暴力 KNN 参考值对拍。
+  const ZoneGrid grid = box(30, 30, 4); // 层厚 2.5
+  std::vector<Seed> seeds;
+  std::uint32_t r = 12345u;
+  auto next = [&r](int m) { r = r * 1664525u + 1013904223u; return static_cast<int>((r >> 8) % static_cast<std::uint32_t>(m)); };
+  for (int s = 0; s < 300; ++s)
+    seeds.push_back(Seed{next(30), next(30), next(4), static_cast<double>(next(1000)) / 10.0});
+  PropertyVolume vol;
+  QVERIFY(fillIdw(grid, seeds, kNoFaults, 2.0, &vol, {}, nullptr));
+  for (int q = 0; q < 200; ++q)
+  {
+    const int i = next(30), j = next(30), k = next(4);
+    std::vector<std::tuple<double, int, double>> d; // (d2, 种子序, 值)：并列按序取
+    bool exact = false;
+    double exactSum = 0;
+    int exactN = 0;
+    for (int n = 0; n < static_cast<int>(seeds.size()); ++n)
+    {
+      const Seed &s = seeds[static_cast<std::size_t>(n)];
+      const double hx = i - s.i, hy = j - s.j, hz = (k - s.k) * 2.5;
+      d.emplace_back(hx * hx + hy * hy + hz * hz, n, s.value);
+    }
+    std::sort(d.begin(), d.end());
+    d.resize(64);
+    double ws = 0, vs = 0;
+    for (const auto &[d2, n, v] : d)
+    {
+      if (d2 == 0.0) { exact = true; exactSum += v; ++exactN; continue; }
+      ws += 1.0 / d2;
+      vs += v / d2;
+    }
+    const double want = exact ? exactSum / exactN : vs / ws;
+    QVERIFY2(std::fabs(at(vol, i, j, k) - want) < 1e-3 * std::max(1.0, std::fabs(want)),
+             qPrintable(QStringLiteral("cell %1,%2,%3 got %4 want %5").arg(i).arg(j).arg(k).arg(at(vol, i, j, k)).arg(want)));
+  }
+
+}
+
+void TestPropFill::verticalAnisotropyScalesDepth()
+{
+  // PW-134：垂向距离乘各向异性系数。
+  const ZoneGrid grid = box(3, 1, 3, 0.0f, 3.0f); // 层厚 1 = dx
+  const std::vector<Seed> seeds{Seed{0, 0, 1, 0.0}, Seed{1, 0, 0, 10.0}};
+  PropertyVolume iso;
+  QVERIFY(fillIdw(grid, seeds, kNoFaults, 2.0, &iso, {}, nullptr));
+  QVERIFY(std::fabs(at(iso, 1, 0, 1) - 5.0f) < 1e-4f);
+  PropertyVolume aniso;
+  QVERIFY(fillIdw(grid, seeds, kNoFaults, 2.0, &aniso, {}, nullptr, 2.0));
+  QVERIFY(std::fabs(at(aniso, 1, 0, 1) - 2.0f) < 1e-4f);
+  PropertyVolume bad;
+  QString err;
+  QVERIFY(!fillIdw(grid, seeds, kNoFaults, 2.0, &bad, {}, &err, 0.0));
+
 }
 
 QTEST_GUILESS_MAIN(TestPropFill)

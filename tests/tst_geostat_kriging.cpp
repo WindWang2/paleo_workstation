@@ -40,6 +40,8 @@ class GeostatKrigingTests : public QObject
 {
   Q_OBJECT
 private slots:
+    void globalModeFactorsOnceMatchesLocal();
+    void gaussianZeroNuggetStaysInDataRange();
   void exactAtSamplePoints();
   void gridPipelineMatchesPointQueries();
   void singleSampleIsConstantWithAsymptoticVariance();
@@ -314,6 +316,57 @@ void GeostatKrigingTests::zeroSignalAndNonFiniteModelRejected()
   const KrigingResult ok = ordinaryKriging( samples, grid, anisotropic, params );
   QCOMPARE( ok.status, Status::Ok );
   QCOMPARE( ok.estimate.size(), std::size_t( 400 ) );
+}
+
+void GeostatKrigingTests::gaussianZeroNuggetStaysInDataRange()
+{
+  // PW-018：高斯 + nugget=0 + 近距井——修复前估值 2227（数据 [10,30]）且 ok=true。
+  VariogramModel model;
+  model.type = VariogramModelType::Gaussian;
+  model.nugget = 0;
+  model.sill = 100;
+  model.range = 1000;
+  KrigingParams params;
+  params.maxPoints = 16;
+  for ( double sep : { 50.0, 10.0, 5.0, 1.0 } )
+  {
+    const std::vector<Sample> samples = { { 0, 0, 10 }, { sep, 0, 30 }, { 0, 500, 20 }, { 500, 500, 15 }, { 500, 0, 12 } };
+    const KrigingPointResult r = ordinaryKrigingAt( 250, -100, samples, model, params );
+    if ( !r.ok )
+      continue; // 病态闸判失败也可接受——不允许的是 ok=true 的离谱值
+    QVERIFY2( r.estimate > 0 && r.estimate < 40,
+              qPrintable( QStringLiteral( "sep=%1 est=%2" ).arg( sep ).arg( r.estimate ) ) );
+  }
+  QVERIFY( regularizedForKriging( model ).nugget >= kGaussianNuggetFloor * model.sill );
+
+}
+
+void GeostatKrigingTests::globalModeFactorsOnceMatchesLocal()
+{
+  // PW-079：maxPoints<=0（全局）走一次分解 + 逐格回代，结果须与 K=全部 的邻域路径一致。
+  std::vector<Sample> samples;
+  for ( int i = 0; i < 40; ++i )
+    samples.push_back( Sample{ std::fmod( i * 37.0, 100.0 ), std::fmod( i * 53.0, 90.0 ), std::sin( i * 0.7 ) * 5 + 10 } );
+  const VariogramModel model = sphericalModel();
+  KrigingParams global;
+  global.maxPoints = 0;
+  KrigingParams local;
+  local.maxPoints = 64; // ≥ 样本数 → 同一组样本
+  const KrigingSolver a( samples, model, global );
+  const KrigingSolver b( samples, model, local );
+  for ( double x : { -10.0, 13.0, 55.5, 120.0 } )
+    for ( double y : { -5.0, 44.0, 95.0 } )
+    {
+      const KrigingPointResult ra = a.solveAt( x, y );
+      const KrigingPointResult rb = b.solveAt( x, y );
+      QCOMPARE( ra.ok, rb.ok );
+      QVERIFY( std::fabs( ra.estimate - rb.estimate ) < 1e-8 );
+      QVERIFY( std::fabs( ra.variance - rb.variance ) < 1e-8 );
+    }
+  const KrigingResult grid = ordinaryKriging( samples, makeGrid( 30, 30, -10, 100, 4 ), model, global );
+  QCOMPARE( grid.status, Status::Ok );
+  QCOMPARE( grid.finiteCells, 900 );
+
 }
 
 QTEST_MAIN( GeostatKrigingTests )

@@ -116,6 +116,17 @@ class CoKrigingSolver
     std::unique_ptr<Impl> m_impl;
 };
 
+// PW-019：CoKrigingModel 的 γ12 = ρ·γ1、γ22 取主变量基台（#326）——方程组假设
+// 协变量已处于主变量单位与方差上。原始协变量（地震振幅 1e3~1e5 vs 孔隙度 0.1）
+// 直接进方程时 Σν·z2 随协变量单位线性缩放（×1000 ⇒ 估值 255 vs 真值 21）。
+// 用配置点统计做线性标准化：z2' = μ1 + (z2 − μ2)·σ1/σ2。配置点不足 2 个或
+// 任一方差为零时，σ 退回协变量全场样本统计 / 只做均值平移；ok=false 表示无法
+// 标定（主配置值为空），此时返回原值。
+std::vector<Sample> rescaleSecondaryToPrimary( const std::vector<Sample> &secondary,
+                                               const std::vector<double> &primaryColocated,
+                                               const std::vector<double> &secondaryColocated,
+                                               bool *ok = nullptr );
+
 CoKrigingPointResult coKrigingAt( double x, double y, const std::vector<Sample> &primary,
                                   const std::vector<Sample> &secondary, const CoKrigingModel &model,
                                   const CoKrigingParams &params );

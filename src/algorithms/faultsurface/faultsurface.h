@@ -1,6 +1,8 @@
 // 层：数据
 #pragma once
 
+#include <limits>
+
 #include "../../domain/faultset.h"
 
 #include <QPair>
@@ -45,7 +47,10 @@ struct SurveyFrame {
     double inlineMax = 1;
     double xlineMin = 0; // Inline 剖面上 traceFrac 0..1 对应的 xline 号
     double xlineMax = 1;
-    double zScale = 1; // 地图 Z = 纵向样值 * zScale，Z 向下为正
+    // 地图 Z = 纵向样值 * zScale，Z 向下为正。
+    // PW-086：无默认值——纵向样值常为 TWT(ms)/样点号，默认 1 会把时间当米，
+    // 倾角/倾向静默错误。调用方必须显式给出（未给 = NaN → 成面拒绝）。
+    double zScale = std::numeric_limits<double>::quiet_NaN();
 };
 
 struct SurfaceBuildResult {

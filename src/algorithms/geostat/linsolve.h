@@ -34,4 +34,10 @@ bool solveDenseLu( const std::vector<double> &a, int n,
 bool solveDenseLu( const std::vector<double> &a, int n, const std::vector<double> &b,
                    std::vector<double> &x, LuWorkspace &workspace );
 
+// PW-079：分解/回代拆分——同一矩阵多右端项（全局 OK：矩阵与待估点无关）
+// 只分解一次。luFactor 失败（奇异）返回 false；luSolve 要求先成功分解。
+// solveDenseLu 即 luFactor + luSolve，算术逐位不变。
+bool luFactor( const std::vector<double> &a, int n, LuWorkspace &workspace );
+void luSolve( const LuWorkspace &workspace, int n, const std::vector<double> &b, std::vector<double> &x );
+
 } // namespace paleo::geostat

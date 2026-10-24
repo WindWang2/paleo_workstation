@@ -327,6 +327,12 @@ bool solveMinimumCurvature(const std::vector<ScatterPoint> &points,
   st.zMin = zMin;
   st.zMax = zMax;
   const double zRange = std::max(zMax - zMin, 1e-12);
+  // PW-080：松弛在 float 上进行；绝对高程（如 TWT/深度 4e6 量级）下 float
+  // ulp≈0.25，迭代增量被量化吞掉→假停滞/台阶。对 (z − zRef) 求解，输出再
+  // 加回：迭代精度只与数据极差相关。
+  const double zRef = 0.5 * (zMin + zMax);
+  for (ScatterPoint &p : finitePoints)
+    p.z -= zRef;
 
   // ---- 多级粗→细级联（多网格思想，GMT surface 的预处理同思路）-----------
   // 双调和 GS 的低频误差衰减极慢（细级单跑 tol=1e-6 需 ~2.4 万遍）；粗级
@@ -641,6 +647,10 @@ bool solveMinimumCurvature(const std::vector<ScatterPoint> &points,
         for (std::size_t k = 0; k < n; ++k)
           if (barrierMask[k])
             z[k] = std::numeric_limits<float>::quiet_NaN();
+      if (zRef != 0.0)
+        for (float &v : z)
+          if (std::isfinite(v))
+            v = static_cast<float>(static_cast<double>(v) + zRef);
       *outZ = std::move(z);
     }
     else

@@ -1,6 +1,7 @@
 // 层：数据
 #include "algorithms/curveexpr.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -156,6 +157,7 @@ private:
     }
     return -1;
   }
+  int m_depth = 0;
   void advance() { m_tok = m_lexer.next(); }
   bool eat(const char *op)
   {
@@ -286,9 +288,23 @@ private:
     return lhs;
   }
 
+  // PW-089：递归下降每层括号/一元/幂都回到 parseUnary——无界嵌套（20 万层
+  // '('）直接栈溢出段错误。限深后报错；求值树深度另在 compile() 校验。
+  static constexpr int kMaxNestingDepth = 256;
+  struct DepthGuard
+  {
+    int &depth;
+    explicit DepthGuard(int &d) : depth(d) { ++depth; }
+    ~DepthGuard() { --depth; }
+  };
+
   // unary := ('-'|'!') unary | pow
   int parseUnary()
   {
+    DepthGuard guard(m_depth);
+    if (m_depth > kMaxNestingDepth)
+      return err("expression nested too deeply (limit " + std::to_string(kMaxNestingDepth) + ")",
+                 m_tok.offset);
     if (m_tok.kind == Token::Kind::Op && m_tok.text == "-")
     {
       advance();
@@ -524,7 +540,25 @@ CompiledExpr CompiledExpr::compile(const std::string &text,
       *error = parser.failed() ? parser.error() : "empty expression";
     return out;
   }
-  out.m_nodes = parser.takeNodes();
+  std::vector<detail::ExprNode> nodes = parser.takeNodes();
+  // PW-089：evalNode 按树深递归；左结合长链（1+1+…+1）解析是迭代的，但树深
+  // 线性增长——同样会栈溢出。子节点总先于父节点入表，按下标一遍求深度。
+  constexpr int kMaxTreeDepth = 4096;
+  std::vector<int> depth(nodes.size(), 1);
+  for (std::size_t i = 0; i < nodes.size(); ++i)
+  {
+    for (const int child : {nodes[i].a, nodes[i].b, nodes[i].c})
+      if (child >= 0 && static_cast<std::size_t>(child) < i)
+        depth[i] = std::max(depth[i], depth[static_cast<std::size_t>(child)] + 1);
+    if (depth[i] > kMaxTreeDepth)
+    {
+      if (error)
+        *error = "expression too long/deep to evaluate (tree depth limit " +
+                 std::to_string(kMaxTreeDepth) + ")";
+      return out;
+    }
+  }
+  out.m_nodes = std::move(nodes);
   out.m_used = parser.takeUsed();
   out.m_root = root;
   return out;

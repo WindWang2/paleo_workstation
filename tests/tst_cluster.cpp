@@ -11,6 +11,7 @@ using namespace paleo::cluster;
 class TestCluster : public QObject {
   Q_OBJECT
 private slots:
+    void duplicateHeavyDataStaysWellFormed();
   void bimodal();
   void degenerate();
   void gaussian();
@@ -286,5 +287,34 @@ void TestCluster::randomPrimitivesMatchStdStatistics() {
     }
   }
 }
+void TestCluster::duplicateHeavyDataStaysWellFormed()
+{
+  // PW-083/084/085 regression guards: duplicate-heavy data, tiny variance floor.
+  using namespace paleo::cluster;
+  for (unsigned s = 0; s < 50; ++s) {
+    std::mt19937 g(s);
+    std::uniform_real_distribution<double> u(0, 1);
+    Matrix m;
+    m.dimensions = 1;
+    for (int i = 0; i < 40; ++i)
+      m.values.push_back(i < 30 ? std::floor(u(g) * 3) : 50 + u(g));
+    Options o;
+    o.k = 4;
+    o.seed = s;
+    o.varianceFloor = 1e-9;
+    const Result r = gmm(m, o);
+    QVERIFY2(r.ok, r.error.c_str());
+    const double w = std::accumulate(r.model.weights.begin(), r.model.weights.end(), 0.0);
+    QVERIFY(std::abs(w - 1.0) < 1e-9);
+    const Result km = kmeans(m, o);
+    QVERIFY(km.ok);
+    std::vector<int> seen(4, 0);
+    for (int l : km.labels)
+      seen[std::size_t(l)] = 1;
+    QCOMPARE(std::accumulate(seen.begin(), seen.end(), 0), 4);
+  }
+
+}
+
 QTEST_APPLESS_MAIN(TestCluster)
 #include "tst_cluster.moc"

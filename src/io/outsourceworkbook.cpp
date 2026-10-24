@@ -7,11 +7,13 @@
 
 #include <QByteArray>
 #include <QDir>
+#include <QDate>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
 #include <QSet>
+#include <QTime>
 #include <QCoreApplication>
 #include <QRegularExpression>
 #include <QXmlStreamReader>
@@ -378,6 +380,92 @@ QVector<QString> readSharedStrings( const QByteArray &bytes )
   return values;
 }
 
+// PW-141：numFmt 是否日期/时间格式。内置 14-22、27-36、45-47、50-58；自定义
+// 格式码去掉引号串、[..] 段与转义后含 y/m/d/h/s 记日期。
+bool isDateFormatCode( const QString &code )
+{
+  QString stripped;
+  bool inQuote = false;
+  bool inBracket = false;
+  for ( int i = 0; i < code.size(); ++i )
+  {
+    const QChar c = code.at( i );
+    if ( inQuote ) { if ( c == QLatin1Char( '"' ) ) inQuote = false; continue; }
+    if ( inBracket ) { if ( c == QLatin1Char( ']' ) ) inBracket = false; continue; }
+    if ( c == QLatin1Char( '"' ) ) { inQuote = true; continue; }
+    if ( c == QLatin1Char( '[' ) ) { inBracket = true; continue; }
+    if ( c == QLatin1Char( '\\' ) || c == QLatin1Char( '_' ) || c == QLatin1Char( '*' ) ) { ++i; continue; }
+    stripped += c.toLower();
+  }
+  for ( const QChar c : stripped )
+    if ( c == QLatin1Char( 'y' ) || c == QLatin1Char( 'm' ) || c == QLatin1Char( 'd' ) ||
+         c == QLatin1Char( 'h' ) || c == QLatin1Char( 's' ) )
+      return true;
+  return false;
+}
+
+bool isBuiltinDateFormat( int id )
+{
+  return ( id >= 14 && id <= 22 ) || ( id >= 27 && id <= 36 ) || ( id >= 45 && id <= 47 ) ||
+         ( id >= 50 && id <= 58 );
+}
+
+// xl/styles.xml → 每个 cellXfs 下标是否日期样式。
+QVector<bool> readDateStyles( const QByteArray &bytes )
+{
+  QHash<int, bool> customDate;
+  QVector<bool> xfIsDate;
+  QXmlStreamReader reader( bytes );
+  bool inCellXfs = false;
+  while ( !reader.atEnd() )
+  {
+    const QXmlStreamReader::TokenType token = reader.readNext();
+    if ( token == QXmlStreamReader::StartElement )
+    {
+      const QStringView name = reader.name();
+      if ( name == QLatin1String( "numFmt" ) )
+        customDate.insert( reader.attributes().value( QStringLiteral( "numFmtId" ) ).toInt(),
+                           isDateFormatCode( reader.attributes().value( QStringLiteral( "formatCode" ) ).toString() ) );
+      else if ( name == QLatin1String( "cellXfs" ) )
+        inCellXfs = true;
+      else if ( inCellXfs && name == QLatin1String( "xf" ) )
+      {
+        const int id = reader.attributes().value( QStringLiteral( "numFmtId" ) ).toInt();
+        xfIsDate.append( customDate.contains( id ) ? customDate.value( id ) : isBuiltinDateFormat( id ) );
+      }
+    }
+    else if ( token == QXmlStreamReader::EndElement && reader.name() == QLatin1String( "cellXfs" ) )
+      inCellXfs = false;
+  }
+  return xfIsDate;
+}
+
+// Excel 序列日 → ISO 文本（整数日 yyyy-MM-dd；带小数加 HH:mm:ss）。1900 系
+// 含 1900-02-29 闰年 bug：serial ≥ 61 减一天；1904 系从 1904-01-01 起算。
+QString excelSerialToIso( double serial, bool date1904 )
+{
+  if ( !std::isfinite( serial ) || serial < 0 || serial > 2958465.0 )
+    return QString();
+  qint64 days = static_cast<qint64>( std::floor( serial ) );
+  const double frac = serial - static_cast<double>( days );
+  QDate base;
+  if ( date1904 )
+    base = QDate( 1904, 1, 1 );
+  else
+  {
+    base = QDate( 1899, 12, 31 );
+    if ( days >= 61 )
+      --days;
+  }
+  const QDate d = base.addDays( days );
+  const int secs = static_cast<int>( std::llround( frac * 86400.0 ) );
+  if ( secs <= 0 )
+    return d.toString( Qt::ISODate );
+  if ( secs >= 86400 )
+    return d.addDays( 1 ).toString( Qt::ISODate );
+  return d.toString( Qt::ISODate ) + QLatin1Char( ' ' ) + QTime( 0, 0 ).addSecs( secs ).toString( QStringLiteral( "HH:mm:ss" ) );
+}
+
 // "BC12" → 列号（1 基）；引用非法返回 -1。
 int columnIndexFromRef( const QString &ref, int *rowNumber )
 {
@@ -443,12 +531,27 @@ WorkbookReadResult readXlsx( const QString &path )
       readZipEntry( archive, QStringLiteral( "xl/sharedStrings.xml" ), &sharedBytes, &sharedError );
   const QVector<QString> sharedStrings = hasSharedStrings ? readSharedStrings( sharedBytes ) : QVector<QString>();
 
+  // PW-141：日期样式表 + 1904 日期系，数值格按样式转 ISO 日期而非留序列号。
+  QByteArray stylesBytes;
+  QString stylesError;
+  const QVector<bool> dateStyles =
+      readZipEntry( archive, QStringLiteral( "xl/styles.xml" ), &stylesBytes, &stylesError )
+          ? readDateStyles( stylesBytes )
+          : QVector<bool>();
+  bool date1904 = false;
+
   QVector<QPair<QString, QString>> sheetTargets;
   {
     QXmlStreamReader reader( workbookBytes );
     while ( !reader.atEnd() )
     {
-      if ( reader.readNext() == QXmlStreamReader::StartElement &&
+      const QXmlStreamReader::TokenType wbToken = reader.readNext();
+      if ( wbToken == QXmlStreamReader::StartElement && reader.name() == QLatin1String( "workbookPr" ) )
+      {
+        const QString v = reader.attributes().value( QStringLiteral( "date1904" ) ).toString();
+        date1904 = ( v == QLatin1String( "1" ) || v.compare( QLatin1String( "true" ), Qt::CaseInsensitive ) == 0 );
+      }
+      if ( wbToken == QXmlStreamReader::StartElement &&
            reader.name() == QLatin1String( "sheet" ) &&
            ( reader.namespaceUri() == kMainNs || reader.namespaceUri().isEmpty() ) )
       {
@@ -568,6 +671,7 @@ WorkbookReadResult readXlsx( const QString &path )
         {
           const QString ref = reader.attributes().value( QStringLiteral( "r" ) ).toString();
           const QString type = reader.attributes().value( QStringLiteral( "t" ) ).toString();
+          const QString styleAttr = reader.attributes().value( QStringLiteral( "s" ) ).toString();
           int column = nextColumn;
           if ( !ref.isEmpty() )
           {
@@ -648,6 +752,20 @@ WorkbookReadResult readXlsx( const QString &path )
           {
             isError = true;
             errorText = value;
+          }
+          else if ( ( type.isEmpty() || type == QLatin1String( "n" ) ) && !styleAttr.isEmpty() &&
+                    !value.isEmpty() )
+          {
+            bool styleOk = false;
+            const int xf = styleAttr.toInt( &styleOk );
+            bool numOk = false;
+            const double serial = value.toDouble( &numOk );
+            if ( styleOk && numOk && xf >= 0 && xf < dateStyles.size() && dateStyles.at( xf ) )
+            {
+              const QString iso = excelSerialToIso( serial, date1904 );
+              if ( !iso.isEmpty() )
+                value = iso;
+            }
           }
           if ( isError )
           {

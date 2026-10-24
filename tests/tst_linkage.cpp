@@ -146,6 +146,24 @@ private slots:
     QVERIFY(!ctx.broadcasting());
   }
 
+  // PW-062：嵌套 set 回退到当前广播值时，须取消先前的 pending（最后写入者胜）。
+  void nestedRevertCancelsEarlierPending()
+  {
+    SelectionContext ctx;
+    bool fired = false;
+    connect(&ctx, &SelectionContext::selectionChanged, &ctx,
+            [&ctx, &fired](const QStringList &, const QString &) {
+              if (fired)
+                return;
+              fired = true;
+              ctx.setSelection({QStringLiteral("B")}, QStringLiteral("x"));
+              ctx.setSelection({QStringLiteral("A")}, QStringLiteral("y"));
+            });
+    ctx.setSelection({QStringLiteral("A")}, QStringLiteral("init"));
+    QCOMPARE(ctx.selectedIds(), QStringList({QStringLiteral("A")}));
+    QVERIFY(!ctx.broadcasting());
+  }
+
   void horizonSelectionIsCoalesced()
   {
     SelectionContext ctx;

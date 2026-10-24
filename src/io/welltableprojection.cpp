@@ -8,7 +8,8 @@
 namespace paleo::io {
 bool projectWellCoordinates(QVector<WellHeadRecord> *heads, const QString &source, const QString &destination, QString *error)
 {
-  if (destination.isEmpty() || sameNativeCrs(source, destination)) return true;
+  // Depth-only stratification tables have no horizontal coordinates to project.
+  if (heads->isEmpty() || destination.isEmpty() || sameNativeCrs(source, destination)) return true;
   if (source.isEmpty()) {
     if (error) *error = QObject::tr("井点坐标系未知，不能转换到工程坐标系");
     return false;

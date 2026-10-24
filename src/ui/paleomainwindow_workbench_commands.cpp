@@ -12,6 +12,7 @@
 // .cpp，不在头文件加成员声明。行为守恒：分支内 early-return 经
 // WbCmdStep::Return 上传入口，公共消息逻辑保持单份。
 #include "paleomainwindow.h"
+#include "workbenchcommandregistry.h"
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgislayerservice.h"
@@ -481,9 +482,17 @@ void PaleoMainWindow::runWorkbenchCommand(
     }
     return true; // 保留当前范围、比例尺和三级显示，不在导出前重新缩放。
   };
-  if (runMappingEditFlow(page, action, p, action == "exportMap" ? exportView : show)) return;
   QString error;
   bool ok = true;
+  // review-fix H1：未登记动作显式失败，不再落到默认成功文案。
+  if (!paleo::workbenchcmd::isKnownAction(action)) {
+    qWarning("runWorkbenchCommand: unknown action '%s'", qPrintable(action));
+    const QString message = tr("未知操作：%1").arg(action);
+    page->showMessage(message);
+    statusBar()->showMessage(message, 10000);
+    return;
+  }
+  if (runMappingEditFlow(page, action, p, action == "exportMap" ? exportView : show)) return;
   bool declarationOnly = false;
   const auto h = p.value("horizon").toString(),
              id = p.value("layer").toString();
@@ -519,6 +528,12 @@ void PaleoMainWindow::runWorkbenchCommand(
                                        error, declarationOnly);
   if (step == WbCmdStep::Return)
     return;
+  if (step == WbCmdStep::Skip) {
+    // 已登记却无分支受理（如编辑流前置条件不满足）：按失败回报。
+    qWarning("runWorkbenchCommand: action '%s' not handled", qPrintable(action));
+    ok = false;
+    error = tr("操作未执行：%1 当前不可用").arg(action);
+  }
   QString message;
   if (!ok)
     message = error.isEmpty() ? tr("操作未完成，请检查输入。") : error;

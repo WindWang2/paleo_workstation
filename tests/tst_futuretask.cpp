@@ -4,6 +4,8 @@
 // task 自持观察者、pool() 的选池语义。
 #include <QtTest>
 #include <QElapsedTimer>
+#include <atomic>
+#include <memory>
 #include <QFutureWatcher>
 #include <QThread>
 #include <QThreadPool>
@@ -84,21 +86,28 @@ void TestFutureTask::watcherDestroyedFinalizesCancellableTask()
 {
   PaleoTaskService svc;
   auto *watcher = new QFutureWatcher<int>;
-  const QFuture<int> future = QtConcurrent::run(paleo::tasks::pool(&svc), [] {
-    QThread::msleep(400);
-    return 7;
-  });
-  PaleoTask *task = paleo::tasks::track(&svc, watcher, future,
-                                        QStringLiteral("orphan"));
+  auto workerDone = std::make_shared<std::atomic_bool>(false);
+  const QFuture<int> future =
+      QtConcurrent::run(paleo::tasks::pool(&svc), [workerDone] {
+        QThread::msleep(400);
+        workerDone->store(true);
+        return 7;
+      });
+  bool errorCalled = false;
+  PaleoTask *task = paleo::tasks::track(
+      &svc, watcher, future, QStringLiteral("orphan"), true,
+      [&errorCalled] { errorCalled = true; return QStringLiteral("x"); });
   watcher->setFuture(future);
   QSignalSpy fin(task, &PaleoTask::finished);
-  QElapsedTimer timer;
-  timer.start();
-  delete watcher; // 拥有方先走：可取消任务必须立刻终态（Cancelled），不等 worker
-  QVERIFY(fin.wait(2000));
+  delete watcher; // 拥有方先走：只请求取消，worker 未退出前不得终态（review M2）
+  QVERIFY(task->cancelRequested());
+  QCoreApplication::processEvents();
+  QVERIFY2(fin.isEmpty() && task->running(),
+           "terminal state reported while the worker was still running");
+  QVERIFY(fin.wait(5000));
+  QVERIFY(workerDone->load()); // 终态严格晚于 worker 真正结束
   QCOMPARE(task->state(), PaleoTask::State::Cancelled);
-  QVERIFY2(timer.elapsed() < paleo::perfbudget::relaxedBudgetMs(400),
-           "terminal state waited for the worker");
+  QVERIFY2(!errorCalled, "error functor may capture the dead owner");
 }
 
 void TestFutureTask::nonCancellableTrackSurvivesWatcherDeath()

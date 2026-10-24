@@ -78,9 +78,9 @@ DataListPanel::DataListPanel(QWidget *parent)
     return w;
   };
   QWidget *importSection = section("dataImportSection");
-  auto *importLay = static_cast<QVBoxLayout *>(importSection->layout());
+  auto *importLay = qobject_cast<QVBoxLayout *>(importSection->layout());
   QWidget *listSection = section("dataListSection");
-  auto *listLay = static_cast<QVBoxLayout *>(listSection->layout());
+  auto *listLay = qobject_cast<QVBoxLayout *>(listSection->layout());
 
   importLay->addWidget(caption(tr("数据导入"), importSection));
   buildImportButtons(importLay, importSection);

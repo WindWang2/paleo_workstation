@@ -149,7 +149,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
 
   // Scroll hosts isolate content hints; switching a page never resizes a dock.
   if (auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost")))
-    if (auto *stack = static_cast<QStackedLayout *>(host->layout()))
+    if (auto *stack = qobject_cast<QStackedLayout *>(host->layout()))
       stack->setCurrentIndex(idx);
   if (m_rightDock)
     m_rightDock->setWindowTitle(pageDockTitles().at(idx));

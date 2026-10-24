@@ -266,7 +266,7 @@ void EntityPanel::buildD4Ui()
   auto *content = findChild<QWidget *>(QStringLiteral("entityViewContent"));
   if (!content)
     return;
-  auto *vcl = static_cast<QVBoxLayout *>(content->layout());
+  auto *vcl = qobject_cast<QVBoxLayout *>(content->layout());
 
   // ---- D4.6 实体 CRUD 工具条（表头之下）----
   auto *crud = new QWidget(content);
@@ -355,7 +355,7 @@ void EntityPanel::buildD4Ui()
            host != content)
       host = host->parentWidget();
     QVBoxLayout *sl = host && host != content
-                          ? static_cast<QVBoxLayout *>(host->layout())
+                          ? qobject_cast<QVBoxLayout *>(host->layout())
                           : nullptr;
     if (sl)
     {

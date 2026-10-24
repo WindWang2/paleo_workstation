@@ -215,7 +215,7 @@ void DataListPanel::buildSearchActions(QWidget *searchRow, QHBoxLayout *layout, 
   auto *row = new QWidget(advanced); row->setObjectName("dataAssetActions");
   auto *actions = new QHBoxLayout(row); actions->setContentsMargins(0, 0, 0, 0);
   actions->setSpacing(PaleoTheme::tokens().spacingXs);
-  static_cast<QVBoxLayout *>(advanced->layout())->insertWidget(0, row);
+  qobject_cast<QVBoxLayout *>(advanced->layout())->insertWidget(0, row);
   auto *exportData = new QToolButton(row);
   exportData->setObjectName("dataExportButton");
   exportData->setText(tr("导出数据…"));

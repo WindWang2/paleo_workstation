@@ -130,7 +130,7 @@ void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
     }
 
     auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
-    auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
+    auto *stack = host ? qobject_cast<QStackedLayout *>(host->layout()) : nullptr;
     if (!stack)
       return;
     const int idx = paleo::pagesinternal::kPageIds.indexOf(QStringLiteral("validate"));

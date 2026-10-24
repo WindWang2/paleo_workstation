@@ -110,7 +110,16 @@ bool writeFloatRaster( const QString &path, const std::vector<double> &values, i
                        const double geoTransform[6], const QgsCoordinateReferenceSystem &crs,
                        const QString &canonicalCrsWkt = QString() )
 {
-  GDALDatasetH ds = PaleoRasterOut::createFloatRaster( path, cols, rows, geoTransform, crs, -9999.0, canonicalCrsWkt );
+  // PW-040：nodata 哨兵取在数据值域之外——真实值恰为 -9999 时不被当作无值。
+  double minFinite = std::numeric_limits<double>::infinity();
+  for ( double v : values )
+    if ( std::isfinite( v ) )
+      minFinite = std::min( minFinite, v );
+  double sentinel = -9999.0;
+  if ( std::isfinite( minFinite ) && minFinite <= sentinel )
+    sentinel = std::floor( minFinite ) - 10000.0;
+  const float sentinelF = static_cast<float>( sentinel );
+  GDALDatasetH ds = PaleoRasterOut::createFloatRaster( path, cols, rows, geoTransform, crs, sentinel, canonicalCrsWkt );
   if ( !ds )
     return false;
   std::vector<float> row( static_cast<std::size_t>( cols ) );
@@ -120,7 +129,7 @@ bool writeFloatRaster( const QString &path, const std::vector<double> &values, i
     for ( int c = 0; c < cols; ++c )
     {
       const double value = values[static_cast<std::size_t>( r ) * cols + c];
-      row[static_cast<std::size_t>( c )] = std::isfinite( value ) ? static_cast<float>( value ) : -9999.0f;
+      row[static_cast<std::size_t>( c )] = std::isfinite( value ) ? static_cast<float>( value ) : sentinelF;
     }
     if ( GDALRasterIO( GDALGetRasterBand( ds, 1 ), GF_Write, 0, r, cols, 1,
                        row.data(), cols, 1, GDT_Float32, 0, 0 ) != CE_None )

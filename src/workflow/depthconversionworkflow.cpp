@@ -247,7 +247,7 @@ bool convertGridToDepthFile(const paleo::velmodel::VelocityModel &model,
   double zMax = -std::numeric_limits<double>::max();
   for (int i = 0; i < g.rows * g.cols; ++i)
   {
-    if (std::isnan(r.depthM[i]))
+    if (!std::isfinite(r.depthM[i])) // PW-040：±Inf 也落 nodata
     {
       b.z[i] = kNoData;
       continue;

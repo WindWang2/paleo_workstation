@@ -102,9 +102,10 @@ bool readFloatRaster(const QString &path, RasterGrid *grid, std::vector<float> *
       *error = QStringLiteral("读取栅格失败：%1").arg(path);
     return false;
   }
-  // 落盘 nodata（-9999 族）→ 核内 NaN 语义。
+  // 落盘 nodata（-9999 族）→ 核内 NaN 语义。PW-040：±Inf 同样视为无值
+  // （与 propertymodel/realization 读口径一致），不让它污染 min/max 与网格化。
   for (float &v : *out)
-    if (std::isnan(v) || (grid->hasNodata && v == static_cast<float>(grid->nodata))) // #165
+    if (!std::isfinite(v) || (grid->hasNodata && v == static_cast<float>(grid->nodata))) // #165
       v = std::numeric_limits<float>::quiet_NaN();
   return true;
 }
@@ -338,7 +339,7 @@ QString SurfaceGriddingWorkflow::gridHorizonText(const QString &horizon,
   int filled = 0;
   for (int i = 0; i < int(z.size()); ++i)
   {
-    const float v = std::isnan(z[std::size_t(i)]) ? float(-9999.0) : z[std::size_t(i)];
+    const float v = !std::isfinite(z[std::size_t(i)]) ? float(-9999.0) : z[std::size_t(i)]; // PW-040
     b.z[i] = v;
     if (v != -9999.0f)
     {
@@ -650,7 +651,7 @@ QString SurfaceGriddingWorkflow::isopachBetweenRasters(const QString &topTif,
     int filled = 0;
     for (std::size_t i = 0; i < n; ++i)
     {
-      const float v = std::isnan(iso[i]) ? -9999.0f : iso[i];
+      const float v = !std::isfinite(iso[i]) ? -9999.0f : iso[i]; // PW-040
       b.z[int(i)] = v;
       if (v != -9999.0f)
       {

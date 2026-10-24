@@ -74,15 +74,18 @@ function(paleo_test_sandbox name)
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
       "PALEO_PYTHON=${PALEO_TEST_PYTHON_NORM}")
   endif()
+  # review-fix-ci：sanitizer 选项只给「缺省值」，用 ENVIRONMENT_MODIFICATION
+  # string_prepend 拼在继承值之前——sanitizer 选项串后出现者胜，CI 工作流级
+  # ASAN_OPTIONS=detect_leaks=1 / LSAN_OPTIONS=suppressions=… 不再被逐测试
+  # ENVIRONMENT 整串覆盖（旧写法让 PW-030 的 LSAN 实际全程关闭）。本机未导出
+  # 时缺省仍 detect_leaks=0（与旧行为一致）。不再写 LSAN_OPTIONS。
   if(PALEO_ENABLE_ASAN)
-    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
-      "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_summary=1")
-    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
-      "LSAN_OPTIONS=detect_leaks=0")
+    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT_MODIFICATION
+      "ASAN_OPTIONS=string_prepend:detect_leaks=0:abort_on_error=1:print_summary=1:")
   endif()
   if(PALEO_ENABLE_UBSAN)
-    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
-      "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1")
+    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT_MODIFICATION
+      "UBSAN_OPTIONS=string_prepend:print_stacktrace=1:halt_on_error=1:")
   endif()
   set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
     "QTEST_FUNCTION_TIMEOUT=900000")

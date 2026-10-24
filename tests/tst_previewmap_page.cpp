@@ -65,8 +65,14 @@ class TestPreviewMapPage : public QObject
     void captureEvidence()
     {
       m_page->setError(QStringLiteral("数据源损坏"), QStringLiteral("/x/y.tif"));
-      uipolish::capturePanel(m_page.get(), QStringLiteral("previewmap_error"),
-                             QSize(800, 600));
+      QLabel *state = nullptr;
+      for (QLabel *l : m_page->findChildren<QLabel *>(QStringLiteral("stateText")))
+        if (l->text() == QStringLiteral("数据源损坏"))
+          state = l;
+      QVERIFY2(state, "错误页应显示传入的标题");
+      QVERIFY(uipolish::capturePanel(m_page.get(), QStringLiteral("previewmap_error"),
+                                     QSize(800, 600)));
+      m_page->clearError();
     }
     void renderCacheStoresOnCompletion();
     void lowResSnapshotShowsOverlay();

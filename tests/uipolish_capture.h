@@ -22,22 +22,27 @@ namespace uipolish
     return on;
   }
 
-  inline void capturePanel( QWidget *panel, const QString &name, QSize size = QSize( 520, 360 ) )
+  // 返回 false 仅表示「开启了截图却没能落盘/面板为空」；未开启截图时恒为 true。
+  // 调用方可 QVERIFY 返回值，但证据槽仍须另有针对面板状态的真实断言。
+  inline bool capturePanel( QWidget *panel, const QString &name, QSize size = QSize( 520, 360 ) )
   {
     QString dir;
-    if ( !captureEnabled( &dir ) || !panel )
-      return;
+    if ( !panel )
+      return false;
+    if ( !captureEnabled( &dir ) )
+      return true;
     QDir().mkpath( dir );
     panel->resize( size );
     panel->show();
     QTest::qWait( 40 );
-    panel->grab().save( dir + QLatin1Char( '/' ) + name + QStringLiteral( "_light.png" ) );
+    bool ok = panel->grab().save( dir + QLatin1Char( '/' ) + name + QStringLiteral( "_light.png" ) );
     // 暗色证据：token 化前硬编码浅色面板在暗色下可读性崩坏——修前/修后
     // 差异主要看暗色档。
     PaleoTheme::applyDarkTheme();
     QTest::qWait( 20 );
-    panel->grab().save( dir + QLatin1Char( '/' ) + name + QStringLiteral( "_dark.png" ) );
+    ok = panel->grab().save( dir + QLatin1Char( '/' ) + name + QStringLiteral( "_dark.png" ) ) && ok;
     PaleoTheme::applyLightTheme();
     panel->hide();
+    return ok;
   }
 } // namespace uipolish

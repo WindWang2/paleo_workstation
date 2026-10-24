@@ -158,9 +158,13 @@ class TestCorrelation : public QObject
     void captureEvidence()
     {
       WellCorrelationPanel panel(nullptr);
-      uipolish::capturePanel(&panel, QStringLiteral("correlation_empty"));
+      QCOMPARE(panel.wellCount(), 0);
+      QVERIFY(uipolish::capturePanel(&panel, QStringLiteral("correlation_empty")));
       panel.setWells(threeWells());
-      uipolish::capturePanel(&panel, QStringLiteral("correlation_wells"));
+      QCOMPARE(panel.wellCount(), 3);
+      QCOMPARE(panel.wellAt(0), QStringLiteral("W1"));
+      QVERIFY(uipolish::capturePanel(&panel, QStringLiteral("correlation_wells")));
+      QCOMPARE(panel.wellCount(), 3); // 截图（含明暗主题切换）不改面板数据
     }
 
     void emptyStateShowsGuidance()

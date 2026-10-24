@@ -20,11 +20,18 @@ namespace paleo::geostat
 namespace detail
 {
 
+// PW-078/B6：全流水线唯一的「同点」容差（相对 1e-9，UTM 坐标下 ~0.5 mm）。
+// dedupe、精确内插命中等调用方一律走它，不再各自写绝对 d² 阈值。
+inline bool samePoint( double ax, double ay, double bx, double by )
+{
+  const double ex = 1e-9 * std::max( { 1.0, std::fabs( ax ), std::fabs( bx ) } );
+  const double ey = 1e-9 * std::max( { 1.0, std::fabs( ay ), std::fabs( by ) } );
+  return std::fabs( ax - bx ) <= ex && std::fabs( ay - by ) <= ey;
+}
+
 inline bool coincident( const Sample &a, const Sample &b )
 {
-  const double ex = 1e-9 * std::max( { 1.0, std::fabs( a.x ), std::fabs( b.x ) } );
-  const double ey = 1e-9 * std::max( { 1.0, std::fabs( a.y ), std::fabs( b.y ) } );
-  return std::fabs( a.x - b.x ) <= ex && std::fabs( a.y - b.y ) <= ey;
+  return samePoint( a.x, a.y, b.x, b.y );
 }
 
 // 重合样本合并取均值（preserve 均值口径，防克氏矩阵奇异）。

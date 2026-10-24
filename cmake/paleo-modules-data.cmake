@@ -75,6 +75,7 @@ add_library(paleo_store STATIC
   src/catalog/roleregistry.cpp                      # RoleDef/RoleRegistry 词表 + project_area.json 覆盖
   src/catalog/catalogroles.cpp                      # 方向92：树/AI 角色词表单源（分组/树序/显示名）
   src/catalog/entityview.cpp                        # RoleSlot/EntityView 纯查询门面
+  src/metadata/managedpath.cpp                      # 受管路径/SHA 原语（自 DataCatalog 下沉，削 catalog⇄metadata 环）
   src/metadata/paleoprojectstore.cpp
   src/metadata/paleoprojectfile.cpp
   src/metadata/layermanifest.cpp
@@ -180,11 +181,11 @@ add_library(paleo_io STATIC
   src/io/geojsonaffine.cpp                          # D11 临时配准（手工仿射）
   src/io/wellcompositexml.cpp
   src/io/ingestplan.cpp                             # C 包：纯 plan + 幂等执行器
+  src/io/paleomapfiles.cpp                          # 古地理图文件族发现/复制（自 services 下沉，削 io⇄services 环）
 )
 target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
-  src/services/paleomapfiles.cpp
   src/services/datagraph_layout.cpp
   src/services/dataexport.cpp
   src/services/datagraph.cpp

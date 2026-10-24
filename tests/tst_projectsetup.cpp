@@ -20,7 +20,7 @@
 #include "../src/ui/dialogs/importsourcedialog.h"
 #include "../src/ui/dialogs/folderconfirm.h"
 #include "../src/ui/pages/datalist.h"
-#include "../src/services/paleomapfiles.h"
+#include "../src/io/paleomapfiles.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/io/welltable.h"
 #include "../src/io/cuttingsdoc.h"

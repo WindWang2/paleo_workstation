@@ -3,7 +3,7 @@
 #include "paleomapimport_internal.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/mappinghorizons.h"
-#include "../services/paleomapfiles.h"
+#include "../io/paleomapfiles.h"
 #include <QJsonObject>
 #include "../services/jsonsidecar.h"
 #include <QJsonArray>

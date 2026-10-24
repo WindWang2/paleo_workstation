@@ -59,7 +59,7 @@
 #include "../src/services/storagegovernance.h"
 #include "../src/services/dataexport.h"
 #include "../src/services/paleotaskservice.h"
-#include "../src/services/paleomapfiles.h"
+#include "../src/io/paleomapfiles.h"
 #include "../src/workflow/paleomaplibrary.h"
 #include "../src/workflow/projectareasummary.h"
 #include "../src/workflow/mappingworkbench.h"

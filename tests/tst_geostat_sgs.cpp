@@ -77,6 +77,7 @@ class GeostatSgsTests : public QObject
 {
   Q_OBJECT
 private slots:
+    void refitOnNormalScoresOptional();
     void tailsClampedAndStableStd();
   void reproducibleWithSameSeed();
   void differentSeedsDiffer();
@@ -728,6 +729,30 @@ void GeostatSgsTests::tailsClampedAndStableStd()
     d.value = 1.0e9 + (d.value - 20.0) * 1e-3;
   const auto r2 = sgs(deep, g, m, p, {});
   QVERIFY(r2.sampleStd > 0.5e-2 && r2.sampleStd < 2e-2);
+
+}
+
+void GeostatSgsTests::refitOnNormalScoresOptional()
+{
+  // PW-130：可选在正态得分上重拟合变差函数——成功、条件格仍命中样本、可复现。
+  const std::vector<Sample> samples = skewedSamples( 120, 99 );
+  const VariogramModel model = gaussianModel();
+  SgsParams params;
+  params.seed = 7;
+  params.maxPoints = 12;
+  params.refitVariogramOnNormalScores = true;
+  const GridSpec grid = makeGrid( 32, 32, -10, 250, 8 );
+  const SgsResult a = sgs( samples, grid, model, params );
+  const SgsResult b = sgs( samples, grid, model, params );
+  QCOMPARE( a.status, Status::Ok );
+  QCOMPARE( a.realizations, b.realizations );
+  int finite = 0;
+  for ( const double v : a.realizations.front() )
+    finite += std::isfinite( v ) ? 1 : 0;
+  QVERIFY( finite > 0 );
+  params.refitVariogramOnNormalScores = false;
+  const SgsResult c = sgs( samples, grid, model, params );
+  QCOMPARE( c.status, Status::Ok );
 
 }
 

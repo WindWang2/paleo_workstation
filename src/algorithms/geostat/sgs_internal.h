@@ -245,6 +245,40 @@ inline double gaussianDomainVariance( const NormalScoreTable &table,
   return variance > 0.0 ? variance : 1.0;
 }
 
+// PW-130（可选）：按基台比例缩放只保证总方差对；正态得分变换会改变变差
+// 函数形状（尤其偏态数据的块金/变程）。此处在得分上重算实验变差并重拟合
+// 同类型模型，几何各向异性沿用原模型。拟合失败回退比例缩放。
+inline VariogramModel refitOnNormalScores( const VariogramModel &model,
+                                           const NormalScoreTable &table,
+                                           const std::vector<Sample> &samples )
+{
+  const VariogramModel scaled =
+      rescaleToGaussianDomain( model, gaussianDomainVariance( table, [&] {
+        std::vector<double> v;
+        v.reserve( samples.size() );
+        for ( const Sample &s : samples )
+          v.push_back( s.value );
+        return v;
+      }() ) );
+  if ( samples.size() < 8 || !( model.range > 0.0 ) || !std::isfinite( model.range ) )
+    return scaled;
+  std::vector<Sample> scores = samples;
+  for ( Sample &s : scores )
+    s.value = table.forward( s.value );
+  constexpr int kLags = 12;
+  const double lag = 1.5 * model.range / kLags;
+  const ExperimentalVariogram ev = experimentalVariogram( scores, lag, kLags );
+  const VariogramFit fit = fitVariogram( ev, model.type );
+  if ( fit.status != Status::Ok || !( fit.model.nugget + fit.model.sill > 0.0 ) ||
+       !std::isfinite( fit.model.range ) || !( fit.model.range > 0.0 ) )
+    return scaled;
+  VariogramModel out = model;
+  out.nugget = fit.model.nugget;
+  out.sill = fit.model.sill;
+  out.range = fit.model.range;
+  return out;
+}
+
 // 简单克里金求解工作区（#478）：SGS 热路径每格一解，矩阵/右端/解缓冲
 // 跨格复用（每实现一份；并行实现各持一份，非线程共享）。
 struct KrigingWorkspace

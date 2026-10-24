@@ -29,6 +29,9 @@ struct SgsParams
   std::uint64_t seed = 42;
   int maxPoints = 16;             // SK 邻域上限（静态样本 + 已模拟格合并取最近）
   double searchRadius = 0;        // <= 0 → 全域最近 K
+  // PW-130：true → 在正态得分上重拟合变差函数（同类型、各向异性沿用）；
+  // false（缺省，旧行为）→ 按得分方差比例缩放基台。
+  bool refitVariogramOnNormalScores = false;
 };
 
 struct SgsResult

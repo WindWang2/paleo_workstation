@@ -1,5 +1,6 @@
 // 层：功能
 #include "surfacegridding.h"
+#include "rastergeo_internal.h"
 #include "constraintuseplan.h"
 
 #include "../algorithms/constraintbarriers.h"
@@ -58,7 +59,16 @@ bool readFloatRaster(const QString &path, RasterGrid *grid, std::vector<float> *
   }
   grid->cols = GDALGetRasterXSize(ds);
   grid->rows = GDALGetRasterYSize(ds);
-  GDALGetGeoTransform(ds, grid->gt);
+  {
+    QString why;
+    if (!paleo::workflow_detail::readNorthUpGeoTransform(ds, grid->gt, &why))
+    {
+      GDALClose(ds);
+      if (error)
+        *error = QStringLiteral("栅格 %1：%2").arg(path, why); // PW-010
+      return false;
+    }
+  }
   GDALRasterBandH band = GDALGetRasterBand(ds, 1);
   if (!band || grid->cols < 1 || grid->rows < 1)
   {

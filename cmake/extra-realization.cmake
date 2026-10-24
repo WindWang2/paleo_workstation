@@ -16,3 +16,4 @@ target_sources(paleo_ui PRIVATE src/ui/realization/realizationpanel.cpp)
 add_paleo_test(tst_realizationworkflow LIBS paleo_workflow)
 # 面板：intent 信号参数/不重复发射、缺号/单成员诚实态、动画帧序。
 add_paleo_test(tst_realizationpanel LIBS paleo_ui)
+add_paleo_test(tst_rastergeo LIBS paleo_workflow)

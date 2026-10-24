@@ -1,6 +1,7 @@
 // 层：功能
 #include "mappingworkflow.h"
 #include "workflowerrors_internal.h"
+#include "rastergeo_internal.h"
 #include "mappingsamples.h"
 
 #include "../catalog/datacatalog.h"
@@ -59,8 +60,8 @@ using paleo::workflow_detail::raiseToErrorHub;
       return false;
     g->cols = GDALGetRasterXSize( ds );
     g->rows = GDALGetRasterYSize( ds );
-    GDALGetGeoTransform( ds, g->gt );
-    if ( GDALGetRasterCount( ds ) < 1 )
+    // PW-010：无地理参考/旋转/非北向上一律拒绝。
+    if ( !paleo::workflow_detail::readNorthUpGeoTransform( ds, g->gt ) || GDALGetRasterCount( ds ) < 1 )
     {
       GDALClose( ds );
       return false;

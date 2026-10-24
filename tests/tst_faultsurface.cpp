@@ -85,6 +85,7 @@ class TestFaultSurface : public QObject
     Q_OBJECT
 
 private slots:
+    void implicitZScaleRejected();
     void planarDipAndTopology();
     void unequalAndShuffledSectionsKeepStickIdentity();
     void singleSectionIsRejected();
@@ -469,6 +470,19 @@ void TestFaultSurface::polylineCurtainCut()
         QVERIFY(h.z >= prevZ - 1e-9);
         prevZ = h.z;
     }
+}
+
+void TestFaultSurface::implicitZScaleRejected()
+{
+    // PW-086：未显式给 zScale 的标架必须被拒绝（不得默认把 TWT 当米）。
+    const Fault fault = planarFault({0, 1, 2}, {2, 2, 2}, {QStringLiteral("s-a"), QStringLiteral("s-b"), QStringLiteral("s-c")});
+    SurveyFrame implicit = testFrame();
+    implicit.zScale = SurveyFrame{}.zScale;
+    QVERIFY(std::isnan(implicit.zScale));
+    const SurfaceBuildResult r = buildFaultSurface(fault, implicit);
+    QVERIFY(!r.ok());
+    QVERIFY(buildFaultSurface(fault, testFrame()).ok());
+
 }
 
 QTEST_MAIN(TestFaultSurface)

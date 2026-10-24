@@ -7,6 +7,7 @@
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
+#include "../domain/facieshierarchy.h"
 #include "../domain/faciestaxonomy.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
@@ -139,6 +140,15 @@ QVariantList wellAttributeUpdates(const QVariantList &points, const QVariantList
 }
 } // namespace
 
+namespace {
+// 相类固定随版本记录带入：图层上有固定属性（含显式清空 "{}"）以图层为准，
+// 否则沿用来源版本记录，保证未经 styleLayer 的图层也不会丢失固定。
+QString carriedPins(const QgsMapLayer *layer, const QVariantMap &sourceExtra) {
+  const auto property = layer->customProperty(QStringLiteral("paleo/faciesPinnedLevels"));
+  return FaciesHierarchy::encodePins(FaciesHierarchy::parsePins(
+      property.isValid() ? property.toString() : sourceExtra.value(QStringLiteral("pinned_levels")).toString()));
+}
+} // namespace
 QString MappingWorkbench::copyForEditing(const QString &id,
                                          const QStringList &references,
                                          QString *error, bool requireEvidence) {
@@ -212,6 +222,7 @@ QString MappingWorkbench::copyForEditing(const QString &id,
       {"facies", schema},
       {"reference_layers", references},
       {"display_mode", displayMode(id)},
+      {"pinned_levels", carriedPins(layer, source.extra)},
       {"hierarchy_model", "shared-polygon-partition-v1"},
       {"mock", source.extra.value("mock")},
       {"result_scope", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("current_formation") : source.extra.value("result_scope").toString()},
@@ -320,6 +331,8 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   extra.insert("facies", schema);
   extra.insert("method", "manual-edit-save");
   extra.insert("display_mode", displayMode(id));
+  // 相类固定随版本记录（catalog extra）带入新版本；存储仍以图层属性为准。
+  extra.insert("pinned_levels", carriedPins(layer, previous.extra));
   extra.insert("hierarchy_model", "shared-polygon-partition-v1");
   QStringList evidenceParents{previous.id};
   QSet<QString> parentIds{previous.id}, referenceKeys;

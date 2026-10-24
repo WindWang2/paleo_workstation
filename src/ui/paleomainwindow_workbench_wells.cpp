@@ -18,6 +18,7 @@
 #include "../qgis/qgisprojectservice.h"
 #include "../workflow/mappingworkbench.h"
 #include "edittools/editingtoolbar.h"
+#include "faciespinmenu.h"
 #include "io/lasdoc.h" // WellPredictionPanel::setLog 参数类型（ui io 白名单）
 #include "notifications/paleonotify.h"
 #include "pages/datagraphpage.h"
@@ -144,9 +145,18 @@ void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
                               QgsMapToolIdentify::TopDownAll);
         if (hits.isEmpty())
           return;
+        const auto original = hits.first().mFeature;
+        // 相类固定显示层级：图层属性，非要素编辑，直接走后端 setPinnedLevel。
+        FaciesPinMenu::add(menu, schema, original.attribute("facies_code"),
+                           workbench->pinnedLevels(id),
+                           [self, workbench, id](const QString &key, const QString &mode) {
+                             QString error;
+                             const bool ok = workbench->setPinnedLevel(id, key, mode, &error);
+                             self->statusBar()->showMessage(
+                                 ok ? PaleoMainWindow::tr("相图显示层级、标注与图例已更新。") : error, 10000);
+                           });
         auto *changes = menu->addMenu(PaleoMainWindow::tr("更改此要素的相"));
         changes->setObjectName("changeFeatureFacies");
-        const auto original = hits.first().mFeature;
         for (const auto &entry : schema) {
           auto f = entry.toMap();
           auto *action = changes->addAction(

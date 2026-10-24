@@ -631,7 +631,8 @@ void PaleoMainWindow::attachFaciesDisplayControls(MappingWorkbench *workbench) {
     const auto id = target ? target->customProperty("paleoLayerId").toString() : QString();
     for (auto *control : controls)
       control->setState(id, target ? target->name() : QString(), workbench->displayMode(id),
-          workbench->resolvedLevel(id), workbench->displayThresholds());
+          workbench->resolvedLevel(id), workbench->displayThresholds(),
+          id.isEmpty() ? 0 : int(workbench->pinnedLevels(id).size()));
   };
   auto *timer = new QTimer(this); timer->setSingleShot(true); timer->setInterval(30);
   connect(timer, &QTimer::timeout, this, refresh);

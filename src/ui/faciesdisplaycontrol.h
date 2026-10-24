@@ -10,7 +10,8 @@ public:
   explicit FaciesDisplayControl(QWidget *parent = nullptr);
   static QString scaleHint(const QString &level, const FaciesHierarchy::ScaleThresholds &thresholds);
   void setState(const QString &layerId, const QString &title, const QString &mode,
-                const QString &level, const FaciesHierarchy::ScaleThresholds &thresholds);
+                const QString &level, const FaciesHierarchy::ScaleThresholds &thresholds,
+                int pinnedCount = 0);
 signals:
   void displayModeRequested(const QString &layerId, const QString &mode);
   void thresholdsRequested(double faciesToSubfacies, double subfaciesToMicrofacies);

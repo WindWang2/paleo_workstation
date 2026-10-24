@@ -29,6 +29,10 @@
 #include "../src/ui/pages/mappingeditbasis.h"
 #include "../src/ui/dialogs/dataexportdialog.h"
 #include <QLineEdit>
+#include "../src/ui/faciespinmenu.h"
+#include "../src/ui/faciespinnedlevellist.h"
+#include <QMenu>
+#include <qgscollapsiblegroupbox.h>
 #include <QGroupBox>
 #include <QScrollBar>
 #include <QWheelEvent>
@@ -1426,6 +1430,361 @@ private slots:
     QCOMPARE(v->fields().indexOf("facies_display_level"), -1);
     QCOMPARE(f.work.displayLegend(draft).size(), 5);
   }
+  void classPinsFixLevelPerFaciesSubtree() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    const auto schema = f.work.versionForLayer(draft).extra.value("facies").toList();
+    QHash<int, qint64> byCode;
+    auto it = v->getFeatures();
+    QgsFeature feature;
+    while (it.nextFeature(feature)) byCode.insert(feature.attribute("facies_code").toInt(), feature.id());
+    QCOMPARE(byCode.size(), 5);
+    const auto keyOf = [v](qint64 fid) {
+      const auto *merged = dynamic_cast<QgsMergedFeatureRenderer *>(v->renderer());
+      const auto *categories = merged ? dynamic_cast<const QgsCategorizedSymbolRenderer *>(merged->embeddedRenderer()) : nullptr;
+      if (!categories) return QString("<no renderer>");
+      auto context = v->createExpressionContext();
+      context.setFeature(v->getFeature(fid));
+      QgsExpression expr(categories->classAttribute());
+      return expr.evaluate(&context).toString();
+    };
+    const auto expected = [&schema](int code, const QString &level) {
+      return FaciesHierarchy::key(FaciesCatalog::find(schema, code), level);
+    };
+    QVERIFY(f.work.setDisplayMode(draft, "auto", &error));
+    f.work.updateDisplayScale(500000); // layer at 相
+    const auto plainLegend = f.work.displayLegend(draft);
+    QVERIFY(f.work.pinnedLevels(draft).isEmpty());
+    const auto river = expected(1, "facies");
+    QVERIFY2(f.work.setPinnedLevel(draft, river, "micro_facies", &error), qPrintable(error));
+    QVERIFY2(f.work.setPinnedLevel(draft, expected(1, "micro_facies"), "sub_facies", &error), qPrintable(error));
+    QCOMPARE(f.work.pinnedLevels(draft).size(), 2);
+    for (const auto scale : {500000.0, 100000.0, 25000.0, 500000.0}) {
+      f.work.updateDisplayScale(scale);
+      const auto layerLevel = f.work.resolvedLevel(draft);
+      QCOMPARE(keyOf(byCode[1]), expected(1, "sub_facies")); // nearest pin (leaf) wins
+      QCOMPARE(keyOf(byCode[2]), expected(2, "micro_facies")); // pinned parent subtree
+      QCOMPARE(keyOf(byCode[3]), expected(3, layerLevel)); // unpinned follows layer
+      QCOMPARE(keyOf(byCode[5]), expected(5, layerLevel));
+      QSet<QString> treeKeys;
+      for (const auto &value : FaciesHierarchy::legendTree(f.work.displayLegend(draft))) {
+        const auto key = value.toMap().value("key").toString();
+        QVERIFY2(!treeKeys.contains(key), qPrintable(key));
+        treeKeys.insert(key);
+      }
+      QVERIFY(treeKeys.contains(expected(2, "micro_facies")));
+    }
+    QVERIFY(f.work.setDisplayMode(draft, "micro_facies", &error));
+    QCOMPARE(keyOf(byCode[2]), expected(2, "micro_facies"));
+    QCOMPARE(keyOf(byCode[1]), expected(1, "sub_facies")); // pin beats fixed layer mode too
+    // Explicit per-polygon locks still win over class pins.
+    QVERIFY(f.work.setFeatureDisplayMode(draft, {byCode[2]}, "facies", &error));
+    QCOMPARE(keyOf(byCode[2]), expected(2, "facies"));
+    QCOMPARE(keyOf(byCode[1]), expected(1, "sub_facies"));
+    QVERIFY(v->rollBack());
+    // Changing an existing pin's level, invalid requests, and removal.
+    QVERIFY(f.work.setPinnedLevel(draft, river, "facies", &error));
+    QCOMPARE(keyOf(byCode[2]), expected(2, "facies"));
+    QVERIFY(!f.work.setPinnedLevel(draft, river, "invalid", &error));
+    QVERIFY(!f.work.setPinnedLevel(draft, "[\"不存在\"]", "facies", &error));
+    QVERIFY(!f.work.setPinnedLevel(draft, "garbage", "facies", &error));
+    QCOMPARE(f.work.pinnedLevels(draft).value(river).toString(), QString("facies"));
+    QVERIFY(f.work.setPinnedLevel(draft, river, "auto", &error));
+    QVERIFY(f.work.setPinnedLevel(draft, expected(1, "micro_facies"), "auto", &error));
+    QVERIFY(f.work.pinnedLevels(draft).isEmpty());
+    QCOMPARE(v->customProperty("paleo/faciesPinnedLevels").toString(), QString("{}"));
+    f.work.updateDisplayScale(500000);
+    QVERIFY(f.work.setDisplayMode(draft, "auto", &error));
+    QCOMPARE(f.work.displayLegend(draft), plainLegend);
+  }
+  void classPinsPersistWithProjectAndOldProjectsLoadUnchanged() {
+    Fixture f;
+    QVERIFY(f.init());
+    const auto input = f.seismic();
+    QVERIFY(!input.isEmpty());
+    QString error;
+    QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+    const auto polygon = f.work.polygonize(f.latest("seismic_prediction"), &error);
+    QVERIFY2(!polygon.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(polygon, &error));
+    QVERIFY2(v, qPrintable(error));
+    const auto candidates = FaciesHierarchy::pinCandidates(
+        f.work.versionForLayer(polygon).extra.value("facies").toList());
+    QVERIFY(!candidates.isEmpty());
+    const auto restoredFirst = [](QgsVectorLayer *layer, QgsFeature &feature) {
+      auto it = layer->getFeatures();
+      return it.nextFeature(feature);
+    };
+    // Old project: no pin property at all -> loads with empty pins and unchanged legend.
+    QVERIFY(f.project.writeProject());
+    QVERIFY(f.project.openProject(f.project.projectPath()));
+    auto *old = qobject_cast<QgsVectorLayer *>(f.layers.layer(polygon));
+    QVERIFY(old);
+    QVERIFY(!old->customProperty("paleo/faciesPinnedLevels").isValid());
+    QVERIFY(f.work.pinnedLevels(polygon).isEmpty());
+    // Pin the 相 ancestor of a class that is actually present in the polygon layer.
+    QgsFeature first;
+    QVERIFY(restoredFirst(old, first));
+    const auto schema = f.work.versionForLayer(polygon).extra.value("facies").toList();
+    const auto key = FaciesHierarchy::key(FaciesCatalog::find(schema, first.attribute("facies_code")), "facies");
+    QVERIFY(!key.isEmpty());
+    QVERIFY2(f.work.setPinnedLevel(polygon, key, "facies", &error), qPrintable(error));
+    QVERIFY(f.project.writeProject());
+    QVERIFY(f.project.openProject(f.project.projectPath()));
+    auto *restored = qobject_cast<QgsVectorLayer *>(f.layers.layer(polygon));
+    QVERIFY(restored);
+    QTRY_COMPARE_WITH_TIMEOUT(f.work.pinnedLevels(polygon).value(key).toString(), QString("facies"), 5000);
+    // Restyle after reopen honours the pin: every pinned-subtree legend row is 相.
+    f.work.updateDisplayScale(25000);
+    QVERIFY(f.work.setDisplayMode(polygon, "micro_facies", &error));
+    bool sawPinned = false;
+    for (const auto &entry : f.work.displayLegend(polygon)) {
+      const auto row = entry.toMap();
+      if (row.value("key").toString() == key) {
+        sawPinned = true;
+        QCOMPARE(row.value("level").toString(), QString("facies"));
+      }
+    }
+    QVERIFY(sawPinned);
+  }
+  void classPinsCarryIntoSavedVersionsAndEditingCopies() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    const auto schema = f.work.versionForLayer(draft).extra.value("facies").toList();
+    const auto river = FaciesHierarchy::key(FaciesCatalog::find(schema, 1), "facies");
+    QVERIFY2(f.work.setPinnedLevel(draft, river, "micro_facies", &error), qPrintable(error));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    // The saved version record carries the pins (catalog extra, no GPKG field).
+    const auto version = f.work.versionForLayer(draft);
+    QCOMPARE(FaciesHierarchy::parsePins(version.extra.value("pinned_levels").toString()).value(river).toString(),
+             QString("micro_facies"));
+    QgsVectorLayer saved(DataCatalog::resolvedVersionPath(f.dir.path(), version) + "|layername=features", "saved", "ogr");
+    QVERIFY(saved.isValid());
+    QCOMPARE(saved.fields().indexOf("pinned_levels"), -1);
+    // A new editing copy starts with the same pins and renders them.
+    const auto copy = f.work.copyForEditing(draft, {}, &error);
+    QVERIFY2(!copy.isEmpty(), qPrintable(error));
+    auto *copied = f.layers.instantiate(copy);
+    QVERIFY(copied);
+    f.work.styleLayer(copy);
+    QCOMPARE(f.work.pinnedLevels(copy).value(river).toString(), QString("micro_facies"));
+    f.work.updateDisplayScale(10000000);
+    bool pinnedRow = false;
+    for (const auto &entry : f.work.displayLegend(copy))
+      pinnedRow |= entry.toMap().value("key").toString() == FaciesHierarchy::key(FaciesCatalog::find(schema, 1), "micro_facies");
+    QVERIFY(pinnedRow);
+    // Explicitly clearing pins on the copy is not undone by the version record.
+    QVERIFY(f.work.setPinnedLevel(copy, river, "auto", &error));
+    f.work.styleLayer(copy);
+    QVERIFY(f.work.pinnedLevels(copy).isEmpty());
+    // Versions without the field (old projects) keep having no pins.
+    QVERIFY(f.work.pinnedLevels("input.grid").isEmpty());
+  }
+  void classPinLiteralsKeepFieldTypes() {
+    const QMap<QString, QString> pinned{{"3", "facies"}, {"O'1", "facies"}, {"7", "micro_facies"}};
+    const auto literals = FaciesHierarchyRenderer::pinnedCodeLiterals(
+        pinned, {QVariant(3), QVariant(3), QVariant(QString("O'1")), QVariant(7), QVariant()}, "facies");
+    QCOMPARE(literals, (QStringList{"3", "'O''1'"}));
+    // Rendering matches text and integer facies_code fields alike.
+    const auto schema = hierarchySchema();
+    for (const QString type : {QStringLiteral("integer"), QStringLiteral("string")}) {
+      QgsVectorLayer layer(QStringLiteral("Polygon?field=facies_code:%1&crs=EPSG:3857").arg(type), "facies", "memory");
+      QgsFeatureList features;
+      for (int code = 1; code <= 3; ++code) {
+        QgsFeature feature(layer.fields());
+        feature.setAttribute("facies_code", type == "string" ? QVariant(QString::number(code)) : QVariant(code));
+        feature.setGeometry(QgsGeometry::fromRect(QgsRectangle(code * 100, 0, (code + 1) * 100, 100)));
+        features << feature;
+      }
+      QVERIFY(layer.dataProvider()->addFeatures(features));
+      const auto pinKey = FaciesHierarchy::key(FaciesCatalog::find(schema, 1), "micro_facies");
+      layer.setCustomProperty("paleo/faciesPinnedLevels",
+                              FaciesHierarchy::encodePins({{pinKey, "micro_facies"}}));
+      FaciesHierarchyRenderer::apply(&layer, schema, "facies");
+      const auto *merged = dynamic_cast<QgsMergedFeatureRenderer *>(layer.renderer());
+      const auto *categories = merged ? dynamic_cast<const QgsCategorizedSymbolRenderer *>(merged->embeddedRenderer()) : nullptr;
+      QVERIFY(categories);
+      auto it = layer.getFeatures();
+      QgsFeature feature;
+      while (it.nextFeature(feature)) {
+        auto context = layer.createExpressionContext();
+        context.setFeature(feature);
+        QgsExpression expr(categories->classAttribute());
+        const int code = feature.attribute("facies_code").toInt();
+        QCOMPARE(expr.evaluate(&context).toString(),
+                 FaciesHierarchy::key(FaciesCatalog::find(schema, code), code == 1 ? "micro_facies" : "facies"));
+      }
+    }
+  }
+  void referenceCanvasHonoursClassPins() {
+    Fixture f; QVERIFY(f.init());
+    QgsMapCanvas main; MappingReferenceCanvas reference(&main, f.project.project());
+    auto *layer = new QgsVectorLayer("Polygon?field=facies_code:integer&crs=EPSG:3857", "facies", "memory");
+    const auto schema = hierarchySchema(); QgsFeatureList features;
+    for (const auto &row : schema) {
+      const int code = row.toMap().value("code").toInt();
+      QgsFeature feature(layer->fields()); feature.setAttribute("facies_code", code);
+      feature.setGeometry(QgsGeometry::fromRect(QgsRectangle(code * 100, 0, (code + 1) * 100, 100)));
+      features << feature;
+    }
+    QVERIFY(layer->dataProvider()->addFeatures(features)); layer->updateExtents();
+    const auto pinKey = FaciesHierarchy::key(FaciesCatalog::find(schema, 1), "micro_facies");
+    reference.setReference(layer, {{"facies", schema}, {"display_mode", "facies"},
+                                   {"pinned_levels", FaciesHierarchy::encodePins({{pinKey, "micro_facies"}})}});
+    QCOMPARE(FaciesHierarchy::parsePins(layer->customProperty("paleo/faciesPinnedLevels").toString()).size(), 1);
+    QSet<QString> levels; bool pinnedRow = false;
+    for (const auto &entry : layer->customProperty("paleo/faciesDisplayLegend").toList()) {
+      levels.insert(entry.toMap().value("level").toString());
+      pinnedRow |= entry.toMap().value("key").toString() == pinKey;
+    }
+    QVERIFY(pinnedRow);
+    QVERIFY(levels.contains("facies"));
+  }
+  void faciesPinListShowsOnlyPinsWithRemoveAndLevel() {
+    FaciesPinnedLevelList list;
+    const QVariantList candidates{
+        QVariantMap{{"key", "f:A"}, {"level", "facies"}, {"path", "河流"}},
+        QVariantMap{{"key", "s:A/B"}, {"level", "sub_facies"}, {"path", "河流 / 河道"}}};
+    auto *tree = list.findChild<QTreeWidget *>("faciesPinList");
+    auto *empty = list.findChild<QLabel *>("faciesPinEmpty");
+    QVERIFY(tree && empty);
+    list.setState(candidates, {}, true, QString());
+    QCOMPARE(tree->topLevelItemCount(), 0); // 只列已固定项
+    QVERIFY(!empty->isHidden() && tree->isHidden());
+    list.setState(candidates, {{"s:A/B", "facies"}, {"gone", "sub_facies"}}, true, QString());
+    QVERIFY(empty->isHidden() && !tree->isHidden());
+    QCOMPARE(tree->topLevelItemCount(), 2);
+    QTreeWidgetItem *channel = nullptr, *stale = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount(); ++i)
+      (tree->topLevelItem(i)->data(0, Qt::UserRole) == "gone" ? stale : channel) = tree->topLevelItem(i);
+    QVERIFY(channel && stale);
+    QCOMPARE(channel->text(0), QString("河流 / 河道"));
+    QVERIFY(stale->text(0).endsWith(QString("（不在当前分类中）")));
+    auto *box = qobject_cast<QComboBox *>(tree->itemWidget(channel, 1));
+    QVERIFY(box);
+    QCOMPARE(box->count(), 3); // 相 / 亚相 / 微相，无「自动」
+    QCOMPARE(box->currentData().toString(), QString("facies"));
+    QSignalSpy pin(&list, &FaciesPinnedLevelList::pinRequested);
+    emit box->activated(box->currentIndex()); // 未改选不发意图
+    QCoreApplication::processEvents();
+    QCOMPARE(pin.size(), 0);
+    box->setCurrentIndex(box->findData("micro_facies")); // 调整层级
+    emit box->activated(box->currentIndex());
+    QTRY_COMPARE(pin.size(), 1);
+    QCOMPARE(pin.last()[0].toString(), QString("s:A/B"));
+    QCOMPARE(pin.last()[1].toString(), QString("micro_facies"));
+    auto *remove = qobject_cast<QToolButton *>(tree->itemWidget(stale, 2)); // 删除（含陈旧固定）
+    QVERIFY(remove && remove->objectName() == QString("faciesPinRowRemove"));
+    remove->click();
+    QTRY_COMPARE(pin.size(), 2);
+    QCOMPARE(pin.last()[0].toString(), QString("gone"));
+    QCOMPARE(pin.last()[1].toString(), QString("auto"));
+    list.setState(candidates, {{"s:A/B", "facies"}}, false, QString());
+    QVERIFY(!tree->isEnabled());
+  }
+  void canvasPinMenuPinsChangesAndUnpins() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    const auto schema = f.work.versionForLayer(draft).extra.value("facies").toList();
+    const int code = schema.first().toMap().value("code").toInt();
+    const auto row = FaciesCatalog::find(schema, code);
+    const auto apply = [&](const QString &key, const QString &mode) {
+      QVERIFY2(f.work.setPinnedLevel(draft, key, mode, &error), qPrintable(error));
+    };
+    const auto open = [&](QMenu &menu) {
+      return FaciesPinMenu::add(&menu, schema, code, f.work.pinnedLevels(draft), apply);
+    };
+    QMenu none;
+    QVERIFY(!FaciesPinMenu::add(&none, schema, -12345, {}, apply)); // 不在分类中的代码不加菜单
+    QVERIFY(none.actions().isEmpty());
+    // 固定：未固定时只有三个层级动作，无「取消固定」。
+    QMenu first;
+    auto *sub = open(first);
+    QVERIFY(sub && sub->objectName() == QString("pinFeatureFaciesLevel"));
+    QVERIFY(!sub->findChild<QAction *>("unpinFacies"));
+    for (const auto &level : FaciesHierarchy::levels())
+      QVERIFY(!sub->findChild<QAction *>("pinFacies_" + level)->isChecked());
+    sub->findChild<QAction *>("pinFacies_sub_facies")->trigger();
+    const auto subKey = FaciesHierarchy::key(row, "sub_facies");
+    QCOMPARE(f.work.pinnedLevels(draft), (QVariantMap{{subKey, "sub_facies"}}));
+    // 改层级：再次右键，当前固定已勾选；选相即改该固定的层级（立即生效，不另加固定）。
+    QMenu second;
+    sub = open(second);
+    QVERIFY(sub->findChild<QAction *>("pinFacies_sub_facies")->isChecked());
+    QVERIFY(sub->findChild<QAction *>("unpinFacies"));
+    sub->findChild<QAction *>("pinFacies_facies")->trigger();
+    QCOMPARE(f.work.pinnedLevels(draft), (QVariantMap{{subKey, "facies"}}));
+    QCOMPARE(FaciesHierarchy::pinnedLevel(f.work.pinnedLevels(draft), row), QString("facies"));
+    // 取消固定：移除作用于此相面的最近一级固定。
+    QMenu third;
+    sub = open(third);
+    QVERIFY(sub->findChild<QAction *>("pinFacies_facies")->isChecked());
+    QVERIFY(!sub->findChild<QAction *>("pinFacies_sub_facies")->isChecked());
+    sub->findChild<QAction *>("unpinFacies")->trigger();
+    QVERIFY(f.work.pinnedLevels(draft).isEmpty());
+    // 祖先节点上的固定同样作用于此相面，可从此处取消。
+    const auto faciesKey = FaciesHierarchy::key(row, "facies");
+    QVERIFY(f.work.setPinnedLevel(draft, faciesKey, "micro_facies", &error));
+    QMenu fourth;
+    sub = open(fourth);
+    QVERIFY(sub->findChild<QAction *>("pinFacies_micro_facies")->isChecked());
+    sub->findChild<QAction *>("unpinFacies")->trigger();
+    QVERIFY(f.work.pinnedLevels(draft).isEmpty());
+    // 页面列表随之列出 / 移除，且分组在折叠的外观组之外、默认展开。
+    QVERIFY(f.work.setPinnedLevel(draft, subKey, "micro_facies", &error));
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    page.selectLayer(draft);
+    auto *group = page.findChild<QgsCollapsibleGroupBox *>("workbenchFaciesPins");
+    QVERIFY(group && !group->isCollapsed());
+    auto *list = page.findChild<QTreeWidget *>("faciesPinList");
+    QVERIFY(list && group->isAncestorOf(list));
+    QCOMPARE(list->topLevelItemCount(), 1);
+    QCOMPARE(list->topLevelItem(0)->data(0, Qt::UserRole).toString(), subKey);
+    QSignalSpy intent(&page, &MappingWorkbenchPage::commandRequested);
+    qobject_cast<QToolButton *>(list->itemWidget(list->topLevelItem(0), 2))->click();
+    QTRY_COMPARE(intent.size(), 1);
+    QCOMPARE(intent.last()[0].toString(), QString("pinFaciesLevel"));
+    QCOMPARE(intent.last()[1].toMap().value("pin_key").toString(), subKey);
+    QCOMPARE(intent.last()[1].toMap().value("display_mode").toString(), QString("auto"));
+    QVERIFY(f.work.setPinnedLevel(draft, subKey, "auto", &error));
+    page.refresh();
+    QCOMPARE(list->topLevelItemCount(), 0);
+  }
+  void ribbonDisplayControlIndicatesPinnedClasses() {
+    FaciesDisplayControl control;
+    auto *mode = control.findChild<QComboBox *>("ribbonFaciesDisplayMode"); QVERIFY(mode);
+    auto *state = control.findChild<QLabel *>("ribbonFaciesDisplayState"); QVERIFY(state);
+    control.setState("facies", "图件", "auto", "sub_facies", {250000, 50000});
+    const auto plainText = state->text(); const auto plainTip = mode->toolTip();
+    QCOMPARE(state->property("paleo.pinnedCount").toInt(), 0);
+    control.setState("facies", "图件", "auto", "sub_facies", {250000, 50000}, 2);
+    QCOMPARE(state->property("paleo.pinnedCount").toInt(), 2);
+    QVERIFY(state->text() != plainText && state->text().contains("2"));
+    QVERIFY(mode->toolTip().startsWith(plainTip));
+    QCOMPARE(mode->count(), 4); QCOMPARE(mode->currentData().toString(), QString("auto"));
+    QVERIFY(mode->isEnabled());
+    // Selecting a mode still requests exactly that mode.
+    QSignalSpy requested(&control, &FaciesDisplayControl::displayModeRequested);
+    mode->setCurrentIndex(1); emit mode->activated(1);
+    QCOMPARE(requested.size(), 1); QCOMPARE(requested.first().at(1).toString(), QString("facies"));
+    control.setState(QString(), QString(), "auto", "sub_facies", {250000, 50000}, 3);
+    QCOMPARE(state->property("paleo.pinnedCount").toInt(), 0);
+  }
   void featureDisplayLocksSurviveSavedVersionsAndCopies() {
     Fixture f;
     QVERIFY(f.init());
@@ -2677,6 +3036,30 @@ private slots:
     featureApply->click();
     QCOMPARE(intent.last()[0].toString(), QString("featureDisplayLevel"));
     QCOMPARE(intent.last()[1].toMap().value("display_mode").toString(), QString("facies"));
+    // 固定显示层级的相类：单列一组默认展开，只列已固定项；行内改层级只发意图。
+    auto *pinGroup = page.findChild<QgsCollapsibleGroupBox *>("workbenchFaciesPins");
+    QVERIFY(pinGroup && !pinGroup->isCollapsed());
+    auto *pinList = page.findChild<QTreeWidget *>("faciesPinList");
+    QVERIFY(pinList && pinGroup->isAncestorOf(pinList));
+    QCOMPARE(pinList->topLevelItemCount(), 0);
+    const auto pinKey = FaciesHierarchy::pinCandidates(
+        f.work.versionForLayer(draft).extra.value("facies").toList()).first().toMap().value("key").toString();
+    QVERIFY(f.work.setPinnedLevel(draft, pinKey, "facies", &error));
+    page.refresh();
+    QCOMPARE(pinList->topLevelItemCount(), 1);
+    auto *rowLevel = qobject_cast<QComboBox *>(pinList->itemWidget(pinList->topLevelItem(0), 1));
+    QVERIFY(rowLevel && rowLevel->isEnabled());
+    const auto before = intent.size();
+    rowLevel->setCurrentIndex(rowLevel->findData("micro_facies"));
+    emit rowLevel->activated(rowLevel->currentIndex());
+    // Row changes are queued (the handler rebuilds the list and deletes this combo).
+    QTRY_COMPARE(intent.size(), before + 1);
+    QCOMPARE(intent.last()[0].toString(), QString("pinFaciesLevel"));
+    QCOMPARE(intent.last()[1].toMap().value("pin_key").toString(), pinKey);
+    QCOMPARE(intent.last()[1].toMap().value("display_mode").toString(), QString("micro_facies"));
+    QVERIFY(f.work.setPinnedLevel(draft, pinKey, "auto", &error));
+    page.refresh();
+    QCOMPARE(pinList->topLevelItemCount(), 0);
     text->setPlainText("解释证据");
     QVERIFY(page.commandButton("addEvidence")->isEnabled());
     page.commandButton("addEvidence")->click();
@@ -2938,6 +3321,27 @@ private slots:
     f.work.styleLayer(draft);
     QVERIFY(!layer->labelsEnabled());
     QCOMPARE(f.work.labelMode(draft), 0);
+    {
+      // Well prediction points can pin a facies class to a coarser level too.
+      const auto schema = f.work.versionForLayer(draft).extra.value("facies").toList();
+      QVariant firstCode;
+      for (const auto &code : FaciesHierarchyRenderer::codes(layer))
+        if (!code.isNull() && FaciesCatalog::find(schema, code).value("code").isValid()) { firstCode = code; break; }
+      QVERIFY(firstCode.isValid());
+      {
+        const auto key = FaciesHierarchy::key(FaciesCatalog::find(schema, firstCode), "facies");
+        f.work.styleLayer(draft);
+        const auto baseline = f.work.displayLegend(draft);
+        QVERIFY2(f.work.setPinnedLevel(draft, key, "facies", &error), qPrintable(error));
+        bool pinnedRow = false;
+        for (const auto &entry : f.work.displayLegend(draft))
+          pinnedRow |= entry.toMap().value("key").toString() == key &&
+                       entry.toMap().value("level").toString() == "facies";
+        QVERIFY(pinnedRow);
+        QVERIFY(f.work.setPinnedLevel(draft, key, "auto", &error));
+        QCOMPARE(f.work.displayLegend(draft), baseline);
+      }
+    }
     QVERIFY(f.work.setLabelMode(draft, 3, &error));
     QVERIFY(layer->labelsEnabled());
     auto rows = f.work.wellPredictions(draft);

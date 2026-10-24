@@ -351,13 +351,13 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   appearanceLayout->addLayout(levelForm);
   appearanceLayout->addWidget(button("featureDisplayLevel", tr("应用显示层级到选中相面")));
   m_featureDisplayState = new QLabel(appearance);
-  m_featureDisplayState->setObjectName("faciesFeatureDisplayState");
-  m_featureDisplayState->setWordWrap(true);
+  m_featureDisplayState->setObjectName("faciesFeatureDisplayState"); m_featureDisplayState->setWordWrap(true);
   m_featureDisplayState->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt)); // 次级状态标签按 label 字阶设字体（DESIGN.md typography.label 8pt，同 :100 m_status）
-  appearanceLayout->addWidget(m_featureDisplayState);
+  appearanceLayout->addWidget(m_featureDisplayState); auto *pinGroup = FaciesPinnedLevelList::createGroup(body, &m_pins); // 固定列表单列一组、默认展开
+  connect(m_pins, &FaciesPinnedLevelList::pinRequested, this, [this](const QString &key, const QString &mode) {
+    issue("pinFaciesLevel", {{"pin_key", key}, {"display_mode", mode}}); });
   connect(m_displayLevel, &QComboBox::currentIndexChanged, this, [this] {
-    issue("displayLevel", {{"display_mode", m_displayLevel->currentData()}});
-  });
+    issue("displayLevel", {{"display_mode", m_displayLevel->currentData()}}); });
   connect(m_editLevel, &QComboBox::currentIndexChanged, this, [this] { updateState(); });
   auto *hierarchyHint = new QLabel(
       tr("三级共用边界。相／亚相改类会更新整个选中父类，并保留目标分类内兼容的"
@@ -389,7 +389,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   labelRow->addWidget(labelMode, 1);
   appearanceLayout->addLayout(labelRow);
   appearanceLayout->addWidget(button("labels", tr("应用标注到选中图件")));
-  layout->addWidget(appearance);
+  layout->addWidget(pinGroup); layout->addWidget(appearance); // 固定列表置于折叠的外观组之前，易找
   if (mode == "compose") buildDeliveryStep(body, layout);
   auto *evidenceGroup =
       new QgsCollapsibleGroupBox(tr("选中要素的解释证据"), body);
@@ -750,8 +750,8 @@ void MappingWorkbenchPage::updateState() {
       m_workbench->isFaciesPolygon(selectedLayer()) && !selectedSchema.isEmpty() &&
       !displaySelection.isEmpty();
   const auto lockHint = tr("在相面编辑副本中选中面，可固定显示层级；跟随图层可解除锁定");
-  m_featureDisplayLevel->setEnabled(canLock);
-  m_featureDisplayLevel->setToolTip(lockHint);
+  m_featureDisplayLevel->setEnabled(canLock); m_featureDisplayLevel->setToolTip(lockHint);
+  m_pins->setState(FaciesHierarchy::pinCandidates(selectedSchema), m_workbench->pinnedLevels(selectedLayer()), displayable, tr("固定的相类（含下级）始终按所选层级显示，不随显示层级与比例尺切换；单独锁定的相面仍优先"));
   gate("featureDisplayLevel", canLock, lockHint);
   QSet<QString> selectedDisplayModes;
   for (auto fid : displaySelection)

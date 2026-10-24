@@ -704,6 +704,7 @@ void EntityPanel::beginDeleteEntity(const QString &entityId)
   EntityDeleteDialog dlg(assetCount, this);
   if (dlg.exec() != QDialog::Accepted)
     return;
+  QList<DataOpCommand *> parts;
   if (dlg.assetsToRecycle())
   {
     // 资产一并软删。D-01：过滤 unresolved（幽灵回收条目）+ 按资产去重。
@@ -714,20 +715,27 @@ void EntityPanel::beginDeleteEntity(const QString &entityId)
         continue;
       recycled.insert(l.assetId);
       const CatalogAsset a = m_ctx.cat->assetById(l.assetId);
-      if (m_stack)
-        m_stack->push(new SoftDeleteCmd(m_ctx, a.id, a.displayName, a.type, true));
+      parts.append(new SoftDeleteCmd(m_ctx, a.id, a.displayName, a.type, true));
     }
   }
   else
   {
     // 保留资产：解除全部关联（可撤销）。
     for (const EntityAssetLink &l : m_ctx.cat->linksForEntity(entityId))
-      if (m_stack && !l.unresolved)
-        m_stack->push(new DetachLinkCmd(m_ctx, l.assetId, l.role, l.entityId));
+      if (!l.unresolved)
+        parts.append(new DetachLinkCmd(m_ctx, l.assetId, l.role, l.entityId));
   }
   // 实体本身：sidecar 软删（可恢复；catalog 无 removeEntity API——GAPS）。
-  if (m_stack)
-    m_stack->push(new SoftDeleteCmd(m_ctx, e.id, e.name, e.entityType, true));
+  parts.append(new SoftDeleteCmd(m_ctx, e.id, e.name, e.entityType, true));
+  // PW-049：删除实体 = 一条宏命令，一次撤销完整复原。
+  if (!m_stack)
+    qDeleteAll(parts);
+  else if (!m_stack->push(new DataOpMacro(tr("删除实体 %1").arg(e.name), parts)))
+  {
+    emit statusMessage(tr("删除实体失败：%1").arg(m_stack->lastError()));
+    refresh();
+    return;
+  }
   if (m_history)
     m_history->push(tr("删除实体 %1（软删）").arg(e.name));
   refresh();

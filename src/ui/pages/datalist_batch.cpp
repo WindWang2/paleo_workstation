@@ -82,6 +82,7 @@ void DataListPanel::batchChangeType()
     return;
   QStringList failures;
   QVector<AssetRowInfo> updatedRows;
+  QList<paleo::dataops::DataOpCommand *> typeCmds;
   for (const QString &id : ids)
   {
     const QString prev = m_typeOv.overriddenType(id);
@@ -94,8 +95,8 @@ void DataListPanel::batchChangeType()
       failures << tr("%1：sidecar 写入失败").arg(id);
     else
     {
-      if (m_opStack)
-        m_opStack->push(new TypeOverrideCmd(m_ctx, id, newType, prev));
+      // PW-049：收集为一条宏命令，循环后一次入栈。
+      typeCmds.append(new TypeOverrideCmd(m_ctx, id, newType, prev));
       for (AssetRowInfo &r : m_rows)
       {
         if (r.assetId == id)
@@ -105,6 +106,16 @@ void DataListPanel::batchChangeType()
         }
       }
     }
+  }
+  if (!typeCmds.isEmpty())
+  {
+    if (!m_opStack)
+      qDeleteAll(typeCmds);
+    else if (typeCmds.size() == 1)
+      m_opStack->push(typeCmds.first());
+    else
+      m_opStack->push(new paleo::dataops::DataOpMacro(
+          tr("批量改类型 %1 项→%2").arg(typeCmds.size()).arg(newType), typeCmds));
   }
 
   // 方向 52 B 线：增量通道更新——若虚拟视图在用，走 updateRows 增量发射

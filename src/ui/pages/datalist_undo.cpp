@@ -314,6 +314,12 @@ void DataListPanel::undoOp()
   const QString text = m_opStack->undo();
   refreshAssetTable();
   emit entityRefreshRequested();
+  // PW-015：失败如实反馈（栈已作废），不报「已撤销」。
+  if (text.isEmpty())
+  {
+    emit statusMessage(tr("撤销失败：%1（撤销历史已清空）").arg(m_opStack->lastError()));
+    return;
+  }
   // D5.4：撤销后状态栏确认反馈。
   emit statusMessage(tr("已撤销：%1").arg(text));
 }
@@ -325,6 +331,11 @@ void DataListPanel::redoOp()
   const QString text = m_opStack->redo();
   refreshAssetTable();
   emit entityRefreshRequested();
+  if (text.isEmpty())
+  {
+    emit statusMessage(tr("重做失败：%1（撤销历史已清空）").arg(m_opStack->lastError()));
+    return;
+  }
   emit statusMessage(tr("已重做：%1").arg(text));
 }
 
@@ -337,7 +348,8 @@ void DataListPanel::pushCommand(paleo::dataops::DataOpCommand *cmd)
     delete cmd; // 与 pushCommands 同口径：命令是调用方 new 的裸指针，别泄漏
     return;
   }
-  m_opStack->push(cmd);
+  if (!m_opStack->push(cmd))
+    emit statusMessage(tr("操作失败：%1").arg(m_opStack->lastError()));
   refreshAssetTable();
   emit entityRefreshRequested();
 }
@@ -349,16 +361,19 @@ void DataListPanel::pushCommands(const QVector<paleo::dataops::DataOpCommand *> 
     qDeleteAll(cmds); // 命令是调用方 new 的裸指针：栈不在场时别泄漏
     return;
   }
-  bool any = false;
+  QList<paleo::dataops::DataOpCommand *> live;
   for (paleo::dataops::DataOpCommand *cmd : cmds)
-  {
-    if (!cmd)
-      continue;
-    m_opStack->push(cmd);
-    any = true;
-  }
-  if (!any)
+    if (cmd)
+      live.append(cmd);
+  if (live.isEmpty())
     return;
+  // PW-049：批量 = 一条宏命令（一次撤销整组；不会被栈深上限拆半）。
+  paleo::dataops::DataOpCommand *entry = live.size() == 1
+      ? live.first()
+      : new paleo::dataops::DataOpMacro(
+            tr("批量操作 %1 项：%2").arg(live.size()).arg(live.first()->text()), live);
+  if (!m_opStack->push(entry))
+    emit statusMessage(tr("操作失败：%1").arg(m_opStack->lastError()));
   // N 条命令一次收口刷新（见 datalist.h 批量面注释）。
   refreshAssetTable();
   emit entityRefreshRequested();

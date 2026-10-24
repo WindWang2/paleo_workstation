@@ -54,3 +54,7 @@ artifacts/portable/
 /goal-loop-prompts.zip
 /r[0-9]*-red-set.txt
 /leak-test-root/
+
+# PW-057：个人构建环境（模板见 build-env.local.sh.example）
+build-env.sh
+build-env.local.sh

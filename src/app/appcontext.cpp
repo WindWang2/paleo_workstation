@@ -332,6 +332,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   // 方向34：井网辅助编排。约束/断层避让面经 provider 注入（随工程打开
   // 刷新）；planned 计划井入 catalog（entityType=="planned"）。
   m_wellsitingWf = new WellSitingWorkflow(m_layerSvc, m_store, this);
+  m_wellsitingWf->setTaskService(m_taskSvc); // PW-034
   m_wellsitingWf->setConstraintProvider([this]() -> QList<SitingConstraintGeometry> {
     QList<SitingConstraintGeometry> out;
     if (!m_constraintWf)

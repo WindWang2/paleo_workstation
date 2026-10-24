@@ -33,6 +33,7 @@
 #include <QTextStream>
 #include <QThreadPool>
 #include <QtConcurrent>
+#include "../services/futuretask.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1095,8 +1096,8 @@ void WellSitingWorkflow::evaluateScenarioAsync( const WellSitingParams &params,
              watcher->deleteLater();
              applyEvaluationOutcome( generation, outcome.first, outcome.second );
            } );
-  watcher->setFuture( QtConcurrent::run(
-      QThreadPool::globalInstance(),
+  const QFuture<Outcome> future = QtConcurrent::run(
+      paleo::tasks::pool( m_taskSvc ), // PW-034
       [snap, params, stop]() -> Outcome {
         // 纯核：与 evaluateScenario 同口径同次序（before → after → 贡献分），
         // 只读快照；阶段边界自查停止标志（新请求/取消置位）。
@@ -1142,7 +1143,16 @@ void WellSitingWorkflow::evaluateScenarioAsync( const WellSitingParams &params,
         evaluation.insert( QStringLiteral( "params" ), params.toMap() );
         outcome.first = evaluation;
         return outcome;
-      } ) );
+      } );
+  watcher->setFuture( future );
+  if ( PaleoTask *task = paleo::tasks::track( m_taskSvc.data(), watcher, future,
+                                               tr( "布井方案评估" ) ) )
+    connect( task, &PaleoTask::cancelAsked, watcher, [stop] { stop->store( true ); } );
+}
+
+void WellSitingWorkflow::setTaskService( PaleoTaskService *tasks )
+{
+  m_taskSvc = tasks;
 }
 
 void WellSitingWorkflow::cancelScenarioEvaluation()

@@ -61,7 +61,7 @@ namespace
 ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWidget *parent)
   : QWidget(parent)
 {
-  setProperty(kLayersProp, QVariant::fromValue(static_cast<QObject *>(layers)));
+  bindTrackedProperty(this, kLayersProp, layers);
 
   auto *scroll = new QScrollArea(this);
   scroll->setObjectName(QStringLiteral("composePageScroll"));

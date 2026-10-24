@@ -345,7 +345,7 @@ void ConstraintPage::bindLayerService( QObject *layers )
     setProperty( kLayersProp, QVariant() );
     return;
   }
-  setProperty( kLayersProp, QVariant::fromValue( static_cast<QObject *>( svc ) ) );
+  bindTrackedProperty(this, kLayersProp, svc);
   connect(svc, &QgisLayerService::layerDeclared, this, [this](const QString &id) {
     updateEngineRows();
     if (id.startsWith(QStringLiteral("wells")))

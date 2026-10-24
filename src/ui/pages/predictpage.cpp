@@ -46,7 +46,7 @@ using namespace paleo::pagesinternal;
 PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidget *parent)
   : QWidget(parent)
 {
-  setProperty(kLayersProp, QVariant::fromValue(static_cast<QObject *>(layers)));
+  bindTrackedProperty(this, kLayersProp, layers);
 
   auto *scroll = new QScrollArea(this);
   scroll->setObjectName(QStringLiteral("predictPageScroll"));

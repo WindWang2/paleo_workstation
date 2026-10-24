@@ -7,6 +7,7 @@
 
 #include "faciespartitionstate.h"
 
+class QObject;
 class QgsMapCanvas;
 class QgsMapTool;
 class QgsAdvancedDigitizingDockWidget;
@@ -36,9 +37,11 @@ bool merge(QgsVectorLayer *v, int code = 0, QString *error = nullptr);
 enum class PartitionOperation { Split, Paint };
 // canvas 不持有工具所有权：调用方装到画布上并负责拆除。\a aborted 在用户取消
 // 捕获（Esc / 右键）时触发——工具的 editAborted 信号在本层接到它上面（视图层
-// 拿不到工具的具体类型，无法写成员指针 connect）。
+// 拿不到工具的具体类型，无法写成员指针 connect）。\a context 为回调的连接
+// 上下文：context 析构后回调自动断开（回调捕获调用方 this 时必须传）。
 QgsMapTool *createCaptureTool(QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cad,
                               QgsVectorLayer *layer, PartitionOperation operation,
                               const std::function<int()> &targetCode,
-                              const std::function<void()> &aborted);
+                              const std::function<void()> &aborted,
+                              QObject *context = nullptr);
 }

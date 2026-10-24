@@ -761,7 +761,7 @@ bool extractSlice(const PropertyVolume &volume, int axis, int index, std::vector
     return false;
   }
   const float kNan = std::numeric_limits<float>::quiet_NaN();
-  out->assign(static_cast<std::size_t>(w * h), kNan);
+  out->assign(static_cast<std::size_t>(w) * static_cast<std::size_t>(h), kNan); // 先拓宽再乘
   bool any = false;
   float vmin = 0, vmax = 0;
   for (int row = 0; row < h; ++row)
@@ -790,7 +790,8 @@ bool extractSlice(const PropertyVolume &volume, int axis, int index, std::vector
       float v = kNan;
       if (g.columnLive(i, j))
         v = volume.values[static_cast<std::size_t>(g.cellIndex(i, j, k))];
-      (*out)[static_cast<std::size_t>(row * w + col)] = v;
+      (*out)[static_cast<std::size_t>(row) * static_cast<std::size_t>(w) +
+             static_cast<std::size_t>(col)] = v;
       trackRange(v, &any, &vmin, &vmax);
     }
   }

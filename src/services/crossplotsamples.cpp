@@ -32,8 +32,11 @@ bool goodGrid(const Grid &g) {
                      [](double v) { return std::isfinite(v); }) &&
          g.transform[1] * g.transform[5] - g.transform[2] * g.transform[4] != 0;
 }
-void xy(const Grid &g, int pixel, double &x, double &y) {
-  const double col = pixel % g.cols + .5, row = pixel / g.cols + .5;
+// review memory#5：像元下标取 size_t——不再经 int 收窄（采样预算若上调到
+// >2^31 像元，int 回绕会算错坐标）。
+void xy(const Grid &g, std::size_t pixel, double &x, double &y) {
+  const std::size_t cols = std::size_t(g.cols);
+  const double col = double(pixel % cols) + .5, row = double(pixel / cols) + .5;
   x = g.transform[0] + col * g.transform[1] + row * g.transform[2];
   y = g.transform[3] + col * g.transform[4] + row * g.transform[5];
 }
@@ -192,7 +195,7 @@ SampleResult CrossplotSamples::planes(const QVector<Plane> &planes,
     Location loc;
     loc.pixel = int(i);
     loc.hasXY = s.grid.spatial;
-    xy(s.grid, int(i), loc.x, loc.y);
+    xy(s.grid, i, loc.x, loc.y);
     s.locations << loc;
   }
   if (stop(ctl))
@@ -310,7 +313,7 @@ SampleResult CrossplotSamples::rasters(const QVector<RasterSource> &sources,
           break;
         }
         double x, y;
-        xy(reference, int(i), x, y);
+        xy(reference, i, x, y);
         if (transform && !OCTTransform(transform, 1, &x, &y, nullptr))
           continue;
         const double cx = inverse[0] + inverse[1] * x + inverse[2] * y,

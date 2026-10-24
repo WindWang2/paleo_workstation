@@ -404,14 +404,18 @@ bool merge(QgsVectorLayer *v, int code, QString *error) {
 QgsMapTool *createCaptureTool(QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cad,
                               QgsVectorLayer *layer, PartitionOperation operation,
                               const std::function<int()> &targetCode,
-                              const std::function<void()> &aborted) {
+                              const std::function<void()> &aborted,
+                              QObject *context) {
   auto *tool = new FaciesPartitionTool(canvas, cad, layer,
       operation == PartitionOperation::Split ? FaciesPartitionTool::Split
                                              : FaciesPartitionTool::Paint,
       targetCode);
   // Qt6 没有「字符串式信号 + lambda」的 connect 重载，而视图层看不见工具的具体
   // 类型——取消回调在此接线。
-  QObject::connect(tool, &FaciesPartitionTool::editAborted, [aborted] { if (aborted) aborted(); });
+  // review memory#2：带上下文的 4 参 connect——回调捕获调用方 this，调用方先亡
+  // 时随上下文断开，不再对已析构工具栏回调。
+  QObject::connect(tool, &FaciesPartitionTool::editAborted, context ? context : tool,
+                   [aborted] { if (aborted) aborted(); });
   return tool;
 }
 }

@@ -887,7 +887,7 @@ void PaleoEditingToolbar::onEditToolTriggered()
     tool = FaciesPartitionEditor::createCaptureTool(mCanvas, cadDock, target,
         action == mActionSplitFacies ? FaciesPartitionEditor::PartitionOperation::Split : FaciesPartitionEditor::PartitionOperation::Paint,
         [combo = QPointer<QComboBox>(mPartitionCode)] { return combo ? combo->currentData().toInt() : 0; },
-        [this, action] { installTool( nullptr ); action->setChecked( false ); });
+        [this, action] { installTool( nullptr ); action->setChecked( false ); }, this);
   else if ( action == mActionAddPolygon )
     tool = wireAborted( new PaleoAddFeatureTool( mCanvas, cadDock, QgsMapToolCapture::CapturePolygon, target ) );
   else if ( action == mActionReshape )

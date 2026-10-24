@@ -105,6 +105,7 @@ namespace
           continue; // A1 撞 A10/A31868… 前缀——边界判
         if (!idToName.contains(w.id))
           idToName.insert(w.id, w.name);
+        break; // PW-112：最长优先——命中最长井名即止（A1-2 不再连带 A1 成歧义）
       }
     }
     if (idToName.isEmpty())

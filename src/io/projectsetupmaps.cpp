@@ -10,6 +10,18 @@
 #include <ogrsf_frmts.h>
 
 namespace {
+// JSON 扩展名对 GeoJSON 与数据预处理产物（如 tools/simplify_historical_maps.py 的
+// 边界简化审计记录）一视同仁；只有 GDAL 能当数据集打开的才算是图件。
+bool opensAsGeospatial(const QString &path)
+{
+  GDALAllRegister();
+  auto *dataset = static_cast<GDALDataset *>(GDALOpenEx(path.toUtf8().constData(),
+      GDAL_OF_VECTOR | GDAL_OF_RASTER | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
+  if (!dataset) return false;
+  const bool usable = dataset->GetLayerCount() > 0 || dataset->GetRasterXSize() > 0;
+  GDALClose(dataset);
+  return usable;
+}
 QString mapCrs(const QString &path)
 {
   if (!QStringList{"shp", "gpkg", "geojson", "json", "tif", "tiff", "img"}.contains(QFileInfo(path).suffix().toLower())) return {};
@@ -39,6 +51,11 @@ void scanProjectMaps(const ProjectSetupSources &sources, ProjectSetupPreview *ou
   for (const auto &path : files) {
     if (cancelled && cancelled()) return;
     const QFileInfo file(path);
+    const auto suffix = file.suffix().toLower();
+    if ((suffix == QLatin1String("json") || suffix == QLatin1String("geojson")) && !opensAsGeospatial(path)) {
+      out->notes << QObject::tr("已跳过非地理 JSON 文件（非 GeoJSON 数据集）：%1").arg(file.fileName());
+      continue;
+    }
     ProjectSetupMap map; map.path = path;
     map.crs = mapCrs(path);
     map.horizon = PaleoMapFiles::inferredHorizon(path, mappingHorizons(), {});

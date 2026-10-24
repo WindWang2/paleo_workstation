@@ -550,6 +550,22 @@ private slots:
     QVERIFY(write(gpkg + ".qml", "package-specific style"));
     QVERIFY(PaleoMapFiles::members(gpkg, &error).contains(gpkg + ".qml"));
   }
+  void nonGeospatialJsonIsSkippedFromMaps() {
+    // tools/simplify_historical_maps.py 会把「图件边界简化记录.json」留在古地理图目录里；
+    // 它不是 GeoJSON 数据集，不得被当作待选图件卡住层位校验。
+    QTemporaryDir dir;
+    QVERIFY(write(dir.filePath("图件边界简化记录.json"), "{\"maps\":[{\"file\":\"D61_map.gpkg\"}]}"));
+    const auto geojson = QByteArrayLiteral(
+        "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{},"
+        "\"geometry\":{\"type\":\"Point\",\"coordinates\":[116,40]}}]}");
+    QVERIFY(write(dir.filePath("D61_map.geojson"), geojson));
+    ProjectSetupSources s; s.paleomaps = dir.path();
+    const auto p = scanProjectSources(s);
+    QCOMPARE(p.maps.size(), 1);
+    QCOMPARE(QFileInfo(p.maps[0].path).fileName(), QStringLiteral("D61_map.geojson"));
+    QVERIFY(p.sourceProblems.isEmpty());
+    QVERIFY(!p.notes.isEmpty());
+  }
   void realMapWizardImportAndReopen() {
     const QString root = qEnvironmentVariable("PALEO_SETUP_SAMPLE_ROOT"); if (root.isEmpty()) QSKIP("Set PALEO_SETUP_SAMPLE_ROOT");
     QTemporaryDir dir; QString error;

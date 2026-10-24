@@ -7,6 +7,7 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFile>
+#include <QSaveFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -65,10 +66,24 @@ bool prompt(QWidget *parent, const RequestContext &ctx, Request *out)
 
   auto *cellSpin = new QDoubleSpinBox(&dlg);
   cellSpin->setObjectName(QStringLiteral("griddingCellSizeSpin"));
-  cellSpin->setDecimals(1);
-  cellSpin->setRange(1.0, 100000.0);
-  cellSpin->setValue(ctx.hasHeaderCell && ctx.headerCellSize > 0 ? ctx.headerCellSize : 25.0);
-  cellSpin->setSuffix(QObject::tr(" m"));
+  // PW-048：量程/小数位/单位后缀随 CRS 平面单位——地理坐标系 1° 起步会把
+  // 头文件推出的亚度级像元夹成 ~111 km。
+  if (ctx.geographic)
+  {
+    cellSpin->setDecimals(6);
+    cellSpin->setRange(1e-6, 10.0);
+    cellSpin->setSingleStep(0.001);
+  }
+  else
+  {
+    cellSpin->setDecimals(3);
+    cellSpin->setRange(0.001, 100000.0);
+  }
+  const double defCell = ctx.geographic ? 0.0025 : 25.0;
+  cellSpin->setValue(ctx.hasHeaderCell && ctx.headerCellSize > 0 ? ctx.headerCellSize : defCell);
+  cellSpin->setSuffix(ctx.unitSuffix.isEmpty()
+                          ? (ctx.geographic ? QStringLiteral(" °") : QObject::tr(" m"))
+                          : QStringLiteral(" ") + ctx.unitSuffix);
   cellSpin->setToolTip(QObject::tr("输出栅格像元尺寸（平面单位）"));
 
   auto *tensionSpin = new QDoubleSpinBox(&dlg);
@@ -258,15 +273,15 @@ QString showVolumeReport(QWidget *parent, const QString &title,
         parent, QObject::tr("导出体积报告"), QString(), QStringLiteral("CSV (*.csv)"));
     if (path.isEmpty())
       return;
-    QFile f(path);
+    QSaveFile f(path); // PW-046：原子写 + 写满 + commit 校验
+    const QByteArray bytes = csv.toUtf8();
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text) ||
-        f.write(csv.toUtf8()) < 0)
+        f.write(bytes) != bytes.size() || !f.commit())
     {
       PaleoNotify::warning(parent, QObject::tr("导出失败"),
                            QObject::tr("无法写入文件：%1").arg(path));
       return;
     }
-    f.close();
     PaleoNotify::information(parent, QObject::tr("导出完成"), path);
   });
 

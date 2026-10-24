@@ -91,8 +91,7 @@ class CorrelationWellColumn
     struct CachedImage
     {
       quint64 key = 0;
-      QImage image;
-      QPixmap pixmap;
+      QPixmap pixmap; // PW-136：不再同时保留 QImage（内存 ×2）
     };
 
     QString m_wellId;

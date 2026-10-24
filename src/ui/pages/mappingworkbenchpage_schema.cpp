@@ -94,7 +94,12 @@ void MappingWorkbenchPage::buildFaciesSchema(QWidget *schemaBody) {
     int code = 1;
     for (int r = 0; r < i; ++r)
       if (m_facies->item(r, 0))
-        code = qMax(code, m_facies->item(r, 0)->text().toInt() + 1);
+      {
+        bool ok = false; // PW-047：非数字编码不参与取最大
+        const int c = m_facies->item(r, 0)->text().toInt(&ok);
+        if (ok)
+          code = qMax(code, c + 1);
+      }
     m_facies->setItem(i, 0, new QTableWidgetItem(QString::number(code)));
     m_facies->setItem(i, 1, new QTableWidgetItem(tr("新微相")));
     m_facies->setItem(i, 2, new QTableWidgetItem(FaciesCatalog::defaults().value(0).toMap().value("color").toString()));

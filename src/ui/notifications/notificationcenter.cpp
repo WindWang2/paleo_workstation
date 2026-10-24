@@ -44,6 +44,12 @@ NotificationCenter::NotificationCenter(QWidget *host, ErrorHub *hub)
     {
         ++presenters()[hub];
         hosts()[hub] = host;
+        // PW-116：hub 先于本中心销毁时擦除静态表项，防同址新 hub 继承脏计数。
+        const ErrorHub *key = hub;
+        connect(hub, &QObject::destroyed, this, [key] {
+            presenters().remove(key);
+            hosts().remove(key);
+        });
         connect(hub, &ErrorHub::errorRaised, this, &NotificationCenter::onRaised);
     }
 }

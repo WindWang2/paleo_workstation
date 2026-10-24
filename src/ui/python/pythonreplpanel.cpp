@@ -54,6 +54,7 @@ PythonReplPanel::PythonReplPanel(PythonConsoleController *controller,
   m_output = new QPlainTextEdit(this);
   m_output->setObjectName(QStringLiteral("pythonReplOutput"));
   m_output->setReadOnly(true);
+  m_output->setMaximumBlockCount(10000); // PW-041：输出有界，防长跑脚本撑爆内存
   m_output->setFont(PaleoTheme::monoFont());
   m_output->setPlaceholderText(
       tr("REPL 输出（含 >>> 提示符）将显示在这里；解释器的提示符与报错"

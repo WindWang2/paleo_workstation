@@ -10,7 +10,7 @@
 //
 // 【D2.1 纹理缓存键语义（消费面引用点，方向 43 attr-volume 依赖）】
 // 键 = 内容指纹 × 显示参数。内容指纹 = FNV-1a：先混入 valueMin / valueMax，再
-// 按 ≥4096 抽样的步长遍历 values（NaN 归一为 -99999.0，保证 NaN 图与 0 值图不
+// （PW-096 起）全量 qHashBits values（NaN 归一为 -99999.0，保证 NaN 图与 0 值图不
 // 撞键）；哈希状态用无符号（回绕良定义，有符号乘法溢出是 UB），取位用 memcpy
 // （无 strict-aliasing 违规）。
 // 显示参数（gain / contrast / threshold / 极性 / AGC / 增益曲线 / colormap /
@@ -21,26 +21,18 @@
 #include <cstddef>
 #include <cstring>
 #include <cmath>
+#include <QHashFunctions>
 
 namespace seismic {
 
 // D2.1 纹理缓存键：内容指纹（值域 + 全值 FNV）× 显示参数
 // 哈希状态用无符号（回绕良定义；有符号乘法溢出是 UB），取位用 memcpy（无 strict-aliasing 违规）。
 inline qint64 SliceFingerprint(const SgySliceImage &img) {
-    quint64 h = 1469598103934665603ull;
-    const auto mix = [&h](double v) {
-        quint64 bits = 0;
-        std::memcpy(&bits, &v, sizeof bits);
-        h ^= bits;
-        h *= 1099511628211ull;
-    };
-    mix(img.valueMin);
-    mix(img.valueMax);
-    const std::size_t stride = std::max<std::size_t>(1, img.values.size() / 4096);
-    for (std::size_t i = 0; i < img.values.size(); i += stride) {
-        const double v = img.values[i];
-        mix(std::isnan(v) ? -99999.0 : static_cast<double>(v));
-    }
+    // PW-096：全内容哈希（不再 4096 抽样——抽样相同、未采样值不同的两条线会
+    // 撞键回吐旧图）。qHashBits 按字节，NaN 位型自然与 0 区分。
+    const size_t h = qHashMulti(size_t(0x9e3779b97f4a7c15ull), img.width, img.height,
+                                img.valueMin, img.valueMax,
+                                qHashBits(img.values.data(), img.values.size() * sizeof(float)));
     return static_cast<qint64>(h);
 }
 
@@ -96,6 +88,18 @@ inline qint64 GainCurveFingerprint(const std::vector<SectionGainNode> &nodes) {
         mix(n.gain);
     }
     return static_cast<qint64>(h);
+}
+
+// PW-096：纹理缓存键 = qHashMulti(内容指纹, 几何, t0/dt, 全部显示参数)——
+// 不再用有符号移位 XOR（溢出 UB、参数间位重叠撞键）。
+inline qint64 TextureCacheKey(const SgySliceImage &img, int traces, int samples,
+                              double t0Ms, double dtMs, double gain, double contrast,
+                              int colorMap, bool cmapInverted, double threshold,
+                              bool polarityInverted, int agcWindowMs, qint64 gainCurveFp) {
+    return static_cast<qint64>(qHashMulti(size_t(SliceFingerprint(img)), traces, samples,
+                                          t0Ms, dtMs, gain, contrast, colorMap, cmapInverted,
+                                          threshold, polarityInverted, agcWindowMs,
+                                          gainCurveFp));
 }
 
 } // namespace seismic

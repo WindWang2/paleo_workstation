@@ -41,6 +41,8 @@
 #include "editingtools.h"
 #include "../../qgis/faciespartitioneditor.h" // #533：相面捕获工具经此门面创建——faciespartitiontool.h 的 QtWidgets 边归 QGIS 封装层
 #include "vertexeditortools.h"
+#include "../shortcuts/shortcutcatalog.h"
+#include <QShortcut>
 
 // ui/edittools/ — PaleoEditingToolbar implementation notes:
 //
@@ -574,6 +576,24 @@ void PaleoEditingToolbar::buildUi()
                                 QStringLiteral( "mActionRedo.svg" ) );
 
   wireToolActions();
+
+  // PW-118：Ctrl+Z / Ctrl+Y 在地图画布焦点内驱动编辑撤销栈（走动作以复用
+  // enabled 状态与提示）。
+  if ( mCanvas )
+  {
+    auto *scUndo = paleo::shortcuts::bindShortcut( QStringLiteral( "map.edit.undo" ), mCanvas );
+    scUndo->setObjectName( QStringLiteral( "scMapEditUndo" ) );
+    connect( scUndo, &QShortcut::activated, mActionUndo, [this] {
+      if ( mActionUndo->isEnabled() )
+        mActionUndo->trigger();
+    } );
+    auto *scRedo = paleo::shortcuts::bindShortcut( QStringLiteral( "map.edit.redo" ), mCanvas );
+    scRedo->setObjectName( QStringLiteral( "scMapEditRedo" ) );
+    connect( scRedo, &QShortcut::activated, mActionRedo, [this] {
+      if ( mActionRedo->isEnabled() )
+        mActionRedo->trigger();
+    } );
+  }
 
   connect( mActionSave, &QAction::triggered, this, &PaleoEditingToolbar::saveEditing );
   connect( mActionCancel, &QAction::triggered, this, [this] {

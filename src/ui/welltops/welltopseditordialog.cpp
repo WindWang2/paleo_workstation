@@ -861,9 +861,10 @@ void WellTopsEditorDialog::onBatchShift()
   spin->setObjectName(QStringLiteral("topsShiftSpin"));
   spin->setRange(-99999.0, 99999.0);
   spin->setDecimals(3);
-  spin->setSuffix(tr(" m"));
+  // PW-138：分层记录不携带深度单位（不做换算），位移按文件原单位施加——
+  // 不再硬标「m」误导英尺数据。
   spin->setValue(0.0);
-  form->addRow(tr("位移量（深度加深则海拔降低）"), spin);
+  form->addRow(tr("位移量（文件深度单位；深度加深则海拔降低）"), spin);
   lay->addLayout(form);
   auto *preview = new QLabel(&dlg);
   preview->setObjectName(QStringLiteral("topsBatchPreviewLabel"));
@@ -891,7 +892,7 @@ void WellTopsEditorDialog::onBatchShift()
     return;
   }
   commitBatch(std::move(copy), QStringLiteral("batch-shift"),
-              tr("全文件 %1 行深度整体位移 %2 m，提交为新版本？")
+              tr("全文件 %1 行深度整体位移 %2（文件深度单位），提交为新版本？")
                   .arg(QString::number(n), QString::number(spin->value(), 'f', 3)));
 }
 

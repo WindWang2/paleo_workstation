@@ -134,7 +134,7 @@ void MultiWellView::relayout()
     if (panel)
       panel->setParent(this);
 
-  auto *lay = static_cast<QGridLayout *>(layout());
+  auto *lay = qobject_cast<QGridLayout *>(layout());
   // 清空布局项
   while (lay->count())
   {

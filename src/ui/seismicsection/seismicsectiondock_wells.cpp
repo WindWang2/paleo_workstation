@@ -13,6 +13,8 @@
 
 #include <QCheckBox>
 #include <QDialog>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QDialogButtonBox>
 #include "../notifications/paleonotify.h"
 #include <QPainter>
@@ -347,33 +349,57 @@ void SeismicSectionDockWidget::showWellSideTrace() {
     const int il = loc.inlineNo;
     const int xl = loc.xlineNo;
 
-    // 提取该 IL 剖面再取井列（同步——单剖面读取毫秒级）
-    SgySliceImage slice;
-    std::string err;
-    if (!m_volume->ExtractSlice(SgySliceType::Inline, il, slice, err)) {
-        PaleoNotify::warning(this, tr("井旁道"), tr("道提取失败：%1").arg(QString::fromStdString(err)));
+    // PW-100：剖面读取移出 GUI 线程（分页/远程体与长测线下同步读会卡界面），
+    // 结果经 QFutureWatcher 回到 GUI 线程；体已切换则丢弃过期结果。
+    struct ExtractResult {
+        bool ok = false;
+        SgySliceImage slice;
+        std::string err;
+    };
+    if (m_wellTraceBusy)
         return;
-    }
-    // 列 = xl 在体实际线号表中的位置（#147 同口径：线距可 >1）；剖面宽度须与
-    // 线号表一致，否则列轴对不上——如实拒绝，不按单位线距猜。
-    const int col = int(m_volume->XlineValues().size()) == slice.width ? loc.column : -1;
-    if (col < 0 || col >= slice.width) {
-        PaleoNotify::warning(this, tr("井旁道"), tr("XL %1 不在 IL %2 剖面列轴上").arg(xl).arg(il));
-        return;
-    }
+    m_wellTraceBusy = true;
+    const std::shared_ptr<const SgyVolume> vol = m_volume;
+    const SectionWellInfo well = *best; // 值拷贝：候选井表在等待期间可能被刷新
+    const int locColumn = loc.column;
+    auto *watcher = new QFutureWatcher<ExtractResult>(this);
+    connect(watcher, &QFutureWatcher<ExtractResult>::finished, this,
+            [this, watcher, vol, well, il, xl, locColumn]() {
+        watcher->deleteLater();
+        m_wellTraceBusy = false;
+        const ExtractResult r = watcher->result();
+        if (vol != m_volume)
+            return; // 体已切换
+        if (!r.ok) {
+            PaleoNotify::warning(this, tr("井旁道"), tr("道提取失败：%1").arg(QString::fromStdString(r.err)));
+            return;
+        }
+        // 列 = xl 在体实际线号表中的位置（#147 同口径：线距可 >1）；剖面宽度须与
+        // 线号表一致，否则列轴对不上——如实拒绝，不按单位线距猜。
+        const int col = int(vol->XlineValues().size()) == r.slice.width ? locColumn : -1;
+        if (col < 0 || col >= r.slice.width) {
+            PaleoNotify::warning(this, tr("井旁道"), tr("XL %1 不在 IL %2 剖面列轴上").arg(xl).arg(il));
+            return;
+        }
 
-    QDialog dlg(this);
-    dlg.setWindowTitle(tr("井旁道 · %1（IL %2 / XL %3）").arg(best->wellName).arg(il).arg(xl));
-    dlg.setMinimumSize(300, 520);
-    auto *lay = new QVBoxLayout(&dlg);
-    auto *trace = new class WellSideTraceWidget(best, col, slice, m_canvas->sampleIntervalMs(),
-                                                 m_timeOriginMs, &dlg);
-    lay->addWidget(trace, 1);
-    auto *btnClose = new QToolButton(&dlg);
-    btnClose->setText(tr("关闭"));
-    connect(btnClose, &QToolButton::clicked, &dlg, &QDialog::close);
-    lay->addWidget(btnClose, 0, Qt::AlignRight);
-    dlg.exec();
+        QDialog dlg(this);
+        dlg.setWindowTitle(tr("井旁道 · %1（IL %2 / XL %3）").arg(well.wellName).arg(il).arg(xl));
+        dlg.setMinimumSize(300, 520);
+        auto *lay = new QVBoxLayout(&dlg);
+        auto *trace = new class WellSideTraceWidget(&well, col, r.slice, m_canvas->sampleIntervalMs(),
+                                                     m_timeOriginMs, &dlg);
+        lay->addWidget(trace, 1);
+        auto *btnClose = new QToolButton(&dlg);
+        btnClose->setText(tr("关闭"));
+        connect(btnClose, &QToolButton::clicked, &dlg, &QDialog::close);
+        lay->addWidget(btnClose, 0, Qt::AlignRight);
+        dlg.exec();
+    });
+    watcher->setFuture(QtConcurrent::run([vol, il]() {
+        ExtractResult r;
+        r.ok = vol->ExtractSlice(SgySliceType::Inline, il, r.slice, r.err);
+        return r;
+    }));
 }
 
 } // namespace seismic

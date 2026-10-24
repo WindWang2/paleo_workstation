@@ -22,6 +22,20 @@ inline constexpr char kLayersProp[] = "paleo.page.layers"; // QObject* (QgisLaye
 inline constexpr char kWfProp[] = "paleo.page.wf";         // QObject* (page workflow)
 inline constexpr char kTaskSvcProp[] = "paleo.page.tasksvc"; // QObject* (PaleoTaskService)
 
+// PW-043：服务属性的生命周期跟踪绑定——被绑对象销毁时自动清空属性，读侧
+// qobject_cast 拿到 nullptr 而不是悬挂指针（QVariant 里的 QObject* 不是
+// QPointer）。重复绑定时只清空仍指向已毁对象的那一个。
+inline void bindTrackedProperty(QObject *owner, const char *name, QObject *target)
+{
+  owner->setProperty(name, target ? QVariant::fromValue(target) : QVariant());
+  if (!target)
+    return;
+  QObject::connect(target, &QObject::destroyed, owner, [owner, name, target] {
+    if (owner->property(name).value<QObject *>() == target)
+      owner->setProperty(name, QVariant());
+  });
+}
+
 // 六页序表：ribbon 页签序 = 阅读序 = 右栏栈序。壳（paleomainwindow.cpp）
 // 与接线 TU（paleomainwindow_attach.cpp）共用，W4 后两处 TU 都要查序。
 inline const QStringList kPageIds = {
@@ -103,7 +117,7 @@ public:
   }
 
   QWidget *container() const { return m_container; }
-  QVBoxLayout *containerLayout() const { return static_cast<QVBoxLayout *>(m_container->layout()); }
+  QVBoxLayout *containerLayout() const { return qobject_cast<QVBoxLayout *>(m_container->layout()); }
   void setExpanded(bool exp) { m_toggle->setChecked(exp); }
 
 private:

@@ -480,7 +480,7 @@ void PaleoMainWindow::buildPageDocks()
   m_rightDock->setObjectName(QStringLiteral("pagePanelDock"));
   auto *panelHost = new PaleoPanelHost(m_rightDock);
   panelHost->setObjectName(QStringLiteral("rightPanelHost"));
-  auto *panelStack = static_cast<QStackedLayout *>(panelHost->layout());
+  auto *panelStack = qobject_cast<QStackedLayout *>(panelHost->layout());
   for (const QString &label : pageLabels())
   {
     auto *placeholder = new QLabel(label + tr(" — 面板待实现"), panelHost);

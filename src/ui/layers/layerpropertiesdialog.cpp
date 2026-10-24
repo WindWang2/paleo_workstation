@@ -7,6 +7,7 @@
 #include <QDialog>
 #include <QDomDocument>
 #include <QFile>
+#include <QSaveFile>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -350,8 +351,10 @@ class PaleoLayerConfigPage : public QgsMapLayerConfigWidget
             PaleoNotify::warning(this, tr("导出样式 .qml"), styleErr);
             return;
         }
-        QFile f(path);
-        if (!f.open(QIODevice::WriteOnly) || f.write(doc.toByteArray()) < 0)
+        QSaveFile f(path); // PW-046：原子写 + 写满 + commit 校验
+        const QByteArray bytes = doc.toByteArray();
+        if (!f.open(QIODevice::WriteOnly) || f.write(bytes) != bytes.size() ||
+            !f.commit())
             PaleoNotify::warning(this, tr("导出样式 .qml"),
                                  tr("无法写入文件：%1").arg(path));
     }

@@ -12,7 +12,9 @@
 #include "correlation/curvebrowser.h"
 #include "correlation/depthruler.h"
 
+#include <QCheckBox>
 #include <QEvent>
+#include <QSignalBlocker>
 #include <QFile>
 #include <QFileInfo>
 #include <QGraphicsPathItem>
@@ -338,6 +340,11 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
   });
   grid->addWidget(m_emptyLabel, 0, 0);
   m_emptyLabel->setVisible(true);
+  auto *sharedScaleBox = new QCheckBox(tr("同名曲线共用刻度"), this);
+  sharedScaleBox->setObjectName(QStringLiteral("sharedCurveScaleBox"));
+  sharedScaleBox->setToolTip(tr("跨井对同一助记符使用统一横向刻度（电阻率类对数），便于形态对比"));
+  connect(sharedScaleBox, &QCheckBox::toggled, this, &WellCorrelationPanel::setSharedCurveScale);
+  grid->addWidget(sharedScaleBox, 1, 0);
 
   // Section strip + LAS curve browser on the right.
   auto *hbox = new QHBoxLayout(this);
@@ -839,6 +846,58 @@ float WellCorrelationPanel::depthAtY(qreal y) const
 // chrome layer and marker items survive — HorizonMarkerSet::rebuild
 // self-cleans its lines by role scan and preserves the drag grabber, so
 // mid-drag relayouts (markerDepthChanged) never kill an in-flight drag.
+void WellCorrelationPanel::setSharedCurveScale(bool on)
+{
+  if (m_sharedScale == on)
+    return;
+  m_sharedScale = on;
+  if (auto *box = findChild<QCheckBox *>(QStringLiteral("sharedCurveScaleBox")))
+  {
+    const QSignalBlocker block(box);
+    box->setChecked(on);
+  }
+  rebuildScene();
+}
+
+void WellCorrelationPanel::applyCurveScales()
+{
+  QHash<QString, QPair<float, float>> ranges;
+  if (m_sharedScale)
+  {
+    for (CorrelationWellColumn *col : std::as_const(m_columns))
+      for (const QString &mn : col->mnemonics())
+      {
+        const CorrelationTrack *t = col->track(mn);
+        if (!t || t->isEmpty())
+          continue;
+        const QPair<float, float> vr = t->valueRange();
+        auto it = ranges.find(mn);
+        if (it == ranges.end())
+          ranges.insert(mn, vr);
+        else
+          *it = {qMin(it->first, vr.first), qMax(it->second, vr.second)};
+      }
+  }
+  for (CorrelationWellColumn *col : std::as_const(m_columns))
+    for (const QString &mn : col->mnemonics())
+    {
+      CorrelationTrack *t = col->track(mn);
+      if (!t)
+        continue;
+      const auto it = ranges.constFind(mn);
+      if (!m_sharedScale || it == ranges.constEnd())
+      {
+        t->clearScale();
+        continue;
+      }
+      float lo = it->first, hi = it->second;
+      const bool log = CorrelationTrack::isLogMnemonic(mn) && lo > 0.0f;
+      if (!(hi > lo))
+        hi = lo + 1e-6f;
+      t->setScale(lo, hi, log);
+    }
+}
+
 void WellCorrelationPanel::rebuildScene()
 {
   if (!m_updatesEnabled)
@@ -858,6 +917,7 @@ void WellCorrelationPanel::rebuildScene()
   m_columnItems.clear();
 
   computeDepthAxis();
+  applyCurveScales();
 
   const qreal bodyH = depthBodyHeight();
   QSet<QString> selected;

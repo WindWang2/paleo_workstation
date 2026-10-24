@@ -476,6 +476,37 @@ private slots:
   }
 
   // #282：关窗同样查工程脏状态——取消不关、保存关且落盘。
+  // PW-008：只读实例关窗时只能放弃/取消；即便测试缝回「保存」也绝不写 .qgz，
+  // 服务层 writeProject 同样拒绝。
+  void readOnlyCloseNeverWritesProject()
+  {
+    QApplication::processEvents();
+    const QString qgz = m_ctx->projectSvc()->projectPath();
+    QVERIFY(!qgz.isEmpty());
+    QgsProject *proj = m_ctx->projectSvc()->project();
+    auto snap = proj->snappingConfig();
+    snap.setEnabled(!snap.enabled());
+    proj->setSnappingConfig(snap);
+    QVERIFY(proj->isDirty());
+    m_win->setProjectReadOnly(true);
+    m_ctx->projectSvc()->setReadOnly(true);
+    QVERIFY(!m_ctx->projectSvc()->writeProject());
+    int askCount = 0;
+    m_win->setProjectSaveAskForTesting([&askCount](const QString &, const QString &) {
+      ++askCount;
+      return PaleoNotify::SaveChoice::Save;
+    });
+    QTest::qWait(60);
+    const QDateTime before = QFileInfo(qgz).lastModified();
+    m_win->close();
+    QCOMPARE(askCount, 1);
+    QVERIFY2(m_win->isVisible(), "只读实例不存在「保存」出口，不得关窗");
+    QCOMPARE(QFileInfo(qgz).lastModified(), before);
+    m_win->setProjectSaveAskForTesting(nullptr);
+    m_ctx->projectSvc()->setReadOnly(false);
+    m_win->setProjectReadOnly(false);
+  }
+
   void closeWindowAsksWhenDirty()
   {
     // 上一用例异步切到 B 后它完整落成——等尾事件稳定再开始。

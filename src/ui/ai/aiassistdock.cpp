@@ -488,6 +488,7 @@ void AiAssistDock::addToolCard(const ChatToolCall &call,
   entry.summary = new QLabel(entry.card);
   entry.summary->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
   entry.summary->setWordWrap(true);
+  entry.summary->setTextFormat(Qt::PlainText); // PW-115：原文直出，不二次转义
   entry.summary->hide(); // 结果到了才显示（两态卡片的第二态）
   layout->addWidget(entry.summary);
   m_cardLayout->addWidget(entry.card);
@@ -523,7 +524,7 @@ void AiAssistDock::markToolResult(const ChatToolCall &call, bool ok,
   swapCapsule(card, ok ? tr("已完成") : tr("失败"),
               ok ? PaleoTheme::CapsuleKind::Success
                  : PaleoTheme::CapsuleKind::Error);
-  card.summary->setText(summary.toHtmlEscaped());
+  card.summary->setText(summary);
   card.summary->show();
 }
 

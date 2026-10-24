@@ -5,6 +5,7 @@
 #include "mappingsamples.h"
 
 #include "../catalog/datacatalog.h"
+#include "../io/atomicwrite.h"
 #include "../domain/mappinghorizons.h"
 #include "../io/timedeptool.h"
 #include "../io/wellfileparsers.h"
@@ -317,13 +318,15 @@ using paleo::workflow_detail::raiseToErrorHub;
     root.insert( QStringLiteral( "crs" ), crs );
     root.insert( QStringLiteral( "features" ), feats );
 
-    QFile file( path );
-    if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
+    // 原子整写并校验：旧实现忽略 write() 返回值——磁盘满时返回 true 却留下
+    // 半截 GeoJSON，被下游当作有效井点消费。
+    QString writeErr;
+    if ( !paleo::writeJsonAtomic( path, QJsonDocument( root ), &writeErr,
+                                  QJsonDocument::Compact ) )
     {
-      setError( error, QObject::tr( "井点 GeoJSON 写入失败：%1" ).arg( path ) );
+      setError( error, QObject::tr( "井点 GeoJSON 写入失败：%1（%2）" ).arg( path, writeErr ) );
       return false;
     }
-    file.write( QJsonDocument( root ).toJson( QJsonDocument::Compact ) );
     return true;
   }
 } // namespace

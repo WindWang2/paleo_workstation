@@ -3,6 +3,7 @@
 
 # A 线：原子写与防损坏测试套件 + 零测试头清零套件
 add_paleo_test(tst_metadata_atomicfile LIBS paleo_store)
+add_paleo_test(tst_io_atomicwrite LIBS paleo_io)
 add_paleo_test(tst_workflow_registration LIBS paleo_workflow)
 add_paleo_test(tst_catalog_catalogindex LIBS paleo_store)
 add_paleo_test(tst_domain_wellsitingplan LIBS paleo_domain)

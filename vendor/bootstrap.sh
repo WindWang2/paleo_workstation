@@ -56,9 +56,19 @@ ORT_DIR=vendor/onnxruntime
 if [ -f "$ORT_DIR/lib/libonnxruntime.so" ]; then
   note "onnxruntime vendored already"
 else
-  ort_ver=$(grep -oE '"version": *"[0-9.]+"' vendor/manifest.json | head -1 | grep -oE '[0-9.]+')
-  ort_url=$(grep -oE '"url": *"[^"]+onnxruntime[^"]+"' vendor/manifest.json | head -1 | sed 's/.*"\(http[^"]*\)".*/\1/')
-  ort_sha=$(grep -oE '"sha256": *"[a-f0-9]{64}"' vendor/manifest.json | head -1 | grep -oE '[a-f0-9]{64}')
+  # PW-052：按 deps.onnxruntime 键解析 manifest（原 grep|head -1 依赖块顺序）。
+  ort_field() {
+    python3 - "$1" <<'PY'
+import json, sys
+d = json.load(open("vendor/manifest.json"))["deps"].get("onnxruntime", {})
+v = {"version": d.get("version"), "url": d.get("url"),
+     "sha256": (d.get("archive") or {}).get("sha256")}[sys.argv[1]]
+print(v or "")
+PY
+  }
+  ort_ver=$(ort_field version)
+  ort_url=$(ort_field url)
+  ort_sha=$(ort_field sha256)
   if [ -n "$ort_url" ]; then
     note "fetching onnxruntime $ort_ver"
     curl -fSL "$ort_url" -o vendor/ort.tgz

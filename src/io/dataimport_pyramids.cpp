@@ -47,7 +47,6 @@
 #include "dataimport_internal.h"
 
 using paleo::dataimport_detail::setError;
-using paleo::dataimport_detail::readFileOrEmpty;
 
 // ---- 栅格金字塔/概览族（B3 wave/deepen-perf：Lazy 瓦片 + GDAL .ovr）。
 

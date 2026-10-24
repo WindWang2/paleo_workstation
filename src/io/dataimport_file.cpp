@@ -57,7 +57,6 @@
 #include "importrecovery.h"
 
 using paleo::dataimport_detail::setError;
-using paleo::dataimport_detail::readFileOrEmpty;
 
 
 void DataImportService::produceFile(ImportSession &s, const QString &sourcePath,

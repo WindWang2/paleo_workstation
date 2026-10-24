@@ -51,7 +51,6 @@
 #include "welltable.h"
 
 using paleo::dataimport_detail::setError;
-using paleo::dataimport_detail::readFileOrEmpty;
 
 // ---- 地物族分支：horizon（含 dedup 再派生特道）/ seismic / 辅助参考
 // （document/image_reference/geojson/unknown）。

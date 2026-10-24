@@ -358,6 +358,11 @@ QVector<QString> readSharedStrings( const QByteArray &bytes )
         inItem = true;
         current.clear();
       }
+      else if ( inItem && name == QLatin1String( "rPh" ) )
+      {
+        // PW-141：注音（振假名/拼音）run 不属于单元格文本——整段跳过。
+        reader.skipCurrentElement();
+      }
       else if ( inItem && name == QLatin1String( "t" ) )
       {
         current += readCellText( reader ); // 富文本 <r><t> 串接
@@ -684,20 +689,25 @@ WorkbookReadResult readXlsx( const QString &path )
   return result;
 }
 
-// 表头关键字命中（上游 _find_header_index：X/Y 用前缀匹配，其余用包含匹配）。
+// 表头关键字命中（PW-110）：分级——精确 > 前缀 > 包含，各级取首个。
+// 单字母 X/Y 不走「包含」级（否则 X 命中 INDEX、Y 命中 KELLY…）。
 int headerIndex( const QStringList &headers, const QString &keyword )
 {
   const QString target = keyword.toUpper();
+  const bool singleAxis = keyword == QLatin1String( "X" ) || keyword == QLatin1String( "Y" );
+  int prefix = -1;
+  int contains = -1;
   for ( int index = 0; index < headers.size(); ++index )
   {
-    const QString cleaned = headers.at( index ).toUpper();
-    if ( ( keyword == QLatin1String( "X" ) || keyword == QLatin1String( "Y" ) ) &&
-         cleaned.startsWith( keyword ) )
+    const QString cleaned = headers.at( index ).trimmed().toUpper();
+    if ( cleaned == target )
       return index;
-    if ( cleaned.contains( target ) )
-      return index;
+    if ( prefix < 0 && cleaned.startsWith( target ) )
+      prefix = index;
+    if ( !singleAxis && contains < 0 && cleaned.contains( target ) )
+      contains = index;
   }
-  return -1;
+  return prefix >= 0 ? prefix : contains;
 }
 
 QString valueAt( const QStringList &values, int index )
@@ -721,14 +731,31 @@ QString canonicalWellName( const QString &raw )
   return text.remove( QStringLiteral( "井" ) );
 }
 
-bool parseNumericCell( const QString &raw, double *value )
+bool parseNumericCell( const QString &raw, double *value, bool *isPercent )
 {
   QString text = raw.trimmed();
+  if ( isPercent )
+    *isPercent = false;
   if ( text.isEmpty() )
     return false;
-  text.remove( QLatin1Char( ',' ) );
   if ( text.endsWith( QLatin1Char( '%' ) ) )
+  {
+    // PW-109：百分号不静默丢弃——经 isPercent 告知调用方（值仍为百分数本身）。
     text.chop( 1 );
+    text = text.trimmed();
+    if ( isPercent )
+      *isPercent = true;
+  }
+  if ( text.contains( QLatin1Char( ',' ) ) )
+  {
+    // PW-109：只接受规范千分位（1,234 / 12,345.6）；"12,5" 之类的小数逗号
+    // 不再被剥成 125，而是如实拒绝。
+    static const QRegularExpression thousands(
+        QStringLiteral( "^[+-]?\\d{1,3}(,\\d{3})+(\\.\\d*)?$" ) );
+    if ( !thousands.match( text ).hasMatch() )
+      return false;
+    text.remove( QLatin1Char( ',' ) );
+  }
   bool ok = false;
   const double parsed = text.toDouble( &ok );
   if ( !ok || !paleo::wellnumeric::isUsable( parsed ) )
@@ -982,12 +1009,17 @@ namespace
 // 深度列口径：表头含「深度」的首列（顶深/底深/深度都算），不进曲线统计。
 int depthColumnIndex( const QStringList &headers )
 {
+  // PW-110：优先以「深度」开头的列（深度/深度(m)），其次才是顶深/底深等包含列。
+  int contains = -1;
   for ( int i = 0; i < headers.size(); ++i )
   {
-    if ( headers.at( i ).contains( QStringLiteral( "深度" ) ) )
+    const QString h = headers.at( i ).trimmed();
+    if ( h.startsWith( QStringLiteral( "深度" ) ) )
       return i;
+    if ( contains < 0 && h.contains( QStringLiteral( "深度" ) ) )
+      contains = i;
   }
-  return -1;
+  return contains;
 }
 
 } // namespace

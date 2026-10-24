@@ -338,6 +338,17 @@ void OutsourceWorkbookTests::canonicalizesWellNamesAndNumbers()
   QVERIFY( !parseNumericCell( QString(), &value ) );
   QVERIFY( !parseNumericCell( QStringLiteral( "-" ), &value ) );
   QVERIFY( !parseNumericCell( QStringLiteral( "inf" ), &value ) );
+  // PW-109：小数逗号/非规范分组不得被剥成大数；百分号如实标记。
+  QVERIFY( !parseNumericCell( QStringLiteral( "12,5" ), &value ) );
+  QVERIFY( !parseNumericCell( QStringLiteral( "1,20" ), &value ) );
+  QVERIFY( parseNumericCell( QStringLiteral( "12,345,678" ), &value ) );
+  QCOMPARE( value, 12345678.0 );
+  bool percent = false;
+  QVERIFY( parseNumericCell( QStringLiteral( "35 %" ), &value, &percent ) );
+  QVERIFY( percent );
+  QCOMPARE( value, 35.0 );
+  QVERIFY( parseNumericCell( QStringLiteral( "35" ), &value, &percent ) );
+  QVERIFY( !percent );
 }
 
 // 新格式进 manifest 词表登记（不旁路分类器）；.xml 内容嗅探沿用既有判据。

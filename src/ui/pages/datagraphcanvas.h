@@ -12,8 +12,16 @@ class DataGraphCanvas final : public QGraphicsView {
 public:
   using QGraphicsView::QGraphicsView;
   std::function<void()> clearFocusRequested, viewTransformChanged;
+  void includeFitScale(qreal scale) {
+    if (std::isfinite(scale) && scale > 0) m_minimumZoom = qMin(.15, scale);
+  }
   void zoomBy(qreal factor) {
-    const qreal current = transform().m11(); const qreal next = qBound(.15, current * factor, 4.0);
+    if (!std::isfinite(factor) || factor <= 0) return;
+    const qreal current = transform().m11();
+    // A full-graph fit may be below the usual interactive floor. Preserve that
+    // floor so zoom-in/out steps stay monotonic and can return to the fit.
+    const qreal next = qBound(qMin(m_minimumZoom, current), current * factor, qMax(4.0, current));
+    if (qFuzzyCompare(current, next)) return;
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse); scale(next / current, next / current);
     if (viewTransformChanged) viewTransformChanged();
   }
@@ -29,6 +37,8 @@ protected:
     QGraphicsView::mousePressEvent(event);
     if (empty && event->button() == Qt::LeftButton && clearFocusRequested) clearFocusRequested();
   }
+private:
+  qreal m_minimumZoom = .15;
 };
 
 // Cards occupy their own hit regions; the uncovered canvas keeps receiving pan/zoom.

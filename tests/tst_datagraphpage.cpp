@@ -13,6 +13,10 @@
 #include <QPushButton>
 #include <QSplitter>
 #include <QWheelEvent>
+#include <QTextBrowser>
+#include <QScrollBar>
+#include <QTreeWidget>
+#include "../src/ui/pages/datagraphcanvas.h"
 #include <QTemporaryDir>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -231,6 +235,25 @@ class TestDataGraphPage : public QObject
     *digestOut = digest.join(QLatin1Char(';'));
   }
 
+  static paleo::datagraph::Graph interactionGraph(int wells) {
+    using namespace paleo::datagraph;
+    Graph graph; graph.query.mode = Mode::Knowledge;
+    for (int w = 0; w < wells; ++w) {
+      Node well; well.id = QString("e%1").arg(w); well.entityId = well.id;
+      well.entityType = "well"; well.title = QString("Well %1").arg(w); well.kind = Kind::Entity; well.count = 3;
+      graph.nodes << well;
+      for (int f = 0; f < 3; ++f) {
+        Node file; file.id = QString("a%1-%2").arg(w).arg(f); file.assetId = file.id;
+        file.title = file.id + ".las"; file.kind = Kind::Asset;
+        if (w == 0 && f == 0) for (int i = 0; i < 120; ++i) file.evidenceText += QString("parameter-%1: 12345678901234567890\n").arg(i);
+        graph.nodes << file; Edge edge; edge.source = well.id; edge.target = file.id;
+        edge.label = "well log"; edge.provenance = "catalog"; graph.edges << edge;
+      }
+    }
+    graph.totalEntities = wells; graph.totalAssets = wells * 3; layoutKnowledgeGraph(graph, {});
+    return graph;
+  }
+
 private slots:
   void associationEditorAndKnowledgeGraph() {
     QTemporaryDir dir;
@@ -363,6 +386,65 @@ private slots:
     QWheelEvent wheel(center, view->viewport()->mapToGlobal(center), {}, QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
     QApplication::sendEvent(view->viewport(), &wheel);
     QVERIFY(std::abs(diameter - focus->deviceTransform(view->viewportTransform()).mapRect(focus->connectionRect()).width()) < .01);
+  }
+  void zoomPreservesDismissedDetailsAndReadingState() {
+    DataGraphPage page; page.resize(1200, 800);
+    auto *workflow = page.findChild<DataGraphWorkflow *>(); QSignalSpy ready(workflow, &DataGraphWorkflow::ready);
+    auto *view = page.findChild<QGraphicsView *>("dataGraphView");
+    page.show(); QTRY_VERIFY(!ready.isEmpty() && view->isEnabled());
+    workflow->ready(interactionGraph(1)); QTest::qWait(50); // Drain the scheduled initial fit before interacting.
+    DataGraphNodeItem *target = nullptr;
+    for (auto *item : view->scene()->items()) if (auto *node = dynamic_cast<DataGraphNodeItem *>(item); node && node->node.id == "a0-0") target = node;
+    QVERIFY(target); view->centerOn(target->pos());
+    QTest::mouseClick(view->viewport(), Qt::LeftButton, {}, view->mapFromScene(target->pos()));
+    auto *details = page.findChild<QWidget *>("dataGraphDetailsPanel");
+    QTRY_VERIFY(details->isVisible());
+    auto *browser = page.findChild<QTextBrowser *>("dataGraphNodeDetails");
+    auto *relations = page.findChild<QTreeWidget *>("dataGraphRelations");
+    auto *scroll = browser->verticalScrollBar(); QTRY_VERIFY(scroll->maximum() > 0);
+    scroll->setValue(scroll->maximum()); const int readingPosition = scroll->value();
+    auto *relation = relations->topLevelItem(0); QVERIFY(relation); relations->setCurrentItem(relation);
+    const QString html = browser->toHtml();
+    page.findChild<QToolButton *>("dataGraphZoomIn")->click();
+    QCOMPARE(scroll->value(), readingPosition); QCOMPARE(browser->toHtml(), html);
+    QCOMPARE(relations->currentItem(), relation);
+    page.findChild<QToolButton *>("dataGraphFit")->click();
+    QCOMPARE(scroll->value(), readingPosition); QCOMPARE(relations->currentItem(), relation);
+    auto *close = details->findChild<QToolButton *>(); QVERIFY(close); close->click(); QVERIFY(details->isHidden());
+    page.findChild<QToolButton *>("dataGraphZoomOut")->click(); QVERIFY(details->isHidden());
+    const QPoint center = view->viewport()->rect().center();
+    QWheelEvent wheel(center, view->viewport()->mapToGlobal(center), {}, QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(view->viewport(), &wheel); QVERIFY(details->isHidden());
+    page.findChild<QToolButton *>("dataGraphFit")->click(); QVERIFY(details->isHidden());
+    QCOMPARE(scroll->value(), readingPosition);
+    // An explicit node click still opens its details after dismissal.
+    view->centerOn(target->pos());
+    QTest::mouseClick(view->viewport(), Qt::LeftButton, {}, view->mapFromScene(target->pos()));
+    QTRY_VERIFY(details->isVisible());
+  }
+  void largeGraphFitKeepsZoomMonotonic() {
+    DataGraphPage page; page.resize(760, 620);
+    auto *workflow = page.findChild<DataGraphWorkflow *>(); QSignalSpy ready(workflow, &DataGraphWorkflow::ready);
+    auto *view = page.findChild<QGraphicsView *>("dataGraphView");
+    page.show(); QTRY_VERIFY(!ready.isEmpty() && view->isEnabled());
+    workflow->ready(interactionGraph(50)); QTest::qWait(50);
+    page.findChild<QToolButton *>("dataGraphFit")->click();
+    const qreal fitted = view->transform().m11(); QVERIFY(fitted > 0 && fitted < .15);
+    auto *plus = page.findChild<QToolButton *>("dataGraphZoomIn");
+    auto *minus = page.findChild<QToolButton *>("dataGraphZoomOut");
+    minus->click(); QCOMPARE(view->transform().m11(), fitted);
+    const QPoint center = view->viewport()->rect().center();
+    QWheelEvent wheel(center, view->viewport()->mapToGlobal(center), {}, QPoint(0, -120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(view->viewport(), &wheel); QCOMPARE(view->transform().m11(), fitted);
+    plus->click(); QVERIFY(std::abs(view->transform().m11() - fitted * 1.2) < 1e-9);
+    minus->click(); QVERIFY(std::abs(view->transform().m11() - fitted) < 1e-9);
+    for (int step = 0; step < 8; ++step) plus->click();
+    QVERIFY(view->transform().m11() > .15);
+    for (int step = 0; step < 12; ++step) {
+      const auto previous = view->transform().m11(); minus->click();
+      QVERIFY(view->transform().m11() <= previous);
+    }
+    QVERIFY(std::abs(view->transform().m11() - fitted) < 1e-9);
   }
   void initTestCase()
   {

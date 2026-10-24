@@ -32,7 +32,7 @@ QWidget *DataGraphPage::createGraphPanels() {
   m_scene = new QGraphicsScene(this);
   auto *canvas = new DataGraphCanvas(m_scene, surface);
   canvas->clearFocusRequested = [this] { selectNode({}, false); };
-  canvas->viewTransformChanged = [this] { rebuildGraphEdges(); selectNode(m_selected, false); };
+  canvas->viewTransformChanged = [this] { rebuildGraphEdges(); };
   m_view = canvas;
   m_view->setObjectName("dataGraphView");
   m_view->setRenderHint(QPainter::Antialiasing);

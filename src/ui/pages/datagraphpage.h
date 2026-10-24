@@ -58,6 +58,7 @@ private:
   void render(const paleo::datagraph::Graph &graph);
   void fitGraphToView();
   void rebuildGraphEdges();
+  void updateGraphHighlights();
   void createEvidenceFilters(QWidget *parent);
   void selectNode(const paleo::datagraph::Node &node, bool navigate);
   void activateNode(const paleo::datagraph::Node &node);

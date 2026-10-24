@@ -22,3 +22,10 @@ Windows MSVC + 本机既有依赖环境，构建并行不超过 8。构建 paleo
 源码门禁：layering strict、Qgs audit/spread strict、UI invariants/size/tokens strict、file budget strict、i18n、docs drift 均通过。构造函数规模冻结值 225→219，其余基线不增长。
 浅深主题的概览与选中截图已目视检查，包括属性行、节点及文件名、箭头、分类色、浮层边距、滚动区域、工具栏和缩放工具。
 未更改导入或项目创建逻辑，未把演示样本写入用户工程。
+
+## 缩放交互修复验证
+
+缩放按钮、滚轮与适应全图只更新连线几何和邻域高亮，不再重新选择节点。关闭的详情浮层保持关闭，详情滚动位置与关联列表当前项保持不变；主动点击节点仍可打开详情。
+适应全图比例低于 0.15 时，将实际适应比例保留为缩放下限；缩小不会向上跳变，放大后也能缩回全图比例。
+
+新增两项页面回归，覆盖浮层关闭、长详情阅读位置、关联选择，以及 200 节点图在低比例下的按钮和滚轮缩放方向。Windows 重新构建 paleo、tst_datagraphpage、tst_datagraph 成功，页面回归 14 passed、0 failed、0 skipped。UI tokens、UI invariants、file budget strict、i18n 与 diff 检查通过，基线不增长。

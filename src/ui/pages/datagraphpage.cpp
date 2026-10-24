@@ -420,7 +420,8 @@ void DataGraphPage::fitGraphToView() {
     m_view->fitInView(m_scene->itemsBoundingRect().adjusted(-80, -80, 80, 80), Qt::KeepAspectRatio);
     const auto scale = m_view->transform().m11();
     if (scale > 1.3) m_view->scale(1.3 / scale, 1.3 / scale);
-    rebuildGraphEdges(); selectNode(m_selected, false);
+    static_cast<DataGraphCanvas *>(m_view)->includeFitScale(m_view->transform().m11());
+    rebuildGraphEdges();
   }
 }
 void DataGraphPage::render(const Graph &graph) {
@@ -520,6 +521,7 @@ void DataGraphPage::rebuildGraphEdges() {
     item->setZValue(0);
     m_edges.append(item);
   }
+  updateGraphHighlights();
 }
 QString DataGraphPage::selectedPath() const {
   if (!m_doc || !m_doc->catalog() || m_selected.assetId.isEmpty() ||
@@ -530,23 +532,8 @@ QString DataGraphPage::selectedPath() const {
                      : m_doc->catalog()->versionById(m_selected.versionId);
   return v.id.isEmpty() ? QString() : m_doc->absolutePathForVersion(v);
 }
-void DataGraphPage::selectNode(const Node &node, bool navigate) {
-  m_selected = node;
-  m_relations->clear();
-  QHash<QString, QString> titles;
-  for (const auto &n : m_graph.nodes)
-    titles.insert(n.id, n.title);
-  for (const auto &e : m_graph.edges)
-    if (e.source == node.id || e.target == node.id) {
-      const auto other = e.source == node.id ? e.target : e.source;
-      auto *row = new QTreeWidgetItem(
-          m_relations, {e.source == node.id ? tr("流出 →") : tr("流入 ←"),
-                        e.label.isEmpty() ? tr("分组成员") : e.label,
-                        titles.value(other, other)});
-      row->setData(0, Qt::UserRole, other);
-      row->setToolTip(1, e.provenance);
-      row->setToolTip(2, other);
-    }
+void DataGraphPage::updateGraphHighlights() {
+  const auto &node = m_selected;
   for (auto it = m_items.cbegin(); it != m_items.cend(); ++it)
     it.value()->setSelected(it.key() == node.id);
   QSet<QString> neighborhood{node.id};
@@ -572,6 +559,25 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
     for (auto *label : path->childItems())
       label->setVisible(m_graph.query.mode != Mode::Knowledge || related || (node.id.isEmpty() && m_graph.edges.size() <= 20));
   }
+}
+void DataGraphPage::selectNode(const Node &node, bool navigate) {
+  m_selected = node;
+  m_relations->clear();
+  QHash<QString, QString> titles;
+  for (const auto &n : m_graph.nodes)
+    titles.insert(n.id, n.title);
+  for (const auto &e : m_graph.edges)
+    if (e.source == node.id || e.target == node.id) {
+      const auto other = e.source == node.id ? e.target : e.source;
+      auto *row = new QTreeWidgetItem(
+          m_relations, {e.source == node.id ? tr("流出 →") : tr("流入 ←"),
+                        e.label.isEmpty() ? tr("分组成员") : e.label,
+                        titles.value(other, other)});
+      row->setData(0, Qt::UserRole, other);
+      row->setToolTip(1, e.provenance);
+      row->setToolTip(2, other);
+    }
+  updateGraphHighlights();
   m_details->setHtml(nodeDetailsHtml(node));
   const bool real = !m_busy && node.kind != Kind::Missing &&
                     node.kind != Kind::Group &&

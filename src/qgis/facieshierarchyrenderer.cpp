@@ -8,6 +8,7 @@
 #include "mappingartifactwriter.h"
 #include <QUndoStack>
 #include <QJsonDocument>
+#include <QSet>
 #include <qgscolorramp.h>
 #include <qgsdatadefinedsizelegend.h>
 #include <qgscategorizedsymbolrenderer.h>
@@ -62,6 +63,21 @@ QMap<QString, QString> pinnedCodeLevels(const QgsMapLayer *layer, const QVariant
       result.insert(code.toString(), level);
   }
   return result;
+}
+QStringList pinnedCodeLiterals(const QMap<QString, QString> &pinned, const QVariantList &present,
+                               const QString &level) {
+  QStringList literals;
+  QSet<QString> seen;
+  for (const auto &code : present) {
+    if (code.isNull() || pinned.value(code.toString()) != level)
+      continue;
+    const auto literal = QgsExpression::quotedValue(code);
+    if (!seen.contains(literal)) {
+      seen.insert(literal);
+      literals << literal;
+    }
+  }
+  return literals;
 }
 QVariantList codes(QgsMapLayer *layer) {
   QVariantList result;
@@ -159,17 +175,18 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
       return entries;
     QgsCategoryList categories;
     QVariantList migrated;
+    const auto present = codes(v);
     const auto pinned = pinnedCodeLevels(
-        v, FaciesTaxonomy::upgrade(schema, &migrated) ? migrated : schema, codes(v));
+        v, FaciesTaxonomy::upgrade(schema, &migrated) ? migrated : schema, present);
     QString displayExpression = QgsExpression::quotedString(resolvedLevel);
     if (!pinned.isEmpty()) {
       QString pinExpression = QStringLiteral("CASE ");
       for (const auto &display : FaciesHierarchy::levels()) {
-        QStringList values;
-        for (auto it = pinned.cbegin(); it != pinned.cend(); ++it)
-          if (it.value() == display) values << QgsExpression::quotedString(it.key());
+        // 按字段原值（整型或文本）带类型引用比较，与下方分类键表达式同口径，
+        // 不依赖 to_string 对数值的格式化。
+        const auto values = pinnedCodeLiterals(pinned, present, display);
         if (!values.isEmpty())
-          pinExpression += QStringLiteral("WHEN to_string(\"facies_code\") IN (%1) THEN %2 ")
+          pinExpression += QStringLiteral("WHEN \"facies_code\" IN (%1) THEN %2 ")
                                .arg(values.join(", "), QgsExpression::quotedString(display));
       }
       displayExpression = pinExpression + QStringLiteral("ELSE %1 END").arg(displayExpression);

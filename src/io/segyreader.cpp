@@ -1,5 +1,6 @@
 // 层：数据
 #include "segyreader.h"
+#include "segyindexstore.h" // StoredIndex/IndexStats 完整类型（segyreader.h 仅前向声明）
 
 #include "../domain/arearules.h"
 

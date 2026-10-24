@@ -5,8 +5,14 @@
 #include <QSettings>
 #include <QStringList>
 
+#include <memory>
+
 class PaleoDockWidget;
 class QMainWindow;
+class SeismicMapLink;
+namespace seismic {
+class SgyVolume;
+}
 
 // paleomainwindow_internal — 主窗家族 TU 共用的文件域助手（方向 83 自本体
 // 匿名 namespace 收敛成内部契约头，先例：方向 65 canvas 拆分的内部头；
@@ -75,5 +81,10 @@ inline void writeRecentProjects(const QStringList &recent)
   QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
   s.setValue(QStringLiteral("recentProjects"), recent);
 }
+
+// 剖面联动换体（定义在 paleomainwindow_sections.cpp）：地震 TU 经此换体而不
+// include linkage/seismicmaplink.h（其传递 services/seismicmapping.h → io 重头）。
+void setSectionLinkVolume(SeismicMapLink *link,
+                          std::shared_ptr<const seismic::SgyVolume> volume);
 
 } // namespace paleo::mainwindow_internal

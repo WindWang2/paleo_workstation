@@ -118,6 +118,11 @@ public:
   bool hasUnpublishedEdits(const QString &id) const;
   bool checkEditingTopology(const QString &id, QString *error);
   bool saveEditingVersion(const QString &draftId, QString *error);
+  // 保存编辑版本会经 record() 同步发 productReady 触发重新上图；标记后
+  // 上面那次 show 消费标记并保持当前画布尺度（用户正在看的正是这张图）。
+  void suppressNextProductZoom() { m_suppressNextProductZoom = true; }
+  void clearSuppressedProductZoom() { m_suppressNextProductZoom = false; }
+  bool consumeSuppressedProductZoom() { const bool v = m_suppressNextProductZoom; m_suppressNextProductZoom = false; return v; }
   // 永久删除生成的图件/编辑副本（product.*/draft.* 才受理）：下架该资产
   // 全部图层声明、删 catalog 资产与受管文件、清草稿工作目录。
   // 未登记的残留图件仅移除声明和工程图层，保留所有数据文件。
@@ -403,6 +408,7 @@ private:
   QVariantMap wellRequestEntry(const QVariantMap &row, const QString &horizon) const;
   QString m_dir;
   double m_displayScale = 0;
+  bool m_suppressNextProductZoom = false;
   QVariantMap m_editEvidence; // 会话依据：冻结版本；切层位或工程即清空。
   bool m_manualEvidenceRequired = false;
   bool m_catalogSyncQueued = false;

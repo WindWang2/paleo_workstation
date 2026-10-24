@@ -333,7 +333,27 @@ private slots:
     QCOMPARE(extractSpy.count(), 1);
     QCOMPARE(extractSpy.takeFirst().at(0).toBool(), false);
   }
+  // review-fix-numerics R3-7：线号步长 >1 时吸附到实际存在的格线。
+  void xyToInlineXlineHonoursLineStep();
 };
+
+
+void TestSeismicMapping::xyToInlineXlineHonoursLineStep()
+{
+  HorizonHeader h;
+  h.gridRows = 3; h.gridCols = 3;
+  h.p1Inline = 1000; h.p1Xline = 2000; h.p1x = 0.0; h.p1y = 0.0;
+  h.p2Inline = 1000; h.p2Xline = 2004; h.p2x = 100.0; h.p2y = 0.0;
+  h.p3Inline = 1004; h.p3Xline = 2004; h.p3x = 100.0; h.p3y = 100.0;
+  h.hasP1 = h.hasP2 = h.hasP3 = true;
+  const SurveyGridGeometry g = SurveyGridGeometry::fromHorizonHeader( h );
+  QVERIFY( g.valid );
+  int inl = 0, xl = 0;
+  // 连续解 inline 1001.2 / xline 2001.2：旧式 lround 给出不存在的 1001/2001。
+  QVERIFY( g.xyToInlineXline( 30.0, 30.0, &inl, &xl ) );
+  QCOMPARE( inl, 1002 );
+  QCOMPARE( xl, 2002 );
+}
 
 QTEST_MAIN( TestSeismicMapping )
 #include "tst_seismicmapping.moc"

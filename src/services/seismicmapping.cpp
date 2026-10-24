@@ -40,6 +40,14 @@ SurveyGridGeometry SurveyGridGeometry::fromHorizonHeader( const HorizonHeader &h
   g.inlineMax = std::max( h.p1Inline, h.p3Inline );
   g.xlineMin = std::min( h.p1Xline, h.p2Xline );
   g.xlineMax = std::max( h.p1Xline, h.p2Xline );
+  // R3-7：Grid_size 给出线数；跨度能被 (线数−1) 整除且商 >1 时即为线号步长。
+  const auto deriveStep = []( int span, int count ) {
+    if ( count > 1 && span > 0 && span % ( count - 1 ) == 0 )
+      return std::max( 1, span / ( count - 1 ) );
+    return 1;
+  };
+  g.inlineStep = deriveStep( g.inlineMax - g.inlineMin, h.gridRows );
+  g.xlineStep = deriveStep( g.xlineMax - g.xlineMin, h.gridCols );
 
   const double det = g.a * g.d - g.b * g.c;
   const bool finite = std::isfinite( g.a ) && std::isfinite( g.b ) &&
@@ -92,8 +100,13 @@ bool SurveyGridGeometry::xyToInlineXline( double x, double y, int *inlineNo, int
   }
   double ci = 0.0, cx = 0.0;
   xyToInlineXlineContinuous( x, y, &ci, &cx );
-  const int inl = static_cast<int>( std::lround( ci ) );
-  const int xl = static_cast<int>( std::lround( cx ) );
+  // R3-7：按线号步长吸附到实际存在的格线（步长 1 时与旧式 lround 逐位一致）。
+  const int inl = inlineStep > 1
+      ? p1Inline + inlineStep * static_cast<int>( std::lround( ( ci - p1Inline ) / inlineStep ) )
+      : static_cast<int>( std::lround( ci ) );
+  const int xl = xlineStep > 1
+      ? p1Xline + xlineStep * static_cast<int>( std::lround( ( cx - p1Xline ) / xlineStep ) )
+      : static_cast<int>( std::lround( cx ) );
   if ( !inlineXlineInside( inl, xl ) )
   {
     // 超网明确失败，绝不夹取（§40 依赖契约：调用方拿到的是失败而非边界值）。

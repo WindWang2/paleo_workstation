@@ -47,6 +47,22 @@ public:
 };
 }
 namespace FaciesHierarchyRenderer {
+QMap<QString, QString> pinnedCodeLevels(const QgsMapLayer *layer, const QVariantList &schema,
+                                        const QVariantList &present) {
+  QMap<QString, QString> result;
+  const auto pins = FaciesHierarchy::parsePins(
+      layer ? layer->customProperty("paleo/faciesPinnedLevels").toString() : QString());
+  if (pins.isEmpty())
+    return result;
+  for (const auto &code : present) {
+    if (code.isNull() || result.contains(code.toString()))
+      continue;
+    const auto level = FaciesHierarchy::pinnedLevel(pins, FaciesCatalog::find(schema, code));
+    if (!level.isEmpty())
+      result.insert(code.toString(), level);
+  }
+  return result;
+}
 QVariantList codes(QgsMapLayer *layer) {
   QVariantList result;
   if (auto *v = qobject_cast<QgsVectorLayer *>(layer)) {
@@ -72,26 +88,36 @@ QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
   const auto present = codes(layer);
   QVariantList styled;
   for (const auto &v : effective) styled << FaciesCatalog::appearance(v.toMap());
+  // 相类固定层级（列表固定）：未被单面锁定的要素按其最近的固定祖先显示。
+  const auto pinned = pinnedCodeLevels(layer, effective, present);
+  const auto levelFor = [&](const QVariant &code) {
+    return pinned.value(code.toString(), level);
+  };
   QVariantList entries;
-  if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
-      v && v->geometryType() == Qgis::GeometryType::Polygon &&
-      v->fields().indexOf("facies_display_level") >= 0) {
-    QMap<QString, QVariantList> byLevel;
-    auto it = v->getFeatures(QgsFeatureRequest()
+  QMap<QString, QVariantList> byLevel;
+  const auto *polygon = qobject_cast<QgsVectorLayer *>(layer);
+  const bool locks = polygon && polygon->geometryType() == Qgis::GeometryType::Polygon &&
+      polygon->fields().indexOf("facies_display_level") >= 0;
+  if (locks) {
+    auto it = polygon->getFeatures(QgsFeatureRequest()
         .setFlags(Qgis::FeatureRequestFlag::NoGeometry)
-        .setSubsetOfAttributes(QStringList{"facies_code", "facies_display_level"}, v->fields()));
+        .setSubsetOfAttributes(QStringList{"facies_code", "facies_display_level"}, polygon->fields()));
     QgsFeature feature;
     while (it.nextFeature(feature)) {
       const auto locked = feature.attribute("facies_display_level").toString();
-      byLevel[FaciesHierarchy::levels().contains(locked) ? locked : level]
-          << feature.attribute("facies_code");
+      const auto code = feature.attribute("facies_code");
+      byLevel[FaciesHierarchy::levels().contains(locked) ? locked : levelFor(code)] << code;
     }
+  } else if (!pinned.isEmpty()) {
+    for (const auto &code : present) byLevel[levelFor(code)] << code;
+  }
+  if (locks || !pinned.isEmpty()) {
     for (const auto &display : FaciesHierarchy::levels())
       if (byLevel.contains(display))
         entries += FaciesHierarchy::legend(styled, display, byLevel.value(display));
     // Unknown codes share one fallback symbol, regardless of their lock value.
     bool unknown = false;
-    for (int i = entries.size() - 1; i >= 0; --i)
+    for (int i = int(entries.size()) - 1; i >= 0; --i)
       if (entries[i].toMap().value("key") == "unknown") {
         if (unknown) entries.removeAt(i);
         unknown = true;
@@ -132,13 +158,27 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
     if (!base)
       return entries;
     QgsCategoryList categories;
-    const QString displayExpression =
-        v->geometryType() == Qgis::GeometryType::Polygon &&
-                v->fields().indexOf("facies_display_level") >= 0
-            ? QStringLiteral("CASE WHEN \"facies_display_level\" IN ('facies', 'sub_facies', 'micro_facies') "
-                             "THEN \"facies_display_level\" ELSE %1 END")
-                  .arg(QgsExpression::quotedString(resolvedLevel))
-            : QgsExpression::quotedString(resolvedLevel);
+    QVariantList migrated;
+    const auto pinned = pinnedCodeLevels(
+        v, FaciesTaxonomy::upgrade(schema, &migrated) ? migrated : schema, codes(v));
+    QString displayExpression = QgsExpression::quotedString(resolvedLevel);
+    if (!pinned.isEmpty()) {
+      QString pinExpression = QStringLiteral("CASE ");
+      for (const auto &display : FaciesHierarchy::levels()) {
+        QStringList values;
+        for (auto it = pinned.cbegin(); it != pinned.cend(); ++it)
+          if (it.value() == display) values << QgsExpression::quotedString(it.key());
+        if (!values.isEmpty())
+          pinExpression += QStringLiteral("WHEN to_string(\"facies_code\") IN (%1) THEN %2 ")
+                               .arg(values.join(", "), QgsExpression::quotedString(display));
+      }
+      displayExpression = pinExpression + QStringLiteral("ELSE %1 END").arg(displayExpression);
+    }
+    if (v->geometryType() == Qgis::GeometryType::Polygon &&
+        v->fields().indexOf("facies_display_level") >= 0)
+      displayExpression =
+          QStringLiteral("CASE WHEN \"facies_display_level\" IN ('facies', 'sub_facies', 'micro_facies') "
+                         "THEN \"facies_display_level\" ELSE %1 END").arg(displayExpression);
     QString keyExpression = "CASE ", nameExpression = "CASE ";
     bool hasCodes = false;
     for (const auto &entry : entries) {

@@ -21,48 +21,66 @@
 //
 // D2.1 的教训（Publishing failed: No such file or directory）由 cachecore 的
 // writeCacheFileAtomic 兜住：mkdir -p + 重试 + 失败降级为无缓存。
+// 索引类型置于命名空间级（类内保留同名别名），使 segyreader.h 可前向声明而
+// 不 include 本头（check_layering --transitive heavy_tus）。
+struct SegyIndexIdentity
+{
+    QString canonicalPath;
+    qint64 size = -1;
+    qint64 mtimeMs = -1;
+    quint64 inode = 0; // POSIX；Windows 恒 0（size+mtime 已够）
+
+    bool matches(const SegyIndexIdentity &o) const
+    {
+      return canonicalPath == o.canonicalPath && size == o.size &&
+             mtimeMs == o.mtimeMs && inode == o.inode;
+    }
+};
+
+// 道级索引快照（与 SegyReader 内部结构一一对应；inlineNos/xlineNos/offsets
+// 平行数组，顺序 = 文件道序）。badTraceOffsets 记录损坏被跳过的道（D2.7）。
+struct SegyStoredIndex
+{
+    SegyIndexIdentity ident;
+    int samplesPerTrace = 0;
+    int sampleIntervalUs = 0;
+    qint16 formatCode = 0;
+    qint32 binLineNo = 0;
+    qint64 firstTraceOffset = 0;
+    SegyGeometry geometry;
+    std::array<int, 4> headerWordOffsets = {188, 192, 8, 20}; // 索引取字口径（v2）
+    quint8 dialectFlags = 0; // #290（v5 起真正落盘）：bit0 crossline 取 CDP，
+                             // bit1 角点取 CDP X/Y——checkpoint 续扫按同一口径
+                             // 取字；随格式版本升级让旧缓存（错误方言索引）
+                             // 整体失效重建
+    QVector<qint32> inlineNos;
+    QVector<qint32> xlineNos;
+    QVector<qint64> offsets;
+    QVector<qint64> badTraceOffsets;
+    bool complete = true;      // false = checkpoint（部分扫描）
+    qint64 scannedOffset = 0;  // 已扫到的文件偏移（complete 时 = 文件尾）
+    // 增量续扫的前缀指纹（首 64KB 哈希，十六进制；空 = 无）
+    QByteArray prefixFingerprint;
+};
+
+// ---- D2.6 索引统计（空洞报告）----
+struct SegyIndexStats
+{
+    qint64 traceCount = 0;
+    qint64 badTraces = 0;
+    qint32 inlineMin = 0, inlineMax = 0;
+    qint32 xlineMin = 0, xlineMax = 0;
+    qint64 gridCells = 0;      // bounding 网格应有道数
+    qint64 presentCells = 0;   // 实际 (inline,xline) 去重数
+    qint64 missingCells = 0;   // 空洞数
+    double densityPercent = 0.0;
+};
 class SegyIndexStore
 {
   public:
-    struct Identity
-    {
-        QString canonicalPath;
-        qint64 size = -1;
-        qint64 mtimeMs = -1;
-        quint64 inode = 0; // POSIX；Windows 恒 0（size+mtime 已够）
-
-        bool matches(const Identity &o) const
-        {
-          return canonicalPath == o.canonicalPath && size == o.size &&
-                 mtimeMs == o.mtimeMs && inode == o.inode;
-        }
-    };
-
-    // 道级索引快照（与 SegyReader 内部结构一一对应；inlineNos/xlineNos/offsets
-    // 平行数组，顺序 = 文件道序）。badTraceOffsets 记录损坏被跳过的道（D2.7）。
-    struct StoredIndex
-    {
-        Identity ident;
-        int samplesPerTrace = 0;
-        int sampleIntervalUs = 0;
-        qint16 formatCode = 0;
-        qint32 binLineNo = 0;
-        qint64 firstTraceOffset = 0;
-        SegyGeometry geometry;
-        std::array<int, 4> headerWordOffsets = {188, 192, 8, 20}; // 索引取字口径（v2）
-        quint8 dialectFlags = 0; // #290（v5 起真正落盘）：bit0 crossline 取 CDP，
-                                 // bit1 角点取 CDP X/Y——checkpoint 续扫按同一口径
-                                 // 取字；随格式版本升级让旧缓存（错误方言索引）
-                                 // 整体失效重建
-        QVector<qint32> inlineNos;
-        QVector<qint32> xlineNos;
-        QVector<qint64> offsets;
-        QVector<qint64> badTraceOffsets;
-        bool complete = true;      // false = checkpoint（部分扫描）
-        qint64 scannedOffset = 0;  // 已扫到的文件偏移（complete 时 = 文件尾）
-        // 增量续扫的前缀指纹（首 64KB 哈希，十六进制；空 = 无）
-        QByteArray prefixFingerprint;
-    };
+    using Identity = SegyIndexIdentity;
+    using StoredIndex = SegyStoredIndex;
+    using IndexStats = SegyIndexStats;
 
     explicit SegyIndexStore(QString cacheDir);
 
@@ -86,18 +104,6 @@ class SegyIndexStore
 
     QString cacheFilePathFor(const QFileInfo &source) const;
 
-    // ---- D2.6 索引统计（空洞报告）----
-    struct IndexStats
-    {
-        qint64 traceCount = 0;
-        qint64 badTraces = 0;
-        qint32 inlineMin = 0, inlineMax = 0;
-        qint32 xlineMin = 0, xlineMax = 0;
-        qint64 gridCells = 0;      // bounding 网格应有道数
-        qint64 presentCells = 0;   // 实际 (inline,xline) 去重数
-        qint64 missingCells = 0;   // 空洞数
-        double densityPercent = 0.0;
-    };
     static IndexStats computeStats(const StoredIndex &index);
 
     // 统计口径的 JSON 化（selfcheck/诊断输出用）。

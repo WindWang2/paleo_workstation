@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：剖面路径的 QGIS 地图橡皮筋描边。（tools/ui-token-exceptions.json 精确计数）。
 #include "linkage/seismicmaplink.h"
+#include "paleomainwindow_internal.h" // setSectionLinkVolume 定义
 #include "linkage/selectioncontext.h"
 #include "paleoicons.h"
 #include "paleomainwindow.h"
@@ -52,6 +53,12 @@ void wireSectionTraceLocate(SeismicMapLink *link,
           });
 }
 } // namespace
+
+void paleo::mainwindow_internal::setSectionLinkVolume(
+    SeismicMapLink *link, std::shared_ptr<const seismic::SgyVolume> volume) {
+  if (link)
+    link->setActiveVolume(std::move(volume));
+}
 
 void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   m_sectionLink = link;

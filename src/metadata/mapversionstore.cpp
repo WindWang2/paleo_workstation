@@ -3,7 +3,7 @@
 #include "mapsnapshot.h"
 #include "storeerrors_internal.h"
 #include "metastore.h"
-#include "../catalog/datacatalog.h"
+#include "managedpath.h"
 
 #include <QDateTime>
 #include <QCryptographicHash>
@@ -386,12 +386,12 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
         QUuid::createUuid().toString(QUuid::WithoutBraces));
     QJsonArray savedLayers;
     const auto freeze = [&](const QString &source, const QString &name, QJsonObject &record) {
-      const QString expected = DataCatalog::sha256FileHex(source, error);
+      const QString expected = paleo::managedpath::sha256FileHex(source, error);
       if (expected.isEmpty()) return false;
       if (!QDir().mkpath(freezeDir) ||
           !copyReadOnly(source, QDir(freezeDir).filePath(name), error)) return false;
       const QString path = QDir(freezeDir).filePath(name);
-      const QString sha = DataCatalog::sha256FileHex(path, error);
+      const QString sha = paleo::managedpath::sha256FileHex(path, error);
       if (sha.isEmpty()) return false;
       if (sha != expected) {
         setError(error, QStringLiteral("保存快照时来源文件发生变化：%1").arg(source)); return false;
@@ -601,7 +601,7 @@ QString MapVersionStore::commitPublicationPlacement(int versionId, int versionNu
     setError(error, QStringLiteral("发布快照无法原子落位：%1").arg(finalDirectory));
     return {};
   }
-  const QString manifestSha = DataCatalog::sha256FileHex(
+  const QString manifestSha = paleo::managedpath::sha256FileHex(
       QDir(stagingDirectory).filePath(QStringLiteral("evidence-snapshot.json")), error);
   if (manifestSha.size() != 64) {
     if (error && error->isEmpty()) setError(error, QStringLiteral("发布清单指纹无法读取"));
@@ -756,7 +756,7 @@ void MapVersionStore::recoverInterruptedPublications() {
       qWarning() << "MapVersionStore: publication path is outside the project" << finalDirectory;
       continue;
     }
-    const QString actualSha = DataCatalog::sha256FileHex(
+    const QString actualSha = paleo::managedpath::sha256FileHex(
         QDir(finalDirectory).filePath(QStringLiteral("evidence-snapshot.json")));
     if (expectedSha.size() != 64 || actualSha != expectedSha) {
       qWarning() << "MapVersionStore: publication manifest does not match the journal; left untouched" << opId;
@@ -876,7 +876,7 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
     setError( error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，发布被拒绝") );
     return QString();
   }
-  if ( !DataCatalog::isSafePathSegment( horizon ) )
+  if ( !paleo::managedpath::isSafePathSegment( horizon ) )
   {
     setError( error, QStringLiteral( "非法层位名称：%1" ).arg( horizon ) );
     return QString();
@@ -919,16 +919,15 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
 
   const auto copyFrozen = [&](const QJsonObject &record, const QString &name) {
     const QString relative = record.value("path").toString();
-    CatalogVersion pathRef; pathRef.managed = true; pathRef.path = relative;
-    const QString source = DataCatalog::resolvedVersionPath(projectDir, pathRef);
+    const QString source = paleo::managedpath::resolveManagedPath(projectDir, relative);
     if (source.isEmpty() || record.value("sha256").toString().size() != 64 ||
-        DataCatalog::sha256FileHex(source, error) != record.value("sha256").toString()) {
+        paleo::managedpath::sha256FileHex(source, error) != record.value("sha256").toString()) {
       setError(error, QStringLiteral("保存版本的成果快照缺失或指纹不一致：%1").arg(relative));
       return false;
     }
     const QString destination = QDir(snapDir).filePath(name);
     if (!copyReadOnly(source, destination, error)) return false;
-    if (DataCatalog::sha256FileHex(destination, error) != record.value("sha256").toString()) {
+    if (paleo::managedpath::sha256FileHex(destination, error) != record.value("sha256").toString()) {
       setError(error, QStringLiteral("发布复制期间快照内容发生变化：%1").arg(relative)); return false;
     }
     return true;
@@ -1025,7 +1024,7 @@ QString MapVersionStore::projectDirectory() const { return QFileInfo(m_dbPath).a
 MapSnapshotInput MapVersionStore::snapshotInputForSave(const QString &horizon, const QString &provenanceJson,
     const QVector<LayerDeclaration> &layers, QString *error) {
   MapSnapshotInput input;
-  if (m_readOnly || !DataCatalog::isSafePathSegment(horizon) || !mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) {
+  if (m_readOnly || !paleo::managedpath::isSafePathSegment(horizon) || !mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) {
     setError(error, QStringLiteral("地图快照保存需要可写工程和合法层位")); return input;
   }
   QJsonParseError parse;
@@ -1059,7 +1058,7 @@ MapSnapshotInput MapVersionStore::snapshotInputForPublish(const QString &horizon
     setError( error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，发布被拒绝") );
     return {};
   }
-  if ( !DataCatalog::isSafePathSegment( horizon ) )
+  if ( !paleo::managedpath::isSafePathSegment( horizon ) )
   {
     setError( error, QStringLiteral( "非法层位名称：%1" ).arg( horizon ) );
     return {};
@@ -1092,14 +1091,12 @@ MapSnapshotInput MapVersionStore::snapshotInputForPublish(const QString &horizon
     for (const auto &entry : provenance.value("saved_layers").toArray()) {
       auto record = entry.toObject().toVariantMap();
       if (record.value("missing").toBool()) { setError(error, QStringLiteral("保存版本缺少图层来源")); return {}; }
-      CatalogVersion ref; ref.managed = true; ref.path = record.value("path").toString();
-      const auto source = DataCatalog::resolvedVersionPath(input.projectDirectory, ref);
+      const auto source = paleo::managedpath::resolveManagedPath(input.projectDirectory, record.value("path").toString());
       if (source.isEmpty()) { setError(error, QStringLiteral("保存快照路径无效")); return {}; }
       record.insert("source", source); input.files << record;
     }
     auto pdf = provenance.value("saved_pdf").toObject().toVariantMap();
-    CatalogVersion ref; ref.managed = true; ref.path = pdf.value("path").toString();
-    pdf.insert("source", DataCatalog::resolvedVersionPath(input.projectDirectory, ref)); pdf.insert("pdf", true);
+    pdf.insert("source", paleo::managedpath::resolveManagedPath(input.projectDirectory, pdf.value("path").toString())); pdf.insert("pdf", true);
     input.files << pdf;
   } else {
     for (const auto &layer : decls) {

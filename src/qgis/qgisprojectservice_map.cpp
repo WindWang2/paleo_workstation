@@ -3,7 +3,7 @@
 #include "projectmapreference.h"
 #include "onlinebasemap.h"
 #include "qgiserrors_internal.h"
-#include "../services/paleomapfiles.h"
+#include "../io/paleomapfiles.h"
 #include <QDir>
 #include <QCryptographicHash>
 #include <QFile>

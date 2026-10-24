@@ -31,7 +31,6 @@
 #include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
 #include "../domain/mappinghorizons.h" // baseHorizonFor（工程打开后的层位文案）
-#include "../linkage/seismicmaplink.h"
 #include "../linkage/selectioncontext.h" // ctor 的 activeHorizonChanged 接线
 #include "../workflow/sectionworkbench.h" // m_sectionWorkbench->cancelPreviewData（resetProjectScopedState）
 #include "../qgis/qgiscanvascontroller.h"
@@ -161,7 +160,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
       if (guard->m_seismicSectionDock) {
         guard->m_seismicSectionDock->setTimeOriginMs(origin);
         if (guard->m_sectionLink)
-          guard->m_sectionLink->setActiveVolume(volume);
+          paleo::mainwindow_internal::setSectionLinkVolume(guard->m_sectionLink, volume);
         else
           guard->m_seismicSectionDock->setVolume(volume);
       }

@@ -2,7 +2,7 @@
 #include "../catalog/datacatalog.h"
 #include "../domain/faciescatalog.h"
 #include "../qgis/paleomapsource.h"
-#include "../services/paleomapfiles.h"
+#include "../io/paleomapfiles.h"
 #include "paleomapimport_internal.h"
 #include "../metadata/paleoprojectfile.h"
 #include <QCryptographicHash>

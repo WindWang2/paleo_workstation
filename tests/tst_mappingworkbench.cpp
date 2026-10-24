@@ -22,6 +22,7 @@
 #include "../src/qgis/wellattributestore.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/services/errorhub.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/edittools/vertexeditortools.h"
@@ -47,6 +48,9 @@
 #include <QSpinBox>
 #include <QPushButton>
 #include <QSettings>
+#include <QAbstractButton>
+#include <QRegularExpression>
+#include "../src/ui/workbenchcommandregistry.h"
 #include <QScopeGuard>
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -965,6 +969,105 @@ private slots:
     while (iterator.nextFeature(feature)) ids.insert(feature.id()); iterator.close();
     QVERIFY(layer->dataProvider()->deleteFeatures(ids)); layer->reload();
     QTRY_VERIFY(decorations->legendFacies().isEmpty());
+  }
+  void collapsedGroupsRememberStatePerMode() {
+    // M4：外观/来源/字段折叠组记忆展开状态（按页模式分键），重建页后恢复；
+    // 证据组不记忆（compose 默认展开）。
+    const QString key = QStringLiteral("ui/collapsedGroups/workbench/compose/appearance");
+    const QString predictKey = QStringLiteral("ui/collapsedGroups/workbench/predict/appearance");
+    const auto cleanup = qScopeGuard([&] { QSettings().remove(key); QSettings().remove(predictKey); });
+    QSettings().remove(key);
+    QSettings().remove(predictKey);
+    Fixture f;
+    QVERIFY(f.init());
+    {
+      MappingWorkbenchPage page("compose", &f.work);
+      auto *appearance = page.findChild<QgsCollapsibleGroupBox *>("workbenchAppearance");
+      QVERIFY(appearance);
+      QVERIFY(appearance->isCollapsed()); // 首次默认折叠不变
+      // QgsCollapsibleGroupBox 仅在可见时发 collapsedStateChanged：须先显示。
+      page.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&page));
+      appearance->setCollapsed(false);
+    }
+    QVERIFY(QSettings().contains(key));
+    QCOMPARE(QSettings().value(key).toBool(), false);
+    {
+      MappingWorkbenchPage page("compose", &f.work);
+      auto *appearance = page.findChild<QgsCollapsibleGroupBox *>("workbenchAppearance");
+      QVERIFY(appearance);
+      QVERIFY2(!appearance->isCollapsed(), "expanded appearance group must be remembered");
+    }
+    {
+      MappingWorkbenchPage page("predict", &f.work); // 分模式：predict 不受 compose 影响
+      auto *appearance = page.findChild<QgsCollapsibleGroupBox *>("workbenchAppearance");
+      QVERIFY(appearance);
+      QVERIFY(appearance->isCollapsed());
+    }
+  }
+  void workbenchCommandsAreExplicitlyRegistered() {
+    // H1：页面所有按钮动作必须在命令登记表内（或为页内消化动作），登记表须与
+    // 分派源码的 `action == "…"` 分支集合一致——新增按钮漏接分派会在此失败，
+    // 而非运行时伪报「操作完成」。
+    using namespace paleo::workbenchcmd;
+    Fixture f;
+    QVERIFY(f.init());
+    QSet<QString> emitted{QStringLiteral("show"), QStringLiteral("newMap"), QStringLiteral("compose"),
+                          QStringLiteral("polygonize"), QStringLiteral("copy")}; // 底图选择器 start_action
+    for (const QString mode : {QStringLiteral("predict"), QStringLiteral("constraint"), QStringLiteral("compose")}) {
+      MappingWorkbenchPage page(mode, &f.work);
+      for (auto *button : page.findChildren<QAbstractButton *>()) {
+        const auto name = button->objectName();
+        if (!name.startsWith(QLatin1String("workbench."))) continue;
+        const auto action = name.mid(int(qstrlen("workbench.")));
+        if (!pageLocalActions().contains(action)) emitted.insert(action);
+      }
+    }
+    QVERIFY(emitted.size() > 20);
+    for (const auto &action : std::as_const(emitted))
+      QVERIFY2(isKnownAction(action), qPrintable("unregistered workbench action: " + action));
+    QSet<QString> dispatched;
+    const QRegularExpression literal(QStringLiteral(R"re(action == "([A-Za-z]+)")re"));
+    for (const auto *file : {"paleomainwindow_workbench_commands.cpp", "paleomainwindow_workbench_editflow.cpp"}) {
+      QFile source(QStringLiteral(PALEO_SOURCE_DIR "/src/ui/") + QLatin1String(file));
+      QVERIFY2(source.open(QIODevice::ReadOnly), file);
+      auto it = literal.globalMatch(QString::fromUtf8(source.readAll()));
+      while (it.hasNext()) dispatched.insert(it.next().captured(1));
+    }
+    for (const auto &action : knownActions())
+      QVERIFY2(dispatched.contains(action), qPrintable("registered action without dispatch branch: " + action));
+    for (const auto &action : std::as_const(dispatched))
+      QVERIFY2(isKnownAction(action), qPrintable("dispatch branch not registered: " + action));
+  }
+  void unknownWorkbenchCommandReportsFailure() {
+    // H1：未知动作不得落到默认成功文案。
+    QObject context;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&context);
+    QgisCanvasController controller(&context);
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkbench(&f.work);
+    MappingWorkbenchPage *page = nullptr;
+    for (auto *candidate : window.findChildren<MappingWorkbenchPage *>())
+      if (candidate->mode() == "compose") page = candidate;
+    QVERIFY(page);
+    // review-fix M5：失败同步入账 ErrorHub 历史（不只是 10s 状态栏）。
+    ErrorHub *previousHub = ErrorHub::global();
+    ErrorHub hub;
+    ErrorHub::installGlobal(&hub);
+    QSignalSpy raised(&hub, &ErrorHub::errorRaised); // historyOnly 只在信号快照上
+    emit page->commandRequested(QStringLiteral("noSuchWorkbenchAction"), {});
+    ErrorHub::installGlobal(previousHub);
+    auto *message = page->findChild<QLabel *>("workbenchMessage");
+    QVERIFY(message);
+    QVERIFY2(message->text().contains(QStringLiteral("未知操作")), qPrintable(message->text()));
+    QVERIFY(!message->text().contains(QStringLiteral("操作完成")));
+    const auto entries = hub.entries();
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.first().source, QStringLiteral("workbench"));
+    QVERIFY(entries.first().text.contains(QStringLiteral("未知操作")));
+    QCOMPARE(raised.count(), 1);
+    QVERIFY(raised.first().first().value<ErrorHub::Entry>().historyOnly);
   }
   void impactCommandsAreGatedWithReasons() {
     Fixture f;
@@ -3459,6 +3562,16 @@ private slots:
     QVERIFY2(summary->text().contains(QStringLiteral("未完成")) ||
              summary->text().contains(QStringLiteral("中止")),
              qPrintable(summary->text()));
+    // 中止原因跨事件循环仍在（重绑触发的输入重建不得把它清掉）……
+    QTest::qWait(50);
+    QVERIFY2(summary->text().contains(QStringLiteral("未完成")), qPrintable(summary->text()));
+    // ……但勾选真正变化后作废。
+    inputs = page.findChild<QListWidget *>("workbenchInputs");
+    QCOMPARE(inputs->count(), 1);
+    inputs->item(0)->setCheckState(Qt::Unchecked);
+    QTRY_VERIFY(summary->text().isEmpty());
+    inputs->item(0)->setCheckState(Qt::Checked);
+    QTRY_VERIFY(check->isEnabled());
     // 放开服务后再跑通一次，证明 m_readinessId 已清干净。
     server.holdModels = false;
     check->click();

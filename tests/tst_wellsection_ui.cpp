@@ -31,6 +31,7 @@
 #include "../src/ui/wellsection/fencewidget.h"
 #include "../src/ui/wellsection/wellsectiondialogs.h"
 #include "../src/ui/wellsection/wellsectionpanel.h"
+#include "../src/ui/wellsection/wellsectionscene.h"
 
 class TestWellSectionUi : public QObject
 {
@@ -1418,6 +1419,40 @@ class TestWellSectionUi : public QObject
       shrunk.removeFirst();
       panel.setSection(shrunk);
       QCOMPARE(seisSpy.size(), 2);
+    }
+
+    // review-fix M7：版头键盘可达——StrongFocus；←/→ 选列，Ctrl+→ 移列，
+    // Delete 移除（此前 wellsection 无 keyPressEvent，键盘用户无法重排/移除）。
+    void headerKeyboardSelectMoveRemove()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.resize(1400, 600);
+      panel.setSection(wells4());
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      auto *header = panel.findChild<wellsectionui::HeaderWidget *>(
+          QStringLiteral("wellSectionHeader"));
+      QVERIFY(header);
+      QCOMPARE(header->focusPolicy(), Qt::StrongFocus);
+      const QStringList before = panel.wellIds();
+      QCOMPARE(before.size(), 4);
+      header->setFocus(Qt::TabFocusReason);
+      QTRY_VERIFY(header->hasFocus());
+      QCOMPARE(header->focusedColumn(), 0);
+      QTest::keyClick(header, Qt::Key_Right);
+      QCOMPARE(header->focusedColumn(), 1);
+      // Ctrl+→：第 1 列与第 2 列互换，焦点跟随。
+      QTest::keyClick(header, Qt::Key_Right, Qt::ControlModifier);
+      QCOMPARE(header->focusedColumn(), 2);
+      QCOMPARE(panel.wellIds(), (QStringList{before[0], before[2], before[1], before[3]}));
+      // Delete：移除焦点列（原第 1 列那口井）。
+      QTest::keyClick(header, Qt::Key_Delete);
+      QCOMPARE(panel.wellIds(), (QStringList{before[0], before[2], before[3]}));
+      QCOMPARE(header->focusedColumn(), 2);
+      // 越界方向键不动。
+      QTest::keyClick(header, Qt::Key_Right);
+      QCOMPARE(header->focusedColumn(), 2);
     }
 
     // opt-02（L/U2）：版头右键「从剖面移除」按井 id 锚定——popup 存续期间

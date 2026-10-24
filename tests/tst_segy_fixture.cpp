@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "../src/io/segyreader.h"
+#include "../src/io/segyindexstore.h" // StoredIndex/IndexStats 完整类型（segyreader.h 仅前向声明）
 
 // wave3/model-hardening — 合成最小 SEG-Y 夹具（testdata/segy/synthetic_4x5.sgy，
 // 由 tools/make_segy_fixture.py 生成，13 KB）。夹具按本工区道头约定构造：

@@ -1,6 +1,6 @@
 // 层：数据
 #include "mapsnapshot.h"
-#include "../catalog/datacatalog.h"
+#include "managedpath.h"
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -56,7 +56,7 @@ PreparedMapSnapshot prepareMapSnapshot(const MapSnapshotInput &input,
     if (input.operation == "publish" && !record.value("legacy").toBool() && expected.size() != 64) {
       out.error = QStringLiteral("保存快照的来源指纹缺失：%1").arg(source); return out;
     }
-    if (expected.size() != 64) expected = DataCatalog::sha256FileHex(source, &out.error, cancelled);
+    if (expected.size() != 64) expected = paleo::managedpath::sha256FileHex(source, &out.error, cancelled);
     if (expected.isEmpty() || stop()) {
       if (out.error.isEmpty()) out.error = QStringLiteral("来源指纹读取失败：%1").arg(source);
       return out;
@@ -79,7 +79,7 @@ PreparedMapSnapshot prepareMapSnapshot(const MapSnapshotInput &input,
       }
       if (QString::fromLatin1(digest.result().toHex()) != expected) { out.error = QStringLiteral("快照复制期间来源内容变化：%1").arg(source); return out; }
       if (!writer.commit()) { out.error = writer.errorString(); return out; }
-      const auto verified = DataCatalog::sha256FileHex(destination, &out.error, cancelled);
+      const auto verified = paleo::managedpath::sha256FileHex(destination, &out.error, cancelled);
       if (verified != expected || stop()) { if (out.error.isEmpty()) out.error = QStringLiteral("目标快照指纹不一致"); return out; }
       QFile::setPermissions(destination, QFileDevice::ReadOwner | QFileDevice::ReadUser | QFileDevice::ReadGroup | QFileDevice::ReadOther);
       const QFileInfo info(destination);
@@ -104,7 +104,7 @@ PreparedMapSnapshot prepareMapSnapshot(const MapSnapshotInput &input,
     const auto bytes = QJsonDocument::fromVariant(out.provenance).toJson(QJsonDocument::Indented);
     if (!manifest.open(QIODevice::WriteOnly) || manifest.write(bytes) != bytes.size() || !manifest.commit()) { out.error = manifest.errorString(); return out; }
     QFile::setPermissions(manifest.fileName(), QFileDevice::ReadOwner | QFileDevice::ReadUser | QFileDevice::ReadGroup | QFileDevice::ReadOther);
-    const auto manifestHash = DataCatalog::sha256FileHex(manifest.fileName(), &out.error, cancelled);
+    const auto manifestHash = paleo::managedpath::sha256FileHex(manifest.fileName(), &out.error, cancelled);
     if (manifestHash.isEmpty() || stop()) return out;
     const QFileInfo info(manifest.fileName());
     out.attestations << QVariantMap{{"path", info.absoluteFilePath()}, {"sha256", manifestHash},
@@ -129,7 +129,7 @@ bool verifyPreparedMapSnapshot(const PreparedMapSnapshot &snapshot, QString *err
     if (expected.size() != 64)
       return reject(QStringLiteral("地图快照登记项缺少 SHA-256：%1").arg(file.filePath()));
     QString hashErr;
-    const QString actual = DataCatalog::sha256FileHex(file.filePath(), &hashErr);
+    const QString actual = paleo::managedpath::sha256FileHex(file.filePath(), &hashErr);
     if (actual.isEmpty())
       return reject(hashErr.isEmpty()
                       ? QStringLiteral("地图快照指纹读取失败：%1").arg(file.filePath())

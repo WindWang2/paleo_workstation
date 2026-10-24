@@ -97,7 +97,6 @@ src/ui/maptools/paleoshapetools.h
 src/ui/maptools/shapepreview.h
 src/ui/maptools/sitingpicktool.cpp
 src/ui/maptools/sitingpicktool.h
-src/ui/pages/mappingworkbenchpage.cpp
 src/ui/paleoicons.cpp
 src/ui/paleomainwindow.cpp
 src/ui/paleomainwindow_attach.cpp

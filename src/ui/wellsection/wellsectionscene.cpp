@@ -13,7 +13,9 @@
 
 #include <QApplication>
 #include <QGraphicsScene>
+#include <QFocusEvent>
 #include <QGraphicsSceneEvent>
+#include <QKeyEvent>
 #include <QLineF>
 #include <QMenu>
 #include <QMouseEvent>
@@ -224,6 +226,9 @@ HeaderWidget::HeaderWidget(RenderState *st, QWidget *parent)
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   setMouseTracking(false);
   setAccessibleName(tr("连井剖面版头"));
+  // review-fix M7：版头可 Tab 进入，键盘可选列/移列/移除（此前仅鼠标）。
+  setFocusPolicy(Qt::StrongFocus);
+  setToolTip(tr("←/→ 选井，Ctrl+←/→ 移动井，Delete 从剖面移除，菜单键打开菜单"));
 }
 
 void HeaderWidget::relayout()
@@ -443,6 +448,108 @@ void HeaderWidget::paintEvent(QPaintEvent *)
 {
   QPainter p(this);
   paintContents(&p, m_scrollX);
+  // 焦点框只画在屏上（不进 renderImage 导出）。
+  if (hasFocus() && m_focusCol >= 0 && m_focusCol < m_st->wells.size())
+  {
+    QPen pen(PaleoTheme::tokens().primary, 2, Qt::DashLine);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+    const double l = m_st->columnLeft(m_focusCol) - m_scrollX;
+    const double r = m_st->columnRight(m_focusCol) - m_scrollX;
+    p.drawRect(QRectF(l + 1, 1, r - l - 2, height() - 2));
+  }
+}
+
+void HeaderWidget::showColumnMenu(int col, const QPoint &globalPos)
+{
+  // 菜单动作按井 id 锚定（opt-02）：非模态 popup 存续期间井集可能被
+  // 重建（catalog 去抖重灌 / 删井后序号前移）——按 id 重定位目标列，
+  // 与 GapItem 链接菜单同口径；id 已不存在则不动作（不误删别井）。
+  const QString wellId = m_st->wells.value(col).id;
+  auto *menu = new QMenu(this);
+  menu->setObjectName(QStringLiteral("wellSectionHeaderMenu"));
+  QAction *act = menu->addAction(tr("从剖面移除"));
+  connect(act, &QAction::triggered, this, [this, wellId] {
+    for (int i = 0; i < m_st->wells.size(); ++i)
+      if (m_st->wells.at(i).id == wellId)
+      {
+        emit removeRequested(i);
+        return;
+      }
+  });
+  menu->setAttribute(Qt::WA_DeleteOnClose);
+  menu->popup(globalPos);
+}
+
+void HeaderWidget::keyPressEvent(QKeyEvent *e)
+{
+  const int n = m_st->wells.size();
+  if (n <= 0)
+  {
+    QWidget::keyPressEvent(e);
+    return;
+  }
+  int c = (m_focusCol >= 0 && m_focusCol < n) ? m_focusCol : 0;
+  const bool ctrl = e->modifiers() & Qt::ControlModifier;
+  switch (e->key())
+  {
+  case Qt::Key_Left:
+  case Qt::Key_Right:
+  {
+    const int t = c + (e->key() == Qt::Key_Left ? -1 : 1);
+    if (t < 0 || t >= n)
+      break;
+    if (ctrl)
+      emit reorderRequested(c, t);
+    m_focusCol = t;
+    if (!ctrl)
+      emit wellClicked(t);
+    break;
+  }
+  case Qt::Key_Home:
+  case Qt::Key_End:
+    m_focusCol = e->key() == Qt::Key_Home ? 0 : n - 1;
+    emit wellClicked(m_focusCol);
+    break;
+  case Qt::Key_Return:
+  case Qt::Key_Enter:
+  case Qt::Key_Space:
+    m_focusCol = c;
+    emit wellClicked(c);
+    break;
+  case Qt::Key_Delete:
+  case Qt::Key_Backspace:
+    emit removeRequested(c);
+    m_focusCol = qMin(c, m_st->wells.size() - 1);
+    break;
+  case Qt::Key_Menu:
+  {
+    m_focusCol = c;
+    const double cx =
+        (m_st->columnLeft(c) + m_st->columnRight(c)) * 0.5 - m_scrollX;
+    showColumnMenu(c, mapToGlobal(QPoint(int(cx), height() / 2)));
+    break;
+  }
+  default:
+    QWidget::keyPressEvent(e);
+    return;
+  }
+  e->accept();
+  update();
+}
+
+void HeaderWidget::focusInEvent(QFocusEvent *e)
+{
+  if (m_focusCol < 0 && !m_st->wells.isEmpty())
+    m_focusCol = 0;
+  update();
+  QWidget::focusInEvent(e);
+}
+
+void HeaderWidget::focusOutEvent(QFocusEvent *e)
+{
+  update();
+  QWidget::focusOutEvent(e);
 }
 
 QString HeaderWidget::depthCaptionText() const
@@ -460,29 +567,16 @@ void HeaderWidget::mousePressEvent(QMouseEvent *e)
   if (e->button() == Qt::LeftButton)
   {
     m_pressCol = col;
+    if (col >= 0)
+      m_focusCol = col;
     m_pressPos = e->pos();
     m_dragging = false;
     m_insertAt = -1;
   }
   else if (e->button() == Qt::RightButton && col >= 0)
   {
-    // 菜单动作按井 id 锚定（opt-02）：非模态 popup 存续期间井集可能被
-    // 重建（catalog 去抖重灌 / 删井后序号前移）——按 id 重定位目标列，
-    // 与 GapItem 链接菜单同口径；id 已不存在则不动作（不误删别井）。
-    const QString wellId = m_st->wells.value(col).id;
-    auto *menu = new QMenu(this);
-    menu->setObjectName(QStringLiteral("wellSectionHeaderMenu"));
-    QAction *act = menu->addAction(tr("从剖面移除"));
-    connect(act, &QAction::triggered, this, [this, wellId] {
-      for (int i = 0; i < m_st->wells.size(); ++i)
-        if (m_st->wells.at(i).id == wellId)
-        {
-          emit removeRequested(i);
-          return;
-        }
-    });
-    menu->setAttribute(Qt::WA_DeleteOnClose);
-    menu->popup(e->globalPosition().toPoint());
+    m_focusCol = col;
+    showColumnMenu(col, e->globalPosition().toPoint());
   }
   QWidget::mousePressEvent(e);
 }

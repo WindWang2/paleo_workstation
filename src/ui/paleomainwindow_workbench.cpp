@@ -304,15 +304,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               QString error;
               if (!show(id, &error))
                 statusBar()->showMessage(error, 10000);
-            } else {
-              // 本次不上图：作废「保持尺度」标记，别殃及用户下一次显示。
-              workbench->clearSuppressedProductZoom();
-            }
-            if (h == m_selection->activeHorizon()) {
               if (workbench->versionForLayer(id).extra.value("result_scope").toString() == "current_formation")
                 wellDock->hide();
               else if (!workbench->wellPredictions(id).isEmpty())
                 openWells(id);
+            } else {
+              workbench->clearSuppressedProductZoom(); // 本次不上图：作废标记，别殃及用户下一次显示
             }
             for (auto *page : pages) {
               page->refresh();

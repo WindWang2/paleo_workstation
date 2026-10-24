@@ -55,6 +55,7 @@ private slots:
   void sheet1WellNameHeaderReadsOneTop();
   void baseMdHeaderIsNotStoredAsTopMd();
   void topDepthComesFromMdNotBaseMd();
+  void stratTableWithoutSourceCrsKeepsImporting();
 };
 
 void WellFileParserTests::sentinelVocabularyIsExact()
@@ -537,3 +538,29 @@ void WellFileParserTests::topDepthComesFromMdNotBaseMd()
 
 QTEST_GUILESS_MAIN(WellFileParserTests)
 #include "tst_wellfileparsers.moc"
+
+// 分层表带井口坐标列但源 CRS 未知时不得整表拒绝（paleo_comp_data 分层总表
+// 被「井点坐标系未知，不能转换到工程坐标系」拦死的回归）：井位以井口表为
+// 主，分层表头坐标是附带信息；井口表自身的空 CRS 硬闸（#664）不变。
+void WellFileParserTests::stratTableWithoutSourceCrsKeepsImporting()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("分层数据.csv"));
+  QVERIFY(writeCsv(path, "WELL_NAME,X,Y,TOP,MD\nA1,500000,4400000,D61,100\n"));
+  QVariantMap mapping;
+  mapping.insert(QStringLiteral("projectCrs"), QStringLiteral("EPSG:32649"));
+  const auto table = paleo::io::readWellTable(path, mapping);
+  QVERIFY2(table.error.isEmpty(), qPrintable(table.error));
+  QCOMPARE(table.type, QStringLiteral("well_stratification"));
+  QCOMPARE(table.tops.size(), 1);
+  QCOMPARE(table.tops[0].wellName, QStringLiteral("A1"));
+  QCOMPARE(table.tops[0].md, 100.0);
+
+  // 井口表没有源 CRS 时仍按 #664 拒绝（坐标是主数据）。
+  const QString headPath = dir.filePath(QStringLiteral("井口.csv"));
+  QVERIFY(writeCsv(headPath, "WELL_NAME,X,Y\nA1,500000,4400000\n"));
+  const auto head = paleo::io::readWellTable(headPath, mapping);
+  QVERIFY(!head.error.isEmpty());
+  QVERIFY(head.error.contains(QStringLiteral("井点坐标系未知")));
+}

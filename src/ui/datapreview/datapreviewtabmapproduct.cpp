@@ -5,6 +5,17 @@
 
 using namespace paleo::datapreview_detail;
 
+// 画布 CRS 钉到图层真实坐标系（addMapLayer 之前调用）：缺省局部网格是
+// Engineering CRS，会被 canOverlay 正确拒绝在线底图叠加（古地理图预览
+// 「不能加载底图」的根因）。与井位/测区/GeoJSON 相图页同纪律。
+template<typename LayerT>
+LayerT *pinPreviewCrsToLayer(PreviewMapPage *page, LayerT *layer)
+{
+  if (layer->crs().isValid())
+    page->mapCanvas()->setOverrideCrs(layer->crs());
+  return layer;
+}
+
 #include "../paleotheme.h"
 #include "../paleoicons.h"
 #include "../../catalog/datacatalog.h"
@@ -145,12 +156,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
 
     QgsRasterLayer *rawRaster = raster.release();
     rawRaster->setParent(host);
-    // 画布 CRS 钉到图层真实坐标系（addMapLayer 之前）：缺省局部网格是
-    // Engineering CRS，会叫 canOverlay 正确拒绝在线底图叠加（古地理图
-    // 预览「不能加载底图」的根因）。与井位/测区/GeoJSON 相图页同纪律。
-    if (rawRaster->crs().isValid())
-      page->mapCanvas()->setOverrideCrs(rawRaster->crs());
-    page->addMapLayer(rawRaster, title, abs);
+    page->addMapLayer(pinPreviewCrsToLayer(page, rawRaster), title, abs);
 
     // 统计面板 (D5.5)
     {
@@ -380,10 +386,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
 
     QgsVectorLayer *rawVector = vlayer.release();
     rawVector->setParent(host);
-    // 同栅格分支：画布 CRS 跟图层，别停在局部网格（Engineering）上拒绝底图。
-    if (rawVector->crs().isValid())
-      page->mapCanvas()->setOverrideCrs(rawVector->crs());
-    page->addMapLayer(rawVector, title, abs);
+    page->addMapLayer(pinPreviewCrsToLayer(page, rawVector), title, abs);
 
     // 属性表按钮
     auto *tableAction = new QAction(

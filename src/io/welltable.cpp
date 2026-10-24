@@ -213,7 +213,14 @@ WellTable readWellTable(const QString &path, const QVariantMap &mapping)
   }
   out.mapping.insert("crs", out.crs);
   if (wb.format == QLatin1String("headerless")) out.mapping.insert(QStringLiteral("headerless"), true);
-  if (!projectWellCoordinates(&out.heads, out.crs, mapping.value("projectCrs").toString(), &out.error)) return out;
+  // 分层表的表头坐标列是附带信息（井位以井口表为准，下游只用井名+层位+深度）；
+  // 源 CRS 未知时不因投影失败整表拒绝（paleo_comp_data 分层总表被
+  // 「井点坐标系未知」拦死的回归）。#664 的空 CRS 硬闸保留给井口表——
+  // 那里坐标是主数据。
+  const bool stratIncidentalHeads =
+      out.type == QLatin1String("well_stratification") && out.crs.isEmpty();
+  if (!stratIncidentalHeads &&
+      !projectWellCoordinates(&out.heads, out.crs, mapping.value("projectCrs").toString(), &out.error)) return out;
   if (out.type.isEmpty()) out.error = QStringLiteral("未识别到井名与坐标，或层位与深度列，请调整字段对应关系");
   if (out.type == QLatin1String("well_stratification")) {
     WellTable bases;

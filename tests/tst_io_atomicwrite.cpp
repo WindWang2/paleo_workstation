@@ -68,8 +68,10 @@ void TestIoAtomicWrite::diskFullIsReportedAsFailure()
   {
     QFile legacy( QStringLiteral( "/dev/full" ) );
     QVERIFY( legacy.open( QIODevice::WriteOnly ) );
-    legacy.write( QByteArray( 1 << 16, 'x' ) );
-    QVERIFY( !legacy.flush() ); // 数据确实没落下
+    const QByteArray big( 1 << 16, 'x' );
+    // 大块直写在 write() 即失败，小块在 flush() 失败——两者都必须查。
+    const bool legacyOk = legacy.write( big ) == big.size() && legacy.flush();
+    QVERIFY( !legacyOk ); // 数据确实没落下
   }
   QString err;
   QVERIFY( !paleo::writeFileAtomic( QStringLiteral( "/dev/full" ), QByteArray( 1 << 16, 'x' ), &err ) );

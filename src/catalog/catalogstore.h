@@ -99,6 +99,10 @@ class CatalogStore
     // schema 不符 → false，*error 含 "unsupported catalog schema"。
     // 坏段版本跳过（qWarning），不因此失败。
     static bool fromJson(const QJsonObject &root, Tables *out, QString *error);
+    // PW-077：结构化错误码——schemaUnsupported 置位表示「未来 schema」而非损坏，
+    // 调用方据此选恢复策略，不再匹配错误文本。
+    static bool fromJson(const QJsonObject &root, Tables *out, QString *error,
+                         bool *schemaUnsupported);
 
   private:
     bool attachWritable(QString *error);
@@ -107,7 +111,8 @@ class CatalogStore
     bool migrateFromJson(Tables *out, QString *error);
     bool openExisting(bool readOnly, Tables *out, QString *error);
     bool recover(const QString &primaryError, Tables *out, QString *error);
-    bool connectPrimary(bool readOnly, QString *error);
+    // PW-077：schemaRejected 置位 = 主库 user_version 新于本构建（不得走 .bak 恢复）。
+    bool connectPrimary(bool readOnly, QString *error, bool *schemaRejected = nullptr);
 
     bool m_recovered = false;
     QString m_recoveryReason;

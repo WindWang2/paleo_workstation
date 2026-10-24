@@ -2,21 +2,18 @@
 #include "faciespinnedlevellist.h"
 #include "../domain/facieshierarchy.h"
 #include <QComboBox>
-#include <QHash>
 #include <QHeaderView>
-#include <QLineEdit>
+#include <QLabel>
 #include <QScrollBar>
-#include <QSet>
 #include <QSignalBlocker>
+#include <QToolButton>
 #include <QTreeWidget>
-#include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
-#include <functional>
 #include <qgscollapsiblegroupbox.h>
 
 QgsCollapsibleGroupBox *FaciesPinnedLevelList::createGroup(QWidget *parent,
                                                            FaciesPinnedLevelList **out) {
-  auto *group = new QgsCollapsibleGroupBox(tr("相类显示层级锁定"), parent);
+  auto *group = new QgsCollapsibleGroupBox(tr("固定显示层级的相类"), parent);
   group->setObjectName("workbenchFaciesPins");
   group->setSaveCollapsedState(false);
   auto *layout = new QVBoxLayout(group);
@@ -27,53 +24,52 @@ QgsCollapsibleGroupBox *FaciesPinnedLevelList::createGroup(QWidget *parent,
 FaciesPinnedLevelList::FaciesPinnedLevelList(QWidget *parent) : QWidget(parent) {
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
-  m_filter = new QLineEdit(this);
-  m_filter->setObjectName("faciesPinFilter");
-  m_filter->setAccessibleName(tr("按名称筛选相类"));
-  m_filter->setPlaceholderText(tr("筛选相类…"));
-  m_filter->setClearButtonEnabled(true);
-  layout->addWidget(m_filter);
+  m_empty = new QLabel(tr("暂无固定。在地图上右键相面，选「固定显示层级」即可添加。"), this);
+  m_empty->setObjectName("faciesPinEmpty");
+  m_empty->setTextFormat(Qt::PlainText);
+  m_empty->setWordWrap(true);
+  layout->addWidget(m_empty);
   m_list = new QTreeWidget(this);
   m_list->setObjectName("faciesPinList");
-  m_list->setAccessibleName(tr("相类显示层级锁定"));
-  m_list->setColumnCount(2);
-  m_list->setHeaderLabels({tr("相类"), tr("锁定层级")});
+  m_list->setAccessibleName(tr("固定显示层级的相类"));
+  m_list->setColumnCount(3);
+  m_list->setHeaderLabels({tr("相类"), tr("固定显示为"), QString()});
+  m_list->setRootIsDecorated(false);
   m_list->setSelectionMode(QAbstractItemView::SingleSelection);
   m_list->header()->setSectionResizeMode(0, QHeaderView::Stretch);
   m_list->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-  m_list->setMinimumHeight(160);
-  m_list->setMaximumHeight(320);
+  m_list->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+  m_list->setMaximumHeight(200);
   layout->addWidget(m_list);
-  connect(m_filter, &QLineEdit::textChanged, this, &FaciesPinnedLevelList::applyFilter);
   setState({}, {}, false, QString());
-}
-QComboBox *FaciesPinnedLevelList::levelBox(QWidget *parent) const {
-  auto *box = new QComboBox(parent);
-  box->addItem(tr("自动"), "auto");
-  for (const auto &level : FaciesHierarchy::levels())
-    box->addItem(FaciesHierarchy::title(level), level);
-  return box;
 }
 void FaciesPinnedLevelList::addRow(QTreeWidgetItem *item, const QString &key, const QString &mode,
                                    bool enabled) {
   item->setData(0, Qt::UserRole, key);
-  const bool pinned = !mode.isEmpty();
-  auto font = item->font(0);
-  font.setBold(pinned);
-  item->setFont(0, font);
-  auto *level = levelBox(m_list);
+  auto *level = new QComboBox(m_list);
+  for (const auto &value : FaciesHierarchy::levels())
+    level->addItem(FaciesHierarchy::title(value), value);
   level->setObjectName("faciesPinRowLevel");
-  level->setAccessibleName(tr("%1 的锁定层级").arg(item->text(0)));
-  level->setCurrentIndex(qMax(0, level->findData(pinned ? mode : QStringLiteral("auto"))));
+  level->setAccessibleName(tr("%1 的固定显示层级").arg(item->text(0)));
+  level->setCurrentIndex(qMax(0, level->findData(mode)));
   level->setEnabled(enabled);
-  const auto current = pinned ? mode : QStringLiteral("auto");
-  // 排队投递：处理意图会刷新本列表并删除该行的下拉框，不能在其自身信号中同步删除。
-  connect(level, &QComboBox::activated, level, [this, level, key, current] {
+  // 排队投递：处理意图会刷新本列表并删除本行控件，不能在其自身信号中同步删除。
+  connect(level, &QComboBox::activated, level, [this, level, key, mode] {
     const auto chosen = level->currentData().toString();
-    if (chosen != current)
+    if (chosen != mode)
       emit pinRequested(key, chosen);
   }, Qt::QueuedConnection);
   m_list->setItemWidget(item, 1, level);
+  auto *remove = new QToolButton(m_list);
+  remove->setObjectName("faciesPinRowRemove");
+  remove->setText(tr("删除"));
+  remove->setToolTip(tr("删除此固定，恢复跟随图层显示层级"));
+  remove->setAccessibleName(tr("删除 %1 的固定").arg(item->text(0)));
+  remove->setEnabled(enabled);
+  connect(remove, &QToolButton::clicked, remove, [this, key] {
+    emit pinRequested(key, QStringLiteral("auto"));
+  }, Qt::QueuedConnection);
+  m_list->setItemWidget(item, 2, remove);
 }
 void FaciesPinnedLevelList::setState(const QVariantList &candidates, const QVariantMap &pins,
                                      bool enabled, const QString &hint) {
@@ -81,52 +77,26 @@ void FaciesPinnedLevelList::setState(const QVariantList &candidates, const QVari
   const int scroll = m_list->verticalScrollBar()->value();
   const QSignalBlocker listBlock(m_list);
   m_list->clear();
-  // pinCandidates 按路径排序，父节点（路径前缀）总在子节点之前。
-  QHash<QString, QTreeWidgetItem *> byPath;
-  QSet<QString> listed;
-  for (const auto &value : candidates) {
-    const auto node = value.toMap();
-    const auto key = node.value("key").toString();
-    const auto path = node.value("path").toString();
-    const int cut = path.lastIndexOf(QStringLiteral(" / "));
-    auto *parent = cut >= 0 ? byPath.value(path.left(cut)) : nullptr;
-    auto *item = parent ? new QTreeWidgetItem(parent) : new QTreeWidgetItem(m_list);
-    item->setText(0, cut >= 0 ? path.mid(cut + 3) : path);
-    item->setToolTip(0, tr("%1（%2）").arg(path, FaciesHierarchy::title(node.value("level").toString())));
-    byPath.insert(path, item);
-    listed.insert(key);
-    addRow(item, key, pins.value(key).toString(), enabled);
-  }
-  // 节点已不在当前分类中的固定仍列在末尾（标明），便于改回自动以移除。
+  QMap<QString, QVariantMap> nodes;
+  for (const auto &value : candidates)
+    nodes.insert(value.toMap().value("key").toString(), value.toMap());
   for (auto it = pins.cbegin(); it != pins.cend(); ++it) {
-    if (listed.contains(it.key()))
-      continue;
     auto *item = new QTreeWidgetItem(m_list);
-    item->setText(0, tr("%1（不在当前分类中）").arg(it.key()));
+    const auto node = nodes.value(it.key());
+    // 节点已不在当前分类中时仍列出（标明），便于删除陈旧固定。
+    item->setText(0, node.isEmpty() ? tr("%1（不在当前分类中）").arg(it.key())
+                                    : node.value("path").toString());
+    if (!node.isEmpty())
+      item->setToolTip(0, tr("%1（%2）").arg(node.value("path").toString(),
+                                            FaciesHierarchy::title(node.value("level").toString())));
     addRow(item, it.key(), it.value().toString(), enabled);
+    if (item->data(0, Qt::UserRole) == oldKey)
+      m_list->setCurrentItem(item);
   }
-  m_list->expandAll();
-  for (QTreeWidgetItemIterator it(m_list); *it; ++it)
-    if ((*it)->data(0, Qt::UserRole) == oldKey)
-      m_list->setCurrentItem(*it);
-  applyFilter();
   m_list->verticalScrollBar()->setValue(scroll);
-  m_filter->setEnabled(enabled);
+  m_list->setVisible(!pins.isEmpty());
+  m_empty->setVisible(pins.isEmpty());
   m_list->setEnabled(enabled);
   setToolTip(hint);
   m_list->setToolTip(hint);
-}
-void FaciesPinnedLevelList::applyFilter() {
-  const auto text = m_filter->text().trimmed();
-  // 命中项及其祖先可见；父节点命中时整棵子树可见。
-  std::function<bool(QTreeWidgetItem *, bool)> visit = [&](QTreeWidgetItem *item, bool ancestorHit) {
-    const bool hit = ancestorHit || text.isEmpty() || item->text(0).contains(text, Qt::CaseInsensitive);
-    bool any = hit;
-    for (int i = 0; i < item->childCount(); ++i)
-      any |= visit(item->child(i), hit);
-    item->setHidden(!any);
-    return any;
-  };
-  for (int i = 0; i < m_list->topLevelItemCount(); ++i)
-    visit(m_list->topLevelItem(i), false);
 }

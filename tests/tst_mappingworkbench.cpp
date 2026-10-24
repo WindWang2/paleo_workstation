@@ -985,8 +985,12 @@ private slots:
       auto *appearance = page.findChild<QgsCollapsibleGroupBox *>("workbenchAppearance");
       QVERIFY(appearance);
       QVERIFY(appearance->isCollapsed()); // 首次默认折叠不变
+      // QgsCollapsibleGroupBox 仅在可见时发 collapsedStateChanged：须先显示。
+      page.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&page));
       appearance->setCollapsed(false);
     }
+    QVERIFY(QSettings().contains(key));
     QCOMPARE(QSettings().value(key).toBool(), false);
     {
       MappingWorkbenchPage page("compose", &f.work);
@@ -1051,6 +1055,7 @@ private slots:
     ErrorHub *previousHub = ErrorHub::global();
     ErrorHub hub;
     ErrorHub::installGlobal(&hub);
+    QSignalSpy raised(&hub, &ErrorHub::errorRaised); // historyOnly 只在信号快照上
     emit page->commandRequested(QStringLiteral("noSuchWorkbenchAction"), {});
     ErrorHub::installGlobal(previousHub);
     auto *message = page->findChild<QLabel *>("workbenchMessage");
@@ -1061,7 +1066,8 @@ private slots:
     QCOMPARE(entries.size(), 1);
     QCOMPARE(entries.first().source, QStringLiteral("workbench"));
     QVERIFY(entries.first().text.contains(QStringLiteral("未知操作")));
-    QVERIFY(entries.first().historyOnly);
+    QCOMPARE(raised.count(), 1);
+    QVERIFY(raised.first().first().value<ErrorHub::Entry>().historyOnly);
   }
   void impactCommandsAreGatedWithReasons() {
     Fixture f;

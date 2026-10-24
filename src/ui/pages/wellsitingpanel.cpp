@@ -574,6 +574,12 @@ void WellSitingPanel::removeSelectedPlanned()
   if ( row < 0 || !table->item( row, 0 ) )
     return;
   const QString id = table->item( row, 0 )->data( Qt::UserRole ).toString();
+  // PW-050：破坏性操作先确认（无撤销）。
+  if ( !PaleoNotify::ask( this, tr( "删除计划井" ),
+                          tr( "删除计划井“%1”？此操作无法撤销。" ).arg( table->item( row, 0 )->text() ),
+                          PaleoNotify::AskButtons::YesNo, PaleoNotify::AskDefault::Reject,
+                          PaleoNotify::AskIcon::Warning ) )
+    return;
   QString error;
   if ( !m_wf->removePlannedWell( id, &error ) )
     PaleoNotify::warning( this, tr( "删除计划井" ), error );
@@ -747,6 +753,11 @@ void WellSitingPanel::deleteSelectedScenario()
   if ( row < 0 || !table->item( row, 0 ) )
     return;
   const QString id = table->item( row, 0 )->data( Qt::UserRole ).toString();
+  if ( !PaleoNotify::ask( this, tr( "删除方案" ),
+                          tr( "删除方案“%1”及其计划井？此操作无法撤销。" ).arg( table->item( row, 0 )->text() ),
+                          PaleoNotify::AskButtons::YesNo, PaleoNotify::AskDefault::Reject,
+                          PaleoNotify::AskIcon::Warning ) )
+    return;
   QString error;
   if ( !m_wf->deleteScenario( id, &error ) )
     PaleoNotify::warning( this, tr( "删除方案" ), error );

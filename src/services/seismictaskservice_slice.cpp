@@ -1,4 +1,5 @@
 // 层：数据
+#include "workerexceptionsink.h"
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
 #include "services/fspathutils.h"
@@ -802,17 +803,19 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
               w.join();
         }
       } joinWorkers{workers};
+      WorkerExceptionSink workerErrors; // PW-014：工作分片异常转运，不 terminate
       for (int t = 1; t < nThreads; ++t)
       {
         const int x0 = std::min(width, t * chunk);
         const int x1 = std::min(width, x0 + chunk);
         if (x0 >= x1)
           break;
-        workers.emplace_back(runRange, x0, x1);
+        workers.emplace_back(workerErrors.wrap(runRange), x0, x1);
       }
       runRange(0, std::min(width, chunk));
       for (auto &w : workers)
         w.join();
+      workerErrors.rethrowIfAny();
       if (cancelled())
         return QString();
       // R2-SF-3：终态入账（与相干分支同款）——分片计数在取消/提前退出时

@@ -46,7 +46,7 @@ using namespace paleo::pagesinternal;
 PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidget *parent)
   : QWidget(parent)
 {
-  setProperty(kLayersProp, QVariant::fromValue(static_cast<QObject *>(layers)));
+  bindTrackedProperty(this, kLayersProp, layers);
 
   auto *scroll = new QScrollArea(this);
   scroll->setObjectName(QStringLiteral("predictPageScroll"));
@@ -451,14 +451,22 @@ void PredictPage::rebuildSchemaForm()
   }
   setProperty("paleo.page.paramcarry", carried);
 
-  // 立即删除旧行（不用 deleteLater）：重建可能由级联信号触发，悬挂控件会
-  // 干扰 findChild<"param.<KEY>"> 的唯一定位。
-  auto *formLay = static_cast<QVBoxLayout *>(formArea->layout());
-  while (formLay->count() > 0)
+  // PW-117：旧行 deleteLater（发送者可能正处于自身信号中）；为保持
+  // findChild<"param.<KEY>"> 唯一定位，先摘父、清 objectName 并隐藏。
+  auto *formLay = qobject_cast<QVBoxLayout *>(formArea->layout());
+  Q_ASSERT(formLay);
+  while (formLay && formLay->count() > 0)
   {
     QLayoutItem *item = formLay->takeAt(0);
-    if (item->widget())
-      delete item->widget();
+    if (QWidget *old = item->widget())
+    {
+      old->hide();
+      old->setObjectName(QString());
+      for (QObject *child : old->findChildren<QObject *>())
+        child->setObjectName(QString());
+      old->setParent(nullptr);
+      old->deleteLater();
+    }
     delete item;
   }
 

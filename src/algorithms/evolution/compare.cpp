@@ -9,6 +9,7 @@
 #include <numbers> // std::numbers::pi——M_PI 在 MSVC <cmath> 下不定义
 #include <map>
 #include <set>
+#include <string>
 
 namespace paleo::evolution
 {
@@ -249,6 +250,19 @@ EvolutionResult compareFacies( const FaciesCoverage &earlier, const FaciesCovera
 
   const std::map<int, GeomPtr> earlierUnions = unionsByCode( handle, earlier );
   const std::map<int, GeomPtr> laterUnions = unionsByCode( handle, later );
+  const auto anyNullUnion = []( const std::map<int, GeomPtr> &unions ) {
+    for ( const auto &entry : unions )
+      if ( !entry.second )
+        return true;
+    return false;
+  };
+  if ( anyNullUnion( earlierUnions ) || anyNullUnion( laterUnions ) )
+  {
+    // PW-088：并集失败（GEOS 空指针）不得按面积 0 静默记账。
+    result.status = Status::NumericalFailure;
+    result.message = "相面片并集失败（几何拓扑异常）";
+    return result;
+  }
   if ( earlierUnions.empty() || laterUnions.empty() )
   {
     result.status = Status::InvalidInput;
@@ -284,6 +298,23 @@ EvolutionResult compareFacies( const FaciesCoverage &earlier, const FaciesCovera
       }
       GeomPtr inter = makeGeom(
           handle, GEOSIntersection_r( handle, earlierGeom.get(), laterGeom.get() ) );
+      if ( !inter )
+      {
+        // PW-088：拓扑异常（自交/近共线）时 GEOS 返回空指针——此前按面积 0
+        // 记账，重叠矩阵静默缺项。先 MakeValid 双方重试，仍失败则如实报错。
+        GeomPtr validEarlier = makeGeom( handle, GEOSMakeValid_r( handle, earlierGeom.get() ) );
+        GeomPtr validLater = makeGeom( handle, GEOSMakeValid_r( handle, laterGeom.get() ) );
+        if ( validEarlier && validLater )
+          inter = makeGeom( handle,
+                            GEOSIntersection_r( handle, validEarlier.get(), validLater.get() ) );
+      }
+      if ( !inter )
+      {
+        result.status = Status::NumericalFailure;
+        result.message = "相 " + std::to_string( earlierCode ) + " 与相 " +
+                         std::to_string( laterCode ) + " 求交失败（几何拓扑异常，MakeValid 后仍失败）";
+        return result;
+      }
       const double area = geomArea( handle, inter.get() );
       if ( area > 0 )
         overlap[{ earlierCode, laterCode }] = area;

@@ -113,6 +113,11 @@ struct Engine
   geostat::VariogramModel variogramModel;
   geostat::KrigingParams krigingParams;
   bool krigingValid = false;
+  // PW-079：全样本模式（maxPoints<=0 且无半径）下、无方向线改造度量的格子
+  // 方程组矩阵与待估点无关——构造时一次分解，逐格只回代。
+  bool krigingGlobal = false;
+  bool krigingGlobalOk = false;
+  geostat::LuWorkspace krigingGlobalLu;
 };
 
 // 变差函数参数 → geostat 模型（各向异性 ratio<1 或不设方位即各向同性）。
@@ -130,7 +135,7 @@ geostat::VariogramModel variogramModelOf( const ResolvedParameters &params )
   model.range = params.range;
   model.anisotropyRatio = params.variogramAnisotropyRatio >= 1.0 ? params.variogramAnisotropyRatio : 1.0;
   model.azimuthDeg = params.variogramAzimuthDeg >= 0.0 ? params.variogramAzimuthDeg : 0.0;
-  return model;
+  return geostat::regularizedForKriging( model ); // PW-018：高斯零块金下限
 }
 
 bool badSamples( const std::vector<Sample> &samples, std::string *message )
@@ -268,6 +273,29 @@ Engine makeEngine( const std::vector<Sample> &wells, const ResolvedParameters &p
     {
       engine.krigingIndex = geostat::detail::NeighborIndex::build( engine.krigingSamples );
       engine.krigingValid = true;
+      constexpr std::size_t kMaxGlobalFactorSamples = 4000;
+      if ( engine.krigingParams.maxPoints <= 0 && !( engine.krigingParams.searchRadius > 0 ) &&
+           engine.krigingSamples.size() <= kMaxGlobalFactorSamples )
+      {
+        engine.krigingGlobal = true;
+        const int n = static_cast<int>( engine.krigingSamples.size() );
+        const int n1 = n + 1;
+        std::vector<double> a( static_cast<std::size_t>( n1 ) * n1, 0.0 );
+        for ( int i = 0; i < n; ++i )
+        {
+          const geostat::Sample &si = engine.krigingSamples[static_cast<std::size_t>( i )];
+          for ( int j = i + 1; j < n; ++j )
+          {
+            const geostat::Sample &sj = engine.krigingSamples[static_cast<std::size_t>( j )];
+            const double gamma = engine.variogramModel.semivariance( si.x - sj.x, si.y - sj.y );
+            a[static_cast<std::size_t>( i ) * n1 + j] = gamma;
+            a[static_cast<std::size_t>( j ) * n1 + i] = gamma;
+          }
+          a[static_cast<std::size_t>( i ) * n1 + n] = 1.0;
+          a[static_cast<std::size_t>( n ) * n1 + i] = 1.0;
+        }
+        engine.krigingGlobalOk = geostat::luFactor( a, n1, engine.krigingGlobalLu );
+      }
     }
 
     for ( SoftTerm &term : engine.soft )
@@ -332,9 +360,7 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
       bool exactSampleFound = false;
       for ( const geostat::Sample &sample : engine.krigingSamples )
       {
-        const double dx = query.x - sample.x;
-        const double dy = query.y - sample.y;
-        if ( dx * dx + dy * dy <= 1e-18 )
+        if ( geostat::detail::samePoint( query.x, query.y, sample.x, sample.y ) )
         {
           values[static_cast<std::size_t>( q )] = sample.value;
           if ( krigingCells )
@@ -351,7 +377,19 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
       const int k = engine.krigingParams.maxPoints > 0
                         ? engine.krigingParams.maxPoints
                         : static_cast<int>( engine.krigingIndex.size() );
-      engine.krigingIndex.queryNearest( query.x, query.y, k, engine.krigingParams.searchRadius, &neighborhood );
+      double totalGateEarly = 0.0;
+      for ( std::size_t d = 0; d < engine.directions.size(); ++d )
+        totalGateEarly += dirGate[d][static_cast<std::size_t>( q )];
+      const bool useGlobalFactor =
+          engine.krigingGlobal && ( engine.directions.empty() || !( totalGateEarly > 0.0 ) );
+      if ( useGlobalFactor )
+      {
+        neighborhood.resize( engine.krigingSamples.size() );
+        for ( std::size_t i = 0; i < neighborhood.size(); ++i )
+          neighborhood[i] = static_cast<std::uint32_t>( i );
+      }
+      else
+        engine.krigingIndex.queryNearest( query.x, query.y, k, engine.krigingParams.searchRadius, &neighborhood );
 
       // 覆盖闸口径（krigingsurface.h：克里金侧 = 半径闸 + krigingMinPoints）。
       // DomainExtrapolation 下 resolveParameters 把 searchRadius reset 成空值
@@ -367,7 +405,7 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
       {
         const int n = static_cast<int>( neighborhood.size() );
         const int n1 = n + 1;
-        std::vector<double> a( static_cast<std::size_t>( n1 ) * n1, 0.0 );
+        std::vector<double> a( useGlobalFactor ? 0 : static_cast<std::size_t>( n1 ) * n1, 0.0 );
         std::vector<double> b( static_cast<std::size_t>( n1 ), 0.0 );
 
         // 方向引导线：局部张量场改造距离度量 (MLA)
@@ -396,7 +434,7 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
         for ( int i = 0; i < n; ++i )
         {
           const geostat::Sample &si = engine.krigingSamples[neighborhood[static_cast<std::size_t>( i )]];
-          for ( int j = i + 1; j < n; ++j )
+          for ( int j = useGlobalFactor ? n : i + 1; j < n; ++j )
           {
             const geostat::Sample &sj = engine.krigingSamples[neighborhood[static_cast<std::size_t>( j )]];
             double gamma = 0.0;
@@ -412,8 +450,11 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
             a[static_cast<std::size_t>( i ) * n1 + j] = gamma;
             a[static_cast<std::size_t>( j ) * n1 + i] = gamma;
           }
-          a[static_cast<std::size_t>( i ) * n1 + n] = 1.0;
-          a[static_cast<std::size_t>( n ) * n1 + i] = 1.0;
+          if ( !useGlobalFactor )
+          {
+            a[static_cast<std::size_t>( i ) * n1 + n] = 1.0;
+            a[static_cast<std::size_t>( n ) * n1 + i] = 1.0;
+          }
 
           // 软边界：跨界样本有效距离膨胀衰减
           const std::uint32_t sampleIdx = neighborhood[static_cast<std::size_t>( i )];
@@ -446,7 +487,16 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
         b[static_cast<std::size_t>( n )] = 1.0;
 
         std::vector<double> solution;
-        if ( !geostat::solveDenseLu( a, n1, b, solution ) )
+        bool solved = false;
+        if ( useGlobalFactor )
+        {
+          solved = engine.krigingGlobalOk;
+          if ( solved )
+            geostat::luSolve( engine.krigingGlobalLu, n1, b, solution );
+        }
+        else
+          solved = geostat::solveDenseLu( a, n1, b, solution );
+        if ( !solved )
         {
           krigingUnavailable = true;
         }
@@ -561,7 +611,13 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
     {
       std::vector<double> order = distance2;
       std::nth_element( order.begin(), order.begin() + maxPoints, order.end() );
-      const double limit = std::max( order[static_cast<std::size_t>( maxPoints )], 1e-20 );
+      double limit = std::max( order[static_cast<std::size_t>( maxPoints )], 1e-20 );
+      // PW-087：第 k 近与第 k+1 近等距（中垂线上 maxPoints=1、规则井网中心）时
+      // taper(1−d²/limit) 把入选井权重全部置 0 → NaN 格。并列时把界放到并列
+      // 距离之上，等距井分得相同（极小）权重，不再全灭。
+      const double kth = *std::max_element( order.begin(), order.begin() + maxPoints );
+      if ( kth >= limit * ( 1.0 - 1e-12 ) )
+        limit = std::max( kth, 1e-20 ) * ( 1.0 + 1e-6 );
       for ( int w = 0; w < nWell; ++w )
       {
         const double taper = std::max( 1.0 - distance2[static_cast<std::size_t>( w )] / limit, 0.0 );
@@ -587,9 +643,8 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
     int exactCount = 0;
     for ( int w = 0; w < nWell; ++w )
     {
-      const double dx = query.x - engine.wells[static_cast<std::size_t>( w )].x;
-      const double dy = query.y - engine.wells[static_cast<std::size_t>( w )].y;
-      if ( dx * dx + dy * dy <= 1e-20 )
+      if ( geostat::detail::samePoint( query.x, query.y, engine.wells[static_cast<std::size_t>( w )].x,
+                                       engine.wells[static_cast<std::size_t>( w )].y ) )
       {
         exactSum += engine.wells[static_cast<std::size_t>( w )].value;
         ++exactCount;
@@ -1002,7 +1057,7 @@ SurfaceResult evaluateLocalIdw( const PreparedInput &input, const GridSpec &grid
           const double dx = batch[i].x - sample.x;
           const double dy = batch[i].y - sample.y;
           const double d2 = dx * dx + dy * dy;
-          if ( d2 <= 1e-20 )
+          if ( geostat::detail::samePoint( batch[i].x, batch[i].y, sample.x, sample.y ) )
             exact = true;
           if ( supportR > 0.0 && d2 < supportR * supportR )
             ++near;

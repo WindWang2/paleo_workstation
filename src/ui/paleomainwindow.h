@@ -204,6 +204,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     void refreshCorrelationWells();
     void setProjectReadOnly(bool readOnly);
     bool isProjectReadOnly() const { return m_isProjectReadOnly; }
+    // PW-008: the single project-save path (read-only guard, write mutex,
+    // gpkg-first ordering, canvas extent). Returns true on success; on
+    // failure *error receives the reason. Null store falls back to
+    // m_projectStore.
+    bool saveProjectThroughStore(PaleoProjectStore *store = nullptr, QString *error = nullptr);
     // 打开工程文件（.paleo / .qgz）或工区目录（已有工程则打开，全新工区则建工程并唤起导入）。
     bool openPath(const QString &path);
 

@@ -38,8 +38,16 @@ double normalizedCorrelation(const float *w, const float *c, int n)
   }
   if (valid < 4)
     return 0.0;
-  const double denom = std::sqrt(m2ww * m2cc);
-  return denom > 1e-12 ? m2wc / denom : 0.0;
+  // PW-132：绝对阈值 1e-12 依赖振幅量纲（小振幅数据全判 0，大振幅常数窗
+  // 的舍入噪声被放大成 ±1）。改为相对各自能量判"窗内近常数"。
+  const double energyW = m2ww + valid * meanW * meanW;
+  const double energyC = m2cc + valid * meanC * meanC;
+  // float 样本的舍入噪声方差 ~ (ε_f·|x|)²：低于此即与常数不可分。
+  constexpr double kRel = double(std::numeric_limits<float>::epsilon()) *
+                          double(std::numeric_limits<float>::epsilon());
+  if (!(m2ww > kRel * energyW) || !(m2cc > kRel * energyC))
+    return 0.0;
+  return m2wc / std::sqrt(m2ww * m2cc);
 }
 
 // 窗长钳制；nSamples < 4 时原样返回（调用方以 < 4 判 Invalid，避免

@@ -1,4 +1,5 @@
 // 层：数据
+#include "boundedread.h" // PW-076
 #include "wellcompositexml.h"
 
 #include <QFile>
@@ -81,7 +82,11 @@ bool parseComprehensiveWellXml(const QString &filePath, ComprehensiveWellData &o
     if (errorMsg) *errorMsg = QStringLiteral("无法打开文件: %1").arg(filePath);
     return false;
   }
-  return parseComprehensiveWellXmlData(file.readAll(), outData, errorMsg);
+  file.close();
+  QByteArray bytes;
+  if (!paleo::io::readBoundedFile(filePath, paleo::io::kDefaultBoundedReadLimit, &bytes, errorMsg))
+    return false;
+  return parseComprehensiveWellXmlData(bytes, outData, errorMsg);
 }
 
 bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellData &outData, QString *errorMsg)
@@ -977,8 +982,11 @@ bool collectSheetRows(const QString &filePath, const QString &sheetNamePrefix,
       *errorMsg = QStringLiteral("无法打开文件: %1").arg(filePath);
     return false;
   }
-
-  QXmlStreamReader xml(file.readAll());
+  file.close();
+  QByteArray xmlBytes;
+  if (!paleo::io::readBoundedFile(filePath, paleo::io::kDefaultBoundedReadLimit, &xmlBytes, errorMsg))
+    return false;
+  QXmlStreamReader xml(xmlBytes);
   QString currentSheetName;
   QVector<QStringList> sheetRows;
   qint64 cellBudget = kMaxSheetCells; // FA-001：累计格数预算（列填充放大闸）

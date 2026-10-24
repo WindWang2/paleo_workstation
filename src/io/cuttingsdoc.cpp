@@ -586,7 +586,7 @@ CuttingsTable readCuttingsFile( const QString &path )
                         .arg( path );
       return table;
     }
-    const QString content = EncodingDetect::decodeText( file.readAll() );
+    const QString content = EncodingDetect::decodeText( file.read( LasParser::fileSizeLimit() ) ); // PW-076：有界读
     file.close();
     QStringList textIssues;
     const WorkbookSheet sheet =

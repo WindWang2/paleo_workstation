@@ -30,6 +30,15 @@ namespace EncodingDetect
   // 输入转 UTF-8）。无 BOM 原样返回。
   QByteArray stripBom(const QByteArray &raw);
 
+  // PW-016：按「文件级」嗅探结果解码一行/一段（逐行再嗅探会把恰好是合法
+  // UTF-8 的 GBK 行误解码）。剥 UTF-8 BOM；enc=Utf8 而该段非严格 UTF-8 时
+  // 回退逐段嗅探（文件头样本全 ASCII、后文才出现 GB 文本的情形）。
+  QString decodeAs(const QByteArray &bytes, TextEncoding enc);
+
+  // PW-017：是否 UTF-16（LE/BE）BOM——这类文件的字节偏移不能与转码后的
+  // UTF-8 缓冲混用。
+  bool hasUtf16Bom(const QByteArray &raw);
+
   // 工具：整段是否严格 UTF-8（无 BOM 也算）。
   bool isStrictUtf8(const QByteArray &raw);
 } // namespace EncodingDetect

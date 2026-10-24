@@ -38,6 +38,13 @@ namespace
     mixFloat(depthMin);
     mixFloat(depthMax);
     mixFloat(depthOffset);
+    h = qHash(t.hasScale(), h); // PW-103：刻度参与缓存身份
+    if (t.hasScale())
+    {
+      mixFloat(t.scaleLo());
+      mixFloat(t.scaleHi());
+      h = qHash(t.scaleLog(), h);
+    }
     h = qHash(t.color().rgba(), h);
     h = qHash(int(t.sampleCount()), h);
     const QVector<float> &depths = t.depths();
@@ -189,7 +196,8 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
       // skips render() entirely; a miss re-renders and re-stores.
       const quint64 key = trackCacheKey(t, stripW, stripH, depthMin, depthMax, depthOffset);
       QPixmap pmData;
-      const auto cit = m_cache.constFind(t.mnemonic());
+      const QString &cacheId = t.mnemonic(); // 助记符列内唯一
+      const auto cit = m_cache.constFind(cacheId);
       if (cit != m_cache.constEnd() && cit.value().key == key)
       {
         pmData = cit.value().pixmap;
@@ -200,7 +208,7 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
         const QImage img = t.render(stripW, stripH, depthMin, depthMax, depthOffset);
         if (!img.isNull())
           pmData = QPixmap::fromImage(img);
-        m_cache.insert(t.mnemonic(), CachedImage{key, img, pmData});
+        m_cache.insert(cacheId, CachedImage{key, pmData}); // PW-136：只存 pixmap，不双份
       }
 
       // Null pixmap (empty track / stub renderer): the pixmap is skipped,

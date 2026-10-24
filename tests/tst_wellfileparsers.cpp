@@ -56,7 +56,19 @@ private slots:
   void baseMdHeaderIsNotStoredAsTopMd();
   void topDepthComesFromMdNotBaseMd();
   void stratTableWithoutSourceCrsKeepsImporting();
+  void csvQuotedFieldsFollowRfc4180();
 };
+
+// PW-072：引号内逗号不切列，"" 还原为字面引号。
+void WellFileParserTests::csvQuotedFieldsFollowRfc4180()
+{
+  WellParseReport report;
+  const auto rows = parseWellHeadText("\"W,1 \"\"A\"\"\",100,200,30,1500\n", &report);
+  QCOMPARE(rows.size(), 1);
+  QCOMPARE(rows.at(0).name, QStringLiteral("W,1 \"A\""));
+  QCOMPARE(rows.at(0).x, 100.0);
+  QCOMPARE(rows.at(0).y, 200.0);
+}
 
 void WellFileParserTests::sentinelVocabularyIsExact()
 {
@@ -259,6 +271,10 @@ void WellFileParserTests::depthAliases_data()
     const QByteArray lower = QByteArray(u).toLower();
     QTest::newRow(lower.constData()) << QString::fromLatin1(lower) << 0.3048;
   }
+  // PW-029：LAS 头常见尾点写法与其它两个转换器口径统一。
+  QTest::newRow("M.") << QStringLiteral("M.") << 1.0;
+  QTest::newRow("FT.") << QStringLiteral("FT.") << 0.3048;
+  QTest::newRow("dot-only") << QStringLiteral(".") << -1.0;
   for (const char *u : {"", "UNKNOWN", "MM", "METER/SEC", "FATHOM", "FOOTS"})
     QTest::newRow(*u ? u : "empty") << QString::fromLatin1(u) << -1.0;
 }

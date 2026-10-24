@@ -520,6 +520,7 @@ private slots:
   void goldenJsonMigratesFieldForField();
   void readOnlyMissingCreatesNothing();
   void unsupportedJsonSchemaDoesNotCreateSqlite();
+  void fromJsonReportsStructuredSchemaFlag();
   void corruptJsonWithoutBackupDoesNotCreateSqlite();
   void secondOpenSnapshotsBakAndRecoverySkipsNewerCommits();
   void futureUserVersionRefusesWithoutBak();
@@ -683,6 +684,21 @@ void TestCatalogStore::readOnlyMissingCreatesNothing()
   QVERIFY2(roErr.contains(QStringLiteral("does not exist")), qPrintable(roErr));
   QVERIFY(!QFileInfo::exists(missing));
   QVERIFY(!QDir(dir.path() + QStringLiteral("/missing")).exists());
+}
+
+void TestCatalogStore::fromJsonReportsStructuredSchemaFlag()
+{
+  // PW-077：未来 schema 由结构化标志区分，与错误文本无关；损坏 JSON 不置位。
+  CatalogStore::Tables t;
+  QString err;
+  bool unsupported = false;
+  QJsonObject future;
+  future.insert(QStringLiteral("schema_version"), 999);
+  QVERIFY(!CatalogStore::fromJson(future, &t, &err, &unsupported));
+  QVERIFY(unsupported);
+  unsupported = true;
+  QVERIFY(!CatalogStore::fromJson(QJsonObject(), nullptr, &err, &unsupported));
+  QVERIFY(!unsupported);
 }
 
 void TestCatalogStore::unsupportedJsonSchemaDoesNotCreateSqlite()

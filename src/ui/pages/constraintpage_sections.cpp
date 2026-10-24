@@ -123,7 +123,7 @@ void ConstraintPage::wireWorkflowFeedback( ConstraintWorkflow *wf )
   auto *status = findChild<QLabel *>( QStringLiteral( "statusLabel" ) );
   if ( wf ) // workflow feedback lands on the status label
   {
-    setProperty( kWfProp, QVariant::fromValue( static_cast<QObject *>( wf ) ) );
+    bindTrackedProperty(this, kWfProp, wf);
     connect( wf, &ConstraintWorkflow::constraintAdded, status, [this, status]( const QString &id ) {
       status->setText( tr( "已添加约束 %1" ).arg( id ) );
       refreshConstraintList();

@@ -3,6 +3,7 @@
 #include "paleoalgorithms.h"
 #include "rasterout.h"
 
+#include <limits>
 #include <qgsprocessingoutputs.h>
 #include "gridsolver.h"
 
@@ -133,13 +134,22 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
       if ( !f.hasGeometry() || f.geometry().isEmpty() )
         continue;
       const QgsGeometry g = f.geometry();
-      const QgsPointXY p = g.isMultipart() ? g.asMultiPoint().value( 0 ) : g.asPoint();
       const QVariant zv = f.attribute( fieldIdx );
       bool ok = false;
       const double z = zv.toDouble( &ok );
       if ( !ok || !std::isfinite( z ) )
         continue; // skip non-numeric and NaN/Inf rather than poison the grid
-      samples.push_back( { p.x(), p.y(), z } );
+      // PW-129：MultiPoint 每个部件都是采样点（原先只取第一个）。
+      if ( g.isMultipart() )
+      {
+        for ( const QgsPointXY &p : g.asMultiPoint() )
+          samples.push_back( { p.x(), p.y(), z } );
+      }
+      else
+      {
+        const QgsPointXY p = g.asPoint();
+        samples.push_back( { p.x(), p.y(), z } );
+      }
     }
   }
   if ( samples.empty() )
@@ -282,13 +292,23 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
 
   // ---- write rows (NaN → nodata) + QC metadata --------------------------------
   GDALRasterBandH outBand = GDALGetRasterBand( outDs.get(), 1 );
+  // PW-040：内部始终用 NaN；写出时 -9999 若与真实结果相撞（深度/高程面可正好
+  // 取到），改用 float 最低值作 nodata，避免真实单元被读回成空。
+  float nodata = PALEO_NODATA;
+  for ( const float v : z )
+    if ( v == PALEO_NODATA )
+    {
+      nodata = std::numeric_limits<float>::lowest();
+      GDALSetRasterNoDataValue( outBand, static_cast<double>( nodata ) );
+      break;
+    }
   std::vector<float> row( dims.cols );
   for ( int r = 0; r < dims.rows; ++r )
   {
     for ( int c = 0; c < dims.cols; ++c )
     {
       const float v = z[static_cast<std::size_t>( r ) * dims.cols + c];
-      row[c] = std::isnan( v ) ? PALEO_NODATA : v;
+      row[c] = std::isnan( v ) ? nodata : v;
     }
     if ( GDALRasterIO( outBand, GF_Write, 0, r, dims.cols, 1, row.data(), dims.cols, 1,
                        GDT_Float32, 0, 0 ) != CE_None )

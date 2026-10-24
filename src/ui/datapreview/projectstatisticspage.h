@@ -7,9 +7,6 @@ class DataCatalog;
 class QGridLayout;
 class QVBoxLayout;
 class QScrollArea;
-class QgsRubberBand;
-class QgsVectorLayer;
-class PreviewMapCanvas;
 class PaleoDecorationManager;
 class ProjectStatisticsPage : public QWidget
 {
@@ -33,9 +30,7 @@ private:
   QVBoxLayout *m_content = nullptr;
   QGridLayout *m_metrics = nullptr;
   QGridLayout *m_horizons = nullptr;
-  QPointer<PreviewMapCanvas> m_mapCanvas;
-  QPointer<QgsVectorLayer> m_wellsLayer;
-  QPointer<QgsRubberBand> m_boundaryBand;
+  QPointer<QWidget> m_mapCanvas; // 看板工区地图（src/qgis/dashboardsurveymap 建，PW-004）
   QPointer<PaleoDecorationManager> m_decorations;
   QVector<QWidget *> m_metricCards, m_horizonCards;
   int m_columns = 0;

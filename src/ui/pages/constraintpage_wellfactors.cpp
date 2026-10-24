@@ -406,7 +406,16 @@ void ConstraintPage::applySuggestedContourInterval()
   const QString key = (horizons ? horizons->currentText() : QString()) + QChar(0x1f) + factor;
   // 手改过的等值距跟层位和因素走，不因键变化被清掉。没改过时下面仍用新极差建议替换默认值。
   if (property("paleo.page.contourIntervalUser").toBool())
+  {
+    // 方向04 D9：保留手改值，但 0（structural 专用「自动」态）带到非 structural
+    // 因素上会被服务层拒绝——只把这个非法残留复位成正默认值。
+    if (spin->value() == 0.0 && !checkedFactorIsStructural())
+    {
+      QSignalBlocker block(spin);
+      spin->setValue(20.0);
+    }
     return;
+  }
   // D-13（full-audit-20261020）：井点行归属守卫。换勾瞬间勾选互斥 handler 先于
   // 清表 handler 执行，表内仍是上一因子的提取行——workflow 在场时行内容必须
   // 归属当前（层位, 因子）才参与建议；不归属 → count 视 0（走既有 step<=0

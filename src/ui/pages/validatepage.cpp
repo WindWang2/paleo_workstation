@@ -76,7 +76,7 @@ namespace
 ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   : QWidget(parent)
 {
-  setProperty(kWfProp, QVariant::fromValue(static_cast<QObject *>(wf)));
+  bindTrackedProperty(this, kWfProp, wf);
 
   auto *scroll = new QScrollArea(this);
   scroll->setObjectName(QStringLiteral("validatePageScroll"));

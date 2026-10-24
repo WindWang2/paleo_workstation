@@ -642,7 +642,9 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
     QStringList plannedInputs;
     for (const auto &inputValue : entry.value("inputs").toList())
       plannedInputs << inputValue.toMap().value("current_version").toString();
-    plannedInputs.sort();
+    // PW-145：输入顺序决定综合优先级（ordered_inputs）——按序比较，不排序；
+    // 计划参数也必须与成果存档的算法参数一致，否则不是「同一计划」。
+    const QVariantMap plannedParams = entry.value("parameters").toMap();
     QString alreadyDone;
     for (const auto &cv : m_catalog->versions()) {
       if (cv.extra.value("kind").toString() != QLatin1String("composed_facies"))
@@ -655,8 +657,19 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
       QStringList actual;
       for (const auto &inputValue : cv.extra.value("ordered_inputs").toList())
         actual << inputValue.toMap().value("version_id").toString();
-      actual.sort();
-      if (actual == plannedInputs)
+      if (actual != plannedInputs)
+        continue;
+      const QVariantMap stored = cv.extra.value("algorithm_parameters").toMap();
+      bool sameParams = true;
+      for (auto it = plannedParams.cbegin(); it != plannedParams.cend(); ++it) {
+        if (it.key() == QLatin1String("recompute"))
+          continue;
+        if (stored.value(it.key()) != it.value()) {
+          sameParams = false;
+          break;
+        }
+      }
+      if (sameParams)
         alreadyDone = cv.id;
     }
     if (!alreadyDone.isEmpty()) {

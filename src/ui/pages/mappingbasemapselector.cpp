@@ -68,7 +68,16 @@ void MappingBaseMapSelector::issue(bool start) {
   const auto action = start ? row.value("start_action").toString() : QString("show"); if (action.isEmpty()) return;
   QVariantMap params{{"horizon", m_horizon}, {"layer", row.value("id")}, {"inputs", QStringList{row.value("id").toString()}}};
   if (action == "copy") params["inputs"] = QStringList{};
-  if (action == "compose") { QVariantList values; for (const auto &p : m_thresholds->text().split(QRegularExpression("[,，;；\\s]+"), Qt::SkipEmptyParts)) values << p.toDouble(); params.insert("thresholds", values); }
+  if (action == "compose") {
+    // PW-047：非法阈值（如 "1,5"→拆分后正常；"abc"）不再静默当 0。
+    QVariantList values;
+    for (const auto &p : m_thresholds->text().split(QRegularExpression("[,，;；\\s]+"), Qt::SkipEmptyParts)) {
+      bool ok = false; const double v = p.toDouble(&ok);
+      if (!ok || !std::isfinite(v)) { m_hint->setText(tr("阈值“%1”不是有效数字，请修正后重试。").arg(p)); return; }
+      values << v;
+    }
+    params.insert("thresholds", values);
+  }
   emit commandRequested(action, params);
 }
 void MappingWorkbenchPage::buildBaseMapStep(QWidget *body, QVBoxLayout *layout) {

@@ -18,6 +18,8 @@
 #include <QtNumeric>
 #include <algorithm>
 #include <cmath>
+
+#include "ui/common/curvescale.h"
 #include <numeric>
 
 namespace wellsectionui {
@@ -26,18 +28,8 @@ namespace {
 // 曲线值 → 道内 x 归一 [0,1]（logScale 取 log10）。
 double curveNorm(const wellsection::CurveStyle &c, double v)
 {
-  double lo = c.min, hi = c.max;
-  if (c.logScale)
-  {
-    if (v <= 0 || lo <= 0 || hi <= 0)
-      return qQNaN();
-    lo = std::log10(lo);
-    hi = std::log10(hi);
-    v = std::log10(v);
-  }
-  if (hi <= lo)
-    return qQNaN();
-  return (v - lo) / (hi - lo);
+  // PW-021：反向刻度（min > max）按负跨度翻转，不再整条返回 NaN。
+  return paleo::curvescale::normalise(v, c.min, c.max, c.logScale);
 }
 
 // 岩性纹色：浅色底上用 frame 画纹，否则同色加深。

@@ -9,6 +9,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QDebug>
+#include <QJsonParseError>
 #include <QFutureWatcher>
 #include <QHash>
 #include <QJsonDocument>
@@ -97,8 +99,8 @@ void SectionWorkbench::cancelPreviewData() {
   if (m_previewStop) m_previewStop->store(true);
 }
 QString SectionWorkbench::projectDir() const {
-  return m_catalog ? QDir::cleanPath(m_catalog->catalogPath() + "/../../..")
-                   : QString();
+  // PW-035：工程目录取 catalog 自报的根，不按 catalog.json 的目录深度倒推。
+  return m_catalog ? m_catalog->projectDir() : QString();
 }
 void SectionWorkbench::syncProject() {
   const auto path = m_catalog ? m_catalog->catalogPath() : QString();
@@ -107,16 +109,28 @@ void SectionWorkbench::syncProject() {
     m_logs.clear();
     m_parentVersion.clear();
     m_catalogPath = path;
+    m_calibrationLoadError.clear();
     QFile stored(QDir(projectDir()).filePath("artifacts/metadata/well_time_depth_alignment.json"));
-    if (!path.isEmpty() && stored.open(QIODevice::ReadOnly))
-      m_calibrations = QJsonDocument::fromJson(stored.readAll()).toVariant().toMap();
+    if (!path.isEmpty() && stored.open(QIODevice::ReadOnly)) {
+      // PW-035：坏 JSON 不静默当作「无标定」——如实记录，时深结果标为默认口径。
+      QJsonParseError pe;
+      const QJsonDocument doc = QJsonDocument::fromJson(stored.readAll(), &pe);
+      if (pe.error != QJsonParseError::NoError || !doc.isObject()) {
+        m_calibrationLoadError = tr("时深标定文件损坏（%1）：%2，已回退默认 2500 m/s")
+                                     .arg(pe.errorString(), stored.fileName());
+        qWarning().noquote() << m_calibrationLoadError;
+      } else {
+        m_calibrations = doc.toVariant().toMap();
+      }
+    }
   }
   m_data.setCatalog(m_catalog, projectDir());
 }
 QVariantMap SectionWorkbench::calibration(const QString &id) const {
   auto c = m_calibrations.value(id).toMap();
   if (c.isEmpty())
-    c = {{"constant", false}, {"velocity", 2500.0}, {"shift", 0.0}};
+    c = {{"constant", false}, {"velocity", 2500.0}, {"shift", 0.0},
+         {"defaulted", true}}; // PW-035：调用方可如实标注默认标定
   return c;
 }
 seismic::TimeDepthModel SectionWorkbench::modelFor(const QString &id, bool md,

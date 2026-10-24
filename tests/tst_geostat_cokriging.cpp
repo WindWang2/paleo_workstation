@@ -108,6 +108,7 @@ class CoKrigingTests : public QObject
 {
   Q_OBJECT
   private slots:
+    void covariateScaleInvariantAfterRescale();
     void rejectsInvalidInputs();
     void interpolatesPrimarySamplesExactly();
     void secondaryImprovesReconstruction();
@@ -510,6 +511,45 @@ void CoKrigingTests::overloadPairSharesOneScanPath()
   const CoKrigingResult polled =
       ordinaryCoKriging( primary, secondary, grid, model, coParams, ctl );
   QCOMPARE( polled.status, Status::Cancelled );
+}
+
+void CoKrigingTests::covariateScaleInvariantAfterRescale()
+{
+  // PW-019：协变量 ×1000 时估值不应随单位缩放（修复前 255 vs 20.78）。
+  auto f = []( double x, double y ) { return std::sin( x / 400 ) + std::cos( y / 300 ); };
+  const double px[][2] = { { 100, 100 }, { 900, 200 }, { 500, 800 }, { 200, 700 }, { 800, 900 } };
+  double estimates[2] = { 0, 0 };
+  int slot = 0;
+  for ( double scale : { 1.0, 1000.0 } )
+  {
+    std::vector<Sample> primary, secondary;
+    std::vector<double> c1, c2;
+    for ( const auto &q : px )
+    {
+      primary.push_back( { q[0], q[1], 20 + f( q[0], q[1] ) } );
+      c1.push_back( 20 + f( q[0], q[1] ) );
+      c2.push_back( scale * f( q[0], q[1] ) );
+    }
+    for ( int i = 0; i <= 10; ++i )
+      for ( int j = 0; j <= 10; ++j )
+        secondary.push_back( { i * 100.0, j * 100.0, scale * f( i * 100.0, j * 100.0 ) } );
+    bool ok = false;
+    const std::vector<Sample> rescaled = rescaleSecondaryToPrimary( secondary, c1, c2, &ok );
+    QVERIFY( ok );
+    CoKrigingModel model;
+    model.primary.sill = 1;
+    model.primary.range = 600;
+    model.secondary = model.primary;
+    model.crossCorrelation = 0.9;
+    const CoKrigingSolver solver( primary, rescaled, model, CoKrigingParams{} );
+    const CoKrigingPointResult r = solver.solveAt( 500, 400 );
+    QVERIFY( r.ok );
+    estimates[slot++] = r.estimate;
+  }
+  QVERIFY2( std::fabs( estimates[0] - estimates[1] ) < 1e-6,
+            qPrintable( QStringLiteral( "%1 vs %2" ).arg( estimates[0] ).arg( estimates[1] ) ) );
+  QVERIFY( std::fabs( estimates[0] - 21.18 ) < 1.0 );
+
 }
 
 QTEST_MAIN( CoKrigingTests )

@@ -4,6 +4,7 @@
 // 注：D2.1 纹理缓存键的内容指纹来自 seismicsectioncanvas_internal.h（键在主体
 // TU 的 setSectionData 与本 TU 的 rebuildImage 两处组装，语义注释随指纹走）。
 // token 例外：DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。（tools/ui-token-exceptions.json 精确计数）。
+#include <QPainterPath>
 #include "ui/seismicsection/seismicsectioncanvas.h"
 #include "../seismic3d/seismic3d_internal.h"
 #include "ui/seismicsection/seismicsectioncanvas_internal.h"
@@ -31,14 +32,11 @@ void SeismicSectionCanvas::rebuildImage() {
     m_lodStride = 0; // 数据变了，LOD 缓存失效
 
     // D2.1 纹理缓存入列（LRU ≤4；键在 setSectionData 中计算过——此处重建键）
-    const qint64 key = SliceFingerprint(m_slice) ^ (qint64(m_gain * 100.0) << 8) ^
-                       (qint64(m_contrast * 100.0) << 20) ^
-                       (qint64(static_cast<int>(m_colorMap)) << 36) ^
-                       (qint64(m_cmapInverted ? 1 : 0) << 40) ^
-                       (qint64(int(m_threshold * 100)) << 41) ^
-                       (qint64(m_polarityInverted ? 1 : 0) << 49) ^
-                       (qint64(m_agcEnabled ? m_agcWindowMs : 0) << 50) ^
-                       GainCurveFingerprint(m_gainCurve);
+    const qint64 key = TextureCacheKey(m_slice, m_traces, m_samples, m_t0Ms, m_dtMs, m_gain,
+                                       m_contrast, static_cast<int>(m_colorMap), m_cmapInverted,
+                                       m_threshold, m_polarityInverted,
+                                       m_agcEnabled ? m_agcWindowMs : 0,
+                                       GainCurveFingerprint(m_gainCurve)); // PW-096
     for (auto it = m_textureCache.begin(); it != m_textureCache.end();) {
         it = (it->key == key) ? m_textureCache.erase(it) : it + 1;
     }
@@ -276,18 +274,37 @@ void SeismicSectionCanvas::paintValueRegion(int x0, int y0, int w, int h) {
     }
 }
 
-// D2.6 LOD 抽稀：zoomY<1（多样本/像素）时按步长取带内最大绝对值（保幅保事件）
+// D2.6 LOD 抽稀：zoom<1（多样本/道 每像素）时按步长取块内最大绝对值（保幅保事件）。
+// PW-095：X/Y 双向抽稀（长测线缩小时不再整幅缩放全分辨率图）；步长量化到
+// 2 的幂——滚轮每档不再触发整幅重建，只在跨 2× 边界时重算。
+namespace {
+int quantizedStride(double zoom) {
+    const int raw = std::clamp(int(1.0 / std::max(1e-6, zoom)), 1, 64);
+    int s = 1;
+    while (s * 2 <= raw)
+        s *= 2;
+    return s;
+}
+} // namespace
+
+bool SeismicSectionCanvas::needsLod() const {
+    return quantizedStride(m_zoomX) > 1 || quantizedStride(m_zoomY) > 1;
+}
+
 const QImage &SeismicSectionCanvas::lodImage() const {
-    const int stride = std::clamp(int(1.0 / std::max(1e-6, m_zoomY)), 1, 64);
-    if (stride <= 1) {
+    const int strideX = quantizedStride(m_zoomX);
+    const int strideY = quantizedStride(m_zoomY);
+    if (strideX <= 1 && strideY <= 1) {
         m_lodStride = 0;
         return m_cachedImage;
     }
-    if (m_lodStride == stride && !m_lodCache.isNull())
+    const int key = strideX * 1000 + strideY;
+    if (m_lodStride == key && !m_lodCache.isNull())
         return m_lodCache;
 
-    const int outRows = (m_samples + stride - 1) / stride;
-    m_lodCache = QImage(m_traces, outRows, QImage::Format_ARGB32_Premultiplied);
+    const int outRows = (m_samples + strideY - 1) / strideY;
+    const int outCols = (m_traces + strideX - 1) / strideX;
+    m_lodCache = QImage(outCols, outRows, QImage::Format_ARGB32_Premultiplied);
     const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
     const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;
     // #286：同 paintValueRegion——显示缓冲失配时直通原始值，防越界读
@@ -295,35 +312,38 @@ const QImage &SeismicSectionCanvas::lodImage() const {
         static_cast<std::size_t>(m_traces) * static_cast<std::size_t>(m_samples);
     for (int r = 0; r < outRows; ++r) {
         auto *scan = reinterpret_cast<QRgb *>(m_lodCache.scanLine(r));
-        const int yBegin = r * stride;
-        const int yEnd = std::min(m_samples, yBegin + stride);
-        for (int x = 0; x < m_traces; ++x) {
+        const int yBegin = r * strideY;
+        const int yEnd = std::min(m_samples, yBegin + strideY);
+        for (int c = 0; c < outCols; ++c) {
+            const int xBegin = c * strideX;
+            const int xEnd = std::min(m_traces, xBegin + strideX);
             float best = std::numeric_limits<float>::quiet_NaN();
             float bestAbs = -1.0f;
             for (int y = yBegin; y < yEnd; ++y) {
-                const float raw = hasDisplay
-                    ? m_displayValues[static_cast<std::size_t>(y) * m_traces + x]
-                    : m_slice.values[static_cast<std::size_t>(y) * m_traces + x];
-                if (!std::isfinite(raw))
-                    continue;
-                const float a = std::abs(raw);
-                if (a > bestAbs) {
-                    bestAbs = a;
-                    best = raw;
+                const std::size_t row = static_cast<std::size_t>(y) * m_traces;
+                for (int x = xBegin; x < xEnd; ++x) {
+                    const float raw = hasDisplay ? m_displayValues[row + x] : m_slice.values[row + x];
+                    if (!std::isfinite(raw))
+                        continue;
+                    const float a = std::abs(raw);
+                    if (a > bestAbs) {
+                        bestAbs = a;
+                        best = raw;
+                    }
                 }
             }
             if (!std::isfinite(best)) {
-                scan[x] = qRgba(48, 49, 49, 255);
+                scan[c] = qRgba(48, 49, 49, 255);
                 continue;
             }
             float val = std::clamp(best * baseScale * m_gain * m_contrast, -1.0f, 1.0f);
             if (m_threshold > 0.0f && std::abs(val) < m_threshold)
                 val = 0.0f;
-            scan[x] = m_colorLut[static_cast<std::size_t>(
+            scan[c] = m_colorLut[static_cast<std::size_t>(
                 std::clamp(int((val + 1.0f) * 127.5f), 0, 255))];
         }
     }
-    m_lodStride = stride;
+    m_lodStride = key;
     return m_lodCache;
 }
 
@@ -372,42 +392,70 @@ void SeismicSectionCanvas::paintWiggleOverlay(QPainter &p, const QRect &vp, doub
         if (cx < vp.left() - halfW - 8 || cx > vp.right() + halfW + 8)
             continue;
 
-        QPolygonF wave;
-        QPolygonF fill;
-        bool fillOpen = false;
+        // PW-097：每个正半周瓣独立成多边形，在中线封口——道尾/可视窗尾/NaN
+        // 缺口处也封口，不再由 drawPolygon 自动回连首瓣起点画出伪三角，
+        // 也不跨缺口桥接；波形线同样在 NaN 处断笔。
+        QVector<QPolygonF> waves(1);
+        QPainterPath fill;
+        QPolygonF lobe;
+        double lastPy = 0.0;
+        const auto closeLobe = [&] {
+            if (lobe.size() >= 2) {
+                lobe.append(QPointF(cx, lastPy));
+                fill.addPolygon(lobe);
+                fill.closeSubpath();
+            }
+            lobe.clear();
+        };
+        const auto breakWave = [&] {
+            closeLobe();
+            if (!waves.last().isEmpty())
+                waves.append(QPolygonF());
+        };
         for (int y = yBegin; y <= yEnd; y += step) {
             const float raw = displayValue(t, y);
-            if (!std::isfinite(raw))
+            if (!std::isfinite(raw)) {
+                breakWave();
                 continue;
+            }
             const double py = timeToPixelY(m_t0Ms + static_cast<double>(y) * m_dtMs);
-            if (py < vp.top() - 10 || py > vp.bottom() + 10)
+            if (py < vp.top() - 10 || py > vp.bottom() + 10) {
+                breakWave();
                 continue;
+            }
             const double amp = std::clamp(static_cast<double>(raw) * baseScale * m_gain * m_contrast, -1.0, 1.0);
             const double px = cx + amp * halfW;
-            wave.append(QPointF(px, py));
+            waves.last().append(QPointF(px, py));
             if (amp > 0.0) {
-                if (!fillOpen) {
-                    fill.append(QPointF(cx, py)); // 从中线起笔
-                    fillOpen = true;
-                }
-                fill.append(QPointF(px, py));
-            } else if (fillOpen) {
-                fill.append(QPointF(cx, py)); // 回到中线封口
-                fillOpen = false;
+                if (lobe.isEmpty())
+                    lobe.append(QPointF(cx, py)); // 从中线起笔
+                lobe.append(QPointF(px, py));
+            } else if (!lobe.isEmpty()) {
+                lobe.append(QPointF(cx, py)); // 回到中线封口
+                fill.addPolygon(lobe);
+                fill.closeSubpath();
+                lobe.clear();
             }
+            lastPy = py;
         }
-        if (wave.size() >= 2) {
+        closeLobe(); // 道尾/窗尾仍在正瓣内：中线封口
+        int wavePts = 0;
+        for (const QPolygonF &w : waves)
+            wavePts = std::max(wavePts, int(w.size()));
+        if (wavePts >= 2) {
             // 中线（道位置参考线）
             p.setPen(QPen(QColor(223, 229, 236), 1.0));
             p.drawLine(QPointF(cx, vp.top()), QPointF(cx, vp.bottom()));
-            if (fill.size() >= 3) {
+            if (!fill.isEmpty()) {
                 p.setPen(Qt::NoPen);
                 p.setBrush(fillBrush);
-                p.drawPolygon(fill);
+                p.drawPath(fill);
             }
             p.setPen(wavePen);
             p.setBrush(Qt::NoBrush);
-            p.drawPolyline(wave);
+            for (const QPolygonF &w : waves)
+                if (w.size() >= 2)
+                    p.drawPolyline(w);
         }
     }
     p.restore();

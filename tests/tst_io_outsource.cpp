@@ -50,6 +50,7 @@ class OutsourceWorkbookTests : public QObject
     void rejectsCellFillAmplification();
     void rejectsMultiSheetXlsxAmplification();
     void rejectsOversizeSpreadsheetMl();
+    void xlsxDateStyledSerialsBecomeIsoDates();
     void scansDirectoryHonestly();
     void canonicalizesWellNamesAndNumbers();
     void registersFormatsInClassifierVocabulary();
@@ -272,6 +273,57 @@ void OutsourceWorkbookTests::rejectsMultiSheetXlsxAmplification()
   QVERIFY2( result.error.contains( QStringLiteral( "整簿拒收" ) ), qPrintable( result.error ) );
 }
 
+// PW-141：数值格若样式 numFmtId 为日期（内置 14 或自定义含 y/m/d 码），读出
+// ISO 日期而非 Excel 序列号；普通数值格不受影响；1904 日期系生效。
+void OutsourceWorkbookTests::xlsxDateStyledSerialsBecomeIsoDates()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const auto build = [&]( const QString &name, bool date1904 ) {
+    const QString path = dir.filePath( name );
+    const QByteArray workbook = QByteArray( "<?xml version=\"1.0\"?><workbook"
+        " xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">" ) +
+        ( date1904 ? QByteArray( "<workbookPr date1904=\"1\"/>" ) : QByteArray() ) +
+        QByteArray( "<sheets><sheet name=\"D\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>" );
+    const QByteArray rels = "<?xml version=\"1.0\"?><Relationships><Relationship Id=\"rId1\""
+        " Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\""
+        " Target=\"worksheets/sheet1.xml\"/></Relationships>";
+    const QByteArray styles = "<?xml version=\"1.0\"?><styleSheet><numFmts count=\"1\">"
+        "<numFmt numFmtId=\"164\" formatCode=\"yyyy/mm/dd\"/></numFmts>"
+        "<cellXfs count=\"3\"><xf numFmtId=\"0\"/><xf numFmtId=\"14\"/><xf numFmtId=\"164\"/></cellXfs>"
+        "</styleSheet>";
+    const QByteArray sheet = "<?xml version=\"1.0\"?><worksheet><sheetData>"
+        "<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>Well</t></is></c>"
+        "<c r=\"B1\" t=\"inlineStr\"><is><t>Date</t></is></c>"
+        "<c r=\"C1\" t=\"inlineStr\"><is><t>Custom</t></is></c>"
+        "<c r=\"D1\" t=\"inlineStr\"><is><t>Depth</t></is></c></row>"
+        "<row r=\"2\"><c r=\"A2\" t=\"inlineStr\"><is><t>W1</t></is></c>"
+        "<c r=\"B2\" s=\"1\"><v>45306</v></c><c r=\"C2\" s=\"2\"><v>45306.5</v></c>"
+        "<c r=\"D2\" s=\"0\"><v>45306</v></c></row></sheetData></worksheet>";
+    QVector<paleo::io::ZipWriteEntry> entries;
+    entries << paleo::io::ZipWriteEntry{ QStringLiteral( "xl/workbook.xml" ), workbook }
+            << paleo::io::ZipWriteEntry{ QStringLiteral( "xl/_rels/workbook.xml.rels" ), rels }
+            << paleo::io::ZipWriteEntry{ QStringLiteral( "xl/styles.xml" ), styles }
+            << paleo::io::ZipWriteEntry{ QStringLiteral( "xl/worksheets/sheet1.xml" ), sheet };
+    QString zipError;
+    if ( !paleo::io::zipWriteArchive( path, entries, {}, &zipError ) )
+      qWarning() << zipError;
+    return readWorkbook( path );
+  };
+  const WorkbookReadResult r = build( QStringLiteral( "dates.xlsx" ), false );
+  QVERIFY2( r.ok, qPrintable( r.error ) );
+  QCOMPARE( r.sheets.size(), 1 );
+  QCOMPARE( r.sheets.at( 0 ).rows.size(), 1 );
+  const QStringList row = r.sheets.at( 0 ).rows.at( 0 );
+  QCOMPARE( row.at( 1 ), QStringLiteral( "2024-01-15" ) );
+  QCOMPARE( row.at( 2 ), QStringLiteral( "2024-01-15 12:00:00" ) );
+  QCOMPARE( row.at( 3 ), QStringLiteral( "45306" ) );
+
+  const WorkbookReadResult r1904 = build( QStringLiteral( "dates1904.xlsx" ), true );
+  QVERIFY2( r1904.ok, qPrintable( r1904.error ) );
+  QCOMPARE( r1904.sheets.at( 0 ).rows.at( 0 ).at( 1 ), QStringLiteral( "2028-01-16" ) );
+}
+
 // FA-002：SpreadsheetML .xml 直读大小闸——超 512MB 拒收（xlsx 由 zip 层同口径把关）。
 void OutsourceWorkbookTests::rejectsOversizeSpreadsheetMl()
 {
@@ -338,6 +390,17 @@ void OutsourceWorkbookTests::canonicalizesWellNamesAndNumbers()
   QVERIFY( !parseNumericCell( QString(), &value ) );
   QVERIFY( !parseNumericCell( QStringLiteral( "-" ), &value ) );
   QVERIFY( !parseNumericCell( QStringLiteral( "inf" ), &value ) );
+  // PW-109：小数逗号/非规范分组不得被剥成大数；百分号如实标记。
+  QVERIFY( !parseNumericCell( QStringLiteral( "12,5" ), &value ) );
+  QVERIFY( !parseNumericCell( QStringLiteral( "1,20" ), &value ) );
+  QVERIFY( parseNumericCell( QStringLiteral( "12,345,678" ), &value ) );
+  QCOMPARE( value, 12345678.0 );
+  bool percent = false;
+  QVERIFY( parseNumericCell( QStringLiteral( "35 %" ), &value, &percent ) );
+  QVERIFY( percent );
+  QCOMPARE( value, 35.0 );
+  QVERIFY( parseNumericCell( QStringLiteral( "35" ), &value, &percent ) );
+  QVERIFY( !percent );
 }
 
 // 新格式进 manifest 词表登记（不旁路分类器）；.xml 内容嗅探沿用既有判据。

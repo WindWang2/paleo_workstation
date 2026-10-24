@@ -194,18 +194,18 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 变更、buildShell 六段按原文行序分解仅加函数边界、构造期 connect 55 条
 序列对拍唯一偏移 = ErrorHub 计数两条前移（wireErrorHubStatus 合并原两段）。
 
-**实测（2026-10-22，project-setup-wizard worktree）：paleomainwindow.cpp 1015 行（家族 28 TU）**
+**实测（2026-10-24，fix/deep-review-2026-10-24）：paleomainwindow.cpp 932 行（家族 29 TU）**
 （#473 拆分：`_workbench.cpp` 1250→525 行 + `_workbench_commands/_wells` 承载；
 #516 新增 `_references.cpp` 参考面板域；#573 新增 `_workbench_editflow.cpp`
-编图编辑流域——家族 26→27 TU）
+编图编辑流域——家族 26→27 TU；PW 深审批新增 `_seismic.cpp` 地震体→停靠面板同步——家族 28→29 TU）
 
-家族全表（`src/ui/paleomainwindow_*.cpp` 28 TU + 本体 1 行 = 表 29 行，平铺不
+家族全表（`src/ui/paleomainwindow_*.cpp` 29 TU + 本体 1 行 = 表 30 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：
 
 | TU | 行数 | 域（各 TU 头注释口径） |
 |---|---|---|
-| `paleomainwindow.cpp` | 1015 | 本体：壳生命周期域——构造/析构/关窗、buildShell 六段编排 |
+| `paleomainwindow.cpp` | 932 | 本体：壳生命周期域——构造/析构/关窗、buildShell 六段编排 |
 | `_attach.cpp` | 881 | 壳接线聚合胶水：attachWorkflows 入口 + 静态辅助 + 跨页图层显隐 |
 | `_attach_constraint.cpp` | 800 | 约束与单因素页接线（W4 段；#299 矢量属性维护/#301 realization 异步增量） |
 | `_attach_shell.cpp` | 791 | 壳面与全局组件接线（W4 段） |
@@ -233,6 +233,7 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 | `_workbench_evidence.cpp` | 41 | 证据面板/局部图谱联动接线（#473 拆分承载） |
 | `_attach_python.cpp` | 36 | Python 控制台/REPL 接线（方向 68） |
 | `_projectsetup.cpp` | 25 | 新建工程可选资料向导接线 |
+| `_seismic.cpp` | 183 | 地震体→停靠面板同步（syncSeismicVolumeToDocks；PW 深审批 file-budget 拆分） |
 | `_faults.cpp` | 27 | 断层解释壳接线（方向 7）：剖面 dock 编排器 + 管理面板 dock |
 
 （`paleoribbon.cpp`/`ribbonpanels.cpp` 是 ribbon 命令组构建与镜像绑定的

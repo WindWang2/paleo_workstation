@@ -74,7 +74,7 @@ SurfaceBuildResult fail(SurfaceBuildStatus status, const QString &message)
 bool frameAxesOk(const SurveyFrame &frame, QString *why)
 {
     if (!(frame.zScale > 0.0) || !std::isfinite(frame.zScale)) {
-        setMessage(why, QStringLiteral("zScale 须为正有限值"));
+        setMessage(why, QStringLiteral("zScale 须显式给出且为正有限值（纵向样值→地图 Z 的换算，未给则无法求倾角）"));
         return false;
     }
     const double cross = frame.inlineStepX * frame.xlineStepY - frame.inlineStepY * frame.xlineStepX;

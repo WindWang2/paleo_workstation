@@ -3319,7 +3319,7 @@ private slots:
     QVERIFY(!qIsNaN(curves.at(2).values.at(2)));
   }
 
-  // WRAP YES → hard error; missing file → error.
+  // PW-069：WRAP YES 现可解析；missing file → error.
   void lasFailureModes()
   {
     PaleoTempDir tmp;
@@ -3338,8 +3338,10 @@ private slots:
     QStringList names;
     QList<LasCurve> curves;
     QString err;
-    QVERIFY(!LasParser::parse(wrapPath, names, curves, &err));
-    QVERIFY(!err.isEmpty());
+    QVERIFY2(LasParser::parse(wrapPath, names, curves, &err), qPrintable(err));
+    QCOMPARE(curves.size(), 1);
+    QCOMPARE(curves.at(0).values.size(), 1);
+    QCOMPARE(curves.at(0).values.at(0), 1670.0);
 
     QVERIFY(!LasParser::parse(tmp.filePath(QStringLiteral("ghost.las")), names, curves, &err));
     QVERIFY(!err.isEmpty());

@@ -53,6 +53,9 @@ struct Result {
   double bic = 0;
   int iterations = 0;
   bool chunkedEm = false; // gmm() ran chunked EM (no n*k buffer)
+  // PW-085: EM log-likelihood dropped (numerical, e.g. variance floor). EM
+  // stops and returns the previous (higher-likelihood) model instead of failing.
+  bool likelihoodDecreased = false;
 };
 Result kmeans(const Matrix &, const Options & = {}, const Control & = {});
 Result gmm(const Matrix &, const Options & = {}, const Control & = {});

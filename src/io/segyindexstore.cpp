@@ -1,5 +1,6 @@
 // 层：数据
 #include "segyindexstore.h"
+#include "segyreader.h" // PW-070：sampleBytesForFormat
 
 #include "cachecore.h"
 #include "pathcanon.h"
@@ -226,7 +227,8 @@ std::optional<SegyIndexStore::StoredIndex> SegyIndexStore::load(const QFileInfo 
   const qint64 traceSpan = stored.offsets.isEmpty()
                                ? 0
                                : stored.offsets.last() + 240 +
-                                     qint64(stored.samplesPerTrace) * 4;
+                                     qint64(stored.samplesPerTrace) *
+                                         qMax(1, SegyReader::sampleBytesForFormat(stored.formatCode)); // PW-070
   if (stored.scannedOffset < stored.firstTraceOffset ||
       stored.scannedOffset > now.size + 4096 || // 容忍尾部截断的少量越界？不——>
       stored.scannedOffset < traceSpan ||

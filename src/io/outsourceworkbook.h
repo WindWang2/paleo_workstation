@@ -113,8 +113,9 @@ bool intervalRowNumber( const IntervalRow &row, const QString &field, double *va
 // 取不到时去掉「井」字返回大写原文。空输入返回空串。
 QString canonicalWellName( const QString &raw );
 
-// 上游 _parse_numeric：去空白与千分位逗号、去尾部百分号，非有限返回 false。
-bool parseNumericCell( const QString &raw, double *value );
+// 上游 _parse_numeric：去空白与规范千分位逗号（非千分位逗号如 "12,5" 拒绝，
+// PW-109）、去尾部百分号（isPercent 置位，值不换算），非有限返回 false。
+bool parseNumericCell( const QString &raw, double *value, bool *isPercent = nullptr );
 
 // ---- 方向67：曲线统计与因素候选发现（读面之上的纯统计，不自动进图）----
 

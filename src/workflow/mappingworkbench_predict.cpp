@@ -10,6 +10,7 @@
 #include "../domain/faciestaxonomy.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
+#include "../domain/wellnumeric.h"
 #include "../io/constraintstore.h"
 #include "../io/lasparser.h"
 #include "../io/welllogread.h"
@@ -490,6 +491,9 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       emit errorOccurred(*preparationError);
       return;
     }
+    // 仅「无测井链接」的井（空路径）才走占位深度；PW-007：占位井数量写进
+    // 预测参数（随版本溯源落盘）并在任务详情中明示，不再只是请求内部标记。
+    QStringList mockWells;
     for (qsizetype i = 0; i < m_request.wells.size() && i < ranges.size(); ++i) {
       auto well = m_request.wells[i].toMap();
       const bool measured = std::isfinite(ranges[i].first) &&
@@ -497,11 +501,20 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       well.insert("depth_top", measured ? ranges[i].first : 0.0);
       well.insert("depth_bottom", measured ? ranges[i].second : 120.0);
       well.insert("depth_mock", !measured);
+      if (!measured)
+        mockWells << well.value("name", well.value("well_id")).toString();
       m_request.wells[i] = well;
+    }
+    if (!mockWells.isEmpty()) {
+      m_predictionParameters.insert("depth_mock_wells", mockWells);
+      m_predictionParameters.insert("depth_mock_count", int(mockWells.size()));
     }
     if (m_task)
       m_task->reportDetail(
-          tr("已提交 %1 口井，等待预测服务返回").arg(m_request.wells.size()));
+          mockWells.isEmpty()
+              ? tr("已提交 %1 口井，等待预测服务返回").arg(m_request.wells.size())
+              : tr("已提交 %1 口井（其中 %2 口无测井、使用占位深度 0–120 m），等待预测服务返回")
+                    .arg(m_request.wells.size()).arg(mockWells.size()));
     m_remote->start(m_request);
   });
   watcher->setFuture(QtConcurrent::run(
@@ -521,16 +534,33 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
           const bool explicitAxis = !path.isEmpty() && format != WellLogFormat::Las;
           QString readError;
           const bool parsed = !path.isEmpty() && WellLogRead::parse(path, format, header, curves, &readError) && !curves.isEmpty();
-          const double scale = parsed ? LasParser::depthUnitToMeters(curves.first().unit) : 0.0;
+          // 深度单位：与 wellpredictionservice 的 normalizeDepthCurve 同口径（PW-006）
+          // ——LAS 也必须换算（DEPT.FT 不能按米发出）；LAS 空单位按米（遗留），
+          // 显式轴空单位与任何未知单位都拒绝。
+          double scale = 0.0;
+          if (parsed) {
+            const QString unit = curves.first().unit;
+            if (unit.trimmed().isEmpty())
+              scale = explicitAxis ? 0.0 : 1.0;
+            else
+              scale = paleo::wellnumeric::depthScaleToMetres(unit).value_or(0.0);
+          }
           if (explicitAxis && (!parsed || header.indexBasis != QLatin1String("MD") || scale <= 0.0)) {
             *preparationError = QCoreApplication::translate("MappingWorkbench", "%1：预测需要可读取且声明米或英尺单位的 MD 测深；请检查索引基准和单位。%2")
+                .arg(QFileInfo(path).fileName(), readError);
+            break;
+          }
+          // PW-007：链接了测井文件却读不出来时，不能虚构 0–120 m 深度提交给
+          // 真实预测服务——整批报错，让用户修正文件或解除链接。
+          if (!path.isEmpty() && (!parsed || scale <= 0.0)) {
+            *preparationError = QCoreApplication::translate("MappingWorkbench", "%1：测井文件无法读取或深度单位无法识别，已停止预测（不使用虚构深度）。%2")
                 .arg(QFileInfo(path).fileName(), readError);
             break;
           }
           if (parsed)
             for (double d : curves.first().values)
               if (std::isfinite(d)) {
-                if (explicitAxis) d *= scale;
+                d *= scale;
                 top = std::min(top, d);
                 bottom = std::max(bottom, d);
               }

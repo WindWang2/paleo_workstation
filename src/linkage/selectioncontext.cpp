@@ -42,21 +42,30 @@ void SelectionContext::clearTarget(const QString &origin)
 
 void SelectionContext::setSelection(const QStringList &ids, const QString &origin)
 {
-  if (m_ids == ids && m_origin == origin)
-    return;
-
   if (m_broadcastDepth > 0)
   {
     // Broadcast in flight — fold this set into the pending slot instead of
     // recursing. Repeated nested sets keep only the latest payload.
-    // If the payload matches current or already pending broadcast, ignore to prevent infinite echo loops.
-    if (m_ids == ids || (m_pending && m_pendingIds == ids))
+    // PW-062: a nested set that reverts to the ids being broadcast cancels any
+    // earlier pending payload (true last-writer-wins) instead of being dropped.
+    if (m_ids == ids)
+    {
+      m_pending = false;
+      m_pendingIds.clear();
+      m_pendingOrigin.clear();
+      return;
+    }
+    // Same payload already pending: ignore to prevent infinite echo loops.
+    if (m_pending && m_pendingIds == ids)
       return;
     m_pending = true;
     m_pendingIds = ids;
     m_pendingOrigin = origin;
     return;
   }
+
+  if (m_ids == ids && m_origin == origin)
+    return;
 
   m_ids = ids;
   m_origin = origin;

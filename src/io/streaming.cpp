@@ -103,6 +103,15 @@ qint64 forEachLine(const QString &path,
     return -1;
   }
   const qint64 total = f.size();
+  // PW-016：文件级嗅探一次编码，逐行按同一编码解码。
+  const QByteArray sample = f.peek(64 * 1024);
+  if (EncodingDetect::hasUtf16Bom(sample))
+  {
+    if (error)
+      *error = QStringLiteral("UTF-16 encoded text is not supported by streaming reader: %1").arg(path);
+    return -1;
+  }
+  const TextEncoding enc = EncodingDetect::detect(EncodingDetect::stripBom(sample));
   ChunkedLineReader reader(&f);
   QByteArray raw;
   qint64 index = 0;
@@ -110,7 +119,7 @@ qint64 forEachLine(const QString &path,
   {
     if (cancel && cancel())
       return index;
-    if (!onLine(index, EncodingDetect::decodeText(raw)))
+    if (!onLine(index, EncodingDetect::decodeAs(raw, enc)))
       return index + 1; // 消费方主动停——已产出的行仍有效
     ++index;
     if (progress && (index & 0x3FF) == 0)

@@ -43,6 +43,8 @@
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
+#include <qgscoordinatereferencesystem.h>
+#include <qgsunittypes.h>
 #include <qgsmaplayer.h>
 #include <qgslayertree.h>
 #include <qgslayertreeview.h>
@@ -190,6 +192,14 @@ void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QStrin
   ctx.hasHeaderCell = ctxIn.hasHeaderCell;
   ctx.headerCellSize = ctxIn.headerCellSize;
   ctx.hasConstraints = ctxIn.hasConstraints;
+  {
+    const QgsCoordinateReferenceSystem crs = QgsProject::instance()->crs();
+    if (crs.isValid())
+    {
+      ctx.geographic = crs.isGeographic();
+      ctx.unitSuffix = QgsUnitTypes::toAbbreviatedString(crs.mapUnits());
+    }
+  }
   // PR457-closure R8：按本层位收敛——散点资产是层位 A 时，别的层位的屏障
   // 不点亮本层位的屏障开关（迁移提示见 constraintgeom 视图口径）。
   if ( ctxIn.hasConstraints && !ctxIn.barrierHorizons.isEmpty() &&
@@ -352,7 +362,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   if (m_workflowsAttached)
     return;
   auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
-  auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
+  auto *stack = host ? qobject_cast<QStackedLayout *>(host->layout()) : nullptr;
   if (!stack)
     return;
   m_taskSvc = taskSvc; // D1b：导入任务池（nullptr 时保持同步旧路径）

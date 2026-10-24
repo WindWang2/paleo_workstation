@@ -110,7 +110,16 @@ bool writeFloatRaster( const QString &path, const std::vector<double> &values, i
                        const double geoTransform[6], const QgsCoordinateReferenceSystem &crs,
                        const QString &canonicalCrsWkt = QString() )
 {
-  GDALDatasetH ds = PaleoRasterOut::createFloatRaster( path, cols, rows, geoTransform, crs, -9999.0, canonicalCrsWkt );
+  // PW-040：nodata 哨兵取在数据值域之外——真实值恰为 -9999 时不被当作无值。
+  double minFinite = std::numeric_limits<double>::infinity();
+  for ( double v : values )
+    if ( std::isfinite( v ) )
+      minFinite = std::min( minFinite, v );
+  double sentinel = -9999.0;
+  if ( std::isfinite( minFinite ) && minFinite <= sentinel )
+    sentinel = std::floor( minFinite ) - 10000.0;
+  const float sentinelF = static_cast<float>( sentinel );
+  GDALDatasetH ds = PaleoRasterOut::createFloatRaster( path, cols, rows, geoTransform, crs, sentinel, canonicalCrsWkt );
   if ( !ds )
     return false;
   std::vector<float> row( static_cast<std::size_t>( cols ) );
@@ -120,7 +129,7 @@ bool writeFloatRaster( const QString &path, const std::vector<double> &values, i
     for ( int c = 0; c < cols; ++c )
     {
       const double value = values[static_cast<std::size_t>( r ) * cols + c];
-      row[static_cast<std::size_t>( c )] = std::isfinite( value ) ? static_cast<float>( value ) : -9999.0f;
+      row[static_cast<std::size_t>( c )] = std::isfinite( value ) ? static_cast<float>( value ) : sentinelF;
     }
     if ( GDALRasterIO( GDALGetRasterBand( ds, 1 ), GF_Write, 0, r, cols, 1,
                        row.data(), cols, 1, GDT_Float32, 0, 0 ) != CE_None )
@@ -426,8 +435,15 @@ bool fitGeostatVariogram( ConstraintWorkflow::GeostatJob *job,
   else
   {
     const double area = spanX * spanY;
-    const double lag = std::max( job->cellSize, std::sqrt( area / samples.size() ) );
     const int nLags = 12;
+    // PW-036：滞后距按半对角线分 nLags 份，保证实验变差函数覆盖到半个工区；
+    // 原「sqrt(area/n)」随样本加密而缩短，密集数据的变程被窗口截断。
+    // 采样间距只作下限（不让滞后小于平均点距 / 网格单元）。
+    const double halfDiag = 0.5 * std::hypot( spanX, spanY );
+    const double spacing = std::max( job->cellSize, std::sqrt( area / samples.size() ) );
+    const double lag = std::max( spacing, halfDiag / nLags );
+    modelProvenance.insert( QStringLiteral( "variogram_lag" ), lag );
+    modelProvenance.insert( QStringLiteral( "variogram_nlags" ), nLags );
     if ( hasAzimuth )
     {
       paleo::geostat::VariogramDirection along;
@@ -446,18 +462,25 @@ bool fitGeostatVariogram( ConstraintWorkflow::GeostatJob *job,
                          .arg( QString::fromStdString( fitAlong.message ), QString::fromStdString( fitAcross.message ) );
         return false;
       }
-      *model = fitAlong.model;
-      model->azimuthDeg = azimuthParam;
       const double rawRatio = fitAcross.model.range > 0 ? fitAlong.model.range / fitAcross.model.range : 1.0;
-      model->anisotropyRatio = std::clamp( rawRatio, 1.0, 8.0 );
-      fitR2 = fitAlong.r2;
-      fitRmse = fitAlong.rmse;
-      // 只用沿走向拟合的块金/基台；横向拟合只贡献变程比。两向都如实记录。
+      // PW-037：横向变程更大（rawRatio<1）时不夹成各向同性——主轴转 90°，
+      // 比值取倒数，块金/基台取主轴（横向）拟合；如实记录换轴。
+      const bool swapAxes = rawRatio > 0.0 && rawRatio < 1.0;
+      const paleo::geostat::VariogramFit &major = swapAxes ? fitAcross : fitAlong;
+      *model = major.model;
+      model->azimuthDeg = swapAxes ? std::fmod( azimuthParam + 90.0, 360.0 ) : azimuthParam;
+      model->anisotropyRatio = std::clamp( swapAxes ? 1.0 / rawRatio : rawRatio, 1.0, 8.0 );
+      fitR2 = major.r2;
+      fitRmse = major.rmse;
+      modelProvenance.insert( QStringLiteral( "anisotropy_axis_swapped" ), swapAxes );
+      modelProvenance.insert( QStringLiteral( "azimuth_effective" ), model->azimuthDeg );
+      // 块金/基台取主轴拟合；另一向只贡献变程比。两向都如实记录。
       modelProvenance.insert( QStringLiteral( "across_range" ), fitAcross.model.range );
       modelProvenance.insert( QStringLiteral( "across_fit_r2" ), fitAcross.r2 );
       modelProvenance.insert( QStringLiteral( "across_fit_rmse" ), fitAcross.rmse );
       modelProvenance.insert( QStringLiteral( "anisotropy_ratio_raw" ), rawRatio );
-      modelProvenance.insert( QStringLiteral( "anisotropy_ratio_clamped" ), rawRatio != model->anisotropyRatio );
+      modelProvenance.insert( QStringLiteral( "anisotropy_ratio_clamped" ),
+                              ( swapAxes ? 1.0 / rawRatio : rawRatio ) != model->anisotropyRatio );
     }
     else
     {
@@ -739,6 +762,12 @@ bool runGeostatCokriging( const GeostatRunContext &ctx, const std::vector<paleo:
     job->error = ConstraintWorkflow::tr( "协变量栅格在计算网格范围内无有效数据" );
     return false;
   }
+  // PW-019：模型假设协变量处于主变量单位/方差（γ12=ρ·γ1、γ22 取主基台），
+  // 原始协变量值必须先按配置点统计线性标定，否则估值随协变量单位缩放。
+  bool covariateRescaled = false;
+  secondarySamples = paleo::geostat::rescaleSecondaryToPrimary( secondarySamples, primaryZ, secondaryZ,
+                                                                &covariateRescaled );
+  cokrigingNode.insert( QStringLiteral( "secondary_rescaled_to_primary" ), covariateRescaled );
 
   paleo::geostat::CoKrigingModel coModel;
   coModel.primary = model;

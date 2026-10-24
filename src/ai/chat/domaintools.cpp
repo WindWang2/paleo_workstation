@@ -3,6 +3,9 @@
 
 #include <QJsonArray>
 
+#include <cmath>
+#include <limits>
+
 #include "../../catalog/catalogroles.h"
 
 // ai/chat — 领域工具表实现（方向51）。
@@ -21,8 +24,21 @@ bool jsonTypeMatches(const QString &expected, const QJsonValue &value) {
     return value.isString();
   if (expected == QLatin1String("number"))
     return value.isDouble();
-  if (expected == QLatin1String("integer"))
-    return value.isDouble() || value.isString(); // 允许 "12" 这种文本整数
+  if (expected == QLatin1String("integer")) {
+    // PW-060：整数须是有限整值且落在 int 域；文本须整串可解析（"12" 可，"abc"/1.5 不可）。
+    if (value.isDouble()) {
+      const double d = value.toDouble();
+      return std::isfinite(d) && d == std::floor(d) &&
+             d >= double(std::numeric_limits<int>::min()) &&
+             d <= double(std::numeric_limits<int>::max());
+    }
+    if (value.isString()) {
+      bool ok = false;
+      value.toString().trimmed().toInt(&ok);
+      return ok;
+    }
+    return false;
+  }
   if (expected == QLatin1String("boolean"))
     return value.isBool();
   if (expected == QLatin1String("object"))

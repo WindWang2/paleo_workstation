@@ -21,6 +21,9 @@ struct RequestContext
   bool hasHeaderCell = false;                    // 层位头 Grid_size 可推出像元
   double headerCellSize = 0;
   bool hasConstraints = false;                   // ConstraintStore 有 break_line
+  // PW-048：项目 CRS 平面单位（空 = 未知，按米口径）；地理坐标系下像元以度计。
+  QString unitSuffix;
+  bool geographic = false;
 };
 
 // 用户确认的参数（与 SurfaceGriddingWorkflow::Options 同形，纯数据镜像）。

@@ -23,6 +23,7 @@ SurveyFrame frame()
     f.xlineStepX = 100;
     f.inlineMax = 10;
     f.xlineMax = 10;
+    f.zScale = 1;
     return f;
 }
 

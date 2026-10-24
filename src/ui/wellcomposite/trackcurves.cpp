@@ -3,11 +3,61 @@
 #include "wellcompositetrack.h"
 #include "depthtools.h"
 #include "ui/paleotheme.h"
+#include "ui/common/curvescale.h"
 #include <algorithm>
 #include <cmath>
+#include <climits>
+#include <limits>
 
 namespace WellComposite
 {
+
+namespace
+{
+// PW-101：逐像素行 min/max 抽稀状态——同一像素行内只保留首/最小/最大/末
+// 四点（保序），尖峰不丢，概览缩放下顶点数 ≤ 4×道高。
+struct PixelRowDecimator
+{
+  int key = INT_MIN;
+  QPointF first, min, max, last;
+  int count = 0, minIdx = 0, maxIdx = 0;
+
+  void add(const QPointF &pt)
+  {
+    if (count == 0)
+    {
+      first = min = max = pt;
+      minIdx = maxIdx = 0;
+    }
+    else
+    {
+      if (pt.x() < min.x()) { min = pt; minIdx = count; }
+      if (pt.x() > max.x()) { max = pt; maxIdx = count; }
+    }
+    last = pt;
+    ++count;
+  }
+
+  void flush(QVector<QPointF> &out)
+  {
+    if (count == 0)
+      return;
+    out.append(first);
+    if (count > 1)
+    {
+      const QPointF a = minIdx <= maxIdx ? min : max;
+      const QPointF b = minIdx <= maxIdx ? max : min;
+      if (a != first)
+        out.append(a);
+      if (b != a)
+        out.append(b);
+      if (last != b)
+        out.append(last);
+    }
+    count = 0;
+  }
+};
+} // namespace
 // ----------------------------------------------------------------------------
 // 7. 曲线道 (CurveTrack) — 支持合并显示 1 至 4 根曲线
 // ----------------------------------------------------------------------------
@@ -216,9 +266,14 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     if (c.isEmpty())
       continue;
 
-    const float minVal = c.minScale;
-    const float maxVal = qMax(minVal + 1e-4f, c.maxScale);
-    const float valSpan = maxVal - minVal;
+    // PW-020/021：统一刻度映射——对数刻度生效；反向刻度（min > max）按负
+    // 跨度翻转而非塌缩；不可映射（对数下 ≤0、退化刻度）= NaN = 断笔/跳过。
+    const double minVal = c.minScale;
+    const double maxVal = c.maxScale;
+    const bool logScale = c.isLogarithmic;
+    const auto normOf = [&](float v) {
+      return paleo::curvescale::normaliseClamped(v, minVal, maxVal, logScale);
+    };
 
     painter.setPen(QPen(c.color, c.penWidth, c.penStyle));
     painter.setBrush(Qt::NoBrush);
@@ -227,33 +282,39 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     // 不兜底（CurveData::isEmpty 只查非空，不查对齐）。
     const int n = qMin(c.depths.size(), c.values.size());
 
+    // #557 / PW-101：深度采样有序 → 二分定位可见窗口起点（三种模式共用），
+    // 每帧 O(可见样点)。坏数据（NaN/逆序深度）退回全量线性扫描。
+    const bool ordered = n > 0 && std::isfinite(c.depths.first()) &&
+                         std::isfinite(c.depths.at(n - 1)) &&
+                         c.depths.first() <= c.depths.at(n - 1);
+    const auto beginFor = [&](double top) {
+      if (!ordered)
+        return 0;
+      int begin = static_cast<int>(
+          std::lower_bound(c.depths.cbegin(), c.depths.cbegin() + n, top) - c.depths.cbegin());
+      return begin > 0 ? begin - 1 : 0; // 窗口上缘多取一个样点
+    };
+
     if (c.mode == CurveDisplayMode::Continuous)
     {
       QVector<QPointF> polyPoints;
       polyPoints.reserve(1024);
 
-      // #557：深度采样有序（domain CurveData::valueAtDepth 二分插值同一
-      // 前提）→ 二分定位可见窗口起点，每帧 O(可见样点) 而非 O(总样点)。
-      // 仅在端点有限且首 ≤ 末时走二分（越下窗即 break）；坏数据（NaN/逆序
-      // 深度）退回原全量线性扫描，绘制结果与改前逐点一致。起点比窗口下界
-      // 多取一个样点，但该样点仍按原 ±20 m 深度窗谓词过滤——不改线段集合。
       const double winTop = topDepth - 20.0;
       const double winBottom = bottomDepth + 20.0;
-      const bool ordered = n > 0 && std::isfinite(c.depths.first()) &&
-                           std::isfinite(c.depths.at(n - 1)) &&
-                           c.depths.first() <= c.depths.at(n - 1);
-      int begin = 0;
-      if (ordered)
-      {
-        begin = static_cast<int>(std::lower_bound(c.depths.cbegin(),
-                                                  c.depths.cbegin() + n,
-                                                  winTop) -
-                                 c.depths.cbegin());
-        if (begin > 0)
-          --begin; // 窗口上缘多取一个样点，避免边界处线段断裂
-      }
 
-      for (int i = begin; i < n; ++i)
+      // PW-101：逐像素行 min/max 抽稀（见 PixelRowDecimator）。
+      PixelRowDecimator row;
+      const auto flushRow = [&] { row.flush(polyPoints); };
+      const auto breakLine = [&] {
+        flushRow();
+        row.key = INT_MIN;
+        if (polyPoints.size() >= 2)
+          painter.drawPolyline(polyPoints.constData(), static_cast<int>(polyPoints.size()));
+        polyPoints.clear();
+      };
+
+      for (int i = beginFor(winTop); i < n; ++i)
       {
         const float d = c.depths.at(i);
         const float v = c.values.at(i);
@@ -264,36 +325,46 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
         if (d < winTop || d > winBottom)
           continue;
 
-        // 深度或值任一 NaN 都断笔（opt-02）：深度列 NULL 行的 NaN 比较恒
-        // false，过不了深度窗过滤——不断笔会产出 NaN 顶点（与值 NaN 同口径）。
-        if (!std::isfinite(v) || !std::isfinite(d))
+        // 深度或值任一 NaN / 不可映射都断笔（opt-02）。
+        const double normX = std::isfinite(d) ? normOf(v) : std::numeric_limits<double>::quiet_NaN();
+        if (!std::isfinite(normX))
         {
-          if (polyPoints.size() >= 2)
-            painter.drawPolyline(polyPoints.constData(), static_cast<int>(polyPoints.size()));
-          polyPoints.clear();
+          breakLine();
           continue;
         }
 
-        const float normX = qBound(0.0f, (v - minVal) / valSpan, 1.0f);
         const qreal x = bodyRect.left() + normX * bodyRect.width();
         const qreal y = bodyRect.top() + (d - topDepth) * pxPerMeter;
-        polyPoints.append(QPointF(x, y));
+        const QPointF pt(x, y);
+        const int key = static_cast<int>(std::floor(y));
+        if (!ordered)
+        {
+          polyPoints.append(pt); // 无序数据不抽稀，保持原逐点语义
+          continue;
+        }
+        if (key != row.key)
+        {
+          flushRow();
+          row.key = key;
+        }
+        row.add(pt);
       }
-
-      if (polyPoints.size() >= 2)
-        painter.drawPolyline(polyPoints.constData(), static_cast<int>(polyPoints.size()));
+      breakLine();
     }
     else if (c.mode == CurveDisplayMode::Discrete)
     {
       painter.setBrush(c.color);
-      for (int i = 0; i < n; ++i)
+      for (int i = beginFor(topDepth); i < n; ++i)
       {
         const float d = c.depths.at(i);
         const float v = c.values.at(i);
-        if (d < topDepth || d > bottomDepth || !std::isfinite(v))
+        if (ordered && d > bottomDepth)
+          break;
+        if (d < topDepth || d > bottomDepth)
           continue;
-
-        const float normX = qBound(0.0f, (v - minVal) / valSpan, 1.0f);
+        const double normX = normOf(v);
+        if (!std::isfinite(normX))
+          continue;
         const qreal x = bodyRect.left() + normX * bodyRect.width();
         const qreal y = bodyRect.top() + (d - topDepth) * pxPerMeter;
         painter.drawEllipse(QPointF(x, y), PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
@@ -302,15 +373,18 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     else if (c.mode == CurveDisplayMode::Histogram)
     {
       painter.setBrush(QColor(c.color.red(), c.color.green(), c.color.blue(), 140));
-      for (int i = 0; i < n - 1; ++i)
+      for (int i = beginFor(topDepth); i < n - 1; ++i)
       {
         const float d0 = c.depths.at(i);
         const float d1 = c.depths.at(i + 1);
         const float v = c.values.at(i);
-        if (d1 < topDepth || d0 > bottomDepth || !std::isfinite(v))
+        if (ordered && d0 > bottomDepth)
+          break;
+        if (d1 < topDepth || d0 > bottomDepth)
           continue;
-
-        const float normX = qBound(0.0f, (v - minVal) / valSpan, 1.0f);
+        const double normX = normOf(v);
+        if (!std::isfinite(normX))
+          continue;
         const qreal barW = normX * bodyRect.width();
         const qreal y0 = bodyRect.top() + (d0 - topDepth) * pxPerMeter;
         const qreal y1 = bodyRect.top() + (d1 - topDepth) * pxPerMeter;

@@ -9,6 +9,7 @@
 #include <limits>
 #include <queue>
 #include <random>
+#include <exception>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -481,7 +482,8 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
   result.sampleStd = table.sampleStd;
   // #325：同 2D 核——模型标定到正态得分域，否则条件方差的量级是原值域的。
   const VariogramModel gaussianModel =
-      detail::rescaleToGaussianDomain( model, detail::gaussianDomainVariance( table, sampleValues ) );
+      regularizedForKriging( detail::rescaleToGaussianDomain(
+          model, detail::gaussianDomainVariance( table, sampleValues ) ) );
 
   const StaticIndex3 index = StaticIndex3::build( deduped );
 
@@ -503,8 +505,8 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
   std::vector<RealizationCounts> counts( static_cast<std::size_t>( R ) );
 
   const auto runRealization = [&]( int realization ) {
-    std::mt19937_64 rng( clamped.seed +
-                         static_cast<std::uint64_t>( realization ) * 0x9E3779B97F4A7C15ULL );
+    std::mt19937_64 rng(
+        detail::derivedStreamSeed( clamped.seed, static_cast<std::uint64_t>( realization ) ) );
     SimulatedLattice3 lattice;
     std::vector<std::uint32_t> staticNeighborhood;
     std::vector<CondPoint> simulatedNeighborhood;
@@ -700,17 +702,31 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
     const std::int64_t outputBytes = static_cast<std::int64_t>( R ) * n64 * 8;
     const int workers =
         detail::workersForPeakBudget( std::min<int>( R, 4 ), outputBytes, workspacePerWorker );
+    // PW-082：worker 内异常（bad_alloc 等）逸出线程函数 = std::terminate，
+    // 主线程异常时未 join 的线程析构同样 terminate。每 worker 捕获存
+    // exception_ptr，全部 join 后重抛第一个。
     std::vector<std::thread> threads;
+    std::vector<std::exception_ptr> errors( static_cast<std::size_t>( workers ) );
     threads.reserve( static_cast<std::size_t>( workers ) - 1 );
-    for ( int worker = 1; worker < workers; ++worker )
-      threads.emplace_back( [&runRealization, worker, workers, R] {
+    const auto runStripe = [&runRealization, &errors, workers, R]( int worker ) {
+      try
+      {
         for ( int realization = worker; realization < R; realization += workers )
           runRealization( realization );
-      } );
-    for ( int realization = 0; realization < R; realization += workers )
-      runRealization( realization );
+      }
+      catch ( ... )
+      {
+        errors[static_cast<std::size_t>( worker )] = std::current_exception();
+      }
+    };
+    for ( int worker = 1; worker < workers; ++worker )
+      threads.emplace_back( runStripe, worker );
+    runStripe( 0 );
     for ( std::thread &thread : threads )
       thread.join();
+    for ( const std::exception_ptr &error : errors )
+      if ( error )
+        std::rethrow_exception( error );
   }
   else
   {

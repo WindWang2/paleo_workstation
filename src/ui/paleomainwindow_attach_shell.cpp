@@ -213,14 +213,8 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
                                   QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
           return;
         }
-        const auto res = store->saveAll(
-            [] { return PaleoProjectStore::WriteResult{true, QString()}; },
-            [this] {
-              saveCanvasExtent(); // display state travels inside the .qgz
-              const bool ok = m_projectSvc->writeProject();
-              return PaleoProjectStore::WriteResult{
-                  ok, ok ? QString() : m_projectSvc->lastErrors().join(QLatin1Char(';'))};
-            });
+        PaleoProjectStore::WriteResult res;
+        res.ok = saveProjectThroughStore(store, &res.error);
         // W3 保存反馈：成功落状态栏（与打开工程失败的 §38 弹框契约对齐——
         // 失败是阻断级，弹框如实给原因），同时照记日志。
         QgsMessageLog::logMessage(

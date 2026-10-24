@@ -60,6 +60,22 @@ struct CondPoint
 };
 
 // 确定性 (0,1) 均匀：mt19937_64 原始 u64 → 53bit 尾数。
+// PW-131：派生流种子。seed + r·φ 是线性的——sgsfill 的带种子同样按 +zone·φ
+// 散布，(zone, r) 与 (zone+1, r−1) 得到同一条随机流（带间实现相关）。
+// 改为 SplitMix64 双重混合：非线性、雪崩，跨层组合不再撞流。
+inline std::uint64_t splitMix64( std::uint64_t x )
+{
+  x += 0x9E3779B97F4A7C15ULL;
+  x = ( x ^ ( x >> 30 ) ) * 0xBF58476D1CE4E5B9ULL;
+  x = ( x ^ ( x >> 27 ) ) * 0x94D049BB133111EBULL;
+  return x ^ ( x >> 31 );
+}
+
+inline std::uint64_t derivedStreamSeed( std::uint64_t seed, std::uint64_t stream )
+{
+  return splitMix64( splitMix64( seed ) ^ stream );
+}
+
 inline double unitRandom( std::mt19937_64 &rng )
 {
   return ( static_cast<double>( rng() >> 11 ) + 0.5 ) * 0x1.0p-53;
@@ -106,17 +122,19 @@ struct NormalScoreTable
   {
     NormalScoreTable table;
     double sum = 0;
-    double sumSq = 0;
     for ( const double value : values )
     {
       sum += value;
-      sumSq += value * value;
     }
     std::vector<double> sorted = values;
     std::sort( sorted.begin(), sorted.end() );
     const double n = static_cast<double>( sorted.size() );
     table.sampleMean = sum / n;
-    table.sampleStd = std::sqrt( std::max( 0.0, sumSq / n - table.sampleMean * table.sampleMean ) );
+    // PW-127：两遍法方差；E[x²]−E[x]² 在大均值（深度 3000±1）下灾难性抵消。
+    double ss = 0.0;
+    for ( const double value : values )
+      ss += ( value - table.sampleMean ) * ( value - table.sampleMean );
+    table.sampleStd = std::sqrt( ss / n );
     std::size_t i = 0;
     while ( i < sorted.size() )
     {
@@ -158,20 +176,25 @@ struct NormalScoreTable
   }
 
   // 反变换：线性内插 + 端部按末段斜率线性外推（直方图忠实样本分布）。
+  static constexpr double kTailFraction = 0.1;
   double backTransform( double gaussian ) const
   {
     if ( z.size() == 1 )
       return z.front(); // 单样本退化：任何高斯值都映回该值（如实退化）
+    // PW-081：端部线性外推按末段斜率无界——样本少/末段近并列时斜率巨大，
+    // 一个 3σ 的高斯抽样就能把值甩出数据范围数个量级。外推限幅到数据极差的
+    // kTailFraction 之外。
+    const double tail = kTailFraction * ( z.back() - z.front() );
     if ( gaussian <= y.front() )
     {
       const double slope = ( z[1] - z[0] ) / std::max( y[1] - y[0], 1e-12 );
-      return z[0] + slope * ( gaussian - y.front() );
+      return std::max( z[0] + slope * ( gaussian - y.front() ), z.front() - tail );
     }
     if ( gaussian >= y.back() )
     {
       const std::size_t m = z.size();
       const double slope = ( z[m - 1] - z[m - 2] ) / std::max( y[m - 1] - y[m - 2], 1e-12 );
-      return z[m - 1] + slope * ( gaussian - y.back() );
+      return std::min( z[m - 1] + slope * ( gaussian - y.back() ), z.back() + tail );
     }
     const std::size_t k = static_cast<std::size_t>(
         std::upper_bound( y.begin(), y.end(), gaussian ) - y.begin() ) - 1;
@@ -220,6 +243,40 @@ inline double gaussianDomainVariance( const NormalScoreTable &table,
   const double mean = sum / n;
   const double variance = sumSq / n - mean * mean;
   return variance > 0.0 ? variance : 1.0;
+}
+
+// PW-130（可选）：按基台比例缩放只保证总方差对；正态得分变换会改变变差
+// 函数形状（尤其偏态数据的块金/变程）。此处在得分上重算实验变差并重拟合
+// 同类型模型，几何各向异性沿用原模型。拟合失败回退比例缩放。
+inline VariogramModel refitOnNormalScores( const VariogramModel &model,
+                                           const NormalScoreTable &table,
+                                           const std::vector<Sample> &samples )
+{
+  const VariogramModel scaled =
+      rescaleToGaussianDomain( model, gaussianDomainVariance( table, [&] {
+        std::vector<double> v;
+        v.reserve( samples.size() );
+        for ( const Sample &s : samples )
+          v.push_back( s.value );
+        return v;
+      }() ) );
+  if ( samples.size() < 8 || !( model.range > 0.0 ) || !std::isfinite( model.range ) )
+    return scaled;
+  std::vector<Sample> scores = samples;
+  for ( Sample &s : scores )
+    s.value = table.forward( s.value );
+  constexpr int kLags = 12;
+  const double lag = 1.5 * model.range / kLags;
+  const ExperimentalVariogram ev = experimentalVariogram( scores, lag, kLags );
+  const VariogramFit fit = fitVariogram( ev, model.type );
+  if ( fit.status != Status::Ok || !( fit.model.nugget + fit.model.sill > 0.0 ) ||
+       !std::isfinite( fit.model.range ) || !( fit.model.range > 0.0 ) )
+    return scaled;
+  VariogramModel out = model;
+  out.nugget = fit.model.nugget;
+  out.sill = fit.model.sill;
+  out.range = fit.model.range;
+  return out;
 }
 
 // 简单克里金求解工作区（#478）：SGS 热路径每格一解，矩阵/右端/解缓冲

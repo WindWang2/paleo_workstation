@@ -1,5 +1,7 @@
 // 层：功能
 #include "aichattoolrunner.h"
+#include <QDir>
+#include <QFileInfo>
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -9,8 +11,12 @@
 #include <QPointer>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <limits>
 
 #include "../ai/chat/domaintools.h"
+#include "../ai/tileinference.h"
 #include "../ai/wellfaciesservice.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/welllogfacies.h"
@@ -37,14 +43,31 @@ constexpr int kWellLinksCap = 100;
 constexpr int kBriefCharCap = 300;
 constexpr int kBriefAssetTypes = 6;
 
+// PW-060：严格整数——double 须有限、整值且落在 int 域（qRound 越界是 UB）；
+// 文本须整串可解析。其余一律回退 fallback（调用方再按必填/范围拒绝）。
 int intArg(const QJsonObject &args, const char *key, int fallback) {
   const QJsonValue value = args.value(QLatin1String(key));
-  if (value.isDouble())
-    return qRound(value.toDouble());
-  if (value.isString()) // 表口径允许 "12" 文本整数（jsonTypeMatches）
-    return value.toString().trimmed().toInt();
+  if (value.isDouble()) {
+    const double d = value.toDouble();
+    if (!std::isfinite(d) || d != std::floor(d) ||
+        d < double(std::numeric_limits<int>::min()) ||
+        d > double(std::numeric_limits<int>::max()))
+      return fallback;
+    return static_cast<int>(d);
+  }
+  if (value.isString()) { // 表口径允许 "12" 文本整数（jsonTypeMatches）
+    bool ok = false;
+    const int parsed = value.toString().trimmed().toInt(&ok);
+    return ok ? parsed : fallback;
+  }
   return fallback;
 }
+
+// PW-013：层位追踪参数上限（radius/种子来自 LLM，O(seeds·(2r+1)²)）。
+constexpr int kMaxSuggestRadius = 256;
+constexpr int kMaxSuggestSeeds = 64;
+constexpr int kMaxSuggestWindow = 4096;
+constexpr int kMaxLineNumberAbs = 10000000; // 线号/样点号合理域，防 ±radius 溢出
 
 double doubleArg(const QJsonObject &args, const char *key) {
   const QJsonValue value = args.value(QLatin1String(key));
@@ -204,9 +227,18 @@ void AiChatToolRunner::runTile(const ChatToolCall &call,
     finishActive(false, errorPayload(tr("模型名与正数网格尺寸为必填")));
     return;
   }
-  const int tileRows = qMax(1, intArg(args, "tile_rows", 128));
-  const int tileCols = qMax(1, intArg(args, "tile_columns", 128));
-  const int halo = qMax(0, intArg(args, "halo", 8));
+  // PW-012：网格尺寸来自模型输出，不可信——超限直接拒绝（不钳制，免得静默
+  // 改变产物几何）；tile/halo 钳到安全域。
+  if (rows > kMaxTileGridSide || cols > kMaxTileGridSide ||
+      qint64(rows) * cols > kMaxTileGridPixels) {
+    finishActive(false, errorPayload(tr("网格尺寸 %1×%2 超出上限（单边 ≤%3，总像元 ≤%4）")
+                                         .arg(rows).arg(cols).arg(kMaxTileGridSide)
+                                         .arg(kMaxTileGridPixels)));
+    return;
+  }
+  const int tileRows = qBound(1, intArg(args, "tile_rows", 128), kMaxTileSide);
+  const int tileCols = qBound(1, intArg(args, "tile_columns", 128), kMaxTileSide);
+  const int halo = qBound(0, intArg(args, "halo", 8), kMaxTileHalo);
   QString error;
   PaleoTask *task = m_workflow->startClassification(
     m_context.horizon, model, rows, cols, tileRows, tileCols, halo,
@@ -257,13 +289,28 @@ void AiChatToolRunner::runHorizon(const ChatToolCall &call,
   const int windowSamples = intArg(args, "window_samples", 0);
   const int radius = intArg(args, "radius", 0);
   const QJsonArray seeds = args.value(QStringLiteral("seeds")).toArray();
+  // PW-013：radius/种子数/种子坐标设上限，超限拒绝（不进入 O(seeds·r²) 扩张）。
+  if (radius > kMaxSuggestRadius || windowSamples > kMaxSuggestWindow ||
+      seeds.size() > kMaxSuggestSeeds) {
+    finishActive(false,
+                 errorPayload(tr("层位建议参数超限：radius ≤%1、窗长 ≤%2、种子数 ≤%3")
+                                .arg(kMaxSuggestRadius).arg(kMaxSuggestWindow)
+                                .arg(kMaxSuggestSeeds)));
+    return;
+  }
   QVector<TrackingSeed> parsed;
   for (const QJsonValue &value : seeds) {
     const QJsonObject seed = value.toObject();
     TrackingSeed s;
-    s.inlineNo = intArg(seed, "inline", 0);
-    s.xlineNo = intArg(seed, "xline", 0);
-    s.sampleIndex = intArg(seed, "sample_index", 0);
+    s.inlineNo = intArg(seed, "inline", kMaxLineNumberAbs + 1);
+    s.xlineNo = intArg(seed, "xline", kMaxLineNumberAbs + 1);
+    s.sampleIndex = intArg(seed, "sample_index", -1);
+    if (std::abs(s.inlineNo) > kMaxLineNumberAbs ||
+        std::abs(s.xlineNo) > kMaxLineNumberAbs || s.sampleIndex < 0 ||
+        s.sampleIndex > kMaxLineNumberAbs) {
+      finishActive(false, errorPayload(tr("种子点坐标缺失或越界（须为整数线号与非负样点号）")));
+      return;
+    }
     parsed.append(s);
   }
   if (model.isEmpty() || windowSamples <= 0 || radius <= 0 || parsed.isEmpty()) {
@@ -408,6 +455,20 @@ void AiChatToolRunner::runFacies(const ChatToolCall &call,
 // ---------------------------------------------------------------------------
 
 namespace {
+// PW-039：发给（可能远端的）模型的路径不得含本机绝对路径（泄露用户名/目录
+// 布局）。工程内 → 工程相对路径；工程外的外链 → 只给文件名并标 <external>。
+QString modelSafePath(const DataCatalog *catalog, const QString &path) {
+  if (path.isEmpty() || QDir::isRelativePath(path))
+    return path;
+  const QString root = catalog ? catalog->projectDir() : QString();
+  if (!root.isEmpty()) {
+    const QString rel = QDir(root).relativeFilePath(path);
+    if (!rel.startsWith(QStringLiteral("..")) && QDir::isRelativePath(rel))
+      return rel;
+  }
+  return QStringLiteral("<external>/") + QFileInfo(path).fileName();
+}
+
 // 资产条目的版本引用（可追溯口径）：无版本记录时字段留空——如实，不编造。
 void insertVersionCitation(QJsonObject *entry, const DataCatalog *catalog,
                            const QString &assetId) {
@@ -415,7 +476,7 @@ void insertVersionCitation(QJsonObject *entry, const DataCatalog *catalog,
   entry->insert(QStringLiteral("version_id"), version.id);
   entry->insert(QStringLiteral("stage"), version.stage);
   entry->insert(QStringLiteral("version_number"), version.versionNumber);
-  entry->insert(QStringLiteral("path"), version.path);
+  entry->insert(QStringLiteral("path"), modelSafePath(catalog, version.path));
 }
 
 QString displayName(const CatalogAsset &asset) {
@@ -691,7 +752,7 @@ void AiChatToolRunner::runLineage(const ChatToolCall &call,
     entry.insert(QStringLiteral("version_name"), node.versionName);
     // 版本引用（可追溯）：路径取 catalog 版本记录，不编造。
     entry.insert(QStringLiteral("path"),
-                 catalog->versionById(node.versionId).path);
+                 modelSafePath(catalog, catalog->versionById(node.versionId).path));
     nodes.append(entry);
   }
   payload.insert(QStringLiteral("nodes"), nodes);

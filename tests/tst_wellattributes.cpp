@@ -657,7 +657,7 @@ private slots:
     // 切到比值口径：无已保存版本 → 表格清空并如实提示。
     mode->setCurrentIndex(mode->findData(QStringLiteral("ratio")));
     QCOMPARE(table->rowCount(), 0);
-    QVERIFY2(hint->text().contains(QStringLiteral("尚未提取")), qPrintable(hint->text()));
+    QVERIFY2(hint->text().contains(QStringLiteral("优先读取已保存井值")), qPrintable(hint->text()));
     // 切回原口径：就地恢复（修复前：永远空白）。
     mode->setCurrentIndex(mode->findData(QStringLiteral("direct")));
     QCOMPARE(table->rowCount(), 1);
@@ -766,7 +766,7 @@ private slots:
     auto *factorTable = page.findChild<QTableWidget *>("factorTable");
     auto *spin = page.findChild<QDoubleSpinBox *>("contourIntervalSpin");
     factorTable->item(0, 0)->setCheckState(Qt::Checked); // sandthick：恢复 10/70
-    QCOMPARE(spin->value(), 10.0); // (70-10)/6 = 10，归属一致建议成立
+    QCOMPARE(spin->value(), 20.0); // #665 取整：10~70 → 0~100，100/6≈16.7 → 20，归属一致建议成立
     spin->setValue(5.0);           // 用户手设间距（触发 contourIntervalUser）
     // 换勾 sandratio（本口径无已保存版本）：不得用 sandthick 的 10~70 行
     // 把 5.0 覆写回 10.0（修复前正是旧行域 1/6 泄漏）。

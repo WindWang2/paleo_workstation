@@ -18,6 +18,14 @@ namespace paleo::geostat
 namespace
 {
 
+// 合法 OK 权重的负值来自屏蔽效应，Σ|λ| 通常 ≤ 2~3；超过此阈视为病态。
+constexpr double kMaxAbsWeightSum = 10.0;
+
+bool finishOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
+                            const detail::NeighborIndex &index, const VariogramModel &model,
+                            const std::vector<double> &b, const std::vector<double> &solution,
+                            KrigingPointResult *out );
+
 // 解普通克里金方程组（加边 LU）。points 为邻域样本（已去重）。
 bool solveOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
                            const detail::NeighborIndex &index, double x0, double y0,
@@ -46,17 +54,32 @@ bool solveOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
   std::vector<double> solution;
   if ( !solveDenseLu( a, n1, b, solution ) )
     return false;
+  return finishOrdinaryKriging( neighborhood, index, model, b, solution, out );
+}
 
+// 解向量 → 估值/方差 + 合理性闸（局部邻域与全局一次分解两条路径共用）。
+bool finishOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
+                            const detail::NeighborIndex &index, const VariogramModel &model,
+                            const std::vector<double> &b, const std::vector<double> &solution,
+                            KrigingPointResult *out )
+{
+  const int n = static_cast<int>( neighborhood.size() );
   double estimate = 0;
   double variance = 0;
+  double absWeightSum = 0;
   for ( int i = 0; i < n; ++i )
   {
     const double weight = solution[static_cast<std::size_t>( i )];
+    absWeightSum += std::fabs( weight );
     estimate += weight * index.point( neighborhood[static_cast<std::size_t>( i )] ).value;
     variance += weight * b[static_cast<std::size_t>( i )];
   }
   variance += solution[static_cast<std::size_t>( n )]; // + μ
   if ( !std::isfinite( estimate ) || !std::isfinite( variance ) )
+    return false;
+  // PW-018：病态闸——Σλ=1 下 Σ|λ| 远大于 1 意味着大幅正负抵消的权重
+  //（近奇异方程组），估值可越出数据范围数个量级。如实判失败而非 ok=true。
+  if ( absWeightSum > kMaxAbsWeightSum )
     return false;
   const double varianceScale = std::max( 1.0, model.nugget + model.sill );
   if ( variance < 0 )
@@ -113,7 +136,7 @@ struct SolverCore
 
   SolverCore( const std::vector<Sample> &samples, const VariogramModel &variogram,
               const KrigingParams &krigingParams )
-    : model( variogram )
+    : model( regularizedForKriging( variogram ) )
   {
     params = krigingParams;
     clampParams( &params );
@@ -122,6 +145,71 @@ struct SolverCore
       return;
     index = detail::NeighborIndex::build( deduped );
     valid = true;
+    buildGlobalFactor();
+  }
+
+  // PW-079：maxPoints<=0 且无半径 = 每格都用全部 n 个样本。方程组矩阵与待估点
+  // 无关（只有右端项变），一次分解后每格只做 O(n²) 回代，替代每格 O(n³)。
+  // 内存 (n+1)² double，n 超过上限时退回逐格求解（旧口径）。
+  static constexpr std::size_t kMaxGlobalFactorSamples = 4000;
+  bool global = false;
+  bool globalFactorOk = false;
+  LuWorkspace globalLu;
+  std::vector<std::uint32_t> globalOrder;
+
+  void buildGlobalFactor()
+  {
+    if ( params.maxPoints > 0 || params.searchRadius > 0 || index.size() > kMaxGlobalFactorSamples )
+      return;
+    global = true;
+    const int n = static_cast<int>( index.size() );
+    const int n1 = n + 1;
+    globalOrder.resize( index.size() );
+    for ( std::size_t i = 0; i < index.size(); ++i )
+      globalOrder[i] = static_cast<std::uint32_t>( i );
+    std::vector<double> a( static_cast<std::size_t>( n1 ) * n1, 0.0 );
+    for ( int i = 0; i < n; ++i )
+    {
+      const Sample &si = index.point( static_cast<std::uint32_t>( i ) );
+      for ( int j = i + 1; j < n; ++j )
+      {
+        const Sample &sj = index.point( static_cast<std::uint32_t>( j ) );
+        const double gamma = model.semivariance( si.x - sj.x, si.y - sj.y );
+        a[static_cast<std::size_t>( i ) * n1 + j] = gamma;
+        a[static_cast<std::size_t>( j ) * n1 + i] = gamma;
+      }
+      a[static_cast<std::size_t>( i ) * n1 + n] = 1.0;
+      a[static_cast<std::size_t>( n ) * n1 + i] = 1.0;
+    }
+    globalFactorOk = luFactor( a, n1, globalLu );
+  }
+
+  // 全局路径的单点求解；global=false 时调用方走邻域路径。
+  bool solveGlobal( double x0, double y0, KrigingPointResult *out ) const
+  {
+    if ( !globalFactorOk )
+      return false;
+    const int n = static_cast<int>( index.size() );
+    std::vector<double> b( static_cast<std::size_t>( n ) + 1, 1.0 );
+    for ( int i = 0; i < n; ++i )
+    {
+      const Sample &si = index.point( static_cast<std::uint32_t>( i ) );
+      b[static_cast<std::size_t>( i )] = model.semivariance( si.x - x0, si.y - y0 );
+    }
+    std::vector<double> solution;
+    luSolve( globalLu, n + 1, b, solution );
+    return finishOrdinaryKriging( globalOrder, index, model, b, solution, out );
+  }
+
+  bool solve( double x, double y, std::vector<std::uint32_t> *scratch, KrigingPointResult *out ) const
+  {
+    if ( !valid )
+      return false;
+    if ( global )
+      return solveGlobal( x, y, out );
+    if ( !neighborhood( x, y, scratch ) )
+      return false;
+    return solveOrdinaryKriging( *scratch, index, x, y, model, out );
   }
 
   bool neighborhood( double x, double y, std::vector<std::uint32_t> *out ) const
@@ -180,9 +268,7 @@ KrigingPointResult KrigingSolver::solveAt( double x, double y ) const
   if ( !m_impl )
     return result;
   std::vector<std::uint32_t> neighborhood;
-  if ( !m_impl->core.neighborhood( x, y, &neighborhood ) )
-    return result;
-  solveOrdinaryKriging( neighborhood, m_impl->core.index, x, y, m_impl->core.model, &result );
+  m_impl->core.solve( x, y, &neighborhood, &result );
   return result;
 }
 
@@ -238,12 +324,11 @@ KrigingResult ordinaryKriging( const std::vector<Sample> &samples, const GridSpe
     for ( int column = 0; column < grid.cols; ++column )
     {
       const std::size_t cell = static_cast<std::size_t>( row ) * grid.cols + column;
-      if ( core.neighborhood( grid.cellCenterX( column ), grid.cellCenterY( row ), &neighborhood ) )
+      if ( core.global ||
+           core.neighborhood( grid.cellCenterX( column ), grid.cellCenterY( row ), &neighborhood ) )
       {
         KrigingPointResult point;
-        if ( solveOrdinaryKriging( neighborhood, core.index,
-                                   grid.cellCenterX( column ), grid.cellCenterY( row ),
-                                   core.model, &point ) )
+        if ( core.solve( grid.cellCenterX( column ), grid.cellCenterY( row ), &neighborhood, &point ) )
         {
           result.estimate[cell] = point.estimate;
           result.variance[cell] = point.variance;

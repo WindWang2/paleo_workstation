@@ -50,7 +50,6 @@
 #include "dataimport_log.h"
 
 using paleo::dataimport_detail::setError;
-using paleo::dataimport_detail::readFileOrEmpty;
 
 // ---------------------------------------------------------------------------
 // §3/§4「导入工区文件夹」：递归枚举普通文件（分类依赖 井位/井分层/时深/层位

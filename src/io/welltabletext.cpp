@@ -1,4 +1,5 @@
 // 层：数据
+#include "boundedread.h" // PW-076
 #include "welltabletext.h"
 #include "encodingdetect.h"
 #include <QFile>
@@ -22,10 +23,12 @@ QStringList fields(const QString &line, QChar delimiter)
 }
 WorkbookReadResult readWellDelimitedTable(const QString &path)
 {
-  WorkbookReadResult out; QFile f(path);
-  if (!f.open(QIODevice::ReadOnly)) { out.error = f.errorString(); return out; }
-  if (f.size() > 64ll * 1024 * 1024) { out.error = QStringLiteral("井位文本超过 64 MB，请拆分后导入"); return out; }
-  const auto text = EncodingDetect::decodeText(f.readAll());
+  WorkbookReadResult out; QByteArray raw;
+  if (!paleo::io::readBoundedFile(path, 64ll * 1024 * 1024, &raw, &out.error)) {
+    if (out.error.startsWith(QLatin1String("file too large"))) out.error = QStringLiteral("井位文本超过 64 MB，请拆分后导入");
+    return out;
+  }
+  const auto text = EncodingDetect::decodeText(raw);
   WorkbookSheet sheet; sheet.name = QFileInfo(path).completeBaseName(); QChar delimiter;
   int row = 0;
   for (const auto &line : text.split(QRegularExpression(QStringLiteral("[\r\n]+")), Qt::SkipEmptyParts)) {

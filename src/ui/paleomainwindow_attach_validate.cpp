@@ -130,12 +130,18 @@ void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
     }
 
     auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost"));
-    auto *stack = host ? static_cast<QStackedLayout *>(host->layout()) : nullptr;
+    auto *stack = host ? qobject_cast<QStackedLayout *>(host->layout()) : nullptr;
     if (!stack)
       return;
     const int idx = paleo::pagesinternal::kPageIds.indexOf(QStringLiteral("validate"));
     if (idx < 0 || idx >= stack->count())
       return;
+    // PW-042：页序表下标须真对应验证页（否则会把别的页包进页签）；takeAt/
+    // insertWidget 会移动 currentIndex——记下并在替换后还原，避免当前页漂移。
+    if (QWidget *atIdx = stack->widget(idx);
+        !atIdx || !atIdx->findChild<QWidget *>(QStringLiteral("validatePageScroll")))
+      return;
+    const int prevCurrent = stack->currentIndex();
     QLayoutItem *taken = stack->takeAt(idx);
     QWidget *validatePage = taken ? taken->widget() : nullptr;
     delete taken;
@@ -149,6 +155,8 @@ void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
     m_wellSitingPanel = panel;
     tabs->addTab(panel, tr("布井辅助"));
     stack->insertWidget(idx, tabs);
+    if (prevCurrent >= 0 && prevCurrent < stack->count())
+      stack->setCurrentIndex(prevCurrent);
     // 页签不变页义：验证页 ribbon/图层档案映射仍按 "validate" 走。
 
     // 地图布点意图 → 装拾取工具；拾取点回调面板入 catalog 计划井。

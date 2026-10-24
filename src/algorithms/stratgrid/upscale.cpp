@@ -27,10 +27,14 @@ bool columnAt(const ZoneGrid &grid, double x, double y, int *i, int *j)
 {
   const double u = (x - grid.originX) / grid.dx;
   const double v = (y - grid.originY) / grid.dy;
-  const int ii = static_cast<int>(std::floor(u));
-  const int jj = static_cast<int>(std::floor(v));
-  if (ii < 0 || jj < 0 || ii >= grid.ni || jj >= grid.nj)
+  // PW-128：先在 double 域判界再转 int——NaN/越界大值直接 static_cast 是 UB。
+  const double fu = std::floor(u);
+  const double fv = std::floor(v);
+  if (!(fu >= 0.0) || !(fv >= 0.0) || fu >= static_cast<double>(grid.ni) ||
+      fv >= static_cast<double>(grid.nj))
     return false;
+  const int ii = static_cast<int>(fu);
+  const int jj = static_cast<int>(fv);
   *i = ii;
   *j = jj;
   return true;

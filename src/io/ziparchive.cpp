@@ -302,11 +302,15 @@ ZipListResult zipListBytes( const QByteArray &archive )
   }
   // 解压预算：deflate 可把几百字节放大成数百 MiB，逐条 512 MiB 闸挡不住
   // 「几千条各声言 512 MiB」的包。这里按中央目录声明的未压缩总量一次性判。
-  qint64 totalUncompressed = 0;
+  // PW-073：u64 累加、逐条先判——ZIP64 声明 >2^63 的尺寸强转 qint64 为负会把总量减小绕过闸。
+  quint64 totalUncompressed = 0;
   for ( const ZipEntry &entry : result.entries )
   {
-    totalUncompressed += static_cast<qint64>( entry.uncompressedSize );
-    if ( totalUncompressed > kMaxTotalUncompressedBytes )
+    const quint64 size = static_cast<quint64>( entry.uncompressedSize );
+    const quint64 limit = static_cast<quint64>( kMaxTotalUncompressedBytes );
+    totalUncompressed = ( size > limit || totalUncompressed > limit - size ) ? limit + 1
+                                                                              : totalUncompressed + size;
+    if ( totalUncompressed > limit )
     {
       result.error = QStringLiteral( "ZIP 声明解压总量超过上限（%1 字节 > %2 字节），拒绝读取" )
                          .arg( totalUncompressed )
@@ -349,6 +353,20 @@ bool zipExtractBytes( const QByteArray &archive, const QString &entryName, QByte
   const ZipEntry *item = listing.entry( entryName );
   if ( !item )
     return fail( QStringLiteral( "ZIP 内没有条目：%1" ).arg( entryName ) );
+  return zipExtractEntry( archive, *item, out, error );
+}
+
+// PW-074：按已列出的条目解压——调用方列一次目录后逐条解，不再每条重解中央目录（O(n²)）。
+bool zipExtractEntry( const QByteArray &archive, const ZipEntry &entry, QByteArray *out,
+                      QString *error )
+{
+  const auto fail = [error]( const QString &message ) {
+    if ( error )
+      *error = message;
+    return false;
+  };
+  const QString &entryName = entry.name;
+  const ZipEntry *item = &entry;
   if ( item->encrypted )
     return fail( QStringLiteral( "条目「%1」已加密，不支持" ).arg( entryName ) );
   if ( item->method != 0 && item->method != 8 )
@@ -367,7 +385,7 @@ bool zipExtractBytes( const QByteArray &archive, const QString &entryName, QByte
   const std::uint16_t nameLength = readU16( archive, static_cast<int>( headerOffset ) + 26 );
   const std::uint16_t extraLength = readU16( archive, static_cast<int>( headerOffset ) + 28 );
   const qint64 dataOffset = headerOffset + 30 + nameLength + extraLength;
-  if ( dataOffset + compressedSize > archive.size() )
+  if ( dataOffset > archive.size() || compressedSize > archive.size() - dataOffset )
     return fail( QStringLiteral( "条目「%1」数据段被截断" ).arg( entryName ) );
   const QByteArray raw = archive.mid( static_cast<int>( dataOffset ),
                                       static_cast<int>( compressedSize ) );

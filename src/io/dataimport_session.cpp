@@ -49,7 +49,6 @@
 #include "importrecovery.h"
 
 using paleo::dataimport_detail::setError;
-using paleo::dataimport_detail::readFileOrEmpty;
 
 // ---- 会话/登记基座：plan 构建、井身份解析、受管 RAW 暂存、ImportSession
 // 记账、produce-then-commit 的提交/失败面（方向57 自 dataimportservice.cpp

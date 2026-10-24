@@ -19,6 +19,7 @@ class PaleoProjectStore;
 class ProjectDataFacade;
 class QgisLayerService;
 class WellSitingStore;
+class PaleoTaskService;
 
 // wellsitingworkflow — 井网辅助编排（方向 34：覆盖诊断、候选点位、方案
 // 对比、planned 计划井实体）。thin orchestrator：几何计算全在
@@ -68,6 +69,9 @@ class WellSitingWorkflow : public QObject
     void setProjectData( ProjectDataFacade *projectData );
     void setCatalog( DataCatalog *catalog, const QString &projectDir = QString() );
     void setSitingStore( WellSitingStore *store );
+    // PW-034：异步方案评估走任务服务的有界池并登记任务中心（可取消、计入
+    // 换工程/退出排空）；未注入时回退全局池（测试）。
+    void setTaskService( PaleoTaskService *tasks );
     // 约束几何提供方（ConstraintStore 等的外部归集）：第一个 polygon 作为
     // 工区域，line 全部作为候选避让线。缺省（空）→ 域回退井位包围盒。
     void setConstraintProvider( std::function<QList<SitingConstraintGeometry>()> provider );
@@ -164,6 +168,7 @@ class WellSitingWorkflow : public QObject
                                  const QString &error );
     quint64 m_evalGeneration = 0;
     std::shared_ptr<std::atomic_bool> m_evalStop;
+    QPointer<PaleoTaskService> m_taskSvc;
 
     // 域解析（诊断/候选/评估共用回退链）：polygon 约束 → 地震工区角点 →
     // 井位包围盒外扩 controlRadius。*source 如实带回策略注记。

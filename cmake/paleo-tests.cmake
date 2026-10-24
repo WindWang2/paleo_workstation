@@ -26,6 +26,10 @@ add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（�
 add_paleo_test(tst_dsp_fft LIBS paleo_algorithms)          # #559：dsp radix-2 FFT 专属套件（解析恒等式 + 独立直求 DFT 对拍；纯数值，无 QGIS init）
 add_paleo_test(tst_sattrio LIBS paleo_io)                 # goal/attr-volume：SATR/SATV 容器 round-trip
 add_paleo_test(tst_seismicattrscan LIBS paleo_services)  # goal/attr-volume：时间切片/属性体扫描编排
+add_paleo_test(tst_workerexceptionsink LIBS paleo_services) # PW-014：工作分片异常转运
+add_paleo_test(tst_projectfile_safety LIBS paleo_store)  # PW-075/126：project.paleo 成员越界与版本缺失
+add_paleo_test(tst_boundedread LIBS paleo_io)  # PW-076：有界整读 helper
+add_paleo_test(tst_segy_endian LIBS paleo_io)   # PW-070/071/125 字节序/格式/共用 ns 判定
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
 add_paleo_test(tst_wellsiting_kernel LIBS paleo_algorithms)  # 方向34：井网辅助纯核（Oracle 1/3）
 add_paleo_test(tst_singlefactor_corridor LIBS paleo_algorithms)
@@ -124,6 +128,7 @@ add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)
 add_paleo_test(tst_dlisparser LIBS paleo_io)          # 方向44：DLIS (RP66 v1) 全集读口
 add_paleo_test(tst_lisparser LIBS paleo_io)           # 方向44：LIS79 全集读口
+add_paleo_test(tst_keychainslot)                   # PW-122：共用钥匙串实现契约（header-only）
 add_paleo_test(tst_lasperf LIBS paleo_io)    # 方向21：LAS 读面比率门探针（同进程参照实现）
 add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
 add_paleo_test(tst_shacache LIBS paleo_io) # setDiskFile 换绑不得把在途哈希写入新 sha.json
@@ -220,6 +225,7 @@ add_paleo_test(tst_previewdoc LIBS paleo_services paleo_qgis)
 target_compile_definitions(tst_previewdoc PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_wellcomposite LIBS paleo_ui)
+add_paleo_test(tst_curvescale)                         # PW-020/021：共享曲线刻度
 add_paleo_test(tst_smoke_realdata LIBS paleo_workflow) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
 add_paleo_test(tst_stratigraphicweb LIBS paleo_ui)
 add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable → fallback, host survives

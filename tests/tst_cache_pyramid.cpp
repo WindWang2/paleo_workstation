@@ -28,6 +28,7 @@ class CachePyramidTests : public QObject
     void invalidateClears();
     void concurrentTileReads();
     void sourceChangeRebuilds();
+    void tileDetectsSourceChangeWithoutEnsure();
     void crashResidueStateWithoutOffsetSelfHeals();
 
   private:
@@ -297,4 +298,25 @@ void CachePyramidTests::crashResidueStateWithoutOffsetSelfHeals()
 }
 
 QTEST_MAIN(CachePyramidTests)
+void CachePyramidTests::tileDetectsSourceChangeWithoutEnsure()
+{
+  // PW-105：只调 tile()（不先 ensure）时，源被覆盖为不同尺寸也必须拿到新数据，
+  // 不能从旧 meta/层文件/LRU 返回过期瓦片。
+  const QString tif = makeTiff(QStringLiteral("chg.tif"), 300, 300, false);
+  RasterPyramidService pyr(m_dir.filePath("pyrchg"));
+  QString err;
+  RasterPyramidService::Tile t;
+  QVERIFY2(pyr.tile(tif, 0, 1, 0, &t, &err), qPrintable(err));
+  QCOMPARE(t.width, 300 - 256);
+  QFile::remove(tif);
+  QTest::qWait(1100); // 确保 mtime 变化（秒级文件系统）
+  makeTiff(QStringLiteral("chg.tif"), 400, 300, false);
+  RasterPyramidService::Tile t2;
+  QVERIFY2(pyr.tile(tif, 0, 1, 0, &t2, &err), qPrintable(err));
+  QCOMPARE(t2.width, 400 - 256);
+  RasterPyramidService::PyramidMeta m;
+  QVERIFY(pyr.ensure(tif, &m, &err));
+  QCOMPARE(m.width, 400);
+}
+
 #include "tst_cache_pyramid.moc"

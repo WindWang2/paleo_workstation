@@ -91,6 +91,7 @@ PythonConsolePanel::PythonConsolePanel(PythonConsoleController *controller,
   layout->addLayout(runRow);
 
   m_output = new QTextBrowser(this);
+  m_output->document()->setMaximumBlockCount(10000); // PW-041：输出有界
   m_output->setObjectName(QStringLiteral("pythonOutput"));
   m_output->setFont(PaleoTheme::monoFont());
   m_output->setPlaceholderText(tr("脚本输出将显示在这里（stdout 正文 / stderr "

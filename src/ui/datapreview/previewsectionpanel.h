@@ -197,7 +197,12 @@ protected:
     }
 
     // 2. 剖面核心地震图像
-    p.drawImage(dst, m_img.scaled(dst.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+    // PW-135：不再每帧 SmoothTransformation 全图重采样（分配 + 双线性模糊
+    // 薄同相轴）；最近邻直绘，与主剖面画布同一口径。
+    p.save();
+    p.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    p.drawImage(QRectF(dst), m_img);
+    p.restore();
 
     // 3. D61 标定线（时间 ms → 剖面内水平线 + 井名标注）
     if (std::isfinite(m_tieMs) && m_dtMs > 0.0 && m_img.height() > 1)

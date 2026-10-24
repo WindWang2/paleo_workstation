@@ -141,6 +141,7 @@ class PaleoEditingToolbar : public QWidget
     void buildUi();
     void buildPartitionControls();
     void wireToolActions();
+    void installCanvasUndoShortcuts( QWidget *canvas );
     void uncheckTools();
     void updatePartitionControls(const QString &noEdit);
     void mergePartition();

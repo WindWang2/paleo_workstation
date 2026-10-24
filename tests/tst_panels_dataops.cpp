@@ -1502,8 +1502,8 @@ class TestPanelsDataOps : public QObject
               : m_t(std::move(t))
             {
             }
-            void redo() override { ++redone; }
-            void undo() override { ++undone; }
+            bool redo() override { ++redone; return true; }
+            bool undo() override { ++undone; return true; }
             QString text() const override { return m_t; }
             QString m_t;
             int redone = 0, undone = 0;
@@ -1531,6 +1531,67 @@ class TestPanelsDataOps : public QObject
         QVERIFY(stack.redo().isEmpty());
     }
 
+    // PW-015：redo/undo 失败 → 命令不入栈 / 整栈作废，不谎报成功。
+    void dataops_pw015_failedCommandDoesNotDesync()
+    {
+        using namespace paleo::dataops;
+        DataOpsUndoStack stack;
+        class Flaky : public DataOpCommand
+        {
+        public:
+            bool redoOk = true, undoOk = true;
+            bool redo() override { if (!redoOk) m_error = QStringLiteral("boom"); return redoOk; }
+            bool undo() override { if (!undoOk) m_error = QStringLiteral("boom"); return undoOk; }
+            QString text() const override { return QStringLiteral("flaky"); }
+        };
+        QSignalSpy failSpy(&stack, &DataOpsUndoStack::operationFailed);
+        auto *bad = new Flaky;
+        bad->redoOk = false;
+        QVERIFY(!stack.push(bad));
+        QCOMPARE(stack.depth(), 0);
+        QCOMPARE(stack.lastError(), QStringLiteral("boom"));
+        QCOMPARE(failSpy.count(), 1);
+        auto *ok1 = new Flaky;
+        auto *ok2 = new Flaky;
+        QVERIFY(stack.push(ok1));
+        QVERIFY(stack.push(ok2));
+        ok2->undoOk = false;
+        QVERIFY(stack.undo().isEmpty()); // 失败：不报撤销文案
+        QCOMPARE(stack.depth(), 0);      // 历史已不可信 → 作废
+        QCOMPARE(stack.redoDepth(), 0);
+        QCOMPARE(failSpy.count(), 2);
+    }
+
+    // PW-049：批量宏命令一次撤销整组，且只占一个栈深名额；中途失败整组回滚。
+    void dataops_pw049_macroIsOneEntry()
+    {
+        using namespace paleo::dataops;
+        DataOpsUndoStack stack;
+        static int state = 0;
+        state = 0;
+        class Inc : public DataOpCommand
+        {
+        public:
+            bool fail = false;
+            bool redo() override { if (fail) return false; ++state; return true; }
+            bool undo() override { --state; return true; }
+            QString text() const override { return QStringLiteral("inc"); }
+        };
+        QList<DataOpCommand *> kids;
+        for (int i = 0; i < DataOpsUndoStack::kMaxDepth + 10; ++i)
+            kids.append(new Inc);
+        QVERIFY(stack.push(new DataOpMacro(QStringLiteral("batch"), kids)));
+        QCOMPARE(state, DataOpsUndoStack::kMaxDepth + 10);
+        QCOMPARE(stack.depth(), 1);
+        QCOMPARE(stack.undo(), QStringLiteral("batch"));
+        QCOMPARE(state, 0);
+        auto *a = new Inc;
+        auto *b = new Inc;
+        b->fail = true;
+        QVERIFY(!stack.push(new DataOpMacro(QStringLiteral("half"), {a, b})));
+        QCOMPARE(state, 0); // a 已回滚
+    }
+
     void dataops_d5_stackDepthCap()
     {
         using namespace paleo::dataops;
@@ -1538,8 +1599,8 @@ class TestPanelsDataOps : public QObject
         class Noop : public DataOpCommand
         {
         public:
-            void redo() override {}
-            void undo() override {}
+            bool redo() override { return true; }
+            bool undo() override { return true; }
             QString text() const override { return QStringLiteral("noop"); }
         };
         for (int i = 0; i < 60; ++i)
@@ -3068,8 +3129,8 @@ class TestPanelsDataOps : public QObject
         class Noop : public DataOpCommand
         {
         public:
-            void redo() override {}
-            void undo() override {}
+            bool redo() override { return true; }
+            bool undo() override { return true; }
             QString text() const override { return QStringLiteral("x"); }
         };
         QSignalSpy spy(&stack, &DataOpsUndoStack::stackChanged);

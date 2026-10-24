@@ -421,8 +421,7 @@ bool PaleoEditingToolbar::isEditing() const
 void PaleoEditingToolbar::buildUi()
 {
   mToolBar = new QToolBar( this );
-  // DESIGN.md ribbon-button：icon-over-text。图标 = vendor QGIS default
-  // 主题 svg（qrc 解析，安装路径无关）；QGIS 缺的语义走 PaleoIcons 自绘。
+  // DESIGN.md ribbon-button：icon-over-text；图标 = QGIS 主题 svg（qrc），缺的走 PaleoIcons 自绘。
   mToolBar->setToolButtonStyle( Qt::ToolButtonTextUnderIcon );
   mToolBar->setIconSize(PaleoIcons::toolbarSize()); // 9pt 正文的密度比，非 QGIS 24px
   if ( QLayout *toolLayout = mToolBar->layout() )
@@ -574,7 +573,7 @@ void PaleoEditingToolbar::buildUi()
                                 QStringLiteral( "mActionRedo.svg" ) );
 
   wireToolActions();
-
+  installCanvasUndoShortcuts( mCanvas ); // PW-118
   connect( mActionSave, &QAction::triggered, this, &PaleoEditingToolbar::saveEditing );
   connect( mActionCancel, &QAction::triggered, this, [this] {
     // 一键 rollBack 整个编辑会话：有未提交命令时先确认（程序化 cancelEditing()

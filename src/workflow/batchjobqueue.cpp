@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMetaObject>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
 #include <QThread>
@@ -403,7 +404,19 @@ QString BatchQueue::statePath( const QString &batchId ) const
   const QString dir = stateDirFor( m_projectDir );
   if ( dir.isEmpty() || batchId.trimmed().isEmpty() )
     return QString();
-  return dir + QLatin1Char( '/' ) + batchId + QStringLiteral( ".json" );
+  // PW-027：batchId 来自调用方，可能含 '/'、'..' 或 Windows 非法字符——只保留
+  // [A-Za-z0-9_-]，其它字符整体换成 id 的哈希后缀，保证落在 batch_jobs 目录内且可逆不冲突。
+  static const QRegularExpression kSafe( QStringLiteral( "^[A-Za-z0-9_-]{1,96}$" ) );
+  QString name = batchId;
+  if ( !kSafe.match( name ).hasMatch() )
+  {
+    QString cleaned;
+    for ( const QChar c : batchId )
+      cleaned += ( c.isLetterOrNumber() && c.unicode() < 128 ) || c == '_' || c == '-' ? c : QChar( '_' );
+    const QByteArray h = QCryptographicHash::hash( batchId.toUtf8(), QCryptographicHash::Sha1 ).toHex().left( 12 );
+    name = cleaned.left( 64 ) + QLatin1Char( '-' ) + QString::fromLatin1( h );
+  }
+  return dir + QLatin1Char( '/' ) + name + QStringLiteral( ".json" );
 }
 
 int BatchQueue::pendingCount() const
@@ -510,7 +523,19 @@ void BatchQueue::writeState()
   if ( path.isEmpty() )
     return; // 无工程目录 = 不持久化（纯内存批次）
 
-  QDir().mkpath( stateDirFor( m_projectDir ) );
+  auto reportFailure = [this, &path]( const QString &why ) {
+    // PW-028：落盘失败即「崩后可续跑」承诺失效——每批只告警一次，避免刷屏。
+    if ( m_stateWriteWarned )
+      return;
+    m_stateWriteWarned = true;
+    qWarning( "BatchQueue: 批次状态写入失败 %s: %s", qPrintable( path ), qPrintable( why ) );
+    emit stateWriteFailed( m_batchId, why );
+  };
+  if ( !QDir().mkpath( stateDirFor( m_projectDir ) ) )
+  {
+    reportFailure( QObject::tr( "无法创建批次状态目录" ) );
+    return;
+  }
 
   QJsonObject o;
   o.insert( QStringLiteral( "state_version" ), kStateVersion );
@@ -531,12 +556,22 @@ void BatchQueue::writeState()
   QSaveFile f( path );
   f.setDirectWriteFallback( false );
   if ( !f.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
+  {
+    reportFailure( f.errorString() );
     return;
+  }
   const QByteArray bytes = QJsonDocument( o ).toJson( QJsonDocument::Indented );
   if ( f.write( bytes ) == bytes.size() )
-    f.commit();
+  {
+    if ( !f.commit() )
+      reportFailure( f.errorString() );
+  }
   else
+  {
+    const QString why = f.errorString();
     f.cancelWriting();
+    reportFailure( why );
+  }
 }
 
 bool BatchQueue::readState( const BatchSpec &spec, QVector<BatchItem> *out,
@@ -599,7 +634,9 @@ bool BatchQueue::readState( const BatchSpec &spec, QVector<BatchItem> *out,
       // 只有 Succeeded 是真正「完成」。Failed / Cancelled / 崩在批中的非终态
       // 都是**未达成**的工作，续跑一律回 Pending 重跑——否则失败项会被终态
       // 沿用锁死，再也重试不到（违反「失败作业可单独重试」）。
-      if ( found->state == ItemState::Succeeded )
+      // Skipped 同样是成功语义（上一趟沿用的已完成项会被改记为 Skipped 并持久化）
+      // ——若不认 Skipped，第三次续跑会把全部已完成项重跑（PW-005）。
+      if ( found->state == ItemState::Succeeded || found->state == ItemState::Skipped )
         it.state = ItemState::Succeeded;
     }
     // 指纹变了 = 参数已改 → 不复用旧终态，照新参数重跑。
@@ -670,28 +707,41 @@ bool BatchQueue::resume( const BatchSpec &spec, QString *error )
 
   // 幂等判重：同批内指纹重复的项，后者落 Skipped（不重复产生资产/版本）。
   // 判重集 = 沿用恢复来的成功终态指纹 ∪ 本批已扫过的指纹。
-  QSet<QString> seen;
+  // PW-026：判重命中「尚未跑」的孪生项时不能立即落 Skipped（成功语义）——
+  // 孪生项若随后失败/取消，重复项会被误算成功。改为挂起等待孪生项终态
+  // （见 resolveDuplicates），由孪生项结果决定本项终态。
+  QSet<QString> done;
+  QHash<QString, int> pendingTwin;
+  m_dupOf.clear();
   for ( const BatchItem &it : std::as_const( m_items ) )
   {
     if ( it.state == ItemState::Succeeded || it.state == ItemState::Skipped )
-      seen.insert( it.fingerprint );
+      done.insert( it.fingerprint );
   }
   for ( int i = 0; i < m_items.size(); ++i )
   {
     BatchItem &it = m_items[i];
     if ( it.state != ItemState::Pending && it.state != ItemState::Queued )
       continue; // 终态沿用，不重复计入
-    if ( seen.contains( it.fingerprint ) )
+    if ( done.contains( it.fingerprint ) )
     {
       it.state = ItemState::Skipped;
       it.error = QObject::tr( "参数指纹与批内已完成项相同" );
       it.percent = 100;
       continue;
     }
-    seen.insert( it.fingerprint );
+    const auto twin = pendingTwin.constFind( it.fingerprint );
+    if ( twin != pendingTwin.constEnd() )
+    {
+      it.state = ItemState::Pending; // 不入 FIFO，等孪生项
+      m_dupOf.insert( i, twin.value() );
+      continue;
+    }
+    pendingTwin.insert( it.fingerprint, i );
   }
 
   m_batchId = spec2.batchId;
+  m_stateWriteWarned = false;
   m_trippedFatal = false;
   m_fatalReason.clear();
   m_stopOnFatal = spec2.stopOnFatal;
@@ -707,7 +757,7 @@ bool BatchQueue::resume( const BatchSpec &spec, QString *error )
   // 非终态项入 FIFO（保持展开序 = FIFO 序）。
   for ( int i = 0; i < m_items.size(); ++i )
   {
-    if ( m_items[i].state == ItemState::Pending )
+    if ( m_items[i].state == ItemState::Pending && !m_dupOf.contains( i ) )
     {
       m_items[i].state = ItemState::Queued;
       m_fifo.append( i );
@@ -1045,7 +1095,7 @@ bool BatchQueue::retryFailed()
     m_fifo.clear();
     for ( int i = 0; i < m_items.size(); ++i )
     {
-      if ( m_items[i].state == ItemState::Pending )
+      if ( m_items[i].state == ItemState::Pending && !m_dupOf.contains( i ) )
       {
         m_items[i].state = ItemState::Queued;
         m_fifo.append( i );
@@ -1064,7 +1114,7 @@ bool BatchQueue::retryFailed()
   m_fatalReason.clear();
   for ( int i = 0; i < m_items.size(); ++i )
   {
-    if ( m_items[i].state == ItemState::Pending )
+    if ( m_items[i].state == ItemState::Pending && !m_dupOf.contains( i ) )
     {
       m_items[i].state = ItemState::Queued;
       m_fifo.append( i );
@@ -1075,10 +1125,54 @@ bool BatchQueue::retryFailed()
   return true;
 }
 
+bool BatchQueue::resolveDuplicates()
+{
+  bool changed = false;
+  for ( auto d = m_dupOf.constBegin(); d != m_dupOf.constEnd(); ++d )
+  {
+    const int dup = d.key();
+    const int twin = d.value();
+    if ( dup < 0 || dup >= m_items.size() || twin < 0 || twin >= m_items.size() )
+      continue;
+    BatchItem &it = m_items[dup];
+    if ( it.state != ItemState::Pending && it.state != ItemState::Queued )
+      continue;
+    const BatchItem &t = m_items[twin];
+    switch ( t.state )
+    {
+      case ItemState::Succeeded:
+      case ItemState::Skipped:
+        it.state = ItemState::Skipped;
+        it.error = QObject::tr( "参数指纹与批内已完成项相同" );
+        it.percent = 100;
+        break;
+      case ItemState::Failed:
+        it.state = ItemState::Failed;
+        it.error = QObject::tr( "同指纹孪生项失败：%1" ).arg( t.error );
+        break;
+      case ItemState::Cancelled:
+        it.state = ItemState::Cancelled;
+        it.error = QObject::tr( "同指纹孪生项已取消" );
+        break;
+      default:
+        continue; // 孪生项未终态，继续等
+    }
+    m_fifo.removeAll( dup );
+    changed = true;
+    emit itemChanged( it.itemId );
+  }
+  return changed;
+}
+
 void BatchQueue::finishIfDone()
 {
   if ( !m_running )
     return;
+  if ( resolveDuplicates() )
+  {
+    writeState();
+    emitProgress();
+  }
   if ( pendingCount() > 0 || runningCount() > 0 )
     return;
 

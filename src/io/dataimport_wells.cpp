@@ -48,7 +48,6 @@
 #include "dataimport_log.h"
 
 using paleo::dataimport_detail::setError;
-using paleo::dataimport_detail::readFileOrEmpty;
 
 // ---- 井族分支：well_head / well_log / well_stratification+time_depth /
 // well_deviation（importOneFile 分支体族化 + 井身份解析 resolveWell +

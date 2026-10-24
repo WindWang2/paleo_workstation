@@ -11,6 +11,7 @@
 #include <cmath>
 
 #include <glm/ext/matrix_projection.hpp>
+#include <limits>
 #include <glm/gtc/matrix_inverse.hpp>
 
 static void initSeismicResources() {
@@ -92,9 +93,32 @@ Seismic3DViewportWidget::~Seismic3DViewportWidget() {
     }
 }
 
+void Seismic3DViewportWidget::onContextAboutToBeDestroyed() {
+    // PW-098：浮动/回停 dock 会重建上下文。旧名字须在旧上下文里释放（共享组
+    // 下拿旧名字去新上下文 delete 可能误删别的部件新分配的对象），并把全部
+    // CPU 侧内容标记待重放，由下次 initializeGL 无条件补传。
+    if (glInitialized_) {
+        makeCurrent();
+        sliceRenderer_.Cleanup(this);
+        frameRenderer_.Cleanup(this);
+        horizonRenderer_.Cleanup(this);
+        faultRenderer_.Cleanup(this);
+        doneCurrent();
+    }
+    glInitialized_ = false;
+    faultMeshPending_ = true;
+    horizonsPending_ = !horizonItems_.empty();
+    if (replayLineSlice_.valid)
+        pendingLineSlice_ = replayLineSlice_;
+    pendingProperty_ = replayProperty_;
+}
+
 void Seismic3DViewportWidget::initializeGL() {
     initSeismicResources();
     initializeOpenGLFunctions();
+    if (QOpenGLContext *ctx = context())
+        connect(ctx, &QOpenGLContext::aboutToBeDestroyed, this,
+                &Seismic3DViewportWidget::onContextAboutToBeDestroyed, Qt::UniqueConnection);
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
@@ -288,6 +312,8 @@ void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
     pendingSlices_.clear();
     pendingProperty_.clear(); // 属性切片与地震切片共用槽位，换体丢弃未上传的属性面
     pendingLineSlice_.valid = false;
+    replayLineSlice_.valid = false;
+    replayProperty_.clear();
     activeSectionPath_.clear();
     sectionPickPoints_.clear();
     sectionHoverValid_ = false;
@@ -341,6 +367,11 @@ bool Seismic3DViewportWidget::updatePropertySlice(
     if (slot == SeismicSliceSlot::Line || image.width <= 0 || image.height <= 0)
         return false;
     const SgySliceImage baked = bakePropertyRgba(image);
+    {
+        PendingPropertySlice rec; // PW-098：上下文重建重放源
+        rec.slot = slot; rec.type = type; rec.index = index; rec.axes = axes; rec.image = image;
+        rememberPropertyReplay(std::move(rec));
+    }
     if (!glInitialized_) {
         PendingPropertySlice pending;
         pending.slot = slot;
@@ -372,6 +403,11 @@ bool Seismic3DViewportWidget::updatePropertyStackLayer(
     if (layerIdx < 0 || layerIdx >= SeismicSliceRenderer::kMaxStackLayers)
         return false;
     const SgySliceImage baked = bakePropertyRgba(image);
+    {
+        PendingPropertySlice rec; // PW-098
+        rec.stack = true; rec.stackLayer = layerIdx; rec.index = kIndex; rec.axes = axes; rec.image = image;
+        rememberPropertyReplay(std::move(rec));
+    }
     if (!glInitialized_) {
         PendingPropertySlice pending;
         pending.stack = true;
@@ -405,6 +441,7 @@ bool Seismic3DViewportWidget::updateLineSlice(
         return false;
     }
     activeSectionPath_ = pathPoints; // D7.2：取消拾取后恢复顶面线用
+    replayLineSlice_ = {pathPoints, image, true}; // PW-098
     if (!glInitialized_) {
         pendingLineSlice_ = {pathPoints, image, true};
         return true;
@@ -484,6 +521,7 @@ void Seismic3DViewportWidget::mousePressEvent(QMouseEvent *event) {
         // 任意位置默认旋转；移动切片必须显式按住 Alt，不抢占剖面上的旋转。
         dragMode_ = DragMode::Rotate;
         if (event->modifiers() & Qt::AltModifier) {
+            dragRemainder_ = 0.0f;
             const SeismicSliceSlot hit = pickSliceAt(event->position());
             if (hit != SeismicSliceSlot::Line && sliceRenderer_.IsSlotVisible(hit) &&
                 sliceRenderer_.IsSlotReady(hit)) {
@@ -736,6 +774,7 @@ bool Seismic3DViewportWidget::isLineSectionReady() const {
 
 void Seismic3DViewportWidget::clearLineSection() {
     pendingLineSlice_.valid = false;
+    replayLineSlice_.valid = false;
     activeSectionPath_.clear();
     if (glInitialized_) {
         makeCurrent();
@@ -779,6 +818,18 @@ SeismicSliceSlot Seismic3DViewportWidget::pickSliceAt(const QPointF &pos) const 
     const float yTop = vScale * 0.5f;
     const float yBottom = -vScale * 0.5f;
 
+    const glm::mat4 invMvp = glm::inverse(mvp);
+    const float ndcX = static_cast<float>(pos.x() / std::max(1, width())) * 2.0f - 1.0f;
+    const float ndcY = 1.0f - static_cast<float>(pos.y() / std::max(1, height())) * 2.0f;
+    glm::vec4 nearP = invMvp * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+    glm::vec4 farP = invMvp * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+    if (std::abs(nearP.w) < 1e-12f || std::abs(farP.w) < 1e-12f)
+        return SeismicSliceSlot::Line;
+    const glm::vec3 rayOrigin = glm::vec3(nearP) / nearP.w;
+    const glm::vec3 rayDir = glm::vec3(farP) / farP.w - rayOrigin;
+    float bestT = std::numeric_limits<float>::infinity();
+    SeismicSliceSlot best = SeismicSliceSlot::Line; // 未命中
+
     for (const PlaneDef &plane : planes) {
         if (!sliceRenderer_.IsSlotVisible(plane.slot))
             continue;
@@ -793,56 +844,82 @@ SeismicSliceSlot Seismic3DViewportWidget::pickSliceAt(const QPointF &pos) const 
             const float y = -((static_cast<float>(plane.index) / std::max(1.0f, static_cast<float>(volume_->SampleMax()))) - 0.5f) * vScale;
             corners = {{{xMin, y, zMin}, {xMax, y, zMin}, {xMax, y, zMax}, {xMin, y, zMax}}};
         }
-        // 简化：屏幕空间四边形（凸）— 用角点连线做 point-in-polygon
-        bool allSame = true;
-        bool lastSign = false;
-        bool valid = true;
-        std::array<QPointF, 5> poly;
-        for (std::size_t i = 0; i < 4; ++i) {
-            const glm::vec4 clip = mvp * glm::vec4(corners[i], 1.0f);
-            if (clip.w <= 1e-4f) { valid = false; break; }
-            poly[i] = QPointF((clip.x / clip.w * 0.5f + 0.5f) * width(),
-                              (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * height());
-        }
-        if (!valid)
+        // PW-094：射线-平面求交，取最近命中面（原实现按固定顺序返回第一个
+        // 屏幕多边形命中，前面的面会被后面的 Inline 抢走）。
+        const glm::vec3 c0 = corners[0], c2 = corners[2];
+        const int axis = plane.type == SgySliceType::Inline ? 2 : (plane.type == SgySliceType::Xline ? 0 : 1);
+        const float dirA = rayDir[axis];
+        if (std::abs(dirA) < 1e-8f)
             continue;
-        poly[4] = poly[0];
-        for (std::size_t i = 0; i < 4; ++i) {
-            const QPointF &a = poly[i];
-            const QPointF &b = poly[i + 1];
-            const double cross = (b.x() - a.x()) * (pos.y() - a.y()) -
-                                 (b.y() - a.y()) * (pos.x() - a.x());
-            const bool sign = cross >= 0.0;
-            if (i == 0)
-                lastSign = sign;
-            else if (sign != lastSign)
-                allSame = false;
+        const float t = (c0[axis] - rayOrigin[axis]) / dirA;
+        if (!(t > 0.0f) || t >= bestT)
+            continue;
+        const glm::vec3 hit = rayOrigin + rayDir * t;
+        bool inside = true;
+        for (int k = 0; k < 3; ++k) {
+            if (k == axis)
+                continue;
+            const float lo = std::min(c0[k], c2[k]) - 1e-5f, hi = std::max(c0[k], c2[k]) + 1e-5f;
+            if (hit[k] < lo || hit[k] > hi)
+                inside = false;
         }
-        if (allSame)
-            return plane.slot;
+        if (inside) {
+            bestT = t;
+            best = plane.slot;
+        }
     }
-    return SeismicSliceSlot::Line; // 未命中
+    return best;
 }
 
 int Seismic3DViewportWidget::draggedSliceIndex(SeismicSliceSlot slot, const QPointF &delta) const {
     if (!volume_ || !volume_->IsLoaded())
         return sliceIndex_[static_cast<int>(slot)];
-    int index = sliceIndex_[static_cast<int>(slot)];
+    const int si = static_cast<int>(slot);
+    int index = sliceIndex_[si];
     int minV = 0, maxV = 1;
+    // PW-099：把切片法向（索引 +1 对应的世界位移）投影到屏幕，按鼠标位移在
+    // 投影方向上的分量换算索引——方向随相机 yaw/pitch 正确，且比例与缩放一致。
+    const float hScale = SeismicSliceRenderer::HorizontalScale();
+    const float vScale = SeismicSliceRenderer::HeightScale();
+    glm::vec3 step(0.0f);
+    float fallback = 0.0f;
     if (slot == SeismicSliceSlot::Inline) {
         minV = volume_->InlineMin();
         maxV = volume_->InlineMax();
-        // 屏幕横向（近似测线方向）拖动换 IL；左右方向与相机 yaw 相关——用
-        // 简单启发：dx 正 → IL 增
-        index += static_cast<int>(std::round(delta.x() * 0.15));
+        step.z = hScale / static_cast<float>(std::max(1, maxV - minV));
+        fallback = static_cast<float>(delta.x() * 0.15);
     } else if (slot == SeismicSliceSlot::Crossline) {
         minV = volume_->XlineMin();
         maxV = volume_->XlineMax();
-        index -= static_cast<int>(std::round(delta.x() * 0.15));
+        step.x = hScale / static_cast<float>(std::max(1, maxV - minV));
+        fallback = static_cast<float>(-delta.x() * 0.15);
     } else {
         maxV = volume_->SampleMax();
-        index -= static_cast<int>(std::round(delta.y() * 0.1)); // 上拖 → 时间上移
+        step.y = -vScale / std::max(1.0f, static_cast<float>(maxV));
+        fallback = static_cast<float>(-delta.y() * 0.1);
     }
+    float dIndex = fallback;
+    if (width() > 0 && height() > 0) {
+        const float aspect = static_cast<float>(width()) / static_cast<float>(height());
+        const glm::mat4 mvp = camera_.BuildProjectionMatrix(aspect) * camera_.BuildViewMatrix();
+        const auto toScreen = [&](const glm::vec3 &p, bool *ok) {
+            const glm::vec4 c = mvp * glm::vec4(p, 1.0f);
+            *ok = c.w > 1e-4f;
+            return glm::vec2((c.x / c.w * 0.5f + 0.5f) * width(), (1.0f - (c.y / c.w * 0.5f + 0.5f)) * height());
+        };
+        bool ok0 = false, ok1 = false;
+        const glm::vec2 s0 = toScreen(glm::vec3(0.0f), &ok0);
+        const glm::vec2 s1 = toScreen(step, &ok1);
+        const glm::vec2 sv = s1 - s0;
+        const float len2 = glm::dot(sv, sv);
+        if (ok0 && ok1 && len2 > 1e-6f) // 法向几乎正对视线时退回旧启发
+            dIndex = glm::dot(glm::vec2(static_cast<float>(delta.x()), static_cast<float>(delta.y())), sv) / len2;
+    }
+    // 累积小数部分，避免慢速拖动时每帧 round 为 0 而卡住
+    dragRemainder_ += dIndex;
+    const int whole = static_cast<int>(std::trunc(dragRemainder_));
+    dragRemainder_ -= static_cast<float>(whole);
+    index += whole;
     return std::clamp(index, minV, std::max(minV, maxV));
 }
 
@@ -861,140 +938,15 @@ bool Seismic3DViewportWidget::updateStackLayer(int layerIdx, int sampleIndex, co
     return ok;
 }
 
-void Seismic3DViewportWidget::setStackVisible(bool visible) {
-    sliceRenderer_.SetStackVisible(visible);
-    update();
-}
-
-bool Seismic3DViewportWidget::isStackVisible() const {
-    return sliceRenderer_.IsStackVisible();
-}
-
-void Seismic3DViewportWidget::setStackLayerCount(int count) {
-    const int clamped = std::clamp(count, 0, SeismicSliceRenderer::kMaxStackLayers);
-    if (clamped == stackLayerCount_)
-        return;
-    // 只显示前 N 层（层序 = 体积分布序）
-    for (int i = 0; i < SeismicSliceRenderer::kMaxStackLayers; ++i)
-        sliceRenderer_.SetStackLayerVisible(i, i < clamped);
-    stackLayerCount_ = clamped;
-    update();
-}
-
-void Seismic3DViewportWidget::setSliceAlpha(float alpha) {
-    sliceRenderer_.SetSliceAlpha(alpha);
-    update();
-}
-
-// D7.1：LUT 重传（256B）。enable 翻转时切片/堆叠层纹理需按新模式重喂——
-// 由面板持有 values 缓存方（cachedSlices_/堆叠缓存）负责，视口只管 LUT。
-void Seismic3DViewportWidget::setTransferFunction(const std::vector<unsigned char> &lutRgba, bool enable) {
-    tfLutBytes_ = lutRgba;
-    tfActive_ = enable;
-    if (!glInitialized_ || lutRgba.size() != 256 * 4)
-        return;
-    makeCurrent();
-    sliceRenderer_.SetTransferFunction(this, lutRgba, enable);
-    doneCurrent();
-    update();
-}
-
-QImage Seismic3DViewportWidget::grabViewportImage() {
-    if (!glInitialized_)
-        return QImage();
-    return grabFramebuffer();
-}
-
-void Seismic3DViewportWidget::setWells(const std::vector<Seismic3DWell> &wells) {
-    wellsForLabels_ = wells; // D7.3 标注叠绘原料（无 GL 也更新）
-    if (!volume_)
-        return;
-    if (glInitialized_) {
-        makeCurrent();
-        frameRenderer_.UpdateWells(this, *volume_, wells);
-        doneCurrent();
-        update();
-    }
-}
-
-// ---- D7.3 层位面 ----
-void Seismic3DViewportWidget::setFaultSceneMesh(const FaultSceneMesh &mesh) {
-    faultMesh_ = mesh;
-    faultRenderer_.setMesh(mesh);
-    if (glInitialized_) {
-        makeCurrent();
-        faultRenderer_.Update(this, mesh);
-        doneCurrent();
-        update();
-    } else {
-        faultMeshPending_ = true;
-    }
-}
-
-void Seismic3DViewportWidget::clearFaultSceneMesh() {
-    setFaultSceneMesh(FaultSceneMesh{});
-    faultFit_ = {};
-}
-
-int Seismic3DViewportWidget::faultSceneTriangleCount() const {
-    return faultRenderer_.triangleCount();
-}
-
-void Seismic3DViewportWidget::fitFaultSurfaces(float aspect) {
-    const float safeAspect = aspect > 0.f ? aspect : 1.f;
-    faultFit_ = fitFaultSceneCamera(camera_, faultMesh_, safeAspect);
-}
-
-bool Seismic3DViewportWidget::faultSceneContainsBounds(float aspect) const {
-    const float safeAspect = aspect > 0.f ? aspect : 1.f;
-    return faultSceneBoundsInsideFrustum(camera_, faultFit_, safeAspect);
-}
-
-void Seismic3DViewportWidget::setHorizons(const std::vector<Seismic3DHorizonSurface> &items) {
-    horizonItems_ = items;
-    if (!volume_ || !volume_->IsLoaded())
-        return;
-    if (glInitialized_) {
-        makeCurrent();
-        horizonRenderer_.UpdateHorizons(this, *volume_, horizonItems_);
-        doneCurrent();
-        update();
-    } else {
-        horizonsPending_ = true; // initializeGL 补传
-    }
-}
-
-void Seismic3DViewportWidget::setHorizonVisible(int index, bool visible) {
-    if (index >= 0 && index < int(horizonItems_.size()))
-        horizonItems_[static_cast<std::size_t>(index)].visible = visible;
-    horizonRenderer_.SetHorizonVisible(index, visible);
-    update();
-}
-
-bool Seismic3DViewportWidget::isHorizonVisible(int index) const {
-    if (index < 0 || index >= int(horizonItems_.size()))
-        return false;
-    return horizonItems_[static_cast<std::size_t>(index)].visible;
-}
-
-void Seismic3DViewportWidget::setHorizonsVisible(bool visible) {
-    horizonRenderer_.SetVisible(visible);
-    update();
-}
-
-void Seismic3DViewportWidget::setWellLabelsVisible(bool visible) {
-    wellLabelsVisible_ = visible;
-    update();
-}
-
-void Seismic3DViewportWidget::setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary) {
-    secondaryVolume_ = std::move(secondary);
-    if (!volume_ || !glInitialized_)
-        return;
-    makeCurrent();
-    frameRenderer_.SetSecondaryVolume(this, *volume_, secondaryVolume_);
-    doneCurrent();
-    update();
-}
 
 } // namespace seismic
+
+void seismic::Seismic3DViewportWidget::rememberPropertyReplay(PendingPropertySlice rec) {
+    replayProperty_.erase(std::remove_if(replayProperty_.begin(), replayProperty_.end(),
+                                         [&](const PendingPropertySlice &item) {
+                                             return item.stack == rec.stack &&
+                                                    (rec.stack ? item.stackLayer == rec.stackLayer : item.slot == rec.slot);
+                                         }),
+                          replayProperty_.end());
+    replayProperty_.push_back(std::move(rec));
+}

@@ -1,5 +1,6 @@
 // 层：功能
 #include "seismicmaplink.h"
+#include <QSet>
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyvolume.h"
 #include "selectioncontext.h"
@@ -173,6 +174,25 @@ void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &ma
   emit sectionExtractedFromMap(true, QString());
 }
 
+namespace
+{
+// PW-064（缓解）：悬停/点击每次 fromWkt 解析本地测网 CRS 代价高——按 WKT 文本
+// 缓存（GUI 线程调用；thread_local 保证跨线程也安全）。坐标变换对象本身仍由
+// mapreference::transformPoint 构造（共享助手，未改）。
+QgsCoordinateReferenceSystem cachedLocalGridCrs()
+{
+  thread_local QString wkt;
+  thread_local QgsCoordinateReferenceSystem crs;
+  const QString now = DataCatalog::localGridCrsWkt();
+  if (now != wkt || !crs.isValid())
+  {
+    wkt = now;
+    crs = QgsCoordinateReferenceSystem::fromWkt(now);
+  }
+  return crs;
+}
+} // namespace
+
 void SeismicMapLink::onContextSelection(const QStringList &ids, const QString &origin)
 {
   if (!m_layer || origin == QLatin1String("seismic_map"))
@@ -186,10 +206,13 @@ void SeismicMapLink::onContextSelection(const QStringList &ids, const QString &o
   QgsFeatureRequest req;
   req.setSubsetOfAttributes(QgsAttributeList{idx});
   req.setFlags(Qgis::FeatureRequestFlag::NoGeometry);
+  // PW-063（缓解）：ids 先建哈希集——每要素 O(1) 判定，整体 O(N+M) 而非 O(N·M)。
+  // 与 WellMapLink 的实现合并（LayerIdentitySync）仍待后续。
+  const QSet<QString> idSet(ids.cbegin(), ids.cend());
   QgsFeature f;
   QgsFeatureIterator it = m_layer->getFeatures(req);
   while (it.nextFeature(f))
-    if (ids.contains(f.attribute(idx).toString()))
+    if (idSet.contains(f.attribute(idx).toString()))
       fids.insert(f.id());
 
   {
@@ -224,7 +247,7 @@ void SeismicMapLink::onSectionTraceHovered(
   const auto destCrs = m_canvas->mapSettings().destinationCrs();
   if (destCrs.isValid()) {
     if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(mapX, mapY),
-        QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()),
+        cachedLocalGridCrs(),
         destCrs, &mapped)) { m_cursorMarker->hide(); return; }
   }
   m_cursorMarker->setCenter(mapped);
@@ -242,7 +265,7 @@ void SeismicMapLink::onSectionTraceClicked(
     const auto destCrs = m_canvas->mapSettings().destinationCrs();
     if (destCrs.isValid()) {
       if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(mapX, mapY),
-          QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()),
+          cachedLocalGridCrs(),
           destCrs, &mapped)) return;
     }
     m_canvas->setCenter(mapped);
@@ -258,7 +281,7 @@ void SeismicMapLink::onSectionPathCaptured(const QVector<QgsPointXY> &points,
   for (const auto &point : points) {
     QgsPointXY transformed;
     if (!paleo::mapreference::transformPoint(m_canvas, point, m_canvas->mapSettings().destinationCrs(),
-        QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()), &transformed)) {
+        cachedLocalGridCrs(), &transformed)) {
       emit sectionExtractedFromMap(false, tr("无法把地图位置换算到地震测网，请检查工程坐标设置"));
       return;
     }

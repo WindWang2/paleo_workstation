@@ -196,6 +196,7 @@ private:
     SeismicSliceSlot pickSliceAt(const QPointF &pos) const;
     // D3.2：拖动增量 → 新切片索引
     int draggedSliceIndex(SeismicSliceSlot slot, const QPointF &delta) const;
+    mutable float dragRemainder_ = 0.0f; // PW-099：拖面小数索引累积
     void applyInertia();
 
     // D7.2：屏幕点 → 顶面射线求交 → (inline, xline)（吸附真实线号）
@@ -218,6 +219,11 @@ private:
     std::map<SeismicSliceSlot, PendingSlice> pendingSlices_;
     PendingLineSlice pendingLineSlice_;
     std::vector<PendingPropertySlice> pendingProperty_;
+    // PW-098：上下文重建后的重放源（与 pending* 不同，上传后不清空）
+    PendingLineSlice replayLineSlice_;
+    std::vector<PendingPropertySlice> replayProperty_;
+    void rememberPropertyReplay(PendingPropertySlice rec);
+    void onContextAboutToBeDestroyed();
 
     // 当前三向切片索引（拖动换算基准；面板 setSlice 时同步喂）
     int sliceIndex_[3] = {0, 0, 0};

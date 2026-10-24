@@ -1,4 +1,5 @@
 // 层：数据
+#include "workerexceptionsink.h"
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
 #include "services/fspathutils.h"
@@ -552,13 +553,14 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
               w.join();
           }
         });
+        WorkerExceptionSink workerErrors; // PW-014：工作分片异常转运，不 terminate
         for (int t = 1; t < nThreads; ++t)
         {
           const int x0 = std::min(nXl, t * chunk);
           const int x1 = std::min(nXl, x0 + chunk);
           if (x0 >= x1)
             break;
-          workers.emplace_back(runRange, x0, x1);
+          workers.emplace_back(workerErrors.wrap(runRange), x0, x1);
         }
         runRange(0, std::min(nXl, chunk));
         for (auto &w : workers)
@@ -566,6 +568,7 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
           if (w.joinable())
             w.join();
         }
+        workerErrors.rethrowIfAny();
         if (task->cancelRequested())
           return QString();
         for (int x = 0; x < nXl; ++x)
@@ -1048,13 +1051,14 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
                 w.join();
             }
           });
+          WorkerExceptionSink workerErrors; // PW-014：工作分片异常转运，不 terminate
           for (int t = 1; t < nThreads; ++t)
           {
             const int x0 = std::min(nXl, t * chunk);
             const int x1 = std::min(nXl, x0 + chunk);
             if (x0 >= x1)
               break;
-            workers.emplace_back(runRange, x0, x1);
+            workers.emplace_back(workerErrors.wrap(runRange), x0, x1);
           }
           runRange(0, std::min(nXl, chunk));
           for (auto &w : workers)
@@ -1062,6 +1066,7 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
             if (w.joinable())
               w.join();
           }
+          workerErrors.rethrowIfAny();
           if (task->cancelRequested())
           {
             abandonPartial();

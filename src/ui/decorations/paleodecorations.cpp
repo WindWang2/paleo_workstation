@@ -374,6 +374,12 @@ namespace
 
 // ----------------------------------------------------------------- manager
 
+PaleoDecorationManager *PaleoDecorationManager::forCanvasWidget( QWidget *canvas, QObject *parent )
+{
+  auto *c = qobject_cast<QgsMapCanvas *>( canvas );
+  return c ? new PaleoDecorationManager( c, parent ) : nullptr;
+}
+
 PaleoDecorationManager::PaleoDecorationManager( QgsMapCanvas *canvas, QObject *parent )
   : QObject( parent ? parent : static_cast<QObject *>( canvas ) )
   , mCanvas( canvas )

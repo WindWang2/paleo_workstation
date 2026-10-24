@@ -31,6 +31,21 @@ struct DataOpsContext
   bool valid() const { return cat && tags && assetOverrides && entityOverrides && recycle; }
 };
 
+// PW-015: shared failure helpers — every redo()/undo() reports whether the
+// catalog/sidecar actually reached the intended state.
+inline bool opFail(QString *err, const QString &why)
+{
+  if (err)
+    *err = why;
+  return false;
+}
+inline QString ctxInvalidText() { return QObject::tr("数据目录不可用（工程已关闭或切换）"); }
+inline QString linkMissingText(const QString &assetId)
+{
+  return QObject::tr("找不到 %1 的对应关联（目录已在别处被改动）").arg(assetId);
+}
+inline QString saveFailedText() { return QObject::tr("写入侧车文件失败"); }
+
 // links() 中按 (assetId, role[, entityId]) 找链接（T28 身份寻址复刻）。
 inline int indexOfLink(DataCatalog *cat, const QString &assetId, const QString &role,
                        const QString &entityId)
@@ -62,22 +77,23 @@ public:
     , m_entityId(std::move(entityId)), m_entityType(std::move(entityType))
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     const int idx = indexOfLink(m_ctx.cat, m_assetId, m_role, QString());
     if (idx < 0)
-      return;
-    m_ctx.cat->attachLink(idx, m_entityId);
+      return opFail(&m_error, linkMissingText(m_assetId));
+    return m_ctx.cat->attachLink(idx, m_entityId, &m_error);
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     const int idx = indexOfLink(m_ctx.cat, m_assetId, m_role, m_entityId);
-    if (idx >= 0)
-      m_ctx.cat->setLinkUnresolved(idx);
+    if (idx < 0)
+      return opFail(&m_error, linkMissingText(m_assetId));
+    return m_ctx.cat->setLinkUnresolved(idx, &m_error);
   }
   QString text() const override
   {
@@ -99,21 +115,23 @@ public:
     , m_entityId(std::move(entityId))
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     const int idx = indexOfLink(m_ctx.cat, m_assetId, m_role, m_entityId);
-    if (idx >= 0)
-      m_ctx.cat->setLinkUnresolved(idx);
+    if (idx < 0)
+      return opFail(&m_error, linkMissingText(m_assetId));
+    return m_ctx.cat->setLinkUnresolved(idx, &m_error);
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     const int idx = indexOfLink(m_ctx.cat, m_assetId, m_role, QString());
-    if (idx >= 0)
-      m_ctx.cat->attachLink(idx, m_entityId);
+    if (idx < 0)
+      return opFail(&m_error, linkMissingText(m_assetId));
+    return m_ctx.cat->attachLink(idx, m_entityId, &m_error);
   }
   QString text() const override
   {
@@ -138,8 +156,8 @@ public:
     , m_from(std::move(fromEntity)), m_to(std::move(toEntity))
   {
   }
-  void redo() override { apply(m_from, m_to); }
-  void undo() override { apply(m_to, m_from); }
+  bool redo() override { return apply(m_from, m_to); }
+  bool undo() override { return apply(m_to, m_from); }
   QString text() const override
   {
     return QObject::tr("转移挂接 %1：%2→%3").arg(m_assetId, m_from, m_to);
@@ -147,17 +165,22 @@ public:
   QByteArray id() const override { return "transfer"; }
 
 private:
-  void apply(const QString &from, const QString &to)
+  bool apply(const QString &from, const QString &to)
   {
-    if (!m_ctx.valid() || from == to)
-      return;
+    if (!m_ctx.valid())
+      return opFail(&m_error, ctxInvalidText());
+    if (from == to)
+      return true;
     int idx = indexOfLink(m_ctx.cat, m_assetId, m_role, from);
+    bool resolved = idx >= 0;
     if (idx < 0)
       idx = indexOfLink(m_ctx.cat, m_assetId, m_role, QString()); // 已被解挂的半途态
     if (idx < 0)
-      return;
-    m_ctx.cat->setLinkUnresolved(idx);   // 同一行：先置未决（幂等——本就未决也成功？不，已决才成功）
-    m_ctx.cat->attachLink(idx, to);      // 再挂到目标
+      return opFail(&m_error, linkMissingText(m_assetId));
+    // 同一行：已决才需要先置未决；未决的半途态直接挂。
+    if (resolved && !m_ctx.cat->setLinkUnresolved(idx, &m_error))
+      return false;
+    return m_ctx.cat->attachLink(idx, to, &m_error); // 再挂到目标
   }
   DataOpsContext m_ctx;
   QString m_assetId, m_role, m_from, m_to;
@@ -174,28 +197,30 @@ public:
     , m_prevPrimary(std::move(prevPrimaryAssetId))
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     const int idx = indexOfLink(m_ctx.cat, m_assetId, m_role, m_entityId);
-    if (idx >= 0)
-      m_ctx.cat->setLinkPrimary(idx);
+    if (idx < 0)
+      return opFail(&m_error, linkMissingText(m_assetId));
+    return m_ctx.cat->setLinkPrimary(idx, &m_error);
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     if (m_prevPrimary.isEmpty())
     {
       const int idx = indexOfLink(m_ctx.cat, m_assetId, m_role, m_entityId);
-      if (idx >= 0)
-        m_ctx.cat->clearLinkPrimary(idx);
-      return;
+      if (idx < 0)
+        return opFail(&m_error, linkMissingText(m_assetId));
+      return m_ctx.cat->clearLinkPrimary(idx, &m_error);
     }
     const int idx = indexOfLink(m_ctx.cat, m_prevPrimary, m_role, m_entityId);
-    if (idx >= 0)
-      m_ctx.cat->setLinkPrimary(idx);
+    if (idx < 0)
+      return opFail(&m_error, linkMissingText(m_prevPrimary));
+    return m_ctx.cat->setLinkPrimary(idx, &m_error);
   }
   QString text() const override
   {
@@ -216,25 +241,25 @@ public:
     : m_ctx(ctx), m_assetId(std::move(assetId)), m_tag(std::move(tag)), m_add(add)
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     if (m_add)
       m_ctx.tags->addTag(m_assetId, m_tag);
     else
       m_ctx.tags->removeTag(m_assetId, m_tag);
-    m_ctx.tags->save();
+    return m_ctx.tags->save() || opFail(&m_error, saveFailedText());
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     if (m_add)
       m_ctx.tags->removeTag(m_assetId, m_tag);
     else
       m_ctx.tags->addTag(m_assetId, m_tag);
-    m_ctx.tags->save();
+    return m_ctx.tags->save() || opFail(&m_error, saveFailedText());
   }
   QString text() const override
   {
@@ -266,23 +291,23 @@ public:
     , m_prev(std::move(prevType))
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     m_ctx.assetOverrides->setType(m_assetId, m_new);
-    m_ctx.assetOverrides->save();
+    return m_ctx.assetOverrides->save() || opFail(&m_error, saveFailedText());
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     // prev 空 = 原无改写：撤销 = 清除改写回 catalog 原型。
     if (m_prev.isEmpty())
       m_ctx.assetOverrides->clearType(m_assetId);
     else
       m_ctx.assetOverrides->setType(m_assetId, m_prev);
-    m_ctx.assetOverrides->save();
+    return m_ctx.assetOverrides->save() || opFail(&m_error, saveFailedText());
   }
   QString text() const override
   {
@@ -305,25 +330,25 @@ public:
     , m_type(std::move(type)), m_remove(remove)
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     if (m_remove)
       m_ctx.recycle->remove(m_assetId, m_type, m_name, tr_reason());
     else
       m_ctx.recycle->restore(m_assetId);
-    m_ctx.recycle->save();
+    return m_ctx.recycle->save() || opFail(&m_error, saveFailedText());
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     if (m_remove)
       m_ctx.recycle->restore(m_assetId);
     else
       m_ctx.recycle->remove(m_assetId, m_type, m_name, tr_reason());
-    m_ctx.recycle->save();
+    return m_ctx.recycle->save() || opFail(&m_error, saveFailedText());
   }
   QString text() const override
   {
@@ -353,22 +378,22 @@ public:
     : m_ctx(ctx), m_ids(std::move(assetIds)), m_entries(std::move(entries))
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     for (const QString &id : m_ids)
       m_ctx.recycle->restore(id);
-    m_ctx.recycle->save();
+    return m_ctx.recycle->save() || opFail(&m_error, saveFailedText());
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     for (const auto &kv : m_entries)
       m_ctx.recycle->remove(kv.first, kv.second.type, kv.second.displayName,
                             kv.second.reason);
-    m_ctx.recycle->save();
+    return m_ctx.recycle->save() || opFail(&m_error, saveFailedText());
   }
   QString text() const override
   {
@@ -394,21 +419,21 @@ public:
     , m_reason(std::move(reason))
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     for (const auto &kv : m_entries)
       m_ctx.recycle->remove(kv.first, kv.second.type, kv.second.displayName, m_reason);
-    m_ctx.recycle->save();
+    return m_ctx.recycle->save() || opFail(&m_error, saveFailedText());
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     for (const QString &id : m_ids)
       m_ctx.recycle->restore(id);
-    m_ctx.recycle->save();
+    return m_ctx.recycle->save() || opFail(&m_error, saveFailedText());
   }
   QString text() const override
   {
@@ -433,19 +458,19 @@ public:
     , m_prev(std::move(prev)), m_mergeable(mergeable)
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     m_ctx.entityOverrides->setOverride(m_entityId, m_next);
-    m_ctx.entityOverrides->save();
+    return m_ctx.entityOverrides->save() || opFail(&m_error, saveFailedText());
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     m_ctx.entityOverrides->setOverride(m_entityId, m_prev);
-    m_ctx.entityOverrides->save();
+    return m_ctx.entityOverrides->save() || opFail(&m_error, saveFailedText());
   }
   QString text() const override
   {
@@ -476,26 +501,26 @@ public:
     : m_ctx(ctx), m_e(std::move(e))
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     // addEntity 幂等保护：已存在（undo 后 redo 的 catalog 状态没有实体删除，
     // undo 只做 sidecar 软删）时跳过。
     if (!m_ctx.cat->hasEntity(m_e.id))
       m_ctx.cat->addEntity(m_e);
     m_ctx.recycle->restore(m_e.id); // undo 做的是软删——恢复可见性
-    m_ctx.recycle->save();
+    return m_ctx.recycle->save() || opFail(&m_error, saveFailedText());
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
+      return opFail(&m_error, ctxInvalidText());
     // catalog 无 removeEntity API（GAPS）：undo = sidecar 软删（视图隐藏），
     // 实体记录留库，redo 时恢复可见。
     m_ctx.recycle->remove(m_e.id, m_e.entityType, m_e.name,
                           QObject::tr("新建实体撤销"));
-    m_ctx.recycle->save();
+    return m_ctx.recycle->save() || opFail(&m_error, saveFailedText());
   }
   QString text() const override
   {
@@ -517,17 +542,17 @@ public:
     , m_prev(std::move(prevName)), m_next(std::move(nextName))
   {
   }
-  void redo() override
+  bool redo() override
   {
     if (!m_ctx.valid())
-      return;
-    m_ctx.cat->renameAsset(m_assetId, m_next);
+      return opFail(&m_error, ctxInvalidText());
+    return m_ctx.cat->renameAsset(m_assetId, m_next, &m_error);
   }
-  void undo() override
+  bool undo() override
   {
     if (!m_ctx.valid())
-      return;
-    m_ctx.cat->renameAsset(m_assetId, m_prev);
+      return opFail(&m_error, ctxInvalidText());
+    return m_ctx.cat->renameAsset(m_assetId, m_prev, &m_error);
   }
   QString text() const override
   {

@@ -55,7 +55,6 @@
 #include "dataimport_internal.h"
 
 using paleo::dataimport_detail::setError;
-using paleo::dataimport_detail::readFileOrEmpty;
 
 namespace
 {

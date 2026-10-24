@@ -331,6 +331,12 @@ bool QgisProjectService::createProject( const QString &qgzPath )
 bool QgisProjectService::writeProject()
 {
   m_errors.clear();
+  // PW-008: service-layer guard — a read-only instance must not overwrite
+  // the .qgz whose lock another instance holds (mirrors updateMapConfiguration).
+  if (m_readOnly) {
+    m_errors << tr("工程以只读模式打开，不能保存工程");
+    return false;
+  }
   if (m_opening) {
     m_errors << tr("工程正在打开，请等待接管完成后保存");
     return false;

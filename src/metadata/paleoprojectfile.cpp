@@ -16,6 +16,25 @@
 
 namespace
 {
+// PW-075：空串=未声明（合法）；否则必须是不含「..」段的相对路径。
+bool isSafeProjectMemberPath(const QString &path)
+{
+  if (path.isEmpty())
+    return true;
+  if (QDir::isAbsolutePath(path) || path.startsWith(QLatin1Char('/')) ||
+      path.startsWith(QLatin1Char('\\')) || (path.size() >= 2 && path.at(1) == QLatin1Char(':')))
+    return false;
+  const QStringList parts = QString(path).replace(QLatin1Char('\\'), QLatin1Char('/'))
+                                .split(QLatin1Char('/'));
+  for (const QString &part : parts)
+    if (part == QLatin1String(".."))
+      return false;
+  return true;
+}
+} // namespace
+
+namespace
+{
   void setErr(QString *error, const QString &text)
   {
     if (error)
@@ -336,8 +355,18 @@ PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
       *ok = false;
     return f;
   }
-  const int ver = o.value(QStringLiteral("formatVersion")).toInt(-1);
-  if (ver < 1 || ver > 1)
+  // PW-126：缺失/非整数/<1 是损坏，不是「更新的版本」。
+  const QJsonValue verValue = o.value(QStringLiteral("formatVersion"));
+  const int ver = verValue.isDouble() ? verValue.toInt(-1) : -1;
+  if (ver < 1)
+  {
+    setErr(error, QStringLiteral("project file %1 has a missing or invalid formatVersion")
+                      .arg(path));
+    if (ok)
+      *ok = false;
+    return f;
+  }
+  if (ver > 1)
   {
     setErr(error,
            QStringLiteral("project file formatVersion %1 is newer than this "
@@ -357,6 +386,19 @@ PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
   f.manifest = m.value(QStringLiteral("manifest")).toString();
   f.gpkg = m.value(QStringLiteral("gpkg")).toString();
   f.areaRules = m.value(QStringLiteral("areaRules")).toString();
+  // PW-075：成员必须是项目内相对路径——绝对路径/盘符/「..」段会让共享工程包
+  // 把应用指向项目外任意文件（gpkg/sqlite 会被读写打开）。
+  for (const QString *member : {&f.qgz, &f.catalog, &f.manifest, &f.gpkg, &f.areaRules})
+  {
+    if (!isSafeProjectMemberPath(*member))
+    {
+      setErr(error, QStringLiteral("project file member path escapes the project: %1")
+                        .arg(*member));
+      if (ok)
+        *ok = false;
+      return PaleoProjectFile{};
+    }
+  }
   const QJsonObject s = o.value(QStringLiteral("sourceArea")).toObject();
   f.sourceAreaRoot = s.value(QStringLiteral("root")).toString();
   f.sourceAreaImportedUtc = s.value(QStringLiteral("importedUtc")).toString();

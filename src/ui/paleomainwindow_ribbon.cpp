@@ -57,7 +57,7 @@ void addOnlineBasemapMenu(QMenu *fileMenu, QgisProjectService *projectService,
         PaleoNotify::warning(window, QObject::tr("在线底图未加载"), error);
         return;
       }
-      window->statusBar()->showMessage(QObject::tr("在线底图已加入图层树，正在按当前视野加载"), 5000);
+      window->statusBar()->showMessage(QObject::tr("在线底图已加入图层树，正在按当前视图范围加载"), 5000);
       if (canvasController) {
         QPointer<QMainWindow> guard(window);
         paleo::onlinebasemap::watchFailures(canvasController->canvas(), layer, 15000,

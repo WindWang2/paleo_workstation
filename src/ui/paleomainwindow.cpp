@@ -54,6 +54,7 @@
 #include "../workflow/registration.h"
 #include "../workflow/sectionworkbench.h" // cancelPreviewData 解引用需完整类型（#156；resetProjectScopedState 同款）
 #include "domain/seismic/sgyvolume.h"
+#include "metadata/paleoprojectstore.h"
 #include "qgis/projectmapreference.h" // restoreCanvasExtent 的跨 CRS 范围换算
 
 #include <qgis.h> // Qgis::MapToolUnit / MessageLevel
@@ -852,6 +853,21 @@ bool PaleoMainWindow::maybeSaveProject()
     return true; // 不脏：直接放行
   if (isOffscreen() && !m_projectSaveAsk)
     return true;
+  if (m_isProjectReadOnly || (m_projectStore && m_projectStore->isReadOnly()))
+  {
+    // PW-008: a read-only instance must never write the .qgz another
+    // instance holds the lock for — offer only Discard/Cancel.
+    const QString roText =
+        tr("当前工程以只读模式打开，改动无法保存。\n\n放弃改动并继续？");
+    const auto roChoice =
+        m_projectSaveAsk
+            ? m_projectSaveAsk(tr("放弃工程改动？"), roText)
+            : PaleoNotify::askSaveDiscard(this, PaleoNotify::AskIcon::Warning,
+                                          tr("放弃工程改动？"), roText,
+                                          QString(), tr("放弃"), tr("取消"));
+    return roChoice != PaleoNotify::SaveChoice::Cancel
+           && roChoice != PaleoNotify::SaveChoice::Save;
+  }
   const QString text =
       tr("当前工程有未保存的改动（版面、图层样式、图层树顺序、地图主题等"
          "保存在工程文件里）。\n\n继续之前是否保存？");
@@ -863,14 +879,41 @@ bool PaleoMainWindow::maybeSaveProject()
                                         tr("保存"), tr("放弃"), tr("取消"));
   if (choice == PaleoNotify::SaveChoice::Cancel)
     return false;
-  if (choice == PaleoNotify::SaveChoice::Save && !m_projectSvc->writeProject())
+  QString why;
+  if (choice == PaleoNotify::SaveChoice::Save && !saveProjectThroughStore(nullptr, &why))
   {
-    const QString why = m_projectSvc->lastErrors().join(QLatin1Char('\n'));
     PaleoNotify::critical(this, tr("保存工程失败"),
                           tr("工程文件未能写入：%1\n当前工程保持不变。").arg(why));
     return false;
   }
   // 放弃：不写盘——随后的关闭/切换按既有语义丢弃（QgsProject::clear()）。
+  return true;
+}
+
+bool PaleoMainWindow::saveProjectThroughStore(PaleoProjectStore *store, QString *error)
+{
+  auto fail = [error](const QString &why) {
+    if (error)
+      *error = why;
+    return false;
+  };
+  if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
+    return fail(tr("无打开工程 — 无法保存"));
+  if (!store)
+    store = m_projectStore;
+  if (m_isProjectReadOnly || m_projectSvc->isReadOnly() || (store && store->isReadOnly()))
+    return fail(tr("工程目录被另一个实例锁定——本实例只读，工程保存被拒绝"));
+  auto writeQgz = [this] {
+    saveCanvasExtent(); // display state travels inside the .qgz
+    const bool ok = m_projectSvc->writeProject();
+    return PaleoProjectStore::WriteResult{
+        ok, ok ? QString() : m_projectSvc->lastErrors().join(QLatin1Char(';'))};
+  };
+  const PaleoProjectStore::WriteResult res =
+      store ? store->saveAll([] { return PaleoProjectStore::WriteResult{true, QString()}; }, writeQgz)
+            : writeQgz();
+  if (!res.ok)
+    return fail(res.error);
   return true;
 }
 
@@ -887,118 +930,3 @@ void PaleoMainWindow::refreshCorrelationWells()
   // 不再逐井解析——井集本身仍要维护（测井计算以它为计算范围）。
 }
 
-void PaleoMainWindow::syncSeismicVolumeToDocks()
-{
-  if (m_projectSvc && m_projectSvc->isOpening()) return;
-  DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr;
-  if (!cat || !cat->isOpen() || !m_seismicTaskSvc)
-    return;
-  for (const CatalogAsset &asset : cat->assets())
-  {
-    if (asset.type != QLatin1String("seismic"))
-      continue;
-    const auto version = cat->currentVersion(asset.id);
-    // #226：解释登记链生产接线——dock 注入 catalog + 源体资产/版本 +
-    // 解释产物目录（工程受管 artifacts/derived/interpretation：拾取 CSV/
-    // 断层/属性扫描产物全部落此并登记 DERIVED，对 catalog/治理/版本溯源
-    // 可见）。调用时现取工程目录（attach 期没有工程——同 #275 口径）。
-    if (m_seismicSectionDock && !version.id.isEmpty())
-    {
-      const QString projDir =
-          m_projectSvc && !m_projectSvc->projectPath().isEmpty()
-              ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
-              : QString();
-      m_seismicSectionDock->setInterpretationCatalog(
-          cat, asset.id, version.id,
-          projDir.isEmpty()
-              ? QString()
-              : QDir(projDir).filePath(
-                    QStringLiteral("artifacts/derived/interpretation")));
-    }
-    const QString path = m_previewDoc->absolutePathForVersion(version);
-    if (path.isEmpty() || !QFile::exists(path))
-      continue;
-    const auto matches = [&path](const auto &volume) {
-      return volume && paleo::fromFsPath(volume->Path()) == path;
-    };
-    const bool need3d = m_seismic3dPanel && !matches(m_seismic3dPanel->volume());
-    const bool needSection = m_seismicSectionDock && !matches(m_seismicSectionDock->volume());
-    // #481 P3-3：已就位/已记账/在途的体 continue 跳过（旧 return 吞后续体）；余体由终态回调串行推进。
-    if ((!need3d && !needSection) || m_seismicAutoLoadedPaths.contains(path) ||
-        (m_seismicOpenPath == path && m_seismicOpenTask && m_seismicOpenTask->running()))
-      continue;
-    if (m_seismicOpenTask)
-      m_seismicOpenTask->requestCancel();
-    const quint64 generation = ++m_seismicOpenGeneration;
-    m_seismicOpenPath = path;
-    m_seismicAutoLoadedPaths.insert(path);
-    const quint64 session = m_projectSvc ? m_projectSvc->sessionId() : 0;
-    double origin = 0;
-    for (const auto &link : cat->linksForAsset(asset.id))
-      if (!link.unresolved && link.entityType == QLatin1String("seismic_survey")) {
-        origin = cat->entityById(link.entityId).startTimeMs;
-        break;
-      }
-    auto *status = findChild<QLabel *>(QStringLiteral("projectSeismicLoadStatus"));
-    auto *progress = findChild<QProgressBar *>(QStringLiteral("projectSeismicLoadProgress"));
-    if (!status) {
-      status = new QLabel(this);
-      status->setObjectName(QStringLiteral("projectSeismicLoadStatus"));
-      progress = new QProgressBar(this);
-      progress->setObjectName(QStringLiteral("projectSeismicLoadProgress"));
-      progress->setMaximumWidth(160);
-      statusBar()->addPermanentWidget(status);
-      statusBar()->addPermanentWidget(progress);
-    }
-    status->setText(tr("后台加载地震体：%1").arg(QFileInfo(path).fileName()));
-    progress->setRange(0, 0);
-    status->show(); progress->show();
-    QPointer<PaleoMainWindow> guard(this);
-    // #481 P3-6：状态条控件按 QPointer 捕获（attach_models 范本），窗口先亡不解引用。
-    const QPointer<QLabel> statusGuard(status);
-    const QPointer<QProgressBar> progressGuard(progress);
-    m_seismicOpenTask = m_seismicTaskSvc->startVolumeLoad(path,
-        [guard, generation, session, origin, statusGuard, progressGuard](bool ok,
-              std::shared_ptr<seismic::SgyVolume> volume, const QString &error) {
-      if (!guard || generation != guard->m_seismicOpenGeneration ||
-          (guard->m_projectSvc && session != guard->m_projectSvc->sessionId()))
-        return;
-      if (statusGuard) statusGuard->hide();
-      if (progressGuard) progressGuard->hide();
-      guard->m_seismicOpenPath.clear();
-      if (!ok || !volume) {
-        guard->statusBar()->showMessage(error, 10000);
-        guard->syncSeismicVolumeToDocks(); // #481 P3-8：失败终态同样推进余体
-        return;
-      }
-      if (guard->m_seismic3dPanel) {
-        guard->m_seismic3dPanel->setTaskService(guard->m_seismicTaskSvc.get());
-        guard->m_seismic3dPanel->setVolume(volume);
-        if (guard->m_seismic3dPanel->viewport()) {
-          guard->m_seismic3dPanel->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);
-          guard->m_seismic3dPanel->viewport()->fitToBounds();
-        }
-      }
-      if (guard->m_seismicSectionDock) {
-        guard->m_seismicSectionDock->setTimeOriginMs(origin);
-        if (guard->m_sectionLink)
-          guard->m_sectionLink->setActiveVolume(volume);
-        else
-          guard->m_seismicSectionDock->setVolume(volume);
-      }
-      guard->statusBar()->showMessage(QObject::tr("地震体加载完成"), 5000);
-      // #481 P3-8 后半：终态后重扫余体（多体串行装载，已记账路径不重试）；循环尾 return 保单在途体。
-      guard->syncSeismicVolumeToDocks();
-    }, /*quiet=*/true); // 状态栏已有进度；自动加载不反复展开/收起底栏。
-    if (m_seismicOpenTask) {
-      QPointer<PaleoTask> task = m_seismicOpenTask;
-      connect(task, &PaleoTask::changed, this, [task, progressGuard, generation, this] {
-        if (!task || !progressGuard || generation != m_seismicOpenGeneration) return;
-        const int percent = task->percent();
-        progressGuard->setRange(0, percent < 0 ? 0 : 100);
-        if (percent >= 0) progressGuard->setValue(percent);
-      });
-    }
-    return;
-  }
-}

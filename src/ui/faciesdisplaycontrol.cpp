@@ -43,15 +43,23 @@ FaciesDisplayControl::FaciesDisplayControl(QWidget *parent) : QWidget(parent) {
   });
 }
 void FaciesDisplayControl::setState(const QString &id, const QString &title, const QString &mode,
-    const QString &level, const FaciesHierarchy::ScaleThresholds &thresholds) {
+    const QString &level, const FaciesHierarchy::ScaleThresholds &thresholds, int pinnedCount) {
   m_layerId = id; m_thresholds = thresholds;
   const QSignalBlocker blocked(m_mode);
   m_mode->setCurrentIndex(qMax(0, m_mode->findData(mode)));
   m_mode->setEnabled(!id.isEmpty());
   m_mode->setToolTip(id.isEmpty() ? tr("请显示并选择相图件；测井点保持最终预测相显示")
       : tr("作用于：%1；固定显示不随缩放切换，单独锁定的相面仍保留其锁定").arg(title));
+  // 有相类固定时为混合显示：只附加提示，下拉选项与切换行为不变。
+  const bool mixed = !id.isEmpty() && pinnedCount > 0;
+  if (mixed)
+    m_mode->setToolTip(m_mode->toolTip() + QLatin1Char('\n') +
+                       tr("另有 %1 个相类固定显示层级，不随此处切换（在「相类别与标注」中管理）").arg(pinnedCount));
   m_mode->setWhatsThis(m_mode->toolTip());
-  m_state->setText(id.isEmpty() ? tr("请显示相图件") : tr("当前：%1").arg(FaciesHierarchy::title(level)));
+  m_state->setText(id.isEmpty() ? tr("请显示相图件")
+      : mixed ? tr("当前：%1（%2 个相类固定）").arg(FaciesHierarchy::title(level)).arg(pinnedCount)
+              : tr("当前：%1").arg(FaciesHierarchy::title(level)));
+  m_state->setProperty("paleo.pinnedCount", mixed ? pinnedCount : 0);
   m_state->setToolTip(title);
 }
 QString FaciesDisplayControl::scaleHint(const QString &level, const FaciesHierarchy::ScaleThresholds &thresholds) {

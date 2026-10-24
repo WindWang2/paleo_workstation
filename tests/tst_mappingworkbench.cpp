@@ -1023,7 +1023,7 @@ private slots:
     for (const auto &action : std::as_const(emitted))
       QVERIFY2(isKnownAction(action), qPrintable("unregistered workbench action: " + action));
     QSet<QString> dispatched;
-    const QRegularExpression literal(QStringLiteral(R"(action == "([A-Za-z]+)")"));
+    const QRegularExpression literal(QStringLiteral(R"re(action == "([A-Za-z]+)")re"));
     for (const auto *file : {"paleomainwindow_workbench_commands.cpp", "paleomainwindow_workbench_editflow.cpp"}) {
       QFile source(QStringLiteral(PALEO_SOURCE_DIR "/src/ui/") + QLatin1String(file));
       QVERIFY2(source.open(QIODevice::ReadOnly), file);

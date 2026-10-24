@@ -1,6 +1,7 @@
 // 层：数据
 #include "linsolve.h"
 
+#include <algorithm>
 #include <cmath>
 #include <utility>
 
@@ -24,12 +25,29 @@ bool luFactor( const std::vector<double> &a, int n, LuWorkspace &workspace )
   for ( int i = 0; i < n; ++i )
     workspace.permutation[static_cast<std::size_t>( i )] = i;
 
+  // H1（数值评审 2026-10-25）：主元下限按「列」取尺度，而非全矩阵最大值。
+  // OK 加边矩阵里 Γ 块随基台值缩放、Lagrange 边固定为 1，消元后末主元约
+  // n/sill；旧的全局 1e-12·max|A| 在 sill≳1e8 时把良态方程判成奇异
+  // （每格 NaN）。按列尺度后对角块的真奇异（重复样本）仍按 1e-12·列尺度
+  // 判出；已能通过旧判据的方程组下限只会更低，解逐位不变。
+  std::vector<double> &columnFloor = workspace.columnFloor;
+  columnFloor.assign( static_cast<std::size_t>( n ), 0.0 );
   double scale = 0;
-  for ( double value : a )
-    scale = std::max( scale, std::fabs( value ) );
-  if ( !( scale > 0 ) )
+  for ( int i = 0; i < n; ++i )
+    for ( int j = 0; j < n; ++j )
+    {
+      const double magnitude = std::fabs( a[static_cast<std::size_t>( i ) * n + j] );
+      columnFloor[static_cast<std::size_t>( j )] = std::max( columnFloor[static_cast<std::size_t>( j )], magnitude );
+      scale = std::max( scale, magnitude );
+    }
+  if ( !( scale > 0 ) || !std::isfinite( scale ) )
     return false;
-  const double pivotFloor = 1e-12 * scale;
+  for ( double &floor : columnFloor )
+  {
+    if ( !( floor > 0 ) )
+      return false; // 整列为零：必奇异
+    floor *= 1e-12;
+  }
 
   std::vector<double> &lu = workspace.lu;
   std::vector<int> &permutation = workspace.permutation;
@@ -46,7 +64,7 @@ bool luFactor( const std::vector<double> &a, int n, LuWorkspace &workspace )
         pivotRow = i;
       }
     }
-    if ( pivotBest <= pivotFloor )
+    if ( !( pivotBest > columnFloor[static_cast<std::size_t>( k )] ) )
       return false;
     if ( pivotRow != k )
     {

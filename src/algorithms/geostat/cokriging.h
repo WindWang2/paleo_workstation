@@ -74,6 +74,8 @@ struct CoKrigingPointResult
   bool ok = false;
   double estimate = 0;
   double variance = 0;
+  // H1：ok=false 且本标志为真 = 方程组被 LU 判奇异（区别于邻域为空）。
+  bool systemSingular = false;
 };
 
 struct CoKrigingResult

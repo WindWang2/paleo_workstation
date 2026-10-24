@@ -183,7 +183,10 @@ CoKrigingPointResult solveCoreAt( const CokrigingCore &core, double x, double y,
   }
 
   if ( !solveDenseLu( ws.a, m, ws.b, ws.solution, ws.lu ) )
+  {
+    result.systemSingular = true;
     return result;
+  }
 
   double estimate = 0;
   double variance = 0;
@@ -318,6 +321,7 @@ CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
   result.variances.assign( total, std::numeric_limits<double>::quiet_NaN() );
 
   CokrigingWorkspace workspace;
+  std::size_t singularCells = 0;
   std::size_t sinceCheck = 0;
   const std::size_t checkInterval = 2048;
   for ( int row = 0; row < grid.rows; ++row )
@@ -335,6 +339,8 @@ CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
       else
       {
         ++result.solverFailures;
+        if ( pt.systemSingular )
+          ++singularCells;
       }
 
       ++sinceCheck;
@@ -364,6 +370,13 @@ CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
   }
   if ( control.progress )
     control.progress( 1.0 );
+  // H1：整幅无有限值且失败源于方程组奇异（而非邻域为空）时不报 Ok。
+  if ( result.finiteCells == 0 && singularCells > 0 )
+  {
+    result.status = Status::NumericalFailure;
+    result.message = "cokriging system singular for every estimable cell";
+    return result;
+  }
   result.status = Status::Ok;
   return result;
 }
@@ -665,12 +678,28 @@ std::vector<Sample> rescaleSecondaryToPrimary( const std::vector<Sample> &second
   if ( ok )
     *ok = false;
   double mu1 = 0, sd1 = 0, mu2 = 0, sd2 = 0;
-  const std::size_t n1 = stats( primaryColocated, &mu1, &sd1 );
+  // L4：配置点等长时只取「主、协两值都有限」的成对下标算统计——旧实现各自
+  // 独立滤 NaN，μ/σ 可能出自不同样本子集。增益恒正是有意的：相关符号由
+  // CoKrigingModel 的 ρ（γ12 = ρ·γ1）承担，这里只做单位/方差对齐。
+  const bool paired = secondaryColocated.size() == primaryColocated.size();
+  std::vector<double> primaryPaired;
+  std::vector<double> secondaryPaired;
+  if ( paired )
+  {
+    for ( std::size_t i = 0; i < primaryColocated.size(); ++i )
+      if ( std::isfinite( primaryColocated[i] ) && std::isfinite( secondaryColocated[i] ) )
+      {
+        primaryPaired.push_back( primaryColocated[i] );
+        secondaryPaired.push_back( secondaryColocated[i] );
+      }
+  }
+  const bool usePairs = paired && primaryPaired.size() >= 2;
+  const std::size_t n1 = stats( usePairs ? primaryPaired : primaryColocated, &mu1, &sd1 );
   if ( n1 == 0 )
     return secondary;
   std::size_t n2 = 0;
-  if ( secondaryColocated.size() == primaryColocated.size() )
-    n2 = stats( secondaryColocated, &mu2, &sd2 );
+  if ( paired )
+    n2 = stats( usePairs ? secondaryPaired : secondaryColocated, &mu2, &sd2 );
   if ( n2 < 2 || !( sd2 > 0 ) )
   {
     std::vector<double> field;

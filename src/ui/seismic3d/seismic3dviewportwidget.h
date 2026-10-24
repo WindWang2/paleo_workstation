@@ -196,6 +196,7 @@ private:
     SeismicSliceSlot pickSliceAt(const QPointF &pos) const;
     // D3.2：拖动增量 → 新切片索引
     int draggedSliceIndex(SeismicSliceSlot slot, const QPointF &delta) const;
+    mutable float dragRemainder_ = 0.0f; // PW-099：拖面小数索引累积
     void applyInertia();
 
     // D7.2：屏幕点 → 顶面射线求交 → (inline, xline)（吸附真实线号）

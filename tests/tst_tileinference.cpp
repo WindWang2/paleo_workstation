@@ -156,6 +156,7 @@ class TestTileInference : public QObject
   Q_OBJECT
 private slots:
   void planCoversEveryCellExactlyOnce();
+  void planRejectsOverflowingGrid(); // PW-012
   void softmaxMatchesIndependentImpl();
   void softmaxNodataStays255();
   // #143：非有限 logit（NaN 经感受野扩散）→ 无数据，不落到类 0/置信 1。
@@ -277,6 +278,14 @@ private:
     return true;
   }
 };
+
+void TestTileInference::planRejectsOverflowingGrid()
+{
+  // PW-012：LLM 给出的超大网格 / 1 像元 tile 不得溢出 int 或巨量分配。
+  QVERIFY( planInferenceTiles( 100000, 100000, 1, 1, 0 ).isEmpty() );
+  QVERIFY( planInferenceTiles( kMaxTileGridSide + 1, 10, 16, 16, 0 ).isEmpty() );
+  QVERIFY( !planInferenceTiles( 64, 64, 16, 16, 4 ).isEmpty() );
+}
 
 void TestTileInference::planCoversEveryCellExactlyOnce()
 {

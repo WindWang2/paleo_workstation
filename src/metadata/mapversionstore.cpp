@@ -15,6 +15,10 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QHash>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QThread>
 #include <QSet>
 #include <QUuid>
 #include <QSaveFile>
@@ -63,6 +67,23 @@ using paleo::store_detail::setError;
   // forward-compatible: absent columns keep NULL defaults on old rows).
   bool mapVersionEnsureOpen( const QString &path, bool readOnly, QString *error )
   {
+    // PW-111：QSqlDatabase 连接线程绑定——跨线程复用是未定义行为（Qt 只给一条
+    // 警告并返回无效连接，下游被误报成「驱动不可用」）。登记连接所属线程，
+    // 跨线程调用如实失败。
+    {
+      static QMutex ownersMutex;
+      static QHash<QString, QThread *> owners;
+      const QString name = mapVersionConnectionName( path, readOnly );
+      QMutexLocker lock( &ownersMutex );
+      const auto it = owners.constFind( name );
+      if ( it != owners.constEnd() && it.value() != QThread::currentThread() &&
+           QSqlDatabase::contains( name ) )
+      {
+        setError( error, QStringLiteral( "地图版本库连接 %1 属于另一线程，拒绝跨线程使用" ).arg( name ) );
+        return false;
+      }
+      owners.insert( name, QThread::currentThread() ); // 连接已移除则改归当前线程
+    }
     QSqlDatabase db =
         MetaStore::openConnection( path, mapVersionConnectionName( path, readOnly ), error, readOnly );
     if ( !db.isValid() )
@@ -286,15 +307,21 @@ int MapVersionStore::currentVersion( const QString &horizon ) const
   return latest( horizon ).version;
 }
 
-MapVersion MapVersionStore::latest( const QString &horizon ) const
+MapVersion MapVersionStore::latest( const QString &horizon, QString *error ) const
 {
-  if ( !mapVersionEnsureOpen( m_dbPath, m_readOnly, nullptr ) )
+  if ( !mapVersionEnsureOpen( m_dbPath, m_readOnly, error ) )
     return MapVersion();
   QSqlQuery q( QSqlDatabase::database( mapVersionConnectionName( m_dbPath, m_readOnly ) ) );
   q.prepare( QStringLiteral( "SELECT " ) + QLatin1String( kSelectCols ) +
              QStringLiteral( " FROM map_versions WHERE horizon=? ORDER BY version DESC LIMIT 1" ) );
   q.addBindValue( horizon );
-  if ( !q.exec() || !q.next() )
+  if ( !q.exec() )
+  {
+    // PW-111：SQL 失败如实上报，不与「无版本」混同。
+    setError( error, q.lastError().text() );
+    return MapVersion();
+  }
+  if ( !q.next() )
     return MapVersion();
   return rowToVersion( q );
 }

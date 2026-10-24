@@ -28,6 +28,10 @@ bool WellFaciesKeyStore::available() {
 }
 
 void WellFaciesKeyStore::read(QObject *context, ReadCallback done) {
+  if (!context) { // PW-122：null context 时 connect 失败，done 永不回调——立即报错
+    done(false, {}, QStringLiteral("internal error: keystore called without context"));
+    return;
+  }
 #ifdef PALEO_HAVE_QTKEYCHAIN
   if (available()) {
     auto *job = new QKeychain::ReadPasswordJob(kService);
@@ -54,6 +58,10 @@ void WellFaciesKeyStore::read(QObject *context, ReadCallback done) {
 
 void WellFaciesKeyStore::write(QObject *context, const QByteArray &key,
                                WriteCallback done) {
+  if (!context) { // PW-122
+    done(false, QStringLiteral("internal error: keystore called without context"));
+    return;
+  }
 #ifdef PALEO_HAVE_QTKEYCHAIN
   if (available()) {
     auto *job = new QKeychain::WritePasswordJob(kService);

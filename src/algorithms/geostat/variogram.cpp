@@ -39,14 +39,17 @@ double VariogramModel::semivariance( double h ) const
 
 double VariogramModel::semivariance( double dx, double dy ) const
 {
-  if ( !( anisotropyRatio > 1.0 ) )
+  // PW-037：0<ratio<1 表示主轴给反了——等价于方位 +90° 且取倒数，而非当各向同性。
+  const bool swapAxes = anisotropyRatio > 0.0 && anisotropyRatio < 1.0;
+  const double ratio = swapAxes ? 1.0 / anisotropyRatio : anisotropyRatio;
+  if ( !( ratio > 1.0 ) )
     return semivariance( std::hypot( dx, dy ) );
-  const double azimuthRad = azimuthDeg * std::numbers::pi / 180.0;
+  const double azimuthRad = ( azimuthDeg + ( swapAxes ? 90.0 : 0.0 ) ) * std::numbers::pi / 180.0;
   const double sinA = std::sin( azimuthRad );
   const double cosA = std::cos( azimuthRad );
   const double along = dx * sinA + dy * cosA; // 走向分量（长变程）
   const double across = -dx * cosA + dy * sinA; // 垂直分量（短变程）
-  return semivariance( std::hypot( along, across * anisotropyRatio ) );
+  return semivariance( std::hypot( along, across * ratio ) );
 }
 
 double VariogramModel::semivariance( double dx, double dy, double dz ) const
@@ -54,14 +57,16 @@ double VariogramModel::semivariance( double dx, double dy, double dz ) const
   if ( dz == 0.0 )
     return semivariance( dx, dy ); // 2D 消费方逐位不变（z 恒 0 → dz 恒 +0.0）
   const double zScale = verticalRangeRatio > 1.0 ? verticalRangeRatio : 1.0;
-  if ( !( anisotropyRatio > 1.0 ) )
+  const bool swapAxes = anisotropyRatio > 0.0 && anisotropyRatio < 1.0;
+  const double ratio = swapAxes ? 1.0 / anisotropyRatio : anisotropyRatio;
+  if ( !( ratio > 1.0 ) )
     return semivariance( std::hypot( std::hypot( dx, dy ), dz * zScale ) );
-  const double azimuthRad = azimuthDeg * std::numbers::pi / 180.0;
+  const double azimuthRad = ( azimuthDeg + ( swapAxes ? 90.0 : 0.0 ) ) * std::numbers::pi / 180.0;
   const double sinA = std::sin( azimuthRad );
   const double cosA = std::cos( azimuthRad );
   const double along = dx * sinA + dy * cosA;
   const double across = -dx * cosA + dy * sinA;
-  return semivariance( std::hypot( std::hypot( along, across * anisotropyRatio ),
+  return semivariance( std::hypot( std::hypot( along, across * ratio ),
                                    dz * zScale ) );
 }
 
@@ -281,30 +286,38 @@ struct FitAccumulator
   const std::vector<double> *h = nullptr;
   const std::vector<double> *gamma = nullptr;
   std::vector<std::size_t> index; // pairCount > 0 的 lag
+  // PW-037：按对数加权（Cressie 的 N_k 权，归一到均值 1）。少对的远 lag
+  // 噪声大，等权拟合会被其拖偏。
+  std::vector<double> weight; // 与 index 同序
 
   double meanGamma() const
   {
-    double sum = 0;
-    for ( std::size_t k : index )
-      sum += ( *gamma )[k];
-    return index.empty() ? 0 : sum / static_cast<double>( index.size() );
+    double sum = 0, wsum = 0;
+    for ( std::size_t t = 0; t < index.size(); ++t )
+    {
+      sum += weight[t] * ( *gamma )[index[t]];
+      wsum += weight[t];
+    }
+    return wsum > 0 ? sum / wsum : 0;
   }
 
   // 固定 range 下解 (nugget, sill) 的线性最小二乘，非负钳制。
   // 设计矩阵列 [1, g(h/range)]，2×2 正规方程手展开。
   void solveLinear( VariogramModelType type, double range, double *nugget, double *sill ) const
   {
-    double sumG = 0, sumGG = 0, sumY = 0, sumGY = 0;
-    for ( std::size_t k : index )
+    double sumG = 0, sumGG = 0, sumY = 0, sumGY = 0, n = 0;
+    for ( std::size_t t = 0; t < index.size(); ++t )
     {
+      const std::size_t k = index[t];
+      const double w = weight[t];
       const double g = shapeFor( type, ( *h )[k] / range );
       const double y = ( *gamma )[k];
-      sumG += g;
-      sumGG += g * g;
-      sumY += y;
-      sumGY += g * y;
+      n += w;
+      sumG += w * g;
+      sumGG += w * g * g;
+      sumY += w * y;
+      sumGY += w * g * y;
     }
-    const double n = static_cast<double>( index.size() );
     const double det = n * sumGG - sumG * sumG;
     if ( std::fabs( det ) < 1e-12 * std::max( 1.0, n * sumGG ) )
     {
@@ -325,13 +338,16 @@ struct FitAccumulator
     *sill = sil;
   }
 
-  double sse( VariogramModelType type, double range, double nugget, double sill ) const
+  // weighted=true 用于选参；rmse/r2 报告按等权残差（口径不变）。
+  double sse( VariogramModelType type, double range, double nugget, double sill,
+              bool weighted = true ) const
   {
     double sum = 0;
-    for ( std::size_t k : index )
+    for ( std::size_t t = 0; t < index.size(); ++t )
     {
+      const std::size_t k = index[t];
       const double residual = ( *gamma )[k] - ( nugget + sill * shapeFor( type, ( *h )[k] / range ) );
-      sum += residual * residual;
+      sum += ( weighted ? weight[t] : 1.0 ) * residual * residual;
     }
     return sum;
   }
@@ -410,6 +426,14 @@ VariogramFit fitVariogram( const ExperimentalVariogram &experimental, VariogramM
     if ( experimental.pairCount[static_cast<std::size_t>( k )] > 0 )
       acc.index.push_back( static_cast<std::size_t>( k ) );
   }
+  {
+    double total = 0;
+    for ( std::size_t k : acc.index )
+      total += static_cast<double>( experimental.pairCount[k] );
+    const double mean = total / static_cast<double>( acc.index.size() );
+    for ( std::size_t k : acc.index )
+      acc.weight.push_back( static_cast<double>( experimental.pairCount[k] ) / mean );
+  }
 
   const double lo = std::max( hMin * 0.25, hMin + 1e-9 );
   const double hi = hMax * 4.0;
@@ -461,15 +485,19 @@ VariogramFit fitVariogram( const ExperimentalVariogram &experimental, VariogramM
   //（rmse/r2 仍按实际最优参数报告，下限只影响 ≤0.1% 拱高）。
   fit.model = regularizedForKriging( fit.model );
   const double n = static_cast<double>( fit.usedLags );
-  fit.rmse = std::sqrt( bestSse / n );
-  const double meanGamma = acc.meanGamma();
+  const double unweightedSse = acc.sse( type, bestRange, bestNugget, bestSill, false );
+  fit.rmse = std::sqrt( unweightedSse / n );
+  double meanGamma = 0;
+  for ( std::size_t k : acc.index )
+    meanGamma += experimental.semivariance[k];
+  meanGamma /= n;
   double sst = 0;
   for ( std::size_t k : acc.index )
   {
     const double d = experimental.semivariance[k] - meanGamma;
     sst += d * d;
   }
-  fit.r2 = sst > 0 ? 1.0 - bestSse / sst : 0;
+  fit.r2 = sst > 0 ? 1.0 - unweightedSse / sst : 0;
   fit.status = Status::Ok;
   return fit;
 }

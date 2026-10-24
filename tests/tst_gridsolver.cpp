@@ -191,6 +191,8 @@ private slots:
   // 参数校验。
   void invalidParamsRejected();
   void sampleBilinearSemantics();
+  // review-fix-numerics R3-3：单列/单行网格采样不越界。
+  void sampleBilinearSingleColumnOrRow();
 };
 
 void TestGridSolver::guardRejectsOversizeGrid()
@@ -737,6 +739,18 @@ void TestGridSolver::largeOffsetMatchesUnshifted()
     if (std::isfinite(z0[k]))
       worst = std::max(worst, std::fabs((static_cast<double>(z1[k]) - 4.0e6) - z0[k]));
   QVERIFY2(worst <= 0.6, qPrintable(QString::number(worst)));
+}
+
+
+void TestGridSolver::sampleBilinearSingleColumnOrRow()
+{
+  GridGeometry g;
+  g.cols = 1; g.rows = 3; g.originX = 0; g.originY = 3; g.dx = 1; g.dy = 1;
+  const std::vector<float> z = {1.0f, 2.0f, 3.0f};
+  QCOMPARE(sampleBilinear(z, g, 0.5, 1.5), 2.0f); // 中间行中心
+  GridGeometry h;
+  h.cols = 3; h.rows = 1; h.originX = 0; h.originY = 1; h.dx = 1; h.dy = 1;
+  QCOMPARE(sampleBilinear(z, h, 2.0, 0.5), 2.5f);
 }
 
 QTEST_MAIN(TestGridSolver)

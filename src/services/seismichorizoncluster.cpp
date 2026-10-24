@@ -1,10 +1,8 @@
 // 层：数据
 #include "seismichorizoncluster.h"
+#include "seismichorizonscatter.h"
 #include "io/segyreader.h"
 #include "services/seismicmapping.h"
-#include <QFile>
-#include <QMap>
-#include <QRegularExpression>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -29,8 +27,7 @@ SeismicClusterResult clusterSeismicHorizon(
     result.error = QStringLiteral("请配置 1–64 个相类别");
     return result;
   }
-  struct Sample { int cell, xline; double timeMs; };
-  QMap<int, QVector<Sample>> lines;
+  SeismicHorizonDetail::Lines lines;
   if (source == SeismicHorizonSource::TimeRaster) {
     GDALAllRegister();
     using Dataset = std::unique_ptr<void, decltype(&GDALClose)>;
@@ -120,92 +117,10 @@ SeismicClusterResult clusterSeismicHorizon(
       if (grid.xyToInlineXline(x, y, &il, &xl))
         lines[il].append({sample.cell, xl, sample.timeMs});
     }
-  } else {
-    QFile input(horizonPath);
-    if (!input.open(QIODevice::ReadOnly)) {
-      result.error = QStringLiteral("无法读取层位文件：%1").arg(input.errorString());
-      return result;
-    }
-    QByteArray header;
-    while (!input.atEnd()) {
-      const qint64 position = input.pos();
-      const auto line = input.readLine();
-      if (!line.trimmed().startsWith('#') && !line.trimmed().isEmpty()) {
-        input.seek(position);
-        break;
-      }
-      header += line;
-      if (header.size() > 65536) {
-        result.error = QStringLiteral("层位文件头过长，无法识别 SMI 格式");
-        return result;
-      }
-    }
-    HorizonHeader h;
-    if (!parseHorizonHeader(header, &h, &result.error)) return result;
-    if (h.zUnits.compare(QLatin1String("ms"), Qt::CaseInsensitive) != 0) {
-      result.error = QStringLiteral("直接提取需要毫秒（ms）单位的层位时间");
-      return result;
-    }
-    const auto horizonGrid = SurveyGridGeometry::fromHorizonHeader(h);
-    const double spacingX = (h.p2x - h.p1x) / (h.gridCols - 1);
-    const double spacingY = (h.p3y - h.p2y) / (h.gridRows - 1);
-    // 号域相同仍须核对坐标，避免把另一测区的同号道当成本测区。
-    for (const auto &corner : std::array<QPair<int, int>, 3>{
-           QPair<int, int>{h.p1Inline, h.p1Xline},
-           {h.p2Inline, h.p2Xline}, {h.p3Inline, h.p3Xline}}) {
-      double sx = 0, sy = 0, hx = 0, hy = 0;
-      grid.inlineXlineToXy(corner.first, corner.second, &sx, &sy);
-      horizonGrid.inlineXlineToXy(corner.first, corner.second, &hx, &hy);
-      if (std::hypot(sx - hx, sy - hy) > 1.0) {
-        result.error = QStringLiteral("层位坐标与所选地震测网不一致，请核对测区");
-        return result;
-      }
-    }
-    result.columns = h.gridCols;
-    result.rows = h.gridRows;
-    // 原始点坐标与像元边界对齐；这里只定义分布图网格，不生成中间时间栅格。
-    // SMI 样本落在 p1 + i·spacing 的点栅格上（格心），像元边界须在半倍
-    // spacing 处（最近样本 Voronoi 分区）：extent 半格外扩，使投票方
-    // seismicclusterlabels 的 floor 分箱在样本线上精确命中、边界带不再
-    // 整体偏半道间距（B-01；TimeRaster 路径栅格 extent 天然像元边对齐，
-    // 不经此处）。相图栅格配准同源本 extent，随本口径一致校正。
-    result.extent = QRectF(h.p1x - spacingX / 2, h.p1y - spacingY / 2,
-                          h.gridCols * spacingX, h.gridRows * spacingY);
-    QByteArray occupied(result.rows * result.columns, '\0');
-    const QRegularExpression spaces(QStringLiteral("\\s+"));
-    int readRows = 0;
-    while (!input.atEnd()) {
-      if ((++readRows % 1024) == 0) {
-        if (stopped()) { result.error = QStringLiteral("已取消"); return result; }
-        report(20 + int(10.0 * input.pos() / std::max<qint64>(1, input.size())));
-      }
-      const auto text = QString::fromUtf8(input.readLine()).trimmed();
-      if (text.isEmpty() || text.startsWith('#')) continue;
-      const auto fields = text.split(spaces, Qt::SkipEmptyParts);
-      if (fields.size() < 5) continue;
-      bool xOk, yOk, timeOk, ilOk, xlOk;
-      const double x = fields[0].toDouble(&xOk), y = fields[1].toDouble(&yOk);
-      const double time = fields[2].toDouble(&timeOk);
-      const int il = fields[3].toInt(&ilOk), xl = fields[4].toInt(&xlOk);
-      if (!xOk || !yOk || !timeOk || !ilOk || !xlOk ||
-          !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(time) || time == -9999 ||
-          !horizonGrid.inlineXlineInside(il, xl) || !grid.inlineXlineInside(il, xl)) continue;
-      double expectedX = 0, expectedY = 0;
-      horizonGrid.inlineXlineToXy(il, xl, &expectedX, &expectedY);
-      if (std::abs(x - expectedX) > 0.001 || std::abs(y - expectedY) > 0.001) continue;
-      const int cell = (h.p1Inline + h.gridRows - 1 - il) * result.columns + xl - h.p1Xline;
-      if (occupied[cell]) {
-        result.error = QStringLiteral("层位文件有重复的 Inline/Crossline 位置，请先处理重复点");
-        return result;
-      }
-      occupied[cell] = 1;
-      lines[il].append({cell, xl, time});
-    }
-    if (input.error() != QFileDevice::NoError) {
-      result.error = QStringLiteral("读取层位文件失败：%1").arg(input.errorString());
-      return result;
-    }
+  } else if (!SeismicHorizonDetail::readScatter(horizonPath, reader, &lines, &result, progress, cancel)) {
+    return result;
   }
+
   const int count = result.columns * result.rows;
   using Feature = std::array<double, 3>;
   QVector<Feature> features;

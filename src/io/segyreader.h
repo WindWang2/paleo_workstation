@@ -29,6 +29,10 @@ class QThreadPool;
 class SegyReader
 {
   public:
+    struct TraceCoordinate {
+      double x = 0, y = 0;
+      double resolution = 1; // 道头整数坐标经 scalar 缩放后的量化步长
+    };
     SegyReader() = default;
 
     // 索引式打开：只读道头，不读样本。opts 可传进度/取消钩子（D1 异步）。
@@ -66,6 +70,10 @@ class SegyReader
     bool readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
                        QString *error = nullptr, const SegyOptions *opts = nullptr,
                     SegyReadReport *report = nullptr) const;
+
+    // 与索引相同的坐标字段/方言及 scalar；只读道头，不解码振幅。
+    bool readInlineCoordinates(qint32 inlineNo, QHash<qint32, TraceCoordinate> *out,
+                               QString *error = nullptr, const SegyOptions *opts = nullptr) const;
 
     // ---- D2 索引面 ----
     // 当前索引快照（open/openCached 成功后可取）。

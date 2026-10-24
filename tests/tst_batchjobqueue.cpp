@@ -17,6 +17,7 @@
 //   - 每个 compute 轮询循环都必须同时看取消标志与闸门，且有超时上界。
 #include <QCoreApplication>
 #include <QDir>
+#include <QDir>
 #include <QFile>
 #include <QSet>
 #include <QElapsedTimer>
@@ -223,6 +224,9 @@ private slots:
 
   // ---- Oracle 7 身份唯一与调度让位（07 方向 Round C，G4/G5）----
   void duplicateDeclarationKeepsItemIdentityUnique();
+  void thirdResumeStillSkipsCompleted();      // PW-005
+  void duplicateFollowsFailedTwin();           // PW-026
+  void unsafeBatchIdStaysInStateDir();         // PW-027
   void ownPoolSaturationDoesNotBlockDequeue();
   // B-01（full-audit-20261022）：批量任务 Low 优先级——同池排队时交互任务先出队。
   void batchTasksYieldPoolToInteractivePriority();
@@ -781,14 +785,76 @@ void TestBatchJobQueue::duplicateDeclarationKeepsItemIdentityUnique()
   QCOMPARE(ids.size(), 2);
   QVERIFY(ids.contains(QStringLiteral("H1|m1")));
   QVERIFY(ids.contains(QStringLiteral("H1|m1#2")));
-  // 重复指纹项在起批判重时即落 Skipped（不消耗 executor）。
-  QCOMPARE(countState(items, ItemState::Skipped), 1);
+  // PW-026：重复指纹项起批时挂起（Pending，不入 FIFO、不消耗 executor），
+  // 孪生项成功后才结算为 Skipped。
+  QCOMPARE(countState(items, ItemState::Skipped), 0);
+  QCOMPARE(countState(items, ItemState::Pending), 1);
 
   QVERIFY(runToCompletion());
   const BatchReport r = m_queue->report();
   QCOMPARE(r.total, 2); // 计数不因身份唯一化缩水
   QCOMPARE(r.succeeded, 1);
   QCOMPARE(r.skipped, 1);
+}
+
+// PW-005：第二趟沿用项被持久化为 Skipped；第三趟必须仍认作已完成，不重跑。
+void TestBatchJobQueue::thirdResumeStillSkipsCompleted()
+{
+  setUp(1);
+  m_probe->gateOpen.store(1);
+  const BatchSpec s = makeSpec(QStringLiteral("idem3"), {QStringLiteral("H1"), QStringLiteral("H2")},
+                               {QStringLiteral("m1")}, 1);
+  QString err;
+  QVERIFY2(m_queue->start(s, &err), qPrintable(err));
+  QVERIFY(runToCompletion());
+  for (int run = 2; run <= 3; ++run)
+  {
+    m_probe->reset();
+    m_probe->gateOpen.store(1);
+    QVERIFY2(m_queue->resume(s, &err), qPrintable(err));
+    QVERIFY(runToCompletion());
+    QCOMPARE(m_queue->report().skipped, 2);
+    QCOMPARE(m_probe->executedCount(), 0);
+  }
+}
+
+// PW-026：孪生项失败时，重复项不得被记成成功语义的 Skipped。
+void TestBatchJobQueue::duplicateFollowsFailedTwin()
+{
+  setUp(1);
+  m_probe->gateOpen.store(1);
+  {
+    QMutexLocker lock(&m_probe->mutex);
+    m_probe->failedItems << QStringLiteral("H1|m1");
+  }
+  const BatchSpec s = makeSpec(QStringLiteral("dup-fail"), {QStringLiteral("H1")},
+                               {QStringLiteral("m1"), QStringLiteral("m1")}, 1);
+  QString err;
+  QVERIFY2(m_queue->start(s, &err), qPrintable(err));
+  QVERIFY(runToCompletion());
+  const BatchReport r = m_queue->report();
+  QCOMPARE(r.skipped, 0);
+  QCOMPARE(r.failed, 2);
+  QCOMPARE(m_probe->executedCount(), 1);
+}
+
+// PW-027：batchId 含路径分隔/.. 时状态文件仍落在 batch_jobs 目录内。
+void TestBatchJobQueue::unsafeBatchIdStaysInStateDir()
+{
+  setUp(1);
+  m_probe->gateOpen.store(1);
+  const BatchSpec s = makeSpec(QStringLiteral("../../evil/x"), {QStringLiteral("H1")},
+                               {QStringLiteral("m1")}, 1);
+  QString err;
+  QVERIFY2(m_queue->start(s, &err), qPrintable(err));
+  QVERIFY(runToCompletion());
+  const QString dir = BatchQueue::stateDirFor(m_dir.path());
+  const QStringList files = QDir(dir).entryList({QStringLiteral("*.json")}, QDir::Files);
+  bool found = false;
+  for (const QString &f : files)
+    found = found || f.startsWith(QStringLiteral("______evil_x-"));
+  QVERIFY2(found, qPrintable(files.join(QLatin1Char(','))));
+  QVERIFY(!QFile::exists(m_dir.path() + QStringLiteral("/artifacts/evil/x.json")));
 }
 
 // ---------------------------------------------------------------------------

@@ -737,10 +737,10 @@ bool SegyReader::readInlineCoordinates(qint32 inlineNo, QHash<qint32, TraceCoord
           .arg(inlineNo).arg(entry.xlineNo);
       out->clear(); return false;
     }
-    const qint16 scalar = beI16(header + 70);
+    const qint16 scalar = rdI16(header + 70, m_littleEndian);
     const double resolution = scalar == 0 ? 1.0 : scalar > 0 ? double(scalar) : 1.0 / -double(scalar);
-    out->insert(entry.xlineNo, {beI32(header + xOffset) * resolution,
-                               beI32(header + yOffset) * resolution, resolution});
+    out->insert(entry.xlineNo, {rdI32(header + xOffset, m_littleEndian) * resolution,
+                               rdI32(header + yOffset, m_littleEndian) * resolution, resolution});
   }
   return true;
 }

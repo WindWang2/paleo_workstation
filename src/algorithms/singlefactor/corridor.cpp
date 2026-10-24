@@ -61,7 +61,10 @@ BlendedTangent dualAngleBlendTangent( const PointCurveCoord &a, const PointCurve
   const double wb = std::max( b.g, 1e-9 );
   const double cx = wa * std::cos( 2.0 * angA ) + wb * std::cos( 2.0 * angB );
   const double cy = wa * std::sin( 2.0 * angA ) + wb * std::sin( 2.0 * angB );
-  const double ang = 0.5 * std::atan2( cy, cx );
+  // PW-133：等权正交切向时 cx=cy=0，atan2(0,0) 方向任意；回退取 A（权大者）。
+  const double mag = std::hypot( cx, cy );
+  const double ang = mag > 1e-12 * ( wa + wb ) ? 0.5 * std::atan2( cy, cx )
+                                               : ( wa >= wb ? angA : angB );
   BlendedTangent out;
   out.tx = std::cos( ang );
   out.ty = std::sin( ang );

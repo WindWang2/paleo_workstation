@@ -71,9 +71,15 @@ inline constexpr std::array<const char *, 5> kMetreAliases = {
 inline constexpr std::array<const char *, 4> kFootAliases = {
     "FT", "F", "FOOT", "FEET"};
 
+// 全工程唯一的深度单位词表（PW-029）：LasParser::depthUnitToMeters 与
+// welllogfacies 的 depthUnitToMeters 均委托到这里，只在「空单位」策略上由
+// 调用方显式决定。LAS 头里常见的 "M." / "FT." 尾点在此统一剥掉。
 inline std::optional<double> depthScaleToMetres(const QString &unit)
 {
-  const QString key = unit.trimmed().toUpper();
+  QString key = unit.trimmed().toUpper();
+  while (key.endsWith(QLatin1Char('.')))
+    key.chop(1);
+  key = key.trimmed();
   for (const char *alias : kMetreAliases)
     if (key == QLatin1String(alias))
       return 1.0;

@@ -574,20 +574,12 @@ int faciesCodeForLabel(const QVariantList &schema, const QString &label) {
 }
 
 double depthUnitToMeters(const QString &unit) {
-  QString u = unit.trimmed().toUpper();
-  while (u.endsWith(QLatin1Char('.')))
-    u.chop(1);
-  u = u.trimmed();
-  static const QStringList meters{QStringLiteral("M"), QStringLiteral("METER"),
-                                  QStringLiteral("METERS"), QStringLiteral("METRE"),
-                                  QStringLiteral("METRES")};
-  static const QStringList feet{QStringLiteral("F"), QStringLiteral("FT"),
-                                QStringLiteral("FEET"), QStringLiteral("FOOT")};
-  if (u.isEmpty() || meters.contains(u))
+  // 委托统一词表（PW-029）。本函数的唯一策略差异：空单位视为米（遗留 LAS
+  // 无单位元数据），未知非空单位 NaN（调用方拒绝）。
+  if (unit.trimmed().isEmpty())
     return 1.0;
-  if (feet.contains(u))
-    return 0.3048;
-  return std::numeric_limits<double>::quiet_NaN();
+  return paleo::wellnumeric::depthScaleToMetres(unit).value_or(
+      std::numeric_limits<double>::quiet_NaN());
 }
 
 bool normalizeDepthCurve(const QVector<double> &depths, const QVector<double> &values,

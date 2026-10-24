@@ -1,5 +1,6 @@
 // 层：数据
 #include "lasparser.h"
+#include "../domain/wellnumeric.h"
 #include "ioerrors_internal.h"
 #include "../domain/wellnumeric.h"
 
@@ -500,14 +501,8 @@ bool LasParser::scanSections(const QByteArray &raw, SectionMap *out, QList<LasIs
 
 double LasParser::depthUnitToMeters(const QString &unit)
 {
-  const QString u = unit.trimmed().toUpper();
-  if (u == QLatin1String("M") || u == QLatin1String("METER") || u == QLatin1String("METRE") ||
-      u == QLatin1String("METERS") || u == QLatin1String("METRES"))
-    return 1.0;
-  if (u == QLatin1String("FT") || u == QLatin1String("F") || u == QLatin1String("FEET") ||
-      u == QLatin1String("FOOT"))
-    return 0.3048;
-  return 0.0;
+  // 委托统一词表（PW-029）；空/未知单位 = 0.0（无效），语义不变。
+  return paleo::wellnumeric::depthScaleToMetres(unit).value_or(0.0);
 }
 
 QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOffset,

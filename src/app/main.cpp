@@ -37,6 +37,7 @@
 #include <QTimer>
 #include <qgsapplication.h>
 #include <cstdio>
+#include <cstdlib>
 
 namespace
 {
@@ -497,9 +498,20 @@ int main(int argc, char *argv[])
   // 闭包/finished 槽可能引用主窗口持有的对象（面板、JobRunner、workflow），
   // 旧实现等到 ~AppContext 才排空——那时 window 已析构，在途 worker 向已析构
   // 对象回包 = use-after-free。
-  ctx.drainTasks();
+  const bool drained = ctx.drainTasks();
   // 只有走到这里（正常退出）才清旗标；崩溃路径进程死在 exec 里，旗标残留
   // 正是下次启动脏退出检测的依据。
   CrashReport::clearRunningFlag();
+  if (!drained)
+  {
+    // review M1：超时仍有不合作 worker（闭包持服务/面板裸指针）。继续走
+    // window/ctx 析构 = 在 worker 脚下释放对象（UAF）。exec 已返回（主窗口
+    // closeEvent 已跑完），故直接结束进程：泄漏交 OS，不拆除。代价（已知
+    // 取舍）：跳过 window/ctx 析构与静态析构/atexit——析构期才落盘的状态
+    // 会丢失；局部 QSettings 对象在其作用域结束时已自行 sync。
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::_Exit(exitCode);
+  }
   return exitCode;
 }

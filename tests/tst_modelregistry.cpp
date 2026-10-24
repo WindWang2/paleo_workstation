@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QRegularExpression>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -96,6 +97,9 @@ void TestModelRegistry::validManifestListsRunnableModels()
       "outputs": { "semantics": "probability", "classes": 1 } }
   ]
 })" );
+  // review-fix-dataio：未钉 sha256 仍可运行（兼容），但每个条目都要告警。
+  QTest::ignoreMessage( QtWarningMsg, QRegularExpression( QStringLiteral( "模型 seg3 未在 manifest 钉 sha256" ) ) );
+  QTest::ignoreMessage( QtWarningMsg, QRegularExpression( QStringLiteral( "模型 scorer 未在 manifest 钉 sha256" ) ) );
   const ModelRegistryScan scan = ModelRegistry::scan( dir.path() );
   QVERIFY( scan.manifestFound );
   QVERIFY2( scan.manifestError.isEmpty(), qPrintable( scan.manifestError ) );

@@ -3,6 +3,7 @@
 
 #include "onnxpredictionservice.h"
 
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -191,7 +192,15 @@ ModelRegistryScan ModelRegistry::scan( const QString &modelsDir )
       out.entries.append( e );
       continue;
     }
-    if ( !e.sha256Pinned.isEmpty() && e.sha256Pinned.compare( e.sha256Actual, Qt::CaseInsensitive ) != 0 )
+    if ( e.sha256Pinned.isEmpty() )
+    {
+      // review-fix-dataio：sha256 在 manifest 中可选（兼容既有 manifest，
+      // 不改变可运行状态），但缺钉哈希时模型被替换无法发现——留告警。
+      qWarning( "ModelRegistry: 模型 %s 未在 manifest 钉 sha256，无法校验模型文件是否被替换"
+                "（实测 %s）",
+                qPrintable( e.name ), qPrintable( e.sha256Actual ) );
+    }
+    else if ( e.sha256Pinned.compare( e.sha256Actual, Qt::CaseInsensitive ) != 0 )
     {
       e.status = ModelRegistryEntry::Status::FingerprintMismatch;
       e.detail = QObject::tr( "钉哈希不符: manifest %1 vs 实测 %2（模型可能被替换）" )

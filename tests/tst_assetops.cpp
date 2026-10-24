@@ -207,6 +207,15 @@ private slots:
     QCOMPARE(cur.path, p1);       // 指向目标源路径
     QCOMPARE(cur.sha256, sha1);   // 留底一致
     QCOMPARE(cat.versionsForAsset(a.id).size(), 3);
+
+    // PW-038：外链目标被改写（sha 不符）→ 拒绝回滚，索引不增版本。
+    QVERIFY(writeFile(p2, QByteArray("TAMPERED")));
+    QString terr;
+    const RollbackOutcome bad = rollbackToVersion(&cat, dir.absolutePath(), a.id,
+                                                  QStringLiteral("vx2"), &terr);
+    QVERIFY(bad.versionId.isEmpty());
+    QVERIFY(!terr.isEmpty());
+    QCOMPARE(cat.versionsForAsset(a.id).size(), 3);
   }
 
   void compareVersionsReportsMetaAndTextDiff()

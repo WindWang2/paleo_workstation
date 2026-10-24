@@ -188,11 +188,37 @@ RollbackOutcome rollbackToVersion(DataCatalog *cat, const QString &projectDir,
       return out;
     }
     sha = actualSha;
-    QFile::setPermissions(dst, QFileDevice::ReadOwner | QFileDevice::ReadUser |
-                                   QFileDevice::ReadGroup | QFileDevice::ReadOther);
+    // PW-038：只读权限推迟到落盘成功之后——失败清理时 Windows 删不掉只读文件。
     path = rel;
   }
-  // 外链目标：新版本记录指向同一源路径 + 留底 SHA（零拷贝）。
+  else
+  {
+    // 外链目标：新版本记录指向同一源路径 + 留底 SHA（零拷贝）。PW-038：外链
+    // 文件可能已在库外被改写，先重算摘要——不一致就拒绝，绝不让新版本带着
+    // 过期 SHA 冒充原内容。
+    const QString src = DataCatalog::resolvedVersionPath(projectDir, target);
+    if (src.isEmpty() || !QFile::exists(src))
+    {
+      firstError(error, QStringLiteral("外链目标文件缺失：%1").arg(src));
+      return out;
+    }
+    if (!target.sha256.isEmpty())
+    {
+      QString serr;
+      const QString actualSha = DataCatalog::sha256FileHex(src, &serr);
+      if (actualSha.isEmpty())
+      {
+        firstError(error, QStringLiteral("外链目标摘要计算失败：%1").arg(serr));
+        return out;
+      }
+      if (actualSha != target.sha256)
+      {
+        firstError(error, QStringLiteral("外链目标已在库外被修改（SHA-256 %1 ≠ 留底 %2），拒绝回滚")
+                         .arg(actualSha, target.sha256));
+        return out;
+      }
+    }
+  }
 
   CatalogVersion nv;
   nv.id = newVersionId;
@@ -232,6 +258,11 @@ RollbackOutcome rollbackToVersion(DataCatalog *cat, const QString &projectDir,
     firstError(error, QStringLiteral("回滚落盘失败（整批已回滚）：%1").arg(ferr));
     return out;
   }
+
+  if (target.managed)
+    QFile::setPermissions(QDir(projectDir).filePath(path),
+                          QFileDevice::ReadOwner | QFileDevice::ReadUser |
+                              QFileDevice::ReadGroup | QFileDevice::ReadOther);
 
   out.versionId = newVersionId;
   out.versionNumber = newNumber;

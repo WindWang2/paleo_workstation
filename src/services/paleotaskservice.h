@@ -96,6 +96,12 @@ public:
   // PaleoTaskService::createTask 单口，不经此）。
   static PaleoTask *forTesting(const QString &title = {})
   { return new PaleoTask(0, title, QString(), nullptr); }
+  // 无父、不登记服务的「worker 侧代理」任务（PW-009）：外部驱动作业把它交给
+  // worker 线程（由 shared_ptr 保活，删除经 deleteLater 回到创建线程），真实
+  // 任务只在主线程被访问——避免 worker 对 QPointer<PaleoTask> 判空后再用的
+  // UAF 竞争。调用方负责把代理的进度转发给真实任务、把取消转发给代理。
+  static PaleoTask *detachedProxy(const QString &title = {})
+  { return new PaleoTask(0, title, QString(), nullptr); }
 
 signals:
   void changed();

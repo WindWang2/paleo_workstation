@@ -10,6 +10,7 @@
 #include "derivedassets.h"
 #include "workflowerrors_internal.h"
 #include "workflows_internal.h"
+#include "rastergeo_internal.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -415,12 +416,28 @@ bool RealizationWorkflow::deriveStatistics( const QString &setId,
   const int cols = GDALGetRasterXSize( rasters.first().ds );
   const int rows = GDALGetRasterYSize( rasters.first().ds );
   double gt[6] = { 0, 0, 0, 0, 0, 0 };
-  GDALGetGeoTransform( rasters.first().ds, gt );
+  QString geoWhy;
+  if ( !paleo::workflow_detail::readAffineGeoTransform( rasters.first().ds, gt, &geoWhy ) )
+  {
+    setError( error, tr( "成员 %1：%2" ).arg( rasters.first().index ).arg( geoWhy ) ); // PW-010
+    return false;
+  }
   const QByteArray projWkt = GDALGetProjectionRef( rasters.first().ds )
                                  ? QByteArray( GDALGetProjectionRef( rasters.first().ds ) )
                                  : QByteArray();
   for ( const MemberRaster &m : rasters )
   {
+    // PW-011：成员必须同网格（原点/像元/CRS），不只是同尺寸。
+    double gtm[6] = { 0, 0, 0, 0, 0, 0 };
+    const QByteArray wktm = GDALGetProjectionRef( m.ds ) ? QByteArray( GDALGetProjectionRef( m.ds ) ) : QByteArray();
+    if ( !paleo::workflow_detail::readAffineGeoTransform( m.ds, gtm, &geoWhy ) ||
+         !paleo::workflow_detail::sameGeoGrid( cols, rows, gt, projWkt, GDALGetRasterXSize( m.ds ), GDALGetRasterYSize( m.ds ),
+                        gtm, wktm, &geoWhy ) )
+    {
+      setError( error, tr( "成员 %1 与首个成员网格不一致（%2）——集合成员必须同网格，拒绝派生" )
+                           .arg( m.index ).arg( geoWhy ) );
+      return false;
+    }
     if ( GDALGetRasterXSize( m.ds ) != cols || GDALGetRasterYSize( m.ds ) != rows )
     {
       setError( error, tr( "成员 %1 网格（%2×%3）与首个成员（%4×%5）不一致——"
@@ -631,10 +648,21 @@ bool RealizationWorkflow::differenceOfMeans( const QString &setIdA,
     return false;
   }
   double gt[6] = { 0, 0, 0, 0, 0, 0 };
-  GDALGetGeoTransform( dsA, gt );
   const QByteArray projWkt = GDALGetProjectionRef( dsA )
                                  ? QByteArray( GDALGetProjectionRef( dsA ) )
                                  : QByteArray();
+  {
+    // PW-010/011：两集合均值面必须同网格（地理变换 + CRS）。
+    double gtB[6] = { 0, 0, 0, 0, 0, 0 };
+    const QByteArray wktB = GDALGetProjectionRef( dsB ) ? QByteArray( GDALGetProjectionRef( dsB ) ) : QByteArray();
+    QString why;
+    if ( !paleo::workflow_detail::readAffineGeoTransform( dsA, gt, &why ) || !paleo::workflow_detail::readAffineGeoTransform( dsB, gtB, &why ) ||
+         !paleo::workflow_detail::sameGeoGrid( cols, rows, gt, projWkt, cols, rows, gtB, wktB, &why ) )
+    {
+      setError( error, tr( "两集合均值面网格不一致（%1）——不能差" ).arg( why ) );
+      return false;
+    }
+  }
 
   const std::size_t cells = static_cast<std::size_t>( cols ) * rows;
   std::vector<double> a( cells ), b( cells ), diff( cells );
@@ -795,7 +823,13 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
     }
     j.cols = GDALGetRasterXSize( ds0 );
     j.rows = GDALGetRasterYSize( ds0 );
-    GDALGetGeoTransform( ds0, j.gt );
+    QString geoWhy;
+    if ( !paleo::workflow_detail::readAffineGeoTransform( ds0, j.gt, &geoWhy ) ) // PW-010
+    {
+      GDALClose( ds0 );
+      setError( err, tr( "成员 %1：%2" ).arg( j.members.first().index ).arg( geoWhy ) );
+      return false;
+    }
     const char *proj = GDALGetProjectionRef( ds0 );
     j.projWkt = proj ? QString::fromUtf8( proj ) : QString();
     GDALClose( ds0 );
@@ -810,11 +844,16 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
       }
       const int ci = GDALGetRasterXSize( dsi );
       const int ri = GDALGetRasterYSize( dsi );
+      // PW-011：同网格 = 同尺寸 + 同地理变换 + 同 CRS。
+      double gti[6] = { 0, 0, 0, 0, 0, 0 };
+      const QByteArray wkti = GDALGetProjectionRef( dsi ) ? QByteArray( GDALGetProjectionRef( dsi ) ) : QByteArray();
+      const bool geoOk = paleo::workflow_detail::readAffineGeoTransform( dsi, gti, &geoWhy ) &&
+                         paleo::workflow_detail::sameGeoGrid( j.cols, j.rows, j.gt, j.projWkt.toUtf8(), ci, ri, gti, wkti, &geoWhy );
       GDALClose( dsi );
-      if ( ci != j.cols || ri != j.rows )
+      if ( !geoOk )
       {
-        setError( err, tr( "成员 %1 网格（%2×%3）与成员 0（%4×%5）不一致——集合成员必须同网格，拒绝派生" )
-                           .arg( j.members[i].index ).arg( ci ).arg( ri ).arg( j.cols ).arg( j.rows ) );
+        setError( err, tr( "成员 %1 与成员 0 网格不一致（%2）——集合成员必须同网格，拒绝派生" )
+                           .arg( j.members[i].index ).arg( geoWhy ) );
         return false;
       }
     }
@@ -1100,7 +1139,21 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
                            .arg( GDALGetRasterYSize( dsB ) ) );
       return false;
     }
-    GDALGetGeoTransform( dsA, j.gt );
+    {
+      // PW-010/011：两集合均值面必须同网格（地理变换 + CRS）。
+      double gtB[6] = { 0, 0, 0, 0, 0, 0 };
+      const QByteArray wktA = GDALGetProjectionRef( dsA ) ? QByteArray( GDALGetProjectionRef( dsA ) ) : QByteArray();
+      const QByteArray wktB = GDALGetProjectionRef( dsB ) ? QByteArray( GDALGetProjectionRef( dsB ) ) : QByteArray();
+      QString why;
+      if ( !paleo::workflow_detail::readAffineGeoTransform( dsA, j.gt, &why ) || !paleo::workflow_detail::readAffineGeoTransform( dsB, gtB, &why ) ||
+           !paleo::workflow_detail::sameGeoGrid( j.cols, j.rows, j.gt, wktA, j.cols, j.rows, gtB, wktB, &why ) )
+      {
+        GDALClose( dsA );
+        GDALClose( dsB );
+        setError( err, tr( "两集合均值面网格不一致（%1）——不能差" ).arg( why ) );
+        return false;
+      }
+    }
     const char *proj = GDALGetProjectionRef( dsA );
     j.projWkt = proj ? QString::fromUtf8( proj ) : QString();
     GDALClose( dsA );

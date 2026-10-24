@@ -186,6 +186,8 @@ class BatchQueue : public QObject
     void batchStarted( const QString &batchId, int total );
     void batchProgress( int done, int total );
     void batchFinished( const QString &batchId, bool allOk );
+    /// 批次状态落盘失败（每批至多一次）：续跑保证已失效，UI 应提示。
+    void stateWriteFailed( const QString &batchId, const QString &reason );
 
   private:
     struct Slot;   ///< 一个 JobRunner 槽位（.cpp 定义，含 QObject 成员）
@@ -206,6 +208,7 @@ class BatchQueue : public QObject
     void tripFatal( const QString &reason );
     void emitProgress();
     void finishIfDone();
+    bool resolveDuplicates();                  ///< 孪生项终态后结算挂起的重复项
 
     PaleoTaskService *m_tasks = nullptr;
     QString m_projectDir;
@@ -216,6 +219,8 @@ class BatchQueue : public QObject
     QString m_batchId;
     QVector<BatchItem> m_items;
     QHash<QString, int> m_indexById;   ///< itemId → m_items 下标
+    QHash<int, int> m_dupOf;           ///< 重复项下标 → 同指纹孪生项下标（等其终态）
+    bool m_stateWriteWarned = false;
     QVector<int> m_fifo;               ///< 排队项下标（FIFO）
     QVector<int> m_slotItem;           ///< 槽位 → 在跑项下标（-1 空）
     QVector<qint64> m_startedAtMs;     ///< 槽位 → 该项起跑时刻

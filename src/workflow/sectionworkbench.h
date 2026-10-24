@@ -54,6 +54,10 @@ public:
   QVariantMap restore(const QString &versionId, QString *error,
                       const QString &activeSeismicPath = QString());
 
+public:
+  // PW-035：标定文件读取失败原因（空 = 正常或无文件）。
+  QString calibrationLoadError() const { return m_calibrationLoadError; }
+
 signals:
   void alignmentsChanged();
 
@@ -66,6 +70,7 @@ private:
   QPointer<DataCatalog> m_catalog;
   ProjectDataFacade m_data;
   QString m_catalogPath, m_parentVersion;
+  QString m_calibrationLoadError;
   QVariantMap m_calibrations;
   QHash<QString, LasDoc> m_logs;
   quint64 m_previewGeneration = 0;

@@ -1,5 +1,6 @@
 // 层：功能
 #include "projectsetup.h"
+#include "../services/futuretask.h"
 #include "folderimport.h"
 #include "../io/projectsetupscan.h"
 #include "../io/projectcoordinates.h"
@@ -100,7 +101,8 @@ void ProjectSetupWorkflow::scan(const ProjectSetupSources &sources)
     if (generation == m_generation && watcher->future().resultCount()) emit previewReady(watcher->result());
     watcher->deleteLater();
   });
-  watcher->setFuture(QtConcurrent::run([sources, stop] { return scanProjectSources(sources, [stop] { return stop->load(); }); }));
+  // PW-034：扫描走任务服务的有界池（不与 GDAL/QGIS 抢全局池，计入排空）。
+  watcher->setFuture(QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [sources, stop] { return scanProjectSources(sources, [stop] { return stop->load(); }); }));
 }
 bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources &sources,
                                  const ProjectSetupPreview &preview, QString *error)

@@ -333,7 +333,12 @@ struct FitAccumulator
       nug = meanGamma();
     }
     if ( nug < 0 )
+    {
+      // L2：块金钳到 0 后拱高须按约束问题重解（过原点最小二乘
+      // sill = Σwgy/Σwgg），不能沿用无约束解。
       nug = 0;
+      sil = sumGG > 0 ? std::max( 0.0, sumGY / sumGG ) : 0.0;
+    }
     *nugget = nug;
     *sill = sil;
   }
@@ -435,7 +440,9 @@ VariogramFit fitVariogram( const ExperimentalVariogram &experimental, VariogramM
       acc.weight.push_back( static_cast<double>( experimental.pairCount[k] ) / mean );
   }
 
-  const double lo = std::max( hMin * 0.25, hMin + 1e-9 );
+  // L1：下界本意为首个滞后距的 1/4（旧式 max(hMin·0.25, hMin+1e-9) 恒取
+  // 后者，变程永远搜不到首滞后距以下）。
+  const double lo = std::max( hMin * 0.25, 1e-9 );
   const double hi = hMax * 4.0;
   double bestRange = lo;
   double bestNugget = 0;

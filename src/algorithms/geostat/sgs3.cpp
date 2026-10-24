@@ -49,7 +49,11 @@ std::vector<Sample3> dedupeSamples3( const std::vector<Sample3> &samples, int *m
          std::isfinite( sample.value ) )
       finite.push_back( sample );
   }
+  // R3-4：组分作首排序键——旧序只按 (x,y,z)，同坐标交错组分 (A,B,A) 时只与
+  // merged.back() 比较，A 的两条重合样本合并不了，SK 方程组随之奇异。
   std::sort( finite.begin(), finite.end(), []( const Sample3 &a, const Sample3 &b ) {
+    if ( a.group != b.group )
+      return a.group < b.group;
     if ( a.x != b.x )
       return a.x < b.x;
     if ( a.y != b.y )
@@ -75,6 +79,17 @@ std::vector<Sample3> dedupeSamples3( const std::vector<Sample3> &samples, int *m
   }
   for ( std::size_t i = 0; i < merged.size(); ++i )
     merged[i].value /= static_cast<double>( counts[i] );
+  // 恢复旧的 (x,y,z) 主序（组分作末键，确定性），使无重合样本时下游索引/
+  // 随机路径的样本序与旧实现一致。
+  std::sort( merged.begin(), merged.end(), []( const Sample3 &a, const Sample3 &b ) {
+    if ( a.x != b.x )
+      return a.x < b.x;
+    if ( a.y != b.y )
+      return a.y < b.y;
+    if ( a.z != b.z )
+      return a.z < b.z;
+    return a.group < b.group;
+  } );
   return merged;
 }
 

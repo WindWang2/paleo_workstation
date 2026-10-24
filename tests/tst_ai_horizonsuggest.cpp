@@ -18,6 +18,7 @@ private slots:
   void emptySeedsReturnsError();
   void fetcherErrorPropagation();
   void invalidRadiusOrWindow();
+  void oversizedRadiusOrSeedRejectedBeforeExpansion(); // PW-013
   void suggestionFieldsIntegrity();
   void cooperativeCancellationStopsExpansion();
   void logitScorerRejectedOutsideProbabilityDomain();
@@ -122,6 +123,29 @@ void TestAiHorizonSuggest::invalidRadiusOrWindow()
                                          {seed}, 0, 2, dummy, {}, &out, &err);
   QVERIFY(!ok);
   QVERIFY(!err.isEmpty());
+}
+
+void TestAiHorizonSuggest::oversizedRadiusOrSeedRejectedBeforeExpansion()
+{
+  // PW-013：radius / 种子坐标越界须在模型加载与候选扩张之前被拒绝。
+  PaleoOnnxService svc;
+  TraceWindowFetcher dummy = [](int, int, int, int, QVector<float> &out, QString &) {
+    out = QVector<float>(64, 0.0f);
+    return true;
+  };
+  TrackingSeed seed;
+  seed.inlineNo = 10;
+  seed.xlineNo = 20;
+  seed.sampleIndex = 5;
+  QVector<TrackingSuggestion> out;
+  QString err;
+  QVERIFY(!suggestHorizonTracking(&svc, QStringLiteral("scorer"), {seed}, 16,
+                                  100000, dummy, {}, &out, &err));
+  QVERIFY(err.contains(QStringLiteral("radius")));
+  seed.inlineNo = std::numeric_limits<int>::max();
+  QVERIFY(!suggestHorizonTracking(&svc, QStringLiteral("scorer"), {seed}, 16, 2,
+                                  dummy, {}, &out, &err));
+  QVERIFY(out.isEmpty());
 }
 
 void TestAiHorizonSuggest::suggestionFieldsIntegrity()

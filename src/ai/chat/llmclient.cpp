@@ -107,8 +107,11 @@ LlmConfig LlmConfig::load() {
         QUrl(object.value(QStringLiteral("endpoint")).toString().trimmed());
       config.model = object.value(QStringLiteral("model")).toString();
       config.stream = object.value(QStringLiteral("stream")).toBool(true);
-      config.timeoutMs = object.value(QStringLiteral("timeout_ms")).toInt(30000);
-      config.maxTokens = object.value(QStringLiteral("max_tokens")).toInt(1024);
+      // PW-067：用户 JSON 里的超时/令牌数钳到合理域（0/负值会导致即时超时或 400）。
+      config.timeoutMs =
+        qBound(1000, object.value(QStringLiteral("timeout_ms")).toInt(30000), 600000);
+      config.maxTokens =
+        qBound(1, object.value(QStringLiteral("max_tokens")).toInt(1024), 32768);
       config.allowInsecureHttp =
         object.value(QStringLiteral("allow_insecure_http")).toBool();
     }
@@ -493,7 +496,9 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
         }
       }
       // [DONE] 缺失但连接已正常关闭：把缓冲里最后一个事件兜底 flush。
-      if (!tail.isEmpty()) {
+      // PW-061：即便 finished 时没有未读尾字节，解析器缓冲里也可能留着一个
+      // 没有空行结尾的事件（早先经 readyRead 送达）——无条件补一个事件分隔符。
+      {
         QStringList deltas;
         bool done = false;
         QString parseError;

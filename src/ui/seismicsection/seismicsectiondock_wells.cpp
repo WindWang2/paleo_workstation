@@ -38,7 +38,7 @@ class WellSideTraceWidget : public QWidget {
 public:
     WellSideTraceWidget(const SectionWellInfo *well, int col, const SgySliceImage &slice,
                         float dtMs, double t0Ms, QWidget *parent)
-        : QWidget(parent), m_well(well), m_dtMs(dtMs > 0.01f ? dtMs : 2.0f), m_t0Ms(t0Ms)
+        : QWidget(parent), m_well(well ? *well : SectionWellInfo{}), m_dtMs(dtMs > 0.01f ? dtMs : 2.0f), m_t0Ms(t0Ms)
     {
         const int h = slice.height;
         m_trace.reserve(std::size_t(h));
@@ -95,7 +95,7 @@ protected:
         // 分层刻度（右缘）。分母与波形映射同口径 (n-1)：两式同用
         // y0..y1 像素段，分母不一致时同一样点的像素位置差 ~1/n 面板高。
         p.setFont(PaleoTheme::bodyFont(PaleoTheme::tokens().labelPt));
-        for (const WellTopItem &top : m_well->tops) {
+        for (const WellTopItem &top : m_well.tops) {
             // 道首样 TWT = 记录延迟 t0（#146 同口径）
             const double frac = std::clamp(
                 (top.twtMs - m_t0Ms) /
@@ -110,7 +110,7 @@ protected:
     }
 
 private:
-    const SectionWellInfo *m_well = nullptr;
+    SectionWellInfo m_well; // 值拷贝：对话框非模态阻塞后不再依赖调用方栈/闭包寿命
     std::vector<float> m_trace;
     float m_dtMs = 2.0f;
     double m_t0Ms = 0.0;
@@ -382,18 +382,22 @@ void SeismicSectionDockWidget::showWellSideTrace() {
             return;
         }
 
-        QDialog dlg(this);
-        dlg.setWindowTitle(tr("井旁道 · %1（IL %2 / XL %3）").arg(well.wellName).arg(il).arg(xl));
-        dlg.setMinimumSize(300, 520);
-        auto *lay = new QVBoxLayout(&dlg);
+        // review memory#1：不在 finished 槽里栈上 exec()——嵌套事件循环期间 dock
+        // 被析构会先 delete 子对话框、栈展开再析构一次（double free）。改为堆上
+        // 窗口模态 + open()，关闭即 deleteLater；dock 先亡时随父对象一并析构。
+        auto *dlg = new QDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setWindowTitle(tr("井旁道 · %1（IL %2 / XL %3）").arg(well.wellName).arg(il).arg(xl));
+        dlg->setMinimumSize(300, 520);
+        auto *lay = new QVBoxLayout(dlg);
         auto *trace = new class WellSideTraceWidget(&well, col, r.slice, m_canvas->sampleIntervalMs(),
-                                                     m_timeOriginMs, &dlg);
+                                                     m_timeOriginMs, dlg);
         lay->addWidget(trace, 1);
-        auto *btnClose = new QToolButton(&dlg);
+        auto *btnClose = new QToolButton(dlg);
         btnClose->setText(tr("关闭"));
-        connect(btnClose, &QToolButton::clicked, &dlg, &QDialog::close);
+        connect(btnClose, &QToolButton::clicked, dlg, &QDialog::close);
         lay->addWidget(btnClose, 0, Qt::AlignRight);
-        dlg.exec();
+        dlg->open();
     });
     watcher->setFuture(QtConcurrent::run([vol, il]() {
         ExtractResult r;

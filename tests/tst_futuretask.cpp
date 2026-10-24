@@ -87,8 +87,10 @@ void TestFutureTask::watcherDestroyedFinalizesCancellableTask()
   PaleoTaskService svc;
   auto *watcher = new QFutureWatcher<int>;
   auto workerDone = std::make_shared<std::atomic_bool>(false);
+  auto workerStarted = std::make_shared<std::atomic_bool>(false);
   const QFuture<int> future =
-      QtConcurrent::run(paleo::tasks::pool(&svc), [workerDone] {
+      QtConcurrent::run(paleo::tasks::pool(&svc), [workerDone, workerStarted] {
+        workerStarted->store(true);
         QThread::msleep(400);
         workerDone->store(true);
         return 7;
@@ -99,6 +101,8 @@ void TestFutureTask::watcherDestroyedFinalizesCancellableTask()
       [&errorCalled] { errorCalled = true; return QStringLiteral("x"); });
   watcher->setFuture(future);
   QSignalSpy fin(task, &PaleoTask::finished);
+  // 须等 worker 真正开跑：尚在池队列里的 run() 被取消会直接跳过，不构成「仍在跑」场景。
+  QTRY_VERIFY_WITH_TIMEOUT(workerStarted->load(), 5000);
   delete watcher; // 拥有方先走：只请求取消，worker 未退出前不得终态（review M2）
   QVERIFY(task->cancelRequested());
   QCoreApplication::processEvents();

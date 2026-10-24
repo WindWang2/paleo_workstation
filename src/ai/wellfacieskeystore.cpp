@@ -1,86 +1,23 @@
 // 层：功能
 #include "wellfacieskeystore.h"
-#include <QObject>
-#include <QPointer>
-
-#ifdef PALEO_HAVE_QTKEYCHAIN
-#if __has_include(<qt6keychain/keychain.h>)
-#include <qt6keychain/keychain.h>
-#else
-#include <keychain.h>
-#endif
-#endif
+#include "keychainslot.h"
 
 namespace {
-#ifdef PALEO_HAVE_QTKEYCHAIN
-const QString kService = QStringLiteral("paleo_workstation/well-facies");
-const QString kAccount = QStringLiteral("api-key");
-#endif
+// PW-122：实现收敛到 KeychainSlot（与 LlmKeyStore 共用）。
+const KeychainSlot &slot() {
+  static const KeychainSlot s{QStringLiteral("paleo_workstation/well-facies"),
+                              QStringLiteral("api-key"), "PALEO_WELL_FACIES_NO_KEYCHAIN"};
+  return s;
+}
 } // namespace
 
-bool WellFaciesKeyStore::available() {
-#ifdef PALEO_HAVE_QTKEYCHAIN
-  return qEnvironmentVariable("PALEO_WELL_FACIES_NO_KEYCHAIN") !=
-         QLatin1String("1");
-#else
-  return false;
-#endif
-}
+bool WellFaciesKeyStore::available() { return slot().available(); }
 
 void WellFaciesKeyStore::read(QObject *context, ReadCallback done) {
-  if (!context) { // PW-122：null context 时 connect 失败，done 永不回调——立即报错
-    done(false, {}, QStringLiteral("internal error: keystore called without context"));
-    return;
-  }
-#ifdef PALEO_HAVE_QTKEYCHAIN
-  if (available()) {
-    auto *job = new QKeychain::ReadPasswordJob(kService);
-    job->setAutoDelete(true);
-    job->setKey(kAccount);
-    QPointer<QObject> guard(context);
-    QObject::connect(job, &QKeychain::Job::finished, context,
-                     [job, guard, done](QKeychain::Job *) {
-                       if (!guard)
-                         return;
-                       if (job->error() == QKeychain::NoError)
-                         done(true, job->binaryData(), {});
-                       else if (job->error() == QKeychain::EntryNotFound)
-                         done(false, {}, {});
-                       else
-                         done(false, {}, job->errorString());
-                     });
-    job->start();
-    return;
-  }
-#endif
-  done(false, {}, QObject::tr("系统钥匙串不可用"));
+  slot().read(context, std::move(done));
 }
 
 void WellFaciesKeyStore::write(QObject *context, const QByteArray &key,
                                WriteCallback done) {
-  if (!context) { // PW-122
-    done(false, QStringLiteral("internal error: keystore called without context"));
-    return;
-  }
-#ifdef PALEO_HAVE_QTKEYCHAIN
-  if (available()) {
-    auto *job = new QKeychain::WritePasswordJob(kService);
-    job->setAutoDelete(true);
-    job->setKey(kAccount);
-    job->setBinaryData(key);
-    QPointer<QObject> guard(context);
-    QObject::connect(job, &QKeychain::Job::finished, context,
-                     [job, guard, done](QKeychain::Job *) {
-                       if (!guard)
-                         return;
-                       done(job->error() == QKeychain::NoError,
-                            job->errorString());
-                     });
-    job->start();
-    return;
-  }
-#endif
-  Q_UNUSED(context);
-  Q_UNUSED(key);
-  done(false, QObject::tr("系统钥匙串不可用"));
+  slot().write(context, key, std::move(done));
 }

@@ -1,118 +1,29 @@
 // 层：功能
 #include "llmkeystore.h"
-#include <QPointer>
-
-#ifdef PALEO_HAVE_QTKEYCHAIN
-#if __has_include(<qt6keychain/keychain.h>)
-#include <qt6keychain/keychain.h>
-#else
-#include <keychain.h>
-#endif
-#endif
+#include "../keychainslot.h"
 
 namespace {
-#ifdef PALEO_HAVE_QTKEYCHAIN
-const QString kService = QStringLiteral("paleo_workstation/llm-chat");
-const QString kAccount = QStringLiteral("api-key");
-#endif
 const char kDisableEnv[] = "PALEO_LLM_NO_KEYCHAIN";
+// PW-122：实现收敛到 KeychainSlot（与 WellFaciesKeyStore 共用）。
+const KeychainSlot &slot() {
+  static const KeychainSlot s{QStringLiteral("paleo_workstation/llm-chat"),
+                              QStringLiteral("api-key"), kDisableEnv};
+  return s;
+}
 } // namespace
 
-QString LlmKeyStore::disabledByEnvFlagName() {
-  return QString::fromUtf8(kDisableEnv);
-}
+QString LlmKeyStore::disabledByEnvFlagName() { return QString::fromUtf8(kDisableEnv); }
 
-bool LlmKeyStore::available() {
-#ifdef PALEO_HAVE_QTKEYCHAIN
-  return qEnvironmentVariable(kDisableEnv) != QLatin1String("1");
-#else
-  return false;
-#endif
-}
+bool LlmKeyStore::available() { return slot().available(); }
 
 void LlmKeyStore::read(QObject *context, ReadCallback done) {
-  if (!context) { // PW-122：null context 时 connect 失败，done 永不回调——立即报错
-    done(false, {}, QStringLiteral("internal error: keystore called without context"));
-    return;
-  }
-#ifdef PALEO_HAVE_QTKEYCHAIN
-  if (available()) {
-    auto *job = new QKeychain::ReadPasswordJob(kService);
-    job->setAutoDelete(true);
-    job->setKey(kAccount);
-    QPointer<QObject> guard(context);
-    QObject::connect(job, &QKeychain::Job::finished, context,
-                     [job, guard, done](QKeychain::Job *) {
-                       if (!guard)
-                         return;
-                       if (job->error() == QKeychain::NoError)
-                         done(true, job->binaryData(), {});
-                       else if (job->error() == QKeychain::EntryNotFound)
-                         done(false, {}, {});
-                       else
-                         done(false, {}, job->errorString());
-                     });
-    job->start();
-    return;
-  }
-#endif
-  Q_UNUSED(context)
-  done(false, {}, QObject::tr("系统钥匙串不可用"));
+  slot().read(context, std::move(done));
 }
 
-void LlmKeyStore::write(QObject *context, const QByteArray &key,
-                        WriteCallback done) {
-  if (!context) { // PW-122
-    done(false, QStringLiteral("internal error: keystore called without context"));
-    return;
-  }
-#ifdef PALEO_HAVE_QTKEYCHAIN
-  if (available()) {
-    auto *job = new QKeychain::WritePasswordJob(kService);
-    job->setAutoDelete(true);
-    job->setKey(kAccount);
-    job->setBinaryData(key);
-    QPointer<QObject> guard(context);
-    QObject::connect(job, &QKeychain::Job::finished, context,
-                     [job, guard, done](QKeychain::Job *) {
-                       if (!guard)
-                         return;
-                       done(job->error() == QKeychain::NoError,
-                            job->errorString());
-                     });
-    job->start();
-    return;
-  }
-#endif
-  Q_UNUSED(context)
-  Q_UNUSED(key)
-  done(false, QObject::tr("系统钥匙串不可用"));
+void LlmKeyStore::write(QObject *context, const QByteArray &key, WriteCallback done) {
+  slot().write(context, key, std::move(done));
 }
 
 void LlmKeyStore::clear(QObject *context, WriteCallback done) {
-  if (!context) { // PW-122
-    done(false, QStringLiteral("internal error: keystore called without context"));
-    return;
-  }
-#ifdef PALEO_HAVE_QTKEYCHAIN
-  if (available()) {
-    auto *job = new QKeychain::DeletePasswordJob(kService);
-    job->setAutoDelete(true);
-    job->setKey(kAccount);
-    QPointer<QObject> guard(context);
-    QObject::connect(job, &QKeychain::Job::finished, context,
-                     [job, guard, done](QKeychain::Job *) {
-                       if (!guard)
-                         return;
-                       // 条不存在也算清干净了（幂等）。
-                       done(job->error() == QKeychain::NoError ||
-                              job->error() == QKeychain::EntryNotFound,
-                            job->errorString());
-                     });
-    job->start();
-    return;
-  }
-#endif
-  Q_UNUSED(context)
-  done(false, QObject::tr("系统钥匙串不可用"));
+  slot().clear(context, std::move(done));
 }

@@ -353,6 +353,20 @@ bool zipExtractBytes( const QByteArray &archive, const QString &entryName, QByte
   const ZipEntry *item = listing.entry( entryName );
   if ( !item )
     return fail( QStringLiteral( "ZIP 内没有条目：%1" ).arg( entryName ) );
+  return zipExtractEntry( archive, *item, out, error );
+}
+
+// PW-074：按已列出的条目解压——调用方列一次目录后逐条解，不再每条重解中央目录（O(n²)）。
+bool zipExtractEntry( const QByteArray &archive, const ZipEntry &entry, QByteArray *out,
+                      QString *error )
+{
+  const auto fail = [error]( const QString &message ) {
+    if ( error )
+      *error = message;
+    return false;
+  };
+  const QString &entryName = entry.name;
+  const ZipEntry *item = &entry;
   if ( item->encrypted )
     return fail( QStringLiteral( "条目「%1」已加密，不支持" ).arg( entryName ) );
   if ( item->method != 0 && item->method != 8 )

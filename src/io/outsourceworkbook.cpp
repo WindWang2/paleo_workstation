@@ -486,9 +486,24 @@ int columnIndexFromRef( const QString &ref, int *rowNumber )
 }
 
 // 同一个内存 ZIP 读面解 OOXML 包（不落临时文件、不依赖 QMimeDatabase）。
-bool readZipEntry( const QByteArray &archive, const QString &entry, QByteArray *bytes, QString *error )
+// PW-074：目录只列一次（ZipListResult），逐条按已列条目解压。
+bool readZipEntry( const QByteArray &archive, const ZipListResult &listing, const QString &entry,
+                   QByteArray *bytes, QString *error )
 {
-  return zipExtractBytes( archive, entry, bytes, error );
+  if ( !listing.ok )
+  {
+    if ( error )
+      *error = listing.error;
+    return false;
+  }
+  const ZipEntry *item = listing.entry( entry );
+  if ( !item )
+  {
+    if ( error )
+      *error = QStringLiteral( "ZIP 内没有条目：%1" ).arg( entry );
+    return false;
+  }
+  return zipExtractEntry( archive, *item, bytes, error );
 }
 
 WorkbookReadResult readXlsx( const QString &path )
@@ -506,9 +521,10 @@ WorkbookReadResult readXlsx( const QString &path )
                        .arg( fileName, archiveError.isEmpty() ? QStringLiteral( "无法读取包" ) : archiveError );
     return result;
   }
+  const ZipListResult listing = zipListBytes( archive );
   QByteArray workbookBytes;
   QString entryError;
-  if ( !readZipEntry( archive, QStringLiteral( "xl/workbook.xml" ), &workbookBytes, &entryError ) )
+  if ( !readZipEntry( archive, listing, QStringLiteral( "xl/workbook.xml" ), &workbookBytes, &entryError ) )
   {
     result.error = QStringLiteral( "%1 不是 OOXML 工作簿：%2" ).arg( fileName, entryError );
     return result;
@@ -516,7 +532,7 @@ WorkbookReadResult readXlsx( const QString &path )
   QByteArray relBytes;
   QString relError;
   const bool hasRelationships =
-      readZipEntry( archive, QStringLiteral( "xl/_rels/workbook.xml.rels" ), &relBytes, &relError );
+      readZipEntry( archive, listing, QStringLiteral( "xl/_rels/workbook.xml.rels" ), &relBytes, &relError );
   const QHash<QString, QString> relationships =
       hasRelationships ? readRelationships( relBytes ) : QHash<QString, QString>();
   if ( !hasRelationships )
@@ -528,14 +544,14 @@ WorkbookReadResult readXlsx( const QString &path )
   QByteArray sharedBytes;
   QString sharedError;
   const bool hasSharedStrings =
-      readZipEntry( archive, QStringLiteral( "xl/sharedStrings.xml" ), &sharedBytes, &sharedError );
+      readZipEntry( archive, listing, QStringLiteral( "xl/sharedStrings.xml" ), &sharedBytes, &sharedError );
   const QVector<QString> sharedStrings = hasSharedStrings ? readSharedStrings( sharedBytes ) : QVector<QString>();
 
   // PW-141：日期样式表 + 1904 日期系，数值格按样式转 ISO 日期而非留序列号。
   QByteArray stylesBytes;
   QString stylesError;
   const QVector<bool> dateStyles =
-      readZipEntry( archive, QStringLiteral( "xl/styles.xml" ), &stylesBytes, &stylesError )
+      readZipEntry( archive, listing, QStringLiteral( "xl/styles.xml" ), &stylesBytes, &stylesError )
           ? readDateStyles( stylesBytes )
           : QVector<bool>();
   bool date1904 = false;
@@ -594,7 +610,7 @@ WorkbookReadResult readXlsx( const QString &path )
   {
     QByteArray sheetBytes;
     QString sheetError;
-    if ( !readZipEntry( archive, item.second, &sheetBytes, &sheetError ) )
+    if ( !readZipEntry( archive, listing, item.second, &sheetBytes, &sheetError ) )
     {
       result.issues.append( QStringLiteral( "%1：工作表「%2」%3" ).arg( fileName, item.first, sheetError ) );
       continue;

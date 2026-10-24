@@ -422,6 +422,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 产物落 project.sqlite（井序/连线改接版本化）。
     void attachWellSection(PaleoTaskService *taskSvc,
                            PaleoProjectStore *store = nullptr);
+    void clearWellSectionStores();
+    bool bindWellSectionStores(PaleoProjectStore *store, QString *boundPath);
     SeismicMapLink *m_sectionLink = nullptr;
     SectionWorkbench *m_sectionWorkbench = nullptr; // attachSections 持有（this 父子）
     // 任意剖面捕获工具（R4 信号化，方向 49）：壳持有 SeismicSectionTool——

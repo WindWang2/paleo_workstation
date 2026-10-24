@@ -1,6 +1,8 @@
 // 层：视图
 #include "faciespinnedlevellist.h"
 #include "../domain/facieshierarchy.h"
+#include "../qgis/collapsiblegroup.h"
+#include <QGroupBox>
 #include <QComboBox>
 #include <QHeaderView>
 #include <QLabel>
@@ -9,13 +11,10 @@
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
-#include <qgscollapsiblegroupbox.h>
 
-QgsCollapsibleGroupBox *FaciesPinnedLevelList::createGroup(QWidget *parent,
-                                                           FaciesPinnedLevelList **out) {
-  auto *group = new QgsCollapsibleGroupBox(tr("固定显示层级的相类"), parent);
-  group->setObjectName("workbenchFaciesPins");
-  group->setSaveCollapsedState(false);
+QGroupBox *FaciesPinnedLevelList::createGroup(QWidget *parent, FaciesPinnedLevelList **out) {
+  // 经 src/qgis 封装创建（ui 不直连 qgs 头，#699 回归）。
+  auto *group = paleo::collapsible::create(tr("固定显示层级的相类"), parent, "workbenchFaciesPins", false);
   auto *layout = new QVBoxLayout(group);
   layout->addWidget(*out = new FaciesPinnedLevelList(group));
   return group;

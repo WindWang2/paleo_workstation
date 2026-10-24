@@ -4,7 +4,7 @@
 #include <QVariantMap>
 #include <QWidget>
 class QComboBox;
-class QgsCollapsibleGroupBox;
+class QGroupBox;
 class QLabel;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -14,7 +14,7 @@ class FaciesPinnedLevelList : public QWidget {
   Q_OBJECT
 public:
   // 「固定显示层级的相类」分组（默认展开、不记忆折叠态），列表经 out 交回。
-  static QgsCollapsibleGroupBox *createGroup(QWidget *parent, FaciesPinnedLevelList **out);
+  static QGroupBox *createGroup(QWidget *parent, FaciesPinnedLevelList **out);
   explicit FaciesPinnedLevelList(QWidget *parent = nullptr);
   // candidates: FaciesHierarchy::pinCandidates；pins: 节点 key -> 层级。
   void setState(const QVariantList &candidates, const QVariantMap &pins, bool enabled,

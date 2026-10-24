@@ -966,6 +966,37 @@ private slots:
     QVERIFY(layer->dataProvider()->deleteFeatures(ids)); layer->reload();
     QTRY_VERIFY(decorations->legendFacies().isEmpty());
   }
+  void collapsedGroupsRememberStatePerMode() {
+    // M4：外观/来源/字段折叠组记忆展开状态（按页模式分键），重建页后恢复；
+    // 证据组不记忆（compose 默认展开）。
+    const QString key = QStringLiteral("ui/collapsedGroups/workbench/compose/appearance");
+    const QString predictKey = QStringLiteral("ui/collapsedGroups/workbench/predict/appearance");
+    const auto cleanup = qScopeGuard([&] { QSettings().remove(key); QSettings().remove(predictKey); });
+    QSettings().remove(key);
+    QSettings().remove(predictKey);
+    Fixture f;
+    QVERIFY(f.init());
+    {
+      MappingWorkbenchPage page("compose", &f.work);
+      auto *appearance = page.findChild<QgsCollapsibleGroupBox *>("workbenchAppearance");
+      QVERIFY(appearance);
+      QVERIFY(appearance->isCollapsed()); // 首次默认折叠不变
+      appearance->setCollapsed(false);
+    }
+    QCOMPARE(QSettings().value(key).toBool(), false);
+    {
+      MappingWorkbenchPage page("compose", &f.work);
+      auto *appearance = page.findChild<QgsCollapsibleGroupBox *>("workbenchAppearance");
+      QVERIFY(appearance);
+      QVERIFY2(!appearance->isCollapsed(), "expanded appearance group must be remembered");
+    }
+    {
+      MappingWorkbenchPage page("predict", &f.work); // 分模式：predict 不受 compose 影响
+      auto *appearance = page.findChild<QgsCollapsibleGroupBox *>("workbenchAppearance");
+      QVERIFY(appearance);
+      QVERIFY(appearance->isCollapsed());
+    }
+  }
   void impactCommandsAreGatedWithReasons() {
     Fixture f;
     QVERIFY(f.init());

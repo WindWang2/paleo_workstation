@@ -21,6 +21,7 @@ add_paleo_test(tst_algorithm_spec LIBS paleo_services)  # algo-atom P0：Spec �
 add_paleo_test(tst_algorithm_adapters LIBS paleo_workflow)  # algo-atom P2：Processing/NativeCpp 适配器契约
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
+add_paleo_test(tst_faciescoverage LIBS paleo_algorithms paleo_ui_deps) # 转面覆盖范围及共享弧回归
 add_paleo_test(tst_faciessliver LIBS paleo_algorithms)  # A11：小图斑吸收新旧实现对拍 + 可取消 + 大网格耗时
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
 add_paleo_test(tst_dsp_fft LIBS paleo_algorithms)          # #559：dsp radix-2 FFT 专属套件（解析恒等式 + 独立直求 DFT 对拍；纯数值，无 QGIS init）

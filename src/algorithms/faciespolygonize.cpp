@@ -68,6 +68,7 @@ struct Node
 struct Arc
 {
   QVector<int> ix;
+  bool exterior = false; // 有效区外圈/NoData 边界固定，避免切角缩小覆盖范围
 };
 
 struct OrientedArc
@@ -220,7 +221,7 @@ QVector<CodedPoly> simplifyCoverage( const QVector<CodedPoly> &polys, double tol
   QgsGeometry simplified;
   try
   {
-    simplified = coll.simplifyCoverageVW( tolerance, false );
+    simplified = coll.simplifyCoverageVW( tolerance, true );
   }
   catch ( const QgsException &e )
   {
@@ -406,6 +407,18 @@ Graph buildBoundaryGraph( const QVector<CodedPoly> &polys, double qTol )
   }
 
   QHash<EKey, int> edgeToArc;
+  // 两侧环的起点可能落在同一共享链的不同位置。所有环起点及拓扑分叉点
+  // 都须切断弧，否则另一侧从弧中途进入时会引用整弧，重建出自交的大背景面。
+  QSet<int> junctions;
+  QVector<int> degree(g.nodes.size(), 0);
+  for (auto it = uses.cbegin(); it != uses.cend(); ++it) {
+    ++degree[it.key().a]; ++degree[it.key().b];
+  }
+  for (int i = 0; i < degree.size(); ++i)
+    if (degree[i] != 2) junctions.insert(i);
+  for (const auto &face : builds)
+    for (const auto &ring : face.rings)
+      junctions.insert(ring.edges.first().u);
   for ( const FaceBuild &face : builds )
   {
     FaceGraph fg;
@@ -437,9 +450,11 @@ Graph buildBoundaryGraph( const QVector<CodedPoly> &polys, double qTol )
           const int neigh = edges.at( i ).neighbor;
           int j = i;
           while ( j + 1 < edges.size() && edges.at( j + 1 ).neighbor == neigh &&
+                  !junctions.contains(edges.at(j).v) &&
                   !edgeToArc.contains( EKey::make( edges.at( j + 1 ).u, edges.at( j + 1 ).v ) ) )
             ++j;
           Arc arc;
+          arc.exterior = neigh == -1;
           arc.ix.append( edges.at( i ).u );
           const int arcId = g.arcs.size();
           for ( int t = i; t <= j; ++t )
@@ -525,6 +540,7 @@ int smoothArcs( Graph &g, int iterations )
   int changed = 0;
   for ( Arc &arc : g.arcs )
   {
+    if (arc.exterior) continue;
     QgsPolylineXY pts;
     pts.reserve( arc.ix.size() );
     for ( const int id : arc.ix )
@@ -821,6 +837,8 @@ QVector<CodedPoly> nodeSharedEdges( const QVector<CodedPoly> &polys )
   QVector<QgsGeometry> lines;
   for ( const CodedPoly &poly : polys )
   {
+    if (!poly.geom.isGeosValid())
+      throw QgsProcessingException(QStringLiteral("invalid facies %1 before boundary noding; refusing to drop coverage").arg(poly.code));
     const QgsPolygonXY rings = poly.geom.asPolygon();
     if ( rings.isEmpty() )
     {
@@ -895,6 +913,29 @@ QVector<CodedPoly> nodeSharedEdges( const QVector<CodedPoly> &polys )
   if ( out.isEmpty() )
     throw QgsProcessingException( QStringLiteral( "noded boundaries produced no facies polygons" ) );
   return out;
+}
+
+QgsGeometry coverageFootprint(const QVector<CodedPoly> &polys)
+{
+  QVector<QgsGeometry> geometries;
+  for (const auto &poly : polys) geometries.append(poly.geom);
+  auto footprint = QgsGeometry::unaryUnion(geometries);
+  if (footprint.isEmpty() || !footprint.lastError().isEmpty())
+    throw QgsProcessingException(QStringLiteral("cannot determine facies coverage footprint: %1").arg(footprint.lastError()));
+  return footprint;
+}
+
+double checkFootprint(const QgsGeometry &expected, const QgsGeometry &actual, double cellArea)
+{
+  const auto difference = expected.symDifference(actual);
+  if (!difference.lastError().isEmpty())
+    throw QgsProcessingException(QStringLiteral("facies footprint comparison failed: %1").arg(difference.lastError()));
+  const double changed = difference.area();
+  const double tolerance = std::max(cellArea * 1e-6, expected.area() * 1e-10);
+  if (!std::isfinite(changed) || changed > tolerance)
+    throw QgsProcessingException(QStringLiteral("facies coverage changed by %1 map units squared (expected %2, actual %3); refusing incomplete output")
+        .arg(changed, 0, 'g', 12).arg(expected.area(), 0, 'g', 12).arg(actual.area(), 0, 'g', 12));
+  return changed;
 }
 
 void checkCoverage( const QVector<CodedPoly> &polys, double gapWidth )
@@ -1154,11 +1195,11 @@ QString FaciesPolygonizeAlgorithm::shortHelpString() const
       "MIN_FRACTION of the valid cells, or under MIN_AREA map "
       "units² are absorbed into the largest adjacent facies, and GDALPolygonize + "
       "dissolve builds one polygon per part. "
-      "SIMPLIFY runs GEOS coverage simplification so each shared boundary is simplified "
+      "SIMPLIFY preserves the coverage exterior and runs GEOS coverage simplification so each shared boundary is simplified "
       "once. BOUNDARY_SMOOTH then runs Chaikin corner-cutting passes on every shared "
       "boundary arc in the boundary graph: because each shared edge exists exactly once, "
       "both adjacent faces rebuild onto the identical rounded line and the coverage "
-      "stays gap-free. Junction nodes (arc endpoints) stay fixed; straight arcs are "
+      "stays gap-free. Coverage exterior and NoData boundaries stay fixed. Output footprint is checked against the classified grid. Junction nodes (arc endpoints) stay fixed; straight arcs are "
       "skipped. The polygons are then rebuilt from that boundary graph. When SNAP_TOLERANCE "
       "> 0, an arc whose vertices all lie within that distance of a constraint, and whose "
       "direction is within ANGLE_TOLERANCE degrees of it, is replaced by the constraint "
@@ -1353,6 +1394,7 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
 
   QVector<CodedPoly> polys = polygonizeGrid( grid, cols, rows, gt, wkt );
   polys = nodeSharedEdges( polys );
+  const auto expectedFootprint = coverageFootprint(polys);
   canceled( feedback );
   if ( feedback )
     feedback->setProgress( 55 );
@@ -1397,6 +1439,8 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
 
   const double gapWidth = std::max( qTol * 10.0, 1e-7 );
   checkCoverage( polys, gapWidth );
+  const auto outputFootprint = coverageFootprint(polys);
+  const double footprintDifference = checkFootprint(expectedFootprint, outputFootprint, cellArea);
 
   QJsonObject prov;
   prov.insert( QStringLiteral( "algorithm" ), QStringLiteral( "paleo:paleo_facies_polygonize" ) );
@@ -1413,6 +1457,9 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   prov.insert( QStringLiteral( "min_cells_effective" ), minCellsEffective );
   prov.insert( QStringLiteral( "slivers_merged" ), slivers );
   prov.insert( QStringLiteral( "faces" ), polys.size() );
+  prov.insert( QStringLiteral( "expected_coverage_area" ), expectedFootprint.area() );
+  prov.insert( QStringLiteral( "output_coverage_area" ), outputFootprint.area() );
+  prov.insert( QStringLiteral( "coverage_difference_area" ), footprintDifference );
   prov.insert( QStringLiteral( "arcs" ), graph.arcs.size() );
   prov.insert( QStringLiteral( "conflated_arcs" ), conflated );
   prov.insert( QStringLiteral( "input" ), src );

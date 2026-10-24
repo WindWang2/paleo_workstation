@@ -132,6 +132,77 @@ namespace
 
 namespace paleo::dataimport_detail {
 
+// PW-113：两条层位派生路径（importHorizonFamily 主路径 / dedup 再派生）共用的
+// 唯一实现：超限闸 → 装箱 → 写 GeoTIFF（暂存根）→ 投影 → 只读 → 登记金字塔目标。
+// 调用方先填好 derived 的身份字段（id/assetId/path/fileName/parents…），本函数补
+// extra 统计。返回错误文案；空串 = 成功。finalPath 可选输出提交后的最终路径。
+QString deriveHorizonRaster(ImportSession &s, const QString &sourcePath,
+                            const QString &fallbackCrs, CatalogVersion *derived,
+                            QString *finalPath, QString *error)
+{
+  QString localErr;
+  QString *err = error ? error : &localErr;
+  const auto fail = [&](const QString &fallback) {
+    return err->isEmpty() ? fallback : *err;
+  };
+  QFile f(sourcePath);
+  if (!f.open(QIODevice::ReadOnly))
+    return QStringLiteral("cannot read %1").arg(sourcePath);
+  // #387：层位散点整读无超限闸——GB 级文件 OOM。与 LAS 500MB 同口径。
+  if (f.size() > LasParser::fileSizeLimit())
+    return QStringLiteral("horizon file too large (%1 MB limit): %2")
+        .arg(LasParser::fileSizeLimit() / (1024 * 1024))
+        .arg(sourcePath);
+  BinnedHorizon binned;
+  const QByteArray horizonText = f.readAll();
+  err->clear();
+  if (!binHorizon(horizonText, &binned, err))
+    return fail(QStringLiteral("horizon binning failed"));
+  derived->extra.insert(QStringLiteral("collisions"), binned.collisions);
+  derived->extra.insert(QStringLiteral("rejected"), binned.rejected);
+  derived->extra.insert(QStringLiteral("grid_rows"), binned.rows);
+  derived->extra.insert(QStringLiteral("xy_max_residual_m"), binned.geometryResidualM);
+  derived->extra.insert(QStringLiteral("grid_cols"), binned.cols);
+  derived->extra.insert(QStringLiteral("z_units"), QStringLiteral("ms"));
+  derived->extra.insert(QStringLiteral("z_min"), binned.zMin);
+  derived->extra.insert(QStringLiteral("z_max"), binned.zMax);
+  derived->extra.insert(QStringLiteral("filled_cells"), binned.filledCells);
+  // 最终位置（提交后）——图层声明/金字塔用它；字节先写进暂存根。
+  const QString tifPath = DataCatalog::resolvedVersionPath(s.projectDir, *derived);
+  if (tifPath.isEmpty())
+    return QStringLiteral("unsafe managed destination: %1").arg(derived->path);
+  if (!s.ensureStagingRoot(err))
+    return fail(QStringLiteral("cannot create staging root"));
+  const QString staged = DataCatalog::resolvedVersionPath(s.stagingRoot, *derived);
+  if (staged.isEmpty())
+    return QStringLiteral("unsafe managed destination: %1").arg(derived->path);
+  if (!QDir().mkpath(QFileInfo(staged).absolutePath()))
+    return QStringLiteral("cannot create directory %1").arg(QFileInfo(staged).absolutePath());
+  if (!writeHorizonGeoTiff(binned, staged, err))
+    return fail(QStringLiteral("horizon raster write failed"));
+  QString sourceCrs = paleo::io::wellSourceCrsHint(QString::fromUtf8(horizonText.left(8192)));
+  if (sourceCrs.isEmpty())
+    sourceCrs = fallbackCrs;
+  const QString targetCrs =
+      s.georeference && s.georeference->kind == "crs" ? s.georeference->sourceCrs : QString();
+  if (!paleo::io::projectRasterFile(staged, targetCrs, err, sourceCrs))
+  {
+    QFile::remove(staged);
+    QFile::remove(staged + QStringLiteral(".partial"));
+    QFile::remove(staged + QStringLiteral(".partial.tif"));
+    return fail(QStringLiteral("horizon raster projection failed"));
+  }
+  QFile::setPermissions(staged, QFileDevice::ReadOwner | QFileDevice::ReadUser |
+                                    QFileDevice::ReadGroup | QFileDevice::ReadOther);
+  // B3：Lazy ensure 瓦片金字塔——提交后在 owner 线程对最终路径执行。两条路径
+  // 现在一致登记（dedup 再派生原先漏登记）。
+  s.pyramidTargets.append(tifPath);
+  if (finalPath)
+    *finalPath = tifPath;
+  return QString();
+}
+
+
 // 方向57：importOneFile 的 importHorizonFamily 分支体（逐字搬迁；return fail(X) → return X，
 // 失败记账/信号仍由分派壳的 fail 完成）。返回错误文案，空串 = 成功。
 QString importHorizonFamily(FamilyContext &ctx)
@@ -171,59 +242,13 @@ QString importHorizonFamily(FamilyContext &ctx)
     // 已知界面：装箱派生时间栅格（DERIVED，父版本=RAW）并登记图层清单。
     if (known)
     {
-      QFile f(sourcePath);
-      if (!f.open(QIODevice::ReadOnly))
-        return QStringLiteral("cannot read %1").arg(sourcePath);
-      // #387：层位散点整读无超限闸——GB 级文件 OOM。与 LAS 500MB 同口径。
-      if (f.size() > LasParser::fileSizeLimit())
-        return QStringLiteral("horizon file too large (%1 MB limit): %2")
-            .arg(LasParser::fileSizeLimit() / (1024 * 1024))
-            .arg(sourcePath);
-      BinnedHorizon binned;
-      const auto horizonText = f.readAll();
-      if (!binHorizon(horizonText, &binned, error))
-        return *error;
-
-      const QString derivedVersionId =
-          cat->nextVersionId();
+      const QString derivedVersionId = cat->nextVersionId();
       const QString tifName = stem.toUpper() + QStringLiteral(".tif");
       const QString derivedRel = DataCatalog::managedPath(QStringLiteral("derived"), assetId,
                                                           derivedVersionId, tifName);
       if (derivedRel.isEmpty())
         return QStringLiteral("派生文件名不是合法路径段: %1").arg(tifName);
       const QString relPath = QStringLiteral("artifacts/") + derivedRel;
-      CatalogVersion pending;
-      pending.managed = true;
-      pending.path = relPath;
-      // 最终位置（提交后）——图层声明/金字塔用它；字节先写进暂存根。
-      const QString tifPath = DataCatalog::resolvedVersionPath(s.projectDir, pending);
-      if (tifPath.isEmpty())
-        return QStringLiteral("unsafe managed destination: %1").arg(relPath);
-      if (!s.ensureStagingRoot(error))
-        return *error;
-      const QString stagedTif = DataCatalog::resolvedVersionPath(s.stagingRoot, pending);
-      if (stagedTif.isEmpty())
-        return QStringLiteral("unsafe managed destination: %1").arg(relPath);
-      if (!QDir().mkpath(QFileInfo(stagedTif).absolutePath()))
-        return QStringLiteral("cannot create directory %1")
-                        .arg(QFileInfo(stagedTif).absolutePath());
-      if (!writeHorizonGeoTiff(binned, stagedTif, error))
-        return *error;
-      auto sourceCrs = paleo::io::wellSourceCrsHint(QString::fromUtf8(horizonText.left(8192)));
-      if (sourceCrs.isEmpty()) sourceCrs = ctx.inputCrs;
-      const auto targetCrs = s.georeference && s.georeference->kind == "crs" ? s.georeference->sourceCrs : QString();
-      if (!paleo::io::projectRasterFile(stagedTif, targetCrs, error, sourceCrs)) {
-        QFile::remove(stagedTif);
-        QFile::remove(stagedTif + QStringLiteral(".partial"));
-        QFile::remove(stagedTif + QStringLiteral(".partial.tif"));
-        return *error;
-      }
-      QFile::setPermissions(stagedTif, QFileDevice::ReadOwner | QFileDevice::ReadUser |
-                                           QFileDevice::ReadGroup | QFileDevice::ReadOther);
-      // B3：派生时间栅格同批接线——Lazy ensure 瓦片金字塔（近零开销）。提交
-      // 后在 owner 线程对最终路径执行（暂存路径不进金字塔身份表）。
-      s.pyramidTargets.append(tifPath);
-
       CatalogVersion derived;
       derived.id = derivedVersionId;
       derived.assetId = assetId;
@@ -232,17 +257,12 @@ QString importHorizonFamily(FamilyContext &ctx)
       derived.managed = true;
       derived.path = relPath;
       derived.sourceUri = fi.absoluteFilePath();
-      derived.fileName = stem.toUpper() + QStringLiteral(".tif");
+      derived.fileName = tifName;
       derived.parentVersionIds = QStringList{versionId};
-      derived.extra.insert(QStringLiteral("collisions"), binned.collisions);
-      derived.extra.insert(QStringLiteral("rejected"), binned.rejected);
-      derived.extra.insert(QStringLiteral("grid_rows"), binned.rows);
-      derived.extra.insert(QStringLiteral("xy_max_residual_m"), binned.geometryResidualM);
-      derived.extra.insert(QStringLiteral("grid_cols"), binned.cols);
-      derived.extra.insert(QStringLiteral("z_units"), QStringLiteral("ms"));
-      derived.extra.insert(QStringLiteral("z_min"), binned.zMin);
-      derived.extra.insert(QStringLiteral("z_max"), binned.zMax);
-      derived.extra.insert(QStringLiteral("filled_cells"), binned.filledCells);
+      QString tifPath;
+      const QString derr = deriveHorizonRaster(s, sourcePath, ctx.inputCrs, &derived, &tifPath, error);
+      if (!derr.isEmpty())
+        return derr;
       if (!cat->addVersion(derived, error))
         return *error;
 
@@ -466,18 +486,6 @@ QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
           }
         if (derived.id.isEmpty())
         {
-          QFile source(sourcePath);
-          if (!source.open(QIODevice::ReadOnly))
-            return QStringLiteral("cannot read %1").arg(sourcePath);
-          // #387：同 importHorizonFamily 主路径的超限闸（与 LAS 500MB 同口径）。
-          if (source.size() > LasParser::fileSizeLimit())
-            return QStringLiteral("horizon file too large (%1 MB limit): %2")
-                .arg(LasParser::fileSizeLimit() / (1024 * 1024))
-                .arg(sourcePath);
-          BinnedHorizon binned;
-          const auto horizonText = source.readAll();
-          if (!binHorizon(horizonText, &binned, error))
-            return error ? *error : QStringLiteral("horizon binning failed");
           derived.id = cat->nextVersionId();
           derived.assetId = existing.assetId;
           derived.stage = QStringLiteral("DERIVED");
@@ -489,38 +497,11 @@ QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
               QStringLiteral("derived"), existing.assetId, derived.id, derived.fileName);
           derived.sourceUri = sourcePath;
           derived.parentVersionIds = QStringList{existing.id};
-          derived.extra.insert(QStringLiteral("collisions"), binned.collisions);
-          derived.extra.insert(QStringLiteral("rejected"), binned.rejected);
-          derived.extra.insert(QStringLiteral("grid_rows"), binned.rows);
-      derived.extra.insert(QStringLiteral("xy_max_residual_m"), binned.geometryResidualM);
-          derived.extra.insert(QStringLiteral("grid_cols"), binned.cols);
-          derived.extra.insert(QStringLiteral("z_units"), QStringLiteral("ms"));
-          derived.extra.insert(QStringLiteral("z_min"), binned.zMin);
-          derived.extra.insert(QStringLiteral("z_max"), binned.zMax);
-          derived.extra.insert(QStringLiteral("filled_cells"), binned.filledCells);
-          if (DataCatalog::resolvedVersionPath(s.projectDir, derived).isEmpty())
-            return QStringLiteral("unsafe managed destination: %1").arg(derived.path);
-          if (!s.ensureStagingRoot(error))
-            return *error;
-          const QString dst = DataCatalog::resolvedVersionPath(s.stagingRoot, derived);
-          if (dst.isEmpty())
-            return QStringLiteral("unsafe managed destination: %1").arg(derived.path);
-          if (!QDir().mkpath(QFileInfo(dst).absolutePath()))
-            return QStringLiteral("cannot create directory %1")
-                            .arg(QFileInfo(dst).absolutePath());
-          if (!writeHorizonGeoTiff(binned, dst, error))
-            return error ? *error : QStringLiteral("horizon raster write failed");
-          auto sourceCrs = paleo::io::wellSourceCrsHint(QString::fromUtf8(horizonText.left(8192)));
-          if (sourceCrs.isEmpty()) sourceCrs = s.tableMappings.value(sourcePath).value("crs").toString();
-          const auto targetCrs = s.georeference && s.georeference->kind == "crs" ? s.georeference->sourceCrs : QString();
-          if (!paleo::io::projectRasterFile(dst, targetCrs, error, sourceCrs)) {
-            QFile::remove(dst);
-            QFile::remove(dst + QStringLiteral(".partial"));
-            QFile::remove(dst + QStringLiteral(".partial.tif"));
-            return *error;
-          }
-          QFile::setPermissions(dst, QFileDevice::ReadOwner | QFileDevice::ReadUser |
-                                     QFileDevice::ReadGroup | QFileDevice::ReadOther);
+          const QString derr = deriveHorizonRaster(
+              s, sourcePath, s.tableMappings.value(sourcePath).value("crs").toString(),
+              &derived, nullptr, error);
+          if (!derr.isEmpty())
+            return derr;
           if (!cat->addVersion(derived, error))
             return error ? *error : QStringLiteral("catalog addVersion failed");
         }

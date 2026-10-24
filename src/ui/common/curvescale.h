@@ -1,4 +1,5 @@
-// 层：视图（纯算法，无 Qt 依赖）
+// 层：视图
+// （纯算法，无 Qt 依赖）
 // ui/common/curvescale — 曲线值 → 道内归一横坐标的唯一实现（PW-020/021/103）。
 // wellcomposite / wellsection / correlation 共用，统一以下语义：
 //  - 反向刻度（min > max，NPHI 0.45→-0.15、DT 140→40 的标准惯例）：负跨度

@@ -1,4 +1,5 @@
 #pragma once
+// 层：数据
 // PW-076：导入管线统一的有界整读。超过 limit（默认 LasParser 口径 500 MB）直接失败，
 // 不截断、不静默——调用方据 error 报告。header-only，避免改动库源清单。
 #include <QByteArray>

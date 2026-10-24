@@ -232,6 +232,23 @@ class TestCorrTrack : public QObject
 
     // --- render body -----------------------------------------------------------
 
+    void pw102_zoomedWindowKeepsSpike()
+    {
+        // PW-102：4000 m × 0.1 m 测井，2000 m 处单样尖峰；放大到 20 m 窗口时
+        // 步长按窗内样点算（=1），尖峰必须上屏（全井步长 25 时会被抽掉）。
+        QVector<float> d, v;
+        for (int i = 0; i < 40000; ++i) {
+            d.append(0.1f * i);
+            v.append(i == 20003 ? 100.f : 1.f);
+        }
+        CorrelationTrack t(QStringLiteral("GR"), QString(), d, v);
+        const QImage img = t.render(60, 400, 1990.f, 2010.f);
+        QVERIFY(!img.isNull());
+        const QPair<int, int> cols = inkCols(img);
+        QVERIFY2(cols.second > 60 * 0.8, "spike decimated away in zoomed window");
+    }
+
+
     void renderInksCurveAcrossValueAndDepthRange()
     {
         const CorrelationTrack t = wiggleTrack(1000.f, 2000.f);

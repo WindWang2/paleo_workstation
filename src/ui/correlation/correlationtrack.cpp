@@ -2,6 +2,7 @@
 #include "correlationtrack.h"
 #include "../paleotheme.h"
 
+#include <algorithm>
 #include <QPainter>
 #include <QVariantMap>
 
@@ -99,9 +100,31 @@ QImage CorrelationTrack::render(int w, int h, float depthMin, float depthMax,
   // the stride between kept samples can be clipped, and a finite run
   // shorter than the stride can vanish entirely (sub-pixel at 4 pts/px) —
   // accepted for the bounded plot cost the 50-well budget demands.
+  // PW-102：步长按「可见深度窗」内的样点数算（不是全井）——放大到 100 m
+  // 窗口时预算全部落在窗内，薄层/尖峰不再因全井步长被抽掉；窗外样点不进
+  // series（两侧各留一个以保连续）。
   const qsizetype n = sampleCount();
+  const double off0 = static_cast<double>(depthOffset);
+  const double winLo = std::min<double>(depthMin, depthMax) + off0;
+  const double winHi = std::max<double>(depthMin, depthMax) + off0;
+  qsizetype first = -1, last = -1;
+  for (qsizetype i = 0; i < n; ++i)
+  {
+    const float d = m_depths.at(i);
+    if (std::isfinite(d) && d >= winLo && d <= winHi)
+    {
+      if (first < 0)
+        first = i;
+      last = i;
+    }
+  }
+  if (first < 0)
+    return {}; // 窗内无样点
+  const qsizetype iBegin = qMax<qsizetype>(0, first - 1);
+  const qsizetype iEnd = qMin<qsizetype>(n - 1, last + 1);
+  const qsizetype inWindow = iEnd - iBegin + 1;
   const qsizetype budget = qMax<qsizetype>(4 * pxH, 8);
-  const qsizetype stride = qMax<qsizetype>(1, (n + budget - 1) / budget);
+  const qsizetype stride = qMax<qsizetype>(1, (inWindow + budget - 1) / budget);
 
   // Split the thinned samples into contiguous finite runs → one series per
   // run, so NULL gaps stay gaps (port of the panel's series logic).
@@ -120,12 +143,12 @@ QImage CorrelationTrack::render(int w, int h, float depthMin, float depthMax,
     pts.clear();
   };
   const double off = static_cast<double>(depthOffset);
-  for (qsizetype i = 0; i < n; ++i)
+  for (qsizetype i = iBegin; i <= iEnd; ++i)
   {
     const float d = m_depths.at(i);
     const float v = m_values.at(i);
     const bool finite = std::isfinite(d) && std::isfinite(v);
-    if (finite && i % stride != 0 && i != n - 1)
+    if (finite && (i - iBegin) % stride != 0 && i != iEnd)
       continue; // thinned out
     if (!finite)
     {

@@ -38,6 +38,7 @@ private slots:
   void nanPixelIsDeadNotFilled();
   void northUpDyRoundTrips();
   void cellCountOverflowRejected();
+  void handBuiltGridIndexWidensBeforeMultiply();
 };
 
 void TestStratGrid::liveCellsHavePositiveVolumeAndMonotoneInterfaces()
@@ -231,6 +232,19 @@ void TestStratGrid::cellCountOverflowRejected()
   // 参照：同几何 1 层（9e8 ≤ INT_MAX）不被本闸误伤（长度检查随后接管）。
   QVERIFY(!buildZoneGrid(top, bot, 1, &grid, &err));
   QVERIFY(grid.ni == 0);
+}
+
+void TestStratGrid::handBuiltGridIndexWidensBeforeMultiply()
+{
+  // review memory#3：绕过 buildZoneGrid 闸手工构造的 ZoneGrid——乘法须先拓宽，
+  // 不得溢出成负数/回绕（修复前 int 乘法得负值）。
+  ZoneGrid grid;
+  grid.ni = 50000;
+  grid.nj = 50000;
+  grid.nk = 2;
+  QCOMPARE(qint64(grid.cellCount()), qint64(5000000000LL));
+  QCOMPARE(qint64(grid.cellIndex(49999, 49999, 1)), qint64(4999999999LL));
+  QVERIFY(grid.cellIndex(0, 0, 1) > 0);
 }
 
 QTEST_GUILESS_MAIN(TestStratGrid)

@@ -166,6 +166,39 @@ using paleo::store_detail::setError;
     return name.isEmpty() ? QStringLiteral("layer") : name;
   }
 
+  // PW-023：数据集 = 主文件 + 同目录 sidecar（.shx/.dbf/.prj/.aux.xml/世界文件…）。
+  // 返回 (尾缀, 绝对路径)，尾缀是文件名去掉主文件「基名」后的部分（如 ".dbf"、
+  // ".tif.aux.xml"），冻结/发布时拼到目标基名后保持 GDAL/OGR 可发现。
+  QList<QPair<QString, QString>> datasetSidecars(const QString &base)
+  {
+    QList<QPair<QString, QString>> out;
+    const QFileInfo bi(base);
+    const QString stem = bi.completeBaseName();
+    const QString suffix = bi.suffix().toLower();
+    static const QStringList kTails = {
+        ".shx", ".dbf", ".prj", ".cpg", ".qix", ".sbn", ".sbx", ".shp.xml",
+        ".tfw", ".tifw", ".tiffw", ".wld", ".jgw", ".pgw", ".gfw", ".qmd", ".qml"};
+    const QDir dir = bi.absoluteDir();
+    const QStringList entries = dir.entryList(QDir::Files);
+    for (const QString &fn : entries) {
+      if (fn.compare(bi.fileName(), Qt::CaseInsensitive) == 0) continue;
+      if (fn.size() <= stem.size() || !fn.startsWith(stem + '.', Qt::CaseInsensitive)) continue;
+      const QString tail = fn.mid(stem.size());
+      const QString lt = tail.toLower();
+      const bool known = kTails.contains(lt) ||
+          (!suffix.isEmpty() && (lt == "." + suffix + ".aux.xml" || lt == "." + suffix + ".ovr" ||
+                                 lt == "." + suffix + ".msk"));
+      if (known) out.append({tail, dir.filePath(fn)});
+    }
+    return out;
+  }
+
+  QString frozenStem(const QString &name)
+  {
+    const int dot = name.lastIndexOf('.');
+    return dot > 0 ? name.left(dot) : name;
+  }
+
   QString snapshotHash(QJsonObject provenance) {
     provenance.remove(QStringLiteral("snapshot_hash"));
     return QString::fromLatin1(QCryptographicHash::hash(
@@ -357,6 +390,16 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
         QDir(freezeDir).removeRecursively();
         return {};
       }
+      QJsonArray sidecars;
+      for (const auto &sc : datasetSidecars(base)) {
+        QJsonObject scRecord{{"suffix", sc.first}};
+        if (!freeze(sc.second, frozenStem(name) + sc.first, scRecord)) {
+          QDir(freezeDir).removeRecursively();
+          return {};
+        }
+        sidecars << scRecord;
+      }
+      if (!sidecars.isEmpty()) record.insert("sidecars", sidecars);
       savedLayers << record;
     }
     QJsonObject savedPdf;
@@ -872,6 +915,10 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
       }
       const QString name = QFileInfo(record.value("path").toString()).fileName();
       if (!copyFrozen(record, name)) return {};
+      for (const auto &sc : record.value("sidecars").toArray()) {
+        const QJsonObject scRecord = sc.toObject();
+        if (!copyFrozen(scRecord, frozenStem(name) + scRecord.value("suffix").toString())) return {};
+      }
     }
   } else {
     // Old saved rows have no immutable manifest; retain the legacy read path.
@@ -883,6 +930,9 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
       const QString suffix = QFileInfo(base).suffix();
       if (!suffix.isEmpty()) name += '.' + suffix;
       if (!copyReadOnly(base, QDir(snapDir).filePath(name), error)) return {};
+      for (const auto &sc : datasetSidecars(base))
+        if (!copyReadOnly(sc.second, QDir(snapDir).filePath(frozenStem(name) + sc.first), error))
+          return {};
     }
   }
 

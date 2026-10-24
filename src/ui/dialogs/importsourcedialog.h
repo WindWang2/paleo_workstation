@@ -17,7 +17,7 @@ public:
   QStringList files() const;
   QString folder() const;
   QString fileFilter() const;
-  static QString preferredType(const QString &kind, const QString &path);
+  static QString preferredType(const QString &kind, const QString &path, const QString &detected);
   void setSources(const QStringList &paths, bool directory = false);
   void accept() override;
 private:

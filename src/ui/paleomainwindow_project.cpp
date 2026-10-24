@@ -125,7 +125,7 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
     };
     auto rows = preview;
     for (auto &row : rows) {
-      const auto preferred = ImportSourceDialog::preferredType(kind, row.path);
+      const auto preferred = ImportSourceDialog::preferredType(kind, row.path, row.displayType);
       if (row.typeEditable && !preferred.isEmpty() && row.typeVocab.contains(preferred)) row.displayType = preferred;
     }
     PaleoFolderConfirm::buildFolderConfirmDialog(&dlg, dir, rows, hooks);
@@ -207,7 +207,7 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
         };
         auto rows = preview;
         for (auto &row : rows) {
-          const auto preferred = ImportSourceDialog::preferredType(kind, row.path);
+          const auto preferred = ImportSourceDialog::preferredType(kind, row.path, row.displayType);
           if (row.typeEditable && !preferred.isEmpty() && row.typeVocab.contains(preferred)) row.displayType = preferred;
         }
         PaleoFolderConfirm::buildFolderConfirmDialog(&dlg, displayDir, rows, hooks);

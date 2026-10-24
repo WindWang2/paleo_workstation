@@ -106,7 +106,7 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
       if (!QFileInfo(file).size()) { out.notes << QObject::tr("空文件已跳过：%1").arg(file); continue; }
       const bool points = QFileInfo(file) == QFileInfo(s.points), boundary = QFileInfo(file) == QFileInfo(s.boundary);
       auto cls = classifyImportFile(file);
-      if (boundary) cls.type = QStringLiteral("boundary");
+      cls.type = suggestedProjectImportType(file, cls.type, boundary ? QStringLiteral("boundary") : QString());
       if (boundary && out.sourceCrs.isEmpty()) out.sourceCrs = paleo::io::readWellTable(file).crs;
       if (points || cls.type == QLatin1String("well_stratification")) {
         if (paleo::io::isWellTableContainer(file) || points) {

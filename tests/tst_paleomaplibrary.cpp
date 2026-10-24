@@ -13,6 +13,8 @@
 #include <QMenu>
 #include "../src/workflow/assetops.h"
 #include <QTreeWidget>
+#include <QTableWidget>
+#include "../src/domain/projectclassifier.h"
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QTabWidget>
@@ -20,7 +22,6 @@
 #include <QScrollBar>
 #include <QLabel>
 #include <QListWidget>
-#include <QWizard>
 #include <QProgressBar>
 #include <QIcon>
 #include <qgssymbollayer.h>
@@ -221,6 +222,16 @@ private slots:
       button->click(); QVERIFY2(shown, qPrintable(name)); QVERIFY2(correctMode, qPrintable(name));
       QVERIFY(f.importer.catalog()->assets().isEmpty());
     }
+    for (const auto &kind : projectClassifierTypes()) {
+      auto *action = window.findChild<QAction *>("addData_" + kind); QVERIFY2(action, qPrintable(kind));
+      bool shown = false;
+      QTimer::singleShot(0, &window, [&] {
+        if (auto *dialog = window.findChild<ImportSourceDialog *>("dataImportSourceDialog")) {
+          shown = dialog->property("importKind").toString() == kind; dialog->reject();
+        }
+      });
+      action->trigger(); QVERIFY2(shown, qPrintable(kind)); QVERIFY(f.importer.catalog()->assets().isEmpty());
+    }
   }
   void boundaryButtonConfirmsAsSurveyAreaAndImports() {
     Fixture f; QVERIFY(f.init()); QTemporaryDir source; const auto path = source.filePath("polygon.geojson");
@@ -232,16 +243,21 @@ private slots:
     PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
     window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, &f.importer, nullptr, &f.processing, &f.store, nullptr, nullptr, &f.tasks);
     bool reviewed = false;
-    QTimer::singleShot(0, &window, [&] {
-      auto *dialog = window.findChild<ImportSourceDialog *>(); if (!dialog) return;
-      dialog->setSources({path}); dialog->accept();
-      QTimer::singleShot(0, &window, [&] {
-        auto *wizard = window.findChild<QWizard *>("singleImportDialog"); if (!wizard) return;
-        reviewed = wizard->findChild<QComboBox *>("singleImportTypeCombo")->currentData().toString() == QStringLiteral("boundary");
-        wizard->next(); wizard->button(QWizard::FinishButton)->click();
-      });
-    });
-    window.findChild<QPushButton *>("importBoundary")->click(); QVERIFY(reviewed);
+    QTimer poll; poll.setInterval(10); connect(&poll, &QTimer::timeout, &window, [&] {
+      if (auto *dialog = window.findChild<ImportSourceDialog *>(); dialog && dialog->isVisible()) {
+        dialog->setSources({path}); dialog->accept();
+      }
+      if (auto *dialog = window.findChild<QDialog *>("folderImportDialog"); dialog && dialog->isVisible()) {
+        if (!reviewed) {
+          auto *type = dialog->findChild<QComboBox *>("folderType0");
+          reviewed = type && type->currentData().toString() == QStringLiteral("boundary");
+          dialog->findChild<QPushButton *>("folderConfirmButton")->click();
+        }
+        if (auto *table = dialog->findChild<QTableWidget *>("folderTable"); reviewed && table && table->isEnabled() && !f.importer.catalog()->assets().isEmpty()) dialog->reject();
+      }
+    }); poll.start();
+    window.findChild<QPushButton *>("importBoundary")->click();
+    QTRY_VERIFY_WITH_TIMEOUT(reviewed, 20000); poll.stop();
     QTRY_COMPARE_WITH_TIMEOUT(f.importer.catalog()->assets().size(), 1, 20000);
     QCOMPARE(f.importer.catalog()->assets().first().type, QString("boundary"));
     QTRY_VERIFY_WITH_TIMEOUT(!f.importer.catalog()->entities("study_area").isEmpty(), 20000);

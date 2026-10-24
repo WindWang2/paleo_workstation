@@ -39,8 +39,6 @@
 #include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
-#include <QWizard>
-#include <QWizardPage>
 #include <QComboBox>
 #include <QCheckBox>
 #include <QFileInfo>
@@ -116,7 +114,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
       QString toolsReason;
       if (enabled && m_tools)
         toolsOk = m_tools->check(QString(), &toolsReason);
-      for (const char *name : {"importOfflineBasemap", "importWells", "importWellLogs", "importSeismic",
+      for (const char *name : {"importAddData", "importOfflineBasemap", "importWells", "importWellLogs", "importSeismic",
                                "importBoundary", "importFolder", "importFiles", "importPaleomap", "importPaleomapFolder"})
         if (auto *btn = findChild<QPushButton *>(QLatin1String(name)))
         {
@@ -361,88 +359,8 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
               if (!source.folder().isEmpty()) { runFolderImportAt(importSvc, source.folder(), kind); return; }
               const auto picked = source.files();
               if (picked.isEmpty()) return;
-              if (picked.size() > 1 || kind == "files" || QFileInfo(picked.first()).suffix().compare("shp", Qt::CaseInsensitive) == 0)
-              {
-                runFilesImportAt(importSvc, picked, kind);
-                return;
-              }
-              const QString &path = picked.first();
-              auto *wf = folderImportWorkflow();
-              if (!wf)
-                return;
-              QString effectiveType = wf->classifyFile(path);
-              const auto preferred = ImportSourceDialog::preferredType(kind, path);
-              if (!preferred.isEmpty()) effectiveType = preferred;
-              QWizard wizard(this);
-              wizard.setObjectName(QStringLiteral("singleImportDialog"));
-              wizard.setWindowTitle(tr("导入数据"));
-              wizard.setButtonText(QWizard::NextButton, tr("下一步"));
-              wizard.setButtonText(QWizard::BackButton, tr("上一步"));
-              wizard.setButtonText(QWizard::FinishButton, tr("确认导入"));
-              wizard.setButtonText(QWizard::CancelButton, tr("取消"));
-              auto *classifyPage = new QWizardPage(&wizard);
-              classifyPage->setTitle(tr("1 · 自动识别与分类调整"));
-              auto *classifyLayout = new QVBoxLayout(classifyPage);
-              const int spacing = PaleoTheme::tokens().spacingSm;
-              classifyLayout->setContentsMargins(spacing, spacing, spacing, spacing);
-              classifyLayout->setSpacing(spacing);
-              auto *fileLabel = new QLabel(tr("文件：%1\n识别类型：%2")
-                  .arg(path, PaleoFolderConfirm::folderTypeLabel(effectiveType)), classifyPage);
-              fileLabel->setTextFormat(Qt::PlainText);
-              fileLabel->setWordWrap(true);
-              classifyLayout->addWidget(fileLabel);
-              auto *typeCombo = new QComboBox(classifyPage);
-              typeCombo->setObjectName(QStringLiteral("singleImportTypeCombo"));
-              typeCombo->setAccessibleName(tr("导入分类"));
-              for (const auto &type : projectClassifierTypes())
-                typeCombo->addItem(PaleoFolderConfirm::folderTypeLabel(type), type);
-              typeCombo->setCurrentIndex(typeCombo->findData(effectiveType));
-              classifyLayout->addWidget(typeCombo);
-              wizard.addPage(classifyPage);
-              auto *reviewPage = new QWizardPage(&wizard);
-              reviewPage->setTitle(tr("2 · 确认导入"));
-              auto *reviewLayout = new QVBoxLayout(reviewPage);
-              reviewLayout->setContentsMargins(spacing, spacing, spacing, spacing);
-              reviewLayout->setSpacing(spacing);
-              auto *review = new QLabel(reviewPage);
-              review->setTextFormat(Qt::PlainText);
-              review->setWordWrap(true);
-              reviewLayout->addWidget(review);
-              auto *crsNote = new QLabel(PaleoFolderConfirm::engineeringCrsSentence(), reviewPage);
-              crsNote->setObjectName(QStringLiteral("singleImportCrsNote"));
-              crsNote->setWordWrap(true);
-              PaleoTheme::applyThemedStyleSheet(crsNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
-              reviewLayout->addWidget(crsNote);
-              auto *nameLabel = new QLabel(tr("数据对象名称："), reviewPage);
-              reviewLayout->addWidget(nameLabel);
-              auto *nameEdit = new QLineEdit(QFileInfo(path).fileName(), reviewPage);
-              nameEdit->setObjectName(QStringLiteral("singleImportNameEdit"));
-              reviewLayout->addWidget(nameEdit);
-              auto *copyCheck = new QCheckBox(tr("将文件复制进工程目录（受管副本）"), reviewPage);
-              copyCheck->setObjectName(QStringLiteral("singleImportCopyCheck"));
-              copyCheck->setToolTip(tr("默认只建立索引引用原文件，不复制；勾选后复制进工程 artifacts/raw"));
-              reviewLayout->addWidget(copyCheck);
-              wizard.addPage(reviewPage);
-              connect(&wizard, &QWizard::currentIdChanged, &wizard, [=](int) {
-                review->setText(tr("%1\n将作为「%2」导入工程。")
-                    .arg(path, PaleoFolderConfirm::folderTypeLabel(typeCombo->currentData().toString())));
-              });
-              if (wizard.exec() != QDialog::Accepted)
-                return;
-              if (m_projectSvc->sessionId() != session || isProjectReadOnly()) {
-                PaleoNotify::warning(this, tr("导入资料"), tr("工程已变化，请重新选择资料。")); return;
-              }
-              effectiveType = typeCombo->currentData().toString();
-              // D1b：LAS 解析/SEG-Y 索引等大文件在任务池跑——无任务服务时保持
-              // 同步旧路径。imported 信号照常排队回 GUI（预览标签在终态后开）。
-              // D1b：LAS 解析/SEG-Y 索引等大文件在任务池跑（编排在
-              // FolderImportWorkflow）；imported 信号照常排队回 GUI。
-              if (auto *wf = folderImportWorkflow())
-                wf->importFile(effectiveType, path, [window = QPointer<PaleoMainWindow>(this)](const QString &assetId,
-                                              const QString &err) {
-                  if (assetId.isEmpty() && window)
-                    PaleoNotify::warning(window, QObject::tr("导入失败"), err);
-                }, !copyCheck->isChecked(), nameEdit->text());
+              // Single files share the batch preview, ownership, hash and retry contract.
+              runFilesImportAt(importSvc, picked, kind);
             });
 }
 

@@ -1,5 +1,6 @@
 // 层：数据
 #include "welltable.h"
+#include "importclassification.h"
 // 方向57：从 dataimportservice.cpp 按格式族析出。公共 API（dataimportservice.h）
 // 零改动；跨族共享辅助（setError/readFileOrEmpty/FamilyContext）经
 // dataimport_internal.h；importOneFile 分支体族函数亦声明于该头。
@@ -159,22 +160,7 @@ QVector<FolderPreviewRow> DataImportService::previewRowsFromPlan(const IngestPla
   const auto fillDisplay = [&vocab](FolderPreviewRow &r) {
     // 行默认显示类型：HZ28-6-1 固定辅助 → 「参考」；「参考资料」目录内井类/
     // 未判内容默认「参考」（可改）；其余行显示分类器原类型。
-    QString disp = r.classifiedType;
-    if (isFixedAuxiliaryPath(r.path))
-      disp = QStringLiteral("reference");
-    else if (isDefaultReferencePath(r.path))
-    {
-      // document/image_reference/geojson/seismic/horizon 等显示真实类型——
-      // 它们本来就走辅助实体，且类型名驱动预览分支（document → PDF 预览）。
-      static const QSet<QString> kWellish = {QStringLiteral("well_head"),
-                                             QStringLiteral("well_log"),
-                                             QStringLiteral("unknown")};
-      if (kWellish.contains(r.classifiedType))
-        disp = QStringLiteral("reference");
-    }
-    if (disp.isEmpty())
-      disp = QStringLiteral("unknown");
-    r.displayType = disp;
+    r.displayType = suggestedProjectImportType(r.path, r.classifiedType);
     r.typeVocab = vocab;
     if (!r.classifiedType.isEmpty() && !vocab.contains(r.classifiedType))
       r.typeVocab.append(r.classifiedType); // 词表外类型（未来扩展）保住可选
@@ -450,7 +436,7 @@ void DataImportService::produceFromPlan(
   bool retype = false;
   for (PlannedItem &item : plan.items)
   {
-    const QString o = typeOverrides.value(item.path);
+    const QString o = resolvedProjectImportType(item.path, item.type, typeOverrides.value(item.path));
     if (isClassifierType(o) && o != item.type)
     {
       item.type = o;
@@ -761,10 +747,8 @@ DataImportService::importFolderRow(const QString &sourcePath, const QString &for
   if (error)
     error->clear();
   // 与目录预览、单文件导入使用相同的有界内容识别。
-  QFile source(sourcePath);
-  const QByteArray prefix = source.open(QIODevice::ReadOnly) ? source.read(65536) : QByteArray();
-  const QString classified = classifyProjectImport(sourcePath, prefix).type;
-  const QString eff = isClassifierType(forceType) ? forceType : classified;
+  const QString classified = classifyImportFile(sourcePath).type;
+  const QString eff = resolvedProjectImportType(sourcePath, classified, forceType);
   const FolderRowResult row = folderRowFor(sourcePath, classified, eff);
   if (row.outcome == FolderRowResult::Outcome::Failed)
     setError(error, row.message); // 成功路径不写 error（同 importFolder）

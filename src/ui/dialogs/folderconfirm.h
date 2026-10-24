@@ -79,7 +79,7 @@ QString engineeringCrsSentence();
 void populateFolderConfirmTable(QTableWidget *table, const QString &rootDir,
                                 const QVector<FolderPreviewRow> &rows,
                                 QVector<QComboBox *> *combosOut);
-// 覆盖收集：只看启用行；选中映射类型合法且不同于分类器原类型才成 override。
+// 覆盖收集：只看启用行；保留不同于检测类型或默认类型的合法显式选择。
 QMap<QString, QString>
 collectFolderTypeOverrides(const QTableWidget *table,
                            const QVector<FolderPreviewRow> &rows,

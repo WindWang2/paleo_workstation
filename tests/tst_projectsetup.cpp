@@ -14,6 +14,11 @@
 #include <QTabBar>
 #include <QTableWidget>
 #include <QCheckBox>
+#include <QMenu>
+#include "importuxfixtures.h"
+#include "../src/ui/dialogs/importsourcedialog.h"
+#include "../src/ui/dialogs/folderconfirm.h"
+#include "../src/ui/pages/datalist.h"
 #include "../src/services/paleomapfiles.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/io/welltable.h"
@@ -71,6 +76,112 @@ class TestProjectSetup : public QObject
     return paleo::io::zipWriteArchive(path, {{"xl/workbook.xml", workbook}, {"xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Target=\"worksheets/sheet1.xml\"/></Relationships>"}, {"xl/worksheets/sheet1.xml", xml}}, {}, &error) ? path : QString();
   }
 private slots:
+  void classificationsAgreeAcrossSetupFilesFolderAndRetry() {
+    QTemporaryDir dir; const auto source = dir.filePath("source"); QString error;
+    const auto heads = xlsx(source + "/coordinates.xlsx", "data", {{"WELL", "X", "Y"}, {"A1", "10", "20"}});
+    QVERIFY(!heads.isEmpty());
+    QMap<QString, QString> expected{{heads, "well_head"}};
+    const QList<QPair<QString, QByteArray>> samples{
+      {"layers.csv", "WELL,HORIZON,MD,TVD\nA1,D61,100,95\n"},
+      {"curve.csv", ImportUxFixtures::csv()},
+      {"renamed.txt", "~Version\nVERS. 2.0 :\n~Well\nWELL. A1 :\n~Curve\nDEPT.M :\nGR.API :\n~A\n100 50\n101 60\n"},
+      {"td.dat", "#TimeDepth File From SMI\n# Well : A1\n0 0 0 0\n1 -100 100 120\n"},
+      {"trajectory.csv", "MD,INCL,AZIM\n0,0,0\n100,10,20\n"},
+      {"grid.dat", "# Grid_size:2x2\n# P1: 1,1,0,0\n# Z_units: ms\n0 0 100 1 1\n"},
+      {"volume.sgy", QByteArray(3600, '\0')}, {"notes.pdf", "%PDF-1.4\nfixture"},
+      {"photo.png", "image fixture"}, {"data.sfpkg", "package fixture"},
+      {QStringLiteral("参考资料/reference.xml"), ImportUxFixtures::xml()},
+      {"HZ28-6-1.xml", ImportUxFixtures::xml()}, {"unknown.bin", "unrecognized fixture"},
+      {"large.xml", ImportUxFixtures::paddedXml()}};
+    const QStringList types{"well_stratification", "well_log", "well_log", "time_depth", "well_deviation", "horizon",
+        "seismic", "document", "image_reference", "single_factor_package", "reference", "reference", "unknown", "well_log"};
+    for (int i = 0; i < samples.size(); ++i) {
+      const auto path = source + '/' + samples[i].first; QVERIFY(write(path, samples[i].second)); expected.insert(path, types[i]);
+    }
+    ProjectSetupSources sources; sources.wells = source;
+    const auto setup = scanProjectSources(sources);
+    QVERIFY2(setup.errors.isEmpty(), qPrintable(setup.errors.join('\n')));
+    PaleoProjectStore store; DataImportService service(&store); service.setProjectDir(dir.filePath("project"));
+    const auto files = service.previewFiles(expected.keys(), &error); QVERIFY2(error.isEmpty(), qPrintable(error));
+    const auto folder = service.previewFolder(source, &error); QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(files.size(), expected.size()); QCOMPARE(folder.size(), expected.size());
+    for (auto it = expected.cbegin(); it != expected.cend(); ++it) {
+      QVERIFY2(setup.paths.contains(it.key()), qPrintable(it.key() + ": " + setup.sourceProblems.value(it.key())));
+      QCOMPARE(setup.types.value(it.key()), it.value());
+      for (const auto &rows : {files, folder}) for (const auto &row : rows) if (row.path == it.key()) {
+        QCOMPARE(row.displayType, it.value());
+        for (const auto &kind : {QString("files"), QString("wells"), QString("well_log"), QString("seismic")})
+          QCOMPARE(ImportSourceDialog::preferredType(kind, row.path, row.displayType), it.value());
+      }
+    }
+    // Retry used to classify this workbook by suffix, losing its well records.
+    const auto retried = service.importFolderRow(heads, {}, &error);
+    QVERIFY2(!retried.assetId.isEmpty(), qPrintable(error));
+    QCOMPARE(service.catalog()->assetById(retried.assetId).type, QString("well_head"));
+    QCOMPARE(service.catalog()->entities("well").size(), 1);
+    const auto retriedXml = service.importFolderRow(source + "/large.xml", {}, &error);
+    QVERIFY2(!retriedXml.assetId.isEmpty(), qPrintable(error));
+    QCOMPARE(service.catalog()->assetById(retriedXml.assetId).type, QString("well_log"));
+  }
+  void addingWellDataKeepsExistingAssetsAndVersions() {
+    QTemporaryDir dir; const auto heads = dir.filePath("source/heads.csv");
+    const auto first = dir.filePath("source/GR.csv"), second = dir.filePath("source/RES.csv");
+    QVERIFY(write(heads, "WELL,X,Y\nA1,10,20\n"));
+    QVERIFY(write(first, ImportUxFixtures::csv("A1", "GR[API]")));
+    QVERIFY(write(second, ImportUxFixtures::csv("A1", "RES[ohm.m]", "1000,10\n1000.5,20\n1001,30\n")));
+    PaleoProjectStore store; DataImportService service(&store); service.setProjectDir(dir.filePath("project")); QString error;
+    const auto initial = service.importFiles({heads, first}, &error); QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(initial.size(), 2); QCOMPARE(service.catalog()->assets().size(), 2);
+    const auto previous = service.catalog()->assets(); QMap<QString, QString> versions;
+    for (const auto &asset : previous) versions.insert(asset.id, service.catalog()->currentVersion(asset.id).id);
+    const auto added = service.importFiles({second}, &error); QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(added.size(), 1); QVERIFY(!added.first().assetId.isEmpty());
+    QCOMPARE(service.catalog()->assets().size(), 3); QCOMPARE(service.catalog()->entities("well").size(), 1);
+    for (const auto &asset : previous) QCOMPARE(service.catalog()->currentVersion(asset.id).id, versions.value(asset.id));
+    const auto links = service.catalog()->linksForAsset(added.first().assetId); QCOMPARE(links.size(), 1);
+    QCOMPARE(links.first().role, QString("well_log")); QVERIFY(!links.first().unresolved);
+  }
+  void everyClassifierTypeHasAnAddEntryAndFilters() {
+    DataListPanel panel; QSignalSpy requested(&panel, &DataListPanel::importRequested);
+    auto *add = panel.findChild<QPushButton *>("importAddData"); QVERIFY(add); QVERIFY(add->menu());
+    QCOMPARE(add->menu()->actions().size(), projectClassifierTypes().size());
+    for (const auto &type : projectClassifierTypes()) {
+      auto *action = add->findChild<QAction *>("addData_" + type); QVERIFY2(action, qPrintable(type));
+      action->trigger(); QCOMPARE(requested.takeFirst().first().toString(), type);
+      ImportSourceDialog source(type);
+      for (const auto &extension : projectImportExtensions(type)) QVERIFY(source.fileFilter().contains("*." + extension));
+      source.setSources({QDir::tempPath()}, true); QCOMPARE(source.folder(), QDir::tempPath());
+    }
+    QCOMPARE(suggestedProjectImportType("points.csv", "well_head", "well_log"), QString("well_head"));
+    QCOMPARE(suggestedProjectImportType("polygon.geojson", "geojson", "boundary"), QString("boundary"));
+    QCOMPARE(suggestedProjectImportType("plain.dat", "tabular", "time_depth"), QString("time_depth"));
+    QCOMPARE(suggestedProjectImportType("photo.png", "image_reference", "horizon"), QString("image_reference"));
+  }
+  void referenceDefaultsAndExplicitChoicesAgreeOnExecution() {
+    QTemporaryDir dir; const auto path = dir.filePath(QStringLiteral("参考资料/curve.xml"));
+    QVERIFY(write(path, ImportUxFixtures::xml())); QString error;
+    for (const auto &mode : {QString("single"), QString("batch"), QString("override")}) {
+      PaleoProjectStore store; DataImportService service(&store); service.setProjectDir(dir.filePath("project-" + mode));
+      const auto preview = service.previewFiles({path}, &error); QCOMPARE(preview.size(), 1);
+      QCOMPARE(preview.first().classifiedType, QString("well_log")); QCOMPARE(preview.first().displayType, QString("reference"));
+      QMap<QString, QString> overrides;
+      if (mode == "override") {
+        QTableWidget table(0, 5); QVector<QComboBox *> combos;
+        PaleoFolderConfirm::populateFolderConfirmTable(&table, QFileInfo(path).absolutePath(), preview, &combos);
+        combos.first()->setCurrentIndex(combos.first()->findData("well_log"));
+        overrides = PaleoFolderConfirm::collectFolderTypeOverrides(&table, preview, combos);
+        QCOMPARE(overrides.value(path), QString("well_log"));
+      }
+      QString asset;
+      if (mode == "single") asset = service.importProjectFile(path, &error);
+      else {
+        const auto rows = service.importFiles({path}, &error, overrides); QCOMPARE(rows.size(), 1); asset = rows.first().assetId;
+      }
+      QVERIFY2(!asset.isEmpty(), qPrintable(error));
+      QCOMPARE(service.catalog()->assetById(asset).type, mode == "override" ? QString("well_log") : QString("reference"));
+      QCOMPARE(service.catalog()->entities("well").size(), mode == "override" ? 1 : 0);
+    }
+  }
   void interpretedTablesAreReadyOnImport() {
     QTemporaryDir source, projectDir; QString error;
     const auto heads = xlsx(source.filePath("heads.xlsx"), "data", {{"WELL", "X", "Y"}, {"A4", "10", "20"}, {"B4", "30", "40"}});

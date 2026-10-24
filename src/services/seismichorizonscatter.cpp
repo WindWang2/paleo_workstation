@@ -35,7 +35,7 @@ bool readHeader(QFile &input, HorizonHeader *h, SeismicClusterResult *result)
   const auto hint = paleo::io::wellSourceCrsHint(QString::fromUtf8(header));
   if (!hint.isEmpty()) {
     OGRSpatialReference crs;
-    if (crs.SetFromUserInput(hint.toUtf8().constData()) != OGRERR_NONE ||
+    if (crs.SetFromUserInput(hint.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE ||
         !crs.IsProjected() || std::abs(crs.GetLinearUnits() - 1.0) > 1e-9) {
       result->error = QStringLiteral("层位坐标系必须是以米为单位的有效投影坐标系"); return false;
     }

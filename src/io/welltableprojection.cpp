@@ -15,7 +15,7 @@ bool projectWellCoordinates(QVector<WellHeadRecord> *heads, const QString &sourc
     return false;
   }
   OGRSpatialReference from, to;
-  if (from.SetFromUserInput(source.toUtf8().constData()) != OGRERR_NONE || to.SetFromUserInput(destination.toUtf8().constData()) != OGRERR_NONE) { if (error) *error = QObject::tr("井点坐标系无效"); return false; }
+  if (from.SetFromUserInput(source.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE || to.SetFromUserInput(destination.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE) { if (error) *error = QObject::tr("井点坐标系无效"); return false; }
   from.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER); to.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
   std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)> ct(OGRCreateCoordinateTransformation(&from, &to), OCTDestroyCoordinateTransformation);
   if (!ct) { if (error) *error = QObject::tr("无法转换井点坐标系"); return false; }

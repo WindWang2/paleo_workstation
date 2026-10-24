@@ -10,6 +10,7 @@
 
 #include <gdal.h>
 #include <cpl_conv.h>
+#include <ogr_spatialref.h>
 
 // 取窗契约锚（f0e7b10d「直接按原始层位提取地震窗并聚类」的文档化契约，
 // docs/progress/seismichorizoncluster.md）：Scatter 路径按层位 TWT ±12ms
@@ -19,10 +20,128 @@
 #include "seismichorizonfixture.h"
 using namespace SeismicHorizonFixture;
 
+// 非平行四边形的真实测网：P1/P2/P3 不能推断第四角。地震 XY 保留整数
+// 量化，SMI 保留小数；实际同号道坐标吻合，旧三角点仿射检查会误拒绝。
+static QPair<QByteArray, QByteArray> warpedSurvey(int scalar = 0, double shift = 0, double scale = 1)
+{
+  auto volume = buildVolume();
+  QByteArray horizon = QStringLiteral("# Projection: EPSG:32649\n# Grid_size:4x4\n"
+      "# P1: 100,2000,0,0\n# P2: 100,2003,%1,0\n# P3: 103,2003,%1,%2\n# Z_units: ms\n")
+      .arg(30 * scale).arg(63.6 * scale).toUtf8();
+  const double resolution = scalar == 0 ? 1.0 : scalar > 0 ? double(scalar) : 1.0 / -double(scalar);
+  for (int row = 0; row < 4; ++row)
+    for (int col = 0; col < 4; ++col) {
+      const double x = (10.0 * col + 1.5 * row * (3 - col)) * scale, y = (20.0 * row + 0.4 * col * row) * scale;
+      auto *header = reinterpret_cast<uchar *>(volume.data() + 3600 + (row * 4 + col) * 440);
+      qToBigEndian<qint16>(qint16(scalar), header + 70);
+      qToBigEndian<qint32>(qint32(std::lround(x / resolution)), header + 180);
+      qToBigEndian<qint32>(qint32(std::lround(y / resolution)), header + 184);
+      horizon += QStringLiteral("%1 %2 100 %3 %4\n").arg(x + shift, 0, 'f', 5)
+          .arg(y, 0, 'f', 5).arg(100 + row).arg(2000 + col).toUtf8();
+    }
+  return {volume, horizon};
+}
+
 class TestSeismicHorizonCluster : public QObject
 {
   Q_OBJECT
 private slots:
+  void actualTraceCoordinatesAcceptWarpedSurvey_data() {
+    QTest::addColumn<int>("scalar");
+    QTest::newRow("integer") << 0;
+    QTest::newRow("decimetre") << -10;
+    QTest::newRow("ten-metres") << 10;
+  }
+  void actualTraceCoordinatesAcceptWarpedSurvey() {
+    QFETCH(int, scalar);
+    QTemporaryDir dir;
+    const auto data = warpedSurvey(scalar);
+    const auto sgy = dir.filePath("v.sgy"), smi = dir.filePath("h.dat");
+    QVERIFY(writeFile(sgy, data.first)); QVERIFY(writeFile(smi, data.second));
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QCOMPARE(result.rows, 4); QCOMPARE(result.columns, 4);
+    QVERIFY(result.validCells > 8);
+    QCOMPARE(result.validCells, result.cells.size() - result.cells.count(-9999));
+    QVERIFY(result.extent.contains(QPointF(13.5, 60))); // 第四角实际位置
+    OGRSpatialReference crs;
+    QCOMPARE(crs.SetFromUserInput(result.crsWkt.toUtf8().constData()), OGRERR_NONE);
+    QCOMPARE(QString::fromLatin1(crs.GetAuthorityCode(nullptr)), QStringLiteral("32649"));
+    // 经磁盘索引恢复后仍须使用相同方言、坐标字段及 scalar。
+    const auto cached = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    QCOMPARE(cached.error, result.error); QCOMPARE(cached.cells, result.cells);
+  }
+  void actualTraceCoordinatesRejectWrongSurvey() {
+    QTemporaryDir dir;
+    auto data = warpedSurvey(0, 1000);
+    const auto sgy = dir.filePath("v.sgy"), smi = dir.filePath("h.dat");
+    QVERIFY(writeFile(sgy, data.first)); QVERIFY(writeFile(smi, data.second));
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY(result.error.contains(QStringLiteral("inline 100")));
+    QVERIFY(result.error.contains(QStringLiteral("1000.000")));
+    QVERIFY(result.cells.isEmpty());
+  }
+  void projectedQuantizationUsesSurveySpacingAndRecordsResidual() {
+    QTemporaryDir dir;
+    auto data = warpedSurvey(0, 0, 4); // 非均匀测网最小间距约 22m
+    data.second.replace("0.00000 0.00000 100 100 2000", "1.40000 1.20000 100 100 2000");
+    const auto sgy = dir.filePath("v.sgy"), smi = dir.filePath("h.dat");
+    QVERIFY(writeFile(sgy, data.first)); QVERIFY(writeFile(smi, data.second));
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QVERIFY(result.warnings.join(' ').contains(QStringLiteral("1.844")));
+    // 同一文件若偏移到半道，仍应失败。
+    data.second.replace("1.40000 1.20000 100 100 2000", "10.00000 0.00000 100 100 2000");
+    QVERIFY(writeFile(smi, data.second));
+    const auto shifted = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY(shifted.error.contains(QStringLiteral("10.000")));
+  }
+  void interiorMismatchCannotHideBehindMatchingCorners() {
+    QTemporaryDir dir;
+    const auto sgy = dir.filePath("v.sgy"), smi = dir.filePath("h.dat");
+    auto horizon = buildHorizon(100);
+    horizon.replace("10.00000 20.00000 100.0 101 2001", "15.00000 20.00000 100.0 101 2001");
+    QVERIFY(writeFile(sgy, buildVolume())); QVERIFY(writeFile(smi, horizon));
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY(result.error.contains(QStringLiteral("inline 101")));
+    QVERIFY(result.error.contains(QStringLiteral("crossline 2001")));
+    QVERIFY(result.error.contains(QStringLiteral("5.000")));
+  }
+  void malformedDuplicateAndMissingTrace() {
+    QTemporaryDir dir;
+    const auto sgy = dir.filePath("v.sgy"), smi = dir.filePath("h.dat");
+    auto volume = buildVolume();
+    // 删除内部道，不应把不存在的道映射到邻道。
+    volume.remove(3600 + 5 * 440, 440);
+    QVERIFY(writeFile(sgy, volume)); QVERIFY(writeFile(smi, buildHorizon(100)));
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QCOMPARE(result.validCells, 15); QCOMPARE(result.cells[(103 - 101) * 4 + 1], -9999);
+    QVERIFY(writeFile(smi, buildHorizon(100) + "0 0 100 100 2000\n"));
+    const auto duplicate = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY(duplicate.error.contains(QStringLiteral("重复")));
+  }
+  void nodataBoundaryPreservesGridExtent() {
+    QTemporaryDir dir;
+    const auto sgy = dir.filePath("v.sgy"), smi = dir.filePath("h.dat");
+    auto horizon = buildHorizon(100);
+    horizon.replace("0.00000 0.00000 100.0 100 2000", "0.00000 0.00000 -9999 100 2000");
+    QVERIFY(writeFile(sgy, buildVolume())); QVERIFY(writeFile(smi, horizon));
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QCOMPARE(result.validCells, 15); QCOMPARE(result.extent, QRectF(-5, -10, 40, 80));
+  }
+  void localMockAcceptanceOnReadOnlyInputs() {
+    const QString root = qEnvironmentVariable("PALEO_SEISMIC_MOCK_INPUT");
+    if (root.isEmpty()) QSKIP("Set PALEO_SEISMIC_MOCK_INPUT for local data acceptance");
+    QTemporaryDir cache;
+    const auto result = clusterSeismicHorizon(root + QStringLiteral("/地震/200P_seismic.sgy"),
+        root + QStringLiteral("/层位/D61.dat"), cache.path(), {1, 2, 3}, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QVERIFY(result.validCells > 250000);
+    QVERIFY(!result.crsWkt.isEmpty());
+    qInfo() << "D61 local Mock" << result.columns << result.rows << result.validCells << result.extent << result.warnings;
+  }
   void wellVotesReplaceClusterOrderAndAllowManyClustersPerFacies() {
     SeismicClusterResult grid;
     grid.columns = 3; grid.rows = 2; grid.extent = QRectF(0, 0, 30, 20);

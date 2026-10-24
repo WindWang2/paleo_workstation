@@ -267,14 +267,29 @@ switch ($Verb) {
       return $map
     }
 
-    function Compare-PinnedClosure($installed, $closure) {
-      # 双向比对：装了的必须钉、钉了的必须装且版本一致。返回差异描述列表。
+    function Get-UpstreamVersion([string]$v) {
+      # OSGeo4W version = 「上游版本-打包修订号」（如 3.13.3-2）；剥掉末尾
+      # 「-数字」得上游版本。同口径参考实现见 tools/pin_osgeo4w.py upstream_version。
+      return ($v -replace '-\d+$', '')
+    }
+
+    function Compare-PinnedClosure($installed, $closure, [ref]$warnings) {
+      # 双向比对：装了的必须钉、钉了的必须装且上游版本一致。返回差异描述列表。
+      # review-fix-ci：OSGeo4W 只服务 live 最新包、无法按版本安装，上游只
+      # 重打包（3.13.3-2 → 3.13.3-3，同上游版本）就让 Windows 4 片在 Vendor
+      # 步全红、0 测试跑。仅打包修订号漂移降级为 ::warning（仍逐包列出，
+      # 提示刷新钉版）；上游版本变化/缺包/未钉版包仍是硬错。
       $diffs = @()
       foreach ($p in $closure.PSObject.Properties) {
         $v = $null
         if ($installed.ContainsKey($p.Name)) { $v = $installed[$p.Name] }
         if ($null -eq $v) { $diffs += "缺包 $($p.Name)（钉 $($p.Value)）" }
-        elseif ($v -ne $p.Value) { $diffs += "版本漂移 $($p.Name)：装 $v / 钉 $($p.Value)" }
+        elseif ($v -ne $p.Value) {
+          $msg = "版本漂移 $($p.Name)：装 $v / 钉 $($p.Value)"
+          if ((Get-UpstreamVersion $v) -eq (Get-UpstreamVersion $p.Value)) {
+            if ($null -ne $warnings) { $warnings.Value += "仅打包修订号漂移 $($p.Name)：装 $v / 钉 $($p.Value)" }
+          } else { $diffs += $msg }
+        }
       }
       foreach ($k in $installed.Keys) {
         if (-not $closure.PSObject.Properties.Name.Contains($k)) {
@@ -287,7 +302,9 @@ switch ($Verb) {
     $installed = Read-InstalledDbMap $installedDb
     $closureMatches = $false
     if ($null -ne $installed -and $null -ne $pin.closure) {
-      $closureMatches = (@(Compare-PinnedClosure $installed $pin.closure)).Count -eq 0
+      # 跳过 setup 只认精确一致（缓存树带修订号漂移时照跑 setup 再校验）。
+      $preWarn = @()
+      $closureMatches = ((@(Compare-PinnedClosure $installed $pin.closure ([ref]$preWarn))).Count -eq 0) -and ($preWarn.Count -eq 0)
     }
 
     if ($closureMatches) {
@@ -308,7 +325,9 @@ switch ($Verb) {
       # 出机械刷新路径。
       $installed = Read-InstalledDbMap $installedDb
       if ($null -eq $installed) { throw "OSGeo4W installed.db 缺失或为空：$installedDb" }
-      $diffs = @(Compare-PinnedClosure $installed $pin.closure)
+      $revWarn = @()
+      $diffs = @(Compare-PinnedClosure $installed $pin.closure ([ref]$revWarn))
+      foreach ($w in $revWarn) { Write-Host "::warning::OSGeo4W $w（上游版本一致；跑 python3 tools/pin_osgeo4w.py 刷新钉版）" }
       if ($diffs.Count -gt 0) {
         Write-Host "::error::OSGeo4W 包集与 manifest 钉版不符（上游已发版或钉版过期）："
         foreach ($d in $diffs) { Write-Host "::error::  $d" }

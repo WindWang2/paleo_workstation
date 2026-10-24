@@ -1151,6 +1151,12 @@ void MappingWorkbench::styleLayer(const QString &id) {
   }
   layer->setCustomProperty("paleo/faciesDisplayMode", FaciesHierarchy::productDisplayMode(styledKind,
       layer->customProperty("paleo/faciesDisplayMode", v.extra.value("display_mode", "auto")).toString()));
+  // 新图层（编辑副本、保存的新版本）尚无固定属性时，从版本记录带入相类固定；
+  // 图层上已有（含显式清空的 "{}"）则以图层为准，旧版本无该字段即无固定。
+  if (!layer->customProperty("paleo/faciesPinnedLevels").isValid() &&
+      !v.extra.value("pinned_levels").toString().isEmpty())
+    layer->setCustomProperty("paleo/faciesPinnedLevels", FaciesHierarchy::encodePins(
+        FaciesHierarchy::parsePins(v.extra.value("pinned_levels").toString())));
   FaciesHierarchyRenderer::apply(layer, v.extra.value("facies").toList(),
                                  resolvedLevel(id));
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {

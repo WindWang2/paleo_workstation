@@ -90,7 +90,7 @@ bool MappingWorkbench::setPinnedLevel(const QString &id, const QString &nodeKey,
   const bool remove = mode.isEmpty() || mode == "auto";
   if (!remove && !FaciesHierarchy::levels().contains(mode))
     return reject(error, tr("请选择相、亚相或微相"));
-  if (!supportsFaciesDisplay(id) || isWellPrediction(id))
+  if (!supportsFaciesDisplay(id))
     return reject(error, tr("请选择相图件"));
   bool known = false;
   for (const auto &node : FaciesHierarchy::pinCandidates(versionForLayer(id).extra.value("facies").toList()))
@@ -106,10 +106,9 @@ bool MappingWorkbench::setPinnedLevel(const QString &id, const QString &nodeKey,
   else
     pins.insert(nodeKey, mode);
   const auto encoded = FaciesHierarchy::encodePins(pins);
-  if (encoded.isEmpty())
-    layer->removeCustomProperty("paleo/faciesPinnedLevels");
-  else
-    layer->setCustomProperty("paleo/faciesPinnedLevels", encoded);
+  // 清空时写入 "{}" 而非删除属性：显式清空不应被版本记录中的固定项重新带回。
+  layer->setCustomProperty("paleo/faciesPinnedLevels",
+                           encoded.isEmpty() ? QStringLiteral("{}") : encoded);
   if (m_project && m_project->project())
     m_project->project()->setDirty(true);
   styleLayer(id);

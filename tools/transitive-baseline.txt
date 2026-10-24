@@ -52,9 +52,12 @@
 # #533 known-red，见 docs/ci/known-reds.json）。
 func_qtwidgets_edges: 0
 ui_qtwidgets_notes: 5
-heavy_edges: 52
-heavy_tus: 50
+heavy_edges: 51
+heavy_tus: 49
 # ---- 2026-10-19 审计第三轮 G1-06（已被 #578 超越）----
 # 本轮曾按 #474 先例带归因 re-pin 87→88（+1 TU 归因 #562 拆分
 # ui/paleomainwindow_paleomaps.cpp，出闸边恒 52）；#578 削掉两条头扇出根后
 # heavy_tus 实测降至 50，rebase 取其值，本轮 re-pin 作废留痕。
+# ---- 2026-10-25 review-fix-archui：上游漂移 heavy_tus 50→52（821f4bb3 segyreader.h→
+#   segyindexstore.h；#697 paleomainwindow_seismic.cpp→seismicmaplink.h）经削边修复，
+#   实测 heavy_edges 52→51 / heavy_tus 52→49，只缩下调。

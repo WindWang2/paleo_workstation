@@ -65,6 +65,7 @@ add_paleo_test(tst_boundaryeditrules LIBS paleo_workflow) # 方向39：相界类
 add_paleo_test(tst_wellsiting_workflow LIBS paleo_workflow)  # 方向34：井网辅助编排（Oracle 2/4）
 add_paleo_test(tst_wellsiting_panel LIBS paleo_ui)         # 方向34：布井辅助面板（视图锚点/意图信号）
 add_paleo_test(tst_mappingworkbench LIBS paleo_core paleo_qgis_attribute_table) # 伞式 + #410 属性表宿主回归
+target_compile_definitions(tst_mappingworkbench PRIVATE PALEO_SOURCE_DIR="${CMAKE_SOURCE_DIR}") # H1：命令登记表 ↔ 分派源码一致性
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
 add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）
 # RUN_SERIAL 独占机器跑：dataops_d2_filterPerformance10k 的 100ms 墙钟断言

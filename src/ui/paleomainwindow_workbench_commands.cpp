@@ -12,9 +12,11 @@
 // .cpp，不在头文件加成员声明。行为守恒：分支内 early-return 经
 // WbCmdStep::Return 上传入口，公共消息逻辑保持单份。
 #include "paleomainwindow.h"
+#include "workbenchcommandregistry.h"
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgislayerservice.h"
+#include "../services/errorhub.h"
 #include "../services/paleotaskservice.h" // QPointer<PaleoTask>::running 需完整类型
 #include "../services/previewdoc.h"
 #include "../workflow/mappingworkbench.h"
@@ -44,6 +46,31 @@
 #include <qgsvectorlayer.h>
 
 namespace {
+// review-fix M5：工作台命令失败除页内/状态栏 10s 提示外，同步入账 ErrorHub
+// 错误历史（historyOnly：已就地呈现，不再弹卡），用户移开视线后仍可在
+// 状态栏错误胶囊里找回。未装配全局 hub（单测）时只剩 qWarning。
+void reportWorkbenchFailure(const QString &action, const QString &message)
+{
+  if (ErrorHub *hub = ErrorHub::global())
+    hub->raise(ErrorHub::Level::Warning, QStringLiteral("workbench"),
+               PaleoMainWindow::tr("工作台操作失败：%1").arg(action), message,
+               QString(), false, true);
+  else
+    qWarning("workbench command '%s' failed: %s", qPrintable(action),
+             qPrintable(message));
+}
+} // namespace
+
+namespace {
+
+// 同步长操作的等待光标 RAII（构造即设、析构即还；异常路径不卡在等待态，R2-07②）。
+struct WaitCursorGuard
+{
+  WaitCursorGuard() { QApplication::setOverrideCursor(Qt::WaitCursor); }
+  ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
+  WaitCursorGuard(const WaitCursorGuard &) = delete;
+  WaitCursorGuard &operator=(const WaitCursorGuard &) = delete;
+};
 
 // 分支结局：Skip=本族不认领该 action（交给下一族）；Handled=认领且落入入口
 // 的公共消息逻辑；Return=分支已自行收尾（原分支内 early-return，直接返回，
@@ -132,11 +159,7 @@ WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
     // 最小满足；异步任务化在 full-audit 台账记为剩余工作）。
     // 光标 RAII：分析抛异常（bad_alloc 族）也不卡死在等待态（R2-07②）。
     d.self->statusBar()->showMessage(PaleoMainWindow::tr("正在分析影响（重放冻结输入）…"), 0);
-    const struct WaitCursorGuard
-    {
-      ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
-    } waitCursor;
-    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const WaitCursorGuard waitCursor;
     *d.lastImpact = d.workbench->analyzeLayerVersionImpact(id, h, &error);
     ok = !d.lastImpact->isEmpty();
     d.page->setImpactAvailable(ok);
@@ -195,11 +218,7 @@ WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
       const auto plan = d.workbench->recomputePlan(*d.lastImpact, &error);
       ok = !plan.isEmpty() && plan.value("status").toString() != QStringLiteral("empty");
       if (ok) {
-        const struct WaitCursorGuard
-        {
-          ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
-        } waitCursor;
-        QApplication::setOverrideCursor(Qt::WaitCursor);
+        const WaitCursorGuard waitCursor;
         const auto execution = d.workbench->executeRecompute(plan, &error);
         const auto results = execution.value("results").toList();
         int started = 0;
@@ -481,9 +500,18 @@ void PaleoMainWindow::runWorkbenchCommand(
     }
     return true; // 保留当前范围、比例尺和三级显示，不在导出前重新缩放。
   };
-  if (runMappingEditFlow(page, action, p, action == "exportMap" ? exportView : show)) return;
   QString error;
   bool ok = true;
+  // review-fix H1：未登记动作显式失败，不再落到默认成功文案。
+  if (!paleo::workbenchcmd::isKnownAction(action)) {
+    qWarning("runWorkbenchCommand: unknown action '%s'", qPrintable(action));
+    const QString message = tr("未知操作：%1").arg(action);
+    page->showMessage(message);
+    statusBar()->showMessage(message, 10000);
+    reportWorkbenchFailure(action, message);
+    return;
+  }
+  if (runMappingEditFlow(page, action, p, action == "exportMap" ? exportView : show)) return;
   bool declarationOnly = false;
   const auto h = p.value("horizon").toString(),
              id = p.value("layer").toString();
@@ -519,6 +547,12 @@ void PaleoMainWindow::runWorkbenchCommand(
                                        error, declarationOnly);
   if (step == WbCmdStep::Return)
     return;
+  if (step == WbCmdStep::Skip) {
+    // 已登记却无分支受理（如编辑流前置条件不满足）：按失败回报。
+    qWarning("runWorkbenchCommand: action '%s' not handled", qPrintable(action));
+    ok = false;
+    error = tr("操作未执行：%1 当前不可用").arg(action);
+  }
   QString message;
   if (!ok)
     message = error.isEmpty() ? tr("操作未完成，请检查输入。") : error;
@@ -570,4 +604,6 @@ void PaleoMainWindow::runWorkbenchCommand(
   statusBar()->showMessage(message, 10000);
   if (!ok && action == "delete")
     PaleoNotify::warning(this, tr("图件未删除"), message);
+  else if (!ok)
+    reportWorkbenchFailure(action, message);
 }

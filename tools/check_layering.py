@@ -303,6 +303,75 @@ def load_metric_baseline(path=TRANSITIVE_BASELINE):
     return metrics
 
 
+def collect_module_cycles():
+    """模块（src/ 顶层目录）include 图中的环 → [(模块列表, [示例边])]。
+
+    review-fix M2：io⇄services、catalog⇄metadata 这类双向依赖逐文件规则抓不到
+    （各自方向单看都合法），这里按模块图求强连通分量，任何 ≥2 模块的分量即环。
+    无 baseline：当前树已归零，新增环直接红。"""
+    edges = {}
+    for path in iter_sources():
+        rel = os.path.relpath(path, SRC).replace(os.sep, "/")
+        src_mod = top_dir(rel)
+        if src_mod not in LAYERS:
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().split("\n")
+        except OSError:
+            continue
+        for n, line in enumerate(lines, 1):
+            inc = INC_RE.match(line)
+            if not inc:
+                continue
+            norm = norm_include(os.path.dirname(path), inc.group(1))
+            if norm is None or "/" not in norm:
+                continue
+            dst = top_dir(norm)
+            if dst == src_mod or dst not in LAYERS:
+                continue
+            edges.setdefault((src_mod, dst), f"src/{rel}:{n} -> {norm}")
+    graph = {}
+    for a, b in edges:
+        graph.setdefault(a, set()).add(b)
+        graph.setdefault(b, set())
+    index, low, stack, on, sccs = {}, {}, [], set(), []
+    counter = [0]
+
+    def strong(v):
+        index[v] = low[v] = counter[0]
+        counter[0] += 1
+        stack.append(v)
+        on.add(v)
+        for w in sorted(graph[v]):
+            if w not in index:
+                strong(w)
+                low[v] = min(low[v], low[w])
+            elif w in on:
+                low[v] = min(low[v], index[w])
+        if low[v] == index[v]:
+            comp = []
+            while True:
+                w = stack.pop()
+                on.discard(w)
+                comp.append(w)
+                if w == v:
+                    break
+            if len(comp) > 1:
+                sccs.append(sorted(comp))
+
+    for v in sorted(graph):
+        if v not in index:
+            strong(v)
+    out = []
+    for comp in sorted(sccs):
+        members = set(comp)
+        samples = [edges[(a, b)] for (a, b) in sorted(edges)
+                   if a in members and b in members]
+        out.append((comp, samples))
+    return out
+
+
 def run_check(strict=False, baseline_path=None):
     baseline = load_baseline(baseline_path or BASELINE)
     hits = {}          # baseline 中被命中的条目
@@ -324,8 +393,16 @@ def run_check(strict=False, baseline_path=None):
         for rule in sorted(missing):
             shrunk.append(f"{path}:{rule}")
 
+    cycles = collect_module_cycles()
+    for comp, samples in cycles:
+        print(f"FAIL [module-cycle] 模块依赖成环：{' ⇄ '.join(comp)}")
+        for edge in samples:
+            print(f"       {edge}")
     for rel_src, rule, lineno, text in sorted(failures):
         print(f"FAIL {rel_src}:{lineno} [{rule}] {text}")
+    if cycles:
+        print(f"\n{len(cycles)} 个模块依赖环——须削边（下沉共用件/移位），不设 baseline。")
+        return 1
     for entry in sorted(shrunk):
         print(f"NOTE baseline 可收缩：{entry}（对应违规已修复，请删除该行）")
 
@@ -914,6 +991,23 @@ def selftest():
         if rc_of(True) != 1:
             print("SELFTEST FAIL strict: 可收缩条目在 strict 下必须红（强制删行）")
             failures += 1
+        open(vio, "w", encoding="utf-8").write('// 层：数据\n#include <QString>\n')
+        write_baseline("# empty\n")
+        # (e) review-fix M2：模块双向 include（各自方向单看合法）→ 模块环，双红
+        os.makedirs(os.path.join(tmp2, "services"), exist_ok=True)
+        cyc_a = os.path.join(tmp2, "io", "cyc.cpp")
+        cyc_b = os.path.join(tmp2, "services", "cyc.cpp")
+        open(cyc_a, "w", encoding="utf-8").write('// 层：数据\n#include "../services/cyc.h"\n')
+        open(cyc_b, "w", encoding="utf-8").write('// 层：数据\n#include "../io/cyc.h"\n')
+        if rc_of(False) != 1 or rc_of(True) != 1:
+            print("SELFTEST FAIL module-cycle: io⇄services 双向 include 应双红")
+            failures += 1
+        os.remove(cyc_b)
+        if rc_of(False) != 0:
+            print("SELFTEST FAIL module-cycle: 单向 include 不应报环")
+            failures += 1
+        os.remove(cyc_a)
+        os.remove(vio)
 
         # ---- 方向 49：--transitive 夹具（黄牌正例/clean 反例/幽灵边/视图双面）----
         def put(rel, text):

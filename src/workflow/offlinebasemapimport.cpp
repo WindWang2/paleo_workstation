@@ -3,7 +3,7 @@
 #include "../qgis/offlinebasemapvalidation.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
-#include "../services/paleomapfiles.h"
+#include "../io/paleomapfiles.h"
 #include "../services/paleotaskservice.h"
 #include "../catalog/datacatalog.h"
 #include <QDir>

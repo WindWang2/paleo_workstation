@@ -5,7 +5,10 @@
 #include <QVector>
 
 #include "../domain/sectiontrace.h"   // SegyOptions/SegyTrace/SegyGeometry/SegySectionGrid（domain 纯数据）
-#include "segyindexstore.h"           // StoredIndex/IndexStats（D2 索引持久化）
+// D2 索引持久化类型只前向声明（完整定义见 segyindexstore.h；调用 snapshot/
+// restore/indexStats 的 TU 自行 include），避免 io 重头经本头外溢。
+struct SegyStoredIndex;
+struct SegyIndexStats;
 
 #include <atomic>
 #include "../domain/arearules.h"
@@ -101,11 +104,11 @@ class SegyReader
 
     // ---- D2 索引面 ----
     // 当前索引快照（open/openCached 成功后可取）。
-    bool snapshot(SegyIndexStore::StoredIndex *out) const;
+    bool snapshot(SegyStoredIndex *out) const;
     // 从快照恢复（身份不校验——调用方持 load() 的结果；重建行/道哈希）。
-    bool restore(const SegyIndexStore::StoredIndex &in, const QString &path);
+    bool restore(const SegyStoredIndex &in, const QString &path);
     // D2.6 空洞报告（快照统计口径）。
-    SegyIndexStore::IndexStats indexStats() const;
+    SegyIndexStats indexStats() const;
     // D2.7 被跳过的损坏道偏移（无则空）。
     QVector<qint64> badTraceOffsets() const { return m_badTraceOffsets; }
     // 最近一次扫描是否因取消而保留部分索引（checkpoint 可用）。
@@ -139,7 +142,7 @@ class SegyReader
                       bool xlineFromCdp, bool cornerFromCdpXY);
     // D2.5/D2.8 断点续扫：从 scannedOffset 继续顺序扫（标准索引模式专用），
     // 追加进已恢复的部分索引。
-    bool resumeScan(QFile &file, const SegyIndexStore::StoredIndex &partial,
+    bool resumeScan(QFile &file, const SegyStoredIndex &partial,
                     QString *error, const SegyOptions *opts);
     // 从（部分）m_index 重建行/道哈希 + 范围几何（restore/resume 收尾）。
     void rebuildLineHashes();

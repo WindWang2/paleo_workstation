@@ -1,6 +1,6 @@
 // 层：数据
 #include "projectsetupscan.h"
-#include "../services/paleomapfiles.h"
+#include "paleomapfiles.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/mappinghorizons.h"
 #include <QDir>

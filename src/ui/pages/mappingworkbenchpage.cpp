@@ -10,6 +10,7 @@
 #include "../../services/singlefactordef.h"
 #include "../../workflow/mappingworkbench.h"
 #include "wellreadinesspanel.h"
+#include "../../qgis/collapsiblegroup.h"
 #include "pageshared.h"
 #include "ui/paleotheme.h"
 #include <QComboBox>
@@ -37,7 +38,6 @@
 #include <QVBoxLayout>
 #include <algorithm>
 #include <climits>
-#include <qgscollapsiblegroupbox.h>
 
 MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
                                            MappingWorkbench *workbench,
@@ -322,9 +322,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   actions->addWidget(button("consistency", tr("地震相 × 测井相一致性报告")), 5,
                      0, 1, 2);
   layout->addLayout(actions);
-  auto *appearance = new QgsCollapsibleGroupBox(tr("相类别与标注"), body);
-  appearance->setObjectName("workbenchAppearance");
-  appearance->setSaveCollapsedState(false);
+  // M4：外观/来源/分类三组默认折叠，但按页模式记住用户上次的展开状态。
+  const auto remember = [&mode](const char *name) { return "workbench/" + mode + "/" + name; };
+  auto *appearance = paleo::collapsible::create(tr("相类别与标注"), body, "workbenchAppearance", true, remember("appearance"));
   auto *appearanceLayout = new QVBoxLayout(appearance);
   auto *levelForm = new QFormLayout;
   m_displayLevel = new QComboBox(appearance);
@@ -391,36 +391,25 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   appearanceLayout->addWidget(button("labels", tr("应用标注到选中图件")));
   layout->addWidget(pinGroup); layout->addWidget(appearance); // 固定列表置于折叠的外观组之前，易找
   if (mode == "compose") buildDeliveryStep(body, layout);
-  auto *evidenceGroup =
-      new QgsCollapsibleGroupBox(tr("选中要素的解释证据"), body);
-  evidenceGroup->setObjectName("workbenchEvidence");
-  evidenceGroup->setSaveCollapsedState(false);
+  auto *evidenceGroup = paleo::collapsible::create(tr("选中要素的解释证据"), body, "workbenchEvidence", mode == "compose");
   auto *groupLayout = new QVBoxLayout(evidenceGroup);
   buildEvidenceSection(evidenceGroup, groupLayout);
-  evidenceGroup->setCollapsed(mode == "compose");
   layout->addWidget(evidenceGroup);
-  appearance->setCollapsed(true);
-  auto *details = new QgsCollapsibleGroupBox(tr("来源与生成参数"), body);
-  details->setObjectName("workbenchProvenance");
-  details->setSaveCollapsedState(false);
+  auto *details = paleo::collapsible::create(tr("来源与生成参数"), body, "workbenchProvenance", true, remember("provenance"));
   auto *detailsLayout = new QVBoxLayout(details);
   m_details = new QLabel(tr("选择图件查看来源、生成参数和文件位置。"), details);
   m_details->setTextFormat(Qt::PlainText);
   m_details->setWordWrap(true);
   detailsLayout->addWidget(m_details);
   layout->addWidget(details);
-  details->setCollapsed(true);
   m_details->setTextInteractionFlags(Qt::TextSelectableByMouse);
   m_details->setObjectName("workbenchDetails");
-  auto *schema = new QgsCollapsibleGroupBox(tr("当前层位相分类"), body);
-  schema->setObjectName("workbenchSchema");
-  schema->setSaveCollapsedState(false);
+  auto *schema = paleo::collapsible::create(tr("当前层位相分类"), body, "workbenchSchema", true, remember("schema"));
   auto *sl = new QVBoxLayout(schema);
   auto *schemaBody = new QWidget(schema);
   sl->addWidget(schemaBody);
   buildFaciesSchema(schemaBody);
   layout->addWidget(schema);
-  schema->setCollapsed(true);
   layout->addStretch();
   connect(m_results, &QTreeWidget::currentItemChanged, this,
           [this] { updateState(); emit targetLayerChanged(selectedLayer()); });

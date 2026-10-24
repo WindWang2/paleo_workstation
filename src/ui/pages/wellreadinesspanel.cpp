@@ -39,6 +39,7 @@ WellReadinessPanel::WellReadinessPanel(MappingWorkbench *workbench, QListWidget 
   connect(m_check, &QPushButton::clicked, this, [this] {
     const auto [horizon, ids] = m_selection();
     QString error;
+    m_checkedIds = ids;
     if (!m_workbench->checkWellReadiness(horizon, ids, &error))
       return showResult({}, error);
     m_checking = true;
@@ -51,10 +52,13 @@ WellReadinessPanel::WellReadinessPanel(MappingWorkbench *workbench, QListWidget 
     showResult(wells, error);
   });
   // 输入或勾选变化：旧结论作废（不自动发起检查——检查会查询服务模型清单）。
+  // 检查未完成（中止/失败）的原因不是「结论」：工程重绑时输入列表会重建并触发
+  // 这里，若同步清空，用户就看不到中止原因。原因保留到下一轮比对勾选——勾选
+  // 未变则留着，变了才作废（见 refresh）。
   const auto invalidate = [this] {
     if (m_checking) return;
-    m_summary->clear(); m_reasons->clear(); m_reasons->hide();
-    m_toggle->setChecked(false); m_toggle->hide();
+    if (m_errorShown) m_recheckError = true;
+    else clearResult();
     // 下一轮再读勾选：页面析构时清空输入列表会触发这里，届时选择回调里的
     // 控件可能已先析构；延后到事件循环，面板随页面一起销毁即自然作废。
     QTimer::singleShot(0, this, &WellReadinessPanel::refresh);
@@ -66,8 +70,16 @@ WellReadinessPanel::WellReadinessPanel(MappingWorkbench *workbench, QListWidget 
   refresh();
 }
 
+void WellReadinessPanel::clearResult() {
+  m_errorShown = m_recheckError = false;
+  m_summary->clear(); m_reasons->clear(); m_reasons->hide();
+  m_toggle->setChecked(false); m_toggle->hide();
+}
+
 void WellReadinessPanel::refresh() {
   const auto ids = m_selection().second;
+  if (m_recheckError && !m_checking && ids != m_checkedIds) clearResult();
+  m_recheckError = false;
   setVisible(!ids.isEmpty() || !m_summary->text().isEmpty());
   if (m_checking) return;
   m_check->setEnabled(!ids.isEmpty() && !m_workbench->busy());
@@ -87,6 +99,8 @@ void WellReadinessPanel::showResult(const QVariantList &wells, const QString &er
            : tr("✗ %1：%2").arg(name, well.value("reason").toString()), m_reasons);
     Q_UNUSED(item);
   }
+  m_errorShown = !error.isEmpty();
+  m_recheckError = false;
   if (!error.isEmpty())
     m_summary->setText(tr("检查未完成：%1").arg(error));
   else

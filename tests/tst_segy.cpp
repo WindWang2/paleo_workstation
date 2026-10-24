@@ -11,6 +11,7 @@
 
 #include "../src/io/perffixtures.h"
 #include "../src/io/segyreader.h"
+#include "../src/io/segyindexstore.h" // StoredIndex/IndexStats 完整类型（segyreader.h 仅前向声明）
 
 // ---------------------------------------------------------------------------
 // Synthetic SEG-Y generator for testing

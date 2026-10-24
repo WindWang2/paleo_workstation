@@ -12,7 +12,7 @@
 #include "qgis/qgisprocessingservice.h"
 #include "qgis/qgisprojectservice.h"
 #include "qgis/qgisruntime.h"
-#include "services/paleomapfiles.h"
+#include "io/paleomapfiles.h"
 #include "services/paleotaskservice.h"
 #include "workflow/mappingworkbench.h"
 #include "workflow/paleomaplibrary.h"

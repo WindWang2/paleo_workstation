@@ -183,7 +183,7 @@ QVector<Source> sources()
   QVector<Source> out{
       {QStringLiteral("osm"), QObject::tr("街道（OpenStreetMap）"), QStringLiteral("https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
        QObject::tr("© OpenStreetMap 贡献者（ODbL）"), 19,
-       QObject::tr("开放街道数据，适合道路与地名参考；仅按当前视野浏览，不批量下载。"),
+       QObject::tr("开放街道数据，适合道路与地名参考；仅按当前视图范围浏览，不批量下载。"),
        QStringLiteral("https://operations.osmfoundation.org/policies/tiles/")},
       {QStringLiteral("esri_imagery"), QObject::tr("卫星影像（Esri，受使用条款约束）"),
        QStringLiteral("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"),

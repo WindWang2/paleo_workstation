@@ -29,7 +29,7 @@ QMenu *add(QMenu *menu, const QVariantList &schema, const QVariant &faciesCode, 
   auto *sub = menu->addMenu(QCoreApplication::translate("FaciesPinMenu", "固定显示层级"));
   sub->setObjectName("pinFeatureFaciesLevel");
   for (int i = 0; i < int(levels.size()); ++i) {
-    const auto level = levels.at(i);
+    const auto &level = levels.at(i);
     // 已有固定作用于此相面时改该固定的层级（否则更浅的新固定会被最近一级盖住、
     // 选了看不到效果）；尚无固定时固定该相面在所选层级上的节点。
     const auto key = pinnedKey.isEmpty() ? FaciesHierarchy::key(f, level) : pinnedKey;

@@ -99,6 +99,9 @@ class SingleFactorRegionalTests : public QObject
     void regionsYieldIndependentContours();
     void emptyRegionRefusesBorrowing();
     void mismatchedInputsRejected();
+    // review-fix-numerics：marching squares 鞍点配对与角点恰等于级别。
+    void saddlePairingFollowsCenterClass();
+    void cornerEqualToLevelYieldsSingleSegment();
 };
 
 void SingleFactorRegionalTests::regionsYieldIndependentContours()
@@ -183,6 +186,42 @@ void SingleFactorRegionalTests::mismatchedInputsRejected()
   result = regionalContours( input, g, params(), { 0.4, std::numeric_limits<double>::quiet_NaN() },
                              partition );
   QCOMPARE( static_cast<int>( result.status ), static_cast<int>( Status::InvalidInput ) );
+}
+
+
+void SingleFactorRegionalTests::saddlePairingFollowsCenterClass()
+{
+  // 2×2 鞍点：tl/br 低（0），tr/bl 高（10），中心均值 5 ≥ 级别 4 → 中心与高角同类，
+  // 应切掉低角 tl (0,3) 与 br (1,2)。旧实现按“中心 ≥ 级别”选 (0,1)/(2,3)，切掉的
+  // 却是高角——等值线把中心高值区错划出去。
+  const GridSpec g = grid( 2, 2, 0, 2 );
+  const std::vector<double> values = { 0.0, 10.0, 10.0, 0.0 }; // row-major: tl tr / bl br
+  const std::vector<std::uint8_t> mask( 4, 1 );
+  std::vector<detail::Segment> segs;
+  detail::marchingSquaresSegments( g, values, mask, 4.0, &segs );
+  QCOMPARE( segs.size(), std::size_t( 2 ) );
+  // 像元中心：tl(0.5,1.5) tr(1.5,1.5) bl(0.5,0.5) br(1.5,0.5)。
+  const auto nearTl = [&]( const detail::Segment &s ) {
+    return std::hypot( s.a.x - 0.5, s.a.y - 1.5 ) < 0.5 && std::hypot( s.b.x - 0.5, s.b.y - 1.5 ) < 0.5;
+  };
+  const auto nearBr = [&]( const detail::Segment &s ) {
+    return std::hypot( s.a.x - 1.5, s.a.y - 0.5 ) < 0.5 && std::hypot( s.b.x - 1.5, s.b.y - 0.5 ) < 0.5;
+  };
+  QVERIFY( ( nearTl( segs[0] ) && nearBr( segs[1] ) ) || ( nearTl( segs[1] ) && nearBr( segs[0] ) ) );
+}
+
+void SingleFactorRegionalTests::cornerEqualToLevelYieldsSingleSegment()
+{
+  // tl 恰等于级别 5，tr/bl=8 在上方，br=1 在下方。旧式 (v0−L)(v1−L) ≤ 0 让上边与
+  // 左边都在 tl 处命中（零长交点），加右/下边共 4 个交点 → 误判鞍点、连出伪线段。
+  // 二值分类下 tl 归上方，只剩右/下边 2 个交点、1 条切掉 br 角的线段。
+  const GridSpec g = grid( 2, 2, 0, 2 );
+  const std::vector<std::uint8_t> mask( 4, 1 );
+  std::vector<detail::Segment> segs;
+  const std::vector<double> v = { 5.0, 8.0, 8.0, 1.0 };
+  detail::marchingSquaresSegments( g, v, mask, 5.0, &segs );
+  QCOMPARE( segs.size(), std::size_t( 1 ) ); // 仅 br 一角在下方
+  QVERIFY( std::hypot( segs[0].a.x - segs[0].b.x, segs[0].a.y - segs[0].b.y ) > 0.1 );
 }
 
 QTEST_MAIN( SingleFactorRegionalTests )

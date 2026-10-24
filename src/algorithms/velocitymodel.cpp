@@ -43,6 +43,9 @@ double v0kTwt(double v0, double k, double depthM)
   if (depthM == 0.0)
     return 0.0;
   const double u = k * depthM / v0;
+  // L8：k<0 时 v(z)=v0+k·z 在 z ≥ −v0/k 处非正，对数自变量 ≤0 → 显式 NaN（旧式给 −inf/NaN）。
+  if (!(u > -1.0))
+    return qQNaN();
   if (std::abs(u) < 1e-9)
     return 2000.0 * depthM / v0;
   return 2000.0 / k * std::log1p(u);
@@ -140,25 +143,55 @@ int upperBoundKnot(const QVector<VelocityKnot> &knots, double key, bool byTwt)
   return lo;
 }
 
-// power-2 IDW（w=1/d²，命中即取；NaN 答案的井不参与该点加权）。
+// power-2 IDW（w=1/d²，命中即取）。
+// M4：perWell 给 NaN（结点范围外）的井，若提供 extended 则改用其外延值参与
+// 加权——但仅当至少一口井在范围内有答案时；全部井都在范围外仍返回 NaN
+// （不外推整个模型）。旧实现直接剔除该井，井结点结束处权重突变，深度可跳
+// 变上千米且随 TWT 非单调。
 double idwOverWells(const QVector<VelocityModel::Well> &wells, double x, double y, double twtMs,
                     const VelocityModel *model,
-                    double (VelocityModel::*perWell)(const VelocityModel::Well &, double) const)
+                    double (VelocityModel::*perWell)(const VelocityModel::Well &, double) const,
+                    double (VelocityModel::*extended)(const VelocityModel::Well &, double) const = nullptr)
 {
   double weightSum = 0.0, valueSum = 0.0;
+  bool anyInRange = false;
+  double extWeightSum = 0.0, extValueSum = 0.0;
+  double hitExtended = qQNaN();
   for (const VelocityModel::Well &w : wells)
   {
     const double dx = w.x - x, dy = w.y - y;
     const double d2 = dx * dx + dy * dy;
-    const double v = (model->*perWell)(w, twtMs);
+    double v = (model->*perWell)(w, twtMs);
     if (std::isnan(v))
-      continue; // 样点范围外：不参与加权，也不阻断其他井
+    {
+      if (!extended)
+        continue; // 样点范围外：不参与加权，也不阻断其他井
+      v = (model->*extended)(w, twtMs);
+      if (std::isnan(v))
+        continue;
+      if (d2 == 0.0)
+      {
+        hitExtended = v;
+        continue;
+      }
+      const double wgt = 1.0 / d2;
+      extWeightSum += wgt;
+      extValueSum += wgt * v;
+      continue;
+    }
+    anyInRange = true;
     if (d2 == 0.0)
       return v; // 命中井位 → 锚点精确（不经浮点加权）
     const double wgt = 1.0 / d2;
     weightSum += wgt;
     valueSum += wgt * v;
   }
+  if (!anyInRange)
+    return qQNaN();
+  if (!std::isnan(hitExtended))
+    return hitExtended; // 命中井位（该井外延）：与井位处单井外延一致
+  weightSum += extWeightSum;
+  valueSum += extValueSum;
   return weightSum > 0.0 ? valueSum / weightSum : qQNaN();
 }
 
@@ -233,6 +266,42 @@ double VelocityModel::wellDepthForTwt(const Well &w, double twtMs) const
   return kn.at(seg - 1).depthM + f * (kn.at(seg).depthM - kn.at(seg - 1).depthM);
 }
 
+double VelocityModel::wellDepthForTwtExtended(const Well &w, double twtMs) const
+{
+  if (m_type == ModelType::V0kLinear)
+    return v0kDepth(w.v0, w.k, twtMs);
+  const auto &kn = w.knots;
+  if (!std::isfinite(twtMs) || twtMs < 0.0 || kn.size() < 2)
+    return qQNaN();
+  const int n = int(kn.size());
+  if (twtMs > kn.last().twtMs)
+  {
+    const double vint = (kn.at(n - 1).depthM - kn.at(n - 2).depthM) / (kn.at(n - 1).twtMs - kn.at(n - 2).twtMs);
+    return kn.last().depthM + (twtMs - kn.last().twtMs) * vint;
+  }
+  if (twtMs < kn.first().twtMs)
+  {
+    const double vint = (kn.at(1).depthM - kn.at(0).depthM) / (kn.at(1).twtMs - kn.at(0).twtMs);
+    return kn.first().depthM - (kn.first().twtMs - twtMs) * vint;
+  }
+  return wellDepthForTwt(w, twtMs);
+}
+
+double VelocityModel::wellVelocityAtExtended(const Well &w, double twtMs) const
+{
+  if (m_type == ModelType::V0kLinear)
+    return wellVelocityAt(w, twtMs);
+  const auto &kn = w.knots;
+  if (!std::isfinite(twtMs) || twtMs < 0.0 || kn.size() < 2)
+    return qQNaN();
+  const int n = int(kn.size());
+  if (twtMs > kn.last().twtMs)
+    return 2000.0 * (kn.at(n - 1).depthM - kn.at(n - 2).depthM) / (kn.at(n - 1).twtMs - kn.at(n - 2).twtMs);
+  if (twtMs < kn.first().twtMs)
+    return 2000.0 * (kn.at(1).depthM - kn.at(0).depthM) / (kn.at(1).twtMs - kn.at(0).twtMs);
+  return wellVelocityAt(w, twtMs);
+}
+
 double VelocityModel::wellVelocityAt(const Well &w, double twtMs) const
 {
   const auto &kn = w.knots;
@@ -260,12 +329,14 @@ double VelocityModel::wellTwtForDepth(const Well &w, double depthM) const
 
 double VelocityModel::depthForTwt(double x, double y, double twtMs) const
 {
-  return idwOverWells(m_wells, x, y, twtMs, this, &VelocityModel::wellDepthForTwt);
+  return idwOverWells(m_wells, x, y, twtMs, this, &VelocityModel::wellDepthForTwt,
+                      &VelocityModel::wellDepthForTwtExtended);
 }
 
 double VelocityModel::velocityAt(double x, double y, double twtMs) const
 {
-  return idwOverWells(m_wells, x, y, twtMs, this, &VelocityModel::wellVelocityAt);
+  return idwOverWells(m_wells, x, y, twtMs, this, &VelocityModel::wellVelocityAt,
+                      &VelocityModel::wellVelocityAtExtended);
 }
 
 double VelocityModel::averageVelocityAt(double x, double y, double twtMs) const

@@ -60,7 +60,7 @@ class StreamingMoments
     std::size_t m_cells = 0;
     int m_fields = 0;
     std::vector<double> m_sum;
-    std::vector<double> m_sumsq;
+    std::vector<double> m_m2; // Welford 离差平方和 Σ(x−x̄)²（L3：替代 Σx² 防抵消）
     std::vector<int> m_n;
 };
 

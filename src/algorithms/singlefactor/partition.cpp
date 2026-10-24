@@ -173,7 +173,10 @@ std::optional<Point2> segmentIntersectionClosed( Point2 a, Point2 b, Point2 c, P
   const double sx = d.x - c.x;
   const double sy = d.y - c.y;
   const double denom = cross( rx, ry, sx, sy );
-  if ( std::abs( denom ) <= 1e-12 )
+  // R3-9：平行判据相对化（|r×s| ≤ 1e-12·|r|·|s|，即夹角正弦 ≤ 1e-12）。旧式绝对
+  // 阈值 1e-12 在投影米坐标（|r|·|s| ~ 1e8）下形同虚设，近平行段会给出远处假交点。
+  const double scale = std::hypot( rx, ry ) * std::hypot( sx, sy );
+  if ( !( scale > 0.0 ) || std::abs( denom ) <= 1e-12 * scale )
     return std::nullopt;
   const double qx = c.x - a.x;
   const double qy = c.y - a.y;

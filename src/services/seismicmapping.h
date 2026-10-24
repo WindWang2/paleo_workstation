@@ -27,6 +27,9 @@ struct SurveyGridGeometry
   double a = 0.0, b = 0.0, c = 0.0, d = 0.0; // 仿射系数（见上）
   double p1x = 0.0, p1y = 0.0;
   int p1Inline = 0, p1Xline = 0;
+  // R3-7：线号步长（默认 1）。由层位头 Grid_size 与锚点跨度整除推得（如
+  // 1000,1002,… 步长 2）；推不出时保持 1（旧口径）。整数化时按 p1 + k·step 取最近格线。
+  int inlineStep = 1, xlineStep = 1;
   bool valid = false;
 
   static SurveyGridGeometry fromHorizonHeader( const HorizonHeader &h );

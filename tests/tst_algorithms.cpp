@@ -1318,6 +1318,39 @@ private slots:
               qPrintable( QString::number( b->geom.boundingBox().xMinimum() ) ) );
     QVERIFY( a->geom.intersection( b->geom ).area() < 1e-4 );
   }
+
+  // M1：约束线贴近有效区外圈（snapTol 内、方向一致）时，外圈弧不得被吸附替换
+  // ——旧实现替换外圈弧使覆盖范围改变，checkFootprint 抛错整次失败。
+  void faciesPolygonsKeepExteriorUnderSnap()
+  {
+    const QVector<float> px = { 1, 1, 2, 2,
+                                1, 1, 2, 2,
+                                1, 1, 2, 2,
+                                1, 1, 2, 2 };
+    auto *line = new QgsVectorLayer( QStringLiteral( "LineString?crs=EPSG:4326" ),
+                                    QStringLiteral( "cons" ), QStringLiteral( "memory" ) );
+    QVERIFY( line->isValid() );
+    QgsFeature lf( line->fields() );
+    lf.setGeometry( QgsGeometry::fromPolylineXY(
+        { QgsPointXY( 4.2, -1 ), QgsPointXY( 4.2, 5 ) } ) );
+    QgsFeatureList feats;
+    feats << lf;
+    QVERIFY( line->dataProvider()->addFeatures( feats ) );
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "SNAP_TOLERANCE" ), 0.5 );
+    params.insert( QStringLiteral( "ANGLE_TOLERANCE" ), 20.0 );
+    params.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 );
+    QString log;
+    const QString out = runFacies( QStringLiteral( "snapext" ), 4, 4, px, params, line, &log );
+    delete line;
+    QVERIFY2( !out.isEmpty(), qPrintable( log ) );
+    const QVector<Face> faces = readFaces( out );
+    const Face *b = faceByCode( faces, 2 );
+    QVERIFY( b );
+    QVERIFY2( std::fabs( b->geom.boundingBox().xMaximum() - 4.0 ) < 1e-6,
+              qPrintable( QString::number( b->geom.boundingBox().xMaximum() ) ) );
+  }
 };
 
 int main( int argc, char *argv[] )

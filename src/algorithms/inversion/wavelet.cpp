@@ -110,6 +110,93 @@ double normalizedCorrelation(const std::vector<double> &a, const std::vector<dou
   return den > 0.0 ? num / den : 0.0;
 }
 
+// R3-6：缺失样掩膜版子波提取（见 extractWavelet 内注释）。
+WaveletExtractResult extractWaveletMasked(const float *trace, int nTrace, double sampleIntervalMs,
+                                          const std::vector<double> &spikeTrain, int offset, int wl,
+                                          const WaveletExtractOptions &options)
+{
+  WaveletExtractResult result;
+  std::vector<int> spikePos;
+  for (int m = 0; m < nTrace; ++m)
+    if (spikeTrain[std::size_t(m)] != 0.0)
+      spikePos.push_back(m);
+  std::vector<double> mat(std::size_t(wl) * std::size_t(wl), 0.0);
+  std::vector<double> rhs(std::size_t(wl), 0.0);
+  std::vector<std::pair<int, double>> active; // (j, s[i−off−j])
+  for (int i = 0; i < nTrace; ++i)
+  {
+    if (!std::isfinite(trace[i]))
+      continue;
+    active.clear();
+    for (int m : spikePos)
+    {
+      const int j = i - offset - m;
+      if (j >= 0 && j < wl)
+        active.emplace_back(j, spikeTrain[std::size_t(m)]);
+    }
+    for (const auto &a : active)
+    {
+      rhs[std::size_t(a.first)] += double(trace[i]) * a.second;
+      for (const auto &b : active)
+        mat[std::size_t(a.first) * std::size_t(wl) + std::size_t(b.first)] += a.second * b.second;
+    }
+  }
+  double diagMax = 0.0;
+  for (int j = 0; j < wl; ++j)
+    diagMax = std::max(diagMax, mat[std::size_t(j) * std::size_t(wl) + std::size_t(j)]);
+  if (!(diagMax > 0.0))
+  {
+    result.reason = "反射系数自相关为零";
+    return result;
+  }
+  // 岭项与 Toeplitz 路径同口径（ridgeFactor·R[0]，R[0] 取对角最大值），另加
+  // 极小相对岭防止被缺失样完全遮蔽的子波样点使方程奇异。
+  for (int j = 0; j < wl; ++j)
+    mat[std::size_t(j) * std::size_t(wl) + std::size_t(j)] +=
+        options.ridgeFactor * diagMax + 1e-12 * diagMax;
+  std::vector<double> waveD(rhs.begin(), rhs.end());
+  if (!solveLinear(mat, waveD, wl))
+  {
+    result.reason = "正则方程奇异（反射系数分布不足以定子波）";
+    return result;
+  }
+  double peak = 0.0;
+  for (double v : waveD)
+  {
+    if (!std::isfinite(v))
+    {
+      result.reason = "子波解含非有限值";
+      return result;
+    }
+    peak = std::max(peak, std::fabs(v));
+  }
+  if (!(peak > 0.0))
+  {
+    result.reason = "子波解为零";
+    return result;
+  }
+  Wavelet w;
+  w.sampleIntervalMs = sampleIntervalMs;
+  w.t0Ms = double(offset) * sampleIntervalMs;
+  w.samples.resize(std::size_t(wl));
+  for (int j = 0; j < wl; ++j)
+    w.samples[std::size_t(j)] = float(waveD[std::size_t(j)] / peak);
+  w.amplitudeScale = peak;
+  std::vector<double> synth = forwardModel(spikeTrain, waveD, offset, nTrace);
+  std::vector<double> traceD(std::size_t(nTrace), 0.0);
+  for (int i = 0; i < nTrace; ++i)
+  {
+    if (std::isfinite(trace[i]))
+      traceD[std::size_t(i)] = double(trace[i]);
+    else
+      synth[std::size_t(i)] = 0.0; // 缺失样不计入拟合相关
+  }
+  result.ok = true;
+  result.wavelet = std::move(w);
+  result.fitCorrelation = normalizedCorrelation(traceD, synth);
+  return result;
+}
+
 } // namespace
 
 double Wavelet::lengthMs() const
@@ -209,6 +296,14 @@ Wavelet rotateWaveletPhase(const Wavelet &wavelet, double phaseDeg)
   {
     for (int i = 0; i < n; ++i)
       out.samples[std::size_t(i)] = float(re[std::size_t(i)] / peak);
+    // R3-5：物理子波 = amplitudeScale·samples。旋转后重归一到峰值 1 时须把
+    // 归一因子折进 amplitudeScale（相对原样本峰值），否则标定被放大
+    // （90° Ricker 峰值 0.825 → 旧式标定偏大约 21%）。
+    double peakIn = 0.0;
+    for (float v : wavelet.samples)
+      peakIn = std::max(peakIn, std::fabs(double(v)));
+    if (peakIn > 0.0)
+      out.amplitudeScale = wavelet.amplitudeScale * (peak / peakIn);
   }
   return out;
 }
@@ -259,6 +354,20 @@ WaveletExtractResult extractWavelet(const float *trace, int nTrace, double trace
   // 不能再减道起始时间：spikeTrain 的样号 m 已按 (twt - traceT0)/dt 扣过一次（#140）。
   const int offset = int(std::lround(waveletT0Ms / sampleIntervalMs));
   const int wl = waveletSamples;
+
+  // R3-6（NaN 掩膜）：道含 NaN 样时旧实现 rhs 被 NaN 污染、整道提取失败。
+  // 有缺失样时改解精确掩膜正则方程 A_{j,j2} = Σ_{i 有效} s[i−off−j]·s[i−off−j2]，
+  // b_j = Σ_{i 有效} x_i·s[i−off−j]（只计观测样）；无缺失样时仍走原 Toeplitz 路径
+  // （输出逐位不变）。
+  bool hasMissing = false;
+  for (int i = 0; i < nTrace; ++i)
+    if (!std::isfinite(trace[i]))
+    {
+      hasMissing = true;
+      break;
+    }
+  if (hasMissing)
+    return extractWaveletMasked(trace, nTrace, sampleIntervalMs, spikeTrain, offset, wl, options);
 
   // Toeplitz 自相关 R[d]（d ∈ [0, wl)）与互相关 c[j]。
   std::vector<double> autoR(std::size_t(wl), 0.0);

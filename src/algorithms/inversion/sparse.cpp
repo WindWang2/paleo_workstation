@@ -183,7 +183,9 @@ SparseSpikeResult sparseSpikeInversion(const float *trace, int n, double sampleI
     x = std::move(xNew);
     t = tNew;
     result.iterations = it;
-    if (diff <= options.relativeTolerance * std::max(1.0, normX))
+    // L12：纯相对判停。旧式 max(1,‖x‖₁) 在反射系数量级 ≪1 时退化为绝对阈值，
+    // 子波振幅标定偏差时会过早停。diff==0 覆盖 x 恒零的平凡收敛。
+    if (diff == 0.0 || diff <= options.relativeTolerance * normX)
     {
       result.converged = true;
       break;

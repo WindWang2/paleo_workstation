@@ -10,7 +10,8 @@
 // geostat/linsolve — 自研小线性求解器（矩阵 ≤ 几十阶，不引外部库）。
 // 求解口径：普通克里金的加边矩阵 [[Γ, 1], [1ᵀ, 0]] 因 γ(0)=0 对角与
 // Lagrange 边界行而不定（conditionally PD，非 PD），Cholesky 不适用；
-// 一律走 LU 列主元消元。主元 < eps·scale 判奇异。
+// 一律走 LU 列主元消元。主元 ≤ 1e-12·该列原始最大幅值判奇异（按列尺度，
+// 使 Γ 块与 Lagrange 边量纲不同的加边矩阵在大基台值下不被误判）。
 // 层：数据
 namespace paleo::geostat
 {
@@ -22,6 +23,7 @@ struct LuWorkspace
 {
   std::vector<double> lu;
   std::vector<int> permutation;
+  std::vector<double> columnFloor; // 各列主元下限（H1：按列尺度判奇异）
 };
 
 // 解 A·x = b。A 为 n×n 行主序，b 长 n，x 长 n 由调用方预分配。

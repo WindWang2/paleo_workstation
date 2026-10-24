@@ -52,7 +52,7 @@ void StreamingMoments::reset( std::size_t cells )
   m_cells = cells;
   m_fields = 0;
   m_sum.assign( cells, 0.0 );
-  m_sumsq.assign( cells, 0.0 );
+  m_m2.assign( cells, 0.0 );
   m_n.assign( cells, 0 );
 }
 
@@ -65,9 +65,13 @@ void StreamingMoments::addField( const double *values )
     const double v = values[i];
     if ( !std::isfinite( v ) )
       continue;
+    // L3：Welford 增量更新。均值仍由 m_sum/n 给出（mean() 逐位不变），
+    // 离差平方和 M2 += (v−旧均值)·(v−新均值)，大均值小方差时不再抵消为 0。
+    const double oldMean = m_n[i] > 0 ? m_sum[i] / m_n[i] : v;
     m_sum[i] += v;
-    m_sumsq[i] += v * v;
     ++m_n[i];
+    const double newMean = m_sum[i] / m_n[i];
+    m_m2[i] += ( v - oldMean ) * ( v - newMean );
   }
   ++m_fields;
 }
@@ -94,9 +98,8 @@ std::vector<double> StreamingMoments::stddevPopulation() const
       out[i] = 0.0; // 单成员：离散度为零（如实，不外推样本口径）
       continue;
     }
-    const double m = m_sum[i] / n;
-    // E[x²] − E[x]²；浮点噪声可能出微负——夹到 0（与 SGS 旁路同一写法）。
-    out[i] = std::sqrt( std::max( 0.0, m_sumsq[i] / n - m * m ) );
+    // 总体标准差 sqrt(M2/n)；M2 理论非负，夹 0 只防舍入。
+    out[i] = std::sqrt( std::max( 0.0, m_m2[i] / n ) );
   }
   return out;
 }

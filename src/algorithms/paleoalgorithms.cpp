@@ -95,7 +95,8 @@ bool sameGrid( const GridInfo &a, const GridInfo &b )
   if ( a.cols != b.cols || a.rows != b.rows )
     return false;
   // Tolerance: a small fraction of the cell size absorbs FP noise in GeoTransforms.
-  const double tol = std::max( { std::fabs( a.gt[1] ), std::fabs( a.gt[5] ), 1.0 } ) * 1e-6;
+  // L7：去掉 1.0 下限——小像元（如 1e-4°）时它把容差放大到 1% 像元。
+  const double tol = std::max( std::fabs( a.gt[1] ), std::fabs( a.gt[5] ) ) * 1e-6;
   for ( int i = 0; i < 6; ++i )
   {
     if ( std::fabs( a.gt[i] - b.gt[i] ) > tol )

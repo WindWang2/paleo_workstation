@@ -261,6 +261,15 @@ VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const 
                                 : ( fitAcross.model.range > 0
                                         ? std::clamp( fitAlong.model.range / fitAcross.model.range, 1.0, 8.0 )
                                         : 1.0 );
+    // R3-8：垂直方向变程更长（along/across < 1）时旧式钳到 1，各向异性被静默
+    // 丢弃。VariogramModel 支持 0<ratio<1（主轴 +90°，PW-037）：此时主变程取
+    // across 拟合值，ratio = along/across ∈ [1/8, 1)，短轴（方位方向）变程即 along。
+    if ( !explicitRatio && fitAcross.model.range > 0 && fitAlong.model.range > 0 &&
+         fitAlong.model.range < fitAcross.model.range )
+    {
+      model.range = fitAcross.model.range;
+      model.anisotropyRatio = std::clamp( fitAlong.model.range / fitAcross.model.range, 1.0 / 8.0, 1.0 );
+    }
     result.r2 = fitAlong.r2;
     result.rmse = fitAlong.rmse;
     result.usedLags = fitAlong.usedLags;

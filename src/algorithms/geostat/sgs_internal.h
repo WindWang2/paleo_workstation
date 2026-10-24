@@ -60,6 +60,22 @@ struct CondPoint
 };
 
 // 确定性 (0,1) 均匀：mt19937_64 原始 u64 → 53bit 尾数。
+// PW-131：派生流种子。seed + r·φ 是线性的——sgsfill 的带种子同样按 +zone·φ
+// 散布，(zone, r) 与 (zone+1, r−1) 得到同一条随机流（带间实现相关）。
+// 改为 SplitMix64 双重混合：非线性、雪崩，跨层组合不再撞流。
+inline std::uint64_t splitMix64( std::uint64_t x )
+{
+  x += 0x9E3779B97F4A7C15ULL;
+  x = ( x ^ ( x >> 30 ) ) * 0xBF58476D1CE4E5B9ULL;
+  x = ( x ^ ( x >> 27 ) ) * 0x94D049BB133111EBULL;
+  return x ^ ( x >> 31 );
+}
+
+inline std::uint64_t derivedStreamSeed( std::uint64_t seed, std::uint64_t stream )
+{
+  return splitMix64( splitMix64( seed ) ^ stream );
+}
+
 inline double unitRandom( std::mt19937_64 &rng )
 {
   return ( static_cast<double>( rng() >> 11 ) + 0.5 ) * 0x1.0p-53;

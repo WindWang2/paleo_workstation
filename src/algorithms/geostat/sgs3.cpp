@@ -505,8 +505,8 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
   std::vector<RealizationCounts> counts( static_cast<std::size_t>( R ) );
 
   const auto runRealization = [&]( int realization ) {
-    std::mt19937_64 rng( clamped.seed +
-                         static_cast<std::uint64_t>( realization ) * 0x9E3779B97F4A7C15ULL );
+    std::mt19937_64 rng(
+        detail::derivedStreamSeed( clamped.seed, static_cast<std::uint64_t>( realization ) ) );
     SimulatedLattice3 lattice;
     std::vector<std::uint32_t> staticNeighborhood;
     std::vector<CondPoint> simulatedNeighborhood;

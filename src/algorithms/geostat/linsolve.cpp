@@ -15,10 +15,9 @@ bool solveDenseLu( const std::vector<double> &a, int n,
   return solveDenseLu( a, n, b, x, workspace );
 }
 
-bool solveDenseLu( const std::vector<double> &a, int n, const std::vector<double> &b,
-                   std::vector<double> &x, LuWorkspace &workspace )
+bool luFactor( const std::vector<double> &a, int n, LuWorkspace &workspace )
 {
-  if ( n <= 0 || a.size() != static_cast<std::size_t>( n ) * n || b.size() != static_cast<std::size_t>( n ) )
+  if ( n <= 0 || a.size() != static_cast<std::size_t>( n ) * n )
     return false;
   workspace.lu.assign( a.begin(), a.end() );
   workspace.permutation.resize( static_cast<std::size_t>( n ) );
@@ -65,6 +64,13 @@ bool solveDenseLu( const std::vector<double> &a, int n, const std::vector<double
     }
   }
 
+  return true;
+}
+
+void luSolve( const LuWorkspace &workspace, int n, const std::vector<double> &b, std::vector<double> &x )
+{
+  const std::vector<double> &lu = workspace.lu;
+  const std::vector<int> &permutation = workspace.permutation;
   // 分解成功后才写 x：置换右端项直接落 x，就地前/回代（#478：不再单独
   // 分配 pb——算术序与旧实现逐位一致）。
   x.resize( static_cast<std::size_t>( n ) );
@@ -81,6 +87,14 @@ bool solveDenseLu( const std::vector<double> &a, int n, const std::vector<double
       x[static_cast<std::size_t>( i )] -= lu[static_cast<std::size_t>( i ) * n + j] * x[static_cast<std::size_t>( j )];
     x[static_cast<std::size_t>( i )] /= lu[static_cast<std::size_t>( i ) * n + i ];
   }
+}
+
+bool solveDenseLu( const std::vector<double> &a, int n, const std::vector<double> &b,
+                   std::vector<double> &x, LuWorkspace &workspace )
+{
+  if ( b.size() != static_cast<std::size_t>( n ) || !luFactor( a, n, workspace ) )
+    return false;
+  luSolve( workspace, n, b, x );
   return true;
 }
 

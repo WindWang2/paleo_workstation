@@ -1,5 +1,6 @@
 // 层：视图
 #include "correlationtrack.h"
+#include "ui/common/curvescale.h"
 #include "../paleotheme.h"
 
 #include <algorithm>
@@ -146,7 +147,9 @@ QImage CorrelationTrack::render(int w, int h, float depthMin, float depthMax,
   for (qsizetype i = iBegin; i <= iEnd; ++i)
   {
     const float d = m_depths.at(i);
-    const float v = m_values.at(i);
+    float v = m_values.at(i);
+    if (m_hasScale) // PW-103：共享刻度下先归一（反向/对数），不可映射 = 断笔
+      v = static_cast<float>(paleo::curvescale::normalise(v, m_scaleLo, m_scaleHi, m_scaleLog));
     const bool finite = std::isfinite(d) && std::isfinite(v);
     if (finite && (i - iBegin) % stride != 0 && i != iEnd)
       continue; // thinned out
@@ -172,7 +175,7 @@ QImage CorrelationTrack::render(int w, int h, float depthMin, float depthMax,
   // the SAMPLES only, so flatten moves the curve within the shared axis —
   // subtracting it from the axis too would cancel it out and flatten would
   // be a no-op (ink lands at (d - depthMin)/(depthMax - depthMin) either way).
-  const QPair<float, float> vr = valueRange();
+  const QPair<float, float> vr = m_hasScale ? QPair<float, float>(0.0f, 1.0f) : valueRange();
   const double xMin = static_cast<double>(vr.first);
   const double yMin = -static_cast<double>(depthMax);
   const double yMax = -static_cast<double>(depthMin);
@@ -245,4 +248,13 @@ QImage CorrelationTrack::render(int w, int h, float depthMin, float depthMax,
   // Stretch the content crop back over the full strip — a track always
   // spans its whole cell even when the axis reservation was nonzero.
   return content.scaled(pxW, pxH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+}
+
+bool CorrelationTrack::isLogMnemonic(const QString &mnemonic)
+{
+  static const QStringList kLog = {QStringLiteral("RT"),  QStringLiteral("RD"),  QStringLiteral("RS"),
+                                   QStringLiteral("ILD"), QStringLiteral("ILM"), QStringLiteral("LLD"),
+                                   QStringLiteral("LLS"), QStringLiteral("MSFL"), QStringLiteral("RXO")};
+  const QString m = mnemonic.trimmed().toUpper();
+  return kLog.contains(m) || m.startsWith(QStringLiteral("RES"));
 }

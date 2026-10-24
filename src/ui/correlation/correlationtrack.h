@@ -44,6 +44,20 @@ class CorrelationTrack
     // Finite value min/max (for x-axis scaling); {0,0} when empty.
     QPair<float, float> valueRange() const;
 
+    // PW-103：显式横向刻度（跨井共享）。lo > hi = 反向刻度；logScale 需 lo/hi > 0。
+    // 未设置时按本道全样点 valueRange() 自动缩放（旧行为）。
+    void setScale(float lo, float hi, bool logScale = false)
+    {
+      m_hasScale = true; m_scaleLo = lo; m_scaleHi = hi; m_scaleLog = logScale;
+    }
+    void clearScale() { m_hasScale = false; }
+    bool hasScale() const { return m_hasScale; }
+    float scaleLo() const { return m_scaleLo; }
+    float scaleHi() const { return m_scaleHi; }
+    bool scaleLog() const { return m_scaleLog; }
+    // 电阻率类助记符默认对数刻度（RT/RD/RS/ILD/ILM/LLD/LLS/MSFL/RES*）。
+    static bool isLogMnemonic(const QString &mnemonic);
+
     // --- presentation -------------------------------------------------------
     // Track stroke color. Curve colors are DATA symbols (like map-domain
     // palettes per DESIGN.md), not UI tokens; the default is text-muted.
@@ -73,4 +87,7 @@ class CorrelationTrack
     QVector<float> m_values;
     QColor m_color; // 缺省 = DESIGN.md text-muted（构造时取 PaleoTheme token）
     qreal m_width = 90.0;
+    bool m_hasScale = false;
+    float m_scaleLo = 0.0f, m_scaleHi = 1.0f;
+    bool m_scaleLog = false;
 };

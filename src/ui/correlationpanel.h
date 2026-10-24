@@ -64,6 +64,10 @@ class WellCorrelationPanel : public QWidget
     int wellCount() const { return m_wells.size(); }
     QString wellAt(int index) const;          // well id at section position
 
+    // PW-103：同助记符曲线跨井共用一个横向刻度（并集 min/max；电阻率类对数）。
+    void setSharedCurveScale(bool on);
+    bool sharedCurveScale() const { return m_sharedScale; }
+
     void reorder(int from, int to);           // QList::move semantics (drag-reorder equivalent)
     bool isWellHighlighted(const QString &wellId) const;
 
@@ -189,5 +193,7 @@ class WellCorrelationPanel : public QWidget
     float m_axisMin = 0.0f, m_axisMax = 100.0f; // shared display-space depth window
     QString m_scrollWell, m_scrollHorizon;      // 三视图联动最近一次滚动目标
     bool m_updatesEnabled = true;
+    bool m_sharedScale = false;
+    void applyCurveScales();
     bool m_dirty = false;
 };

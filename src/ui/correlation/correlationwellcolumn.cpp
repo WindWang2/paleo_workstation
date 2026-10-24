@@ -38,6 +38,13 @@ namespace
     mixFloat(depthMin);
     mixFloat(depthMax);
     mixFloat(depthOffset);
+    h = qHash(t.hasScale(), h); // PW-103：刻度参与缓存身份
+    if (t.hasScale())
+    {
+      mixFloat(t.scaleLo());
+      mixFloat(t.scaleHi());
+      h = qHash(t.scaleLog(), h);
+    }
     h = qHash(t.color().rgba(), h);
     h = qHash(int(t.sampleCount()), h);
     const QVector<float> &depths = t.depths();
@@ -189,8 +196,7 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
       // skips render() entirely; a miss re-renders and re-stores.
       const quint64 key = trackCacheKey(t, stripW, stripH, depthMin, depthMax, depthOffset);
       QPixmap pmData;
-      // PW-136：按「助记符#道序」入缓存——同列重复助记符不再互相挤掉
-      const QString cacheId = t.mnemonic() + QLatin1Char('#') + QString::number(i);
+      const QString &cacheId = t.mnemonic(); // 助记符列内唯一
       const auto cit = m_cache.constFind(cacheId);
       if (cit != m_cache.constEnd() && cit.value().key == key)
       {

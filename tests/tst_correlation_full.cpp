@@ -249,6 +249,27 @@ class TestCorrTrack : public QObject
     }
 
 
+    void pw103_explicitScaleNarrowsAndReverses()
+    {
+        // PW-103：共享刻度比本道 valueRange 宽时，墨迹只占对应比例；反向刻度镜像。
+        QVector<float> d, v;
+        for (int i = 0; i < 200; ++i) {
+            d.append(1000.f + i);
+            v.append(i % 2 ? 50.f : 0.f); // 本道值域 0..50
+        }
+        CorrelationTrack t(QStringLiteral("GR"), QString(), d, v);
+        t.setScale(0.f, 100.f);
+        const QImage img = t.render(100, 200, 1000.f, 1199.f);
+        QVERIFY(!img.isNull());
+        const QPair<int, int> cols = inkCols(img);
+        QVERIFY2(cols.second < 100 * 0.6, "shared scale did not narrow ink");
+        t.setScale(100.f, 0.f); // 反向
+        const QPair<int, int> rev = inkCols(t.render(100, 200, 1000.f, 1199.f));
+        QVERIFY2(rev.first > 100 * 0.4, "reversed scale did not mirror ink");
+        QVERIFY(CorrelationTrack::isLogMnemonic(QStringLiteral("rt")));
+        QVERIFY(!CorrelationTrack::isLogMnemonic(QStringLiteral("GR")));
+    }
+
     void renderInksCurveAcrossValueAndDepthRange()
     {
         const CorrelationTrack t = wiggleTrack(1000.f, 2000.f);

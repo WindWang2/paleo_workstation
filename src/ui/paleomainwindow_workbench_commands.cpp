@@ -16,6 +16,7 @@
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgislayerservice.h"
+#include "../services/errorhub.h"
 #include "../services/paleotaskservice.h" // QPointer<PaleoTask>::running 需完整类型
 #include "../services/previewdoc.h"
 #include "../workflow/mappingworkbench.h"
@@ -43,6 +44,22 @@
 #include <qgsmapcanvas.h>
 #include <qgsmaplayer.h>
 #include <qgsvectorlayer.h>
+
+namespace {
+// review-fix M5：工作台命令失败除页内/状态栏 10s 提示外，同步入账 ErrorHub
+// 错误历史（historyOnly：已就地呈现，不再弹卡），用户移开视线后仍可在
+// 状态栏错误胶囊里找回。未装配全局 hub（单测）时只剩 qWarning。
+void reportWorkbenchFailure(const QString &action, const QString &message)
+{
+  if (ErrorHub *hub = ErrorHub::global())
+    hub->raise(ErrorHub::Level::Warning, QStringLiteral("workbench"),
+               PaleoMainWindow::tr("工作台操作失败：%1").arg(action), message,
+               QString(), false, true);
+  else
+    qWarning("workbench command '%s' failed: %s", qPrintable(action),
+             qPrintable(message));
+}
+} // namespace
 
 namespace {
 
@@ -491,6 +508,7 @@ void PaleoMainWindow::runWorkbenchCommand(
     const QString message = tr("未知操作：%1").arg(action);
     page->showMessage(message);
     statusBar()->showMessage(message, 10000);
+    reportWorkbenchFailure(action, message);
     return;
   }
   if (runMappingEditFlow(page, action, p, action == "exportMap" ? exportView : show)) return;
@@ -586,4 +604,6 @@ void PaleoMainWindow::runWorkbenchCommand(
   statusBar()->showMessage(message, 10000);
   if (!ok && action == "delete")
     PaleoNotify::warning(this, tr("图件未删除"), message);
+  else if (!ok)
+    reportWorkbenchFailure(action, message);
 }

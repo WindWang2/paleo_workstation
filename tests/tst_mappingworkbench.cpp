@@ -22,6 +22,7 @@
 #include "../src/qgis/wellattributestore.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/services/errorhub.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/edittools/vertexeditortools.h"
@@ -1046,11 +1047,21 @@ private slots:
     for (auto *candidate : window.findChildren<MappingWorkbenchPage *>())
       if (candidate->mode() == "compose") page = candidate;
     QVERIFY(page);
+    // review-fix M5：失败同步入账 ErrorHub 历史（不只是 10s 状态栏）。
+    ErrorHub *previousHub = ErrorHub::global();
+    ErrorHub hub;
+    ErrorHub::installGlobal(&hub);
     emit page->commandRequested(QStringLiteral("noSuchWorkbenchAction"), {});
+    ErrorHub::installGlobal(previousHub);
     auto *message = page->findChild<QLabel *>("workbenchMessage");
     QVERIFY(message);
     QVERIFY2(message->text().contains(QStringLiteral("未知操作")), qPrintable(message->text()));
     QVERIFY(!message->text().contains(QStringLiteral("操作完成")));
+    const auto entries = hub.entries();
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.first().source, QStringLiteral("workbench"));
+    QVERIFY(entries.first().text.contains(QStringLiteral("未知操作")));
+    QVERIFY(entries.first().historyOnly);
   }
   void impactCommandsAreGatedWithReasons() {
     Fixture f;

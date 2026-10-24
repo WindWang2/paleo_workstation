@@ -20740,7 +20740,7 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/paleomainwindow_attach_constraint.cpp" line="160"/>
         <location filename="../src/ui/paleomainwindow_attach_constraint.cpp" line="450"/>
         <location filename="../src/ui/paleomainwindow_attach_constraint.cpp" line="512"/>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="446"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="463"/>
         <source>已有单因素计算在进行</source>
         <translation>已有单因素计算在进行</translation>
     </message>
@@ -22285,9 +22285,9 @@ SHA-256：%2</translation>
         <translation type="vanished">井段与地图相点已更新；保存修订版本后登记文件。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="263"/>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="271"/>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="290"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="280"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="288"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="307"/>
         <location filename="../src/ui/paleomainwindow_workbench_wells.cpp" line="87"/>
         <location filename="../src/ui/paleomainwindow_workbench_wells.cpp" line="99"/>
         <source>请先结束其他图层的编辑</source>
@@ -22348,34 +22348,34 @@ SHA-256：%2</translation>
         <translation type="vanished">相类别已更新，可撤销；保存编辑后登记新版本。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="287"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="304"/>
         <source>请先用画布选择工具选中要素</source>
         <translation>请先用画布选择工具选中要素</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="317"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="334"/>
         <source>副本已创建，请先结束其他图层的编辑</source>
         <translation>副本已创建，请先结束其他图层的编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="327"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="344"/>
         <source>画布编辑未能提交，请检查编辑提示</source>
         <translation>画布编辑未能提交，请检查编辑提示</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="330"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="347"/>
         <source>请先保存正在编辑的图层</source>
         <translation>请先保存正在编辑的图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="413"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="430"/>
         <source>导入局部米制约束线</source>
         <translation>导入局部米制约束线</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_constraint.cpp" line="230"/>
         <location filename="../src/ui/paleomainwindow_workbench.cpp" line="193"/>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="414"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="431"/>
         <source>矢量文件 (*.gpkg *.geojson *.json *.shp)</source>
         <translation>矢量文件 (*.gpkg *.geojson *.json *.shp)</translation>
     </message>
@@ -22415,85 +22415,90 @@ SHA-256：%2</translation>
         <translation>已打开所选保存版本的联动参考图。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="115"/>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="123"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="56"/>
+        <source>工作台操作失败：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="132"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="140"/>
         <source>所选图件尚未登记到数据管理</source>
         <translation>所选图件尚未登记到数据管理</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="144"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="161"/>
         <source>正在分析影响（重放冻结输入）…</source>
         <translation>正在分析影响（重放冻结输入）…</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="158"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="175"/>
         <source>影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 %3 像元（报告未能保存到工程目录）</source>
         <translation>影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 %3 像元（报告未能保存到工程目录）</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="163"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="180"/>
         <source>影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 %3 像元（详见 %4）</source>
         <translation>影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 %3 像元（详见 %4）</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="185"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="202"/>
         <source>%1：%2 像元</source>
         <translation>%1：%2 像元</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="189"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="206"/>
         <source>重算对比：变化 %1/%2 像元；主要转移 %3（详见 %4）</source>
         <translation>重算对比：变化 %1/%2 像元；主要转移 %3（详见 %4）</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="192"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="209"/>
         <source>无</source>
         <translation>无</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="199"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="216"/>
         <source>请先运行影响分析，再按其结果受控重算</source>
         <translation>请先运行影响分析，再按其结果受控重算</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="221"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="238"/>
         <source>受控重算已启动 %1/%2 项：%3新版本由任务中心生成，历史版本与已确认解释保持不变</source>
         <translation>受控重算已启动 %1/%2 项：%3新版本由任务中心生成，历史版本与已确认解释保持不变</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="229"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="246"/>
         <source>影响报告中没有可重算的综合编图成果</source>
         <translation>影响报告中没有可重算的综合编图成果</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="277"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="294"/>
         <source>解除错误的证据关联</source>
         <translation>解除错误的证据关联</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="351"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="368"/>
         <source>空白图已创建，请先结束其他图层的编辑</source>
         <translation>空白图已创建，请先结束其他图层的编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="361"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="378"/>
         <source>• %1（%2 个版本）</source>
         <translation>• %1（%2 个版本）</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="370"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="387"/>
         <source>删除图件</source>
         <translation>删除图件</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="372"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="389"/>
         <source>从工程中移除未登记图件「%1」？
 仅移除图件列表和地图中的引用，保留原始文件及其他图层。</source>
         <translation>从工程中移除未登记图件「%1」？
 仅移除图件列表和地图中的引用，保留原始文件及其他图层。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="375"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="392"/>
         <source>永久删除图件「%1」？
 以下图件（含关联派生图件）的全部版本、数据管理记录与受管文件将一并删除，不可恢复：
 %2</source>
@@ -22502,89 +22507,89 @@ SHA-256：%2</translation>
 %2</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="384"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="401"/>
         <source>图件或来源记录已变化，请重新确认删除</source>
         <translation>图件或来源记录已变化，请重新确认删除</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="396"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="413"/>
         <source>所选证据版本已删除，请选择其他证据。</source>
         <translation>所选证据版本已删除，请选择其他证据。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="420"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="437"/>
         <source>无法判断约束线类型</source>
         <translation>无法判断约束线类型</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="422"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="439"/>
         <source>约束线类型</source>
         <translation>约束线类型</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="422"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="439"/>
         <source>无法自动判断，请选择约束线类型：</source>
         <translation>无法自动判断，请选择约束线类型：</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="423"/>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="427"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="440"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="444"/>
         <location filename="../src/ui/ribbonpanels.cpp" line="626"/>
         <source>方向线</source>
         <translation>方向线</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="423"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="440"/>
         <source>打断线</source>
         <translation>打断线</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="437"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="454"/>
         <source>在画布逐点绘制约束线，右键结束；Esc 取消。</source>
         <translation>在画布逐点绘制约束线，右键结束；Esc 取消。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="441"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="458"/>
         <source>约束绘制工具不可用</source>
         <translation>约束绘制工具不可用</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="481"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="498"/>
         <source>请先显示所选图件，再输出当前地图范围和显示层级</source>
         <translation>请先显示所选图件，再输出当前地图范围和显示层级</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="491"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="508"/>
         <source>未知操作：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="536"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="554"/>
         <source>操作未执行：%1 当前不可用</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="542"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="560"/>
         <source>预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。</source>
         <translation>预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="545"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="563"/>
         <source>相栅格转相面已在后台执行，进度见底栏任务中心；完成后自动登记并显示在对应地层组。</source>
         <translation>相栅格转相面已在后台执行，进度见底栏任务中心；完成后自动登记并显示在对应地层组。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="546"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="564"/>
         <source>相栅格已转为相面。</source>
         <translation>相栅格已转为相面。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="550"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="568"/>
         <source>任务已提交，进度和取消操作见任务中心；完成后显示结果。</source>
         <translation>任务已提交，进度和取消操作见任务中心；完成后显示结果。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="588"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="606"/>
         <source>图件未删除</source>
         <translation>图件未删除</translation>
     </message>
@@ -22593,7 +22598,7 @@ SHA-256：%2</translation>
         <translation type="vanished">预测已提交；完成后自动登记并显示图件。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="552"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="570"/>
         <source>已打开测井矢量属性表；保存后更新井道与单因素输入。</source>
         <translation>已打开测井矢量属性表；保存后更新井道与单因素输入。</translation>
     </message>
@@ -22602,48 +22607,48 @@ SHA-256：%2</translation>
         <translation type="vanished">已打开联动参考窗口，平移、缩放与光标位置随主图同步。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="563"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="581"/>
         <source>已在数据管理中定位图件的保存版本和来源谱系。</source>
         <translation>已在数据管理中定位图件的保存版本和来源谱系。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="565"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="583"/>
         <location filename="../src/ui/paleomainwindow_workbench_wells.cpp" line="156"/>
         <source>相图显示层级、标注与图例已更新。</source>
         <translation>相图显示层级、标注与图例已更新。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="567"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="585"/>
         <source>解释证据已更新，可撤销；保存图件版本后持久化。</source>
         <translation>解释证据已更新，可撤销；保存图件版本后持久化。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="577"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="595"/>
         <source>已打开井道与预测相修订面板。</source>
         <translation>已打开井道与预测相修订面板。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="579"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="597"/>
         <source>已生成地震相与测井相一致性报告并留档；双击逐井行可在画布定位。</source>
         <translation>已生成地震相与测井相一致性报告并留档；双击逐井行可在画布定位。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="581"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="599"/>
         <source>已从工程移除未登记图件，原始文件已保留。</source>
         <translation>已从工程移除未登记图件，原始文件已保留。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="582"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="600"/>
         <source>已删除图件及版本记录，受管文件正在后台清理。</source>
         <translation>已删除图件及版本记录，受管文件正在后台清理。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="584"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="602"/>
         <source>操作完成，图件与版本已更新。</source>
         <translation>操作完成，图件与版本已更新。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="540"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="558"/>
         <source>操作未完成，请检查输入。</source>
         <translation>操作未完成，请检查输入。</translation>
     </message>
@@ -22864,37 +22869,37 @@ SHA-256：%2</translation>
         <translation>正在编辑「%1」——先保存或放弃编辑，再切换层位（定位器切换已拒绝）</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="556"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="574"/>
         <source>已请求取消预测。</source>
         <translation>已请求取消预测。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="558"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="576"/>
         <source>已在画布显示并定位选中图件。</source>
         <translation>已在画布显示并定位选中图件。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="561"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="579"/>
         <source>已打开证据联动面板；可选择参考图件、添加并排视图，并开关范围与光标联动。</source>
         <translation>已打开证据联动面板；可选择参考图件、添加并排视图，并开关范围与光标联动。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="569"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="587"/>
         <source>选中图件的标注已更新。</source>
         <translation>选中图件的标注已更新。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="571"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="589"/>
         <source>当前层位相分类已保存，已有图件保留原分类。</source>
         <translation>当前层位相分类已保存，已有图件保留原分类。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="573"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="591"/>
         <source>请在画布逐点绘制约束线，右键结束，Esc 取消。</source>
         <translation>请在画布逐点绘制约束线，右键结束，Esc 取消。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="575"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="593"/>
         <source>选中要素的相类别已更新，请保存编辑以登记新版本。</source>
         <translation>选中要素的相类别已更新，请保存编辑以登记新版本。</translation>
     </message>
@@ -23004,7 +23009,7 @@ SHA-256：%2</translation>
         <translation>错误历史</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="554"/>
+        <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="572"/>
         <source>已打开分层沉积相属性表；每口井每个地层单元（组/段）一行。解释微相用于维护当前解释，预测微相保留模型结果；厚度、占比和覆盖率来自相段汇总，直接改名不重算。</source>
         <translation>已打开分层沉积相属性表；每口井每个地层单元（组/段）一行。解释微相用于维护当前解释，预测微相保留模型结果；厚度、占比和覆盖率来自相段汇总，直接改名不重算。</translation>
     </message>

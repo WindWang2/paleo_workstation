@@ -2,6 +2,8 @@
 // token 例外：DESIGN 数据符号例外：测井曲线默认道色（setCurve #1B73D0）；图表 chrome 已转 token。（tools/ui-token-exceptions.json 精确计数）。
 #pragma once
 
+#include "ui/common/curvescale.h"
+
 // 方向97（datapreviewtabs 拆分）：测井道曲线面板——自 datapreviewtabs_internal.h
 // 逐字节迁出（650 行单类组件，超出 internal.h「多分支共用的短工具与小组件」章程）。
 // 消费方：datapreviewtabs.cpp（time_depth 正文）、datapreviewtabwelllog.cpp
@@ -41,6 +43,7 @@ struct CurveData
   QVector<QPointF> pts; // (x = value, y = depth)
   QPair<double, double> vRange{0, 1};
   bool visible = true;
+  bool logScale = false; // PW-101：对数刻度（vRange 须 > 0）
   double hoverValue = std::numeric_limits<double>::quiet_NaN();
 };
 
@@ -612,12 +615,13 @@ protected:
       if (!c.visible || c.pts.isEmpty())
         continue;
 
-      const double vSpan = c.vRange.second - c.vRange.first;
-      if (vSpan <= 0)
+      // PW-101：共用 curvescale——反向刻度（min > max）不再被丢弃，对数刻度
+      // 正确映射；不可映射样点（NaN）断笔。
+      if (std::isnan(paleo::curvescale::normalise(c.vRange.first, c.vRange.first, c.vRange.second, c.logScale)))
         continue;
 
       const auto mapX = [&](double v) {
-        const double f = (v - c.vRange.first) / vSpan;
+        const double f = paleo::curvescale::normalise(v, c.vRange.first, c.vRange.second, c.logScale);
         return pRect.left() + f * pRect.width();
       };
 
@@ -637,7 +641,13 @@ protected:
           continue;
         }
 
-        const QPointF mapped(mapX(v), yAtDepth(d));
+        const double mx = mapX(v);
+        if (std::isnan(mx))
+        {
+          first = true;
+          continue;
+        }
+        const QPointF mapped(mx, yAtDepth(d));
         if (!first)
         {
           if (halo.isValid())

@@ -211,133 +211,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
       return;
     m_workflow->exportGraph(m_graph, dialog.selectedFiles().first());
   });
-  auto *splitter = new QSplitter(this);
-  splitter->setChildrenCollapsible(false);
-  m_scene = new QGraphicsScene(this);
-  m_view = new QGraphicsView(m_scene, splitter);
-  m_view->setObjectName("dataGraphView");
-  m_view->setRenderHint(QPainter::Antialiasing);
-  m_view->setDragMode(QGraphicsView::ScrollHandDrag);
-  m_view->setAccessibleName(tr("资料图谱画布"));
-  // 空场景下 QGraphicsView 的 sizeHint 极小，分栏的拉伸权重 = 初始尺寸 ×
-  // stretch——先给画布一个初始尺寸意见，图谱才能拿到主区；宽度之后由用户拖动决定。
-  m_view->resize(760, 600);
-  auto *details = new QWidget(splitter); details->setMinimumWidth(250);
-  auto *dl = new QVBoxLayout(details);
-  dl->setContentsMargins(t.spacingSm, 0, 0, 0);
-  auto *detailTabs = new QTabWidget(details);
-  dl->addWidget(detailTabs, 1);
-  m_relations = new QTreeWidget(detailTabs);
-  m_relations->setObjectName("dataGraphRelations");
-  m_relations->setHeaderLabels({tr("方向"), tr("关系"), tr("关联资料")});
-  m_relations->setRootIsDecorated(false);
-  m_relations->header()->setSectionResizeMode(2, QHeaderView::Stretch);
-  m_relations->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  connect(m_relations, &QTreeWidget::itemActivated, this,
-          [this](QTreeWidgetItem *item) {
-            const auto id = item->data(0, Qt::UserRole).toString();
-            QTimer::singleShot(0, this, [this, id] {
-              for (const auto &node : m_graph.nodes)
-                if (node.id == id) {
-                  selectNode(node, true);
-                  if (auto *target = m_items.value(id))
-                    m_view->centerOn(target);
-                  break;
-                }
-            });
-          });
-  m_details = new QPlainTextEdit(details);
-  m_details->setReadOnly(true);
-  m_details->setPlaceholderText(tr(
-      "选择节点查看资料、版本、文件路径与关联。双击分组展开，双击文件预览。"));
-  detailTabs->addTab(m_details, tr("资料 / 生成证据"));
-  detailTabs->addTab(m_relations, tr("关系明细"));
-  m_open = new QPushButton(tr("预览文件 / 版本"), details);
-  m_locate = new QPushButton(tr("在数据管理中定位"), details);
-  m_folder = new QPushButton(tr("打开文件所在目录"), details);
-  m_trace = new QPushButton(tr("追溯这个成果"), details);
-  m_impact = new QPushButton(tr("查看来源的下游影响"), details);
-  m_impact->setObjectName("dataGraphImpact");
-  m_related = new QPushButton(tr("展开这个节点的关联"), details);
-  m_map = new QPushButton(tr("在地图 / 图件工作台中显示"), details);
-  m_reference = new QPushButton(tr("打开联动参考图"), details);
-  m_wells = new QPushButton(tr("查看 / 修订测井预测相"), details);
-  auto *tasks = new QPushButton(tr("打开任务中心"), details);
-  m_manage = new QPushButton(tr("文件 / 版本操作"), details);
-  auto *manageMenu = new QMenu(m_manage);
-  for (const auto &[title, action] :
-       {qMakePair(tr("版本管理 / 对比 / 回滚"), QStringLiteral("versions")),
-        qMakePair(tr("调整资料归属与用途"), QStringLiteral("role")),
-        qMakePair(tr("添加标签"), QStringLiteral("tag")),
-        qMakePair(tr("移入回收清单"), QStringLiteral("remove"))})
-    connect(manageMenu->addAction(title), &QAction::triggered, this,
-            [this, action, manageMenu] {
-              const auto asset = manageMenu->property("asset_id").toString();
-              if (m_presentation.removedIds.contains(asset))
-                return;
-              emit managementRequested(
-                  action, asset, manageMenu->property("version_id").toString());
-            });
-  connect(manageMenu, &QMenu::aboutToShow, this, [this, manageMenu] {
-    manageMenu->setProperty("asset_id", m_selected.assetId);
-    manageMenu->setProperty("version_id", m_selected.versionId);
-  });
-  m_manage->setMenu(manageMenu);
-  auto *actionGrid = new QGridLayout;
-  int row = 0;
-  for (auto *button : {m_open, m_locate, m_folder, m_related, m_trace, m_impact, m_map,
-                       m_reference, m_wells, m_manage}) {
-    actionGrid->addWidget(button, row, 0);
-    button->setEnabled(false);
-    ++row;
-  }
-  actionGrid->addWidget(tasks, row, 0);
-  dl->addLayout(actionGrid);
-  connect(tasks, &QPushButton::clicked, this,
-          &DataGraphPage::taskCenterRequested);
-  connect(m_impact, &QPushButton::clicked, this, [this] {
-    const auto version = m_selected.evidence.value("source_version", m_selected.versionId).toString();
-    if (version.isEmpty()) return;
-    m_focus = versionKey(version);
-    {
-      // 模式切换由下方显式 request 统一发起：不屏蔽信号会同事件双发查询。
-      const QSignalBlocker block(m_mode);
-      m_mode->setCurrentIndex(m_mode->findData(int(Mode::Impact)));
-    }
-    request();
-  });
-  connect(m_related, &QPushButton::clicked, this, [this] {
-    if (m_selected.id.isEmpty())
-      return;
-    m_focus = m_selected.id;
-    {
-      const QSignalBlocker block(m_mode);
-      m_mode->setCurrentIndex(m_mode->findData(int(Mode::Relations)));
-    }
-    request();
-  });
-  for (const auto &[button, action] :
-       {qMakePair(m_map, QStringLiteral("show")),
-        qMakePair(m_reference, QStringLiteral("compare")),
-        qMakePair(m_wells, QStringLiteral("welltracks"))})
-    connect(button, &QPushButton::clicked, this, [this, action] {
-      if (action == "show" && !m_selected.featureUid.isEmpty()) {
-        emit evidenceTargetRequested(nodeTarget(m_selected)); return;
-      }
-      if (!m_doc || !m_doc->catalog())
-        return;
-      const auto version =
-          m_selected.versionId.isEmpty()
-              ? m_doc->catalog()->currentVersion(m_selected.assetId)
-              : m_doc->catalog()->versionById(m_selected.versionId);
-      if (!version.id.isEmpty())
-        emit workspaceRequested(version.id, action);
-    });
-  splitter->addWidget(m_view);
-  splitter->addWidget(details);
-  splitter->setStretchFactor(0, 3);
-  splitter->setStretchFactor(1, 1);
-  layout->addWidget(splitter, 1);
+  layout->addWidget(createGraphPanels(), 1);
   m_status = new QLabel(this);
   m_status->setWordWrap(true);
   layout->addWidget(m_status);
@@ -589,15 +463,17 @@ void DataGraphPage::render(const Graph &graph) {
   for (const Node &n : graph.nodes) {
     auto *item = static_cast<DataGraphNodeItem *>(m_items.value(n.id));
     if (!item) {
-      item = new DataGraphNodeItem(n);
+      item = new DataGraphNodeItem(n, graph.query.mode == Mode::Knowledge);
       item->selected = [this](const Node &node, bool navigate) {
         selectNode(node, navigate);
       };
       item->activated = [this](const Node &node) { activateNode(node); };
       m_scene->addItem(item);
       m_items.insert(n.id, item);
-    } else
+    } else {
+      item->setCompact(graph.query.mode == Mode::Knowledge);
       item->updateNode(n);
+    }
   }
   for (auto *e : m_edges)
     delete e;
@@ -686,6 +562,12 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
     }
   for (auto it = m_items.cbegin(); it != m_items.cend(); ++it)
     it.value()->setSelected(it.key() == node.id);
+  QSet<QString> neighborhood{node.id};
+  for (const auto &edge : m_graph.edges)
+    if (edge.source == node.id || edge.target == node.id) { neighborhood.insert(edge.source); neighborhood.insert(edge.target); }
+  const bool spotlight = m_graph.query.mode == Mode::Knowledge && !node.id.isEmpty();
+  for (auto it = m_items.cbegin(); it != m_items.cend(); ++it)
+    it.value()->setOpacity(!spotlight || neighborhood.contains(it.key()) ? 1.0 : .2);
   for (auto *edge : m_edges) {
     auto *path = static_cast<QGraphicsPathItem *>(edge);
     const bool related =
@@ -698,6 +580,9 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
                                           : PaleoTheme::tokens().textMuted);
     path->setData(3, related);
     path->setPen(pen);
+    path->setOpacity(spotlight && !related ? .12 : 1.0);
+    for (auto *label : path->childItems())
+      label->setVisible(m_graph.query.mode != Mode::Knowledge || related || (node.id.isEmpty() && m_graph.edges.size() <= 20));
   }
   m_details->setPlainText(
       node.id.isEmpty()

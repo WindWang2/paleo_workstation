@@ -226,7 +226,7 @@ void TestDataGraph::knowledgeGraphModelsEntityCollections() {
   for (int i = 0; i < graph.nodes.size(); ++i) {
     QCOMPARE(graph.nodes[i].position, same.nodes[i].position);
     for (int j = i + 1; j < graph.nodes.size(); ++j)
-      QVERIFY(!QRectF(graph.nodes[i].position, QSizeF(260, 112)).intersects(QRectF(graph.nodes[j].position, QSizeF(260, 112))));
+      QVERIFY(!QRectF(graph.nodes[i].position, QSizeF(160, 80)).intersects(QRectF(graph.nodes[j].position, QSizeF(160, 80))));
   }
 }
 

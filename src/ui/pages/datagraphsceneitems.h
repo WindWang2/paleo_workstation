@@ -15,13 +15,21 @@ public:
   Node node;
   std::function<void(const Node &, bool)> selected;
   std::function<void(const Node &)> activated;
-  explicit DataGraphNodeItem(const Node &n) : node(n) {
+  bool compact = false;
+  explicit DataGraphNodeItem(const Node &n, bool network = false) : node(n), compact(network) {
     setFlags(ItemIsSelectable | ItemIsFocusable);
     setCursor(Qt::PointingHandCursor);
     setZValue(1);
     updateNode(n);
   }
-  QRectF boundingRect() const override { return QRectF(0, 0, 260, node.kind == Kind::Entity ? 112 : 88); }
+  QRectF boundingRect() const override {
+    return compact ? QRectF(0, 0, 160, node.kind == Kind::Entity ? 80 : 56)
+                   : QRectF(0, 0, 260, node.kind == Kind::Entity ? 112 : 88);
+  }
+  void setCompact(bool value) {
+    if (compact == value) return;
+    prepareGeometryChange(); compact = value; update();
+  }
   void updateNode(const Node &n) {
     node = n;
     setPos(n.position);
@@ -46,8 +54,22 @@ public:
     font.setBold(collection || node.kind == Kind::Group);
     p->setFont(font);
     p->setPen(t.text);
-    const qreal lod = QStyleOptionGraphicsItem::levelOfDetailFromTransform(
-        p->worldTransform());
+    const qreal lod = QStyleOptionGraphicsItem::levelOfDetailFromTransform(p->worldTransform());
+    if (compact) {
+      if (lod < .35) return;
+      const auto box = boundingRect().adjusted(t.spacingSm, t.spacingSm, -t.spacingSm, -t.spacingSm);
+      p->drawText(box.adjusted(0, 0, 0, -box.height() / 2), Qt::AlignCenter,
+          QFontMetrics(font).elidedText(node.title, Qt::ElideMiddle, int(box.width())));
+      if (lod < .65) return;
+      font.setBold(false); font.setPointSize(t.labelPt); p->setFont(font); p->setPen(t.textMuted);
+      const QString detail = node.unresolved ? QCoreApplication::translate("DataGraphPage", "待关联")
+          : node.stale ? QCoreApplication::translate("DataGraphPage", "已过期")
+          : node.cycle ? QCoreApplication::translate("DataGraphPage", "血缘环需核查")
+          : collection ? QCoreApplication::translate("DataGraphPage", "%1 份文件").arg(node.count) : stageText(node.stage);
+      p->drawText(box.adjusted(0, box.height() / 2, 0, 0), Qt::AlignCenter,
+          QFontMetrics(font).elidedText(detail, Qt::ElideRight, int(box.width())));
+      return;
+    }
     if (lod < .35)
       return;
     p->drawText(

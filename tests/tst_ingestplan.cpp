@@ -320,7 +320,7 @@ private slots:
         QDir(root).filePath(QStringLiteral("不存在.dat")),
     };
     const IngestPlan plan = buildIngestPlanForFiles(paths, *cat);
-    QCOMPARE(plan.items.size(), 3);
+    QCOMPARE(plan.items.size(), 4);
     QCOMPARE(plan.skipped.size(), 1);
     QVERIFY2(plan.skipped.first().note.contains(QStringLiteral("导入工区文件夹")),
              qPrintable(plan.skipped.first().note));
@@ -330,6 +330,7 @@ private slots:
     QCOMPARE(plan.items.first().type, QStringLiteral("well_head"));
     for (const PlannedItem &item : plan.items)
     {
+      if (!QFileInfo::exists(item.path)) { QCOMPARE(item.decision, QString("accept")); continue; }
       QCOMPARE(item.decision, QStringLiteral("skip"));
       QVERIFY(!item.duplicateOfVersionId.isEmpty());
     }
@@ -360,12 +361,14 @@ private slots:
         QDir(root).filePath(QString::fromUtf8("时深/A1_TD.dat")),
         QDir(root).filePath(QStringLiteral("notes.pdf")),
         QDir(root).filePath(QStringLiteral("ref.zzz")),
+        QDir(root).filePath(QStringLiteral("late-note.zzz")), // Removed or unavailable selections remain visible failures.
     };
     QString err;
     const auto first = stack->importSvc->importFiles(paths, &err);
     QVERIFY2(err.isEmpty(), qPrintable(err));
-    QCOMPARE(first.size(), 5);
+    QCOMPARE(first.size(), 6);
     QCOMPARE(countBy(first, FolderRowResult::Outcome::Imported), 5);
+    QCOMPARE(countBy(first, FolderRowResult::Outcome::Failed), 1);
     for (const FolderRowResult &r : first)
       if (r.path.endsWith(QStringLiteral(".pdf")))
         QCOMPARE(r.classifiedType, QStringLiteral("document"));
@@ -375,6 +378,13 @@ private slots:
     const auto second = stack->importSvc->importFiles(paths, &err);
     QVERIFY2(err.isEmpty(), qPrintable(err));
     QCOMPARE(countBy(second, FolderRowResult::Outcome::Skipped), 5);
+    QCOMPARE(countBy(second, FolderRowResult::Outcome::Failed), 1);
+    QVERIFY(writeFile(paths.last(), "repaired reference bytes"));
+    const auto repaired = stack->importSvc->importFiles(paths, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(countBy(repaired, FolderRowResult::Outcome::Imported), 1);
+    QCOMPARE(countBy(repaired, FolderRowResult::Outcome::Skipped), 5);
+    QCOMPARE(countBy(repaired, FolderRowResult::Outcome::Failed), 0);
   }
 
   // ---- worker 线程无 marshal 构建：GUI 事件循环不泵也能完成 plan ------------

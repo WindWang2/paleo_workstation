@@ -109,7 +109,7 @@ QWidget *ProjectSetupDialog::pointPage()
     auto *box = new QComboBox(page); box->setObjectName(QStringLiteral("pointField_%1").arg(field.first)); m_fields.insert(field.first, box); form->addRow(field.second, box);
     connect(box, &QComboBox::activated, this, [this, key = field.first] { m_dirty = true; ++m_revision; if (key == QLatin1String("sheet")) { for (auto it = m_fields.begin(); it != m_fields.end(); ++it) if (it.key() != QLatin1String("sheet")) it.value()->clear(); scan(); } });
   }
-  m_crs = new QLineEdit(page); m_crs->setPlaceholderText(tr("自动识别；也可输入 EPSG:32649 等，未知时留空")); form->addRow(tr("资料坐标系"), m_crs); layout->addLayout(form);
+  m_crs = new QLineEdit(page); m_crs->setObjectName(QStringLiteral("pointSourceCrsEdit")); m_crs->setPlaceholderText(tr("自动识别；也可输入 EPSG:32649 等，未知时留空")); form->addRow(tr("资料坐标系"), m_crs); layout->addLayout(form);
   auto *scanButton = new QPushButton(tr("识别与预览"), page); connect(scanButton, &QPushButton::clicked, this, &ProjectSetupDialog::scan); layout->addWidget(scanButton);
   m_pointPreview = new QTableWidget(0, 3, page); m_pointPreview->setHorizontalHeaderLabels({tr("井名"), tr("横坐标／经度"), tr("纵坐标／纬度")}); m_pointPreview->setEditTriggers(QAbstractItemView::NoEditTriggers); m_pointPreview->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); layout->addWidget(m_pointPreview, 1);
   return page;
@@ -228,10 +228,12 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
     else { it.value()->addItem(QString()); it.value()->addItems(p.columns); }
     it.value()->setCurrentText(p.pointMapping.value(it.key()).toString());
   }
-  m_crs->setText(p.sourceCrs); m_pointPreview->setRowCount(p.pointRows.size());
+  m_crs->setText(p.pointSourceCrs); m_pointPreview->setRowCount(p.pointRows.size());
   for (int row = 0; row < p.pointRows.size(); ++row) for (int col = 0; col < 3; ++col) m_pointPreview->setItem(row, col, new QTableWidgetItem(p.pointRows[row].value(col)));
   refreshReview();
-  m_status->setText(p.errors.isEmpty() ? tr("识别完成；可继续设置或直接核对创建。") : tr("部分资料需要调整，详细原因见确认页。")); m_next->setEnabled(true);
+  m_status->setText(!p.errors.isEmpty() ? tr("工程配置需要调整，详细原因见确认页。")
+      : !p.sourceProblems.isEmpty() ? tr("部分资料未通过检查；仍可创建工程并导入其余资料，详情见确认页。")
+      : tr("识别完成；可继续设置或直接核对创建。")); m_next->setEnabled(true);
 }
 void ProjectSetupDialog::showMaps(const ProjectSetupPreview &p)
 {
@@ -258,10 +260,19 @@ void ProjectSetupDialog::refreshReview()
   const auto &p = m_preview;
   QString text = tr("将建立：%1 口井、%2 条井分层、%3 份测井、%4 个地震文件、%5 个层位面、%6 份其他资料。\n生成井点、井名标注和有效地震覆盖范围，并随工程保存。\n共 %7 个资料文件，另按套导入下列古地理图：\n").arg(p.wells).arg(p.tops).arg(p.logs).arg(p.seismic).arg(p.horizons).arg(p.references).arg(p.paths.size());
   int maps = 0;
-  for (const auto &map : p.maps) if (map.included) { ++maps; text += tr("%1 · %2 · 配套 %3 个文件\n").arg(map.horizon, QFileInfo(map.path).fileName()).arg(map.members.size()); }
+  for (const auto &map : p.maps) if (map.included) {
+    if (!map.problem.isEmpty() || !isMappingHorizon(map.horizon)) {
+      text += tr("暂不导入 %1：%2\n").arg(map.path, map.problem.isEmpty() ? tr("尚未选择有效层位") : map.problem); continue;
+    }
+    ++maps; text += tr("%1 · %2 · 配套 %3 个文件\n").arg(map.horizon, QFileInfo(map.path).fileName()).arg(map.members.size());
+  }
   text += tr("已选 %1 套古地理图。\n").arg(maps);
   if (!p.sourceCrs.isEmpty()) text += tr("资料坐标系：%1\n").arg(p.sourceCrs);
   if (!p.errors.isEmpty()) text += tr("\n需要调整（也可清空对应来源后跳过）：\n") + p.errors.join('\n');
+  if (!p.sourceProblems.isEmpty()) {
+    text += tr("\n以下资料暂不导入，其余资料继续；修正后可通过工程资料设置重试：\n");
+    for (auto it = p.sourceProblems.cbegin(); it != p.sourceProblems.cend(); ++it) text += it.key() + QStringLiteral("：") + it.value() + '\n';
+  }
   if (!p.notes.isEmpty()) text += tr("\n识别说明：\n") + p.notes.join('\n');
   m_review->setPlainText(text);
 }
@@ -284,7 +295,5 @@ void ProjectSetupDialog::finish()
   if (m_empty) { m_blankLocked = true; accept(); return; }
   if (m_busy || m_dirty) { m_status->setText(tr("请等待本次识别完成后再创建。")); if (!m_busy) scan(); return; }
   if (!m_empty && !m_preview.errors.isEmpty()) { m_status->setText(tr("请调整有问题的资料来源，或将其清空后重新识别。")); return; }
-  if (!m_empty) for (const auto &map : m_preview.maps)
-    if (map.included && (!map.problem.isEmpty() || !isMappingHorizon(map.horizon))) { m_status->setText(tr("请在其他资料页检查图件配套文件并选择层位：%1").arg(QFileInfo(map.path).fileName())); m_steps->setCurrentIndex(2); return; }
   accept();
 }

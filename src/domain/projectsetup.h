@@ -23,6 +23,7 @@ struct ProjectSetupMap
 struct ProjectSetupPreview
 {
   QStringList paths, notes, errors;
+  QMap<QString, QString> sourceProblems; // Per-source failures; errors only blocks project configuration.
   QMap<QString, QString> types, hashes;
   QMap<QString, QString> wellTargets, logWellNames;
   QStringList knownWells;
@@ -30,7 +31,7 @@ struct ProjectSetupPreview
   QStringList sheets, columns;
   QVector<QStringList> pointRows;
   QVariantMap pointMapping;
-  QString sourceCrs, projectCrs;
+  QString sourceCrs, pointSourceCrs, projectCrs;
   QVector<ProjectSetupMap> maps;
   QMap<QString, QString> mapHashes;
   int wells = 0, tops = 0, logs = 0, seismic = 0, horizons = 0, references = 0;

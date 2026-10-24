@@ -88,6 +88,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/datapreviewtabdocument.cpp
   src/ui/pages/datagraphsceneitems.cpp
   src/ui/pages/datagraphpage.cpp
+  src/ui/pages/datagraphpanels.cpp
   src/ui/datapreview/officepreviewwidget.cpp
   src/ui/datapreview/datapreviewtabxml.cpp
   src/ui/notifications/notificationcenter.cpp      # 方向64：错误呈现（通知卡/severe 模态/状态栏）

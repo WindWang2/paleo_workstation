@@ -489,7 +489,11 @@ namespace
     item.type = classifyProjectPath(path).type; // 跳过行也带分类器原类型
     if (!fi.exists())
     {
-      plan->issues.append(QStringLiteral("找不到源文件: %1").arg(path));
+      item.note = QStringLiteral("找不到源文件: %1").arg(path);
+      plan->issues.append(item.note);
+      // Keep the selected path in the execution plan: mixed batches must
+      // report its failure instead of silently dropping it beside valid files.
+      plan->items.append(item);
       return;
     }
     if (fi.isDir())

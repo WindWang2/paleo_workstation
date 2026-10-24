@@ -10,6 +10,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QSplitter>
+#include <QWheelEvent>
 #include <QTemporaryDir>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -277,11 +279,46 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!ready.isEmpty() && ready.last().first().value<paleo::datagraph::Graph>().nodes.size() == 6, 15000);
     QCOMPARE(mode(graph), Mode::Knowledge);
     auto *graphView = graph.findChild<QGraphicsView *>("dataGraphView");
+    auto *panels = graph.findChild<QSplitter *>("dataGraphSplitter");
+    QVERIFY(panels); QCOMPARE(panels->count(), 3);
+    QCOMPARE(panels->widget(0)->objectName(), QString("dataGraphDetailsPanel"));
+    QCOMPARE(panels->widget(1), graphView);
+    QCOMPARE(panels->widget(2)->objectName(), QString("dataGraphRelationsPanel"));
     QVERIFY(graphView->width() > graph.width() / 2);
     graph.findChild<QToolButton *>("dataGraphFit")->click();
     QVERIFY2(graphView->transform().m11() >= .60,
              qPrintable(QString::number(graphView->transform().m11())));
     QVERIFY(paleo::tests::captureVisual(&graph, "data-knowledge-graph", QSize(1200, 800)));
+    graph.show();
+    QTRY_VERIFY(graphView->isEnabled());
+    QGraphicsObject *selected = nullptr;
+    for (auto *item : graphView->scene()->items())
+      if (auto *node = item->toGraphicsObject(); node && node->toolTip().startsWith("A1")) { selected = node; break; }
+    QVERIFY(selected);
+    graphView->centerOn(selected);
+    QTest::mouseClick(graphView->viewport(), Qt::LeftButton, {}, graphView->mapFromScene(selected->sceneBoundingRect().center()));
+    QTRY_VERIFY(selected->isSelected());
+    const auto hasFadedNodes = [graphView] {
+      for (auto *item : graphView->scene()->items()) if (item->toGraphicsObject() && item->opacity() < .5) return true;
+      return false;
+    };
+    QTRY_VERIFY(hasFadedNodes()); QCOMPARE(selected->opacity(), 1.0);
+    QVERIFY(paleo::tests::captureVisual(&graph, "data-knowledge-neighborhood", QSize(1200, 800)));
+    graph.show();
+    QTRY_VERIFY(graphView->isEnabled());
+    QPoint empty;
+    for (int y = 8; y < graphView->viewport()->height(); y += 16)
+      for (int x = 8; x < graphView->viewport()->width(); x += 16)
+        if (!graphView->itemAt(x, y)) { empty = QPoint(x, y); break; }
+    QVERIFY(!empty.isNull());
+    QTest::mouseClick(graphView->viewport(), Qt::LeftButton, {}, empty);
+    for (auto *item : graphView->scene()->items()) if (item->toGraphicsObject()) QCOMPARE(item->opacity(), 1.0);
+    const auto scale = graphView->transform().m11();
+    const QPoint center = graphView->viewport()->rect().center();
+    QWheelEvent wheel(center, graphView->viewport()->mapToGlobal(center), {}, QPoint(0, 120),
+                      Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(graphView->viewport(), &wheel);
+    QVERIFY(graphView->transform().m11() > scale);
   }
   void initTestCase()
   {

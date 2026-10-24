@@ -207,8 +207,11 @@ private slots:
   void captureEvidence()
   {
     SeismicSectionDockWidget dock;
-    uipolish::capturePanel(&dock, QStringLiteral("seismicsection_empty"),
-                           QSize(900, 650));
+    auto *pickHint = dock.findChild<QLabel *>(QStringLiteral("pickEmptyHint"));
+    QVERIFY2(pickHint, "空态指引应在位");
+    QVERIFY(!pickHint->isHidden());
+    QVERIFY(uipolish::capturePanel(&dock, QStringLiteral("seismicsection_empty"),
+                                   QSize(900, 650)));
   }
 
   void captureTokenSectionEvidence()

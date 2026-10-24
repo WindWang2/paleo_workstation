@@ -202,7 +202,11 @@ private slots:
     panel.findChild<QLineEdit *>(QStringLiteral("releaseNameEdit"))
         ->setText(QStringLiteral("v1"));
     panel.findChild<QPushButton *>(QStringLiteral("createReleaseButton"))->click();
-    uipolish::capturePanel(&panel, QStringLiteral("releasepanel"));
+    auto *list = panel.findChild<QTreeWidget *>(QStringLiteral("releaseList"));
+    QVERIFY(list);
+    QCOMPARE(list->topLevelItemCount(), 1);
+    QCOMPARE(list->topLevelItem(0)->text(1), QStringLiteral("v1"));
+    QVERIFY(uipolish::capturePanel(&panel, QStringLiteral("releasepanel")));
   }
 
   // §6 单写实例降级：工程库被另一实例持锁（工程存储只读）时发布页不得写

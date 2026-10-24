@@ -83,7 +83,11 @@ private slots:
     store.markLayerBusy(QStringLiteral("facies.T1"), QStringLiteral("task-7"),
                         QStringLiteral("IDW interpolation"));
     panel.refresh();
-    uipolish::capturePanel(&panel, QStringLiteral("taskpanel"));
+    auto *list = panel.findChild<QTreeWidget *>(QStringLiteral("busyList"));
+    QVERIFY(list);
+    QCOMPARE(list->topLevelItemCount(), 1);
+    QCOMPARE(list->topLevelItem(0)->text(0), QStringLiteral("facies.T1"));
+    QVERIFY(uipolish::capturePanel(&panel, QStringLiteral("taskpanel")));
   }
 
   // goal/ui-experience-polish：任务列表键盘可达（↓ 首选行、↓/↑ 移动）。

@@ -48,6 +48,7 @@ protected:
   void hideEvent(QHideEvent *event) override;
 
 private:
+  QWidget *createGraphPanels();
   void request();
   void openFocused(const QString &assetId, const QString &versionId,
                    const QString &entityId, paleo::datagraph::Mode mode);

@@ -32,7 +32,7 @@ void scanProjectMaps(const ProjectSetupSources &sources, ProjectSetupPreview *ou
 {
   if (sources.paleomaps.isEmpty()) return;
   const QFileInfo source(sources.paleomaps);
-  if (!source.exists()) { out->errors << QObject::tr("古地理图路径不存在：%1").arg(sources.paleomaps); return; }
+  if (!source.exists() || !source.isReadable()) { out->sourceProblems.insert(sources.paleomaps, QObject::tr("古地理图路径不存在或不可读")); return; }
   const auto files = PaleoMapFiles::discover(source.isFile() ? QStringList{source.absoluteFilePath()} : QStringList{},
                                            source.isDir() ? source.absoluteFilePath() : QString(), cancelled);
   if (files.isEmpty()) out->notes << QObject::tr("古地理图来源中没有支持的图件；SHP 配套文件不会单独作为图件导入。");
@@ -59,7 +59,7 @@ void scanProjectMaps(const ProjectSetupSources &sources, ProjectSetupPreview *ou
       if (hash.isEmpty()) { map.problem = QObject::tr("无法核对图件配套文件：%1；%2").arg(member, error); map.included = false; break; }
       out->mapHashes.insert(member, hash);
     }
-    if (!map.problem.isEmpty()) out->notes << map.problem;
+    if (!map.problem.isEmpty()) out->sourceProblems.insert(map.path, map.problem);
     out->maps << map;
   }
   out->notes << QObject::tr("现有古地理图按套导入。默认优先同名 GPKG，预览图默认不选；可在其他资料页改选 SHP 或调整层位。");

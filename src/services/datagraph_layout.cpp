@@ -1,11 +1,47 @@
 // 层：数据
 #include "datagraph.h"
+#include <QRectF>
 #include <cmath>
 #include <algorithm>
 namespace paleo::datagraph {
+namespace {
+// Real disconnected collections form separate islands. This is layout only:
+// proximity never creates a catalog relationship.
+void separateCollections(QVector<QPointF> &positions, const QVector<QPair<int, int>> &edges,
+                         const Cancel &cancel) {
+  QVector<QVector<int>> adjacent(positions.size()), components;
+  for (const auto &[a, b] : edges) { adjacent[a] << b; adjacent[b] << a; }
+  QSet<int> visited;
+  QVector<QRectF> bounds;
+  qreal area = 0;
+  for (int root = 0; root < positions.size(); ++root) {
+    if (visited.contains(root)) continue;
+    QVector<int> component{root}; visited.insert(root);
+    QRectF bound(positions[root], QSizeF(160, 80));
+    for (int at = 0; at < component.size(); ++at) {
+      if (cancel && cancel()) return;
+      const int row = component[at]; bound |= QRectF(positions[row], QSizeF(160, 80));
+      for (int next : adjacent[row]) if (!visited.contains(next)) { visited.insert(next); component << next; }
+    }
+    components << component; bounds << bound;
+    area += (bound.width() + 72) * (bound.height() + 72);
+  }
+  if (components.size() < 2) return;
+  const qreal shelfWidth = std::sqrt(area) * 1.3;
+  qreal x = 0, y = 0, height = 0;
+  for (int i = 0; i < components.size(); ++i) {
+    const auto &bound = bounds[i];
+    if (x > 0 && x + bound.width() > shelfWidth) { y += height + 72; x = 0; height = 0; }
+    const QPointF offset = QPointF(x, y) - bound.topLeft();
+    for (int row : components[i]) positions[row] += offset;
+    x += bound.width() + 72; height = qMax(height, bound.height());
+  }
+}
+}
 void layoutKnowledgeGraph(Graph &graph, const Cancel &cancel) {
   const int count = graph.nodes.size();
   if (!count) return;
+  const bool compact = graph.query.mode == Mode::Knowledge;
   QVector<QPointF> positions(count), movement(count);
   QHash<QString, int> rows;
   int anchor = 0;
@@ -13,7 +49,7 @@ void layoutKnowledgeGraph(Graph &graph, const Cancel &cancel) {
     rows.insert(graph.nodes[i].id, i);
     if (graph.nodes[i].id == graph.query.focus) anchor = i;
     const double angle = i * 2.399963229728653;
-    const double radius = 250.0 * std::sqrt(i + 1.0);
+    const double radius = (compact ? 160.0 : 250.0) * std::sqrt(i + 1.0);
     positions[i] = QPointF(std::cos(angle) * radius, std::sin(angle) * radius);
   }
   positions[anchor] = {};
@@ -37,7 +73,7 @@ void layoutKnowledgeGraph(Graph &graph, const Cancel &cancel) {
       const auto delta = positions[b] - positions[a];
       const double distance = std::hypot(delta.x(), delta.y());
       if (distance < 1) continue;
-      const auto spring = delta * ((distance - 360.0) * .20 / distance);
+      const auto spring = delta * ((distance - (compact ? 240.0 : 360.0)) * .20 / distance);
       movement[a] += spring; movement[b] -= spring;
     }
     const double temperature = 25.0 * (1.0 - pass / 160.0);
@@ -56,7 +92,7 @@ void layoutKnowledgeGraph(Graph &graph, const Cancel &cancel) {
     for (int i = 0; i < count; ++i)
       for (int j = i + 1; j < count; ++j) {
         const auto delta = positions[j] - positions[i];
-        const double x = 290 - std::abs(delta.x()), y = 135 - std::abs(delta.y());
+        const double x = (compact ? 184 : 290) - std::abs(delta.x()), y = (compact ? 104 : 135) - std::abs(delta.y());
         if (x <= 0 || y <= 0) continue;
         overlap = true;
         const auto correction = x < y ? QPointF((delta.x() < 0 ? -1 : 1) * (x + 1) / 2, 0)
@@ -65,6 +101,7 @@ void layoutKnowledgeGraph(Graph &graph, const Cancel &cancel) {
       }
     if (!overlap) break;
   }
+  if (compact) separateCollections(positions, edges, cancel);
   for (int i = 0; i < count; ++i) graph.nodes[i].position = positions[i];
 }
 }

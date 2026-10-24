@@ -273,6 +273,110 @@ private slots:
     QgisProjectService project; PaleoProjectStore store; DataImportService service(&store); FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
     ProjectSetupDialog dialog(&workflow); dialog.findChild<QPushButton *>("createEmptyProjectButton")->click(); QCOMPARE(dialog.result(), int(QDialog::Accepted)); QVERIFY(dialog.preview().paths.isEmpty());
   }
+  void partialSourcesCreateReopenAndRepair() {
+    QTemporaryDir dir; QString error;
+    const auto heads = dir.filePath("input/wellheads.csv");
+    const auto logs = dir.filePath("input/wells");
+    const auto good = logs + "/B1.las", bad = logs + "/broken.las";
+    QVERIFY(write(heads, "WELL,X,Y\nB1,bad,20\n"));
+    QVERIFY(write(good, "~Version\nVERS. 2.0 :\nWRAP. NO :\n~Well\nWELL. B1 :\nNULL. -9999.25 :\n~Curve\nDEPT.M :\nGR.API :\n~A\n100 60\n101 70\n"));
+    QVERIFY(write(bad, "broken log without curves"));
+    ProjectSetupSources sources; sources.points = heads; sources.wells = logs;
+    sources.references = dir.filePath("missing-references"); sources.paleomaps = dir.filePath("missing-maps");
+    const auto preview = scanProjectSources(sources);
+    QVERIFY(preview.errors.isEmpty()); QCOMPARE(preview.sourceProblems.size(), 3);
+    QVERIFY(!preview.paths.contains(heads)); QVERIFY(preview.paths.contains(good));
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service, [&service](const QString &p) { service.setProjectDir(QFileInfo(p).absolutePath()); });
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
+    const auto target = dir.filePath("output/project.qgz");
+    QVERIFY2(workflow.create(target, sources, preview, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000);
+    QVERIFY(!finished.first()[1].toBool()); QVERIFY(finished.first()[0].toString().contains(heads));
+    QVERIFY(QFileInfo::exists(target)); QVERIFY(!service.catalog()->assets().isEmpty());
+    QString logId;
+    for (const auto &asset : service.catalog()->assets()) if (asset.type == "well_log") logId = asset.id;
+    QVERIFY(!logId.isEmpty()); QCOMPARE(service.catalog()->entities("well").size(), 1);
+    project.closeProject(); QVERIFY(project.openProject(target));
+    QVERIFY(!service.catalog()->assetById(logId).id.isEmpty());
+    QCOMPARE(project.mapConfiguration().sourceStats.value("sourceProblems").toMap().size(), 3);
+    // Repair just the bad inputs; the valid log survives and is not duplicated.
+    QVERIFY(write(heads, "WELL,X,Y\nB1,10,20\n")); QVERIFY(QFile::remove(bad));
+    sources.references.clear(); sources.paleomaps.clear();
+    const auto repaired = scanProjectSources(sources); QVERIFY(repaired.errors.isEmpty()); QVERIFY(repaired.sourceProblems.isEmpty());
+    finished.clear(); QVERIFY2(workflow.applySources(sources, repaired, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000);
+    QVERIFY2(finished.first()[1].toBool(), qPrintable(finished.first()[0].toString()));
+    int count = 0; for (const auto &asset : service.catalog()->assets()) if (asset.type == "well_log") ++count;
+    QCOMPARE(count, 1); QCOMPARE(service.catalog()->entities("well").size(), 1);
+    QVERIFY(project.mapConfiguration().sourceStats.value("sourceProblems").toMap().isEmpty());
+  }
+  void unknownPointCrsDoesNotBlockOtherSources() {
+    QTemporaryDir dir;
+    const auto heads = dir.filePath("points.csv"); QVERIFY(write(heads, "WELL,X,Y\nB1,10,20\n"));
+    ProjectSetupSources sources; sources.points = heads; sources.projectCrs = "EPSG:32649";
+    const auto preview = scanProjectSources(sources);
+    QVERIFY(preview.errors.isEmpty()); QVERIFY(preview.sourceProblems.contains(heads)); QVERIFY(preview.paths.isEmpty());
+    QCOMPARE(preview.projectCrs, sources.projectCrs);
+    sources.projectCrs = "EPSG:0";
+    QVERIFY(!scanProjectSources(sources).errors.isEmpty()); // Invalid project-wide settings still block creation.
+  }
+  void unresolvedMapDoesNotPreventProjectCreation() {
+    QTemporaryDir dir; QString error;
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service, [&service](const QString &p) { service.setProjectDir(QFileInfo(p).absolutePath()); });
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    ProjectSetupPreview preview; ProjectSetupMap map; map.path = dir.filePath("map.shp"); map.included = true;
+    preview.maps << map; // Selected, but its horizon has not been resolved.
+    QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
+    const auto path = dir.filePath("project/project.qgz");
+    QVERIFY2(workflow.create(path, {}, preview, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000); QVERIFY(!finished.first()[1].toBool());
+    QVERIFY(QFileInfo::exists(path));
+    const auto stats = project.mapConfiguration().sourceStats;
+    QVERIFY(stats.value("sourceProblems").toMap().contains(map.path));
+    QVERIFY(stats.value("mapChoices").toMap().value(map.path).toMap().value("included").toBool());
+    project.closeProject(); QVERIFY(project.openProject(path));
+  }
+  void geographicBoundaryNeedsExplicitMetricBaseline() {
+    QTemporaryDir dir;
+    const auto boundary = dir.filePath("boundary.geojson");
+    QVERIFY(write(boundary, R"({"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:4326"}},"features":[{"type":"Feature","properties":{},"geometry":{"type":"Polygon","coordinates":[[[108,36],[109,36],[108,37],[108,36]]]}}]})"));
+    ProjectSetupSources sources; sources.boundary = boundary;
+    auto preview = scanProjectSources(sources);
+    QVERIFY(preview.errors.isEmpty()); QVERIFY(preview.sourceProblems.contains(boundary));
+    QVERIFY(preview.projectCrs.isEmpty()); QVERIFY(preview.paths.isEmpty());
+    sources.projectCrs = "EPSG:32649"; preview = scanProjectSources(sources);
+    QVERIFY(preview.errors.isEmpty()); QVERIFY(preview.sourceProblems.isEmpty());
+    QCOMPARE(preview.projectCrs, sources.projectCrs); QVERIFY(preview.paths.contains(boundary));
+  }
+  void wizardAllowsPartialSources() {
+    QTemporaryDir dir;
+    const auto heads = dir.filePath("wellheads.csv"); QVERIFY(write(heads, "WELL,X,Y\nB1,bad,20\n"));
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    ProjectSetupDialog dialog(&workflow); dialog.setSourceRoot(dir.path());
+    QTRY_VERIFY_WITH_TIMEOUT(dialog.preview().sourceProblems.contains(heads), 20000);
+    auto *next = dialog.findChild<QPushButton *>("projectSetupNextButton"); QVERIFY(next); QVERIFY(next->isEnabled());
+    auto *steps = dialog.findChild<QTabBar *>(); QVERIFY(steps); steps->setCurrentIndex(3);
+    next->click(); QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    QVERIFY(dialog.preview().sourceProblems.contains(heads));
+  }
+  void wizardDoesNotInheritBoundaryCrs() {
+    QTemporaryDir dir;
+    const auto heads = dir.filePath("points.csv"), boundary = dir.filePath("boundary.geojson");
+    QVERIFY(write(heads, "WELL,X,Y\nB1,10,20\n"));
+    QVERIFY(write(boundary, R"({"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:4326"}},"features":[{"type":"Feature","properties":{},"geometry":{"type":"Polygon","coordinates":[[[108,36],[109,36],[108,37],[108,36]]]}}]})"));
+    ProjectSetupSources sources; sources.points = heads; sources.boundary = boundary; sources.projectCrs = "EPSG:32649";
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    ProjectSetupDialog dialog(&workflow); dialog.setExistingProject(dir.filePath("project.qgz"), sources);
+    QTRY_VERIFY_WITH_TIMEOUT(dialog.preview().sourceProblems.contains(heads), 20000);
+    QVERIFY(!dialog.preview().sourceCrs.isEmpty()); QVERIFY(dialog.preview().pointSourceCrs.isEmpty());
+    auto *crs = dialog.findChild<QLineEdit *>("pointSourceCrsEdit"); QVERIFY(crs); QVERIFY(crs->text().isEmpty());
+    QVERIFY(dialog.sources().pointMapping.value("crs").toString().isEmpty());
+  }
   void createWorkflowAndReopen() {
     QTemporaryDir dir;
     const auto path = xlsx(dir.filePath("input/points.xlsx"), "UTM49N", {{"ID", "E", "N"}, {"A1", "233240.46", "3997621.12"}});

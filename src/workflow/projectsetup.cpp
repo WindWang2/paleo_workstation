@@ -39,6 +39,7 @@ void ProjectSetupWorkflow::scan(const ProjectSetupSources &sources)
 bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources &sources,
                                  const ProjectSetupPreview &preview, QString *error)
 {
+  if (error) error->clear();
   const auto fail = [&](const QString &message) { if (error) *error = message; return false; };
   if (!m_project || !m_imports) return fail(tr("工程或导入服务未就绪"));
   if (!preview.errors.isEmpty()) return fail(preview.errors.join('\n'));
@@ -118,15 +119,19 @@ ProjectSetupSources ProjectSetupWorkflow::currentSources() const
   for (auto it = choices.cbegin(); it != choices.cend(); ++it) s.wellTargets.insert(it.key(), it.value().toString());
   return s;
 }
-bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, const ProjectSetupPreview &preview, QString *error)
+bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, const ProjectSetupPreview &input, QString *error)
 {
+  if (error) error->clear();
+  auto preview = input;
   if (!m_project || m_project->projectPath().isEmpty() || !m_imports) { if (error) *error = tr("请先打开工程"); return false; }
   if (m_project->isReadOnly() || m_project->isOpening()) { if (error) *error = tr("工程只读或正在打开，不能修改资料设置"); return false; }
   if (!preview.errors.isEmpty()) { if (error) *error = preview.errors.join('\n'); return false; }
-  for (const auto &map : preview.maps) if (map.included && (!map.problem.isEmpty() || !isMappingHorizon(map.horizon))) {
-    if (error) *error = tr("请检查古地理图配套文件并选择所属层位：%1；%2").arg(map.path, map.problem);
-    return false;
+  for (auto &map : preview.maps) if (map.included && (!map.problem.isEmpty() || !isMappingHorizon(map.horizon))) {
+    preview.sourceProblems.insert(map.path, map.problem.isEmpty() ? tr("古地理图未选择有效层位") : map.problem);
+    map.included = false;
   }
+  for (auto it = preview.sourceProblems.cbegin(); it != preview.sourceProblems.cend(); ++it)
+    preview.paths.removeAll(it.key());
   const QString directory = QFileInfo(m_project->projectPath()).absolutePath();
   bool ok = false;
   auto file = readProjectFile(paleoProjectFilePath(directory), &ok, error);
@@ -137,13 +142,16 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
       {"horizons", sources.horizons}, {"references", sources.references}, {"boundary", sources.boundary},
       {"pointMapping", preview.pointMapping}, {"files", preview.paths.size()}};
   QVariantMap mapChoices;
-  for (const auto &map : preview.maps) mapChoices.insert(map.path, QVariantMap{{"included", map.included}, {"horizon", map.horizon}});
+  for (const auto &map : input.maps) mapChoices.insert(map.path, QVariantMap{{"included", map.included}, {"horizon", map.horizon}});
   file.sourceStats.insert("paleomaps", sources.paleomaps);
   file.sourceStats.insert("normalizeMaps", sources.normalizeMaps);
   file.sourceStats.insert("mapChoices", mapChoices);
   QVariantMap choices;
   for (auto it = preview.wellTargets.cbegin(); it != preview.wellTargets.cend(); ++it) choices.insert(it.key(), it.value());
   file.sourceStats.insert(QStringLiteral("wellTargets"), choices);
+  QVariantMap problems;
+  for (auto it = preview.sourceProblems.cbegin(); it != preview.sourceProblems.cend(); ++it) problems.insert(it.key(), it.value());
+  file.sourceStats.insert(QStringLiteral("sourceProblems"), problems);
   if (!preview.projectCrs.isEmpty() && file.georeference &&
       (file.georeference->kind != QLatin1String("crs") || !sameNativeCrs(file.georeference->sourceCrs, preview.projectCrs))) {
     if (error) *error = tr("当前工程与所选资料使用不同的坐标基础，请先统一资料坐标或新建工程。");
@@ -167,8 +175,13 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
   const quint64 session = m_project->sessionId();
   QTimer::singleShot(0, this, [this, sources, preview, session] {
     if (!m_project || m_project->sessionId() != session || !m_imports) return;
-    if (preview.paths.isEmpty()) { importMaps(sources, preview, session, tr("工程已创建，可随时补充资料。"), true); return; }
-    m_imports->importFiles(preview.paths, preview.types, {}, [this, sources, preview, session](const auto &rows, const QString &error) {
+    QString scanSummary;
+    for (auto it = preview.sourceProblems.cbegin(); it != preview.sourceProblems.cend(); ++it)
+      scanSummary += '\n' + tr("未导入 %1：%2").arg(it.key(), it.value());
+    if (preview.paths.isEmpty()) {
+      importMaps(sources, preview, session, tr("工程已保存，可随时补充资料。") + scanSummary, preview.sourceProblems.isEmpty()); return;
+    }
+    m_imports->importFiles(preview.paths, preview.types, {}, [this, sources, preview, session, scanSummary](const auto &rows, const QString &error) {
       if (!m_project || m_project->sessionId() != session) return;
       int failed = 0, imported = 0, skipped = 0, unresolved = 0;
       for (const auto &row : rows) {
@@ -179,6 +192,7 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
       }
       const bool saved = m_project->writeProject();
       QString summary = tr("工程资料：已导入 %1，跳过 %2，待关联 %3，失败 %4。详细记录见任务与导入台账。").arg(imported).arg(skipped).arg(unresolved).arg(failed);
+      summary += scanSummary;
       if (!error.isEmpty()) summary += '\n' + error;
       if (!saved) summary += '\n' + m_project->lastErrors().join('\n');
       // 用户取消文件批后不得再开古地理图任务；已取消不是下一阶段的启动条件。
@@ -186,7 +200,7 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
         emit finished(summary, false);
         return;
       }
-      importMaps(sources, preview, session, summary, !failed && error.isEmpty() && saved);
+      importMaps(sources, preview, session, summary, !failed && preview.sourceProblems.isEmpty() && error.isEmpty() && saved);
     }, preview.wellTargets, preview.hashes, {}, preview.paths, {}, preview.mappings);
   });
   return true;

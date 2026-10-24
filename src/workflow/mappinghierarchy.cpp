@@ -79,6 +79,43 @@ bool MappingWorkbench::setDisplayMode(const QString &id, const QString &mode,
   emit displayChanged(id);
   return true;
 }
+QVariantMap MappingWorkbench::pinnedLevels(const QString &id) const {
+  const auto *layer = m_layers->layer(id);
+  return layer ? FaciesHierarchy::parsePins(
+                     layer->customProperty("paleo/faciesPinnedLevels").toString())
+               : QVariantMap();
+}
+bool MappingWorkbench::setPinnedLevel(const QString &id, const QString &nodeKey,
+                                      const QString &mode, QString *error) {
+  const bool remove = mode.isEmpty() || mode == "auto";
+  if (!remove && !FaciesHierarchy::levels().contains(mode))
+    return reject(error, tr("请选择相、亚相或微相"));
+  if (!supportsFaciesDisplay(id) || isWellPrediction(id))
+    return reject(error, tr("请选择相图件"));
+  bool known = false;
+  for (const auto &node : FaciesHierarchy::pinCandidates(versionForLayer(id).extra.value("facies").toList()))
+    known |= node.toMap().value("key").toString() == nodeKey;
+  if (!known && !(remove && pinnedLevels(id).contains(nodeKey)))
+    return reject(error, tr("请选择当前图件分类中的相类"));
+  auto *layer = m_layers->instantiate(id, error);
+  if (!layer)
+    return reject(error, tr("请选择相图件"));
+  auto pins = pinnedLevels(id);
+  if (remove)
+    pins.remove(nodeKey);
+  else
+    pins.insert(nodeKey, mode);
+  const auto encoded = FaciesHierarchy::encodePins(pins);
+  if (encoded.isEmpty())
+    layer->removeCustomProperty("paleo/faciesPinnedLevels");
+  else
+    layer->setCustomProperty("paleo/faciesPinnedLevels", encoded);
+  if (m_project && m_project->project())
+    m_project->project()->setDirty(true);
+  styleLayer(id);
+  emit displayChanged(id);
+  return true;
+}
 bool MappingWorkbench::isFaciesPolygon(const QString &id) const {
   const auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
   return layer && layer->geometryType() == Qgis::GeometryType::Polygon &&

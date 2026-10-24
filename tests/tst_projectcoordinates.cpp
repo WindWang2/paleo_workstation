@@ -9,6 +9,9 @@
 #include "io/welltable.h"
 #include "io/horizonbinner.h"
 #include "metadata/nativereference.h"
+#include "metadata/paleoprojectstore.h"
+#include "io/dataimportservice.h"
+#include "services/projectdata.h"
 
 class TestProjectCoordinates : public QObject {
   Q_OBJECT
@@ -16,6 +19,57 @@ class TestProjectCoordinates : public QObject {
     QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly)); QCOMPARE(f.write(bytes), bytes.size());
   }
 private slots:
+  void depthOnlyStratificationImportsIntoProjectedProject() {
+    QTemporaryDir root; const auto heads = root.filePath("heads.csv");
+    const auto tops = root.filePath("tops.csv"), td = root.filePath("td.dat");
+    write(heads, "WELL,X,Y\nA1,233000,3990000\n");
+    const QByteArray original = "WELL,HORIZON,TVD,BASE_TVD\nA1,D61,1000,1100\nA1,D62,1100,1200\n";
+    write(tops, original);
+    write(td, "#TimeDepth File From SMI\n# Well : A1\n0 0 0 0\n1000 1000 1000 1200\n2000 2000 2000 2500\n");
+    const auto parsed = paleo::io::readWellTable(tops, {{"projectCrs", "EPSG:32649"}});
+    QVERIFY2(parsed.error.isEmpty(), qPrintable(parsed.error));
+    QVERIFY(parsed.heads.isEmpty()); QCOMPARE(parsed.tops.size(), 2); QVERIFY(parsed.normalized.contains("D61"));
+    // Real XY records still require a declared source CRS.
+    const auto unknownHeadCrs = paleo::io::readWellTable(heads, {{"projectCrs", "EPSG:32649"}});
+    QVERIFY(!unknownHeadCrs.error.isEmpty());
+    PaleoProjectStore store; DataImportService imports(&store); imports.setProjectDir(root.filePath("project"));
+    PaleoGeoreference reference; reference.kind = "crs"; reference.sourceCrs = "EPSG:32649";
+    reference.targetCrs = "EPSG:4326"; imports.setGeoreference(reference);
+    DataImportService::ImportOptions options; options.tableMapping = {{"crs", "EPSG:32649"}}; QString error;
+    QVERIFY2(!imports.importProjectFile(heads, options, &error).isEmpty(), qPrintable(error));
+    const auto rows = imports.importFiles({tops, td}, &error); QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(rows.size(), 2);
+    for (const auto &row : rows) QVERIFY2(row.outcome != FolderRowResult::Outcome::Failed, qPrintable(row.message));
+    ProjectDataFacade data; data.setCatalog(imports.catalog(), imports.projectDir());
+    const auto wells = data.wells(); QCOMPARE(wells.size(), 1);
+    const auto layers = data.topsForMapping(wells.first().id); QCOMPARE(layers.size(), 2);
+    QCOMPARE(layers.first().horizon, QString("D61")); QCOMPARE(layers.first().tvd, 1000.0);
+    QVERIFY(std::abs(layers.first().md - 1200.0) < 1e-6);
+    QFile unchanged(tops); QVERIFY(unchanged.open(QIODevice::ReadOnly)); QCOMPARE(unchanged.readAll(), original);
+  }
+
+  void realStratificationImportsOnlyIntoDiagnosticCopy() {
+    const auto project = qEnvironmentVariable("PALEO_STRATIFICATION_PROJECT_COPY");
+    const auto source = qEnvironmentVariable("PALEO_STRATIFICATION_SOURCE");
+    if (project.isEmpty() || source.isEmpty()) QSKIP("Set explicit diagnostic project copy and source table");
+    QVERIFY(QFileInfo::exists(project + "/.diagnostic-copy"));
+    QFile original(source); QVERIFY(original.open(QIODevice::ReadOnly)); const auto before = original.readAll(); original.close();
+    PaleoProjectStore store; DataImportService imports(&store); imports.setProjectDir(project);
+    PaleoGeoreference reference; reference.kind = "crs"; reference.sourceCrs = "EPSG:32649";
+    reference.targetCrs = "EPSG:4326"; imports.setGeoreference(reference); QString error;
+    const auto rows = imports.importFiles({source}, &error); QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(rows.size(), 1); QVERIFY2(!rows.first().assetId.isEmpty(), qPrintable(rows.first().message));
+    ProjectDataFacade data; data.setCatalog(imports.catalog(), project); const auto wells = data.wells(); QVERIFY(!wells.isEmpty());
+    int ready = 0;
+    for (const auto &well : wells) {
+      const auto tops = data.topsForMapping(well.id);
+      for (const auto &top : tops) if (top.horizon == "D61" && std::isfinite(top.md)) { ++ready; break; }
+    }
+    qInfo() << "DIAGNOSTIC wells=" << wells.size() << "readable_D61_MD=" << ready;
+    QCOMPARE(ready, wells.size());
+    QVERIFY(original.open(QIODevice::ReadOnly)); QCOMPARE(original.readAll(), before);
+  }
+
   void explicitProjectBaseline() {
     QTemporaryDir root;
     const auto file = root.filePath("wells.csv");

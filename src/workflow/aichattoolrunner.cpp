@@ -1,5 +1,7 @@
 // 层：功能
 #include "aichattoolrunner.h"
+#include <QDir>
+#include <QFileInfo>
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -408,6 +410,20 @@ void AiChatToolRunner::runFacies(const ChatToolCall &call,
 // ---------------------------------------------------------------------------
 
 namespace {
+// PW-039：发给（可能远端的）模型的路径不得含本机绝对路径（泄露用户名/目录
+// 布局）。工程内 → 工程相对路径；工程外的外链 → 只给文件名并标 <external>。
+QString modelSafePath(const DataCatalog *catalog, const QString &path) {
+  if (path.isEmpty() || QDir::isRelativePath(path))
+    return path;
+  const QString root = catalog ? catalog->projectDir() : QString();
+  if (!root.isEmpty()) {
+    const QString rel = QDir(root).relativeFilePath(path);
+    if (!rel.startsWith(QStringLiteral("..")) && QDir::isRelativePath(rel))
+      return rel;
+  }
+  return QStringLiteral("<external>/") + QFileInfo(path).fileName();
+}
+
 // 资产条目的版本引用（可追溯口径）：无版本记录时字段留空——如实，不编造。
 void insertVersionCitation(QJsonObject *entry, const DataCatalog *catalog,
                            const QString &assetId) {
@@ -415,7 +431,7 @@ void insertVersionCitation(QJsonObject *entry, const DataCatalog *catalog,
   entry->insert(QStringLiteral("version_id"), version.id);
   entry->insert(QStringLiteral("stage"), version.stage);
   entry->insert(QStringLiteral("version_number"), version.versionNumber);
-  entry->insert(QStringLiteral("path"), version.path);
+  entry->insert(QStringLiteral("path"), modelSafePath(catalog, version.path));
 }
 
 QString displayName(const CatalogAsset &asset) {
@@ -691,7 +707,7 @@ void AiChatToolRunner::runLineage(const ChatToolCall &call,
     entry.insert(QStringLiteral("version_name"), node.versionName);
     // 版本引用（可追溯）：路径取 catalog 版本记录，不编造。
     entry.insert(QStringLiteral("path"),
-                 catalog->versionById(node.versionId).path);
+                 modelSafePath(catalog, catalog->versionById(node.versionId).path));
     nodes.append(entry);
   }
   payload.insert(QStringLiteral("nodes"), nodes);

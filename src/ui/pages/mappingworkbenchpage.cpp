@@ -751,7 +751,7 @@ void MappingWorkbenchPage::updateState() {
       !displaySelection.isEmpty();
   const auto lockHint = tr("在相面编辑副本中选中面，可固定显示层级；跟随图层可解除锁定");
   m_featureDisplayLevel->setEnabled(canLock); m_featureDisplayLevel->setToolTip(lockHint);
-  m_pins->setState(FaciesHierarchy::pinCandidates(selectedSchema), m_workbench->pinnedLevels(selectedLayer()), !wellResult && displayable, tr("固定的相类（含下级）始终按所选层级显示，不随显示层级与比例尺切换；单独锁定的相面仍优先"));
+  m_pins->setState(FaciesHierarchy::pinCandidates(selectedSchema), m_workbench->pinnedLevels(selectedLayer()), displayable, tr("固定的相类（含下级）始终按所选层级显示，不随显示层级与比例尺切换；单独锁定的相面仍优先"));
   gate("featureDisplayLevel", canLock, lockHint);
   QSet<QString> selectedDisplayModes;
   for (auto fid : displaySelection)

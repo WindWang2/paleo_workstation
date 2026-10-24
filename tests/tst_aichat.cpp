@@ -371,6 +371,21 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   QVERIFY(names.contains(QStringLiteral("paleo.horizon_tracking_suggestion")));
   QVERIFY(names.contains(QStringLiteral("paleo.well_facies_prediction")));
   QVERIFY(aiToolSpec(QStringLiteral("paleo.nonexistent")).name.isEmpty());
+
+  // PW-060："integer" 参数不接受任意文本/小数/越界值。
+  const AiToolSpec tile = aiToolSpec(QStringLiteral("paleo.tile_classification"));
+  const auto withRows = [](const QJsonValue &rows) {
+    QJsonObject a;
+    a.insert(QStringLiteral("model"), QStringLiteral("m"));
+    a.insert(QStringLiteral("grid_rows"), rows);
+    a.insert(QStringLiteral("grid_columns"), 8);
+    return a;
+  };
+  QVERIFY(tile.validateParameters(withRows(16)).isEmpty());
+  QVERIFY(tile.validateParameters(withRows(QStringLiteral("16"))).isEmpty());
+  QVERIFY(!tile.validateParameters(withRows(QStringLiteral("abc"))).isEmpty());
+  QVERIFY(!tile.validateParameters(withRows(1.5)).isEmpty());
+  QVERIFY(!tile.validateParameters(withRows(1e300)).isEmpty());
 }
 
 void TestAiChat::toolDispatchIsHonestAboutWiring() {

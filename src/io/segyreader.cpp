@@ -1070,6 +1070,17 @@ bool SegyReader::restore(const SegyIndexStore::StoredIndex &in, const QString &p
   if (in.inlineNos.size() != in.xlineNos.size() ||
       in.inlineNos.size() != in.offsets.size() || in.inlineNos.isEmpty())
     return false;
+  // review-fix-dataio：缓存索引是磁盘上的外部数据（可能损坏/被篡改），
+  // 全部校验通过后才改写成员——旧实现 ns<=0 也照单全收，后续按
+  // 240 + ns*sampleBytes 计算道长、分配缓冲时越界/负长。
+  if (in.samplesPerTrace <= 0 ||
+      in.samplesPerTrace > 65535 || sampleBytesForFormat(in.formatCode) == 0 ||
+      in.firstTraceOffset < 3600)
+    return false;
+  const qint64 fileSize = QFileInfo(path).size();
+  for (const qint64 off : in.offsets)
+    if (off < in.firstTraceOffset || off + 240 > fileSize)
+      return false;
   m_indexingRules = {in.headerWordOffsets[0], in.headerWordOffsets[1],
                      in.headerWordOffsets[2], in.headerWordOffsets[3]};
   // #290：方言口径随索引恢复——resumeScan() 按同一口径取字。

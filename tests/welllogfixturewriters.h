@@ -545,6 +545,7 @@ namespace lisfix
     int depthReprc = 68;
     QString depthUnits = QStringLiteral("M");
     double spacing = 1.0;
+    QString spacingUnits; // 非空 = 写条目 9（帧距单位，PW-022）
     int direction = 255; // DOWN
     int absentReprc = 0; // 非零 = 写条目 12（缺席值，数值）
     double absentValue = -999.0;
@@ -565,6 +566,8 @@ namespace lisfix
     {
       entry(4, 4, 73, u32be(quint64(d.direction))); // UP/DOWN
       entry(8, 4, 68, f32Bytes(d.spacing));         // 帧距（f32：非整数帧距）
+      if (!d.spacingUnits.isEmpty())
+        entry(9, 4, 65, field(d.spacingUnits, 4)); // 帧距单位
       entry(13, 4, 73, u32be(1));                   // 深度记录模式 1
       entry(14, 2, 65, field(d.depthUnits, 2));     // 深度单位
       entry(15, 0, d.depthReprc, QByteArray());     // 输出深度表示码

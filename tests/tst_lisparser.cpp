@@ -28,6 +28,7 @@ class TestLisParser : public QObject
   private slots:
     void initTestCase();
     void readsFullCatalogFramesUnitsRaw();
+    void mode1SpacingUnitsConvertedAndZeroRejected();
     void readsFullCatalogFramesUnitsTif();
     void sniffDistinguishesFormats();
     void multiPrStitchingWithTrailersAndPads();
@@ -460,6 +461,46 @@ void TestLisParser::emptyFileFails()
   QString error;
   QVERIFY(!LisParser::parse(path, header, curves, &error));
   QVERIFY(!LisParser::sniff(path));
+}
+
+// PW-022：条目 9 帧距单位须换算到深度单位；模式 1 帧距 ≤0 拒绝。
+void TestLisParser::mode1SpacingUnitsConvertedAndZeroRejected()
+{
+  auto build = [](double spacing, const QString &units) {
+    LisDfsr d;
+    d.depthMode = 1;
+    d.depthReprc = 68;
+    d.depthUnits = QStringLiteral("M");
+    d.spacing = spacing;
+    d.spacingUnits = units;
+    d.direction = 255;
+    LisSpec gr;
+    gr.mnemonic = QStringLiteral("GR");
+    gr.reprc = 79;
+    d.specs = { gr };
+    QByteArray b;
+    b += physicalRecord(128, fileHeaderPayload(QStringLiteral("SPU")));
+    b += physicalRecord(34, wellsitePayload(QStringLiteral("W-SPU")));
+    b += physicalRecord(64, dfsrPayload(d));
+    QByteArray rec;
+    rec += f32Bytes(1000.0);
+    rec += u16be(1);
+    rec += u16be(2);
+    rec += u16be(3);
+    b += physicalRecord(0, rec);
+    return b;
+  };
+  LasHeaderInfo header;
+  QList<LasCurve> curves;
+  QString error;
+  const QString p1 = write(QStringLiteral("spu-cm.lis"), build(50.0, QStringLiteral("CM")));
+  QVERIFY2(LisParser::parse(p1, header, curves, &error), qPrintable(error));
+  QCOMPARE(curves.at(0).values.size(), 3);
+  QVERIFY(std::abs(curves.at(0).values.at(1) - 1000.5) < 1e-9);
+  QVERIFY(std::abs(curves.at(0).values.at(2) - 1001.0) < 1e-9);
+
+  const QString p2 = write(QStringLiteral("spu-zero.lis"), build(0.0, QString()));
+  QVERIFY(!LisParser::parse(p2, header, curves, &error));
 }
 
 QTEST_MAIN(TestLisParser)

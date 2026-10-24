@@ -534,6 +534,27 @@ using paleo::io_detail::addIssue;
     bool suppressed = false;
   };
 
+  // PW-022：LIS 长度单位 → 米（未知返回 0）。
+  double lisLengthUnitToMeters(const QString &u)
+  {
+    const QString t = u.trimmed().toUpper();
+    if (t == QLatin1String("M"))
+      return 1.0;
+    if (t == QLatin1String("FT") || t == QLatin1String("F") || t == QLatin1String("FEET"))
+      return 0.3048;
+    if (t == QLatin1String("CM"))
+      return 0.01;
+    if (t == QLatin1String("MM"))
+      return 0.001;
+    if (t == QLatin1String(".5MM") || t == QLatin1String("0.5MM"))
+      return 0.0005;
+    if (t == QLatin1String("IN"))
+      return 0.0254;
+    if (t == QLatin1String(".1IN") || t == QLatin1String("0.1IN"))
+      return 0.00254;
+    return 0.0;
+  }
+
   struct LogSet
   {
     QList<SpecBlock> specs;
@@ -541,6 +562,7 @@ using paleo::io_detail::addIssue;
     int depthReprc = -1;    // 模式 1 深度表示码（条目 15）
     QString depthUnits;     // 模式 1 深度单位（条目 14）
     double spacing = 0;     // 帧距（条目 8）
+    QString spacingUnits;   // 帧距单位（条目 9，PW-022）
     int direction = 1;      // 1=UP（递减）255=DOWN（递增）（条目 4）
     double absentValue = paleo::wellnumeric::kLasDefaultNull;
     bool sawData = false;
@@ -757,6 +779,7 @@ using paleo::io_detail::addIssue;
               //（absentValue=0 会把真实 0.0 样本静默映射成 NaN）。
               case 4: if (eSize > 0) ls.direction = int(num); break;
               case 8: if (eSize > 0) ls.spacing = num; break;
+              case 9: if (eSize > 0) ls.spacingUnits = str; break;
               case 12: if (eSize > 0) ls.absentValue = num; break;
               case 13: if (eSize > 0) ls.depthMode = int(num); break;
               case 14: if (eSize > 0) ls.depthUnits = str; break;
@@ -770,6 +793,24 @@ using paleo::io_detail::addIssue;
             if (error)
               *error = QStringLiteral("DFSR 条目区非法");
             return LisWalkResult::Invalid;
+          }
+          // PW-022：模式 1 帧距须为正有限值，并由条目 9 单位换算到深度单位（条目 14）。
+          if (ls.depthMode == 1)
+          {
+            if (!std::isfinite(ls.spacing) || ls.spacing <= 0)
+            {
+              if (error)
+                *error = QStringLiteral("模式 1 帧距非法（%1）——须为正值").arg(ls.spacing);
+              return LisWalkResult::Invalid;
+            }
+            const double fs = lisLengthUnitToMeters(ls.spacingUnits);
+            const double fd = lisLengthUnitToMeters(ls.depthUnits);
+            if (fs > 0 && fd > 0)
+              ls.spacing = ls.spacing * fs / fd;
+            else if (!ls.spacingUnits.isEmpty() && ls.spacingUnits != ls.depthUnits)
+              addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
+                       QStringLiteral("帧距单位 '%1' 与深度单位 '%2' 无法换算——按原值使用")
+                           .arg(ls.spacingUnits, ls.depthUnits));
           }
           while (c.left() >= 40 && !c.bad)
           {

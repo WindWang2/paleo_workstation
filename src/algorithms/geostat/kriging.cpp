@@ -18,6 +18,9 @@ namespace paleo::geostat
 namespace
 {
 
+// 合法 OK 权重的负值来自屏蔽效应，Σ|λ| 通常 ≤ 2~3；超过此阈视为病态。
+constexpr double kMaxAbsWeightSum = 10.0;
+
 // 解普通克里金方程组（加边 LU）。points 为邻域样本（已去重）。
 bool solveOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
                            const detail::NeighborIndex &index, double x0, double y0,
@@ -49,14 +52,20 @@ bool solveOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
 
   double estimate = 0;
   double variance = 0;
+  double absWeightSum = 0;
   for ( int i = 0; i < n; ++i )
   {
     const double weight = solution[static_cast<std::size_t>( i )];
+    absWeightSum += std::fabs( weight );
     estimate += weight * index.point( neighborhood[static_cast<std::size_t>( i )] ).value;
     variance += weight * b[static_cast<std::size_t>( i )];
   }
   variance += solution[static_cast<std::size_t>( n )]; // + μ
   if ( !std::isfinite( estimate ) || !std::isfinite( variance ) )
+    return false;
+  // PW-018：病态闸——Σλ=1 下 Σ|λ| 远大于 1 意味着大幅正负抵消的权重
+  //（近奇异方程组），估值可越出数据范围数个量级。如实判失败而非 ok=true。
+  if ( absWeightSum > kMaxAbsWeightSum )
     return false;
   const double varianceScale = std::max( 1.0, model.nugget + model.sill );
   if ( variance < 0 )
@@ -113,7 +122,7 @@ struct SolverCore
 
   SolverCore( const std::vector<Sample> &samples, const VariogramModel &variogram,
               const KrigingParams &krigingParams )
-    : model( variogram )
+    : model( regularizedForKriging( variogram ) )
   {
     params = krigingParams;
     clampParams( &params );

@@ -106,4 +106,11 @@ struct VariogramFit
 VariogramFit fitVariogram( const ExperimentalVariogram &experimental,
                            VariogramModelType type );
 
+// PW-018：高斯模型在 h→0 处解析（γ ~ h²），nugget=0 时近距样本让克里金加边
+// 矩阵近奇异（LU 主元闸不触发），估值可越出数据范围数个量级而 ok=true。
+// 方程组入口统一把高斯模型的块金抬到 ≥ kGaussianNuggetFloor × 拱高（GSLIB/
+// 业界通行做法），其余模型原样返回。fitVariogram 输出同样经此口径。
+constexpr double kGaussianNuggetFloor = 1e-2;
+VariogramModel regularizedForKriging( const VariogramModel &model );
+
 } // namespace paleo::geostat

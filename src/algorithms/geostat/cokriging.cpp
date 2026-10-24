@@ -68,6 +68,9 @@ CokrigingCore buildCore( const std::vector<Sample> &primarySamples,
   core.primary = buildIndex( primarySamples );
   core.secondary = buildIndex( secondarySamples );
   core.model = model;
+  // PW-018：高斯零块金病态——与 kriging/SGS 同口径施加块金下限。
+  core.model.primary = regularizedForKriging( model.primary );
+  core.model.secondary = regularizedForKriging( model.secondary );
   core.params = params;
   core.params.maxPrimary = clampNeighborhood( params.maxPrimary );
   core.params.maxSecondary = clampNeighborhood( params.maxSecondary );

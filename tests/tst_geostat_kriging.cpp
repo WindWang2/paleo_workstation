@@ -40,6 +40,7 @@ class GeostatKrigingTests : public QObject
 {
   Q_OBJECT
 private slots:
+    void gaussianZeroNuggetStaysInDataRange();
   void exactAtSamplePoints();
   void gridPipelineMatchesPointQueries();
   void singleSampleIsConstantWithAsymptoticVariance();
@@ -314,6 +315,29 @@ void GeostatKrigingTests::zeroSignalAndNonFiniteModelRejected()
   const KrigingResult ok = ordinaryKriging( samples, grid, anisotropic, params );
   QCOMPARE( ok.status, Status::Ok );
   QCOMPARE( ok.estimate.size(), std::size_t( 400 ) );
+}
+
+void GeostatKrigingTests::gaussianZeroNuggetStaysInDataRange()
+{
+  // PW-018：高斯 + nugget=0 + 近距井——修复前估值 2227（数据 [10,30]）且 ok=true。
+  VariogramModel model;
+  model.type = VariogramModelType::Gaussian;
+  model.nugget = 0;
+  model.sill = 100;
+  model.range = 1000;
+  KrigingParams params;
+  params.maxPoints = 16;
+  for ( double sep : { 50.0, 10.0, 5.0, 1.0 } )
+  {
+    const std::vector<Sample> samples = { { 0, 0, 10 }, { sep, 0, 30 }, { 0, 500, 20 }, { 500, 500, 15 }, { 500, 0, 12 } };
+    const KrigingPointResult r = ordinaryKrigingAt( 250, -100, samples, model, params );
+    if ( !r.ok )
+      continue; // 病态闸判失败也可接受——不允许的是 ok=true 的离谱值
+    QVERIFY2( r.estimate > 0 && r.estimate < 40,
+              qPrintable( QStringLiteral( "sep=%1 est=%2" ).arg( sep ).arg( r.estimate ) ) );
+  }
+  QVERIFY( regularizedForKriging( model ).nugget >= kGaussianNuggetFloor * model.sill );
+
 }
 
 QTEST_MAIN( GeostatKrigingTests )

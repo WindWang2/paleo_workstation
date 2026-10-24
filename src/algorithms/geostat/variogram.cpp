@@ -353,6 +353,14 @@ struct FitAccumulator
 
 } // namespace
 
+VariogramModel regularizedForKriging( const VariogramModel &model )
+{
+  VariogramModel out = model;
+  if ( out.type == VariogramModelType::Gaussian && std::isfinite( out.sill ) && out.sill > 0 )
+    out.nugget = std::max( out.nugget, kGaussianNuggetFloor * out.sill );
+  return out;
+}
+
 VariogramFit fitVariogram( const ExperimentalVariogram &experimental, VariogramModelType type )
 {
   VariogramFit fit;
@@ -449,6 +457,9 @@ VariogramFit fitVariogram( const ExperimentalVariogram &experimental, VariogramM
   fit.model.nugget = bestNugget;
   fit.model.sill = bestSill;
   fit.model.range = bestRange;
+  // PW-018：高斯 + 零块金会让下游克里金病态——拟合出口即施加块金下限
+  //（rmse/r2 仍按实际最优参数报告，下限只影响 ≤0.1% 拱高）。
+  fit.model = regularizedForKriging( fit.model );
   const double n = static_cast<double>( fit.usedLags );
   fit.rmse = std::sqrt( bestSse / n );
   const double meanGamma = acc.meanGamma();

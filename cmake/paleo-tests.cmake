@@ -27,6 +27,7 @@ add_paleo_test(tst_dsp_fft LIBS paleo_algorithms)          # #559：dsp radix-2 
 add_paleo_test(tst_sattrio LIBS paleo_io)                 # goal/attr-volume：SATR/SATV 容器 round-trip
 add_paleo_test(tst_seismicattrscan LIBS paleo_services)  # goal/attr-volume：时间切片/属性体扫描编排
 add_paleo_test(tst_workerexceptionsink LIBS paleo_services) # PW-014：工作分片异常转运
+add_paleo_test(tst_projectfile_safety LIBS paleo_store)  # PW-075/126：project.paleo 成员越界与版本缺失
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
 add_paleo_test(tst_wellsiting_kernel LIBS paleo_algorithms)  # 方向34：井网辅助纯核（Oracle 1/3）
 add_paleo_test(tst_singlefactor_corridor LIBS paleo_algorithms)

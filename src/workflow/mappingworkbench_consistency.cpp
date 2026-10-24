@@ -6,6 +6,7 @@
 #include "../qgis/qgisprojectservice.h"
 #include "../services/paleotaskservice.h"
 #include "mappingworkbench.h"
+#include "../io/pathsegment.h"
 #include <QDateTime>
 #include <QDir>
 #include <QJsonDocument>
@@ -306,8 +307,9 @@ QVariantMap MappingWorkbench::consistencyImpl(const QString &layerId,
     fail(error, tr("无法创建报告目录：%1").arg(dir));
     return {};
   }
+  // 层位名来自导入数据：净化成单个安全路径段，防 "T4/../../x" 逃出 reports 目录。
   const QString path = QStringLiteral("%1/facies-consistency-%2-%3.json")
-                           .arg(dir, d.horizon,
+                           .arg(dir, paleo::safeFileNameComponent(d.horizon),
                                 QDateTime::currentDateTimeUtc().toString("yyyyMMddTHHmmsszzz"));
   QSaveFile file(path);
   const QByteArray bytes = QJsonDocument::fromVariant(out).toJson(QJsonDocument::Indented);

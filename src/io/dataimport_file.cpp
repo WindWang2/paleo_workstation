@@ -26,6 +26,7 @@
 #include "wellfactorfile.h"
 #include "projectboundary.h"
 
+#include <QSet>
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -452,11 +453,22 @@ int DataImportService::attachResolvableLinks(DataCatalog *cat, const CatalogAsse
       setError(error, QStringLiteral("cannot read %1").arg(sourcePath));
       return 0;
     }
+    if (f.size() > LasParser::fileSizeLimit()) // PW-076：整读前同 LAS 口径限额，防 OOM
+    {
+      setError(error, QStringLiteral("file too large (%1 MB limit): %2")
+                          .arg(LasParser::fileSizeLimit() / (1024 * 1024))
+                          .arg(sourcePath));
+      return 0;
+    }
     QStringList names;
+    QSet<QString> seen; // PW-076：O(n) 去重
     const auto tops = paleo::io::isWellTableContainer(sourcePath) ? paleo::io::readWellTable(sourcePath).tops : parseWellTopsText(f.readAll());
     for (const WellTopRecord &t : tops)
-      if (!names.contains(t.wellName))
+      if (!seen.contains(t.wellName))
+      {
+        seen.insert(t.wellName);
         names.append(t.wellName);
+      }
     for (const QString &n : names)
       namesPerLink.append(names.size() == 1 ? QStringList{n, stem} : QStringList{n});
   }
@@ -468,6 +480,13 @@ int DataImportService::attachResolvableLinks(DataCatalog *cat, const CatalogAsse
       setError(error, QStringLiteral("cannot read %1").arg(sourcePath));
       return 0;
     }
+    if (f.size() > LasParser::fileSizeLimit()) // PW-076：整读前同 LAS 口径限额，防 OOM
+    {
+      setError(error, QStringLiteral("file too large (%1 MB limit): %2")
+                          .arg(LasParser::fileSizeLimit() / (1024 * 1024))
+                          .arg(sourcePath));
+      return 0;
+    }
     const TimeDepthTable td = parseTimeDepthText(f.readAll());
     namesPerLink.append({td.wellName.isEmpty() ? stem : td.wellName, stem});
   }
@@ -477,6 +496,13 @@ int DataImportService::attachResolvableLinks(DataCatalog *cat, const CatalogAsse
     if (!f.open(QIODevice::ReadOnly))
     {
       setError(error, QStringLiteral("cannot read %1").arg(sourcePath));
+      return 0;
+    }
+    if (f.size() > LasParser::fileSizeLimit()) // PW-076：整读前同 LAS 口径限额，防 OOM
+    {
+      setError(error, QStringLiteral("file too large (%1 MB limit): %2")
+                          .arg(LasParser::fileSizeLimit() / (1024 * 1024))
+                          .arg(sourcePath));
       return 0;
     }
     const QVector<WellHeadRecord> rows = paleo::io::isWellTableContainer(sourcePath)

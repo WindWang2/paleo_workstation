@@ -350,7 +350,7 @@ void ProjectStatisticsPage::buildSurveyMapCard()
   m_decorations->setScaleBarEnabled(true);
   m_decorations->setNorthArrowEnabled(true);
   auto *legend = new QLabel(tr("<span style=\"color:%1\">●</span>&nbsp;井位&nbsp;&nbsp;"
-                               "<span style=\"color:%1\">╌╌</span>&nbsp;工区范围")
+                               "<span style=\"color:%2\">╌╌</span>&nbsp;工区范围")
                                  .arg(qssHex(PaleoTheme::kColorPrimary), qssHex(PaleoTheme::kColorPrimary)), mapCard);
   legend->setTextFormat(Qt::RichText);
   PaleoTheme::applyThemedStyleSheet(legend, [] { return PaleoTheme::mutedCaptionStyleSheet(); });

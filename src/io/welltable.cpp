@@ -141,7 +141,9 @@ void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m
       if (kb >= 0 && wellNumber(r.value(kb), &optionalValue)) record.kb = optionalValue;
       if (td >= 0 && wellNumber(r.value(td), &optionalValue)) record.td = optionalValue;
       out.heads << record;
-      if (out.preview.size() < 8) out.preview << QStringList{well, QString::number(xVal, 'g', 12), QString::number(yVal, 'g', 12)};
+      // 预览行上限只影响向导识别预览表的行数（异常大表防卡）；井数以
+      // 确认页统计与导入结果为准，不受此限。
+      if (out.preview.size() < 200) out.preview << QStringList{well, QString::number(xVal, 'g', 12), QString::number(yVal, 'g', 12)};
     }
     if (validTop) {
       WellTopRecord record;

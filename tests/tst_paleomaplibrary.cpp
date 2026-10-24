@@ -846,6 +846,33 @@ private slots:
     QTRY_COMPARE(page.findChild<QLabel *>("dashboardWells")->text(), QString("21 口"));
     QCOMPARE(page.findChildren<QFrame *>("dashboardHorizonCard").size(), 1);
   }
+  void dashboardSurveyMapSurvivesImportStorm() {
+    // 回归（2026-10-24 创建工程即崩 0xc0000374）：导入期间 DataCatalog::changed
+    // 密集触发防抖刷新，井位内存层 truncate/重灌与在飞渲染作业并发即堆损坏。
+    // 现在刷新先同步 stopRendering 再改层；页面隐藏时跳过地图刷新，显示时补刷。
+    Fixture f; QVERIFY(f.init()); auto *cat = f.importer.catalog();
+    CatalogEntity survey; survey.id = "survey"; survey.entityType = "seismic_survey"; survey.name = "S1";
+    survey.corners = {{0, 0}, {8000, 0}, {8000, 6000}, {0, 6000}}; QVERIFY(cat->addEntity(survey));
+    ProjectStatisticsPage page(cat); page.resize(700, 900); page.show(); QTest::qWait(150);
+    auto *wells = page.findChild<QgsVectorLayer *>("dashboardWellsLayer"); QVERIFY(wells);
+    for (int round = 0; round < 6; ++round) {
+      for (int i = 0; i < 6; ++i) {
+        CatalogEntity well; well.id = QString("storm-%1-%2").arg(round).arg(i);
+        well.entityType = "well"; well.name = QString("W%1%2").arg(round).arg(i);
+        well.hasSurface = true; well.surfaceX = 500.0 * i + round * 37; well.surfaceY = 400.0 * i + round * 53;
+        QVERIFY(cat->addEntity(well));
+      }
+      QTest::qWait(160); // 越过 100ms 防抖窗口：本轮刷新与上一轮渲染作业并发。
+    }
+    QTRY_COMPARE(wells->featureCount(), 36);
+    page.hide();
+    CatalogEntity extra; extra.id = "hidden-well"; extra.entityType = "well"; extra.name = "H1";
+    extra.hasSurface = true; extra.surfaceX = 1; extra.surfaceY = 1; QVERIFY(cat->addEntity(extra));
+    QTest::qWait(160);
+    QCOMPARE(wells->featureCount(), 36); // 隐藏期间地图层不动。
+    page.show();
+    QTRY_COMPARE(wells->featureCount(), 37); // 重新显示补刷。
+  }
   void statisticsCountRegisteredWorkAndUnionOverlappingSurveyAreas() {
     Fixture f; QVERIFY(f.init()); auto *cat = f.importer.catalog();
     CatalogEntity a; a.id = "well-a"; a.entityType = "well"; a.name = "A"; a.hasSurface = true; a.surfaceX = 0; a.surfaceY = 0; QVERIFY(cat->addEntity(a));

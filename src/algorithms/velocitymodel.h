@@ -82,6 +82,11 @@ public:
   // V0kLinear 反闭合式 TWT(ms) ← TVD(m)（残差度量用）；IntervalAverage 沿
   // 分段线性反解。范围语义同正向（interval 不外推 / v0k 允许）。
   double wellTwtForDepth(const Well &w, double depthM) const;
+  // M4：IntervalAverage 单井外延——超出结点 TWT 范围时按首/末层区间速度线性
+  // 外延（深度/速度）。仅供空间 IDW 在「至少一口井在范围内」时补位用，避免
+  // 某井结点结束处权重突然掉出造成深度跳变/非单调；全部井都在范围外仍 NaN。
+  double wellDepthForTwtExtended(const Well &w, double twtMs) const;
+  double wellVelocityAtExtended(const Well &w, double twtMs) const;
 
   QJsonObject toJson() const;
   static VelocityModel fromJson(const QJsonObject &obj, QString *error = nullptr);

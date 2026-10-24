@@ -65,6 +65,9 @@ private slots:
   void gridConversionIdempotentAndCounts();
   void gridConversionNonFloatRepresentableNodata();
   void gridConversionCancelsMidway();
+  // review-fix-numerics M4 / M5 / L8。
+  void idwBlendsAcrossUnequalWellRanges();
+  void v0kNegativeKBeyondSingularityIsNaN();
 };
 
 // 用例1：恒速 2500 m/s（k=0 极限 + 层间平均同值）——z = v·twt/2000 解析。
@@ -413,6 +416,39 @@ void TestVelocityModel::gridConversionCancelsMidway()
   const DepthGridResult full = convertTimeGridToDepth(m, t, rows, cols, gt, -9999.0);
   QVERIFY(!full.cancelled);
   QCOMPARE(full.convertedCells, rows * cols);
+}
+
+
+void TestVelocityModel::idwBlendsAcrossUnequalWellRanges()
+{
+  // A 只到 1000 ms，B 到 2000 ms。中点 1500 ms：旧实现只用 B（A 越界即弃），
+  // 跨过 A 的底部时深度面出现台阶。修复后 A 用末层速度外延参与加权。
+  const auto a = well(QStringLiteral("A"), 0.0, 0.0, {{0.0, 0.0}, {1000.0, 1000.0}});
+  const auto b = well(QStringLiteral("B"), 100.0, 0.0, {{0.0, 0.0}, {2000.0, 3000.0}});
+  const VelocityModel m = VelocityModel::fit({a, b}, ModelType::IntervalAverage);
+  QVERIFY(m.isValid());
+  const double zA = 1500.0; // A 末层 2000 m/s 外延到 1500 ms
+  const double zB = m.wellDepthForTwt(m.wells().at(1), 1500.0);
+  QCOMPARE(zB, 2250.0);
+  QCOMPARE(m.depthForTwt(50.0, 0.0, 1500.0), 0.5 * (zA + zB)); // 等距两井等权
+  QVERIFY(qIsNaN(m.depthForTwt(50.0, 0.0, 2500.0))); // 两井都越界仍 NaN
+}
+
+void TestVelocityModel::v0kNegativeKBeyondSingularityIsNaN()
+{
+  // v0=2000、k=−1：z ≥ −v0/k 处 v(z) ≤ 0，TWT 无定义 → NaN。
+  VelocityWellControl c;
+  c.wellId = QStringLiteral("N");
+  c.x = 0.0; c.y = 0.0;
+  c.knots.append(VelocityKnot{0.0, 0.0, QString()});
+  for (double t = 100.0; t <= 1000.0; t += 100.0)
+    c.knots.append(VelocityKnot{t, -2000.0 * std::expm1(-t / 2000.0), QString()});
+  const VelocityModel m = VelocityModel::fit({c}, ModelType::V0kLinear);
+  QVERIFY(m.isValid());
+  const auto &w = m.wells().first();
+  QVERIFY(w.k < 0.0);
+  const double t = m.wellTwtForDepth(w, -w.v0 / w.k * 1.5);
+  QVERIFY2(qIsNaN(t), qPrintable(QString::number(t)));
 }
 
 QTEST_MAIN(TestVelocityModel)

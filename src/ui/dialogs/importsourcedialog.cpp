@@ -1,5 +1,7 @@
 // 层：视图
 #include "importsourcedialog.h"
+#include "folderconfirm.h"
+#include "../../domain/projectclassifier.h"
 #include "../paleotheme.h"
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -23,7 +25,8 @@ ImportSourceDialog::ImportSourceDialog(const QString &kind, QWidget *parent)
   const QMap<QString, QString> titles{{"wells", tr("导入井数据")}, {"well_log", tr("导入测井数据")},
       {"seismic", tr("导入地震数据")}, {"boundary", tr("导入边界数据")}, {"files", tr("导入资料文件")},
       {"folder", tr("导入工区文件夹")}, {"paleomap", tr("导入现有古地理图")}, {"paleomap_folder", tr("导入古地理图文件夹")}};
-  setWindowTitle(titles.value(kind, tr("导入资料")));
+  setWindowTitle(titles.value(kind, isClassifierType(kind)
+      ? tr("新增%1").arg(PaleoFolderConfirm::folderTypeLabel(kind)) : tr("导入资料")));
   auto *layout = new QVBoxLayout(this); const auto &tokens = PaleoTheme::tokens();
   layout->setContentsMargins(tokens.spacingMd, tokens.spacingMd, tokens.spacingMd, tokens.spacingMd); layout->setSpacing(tokens.spacingSm);
   const QMap<QString, QString> hints{{"wells", tr("选择井位、分层、时深或轨迹资料，支持 XLSX、文本表和点矢量。可多选文件，也可选择井资料目录。")},
@@ -74,19 +77,23 @@ ImportSourceDialog::ImportSourceDialog(const QString &kind, QWidget *parent)
 }
 QString ImportSourceDialog::fileFilter() const
 {
-  if (m_kind == "seismic") return tr("地震数据 (*.sgy *.segy);;所有文件 (*)");
-  if (m_kind == "well_log") return tr("测井与柱状图 (*.las *.dlis *.lis *.xml *.txt *.csv *.tsv);;所有文件 (*)");
+  const auto extensions = projectImportExtensions(m_kind);
+  if (!extensions.isEmpty()) {
+    QStringList patterns;
+    for (const auto &extension : extensions) patterns << QStringLiteral("*.") + extension;
+    return tr("%1 (%2);;所有文件 (*)").arg(PaleoFolderConfirm::folderTypeLabel(m_kind), patterns.join(' '));
+  }
   if (m_kind == "wells") return tr("井位与井资料 (*.xlsx *.txt *.csv *.tsv *.dat *.las *.dlis *.lis *.xml *.gpkg *.shp *.geojson);;所有文件 (*)");
-  if (m_kind == "boundary") return tr("测区范围面矢量 (*.shp *.gpkg *.geojson);;所有文件 (*)");
   if (m_kind.startsWith("paleomap")) return tr("古地理图 (*.shp *.gpkg *.geojson *.tif *.tiff *.img *.png *.jpg *.jpeg *.pdf *.svg);;所有文件 (*)");
-  return tr("资料文件 (*.xlsx *.pdf *.ppt *.pptx *.doc *.docx *.png *.jpg *.jpeg *.tif *.tiff *.las *.dlis *.lis *.sgy *.segy *.xml *.txt *.csv *.tsv *.dat *.gpkg *.shp *.geojson);;所有文件 (*)");
+  QStringList patterns;
+  for (const auto &type : projectClassifierTypes())
+    for (const auto &extension : projectImportExtensions(type)) patterns << QStringLiteral("*.") + extension;
+  patterns.removeDuplicates();
+  return tr("资料文件 (%1);;所有文件 (*)").arg(patterns.join(' '));
 }
-QString ImportSourceDialog::preferredType(const QString &kind, const QString &path)
+QString ImportSourceDialog::preferredType(const QString &kind, const QString &path, const QString &detected)
 {
-  const auto extension = QFileInfo(path).suffix().toLower();
-  if (kind == "boundary" && QStringList{"shp", "gpkg", "geojson"}.contains(extension)) return QStringLiteral("boundary");
-  if (kind == "seismic" && QStringList{"sgy", "segy"}.contains(extension)) return QStringLiteral("seismic");
-  return {};
+  return suggestedProjectImportType(path, detected, kind);
 }
 QStringList ImportSourceDialog::files() const
 {

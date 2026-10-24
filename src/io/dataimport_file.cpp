@@ -80,7 +80,7 @@ void DataImportService::produceFile(ImportSession &s, const QString &sourcePath,
       ImportOptions eff = options;
       if (eff.expectedSourceSha256.isEmpty()) eff.expectedSourceSha256 = s.expectedSourceHashes.value(item.path);
       if (eff.forceType.isEmpty())
-        eff.forceType = item.type; // 生效类型取 plan 分类（与内部同口径）
+        eff.forceType = suggestedProjectImportType(item.path, item.type);
       s.fileResult = importOneFile(s, item.path, eff, &err);
       s.error = err;
       if (!paleo::dataimport_detail::writeImportIntent(s, &s.commitPreparationError)) s.error = s.commitPreparationError;
@@ -169,7 +169,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   // 外链留底、预览指纹复核共用这一趟真哈希；命中性能损失由库内复核兜底
   // （versionBySha256 本就真哈希库内副本）。
   ProjectClassification cls = classifyImportFile(sourcePath);
-  if (!options.forceType.isEmpty()) cls.type = options.forceType;
+  cls.type = resolvedProjectImportType(sourcePath, cls.type, options.forceType);
   const QString sourceSha = paleo::dataimport_detail::logFileDigest(sourcePath);
   if (sourceSha.isEmpty())
     return fail(QCoreApplication::translate("DataImportService", "无法读取或哈希源文件：%1").arg(sourcePath));
@@ -180,9 +180,6 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     return fail(QCoreApplication::translate("DataImportService", "文件内容已不同于预览：%1。请重新生成预览后确认。").arg(sourcePath));
   }
 
-  // 确认表「改类型」：forceType 覆盖分类器结果（其余分类字段保留）。
-  if (!options.forceType.isEmpty())
-    cls.type = options.forceType;
   const QString stem = fi.completeBaseName();
   const bool fixedAux = isFixedAuxiliaryPath(sourcePath) &&
                         (cls.type == QLatin1String("well_head") ||

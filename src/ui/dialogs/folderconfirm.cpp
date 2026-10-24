@@ -58,21 +58,7 @@ QString folderTypeLabel(const QString &type)
 
 QString folderRowDisplayType(const QString &path, const QString &classifiedType)
 {
-  if (isFixedAuxiliaryPath(path))
-    return QStringLiteral("reference"); // HZ28-6-1：固定参考（下拉同时锁死）
-  if (isDefaultReferencePath(path))
-  {
-    // 「参考资料」目录内，分类到井类/未判内容的行默认显示「参考」——确认不改
-    // 也作为 override=reference 送达后端，保持阶段 D 语义。document/
-    // image_reference/geojson/seismic/horizon 等显示真实类型：它们本来就走
-    // 辅助实体，且类型名驱动预览分支（document → PDF 预览）。
-    static const QSet<QString> kWellish = {QStringLiteral("well_head"),
-                                           QStringLiteral("well_log"),
-                                           QStringLiteral("unknown")};
-    if (kWellish.contains(classifiedType))
-      return QStringLiteral("reference");
-  }
-  return classifiedType.isEmpty() ? QStringLiteral("unknown") : classifiedType;
+  return suggestedProjectImportType(path, classifiedType);
 }
 
 QString engineeringCrsSentence()
@@ -189,9 +175,10 @@ collectFolderTypeOverrides(const QTableWidget *table,
       continue; // 跳过行/锁定行不参与导入，改动也不成 override
     const QString t = combos[r]->currentData().toString(); // item data，非显示文本
     const QString path = table->item(r, 0)->data(Qt::UserRole).toString();
-    // 只在「合法类型」且「不同于分类器原类型」时发 override——这样不动
-    // 下拉/保持默认的行不发出多余覆盖（参考资料默认「参考」属有意覆盖）。
-    if (isClassifierType(t) && t != rows.at(r).classifiedType)
+    // Returning a default-reference row to its detected well type is also an
+    // explicit override; otherwise execution would apply the reference default.
+    if (isClassifierType(t) && (t != rows.at(r).classifiedType ||
+        t != suggestedProjectImportType(path, rows.at(r).classifiedType)))
       overrides.insert(path, t);
   }
   return overrides;

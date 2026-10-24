@@ -1,7 +1,22 @@
 // 层：视图
 #include "datalist.h"
+#include "../../domain/projectclassifier.h"
+#include "../dialogs/folderconfirm.h"
+#include <QMenu>
 #include <QVBoxLayout>
 void DataListPanel::buildImportButtons(QVBoxLayout *importLay, QWidget *importSection) {
+  auto *addData = new QPushButton(tr("新增数据…"), importSection);
+  addData->setObjectName(QStringLiteral("importAddData"));
+  addData->setAccessibleName(tr("按类型新增数据"));
+  addData->setToolTip(tr("为当前工程补充任意类型资料；可选择文件或文件夹，并在导入前核对类型与归属"));
+  auto *types = new QMenu(addData);
+  for (const auto &type : projectClassifierTypes()) {
+    auto *action = types->addAction(PaleoFolderConfirm::folderTypeLabel(type));
+    action->setObjectName(QStringLiteral("addData_") + type);
+    connect(action, &QAction::triggered, this, [this, type] { emit importRequested(type); });
+  }
+  addData->setMenu(types);
+  importLay->addWidget(addData);
   const struct { const char *name; const char *text; const char *kind; const char *desc; }
       kImports[] = {
     {"importOfflineBasemap", QT_TR_NOOP("导入工程离线底图"), "offline_basemap", QT_TR_NOOP("将 MBTiles、GeoTIFF 等底图及配套文件复制进工程，供地图离线显示")},

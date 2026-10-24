@@ -121,6 +121,12 @@ ProjectClassification classifyProjectImport(const QString &path, const QByteArra
   const QByteArray upper = probe.toUpper();
   if (hasLasSections(content))
     return {QStringLiteral("well_log"), QStringLiteral("las"), QStringLiteral("input")};
+  // Native exported tables declare their schema independently of their folder.
+  const QByteArray firstLine = upper.split('\n').value(0).trimmed();
+  if (firstLine.startsWith("#WELLTOPS FILE"))
+    return {QStringLiteral("well_stratification"), ext, QStringLiteral("input")};
+  if (firstLine.startsWith("#TIMEDEPTH FILE"))
+    return {QStringLiteral("time_depth"), ext, QStringLiteral("input")};
   if (probe.startsWith('<') || probe.startsWith("\xEF\xBB\xBF<"))
   {
     const WellXmlKind kind = sniffWellXml(content);
@@ -198,6 +204,42 @@ QStringList projectClassifierTypes()
 bool isClassifierType(const QString &type)
 {
   return projectClassifierTypes().contains(type);
+}
+
+QStringList projectImportExtensions(const QString &type)
+{
+  if (type == "well_log") return {"las", "dlis", "lis", "xml", "csv", "txt", "tsv", "dat"};
+  if (type == "well_head" || type == "well_stratification")
+    return {"xlsx", "xml", "dat", "csv", "txt", "tsv", "shp", "gpkg", "geojson"};
+  if (type == "time_depth" || type == "well_deviation") return {"dat", "txt", "csv", "tsv", "xml"};
+  if (type == "horizon") return {"dat", "txt", "csv", "tsv"};
+  if (type == "seismic") return {"sgy", "segy"};
+  if (type == "geojson" || type == "boundary") return {"geojson", "shp", "gpkg"};
+  if (type == "tabular") return {"csv", "txt", "tsv", "dat"};
+  if (type == "document") return {"pdf", "ppt", "pptx", "doc", "docx"};
+  if (type == "image_reference") return {"png", "jpg", "jpeg", "tif", "tiff"};
+  if (type == "single_factor_package") return {"sfpkg"};
+  if (type == "outsource_workbook") return {"xlsx", "xls"};
+  return {};
+}
+
+QString suggestedProjectImportType(const QString &path, const QString &detected, const QString &hint)
+{
+  if (isFixedAuxiliaryPath(path)) return QStringLiteral("reference");
+  if (isDefaultReferencePath(path) && QStringList{"well_head", "well_log", "unknown"}.contains(detected))
+    return QStringLiteral("reference");
+  const QString type = detected.isEmpty() ? QStringLiteral("unknown") : detected;
+  // Never turn a recognized well table, log or seismic volume into another
+  // type merely because it was picked through a different category's entry.
+  if (!QStringList{"unknown", "tabular", "outsource_workbook", "geojson"}.contains(type)) return type;
+  if (isClassifierType(hint) && projectImportExtensions(hint).contains(QFileInfo(path).suffix().toLower())) return hint;
+  return type;
+}
+
+QString resolvedProjectImportType(const QString &path, const QString &detected, const QString &overrideType)
+{
+  if (isFixedAuxiliaryPath(path)) return QStringLiteral("reference");
+  return isClassifierType(overrideType) ? overrideType : suggestedProjectImportType(path, detected);
 }
 
 bool isFixedAuxiliaryPath(const QString &path)

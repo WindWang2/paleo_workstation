@@ -179,7 +179,8 @@ void DialogState::retryRow(int row) {
   QString force;
   const QString type = typeChoices[row]->currentData().toString();
   if (typeChoices[row]->isEnabled() && isClassifierType(type) &&
-      type != preview[row].classifiedType) force = type;
+      (type != preview[row].classifiedType ||
+       type != suggestedProjectImportType(preview[row].path, preview[row].classifiedType))) force = type;
   const QString target = type == QLatin1String("well_log")
       ? wellTargets.value(preview[row].path) : QString();
   if (type == QLatin1String("well_log") && wellChoices.contains(row) && target.isEmpty()) {

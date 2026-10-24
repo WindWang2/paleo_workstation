@@ -710,7 +710,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     // 页内按钮只硬门「恒使能、无其它 owner」的（导入 ×5 + 编图三入口）；
     // 原 tooltip 先存进属性、开门还原——saveVersionButton 的发布态文案等
     // 不是门控写的，不能清成空串。
-    for (const char *name : {"importOfflineBasemap", "importFiles", "importPaleomap", "importPaleomapFolder", "importFolder", "importWells", "importWellLogs",
+    for (const char *name : {"importAddData", "importOfflineBasemap", "importFiles", "importPaleomap", "importPaleomapFolder", "importFolder", "importWells", "importWellLogs",
                              "importSeismic", "importBoundary",
                              "saveVersionButton", "exportPdfButton", "openDesignerButton"})
       if (auto *b = findChild<QAbstractButton *>(QLatin1String(name)))

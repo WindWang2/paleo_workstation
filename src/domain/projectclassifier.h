@@ -26,6 +26,14 @@ ProjectClassification classifyProjectImport(const QString &path, const QByteArra
 QStringList projectClassifierTypes();
 bool isClassifierType(const QString &type); // type ∈ 上面词表
 
+// Shared defaults for setup, file/folder previews and execution. A category
+// hint only refines generic results; explicit confirmation remains an override.
+QString suggestedProjectImportType(const QString &path, const QString &detected,
+                                   const QString &hint = {});
+QString resolvedProjectImportType(const QString &path, const QString &detected,
+                                  const QString &overrideType = {});
+QStringList projectImportExtensions(const QString &type);
+
 // 阶段 D 固定辅助规则（T22 收窄）：只有 HZ28-6-1 命名的文件锁成参考资料——
 // 确认表禁用改类型、后端不理会 override。「参考资料」目录段不再整体锁定：
 // 同目录其他文件（含 XML）默认显示「参考」但可改（isDefaultReferencePath），

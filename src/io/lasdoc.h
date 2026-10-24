@@ -44,6 +44,8 @@ struct LasHeaderInfo
   double nullValue = paleo::wellnumeric::kLasDefaultNull; // ~W NULL（CWLS 缺省）
   bool sawAscii = false;    // 头部扫描途中遇到 ~A 段头（数据节存在）
   QString indexBasis;       // 深度基准："MD"/"TVD"/"TIME"/""（未知）
+  bool wrap = false;        // PW-069：~V WRAP YES（数据行可折行）
+  char delimiter = 0;       // PW-069：~V DLM——0 空白（SPACE/TAB）、',' COMMA
 };
 
 // D1.6 解析器错误分类：格式错/编码错/截断/单位缺失分级。Error 级必然伴随

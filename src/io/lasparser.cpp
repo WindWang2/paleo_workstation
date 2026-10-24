@@ -303,12 +303,13 @@ bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
     switch (section)
     {
       case Section::Version:
+        // PW-069：WRAP YES 由数据解析支持，头信息如实记录。
         if (it.mnem == QStringLiteral("WRAP") &&
             it.value.startsWith(QStringLiteral("YES"), Qt::CaseInsensitive))
-        {
-          setError(error, QStringLiteral("wrap mode (WRAP YES) is not supported: %1").arg(path));
-          return false;
-        }
+          out.wrap = true;
+        else if (it.mnem == QStringLiteral("DLM") &&
+                 it.value.trimmed().compare(QStringLiteral("COMMA"), Qt::CaseInsensitive) == 0)
+          out.delimiter = ',';
         break;
       case Section::Well:
         if (it.mnem == QStringLiteral("NULL"))
@@ -493,12 +494,25 @@ namespace
       switch (section)
       {
         case Section::Version:
+          // PW-069：WRAP YES / DLM 进头信息，数据段按其解析（不再拒绝）。
           if (it.mnem == QStringLiteral("WRAP") &&
               it.value.startsWith(QStringLiteral("YES"), Qt::CaseInsensitive))
           {
             out.sawWrapYes = true;
-            out.error = QStringLiteral("wrap mode (WRAP YES) is not supported");
-            return out;
+            out.header.wrap = true;
+          }
+          else if (it.mnem == QStringLiteral("DLM"))
+          {
+            const QString d = it.value.trimmed().toUpper();
+            if (d == QStringLiteral("COMMA"))
+              out.header.delimiter = ',';
+            else if (d == QStringLiteral("TAB") || d == QStringLiteral("SPACE"))
+              out.header.delimiter = 0; // 空白类与默认切分同口径
+            else if (!d.isEmpty())
+            {
+              out.error = QStringLiteral("unsupported LAS delimiter DLM=%1").arg(it.value);
+              return out;
+            }
           }
           break;
         case Section::Well:
@@ -574,7 +588,7 @@ double LasParser::depthUnitToMeters(const QString &unit)
 QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOffset,
                                           const QStringList &names, double nullValue,
                                           qint64 rowFrom, qint64 rowTo, qint64 *rowsTotal,
-                                          QList<LasIssue> *issues)
+                                          QList<LasIssue> *issues, bool wrap, char delimiter)
 {
   QList<LasCurve> cols;
   cols.reserve(names.size());
@@ -627,54 +641,96 @@ QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOff
 
   auto keep = [&](qint64 r) { return wantAll || (r >= from && r < to); };
 
+  // PW-069：WRAP YES——一行数据可折成多物理行，token 流连续收满 nCurves 才成
+  // 一行；DLM=COMMA——逗号切列（空字段 = NaN）；非 wrap 行多余 token 计数告警。
+  const bool comma = (delimiter == ',');
+  qint64 extraTokenRows = 0;
+  int col = 0; // wrap 模式跨物理行延续
+  auto pushToken = [&](const char *b, const char *e) {
+    bool ok = false;
+    const double v = (b < e) ? tokenToDouble(b, e, &ok) : nan();
+    if (ok && v == v && v != nullValue)
+    {
+      sawFinite[col] = true;
+      if (keep(row))
+        buckets[static_cast<std::size_t>(col)].append(v);
+    }
+    else if (keep(row))
+      buckets[static_cast<std::size_t>(col)].append(nan());
+    ++col;
+  };
+  auto isWs = [](char c) { return c == ' ' || c == '\t'; };
+
   while (i < n)
   {
     qint64 eol = i;
     while (eol < n && lineBase[eol] != '\n' && lineBase[eol] != '\r')
       ++eol;
     qint64 firstTok = i;
-    while (firstTok < eol && (lineBase[firstTok] == ' ' || lineBase[firstTok] == '\t'))
+    while (firstTok < eol && isWs(lineBase[firstTok]))
       ++firstTok;
     // #167：纯空白行与空行同义（不出数据行）——否则补满 NaN 成「深度也是 NaN」的幽灵行。
-    if (firstTok < eol)
+    if (firstTok < eol && nCurves > 0)
     {
-      int col = 0;
+      if (!wrap)
+        col = 0;
+      bool extra = false;
       qint64 p = firstTok;
-      while (p < eol && col < nCurves)
+      while (p < eol)
       {
-        while (p < eol && (lineBase[p] == ' ' || lineBase[p] == '\t'))
-          ++p;
-        if (p >= eol)
+        qint64 b, e;
+        if (comma)
+        {
+          qint64 q = p;
+          while (q < eol && lineBase[q] != ',')
+            ++q;
+          b = p;
+          e = q;
+          while (b < e && isWs(lineBase[b])) ++b;
+          while (e > b && isWs(lineBase[e - 1])) --e;
+          p = (q < eol) ? q + 1 : eol;
+        }
+        else
+        {
+          while (p < eol && isWs(lineBase[p]))
+            ++p;
+          if (p >= eol)
+            break;
+          qint64 q = p;
+          while (q < eol && !isWs(lineBase[q]))
+            ++q;
+          b = p;
+          e = q;
+          p = q;
+        }
+        if (col >= nCurves)
+        {
+          extra = true; // 非 wrap：多余 token（旧实现静默丢弃）
           break;
-        qint64 q = p;
-        while (q < eol && lineBase[q] != ' ' && lineBase[q] != '\t')
-          ++q;
-        bool ok = false;
-        const double v = tokenToDouble(lineBase + p, lineBase + q, &ok);
-        if (ok && v == v && v != nullValue)
-        {
-          sawFinite[col] = true;
-          if (keep(row))
-            buckets[static_cast<std::size_t>(col)].append(v);
         }
-        else if (keep(row))
+        pushToken(lineBase + b, lineBase + e);
+        if (wrap && col == nCurves)
         {
-          buckets[static_cast<std::size_t>(col)].append(nan());
+          ++row;
+          col = 0;
         }
-        ++col;
-        p = q;
       }
-      if (col < nCurves)
+      if (extra)
+        ++extraTokenRows;
+      if (!wrap)
       {
-        ++truncatedRows;
-        if (keep(row))
-          for (; col < nCurves; ++col)
-            buckets[static_cast<std::size_t>(col)].append(nan());
+        if (col < nCurves)
+        {
+          ++truncatedRows;
+          if (keep(row))
+            for (int c = col; c < nCurves; ++c)
+              buckets[static_cast<std::size_t>(c)].append(nan());
+        }
+        // #386：row 只计数据行——物理空行不计。流式 parseRange 的
+        // globalRow = row + 数据值下标依赖同一单位口径，空行计数会让
+        // 之后每个行窗偏移（整读/流式两路径结果不一致）。
+        ++row;
       }
-      // #386：row 只计数据行——物理空行不计。流式 parseRange 的
-      // globalRow = row + 数据值下标依赖同一单位口径，空行计数会让
-      // 之后每个行窗偏移（整读/流式两路径结果不一致）。
-      ++row;
     }
     if (eol >= n)
       break; // 尾行无行界符——处理完即结束
@@ -684,6 +740,18 @@ QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOff
     if (!wantAll && row >= to)
       break; // 区间查询：越过 to 即停（D1.4）
   }
+  if (wrap && col > 0)
+  {
+    // 折行数据在文件尾不足一整行：补 NaN 记一截断行。
+    ++truncatedRows;
+    if (keep(row))
+      for (int c = col; c < nCurves; ++c)
+        buckets[static_cast<std::size_t>(c)].append(nan());
+    ++row;
+  }
+  if (extraTokenRows > 0)
+    addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format, 0,
+             QStringLiteral("%1 行 token 多于曲线数（多余值已忽略）").arg(extraTokenRows));
   for (int c = 0; c < nCurves; ++c)
     cols[c].values = std::move(buckets[static_cast<std::size_t>(c)]);
   *rowsTotal = row;
@@ -754,7 +822,8 @@ LasDoc LasParser::parseDoc(const QString &path, QList<LasIssue> *issues)
   qint64 rowsTotal = 0;
   const qint64 asciiOff = header.asciiDataOffset;
   doc.curves = parseAsciiRows(raw, asciiOff, header.header.curveNames,
-                              header.header.nullValue, 0, -1, &rowsTotal, issues);
+                              header.header.nullValue, 0, -1, &rowsTotal, issues,
+                              header.header.wrap, header.header.delimiter);
   for (int i = 0; i < doc.curves.size(); ++i)
   {
     doc.curves[i].unit =
@@ -840,14 +909,25 @@ bool LasParser::parseRange(const QString &path, qint64 rowFrom, qint64 rowTo,
   // asciiDataOffset 在 scanHeader 内已含 BOM 补偿（绝对字节偏移）——勿再加。
   const qint64 asciiOff = header.asciiDataOffset;
 
-  if (f.size() <= 8 * 1024 * 1024)
+  // PW-069：折行/逗号分隔的数据行不能按物理行分块——走整读（受整读上限约束）。
+  const bool needsWhole = header.header.wrap || header.header.delimiter != 0;
+  if (needsWhole && f.size() > s_fileSizeLimit)
+  {
+    if (error)
+      *error = QStringLiteral("%1: WRAP/DLM LAS larger than full-read limit").arg(path);
+    addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::WrapMode, 0,
+             QStringLiteral("WRAP/DLM LAS larger than full-read limit"));
+    return false;
+  }
+  if (needsWhole || f.size() <= 8 * 1024 * 1024)
   {
     // 小文件：整读（一次盘 IO 比流式拼块省）。头部扫描后位置在 EOF——回卷。
     f.seek(0);
     const QByteArray raw = f.readAll();
     qint64 rowsTotal = 0;
     curves = parseAsciiRows(raw, asciiOff, names, header.header.nullValue,
-                            rowFrom, rowTo, &rowsTotal, issues);
+                            rowFrom, rowTo, &rowsTotal, issues,
+                            header.header.wrap, header.header.delimiter);
     fillUnits(&curves, header);
     curveNames = names;
     return true;
@@ -959,6 +1039,35 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
   const double nullValue = header.header.nullValue;
   bool monotonicDepth = true;
   double lastDepth = -std::numeric_limits<double>::infinity();
+
+  // PW-069：WRAP/DLM 走整读 + 共用行解析核，再按深度筛行。
+  if (header.header.wrap || header.header.delimiter != 0)
+  {
+    if (f.size() > s_fileSizeLimit)
+    {
+      if (error)
+        *error = QStringLiteral("%1: WRAP/DLM LAS larger than full-read limit").arg(path);
+      return false;
+    }
+    f.seek(0);
+    const QByteArray raw = f.readAll();
+    qint64 rowsTotal = 0;
+    const QList<LasCurve> all =
+        parseAsciiRows(raw, header.asciiDataOffset, names, nullValue, 0, -1, &rowsTotal,
+                       issues, header.header.wrap, header.header.delimiter);
+    const QVector<double> &depths = all.at(0).values;
+    for (int r = 0; r < depths.size(); ++r)
+    {
+      const double d = depths.at(r);
+      if (d == d && d >= fromDepth && d <= toDepth)
+        for (int c = 0; c < nCurves; ++c)
+          cols[c].values.append(all.at(c).values.value(r, nan()));
+    }
+    curves = cols;
+    fillUnits(&curves, header);
+    curveNames = names;
+    return true;
+  }
 
   // 流式逐行：DEPT 落在 [from,to] 内的行收；DEPT 单调递增时越过 to 即停。
   const qint64 fileSize = f.size();

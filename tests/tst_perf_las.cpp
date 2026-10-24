@@ -165,16 +165,53 @@ void PerfLasTests::depthRangeEarlyStops()
 void PerfLasTests::errorClassificationWrapMode()
 {
   const QString las = m_dir.filePath("wrap.las");
+  // PW-069：WRAP YES 已支持——折行数据按 token 流收满曲线数成行。
   writeLas(las, QByteArray("~VERSION\nWRAP. YES : wrapped\n~WELL\nNULL. -999.25\n"
-                           "~CURVE\nDEPT.M : depth\n~A\n1 2\n"));
+                           "~CURVE\nDEPT.M : depth\nGR.GAPI : g\nRT.OHMM : r\n~A\n"
+                           "100.0\n 50 -999.25\n100.5\n 60\n 7\n"));
   QList<LasIssue> issues;
   const LasDoc doc = LasParser::parseDoc(las, &issues);
-  QVERIFY(!doc.ok);
-  bool sawWrap = false;
-  for (const LasIssue &i : issues)
+  QVERIFY2(doc.ok, qPrintable(doc.error));
+  QCOMPARE(doc.curves.size(), 3);
+  QCOMPARE(doc.curves.at(0).values, (QVector<double>{100.0, 100.5}));
+  QCOMPARE(doc.curves.at(1).values, (QVector<double>{50.0, 60.0}));
+  QVERIFY(qIsNaN(doc.curves.at(2).values.at(0)));
+  QCOMPARE(doc.curves.at(2).values.at(1), 7.0);
+
+  // DLM=COMMA：逗号切列，空字段 = NaN；未知 DLM 分级为 WrapMode Error。
+  const QString csvLas = m_dir.filePath("dlm.las");
+  writeLas(csvLas, QByteArray("~VERSION\nVERS. 3.0 :\nDLM. COMMA : c\n~CURVE\nDEPT.M : d\n"
+                              "GR.GAPI : g\nRT.OHMM : r\n~A\n1.0, ,3.5\n2.0,4,5\n"));
+  QList<LasIssue> csvIssues;
+  const LasDoc csv = LasParser::parseDoc(csvLas, &csvIssues);
+  QVERIFY2(csv.ok, qPrintable(csv.error));
+  QCOMPARE(csv.curves.at(0).values, (QVector<double>{1.0, 2.0}));
+  QVERIFY(qIsNaN(csv.curves.at(1).values.at(0)));
+  QCOMPARE(csv.curves.at(2).values, (QVector<double>{3.5, 5.0}));
+
+  const QString badLas = m_dir.filePath("baddlm.las");
+  writeLas(badLas, QByteArray("~VERSION\nDLM. PIPE : p\n~CURVE\nDEPT.M : d\n~A\n1\n"));
+  QList<LasIssue> badIssues;
+  QVERIFY(!LasParser::parseDoc(badLas, &badIssues).ok);
+  bool sawErr = false;
+  for (const LasIssue &i : badIssues)
     if (i.category == LasIssue::Category::WrapMode && i.severity == LasIssue::Severity::Error)
-      sawWrap = true;
-  QVERIFY2(sawWrap, "WRAP YES 必须分级为 Format/WrapMode Error");
+      sawErr = true;
+  QVERIFY(sawErr);
+
+  // 非 wrap 行多余 token：不再静默丢弃，发 Format Warning。
+  const QString extraLas = m_dir.filePath("extra.las");
+  writeLas(extraLas, QByteArray("~VERSION\nWRAP. NO :\n~CURVE\nDEPT.M : d\nGR.GAPI : g\n"
+                                "~A\n1 2 3\n"));
+  QList<LasIssue> extraIssues;
+  const LasDoc extra = LasParser::parseDoc(extraLas, &extraIssues);
+  QVERIFY(extra.ok);
+  QCOMPARE(extra.curves.at(1).values, (QVector<double>{2.0}));
+  bool sawExtra = false;
+  for (const LasIssue &i : extraIssues)
+    if (i.category == LasIssue::Category::Format && i.severity == LasIssue::Severity::Warning)
+      sawExtra = true;
+  QVERIFY(sawExtra);
 }
 
 void PerfLasTests::errorClassificationTruncatedRow()

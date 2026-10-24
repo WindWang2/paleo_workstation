@@ -346,7 +346,7 @@ void TestPreviewDoc::lasHeaderFacadeMatchesAndIsFast()
     QVERIFY2(headerMs < paleo::perfbudget::relaxedBudgetMs(50),
              qPrintable(QString::number(headerMs)));
 
-    // 坏文件语义对齐：WRAP YES 拒绝；无 ~C 拒绝；~A 缺失不算失败。
+    // 坏文件语义对齐：WRAP YES 接受并记 wrap（PW-069）；无 ~C 拒绝；~A 缺失不算失败。
     {
       const QString wrapYes = tmp.filePath(QStringLiteral("WRAP.Las"));
       QFile f(wrapYes);
@@ -355,8 +355,8 @@ void TestPreviewDoc::lasHeaderFacadeMatchesAndIsFast()
       f.close();
       LasHeaderInfo h;
       QString err;
-      QVERIFY(!PreviewDocService::lasHeaderAt(wrapYes, &h, &err));
-      QVERIFY(err.contains(QStringLiteral("WRAP YES")));
+      QVERIFY2(PreviewDocService::lasHeaderAt(wrapYes, &h, &err), qPrintable(err));
+      QVERIFY(h.wrap);
     }
     {
       const QString noC = tmp.filePath(QStringLiteral("NOC.Las"));

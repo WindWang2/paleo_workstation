@@ -53,7 +53,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         if (drawDensity) {
             if (m_displayMode == SectionDisplayMode::Mixed)
                 p.setOpacity(0.42); // 混合：密度淡显打底
-            const QImage &img = (m_zoomY < 1.0) ? lodImage() : m_cachedImage;
+            const QImage &img = needsLod() ? lodImage() : m_cachedImage;
             p.drawImage(imgDest, img); // 抽稀保全程，目标矩形不变
             p.setOpacity(1.0);
         } else {
@@ -66,7 +66,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
             const double curtainPx = vp.left() + m_curtainPos * vp.width();
             p.save();
             p.setClipRect(QRectF(vp.left(), vp.top(), curtainPx - vp.left(), vp.height()));
-            const QImage &imgA = (m_zoomY < 1.0) ? lodImage() : m_cachedImage;
+            const QImage &imgA = needsLod() ? lodImage() : m_cachedImage;
             p.drawImage(imgDest, imgA);
             p.restore();
 

@@ -274,18 +274,37 @@ void SeismicSectionCanvas::paintValueRegion(int x0, int y0, int w, int h) {
     }
 }
 
-// D2.6 LOD 抽稀：zoomY<1（多样本/像素）时按步长取带内最大绝对值（保幅保事件）
+// D2.6 LOD 抽稀：zoom<1（多样本/道 每像素）时按步长取块内最大绝对值（保幅保事件）。
+// PW-095：X/Y 双向抽稀（长测线缩小时不再整幅缩放全分辨率图）；步长量化到
+// 2 的幂——滚轮每档不再触发整幅重建，只在跨 2× 边界时重算。
+namespace {
+int quantizedStride(double zoom) {
+    const int raw = std::clamp(int(1.0 / std::max(1e-6, zoom)), 1, 64);
+    int s = 1;
+    while (s * 2 <= raw)
+        s *= 2;
+    return s;
+}
+} // namespace
+
+bool SeismicSectionCanvas::needsLod() const {
+    return quantizedStride(m_zoomX) > 1 || quantizedStride(m_zoomY) > 1;
+}
+
 const QImage &SeismicSectionCanvas::lodImage() const {
-    const int stride = std::clamp(int(1.0 / std::max(1e-6, m_zoomY)), 1, 64);
-    if (stride <= 1) {
+    const int strideX = quantizedStride(m_zoomX);
+    const int strideY = quantizedStride(m_zoomY);
+    if (strideX <= 1 && strideY <= 1) {
         m_lodStride = 0;
         return m_cachedImage;
     }
-    if (m_lodStride == stride && !m_lodCache.isNull())
+    const int key = strideX * 1000 + strideY;
+    if (m_lodStride == key && !m_lodCache.isNull())
         return m_lodCache;
 
-    const int outRows = (m_samples + stride - 1) / stride;
-    m_lodCache = QImage(m_traces, outRows, QImage::Format_ARGB32_Premultiplied);
+    const int outRows = (m_samples + strideY - 1) / strideY;
+    const int outCols = (m_traces + strideX - 1) / strideX;
+    m_lodCache = QImage(outCols, outRows, QImage::Format_ARGB32_Premultiplied);
     const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
     const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;
     // #286：同 paintValueRegion——显示缓冲失配时直通原始值，防越界读
@@ -293,35 +312,38 @@ const QImage &SeismicSectionCanvas::lodImage() const {
         static_cast<std::size_t>(m_traces) * static_cast<std::size_t>(m_samples);
     for (int r = 0; r < outRows; ++r) {
         auto *scan = reinterpret_cast<QRgb *>(m_lodCache.scanLine(r));
-        const int yBegin = r * stride;
-        const int yEnd = std::min(m_samples, yBegin + stride);
-        for (int x = 0; x < m_traces; ++x) {
+        const int yBegin = r * strideY;
+        const int yEnd = std::min(m_samples, yBegin + strideY);
+        for (int c = 0; c < outCols; ++c) {
+            const int xBegin = c * strideX;
+            const int xEnd = std::min(m_traces, xBegin + strideX);
             float best = std::numeric_limits<float>::quiet_NaN();
             float bestAbs = -1.0f;
             for (int y = yBegin; y < yEnd; ++y) {
-                const float raw = hasDisplay
-                    ? m_displayValues[static_cast<std::size_t>(y) * m_traces + x]
-                    : m_slice.values[static_cast<std::size_t>(y) * m_traces + x];
-                if (!std::isfinite(raw))
-                    continue;
-                const float a = std::abs(raw);
-                if (a > bestAbs) {
-                    bestAbs = a;
-                    best = raw;
+                const std::size_t row = static_cast<std::size_t>(y) * m_traces;
+                for (int x = xBegin; x < xEnd; ++x) {
+                    const float raw = hasDisplay ? m_displayValues[row + x] : m_slice.values[row + x];
+                    if (!std::isfinite(raw))
+                        continue;
+                    const float a = std::abs(raw);
+                    if (a > bestAbs) {
+                        bestAbs = a;
+                        best = raw;
+                    }
                 }
             }
             if (!std::isfinite(best)) {
-                scan[x] = qRgba(48, 49, 49, 255);
+                scan[c] = qRgba(48, 49, 49, 255);
                 continue;
             }
             float val = std::clamp(best * baseScale * m_gain * m_contrast, -1.0f, 1.0f);
             if (m_threshold > 0.0f && std::abs(val) < m_threshold)
                 val = 0.0f;
-            scan[x] = m_colorLut[static_cast<std::size_t>(
+            scan[c] = m_colorLut[static_cast<std::size_t>(
                 std::clamp(int((val + 1.0f) * 127.5f), 0, 255))];
         }
     }
-    m_lodStride = stride;
+    m_lodStride = key;
     return m_lodCache;
 }
 

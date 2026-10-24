@@ -344,6 +344,7 @@ private:
     void paintWiggleOverlay(QPainter &p, const QRect &vp, double alpha);
     // D2.6 LOD 抽稀：深度放大/缩小时按步长抽行渲染（min/max 保幅）
     const QImage &lodImage() const;
+    bool needsLod() const; // PW-095
     // D2.4 AGC/增益曲线后的显示值（hover 读数仍用原始值）
     float displayValue(int traceIdx, int sampleIdx) const;
     void rebuildDisplayValues();
@@ -382,7 +383,7 @@ private:
     QImage m_cachedImage;
     // D2.6 LOD 抽稀缓存（键 = 抽稀步长；0 = 无效）
     mutable QImage m_lodCache;
-    mutable int m_lodStride = 0;
+    mutable int m_lodStride = 0; // PW-095：strideX*1000+strideY（0 = 失效）
     // PW-093：瓦片流时间切片的动态范围——首个有限值才落种（不再伪 [0,1]），
     // m_tileScaleAbsMax = 上次整图上色所用 absMax（超阈值变化即整图重绘）。
     bool m_tileRangeEmpty = false;

@@ -1,8 +1,8 @@
 // 层：视图
 // 方向 65：画布绘制主体 TU——paintEvent 整段搬来（776 行单体）。
-// 刻意不把它切成私有 helper：那要改类定义，与「公共 API 冻结」红线冲突。
+// 井名标签单独布局绘制；公共接口及画布状态保持原有口径。
 // 绘制顺序（底图 → 井/轨迹/合成 → 十字线 → 解释叠加 → 标尺 → 色标 → 深度轴）
-// 逐段原样保留。
+// 保留其余绘制顺序。
 // token 例外：DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。（tools/ui-token-exceptions.json 精确计数）。
 #include "ui/seismicsection/seismicsectioncanvas.h"
 #include "domain/seismic/sectionaxis.h"
@@ -18,6 +18,68 @@
 #include <limits>
 
 namespace seismic {
+
+QVector<SeismicSectionCanvas::WellPinLabel> SeismicSectionCanvas::wellPinLabels() const {
+    QVector<WellPinLabel> labels;
+    if (!hasData() || !m_showWells || m_orientation != SectionOrientation::Vertical) return labels;
+    const QRect vp = viewportRect();
+    QVector<int> candidates;
+    for (int i = 0; i < static_cast<int>(m_wells.size()); ++i)
+        if (m_wells[i].isWithinBuffer && std::abs(m_wells[i].offsetDistanceM) <= m_bufferDistanceM)
+            candidates.append(i);
+    if (m_maxVisibleWells > 0 && candidates.size() > m_maxVisibleWells) {
+        std::partial_sort(candidates.begin(), candidates.begin() + m_maxVisibleWells, candidates.end(), [this](int a, int b) {
+            return std::abs(m_wells[a].offsetDistanceM) < std::abs(m_wells[b].offsetDistanceM);
+        });
+        candidates.resize(m_maxVisibleWells);
+    }
+    for (int i : candidates) {
+        const double x = traceToPixelX(m_wells[i].tracePosition);
+        if (!std::isfinite(x) || x < vp.left() || x > vp.right()) continue;
+        QString name = m_wells[i].wellName.trimmed();
+        if (name.isEmpty()) name = m_wells[i].wellId;
+        if (name.isEmpty()) name = tr("未命名井");
+        labels.append({i, x, {}, name, {}});
+    }
+    std::stable_sort(labels.begin(), labels.end(), [](const auto &a, const auto &b) { return a.pinX < b.pinX; });
+    if (labels.isEmpty()) return labels;
+    auto font = PaleoTheme::bodyFont(); font.setPointSize(PaleoTheme::tokens().labelPt);
+    const QFontMetrics metrics(font);
+    constexpr double gap = 3.0;
+    const double available = std::max(1.0, vp.width() - 6.0 - gap * (labels.size() - 1));
+    const int cap = std::max(1, std::min(140, int(available / labels.size())));
+    double right = vp.left() + 3.0;
+    for (auto &label : labels) {
+        label.text = metrics.elidedText(label.name, Qt::ElideRight, std::max(0, cap - 8));
+        const int width = std::min(cap, metrics.horizontalAdvance(label.text) + 8);
+        const double left = std::max(right, label.pinX - width / 2.0);
+        label.badge = QRectF(left, 4, width, std::min(26, metrics.height() + 4));
+        right = label.badge.right() + gap;
+    }
+    right = vp.right() - 3.0;
+    for (int i = labels.size() - 1; i >= 0; --i) {
+        labels[i].badge.moveLeft(std::min(labels[i].badge.left(), right - labels[i].badge.width()));
+        right = labels[i].badge.left() - gap;
+    }
+    return labels;
+}
+
+void SeismicSectionCanvas::paintWellPins(QPainter &p) {
+    const auto &tok = PaleoTheme::tokens();
+    auto font = PaleoTheme::bodyFont(); font.setPointSize(tok.labelPt); p.setFont(font);
+    for (const auto &label : wellPinLabels()) {
+        if (std::abs(label.badge.center().x() - label.pinX) > 1.0) {
+            p.setPen(QPen(tok.border, 1.0));
+            p.drawLine(QPointF(label.badge.center().x(), label.badge.bottom() + 1), QPointF(label.pinX, m_topMargin - 10));
+        }
+        p.setBrush(tok.text); p.setPen(Qt::NoPen);
+        p.drawPolygon(QPolygonF({QPointF(label.pinX - 5, m_topMargin - 8),
+                                QPointF(label.pinX + 5, m_topMargin - 8), QPointF(label.pinX, m_topMargin - 1)}));
+        p.setBrush(tok.surfaceAltRaised); p.setPen(QPen(tok.border, 1.0));
+        p.drawRoundedRect(label.badge, tok.radiusSm, tok.radiusSm);
+        p.setPen(tok.text); p.drawText(label.badge, Qt::AlignCenter, label.text);
+    }
+}
 
 void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
     QPainter p(this);
@@ -542,47 +604,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
               }
             }
 
-            // Well indicator flags on top ruler
-            if (m_showWells) {
-                for (const auto &well : m_wells) {
-                  if (!well.isWithinBuffer ||
-                      std::abs(well.offsetDistanceM) > m_bufferDistanceM)
-                    continue;
-                  const double wx = traceToPixelX(well.tracePosition);
-                  if (wx < m_leftMargin || wx > vp.right())
-                    continue;
-
-                    // Triangle pin pointing down
-                    const QPolygonF triangle({
-                        QPointF(wx - 5.0, m_topMargin - 8.0),
-                        QPointF(wx + 5.0, m_topMargin - 8.0),
-                        QPointF(wx, m_topMargin - 1.0)
-                    });
-                    p.setBrush(tok.text);
-                    p.setPen(Qt::NoPen);
-                    p.drawPolygon(triangle);
-
-                  // Capsule label
-                  p.setFont(bodyFont);
-                  QString pinText = std::abs(well.offsetDistanceM) > 1.0
-                                        ? QStringLiteral("%1 (%2m)")
-                                              .arg(well.wellName)
-                                              .arg(qRound(well.offsetDistanceM))
-                                        : well.wellName;
-                  if (!well.alignmentStatus.isEmpty())
-                    pinText += " · " + well.alignmentStatus;
-                  const QFontMetrics fm(bodyFont);
-                  const int tw = fm.horizontalAdvance(pinText);
-                  const QRectF badge(wx - tw * 0.5 - 4.0, 4.0, tw + 8.0, 18.0);
-
-                    p.setBrush(tok.surfaceAltRaised);
-                    p.setPen(QPen(tok.border, 1.0));
-                    p.drawRoundedRect(badge, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
-
-                    p.setPen(tok.text);
-                    p.drawText(badge, Qt::AlignCenter, pinText);
-                }
-            }
+            paintWellPins(p);
         }
     }
 

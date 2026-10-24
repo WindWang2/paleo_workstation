@@ -77,7 +77,7 @@ src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:358
 src/ui/seismic3d/seismic3dviewpanel.cpp:file:1775
 src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildUi:253
-src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:783
+src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:743
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupDisplayBar:253
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupUi:386
 src/ui/shortcuts/shortcutcatalog.cpp:fn:catalogEntries:228

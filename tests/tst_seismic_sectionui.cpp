@@ -15,6 +15,8 @@
 #include <QFileInfo>
 #include <QTemporaryDir>
 #include <QSettings>
+#include <QHelpEvent>
+#include <QToolTip>
 
 #include <atomic>
 #include <cmath>
@@ -225,6 +227,48 @@ private slots:
     canvas.setWells({well});
     canvas.setShowWells(true);
     QVERIFY(paleo::tests::captureVisual(&canvas, "section-data", QSize(1100, 700)));
+  }
+
+  void wellNamesRemainVisibleWithLongDiagnostics()
+  {
+    SeismicSectionCanvas canvas;
+    canvas.resize(800, 500);
+    canvas.setSectionData(makeSection(64, 256), 2.0f);
+    SectionWellInfo well;
+    well.wellId = "well-a"; well.wellName = "A1";
+    well.isWithinBuffer = true; well.tracePosition = 32;
+    canvas.setWells({well});
+    const auto plain = renderCanvas(canvas).copy(72, 0, 664, 30);
+    well.alignmentStatus = QStringLiteral("diagnostic <tag>: missing data; ").repeated(250);
+    canvas.setWells({well});
+    const auto diagnostic = renderCanvas(canvas).copy(72, 0, 664, 30);
+    QCOMPARE(diagnostic, plain); // 诊断再长也不挤掉井名
+    well.wellName = "A2"; canvas.setWells({well});
+    QVERIFY(imageDiff(diagnostic, renderCanvas(canvas).copy(72, 0, 664, 30)) > 5);
+    QHelpEvent help(QEvent::ToolTip, QPoint(404, 12), canvas.mapToGlobal(QPoint(404, 12)));
+    QCoreApplication::sendEvent(&canvas, &help);
+    QVERIFY(QToolTip::text().contains("A2"));
+    QVERIFY(QToolTip::text().contains("diagnostic &lt;tag&gt;"));
+    QToolTip::hideText();
+  }
+
+  void captureCrowdedWellNameLabels()
+  {
+    SeismicSectionCanvas canvas;
+    canvas.resize(1100, 500);
+    canvas.setSectionData(makeSection(128, 256), 2.0f);
+    std::vector<SectionWellInfo> wells;
+    int i = 0;
+    for (double position : {0., 12., 30., 55., 56., 57., 58., 85., 110., 127.}) {
+      SectionWellInfo well;
+      well.wellName = QStringLiteral("A%1").arg(++i); well.wellId = well.wellName;
+      well.tracePosition = position; well.isWithinBuffer = true;
+      well.totalDepth = 200; well.calibrated = true; well.bottomTwtMs = 400;
+      well.alignmentStatus = QStringLiteral("长诊断：缺失坐标；").repeated(60);
+      wells.push_back(well);
+    }
+    canvas.setWells(wells);
+    QVERIFY(paleo::tests::captureVisual(&canvas, "section-well-names", QSize(1100, 500)));
   }
 
   // ---- D2.2 显示三模：密度 / wiggle / 混合渲染互异 ----

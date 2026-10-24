@@ -9,6 +9,8 @@
 
 #include <QKeyEvent>
 #include <QPaintEvent>
+#include <QHelpEvent>
+#include <QToolTip>
 
 #include <algorithm>
 #include <cmath>
@@ -28,6 +30,18 @@ SeismicSectionCanvas::SeismicSectionCanvas(QWidget *parent)
 }
 
 bool SeismicSectionCanvas::event(QEvent *event) {
+    if (event->type() == QEvent::ToolTip) {
+        auto *help = static_cast<QHelpEvent *>(event);
+        for (const auto &label : wellPinLabels()) {
+            if (!label.badge.contains(help->pos())) continue;
+            const auto &well = m_wells[label.wellIndex];
+            QString detail = tr("井名：%1\n偏移距离：%2 m").arg(label.name).arg(well.offsetDistanceM, 0, 'f', 1);
+            if (!well.alignmentStatus.isEmpty()) detail += '\n' + well.alignmentStatus;
+            QToolTip::showText(help->globalPos(), QStringLiteral("<qt>%1</qt>")
+                .arg(detail.toHtmlEscaped().replace('\n', QStringLiteral("<br>"))), this, label.badge.toAlignedRect());
+            return true;
+        }
+    }
     // 主题切换（palette 风暴）时重绘：ruler/角标/文字等 chrome 色在 paint 里
     // 现取 tokens()，这里只负责触发重绘。
     if (event->type() == QEvent::ApplicationPaletteChange) {

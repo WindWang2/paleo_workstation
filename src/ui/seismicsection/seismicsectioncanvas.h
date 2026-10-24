@@ -336,6 +336,14 @@ protected:
     void leaveEvent(QEvent *event) override;
 
 private:
+    struct WellPinLabel {
+        int wellIndex;
+        double pinX;
+        QRectF badge;
+        QString name, text;
+    };
+    QVector<WellPinLabel> wellPinLabels() const;
+    void paintWellPins(QPainter &p);
     void rebuildImage();
     // 把 m_slice.values 的 [x0,x0+w)×[y0+h) 区域按当前色标/增益写入
     // m_cachedImage（瓦片流与整图重建共用一条上色路径）。

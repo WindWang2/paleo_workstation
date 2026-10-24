@@ -536,9 +536,15 @@ int smoothArcs( Graph &g, int iterations )
       continue;
 
     QgsPolylineXY cur = pts;
+    // PW-091：每个平滑点记来源原始线段号，偏差只对其邻域线段求距（O(m)）。
+    QVector<int> origin( cur.size() );
+    for ( int i = 0; i < origin.size(); ++i )
+      origin[i] = closed ? i : std::min( i, static_cast<int>( pts.size() ) - 2 );
     for ( int it = 0; it < iterations; ++it )
     {
       QgsPolylineXY next;
+      QVector<int> nextOrigin;
+      nextOrigin.reserve( 2 * cur.size() );
       if ( closed )
       {
         const int m = cur.size();
@@ -551,12 +557,15 @@ int smoothArcs( Graph &g, int iterations )
                                    0.75 * a.y() + 0.25 * b.y() ) );
           next.append( QgsPointXY( 0.25 * a.x() + 0.75 * b.x(),
                                    0.25 * a.y() + 0.75 * b.y() ) );
+          nextOrigin.append( origin.at( i ) );
+          nextOrigin.append( origin.at( i ) );
         }
       }
       else
       {
         next.reserve( 2 * cur.size() - 2 );
         next.append( cur.first() );
+        nextOrigin.append( origin.first() );
         for ( int i = 0; i + 1 < cur.size(); ++i )
         {
           const QgsPointXY &a = cur.at( i );
@@ -565,22 +574,58 @@ int smoothArcs( Graph &g, int iterations )
                                    0.75 * a.y() + 0.25 * b.y() ) );
           next.append( QgsPointXY( 0.25 * a.x() + 0.75 * b.x(),
                                    0.25 * a.y() + 0.75 * b.y() ) );
+          nextOrigin.append( origin.at( i ) );
+          nextOrigin.append( origin.at( i ) );
         }
         next.append( cur.last() );
+        nextOrigin.append( origin.last() );
       }
       cur = next;
+      origin = nextOrigin;
     }
 
     // 位移量化阈值以内 = 全直弧，写回只徒增顶点。
-    QgsPolylineXY beforePts = pts;
-    if ( closed )
-      beforePts.append( pts.first() );
-    const QgsGeometry before = QgsGeometry::fromPolylineXY( beforePts );
-    double maxDev = 0.0;
-    for ( const QgsPointXY &p : cur )
-      maxDev = std::max( maxDev, before.distance( QgsGeometry::fromPointXY( p ) ) );
-    if ( maxDev * maxDev <= eps2 )
+    // PW-091：原实现每点对整条弧做 GEOS distance，O(32·m²)。Chaikin 点总落在
+    // 来源线段附近，只对来源 ±kWin 段求点-线段距离：子集最小距离 ≥ 真最小距离，
+    // 是偏差的上界——误判只会多保留顶点，不会丢形状。
+    const int nSeg = closed ? pts.size() : pts.size() - 1;
+    constexpr int kWin = 3;
+    auto segDist2 = [&]( const QgsPointXY &p, int sIdx ) {
+      const QgsPointXY &a = pts.at( sIdx );
+      const QgsPointXY &b = pts.at( ( sIdx + 1 ) % pts.size() );
+      const double vx = b.x() - a.x(), vy = b.y() - a.y();
+      const double len2 = vx * vx + vy * vy;
+      double t = len2 > 0.0 ? ( ( p.x() - a.x() ) * vx + ( p.y() - a.y() ) * vy ) / len2 : 0.0;
+      t = std::clamp( t, 0.0, 1.0 );
+      const double dx = p.x() - ( a.x() + t * vx ), dy = p.y() - ( a.y() + t * vy );
+      return dx * dx + dy * dy;
+    };
+    bool deviates = false;
+    for ( int q = 0; q < cur.size() && !deviates; ++q )
+    {
+      double best = std::numeric_limits<double>::infinity();
+      for ( int w = -kWin; w <= kWin; ++w )
+      {
+        int sIdx = origin.at( q ) + w;
+        if ( closed )
+          sIdx = ( ( sIdx % nSeg ) + nSeg ) % nSeg;
+        else if ( sIdx < 0 || sIdx >= nSeg )
+          continue;
+        best = std::min( best, segDist2( cur.at( q ), sIdx ) );
+      }
+      deviates = best > eps2;
+    }
+    if ( !deviates )
       continue;
+
+    // 平滑后自相交则回退原弧（不写回）。
+    {
+      QgsPolylineXY test = cur;
+      if ( closed )
+        test.append( cur.first() );
+      if ( !QgsGeometry::fromPolylineXY( test ).isSimple() )
+        continue;
+    }
 
     QVector<int> ix;
     if ( closed )

@@ -6,6 +6,7 @@
 #include "../domain/faciescatalog.h"
 #include "../domain/faciestaxonomy.h"
 #include "../domain/interpretationevidence.h"
+#include "../io/atomicwrite.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -204,14 +205,14 @@ QVariantMap saveFootprint(const QString &projectDir, const QString &workingPath,
   if (base64Wkb.isEmpty()) return {};
   const auto bytes = QByteArray::fromBase64(base64Wkb.toLatin1());
   const auto relative = footprintSidecarPath(workingPath);
-  QDir().mkpath(QFileInfo(QDir(projectDir).filePath(relative)).absolutePath());
-  QFile file(QDir(projectDir).filePath(relative));
-  if (!file.open(QIODevice::WriteOnly)) {
-    fail(error, QObject::tr("无法写入相图覆盖范围文件：%1").arg(file.errorString()));
+  // 原子整写并校验（旧实现忽略 write() 返回值，磁盘满时留半截 WKB 却照常
+  // 登记摘要）。
+  QString writeErr;
+  if (!paleo::writeFileAtomic(QDir(projectDir).filePath(relative), bytes, &writeErr,
+                              /*mkdirs=*/true)) {
+    fail(error, QObject::tr("无法写入相图覆盖范围文件：%1").arg(writeErr));
     return {};
   }
-  file.write(bytes);
-  file.close();
   QgsGeometry geometry; geometry.fromWkb(bytes);
   const auto box = geometry.boundingBox();
   // 可读摘要：bbox / 面积 / 部件数 / sha256——脱离 GEOS 序列化格式也能看懂。

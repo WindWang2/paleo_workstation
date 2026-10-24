@@ -8,6 +8,7 @@
 // 接线，调用点零改动（先例 workflowerrors_internal.h）。
 
 #include "types.h"
+#include "../../io/atomicwrite.h"
 
 #include <QFile>
 #include <QFileInfo>
@@ -46,10 +47,10 @@ inline QString sidecarPath( const QString &rasterPath, const QString &suffix )
 /// JSON 落盘（缩进档）；打不开即抛 QgsProcessingException（算法失败语义）。
 inline void writeJson( const QString &path, const QVariantMap &root )
 {
-  QFile file( path );
-  if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
-    throw QgsProcessingException( QStringLiteral( "Cannot write %1" ).arg( path ) );
-  file.write( QJsonDocument::fromVariant( root ).toJson( QJsonDocument::Indented ) );
+  // 原子整写并校验：旧实现忽略 write() 返回值，磁盘满时 sidecar 半截却算成功。
+  QString writeErr;
+  if ( !paleo::writeJsonAtomic( path, QJsonDocument::fromVariant( root ), &writeErr ) )
+    throw QgsProcessingException( QStringLiteral( "Cannot write %1: %2" ).arg( path, writeErr ) );
 }
 
 /// 点列 → [[x,y],…]（sidecar JSON 几何分量）。

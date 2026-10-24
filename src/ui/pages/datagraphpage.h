@@ -13,7 +13,7 @@ class QGraphicsScene;
 class QGraphicsItem;
 class QLabel;
 class QTreeWidget;
-class QPlainTextEdit;
+class QTextBrowser;
 class QPushButton;
 class QToolButton;
 class DataGraphPage : public QWidget {
@@ -49,11 +49,16 @@ protected:
 
 private:
   QWidget *createGraphPanels();
+  void updateGraphPanels();
+  QString nodeDetailsHtml(const paleo::datagraph::Node &node) const;
+  void configureGraphFilters(QToolButton *filters);
   void request();
   void openFocused(const QString &assetId, const QString &versionId,
                    const QString &entityId, paleo::datagraph::Mode mode);
   void render(const paleo::datagraph::Graph &graph);
   void fitGraphToView();
+  void rebuildGraphEdges();
+  void updateGraphHighlights();
   void createEvidenceFilters(QWidget *parent);
   void selectNode(const paleo::datagraph::Node &node, bool navigate);
   void activateNode(const paleo::datagraph::Node &node);
@@ -67,7 +72,9 @@ private:
   QGraphicsView *m_view;
   QGraphicsScene *m_scene;
   QLabel *m_summary, *m_status;
-  QPlainTextEdit *m_details;
+  QWidget *m_graphSurface = nullptr, *m_detailsPanel = nullptr, *m_relationsPanel = nullptr;
+  QLabel *m_relationHeading = nullptr, *m_graphLegend = nullptr;
+  QTextBrowser *m_details;
   QTreeWidget *m_relations;
   paleo::datagraph::Graph m_graph;
   QToolButton *m_back;

@@ -3,6 +3,7 @@
 // 「返回上一图谱」只能回到用户真正请求过的图谱状态——单一入口（打开成果
 // 追溯/资料关联）不得在栈里留下中间态。
 #include <QtTest>
+#include <cmath>
 #include <QAbstractButton>
 #include <QComboBox>
 #include <QGraphicsObject>
@@ -12,6 +13,10 @@
 #include <QPushButton>
 #include <QSplitter>
 #include <QWheelEvent>
+#include <QTextBrowser>
+#include <QScrollBar>
+#include <QTreeWidget>
+#include "../src/ui/pages/datagraphcanvas.h"
 #include <QTemporaryDir>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -26,6 +31,7 @@
 #include "../src/services/datagraph.h"
 #include "../src/services/previewdoc.h"
 #include "../src/ui/pages/datagraphpage.h"
+#include "../src/ui/pages/datagraphsceneitems.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/workflow/assetops.h"
 #include "../src/workflow/datagraphworkflow.h"
@@ -229,6 +235,25 @@ class TestDataGraphPage : public QObject
     *digestOut = digest.join(QLatin1Char(';'));
   }
 
+  static paleo::datagraph::Graph interactionGraph(int wells) {
+    using namespace paleo::datagraph;
+    Graph graph; graph.query.mode = Mode::Knowledge;
+    for (int w = 0; w < wells; ++w) {
+      Node well; well.id = QString("e%1").arg(w); well.entityId = well.id;
+      well.entityType = "well"; well.title = QString("Well %1").arg(w); well.kind = Kind::Entity; well.count = 3;
+      graph.nodes << well;
+      for (int f = 0; f < 3; ++f) {
+        Node file; file.id = QString("a%1-%2").arg(w).arg(f); file.assetId = file.id;
+        file.title = file.id + ".las"; file.kind = Kind::Asset;
+        if (w == 0 && f == 0) for (int i = 0; i < 120; ++i) file.evidenceText += QString("parameter-%1: 12345678901234567890\n").arg(i);
+        graph.nodes << file; Edge edge; edge.source = well.id; edge.target = file.id;
+        edge.label = "well log"; edge.provenance = "catalog"; graph.edges << edge;
+      }
+    }
+    graph.totalEntities = wells; graph.totalAssets = wells * 3; layoutKnowledgeGraph(graph, {});
+    return graph;
+  }
+
 private slots:
   void associationEditorAndKnowledgeGraph() {
     QTemporaryDir dir;
@@ -279,11 +304,10 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!ready.isEmpty() && ready.last().first().value<paleo::datagraph::Graph>().nodes.size() == 6, 15000);
     QCOMPARE(mode(graph), Mode::Knowledge);
     auto *graphView = graph.findChild<QGraphicsView *>("dataGraphView");
-    auto *panels = graph.findChild<QSplitter *>("dataGraphSplitter");
-    QVERIFY(panels); QCOMPARE(panels->count(), 3);
-    QCOMPARE(panels->widget(0)->objectName(), QString("dataGraphDetailsPanel"));
-    QCOMPARE(panels->widget(1), graphView);
-    QCOMPARE(panels->widget(2)->objectName(), QString("dataGraphRelationsPanel"));
+    auto *surface = graph.findChild<QWidget *>("dataGraphSurface"); QVERIFY(surface);
+    QCOMPARE(graphView->parentWidget(), surface);
+    QVERIFY(!graph.findChild<QSplitter *>("dataGraphSplitter"));
+    QVERIFY(graph.findChild<QWidget *>("dataGraphDetailsPanel")->isHidden());
     QVERIFY(graphView->width() > graph.width() / 2);
     graph.findChild<QToolButton *>("dataGraphFit")->click();
     QVERIFY2(graphView->transform().m11() >= .60,
@@ -320,6 +344,108 @@ private slots:
     QApplication::sendEvent(graphView->viewport(), &wheel);
     QVERIFY(graphView->transform().m11() > scale);
   }
+  void modernGraphDenseVisual() {
+    QTemporaryDir dir; DataImportService importer; importer.setProjectDir(dir.path());
+    PreviewDocService doc(&importer); auto *cat = importer.catalog(); QVERIFY(cat && cat->isOpen());
+    for (int i = 0; i < 10; ++i) {
+      CatalogEntity entity; entity.id = QString("w%1").arg(i); entity.name = QString("A%1 井").arg(i + 1); entity.entityType = "well";
+      QVERIFY(cat->addEntity(entity));
+      const QStringList names{QString("A%1_GR.las").arg(i + 1), QString("A%1_分层.csv").arg(i + 1), QString("A%1_岩心.pdf").arg(i + 1)};
+      for (int j = 0; j < names.size(); ++j) {
+        CatalogAsset file; file.id = entity.id + QString("-%1").arg(j); file.displayName = names[j]; file.type = j == 0 ? "well_log" : j == 1 ? "well_stratification" : "document";
+        QVERIFY(cat->addAsset(file)); EntityAssetLink link; link.assetId = file.id; link.entityId = entity.id; link.entityType = "well";
+        link.role = j == 0 ? "well_log" : j == 1 ? "tops" : "reference"; QVERIFY(cat->addLink(link));
+      }
+    }
+    DataGraphPage page; page.resize(1440, 940); page.setDocService(&doc); page.show();
+    auto *view = page.findChild<QGraphicsView *>("dataGraphView"); QVERIFY(view);
+    QTRY_VERIFY_WITH_TIMEOUT(view->isEnabled() && view->scene()->items().size() >= 40, 15000);
+    auto *left = page.findChild<QWidget *>("dataGraphDetailsPanel"); QVERIFY(left); QVERIFY(left->isHidden());
+    QCOMPARE(view->geometry(), view->parentWidget()->rect());
+    DataGraphNodeItem *focus = nullptr; QSet<QRgb> colors;
+    for (auto *item : view->scene()->items()) if (auto *node = dynamic_cast<DataGraphNodeItem *>(item)) {
+      QVERIFY(node->compact); QVERIFY(node->flags().testFlag(QGraphicsItem::ItemIgnoresTransformations));
+      QCOMPARE(node->connectionRect().width(), node->connectionRect().height());
+      colors.insert(node->networkColor().rgb()); if (node->node.entityId == "w4" && node->node.kind == paleo::datagraph::Kind::Entity) focus = node;
+    }
+    QVERIFY(colors.size() >= 4); QVERIFY(focus);
+    QVERIFY(paleo::tests::captureVisual(&page, "modern-file-graph-overview", QSize(1440, 940)));
+    page.show(); QTRY_VERIFY(view->isEnabled()); view->centerOn(focus);
+    QTest::mouseClick(view->viewport(), Qt::LeftButton, {}, view->mapFromScene(focus->pos()));
+    QTRY_VERIFY(left->isVisible()); QVERIFY(page.findChild<QWidget *>("dataGraphRelationsPanel")->isVisible());
+    QVERIFY(paleo::tests::captureVisual(&page, "modern-file-graph-focus", QSize(1440, 940)));
+    // Floating cards must yield the graph at small widths without horizontal overflow.
+    page.resize(760, 620); page.show(); QTRY_VERIFY(view->isEnabled());
+    QVERIFY(page.findChild<QWidget *>("dataGraphRelationsPanel")->isHidden());
+    QVERIFY(view->width() <= page.width());
+    auto *toggle = page.findChild<QToolButton *>("dataGraphRelationsToggle"); QVERIFY(toggle && toggle->isVisible());
+    toggle->click(); QVERIFY(page.findChild<QWidget *>("dataGraphRelationsPanel")->isVisible()); QVERIFY(left->isHidden());
+    toggle->click(); QVERIFY(left->isVisible());
+    const qreal diameter = focus->deviceTransform(view->viewportTransform()).mapRect(focus->connectionRect()).width();
+    const auto center = view->viewport()->rect().center();
+    QWheelEvent wheel(center, view->viewport()->mapToGlobal(center), {}, QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(view->viewport(), &wheel);
+    QVERIFY(std::abs(diameter - focus->deviceTransform(view->viewportTransform()).mapRect(focus->connectionRect()).width()) < .01);
+  }
+  void zoomPreservesDismissedDetailsAndReadingState() {
+    DataGraphPage page; page.resize(1200, 800);
+    auto *workflow = page.findChild<DataGraphWorkflow *>(); QSignalSpy ready(workflow, &DataGraphWorkflow::ready);
+    auto *view = page.findChild<QGraphicsView *>("dataGraphView");
+    page.show(); QTRY_VERIFY(!ready.isEmpty() && view->isEnabled());
+    workflow->ready(interactionGraph(1)); QTest::qWait(50); // Drain the scheduled initial fit before interacting.
+    DataGraphNodeItem *target = nullptr;
+    for (auto *item : view->scene()->items()) if (auto *node = dynamic_cast<DataGraphNodeItem *>(item); node && node->node.id == "a0-0") target = node;
+    QVERIFY(target); view->centerOn(target->pos());
+    QTest::mouseClick(view->viewport(), Qt::LeftButton, {}, view->mapFromScene(target->pos()));
+    auto *details = page.findChild<QWidget *>("dataGraphDetailsPanel");
+    QTRY_VERIFY(details->isVisible());
+    auto *browser = page.findChild<QTextBrowser *>("dataGraphNodeDetails");
+    auto *relations = page.findChild<QTreeWidget *>("dataGraphRelations");
+    auto *scroll = browser->verticalScrollBar(); QTRY_VERIFY(scroll->maximum() > 0);
+    scroll->setValue(scroll->maximum()); const int readingPosition = scroll->value();
+    auto *relation = relations->topLevelItem(0); QVERIFY(relation); relations->setCurrentItem(relation);
+    const QString html = browser->toHtml();
+    page.findChild<QToolButton *>("dataGraphZoomIn")->click();
+    QCOMPARE(scroll->value(), readingPosition); QCOMPARE(browser->toHtml(), html);
+    QCOMPARE(relations->currentItem(), relation);
+    page.findChild<QToolButton *>("dataGraphFit")->click();
+    QCOMPARE(scroll->value(), readingPosition); QCOMPARE(relations->currentItem(), relation);
+    auto *close = details->findChild<QToolButton *>(); QVERIFY(close); close->click(); QVERIFY(details->isHidden());
+    page.findChild<QToolButton *>("dataGraphZoomOut")->click(); QVERIFY(details->isHidden());
+    const QPoint center = view->viewport()->rect().center();
+    QWheelEvent wheel(center, view->viewport()->mapToGlobal(center), {}, QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(view->viewport(), &wheel); QVERIFY(details->isHidden());
+    page.findChild<QToolButton *>("dataGraphFit")->click(); QVERIFY(details->isHidden());
+    QCOMPARE(scroll->value(), readingPosition);
+    // An explicit node click still opens its details after dismissal.
+    view->centerOn(target->pos());
+    QTest::mouseClick(view->viewport(), Qt::LeftButton, {}, view->mapFromScene(target->pos()));
+    QTRY_VERIFY(details->isVisible());
+  }
+  void largeGraphFitKeepsZoomMonotonic() {
+    DataGraphPage page; page.resize(760, 620);
+    auto *workflow = page.findChild<DataGraphWorkflow *>(); QSignalSpy ready(workflow, &DataGraphWorkflow::ready);
+    auto *view = page.findChild<QGraphicsView *>("dataGraphView");
+    page.show(); QTRY_VERIFY(!ready.isEmpty() && view->isEnabled());
+    workflow->ready(interactionGraph(50)); QTest::qWait(50);
+    page.findChild<QToolButton *>("dataGraphFit")->click();
+    const qreal fitted = view->transform().m11(); QVERIFY(fitted > 0 && fitted < .15);
+    auto *plus = page.findChild<QToolButton *>("dataGraphZoomIn");
+    auto *minus = page.findChild<QToolButton *>("dataGraphZoomOut");
+    minus->click(); QCOMPARE(view->transform().m11(), fitted);
+    const QPoint center = view->viewport()->rect().center();
+    QWheelEvent wheel(center, view->viewport()->mapToGlobal(center), {}, QPoint(0, -120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(view->viewport(), &wheel); QCOMPARE(view->transform().m11(), fitted);
+    plus->click(); QVERIFY(std::abs(view->transform().m11() - fitted * 1.2) < 1e-9);
+    minus->click(); QVERIFY(std::abs(view->transform().m11() - fitted) < 1e-9);
+    for (int step = 0; step < 8; ++step) plus->click();
+    QVERIFY(view->transform().m11() > .15);
+    for (int step = 0; step < 12; ++step) {
+      const auto previous = view->transform().m11(); minus->click();
+      QVERIFY(view->transform().m11() <= previous);
+    }
+    QVERIFY(std::abs(view->transform().m11() - fitted) < 1e-9);
+  }
   void initTestCase()
   {
     PaleoTheme::ensureApplicationFonts();
@@ -347,13 +473,15 @@ private slots:
     for (const QString &name : names) {
       auto *button = page.findChild<QToolButton *>(name);
       QVERIFY2(button, qPrintable(name));
-      QCOMPARE(button->parentWidget(), bar);
-      QVERIFY2(button->text().isEmpty(), qPrintable(name));
+      const bool navigation = name == "dataGraphFit" || name == "dataGraphZoomIn" || name == "dataGraphZoomOut";
+      if (navigation) QCOMPARE(button->parentWidget()->objectName(), QString("dataGraphZoomControls"));
+      else if (name != "dataGraphHistory") QCOMPARE(button->parentWidget(), bar);
+      if (name != "dataGraphHistory") QVERIFY2(button->text().isEmpty(), qPrintable(name));
       QVERIFY2(!button->icon().isNull(), qPrintable(name));
     }
     auto *summary = page.findChild<QLabel *>(QStringLiteral("dataGraphSummary"));
     QVERIFY(summary);
-    QCOMPARE(summary->parentWidget(), bar);
+    QCOMPARE(summary->parentWidget()->objectName(), QString("dataGraphSurface"));
     QVERIFY(button(page, QStringLiteral("预览文件 / 版本")));
     if (const QString shot = qEnvironmentVariable("PALEO_GRAPH_BAR_SHOT");
         !shot.isEmpty()) {

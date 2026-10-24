@@ -1,6 +1,8 @@
 // 层：视图
 #include "datagraphpage.h"
 #include "datagraphsceneitems.h"
+#include "datagraphstyle.h"
+#include "datagraphcanvas.h"
 #include "../../catalog/datacatalog.h"
 #include "../../services/previewdoc.h"
 #include "../../workflow/datagraphworkflow.h"
@@ -26,7 +28,7 @@
 #include <QMenu>
 #include <QPaintEvent>
 #include <QPainter>
-#include <QPlainTextEdit>
+#include <QTextBrowser>
 #include <QPushButton>
 #include <QScopedValueRollback>
 #include <QShowEvent>
@@ -41,30 +43,10 @@
 #include <QTreeWidget>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QWidgetAction>
 #include <cmath>
 
 using namespace paleo::datagraph;
-namespace {
-class ElideLabel final : public QLabel {
-public:
-  using QLabel::QLabel;
-  QSize minimumSizeHint() const override {
-    return QSize(0, QLabel::minimumSizeHint().height());
-  }
-  QSize sizeHint() const override {
-    return QSize(160, QLabel::sizeHint().height());
-  }
-
-protected:
-  void paintEvent(QPaintEvent *) override {
-    QPainter painter(this);
-    painter.setPen(palette().color(QPalette::WindowText));
-    painter.drawText(rect(), Qt::AlignLeft | Qt::AlignVCenter,
-                     QFontMetrics(font()).elidedText(text(), Qt::ElideRight,
-                                                     width()));
-  }
-};
-} // namespace
 DataGraphPage::DataGraphPage(QWidget *parent)
     : QWidget(parent), m_workflow(new DataGraphWorkflow(this)) {
   setObjectName(QStringLiteral("dataGraphPage"));
@@ -75,21 +57,15 @@ DataGraphPage::DataGraphPage(QWidget *parent)
                              t.spacingSm);
   auto *bar = new QWidget(this);
   bar->setObjectName(QStringLiteral("dataGraphToolBar"));
-  PaleoTheme::applyThemedStyleSheet(bar, [] {
-    const auto &theme = PaleoTheme::tokens();
-    return QStringLiteral(
-               "#dataGraphToolBar { background: %1; border-bottom: 1px solid %2; }")
-               .arg(theme.surfaceAlt.name(), theme.border.name()) +
-           PaleoTheme::toolButtonStyleSheet();
-  });
+  PaleoTheme::applyThemedStyleSheet(bar, [] { return PaleoTheme::graphSurfaceStyleSheet(); });
   auto *barLayout = new QHBoxLayout(bar);
   barLayout->setContentsMargins(t.spacingXs, t.spacingXs, t.spacingXs, t.spacingXs);
   barLayout->setSpacing(t.spacingXs);
-  const auto iconButton = [bar](const char *name, const char *icon,
+  const auto iconButton = [bar](const char *name, const char *,
                                 const QString &tip) {
     auto *button = new QToolButton(bar);
     button->setObjectName(QLatin1String(name));
-    button->setIcon(PaleoIcons::qgisTheme(QLatin1String(icon)));
+    button->setIcon(PaleoTheme::graphIcon(QLatin1String(name)));
     button->setIconSize(PaleoIcons::toolbarSize());
     button->setAutoRaise(true);
     button->setToolTip(tip);
@@ -124,12 +100,12 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   createEvidenceFilters(bar);
   m_search = new QLineEdit(bar);
   m_search->setObjectName("dataGraphSearch");
-  m_search->setPlaceholderText(tr("搜索"));
+  m_search->setPlaceholderText(tr("搜索实体、文件或井名"));
   m_search->setToolTip(tr("搜索文件、路径或资料名称"));
   m_search->setClearButtonEnabled(true);
-  m_search->setMinimumWidth(96);
-  m_search->setMaximumWidth(220);
-  m_search->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionFilter2.svg")),
+  m_search->setMinimumWidth(180);
+  m_search->setMaximumWidth(360);
+  m_search->addAction(PaleoTheme::graphIcon(QStringLiteral("dataGraphSearch")),
                       QLineEdit::LeadingPosition);
   m_back = iconButton("dataGraphBack", "mActionUndo.svg", tr("返回上一图谱"));
   m_back->setEnabled(false);
@@ -151,7 +127,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
       iconButton("dataGraphZoomOut", "mActionZoomOut.svg", tr("缩小"));
   m_cancel = iconButton("dataGraphCancel", "mActionCancelEdits.svg",
                         tr("取消计算"));
-  m_cancel->setEnabled(false);
+  m_cancel->setEnabled(false); m_cancel->hide();
   auto *governance =
       iconButton("dataGraphManage", "mActionOptions.svg", tr("资料管理"));
   auto *governanceMenu = new QMenu(governance);
@@ -166,14 +142,14 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   governance->setPopupMode(QToolButton::InstantPopup);
   m_export = iconButton("dataGraphExport", "mActionSaveMapAsImage.svg",
                         tr("导出当前图谱"));
-  m_summary = new ElideLabel(bar);
+  m_summary = new QLabel(bar);
   m_summary->setObjectName(QStringLiteral("dataGraphSummary"));
-  for (QWidget *widget : std::initializer_list<QWidget *>{
-           m_mode, m_category, m_stage, m_evidenceTypeFilter, m_reviewFilter, m_relationFilter,
-           m_search, m_back, m_depth, m_history, m_evidencePage, refreshButton,
-           fit, zoomIn, zoomOut, m_cancel, governance, m_export})
-    barLayout->addWidget(widget);
-  barLayout->addWidget(m_summary, 1);
+  auto *filters = iconButton("dataGraphFilters", "mActionFilter2.svg", tr("筛选与展开设置"));
+  configureGraphFilters(filters);
+  auto *relationsToggle = iconButton("dataGraphRelationsToggle", "mActionIdentify.svg", tr("显示或收起关系面板"));
+  for (QWidget *widget : std::initializer_list<QWidget *>{m_mode, m_search, filters, relationsToggle, m_back, refreshButton,
+          fit, zoomIn, zoomOut, m_cancel, governance, m_export}) barLayout->addWidget(widget);
+  barLayout->addStretch(1);
   layout->addWidget(bar);
   connect(m_back, &QToolButton::clicked, this, [this] {
     if (m_backHistory.isEmpty())
@@ -227,7 +203,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
                                   ? s + QStringLiteral(" · ") + m_graphMessage
                                   : s);
             m_busy = busy;
-            m_cancel->setEnabled(busy);
+            m_cancel->setEnabled(busy); m_cancel->setVisible(busy);
             m_view->setEnabled(!busy);
             if (busy)
               for (auto *b : {m_open, m_locate, m_folder, m_trace, m_impact, m_related,
@@ -246,12 +222,10 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   connect(refreshButton, &QToolButton::clicked, this, &DataGraphPage::refresh);
   connect(fit, &QToolButton::clicked, this, &DataGraphPage::fitGraphToView);
   connect(zoomIn, &QToolButton::clicked, this, [this] {
-    if (m_view->transform().m11() < 4)
-      m_view->scale(1.2, 1.2);
+    static_cast<DataGraphCanvas *>(m_view)->zoomBy(1.2);
   });
   connect(zoomOut, &QToolButton::clicked, this, [this] {
-    if (m_view->transform().m11() > .15)
-      m_view->scale(1 / 1.2, 1 / 1.2);
+    static_cast<DataGraphCanvas *>(m_view)->zoomBy(1 / 1.2);
   });
   connect(m_cancel, &QToolButton::clicked, m_workflow,
           &DataGraphWorkflow::cancel);
@@ -278,16 +252,18 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   });
   PaleoTheme::applyThemedStyleSheet(this, [this] {
     const auto &tokens = PaleoTheme::tokens();
-    m_scene->setBackgroundBrush(tokens.surface);
+    m_scene->setBackgroundBrush(PaleoTheme::graphCanvasColor());
     m_view->viewport()->update();
     for (auto *edge : m_edges) {
       auto *path = static_cast<QGraphicsPathItem *>(edge);
       auto pen = path->pen();
-      pen.setColor(path->data(3).toBool()   ? tokens.focusRing
+      pen.setColor(path->data(4).toBool() ? path->data(5).value<QColor>()
+                   : path->data(3).toBool()   ? tokens.focusRing
                    : path->data(0).toBool() ? tokens.warning
                                             : tokens.textMuted);
       path->setPen(pen); updateDataGraphEdgeLabels(path);
     }
+    m_details->setHtml(nodeDetailsHtml(m_selected));
     return QString();
   });
 }
@@ -397,6 +373,8 @@ void DataGraphPage::request() {
   for (auto *widget : std::initializer_list<QWidget *>{m_evidenceTypeFilter, m_reviewFilter, m_relationFilter, m_evidencePage})
     widget->setVisible(evidence);
   m_history->setEnabled(m_mode->currentData().toInt() == int(Mode::Relations));
+  const bool network = m_mode->currentData().toInt() == int(Mode::Knowledge);
+  m_history->setVisible(!network); m_depth->setVisible(!network);
   m_stage->setEnabled(m_mode->currentData().toInt() != int(Mode::Entities));
   m_history->setToolTip(tr("资料关联视图可展开历史版本；成果追溯按实际版本血缘"
                            "显示，工区概览按当前版本统计。"));
@@ -438,8 +416,13 @@ void DataGraphPage::hideEvent(QHideEvent *event) {
   QWidget::hideEvent(event);
 }
 void DataGraphPage::fitGraphToView() {
-  if (!m_graph.nodes.isEmpty())
-    m_view->fitInView(m_scene->itemsBoundingRect().adjusted(-16, -16, 16, 16), Qt::KeepAspectRatio);
+  if (!m_graph.nodes.isEmpty()) {
+    m_view->fitInView(m_scene->itemsBoundingRect().adjusted(-80, -80, 80, 80), Qt::KeepAspectRatio);
+    const auto scale = m_view->transform().m11();
+    if (scale > 1.3) m_view->scale(1.3 / scale, 1.3 / scale);
+    static_cast<DataGraphCanvas *>(m_view)->includeFitScale(m_view->transform().m11());
+    rebuildGraphEdges();
+  }
 }
 void DataGraphPage::render(const Graph &graph) {
   const bool newScope = m_graph.nodes.isEmpty() || m_graph.query.mode != graph.query.mode ||
@@ -475,25 +458,7 @@ void DataGraphPage::render(const Graph &graph) {
       item->updateNode(n);
     }
   }
-  for (auto *e : m_edges)
-    delete e;
-  m_edges.clear();
-  QHash<QPair<QString, QString>, int> totals, lanes;
-  for (const auto &edge : graph.edges) ++totals[qMakePair(edge.source, edge.target)];
-  for (const Edge &e : graph.edges) {
-    if (!m_items.contains(e.source) || !m_items.contains(e.target))
-      continue;
-    const auto pair = qMakePair(e.source, e.target);
-    const double bend = (lanes[pair]++ - (totals[pair] - 1) / 2.0) * PaleoTheme::tokens().spacingLg * 2;
-    auto *item = addDataGraphEdge(m_scene, m_items[e.source], m_items[e.target], e, bend);
-    item->setToolTip(
-        (e.label + QStringLiteral("\n依据：") + e.provenance).toHtmlEscaped());
-    item->setData(0, e.unresolved);
-    item->setData(1, e.source);
-    item->setData(2, e.target);
-    item->setZValue(0);
-    m_edges.append(item);
-  }
+  rebuildGraphEdges();
   m_scene->setSceneRect(
       m_scene->itemsBoundingRect().adjusted(-16, -16, 16, 16));
   bool found = false;
@@ -531,8 +496,32 @@ void DataGraphPage::render(const Graph &graph) {
           .arg(graph.cycles ? tr(" · %1 组血缘环需核查").arg(graph.cycles)
                             : QString()));
   m_summary->setToolTip(m_summary->text());
+  m_summary->setText(tr("实体 %1　文件 %2　关系 %3").arg(graph.totalEntities).arg(graph.totalAssets).arg(graph.edges.size()));
+  updateGraphPanels();
   if (!graph.message.isEmpty())
     m_status->setText(graph.message);
+}
+void DataGraphPage::rebuildGraphEdges() {
+  for (auto *e : m_edges)
+    delete e;
+  m_edges.clear();
+  QHash<QPair<QString, QString>, int> totals, lanes;
+  for (const auto &edge : m_graph.edges) ++totals[qMakePair(edge.source, edge.target)];
+  for (const Edge &e : m_graph.edges) {
+    if (!m_items.contains(e.source) || !m_items.contains(e.target))
+      continue;
+    const auto pair = qMakePair(e.source, e.target);
+    const double bend = (lanes[pair]++ - (totals[pair] - 1) / 2.0) * PaleoTheme::tokens().spacingLg * 2;
+    auto *item = addDataGraphEdge(m_scene, m_items[e.source], m_items[e.target], e, bend);
+    item->setToolTip(
+        (e.label + QStringLiteral("\n依据：") + e.provenance).toHtmlEscaped());
+    item->setData(0, e.unresolved);
+    item->setData(1, e.source);
+    item->setData(2, e.target);
+    item->setZValue(0);
+    m_edges.append(item);
+  }
+  updateGraphHighlights();
 }
 QString DataGraphPage::selectedPath() const {
   if (!m_doc || !m_doc->catalog() || m_selected.assetId.isEmpty() ||
@@ -542,6 +531,34 @@ QString DataGraphPage::selectedPath() const {
                      ? m_doc->catalog()->currentVersion(m_selected.assetId)
                      : m_doc->catalog()->versionById(m_selected.versionId);
   return v.id.isEmpty() ? QString() : m_doc->absolutePathForVersion(v);
+}
+void DataGraphPage::updateGraphHighlights() {
+  const auto &node = m_selected;
+  for (auto it = m_items.cbegin(); it != m_items.cend(); ++it)
+    it.value()->setSelected(it.key() == node.id);
+  QSet<QString> neighborhood{node.id};
+  for (const auto &edge : m_graph.edges)
+    if (edge.source == node.id || edge.target == node.id) { neighborhood.insert(edge.source); neighborhood.insert(edge.target); }
+  const bool spotlight = m_graph.query.mode == Mode::Knowledge && !node.id.isEmpty();
+  for (auto it = m_items.cbegin(); it != m_items.cend(); ++it)
+    it.value()->setOpacity(!spotlight || neighborhood.contains(it.key()) ? 1.0 : .2);
+  for (auto *edge : m_edges) {
+    auto *path = static_cast<QGraphicsPathItem *>(edge);
+    const bool related =
+        !node.id.isEmpty() && (path->data(1).toString() == node.id ||
+                               path->data(2).toString() == node.id);
+    auto pen = path->pen();
+    pen.setWidth(related ? 2 : 1);
+    pen.setColor(path->data(4).toBool() ? path->data(5).value<QColor>()
+                 : related                  ? PaleoTheme::tokens().focusRing
+                 : path->data(0).toBool() ? PaleoTheme::tokens().warning
+                                          : PaleoTheme::tokens().textMuted);
+    path->setData(3, related);
+    path->setPen(pen);
+    path->setOpacity(spotlight && !related ? .1 : spotlight ? 1.0 : .55);
+    for (auto *label : path->childItems())
+      label->setVisible(m_graph.query.mode != Mode::Knowledge || related || (node.id.isEmpty() && m_graph.edges.size() <= 20));
+  }
 }
 void DataGraphPage::selectNode(const Node &node, bool navigate) {
   m_selected = node;
@@ -560,54 +577,8 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
       row->setToolTip(1, e.provenance);
       row->setToolTip(2, other);
     }
-  for (auto it = m_items.cbegin(); it != m_items.cend(); ++it)
-    it.value()->setSelected(it.key() == node.id);
-  QSet<QString> neighborhood{node.id};
-  for (const auto &edge : m_graph.edges)
-    if (edge.source == node.id || edge.target == node.id) { neighborhood.insert(edge.source); neighborhood.insert(edge.target); }
-  const bool spotlight = m_graph.query.mode == Mode::Knowledge && !node.id.isEmpty();
-  for (auto it = m_items.cbegin(); it != m_items.cend(); ++it)
-    it.value()->setOpacity(!spotlight || neighborhood.contains(it.key()) ? 1.0 : .2);
-  for (auto *edge : m_edges) {
-    auto *path = static_cast<QGraphicsPathItem *>(edge);
-    const bool related =
-        !node.id.isEmpty() && (path->data(1).toString() == node.id ||
-                               path->data(2).toString() == node.id);
-    auto pen = path->pen();
-    pen.setWidth(related ? 2 : 1);
-    pen.setColor(related                  ? PaleoTheme::tokens().focusRing
-                 : path->data(0).toBool() ? PaleoTheme::tokens().warning
-                                          : PaleoTheme::tokens().textMuted);
-    path->setData(3, related);
-    path->setPen(pen);
-    path->setOpacity(spotlight && !related ? .12 : 1.0);
-    for (auto *label : path->childItems())
-      label->setVisible(m_graph.query.mode != Mode::Knowledge || related || (node.id.isEmpty() && m_graph.edges.size() <= 20));
-  }
-  m_details->setPlainText(
-      node.id.isEmpty()
-          ? QString()
-          : node.title + QStringLiteral("\n\n") + node.detail +
-                QStringLiteral("\n\n") +
-                tr("类别：%1\n阶段：%2\n文件：%3\n资产 ID：%4\n版本 ID：%5")
-                    .arg(
-                        [&] {
-                          QStringList names;
-                          for (const auto &c : node.categories)
-                            names << categoryText(c);
-                          return names.join(QStringLiteral(" / "));
-                        }(),
-                        node.kind == Kind::Entity ? tr("不适用")
-                        : node.kind == Kind::Group && node.stage.isEmpty()
-                            ? tr("全部阶段")
-                            : stageText(node.stage),
-                        selectedPath(), node.assetId, node.versionId) +
-                tr("\n导入来源：%1\nSHA-256：%2")
-                    .arg(node.sourceUri, node.sha256) +
-                (node.evidenceText.isEmpty()
-                     ? QString()
-                     : tr("\n\n生成证据（输入、模型、参数、支撑与软件）：\n") +
-                           node.evidenceText));
+  updateGraphHighlights();
+  m_details->setHtml(nodeDetailsHtml(node));
   const bool real = !m_busy && node.kind != Kind::Missing &&
                     node.kind != Kind::Group &&
                     !m_presentation.removedIds.contains(node.assetId) &&
@@ -639,6 +610,7 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
   for (auto *b : {m_map, m_reference, m_wells})
     b->setToolTip(b->isEnabled() ? tr("打开当前选择的真实保存版本")
                                  : tr("请选择已登记的相应图件版本"));
+  updateGraphPanels();
   if (!navigate || !real)
     return;
   if (!node.featureUid.isEmpty()) {

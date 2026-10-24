@@ -87,6 +87,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/projectstatisticspage.cpp
   src/ui/datapreview/datapreviewtabdocument.cpp
   src/ui/pages/datagraphsceneitems.cpp
+  src/ui/pages/datagraphicons.cpp
   src/ui/pages/datagraphpage.cpp
   src/ui/pages/datagraphpanels.cpp
   src/ui/datapreview/officepreviewwidget.cpp

@@ -37,6 +37,8 @@ class CacheSegyIndexTests : public QObject
     // #290：并行/续扫与顺序 open() 的索引口径一致性。
     void parallelDialectMatchesSequential();
     void parallelShortTraceMatchesSequential();
+    // review-fix-dataio：restore() 拒绝损坏/篡改的缓存索引。
+    void restoreRejectsCorruptIndex();
 
   private:
     QTemporaryDir m_dir;
@@ -62,6 +64,33 @@ void CacheSegyIndexTests::saveLoadRoundtrip()
   QCOMPARE(loaded->geometry.inlineMin, 1000.0);
   QCOMPARE(loaded->geometry.inlineMax, 1007.0);
   QCOMPARE(loaded->complete, true);
+}
+
+void CacheSegyIndexTests::restoreRejectsCorruptIndex()
+{
+  const QString sgy = m_dir.filePath("restore.sgy");
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, 4, 5, 30) > 0);
+  SegyReader reader;
+  QString err;
+  QVERIFY2(reader.open(sgy, &err), qPrintable(err));
+  SegyIndexStore::StoredIndex snap;
+  QVERIFY(reader.snapshot(&snap));
+  {
+    SegyReader ok;
+    QVERIFY(ok.restore(snap, sgy)); // 正常快照仍可恢复（兼容）
+    QCOMPARE(ok.samplesPerTrace(), 30);
+  }
+  auto bad = snap;
+  bad.samplesPerTrace = 0;
+  QVERIFY(!SegyReader().restore(bad, sgy));
+  bad.samplesPerTrace = -7;
+  QVERIFY(!SegyReader().restore(bad, sgy));
+  bad = snap;
+  bad.offsets[1] = QFileInfo(sgy).size() + 4096; // 越过文件尾
+  QVERIFY(!SegyReader().restore(bad, sgy));
+  bad = snap;
+  bad.offsets[0] = 100; // 落在 3600 字节卷头内
+  QVERIFY(!SegyReader().restore(bad, sgy));
 }
 
 void CacheSegyIndexTests::identitySizeChangeTriggersRebuild()

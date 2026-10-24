@@ -19,6 +19,25 @@ class TestProjectCoordinates : public QObject {
     QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly)); QCOMPARE(f.write(bytes), bytes.size());
   }
 private slots:
+  // review-fix-dataio：CRS 字符串来自工程文件/导入表头，旧实现直接
+  // SetFromUserInput 会把它当文件路径/URL 打开（任意读 + 网络请求）。
+  // 带 SET_FROM_USER_INPUT_LIMITATIONS 后只接受 EPSG/WKT/PROJ 等内联定义。
+  void crsUserInputRefusesFilePaths() {
+    QTemporaryDir root; const auto wktFile = root.filePath("crs.wkt");
+    const auto wkt = paleo::io::coordinateWkt("EPSG:32649");
+    QVERIFY(!wkt.isEmpty());
+    write(wktFile, wkt.toUtf8());
+    // 内联定义照常可用（兼容既有工程）。
+    QVERIFY(paleo::io::isMetricProjectCrs("EPSG:32649"));
+    QVERIFY(paleo::io::isMetricProjectCrs(wkt));
+    QVERIFY(validNativeCrs("EPSG:4326"));
+    QVERIFY(sameNativeCrs("EPSG:32649", wkt));
+    // 文件路径一律拒绝。
+    QVERIFY(!paleo::io::isMetricProjectCrs(wktFile));
+    QVERIFY(paleo::io::coordinateWkt(wktFile).isEmpty());
+    QVERIFY(!validNativeCrs(wktFile));
+    QVERIFY(!sameNativeCrs(wktFile, wkt));
+  }
   void depthOnlyStratificationImportsIntoProjectedProject() {
     QTemporaryDir root; const auto heads = root.filePath("heads.csv");
     const auto tops = root.filePath("tops.csv"), td = root.filePath("td.dat");

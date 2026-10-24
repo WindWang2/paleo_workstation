@@ -87,7 +87,9 @@ bool writeProvSidecar(const QString &provPath, const QString &paramHash,
     return false;
   // #322：短写必须拦。磁盘满时旧的 remove+rename 会删掉好 sidecar，再把半份
   // 文件改上去。改用 paleoReplaceFile——它直接用替换语义，不预删目标。
-  if (f.write(QJsonDocument(o).toJson(QJsonDocument::Compact)) < 0)
+  // review-fix-dataio：短写（0 < n < size）同样是失败——只查 <0 会放行半截 sidecar。
+  const QByteArray provBytes = QJsonDocument(o).toJson(QJsonDocument::Compact);
+  if (f.write(provBytes) != provBytes.size() || !f.flush())
   {
     f.close();
     f.remove();

@@ -21,7 +21,7 @@ QString importProjectBoundary(FamilyContext &ctx)
     if (layer->GetSpatialRef() && ctx.s->georeference && ctx.s->georeference->kind == QLatin1String("crs")) {
       OGRSpatialReference source(*layer->GetSpatialRef()), destination;
       source.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
-      if (destination.SetFromUserInput(ctx.s->georeference->sourceCrs.toUtf8().constData()) == OGRERR_NONE) {
+      if (destination.SetFromUserInput(ctx.s->georeference->sourceCrs.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) == OGRERR_NONE) {
         destination.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
         transform.reset(OGRCreateCoordinateTransformation(&source, &destination));
       }

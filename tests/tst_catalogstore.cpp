@@ -1375,6 +1375,14 @@ void TestCatalogStore::linkOrdGapDoesNotCreatePhantomRow()
     }
     QCOMPARE(tables.links.at(0).entityId, QStringLiteral("ent-1"));
     QCOMPARE(tables.links.at(1).entityId, QStringLiteral("ent-2"));
+#ifdef QT_NO_DEBUG
+    // review-fix-dataio：事务外整表重写被拒，且不得清空既有链接。
+    {
+      QString txnErr;
+      QVERIFY(!store.replaceAllLinks({}, &txnErr));
+      QVERIFY(txnErr.contains(QLatin1String("transaction")));
+    }
+#endif
     // 整表重写：幻影行不得回流（ord 致密化由 replaceAllLinks 完成）。
     QVERIFY2(store.begin(&err), qPrintable(err));
     QVERIFY2(store.replaceAllLinks(tables.links, &err), qPrintable(err));

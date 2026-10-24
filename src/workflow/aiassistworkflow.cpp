@@ -29,6 +29,7 @@
 #include "../qgis/qgislayerservice.h"
 #include "../services/paleotaskservice.h"
 #include "derivedassets.h"
+#include "../io/atomicwrite.h"
 
 // workflow/ — AI 辅助解释编排实现。
 // · tile 分类：推理核心（ai/tileinference）+ 本文件的产品收尾（GTiff 写
@@ -851,13 +852,10 @@ bool AiAssistWorkflow::commitAccepted( const QString &horizon, QString *error )
     picks.append( p );
   }
   doc.insert( QStringLiteral( "picks" ), picks );
-  QFile f( st.absolutePath );
-  if ( !f.open( QIODevice::WriteOnly ) )
-  {
-    return fail( tr( "无法写入 %1: %2" ).arg( st.absolutePath, f.errorString() ) );
-  }
-  f.write( QJsonDocument( doc ).toJson( QJsonDocument::Indented ) );
-  f.close();
+  // 原子整写 + 校验：短写/磁盘满不得把半截 JSON 登记成资产。
+  QString writeErr;
+  if ( !paleo::writeJsonAtomic( st.absolutePath, QJsonDocument( doc ), &writeErr ) )
+    return fail( tr( "无法写入 %1: %2" ).arg( st.absolutePath, writeErr ) );
 
   QVariantMap extra;
   extra.insert( QStringLiteral( "horizon" ), horizon );

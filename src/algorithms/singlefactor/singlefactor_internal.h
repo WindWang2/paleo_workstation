@@ -10,6 +10,7 @@
 #include "types.h"
 
 #include <QFile>
+#include <QSaveFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QString>
@@ -46,10 +47,22 @@ inline QString sidecarPath( const QString &rasterPath, const QString &suffix )
 /// JSON 落盘（缩进档）；打不开即抛 QgsProcessingException（算法失败语义）。
 inline void writeJson( const QString &path, const QVariantMap &root )
 {
-  QFile file( path );
-  if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
-    throw QgsProcessingException( QStringLiteral( "Cannot write %1" ).arg( path ) );
-  file.write( QJsonDocument::fromVariant( root ).toJson( QJsonDocument::Indented ) );
+  // 原子整写并校验：旧实现忽略 write() 返回值，磁盘满时 sidecar 半截却算成功。
+  // 口径同 io/atomicwrite.h；此处就地展开而不 include io/ 头——本头被 4 个
+  // TU 共用，include io/ 会新增重头出闸边（check_layering --transitive）。
+  const QByteArray bytes = QJsonDocument::fromVariant( root ).toJson( QJsonDocument::Indented );
+  QSaveFile file( path );
+  file.setDirectWriteFallback( false );
+  if ( !file.open( QIODevice::WriteOnly ) )
+    throw QgsProcessingException( QStringLiteral( "Cannot write %1: %2" ).arg( path, file.errorString() ) );
+  if ( file.write( bytes ) != bytes.size() )
+  {
+    const QString detail = file.errorString();
+    file.cancelWriting();
+    throw QgsProcessingException( QStringLiteral( "Cannot write %1: %2" ).arg( path, detail ) );
+  }
+  if ( !file.commit() )
+    throw QgsProcessingException( QStringLiteral( "Cannot write %1: %2" ).arg( path, file.errorString() ) );
 }
 
 /// 点列 → [[x,y],…]（sidecar JSON 几何分量）。

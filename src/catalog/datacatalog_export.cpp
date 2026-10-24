@@ -148,8 +148,9 @@ bool DataCatalog::writeWellsGeoJson(const QString &path, QString *error) const
     setError(error, tr("井点 GeoJSON 写入失败：%1（%2）").arg(path, file.errorString()));
     return false;
   }
-  if (file.write(QJsonDocument(root).toJson(QJsonDocument::Compact)) < 0 ||
-      !file.commit())
+  // 短写（0 < n < size）同样是失败：只查 <0 会让 commit 发布半截 GeoJSON。
+  const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Compact);
+  if (file.write(payload) != payload.size() || !file.commit())
   {
     setError(error, tr("井点 GeoJSON 写入失败：%1").arg(path));
     return false;

@@ -1,6 +1,7 @@
 // 层：功能
 #include "wellfaciesservice.h"
 #include <QCryptographicHash>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -102,8 +103,15 @@ bool WellFaciesConfig::save(QString *error, bool writeKeyToFile) const {
     QJsonObject json{{"baseUrl", baseUrl.toString()}};
     if (allowInsecureHttp)
       json.insert("allowInsecureHttp", true);
-    if (writeKeyToFile)
+    if (writeKeyToFile) {
+      // review-fix-dataio：明文密钥落盘是兼容回落（钥匙串不可用/写失败），
+      // 已弃用——保留读写以免旧配置失效，但每次落盘都留告警：0600 只在
+      // POSIX 生效，Windows 上文件继承目录 ACL。
+      qWarning("WellFaciesConfig: API 密钥以明文写入 %s（已弃用的兼容回落，"
+               "建议改用系统钥匙串或 PALEO_WELL_FACIES_API_KEY 环境变量）",
+               qPrintable(QDir::toNativeSeparators(path())));
       json.insert("apiKey", QString::fromUtf8(apiKey));
+    }
     const QByteArray bytes = QJsonDocument(json).toJson();
     if (f.write(bytes) == bytes.size() && f.commit())
       return true;

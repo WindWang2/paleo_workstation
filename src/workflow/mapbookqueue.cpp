@@ -18,6 +18,7 @@
 #include <QVariantMap>
 
 #include "../catalog/datacatalog.h"
+#include "../io/atomicwrite.h"
 #include "../qgis/layoutexport.h"
 #include "../qgis/mapbooklayout.h"
 #include "../services/paleotaskservice.h"
@@ -90,21 +91,16 @@ namespace
     root.insert( QStringLiteral( "indexPage" ), result.indexPage );
 
     const QString path = manifestPath( request );
-    QFile file( path );
-    if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
-    {
-      if ( error )
-        *error = QObject::tr( "无法写 manifest：%1" ).arg( path );
-      return false;
-    }
+    // 原子整写（QSaveFile + commit）：旧实现 QFile+Truncate 原地覆写，写中途
+    // 崩溃/磁盘满会留下截断或空的 manifest，而上一份完整 manifest 已被抹掉。
     const QByteArray bytes = QJsonDocument( root ).toJson( QJsonDocument::Indented );
-    if ( file.write( bytes ) != bytes.size() )
+    QString writeErr;
+    if ( !paleo::writeFileAtomic( path, bytes, &writeErr ) )
     {
       if ( error )
-        *error = QObject::tr( "manifest 写入不完整：%1" ).arg( path );
+        *error = QObject::tr( "无法写 manifest：%1（%2）" ).arg( path, writeErr );
       return false;
     }
-    file.close();
     if ( pathOut )
       *pathOut = path;
     return true;

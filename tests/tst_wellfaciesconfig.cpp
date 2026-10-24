@@ -1,5 +1,6 @@
 // tst_wellfaciesconfig — 测井相预测服务配置的传输安全与密钥落盘（#133）。
 #include <QtTest>
+#include <QRegularExpression>
 
 #include <QDir>
 #include <QFile>
@@ -147,6 +148,9 @@ private slots:
     c.apiKey = "k";
     c.allowInsecureHttp = true;
     QString error;
+    // review-fix-dataio：明文落盘是已弃用的兼容回落，必须留告警。
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression(QStringLiteral("API 密钥以明文写入")));
     QVERIFY2(c.save(&error, true), qPrintable(error));
     const WellFaciesConfig back = WellFaciesConfig::load();
     QCOMPARE(back.apiKey, QByteArray("k"));

@@ -10,8 +10,8 @@ namespace {
 using Transform = std::unique_ptr<OGRCoordinateTransformation, decltype(&OCTDestroyCoordinateTransformation)>;
 Transform transformation(const QString &from, const QString &to) {
   OGRSpatialReference a, b;
-  if (a.SetFromUserInput(from.toUtf8().constData()) != OGRERR_NONE ||
-      b.SetFromUserInput(to.toUtf8().constData()) != OGRERR_NONE) return {nullptr, OCTDestroyCoordinateTransformation};
+  if (a.SetFromUserInput(from.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE ||
+      b.SetFromUserInput(to.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE) return {nullptr, OCTDestroyCoordinateTransformation};
   a.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER); b.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
   return {OGRCreateCoordinateTransformation(&a, &b), OCTDestroyCoordinateTransformation};
 }
@@ -40,12 +40,12 @@ bool transformHeader(QByteArray &header, OGRCoordinateTransformation *ct, bool g
 namespace paleo::io {
 bool isMetricProjectCrs(const QString &crs) {
   OGRSpatialReference srs;
-  return srs.SetFromUserInput(crs.toUtf8().constData()) == OGRERR_NONE && srs.IsProjected()
+  return srs.SetFromUserInput(crs.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) == OGRERR_NONE && srs.IsProjected()
       && std::abs(srs.GetLinearUnits() - 1.) < 1e-9;
 }
 QString coordinateWkt(const QString &crs) {
   OGRSpatialReference srs; char *wkt = nullptr;
-  if (srs.SetFromUserInput(crs.toUtf8().constData()) != OGRERR_NONE || srs.exportToWkt(&wkt) != OGRERR_NONE) return {};
+  if (srs.SetFromUserInput(crs.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE || srs.exportToWkt(&wkt) != OGRERR_NONE) return {};
   const auto result = QString::fromUtf8(wkt); CPLFree(wkt); return result;
 }
 bool projectRasterFile(const QString &path, const QString &target, QString *error, const QString &source) {
@@ -63,7 +63,7 @@ bool projectRasterFile(const QString &path, const QString &target, QString *erro
   if (!input) return fail(error, QStringLiteral("无法读取待转换栅格"));
   OGRSpatialReference from, to;
   if (from.SetFromUserInput(GDALGetProjectionRef(input)) != OGRERR_NONE ||
-      to.SetFromUserInput(target.toUtf8().constData()) != OGRERR_NONE) {
+      to.SetFromUserInput(target.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE) {
     GDALClose(input); return fail(error, QStringLiteral("栅格来源或工程坐标系无效"));
   }
   from.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER); to.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
@@ -98,7 +98,7 @@ bool projectSegyFile(const QString &source, const QString &output, const QString
   auto ct = transformation(from, target);
   if (!ct) return fail(error, QStringLiteral("无法建立地震坐标转换"));
   OGRSpatialReference sourceReference;
-  sourceReference.SetFromUserInput(from.toUtf8().constData());
+  sourceReference.SetFromUserInput(from.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get());
   QFile input(source);
   if (!input.open(QIODevice::ReadOnly)) return fail(error, QStringLiteral("无法读取地震源文件"));
   const auto header = input.read(3600);

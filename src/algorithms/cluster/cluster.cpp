@@ -35,6 +35,17 @@ double distance(const double *a, const double *b, std::size_t d) {
   return v;
 }
 // Log-sum-exp avoids Gaussian underflow for distant samples.
+// PW-084: components whose responsibility mass vanished keep their stale
+// weight; renormalise so the mixture weights always sum to one.
+void renormalizeWeights(std::vector<double> &w) {
+  double total = 0;
+  for (double v : w)
+    total += v;
+  if (total > 0 && std::isfinite(total))
+    for (double &v : w)
+      v /= total;
+}
+
 double posterior(const double *x, const Model &m, std::vector<double> &p) {
   const std::size_t d = m.centers.dimensions, k = m.centers.rows();
   p.resize(k);
@@ -169,12 +180,14 @@ Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
   std::vector<double> sums(k * d);
   std::vector<std::size_t> counts(k);
   std::vector<double> history;
+  std::vector<double> bestDistance;
   int iterations = 0;
   for (int it = 0; it < o.maxIterations; ++it) {
     std::fill(sums.begin(), sums.end(), 0);
     std::fill(counts.begin(), counts.end(), 0);
     bool changed = false;
     double sse = 0;
+    bestDistance.assign(n, 0.0);
     for (std::size_t i = 0; i < n; ++i) {
       if ((i & 1023U) == 0 && stopped(ctl))
         return clusterFailure("Cancelled", true);
@@ -189,6 +202,7 @@ Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
       }
       changed = changed || labels[i] != winner;
       labels[i] = winner;
+      bestDistance[i] = best;
       sse += best;
       ++counts[std::size_t(winner)];
       for (std::size_t j = 0; j < d; ++j)
@@ -198,6 +212,34 @@ Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
       return clusterFailure("Numerical overflow in kmeans");
     history.push_back(sse);
     double shift = 0;
+    // PW-083: an empty cluster used to keep its stale centre forever (k
+    // effectively shrinks). Reseed it to the point currently farthest from
+    // its own centre (Lloyd/Hartigan standard remedy).
+    bool reseeded = false;
+    for (std::size_t c = 0; c < k; ++c)
+      if (!counts[c]) {
+        std::size_t far = 0;
+        double farD = -1.0;
+        for (std::size_t i = 0; i < n; ++i)
+          if (bestDistance[i] > farD && counts[std::size_t(labels[i])] > 1) {
+            farD = bestDistance[i];
+            far = i;
+          }
+        if (farD <= 0.0)
+          continue; // all points coincide with their centres: nothing to split
+        const std::size_t from = std::size_t(labels[far]);
+        --counts[from];
+        for (std::size_t j = 0; j < d; ++j) {
+          sums[from * d + j] -= x.row(far)[j];
+          sums[c * d + j] = x.row(far)[j];
+        }
+        counts[c] = 1;
+        labels[far] = int(c);
+        bestDistance[far] = 0.0;
+        reseeded = true;
+      }
+    if (reseeded)
+      changed = true;
     for (std::size_t c = 0; c < k; ++c)
       if (counts[c]) {
         for (std::size_t j = 0; j < d; ++j) {
@@ -209,7 +251,7 @@ Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
       }
     iterations = it + 1;
     report(ctl, 0.9 * double(iterations) / o.maxIterations);
-    if (!changed || shift <= o.tolerance * o.tolerance)
+    if (!reseeded && (!changed || shift <= o.tolerance * o.tolerance))
       break;
   }
   Control final{ctl.cancelled, {}};
@@ -271,6 +313,8 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
       kBytes != 0 && n > std::numeric_limits<std::size_t>::max() / kBytes;
   const bool chunked = o.emChunkBudgetBytes != 0 &&
                        (bytesOverflow || n * kBytes > o.emChunkBudgetBytes);
+  Model prevModel = m;
+  bool likelihoodDecreased = false;
   if (chunked) {
     // Chunked EM: same two-pass update as the full-matrix path below, but the
     // n*k responsibilities are streamed in row blocks so peak memory stays
@@ -306,18 +350,25 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
         return clusterFailure("Non-finite Gaussian likelihood");
       history.push_back(ll);
       if (it &&
-          ll + 1e-8 * std::max(1.0, std::abs(ll)) < history[history.size() - 2])
-        return clusterFailure("Gaussian EM likelihood decreased; model not accepted");
+          ll + 1e-8 * std::max(1.0, std::abs(ll)) < history[history.size() - 2]) {
+        // PW-085: roll back to the model that produced the previous LL.
+        history.pop_back();
+        m = prevModel;
+        likelihoodDecreased = true;
+        break;
+      }
       if (it == o.maxIterations ||
           (it && std::abs(ll - history[history.size() - 2]) <=
                      o.tolerance * std::max(1.0, std::abs(ll))))
         break;
+      prevModel = m;
       for (std::size_t c = 0; c < k; ++c)
         if (counts[c] > 1e-12) {
           m.weights[c] = counts[c] / double(n);
           for (std::size_t j = 0; j < d; ++j)
             m.centers.values[c * d + j] = sums[c * d + j] / counts[c];
         }
+      renormalizeWeights(m.weights); // PW-084
       std::fill(sums.begin(), sums.end(), 0);
       for (std::size_t start = 0; start < n; start += chunkRows) {
         const std::size_t rows = std::min(chunkRows, n - start);
@@ -360,13 +411,18 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
         return clusterFailure("Non-finite Gaussian likelihood");
       history.push_back(ll);
       if (it &&
-          ll + 1e-8 * std::max(1.0, std::abs(ll)) <
-                   history[history.size() - 2])
-        return clusterFailure("Gaussian EM likelihood decreased; model not accepted");
+          ll + 1e-8 * std::max(1.0, std::abs(ll)) < history[history.size() - 2]) {
+        // PW-085: roll back to the model that produced the previous LL.
+        history.pop_back();
+        m = prevModel;
+        likelihoodDecreased = true;
+        break;
+      }
       if (it == o.maxIterations ||
           (it && std::abs(ll - history[history.size() - 2]) <=
                      o.tolerance * std::max(1.0, std::abs(ll))))
         break;
+      prevModel = m;
       std::fill(counts.begin(), counts.end(), 0);
       std::fill(sums.begin(), sums.end(), 0);
       for (std::size_t i = 0; i < n; ++i) {
@@ -385,6 +441,7 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
           for (std::size_t j = 0; j < d; ++j)
             m.centers.values[c * d + j] = sums[c * d + j] / counts[c];
         }
+      renormalizeWeights(m.weights); // PW-084
       std::fill(sums.begin(), sums.end(), 0);
       for (std::size_t i = 0; i < n; ++i) {
         if ((i & 1023U) == 0 && stopped(ctl))
@@ -411,6 +468,7 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
   r.iterations = iterations;
   r.bic = double(2 * k * d + k - 1) * std::log(double(n)) - 2 * history.back();
   r.chunkedEm = chunked;
+  r.likelihoodDecreased = likelihoodDecreased;
   report(ctl, 1);
   return r;
 }

@@ -173,6 +173,12 @@ public:
   bool isFaciesPolygon(const QString &id) const;
   bool setFeatureDisplayMode(const QString &id, const QList<qint64> &ids,
                              const QString &mode, QString *error);
+  // Class-level pins (node key -> level); a pin keeps that facies subtree at a
+  // fixed level whatever the layer mode/scale. Per-polygon locks still win.
+  QVariantMap pinnedLevels(const QString &id) const;
+  // mode "auto" (or empty) removes the pin for that node.
+  bool setPinnedLevel(const QString &id, const QString &nodeKey, const QString &mode,
+                      QString *error);
   void updateDisplayScale(double scale);
   FaciesHierarchy::ScaleThresholds displayThresholds() const;
   bool setDisplayThresholds(double facies, double micro, QString *error);

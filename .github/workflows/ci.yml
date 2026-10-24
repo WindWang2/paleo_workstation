@@ -450,11 +450,16 @@ jobs:
       # 走 ./paleo-dev test 而非裸 ctest：vendored 路测试期需要 deb 库路径 /
       # QGIS_PREFIX_PATH / GDAL_DRIVER_PATH 注入（与 linux 主 job 同源）；
       # ASAN_OPTIONS 经 env 透传，串行 -j 1 语义不变。
-      - name: Test (serial, LSAN off per devex 手动轮口径)
+      # PW-030：LSAN 打开，QGIS/Qt 设计内“泄漏”走 tools/lsan-suppressions.txt；
+      # UBSAN halt_on_error 让 UB 直接判红。本 job 仍 continue-on-error（观察档），
+      # 连续绿后再列入 ci-gate needs（见 ledger 手工步骤）。
+      - name: Test (serial, LSAN on with suppressions, UBSAN halting)
         env:
           QT_QPA_PLATFORM: offscreen
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
-          ASAN_OPTIONS: detect_leaks=0
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          LSAN_OPTIONS: suppressions=${{ github.workspace }}/tools/lsan-suppressions.txt:print_suppressions=0
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ./paleo-dev test -j 1 --output-on-failure
       - name: Stage test diagnostics
         if: always()

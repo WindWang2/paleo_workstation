@@ -3,7 +3,6 @@
 #include <QVariantMap>
 #include <QMap>
 #include <QWidget>
-#include "../faciespinnedlevellist.h"
 class MappingWorkbench;
 class QListWidget;
 class QTreeWidget;
@@ -115,7 +114,6 @@ private:
   QComboBox *m_displayLevel = nullptr, *m_editLevel = nullptr, *m_evidenceSource = nullptr;
   QComboBox *m_featureDisplayLevel = nullptr;
   QLabel *m_featureDisplayState = nullptr;
-  FaciesPinnedLevelList *m_pins = nullptr;
   QPlainTextEdit *m_evidenceText = nullptr;
   QListWidget *m_evidence = nullptr;
   QListWidget *m_generationEvidence = nullptr;

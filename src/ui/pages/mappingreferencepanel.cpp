@@ -12,7 +12,8 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QHBoxLayout>
-#include <QGridLayout>
+#include <QApplication>
+#include <QWheelEvent>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -216,7 +217,7 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   m_count->setObjectName(QStringLiteral("referenceViewCount"));
   auto *add = new QPushButton(tr("添加视图"), this);
   add->setObjectName(QStringLiteral("referenceAddView"));
-  add->setToolTip(tr("添加参考视图，按两列排列，可滚动查看更多证据"));
+  add->setToolTip(tr("在同一行添加参考视图，左右滚动查看更多证据"));
   tools->addWidget(m_count);
   tools->addStretch();
   tools->addWidget(add);
@@ -226,13 +227,14 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   m_scroll->setFrameShape(QFrame::NoFrame);
   m_scroll->setWidgetResizable(true);
   m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   auto *body = new QWidget(m_scroll);
   body->setObjectName(QStringLiteral("referenceViewsRow"));
   body->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Expanding);
-  m_row = new QGridLayout(body);
+  m_row = new QHBoxLayout(body);
   m_row->setContentsMargins(0, 0, 0, 0);
   m_row->setSpacing(tokens.spacingSm);
+  m_row->setAlignment(Qt::AlignLeft);
   m_scroll->setWidget(body);
   layout->addWidget(m_scroll, 1);
   // D-12（full-audit-20261020）：空态引导——全部视图关闭后仅「0 个视图」
@@ -245,6 +247,7 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   PaleoTheme::applyThemedStyleSheet(m_emptyHint, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   m_emptyHint->hide();
   layout->addWidget(m_emptyHint);
+  m_scroll->viewport()->installEventFilter(this);
   connect(add, &QPushButton::clicked, this, [this] { addView(); });
   addView();
   addView();
@@ -256,6 +259,8 @@ MappingReferencePanel *MappingEvidencePanel::addView()
   view->setSources(m_sources, m_horizon);
   view->setViewActive(m_active);
   m_views << view;
+  view->installEventFilter(this);
+  for (auto *child : view->findChildren<QWidget *>()) child->installEventFilter(this);
   connect(view, &MappingReferencePanel::referenceRequested, this, [this, view](const QString &id) {
     emit referenceRequested(view, id);
   });
@@ -281,24 +286,52 @@ void MappingEvidencePanel::layoutViews()
 {
   while (QLayoutItem *item = m_row->takeAt(0))
     delete item;
-  // DESIGN：按两列共享空间；第三个视图从下一行开始。
+  // All evidence views remain in one horizontal strip, including narrow docks.
   for (qsizetype i = 0; i < m_views.size(); ++i) {
     auto *view = m_views[i];
-    view->setMinimumSize(240, 200);
-    view->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    view->setMinimumHeight(200);
+    view->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     view->setRemoveHint(m_views.size() == 1);
     view->setAccessibleName(tr("证据视图 %1").arg(i + 1));
-    m_row->addWidget(view, int(i) / 2, int(i) % 2);
+    m_row->addWidget(view);
     view->show();
   }
-  auto *body = m_scroll->widget();
-  body->setMinimumWidth(0);
-  m_row->setColumnStretch(0, 1);
-  m_row->setColumnStretch(1, m_views.size() > 1 ? 1 : 0);
+  updateViewSizes();
   m_row->activate();
   m_count->setText(tr("%1 个视图").arg(m_views.size()));
   m_scroll->setVisible(!m_views.isEmpty()); // D-12：空态收起滚动区，展示引导
   m_emptyHint->setVisible(m_views.isEmpty());
+}
+
+void MappingEvidencePanel::updateViewSizes()
+{
+  const int count = int(m_views.size());
+  const int gap = m_row->spacing();
+  const int visible = qMin(count, 2);
+  const int width = visible ? qMax(260, (m_scroll->viewport()->width() - (visible - 1) * gap) / visible) : 0;
+  for (auto *view : m_views) view->setFixedWidth(width);
+  m_scroll->widget()->setMinimumWidth(count ? count * width + (count - 1) * gap : 0);
+  m_scroll->widget()->setFixedHeight(m_scroll->viewport()->height());
+}
+
+bool MappingEvidencePanel::eventFilter(QObject *watched, QEvent *event)
+{
+  if (event->type() == QEvent::Resize && watched == m_scroll->viewport()) updateViewSizes();
+  if (event->type() == QEvent::Wheel) {
+    auto *wheel = static_cast<QWheelEvent *>(event);
+    const bool horizontal = qAbs(wheel->pixelDelta().x()) > qAbs(wheel->pixelDelta().y()) ||
+        qAbs(wheel->angleDelta().x()) > qAbs(wheel->angleDelta().y());
+    if (horizontal || watched == m_scroll->viewport()) {
+      auto *bar = m_scroll->horizontalScrollBar();
+      const int pixels = horizontal ? wheel->pixelDelta().x() : wheel->pixelDelta().y();
+      const int angle = horizontal ? wheel->angleDelta().x() : wheel->angleDelta().y();
+      const int distance = pixels ? pixels : qRound(angle / 120.0 * QApplication::wheelScrollLines() * bar->singleStep());
+      bar->setValue(bar->value() - distance);
+      wheel->accept();
+      return true;
+    }
+  }
+  return QWidget::eventFilter(watched, event);
 }
 
 void MappingEvidencePanel::setSources(const QVariantList &sources, const QString &horizon)

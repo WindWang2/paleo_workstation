@@ -31,6 +31,7 @@
 #include <QLineEdit>
 #include <QGroupBox>
 #include <QScrollBar>
+#include <QWheelEvent>
 #include "../src/ui/pages/mappingreferencepanel.h"
 #include "../src/ui/pages/wellpredictionpanel.h"
 #include "../src/ui/paleotheme.h"
@@ -2507,6 +2508,55 @@ private slots:
     panel.setSources({}, QString());
     QVERIFY(firstLayer.isNull());
     QVERIFY(!first->hasReference());
+    main.stopRendering();
+  }
+
+  void evidenceViewsStayInOneRowWhenResizedAndScrollWithWheel() {
+    QgsMapCanvas main;
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    MappingEvidencePanel panel(&main, nullptr);
+    panel.resize(800, 360); panel.show();
+    for (int i = 0; i < 3; ++i) panel.addView();
+    QCOMPARE(panel.views().size(), 5);
+    auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
+    auto *add = panel.findChild<QPushButton *>("referenceAddView"); QVERIFY(add);
+    QCOMPARE(scroll->verticalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
+    QTRY_VERIFY(scroll->horizontalScrollBar()->maximum() > 0);
+    QVERIFY(add->mapTo(&panel, QPoint()).y() + add->height() <= scroll->mapTo(&panel, QPoint()).y());
+    auto *first = panel.views().first();
+    first->setReference(new QgsVectorLayer("Point?crs=EPSG:3857", "evidence", "memory"), {});
+    const auto scale = first->canvas()->scale();
+    QCoreApplication::processEvents();
+    auto *bar = scroll->horizontalScrollBar(); bar->setValue(0);
+    const QPoint pos = first->canvas()->viewport()->rect().center();
+    QWheelEvent right(pos, first->canvas()->viewport()->mapToGlobal(pos), QPoint(-60, 0),
+        QPoint(-120, 0), Qt::NoButton, Qt::NoModifier, Qt::ScrollUpdate, false);
+    QApplication::sendEvent(first->canvas()->viewport(), &right);
+    QCOMPARE(bar->value(), 60); QCOMPARE(first->canvas()->scale(), scale);
+    const QPoint background = scroll->viewport()->rect().center();
+    QWheelEvent left(background, scroll->viewport()->mapToGlobal(background), QPoint(60, 0),
+        QPoint(120, 0), Qt::NoButton, Qt::NoModifier, Qt::ScrollUpdate, false);
+    QApplication::sendEvent(scroll->viewport(), &left); QCOMPARE(bar->value(), 0);
+    QWheelEvent vertical(background, scroll->viewport()->mapToGlobal(background), {},
+        QPoint(0, -120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(scroll->viewport(), &vertical); QVERIFY(bar->value() > 0);
+    for (int width : {800, 340, 1100}) {
+      panel.resize(width, 360); QCoreApplication::processEvents();
+      const int row = first->y(); int rightEdge = -1;
+      for (auto *view : panel.views()) {
+        QCOMPARE(view->y(), row); QCOMPARE(view->width(), first->width());
+        QVERIFY(view->x() > rightEdge); rightEdge = view->geometry().right();
+      }
+      QVERIFY(scroll->widget()->minimumWidth() > scroll->viewport()->width());
+      QCOMPARE(scroll->verticalScrollBar()->maximum(), 0);
+      if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty()) {
+        QDir().mkpath(qa); QVERIFY(panel.grab().save(qa + QString("/evidence-single-row-%1.png").arg(width)));
+      }
+    }
+    panel.views()[2]->findChild<QToolButton *>("referenceRemoveView")->click();
+    QCOMPARE(panel.views().size(), 4); QCoreApplication::processEvents();
+    for (auto *view : panel.views()) QCOMPARE(view->y(), first->y());
     main.stopRendering();
   }
 

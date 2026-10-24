@@ -11982,12 +11982,12 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/ui/faciesdisplaycontrol.cpp" line="57"/>
         <source>另有 %1 个相类固定显示层级，不随此处切换（在「相类别与标注」中管理）</source>
-        <translation type="unfinished"></translation>
+        <translation>另有 %1 个相类固定显示层级，不随此处切换（在「相类别与标注」中管理）</translation>
     </message>
     <message>
         <location filename="../src/ui/faciesdisplaycontrol.cpp" line="60"/>
         <source>当前：%1（%2 个相类固定）</source>
-        <translation type="unfinished"></translation>
+        <translation>当前：%1（%2 个相类固定）</translation>
     </message>
     <message>
         <location filename="../src/ui/faciesdisplaycontrol.cpp" line="61"/>
@@ -12381,22 +12381,22 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/ui/faciespinmenu.cpp" line="29"/>
         <source>固定显示层级</source>
-        <translation type="unfinished"></translation>
+        <translation>固定显示层级</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinmenu.cpp" line="36"/>
         <source>%1（%2）</source>
-        <translation type="unfinished">%1（%2）</translation>
+        <translation>%1（%2）</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinmenu.cpp" line="46"/>
         <source>取消固定</source>
-        <translation type="unfinished"></translation>
+        <translation>取消固定</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinmenu.cpp" line="48"/>
         <source>移除作用于此相面的最近一级固定</source>
-        <translation type="unfinished"></translation>
+        <translation>移除作用于此相面的最近一级固定</translation>
     </message>
 </context>
 <context>
@@ -12405,52 +12405,52 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="17"/>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="33"/>
         <source>固定显示层级的相类</source>
-        <translation type="unfinished"></translation>
+        <translation>固定显示层级的相类</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="26"/>
         <source>暂无固定。在地图上右键相面，选「固定显示层级」即可添加。</source>
-        <translation type="unfinished"></translation>
+        <translation>暂无固定。在地图上右键相面，选「固定显示层级」即可添加。</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="35"/>
         <source>相类</source>
-        <translation type="unfinished"></translation>
+        <translation>相类</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="35"/>
         <source>固定显示为</source>
-        <translation type="unfinished"></translation>
+        <translation>固定显示为</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="52"/>
         <source>%1 的固定显示层级</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 的固定显示层级</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="64"/>
         <source>删除</source>
-        <translation type="unfinished">删除</translation>
+        <translation>删除</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="65"/>
         <source>删除此固定，恢复跟随图层显示层级</source>
-        <translation type="unfinished"></translation>
+        <translation>删除此固定，恢复跟随图层显示层级</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="66"/>
         <source>删除 %1 的固定</source>
-        <translation type="unfinished"></translation>
+        <translation>删除 %1 的固定</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="86"/>
         <source>%1（不在当前分类中）</source>
-        <translation type="unfinished"></translation>
+        <translation>%1（不在当前分类中）</translation>
     </message>
     <message>
         <location filename="../src/ui/faciespinnedlevellist.cpp" line="89"/>
         <source>%1（%2）</source>
-        <translation type="unfinished">%1（%2）</translation>
+        <translation>%1（%2）</translation>
     </message>
 </context>
 <context>
@@ -13115,103 +13115,103 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="33"/>
         <source>反演:</source>
-        <translation type="unfinished">反演:</translation>
+        <translation>反演:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="36"/>
         <source>带限道积分</source>
-        <translation type="unfinished">带限道积分</translation>
+        <translation>带限道积分</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="37"/>
         <source>稀疏脉冲</source>
-        <translation type="unfinished">稀疏脉冲</translation>
+        <translation>稀疏脉冲</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="55"/>
         <source>▶ 反演</source>
-        <translation type="unfinished">▶ 反演</translation>
+        <translation>▶ 反演</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="56"/>
         <source>对整个地震体做确定性叠后反演，结果登记为派生版本</source>
-        <translation type="unfinished">对整个地震体做确定性叠后反演，结果登记为派生版本</translation>
+        <translation>对整个地震体做确定性叠后反演，结果登记为派生版本</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="59"/>
         <source>取消</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="59"/>
         <source>取消在途反演任务</source>
-        <translation type="unfinished">取消在途反演任务</translation>
+        <translation>取消在途反演任务</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="67"/>
         <source>低频截止:</source>
-        <translation type="unfinished">低频截止:</translation>
+        <translation>低频截止:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="74"/>
         <source> Hz</source>
-        <translation type="unfinished"> Hz</translation>
+        <translation> Hz</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="78"/>
         <source>λ(稀疏):</source>
-        <translation type="unfinished">λ(稀疏):</translation>
+        <translation>λ(稀疏):</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="85"/>
         <source>自动</source>
-        <translation type="unfinished">自动</translation>
+        <translation>自动</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="89"/>
         <source>迭代上限:</source>
-        <translation type="unfinished">迭代上限:</translation>
+        <translation>迭代上限:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="101"/>
         <source>提取子波…</source>
-        <translation type="unfinished">提取子波…</translation>
+        <translation>提取子波…</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="102"/>
         <source>用最近井的声波、密度、时深和井旁道做最小二乘子波提取，结果登记为派生版本</source>
-        <translation type="unfinished">用最近井的声波、密度、时深和井旁道做最小二乘子波提取，结果登记为派生版本</translation>
+        <translation>用最近井的声波、密度、时深和井旁道做最小二乘子波提取，结果登记为派生版本</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="108"/>
         <source>子波 wavelet.json 路径（先提取或浏览）</source>
-        <translation type="unfinished">子波 wavelet.json 路径（先提取或浏览）</translation>
+        <translation>子波 wavelet.json 路径（先提取或浏览）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="110"/>
         <source>浏览…</source>
-        <translation type="unfinished">浏览…</translation>
+        <translation>浏览…</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="110"/>
         <source>选择已有子波资产文件</source>
-        <translation type="unfinished">选择已有子波资产文件</translation>
+        <translation>选择已有子波资产文件</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="120"/>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="165"/>
         <source>阻抗 = 低频模型(0–低频截止) + 地震带限；绝对趋势由井控承载。</source>
-        <translation type="unfinished">阻抗 = 低频模型(0–低频截止) + 地震带限；绝对趋势由井控承载。</translation>
+        <translation>阻抗 = 低频模型(0–低频截止) + 地震带限；绝对趋势由井控承载。</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="132"/>
         <source>选择子波文件</source>
-        <translation type="unfinished">选择子波文件</translation>
+        <translation>选择子波文件</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/inversionpanel.cpp" line="132"/>
         <source>子波 (*.json)</source>
-        <translation type="unfinished">子波 (*.json)</translation>
+        <translation>子波 (*.json)</translation>
     </message>
 </context>
 <context>
@@ -14941,12 +14941,12 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/workflow/mappinghierarchy.cpp" line="92"/>
         <source>请选择相、亚相或微相</source>
-        <translation type="unfinished"></translation>
+        <translation>请选择相、亚相或微相</translation>
     </message>
     <message>
         <location filename="../src/workflow/mappinghierarchy.cpp" line="99"/>
         <source>请选择当前图件分类中的相类</source>
-        <translation type="unfinished"></translation>
+        <translation>请选择当前图件分类中的相类</translation>
     </message>
     <message>
         <location filename="../src/workflow/mappinghierarchy.cpp" line="133"/>
@@ -17321,7 +17321,7 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="743"/>
         <source>固定的相类（含下级）始终按所选层级显示，不随显示层级与比例尺切换；单独锁定的相面仍优先</source>
-        <translation type="unfinished"></translation>
+        <translation>固定的相类（含下级）始终按所选层级显示，不随显示层级与比例尺切换；单独锁定的相面仍优先</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="748"/>
@@ -22417,7 +22417,7 @@ SHA-256：%2</translation>
     <message>
         <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="56"/>
         <source>工作台操作失败：%1</source>
-        <translation type="unfinished"></translation>
+        <translation>工作台操作失败：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="132"/>
@@ -22561,12 +22561,12 @@ SHA-256：%2</translation>
     <message>
         <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="508"/>
         <source>未知操作：%1</source>
-        <translation type="unfinished"></translation>
+        <translation>未知操作：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="554"/>
         <source>操作未执行：%1 当前不可用</source>
-        <translation type="unfinished"></translation>
+        <translation>操作未执行：%1 当前不可用</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_workbench_commands.cpp" line="560"/>
@@ -24828,204 +24828,204 @@ SHA-256：%2</translation>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="40"/>
         <source>公式:</source>
-        <translation type="unfinished">公式:</translation>
+        <translation>公式:</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="78"/>
         <source>▶ 批量计算</source>
-        <translation type="unfinished">▶ 批量计算</translation>
+        <translation>▶ 批量计算</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="78"/>
         <source>对当前井集逐井计算并写回结果曲线</source>
-        <translation type="unfinished">对当前井集逐井计算并写回结果曲线</translation>
+        <translation>对当前井集逐井计算并写回结果曲线</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="82"/>
         <source>取消</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="82"/>
         <source>取消在途批任务（已完成井成果保留）</source>
-        <translation type="unfinished">取消在途批任务（已完成井成果保留）</translation>
+        <translation>取消在途批任务（已完成井成果保留）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="86"/>
         <source>井集：—</source>
-        <translation type="unfinished">井集：—</translation>
+        <translation>井集：—</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="117"/>
         <source>井内极值</source>
-        <translation type="unfinished">井内极值</translation>
+        <translation>井内极值</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="121"/>
         <source>勾选：该井 GR 非空样本 min/max 作基线（产物 extra 记实取值）。
 不勾：用右侧手动值。出处 AK04 ch.4（纯砂岩/纯泥岩 GR 基线）。</source>
-        <translation type="unfinished">勾选：该井 GR 非空样本 min/max 作基线（产物 extra 记实取值）。
+        <translation>勾选：该井 GR 非空样本 min/max 作基线（产物 extra 记实取值）。
 不勾：用右侧手动值。出处 AK04 ch.4（纯砂岩/纯泥岩 GR 基线）。</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="125"/>
         <source>纯砂岩段 GR 下限（API）</source>
-        <translation type="unfinished">纯砂岩段 GR 下限（API）</translation>
+        <translation>纯砂岩段 GR 下限（API）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="127"/>
         <source>纯泥岩段 GR 上限（API）</source>
-        <translation type="unfinished">纯泥岩段 GR 上限（API）</translation>
+        <translation>纯泥岩段 GR 上限（API）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="131"/>
         <source>GR 基线:</source>
-        <translation type="unfinished">GR 基线:</translation>
+        <translation>GR 基线:</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="139"/>
         <source>骨架密度 ρma（g/cm³）：砂岩 2.65 / 灰岩 2.71 / 白云岩 2.87（AK04 ch.3 文献值）</source>
-        <translation type="unfinished">骨架密度 ρma（g/cm³）：砂岩 2.65 / 灰岩 2.71 / 白云岩 2.87（AK04 ch.3 文献值）</translation>
+        <translation>骨架密度 ρma（g/cm³）：砂岩 2.65 / 灰岩 2.71 / 白云岩 2.87（AK04 ch.3 文献值）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="142"/>
         <source>流体密度 ρf（g/cm³）：淡水 1.0（AK04 ch.3）</source>
-        <translation type="unfinished">流体密度 ρf（g/cm³）：淡水 1.0（AK04 ch.3）</translation>
+        <translation>流体密度 ρf（g/cm³）：淡水 1.0（AK04 ch.3）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="146"/>
         <source>ρma / ρf:</source>
-        <translation type="unfinished">ρma / ρf:</translation>
+        <translation>ρma / ρf:</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="149"/>
         <source>NPHI 输入为 %</source>
-        <translation type="unfinished">NPHI 输入为 %</translation>
+        <translation>NPHI 输入为 %</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="151"/>
         <source>勾选：NPHI 按百分数读入并换算 v/v；不勾：已是小数 孔隙度直读（AK04 ch.3）</source>
-        <translation type="unfinished">勾选：NPHI 按百分数读入并换算 v/v；不勾：已是小数 孔隙度直读（AK04 ch.3）</translation>
+        <translation>勾选：NPHI 按百分数读入并换算 v/v；不勾：已是小数 孔隙度直读（AK04 ch.3）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="153"/>
         <source>中子口径:</source>
-        <translation type="unfinished">中子口径:</translation>
+        <translation>中子口径:</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="161"/>
         <source>骨架声波 Δtma：砂岩 182 µs/m（55.5 µs/ft）、灰岩 156 （Wyllie 1956；AK04 ch.3）——单位须与曲线一致</source>
-        <translation type="unfinished">骨架声波 Δtma：砂岩 182 µs/m（55.5 µs/ft）、灰岩 156 （Wyllie 1956；AK04 ch.3）——单位须与曲线一致</translation>
+        <translation>骨架声波 Δtma：砂岩 182 µs/m（55.5 µs/ft）、灰岩 156 （Wyllie 1956；AK04 ch.3）——单位须与曲线一致</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="164"/>
         <source>流体声波 Δtf：淡水 620 µs/m（189 µs/ft）</source>
-        <translation type="unfinished">流体声波 Δtf：淡水 620 µs/m（189 µs/ft）</translation>
+        <translation>流体声波 Δtf：淡水 620 µs/m（189 µs/ft）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="166"/>
         <source>压实校正因子 Cp（Wyllie 1956；1 = 不校正）</source>
-        <translation type="unfinished">压实校正因子 Cp（Wyllie 1956；1 = 不校正）</translation>
+        <translation>压实校正因子 Cp（Wyllie 1956；1 = 不校正）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="171"/>
         <source>Δtma/Δtf/Cp:</source>
-        <translation type="unfinished">Δtma/Δtf/Cp:</translation>
+        <translation>Δtma/Δtf/Cp:</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="179"/>
         <source>Archie a：经典 1.0 / Humble 0.62（AK04 ch.6）</source>
-        <translation type="unfinished">Archie a：经典 1.0 / Humble 0.62（AK04 ch.6）</translation>
+        <translation>Archie a：经典 1.0 / Humble 0.62（AK04 ch.6）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="181"/>
         <source>胶结指数 m：经典 2.0 / Humble 2.15（AK04 ch.6）</source>
-        <translation type="unfinished">胶结指数 m：经典 2.0 / Humble 2.15（AK04 ch.6）</translation>
+        <translation>胶结指数 m：经典 2.0 / Humble 2.15（AK04 ch.6）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="183"/>
         <source>饱和指数 n：2.0（Archie 1942 原式）</source>
-        <translation type="unfinished">饱和指数 n：2.0（Archie 1942 原式）</translation>
+        <translation>饱和指数 n：2.0（Archie 1942 原式）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="185"/>
         <source>地层水电阻率 Rw（Ω·m）——工区水性质定，必填（无文献通用值，不预填臆造）</source>
-        <translation type="unfinished">地层水电阻率 Rw（Ω·m）——工区水性质定，必填（无文献通用值，不预填臆造）</translation>
+        <translation>地层水电阻率 Rw（Ω·m）——工区水性质定，必填（无文献通用值，不预填臆造）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="187"/>
         <source>—必填—</source>
-        <translation type="unfinished">—必填—</translation>
+        <translation>—必填—</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="193"/>
         <source>a/m/n/Rw:</source>
-        <translation type="unfinished">a/m/n/Rw:</translation>
+        <translation>a/m/n/Rw:</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="198"/>
         <source>空 = 用上方 ρma/ρf 从 RHOB 内联算 φD</source>
-        <translation type="unfinished">空 = 用上方 ρma/ρf 从 RHOB 内联算 φD</translation>
+        <translation>空 = 用上方 ρma/ρf 从 RHOB 内联算 φD</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="200"/>
         <source>Archie φ 曲线:</source>
-        <translation type="unfinished">Archie φ 曲线:</translation>
+        <translation>Archie φ 曲线:</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="206"/>
         <source>逐点表达式，如 RHOB - 0.05*NPHI 或 where(GR &gt; 100, GR, 0)</source>
-        <translation type="unfinished">逐点表达式，如 RHOB - 0.05*NPHI 或 where(GR &gt; 100, GR, 0)</translation>
+        <translation>逐点表达式，如 RHOB - 0.05*NPHI 或 where(GR &gt; 100, GR, 0)</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="207"/>
         <source>表达式:</source>
-        <translation type="unfinished">表达式:</translation>
+        <translation>表达式:</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="218"/>
         <source>QC 门</source>
-        <translation type="unfinished">QC 门</translation>
+        <translation>QC 门</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="221"/>
         <source>结果曲线越界区间计数（如 Vsh/φ/Sw 出 [0,1] 记异常段）</source>
-        <translation type="unfinished">结果曲线越界区间计数（如 Vsh/φ/Sw 出 [0,1] 记异常段）</translation>
+        <translation>结果曲线越界区间计数（如 Vsh/φ/Sw 出 [0,1] 记异常段）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="224"/>
         <source>QC 下限</source>
-        <translation type="unfinished">QC 下限</translation>
+        <translation>QC 下限</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="226"/>
         <source>QC 上限</source>
-        <translation type="unfinished">QC 上限</translation>
+        <translation>QC 上限</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="230"/>
         <source>输出/QC:</source>
-        <translation type="unfinished">输出/QC:</translation>
+        <translation>输出/QC:</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="242"/>
         <source>未计算</source>
-        <translation type="unfinished">未计算</translation>
+        <translation>未计算</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="318"/>
         <source>井集：%1 井（%2 有 LAS）</source>
-        <translation type="unfinished">井集：%1 井（%2 有 LAS）</translation>
+        <translation>井集：%1 井（%2 有 LAS）</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="327"/>
         <source>计算中…</source>
-        <translation type="unfinished">计算中…</translation>
+        <translation>计算中…</translation>
     </message>
     <message>
         <location filename="../src/ui/correlation/petrophyspanel.cpp" line="336"/>
         <source>计算中… %1 %2%</source>
-        <translation type="unfinished">计算中… %1 %2%</translation>
+        <translation>计算中… %1 %2%</translation>
     </message>
 </context>
 <context>
@@ -25033,78 +25033,78 @@ SHA-256：%2</translation>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="98"/>
         <source>岩心照片 — %1</source>
-        <translation type="unfinished">岩心照片 — %1</translation>
+        <translation>岩心照片 — %1</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="105"/>
         <source>测深：%1–%2 m</source>
-        <translation type="unfinished">测深：%1–%2 m</translation>
+        <translation>测深：%1–%2 m</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="106"/>
         <source>锚深：%1 m</source>
-        <translation type="unfinished">锚深：%1 m</translation>
+        <translation>锚深：%1 m</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="117"/>
         <source>滚轮缩放，按住左键拖动浏览；关闭窗口返回井道。</source>
-        <translation type="unfinished">滚轮缩放，按住左键拖动浏览；关闭窗口返回井道。</translation>
+        <translation>滚轮缩放，按住左键拖动浏览；关闭窗口返回井道。</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="140"/>
         <source>放大</source>
-        <translation type="unfinished">放大</translation>
+        <translation>放大</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="141"/>
         <source>缩小</source>
-        <translation type="unfinished">缩小</translation>
+        <translation>缩小</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="142"/>
         <source>适应窗口</source>
-        <translation type="unfinished">适应窗口</translation>
+        <translation>适应窗口</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="143"/>
         <source>原始大小（100%）</source>
-        <translation type="unfinished">原始大小（100%）</translation>
+        <translation>原始大小（100%）</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="145"/>
         <source>原图读取完成后可查看原始大小</source>
-        <translation type="unfinished">原图读取完成后可查看原始大小</translation>
+        <translation>原图读取完成后可查看原始大小</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="155"/>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="158"/>
         <source>没有可显示的照片。</source>
-        <translation type="unfinished">没有可显示的照片。</translation>
+        <translation>没有可显示的照片。</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="156"/>
         <source>仅有内嵌图片，按现有分辨率显示。</source>
-        <translation type="unfinished">仅有内嵌图片，按现有分辨率显示。</translation>
+        <translation>仅有内嵌图片，按现有分辨率显示。</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="161"/>
         <source>正在读取原图…</source>
-        <translation type="unfinished">正在读取原图…</translation>
+        <translation>正在读取原图…</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="169"/>
         <source>无法读取原图；如有缩略图，可继续查看缩略图。</source>
-        <translation type="unfinished">无法读取原图；如有缩略图，可继续查看缩略图。</translation>
+        <translation>无法读取原图；如有缩略图，可继续查看缩略图。</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="175"/>
         <source>原图：%1 × %2 像素</source>
-        <translation type="unfinished">原图：%1 × %2 像素</translation>
+        <translation>原图：%1 × %2 像素</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="177"/>
         <source>无法启动原图读取；请关闭窗口后重试。</source>
-        <translation type="unfinished">无法启动原图读取；请关闭窗口后重试。</translation>
+        <translation>无法启动原图读取；请关闭窗口后重试。</translation>
     </message>
 </context>
 <context>
@@ -25112,7 +25112,7 @@ SHA-256：%2</translation>
     <message>
         <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="31"/>
         <source>岩心照片放大视图</source>
-        <translation type="unfinished">岩心照片放大视图</translation>
+        <translation>岩心照片放大视图</translation>
     </message>
 </context>
 <context>
@@ -26734,7 +26734,7 @@ SHA-256：%2</translation>
     <message>
         <location filename="../src/ui/datapreview/projectstatisticspage.cpp" line="352"/>
         <source>&lt;span style=&quot;color:%1&quot;&gt;●&lt;/span&gt;&amp;nbsp;井位&amp;nbsp;&amp;nbsp;&lt;span style=&quot;color:%2&quot;&gt;╌╌&lt;/span&gt;&amp;nbsp;工区范围</source>
-        <translation type="unfinished"></translation>
+        <translation>&lt;span style=&quot;color:%1&quot;&gt;●&lt;/span&gt;&amp;nbsp;井位&amp;nbsp;&amp;nbsp;&lt;span style=&quot;color:%2&quot;&gt;╌╌&lt;/span&gt;&amp;nbsp;工区范围</translation>
     </message>
     <message>
         <source>&lt;span style=&quot;color:%1&quot;&gt;●&lt;/span&gt;&amp;nbsp;井位&amp;nbsp;&amp;nbsp;&lt;span style=&quot;color:%1&quot;&gt;╌╌&lt;/span&gt;&amp;nbsp;工区范围</source>
@@ -31469,72 +31469,72 @@ SHA-256：%2</translation>
         <translation>重连</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="343"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="348"/>
         <source> 井</source>
         <translation> 井</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="73"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="75"/>
         <source>海拔/m</source>
         <translation>海拔/m</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="46"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="48"/>
         <source>TVD 不可用（无测斜）</source>
         <translation>TVD 不可用（无测斜）</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="48"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="50"/>
         <source>TVD 不可用（井斜表损坏）</source>
         <translation>TVD 不可用（井斜表损坏）</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="66"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="68"/>
         <source>海拔垂深/m</source>
         <translation>海拔垂深/m</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="68"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="70"/>
         <source>拉平·垂深/m</source>
         <translation>拉平·垂深/m</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="70"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="72"/>
         <source>垂深/m</source>
         <translation>垂深/m</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="75"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="77"/>
         <source>拉平/m</source>
         <translation>拉平/m</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="87"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="89"/>
         <source> · 井斜不可用，TVD 域无深度读数</source>
         <translation> · 井斜不可用，TVD 域无深度读数</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="98"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="100"/>
         <source> · TVD 不可用（无测斜，按井深绘制）</source>
         <translation> · TVD 不可用（无测斜，按井深绘制）</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="105"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="107"/>
         <source> · 层段 %1</source>
         <translation> · 层段 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="113"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="115"/>
         <source>推断·%1 截断</source>
         <translation>推断·%1 截断</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="115"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="117"/>
         <source>解释</source>
         <translation>解释</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="116"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="118"/>
         <source>解释·%1</source>
         <translation>解释·%1</translation>
     </message>
@@ -36885,112 +36885,112 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="32"/>
         <source>属性:</source>
-        <translation type="unfinished">属性:</translation>
+        <translation>属性:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="51"/>
         <source>范围:</source>
-        <translation type="unfinished">范围:</translation>
+        <translation>范围:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="54"/>
         <source>本剖面</source>
-        <translation type="unfinished">本剖面</translation>
+        <translation>本剖面</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="55"/>
         <source>时间切片</source>
-        <translation type="unfinished">时间切片</translation>
+        <translation>时间切片</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="56"/>
         <source>属性体</source>
-        <translation type="unfinished">属性体</translation>
+        <translation>属性体</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="58"/>
         <source>时间切片/属性体按属性族所需窗口全测网扫描（瞬时族整道谱、时窗族垂向窗、相干三维窗）</source>
-        <translation type="unfinished">时间切片/属性体按属性族所需窗口全测网扫描（瞬时族整道谱、时窗族垂向窗、相干三维窗）</translation>
+        <translation>时间切片/属性体按属性族所需窗口全测网扫描（瞬时族整道谱、时窗族垂向窗、相干三维窗）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="62"/>
         <source>采样:</source>
-        <translation type="unfinished">采样:</translation>
+        <translation>采样:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="86"/>
         <source>▶ 计算属性</source>
-        <translation type="unfinished">▶ 计算属性</translation>
+        <translation>▶ 计算属性</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="87"/>
         <source>对当前剖面计算所选属性并叠加显示</source>
-        <translation type="unfinished">对当前剖面计算所选属性并叠加显示</translation>
+        <translation>对当前剖面计算所选属性并叠加显示</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="90"/>
         <source>取消</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="90"/>
         <source>取消在途属性任务</source>
-        <translation type="unfinished">取消在途属性任务</translation>
+        <translation>取消在途属性任务</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="93"/>
         <source>登记资产</source>
-        <translation type="unfinished">登记资产</translation>
+        <translation>登记资产</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="94"/>
         <source>把最近一次属性结果登记为派生资产（需应用层注入 catalog）</source>
-        <translation type="unfinished">把最近一次属性结果登记为派生资产（需应用层注入 catalog）</translation>
+        <translation>把最近一次属性结果登记为派生资产（需应用层注入 catalog）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="103"/>
         <source>时窗半窗(样):</source>
-        <translation type="unfinished">时窗半窗(样):</translation>
+        <translation>时窗半窗(样):</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="110"/>
         <source>相干 IL/XL/垂向半窗:</source>
-        <translation type="unfinished">相干 IL/XL/垂向半窗:</translation>
+        <translation>相干 IL/XL/垂向半窗:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="131"/>
         <source>相干加权:</source>
-        <translation type="unfinished">相干加权:</translation>
+        <translation>相干加权:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="134"/>
         <source>等权</source>
-        <translation type="unfinished">等权</translation>
+        <translation>等权</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="135"/>
         <source>道距加权</source>
-        <translation type="unfinished">道距加权</translation>
+        <translation>道距加权</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="138"/>
         <source>叠加透明度:</source>
-        <translation type="unfinished">叠加透明度:</translation>
+        <translation>叠加透明度:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="157"/>
         <source>未计算</source>
-        <translation type="unfinished">未计算</translation>
+        <translation>未计算</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="250"/>
         <source>计算中…</source>
-        <translation type="unfinished">计算中…</translation>
+        <translation>计算中…</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicattrpanel.cpp" line="259"/>
         <source>计算中… %1 %2%</source>
-        <translation type="unfinished">计算中… %1 %2%</translation>
+        <translation>计算中… %1 %2%</translation>
     </message>
 </context>
 <context>
@@ -37042,97 +37042,98 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="28"/>
         <source>左键拖拽平移；滚轮平移（Shift+滚轮横向）；Ctrl+滚轮缩放；双击适应窗口
 方向键平移；+/- 缩放；PgUp/PgDn 步进切片</source>
-        <translation type="unfinished">左键拖拽平移；滚轮平移（Shift+滚轮横向）；Ctrl+滚轮缩放；双击适应窗口
+        <translation>左键拖拽平移；滚轮平移（Shift+滚轮横向）；Ctrl+滚轮缩放；双击适应窗口
 方向键平移；+/- 缩放；PgUp/PgDn 步进切片</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas.cpp" line="38"/>
         <source>井名：%1
 偏移距离：%2 m</source>
-        <translation type="unfinished"></translation>
+        <translation>井名：%1
+偏移距离：%2 m</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="41"/>
         <source>未命名井</source>
-        <translation type="unfinished"></translation>
+        <translation>未命名井</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="157"/>
         <source>A · 当前</source>
-        <translation type="unfinished">A · 当前</translation>
+        <translation>A · 当前</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="160"/>
         <source>B · %1</source>
-        <translation type="unfinished">B · %1</translation>
+        <translation>B · %1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="160"/>
         <source>对比</source>
-        <translation type="unfinished">对比</translation>
+        <translation>对比</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="185"/>
         <source>未加载地震剖面数据
 （支持拖拽测线或从地图生成连井/任意剖面）</source>
-        <translation type="unfinished">未加载地震剖面数据
+        <translation>未加载地震剖面数据
 （支持拖拽测线或从地图生成连井/任意剖面）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="330"/>
         <source>合成记录不可用：%1</source>
-        <translation type="unfinished">合成记录不可用：%1</translation>
+        <translation>合成记录不可用：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="653"/>
         <source>时间切片
 %1 ms</source>
-        <translation type="unfinished">时间切片
+        <translation>时间切片
 %1 ms</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="654"/>
         <source>深度切片
 %1 m</source>
-        <translation type="unfinished">深度切片
+        <translation>深度切片
 %1 m</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="715"/>
         <source>TWT (ms)</source>
-        <translation type="unfinished">TWT (ms)</translation>
+        <translation>TWT (ms)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="716"/>
         <source>深度
 (m)</source>
-        <translation type="unfinished">深度
+        <translation>深度
 (m)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="733"/>
         <source>色标</source>
-        <translation type="unfinished">色标</translation>
+        <translation>色标</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="737"/>
         <source>振幅</source>
-        <translation type="unfinished">振幅</translation>
+        <translation>振幅</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="791"/>
         <source>波峰+</source>
-        <translation type="unfinished">波峰+</translation>
+        <translation>波峰+</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="793"/>
         <source>波谷-</source>
-        <translation type="unfinished">波谷-</translation>
+        <translation>波谷-</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="811"/>
         <source>深度(m)</source>
-        <translation type="unfinished">深度(m)</translation>
+        <translation>深度(m)</translation>
     </message>
 </context>
 <context>
@@ -37143,7 +37144,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="210"/>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="144"/>
         <source>任务服务未注入</source>
-        <translation type="unfinished">任务服务未注入</translation>
+        <translation>任务服务未注入</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="25"/>
@@ -37152,658 +37153,658 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="51"/>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="148"/>
         <source>地震体未加载（先打开 SEG-Y）</source>
-        <translation type="unfinished">地震体未加载（先打开 SEG-Y）</translation>
+        <translation>地震体未加载（先打开 SEG-Y）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="31"/>
         <source>属性计算当前仅支持 Inline/Crossline 剖面</source>
-        <translation type="unfinished">属性计算当前仅支持 Inline/Crossline 剖面</translation>
+        <translation>属性计算当前仅支持 Inline/Crossline 剖面</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="85"/>
         <source>数据目录未连接，无法登记属性成果</source>
-        <translation type="unfinished">数据目录未连接，无法登记属性成果</translation>
+        <translation>数据目录未连接，无法登记属性成果</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="90"/>
         <source>无可登记的成功属性结果</source>
-        <translation type="unfinished">无可登记的成功属性结果</translation>
+        <translation>无可登记的成功属性结果</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="155"/>
         <source>剖面/工程已切换，本次时间切片扫描结果丢弃</source>
-        <translation type="unfinished">剖面/工程已切换，本次时间切片扫描结果丢弃</translation>
+        <translation>剖面/工程已切换，本次时间切片扫描结果丢弃</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="160"/>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="255"/>
         <source>（缓存命中）</source>
-        <translation type="unfinished">（缓存命中）</translation>
+        <translation>（缓存命中）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="162"/>
         <source>✓ %1 时间切片 t=%2ms 完成 %3（有效 %4/%5）</source>
-        <translation type="unfinished">✓ %1 时间切片 t=%2ms 完成 %3（有效 %4/%5）</translation>
+        <translation>✓ %1 时间切片 t=%2ms 完成 %3（有效 %4/%5）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="180"/>
         <source>扫描完成，但登记失败：%1</source>
-        <translation type="unfinished">扫描完成，但登记失败：%1</translation>
+        <translation>扫描完成，但登记失败：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="186"/>
         <source>扫描完成，但数据目录未连接，结果未登记上图</source>
-        <translation type="unfinished">扫描完成，但数据目录未连接，结果未登记上图</translation>
+        <translation>扫描完成，但数据目录未连接，结果未登记上图</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="245"/>
         <source>剖面/工程已切换，本次属性体扫描结果丢弃</source>
-        <translation type="unfinished">剖面/工程已切换，本次属性体扫描结果丢弃</translation>
+        <translation>剖面/工程已切换，本次属性体扫描结果丢弃</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="263"/>
         <source>登记失败：%1</source>
-        <translation type="unfinished">登记失败：%1</translation>
+        <translation>登记失败：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="265"/>
         <source>数据目录未连接，结果未登记</source>
-        <translation type="unfinished">数据目录未连接，结果未登记</translation>
+        <translation>数据目录未连接，结果未登记</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="268"/>
         <source>✓ %1 属性体完成 %2（%3×%4×%5，有效 %6）%7</source>
-        <translation type="unfinished">✓ %1 属性体完成 %2（%3×%4×%5，有效 %6）%7</translation>
+        <translation>✓ %1 属性体完成 %2（%3×%4×%5，有效 %6）%7</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="172"/>
         <source>无相邻线</source>
-        <translation type="unfinished">无相邻线</translation>
+        <translation>无相邻线</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="227"/>
         <source>当前视图无单一物理道（时间切片/任意线）——请切换到 纵/横测线剖面后点击查看道头</source>
-        <translation type="unfinished">当前视图无单一物理道（时间切片/任意线）——请切换到 纵/横测线剖面后点击查看道头</translation>
+        <translation>当前视图无单一物理道（时间切片/任意线）——请切换到 纵/横测线剖面后点击查看道头</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="231"/>
         <source>剖面列 %1 无法换算到测线号</source>
-        <translation type="unfinished">剖面列 %1 无法换算到测线号</translation>
+        <translation>剖面列 %1 无法换算到测线号</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="241"/>
         <source>测线 (IL %1, XL %2) 不在体索引内</source>
-        <translation type="unfinished">测线 (IL %1, XL %2) 不在体索引内</translation>
+        <translation>测线 (IL %1, XL %2) 不在体索引内</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="253"/>
         <source>道头信息</source>
-        <translation type="unfinished">道头信息</translation>
+        <translation>道头信息</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="259"/>
         <source>字段</source>
-        <translation type="unfinished">字段</translation>
+        <translation>字段</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="259"/>
         <source>值</source>
-        <translation type="unfinished">值</translation>
+        <translation>值</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="265"/>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="393"/>
         <source>关闭</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="277"/>
         <source>道序号（0 基）</source>
-        <translation type="unfinished">道序号（0 基）</translation>
+        <translation>道序号（0 基）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="278"/>
         <source>文件偏移 (B)</source>
-        <translation type="unfinished">文件偏移 (B)</translation>
+        <translation>文件偏移 (B)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="279"/>
         <source>INLINE (189-192)</source>
-        <translation type="unfinished">INLINE (189-192)</translation>
+        <translation>INLINE (189-192)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="280"/>
         <source>CROSSLINE (193-196)</source>
-        <translation type="unfinished">CROSSLINE (193-196)</translation>
+        <translation>CROSSLINE (193-196)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="281"/>
         <source>field record (9-12)</source>
-        <translation type="unfinished">field record (9-12)</translation>
+        <translation>field record (9-12)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="282"/>
         <source>CDP ensemble (21-24)</source>
-        <translation type="unfinished">CDP ensemble (21-24)</translation>
+        <translation>CDP ensemble (21-24)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="283"/>
         <source>CDP X (73-76)</source>
-        <translation type="unfinished">CDP X (73-76)</translation>
+        <translation>CDP X (73-76)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="284"/>
         <source>CDP Y (77-80)</source>
-        <translation type="unfinished">CDP Y (77-80)</translation>
+        <translation>CDP Y (77-80)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="285"/>
         <source>采样数 (115-116)</source>
-        <translation type="unfinished">采样数 (115-116)</translation>
+        <translation>采样数 (115-116)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="286"/>
         <source>采样间隔 (117-118, μs)</source>
-        <translation type="unfinished">采样间隔 (117-118, μs)</translation>
+        <translation>采样间隔 (117-118, μs)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="288"/>
         <source>错误</source>
-        <translation type="unfinished">错误</translation>
+        <translation>错误</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="305"/>
         <source>剖面图已复制到剪贴板</source>
-        <translation type="unfinished">剖面图已复制到剪贴板</translation>
+        <translation>剖面图已复制到剪贴板</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_bookmark.cpp" line="311"/>
         <source>打印地震剖面</source>
-        <translation type="unfinished">打印地震剖面</translation>
+        <translation>打印地震剖面</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_interpret.cpp" line="203"/>
         <source>IL %1</source>
-        <translation type="unfinished">IL %1</translation>
+        <translation>IL %1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_interpret.cpp" line="207"/>
         <source>XL %1</source>
-        <translation type="unfinished">XL %1</translation>
+        <translation>XL %1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_interpret.cpp" line="215"/>
         <source>任意线 %1</source>
-        <translation type="unfinished">任意线 %1</translation>
+        <translation>任意线 %1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_interpret.cpp" line="264"/>
         <location filename="../src/ui/seismicsection/seismicsectiondock_interpret.cpp" line="286"/>
         <source>数据目录未连接，无法登记解释成果</source>
-        <translation type="unfinished">数据目录未连接，无法登记解释成果</translation>
+        <translation>数据目录未连接，无法登记解释成果</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="56"/>
         <source>剖面缓冲带内无候选井</source>
-        <translation type="unfinished">剖面缓冲带内无候选井</translation>
+        <translation>剖面缓冲带内无候选井</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="77"/>
         <source>井 %1 缺 %2 曲线</source>
-        <translation type="unfinished">井 %1 缺 %2 曲线</translation>
+        <translation>井 %1 缺 %2 曲线</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="85"/>
         <source>井 %1 缺有效时深（未对齐），不能提取子波</source>
-        <translation type="unfinished">井 %1 缺有效时深（未对齐），不能提取子波</translation>
+        <translation>井 %1 缺有效时深（未对齐），不能提取子波</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="131"/>
         <source>子波已提取（%1）：主频 %2 Hz，拟合相关 %3</source>
-        <translation type="unfinished">子波已提取（%1）：主频 %2 Hz，拟合相关 %3</translation>
+        <translation>子波已提取（%1）：主频 %2 Hz，拟合相关 %3</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="152"/>
         <source>子波文件无效（先「提取子波」或浏览已有资产）</source>
-        <translation type="unfinished">子波文件无效（先「提取子波」或浏览已有资产）</translation>
+        <translation>子波文件无效（先「提取子波」或浏览已有资产）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="194"/>
         <source>波阻抗体·稀疏脉冲</source>
-        <translation type="unfinished">波阻抗体·稀疏脉冲</translation>
+        <translation>波阻抗体·稀疏脉冲</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="195"/>
         <source>波阻抗体·带限道积分</source>
-        <translation type="unfinished">波阻抗体·带限道积分</translation>
+        <translation>波阻抗体·带限道积分</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="203"/>
         <source>地震反演</source>
-        <translation type="unfinished">地震反演</translation>
+        <translation>地震反演</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="206"/>
         <source>已取消</source>
-        <translation type="unfinished">已取消</translation>
+        <translation>已取消</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="240"/>
         <source>反演已取消</source>
-        <translation type="unfinished">反演已取消</translation>
+        <translation>反演已取消</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="252"/>
         <source>反演完成，但数据目录未连接，无法登记（体在 %1）</source>
-        <translation type="unfinished">反演完成，但数据目录未连接，无法登记（体在 %1）</translation>
+        <translation>反演完成，但数据目录未连接，无法登记（体在 %1）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="268"/>
         <source>反演完成：体 %1×%2×%3，处理 %4 道（失败 %5）｜频段 0–%6Hz+带限｜%7</source>
-        <translation type="unfinished">反演完成：体 %1×%2×%3，处理 %4 道（失败 %5）｜频段 0–%6Hz+带限｜%7</translation>
+        <translation>反演完成：体 %1×%2×%3，处理 %4 道（失败 %5）｜频段 0–%6Hz+带限｜%7</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="277"/>
         <source>平均残差能量比 无成功道</source>
-        <translation type="unfinished">平均残差能量比 无成功道</translation>
+        <translation>平均残差能量比 无成功道</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="278"/>
         <source>平均残差能量比 %1</source>
-        <translation type="unfinished">平均残差能量比 %1</translation>
+        <translation>平均残差能量比 %1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="280"/>
         <source>低频方差占比 无成功道</source>
-        <translation type="unfinished">低频方差占比 无成功道</translation>
+        <translation>低频方差占比 无成功道</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="281"/>
         <source>低频方差占比 %1</source>
-        <translation type="unfinished">低频方差占比 %1</translation>
+        <translation>低频方差占比 %1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="284"/>
         <source>｜子波无振幅标定（旧资产/解析子波），道振幅按反射系数直接使用</source>
-        <translation type="unfinished">｜子波无振幅标定（旧资产/解析子波），道振幅按反射系数直接使用</translation>
+        <translation>｜子波无振幅标定（旧资产/解析子波），道振幅按反射系数直接使用</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_inversion.cpp" line="287"/>
         <source>｜缺有效时深未参与低频模型：%1</source>
-        <translation type="unfinished">｜缺有效时深未参与低频模型：%1</translation>
+        <translation>｜缺有效时深未参与低频模型：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="103"/>
         <source>连井 / 时深</source>
-        <translation type="unfinished">连井 / 时深</translation>
+        <translation>连井 / 时深</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="104"/>
         <source>选择连井顺序、绘制任意折线、调整逐井时深关系</source>
-        <translation type="unfinished">选择连井顺序、绘制任意折线、调整逐井时深关系</translation>
+        <translation>选择连井顺序、绘制任意折线、调整逐井时深关系</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="111"/>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="456"/>
         <source>测线: 未加载</source>
-        <translation type="unfinished">测线: 未加载</translation>
+        <translation>测线: 未加载</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="123"/>
         <source>纵测线 (IL)</source>
-        <translation type="unfinished">纵测线 (IL)</translation>
+        <translation>纵测线 (IL)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="123"/>
         <source>横测线 (XL)</source>
-        <translation type="unfinished">横测线 (XL)</translation>
+        <translation>横测线 (XL)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="123"/>
         <source>时间切片 (Time)</source>
-        <translation type="unfinished">时间切片 (Time)</translation>
+        <translation>时间切片 (Time)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="123"/>
         <source>任意测线/井剖面</source>
-        <translation type="unfinished">任意测线/井剖面</translation>
+        <translation>任意测线/井剖面</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="138"/>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="198"/>
         <source>纵测线:</source>
-        <translation type="unfinished">纵测线:</translation>
+        <translation>纵测线:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="190"/>
         <source>+ 放大</source>
-        <translation type="unfinished">+ 放大</translation>
+        <translation>+ 放大</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="196"/>
         <source>- 缩小</source>
-        <translation type="unfinished">- 缩小</translation>
+        <translation>- 缩小</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="202"/>
         <source>适应窗口</source>
-        <translation type="unfinished">适应窗口</translation>
+        <translation>适应窗口</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="208"/>
         <source>1:1</source>
-        <translation type="unfinished">1:1</translation>
+        <translation>1:1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="215"/>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="391"/>
         <source>单位: TWT (ms)</source>
-        <translation type="unfinished">单位: TWT (ms)</translation>
+        <translation>单位: TWT (ms)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="217"/>
         <source>切换 TWT 与常速参考深度尺；井段仍按本井时深表对齐</source>
-        <translation type="unfinished">切换 TWT 与常速参考深度尺；井段仍按本井时深表对齐</translation>
+        <translation>切换 TWT 与常速参考深度尺；井段仍按本井时深表对齐</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="222"/>
         <source>色标:</source>
-        <translation type="unfinished">色标:</translation>
+        <translation>色标:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="231"/>
         <source>红白蓝 (双极)</source>
-        <translation type="unfinished">红白蓝 (双极)</translation>
+        <translation>红白蓝 (双极)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="231"/>
         <source>灰度 (单极)</source>
-        <translation type="unfinished">灰度 (单极)</translation>
+        <translation>灰度 (单极)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="231"/>
         <source>彩虹谱 (相图)</source>
-        <translation type="unfinished">彩虹谱 (相图)</translation>
+        <translation>彩虹谱 (相图)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="232"/>
         <source>蓝白红 (反双极)</source>
-        <translation type="unfinished">蓝白红 (反双极)</translation>
+        <translation>蓝白红 (反双极)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="232"/>
         <source>黑-白-蓝 (纸面)</source>
-        <translation type="unfinished">黑-白-蓝 (纸面)</translation>
+        <translation>黑-白-蓝 (纸面)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="232"/>
         <source>红-白-黑 (纸面)</source>
-        <translation type="unfinished">红-白-黑 (纸面)</translation>
+        <translation>红-白-黑 (纸面)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="233"/>
         <source>绿-白-品红</source>
-        <translation type="unfinished">绿-白-品红</translation>
+        <translation>绿-白-品红</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="233"/>
         <source>青-白-橙</source>
-        <translation type="unfinished">青-白-橙</translation>
+        <translation>青-白-橙</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="243"/>
         <source>增益:</source>
-        <translation type="unfinished">增益:</translation>
+        <translation>增益:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="269"/>
         <source>井与分层 ▼</source>
-        <translation type="unfinished">井与分层 ▼</translation>
+        <translation>井与分层 ▼</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="274"/>
         <source>显示井位</source>
-        <translation type="unfinished">显示井位</translation>
+        <translation>显示井位</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="278"/>
         <source>显示地层分层</source>
-        <translation type="unfinished">显示地层分层</translation>
+        <translation>显示地层分层</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="282"/>
         <source>显示测井曲线</source>
-        <translation type="unfinished">显示测井曲线</translation>
+        <translation>显示测井曲线</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="287"/>
         <source>缓冲半径: 200 m</source>
-        <translation type="unfinished">缓冲半径: 200 m</translation>
+        <translation>缓冲半径: 200 m</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="288"/>
         <source>缓冲半径: 500 m</source>
-        <translation type="unfinished">缓冲半径: 500 m</translation>
+        <translation>缓冲半径: 500 m</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="289"/>
         <source>缓冲半径: 1000 m</source>
-        <translation type="unfinished">缓冲半径: 1000 m</translation>
+        <translation>缓冲半径: 1000 m</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="300"/>
         <source>投影井数: 全部</source>
-        <translation type="unfinished">投影井数: 全部</translation>
+        <translation>投影井数: 全部</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="301"/>
         <source>投影井数: 最近 1 口</source>
-        <translation type="unfinished">投影井数: 最近 1 口</translation>
+        <translation>投影井数: 最近 1 口</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="302"/>
         <source>投影井数: 最近 3 口</source>
-        <translation type="unfinished">投影井数: 最近 3 口</translation>
+        <translation>投影井数: 最近 3 口</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="304"/>
         <source>井旁道小图（最近井）…</source>
-        <translation type="unfinished">井旁道小图（最近井）…</translation>
+        <translation>井旁道小图（最近井）…</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="305"/>
         <source>提取子波（最近井）…</source>
-        <translation type="unfinished">提取子波（最近井）…</translation>
+        <translation>提取子波（最近井）…</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="306"/>
         <source>反演面板</source>
-        <translation type="unfinished">反演面板</translation>
+        <translation>反演面板</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="307"/>
         <source>任意线编辑器…</source>
-        <translation type="unfinished">任意线编辑器…</translation>
+        <translation>任意线编辑器…</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="317"/>
         <source>导出图件</source>
-        <translation type="unfinished">导出图件</translation>
+        <translation>导出图件</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="362"/>
         <source>道: -- | 距离: -- | TWT: -- ms | 深度: -- m | 振幅: -- | (X: --, Y: --)</source>
-        <translation type="unfinished">道: -- | 距离: -- | TWT: -- ms | 深度: -- m | 振幅: -- | (X: --, Y: --)</translation>
+        <translation>道: -- | 距离: -- | TWT: -- ms | 深度: -- m | 振幅: -- | (X: --, Y: --)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="388"/>
         <source>参考深度（常速）</source>
-        <translation type="unfinished">参考深度（常速）</translation>
+        <translation>参考深度（常速）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="445"/>
         <source>复制</source>
-        <translation type="unfinished">复制</translation>
+        <translation>复制</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="446"/>
         <source>复制剖面图到剪贴板（含坐标轴与色标）</source>
-        <translation type="unfinished">复制剖面图到剪贴板（含坐标轴与色标）</translation>
+        <translation>复制剖面图到剪贴板（含坐标轴与色标）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="450"/>
         <source>打印</source>
-        <translation type="unfinished">打印</translation>
+        <translation>打印</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="480"/>
         <source>显示:</source>
-        <translation type="unfinished">显示:</translation>
+        <translation>显示:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="485"/>
         <source>密度</source>
-        <translation type="unfinished">密度</translation>
+        <translation>密度</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="485"/>
         <source>波形变面积</source>
-        <translation type="unfinished">波形变面积</translation>
+        <translation>波形变面积</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="485"/>
         <source>混合</source>
-        <translation type="unfinished">混合</translation>
+        <translation>混合</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="490"/>
         <source>反转色标</source>
-        <translation type="unfinished">反转色标</translation>
+        <translation>反转色标</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="495"/>
         <source>阈值:</source>
-        <translation type="unfinished">阈值:</translation>
+        <translation>阈值:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="502"/>
         <source>低于该归一化阈值的振幅压为 0（压噪声底）</source>
-        <translation type="unfinished">低于该归一化阈值的振幅压为 0（压噪声底）</translation>
+        <translation>低于该归一化阈值的振幅压为 0（压噪声底）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="507"/>
         <source>极性 +/-</source>
-        <translation type="unfinished">极性 +/-</translation>
+        <translation>极性 +/-</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="509"/>
         <source>极性反转（波峰/波谷互换）</source>
-        <translation type="unfinished">极性反转（波峰/波谷互换）</translation>
+        <translation>极性反转（波峰/波谷互换）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="515"/>
         <source>AGC</source>
-        <translation type="unfinished">AGC</translation>
+        <translation>AGC</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="517"/>
         <source>自动增益控制：滑动窗 RMS 归一（压掉道间能量差）</source>
-        <translation type="unfinished">自动增益控制：滑动窗 RMS 归一（压掉道间能量差）</translation>
+        <translation>自动增益控制：滑动窗 RMS 归一（压掉道间能量差）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="525"/>
         <source>AGC 时窗宽度（毫秒）</source>
-        <translation type="unfinished">AGC 时窗宽度（毫秒）</translation>
+        <translation>AGC 时窗宽度（毫秒）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="531"/>
         <source>增益曲线…</source>
-        <translation type="unfinished">增益曲线…</translation>
+        <translation>增益曲线…</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="532"/>
         <source>手动增益曲线：TWT→倍数分段线性控制点编辑</source>
-        <translation type="unfinished">手动增益曲线：TWT→倍数分段线性控制点编辑</translation>
+        <translation>手动增益曲线：TWT→倍数分段线性控制点编辑</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="537"/>
         <source>纵向拉伸:</source>
-        <translation type="unfinished">纵向拉伸:</translation>
+        <translation>纵向拉伸:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="545"/>
         <source>纵向拉伸系数（1.0 = 适应窗口基线）</source>
-        <translation type="unfinished">纵向拉伸系数（1.0 = 适应窗口基线）</translation>
+        <translation>纵向拉伸系数（1.0 = 适应窗口基线）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="551"/>
         <source>双刻度 TWT+深度</source>
-        <translation type="unfinished">双刻度 TWT+深度</translation>
+        <translation>双刻度 TWT+深度</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="553"/>
         <source>左轴 TWT(ms) + 右缘深度(m) 同显（需有效时深模型）</source>
-        <translation type="unfinished">左轴 TWT(ms) + 右缘深度(m) 同显（需有效时深模型）</translation>
+        <translation>左轴 TWT(ms) + 右缘深度(m) 同显（需有效时深模型）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="560"/>
         <source>卷帘对比</source>
-        <translation type="unfinished">卷帘对比</translation>
+        <translation>卷帘对比</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="562"/>
         <source>相邻线卷帘对比：帘左当前线 / 帘右相邻线，画布内拖分割线</source>
-        <translation type="unfinished">相邻线卷帘对比：帘左当前线 / 帘右相邻线，画布内拖分割线</translation>
+        <translation>相邻线卷帘对比：帘左当前线 / 帘右相邻线，画布内拖分割线</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="574"/>
         <source>● 拾取</source>
-        <translation type="unfinished">● 拾取</translation>
+        <translation>● 拾取</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="576"/>
         <source>解释模式：剖面点击放层位拾取点（拾取面板同步显示）</source>
-        <translation type="unfinished">解释模式：剖面点击放层位拾取点（拾取面板同步显示）</translation>
+        <translation>解释模式：剖面点击放层位拾取点（拾取面板同步显示）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="582"/>
         <source>◈ 属性</source>
-        <translation type="unfinished">◈ 属性</translation>
+        <translation>◈ 属性</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="585"/>
         <source>属性计算面板：包络/瞬时/相干等属性计算并叠加显示</source>
-        <translation type="unfinished">属性计算面板：包络/瞬时/相干等属性计算并叠加显示</translation>
+        <translation>属性计算面板：包络/瞬时/相干等属性计算并叠加显示</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="593"/>
         <source>✂ 断层</source>
-        <translation type="unfinished">✂ 断层</translation>
+        <translation>✂ 断层</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="595"/>
         <source>断层模式：剖面拖拽画断层折线（红色虚线跟踪，松手存档）</source>
-        <translation type="unfinished">断层模式：剖面拖拽画断层折线（红色虚线跟踪，松手存档）</translation>
+        <translation>断层模式：剖面拖拽画断层折线（红色虚线跟踪，松手存档）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="602"/>
         <source>书签:</source>
-        <translation type="unfinished">书签:</translation>
+        <translation>书签:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="610"/>
         <source>存当前</source>
-        <translation type="unfinished">存当前</translation>
+        <translation>存当前</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="614"/>
         <source>删除</source>
-        <translation type="unfinished">删除</translation>
+        <translation>删除</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="643"/>
         <source>手动增益曲线（TWT ms → 倍数，分段线性）</source>
-        <translation type="unfinished">手动增益曲线（TWT ms → 倍数，分段线性）</translation>
+        <translation>手动增益曲线（TWT ms → 倍数，分段线性）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="651"/>
@@ -37812,7 +37813,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 0 1.0
 500 1.5
 1500 3.0</source>
-        <translation type="unfinished">每行一个控制点：TWT毫秒 倍数
+        <translation>每行一个控制点：TWT毫秒 倍数
 例如：
 0 1.0
 500 1.5
@@ -37821,117 +37822,117 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="706"/>
         <source>保存剖面书签</source>
-        <translation type="unfinished">保存剖面书签</translation>
+        <translation>保存剖面书签</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="707"/>
         <source>书签名：</source>
-        <translation type="unfinished">书签名：</translation>
+        <translation>书签名：</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_setup.cpp" line="708"/>
         <source>线 %1</source>
-        <translation type="unfinished">线 %1</translation>
+        <translation>线 %1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_track.cpp" line="34"/>
         <source>追踪需以纵/横测线剖面为工作面（当前为时间切片）</source>
-        <translation type="unfinished">追踪需以纵/横测线剖面为工作面（当前为时间切片）</translation>
+        <translation>追踪需以纵/横测线剖面为工作面（当前为时间切片）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_track.cpp" line="155"/>
         <source>无可用地震体（先加载 SEG-Y）</source>
-        <translation type="unfinished">无可用地震体（先加载 SEG-Y）</translation>
+        <translation>无可用地震体（先加载 SEG-Y）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_track.cpp" line="161"/>
         <source>3D 传播需以 inline 剖面为种子剖面（当前非 inline 切片/任意线）</source>
-        <translation type="unfinished">3D 传播需以 inline 剖面为种子剖面（当前非 inline 切片/任意线）</translation>
+        <translation>3D 传播需以 inline 剖面为种子剖面（当前非 inline 切片/任意线）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_track.cpp" line="177"/>
         <source>种子剖面无当前层位的手动拾取（先 Ctrl+左键 拾取）</source>
-        <translation type="unfinished">种子剖面无当前层位的手动拾取（先 Ctrl+左键 拾取）</translation>
+        <translation>种子剖面无当前层位的手动拾取（先 Ctrl+左键 拾取）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_track.cpp" line="217"/>
         <source>种子拾取无法换算到采样域（TWT 越界）</source>
-        <translation type="unfinished">种子拾取无法换算到采样域（TWT 越界）</translation>
+        <translation>种子拾取无法换算到采样域（TWT 越界）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_track.cpp" line="226"/>
         <source>解释</source>
-        <translation type="unfinished">解释</translation>
+        <translation>解释</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_track.cpp" line="268"/>
         <source>层位资产登记失败：%1</source>
-        <translation type="unfinished">层位资产登记失败：%1</translation>
+        <translation>层位资产登记失败：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_track.cpp" line="272"/>
         <source>追踪完成，但数据目录未连接，层位面未登记上图</source>
-        <translation type="unfinished">追踪完成，但数据目录未连接，层位面未登记上图</translation>
+        <translation>追踪完成，但数据目录未连接，层位面未登记上图</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="213"/>
         <source>%1（时深用默认均速——无实测检查点表）</source>
-        <translation type="unfinished">%1（时深用默认均速——无实测检查点表）</translation>
+        <translation>%1（时深用默认均速——无实测检查点表）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="232"/>
         <source>缺声波曲线 AC</source>
-        <translation type="unfinished">缺声波曲线 AC</translation>
+        <translation>缺声波曲线 AC</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="232"/>
         <source>缺密度曲线 DEN</source>
-        <translation type="unfinished">缺密度曲线 DEN</translation>
+        <translation>缺密度曲线 DEN</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="246"/>
         <source>缺有效时深（未对齐），不能生成合成记录</source>
-        <translation type="unfinished">缺有效时深（未对齐），不能生成合成记录</translation>
+        <translation>缺有效时深（未对齐），不能生成合成记录</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="264"/>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="298"/>
         <source>任意线编辑器</source>
-        <translation type="unfinished">任意线编辑器</translation>
+        <translation>任意线编辑器</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="264"/>
         <source>请先加载地震体。</source>
-        <translation type="unfinished">请先加载地震体。</translation>
+        <translation>请先加载地震体。</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="268"/>
         <source>任意线编辑器（每行一个节点：inline xline）</source>
-        <translation type="unfinished">任意线编辑器（每行一个节点：inline xline）</translation>
+        <translation>任意线编辑器（每行一个节点：inline xline）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="273"/>
         <source>1000 2000
 1002 2005
 1005 2012</source>
-        <translation type="unfinished">1000 2000
+        <translation>1000 2000
 1002 2005
 1005 2012</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="275"/>
         <source>投影候选井（井震综合）</source>
-        <translation type="unfinished">投影候选井（井震综合）</translation>
+        <translation>投影候选井（井震综合）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="298"/>
         <source>至少需要 2 个有效节点。</source>
-        <translation type="unfinished">至少需要 2 个有效节点。</translation>
+        <translation>至少需要 2 个有效节点。</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="304"/>
         <source>任意线（%1 节点）</source>
-        <translation type="unfinished">任意线（%1 节点）</translation>
+        <translation>任意线（%1 节点）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="310"/>
@@ -37942,124 +37943,124 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="374"/>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="381"/>
         <source>井旁道</source>
-        <translation type="unfinished">井旁道</translation>
+        <translation>井旁道</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="310"/>
         <source>无可用的候选井。</source>
-        <translation type="unfinished">无可用的候选井。</translation>
+        <translation>无可用的候选井。</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="321"/>
         <source>地震体无道头索引，无法把井口坐标换算到测网。</source>
-        <translation type="unfinished">地震体无道头索引，无法把井口坐标换算到测网。</translation>
+        <translation>地震体无道头索引，无法把井口坐标换算到测网。</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="331"/>
         <source>井 %1 井口 (%2, %3) 在测网覆盖范围外（连续解 IL %4 / XL %5），不取井旁道。</source>
-        <translation type="unfinished">井 %1 井口 (%2, %3) 在测网覆盖范围外（连续解 IL %4 / XL %5），不取井旁道。</translation>
+        <translation>井 %1 井口 (%2, %3) 在测网覆盖范围外（连续解 IL %4 / XL %5），不取井旁道。</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="341"/>
         <source>测网坐标拟合不可用：%1</source>
-        <translation type="unfinished">测网坐标拟合不可用：%1</translation>
+        <translation>测网坐标拟合不可用：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="346"/>
         <source>井口无法定位到测网道：%1</source>
-        <translation type="unfinished">井口无法定位到测网道：%1</translation>
+        <translation>井口无法定位到测网道：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="374"/>
         <source>道提取失败：%1</source>
-        <translation type="unfinished">道提取失败：%1</translation>
+        <translation>道提取失败：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="381"/>
         <source>XL %1 不在 IL %2 剖面列轴上</source>
-        <translation type="unfinished">XL %1 不在 IL %2 剖面列轴上</translation>
+        <translation>XL %1 不在 IL %2 剖面列轴上</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_wells.cpp" line="386"/>
         <source>井旁道 · %1（IL %2 / XL %3）</source>
-        <translation type="unfinished">井旁道 · %1（IL %2 / XL %3）</translation>
+        <translation>井旁道 · %1（IL %2 / XL %3）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="35"/>
         <source>地震剖面 / 井震综合</source>
-        <translation type="unfinished">地震剖面 / 井震综合</translation>
+        <translation>地震剖面 / 井震综合</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="211"/>
         <source>横测线:</source>
-        <translation type="unfinished">横测线:</translation>
+        <translation>横测线:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="224"/>
         <source>时间采样:</source>
-        <translation type="unfinished">时间采样:</translation>
+        <translation>时间采样:</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="322"/>
         <source>纵测线剖面 IL %1</source>
-        <translation type="unfinished">纵测线剖面 IL %1</translation>
+        <translation>纵测线剖面 IL %1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="324"/>
         <source>横测线剖面 XL %1</source>
-        <translation type="unfinished">横测线剖面 XL %1</translation>
+        <translation>横测线剖面 XL %1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="327"/>
         <source>水平时间切片 TWT %1 ms</source>
-        <translation type="unfinished">水平时间切片 TWT %1 ms</translation>
+        <translation>水平时间切片 TWT %1 ms</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="471"/>
         <source>横测线 (XL): %1 | 纵测线 (IL): %2 | 时间: %3 ms | 深度: %4 m | 振幅: %5</source>
-        <translation type="unfinished">横测线 (XL): %1 | 纵测线 (IL): %2 | 时间: %3 ms | 深度: %4 m | 振幅: %5</translation>
+        <translation>横测线 (XL): %1 | 纵测线 (IL): %2 | 时间: %3 ms | 深度: %4 m | 振幅: %5</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="480"/>
         <source>道: %1/%2 | TWT: %3 ms | 深度: %4 m | 振幅: %5</source>
-        <translation type="unfinished">道: %1/%2 | TWT: %3 ms | 深度: %4 m | 振幅: %5</translation>
+        <translation>道: %1/%2 | TWT: %3 ms | 深度: %4 m | 振幅: %5</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="496"/>
         <source>导出剖面图件</source>
-        <translation type="unfinished">导出剖面图件</translation>
+        <translation>导出剖面图件</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="497"/>
         <source>PNG 图像 (*.png);;JPEG 图像 (*.jpg *.jpeg)</source>
-        <translation type="unfinished">PNG 图像 (*.png);;JPEG 图像 (*.jpg *.jpeg)</translation>
+        <translation>PNG 图像 (*.png);;JPEG 图像 (*.jpg *.jpeg)</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="510"/>
         <source>导出成功</source>
-        <translation type="unfinished">导出成功</translation>
+        <translation>导出成功</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="510"/>
         <source>剖面图件已成功保存到:
 %1</source>
-        <translation type="unfinished">剖面图件已成功保存到:
+        <translation>剖面图件已成功保存到:
 %1</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="512"/>
         <source>导出失败</source>
-        <translation type="unfinished">导出失败</translation>
+        <translation>导出失败</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="512"/>
         <source>保存图像文件失败，请检查文件写入权限。</source>
-        <translation type="unfinished">保存图像文件失败，请检查文件写入权限。</translation>
+        <translation>保存图像文件失败，请检查文件写入权限。</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondockwidget.cpp" line="569"/>
         <source>%1 · 提取中…</source>
-        <translation type="unfinished">%1 · 提取中…</translation>
+        <translation>%1 · 提取中…</translation>
     </message>
 </context>
 <context>
@@ -38067,27 +38068,27 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="48"/>
         <source>秒开预览 SEG-Y: %1</source>
-        <translation type="unfinished">秒开预览 SEG-Y: %1</translation>
+        <translation>秒开预览 SEG-Y: %1</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="95"/>
         <source>秒开预览已取消</source>
-        <translation type="unfinished">秒开预览已取消</translation>
+        <translation>秒开预览已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="131"/>
         <source>瓦片渐进时间片 (采样 %1)</source>
-        <translation type="unfinished">瓦片渐进时间片 (采样 %1)</translation>
+        <translation>瓦片渐进时间片 (采样 %1)</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="204"/>
         <source>瓦片时间片已取消</source>
-        <translation type="unfinished">瓦片时间片已取消</translation>
+        <translation>瓦片时间片已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="223"/>
         <source>读取三维体素窗口 (%1×%2×%3)</source>
-        <translation type="unfinished">读取三维体素窗口 (%1×%2×%3)</translation>
+        <translation>读取三维体素窗口 (%1×%2×%3)</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="261"/>
@@ -38098,208 +38099,208 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="330"/>
         <source>打开分页工作区: %1</source>
-        <translation type="unfinished">打开分页工作区: %1</translation>
+        <translation>打开分页工作区: %1</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="353"/>
         <source>打开分页工作区已取消</source>
-        <translation type="unfinished">打开分页工作区已取消</translation>
+        <translation>打开分页工作区已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="372"/>
         <source>切换 LOD 层级 %1</source>
-        <translation type="unfinished">切换 LOD 层级 %1</translation>
+        <translation>切换 LOD 层级 %1</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="399"/>
         <source>LOD 切换已取消</source>
-        <translation type="unfinished">LOD 切换已取消</translation>
+        <translation>LOD 切换已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="417"/>
         <source>探测地震后端: %1</source>
-        <translation type="unfinished">探测地震后端: %1</translation>
+        <translation>探测地震后端: %1</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_viz.cpp" line="442"/>
         <source>后端探测已取消</source>
-        <translation type="unfinished">后端探测已取消</translation>
+        <translation>后端探测已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_attr.cpp" line="319"/>
         <source>地震属性时间切片 %1（样 %2）</source>
-        <translation type="unfinished">地震属性时间切片 %1（样 %2）</translation>
+        <translation>地震属性时间切片 %1（样 %2）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_attr.cpp" line="770"/>
         <source>地震属性体扫描 %1</source>
-        <translation type="unfinished">地震属性体扫描 %1</translation>
+        <translation>地震属性体扫描 %1</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="304"/>
         <source>层位追踪（%1 种子）</source>
-        <translation type="unfinished">层位追踪（%1 种子）</translation>
+        <translation>层位追踪（%1 种子）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="336"/>
         <source>追踪已取消</source>
-        <translation type="unfinished">追踪已取消</translation>
+        <translation>追踪已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="361"/>
         <source>地震体未加载（先完成体加载）</source>
-        <translation type="unfinished">地震体未加载（先完成体加载）</translation>
+        <translation>地震体未加载（先完成体加载）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="366"/>
         <source>无种子（先在种子剖面手动拾取）</source>
-        <translation type="unfinished">无种子（先在种子剖面手动拾取）</translation>
+        <translation>无种子（先在种子剖面手动拾取）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="374"/>
         <source>体测网轴为空</source>
-        <translation type="unfinished">体测网轴为空</translation>
+        <translation>体测网轴为空</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="380"/>
         <source>inline %1 不在本体内（无最近线替代）</source>
-        <translation type="unfinished">inline %1 不在本体内（无最近线替代）</translation>
+        <translation>inline %1 不在本体内（无最近线替代）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="391"/>
         <source>种子 crossline %1 不在本体内（无最近线替代）</source>
-        <translation type="unfinished">种子 crossline %1 不在本体内（无最近线替代）</translation>
+        <translation>种子 crossline %1 不在本体内（无最近线替代）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="396"/>
         <source>种子采样 %1 越界（体采样 0..%2）</source>
-        <translation type="unfinished">种子采样 %1 越界（体采样 0..%2）</translation>
+        <translation>种子采样 %1 越界（体采样 0..%2）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="414"/>
         <source>内存超限：滑窗工作集约 %1 MB 超预算 %2 MB（剖面 %3 道 × %4 采样）</source>
-        <translation type="unfinished">内存超限：滑窗工作集约 %1 MB 超预算 %2 MB（剖面 %3 道 × %4 采样）</translation>
+        <translation>内存超限：滑窗工作集约 %1 MB 超预算 %2 MB（剖面 %3 道 × %4 采样）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="435"/>
         <source>层位体传播（IL%1，%2 种子）</source>
-        <translation type="unfinished">层位体传播（IL%1，%2 种子）</translation>
+        <translation>层位体传播（IL%1，%2 种子）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_interp.cpp" line="600"/>
         <source>体传播已取消</source>
-        <translation type="unfinished">体传播已取消</translation>
+        <translation>体传播已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_slice.cpp" line="42"/>
         <source>地震体未完成索引，无法提取切片</source>
-        <translation type="unfinished">地震体未完成索引，无法提取切片</translation>
+        <translation>地震体未完成索引，无法提取切片</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_slice.cpp" line="79"/>
         <source>提取地震切片 (%1: %2)</source>
-        <translation type="unfinished">提取地震切片 (%1: %2)</translation>
+        <translation>提取地震切片 (%1: %2)</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_slice.cpp" line="167"/>
         <source>切片提取已取消</source>
-        <translation type="unfinished">切片提取已取消</translation>
+        <translation>切片提取已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_slice.cpp" line="186"/>
         <source>地震体未完成索引，无法提取剖面</source>
-        <translation type="unfinished">地震体未完成索引，无法提取剖面</translation>
+        <translation>地震体未完成索引，无法提取剖面</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_slice.cpp" line="197"/>
         <source>提取任意测线/过井剖面 (%1 节点)</source>
-        <translation type="unfinished">提取任意测线/过井剖面 (%1 节点)</translation>
+        <translation>提取任意测线/过井剖面 (%1 节点)</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_slice.cpp" line="340"/>
         <source>剖面提取已取消</source>
-        <translation type="unfinished">剖面提取已取消</translation>
+        <translation>剖面提取已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_slice.cpp" line="362"/>
         <source>加载地震体: %1</source>
-        <translation type="unfinished">加载地震体: %1</translation>
+        <translation>加载地震体: %1</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_slice.cpp" line="391"/>
         <source>地震体加载已取消</source>
-        <translation type="unfinished">地震体加载已取消</translation>
+        <translation>地震体加载已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_slice.cpp" line="546"/>
         <source>地震属性 %1（%2 %3）</source>
-        <translation type="unfinished">地震属性 %1（%2 %3）</translation>
+        <translation>地震属性 %1（%2 %3）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="246"/>
         <source>索引 SEG-Y: %1</source>
-        <translation type="unfinished">索引 SEG-Y: %1</translation>
+        <translation>索引 SEG-Y: %1</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="303"/>
         <source>任务已取消</source>
-        <translation type="unfinished">任务已取消</translation>
+        <translation>任务已取消</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="338"/>
         <source>转码地震工作区: %1</source>
-        <translation type="unfinished">转码地震工作区: %1</translation>
+        <translation>转码地震工作区: %1</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="346"/>
         <source>该工作区已有转码任务进行中（%1）</source>
-        <translation type="unfinished">该工作区已有转码任务进行中（%1）</translation>
+        <translation>该工作区已有转码任务进行中（%1）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="390"/>
         <source>阶段 %1 · 块 %2/%3 · 跳过 %4 · 总体 %5%</source>
-        <translation type="unfinished">阶段 %1 · 块 %2/%3 · 跳过 %4 · 总体 %5%</translation>
+        <translation>阶段 %1 · 块 %2/%3 · 跳过 %4 · 总体 %5%</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="424"/>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="661"/>
         <source>任务提交失败</source>
-        <translation type="unfinished">任务提交失败</translation>
+        <translation>任务提交失败</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="459"/>
         <source>转码已取消（工作区可续跑）</source>
-        <translation type="unfinished">转码已取消（工作区可续跑）</translation>
+        <translation>转码已取消（工作区可续跑）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="513"/>
         <source>转码分页工作区: %1</source>
-        <translation type="unfinished">转码分页工作区: %1</translation>
+        <translation>转码分页工作区: %1</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="523"/>
         <source>该分页工作区已有转码任务进行中（%1）</source>
-        <translation type="unfinished">该分页工作区已有转码任务进行中（%1）</translation>
+        <translation>该分页工作区已有转码任务进行中（%1）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="578"/>
         <source>阶段 %1 · 块 %2/%3 · 已读道 %4 · 总体 %5%</source>
-        <translation type="unfinished">阶段 %1 · 块 %2/%3 · 已读道 %4 · 总体 %5%</translation>
+        <translation>阶段 %1 · 块 %2/%3 · 已读道 %4 · 总体 %5%</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="705"/>
         <source>分页转码已取消（可续跑）</source>
-        <translation type="unfinished">分页转码已取消（可续跑）</translation>
+        <translation>分页转码已取消（可续跑）</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="774"/>
         <source>分页工作区头不可读：%1</source>
-        <translation type="unfinished">分页工作区头不可读：%1</translation>
+        <translation>分页工作区头不可读：%1</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="796"/>
         <source>分页工作区断点文件不可读：%1</source>
-        <translation type="unfinished">分页工作区断点文件不可读：%1</translation>
+        <translation>分页工作区断点文件不可读：%1</translation>
     </message>
 </context>
 <context>
@@ -50324,12 +50325,17 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>wellsectionui::HeaderWidget</name>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="226"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="228"/>
         <source>连井剖面版头</source>
         <translation>连井剖面版头</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="475"/>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="231"/>
+        <source>←/→ 选井，Ctrl+←/→ 移动井，Delete 从剖面移除，菜单键打开菜单</source>
+        <translation>←/→ 选井，Ctrl+←/→ 移动井，Delete 从剖面移除，菜单键打开菜单</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="471"/>
         <source>从剖面移除</source>
         <translation>从剖面移除</translation>
     </message>

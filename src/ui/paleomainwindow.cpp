@@ -54,6 +54,7 @@
 #include "../workflow/registration.h"
 #include "../workflow/sectionworkbench.h" // cancelPreviewData 解引用需完整类型（#156；resetProjectScopedState 同款）
 #include "domain/seismic/sgyvolume.h"
+#include "metadata/paleoprojectstore.h"
 #include "qgis/projectmapreference.h" // restoreCanvasExtent 的跨 CRS 范围换算
 
 #include <qgis.h> // Qgis::MapToolUnit / MessageLevel
@@ -852,6 +853,21 @@ bool PaleoMainWindow::maybeSaveProject()
     return true; // 不脏：直接放行
   if (isOffscreen() && !m_projectSaveAsk)
     return true;
+  if (m_isProjectReadOnly || (m_projectStore && m_projectStore->isReadOnly()))
+  {
+    // PW-008: a read-only instance must never write the .qgz another
+    // instance holds the lock for — offer only Discard/Cancel.
+    const QString roText =
+        tr("当前工程以只读模式打开，改动无法保存。\n\n放弃改动并继续？");
+    const auto roChoice =
+        m_projectSaveAsk
+            ? m_projectSaveAsk(tr("放弃工程改动？"), roText)
+            : PaleoNotify::askSaveDiscard(this, PaleoNotify::AskIcon::Warning,
+                                          tr("放弃工程改动？"), roText,
+                                          QString(), tr("放弃"), tr("取消"));
+    return roChoice != PaleoNotify::SaveChoice::Cancel
+           && roChoice != PaleoNotify::SaveChoice::Save;
+  }
   const QString text =
       tr("当前工程有未保存的改动（版面、图层样式、图层树顺序、地图主题等"
          "保存在工程文件里）。\n\n继续之前是否保存？");
@@ -863,14 +879,41 @@ bool PaleoMainWindow::maybeSaveProject()
                                         tr("保存"), tr("放弃"), tr("取消"));
   if (choice == PaleoNotify::SaveChoice::Cancel)
     return false;
-  if (choice == PaleoNotify::SaveChoice::Save && !m_projectSvc->writeProject())
+  QString why;
+  if (choice == PaleoNotify::SaveChoice::Save && !saveProjectThroughStore(nullptr, &why))
   {
-    const QString why = m_projectSvc->lastErrors().join(QLatin1Char('\n'));
     PaleoNotify::critical(this, tr("保存工程失败"),
                           tr("工程文件未能写入：%1\n当前工程保持不变。").arg(why));
     return false;
   }
   // 放弃：不写盘——随后的关闭/切换按既有语义丢弃（QgsProject::clear()）。
+  return true;
+}
+
+bool PaleoMainWindow::saveProjectThroughStore(PaleoProjectStore *store, QString *error)
+{
+  auto fail = [error](const QString &why) {
+    if (error)
+      *error = why;
+    return false;
+  };
+  if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
+    return fail(tr("无打开工程 — 无法保存"));
+  if (!store)
+    store = m_projectStore;
+  if (m_isProjectReadOnly || m_projectSvc->isReadOnly() || (store && store->isReadOnly()))
+    return fail(tr("工程目录被另一个实例锁定——本实例只读，工程保存被拒绝"));
+  auto writeQgz = [this] {
+    saveCanvasExtent(); // display state travels inside the .qgz
+    const bool ok = m_projectSvc->writeProject();
+    return PaleoProjectStore::WriteResult{
+        ok, ok ? QString() : m_projectSvc->lastErrors().join(QLatin1Char(';'))};
+  };
+  const PaleoProjectStore::WriteResult res =
+      store ? store->saveAll([] { return PaleoProjectStore::WriteResult{true, QString()}; }, writeQgz)
+            : writeQgz();
+  if (!res.ok)
+    return fail(res.error);
   return true;
 }
 

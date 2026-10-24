@@ -164,10 +164,12 @@ SaveChoice askSaveDiscard(QWidget *parent, AskIcon icon, const QString &title,
 {
     QMessageBox box(icon == AskIcon::Warning ? QMessageBox::Warning : QMessageBox::Question,
                     title, text, QMessageBox::NoButton, parent);
-    QPushButton *save = box.addButton(saveText, QMessageBox::AcceptRole);
+    // Empty saveText = no Save button (read-only callers, PW-008).
+    QPushButton *save = saveText.isEmpty() ? nullptr
+                                           : box.addButton(saveText, QMessageBox::AcceptRole);
     QPushButton *discard = box.addButton(discardText, QMessageBox::DestructiveRole);
-    box.addButton(cancelText, QMessageBox::RejectRole);
-    box.setDefaultButton(save);  // 两处原调用均以「保存」为默认键
+    QPushButton *cancel = box.addButton(cancelText, QMessageBox::RejectRole);
+    box.setDefaultButton(save ? save : cancel);  // 两处原调用均以「保存」为默认键
 
     if (isOffscreen())
     {
@@ -185,7 +187,7 @@ SaveChoice askSaveDiscard(QWidget *parent, AskIcon icon, const QString &title,
     }
 
     box.exec();
-    if (box.clickedButton() == save)
+    if (save && box.clickedButton() == save)
         return SaveChoice::Save;
     if (box.clickedButton() == discard)
         return SaveChoice::Discard;

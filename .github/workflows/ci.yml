@@ -21,6 +21,8 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  # PW-001/PW-054：merge queue 需要 merge_group 事件才能在队列里跑 required 检查。
+  merge_group:
   workflow_dispatch:
 
 # #75：只有 PR 分支「新 push 取消旧运行」；master/main 的每个 push 都必须
@@ -36,6 +38,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  # merge_group 的 ref 每批唯一（gh-readonly-queue/...），按 sha 分组、不取消。
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # #76（方向 71）：Linux 侧 QGIS/GDAL/PROJ/GEOS 一律 vendored（deb 闭包），
@@ -577,6 +580,32 @@ jobs:
           result='${{ needs.windows-shard.result }}'
           echo "windows-shard: $result"
           test "$result" = "success"
+
+  # PW-001：单一 required context「ci-gate」。分支保护只需要求这一个检查名
+  #（矩阵分片名 windows-shard (n) / 重命名 job 都不会再导致 required context
+  # 与实际 job 名错位而“永远 pending 也能被管理员合并”）。任一 gating 车道
+  # 非 success（含 skipped/cancelled）即红。观察档 linux-perf/linux-asan 不在内。
+  ci-gate:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    needs: [lint, linux, windows]
+    if: ${{ always() }}
+    steps:
+      - name: Require all gating lanes green
+        env:
+          LINT: ${{ needs.lint.result }}
+          LINUX: ${{ needs.linux.result }}
+          WINDOWS: ${{ needs.windows.result }}
+        run: |
+          echo "lint=$LINT linux=$LINUX windows=$WINDOWS"
+          rc=0
+          for pair in "lint:$LINT" "linux:$LINUX" "windows:$WINDOWS"; do
+            if [ "${pair#*:}" != "success" ]; then
+              echo "::error title=ci-gate::${pair%%:*} 车道结论为 ${pair#*:}——master 红即停线（PW-001）"
+              rc=1
+            fi
+          done
+          exit $rc
 
   # #497/#475：红项分诊汇总 job。master 长期全红期间，把红拆成两类——
   # docs/ci/known-reds.json 登记的已知红项降级 ::warning + issue 链接；

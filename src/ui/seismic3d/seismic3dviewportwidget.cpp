@@ -93,9 +93,32 @@ Seismic3DViewportWidget::~Seismic3DViewportWidget() {
     }
 }
 
+void Seismic3DViewportWidget::onContextAboutToBeDestroyed() {
+    // PW-098：浮动/回停 dock 会重建上下文。旧名字须在旧上下文里释放（共享组
+    // 下拿旧名字去新上下文 delete 可能误删别的部件新分配的对象），并把全部
+    // CPU 侧内容标记待重放，由下次 initializeGL 无条件补传。
+    if (glInitialized_) {
+        makeCurrent();
+        sliceRenderer_.Cleanup(this);
+        frameRenderer_.Cleanup(this);
+        horizonRenderer_.Cleanup(this);
+        faultRenderer_.Cleanup(this);
+        doneCurrent();
+    }
+    glInitialized_ = false;
+    faultMeshPending_ = true;
+    horizonsPending_ = !horizonItems_.empty();
+    if (replayLineSlice_.valid)
+        pendingLineSlice_ = replayLineSlice_;
+    pendingProperty_ = replayProperty_;
+}
+
 void Seismic3DViewportWidget::initializeGL() {
     initSeismicResources();
     initializeOpenGLFunctions();
+    if (QOpenGLContext *ctx = context())
+        connect(ctx, &QOpenGLContext::aboutToBeDestroyed, this,
+                &Seismic3DViewportWidget::onContextAboutToBeDestroyed, Qt::UniqueConnection);
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
@@ -289,6 +312,8 @@ void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
     pendingSlices_.clear();
     pendingProperty_.clear(); // 属性切片与地震切片共用槽位，换体丢弃未上传的属性面
     pendingLineSlice_.valid = false;
+    replayLineSlice_.valid = false;
+    replayProperty_.clear();
     activeSectionPath_.clear();
     sectionPickPoints_.clear();
     sectionHoverValid_ = false;
@@ -342,6 +367,11 @@ bool Seismic3DViewportWidget::updatePropertySlice(
     if (slot == SeismicSliceSlot::Line || image.width <= 0 || image.height <= 0)
         return false;
     const SgySliceImage baked = bakePropertyRgba(image);
+    {
+        PendingPropertySlice rec; // PW-098：上下文重建重放源
+        rec.slot = slot; rec.type = type; rec.index = index; rec.axes = axes; rec.image = image;
+        rememberPropertyReplay(std::move(rec));
+    }
     if (!glInitialized_) {
         PendingPropertySlice pending;
         pending.slot = slot;
@@ -373,6 +403,11 @@ bool Seismic3DViewportWidget::updatePropertyStackLayer(
     if (layerIdx < 0 || layerIdx >= SeismicSliceRenderer::kMaxStackLayers)
         return false;
     const SgySliceImage baked = bakePropertyRgba(image);
+    {
+        PendingPropertySlice rec; // PW-098
+        rec.stack = true; rec.stackLayer = layerIdx; rec.index = kIndex; rec.axes = axes; rec.image = image;
+        rememberPropertyReplay(std::move(rec));
+    }
     if (!glInitialized_) {
         PendingPropertySlice pending;
         pending.stack = true;
@@ -406,6 +441,7 @@ bool Seismic3DViewportWidget::updateLineSlice(
         return false;
     }
     activeSectionPath_ = pathPoints; // D7.2：取消拾取后恢复顶面线用
+    replayLineSlice_ = {pathPoints, image, true}; // PW-098
     if (!glInitialized_) {
         pendingLineSlice_ = {pathPoints, image, true};
         return true;
@@ -738,6 +774,7 @@ bool Seismic3DViewportWidget::isLineSectionReady() const {
 
 void Seismic3DViewportWidget::clearLineSection() {
     pendingLineSlice_.valid = false;
+    replayLineSlice_.valid = false;
     activeSectionPath_.clear();
     if (glInitialized_) {
         makeCurrent();
@@ -1038,3 +1075,13 @@ void Seismic3DViewportWidget::setSecondaryVolume(std::shared_ptr<const SgyVolume
 }
 
 } // namespace seismic
+
+void seismic::Seismic3DViewportWidget::rememberPropertyReplay(PendingPropertySlice rec) {
+    replayProperty_.erase(std::remove_if(replayProperty_.begin(), replayProperty_.end(),
+                                         [&](const PendingPropertySlice &item) {
+                                             return item.stack == rec.stack &&
+                                                    (rec.stack ? item.stackLayer == rec.stackLayer : item.slot == rec.slot);
+                                         }),
+                          replayProperty_.end());
+    replayProperty_.push_back(std::move(rec));
+}

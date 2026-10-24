@@ -219,6 +219,11 @@ private:
     std::map<SeismicSliceSlot, PendingSlice> pendingSlices_;
     PendingLineSlice pendingLineSlice_;
     std::vector<PendingPropertySlice> pendingProperty_;
+    // PW-098：上下文重建后的重放源（与 pending* 不同，上传后不清空）
+    PendingLineSlice replayLineSlice_;
+    std::vector<PendingPropertySlice> replayProperty_;
+    void rememberPropertyReplay(PendingPropertySlice rec);
+    void onContextAboutToBeDestroyed();
 
     // 当前三向切片索引（拖动换算基准；面板 setSlice 时同步喂）
     int sliceIndex_[3] = {0, 0, 0};

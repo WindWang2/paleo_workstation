@@ -324,11 +324,17 @@ KrigingResult ordinaryKriging( const std::vector<Sample> &samples, const GridSpe
     for ( int column = 0; column < grid.cols; ++column )
     {
       const std::size_t cell = static_cast<std::size_t>( row ) * grid.cols + column;
-      if ( core.global ||
-           core.neighborhood( grid.cellCenterX( column ), grid.cellCenterY( row ), &neighborhood ) )
+      const double x0 = grid.cellCenterX( column );
+      const double y0 = grid.cellCenterY( row );
+      // M3：非全局路径邻域只查一次——旧代码先 neighborhood() 再 core.solve()
+      // 内部又查一遍，每格 k-NN 重复两次。
+      if ( core.global || core.neighborhood( x0, y0, &neighborhood ) )
       {
         KrigingPointResult point;
-        if ( core.solve( grid.cellCenterX( column ), grid.cellCenterY( row ), &neighborhood, &point ) )
+        const bool solved = core.global
+            ? core.solveGlobal( x0, y0, &point )
+            : solveOrdinaryKriging( neighborhood, core.index, x0, y0, core.model, &point );
+        if ( solved )
         {
           result.estimate[cell] = point.estimate;
           result.variance[cell] = point.variance;
@@ -362,6 +368,14 @@ KrigingResult ordinaryKriging( const std::vector<Sample> &samples, const GridSpe
   }
   if ( control.progress )
     control.progress( 1.0 );
+  // H1：求解器全军覆没（每格都失败、无一有限值）不得报 Ok——旧行为整幅
+  // NaN 仍 Status::Ok，调用方无从区分「无数据」与「数值失败」。
+  if ( result.finiteCells == 0 && result.solverFailures > 0 )
+  {
+    result.status = Status::NumericalFailure;
+    result.message = "kriging system singular for every cell (solver failed everywhere)";
+    return result;
+  }
   result.status = Status::Ok;
   return result;
 }

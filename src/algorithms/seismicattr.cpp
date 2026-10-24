@@ -156,6 +156,9 @@ ComplexTraceResult complexTraceAnalysis(const float *trace, int n,
   {
     if (std::isnan(trace[i]) || std::isnan(r.freqHz[std::size_t(i)]))
       continue;
+    // L5：瞬时频率可为负（相位回绕/干涉），Q = π·f/|斜率| 为负或零无物理意义 → NaN。
+    if (!(r.freqHz[std::size_t(i)] > 0.0f))
+      continue;
     const double e = r.envelope[std::size_t(i)];
     if (!(e > 0.0))
       continue;

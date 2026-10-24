@@ -195,7 +195,9 @@ void SingleFactorKernelTests::duplicatesKeepRows()
   const QueryResult result = evaluateAt( input, dupQueries, params, {} );
   EXPECT_STATUS( result.status, Status::Ok );
   QCOMPARE( result.values[0], 2.0 );
-  QVERIFY( std::isnan( result.values[1] ) );
+  // PW-087（#697）：第 k 近与第 k+1 近等距时不再全灭为 NaN，重复井 a/b 分得
+  // 相同权重，c 在截断界外权重为 0 → (1+3)/2。
+  QVERIFY( std::abs( result.values[1] - 2.0 ) <= 1e-12 );
 
   params.maxPoints = 0;
   const std::vector<Point2> away{ { 4, 0 } };

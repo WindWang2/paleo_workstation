@@ -17,6 +17,8 @@ private slots:
   void singularMatrixFails();
   void dimensionOne();
   void mutationDemonstration_residualPrecision();
+  // H1（review-fix-numerics）：主元下限按列尺度，而非绝对 1e-12。
+  void largeSillBorderedSystemSolves();
 };
 
 void TestGeostatLinSolve::identityMatrixSolve()
@@ -139,6 +141,22 @@ void TestGeostatLinSolve::mutationDemonstration_residualPrecision()
     const double res = std::abs(rowSum - b[i]);
     QVERIFY2(res < 1e-10, qPrintable(QStringLiteral("Row %1 residual %2").arg(i).arg(res)));
   }
+}
+
+
+void TestGeostatLinSolve::largeSillBorderedSystemSolves()
+{
+  // OK 加边矩阵 [[Γ,1],[1ᵀ,0]]，γ 量级 1e10（大基台值）。消元后末主元 ≈ −2/1e10，
+  // 旧的全矩阵尺度下限 1e-12·1e10 = 1e-2 把这个良态方程组判成奇异（每格 NaN）；
+  // 按列尺度（Lagrange 列最大幅值 1）后下限 1e-12，正常求解。
+  const double g = 1e10;
+  const std::vector<double> a = {0.0, g, 1.0, g, 0.0, 1.0, 1.0, 1.0, 0.0};
+  const std::vector<double> b = {0.5 * g, 0.5 * g, 1.0}; // 解 w = (0.5, 0.5)，μ = 0
+  std::vector<double> x(3, 0.0);
+  QVERIFY(solveDenseLu(a, 3, b, x));
+  QVERIFY(std::fabs(x[0] - 0.5) < 1e-9);
+  QVERIFY(std::fabs(x[1] - 0.5) < 1e-9);
+  QVERIFY(std::fabs(x[2]) < 1e-3 * g * 1e-9 + 1e-6);
 }
 
 QTEST_GUILESS_MAIN(TestGeostatLinSolve)

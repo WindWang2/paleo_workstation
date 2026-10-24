@@ -180,11 +180,11 @@
       "soft": [],
       "values": [
         1.0,
-        null
+        4.5
       ],
       "finite": [
         true,
-        false
+        true
       ],
       "influence": [
         0.0,

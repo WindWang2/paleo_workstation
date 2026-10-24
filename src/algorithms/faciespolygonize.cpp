@@ -746,13 +746,58 @@ int conflateArcs( Graph &g, const QVector<QgsGeometry> &lines, const QVector<Qgs
   const double snap2 = snapTol * snapTol;
   int changed = 0;
 
+  // M1：外圈/NoData 边界（arc.exterior）承诺固定（见 Arc 注释与 SIMPLIFY 说明），
+  // 旧实现吸附时照样替换外圈弧、移动外圈节点，使覆盖范围被切缩/外扩，
+  // checkFootprint 随即整次失败。外圈弧不替换；外圈上的节点只允许沿外圈
+  // 直线段滑动（两侧外圈邻点与本点共线、目标落在两邻点连线段上）——此时
+  // 覆盖范围不变（如栅格外边上的内部分界端点）；否则不动。
+  std::vector<std::vector<int>> exteriorNbrs( std::size_t( g.nodes.size() ) );
+  for ( const Arc &arc : g.arcs )
+  {
+    if ( !arc.exterior )
+      continue;
+    for ( int i = 0; i < arc.ix.size(); ++i )
+    {
+      auto &nb = exteriorNbrs[std::size_t( arc.ix[i] )];
+      for ( int j : { i - 1, i + 1 } )
+        if ( j >= 0 && j < arc.ix.size() && arc.ix[j] != arc.ix[i] &&
+             std::find( nb.begin(), nb.end(), arc.ix[j] ) == nb.end() )
+          nb.push_back( arc.ix[j] );
+    }
+  }
+  const auto isPinned = [&]( int id ) {
+    return id >= 0 && std::size_t( id ) < exteriorNbrs.size() && !exteriorNbrs[std::size_t( id )].empty();
+  };
+  const auto canMove = [&]( int id, const QgsPointXY &target ) {
+    if ( !isPinned( id ) )
+      return true;
+    const auto &nb = exteriorNbrs[std::size_t( id )];
+    if ( nb.size() != 2 )
+      return false;
+    const QgsPointXY &pa = g.nodes[nb[0]].p, &pb = g.nodes[nb[1]].p, &pc = g.nodes[id].p;
+    const double ux = pb.x() - pa.x(), uy = pb.y() - pa.y();
+    const double len2 = ux * ux + uy * uy;
+    if ( !( len2 > 0 ) )
+      return false;
+    const double eps = 1e-9 * std::sqrt( len2 );
+    const auto offLine = [&]( const QgsPointXY &q ) {
+      return std::fabs( ux * ( q.y() - pa.y() ) - uy * ( q.x() - pa.x() ) ) / std::sqrt( len2 );
+    };
+    if ( offLine( pc ) > eps || offLine( target ) > eps )
+      return false;
+    const double t = ( ( target.x() - pa.x() ) * ux + ( target.y() - pa.y() ) * uy ) / len2;
+    return t > 0.0 && t < 1.0;
+  };
+
   auto moveNode = [&]( int id, const QgsPointXY &target ) {
-    if ( dist2( g.nodes[id].p, target ) <= snap2 )
+    if ( canMove( id, target ) && dist2( g.nodes[id].p, target ) <= snap2 )
       g.nodes[id].p = target;
   };
 
   for ( Arc &arc : g.arcs )
   {
+    if ( arc.exterior )
+      continue;
     if ( arc.ix.size() < 2 )
       continue;
     const int first = arc.ix.first();
@@ -782,8 +827,11 @@ int conflateArcs( Graph &g, const QVector<QgsGeometry> &lines, const QVector<Qgs
       const double along = line.lineLocatePoint( QgsGeometry::fromPointXY( mid ) );
       if ( along < 0.0 )
         continue;
-      const QgsGeometry p0 = line.interpolate( std::max( 0.0, along - 1e-3 ) );
-      const QgsGeometry p1 = line.interpolate( along + 1e-3 );
+      // R3-10：切向探针步长相对化（旧式固定 ±1e-3 在地理/大坐标下要么远小于
+      // 双精度分辨率、要么跨过折点）。取 snapTol 的 1%，并不超过线长的 1%。
+      const double probe = std::max( 1e-12, std::min( 0.01 * snapTol, 0.01 * line.length() ) );
+      const QgsGeometry p0 = line.interpolate( std::max( 0.0, along - probe ) );
+      const QgsGeometry p1 = line.interpolate( along + probe );
       if ( p0.isEmpty() || p1.isEmpty() )
         continue;
       const QgsPointXY q0 = p0.asPoint();
@@ -817,11 +865,11 @@ int conflateArcs( Graph &g, const QVector<QgsGeometry> &lines, const QVector<Qgs
     if ( dist2( sp.first(), sp.last() ) <= 1e-18 )
       continue;
 
-    if ( dist2( a, sp.first() ) <= snap2 )
+    if ( dist2( a, sp.first() ) <= snap2 && canMove( first, sp.first() ) )
       moveNode( first, sp.first() );
     else
       sp.first() = g.nodes.at( first ).p;
-    if ( dist2( b, sp.last() ) <= snap2 )
+    if ( dist2( b, sp.last() ) <= snap2 && canMove( last, sp.last() ) )
       moveNode( last, sp.last() );
     else
       sp.last() = g.nodes.at( last ).p;
@@ -851,7 +899,7 @@ int conflateArcs( Graph &g, const QVector<QgsGeometry> &lines, const QVector<Qgs
         best = i;
       }
     }
-    if ( best < 0 )
+    if ( best < 0 || !canMove( best, pt ) )
       continue;
     bool collapses = false;
     for ( const Arc &arc : g.arcs )

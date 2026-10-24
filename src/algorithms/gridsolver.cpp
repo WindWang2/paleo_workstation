@@ -715,14 +715,18 @@ float sampleBilinear(const std::vector<float> &z, const GridGeometry &geometry,
     return std::numeric_limits<float>::quiet_NaN();
   // 网格内采样：窗原点钳进 [0, dim−2]，权重随之钳入 [0,1]（贴边点落在
   // 边缘窗的外推半格上，权重饱和到边界）。
-  int j0 = std::clamp(static_cast<int>(std::floor(jf)), 0, geometry.cols - 2);
-  int i0 = std::clamp(static_cast<int>(std::floor(rf)), 0, geometry.rows - 2);
+  // R3-3：cols/rows==1 时 clamp(…,0,dim−2) 的 lo>hi 是 UB（实测得 −1 越界读）。
+  // 上限取 max(dim−2,0)，相邻下标钳到 dim−1（单列/单行退化为沿另一轴线性）。
+  int j0 = std::clamp(static_cast<int>(std::floor(jf)), 0, std::max(geometry.cols - 2, 0));
+  int i0 = std::clamp(static_cast<int>(std::floor(rf)), 0, std::max(geometry.rows - 2, 0));
+  const int j1 = std::min(j0 + 1, geometry.cols - 1);
+  const int i1 = std::min(i0 + 1, geometry.rows - 1);
   const double fx = clampd(jf - j0, 0.0, 1.0);
   const double fy = clampd(rf - i0, 0.0, 1.0);
   const auto at = [&](int r, int c) -> double
   { return z[static_cast<std::size_t>(r) * geometry.cols + c]; };
-  const double z00 = at(i0, j0), z10 = at(i0 + 1, j0), z01 = at(i0, j0 + 1),
-               z11 = at(i0 + 1, j0 + 1);
+  const double z00 = at(i0, j0), z10 = at(i1, j0), z01 = at(i0, j1),
+               z11 = at(i1, j1);
   if (std::isnan(z00) || std::isnan(z10) || std::isnan(z01) || std::isnan(z11))
     return std::numeric_limits<float>::quiet_NaN();
   const double top = z00 * (1.0 - fx) + z01 * fx;

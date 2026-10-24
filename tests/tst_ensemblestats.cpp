@@ -42,6 +42,8 @@ class EnsembleStatsTests : public QObject
     void bandedMatchesWholeField();
     void degenerateSets();
     void scalesLinearlyWithCells();
+    // review-fix-numerics L3：大均值小方差下 Σx²−n·x̄² 抵消。
+    void stddevStableUnderLargeMean();
 };
 
 void EnsembleStatsTests::syntheticTruthConverges()
@@ -240,6 +242,20 @@ void EnsembleStatsTests::scalesLinearlyWithCells()
             qPrintable( QStringLiteral( "BASELINE ensemble_stats_scale_ratio = %1" ).arg( ratio ) ) );
   QVERIFY2( ratio <= 4.0 * 1.5,
             qPrintable( QStringLiteral( "ensemble stats scale ratio %1 exceeds bound 6" ).arg( ratio ) ) );
+}
+
+
+void EnsembleStatsTests::stddevStableUnderLargeMean()
+{
+  // 均值 1e9、真标准差 1（±1 交替）：旧式 Σx² 口径在 double 下抵消。
+  StreamingMoments stream( 1 );
+  for ( int k = 0; k < 1000; ++k )
+  {
+    const double v = 1e9 + ( ( k % 2 == 0 ) ? 1.0 : -1.0 );
+    stream.addField( &v );
+  }
+  const std::vector<double> sd = stream.stddevPopulation();
+  QVERIFY2( std::fabs( sd[0] - 1.0 ) < 1e-6, qPrintable( QString::number( sd[0], 'g', 17 ) ) );
 }
 
 QTEST_MAIN( EnsembleStatsTests )

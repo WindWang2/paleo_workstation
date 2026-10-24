@@ -4,6 +4,7 @@
 #include "partition.h"
 #include "types.h"
 
+#include <cstdint>
 #include <vector>
 
 // regional_contours 移植（haiyou-visualization 27fdb99）。
@@ -21,6 +22,19 @@ struct RegionalContourResult
   std::vector<int> regionOfContour; // 与 contours 对齐的分区编号
   std::vector<std::string> issues;
 };
+
+namespace detail
+{
+struct Segment
+{
+  Point2 a;
+  Point2 b;
+};
+// 内部核（单测钩子）：regionMask 非零且值有限的格点参与；二值分类 v ≥ level。
+void marchingSquaresSegments( const GridSpec &grid, const std::vector<double> &values,
+                              const std::vector<std::uint8_t> &regionMask, double level,
+                              std::vector<Segment> *out );
+} // namespace detail
 
 // partition.wellRegionIds 必须与 input.samples 同序对齐。
 RegionalContourResult regionalContours( const PreparedInput &input, const GridSpec &grid,

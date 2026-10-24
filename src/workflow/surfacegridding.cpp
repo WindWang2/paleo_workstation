@@ -16,6 +16,7 @@
 
 #include <gdal.h>
 #include <cpl_conv.h>
+#include <ogr_srs_api.h>
 
 #include <QDir>
 #include <QMetaObject>
@@ -25,6 +26,7 @@
 
 #include <cmath>
 #include <limits>
+#include <string>
 #include <vector>
 #include <QSet>
 #include <algorithm>
@@ -44,6 +46,7 @@ struct RasterGrid
   double gt[6] = {0, 0, 0, 0, 0, 0};
   bool hasNodata = false;
   double nodata = 0;
+  std::string wkt; // M2：投影定义（空 = 未声明）
 };
 
 bool readFloatRaster(const QString &path, RasterGrid *grid, std::vector<float> *out,
@@ -59,6 +62,8 @@ bool readFloatRaster(const QString &path, RasterGrid *grid, std::vector<float> *
   }
   grid->cols = GDALGetRasterXSize(ds);
   grid->rows = GDALGetRasterYSize(ds);
+  if (const char *proj = GDALGetProjectionRef(ds))
+    grid->wkt = proj;
   {
     QString why;
     if (!paleo::workflow_detail::readNorthUpGeoTransform(ds, grid->gt, &why))
@@ -114,12 +119,42 @@ bool sameGrid(const RasterGrid &a, const RasterGrid &b)
 {
   if (a.cols != b.cols || a.rows != b.rows)
     return false;
-  const double tol =
-      std::max({std::fabs(a.gt[1]), std::fabs(a.gt[5]), 1.0}) * 1e-6;
+  // L7：容差 = 像元尺寸 × 1e-6（与注释一致）。旧式 1.0 下限在小像元（如 1e-4°）
+  // 时把容差放大到 1% 像元。
+  const double tol = std::max(std::fabs(a.gt[1]), std::fabs(a.gt[5])) * 1e-6;
   for (int i = 0; i < 6; ++i)
     if (std::fabs(a.gt[i] - b.gt[i]) > tol)
       return false;
   return true;
+}
+
+// M2：CRS 判定。geographic = 度为单位，像元面积不是 m²；空 WKT 视为未声明。
+bool crsIsGeographic(const std::string &wkt)
+{
+  if (wkt.empty())
+    return false;
+  OGRSpatialReferenceH srs = OSRNewSpatialReference(nullptr);
+  bool geographic = false;
+  if (OSRSetFromUserInput(srs, wkt.c_str()) == OGRERR_NONE)
+    geographic = OSRIsGeographic(srs) != 0;
+  OSRDestroySpatialReference(srs);
+  return geographic;
+}
+
+// 两侧均声明 CRS 时须等价；任一侧未声明按旧口径放行（保守：不拒绝历史无 CRS 栅格）。
+bool crsCompatible(const std::string &a, const std::string &b)
+{
+  if (a.empty() || b.empty() || a == b)
+    return true;
+  OGRSpatialReferenceH sa = OSRNewSpatialReference(nullptr);
+  OGRSpatialReferenceH sb = OSRNewSpatialReference(nullptr);
+  bool same = false;
+  if (OSRSetFromUserInput(sa, a.c_str()) == OGRERR_NONE &&
+      OSRSetFromUserInput(sb, b.c_str()) == OGRERR_NONE)
+    same = OSRIsSame(sa, sb) != 0;
+  OSRDestroySpatialReference(sa);
+  OSRDestroySpatialReference(sb);
+  return same;
 }
 
 } // namespace
@@ -592,6 +627,13 @@ QString SurfaceGriddingWorkflow::isopachBetweenRasters(const QString &topTif,
     return err;
   if (!sameGrid(top, base))
     return QStringLiteral("两栅格网格不一致（维度/范围/像元尺寸须相同）");
+  // M2：体积/面积按 |dx|·|dy| 计，地理坐标系下单位是“度²”，结果偏差可达 1e8 倍；
+  // 不同投影的同形网格也不能直接相减。两种情况明确拒绝，不静默给错数。
+  if (!crsCompatible(top.wkt, base.wkt))
+    return QStringLiteral("两栅格坐标系不一致，不能直接求厚度/体积");
+  if (crsIsGeographic(top.wkt) || crsIsGeographic(base.wkt))
+    return QStringLiteral("栅格为地理坐标系（经纬度），像元面积不是平面米制，"
+                          "请先投影到米制坐标系再计算厚度/体积");
 
   const std::size_t n = std::size_t(top.rows) * top.cols;
   std::vector<float> iso(n);

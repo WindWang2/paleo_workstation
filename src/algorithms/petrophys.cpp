@@ -162,6 +162,11 @@ bool resampleLinear(const std::vector<double> &refDepths,
       out[i] = v0; // 恰在样本点上（含边界端点约定）
       continue;
     }
+    if (d == d1)
+    {
+      out[i] = v1; // L9：恰在右结点上——左端 NaN 不应污染（while 用严格 <，d==d1 时游标停在左段）
+      continue;
+    }
     if (std::isnan(v0) || std::isnan(v1))
       continue; // 插值两端缺失 → NaN
     const double t = (d - d0) / (d1 - d0);

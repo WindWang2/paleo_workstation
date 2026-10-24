@@ -1196,6 +1196,15 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
     } );
     const int cols = j.cols;
     const int rows = j.rows;
+    // review memory#6：prepare 与 compute 之间文件可能被替换（TOCTOU）——
+    // 在真正读盘的句柄上复核尺寸与波段，不符即失败，不按旧尺寸读错位数据。
+    for ( GDALDatasetH ds : { dsA, dsB } )
+      if ( GDALGetRasterXSize( ds ) != cols || GDALGetRasterYSize( ds ) != rows ||
+           GDALGetRasterCount( ds ) < 1 )
+      {
+        j.error = QObject::tr( "集合均值面尺寸在准备后发生变化，请重试" );
+        return false;
+      }
     const std::size_t cells = static_cast<std::size_t>( cols ) * rows;
     std::vector<double> a( cells ), b( cells ), diff( cells );
     if ( !readBandSlice( GDALGetRasterBand( dsA, 1 ), 0, rows, cols, a.data() ) ||

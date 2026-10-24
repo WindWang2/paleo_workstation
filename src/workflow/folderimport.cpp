@@ -192,8 +192,15 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::makeImportJob(const QSt
     produce(s, [t, cancelled](int d, int total, const QString &p) {
       if (total > 0)
       {
-        t->reportBytes(d, total); // 执行段：行进度
-        t->reportDetail(p);
+        if (d >= total) {
+          // 文件计数不能估算尾部深度核验/恢复清单/提交耗时，改为明确阶段及未知剩余。
+          t->reportBytes(0, 0);
+          t->reportStage(QStringLiteral("publish"));
+          t->reportDetail(tr("文件处理结束，正在核验分层与准备提交"));
+        } else {
+          t->reportBytes(d, total); // 执行段：行进度
+          t->reportDetail(p);
+        }
       }
       else
       {

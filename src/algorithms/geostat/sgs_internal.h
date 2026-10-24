@@ -106,17 +106,19 @@ struct NormalScoreTable
   {
     NormalScoreTable table;
     double sum = 0;
-    double sumSq = 0;
     for ( const double value : values )
     {
       sum += value;
-      sumSq += value * value;
     }
     std::vector<double> sorted = values;
     std::sort( sorted.begin(), sorted.end() );
     const double n = static_cast<double>( sorted.size() );
     table.sampleMean = sum / n;
-    table.sampleStd = std::sqrt( std::max( 0.0, sumSq / n - table.sampleMean * table.sampleMean ) );
+    // PW-127：两遍法方差；E[x²]−E[x]² 在大均值（深度 3000±1）下灾难性抵消。
+    double ss = 0.0;
+    for ( const double value : values )
+      ss += ( value - table.sampleMean ) * ( value - table.sampleMean );
+    table.sampleStd = std::sqrt( ss / n );
     std::size_t i = 0;
     while ( i < sorted.size() )
     {
@@ -158,20 +160,25 @@ struct NormalScoreTable
   }
 
   // 反变换：线性内插 + 端部按末段斜率线性外推（直方图忠实样本分布）。
+  static constexpr double kTailFraction = 0.1;
   double backTransform( double gaussian ) const
   {
     if ( z.size() == 1 )
       return z.front(); // 单样本退化：任何高斯值都映回该值（如实退化）
+    // PW-081：端部线性外推按末段斜率无界——样本少/末段近并列时斜率巨大，
+    // 一个 3σ 的高斯抽样就能把值甩出数据范围数个量级。外推限幅到数据极差的
+    // kTailFraction 之外。
+    const double tail = kTailFraction * ( z.back() - z.front() );
     if ( gaussian <= y.front() )
     {
       const double slope = ( z[1] - z[0] ) / std::max( y[1] - y[0], 1e-12 );
-      return z[0] + slope * ( gaussian - y.front() );
+      return std::max( z[0] + slope * ( gaussian - y.front() ), z.front() - tail );
     }
     if ( gaussian >= y.back() )
     {
       const std::size_t m = z.size();
       const double slope = ( z[m - 1] - z[m - 2] ) / std::max( y[m - 1] - y[m - 2], 1e-12 );
-      return z[m - 1] + slope * ( gaussian - y.back() );
+      return std::min( z[m - 1] + slope * ( gaussian - y.back() ), z.back() + tail );
     }
     const std::size_t k = static_cast<std::size_t>(
         std::upper_bound( y.begin(), y.end(), gaussian ) - y.begin() ) - 1;

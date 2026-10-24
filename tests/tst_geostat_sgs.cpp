@@ -77,6 +77,7 @@ class GeostatSgsTests : public QObject
 {
   Q_OBJECT
 private slots:
+    void tailsClampedAndStableStd();
   void reproducibleWithSameSeed();
   void differentSeedsDiffer();
   void histogramFidelity();
@@ -703,6 +704,30 @@ void GeostatSgsTests::parallelRealizationsMatchSequential()
                     .arg( static_cast<double>( cell ) )
                     .toUtf8()
                     .constData() );
+}
+
+void GeostatSgsTests::tailsClampedAndStableStd()
+{
+  // PW-081：端部外推限幅——5 样本 [10,30] 的实现不得甩出数据极差的 10% 以外。
+  // PW-127：大均值样本的 sampleStd 用两遍法，不得被抵消成 0。
+  using namespace paleo::geostat;
+  std::vector<Sample> s = {{100, -100, 10}, {900, -200, 30}, {500, -500, 20}, {200, -800, 15}, {800, -900, 12}};
+  GridSpec g;
+  g.cols = 50; g.rows = 50; g.originX = 0; g.originY = 0; g.pixelWidth = 20; g.pixelHeight = -20;
+  VariogramModel m;
+  m.type = VariogramModelType::Spherical; m.nugget = 0; m.sill = 50; m.range = 600;
+  SgsParams p;
+  const auto r = sgs(s, g, m, p, {});
+  QCOMPARE(r.realizations.size(), std::size_t(1));
+  for (double v : r.realizations[0])
+    if (std::isfinite(v))
+      QVERIFY2(v >= 8.0 - 1e-9 && v <= 32.0 + 1e-9, qPrintable(QString::number(v)));
+  std::vector<Sample> deep = s;
+  for (Sample &d : deep)
+    d.value = 1.0e9 + (d.value - 20.0) * 1e-3;
+  const auto r2 = sgs(deep, g, m, p, {});
+  QVERIFY(r2.sampleStd > 0.5e-2 && r2.sampleStd < 2e-2);
+
 }
 
 QTEST_MAIN( GeostatSgsTests )

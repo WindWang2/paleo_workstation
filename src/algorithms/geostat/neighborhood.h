@@ -68,10 +68,23 @@ inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, in
   merged.reserve( sorted.size() );
   for ( const auto &[sample, finiteIndex] : sorted )
   {
-    if ( !merged.empty() && coincident( merged.back(), sample ) )
+    // PW-078：按 x 排序后近重合点未必相邻（(0,0)、(1e-12,5)、(2e-12,0)：
+    // 中间点 y 不同却插在两者之间）——只比 back() 会漏合并 → 克氏矩阵出现
+    // 重复行。代表点 x 单调不减，向回扫描 x 容差窗内的全部代表点。
+    std::size_t target = merged.size();
+    for ( std::size_t j = merged.size(); j > 0; --j )
     {
-      merged.back().value += sample.value;
-      ++mergedCounts.back();
+      const Sample &candidate = merged[j - 1];
+      const double ex = 1e-9 * std::max( { 1.0, std::fabs( candidate.x ), std::fabs( sample.x ) } );
+      if ( sample.x - candidate.x > ex )
+        break;
+      if ( coincident( candidate, sample ) )
+        target = j - 1;
+    }
+    if ( target < merged.size() )
+    {
+      merged[target].value += sample.value;
+      ++mergedCounts[target];
       if ( mergedCount )
         ++( *mergedCount );
     }
@@ -79,8 +92,9 @@ inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, in
     {
       merged.push_back( sample );
       mergedCounts.push_back( 1 );
+      target = merged.size() - 1;
     }
-    finiteToMerged[finiteIndex] = static_cast<std::uint32_t>( merged.size() - 1 );
+    finiteToMerged[finiteIndex] = static_cast<std::uint32_t>( target );
   }
   for ( std::size_t i = 0; i < merged.size(); ++i )
     merged[i].value /= static_cast<double>( mergedCounts[i] );
@@ -178,14 +192,20 @@ public:
 private:
   std::uint32_t bucketX( double x ) const
   {
-    int bucket = static_cast<int>( std::floor( ( x - m_minX ) / m_bucketSize ) );
-    return static_cast<std::uint32_t>( std::clamp( bucket, 0, m_bucketsX - 1 ) );
+    // PW-128：先在 double 域夹紧再转 int（越界/NaN 的 double→int 是 UB）。
+    const double raw = std::floor( ( x - m_minX ) / m_bucketSize );
+    if ( !( raw > 0 ) )
+      return 0;
+    return static_cast<std::uint32_t>( std::min( raw, static_cast<double>( m_bucketsX - 1 ) ) );
   }
 
   std::uint32_t bucketY( double y ) const
   {
-    int bucket = static_cast<int>( std::floor( ( y - m_minY ) / m_bucketSize ) );
-    return static_cast<std::uint32_t>( std::clamp( bucket, 0, m_bucketsY - 1 ) );
+    // PW-128：先在 double 域夹紧再转 int（越界/NaN 的 double→int 是 UB）。
+    const double raw = std::floor( ( y - m_minY ) / m_bucketSize );
+    if ( !( raw > 0 ) )
+      return 0;
+    return static_cast<std::uint32_t>( std::min( raw, static_cast<double>( m_bucketsY - 1 ) ) );
   }
 
   template <typename Visitor>

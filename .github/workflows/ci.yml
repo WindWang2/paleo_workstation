@@ -481,7 +481,8 @@ jobs:
   # #646：单 job 串行 432 项超 6h 预算。按 ctest 序号四等分，片内仍串行
   # （QSettings NativeFormat 不跨进程隔离）。required check 名仍是下面的 windows。
   windows-shard:
-    runs-on: windows-latest
+    # PW-058：固定 runner 镜像，升级 = 有意改这里。
+    runs-on: windows-2025
     timeout-minutes: 360
     strategy:
       fail-fast: false

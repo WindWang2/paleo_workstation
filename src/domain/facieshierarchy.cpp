@@ -2,10 +2,7 @@
 #include "facieshierarchy.h"
 #include "faciescatalog.h"
 #include "faciestaxonomy.h"
-#include <QJsonArray>
 #include <QJsonDocument>
-#include <QJsonObject>
-#include <QMap>
 #include <QObject>
 #include <QSet>
 #include <algorithm>
@@ -158,69 +155,6 @@ QVariantList legendTree(const QVariantList &entries) {
     }
     result << row;
   }
-  return result;
-}
-namespace {
-bool validPinKey(const QString &key) {
-  const auto doc = QJsonDocument::fromJson(key.toUtf8());
-  if (!doc.isArray() || doc.array().isEmpty() || doc.array().size() > 3)
-    return false;
-  for (const auto &part : doc.array())
-    if (!part.isString())
-      return false;
-  return true;
-}
-} // namespace
-QVariantMap parsePins(const QString &json) {
-  QVariantMap result;
-  const auto doc = QJsonDocument::fromJson(json.toUtf8());
-  if (!doc.isObject())
-    return result;
-  const auto object = doc.object();
-  for (auto it = object.begin(); it != object.end(); ++it)
-    if (validPinKey(it.key()) && levels().contains(it.value().toString()))
-      result.insert(it.key(), it.value().toString());
-  return result;
-}
-QString encodePins(const QVariantMap &pins) {
-  QJsonObject object;
-  for (auto it = pins.cbegin(); it != pins.cend(); ++it)
-    if (validPinKey(it.key()) && levels().contains(it.value().toString()))
-      object.insert(it.key(), it.value().toString());
-  return object.isEmpty() ? QString()
-                          : QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact));
-}
-QString pinnedLevel(const QVariantMap &pins, const QVariantMap &f) {
-  if (pins.isEmpty())
-    return {};
-  for (int i = int(levels().size()) - 1; i >= 0; --i) {
-    const auto level = pins.value(key(f, levels().at(i))).toString();
-    if (levels().contains(level))
-      return level;
-  }
-  return {};
-}
-QVariantList pinCandidates(const QVariantList &schema) {
-  // 与渲染器同口径：旧冻结分类先迁进三级体系，固定键才能与图例键对上。
-  QVariantList migrated;
-  const auto effective = FaciesTaxonomy::upgrade(schema, &migrated) ? migrated : schema;
-  QMap<QString, QVariantMap> nodes;
-  for (const auto &v : effective) {
-    const auto f = v.toMap();
-    const auto parts = path(f);
-    for (int i = 0; i < int(levels().size()); ++i) {
-      const auto k = key(f, levels().at(i));
-      if (!nodes.contains(k))
-        nodes.insert(k, QVariantMap{{"key", k}, {"level", levels().at(i)},
-                                    {"path", parts.mid(0, i + 1).join(" / ")}});
-    }
-  }
-  QVariantList result;
-  for (const auto &node : nodes)
-    result << node;
-  std::stable_sort(result.begin(), result.end(), [](const QVariant &a, const QVariant &b) {
-    return a.toMap().value("path").toString() < b.toMap().value("path").toString();
-  });
   return result;
 }
 int reassignedCode(const QVariantList &schema, int oldCode, int targetCode,

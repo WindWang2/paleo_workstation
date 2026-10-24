@@ -231,7 +231,7 @@ WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
   return WbCmdStep::Handled;
 }
 
-// 编辑族：labels / welltracks / selectHierarchy / displayLevel / pinFaciesLevel /
+// 编辑族：labels / welltracks / selectHierarchy / displayLevel /
 // featureDisplayLevel / 证据四动作 / assignFacies / referencePanel /
 // references / compare / consistency / polygonize / copy / save。
 WbCmdStep runWorkbenchEditFamily(const WorkbenchCmdDeps &d,
@@ -250,10 +250,6 @@ WbCmdStep runWorkbenchEditFamily(const WorkbenchCmdDeps &d,
   } else if (action == "displayLevel") {
     ok = d.workbench->setDisplayMode(
         id, p.value("display_mode").toString(), &error);
-  } else if (action == "pinFaciesLevel") {
-    // 相类固定显示层级：图层属性，非要素编辑，无需编辑会话。
-    ok = d.workbench->setPinnedLevel(id, p.value("pin_key").toString(),
-                                     p.value("display_mode").toString(), &error);
   } else if (action == "featureDisplayLevel") {
     // #522（显示锁定）：要素级显示层级——需编辑会话（beginEdit 同族守卫）。
     if (!d.beginEdit(id)) {
@@ -545,7 +541,7 @@ void PaleoMainWindow::runWorkbenchCommand(
         tr("已打开证据联动面板；可选择参考图件、添加并排视图，并开关范围与光标联动。");
   else if (action == "catalog")
     message = tr("已在数据管理中定位图件的保存版本和来源谱系。");
-  else if (action == "displayLevel" || action == "pinFaciesLevel")
+  else if (action == "displayLevel")
     message = tr("相图显示层级、标注与图例已更新。");
   else if (action == "addEvidence" || action == "removeEvidence")
     message = tr("解释证据已更新，可撤销；保存图件版本后持久化。");

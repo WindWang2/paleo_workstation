@@ -1,6 +1,7 @@
 // 层：视图
 #include "paleomainwindow.h"
 #include "pages/mappingreferencepanel.h"
+#include "../domain/facieshierarchy.h"
 #include "../qgis/mappingreferenceloader.h"
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgislayerservice.h"
@@ -34,7 +35,12 @@ bool PaleoMainWindow::showMappingReference(const QString &id, QString *error)
         return;
       }
       // 只替换请求来源的视图，其他视图的选择与当前绘制状态均保留。
-      view->setReference(layer, m_workbench->versionForLayer(sourceId).extra);
+      // 参考窗口与主图同口径显示相类固定：以主图图层当前固定为准（含未入版本的修改）。
+      auto metadata = m_workbench->versionForLayer(sourceId).extra;
+      if (m_layerSvc->layer(sourceId))
+        metadata.insert(QStringLiteral("pinned_levels"),
+                        FaciesHierarchy::encodePins(m_workbench->pinnedLevels(sourceId)));
+      view->setReference(layer, metadata);
     });
     const auto refresh = [this, panel] {
       panel->setSources(m_workbench->products(QString()), m_selection->activeHorizon());

@@ -74,6 +74,10 @@ void MappingReferenceCanvas::setReference(QgsMapLayer *layer, const QVariantMap 
   // when older versions still store the generic automatic mode.
   layer->setCustomProperty("paleo/faciesDisplayMode", FaciesHierarchy::productDisplayMode(kind,
       metadata.value("display_mode", layer->customProperty("paleo/faciesDisplayMode", "auto")).toString()));
+  // 相类固定：调用方给出的固定（主图当前或版本记录）优先，否则保留图层自带属性。
+  if (metadata.contains("pinned_levels"))
+    layer->setCustomProperty("paleo/faciesPinnedLevels", FaciesHierarchy::encodePins(
+        FaciesHierarchy::parsePins(metadata.value("pinned_levels").toString())));
   const auto valueSource = metadata.value("value_source").toString();
   const bool analysis = paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
   const bool cartographic = paleo::singlefactor::rejectsQuantitativeUse(kind, valueSource);

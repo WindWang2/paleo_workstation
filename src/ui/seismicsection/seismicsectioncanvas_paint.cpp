@@ -40,10 +40,12 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
     p.setClipRect(vp);
 
     if (hasData() && !m_cachedImage.isNull()) {
-        const double x0 = traceToPixelX(0.0);
-        const double y0 = timeToPixelY(m_t0Ms);
-        const double x1 = traceToPixelX(static_cast<double>(m_traces));
-        const double y1 = timeToPixelY(m_t0Ms + static_cast<double>(m_samples) * m_dtMs);
+        // PW-092：样点居中约定——道 i / 样 s 的色块以整数坐标为中心
+        // （[i-½, i+½)），与 wiggle 基线、round() 拾取、层位/井分层同一锚点。
+        const double x0 = traceToPixelX(-0.5);
+        const double y0 = timeToPixelY(m_t0Ms - 0.5 * m_dtMs);
+        const double x1 = traceToPixelX(static_cast<double>(m_traces) - 0.5);
+        const double y1 = timeToPixelY(m_t0Ms + (static_cast<double>(m_samples) - 0.5) * m_dtMs);
         const QRectF imgDest(x0, y0, x1 - x0, y1 - y0);
 
         const bool drawDensity = m_displayMode != SectionDisplayMode::WiggleVA ||

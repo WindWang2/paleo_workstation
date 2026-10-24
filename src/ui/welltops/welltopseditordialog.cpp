@@ -863,7 +863,7 @@ void WellTopsEditorDialog::onBatchShift()
   spin->setDecimals(3);
   spin->setSuffix(tr(" m"));
   spin->setValue(0.0);
-  form->addRow(tr("位移量（MD/TVD/Z 同加）"), spin);
+  form->addRow(tr("位移量（深度加深则海拔降低）"), spin);
   lay->addLayout(form);
   auto *preview = new QLabel(&dlg);
   preview->setObjectName(QStringLiteral("topsBatchPreviewLabel"));

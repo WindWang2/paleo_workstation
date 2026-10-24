@@ -102,8 +102,23 @@ QString MappingWorkbench::createBlankMap(const QString &horizon, QString *error)
   declaration.source = path + "|layername=features";
   declaration.title += tr(" · 工作副本");
   declaration.group = "05_PaleoMap";
-  if (!m_layers->declare(declaration, error))
+  if (!m_layers->declare(declaration, error)) {
+    const auto registered = versionForLayer(product);
+    m_layers->removeDeclaration(product);
+    if (m_catalog && !registered.assetId.isEmpty()) {
+      QString dropError;
+      m_catalog->removeAsset(registered.assetId, &dropError);
+      const QString bytes = DataCatalog::resolvedVersionPath(m_dir, registered);
+      if (!bytes.isEmpty()) {
+        QFile::setPermissions(bytes, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        QFile::remove(bytes);
+      }
+    }
+    QDir(QFileInfo(path).absolutePath()).removeRecursively();
+    if (error && error->isEmpty())
+      *error = tr("空白古地理图已撤回：图层声明失败");
     return {};
+  }
   emit productReady(horizon, draft);
   return draft;
 }

@@ -407,8 +407,11 @@ int applyShift(QVector<WellTopRecord> *rows, double delta)
       r.md += delta;
     if (r.hasTvd)
       r.tvd += delta;
-    if (r.hasX || r.hasY) // Z 与 X/Y 同列组——半组行的 z 同样位移（写侧同门控）
-      r.z += delta;
+    // Z 是海拔（向上为正）。深度正增量降低海拔，并保住与 TVD 的既有高差
+    // （不按 -tvd 重算）。Z 与 X/Y 同列组：无坐标行不动，半组行同样减 delta。
+    // X/Y 本身不改号。
+    if (r.hasX || r.hasY)
+      r.z -= delta;
     ++changed;
   }
   return changed;

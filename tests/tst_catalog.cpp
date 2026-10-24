@@ -122,6 +122,7 @@ private slots:
   void roleEntityTypeMismatchDiagnosedNotBlocked();
   void attachLinkReappliesRoleDiagnostics();
   void knownRoleLinksStayOutOfInvalidSet();
+  void staleRoleMismatchSuffixClearedWhenVocabularyAccepts();
   // ---- wave/data-foundation：T5 .bak 腐败恢复 / T6 原子写 / T4 锁降级 /
   //      T3 千实体量化预算 ----
   void backupRecoveryChainDrill();               // T5+T7：连续两轮损坏→恢复→续存
@@ -1435,6 +1436,39 @@ void TestCatalog::knownRoleLinksStayOutOfInvalidSet()
   QCOMPARE(cat.links().at(1).note, QStringLiteral("候选: x1(well-X1), x2(well-X2)"));
   QVERIFY2(!cat.links().at(2).note.contains(QStringLiteral("类型不符")),
            qPrintable(cat.links().at(2).note));
+}
+
+// 旧工程把「角色与实体类型不符」写在 note 尾部。词表现在认这条链接时，
+// 打开工程应去掉该后缀，诊断集为空。用户写在备注中间的同样字样保留。
+void TestCatalog::staleRoleMismatchSuffixClearedWhenVocabularyAccepts()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  {
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    CatalogAsset a;
+    a.id = QStringLiteral("ast-1");
+    a.type = QStringLiteral("document");
+    QVERIFY(cat.addAsset(a));
+    EntityAssetLink stale;
+    stale.entityType = QStringLiteral("auxiliary");
+    stale.entityId = QStringLiteral("aux-1");
+    stale.assetId = a.id;
+    stale.role = QStringLiteral("reference");
+    stale.note = QStringLiteral("角色与实体类型不符: reference 于 auxiliary");
+    QVERIFY(cat.addLink(stale));
+    EntityAssetLink kept = stale;
+    kept.entityId = QStringLiteral("aux-2");
+    kept.note = QStringLiteral("用户写了角色与实体类型不符: reference 于 auxiliary，后面还有话");
+    QVERIFY(cat.addLink(kept));
+  }
+  DataCatalog reloaded;
+  QVERIFY(reloaded.open(dir.path()));
+  QVERIFY(reloaded.invalidRoleLinks().isEmpty());
+  QCOMPARE(reloaded.links().at(0).note, QString());
+  QCOMPARE(reloaded.links().at(1).note,
+           QStringLiteral("用户写了角色与实体类型不符: reference 于 auxiliary，后面还有话"));
 }
 
 

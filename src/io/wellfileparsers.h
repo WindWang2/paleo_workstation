@@ -58,3 +58,8 @@ DeviationTable parseDeviationText(const QByteArray &text, WellParseReport *repor
 
 // 计数与逐条列因串（供导入结果/台账展示）；无异常为空。
 QString wellParseSummary(const WellParseReport &report);
+
+// 井表第二轮与 .dat 头列名同一口径。
+// ASCII：词边界，并认 <别名>_NAME（WELL_NAME 命中 WELL，MD 不命中 BASE_MD）。
+// 非 ASCII 仍按包含。单字母只认整词。
+bool wellHeaderMatchesAlias(const QString &header, const QString &alias);

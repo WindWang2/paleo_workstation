@@ -359,18 +359,45 @@ void TestWellTopsEdit::batchTransforms()
     WellTopRecord half = Fixture::rec(QStringLiteral("A4"), QStringLiteral("H"), 500.0, 500.0);
     half.y = 0.0;
     half.hasY = false;
-    copy.append(half); // 半坐标组：z 也要随位移（轮 4 M2）
+    copy.append(half); // 半坐标组：z 按海拔位移（轮 4 M2）
     QCOMPARE(applyShift(&copy, 10.0), 5);
-    QCOMPARE(copy.last().z, -500.0 + 10.0);
+    QCOMPARE(copy.last().z, -510.0); // 深度 +10，海拔 −10
+    QCOMPARE(copy.last().x, 5288.67); // X 不改号
     QCOMPARE(copy.last().hasY, false);
   }
   copy = rows;
   QCOMPARE(applyShift(&copy, 10.0), 4); // 4 行有深度列；纯层名行不动
   QCOMPARE(copy.at(0).md, 860.0);
   QCOMPARE(copy.at(0).tvd, 860.0);
-  QCOMPARE(copy.at(0).z, -850.0 + 10.0);
-  QCOMPARE(copy.at(4).hasMd, false);   // 空行不动
+  QCOMPARE(copy.at(0).z, -860.0); // 海拔：加深 10 m 后仍 z ≈ -tvd
+  QCOMPARE(copy.at(0).x, 5288.67); // X/Y 不改号
+  QCOMPARE(copy.at(0).y, 8219.94);
+  QCOMPARE(copy.at(4).hasMd, false); // 空行不动
+  QCOMPARE(copy.at(4).z, 0.0);       // 无坐标行 Z 不变
   QCOMPARE(applyShift(&copy, 0.0), 0); // 0 位移 no-op
+
+  copy = rows;
+  QCOMPARE(applyShift(&copy, -10.0), 4);
+  QCOMPARE(copy.at(0).md, 840.0);
+  QCOMPARE(copy.at(0).tvd, 840.0);
+  QCOMPARE(copy.at(0).z, -840.0); // 变浅 10 m，海拔升高
+
+  copy = rows;
+  {
+    WellTopRecord depthOnly;
+    depthOnly.wellName = QStringLiteral("A5");
+    depthOnly.topName = QStringLiteral("N");
+    depthOnly.md = 850.0;
+    depthOnly.hasMd = true;
+    depthOnly.tvd = 850.0;
+    depthOnly.hasTvd = true;
+    depthOnly.z = -850.0; // 有深度、无 X/Y
+    copy.append(depthOnly);
+    QCOMPARE(applyShift(&copy, 10.0), 5);
+    QCOMPARE(copy.last().md, 860.0);
+    QCOMPARE(copy.last().tvd, 860.0);
+    QCOMPARE(copy.last().z, -850.0); // 无坐标行 Z 不变
+  }
 
   copy = rows;
   QCOMPARE(applyDelete(&copy, QStringLiteral("C3")), 3);

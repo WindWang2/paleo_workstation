@@ -101,11 +101,12 @@ enum class DepthDomain { MD, TVD };
 enum class TvdStatus { Surveyed, NoSurvey, BrokenSurvey };
 
 // 剖面上的一口井。tops 按 MD 升序（仅含有限 MD 的分层）。kb 为补心海拔
-// （米，海平面以上为正；缺数据 = 0 → 海拔模式退化为井深模式）。
+// （米，海平面以上为正）。缺数据是 NaN，不是海平面 0：海拔模式偏移非有限，
+// 该井不按 0 对齐、不进深度窗。真实 KB 为 0 的海平面井仍按 0 对齐。
 struct Well {
   QString id, name;
   double x = qQNaN(), y = qQNaN();
-  double kb = 0.0;
+  double kb = qQNaN();
   double totalDepth = qQNaN();
   QVector<Top> tops;
   QVector<Curve> curves;
@@ -238,11 +239,12 @@ QStringList orderedTopNames(const QVector<Well> &wells);
 double flattenOffset(const Well &w, const QString &flattenTop);
 
 // 基准面：显示深 = 域深 − datumOffset（井数据永不因模式改写）。
-// Depth = 井口起算原样；Elevation = 补心海拔归零（各井按 kb 挂齐，
-// kb 缺省 0 时与 Depth 等价）；Flatten = 指定标志层顶归零（其余层按
-// 相对高程重排）。模式切换仅改视图偏移与轴标签——拉平不变量的落点。
+// Depth = 井口起算原样；Elevation = 补心海拔归零（各井按有限 kb 挂齐；
+// kb 非有限不是海平面，偏移为 NaN，不与 Depth 等价）；Flatten = 指定
+// 标志层顶归零（其余层按相对高程重排）。模式切换仅改视图偏移与轴标签
+// ——拉平不变量的落点。
 // 域参数：TVD 域的偏移在垂深空间取值（Flatten 取 tvdOf(顶)，Elevation
-// 取 kb —— 海拔垂深 = kb − TVD）。
+// 取 kb —— 海拔垂深 = kb − TVD；kb 非有限则偏移非有限）。
 enum class DatumMode { Depth = 0, Elevation = 1, Flatten = 2 };
 struct Datum {
   DatumMode mode = DatumMode::Depth;

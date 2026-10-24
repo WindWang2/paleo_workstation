@@ -119,7 +119,10 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
               out.sourceProblems.insert(file, table.error.isEmpty() ? QObject::tr("井点无有效记录或源坐标系无效") : table.error);
               out.sourceCrs.clear(); continue;
             }
-            cls.type = QStringLiteral("well_head"); out.mappings.insert(file, table.mapping);
+            // 井点槽里带层位和顶深的表保持分层类型，避免导入时被 forceType 成井口后整文件拒绝。
+            cls.type = table.type == QLatin1String("well_stratification")
+                           ? table.type : QStringLiteral("well_head");
+            out.mappings.insert(file, table.mapping);
             pointsCrs = table.crs;
             for (const auto &h : table.heads) wellNames.insert(h.name);
             out.notes << table.report.issues;

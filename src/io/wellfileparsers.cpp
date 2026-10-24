@@ -29,6 +29,20 @@ static QString withoutBom(const QByteArray &text)
   return EncodingDetect::decodeText(text);
 }
 
+bool wellHeaderMatchesAlias(const QString &header, const QString &alias)
+{
+  const bool ascii = !alias.contains(QRegularExpression(QStringLiteral("[^A-Za-z0-9_]")));
+  if (!ascii)
+    return header.contains(alias, Qt::CaseInsensitive);
+  // 单字母只认整词。更长的别名再认 _NAME，不放宽 \b，避免 MD 命中 BASE_MD。
+  const QString pattern = alias.size() <= 1
+                              ? QStringLiteral("\\b%1\\b")
+                              : QStringLiteral("\\b%1(?:_NAME)?\\b");
+  const QRegularExpression word(pattern.arg(QRegularExpression::escape(alias)),
+                                QRegularExpression::CaseInsensitiveOption);
+  return word.match(header).hasMatch();
+}
+
 namespace
 {
   using paleo::wellnumeric::NumberKind;
@@ -104,7 +118,9 @@ namespace
   // ---- 分层文本头驱动列映射（工区惯例兼容）----
   // '#' 注释头行列名齐全时按名取列（如 "wellName DepthMD topName topVerName"，
   // 道号/层名列序与 SMI 位置约定不同）；列名不全 → 返回 false，调用方维持
-  // 既有位置约定（井名 层名 MD [X Y Z TVD Time]）。列名匹配为小写子串。
+  // 既有位置约定（井名 层名 MD [X Y Z TVD Time]）。
+  // 列名与井表第二轮同一口径（词边界 + <别名>_NAME）。仅有 BASE_MD /
+  // BOTTOM_MD 时不回退成位置上的顶深。
   struct TopsColumnMap
   {
     int well = -1, top = -1, md = -1, x = -1, y = -1, z = -1, tvd = -1, time = -1;
@@ -118,17 +134,31 @@ namespace
   bool tokenMatches(const QString &token, const QStringList &names)
   {
     for (const QString &n : names)
-      if (token.contains(n, Qt::CaseInsensitive))
+      if (wellHeaderMatchesAlias(token, n))
         return true;
+    return false;
+  }
+
+  // 底深列：整词 BASE_MD / BOTTOM_MD（及垂深、中文底界）。不占顶深角色。
+  bool isExplicitBaseDepth(const QString &token)
+  {
+    const QRegularExpression ascii(QStringLiteral("\\b(?:BASE|BOTTOM)_(?:MD|TVD)\\b"),
+                                   QRegularExpression::CaseInsensitiveOption);
+    if (ascii.match(token).hasMatch()) return true;
+    for (const QString &name : {QStringLiteral("底界测深"), QStringLiteral("底测深"),
+                                QStringLiteral("底界垂深"), QStringLiteral("底垂深")})
+      if (token.contains(name)) return true;
     return false;
   }
 
   bool sniffTopsColumnMap(const QStringList &tokens, TopsColumnMap *map)
   {
     TopsColumnMap m;
+    bool sawBaseDepth = false;
     for (int i = 0; i < tokens.size(); ++i)
     {
       const QString &t = tokens.at(i);
+      if (isExplicitBaseDepth(t)) { sawBaseDepth = true; continue; }
       if (m.well < 0 && tokenMatches(t, {QStringLiteral("wellname"),
                                           QStringLiteral("well"),
                                           QStringLiteral("井名"), QStringLiteral("井号")}))
@@ -152,7 +182,9 @@ namespace
       else if (m.time < 0 && tokenMatches(t, {QStringLiteral("time")}))
         m.time = i;
     }
-    if (m.well < 0 || m.top < 0 || (m.md < 0 && m.tvd < 0 && m.time < 0))
+    // 井名+层名已认出、但只有底深列：按名取列且不把底深当成顶深。
+    // 否则会退回位置约定，第三列仍被写成 MD。
+    if (m.well < 0 || m.top < 0 || (m.md < 0 && m.tvd < 0 && m.time < 0 && !sawBaseDepth))
       return false;
     *map = m;
     return true;

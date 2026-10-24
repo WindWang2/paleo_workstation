@@ -11,6 +11,7 @@
 #include "domain/wellnumeric.h"
 #include "domain/welltopsedit.h"
 #include "io/wellfileparsers.h"
+#include "io/welltable.h"
 #include "io/timedeptool.h"
 
 namespace
@@ -22,6 +23,13 @@ QByteArray fixture(const QString &name)
   if (!f.open(QIODevice::ReadOnly))
     return {};
   return f.readAll();
+}
+
+bool writeCsv(const QString &path, const QByteArray &csv)
+{
+  QDir().mkpath(QFileInfo(path).path());
+  QFile file(path);
+  return file.open(QIODevice::WriteOnly) && file.write(csv) == csv.size();
 }
 }
 
@@ -44,6 +52,9 @@ private slots:
   void densityUnitAliases_data();
   void densityUnitAliases();
   void streamingDeviceEntryMatchesWholeRead();
+  void sheet1WellNameHeaderReadsOneTop();
+  void baseMdHeaderIsNotStoredAsTopMd();
+  void topDepthComesFromMdNotBaseMd();
 };
 
 void WellFileParserTests::sentinelVocabularyIsExact()
@@ -437,6 +448,91 @@ void WellFileParserTests::streamingDeviceEntryMatchesWholeRead()
     QCOMPARE(devReport.issues.join(QLatin1Char(';')),
              textReport.issues.join(QLatin1Char(';')));
   }
+}
+
+// #671：Sheet1 上 WELL_NAME / TOP_NAME / HORIZON_NAME 仍对上井名或层位。
+void WellFileParserTests::sheet1WellNameHeaderReadsOneTop()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("Sheet1.csv"));
+  QVERIFY(writeCsv(path, "WELL_NAME,TOP,MD\nA1,D61,100\n"));
+  const auto table = paleo::io::readWellTable(path);
+  QVERIFY2(table.error.isEmpty(), qPrintable(table.error));
+  QCOMPARE(table.tops.size(), 1);
+  QCOMPARE(table.tops[0].wellName, QStringLiteral("A1"));
+  QCOMPARE(table.tops[0].topName, QStringLiteral("D61"));
+  QVERIFY(table.tops[0].hasMd);
+  QCOMPARE(table.tops[0].md, 100.0);
+
+  const QString topName = dir.filePath(QStringLiteral("top/Sheet1.csv"));
+  QVERIFY(writeCsv(topName, "WELL_NAME,TOP_NAME,MD\nA1,D62,110\n"));
+  const auto namedTop = paleo::io::readWellTable(topName);
+  QCOMPARE(namedTop.tops.size(), 1);
+  QCOMPARE(namedTop.tops[0].wellName, QStringLiteral("A1"));
+  QCOMPARE(namedTop.tops[0].topName, QStringLiteral("D62"));
+  QCOMPARE(namedTop.tops[0].md, 110.0);
+
+  const QString horizon = dir.filePath(QStringLiteral("horizon/Sheet1.csv"));
+  QVERIFY(writeCsv(horizon, "WELL_NAME,HORIZON_NAME,MD\nA1,D63,120\n"));
+  const auto namedHorizon = paleo::io::readWellTable(horizon);
+  QCOMPARE(namedHorizon.tops.size(), 1);
+  QCOMPARE(namedHorizon.tops[0].wellName, QStringLiteral("A1"));
+  QCOMPARE(namedHorizon.tops[0].topName, QStringLiteral("D63"));
+  QCOMPARE(namedHorizon.tops[0].md, 120.0);
+
+  // TOP_NAME 在前时不得被井名别名 NAME 抢走。
+  const QString ordered = dir.filePath(QStringLiteral("order/Sheet1.csv"));
+  QVERIFY(writeCsv(ordered, "TOP_NAME,WELL_NAME,MD\nD61,A1,100\n"));
+  const auto swapped = paleo::io::readWellTable(ordered);
+  QCOMPARE(swapped.tops.size(), 1);
+  QCOMPARE(swapped.tops[0].wellName, QStringLiteral("A1"));
+  QCOMPARE(swapped.tops[0].topName, QStringLiteral("D61"));
+  QCOMPARE(swapped.tops[0].md, 100.0);
+}
+
+// #671：注释头里的底深列不得写成顶深 MD。
+void WellFileParserTests::baseMdHeaderIsNotStoredAsTopMd()
+{
+  for (const char *header : {"# wellName topName BASE_MD\n", "# wellName topName BOTTOM_MD\n"})
+  {
+    const auto tops = parseWellTopsText(QByteArray(header) + "A1 D61 1500\n");
+    for (const auto &top : tops)
+      QVERIFY(!top.hasMd);
+    QVERIFY(tops.isEmpty());
+  }
+}
+
+// #671：同时有 MD 与 BASE_MD 时，顶深只取 MD 列。仅有 BASE_MD 时不占顶深。
+void WellFileParserTests::topDepthComesFromMdNotBaseMd()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("layers.csv"));
+  QVERIFY(writeCsv(path, "WELL,TOP,MD,BASE_MD\nA1,D61,100,80\n"));
+  const auto table = paleo::io::readWellTable(path);
+  QVERIFY2(table.error.isEmpty(), qPrintable(table.error));
+  QCOMPARE(table.tops.size(), 1);
+  QCOMPARE(table.tops[0].wellName, QStringLiteral("A1"));
+  QCOMPARE(table.tops[0].topName, QStringLiteral("D61"));
+  QVERIFY(table.tops[0].hasMd);
+  QCOMPARE(table.tops[0].md, 100.0);
+
+  const QString baseOnly = dir.filePath(QStringLiteral("base.csv"));
+  QVERIFY(writeCsv(baseOnly, "WELL,TOP,BASE_MD\nA1,D61,80\n"));
+  QVERIFY(paleo::io::readWellTable(baseOnly).tops.isEmpty());
+
+  const auto named = parseWellTopsText(QByteArrayLiteral("# WELL TOP MD BASE_MD\nA1 D61 100 80\n"));
+  QCOMPARE(named.size(), 1);
+  QVERIFY(named[0].hasMd);
+  QCOMPARE(named[0].md, 100.0);
+  QCOMPARE(named[0].wellName, QStringLiteral("A1"));
+  QCOMPARE(named[0].topName, QStringLiteral("D61"));
+
+  const auto reversed = parseWellTopsText(QByteArrayLiteral("# WELL TOP BASE_MD MD\nA1 D61 80 100\n"));
+  QCOMPARE(reversed.size(), 1);
+  QVERIFY(reversed[0].hasMd);
+  QCOMPARE(reversed[0].md, 100.0);
 }
 
 QTEST_GUILESS_MAIN(WellFileParserTests)

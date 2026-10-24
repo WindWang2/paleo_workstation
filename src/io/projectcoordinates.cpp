@@ -68,11 +68,13 @@ bool projectRasterFile(const QString &path, const QString &target, QString *erro
   }
   from.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER); to.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
   if (from.IsSame(&to)) { GDALClose(input); return true; }
-  // .partial 不会被 moveStagedFiles 提交。失败留下的 warp 结果不得用其它后缀进工程。
-  const auto destination = path + QStringLiteral(".partial");
+  // GDAL 3.13 按扩展名选驱动，裸 .partial 配不到 GTiff 会返回空。
+  // .partial.tif 含 .partial，提交扫描会跳过；失败分支删掉它，不进工程。
+  const auto destination = path + QStringLiteral(".partial.tif");
   QByteArray encoded = target.toUtf8();
-  char *args[] = {const_cast<char *>("-t_srs"), encoded.data(), const_cast<char *>("-r"),
-                  const_cast<char *>("bilinear"), nullptr};
+  char *args[] = {const_cast<char *>("-t_srs"), encoded.data(),
+                  const_cast<char *>("-of"), const_cast<char *>("GTiff"),
+                  const_cast<char *>("-r"), const_cast<char *>("bilinear"), nullptr};
   auto *options = GDALWarpAppOptionsNew(args, nullptr);
   int usage = 0;
   const auto output = GDALWarp(destination.toUtf8().constData(), nullptr, 1,

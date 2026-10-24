@@ -101,11 +101,34 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
       }
       return true;
     }
+    const QString previous = m_projSvc->projectPath();
+    const auto dropThisAttempt = [&] {
+      QFile::remove(qgz);
+      QFile::remove(paleoProjectFilePath(dir));
+    };
+    const auto restorePrevious = [&] {
+      if (!previous.isEmpty() && m_projSvc->projectPath().isEmpty())
+        m_projSvc->openProject(previous);
+    };
     if (!m_projSvc->createProject(qgz))
     {
+      const bool switchedAway = m_projSvc->projectPath().isEmpty();
+      if (switchedAway)
+        dropThisAttempt();
+      restorePrevious();
       if (!m_projSvc->lastOpenCancelled()) // #152：锁冲突时用户取消 → 不报错
         emit openFailed(tr("新建工程失败"),
                       m_projSvc->lastErrors().join(QLatin1Char('\n')), true);
+      return false;
+    }
+    if (!QFile::exists(paleoProjectFilePath(dir)))
+    {
+      const QString message = m_projSvc->lastErrors().join(QLatin1Char('\n'));
+      m_projSvc->closeProject();
+      dropThisAttempt();
+      restorePrevious();
+      emit openFailed(tr("新建工程失败"),
+                      message.isEmpty() ? tr("写入工程清单失败") : message, true);
       return false;
     }
     if (QFile::exists(paleoProjectFilePath(dir)))

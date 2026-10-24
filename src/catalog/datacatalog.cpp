@@ -317,6 +317,7 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
       case CatalogOp::Kind::AttachLink: ok = attachLink(op.index, op.id, &opErr); break;
       case CatalogOp::Kind::SetLinkUnresolved: ok = setLinkUnresolved(op.index, &opErr); break;
       case CatalogOp::Kind::SetLinkPrimary: ok = setLinkPrimary(op.index, &opErr); break;
+      case CatalogOp::Kind::ClearLinkPrimary: ok = clearLinkPrimary(op.index, &opErr); break;
       case CatalogOp::Kind::MarkDownstreamStale:
         ok = markDownstreamStale(op.id, op.reason, &opErr);
         break;
@@ -521,6 +522,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
     m_forceFullSave = m_primaryCorruptOnDisk && !m_lockedReadOnly;
     qWarning("catalog: recovered from backup (%s)", qPrintable(m_backupRecoveryReason));
     m_isOpen = true;
+    reconcileRoleNotes();
     emit backupRecovered(m_backupRecoveryReason);
     emit changed();
     return true;
@@ -531,6 +533,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_backupRecoveryReason.clear();
   m_forceFullSave = false;
   m_isOpen = true;
+  reconcileRoleNotes();
   emit changed();
   return true;
 }

@@ -29,6 +29,8 @@
 #include "../src/ui/pages/mappingeditbasis.h"
 #include "../src/ui/dialogs/dataexportdialog.h"
 #include <QLineEdit>
+#include <QTreeWidgetItemIterator>
+#include <qgscollapsiblegroupbox.h>
 #include <QGroupBox>
 #include <QScrollBar>
 #include <QWheelEvent>
@@ -1647,6 +1649,45 @@ private slots:
     QVERIFY(pinnedRow);
     QVERIFY(levels.contains("facies"));
   }
+  void faciesPinTreeListsStalePinsAndFilters() {
+    FaciesPinnedLevelList list;
+    const QVariantList candidates{
+        QVariantMap{{"key", "f:A"}, {"level", "facies"}, {"path", "河流"}},
+        QVariantMap{{"key", "s:A/B"}, {"level", "sub_facies"}, {"path", "河流 / 河道"}},
+        QVariantMap{{"key", "m:A/B/C"}, {"level", "micro_facies"}, {"path", "河流 / 河道 / 心滩"}},
+        QVariantMap{{"key", "f:D"}, {"level", "facies"}, {"path", "湖泊"}}};
+    list.setState(candidates, {{"s:A/B", "facies"}, {"gone", "sub_facies"}}, true, QString());
+    auto *tree = list.findChild<QTreeWidget *>("faciesPinList");
+    QVERIFY(tree);
+    QCOMPARE(tree->topLevelItemCount(), 3); // 河流、湖泊 + 末尾陈旧固定
+    auto *river = tree->topLevelItem(0);
+    QCOMPARE(river->text(0), QString("河流"));
+    auto *channel = river->child(0);
+    QCOMPARE(channel->text(0), QString("河道"));
+    QVERIFY(channel->font(0).bold());
+    QCOMPARE(qobject_cast<QComboBox *>(tree->itemWidget(channel, 1))->currentData().toString(),
+             QString("facies"));
+    QCOMPARE(channel->child(0)->text(0), QString("心滩"));
+    auto *stale = tree->topLevelItem(2);
+    QVERIFY(stale->text(0).endsWith(QString("（不在当前分类中）")));
+    QCOMPARE(stale->data(0, Qt::UserRole).toString(), QString("gone"));
+    QSignalSpy pin(&list, &FaciesPinnedLevelList::pinRequested);
+    auto *staleBox = qobject_cast<QComboBox *>(tree->itemWidget(stale, 1));
+    staleBox->setCurrentIndex(staleBox->findData("auto"));
+    emit staleBox->activated(staleBox->currentIndex());
+    QTRY_COMPARE(pin.size(), 1);
+    QCOMPARE(pin.last()[0].toString(), QString("gone"));
+    QCOMPARE(pin.last()[1].toString(), QString("auto"));
+    auto *filter = list.findChild<QLineEdit *>("faciesPinFilter");
+    QVERIFY(filter);
+    filter->setText("心滩"); // 命中项连同祖先可见
+    QVERIFY(!river->isHidden() && !channel->isHidden() && !channel->child(0)->isHidden());
+    QVERIFY(tree->topLevelItem(1)->isHidden());
+    filter->setText("河流"); // 父节点命中时整棵子树可见
+    QVERIFY(!channel->child(0)->isHidden());
+    filter->clear();
+    QVERIFY(!tree->topLevelItem(1)->isHidden());
+  }
   void ribbonDisplayControlIndicatesPinnedClasses() {
     FaciesDisplayControl control;
     auto *mode = control.findChild<QComboBox *>("ribbonFaciesDisplayMode"); QVERIFY(mode);
@@ -2918,38 +2959,59 @@ private slots:
     featureApply->click();
     QCOMPARE(intent.last()[0].toString(), QString("featureDisplayLevel"));
     QCOMPARE(intent.last()[1].toMap().value("display_mode").toString(), QString("facies"));
-    // 相类固定显示层级列表：添加、改层级、移除都只发意图。
-    auto *pinNode = page.findChild<QComboBox *>("faciesPinNode");
-    auto *pinLevel = page.findChild<QComboBox *>("faciesPinLevel");
+    // 相类显示层级锁定：单列一组默认展开，全部相类成树，每行选层级只发意图。
+    auto *pinGroup = page.findChild<QgsCollapsibleGroupBox *>("workbenchFaciesPins");
+    QVERIFY(pinGroup);
+    QVERIFY(!pinGroup->isCollapsed());
     auto *pinList = page.findChild<QTreeWidget *>("faciesPinList");
-    QVERIFY(pinNode && pinLevel && pinList);
-    QVERIFY(pinNode->isEnabled());
-    QCOMPARE(pinNode->count(), 11); // 3 相 + 3 亚相 + 5 微相 nodes in hierarchySchema
-    pinNode->setCurrentIndex(0);
-    pinLevel->setCurrentIndex(pinLevel->findData("micro_facies"));
-    const auto pinKey = pinNode->currentData().toString();
-    page.findChild<QPushButton *>("faciesPinAdd")->click();
+    QVERIFY(pinList && pinList->isEnabled());
+    QVERIFY(pinGroup->isAncestorOf(pinList));
+    QStringList pinKeys;
+    for (QTreeWidgetItemIterator it(pinList); *it; ++it) {
+      pinKeys << (*it)->data(0, Qt::UserRole).toString();
+      auto *box = qobject_cast<QComboBox *>(pinList->itemWidget(*it, 1));
+      QVERIFY(box);
+      QCOMPARE(box->count(), 4);
+      QCOMPARE(box->currentData().toString(), QString("auto"));
+      QVERIFY(!(*it)->font(0).bold());
+    }
+    QCOMPARE(pinKeys.size(), 11); // 3 相 + 3 亚相 + 5 微相 nodes in hierarchySchema
+    QCOMPARE(pinList->topLevelItemCount(), 3);
+    QVERIFY(pinList->topLevelItem(0)->childCount() > 0);
+    auto *pinItem = pinList->topLevelItem(0);
+    const auto pinKey = pinItem->data(0, Qt::UserRole).toString();
+    auto *rowLevel = qobject_cast<QComboBox *>(pinList->itemWidget(pinItem, 1));
+    const auto before = intent.size();
+    emit rowLevel->activated(rowLevel->currentIndex()); // 未改选不发意图
+    QCoreApplication::processEvents();
+    QCOMPARE(intent.size(), before);
+    rowLevel->setCurrentIndex(rowLevel->findData("micro_facies"));
+    emit rowLevel->activated(rowLevel->currentIndex());
+    // Row changes are queued (the handler rebuilds the list and deletes this combo).
+    QTRY_COMPARE(intent.size(), before + 1);
     QCOMPARE(intent.last()[0].toString(), QString("pinFaciesLevel"));
     QCOMPARE(intent.last()[1].toMap().value("pin_key").toString(), pinKey);
     QCOMPARE(intent.last()[1].toMap().value("display_mode").toString(), QString("micro_facies"));
     QVERIFY(f.work.setPinnedLevel(draft, pinKey, "micro_facies", &error));
     page.refresh();
-    QCOMPARE(pinList->topLevelItemCount(), 1);
-    auto *rowLevel = qobject_cast<QComboBox *>(pinList->itemWidget(pinList->topLevelItem(0), 1));
-    QVERIFY(rowLevel);
+    pinItem = pinList->topLevelItem(0);
+    QCOMPARE(pinItem->data(0, Qt::UserRole).toString(), pinKey);
+    QVERIFY(pinItem->font(0).bold());
+    rowLevel = qobject_cast<QComboBox *>(pinList->itemWidget(pinItem, 1));
     QCOMPARE(rowLevel->currentData().toString(), QString("micro_facies"));
-    rowLevel->setCurrentIndex(rowLevel->findData("sub_facies"));
+    int listed = 0;
+    for (QTreeWidgetItemIterator it(pinList); *it; ++it) ++listed;
+    QCOMPARE(listed, 11);
+    // 自动 == 移除固定。
+    rowLevel->setCurrentIndex(rowLevel->findData("auto"));
     emit rowLevel->activated(rowLevel->currentIndex());
-    // Row changes are queued (the handler rebuilds the list and deletes this combo).
-    QTRY_COMPARE(intent.last()[1].toMap().value("display_mode").toString(), QString("sub_facies"));
-    auto *pinRemove = page.findChild<QPushButton *>("faciesPinRemove");
-    QVERIFY(!pinRemove->isEnabled());
-    pinList->setCurrentItem(pinList->topLevelItem(0));
-    QVERIFY(pinRemove->isEnabled());
-    pinRemove->click();
+    QTRY_COMPARE(intent.last()[1].toMap().value("display_mode").toString(), QString("auto"));
     QCOMPARE(intent.last()[0].toString(), QString("pinFaciesLevel"));
     QCOMPARE(intent.last()[1].toMap().value("pin_key").toString(), pinKey);
-    QCOMPARE(intent.last()[1].toMap().value("display_mode").toString(), QString("auto"));
+    QVERIFY(f.work.setPinnedLevel(draft, pinKey, "auto", &error));
+    QVERIFY(f.work.pinnedLevels(draft).isEmpty());
+    page.refresh();
+    QVERIFY(!pinList->topLevelItem(0)->font(0).bold());
     text->setPlainText("解释证据");
     QVERIFY(page.commandButton("addEvidence")->isEnabled());
     page.commandButton("addEvidence")->click();

@@ -714,6 +714,37 @@ bool SegyReader::open(const QString &path, QString *error,
 }
 
 
+bool SegyReader::readInlineCoordinates(qint32 inlineNo, QHash<qint32, TraceCoordinate> *out,
+                                        QString *error, const SegyOptions *opts) const
+{
+  out->clear();
+  QFile file(m_path);
+  if (!file.open(QIODevice::ReadOnly)) {
+    if (error) *error = file.errorString();
+    return false;
+  }
+  const int xOffset = m_dialect.cornerFromCdpXY ? 180 : 72;
+  const int yOffset = m_dialect.cornerFromCdpXY ? 184 : 76;
+  uchar header[240];
+  for (const int index : m_byInline.value(inlineNo)) {
+    if (opts && opts->cancel && opts->cancel()) {
+      if (error) *error = QStringLiteral("已取消");
+      out->clear(); return false;
+    }
+    const auto &entry = m_index[index];
+    if (!file.seek(entry.offset) || file.read(reinterpret_cast<char *>(header), 240) != 240) {
+      if (error) *error = QStringLiteral("无法读取地震道坐标（inline %1，crossline %2）")
+          .arg(inlineNo).arg(entry.xlineNo);
+      out->clear(); return false;
+    }
+    const qint16 scalar = beI16(header + 70);
+    const double resolution = scalar == 0 ? 1.0 : scalar > 0 ? double(scalar) : 1.0 / -double(scalar);
+    out->insert(entry.xlineNo, {beI32(header + xOffset) * resolution,
+                               beI32(header + yOffset) * resolution, resolution});
+  }
+  return true;
+}
+
 bool SegyReader::decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out,
                               SegySampleIssue *issue) const
 {

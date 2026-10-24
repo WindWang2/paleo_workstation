@@ -201,13 +201,23 @@ void TestEntityView::slotsEnumerateRegistryRolesIncludingEmpty()
     QVERIFY(s.unresolved.isEmpty());
   }
 
-  // 无词表的实体类型：视图非空但槽为空（如实——词表没有可枚举的角色）。
+  // auxiliary 自 #666 起有词表（reference：未能挂井的参考资料），枚举出唯一空槽。
   QVERIFY(cat.addEntity(CatalogEntity{QStringLiteral("aux-1"),
                                       QStringLiteral("auxiliary"),
                                       QStringLiteral("扫描图")}));
   const EntityView auxView = entityDataView(cat, QStringLiteral("aux-1"));
   QCOMPARE(auxView.entity.id, QStringLiteral("aux-1"));
-  QVERIFY(auxView.roleSlots.isEmpty());
+  QCOMPARE(auxView.roleSlots.size(), 1);
+  QCOMPARE(auxView.roleSlots.first().def.role, QStringLiteral("reference"));
+  QVERIFY(auxView.roleSlots.first().members.isEmpty());
+
+  // 无词表的实体类型：视图非空但槽为空（如实——词表没有可枚举的角色）。
+  QVERIFY(cat.addEntity(CatalogEntity{QStringLiteral("nv-1"),
+                                      QStringLiteral("no_vocabulary_type"),
+                                      QStringLiteral("无词表")}));
+  const EntityView nvView = entityDataView(cat, QStringLiteral("nv-1"));
+  QCOMPARE(nvView.entity.id, QStringLiteral("nv-1"));
+  QVERIFY(nvView.roleSlots.isEmpty());
 }
 
 // 未决链接按 entityId 归属落槽（上游约定：歧义链接携带候选实体 id）；

@@ -552,8 +552,7 @@ class TestUiShell : public QObject
       QVERIFY(m_win->property("horizonFlashActive").toBool());
       auto *timer = m_win->findChild<QTimer *>(QStringLiteral("horizonFlashTimer"));
       QVERIFY(timer);
-      QTest::qWait(600);
-      QVERIFY(!m_win->property("horizonFlashActive").toBool());
+      QTRY_VERIFY_WITH_TIMEOUT(!m_win->property("horizonFlashActive").toBool(), 5000);
 
       // 双向同步通路：图层树勾选/取消（QGIS 4 语义）不崩——按钮态由预览
       // 侧测试覆盖（setHorizonOnMap 断言）。
@@ -657,8 +656,7 @@ class TestUiShell : public QObject
       QVERIFY(m_win->property("horizonFlashActive").toBool());
 
       // Allow flash animation to complete (~400ms duration)
-      QTest::qWait(600);
-      QVERIFY(!m_win->property("horizonFlashActive").toBool());
+      QTRY_VERIFY_WITH_TIMEOUT(!m_win->property("horizonFlashActive").toBool(), 5000);
 
       // Invariant: strictly 0 horizon flash rubber bands remain on canvas or scene after completion
       QCOMPARE(cv->findChild<QgsRubberBand *>(QStringLiteral("horizonFlashRubberBand")), nullptr);

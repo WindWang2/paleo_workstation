@@ -5,13 +5,7 @@
 #include "../../workflow/projectareasummary.h"
 #include "../paleotheme.h"
 #include "../decorations/paleodecorations.h"
-#include "../../qgis/previewmapcanvas.h"
-#include <qgsgeometry.h>
-#include <qgsmapcanvas.h>
-#include <qgsmaptoolpan.h>
-#include <qgsrectangle.h>
-#include <qgsrubberband.h>
-#include <qgsvectorlayer.h>
+#include "../../qgis/dashboardsurveymap.h"
 #include <QEvent>
 #include <QFrame>
 #include <QGridLayout>
@@ -292,61 +286,24 @@ void ProjectStatisticsPage::refresh()
 
 void ProjectStatisticsPage::refreshSurveyMap()
 {
-  if (!m_mapCanvas || !m_wellsLayer || !m_boundaryBand || !isVisible())
+  if (!m_mapCanvas || !isVisible())
     return;
-  // 导入期间 DataCatalog::changed 密集触发防抖刷新；内存层 truncate/重灌若与
-  // 在飞渲染作业并发即堆损坏（0xc0000374）。先同步终止渲染再改层——与
-  // PreviewMapCanvas 换层同一纪律；页面隐藏时整个跳过，showEvent 再补刷。
-  m_mapCanvas->canvas()->stopRendering();
-  m_wellsLayer->dataProvider()->truncate();
-  QgsRectangle extent;
-  if (m_catalog && m_catalog->isOpen())
-    for (const CatalogEntity &well : m_catalog->entities(QStringLiteral("well")))
-    {
-      if (!well.hasSurface || !std::isfinite(well.surfaceX) || !std::isfinite(well.surfaceY))
-        continue;
-      addMemoryPoint(m_wellsLayer, well.surfaceX, well.surfaceY, well.name, QStringLiteral("well"), well.id);
-      extent.combineExtentWith(QgsRectangle(well.surfaceX, well.surfaceY, well.surfaceX, well.surfaceY));
-    }
-  m_wellsLayer->updateExtents();
-  // 取界优先级与全景页一致：角点 → inline/xline → 井位并集 → 10 km 默认。
-  QgsGeometry surveyGeom;
+  // 导入期间 DataCatalog::changed 密集触发防抖刷新；页面隐藏时整个跳过，
+  // showEvent 再补刷。停渲染→改层纪律与取界优先级在 DashboardSurveyMap::update。
+  QVector<CatalogEntity> wells;
   CatalogEntity survey;
+  bool hasSurvey = false;
   if (m_catalog && m_catalog->isOpen())
   {
+    wells = m_catalog->entities(QStringLiteral("well"));
     const auto surveys = m_catalog->entities(QStringLiteral("seismic_survey"));
     if (!surveys.isEmpty())
+    {
       survey = surveys.first();
+      hasSurvey = true;
+    }
   }
-  if (survey.corners.size() >= 3)
-  {
-    QgsRectangle bounds;
-    for (const auto &c : survey.corners)
-      if (std::isfinite(c.first) && std::isfinite(c.second))
-        bounds.combineExtentWith(QgsRectangle(c.first, c.second, c.first, c.second));
-    if (!bounds.isEmpty())
-      surveyGeom = QgsGeometry::fromRect(bounds);
-  }
-  if (surveyGeom.isNull() && survey.inlineMax > survey.inlineMin && survey.xlineMax > survey.xlineMin)
-    surveyGeom = QgsGeometry::fromRect(QgsRectangle(survey.inlineMin, survey.xlineMin,
-                                                    survey.inlineMax, survey.xlineMax));
-  if (surveyGeom.isNull() && !extent.isNull())
-  {
-    if (extent.isEmpty())
-      extent.grow(50.0);
-    surveyGeom = QgsGeometry::fromRect(extent);
-  }
-  if (surveyGeom.isNull())
-    surveyGeom = QgsGeometry::fromRect(QgsRectangle(0, 0, 10000, 10000));
-  const auto localCrs = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
-  if (surveyGeom.isGeosValid())
-    m_boundaryBand->setToGeometry(surveyGeom, localCrs);
-  extent.combineExtentWith(surveyGeom.boundingBox());
-  if (extent.isEmpty())
-    extent = QgsRectangle(0, 0, 10000, 10000);
-  extent.scale(1.08);
-  m_mapCanvas->canvas()->setExtent(extent);
-  m_mapCanvas->canvas()->refresh();
+  DashboardSurveyMap::update(m_mapCanvas, wells, hasSurvey ? &survey : nullptr);
 }
 
 bool ProjectStatisticsPage::eventFilter(QObject *watched, QEvent *event)
@@ -378,29 +335,17 @@ void ProjectStatisticsPage::buildSurveyMapCard()
   auto *mapTitle = textLabel(tr("工区地图"), mapCard);
   PaleoTheme::applyThemedStyleSheet(mapTitle, [] { return PaleoTheme::sectionTitleStyleSheet(); });
   mapLay->addWidget(mapTitle);
-  m_mapCanvas = new PreviewMapCanvas(mapCard);
+  QFont labelFont = PaleoTheme::bodyFont(PaleoTheme::tokens().bodyPt);
+  labelFont.setWeight(QFont::Medium);
+  m_mapCanvas = DashboardSurveyMap::create(
+      mapCard, {PaleoTheme::kColorPrimary, labelFont, double(PaleoTheme::tokens().bodyPt), tr("井位")});
   m_mapCanvas->setObjectName(QStringLiteral("dashboardSurveyMap"));
-  m_mapCanvas->canvas()->setObjectName(QStringLiteral("dashboardSurveyMapCanvas"));
+  QWidget *canvasWidget = DashboardSurveyMap::canvasWidget(m_mapCanvas);
+  canvasWidget->setObjectName(QStringLiteral("dashboardSurveyMapCanvas"));
   m_mapCanvas->setMinimumHeight(340);
   mapLay->addWidget(m_mapCanvas);
-  auto *pan = new QgsMapToolPan(m_mapCanvas->canvas());
-  pan->setParent(m_mapCanvas->canvas());
-  m_mapCanvas->canvas()->setMapTool(pan);
-  m_wellsLayer = makeMemoryPointLayer(tr("井位"), mapCard);
-  m_wellsLayer->setObjectName(QStringLiteral("dashboardWellsLayer"));
-  styleSurveyWellLayer(m_wellsLayer);
-  m_mapCanvas->canvas()->setLayers({m_wellsLayer});
-  m_boundaryBand = new QgsRubberBand(m_mapCanvas->canvas(), Qgis::GeometryType::Polygon);
-  m_boundaryBand->setObjectName(QStringLiteral("dashboardSurveyRubberBand"));
-  QColor boundaryFill = PaleoTheme::kColorPrimary;
-  boundaryFill.setAlpha(16);
-  m_boundaryBand->setColor(boundaryFill);
-  m_boundaryBand->setStrokeColor(PaleoTheme::kColorPrimary);
-  m_boundaryBand->setWidth(2);
-  m_boundaryBand->setLineStyle(Qt::DashLine);
-  m_boundaryBand->show();
   // 地图要素（非设置）：比例尺 + 指北针 + 图例行。
-  m_decorations = new PaleoDecorationManager(m_mapCanvas->canvas(), m_mapCanvas->canvas());
+  m_decorations = PaleoDecorationManager::forCanvasWidget(canvasWidget, canvasWidget);
   m_decorations->setObjectName(QStringLiteral("dashboardSurveyDecor"));
   m_decorations->setScaleBarEnabled(true);
   m_decorations->setNorthArrowEnabled(true);

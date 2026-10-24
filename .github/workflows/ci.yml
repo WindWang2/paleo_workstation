@@ -21,6 +21,8 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  # PW-001/PW-054：merge queue 需要 merge_group 事件才能在队列里跑 required 检查。
+  merge_group:
   workflow_dispatch:
 
 # #75：只有 PR 分支「新 push 取消旧运行」；master/main 的每个 push 都必须
@@ -36,6 +38,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  # merge_group 的 ref 每批唯一（gh-readonly-queue/...），按 sha 分组、不取消。
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # #76（方向 71）：Linux 侧 QGIS/GDAL/PROJ/GEOS 一律 vendored（deb 闭包），
@@ -50,7 +53,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
         with:
           fetch-depth: 0 # check_tidy 需要 merge-base(origin/master)
       # clang-tidy 版本钉死：告警面随 LLVM 版本漂移，门禁必须可复现。
@@ -64,7 +67,7 @@ jobs:
           qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
           qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ninja-build pkg-config g++ patchelf
       - name: Cache vendored deb closure
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
           path: |
             vendor/cache/debs
@@ -132,6 +135,8 @@ jobs:
           python3 tools/check_file_budget.py --selftest
           python3 tools/check_i18n.py
           python3 tools/check_i18n.py --selftest
+          python3 tools/check_ts_stale.py
+          python3 tools/check_ts_stale.py --selftest
           python3 tools/check_qgis_versions.py
           python3 tools/check_qgis_versions.py --selftest
           python3 tools/check_ci_scripts.py
@@ -145,7 +150,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
       # 磁盘：与 linux-asan 同款清理 + 水位闸（ci-repo-hygiene）——linux 必过 job 曾在链接期磁盘耗尽，测试未跑即红；早失败报明确原因。
       - name: Free disk space
         run: |
@@ -174,14 +179,14 @@ jobs:
           qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
           qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config patchelf
       - name: Cache ccache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-
       - name: Cache vendor artifacts
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
           path: |
             vendor/onnxruntime
@@ -206,7 +211,7 @@ jobs:
       # 最近一份，save 用 run 唯一 key（cache 不可覆盖写）且 always() 落盘——红 run
       # 的放行记录同样要累计。
       - name: Restore flaky ledger
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
           path: tools/flaky-ledger.jsonl
           key: ${{ runner.os }}-flaky-ledger-${{ github.run_id }}-${{ github.run_attempt }}
@@ -230,7 +235,7 @@ jobs:
         run: tools/ci_ctest_gate.sh -L core -LE perf
       - name: Save flaky ledger
         if: ${{ always() && hashFiles('tools/flaky-ledger.jsonl') != '' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
           path: tools/flaky-ledger.jsonl
           key: ${{ runner.os }}-flaky-ledger-${{ github.run_id }}-${{ github.run_attempt }}
@@ -239,7 +244,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: ./paleo-dev selfcheck
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (node24)
         if: always()
         with:
           name: selfcheck-linux
@@ -253,7 +258,7 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         continue-on-error: true
         run: tools/measure_incremental.sh build src/app/appcontext.cpp build/incremental-baseline.jsonl
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (node24)
         if: always()
         with:
           name: incremental-baseline-linux
@@ -273,7 +278,7 @@ jobs:
               cp -a build/golden-out build/Testing/
             fi
           fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (node24)
         if: always()
         with:
           name: test-logs-linux
@@ -288,7 +293,7 @@ jobs:
     timeout-minutes: 120
     continue-on-error: true
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
       # 磁盘：与 linux-asan 同款清理 + 水位闸（ci-repo-hygiene）——同 linux 主 job 全量构建体量。
       - name: Free disk space
         run: |
@@ -316,7 +321,7 @@ jobs:
           qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
           qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config patchelf
       - name: Cache ccache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-perf-${{ github.sha }}
@@ -324,7 +329,7 @@ jobs:
             ${{ runner.os }}-ccache-perf-
             ${{ runner.os }}-ccache-
       - name: Cache vendor artifacts
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
           path: |
             vendor/onnxruntime
@@ -349,7 +354,7 @@ jobs:
           PROJ_LIB: ${{ github.workspace }}/vendor/prefix/usr/share/proj
           GDAL_DATA: ${{ github.workspace }}/vendor/prefix/usr/share/gdal
         run: tools/ci_perf.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (node24)
         if: always()
         with:
           name: perf-results-linux
@@ -374,7 +379,7 @@ jobs:
       # 步。依赖步顺序现逐行对拍 linux 主 job vendored 路：apt 只装政策例外
       # 面，QGIS 栈走 bootstrap 拉 deb 闭包（tools/check_ci_scripts.py 守
       # 引用存在性，防再断链）。
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
       # 磁盘：PR #496 run 38880554660 / master ddd1325e run 38835970978 的
       # asan 档均在 ~1970/2231 链接步 "No space left on device"（清理后
       # /dev/root 106G 可用仍耗尽）。大头是 -g 全量调试信息随静态库在 ~190
@@ -410,14 +415,14 @@ jobs:
       # 不再回落 restore 非 asan 的 Linux-ccache-*（linux 主 job 产物）：
       # 编译旗标不同零命中，白占 ~3G 下载与磁盘。
       - name: Cache ccache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-asan-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-asan-
       - name: Cache vendor artifacts
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
           path: |
             vendor/onnxruntime
@@ -447,11 +452,16 @@ jobs:
       # 走 ./paleo-dev test 而非裸 ctest：vendored 路测试期需要 deb 库路径 /
       # QGIS_PREFIX_PATH / GDAL_DRIVER_PATH 注入（与 linux 主 job 同源）；
       # ASAN_OPTIONS 经 env 透传，串行 -j 1 语义不变。
-      - name: Test (serial, LSAN off per devex 手动轮口径)
+      # PW-030：LSAN 打开，QGIS/Qt 设计内“泄漏”走 tools/lsan-suppressions.txt；
+      # UBSAN halt_on_error 让 UB 直接判红。本 job 仍 continue-on-error（观察档），
+      # 连续绿后再列入 ci-gate needs（见 ledger 手工步骤）。
+      - name: Test (serial, LSAN on with suppressions, UBSAN halting)
         env:
           QT_QPA_PLATFORM: offscreen
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
-          ASAN_OPTIONS: detect_leaks=0
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          LSAN_OPTIONS: suppressions=${{ github.workspace }}/tools/lsan-suppressions.txt:print_suppressions=0
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ./paleo-dev test -j 1 --output-on-failure
       - name: Stage test diagnostics
         if: always()
@@ -462,7 +472,7 @@ jobs:
             find build -type f -name '*-result.txt' ! -path 'build/Testing/*' \
               -exec cp -f {} build/Testing/result-files/ \;
           fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (node24)
         if: always()
         with:
           name: test-logs-linux-asan
@@ -473,16 +483,17 @@ jobs:
   # #646：单 job 串行 432 项超 6h 预算。按 ctest 序号四等分，片内仍串行
   # （QSettings NativeFormat 不跨进程隔离）。required check 名仍是下面的 windows。
   windows-shard:
-    runs-on: windows-latest
+    # PW-058：固定 runner 镜像，升级 = 有意改这里。
+    runs-on: windows-2025
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
       - name: Cache vendor artifacts
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
           # #231：osgeo4w 安装树随包钉版缓存（key 已含 manifest.json 哈希，
           # 钉版变更自动 bust）；命中时 bootstrap 直接跳过 setup。
@@ -513,7 +524,7 @@ jobs:
           # -I start,,stride：四片各跑 1/4，片内保持串行。perf 仍不进必过门禁。
           PALEO_CTEST_ARGS: "-LE perf -I ${{ matrix.shard }},,4"
         run: ./paleo-dev.ps1 test
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (node24)
         if: always()
         with:
           name: selfcheck-windows-${{ matrix.shard }}
@@ -535,7 +546,7 @@ jobs:
               Copy-Item -Path $golden -Destination $testing -Recurse -Force
             }
           }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (node24)
         if: always()
         with:
           name: test-logs-windows-${{ matrix.shard }}
@@ -564,7 +575,7 @@ jobs:
               --name "test-logs-windows-$shard" --dir "redlogs/windows/shard-$shard" \
               || echo "::warning::test-logs-windows-$shard 缺失"
           done
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (node24)
         if: always()
         with:
           name: test-logs-windows
@@ -577,6 +588,32 @@ jobs:
           result='${{ needs.windows-shard.result }}'
           echo "windows-shard: $result"
           test "$result" = "success"
+
+  # PW-001：单一 required context「ci-gate」。分支保护只需要求这一个检查名
+  #（矩阵分片名 windows-shard (n) / 重命名 job 都不会再导致 required context
+  # 与实际 job 名错位而“永远 pending 也能被管理员合并”）。任一 gating 车道
+  # 非 success（含 skipped/cancelled）即红。观察档 linux-perf/linux-asan 不在内。
+  ci-gate:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    needs: [lint, linux, windows]
+    if: ${{ always() }}
+    steps:
+      - name: Require all gating lanes green
+        env:
+          LINT: ${{ needs.lint.result }}
+          LINUX: ${{ needs.linux.result }}
+          WINDOWS: ${{ needs.windows.result }}
+        run: |
+          echo "lint=$LINT linux=$LINUX windows=$WINDOWS"
+          rc=0
+          for pair in "lint:$LINT" "linux:$LINUX" "windows:$WINDOWS"; do
+            if [ "${pair#*:}" != "success" ]; then
+              echo "::error title=ci-gate::${pair%%:*} 车道结论为 ${pair#*:}——master 红即停线（PW-001）"
+              rc=1
+            fi
+          done
+          exit $rc
 
   # #497/#475：红项分诊汇总 job。master 长期全红期间，把红拆成两类——
   # docs/ci/known-reds.json 登记的已知红项降级 ::warning + issue 链接；
@@ -598,7 +635,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
         with:
           fetch-depth: 0 # known-reds diff notice 需要 base 可达（同 lint tidy 口径）
       # #497：known-reds 变更须 PR 显式——对 docs/ci/known-reds.json 的 paths

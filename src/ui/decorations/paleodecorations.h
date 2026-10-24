@@ -117,6 +117,9 @@ class PaleoDecorationManager : public QObject
     Q_OBJECT
   public:
     explicit PaleoDecorationManager( QgsMapCanvas *canvas, QObject *parent = nullptr );
+    // PW-004：给只持有 QWidget 句柄的视图（经 src/qgis 门面建画布）挂装饰；
+    // canvas 不是 QgsMapCanvas 时返回 nullptr。
+    static PaleoDecorationManager *forCanvasWidget( QWidget *canvas, QObject *parent = nullptr );
 
     void setFaciesLegend(const QString &title, const QVariantList &facies, QgsMapLayer *symbolLayer = nullptr);
     QString legendTitle() const { return mLegend->title; }

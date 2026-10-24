@@ -1428,8 +1428,12 @@ void FactorPageTests::contourIntervalDefaultsToSixthOfFactorRange()
   table->setRowCount( 2 );
   table->setItem( 0, 1, new QTableWidgetItem( QStringLiteral( "10" ) ) );
   table->setItem( 1, 1, new QTableWidgetItem( QStringLiteral( "70" ) ) );
-  factors->item( 0, 0 )->setCheckState( Qt::Checked ); // 换因素后按新极差重算
-  QCOMPARE( spin->value(), 20.0 );                     // 厚度建议值域 0–100 m，整刻度间距 20 m。
+  factors->item( 0, 0 )->setCheckState( Qt::Checked ); // 换因素：#682 起手改值跟层位/因素走
+  QCOMPARE( spin->value(), 0.05 );                     // 用户手设间距不被新极差覆写
+
+  page.setProperty( "paleo.page.contourIntervalUser", false ); // 未手改时按新极差重算
+  page.applySuggestedContourInterval();
+  QCOMPARE( spin->value(), 20.0 ); // 厚度建议值域 0–100 m，整刻度间距 20 m。
 }
 
 // 方向04 D10：「10, abc, 30」不再静默解析成 [10,30]——按钮提示脏 token，

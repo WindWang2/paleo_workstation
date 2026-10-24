@@ -383,6 +383,10 @@ private:
     // D2.6 LOD 抽稀缓存（键 = 抽稀步长；0 = 无效）
     mutable QImage m_lodCache;
     mutable int m_lodStride = 0;
+    // PW-093：瓦片流时间切片的动态范围——首个有限值才落种（不再伪 [0,1]），
+    // m_tileScaleAbsMax = 上次整图上色所用 absMax（超阈值变化即整图重绘）。
+    bool m_tileRangeEmpty = false;
+    float m_tileScaleAbsMax = 0.0f;
     // D2.1 纹理缓存：(线号, 增益, colormap, 范围) 键控 LRU
     struct CacheEntry {
         qint64 key = 0;

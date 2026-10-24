@@ -112,14 +112,11 @@ void SeismicSectionCanvas::setSectionData(
 
     // D2.1 切片纹理缓存：(内容指纹, 增益, colormap, 反转, 阈值, 极性, AGC) 键控
     // ——同参数下切回已看过的线即出（不重算逐像素上色）
-    const qint64 key = SliceFingerprint(m_slice) ^ (qint64(m_gain * 100.0) << 8) ^
-                       (qint64(m_contrast * 100.0) << 20) ^
-                       (qint64(static_cast<int>(m_colorMap)) << 36) ^
-                       (qint64(m_cmapInverted ? 1 : 0) << 40) ^
-                       (qint64(int(m_threshold * 100)) << 41) ^
-                       (qint64(m_polarityInverted ? 1 : 0) << 49) ^
-                       (qint64(m_agcEnabled ? m_agcWindowMs : 0) << 50) ^
-                       GainCurveFingerprint(m_gainCurve);
+    const qint64 key = TextureCacheKey(m_slice, m_traces, m_samples, m_t0Ms, m_dtMs, m_gain,
+                                       m_contrast, static_cast<int>(m_colorMap), m_cmapInverted,
+                                       m_threshold, m_polarityInverted,
+                                       m_agcEnabled ? m_agcWindowMs : 0,
+                                       GainCurveFingerprint(m_gainCurve)); // PW-096
     for (auto it = m_textureCache.begin(); it != m_textureCache.end(); ++it) {
         if (it->key == key && it->image.size() == QSize(m_traces, m_samples)) {
             m_cachedImage = it->image; // 命中：即出
@@ -187,8 +184,11 @@ void SeismicSectionCanvas::beginTimeSliceTiled(
     m_slice.height = m_samples;
     m_slice.values.assign(static_cast<std::size_t>(m_traces) * m_samples,
                           std::numeric_limits<float>::quiet_NaN());
+    // PW-093：不再伪造 [0,1] 种子（会把 absMax 钉在 ≥1，小幅值数据整片灰）。
     m_slice.valueMin = 0.0f;
-    m_slice.valueMax = 1.0f;
+    m_slice.valueMax = 0.0f;
+    m_tileRangeEmpty = true;
+    m_tileScaleAbsMax = 0.0f;
 
     // #286：与 setTimeSliceData 同口径——瓦片流先建全网格显示缓冲，
     // 瓦片到达时在 appendTimeSliceTile 里同步改写对应区域。
@@ -216,8 +216,13 @@ void SeismicSectionCanvas::appendTimeSliceTile(const SgySliceImage &tile, int x,
     // 动态范围随瓦片到达累积（有限值才算数）
     for (float v : tile.values) {
         if (std::isfinite(v)) {
-            m_slice.valueMin = std::min(m_slice.valueMin, v);
-            m_slice.valueMax = std::max(m_slice.valueMax, v);
+            if (m_tileRangeEmpty) {
+                m_slice.valueMin = m_slice.valueMax = v; // PW-093：首值落种
+                m_tileRangeEmpty = false;
+            } else {
+                m_slice.valueMin = std::min(m_slice.valueMin, v);
+                m_slice.valueMax = std::max(m_slice.valueMax, v);
+            }
         }
     }
 
@@ -242,7 +247,16 @@ void SeismicSectionCanvas::appendTimeSliceTile(const SgySliceImage &tile, int x,
     // 数据变了——LOD 缓存（zoomY<1 缩小态用的缩略图）随瓦片失效，
     // 否则新 tile 在键控参数变化/整体重建前永不上屏。
     m_lodStride = 0;
-    paintValueRegion(x, y, tile.width, tile.height);
+    // PW-093：absMax 相对上次整图上色变化超 5% → 整图按新尺度重绘（时间切片
+    // 仅 IL×XL，代价小），否则只上色新瓦片——消除瓦片间色标接缝。
+    const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
+    const float prev = m_tileScaleAbsMax;
+    if (prev <= 0.0f || std::abs(absMax - prev) > 0.05f * prev) {
+        m_tileScaleAbsMax = absMax;
+        paintValueRegion(0, 0, m_traces, m_samples);
+    } else {
+        paintValueRegion(x, y, tile.width, tile.height);
+    }
     update();
 }
 

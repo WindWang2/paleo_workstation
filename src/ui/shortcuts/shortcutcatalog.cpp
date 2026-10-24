@@ -256,6 +256,15 @@ QList<ShortcutEntry> catalogEntries()
       << make("map.edit.cancel", QKeySequence(Qt::Key_Escape), "main/map/edit-tool", K, "map",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "取消当前要素编辑并退出工具（移动工具先撤回拖动预览）"),
               editTool, "src/ui/edittools/editingtools.cpp")
+      // PW-118：地图编辑撤销/重做（画布焦点内；与 data.list.* 作用域互斥）。
+      << make("map.edit.undo", QKeySequence(QKeySequence::StandardKey::Undo), "main/map", S, "map",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销上一步地图要素编辑"),
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "地图画布"), "src/ui/edittools/editingtoolbar.cpp",
+              Qt::WidgetWithChildrenShortcut)
+      << make("map.edit.redo", QKeySequence(QKeySequence::StandardKey::Redo), "main/map", S, "map",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做被撤销的地图要素编辑"),
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "地图画布"), "src/ui/edittools/editingtoolbar.cpp",
+              Qt::WidgetWithChildrenShortcut)
       << make("map.vertex.delete", QKeySequence(Qt::Key_Delete), "main/map/vertex-tool", K, "map",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "删除光标处（按吸附结果）的节点"), vertexTool,
               "src/ui/edittools/vertexeditortools.cpp")

@@ -301,6 +301,9 @@ class HeaderWidget : public QWidget
     // 深度道题注文本（随基准面模式与深度域）——导出/截图的口径标签
     // 字符串级断言通道（比像素断言稳；无深度道 → 空串）。
     QString depthCaptionText() const;
+    // review-fix M7：键盘焦点列（←/→ 选列，Ctrl+←/→ 移列，Delete 移除，
+    // 菜单键弹右键菜单）；-1 = 无。
+    int focusedColumn() const { return m_focusCol; }
 
   signals:
     void wellClicked(int index);
@@ -312,9 +315,13 @@ class HeaderWidget : public QWidget
     void mousePressEvent(QMouseEvent *e) override;
     void mouseMoveEvent(QMouseEvent *e) override;
     void mouseReleaseEvent(QMouseEvent *e) override;
+    void keyPressEvent(QKeyEvent *e) override;
+    void focusInEvent(QFocusEvent *e) override;
+    void focusOutEvent(QFocusEvent *e) override;
 
   private:
     int columnAtX(double sceneX) const; // 版头内命中（含列宽范围）
+    void showColumnMenu(int col, const QPoint &globalPos);
 
     RenderState *m_st;
     int m_scrollX = 0;
@@ -322,6 +329,7 @@ class HeaderWidget : public QWidget
     QPoint m_pressPos;
     bool m_dragging = false;
     int m_insertAt = -1; // 拖排插入位（画主色标记线）
+    int m_focusCol = -1; // 键盘焦点列
 };
 
 // 视图：identity 变换，缩放 = 改布局参数。Ctrl+滚轮 = 深度缩放（锚定

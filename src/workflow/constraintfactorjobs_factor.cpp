@@ -1057,9 +1057,11 @@ bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const 
     auto shared = std::make_shared<LocalDirectionJob>(job);
     return runFactorWork(
         tr("%1 单因素计算").arg(horizon),
-        [proc = m_proc.data(), shared](PaleoTask *task) {
+        // review L3（同 PW-031）：不捕获裸 m_proc.data()——QPointer 兜底，服务已拆
+        // 则作业失败（proc 为空时 computeLocalDirectionJobWithService 报错）。
+        [procGuard = QPointer<QgisProcessingService>(m_proc), shared](PaleoTask *task) {
           const bool ok = computeLocalDirectionJobWithService(
-              proc, shared.get(), [task] { return task->cancelRequested(); },
+              procGuard.data(), shared.get(), [task] { return task->cancelRequested(); },
               [task](double p) {
                 task->reportStage("build", qBound(0, qRound(p), 95));
               });

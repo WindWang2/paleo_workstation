@@ -15,6 +15,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QScopeGuard>
+#include <QSet>
 #include <QUuid>
 
 #include <algorithm>
@@ -25,6 +26,8 @@
 
 namespace paleo::inv {
 namespace {
+// PW-024：反演峰值内存上限（流式读写落地前的保守闸门；同 SGS/LIS 的预算口径）。
+constexpr double kInversionMaxPeakBytes = 6.0 * double(1ull << 30);
 
 using paleo::inversion::LowFreqModelInput;
 using paleo::inversion::LowFreqWellTrace;
@@ -447,6 +450,29 @@ bool InversionWorkflow::prepareInversionJob(const InversionJobRequest &req, Inve
     job->xlineStep = xls.size() > 1 ? xls.at(1) - xls.at(0) : 1;
     if (job->nIl < 1 || job->nXl < 1 || job->nS < 16 || !(job->dtMs > 0.0))
         return setError(error, QStringLiteral("地震体网格无效（IL/XL/采样轴）"));
+    // PW-144：体头与低频网格都按 min + idx*step 定位；线号不等距（抽稀/缺线）
+    // 时第一个缺口之后的坐标全错——如实拒绝，不静默错位。
+    for (int i = 2; i < ils.size(); ++i)
+        if (ils.at(i) - ils.at(i - 1) != job->inlineStep)
+            return setError(error, QStringLiteral("主测线号不等距（%1→%2，步长应为 %3），暂不支持不规则测网")
+                                       .arg(ils.at(i - 1)).arg(ils.at(i)).arg(job->inlineStep));
+    for (int j = 2; j < xls.size(); ++j)
+        if (xls.at(j) - xls.at(j - 1) != job->xlineStep)
+            return setError(error, QStringLiteral("联络测线号不等距（%1→%2，步长应为 %3），暂不支持不规则测网")
+                                       .arg(xls.at(j - 1)).arg(xls.at(j)).arg(job->xlineStep));
+    if (job->inlineStep == 0 || job->xlineStep == 0)
+        return setError(error, QStringLiteral("测线号步长为 0"));
+    // PW-024：内存闸门。峰值 ≈ 全部输入道 + 输出体 + 落盘 blob（输入道在写 blob
+    // 前释放，故按 2 份体计），超过上限直接拒绝而不是被 OOM 杀进程。
+    {
+        const double cells = double(job->nIl) * double(job->nXl) * double(job->nS);
+        const double peakBytes = cells * sizeof(float) * 2.0 + double(reader.traceCount()) * job->nS * sizeof(float);
+        const double limit = kInversionMaxPeakBytes;
+        if (peakBytes > limit)
+            return setError(error, QStringLiteral("地震体过大：反演预计峰值内存 %1 GiB，超过上限 %2 GiB（请先裁剪工区/时窗）")
+                                       .arg(peakBytes / double(1ull << 30), 0, 'f', 1)
+                                       .arg(limit / double(1ull << 30), 0, 'f', 1));
+    }
     if (std::fabs(wavelet.sampleIntervalMs - job->dtMs) > 1e-9)
         return setError(error, QStringLiteral("子波采样间隔 %1 ms 与体 %2 ms 不一致（先重采样子波）")
                                    .arg(wavelet.sampleIntervalMs)
@@ -504,7 +530,7 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     QString openErr;
     if (!reader.open(job->req.seismicPath, &openErr))
         return setError(&job->error, QStringLiteral("打开地震体失败: %1").arg(openErr));
-    const QVector<SegyTrace> traces = reader.traces();
+    QVector<SegyTrace> traces = reader.traces();
     if (traces.isEmpty())
         return setError(&job->error, QStringLiteral("地震体无道"));
     if (progress)
@@ -527,11 +553,33 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     std::vector<float> volume(size_t(nIl) * size_t(nXl) * size_t(nS),
                               std::numeric_limits<float>::quiet_NaN());
 
+    // PW-143：同一 (IL,XL) 的重复道（合并后的 SEG-Y 常见）会让两个线程并发写
+    // 同一输出切片（数据竞争）。分块前去重：每格只取第一条，重复数如实入头。
+    std::vector<int> work;
+    work.reserve(size_t(traces.size()));
+    int duplicateTraces = 0;
+    {
+        QSet<qint64> seenCells;
+        for (int ti = 0; ti < traces.size(); ++ti) {
+            const int ilIdx = ilToIdx.value(traces.at(ti).lineNo, -1);
+            const int xlIdx = xlToIdx.value(traces.at(ti).xlineNo, -1);
+            if (ilIdx >= 0 && xlIdx >= 0) {
+                const qint64 cell = qint64(ilIdx) * nXl + xlIdx;
+                if (seenCells.contains(cell)) {
+                    ++duplicateTraces;
+                    continue;
+                }
+                seenCells.insert(cell);
+            }
+            work.push_back(ti);
+        }
+    }
+
     std::atomic<int> done{0};
     std::atomic<int> failed{0};
     std::atomic<bool> aborted{false};
     std::mutex progressMutex;
-    const int total = traces.size();
+    const int total = int(work.size());
     const int autoThreads = std::max(1, std::min(4, int(std::thread::hardware_concurrency())));
     const int nThreads = job->req.maxThreads > 0
                              ? std::min(64, job->req.maxThreads)
@@ -547,7 +595,7 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
                 aborted.store(true, std::memory_order_relaxed);
                 return;
             }
-            const SegyTrace &tr = traces.at(ti);
+            const SegyTrace &tr = traces.at(work[size_t(ti)]);
             const int ilIdx = ilToIdx.value(tr.lineNo, -1);
             const int xlIdx = xlToIdx.value(tr.xlineNo, -1);
             const float *lowPtr = nullptr;
@@ -635,6 +683,8 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
         return setError(&job->error, QStringLiteral("已取消"));
     if (progress)
         progress(0.97);
+    // PW-024：输入道不再需要，写 blob 前释放（峰值从 3 份降到 2 份体）。
+    traces = QVector<SegyTrace>();
 
     job->processedTraces = done.load();
     job->failedTraces = failed.load();
@@ -678,6 +728,7 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     header.insert(QStringLiteral("amplitudeScale"),
                   job->wavelet.amplitudeScale > 0.0 ? job->wavelet.amplitudeScale : 1.0);
     header.insert(QStringLiteral("failedTraces"), job->failedTraces);
+    header.insert(QStringLiteral("duplicateTraces"), duplicateTraces); // PW-143
     header.insert(QStringLiteral("sourceSeismic"), job->req.seismicPath);
     header.insert(QStringLiteral("frequencyBand"),
                   QStringLiteral("低频模型 0–%1Hz + 地震带限（不含带外高频，如实口径）")

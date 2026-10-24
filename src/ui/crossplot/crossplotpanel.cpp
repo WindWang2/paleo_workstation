@@ -148,6 +148,38 @@ void CrossplotCanvas::renderPlot(QPainter &p) {
                QString::number(m_frame.xMax, 'g', 5));
     p.drawText(QPointF(r.left() + 4, r.top() + 14),
                QString::number(m_frame.yMax, 'g', 5));
+    // PW-137：补 y 最小值标注 + 两轴 nice-number 刻度与淡网格线。
+    p.drawText(QPointF(r.left() + 4, r.bottom() - 4),
+               QString::number(m_frame.yMin, 'g', 5));
+    const auto niceTicks = [](double lo, double hi) {
+      QVector<double> out;
+      const double span = hi - lo;
+      if (!(span > 0) || !std::isfinite(span))
+        return out;
+      const double raw = span / 5.0;
+      const double mag = std::pow(10.0, std::floor(std::log10(raw)));
+      const double f = raw / mag;
+      const double step = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag;
+      for (double v = std::ceil(lo / step) * step; v <= hi + 1e-9 * span; v += step)
+        out.append(v);
+      return out;
+    };
+    QColor grid = t.textMuted;
+    grid.setAlpha(50);
+    for (double v : niceTicks(m_frame.xMin, m_frame.xMax)) {
+      const double x = r.left() + (v - m_frame.xMin) / (m_frame.xMax - m_frame.xMin) * r.width();
+      p.setPen(grid);
+      p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()));
+      p.setPen(t.textMuted);
+      p.drawLine(QPointF(x, r.bottom()), QPointF(x, r.bottom() + 4));
+    }
+    for (double v : niceTicks(m_frame.yMin, m_frame.yMax)) {
+      const double y = r.bottom() - (v - m_frame.yMin) / (m_frame.yMax - m_frame.yMin) * r.height();
+      p.setPen(grid);
+      p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y));
+      p.setPen(t.textMuted);
+      p.drawLine(QPointF(r.left() - 4, y), QPointF(r.left(), y));
+    }
   } else
     p.drawText(QPointF(r.left() + 4, r.top() + 14),
                tr("三维投影 · Z：%1").arg(m_frame.zTitle));
@@ -167,12 +199,16 @@ void CrossplotCanvas::renderPlot(QPainter &p) {
         p.setPen(t.textMuted);
       p.drawEllipse(screen(v.x, v.y), 2, 2);
     }
-  p.setPen(QPen(t.focusRing, 2));
-  for (int i : m_selected)
-    if (i >= 0 && i < m_frame.points.size()) {
-      const auto &v = m_frame.points[i];
-      p.drawPoint(screen(v.x, v.y));
-    }
+  // PW-137：选中点画成醒目的对比色圆环（最后绘制，密度模式下同样可见）。
+  p.setBrush(Qt::NoBrush);
+  for (int pass = 0; pass < 2; ++pass) {
+    p.setPen(pass == 0 ? QPen(t.surface, 3.5) : QPen(t.focusRing, 1.8));
+    for (int i : m_selected)
+      if (i >= 0 && i < m_frame.points.size()) {
+        const auto &v = m_frame.points[i];
+        p.drawEllipse(screen(v.x, v.y), 4.5, 4.5);
+      }
+  }
   p.restore();
 }
 void CrossplotCanvas::mousePressEvent(QMouseEvent *e) {

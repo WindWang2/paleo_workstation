@@ -55,7 +55,7 @@ jobs:
           cmake ninja-build g++ pkg-config ccache
           qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-tools-dev qt6-5compat-dev
           flex bison nasm python3
-          libsqlite3-dev libcurl4-openssl-dev libssl-dev libexpat1-dev libzip-dev
+          libsqlite3-dev libtiff-dev libcurl4-openssl-dev libssl-dev libexpat1-dev libzip-dev
           libx11-dev libxkbcommon-dev libgl1-mesa-dev libopengl-dev
           && sudo apt-get clean
       - name: Configure superbuild

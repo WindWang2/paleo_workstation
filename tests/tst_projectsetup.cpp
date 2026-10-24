@@ -508,6 +508,35 @@ private slots:
     QCOMPARE(workflow.currentSources().pointMapping.value("well").toString(), QString("ID"));
     QVERIFY(!workflow.create(target, s, p, &error));
   }
+  void realSourceImportRepro() {
+    const QString src = qEnvironmentVariable("PALEO_REAL_SRC");
+    if (src.isEmpty()) QSKIP("PALEO_REAL_SRC 未设置，跳过真实资料导入复现");
+    ProjectSetupSources s;
+    s.points = src + QStringLiteral("/井坐标.xlsx");
+    s.pointMapping = {{"crs", "EPSG:32649"}, {"sheet", "EPSG32649井位"}, {"well", "井号"},
+        {"x", "井口横坐标X_EPSG32649(m)"}, {"y", "井口纵坐标Y_EPSG32649(m)"},
+        {"kb", "补心海拔(m)"}, {"td", "完钻井深(m)"}};
+    s.wells = src + QStringLiteral("/井");
+    s.seismic = src + QStringLiteral("/地震");
+    s.horizons = src + QStringLiteral("/层位");
+    s.references = src + QStringLiteral("/参考资料");
+    s.paleomaps = src + QStringLiteral("/古地理图");
+    s.projectCrs = QStringLiteral("EPSG:32649");
+    const auto p = scanProjectSources(s);
+    qDebug() << "scan: wells" << p.wells << "tops" << p.tops << "logs" << p.logs
+             << "horizons" << p.horizons << "paths" << p.paths.size() << "errors" << p.errors;
+    QVERIFY(p.errors.isEmpty());
+    QTemporaryDir dir;
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service, [&service](const QString &pp) { service.setProjectDir(QFileInfo(pp).absolutePath()); });
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    QString error; QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
+    const auto target = dir.filePath("out/project.qgz");
+    QVERIFY2(workflow.create(target, s, p, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 300000);
+    qDebug() << "finished ok:" << finished.first()[1].toBool() << finished.first()[0].toString();
+    QCOMPARE(service.catalog()->entities("well").size(), 20);
+  }
   void realWizardPreview() {
     const QString root = qEnvironmentVariable("PALEO_SETUP_SAMPLE_ROOT"); if (root.isEmpty()) QSKIP("Set PALEO_SETUP_SAMPLE_ROOT");
     QgisProjectService project; PaleoProjectStore store; DataImportService service(&store); FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);

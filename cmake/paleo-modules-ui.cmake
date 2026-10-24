@@ -129,6 +129,7 @@ add_library(paleo_ui STATIC
   src/ui/ribbonpanels.cpp                          # W4 ribbon 命令组构建迁出
   src/ui/faciesdisplaycontrol.cpp
   src/ui/faciespinnedlevellist.cpp                 # 相类固定显示层级列表
+  src/ui/faciespinmenu.cpp                         # 画布右键固定显示层级子菜单
   src/ui/pages/datalist.cpp                        # W5 数据页·列表侧（胶水层）
   src/ui/pages/datalistops.h                       # 数据页·辅助类型与持久化工具
   src/ui/pages/datalist_table.cpp                  # 数据页·表格展现与行内动作

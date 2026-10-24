@@ -255,6 +255,23 @@ bool RasterPyramidService::ensure(const QString &rasterPath, PyramidMeta *out,
   }
 
   // 新建（或源变了重建）。
+  // PW-106：删目录+重建整段在同源 buildMutex 下进行，避免并发 tile()/ensure()
+  // 在重建中途读到半套 meta/层文件；进锁后双检（别的线程可能已重建完）。
+  {
+  SourceState *rst = stateFor(rasterPath);
+  QMutexLocker rebuild(&rst->buildMutex);
+  {
+    PyramidMeta again;
+    if (loadMeta(rasterPath, &again) && again.sourcePath == canon &&
+        again.sourceMtimeMs == mtime && again.sourceSize == info.size())
+    {
+      rebuild.unlock();
+      if (strategy == BuildStrategy::Eager)
+        return ensure(rasterPath, out, error, BuildStrategy::Eager);
+      if (out) *out = again;
+      return true;
+    }
+  }
   invalidate(rasterPath);
   ensureGdalRegistered();
   GDALDatasetH ds = GDALOpen(canon.toUtf8().constData(), GA_ReadOnly);
@@ -310,6 +327,7 @@ bool RasterPyramidService::ensure(const QString &rasterPath, PyramidMeta *out,
       if (error) *error = QStringLiteral("cannot init level file z%1").arg(z);
       return false;
     }
+  } // rebuild lock
   if (strategy == BuildStrategy::Eager)
     return ensure(rasterPath, out, error, BuildStrategy::Eager); // 走命中分支的 Eager 路径
   if (out) *out = meta;
@@ -465,9 +483,19 @@ bool RasterPyramidService::tile(const QString &rasterPath, int z, int x, int y, 
                                 QString *error)
 {
   PyramidMeta meta;
-  if (!loadMeta(rasterPath, &meta))
+  // PW-105：tile() 也校验源身份（canon 路径 + mtime + size）——源被覆盖后
+  // 不再从旧 meta/层文件/LRU 返回过期瓦片；不一致即走 ensure 重建。
+  bool fresh = loadMeta(rasterPath, &meta);
+  if (fresh)
   {
-    // 隐式懒建目录（D3.3）。
+    const QFileInfo info(rasterPath);
+    fresh = info.exists() && meta.sourcePath == PathCanon::canonicalize(rasterPath) &&
+            meta.sourceMtimeMs == info.lastModified().toMSecsSinceEpoch() &&
+            meta.sourceSize == info.size();
+  }
+  if (!fresh)
+  {
+    // 隐式懒建目录（D3.3）/ 源已变：ensure 内部 invalidate 旧目录与 LRU。
     if (!ensure(rasterPath, &meta, error, BuildStrategy::Lazy))
       return false;
   }

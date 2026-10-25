@@ -304,8 +304,7 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
     for (const auto &v : settings.value(QLatin1String(kWidthsKey)).toList()) m_savedWidths << v.toInt();
   }
   connect(add, &QPushButton::clicked, this, [this] { addView(); });
-  addView();
-  addView();
+  for (int i = 0; i < kDefaultViewCount; ++i) addView();
 }
 
 MappingReferencePanel *MappingEvidencePanel::addView()
@@ -380,8 +379,8 @@ void MappingEvidencePanel::layoutViews()
 
 int MappingEvidencePanel::defaultViewWidth() const
 {
-  // 未调整过的视图沿用原口径：一屏约放两个（仅一个时铺满），最窄 kMinViewWidth。
-  const int per = qBound(1, int(m_views.size()), 2);
+  // 未调整过的视图一屏约放四个；不足四个时均分，最窄 kMinViewWidth。
+  const int per = qBound(1, int(m_views.size()), kDefaultViewCount);
   const int gap = m_handles.isEmpty() ? 0 : m_handles.first()->width();
   return qMax(kMinViewWidth, (m_scroll->viewport()->width() - per * gap) / per);
 }

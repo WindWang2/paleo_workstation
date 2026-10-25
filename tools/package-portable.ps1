@@ -47,7 +47,7 @@ function Copy-Tree([string]$Source, [string]$Target, [Parameter(ValueFromRemaini
 
 # ---- 0. 前置检查 + VS 环境（dumpbin 做 DLL 闭包）----
 foreach ($p in @($Executable, "$Deps/Library/bin/Qt6Core.dll", "$Qgis/bin/qgis_core.dll",
-                 "$Deps/Library/share/proj/proj.db", "$Qgis/resources/srs.db",
+                 "$Deps/Library/share/proj/proj.db", "$Qgis/resources/srs.db", "$Qgis/resources/symbology-style.xml",
                  "$OfficeEditor/index.html")) {
   if (-not (Test-Path -LiteralPath $p)) { throw "缺少打包输入: $p" }
 }

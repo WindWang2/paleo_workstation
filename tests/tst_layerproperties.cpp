@@ -10,6 +10,9 @@
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QSettings>
+#include <QMenu>
+#include <gdal.h>
 
 #include <qgsapplication.h>
 #include <qgsmapcanvas.h>
@@ -21,6 +24,16 @@
 #include <qgsrasterlayer.h>
 #include <qgsreadwritecontext.h>
 #include <qgsvectorlayer.h>
+#include <qgsstyle.h>
+#include <qgscolorramp.h>
+#include <qgscolorrampbutton.h>
+#include <qgscolorrampshader.h>
+#include <qgsrastershader.h>
+#include <qgsrasterlayerproperties.h>
+#include <qgssinglebandpseudocolorrenderer.h>
+#include <qgssinglebandpseudocolorrendererwidget.h>
+#include "../src/qgis/qgisruntime.h"
+#include "../src/qgis/factorstylewriter.h"
 
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/qgislayerservice.h"
@@ -65,6 +78,8 @@ class TestLayerProperties : public QObject
                qPrintable(QStringLiteral("fixture missing: %1").arg(fixtureGpkg())));
       QVERIFY2(QGuiApplication::platformName() == QStringLiteral("offscreen"),
                "openLayerProperties 的不-exec 契约依赖 offscreen 平台");
+      QString error;
+      QVERIFY2(QgisRuntime::ensureDefaultColorRamps(&error), qPrintable(error));
     }
 
     void cleanup()
@@ -74,6 +89,49 @@ class TestLayerProperties : public QObject
       qApp->processEvents();
       QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
       QgsProject::instance()->removeAllMapLayers();
+    }
+
+    void nativeRasterColorRampsCanBeSelectedInvertedAndApplied()
+    {
+      QTemporaryDir tmp;
+      GDALAllRegister();
+      const auto path = tmp.filePath("ramp.tif");
+      auto dataset = GDALCreate(GDALGetDriverByName("GTiff"), path.toUtf8().constData(), 3, 3, 1, GDT_Float32, nullptr);
+      QVERIFY(dataset);
+      double transform[] = {0, 1, 0, 3, 0, -1};
+      QCOMPARE(GDALSetGeoTransform(dataset, transform), CE_None);
+      float values[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+      const auto written = GDALRasterIO(GDALGetRasterBand(dataset, 1), GF_Write, 0, 0, 3, 3, values, 3, 3, GDT_Float32, 0, 0);
+      GDALClose(dataset); QCOMPARE(written, CE_None);
+      auto *layer = new QgsRasterLayer(path, "color ramp", "gdal");
+      QVERIFY(layer->isValid()); QVERIFY(FactorStyleWriter::applyTo(layer, "sandratio"));
+      QgsProject::instance()->addMapLayer(layer);
+      LayerManifest manifest(tmp.filePath("project.sqlite")); QVERIFY(manifest.open());
+      QgisLayerService service(nullptr, &manifest);
+      QgsMapCanvas canvas; canvas.setExtent(layer->extent());
+      LayerPropertiesDialog::Deps deps; deps.canvas = &canvas;
+      LayerPropertiesDialog dialog(&service, deps); dialog.openLayerProperties(layer->id());
+      auto *native = qobject_cast<QgsRasterLayerProperties *>(findNativeDialog()); QVERIFY(native);
+      auto *widget = native->findChild<QgsSingleBandPseudoColorRendererWidget *>(); QVERIFY(widget);
+      auto *button = widget->findChild<QgsColorRampButton *>(); QVERIFY(button);
+      QVERIFY(QMetaObject::invokeMethod(button, "prepareMenu", Qt::DirectConnection));
+      QVERIFY(button->menu());
+      bool viridisVisible = false;
+      for (auto *action : button->menu()->actions())
+        viridisVisible |= action->text() == QLatin1String("Viridis");
+      QVERIFY(viridisVisible);
+      std::unique_ptr<QgsColorRamp> expected(QgsStyle::defaultStyle()->colorRamp("Viridis")); QVERIFY(expected);
+      button->setColorRampFromName("Viridis");
+      std::unique_ptr<QgsColorRamp> selected(button->colorRamp()); QVERIFY(selected);
+      QCOMPARE(selected->color(0), expected->color(0));
+      QVERIFY(QMetaObject::invokeMethod(button, "invertColorRamp", Qt::DirectConnection));
+      QVERIFY(QMetaObject::invokeMethod(native, "apply", Qt::DirectConnection));
+      auto *renderer = dynamic_cast<QgsSingleBandPseudoColorRenderer *>(layer->renderer()); QVERIFY(renderer);
+      auto *shader = dynamic_cast<QgsColorRampShader *>(renderer->shader()->rasterShaderFunction()); QVERIFY(shader);
+      QVERIFY(shader->sourceColorRamp());
+      QCOMPARE(shader->sourceColorRamp()->color(0), expected->color(1));
+      QVERIFY(!shader->colorRampItemList().isEmpty());
+      delete native;
     }
 
     // (a) 矢量：声明 → 实例化 → openLayerProperties offscreen 不 exec 不崩；
@@ -551,6 +609,11 @@ class TestLayerProperties : public QObject
 
 int main(int argc, char *argv[])
 {
+  QTemporaryDir profile;
+  if (!profile.isValid()) return 1;
+  qputenv("QGIS_CUSTOM_CONFIG_PATH", profile.path().toUtf8());
+  QSettings::setDefaultFormat(QSettings::IniFormat);
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, profile.path());
   QgsApplication app(argc, argv, false);
   app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
   app.initQgis();

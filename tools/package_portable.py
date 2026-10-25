@@ -258,6 +258,8 @@ def main():
     if not dumpbin:
         sys.exit("找不到 dumpbin（需要 VS2022 Build Tools）")
 
+    if not (QGIS_PREFIX / "resources" / "symbology-style.xml").is_file():
+        sys.exit("缺少 QGIS 默认符号与色带库: resources/symbology-style.xml")
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)

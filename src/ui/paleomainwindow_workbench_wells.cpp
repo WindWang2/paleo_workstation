@@ -125,11 +125,10 @@ void attachWellPanelActions(PaleoMainWindow *self, MappingWorkbench *workbench,
 void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
                             QgisCanvasController *canvasCtl,
                             QgisLayerService *layerSvc,
-                            const std::function<bool(const QString &, QString *)> &show,
                             const std::function<bool(const QString &)> &beginEdit) {
   QObject::connect(
       canvasCtl->canvas(), &QgsMapCanvas::contextMenuAboutToShow, self,
-      [self, workbench, canvasCtl, layerSvc, show, beginEdit](QMenu *menu, QgsMapMouseEvent *event) {
+      [self, workbench, canvasCtl, layerSvc, beginEdit](QMenu *menu, QgsMapMouseEvent *event) {
         auto *v = qobject_cast<QgsVectorLayer *>(
             canvasCtl->canvas()->currentLayer());
         if (!v || v->fields().indexOf("facies_code") < 0)
@@ -165,7 +164,7 @@ void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
           QObject::connect(
               action, &QAction::triggered, self,
               [self, workbench, layerSvc, id, original, code = f.value("code").toInt(),
-               show, beginEdit] {
+               beginEdit] {
                 QString error;
                 QString target = id;
                 QgsFeatureId fid = original.id();
@@ -193,7 +192,7 @@ void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
                                       : error,
                       10000);
                 else {
-                  show(target, &error);
+                  // assignFacies 已经发 faciesEdited 刷新样式，不重新定位画布。
                   self->statusBar()->showMessage(
                       PaleoMainWindow::tr("相类别已更新并自动保存到工作副本，可撤销；保存编辑后登记新版本。"),
                       10000);
@@ -364,7 +363,7 @@ PaleoMainWindow::WorkbenchWells PaleoMainWindow::attachWorkbenchWells(
               wellDock->hide();
             });
   }
-  attachCanvasFaciesMenu(this, workbench, m_canvasCtl, m_layerSvc, show,
+  attachCanvasFaciesMenu(this, workbench, m_canvasCtl, m_layerSvc,
                          beginEdit);
   return {wellPanel, wellDock, openWells, beginEdit};
 }

@@ -553,6 +553,44 @@ private slots:
     QVERIFY2(manyDetail.contains(QStringLiteral("另有 5 个未列出")), qPrintable(manyDetail));
   }
 
+// #672：已开工程 A，从空文件夹新建时 .qgz 写失败（createProject 已关掉 A）。
+  // 必须删掉本次写出的文件、重开 A、不发导入信号；用户目录本身保留。
+  void openPathEmptyFolderCreateFailureRestoresPrevious()
+  {
+    PaleoTempDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString previous = tmp.filePath(QStringLiteral("a/a.qgz"));
+    QVERIFY(QDir().mkpath(QFileInfo(previous).absolutePath()));
+    QgisProjectService projSvc;
+    QVERIFY2(projSvc.createProject(previous), qPrintable(projSvc.lastErrors().join('\n')));
+    QCOMPARE(projSvc.projectPath(), previous);
+
+    const QString dir = tmp.filePath(QStringLiteral("empty"));
+    QVERIFY(QDir().mkpath(dir));
+    bool failWrites = true;
+    projSvc.setDeclarationProvider([&failWrites](QVector<LayerDeclaration> *, QString *err) {
+      if (failWrites)
+      {
+        if (err)
+          *err = QStringLiteral("injected");
+        return false;
+      }
+      return true;
+    });
+    ProjectOpenWorkflow wf(&projSvc);
+    QSignalSpy failed(&wf, &ProjectOpenWorkflow::openFailed);
+    QSignalSpy folder(&wf, &ProjectOpenWorkflow::folderImportRequested);
+    QVERIFY(!wf.openPath(dir));
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(folder.count(), 0);
+    QCOMPARE(projSvc.projectPath(), previous);
+    QVERIFY(QDir(dir).exists());
+    QVERIFY(!QFile::exists(QDir(dir).filePath(QStringLiteral("empty.qgz"))));
+    QVERIFY(!QFile::exists(paleoProjectFilePath(dir)));
+    failWrites = false;
+    projSvc.closeProject();
+  }
+
 // ---- wave/data-foundation T2 ------------------------------------------------
 
 // 任务池在场 → 预览扫描走 worker，done 在 GUI 线程回调、行集与同步路径一致；

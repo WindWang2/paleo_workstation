@@ -344,6 +344,28 @@ private slots:
     const auto b = paleo::io::readWellTable(both);
     QCOMPARE(b.tops.size(), 1); QVERIFY(b.tops[0].hasMd); QCOMPARE(b.tops[0].md, 100.0);
   }
+  // #670：井点槽里放带层位的井表，扫描 + 导入后井在给定坐标上，两条分层都在，不失败。
+  void pointsSlotWithTopsKeepsHeadsAndTops() {
+    QTemporaryDir dir; QString error;
+    const auto points = xlsx(dir.filePath(QString::fromUtf8("source/井坐标.xlsx")), "data",
+                             {{"WELL", "X", "Y", "TOP", "MD"}, {"A1", "1000", "2000", "D61", "100"}, {"A1", "1000", "2000", "D62", "120"}});
+    QVERIFY(!points.isEmpty());
+    ProjectSetupSources sources; sources.points = points;
+    const auto setup = scanProjectSources(sources);
+    QVERIFY2(setup.errors.isEmpty(), qPrintable(setup.errors.join('\n')));
+    QVERIFY(setup.paths.contains(points));
+    PaleoProjectStore store; DataImportService service(&store); service.setProjectDir(dir.filePath("project"));
+    const auto rows = service.importFiles(setup.paths, &error, setup.types);
+    QCOMPARE(rows.size(), 1);
+    QVERIFY2(rows[0].outcome != FolderRowResult::Outcome::Failed, qPrintable(rows[0].message + error));
+    QVERIFY2(!rows[0].assetId.isEmpty(), qPrintable(rows[0].message));
+    ProjectDataFacade data; data.setCatalog(service.catalog(), dir.filePath("project"));
+    const auto wells = data.wells(); QCOMPARE(wells.size(), 1); QCOMPARE(wells[0].name, QString("A1"));
+    QCOMPARE(wells[0].surfaceX, 1000.0); QCOMPARE(wells[0].surfaceY, 2000.0);
+    const auto tops = data.topsForMapping(wells[0].id);
+    QStringList names; for (const auto &top : tops) names << top.horizon;
+    QVERIFY2(names.contains("D61") && names.contains("D62"), qPrintable(names.join(',')));
+  }
   void vectorsAndText() {
     QTemporaryDir dir;
     const auto text = dir.filePath("points.txt"); QVERIFY(write(text, "A1 10 20\nA2 30 40\n"));

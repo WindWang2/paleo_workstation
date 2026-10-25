@@ -27,6 +27,8 @@
 #include <QJsonObject>
 #include <QCoreApplication>
 #include <QDir>
+#include <QSet>
+#include <cmath>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
@@ -80,6 +82,80 @@ namespace
     }
     return QStringLiteral("未匹配井名: ") + norm.join(QStringLiteral(", "));
   }
+// 井口行落到井实体：恰好匹配一口已有井且该井无坐标时回填，未匹配则新建。
+// 调用方已排除重名/多候选。返回错误文案，空串 = 成功；*widOut = 井实体 id。
+QString upsertWellFromHead(DataCatalog *cat, const ImportSession &s, const WellHeadRecord &r,
+                           const QStringList &matches, QString *widOut, QString *error)
+{
+  QString wid;
+  if (matches.size() == 1)
+  {
+    wid = matches.front(); // 已有井：直接挂，不另建
+    // F5（review-security）：测井导入先建的井没有坐标（unknown/无
+    // hasSurface）——井位表命中时回填坐标与状态，否则该井被剖面/地图
+    // 静默排除。已有坐标的井不动（先到的坐标优先，不静默改写）。
+    // 更新走 updateEntity → staging journal → 提交时重放。
+    CatalogEntity w = cat->entityById(wid);
+    if (w.entityType == QLatin1String("well") &&
+        (w.coordinateStatus == QLatin1String("unknown") || !w.hasSurface))
+    {
+      w.hasSurface = true;
+      w.surfaceX = r.x;
+      w.surfaceY = r.y;
+      w.kb = r.kb;
+      w.td = r.td;
+      double lonDeg = 0.0, latDeg = 0.0;
+      if (s.georeference &&
+          applyGeoreference(*s.georeference, r.x, r.y, &lonDeg, &latDeg))
+      {
+        w.coordinateStatus = QStringLiteral("ok");
+        w.extra.insert(QStringLiteral("projectLon"), lonDeg);
+        w.extra.insert(QStringLiteral("projectLat"), latDeg);
+      }
+      else
+      {
+        w.coordinateStatus = QStringLiteral("untransformed");
+      }
+      if (!cat->updateEntity(w, error))
+        return *error;
+    }
+  }
+  else
+  {
+    wid = QStringLiteral("well-%1").arg(r.name);
+    // id 被别的规范化名占用（罕见）→ 让位于序号 id。
+    if (cat->hasEntity(wid))
+      wid = cat->nextEntityId(QStringLiteral("well"));
+    CatalogEntity w;
+    w.id = wid;
+    w.entityType = QStringLiteral("well");
+    w.name = r.name;
+    w.hasSurface = true;
+    w.surfaceX = r.x;
+    w.surfaceY = r.y;
+    w.kb = r.kb;
+    w.td = r.td;
+    // 局部测网坐标：真投影参数出现前保持未变换（plan §3）。工程带
+    // georeference 时换算 WGS84 落 extra（surfaceX/Y 仍存原始网格——
+    // 地图读它，渲染管线不变），状态进 ok。
+    double lonDeg = 0.0, latDeg = 0.0;
+    if (s.georeference &&
+        applyGeoreference(*s.georeference, r.x, r.y, &lonDeg, &latDeg))
+    {
+      w.coordinateStatus = QStringLiteral("ok");
+      w.extra.insert(QStringLiteral("projectLon"), lonDeg);
+      w.extra.insert(QStringLiteral("projectLat"), latDeg);
+    }
+    else
+    {
+      w.coordinateStatus = QStringLiteral("untransformed");
+    }
+    if (!cat->addEntity(w, error))
+      return *error;
+  }
+  *widOut = wid;
+  return QString();
+}
 } // namespace
 
 namespace paleo::dataimport_detail {
@@ -127,71 +203,9 @@ QString importWellHeadFamily(FamilyContext &ctx)
         continue;
       }
       QString wid;
-      if (matches.size() == 1)
-      {
-        wid = matches.front(); // 已有井：直接挂，不另建
-        // F5（review-security）：测井导入先建的井没有坐标（unknown/无
-        // hasSurface）——井位表命中时回填坐标与状态，否则该井被剖面/地图
-        // 静默排除。已有坐标的井不动（先到的坐标优先，不静默改写）。
-        // 更新走 updateEntity → staging journal → 提交时重放。
-        CatalogEntity w = cat->entityById(wid);
-        if (w.entityType == QLatin1String("well") &&
-            (w.coordinateStatus == QLatin1String("unknown") || !w.hasSurface))
-        {
-          w.hasSurface = true;
-          w.surfaceX = r.x;
-          w.surfaceY = r.y;
-          w.kb = r.kb;
-          w.td = r.td;
-          double lonDeg = 0.0, latDeg = 0.0;
-          if (ctx.s->georeference &&
-              applyGeoreference(*ctx.s->georeference, r.x, r.y, &lonDeg, &latDeg))
-          {
-            w.coordinateStatus = QStringLiteral("ok");
-            w.extra.insert(QStringLiteral("projectLon"), lonDeg);
-            w.extra.insert(QStringLiteral("projectLat"), latDeg);
-          }
-          else
-          {
-            w.coordinateStatus = QStringLiteral("untransformed");
-          }
-          if (!cat->updateEntity(w, error))
-            return *error;
-        }
-      }
-      else
-      {
-        wid = QStringLiteral("well-%1").arg(r.name);
-        // id 被别的规范化名占用（罕见）→ 让位于序号 id。
-        if (cat->hasEntity(wid))
-          wid = cat->nextEntityId(QStringLiteral("well"));
-        CatalogEntity w;
-        w.id = wid;
-        w.entityType = QStringLiteral("well");
-        w.name = r.name;
-        w.hasSurface = true;
-        w.surfaceX = r.x;
-        w.surfaceY = r.y;
-        w.kb = r.kb;
-        w.td = r.td;
-        // 局部测网坐标：真投影参数出现前保持未变换（plan §3）。工程带
-        // georeference 时换算 WGS84 落 extra（surfaceX/Y 仍存原始网格——
-        // 地图读它，渲染管线不变），状态进 ok。
-        double lonDeg = 0.0, latDeg = 0.0;
-        if (ctx.s->georeference &&
-            applyGeoreference(*ctx.s->georeference, r.x, r.y, &lonDeg, &latDeg))
-        {
-          w.coordinateStatus = QStringLiteral("ok");
-          w.extra.insert(QStringLiteral("projectLon"), lonDeg);
-          w.extra.insert(QStringLiteral("projectLat"), latDeg);
-        }
-        else
-        {
-          w.coordinateStatus = QStringLiteral("untransformed");
-        }
-        if (!cat->addEntity(w, error))
-          return *error;
-      }
+      const QString uerr = upsertWellFromHead(cat, *ctx.s, r, matches, &wid, error);
+      if (!uerr.isEmpty())
+        return uerr;
       link.entityId = wid;
       link.isPrimary = true;
       if (!cat->addLink(link, error))
@@ -240,6 +254,35 @@ QString importWellTopsFamily(FamilyContext &ctx)
     const QString role = cls.type == QLatin1String("well_stratification")
                              ? QStringLiteral("tops")
                              : QStringLiteral("time_depth");
+    // #670：井点槽里的井表同时带井号、X、Y、层位和顶深时按分层导入；表里的
+    // 井口坐标仍用来建井（或回填无坐标的已有井），口径同井口族。同一井名各行
+    // 坐标不一致（可能是层点坐标而非井口）、或匹配到多口井时不动，留给井口表。
+    if (cls.type == QLatin1String("well_stratification") && !ctx.parsedHeads.isEmpty() &&
+        ctx.version.extra.value(QStringLiteral("wellTableParsed")).toBool())
+    {
+      QStringList order;
+      QHash<QString, WellHeadRecord> firstHead;
+      QSet<QString> inconsistent;
+      for (const WellHeadRecord &h : ctx.parsedHeads)
+      {
+        const QString norm = DataCatalog::normalizeWellName(h.name);
+        if (norm.isEmpty()) continue;
+        const auto it = firstHead.constFind(norm);
+        if (it == firstHead.cend()) { firstHead.insert(norm, h); order.append(norm); }
+        else if (std::abs(it->x - h.x) > 1e-6 || std::abs(it->y - h.y) > 1e-6) inconsistent.insert(norm);
+      }
+      for (const QString &norm : std::as_const(order))
+      {
+        if (inconsistent.contains(norm)) continue;
+        const WellHeadRecord &h = firstHead[norm];
+        const QStringList matches = cat->wellsMatchingName(h.name);
+        if (matches.size() >= 2) continue;
+        QString wid;
+        const QString uerr = upsertWellFromHead(cat, *ctx.s, h, matches, &wid, error);
+        if (!uerr.isEmpty())
+          return uerr;
+      }
+    }
     // §3 修订：每个井名一条链接；未决链接实体 id 留空，备注记候选或未匹配名，
     // 不新建井、不合并、不再挂辅助实体。
     for (const QString &n : names)

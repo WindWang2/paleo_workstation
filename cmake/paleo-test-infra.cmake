@@ -304,6 +304,24 @@ if(PALEO_PYTHON3)
                        role_tables role_tables_selftest
                        PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
 endif()
+# ---- C++ 主线边界护栏（goal/cpp-primary-boundary-20261025）----
+# cmake/verify-cpp-mainline.cmake（cmake -P，零 Python 依赖）：src/ 零 Python
+# 应用源码、构建/安装面不引用历史 Python 归档目录、必备 C++ 模块与合法
+# Python 扩展（pythonenv/scriptrunner/pythonrepl/控制台）注册不失踪、
+# superbuild 保持 WITH_BINDINGS=OFF。selftest 在合成夹具上正反向验证——
+# 检查器自身坏掉不能静默变绿。规则全文与动机见
+# docs/CPP_PRIMARY_BOUNDARY.md；与上方 Python 闸门同口径：无标签 ctest 项
+# + WORKING_DIRECTORY 双保险（AGENTS.md「构建与测试布线」）。
+add_test(NAME cpp_mainline COMMAND ${CMAKE_COMMAND}
+         -DCPP_MAINLINE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+         -P ${CMAKE_SOURCE_DIR}/cmake/verify-cpp-mainline.cmake)
+add_test(NAME cpp_mainline_selftest COMMAND ${CMAKE_COMMAND}
+         -DCPP_MAINLINE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+         -DCPP_MAINLINE_SELFTEST=ON
+         -DCPP_MAINLINE_SELFTEST_DIR=${CMAKE_BINARY_DIR}/cpp-mainline-selftest
+         -P ${CMAKE_SOURCE_DIR}/cmake/verify-cpp-mainline.cmake)
+set_tests_properties(cpp_mainline cpp_mainline_selftest
+                     PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 # 方向 81：paleo-dev.ps1 单元自检（AST 抽函数 + 合成夹具；-Mutate 换回 #297
 # 旧 Read-InstalledDbMap 必须被抓到）。找到 pwsh/powershell 才注册——Windows
 # CI 必跑，Linux 装了 pwsh 也跑。

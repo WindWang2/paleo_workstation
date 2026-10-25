@@ -52,6 +52,7 @@
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QScopedValueRollback>
 #include <QSet>
 #include <QSignalBlocker>
 #include <qgsvectorfilewriter.h>
@@ -152,6 +153,8 @@ QString carriedPins(const QgsMapLayer *layer, const QVariantMap &sourceExtra) {
 QString MappingWorkbench::copyForEditing(const QString &id,
                                          const QStringList &references,
                                          QString *error, bool requireEvidence) {
+  // 输入快照、版本登记和工作副本都可能同步上图；整个编辑转换保留视图。
+  QScopedValueRollback<bool> preserveView(m_preserveEditingView, true);
   auto d = declaration(id);
   if (!ready(d.horizon, error))
     return {};

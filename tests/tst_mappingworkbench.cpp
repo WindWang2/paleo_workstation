@@ -45,6 +45,8 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QMouseEvent>
+#include <QStatusBar>
+#include <qgsmapmouseevent.h>
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QPushButton>
@@ -500,6 +502,76 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void editingActionsPreserveMapViewport_data() {
+    QTest::addColumn<bool>("contextMenu");
+    QTest::newRow("enter-edit-copy") << false;
+    QTest::newRow("right-click-change-facies") << true;
+  }
+  void editingActionsPreserveMapViewport() {
+    QFETCH(bool, contextMenu);
+    QObject context;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&context);
+    QString error;
+    const auto seed = hierarchyDraft(f, &error); QVERIFY2(!seed.isEmpty(), qPrintable(error));
+    const auto original = QStringLiteral("product.%1").arg(f.work.versionForLayer(seed).id);
+    QVERIFY(!f.layers.declaration(original).layerId.isEmpty());
+    QgisCanvasController controller(&context);
+    controller.setLayerResolver([&f](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    QgisEditingService edits(&f.store);
+    PredictionWorkflow prediction(&f.processing, &f.layers);
+    CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation,
+                           nullptr, nullptr, &f.processing, &f.store, &edits);
+    window.attachWorkbench(&f.work); window.resize(1600, 1000); window.show();
+    window.showPage("predict"); selection.setActiveHorizon("D61");
+    auto *page = window.findChild<MappingWorkbenchPage *>("mappingWorkbench.predict"); QVERIFY(page);
+    page->refresh(); page->selectLayer(original); page->commandButton("show")->click();
+    auto *canvas = controller.canvas();
+    QTRY_VERIFY(canvas->layers().contains(f.layers.layer(original)));
+    QTest::qWait(100);
+    canvas->setRotation(17); canvas->setExtent(QgsRectangle(20, 20, 80, 80)); canvas->refresh();
+    QTest::qWait(150);
+    const auto extent = canvas->extent(); const auto scale = canvas->scale(); const auto rotation = canvas->rotation();
+    auto *editor = window.findChild<PaleoEditingToolbar *>("editingToolbar"); QVERIFY(editor);
+    const auto changeFacies = [canvas](int codeIndex) {
+      const auto pixel = canvas->mapSettings().mapToPixel().transform(QgsPointXY(50, 50));
+      const QPoint pos(qRound(pixel.x()), qRound(pixel.y()));
+      QMouseEvent mouse(QEvent::MouseButtonPress, QPointF(pos), QPointF(canvas->mapToGlobal(pos)),
+                        Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+      QgsMapMouseEvent event(canvas, &mouse); QMenu menu;
+      emit canvas->contextMenuAboutToShow(&menu, &event);
+      auto *changes = menu.findChild<QMenu *>("changeFeatureFacies");
+      if (!changes || changes->actions().size() <= codeIndex) return false;
+      changes->actions().at(codeIndex)->trigger(); return true;
+    };
+    if (contextMenu) QVERIFY(changeFacies(1));
+    else page->commandButton("copy")->click();
+    QTest::qWait(150);
+    QVERIFY2(editor->isEditing(), qPrintable(window.statusBar()->currentMessage()));
+    auto *draft = editor->currentLayer(); QVERIFY(draft);
+    QVERIFY(draft->customProperty("paleoLayerId").toString().startsWith("draft."));
+    QCOMPARE(canvas->extent(), extent); QVERIFY(qFuzzyCompare(canvas->scale(), scale));
+    QCOMPARE(canvas->rotation(), rotation);
+    if (contextMenu) {
+      QgsFeature changed; auto features = draft->getFeatures(QgsFeatureRequest().setFilterRect(QgsRectangle(49, 49, 51, 51)));
+      QVERIFY(features.nextFeature(changed)); QCOMPARE(changed.attribute("facies_code").toInt(), 2);
+      QVERIFY(changeFacies(2)); QTest::qWait(150);
+      QCOMPARE(editor->currentLayer(), draft); QCOMPARE(canvas->extent(), extent);
+      QVERIFY(qFuzzyCompare(canvas->scale(), scale));
+    }
+    QVERIFY(editor->saveEditing()); QTest::qWait(150);
+    QCOMPARE(canvas->extent(), extent); QVERIFY(qFuzzyCompare(canvas->scale(), scale));
+    editor->setCurrentLayer(draft); // 保存后当前展示的是只读成果，重新选择可写工作副本。
+    QVERIFY(editor->actionEditMode()->isEnabled()); editor->actionEditMode()->trigger();
+    QVERIFY(editor->isEditing()); QCOMPARE(canvas->extent(), extent);
+    QVERIFY(qFuzzyCompare(canvas->scale(), scale)); QVERIFY(editor->cancelEditing());
+    // 主动显示图件仍定位全图，编辑保留视图的状态不能泄漏到下一次显示。
+    page->refresh(); page->selectLayer(original); page->commandButton("show")->click(); QTest::qWait(150);
+    QVERIFY(canvas->extent() != extent); QVERIFY(canvas->scale() > scale);
+  }
   void directWellPredictionRejectsUnsafeTextIndex_data() {
     QTest::addColumn<QByteArray>("axis");
     QTest::newRow("unit-missing") << QByteArray("MD");

@@ -586,8 +586,8 @@ PaleoMainWindow::WorkbenchShowFn PaleoMainWindow::makeWorkbenchShow(
     if (m_profileSvc)
       m_profileSvc->captureCurrentAsTheme(
           QgisLayerProfileService::pageThemeName(currentPage()));
-    // 保存编辑版本后的重新上图不打断当前尺度（用户正在看的就是这张图）；
-    // 其余显示（用户点名看某图件/新生成成果）维持缩放定位。
+    // 创建编辑副本或保存版本后的上图保持当前视图；
+    // 主动显示图件和新生成成果仍缩放定位。
     if (!workbench->consumeSuppressedProductZoom())
       m_canvasCtl->zoomToLayer(id);
     canvas->freeze(wasFrozen);

@@ -328,7 +328,7 @@ WbCmdStep runWorkbenchEditFamily(const WorkbenchCmdDeps &d,
     const auto draft = d.workbench->copyForEditing(id, inputs, &error, d.page->mode() == "compose");
     ok = !draft.isEmpty();
     if (ok && d.edit) {
-      d.show(draft, &error);
+      // productReady 已显示工作副本；重复 show 会把编辑中的局部视图缩回全图。
       ok = d.beginEdit(draft);
       if (!ok)
         error = PaleoMainWindow::tr("副本已创建，请先结束其他图层的编辑");

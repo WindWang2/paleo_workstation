@@ -1,6 +1,8 @@
 // 层：视图
 #pragma once
 
+#include <QHash>
+#include <QList>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QWidget>
@@ -72,6 +74,13 @@ public:
   MappingReferencePanel *addView();
   MappingReferencePanel *showSource(const QString &id);
   QList<MappingReferencePanel *> views() const { return m_views; }
+  // 每个证据视图宽度可独立调整（拖动右缘手柄）；0 表示按「一屏约两个」的默认宽度。
+  // persist=true 时按视图序号写入 QSettings，下次打开沿用。
+  void setViewWidth(MappingReferencePanel *view, int width, bool persist = false);
+  int viewWidth(MappingReferencePanel *view) const;
+  int visibleViewCount() const; // 当前视口内（至少部分）可见的视图数
+  static constexpr int kMinViewWidth = 260;
+  static constexpr int kMaxViewWidth = 4000;
   QSize sizeHint() const override { return {640, 340}; }
 
 signals:
@@ -81,6 +90,8 @@ private:
   void removeView(MappingReferencePanel *view);
   void layoutViews();
   void updateViewSizes();
+  int defaultViewWidth() const;
+  void saveWidths();
   bool eventFilter(QObject *watched, QEvent *event) override;
   QgsMapCanvas *m_mainCanvas; // 非拥有；宿主与现有参考画布共享生命周期。
   QgsProject *m_project;
@@ -89,6 +100,9 @@ private:
   QLabel *m_count;
   QLabel *m_emptyHint = nullptr; // D-12：全部视图关闭后的空态引导
   QList<MappingReferencePanel *> m_views;
+  QList<QWidget *> m_handles;                    // 与 m_views 一一对应的右缘拖动手柄
+  QHash<MappingReferencePanel *, int> m_widths;  // 用户指定宽度；缺省走默认宽度
+  QList<int> m_savedWidths;                      // QSettings 中按序号保存的宽度
   QVariantList m_sources;
   QString m_horizon;
   bool m_active = false;

@@ -14003,6 +14003,11 @@ Crossline: %3 ~ %4</source>
         <source>%1 个视图</source>
         <translation>%1 个视图</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="326"/>
+        <source>左右拖动调整此证据视图宽度</source>
+        <translation>左右拖动调整此证据视图宽度</translation>
+    </message>
 </context>
 <context>
     <name>MappingFeatureIdentity::Observer</name>

@@ -16,8 +16,13 @@
 #include <QWheelEvent>
 #include <QLabel>
 #include <QPushButton>
+#include <QMouseEvent>
+#include <QSettings>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
+
+#include <functional>
+#include <memory>
 MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
                                              QgsProject *project, QWidget *parent)
     : QWidget(parent)
@@ -202,6 +207,52 @@ void MappingReferencePanel::setRemoveHint(bool lastView)
                                  : tr("关闭此证据"));
 }
 
+namespace {
+constexpr char kWidthsKey[] = "mappingEvidence/viewWidths";
+
+// 证据视图右缘的拖动手柄：左右拖动即调整其左侧视图宽度。
+class EvidenceResizeHandle : public QWidget
+{
+public:
+  using Callback = std::function<void(int dx, bool finished)>;
+  EvidenceResizeHandle(int width, Callback cb, QWidget *parent) : QWidget(parent), m_cb(std::move(cb))
+  {
+    setObjectName(QStringLiteral("referenceViewResizeHandle"));
+    setFixedWidth(width);
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    setCursor(Qt::SplitHCursor);
+  }
+
+protected:
+  void mousePressEvent(QMouseEvent *e) override
+  {
+    if (e->button() != Qt::LeftButton) return QWidget::mousePressEvent(e);
+    m_pressX = e->globalPosition().toPoint().x();
+    m_dragging = true;
+    m_cb(0, false);
+    e->accept();
+  }
+  void mouseMoveEvent(QMouseEvent *e) override
+  {
+    if (!m_dragging) return QWidget::mouseMoveEvent(e);
+    m_cb(e->globalPosition().toPoint().x() - m_pressX, false);
+    e->accept();
+  }
+  void mouseReleaseEvent(QMouseEvent *e) override
+  {
+    if (!m_dragging) return QWidget::mouseReleaseEvent(e);
+    m_dragging = false;
+    m_cb(e->globalPosition().toPoint().x() - m_pressX, true);
+    e->accept();
+  }
+
+private:
+  Callback m_cb;
+  int m_pressX = 0;
+  bool m_dragging = false;
+};
+} // namespace
+
 MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject *project,
                                            QWidget *parent)
     : QWidget(parent), m_mainCanvas(mainCanvas), m_project(project)
@@ -233,7 +284,7 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   body->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Expanding);
   m_row = new QHBoxLayout(body);
   m_row->setContentsMargins(0, 0, 0, 0);
-  m_row->setSpacing(tokens.spacingSm);
+  m_row->setSpacing(0); // 视图间隙由拖动手柄承担
   m_row->setAlignment(Qt::AlignLeft);
   m_scroll->setWidget(body);
   layout->addWidget(m_scroll, 1);
@@ -248,6 +299,10 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   m_emptyHint->hide();
   layout->addWidget(m_emptyHint);
   m_scroll->viewport()->installEventFilter(this);
+  {
+    const QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
+    for (const auto &v : settings.value(QLatin1String(kWidthsKey)).toList()) m_savedWidths << v.toInt();
+  }
   connect(add, &QPushButton::clicked, this, [this] { addView(); });
   addView();
   addView();
@@ -258,7 +313,19 @@ MappingReferencePanel *MappingEvidencePanel::addView()
   auto *view = new MappingReferencePanel(m_mainCanvas, m_project, m_scroll->widget());
   view->setSources(m_sources, m_horizon);
   view->setViewActive(m_active);
+  const int index = int(m_views.size());
   m_views << view;
+  if (index < m_savedWidths.size() && m_savedWidths[index] > 0)
+    m_widths.insert(view, qBound(kMinViewWidth, m_savedWidths[index], kMaxViewWidth));
+  auto startWidth = std::make_shared<int>(0);
+  auto *handle = new EvidenceResizeHandle(qMax(6, PaleoTheme::tokens().spacingSm),
+      [this, view, startWidth](int dx, bool finished) {
+        if (dx == 0 && !finished) { *startWidth = view->width(); return; }
+        setViewWidth(view, *startWidth + dx, finished);
+      }, m_scroll->widget());
+  handle->setToolTip(tr("左右拖动调整此证据视图宽度"));
+  handle->installEventFilter(this); // 手柄上的滚轮同样横向滚动
+  m_handles << handle;
   view->installEventFilter(this);
   for (auto *child : view->findChildren<QWidget *>()) child->installEventFilter(this);
   connect(view, &MappingReferencePanel::referenceRequested, this, [this, view](const QString &id) {
@@ -274,7 +341,13 @@ MappingReferencePanel *MappingEvidencePanel::addView()
 
 void MappingEvidencePanel::removeView(MappingReferencePanel *view)
 {
-  if (!m_views.removeOne(view)) return;
+  const auto index = m_views.indexOf(view);
+  if (index < 0) return;
+  m_views.removeAt(index);
+  m_widths.remove(view);
+  QWidget *handle = m_handles.takeAt(index);
+  m_row->removeWidget(handle);
+  handle->deleteLater();
   view->clearReference();
   m_row->removeWidget(view);
   view->hide();
@@ -295,6 +368,8 @@ void MappingEvidencePanel::layoutViews()
     view->setAccessibleName(tr("证据视图 %1").arg(i + 1));
     m_row->addWidget(view);
     view->show();
+    m_row->addWidget(m_handles[i]);
+    m_handles[i]->show();
   }
   updateViewSizes();
   m_row->activate();
@@ -303,15 +378,62 @@ void MappingEvidencePanel::layoutViews()
   m_emptyHint->setVisible(m_views.isEmpty());
 }
 
+int MappingEvidencePanel::defaultViewWidth() const
+{
+  // 未调整过的视图沿用原口径：一屏约放两个（仅一个时铺满），最窄 kMinViewWidth。
+  const int per = qBound(1, int(m_views.size()), 2);
+  const int gap = m_handles.isEmpty() ? 0 : m_handles.first()->width();
+  return qMax(kMinViewWidth, (m_scroll->viewport()->width() - per * gap) / per);
+}
+
 void MappingEvidencePanel::updateViewSizes()
 {
-  const int count = int(m_views.size());
-  const int gap = m_row->spacing();
-  const int visible = qMin(count, 2);
-  const int width = visible ? qMax(260, (m_scroll->viewport()->width() - (visible - 1) * gap) / visible) : 0;
-  for (auto *view : m_views) view->setFixedWidth(width);
-  m_scroll->widget()->setMinimumWidth(count ? count * width + (count - 1) * gap : 0);
+  const int fallback = defaultViewWidth();
+  int total = 0;
+  for (qsizetype i = 0; i < m_views.size(); ++i) {
+    const int width = m_widths.value(m_views[i], fallback);
+    m_views[i]->setFixedWidth(width);
+    total += width + m_handles[i]->width();
+  }
+  // 总宽超过视口时出现水平滚动条（ScrollBarAsNeeded）。
+  m_scroll->widget()->setMinimumWidth(total);
   m_scroll->widget()->setFixedHeight(m_scroll->viewport()->height());
+}
+
+void MappingEvidencePanel::setViewWidth(MappingReferencePanel *view, int width, bool persist)
+{
+  if (!m_views.contains(view)) return;
+  if (width <= 0) m_widths.remove(view);
+  else m_widths.insert(view, qBound(kMinViewWidth, width, kMaxViewWidth));
+  updateViewSizes();
+  m_row->activate();
+  if (persist) saveWidths();
+}
+
+int MappingEvidencePanel::viewWidth(MappingReferencePanel *view) const
+{
+  return m_views.contains(view) ? m_widths.value(view, defaultViewWidth()) : 0;
+}
+
+int MappingEvidencePanel::visibleViewCount() const
+{
+  const QRect port(m_scroll->widget()->mapFrom(m_scroll->viewport(), QPoint()), m_scroll->viewport()->size());
+  int n = 0;
+  for (auto *view : m_views)
+    if (view->isVisibleTo(m_scroll->widget()) && port.intersects(view->geometry())) ++n;
+  return n;
+}
+
+void MappingEvidencePanel::saveWidths()
+{
+  QVariantList widths;
+  m_savedWidths.clear();
+  for (auto *view : m_views) {
+    m_savedWidths << m_widths.value(view, 0);
+    widths << m_savedWidths.last();
+  }
+  QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
+  settings.setValue(QLatin1String(kWidthsKey), widths);
 }
 
 bool MappingEvidencePanel::eventFilter(QObject *watched, QEvent *event)

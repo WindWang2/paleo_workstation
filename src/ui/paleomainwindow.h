@@ -358,14 +358,14 @@ class PaleoMainWindow : public SARibbonMainWindow
     void buildRibbonPanels(DataPage *data, PredictPage *predict, ConstraintPage *constraint,
                            ComposePage *compose, ValidatePage *validate,
                            PaleoEditingToolbar *editTb);
-    // 三个编图页各有一组「要素编辑」：动作与编辑条共享同一批 QAction；图层
+    // 三个编图页固定显示矢量/相面/拓扑/吸附工具：动作与编辑条共享；图层
     // 下拉共享编辑条下拉的 model，选择经 setCurrentLayer 回写。
     void addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb,
                          bool compact = false);
     // 反馈 #19：单因素图页签（输入/处理/输出/要素编辑/更多）。
     void buildConstraintRibbon(SARibbonCategory *category, ConstraintPage *constraint,
                                PaleoEditingToolbar *editTb, const QList<QAction *> &shared);
-    // 反馈 #19：单因素图页把相图显示/捕捉与撤销放进溢出菜单。
+    // 单因素图页的显示设置与编辑参数保留溢出菜单快捷入口。
     void addEditingSettingsMenu(QMenu *menu, PaleoEditingToolbar *editTb);
     void addDataImportRibbon(SARibbonCategory *category, DataPage *data);
     void addFaciesDisplayPanel(SARibbonCategory *category);

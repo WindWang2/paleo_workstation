@@ -3,6 +3,8 @@
 
 #include <QCoreApplication>
 #include <QJsonArray>
+#include <QSet>
+#include <memory>
 #include <cmath>
 #include <ogr_spatialref.h>
 #include <cpl_error.h>
@@ -14,6 +16,8 @@
 #include <qgsproviderregistry.h>
 #include <qgsgui.h>
 #include <qgseditorwidgetregistry.h>
+#include <qgsstyle.h>
+#include <qgscolorramp.h>
 
 // P0 spine service — owns QgsApplication lifecycle and vendor prefix resolution.
 //
@@ -82,6 +86,44 @@ bool QgisRuntime::initialize( const QString &prefixPath,
   // Embedding applications must register QGIS's native attribute editors;
   // initQgis() initializes providers, while QgisApp normally does this step.
   QgsGui::editorWidgetRegistry()->initEditors();
+  QString styleError;
+  if (!ensureDefaultColorRamps(&styleError))
+    qWarning().noquote() << "QGIS default color ramp initialization failed:" << styleError;
+  return true;
+}
+
+bool QgisRuntime::ensureDefaultColorRamps(QString *error)
+{
+  if (error) error->clear();
+  const auto fail = [error](const QString &message) {
+    if (error) *error = message;
+    return false;
+  };
+  if (!isInitialized())
+    return fail(QStringLiteral("QGIS is not initialized"));
+  auto *target = QgsStyle::defaultStyle();
+  QgsStyle defaults;
+  const auto source = QgsApplication::defaultStylePath();
+  if (!defaults.createMemoryDatabase() || !defaults.importXml(source))
+    return fail(QStringLiteral("Cannot load QGIS color ramps from %1: %2").arg(source, defaults.errorString()));
+  const auto names = target->colorRampNames();
+  const QSet<QString> existing(names.begin(), names.end());
+  const auto favorites = defaults.symbolsOfFavorite(QgsStyle::ColorrampEntity);
+  for (const auto &name : defaults.colorRampNames()) {
+    if (existing.contains(name)) continue;
+    std::unique_ptr<QgsColorRamp> ramp(defaults.colorRamp(name));
+    // 启动阶段先持久化再放入全局库；失败不能被后续内存命中伪装为已修复。
+    if (!ramp || !target->saveColorRamp(name, ramp.get(), favorites.contains(name),
+                                      defaults.tagsOfSymbol(QgsStyle::ColorrampEntity, name)))
+      return fail(QStringLiteral("Cannot save color ramp %1 to %2: %3")
+                      .arg(name, QgsApplication::userStylePath(), target->errorString()));
+    target->addColorRamp(name, ramp.release());
+  }
+  // 有些旧库有色带却没有任何收藏，原生下拉首页因此仍为空。
+  if (target->symbolsOfFavorite(QgsStyle::ColorrampEntity).isEmpty())
+    for (const auto &name : favorites)
+      if (!target->addFavorite(QgsStyle::ColorrampEntity, name))
+        return fail(QStringLiteral("Cannot add favorite QGIS color ramp: %1").arg(name));
   return true;
 }
 

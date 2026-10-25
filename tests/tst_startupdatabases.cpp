@@ -16,6 +16,8 @@
 #include "../src/metadata/wellsectionstore.h"
 #include "../src/metadata/metastore.h"
 #include <qgsapplication.h>
+#include <qgsstyle.h>
+#include <qgscolorrampimpl.h>
 #include <qgsmessagelog.h>
 
 class TestStartupDatabases : public QObject {
@@ -34,6 +36,43 @@ private:
     return w;
   }
 private slots:
+  void nativeDefaultColorRampsAreAvailable() {
+    auto *style = QgsStyle::defaultStyle(); QVERIFY(style);
+    QVERIFY(style->colorRampNames().contains(QStringLiteral("Viridis")));
+    QVERIFY(style->colorRampNames().contains(QStringLiteral("Spectral")));
+    QVERIFY(style->colorRampNames().contains(QStringLiteral("RdBu")));
+  }
+  void emptyAndCustomStyleLibrariesRepairWithoutOverwritingUserColors() {
+    auto *style = QgsStyle::defaultStyle();
+    const auto symbolCount = style->symbolCount();
+    for (const auto &name : style->colorRampNames()) QVERIFY(style->removeColorRamp(name));
+    QVERIFY(style->colorRampNames().isEmpty());
+    QString error;
+    QVERIFY2(QgisRuntime::ensureDefaultColorRamps(&error), qPrintable(error));
+    QVERIFY(style->colorRampNames().contains("Spectral"));
+    QVERIFY(!style->symbolsOfFavorite(QgsStyle::ColorrampEntity).isEmpty());
+    QVERIFY(style->addColorRamp("Viridis", new QgsGradientColorRamp(Qt::red, Qt::blue), true));
+    QVERIFY(style->addColorRamp("custom-geologist", new QgsGradientColorRamp(Qt::black, Qt::white), true));
+    QVERIFY(style->addFavorite(QgsStyle::ColorrampEntity, "custom-geologist"));
+    QVERIFY(style->removeColorRamp("Spectral"));
+    QVERIFY2(QgisRuntime::ensureDefaultColorRamps(&error), qPrintable(error));
+    QCOMPARE(style->colorRampRef("Viridis")->color(0), QColor(Qt::red));
+    QCOMPARE(style->colorRampRef("custom-geologist")->color(1), QColor(Qt::white));
+    QVERIFY(style->symbolsOfFavorite(QgsStyle::ColorrampEntity).contains("custom-geologist"));
+    QCOMPARE(style->symbolCount(), symbolCount);
+    const auto names = style->colorRampNames();
+    QVERIFY2(QgisRuntime::ensureDefaultColorRamps(&error), qPrintable(error));
+    QCOMPARE(style->colorRampNames(), names);
+    QgsStyle reopened; QVERIFY2(reopened.load(QgsApplication::userStylePath()), qPrintable(reopened.errorString()));
+    QCOMPARE(reopened.colorRampNames(), names);
+    QCOMPARE(reopened.colorRampRef("Viridis")->color(0), QColor(Qt::red));
+    QVERIFY(reopened.colorRampRef("Spectral"));
+    for (const auto &name : style->symbolsOfFavorite(QgsStyle::ColorrampEntity))
+      QVERIFY(style->removeFavorite(QgsStyle::ColorrampEntity, name));
+    QVERIFY2(QgisRuntime::ensureDefaultColorRamps(&error), qPrintable(error));
+    QVERIFY(style->symbolsOfFavorite(QgsStyle::ColorrampEntity).contains("Viridis"));
+    QCOMPARE(style->colorRampNames(), names);
+  }
   void invalidUserDatabaseFailsStartupWithPath() {
     QProcess child;
     auto environment = QProcessEnvironment::systemEnvironment();

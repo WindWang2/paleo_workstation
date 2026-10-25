@@ -73,5 +73,7 @@ class QgisRuntime
     static bool isInitialized();
     static int providerCount();          // -1 if not initialized
     static QString srsDbPath();          // empty if not initialized
+    // 原生属性窗口创建前补齐默认色带；仅新增缺项，保留用户同名配色与自定义库。
+    static bool ensureDefaultColorRamps(QString *error = nullptr);
     static QJsonObject coordinateRuntimeReport(); // real QGIS + GDAL EPSG/transform checks
 };

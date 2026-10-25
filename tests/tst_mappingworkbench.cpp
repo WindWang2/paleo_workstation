@@ -58,6 +58,7 @@
 #include "../src/ui/decorations/paleodecorations.h"
 #include "../src/ui/wellcomposite/wellcompositecanvas.h"
 #include "../src/io/constraintstore.h"
+#include "../src/qgis/qgiseditingservice.h"
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
 #include "../src/workflow/wellpredictionservice.h"
@@ -2763,6 +2764,33 @@ private slots:
     QCOMPARE(layer->getFeature(feature.id()).attribute("facies_evidence"), beforeEvidence);
     QCOMPARE(layer->getFeature(feature.id()).attribute("paleo_interpretation"), beforeInterp);
   }
+  void constraintSnapshotSavesVectorEditsAutomatically() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QgisEditingService edits(&f.store); f.constraints.setEditingService(&edits);
+    QVERIFY2(f.constraints.drawConstraint("D61", "LINESTRING(0 0,10 5)", "break_line", 0, &error), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.layer("constraints.D61"));
+    QVERIFY(layer); QVERIFY(!layer->isEditable());
+    const auto first = f.work.snapshotConstraints("D61", {}, &error);
+    QVERIFY2(!first.isEmpty(), qPrintable(error));
+    QVERIFY2(edits.beginEdit(layer, &error), qPrintable(error));
+    auto iterator = layer->getFeatures(); QgsFeature feature; QVERIFY(iterator.nextFeature(feature));
+    auto geometry = QgsGeometry::fromWkt("LINESTRING(0 0,10 8)");
+    layer->beginEditCommand("move"); QVERIFY(layer->changeGeometry(feature.id(), geometry)); layer->endEditCommand();
+    QVERIFY(layer->isModified());
+    // 保存失败不得跳过检查或使用旧快照，缓冲仍可恢复/重试。
+    f.store.setReadOnly(true);
+    QVERIFY(f.work.snapshotConstraints("D61", {}, &error).isEmpty());
+    QVERIFY(!error.isEmpty()); QVERIFY(layer->isEditable()); QVERIFY(layer->isModified());
+    f.store.setReadOnly(false); error.clear();
+    const auto second = f.work.snapshotConstraints("D61", {}, &error);
+    QVERIFY2(!second.isEmpty(), qPrintable(error)); QVERIFY(second != first);
+    QVERIFY(!layer->isEditable()); QCOMPARE(layer->geometryType(), Qgis::GeometryType::Line);
+    auto *snapshot = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(second, &error));
+    QVERIFY(snapshot); QgsFeature frozen; auto features = snapshot->getFeatures();
+    QVERIFY(features.nextFeature(frozen)); QVERIFY(frozen.geometry().equals(geometry));
+    QCOMPARE(f.work.snapshotConstraints("D61", {}, &error), second);
+    QCOMPARE(layer->featureCount(), 1);
+  }
   void constraintSnapshotKeepsDeletionAudit() {
     Fixture f; QVERIFY(f.init()); QString error;
     QVERIFY2(f.constraints.addConstraint("D61", "LINESTRING(0 0,10 0)", "direction_line", 1, &error), qPrintable(error));
@@ -5085,6 +5113,7 @@ private slots:
     Fixture f;
     QVERIFY(f.init());
     QString error;
+    QgisEditingService edits(&f.store); f.constraints.setEditingService(&edits);
     QVERIFY2(f.work.saveFacies("D61", FaciesCatalog::defaults().mid(0, 7), &error), qPrintable(error)); // explicit seven-class numerical fixture
 
     const auto source = f.dir.filePath("samples.geojson");
@@ -5108,8 +5137,15 @@ private slots:
     QVERIFY(f.latest("constraint_snapshot").isEmpty());
     auto params = QVariantMap{
         {"pointsLayerId", d.layerId}, {"field", "z"}, {"cellSize", 10}};
+    auto *line = qobject_cast<QgsVectorLayer *>(f.layers.instantiate("constraints.D61", &error));
+    QVERIFY(line); QVERIFY2(edits.beginEdit(line, &error), qPrintable(error));
+    QgsFeature constraintFeature; auto lines = line->getFeatures(); QVERIFY(lines.nextFeature(constraintFeature));
+    auto moved = QgsGeometry::fromWkt("LINESTRING(40 0,40 100)");
+    line->beginEditCommand("move"); QVERIFY(line->changeGeometry(constraintFeature.id(), moved)); line->endEditCommand();
+    QVERIFY(line->isModified());
     QVERIFY2(f.work.generateFactor("D61", "sandthick", params, &error),
              qPrintable(error));
+    QVERIFY(!line->isEditable()); QCOMPARE(line->geometryType(), Qgis::GeometryType::Line);
     const auto factorId = f.latest("single_factor_raster");
     QVERIFY(!factorId.isEmpty());
     const auto factor = f.work.versionForLayer(factorId);

@@ -708,9 +708,7 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
                                               QString *error) {
   if (!ready(h, error))
     return {};
-  if (auto *editing = qobject_cast<QgsVectorLayer *>(m_layers->layer(QStringLiteral("constraints.%1").arg(h)));
-      editing && editing->isModified()) {
-    fail(error, tr("请先保存或撤销约束编辑，再生成单因素图"));
+  if (!m_constraints->saveConstraintEdits(h, error)) {
     return {};
   }
   auto *store = m_constraints->constraintStore();

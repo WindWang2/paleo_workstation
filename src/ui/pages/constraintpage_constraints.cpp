@@ -210,9 +210,6 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
                                   shape->currentData().toString(), spin->value() );
   } );
 
-  // ---- 类型化约束线两入口（方向线/打断线——03_Constraints 组的类型化
-  // 约束；shape 决定画布工具，constraintType 进 ConstraintStore 词表）------
-  // 两个类型化入口是同组次要动作——归并为一行工具排，不再各占全宽。
   auto *typedRow = new QHBoxLayout();
   typedRow->setSpacing(PaleoTheme::tokens().spacingXs); // xs
   auto *direction = new QPushButton(tr("绘制方向线"), this);
@@ -254,6 +251,9 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
                                        QStringLiteral( "cartographic_detour" ), spin->value() );
   } );
   lay->addLayout( softRow );
+  auto *drawHint = caption(tr("双击或右键完成绘制，自动保存为矢量约束；修改后可直接生成图件。"), content);
+  drawHint->setObjectName(QStringLiteral("constraintDrawHint"));
+  lay->addWidget(drawHint);
   // ---- 方向23：已绘约束线编辑面（顶点编辑 / 删除；语义切换走列表右键）------
   auto *editRow = new QHBoxLayout();
   editRow->setSpacing(PaleoTheme::tokens().spacingXs); // xs
@@ -684,7 +684,7 @@ void ConstraintPage::applyConstraintUsePlan()
     text += tr( "。当前方法实际参与 %1 条" ).arg( plan.consumed );
     if ( plan.blocking > 0 )
       text += tr( "，%1 条参数越界会使运行被拒绝" ).arg( plan.blocking );
-    text += tr( "。%1 绘制、导入自动保存；顶点编辑需保存编辑会话。" )
+    text += tr( "。%1 绘制、导入自动保存；生成图件时自动保存当前约束修改。" )
                 .arg( plan.capabilityNote );
     hint->setToolTip(text);
     QString summary = tr("本层位：%1 条间隔线、%2 条方向线可用；当前方法参与 %3 条。")

@@ -887,6 +887,8 @@ bool MappingWorkbench::generateFactor(const QString &h, const QString &factor,
                                       QString *error) {
   if (!ready(h, error))
     return false;
+  if (!m_constraints->saveConstraintEdits(h, error))
+    return false;
   if (!m_constraints->loadConstraints(h).isEmpty() &&
       snapshotConstraints(h, {}, error).isEmpty())
     return false;

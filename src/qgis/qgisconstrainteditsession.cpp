@@ -264,7 +264,11 @@ bool QgisConstraintEditSession::initialize(QString *error)
   QgsDataProvider::ProviderOptions providerOptions;
   providerOptions.transformContext = m_layer->transformContext();
   const QgsCoordinateReferenceSystem sessionCrs = m_layer->crs();
-  m_layer->setDataSource(workingPath + QStringLiteral("|layername=constraints"), m_name, QStringLiteral("ogr"), providerOptions);
+  QString workingSource = workingPath + QStringLiteral("|layername=constraints");
+  for (const auto &part : m_source.split(QLatin1Char('|')))
+    if (part.startsWith(QLatin1String("geometrytype=")))
+      workingSource += QLatin1Char('|') + part;
+  m_layer->setDataSource(workingSource, m_name, QStringLiteral("ogr"), providerOptions);
   if (!m_layer->crs().isValid())
   {
     if (sessionCrs.isValid())

@@ -7,6 +7,7 @@
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
+#include "../src/io/wellfileparsers.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/previewdoc.h"
@@ -129,7 +130,7 @@ private slots:
     doc.wellTopsForLog(well, &result, &warnings);
     QCOMPARE(result.size(), 1); QCOMPARE(result.first().md, 220.0); QVERIFY(warnings.join(' ').contains("不单调"));
     options.forceType = "well_deviation";
-    const auto deviation = stack.source("A1_dev.dat", "# Well : A1\n0 60 0\n1000 60 0\n");
+    const auto deviation = stack.source("A1_dev.dat", "# Well : A1\n500 0 0\n1000 0 0\n");
     QVERIFY2(!stack.imports->importProjectFile(deviation, options, &error).isEmpty(), qPrintable(error));
     doc.wellTopsForLog(well, &result, &warnings); QCOMPARE(result.size(), 2);
     const auto converted = std::find_if(result.cbegin(), result.cend(), [](const auto &top) { return top.topName == "D61"; });
@@ -156,7 +157,7 @@ private slots:
     QVERIFY(!stack.imports->importProjectFile(stack.source("A1.csv", ImportUxFixtures::csv()), &error).isEmpty());
     options.forceType = "well_stratification";
     const auto tops = stack.source("tops.dat", "#WellTops File From Paleo\n# PaleoDepthBasis: explicit\n"
-        "A1 DEEP -99999 -99999 -99999 -99999 900 -99999\n");
+        "A1 DEEP -99999 -99999 -99999 -99999 1200 -99999\n");
     QVERIFY2(!stack.imports->importProjectFile(tops, options, &error).isEmpty(), qPrintable(error));
     options.forceType = "well_deviation";
     // 60° 井斜，MD 0–1000 的垂深约 500。TVD 900 会沿末站外推，不得画成已测 MD。
@@ -165,6 +166,37 @@ private slots:
     PreviewDocService doc(stack.imports.get()); QVector<WellTopRecord> result; QStringList warnings;
     doc.wellTopsForLog(onlyWellId(*stack.imports->catalog()), &result, &warnings);
     QCOMPARE(result.size(), 0);
+  }
+  // #667：批量导入（importFiles 走 resolveImportedWellDepths 发布链），TVD-only 分层与
+  // 60° 测斜同批提交。末站之外的反解 MD 不得写进派生分层表；站内的仍要换算。
+  void folderImportDoesNotPublishMdPastLastStation() {
+    // #667：批量导入走 resolveImportedWellDepths，派生分层表不得把测斜站范围外的
+    // 反解 MD 写成已测（60° 井，站 MD 0–1000，垂深约 500；TVD 900 沿末站外推）。
+    PreviewStack stack; QString error;
+    QVERIFY(!stack.imports->importProjectFile(stack.source("A1.csv", ImportUxFixtures::csv()), &error).isEmpty());
+    const auto tops = stack.source("tops.csv", "WELL,TOP,TVD\nA1,IN,250\nA1,DEEP,900\n");
+    const auto deviation = stack.source("A1_dev.dat", "# Well : A1\n0 60 0\n1000 60 0\n");
+    const QMap<QString, QString> types{{tops, QStringLiteral("well_stratification")},
+                                       {deviation, QStringLiteral("well_deviation")}};
+    const auto rows = stack.imports->importFiles({tops, deviation}, &error, types);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(rows.size(), 2);
+    for (const auto &row : rows) QVERIFY2(!row.assetId.isEmpty(), qPrintable(row.message));
+    auto *cat = stack.imports->catalog();
+    QVector<WellTopRecord> published;
+    for (const auto &asset : cat->assets()) {
+      if (asset.type != "well_stratification") continue;
+      QFile f(cat->versionFilePath(cat->currentVersion(asset.id)));
+      QVERIFY(f.open(QIODevice::ReadOnly));
+      published += parseWellTopsText(f.readAll());
+    }
+    const auto find = [&](const char *name) {
+      return std::find_if(published.cbegin(), published.cend(), [&](const auto &t) { return t.topName == name; });
+    };
+    const auto in = find("IN"), deep = find("DEEP");
+    QVERIFY(in != published.cend()); QVERIFY(in->hasMd); QVERIFY(std::abs(in->md - 500.0) < 0.01);
+    QVERIFY(deep != published.cend());
+    QVERIFY2(!deep->hasMd, qPrintable(QStringLiteral("DEEP md=%1").arg(deep->md)));
   }
   void noSurveyUsesExplicitStraightWellDisplayWarning() {
     PreviewStack stack; QString error; QVERIFY(!stack.imports->importProjectFile(stack.source("A1.csv", ImportUxFixtures::csv()), &error).isEmpty());

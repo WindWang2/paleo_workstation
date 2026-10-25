@@ -1718,6 +1718,65 @@ class TestPanelsDataOps : public QObject
         QVERIFY(!freePrimary);
     }
 
+    // #674：右键「设为主关联」时旧主在另一个资产上，撤销须恢复旧主，
+    // 不能把该角色清成零主；原先没有主文件时撤销才只清掉这一条。
+    void contextSetPrimaryUndoRestoresPreviousPrimary()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.path());
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        auto *lp = page->listPanel();
+        DataCatalog *cat = svc.catalog();
+        {
+            EntityAssetLink member;
+            member.entityType = QStringLiteral("well");
+            member.entityId = fx.wellA;
+            member.assetId = fx.astFree;
+            member.role = QStringLiteral("well_log");
+            member.isPrimary = false;
+            QVERIFY(cat->addLink(member));
+        }
+        const auto primaryOf = [cat, &fx](const QString &asset) {
+            for (const EntityAssetLink &l : cat->linksForEntity(fx.wellA))
+                if (l.assetId == asset && l.role == QLatin1String("well_log"))
+                    return l.isPrimary;
+            return false;
+        };
+        QVERIFY(primaryOf(fx.astResolved));
+        QVERIFY(!primaryOf(fx.astFree));
+        lp->selectAssetInViews(fx.astFree);
+        QCOMPARE(lp->currentAssetSelection(), QSet<QString>{fx.astFree});
+        lp->setPrimaryForSelection();
+        QVERIFY(primaryOf(fx.astFree));
+        QVERIFY(!primaryOf(fx.astResolved));
+        lp->undoOp();
+        QVERIFY(primaryOf(fx.astResolved)); // 旧主恢复
+        QVERIFY(!primaryOf(fx.astFree));
+        lp->redoOp();
+        QVERIFY(primaryOf(fx.astFree));
+        QVERIFY(!primaryOf(fx.astResolved));
+        lp->undoOp();
+        QVERIFY(primaryOf(fx.astResolved));
+
+        // 原先该角色没有主文件：撤销后该角色无主，且 clearLinkPrimary 推进 mutationSeq。
+        const int a1 = paleo::dataops::indexOfLink(cat, fx.astResolved, QStringLiteral("well_log"), fx.wellA);
+        QVERIFY(a1 >= 0);
+        QVERIFY(cat->clearLinkPrimary(a1));
+        QVERIFY(!primaryOf(fx.astResolved));
+        lp->selectAssetInViews(fx.astFree);
+        lp->setPrimaryForSelection();
+        QVERIFY(primaryOf(fx.astFree));
+        const quint64 seq = cat->mutationSeq();
+        lp->undoOp();
+        QVERIFY(!primaryOf(fx.astFree));
+        QVERIFY(!primaryOf(fx.astResolved));
+        QVERIFY(cat->mutationSeq() > seq);
+    }
+
     void dataops_d5_renameAssetCmdUndoRedo()
     {
         using namespace paleo::dataops;

@@ -634,6 +634,7 @@ class FactorPageTests : public QObject
     void cokrigingCovariateControls();    // 方向91：协变量下拉只在协克里金可见，并写入参数
     void contourIntervalResetsAcrossFactorTypes(); // 方向04 D9：等值距自动态不跨因素类型残留
     void contourIntervalDefaultsToSixthOfFactorRange(); // 有井点值时默认约为极差的 1/6
+    void contourIntervalUserValueSurvivesHorizonSwitch(); // #676：换层位保留手改等值距
     void parseLevelsDroppedTokensAreRefused();     // 方向04 D10：脏级别 token 不静默吞
     void staleSuffixSurvivesLayerRedeclare();      // 方向04 D11：「（旧输入）」标记不被重声明抹掉
     void structuralBoundaryComboPrefersPolygonDefaults(); // 成图边界只列面图层；默认值不盲选第 0 个矢量层
@@ -1401,6 +1402,24 @@ void FactorPageTests::contourIntervalResetsAcrossFactorTypes()
   spin->setValue( 0.0 );                               // 模拟 structural 残留的自动态
   factors->item( 2, 0 )->setCheckState( Qt::Checked ); // 切到 strathick（仍非 structural）
   QCOMPARE( spin->value(), 20.0 );                     // 修复前保持 0.0（跨类型残留）
+}
+
+// #676：手改等值距后切换层位再切回，间距保持手改值，不被新层位建议覆盖。
+void FactorPageTests::contourIntervalUserValueSurvivesHorizonSwitch()
+{
+  ConstraintPage page( nullptr );
+  page.setHorizons( { QStringLiteral( "D61" ), QStringLiteral( "D62" ) } );
+  auto *h = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  auto *spin = page.findChild<QDoubleSpinBox *>( QStringLiteral( "contourIntervalSpin" ) );
+  QVERIFY( h && factors && spin );
+  h->setCurrentIndex( h->findText( QStringLiteral( "D61" ) ) );
+  factors->item( 1, 0 )->setCheckState( Qt::Checked ); // sandratio：空表也有建议值域
+  spin->setValue( 5.0 );
+  h->setCurrentIndex( h->findText( QStringLiteral( "D62" ) ) );
+  QCOMPARE( spin->value(), 5.0 );
+  h->setCurrentIndex( h->findText( QStringLiteral( "D61" ) ) );
+  QCOMPARE( spin->value(), 5.0 );
 }
 
 void FactorPageTests::contourIntervalDefaultsToSixthOfFactorRange()

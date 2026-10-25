@@ -3030,6 +3030,7 @@ private slots:
   // 证据视图宽度可逐个调整：一屏可见数随宽度变化，超出视口出现水平滚动条。
   void evidenceViewWidthsAreAdjustableAndDriveVisibleCount() {
     QSettings("paleo", "paleo").remove("mappingEvidence/viewWidths");
+    const auto cleanup = qScopeGuard([] { QSettings("paleo", "paleo").remove("mappingEvidence/viewWidths"); });
     QgsMapCanvas main;
     main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
     main.setExtent(QgsRectangle(0, 0, 600, 400));
@@ -3056,10 +3057,11 @@ private slots:
     auto *first = panel.views().first();
     auto *handle = handles.first();
     QVERIFY(handle->x() >= first->geometry().right());
-    const QPoint p0 = handle->rect().center();
+    // 拖动时手柄随视图右移，按固定的按下点全局坐标计算位移。
+    const QPoint g0 = handle->mapToGlobal(handle->rect().center());
     auto sendMouse = [&](QEvent::Type type, int dx, Qt::MouseButtons buttons) {
-      const QPoint local = p0 + QPoint(dx, 0);
-      QMouseEvent ev(type, local, handle->mapToGlobal(local), Qt::LeftButton, buttons, Qt::NoModifier);
+      const QPoint global = g0 + QPoint(dx, 0);
+      QMouseEvent ev(type, handle->mapFromGlobal(global), global, Qt::LeftButton, buttons, Qt::NoModifier);
       QApplication::sendEvent(handle, &ev);
     };
     sendMouse(QEvent::MouseButtonPress, 0, Qt::LeftButton);
@@ -3080,7 +3082,6 @@ private slots:
       MappingEvidencePanel again(&main, nullptr);
       QCOMPARE(again.viewWidth(again.views().first()), MappingEvidencePanel::kMinViewWidth + 600);
     }
-    QSettings("paleo", "paleo").remove("mappingEvidence/viewWidths");
     main.stopRendering();
   }
 

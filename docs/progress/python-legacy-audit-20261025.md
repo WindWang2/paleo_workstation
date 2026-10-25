@@ -102,7 +102,8 @@ docs/progress/full-audit-20261017/findings/agent-e.md 在册）、
 - `spikes/onnx/gen_grid_models.py`、`gen_toy_model.py`：ONNX 可行性
   原型目录**同时是活跃测试夹具源**——`tst_onnxworkflow.cpp:72/78/183`
   直接定位 `spikes/onnx/toy.onnx`，移动即破坏测试，禁移；
-- `tools/reference/`（12）：mkproject 夹具生成（`tst_mkprojectfixture`/
+- `tools/reference/`（11，其中 10 个 C 类 + example_progress.py 为 D 类）：
+  mkproject 夹具生成（`tst_mkprojectfixture`/
   `tst_io_workbook_edges` 在册引用）、singlefactor 参考生成与对拍
   （manifest/requirements.lock/`tst_singlefactor_structural` 在册）、
   io robustness 夹具（AUDIT_ISSUES.md 在册）。

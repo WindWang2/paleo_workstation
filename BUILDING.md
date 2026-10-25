@@ -22,6 +22,19 @@
 
 **原则：尽量不依赖系统库，尽量自编译 vendored。** 优先级：
 
+### 依赖按用途分类（C++ 主线口径）
+
+与来源路线（下）正交，按「谁在什么时候需要」分三类
+（详见 `docs/CPP_PRIMARY_BOUNDARY.md`）：
+
+| 类别 | 内容 | 缺席后果 |
+|------|------|---------|
+| Native Runtime | C++/Qt6/QGIS/GDAL/GEOS/ORT 二进制闭包 | 主程序无法构建/运行 |
+| Development/Validation | python3（源码闸门/ctest/CI）、Ninja、ccache（可选加速）、lrelease（翻译编译）、pwsh（Windows 侧脚本自检） | python3 缺席 configure 直接 FATAL_ERROR（`paleo-test-infra.cmake` 的 `find_program(PALEO_PYTHON3)`，不静默变绿）；其余按各自既有降级行为（lrelease 缺席 WARNING、ccache 缺席直接编译、pwsh 缺席该自检不注册） |
+| Optional Scripting | 用户显式启用的脚本控制台/REPL/MAMCL 所需解释器与 venv | 对应功能不可用，主程序不受影响（PATH 发现或 `PALEO_PYTHON` 显式指定） |
+
+Native Runtime 依赖的来源路线：
+
 1. **自编译 vendor（superbuild，首选）**——GEOS→PROJ→GDAL→QGIS 按源码
    tarball + SHA256 pin（`URL_HASH`）构建进 `vendor/superbuild/prefix`
    （启用步骤见其 README；周检 CI `.github/workflows/superbuild-weekly.yml`

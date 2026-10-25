@@ -2937,6 +2937,10 @@ private slots:
             [](MappingReferencePanel *view, const QString &) {
       view->setReference(new QgsVectorLayer("Point?crs=EPSG:3857", "evidence", "memory"), {});
     });
+    QCOMPARE(panel.views().size(), 4);
+    // 关闭两个空视图后继续覆盖添加、移除和来源选择的完整生命周期。
+    panel.views()[3]->findChild<QToolButton *>("referenceRemoveView")->click();
+    panel.views()[2]->findChild<QToolButton *>("referenceRemoveView")->click();
     QCOMPARE(panel.views().size(), 2);
     auto *first = panel.views()[0];
     auto *second = panel.views()[1];
@@ -3012,7 +3016,7 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(800, 360); panel.show();
-    for (int i = 0; i < 3; ++i) panel.addView();
+    panel.addView();
     QCOMPARE(panel.views().size(), 5);
     auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
     auto *add = panel.findChild<QPushButton *>("referenceAddView"); QVERIFY(add);
@@ -3064,15 +3068,17 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(1200, 360); panel.show();
-    panel.addView(); panel.addView();
     QCOMPARE(panel.views().size(), 4);
     QCoreApplication::processEvents();
     auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
     const auto handles = panel.findChildren<QWidget *>("referenceViewResizeHandle");
     QCOMPARE(handles.size(), 4);
-    QTRY_VERIFY(scroll->horizontalScrollBar()->isVisible()); // 默认一屏约两个，4 个溢出
-    QCOMPARE(panel.visibleViewCount(), 2);
-    // 全部调窄 → 一屏可放下更多，不再溢出。
+    QTRY_VERIFY(!scroll->horizontalScrollBar()->isVisible()); // 默认四个视图均分可用宽度。
+    QCOMPARE(panel.visibleViewCount(), 4);
+    // 四个默认视图连同拖动手柄都应完整落在视口内。
+    for (auto *view : panel.views())
+      QVERIFY(scroll->viewport()->rect().contains(QRect(view->mapTo(scroll->viewport(), QPoint()), view->size())));
+    // 全部调窄后仍可放下四个。
     for (auto *view : panel.views()) panel.setViewWidth(view, MappingEvidencePanel::kMinViewWidth);
     QCoreApplication::processEvents();
     QTRY_VERIFY(!scroll->horizontalScrollBar()->isVisible());

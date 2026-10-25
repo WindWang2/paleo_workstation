@@ -333,6 +333,17 @@ private slots:
     const auto baseTable = paleo::io::readWellTable(baseOnly);
     QVERIFY(baseTable.tops.isEmpty());
   }
+  // #671：表名 Sheet1、表头 WELL_NAME 仍对上井名；MD 与 BASE_MD 并存时顶深取 MD。
+  void sheet1WellNameAndBaseMdKeepTopRoles() {
+    QTemporaryDir dir;
+    const auto named = xlsx(dir.filePath("named.xlsx"), "Sheet1", {{"WELL_NAME", "TOP", "MD"}, {"A1", "D61", "100"}});
+    const auto t = paleo::io::readWellTable(named);
+    QCOMPARE(t.tops.size(), 1); QCOMPARE(t.tops[0].wellName, QString("A1")); QCOMPARE(t.tops[0].topName, QString("D61"));
+    QVERIFY(t.tops[0].hasMd); QCOMPARE(t.tops[0].md, 100.0);
+    const auto both = xlsx(dir.filePath("both.xlsx"), "Sheet1", {{"WELL", "TOP", "MD", "BASE_MD"}, {"A1", "D61", "100", "80"}});
+    const auto b = paleo::io::readWellTable(both);
+    QCOMPARE(b.tops.size(), 1); QVERIFY(b.tops[0].hasMd); QCOMPARE(b.tops[0].md, 100.0);
+  }
   void vectorsAndText() {
     QTemporaryDir dir;
     const auto text = dir.filePath("points.txt"); QVERIFY(write(text, "A1 10 20\nA2 30 40\n"));

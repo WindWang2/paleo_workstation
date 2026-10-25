@@ -44,6 +44,7 @@
 #include "../src/services/faciesdisplaysettings.h"
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QMouseEvent>
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QPushButton>
@@ -3023,6 +3024,63 @@ private slots:
     panel.views()[2]->findChild<QToolButton *>("referenceRemoveView")->click();
     QCOMPARE(panel.views().size(), 4); QCoreApplication::processEvents();
     for (auto *view : panel.views()) QCOMPARE(view->y(), first->y());
+    main.stopRendering();
+  }
+
+  // 证据视图宽度可逐个调整：一屏可见数随宽度变化，超出视口出现水平滚动条。
+  void evidenceViewWidthsAreAdjustableAndDriveVisibleCount() {
+    QSettings("paleo", "paleo").remove("mappingEvidence/viewWidths");
+    QgsMapCanvas main;
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    MappingEvidencePanel panel(&main, nullptr);
+    panel.resize(1200, 360); panel.show();
+    panel.addView(); panel.addView();
+    QCOMPARE(panel.views().size(), 4);
+    QCoreApplication::processEvents();
+    auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
+    const auto handles = panel.findChildren<QWidget *>("referenceViewResizeHandle");
+    QCOMPARE(handles.size(), 4);
+    QTRY_VERIFY(scroll->horizontalScrollBar()->isVisible()); // 默认一屏约两个，4 个溢出
+    QCOMPARE(panel.visibleViewCount(), 2);
+    // 全部调窄 → 一屏可放下更多，不再溢出。
+    for (auto *view : panel.views()) panel.setViewWidth(view, MappingEvidencePanel::kMinViewWidth);
+    QCoreApplication::processEvents();
+    QTRY_VERIFY(!scroll->horizontalScrollBar()->isVisible());
+    QCOMPARE(panel.visibleViewCount(), 4);
+    for (auto *view : panel.views()) QCOMPARE(view->width(), MappingEvidencePanel::kMinViewWidth);
+    // 宽度下限保护。
+    panel.setViewWidth(panel.views().first(), 10);
+    QCOMPARE(panel.viewWidth(panel.views().first()), MappingEvidencePanel::kMinViewWidth);
+    // 拖动第一个视图的右缘手柄加宽 → 溢出，滚动条出现，且宽度写入 QSettings。
+    auto *first = panel.views().first();
+    auto *handle = handles.first();
+    QVERIFY(handle->x() >= first->geometry().right());
+    const QPoint p0 = handle->rect().center();
+    auto sendMouse = [&](QEvent::Type type, int dx, Qt::MouseButtons buttons) {
+      const QPoint local = p0 + QPoint(dx, 0);
+      QMouseEvent ev(type, local, handle->mapToGlobal(local), Qt::LeftButton, buttons, Qt::NoModifier);
+      QApplication::sendEvent(handle, &ev);
+    };
+    sendMouse(QEvent::MouseButtonPress, 0, Qt::LeftButton);
+    sendMouse(QEvent::MouseMove, 300, Qt::LeftButton);
+    sendMouse(QEvent::MouseButtonRelease, 600, Qt::NoButton);
+    QCoreApplication::processEvents();
+    QCOMPARE(first->width(), MappingEvidencePanel::kMinViewWidth + 600);
+    QTRY_VERIFY(scroll->horizontalScrollBar()->isVisible());
+    QVERIFY(panel.visibleViewCount() < 4);
+    const auto saved = QSettings("paleo", "paleo").value("mappingEvidence/viewWidths").toList();
+    QCOMPARE(saved.size(), 4);
+    QCOMPARE(saved.first().toInt(), MappingEvidencePanel::kMinViewWidth + 600);
+    if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty()) {
+      QDir().mkpath(qa); QVERIFY(panel.grab().save(qa + QString("/evidence-resizable.png")));
+    }
+    // 新面板沿用保存的宽度。
+    {
+      MappingEvidencePanel again(&main, nullptr);
+      QCOMPARE(again.viewWidth(again.views().first()), MappingEvidencePanel::kMinViewWidth + 600);
+    }
+    QSettings("paleo", "paleo").remove("mappingEvidence/viewWidths");
     main.stopRendering();
   }
 

@@ -1,6 +1,7 @@
 // 层：测试壳
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QDirIterator>
 #include <QtEndian>
 #include <gdal.h>
 #include "io/projectcoordinates.h"
@@ -148,6 +149,47 @@ private slots:
     QVERIFY(std::abs(grid.rowX - 3) < 1e-6);
     QVERIFY(std::abs(grid.columnY - 2) < 1e-6);
     QCOMPARE(grid.z.size(), 4);
+  }
+  // #668：层位网格头声明 EPSG:32649，工程基准 EPSG:3857。批量导入后工程里
+  // 不得留下未转换（仍是 32649）或未登记的 GeoTIFF；发布的栅格必须是 3857。
+  void folderImportedHorizonRasterIsProjectedOrAbsent() {
+    QTemporaryDir root; GDALAllRegister();
+    const auto project = root.filePath("project"); QVERIFY(QDir().mkpath(project));
+    const auto sourceDir = root.filePath(QString::fromUtf8("source/层位")); QVERIFY(QDir().mkpath(sourceDir));
+    PaleoProjectStore store;
+    store.setProjectPaths(project + "/project.qgz", project + "/project.gpkg", project + "/metadata/project.sqlite");
+    DataImportService imports(&store); imports.setProjectDir(project);
+    PaleoGeoreference reference; reference.kind = "crs"; reference.sourceCrs = "EPSG:3857";
+    imports.setGeoreference(reference);
+    const QByteArray grid = "# Projection: EPSG:32649\n# Grid_size: 2x2\n"
+        "# P1: 1,1,233000,3990000\n# P2: 1,2,233020,3990000\n# P3: 2,2,233020,3990020\n"
+        "233000 3990000 100 1 1\n233020 3990000 101 1 2\n"
+        "233000 3990020 102 2 1\n233020 3990020 103 2 2\n";
+    QStringList files; QMap<QString, QString> types;
+    for (const char *name : {"D61.dat", "D62.dat"}) {
+      // 两份字节不同（避免字节去重），都需要从 32649 转到 3857。
+      const auto path = QDir(sourceDir).filePath(name);
+      write(path, grid + "# " + QByteArray(name) + "\n"); files << path; types.insert(path, "horizon");
+    }
+    QString error;
+    const auto rows = imports.importFiles(files, &error, types);
+    QCOMPARE(rows.size(), 2);
+    int imported = 0;
+    for (const auto &row : rows) if (!row.assetId.isEmpty()) ++imported;
+    QVERIFY2(imported == 2, qPrintable(error + " | " + rows.first().message + " | " + rows.last().message));
+    QDirIterator it(project, {"*.tif", "*.tiff"}, QDir::Files, QDirIterator::Subdirectories);
+    int rasters = 0;
+    while (it.hasNext()) {
+      const auto tif = it.next();
+      if (tif.contains("/.staging") || tif.contains("staging/")) continue;
+      QVERIFY2(!tif.contains(".partial"), qPrintable(tif));
+      auto *ds = GDALOpen(tif.toUtf8().constData(), GA_ReadOnly); QVERIFY2(ds, qPrintable(tif));
+      const bool projected = sameNativeCrs(QString::fromUtf8(GDALGetProjectionRef(ds)), "EPSG:3857");
+      GDALClose(ds);
+      QVERIFY2(projected, qPrintable(tif));
+      ++rasters;
+    }
+    QVERIFY(rasters >= 2);
   }
   void projectedRasterHasNewCoordinates() {
     QTemporaryDir root; const auto path = root.filePath("source.tif"); QString error;

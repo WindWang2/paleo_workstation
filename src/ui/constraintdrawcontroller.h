@@ -12,7 +12,7 @@ class QgsAdvancedDigitizingDockWidget;
 // ui/ — ConstraintDrawController: owns one active constraint-drawing session.
 // §42 flow: ConstraintPage emits drawConstraintRequested(horizon, shape, code)
 // → startCapture() installs the matching Paleo map tool on the canvas →
-// constraintDrawn() delivers WKT to ConstraintWorkflow::drawConstraint()（P3：自动开约束编辑会话）→
+// constraintDrawn() delivers WKT to ConstraintWorkflow::drawConstraint()（完成即写工程矢量层）→
 // the tool is unset and destroyed. drawAborted()/cancel() take the same
 // teardown path without invoking the workflow.
 //

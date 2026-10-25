@@ -20,7 +20,7 @@ class QgisProjectService;
 //   · 测区范围与测井数据单独成层、置顶共享（树最上 = 最后画 = 压在所有
 //     编图内容之上——井位/边界是基准参考叠加层）；
 //   · 地层（层位）构成组——同一层位的全部产层收进以该层位命名的组节点，
-//     组内按 canonical 组序自上而下（07_Validation 最上 → 00_Data 最下，
+//     组内约束矢量叠加在因素与相面之上（07_Validation 最上 → 00_Data 最下，
 //     后者承接 horizon.<H> 层位底图栅格）；
 //   · 共享的非数据产层（horizon="" 且组非 00_Data）平铺在树根的层位组
 //     之下，仍按 canonical 序排；
@@ -52,7 +52,7 @@ class QgisLayerOrganizer : public QObject
     // 幂等——工程打开后、声明批量回灌后、测试里都可直调。
     void reorganize();
 
-    // canonical 组 → 自上而下的秩（07_Validation 最上 … 00_Data 最下，
+    // canonical 组 → 自上而下的秩（校验、约束、参考、相面、因素、预测、底图，
     // 未知组垫底）；同根组的子路径（04_SingleFactor/Contours）排在该根组
     // 平级成员之前——等值线/制图产物压在因素栅格之上。
     static int groupRank( const QString &group );

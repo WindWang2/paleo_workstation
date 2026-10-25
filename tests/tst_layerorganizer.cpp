@@ -496,6 +496,10 @@ void TestLayerOrganizer::newLayerSlotsIntoCustomOrderByTree()
 
   QgsMapLayer *polygons = fx.instantiate(QStringLiteral("product.polygons"));
   QVERIFY(polygons);
+  QVERIFY(fx.layerSvc.declare(decl(QStringLiteral("constraints.D61"), QStringLiteral("D61"),
+                                   QStringLiteral("03_Constraints"))));
+  auto *constraints = fx.instantiate(QStringLiteral("constraints.D61"));
+  QVERIFY(constraints);
   QCoreApplication::processEvents();
   // 树位：在 D61 层位组内，且在相栅格之上（组秩 05 > 02）。
   QgsLayerTreeLayer *node = fx.root()->findLayer(polygons->id());
@@ -508,6 +512,8 @@ void TestLayerOrganizer::newLayerSlotsIntoCustomOrderByTree()
   const auto order = fx.root()->layerOrder();
   QVERIFY(order.contains(polygons));
   QVERIFY(order.indexOf(wells) < order.indexOf(polygons));
+  QVERIFY(order.indexOf(wells) < order.indexOf(constraints));
+  QVERIFY(order.indexOf(constraints) < order.indexOf(polygons));
   QVERIFY(order.indexOf(polygons) < order.indexOf(raster));
   QVERIFY(order.indexOf(raster) < order.indexOf(basemap));
   // 幂等：重复找位不改序。

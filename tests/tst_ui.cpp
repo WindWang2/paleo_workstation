@@ -1186,7 +1186,7 @@ class TestUiShell : public QObject
                                  "ribbonPanel.constraint.result", "ribbonPanel.constraint.more",
                                  "ribbonEditPanel"})
           QVERIFY2(cat->findChild<SARibbonPanel *>(QLatin1String(name)), name);
-        for (const char *name : {"ribbonFaciesDisplayPanel", "ribbonEditingSettingsPanel",
+        for (const char *name : {"ribbonFaciesDisplayPanel",
                                  "ribbonNavPanel", "ribbonPanel.constraint.correlation",
                                  "ribbonPanel.sections"})
           QVERIFY2(!cat->findChild<SARibbonPanel *>(QLatin1String(name)), name);
@@ -1254,6 +1254,40 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("data"));
       QVERIFY(m_ctx->canvasCtl()->activeTool() == nullptr);
       delete pan;
+    }
+
+    void vectorEditingGroupsStayVisibleAndFollowTarget()
+    {
+      QTemporaryDir dir;
+      QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("vectors.qgz")));
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(), m_ctx->compositionWf(),
+          m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(), m_ctx->processingSvc(),
+          m_ctx->store(), m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
+      auto *editor = m_win->findChild<PaleoEditingToolbar *>("editingToolbar"); QVERIFY(editor);
+      auto *layer = new QgsVectorLayer("Polygon?crs=EPSG:3857", "普通矢量面", "memory");
+      m_ctx->projectSvc()->project()->addMapLayer(layer);
+      for (const auto &page : {"predict", "constraint", "compose"}) {
+        m_win->showPage(page); editor->setCurrentLayer(nullptr);
+        auto *category = m_win->categoryForPage(page); QVERIFY(category);
+        for (const auto &name : {"ribbonEditPanel", "ribbonFaciesPartitionPanel",
+                                 "ribbonEditSessionPanel", "ribbonEditingSettingsPanel"}) {
+          auto *panel = category->findChild<SARibbonPanel *>(name); QVERIFY2(panel && !panel->isHidden(), name);
+        }
+        QVERIFY(!editor->actionVertexEdit()->isEnabled()); QVERIFY(!editor->actionVertexEdit()->toolTip().isEmpty());
+        auto *session = category->findChild<SARibbonPanel *>("ribbonEditSessionPanel");
+        QVERIFY(PaleoRibbon::buttonFor(session, editor->actionTopological()));
+        QVERIFY(PaleoRibbon::buttonFor(session, editor->actionCrossLayerTopo()));
+        editor->setCurrentLayer(layer); QCOMPARE(editor->currentLayer(), layer);
+        QVERIFY(editor->actionVertexEdit()->isEnabled()); QVERIFY(editor->actionMove()->isEnabled());
+        QVERIFY(!editor->actionFaciesOperations()->isEnabled());
+        QVERIFY(!editor->actionFaciesOperations()->toolTip().isEmpty());
+        auto *snap = category->findChild<QSpinBox *>("ribbonEditingSnapToleranceSpin"); QVERIFY(snap);
+        snap->setValue(13); QCOMPARE(editor->snapToleranceSpin()->value(), 13);
+        QCOMPARE(m_ctx->canvasCtl()->canvas()->snappingUtils()->config().tolerance(), 13.0);
+        editor->actionTopological()->setChecked(true); QVERIFY(editor->actionCrossLayerTopo()->isEnabled());
+      }
+      QVERIFY(paleo::tests::captureVisual(m_win, "persistent-vector-editing-ribbon", QSize(1600, 1000)));
+      editor->setCurrentLayer(nullptr); m_ctx->projectSvc()->project()->removeMapLayer(layer);
     }
 
     void faciesPartitionRibbonMirrorsTargetAndAvailability()

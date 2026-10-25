@@ -120,11 +120,12 @@ int QgisLayerOrganizer::groupRank( const QString &group )
 {
   const QString canonical = PaleoLayerVocabulary::canonicalize( group );
   const QString root = PaleoLayerVocabulary::groupRoot( canonical );
-  // 树内自上而下 = canonical 词表自下而上（01_Base 底 → 07_Validation 顶）。
+  // 约束是持续可见的矢量叠加层，排在不透明因素栅格与相面之上。
   static const QStringList topDown = {
-      QStringLiteral( "07_Validation" ),    QStringLiteral( "06_Reference" ),
+      QStringLiteral( "07_Validation" ),    PaleoLayerVocabulary::kConstraintsGroup,
+      QStringLiteral( "06_Reference" ),
       QStringLiteral( "05_PaleoMap" ),      QStringLiteral( "04_SingleFactor" ),
-      PaleoLayerVocabulary::kConstraintsGroup,   QStringLiteral( "02_Prediction" ),
+      QStringLiteral( "02_Prediction" ),
       QStringLiteral( "01_Base" ),          QStringLiteral( "00_Data" ) };
   const int idx = topDown.indexOf( root );
   const int base = idx < 0 ? int( topDown.size() ) * 10 : idx * 10;

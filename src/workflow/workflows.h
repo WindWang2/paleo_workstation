@@ -223,17 +223,15 @@ class ConstraintWorkflow : public QObject
     // 空 QRectF——调用方（约束页计划）据此保持「域未知」，不臆造域。
     QRectF lastFactorComputeDomain(const QString &horizon) const;
 
-    // P3 用户决定 (a)：画布绘制入口。有约束库时先确保该层位处于约束编辑会话
-    //（无会话则自动开启：优先 UI 启动器——编辑工具栏接管保存/取消；否则走
-    // 绑定的编辑服务），再经会话写入，使每次绘制都进原生撤销栈。无会话可开时
-    // 如实失败，不再绕过会话直写 store。无约束库时同 addConstraint（内存回退）。
-    // 批量导入等事务化写入仍用 addConstraint。
+    // 完成绘制即写入工程矢量层；已有手动编辑会话时加入其原生撤销栈。
     bool drawConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                         QString *error = nullptr, QString *constraintIdOut = nullptr,
                         const QVariantMap &lineParams = {});
     using DrawSessionStarter = std::function<bool(const QString &horizon, QString *error)>;
     void setDrawSessionStarter(DrawSessionStarter starter) { m_drawSessionStarter = std::move(starter); }
     void setEditingService(QgisEditingService *editing);
+    // 成图时自动保存当前层位的矢量修改；失败保留编辑缓冲，禁止使用旧约束。
+    bool saveConstraintEdits(const QString &horizon, QString *error = nullptr);
     // P4：所有已声明约束层位的混合几何伴随视图按 store 重同步（会话保存/取消后自动调用）。
     void syncAllConstraintGeometryViews();
     // 把逐线语义和半径写进 params_json。重开后 loadConstraints 读回同一份。

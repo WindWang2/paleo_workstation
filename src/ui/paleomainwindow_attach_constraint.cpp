@@ -315,6 +315,8 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                                            const QVariantMap &params) {
           QString error;
           bool ready = !(m_factorTask && m_factorTask->running()) && !constraint->factorBusy();
+          if (ready)
+            ready = constraint->saveConstraintEdits(horizon, &error);
           // Freeze editable constraints as a managed input version before any surface calculation.
           if (ready && m_workbench && !constraint->loadConstraints(horizon).isEmpty())
             ready = !m_workbench->snapshotConstraints(horizon, {}, &error).isEmpty();
@@ -638,8 +640,7 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
       return layer;
     };
-    // P3 用户决定 (a)：画布绘制自动开启约束编辑会话（经编辑工具栏，保存/取消
-    // 与手动开启同一入口），每次绘制都进原生撤销栈。工具栏拒绝时带回原因。
+    // 修改已有约束时由编辑工具栏接管原生撤销会话，拒绝时带回原因。
     constraint->setDrawSessionStarter(
         [self = QPointer<QObject>(this), page = QPointer<ConstraintPage>(constraintPage), beginConstraintEdit, this](
             const QString &horizon, QString *error) {
@@ -728,7 +729,6 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
       connect(toolbar, &PaleoEditingToolbar::editingStopped, constraintPage,
               &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
     });
-    // ---- m2(B) end ----
   }
 
   // ---- 方向 47：realization 集合面板接线（独立于约束 workflow——集合是

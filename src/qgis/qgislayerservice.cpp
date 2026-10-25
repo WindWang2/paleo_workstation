@@ -7,6 +7,7 @@
 
 #include "qgisprojectservice.h"
 #include "qgiseditingservice.h"
+#include "qgisstyleservice.h"
 #include "mappingartifactwriter.h"
 #include "projectmapreference.h"
 #include "../services/errorhub.h"
@@ -99,6 +100,8 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     return false;
   }
   QgsMapLayer *previous = m_instances.value(decl.layerId).data();
+  auto *constraint = decl.layerId.startsWith(QLatin1String("constraints."))
+      ? qobject_cast<QgsVectorLayer *>(previous) : nullptr;
   const bool replace = previous && (!previous->isValid() || (decl.type == QLatin1String("mbtiles")
       ? previous->customProperty("paleoBasemapPath").toString() != QFileInfo(QDir(QFileInfo(svcProject(m_projectSvc)->fileName()).absolutePath()).filePath(decl.source)).absoluteFilePath()
       : previous->source() != decl.source));
@@ -115,7 +118,7 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
   }
   if (!m_manifest->upsert(decl, error))
     return false;
-  if (replace)
+  if (replace && !constraint)
   {
     if (auto *project = svcProject(m_projectSvc))
       project->removeMapLayer(previous->id());
@@ -126,6 +129,24 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     if (!instantiate(decl.layerId, &reErr))
       qWarning("QgisLayerService::declare: re-instantiating '%s' after source change failed: %s",
                qPrintable(decl.layerId), qPrintable(reErr));
+  }
+  if (constraint && !constraint->isEditable()) {
+    // 同一约束库新增要素时 source 字符串不变，但旧 provider 可能仍是无几何表。
+    // 原位重开，保留图层身份、树中位置和可见性，不删除再新建矢量层。
+    const auto selected = constraint->selectedFeatureIds();
+    const auto crs = constraint->crs();
+    const auto oldType = constraint->geometryType();
+    QgsDataProvider::ProviderOptions options;
+    options.transformContext = constraint->transformContext();
+    constraint->setDataSource(decl.source, constraint->name(), QStringLiteral("ogr"), options);
+    if (!constraint->crs().isValid() && crs.isValid())
+      constraint->setCrs(crs);
+    paleo::constraintcrs::assignStoreCrsIfMissing(constraint);
+    constraint->selectByIds(selected);
+    if (oldType != constraint->geometryType() || !constraint->renderer())
+      QgisStyleService::applyConstraintLayerStyle(constraint);
+    constraint->updateExtents();
+    constraint->triggerRepaint();
   }
   if (QgsMapLayer *live = m_instances.value(decl.layerId).data())
     applyConstraintDisplayName(live, decl.layerId, decl.title);

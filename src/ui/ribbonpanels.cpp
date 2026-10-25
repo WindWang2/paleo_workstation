@@ -427,7 +427,7 @@ void addPartitionPanel(SARibbonCategory *category, PaleoEditingToolbar *toolbar)
   const auto sync = [master, combo, panel] {
     const QSignalBlocker blocked(combo); combo->setCurrentIndex(master->currentIndex());
     combo->setEnabled(master->isEnabled()); combo->setToolTip(master->toolTip());
-    panel->setVisible(!master->isHidden());
+    panel->setToolTip(master->toolTip());
   };
   QObject::connect(combo, &QComboBox::activated, master, [master](int index) { master->setCurrentIndex(index); });
   QObject::connect(master, &QComboBox::currentIndexChanged, combo, sync);
@@ -442,7 +442,7 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
     addFaciesDisplayPanel(category);
   if (!category || !editTb)
     return;
-  SARibbonPanel *p = category->addPanel(tr("要素编辑"));
+  SARibbonPanel *p = category->addPanel(tr("矢量编辑"));
   p->setObjectName(QStringLiteral("ribbonEditPanel"));
 
   // 目标图层：共享编辑条下拉的 model（●标记编辑中图层，同一份数据）；用户
@@ -496,19 +496,12 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   auto *session = category->addPanel(tr("编辑会话"));
   session->setObjectName(QStringLiteral("ribbonEditSessionPanel"));
   session->addSmallAction(editTb->actionTopological());
+  session->addSmallAction(editTb->actionCrossLayerTopo());
   session->addSmallAction(editTb->actionEditMode());
   session->addSmallAction(editTb->actionSave());
   session->addSmallAction(editTb->actionCancel());
-  const auto syncTools = [p, session, editTb] {
-    const bool target = editTb->actionSelect()->isEnabled();
-    p->setVisible(target);
-    session->setVisible(target);
-  };
-  connect(editTb, &PaleoEditingToolbar::stateChanged, p, syncTools);
-  syncTools();
-  if (compact)
-    return; // 相图显示 / 捕捉与撤销 由调用方放进溢出菜单（addEditingSettingsMenu）
-  auto *settings = category->addPanel(tr("捕捉与撤销"));
+  // 工具固定在位，未选层/只读/类型不符时由共享 QAction 置灰并给出原因。
+  auto *settings = category->addPanel(tr("吸附与撤销"));
   settings->setObjectName(QStringLiteral("ribbonEditingSettingsPanel"));
   const auto mirrorSpin = [settings](QSpinBox *source, const QString &name, const QString &prefix) {
     auto *spin = new QSpinBox(settings);
@@ -524,7 +517,7 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
     QObject::connect(source, &QSpinBox::valueChanged, spin, &QSpinBox::setValue);
     settings->addSmallWidget(spin);
   };
-  mirrorSpin(editTb->snapToleranceSpin(), QStringLiteral("ribbonEditingSnapToleranceSpin"), tr("捕捉 "));
+  mirrorSpin(editTb->snapToleranceSpin(), QStringLiteral("ribbonEditingSnapToleranceSpin"), tr("吸附 "));
   mirrorSpin(editTb->undoDepthSpin(), QStringLiteral("ribbonEditingUndoDepthSpin"), tr("撤销 "));
   settings->addSmallAction(editTb->actionUndo());
   settings->addSmallAction(editTb->actionRedo());
@@ -534,7 +527,7 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
 // ---------------------------------------------------------------------------
 // 单因素图页签（反馈 #19）：自 buildRibbonPanels 析出（file_budget 防增长闸）。
 // 反馈 #19：按 输入 → 处理 → 输出 三组排布，与参数面板三段一致；少用组
-//（连井、井震剖面、地图导航、相图显示、捕捉与撤销）收进「更多」溢出菜单，
+//（连井、井震剖面、地图导航、相图显示）收进「更多」溢出菜单；编辑工具常驻，
 // 动作对象不变（objectName/快捷键/帮助清单照常命中）。
 // shared = {参数, 送交验证, 连井剖面, 平移, 识别, 放大, 缩小, 全图}（可为空）。
 void PaleoMainWindow::buildConstraintRibbon(SARibbonCategory *cat, ConstraintPage *constraint,

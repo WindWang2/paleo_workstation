@@ -256,6 +256,45 @@ README_TXT = (
 )
 
 
+# 目标机完整性校验器（包内 python 执行；内容 ASCII，避免任何码页问题）
+VERIFY_PY = (
+    "import hashlib, sys\n"
+    "from pathlib import Path\n"
+    "root = Path(__file__).parent\n"
+    "expected = {}\n"
+    "for line in (root / 'SHA256SUMS.txt').read_text().splitlines():\n"
+    "    h, _, name = line.partition('  ')\n"
+    "    expected[name] = h\n"
+    "bad = []\n"
+    "for name, h in sorted(expected.items()):\n"
+    "    p = root / name\n"
+    "    if not p.is_file():\n"
+    "        bad.append(('MISSING', name))\n"
+    "        continue\n"
+    "    if hashlib.sha256(p.read_bytes()).hexdigest() != h:\n"
+    "        bad.append(('CORRUPT', name))\n"
+    "print('checked', len(expected), 'files')\n"
+    "if bad:\n"
+    "    for kind, name in bad[:50]:\n"
+    "        print(kind, name)\n"
+    "    print('RESULT: FAIL -', len(bad), 'bad files. Copy/extract is damaged;'\n"
+    "          ' re-extract the whole zip with 7-Zip/Explorer and retry.')\n"
+    "    sys.exit(1)\n"
+    "print('RESULT: OK - package intact. If paleo.exe still shows 0xc0000007b,')\n"
+    "print('check the Windows version (needs Win10 1607+ / Win11) and antivirus quarantine.')\n"
+)
+
+CHECK_BAT = (
+    "@echo off\r\n"
+    "rem Verify package integrity after extraction (0xc0000007b diagnosis)\r\n"
+    "setlocal\r\n"
+    "cd /d \"%~dp0\"\r\n"
+    "\"python\\python.exe\" verify_package.py\r\n"
+    "echo.\r\n"
+    "pause\r\n"
+)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build-dir", required=True, help="构建目录（含产物 exe）")
@@ -416,10 +455,23 @@ def main():
     else:
         print("      跳过（--skip-correlation）")
 
-    # 9) 启动器 + 说明
-    print("[9/9] 生成启动器与说明 …")
+    # 9) 启动器 + 说明 + 完整性校验
+    print("[9/9] 生成启动器、说明与完整性校验 …")
     (out / "启动-paleo.bat").write_text(LAUNCHER_BAT, encoding="utf-8")
     (out / "使用说明.txt").write_text(README_TXT, encoding="utf-8")
+    # 0xc0000007b 在目标机多为拷贝/解压损坏——SHA256SUMS + 包内 python 校验器
+    # 秒级定位坏文件；python 自身若起不来也直接说明损坏位置。
+    import hashlib
+    sums = []
+    for f in sorted(out.rglob("*")):
+        if f.is_file() and "verify-tmp" not in f.parts and f.name not in (
+                "SHA256SUMS.txt", "verify_package.py", "校验包.bat"):
+            sums.append(hashlib.sha256(f.read_bytes()).hexdigest() + "  "
+                        + f.relative_to(out).as_posix())
+    (out / "SHA256SUMS.txt").write_bytes(("\n".join(sums) + "\n").encode("ascii", "replace"))
+    (out / "verify_package.py").write_text(VERIFY_PY, encoding="utf-8")
+    (out / "校验包.bat").write_text(CHECK_BAT, encoding="ascii")
+    print(f"      SHA256SUMS.txt（{len(sums)} 个文件）+ 校验包.bat")
 
     print(f"\n完成。输出目录：{out}")
     print(f"总体积：{dir_size(out)}")

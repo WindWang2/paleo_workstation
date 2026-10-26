@@ -111,7 +111,7 @@ jobs:
           fi
           echo "tidy base: $base ($(git rev-parse --short "$base" 2>/dev/null || echo '?'))"
           python3 tools/check_tidy.py --base "$base"
-      - name: Source gates (layering / qgs-audit / ui invariants / ui size / file budget / i18n / QGIS 版本口径 / docs drift，按脚本位置定位源码根)
+      - name: Source gates (layering / qgs-audit / ui invariants / ui size / file budget / i18n / QGIS 版本口径 / docs drift / cpp mainline，按脚本位置定位源码根)
         env:
           # #474：--transitive 的 QGIS 头目录探测约定名（vendor deb 闭包前缀，
           # 与上面 compile_commands 的 QGIS_PREFIX_PATH 同源）——func/ui 两指标
@@ -143,6 +143,13 @@ jobs:
           python3 tools/check_ci_scripts.py --selftest
           python3 tools/check_docs_drift.py
           python3 tools/check_docs_drift.py --selftest
+          # C++ 主线边界护栏（零 Python 依赖的 cmake -P 检查器，ctest 项
+          # cpp_mainline/cpp_mainline_selftest 的 CI 权威闸口；规则见
+          # docs/CPP_PRIMARY_BOUNDARY.md）。
+          cmake -DCPP_MAINLINE_SOURCE_DIR=. -P cmake/verify-cpp-mainline.cmake
+          cmake -DCPP_MAINLINE_SOURCE_DIR=. -DCPP_MAINLINE_SELFTEST=ON \
+                -DCPP_MAINLINE_SELFTEST_DIR=/tmp/cpp-mainline-selftest \
+                -P cmake/verify-cpp-mainline.cmake
       - name: deb-closure smoke (ET1：锁文件可解析、条目格式合法，零下载)
         run: ./vendor/fetch-deps.sh --print-only
 

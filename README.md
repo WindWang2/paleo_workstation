@@ -1,6 +1,6 @@
 # Paleo Workbench
 
-古地理/地质解释与编图工作台。Qt6 Widgets 桌面应用，vendored QGIS 4.2.x LTS 提供 GIS 底座（渲染/图层/CRS/编辑/符号化/布局），地质业务（井-震-平面联动、约束建模、AI 预测、验证、发布）由本项目实现。**C++ only，无 Python/PyQGIS。**
+古地理/地质解释与编图工作台。Qt6 Widgets 桌面应用，vendored QGIS 4.2.x LTS 提供 GIS 底座（渲染/图层/CRS/编辑/符号化/布局），地质业务（井-震-平面联动、约束建模、AI 预测、验证、发布）由本项目实现。主程序与原生业务模块以 **C++20** 实现，不依赖 PyQGIS 或 Python GUI 作为主程序运行基础；开发工具链与用户显式启用的可选脚本功能（脚本控制台/REPL/MAMCL）使用独立 Python 环境；历史 Python 原件归档由 `archive/legacy-python/` 承接（由归档任务维护，可能尚未落地）——边界详见 [docs/CPP_PRIMARY_BOUNDARY.md](docs/CPP_PRIMARY_BOUNDARY.md)。
 
 ## Quickstart
 
@@ -23,7 +23,7 @@ git clone https://github.com/WindWang2/paleo_workstation.git && cd paleo_worksta
 | `selfcheck` | provider/srs.db/渲染 自检 → map.png |
 | `clean-vendor [dep]` | 清 vendor 构建物（留下载包） |
 
-构建/依赖/升级细节见 [BUILDING.md](BUILDING.md)；架构与评审决策见 [docs/PALEO_QGIS_PLAN.md](docs/PALEO_QGIS_PLAN.md)。
+构建/依赖/升级细节见 [BUILDING.md](BUILDING.md)；架构与评审决策见 [docs/PALEO_QGIS_PLAN.md](docs/PALEO_QGIS_PLAN.md)；C++ 主线与 Python 边界见 [docs/CPP_PRIMARY_BOUNDARY.md](docs/CPP_PRIMARY_BOUNDARY.md)。
 
 构建与测试并行度上限为 8：`cmake --build build -j8`、
 `ctest --test-dir build -j8 --output-on-failure`（Windows ctest 串行）。

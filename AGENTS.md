@@ -87,7 +87,9 @@ PALEO_UNITY_BUILD）见 BUILDING.md。
 源码闸门（Python 检查器）统一注册为无标签 ctest 项，随 `ctest -LE 'core|perf'`
 在 linux/windows 车道跑：layering 族（含 `layering_qgs_audit`）、
 qgis_spread 族、ui_invariants / ui_size / **file_budget**（#538 函数体规模闸）、
-i18n、ui_tokens、qgis_versions、docs_drift、ci_known_reds 等；CI lint 车道
+i18n、ui_tokens、qgis_versions、docs_drift、ci_known_reds 等；另有 C++ 主线
+边界闸 `cpp_mainline`/`cpp_mainline_selftest`（`cmake/verify-cpp-mainline.cmake`，
+cmake -P 零 Python 依赖；口径见 docs/CPP_PRIMARY_BOUNDARY.md）；CI lint 车道
 的 Source gates 步是同一批脚本的权威闸口（见 .github/workflows/ci.yml），
 `--transitive` 的 func/ui 两指标只在该步全闸（QGIS_PREFIX）。
 并行度上限：构建/测试一律 `-j8` 以内（`cmake --build -j8`、`ctest -j8`）——

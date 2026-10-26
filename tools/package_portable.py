@@ -14,9 +14,11 @@
 3. **Qt 插件按需**：platforms/qwindows.dll 是 GUI 必需；imageformats/
    iconengines/styles/sqldrivers 按名单收，调试变体（*d.dll）排除。
    插件必须与运行时 Qt 同源（conda），官方前缀的插件不进包。
-4. **QGIS 前缀布局**：包根即 QGIS prefix——resources/ 整目录随包
+4. **QGIS 前缀布局**：qgis/ 子目录即 QGIS prefix（app 便携分支强制
+   QGIS_PREFIX_PATH=<root>/qgis，见 portableenvironment.cpp）——resources/
+   整目录随包
    （srs.db/qgis.db/符号库/3D 模型，运行时自检硬依赖），
-   启动器设 QGIS_PREFIX_PATH=%~dp0。provider 内建在 qgis_core.dll，
+   启动器设 QGIS_PREFIX_PATH=%~dp0qgis。provider 内建在 qgis_core.dll，
    本机 prefix 无 plugins 目录也可用，包内同构。
 5. **GDAL/PROJ 数据**：share/gdal + share/proj 随包，启动器设
    GDAL_DATA / PROJ_LIB / PROJ_DATA——缺省时 GDAL 找不到 tms json、
@@ -209,7 +211,7 @@ LAUNCHER_BAT = (
     "cd /d \"%~dp0\"\r\n"
     "rem -- Qt / QGIS / GDAL / PROJ 资源定位（全部指向包内）--\r\n"
     "set \"QT_PLUGIN_PATH=%~dp0plugins\"\r\n"
-    "set \"QGIS_PREFIX_PATH=%~dp0\"\r\n"
+    "set \"QGIS_PREFIX_PATH=%~dp0qgis\"\r\n"
     "set \"GDAL_DATA=%~dp0share\\gdal\"\r\n"
     "set \"PROJ_LIB=%~dp0share\\proj\"\r\n"
     "set \"PROJ_DATA=%~dp0share\\proj\"\r\n"
@@ -231,7 +233,7 @@ README_TXT = (
     "  *.exe            产品可执行文件\r\n"
     "  *.dll            Qt 6.11.2 / QGIS 4.2 / GDAL / PROJ / onnxruntime 运行时闭包\r\n"
     "  plugins/         Qt 平台/图像/图标/样式/SQLite 驱动插件（与 exe 同目录的 Qt 配套）\r\n"
-    "  resources/       QGIS 资源（srs.db、符号库、3D 模型）——包根即 QGIS prefix\r\n"
+    "  qgis/            QGIS 前缀（resources：srs.db、符号库、3D 模型）\r\n"
     "  share/gdal,proj  GDAL/PROJ 数据目录（坐标系与栅格驱动元数据）\r\n"
     "  resources-paleo/ 应用内样式、文档、示例\r\n"
     "  office-editor/   Office 原件编辑页（OnlyOffice WASM；AGPL——见 office-editor-NOTICE.txt）\r\n"
@@ -331,12 +333,12 @@ def main():
     for c in copy_qt_plugins(out):
         print(f"      + {c}")
 
-    # 5) QGIS 前缀资源（包根即 prefix）
+    # 5) QGIS 前缀资源（qgis/ 子目录即 prefix——app 便携分支契约）
     print("[5/7] 复制 QGIS 运行时资源 …")
     qres = QGIS_PREFIX / "resources"
     if qres.is_dir():
-        shutil.copytree(qres, out / "resources", dirs_exist_ok=True)
-        print(f"      resources/  {dir_size(out / 'resources')}")
+        shutil.copytree(qres, out / "qgis" / "resources", dirs_exist_ok=True)
+        print(f"      qgis/resources/  {dir_size(out / 'qgis' / 'resources')}")
     else:
         print(f"      ! 缺失 {qres}")
 
@@ -396,11 +398,12 @@ def verify(out: Path):
     print("\n=== 验证：净环境 selfcheck（真实 windows 平台）===")
     env = {
         "PATH": str(out) + os.pathsep + r"C:\Windows\System32",
-        "QGIS_PREFIX_PATH": str(out),
+        "QGIS_PREFIX_PATH": str(out / "qgis"),
         "QT_PLUGIN_PATH": str(out / "plugins"),
         "GDAL_DATA": str(out / "share" / "gdal"),
         "PROJ_LIB": str(out / "share" / "proj"),
         "PROJ_DATA": str(out / "share" / "proj"),
+        "QGIS_CUSTOM_CONFIG_PATH": str(out / "verify-tmp" / "config"),
         "SystemRoot": r"C:\Windows",
         "TEMP": str(out / "verify-tmp"), "TMP": str(out / "verify-tmp"),
     }

@@ -211,7 +211,7 @@ using paleo::io_detail::addIssue;
   }
 
   // 首标头轻量判定（sniff 高频路径）：type∈{0,1} 且 prev<next，不建段索引
-  bool looksLikeTifHead(QFile &f)
+  bool looksLikeTifHead(QIODevice &f)
   {
     if (f.size() < 12 || !f.seek(0))
       return false;
@@ -230,7 +230,7 @@ using paleo::io_detail::addIssue;
   public:
     // 检测 + 建索引。返回 false = 不是 TIF（调用方回落裸流）。
     // 置位 errorOut 时 = 结构坏（是 TIF 但链断——如实报，不猜）。
-    static bool detect(QFile &f, TifView *out, bool *malformed, QString *error)
+    static bool detect(QIODevice &f, TifView *out, bool *malformed, QString *error)
     {
       *malformed = false;
       if (f.size() < 12)
@@ -341,7 +341,7 @@ using paleo::io_detail::addIssue;
     }
 
   private:
-    QFile *m_file = nullptr;
+    QIODevice *m_file = nullptr;
     qint64 m_size = 0;
     qint64 m_logicalSize = 0;
     QVector<QPair<qint64, qint64>> m_segments; // (物理偏移, 长度)
@@ -370,7 +370,7 @@ using paleo::io_detail::addIssue;
   class LogicalReader
   {
   public:
-    LogicalReader(QFile &f, const TifView *tif)
+    LogicalReader(QIODevice &f, const TifView *tif)
         : m_f(f), m_tif(tif), m_size(tif ? tif->size() : f.size()) {}
 
     qint64 size() const { return m_size; }
@@ -501,7 +501,7 @@ using paleo::io_detail::addIssue;
     }
 
   private:
-    QFile &m_f;
+    QIODevice &m_f;
     const TifView *m_tif = nullptr;
     qint64 m_size = 0;
     qint64 m_pos = 0;
@@ -651,7 +651,7 @@ using paleo::io_detail::addIssue;
   {
     return std::min<qint64>(64LL * 1024 * 1024, LasParser::fileSizeLimit());
   }
-  LisWalkResult walkRecords(QFile &f, bool stopAtFirstData, WalkOut &out,
+  LisWalkResult walkRecords(QIODevice &f, bool stopAtFirstData, WalkOut &out,
                          QList<LasIssue> *issues, QString *error)
   {
     TifView tif;
@@ -1080,6 +1080,10 @@ bool LisParser::sniff(const QString &path)
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))
     return false;
+  return sniff(f);
+}
+bool LisParser::sniff(QIODevice &f)
+{
   if (f.size() < 6)
     return false;
   // TIF：首 12 字节磁带标头轻量判定（全链验证归解析路径）
@@ -1224,6 +1228,12 @@ bool LisParser::parseHeader(const QString &path, LasHeaderInfo &out,
       *error = QStringLiteral("无法打开 %1").arg(path);
     return false;
   }
+  return parseHeader(f, out, error, issues);
+}
+bool LisParser::parseHeader(QIODevice &f, LasHeaderInfo &out,
+                            QString *error, QList<LasIssue> *issues)
+{
+  out = {}; if (error) error->clear();
   WalkOut wout;
   const LisWalkResult r =
       walkRecords(f, /*stopAtFirstData=*/true, wout, issues, error);

@@ -1,10 +1,11 @@
 // 层：数据
 #include "projectsetupscan.h"
 #include "paleomapfiles.h"
-#include "../catalog/datacatalog.h"
+#include "sourceprobe.h"
 #include "../domain/mappinghorizons.h"
 #include <QDir>
 #include <QFileInfo>
+#include <QFile>
 #include <QRegularExpression>
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
@@ -14,6 +15,11 @@ namespace {
 // 边界简化审计记录）一视同仁；只有 GDAL 能当数据集打开的才算是图件。
 bool opensAsGeospatial(const QString &path)
 {
+  if (QFileInfo(path).size() > 2 * 1024 * 1024) {
+    QFile file(path); if (!file.open(QIODevice::ReadOnly)) return false;
+    const auto prefix = file.read(16 * 1024);
+    return prefix.contains("FeatureCollection") || prefix.contains("Feature");
+  }
   GDALAllRegister();
   auto *dataset = static_cast<GDALDataset *>(GDALOpenEx(path.toUtf8().constData(),
       GDAL_OF_VECTOR | GDAL_OF_RASTER | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
@@ -24,6 +30,8 @@ bool opensAsGeospatial(const QString &path)
 }
 QString mapCrs(const QString &path)
 {
+  // GeoJSON drivers can parse the whole text at open: defer large JSON CRS lookup.
+  if (QStringList{"json", "geojson"}.contains(QFileInfo(path).suffix().toLower()) && QFileInfo(path).size() > 2 * 1024 * 1024) return {};
   if (!QStringList{"shp", "gpkg", "geojson", "json", "tif", "tiff", "img"}.contains(QFileInfo(path).suffix().toLower())) return {};
   GDALAllRegister();
   auto *dataset = static_cast<GDALDataset *>(GDALOpenEx(path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_RASTER | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
@@ -71,10 +79,10 @@ void scanProjectMaps(const ProjectSetupSources &sources, ProjectSetupPreview *ou
       map.horizon = choice.value("horizon", map.horizon).toString();
     }
     for (const auto &member : map.members) {
-      QString error;
-      const auto hash = DataCatalog::sha256FileHex(member, &error, cancelled);
-      if (hash.isEmpty()) { map.problem = QObject::tr("无法核对图件配套文件：%1；%2").arg(member, error); map.included = false; break; }
-      out->mapHashes.insert(member, hash);
+      const auto probe = paleo::io::probeSource(member, cancelled);
+      if (probe.cancelled) return;
+      if (!probe.error.isEmpty()) { map.problem = QObject::tr("无法核对图件配套文件：%1；%2").arg(member, probe.error); map.included = false; break; }
+      out->sourceSnapshots.insert(member, paleo::io::sourceSnapshot(member, probe));
     }
     if (!map.problem.isEmpty()) out->sourceProblems.insert(map.path, map.problem);
     out->maps << map;

@@ -1,13 +1,11 @@
 // 层：数据
-#include "boundedread.h" // PW-076
+#include "sourceprobe.h"
 #include "projectsetupscan.h"
 #include "importclassification.h"
 #include "welltable.h"
 #include "projectcoordinates.h"
 #include "wellfileparsers.h"
-#include "welllogread.h"
 #include "../metadata/nativereference.h"
-#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -49,14 +47,9 @@ QString topKey(const WellTopRecord &r)
       "MD:" + (r.hasMd ? QString::number(r.md, 'g', 17) : QStringLiteral("missing")) +
       "|TVD:" + (r.hasTvd ? QString::number(r.tvd, 'g', 17) : QStringLiteral("missing"));
 }
-bool appendFile(ProjectSetupPreview &out, const QString &path, const QString &type)
+bool appendFile(ProjectSetupPreview &out, const QString &path, const QString &type, const paleo::io::SourceProbe &probe)
 {
-  if (QFileInfo(path).size() <= 200ll * 1024 * 1024) {
-    QFile f(path);
-    QCryptographicHash hash(QCryptographicHash::Sha256);
-    if (f.open(QIODevice::ReadOnly) && hash.addData(&f)) out.hashes.insert(path, QString::fromLatin1(hash.result().toHex()));
-    else { out.sourceProblems.insert(path, QObject::tr("无法核对源文件")); return false; }
-  }
+  out.sourceSnapshots.insert(path, paleo::io::sourceSnapshot(path, probe));
   out.paths << path; out.types.insert(path, type);
   return true;
 }
@@ -105,11 +98,12 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
   ProjectSetupPreview out;
   scanProjectMaps(s, &out, cancelled);
   QSet<QString> seen;
-  struct Candidate { QString path, type; paleo::io::WellTable table; };
+  struct Candidate { QString path, type; paleo::io::WellTable table; paleo::io::SourceProbe probe; };
   QVector<Candidate> tables;
   QSet<QString> wellNames;
   QString pointsCrs;
-  QStringList logPaths;
+  QMap<QString, QString> logNames;
+  bool pointsComplete = true;
   const QStringList sources{s.points, s.wells, s.seismic, s.horizons, s.references, s.boundary};
   for (const auto &path : sources) {
     if (path.isEmpty()) continue;
@@ -124,34 +118,44 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
       seen.insert(key);
       if (!QFileInfo(file).size()) { out.notes << QObject::tr("空文件已跳过：%1").arg(file); continue; }
       const bool points = QFileInfo(file) == QFileInfo(s.points), boundary = QFileInfo(file) == QFileInfo(s.boundary);
-      auto cls = classifyImportFile(file);
+      const auto probe = paleo::io::probeSource(file, cancelled);
+      if (probe.cancelled) { out.errors << QObject::tr("已取消扫描"); return out; }
+      if (!probe.error.isEmpty()) { out.sourceProblems.insert(file, probe.error); continue; }
+      auto cls = probe.classification;
+      paleo::io::WellTable sample;
+      const bool tableSource = paleo::io::isWellTableContainer(file) || points;
+      if (tableSource) {
+        sample = paleo::io::previewWellTable(file, points ? s.pointMapping : QVariantMap{});
+        if (!sample.type.isEmpty() && !sample.mapping.value("headerless").toBool()) cls.type = sample.type;
+        if (sample.scanLimited) out.notes << QObject::tr("%1：仅识别有界预览样本；完整记录与校验在导入时读取。").arg(QFileInfo(file).fileName());
+      }
       cls.type = suggestedProjectImportType(file, cls.type, boundary ? QStringLiteral("boundary") : QString());
-      if (boundary && out.sourceCrs.isEmpty()) out.sourceCrs = paleo::io::readWellTable(file).crs;
+      if (boundary && out.sourceCrs.isEmpty()) out.sourceCrs = sample.crs;
       if (points || cls.type == QLatin1String("well_stratification")) {
         if (paleo::io::isWellTableContainer(file) || points) {
-          auto table = paleo::io::readWellTable(file, points ? s.pointMapping : QVariantMap{});
+          auto table = sample;
           if (points) {
+            pointsComplete = !table.scanLimited;
             out.sheets = table.sheets; out.columns = table.columns; out.pointRows = table.preview;
             out.pointMapping = table.mapping; out.sourceCrs = table.crs; out.pointSourceCrs = table.crs;
-            if (!table.error.isEmpty() || table.heads.isEmpty() ||
+            if (!table.error.isEmpty() || (table.heads.isEmpty() && !table.scanLimited) ||
                 (!table.crs.isEmpty() && !validNativeCrs(table.crs))) {
               out.sourceProblems.insert(file, table.error.isEmpty() ? QObject::tr("井点无有效记录或源坐标系无效") : table.error);
               out.sourceCrs.clear(); continue;
             }
             // 井点槽里带层位和顶深的表保持分层类型，避免导入时被 forceType 成井口后整文件拒绝。
-            cls.type = table.type == QLatin1String("well_stratification")
-                           ? table.type : QStringLiteral("well_head");
+            cls.type = table.type.isEmpty() && table.scanLimited ? QString() :
+                table.type == QLatin1String("well_stratification") ? table.type : QStringLiteral("well_head");
             out.mappings.insert(file, table.mapping);
             pointsCrs = table.crs;
             for (const auto &h : table.heads) wellNames.insert(h.name);
             out.notes << table.report.issues;
-          } else { tables << Candidate{file, cls.type, table}; continue; }
+          } else { tables << Candidate{file, cls.type, table, probe}; continue; }
         } else if (points) {
-          QByteArray headBytes; if (paleo::io::readBoundedFile(file, paleo::io::kDefaultBoundedReadLimit, &headBytes)) for (const auto &h : parseWellHeadText(headBytes)) wellNames.insert(h.name); else out.notes << QStringLiteral("井口文件过大或不可读，已跳过井名预扫：%1").arg(file); // PW-076
           cls.type = QStringLiteral("well_head"); out.sourceCrs = s.pointMapping.value("crs").toString();
         }
       }
-      if (cls.type == QLatin1String("well_log")) { ++out.logs; logPaths << file; }
+      if (cls.type == QLatin1String("well_log")) { ++out.logs; logNames.insert(file, probe.wellName); }
       else if (cls.type == QLatin1String("seismic")) ++out.seismic;
       else if (cls.type == QLatin1String("horizon")) {
         ++out.horizons;
@@ -163,7 +167,9 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
         }
       }
       else if (cls.type != QLatin1String("well_head") && cls.type != QLatin1String("boundary") && cls.type != QLatin1String("time_depth")) ++out.references;
-      appendFile(out, file, cls.type);
+      appendFile(out, file, cls.type, probe);
+      // Unidentified large workbooks must be classified by the full import reader.
+      if (sample.scanLimited && sample.type.isEmpty()) out.types.remove(file);
     }
   }
   // Largest aggregate table first; skip only exact record subsets, not files
@@ -171,22 +177,25 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
   std::stable_sort(tables.begin(), tables.end(), [](const auto &a, const auto &b) { return a.table.tops.size() > b.table.tops.size(); });
   QSet<QString> topRows;
   for (const auto &t : tables) {
-    if (!t.table.error.isEmpty() || t.table.tops.isEmpty()) {
+    if (!t.table.error.isEmpty() || (t.table.tops.isEmpty() && !t.table.scanLimited)) {
       out.sourceProblems.insert(t.path, t.table.error.isEmpty() ? QObject::tr("分层表没有有效记录") : t.table.error); continue;
     }
     QSet<QString> keys;
     for (const auto &r : t.table.tops) keys.insert(topKey(r));
-    if (!keys.isEmpty() && (keys - topRows).isEmpty()) { out.notes << QObject::tr("分层内容重复，已跳过：%1").arg(QFileInfo(t.path).fileName()); continue; }
-    if (!appendFile(out, t.path, t.type)) continue;
-    out.tops += keys.size(); topRows.unite(keys);
+    if (!t.table.scanLimited && !keys.isEmpty() && (keys - topRows).isEmpty()) { out.notes << QObject::tr("分层内容重复，已跳过：%1").arg(QFileInfo(t.path).fileName()); continue; }
+    if (!appendFile(out, t.path, t.type, t.probe)) continue;
+    out.tops += keys.size(); if (!t.table.scanLimited) topRows.unite(keys);
     out.notes << t.table.report.issues;
   }
   out.wells = wellNames.size();
   out.knownWells = wellNames.values(); out.knownWells.sort();
-  for (const auto &path : logPaths) {
-    QString content;
-    WellLogRead::readWellInfo(path, content);
-    if (wellNames.isEmpty() || wellNames.contains(content)) continue;
+  for (auto it = logNames.cbegin(); it != logNames.cend(); ++it) {
+    if (cancelled && cancelled()) { out.errors << QObject::tr("已取消扫描"); return out; }
+    const auto &path = it.key(); const auto &content = it.value();
+    if (content.isEmpty()) {
+      out.notes << QObject::tr("%1：有界头部未取得井名，导入时再校验内部身份。").arg(QFileInfo(path).fileName()); continue;
+    }
+    if (!pointsComplete || wellNames.isEmpty() || wellNames.contains(content)) continue;
     out.logWellNames.insert(path, content);
     const QString parent = QFileInfo(path).dir().dirName();
     const QString proposed = wellNames.contains(parent) ? QStringLiteral("name:") + parent : QString();
@@ -244,4 +253,15 @@ ProjectSetupPreview scanProjectSources(const ProjectSetupSources &s, const std::
   }
   if (cancelled && cancelled()) out.errors << QObject::tr("已取消扫描");
   return out;
+}
+bool validateProjectSourceSnapshots(const ProjectSetupPreview &preview, QString *error)
+{
+  QSet<QString> selected(preview.paths.begin(), preview.paths.end());
+  for (const auto &map : preview.maps) if (map.included) for (const auto &member : map.members) selected.insert(member);
+  for (auto it = preview.sourceSnapshots.cbegin(); it != preview.sourceSnapshots.cend(); ++it)
+    if (selected.contains(it.key()) && !paleo::io::matchesSourceSnapshot(it.key(), it.value())) {
+      if (error) *error = QObject::tr("资料在识别后发生变化，请重新识别：%1").arg(it.key());
+      return false;
+    }
+  return true;
 }

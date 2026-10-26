@@ -46,13 +46,15 @@ int coordinateColumn(const QStringList &headers, bool horizontal, const QString 
   const int labelled = column(headers, semantic);
   return labelled >= 0 ? labelled : column(headers, horizontal ? QStringList{"__geometry_x", "X"} : QStringList{"__geometry_y", "Y"});
 }
-WorkbookReadResult vectorOrText(const QString &path)
+WorkbookReadResult vectorOrText(const QString &path, int rowLimit = 1000001, bool *limited = nullptr)
 {
   WorkbookReadResult out;
+  int sampledRows = 0;
   GDALAllRegister();
   auto *ds = static_cast<GDALDataset *>(GDALOpenEx(path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
   if (!ds) { out.error = QStringLiteral("无法读取矢量或文本表：%1").arg(path); return out; }
   for (int i = 0; i < ds->GetLayerCount(); ++i) {
+    if (limited && i >= 16) { *limited = true; break; }
     auto *layer = ds->GetLayer(i);
     if (!layer) continue;
     WorkbookSheet sheet;
@@ -72,8 +74,13 @@ WorkbookReadResult vectorOrText(const QString &path)
             << (p ? QString::number(p->getY(), 'g', 17) : QString());
       }
       sheet.rows << row;
+      ++sampledRows;
       OGRFeature::DestroyFeature(f);
-      if (sheet.rows.size() > 1000000) { out.error = QStringLiteral("井表超过一百万行，请拆分后导入"); break; }
+      if ((limited && sampledRows >= rowLimit) || sheet.rows.size() >= 1000001) {
+        if (limited) *limited = true;
+        else out.error = QStringLiteral("井表超过一百万行，请拆分后导入");
+        break;
+      }
     }
     out.sheets << sheet;
     if (out.format.isEmpty() && layer->GetSpatialRef()) {
@@ -82,6 +89,7 @@ WorkbookReadResult vectorOrText(const QString &path)
       out.format = QString::fromUtf8(wkt);
       CPLFree(wkt);
     }
+    if (limited && *limited) break;
   }
   GDALClose(ds);
   out.ok = out.error.isEmpty() && !out.sheets.isEmpty();
@@ -201,15 +209,12 @@ bool isWellTableContainer(const QString &path)
 {
   return QStringList{"xlsx", "gpkg", "shp", "geojson", "csv", "tsv", "txt"}.contains(QFileInfo(path).suffix().toLower());
 }
-WellTable readWellTable(const QString &path, const QVariantMap &mapping)
+static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantMap &mapping)
 {
   WellTable out;
-  const bool xlsx = QFileInfo(path).suffix().compare("xlsx", Qt::CaseInsensitive) == 0;
-  const bool text = QStringList{"csv", "tsv", "txt", "dat"}.contains(QFileInfo(path).suffix().toLower());
-  const auto wb = xlsx ? readWorkbook(path) : text ? readWellDelimitedTable(path) : vectorOrText(path);
   if (!wb.ok) { out.error = wb.error; return out; }
   out.crs = mapping.value("crs").toString();
-  if (!xlsx && !text && out.crs.isEmpty()) out.crs = wb.format;
+  if (!QStringList{"xlsx", "headerless", ""}.contains(wb.format) && out.crs.isEmpty()) out.crs = wb.format;
   for (const auto &sheet : wb.sheets) {
     out.sheets << sheet.name;
     if (!mapping.value("sheet").toString().isEmpty() && sheet.name != mapping.value("sheet").toString()) continue;
@@ -248,6 +253,36 @@ WellTable readWellTable(const QString &path, const QVariantMap &mapping)
     stream.setRealNumberPrecision(17);
     for (const auto &h : out.heads) stream << h.name << '\t' << h.x << '\t' << h.y << '\t' << (std::isfinite(h.kb) ? QString::number(h.kb, 'g', 17) : "-99999") << '\t' << (std::isfinite(h.td) ? QString::number(h.td, 'g', 17) : "-99999") << '\n';
   }
+  return out;
+}
+WellTable readWellTable(const QString &path, const QVariantMap &mapping)
+{
+  const auto ext = QFileInfo(path).suffix().toLower();
+  return tableFromWorkbook(ext == "xlsx" ? readWorkbook(path) :
+      QStringList{"csv", "tsv", "txt", "dat"}.contains(ext) ? readWellDelimitedTable(path) : vectorOrText(path), mapping);
+}
+WellTable previewWellTable(const QString &path, const QVariantMap &mapping)
+{
+  const auto ext = QFileInfo(path).suffix().toLower(); bool limited = false;
+  const auto deferred = [&] { WellTable out; out.scanLimited = true; out.mapping = mapping; out.crs = mapping.value("crs").toString(); return out; };
+  WorkbookReadResult workbook;
+  if (QStringList{"csv", "tsv", "txt", "dat"}.contains(ext)) workbook = previewWellDelimitedTable(path, &limited);
+  else if (ext == "xlsx") {
+    workbook = previewXlsxWorkbook(path, &limited);
+    if (limited && !workbook.ok && workbook.error.isEmpty()) return deferred();
+  } else {
+    if (!QStringList{"shp", "gpkg"}.contains(ext) && QFileInfo(path).size() > 2 * 1024 * 1024) {
+      return deferred();
+    }
+    workbook = vectorOrText(path, 201, &limited);
+  }
+  for (auto &sheet : workbook.sheets) if (sheet.rows.size() > 200) {
+    sheet.rows.resize(200); sheet.rowNumbers.resize(qMin(sheet.rowNumbers.size(), qsizetype(200))); limited = true;
+  }
+  auto out = tableFromWorkbook(workbook, mapping); out.scanLimited = limited;
+  if (limited && out.crs.isEmpty()) out.crs = mapping.value("crs").toString();
+  if (limited && out.mapping.isEmpty()) out.mapping = mapping;
+  if (limited && out.heads.isEmpty() && out.tops.isEmpty()) out.error.clear();
   return out;
 }
 QByteArray writeWellLayerTable(const QVector<WellTopRecord> &tops, const QVector<WellTopRecord> &bases) {

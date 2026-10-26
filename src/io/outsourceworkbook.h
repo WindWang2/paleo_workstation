@@ -46,6 +46,9 @@ struct WorkbookReadResult
 
 // 按扩展名分派（.xml → SpreadsheetML，.xlsx → OOXML）。不抛异常。
 WorkbookReadResult readWorkbook( const QString &path );
+// Scan-only OOXML sample: <=2 MiB archive, <=4 MiB inflated, <=200 rows/sheet.
+// A budget limit sets *limited without falling back to the complete reader.
+WorkbookReadResult previewXlsxWorkbook(const QString &path, bool *limited);
 
 // Content-selected SpreadsheetML adapter; keeps the caller's source identity
 // when the file extension differs. Uses the same cell and XML safety checks.

@@ -2,6 +2,7 @@
 #include "boundedread.h" // PW-076
 #include "welltabletext.h"
 #include "encodingdetect.h"
+#include "sourceprobe.h"
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -20,19 +21,15 @@ QStringList fields(const QString &line, QChar delimiter)
   }
   out << cell.trimmed(); return out;
 }
-}
-WorkbookReadResult readWellDelimitedTable(const QString &path)
+WorkbookReadResult parseDelimited(const QString &path, const QByteArray &raw, int rowLimit, bool *limited)
 {
-  WorkbookReadResult out; QByteArray raw;
-  if (!paleo::io::readBoundedFile(path, 64ll * 1024 * 1024, &raw, &out.error)) {
-    if (out.error.startsWith(QLatin1String("file too large"))) out.error = QStringLiteral("井位文本超过 64 MB，请拆分后导入");
-    return out;
-  }
+  WorkbookReadResult out;
   const auto text = EncodingDetect::decodeText(raw);
   WorkbookSheet sheet; sheet.name = QFileInfo(path).completeBaseName(); QChar delimiter;
   int row = 0;
   for (const auto &line : text.split(QRegularExpression(QStringLiteral("[\r\n]+")), Qt::SkipEmptyParts)) {
     ++row; if (line.trimmed().isEmpty() || line.trimmed().startsWith('#')) continue;
+    if (rowLimit >= 0 && sheet.rows.size() >= rowLimit) { if (limited) *limited = true; break; }
     if (sheet.headers.isEmpty()) {
       delimiter = line.contains('\t') ? QChar('\t') : line.contains(',') ? QChar(',') : line.contains(';') ? QChar(';') : QChar();
       sheet.headers = fields(line, delimiter); sheet.headerRowNumber = row;
@@ -45,5 +42,23 @@ WorkbookReadResult readWellDelimitedTable(const QString &path)
   out.sheets << sheet; out.ok = !sheet.headers.isEmpty();
   if (!out.ok) out.error = QStringLiteral("井位文本没有可用表头");
   return out;
+}
+}
+WorkbookReadResult readWellDelimitedTable(const QString &path)
+{
+  WorkbookReadResult out; QByteArray raw;
+  if (!readBoundedFile(path, 64ll * 1024 * 1024, &raw, &out.error)) {
+    if (out.error.startsWith(QLatin1String("file too large"))) out.error = QStringLiteral("井位文本超过 64 MB，请拆分后导入");
+    return out;
+  }
+  return parseDelimited(path, raw, -1, nullptr);
+}
+WorkbookReadResult previewWellDelimitedTable(const QString &path, bool *limited)
+{
+  *limited = false; QFile file(path); WorkbookReadResult out;
+  if (!file.open(QIODevice::ReadOnly | QIODevice::Unbuffered)) { out.error = file.errorString(); return out; }
+  auto raw = file.read(kScanPrefixBytes); *limited = !file.atEnd();
+  if (*limited) raw.truncate(qMax(0, raw.lastIndexOf('\n'))); // Never invent a row from a cut prefix.
+  return parseDelimited(path, raw, 200, limited);
 }
 }

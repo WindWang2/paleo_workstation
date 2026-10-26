@@ -590,7 +590,7 @@ using paleo::io_detail::addIssue;
   class ByteSource
   {
   public:
-    explicit ByteSource(QFile &f) : m_f(f) {}
+    explicit ByteSource(QIODevice &f) : m_f(f) {}
 
     // 保证缓冲从 ptr() 起至少 n 字节（或到 EOF 全部给出）
     bool ensure(int n)
@@ -633,7 +633,7 @@ using paleo::io_detail::addIssue;
     }
 
   private:
-    QFile &m_f;
+    QIODevice &m_f;
     QByteArray m_buf;
     qint64 m_base = 0;
     int m_off = 0;
@@ -1015,7 +1015,7 @@ using paleo::io_detail::addIssue;
   }
 
   // 走查主循环。stopAtFirstFdata = parseHeader 模式。
-  DlisWalkResult walk(QFile &f, Walker &w, bool stopAtFirstFdata,
+  DlisWalkResult walk(QIODevice &f, Walker &w, bool stopAtFirstFdata,
                   QList<LasIssue> *issues, QString *error)
   {
     ByteSource src(f);
@@ -1318,6 +1318,10 @@ bool DlisParser::sniff(const QString &path)
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))
     return false;
+  return sniff(f);
+}
+bool DlisParser::sniff(QIODevice &f)
+{
   const QByteArray head = f.read(200);
   if (head.size() < 80)
     return false;
@@ -1444,6 +1448,12 @@ bool DlisParser::parseHeader(const QString &path, LasHeaderInfo &out,
     return false;
   }
 
+  return parseHeader(f, out, error, issues);
+}
+bool DlisParser::parseHeader(QIODevice &f, LasHeaderInfo &out,
+                             QString *error, QList<LasIssue> *issues)
+{
+  out = {}; if (error) error->clear();
   Walker w;
   const DlisWalkResult r = walk(f, w, /*stopAtFirstFdata=*/true, issues, error);
   if (r == DlisWalkResult::Error)

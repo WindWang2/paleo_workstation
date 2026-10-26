@@ -111,6 +111,7 @@ bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources
   const auto fail = [&](const QString &message) { if (error) *error = message; return false; };
   if (!m_project || !m_imports) return fail(tr("工程或导入服务未就绪"));
   if (!preview.errors.isEmpty()) return fail(preview.errors.join('\n'));
+  if (!validateProjectSourceSnapshots(preview, error)) return false;
   if (!preview.projectCrs.isEmpty() && !paleo::io::isMetricProjectCrs(preview.projectCrs)) return fail(tr("工程基准必须为有效的米制投影坐标系"));
   PaleoProjectFile configuration;
   if (!preview.projectCrs.isEmpty()) {
@@ -222,6 +223,7 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
   if (!m_project || m_project->projectPath().isEmpty() || !m_imports) { if (error) *error = tr("请先打开工程"); return false; }
   if (m_project->isReadOnly() || m_project->isOpening()) { if (error) *error = tr("工程只读或正在打开，不能修改资料设置"); return false; }
   if (!preview.errors.isEmpty()) { if (error) *error = preview.errors.join('\n'); return false; }
+  if (!validateProjectSourceSnapshots(preview, error)) return false;
   for (auto &map : preview.maps) if (map.included && (!map.problem.isEmpty() || !isMappingHorizon(map.horizon))) {
     preview.sourceProblems.insert(map.path, map.problem.isEmpty() ? tr("古地理图未选择有效层位") : map.problem);
     map.included = false;

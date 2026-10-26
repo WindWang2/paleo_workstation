@@ -26002,6 +26002,16 @@ SHA-256：%2</translation>
 <context>
     <name>ProjectSetupDialog</name>
     <message>
+        <source>快速识别完成；已展示预览样本，完整校验将在导入时执行。</source>
+        <translation>快速识别完成；已展示预览样本，完整校验将在导入时执行。</translation>
+    </message>
+    <message>
+        <source>以下为识别样本统计，完整数量与校验以导入结果为准。
+</source>
+        <translation>以下为识别样本统计，完整数量与校验以导入结果为准。
+</translation>
+    </message>
+    <message>
         <source>可选：分井目录，或集中存放 XML／LAS 的测井资料目录</source>
         <translation>可选：分井目录，或集中存放 XML／LAS 的测井资料目录</translation>
     </message>
@@ -27383,6 +27393,18 @@ SHA-256：%2</translation>
 </context>
 <context>
     <name>QObject</name>
+    <message>
+        <source>%1：仅识别有界预览样本；完整记录与校验在导入时读取。</source>
+        <translation>%1：仅识别有界预览样本；完整记录与校验在导入时读取。</translation>
+    </message>
+    <message>
+        <source>%1：有界头部未取得井名，导入时再校验内部身份。</source>
+        <translation>%1：有界头部未取得井名，导入时再校验内部身份。</translation>
+    </message>
+    <message>
+        <source>资料在识别后发生变化，请重新识别：%1</source>
+        <translation>资料在识别后发生变化，请重新识别：%1</translation>
+    </message>
     <message>
         <source>%1（东坐标 %2，北坐标 %3）</source>
         <translation>%1（东坐标 %2，北坐标 %3）</translation>

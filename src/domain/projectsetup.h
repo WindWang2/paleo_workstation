@@ -25,6 +25,7 @@ struct ProjectSetupPreview
   QStringList paths, notes, errors;
   QMap<QString, QString> sourceProblems; // Per-source failures; errors only blocks project configuration.
   QMap<QString, QString> types, hashes;
+  QMap<QString, QVariantMap> sourceSnapshots; // stat + bounded prefix, never an unread-body promise
   QMap<QString, QString> wellTargets, logWellNames;
   QStringList knownWells;
   QMap<QString, QVariantMap> mappings;

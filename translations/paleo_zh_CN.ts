@@ -26002,6 +26002,14 @@ SHA-256：%2</translation>
 <context>
     <name>ProjectSetupDialog</name>
     <message>
+        <source>可选：分井目录，或集中存放 XML／LAS 的测井资料目录</source>
+        <translation>可选：分井目录，或集中存放 XML／LAS 的测井资料目录</translation>
+    </message>
+    <message>
+        <source>未找到可导入资料；请选择资料来源，或创建空白工程。</source>
+        <translation>未找到可导入资料；请选择资料来源，或创建空白工程。</translation>
+    </message>
+    <message>
         <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="29"/>
         <source>新建工程</source>
         <translation>新建工程</translation>
@@ -26068,8 +26076,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="81"/>
-        <source>选择资料总目录可自动填写各项；全部资料均可留空，创建后可继续导入。</source>
-        <translation>选择资料总目录可自动填写各项；全部资料均可留空，创建后可继续导入。</translation>
+        <source>选择资料总目录可自动填写各项。支持分井资料目录，也支持“坐标统计表＋测井 XML＋参考资料”的集中组织方式；创建后可继续补充资料。</source>
+        <translation>选择资料总目录可自动填写各项。支持分井资料目录，也支持“坐标统计表＋测井 XML＋参考资料”的集中组织方式；创建后可继续补充资料。</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="83"/>
@@ -26079,8 +26087,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="85"/>
-        <source>可选：选择井、地震、层位等资料所在的总目录</source>
-        <translation>可选：选择井、地震、层位等资料所在的总目录</translation>
+        <source>可选：选择工区资料总目录，自动识别坐标表和测井文件夹</source>
+        <translation>可选：选择工区资料总目录，自动识别坐标表和测井文件夹</translation>
     </message>
     <message>
         <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="86"/>

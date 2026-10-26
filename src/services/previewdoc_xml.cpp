@@ -1,5 +1,6 @@
 // 层：数据
 #include "previewdoc.h"
+#include "../io/outsourceworkbook.h"
 #include <QFile>
 #include <QXmlStreamReader>
 
@@ -12,12 +13,23 @@ PreviewDocService::WorkbookPreview PreviewDocService::xmlDataListAt(const QStrin
   if (!reader.readNextStartElement()) { result.error = reader.errorString(); return result; }
   if (reader.name() == QLatin1String("Workbook") &&
       reader.namespaceUri() == QLatin1String("urn:schemas-microsoft-com:office:spreadsheet")) {
-    file.close();
-    result = workbookPreviewAt(path);
-    for (auto &sheet : result.sheets) if (sheet.rows.size() > 1000) {
-      sheet.rows.resize(1000);
-      result.issues << tr("工作表「%1」仅预览前 1000 行").arg(sheet.name);
-    }
+    file.seek(0);
+    QVector<int> rowCounts;
+    const auto workbook = paleo::io::streamSpreadsheetMlWorkbook(&file, path,
+        [&](const QString &name, const QStringList &headers, const QStringList &row, int, bool isHeader) {
+          if (isHeader) {
+            WorkbookSheetPreview sheet; sheet.name = name; sheet.headers = headers;
+            result.sheets.append(sheet); rowCounts.append(0);
+          } else if (!result.sheets.isEmpty()) {
+            if (++rowCounts.last() <= 1000) result.sheets.last().rows.append(row);
+          }
+          return true;
+        });
+    result.ok = workbook.ok; result.error = workbook.error; result.format = workbook.format;
+    result.issues = workbook.issues;
+    if (!result.ok) { result.sheets.clear(); return result; }
+    for (int i = 0; i < rowCounts.size(); ++i)
+      if (rowCounts[i] > 1000) result.issues << tr("工作表「%1」仅预览前 1000 行").arg(result.sheets[i].name);
     return result;
   }
   WorkbookSheetPreview sheet;

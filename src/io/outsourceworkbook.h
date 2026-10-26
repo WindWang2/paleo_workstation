@@ -5,6 +5,8 @@
 #include <QStringList>
 #include <QVector>
 #include <QByteArray>
+#include <functional>
+class QIODevice;
 
 // 方向41：外委资料批量读取（上游 Drawing/drawing/single_factor/workflow.py
 // @27fdb998a32d7a7f50d7e6ef0d2ebb3a5d06378f 的扫描口径）。
@@ -48,6 +50,14 @@ WorkbookReadResult readWorkbook( const QString &path );
 // Content-selected SpreadsheetML adapter; keeps the caller's source identity
 // when the file extension differs. Uses the same cell and XML safety checks.
 WorkbookReadResult readSpreadsheetMlWorkbook( const QString &path, const QByteArray &bytes );
+
+// Bounded file streaming for comprehensive well documents (1 GiB / 16M cells).
+// The header is delivered as the first row; subsequent callbacks retain physical
+// row numbers. No data rows are retained in the returned workbook metadata.
+using SpreadsheetMlRowVisitor = std::function<bool(const QString &sheet, const QStringList &headers,
+                                                  const QStringList &row, int rowNumber, bool isHeader)>;
+WorkbookReadResult streamSpreadsheetMlWorkbook(const QString &path, const SpreadsheetMlRowVisitor &visitor);
+WorkbookReadResult streamSpreadsheetMlWorkbook(QIODevice *device, const QString &path, const SpreadsheetMlRowVisitor &visitor);
 
 struct WorkbookScanEntry
 {

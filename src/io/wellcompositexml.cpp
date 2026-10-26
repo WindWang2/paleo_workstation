@@ -1,8 +1,10 @@
 // 层：数据
 #include "boundedread.h" // PW-076
 #include "wellcompositexml.h"
+#include "outsourceworkbook.h"
 
 #include <QFile>
+#include <QBuffer>
 #include <QFileInfo>
 #include <QHash>
 #include <QSaveFile>
@@ -13,14 +15,38 @@
 namespace WellComposite
 {
 
-// 列号上限（同 outsourceworkbook 口径）：畸形 ss:Index（如 2000000000）会让
-// 补空列的分配失控（OOM/挂死）。
+// Legacy standalone deviation reader budgets; comprehensive documents use the
+// shared bounded streaming reader below.
 constexpr int kMaxSpreadsheetColumns = 16384;
-// FA-001/FA-002 总量闸（同 outsourceworkbook 口径）：列填充的行宽 × 行数没有
-// 总预算时，~40B 的 ss:Index="16384" 单元格即可换 ~128KB 内存（构造工作簿
-// OOM/假死）；.xml 直读另有文件大小闸（xlsx 已由 zip 层 512MB 把关）。
 constexpr qint64 kMaxSheetCells = 4'000'000;
 constexpr qint64 kMaxWorkbookXmlBytes = 512LL * 1024 * 1024;
+
+static bool parseComprehensiveWellDevice(QIODevice *device, const QString &path, ComprehensiveWellData &outData, QString *errorMsg);
+
+static void appendCurveChunk(QVector<CurveData> &target, const CurveData &source)
+{
+  for (auto &curve : target) {
+    if (curve.name != source.name) continue;
+    curve.depths += source.depths;
+    curve.values += source.values;
+    return;
+  }
+  target.append(source);
+}
+
+static void updateCurveScales(QVector<CurveData> &curves, bool continuous)
+{
+  for (auto &curve : curves) {
+    float minV = std::numeric_limits<float>::max(), maxV = std::numeric_limits<float>::lowest();
+    for (float value : curve.values) if (std::isfinite(value) && value > -900.0f) {
+      minV = std::min(minV, value); maxV = std::max(maxV, value);
+    }
+    if (minV > maxV) continue;
+    curve.minScale = continuous ? std::floor(minV) : minV;
+    curve.maxScale = continuous ? std::ceil(maxV) : maxV;
+    if (std::abs(curve.maxScale - curve.minScale) < 1e-3f) curve.maxScale = curve.minScale + 10.0f;
+  }
+}
 
 static QColor pickWellCurveColor(const QString &mnemonic, int index)
 {
@@ -68,36 +94,35 @@ static QString pickUnitForMnemonic(const QString &mnemonic)
 
 bool parseComprehensiveWellXml(const QString &filePath, ComprehensiveWellData &outData, QString *errorMsg)
 {
-  // FA-002：.xml 直读大小闸（xlsx 已由 zip 层把关）——超大文件整读 + 解码
-  // 拷贝会等量放大内存。
-  if (QFileInfo(filePath).size() > kMaxWorkbookXmlBytes)
-  {
-    if (errorMsg)
-      *errorMsg = QStringLiteral("综合柱状图 XML 超大小上限（512MB）: %1").arg(filePath);
-    return false;
-  }
   QFile file(filePath);
   if (!file.open(QIODevice::ReadOnly))
   {
     if (errorMsg) *errorMsg = QStringLiteral("无法打开文件: %1").arg(filePath);
     return false;
   }
-  file.close();
-  QByteArray bytes;
-  if (!paleo::io::readBoundedFile(filePath, paleo::io::kDefaultBoundedReadLimit, &bytes, errorMsg))
-    return false;
-  return parseComprehensiveWellXmlData(bytes, outData, errorMsg);
+  ComprehensiveWellData parsed;
+  if (!parseComprehensiveWellDevice(&file, filePath, parsed, errorMsg)) return false;
+  outData = std::move(parsed);
+  return true;
 }
 
 bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellData &outData, QString *errorMsg)
 {
-  QXmlStreamReader xml(content);
+  QBuffer buffer;
+  buffer.setData(content);
+  buffer.open(QIODevice::ReadOnly);
+  ComprehensiveWellData parsed;
+  if (!parseComprehensiveWellDevice(&buffer, QString(), parsed, errorMsg)) return false;
+  outData = std::move(parsed);
+  return true;
+}
 
+static bool parseComprehensiveWellDevice(QIODevice *device, const QString &path, ComprehensiveWellData &outData, QString *errorMsg)
+{
+  if (errorMsg) errorMsg->clear();
   QString currentSheetName;
   QVector<QStringList> sheetRows;
   sheetRows.reserve(512);
-  // FA-001：累计格数预算（列填充放大闸）——超限如实拒收整簿。
-  qint64 cellBudget = kMaxSheetCells;
 
   // 解析并分流单个工作表
   const auto processSheet = [&](const QString &sheetName, const QVector<QStringList> &rows) {
@@ -191,7 +216,7 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
           if (std::abs(cd.maxScale - cd.minScale) < 1e-3f)
             cd.maxScale = cd.minScale + 10.0f;
         }
-        outData.continuousCurves.append(cd);
+        appendCurveChunk(outData.continuousCurves, cd);
       }
     }
     else if (sheetName.startsWith(QStringLiteral("离散曲线")))
@@ -276,7 +301,7 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
           if (std::abs(cd.maxScale - cd.minScale) < 1e-3f)
             cd.maxScale = cd.minScale + 10.0f;
         }
-        outData.discreteCurves.append(cd);
+        appendCurveChunk(outData.discreteCurves, cd);
       }
     }
     else if (sheetName.contains(QStringLiteral("岩性道")))
@@ -543,88 +568,32 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
     }
   };
 
-  // 流式解析 SpreadsheetML XML
-  while (!xml.atEnd())
-  {
-    xml.readNext();
-    if (xml.isStartElement())
-    {
-      const QString tag = xml.name().toString();
-      if (tag == QLatin1String("Worksheet"))
-      {
-        for (const auto &attr : xml.attributes())
-          if (attr.name() == QLatin1String("Name"))
-            currentSheetName = attr.value().toString();
-        sheetRows.clear();
-      }
-      else if (tag == QLatin1String("Row"))
-      {
-        QStringList rowCells;
-        int colIndex = 0;
-
-        while (!(xml.isEndElement() && xml.name() == QLatin1String("Row")) && !xml.atEnd())
-        {
-          xml.readNext();
-          if (xml.isStartElement() && xml.name() == QLatin1String("Cell"))
-          {
-            bool skipCell = false;
-            for (const auto &attr : xml.attributes())
-            {
-              if (attr.name() == QLatin1String("Index"))
-              {
-                const int explicitIndex = attr.value().toInt() - 1; // 1-indexed to 0-indexed
-                if (explicitIndex < 0 || explicitIndex >= kMaxSpreadsheetColumns)
-                {
-                  skipCell = true; // 畸形列号：跳过该格，不补空列到越界位置
-                  continue;
-                }
-                while (colIndex < explicitIndex)
-                {
-                  rowCells.append(QString());
-                  ++colIndex;
-                }
-              }
-            }
-
-            QString cellText;
-            while (!(xml.isEndElement() && xml.name() == QLatin1String("Cell")) && !xml.atEnd())
-            {
-              xml.readNext();
-              if (xml.isStartElement() && xml.name() == QLatin1String("Data"))
-                cellText = xml.readElementText();
-            }
-
-            if (!skipCell)
-            {
-              rowCells.append(cellText);
-              ++colIndex;
-            }
-          }
+  const auto flushRows = [&]() {
+    if (!sheetRows.isEmpty()) processSheet(currentSheetName, sheetRows);
+    sheetRows.clear();
+  };
+  const auto workbook = paleo::io::streamSpreadsheetMlWorkbook(device, path,
+      [&](const QString &sheet, const QStringList &headers, const QStringList &row, int, bool isHeader) {
+        if (isHeader) {
+          flushRows();
+          currentSheetName = sheet;
         }
-        cellBudget -= rowCells.size();
-        if (cellBudget < 0)
-        {
-          if (errorMsg)
-            *errorMsg = QStringLiteral("工作表「%1」累计单元格超预算（%2）——文件疑似畸形，整簿拒收")
-                            .arg(currentSheetName)
-                            .arg(kMaxSheetCells);
-          return false;
+        sheetRows.append(row);
+        const bool curve = sheet.startsWith(QStringLiteral("测井曲线")) || sheet.startsWith(QStringLiteral("离散曲线"));
+        // Only one bounded string chunk lives alongside the numeric curves.
+        if (curve && sheetRows.size() >= 4097) {
+          flushRows();
+          sheetRows.append(headers);
         }
-        sheetRows.append(rowCells);
-      }
-    }
-    else if (xml.isEndElement() && xml.name() == QLatin1String("Worksheet"))
-    {
-      processSheet(currentSheetName, sheetRows);
-      sheetRows.clear();
-    }
-  }
-
-  if (xml.hasError() && xml.error() != QXmlStreamReader::PrematureEndOfDocumentError)
-  {
-    if (errorMsg) *errorMsg = xml.errorString();
+        return true;
+      });
+  if (!workbook.ok || !workbook.issues.isEmpty()) {
+    if (errorMsg) *errorMsg = workbook.error + workbook.issues.join(QLatin1Char('\n'));
     return false;
   }
+  flushRows();
+  updateCurveScales(outData.continuousCurves, true);
+  updateCurveScales(outData.discreteCurves, false);
 
   // 计算综合柱状图的总深度跨度 (过滤掉无效/负值深度)
   double minD = std::numeric_limits<double>::max();

@@ -301,6 +301,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   version.sourceUri = fi.absoluteFilePath();
   if (wellLogInput)
   {
+    if (logInfo.comprehensiveTemplate) version.extra.insert(QStringLiteral("logCompositeTemplate"), true);
     version.extra.insert(QStringLiteral("logCurves"), logInfo.header.curveNames.mid(1));
     version.extra.insert(QStringLiteral("logCurveNames"), logInfo.header.curveNames);
     version.extra.insert(QStringLiteral("logWellName"), logInfo.header.wellName);

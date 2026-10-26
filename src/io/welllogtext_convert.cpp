@@ -13,13 +13,6 @@ namespace WellLogText::Detail
 {
 namespace
 {
-struct Samples
-{
-  QVector<double> index;
-  QList<LasCurve> curves;
-  Column axis;
-};
-
 QString sheetWellName(const QString &label)
 {
   // Only the existing composite document's explicit “*-A1井” convention
@@ -44,13 +37,13 @@ bool missing(const QString &text)
       text.compare(QStringLiteral("NULL"), Qt::CaseInsensitive) == 0;
 }
 
-bool appendRow(const QString &path, const Table &table, int rowNumber, int indexColumn,
-               int wellColumn, const QVector<int> &valueColumns, LasHeaderInfo &header,
+}
+
+bool appendSample(const QString &path, const QStringList &headers, const QStringList &row, int line, LasHeaderInfo &header,
                Samples &samples, QString *error, QList<LasIssue> *issues)
 {
-  const QStringList &row = table.rows.at(rowNumber);
-  const int line = table.lines.value(rowNumber, rowNumber + 2);
-  if (row.size() > table.headers.size())
+  const int indexColumn = samples.indexColumn, wellColumn = samples.wellColumn;
+  if (row.size() > headers.size())
     return fail(path, line, QCoreApplication::translate("WellLogText", "数据列超过表头列数"), error, issues);
   if (wellColumn >= 0)
   {
@@ -66,7 +59,7 @@ bool appendRow(const QString &path, const Table &table, int rowNumber, int index
   if (!samples.index.isEmpty() && index <= samples.index.last())
     return fail(path, line, QCoreApplication::translate("WellLogText", "索引重复或逆序，不自动排序或合并"), error, issues);
   QVector<double> values;
-  for (int col : valueColumns)
+  for (int col : samples.valueColumns)
   {
     const QString text = row.value(col).trimmed();
     double value = std::numeric_limits<double>::quiet_NaN();
@@ -74,7 +67,7 @@ bool appendRow(const QString &path, const Table &table, int rowNumber, int index
     {
       value = text.toDouble(&ok);
       if (!ok || !std::isfinite(value))
-        return fail(path, line, QCoreApplication::translate("WellLogText", "曲线 %1 的数值无法识别：%2").arg(table.headers.at(col), text), error, issues);
+        return fail(path, line, QCoreApplication::translate("WellLogText", "曲线 %1 的数值无法识别：%2").arg(headers.at(col), text), error, issues);
       if (value == -999.25 || value == -9999.0) value = std::numeric_limits<double>::quiet_NaN();
     }
     values.append(value);
@@ -84,9 +77,15 @@ bool appendRow(const QString &path, const Table &table, int rowNumber, int index
   return true;
 }
 
-bool readTable(const QString &path, const Table &table, LasHeaderInfo &header,
+bool beginTable(const QString &path, const Table &table, LasHeaderInfo &header,
                Samples &samples, QSet<QString> &names, QString *error, QList<LasIssue> *issues)
 {
+  const QString sheetWell = sheetWellName(table.label);
+  if (!sheetWell.isEmpty()) {
+    if (!header.wellName.isEmpty() && header.wellName != sheetWell)
+      return fail(path, 1, QCoreApplication::translate("WellLogText", "工作表井名与文件内其他井名冲突，不能合并"), error, issues);
+    header.wellName = sheetWell;
+  }
   if (table.headers.size() < 2 || table.headers.size() > kMaxColumns)
     return fail(path, 1, QCoreApplication::translate("WellLogText", "需要索引列和曲线列，最多支持 256 列"), error, issues);
   int indexColumn = -1;
@@ -107,24 +106,44 @@ bool readTable(const QString &path, const Table &table, LasHeaderInfo &header,
   if (indexColumn < 0)
     return fail(path, 1, QCoreApplication::translate("WellLogText", "缺少明确索引列 DEPTH/DEPT/MD/TVD/TVDSS/TIME/深度/井深"), error, issues);
   samples.axis = columns.at(indexColumn);
-  QVector<int> valueColumns;
+  samples.indexBasis = basis(samples.axis.name);
+  // HXN's comprehensive-well export schema: measured depth in metres,
+  // accompanied by separate TVD/TVDSS columns (confirmed by the data owner).
+  // Bare DEPTH/深度 columns in other text/XML schemas remain unspecified.
+  const bool compositeDepth = wellColumn == 0 && indexColumn == 1 && columns.size() >= 4 &&
+      columns[0].name == QStringLiteral("井号") && columns[1].name == QStringLiteral("深度") &&
+      columns[2].name == QLatin1String("TVD") && columns[3].name == QLatin1String("TVDSS") &&
+      (table.label.startsWith(QStringLiteral("测井曲线")) || table.label.startsWith(QStringLiteral("离散曲线")));
+  if (compositeDepth) {
+    samples.indexBasis = QStringLiteral("MD");
+    if (samples.axis.unit.isEmpty()) samples.axis.unit = QStringLiteral("m");
+    for (int i : {2, 3}) if (columns[i].unit.isEmpty()) columns[i].unit = QStringLiteral("m");
+    if (issues) issues->append({LasIssue::Severity::Info, LasIssue::Category::MissingUnit, 1,
+        QCoreApplication::translate("WellLogText", "%1：按综合柱状图模板读取测深 MD（米）；原始文件保留，物理曲线单位不猜测").arg(path)});
+  }
+  samples.indexColumn = indexColumn;
+  samples.wellColumn = wellColumn;
+  const auto priorNames = names;
   for (int i = 0; i < columns.size(); ++i)
   {
     if (i == indexColumn || i == wellColumn) continue;
-    const auto &col = columns.at(i);
-    const QString key = col.name.toUpper();
+    auto col = columns.at(i);
+    QString key = col.name.toUpper();
+    // Repeated vertical coordinate columns belong to each sampling table.
+    // Keep both sources rather than replacing a continuous survey with sparse values.
+    if (priorNames.contains(key) && (key == QLatin1String("TVD") || key == QLatin1String("TVDSS")) && !table.label.isEmpty()) {
+      col.name += QStringLiteral(" [%1]").arg(table.label);
+      key = col.name.toUpper();
+    }
     if (names.contains(key))
       return fail(path, 1, QCoreApplication::translate("WellLogText", "曲线名称重复：%1；请区分来源后重试").arg(col.name), error, issues);
     names.insert(key);
-    valueColumns.append(i);
+    samples.valueColumns.append(i);
     samples.curves.append({col.name, col.unit, table.label, {}});
   }
-  if (valueColumns.isEmpty() || table.rows.isEmpty())
+  if (samples.valueColumns.isEmpty())
     return fail(path, 1, QCoreApplication::translate("WellLogText", "没有可读取的曲线采样"), error, issues);
-  for (int r = 0; r < table.rows.size(); ++r)
-    if (!appendRow(path, table, r, indexColumn, wellColumn, valueColumns, header, samples, error, issues)) return false;
   return true;
-}
 }
 
 bool convert(const QString &path, const QVector<Table> &tables, LasHeaderInfo &header,
@@ -133,37 +152,44 @@ bool convert(const QString &path, const QVector<Table> &tables, LasHeaderInfo &h
   if (tables.isEmpty())
     return fail(path, 0, QCoreApplication::translate("WellLogText", "未找到受支持的测井曲线工作表"), error, issues);
   QVector<Samples> sets;
-  QVector<double> index;
   QSet<QString> names;
-  int curveCount = 1;
   for (const auto &table : tables)
   {
     Samples samples;
     const QString location = table.label.isEmpty() ? path : path + QStringLiteral(" [%1]").arg(table.label);
-    const QString sheetWell = sheetWellName(table.label);
-    if (!sheetWell.isEmpty())
-    {
-      if (!header.wellName.isEmpty() && header.wellName != sheetWell)
-        return fail(location, 1, QCoreApplication::translate("WellLogText", "工作表井名与文件内其他井名冲突，不能合并"), error, issues);
-      header.wellName = sheetWell;
-    }
-    if (!readTable(location, table, header, samples, names, error, issues)) return false;
+    if (!beginTable(location, table, header, samples, names, error, issues)) return false;
+    for (int r = 0; r < table.rows.size(); ++r)
+      if (!appendSample(location, table.headers, table.rows.at(r), table.lines.value(r, r + 2), header, samples, error, issues)) return false;
+    sets.append(std::move(samples));
+  }
+  return mergeSamples(path, sets, kMaxCells, header, curves, error, issues);
+}
+
+bool mergeSamples(const QString &path, const QVector<Samples> &sets, qint64 maxCells,
+                  LasHeaderInfo &header, QList<LasCurve> &curves, QString *error, QList<LasIssue> *issues)
+{
+  if (sets.isEmpty()) return fail(path, 0, QCoreApplication::translate("WellLogText", "未找到受支持的测井曲线工作表"), error, issues);
+  QVector<double> index;
+  int curveCount = 1;
+  for (const auto &samples : sets) {
+    if (samples.index.isEmpty()) return fail(path, 1, QCoreApplication::translate("WellLogText", "没有可读取的曲线采样"), error, issues);
     if (!sets.isEmpty() && (samples.axis.name.compare(sets.first().axis.name, Qt::CaseInsensitive) != 0 ||
                            samples.axis.unit != sets.first().axis.unit))
       return fail(path, 1, QCoreApplication::translate("WellLogText", "工作表索引类型或单位不同，不自动换算；请分别导入"), error, issues);
     curveCount += samples.curves.size();
-    if (curveCount > kMaxColumns || qint64(index.size()) + samples.index.size() > kMaxCells)
+    if (curveCount > kMaxColumns || qint64(index.size()) + samples.index.size() > maxCells)
       return fail(path, 0, QCoreApplication::translate("WellLogText", "曲线数或采样数超过预算，请拆分文件"), error, issues, LasIssue::Category::Oversize);
     index += samples.index;
-    sets.append(std::move(samples));
   }
   std::sort(index.begin(), index.end());
   index.erase(std::unique(index.begin(), index.end()), index.end());
-  if (qint64(curveCount) * index.size() > kMaxCells)
-    return fail(path, 0, QCoreApplication::translate("WellLogText", "不同采样的索引并集超过 400 万单元格预算，请分别导入"), error, issues, LasIssue::Category::Oversize);
+  if (qint64(curveCount) * index.size() > maxCells)
+    return fail(path, 0, QCoreApplication::translate("WellLogText", "不同采样的索引并集超过 %1 单元格预算，请分别导入").arg(maxCells), error, issues, LasIssue::Category::Oversize);
   const Column axis = sets.first().axis;
-  if (names.contains(axis.name.toUpper()))
-    return fail(path, 1, QCoreApplication::translate("WellLogText", "曲线名称与索引名称冲突"), error, issues);
+  for (const auto &samples : sets)
+    for (const auto &curve : samples.curves)
+      if (curve.name.compare(axis.name, Qt::CaseInsensitive) == 0)
+        return fail(path, 1, QCoreApplication::translate("WellLogText", "曲线名称与索引名称冲突"), error, issues);
   curves.append({axis.name, axis.unit, {}, index});
   for (const auto &samples : sets)
     for (const auto &source : samples.curves)
@@ -185,7 +211,7 @@ bool convert(const QString &path, const QVector<Table> &tables, LasHeaderInfo &h
       issues->append({LasIssue::Severity::Warning, LasIssue::Category::MissingUnit, 1,
           QCoreApplication::translate("WellLogText", "%1：曲线 %2 未声明单位，保留为空").arg(path, curve.name)});
   }
-  header.indexBasis = basis(axis.name);
+  header.indexBasis = sets.first().indexBasis;
   header.sawAscii = true;
   return true;
 }

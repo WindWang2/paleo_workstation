@@ -110,6 +110,34 @@ class TestImportUx : public QObject
 {
   Q_OBJECT
 private slots:
+  void hxnLargestDocumentImportsAsManagedCurves()
+  {
+    const auto root = qEnvironmentVariable("PALEO_HXN_DATA_DIR");
+    if (root.isEmpty()) QSKIP("Set PALEO_HXN_DATA_DIR for private managed-import acceptance");
+    const auto files = QDir(root + QStringLiteral("/测井数据")).entryInfoList({"*.xml"}, QDir::Files, QDir::Size);
+    QVERIFY(!files.isEmpty());
+    const auto source = files.first().absoluteFilePath();
+    QVERIFY(files.first().size() > 512LL * 1024 * 1024);
+    const auto before = DataCatalog::sha256FileHex(source);
+    QVERIFY(!before.isEmpty());
+    Harness h; QString error;
+    const auto asset = h.service->importProjectFile(source, &error);
+    QVERIFY2(!asset.isEmpty(), qPrintable(error));
+    QCOMPARE(h.catalog()->entities(QStringLiteral("well")).size(), 1);
+    const auto well = h.catalog()->entities(QStringLiteral("well")).first();
+    QCOMPARE(well.coordinateStatus, QStringLiteral("unknown"));
+    const auto version = h.catalog()->currentVersion(asset);
+    QVERIFY(version.managed); QCOMPARE(version.stage, QStringLiteral("RAW"));
+    QCOMPARE(version.sha256, before);
+    QVERIFY(version.extra.value("logCompositeTemplate").toBool());
+    LasHeaderInfo stored; QVERIFY(WellLogSet::storedHeader(version, &stored));
+    QCOMPARE(stored.indexBasis, QStringLiteral("MD"));
+    const auto curves = WellLogSet::wellCurveIndex(h.catalog(), h.project, well.id);
+    QVERIFY(curves.size() > 30);
+    h.reopen();
+    QCOMPARE(WellLogSet::wellCurveIndex(h.catalog(), h.project, well.id).size(), curves.size());
+    QCOMPARE(DataCatalog::sha256FileHex(source), before);
+  }
   void completeXmlCreatesOneWellAndThreeReadableCurves()
   {
     Harness h;

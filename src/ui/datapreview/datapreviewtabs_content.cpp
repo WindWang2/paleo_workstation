@@ -12,6 +12,21 @@
 // datapreviewtabworkbook/tabxml 同款）。
 using namespace paleo::datapreview_detail;
 
+namespace {
+bool hasPreviewType(const QString &type)
+{
+  static const QStringList types = {
+      QStringLiteral("well_log"), QStringLiteral("well_head"), QStringLiteral("well_stratification"),
+      QStringLiteral("time_depth"), QStringLiteral("horizon"), QStringLiteral("seismic"),
+      QStringLiteral("image_reference"), QStringLiteral("document"), QStringLiteral("outsource_workbook"),
+      QStringLiteral("geojson"), QStringLiteral("boundary"), QStringLiteral("seismic_prediction"),
+      QStringLiteral("wells_prediction"), QStringLiteral("composed_facies"), QStringLiteral("facies_polygons"),
+      QStringLiteral("edited_facies"), QStringLiteral("single_factor_raster"), QStringLiteral("contour_lines"),
+      QStringLiteral("facies_fusion_raster")};
+  return types.contains(type);
+}
+}
+
 QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 {
   DataCatalog *cat = m_doc->catalog();
@@ -101,6 +116,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   // 托管/无指纹/本会话已验的短路、失配后的下游标过时都在门面里。
   const bool deferShaToTask =
       OfficePreviewSession::supports(abs) ||
+      v.extra.value(QStringLiteral("logCompositeTemplate")).toBool() ||
       (abs.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) &&
        (auxOnly || asset.type == QLatin1String("unknown") || asset.type == QLatin1String("auxiliary") ||
         asset.type == QLatin1String("outsource_workbook"))) ||
@@ -135,6 +151,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     lay->addWidget(office, 1);
     return host;
   }
+
+  if (asset.type == QLatin1String("well_log") && !auxOnly && v.extra.value(QStringLiteral("logCompositeTemplate")).toBool())
+    return buildAuxiliaryXmlContent(abs, assetId, host, lay, sourceVersion.managed ? QString() : sourceVersion.sha256, false);
 
   if (asset.type == QLatin1String("well_log") && !auxOnly)
     return buildWellLogContent(cat, asset, v, abs, assetId, wells, auxOnly,
@@ -197,18 +216,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       return buildAuxiliaryXmlContent(abs, assetId, host, lay, sourceVersion.managed ? QString() : sourceVersion.sha256);
     }
     // P2 D2.12 未知类型：统一「不支持预览」态 + 可支持类型清单（不再留白）。
-    static const QStringList kKnownTypes = {
-        QStringLiteral("well_log"),      QStringLiteral("well_head"),
-        QStringLiteral("well_stratification"), QStringLiteral("time_depth"),
-        QStringLiteral("horizon"),       QStringLiteral("seismic"),
-        QStringLiteral("image_reference"), QStringLiteral("document"),
-        QStringLiteral("outsource_workbook"),
-        QStringLiteral("geojson"),       QStringLiteral("boundary"),
-        QStringLiteral("seismic_prediction"), QStringLiteral("wells_prediction"),
-        QStringLiteral("composed_facies"), QStringLiteral("facies_polygons"),
-        QStringLiteral("edited_facies"), QStringLiteral("single_factor_raster"),
-        QStringLiteral("contour_lines"), QStringLiteral("facies_fusion_raster")};
-    if (!kKnownTypes.contains(asset.type))
+    if (!hasPreviewType(asset.type))
       lay->addWidget(PreviewMapStates::buildUnsupportedPage(asset.type, host), 1);
     else
       lay->addStretch(1);

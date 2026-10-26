@@ -165,6 +165,14 @@ bool parse(const QString &path, bool spreadsheetXml, LasHeaderInfo &header,
   header = {};
   curves.clear();
   if (error) error->clear();
+  if (spreadsheetXml) {
+    LasHeaderInfo parsedHeader;
+    QList<LasCurve> parsedCurves;
+    if (!Detail::parseXml(path, parsedHeader, parsedCurves, error, issues)) return false;
+    header = std::move(parsedHeader);
+    curves = std::move(parsedCurves);
+    return true;
+  }
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly))
     return Detail::fail(path, 0, file.errorString(), error, issues, LasIssue::Category::Io);
@@ -175,17 +183,6 @@ bool parse(const QString &path, bool spreadsheetXml, LasHeaderInfo &header,
     return Detail::fail(path, 0, QCoreApplication::translate("WellLogText", "文件读取失败或超过大小预算"), error, issues, LasIssue::Category::Io);
   QVector<Detail::Table> tables;
   LasHeaderInfo parsedHeader;
-  if (spreadsheetXml)
-  {
-    if (!sniffSpreadsheetXml(bytes)) return Detail::fail(path, 1, QCoreApplication::translate("WellLogText", "不是受支持的 SpreadsheetML 综合柱状图"), error, issues);
-    const auto workbook = paleo::io::readSpreadsheetMlWorkbook(path, bytes);
-    if (!workbook.ok || !workbook.issues.isEmpty())
-      return Detail::fail(path, 0, workbook.error + workbook.issues.join(QLatin1Char('\n')), error, issues);
-    for (const auto &sheet : workbook.sheets)
-      if (sheet.name.startsWith(QStringLiteral("测井曲线")) || sheet.name.startsWith(QStringLiteral("离散曲线")))
-        tables.append({sheet.name, sheet.headers, sheet.rows, sheet.rowNumbers});
-  }
-  else
   {
     Detail::Table table;
     QString detail;

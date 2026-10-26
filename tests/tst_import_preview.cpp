@@ -86,6 +86,58 @@ class TestImportPreview : public QObject
   Q_OBJECT
 private slots:
   void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); PaleoTheme::pinRenderEnvironment(); }
+  void comprehensiveTemplateKeepsGeologicalTracks()
+  {
+    PreviewStack stack;
+    QString xml = QStringLiteral("<?xml version=\"1.0\"?><Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\"><Worksheet ss:Name=\"测井曲线-A1井\"><Table>");
+    xml += ImportUxFixtures::row({"井号", "深度", "TVD", "TVDSS", "GR"});
+    for (int i = 0; i < 8300; ++i) {
+      const auto depth = QString::number(100 + i * .125);
+      xml += ImportUxFixtures::row({"A1", depth, depth, "", QString::number(20 + i % 81)});
+    }
+    xml += QStringLiteral("</Table></Worksheet><Worksheet ss:Name=\"地层单位道\"><Table>");
+    xml += ImportUxFixtures::row({"井号", "道名", "层号", "顶深", "顶TVD", "顶TVDSS", "底深", "底TVD", "底TVDSS"});
+    xml += ImportUxFixtures::row({"A1", "段", "韩一段", "100", "100", "", "200", "200", ""});
+    xml += QStringLiteral("</Table></Worksheet><Worksheet ss:Name=\"岩性道\"><Table>");
+    xml += ImportUxFixtures::row({"井号", "道名", "顶深", "顶TVD", "顶TVDSS", "底深", "底TVD", "底TVDSS", "岩性"});
+    xml += ImportUxFixtures::row({"A1", "岩性", "100", "100", "", "200", "200", "", "细砂岩"});
+    xml += QStringLiteral("</Table></Worksheet></Workbook>");
+    const auto source = stack.source("comprehensive.xml", xml.toUtf8());
+    QString error;
+    const auto asset = stack.imports->importProjectFile(source, &error);
+    QVERIFY2(!asset.isEmpty(), qPrintable(error));
+    const auto version = stack.imports->catalog()->currentVersion(asset);
+    QVERIFY(version.extra.value("logCompositeTemplate").toBool());
+    stack.preview->openAsset(asset);
+    auto *panel = stack.currentPanel(); QVERIFY(panel);
+    QTRY_COMPARE_WITH_TIMEOUT(panel->wellName(), QStringLiteral("A1"), 10000);
+    QVERIFY(!panel->isReferenceWell());
+    const auto data = panel->currentData();
+    QCOMPARE(data.continuousCurves.size(), 1);
+    QCOMPARE(data.continuousCurves.first().depths.size(), 8300);
+    QCOMPARE(data.continuousCurves.first().depths.last(), float(100 + 8299 * .125));
+    QCOMPARE(data.continuousCurves.first().values.at(4096), float(20 + 4096 % 81));
+    QCOMPARE(data.continuousCurves.first().values.last(), float(20 + 8299 % 81));
+    QCOMPARE(data.formationIntervals.size(), 1);
+    QCOMPARE(data.formationIntervals.first().unitType, QStringLiteral("段"));
+    QCOMPARE(data.lithologyIntervals.size(), 1);
+    bool visibleGr = false;
+    for (const auto &track : panel->canvas()->tracks())
+    {
+      if (const auto curve = std::dynamic_pointer_cast<WellComposite::CurveTrack>(track))
+        for (const auto &sample : curve->curves()) visibleGr |= track->isVisible() && sample.name == QLatin1String("GR");
+    }
+    QVERIFY(visibleGr);
+    const auto table = PreviewDocService::xmlDataListAt(source);
+    QVERIFY2(table.ok, qPrintable(table.error));
+    QCOMPARE(table.sheets.first().rows.size(), 1000);
+    QVERIFY(!table.issues.isEmpty());
+    const auto capture = qEnvironmentVariable("PALEO_HXN_PREVIEW_CAPTURE");
+    if (!capture.isEmpty()) {
+      stack.preview->resize(1280, 800); stack.preview->show(); QTest::qWait(100);
+      QVERIFY(stack.preview->grab().save(capture));
+    }
+  }
   void tvdOnlyTopsUseTimeDepthPairsAndDoNotCollapseAtZero() {
     PreviewStack stack; QString error;
     const auto log = stack.source("A1.csv", ImportUxFixtures::csv("A1", "GR[API]", "0,10\n1000,20\n2200,30\n2300,40\n"));
@@ -130,7 +182,8 @@ private slots:
     doc.wellTopsForLog(well, &result, &warnings);
     QCOMPARE(result.size(), 1); QCOMPARE(result.first().md, 220.0); QVERIFY(warnings.join(' ').contains("不单调"));
     options.forceType = "well_deviation";
-    const auto deviation = stack.source("A1_dev.dat", "# Well : A1\n500 0 0\n1000 0 0\n");
+    // TVD 150 -> MD 300 is interpolation inside this 60-degree survey.
+    const auto deviation = stack.source("A1_dev.dat", "# Well : A1\n0 60 0\n1000 60 0\n");
     QVERIFY2(!stack.imports->importProjectFile(deviation, options, &error).isEmpty(), qPrintable(error));
     doc.wellTopsForLog(well, &result, &warnings); QCOMPARE(result.size(), 2);
     const auto converted = std::find_if(result.cbegin(), result.cend(), [](const auto &top) { return top.topName == "D61"; });

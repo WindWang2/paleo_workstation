@@ -87,13 +87,14 @@ QString cellText( const QString &raw )
 
 // ---- SpreadsheetML 2003 ----
 
-WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &bytes )
+WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &reader,
+                                     const SpreadsheetMlRowVisitor &visitor = {},
+                                     qint64 cellLimit = kMaxWorkbookCells )
 {
   WorkbookReadResult result;
   result.path = path;
   result.format = QStringLiteral( "spreadsheetml" );
 
-  QXmlStreamReader reader( bytes );
   WorkbookSheet sheet;
   bool inSheet = false;
   bool inRow = false;
@@ -102,7 +103,8 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
   QStringList row;
   bool rowHasError = false;
   QSet<int> usedColumns;
-  qint64 cellBudget = kMaxWorkbookCells; // FA-001：累计格数预算（列填充放大闸）
+  qint64 cellBudget = cellLimit;
+  bool visitorOk = true;
 
   const auto finishRow = [&]() {
     if ( !inRow )
@@ -116,12 +118,16 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
           sheet.headers = normalizeHeaderRow( row );
           sheet.headerRowNumber = rowNumber;
           cellBudget -= sheet.headers.size();
+          if (visitor) visitorOk = visitor(sheet.name, sheet.headers, row, rowNumber, true);
         }
       }
       else
       {
-        sheet.rows.append( row );
-        sheet.rowNumbers.append( rowNumber );
+        if (visitor) visitorOk = visitor(sheet.name, sheet.headers, row, rowNumber, false);
+        else {
+          sheet.rows.append( row );
+          sheet.rowNumbers.append( rowNumber );
+        }
         cellBudget -= row.size();
       }
     }
@@ -145,10 +151,11 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
 
   while ( !reader.atEnd() )
   {
+    if (!visitorOk) { result.error = QStringLiteral("工作表行读取被调用方拒绝"); return result; }
     if ( cellBudget < 0 )
     {
       result.error = QStringLiteral( "工作簿累计单元格超预算（%1）——文件疑似畸形，整簿拒收" )
-                         .arg( kMaxWorkbookCells );
+                         .arg( cellLimit );
       return result;
     }
     const QXmlStreamReader::TokenType token = reader.readNext();
@@ -303,6 +310,10 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
     }
   }
   finishSheet();
+  if (!visitorOk || cellBudget < 0) {
+    result.error = QStringLiteral("工作簿行读取失败或累计单元格超预算");
+    return result;
+  }
   if ( reader.hasError() )
   {
     result.error = QStringLiteral( "XML 解析错误（行 %1）：%2" )
@@ -909,7 +920,37 @@ WorkbookReadResult readSpreadsheetMlWorkbook( const QString &path, const QByteAr
     result.error = QCoreApplication::translate( "OutsourceWorkbook", "SpreadsheetML 文件超过大小上限，请拆分后重试：%1" ).arg( path );
     return result;
   }
-  return readSpreadsheetMl( path, bytes );
+  QXmlStreamReader reader(bytes);
+  return readSpreadsheetMl( path, reader );
+}
+
+WorkbookReadResult streamSpreadsheetMlWorkbook(const QString &path, const SpreadsheetMlRowVisitor &visitor)
+{
+  QFile file(path);
+  WorkbookReadResult result;
+  result.path = path;
+  if (!file.open(QIODevice::ReadOnly)) { result.error = file.errorString(); return result; }
+  result = streamSpreadsheetMlWorkbook(&file, path, visitor);
+  if (file.error() != QFileDevice::NoError) { result.ok = false; result.error = file.errorString(); }
+  return result;
+}
+
+WorkbookReadResult streamSpreadsheetMlWorkbook(QIODevice *device, const QString &path, const SpreadsheetMlRowVisitor &visitor)
+{
+  WorkbookReadResult result;
+  result.path = path;
+  if (!device || !device->isReadable()) { result.error = QStringLiteral("工作簿不可读：%1").arg(path); return result; }
+  if (device->size() > 1024LL * 1024 * 1024) {
+    result.error = QStringLiteral("综合柱状图 XML 超过 1 GiB 上限：%1").arg(path);
+    return result;
+  }
+  QXmlStreamReader reader(device);
+  if (!reader.readNextStartElement() || reader.name() != QLatin1String("Workbook") || reader.namespaceUri() != kSsNs) {
+    result.error = QStringLiteral("不是受支持的 SpreadsheetML 工作簿：%1").arg(path);
+    return result;
+  }
+  result = readSpreadsheetMl(path, reader, visitor, 16'000'000);
+  return result;
 }
 
 WorkbookReadResult readWorkbook( const QString &path )
@@ -941,7 +982,7 @@ WorkbookReadResult readWorkbook( const QString &path )
     QByteArray xmlBytes;
     if ( !paleo::io::readBoundedFile( path, paleo::io::kDefaultBoundedReadLimit, &xmlBytes, &result.error ) )
       return result;
-    return readSpreadsheetMl( path, xmlBytes );
+    return readSpreadsheetMlWorkbook( path, xmlBytes );
   }
   if ( suffix == QLatin1String( "xlsx" ) )
     return readXlsx( path ); // 非 ZIP/OOXML 由读面如实报因（不靠扩展名或 mime 猜测）

@@ -21,7 +21,7 @@ ProjectClassification classifyImportFile(const QString &path)
   auto classification = classifyProjectImport(path, prefix);
   if ((classification.type != QLatin1String("unknown") && classification.type != QLatin1String("well_deviation")) ||
       !WellLogText::sniffSpreadsheetXml(prefix) || file.size() <= prefix.size() ||
-      file.size() > 64ll * 1024 * 1024) return classification;
+      file.size() > 1024ll * 1024 * 1024) return classification;
   // 大型说明工作表可能遮住后面的曲线表。流式走工作表名，完整解析器仍负责数据校验。
   file.seek(0);
   QXmlStreamReader xml(&file);

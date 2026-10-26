@@ -11,6 +11,25 @@ class TestMetadataAtomicFile : public QObject
   Q_OBJECT
 
 private slots:
+  void longUnicodePathsReplaceAtomically()
+  {
+    QTemporaryDir tmp;
+    QString directory = tmp.path();
+    for (int i = 0; i < 4; ++i) directory += '/' + QString(70, QLatin1Char('a')) + QString::number(i);
+    QVERIFY(QDir().mkpath(directory));
+    const auto target = directory + QStringLiteral("/综合柱状图.xml");
+    QVERIFY(target.size() > 260);
+    QString error;
+    QVERIFY2(paleoWriteFileAtomic(target, "original", &error), qPrintable(error));
+    QVERIFY2(paleoWriteFileAtomic(target, "replacement", &error), qPrintable(error));
+    QVERIFY(!paleoWriteFileAtomic(target, "incomplete", &error, PaleoAtomicFaultPoint::BeforeReplace));
+    QFile file(target); QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), QByteArray("replacement"));
+#ifdef Q_OS_WIN
+    QVERIFY(paleoWindowsExtendedPath(QString()).isEmpty());
+    QCOMPARE(paleoWindowsExtendedPath(QStringLiteral("\\\\server\\share\\file.xml")), QStringLiteral("\\\\?\\UNC\\server\\share\\file.xml"));
+    QCOMPARE(paleoWindowsExtendedPath(QStringLiteral("\\\\?\\C:\\file.xml")), QStringLiteral("\\\\?\\C:\\file.xml"));
+#endif
+  }
   void normalWriteNewFile();
   void replaceExistingFile();
   void binaryAndCrlfRoundTrip();

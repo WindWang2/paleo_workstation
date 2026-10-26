@@ -360,6 +360,10 @@ def main():
         if src:
             shutil.copy2(src, out / name)
             print(f"      + {name}  (延迟加载)")
+        else:
+            # 运行时动态装载的模块解析失败必须响：vendor 被清时曾静默漏打
+            # onnxruntime（exe 无静态 import，闭包不报缺），新机 AI 推理全灭。
+            sys.exit(f"延迟加载模块缺失，无法进包: {name}")
     print(f"      DLL 就绪（{dir_size(out)}；跳过 {skipped_sys} 个 System32 系统库）")
 
     # WebEngine 运行件——闭包只收 DLL；进程 exe/pak/icudtl/语言包须显式落位。

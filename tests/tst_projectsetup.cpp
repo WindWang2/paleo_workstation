@@ -17,6 +17,13 @@
 #include <QTableWidget>
 #include <QCheckBox>
 #include <QMenu>
+#include <QBuffer>
+#include <QElapsedTimer>
+#include <QFutureWatcher>
+#include <QtConcurrent>
+#include "../src/io/sourceprobe.h"
+#include "../src/io/welllogread.h"
+#include "welllogfixturewriters.h"
 #include "importuxfixtures.h"
 #include "../src/ui/dialogs/importsourcedialog.h"
 #include "../src/ui/dialogs/folderconfirm.h"
@@ -79,6 +86,116 @@ class TestProjectSetup : public QObject
     return paleo::io::zipWriteArchive(path, {{"xl/workbook.xml", workbook}, {"xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Target=\"worksheets/sheet1.xml\"/></Relationships>"}, {"xl/worksheets/sheet1.xml", xml}}, {}, &error) ? path : QString();
   }
 private slots:
+  void scanProbeHasHardReadBudgetAndStopsAtIdentity() {
+    class CountingBuffer : public QBuffer {
+    public: qint64 readBytes = 0;
+    protected: qint64 readData(char *data, qint64 size) override {
+      const auto result = QBuffer::readData(data, size); if (result > 0) readBytes += result; return result;
+    }
+    } input;
+    auto xml = ImportUxFixtures::comprehensiveXml(); xml += QByteArray(2 * 1024 * 1024, 'x');
+    input.setData(xml); QVERIFY(input.open(QIODevice::ReadOnly));
+    const auto probe = paleo::io::probeSource(input, "comprehensive.xml");
+    QCOMPARE(probe.classification.type, QString("well_log")); QCOMPARE(probe.wellName, QString("A1"));
+    QVERIFY(probe.bytesRead <= 16 * 1024); QCOMPARE(input.readBytes, probe.bytesRead); QVERIFY(probe.limited);
+    auto hidden = ImportUxFixtures::comprehensiveXml();
+    hidden.replace("<Worksheet", (QByteArray("<!--") + QByteArray(512 * 1024, 'x') + "--><Worksheet"));
+    input.close(); input.setData(hidden); input.readBytes = 0; QVERIFY(input.open(QIODevice::ReadOnly));
+    const auto limited = paleo::io::probeSource(input, "hidden.xml");
+    QVERIFY(limited.wellName.isEmpty()); QVERIFY(limited.limited);
+    QCOMPARE(limited.bytesRead, paleo::io::kScanPrefixBytes); QCOMPARE(input.readBytes, paleo::io::kScanPrefixBytes);
+    input.seek(0); input.readBytes = 0; int checks = 0;
+    const auto cancelled = paleo::io::probeSource(input, "hidden.xml", [&] { return ++checks > 1; });
+    QVERIFY(cancelled.cancelled); QVERIFY(input.readBytes <= 16 * 1024);
+  }
+  void changingWizardStepsDoesNotRestartPendingScan() {
+    QTemporaryDir dir; QSemaphore started, release;
+    PaleoTaskService tasks; tasks.workerPool()->setMaxThreadCount(1);
+    auto blocker = QtConcurrent::run(tasks.workerPool(), [&] { started.release(); release.acquire(); });
+    started.acquire();
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    workflow.setMapImportServices(nullptr, &tasks); QSignalSpy ready(&workflow, &ProjectSetupWorkflow::previewReady);
+    ProjectSetupDialog dialog(&workflow); dialog.findChild<QLineEdit *>("projectDirectoryEdit")->setText(dir.filePath("out"));
+    dialog.setSourceRoot(dir.path());
+    auto *steps = dialog.findChild<QTabBar *>(); steps->setCurrentIndex(1); steps->setCurrentIndex(3); steps->setCurrentIndex(1);
+    const int pending = workflow.findChildren<QFutureWatcherBase *>().size();
+    release.release(); blocker.waitForFinished();
+    QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 20000);
+    QCOMPARE(pending, 1);
+  }
+  void boundedProbeKeepsLegacyFormatsAndContentIdentity() {
+    using namespace dlisfix;
+    const auto dlis = sul() + buildFileHeaderEflr("SCAN") + buildOriginEflr("A1") +
+        buildChannelEflr({{"DEPT", "m", 2, {}, {}}, {"GR", "API", 2, {}, {}}}) +
+        buildFrameEflr({{"1000", {"DEPT", "GR"}, "BOREHOLE-DEPTH", "INCREASING"}}) +
+        buildFdata("1000", 1, fsinglBytes(1000) + fsinglBytes(50));
+    const auto lis = lisfix::buildMain();
+    const QList<QPair<QByteArray, QString>> fixtures{
+      {ImportUxFixtures::csv(), "A1"}, {ImportUxFixtures::xml(), "A1"},
+      {ImportUxFixtures::comprehensiveXml(), "A1"},
+      {"~Version\nVERS. 2.0 :\n~Well\nWELL. A1 :\n~Curve\nDEPT.M :\nGR.API :\n~A\n1000 50\n", "A1"},
+      {dlis, "A1"}, {lis.raw, "HZ28-6-2"}, {lis.tif, "HZ28-6-2"}};
+    for (const auto &fixture : fixtures) {
+      QBuffer input; input.setData(fixture.first); QVERIFY(input.open(QIODevice::ReadOnly));
+      const auto probe = paleo::io::probeSource(input, "renamed.bin");
+      QCOMPARE(probe.classification.type, QString("well_log")); QCOMPARE(probe.wellName, fixture.second);
+      QVERIFY(probe.bytesRead <= paleo::io::kScanPrefixBytes);
+    }
+  }
+  void scanDoesNotValidateUnreadCurveTailOrHashWholeFile() {
+    QTemporaryDir dir; const auto log = dir.filePath(QStringLiteral("测井数据/A1.xml"));
+    auto bytes = ImportUxFixtures::comprehensiveXml(); bytes += QByteArray(2 * 1024 * 1024, 'x');
+    QVERIFY(write(log, bytes)); const auto preview = scanProjectSources(discoverProjectSources(dir.path()));
+    QCOMPARE(preview.logs, 1); QVERIFY(preview.sourceProblems.isEmpty()); QVERIFY(preview.hashes.isEmpty());
+    QCOMPARE(preview.sourceSnapshots.value(log).value("prefixBytes").toLongLong(), qint64(16 * 1024));
+    QString error; QVERIFY(validateProjectSourceSnapshots(preview, &error));
+    LasHeaderInfo header; QList<LasCurve> curves;
+    QVERIFY(!WellLogRead::parse(log, header, curves, &error)); QVERIFY(curves.isEmpty());
+    PaleoProjectStore store; DataImportService service(&store); service.setProjectDir(dir.filePath("output"));
+    error.clear(); QVERIFY(service.importProjectFile(log, &error).isEmpty()); QVERIFY(!error.isEmpty());
+    QVERIFY(service.catalog()->assets().isEmpty());
+    // Prefix replacement with unchanged size and timestamp still invalidates the preview.
+    QFile file(log); QVERIFY(file.open(QIODevice::ReadWrite)); const auto modified = QFileInfo(log).lastModified();
+    bytes.replace("A1", "B1"); QCOMPARE(file.write(bytes), qint64(bytes.size()));
+    QVERIFY(file.setFileTime(modified, QFileDevice::FileModificationTime)); file.close();
+    QVERIFY(!validateProjectSourceSnapshots(preview, &error));
+  }
+  void tableScanSamplesNeverDeduplicateUnseenRows() {
+    QTemporaryDir dir; QByteArray first("WELL,HORIZON,MD,TVD\n"), second(first);
+    for (int row = 0; row < 350; ++row) {
+      const auto name = QByteArray("L") + QByteArray::number(row);
+      first += "A1," + name + ',' + QByteArray::number(row + 1) + ',' + QByteArray::number(row + 1) + '\n';
+      second += "A1," + (row < 200 ? name : "Other" + name) + ',' + QByteArray::number(row + 1) + ',' + QByteArray::number(row + 1) + '\n';
+    }
+    const auto a = dir.filePath("first.csv"), b = dir.filePath("second.csv");
+    QVERIFY(write(a, first)); QVERIFY(write(b, second));
+    const auto sample = paleo::io::previewWellTable(a); QVERIFY(sample.scanLimited); QCOMPARE(sample.tops.size(), 200);
+    QCOMPARE(paleo::io::readWellTable(a).tops.size(), 350);
+    QVector<QStringList> rows{{"WELL", "HORIZON", "MD", "TVD"}};
+    for (int row = 0; row < 350; ++row) rows << QStringList{"A1", "L" + QString::number(row), QString::number(row + 1), QString::number(row + 1)};
+    const auto workbook = xlsx(dir.filePath("many.xlsx"), "data", rows); QVERIFY(!workbook.isEmpty());
+    const auto workbookSample = paleo::io::previewWellTable(workbook);
+    QVERIFY(workbookSample.scanLimited); QCOMPARE(workbookSample.tops.size(), 200);
+    QCOMPARE(paleo::io::readWellTable(workbook).tops.size(), 350);
+    ProjectSetupSources sources; sources.wells = dir.path(); const auto preview = scanProjectSources(sources);
+    QVERIFY(preview.paths.contains(a)); QVERIFY(preview.paths.contains(b)); QVERIFY(preview.hashes.isEmpty());
+    const auto large = dir.filePath("large.xlsx"); QVERIFY(write(large, QByteArray(3 * 1024 * 1024, 'x')));
+    const auto deferred = paleo::io::previewWellTable(large); QVERIFY(deferred.scanLimited); QVERIFY(deferred.error.isEmpty());
+    const auto unknown = dir.filePath("unknown.xml"); QVERIFY(write(unknown, QByteArray(3 * 1024 * 1024, 'x')));
+    const auto unknownSample = paleo::io::previewWellTable(unknown); QVERIFY(unknownSample.scanLimited); QVERIFY(unknownSample.error.isEmpty());
+    sources.points = large; const auto pending = scanProjectSources(sources);
+    QVERIFY(pending.paths.contains(large)); QVERIFY(!pending.sourceProblems.contains(large));
+    sources.pointMapping = {{"crs", "EPSG:2436"}, {"well", "井号"}};
+    const auto mapped = scanProjectSources(sources);
+    QCOMPARE(mapped.pointSourceCrs, QString("EPSG:2436")); QCOMPARE(mapped.pointMapping.value("well").toString(), QStringLiteral("井号"));
+    QVERIFY(mapped.paths.contains(large)); QVERIFY(!mapped.sourceProblems.contains(large));
+    const auto compressed = dir.filePath("expanded.xlsx"); QString error;
+    paleo::io::ZipBuildOptions options; options.compression = paleo::io::ZipCompression::Deflate;
+    QVERIFY(paleo::io::zipWriteArchive(compressed, {{"xl/worksheets/sheet1.xml", QByteArray(5 * 1024 * 1024, 'x')}}, options, &error));
+    QVERIFY(QFileInfo(compressed).size() < 2 * 1024 * 1024);
+    const auto inflated = paleo::io::previewWellTable(compressed); QVERIFY(inflated.scanLimited); QVERIFY(inflated.error.isEmpty());
+  }
   void additionalRootOrganizationPreservesLegacyAndMixedSources() {
     QTemporaryDir dir;
     const auto root = dir.filePath("input");
@@ -197,7 +314,7 @@ private slots:
     QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
     FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
     ProjectSetupDialog dialog(&workflow); QSignalSpy ready(&workflow, &ProjectSetupWorkflow::previewReady);
-    dialog.setSourceRoot(root);
+    QElapsedTimer elapsed; elapsed.start(); dialog.setSourceRoot(root);
     QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 300000);
     const auto xmlFiles = QDir(sources.wells).entryInfoList({"*.xml"}, QDir::Files);
     QCOMPARE(xmlFiles.size(), 57); int auxiliary = 0;
@@ -213,8 +330,12 @@ private slots:
     QVERIFY(dialog.findChild<QComboBox *>("pointField_y")->currentText().contains(QStringLiteral("纵")));
     QVERIFY(dialog.findChild<QLineEdit *>("pointSourceCrsEdit")->text().isEmpty()); // No guessed CRS or band conversion.
     QVERIFY(dialog.preview().errors.isEmpty());
+    QVERIFY(dialog.preview().hashes.isEmpty()); QVERIFY(dialog.preview().mapHashes.isEmpty());
+    qint64 bytes = 0; for (const auto &snapshot : dialog.preview().sourceSnapshots)
+      bytes += snapshot.value("prefixBytes").toLongLong();
     qInfo() << "HXN root wizard: 57 XML files recognized; logs=" << dialog.preview().logs
-            << "existing auxiliary references=" << auxiliary << "point rows=" << dialog.preview().pointRows.size();
+            << "existing auxiliary references=" << auxiliary << "point rows=" << dialog.preview().pointRows.size()
+            << "elapsed_ms=" << elapsed.elapsed() << "identity_probe_bytes=" << bytes;
   }
   void projectLocationPreflightRejectsFilesAndLeavesNoFolders() {
     QTemporaryDir root; QString error;

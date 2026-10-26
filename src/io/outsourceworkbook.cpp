@@ -517,7 +517,7 @@ bool readZipEntry( const QByteArray &archive, const ZipListResult &listing, cons
   return zipExtractEntry( archive, *item, bytes, error );
 }
 
-WorkbookReadResult readXlsx( const QString &path )
+WorkbookReadResult readXlsx( const QString &path, const QByteArray &provided = {}, int rowLimit = -1, bool *limited = nullptr )
 {
   WorkbookReadResult result;
   result.path = path;
@@ -525,7 +525,7 @@ WorkbookReadResult readXlsx( const QString &path )
   const QString fileName = QFileInfo( path ).fileName();
 
   QString archiveError;
-  const QByteArray archive = zipReadArchive( path, &archiveError );
+  const QByteArray archive = provided.isEmpty() ? zipReadArchive( path, &archiveError ) : provided;
   if ( archive.isEmpty() )
   {
     result.error = QStringLiteral( "%1 不是 OOXML 工作簿：%2" )
@@ -675,6 +675,7 @@ WorkbookReadResult readXlsx( const QString &path )
         if ( name == QLatin1String( "row" ) )
         {
           finishRow();
+          if (rowLimit >= 0 && sheet.rows.size() >= rowLimit) { if (limited) *limited = true; break; }
           inRow = true;
           ++rowNumber;
           nextColumn = 1;
@@ -988,6 +989,19 @@ WorkbookReadResult readWorkbook( const QString &path )
     return readXlsx( path ); // 非 ZIP/OOXML 由读面如实报因（不靠扩展名或 mime 猜测）
   result.error = QStringLiteral( "不支持的工作簿扩展名：.%1（只读 .xml/.xlsx）" ).arg( suffix );
   return result;
+}
+
+WorkbookReadResult previewXlsxWorkbook(const QString &path, bool *limited)
+{
+  *limited = false; WorkbookReadResult out; QFile file(path);
+  if (!file.open(QIODevice::ReadOnly | QIODevice::Unbuffered)) { out.error = file.errorString(); return out; }
+  if (file.size() > 2 * 1024 * 1024) { *limited = true; return out; }
+  const auto archive = file.read(2 * 1024 * 1024); const auto listing = zipListBytes(archive);
+  if (!listing.ok) { out.error = listing.error; return out; }
+  quint64 expanded = 0;
+  for (const auto &entry : listing.entries) expanded += entry.uncompressedSize;
+  if (expanded > 4 * 1024 * 1024 || listing.entries.size() > 128) { *limited = true; return out; }
+  return readXlsx(path, archive, 200, limited);
 }
 
 WorkbookScanResult scanWorkbookDirectory( const QString &dirPath, bool recursive )

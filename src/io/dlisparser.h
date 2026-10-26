@@ -36,6 +36,7 @@
 // 流式口径：SUL/VR/LRS 逐段读文件（QFile 顺序读 + 段缓冲），不整载内存；
 // 曲线值本体（QVector<double>）是输出契约，与 LAS parse 同载。
 
+class QIODevice;
 class DlisParser
 {
   public:
@@ -52,10 +53,14 @@ class DlisParser
     static bool parseHeader(const QString &path, LasHeaderInfo &out,
                             QString *error = nullptr,
                             QList<LasIssue> *issues = nullptr);
+    // Caller-owned bounded device for scan probes; does not read the source path.
+    static bool parseHeader(QIODevice &source, LasHeaderInfo &out,
+                            QString *error = nullptr, QList<LasIssue> *issues = nullptr);
 
     // 内容嗅探：前 200 字节内找到合法 SUL（80 字节 RECORD 结构）→ true。
     // 扩展名不参与判定——扩展名分派在 welllogread 层做。
     static bool sniff(const QString &path);
+    static bool sniff(QIODevice &source);
 
     // ---- RP66 值类型（EFLR 属性 / 帧槽共用解码面；仅测试与内部使用）----
     struct Obname

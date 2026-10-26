@@ -196,7 +196,7 @@ void ProjectSetupDialog::setExistingProject(const QString &path, const ProjectSe
 }
 void ProjectSetupDialog::scan()
 {
-  if (m_blankLocked) return;
+  if (m_blankLocked || (m_busy && m_scanRevision == m_revision)) return;
   m_scanRevision = m_revision;
   m_empty = false; m_busy = true; m_next->setEnabled(false); m_status->setText(tr("正在识别资料，完成前可继续修改或取消。"));
   m_workflow->scan(sources());
@@ -228,6 +228,8 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
     QSignalBlocker block(it.value()); it.value()->clear();
     if (it.key() == QLatin1String("sheet")) it.value()->addItems(p.sheets);
     else { it.value()->addItem(QString()); it.value()->addItems(p.columns); }
+    const auto selected = p.pointMapping.value(it.key()).toString();
+    if (!selected.isEmpty() && it.value()->findText(selected) < 0) it.value()->addItem(selected);
     it.value()->setCurrentText(p.pointMapping.value(it.key()).toString());
   }
   m_crs->setText(p.pointSourceCrs); m_pointPreview->setRowCount(p.pointRows.size());
@@ -237,7 +239,7 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
   m_status->setText(!creationError.isEmpty() ? creationError : !p.errors.isEmpty() ? tr("工程配置需要调整，详细原因见确认页。")
       : !p.sourceProblems.isEmpty() ? tr("部分资料未通过检查；仍可创建工程并导入其余资料，详情见确认页。")
       : p.paths.isEmpty() && p.maps.isEmpty() ? tr("未找到可导入资料；请选择资料来源，或创建空白工程。")
-      : tr("识别完成；可继续设置或直接核对创建。")); m_next->setEnabled(true);
+      : tr("快速识别完成；已展示预览样本，完整校验将在导入时执行。")); m_next->setEnabled(true);
 }
 void ProjectSetupDialog::showMaps(const ProjectSetupPreview &p)
 {
@@ -262,7 +264,8 @@ void ProjectSetupDialog::showMaps(const ProjectSetupPreview &p)
 void ProjectSetupDialog::refreshReview()
 {
   const auto &p = m_preview;
-  QString text = tr("将建立：%1 口井、%2 条井分层、%3 份测井、%4 个地震文件、%5 个层位面、%6 份其他资料。\n生成井点、井名标注和有效地震覆盖范围，并随工程保存。\n共 %7 个资料文件，另按套导入下列古地理图：\n").arg(p.wells).arg(p.tops).arg(p.logs).arg(p.seismic).arg(p.horizons).arg(p.references).arg(p.paths.size());
+  QString text = tr("以下为识别样本统计，完整数量与校验以导入结果为准。\n");
+  text += tr("将建立：%1 口井、%2 条井分层、%3 份测井、%4 个地震文件、%5 个层位面、%6 份其他资料。\n生成井点、井名标注和有效地震覆盖范围，并随工程保存。\n共 %7 个资料文件，另按套导入下列古地理图：\n").arg(p.wells).arg(p.tops).arg(p.logs).arg(p.seismic).arg(p.horizons).arg(p.references).arg(p.paths.size());
   int maps = 0;
   for (const auto &map : p.maps) if (map.included) {
     if (!map.problem.isEmpty() || !isMappingHorizon(map.horizon)) {

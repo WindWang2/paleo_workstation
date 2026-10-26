@@ -33,6 +33,7 @@
 //   5. 模式 1 且 UP/DOWN 方向未定义——无法推算深度，不猜。
 // 白名单外默认必须解析：未知记录类型按 LIS79 表外如实报错，不静默。
 
+class QIODevice;
 class LisParser
 {
   public:
@@ -46,7 +47,11 @@ class LisParser
     static bool parseHeader(const QString &path, LasHeaderInfo &out,
                             QString *error = nullptr,
                             QList<LasIssue> *issues = nullptr);
+    // Caller-owned bounded device for scan probes; does not read the source path.
+    static bool parseHeader(QIODevice &source, LasHeaderInfo &out,
+                            QString *error = nullptr, QList<LasIssue> *issues = nullptr);
 
     // 内容嗅探：TIF 记录头模式或裸 PRH 模式可完整走通 → true。
     static bool sniff(const QString &path);
+    static bool sniff(QIODevice &source);
 };

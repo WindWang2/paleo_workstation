@@ -171,6 +171,7 @@ add_library(paleo_io STATIC
   src/io/dlisparser.cpp                            # 方向44：DLIS (RP66 v1) 读口
   src/io/lisparser.cpp                             # 方向44：LIS79 读口（含 TIF）
   src/io/welllogread.cpp                           # 方向44：井曲线格式分派门面
+  src/io/sourceprobe.cpp                           # Bounded scan-only identity candidates
   src/io/segyreader.cpp                             # wave/segy
   src/io/constraintstore.cpp                        # wave/constraint-gpkg
   src/io/wellfileparsers.cpp                        # well head / tops / TD text parsers

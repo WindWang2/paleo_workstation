@@ -60,7 +60,10 @@ struct VersionCard
   QDateTime created;  // 文件 mtime
   QString sourceSummary; // sourceUri 摘要（目录名 + 文件名）
 
-  static VersionCard fromVersion(const CatalogVersion &v)
+  // absolutePath：受管版本的工程相对 path 经调用方解析后的绝对路径
+  //（datalist_undo/批量路径同款 DataCatalog::resolvedVersionPath 口径）；
+  // 空 = 外链版本，直接 stat v.path。
+  static VersionCard fromVersion(const CatalogVersion &v, const QString &absolutePath)
   {
     VersionCard c;
     c.versionId = v.id;
@@ -70,8 +73,8 @@ struct VersionCard
     c.fileName = v.fileName;
     c.path = v.path;
     c.shaShort = v.sha256.left(8);
-    const QFileInfo fi(v.managed ? v.path : v.path);
-    if (!v.path.isEmpty() && fi.exists())
+    const QFileInfo fi(absolutePath.isEmpty() ? v.path : absolutePath);
+    if (!fi.filePath().isEmpty() && fi.exists())
     {
       c.sizeBytes = fi.size();
       c.created = fi.lastModified();
@@ -139,6 +142,13 @@ public:
     lay->addWidget(m_empty);
   }
 
+  // 受管版本 path 为工程相对——注入解析器（EntityPanel 用
+  // m_doc->absolutePathForVersion），否则版本卡大小/日期恒缺失。
+  void setAbsolutePathOf(std::function<QString(const CatalogVersion &)> f)
+  {
+    m_absPathOf = std::move(f);
+  }
+
   void loadVersions(const QVector<CatalogVersion> &versions)
   {
     // 清旧卡。
@@ -162,7 +172,8 @@ public:
     m_scroll->setVisible(sorted.size() > 1);
     for (const CatalogVersion &v : sorted)
     {
-      const VersionCard card = VersionCard::fromVersion(v);
+      const QString abs = m_absPathOf ? m_absPathOf(v) : QString();
+      const VersionCard card = VersionCard::fromVersion(v, abs);
       auto *w = new QWidget(this);
       w->setObjectName(QStringLiteral("versionCard"));
       // 卡片：border + surface 底（DESIGN.md 面板直角/卡片 8px 圆角）。
@@ -266,6 +277,7 @@ private:
   QVBoxLayout *m_cardsLay = nullptr;
   QLabel *m_empty = nullptr;
   QPushButton *m_diffBtn = nullptr;
+  std::function<QString(const CatalogVersion &)> m_absPathOf;
   QStringList m_checked;
   QList<QWidget *> m_cards;
 };

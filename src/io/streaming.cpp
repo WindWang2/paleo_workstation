@@ -16,6 +16,9 @@ namespace
 {
   constexpr int kChunk = 256 * 1024;
 
+  // 空白分列口径：PCRE2 编译昂贵，热路径（百万行井文本）不得逐行构造。
+  const QRegularExpression kWsSplit(QStringLiteral("\\s+"));
+
   // 分块行读取器：跨块的行拼接；\n、\r\n、\r 三种行界（对齐 QTextStream）。
   class ChunkedLineReader
   {
@@ -141,8 +144,7 @@ qint64 forEachRecord(const QString &path, char sep,
         if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
           return true; // 注释/空行跳过（井文本口径）
         const QStringList cols = sep == 0
-                                     ? line.split(QRegularExpression(QStringLiteral("\\s+")),
-                                                  Qt::SkipEmptyParts)
+                                     ? line.split(kWsSplit, Qt::SkipEmptyParts)
                                      : line.split(QLatin1Char(sep));
         ++rows;
         return onRow(rows - 1, cols);

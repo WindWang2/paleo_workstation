@@ -241,6 +241,10 @@ public slots:
     for (int i = 0; i < snapshot.size(); ++i)
       m_queue.cancelItem(i);
     refresh();
+    // 取消后不再有任何路径会进 runPending（其尾部的 stop 永不到达），
+    // 1.5s 驱动拍必须就地停——否则空表每 1.5s 永久唤醒刷「已完成 N 项」。
+    if (!m_queue.hasPending())
+      m_timer->stop();
   }
 
   void refresh()
@@ -298,6 +302,8 @@ public slots:
         connect(cancel, &QPushButton::clicked, this, [this, idx] {
           m_queue.cancelItem(idx);
           refresh();
+          if (!m_queue.hasPending())
+            m_timer->stop(); // 同 cancelAll：取消到空队列即停驱动拍
         });
         ol->addWidget(cancel);
       }

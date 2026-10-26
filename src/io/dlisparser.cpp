@@ -499,6 +499,16 @@ using paleo::io_detail::addIssue;
       else
       {
         const uchar d = *c.p;
+        if ((d & 0xE0) == 0xE0 || (d & 0xE0) == 0xC0 || (d & 0xE0) == 0xA0)
+        {
+          // EFLR 模板语义只允许单 Set——行区出现 Set 族描述符说明流已错位
+          //（损坏文件一位翻转即可造出）。内层 break 不消费该字节，若不就地
+          // 拒绝，外层 while 会对同一字节无限空转（原「第二 Set」守卫在循环
+          // 外不可达）。畸形输入如实报错，不挂起。
+          if (error)
+            *error = QCoreApplication::translate("DlisParser", "EFLR 中途出现第二个 Set 组件");
+          return false;
+        }
         if ((d & 0xE0) == 0x60)
         {
           out.objects.append(current);

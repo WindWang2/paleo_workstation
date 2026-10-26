@@ -194,8 +194,15 @@ bool ijkAt(const ZoneGrid &grid, double x, double y, double z, Index3 *out)
     return false;
   const double u = (x - grid.originX) / grid.dx;
   const double v = (y - grid.originY) / grid.dy;
-  const int i = static_cast<int>(std::floor(u));
-  const int j = static_cast<int>(std::floor(v));
+  // PW-128：先在 double 域判界再转 int——NaN/越界大值的 floor→cast 是 UB
+  //（公共 API，projectToSection 会把未校验的 trace 坐标直传进来）。
+  const double fu = std::floor(u);
+  const double fv = std::floor(v);
+  if (!(fu >= 0.0) || !(fv >= 0.0) || fu >= static_cast<double>(grid.ni) ||
+      fv >= static_cast<double>(grid.nj))
+    return false;
+  const int i = static_cast<int>(fu);
+  const int j = static_cast<int>(fv);
   if (i < 0 || j < 0 || i >= grid.ni || j >= grid.nj || !grid.columnLive(i, j))
     return false;
   const int c = grid.columnIndex(i, j);

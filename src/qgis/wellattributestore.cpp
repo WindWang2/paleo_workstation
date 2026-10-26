@@ -764,17 +764,27 @@ bool seedFactors(DataCatalog *catalog, const QString &dir,
     return fail(error, tr("井点因子表正在编辑，请先保存或放弃编辑"));
   if (!layer->startEditing())
     return fail(error, tr("无法开始井点因子更新"));
+  // 每更新行一次全新全表迭代是 O(U×N)（数百行 × 数千要素，GUI 线程事务内）
+  // ——一次性快照建 (well_id,horizon) 索引后按 fid 取行（同文件 merge/seed
+  // 的快照口径）。新行仍走下方 addFeature。
+  QHash<QString, QgsFeatureId> rowByWellHorizon;
+  {
+    QgsFeature f;
+    auto scan = layer->getFeatures();
+    while (scan.nextFeature(f))
+      rowByWellHorizon.insert(
+          f.attribute("well_id").toString() + QChar(0x1f) +
+              f.attribute("horizon").toString(),
+          f.id());
+  }
   for (const auto &v : updates) {
     const auto row = v.toMap();
     QgsFeature found;
-    auto it = layer->getFeatures();
-    QgsFeature f;
-    while (it.nextFeature(f))
-      if (f.attribute("well_id") == row.value("well_id") &&
-          f.attribute("horizon") == row.value("horizon")) {
-        found = f;
-        break;
-      }
+    const auto hit = rowByWellHorizon.constFind(
+        row.value("well_id").toString() + QChar(0x1f) +
+        row.value("horizon").toString());
+    if (hit != rowByWellHorizon.constEnd())
+      layer->getFeatures(QgsFeatureRequest().setFilterFid(*hit)).nextFeature(found);
     if (found.isValid()) {
       // 已维护的非空数值不被自动重算覆盖；NULL 格子是上次获取没算出值的
       // 残留（或用户清空后重新获取），用本次结果补齐——空行不补会永久

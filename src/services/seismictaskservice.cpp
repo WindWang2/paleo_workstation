@@ -262,6 +262,9 @@ PaleoTask *SeismicTaskService::startBounded(const QString &title,
 
         return (task && task->cancelRequested()) ? QString() : (work ? work(task) : QString());
       };
+  if (!taskService_)
+    return nullptr; // 公开扩展面（头注文档化）：setTaskService 允许空，
+                    // 其余 start* 入口都判空，此处不得裸解引用。
   PaleoTask *task = taskService_->start(title, gated, layerId, quiet);
   QObject::connect(task, &PaleoTask::finished, task, [gate]() {
     gate->active.fetch_sub(1);

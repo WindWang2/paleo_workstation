@@ -80,7 +80,11 @@ public:
   // 树重建/删 item 前必须调：m_dropTarget 是裸 QTreeWidgetItem*（非
   // QObject 无 QPointer 守卫），QDrag::exec 嵌套事件循环里节点被删后
   // clearDropFeedback 会对已释放 item 调 setBackground（UAF）。
-  void invalidateDropTarget() { m_dropTarget = nullptr; }
+  void invalidateDropTarget()
+  {
+    m_dropTarget = nullptr;
+    m_rejectTarget = nullptr;
+  }
   // 整树清空同样先丢缓存目标（遮蔽 QTreeWidget::clear 的非虚接口——
   // 经 DataNavTree* 调用都会走到本守卫）。
   void clear()
@@ -335,7 +339,15 @@ private:
   {
     m_lastReject = reasonText(reasonKey);
     if (target)
+    {
+      // 拒绝目标也要记账：clearDropFeedback 此前只清合法高亮目标，红线
+      // 底色一旦落下就没有任何路径清除（D3.6 自称「dragLeave 清反馈」与
+      // 实现不符）。换目标时先把上一个红底还原。
+      if (m_rejectTarget && m_rejectTarget != target)
+        m_rejectTarget->setBackground(0, QBrush());
+      m_rejectTarget = target;
       target->setBackground(0, PaleoTheme::tokens().error); // D3.6 红线
+    }
     if (viewport())
     {
       // tooltip 原因：挂在视口（offscreen 下不弹窗也能断言字符串）。
@@ -347,6 +359,9 @@ private:
     if (m_dropTarget)
       m_dropTarget->setBackground(0, QBrush());
     m_dropTarget = nullptr;
+    if (m_rejectTarget)
+      m_rejectTarget->setBackground(0, QBrush());
+    m_rejectTarget = nullptr;
     m_lastReject.clear();
     if (viewport())
       viewport()->setToolTip(QString());
@@ -373,6 +388,7 @@ private:
 
   bool m_vim = false;
   QTreeWidgetItem *m_dropTarget = nullptr;
+  QTreeWidgetItem *m_rejectTarget = nullptr; // 被红标拒绝的拖放目标（同上，树重建前须失效）
   QString m_lastReject;
 
 };

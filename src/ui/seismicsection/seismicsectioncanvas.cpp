@@ -350,6 +350,10 @@ void SeismicSectionCanvas::setColorMap(SectionColorMapType type) {
         rebuildAttrImage();
         if (!m_zoneOverlay.values.empty())
             rebuildZoneImage();
+        // 卷帘 B 图用当前 LUT 一次性烤死（setCompareData 内），换色标不重烘
+        // 会让帘右保留旧色标——对比恰是换色标的主要场景（setGain 同款）。
+        if (m_compareEnabled && !m_compareSlice.values.empty())
+            setCompareData(m_compareSlice, m_compareLabel);
         update();
     }
 }

@@ -382,8 +382,12 @@ GeostatSampleGrid buildGeostatGrid( const std::vector<paleo::geostat::Sample> &s
   run.spanY = std::max( maxY - minY, cellSize );
   run.spec.pixelWidth = cellSize;
   run.spec.pixelHeight = -cellSize;
-  run.spec.cols = static_cast<int>( std::ceil( ( run.spanX + 2 * margin ) / cellSize ) );
-  run.spec.rows = static_cast<int>( std::ceil( ( run.spanY + 2 * margin ) / cellSize ) );
+  // PW-128 同族防线：极小 cellSize 使 ceil 结果超出 int 表示域时，
+  // static_cast<int> 是 UB，且溢出后的负积会绕过调用方 4M 预算闸——
+  // 先在 double 域夹紧（1e5/边，平方 1e10 远超 4M 闸），让预算闸按
+  // 真实超限如实拒绝。
+  run.spec.cols = static_cast<int>( qBound( 1.0, std::ceil( ( run.spanX + 2 * margin ) / cellSize ), 1.0e5 ) );
+  run.spec.rows = static_cast<int>( qBound( 1.0, std::ceil( ( run.spanY + 2 * margin ) / cellSize ), 1.0e5 ) );
   run.spec.originX = ( minX + maxX ) / 2.0 - run.spec.cols * cellSize / 2.0;
   run.spec.originY = ( minY + maxY ) / 2.0 + run.spec.rows * cellSize / 2.0;
   run.spec.crs = crs.toWkt().toStdString();

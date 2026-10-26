@@ -138,6 +138,71 @@ QGIS_CUSTOM_CONFIG_PATH 入沙箱；④ 清理现存垃圾。
   ziparchive/rasterpyramid/horizonbinner/sattrio/cuttingsdoc、
   **algorithms/singlefactor 全目录**（BIZ-11 在册）。
 
+## 第二轮（同日）：补全覆盖 + 遗留推进
+
+上轮因账号配额中断的 4 个分片本轮补齐（dlis/lis/las 全文、outsourceworkbook
+主体 + wellcompositexml + wellfileparsers、io-rest 之 constraintstore/ziparchive/
+rasterpyramid/horizonbinner/sattrio/cuttingsdoc、algorithms/singlefactor 全目录
+41 文件）——**src/ 全仓逐行覆盖至此完备**。同时对第一轮遗留清单继续修复。
+
+### 第二轮新发现并已修复
+
+- **[P1] dlisparser.cpp** EFLR 行区出现第二个 Set 族描述符（损坏文件一位翻转
+  即可构造）→ 内层 break 不消费字节、外层 while 零消耗空转（100% CPU 挂起）；
+  原「第二 Set」守卫在循环外不可达。就地拒绝并如实报错。
+- **[P1] lisparser.cpp** 填充前瞻把 len∈{0x0020,0x2000,0x2020} 的合法 PR 头
+  （LIS79 常用 8192B 物理记录）成对判为填充吞掉 → 整文件误报「PR 长度非法」。
+  跳过前先做 PRH 先验（len ≥ attrs 最小长度、不越文件尾、attrs 非纯填充形态）。
+- **[P2×2] singlefactor**（补覆盖新位点）：support.cpp cellOf / curvekernel 核点数 /
+  partition lround / wellacquisition toInt / contouravoidance steps / corridor cells
+  六处 PW-128 同型 double→int UB 全部改 double 域判界/夹紧；structural.cpp 补
+  B-11 同款 20000 井闸（该路径 params 手工填绕过 resolveParameters）与空几何
+  GEOSisEmpty 检查（empty→NaN 换算 UB）；localidw K=0 全样本模式按 512MiB
+  矩阵预算封顶邻域数（原 20000 井 = 3.2GB bad_alloc 打穿任务线程）。
+- **[P2] horizonbinner writeHorizonGeoTiff** 直接 GDALCreate 目标路径 → 改
+  .partial + paleoReplaceFile 原子落名（#588 B.13 家族 io 侧实例）。
+- **[P3×5] io-rest 分片**：ziparchive 中央目录条目数前置闸（10 万条封顶，堵
+  「先建 GB 级条目结构才轮到后置闸」的纵深缺口）；outsourceworkbook
+  previewXlsxWorkbook 三处 `*limited` 空指针防护 + 500/512MB 双标死区对齐。
+
+### 第一轮遗留项本轮修复（L 清单收敛）
+
+L-03（tileinference 类数×像元预算）、L-04（PW-128 五处：stratgrid/upscale/
+wellsiting/faultpath×2/sgs3 bucketAxis）、L-05（sgs3 3D 去重窗）、L-06（geostat
+网格 double 域夹紧）、L-08（SpreadsheetML 预览单格 4096 截断 + 64 表上限）、
+L-12（wellattributestore 一次快照哈希索引替代 O(U×N) 全表扫）、L-15
+（segyindexstore loadForResume 补 D2.8 审计）、L-18（datanavtree 红反馈记账
+清除 / 版本时间线受管版本按工程目录解析后 stat / 导入队列取消到空即停驱动拍）、
+L-19a（卷帘 B 图随换色标/反转重烘）。另修 P3：streaming 热路径静态正则、
+check_file_budget 逐字符空转死代码、new_module.sh python3 探测兜底、
+seismictaskservice startBounded 判空、transcode 索引缓存落盘失败留痕。
+
+### 第二轮确认、暂不修（并入遗留清单）
+
+- **L-22 [P2] wellcompositexml 写侧只序列化 6 类工作表**（测井曲线/离散曲线/
+  砂层组/层序/取心/符号道无写回路径）——含这些域的派生版本落盘后重解析永久
+  丢失；需补齐 writer 或显式契约拒绝，属行为设计决策。
+- **L-23 [P2] dlisparser** 主帧含 UVARI/ORIGIN 表示码标量通道时整文件硬失败
+  （readNumeric 本可解码，违反自家「白名单外默认必须解析」契约）。
+- **L-24 [P2] lasparser** 三处：行数外推 reserve 可放大为每曲线 512MB 提交
+  （Windows 大块堆分配即 MEM_COMMIT）；4MB 头扫描上限使 parseRange 与
+  parseDoc 对同一文件结论矛盾（错误归因「无 ~A」实为扫描截断）；流式路径
+  Ctrl-Z 只截断所在块，与整读路径行集不一致（#167 语义分叉）。
+- **L-25 [P3] rasterpyramid tile()** 源新鲜度校验在 buildMutex 外、锁内无复验
+  ——并发换源可把错代瓦片灌进 LRU（PW-106「进锁双检」未同步到 tile()）。
+- **L-26 [P3] constraintstore**：copyAudit OFFSET 分页对并发追加不稳定可漏审计
+  事件（应游标翻页）；migrateLegacyCrs 备份复制先于事务写锁（延迟 BEGIN），
+  极窄窗口内外部合法提交可能被旧备份回滚。
+- **L-27 [P3] 综合柱状图解析语义**：单元格级 issue 升格整文件拒收（底层契约
+  是逐条列因照常返回）；坏深度格整行静默丢弃零报告；writeWellTopsText 不加
+  引号破坏「parse(write(x)) 恒等」契约；sharedStrings 全量物化 ~2GiB 峰值；
+  collectSheetRows 末张匹配表覆盖 + 不查 XML 截断错误。
+- **L-28 [P3] singlefactor 性能族**：fieldcontours 网格加密线数无预算（数据相
+  关可达 10^6 GEOS 线）；regionalcontours O(n²) 缝合；cartographicsmooth
+  rdpSimplify 递归深度 O(n)；faultpath 逐查询点重建绕行数组 + O(井×段) 扫描；
+  dlisparser 每帧每通道 obnameKey 键串分配；lasparser 流式逐行堆分配。
+- lasparser.h 头注释「WRAP YES not supported」与实现矛盾（已实装）——文档漂移。
+
 ## 验证
 
 - 源码闸门（本机直跑）：layering --strict / --qgs-audit / qgis-spread / file-budget

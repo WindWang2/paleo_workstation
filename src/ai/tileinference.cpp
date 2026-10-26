@@ -538,6 +538,15 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
                      .arg( kMaxTileClasses ) );
     if ( grid.classes == 0 )
     {
+      // 像元闸（kMaxTileGridPixels）在类数未知时设的——首 tile 得知类数后
+      // 必须回验乘积：64Mi 像元 × 255 类 ≈ 65GB，QVector 直接 bad_alloc
+      // 且任务池线程无兜底 = std::terminate。预算：256Mi 元素（float 1GiB）。
+      if ( qsizetype( classes ) * req.gridRows * req.gridCols
+           > qsizetype( 256 ) * 1024 * 1024 )
+        return fail( QObject::tr( "类数 %1 × 网格 %2×%3 超过概率缓冲预算，请缩小网格或换小类数模型" )
+                       .arg( classes )
+                       .arg( req.gridRows )
+                       .arg( req.gridCols ) );
       grid.classes = classes;
       grid.argmax = QVector<quint8>( qsizetype( req.gridRows ) * req.gridCols, 255 );
       grid.confidence = QVector<float>( qsizetype( req.gridRows ) * req.gridCols, 0.0f );

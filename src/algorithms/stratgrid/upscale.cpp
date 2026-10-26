@@ -84,8 +84,14 @@ void addGridCrossings(double u0, double du, std::vector<double> *ts)
   if (std::fabs(du) < 1e-15)
     return;
   const double u1 = u0 + du;
-  const int lo = static_cast<int>(std::floor(std::min(u0, u1)));
-  const int hi = static_cast<int>(std::floor(std::max(u0, u1)));
+  // PW-128：非有限/巨值坐标的 floor→cast 是 UB，且越远的格线穿越循环本身
+  // 就是亿级迭代——井轨迹站 x/y 只校验过 MD 递增，这里在 double 域设界。
+  const double loD = std::floor(std::min(u0, u1));
+  const double hiD = std::floor(std::max(u0, u1));
+  if (!(loD >= -1.0e9) || !(hiD <= 1.0e9))
+    return;
+  const int lo = static_cast<int>(loD);
+  const int hi = static_cast<int>(hiD);
   for (int n = lo + 1; n <= hi; ++n)
   {
     const double t = (static_cast<double>(n) - u0) / du;

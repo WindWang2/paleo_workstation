@@ -58,7 +58,10 @@ std::vector<Point2> densify( const std::vector<Point2> &points, double spacing )
     const Point2 a = points[i - 1];
     const Point2 b = points[i];
     const double len = std::hypot( b.x - a.x, b.y - a.y );
-    const int steps = std::max( 1, static_cast<int>( std::ceil( len / spacing ) ) );
+    // PW-128：超 int 域的 ceil→cast 是 UB（spacing 下限 1e-6，长墙段可超）
+    // ——double 域夹紧，每段加密至多 1e6 点。
+    const double stepsD = std::ceil( len / spacing );
+    const int steps = stepsD >= 1.0 ? static_cast<int>( std::min( stepsD, 1.0e6 ) ) : 1;
     for ( int s = 1; s <= steps; ++s )
     {
       const double t = static_cast<double>( s ) / steps;

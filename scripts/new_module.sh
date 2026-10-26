@@ -26,7 +26,11 @@ VOCAB=tools/layering_vocab.json
 [ -f "$VOCAB" ] || { echo "FAIL 缺 $VOCAB" >&2; exit 2; }
 
 # 词表登记 + 校验层值（唯一事实源是 JSON，脚本不自带第二份词表）
-python3 - "$NAME" "$LAYER" "$VOCAB" <<'PY'
+# 词表登记 + 校验层值（唯一事实源是 JSON，脚本不自带第二份词表）。
+# Windows Git Bash 常无 python3 别名（ctest 侧同款 NAMES 兜底口径）。
+PY_BIN="$(command -v python3 || command -v python || true)"
+[ -n "$PY_BIN" ] || { echo "FAIL 需要 python3/python" >&2; exit 2; }
+"$PY_BIN" - "$NAME" "$LAYER" "$VOCAB" <<'PY'
 import json, sys
 name, layer, path = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, encoding="utf-8") as fh:

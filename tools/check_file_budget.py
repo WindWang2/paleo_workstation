@@ -106,9 +106,6 @@ def _match_sig(lead):
 def iter_functions(stripped):
     """→ [(name, start_line, end_line)]，函数体配对块（1 起行号，含起止）。"""
     out = []
-    line_starts = [0]
-    for ch in stripped:
-        pass
     # 行号定位：预计算每行起始偏移
     offs = [0]
     for i, ch in enumerate(stripped):

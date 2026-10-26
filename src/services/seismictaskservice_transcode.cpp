@@ -288,7 +288,11 @@ PaleoTask *SeismicTaskService::startIndexing(
     if (index && !task->cancelRequested())
     {
       std::string saveErr;
-      SgyIndexCache::Save(index, saveErr);
+      if (!SgyIndexCache::Save(index, saveErr))
+        // 磁盘满/权限失败被吞会让索引缓存永不落盘——每次打开同一文件都
+        // 全卷重扫（纯性能损失且无线索），至少留任务详情。
+        task->reportDetail(QStringLiteral("index cache save failed: %1")
+                               .arg(QString::fromStdString(saveErr)));
       *resultIndex = index;
     }
     return QString();

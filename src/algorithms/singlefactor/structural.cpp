@@ -197,6 +197,17 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
                                          const StructuralRequest &request,
                                          const Control &control )
 {
+  // B-11 同款井数闸：structural_idw 路径 params 手工填（autosApplied=true）
+  // 不经 resolveParameters，此前绕过 20000 井交互预算（O(n^2) 井距估计 +
+  // 每批 512*n 权重缓冲，localidw 路径在 support.cpp 有闸、此路径无）。
+  if ( wells.size() > 20000 )
+  {
+    StructuralResult rejected;
+    rejected.status = Status::InvalidInput;
+    rejected.message = "井点样本数 " + std::to_string( wells.size() )
+        + " 超交互预算（>20000）——请先抽样或裁剪井点输入";
+    return rejected;
+  }
   const auto cancel = [&control]() {
     return control.cancelled && control.cancelled();
   };
@@ -236,6 +247,11 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
     if ( !domain )
       return fail( Status::NumericalFailure, "GEOS 插值区相交失败" );
   }
+  // 空域防御：求交/联合可能产出合法的 empty 几何（插值区与边界不相交、
+  // 直调传空 boundaries），GEOS 某些版本对 empty 的 getExtent 成功返回零值
+  // → span=0 → step=0 → NaN 换算 UB。空几何按 InvalidInput 如实拒绝。
+  if ( GEOSisEmpty_r( geos.handle, domain.get() ) == 1 )
+    return fail( Status::InvalidInput, "成图边界/插值区求交后为空几何" );
   double x0 = 0, y0 = 0, x1 = 0, y1 = 0;
   if ( !GEOSGeom_getExtent_r( geos.handle, domain.get(), &x0, &y0, &x1, &y1 ) )
     return fail( Status::NumericalFailure, "GEOS 范围读取失败" );

@@ -981,7 +981,9 @@ WorkbookReadResult readWorkbook( const QString &path )
     }
     file.close();
     QByteArray xmlBytes;
-    if ( !paleo::io::readBoundedFile( path, paleo::io::kDefaultBoundedReadLimit, &xmlBytes, &result.error ) )
+    // 与上方 512MB 外闸同口径（kDefaultBoundedReadLimit=500MB 会形成外闸
+    // 永不可达的 500-512MB 死区，错误文案还写着 512MB）。
+    if ( !paleo::io::readBoundedFile( path, 512LL * 1024 * 1024, &xmlBytes, &result.error ) )
       return result;
     return readSpreadsheetMlWorkbook( path, xmlBytes );
   }
@@ -993,14 +995,15 @@ WorkbookReadResult readWorkbook( const QString &path )
 
 WorkbookReadResult previewXlsxWorkbook(const QString &path, bool *limited)
 {
-  *limited = false; WorkbookReadResult out; QFile file(path);
+  if (limited) *limited = false; // 与 readXlsx 同参数口径：允许 nullptr
+  WorkbookReadResult out; QFile file(path);
   if (!file.open(QIODevice::ReadOnly | QIODevice::Unbuffered)) { out.error = file.errorString(); return out; }
-  if (file.size() > 2 * 1024 * 1024) { *limited = true; return out; }
+  if (file.size() > 2 * 1024 * 1024) { if (limited) *limited = true; return out; }
   const auto archive = file.read(2 * 1024 * 1024); const auto listing = zipListBytes(archive);
   if (!listing.ok) { out.error = listing.error; return out; }
   quint64 expanded = 0;
   for (const auto &entry : listing.entries) expanded += entry.uncompressedSize;
-  if (expanded > 4 * 1024 * 1024 || listing.entries.size() > 128) { *limited = true; return out; }
+  if (expanded > 4 * 1024 * 1024 || listing.entries.size() > 128) { if (limited) *limited = true; return out; }
   return readXlsx(path, archive, 200, limited);
 }
 

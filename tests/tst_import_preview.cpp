@@ -86,6 +86,26 @@ class TestImportPreview : public QObject
   Q_OBJECT
 private slots:
   void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); PaleoTheme::pinRenderEnvironment(); }
+  void newCompositeViewDoesNotReplaceLegacyView()
+  {
+    PreviewStack stack; QString error;
+    const auto oldSource = stack.source("legacy.xml", ImportUxFixtures::xml());
+    const auto newSource = stack.source("additional.xml", ImportUxFixtures::comprehensiveXml());
+    const auto oldAsset = stack.imports->importProjectFile(oldSource, &error);
+    QVERIFY2(!oldAsset.isEmpty(), qPrintable(error));
+    const auto newAsset = stack.imports->importProjectFile(newSource, &error);
+    QVERIFY2(!newAsset.isEmpty(), qPrintable(error));
+    stack.reopen();
+    stack.preview->openAsset(oldAsset);
+    QVERIFY(stack.currentPage()); QVERIFY(stack.currentPage()->findChild<QLabel *>("lasPendingHint"));
+    QVERIFY(!stack.currentPage()->findChild<QWidget *>("xmlViewStack"));
+    QVERIFY(stack.currentPanel()); QCOMPARE(stack.currentPanel()->wellName(), QStringLiteral("A1"));
+    stack.preview->openAsset(newAsset);
+    QVERIFY(stack.currentPage()->findChild<QWidget *>("xmlViewStack"));
+    auto *panel = stack.currentPanel(); QVERIFY(panel);
+    QTRY_COMPARE_WITH_TIMEOUT(panel->wellName(), QStringLiteral("A1"), 10000);
+    QVERIFY(!panel->isReferenceWell());
+  }
   void comprehensiveTemplateKeepsGeologicalTracks()
   {
     PreviewStack stack;

@@ -41,6 +41,40 @@ class TestWellLogText : public QObject
 {
   Q_OBJECT
 private slots:
+  void legacyUnitDeclarationsDoNotSelectCompositeMode_data()
+  {
+    QTest::addColumn<QString>("axis");
+    QTest::addColumn<QString>("unit");
+    QTest::addColumn<QString>("basis");
+    QTest::newRow("explicit-metres") << QStringLiteral("深度[m]") << QStringLiteral("m") << QString();
+    QTest::newRow("explicit-feet") << QStringLiteral("深度[ft]") << QStringLiteral("ft") << QString();
+    QTest::newRow("parenthesized-metres") << QStringLiteral("深度(m)") << QStringLiteral("m") << QString();
+    QTest::newRow("explicit-md-feet") << QStringLiteral("MD[ft]") << QStringLiteral("ft") << QStringLiteral("MD");
+  }
+  void legacyUnitDeclarationsDoNotSelectCompositeMode()
+  {
+    QFETCH(QString, axis); QFETCH(QString, unit); QFETCH(QString, basis);
+    QTemporaryDir dir;
+    const auto path = dir.filePath("legacy.xml");
+    QVERIFY(write(path, workbook(xmlSheet(QStringLiteral("测井曲线"),
+        {{"井号", axis, "TVD", "TVDSS", "GR"}, {"A1", "1000", "990", "", "10"}}))));
+    LasHeaderInfo header; QList<LasCurve> curves; QString error;
+    QVERIFY2(WellLogRead::parse(path, header, curves, &error), qPrintable(error));
+    QCOMPARE(header.indexBasis, basis);
+    QCOMPARE(curves.first().unit, unit);
+    QVERIFY(curves.at(1).unit.isEmpty());
+    QCOMPARE(curves.first().values, QVector<double>({1000}));
+  }
+
+  void ordinaryTextWithSameColumnsKeepsUnknownDepthMetadata()
+  {
+    QTemporaryDir dir; const auto path = dir.filePath("ordinary.csv");
+    QVERIFY(write(path, QStringLiteral("井号,深度,TVD,TVDSS,GR\nA1,1000,990,,10\n").toUtf8()));
+    LasHeaderInfo header; QList<LasCurve> curves; QString error;
+    QVERIFY2(WellLogRead::parse(path, header, curves, &error), qPrintable(error));
+    QVERIFY(header.indexBasis.isEmpty()); QVERIFY(curves.first().unit.isEmpty());
+  }
+
   void compositeVerticalColumnsKeepSamplingSources()
   {
     QTemporaryDir dir;

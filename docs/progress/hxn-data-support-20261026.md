@@ -3,6 +3,29 @@
 基线：`master`，`829ffb1a`。在独立 worktree / `codex/hxn-data-support`
 实现；原工区文件及含井名、坐标的问题清单仅保留在本机，未入库。
 
+## 兼容原则（用户补充确认）
+
+HXN 综合柱状图是新增的数据模式。原 LAS / DLIS / LIS、CSV / TXT / TSV、
+已有曲线 XML、井位／分层／轨迹／时深表和已有工程读取路径继续保留；
+不迁移旧资料，不批量修改历史版本元数据，不把 EPSG:2436 或 MD／米设置
+成所有资料的默认口径。新旧资料可以在同一工程和同一口井下共存。
+
+新模板按原始四列表头精确识别。已有 XML 中带 `[m]`、`[ft]` 或 `(m)`
+的深度列继续使用原来的单位与基准规则，不因为移除单位括号后与新模板
+同名就进入新模式。普通 CSV 即使使用相同列名也不触发 XML 模板规则。
+旧资产没有 `logCompositeTemplate` 标记时仍走原预览路径；只有识别到的
+新增模式登记该标记，关闭重开后继续按各自模式读取。
+
+兼容回归覆盖：带单位旧 XML、普通文本的未知深度口径；旧 XML＋英尺 CSV
+与新综合 XML 混合导入、版本元数据不变与重开；无新元数据的旧 LAS 工程
+追加综合 XML；新旧 XML 各自的实际预览入口。
+
+本轮兼容验证的 10 个套件通过：`tst_las`、`tst_dlisparser`、`tst_lisparser`、
+`tst_folderimport`、`tst_welllogtext`、`tst_import_ux`、`tst_import_preview`、
+`tst_projectsetup`、`tst_welllog_consumers`、`tst_welllog_multiformat`。
+Windows 串行执行。入库测试对旧版本的 ID、持久化元数据内容和原始曲线值
+做前后比较，预览测试分别检查旧入口和新增入口，均包含关闭重开。
+
 ## 来源与已确认口径
 
 本机资料包含 57 份 Excel 2003 SpreadsheetML 综合柱状图 XML、1 份井坐标

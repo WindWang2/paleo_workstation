@@ -110,9 +110,10 @@ bool beginTable(const QString &path, const Table &table, LasHeaderInfo &header,
   // HXN's comprehensive-well export schema: measured depth in metres,
   // accompanied by separate TVD/TVDSS columns (confirmed by the data owner).
   // Bare DEPTH/深度 columns in other text/XML schemas remain unspecified.
+  // Match raw headers: older unit-bearing XML keeps its declared interpretation.
   const bool compositeDepth = wellColumn == 0 && indexColumn == 1 && columns.size() >= 4 &&
-      columns[0].name == QStringLiteral("井号") && columns[1].name == QStringLiteral("深度") &&
-      columns[2].name == QLatin1String("TVD") && columns[3].name == QLatin1String("TVDSS") &&
+      table.headers[0].trimmed() == QStringLiteral("井号") && table.headers[1].trimmed() == QStringLiteral("深度") &&
+      table.headers[2].trimmed() == QLatin1String("TVD") && table.headers[3].trimmed() == QLatin1String("TVDSS") &&
       (table.label.startsWith(QStringLiteral("测井曲线")) || table.label.startsWith(QStringLiteral("离散曲线")));
   if (compositeDepth) {
     samples.indexBasis = QStringLiteral("MD");

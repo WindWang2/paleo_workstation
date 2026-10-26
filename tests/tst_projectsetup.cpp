@@ -2,6 +2,7 @@
 #include <QThread>
 #include <QSemaphore>
 #include <cmath>
+#include <algorithm>
 #include <QComboBox>
 #include <QDir>
 #include <QFile>
@@ -33,6 +34,7 @@
 #include "../src/io/dataimportservice.h"
 #include "../src/io/horizonbinner.h"
 #include "../src/services/projectdata.h"
+#include "../src/services/welllogset.h"
 #include "../src/services/previewdoc.h"
 #include "../src/workflow/folderimport.h"
 #include "../src/workflow/projectsetup.h"
@@ -77,6 +79,143 @@ class TestProjectSetup : public QObject
     return paleo::io::zipWriteArchive(path, {{"xl/workbook.xml", workbook}, {"xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Target=\"worksheets/sheet1.xml\"/></Relationships>"}, {"xl/worksheets/sheet1.xml", xml}}, {}, &error) ? path : QString();
   }
 private slots:
+  void additionalRootOrganizationPreservesLegacyAndMixedSources() {
+    QTemporaryDir dir;
+    const auto root = dir.filePath("input");
+    const auto points = xlsx(root + QStringLiteral("/坐标统计.xlsx"), "data",
+        {{"井号", "X（纵坐标）", "Y（横坐标）"}, {"A1", "2360000", "300000"}});
+    QVERIFY(!points.isEmpty());
+    const auto logs = root + QStringLiteral("/测井数据");
+    QVERIFY(write(logs + "/A1.xml", ImportUxFixtures::comprehensiveXml()));
+    const auto references = root + QStringLiteral("/参考资料");
+    QVERIFY(write(references + "/reference.txt", "reference document"));
+    auto sources = discoverProjectSources(root);
+    QCOMPARE(sources.points, points); QCOMPARE(sources.wells, logs); QCOMPARE(sources.references, references);
+    auto preview = scanProjectSources(sources);
+    QCOMPARE(preview.logs, 1); QCOMPARE(preview.wells, 1); QCOMPARE(preview.references, 1);
+    QCOMPARE(preview.paths.size(), 3); QVERIFY(preview.errors.isEmpty()); QVERIFY(preview.sourceProblems.isEmpty());
+    QCOMPARE(preview.pointMapping.value("x").toString(), QStringLiteral("Y（横坐标）"));
+    QCOMPARE(preview.pointMapping.value("y").toString(), QStringLiteral("X（纵坐标）"));
+    // Both directory organizations coexist without importing the coordinate table twice.
+    const auto legacy = root + QStringLiteral("/井");
+    QVERIFY(write(legacy + "/B1/legacy.csv", ImportUxFixtures::csv("B1")));
+    sources = discoverProjectSources(root); QCOMPARE(sources.wells, root);
+    preview = scanProjectSources(sources); QCOMPARE(preview.logs, 2); QCOMPARE(preview.paths.size(), 4);
+    QCOMPARE(preview.paths.count(points), 1); QVERIFY(preview.sourceProblems.isEmpty());
+    // A loose log at the root also survives when there is a recognized directory.
+    QVERIFY(write(root + "/C1.xml", ImportUxFixtures::comprehensiveXml().replace("A1", "C1")));
+    preview = scanProjectSources(discoverProjectSources(root)); QCOMPARE(preview.logs, 3); QCOMPARE(preview.paths.size(), 5);
+    const auto legacyPoints = root + "/wellheads.csv";
+    QVERIFY(write(legacyPoints, "WELL,X,Y\nA1,300000,2360000\n"));
+    QCOMPARE(discoverProjectSources(root).points, legacyPoints); // Preserve existing naming priority.
+    QTemporaryDir old;
+    const auto oldPoints = old.filePath(QStringLiteral("井坐标.csv"));
+    QVERIFY(write(oldPoints, "WELL,X,Y\nA1,300000,2360000\n"));
+    QVERIFY(write(old.filePath(QStringLiteral("井/A1/old.csv")), ImportUxFixtures::csv()));
+    sources = discoverProjectSources(old.path()); QCOMPARE(sources.points, oldPoints);
+    QCOMPARE(sources.wells, old.filePath(QStringLiteral("井"))); QCOMPARE(scanProjectSources(sources).logs, 1);
+    QTemporaryDir flat;
+    QVERIFY(write(flat.filePath("A1.xml"), ImportUxFixtures::comprehensiveXml()));
+    QCOMPARE(discoverProjectSources(flat.path()).wells, flat.path());
+    QCOMPARE(scanProjectSources(discoverProjectSources(flat.path())).logs, 1);
+  }
+  void additionalOrganizationWizardCreatesAndReopens() {
+    QTemporaryDir dir; QString error;
+    const auto root = dir.filePath("input");
+    const auto points = xlsx(root + QStringLiteral("/坐标统计.xlsx"), "data",
+        {{"井号", "X（纵坐标）", "Y（横坐标）"}, {"A1", "2360000", "300000"}, {"B1", "2361000", "301000"}});
+    QVERIFY(!points.isEmpty());
+    QVERIFY(write(root + QStringLiteral("/测井数据/A1.xml"), ImportUxFixtures::comprehensiveXml()));
+    QVERIFY(write(root + QStringLiteral("/测井数据/B1.xml"), ImportUxFixtures::comprehensiveXml().replace("A1", "B1")));
+    QVERIFY(write(root + QStringLiteral("/参考资料/reference.txt"), "reference document"));
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service, [&service](const QString &p) { service.setProjectDir(QFileInfo(p).absolutePath()); });
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    ProjectSetupDialog dialog(&workflow);
+    dialog.findChild<QLineEdit *>("projectDirectoryEdit")->setText(dir.filePath("output"));
+    dialog.setSourceRoot(root);
+    QTRY_COMPARE_WITH_TIMEOUT(dialog.preview().logs, 2, 20000);
+    QCOMPARE(dialog.findChild<QLineEdit *>("projectPointsEdit")->text(), points);
+    QCOMPARE(dialog.findChild<QLineEdit *>("projectWellsEdit")->text(), root + QStringLiteral("/测井数据"));
+    QCOMPARE(dialog.findChild<QLineEdit *>("projectReferencesEdit")->text(), root + QStringLiteral("/参考资料"));
+    QCOMPARE(dialog.findChild<QComboBox *>("pointField_x")->currentText(), QStringLiteral("Y（横坐标）"));
+    QCOMPARE(dialog.findChild<QComboBox *>("pointField_y")->currentText(), QStringLiteral("X（纵坐标）"));
+    QCOMPARE(dialog.findChild<QTableWidget *>("projectPointPreview")->rowCount(), 2);
+    auto *crs = dialog.findChild<QLineEdit *>("pointSourceCrsEdit"); QVERIFY(crs->text().isEmpty());
+    crs->setText("EPSG:2436"); dialog.findChild<QPushButton *>("projectSetupScanButton")->click();
+    QTRY_COMPARE_WITH_TIMEOUT(dialog.preview().pointSourceCrs, QString("EPSG:2436"), 20000);
+    QVERIFY(dialog.preview().errors.isEmpty()); QVERIFY(dialog.preview().sourceProblems.isEmpty());
+    QCOMPARE(dialog.preview().paths.size(), 4); QCOMPARE(dialog.preview().wells, 2);
+    const auto capture = qEnvironmentVariable("PALEO_HXN_SETUP_CAPTURE");
+    if (!capture.isEmpty()) {
+      dialog.resize(1100, 800); dialog.show(); QTest::qWait(100);
+      QVERIFY(dialog.grab().save(capture + ".root.png"));
+      dialog.findChild<QTabBar *>()->setCurrentIndex(1); QTest::qWait(100); QVERIFY(dialog.grab().save(capture));
+      dialog.findChild<QTabBar *>()->setCurrentIndex(2); QTest::qWait(100); QVERIFY(dialog.grab().save(capture + ".sources.png"));
+    }
+    dialog.findChild<QTabBar *>()->setCurrentIndex(3);
+    dialog.findChild<QPushButton *>("projectSetupNextButton")->click(); QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
+    const auto target = dialog.projectPath();
+    QVERIFY2(workflow.create(target, dialog.sources(), dialog.preview(), &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY2(finished.first()[1].toBool(), qPrintable(finished.first()[0].toString()));
+    QCOMPARE(service.catalog()->entities("well").size(), 2);
+    project.closeProject(); QVERIFY2(project.openProject(target), qPrintable(project.lastErrors().join('\n')));
+    QCOMPARE(service.catalog()->entities("well").size(), 2);
+    QCOMPARE(workflow.currentSources().points, points);
+    QCOMPARE(workflow.currentSources().wells, root + QStringLiteral("/测井数据"));
+    QVERIFY(project.georeference().has_value());
+    QCOMPARE(project.georeference()->sourceCrs, QString("EPSG:2436"));
+    for (const auto &well : service.catalog()->entities("well")) {
+      QCOMPARE(well.surfaceX, well.name == "A1" ? 300000.0 : 301000.0);
+      QCOMPARE(well.surfaceY, well.name == "A1" ? 2360000.0 : 2361000.0);
+      const auto curves = WellLogSet::wellCurveIndex(service.catalog(), QFileInfo(target).absolutePath(), well.id);
+      auto por = std::find_if(curves.begin(), curves.end(), [](const auto &curve) { return curve.mnemonic == "HXN_POR"; });
+      QVERIFY(por != curves.end()); WellLogSet::WellCurveTvdSamples samples;
+      QVERIFY2(WellLogSet::readCurveTvd(*por, nullptr, &samples, &error), qPrintable(error));
+      QCOMPARE(samples.md, QVector<double>({1000, 1001})); QCOMPARE(samples.values, QVector<double>({8, 9}));
+    }
+    project.closeProject();
+  }
+  void emptyRootDoesNotClaimRecognitionSucceeded() {
+    QTemporaryDir dir;
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    ProjectSetupDialog dialog(&workflow); dialog.setSourceRoot(dir.path());
+    auto *status = dialog.findChild<QLabel *>("projectSetupStatus");
+    QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("未找到可导入资料")), 20000);
+    QVERIFY(dialog.preview().paths.isEmpty());
+  }
+  void hxnRootWizardWhenExplicitlyProvided() {
+    const auto root = qEnvironmentVariable("PALEO_HXN_DATA_DIR");
+    if (root.isEmpty()) QSKIP("Set PALEO_HXN_DATA_DIR for read-only source directory verification");
+    const auto sources = discoverProjectSources(root);
+    QCOMPARE(QFileInfo(sources.points).fileName(), QStringLiteral("坐标统计.xlsx"));
+    QCOMPARE(QFileInfo(sources.wells).fileName(), QStringLiteral("测井数据"));
+    QCOMPARE(QFileInfo(sources.references).fileName(), QStringLiteral("参考资料"));
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    ProjectSetupDialog dialog(&workflow); QSignalSpy ready(&workflow, &ProjectSetupWorkflow::previewReady);
+    dialog.setSourceRoot(root);
+    QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 300000);
+    const auto xmlFiles = QDir(sources.wells).entryInfoList({"*.xml"}, QDir::Files);
+    QCOMPARE(xmlFiles.size(), 57); int auxiliary = 0;
+    for (const auto &file : xmlFiles) {
+      QVERIFY(dialog.preview().paths.contains(file.absoluteFilePath()));
+      const bool reference = isFixedAuxiliaryPath(file.absoluteFilePath());
+      if (reference) ++auxiliary;
+      QCOMPARE(dialog.preview().types.value(file.absoluteFilePath()), reference ? QString("reference") : QString("well_log"));
+    }
+    QCOMPARE(dialog.preview().logs, xmlFiles.size() - auxiliary);
+    QCOMPARE(dialog.preview().pointRows.size(), 55);
+    QVERIFY(dialog.findChild<QComboBox *>("pointField_x")->currentText().contains(QStringLiteral("横")));
+    QVERIFY(dialog.findChild<QComboBox *>("pointField_y")->currentText().contains(QStringLiteral("纵")));
+    QVERIFY(dialog.findChild<QLineEdit *>("pointSourceCrsEdit")->text().isEmpty()); // No guessed CRS or band conversion.
+    QVERIFY(dialog.preview().errors.isEmpty());
+    qInfo() << "HXN root wizard: 57 XML files recognized; logs=" << dialog.preview().logs
+            << "existing auxiliary references=" << auxiliary << "point rows=" << dialog.preview().pointRows.size();
+  }
   void projectLocationPreflightRejectsFilesAndLeavesNoFolders() {
     QTemporaryDir root; QString error;
     const auto target = root.filePath(QStringLiteral("nested/中文工程/中文工程.qgz"));

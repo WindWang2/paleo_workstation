@@ -78,11 +78,11 @@ QWidget *ProjectSetupDialog::pathRow(QLineEdit *edit, bool directory, const QStr
 QWidget *ProjectSetupDialog::projectPage()
 {
   auto *page = new QWidget(this); auto *layout = new QVBoxLayout(page);
-  auto *text = new QLabel(tr("选择资料总目录可自动填写各项；全部资料均可留空，创建后可继续导入。"), page); text->setWordWrap(true); layout->addWidget(text);
+  auto *text = new QLabel(tr("选择资料总目录可自动填写各项。支持分井资料目录，也支持“坐标统计表＋测井 XML＋参考资料”的集中组织方式；创建后可继续补充资料。"), page); text->setWordWrap(true); layout->addWidget(text);
   auto *form = new QFormLayout;
   m_name = new QLineEdit(tr("未命名工程"), page); m_name->setObjectName(QStringLiteral("projectNameEdit"));
   m_output = new QLineEdit(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QStringLiteral("/Paleo"), page); m_output->setObjectName(QStringLiteral("projectDirectoryEdit"));
-  m_root = new QLineEdit(page); m_root->setObjectName(QStringLiteral("projectSourceRootEdit")); m_root->setPlaceholderText(tr("可选：选择井、地震、层位等资料所在的总目录"));
+  m_root = new QLineEdit(page); m_root->setObjectName(QStringLiteral("projectSourceRootEdit")); m_root->setPlaceholderText(tr("可选：选择工区资料总目录，自动识别坐标表和测井文件夹"));
   form->addRow(tr("工程名称"), m_name); form->addRow(tr("工程保存位置"), pathRow(m_output, true)); form->addRow(tr("资料总目录（可选）"), pathRow(m_root, true));
   m_projectCrs = new QLineEdit(page);
   m_projectCrs->setObjectName(QStringLiteral("projectBaselineCrsEdit"));
@@ -110,16 +110,18 @@ QWidget *ProjectSetupDialog::pointPage()
     connect(box, &QComboBox::activated, this, [this, key = field.first] { m_dirty = true; ++m_revision; if (key == QLatin1String("sheet")) { for (auto it = m_fields.begin(); it != m_fields.end(); ++it) if (it.key() != QLatin1String("sheet")) it.value()->clear(); scan(); } });
   }
   m_crs = new QLineEdit(page); m_crs->setObjectName(QStringLiteral("pointSourceCrsEdit")); m_crs->setPlaceholderText(tr("自动识别；也可输入 EPSG:32649 等，未知时留空")); form->addRow(tr("资料坐标系"), m_crs); layout->addLayout(form);
-  auto *scanButton = new QPushButton(tr("识别与预览"), page); connect(scanButton, &QPushButton::clicked, this, &ProjectSetupDialog::scan); layout->addWidget(scanButton);
-  m_pointPreview = new QTableWidget(0, 3, page); m_pointPreview->setHorizontalHeaderLabels({tr("井名"), tr("横坐标／经度"), tr("纵坐标／纬度")}); m_pointPreview->setEditTriggers(QAbstractItemView::NoEditTriggers); m_pointPreview->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); layout->addWidget(m_pointPreview, 1);
+  auto *scanButton = new QPushButton(tr("识别与预览"), page); scanButton->setObjectName(QStringLiteral("projectSetupScanButton")); connect(scanButton, &QPushButton::clicked, this, &ProjectSetupDialog::scan); layout->addWidget(scanButton);
+  m_pointPreview = new QTableWidget(0, 3, page); m_pointPreview->setObjectName(QStringLiteral("projectPointPreview")); m_pointPreview->setHorizontalHeaderLabels({tr("井名"), tr("横坐标／经度"), tr("纵坐标／纬度")}); m_pointPreview->setEditTriggers(QAbstractItemView::NoEditTriggers); m_pointPreview->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); layout->addWidget(m_pointPreview, 1);
   return page;
 }
 QWidget *ProjectSetupDialog::sourcesPage()
 {
   auto *page = new QWidget(this); auto *layout = new QVBoxLayout(page); auto *form = new QFormLayout;
   m_wells = new QLineEdit(page); m_seismic = new QLineEdit(page); m_horizons = new QLineEdit(page); m_references = new QLineEdit(page); m_boundary = new QLineEdit(page);
+  m_wells->setObjectName(QStringLiteral("projectWellsEdit")); m_references->setObjectName(QStringLiteral("projectReferencesEdit"));
   const QList<QPair<QString, QLineEdit *>> rows{{tr("井数据文件夹"), m_wells}, {tr("地震文件夹"), m_seismic}, {tr("层位文件夹"), m_horizons}, {tr("参考资料文件夹"), m_references}};
   for (const auto &row : rows) { row.second->setPlaceholderText(tr("可选，留空即可跳过")); form->addRow(row.first, pathRow(row.second, true)); }
+  m_wells->setPlaceholderText(tr("可选：分井目录，或集中存放 XML／LAS 的测井资料目录"));
   m_boundary->setPlaceholderText(tr("可选；未提供时，使用地震数据生成覆盖范围"));
   m_paleomaps = new QLineEdit(page); m_paleomaps->setObjectName(QStringLiteral("projectPaleomapsEdit"));
   m_paleomaps->setPlaceholderText(tr("可选：现有古地理图目录，也可填写单个图件路径"));
@@ -234,6 +236,7 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
   const QString creationError = property("paleo.creationError").toString();
   m_status->setText(!creationError.isEmpty() ? creationError : !p.errors.isEmpty() ? tr("工程配置需要调整，详细原因见确认页。")
       : !p.sourceProblems.isEmpty() ? tr("部分资料未通过检查；仍可创建工程并导入其余资料，详情见确认页。")
+      : p.paths.isEmpty() && p.maps.isEmpty() ? tr("未找到可导入资料；请选择资料来源，或创建空白工程。")
       : tr("识别完成；可继续设置或直接核对创建。")); m_next->setEnabled(true);
 }
 void ProjectSetupDialog::showMaps(const ProjectSetupPreview &p)

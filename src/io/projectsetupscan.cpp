@@ -70,11 +70,29 @@ ProjectSetupSources discoverProjectSources(const QString &root)
     const QString name = file.completeBaseName();
     if (s.points.isEmpty() && (name.contains(QStringLiteral("井坐标")) || name.contains(QStringLiteral("井位")) || name.contains("wellhead", Qt::CaseInsensitive))) s.points = file.absoluteFilePath();
   }
+  // Keep the existing wellhead naming priority; comprehensive exports commonly
+  // place a separate coordinate statistics workbook beside their XML directory.
+  if (s.points.isEmpty()) for (const auto &file : d.entryInfoList(QDir::Files, QDir::Name)) {
+    const auto name = file.completeBaseName();
+    if ((paleo::io::isWellTableContainer(file.filePath()) || file.suffix().compare("dat", Qt::CaseInsensitive) == 0) &&
+        (name.contains(QStringLiteral("坐标统计")) || name.contains(QStringLiteral("坐标表")) ||
+         name.compare("coordinates", Qt::CaseInsensitive) == 0)) {
+      s.points = file.absoluteFilePath(); break;
+    }
+  }
   const auto find = [&](const QStringList &names) {
     for (const auto &name : names) if (QFileInfo(d.filePath(name)).isDir()) return d.filePath(name);
     return QString();
   };
-  s.wells = find({QStringLiteral("井"), QStringLiteral("井数据"), "wells"});
+  const QStringList wellFolders{QStringLiteral("井"), QStringLiteral("井数据"), "wells",
+      QStringLiteral("测井数据"), QStringLiteral("测井资料"), "well_logs"};
+  QStringList matchedWells;
+  for (const auto &folder : d.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name))
+    if (wellFolders.contains(folder.fileName(), Qt::CaseInsensitive) && !folder.isSymLink()) matchedWells << folder.absoluteFilePath();
+  // The scanner classifies and deduplicates recursively, so a mixed root retains
+  // both the old per-well tree and the additional flat log directory.
+  if (matchedWells.size() > 1 || !d.entryList({"*.las", "*.dlis", "*.lis", "*.xml"}, QDir::Files).isEmpty()) s.wells = d.absolutePath();
+  else if (matchedWells.size() == 1) s.wells = matchedWells.first();
   s.seismic = find({QStringLiteral("地震"), "seismic"});
   s.horizons = find({QStringLiteral("层位"), "horizons"});
   s.references = find({QStringLiteral("参考资料"), "references"});

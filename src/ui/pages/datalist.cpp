@@ -510,7 +510,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   m_treeSort = paleo::dataops::recalledTreeSort();
 
   applyListFilter();   // 空表也写计数
-
+  PaleoIcons::applyCommandIcons(this);
   wireAssetSelection();
 }
 

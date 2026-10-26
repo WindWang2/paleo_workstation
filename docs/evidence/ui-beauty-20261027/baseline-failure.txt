@@ -1,0 +1,63 @@
+Baseline comparison for tst_ui::testSimultaneousWellsAndSurveyAreaVisibility
+Date: 2026-10-27
+
+Fixture: /home/kevin/projects/paleo_data
+Assertion: wells and survey.area layers become available within 8000 ms
+
+Optimized binary (build/tst_ui.exe):
+- exit code: 1
+- FAIL at tests/tst_ui.cpp(2297)
+- Totals: 2 passed, 1 failed, 0 skipped
+
+Unmodified-UI comparison binary (build/baseline-tst_ui.exe):
+- linked with the main checkout's unmodified paleo_ui.lib and tst_ui.cpp.obj
+- all other libraries came from the same isolated worktree build for ABI consistency
+- optimized paleo_ui.lib, tst_ui.cpp.obj and tst_ui.exe were backed up and restored before this run
+- exit code: 1
+- FAIL at tests/tst_ui.cpp(2288)
+- Totals: 2 passed, 1 failed, 0 skipped
+
+Conclusion: the same external-fixture failure exists without this branch's UI changes.
+This file is not a pass result and does not repair the baseline fixture.
+
+Additional baseline comparison for SingleFactorStoreTests::restoreFileFromBackupKeepsSiteIntactWhenMoveFails
+
+Optimized binary (build/tst_singlefactor_store.exe):
+- exit code: 1
+- FAIL at tests/tst_singlefactor_store.cpp(461): restoreFileFromBackup could not vacate locked.gpkg
+- Totals: 2 passed, 1 failed, 0 skipped
+
+Unmodified main checkout binary (main/build/tst_singlefactor_store.exe):
+- exit code: 1
+- FAIL at tests/tst_singlefactor_store.cpp(461): restoreFileFromBackup could not vacate locked.gpkg
+- Totals: 2 passed, 1 failed, 0 skipped
+
+Conclusion: this storage test failure also exists without this branch's UI changes.
+
+Additional comparison results
+
+The following unmodified-main or unmodified-UI comparisons produced the same failure:
+- TestPreviewMapAssets::surveyOnlineBasemapSwitcher: layer source lacks type=xyz
+- TestVersions::frozenVersionCarriesDatasetSidecars: PDF asset record missing
+- TestWellFacies::comprehensiveXmlRejectsCellFillAmplificationAndOversize: oversized input was accepted
+- TestDerivationGraph::realShellRestoresHistoricalVersionOnReselection: historical RAW item missing
+- TestAssetOps::rollbackExternalIsZeroCopy: writeFile(TAMPERED) returned false
+- TestUiBlocking::wellLogPreviewBuildsHeaderOnlyWhileParsingInPool: existing build/parse ratio gate failed
+- TestImpactRecompute::controlledRecomputePreservesHistoryAndIsIdempotent: already_done missing
+- TestSeismicSectionUi::wellNamesRemainVisibleWithLongDiagnostics: existing image-diff failure
+- TestShellChrome::everyVisibleRibbonCommandHasHelp: actionFaciesOperations help missing
+- TestWellLogUi::wellLogPrimaryButtonPromotesLink: secondary asset did not promote to primary
+- TestWellCompositeA11y::zoomLabelNeverClipsAtNarrowWidth: width=100 < text=132
+- TestMetadataAtomicFile::durabilityRegression_parentDirectoryFsync: paleoSyncDir returned false
+
+TestSectionsAlignment::extractionAndCachePreserveDistanceScale:
+- The main checkout passed once, but /home/kevin/projects/paleo_data was subsequently moved or deleted.
+- This is recorded as an unstable external fixture, not as evidence of a UI regression.
+
+TestWellCompositeFramework::testLasAndCompositeUseTheSameDefaultTracks:
+- The ordinary sandbox retained a previous QSettings layout, making six recognized curves visible.
+- The same optimized binary in a fresh sandbox returned GR, SP, RLLD and passed.
+- Temporary diagnostic source lines were removed and tst_wellcomposite_framework was rebuilt before delivery.
+
+PowerShell self tests:
+- paleo_dev_ps1_selftest.ps1 extracts Compare-PinnedClosure but omits its dependency Get-UpstreamVersion from the AST function allowlist, causing both self tests to fail before the UI changes in this branch.

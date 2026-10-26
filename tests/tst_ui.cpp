@@ -295,8 +295,17 @@ class TestUiShell : public QObject
       // shell anatomy: left tree / right panel / bottom tabs all exist
       QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("rightPanelHost")));
       QVERIFY(m_win->findChild<QTabWidget *>(QStringLiteral("bottomTabs")));
-      QVERIFY(m_win->findChild<QPushButton *>(QStringLiteral("newProjectButton")));
-      QVERIFY(m_win->findChild<QPushButton *>(QStringLiteral("openProjectButton")));
+      auto *newButton = m_win->findChild<QPushButton *>(QStringLiteral("newProjectButton"));
+      auto *openButton = m_win->findChild<QPushButton *>(QStringLiteral("openProjectButton"));
+      auto *areaButton = m_win->findChild<QPushButton *>(QStringLiteral("importFromFolderButton"));
+      auto *homeTitle = m_win->findChild<QLabel *>(QStringLiteral("startupHomeTitle"));
+      auto *recentLabel = m_win->findChild<QLabel *>(QStringLiteral("recentProjectsLabel"));
+      auto *recentList = m_win->findChild<QListWidget *>(QStringLiteral("recentProjectsList"));
+      QVERIFY(newButton && openButton && areaButton && homeTitle && recentLabel && recentList);
+      QCOMPARE(homeTitle->font().weight(), QFont::Medium);
+      QVERIFY(recentLabel->styleSheet().contains(QStringLiteral("font-size: 12pt")));
+      for (auto *button : {newButton, openButton, areaButton})
+        QCOMPARE(button->iconSize(), recentList->iconSize());
     }
 
     void showPageTracksCurrentPage()
@@ -1589,6 +1598,10 @@ class TestUiShell : public QObject
                   theme == PaleoTheme::Theme::Light ? "light" : "dark")));
         }
       }
+      m_win->showStartup();
+      QTest::qWait(100);
+      QVERIFY(m_win->grab().save(dir + "/00-startup-dark.png"));
+      m_win->showPage(QStringLiteral("validate"));
       PaleoTheme::applyLightTheme();
       PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() +
                                      PaleoTheme::focusRingStyleSheet());

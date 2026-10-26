@@ -1,6 +1,7 @@
 // 层：视图
 #include "validatepage.h"
 #include "pageshared.h"
+#include "../paleoicons.h"
 #include "../paleotheme.h"
 #include "../../services/previewdoc.h"
 #include "../../workflow/workflows.h"
@@ -257,6 +258,7 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   if (wf)
     connect(wf, &ValidationWorkflow::validationDone, status,
             [status](int n) { status->setText(tr("发现 %1 个问题").arg(n)); });
+  PaleoIcons::applyCommandIcons(this);
 }
 
 void ValidatePage::populate() {

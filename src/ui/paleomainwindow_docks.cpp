@@ -84,9 +84,10 @@ QWidget *makeStartupPage()
   lay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *title = new QLabel(QCoreApplication::translate("PaleoMainWindow", "Paleo Workbench"), page);
+  title->setObjectName(QStringLiteral("startupHomeTitle"));
   QFont f = title->font();
   f.setPointSize(PaleoTheme::tokens().displayPt); // DESIGN.md 图件标题/页级标题 token
-  f.setBold(true);
+  f.setWeight(QFont::Medium);
   title->setFont(f);
   auto *sub = new QLabel(QCoreApplication::translate("PaleoMainWindow", "古地理编图工作台 — 新建工程或打开最近工程开始"), page);
 
@@ -94,9 +95,12 @@ QWidget *makeStartupPage()
   PaleoTheme::applyThemedStyleSheet(sub, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
 
   auto *recentLabel = new QLabel(QCoreApplication::translate("PaleoMainWindow", "最近工程"), page);
+  recentLabel->setObjectName(QStringLiteral("recentProjectsLabel"));
+  PaleoTheme::applyThemedStyleSheet(recentLabel, [] { return PaleoTheme::sectionTitleStyleSheet(); });
   auto *list = new QListWidget(page);
   list->setObjectName(QStringLiteral("recentProjectsList"));
   list->setAccessibleName(QCoreApplication::translate("PaleoMainWindow", "最近工程列表"));
+  list->setIconSize(PaleoIcons::toolbarSize());
   const QStringList recent = readRecentProjects();
   for (const QString &p : recent)
   {
@@ -108,11 +112,11 @@ QWidget *makeStartupPage()
   }
   if (recent.isEmpty()) // §42.4 empty state — guidance, not a blank panel
   {
-    auto *item = new QListWidgetItem(QCoreApplication::translate("PaleoMainWindow", "（暂无最近工程）"), list);
+    auto *item = new QListWidgetItem(PaleoIcons::qgisTheme(QStringLiteral("mActionHistory.svg")),
+                                     QCoreApplication::translate("PaleoMainWindow", "（暂无最近工程）"), list);
     item->setFlags(Qt::NoItemFlags);
   }
 
-  auto *btnRow = new QHBoxLayout;
   auto *newBtn = new QPushButton(QCoreApplication::translate("PaleoMainWindow", "新建工程"), page);
   newBtn->setObjectName(QStringLiteral("newProjectButton"));
   auto *openBtn = new QPushButton(QCoreApplication::translate("PaleoMainWindow", "打开工程"), page);
@@ -124,18 +128,28 @@ QWidget *makeStartupPage()
   newBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionFileNew.svg")));
   openBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionFileOpen.svg")));
   fromAreaBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconFolderOpen.svg")));
-  btnRow->addWidget(newBtn);
-  btnRow->addWidget(openBtn);
-  btnRow->addWidget(fromAreaBtn);
-  btnRow->addStretch(1);
+  for (auto *button : {newBtn, openBtn, fromAreaBtn})
+    button->setIconSize(PaleoIcons::toolbarSize());
+
+  auto *actionColumn = new QVBoxLayout;
+  actionColumn->setSpacing(PaleoTheme::tokens().spacingSm);
+  actionColumn->addWidget(newBtn);
+  actionColumn->addWidget(openBtn);
+  actionColumn->addWidget(fromAreaBtn);
+  actionColumn->addStretch(1);
+  auto *recentColumn = new QVBoxLayout;
+  recentColumn->setSpacing(PaleoTheme::tokens().spacingSm);
+  recentColumn->addWidget(recentLabel);
+  recentColumn->addWidget(list, 1);
+  auto *contentRow = new QHBoxLayout;
+  contentRow->setSpacing(PaleoTheme::tokens().spacingXl);
+  contentRow->addLayout(actionColumn, 1);
+  contentRow->addLayout(recentColumn, 2);
 
   lay->addWidget(title);
   lay->addWidget(sub);
   lay->addSpacing(PaleoTheme::tokens().spacingMd);
-  lay->addLayout(btnRow);
-  lay->addSpacing(PaleoTheme::tokens().spacingMd);
-  lay->addWidget(recentLabel);
-  lay->addWidget(list, 1);
+  lay->addLayout(contentRow, 1);
   return page;
 }
 // T31 空态标签已收敛为共享组件 ui/paleoemptystate（本文件旧匿名类删除）；

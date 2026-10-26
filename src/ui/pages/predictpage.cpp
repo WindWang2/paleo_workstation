@@ -1,4 +1,5 @@
 // 层：视图
+#include "ui/paleoicons.h"
 #include "ui/paleotheme.h"
 #include "predictpage.h"
 
@@ -239,6 +240,7 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   }
   refreshHistory();
   updateReadiness();
+  PaleoIcons::applyCommandIcons(this);
 }
 
 // 预测专项 P1：原始张量「高级 / 调试」折叠区（自构造函数拆出，#502 函数行数闸）。

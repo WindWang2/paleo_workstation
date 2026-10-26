@@ -1,0 +1,391 @@
+{
+  "baselineGitCommit": "1908a6c816d0b083eb163c2b89f48561d4a0fba5",
+  "productionDiffSha256": "1f4475beb541412f5e10e238b237d630a417e01a06d356b5ea98c864e2967ebc",
+  "capture": {
+    "native": "Windows QPA; Qt scale factor 1; production widgets; main window 1440x900 logical, 2520x1575 physical on this display",
+    "highdpi": "offscreen QPA; QT_SCALE_FACTOR=2; main window 1440x900 logical, 2880x1800 physical",
+    "functions": [
+      "workflowAuditSnapshots",
+      "secondarySurfaceAuditSnapshots (native only)"
+    ],
+    "isolation": "fresh temporary project and per-process registry hive; no real project or application preferences"
+  },
+  "review": {
+    "selectedImages": 37,
+    "secondaryComparison": "15/16 secondary images byte-identical; 11-well-dark.png opened and confirmed to differ only in asynchronous depth status text",
+    "dimensionMismatches": [],
+    "baselineFailureEvidence": "baseline-failure.txt"
+  },
+  "images": [
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/00-startup.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "82a4ed4e38e905212efa97986e7a58f7636a2bd9a7b9a43390d6a4830b202587"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/01-data-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "954b4ebcd8dc811eb849711fe729e6fd105250d221d4b3461ab140598a41b32c"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/01-data-light.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "e70a88727cbd144fefcda08cf8f32f06527176a4efbad985b99cc492a61ec9af"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/02-predict-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "af3a600d78d0eb44fd069597cabb7692b29416772c8c2ef78f06aef190c51f74"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/02-predict-light.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "39cf31cb2995e054b6371aa8f47b7f48b8d4ac8c8c5fced1e371a467fa43a159"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/03-constraint-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "5a0299337fdbc1b5333c54616fd6ad5bdc9547c8c8e632379fb71ea083ac8af2"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/03-constraint-light.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "bf51ed6d26f3a78435934148eccde6457901948cffc63f6096be8136c0c2bf83"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/04-compose-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "e8eff6748baadc1abce0a43504fb65589cc55c9c53d930df6f95bc646c3cdb22"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/04-compose-light.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "4a54123e15f70aecafe83731bfb951be1bb4cea2ea913016956bf1ea6591b55a"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/05-validate-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "5fdf9566d668f98aec37cdcde9b9be7464a55a4b4a1e9144f0d55ec867e7e4f8"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/05-validate-light.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "319d0a1f0768691ee9e5e2897c16c522359efc588ed4c02fb779330597ed052e"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/10-designer-dark.png",
+      "pixels": [
+        2100,
+        1400
+      ],
+      "sha256": "94b7d74ef56021faff1c0ee2f40c48b1a64525e8b2cc2abaed61bd77fad3c6f9"
+    },
+    {
+      "phase": "before",
+      "backend": "native",
+      "file": "before/native/11-well-dark.png",
+      "pixels": [
+        1925,
+        1225
+      ],
+      "sha256": "5b46f8f4a88cdc97ac5f7783a604d69db1bb32998ea8dd889ddad3b65b71acb3"
+    },
+    {
+      "phase": "before",
+      "backend": "highdpi",
+      "file": "before/highdpi/00-startup.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "4053281a473926f0fada508c2a842f70eab596b708cd28fff38b4ef31af82df1"
+    },
+    {
+      "phase": "before",
+      "backend": "highdpi",
+      "file": "before/highdpi/02-predict-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "d6b0eec21874a3bfbe4780ddde54466b7949e18181088abc94f8b856e25675f9"
+    },
+    {
+      "phase": "before",
+      "backend": "highdpi",
+      "file": "before/highdpi/03-constraint-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "9a03898df52898c522be99fad0772d0da895d492ae5e2b4b3075e183fd6b638b"
+    },
+    {
+      "phase": "before",
+      "backend": "highdpi",
+      "file": "before/highdpi/04-compose-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "267b2c9f48660fed70c9950fe76e924a5495d5837f258e752e3ae51c323499c9"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/00-startup-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "c98885ad1697970b5008baa3f77366bdc0f213883c10f95f0e0fdeaa7b588cb7"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/00-startup.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "c22dc3db82da8fd8da7c331dfd314fba8e3d26fba24e4801d91694d58c175ab7"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/01-data-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "10a495ce660b0daa92335e14a10bb03f0238382c17e3a4cd75515c3cd255551b"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/01-data-light.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "f525aba6767f4785046c42042d11c7cb92984ea36b2ef7834506e7e95c8f679d"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/02-predict-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "8352d2e015f047883d2bc246f865ba5e75158662dcd31534fafed88287969d4e"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/02-predict-light.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "8340524c5aac6a4fa6be77b2bea636c794cb2462d7b697c980eeeab58b648c41"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/03-constraint-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "2dbe11c68941dbb2b74471354f2c752976b673ee2e531af6c23e6ea19d54935f"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/03-constraint-light.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "b52a5f9a44b0a2213510cd2c4d8b4615934c1a0b447ad066382c01bd1b3a550d"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/04-compose-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "572069f7009c4a0f0777dcd3ecd6cd24825aa23c368d8256d91aacab59f0a4d0"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/04-compose-light.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "bed23a6b80ca95443e128dcfceacbb453b0b04d4aa7139d1f1e7e7926802923e"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/05-validate-dark.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "5fdf9566d668f98aec37cdcde9b9be7464a55a4b4a1e9144f0d55ec867e7e4f8"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/05-validate-light.png",
+      "pixels": [
+        2520,
+        1575
+      ],
+      "sha256": "319d0a1f0768691ee9e5e2897c16c522359efc588ed4c02fb779330597ed052e"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/10-designer-dark.png",
+      "pixels": [
+        2100,
+        1400
+      ],
+      "sha256": "94b7d74ef56021faff1c0ee2f40c48b1a64525e8b2cc2abaed61bd77fad3c6f9"
+    },
+    {
+      "phase": "after",
+      "backend": "native",
+      "file": "after/native/11-well-dark.png",
+      "pixels": [
+        1925,
+        1225
+      ],
+      "sha256": "e4176608a5a29da84e6ceab3286f8905b914b1636922cd00b09d4f42b0907168"
+    },
+    {
+      "phase": "after",
+      "backend": "highdpi",
+      "file": "after/highdpi/00-startup.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "921aa251225f2e8cfff7c7333a03c944ca273bb6df300312f699dfa3e8814d84"
+    },
+    {
+      "phase": "after",
+      "backend": "highdpi",
+      "file": "after/highdpi/02-predict-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "dfe87395419a1448d98dc22ba4d15ac3ff19792401b7b890585396e7aa9f0b88"
+    },
+    {
+      "phase": "after",
+      "backend": "highdpi",
+      "file": "after/highdpi/03-constraint-light.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "7bd1fb72a9d38c1817ad75a3eabf6158e65f84cba0dc63357d5a8a6e45881fdc"
+    },
+    {
+      "phase": "after",
+      "backend": "highdpi",
+      "file": "after/highdpi/04-compose-dark.png",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "sha256": "4c0b01c104418633231cb35ed4f8da3c2a16b0e7c19c110abf72990c76f5a882"
+    },
+    {
+      "phase": "after",
+      "backend": "narrow",
+      "file": "after/narrow/03-narrow-light.png",
+      "pixels": [
+        280,
+        420
+      ],
+      "sha256": "528297153c334ea9645a7e75b89d39c317a00bca07da135ccd2825e168d2423b"
+    },
+    {
+      "phase": "after",
+      "backend": "narrow",
+      "file": "after/narrow/04-surfaces-light.png",
+      "pixels": [
+        420,
+        760
+      ],
+      "sha256": "ae9bddf37d0de2a0f62089c7af1adba00d9629f2058b71b71403cfbf63a9a2c6"
+    }
+  ]
+}

@@ -36,6 +36,7 @@
 #include "pages/pageshared.h"
 #include "pages/predictpage.h"
 #include "pages/wellpredictionpanel.h"
+#include "paleoicons.h"
 #include "paleomainwindow.h"
 #include "paleoribbon.h"
 #include "taskpanel.h" // 智能预测开跑切到任务页
@@ -170,7 +171,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
       tabs->addTab(old, tr("高级工具"));
     }
     stack->insertWidget(index, tabs);
-    pages << page;
+    pages << page; PaleoIcons::applyCommandIcons(page);
     // X9：后台索引同步完成后，页面若有未完成的反查则自动重发一次。
     connect(workbench, &MappingWorkbench::evidenceIndexSynced, page,
             [page](const QVariantMap &) { page->reissueReverseQuery(); });

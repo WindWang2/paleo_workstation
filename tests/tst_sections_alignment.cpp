@@ -365,6 +365,11 @@ private slots:
     dialog.applyWellOrder({"D", "B"});
     QVERIFY(dialog.findChild<QPushButton *>("buildWellSection")->isEnabled());
     QVERIFY(dialog.findChild<QPushButton *>("spatialReorderBtn")->isEnabled());
+    // 重复井序兜底：折线回环（如 B→A→B）不得让同一口井出现两行或双计勾选。
+    // 放在门控断言之后——本步把勾选置为 2，会破坏上面「勾选 <2 → 按钮收回」前置。
+    dialog.applyWellOrder({"B", "A", "B"});
+    QCOMPARE(dialog.checkedWellIds(), QStringList({"B", "A"}));
+    QCOMPARE(list->count(), 4); // 一行一井，不增行
   }
 
   // 「按空间关系重排」菜单：勾选 <2 禁用；动作发 spatialReorderRequested

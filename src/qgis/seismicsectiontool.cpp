@@ -87,9 +87,19 @@ void SeismicSectionTool::canvasPressEvent(QgsMapMouseEvent *e)
 {
   if (e->button() == Qt::LeftButton)
   {
-    if (m_hoveredWell >= 0 && m_hoveredWell < m_snapWells.size())
+    // 吸附命中在落点处重算，不复用 canvasMoveEvent 的缓存：程序化点击（测试
+    // 注入）或指针瞬移可能不产生中间的 move 事件，缓存会给出过期命中（首点
+    // 永不吸附）。
+    const QgsPointXY pressed = e->mapPoint();
+    const int hovered = m_snapWells.isEmpty()
+                            ? -1
+                            : wellsection::nearestWellWithin(m_snapWells, pressed.x(),
+                                                             pressed.y(),
+                                                             snapToleranceMapUnits());
+    m_hoveredWell = hovered; // 与 move 缓存同口径，避免下一点使用过期值
+    if (hovered >= 0)
     {
-      const wellsection::Well &w = m_snapWells.at(m_hoveredWell);
+      const wellsection::Well &w = m_snapWells.at(hovered);
       // 连续同井忽略：不产生重复顶点与重复井序项
       if (m_vertexWellIds.isEmpty() || m_vertexWellIds.last() != w.id)
       {
@@ -99,7 +109,7 @@ void SeismicSectionTool::canvasPressEvent(QgsMapMouseEvent *e)
     }
     else
     {
-      m_points.append(e->mapPoint());
+      m_points.append(pressed);
       m_vertexWellIds.append(QString());
     }
     redraw();
@@ -109,9 +119,12 @@ void SeismicSectionTool::canvasPressEvent(QgsMapMouseEvent *e)
     if (m_points.size() >= 2)
     {
       const QVector<QgsPointXY> captured = m_points;
+      // 井序去重（保首次出现序）：连续同井在落点处已忽略，但折线回环
+      // （A→B→A）会重复收集——同一口井在一条剖面上只能有一个位置，
+      // 否则「≥2 口井」判定与剖面井序都会被虚增。
       QStringList wellIds;
       for (const QString &id : m_vertexWellIds)
-        if (!id.isEmpty())
+        if (!id.isEmpty() && !wellIds.contains(id))
           wellIds << id;
       m_points.clear();
       m_vertexWellIds.clear();

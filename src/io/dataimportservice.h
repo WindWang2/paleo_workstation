@@ -35,7 +35,10 @@ class DataImportService : public QObject
   public:
     struct ImportOptions
     {
-      bool linkExternal = false; // 用户明确选择「链接外部」才不复制；SEG-Y 一律外链
+      // 外链（不复制进工程）。io 层默认 false 仅作保守兜底：实际值由工作流层
+      // ImportSession.linkExternal 逐行覆盖（UI 默认 true＝只建索引），且
+      // SEG-Y 在 dataimport_file.cpp 的 external 判定里恒为外链。
+      bool linkExternal = false;
       QVariantMap tableMapping;
       QString forceType;         // 非空 → 跳过分类器结果改用此类型（确认表「改类型」）
       QString targetWellId;      // 显式选择；new:<井名> 新建；name:<井名> 向导确认后按唯一井名解析

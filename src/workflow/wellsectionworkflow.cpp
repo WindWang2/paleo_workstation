@@ -598,7 +598,10 @@ public:
       bool hasMaintainedLithology = false;
       for (const auto &v : maintained) {
         const auto row = v.toMap();
-        hasMaintainedLithology = hasMaintainedLithology || !row.value("lithology").isNull();
+        // 空串单元格不算「已维护岩性」：isNull() 只区分列缺失/值为 null，
+        // 列在而值全空时提前 return 会掐断解释资产/岩屑回落（岩性道空白）。
+        hasMaintainedLithology =
+            hasMaintainedLithology || !row.value("lithology").toString().isEmpty();
         if (row.value("lithology").toString().isEmpty()) continue;
         wellsection::LithoSegment segment;
         segment.topMd = row.value("top_md").toDouble(); segment.baseMd = row.value("base_md").toDouble();
@@ -606,7 +609,7 @@ public:
         segment.provenance = WellSectionWorkflow::tr("测井矢量属性表"); segments << segment;
       }
       // 预测相不是岩性；仅有相而无岩性时仍允许读取已有解释源。
-      if (hasMaintainedLithology) return segments;
+      if (hasMaintainedLithology && !segments.isEmpty()) return segments;
     }
     // 候选收集：interpretation 角色 + well_litho_intervals 类型 + 有版本。
     struct Cand {

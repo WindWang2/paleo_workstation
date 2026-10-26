@@ -499,6 +499,7 @@ bool CompositionWorkflow::commitFaciesPolygons( FaciesPolygonJob &job, QString *
            job.registrar, job.staging, polyResult, faciesParents,
            QStringLiteral( "paleo:paleo_facies_polygonize" ), faciesExtra, &commitErr ) )
     return fail( commitErr );
+  job.catalogPublished = true; // 后续 declare 失败也不回删：文件已只读入册
 
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "facies.%1" ).arg( job.horizon );
@@ -580,7 +581,7 @@ bool CompositionWorkflow::startDeriveFaciesPolygons( const QString &horizon, con
   };
   cb.commit = [this]( FaciesPolygonJob &j, QString *err ) { return commitFaciesPolygons( j, err ); };
   cb.cleanup = []( FaciesPolygonJob &j ) {
-    if ( j.layerId.isEmpty() && j.staging.isValid() )
+    if ( !j.catalogPublished && j.layerId.isEmpty() && j.staging.isValid() )
       QFile::remove( j.staging.absolutePath );
   };
   cb.onDropped = [this]( FaciesPolygonJob &j, paleo::jobs::DropReason reason ) {

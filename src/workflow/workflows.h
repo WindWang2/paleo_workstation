@@ -398,7 +398,7 @@ class ConstraintWorkflow : public QObject
         QgisProcessingService *proc, LocalDirectionJob *job,
         const std::function<bool()> &cancelled,
         const std::function<void(double)> &progress);
-    bool publishLocalDirectionJob(const LocalDirectionJob &job, QString *error = nullptr);
+    bool publishLocalDirectionJob(LocalDirectionJob &job, QString *error = nullptr);
 
     // 方向18 克里金/SGS：准备在界面线程（只解析 URI 与参数），计算可在任务
     // 线程（纯数值核 + GDAL 写临时目录），发布回到 catalog 所属线程。
@@ -417,7 +417,7 @@ class ConstraintWorkflow : public QObject
     computeGeostatJobWithService(QgisProcessingService *proc, GeostatJob *job,
                                  const std::function<bool()> &cancelled,
                                  const std::function<void(double)> &progress);
-    bool publishGeostatJob(const GeostatJob &job, QString *error = nullptr);
+    bool publishGeostatJob(GeostatJob &job, QString *error = nullptr);
 
     // 分析场等值线：准备在调用线程，GDAL 可在任务线程，发布回到 catalog 所属线程。
     // fixedLevels 为真时用 levels（空级别直接拒绝）；否则要求正间距。
@@ -458,7 +458,7 @@ class ConstraintWorkflow : public QObject
                               QString *error = nullptr);
     bool computeConstraintJob(ConstraintJob &job, const std::function<bool()> &cancelled,
                               const std::function<void(double)> &progress = {});
-    bool publishConstraintJob(const ConstraintJob &job, QString *error = nullptr);
+    bool publishConstraintJob(ConstraintJob &job, QString *error = nullptr);
     // 未成功发布时的临时产物路径（框架 cleanup 钩子用）。
     static QStringList constraintJobTempPaths(const ConstraintJob &job);
 
@@ -557,6 +557,9 @@ class CompositionWorkflow : public QObject
       bool constrained = false;
       DerivedAssetRegistrar registrar;
       DerivedStaging staging;
+      // catalog 入库哨兵：publishArtifacts 成功即置位——cleanup 只删未入库
+      // 的 staging（已入库文件删除即悬垂版本）。
+      bool catalogPublished = false;
       QPointer<DataCatalog> catalog;
     };
     bool prepareFaciesPolygons(const QString &horizon, const QString &rasterLayerId,

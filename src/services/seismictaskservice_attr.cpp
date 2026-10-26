@@ -1096,7 +1096,10 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
       QFile::remove(writePath);
       return err;
     }
-    if (useCache && !QFile::rename(writePath, finalPath))
+    // 落名走替换语义（#322/atomicfile 口径，同 627 行 ts 路径）：
+    // QFile::rename 在目标已存在时直接失败，且本失败分支会删掉刚写好的
+    // 缓存产物——一个损坏的既有缓存会让该参数组合的扫描永久失败。
+    if (useCache && !paleoReplaceFile(writePath, finalPath))
     {
       result->error = QStringLiteral("缓存产物落名失败：%1").arg(finalPath);
       QFile::remove(writePath);

@@ -60,7 +60,11 @@ inline bool paleoSyncDir(const QString &dirPath)
 #ifdef Q_OS_WIN
   // 目录句柄要 FILE_FLAG_BACKUP_SEMANTICS（否则 CreateFileW 拒开目录）。
   // FILE_READ_ATTRIBUTES 足够 FlushFileBuffers 刷目录项。
-  const HANDLE handle = CreateFileW(reinterpret_cast<LPCWSTR>(dirPath.utf16()),
+  // 长路径（>MAX_PATH）与 paleoReplaceFile 同口径：经 \?\ 扩展路径打开，
+  // 否则深目录（中文用户名叠加深层工程很常见）CreateFileW 拒开、目录
+  // fsync 恒失败——原子写的持久化承诺恰在最需要的深路径场景系统性失效。
+  const HANDLE handle = CreateFileW(
+      reinterpret_cast<LPCWSTR>(paleoWindowsExtendedPath(dirPath).utf16()),
                                     FILE_READ_ATTRIBUTES,
                                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                     nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);

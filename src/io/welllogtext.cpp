@@ -88,6 +88,7 @@ bool split(const QString &line, QChar delimiter, QStringList &cells)
     if (cells.size() > kMaxColumns) return false;
   }
   cells.append(cell.trimmed());
+  if (cells.size() > kMaxColumns) return false; // 末格也过预算：恰超一格的行不再漏检
   return !quoted;
 }
 

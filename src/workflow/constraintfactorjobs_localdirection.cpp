@@ -364,7 +364,7 @@ bool ConstraintWorkflow::computeLocalDirectionJobWithService(
   return true;
 }
 
-bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job, QString *error )
+bool ConstraintWorkflow::publishLocalDirectionJob( LocalDirectionJob &job, QString *error )
 {
   const auto discardTemp = [&job]() {
     if ( job.outputPath.contains( QStringLiteral( "paleo-sf-" ) ) )
@@ -569,6 +569,7 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
     return false;
   }
   discardTemp();
+  job.catalogPublished = true; // 已只读入册——后续 declare 失败不回删（悬垂版本防线）
   return declareFactorResult( layers, job.horizon, job.factorId, def, st.absolutePath, registrar.projectDir(),
                               st.assetId, error );
 }
@@ -602,6 +603,9 @@ bool ConstraintWorkflow::generateLocalDirectionFactor( const QString &horizon, c
           if (shared->outputPath.contains("paleo-sf-"))
             QDir(QFileInfo(shared->outputPath).absolutePath())
                 .removeRecursively();
+          if (shared->catalogPublished)
+            return; // 已入库（只读在册）：删除即悬垂版本——临时树已由
+                    // publish 内 discardTemp 收尾，这里不再动 staging。
           if (shared->staging.isValid()) {
             const auto path = shared->staging.absolutePath;
             for (const auto &file :

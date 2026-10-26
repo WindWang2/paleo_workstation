@@ -319,7 +319,10 @@ bool DataImportService::moveStagedFiles(ImportSession &s, QStringList *moved,
       setError(error, QStringLiteral("暂存文件路径非法: %1").arg(rel));
       return false;
     }
-    if (f.contains(QLatin1String(".partial")))
+    // 后缀判定而非子串：合法文件名恰含 ".partial"（如 draft.partial.las）
+    // 不能整文件静默丢弃——否则已入册版本指向不存在的受管字节。
+    if (rel.endsWith(QLatin1String(".partial")) ||
+        rel.endsWith(QLatin1String(".partial.tif")))
       continue; // 半截产物，含 .partial.tif（produce 失败分支已删；兜底不提交）
     const QString dst = project.absoluteFilePath(rel);
     if (QFileInfo::exists(dst))

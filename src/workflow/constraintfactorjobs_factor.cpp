@@ -1074,6 +1074,9 @@ bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const 
           if (shared->outputPath.contains("paleo-sf-"))
             QDir(QFileInfo(shared->outputPath).absolutePath())
                 .removeRecursively();
+          if (shared->catalogPublished)
+            return; // 已入库（只读在册）：删除即悬垂版本——临时树已由
+                    // publish 内 discardTemp 收尾，这里不再动 staging。
           if (shared->staging.isValid()) {
             const auto path = shared->staging.absolutePath;
             for (const auto &file :
@@ -1319,6 +1322,11 @@ bool ConstraintWorkflow::runFactorAlgorithm(
   }
   auto results = std::make_shared<QVariantMap>();
   const QString path = params.value("OUTPUT").toString();
+  // 入库哨兵（行为探测）：publish 半程失败（catalog 已 commit、declare
+  // 失败）时以 compute 段捎带的指纹 sha 查册——已入库则外层清理不得回删
+  // staging（悬垂版本防线；compute 段保证 publish 运行前指纹必在）。
+  auto catalogCommitted = std::make_shared<bool>(false);
+  const QPointer<DataCatalog> catalogAtStart = m_catalog;
   // PW-031：不再捕获裸指针。生命周期保证来自 AppContext::drainTasks（拆除前
   // 排空任务池）；此处 QPointer 只是兜底——服务已拆则作业失败而不是悬垂调用。
   QPointer<QgisProcessingService> procGuard = m_proc;
@@ -1432,10 +1440,20 @@ bool ConstraintWorkflow::runFactorAlgorithm(
 
         return error;
       },
-      [results, publish](QString *error) { return publish(*results, error); },
-      [path] {
-        if (path.isEmpty())
-          return;
+      [results, publish, catalogCommitted, catalogAtStart](QString *error) {
+        const bool ok = publish(*results, error);
+        if (!ok && catalogAtStart) {
+          const auto fp = results->value("_derived_fingerprint")
+                              .value<DerivedFileFingerprint>();
+          if (!fp.sha256.isEmpty() &&
+              !catalogAtStart->versionBySha256(fp.sha256).id.isEmpty())
+            *catalogCommitted = true;
+        }
+        return ok;
+      },
+      [path, catalogCommitted] {
+        if (path.isEmpty() || *catalogCommitted)
+          return; // 已入库（只读在册）：回删即悬垂版本
         const auto stem = fileStem(path);
         for (const QString &file :
              QStringList{path, stem + ".qc.json", stem + ".structural.json",

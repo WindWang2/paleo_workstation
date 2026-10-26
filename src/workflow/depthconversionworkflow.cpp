@@ -597,12 +597,12 @@ bool DepthConversionWorkflow::computeDepth(DepthJob &job, const std::function<bo
 
 bool DepthConversionWorkflow::commitDepth(DepthJob &job, QString *error)
 {
-  bool modelCommitted = false;
-  const auto fail = [this, &job, error, &modelCommitted](const QString &why) {
-    // 未登记的受管落位文件不留游离（已登记的模型保留在册）。
-    if (job.buildModel && !modelCommitted && job.modelStaging.isValid())
+  const auto fail = [this, &job, error](const QString &why) {
+    // 未入库的受管落位文件不留游离；已入库的保留在册——Linux 上只读
+    // 文件照样删得掉，删除即 catalog 悬垂版本。
+    if (job.buildModel && !job.modelPublished && job.modelStaging.isValid())
       QFile::remove(job.modelStaging.absolutePath);
-    if (job.depthStaging.isValid())
+    if (!job.depthPublished && job.depthStaging.isValid())
       QFile::remove(job.depthStaging.absolutePath);
     setError(error, why);
     emit conversionFailed(job.horizon, why);
@@ -622,7 +622,7 @@ bool DepthConversionWorkflow::commitDepth(DepthJob &job, QString *error)
     if (!m_registrar.commit(job.modelStaging, parents, QStringLiteral("depthconversion/build-model"),
                             job.modelExtra, &commitErr))
       return fail(commitErr);
-    modelCommitted = true;
+    job.modelPublished = true;
     emit modelStored(job.modelStaging.absolutePath);
   }
   const QStringList parents = m_registrar.parentVersionIdsFor(
@@ -630,6 +630,7 @@ bool DepthConversionWorkflow::commitDepth(DepthJob &job, QString *error)
   if (!m_registrar.commit(job.depthStaging, parents, QStringLiteral("depthconversion/convert-horizon"),
                           job.depthExtra, &commitErr))
     return fail(commitErr);
+  job.depthPublished = true;
   const QString id = QStringLiteral("depth.%1").arg(job.horizon);
   if (m_layers)
   {
@@ -731,10 +732,12 @@ bool DepthConversionWorkflow::startConvertRasterToDepth(const QString &horizon,
       emit conversionFailed(j.horizon, paleo::jobs::dropReasonText(reason));
   };
   cb.cleanup = [](DepthJob &j) {
-    // 未登记的受管落位文件：失败 / 取消时清掉（登记成功后文件已只读入册）。
-    for (const DerivedStaging *st : {&j.modelStaging, &j.depthStaging})
-      if (st->isValid())
-        QFile::remove(st->absolutePath);
+    // 未入库的受管落位文件：失败 / 取消时清掉；已入库（只读在册）的保留
+    // ——删除即悬垂版本，与 commitDepth 的 fail 口径一致。
+    if (!j.modelPublished && j.modelStaging.isValid())
+      QFile::remove(j.modelStaging.absolutePath);
+    if (!j.depthPublished && j.depthStaging.isValid())
+      QFile::remove(j.depthStaging.absolutePath);
   };
   if (!m_depthRunner->start(tr("深度域换算 · %1").arg(horizon), job, cb, QString(),
                             /*quiet=*/false))

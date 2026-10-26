@@ -147,16 +147,23 @@ void PythonEnvService::startStep( const QString &step, const QString &program,
     for ( const QString &line : lines )
       emit outputLine( line.trimmed() );
   } );
-  connect( m_proc, &QProcess::errorOccurred, this, [this]( QProcess::ProcessError err ) {
-    if ( err != QProcess::FailedToStart )
-      return;
-    const QString step = m_step;
-    const QString program = m_proc->program();
-    m_proc->deleteLater();
-    m_proc = nullptr;
-    emit stepFinished( step, false, tr( "无法启动进程：%1" ).arg( program ) );
-    emit busyChanged( false );
-  } );
+  // FailedToStart 排队送达（scriptrunner 同款）：Windows 上 CreateProcess
+  // 失败在 start() 内同步发 errorOccurred，直连会在 start() 返回前把
+  // m_proc 置空——随后 new QTimer(m_proc) 得到无父定时器（每次失败泄漏
+  // 一枚），且 stepFinished/busyChanged 在 startStep 未返回时重入编排层。
+  connect(
+      m_proc, &QProcess::errorOccurred, this,
+      [this]( QProcess::ProcessError err ) {
+        if ( err != QProcess::FailedToStart )
+          return;
+        const QString step = m_step;
+        const QString program = m_proc->program();
+        m_proc->deleteLater();
+        m_proc = nullptr;
+        emit stepFinished( step, false, tr( "无法启动进程：%1" ).arg( program ) );
+        emit busyChanged( false );
+      },
+      Qt::QueuedConnection );
   connect( m_proc, qOverload<int, QProcess::ExitStatus>( &QProcess::finished ), this,
            [this]( int exitCode, QProcess::ExitStatus status ) {
              const QString step = m_step;

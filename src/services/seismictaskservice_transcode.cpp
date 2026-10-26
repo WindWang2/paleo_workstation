@@ -605,16 +605,6 @@ PaleoTask *SeismicTaskService::startPagedTranscodeImpl(
           options, &cancel, progress);
     }
 
-    // 计划外的历史兄弟层级清理（旧计划留下的 L1/L2/L3 不再是事实）
-    for (int level = 1; level <= 3; ++level)
-    {
-      const QString tag = QStringLiteral("L%1").arg(level);
-      if (plannedLevels.contains(tag))
-        continue;
-      std::error_code ec;
-      std::filesystem::remove(engine::PagedLodPath(l0, level), ec);
-    }
-
     const auto phaseError = [](const engine::PagedBuildResult &phase,
                                const char *name) -> QString {
       if (phase.status.ok() || phase.reused)
@@ -648,6 +638,17 @@ PaleoTask *SeismicTaskService::startPagedTranscodeImpl(
           return QString();
         return err;
       }
+    }
+    // 计划外的历史兄弟层级清理（旧计划留下的 L1/L2/L3 不再是事实）——
+    // 必须在全部阶段校验通过之后：失败/取消路径上新金字塔未建成，先删
+    // 旧层级会把可重建的派生产物销毁掉（工作区 LOD 静默降级）。
+    for (int level = 1; level <= 3; ++level)
+    {
+      const QString tag = QStringLiteral("L%1").arg(level);
+      if (plannedLevels.contains(tag))
+        continue;
+      std::error_code ec;
+      std::filesystem::remove(engine::PagedLodPath(l0, level), ec);
     }
     *outLevels = plannedLevels;
     return QString();

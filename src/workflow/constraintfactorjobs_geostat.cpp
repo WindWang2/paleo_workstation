@@ -1260,7 +1260,7 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
 }
 
 
-bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *error )
+bool ConstraintWorkflow::publishGeostatJob( GeostatJob &job, QString *error )
 {
   const auto discardTemp = [&job]() {
     if ( job.outputPath.contains( QStringLiteral( "paleo-gs-" ) ) )
@@ -1469,6 +1469,7 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
     paleo::workflow_detail::setError( error, commitErr );
     return false;
   }
+  job.catalogPublished = true; // 已只读入册——后续 declare/集合/统计失败不回删
   if ( !declareFactorResult( layers, job.horizon, job.factorId, def, st.absolutePath, registrar.projectDir(),
                              st.assetId, error ) )
   {
@@ -1557,6 +1558,9 @@ bool ConstraintWorkflow::generateGeostatFactor( const QString &horizon, const QS
           if (shared->outputPath.contains("paleo-gs-"))
             QDir(QFileInfo(shared->outputPath).absolutePath())
                 .removeRecursively();
+          if (shared->catalogPublished)
+            return; // 已入库（只读在册）：删除即悬垂版本——临时树已由
+                    // publish 内 discardTemp 收尾，这里不再动 staging。
           if (shared->staging.isValid()) {
             const auto path = shared->staging.absolutePath;
             for (const auto &file :

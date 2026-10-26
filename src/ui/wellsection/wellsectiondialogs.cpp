@@ -37,6 +37,20 @@ void setSwatch(QToolButton *btn, const QColor &c)
                          .arg(c.name(), PaleoTheme::tokens().border.name()));
 }
 
+// 拖动单行（start→to，QList::move 语义）后表单行的映射修正：被拖行
+// 之外的 (start,to] / [to,start) 区间整体平移一格，只修 ==start 会让
+// storeTrack(m_formRow) 把表单值写回别的道。
+int remapFormRow(int start, int to, int formRow)
+{
+  if (formRow == start)
+    return to;
+  if (start < formRow && formRow <= to)
+    return formRow - 1;
+  if (to <= formRow && formRow < start)
+    return formRow + 1;
+  return formRow;
+}
+
 QColor swatchColor(QToolButton *btn, const QColor &fallback)
 {
   const QColor c(btn->property("swatchColor").toString());
@@ -515,8 +529,7 @@ WellSectionTracksDialog::WellSectionTracksDialog(
             if (to != start && start < m_tracks.size() && to < m_tracks.size())
             {
               m_tracks.move(start, to);
-              if (m_formRow == start)
-                m_formRow = to; // 表单跟随被拖的道
+              m_formRow = remapFormRow(start, to, m_formRow); // 表单随平移走
             }
             ++m_loading; // 重建列表不打回写
             refreshList();

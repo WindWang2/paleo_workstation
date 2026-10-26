@@ -169,7 +169,9 @@ double idwOverWells(const QVector<VelocityModel::Well> &wells, double x, double 
       v = (model->*extended)(w, twtMs);
       if (std::isnan(v))
         continue;
-      if (d2 == 0.0)
+      // BIZ-13 同型防线（paleoalgorithms 已修，此处对齐口径）：0 < d2 < 极小
+      // 时 1/d² 溢出 → 加权和 ∞/∞ = NaN——按命中井位处理而非浮点加权。
+      if (d2 < 1e-12)
       {
         hitExtended = v;
         continue;
@@ -180,8 +182,8 @@ double idwOverWells(const QVector<VelocityModel::Well> &wells, double x, double 
       continue;
     }
     anyInRange = true;
-    if (d2 == 0.0)
-      return v; // 命中井位 → 锚点精确（不经浮点加权）
+    if (d2 < 1e-12)
+      return v; // 命中井位 → 锚点精确（不经浮点加权，BIZ-13 口径）
     const double wgt = 1.0 / d2;
     weightSum += wgt;
     valueSum += wgt * v;

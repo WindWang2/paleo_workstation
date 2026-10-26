@@ -164,7 +164,8 @@ void RegistrationWorkflow::applyProvisionalRegistration(
   QString derr;
   if (!m_layerSvc->declare(decl, &derr))
   {
-    discardDerived();
+    // 版本已 addVersion 入册：文件保留（与下方 instantiate 失败分支同
+    // 口径）——回删会让 catalog 悬垂一个指向缺失文件的 DERIVED 版本。
     fail(derr);
     return;
   }

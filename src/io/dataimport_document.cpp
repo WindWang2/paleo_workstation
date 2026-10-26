@@ -300,6 +300,11 @@ void DataImportService::startNextConversion()
   m_convCurrent = job.first;
   m_convCurrentExt = job.second;
   m_convCurrentVersionId = m_catalog->nextVersionId();
+  // A-04 同族不变量：出队即清上一单残留——mkpath 失败等早退路径走
+  // finishConversion 时，陈旧 m_convOutFile 会把上一单已入库的 DERIVED
+  // 产物删掉（catalog 悬垂版本），陈旧 m_convTimedOut 会把本单误报成超时。
+  m_convOutFile.clear();
+  m_convTimedOut = false;
 
   QString rawAbs;
   for (const CatalogVersion &v : m_catalog->versionsForAsset(m_convCurrent))

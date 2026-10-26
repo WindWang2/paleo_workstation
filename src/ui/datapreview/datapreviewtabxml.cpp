@@ -9,9 +9,10 @@
 using namespace paleo::datapreview_detail;
 
 QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QString &assetId,
-                                                   QWidget *host, QVBoxLayout *lay, const QString &expectedSha)
+                                                   QWidget *host, QVBoxLayout *lay, const QString &expectedSha, bool reference)
 {
   auto *chart = new WellComposite::WellCompositePanel(host);
+  chart->setProjectName(catalogProjectDir(m_doc ? m_doc->catalog() : nullptr));
   chart->setObjectName("wellCompositePanel");
   auto *hint = new QLabel(tr("正在后台读取井道图与数据列表…"), host);
   hint->setObjectName("xmlPendingHint");
@@ -45,10 +46,10 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
   auto *session = new XmlPreviewSession(host);
   session->setTaskService(m_doc ? m_doc->taskService() : nullptr);
   connect(session, &XmlPreviewSession::ready, host,
-      [this, abs, assetId, host, stack, chart, hint, tableHint, tableHost, tableLayout](const XmlPreviewData &data) {
+      [this, abs, assetId, host, stack, chart, hint, tableHint, tableHost, tableLayout, reference](const XmlPreviewData &data) {
     hint->hide(); delete tableHint;
     buildWorkbookTable(data.table, tableHost, tableLayout);
-    if (data.chartOk) chart->loadWellData(data.chart, abs, true);
+    if (data.chartOk) chart->loadWellData(data.chart, abs, reference);
     else {
       const int selected = stack->currentIndex();
       stack->removeWidget(chart); chart->deleteLater();

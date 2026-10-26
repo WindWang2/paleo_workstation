@@ -79,6 +79,9 @@ bool inspectLog(const QString &path, LogInspection &out, QString *error)
   if (doc.curves.size() < 2 || doc.curves.first().values.isEmpty())
     return reject(error, tr("%1：没有可用的索引和测井曲线，请检查数据表头。").arg(path));
   const auto &axis = doc.curves.first();
+  out.comprehensiveTemplate = WellLogRead::detect(path) == WellLogFormat::SpreadsheetXml &&
+      axis.name == QStringLiteral("深度") && axis.unit == QLatin1String("m") && out.header.indexBasis == QLatin1String("MD") &&
+      doc.curveNames.contains(QStringLiteral("TVD")) && doc.curveNames.contains(QStringLiteral("TVDSS"));
   for (int c = 1; c < doc.curves.size(); ++c)
     if (doc.curves[c].values.size() != axis.values.size())
       return reject(error, tr("%1：曲线 %2 与索引样本数不同，暂未导入。").arg(path, doc.curves[c].name));

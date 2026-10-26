@@ -9,6 +9,7 @@ namespace paleo::dataimport_detail
 struct FamilyContext;
 struct LogInspection
 {
+  bool comprehensiveTemplate = false;
   LasHeaderInfo header;
   QString summary;
   QStringList issues;

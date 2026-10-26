@@ -62,4 +62,17 @@ inline QByteArray paddedXml(const QString &sheetName = QStringLiteral("测井曲
   content.replace(QStringLiteral("测井曲线-A1井").toUtf8(), sheetName.toUtf8());
   return content;
 }
+
+// Additional comprehensive export mode; the older xml() fixture stays intact.
+inline QByteArray comprehensiveXml()
+{
+  QString result = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+      "<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" "
+      "xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">"
+      "<Worksheet ss:Name=\"测井曲线\"><Table>");
+  result += row({"井号", "深度", "TVD", "TVDSS", "HXN_POR"});
+  result += row({"A1", "1000", "990", "", "8"});
+  result += row({"A1", "1001", "991", "", "9"});
+  return (result + QStringLiteral("</Table></Worksheet></Workbook>")).toUtf8();
+}
 }

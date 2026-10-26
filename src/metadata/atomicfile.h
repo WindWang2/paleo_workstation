@@ -22,6 +22,20 @@
 #include <unistd.h>
 #endif
 
+#ifdef Q_OS_WIN
+// Native Win32 APIs need an absolute extended path even when Qt's file APIs
+// already accept long Unicode paths. Preserve existing extended/UNC namespaces.
+inline QString paleoWindowsExtendedPath(const QString &path)
+{
+  if (path.isEmpty()) return {};
+  QString native = QDir::toNativeSeparators(path);
+  if (native.startsWith(QStringLiteral("\\\\?\\"))) return native;
+  native = QDir::toNativeSeparators(QDir::cleanPath(QFileInfo(path).absoluteFilePath()));
+  if (native.startsWith(QStringLiteral("\\\\"))) return QStringLiteral("\\\\?\\UNC\\") + native.mid(2);
+  return QStringLiteral("\\\\?\\") + native;
+}
+#endif
+
 // 刷盘同步（fflush + fsync / _commit），确保元数据落盘真实持久化
 inline bool paleoSyncFile(QFile &file)
 {
@@ -82,8 +96,10 @@ enum class PaleoAtomicFaultPoint
 inline bool paleoReplaceFile(const QString &source, const QString &destination)
 {
 #ifdef Q_OS_WIN
-  return MoveFileExW(reinterpret_cast<LPCWSTR>(source.utf16()),
-                     reinterpret_cast<LPCWSTR>(destination.utf16()),
+  const auto nativeSource = paleoWindowsExtendedPath(source);
+  const auto nativeDestination = paleoWindowsExtendedPath(destination);
+  return MoveFileExW(reinterpret_cast<LPCWSTR>(nativeSource.utf16()),
+                     reinterpret_cast<LPCWSTR>(nativeDestination.utf16()),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
 #else
   return ::rename(QFile::encodeName(source).constData(),

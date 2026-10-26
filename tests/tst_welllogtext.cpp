@@ -2,10 +2,12 @@
 #include <QtTest>
 #include <QFile>
 #include <QTemporaryDir>
+#include <QDir>
 #include <cmath>
 #include "io/welllogread.h"
 #include "io/welllogtext.h"
 #include "io/welllogtext_internal.h"
+#include "io/wellcompositexml.h"
 
 namespace
 {
@@ -39,6 +41,106 @@ class TestWellLogText : public QObject
 {
   Q_OBJECT
 private slots:
+  void legacyUnitDeclarationsDoNotSelectCompositeMode_data()
+  {
+    QTest::addColumn<QString>("axis");
+    QTest::addColumn<QString>("unit");
+    QTest::addColumn<QString>("basis");
+    QTest::newRow("explicit-metres") << QStringLiteral("深度[m]") << QStringLiteral("m") << QString();
+    QTest::newRow("explicit-feet") << QStringLiteral("深度[ft]") << QStringLiteral("ft") << QString();
+    QTest::newRow("parenthesized-metres") << QStringLiteral("深度(m)") << QStringLiteral("m") << QString();
+    QTest::newRow("explicit-md-feet") << QStringLiteral("MD[ft]") << QStringLiteral("ft") << QStringLiteral("MD");
+  }
+  void legacyUnitDeclarationsDoNotSelectCompositeMode()
+  {
+    QFETCH(QString, axis); QFETCH(QString, unit); QFETCH(QString, basis);
+    QTemporaryDir dir;
+    const auto path = dir.filePath("legacy.xml");
+    QVERIFY(write(path, workbook(xmlSheet(QStringLiteral("测井曲线"),
+        {{"井号", axis, "TVD", "TVDSS", "GR"}, {"A1", "1000", "990", "", "10"}}))));
+    LasHeaderInfo header; QList<LasCurve> curves; QString error;
+    QVERIFY2(WellLogRead::parse(path, header, curves, &error), qPrintable(error));
+    QCOMPARE(header.indexBasis, basis);
+    QCOMPARE(curves.first().unit, unit);
+    QVERIFY(curves.at(1).unit.isEmpty());
+    QCOMPARE(curves.first().values, QVector<double>({1000}));
+  }
+
+  void ordinaryTextWithSameColumnsKeepsUnknownDepthMetadata()
+  {
+    QTemporaryDir dir; const auto path = dir.filePath("ordinary.csv");
+    QVERIFY(write(path, QStringLiteral("井号,深度,TVD,TVDSS,GR\nA1,1000,990,,10\n").toUtf8()));
+    LasHeaderInfo header; QList<LasCurve> curves; QString error;
+    QVERIFY2(WellLogRead::parse(path, header, curves, &error), qPrintable(error));
+    QVERIFY(header.indexBasis.isEmpty()); QVERIFY(curves.first().unit.isEmpty());
+  }
+
+  void compositeVerticalColumnsKeepSamplingSources()
+  {
+    QTemporaryDir dir;
+    const auto path = dir.filePath("sampling.xml");
+    const auto content = xmlSheet(QStringLiteral("测井曲线"),
+        {{"井号", "深度", "TVD", "TVDSS", "GR"}, {"A1", "100", "99", "", "10"}, {"A1", "101", "100", "", "-9999"}}) +
+        xmlSheet(QStringLiteral("离散曲线"), {{"井号", "深度", "TVD", "TVDSS", "POR"}, {"A1", "100.5", "99.4", "", "5"}});
+    QVERIFY(write(path, workbook(content)));
+    const auto doc = WellLogRead::parseDoc(path);
+    QVERIFY2(doc.ok, qPrintable(doc.error));
+    QCOMPARE(doc.curveNames, QStringList({"深度", "TVD", "TVDSS", "GR", "TVD [离散曲线]", "TVDSS [离散曲线]", "POR"}));
+    QCOMPARE(doc.curves.first().values, QVector<double>({100, 100.5, 101}));
+    QCOMPARE(doc.curves.first().unit, QStringLiteral("m"));
+    LasHeaderInfo header;
+    QVERIFY(WellLogRead::parseHeader(path, header));
+    QCOMPARE(header.indexBasis, QStringLiteral("MD"));
+    QCOMPARE(doc.curves[4].values[1], 99.4);
+    QVERIFY(std::isnan(doc.curves[1].values[1]));
+    QVERIFY(std::isnan(doc.curves[3].values[2]));
+  }
+
+  void emptyDiscreteSheetDoesNotInvalidateContinuousLog()
+  {
+    QTemporaryDir dir;
+    const auto path = dir.filePath("empty-discrete.xml");
+    QVERIFY(write(path, workbook(xmlSheet(QStringLiteral("测井曲线"), {{"井号", "深度", "GR"}, {"A1", "100", "2"}}) +
+        xmlSheet(QStringLiteral("离散曲线"), {{"井号", "深度", "TOC"}}))));
+    const auto doc = WellLogRead::parseDoc(path);
+    QVERIFY2(doc.ok, qPrintable(doc.error));
+    QCOMPARE(doc.curveNames, QStringList({"深度", "GR"}));
+  }
+
+  void spreadsheetLargerThanLegacyByteLimit()
+  {
+    QTemporaryDir dir;
+    const auto path = dir.filePath("large.xml");
+    QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+    const QByteArray content = workbook(xmlSheet(QStringLiteral("测井曲线"), {{"井号", "MD[m]", "GR"}, {"A1", "100", "2"}}));
+    const int insert = content.indexOf('>', content.indexOf("<Workbook")) + 1;
+    file.write(content.first(insert)); file.write("<!--");
+    const QByteArray chunk(1024*1024, ' ');
+    for (int i = 0; i < 65; ++i) QCOMPARE(file.write(chunk), chunk.size());
+    file.write("-->"); file.write(content.mid(insert)); file.close();
+    const auto doc = WellLogRead::parseDoc(path);
+    QVERIFY2(doc.ok, qPrintable(doc.error));
+    QCOMPARE(doc.curves[1].values, QVector<double>({2}));
+  }
+
+  void hxnSourceDocumentsWhenExplicitlyProvided()
+  {
+    const auto root = qEnvironmentVariable("PALEO_HXN_DATA_DIR");
+    if (root.isEmpty()) QSKIP("Set PALEO_HXN_DATA_DIR to run private source acceptance");
+    const auto files = QDir(root + QStringLiteral("/测井数据")).entryInfoList({"*.xml"}, QDir::Files, QDir::Name);
+    QVERIFY(!files.isEmpty());
+    for (const auto &file : files) {
+      const auto doc = WellLogRead::parseDoc(file.absoluteFilePath());
+      QVERIFY2(doc.ok, qPrintable(file.fileName() + ": " + doc.error));
+      QVERIFY(doc.curves.size() >= 2);
+      qInfo().noquote() << file.fileName() << doc.curves.size() << doc.curves.first().values.size();
+      WellComposite::ComprehensiveWellData composite;
+      QString error;
+      QVERIFY2(WellComposite::parseComprehensiveWellXml(file.absoluteFilePath(), composite, &error), qPrintable(file.fileName() + ": " + error));
+      QVERIFY(!composite.wellName.isEmpty());
+      QVERIFY(!composite.continuousCurves.isEmpty());
+    }
+  }
   void csvPreservesMetadataUnitsAndMissing()
   {
     QTemporaryDir dir;

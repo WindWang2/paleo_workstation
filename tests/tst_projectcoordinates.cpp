@@ -20,6 +20,44 @@ class TestProjectCoordinates : public QObject {
     QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly)); QCOMPARE(f.write(bytes), bytes.size());
   }
 private slots:
+  void hxnCoordinateSourceRequiresReviewWhenProvided() {
+    const auto root = qEnvironmentVariable("PALEO_HXN_DATA_DIR");
+    if (root.isEmpty()) QSKIP("Set PALEO_HXN_DATA_DIR for private coordinate acceptance");
+    const auto path = root + QStringLiteral("/坐标统计.xlsx");
+    const auto table = paleo::io::readWellTable(path);
+    QVERIFY2(table.error.isEmpty(), qPrintable(table.error));
+    QCOMPARE(table.heads.size(), 55); QCOMPARE(table.report.rejectedRows, 1);
+    QVERIFY(table.heads.first().x > 20'000'000);
+    QVERIFY(table.heads.first().y > 2'000'000 && table.heads.first().y < 3'000'000);
+    const auto checked = paleo::io::readWellTable(path, {{"crs", "EPSG:2436"}, {"projectCrs", "EPSG:2436"}});
+    QVERIFY(checked.error.contains(QStringLiteral("EPSG:2436")));
+    QVERIFY(checked.normalized.isEmpty());
+  }
+  void surveyAxisLabelsOverrideLetters() {
+    QTemporaryDir root;
+    const auto path = root.filePath("survey.csv");
+    write(path, QStringLiteral("井号,X（纵坐标）,Y（横坐标）\nA1,2361000,303500\n").toUtf8());
+    const auto table = paleo::io::readWellTable(path, {{"crs", "EPSG:2436"}, {"projectCrs", "EPSG:2436"}});
+    QVERIFY2(table.error.isEmpty(), qPrintable(table.error));
+    QCOMPARE(table.heads.size(), 1);
+    QCOMPARE(table.heads.first().x, 303500.);
+    QCOMPARE(table.heads.first().y, 2361000.);
+    QCOMPARE(table.mapping.value("x").toString(), QStringLiteral("Y（横坐标）"));
+    // A user's explicit mapping remains authoritative.
+    const auto explicitTable = paleo::io::readWellTable(path, {{"x", "X（纵坐标）"}, {"y", "Y（横坐标）"}});
+    QCOMPARE(explicitTable.heads.first().x, 2361000.);
+  }
+  void prefixedGaussKrugerCoordinatesRequireReview() {
+    QVector<WellHeadRecord> heads{{"A1", 20'300'000, 2'360'000}};
+    QString error;
+    QVERIFY(!paleo::io::projectWellCoordinates(&heads, "EPSG:2436", "EPSG:2436", &error));
+    QVERIFY(error.contains("A1")); QVERIFY(error.contains("EPSG:2436"));
+    QCOMPARE(heads.first().x, 20'300'000.);
+    heads.first().x = 300'000;
+    QVERIFY2(paleo::io::projectWellCoordinates(&heads, "EPSG:2436", "EPSG:4326", &error), qPrintable(error));
+    QVERIFY(heads.first().x > 114 && heads.first().x < 117);
+    QVERIFY(heads.first().y > 20 && heads.first().y < 23);
+  }
   // review-fix-dataio：CRS 字符串来自工程文件/导入表头，旧实现直接
   // SetFromUserInput 会把它当文件路径/URL 打开（任意读 + 网络请求）。
   // 带 SET_FROM_USER_INPUT_LIMITATIONS 后只接受 EPSG/WKT/PROJ 等内联定义。

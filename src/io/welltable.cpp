@@ -35,6 +35,17 @@ int column(const QStringList &headers, const QStringList &aliases, const QString
     }
   return -1;
 }
+int coordinateColumn(const QStringList &headers, bool horizontal, const QString &explicitName)
+{
+  if (!explicitName.isEmpty()) return headers.indexOf(explicitName);
+  // Survey X = northing, Y = easting; GIS x = easting, y = northing.
+  // Explicit semantic labels take precedence over the leading X/Y letters.
+  const QStringList semantic = horizontal
+      ? QStringList{QStringLiteral("横坐标"), QStringLiteral("东坐标"), QStringLiteral("经度"), "EASTING", "LONGITUDE"}
+      : QStringList{QStringLiteral("纵坐标"), QStringLiteral("北坐标"), QStringLiteral("纬度"), "NORTHING", "LATITUDE"};
+  const int labelled = column(headers, semantic);
+  return labelled >= 0 ? labelled : column(headers, horizontal ? QStringList{"__geometry_x", "X"} : QStringList{"__geometry_y", "Y"});
+}
 WorkbookReadResult vectorOrText(const QString &path)
 {
   WorkbookReadResult out;
@@ -94,8 +105,8 @@ void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m
 {
   const auto &h = sheet.headers;
   const int name = column(h, {QStringLiteral("井号"), QStringLiteral("井名"), "WELL", "WELLNAME", "NAME"}, m.value("well").toString());
-  const int x = column(h, {"__geometry_x", "X", "EASTING", QStringLiteral("井口横坐标"), QStringLiteral("横坐标"), QStringLiteral("经度"), "LONGITUDE"}, m.value("x").toString());
-  const int y = column(h, {"__geometry_y", "Y", "NORTHING", QStringLiteral("井口纵坐标"), QStringLiteral("纵坐标"), QStringLiteral("纬度"), "LATITUDE"}, m.value("y").toString());
+  const int x = coordinateColumn(h, true, m.value("x").toString());
+  const int y = coordinateColumn(h, false, m.value("y").toString());
   const int kb = column(h, {"KB", QStringLiteral("补心海拔")}, m.value("kb").toString());
   const int td = column(h, {"TD", QStringLiteral("完钻井深"), QStringLiteral("总井深")}, m.value("td").toString());
   const int top = column(h, {QStringLiteral("层位"), QStringLiteral("层名"), "HORIZON", "TOP"});

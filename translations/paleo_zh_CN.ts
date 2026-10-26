@@ -27376,6 +27376,14 @@ SHA-256：%2</translation>
 <context>
     <name>QObject</name>
     <message>
+        <source>%1（东坐标 %2，北坐标 %3）</source>
+        <translation>%1（东坐标 %2，北坐标 %3）</translation>
+    </message>
+    <message>
+        <source>EPSG:2436 坐标异常：%1。请核实横纵轴对应、带号前缀和来源坐标系；系统不会自动去带号或交换数值。</source>
+        <translation>EPSG:2436 坐标异常：%1。请核实横纵轴对应、带号前缀和来源坐标系；系统不会自动去带号或交换数值。</translation>
+    </message>
+    <message>
         <location filename="../src/workflow/mapversioncontroller.cpp" line="226"/>
         <source>commitChanges failed for layer &apos;%1&apos;</source>
         <translation>图层“%1”提交更改失败</translation>
@@ -42511,6 +42519,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>WellLogText</name>
+    <message>
+        <source>%1：按综合柱状图模板读取测深 MD（米）；原始文件保留，物理曲线单位不猜测</source>
+        <translation>%1：按综合柱状图模板读取测深 MD（米）；原始文件保留，物理曲线单位不猜测</translation>
+    </message>
+    <message>
+        <source>不同采样的索引并集超过 %1 单元格预算，请分别导入</source>
+        <translation>不同采样的索引并集超过 %1 单元格预算，请分别导入</translation>
+    </message>
     <message>
         <location filename="../src/io/welllogtext.cpp" line="43"/>
         <source>%1，第 %2 行：%3。请检查文件后重试。</source>

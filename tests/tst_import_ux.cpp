@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QDirIterator>
 #include <QSignalSpy>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <cmath>
 #include <memory>
@@ -110,6 +111,72 @@ class TestImportUx : public QObject
 {
   Q_OBJECT
 private slots:
+  void legacyAndCompositeModesCoexistWithoutChangingOldVersions()
+  {
+    Harness h; QString error;
+    const auto oldXml = h.source("legacy.xml", ImportUxFixtures::xml());
+    const auto oldCsv = h.source("legacy.csv", ImportUxFixtures::csv("A1", "RES[ohm.m]", "3280.839895013123,10\n3284.120734908136,20\n", "MD[ft]"));
+    const auto rows = h.service->importFiles({oldXml, oldCsv}, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error)); QCOMPARE(rows.size(), 2);
+    QVector<CatalogVersion> originals;
+    for (const auto &row : rows) {
+      QCOMPARE(row.outcome, RowOutcome::Imported);
+      originals << h.catalog()->currentVersion(row.assetId);
+      QVERIFY(!originals.last().extra.value("logCompositeTemplate").toBool());
+    }
+    const auto well = h.wellId(); QCOMPARE(h.curves().size(), 4);
+    h.reopen();
+    const auto added = h.source("additional.xml", ImportUxFixtures::comprehensiveXml());
+    const auto asset = h.service->importProjectFile(added, &error);
+    QVERIFY2(!asset.isEmpty(), qPrintable(error));
+    QVERIFY(h.catalog()->currentVersion(asset).extra.value("logCompositeTemplate").toBool());
+    h.reopen();
+    QCOMPARE(h.wellId(), well); QCOMPARE(h.catalog()->entities("well").size(), 1);
+    const auto curves = h.curves(); QCOMPARE(curves.size(), 7);
+    QSet<QString> sources;
+    for (const auto &curve : curves) sources.insert(curve.sourceVersionId);
+    QCOMPARE(sources.size(), 3);
+    for (const auto &original : originals) {
+      const auto current = h.catalog()->currentVersion(original.assetId);
+      QCOMPARE(current.id, original.id);
+      QCOMPARE(QJsonObject::fromVariantMap(current.extra), QJsonObject::fromVariantMap(original.extra));
+    }
+    WellLogSet::WellCurveTvdSamples samples;
+    QVERIFY2(WellLogSet::readCurveTvd(findCurve(curves, "HXN_POR"), nullptr, &samples, &error), qPrintable(error));
+    QCOMPARE(samples.md, QVector<double>({1000, 1001})); QCOMPARE(samples.values, QVector<double>({8, 9}));
+    QVERIFY2(WellLogSet::readCurveTvd(findCurve(curves, "RES"), nullptr, &samples, &error), qPrintable(error));
+    QVERIFY(std::abs(samples.md.first() - 1000) < 1e-8);
+    QCOMPARE(bytesAt(oldXml), ImportUxFixtures::xml());
+  }
+
+  void hxnLargestDocumentImportsAsManagedCurves()
+  {
+    const auto root = qEnvironmentVariable("PALEO_HXN_DATA_DIR");
+    if (root.isEmpty()) QSKIP("Set PALEO_HXN_DATA_DIR for private managed-import acceptance");
+    const auto files = QDir(root + QStringLiteral("/测井数据")).entryInfoList({"*.xml"}, QDir::Files, QDir::Size);
+    QVERIFY(!files.isEmpty());
+    const auto source = files.first().absoluteFilePath();
+    QVERIFY(files.first().size() > 512LL * 1024 * 1024);
+    const auto before = DataCatalog::sha256FileHex(source);
+    QVERIFY(!before.isEmpty());
+    Harness h; QString error;
+    const auto asset = h.service->importProjectFile(source, &error);
+    QVERIFY2(!asset.isEmpty(), qPrintable(error));
+    QCOMPARE(h.catalog()->entities(QStringLiteral("well")).size(), 1);
+    const auto well = h.catalog()->entities(QStringLiteral("well")).first();
+    QCOMPARE(well.coordinateStatus, QStringLiteral("unknown"));
+    const auto version = h.catalog()->currentVersion(asset);
+    QVERIFY(version.managed); QCOMPARE(version.stage, QStringLiteral("RAW"));
+    QCOMPARE(version.sha256, before);
+    QVERIFY(version.extra.value("logCompositeTemplate").toBool());
+    LasHeaderInfo stored; QVERIFY(WellLogSet::storedHeader(version, &stored));
+    QCOMPARE(stored.indexBasis, QStringLiteral("MD"));
+    const auto curves = WellLogSet::wellCurveIndex(h.catalog(), h.project, well.id);
+    QVERIFY(curves.size() > 30);
+    h.reopen();
+    QCOMPARE(WellLogSet::wellCurveIndex(h.catalog(), h.project, well.id).size(), curves.size());
+    QCOMPARE(DataCatalog::sha256FileHex(source), before);
+  }
   void completeXmlCreatesOneWellAndThreeReadableCurves()
   {
     Harness h;
@@ -1176,6 +1243,15 @@ private slots:
     QCOMPARE(h.catalog()->entities(QStringLiteral("well")).size(), 1);
     QCOMPARE(h.curves().size(), 2);
     QCOMPARE(h.catalog()->currentVersion(asset.id).id, version.id);
+    QCOMPARE(bytesAt(las), legacyBytes);
+    const auto composite = h.source("additional.xml", ImportUxFixtures::comprehensiveXml());
+    QVERIFY2(!h.service->importProjectFile(composite, &error).isEmpty(), qPrintable(error));
+    h.reopen();
+    QCOMPARE(h.wellId(), well.id); QCOMPARE(h.curves().size(), 5);
+    QCOMPARE(h.catalog()->currentVersion(asset.id).id, version.id);
+    QVERIFY(h.catalog()->currentVersion(asset.id).extra.isEmpty());
+    QVERIFY2(WellLogSet::readCurveTvd(findCurve(h.curves(), "GR"), nullptr, &samples, &error), qPrintable(error));
+    QCOMPARE(samples.values, QVector<double>({30, 40}));
     QCOMPARE(bytesAt(las), legacyBytes);
   }
 };

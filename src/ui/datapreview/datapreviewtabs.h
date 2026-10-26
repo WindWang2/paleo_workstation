@@ -139,7 +139,7 @@ class DataPreviewTabs : public QWidget
     bool buildWorkbookTable(const QString &abs, QWidget *host, QVBoxLayout *lay);
     bool buildWorkbookTable(const PreviewDocService::WorkbookPreview &data, QWidget *host, QVBoxLayout *lay);
     QWidget *buildAuxiliaryXmlContent(const QString &abs, const QString &assetId, QWidget *host, QVBoxLayout *lay,
-                                      const QString &expectedSha = QString());
+                                        const QString &expectedSha = QString(), bool reference = true);
     // 方向20 轮4：buildContent 的「geojson / boundary(.geojson)」分支析出到
     // datapreviewtabgeojson.cpp。双条件匹配（geojson 类型，或 boundary 类型且
     // 文件名以 .geojson 结尾）仍留在 buildContent 调用点。

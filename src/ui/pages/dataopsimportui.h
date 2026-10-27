@@ -229,8 +229,13 @@ public slots:
           m_runner(i, *it, &m_queue);
       }
     refresh();
+    // 队列空即停驱动拍；反之要确保它在转——重试按钮是 enqueuePaths 之外
+    // 唯一把 Failed 复活成 Queued 的入口，队列清空后驱动拍已停，异步失败
+    // 落 RetryWait 就再无人推进（定时器唯一 start 点在 enqueuePaths）。
     if (!m_queue.hasPending())
       m_timer->stop();
+    else if (!m_timer->isActive())
+      m_timer->start();
   }
 
   // B2：全部取消——排队/等待重试直接 Canceled；进行中的经 cancelHook 协作

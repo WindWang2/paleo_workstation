@@ -11,3 +11,4 @@
 | 7 | Phase 4 R2（独立 subagent）：18 项全部成立、无 MUST_FIX；3 SHOULD_FIX（S-1 stat 死代码 / S-2 removeAt 跳位 / S-3 缺测试）+ D 系列 | 复审报告可合并 | 通过 | Fix 2 |
 | 8 | Phase 5 Fix 2：S-1/S-2/S-3/D-1/D-3 全采纳。期间发现并修复 **F-23 P1**（#815 审计历史读取被 GDAL SQLite 方言 fid 剥离打穿——tst_constraintevidence 5 存量用例 master 必红，主 worktree 对照坐实；按名读列 + GetFID 兜底，5 红转绿 8/8）。6 commit（de2f355e…36044fdc） | Fix 2 回归批 10/10 ✓ | 通过 | 终审 |
 | 9 | Phase 6 终审（全新 subagent）：22+F-23 全部坐实、无 MUST_FIX、可交付 PR；2 SHOULD_FIX（.h 残留注释 / 文档入库）——均已处置 | 终审报告 08 | 通过 | 全量验收 + PR |
+| 10 | Phase 7 全量验收：ctest 473/483，10 失败逐项归因（2 项在册 Issue、5 项环境/既有、1 项非权威闸口、1 项被在途工作阻塞、**1 项 F-24 新发现**）；源码闸门全绿。F-24 [P1]：#815 把 class_index 类号校验收紧到通道数（恒 1）→ 非 0 类号全转无数据、class_index 预测全灭（存量红测 challenge4 锁定）——修复 d428549e + 聚焦独立复核成立；关键套件二次确认 6/6 | baseline-tests.log + 06-baseline-quality.md 归因表 | 通过 | 同步 master + PR |

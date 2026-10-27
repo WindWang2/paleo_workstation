@@ -34,3 +34,25 @@
   tst_singlefactor_parity ✓（唯一失败 tst_mappingworkbench 为上述环境基线失败）
 - F-05（mappingartifactwriter）与 F-13/F-14（workflow 家族）的行为验证载体
   tst_mappingworkbench 在本机环境不可用——以代码复核 + 独立 Review 2 兜底。
+
+## 全量 ctest（Phase 7 验收，F-24 修复前口径）：473/483（98%），10 失败逐项归因
+
+| 失败 | 归因 |
+|------|------|
+| layering_transitive | 文档注明的本地非闸口（需 QGIS_PREFIX，权威闸在 CI lint 车道） |
+| file_budget_strict | #815 缩短 wellsectiondialogs 函数未同步下调基线（可收紧 1）；基线文件在主 checkout 在途清单（EXCLUDED_ACTIVE_WORK），本任务不抢修 |
+| tst_assetops | **#756** 在册持有（rollbackExternalIsZeroCopy） |
+| tst_wellfacies | **#800** 在册持有（预算 4M→16M 回退的测试面：放大夹具不再被拒） |
+| tst_startup_trace | perf-host 环境敏感（标签 envdebt_perf-host；基线 0b9c0a7a 同红、负载相关） |
+| tst_versions / tst_derivationgraph / tst_impactrecompute | QgsSettingsException 环境崩溃（双 QGIS 载入；主 worktree pre-#815 构建同样崩） |
+| tst_welllog_ui | 主 worktree pre-#815 构建同样失败（既有） |
+| tst_predict_challenger_r2 | **F-24（本轮修复）**：#815 把 class_index 类号校验收紧到通道数（恒 1），非 0 类号全转无数据 255，class_index 预测全灭——修复后 18/18 |
+
+结论：10 项失败中 2 项在册 Issue 持有、5 项环境/既有、1 项闸口非权威、
+1 项被在途工作阻塞（登记）、1 项为本轮 F-24 已修复。**无一项为本任务
+改动引入的回归**（关键证据：全部失败在 pristine 0b9c0a7a 基线上复现或
+在 pre-#815 构建上同样失败）。
+
+源码闸门（全绿）：check_layering --strict / --qgs-audit --strict（新增 0）、
+check_qgis_spread（新增 0）、check_ui_invariants --strict、check_i18n、
+check_ui_tokens（violations=0）、git diff --check。AI 域 ctest -L ai 38/38。

@@ -46,3 +46,15 @@ D qgis-ui / E #815 修复横切）+ 主 Agent 对全部拟修发现逐行复核�
 全部 80 开放 Issues、L-01…L-23、主 checkout 在途文件（含 wellsection.cpp
 orderWellsNearestNeighbor、welltable.cpp、lasparser.cpp、propfill.cpp 等）
 ——见各 Agent 报告排除段与 01-conflict-matrix.md。
+
+## Phase 7 验收期间追加发现
+
+| ID | Sev | Conf | 位置 | 概要 | 处置 |
+|----|-----|------|------|------|------|
+| F-24 | P1 | VERIFIED | ai/tileinference.cpp:109 | #815 把 class_index 类号校验从 label<kMaxTileClasses 收紧到 label<classes——该语义张量 [1×pixels] 通道数恒 1，非 0 类号全转无数据 255，class_index 预测全灭；本地降级路径（onnxlocalpredictor）同灭 | 修复 d428549e（忠实还原 #815 前语义）；存量红测 challenge4 锁定（d7abab8d 绿/0b9c0a7a 红/修复后 18/18）；聚焦独立复核成立 |
+
+## Phase 7 全量 ctest 10 项失败归因
+
+见 06-baseline-quality.md 归因表：2 项在册 Issue（#756/#800）、5 项环境/
+既有、1 项非权威本地闸口、1 项被在途工作阻塞（file-budget 基线下调，
+EXCLUDED_ACTIVE_WORK）、1 项即 F-24（已修）。零本任务引入回归。

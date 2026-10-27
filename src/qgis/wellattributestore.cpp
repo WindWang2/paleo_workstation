@@ -772,17 +772,21 @@ bool seedFactors(DataCatalog *catalog, const QString &dir,
     QgsFeature f;
     auto scan = layer->getFeatures();
     while (scan.nextFeature(f))
-      rowByWellHorizon.insert(
-          f.attribute("well_id").toString() + QChar(0x1f) +
-              f.attribute("horizon").toString(),
-          f.id());
+    {
+      // 重复 (well_id,horizon) 脏行保留「首行命中」（旧逐行扫描 break 的
+      // 语义）——insert 覆盖会把更新目标悄悄换成末行。
+      const QString key = f.attribute("well_id").toString() + QChar(0x1f) +
+                          f.attribute("horizon").toString();
+      if (!rowByWellHorizon.contains(key))
+        rowByWellHorizon.insert(key, f.id());
+    }
   }
   for (const auto &v : updates) {
     const auto row = v.toMap();
     QgsFeature found;
-    const auto hit = rowByWellHorizon.constFind(
-        row.value("well_id").toString() + QChar(0x1f) +
-        row.value("horizon").toString());
+    const QString key = row.value("well_id").toString() + QChar(0x1f) +
+                        row.value("horizon").toString();
+    const auto hit = rowByWellHorizon.constFind(key);
     if (hit != rowByWellHorizon.constEnd())
       layer->getFeatures(QgsFeatureRequest().setFilterFid(*hit)).nextFeature(found);
     if (found.isValid()) {
@@ -807,6 +811,9 @@ bool seedFactors(DataCatalog *catalog, const QString &dir,
       layer->rollBack();
       return fail(error, tr("井点因子新增失败"));
     }
+    // 新行登进索引：同批出现重复 (well_id,horizon) 时旧行为（逐行扫）会
+    // 命中刚加的行，快照不登则第二条会再 addFeature 落重复行。
+    rowByWellHorizon.insert(key, next.id());
   }
   if (!validate(layer, catalog, true, error)) {
     layer->rollBack();

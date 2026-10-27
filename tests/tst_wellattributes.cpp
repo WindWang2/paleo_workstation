@@ -590,6 +590,30 @@ private slots:
   }
   // 空格子补齐：种行时没算出值的 NULL 格子（坏口径时期落种），重跑获取后
   // 补上本次结果；补齐后的非空值照旧不被后续重算覆盖。
+  // F-12（full-audit-20261028）：同批出现重复 (well_id,horizon) 时，第二条
+  // 应命中第一条刚落的行走「补齐 NULL」——快照索引不登新行会再 addFeature
+  // 落重复行（旧行为按逐行扫会命中刚加的行）。
+  void seedFactorsSameBatchDuplicateKeyStaysOneRow() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QString error;
+    QVERIFY(WellAttributeStore::seedFactors(
+        &f.catalog, f.dir.path(), &f.layers,
+        {QVariantMap{{"well_id", "W1"},
+                     {"horizon", "D61"},
+                     {"log_sand_thickness_md", 8.0}},
+         QVariantMap{{"well_id", "W1"},
+                     {"horizon", "D61"},
+                     {"sand_ratio", 0.4}}},
+        &error));
+    const auto rows = WellAttributeStore::rows(f.dir.path(), nullptr, true, "W1", "D61");
+    QCOMPARE(rows.size(), 1);
+    const auto row = rows.first().toMap();
+    QCOMPARE(row.value("log_sand_thickness_md").toDouble(), 8.0);
+    QCOMPARE(row.value("sand_ratio").toDouble(), 0.4);
+  }
+
   void seedFactorsFillsOnlyEmptyCells() {
     WorkflowFixture f;
     QVERIFY(initFixture(f));

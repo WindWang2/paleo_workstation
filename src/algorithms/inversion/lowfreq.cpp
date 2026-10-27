@@ -307,7 +307,9 @@ LowFreqModelResult lowFreqImpedance(const LowFreqModelInput &input)
 void lowFreqTraceAt(const LowFreqModelResult &m, int il, int xl, float *out)
 {
   const int n = m.nS;
-  if (!m.ok || !out || n <= 0 || il < 0 || il >= m.nIl || xl < 0 || xl >= m.nXl)
+  if (!out)
+    return; // 无输出缓冲：无值可写——守卫分支不得解引用空指针
+  if (!m.ok || n <= 0 || il < 0 || il >= m.nIl || xl < 0 || xl >= m.nXl)
   {
     for (int i = 0; i < n; ++i)
       out[i] = kNan;

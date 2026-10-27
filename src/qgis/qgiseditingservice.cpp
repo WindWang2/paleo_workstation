@@ -129,7 +129,7 @@ bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
       const bool hadSession = m_constraintSessions.remove(layer) > 0;
       if (hadSession && m_store)
       {
-        m_store->markLayerFree(key);
+        m_store->releaseLayerBusy(key, QStringLiteral("edit")); // L-02：只摘自己，不连任务持有一并抹
         // B7：会话里已落盘的编辑随图层移除保留（见 QgisConstraintEditSession）。
         emit editCommitted(id);
       }
@@ -163,7 +163,7 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
     }
     disconnect(m_constraintLifetimeConnections.take(layer));
     m_constraintSessions.remove(layer);
-    m_store->markLayerFree(busyKey(layer));
+    m_store->releaseLayerBusy(busyKey(layer), QStringLiteral("edit")); // L-02
     emit editCommitted(layer->id());
     return true;
   }
@@ -186,7 +186,7 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
   const bool orphanEdit = !layer->isEditable() && m_store->layerBusy(busyKey(layer), &busy)
       && busy.startsWith(QStringLiteral("edit — "));
   if (res.ok || orphanEdit)
-    m_store->markLayerFree(busyKey(layer));
+    m_store->releaseLayerBusy(busyKey(layer), QStringLiteral("edit")); // L-02
 
   if (!res.ok)
   {
@@ -210,7 +210,7 @@ bool QgisEditingService::rollbackEdit(QgsVectorLayer *layer)
     disconnect(m_constraintLifetimeConnections.take(layer));
     m_constraintSessions.remove(layer);
     if (m_store)
-      m_store->markLayerFree(busyKey(layer));
+      m_store->releaseLayerBusy(busyKey(layer), QStringLiteral("edit")); // L-02
   }
   else if (!error.isEmpty())
     emit editFailed(error);

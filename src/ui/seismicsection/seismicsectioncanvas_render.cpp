@@ -243,9 +243,7 @@ void SeismicSectionCanvas::paintValueRegion(int x0, int y0, int w, int h) {
         return;
     }
 
-    const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
-    const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;
-    const float effectiveScale = baseScale * m_gain;
+    const float effectiveScale = amplitudeBaseScale() * m_gain; // AGC 生效时不再叠除原始 absMax
     // #286：显示缓冲与当前网格逐位一致才启用（失配直通原始值，防越界读）
     const bool hasDisplay = m_displayValues.size() ==
         static_cast<std::size_t>(m_traces) * static_cast<std::size_t>(m_samples);
@@ -305,8 +303,7 @@ const QImage &SeismicSectionCanvas::lodImage() const {
     const int outRows = (m_samples + strideY - 1) / strideY;
     const int outCols = (m_traces + strideX - 1) / strideX;
     m_lodCache = QImage(outCols, outRows, QImage::Format_ARGB32_Premultiplied);
-    const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
-    const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;
+    const float baseScale = amplitudeBaseScale(); // AGC 生效时不再叠除原始 absMax
     // #286：同 paintValueRegion——显示缓冲失配时直通原始值，防越界读
     const bool hasDisplay = m_displayValues.size() ==
         static_cast<std::size_t>(m_traces) * static_cast<std::size_t>(m_samples);
@@ -358,8 +355,7 @@ void SeismicSectionCanvas::paintWiggleOverlay(QPainter &p, const QRect &vp, doub
     const double spp = 1.0 / std::max(1e-6, m_zoomY); // 每像素样本数
     const int step = std::max(1, static_cast<int>(spp));
     const double halfW = std::max(2.0, m_zoomX * 0.42); // 波形半宽 = 0.84 道距
-    const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
-    const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;
+    const float baseScale = amplitudeBaseScale(); // AGC 生效时不再叠除原始 absMax
 
     const int t0 = std::clamp(static_cast<int>(std::floor(pixelToTrace(vp.left() - halfW))) - 1, 0, m_traces - 1);
     const int t1 = std::clamp(static_cast<int>(std::ceil(pixelToTrace(vp.right() + halfW))) + 1, 0, m_traces - 1);

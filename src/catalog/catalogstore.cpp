@@ -708,7 +708,14 @@ bool CatalogStore::openProject(const QString &projectDir, bool readOnly, Tables 
     if (readOnly)
     {
       if (!haveJson)
+      {
+        // #80 只读不建主库，但 .migrated/.bak 里有真实数据时不能把工程
+        // 显示成空的——同一磁盘状态下读/写实例答案必须一致（写侧同款
+        // 恢复链；recover 只读 .bak 拷贝与 json，不写主路径）。
+        if (anyRecoverySource(m_sqlitePath, jsonPath))
+          return recover(QStringLiteral("primary missing (read-only open)"), out, error);
         return true; // #80：不建文件，查询为空
+      }
       QString parseDetail;
       QString perr;
       const JsonRead kind = readJsonFile(jsonPath, out, &perr, &parseDetail);
@@ -751,11 +758,13 @@ bool CatalogStore::openProject(const QString &projectDir, bool readOnly, Tables 
     }
     if (haveJson)
       return migrateFromJson(out, error);
-    // 无表主库（零长/异构空库）且有恢复源：数据可能在 .bak 代或
+    // 无表主库（零长/异构空库）或有恢复源：数据可能在 .bak 代或
     // json.migrated 里，先走 recover；一样都没有才按崩溃残留重建空工程
     // （这一档没有数据可丢——createEmpty 的崩溃窗口正是它的来源）。
-    if (schemaLessPrimary && anyRecoverySource(m_sqlitePath, jsonPath))
-      return recover(QStringLiteral("catalog sqlite has no tables"), out, error);
+    // 主库整文件缺失但恢复源在场时同样必须 recover——闸在
+    // schemaLessPrimary 上会把已迁移工程静默重建为空工程（H2）。
+    if (anyRecoverySource(m_sqlitePath, jsonPath))
+      return recover(QStringLiteral("catalog sqlite unusable"), out, error);
     return createEmpty(out, error);
   }
   return openExisting(readOnly, out, error);

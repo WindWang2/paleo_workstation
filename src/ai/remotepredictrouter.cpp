@@ -364,8 +364,8 @@ void RemotePredictionRouter::onHealth(quint64 runId, bool ok, const QString &err
 void RemotePredictionRouter::onPredict(quint64 runId, const QVector<int> &cells,
                                        const QString &error)
 {
-  if (runId == 0 || runId != m_runId || m_cancelled)
-    return;
+  if (runId == 0 || runId != m_runId || m_cancelled || !m_running)
+    return; // m_running 与 wellPredictDone/settleLocalResult 同款终态闸
   if (!error.isEmpty())
     return degradeOrDie(runId, QObject::tr("远端预测"), error);
 

@@ -215,17 +215,22 @@ SitingField sampleField( const std::vector<Polygon> &domain,
     field.message = "工区域包围盒退化";
     return field;
   }
-  const int cols = int( std::ceil( w / options.cellSize ) );
-  const int rows = int( std::ceil( h / options.cellSize ) );
-  if ( std::uint64_t( cols ) * std::uint64_t( rows ) > options.maxCells )
+  // PW-128：先在 double 域闸（极小 cellSize 使 ceil 溢出 int 后，原 uint64
+  // 预算闸读到的是已溢出值），过闸后再转 int。
+  const double colsD = std::ceil( w / options.cellSize );
+  const double rowsD = std::ceil( h / options.cellSize );
+  if ( !( colsD >= 1.0 ) || !( rowsD >= 1.0 ) ||
+       colsD * rowsD > static_cast<double>( options.maxCells ) )
   {
     char buf[192];
-    std::snprintf( buf, sizeof( buf ), "采样预算超限：%dx%d 格 > %llu，请增大 cellSize",
-                   cols, rows, static_cast<unsigned long long>( options.maxCells ) );
+    std::snprintf( buf, sizeof( buf ), "采样预算超限：%.0fx%.0f 格 > %llu，请增大 cellSize",
+                   colsD, rowsD, static_cast<unsigned long long>( options.maxCells ) );
     field.status = Status::BudgetExceeded;
     field.message = buf;
     return field;
   }
+  const int cols = static_cast<int>( colsD );
+  const int rows = static_cast<int>( rowsD );
 
   field.grid.cols = cols;
   field.grid.rows = rows;

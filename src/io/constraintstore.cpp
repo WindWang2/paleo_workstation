@@ -83,27 +83,35 @@ bool sameBusinessState(QVariantMap before, QVariantMap after) {
   before.remove("params_json"); after.remove("params_json");
   return before == after;
 }
+// L-26：fidBelow >= 0 时走游标翻页（AND fid < N 且 OFFSET 恒 0，minFidOut
+// 回传页内最小 fid）——OFFSET 翻页对并发 append 不稳定：新事件 fid 插到
+// 前面使后续页窗口前移，整页事件被跳过、审计链出现空洞。
 QVector<QVariantMap> readHistory(GDALDatasetH ds, const QString &column, const QString &key,
-                                 int limit, int offset, QString *error) {
+                                 int limit, int offset, QString *error,
+                                 qint64 fidBelow = -1, qint64 *minFidOut = nullptr) {
   QVector<QVariantMap> result;
   if (!GDALDatasetGetLayerByName(ds, "constraint_audit")) return result;
   // #441：列名白名单固定两条语句；键用 quoteSql 字面量，limit/offset 用十进制数字拼接。
   // 禁止对已拼好的 SQL 再调 QString::arg，否则键里的 %1/%3 会污染 LIMIT/OFFSET。
+  const QString cursor = fidBelow >= 0
+                             ? QStringLiteral(" AND fid < ") + QString::number(fidBelow)
+                             : QString();
+  const QString offsetClause = fidBelow >= 0 ? QStringLiteral("0") : QString::number(qMax(0, offset));
   QString query;
   if (column == QLatin1String("constraint_id")) {
-    query = QStringLiteral("SELECT event_json FROM constraint_audit WHERE constraint_id=")
-        + quoteSql(key)
+    query = QStringLiteral("SELECT fid, event_json FROM constraint_audit WHERE constraint_id=")
+        + quoteSql(key) + cursor
         + QStringLiteral(" ORDER BY fid DESC LIMIT ")
         + QString::number(qBound(1, limit, 200))
         + QStringLiteral(" OFFSET ")
-        + QString::number(qMax(0, offset));
+        + offsetClause;
   } else if (column == QLatin1String("horizon")) {
-    query = QStringLiteral("SELECT event_json FROM constraint_audit WHERE horizon=")
-        + quoteSql(key)
+    query = QStringLiteral("SELECT fid, event_json FROM constraint_audit WHERE horizon=")
+        + quoteSql(key) + cursor
         + QStringLiteral(" ORDER BY fid DESC LIMIT ")
         + QString::number(qBound(1, limit, 200))
         + QStringLiteral(" OFFSET ")
-        + QString::number(qMax(0, offset));
+        + offsetClause;
   } else {
     if (error) *error = QObject::tr("约束审计查询列无效");
     return result;
@@ -113,13 +121,16 @@ QVector<QVariantMap> readHistory(GDALDatasetH ds, const QString &column, const Q
   if (!rows) { if (error) *error = QString::fromUtf8(CPLGetLastErrorMsg()); return result; }
   while (auto raw = OGR_L_GetNextFeature(rows)) {
     Feature feature(raw, OGR_F_Destroy); QJsonParseError parse;
-    const auto rawBytes = QByteArray(OGR_F_GetFieldAsString(raw, 0));
+    const qint64 fid = OGR_F_GetFieldAsInteger64(raw, 0);
+    const auto rawBytes = QByteArray(OGR_F_GetFieldAsString(raw, 1));
     auto document = QJsonDocument::fromJson(rawBytes, &parse);
     if (parse.error != QJsonParseError::NoError || !document.isObject()) {
       qWarning() << "[ConstraintStore] Corrupted audit event row skipped:" << rawBytes;
       continue;
     }
     result << document.toVariant().toMap();
+    if (minFidOut && ( *minFidOut == 0 || fid < *minFidOut ))
+      *minFidOut = fid; // 事件图本身不掺 fid（快照 event_json 保持原样）
   }
   GDALDatasetReleaseResultSet(ds, rows); return result;
 }
@@ -505,11 +516,12 @@ QVector<QVariantMap> ConstraintStore::history(const QString &id, int limit, int 
   if (!ds) { if (error) *error = QObject::tr("约束历史资产不可读取"); return {}; }
   return readHistory(ds.get(), "constraint_id", id, limit, offset, error);
 }
-QVector<QVariantMap> ConstraintStore::historyForHorizon(const QString &horizon, int limit, int offset, QString *error) const {
+QVector<QVariantMap> ConstraintStore::historyForHorizon(const QString &horizon, int limit, int offset, QString *error,
+                                                        qint64 fidBelow, qint64 *minFidOut) const {
   ensureGdalRegistered(); if (!QFile::exists(m_gpkgPath)) return {};
   std::unique_ptr<void, decltype(&GDALClose)> ds(GDALOpenEx(m_gpkgPath.toUtf8().constData(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr), GDALClose);
   if (!ds) { if (error) *error = QObject::tr("约束历史资产不可读取"); return {}; }
-  return readHistory(ds.get(), "horizon", horizon, limit, offset, error);
+  return readHistory(ds.get(), "horizon", horizon, limit, offset, error, fidBelow, minFidOut);
 }
 bool ConstraintStore::copyAudit(const QString &destination, const QString &horizon, QString *error, int *copied) const {
   if (copied) *copied = 0;
@@ -521,11 +533,15 @@ bool ConstraintStore::copyAudit(const QString &destination, const QString &horiz
   }
   if (horizon.isEmpty() || !QFile::exists(m_gpkgPath)) return true;
   QVector<QVariantMap> events;
-  for (int offset = 0;; offset += 200) {
-    QString reason; const auto page = historyForHorizon(horizon, 200, offset, &reason);
+  // L-26：游标翻页（页内最小 fid 续扫）——OFFSET 对导出期间并发追加不稳
+  // 定，会整页跳过事件；fid 单调 + event_id 去重兜底重复方向。
+  for (qint64 fidBelow = -1;;) {
+    QString reason; qint64 minFid = 0;
+    const auto page = historyForHorizon(horizon, 200, 0, &reason, fidBelow, &minFid);
     if (!reason.isEmpty()) { if (error) *error = reason; return false; }
     events += page;
-    if (page.size() < 200) break;
+    if (page.size() < 200 || minFid == 0) break;
+    fidBelow = minFid;
   }
   if (events.isEmpty()) return true;
   Transaction transaction; QString reason;

@@ -90,11 +90,15 @@ QStringList companions(const QString &path, QString *error, const QVariantList &
   const QFileInfo info(path);
   const QString suffix = info.suffix().toLower();
   if (suffix == "vrt") {
-    *error = QObject::tr("VRT 引用其他文件；请选择 GeoTIFF 交换格式以导出独立数据"); return {};
+    if (error)
+      *error = QObject::tr("VRT 引用其他文件；请选择 GeoTIFF 交换格式以导出独立数据");
+    return {};
   }
   if ((suffix == "gpkg" || suffix == "sqlite") &&
       (QFileInfo(path + "-wal").size() > 0 || QFile::exists(path + "-journal"))) {
-    *error = QObject::tr("数据库存在未归档写入，请先保存并关闭写入后导出：%1").arg(path); return {};
+    if (error)
+      *error = QObject::tr("数据库存在未归档写入，请先保存并关闭写入后导出：%1").arg(path);
+    return {};
   }
   QStringList result{path};
   if (suffix == "shp") {
@@ -108,7 +112,9 @@ QStringList companions(const QString &path, QString *error, const QVariantList &
       }
     }
     for (const auto &ext : required) if (!found.contains(ext)) {
-      *error = QObject::tr("Shapefile 缺少组成文件：%1").arg(ext); return {};
+      if (error)
+        *error = QObject::tr("Shapefile 缺少组成文件：%1").arg(ext);
+      return {};
     }
   }
   for (const auto &extra : QStringList{path + ".aux.xml", path + ".ovr", path + ".qml",

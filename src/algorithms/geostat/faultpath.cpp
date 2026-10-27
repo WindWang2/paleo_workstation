@@ -17,15 +17,20 @@ namespace
 
 int cellColumn( const GridSpec &grid, double x )
 {
-  const int column = static_cast<int>( std::floor( ( x - grid.originX ) / grid.pixelWidth ) );
-  return std::clamp( column, 0, grid.cols - 1 );
+  // PW-128：double 域判界再 cast——屏障多边形顶点可在样本域网格任意远处。
+  const double fc = std::floor( ( x - grid.originX ) / grid.pixelWidth );
+  if ( !( fc >= 0.0 ) )
+    return 0;
+  return static_cast<int>( std::min( fc, static_cast<double>( grid.cols - 1 ) ) );
 }
 
 int cellRow( const GridSpec &grid, double y )
 {
-  // pixelHeight < 0：y < originY 给出正行号
-  const int row = static_cast<int>( std::floor( ( y - grid.originY ) / grid.pixelHeight ) );
-  return std::clamp( row, 0, grid.rows - 1 );
+  // pixelHeight < 0：y < originY 给出正行号；PW-128：double 域判界再 cast。
+  const double fr = std::floor( ( y - grid.originY ) / grid.pixelHeight );
+  if ( !( fr >= 0.0 ) )
+    return 0;
+  return static_cast<int>( std::min( fr, static_cast<double>( grid.rows - 1 ) ) );
 }
 
 void markCell( std::vector<std::uint8_t> &barrier, const GridSpec &grid, double x, double y )

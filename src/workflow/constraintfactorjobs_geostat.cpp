@@ -382,8 +382,12 @@ GeostatSampleGrid buildGeostatGrid( const std::vector<paleo::geostat::Sample> &s
   run.spanY = std::max( maxY - minY, cellSize );
   run.spec.pixelWidth = cellSize;
   run.spec.pixelHeight = -cellSize;
-  run.spec.cols = static_cast<int>( std::ceil( ( run.spanX + 2 * margin ) / cellSize ) );
-  run.spec.rows = static_cast<int>( std::ceil( ( run.spanY + 2 * margin ) / cellSize ) );
+  // PW-128 同族防线：极小 cellSize 使 ceil 结果超出 int 表示域时，
+  // static_cast<int> 是 UB，且溢出后的负积会绕过调用方 4M 预算闸——
+  // 先在 double 域夹紧（1e5/边，平方 1e10 远超 4M 闸），让预算闸按
+  // 真实超限如实拒绝。
+  run.spec.cols = static_cast<int>( qBound( 1.0, std::ceil( ( run.spanX + 2 * margin ) / cellSize ), 1.0e5 ) );
+  run.spec.rows = static_cast<int>( qBound( 1.0, std::ceil( ( run.spanY + 2 * margin ) / cellSize ), 1.0e5 ) );
   run.spec.originX = ( minX + maxX ) / 2.0 - run.spec.cols * cellSize / 2.0;
   run.spec.originY = ( minY + maxY ) / 2.0 + run.spec.rows * cellSize / 2.0;
   run.spec.crs = crs.toWkt().toStdString();
@@ -1260,7 +1264,7 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
 }
 
 
-bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *error )
+bool ConstraintWorkflow::publishGeostatJob( GeostatJob &job, QString *error )
 {
   const auto discardTemp = [&job]() {
     if ( job.outputPath.contains( QStringLiteral( "paleo-gs-" ) ) )
@@ -1469,6 +1473,7 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
     paleo::workflow_detail::setError( error, commitErr );
     return false;
   }
+  job.catalogPublished = true; // 已只读入册——后续 declare/集合/统计失败不回删
   if ( !declareFactorResult( layers, job.horizon, job.factorId, def, st.absolutePath, registrar.projectDir(),
                              st.assetId, error ) )
   {
@@ -1557,6 +1562,9 @@ bool ConstraintWorkflow::generateGeostatFactor( const QString &horizon, const QS
           if (shared->outputPath.contains("paleo-gs-"))
             QDir(QFileInfo(shared->outputPath).absolutePath())
                 .removeRecursively();
+          if (shared->catalogPublished)
+            return; // 已入库（只读在册）：删除即悬垂版本——临时树已由
+                    // publish 内 discardTemp 收尾，这里不再动 staging。
           if (shared->staging.isValid()) {
             const auto path = shared->staging.absolutePath;
             for (const auto &file :

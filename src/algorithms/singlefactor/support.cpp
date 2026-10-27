@@ -157,11 +157,13 @@ bool cellOf( const GridSpec &grid, double x, double y, int &column, int &row )
     return false;
   const double fc = ( x - grid.originX ) / grid.pixelWidth;
   const double fr = ( y - grid.originY ) / grid.pixelHeight;
-  if ( !std::isfinite( fc ) || !std::isfinite( fr ) )
+  // PW-128：有限但超 int 域的 floor→cast 是 UB——先在 double 域判界再转。
+  if ( !std::isfinite( fc ) || !std::isfinite( fr ) || !( fc >= 0.0 ) || !( fr >= 0.0 ) ||
+       fc >= static_cast<double>( grid.cols ) || fr >= static_cast<double>( grid.rows ) )
     return false;
   column = static_cast<int>( std::floor( fc ) );
   row = static_cast<int>( std::floor( fr ) );
-  return column >= 0 && column < grid.cols && row >= 0 && row < grid.rows;
+  return true;
 }
 
 double medianSorted( std::vector<double> values )

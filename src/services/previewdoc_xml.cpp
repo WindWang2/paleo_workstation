@@ -15,13 +15,24 @@ PreviewDocService::WorkbookPreview PreviewDocService::xmlDataListAt(const QStrin
       reader.namespaceUri() == QLatin1String("urn:schemas-microsoft-com:office:spreadsheet")) {
     file.seek(0);
     QVector<int> rowCounts;
+    // 与通用 XML 分支同款单格口径（left(4096)）：格数预算不约束单格文本
+    // 长度，恶意工作簿可用少数巨格把预览结构撑到 GB 级且驻留 GUI 线程。
+    const auto cappedCells = [](const QStringList &cells) {
+      QStringList out;
+      out.reserve(cells.size());
+      for (const QString &cell : cells)
+        out << cell.left(4096);
+      return out;
+    };
     const auto workbook = paleo::io::streamSpreadsheetMlWorkbook(&file, path,
         [&](const QString &name, const QStringList &headers, const QStringList &row, int, bool isHeader) {
           if (isHeader) {
-            WorkbookSheetPreview sheet; sheet.name = name; sheet.headers = headers;
+            if (result.sheets.size() >= 64)
+              return false; // sheet 数预算（同族：通用分支 512 层 / 1000 行）
+            WorkbookSheetPreview sheet; sheet.name = name; sheet.headers = cappedCells(headers);
             result.sheets.append(sheet); rowCounts.append(0);
           } else if (!result.sheets.isEmpty()) {
-            if (++rowCounts.last() <= 1000) result.sheets.last().rows.append(row);
+            if (++rowCounts.last() <= 1000) result.sheets.last().rows.append(cappedCells(row));
           }
           return true;
         });
@@ -40,6 +51,13 @@ PreviewDocService::WorkbookPreview PreviewDocService::xmlDataListAt(const QStrin
     if (++rows <= 1000) sheet.rows.append({name, value.left(4096)});
   };
   do {
+    // L-07：预览的是导入的外委/第三方 XML——QXmlStreamReader 会展开 DTD
+    // 内声明的内部实体（billion laughs：数十 KB 声明展开成 GB 级字符串，
+    // GUI 线程假死）。合法 SpreadsheetML/数据 XML 不带 DTD，见令牌即拒。
+    if (reader.isDTD()) {
+      result.error = tr("XML 含 DTD/实体声明，为防实体扩展攻击已拒收");
+      return result;
+    }
     if (reader.isStartElement()) {
       if (elements.size() >= 512) { result.error = tr("XML 嵌套层级过深"); return result; }
       elements << reader.qualifiedName().toString(); values << QString();

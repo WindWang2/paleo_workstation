@@ -299,6 +299,21 @@ std::optional<SegyIndexStore::StoredIndex> SegyIndexStore::loadForResume(const Q
     if (reason) *reason = QStringLiteral("prefix rewritten");
     return std::nullopt;
   }
+  // D2.8 同款完整性审计（load() 有、resume 路径此前漏）：scannedOffset 指回
+  // 已扫区段内部时，resumeScan 唯一闸门（道对齐）照样放行，会把已在索引里
+  // 的道再 append 一遍（重复 inline/xline），并被 openCached 按完整态落盘
+  // 长期复用——失败即删缓存自愈。
+  const qint64 traceSpan = stored.offsets.isEmpty()
+                               ? 0
+                               : stored.offsets.last() + 240 +
+                                     qint64(stored.samplesPerTrace) *
+                                         qMax(1, SegyReader::sampleBytesForFormat(stored.formatCode));
+  if (stored.scannedOffset < stored.firstTraceOffset || stored.scannedOffset < traceSpan)
+  {
+    if (reason) *reason = QStringLiteral("checkpoint audit failed");
+    QFile::remove(path);
+    return std::nullopt;
+  }
   return stored;
 }
 

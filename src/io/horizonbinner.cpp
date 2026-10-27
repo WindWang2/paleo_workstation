@@ -4,6 +4,7 @@
 #include "ioerrors_internal.h"
 
 #include "../catalog/datacatalog.h"
+#include "../metadata/atomicfile.h"
 
 #include <cpl_conv.h>
 #include <cpl_error.h>
@@ -377,7 +378,10 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
     setError(error, QStringLiteral("GTiff driver unavailable"));
     return false;
   }
-  GDALDatasetH ds = GDALCreate(drv, destPath.toUtf8().constData(), b.cols, b.rows, 1, GDT_Float32,
+  // #588 B.13 同族：先写 .partial 再原子落名——直接 GDALCreate 目标路径
+  // 在进程中途崩溃/掉电会留半成品 GeoTIFF（带不完整 PALEO_* 元数据）占位。
+  const QString partial = destPath + QStringLiteral(".partial");
+  GDALDatasetH ds = GDALCreate(drv, partial.toUtf8().constData(), b.cols, b.rows, 1, GDT_Float32,
                                nullptr);
   if (!ds)
   {
@@ -416,7 +420,7 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
   {
     const QString detail = QString::fromUtf8(CPLGetLastErrorMsg());
     GDALClose(ds);
-    QFile::remove(destPath); // #233：失败不留无 PALEO_* 元数据的半成品栅格
+    QFile::remove(partial); // #233：失败不留无 PALEO_* 元数据的半成品栅格
     setError(error, QStringLiteral("cannot write raster metadata for %1%2")
                          .arg(destPath, detail.isEmpty() ? QString() : QStringLiteral(": ") + detail));
     return false;
@@ -440,8 +444,14 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
   GDALClose(ds);
   if (err != CE_None)
   {
-    QFile::remove(destPath); // #233：像元不全的残件不占缓存位
+    QFile::remove(partial); // #233：像元不全的残件不占缓存位
     setError(error, QStringLiteral("raster write failed for %1").arg(destPath));
+    return false;
+  }
+  if (!paleoReplaceFile(partial, destPath))
+  {
+    QFile::remove(partial);
+    setError(error, QStringLiteral("cannot finalize %1: %2").arg(destPath, QString::fromUtf8(CPLGetLastErrorMsg())));
     return false;
   }
   return true;

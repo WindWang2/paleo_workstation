@@ -12,6 +12,19 @@ namespace WellComposite
 namespace TrackOps
 {
 
+// 遗留 P3：CSV 单元格转义——层名/岩性名/结论文本含逗号、引号、换行时直接
+// 拼接会错位列结构（domain/wellsection.h TopsTable::csv 同款口径）。
+QString csvCell(const QString &v)
+{
+  const bool need = v.contains(QLatin1Char(',')) || v.contains(QLatin1Char('"')) ||
+                    v.contains(QLatin1Char('\n')) || v.contains(QLatin1Char('\r'));
+  if (!need)
+    return v;
+  QString escaped = v;
+  escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+  return QLatin1Char('"') + escaped + QLatin1Char('"');
+}
+
 QString exportTrackCsv(const WellTrack &track)
 {
   QString out;
@@ -67,7 +80,7 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,name\n");
     for (const auto &fi : ft->intervals())
       ts << f1(fi.topDepth) << QLatin1Char(',') << f1(fi.bottomDepth) << QLatin1Char(',')
-         << fi.name << QLatin1Char('\n');
+         << csvCell(fi.name) << QLatin1Char('\n');
     break;
   }
   case TrackType::Lithology:
@@ -76,7 +89,7 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,lithology\n");
     for (const auto &li : lt->intervals())
       ts << f1(li.topDepth) << QLatin1Char(',') << f1(li.bottomDepth) << QLatin1Char(',')
-         << li.lithoName << QLatin1Char('\n');
+         << csvCell(li.lithoName) << QLatin1Char('\n');
     break;
   }
   case TrackType::Text:
@@ -85,7 +98,7 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,category,text\n");
     for (const auto &ti : tt->intervals())
       ts << f1(ti.topDepth) << QLatin1Char(',') << f1(ti.bottomDepth) << QLatin1Char(',')
-         << ti.category << QLatin1Char(',') << ti.text << QLatin1Char('\n');
+         << csvCell(ti.category) << QLatin1Char(',') << csvCell(ti.text) << QLatin1Char('\n');
     break;
   }
   case TrackType::Core:

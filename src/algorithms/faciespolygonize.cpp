@@ -9,6 +9,7 @@
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
+#include <qgscoordinatetransform.h>
 #include <qgsgeometry.h>
 #include <qgsgeometrycollection.h>
 #include <qgsprocessingcontext.h>
@@ -1417,6 +1418,14 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
     GDALClose( inDs );
     throw QgsProcessingException( QStringLiteral( "input raster has no usable grid" ) );
   }
+  // L-09：像元预算闸（paleoalgorithms/gridsolver 同口径 1 亿）——本算法
+  // raw/grid/next/maskPx 平峰 ≈13 字节/像元同时驻留，无闸的超大输入是
+  // bad_alloc/OOM 而不是如实报错。
+  if ( qint64( cols ) * rows > qint64( 100'000'000 ) )
+  {
+    GDALClose( inDs );
+    throw QgsProcessingException( QStringLiteral( "input raster exceeds the 100M-cell budget" ) );
+  }
   GDALRasterBandH inBand = GDALGetRasterBand( inDs, 1 );
   int ndFlag = 0;
   const double nd = GDALGetRasterNoDataValue( inBand, &ndFlag );
@@ -1515,12 +1524,53 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
         parameterAsSource( parameters, QStringLiteral( "CONSTRAINTS" ), context ) );
     if ( constraints )
     {
+      // L-09：约束几何此前按自身 CRS 原始坐标直接与栅格坐标求交——CRS 不
+      // 一致时合流静默不生效或在大容差下错误替换弧（distancetransform.cpp
+      // 同款变换 + BIZ-10 有效性前置）。
+      const QgsCoordinateReferenceSystem from = constraints->sourceCrs();
+      const QgsCoordinateReferenceSystem to = rl->crs();
+      std::unique_ptr<QgsCoordinateTransform> xform;
+      if ( from.isValid() && to.isValid() && from != to )
+      {
+        try
+        {
+          xform = std::make_unique<QgsCoordinateTransform>( from, to, context.transformContext() );
+        }
+        catch ( const QgsCsException &e )
+        {
+          throw QgsProcessingException(
+              QStringLiteral( "Cannot transform constraints into the raster CRS: %1" ).arg( e.what() ) );
+        }
+        if ( !xform->isValid() )
+          throw QgsProcessingException(
+              QStringLiteral( "Cannot transform constraints into the %1 CRS: no coordinate operation "
+                              "between %2 and %3 (engineering CRS without geodetic datum?)" )
+                  .arg( QStringLiteral( "raster" ), from.userFriendlyIdentifier(),
+                        to.userFriendlyIdentifier() ) );
+      }
       QgsFeatureIterator it = constraints->getFeatures( QgsFeatureRequest() );
       QgsFeature feat;
       while ( it.nextFeature( feat ) )
       {
         if ( feat.hasGeometry() )
-          collectConstraints( feat.geometry(), lines, points );
+        {
+          if ( xform )
+          {
+            QgsGeometry g = feat.geometry();
+            try
+            {
+              g.transform( *xform );
+            }
+            catch ( const QgsCsException &e )
+            {
+              throw QgsProcessingException(
+                  QStringLiteral( "Cannot transform a constraint feature: %1" ).arg( e.what() ) );
+            }
+            collectConstraints( g, lines, points );
+          }
+          else
+            collectConstraints( feat.geometry(), lines, points );
+        }
       }
     }
     conflated = conflateArcs( graph, lines, points, snapTol, angleTol );

@@ -76,7 +76,11 @@ bool writeImportIntent(ImportSession &session, QString *error)
   while (files.hasNext())
   {
     const QString path = files.next();
-    if (path.contains(QLatin1String(".partial"))) continue;
+    // 与 dataimport_session::moveStagedFiles 同口径：后缀判定，避免误杀
+    // 文件名中段恰含 ".partial" 的合法资产。
+    if (path.endsWith(QLatin1String(".partial")) ||
+        path.endsWith(QLatin1String(".partial.tif")))
+      continue;
     const QString sha = hashFile(path);
     if (sha.isEmpty()) return fail(error, path);
     records.append(QJsonObject{{QStringLiteral("path"), QDir(session.stagingRoot).relativeFilePath(path)},

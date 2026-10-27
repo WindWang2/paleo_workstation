@@ -574,6 +574,14 @@ PaleoTask *AiAssistWorkflow::startClassification( const QString &horizon, const 
       *error = tr( "AI 辅助未绑定 ONNX 服务" );
     return nullptr;
   }
+  if ( !m_layers )
+  {
+    // 与同步入口 classifyTiles 守卫对称：收尾段 writeTileProducts 要经
+    // m_layers->declare/removeDeclarations，漏判会在数分钟推理后空指针崩溃。
+    if ( error )
+      *error = tr( "AI 辅助未绑定图层服务" );
+    return nullptr;
+  }
 
   // 任务线程只做推理（onnx 服务线程安全）；产品收尾回主线程（图层/登记
   // 非线程安全）。结果经共享指针带出，取消/失败不带产品。

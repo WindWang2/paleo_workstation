@@ -11,7 +11,16 @@ from collections import Counter
 import json
 from pathlib import Path
 import re
+import sys
 import tempfile
+
+# 编码守卫（check_layering/check_i18n 同款）：ui-token-exceptions.json 与
+# 源文件均含中文，非 UTF-8 默认 locale（Windows GBK）下裸 read_text 会
+# UnicodeDecodeError 假红。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 PATTERNS = {
     "hex": re.compile(r"#[0-9a-fA-F]{8}\b|#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{4}\b|#[0-9a-fA-F]{3}\b"),
@@ -47,8 +56,8 @@ def scan(root):
         relative = path.relative_to(root).as_posix()
         if relative in TOKEN_SOURCES:
             continue
-        original = path.read_text().splitlines()
-        for number, code in enumerate(without_comments(path.read_text()).splitlines(), 1):
+        original = path.read_text(encoding="utf-8").splitlines()
+        for number, code in enumerate(without_comments(path.read_text(encoding="utf-8")).splitlines(), 1):
             for rule, pattern in PATTERNS.items():
                 if rule == "layout" and re.search(r"setContentsMargins\(\s*0,\s*0,\s*0,\s*0\s*\)", code):
                     continue
@@ -192,7 +201,7 @@ def main():
         return selftest()
     root = args.root.resolve()
     exceptions_path = root / "tools/ui-token-exceptions.json"
-    exceptions = json.loads(exceptions_path.read_text()) if exceptions_path.exists() else []
+    exceptions = json.loads(exceptions_path.read_text(encoding="utf-8")) if exceptions_path.exists() else []
     baseline_count = load_baseline_count(root / "tools/ui-token-baseline.txt")
     notes, ratchet_fail = ratchet_lines(len(exceptions), baseline_count, args.strict)
     found = scan(root)
@@ -202,7 +211,7 @@ def main():
               "staleExceptions": stale, "matches": found}
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+        args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({k: v for k, v in report.items() if k != "matches"}, ensure_ascii=False))
     for line in notes:
         print(line)

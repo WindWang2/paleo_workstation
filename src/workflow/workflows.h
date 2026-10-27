@@ -12,6 +12,7 @@
 #include "../services/singlefactordef.h"
 #include "derivedassets.h" // PredictionJob 持 DerivedStaging（#277 三段式）
 #include <QObject>
+#include <QHash>
 #include <QPointer>
 #include <QString>
 #include <QStringList>
@@ -207,6 +208,15 @@ class ConstraintWorkflow : public QObject
     QVariantList thicknessSampleRows() const { return m_thicknessRows; }
     QString thicknessSampleMessage() const { return m_thicknessMessage; }
 
+    // L-01：约束快照路径的 typed 镜像，替代 paleo.constraint.snapshot.*
+    // 动态属性暗道（ARCH-02/06 家族）。MappingWorkbench 产出/还原快照时
+    // 写入；各 factor 计算读出冻结约束源。空路径即无快照（等价旧属性
+    // 缺省；setter 收到空路径即移除，镜像 setProperty(key, QVariant())）。
+    void setConstraintSnapshotPath(const QString &horizon, const QString &path);
+    QString constraintSnapshotPath(const QString &horizon) const
+    { return m_constraintSnapshots.value(horizon); }
+    void clearConstraintSnapshots();
+
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                        QString *error = nullptr, QString *constraintIdOut = nullptr,
                        const QVariantMap &lineParams = {});
@@ -305,6 +315,7 @@ class ConstraintWorkflow : public QObject
     QString m_wellFactorMessage;
     QVariantList m_thicknessRows;
     QString m_thicknessMessage;
+    QHash<QString, QString> m_constraintSnapshots; // L-01：约束快照路径 typed 镜像
     // 主线6：strathick 的等厚引擎分派（paleo:paleo_isopach，INPUT_TOP/
     // INPUT_BASE 双构造面栅格）。params：topLayerId/baseLayerId（声明图层
     // id，必填）+ negativeToNodata（默认 true，倒置层序折 nodata）。
@@ -398,7 +409,7 @@ class ConstraintWorkflow : public QObject
         QgisProcessingService *proc, LocalDirectionJob *job,
         const std::function<bool()> &cancelled,
         const std::function<void(double)> &progress);
-    bool publishLocalDirectionJob(const LocalDirectionJob &job, QString *error = nullptr);
+    bool publishLocalDirectionJob(LocalDirectionJob &job, QString *error = nullptr);
 
     // 方向18 克里金/SGS：准备在界面线程（只解析 URI 与参数），计算可在任务
     // 线程（纯数值核 + GDAL 写临时目录），发布回到 catalog 所属线程。
@@ -417,7 +428,7 @@ class ConstraintWorkflow : public QObject
     computeGeostatJobWithService(QgisProcessingService *proc, GeostatJob *job,
                                  const std::function<bool()> &cancelled,
                                  const std::function<void(double)> &progress);
-    bool publishGeostatJob(const GeostatJob &job, QString *error = nullptr);
+    bool publishGeostatJob(GeostatJob &job, QString *error = nullptr);
 
     // 分析场等值线：准备在调用线程，GDAL 可在任务线程，发布回到 catalog 所属线程。
     // fixedLevels 为真时用 levels（空级别直接拒绝）；否则要求正间距。
@@ -458,7 +469,7 @@ class ConstraintWorkflow : public QObject
                               QString *error = nullptr);
     bool computeConstraintJob(ConstraintJob &job, const std::function<bool()> &cancelled,
                               const std::function<void(double)> &progress = {});
-    bool publishConstraintJob(const ConstraintJob &job, QString *error = nullptr);
+    bool publishConstraintJob(ConstraintJob &job, QString *error = nullptr);
     // 未成功发布时的临时产物路径（框架 cleanup 钩子用）。
     static QStringList constraintJobTempPaths(const ConstraintJob &job);
 
@@ -557,6 +568,9 @@ class CompositionWorkflow : public QObject
       bool constrained = false;
       DerivedAssetRegistrar registrar;
       DerivedStaging staging;
+      // catalog 入库哨兵：publishArtifacts 成功即置位——cleanup 只删未入库
+      // 的 staging（已入库文件删除即悬垂版本）。
+      bool catalogPublished = false;
       QPointer<DataCatalog> catalog;
     };
     bool prepareFaciesPolygons(const QString &horizon, const QString &rasterLayerId,

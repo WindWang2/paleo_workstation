@@ -153,7 +153,7 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
       [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
   if ( job->hasConstraints )
   {
-    const QString frozen = property( ( "paleo.constraint.snapshot." + horizon ).toUtf8().constData() ).toString();
+    const QString frozen = constraintSnapshotPath( horizon ); // L-01：typed 通道替代动态属性
     job->constraintUri = frozen.isEmpty() ? sourceOf( constraintLayerId )
                                            : frozen + QStringLiteral( "|layername=features" );
     if ( job->constraintUri.isEmpty() )
@@ -163,7 +163,7 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
     }
     job->parentPaths << job->constraintUri.section( QLatin1Char( '|' ), 0, 0 );
   }
-  const QString snapshot = property( ( "paleo.constraint.snapshot." + horizon ).toUtf8().constData() ).toString();
+  const QString snapshot = constraintSnapshotPath( horizon ); // L-01：typed 通道
   if ( !snapshot.isEmpty() )
     job->parentPaths << snapshot;
   QString stageError;
@@ -364,7 +364,7 @@ bool ConstraintWorkflow::computeLocalDirectionJobWithService(
   return true;
 }
 
-bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job, QString *error )
+bool ConstraintWorkflow::publishLocalDirectionJob( LocalDirectionJob &job, QString *error )
 {
   const auto discardTemp = [&job]() {
     if ( job.outputPath.contains( QStringLiteral( "paleo-sf-" ) ) )
@@ -569,6 +569,7 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
     return false;
   }
   discardTemp();
+  job.catalogPublished = true; // 已只读入册——后续 declare 失败不回删（悬垂版本防线）
   return declareFactorResult( layers, job.horizon, job.factorId, def, st.absolutePath, registrar.projectDir(),
                               st.assetId, error );
 }
@@ -602,6 +603,9 @@ bool ConstraintWorkflow::generateLocalDirectionFactor( const QString &horizon, c
           if (shared->outputPath.contains("paleo-sf-"))
             QDir(QFileInfo(shared->outputPath).absolutePath())
                 .removeRecursively();
+          if (shared->catalogPublished)
+            return; // 已入库（只读在册）：删除即悬垂版本——临时树已由
+                    // publish 内 discardTemp 收尾，这里不再动 staging。
           if (shared->staging.isValid()) {
             const auto path = shared->staging.absolutePath;
             for (const auto &file :

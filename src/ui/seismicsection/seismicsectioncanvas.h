@@ -423,6 +423,17 @@ private:
     std::vector<SectionGainNode> m_gainCurve;
     std::vector<float> m_displayValues; // AGC 处理后的显示缓冲（空 = 直通原始值）
 
+    // 显示振幅的基准尺度：AGC 生效时显示值已是无量纲（道内 RMS≈1，
+    // 截幅 ±5），再除以原始体 absMax 会把整幅压成中间色——此时候选
+    // 尺度为 1，gain/contrast 直接作用；其余路径按 absMax 归一。
+    float amplitudeBaseScale() const {
+        if (m_agcEnabled && m_orientation == SectionOrientation::Vertical)
+            return 1.0f;
+        const float absMax = qAbs(m_slice.valueMin) > qAbs(m_slice.valueMax)
+                                 ? qAbs(m_slice.valueMin) : qAbs(m_slice.valueMax);
+        return absMax > 1e-8f ? 1.0f / absMax : 1.0f;
+    }
+
     // D2.5 双刻度
     bool m_dualScale = false;
 

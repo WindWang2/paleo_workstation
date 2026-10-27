@@ -84,7 +84,10 @@ CurveKernel::CurveKernel( const std::vector<Point2> &points, double radius, doub
     const double length = std::hypot( dx, dy );
     if ( length <= 1e-12 )
       continue;
-    const int count = std::max( 1, static_cast<int>( std::ceil( length / ( m_radius * 0.15 ) ) ) );
+    // PW-128：超小影响半径使比值超 int 域（cast UB；饱和转换平台直接
+    // INT_MAX → 亿级循环）——double 域夹紧，核质量积分每段至多 4096 点。
+    const double countD = std::ceil( length / ( m_radius * 0.15 ) );
+    const int count = countD >= 1.0 ? static_cast<int>( std::min( countD, 4096.0 ) ) : 1;
     const double tx = dx / length;
     const double ty = dy / length;
     const std::array<double, 3> dyad{ tx * tx, tx * ty, ty * ty };

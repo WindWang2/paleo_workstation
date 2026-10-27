@@ -164,7 +164,7 @@ bool ConstraintWorkflow::computeConstraintJob( ConstraintJob &job, const std::fu
   return false;
 }
 
-bool ConstraintWorkflow::publishConstraintJob( const ConstraintJob &job, QString *error )
+bool ConstraintWorkflow::publishConstraintJob( ConstraintJob &job, QString *error )
 {
   switch ( job.kind )
   {

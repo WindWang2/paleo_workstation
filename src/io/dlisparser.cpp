@@ -499,6 +499,16 @@ using paleo::io_detail::addIssue;
       else
       {
         const uchar d = *c.p;
+        if ((d & 0xE0) == 0xE0 || (d & 0xE0) == 0xC0 || (d & 0xE0) == 0xA0)
+        {
+          // EFLR 模板语义只允许单 Set——行区出现 Set 族描述符说明流已错位
+          //（损坏文件一位翻转即可造出）。内层 break 不消费该字节，若不就地
+          // 拒绝，外层 while 会对同一字节无限空转（原「第二 Set」守卫在循环
+          // 外不可达）。畸形输入如实报错，不挂起。
+          if (error)
+            *error = QCoreApplication::translate("DlisParser", "EFLR 中途出现第二个 Set 组件");
+          return false;
+        }
         if ((d & 0xE0) == 0x60)
         {
           out.objects.append(current);
@@ -898,7 +908,13 @@ using paleo::io_detail::addIssue;
           return false;
         }
         const int fixed = fixedRepSize(ch.repc);
-        const bool usable = elems == 1 && numericRep(ch.repc) && fixed > 0;
+        // L-23：UVARI/ORIGIN 是可变宽数值表示码（readNumeric 本可解码）——
+        // 此前 usable 要求 fixed>0，主帧一含 UVARI/ORIGIN 标量通道即整文件
+        // 失败，违反「白名单外默认必须解析」的自定契约。
+        const bool varWidthNumeric =
+            ch.repc == RepUvari || ch.repc == RepOrigin;
+        const bool usable =
+            elems == 1 && numericRep(ch.repc) && (fixed > 0 || varWidthNumeric);
         if (!usable)
         {
           if (!ch.unusableNoted)
@@ -911,7 +927,23 @@ using paleo::io_detail::addIssue;
                          .arg(elems)
                          .arg(ch.repc));
           }
-          // 槽位仍按宽度推进（多维 × 元素宽），保证后续通道不错位
+          // 槽位仍按宽度推进（多维 × 元素宽），保证后续通道不错位。
+          // 可变宽数值码（UVARI/ORIGIN）多维时按逐元素 uvari() 走位。
+          if (varWidthNumeric)
+          {
+            for (qint64 e = 0; e < elems; ++e)
+            {
+              c.uvari();
+              if (c.bad)
+              {
+                if (error)
+                  *error = QCoreApplication::translate("DlisParser", "帧 %1 于通道 %2 处截断")
+                               .arg(ref.id, chRef.id);
+                return false;
+              }
+            }
+            continue;
+          }
           if (fixed <= 0)
           {
             if (error)

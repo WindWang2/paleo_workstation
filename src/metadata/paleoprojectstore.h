@@ -4,6 +4,7 @@
 #include <QMutex>
 #include <QQueue>
 #include <QHash>
+#include <QList>
 #include <QPair>
 #include <QString>
 #include <QVector>
@@ -116,6 +117,6 @@ class PaleoProjectStore : public QObject
     QString m_qgzPath, m_gpkgPath, m_metaPath;
     bool m_readOnly = false;
     mutable QMutex m_writeMutex;
-    QHash<QString, QPair<QString, QString>> m_busy; // layerId -> (taskId, reason)
+    QHash<QString, QList<QPair<QString, QString>>> m_busy; // layerId -> [(taskId, reason)]（多持有者，L-02）
     mutable QMutex m_busyMutex;
 };

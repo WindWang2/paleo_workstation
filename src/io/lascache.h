@@ -67,7 +67,11 @@ class LasCache
         qint64 diskLoadNs = -1;    // 最近一次磁盘命中耗时
         qint64 memoryHitNs = -1;   // 最近一次内存命中耗时
     };
-    Timings lastTimings() const { return m_timings; }
+    Timings lastTimings() const
+    {
+        QMutexLocker lock(&m_timingsMutex);
+        return m_timings;
+    }
 
     // 测试钩子：冷解析前回调（在执行者线程上、job 内调用），用于确定性构造
     // 同指纹并发；ridersJoined = 合并器累计搭车数。生产不设钩子。
@@ -107,5 +111,9 @@ class LasCache
     };
     InflightCoalescer<QString, LoadOutcome> m_inflight;
     std::function<void()> m_coldParseHook; // 测试钩子（m_cfgMutex 保护）
-    Timings m_timings; // 最近一次（粗粒度诊断面；不做多线程记账）
+    // CONC-05 修订：load 的消费面已扩到任务池线程（petroph 批算、
+    // previewdoc 预取）——计时写（含 inflight job 内）与 GUI 诊断读同持
+    // m_timingsMutex，qint64 写不再是数据竞争。
+    mutable QMutex m_timingsMutex;
+    Timings m_timings; // 最近一次（粗粒度诊断面）
 };

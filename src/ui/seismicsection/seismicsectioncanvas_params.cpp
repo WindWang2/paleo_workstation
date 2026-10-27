@@ -19,6 +19,9 @@ void SeismicSectionCanvas::setColorMapInverted(bool inverted) {
         rebuildAttrImage();
         if (!m_zoneOverlay.values.empty())
             rebuildZoneImage();
+        // 与 setColorMap 同款：卷帘 B 图随 LUT 反转重烘（setGain 同款）。
+        if (m_compareEnabled && !m_compareSlice.values.empty())
+            setCompareData(m_compareSlice, m_compareLabel);
         update();
     }
 }

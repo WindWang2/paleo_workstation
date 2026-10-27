@@ -787,11 +787,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 rsPanel->setBusy(true);
                 QString err;
                 PaleoTask *task = m_realizationWf->deriveAllStatisticsAsync(setId, &err);
-                if (!task)
+                if (!task) // L-13：busy 只提示不回退同步重跑（GUI 冻结+与在飞任务同算→同 token 双版本）
                 {
-                  if (!m_realizationWf->deriveAllStatistics(setId, &err))
-                    statusBar()->showMessage(
-                        err.isEmpty() ? tr("统计派生失败") : err, 8000);
+                  const bool busy = m_realizationWf->isBusy();
+                  if (busy || !m_realizationWf->deriveAllStatistics(setId, &err))
+                    statusBar()->showMessage(busy ? tr("正在进行计算，请稍候") : err.isEmpty() ? tr("统计派生失败") : err, 8000);
                   rsPanel->setBusy(false);
                 }
               });
@@ -802,11 +802,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 rsPanel->setBusy(true);
                 QString err;
                 PaleoTask *task = m_realizationWf->differenceOfMeansAsync(setIdA, setIdB, &err);
-                if (!task)
+                if (!task) // L-13：同上，busy 只提示不回退同步重跑
                 {
-                  if (!m_realizationWf->differenceOfMeans(setIdA, setIdB, &err))
-                    statusBar()->showMessage(
-                        err.isEmpty() ? tr("集合差值失败") : err, 8000);
+                  const bool busy = m_realizationWf->isBusy();
+                  if (busy || !m_realizationWf->differenceOfMeans(setIdA, setIdB, &err))
+                    statusBar()->showMessage(busy ? tr("正在进行计算，请稍候") : err.isEmpty() ? tr("集合差值失败") : err, 8000);
                   rsPanel->setBusy(false);
                 }
               });

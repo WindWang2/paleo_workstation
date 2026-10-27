@@ -106,7 +106,7 @@ void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
       if ( !std::isfinite( v ) )
         continue;
       const int label = int( std::round( v ) );
-      if ( label >= 0 && label < kMaxTileClasses )
+      if ( label >= 0 && label < classes ) // 输出 classes 语义：越类号按无数据（255），不外泄词表外相码
       {
         out->argmax[p] = quint8( label );
         out->confidence[p] = 1.0f;
@@ -245,6 +245,7 @@ void stitchTileIntoGrid( const InferenceTile &tile, const TileClassGrid &tileGri
     grid->accumulatedProbs = QVector<float>( C * gridPixels, 0.0f );
 
   const int tilePixels = tileGrid.rows * tileGrid.cols;
+  std::vector<float> pIn; // 行外复用缓冲：内层逐像元不再各自 malloc/free
   const int offR = tile.innerRow0 - tile.row0;
   const int offC = tile.innerCol0 - tile.col0;
 
@@ -281,7 +282,7 @@ void stitchTileIntoGrid( const InferenceTile &tile, const TileClassGrid &tileGri
       const float weight = wr * wc;
 
       // Extract probabilities for incoming tile
-      std::vector<float> pIn( C, 0.0f );
+      pIn.assign( C, 0.0f );
       if ( tileGrid.accumulatedProbs.size() == C * tilePixels )
       {
         for ( int c = 0; c < C; ++c )
@@ -538,6 +539,15 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
                      .arg( kMaxTileClasses ) );
     if ( grid.classes == 0 )
     {
+      // 像元闸（kMaxTileGridPixels）在类数未知时设的——首 tile 得知类数后
+      // 必须回验乘积：64Mi 像元 × 255 类 ≈ 65GB，QVector 直接 bad_alloc
+      // 且任务池线程无兜底 = std::terminate。预算：256Mi 元素（float 1GiB）。
+      if ( qsizetype( classes ) * req.gridRows * req.gridCols
+           > qsizetype( 256 ) * 1024 * 1024 )
+        return fail( QObject::tr( "类数 %1 × 网格 %2×%3 超过概率缓冲预算，请缩小网格或换小类数模型" )
+                       .arg( classes )
+                       .arg( req.gridRows )
+                       .arg( req.gridCols ) );
       grid.classes = classes;
       grid.argmax = QVector<quint8>( qsizetype( req.gridRows ) * req.gridCols, 255 );
       grid.confidence = QVector<float>( qsizetype( req.gridRows ) * req.gridCols, 0.0f );

@@ -625,6 +625,13 @@ QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOff
       estimated = qMin<qint64>(estimated + 16, 64 * 1000 * 1000);
     else if (!wantAll)
       estimated = qMin<qint64>(to - from + 1, 64 * 1000 * 1000);
+    // L-24：外推只按「首 64KB 密度 × 全文件长」估计——病态文件（前密后疏
+    // + 数十条曲线）可对每桶 reserve 512MB（Windows 大块堆分配即
+    // MEM_COMMIT），桶数相乘达数十 GB 提交。按全部桶合计 ≤1GiB 封顶；
+    // 真实行数超估计时 QVector 自然扩容，只多几次 realloc。
+    if (estimated > 0 && !buckets.empty())
+      estimated = qMin<qint64>(
+          estimated, qMax<qint64>(1024, (qint64(1) << 30) / (8 * buckets.size())));
     if (estimated > 0)
       for (QVector<double> &bucket : buckets)
         bucket.reserve(static_cast<qsizetype>(estimated));
@@ -855,16 +862,29 @@ namespace
         *error = QStringLiteral("%1: %2").arg(path, header->error);
       return false;
     }
+    // L-24：头扫描截断（4MB 上限读满仍未命中）与「文件真的没有」必须分
+    // 开归因——否则 ~A 位于 4MB 之后的合法长头文件被报成「无 ~A」，而
+    // parseDoc（500MB 预算）又能成功，两入口对同一文件结论矛盾。
+    const bool headScanTruncated =
+        head.size() >= 4 * 1024 * 1024 && f.size() > head.size();
     if (!header->sawCurves)
     {
       if (error)
-        *error = QStringLiteral("no curve definitions (~C) found in %1").arg(path);
+        *error = headScanTruncated
+                     ? QStringLiteral("header scan hit the 4 MB limit in %1 before curve "
+                                      "definitions (~C); use whole-file parse or re-save")
+                           .arg(path)
+                     : QStringLiteral("no curve definitions (~C) found in %1").arg(path);
       return false;
     }
     if (header->asciiDataOffset < 0)
     {
       if (error)
-        *error = QStringLiteral("no ASCII data section (~A) found in %1").arg(path);
+        *error = headScanTruncated
+                     ? QStringLiteral("header scan hit the 4 MB limit in %1 before the ASCII "
+                                      "data section (~A); use whole-file parse or re-save")
+                           .arg(path)
+                     : QStringLiteral("no ASCII data section (~A) found in %1").arg(path);
       return false;
     }
     return true;
@@ -962,6 +982,15 @@ bool LasParser::parseRange(const QString &path, qint64 rowFrom, qint64 rowTo,
       else
         usable = lastSep + 1;
     }
+    // #167 同口径：DOS Ctrl-Z（0x1A）= EOF——整读路径在其后截停，流式
+    // 路径此前完全不认（同一文件两入口行集不一致）。块内命中即截去其后
+    // 字节并停止推进后续块。
+    bool sawCtrlZ = false;
+    if (const void *eofMarker = std::memchr(chunk.constData(), 0x1A, static_cast<std::size_t>(usable)))
+    {
+      usable = static_cast<const char *>(eofMarker) - chunk.constData();
+      sawCtrlZ = true;
+    }
     if (usable <= 0)
       break;
     const QByteArray complete = chunk.left(static_cast<int>(usable));
@@ -991,6 +1020,8 @@ bool LasParser::parseRange(const QString &path, qint64 rowFrom, qint64 rowTo,
     }
     row += rowsInChunk;
     pos += usable;
+    if (sawCtrlZ)
+      break;
     if (row >= to)
       break;
   }

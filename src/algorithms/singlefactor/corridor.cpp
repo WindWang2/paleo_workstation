@@ -351,6 +351,14 @@ DirectionFieldCache buildGridDirectionCache( const GridSpec &grid,
     const std::vector<std::uint8_t> &domainMask, const std::vector<PolylineGeometry> &geoms )
 {
   const std::size_t cells = static_cast<std::size_t>( grid.cols ) * static_cast<std::size_t>( grid.rows );
+  // PW-128：cols*rows 可超 int 域（corridor 族现仅测试调用，潜伏面）——
+  // 超预算返回空缓存（cells=0 → 下游循环空转），不做静默回绕。
+  if ( cells > 2000000000u )
+  {
+    DirectionFieldCache empty;
+    empty.cells = 0;
+    return empty;
+  }
   DirectionFieldCache cache;
   cache.cells = static_cast<int>( cells );
   cache.dirIndex.assign( cells, -1 );

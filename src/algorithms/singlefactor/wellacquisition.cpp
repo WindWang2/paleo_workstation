@@ -147,7 +147,10 @@ int toInt( const QVariant &value, int defaultValue )
 {
   const std::optional<double> parsed = parseNumeric( value );
   // 上游 int(round(x))：round 为银行家舍入（half-even）
-  return parsed ? static_cast<int>( std::nearbyint( *parsed ) ) : defaultValue;
+  // PW-128：nearbyint 结果超 int 域的 cast 是 UB（parseNumeric 只查有限）。
+  return parsed
+             ? static_cast<int>( std::nearbyint( std::clamp( *parsed, -2.1e9, 2.1e9 ) ) )
+             : defaultValue;
 }
 
 bool pointOnSegment( Point2 point, Point2 a, Point2 b, double tolerance )

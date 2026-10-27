@@ -65,11 +65,26 @@ std::vector<Sample3> dedupeSamples3( const std::vector<Sample3> &samples, int *m
   merged.reserve( finite.size() );
   for ( const Sample3 &sample : finite )
   {
-    if ( !merged.empty() && sample.group == merged.back().group &&
-         coincident3( merged.back(), sample ) )
+    // PW-078 的 3D 孪生：按 (group,x,y,z) 排序后近重合点未必相邻
+    //（(0,0,0)、(1e-12,5,0)、(2e-12,0,0)：中间点 y 不同却插在两者之间）——
+    // 只比 back() 会漏合并 → SK 协方差矩阵出现重复行 → LU 判奇异（该目标
+    // nodata）。代表点 x 单调不减，向回扫描 x 容差窗内同组的全部代表点。
+    std::size_t target = merged.size();
+    for ( std::size_t j = merged.size(); j > 0; --j )
     {
-      merged.back().value += sample.value;
-      ++counts.back();
+      const Sample3 &candidate = merged[j - 1];
+      if ( candidate.group != sample.group )
+        break;
+      const double ex = 1e-9 * std::max( { 1.0, std::fabs( candidate.x ), std::fabs( sample.x ) } );
+      if ( sample.x - candidate.x > ex )
+        break;
+      if ( coincident3( candidate, sample ) )
+        target = j - 1;
+    }
+    if ( target < merged.size() )
+    {
+      merged[target].value += sample.value;
+      ++counts[target];
       if ( mergedCount )
         ++( *mergedCount );
       continue;
@@ -200,8 +215,12 @@ public:
 private:
   int bucketAxis( double offset ) const
   {
-    const int bucket = static_cast<int>( std::floor( offset / m_bucketSize ) );
-    return std::clamp( bucket, 0, m_side - 1 );
+    // PW-128：double 域夹紧再 cast——NaN/越界大值的 floor→cast 是 UB
+    //（入口只校验 ix/iy/iz/group，目标 x/y/z 无有限性闸）。
+    const double fb = std::floor( offset / m_bucketSize );
+    if ( !( fb >= 0.0 ) )
+      return 0;
+    return static_cast<int>( std::min( fb, static_cast<double>( m_side - 1 ) ) );
   }
 
   std::size_t bucketCell( double x, double y, double z ) const

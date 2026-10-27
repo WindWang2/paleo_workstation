@@ -211,9 +211,7 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   cancelPolygonize(); // 旧工程的转面结果由 commit 会话守卫丢弃
   if (m_catalog)
     disconnect(m_catalog, nullptr, this, nullptr);
-  for (const auto &name : m_constraints->dynamicPropertyNames())
-    if (name.startsWith("paleo.constraint.snapshot."))
-      m_constraints->setProperty(name.constData(), QVariant());
+  m_constraints->clearConstraintSnapshots(); // L-01：替代动态属性前缀清理暗道
   m_editEvidence.clear();
   emit editEvidenceChanged();
   m_catalog = catalog;
@@ -309,9 +307,8 @@ void MappingWorkbench::synchronizeCatalogLayers() {
       }
       declareMissing(d);
       if (e.value("kind") == "constraint_snapshot")
-        m_constraints->setProperty(
-            ("paleo.constraint.snapshot." + d.horizon).toUtf8().constData(),
-            filePath(d.source));
+        m_constraints->setConstraintSnapshotPath( // L-01：typed 通道替代动态属性
+            d.horizon, filePath(d.source));
       const auto draftId = e.value("draft_id").toString();
       const auto working = e.value("working_path").toString();
       if (!draftId.isEmpty() && !working.isEmpty()) {

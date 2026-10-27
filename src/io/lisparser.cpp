@@ -386,6 +386,26 @@ using paleo::io_detail::addIssue;
       while (true)
       {
         // 杂数跳过：双字节前瞻（0x00/0x20 均匀区）
+        // 先做 PRH 先验：当前 4 字节能构成合法记录头（len 达到其 attrs 决定
+        // 的最小长度且不越文件尾）且 attrs 字节并非纯填充形态时，按记录处理
+        // ——否则 len∈{0x0020,0x2000,0x2020} 的合法 PR 头（LIS79 常用 8192B
+        // 物理记录）会被成对填充判定吞掉，整文件误报「PR 长度非法」。
+        if (m_pos + 4 <= m_size)
+        {
+          uchar h[4];
+          if (readAt(m_pos, h, 4))
+          {
+            const quint16 hlen = quint16(h[0]) << 8 | quint16(h[1]);
+            const quint16 hattrs = quint16(h[2]) << 8 | quint16(h[3]);
+            int hMin = (hattrs & 0x0002) ? 4 : 6;
+            if (hattrs & 0x0400) hMin += 2;
+            if (hattrs & 0x0200) hMin += 2;
+            const bool attrsLookPad = (h[2] == 0x00 || h[2] == 0x20) &&
+                                      (h[3] == 0x00 || h[3] == 0x20);
+            if (hlen >= hMin && m_pos + hlen <= m_size && !attrsLookPad)
+              goto prh_found; // NOLINT：直接进入记录解析，不做填充跳过
+          }
+        }
         // PW-140：按块（≤4KB）读入后逐对扫描，不再每 2 字节一次 seek+read。
         while (m_pos + 4 <= m_size)
         {
@@ -407,6 +427,7 @@ using paleo::io_detail::addIssue;
           if (i < n)
             break;
         }
+prh_found: // NOLINT：PRH 先验命中处——绕过填充跳过直接按记录头解析
         if (m_pos >= m_size)
           return first ? Status::Eof
                        : truncated(error, issues,

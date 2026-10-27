@@ -87,6 +87,10 @@ public:
     bool buildModel = false;
     VelocityModelBuildRequest buildRequest;
     DerivedStaging modelStaging, depthStaging;
+    // catalog 入库哨兵：commit 成功即置位——失败/取消清理只删未入库的
+    // staging（已入库文件为只读在册资产，删了就是悬垂版本）。
+    bool modelPublished = false;
+    bool depthPublished = false;
     QPointer<DataCatalog> catalog;
     QString projectDir;
     QVariantMap modelExtra, depthExtra;

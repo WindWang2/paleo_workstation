@@ -5,6 +5,7 @@
 #include "../singlefactor/geosutil.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -71,6 +72,7 @@ FaciesQaResult runFaciesQa( const std::vector<FaciesMapUnit> &units,
   };
 
   std::vector<GeomPtr> unitGeoms;
+  std::vector<std::array<double, 4>> unitEnvelopes; // L-11：[x0,y0,x1,y1]
   std::vector<GeomPtr> unitBoundaries;
   std::vector<double> unitAreas;
   unitGeoms.reserve( units.size() );
@@ -100,6 +102,15 @@ FaciesQaResult runFaciesQa( const std::vector<FaciesMapUnit> &units,
                                                                         unitGeoms.back()
                                                                             .get() )
                                                             : 0.0 ) );
+    // L-11：两两检测器的包围盒预筛表——数千单元的全对 GEOS 交集是 QA 交互
+    // 路径的最大常数，四次比较先挡掉明显不相交的对（包围盒不相交 = 几何
+    // 必不相交，语义不变）。
+    double ex0 = 0, ey0 = 0, ex1 = 0, ey1 = 0;
+    unitEnvelopes.push_back(
+        unitGeoms.back() &&
+                GEOSGeom_getExtent_r( ctx.handle, unitGeoms.back().get(), &ex0, &ey0, &ex1, &ey1 ) == 1
+            ? std::array<double, 4>{ ex0, ey0, ex1, ey1 }
+            : std::array<double, 4>{ 0, 0, -1, -1 } ); // 空/退化：永不相交标记
   }
 
   std::vector<GeomPtr> wellGeoms;
@@ -188,6 +199,9 @@ FaciesQaResult runFaciesQa( const std::vector<FaciesMapUnit> &units,
     for ( std::size_t j = i + 1; j < units.size(); ++j )
     {
       if ( !unitGeoms[j] )
+        continue;
+      const auto &bi = unitEnvelopes[i], &bj = unitEnvelopes[j]; // L-11 预筛
+      if ( bi[2] < bj[0] || bj[2] < bi[0] || bi[3] < bj[1] || bj[3] < bi[1] )
         continue;
       GeomPtr intersection = singlefactor::makeGeom(
           ctx.handle, GEOSIntersection_r( ctx.handle, unitGeoms[i].get(),
@@ -392,6 +406,9 @@ FaciesQaResult runFaciesQa( const std::vector<FaciesMapUnit> &units,
       if ( units[i].faciesCode < 0 || units[j].faciesCode < 0 ||
            units[i].faciesCode == units[j].faciesCode )
         continue; // 相代码未知不判（诚实中性，同编辑门禁）
+      const auto &ci = unitEnvelopes[i], &cj = unitEnvelopes[j]; // L-11 预筛
+      if ( ci[2] < cj[0] || cj[2] < ci[0] || ci[3] < cj[1] || cj[3] < ci[1] )
+        continue;
       GeomPtr shared = singlefactor::makeGeom(
           ctx.handle, GEOSIntersection_r( ctx.handle, unitGeoms[i].get(), unitGeoms[j].get() ) );
       if ( !shared || GEOSisEmpty_r( ctx.handle, shared.get() ) == 1 )

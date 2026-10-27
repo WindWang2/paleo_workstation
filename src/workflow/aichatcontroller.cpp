@@ -496,14 +496,25 @@ void AiChatController::onRoundFinished(const QString &reason) {
   }
   // 工具相：streaming 保持 true（输入框继续锁定，停止按钮可取消），状态行
   // 切「执行中」；逐帧入队，串行执行（runner 的正确性约束）。
-  m_unansweredCalls = m_session.messages.last().toolCalls;
-  m_pendingToolResults = int(m_unansweredCalls.size());
+  // 遗留 P3：后端同帧返回重复 tool_call id 时，两个同 id 应答违反「每
+  // call 恰好一答」协议（OpenAI 400，该会话每轮复现）——入队前按 id 去重
+  //（协议承诺由 controller 兜底，见 aichattoolrunner.h:82）。
+  QSet<QString> distinctCallIds;
+  QVector<ChatToolCall> distinctCalls = m_session.messages.last().toolCalls;
+  distinctCalls.erase(std::remove_if(distinctCalls.begin(), distinctCalls.end(),
+                                     [&distinctCallIds](const ChatToolCall &c) {
+                                       const bool dup = distinctCallIds.contains(c.id);
+                                       distinctCallIds.insert(c.id);
+                                       return dup;
+                                     }),
+                      distinctCalls.end());
+  m_unansweredCalls = distinctCalls;
+  m_pendingToolResults = int(distinctCalls.size());
   emit statusChanged(statusText());
   // 遍历快照而非活容器：onToolFinished 会按到达序从 m_unansweredCalls
   // removeAt——runner 虽已统一异步回报（#281），快照让本循环不再依赖
   // 「run() 绝不同步回调」这一 runner 内部前提。
-  const QVector<ChatToolCall> calls = m_unansweredCalls;
-  for (const ChatToolCall &call : calls)
+  for (const ChatToolCall &call : m_unansweredCalls)
     m_runner.run(call);
 }
 

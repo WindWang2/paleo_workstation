@@ -59,6 +59,13 @@ bool appendNumeric( QByteArray *out, const QString &dtype, double value, const Q
   if ( dtype == QLatin1String( "<f4" ) )
   {
     const float narrowed = static_cast<float>( value );
+    // 有限 double 收窄成 ±Inf 不是精度损失是损坏：读面把非有限计为 nodata
+    //（静默丢值），如实拒写。
+    if ( !std::isfinite( narrowed ) && std::isfinite( value ) )
+    {
+      *error = QStringLiteral( "数组 %1 的值 %2 超出 f4 表示域（收窄为 Inf）" ).arg( name ).arg( value );
+      return false;
+    }
     std::uint32_t bits = 0;
     std::memcpy( &bits, &narrowed, 4 );
     put32( bits );

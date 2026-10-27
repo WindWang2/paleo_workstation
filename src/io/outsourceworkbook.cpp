@@ -159,6 +159,14 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
       return result;
     }
     const QXmlStreamReader::TokenType token = reader.readNext();
+    // L-07：第三方工作簿的 DTD/内部实体声明拒收——QXmlStreamReader 会展开
+    // 内部实体（billion laughs 可把数十 KB 声明展开成 GB 级文本）。合法
+    // SpreadsheetML 不带 DTD；令牌级捕获不依赖头部嗅探、任意位置可命中。
+    if ( token == QXmlStreamReader::DTD )
+    {
+      result.error = QStringLiteral( "工作簿 XML 含 DTD/实体声明，为防实体扩展攻击已拒收：%1" ).arg( path );
+      return result;
+    }
     if ( token == QXmlStreamReader::StartElement )
     {
       const QString name = reader.name().toString();
@@ -981,7 +989,9 @@ WorkbookReadResult readWorkbook( const QString &path )
     }
     file.close();
     QByteArray xmlBytes;
-    if ( !paleo::io::readBoundedFile( path, paleo::io::kDefaultBoundedReadLimit, &xmlBytes, &result.error ) )
+    // 与上方 512MB 外闸同口径（kDefaultBoundedReadLimit=500MB 会形成外闸
+    // 永不可达的 500-512MB 死区，错误文案还写着 512MB）。
+    if ( !paleo::io::readBoundedFile( path, 512LL * 1024 * 1024, &xmlBytes, &result.error ) )
       return result;
     return readSpreadsheetMlWorkbook( path, xmlBytes );
   }
@@ -993,14 +1003,15 @@ WorkbookReadResult readWorkbook( const QString &path )
 
 WorkbookReadResult previewXlsxWorkbook(const QString &path, bool *limited)
 {
-  *limited = false; WorkbookReadResult out; QFile file(path);
+  if (limited) *limited = false; // 与 readXlsx 同参数口径：允许 nullptr
+  WorkbookReadResult out; QFile file(path);
   if (!file.open(QIODevice::ReadOnly | QIODevice::Unbuffered)) { out.error = file.errorString(); return out; }
-  if (file.size() > 2 * 1024 * 1024) { *limited = true; return out; }
+  if (file.size() > 2 * 1024 * 1024) { if (limited) *limited = true; return out; }
   const auto archive = file.read(2 * 1024 * 1024); const auto listing = zipListBytes(archive);
   if (!listing.ok) { out.error = listing.error; return out; }
   quint64 expanded = 0;
   for (const auto &entry : listing.entries) expanded += entry.uncompressedSize;
-  if (expanded > 4 * 1024 * 1024 || listing.entries.size() > 128) { *limited = true; return out; }
+  if (expanded > 4 * 1024 * 1024 || listing.entries.size() > 128) { if (limited) *limited = true; return out; }
   return readXlsx(path, archive, 200, limited);
 }
 

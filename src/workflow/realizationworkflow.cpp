@@ -121,6 +121,12 @@ bool openMemberRasters( const paleo::realization::RealizationSet &set,
       return false;
     }
     mr.band = GDALGetRasterBand( mr.ds, 1 );
+    if ( !mr.band )
+    {
+      GDALClose( mr.ds ); // 零波段栅格（损坏/特殊驱动）——不留给 readBandSlice 解引用空波段
+      setError( error, QObject::tr( "成员 %1 栅格无可用波段" ).arg( m.index ) );
+      return false;
+    }
     out->append( mr );
   }
   return true;
@@ -894,7 +900,14 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
         j.error = QObject::tr( "成员 %1 栅格打不开" ).arg( m.index );
         return false;
       }
-      openDss.push_back( { ds, GDALGetRasterBand( ds, 1 ) } );
+      GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+      if ( !band )
+      {
+        GDALClose( ds ); // 零波段栅格：同 1203 行差值路径的波段复核口径
+        j.error = QObject::tr( "成员 %1 栅格无可用波段" ).arg( m.index );
+        return false;
+      }
+      openDss.push_back( { ds, band } );
     }
 
     progress( 10.0, QStringLiteral( "read" ) );

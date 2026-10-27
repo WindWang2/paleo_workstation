@@ -633,7 +633,7 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
   {
     QString constraintErr;
     QgsMapLayer *constraints = layers->instantiate( constraintLayerId, &constraintErr );
-    const auto frozenPath = property( ( "paleo.constraint.snapshot." + horizon ).toUtf8().constData() ).toString();
+    const auto frozenPath = constraintSnapshotPath( horizon ); // L-01：typed 通道替代动态属性
     if ( !frozenPath.isEmpty() )
     {
       frozenConstraints = std::make_unique<QgsVectorLayer>( frozenPath + QStringLiteral( "|layername=features" ),

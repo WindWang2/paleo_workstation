@@ -298,6 +298,14 @@ ZipListResult zipListBytes( const QByteArray &archive )
       return result;
     }
     result.entries.append( item );
+    // 条目数前置闸：46B+4B 名的最小条目可在 512MiB 上限包里塞 ~10^7 条，
+    // 先建 ~GB 级条目结构才轮到后置的总量/重名闸——按条目数直接封顶。
+    if ( result.entries.size() > 100000 )
+    {
+      result.error = QStringLiteral( "ZIP 条目数超上限（%1）" ).arg( result.entries.size() );
+      result.entries.clear();
+      return result;
+    }
     offset += 46 + nameLength + extraLength + commentLength;
   }
   // 解压预算：deflate 可把几百字节放大成数百 MiB，逐条 512 MiB 闸挡不住

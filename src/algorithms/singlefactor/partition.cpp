@@ -418,8 +418,11 @@ std::vector<int> assignWellRegions( std::span<const Point2> wellXy, const GridSp
            wy > y0 + 0.51 * dy )
         continue;
     }
-    const int col = static_cast<int>( std::lround( ( wx - x0 ) / dx ) );
-    const int row = static_cast<int>( std::lround( ( y0 - wy ) / dy ) );
+    // PW-128：非排他分支无界预检——lround 对超 long 域实参是 UB，先夹紧。
+    const double colD = std::clamp( ( wx - x0 ) / dx, -2.0e9, 2.0e9 );
+    const double rowD = std::clamp( ( y0 - wy ) / dy, -2.0e9, 2.0e9 );
+    const int col = static_cast<int>( std::lround( colD ) );
+    const int row = static_cast<int>( std::lround( rowD ) );
     int found = missing;
     for ( int radius = 0; radius < 4; ++radius )
     {

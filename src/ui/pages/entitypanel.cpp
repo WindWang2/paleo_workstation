@@ -362,10 +362,10 @@ void EntityPanel::buildD4Ui()
       auto *secVersion = new CollapsibleSection(tr("版本时间线"), host);
       secVersion->setObjectName(QStringLiteral("secVersion"));
       m_timeline = new VersionTimeline(secVersion->container());
+      m_timeline->setAbsolutePathOf([this](const CatalogVersion &v) { return m_doc ? m_doc->absolutePathForVersion(v) : QString(); });
       secVersion->containerLayout()->addWidget(m_timeline);
       sl->addWidget(secVersion);
-      // D4.4 版本 diff：清单级（大小/SHA/字段差异）。
-      connect(m_timeline, &VersionTimeline::diffRequested, this,
+      connect(m_timeline, &VersionTimeline::diffRequested, this, // D4.4 版本 diff：清单级
               [this](const QString &va, const QString &vb) {
                 if (!m_doc || !m_doc->catalog())
                   return;

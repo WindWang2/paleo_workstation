@@ -229,7 +229,10 @@ LasDoc LasCache::load(const QString &path, QList<LasIssue> *issues)
     {
       QElapsedTimer t;
       t.start();
-      m_timings.memoryHitNs = t.nsecsElapsed();
+      {
+        QMutexLocker lock(&m_timingsMutex);
+        m_timings.memoryHitNs = t.nsecsElapsed();
+      }
       return *hit->doc;
     }
     m_mem.erase(canon); // 指纹失配：文件变了（D1.2/D1.10 兜底）
@@ -243,7 +246,10 @@ LasDoc LasCache::load(const QString &path, QList<LasIssue> *issues)
         diskTimer.start();
         if (auto fromDisk = readDisk(fp))
         {
-          m_timings.diskLoadNs = diskTimer.nsecsElapsed();
+          {
+            QMutexLocker lock(&m_timingsMutex);
+            m_timings.diskLoadNs = diskTimer.nsecsElapsed();
+          }
           bumpExtra(&CacheStats::diskHits);
           return LoadOutcome{std::move(fromDisk), nullptr};
         }
@@ -258,7 +264,10 @@ LasDoc LasCache::load(const QString &path, QList<LasIssue> *issues)
         parseTimer.start();
         auto diag = std::make_shared<QList<LasIssue>>();
         LasDoc doc = WellLogRead::parseDoc(path, diag.get()); // 方向44：格式分派
-        m_timings.coldParseNs = parseTimer.nsecsElapsed();
+        {
+          QMutexLocker lock(&m_timingsMutex);
+          m_timings.coldParseNs = parseTimer.nsecsElapsed();
+        }
         if (!doc.ok)
           return LoadOutcome{nullptr, std::move(diag)};
         auto shared = std::make_shared<LasDoc>(std::move(doc));

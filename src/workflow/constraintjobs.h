@@ -37,6 +37,9 @@ struct ConstraintWorkflow::LocalDirectionJob
   QString stagedSupportSha, stagedQcSha;
   bool prepared = false;
   bool ok = false;
+  // catalog 入库哨兵：publishArtifacts 成功即置位（publish 函数内）——
+  // runFactorWork 外层 cleanup 只删未入库的 staging。
+  bool catalogPublished = false;
   quint64 generation = 0;
   QString error;
   QString horizon;
@@ -62,6 +65,9 @@ struct ConstraintWorkflow::GeostatJob
   bool prepared = false;
   bool ok = false;
   bool degraded = false; // 样本不足 → 计算段降级 IDW（method_actual="idw"）
+  // catalog 入库哨兵：publishArtifacts 成功即置位（publish 函数内）——
+  // runFactorWork 外层 cleanup 只删未入库的 staging。
+  bool catalogPublished = false;
   quint64 generation = 0;
   QString error;
   QString method; // "kriging" | "sgs"

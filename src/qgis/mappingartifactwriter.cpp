@@ -151,10 +151,11 @@ bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
                           GDT_Int32, 0, 0) == CE_None;
   GDALClose(ds);
   if (ok && !paleoReplaceFile(partial, path))
-  {
-    QFile::remove(partial);
     ok = false;
-  }
+  // 写中途失败（GeoTransform/投影/RasterIO/落名）不留半截 .partial——目录
+  // 随后整册登记版本时杂物入库（同族口径：io/horizonbinner 全失败路径删）。
+  if (!ok)
+    QFile::remove(partial);
   if (!ok && error)
     *error = QObject::tr("写入预测栅格失败");
   return ok;

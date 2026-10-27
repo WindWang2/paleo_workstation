@@ -9,6 +9,7 @@
 #include "entitypanel.h"
 
 class DataListPanel;
+class QgisProjectService;
 class PreviewDocService;
 class DataGraphPage;
 
@@ -35,6 +36,7 @@ class DataPage : public QWidget
     // B2（wave/deepen-perf）：列表面板露出——壳接导入队列生产 runner 用。
     DataListPanel *listPanel() const { return m_listPanel; }
     DataGraphPage *graphPage() const { return m_graphPage; }
+    void setProjectService(QgisProjectService *project) { m_entityPanel->setProjectService(project); }
 
   public slots:
     void refreshAssetTable();                     // 资产表/树 + 实体视图一并重取

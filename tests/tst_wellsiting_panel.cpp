@@ -3,9 +3,14 @@
 #include <QApplication>
 
 #include "helpers/workflowfixture.h"
+#include "helpers/visualcapture.h"
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/metadata/wellsitingstore.h"
+#include "../src/qgis/coordinateeditor.h"
+#include "../src/qgis/crsselector.h"
+#include "../src/qgis/projectmapreference.h"
+#include "../src/qgis/qgisruntime.h"
 #include "../src/services/projectdata.h"
 #include "../src/ui/pages/wellsitingpanel.h"
 #include "../src/workflow/wellsitingworkflow.h"
@@ -13,9 +18,15 @@
 #include <QDoubleSpinBox>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPushButton>
+#include <QToolButton>
 #include <QSignalSpy>
 #include <QTableWidget>
+#include <QTimer>
+#include <qgsmapcanvas.h>
+#include <qgsmapsettings.h>
+#include <qgsproject.h>
 
 // 方向34 布井辅助面板（视图层）测试：objectName 锚点齐全、地图布点回调
 // 入 catalog 计划井并刷表、计划井变化触发实时评估、方案保存进对比表、
@@ -32,6 +43,7 @@ class TestWellSitingPanel : public QObject
     void initTestCase();
     void anchorsAndIntents();
     void mapPlacementAddsPlannedWell();
+    void coordinateInputTransformsBeforeSaving();
     void scenarioSaveAndCompareTable();
     void cleanupTestCase();
 
@@ -103,7 +115,7 @@ void TestWellSitingPanel::anchorsAndIntents()
 
   // 地图布点/导出是意图信号，面板自己不装地图工具/文件对话框。
   QSignalSpy pickSpy( &panel, &WellSitingPanel::mapPlacementRequested );
-  emit panel.findChild<QPushButton *>( QStringLiteral( "sitingPickButton" ) )->clicked();
+  emit panel.findChild<QToolButton *>( QStringLiteral( "sitingPickButton" ) )->clicked();
   QCOMPARE( pickSpy.size(), 1 );
 
   QSignalSpy exportSpy( &panel, &WellSitingPanel::exportRequested );
@@ -177,7 +189,57 @@ void TestWellSitingPanel::scenarioSaveAndCompareTable()
   QVERIFY( note->text().contains( QStringLiteral( "欧氏" ) ) );
 }
 
+void TestWellSitingPanel::coordinateInputTransformsBeforeSaving()
+{
+  Stack s;
+  WellSitingPanel panel(&s.wf);
+  QgsProject project;
+  PaleoGeoreference reference;
+  reference.kind = QStringLiteral("crs");
+  reference.sourceCrs = QStringLiteral("EPSG:32649");
+  reference.targetCrs = QStringLiteral("EPSG:4326");
+  QString error;
+  QVERIFY2(paleo::mapreference::configure(&project, reference, QStringLiteral("EPSG:32649"), &error),
+           qPrintable(error));
+  QgsMapCanvas canvas;
+  canvas.setDestinationCrs(project.crs());
+  canvas.mapSettings().setTransformContext(project.transformContext());
+  panel.setCoordinateCanvas(&canvas);
+  auto *editor = panel.findChild<PaleoCoordinateEditor *>(QStringLiteral("sitingCoordinateEditor"));
+  auto *source = panel.findChild<PaleoCrsSelector *>(QStringLiteral("coordinateSourceCrs"));
+  QVERIFY(editor && source);
+  QVERIFY(source->setDefinition(QStringLiteral("EPSG:4326")));
+  panel.findChild<QLineEdit *>(QStringLiteral("sitingXEdit"))->setText(QStringLiteral("108.037366"));
+  panel.findChild<QLineEdit *>(QStringLiteral("sitingYEdit"))->setText(QStringLiteral("36.086627"));
+  panel.findChild<QPushButton *>(QStringLiteral("sitingAddButton"))->click();
+  QCOMPARE(s.wf.plannedWells().size(), 1);
+  qInfo() << "planned coordinate after transform"
+          << QString::number(s.wf.plannedWells().first().value(QStringLiteral("x")).toDouble(), 'f', 9)
+          << QString::number(s.wf.plannedWells().first().value(QStringLiteral("y")).toDouble(), 'f', 9);
+  QVERIFY(std::abs(s.wf.plannedWells().first().value(QStringLiteral("x")).toDouble() - 233240.46) < 0.03);
+  QVERIFY(std::abs(s.wf.plannedWells().first().value(QStringLiteral("y")).toDouble() - 3997621.08) < 0.03);
+  QVERIFY(!source->setDefinition(QStringLiteral("not-a-crs")));
+  QTimer::singleShot(0, [] {
+    for (auto *widget : QApplication::topLevelWidgets())
+      if (auto *box = qobject_cast<QMessageBox *>(widget)) box->done(QDialog::Accepted);
+  });
+  panel.findChild<QPushButton *>(QStringLiteral("sitingAddButton"))->click();
+  QCOMPARE(s.wf.plannedWells().size(), 1);
+  source->setDefinition(QStringLiteral("EPSG:4326"));
+  editor->setPoint(QgsPointXY(108.037366, 36.086627));
+  QVERIFY(paleo::tests::captureVisual(&panel, QStringLiteral("well-siting-coordinate-editor"), QSize(420, 980)));
+}
+
 void TestWellSitingPanel::cleanupTestCase() {}
 
-QTEST_MAIN( TestWellSitingPanel )
+int main(int argc, char *argv[])
+{
+  if (qgetenv("QT_QPA_PLATFORM").isEmpty()) qputenv("QT_QPA_PLATFORM", "offscreen");
+  if (!QgisRuntime::initialize()) qFatal("QgisRuntime::initialize failed");
+  TestWellSitingPanel test;
+  const int result = QTest::qExec(&test, argc, argv);
+  QgisRuntime::shutdown();
+  return result;
+}
+
 #include "tst_wellsiting_panel.moc"

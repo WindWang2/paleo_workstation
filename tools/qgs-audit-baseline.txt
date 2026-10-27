@@ -68,7 +68,6 @@ src/ui/datapreview/previewprofilepanel.h
 src/ui/datapreview/previewtocpanel.cpp
 src/ui/decorations/paleodecorations.cpp
 src/ui/decorations/paleodecorations.h
-src/ui/dialogs/projectmapsettingsdialog.cpp
 src/ui/edittools/editingtoolbar.cpp
 src/ui/edittools/editingtools.cpp
 src/ui/edittools/editingtools.h
@@ -95,8 +94,6 @@ src/ui/maptools/paleomaptools.h
 src/ui/maptools/paleoshapetools.cpp
 src/ui/maptools/paleoshapetools.h
 src/ui/maptools/shapepreview.h
-src/ui/maptools/sitingpicktool.cpp
-src/ui/maptools/sitingpicktool.h
 src/ui/paleoicons.cpp
 src/ui/paleomainwindow.cpp
 src/ui/paleomainwindow_attach.cpp

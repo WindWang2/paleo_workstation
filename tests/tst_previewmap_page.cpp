@@ -298,7 +298,13 @@ void TestPreviewMapPage::copyCoordinateToClipboard()
   copyAction->trigger(); // 工具条动作路径（D3.8）
   const QString after = QApplication::clipboard()->text();
   QVERIFY(after != before);
-  QVERIFY(after.contains(QStringLiteral(", ")));
+  const QString readout = m_page->coordinateReadout();
+  const QString x = readout.section(QChar(' '), 1, 1);
+  const QString y = readout.section(QChar(' '), 4, 4);
+  QVERIFY(!x.isEmpty());
+  QVERIFY(!y.isEmpty());
+  QVERIFY(after.contains(x));
+  QVERIFY(after.contains(y));
 }
 
 void TestPreviewMapPage::copyScreenshotToClipboard()

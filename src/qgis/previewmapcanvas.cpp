@@ -1,5 +1,9 @@
 // 层：QGIS 封装
 #include "previewmapcanvas.h"
+#include "coordinateformat.h"
+#include "coordinatetoolsdialog.h"
+#include "coordinatemaptool.h"
+#include "crsselector.h"
 #include "projectmapreference.h"
 #include "mappingartifactwriter.h"
 #include "onlinebasemap.h"
@@ -560,6 +564,42 @@ QgsPointXY PreviewMapCanvas::toMapCoordinates( const QPoint &pixel ) const
 {
   return m_canvas ? m_canvas->mapSettings().mapToPixel().toMapCoordinates( pixel.x(), pixel.y() )
                   : QgsPointXY();
+}
+
+QString PreviewMapCanvas::coordinateClipboardText( const QPointF &point, bool geographic,
+                                                     QString *error )
+{
+  if ( error ) error->clear();
+  if ( !m_canvas )
+  {
+    if ( error ) *error = tr( "预览地图尚未就绪，不能复制坐标。" );
+    return QString();
+  }
+  const auto source = crs().isValid() ? crs() : paleo::coordinates::engineeringGrid();
+  const auto target = geographic ? paleo::coordinates::crsFromDefinition( QStringLiteral( "EPSG:4326" ) )
+                                 : source;
+  auto transformed = paleo::coordinates::point();
+  if ( !paleo::coordinates::transformPoint( paleo::coordinates::point( point.x(), point.y() ),
+                                            source, target, m_canvas->mapSettings().transformContext(),
+                                            &transformed, error ) )
+    return QString();
+  return paleo::coordinates::mapReadout(transformed, target,
+                                        m_canvas->mapSettings().transformContext());
+}
+
+PaleoCoordinateToolsDialog *PreviewMapCanvas::createCoordinateToolsDialog( QWidget *parent )
+{
+  return new PaleoCoordinateToolsDialog( m_canvas, parent );
+}
+
+PaleoCoordinateMapTool *PreviewMapCanvas::beginCoordinatePick()
+{
+  if ( !m_canvas ) return nullptr;
+  if ( auto *previous = PaleoCoordinateMapTool::fromMapTool( m_canvas->mapTool() ) )
+    previous->deleteLater();
+  auto *tool = new PaleoCoordinateMapTool( m_canvas );
+  m_canvas->setMapTool( tool->nativeTool() );
+  return tool;
 }
 
 double PreviewMapCanvas::mapUnitsPerPixel() const

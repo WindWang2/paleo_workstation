@@ -1,9 +1,9 @@
 // 层：视图
 #include "mapbookpanel.h"
+#include "qgis/mapextentwidget.h"
 
 #include <QCheckBox>
 #include <QComboBox>
-#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -49,25 +49,9 @@ void PaleoMapBookPanel::buildUi()
   dirRow->addWidget( pick );
   form->addRow( tr( "输出目录" ), dirRow );
 
-  auto *areaRow = new QHBoxLayout;
-  m_xMin = new QDoubleSpinBox( this );
-  m_yMin = new QDoubleSpinBox( this );
-  m_xMax = new QDoubleSpinBox( this );
-  m_yMax = new QDoubleSpinBox( this );
-  for ( QDoubleSpinBox *box : { m_xMin, m_yMin, m_xMax, m_yMax } )
-  {
-    box->setRange( -1.0e9, 1.0e9 );
-    box->setDecimals( 2 );
-    box->setSingleStep( 100.0 );
-    areaRow->addWidget( box );
-  }
-  m_xMin->setObjectName( QStringLiteral( "mapbookXMin" ) );
-  m_yMin->setObjectName( QStringLiteral( "mapbookYMin" ) );
-  m_xMax->setObjectName( QStringLiteral( "mapbookXMax" ) );
-  m_yMax->setObjectName( QStringLiteral( "mapbookYMax" ) );
-  m_xMax->setValue( 3000.0 );
-  m_yMax->setValue( 3000.0 );
-  form->addRow( tr( "AOI 范围（x0 y0 x1 y1）" ), areaRow );
+  m_extent = new PaleoMapExtentWidget( this );
+  m_extent->setObjectName( QStringLiteral( "mapbookExtentWidget" ) );
+  form->addRow( tr( "AOI 范围" ), m_extent->widget() );
 
   auto *gridRow = new QHBoxLayout;
   m_cols = new QSpinBox( this );
@@ -157,24 +141,29 @@ void PaleoMapBookPanel::buildUi()
   connect( m_start, &QPushButton::clicked, this, &PaleoMapBookPanel::onStart );
   connect( m_cancel, &QPushButton::clicked, this, &PaleoMapBookPanel::onCancel );
   connect( pick, &QPushButton::clicked, this, &PaleoMapBookPanel::onPickDir );
+  connect( m_extent, &PaleoMapExtentWidget::canvasVisibilityRequested,
+           this, &PaleoMapBookPanel::canvasVisibilityRequested );
 }
 
 PaleoMapBook::Area PaleoMapBookPanel::area() const
 {
+  const auto extent = m_extent->area();
   PaleoMapBook::Area a;
-  a.xMin = m_xMin->value();
-  a.yMin = m_yMin->value();
-  a.xMax = m_xMax->value();
-  a.yMax = m_yMax->value();
+  a.xMin = extent.xMin;
+  a.yMin = extent.yMin;
+  a.xMax = extent.xMax;
+  a.yMax = extent.yMax;
   return a;
 }
 
 void PaleoMapBookPanel::setArea( const PaleoMapBook::Area &area )
 {
-  m_xMin->setValue( area.xMin );
-  m_yMin->setValue( area.yMin );
-  m_xMax->setValue( area.xMax );
-  m_yMax->setValue( area.yMax );
+  m_extent->setArea( { area.xMin, area.yMin, area.xMax, area.yMax } );
+}
+
+void PaleoMapBookPanel::setMapCanvas( QWidget *canvas )
+{
+  m_extent->setCanvas( canvas );
 }
 
 int PaleoMapBookPanel::cols() const { return m_cols->value(); }

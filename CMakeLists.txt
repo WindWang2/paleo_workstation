@@ -54,6 +54,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-batch.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-catalog-sqlite.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-coordinate-inputs.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-crossplot-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-data.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-data-asset-deepening.cmake"

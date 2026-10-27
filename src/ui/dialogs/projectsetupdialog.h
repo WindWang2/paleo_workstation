@@ -13,6 +13,7 @@ class QTabBar;
 class QTableWidget;
 class QPlainTextEdit;
 class QCheckBox;
+class PaleoCrsSelector;
 class ProjectSetupDialog : public QDialog
 {
   Q_OBJECT
@@ -38,7 +39,8 @@ private:
   void showStep(int step);
   void finish();
   ProjectSetupWorkflow *m_workflow;
-  QLineEdit *m_name, *m_output, *m_root, *m_points, *m_wells, *m_seismic, *m_horizons, *m_references, *m_boundary, *m_crs, *m_projectCrs;
+  QLineEdit *m_name, *m_output, *m_root, *m_points, *m_wells, *m_seismic, *m_horizons, *m_references, *m_boundary;
+  PaleoCrsSelector *m_crs, *m_projectCrs;
   QMap<QString, QComboBox *> m_fields;
   QStackedWidget *m_pages;
   QTabBar *m_steps;

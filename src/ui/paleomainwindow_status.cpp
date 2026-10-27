@@ -9,7 +9,8 @@
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../linkage/selectioncontext.h"
-#include "qgis/projectmapreference.h" // 坐标读数的经纬度换算 + 底图来源标注
+#include "qgis/projectmapreference.h" // 底图来源标注
+#include "qgis/coordinateformat.h"
 
 #include <qgsmapcanvas.h>
 #include <qgspointxy.h>
@@ -86,20 +87,12 @@ void PaleoMainWindow::buildStatusBar()
     scaleLabel->setObjectName(QStringLiteral("statusScale"));
     scaleLabel->setFont(PaleoTheme::monoFont()); // T32：比例尺读数是数字面
     connect(cv, &QgsMapCanvas::xyCoordinates, this,
-            [coordLabel, cv](const QgsPointXY &p) {
-              // 固定 3 位小数（默认 arg(double) 只有 6 位有效数字，读数
-              // 位数随量级跳动）；tnum 等宽数字面下宽度稳定。
-              QgsPointXY geographic;
-              if (cv->mapSettings().destinationCrs().type() != Qgis::CrsType::Engineering &&
-                  paleo::mapreference::transformPoint(cv, p, cv->mapSettings().destinationCrs(),
-                      QgsCoordinateReferenceSystem(QStringLiteral("EPSG:4326")), &geographic)) {
-                coordLabel->setText(tr("经纬度 %1, %2").arg(QLocale().toString(geographic.x(), 'f', 6),
-                                                            QLocale().toString(geographic.y(), 'f', 6)));
-                return;
-              }
-              coordLabel->setText(QStringLiteral("%1, %2")
-                                      .arg(QLocale().toString(p.x(), 'f', 3),
-                                           QLocale().toString(p.y(), 'f', 3)));
+            [this, coordLabel, cv](const QgsPointXY &p) {
+              coordLabel->setText(paleo::coordinates::mapReadout(
+                  p, cv->mapSettings().destinationCrs(), cv->mapSettings().transformContext(),
+                  m_projectSvc ? m_projectSvc->project() : nullptr));
+              coordLabel->setProperty("mapX", p.x());
+              coordLabel->setProperty("mapY", p.y());
             });
     auto updateScale = [scaleLabel, cv] {
       scaleLabel->setText(QStringLiteral("1:%1").arg(static_cast<qlonglong>(cv->scale())));
@@ -108,6 +101,7 @@ void PaleoMainWindow::buildStatusBar()
     connect(cv, &QgsMapCanvas::extentsChanged, this, updateScale);
     updateScale();
     statusBar()->addPermanentWidget(coordLabel);
+    buildCoordinateTools(coordLabel);
     statusBar()->addPermanentWidget(scaleLabel);
 
     // §4 预览壳：坐标读数旁标明坐标系——与 PDF 页脚（mapexport.cpp）同一句

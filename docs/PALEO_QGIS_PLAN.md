@@ -158,6 +158,7 @@ QGIS 的 `QgsProject` 本身可以统一管理地图图层、样式、布局、�
 | 栅格数据 | `QgsRasterLayer` |
 | CRS | `QgsCoordinateReferenceSystem` |
 | 空间坐标转换 | `QgsCoordinateTransform` |
+| CRS / 坐标 / 范围输入 | `QgsProjectionSelectionWidget`、`QgsCoordinateOperationWidget`、`QgsExtentWidget`；`src/qgis` 封装 `QgsCoordinateUtils` / `QgsCoordinateFormatter` 解析、格式化与地图拾取，不复制 QGIS app 非导出控件 |
 | 选择/拾取 | `QgsMapTool` |
 | 图形编辑 | QGIS Digitizing Framework |
 | 捕捉 | `QgsSnappingConfig` |

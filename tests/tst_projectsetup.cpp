@@ -16,6 +16,7 @@
 #include <QTabBar>
 #include <QTableWidget>
 #include <QCheckBox>
+#include <QDialogButtonBox>
 #include <QMenu>
 #include <QBuffer>
 #include <QElapsedTimer>
@@ -52,7 +53,10 @@
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/qgislayerservice.h"
+#include "../src/qgis/crsselector.h"
+#include "../src/qgis/coordinateeditor.h"
 #include "../src/workflow/projectlayerrefresh.h"
+#include "helpers/visualcapture.h"
 #include "../src/ui/dialogs/projectsetupdialog.h"
 #include "../src/ui/dialogs/projectmapsettingsdialog.h"
 #include "../src/ui/paleotheme.h"
@@ -258,7 +262,7 @@ private slots:
     QCOMPARE(dialog.findChild<QComboBox *>("pointField_x")->currentText(), QStringLiteral("Y（横坐标）"));
     QCOMPARE(dialog.findChild<QComboBox *>("pointField_y")->currentText(), QStringLiteral("X（纵坐标）"));
     QCOMPARE(dialog.findChild<QTableWidget *>("projectPointPreview")->rowCount(), 2);
-    auto *crs = dialog.findChild<QLineEdit *>("pointSourceCrsEdit"); QVERIFY(crs->text().isEmpty());
+    auto *crs = dialog.findChild<PaleoCrsSelector *>("pointSourceCrsEdit"); QVERIFY(crs->text().isEmpty());
     crs->setText("EPSG:2436"); dialog.findChild<QPushButton *>("projectSetupScanButton")->click();
     QTRY_COMPARE_WITH_TIMEOUT(dialog.preview().pointSourceCrs, QString("EPSG:2436"), 20000);
     QVERIFY(dialog.preview().errors.isEmpty()); QVERIFY(dialog.preview().sourceProblems.isEmpty());
@@ -328,7 +332,7 @@ private slots:
     QCOMPARE(dialog.preview().pointRows.size(), 55);
     QVERIFY(dialog.findChild<QComboBox *>("pointField_x")->currentText().contains(QStringLiteral("横")));
     QVERIFY(dialog.findChild<QComboBox *>("pointField_y")->currentText().contains(QStringLiteral("纵")));
-    QVERIFY(dialog.findChild<QLineEdit *>("pointSourceCrsEdit")->text().isEmpty()); // No guessed CRS or band conversion.
+    QVERIFY(dialog.findChild<PaleoCrsSelector *>("pointSourceCrsEdit")->text().isEmpty()); // No guessed CRS or band conversion.
     QVERIFY(dialog.preview().errors.isEmpty());
     QVERIFY(dialog.preview().hashes.isEmpty()); QVERIFY(dialog.preview().mapHashes.isEmpty());
     qint64 bytes = 0; for (const auto &snapshot : dialog.preview().sourceSnapshots)
@@ -670,9 +674,41 @@ private slots:
     DataCatalog reopened; QVERIFY(reopened.open(dir.filePath("project"), &error)); QCOMPARE(reopened.entities("well").size(), 1); QVERIFY(std::isnan(reopened.entities("well").first().kb));
     data.setCatalog(&reopened, dir.filePath("project")); QCOMPARE(data.topsFor(well.id).size(), 1);
   }
+  void georeferenceAnchorUsesQgisCoordinateEditor() {
+    PaleoGeoreference g;
+    g.a = 1.0;
+    g.anchorLonDeg = 108.0; g.anchorLatDeg = 36.0;
+    g.metersPerDegLon = 111320.0; g.metersPerDegLat = 101000.0;
+    PaleoProjectFile settings; settings.georeference = g;
+    ProjectMapSettingsDialog dialog(settings);
+    auto *editor = dialog.findChild<PaleoCoordinateEditor *>(QStringLiteral("georeferenceAnchorEditor"));
+    QVERIFY(editor);
+    editor->setPoint(paleo::coordinates::point(108.037366, 36.086627));
+    QCOMPARE(dialog.configuration().georeference->anchorLonDeg, 108.037366);
+    QCOMPARE(dialog.configuration().georeference->anchorLatDeg, 36.086627);
+    QCOMPARE(dialog.configuration().georeference->metersPerDegLon, 111320.0);
+    QVERIFY(paleo::tests::captureVisual(&dialog, QStringLiteral("project-georeference-anchor"), QSize(720, 780)));
+    dialog.show();
+    auto *buttons = dialog.findChild<QDialogButtonBox *>();
+    QVERIFY(buttons);
+    QSignalSpy saved(&dialog, &ProjectMapSettingsDialog::saveRequested);
+    editor->xEdit()->setText(QStringLiteral("181"));
+    buttons->button(QDialogButtonBox::Save)->click();
+    QCOMPARE(saved.count(), 0);
+    QVERIFY(editor->widget()->findChild<QLabel *>(QStringLiteral("coordinateError"))->isVisible());
+    QCOMPARE(dialog.configuration().georeference->anchorLonDeg, 108.0);
+    editor->xEdit()->setText(QStringLiteral("108.037366"));
+    editor->yEdit()->setText(QStringLiteral("91"));
+    buttons->button(QDialogButtonBox::Save)->click();
+    QCOMPARE(saved.count(), 0);
+  }
   void nativeProjectionRoundTrip() {
     PaleoGeoreference g; g.kind = "crs"; g.sourceCrs = "EPSG:32649"; g.targetCrs = "EPSG:4326";
     PaleoProjectFile settings; settings.georeference = g; ProjectMapSettingsDialog settingsDialog(settings); QCOMPARE(settingsDialog.configuration().georeference->sourceCrs, g.sourceCrs);
+    auto *mapCrs = settingsDialog.findChild<PaleoCrsSelector *>(QStringLiteral("projectMapCrsSelector"));
+    QVERIFY(mapCrs && mapCrs->nativeWidget());
+    QVERIFY(settingsDialog.findChild<PaleoCoordinateEditor *>(QStringLiteral("georeferenceAnchorEditor"))->widget()->isHidden());
+    QVERIFY(paleo::tests::captureVisual(&settingsDialog, QStringLiteral("project-coordinate-settings"), QSize(680, 760)));
     QVERIFY(g.isComplete()); double lon = 0, lat = 0; QVERIFY(applyGeoreference(g, 233240.46, 3997621.12, &lon, &lat)); QVERIFY(std::abs(lon - 108.037366) < 0.000001);
     PaleoGeoreference copy; QString error; QVERIFY(paleoGeoreferenceFromJson(paleoGeoreferenceToJson(g), &copy, &error)); QCOMPARE(copy.sourceCrs, g.sourceCrs);
     QgsProject project; QVERIFY2(paleo::mapreference::configure(&project, g, "EPSG:3857", &error), qPrintable(error));
@@ -838,7 +874,7 @@ private slots:
     ProjectSetupDialog dialog(&workflow); dialog.setExistingProject(dir.filePath("project.qgz"), sources);
     QTRY_VERIFY_WITH_TIMEOUT(dialog.preview().sourceProblems.contains(heads), 20000);
     QVERIFY(!dialog.preview().sourceCrs.isEmpty()); QVERIFY(dialog.preview().pointSourceCrs.isEmpty());
-    auto *crs = dialog.findChild<QLineEdit *>("pointSourceCrsEdit"); QVERIFY(crs); QVERIFY(crs->text().isEmpty());
+    auto *crs = dialog.findChild<PaleoCrsSelector *>("pointSourceCrsEdit"); QVERIFY(crs); QVERIFY(crs->text().isEmpty());
     QVERIFY(dialog.sources().pointMapping.value("crs").toString().isEmpty());
   }
   void createWorkflowAndReopen() {

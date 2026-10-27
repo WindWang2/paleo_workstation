@@ -7,6 +7,8 @@
 #include <QDockWidget>
 
 #include "../../qgis/previewrendercache.h"
+#include "qgis/coordinateformat.h"
+#include "qgis/coordinatetoolsdialog.h"
 
 #include "previewhistogramwidget.h"
 #include "previewidentifypanel.h"
@@ -232,14 +234,13 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
                QAction *a = zoomLayer->addAction( l->name() );
                connect( a, &QAction::triggered, this, [this, l] { m_canvas->zoomToLayer( l ); } );
              }
-             QAction *copyCoord =
-                 menu.addAction( QObject::tr( "复制坐标（%1）" )
-                                     .arg( m_hasMousePos
-                                               ? QStringLiteral( "%1, %2" )
-                                                     .arg( QString::number( m_lastMousePos.x(), 'f', 2 ),
-                                                           QString::number( m_lastMousePos.y(), 'f', 2 ) )
-                                               : QObject::tr( "无光标位置" ) ) );
-             connect( copyCoord, &QAction::triggered, this, &PreviewMapPage::copyCoordinate );
+             QAction *copyCoord = menu.addAction( QObject::tr( "复制坐标（%1）" )
+                 .arg( m_hasMousePos ? paleo::coordinates::formatPoint(
+                       m_lastMousePos, m_canvas->crs(), paleo::coordinates::OrdinateFormat::Decimal, 2 )
+                                     : QObject::tr( "无光标位置" ) ) );
+             connect( copyCoord, &QAction::triggered, this, [this] { copyCoordinate( false ); } );
+             QAction *copyWgs = menu.addAction( QObject::tr( "复制 WGS84 坐标" ) );
+             connect( copyWgs, &QAction::triggered, this, [this] { copyCoordinate( true ); } );
              QAction *copyShot = menu.addAction( QObject::tr( "复制画布截图" ) );
              connect( copyShot, &QAction::triggered, this, &PreviewMapPage::copyScreenshot );
              menu.addSeparator();
@@ -339,9 +340,10 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
   connect( m_canvas, &PreviewMapCanvas::mapPositionTracked, this, [this]( const QgsPointXY &p ) {
     m_lastMousePos = p;
     m_hasMousePos = true;
-    m_coordLabel->setText( QStringLiteral( "X %1  Y %2" )
-                               .arg( QString::number( p.x(), 'f', 2 ),
-                                     QString::number( p.y(), 'f', 2 ) ) );
+    const auto parts = paleo::coordinates::mapReadoutParts(
+        p, m_canvas->crs(), m_canvas->canvas()->mapSettings().transformContext() );
+    m_coordLabel->setText( parts.second.isEmpty() ? parts.first
+        : QStringLiteral( "X %1  Y %2" ).arg( parts.first, parts.second ) );
   } );
   connect( m_canvas, &PreviewMapCanvas::extentChanged, this, [this]( const QgsRectangle & ) {
     updateNavActions();
@@ -536,8 +538,22 @@ void PreviewMapPage::buildToolBar()
       QObject::tr( "复制坐标" ), this );
   copyCoordAction->setObjectName( QStringLiteral( "previewAction_copyCoord" ) );
   copyCoordAction->setToolTip( QObject::tr( "复制光标处工程坐标（右键菜单亦可）" ) );
-  connect( copyCoordAction, &QAction::triggered, this, &PreviewMapPage::copyCoordinate );
+  connect( copyCoordAction, &QAction::triggered, this, [this] { copyCoordinate( false ); } );
   m_toolBar->addAction( copyCoordAction );
+
+  auto *copyWgsAction = new QAction(
+      PaleoIcons::qgisTheme( QStringLiteral( "mActionEditCopy.svg" ) ),
+      QObject::tr( "复制 WGS84 坐标" ), this );
+  copyWgsAction->setObjectName( QStringLiteral( "previewAction_copyWgs84" ) );
+  copyWgsAction->setToolTip( QObject::tr( "按当前预览转换上下文复制 WGS84 经纬度" ) );
+  connect( copyWgsAction, &QAction::triggered, this, [this] { copyCoordinate( true ); } );
+  m_toolBar->addAction( copyWgsAction );
+  auto *coordinateToolsAction = new QAction(
+      PaleoIcons::qgisTheme( QStringLiteral( "mActionMapSettings.svg" ) ),
+      QObject::tr( "坐标定位与转换…" ), this );
+  coordinateToolsAction->setObjectName( QStringLiteral( "previewAction_coordinateTools" ) );
+  connect( coordinateToolsAction, &QAction::triggered, this, &PreviewMapPage::openCoordinateTools );
+  m_toolBar->addAction( coordinateToolsAction );
 
   auto *copyShotAction = new QAction(
       PaleoIcons::qgisTheme( QStringLiteral( "mActionSaveMapAsImage.svg" ) ),
@@ -958,16 +974,6 @@ void PreviewMapPage::runIdentifyRect( const QgsRectangle &rect )
   const auto results = m_identifyCore->identifyRect( m_canvas->layers(), rect );
   m_identify->setResults( results );
   m_sideTabs->setCurrentIndex( 1 );
-}
-
-void PreviewMapPage::copyCoordinate()
-{
-  if ( !m_hasMousePos )
-    return;
-  QApplication::clipboard()->setText(
-      QStringLiteral( "%1, %2" )
-          .arg( QString::number( m_lastMousePos.x(), 'f', 2 ),
-                QString::number( m_lastMousePos.y(), 'f', 2 ) ) );
 }
 
 void PreviewMapPage::copyScreenshot()

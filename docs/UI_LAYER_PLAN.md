@@ -194,12 +194,16 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 变更、buildShell 六段按原文行序分解仅加函数边界、构造期 connect 55 条
 序列对拍唯一偏移 = ErrorHub 计数两条前移（wireErrorHubStatus 合并原两段）。
 
-**实测（2026-10-24，fix/deep-review-2026-10-24）：paleomainwindow.cpp 932 行（家族 29 TU）**
+**实测（2026-10-27，codex/qgis-coordinate-inputs-20261027）：paleomainwindow.cpp 932 行（家族 30 TU）**
 （#473 拆分：`_workbench.cpp` 1250→525 行 + `_workbench_commands/_wells` 承载；
 #516 新增 `_references.cpp` 参考面板域；#573 新增 `_workbench_editflow.cpp`
 编图编辑流域——家族 26→27 TU；PW 深审批新增 `_seismic.cpp` 地震体→停靠面板同步——家族 28→29 TU）
 
-家族全表（`src/ui/paleomainwindow_*.cpp` 29 TU + 本体 1 行 = 表 30 行，平铺不
+**2026-10-27 坐标输入深化：新增 `_coordinates.cpp`（105 行），承载状态栏坐标复制、
+定位与转换工具壳接线；地图册装配由 `_attach_shell.cpp` 拆为 `attachMapBookSurface`。
+当前家族为 30 TU。**
+
+家族全表（`src/ui/paleomainwindow_*.cpp` 30 TU + 本体 1 行 = 表 31 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：
 
@@ -208,7 +212,7 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 | `paleomainwindow.cpp` | 932 | 本体：壳生命周期域——构造/析构/关窗、buildShell 六段编排 |
 | `_attach.cpp` | 881 | 壳接线聚合胶水：attachWorkflows 入口 + 静态辅助 + 跨页图层显隐 |
 | `_attach_constraint.cpp` | 800 | 约束与单因素页接线（W4 段；#299 矢量属性维护/#301 realization 异步增量） |
-| `_attach_shell.cpp` | 791 | 壳面与全局组件接线（W4 段） |
+| `_attach_shell.cpp` | 774 | 壳面与全局组件接线（W4 段） |
 | `_attach_models.cpp` | 683 | 属性建模/相图/时深转换接线（W4 段） |
 | `_workbench.cpp` | 631 | 编图工作台 attachWorkbench 主函数（#473 拆分后；参考窗口经 `_references.cpp` 面板化） |
 | `_docks.cpp` | 607 | 壳构建域（#312）：中央面/左 dock/右栏/底栏/地震/连井/3D/Web dock 族 |
@@ -224,6 +228,7 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 | `_project.cpp` | 210 | 工程打开/导入编排入口域（#312）：openPath/确认表/懒建编排器 |
 | `_attach_predict.cpp` | 209 | 智能预测页接线（W4 段） |
 | `_attach_validate.cpp` | 205 | 验证与布井辅助接线（W4 段） |
+| `_coordinates.cpp` | 105 | 坐标工具壳接线：状态栏坐标复制、定位、转换与地图拾取（2026-10-27） |
 | `_status.cpp` | 186 | 状态栏域（#312）：层位/坐标/比例尺/CRS 读数 + 工程进度 |
 | `_workbench_editflow.cpp` | 110 | 编图编辑流域（#573：attachMappingEditFlow/runMappingEditFlow——参考版本取证/依据启用/拓扑检查/矢量导出/图件输出） |
 | `_paleomaps.cpp` | 101 | 现有古地理图导入、层位归属与目录恢复接线 |

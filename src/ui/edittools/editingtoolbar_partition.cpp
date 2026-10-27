@@ -25,6 +25,8 @@ void PaleoEditingToolbar::buildPartitionControls() {
   connect(mActionMergeFacies, &QAction::triggered, this, &PaleoEditingToolbar::mergePartition);
   mActionFaciesOperations = new QAction(PaleoIcons::qgisTheme("mActionAddPolygon.svg"), tr("相面编辑"), this);
   mActionFaciesOperations->setObjectName("actionFaciesOperations"); mActionFaciesOperations->setMenu(menu);
+  mActionFaciesOperations->setToolTip(tr("相面编辑：新建／覆盖相面、分割或合并所选相面"));
+  mActionFaciesOperations->setWhatsThis(mActionFaciesOperations->toolTip());
   mPartitionButton = new QToolButton(mToolBar); mPartitionButton->setObjectName("partitionToolsButton");
   mPartitionButton->setDefaultAction(mActionFaciesOperations);
   mPartitionButton->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);

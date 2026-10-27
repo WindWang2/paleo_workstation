@@ -56,6 +56,7 @@ void EntityPanel::beginCreateEntity()
     return;
   }
   EntityCreateDialog dlg(this);
+  dlg.setStorageContext(m_project);
   // 重名校验（D4.1 同口径：井名唯一性按 catalog 现有名）。
   const QString type = dlg.chosenType();
   Q_UNUSED(type);
@@ -120,6 +121,7 @@ void EntityPanel::beginRenameEntity(const QString &entityId)
   if (e.id.isEmpty())
     return;
   EntityEditDialog dlg(this);
+  dlg.setStorageContext(m_project);
   dlg.loadEntity(e, m_ctx.entityOverrides ? m_ctx.entityOverrides->overrideFor(e.id)
                                           : EntityOverride());
   if (dlg.exec() != QDialog::Accepted)

@@ -56,8 +56,7 @@ inline bool captureVisual(QWidget *widget, const QString &name,
   bool saved = true;
   for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark})
   {
-    if (PaleoTheme::currentTheme() != theme)
-      PaleoTheme::applyTheme(theme);
+    PaleoTheme::applyTheme(theme);
     QTest::qWait(100);
     saved &= widget->grab().save(dir + QLatin1Char('/') + name +
         (theme == PaleoTheme::Theme::Light ? "-light.png" : "-dark.png"));

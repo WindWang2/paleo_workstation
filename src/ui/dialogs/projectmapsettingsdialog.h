@@ -7,7 +7,8 @@ class QCheckBox;
 class QDoubleSpinBox;
 class QLineEdit;
 class QLabel;
-class QgsProjectionSelectionWidget;
+class PaleoCrsSelector;
+class PaleoCoordinateEditor;
 
 // 收集参数并发出保存意图，持久化和坐标操作由工程服务负责。
 class ProjectMapSettingsDialog : public QDialog
@@ -23,7 +24,8 @@ private:
   PaleoProjectFile m_original;
   QCheckBox *m_registered = nullptr;
   QCheckBox *m_basemapEnabled = nullptr;
-  QgsProjectionSelectionWidget *m_crs = nullptr;
+  PaleoCrsSelector *m_crs = nullptr;
+  PaleoCoordinateEditor *m_anchor = nullptr;
   QVector<QDoubleSpinBox *> m_parameters;
   QLineEdit *m_topo = nullptr;
   QLineEdit *m_hillshade = nullptr;

@@ -2,6 +2,8 @@
 #include "qgiscanvascontroller.h"
 
 #include "qgisprojectservice.h"
+#include "coordinateformat.h"
+#include "crsselector.h"
 #include "projectmapreference.h"
 #include "onlinebasemap.h"
 #include "../catalog/datacatalog.h"
@@ -85,6 +87,32 @@ QgsMapCanvas *QgisCanvasController::canvas()
     bindProject();
   }
   return m_canvas;
+}
+
+QWidget *QgisCanvasController::canvasWidget()
+{
+  return canvas();
+}
+
+QString QgisCanvasController::coordinateClipboardText(const QPointF &point, bool geographic,
+                                                        QString *error)
+{
+  if (error) error->clear();
+  if (!m_canvas)
+  {
+    if (error) *error = tr("地图画布尚未就绪，不能复制坐标。");
+    return QString();
+  }
+  const auto source = m_canvas->mapSettings().destinationCrs();
+  const auto target = geographic ? paleo::coordinates::crsFromDefinition(QStringLiteral("EPSG:4326"))
+                                 : source;
+  auto transformed = paleo::coordinates::point();
+  if (!paleo::coordinates::transformPoint(paleo::coordinates::point(point.x(), point.y()),
+                                          source, target, m_canvas->mapSettings().transformContext(),
+                                          &transformed, error))
+    return QString();
+  return paleo::coordinates::mapReadout(transformed, target,
+                                        m_canvas->mapSettings().transformContext());
 }
 
 void QgisCanvasController::applyProjectCrs( QgsProject *project )

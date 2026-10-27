@@ -47,28 +47,34 @@
 // ---------------------------------------------------------------------------
 // 数据页接线：门面绑定 / catalog 联动 / 预览分栏 / 导入意图（W4 拆分段）
 // ---------------------------------------------------------------------------
+void PaleoMainWindow::attachDataProjectOpen(DataPage *dataPage)
+{
+  if (!m_projectSvc) return;
+  dataPage->setProjectService(m_projectSvc);
+  connect(m_projectSvc, &QgisProjectService::openFinished, this, [this](bool success) {
+    if (!success) return;
+    const auto session = m_projectSvc->sessionId();
+    QTimer::singleShot(16, this, [this, session] {
+      if (m_projectSvc && m_projectSvc->sessionId() == session) {
+        // #481 P3-3：自动装载记账随会话重置（新工程重扫）。
+        m_seismicAutoLoadedPaths.clear();
+        syncSeismicVolumeToDocks();
+      }
+    });
+  });
+}
+
 void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                                      WellCorrelationPanel *corrPanel,
                                      DataImportService *importSvc,
                                      PaleoTaskService *taskSvc)
 {
   attachPaleomapLibrary(dataPage);
+  attachDataProjectOpen(dataPage);
   // Panel intents → workflows / selection. Params stay minimal for the shell
   // milestone — full parameter dialogs are per-panel follow-up work.
   if (importSvc && dataPage)
   {
-    if (m_projectSvc)
-      connect(m_projectSvc, &QgisProjectService::openFinished, this, [this](bool success) {
-        if (!success) return;
-        const auto session = m_projectSvc->sessionId();
-        QTimer::singleShot(16, this, [this, session] {
-          if (m_projectSvc && m_projectSvc->sessionId() == session) {
-            // #481 P3-3：自动装载记账随会话重置（新工程重扫）。
-            m_seismicAutoLoadedPaths.clear();
-            syncSeismicVolumeToDocks();
-          }
-        });
-      });
     // §3/§4 数据契约接线：数据页绑定导入服务，资产表跟 catalog 走，
     // 列表选中在中央预览标签（地图下方分栏）打开（确认入库后才开标签）。
     dataPage->setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(m_previewDoc));

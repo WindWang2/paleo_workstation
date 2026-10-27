@@ -233,9 +233,15 @@ QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanv
 | 右侧参数/样式页 | `QDockWidget` + `QStackedLayout`（#43：QgsPanelWidgetStack/QgsLayerStylingWidget 属 libqgis_app，未导出）；折叠组自研 CollapsibleSection |
 | 底部 任务/日志/验证记录 | `QTabWidget` dock：自定义 QTreeWidget 任务面板（#43）+ `QgsMessageLogViewer`（libqgis_gui 可用）+ 发布面板 / QGIS 原版属性表对话框（源码嵌入、仅适配应用入口） |
 | 状态栏（坐标/比例尺/CRS/层位） | `QStatusBar` + 画布信号驱动的 mono 数字标签（#43：QgsScaleWidget 等专有状态栏控件为 QGIS 应用内实现，libqgis_gui 未导出） |
+| CRS / 坐标 / 范围输入 | `QgsProjectionSelectionWidget` + `QgsCoordinateOperationWidget` + `QgsExtentWidget`；`src/qgis` 薄封装统一 QGIS 格式化、解析与转换，视图不复制 QGIS app 私有控件 |
 | 画布装饰（指北针/比例尺/图例） | `QgsMapCanvasItem` 自研 —— QGIS 装饰类在 src/app 层，属 §39 app-only 审计项 |
 | 连井剖面/地震剖面/井对比 | 自定义 `QWidget`（护城河组件），dock 于画布下方 |
 | 禁用工具的 reason 提示 | tooltip 显示 `ToolAvailabilityService::reason`（§35） |
+
+坐标输入明确标注来源与目标 CRS；未知来源不猜 EPSG、带号或轴序，声明 CRS 不冒充转换。
+经纬度支持十进制与度分/度分秒，米制局部坐标不套用经纬度范围。主图坐标读数跟随
+QGIS 工程显示设置，未配准工程始终显示局部网格。定位、布井和范围读取使用当前工程
+转换上下文；失败不写入、不移动地图。控件沿用主题 token 与 QGIS 图标，不引入新配色。
 
 ## Shapes & Elevation
 
@@ -386,6 +392,7 @@ token——沿用 surface-alt 卡底 + border 1px + rounded.md（卡片既有口
 | 2026-09-28 | 控件映射与页签文案偏离确认 (#43) | 1. 工作流页签文案根据用户裁决确定为「数据管理 / 预测编图 / 单因素图 / 智能编图 / 验证」五页；2. 状态栏采用 QStatusBar + 坐标/比例尺/CRS（QGIS 4.2 中 QgsScaleWidget 等专有状态栏控件为 QGIS 应用内实现，libqgis_gui 未导出）；3. 右侧 dock 采用 QDockWidget+QStackedLayout，任务面板采用 QTreeWidget 以满足非模态展示与无头测试需求。 |
 | 2026-10-06 | 统一错误呈现架构与 QMessageBox 收敛 | 建立统一 ErrorHub 服务与三级错误呈现（Tier 1 通知卡片非模态浮动 / Tier 2 PaleoConfirmDialog 模态阻断二次确认 / Tier 3 错误历史 Dock 全局审计面板）。将 UI 层现存 169 处 QMessageBox 散弹调用降幅达 81.66%（保留 31 处关键决策并在 NotificationManager 设立 60s 模态去重抑制与 setConfirmHookForTesting 无头自动化应答钩子）。通知卡片并发上限 5 张、排队上限 50 条 FIFO 逐出、零 QPropertyAnimation 动效；ErrorHub 500 条环形缓冲区 FIFO 逐出。严格符合 DESIGN.md 配色、圆角与 minimal-functional 动效规范。 |
 | 2026-10-07 | 工程配准与底图（用户要求） | 文件菜单增加「工程坐标与底图…」，使用原生 Qt 表单与 QgsProjectionSelectionWidget，沿用字体、间距和次级文字 token。有效配准工程的状态栏显示地图 CRS、WGS84 经纬度及底图来源；无配准工程保留局部米坐标文案。 |
+| 2026-10-27 | QGIS 坐标输入统一 | CRS、点位、基准操作和范围使用 QGIS 公共 core/gui API 的薄封装，不复制 app 私有控件。坐标读数跟随工程显示设置，可复制当前地图 CRS 或 WGS84；未配准工程始终显示局部网格。来源/目标 CRS、轴序与转换失败均显式处理。 |
 | 2026-10-08 | 错误呈现唯一真源（方向 76） | 方向 54 并行 ErrorHub 及未装配呈现栈（NotificationManager/NotificationCard/ErrorHistoryModel/ErrorHistoryDock）删除；全局 `ErrorHub` 为唯一错误真源，三级呈现归 `NotificationCenter`/`ToastCard`/`ErrorHistoryPanel`/`PaleoNotify`；状态栏错误徽标改订全局 hub（此前误订未装配 hub，count 恒 0 永久隐藏）|
 
 ### 2026-10-21 — 单因素图 IPO 三段（历史，由 2026-10-23 四步流程取代）

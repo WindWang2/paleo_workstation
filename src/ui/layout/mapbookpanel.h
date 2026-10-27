@@ -8,7 +8,7 @@
 
 class QCheckBox;
 class QComboBox;
-class QDoubleSpinBox;
+class PaleoMapExtentWidget;
 class QLabel;
 class QLineEdit;
 class QProgressBar;
@@ -35,6 +35,7 @@ class PaleoMapBookPanel : public QWidget
     // ---- 参数（读侧：组装方据此拼 Request；写侧：外部把当前工区范围灌进来）----
     PaleoMapBook::Area area() const;
     void setArea( const PaleoMapBook::Area &area );
+    void setMapCanvas( QWidget *canvas );
     int cols() const;
     int rows() const;
     void setGrid( int cols, int rows );
@@ -63,6 +64,7 @@ class PaleoMapBookPanel : public QWidget
     // 视图只发信号：批量参数已配好，请功能层编排（参数走 getter/previewTiles）。
     void batchRequested();
     void cancelRequested();
+    void canvasVisibilityRequested( bool visible );
 
   private:
     void buildUi();
@@ -72,10 +74,7 @@ class PaleoMapBookPanel : public QWidget
 
     QLineEdit *m_book = nullptr;
     QLineEdit *m_dir = nullptr;
-    QDoubleSpinBox *m_xMin = nullptr;
-    QDoubleSpinBox *m_yMin = nullptr;
-    QDoubleSpinBox *m_xMax = nullptr;
-    QDoubleSpinBox *m_yMax = nullptr;
+    PaleoMapExtentWidget *m_extent = nullptr;
     QSpinBox *m_cols = nullptr;
     QSpinBox *m_rows = nullptr;
     QComboBox *m_order = nullptr;

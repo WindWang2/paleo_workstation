@@ -152,8 +152,9 @@ sourceArea）+ `readProjectFile`/`writeProjectFile`/`missingMembers`。
 - `map` 缺席时默认 `EPSG:3857`、空底图路径，不改变旧工程网格行为。
   `.qgz` 的 `paleo/mapConfiguration` 保存显示配置副本；`canvasExtentCrs`
   标记保存视野的坐标系，旧视野默认按局部网格转换。
-- 状态栏显示当前地图 CRS 和 WGS84 经纬度；无配准时保留「工程坐标 · 米 ·
-  未投影」。底图版权来源读取 MBTiles metadata，并显示在地图界面。
+- 状态栏按 QGIS 工程显示设置格式化坐标，可复制当前地图 CRS 或 WGS84 经纬度；
+  无配准时始终显示「工程坐标 · 米 · 未投影」，不把局部数值冒充经纬度。
+  底图版权来源读取 MBTiles metadata，并显示在地图界面。
 
 ## 非目标
 

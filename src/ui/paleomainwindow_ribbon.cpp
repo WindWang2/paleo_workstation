@@ -170,6 +170,12 @@ void PaleoMainWindow::buildRibbon()
       });
       dialog->open();
     });
+    auto *coordinateTools = menu->addAction(
+        PaleoIcons::qgisTheme(QStringLiteral("mActionMapSettings.svg")), tr("QGIS 坐标工具…"));
+    coordinateTools->setObjectName(QStringLiteral("fileCoordinateToolsAction"));
+    connect(coordinateTools, &QAction::triggered, this, [this] {
+      if (auto *action = findChild<QAction *>(QStringLiteral("statusCoordinateToolsAction"))) action->trigger();
+    });
     if (m_projectSvc)
       connect(m_projectSvc, &QgisProjectService::mapConfigurationChanged, this, [this] {
         if (m_previewTabs) {

@@ -720,7 +720,7 @@ def ui_qobject_vocab():
         last = None
         for line in lines:
             m = UI_CLASS_DECL_RE.search(line)
-            if m:
+            if m and not line.strip().endswith(";"):
                 last = m.group(1)
             if "Q_OBJECT" in line and last:
                 vocab.add(last)
@@ -1091,7 +1091,7 @@ def selftest():
             failures += 1
 
         # ---- 方向 49：--symbol-audit 夹具（new / make_unique 正例 + 注释反例）----
-        put("ui/foopanel.h", '// 层：视图\nclass FooPanel {\n  Q_OBJECT\n};\n')
+        put("ui/foopanel.h", '// 层：视图\nclass QWidget;\nclass FooPanel {\n  Q_OBJECT\n};\n')
         put("workflow/n.cpp", '// 层：功能\nauto *p = new FooPanel(this);\n')
         put("workflow/m.cpp", '// 层：功能\nauto q = std::make_unique<FooPanel>();\n')
         put("io/c.cpp", '// 层：数据\n// auto *x = new FooPanel(this);\nnew OtherThing();\n')
@@ -1099,6 +1099,9 @@ def selftest():
         vocab, sym_hits = collect_symbol_audit()
         if "FooPanel" not in vocab:
             print("SELFTEST FAIL symbol-audit: ui Q_OBJECT 词表未收 FooPanel")
+            failures += 1
+        if "QWidget" in vocab:
+            print("SELFTEST FAIL symbol-audit: 前向声明不得进 ui Q_OBJECT 词表")
             failures += 1
         if {h[0] for h in sym_hits} != {"workflow/n.cpp", "workflow/m.cpp"}:
             print(f"SELFTEST FAIL symbol-audit: 命中面 {[h[0] for h in sym_hits]}"

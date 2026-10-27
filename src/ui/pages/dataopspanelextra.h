@@ -42,6 +42,11 @@
 
 #include "../paleotheme.h"
 #include "dataops/dataopsmodel.h"
+#include "qgis/coordinateeditor.h"
+#include "qgis/crsselector.h"
+#include <limits>
+
+class QgisProjectService;
 
 namespace paleo::dataops
 {
@@ -530,20 +535,16 @@ public:
     m_name = new QLineEdit(this);
     m_name->setObjectName(QStringLiteral("entityNameEdit"));
     form->addRow(tr("名称:"), m_name);
-    m_x = new QDoubleSpinBox(this);
-    m_x->setObjectName(QStringLiteral("entityXSpin"));
-    m_x->setRange(-1e9, 1e9);
-    m_y = new QDoubleSpinBox(this);
-    m_y->setObjectName(QStringLiteral("entityYSpin"));
-    m_y->setRange(-1e9, 1e9);
-    m_coordRow = new QWidget(this);
-    auto *cl = new QHBoxLayout(m_coordRow);
-    cl->setContentsMargins(0, 0, 0, 0);
-    cl->addWidget(new QLabel(tr("X:"), m_coordRow));
-    cl->addWidget(m_x);
-    cl->addWidget(new QLabel(tr("Y:"), m_coordRow));
-    cl->addWidget(m_y);
-    form->addRow(tr("井口坐标:"), m_coordRow);
+    m_coordinates = new PaleoCoordinateEditor(this);
+    m_coordinates->setObjectName(QStringLiteral("entityCoordinateEditor"));
+    m_coordinates->xEdit()->setObjectName(QStringLiteral("entityXSpin"));
+    m_coordinates->yEdit()->setObjectName(QStringLiteral("entityYSpin"));
+    m_coordinates->xEdit()->setFont(PaleoTheme::monoFont());
+    m_coordinates->yEdit()->setFont(PaleoTheme::monoFont());
+    m_coordinates->mapPickButton()->hide();
+    m_coordRow = m_coordinates->widget();
+    setStorageContext();
+    form->addRow(tr("井口坐标（输入 → 工程存储）:"), m_coordRow);
     lay->addLayout(form);
     m_note = new QLabel(this);
     m_note->setObjectName(QStringLiteral("entityCreateNote"));
@@ -551,11 +552,20 @@ public:
                                       [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     lay->addWidget(m_note);
     auto *box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    connect(box, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(box, &QDialogButtonBox::accepted, this, [this] {
+      QPointF point;
+      QString error;
+      if (!m_coordinates->targetPoint(&point, &error))
+      {
+        m_coordinates->showError(error);
+        return;
+      }
+      accept();
+    });
     connect(box, &QDialogButtonBox::rejected, this, &QDialog::reject);
     lay->addWidget(box);
     connect(m_type, &QComboBox::currentIndexChanged, this, [this] {
-      // 井与计划井都有井口坐标（局部米制网格）；计划井是虚拟部署实体，
+      // 井与计划井都有井口坐标；计划井是虚拟部署实体，
       // 绝不进入单因素/编图/剖面计算输入（方向 34 隔离红线）。
       const QString t = m_type->currentData().toString();
       m_coordRow->setVisible(t == QLatin1String("well") || t == QLatin1String("planned"));
@@ -564,14 +574,29 @@ public:
   }
   QString chosenType() const { return m_type->currentData().toString(); }
   QString chosenName() const { return m_name->text().trimmed(); }
-  double chosenX() const { return m_x->value(); }
-  double chosenY() const { return m_y->value(); }
+  double chosenX() const
+  {
+    QPointF point;
+    return m_coordinates->targetPoint(&point) ? point.x() : std::numeric_limits<double>::quiet_NaN();
+  }
+  double chosenY() const
+  {
+    QPointF point;
+    return m_coordinates->targetPoint(&point) ? point.y() : std::numeric_limits<double>::quiet_NaN();
+  }
   void setNote(const QString &n) { m_note->setText(n); }
+  void setStorageContext(QgisProjectService *project = nullptr)
+  {
+    m_coordinates->setProjectStorage(project);
+    m_coordinates->setPoint(QPointF());
+    m_coordinates->widget()->setToolTip(tr("输入真实来源 CRS 的井口位置，确认后转换到 %1 保存。")
+        .arg(m_coordinates->targetCrsDefinition()));
+  }
 
 private:
   QComboBox *m_type = nullptr;
   QLineEdit *m_name = nullptr;
-  QDoubleSpinBox *m_x = nullptr, *m_y = nullptr;
+  PaleoCoordinateEditor *m_coordinates = nullptr;
   QWidget *m_coordRow = nullptr;
   QLabel *m_note = nullptr;
 };
@@ -626,16 +651,15 @@ public:
     m_name = new QLineEdit(this);
     m_name->setObjectName(QStringLiteral("entityEditName"));
     form->addRow(tr("名称:"), m_name);
-    m_x = new QDoubleSpinBox(this);
-    m_x->setRange(-1e9, 1e9);
-    m_y = new QDoubleSpinBox(this);
-    m_y->setRange(-1e9, 1e9);
-    auto *cr = new QWidget(this);
-    auto *cl = new QHBoxLayout(cr);
-    cl->setContentsMargins(0, 0, 0, 0);
-    cl->addWidget(m_x);
-    cl->addWidget(m_y);
-    form->addRow(tr("坐标 X / Y:"), cr);
+    m_coordinates = new PaleoCoordinateEditor(this);
+    m_coordinates->setObjectName(QStringLiteral("entityEditCoordinateEditor"));
+    m_coordinates->xEdit()->setObjectName(QStringLiteral("entityEditXEdit"));
+    m_coordinates->yEdit()->setObjectName(QStringLiteral("entityEditYEdit"));
+    m_coordinates->xEdit()->setFont(PaleoTheme::monoFont());
+    m_coordinates->yEdit()->setFont(PaleoTheme::monoFont());
+    m_coordinates->mapPickButton()->hide();
+    setStorageContext();
+    form->addRow(tr("坐标（输入 → 工程存储）:"), m_coordinates->widget());
     m_note = new QPlainTextEdit(this);
     m_note->setObjectName(QStringLiteral("entityEditNote"));
     m_note->setMaximumHeight(72);
@@ -665,45 +689,75 @@ public:
         m_err->show();
         return;
       }
+      QPointF point;
+      QString error;
+      if (!m_coordinates->targetPoint(&point, &error))
+      {
+        m_coordinates->showError(error);
+        return;
+      }
       accept();
     });
     connect(box, &QDialogButtonBox::rejected, this, &QDialog::reject);
     lay->addWidget(box);
   }
+  void setStorageContext(QgisProjectService *project = nullptr)
+  {
+    m_coordinates->setProjectStorage(project);
+    m_coordinates->setPoint(QPointF());
+    m_coordinates->widget()->setToolTip(tr("输入真实来源 CRS 的位置，确认后转换到 %1 保存。")
+        .arg(m_coordinates->targetCrsDefinition()));
+  }
   void loadEntity(const CatalogEntity &e, const EntityOverride &ov)
   {
+    m_original = ov;
+    m_original.hasCoords = ov.hasCoords || e.hasSurface;
+    m_original.surfaceX = ov.hasCoords ? ov.surfaceX : e.surfaceX;
+    m_original.surfaceY = ov.hasCoords ? ov.surfaceY : e.surfaceY;
     m_name->setText(ov.name.isEmpty() ? e.name : ov.name);
-    if (ov.hasCoords)
-    {
-      m_x->setValue(ov.surfaceX);
-      m_y->setValue(ov.surfaceY);
-    }
-    else if (e.hasSurface)
-    {
-      m_x->setValue(e.surfaceX);
-      m_y->setValue(e.surfaceY);
-    }
+    m_coordinates->setPoint(QPointF(m_original.surfaceX, m_original.surfaceY));
     m_note->setPlainText(ov.note);
   }
   EntityEditDialog &edited(EntityOverride *out) const
   {
     out->name = m_name->text().trimmed();
-    out->hasCoords = true;
-    out->surfaceX = m_x->value();
-    out->surfaceY = m_y->value();
+    QPointF point;
+    if (m_coordinates->targetPoint(&point))
+    {
+      out->hasCoords = true;
+      out->surfaceX = point.x();
+      out->surfaceY = point.y();
+    }
+    else
+    {
+      out->hasCoords = m_original.hasCoords;
+      out->surfaceX = m_original.surfaceX;
+      out->surfaceY = m_original.surfaceY;
+    }
     out->note = m_note->toPlainText().trimmed();
     return const_cast<EntityEditDialog &>(*this);
   }
   QString editedName() const { return m_name->text().trimmed(); }
-  double editedX() const { return m_x->value(); }
-  double editedY() const { return m_y->value(); }
+  double editedX() const
+  {
+    QPointF point;
+    if (m_coordinates->targetPoint(&point)) return point.x();
+    return m_original.hasCoords ? m_original.surfaceX : std::numeric_limits<double>::quiet_NaN();
+  }
+  double editedY() const
+  {
+    QPointF point;
+    if (m_coordinates->targetPoint(&point)) return point.y();
+    return m_original.hasCoords ? m_original.surfaceY : std::numeric_limits<double>::quiet_NaN();
+  }
   QString editedNote() const { return m_note->toPlainText().trimmed(); }
 
 private:
   QLineEdit *m_name = nullptr;
-  QDoubleSpinBox *m_x = nullptr, *m_y = nullptr;
+  PaleoCoordinateEditor *m_coordinates = nullptr;
   QPlainTextEdit *m_note = nullptr;
   QLabel *m_err = nullptr;
+  EntityOverride m_original;
 };
 
 // ---- D4.10 最近操作历史小窗 --------------------------------------------------------

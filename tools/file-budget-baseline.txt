@@ -32,9 +32,12 @@
 #     attach_shell.cpp:fn:attachShellSurfaces 580→578；
 #   - 维持冻结（本批代码修复致超标面回升，文件不属本岗可改范围）：见
 #     docs/ci/known-reds.json 的 file-budget-grown 条目与 issue #538。
+# 2026-10-27 QGIS 坐标输入：只缩不涨——buildGeoJsonContent 488→407（独立
+# 临时仿射对话框）、WellSitingPanel 253→225（buildCoordinateSection）、
+# attachShellSurfaces 548→477（attachMapBookSurface）。
 src/ui/correlation/petrophyspanel.cpp:fn:buildUi:220
 src/ui/crossplot/crossplotpanel.cpp:fn:CrossplotPanel:240
-src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:488
+src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:407
 src/ui/datapreview/datapreviewtabhorizon.cpp:fn:buildHorizonContent:429
 src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:372
 src/ui/datapreview/datapreviewtabs_survey.cpp:fn:buildSurveyAreaContent:327
@@ -61,12 +64,12 @@ src/ui/pages/entitypanel.cpp:fn:refresh:778
 src/ui/pages/mappingworkbenchpage.cpp:file:1189
 src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:384
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:277
-src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:253
+src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:225
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:412
 src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:399
 src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:692
-src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:262
-src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:548
+src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:251
+src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:477
 src/ui/paleomainwindow_docks.cpp:fn:buildCenterArea:201
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:283
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:433

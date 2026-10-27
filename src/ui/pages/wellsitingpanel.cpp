@@ -3,6 +3,7 @@
 #include "pageshared.h"
 #include "../paleotheme.h"
 #include "../../workflow/wellsitingworkflow.h"
+#include "qgis/coordinateeditor.h"
 
 #include <QDoubleSpinBox>
 #include <QHBoxLayout>
@@ -16,6 +17,7 @@
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 using namespace paleo::pagesinternal;
@@ -152,35 +154,7 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
   lay->addWidget( candTable, 1 );
 
   // ---- 计划井段（交互布点）----
-  lay->addWidget( caption( tr( "计划井（布井候选）" ), this ) );
-  auto *pickRow = new QWidget( this );
-  auto *pickLay = new QHBoxLayout( pickRow );
-  pickLay->setContentsMargins( 0, 0, 0, 0 );
-  pickLay->setSpacing(PaleoTheme::tokens().spacingSm);
-  auto *pick = new QPushButton( tr( "地图布点" ), pickRow );
-  pick->setObjectName( QStringLiteral( "sitingPickButton" ) );
-  pick->setToolTip( tr( "在地图上单击拾取一个计划井点位（支持吸附）" ) );
-  pickLay->addWidget( pick );
-  pickLay->addWidget( new QLabel( tr( "名称" ), pickRow ) );
-  auto *name = new QLineEdit( pickRow );
-  name->setObjectName( QStringLiteral( "sitingNameEdit" ) );
-  name->setPlaceholderText( tr( "计划井名" ) );
-  pickLay->addWidget( name );
-  pickLay->addWidget( new QLabel( tr( "X" ), pickRow ) );
-  auto *xEdit = new QLineEdit( pickRow );
-  xEdit->setObjectName( QStringLiteral( "sitingXEdit" ) );
-  pickLay->addWidget( xEdit );
-  pickLay->addWidget( new QLabel( tr( "Y" ), pickRow ) );
-  auto *yEdit = new QLineEdit( pickRow );
-  yEdit->setObjectName( QStringLiteral( "sitingYEdit" ) );
-  pickLay->addWidget( yEdit );
-  auto *add = new QPushButton( tr( "添加" ), pickRow );
-  add->setObjectName( QStringLiteral( "sitingAddButton" ) );
-  pickLay->addWidget( add );
-  pickLay->addStretch( 1 );
-  lay->addWidget( pickRow );
-  connect( pick, &QPushButton::clicked, this, &WellSitingPanel::mapPlacementRequested );
-  connect( add, &QPushButton::clicked, this, &WellSitingPanel::addPlannedFromInputs );
+  buildCoordinateSection( lay );
 
   auto *plannedTable = new QTableWidget( 0, 3, this );
   plannedTable->setObjectName( QStringLiteral( "sitingPlannedTable" ) );
@@ -316,6 +290,40 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
              &WellSitingPanel::onEvaluationAsyncDone );
   }
   reloadFromWorkflow();
+}
+
+void WellSitingPanel::buildCoordinateSection( QVBoxLayout *lay )
+{
+  lay->addWidget( caption( tr( "计划井（布井候选）" ), this ) );
+  m_pointEditor = new PaleoCoordinateEditor( this );
+  m_pointEditor->setObjectName( QStringLiteral( "sitingCoordinateEditor" ) );
+  m_pointEditor->xEdit()->setObjectName( QStringLiteral( "sitingXEdit" ) );
+  m_pointEditor->yEdit()->setObjectName( QStringLiteral( "sitingYEdit" ) );
+  m_pointEditor->xEdit()->setFont( PaleoTheme::monoFont() );
+  m_pointEditor->yEdit()->setFont( PaleoTheme::monoFont() );
+  const auto gridCrs = paleo::coordinates::engineeringGrid();
+  m_pointEditor->setSourceCrs( gridCrs );
+  m_pointEditor->setTargetCrs( gridCrs );
+  auto *pick = m_pointEditor->mapPickButton();
+  pick->setObjectName( QStringLiteral( "sitingPickButton" ) );
+  pick->setText( tr( "地图布点" ) );
+  pick->setToolTip( tr( "在地图上拾取一个计划井点位，按当前工程转换上下文写入；支持吸附。" ) );
+  lay->addWidget( m_pointEditor->widget() );
+  auto *nameRow = new QWidget( this );
+  auto *nameLay = new QHBoxLayout( nameRow );
+  nameLay->setContentsMargins( 0, 0, 0, 0 );
+  nameLay->setSpacing( PaleoTheme::tokens().spacingSm );
+  nameLay->addWidget( new QLabel( tr( "名称" ), nameRow ) );
+  auto *name = new QLineEdit( nameRow );
+  name->setObjectName( QStringLiteral( "sitingNameEdit" ) );
+  name->setPlaceholderText( tr( "计划井名" ) );
+  nameLay->addWidget( name, 1 );
+  auto *add = new QPushButton( tr( "添加" ), nameRow );
+  add->setObjectName( QStringLiteral( "sitingAddButton" ) );
+  nameLay->addWidget( add );
+  lay->addWidget( nameRow );
+  connect( pick, &QToolButton::clicked, this, &WellSitingPanel::mapPlacementRequested );
+  connect( add, &QPushButton::clicked, this, &WellSitingPanel::addPlannedFromInputs );
 }
 
 namespace
@@ -500,26 +508,28 @@ void WellSitingPanel::refreshCandidateTable()
 
 void WellSitingPanel::addPlannedFromInputs()
 {
-  if ( !m_wf )
+  if ( !m_wf || !m_pointEditor )
     return;
-  auto *name = findChild<QLineEdit *>( QStringLiteral( "sitingNameEdit" ) );
-  auto *xEdit = findChild<QLineEdit *>( QStringLiteral( "sitingXEdit" ) );
-  auto *yEdit = findChild<QLineEdit *>( QStringLiteral( "sitingYEdit" ) );
-  if ( !name || !xEdit || !yEdit )
-    return;
-  bool okX = false, okY = false;
-  const double x = xEdit->text().toDouble( &okX );
-  const double y = yEdit->text().toDouble( &okY );
-  if ( !okX || !okY )
+  auto point = paleo::coordinates::point();
+  QString error;
+  if ( !m_pointEditor->targetPoint( &point, &error ) )
   {
-    PaleoNotify::warning( this, tr( "添加计划井" ), tr( "X/Y 需要填数字坐标（局部米制网格）" ) );
+    m_pointEditor->showError( error );
+    PaleoNotify::warning( this, tr( "添加计划井" ), error );
     return;
   }
-  QString error;
+  auto *name = findChild<QLineEdit *>( QStringLiteral( "sitingNameEdit" ) );
   const QString id = m_wf->addPlannedWell(
-      name->text().isEmpty() ? tr( "计划井" ) : name->text(), x, y, &error );
+      name && !name->text().isEmpty() ? name->text() : tr( "计划井" ),
+      point.x(), point.y(), &error );
   if ( id.isEmpty() )
     PaleoNotify::warning( this, tr( "添加计划井" ), error );
+}
+
+void WellSitingPanel::setCoordinateCanvas( QWidget *canvas )
+{
+  if ( m_pointEditor )
+    m_pointEditor->setMapCanvas( canvas );
 }
 
 void WellSitingPanel::placePlannedAt( double x, double y )
@@ -531,6 +541,18 @@ void WellSitingPanel::placePlannedAt( double x, double y )
   QString error;
   if ( m_wf->addPlannedWell( base, x, y, &error ).isEmpty() )
     PaleoNotify::warning( this, tr( "地图布点" ), error );
+}
+
+void WellSitingPanel::placeMapPoint( double x, double y )
+{
+  if ( !m_pointEditor )
+    return;
+  if ( !m_pointEditor->showMapPoint( x, y ) )
+  {
+    PaleoNotify::warning( this, tr( "地图布点" ), tr( "无法把地图坐标转换到计划井输入坐标系，未添加计划井。" ) );
+    return;
+  }
+  addPlannedFromInputs();
 }
 
 void WellSitingPanel::refreshPlannedTable()

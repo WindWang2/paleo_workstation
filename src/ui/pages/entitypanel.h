@@ -16,6 +16,7 @@ class DerivationWorkflow;
 #include "../../services/previewdoc.h" // F3：GeoJsonSummary（异步统计挂起）
 
 class PreviewDocService;
+class QgisProjectService;
 namespace paleo::dataops
 {
 class DataOpsUndoStack;
@@ -42,6 +43,7 @@ class EntityPanel : public QWidget
     explicit EntityPanel(QWidget *parent = nullptr);
 
     void setDocService(PreviewDocService *doc);
+    void setProjectService(QgisProjectService *project) { m_project = project; }
     void setContext(const QString &entityId, const QString &assetId);
     void setVersionContext(const QString &assetId, const QString &versionId);
     // D4.9 多选态：批量概要（类型/状态/标签分布 + 共同实体）。
@@ -83,6 +85,7 @@ class EntityPanel : public QWidget
     QPushButton *m_mappingReference = nullptr;
     QString m_mappingReferenceVersion;
     PreviewDocService *m_doc = nullptr;
+    QgisProjectService *m_project = nullptr;
     QString m_entityId;
     QString m_assetId;
     QString m_versionId, m_graphSelected;

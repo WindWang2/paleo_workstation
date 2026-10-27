@@ -126,7 +126,8 @@ class PreviewMapPage : public QWidget
     void updateNavActions();
     void runIdentifyAt( const QgsPointXY &point );
     void runIdentifyRect( const QgsRectangle &rect );
-    void copyCoordinate();
+    void copyCoordinate( bool geographic = false );
+    void openCoordinateTools();
     void copyScreenshot();
 
     // 内嵌鹰眼（小画布 + 视口框 + 拖动跟随）。

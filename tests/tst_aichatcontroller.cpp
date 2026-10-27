@@ -31,12 +31,23 @@ const char kToolChunk[] =
   "\"function\":{\"name\":\"paleo.well_facies_prediction\",\"arguments\":\"{\\\"model\\\":\\\"f1\\\","
   "\\\"well_name\\\":\\\"A\\\"}\"}}]}}]}\n\n"
   "data: [DONE]\n\n";
+// 两个相异调用均不带 id（非 OpenAI 官方端常见形态：流式帧省略 tool_call id，
+// 解析边界 hasIdentity 只查 index+name）。两个空 id 不能被按 id 去重误判成
+// 重复——第二个调用必须照常分发执行（full-audit-20261028 F-02）。
+const char kToolChunkEmptyIds[] =
+  "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"type\":\"function\","
+  "\"function\":{\"name\":\"paleo.well_facies_prediction\",\"arguments\":\"{\\\"model\\\":\\\"f1\\\","
+  "\\\"well_name\\\":\\\"A\\\"}\"}}]}}]}\n\n"
+  "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"type\":\"function\","
+  "\"function\":{\"name\":\"paleo.well_facies_prediction\",\"arguments\":\"{\\\"model\\\":\\\"f2\\\","
+  "\\\"well_name\\\":\\\"B\\\"}\"}}]}}]}\n\n"
+  "data: [DONE]\n\n";
 } // namespace
 
 class FakeLlmServer : public QObject {
   Q_OBJECT
 public:
-  enum class Mode { Stream, ToolCalls, ToolCallsHang, Unauthorized, Slow, PlainJson };
+  enum class Mode { Stream, ToolCalls, ToolCallsEmptyIds, ToolCallsHang, Unauthorized, Slow, PlainJson };
 
   bool start(Mode mode) {
     m_mode = mode;
@@ -114,7 +125,10 @@ private:
     sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\n"
                 "Content-Type: text/event-stream\r\n\r\n");
     const QByteArray tail =
-      m_mode == Mode::ToolCalls ? QByteArray(kToolChunk) : QByteArray(kDone);
+      m_mode == Mode::ToolCalls ? QByteArray(kToolChunk)
+                                : m_mode == Mode::ToolCallsEmptyIds
+                                      ? QByteArray(kToolChunkEmptyIds)
+                                      : QByteArray(kDone);
     QTimer::singleShot(20, sock, [sock] { sock->write(kChunkA); });
     QTimer::singleShot(45, sock, [sock] { sock->write(kChunkB); });
     QTimer::singleShot(70, sock, [sock, tail] {
@@ -137,6 +151,7 @@ private slots:
   void cleanup();
   void streamingAssemblesAnswerAndSavesSession();
   void toolCallFramesReachThePanelWithHonestStatus();
+  void emptyIdToolCallsAreNotDeduplicated();
   void unauthorizedResponseIsClassifiedAsAuthError();
   // #588 B.14：stream=true 而服务端回普通 JSON——必须解析出内容，不许把
   // 零增量当成功收尾（空答复冒充成功）。
@@ -259,6 +274,29 @@ void TestAiChatController::toolCallFramesReachThePanelWithHonestStatus() {
            "诚实失败轮必须收敛（错误回灌→终答或上限停轮）");
   QVERIFY2(results.size() >= 1, "必须给出执行终态（失败也是终态）");
   QVERIFY(!results.at(0).at(1).toBool());
+}
+
+// F-02（full-audit-20261028）：后端同帧下发两个相异工具调用且均省略 id——
+// 去重只应作用于非空 id；空 id 参与去重会把第二个调用静默丢弃（少一次工具
+// 执行，且会话里「2 条 calls + 1 条应答」恰好复现「每 call 恰好一答」400）。
+void TestAiChatController::emptyIdToolCallsAreNotDeduplicated() {
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::ToolCallsEmptyIds));
+  AiChatController controller;
+  controller.setConfig(baseConfig(server.endpoint()));
+  m_createdSessions.append(controller.session().id);
+  QSignalSpy dispatched(&controller, &AiChatController::toolCallDispatched);
+  QSignalSpy results(&controller, &AiChatController::toolResultReady);
+  controller.sendUserText(QStringLiteral("两口井都跑一下测井相"));
+  QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }, 20000),
+           "工具往返必须收敛（失败回灌→终答或上限停轮）");
+  // 第一轮就把两个调用都分发执行——被去重丢掉第二个时第一轮只有 1 次。
+  QVERIFY2(dispatched.size() >= 2,
+           qPrintable(QStringLiteral("两个空 id 调用都应分发，实际 %1 次")
+                        .arg(dispatched.size())));
+  QVERIFY2(results.size() >= 2,
+           qPrintable(QStringLiteral("两个调用都要有执行终态，实际 %1 个")
+                        .arg(results.size())));
 }
 
 void TestAiChatController::unauthorizedResponseIsClassifiedAsAuthError() {

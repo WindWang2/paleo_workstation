@@ -106,7 +106,12 @@ void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
       if ( !std::isfinite( v ) )
         continue;
       const int label = int( std::round( v ) );
-      if ( label >= 0 && label < classes ) // 输出 classes 语义：越类号按无数据（255），不外泄词表外相码
+      // classes/class_index 张量是 [1×pixels] 单通道装类号——词汇上限是
+      // quint8 存储（kMaxTileClasses，255 保留无数据），不是张量通道数
+      // classes（该语义下恒 1）。#815 把校验收紧到 label < classes 后，
+      // 非 0 类号全部静默转无数据（255），class_index 预测全灭
+      //（tst_predict_challenger_r2 challenge4 红测锁定）。
+      if ( label >= 0 && label < kMaxTileClasses )
       {
         out->argmax[p] = quint8( label );
         out->confidence[p] = 1.0f;

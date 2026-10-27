@@ -13,6 +13,14 @@
 - [设计系统](../DESIGN.md)
 - [平台与依赖来源](PLATFORM_MATRIX.md)
 
+## 后续实施规划
+
+- [实施计划与验收条件](planning/task_plan.md)
+- [现状依据与待核实事项](planning/findings.md)
+- [规划与实施进度](planning/progress.md)
+
+需求是否关闭以 TODOS 为准；planning files 记录批次、证据和实际执行结果。
+
 ## 工程与数据
 
 - [工程文件、新建向导与坐标设置](PROJECT_FILE_DESIGN.md)

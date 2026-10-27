@@ -98,6 +98,37 @@ private slots:
   void simultaneousLasResultsKeepUiResponsive();
   void catalogRecoveredFromBackupForwards();  // T5：门面转发恢复告警
 
+  // F-16（full-audit-20261028）：>64 张工作表的 SpreadsheetML 预览不整翻硬
+  // 失败——保留前 64 张 + issues 留痕（与同函数 1000 行软上限口径一致）。
+  void spreadsheetMlSheetBudgetIsSoftCap()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString path = tmp.filePath(QStringLiteral("big.xml"));
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    f.write("<?xml version=\"1.0\"?>\n"
+            "<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\"\n"
+            " xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">\n");
+    for (int i = 1; i <= 65; ++i)
+      f.write(QByteArray("<Worksheet ss:Name=\"S") + QByteArray::number(i) +
+              "\"><Table><Row><Cell><Data ss:Type=\"String\">h</Data></Cell></Row>"
+              "<Row><Cell><Data ss:Type=\"String\">v</Data></Cell></Row>"
+              "</Table></Worksheet>\n");
+    f.write("</Workbook>\n");
+    f.close();
+
+    const auto table = PreviewDocService::xmlDataListAt(path);
+    QVERIFY2(table.ok, qPrintable(table.error));
+    QCOMPARE(table.sheets.size(), 64);
+    bool capped = false;
+    for (const QString &issue : table.issues)
+      capped |= issue.contains(QStringLiteral("64"));
+    QVERIFY2(capped, "超限必须 issues 留痕");
+    // 第 65 张表的数据行不得归并进第 64 张表。
+    QCOMPARE(table.sheets.last().rows.size(), 1);
+  }
+
   // 解析门面：lasAt 成功返回曲线名+曲线；坏路径 false + errorString。
   void lasFacade()
   {

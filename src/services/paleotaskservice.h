@@ -148,7 +148,8 @@ public:
   ~PaleoTaskService() override;
 
   // layerId 非空时在 store busy 注册表挂账（§35 工具门在任务期挡该层）；
-  // 同层位并发任务按引用计数，最后一个终态才 markLayerFree。返回的 task
+  // 同层位并发任务各自登记 task-N 条目，终态各自 releaseLayerBusy 摘除
+  // 自己名下的条目（互不顶替也互不放行，见 onTaskFinished）。返回的 task
   // 属本服务，finished() 信号可接。
   // quiet=true：任务仍注册/可取消，但不拉起任务中心——交互内嵌取数专用。
   PaleoTask *start(const QString &title,

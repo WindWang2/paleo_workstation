@@ -1,0 +1,80 @@
+- #814: [low] catalog 合集：kb/td 缺失值 SQL 伪 0 双轨持久化 / writeSurveyGeoJson 不校验 boundaryGeometry 且漏导 boundary-only study_area
+- #813: [low] qgis 合集：吸附容差单位 / native grid 注册后无可用性验证 / CRS 缓存禁用挂账 / anchorNote 死字段 / m_hoveredWell 死写
+- #812: [low] ui 打磨合集：证据门控三处重复 / 矮停靠证据面板裁剪 / 事件过滤器快照 / DataGraph 缩放锚点 / seismic 死 include / 跳转失败不入 ErrorHub
+- #811: [low] workflow 合集：executeRecompute 单向参数比对 / restoreWellFactors 吞声明错误 / importMaps 惰化任务服务不受排空管辖
+- #810: [low] io 资源/健壮性合集：GB18030 单因素 CSV / parseHeader 无大小闸 / 矢量全读无格数预算 / 分类期全量解析 / 栅格先删后改名
+- #809: [low] copyDataset mkpath 失败返回空且不置 error：调用方无法区分失败与取消
+- #808: [low] 批次状态档损坏静默按新批全量重跑，readState 错误被丢弃
+- #807: [low] orderWellsNearestNeighbor O(n³)：千井工程一次剖面井序重排即卡死
+- #806: [low] LAS 深度段读取 NaN 击穿单调性判定：非单调文件越界处静默截断
+- #805: [low] 3D 剖面拾取首点前十字光标被悬停分支重置
+- #804: [low] 新建向导三小项：旧创建错误压制扫描状态 / 井点路径未归一化误重扫 / pathRow 间距绕过 token
+- #803: [low] 综合柱状图 compact 工具栏静默丢弃 QLabel：缩放读数永久消失且连接死写
+- #802: [med] 克里金全局一次分解 n≤4000：峰值 ~256MB、单线程数十秒；kriging/localidw 双实现病态闸口径分叉
+- #801: [med] 新建工程「取消后不开地图任务」闸口靠「已取消」文案子串判定（跨层脆弱耦合）
+- #800: [med] SpreadsheetML 流式读取格数预算 4M→16M 且非曲线表整表驻留：FA-001 资源闸被回退
+- #798: [med] 新建向导保存确认弹在 accept 之后：取消即丢整轮向导输入（扫描/映射/图件勾选）
+- #796: [med] 分层表顶/底界合并 O(N²) 线性扫描 + bases 二次全解析：大表导入假死
+- #795: [high] 地震剖面井位吸附漏本地测网→画布 CRS 变换：配准工程吸附失效、落点双重错位
+- #794: [high] IDW 属性填充 KNN 早退下界未取绝对值：北向上栅格（dy<0）属性体静默错值
+- #779: [low] QgisProcessingService::run 在工作线程调用 algorithmById 未加锁且未检查 NoThreading
+- #778: [low] PreviewMapCanvas::forgetLayer 对已析构对象 static_cast 为 QgsMapLayer（UBSan vptr）
+- #777: [low] 主窗口 canvas destroyed lambda 在 ~PaleoMainWindow 之后写派生类成员（UBSan vptr）
+- #776: [low] ComposePage gateFuse 以 this 为 context，QListWidget 析构时回调访问半析构对象（UBSan vptr）
+- #775: [low] 定位器 eventFilter 在 QLineEdit 析构中经 QPointer 下转（UBSan vptr）
+- #774: [low] master 上 5 个测试在审查环境确定性失败，根因未定位（可能与环境有关）
+- #773: [low] 部分后台任务仍用全局线程池，不受 shutdown 管辖、不可取消
+- #772: [low] vendor SgyIndexJob 重启时对仍 joinable 的线程赋值会 std::terminate
+- #771: [low] evidence::Index 的 SQL 连接名基于 this 地址，可能重名
+- #770: [low] worker 线程读取 QPointer 并非生命周期保证，注释易误导
+- #769: [low] compositionworkflow JobRunner compute 回调捕获裸 proc 指针
+- #768: [med] geostat 单因素 worker 仍捕获裸 m_proc.data()（L3 修复遗漏的同型点）
+- #767: [low] Python 闸门类 ctest 会在源码树产生字节码
+- #766: [low] configure 期出现运行时库遮蔽告警（libqt6keychain 系统与 vendor 各一份）
+- #765: [low] Windows 直跑测试没有单测超时
+- #764: [low] CI flaky 严格档与 redset 过期检查默认关闭，台账永远只告警
+- #763: [med] 关键路径模块缺少直接测试（DerivationWorkflow、atomicjob、WellAttachmentOps、attrgridout 等）
+- #762: [med] linux-perf 车道未沿用 -g1，全量 -g 链接可能磁盘耗尽
+- #761: [med] paleo-dev test 无条件用 vendor 前缀覆盖调用方显式给出的 QGIS_PREFIX_PATH
+- #760: [med] Windows 与 Linux CI 门禁语义不一致：超时判红与豁免放行
+- #759: [med] Windows 车道 flaky 台账不跨 run 持久化，累计≥3 次永远达不到
+- #758: [med] 非 perf 标签功能测试含绝对毫秒和零余量比率断言，-j8 必过车道易抖动
+- #757: [med] CI triage 把串行重跑已通过的 flaky 测试误判为真红（LastTestsFailed.log 不清理）
+- #756: [high] tst_assetops rollbackExternalIsZeroCopy 自相矛盾，篡改拒绝路径从未被测到
+- #755: [high] master 上 lint 车道必红：check_ts_stale 缺失 47 条超过基线 31
+- #754: [low] 固定相层级成功提示文案通用，不说明固定了哪一级
+- #753: [low] fencewidget 的 FencePreview 无焦点与可访问描述
+- #752: [low] 地震 3D 传递函数编辑器只支持鼠标
+- #751: [low] 工作台命令中 action == "consistency" 的第二个分支永远走不到
+- #750: [med] i18n 仅有 zh_CN 一种语言，无英文翻译骨架
+- #749: [med] 主窗口 PaleoMainWindow 仍是上帝类（30 个分片约 1.08 万行）
+- #748: [med] 多套独立撤销栈且没有 QUndoGroup，Ctrl+Z 作用对象不可预测
+- #747: [med] 证据面板滚轮横滚的事件过滤器只装在 addView 时已有的子控件上
+- #746: [med] 证据面板默认 4 视图×最小宽 260，窄停靠栏首屏即横向滚动且每个视图常驻 canvas
+- #745: [med] 证据视图宽度按下标存到全局 QSettings，删视图后错位且跨工程污染
+- #744: [med] 证据视图宽度拖拽手柄只支持鼠标，无键盘操作与无障碍名称
+- #743: [med] 证据面板来源组合框的禁用原因提示被立即覆盖
+- #742: [med] 编辑会话外绘制约束线立即落盘不可撤销，返回值与提示矛盾（#712）
+- #741: [high] 固定相层级（#699 pinned levels）不进撤销栈，失败时界面与数据不同步
+- #740: [high] 影响分析与受控重算仍在 GUI 线程同步执行，大工程冻结主窗口
+- #738: [low] 仓库与 vendor 第三方代码缺少许可文本
+- #737: [low] 模型 manifest 缺 sha256 固定值时仍允许加载模型
+- #736: [low] MetaStore 版本迁移不在事务内，且没有逐级迁移
+- #735: [low] MAMCL 解压旗标信任与 sha 校验/解压之间的 TOCTOU
+- #734: [low] 若干 GDAL 全栅格读取没有像元预算，可被巨尺寸小文件打爆内存
+- #733: [low] 元数据 SQLite（MetaStore）未设置 busy_timeout / journal_mode
+- #732: [low] LLM 客户端未显式设置重定向策略，Bearer 密钥跨源重定向行为依赖 Qt 默认
+- #731: [low] MAMCL 解压/依赖旗标写入不校验
+- #730: [low] 子波回退临时文件使用可预测的共享 /tmp 路径且不校验写入
+- #729: [low] 井剖面分层 CSV 导出原地截断写，失败会破坏同名旧文件
+- #728: [low] 多处用户 CSV 导出忽略写入结果仍提示“已导出”
+- #726: [med] 派生综合柱状图 XML 写入不校验结果即登记新版本
+- #725: [low] 等值线级别以四舍五入后的数据最小值为锚点，不同图件级别不对齐
+- #724: [low] 时窗 RMS/MaxAbs/能量属性仍为 O(n·w)
+- #723: [low] 等厚报告面积单位硬写为 m²，英尺坐标系下标错
+- #722: [low] 证据合成未过滤 NaN/负权重，边界样本被两个区重复计票
+- #721: [med] 距离变换一有屏障就整幅退化为 8 邻域 chamfer 距离
+- #720: [med] 克里金求解在 sill≳1e12 或 ≲1e-12 时整幅 NumericalFailure（尺度悬崖）
+- #719: [med] 速度模型向首结点之上外延时 TVD 为负（#707 M4 修复引入）
+- #718: [med] V0-k 拟合强制过原点，两个结点时井上误差可达 1 km
+- #717: [med] 等厚/体积在深度或TWT向下为正的层位上符号相反，报告文案也错

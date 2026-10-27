@@ -72,7 +72,7 @@ cmake --build build -j8
    REPL 标实验性；JSON 协议是可选约定不强制。
 - **资源**：`-j8`；ctest 串行。
 - **无人值守**：协议设计与并发闸口径自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-python-scripting.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-python-scripting.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/进程生命周期正确性/取消语义/安全口径/i18n 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

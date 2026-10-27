@@ -18,7 +18,7 @@
 
 1. `docs/PALEO_QGIS_PLAN.md:1488`：「白名单四头（layermanifest/paleoprojectstore/mapversionstore/releasestore）」——词表实为六头（+wellsectionstore/faultsetstore，2026-10-04 `42b9a57` 等入表）。**待修**。
 2. `tools/check_layering.py` 规则 2 docstring：只列 4 个 metadata 头。**待修**（与新档位同一 commit）。
-3. `docs/CODE_REVIEW_REPORT.md:174`：「仅包含四头文件」——**保留不改**：该报告评审基准 2026-10-01，早于 wellsectionstore（10-04）入白名单，写入时是准确陈述；改历史证据文档=伪造实据。PR body 记 Low 说明。
+3. `docs/ledger-archive/reviews/CODE_REVIEW_REPORT.md:174`：「仅包含四头文件」——**保留不改**：该报告评审基准 2026-10-01，早于 wellsectionstore（10-04）入白名单，写入时是准确陈述；改历史证据文档=伪造实据。PR body 记 Low 说明。
 4. `AGENTS.md:22` 六头口径正确，无需改；PLAN 与其对齐（改 PLAN）。
 5. README 计数（35 vs 实 47）：**第八批 PR #213（docs/goal-loop-prompts-batch8，OPEN）在飞**，将更新标题/计数至 57 并补 48–57——按任务书「R0 确认即可，勿重复改」，本方向不动 README，避免同文件冲突。
 6. paleo_core 口径：`UI_LAYER_PLAN.md:131`「各层编进同一 paleo_core 静态库」与 CMake 现状（`paleo_core` INTERFACE 伞 `CMakeLists.txt:637`，分层编 `paleo_<模块>`）矛盾——**待修**。PLAN §45 尾段口径已正确。
@@ -67,7 +67,7 @@
   挂上 --symbol-audit 抽检网说明。
 - `tools/check_layering.py` 规则 2 docstring：六个 metadata 头列全（与
   新档位同一 commit 落）。
-- 全仓 rg「四头」终态：仅剩 `docs/CODE_REVIEW_REPORT.md:174`（历史证据，
+- 全仓 rg「四头」终态：仅剩 `docs/ledger-archive/reviews/CODE_REVIEW_REPORT.md:174`（历史证据，
   评审基准 2026-10-01 早于六头时代——写入时准确，保留不改）。
 - README 计数：未动（PR #213 在飞，任务书明示勿重复改）。
 

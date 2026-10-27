@@ -72,7 +72,7 @@ cd .worktrees\imagetrack-deep
   ledger（判据：审计面与撤销语义）。
 - **性能断言**：批量照片（夹具 200 张）装载内存峰值比率门
   （LOD 前后对比），禁绝对 MB 墙。
-- **ledger**：`.goal-loop-ledger-imagetrack-deep.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-imagetrack-deep.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/catalog 契约/LOD 正确性/显示质量/i18n 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

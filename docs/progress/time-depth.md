@@ -1,7 +1,7 @@
 # time-depth — 时深转换与速度建模（goal/time-depth-velocity-20261002）
 
 分支 `goal/time-depth-velocity-20261002`（自 master e6e95af 起）。迭代账本
-`.goal-loop-ledger-time-depth-velocity.md`（轮次/Oracle 证据）；本文是交付记录。
+`docs/ledger-archive/goal-loop-time-depth-velocity.md`（轮次/Oracle 证据）；本文是交付记录。
 
 ## 交付一览（按提交）
 

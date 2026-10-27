@@ -3,7 +3,7 @@
 > 分支 `goal/architecture-devex-closure-20261001-005639`（worktree
 > ../pw-architecture-devex-closure-20261001-005639）。本文是该工作包的
 > 审计底账与进度记录；`codex/simplify-duplication` 的逐 hunk 处置见
-> §2。`.goal-loop-ledger.md` 为执行账本（不入库）。
+> §2。`docs/ledger-archive/goal-loop-initial.md` 为执行账本（不入库）。
 
 ## 1. Phase 0 对账（BASE_SHA = ac882cf）
 

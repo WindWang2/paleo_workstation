@@ -21,8 +21,8 @@
   - `codex/mapping-evidence-deepening`（= origin/master，#494 已合并，视为完成）
   - `codex/well-attribute-tables`（领先 4 落后 3，mapping tops set 方向）
 - 前轮审计文档（在 codex/audit-remediation 分支）:
-  - `docs/COMPREHENSIVE_AUDIT_2026-10-16.md`（57 findings: P0×6 P1×23 P2×20 P3×8，基线 dbb03269）
-  - `docs/SWARM_REVIEW_2026-10-15.md`（16×P1 + 9 域低危 → issues #460-#485）
+  - `docs/ledger-archive/reviews/COMPREHENSIVE_AUDIT_2026-10-16.md`（57 findings: P0×6 P1×23 P2×20 P3×8，基线 dbb03269）
+  - `docs/ledger-archive/reviews/SWARM_REVIEW_2026-10-15.md`（16×P1 + 9 域低危 → issues #460-#485）
 
 ## 本轮独特切入点
 

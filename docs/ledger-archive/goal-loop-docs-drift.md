@@ -24,7 +24,7 @@ Oracle：100 号任务书六条验收。
   条目仍 `[ ]` 且「现方法不消费约束线」对 SGS 属实（sgs.cpp 无 barrier 消费）。
   本方向走「91 已修的确认」路径，不重复注记。
 - **账本入库脚本化评估**：根目录按 slug 猜测账本命中 59/94，35 缺口 = 在飞
-  方向（92–100）+ 异名账本（如 74→`.goal-loop-ledger-single-factor-native.md`
+  方向（92–100）+ 异名账本（如 74→`docs/ledger-archive/goal-loop-single-factor-native.md`
   /`sf-geostat` 族）+ 无账本已合方向（#308 squash）。无机器可读的
   「方向号→账本」映射，硬门禁不可靠 → 定案：不做硬门禁，TODOS 登记递延
   （先建映射表/账本 frontmatter，再做门禁）。

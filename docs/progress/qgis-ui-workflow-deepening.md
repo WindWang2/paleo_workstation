@@ -8,7 +8,7 @@ prefix 共享）。
 QGIS、不建第二套 composer/vector 编辑器。主责 `src/ui/`、`src/qgis/`；
 A 任务主责目录（domain/catalog/metadata/services/algorithms/app、
 mappingworkbench 核心）零写入；Open Issues #351–#421 全量排除（矩阵见
-`.goal-loop-ledger-qgis-ui-deepening.md`）；Open PR #422/#423/#424 占用
+`docs/ledger-archive/goal-loop-qgis-ui-deepening.md`）；Open PR #422/#423/#424 占用
 文件零触碰。
 
 ## 交付内容（7 commits）

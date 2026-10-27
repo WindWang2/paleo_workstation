@@ -59,7 +59,7 @@ cmake --build build -j8
 - **性能断言**：禁绝对毫秒墙钟。
 - **冲突**：qgisstyleservice.cpp/composepage 为多点挂接热区——
   与他方向撞时按语义并集合。
-- **ledger**：`.goal-loop-ledger-boundary-kinds.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-boundary-kinds.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/词表一致/
   编辑语义/样式 round-trip/i18n 五维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

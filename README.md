@@ -1,6 +1,6 @@
 # Paleo Workbench
 
-古地理/地质解释与编图工作台。Qt6 Widgets 桌面应用，vendored QGIS 4.2.x LTS 提供 GIS 底座（渲染/图层/CRS/编辑/符号化/布局），地质业务（井-震-平面联动、约束建模、AI 预测、验证、发布）由本项目实现。主程序与原生业务模块以 **C++20** 实现，不依赖 PyQGIS 或 Python GUI 作为主程序运行基础；开发工具链与用户显式启用的可选脚本功能（脚本控制台/REPL/MAMCL）使用独立 Python 环境；历史 Python 原件归档由 `archive/legacy-python/` 承接（由归档任务维护，可能尚未落地）——边界详见 [docs/CPP_PRIMARY_BOUNDARY.md](docs/CPP_PRIMARY_BOUNDARY.md)。
+古地理/地质解释与编图工作台。Qt6 Widgets 桌面应用，vendored QGIS 4.2.x LTS 提供 GIS 底座（渲染/图层/CRS/编辑/符号化/布局），地质业务（井-震-平面联动、约束建模、AI 预测、验证、发布）由本项目实现。主程序与原生业务模块以 **C++20** 实现，不依赖 PyQGIS 或 Python GUI 作为主程序运行基础；开发工具链与用户显式启用的可选脚本功能（脚本控制台/REPL/MAMCL）使用独立 Python 环境；脚本与历史原件的边界详见 [docs/CPP_PRIMARY_BOUNDARY.md](docs/CPP_PRIMARY_BOUNDARY.md)。
 
 ## Quickstart
 
@@ -11,7 +11,7 @@ git clone https://github.com/WindWang2/paleo_workstation.git && cd paleo_worksta
 
 成功标志：`SELFCHECK OK` + `vendor/logs/map.png` 是一张真的地图。
 
-**宿主要求**：Linux x86_64、glibc ≥ 2.41 可用发行版 QGIS 4.2.x 包或 superbuild；**vendored deb 闭包需 glibc ≥ 2.43**（Ubuntu 26.04 级，Debian 13 不满足；Arch 天然满足）、≥15GB 磁盘；Windows 走 CI（windows-latest + MSVC v143）。
+**宿主要求**：Linux x86_64 或 Windows x86_64。当前 Linux 二进制闭包要求 glibc ≥ 2.43，较低版本宿主需在目标系统源码构建；Windows 依赖和运行库须使用同一条 Qt/QGIS 链。各路线的磁盘与工具链要求见 [BUILDING.md](BUILDING.md)。
 
 ## 开发入口 `./paleo-dev`
 
@@ -39,9 +39,19 @@ git clone https://github.com/WindWang2/paleo_workstation.git && cd paleo_worksta
 均值振幅、RMS、过零率聚类后按原测网分辨率生成分布图，缺测位置保留为空值。
 任务支持进度与取消，保存实际使用的原始文件快照及输入谱系；相类别映射仍是 Mock，需地质复核。
 
-> **勘误（2026-10-07，方向 72）**：八、九批任务书（方向 48-72）「环境接线」
-> 段所载 Windows 命令（`CMAKE_PREFIX_PATH` 首位 `C:/deps/Qt/6.8.0/...` +
-> 运行期 PATH 前置 deps bin）是 Qt 6.8 编 / 6.11 载的混链口径，已废弃；
-> 统一链（Qt 6.11.2 编译+运行）以
-> [BUILDING.md「Windows 本机开发」](BUILDING.md#windows-本机开发localdeps-统一链方向-72)
-> 与 `./paleo-dev.ps1` 为准。原文不改，以此行为准。
+## Windows 开发
+
+```powershell
+./paleo-dev.ps1 bootstrap
+./paleo-dev.ps1 build
+./paleo-dev.ps1 test
+```
+
+已有本机依赖时，按 [Windows 环境说明](BUILDING.md#windows-本机开发localdeps-统一链方向-72)
+配置同链 Qt/QGIS，再使用 `build` / `test`。不要混用不同 Qt 版本的头文件和运行库。
+
+## 文档
+
+[文档索引](docs/README.md) 汇总使用说明、数据契约和开发入口。
+[TODOS.md](TODOS.md) 只登记未完成事项；历史任务书和执行账本见
+[历史记录索引](docs/ledger-archive/README.md)。

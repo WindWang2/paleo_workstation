@@ -149,7 +149,7 @@ cd .worktrees\cokriging-ui
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行。
 - **无人值守**：重做取舍自行定案记 ledger（每件给「摘取/
   放弃」判据）。
-- **ledger**：`.goal-loop-ledger-cokriging-ui.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-cokriging-ui.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/#308 语义保留/增量正确性/TODOS 同步/i18n 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

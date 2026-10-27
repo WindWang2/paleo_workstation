@@ -84,7 +84,7 @@ cd .worktrees\quickfollow
   记因；归并审视不夹带行为变更。
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行。
 - **无人值守**：词表 schema 与优先级语义自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-quickfollow.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-quickfollow.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/等价重构对拍/解析健壮性/行为保留/i18n 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

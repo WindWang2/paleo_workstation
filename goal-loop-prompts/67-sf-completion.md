@@ -86,7 +86,7 @@ tst_singlefactor_faultpath 的绕墙折线 hypot 断言）
 - **无人值守**：Markov 近似等口径自行定案记 ledger（宁可
   保守不过声称）。
 - **vendor 纪律**：不引第三方地统库；zip 写面用 zlib（既有）。
-- **ledger**：`.goal-loop-ledger-sf-completion.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-sf-completion.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/数值正确性/契约 round-trip/诚实面/i18n 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

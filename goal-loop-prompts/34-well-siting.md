@@ -41,7 +41,7 @@ cmake --build build -j8
 - **vendor**：改 vendor 件登记 `PATCHES.md`。
 - **UI**：对照 `DESIGN.md`；i18n 过两门。
 - **性能断言**：禁绝对毫秒墙钟；空洞检测大工区用抽样式比率门。
-- **ledger**：`.goal-loop-ledger-well-siting.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-well-siting.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/planned 隔离/GEOS 释放/指标口径诚实面/版本管线/i18n 六维）→ 修复 → 再 review，**至少两轮零 High/Medium**；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀。
 

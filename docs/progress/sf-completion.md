@@ -4,7 +4,7 @@
 
 - 分支 `goal/sf-completion-20261007`，worktree `.worktrees/sf-completion`，基线
   `origin/master` `33f496a`。
-- 方案/账本：`.goal-loop-ledger-sf-completion.md`（口径定案与本机环境注记）。
+- 方案/账本：`docs/ledger-archive/goal-loop-sf-completion.md`（口径定案与本机环境注记）。
 - 交付（TODOS P2「单因素原生算法后续」收口）：
   1. `algorithms/geostat/cokriging.{h,cpp}`：普通协克里金核（MM1 交叉结构）
      + 带约束普通克里金（组权重上限软罚主动集）；

@@ -173,7 +173,7 @@ LSAN off 口径）。
 安装步 run 的是方向 71 已删除的 apt 脚本（`tools/ci_apt_qgis.sh`），
 安装步即红并被 job 级 `continue-on-error` 吞掉，run 页面只显示一个静默
 的红 asan 块，**观察档自合入起从未跑进编译步**（gh api 逐 run 核对
-10/10 红在同一安装步，证据链见 `.goal-loop-ledger-ci-asan-fix.md`）。
+10/10 红在同一安装步，证据链见 `docs/ledger-archive/goal-loop-ci-asan-fix.md`）。
 修复：依赖步逐行对拍 linux 主 job vendored 路（checkout/actions 钉 SHA、
 Qt6 发行版包 apt、vendor 缓存补 debs/lo 路径、`./paleo-dev bootstrap`）；
 Configure 步补 `QGIS_PREFIX_PATH`（裸 cmake 不过 paleo-dev 自动注入）；

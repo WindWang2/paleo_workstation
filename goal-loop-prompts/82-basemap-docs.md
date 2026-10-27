@@ -73,7 +73,7 @@ cd .worktrees\basemap-docs
   写「待证」清单而非编造）；递延照实登记 TODOS。
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行。
 - **无人值守**：文档结构与对账结论自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-basemap-docs.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-basemap-docs.md`。
 - **多轮 review（硬要求）**：每批 → 文档事实核对（逐条对
   源码）→ diff 自审（证据真实/对账完整/测试锚最小/风格
   一致/TODOS 同步 五维）→ 修复 → 再 review，至少两轮零

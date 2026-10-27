@@ -76,7 +76,7 @@ cmake --build build -j8
   实现细节。
 - **资源**：`-j8`；ctest 串行；新测试遵守沙箱纪律（独立 XDG）。
 - **无人值守**：零测试头优先级排序自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-test-deepening.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-test-deepening.md`。
 - **多轮 review（硬要求）**：每批 → 新测试全绿 → diff 自审
   （断言真实性/覆盖三态/增量语义正确/无测试物泄漏进生产头/
   i18n 五维）→ 修复 → 再 review，至少两轮零 High/Medium；

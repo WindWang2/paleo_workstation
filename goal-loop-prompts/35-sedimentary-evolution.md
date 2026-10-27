@@ -41,7 +41,7 @@ cmake --build build -j8
 - **vendor**：改 vendor 件登记 `PATCHES.md`。
 - **UI**：对照 `DESIGN.md`；i18n 过两门。
 - **性能断言**：禁绝对毫秒墙钟；大格网对比用比率门。
-- **ledger**：`.goal-loop-ledger-sedimentary-evolution.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-sedimentary-evolution.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/同源校验/指标口径/GEOS 释放/i18n/DESIGN.md 六维）→ 修复 → 再 review，**至少两轮零 High/Medium**；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀。
 

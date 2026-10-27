@@ -75,7 +75,7 @@ cd .worktrees\mainwindow-split2
    offscreen 截图对照不适用（无视觉 diff 是验收项）。
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行。
 - **无人值守**：切分线自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-mainwindow-split2.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-mainwindow-split2.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （API 等价/信号序/装配语义/TU 边界/无死代码 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

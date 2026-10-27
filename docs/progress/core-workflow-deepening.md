@@ -2,7 +2,7 @@
 
 任务 A：现有业务内核深化——契约修复、行为守恒拆分、有证据的性能等价优化、
 服务一致性。基线 `origin/master` @ `d230a5e7`（2026-10-12）。排除边界与逐轮
-证据见 `.goal-loop-ledger-core-deepening.md`（71 个 open issue 指纹表 + open
+证据见 `docs/ledger-archive/goal-loop-core-deepening.md`（71 个 open issue 指纹表 + open
 PR #422/#423/#424 占用区）。
 
 ## A-R1 catalog 契约完整性
@@ -105,4 +105,4 @@ io/datalist 侧 N+1 消费方在 src/ui（任务 B 领地，只读）。
 
 ## 全量结果
 
-（全量 ctest 数字与红项比对表见 .goal-loop-ledger-core-deepening.md 终验节）
+（全量 ctest 数字与红项比对表见 docs/ledger-archive/goal-loop-core-deepening.md 终验节）

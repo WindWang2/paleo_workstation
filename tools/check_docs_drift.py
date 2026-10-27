@@ -14,7 +14,7 @@
   ② 主窗行数落点：docs/UI_LAYER_PLAN.md 中最后一条
      `实测（YYYY-MM-DD）：paleomainwindow.cpp N 行（家族 M TU）`日期戳
      现状行 vs 仓库实况——N 对 `src/ui/paleomainwindow.cpp` 实测行数按
-     ±20% 容差（容差口径记 .goal-loop-ledger-docs-drift.md D1），M 对
+     ±20% 容差（容差口径记 docs/ledger-archive/goal-loop-docs-drift.md D1），M 对
      `src/ui/paleomainwindow_*.cpp` 家族 TU 数精确相等。历史块
      （autoplan-accepted / Review record）里的旧数字不是比对对象——
      冻结记录不设防，活口径必须带日期戳；无日期戳现状行即红。

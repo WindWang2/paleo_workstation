@@ -75,7 +75,7 @@ cmake --build build -j8
    假红教训）。
 - **无人值守**：切分线自行定案记 ledger；与 52/53 并行在飞时
   冲突按语义合。
-- **ledger**：`.goal-loop-ledger-shell-split.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-shell-split.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（API
    等价/信号序/include 纪律/TU 边界/无死代码 五维）→ 修复 →
    再 review，至少两轮零 High/Medium；Low 记 PR body。

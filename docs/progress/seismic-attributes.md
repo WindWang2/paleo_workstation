@@ -1,7 +1,10 @@
 # seismic-attributes — 地震属性引擎（goal/seismic-attributes-20261001）
 
+> 历史阶段记录。时间切片、属性体、SATR 读回、缓存及相干加权已由 [后续交付](../ledger-archive/goal-loop-attr-volume.md) 完成；本文是首版交付快照。
+> 当前剩余工作见 [TODOS.md](../../TODOS.md)。
+
 分支 `goal/seismic-attributes-20261001`（自 master 2d33c5e 起）。迭代账本
-`.goal-loop-ledger-seismic-attributes.md`（轮次/Oracle 证据）；本文是交付记录。
+`docs/ledger-archive/goal-loop-seismic-attributes.md`（轮次/Oracle 证据）；本文是交付记录。
 
 ## 交付一览（按提交）
 

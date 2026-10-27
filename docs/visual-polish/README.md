@@ -1,6 +1,6 @@
 # 方向 29 视觉实证档案
 
-完整逐文件、逐画面索引与验收结论见 [ledger](../../.goal-loop-ledger-ui-visual-polish.md)。
+完整逐文件、逐画面索引与验收结论见 [ledger](../ledger-archive/goal-loop-ui-visual-polish.md)。
 
 - `before/1x`、`before/2x`：dda2faa 生产 UI 重新构建后的原始截图。
 - `after/1x`、`after/2x`：当前生产 UI 重新构建后的原始截图。

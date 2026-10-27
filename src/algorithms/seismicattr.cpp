@@ -3,7 +3,7 @@
 
 // seismicattr 实现。FFT 用共享自研 radix-2（dsp/fft.h，double 内部精度）：
 // 仓库 vendor/系统/Qt 均无合规 FFT（FFTW double-only 头且未链接、破坏钉位
-// 策略，见 .goal-loop-ledger-seismic-attributes.md 轮0），自写是零新依赖的
+// 策略，见 docs/ledger-archive/goal-loop-seismic-attributes.md 轮0），自写是零新依赖的
 // 唯一路；seismic-inversion 轮0 把它从本文件提出共享。
 
 #include "algorithms/dsp/fft.h"

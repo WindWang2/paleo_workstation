@@ -578,7 +578,7 @@ git diff origin/master...HEAD
 交付内容至少包括：
 
 ```text
-.goal-loop-ledger-single-factor-native.md
+docs/ledger-archive/goal-loop-single-factor-native.md
 docs/progress/single-factor-native.md
 tests/fixtures/singlefactor/manifest.json
 tools/reference/singlefactor/README.md

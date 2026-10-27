@@ -1,5 +1,8 @@
 # 进度档案 — 层位自动追踪（horizon-autotrack）
 
+> 历史阶段记录。3D 传播服务、画布入口和显式倾角引导已由 [后续交付](../ledger-archive/goal-loop-horizon-3d.md) 完成；本文保留首版核与实测证据。
+> 当前剩余工作见 [TODOS.md](../../TODOS.md)。
+
 > goal loop `goal/horizon-autotrack-20261002` 交付记录。
 > 数值核 `src/algorithms/horizontrack.{h,cpp}`（paleo::hztrack）；服务编排
 > `SeismicTaskService`（trackHorizon 下沉 + 多种子 + 异步取消）；上图闭环经

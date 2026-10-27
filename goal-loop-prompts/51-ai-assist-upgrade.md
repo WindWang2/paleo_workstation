@@ -87,7 +87,7 @@ cmake --build build -j8
 - **资源**：构建/测试 `-j8`；ctest 串行。
 - **无人值守**：所有决策自行定案记 ledger；协议细节按 OpenAI
   官方公开文档口径，不猜测。
-- **ledger**：`.goal-loop-ledger-ai-assist.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-ai-assist.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/
   安全/协议正确性/诚实面/i18n 五维）→ 修复 → 再 review，至少两轮
   零 High/Medium；Low 记 PR body。

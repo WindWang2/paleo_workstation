@@ -78,7 +78,7 @@ cmake --build build -j8
    31 符号库口径。
 - **资源**：`-j8`；ctest 串行。
 - **无人值守**：provider 接口形态自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-wellsection-tvd.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-wellsection-tvd.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/TVD 数学正确性/降级诚实/渲染一致/文档同步 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

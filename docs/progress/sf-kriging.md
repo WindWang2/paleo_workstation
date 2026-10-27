@@ -4,7 +4,7 @@
 
 - 分支 `goal/sf-kriging-20261004`，worktree `.worktrees/sf-kriging`，基线
   `origin/master` `24daf8f`。
-- 方案/账本：`.goal-loop-ledger-sf-kriging.md`（逐轮命令与证据）。
+- 方案/账本：`docs/ledger-archive/goal-loop-sf-kriging.md`（逐轮命令与证据）。
 - 交付：
   1. `algorithms/singlefactor/krigingsurface.*` + `localidw.cpp` 克里金权重分支
      + `geostat/kriging.h` 的 `KrigingSolver`：本地方向插值面出真普通克里金；

@@ -65,7 +65,7 @@ tst_previewmap_canvas/tst_panels（预览面板族）。
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行；全量构建后再
   ctest。
 - **无人值守**：切分线与 include 收缩面自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-previewtabs-split.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-previewtabs-split.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （API 等价/internal 归属/include 纪律/TU 边界/无死代码
   五维）→ 修复 → 再 review，至少两轮零 High/Medium；Low 记

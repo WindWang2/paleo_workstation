@@ -90,7 +90,7 @@ ctest 里 layering 三项为门禁）。
 - **资源**：`-j8`；ctest 串行。
 - **无人值守**：漂移修复以「实测定据」为准（rg 现势），不猜
   历史意图；定性结论记 ledger。
-- **ledger**：`.goal-loop-ledger-arch-closure.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-arch-closure.md`。
 - **多轮 review（硬要求）**：每批 → checker 三档+新档自测绿
   → diff 自审（文档实据/门禁不回退/脚本质量/夹具正确/无越权
   清理 五维）→ 修复 → 再 review，至少两轮零 High/Medium；

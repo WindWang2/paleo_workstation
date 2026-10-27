@@ -80,7 +80,7 @@ cd .worktrees\ai-context
   一致）；密钥/端点不入上下文。
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行。
 - **无人值守**：query 出参 schema 自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-ai-context.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-ai-context.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/只读红线/schema 正确性/预算协同/i18n 五维）→ 修复
   → 再 review，至少两轮零 High/Medium；Low 记 PR body。

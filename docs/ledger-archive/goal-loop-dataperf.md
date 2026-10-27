@@ -298,7 +298,7 @@ error 数：0    warning 数：13
 ### 5.4 收口产物
 
 - `docs/progress/data-perf.md` — 四条线的完整底账（前后数字、禁区核对、递延项与依据）
-- `.goal-loop-ledger-dataperf.md` — 本文件，逐轮命令 + 原始输出
+- `docs/ledger-archive/goal-loop-dataperf.md` — 本文件，逐轮命令 + 原始输出
 - 提交序列：`27dcd82` → `12152a5` → `34df4ea` → `45a4ddd` → `e079a9e`
 
 ### 5.5 禁区自检

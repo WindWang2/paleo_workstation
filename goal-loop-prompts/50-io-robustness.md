@@ -71,7 +71,7 @@ R0 基线对照必须先行）。
   tst_welllogset 全绿；清洗不改变好数据路径的数值（对拍断言）。
 - **资源**：`-j8`；ctest 串行。
 - **无人值守**：决策自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-io-robustness.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-io-robustness.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/
   数值不变性/诚实面/夹具真实性/i18n 五维）→ 修复 → 再 review，
   至少两轮零 High/Medium；Low 记 PR body。

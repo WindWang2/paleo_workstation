@@ -9,7 +9,7 @@
 
 // io/ — LIS79（Log Information Standard，1979/84 子集）测井曲线解析器：
 // 纯 Qt、无 QGIS 依赖、无第三方依赖（方向 44「自写受限子集」，规范对账见
-// .goal-loop-ledger-welllog-fmt.md；LIS79 官方 PDF 为扫描件，字节布局按
+// docs/ledger-archive/goal-loop-welllog-fmt.md；LIS79 官方 PDF 为扫描件，字节布局按
 // 规范条文 + dlisio（MPL-2.0）参考实现逐位核准，未抄代码）。
 //
 // 读全约定（goal/44 扩量口径）：

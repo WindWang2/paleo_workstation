@@ -61,7 +61,7 @@ cmake --build build -j8
   峰值 RSS 有界（滑窗不全体驻留）。
 - **冲突**：seismictaskservice/layermanifest 为多点热区——与他方向
   （尤其 37 层位 3D）撞时按语义并集合。
-- **ledger**：`.goal-loop-ledger-attr-volume.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-attr-volume.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/输入形状
   诚实/取消语义/层树 URI/i18n 五维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

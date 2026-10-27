@@ -67,7 +67,7 @@ cmake --build build -j8
 - **资源**：构建/测试一律 `-j8`。
 - **UI**：对照 `DESIGN.md`；道模板视觉沿用既有 token；i18n 两门。
 - **性能断言**：禁绝对毫秒墙钟；剖面重绘用抽样式计时+比率门。
-- **ledger**：`.goal-loop-ledger-wellsection-tvd.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-wellsection-tvd.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/世代语义/
   数据诚实/三处一致性/i18n 五维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

@@ -3,7 +3,7 @@
 > 分支 `goal/data-perf-2026-10-03`（自 `origin/master` `ede43ce` 起，worktree `.worktrees/dataperf`）。
 > 四条线：① SEG-Y 索引缓存发布 bug 修复 ② LAS 读面加速 ③ catalog 热路径重测与归因
 > ④ 数据路径冷启动分段。本文是收口底账；逐轮命令与原始输出见
-> `.goal-loop-ledger-dataperf.md`。
+> `docs/ledger-archive/goal-loop-dataperf.md`。
 >
 > **测量环境**：Windows 11 / MSVC 14.38 / Qt 6.8.0 / QGIS 4.2.0（vendored，
 > `paleo-qgis-prefix`）/ RelWithDebInfo。所有绝对毫秒均为本机值，**不可跨机器

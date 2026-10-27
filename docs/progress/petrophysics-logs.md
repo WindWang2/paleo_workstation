@@ -1,7 +1,7 @@
 # petrophysics-logs — 测井岩石物理计算面（goal/petrophysics-logs-20261002）
 
 分支 `goal/petrophysics-logs-20261002`（自 master e6e95af 起）。迭代账本
-`.goal-loop-ledger-petrophysics-logs.md`（轮次/Oracle 证据）；本文是交付记录。
+`docs/ledger-archive/goal-loop-petrophysics-logs.md`（轮次/Oracle 证据）；本文是交付记录。
 
 ## 交付一览（按提交）
 

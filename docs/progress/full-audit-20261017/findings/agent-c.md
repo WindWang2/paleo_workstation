@@ -122,4 +122,4 @@
 - linkage：selectioncontext.cpp、wellmaplink.cpp、threewaylocator.cpp（全文）
 - 跨模块接口面：algorithms/paleoalgorithms.cpp（约束消费段全文）、algorithms/constraintbarriers.cpp（全文）、algorithms/singlefactor/structural.cpp（停线段）、domain/constraintsemantics.cpp（域判定段）、qgis/composeattribution.cpp（gridOf/decideAt/replayGrid 段）、qgis/constraintcrs.cpp、qgis/qgisconstrainteditsession.cpp（F4 段）、ui/paleomainwindow_attach.cpp（runHorizonGridding 段，#496 接线复核）
 - 提交考古：a1efbd74(#496) 全量 diff + tst_singlefactor_constraintreceipts / tst_constraintediting 关键用例；66e79e61(#493)、ddd1325e(#494)、91fd9432(#491 stat) workflow 侧 diff；b2ed2da4(#488) 与 surfacegridding 的交集核对（确认未迁移）
-- 排除矩阵核对：gh issue #480 正文、docs/COMPREHENSIVE_AUDIT_2026-10-16.md、docs/SWARM_REVIEW_2026-10-15.md、docs/progress/full-audit-20261017/01-conflict-matrix.md
+- 排除矩阵核对：gh issue #480 正文、docs/ledger-archive/reviews/COMPREHENSIVE_AUDIT_2026-10-16.md、docs/ledger-archive/reviews/SWARM_REVIEW_2026-10-15.md、docs/progress/full-audit-20261017/01-conflict-matrix.md

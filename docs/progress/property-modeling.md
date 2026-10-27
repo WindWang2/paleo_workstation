@@ -1,7 +1,7 @@
 # property-modeling — 三维地层格架与属性建模（goal/property-modeling-20261002）
 
 分支 `goal/property-modeling-20261002`（自 master `11099e2` 起）。迭代账本
-`.goal-loop-ledger-property-modeling.md`。本文只记语义决策和实测数字。
+`docs/ledger-archive/goal-loop-property-modeling.md`。本文只记语义决策和实测数字。
 
 ## 交付
 
@@ -68,7 +68,7 @@ D63 / D72 层位栅格抽到 200×200×20（800000 单元），20 口井 GR，
 ## V2（goal/prop-model-v2，2026-10-05）
 
 方向 45 在 V1 面上落了四块能力，口径全部记
-`.goal-loop-ledger-prop-model-v2.md`：
+`docs/ledger-archive/goal-loop-prop-model-v2.md`：
 
 1. **断块错位（faultoffset）**。断距矢量 z 分量驱动下掉侧整柱 top/bot
    平移：沿段线性内插、最近断层主控（并列取下标小者）、柱心恰在线上

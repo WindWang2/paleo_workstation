@@ -68,7 +68,7 @@ cmake --build build -j8
 - **数值正确性**：合成可分数据上训练收敛、推理精度达阈；
   不可分数据如实出低置信度而非强行分。
 - **冲突**：faciesclassificationservice/交会页热区注明。
-- **ledger**：`.goal-loop-ledger-xplot-sup.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-xplot-sup.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/训练正确/
   置信诚实/provenance/i18n 五维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

@@ -61,7 +61,7 @@ Windows**（Linux 侧已收口）——R0 先实测 MSI 解包可行路径。
    origin/master `753c2768`（#314）已改名为
    `finishConversion`（`src/io/dataimport_document.cpp`，
    约 273 行起；旧名只留在
-   `.goal-loop-ledger-layer-split.md`）。执行时改合并后
+   `docs/ledger-archive/goal-loop-layer-split.md`）。执行时改合并后
    master 上实际落版本的函数，不要因为找不到
    `finishDocumentPdf` 就跳过记录。
    该函数目前只写
@@ -100,7 +100,7 @@ Windows**（Linux 侧已收口）——R0 先实测 MSI 解包可行路径。
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行；MSI 下载与解包
   耗时记 ledger。
 - **无人值守**：解包路径两案取舍自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-lo-win.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-lo-win.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （脚本正确性/resolver 统一/manifest 完整/PROVENANCE/i18n
   五维）→ 修复 → 再 review，至少两轮零 High/Medium；Low 记

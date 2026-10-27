@@ -75,7 +75,7 @@ cd .worktrees\mkproject-spread
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行；墙钟约束
   （单测试 ≤15s 红线——超了就拆段）。
 - **无人值守**：迁移清单取舍自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-mkproject-spread.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-mkproject-spread.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （断言保留/墙钟/沙箱兼容/无 src 业务逻辑触碰/CMake
   夹具接线可复用/文档 五维）→ 修复 →

@@ -72,7 +72,7 @@ cmake --build build -j8
 - **无人值守**：拆头方案自行定案记 ledger。
 - **性能断言**：编译面用 TU 计数对比（禁绝对墙钟做门）；全量
   构建时长仅记录不设门。
-- **ledger**：`.goal-loop-ledger-header-hygiene.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-header-hygiene.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （零行为变更/include 正确性/护栏有效性/自测夹具/无死代码
   五维）→ 修复 → 再 review，至少两轮零 High/Medium；Low 记

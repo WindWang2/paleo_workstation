@@ -42,7 +42,7 @@ cmake --build build -j8
 - **vendor**：改 vendor 件登记 `PATCHES.md`（QGIS 主题 SVG 增补同口径）。
 - **i18n**：符号名/花纹名走翻译面。
 - **性能断言**：花纹渲染不引入逐要素 QImage 重建——抽样渲染预算走比率门。
-- **ledger**：`.goal-loop-ledger-geological-symbols.md`（符号视觉改动附截图对照）。
+- **ledger**：`docs/ledger-archive/goal-loop-geological-symbols.md`（符号视觉改动附截图对照）。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/样式收口单点性/资源打包/语义映射完整/i18n/DESIGN.md 六维）→ 修复 → 再 review，**至少两轮零 High/Medium**；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀。
 

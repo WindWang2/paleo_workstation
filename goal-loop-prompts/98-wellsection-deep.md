@@ -71,7 +71,7 @@ cd .worktrees\wellsection-deep
   默认行为不变（选择是新增面）；fence 读回向后兼容。
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行。
 - **无人值守**：缓存策略与存储契约自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-wellsection-deep.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-wellsection-deep.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/等价对拍/向后兼容/仲裁语义/缓存键 五维）→ 修复 →
   再 review，至少两轮零 High/Medium；Low 记 PR body。

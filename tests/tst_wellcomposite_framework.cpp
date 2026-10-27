@@ -302,6 +302,64 @@ private slots:
     const QString csv2 = TrackOps::exportTrackCsv(ft);
     QVERIFY(csv2.startsWith(QStringLiteral("top,bottom,name")));
     QVERIFY(csv2.contains(QStringLiteral("珠江组")));
+
+    // F-06（full-audit-20261028）：全部自由文本字段走 csvCell 转义——含
+    // 逗号/引号的名字不得错位列结构（曲线头、岩心桶号、符号标签、地层
+    // 系统组、沉积相三级同族口径）。
+    CurveTrack ct2(QStringLiteral("测井"), 180.0);
+    CurveData commaCurve;
+    commaCurve.name = QStringLiteral("GR, 辅助");
+    commaCurve.unit = QStringLiteral("API");
+    commaCurve.depths = {1000.0f};
+    commaCurve.values = {45.0f};
+    ct2.addCurve(commaCurve);
+    const QStringList lines2 = TrackOps::exportTrackCsv(ct2).split(QLatin1Char('\n'));
+    QCOMPARE(lines2.at(0), QStringLiteral("depth,\"GR, 辅助(API)\""));
+
+    CoreTrack kt(QStringLiteral("取心"), 65.0);
+    CoreBarrel barrel;
+    barrel.topDepth = 1000.0f;
+    barrel.bottomDepth = 1010.0f;
+    barrel.barrelNo = QStringLiteral("C,1");
+    barrel.cutLength = 10.0f;
+    barrel.recoveredLength = 9.0f;
+    barrel.recoveryRate = 90.0f;
+    kt.addBarrel(barrel);
+    const QStringList coreLines = TrackOps::exportTrackCsv(kt).split(QLatin1Char('\n'));
+    QCOMPARE(coreLines.at(1), QStringLiteral("1000.0,1010.0,\"C,1\",10.00,9.00,90.0"));
+
+    SymbolTrack st(QStringLiteral("符号"), 48.0);
+    SymbolItem item;
+    item.topDepth = 1000.0f;
+    item.bottomDepth = 1000.0f;
+    item.label = QStringLiteral("射孔\"顶部");
+    st.addItem(item);
+    const QStringList symLines = TrackOps::exportTrackCsv(st).split(QLatin1Char('\n'));
+    QCOMPARE(symLines.at(1), QStringLiteral("1000.0,1000.0,\"射孔\"\"顶部\""));
+
+    StratigraphyCompoundTrack sc(QStringLiteral("地层"), 145.0);
+    StratigraphyInterval si;
+    si.topDepth = 1000.0f;
+    si.bottomDepth = 1100.0f;
+    si.system = QStringLiteral("新近,系");
+    si.series = QStringLiteral("中,新统");
+    si.formation = QStringLiteral("韩江,组");
+    sc.addInterval(si);
+    const QStringList stratLines = TrackOps::exportTrackCsv(sc).split(QLatin1Char('\n'));
+    QCOMPARE(stratLines.at(1),
+             QStringLiteral("1000.0,1100.0,\"新近,系\",\"中,新统\",\"韩江,组\""));
+
+    FaciesCompoundTrack fc(QStringLiteral("沉积相"), 180.0);
+    FaciesInterval fa;
+    fa.topDepth = 1000.0f;
+    fa.bottomDepth = 1100.0f;
+    fa.majorFacies = QStringLiteral("三角洲,相");
+    fa.subFacies = QStringLiteral("前缘,亚相");
+    fa.microFacies = QStringLiteral("河口坝,微相");
+    fc.addInterval(fa);
+    const QStringList faciesLines = TrackOps::exportTrackCsv(fc).split(QLatin1Char('\n'));
+    QCOMPARE(faciesLines.at(1),
+             QStringLiteral("1000.0,1100.0,\"三角洲,相\",\"前缘,亚相\",\"河口坝,微相\""));
   }
 
   void testDuplicateTrack()

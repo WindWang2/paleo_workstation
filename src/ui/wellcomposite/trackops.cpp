@@ -41,7 +41,7 @@ QString exportTrackCsv(const WellTrack &track)
     QStringList head;
     head << QStringLiteral("depth");
     for (const auto &c : ct->curves())
-      head << (c.unit.isEmpty() ? c.name : QStringLiteral("%1(%2)").arg(c.name, c.unit));
+      head << csvCell(c.unit.isEmpty() ? c.name : QStringLiteral("%1(%2)").arg(c.name, c.unit));
     ts << head.join(QLatin1Char(',')) << QLatin1Char('\n');
 
     // 深度轴取各曲线的并集（多 LAS 合并的曲线各有自己的深度列）：各自
@@ -107,7 +107,7 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,barrel,cut,recovered,rate\n");
     for (const auto &b : kt->barrels())
       ts << f1(b.topDepth) << QLatin1Char(',') << f1(b.bottomDepth) << QLatin1Char(',')
-         << b.barrelNo << QLatin1Char(',') << QString::number(b.cutLength, 'f', 2)
+         << csvCell(b.barrelNo) << QLatin1Char(',') << QString::number(b.cutLength, 'f', 2)
          << QLatin1Char(',') << QString::number(b.recoveredLength, 'f', 2)
          << QLatin1Char(',') << QString::number(b.recoveryRate, 'f', 1) << QLatin1Char('\n');
     break;
@@ -118,7 +118,7 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,label\n");
     for (const auto &si : st->items())
       ts << f1(si.topDepth) << QLatin1Char(',') << f1(si.bottomDepth) << QLatin1Char(',')
-         << si.label << QLatin1Char('\n');
+         << csvCell(si.label) << QLatin1Char('\n');
     break;
   }
   case TrackType::StratigraphyCompound:
@@ -127,7 +127,8 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,system,series,formation\n");
     for (const auto &si : sc->intervals())
       ts << f1(si.topDepth) << QLatin1Char(',') << f1(si.bottomDepth) << QLatin1Char(',')
-         << si.system << QLatin1Char(',') << si.series << QLatin1Char(',') << si.formation
+         << csvCell(si.system) << QLatin1Char(',') << csvCell(si.series) << QLatin1Char(',')
+         << csvCell(si.formation)
          << QLatin1Char('\n');
     break;
   }
@@ -137,8 +138,8 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,major,sub,micro\n");
     for (const auto &fi : fc->intervals())
       ts << f1(fi.topDepth) << QLatin1Char(',') << f1(fi.bottomDepth) << QLatin1Char(',')
-         << fi.majorFacies << QLatin1Char(',') << fi.subFacies << QLatin1Char(',')
-         << fi.microFacies << QLatin1Char('\n');
+         << csvCell(fi.majorFacies) << QLatin1Char(',') << csvCell(fi.subFacies) << QLatin1Char(',')
+         << csvCell(fi.microFacies) << QLatin1Char('\n');
     break;
   }
   default:

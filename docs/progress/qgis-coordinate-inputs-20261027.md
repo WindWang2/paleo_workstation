@@ -75,5 +75,6 @@ QGIS 封装层不引用 `ui/` 或 PaleoTheme。主题、JetBrains Mono 数字字
 - 构建：`paleo-dev.ps1 build` 全量链接成功（`paleo.exe` 与相关测试目标均生成）。
 - 聚焦回归（均在本分支最终代码上跑过）：`tst_coordinateinputs` 13 项通过；`tst_wellsiting_panel` 6 项通过；`tst_projectsetup` 41 项通过、7 项跳过；`tst_projectcoordinates` 12 项通过、2 项跳过；`tst_mapbook` 20 项通过；`tst_previewmap_page` 27 项通过；`tst_panels_dataops` 全量通过，其中新增实体坐标用例单独通过；`tst_ui` 的 `coordinateMenuTransformsLocatesAndCopies` 单独通过。主窗完整 `tst_ui` 仍有 1 个与坐标无关的既有失败（`testSimultaneousWellsAndSurveyAreaVisibility`）。
 - 源码闸门：layering / layering_strict / layering_selftest / layering_symbol_audit / layering_transitive / layering_qgs_audit / qgis_spread 族 / ui_invariants / ui_size / file_budget / i18n / ui_tokens / qgis_versions / docs_drift / cpp_mainline 共 30 项全部通过。
+- 带 `QGIS_PREFIX` 的 `--transitive` 检查仍为 `ui_qtwidgets_notes: 6 > baseline 5`；同一检查在 `origin/master` 临时工作树上同为 6/5，属存量传递债。本分支没有新增该指标，也不上调基线。
 - 全量 CTest：使用 `PALEO_CTEST_ARGS=-j8` 跑完 485 项，结果为 449 通过 / 36 失败。该轮次暴露并已修复两类本分支问题：符号级词表把 `class QWidget;` 前向声明误当 UI Q_OBJECT 类（检查器已修并加自检）、状态坐标帮助文案丢掉“已配准”契约（已恢复）；另补齐了一个可见 Ribbon 命令缺失的帮助文本。剩余失败集中在在线底图/PDF、工程与文件锁、性能预算和并行竞态等环境项，不属于坐标输入、CRS 选择、坐标转换或地图范围功能路径，因此本报告不宣称全量 CTest 全绿。
 - 截图复核：1× 与 2× 浅/深截图已实际读取复核；范围输入采用 QGIS 展开式控件，坐标工具显示源/目标 CRS、基准操作和转换结果，实体与布井保存前显示“输入 → 工程存储”的转换边界。

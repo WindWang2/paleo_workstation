@@ -568,7 +568,16 @@ bool RasterPyramidService::tile(const QString &rasterPath, int z, int x, int y, 
               (*samples)[i] = cacheio::f32(raw, &pos, &ok);
             if (ok)
             {
-              m_tiles.insert(key, samples);
+              // L-25 同族：磁盘直读不持 buildMutex——开文件到插入之间并发
+              // ensure 可能已 invalidate+清 LRU，旧代瓦片后插会把陈旧数据
+              // 钉进新一代的缓存键下（后续新鲜度检查对新 meta 全通过）。
+              // 插入前复验源身份，不一致就不入缓存（本次仍返回已读数据）。
+              const QFileInfo reInfo(rasterPath);
+              if (reInfo.exists() &&
+                  meta.sourceMtimeMs == reInfo.lastModified().toMSecsSinceEpoch() &&
+                  meta.sourceSize == reInfo.size() &&
+                  meta.sourcePath == PathCanon::canonicalize(rasterPath))
+                m_tiles.insert(key, samples);
               out->z = z; out->x = x; out->y = y;
               out->width = w; out->height = h;
               out->allNodata = false;
@@ -604,6 +613,15 @@ bool RasterPyramidService::tile(const QString &rasterPath, int z, int x, int y, 
     }
     else
       meta = again;
+    // L-25 收尾：meta 已换代（或复验重读）后必须重算层网格——锁外按旧代
+    // 算的 lw/lh 继续用会让 LRU 双检分支的 width/height 与新代瓦片的
+    // samples 尺寸错位；x/y 也按新网格复核（尺寸变化可致原坐标越界）。
+    levelGrid(meta, z, &lw, &lh, &tilesX, &tilesY);
+    if (x < 0 || y < 0 || x >= tilesX || y >= tilesY)
+    {
+      if (error) *error = QStringLiteral("tile %1/%2/%3 out of grid %4x%5").arg(z).arg(x).arg(y).arg(tilesX).arg(tilesY);
+      return false;
+    }
   }
   // 双检（并发首建可能已落盘）。
   if (const auto hit = m_tiles.get(key))

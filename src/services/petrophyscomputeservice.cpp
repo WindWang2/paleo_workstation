@@ -1377,9 +1377,12 @@ PaleoTask *PetroPhysTaskService::startBatch(
                                        .arg(outputDir, sanitizeToken(well.wellId),
                                             formulaKey(request->formula),
                                             sanitizeToken(request->outputMnemonic));
-              QString path = base + QStringLiteral(".las");
-              for (int k = 2; QFileInfo::exists(path); ++k)
-                path = QStringLiteral("%1_%2.las").arg(base).arg(k);
+              // L-14：查重必须在单写者队列内做——两个同 (井,公式,输出名) 批次
+              // 并发在飞时，队外查重会选中同一路径：后写者覆盖先写者产物，
+              // 先完成批的 finished 回调再对被覆盖后的字节取 sha 登记版本，
+              // 登记内容与用户实得曲线张冠李戴。enqueueWrite 同步互斥执行，
+              // 探查+写入在队列内原子化（path 经引用回传）。
+              QString path;
               QString writeErr;
               bool writeOk = false;
               if (store)
@@ -1387,6 +1390,9 @@ PaleoTask *PetroPhysTaskService::startBatch(
                 // 产物写入走单写者队列（禁区：不旁路直写工程目录）
                 const PaleoProjectStore::WriteResult wr = store->enqueueWrite([&]() {
                   QString e;
+                  path = base + QStringLiteral(".las");
+                  for (int k = 2; QFileInfo::exists(path); ++k)
+                    path = QStringLiteral("%1_%2.las").arg(base).arg(k);
                   if (!LasWriter::writeLasFile(path, {depth, outCurve}, wo, &e))
                     return PaleoProjectStore::WriteResult{false, e};
                   return PaleoProjectStore::WriteResult{true, QString()};
@@ -1396,6 +1402,9 @@ PaleoTask *PetroPhysTaskService::startBatch(
               }
               else
               {
+                path = base + QStringLiteral(".las");
+                for (int k = 2; QFileInfo::exists(path); ++k)
+                  path = QStringLiteral("%1_%2.las").arg(base).arg(k);
                 writeOk = LasWriter::writeLasFile(path, {depth, outCurve}, wo, &writeErr);
               }
               if (writeOk)

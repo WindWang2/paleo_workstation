@@ -37,10 +37,12 @@ QVector<WellTopRecord> previewWellBases(DataCatalog *catalog, const QString &wel
     if (warnings) warnings->append(QObject::tr("原始分层表缺失或内容已变化，未采用其底界；末层仅按测井显示范围截取。"));
     return {};
   };
-  if (version.sha256.isEmpty() || DataCatalog::sha256FileHex(path) != version.sha256) return unavailable();
+  // 遗留 P3：原实现前置+后置双份全量哈希（大表开预览卡 UI 数百 ms）——改
+  // 为读完单次后置验身：读取期间被改写/本就错版一律 unavailable，语义等价、
+  // 哈希减半（两次表解析是必需数据面，不变）。
   const auto originals = paleo::io::readWellTable(path).tops;
   const auto bases = paleo::io::readWellTableBases(path);
-  if (DataCatalog::sha256FileHex(path) != version.sha256) return unavailable();
+  if (version.sha256.isEmpty() || DataCatalog::sha256FileHex(path) != version.sha256) return unavailable();
   QVector<WellTopRecord> out;
   for (const auto &base : bases) {
     if (DataCatalog::normalizeWellName(base.wellName) != name) continue;

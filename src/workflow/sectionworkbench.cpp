@@ -449,6 +449,11 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
                                    ? key
                                    : refs.first().sourceVersionId;
       if (!m_logs.contains(cacheKey)) {
+        // 遗留 P3：整份 LasDoc 按版本 id 常驻无上限（版本翻新后旧键永不
+        // 释放，长会话内存单调涨）——64 条上限近似 LRU（对齐 wellsectionworkflow
+        // kInterpParseCacheMaxEntries 口径）。
+        while (m_logs.size() >= 64)
+          m_logs.remove(m_logs.constBegin().key());
         LasDoc doc;
         LasHeaderInfo header;
         const auto &path = refs.first().path;

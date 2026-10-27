@@ -253,6 +253,50 @@ L-20（AGC 色标标签语义，需 DESIGN 裁决）、L-21（本机 ctest 夹�
 （wellcompositexml 六域写侧缺口，需设计决策）、L-26/L-27/L-28（constraintstore
 分页/备份时序、综合柱状图解析语义族、singlefactor 性能族）。
 
+## 第四轮（同日）：竞态/性能/闸门盲区
+
+### 已修复
+
+- **L-14**：petrophys 产物文件名查重挪进单写者队列内（enqueueWrite 同步互斥
+  执行）——两个同 (井,公式,输出名) 批次并发在飞时不再互覆产物、先完成批
+  的 sha 登记不再张冠李戴。
+- **L-13a**：realization 统计/差值的 async 入口被 busy 拒绝时，壳层不再兜底
+  同步重跑（旧兜底 = GUI 冻结 + 与在飞任务并行同算 → 同 token 双版本），
+  busy 只提示并解除面板忙态。
+- **L-11**：三处 GEOS 热路径加包围盒预筛（四次 double 比较挡掉不相交对再
+  进 GEOS）——evidencesynthesis 证据投票（单元×井点）、faciesqa 两两重叠
+  与整合接触检测（单元×单元）。语义不变（包围盒不相交 = 几何必不相交）。
+- **L-26a**：constraintstore copyAudit 分页从 OFFSET 改 fid 游标翻页
+  （readHistory/historyForHorizon 增带默认参数的游标面，既有调用零改动）——
+  导出快照与编辑并发时不再整页漏审计事件。
+- **闸门盲区**：`<qgis.h>` 与 `Qis::` 此前对 QGS_HEADER_RE/QGS_SYMBOL_RE
+  双双隐形——两检查器正则补口径后浮出 3 个存量直连文件
+  （evidencerecord.cpp、paleomainwindow_ribbon/_seismic.cpp），按 #539
+  盲区扩面先例入册两基线（139/174）并头注归因。
+- P3 五项：aichat 同帧重复 tool_call id 去重（原违反「每 call 恰好一答」
+  协议致每轮 400）、sectionworkbench LAS 缓存 64 条上限逐出（原无界）、
+  trackops CSV 单元格转义（层名/岩性名/结论文本含逗号引号换行不再错位）、
+  previewwellbases 双份全量哈希改单次后置验身、interp 追踪核失败 qWarning
+  留痕（原被 Q_UNUSED 吞掉谎报「部分覆盖」）。
+
+### 验证
+
+闸门全绿（layering --strict / qgs-audit 139=基线 / qgis-spread 174=基线 /
+file-budget 回升 0 / i18n / ui_tokens）；MSVC 全量构建通过。
+
+### 仍未修（维持登记）
+
+L-11 的 GEOSPreparedGeometry 进一步提速、L-13b/c/d（wellsiting saveScenario
+同步评估、attach 面运算任务化、mappingevidencereview 分块）、L-16
+（deviationsurvey 掉头段极值方向）、L-17、L-20（DESIGN 裁决）、L-21（本机
+ctest 环境；Defender 事件日志无拦截记录，EDR 假设未证实）、L-22（设计决策）、
+L-26b（migrateLegacyCrs 备份先于写锁）、L-27 其余（单元格级 issue 升格/
+坏行静默丢弃/sharedStrings 峰值）、L-28（singlefactor 性能族）、
+faciesmappingworkflow 草稿图血缘 parentPaths（调用方管线未携带源资产路径，
+需上游配合）、paleomainwindow horizonReleased 重实例化、fencewidget/
+trackcompound/sequenceframeworkpanel 的 R14 同族视图越界、ft 单位换算、
+exportengine PDF 横向分页、checker 模块清单硬编码、基线头注计数漂移。
+
 ## 验证
 
 - 源码闸门（本机直跑）：layering --strict / --qgs-audit / qgis-spread / file-budget

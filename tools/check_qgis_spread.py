@@ -56,11 +56,13 @@ SUFFIXES = (".h", ".cpp")
 QGIS_SPREAD_EXTRA_WHITELIST = set()
 
 # 外部 qgs 头：basename 匹配 qgs*.h（repo src/qgis/ 封装头不算，见下）。
-QGS_HEADER_RE = re.compile(r"^qgs[a-z0-9_]*\.h$")
+QGS_HEADER_RE = re.compile(r"^(?:qgs[a-z0-9_]*|qgis)\.h$")  # qgis.h 同为外部 QGIS 头（2026-10-27 盲区修复）
 # Qgs 前缀符号（类/函数/枚举一律 Qgs 打头）：如 QgsVectorLayer、
 # QgsProject::instance()、qobject_cast<QgsRasterLayer *>、FID_NULL 之外的
-# QgsCsException 等。只匹配代码（注释与字符串先剥除）。
-QGS_SYMBOL_RE = re.compile(r"\bQgs[A-Za-z0-9_]+")
+# QgsCsException 等。只匹配代码（注释与字符串先剥除）。Qgis:: 命名空间
+# 符号（Qgis::version()/Qgis::WkbType 等）同口径——2026-10-27 盲区修复：
+# 此前仅 Qgis:: 的文件（如 evidencerecord.cpp）对符号级判定隐形。
+QGS_SYMBOL_RE = re.compile(r"\b(?:Qgs[A-Za-z0-9_]+|Qgis::)")
 
 _INC_RE = re.compile(r'^\s*#\s*include\s*[<"]([^>"]+)[>"]', re.M)
 _CODE_ONLY_RE = re.compile(

@@ -773,7 +773,7 @@ def run_symbol_audit():
 # 无论迁移到 QGIS 4.x，只修改这一层」。本闸冻结现状（tools/qgs-audit-baseline.txt
 # 记录直连文件清单，只缩不涨），新增直连即红；收敛后删行。
 
-QGS_HEADER_RE = re.compile(r"^qgs[a-z0-9_]*\.h$")
+QGS_HEADER_RE = re.compile(r"^(?:qgs[a-z0-9_]*|qgis)\.h$")  # qgis.h 同为外部 QGIS 头（2026-10-27 盲区修复）
 
 
 def collect_qgs_audit():

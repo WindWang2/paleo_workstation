@@ -1,3 +1,5 @@
+# 2026-10-27 +3：qgis.h 头此前对 QGS_HEADER_RE 隐形（盲区修复入册，非新增直连）——
+# paleomainwindow_ribbon/_seismic、evidencerecord 为存量 <qgis.h> 直连。
 # qgs-audit-baseline —— Qgs 直连现状冻结清单（#472，tools/check_layering.py --qgs-audit）。
 # 格式：每行一个 src/ 相对路径（src/workflow 与 src/ui 中直接 include 外部
 # qgs* 头、basename 匹配 qgs*.h 的文件；repo src/qgis/ 封装头不算直连）。
@@ -159,3 +161,6 @@ src/workflow/wellpredictionreview.cpp
 src/workflow/wellsitingworkflow.cpp
 src/workflow/workflows.cpp
 src/workflow/workflows_internal.h
+src/ui/paleomainwindow_ribbon.cpp
+src/ui/paleomainwindow_seismic.cpp
+src/workflow/evidencerecord.cpp

@@ -85,11 +85,23 @@ SynthesisResult synthesizeFaciesRegions( const std::vector<CandidateRegion> &reg
     synthesis.regionId = regions[i].regionId;
     const GeomPtr &regionGeom = regionGeoms[i];
 
+    // L-11：单元×证据点的全对 GEOS 谓词是自动编图阶段 3 的热路径（数千
+    // 单元 × 数千井 = 1e6~1e7 次）——先取区域包围盒，四次数值比较挡掉
+    // 远点再进 GEOS（包围盒外的点必不相交，语义不变）。
+    double rx0 = 0, ry0 = 0, rx1 = 0, ry1 = 0;
+    const bool hasEnvelope =
+        regionGeom &&
+        GEOSGeom_getExtent_r( ctx.handle, regionGeom.get(), &rx0, &ry0, &rx1, &ry1 ) == 1;
+
     std::map<std::string, int> sourceVotes;
     for ( const Voter &voter : voters )
     {
-      if ( !regionGeom ||
-           GEOSIntersects_r( ctx.handle, regionGeom.get(), voter.point.get() ) != 1 )
+      if ( !hasEnvelope )
+        continue;
+      const double vx = voter.sample->x, vy = voter.sample->y;
+      if ( vx < rx0 || vx > rx1 || vy < ry0 || vy > ry1 )
+        continue; // 包围盒外：必不相交
+      if ( GEOSIntersects_r( ctx.handle, regionGeom.get(), voter.point.get() ) != 1 )
         continue;
       const double weight = voter.source->weight * std::clamp( voter.sample->confidence, 0.0, 1.0 ) *
                             ( voter.sample->weightBoost > 0 ? voter.sample->weightBoost : 1.0 );

@@ -41,8 +41,11 @@ public:
   // Newest first, max 200 per page. Deleted stable IDs remain queryable.
   QVector<QVariantMap> history(const QString &id, int limit = 50, int offset = 0,
                                QString *error = nullptr) const;
+  // L-26：fidBelow >= 0 时游标翻页（AND fid<N、OFFSET 恒 0，minFidOut 回传
+  // 页内最小 fid）——OFFSET 对并发追加会整页漏事件。
   QVector<QVariantMap> historyForHorizon(const QString &horizon, int limit = 200,
-                                       int offset = 0, QString *error = nullptr) const;
+                                       int offset = 0, QString *error = nullptr,
+                                       qint64 fidBelow = -1, qint64 *minFidOut = nullptr) const;
   // 将该层位的追加审计复制进另一个 GPKG，供约束快照带走删除历史。
   // 不修改来源；没有审计时成功且不创建空表。
   bool copyAudit(const QString &destinationGpkg, const QString &horizon,

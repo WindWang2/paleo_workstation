@@ -164,12 +164,14 @@ KernelTrackOutput runKernelTracking(
         &trackErr);
     if (!trRun.ok && one.picks.empty())
     {
-      // 非法输入：如实空结果，编排侧已有报告语义
+      // 追踪核失败如实留痕（此前 trackErr 被 Q_UNUSED 吞掉，整段失败会在
+      // 收尾被兜底文案谎报成「部分覆盖」的几何问题）。
+      if (!trackErr.isEmpty())
+        qWarning() << "[SeismicTaskService] track kernel failed:" << trackErr;
       runs.push_back(one);
     }
     else
     {
-      Q_UNUSED(trackErr);
       runs.push_back(one);
     }
     if (task)

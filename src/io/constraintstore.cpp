@@ -540,7 +540,10 @@ bool ConstraintStore::copyAudit(const QString &destination, const QString &horiz
     const auto page = historyForHorizon(horizon, 200, 0, &reason, fidBelow, &minFid);
     if (!reason.isEmpty()) { if (error) *error = reason; return false; }
     events += page;
-    if (page.size() < 200 || minFid == 0) break;
+    // 判终只看「整页无有效行」：readHistory 会跳过损坏 JSON 行（页变短但
+    // 后续页仍有数据），「页短即终页」会在损坏密集区静默截断快照；游标
+    // 每轮严格递减（fid 单调 + fid<fidBelow），无死循环面。
+    if (page.isEmpty() || minFid == 0) break;
     fidBelow = minFid;
   }
   if (events.isEmpty()) return true;

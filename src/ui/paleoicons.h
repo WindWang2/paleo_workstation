@@ -3,8 +3,9 @@
 #include <QIcon>
 class QString;
 class QColor;
+class QWidget;
 
-// src/ui/paleoicons — ribbon 图标的单一出口。
+// src/ui/paleoicons — ribbon 与页面命令图标的单一出口。
 //
 //   能用 QGIS 的用 QGIS：vendor QGIS default 主题 svg 编进 qgis_gui 的
 //   qrc（":/images/themes/default/"），与安装路径无关——qgisTheme() 取，
@@ -24,8 +25,11 @@ namespace PaleoIcons
   // 深色 glyph → 浅色的提亮变换（独立暴露供测试/复用）。
   QIcon tintForDarkTheme( const QIcon &icon );
 
-  // QGIS 9pt 工具条的既定 glyph 档位，统一四处动作按钮入口。
+  // QGIS 9pt 工具条的既定 glyph 档位，统一命令按钮入口。
   QSize toolbarSize();
+  QIcon commandIcon(const QString &command);
+  // 按稳定 objectName 补空图标；已有图标、尺寸与业务状态不变。
+  int applyCommandIcons(QWidget *root);
   QIcon inactive(); // 未激活层指示点
   QIcon dataLine(const QColor &color); // 曲线数据色样；不改变原色
   QIcon maximize(); // 预览最大化：单一方框

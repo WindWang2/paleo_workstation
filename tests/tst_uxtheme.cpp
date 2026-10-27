@@ -873,6 +873,63 @@ class TestUxTheme : public QObject
       QCOMPARE(icon.pixmap(QSize(24, 24), 2.0).toImage(), light);
     }
 
+    void commandIconsFillOnlyEmptyButtons()
+    {
+      const QStringList commands{
+          QStringLiteral("baseMapShow"), QStringLiteral("baseMapStart"),
+          QStringLiteral("cancelRunButton"), QStringLiteral("dataRedoButton"),
+          QStringLiteral("dataUndoButton"), QStringLiteral("extractWellFactorsButton"),
+          QStringLiteral("factorCancelButton"), QStringLiteral("factorNextStepButton"),
+          QStringLiteral("factorOneClickButton"), QStringLiteral("factorTaskCenterButton"),
+          QStringLiteral("generateFactorButton"), QStringLiteral("healthCheckButton"),
+          QStringLiteral("importAddData"), QStringLiteral("importBoundary"),
+          QStringLiteral("importFiles"), QStringLiteral("importFolder"),
+          QStringLiteral("importLedgerButton"), QStringLiteral("importOfflineBasemap"),
+          QStringLiteral("importPaleomap"), QStringLiteral("importPaleomapFolder"),
+          QStringLiteral("importSeismic"), QStringLiteral("importWellLogs"),
+          QStringLiteral("importWells"), QStringLiteral("listViewButton"),
+          QStringLiteral("maintainWellFactorsButton"), QStringLiteral("mamclButton"),
+          QStringLiteral("openSeismicSectionButton"), QStringLiteral("openWellFaciesButton"),
+          QStringLiteral("recomputeWellFactorsButton"), QStringLiteral("runButton"),
+          QStringLiteral("storageGovernanceButton"), QStringLiteral("treeViewButton"),
+          QStringLiteral("workbench.cancel"), QStringLiteral("workbench.checkTopology"),
+          QStringLiteral("workbench.compose"), QStringLiteral("workbench.consistency"),
+          QStringLiteral("workbench.contours"), QStringLiteral("workbench.copy"),
+          QStringLiteral("workbench.delete"), QStringLiteral("workbench.draw"),
+          QStringLiteral("workbench.exportMap"), QStringLiteral("workbench.exportVector"),
+          QStringLiteral("workbench.factor"), QStringLiteral("workbench.import"),
+          QStringLiteral("workbench.polygonize"), QStringLiteral("workbench.predict"),
+          QStringLiteral("workbench.referencePanel"), QStringLiteral("workbench.show"),
+          QStringLiteral("workbench.welltracks")};
+      QCOMPARE(commands.size(), 49);
+      for (const QString &command : commands)
+        QVERIFY2(!PaleoIcons::commandIcon(command).isNull(), qPrintable(command));
+      QVERIFY(PaleoIcons::commandIcon(QStringLiteral("unmappedCommand")).isNull());
+
+      QWidget host;
+      auto *run = new QPushButton(&host);
+      run->setObjectName(QStringLiteral("workbench.predict"));
+      auto *cancel = new QToolButton(&host);
+      cancel->setObjectName(QStringLiteral("workbench.cancel"));
+      auto *unknown = new QPushButton(&host);
+      unknown->setObjectName(QStringLiteral("unmappedCommand"));
+      auto *existing = new QPushButton(&host);
+      existing->setObjectName(QStringLiteral("runButton"));
+      const QIcon marker = PaleoIcons::maximize();
+      existing->setIcon(marker);
+      const auto originalKey = existing->icon().cacheKey();
+
+      QCOMPARE(PaleoIcons::applyCommandIcons(&host), 2);
+      QVERIFY(!run->icon().isNull());
+      QVERIFY(!cancel->icon().isNull());
+      QCOMPARE(run->iconSize(), PaleoIcons::toolbarSize());
+      QCOMPARE(cancel->iconSize(), PaleoIcons::toolbarSize());
+      QVERIFY(unknown->icon().isNull());
+      QCOMPARE(existing->icon().cacheKey(), originalKey);
+      QCOMPARE(PaleoIcons::applyCommandIcons(&host), 0);
+      QCOMPARE(PaleoIcons::applyCommandIcons(nullptr), 0);
+    }
+
     // 空态卡片共享组件：objectName 三态 + 样式随主题活体重算。
     void emptyStateCardIsThemed()
     {

@@ -2,6 +2,7 @@
 #include "paleoicons.h"
 #include "paleotheme.h"
 
+#include <QAbstractButton>
 #include <QIconEngine>
 #include <QPainter>
 #include <QPixmap>
@@ -153,6 +154,85 @@ QIcon PaleoIcons::maximize() { return QIcon(new ThemeIconEngine({}, Glyph::Maxim
 QIcon PaleoIcons::restore() { return QIcon(new ThemeIconEngine({}, Glyph::Restore)); }
 
 QSize PaleoIcons::toolbarSize() { return QSize(18, 18); }
+
+QIcon PaleoIcons::commandIcon(const QString &command)
+{
+  static const struct Entry { const char *command; const char *icon; } entries[] = {
+      {"baseMapShow", "mActionShowAllLayers.svg"},
+      {"baseMapStart", "mActionStart.svg"},
+      {"cancelRunButton", "mActionCancelEdits.svg"},
+      {"dataRedoButton", "mActionRedo.svg"},
+      {"dataUndoButton", "mActionUndo.svg"},
+      {"extractWellFactorsButton", "mIconPointLayer.svg"},
+      {"factorCancelButton", "mActionCancelEdits.svg"},
+      {"factorNextStepButton", "mActionZoomToSelected.svg"},
+      {"factorOneClickButton", "processingModel.svg"},
+      {"factorTaskCenterButton", "mActionHistory.svg"},
+      {"generateFactorButton", "mActionStart.svg"},
+      {"healthCheckButton", "mActionIdentify.svg"},
+      {"importAddData", "mActionAdd.svg"},
+      {"importBoundary", "mActionCapturePolygon.svg"},
+      {"importFiles", "mActionFileOpen.svg"},
+      {"importFolder", "mIconFolderOpen.svg"},
+      {"importLedgerButton", "mActionHistory.svg"},
+      {"importOfflineBasemap", "mIconRasterLayer.svg"},
+      {"importPaleomap", "mActionAddLayer.svg"},
+      {"importPaleomapFolder", "mIconFolderOpen.svg"},
+      {"importSeismic", "mIconRasterLayer.svg"},
+      {"importWellLogs", "mLayoutItemElevationProfile.svg"},
+      {"importWells", "mActionCapturePoint.svg"},
+      {"listViewButton", "mActionOpenTable.svg"},
+      {"maintainWellFactorsButton", "mActionOpenTable.svg"},
+      {"mamclButton", "processingAlgorithm.svg"},
+      {"openSeismicSectionButton", "mIconRasterLayer.svg"},
+      {"openWellFaciesButton", "mLayoutItemElevationProfile.svg"},
+      {"recomputeWellFactorsButton", "mActionRefresh.svg"},
+      {"runButton", "mActionStart.svg"},
+      {"storageGovernanceButton", "mActionOptions.svg"},
+      {"treeViewButton", "mActionShowAllLayers.svg"},
+      {"workbench.cancel", "mActionCancelEdits.svg"},
+      {"workbench.checkTopology", "mActionIdentify.svg"},
+      {"workbench.compose", "processingAlgorithm.svg"},
+      {"workbench.consistency", "mActionOpenTable.svg"},
+      {"workbench.contours", "mActionAddLayer.svg"},
+      {"workbench.copy", "mActionEditCopy.svg"},
+      {"workbench.delete", "mActionDeleteSelected.svg"},
+      {"workbench.draw", "mActionCapturePolygon.svg"},
+      {"workbench.exportMap", "mActionSaveAsPDF.svg"},
+      {"workbench.exportVector", "mActionSharingExport.svg"},
+      {"workbench.factor", "processingModel.svg"},
+      {"workbench.import", "mActionAddLayer.svg"},
+      {"workbench.polygonize", "mActionCapturePolygon.svg"},
+      {"workbench.predict", "mActionStart.svg"},
+      {"workbench.referencePanel", "mActionShowAllLayers.svg"},
+      {"workbench.show", "mActionZoomToSelected.svg"},
+      {"workbench.welltracks", "mLayoutItemElevationProfile.svg"},
+  };
+  for (const auto &entry : entries)
+    if (command == QLatin1String(entry.command))
+      return qgisTheme(QLatin1String(entry.icon));
+  return {};
+}
+
+int PaleoIcons::applyCommandIcons(QWidget *root)
+{
+  if (!root)
+    return 0;
+  int applied = 0;
+  for (auto *button : root->findChildren<QAbstractButton *>())
+  {
+    if (!button->icon().isNull())
+      continue;
+    const QIcon icon = commandIcon(button->objectName());
+    if (icon.isNull())
+      continue;
+    button->setIcon(icon);
+    button->setIconSize(toolbarSize());
+    ++applied;
+  }
+  return applied;
+}
+
 QIcon PaleoIcons::inactive() { return QIcon(new ThemeIconEngine({}, Glyph::Inactive)); }
 QIcon PaleoIcons::dataLine(const QColor &color)
 { return QIcon(new ThemeIconEngine({}, Glyph::DataLine, false, color)); }

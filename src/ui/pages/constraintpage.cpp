@@ -1,4 +1,5 @@
 // 层：视图
+#include "ui/paleoicons.h"
 #include "ui/paleotheme.h"
 #include "constraintpage.h"
 #include "constraintpage_internal.h"
@@ -209,6 +210,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   refreshFactorResults();
   if (factors->rowCount()) factors->item(0, 0)->setCheckState(Qt::Checked);
   updateFactorActionStates();
+  PaleoIcons::applyCommandIcons(this);
 }
 
 void ConstraintPage::showEvent( QShowEvent *event )

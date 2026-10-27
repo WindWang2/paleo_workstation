@@ -537,7 +537,12 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok,
   appendMessage(tool);
   for (int i = 0; i < m_unansweredCalls.size(); ++i)
     if (m_unansweredCalls[i].id == call.id)
+    {
+      // 每次应答只摘首条匹配：连续 removeAt 后 ++i 会跳过补位元素（空 id
+      // 同名多条时一次摘不全、m_unansweredCalls 与 pending 计数裂缝）。
       m_unansweredCalls.removeAt(i);
+      break;
+    }
   // 卡片摘要：成功给首 160 字符；失败给 error 字段原文（不吞）。
   QString summary;
   if (ok) {

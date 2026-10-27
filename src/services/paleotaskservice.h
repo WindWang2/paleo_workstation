@@ -1,7 +1,6 @@
 // 层：数据
 #pragma once
 #include <QElapsedTimer>
-#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QVariantMap>

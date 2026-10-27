@@ -38,6 +38,9 @@ void PreviewMapPage::openCoordinateTools()
 {
   auto *dialog = m_canvas->createCoordinateToolsDialog(this);
   dialog->dialog()->setAttribute(Qt::WA_DeleteOnClose);
+  // WA_DeleteOnClose 只删内层 QDialog——包装随内层一起回收，否则每次开关
+  // 对话框泄漏一个死包装（内层 destroyed 也连带拾取工具的清理链生效）。
+  connect(dialog->dialog(), &QObject::destroyed, dialog, &QObject::deleteLater);
   paleo::pagesinternal::markPrimaryButton(dialog->convertButton());
   dialog->editor()->xEdit()->setFont(PaleoTheme::monoFont());
   dialog->editor()->yEdit()->setFont(PaleoTheme::monoFont());

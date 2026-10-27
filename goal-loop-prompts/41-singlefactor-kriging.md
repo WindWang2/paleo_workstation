@@ -59,7 +59,7 @@ cmake --build build -j8
 - **数值正确性**：克里金在采样点精确通过（exactitude）、无数据处
   趋均值面、与已知解析解的合成断言。
 - **性能断言**：禁绝对毫秒墙钟；网格插值用合成格 + 比率门。
-- **ledger**：`.goal-loop-ledger-sf-kriging.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-sf-kriging.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/数值正确/
   诚实标签/格式诚实/i18n 五维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

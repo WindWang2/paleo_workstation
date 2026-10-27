@@ -1,7 +1,7 @@
 # 方向 28 — 层序地层格架工作台（格架先行）
 
 分支 `goal/sequence-framework-20261004`（基线 `origin/master` `bd1eb0a`），逐条证据见
-`.goal-loop-ledger-sequence-framework.md`。
+`docs/ledger-archive/goal-loop-sequence-framework.md`。
 
 ## 为什么要先有格架
 

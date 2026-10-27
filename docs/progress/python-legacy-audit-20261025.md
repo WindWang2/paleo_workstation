@@ -65,7 +65,7 @@ gates 步和/或 `cmake/paleo-test-infra.cmake`、`cmake/extra-*.cmake`：
   面测量口径工具。
 
 **l10n 管线（2，translations/ zh_CN 持续演进）**：`batch_translate.py`
-（M2 批量翻译引擎，`.goal-loop-ledger-zh-cn-l10n.md` 与
+（M2 批量翻译引擎，`docs/ledger-archive/goal-loop-zh-cn-l10n.md` 与
 docs/progress/full-audit-20261017/findings/agent-e.md 在册）、
 `verify_l10n_offscreen.py`（M4 运行时 locale 动态加载验证）。
 

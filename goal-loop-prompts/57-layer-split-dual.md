@@ -90,7 +90,7 @@ cmake --build build -j8
   假红教训）。
 - **无人值守**：切分线与 TODO 定性自行定案记 ledger。
 - **性能断言**：批作业吞吐/导入吞吐比率门（禁绝对毫秒）。
-- **ledger**：`.goal-loop-ledger-layer-split.md`（A/B 两阶段
+- **ledger**：`docs/ledger-archive/goal-loop-layer-split.md`（A/B 两阶段
   分节记）。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（API
   等价/语义保留/异步正确性/TU 边界/无死代码 五维）→ 修复 →

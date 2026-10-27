@@ -106,7 +106,7 @@ cd .worktrees\docs-drift
   100。
 - **资源**：`./paleo-dev.ps1` 系（lupdate 工具链）。
 - **无人值守**：护栏项与容差自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-docs-drift.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-docs-drift.md`。
 - **多轮 review（硬要求）**：每批 → 护栏绿 → diff 自审
   （事实核对/档案完整/计数准确/护栏有效/无越权 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

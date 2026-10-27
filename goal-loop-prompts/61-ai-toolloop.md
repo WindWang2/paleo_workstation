@@ -86,7 +86,7 @@ socketpair/本地 HTTP 测试），不依赖真实远端。
 - **资源**：`-j8`；ctest 串行。
 - **无人值守**：协议细节按 OpenAI 官方公开文档口径；取消语义
   自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-ai-toolloop.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-ai-toolloop.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/协议正确性/取消与守卫语义/安全红线/i18n 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

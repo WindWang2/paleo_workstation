@@ -41,7 +41,7 @@ cmake --build build -j8
 - **vendor**：改 `vendor/sbm`/`vendor/qgis` 必须登记对应 `PATCHES.md`（P 编号递增）。
 - **UI**：视觉决策对照 `DESIGN.md`；i18n 新字符串过 `i18n`/`i18n_selftest`。
 - **性能断言**：禁绝对毫秒墙钟——比率门或 env 门控。
-- **ledger**：worktree 根建 `.goal-loop-ledger-interactive-editing.md`，每轮记「改动/验证/判定/下一步」。
+- **ledger**：worktree 根建 `docs/ledger-archive/goal-loop-interactive-editing.md`，每轮记「改动/验证/判定/下一步」。
 - **多轮 review（硬要求）**：每批落地 → 构建+受影响测试全绿 → **diff 全量自审**（分层违规 / store 一致性 / 语义漂移 / 资源泄漏 / DESIGN.md / i18n 六维出报告）→ 修复 → 再 review。**至少两轮零 High/Medium 发现**才收口；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀，对齐 git log 风格。
 

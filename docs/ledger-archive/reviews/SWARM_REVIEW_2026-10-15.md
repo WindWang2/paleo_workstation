@@ -1,5 +1,8 @@
 # Swarm 深度 Review 报告（2026-10-15）
 
+> 历史审计记录：结论、版本和测试数量仅适用于报告所载日期与基线。
+> 当前架构见 [PALEO_QGIS_PLAN.md](../../PALEO_QGIS_PLAN.md)，待办见 [TODOS.md](../../../TODOS.md)。
+
 范围：全仓 ~29 万行 C++（src 13 个模块）+ 构建体系 + 架构契约。
 方式：8 个并行审查 agent 分域深审（domain/catalog/metadata、io、algorithms、services/ai/linkage、workflow、ui 主壳、ui 专业页面、qgis/app + 构建/架构），全部静态审查、findings 均带 file:line 证据。
 

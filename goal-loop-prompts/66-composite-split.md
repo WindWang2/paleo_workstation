@@ -70,7 +70,7 @@ cmake --build build -j8
 - **资源**：`-j8`；ctest 串行。
 - **无人值守**：切分线自行定案记 ledger。
 - **性能断言**：综合图渲染性能门不回退（比率门对照 R0）。
-- **ledger**：`.goal-loop-ledger-composite-split.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-composite-split.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （API 等价/道头语义/会话契约/TU 边界/无死代码 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

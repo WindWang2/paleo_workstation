@@ -87,7 +87,7 @@ CI/有 Linux 环境的会话执行——这不算失败收尾，是环境边界
 - **无人值守**：版本决策自行定案记 ledger（判据齐全）。
 - **vendor 纪律**：改 vendor/sbm 需登记 PATCHES.md（本方向
   预计不触 sbm）；superbuild 补丁变更在 PATCHES/README 记录。
-- **ledger**：`.goal-loop-ledger-dep-unify.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-dep-unify.md`。
 - **多轮 review（硬要求）**：每批 → 可本机验证项全绿 →
   diff 自审（锁文件格式正确性/决策判据完整性/CI yaml 结构/
   文档同步/护栏有效 五维）→ 修复 → 再 review，至少两轮零

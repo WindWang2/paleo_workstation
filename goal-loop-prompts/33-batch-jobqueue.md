@@ -41,7 +41,7 @@ cmake --build build -j8
 - **vendor**：改 vendor 件登记 `PATCHES.md`。
 - **UI**：对照 `DESIGN.md`；i18n 过两门。
 - **性能断言**：禁绝对毫秒墙钟。
-- **ledger**：`.goal-loop-ledger-batch-jobqueue.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-batch-jobqueue.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/幂等/取消语义/崩溃恢复路径/熔断边界/i18n 六维）→ 修复 → 再 review，**至少两轮零 High/Medium**；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀。
 

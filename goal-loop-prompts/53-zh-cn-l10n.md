@@ -79,7 +79,7 @@ lupdate/lrelease 走 Qt 工具链（`C:/deps/Qt/6.8.0/msvc2022_64/bin`
 - **资源**：构建 `-j8`；本方向构建轮次少。
 - **无人值守**：疑难术语自行按行业惯例裁决并记 glossary，不等
   人工确认。
-- **ledger**：`.goal-loop-ledger-zh-cn-l10n.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-zh-cn-l10n.md`。
 - **多轮 review（硬要求）**：每批 → lrelease 零 error → 抽检
    译文质量（术语一致/占位符完整/context 错位）→ 修复 → 再
    review，至少两轮零 High/Medium；Low 记 PR body。

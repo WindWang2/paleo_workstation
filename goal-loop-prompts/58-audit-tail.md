@@ -77,7 +77,7 @@ ctest --test-dir build   # Windows 串行；Qt 混链基线红先对照（见方
   标记漂移，如实记「审计时点与当前代码的差异」不冒记已修。
 - **资源**：构建/测试一律 `-j8` 以内；ctest 串行。
 - **无人值守**：四项定性自行定案记 ledger，不等人工确认。
-- **ledger**：`.goal-loop-ledger-audit-tail.md`，每轮记
+- **ledger**：`docs/ledger-archive/goal-loop-audit-tail.md`，每轮记
   「改动/验证/判定/下一步」。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/断言真实性/行为保留/文档同步/i18n 五维）→ 修复 →

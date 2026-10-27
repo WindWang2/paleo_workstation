@@ -1,4 +1,4 @@
-# .goal-loop-ledger-welllog-fmt.md — 方向 44 逐条对账台账
+# docs/ledger-archive/goal-loop-welllog-fmt.md — 方向 44 逐条对账台账
 
 方向：井曲线多格式读口——DLIS/LIS/BE + MD/TVD 对齐 + 挂接语义收口
 分支：`goal/welllog-fmt-20261004`（基线 origin/master b57e5f3）

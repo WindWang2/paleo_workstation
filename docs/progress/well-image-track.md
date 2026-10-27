@@ -5,7 +5,7 @@
 
 本文钉死三份契约：锚深元数据的**文件名惯例与后补编辑语义**、装载
 **LOD 口径**、井附件**管理面板职责**。判据与决策过程见仓内 ledger
-`.goal-loop-ledger-imagetrack-deep.md`。
+`docs/ledger-archive/goal-loop-imagetrack-deep.md`。
 
 ## 1. 锚深契约（catalog 元数据）
 

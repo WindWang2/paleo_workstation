@@ -96,7 +96,7 @@ void GeostatSgsTests::goldenAnchorPinsRefactoredKernel()
 {
   // goal/prop-model-v2：机件抽到 sgs_internal.h 的重构必须算术恒等。
   // 黄金锚 = 重构当日 master 版核与本版独立编译同场景输出的逐格量化值
-  //（防未来再动 sgs.cpp 时静默漂移——见 .goal-loop-ledger-prop-model-v2.md
+  //（防未来再动 sgs.cpp 时静默漂移——见 docs/ledger-archive/goal-loop-prop-model-v2.md
   // 批次3 纠错记录）。
   // #478 重锚：随机流从「各实现共享单流连续」改为 per-realization 派生流
   //（seed + r·黄金比常数；实现级并行）。r=0 种子不变 → 前 1024 值（实现 0）

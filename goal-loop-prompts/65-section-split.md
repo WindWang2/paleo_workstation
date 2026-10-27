@@ -76,7 +76,7 @@ cmake --build build -j8
   冲突按「谁先合谁为准」。
 - **性能断言**：剖面渲染性能门不回退（比率门对照 R0，
   tst_seismic_perf/budgets）。
-- **ledger**：`.goal-loop-ledger-section-split.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-section-split.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （API 等价/守卫语义/缓存键/TU 边界/无死代码 五维）→ 修复
   → 再 review，至少两轮零 High/Medium；Low 记 PR body。

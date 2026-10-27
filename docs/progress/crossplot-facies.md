@@ -1,7 +1,7 @@
 # 交会分析与无监督相分类
 
 日期：2026-10-02；Goal-Loop 方向 14。逐轮提交与验收命令见
-[`../../.goal-loop-ledger-crossplot-facies.md`](../../.goal-loop-ledger-crossplot-facies.md)。
+[`../../docs/ledger-archive/goal-loop-crossplot-facies.md`](../ledger-archive/goal-loop-crossplot-facies.md)。
 
 ## 入口与操作
 

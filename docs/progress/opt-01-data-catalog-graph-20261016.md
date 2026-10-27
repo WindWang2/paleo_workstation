@@ -4,7 +4,7 @@
   `../paleo_workstation-opt-01-data-catalog-graph`（独立 `build/`，Release + Ninja，GCC 14 /
   Qt 6.8.2 / QGIS 4.2.3 / GDAL 3.10.3）。
 - **BASE_SHA** = `dbb03269ca1809145e1ee39b699c6fd08916a317`（启动时 `git fetch --prune` 后 origin/master）。
-- 逐轮证据账本：仓库根 `.goal-loop-ledger-opt-01.md`。
+- 逐轮证据账本：仓库根 `docs/ledger-archive/goal-loop-opt-01.md`。
 
 ## R0 基线冻结
 

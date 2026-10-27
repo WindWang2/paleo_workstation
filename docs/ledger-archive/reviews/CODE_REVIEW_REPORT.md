@@ -1,5 +1,8 @@
 # Paleo Workstation 全库全链路深度代码评审报告
 
+> 历史审计记录：结论、版本和测试数量仅适用于报告所载日期与基线。
+> 当前架构见 [PALEO_QGIS_PLAN.md](../../PALEO_QGIS_PLAN.md)，待办见 [TODOS.md](../../../TODOS.md)。
+
 **报告版本**：2.0.0 (Master Comprehensive Code Review Report)  
 **评审对象**：`paleo_workstation` 全代码库（`src/`, `tests/`, `tools/`, `cmake/`, `docs/`）  
 **主审机构**：多代理代码评审专家团队（Code Review Master Auditor & Report Author）  
@@ -244,7 +247,7 @@ python3 tools/check_layering.py --strict
       -> PaleoProjectStore::~PaleoProjectStore() (Store 析构释放)
     -> 后台任务 / 延迟写队列执行写入:
       -> ConstraintStore::addConstraint(...)
-        -> m_enqueue([=](...) { return store->enqueueWrite(...); })
+        -> m_enqueue([=](../../...) { return store->enqueueWrite(...); })
           -> 访问已被销毁的 store 内存 -> SIGSEGV 崩溃！
   ```
 - **代码级根因**：
@@ -1097,4 +1100,4 @@ Phase 0 (已完成验证) ──> Phase 1 (第1-2周) ──> Phase 2 (第3-4周
 
 ---
 
-*（本报告全文完，已同步归档至 `docs/CODE_REVIEW_REPORT.md`，供架构委员会、研发团队与独立审计机构对账审查。）*
+*（本报告全文完，已同步归档至 `docs/ledger-archive/reviews/CODE_REVIEW_REPORT.md`，供架构委员会、研发团队与独立审计机构对账审查。）*

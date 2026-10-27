@@ -2,7 +2,7 @@
 
 基线 `dbb03269`（PR #459 后 master）。分支
 `goal/paleo-opt-02-well-seismic-correlation-20261016`。完整账本见仓库根
-`.goal-loop-ledger-opt-02.md`。
+`docs/ledger-archive/goal-loop-opt-02.md`。
 
 ## 范围与排除
 

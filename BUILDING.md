@@ -8,10 +8,9 @@
 ./paleo-dev test        # QT_QPA_PLATFORM=offscreen 全套测试
 ```
 
-- **TTHW 目标：vendor 引导完成后，首次绿色测试 2–5 分钟**（configure+build+
-  ctest，8 核基线机）。早期 wave-4 的 ~48s 是当时 62 项测试的历史数据，
-  不代表当前全量；测试数以 `ctest -N` 为准。2026-10-03 的 243 项基线含既有红项，
-  不能声称 TTHW 全绿目标已达成，当前对照见 `docs/progress/job-framework.md` 文末。
+- 引导后的可用性先由 `./paleo-dev selfcheck` 核对 provider、资源和渲染。
+  全量测试范围以当前构建的 `ctest --test-dir build -N` 为准；不要把早期套件数
+  或单机耗时当作当前首次构建、测试完成时间。
 - 引导本身（一次性）：binary 加速档 ~10min（OSGeo4W / deb 闭包 / onnxruntime
   pin）；superbuild 首选路 ≤2h、磁盘 ≥60GB（启用步骤见
   `vendor/superbuild/README.md`，政策见下「依赖来源策略」）。
@@ -310,9 +309,9 @@ try {
 
 | 平台 | 状态 | 依赖来源 |
 |------|------|----------|
-| Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | Arch 本机通过；Ubuntu 26.04 CI（deb 闭包 vendored，#76 已迁移待 CI 验证） | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档，CI 现行）；发行版 QGIS 4.2.x 仅兜底 |
-| Windows x86_64 | CI leg + 本机 localdeps（Qt 6.11.2 统一链，方向 72；全量回归本机可信） | CI：OSGeo4W `qgis` + `qgis-devel` 4.2.x + `qt6-devel`，MSVC /MD；本机：`~/paleo-qgis-deps`（conda qt6-main 6.11.2）+ `~/paleo-qgis-prefix` + qtpdf 官方覆盖层（见上节） |
-| 更低 glibc 宿主 | 不支持 | superbuild-on-oldest-target（ExternalProject） |
+| Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | CI 配置为 Ubuntu 26.04；实际通过情况查看对应提交的 CI 记录 | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档，CI 现行）；发行版 QGIS 4.2.x 仅兜底 |
+| Windows x86_64 | CI 配置为 windows-2025 四分片，每片串行；本机支持 localdeps 同链开发 | CI：OSGeo4W 包闭包由 `vendor/manifest.json` 钉版；本机：`~/paleo-qgis-deps` + `~/paleo-qgis-prefix` + 同版 qtpdf 覆盖层（见上节） |
+| 更低 glibc 的 Linux x86_64 宿主 | 在目标最低系统上源码构建后验证，不可直接使用较新 glibc 的二进制闭包 | superbuild-on-oldest-target（ExternalProject） |
 
 ## 依赖（vendor manifest pin）
 
@@ -347,9 +346,8 @@ QGIS 4.2.x（三路口径统一上游 4.2.3，`tools/check_qgis_versions.py` 门
   本地快速道：`ctest -LE 'heavy|perf' --output-on-failure`（巨测与预算类
   之外的全量，分钟级）；再叠 `PALEO_TEST_FAST=1` 可让个别巨测内部减样
   （tst_import 并发导入 12→4、tst_mappingworkbench 合并轮数 20→5——
-  默认语义不变，CI 不设此变量）。快速道**不能替代**合入前全量：Windows
-  全量 ctest 约 44min 的根治方向见 TODOS.md（ctest 并行化/构建产物复用），
-  不在标签体系内解决。
+  默认语义不变，CI 不设此变量）。快速道不能替代约定的完整验证范围。
+  Windows CI 已按测试序号分片，各片内保持串行；本机不要按旧耗时估算当前全量。
 
 ## 加速与实验档（devex）
 
@@ -394,39 +392,19 @@ layer-marker 全量判违规（by design，防漏网）；脚本同时打印
 
 ## 升级流程
 
-Debian 闭包升级时，在目标发行版且已配置 QGIS 官方 apt 源的干净环境运行 `./vendor/fetch-deps.sh --update-lock --print-only`，审查并提交新的 `vendor/deb-closure.lock`。正常 bootstrap 只读取锁文件，并仅解包锁内经过大小和 SHA-256 校验的文件。superbuild 升级则同步改 `vendor/superbuild/CMakeLists.txt` 的 `QGIS_URL` 与 `URL_HASH`（补丁文件名随版本重命名，需对目标版本 tarball 重验证 dry-run 干净），`vendor/cache/tarballs/` 缓存与哈希一并更新。**三路版本口径（superbuild 精确 / deb 闭包上游 / manifest `qgis_family` 家族）必须一起动**——`tools/check_qgis_versions.py`（ctest `qgis_versions` + CI lint）不一致即红。ONNX Runtime 升级则更新 `vendor/manifest.json` 的版本和摘要。Windows bootstrap 校验安装器 SHA-256，并按 manifest `qgis_family` 拒绝家族不符（正则从 manifest 派生，单一来源；OSGeo4W installer 只有包名粒度，精确版本 pin 不可表达）；OSGeo4W 包闭包仍由其安装器选择，升级时须复核 CI。
+Debian 闭包升级时，在目标发行版且已配置 QGIS 官方 apt 源的干净环境运行 `./vendor/fetch-deps.sh --update-lock --print-only`，审查并提交新的 `vendor/deb-closure.lock`。正常 bootstrap 只读取锁文件，并仅解包锁内经过大小和 SHA-256 校验的文件。superbuild 升级则同步改 `vendor/superbuild/CMakeLists.txt` 的 `QGIS_URL` 与 `URL_HASH`（补丁文件名随版本重命名，需对目标版本 tarball 重验证 dry-run 干净），`vendor/cache/tarballs/` 缓存与哈希一并更新。**三路版本口径（superbuild 精确 / deb 闭包上游 / manifest `qgis_family` 家族）必须一起动**——`tools/check_qgis_versions.py`（ctest `qgis_versions` + CI lint）不一致即红。ONNX Runtime 升级则更新 `vendor/manifest.json` 的版本和摘要。Windows bootstrap 校验安装器 SHA-256，并核对 manifest 的 `qgis_family`、`packages` 与 `closure`。直接包与依赖闭包版本由 `tools/pin_osgeo4w.py` 刷新后审查提交；升级时复核 CI。
 
-## 实测值（Phase 0，本机 Arch/qgis-4.2.2 已装）
+## 性能度量与 CI 产物
 
-- superbuild 首轮全量 ≈ 56min（含一次 libspatialindex 门禁失败重试）；主构建
-  切 `vendor/superbuild/prefix` 重编 789 targets ≈ 11min；ctest 129/129 ≈ 37s；
-  `paleo_selfcheck` 8/8，357ms（底账 docs/progress/vendor-superbuild.md）
-- 首次 configure+build（3 个目标）：<1min（依赖已装）——Phase 0 规模口径
-- `tst_boot`：init+providers+srs.db+渲染 非均匀像素断言 — PASS（102ms）
-- `tst_polygonize`：provider 注册+GDALPolygonize C++ 路径 — PASS
-- `spikes/onnx/ort_check`：进程内 toy 推理 2.0→42.0 — PASS
-- 全套 ctest（wave4 起 62 测试，offscreen）：~48s（TTHW 预算内）；设
-  `PALEO_REAL_PROJECT_AREA` 跑真数据档时全套 ~110–130s（wave3 实测
-  109.3s/133.1s）
+Phase 0 和早期增量构建的绝对耗时保留在 `docs/perf/` 与交付账本中，不能代表当前规模。
+当前增量构建使用 `tools/measure_incremental.sh`，记录实际重编 TU、构建步骤及比率：
 
-### 增量构建基线（ET14 刷新，方向70 2026-10-07）
+```bash
+tools/measure_incremental.sh build src/app/appcontext.cpp build/incremental-baseline.jsonl
+```
 
-Phase 0 的「3 目标 <1min」早已失真；当前规模（475 TU / 5743 ninja 目标），
-`tools/measure_incremental.sh` 钉口径：touch 组装根 `src/app/appcontext.cpp`
-（叶子层，扇出上限样本）→ 1 TU 重编 + 18 个下游 exe relink = 20 步，本机
-MSVC/Ninja -j8 实测 ~15s（链接占绝对大头，编译 <2s）。绝对时长跨机不可比
-（仅记录，不是门）；回归口径用比率：tu_ratio=1/475、step_ratio=20/5743，
-JSON 落 `build/incremental-baseline.jsonl` 可追趋势。Linux 无 MSVC 增量
-链接开销，预计显著低于此；PLAN ET14「单文件改动增量 ≤60s」在当前规模
-下仍成立。
-
-**CI 侧落点（方向75 2026-10-08）**：linux 主 job 在 Selfcheck 后追加
-`Incremental build baseline (ET14)` 步（step 级 `continue-on-error`——
-观察面不拖累合并门禁），每 run 跑一轮 `tools/measure_incremental.sh`，
-产物 `build/incremental-baseline.jsonl` 以 artifact
-`incremental-baseline-linux` 上传（retention 90 天）。看趋势：run 页面
-下载 artifact，逐行对比 tu_ratio/step_ratio；绝对时长只记录不设门
-（runner 世代不同不可比）。
+CI Linux 在 Selfcheck 后执行该测量，并上传 `incremental-baseline-linux` 产物。
+它是非阻断的趋势观察项；比较时保留提交、工具链和构建配置，绝对时长不作跨机判定。
 
 ### CI Linux 的调试信息体积
 

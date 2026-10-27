@@ -11,7 +11,7 @@
 // 方向64：统一错误通道（服务层，无 QtWidgets）。方向76 合流后为全仓唯一
 // 错误真源——方向54（#251）的命名空间内并行实现及其未装配呈现栈
 // （notificationmanager/notificationcard/errorhistorymodel/
-// errorhistorydock）已删除，裁决记录见 .goal-loop-ledger-hub-merge.md。
+// errorhistorydock）已删除，裁决记录见 docs/ledger-archive/goal-loop-hub-merge.md。
 //
 // 契约（单点事实，DESIGN.md「错误呈现」节与此一致）：
 // - 条目 = 级别（Info/Warning/Error）+ 来源域 + 标题 + 正文 + 首次/末次时间戳

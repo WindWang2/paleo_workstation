@@ -389,7 +389,7 @@ add_paleo_test(tst_errorhub LIBS paleo_services)      # 方向64：去重窗口/
 # tst_error_history_dock / tst_errorhub_challenger_m4 /
 # tst_errorhub_challenger_m5_harness）删除——hub 级语义归 tst_errorhub，
 # 呈现级语义 tst_notifications（64 栈）覆盖；裁决与覆盖迁移记录见
-# .goal-loop-ledger-hub-merge.md。
+# docs/ledger-archive/goal-loop-hub-merge.md。
 add_paleo_test(tst_errorhub_storm LIBS paleo_services) # 方向54/M5 起源，方向76 重定向至全局 hub：风暴压力（环形上限/多线程风暴）
 set_tests_properties(tst_errorhub_storm PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
 add_paleo_test(tst_relocate LIBS paleo_ui)

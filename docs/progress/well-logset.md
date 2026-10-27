@@ -1,7 +1,10 @@
 # well-logset — 多文件井曲线并集读面（goal/well-logset-20261002）
 
+> 历史阶段记录。DLIS/LIS、深度对齐与挂接语义已由 [多格式交付](welllog-multiformat.md) 更新；本文末尾是首版时的缺口。
+> 当前剩余工作见 [TODOS.md](../../TODOS.md)。
+
 分支 `goal/well-logset-20261002`（自 origin/master `eaaf46d` 起）。迭代账本
-`.goal-loop-ledger-well-logset.md`。一口井可以挂多份已决 `well_log`；本方向补的是
+`docs/ledger-archive/goal-loop-well-logset.md`。一口井可以挂多份已决 `well_log`；本方向补的是
 读面和导入序，不改 catalog 磁盘格式，也不把曲线体写进 catalog。
 
 ## 交付一览

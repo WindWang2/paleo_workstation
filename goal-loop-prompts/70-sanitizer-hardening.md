@@ -87,7 +87,7 @@ cmake --build build -j8
    跑（用户门禁语义）；增量时长是记录不是门。
 - **资源**：`-j8`；ctest 串行；unity 构建轮次多——增量验证。
 - **无人值守**：internal 头放位自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-sanitizer-hardening.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-sanitizer-hardening.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/零行为变化/定义接线正确/Unity 验证真实性/文档同步
   五维）→ 修复 → 再 review，至少两轮零 High/Medium；Low 记

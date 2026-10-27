@@ -1,7 +1,7 @@
 # catalog-sqlite — 目录持久化换独立 sqlite（goal/catalog-sqlite-2026-10-02）
 
 分支 `goal/catalog-sqlite-2026-10-02`（自 origin/master `eaaf46d` 起）。迭代账本
-`.goal-loop-ledger-catalog-sqlite.md`。本文只记语义决策和边界。
+`docs/ledger-archive/goal-loop-catalog-sqlite.md`。本文只记语义决策和边界。
 事实源：`src/catalog/catalogstore.h` 头注释。
 
 ## 交付

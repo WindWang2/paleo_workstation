@@ -24,7 +24,7 @@ this refactor does not reopen or independently revalidate every audit claim.
 **2026-10-06 closure note（方向48 审计清账）:** Every item below now carries a
 `> **终态（2026-10-06，方向48 清账复核）**` marker with re-verification
 evidence against `origin/master 3a4f8b5`. Ledger:
-`.goal-loop-ledger-audit-closure.md`. Distribution: 已修 26（历史 commit 带
+`docs/ledger-archive/goal-loop-audit-closure.md`. Distribution: 已修 26（历史 commit 带
 证）/ 不复现 2（MEM-06、CONC-05，带论证与复现尝试）/ 方向48 当批修复 7
 （TEST-07=ARCH-08、RUNTIME-04、BIZ-09、ARCH-05、TEST-04、MEM-07、ARCH-06，
 commit `e308372`–`ca18f88`）/ 移交方向50 io-robustness 7（BIZ-05/06/07/10/
@@ -33,7 +33,7 @@ commit `e308372`–`ca18f88`）/ 移交方向50 io-robustness 7（BIZ-05/06/07/1
 三路复核的「8 未修/15 待证」与本轮实测差异（BIZ-12/13、ARCH-03/04/07 已
 修，MEM-06/CONC-05 不复现）以本轮逐条 rg+读码重验为准。
 
-上述分布是方向48的 R0 历史快照；方向50已关闭其中 BIZ-05/06/14，条目终态已同步。原 BIZ-07（配准）、BIZ-10/11（CRS）和 RUNTIME-03（LAS 合乘诊断）未在方向50 关闭；**方向58（audit-tail，2026-10-07）已给出终态**：BIZ-07、RUNTIME-03 已修（带红绿）；BIZ-10 标记漂移 + 窄残余加固；BIZ-11 窄残余已收、直调无规范覆盖为文档化残余；TEST-06 高中危已清（方向52）、低风险 18 项逐项终态。账本 `.goal-loop-ledger-audit-tail.md`。用户本方向的 IO BIZ-07/10/12 描述以第11节 IO-R0-07/10/12 映射单独验收。
+上述分布是方向48的 R0 历史快照；方向50已关闭其中 BIZ-05/06/14，条目终态已同步。原 BIZ-07（配准）、BIZ-10/11（CRS）和 RUNTIME-03（LAS 合乘诊断）未在方向50 关闭；**方向58（audit-tail，2026-10-07）已给出终态**：BIZ-07、RUNTIME-03 已修（带红绿）；BIZ-10 标记漂移 + 窄残余加固；BIZ-11 窄残余已收、直调无规范覆盖为文档化残余；TEST-06 高中危已清（方向52）、低风险 18 项逐项终态。账本 `docs/ledger-archive/goal-loop-audit-tail.md`。用户本方向的 IO BIZ-07/10/12 描述以第11节 IO-R0-07/10/12 映射单独验收。
 
 ---
 
@@ -1865,7 +1865,7 @@ QCOMPARE(cache.bytes(), qint64(0));
   16. `src/ai/horizonsuggest.h`: Tested in `tests/tst_ai_horizonsuggest.cpp` (6 test cases, conditional on `PALEO_HAVE_ORT`).
   `src/ai/remotepredictionservice.h` transferred to Direction 51.
 - **Empirical Verification Evidence**:
-  All 15 suites compile, link, and are verified registered in CTest (`ctest -N`). Mutation verification demonstrated for every suite in `.goal-loop-ledger-test-deepening.md`.
+  All 15 suites compile, link, and are verified registered in CTest (`ctest -N`). Mutation verification demonstrated for every suite in `docs/ledger-archive/goal-loop-test-deepening.md`.
 
 ---
 
@@ -2077,7 +2077,7 @@ BIZ-05/06/14 closure also covers their actual SDK/import/workflow consumers, wit
 
 R0 full serial ctest: **300/301 passed, 1786.17 s**. The only pre-existing red target was `tst_startup_trace`: qgis_init_share_max median 0.2570 exceeded 0.2200, and the injected degradation ratio 0.544/0.253 missed the required factor of 3. No performance thresholds were relaxed, and this historical R0 result is retained.
 
-Pre-integration full serial regressions against the same frozen implementation (`f7fe2311`) both passed **306/306**, in **884.69 s / 893.05 s**, with no new failures. `tst_seismic_engine` (22 Qt cases), `tst_wellfileparsers` (34), `tst_welllogset` (10), the five Direction 50 test targets, all three layering targets and both i18n targets passed twice. Startup passed 9/9 twice under its original thresholds; singlefactor performance passed with its original watchdog and assertions. The existing optional datapreview synchronous-loading capture case remained skipped because `PALEO_VISUAL_CAPTURE` was not enabled; functional and asynchronous-loading cases ran. Full CTest and preserved raw Qt receipts, Oracle case names and per-target counts are recorded in `.goal-loop-ledger-io-robustness.md`; diagnostic or partial runs do not count as acceptance passes.
+Pre-integration full serial regressions against the same frozen implementation (`f7fe2311`) both passed **306/306**, in **884.69 s / 893.05 s**, with no new failures. `tst_seismic_engine` (22 Qt cases), `tst_wellfileparsers` (34), `tst_welllogset` (10), the five Direction 50 test targets, all three layering targets and both i18n targets passed twice. Startup passed 9/9 twice under its original thresholds; singlefactor performance passed with its original watchdog and assertions. The existing optional datapreview synchronous-loading capture case remained skipped because `PALEO_VISUAL_CAPTURE` was not enabled; functional and asynchronous-loading cases ran. Full CTest and preserved raw Qt receipts, Oracle case names and per-target counts are recorded in `docs/ledger-archive/goal-loop-io-robustness.md`; diagnostic or partial runs do not count as acceptance passes.
 
 Fixture, well, SEG-Y/SDK, workbook and final consumer batches each completed two consecutive five-dimension self reviews with **High=0 / Medium=0 / Low=0** after fixes and green targeted tests. Linux execution is verified; the Windows commands supplied in the request were not executed on this Linux host. Old converted artifacts are not retroactively certified; resumable transcode counts describe this run's actual reads.
 

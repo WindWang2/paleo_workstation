@@ -291,5 +291,5 @@ ErrorHub 错误汇聚与历史管理服务及 QMessageBox 收敛工程（Milesto
 零构造点（死代码），hub 与方向 64 全局 `::ErrorHub` 语义对齐后无存活消费面
 所需独有能力（去重窗滑动计时差异按 DESIGN.md「自首次出现起 60s 固定窗口」
 裁决保留 64 语义）。裁决逐条证据与测试覆盖迁移记录见
-`.goal-loop-ledger-hub-merge.md`；方向 64 侧账本
+`docs/ledger-archive/goal-loop-hub-merge.md`；方向 64 侧账本
 `docs/evidence/errorhub/PR_BODY.md` 尾部有对称注记。

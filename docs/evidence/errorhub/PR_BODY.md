@@ -37,9 +37,9 @@
 
 方向 54 的并行实现（`paleo::services::ErrorHub` + notificationmanager/
 notificationcard/errorhistorymodel/errorhistorydock 呈现栈，见其账本
-`.goal-loop-ledger-errorhub.md`）已于方向 76（分支 `goal/hub-merge-20261009`）
+`docs/ledger-archive/goal-loop-errorhub.md`）已于方向 76（分支 `goal/hub-merge-20261009`）
 删除——全局 `::ErrorHub` 成为唯一错误真源；本方向的呈现栈
 （NotificationCenter/ToastCard/ErrorHistoryPanel/PaleoNotify）不变。
 同时修复：主窗口状态栏错误徽标此前误订未装配的 54 系 hub（count 恒 0 →
 徽标永久隐藏），现已改订 `ErrorHub::global()`，与错误历史面板同源。
-逐条裁决与覆盖迁移证据见 `.goal-loop-ledger-hub-merge.md`。
+逐条裁决与覆盖迁移证据见 `docs/ledger-archive/goal-loop-hub-merge.md`。

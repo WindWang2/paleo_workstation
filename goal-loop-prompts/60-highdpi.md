@@ -69,7 +69,7 @@ cmake --build build -j8
   dpr≠1 场景。
 - **资源**：`-j8`；ctest 串行。
 - **无人值守**：普查与修复序自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-highdpi.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-highdpi.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （dpr 数学正确性/拾取一致性/dpr=1 不回归/护栏有效/DESIGN
   同步 五维）→ 修复 → 再 review，至少两轮零 High/Medium；

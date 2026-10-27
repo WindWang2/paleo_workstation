@@ -97,7 +97,7 @@ LLM 请求体，避免把完整 JSON 塞回 4000 字预算。
 - **DESIGN.md**：卡片视觉先提案 token 再实现。
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行。
 - **无人值守**：复用度与视图形态自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-ai-resultviz.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-ai-resultviz.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/只读红线/160 与 4000 回灌语义不变且卡片走完整
   结果通道/DESIGN 一致/i18n 五维）→

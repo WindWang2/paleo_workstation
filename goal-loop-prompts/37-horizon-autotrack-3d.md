@@ -56,7 +56,7 @@ cmake --build build -j8
 - **性能断言**：禁绝对毫秒墙钟；体传播用合成小体 + 比率门。
 - **冲突**：paleomainwindow_attach.cpp 为多点挂接热区——与他方向撞时
   按语义并集合，不丢弃他人改动。
-- **ledger**：`.goal-loop-ledger-horizon-3d.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-horizon-3d.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/取消语义/
   内存边界/版本锚定/i18n 五维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

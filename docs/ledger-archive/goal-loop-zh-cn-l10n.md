@@ -58,7 +58,7 @@
 | **R3** | CMake `lrelease` 编译与资源打包 | 编译产出 `paleo_zh_CN.qm`，通过 `.qrc` 资源系统内嵌，零外部路径依赖 | M3 | `cmake/extra-ux.cmake`, `resources/translations.qrc` | 已完成 |
 | **R4** | 运行时动态语言包加载 | `main.cpp` 检测 `QLocale`，加载 `paleo_zh_CN.qm` 与 Qt 基础包，非中文优雅降级 en_US | M4 | `src/app/main.cpp` | 已完成 |
 | **R5** | 本地化自动化门禁与变异测试 | `tools/check_l10n.py` 查 0 未完成、占位符相等、术语审计；`--selftest` 变异测试纳入 ctest | M5 | `tools/check_l10n.py`, `cmake/extra-ux.cmake` | 已完成 |
-| **R6** | 进度台账与双轮评审记录 | 维护本文档；执行至少两轮独立评审，达成 **0 High / 0 Medium** 缺陷终审签字 | M1, M6 | `.goal-loop-ledger-zh-cn-l10n.md` | 已完成 |
+| **R6** | 进度台账与双轮评审记录 | 维护本文档；执行至少两轮独立评审，达成 **0 High / 0 Medium** 缺陷终审签字 | M1, M6 | `docs/ledger-archive/goal-loop-zh-cn-l10n.md` | 已完成 |
 
 ---
 

@@ -63,7 +63,7 @@ cmake --build build -j8
   文案）。
 - **资源**：`-j8`；ctest 串行。
 - **无人值守**：分组 taxonomy 自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-shortcuts-help.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-shortcuts-help.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/行为保留/冲突检测真实/whatsThis 文案质量/i18n 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

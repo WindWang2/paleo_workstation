@@ -67,7 +67,7 @@ tst_factorworkflow/tst_mappingpages/tst_constraint_draw/tst_ui。
   ctest。
 - **无人值守**：切分线自行定案记 ledger；与方向 91 并行撞
   constraintpage 按「谁先合谁为准」。
-- **ledger**：`.goal-loop-ledger-constraintpage-split.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-constraintpage-split.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （API 等价/objectName 守恒/信号序/TU 边界/无死代码 五维）
   → 修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

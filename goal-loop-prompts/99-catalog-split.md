@@ -74,7 +74,7 @@ cd .worktrees\catalog-split
   ctest。
 - **无人值守**：切分线自行定案记 ledger；与方向 92 的
   RoleRegistry 扩展协调（谁先合谁为准；不引入 catalogRoles()）。
-- **ledger**：`.goal-loop-ledger-catalog-split.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-catalog-split.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （API 等价/事务边界/schema 不动/TU 边界/性能门 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

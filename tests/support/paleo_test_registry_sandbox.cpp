@@ -1,5 +1,5 @@
 // 测试进程级 Windows 注册表沙箱（方向 81 QSettings 决策落地，见
-// .goal-loop-ledger-env-debt2.md「QSettings 三选一」）。
+// docs/ledger-archive/goal-loop-env-debt2.md「QSettings 三选一」）。
 //
 // 问题：add_paleo_test 的 XDG/HOME 沙箱在 Linux 隔离了 QSettings（NativeFormat
 // = XDG 下的 ini），Windows 上 NativeFormat 走注册表 HKCU\Software\paleo\paleo，

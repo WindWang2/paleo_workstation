@@ -1,10 +1,9 @@
 # 项目文件设计（PROJECT_FILE_DESIGN）
 
-> 指令：根据真实工区文件夹（`paleo_project/data/project_area`：井位/井曲线/
-> 地震体/参考相图/参考资料 + 派生 sidecar）重设项目文件，支撑项目管理并
-> 支持导入这种文件夹。
+本文说明工程束、资料来源和坐标声明。GUI 当前入口是四步新建向导，
+源目录与工程保存目录分开；命令行兼容入口允许就地建工程。
 
-## 问题
+## 设计背景
 
 此前工程锚点是裸 `.qgz`：新建工程只产一个 `.qgz`，打开收 `.qgz`，
 「导入工区文件夹」是开口工程后的独立动作。`.qgz` 只能描述 QGIS 图层集，
@@ -55,11 +54,12 @@
 | 打开 `.qgz`（旁有 `.paleo`） | 打开 + 校验成员清单，缺失如实报 |
 | 打开 `.qgz`（旁无 `.paleo`） | 打开 + **自动收养**：写一份 `project.paleo`（QGZ-only 老工程升级路径），记日志 |
 | 新建工程 | 写 `.qgz` + `project.paleo`（name=文件名去后缀，projectId 随机） |
-| 从工区文件夹新建 | 选文件夹 → 已有 `.paleo` → 直接打开不重建；已有 `.qgz` → 打开收养 → 否则在夹内写 `<basename>.qgz` + `project.paleo` → 自动进工区导入流程（IngestPlan 确认框），完成后 stats 回填 `sourceArea` |
+| GUI 新建 / 从工区文件夹新建 | 已有工程走打开/收养；无工程进入四步向导，在所选保存位置下创建同名目录，识别与确认资料后导入，stats 回填 `sourceArea` |
+| 命令行兼容入口 | 保留源目录内建立 `<basename>.qgz` + `project.paleo` 的就地创建契约 |
 
 ### 就地工程与扫描守卫
 
-「从工区文件夹新建」产生**源目录==工程根**的就地工程。`buildIngestPlan`
+命令行兼容入口允许**源目录==工程根**的就地工程；GUI 默认使用独立保存目录。`buildIngestPlan`
 的扫描守卫相应改为：
 
 - 源根 **在工程目录之内**（如 `artifacts/` 子目录）→ 仍拒（issue 如实报）。
@@ -81,13 +81,16 @@ sourceArea）+ `readProjectFile`/`writeProjectFile`/`missingMembers`。
 
 - `PaleoProjectStore::setProjectPaths` 的 qgz/gpkg/sqlite 约定不变——清单
   只是「指认并校验」这些既有位置，不另起路径体系。
-- catalog 仍在 `artifacts/metadata/catalog.json`；`commit_journal/`、
+- 现行 catalog 持久层是 `artifacts/metadata/catalog.sqlite`，JSON 是旧数据迁移入口。
+  `members.catalog` 的旧字段及默认清单仍可能保留 `catalog.json`；成员检查同时识别
+  SQLite、旧 JSON 与 `.migrated` 文件，不能仅凭清单该字段判断当前存储。`commit_journal/`、
   `.running`、崩溃转储等不重复登记进清单（它们是派生态不是成员）。
 - 最近工程列表照存入口路径（`.paleo` 或 `.qgz` 均可——打开端自适应）。
 
 ## georeference 节（工程级地理配准，可选）
 
-局部工程米制网格（ENGCRS，无大地基准）→ 真实地理坐标的 2D 相似变换。
+`kind=crs` 保存已知的原生 `sourceCrs` 声明，按原生投影转换；
+`kind=similarity2d` 将无基准的局部米制网格配准到真实坐标。下面的参数示例仅用于 similarity2d。
 有此节的工程，`DataImportService` 建井时把井口局部网格坐标换算成 WGS84
 经纬度：`coordinateStatus="ok"`、`extra` 记 `projectLon/projectLat`
 （`surfaceX/Y` 仍存原始网格）；地震 survey 冻结时

@@ -1,4 +1,4 @@
-# 方向 93 Ledger：AI 工具结果结构化呈现（.goal-loop-ledger-ai-resultviz.md）
+# 方向 93 Ledger：AI 工具结果结构化呈现（docs/ledger-archive/goal-loop-ai-resultviz.md）
 
 - 分支：`goal/ai-resultviz-20261010`（worktree `.worktrees/ai-resultviz`，基线 origin/master `753c2768`）
 - 任务书：Goal-Loop 方向 93（AI 工具结果结构化呈现——血缘图/资产表进对话卡片）

@@ -6,7 +6,7 @@
 Issues（#460–#485）与 Open PR #486/#487 的前提下，对本域现有功能落地真实改进、
 定向测试与独立 review，提交单一 PR（不等待 CI、不合并）。
 
-执行账本（逐轮证据）：`.goal-loop-ledger-opt-03.md`（仓库根）。
+执行账本（逐轮证据）：`docs/ledger-archive/goal-loop-opt-03.md`（仓库根）。
 
 ## 现状基线（R0/R1）
 

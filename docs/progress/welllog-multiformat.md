@@ -1,7 +1,7 @@
 # 方向 44：井曲线多格式读口——DLIS/LIS + MD/TVD 对齐 + 挂接语义收口
 
 状态：已落地（分支 `goal/welllog-fmt-20261004`）。台账：
-`.goal-loop-ledger-welllog-fmt.md`（规范逐条对账/白名单证据/BE 调查）。
+`docs/ledger-archive/goal-loop-welllog-fmt.md`（规范逐条对账/白名单证据/BE 调查）。
 
 ## 读了什么
 

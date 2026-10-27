@@ -4,7 +4,7 @@
 
 方向 72（#272）把本机全量回归从 63%（185 红/293）修到
 **96%（345 绿/361）**，账本「终态 16 红逐条归类」表（
-`.goal-loop-ledger-win-qt-unify.md` R9/R11 段）如实移交了
+`docs/ledger-archive/goal-loop-win-qt-unify.md` R9/R11 段）如实移交了
 剩余面——本方向把这 16 红清到理论下限：
 
 1. **QGIS prefix 资源缺口**（srs.db 全盘无）：tst_runtime、
@@ -87,7 +87,7 @@ CACHE_DIR 沙箱监狱、PALEO_PYTHON conda 根布局）。
   多轮（两遍确认）。
 - **无人值守**：QSettings 三选一自行定案记 ledger（判据
   齐全）。
-- **ledger**：`.goal-loop-ledger-env-debt2.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-env-debt2.md`。
 - **多轮 review（硬要求）**：每批 → 相关测试转绿 → diff
   自审（env 正确性/真修质量/决策判据/防回归/文档 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

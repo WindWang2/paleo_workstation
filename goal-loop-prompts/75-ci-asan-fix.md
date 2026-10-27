@@ -68,7 +68,7 @@ build/test/selfcheck 自动进 localdeps 路线；`checkenv` 自检可用。
   现状）；`continue-on-error` 的观察档语义保留（不静默转阻断）。
 - **资源**：CI 不等跑（门禁语义）；本机 `./paleo-dev.ps1` 自检。
 - **无人值守**：yml 修法对齐 linux job 的取舍自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-ci-asan-fix.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-ci-asan-fix.md`。
 - **多轮 review（硬要求）**：每批 → 本地可验证项绿（yml 结构/
   脚本存在性/mutation）→ diff 自审（yml 正确性/护栏有效/文档
   同步/无越权/运行证据 五维）→ 修复 → 再 review，至少两轮

@@ -62,7 +62,7 @@ cmake --build build -j8
 - **资源**：构建/测试一律 `-j8`。
 - **性能断言**：禁绝对毫秒墙钟；大 DLIS 流式读不整载内存。
 - **兼容性**：新增格式不回归 LAS 既有用例（tst_welllogset 等全绿）。
-- **ledger**：`.goal-loop-ledger-welllog-fmt.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-welllog-fmt.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/格式边界/
   对齐诚实/挂接契约/i18n 五维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

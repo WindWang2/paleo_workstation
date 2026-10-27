@@ -68,7 +68,7 @@ cmake --build build -j8
   内存按成员惰性加载不全体驻留。
 - **schema 纪律**：catalog schema_version 迁移走既有机制
   （SCHEMA_MIGRATION.md）——`realization_id` 启用要写迁移测试。
-- **ledger**：`.goal-loop-ledger-realization.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-realization.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/schema 契约/
   统计口径/provenance/i18n 五维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

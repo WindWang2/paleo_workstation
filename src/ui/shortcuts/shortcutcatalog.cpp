@@ -19,7 +19,7 @@ namespace
 {
 constexpr char kTrContext[] = "PaleoShortcuts";
 
-// ---- 分组 taxonomy（定案记 .goal-loop-ledger-shortcuts-help.md）----
+// ---- 分组 taxonomy（定案记 docs/ledger-archive/goal-loop-shortcuts-help.md）----
 // 按「用户在哪个面上」分组，顺序 = 总表显示顺序。
 struct GroupRow
 {

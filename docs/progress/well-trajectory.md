@@ -1,7 +1,7 @@
 # well-trajectory — 井轨迹空间化（goal/well-trajectory-20261003）
 
 分支 `goal/well-trajectory-20261003`（自 origin/master `4741115` 起）。迭代账本
-`.goal-loop-ledger-welltraj.md`。井不再当垂直线：测斜站表 → 三维轨迹（最小曲率
+`docs/ledger-archive/goal-loop-welltraj.md`。井不再当垂直线：测斜站表 → 三维轨迹（最小曲率
 法），导入/角色链接/MD↔TVD 服务/消费面（属性建模、剖面、平面图、综合图）全链
 按真实轨迹吃井；无测斜井显式回退直井，不虚构造斜。
 

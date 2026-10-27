@@ -66,7 +66,7 @@ cmake --build build -j8
   渲染行数 vs 资产总数）。
 - **冲突**：datalist.cpp/cataloghealth.* 为多点热区——与他方向撞时
   按语义并集合。
-- **ledger**：`.goal-loop-ledger-datacenter-gov.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-datacenter-gov.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/线程纪律/
   预览制/选中保持/i18n 五维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

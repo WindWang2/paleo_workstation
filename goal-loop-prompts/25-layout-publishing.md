@@ -39,7 +39,7 @@ cmake --build build -j8
 - **内存所有权**：QGIS 布局对象生命周期是重灾区（layout/item 父子关系、SIP 语义在 C++ 里不豁免）——自审必查 item 所有权与悬空指针。
 - **UI**：视觉决策对照 `DESIGN.md`；i18n 过 `i18n`/`i18n_selftest`。
 - **性能断言**：禁绝对毫秒墙钟。
-- **ledger**：`.goal-loop-ledger-layout-publishing.md` 记「改动/验证/判定/下一步」。
+- **ledger**：`docs/ledger-archive/goal-loop-layout-publishing.md` 记「改动/验证/判定/下一步」。
 - **多轮 review（硬要求）**：每批 → 构建+测试全绿 → diff 全量自审（分层/所有权/导出与画布像素一致性/i18n/DESIGN.md/游离文件六维）→ 修复 → 再 review，**至少两轮零 High/Medium**；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀。
 

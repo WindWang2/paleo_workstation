@@ -70,7 +70,7 @@ cd .worktrees\mkproject-fixtures
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行；mini 数据集
   秒级约束。
 - **无人值守**：manifest schema 设计自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-mkproject-fixtures.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-mkproject-fixtures.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/向后兼容/夹具真实性/沙箱兼容/文档 五维）→ 修复 →
   再 review，至少两轮零 High/Medium；Low 记 PR body。

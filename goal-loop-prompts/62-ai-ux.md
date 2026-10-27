@@ -80,7 +80,7 @@ cmake --build build -j8
 - **资源**：`-j8`；ctest 串行。
 - **无人值守**：markdown 方言子集自行定案记 ledger（宁小勿大，
   不支持的语法原样显示）。
-- **ledger**：`.goal-loop-ledger-ai-ux.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-ai-ux.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/转义安全/DESIGN 一致/信号接通正确性/i18n 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

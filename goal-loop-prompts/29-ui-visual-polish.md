@@ -40,7 +40,7 @@ cmake --build build -j8
 - **资源**：构建/测试一律 `-j8`。
 - **vendor**：改 vendor 件登记 `PATCHES.md`；QGIS 主题 SVG 增补走 `PaleoIcons` 注册面。
 - **i18n**：新文案必过 `i18n`/`i18n_selftest`；样式字符串不入翻译面。
-- **ledger**：`.goal-loop-ledger-ui-visual-polish.md`，**每处视觉改动附前后截图对照**（ledger 协议既定动作）。
+- **ledger**：`docs/ledger-archive/goal-loop-ui-visual-polish.md`，**每处视觉改动附前后截图对照**（ledger 协议既定动作）。
 - **多轮 review（硬要求）**：每批 → 构建+测试全绿 → diff 全量自审（token 偏离/结构改动混入/i18n/截图一致性/分层/死样式六维）→ 修复 → 再 review，**至少两轮零 High/Medium**；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀。
 

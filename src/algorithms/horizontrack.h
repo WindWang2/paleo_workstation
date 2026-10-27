@@ -9,7 +9,7 @@
 // NaN = 缺失道/缺失采样：候选窗含 NaN → 相关按有效样本计，有效 < 4 记 0
 // （该位置不可拾取）；缺失不外推填补（诚实失败——追踪失败区留空）。
 //
-// 算法（波形互相关主干，选型与因由见 .goal-loop-ledger-horizon-autotrack.md）：
+// 算法（波形互相关主干，选型与因由见 docs/ledger-archive/goal-loop-horizon-autotrack.md）：
 //   · 模板 = 种子道窗（固定，抗漂移——归一化相关对位置不敏感，候选窗滑动
 //     即可匹配大倾角同相轴）；倾角引导默认隐式：搜索窗中心跟随前一道拾取
 //     位置，半径 maxSearchSamples 即逐道最大跳跃/倾角约束。goal/horizon-3d

@@ -74,7 +74,7 @@ cmake --build build -j8
 - **性能断言**：禁绝对毫秒墙钟；网格规模比率门，邻域搜索限界。
 - **冲突**：stratgrid/propertymodelworkflow 热区注明；与 41 的
   变差模块归属按「先落地者为准」在 ledger 记接口契约。
-- **ledger**：`.goal-loop-ledger-prop-model-v2.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-prop-model-v2.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/网格几何/
   统计收敛/诚实口径/i18n 五维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

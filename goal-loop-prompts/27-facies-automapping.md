@@ -43,7 +43,7 @@ cmake --build build -j8
 - **vendor**：改 vendor 件登记 `PATCHES.md`。
 - **UI**：对照 `DESIGN.md`；i18n 过两门。
 - **性能断言**：禁绝对毫秒墙钟——比率门或 `PALEO_REAL_PROJECT_AREA` 类 env 门控。
-- **ledger**：`.goal-loop-ledger-facies-automapping.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-facies-automapping.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/诚实语义/版本管线/GEOS 释放/i18n/DESIGN.md 六维）→ 修复 → 再 review，**至少两轮零 High/Medium**；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀。
 

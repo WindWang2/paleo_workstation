@@ -22,7 +22,7 @@
 // adoptPrepared）、线程纪律与 staging 副本/journal 重放（审计 02 M-8）、
 // 落盘面（save/commitStore 增量事务/BatchSave 批次快照）、D5 索引诊断。
 // 查询族与 mutator 按 _entities/_assets/_links/_versions/_derivation/
-// _export 六 TU 分治（切分线见 .goal-loop-ledger-catalog-split.md）。
+// _export 六 TU 分治（切分线见 docs/ledger-archive/goal-loop-catalog-split.md）。
 
 namespace
 {

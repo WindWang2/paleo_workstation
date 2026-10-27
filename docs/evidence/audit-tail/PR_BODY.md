@@ -1,6 +1,6 @@
 # 方向58 audit-tail：AUDIT_ISSUES 尾项终态（BIZ-07 / RUNTIME-03 / BIZ-10 / BIZ-11 / TEST-06）
 
-分支 `goal/audit-tail-20261007`（基 `origin/master f130fb2`）。账本 `.goal-loop-ledger-audit-tail.md`（R0–R7）。
+分支 `goal/audit-tail-20261007`（基 `origin/master f130fb2`）。账本 `docs/ledger-archive/goal-loop-audit-tail.md`（R0–R7）。
 
 ## 变更
 | 项 | 提交 | 判定 | 验证 |

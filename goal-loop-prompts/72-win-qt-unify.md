@@ -84,7 +84,7 @@ C:/Users/wangj.KEVIN/paleo-qgis-deps/Library;..."` +
    时间开销记 ledger。
 - **无人值守**：统一方向决策自行定案记 ledger（判据齐全，
    不等人工）。
-- **ledger**：`.goal-loop-ledger-win-qt-unify.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-win-qt-unify.md`。
 - **多轮 review（硬要求）**：每批 → 验证矩阵绿 → diff
   自审（环境自检有效/文档与实际一致/脚本幂等/无越权改
   src/勘误准确 五维）→ 修复 → 再 review，至少两轮零

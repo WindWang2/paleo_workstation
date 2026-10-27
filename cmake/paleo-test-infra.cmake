@@ -12,7 +12,7 @@
 # 链入 tests/support/paleo_test_registry_sandbox.cpp（OBJECT 库，静态初始化期
 # 把本进程 HKCU 重映射到 ctest-home/<test>/registry.hiv 私有 hive），由
 # PALEO_TEST_REGISTRY_HIVE 指路；tst_test_sandbox 钉契约。决策记录见
-# .goal-loop-ledger-env-debt2.md「QSettings 三选一」。CI windows leg 的
+# docs/ledger-archive/goal-loop-env-debt2.md「QSettings 三选一」。CI windows leg 的
 # 串行 ctest 本方向不改。
 if(WIN32)
   add_library(paleo_test_registry_sandbox OBJECT tests/support/paleo_test_registry_sandbox.cpp)

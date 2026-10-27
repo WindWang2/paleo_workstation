@@ -75,7 +75,7 @@ cd .worktrees\hub-merge
   证据）；不加新能力。
 - **资源**：`./paleo-dev.ps1` 系（-j8 上限内）；ctest 串行。
 - **无人值守**：归并/删除取舍自行定案记 ledger。
-- **ledger**：`.goal-loop-ledger-hub-merge.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-hub-merge.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （分层/行为对照/删除证据/测试覆盖不回退/文档同步 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。

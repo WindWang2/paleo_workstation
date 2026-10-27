@@ -88,7 +88,7 @@ ctest --test-dir build   # Windows NativeFormat 侧串行
 - **测试证据**：每个修复先有红后见绿（修前失败复现或断言性论证），
   不接受「应该没问题」。
 - **性能断言**：禁绝对毫秒墙钟。
-- **ledger**：`.goal-loop-ledger-audit-closure.md`，每轮记
+- **ledger**：`docs/ledger-archive/goal-loop-audit-closure.md`，每轮记
   「改动/验证/判定/下一步」。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/
   断言真实性/行为保留/文档同步/i18n 五维）→ 修复 → 再 review，

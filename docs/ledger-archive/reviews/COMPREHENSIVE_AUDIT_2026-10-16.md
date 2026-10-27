@@ -1,5 +1,8 @@
 # Paleo Workstation 2026 全项目多维度深度司法审计报告
 
+> 历史审计记录：结论、版本和测试数量仅适用于报告所载日期与基线。
+> 当前架构见 [PALEO_QGIS_PLAN.md](../../PALEO_QGIS_PLAN.md)，待办见 [TODOS.md](../../../TODOS.md)。
+
 **报告版本**：2.0.0 (Master Comprehensive Forensic Audit)  
 **审计基线**：`master` (commit `dbb03269`) + 当前工作区未提交变动  
 **涉及范围**：408 套 CTest 套件、528 个 C++ 头文件、450+ 源码实现单元、CI 门禁脚本、设计系统规范 (`DESIGN.md`) 与本地化术语表 (`glossary-zh-CN.md`)  

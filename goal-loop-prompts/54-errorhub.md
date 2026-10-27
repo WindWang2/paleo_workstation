@@ -80,7 +80,7 @@ cmake --build build -j8
   场景保留模态」清单及理由）。
 - **性能断言**：通知路径无每帧 alloc；错误风暴（100 条/秒注入）
   下 UI 不冻结（计数断言，非毫秒墙钟）。
-- **ledger**：`.goal-loop-ledger-errorhub.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-errorhub.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/
   行为保留/DESIGN 一致/去重语义/i18n 五维）→ 修复 → 再 review，
   至少两轮零 High/Medium；Low 记 PR body。

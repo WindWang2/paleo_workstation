@@ -18,7 +18,7 @@
 |---|---------|-------------|-----------|--------|
 | 1 | BIZ-01: LAS Multi-Curve Buffer Truncation Fix | Replace fixed 64-element array in `LasParser::parseDepthRange` with dynamically sized vector for curves, supporting >64 curves without truncation. | M1 | AUDIT_ISSUES.md §5 |
 | 2 | BIZ-02: LAS Streaming BOM Offset Accuracy | Store `bomBytes` directly in `HeaderScanResult` and compute accurate `asciiDataOffset` to eliminate 4MB peeking desynchronization. | M1 | AUDIT_ISSUES.md §5 |
-| 3 | BIZ-05: Topological Polygon Vertex Deletion Defense | Group deletions by `(layer, fid, part, ring)` and enforce `ringVertices - deleteCount >= minRemaining` to prevent ring collapse below 4 distinct vertices. | M1 | AUDIT_ISSUES.md §5, docs/CODE_REVIEW_REPORT.md |
+| 3 | BIZ-05: Topological Polygon Vertex Deletion Defense | Group deletions by `(layer, fid, part, ring)` and enforce `ringVertices - deleteCount >= minRemaining` to prevent ring collapse below 4 distinct vertices. | M1 | AUDIT_ISSUES.md §5, docs/ledger-archive/reviews/CODE_REVIEW_REPORT.md |
 | 4 | BIZ-12: TimeDepthModel Check Ordering | Defensively check input finiteness (`!std::isfinite`) and point emptiness (`m_points.empty()`) before accessing `.front()` / `.back()`. | M1 | AUDIT_ISSUES.md §5 & §7.2 |
 | 5 | Adversarial LAS Unit Tests | Unit tests in `tests/tst_perf_las.cpp` for 70+ curves reading and UTF-8 BOM streaming offset accuracy. | M1 | 原任务简报（ORIGINAL_REQUEST.md，未入库） |
 | 6 | Adversarial Polygon Topology Unit Tests | Unit tests in `tests/tst_edittools.cpp` verifying coincident pinch-point deletion defense (rejection on 5-vertex ring, success on 6-vertex ring). | M1 | 原任务简报（ORIGINAL_REQUEST.md，未入库） |

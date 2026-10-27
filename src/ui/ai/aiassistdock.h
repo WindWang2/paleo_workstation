@@ -27,7 +27,7 @@ class QVBoxLayout;
 // 工具卡两态为 Neutral 执行中 / Success 完成 / Error 失败 / Warning 未接线）。
 // 方向62 未新增 token：会话行/操作按钮沿用既有 dock 面板口径（QComboBox +
 // QPushButton 原生控件），对话气泡不引入（DESIGN.md 无此组件，transcript
-// 平铺是既有形态——见 .goal-loop-ledger-ai-ux.md 决策记录）。
+// 平铺是既有形态——见 docs/ledger-archive/goal-loop-ai-ux.md 决策记录）。
 class AiAssistDock : public QWidget {
   Q_OBJECT
 public:

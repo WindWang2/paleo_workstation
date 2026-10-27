@@ -67,7 +67,7 @@
 
 | PR | 文件 |
 |---|---|
-| #422/#423（CI 修复） | `src/ui/attributetablepanel.cpp`、`src/domain/faciescatalog.*`、`tests/tst_attrpanel.cpp`、`tests/tst_mappingworkbench.cpp`、`tests/tst_sanitizer_budget.cpp`、`tests/tst_ui.cpp`、`tests/tst_singlefactor_asynccontour.cpp`、`tools/ui-token-baseline.txt`、`tools/ui-token-exceptions.json`、`CMakeLists.txt`（CI 修复相关段）、`.goal-loop-ledger-ci-green.md` |
+| #422/#423（CI 修复） | `src/ui/attributetablepanel.cpp`、`src/domain/faciescatalog.*`、`tests/tst_attrpanel.cpp`、`tests/tst_mappingworkbench.cpp`、`tests/tst_sanitizer_budget.cpp`、`tests/tst_ui.cpp`、`tests/tst_singlefactor_asynccontour.cpp`、`tools/ui-token-baseline.txt`、`tools/ui-token-exceptions.json`、`CMakeLists.txt`（CI 修复相关段）、`docs/ledger-archive/goal-loop-ci-green.md` |
 | #424（A：数据图谱） | `src/ui/datapreview/datapreviewtabs.*`、`src/ui/pages/datagraphpage.*`、`src/ui/pages/datalist.h`、`datalist_batch.cpp`、`datalist_table.cpp`、`src/ui/pages/dataops/dataopsmodel.h`、`src/ui/pages/datapage.*`、`src/ui/paleomainwindow_attach_data.cpp`、`src/ui/ribbonpanels.cpp`、`src/workflow/datagraphworkflow.*`、`src/services/datagraph.*` |
 
 ### 测试排除（不得修改这些测试或其守护的行为）

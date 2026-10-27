@@ -67,7 +67,7 @@ cmake --build build -j8
 - **UI**：对照 `DESIGN.md`；节点配色/描边走 PaleoTheme token；
   i18n 过 `check_i18n.py` 两门。
 - **性能断言**：禁绝对毫秒墙钟；大图用节点数阈值折叠 + 抽样式计时。
-- **ledger**：`.goal-loop-ledger-derivation-graph.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-derivation-graph.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/旁路读数/
   内存所有权/环安全/空态/i18n 六维）→ 修复 → 再 review，
   **至少两轮零 High/Medium**；Low 记 PR body。

@@ -67,7 +67,7 @@
 ### B. 已占用（只列归属）
 
 - `MappingArtifactWriter::{applyFaciesStyle, applyFaciesLabels, applyFaciesEdge}`、mappingartifactwriter.cpp 全部——PR #437（只读，未审计为发现项）；其中 syncFaciesAttributes 嵌套读另属 Issue #419 第 5 项。
-- `SymbolPickerPanel` 无生产宿主——已记录遗留，归属方向 24/25 页面 UX 决策（.goal-loop-ledger-geological-symbols.md 批 4「遗留」）；`applySymbolOverride/restoreAllSymbolOverrides` 无生产调用方同属该链路（批 5 交付的待接线语义）。
+- `SymbolPickerPanel` 无生产宿主——已记录遗留，归属方向 24/25 页面 UX 决策（docs/ledger-archive/goal-loop-geological-symbols.md 批 4「遗留」）；`applySymbolOverride/restoreAllSymbolOverrides` 无生产调用方同属该链路（批 5 交付的待接线语义）。
 - `SemanticLegendBuilder` 无生产消费方——semanticlegend.h:20-21 自述回收条件（方向 24/25 图例收口后裁决），不算新发现。
 - qgislabelzorder 依赖 vendored 补丁（含「只与本层标注避让」的跨层避让损失）——已知设计，qgislabelzorder.h:10-19 文档化。
 - 补丁文件名漂移（goal-loop-prompts/71-dep-unify.md:8 写 qgis-4.2.2，实为 vendor/superbuild/patches/qgis-4.2.3-labels-with-layer.patch）——方向 71（dep-unify）领地。

@@ -127,7 +127,7 @@ ImportResult executeIngestPlan(const IngestPlan &plan, DataImportService &svc,
 
 A（独立新增）→ C（dataimportservice 接缝）→ D（paleoprojectstore 独立）
 → B（依赖 A 的 registry）。CMakeLists.txt 每包末尾追加连续块，合并冲突仅限
-该文件与 `.goal-loop-ledger.md`，编排者处理。
+该文件与 `docs/ledger-archive/goal-loop-initial.md`，编排者处理。
 
 ## 通用验证
 

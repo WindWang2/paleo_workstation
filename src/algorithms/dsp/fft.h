@@ -4,7 +4,7 @@
 // dsp — 数字信号基础件（纯数值，无 Qt/GIS）。
 // radix-2 FFT 为自研迭代 Cooley-Tukey（double 内部精度）：仓库 vendor/
 // 系统/Qt 均无合规 FFT（FFTW double-only 头且未链接、破坏钉位策略，见
-// .goal-loop-ledger-seismic-attributes.md 轮0），自写是零新依赖的唯一路。
+// docs/ledger-archive/goal-loop-seismic-attributes.md 轮0），自写是零新依赖的唯一路。
 // 原在 seismicattr.cpp 文件内，seismic-inversion 轮0 提出共享。
 
 namespace paleo::dsp

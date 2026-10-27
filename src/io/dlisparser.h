@@ -9,7 +9,7 @@
 
 // io/ — DLIS (RP66 v1, 1991) 测井曲线解析器：纯 Qt、无 QGIS 依赖、无第三方
 // 依赖（方向 44「自写受限子集」决策——vendored 首选无成熟方案，见
-// .goal-loop-ledger-welllog-fmt.md 依赖对账）。规范条目逐条对账也进 ledger。
+// docs/ledger-archive/goal-loop-welllog-fmt.md 依赖对账）。规范条目逐条对账也进 ledger。
 //
 // 读全约定（goal/44 扩量口径，无逃逸口）：
 //   - 井名：第一个逻辑文件 ORIGIN 对象的 WELL-NAME 属性；

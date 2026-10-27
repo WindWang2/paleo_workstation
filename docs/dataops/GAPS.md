@@ -1,4 +1,10 @@
-# P3 数据操作重构——递延项与接缝登记（GAPS）
+# 数据操作接缝
+
+2026-10-27 对账：`DataCatalog::updateEntity` 与 `updateLink` 已存在，
+不能再将其列为 API 缺失。`EntityEditCmd` 仍写 EntityOverrideStore，
+需要解决的是消费迁移与跨页面一致性。当前待办见 [TODOS.md](../../TODOS.md)。
+
+以下是 2026-09-29 的交付快照，保留 G-* 编号供旧引用追溯；“缺口”“正路”不代表当前 API 清单。
 
 日期：2026-09-29。分支：`wave/data-page-operations`。
 本文件登记**确属服务层/壳层缺口**、本波以视图层组合或 UI 就绪态交付的
@@ -7,12 +13,12 @@
 ## 1. catalog 写 API 缺口（数据层）
 
 ### G-1.1 实体更新 API（updateEntity）
-- **缺口**：`DataCatalog` 无实体字段更新接口（只有 `addEntity`）。
+- **历史缺口**：当时缺少实体更新 API。现已有 `updateEntity`，待迁移 sidecar 消费及撤销语义。
 - **本波**：`EntityOverrideStore`（`.paleo/entity_overrides.json`）——
   改名/坐标/备注写视图层 sidecar，树/表/面板/拓扑全链显示生效，
   可撤销。**注意：catalog.json 里的原始 name 不变**——经 catalog 直接
   读名的其它页面（预测/编图等）看不到改名。
-- **正路**：`DataCatalog::updateEntity(id, fields)`；届时
+- **消费迁移**：使用现有 `DataCatalog::updateEntity(const CatalogEntity &, ...)`；届时
   `EntityEditCmd` 换单行调用，override 数据一次性迁移。
 
 ### G-1.2 实体删除 API（removeEntity）
@@ -36,7 +42,7 @@
   `RoleEditDialog` 明示「旧角色关联保留 + 不可撤销」（D5.5 正用例）。
 - **本波**：转移挂接经 `setLinkUnresolved + attachLink` 同行复用实现
   （完全可逆）；角色变更是唯一不可撤销写操作。
-- **正路**：`updateLinkRole` / `removeLink`。
+- **当前接口**：已有 `updateLink`；仍需按角色变更/删除及撤销契约核对消费，不能重复新建同义 API。
 
 ### G-1.6 资产/链接标签 API
 - **本波**：`TagStore`（`.paleo/asset_tags.json`）。查询页/其它面板

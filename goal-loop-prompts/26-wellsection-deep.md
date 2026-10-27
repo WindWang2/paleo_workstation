@@ -36,7 +36,7 @@ cmake --build build -j8
 - **vendor**：改 vendor 件登记 `PATCHES.md`。
 - **UI**：对照 `DESIGN.md`；i18n 过两门。
 - **性能断言**：禁绝对毫秒墙钟。
-- **ledger**：`.goal-loop-ledger-wellsection-deep.md`。
+- **ledger**：`docs/ledger-archive/goal-loop-wellsection-deep.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审（分层/渲染正确性/版本一致性/联动一致性/DESIGN.md/i18n 六维）→ 修复 → 再 review，**至少两轮零 High/Medium**；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀。
 

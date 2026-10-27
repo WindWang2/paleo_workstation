@@ -12,6 +12,7 @@
 #include "../services/singlefactordef.h"
 #include "derivedassets.h" // PredictionJob 持 DerivedStaging（#277 三段式）
 #include <QObject>
+#include <QHash>
 #include <QPointer>
 #include <QString>
 #include <QStringList>
@@ -207,6 +208,15 @@ class ConstraintWorkflow : public QObject
     QVariantList thicknessSampleRows() const { return m_thicknessRows; }
     QString thicknessSampleMessage() const { return m_thicknessMessage; }
 
+    // L-01：约束快照路径的 typed 镜像，替代 paleo.constraint.snapshot.*
+    // 动态属性暗道（ARCH-02/06 家族）。MappingWorkbench 产出/还原快照时
+    // 写入；各 factor 计算读出冻结约束源。空路径即无快照（等价旧属性
+    // 缺省；setter 收到空路径即移除，镜像 setProperty(key, QVariant())）。
+    void setConstraintSnapshotPath(const QString &horizon, const QString &path);
+    QString constraintSnapshotPath(const QString &horizon) const
+    { return m_constraintSnapshots.value(horizon); }
+    void clearConstraintSnapshots();
+
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                        QString *error = nullptr, QString *constraintIdOut = nullptr,
                        const QVariantMap &lineParams = {});
@@ -305,6 +315,7 @@ class ConstraintWorkflow : public QObject
     QString m_wellFactorMessage;
     QVariantList m_thicknessRows;
     QString m_thicknessMessage;
+    QHash<QString, QString> m_constraintSnapshots; // L-01：约束快照路径 typed 镜像
     // 主线6：strathick 的等厚引擎分派（paleo:paleo_isopach，INPUT_TOP/
     // INPUT_BASE 双构造面栅格）。params：topLayerId/baseLayerId（声明图层
     // id，必填）+ negativeToNodata（默认 true，倒置层序折 nodata）。

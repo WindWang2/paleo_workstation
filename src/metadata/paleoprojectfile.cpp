@@ -52,43 +52,9 @@ namespace
     return m;
   }
 
-  QJsonObject georeferenceToJsonImpl(const PaleoGeoreference &g)
-  {
-    QJsonObject anchor;
-    anchor.insert(QStringLiteral("lonDeg"), g.anchorLonDeg);
-    anchor.insert(QStringLiteral("latDeg"), g.anchorLatDeg);
-    anchor.insert(QStringLiteral("metersPerDegLon"), g.metersPerDegLon);
-    anchor.insert(QStringLiteral("metersPerDegLat"), g.metersPerDegLat);
-    QJsonObject params;
-    params.insert(QStringLiteral("a"), g.a);
-    params.insert(QStringLiteral("b"), g.b);
-    params.insert(QStringLiteral("tE"), g.tE);
-    params.insert(QStringLiteral("tN"), g.tN);
-    QJsonArray cps;
-    for (const PaleoGeoreference::ControlPoint &c : g.controlPoints)
-    {
-      QJsonObject o;
-      o.insert(QStringLiteral("well"), c.well);
-      o.insert(QStringLiteral("x"), c.x);
-      o.insert(QStringLiteral("y"), c.y);
-      o.insert(QStringLiteral("lon"), c.lon);
-      o.insert(QStringLiteral("lat"), c.lat);
-      o.insert(QStringLiteral("residualM"), c.residualM);
-      cps.append(o);
-    }
-    QJsonObject o;
-    o.insert(QStringLiteral("kind"), g.kind);
-    o.insert(QStringLiteral("targetCrs"), g.targetCrs);
-    o.insert(QStringLiteral("anchor"), anchor);
-    o.insert(QStringLiteral("params"), params);
-    o.insert(QStringLiteral("formula"), g.formula);
-    o.insert(QStringLiteral("controlPoints"), cps);
-    o.insert(QStringLiteral("maxResidualM"), g.maxResidualM);
-    o.insert(QStringLiteral("provenance"), g.provenance);
-    return o;
-  }
-
   // 数值键缺失/非有限 → nullptr 返回；kind 缺省 similarity2d（唯一实现）。
+  //（序列化唯一入口是 paleoGeoreferenceToJson——早先的近似复制品
+  //  georeferenceToJsonImpl 已发散（缺 sourceCrs）并删除。）
   bool num(const QJsonObject &o, const QString &key, double *out)
   {
     const QJsonValue v = o.value(key);
@@ -388,7 +354,8 @@ PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
   f.areaRules = m.value(QStringLiteral("areaRules")).toString();
   // PW-075：成员必须是项目内相对路径——绝对路径/盘符/「..」段会让共享工程包
   // 把应用指向项目外任意文件（gpkg/sqlite 会被读写打开）。
-  for (const QString *member : {&f.qgz, &f.catalog, &f.manifest, &f.gpkg, &f.areaRules})
+  for (const QString *member :
+       {&f.qgz, &f.catalog, &f.manifest, &f.gpkg, &f.areaRules, &f.basemapTopo, &f.basemapHillshade})
   {
     if (!isSafeProjectMemberPath(*member))
     {

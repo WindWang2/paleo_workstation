@@ -507,10 +507,23 @@ PaleoProjectStore::WriteResult PaleoProjectStore::commitAll(
   return result;
 }
 
+// L-02：busy 注册表是多持有者共享键空间（编辑会话 "edit"、任务 "task-N"、
+// 地图快照 tokenOwner 各自 mark/release）——单槽按键覆盖写会让后到持有者
+// 顶掉先到者的条目，任一方 markLayerFree 又会连他人持有一并抹掉（编辑
+// 中途 §35 门被放行）。改为按 taskId 的多持有表：mark 幂等替换同 taskId
+// 条目、release 只摘自己、markLayerFree 保留全清语义（调用方应优先用
+// releaseLayerBusy）。
 void PaleoProjectStore::markLayerBusy( const QString &layerId, const QString &taskId, const QString &reason )
 {
   QMutexLocker locker( &m_busyMutex );
-  m_busy.insert( layerId, { taskId, reason } );
+  auto &holders = m_busy[layerId];
+  for ( auto &e : holders )
+    if ( e.first == taskId )
+    {
+      e.second = reason;
+      return;
+    }
+  holders.append( { taskId, reason } );
 }
 
 void PaleoProjectStore::markLayerFree( const QString &layerId )
@@ -523,10 +536,17 @@ bool PaleoProjectStore::releaseLayerBusy( const QString &layerId, const QString 
 {
   QMutexLocker locker( &m_busyMutex );
   auto it = m_busy.find( layerId );
-  if ( it == m_busy.end() || it->first != taskId )
+  if ( it == m_busy.end() )
     return false;
-  m_busy.erase( it );
-  return true;
+  for ( int i = 0; i < it->size(); ++i )
+    if ( ( *it )[i].first == taskId )
+    {
+      it->removeAt( i );
+      if ( it->isEmpty() )
+        m_busy.erase( it );
+      return true;
+    }
+  return false;
 }
 
 bool PaleoProjectStore::layerBusy( const QString &layerId, QString *reason ) const
@@ -536,7 +556,7 @@ bool PaleoProjectStore::layerBusy( const QString &layerId, QString *reason ) con
   if ( it == m_busy.constEnd() )
     return false;
   if ( reason )
-    *reason = QStringLiteral( "%1 — %2" ).arg( it->first, it->second ); // "taskId — reason"
+    *reason = QStringLiteral( "%1 — %2" ).arg( it->constFirst().first, it->constFirst().second ); // "taskId — reason"
   return true;
 }
 
@@ -546,7 +566,8 @@ QVector<PaleoProjectStore::BusyEntry> PaleoProjectStore::busyLayers() const
   QVector<BusyEntry> out;
   out.reserve( m_busy.size() );
   for ( auto it = m_busy.constBegin(); it != m_busy.constEnd(); ++it )
-    out.append( { it.key(), it->first, it->second } );
+    for ( const auto &holder : *it )
+      out.append( { it.key(), holder.first, holder.second } );
   return out;
 }
 

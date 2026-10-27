@@ -375,7 +375,11 @@ void PaleoTaskService::onTaskFinished(PaleoTask *task)
     if (it != m_layerHolds.end() && --it.value() <= 0)
     {
       m_layerHolds.erase(it);
-      m_store->markLayerFree(task->layerId());
+      // L-02：按本任务 taskId 条件释放——无条件 markLayerFree 会把同键上
+      // 其他持有者（编辑会话/另一任务的注册条目）一并抹掉，§35 门被中途
+      // 放行；releaseLayerBusy 只摘自己名下的条目。
+      m_store->releaseLayerBusy(task->layerId(),
+                                QStringLiteral("task-%1").arg(task->id()));
     }
   }
   // #164：quiet 任务（切片/解码/预取）每次交互一条，终态后短暂停留供任务页

@@ -2,6 +2,7 @@
 #include "mappingartifactwriter.h"
 #include "mappingfeatureidentity.h"
 #include "../catalog/datacatalog.h"
+#include "../metadata/atomicfile.h"
 #include "../domain/faciescatalog.h"
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -118,7 +119,10 @@ bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
   }
   GDALAllRegister();
   auto *driver = GDALGetDriverByName("GTiff");
-  GDALDatasetH ds = driver ? GDALCreate(driver, path.toUtf8().constData(), cols,
+  // L-10（#588 B.13 同族）：GTiff 建库即截断既有产物——先写 .partial 再
+  // 原子落名；中途失败（磁盘满/IO 错）保持旧产物原样，不留半截文件。
+  const QString partial = path + QStringLiteral(".partial");
+  GDALDatasetH ds = driver ? GDALCreate(driver, partial.toUtf8().constData(), cols,
                                         rows, 1, GDT_Int32, nullptr)
                            : nullptr;
   if (!ds) {
@@ -146,6 +150,11 @@ bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
                           const_cast<int *>(cells.constData()), cols, rows,
                           GDT_Int32, 0, 0) == CE_None;
   GDALClose(ds);
+  if (ok && !paleoReplaceFile(partial, path))
+  {
+    QFile::remove(partial);
+    ok = false;
+  }
   if (!ok && error)
     *error = QObject::tr("写入预测栅格失败");
   return ok;

@@ -89,6 +89,9 @@ QString PythonEnvService::findBasePython()
   const QString configured = qEnvironmentVariable( "PALEO_PYTHON" ).trimmed();
   if ( !configured.isEmpty() && QFileInfo::exists( configured ) )
     return configured;
+  if ( !configured.isEmpty() )
+    qWarning( "PALEO_PYTHON=%s 不存在，回落到 PATH 发现的解释器——venv/MAMCL "
+              "环境将与用户意图不一致", qPrintable( configured ) );
   for ( const QString &candidate : { QStringLiteral( "python3" ), QStringLiteral( "python" ) } )
   {
     const QString found = QStandardPaths::findExecutable( candidate );

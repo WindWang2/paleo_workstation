@@ -153,7 +153,7 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
       [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
   if ( job->hasConstraints )
   {
-    const QString frozen = property( ( "paleo.constraint.snapshot." + horizon ).toUtf8().constData() ).toString();
+    const QString frozen = constraintSnapshotPath( horizon ); // L-01：typed 通道替代动态属性
     job->constraintUri = frozen.isEmpty() ? sourceOf( constraintLayerId )
                                            : frozen + QStringLiteral( "|layername=features" );
     if ( job->constraintUri.isEmpty() )
@@ -163,7 +163,7 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
     }
     job->parentPaths << job->constraintUri.section( QLatin1Char( '|' ), 0, 0 );
   }
-  const QString snapshot = property( ( "paleo.constraint.snapshot." + horizon ).toUtf8().constData() ).toString();
+  const QString snapshot = constraintSnapshotPath( horizon ); // L-01：typed 通道
   if ( !snapshot.isEmpty() )
     job->parentPaths << snapshot;
   QString stageError;

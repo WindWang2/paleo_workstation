@@ -402,7 +402,10 @@ namespace
     const int cols = GDALGetRasterXSize( ds );
     const int rows = GDALGetRasterYSize( ds );
     GDALClose( ds );
-    if ( cols <= 0 || rows <= 0 || gt[1] <= 0.0 )
+    // 旋转项非零时北向包围盒公式系统性偏小/错位（factorcontour.cpp 同口径
+    // 拒算）——返回空矩形让调用方走 thickness->extent() 兜底。
+    if ( cols <= 0 || rows <= 0 || gt[1] <= 0.0 ||
+         std::abs( gt[2] ) > 1e-9 || std::abs( gt[4] ) > 1e-9 )
       return QgsRectangle();
     return QgsRectangle( gt[0], gt[3] + gt[5] * rows, gt[0] + gt[1] * cols, gt[3] );
   }

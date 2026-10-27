@@ -159,6 +159,14 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
       return result;
     }
     const QXmlStreamReader::TokenType token = reader.readNext();
+    // L-07：第三方工作簿的 DTD/内部实体声明拒收——QXmlStreamReader 会展开
+    // 内部实体（billion laughs 可把数十 KB 声明展开成 GB 级文本）。合法
+    // SpreadsheetML 不带 DTD；令牌级捕获不依赖头部嗅探、任意位置可命中。
+    if ( token == QXmlStreamReader::DTD )
+    {
+      result.error = QStringLiteral( "工作簿 XML 含 DTD/实体声明，为防实体扩展攻击已拒收：%1" ).arg( path );
+      return result;
+    }
     if ( token == QXmlStreamReader::StartElement )
     {
       const QString name = reader.name().toString();

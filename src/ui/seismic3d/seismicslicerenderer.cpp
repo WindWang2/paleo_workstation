@@ -572,8 +572,10 @@ bool SeismicSliceRenderer::UpdateLineSlice(
         const glm::ivec2 &b = pathPoints[segmentIndex + 1];
         const float inlineNo = static_cast<float>(a.x) + static_cast<float>(b.x - a.x) * t;
         const float xlineNo = static_cast<float>(a.y) + static_cast<float>(b.y - a.y) * t;
-        const float x = Normalize(static_cast<int>(xlineNo), volume.XlineMin(), volume.XlineMax(), horizontalScale);
-        const float z = Normalize(static_cast<int>(inlineNo), volume.InlineMin(), volume.InlineMax(), horizontalScale);
+        // 顶点间插值线号是非整数——先截断再 Normalize(int) 把栅栏/斜剖面
+        // 吸附到整数测线（放大后台阶锯齿）；NormalizeF 保留小数（井轨迹同款）。
+        const float x = NormalizeF(xlineNo, volume.XlineMin(), volume.XlineMax(), horizontalScale);
+        const float z = NormalizeF(inlineNo, volume.InlineMin(), volume.InlineMax(), horizontalScale);
         const float u = static_cast<float>(col) / static_cast<float>(columns - 1);
         vertices.push_back({{x, -heightScale * 0.5f, z}, {u, 0.0f}});
         vertices.push_back({{x, heightScale * 0.5f, z}, {u, 1.0f}});

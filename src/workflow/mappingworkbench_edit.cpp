@@ -727,7 +727,6 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
     return {};
   }
   const QString liveHash = constraintRowsHash(liveRows);
-  const QByteArray snapshotKey = ("paleo.constraint.snapshot." + h).toUtf8();
   if (m_catalog) {
     const QString display = h + QStringLiteral("-constraint_snapshot");
     for (const auto &asset : m_catalog->assets()) {
@@ -739,7 +738,7 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
       const auto path = DataCatalog::resolvedVersionPath(m_dir, current);
       if (path.isEmpty() || !QFile::exists(path))
         break;
-      m_constraints->setProperty(snapshotKey.constData(), path);
+      m_constraints->setConstraintSnapshotPath(h, path); // L-01：typed 通道
       return current.extra.value(QStringLiteral("layer_id"),
                                  QStringLiteral("product.%1").arg(current.id))
           .toString();
@@ -759,10 +758,7 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
     return {};
   }
   QStringList upstream = parents;
-  const auto old =
-      m_constraints
-          ->property(("paleo.constraint.snapshot." + h).toUtf8().constData())
-          .toString();
+  const auto old = m_constraints->constraintSnapshotPath(h); // L-01：typed 通道
   if (!old.isEmpty())
     upstream
         << DerivedAssetRegistrar(m_catalog, m_dir).parentVersionIdsFor({old});
@@ -775,7 +771,8 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
              upstream, snapshotExtra, error,
              "|layername=features");
   if (!id.isEmpty()) {
-    m_constraints->setProperty(snapshotKey.constData(), filePath(declaration(id).source));
+    m_constraints->setConstraintSnapshotPath( // L-01：typed 通道替代动态属性
+        h, filePath(declaration(id).source));
     const QString display = h + QStringLiteral("-constraint_snapshot");
     for (const auto &asset : m_catalog->assets()) {
       if (asset.type != QLatin1String("constraint_snapshot") || asset.displayName != display)
@@ -822,8 +819,9 @@ bool MappingWorkbench::publishConstraintImport(
     const QString &h, const QString &input, const QString &path,
     const QVector<paleo::ImportedConstraintRecord> &records, QString *error,
     const DerivedFileFingerprint *fingerprint, const QVariantMap &importMeta) {
-  const QByteArray snapshotKey = ("paleo.constraint.snapshot." + h).toUtf8();
-  const auto previousSnapshot = m_constraints->property(snapshotKey.constData());
+  // L-01：快照路径走 typed 通道（ARCH-02/06 家族动态属性暗道的替代）；
+  // 旧值未设时为空串，rollback 还原同口径（空串即移除）。
+  const auto previousSnapshot = m_constraints->constraintSnapshotPath(h);
   DataCatalog::BatchSave transaction(m_catalog);
   QVariantMap importExtra{{"source_file", path}, {"method", "constraint-import"}};
   for (auto it = importMeta.cbegin(); it != importMeta.cend(); ++it)
@@ -850,7 +848,7 @@ bool MappingWorkbench::publishConstraintImport(
     if (auto *store = m_constraints->constraintStore())
       for (const auto &cid : created) store->remove(cid);
     transaction.abort();
-    m_constraints->setProperty(snapshotKey.constData(), previousSnapshot);
+    m_constraints->setConstraintSnapshotPath(h, previousSnapshot);
     m_layers->removeDeclaration(inputId);
     // #499：先落地层析构释放 OGR 句柄，再删受管文件（Windows 删除竞态）。
     paleo::qgis::releaseDeferredLayerHandles();

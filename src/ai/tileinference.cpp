@@ -106,7 +106,7 @@ void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
       if ( !std::isfinite( v ) )
         continue;
       const int label = int( std::round( v ) );
-      if ( label >= 0 && label < kMaxTileClasses )
+      if ( label >= 0 && label < classes ) // 输出 classes 语义：越类号按无数据（255），不外泄词表外相码
       {
         out->argmax[p] = quint8( label );
         out->confidence[p] = 1.0f;
@@ -245,6 +245,7 @@ void stitchTileIntoGrid( const InferenceTile &tile, const TileClassGrid &tileGri
     grid->accumulatedProbs = QVector<float>( C * gridPixels, 0.0f );
 
   const int tilePixels = tileGrid.rows * tileGrid.cols;
+  std::vector<float> pIn; // 行外复用缓冲：内层逐像元不再各自 malloc/free
   const int offR = tile.innerRow0 - tile.row0;
   const int offC = tile.innerCol0 - tile.col0;
 
@@ -281,7 +282,7 @@ void stitchTileIntoGrid( const InferenceTile &tile, const TileClassGrid &tileGri
       const float weight = wr * wc;
 
       // Extract probabilities for incoming tile
-      std::vector<float> pIn( C, 0.0f );
+      pIn.assign( C, 0.0f );
       if ( tileGrid.accumulatedProbs.size() == C * tilePixels )
       {
         for ( int c = 0; c < C; ++c )

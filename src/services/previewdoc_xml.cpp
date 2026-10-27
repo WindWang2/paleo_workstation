@@ -51,6 +51,13 @@ PreviewDocService::WorkbookPreview PreviewDocService::xmlDataListAt(const QStrin
     if (++rows <= 1000) sheet.rows.append({name, value.left(4096)});
   };
   do {
+    // L-07：预览的是导入的外委/第三方 XML——QXmlStreamReader 会展开 DTD
+    // 内声明的内部实体（billion laughs：数十 KB 声明展开成 GB 级字符串，
+    // GUI 线程假死）。合法 SpreadsheetML/数据 XML 不带 DTD，见令牌即拒。
+    if (reader.isDTD()) {
+      result.error = tr("XML 含 DTD/实体声明，为防实体扩展攻击已拒收");
+      return result;
+    }
     if (reader.isStartElement()) {
       if (elements.size() >= 512) { result.error = tr("XML 嵌套层级过深"); return result; }
       elements << reader.qualifiedName().toString(); values << QString();

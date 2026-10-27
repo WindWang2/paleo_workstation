@@ -5,6 +5,7 @@
 #include "paleomainwindow.h"
 #include "paleomainwindow_internal.h"
 
+#include "../metadata/paleoprojectstore.h" // showStartup 只读态现取 store 真源（白名单六头）
 #include "datapreview/datapreviewtabs.h" // m_previewTabs 的 findChild 需完整类型（上行转换）
 #include "pages/pageshared.h" // kPageIds（页序表）
 #include "paleoribbon.h"      // makeKeyboardReachable（页签命令钮进 Tab 链）
@@ -245,7 +246,9 @@ void PaleoMainWindow::showStartup()
 {
   if (m_currentPage == QLatin1String("correlation"))
     restoreCorrelationDocks();
-  setProjectReadOnly(false);
+  // 只读工程（另一实例持锁打开）回起始页不得重置只读态——现取 store 真源，
+  // 否则编辑工具条重新点亮、进入最终无法保存的编辑会话。
+  setProjectReadOnly(m_projectStore && m_projectStore->isReadOnly());
   m_currentPage = QStringLiteral("startup");
   if (m_leftDock) m_leftDock->setProgrammaticVisible(false);
   if (m_rightDock) m_rightDock->setProgrammaticVisible(false);

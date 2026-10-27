@@ -101,6 +101,21 @@ void ConstraintWorkflow::setThicknessSamples( const QVariantList &rows, const QS
   m_thicknessMessage = message;
 }
 
+// L-01：替代 paleo.constraint.snapshot.* 动态属性暗道（ARCH-02/06 家族）。
+// 空路径按「无快照」处理——镜像旧 setProperty(key, QVariant()) 的移除语义。
+void ConstraintWorkflow::setConstraintSnapshotPath( const QString &horizon, const QString &path )
+{
+  if ( path.isEmpty() )
+    m_constraintSnapshots.remove( horizon );
+  else
+    m_constraintSnapshots.insert( horizon, path );
+}
+
+void ConstraintWorkflow::clearConstraintSnapshots()
+{
+  m_constraintSnapshots.clear();
+}
+
 void ConstraintWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
 {
   ++m_publishGeneration;

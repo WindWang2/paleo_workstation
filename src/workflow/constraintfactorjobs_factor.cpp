@@ -241,7 +241,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   {
     QString constraintErr;
     QgsMapLayer *constraints = layers->instantiate( constraintLayerId, &constraintErr );
-    const auto frozenPath=property(("paleo.constraint.snapshot."+horizon).toUtf8().constData()).toString();
+    const auto frozenPath=constraintSnapshotPath(horizon); // L-01：typed 通道替代动态属性
     if(!frozenPath.isEmpty()) {
       frozenConstraints=std::make_unique<QgsVectorLayer>(frozenPath+"|layername=features","constraints","ogr");
       if(!frozenConstraints->isValid()){paleo::workflow_detail::setError(error,tr("约束快照无法读取"));return false;}
@@ -300,9 +300,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
         extra.insert(QStringLiteral("kind"),
                      QStringLiteral("single_factor_raster"));
         parentPaths.append(
-            property(
-                ("paleo.constraint.snapshot." + horizon).toUtf8().constData())
-                .toString());
+            constraintSnapshotPath(horizon)); // L-01：typed 通道替代动态属性
         QStringList parentIds = registrar.parentVersionIdsFor(parentPaths);
         parentIds.append(params.value("parentVersionIds").toStringList());
         parentIds.removeDuplicates();
@@ -767,8 +765,8 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
   {
     QString constraintErr;
     constraints = layers->instantiate( constraintLayerId, &constraintErr );
-    const QString frozenPath =
-        property( ( "paleo.constraint.snapshot." + horizon ).toUtf8().constData() ).toString();
+    // L-01：typed 通道替代动态属性（ARCH-02/06 家族）。
+    const QString frozenPath = constraintSnapshotPath( horizon );
     if ( !frozenPath.isEmpty() )
     {
       frozenConstraints = std::make_unique<QgsVectorLayer>(

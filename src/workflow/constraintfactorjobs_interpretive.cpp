@@ -190,7 +190,7 @@ bool ConstraintWorkflow::prepareInterpretiveContourJob( const QString &horizon, 
   bool frozenConstraints = false;
   if ( hasConstraints )
   {
-    const QString frozen = property( ( "paleo.constraint.snapshot." + horizon ).toUtf8().constData() ).toString();
+    const QString frozen = constraintSnapshotPath( horizon ); // L-01：typed 通道替代动态属性
     if ( !frozen.isEmpty() )
     {
       constraintUri = frozen + QStringLiteral( "|layername=features" );

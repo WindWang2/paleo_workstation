@@ -584,6 +584,27 @@ bool RasterPyramidService::tile(const QString &rasterPath, int z, int x, int y, 
   // 未建：懒生成（同源互斥，D3.8）。
   SourceState *st = stateFor(rasterPath);
   QMutexLocker build(&st->buildMutex);
+  // L-25：锁内新鲜度复验（ensure 同款双检，PW-106 口径）——锁外检查通过
+  // 后等锁期间，并发 ensure 可能已按新源 invalidate+重建：旧 meta 对新源
+  // 读瓦在尺寸变化时窗口错位，错代瓦片还会插进 LRU 长期供旧数据。不一致
+  // 即让位 ensure 重取新一代 meta。
+  {
+    PyramidMeta again;
+    const QFileInfo info(rasterPath);
+    const bool stillFresh = loadMeta(rasterPath, &again) && info.exists() &&
+                            again.sourcePath == PathCanon::canonicalize(rasterPath) &&
+                            again.sourceMtimeMs == info.lastModified().toMSecsSinceEpoch() &&
+                            again.sourceSize == info.size();
+    if (!stillFresh)
+    {
+      build.unlock();
+      if (!ensure(rasterPath, &meta, error, BuildStrategy::Lazy))
+        return false;
+      build.relock();
+    }
+    else
+      meta = again;
+  }
   // 双检（并发首建可能已落盘）。
   if (const auto hit = m_tiles.get(key))
   {

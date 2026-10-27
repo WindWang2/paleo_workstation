@@ -203,6 +203,56 @@ seismictaskservice startBounded 判空、transcode 索引缓存落盘失败留�
   dlisparser 每帧每通道 obnameKey 键串分配；lasparser 流式逐行堆分配。
 - lasparser.h 头注释「WRAP YES not supported」与实现矛盾（已实装）——文档漂移。
 
+## 第三轮（同日）：P2 遗留主攻
+
+### 已修复
+
+- **L-01**：约束快照 `paleo.constraint.snapshot.*` 动态属性暗道（ARCH-02/06
+  复发）全量转 typed 通道——实际调用点比首轮简报多（12 处字符串/14 个使用
+  点：含 constraintfactorjobs_{factor,contours,interpretive,localdirection}
+  的 7 处 property() 读），不一并转换会让写入移入 QHash 后读到空。
+  `setConstraintSnapshotPath/constraintSnapshotPath/clearConstraintSnapshots`
+  落在 ConstraintWorkflow；空串=移除，与旧 QVariant() 移除语义在读点
+  （均判 isEmpty）不可区分。
+- **L-02**：层忙注册表改多持有者——store 侧 `m_busy` 从单槽
+  `layerId→(taskId,reason)` 改 `layerId→[(taskId,reason)]`，mark 幂等替换同
+  taskId 条目、releaseLayerBusy 只摘自己；qgiseditingservice 四处终态与
+  paleotaskservice 终态全部改按 taskId 条件释放——编辑会话与后台任务共用
+  键空间时任一方终态不再连他人 §35 门持有一并抹掉。
+- **L-07**：XML 实体防护（billion laughs）——SpreadsheetML 流式读面与
+  预览通用 XML 分支按 `QXmlStreamReader::DTD` 令牌拒收（任意位置可命中，
+  不依赖头部嗅探；合法 SpreadsheetML 不带 DTD）。
+- **L-09**：faciespolygonize 约束层 CRS 变换 + 有效性前置（distancetransform
+  同模板，BIZ-10 口径）与 1 亿像元预算闸（raw/grid/next/maskPx 平峰
+  ≈13B/像元）。
+- **L-10**：mappingartifactwriter 预测栅格改 .partial + paleoReplaceFile
+  原子落名（#588 B.13 家族 qgis 侧实例）。
+- **L-23**：DLIS 主帧 UVARI/ORIGIN 标量通道不再整文件失败（readNumeric 本可
+  解码，违反「白名单外默认必须解析」契约）；多维时按逐元素 uvari() 走位跳过。
+- **L-24**：lasparser 三处——外推 reserve 按全部桶合计 ≤1GiB 封顶（Windows
+  大块堆分配即 MEM_COMMIT，原口径可放大数十 GB 提交）；4MB 头扫描截断与
+  「真没有 ~C/~A」错误分归因（此前与 parseDoc 对同一文件结论矛盾）；流式
+  路径补 Ctrl-Z 截停（此前完全不认，与整读路径行集不一致——比首轮简报
+  所述「只截断所在块」更严重）。
+- **L-25**：rasterpyramid tile() 锁内新鲜度复验（ensure 同款双检）——锁外
+  检查通过后等锁期间并发换源时，不再以旧 meta 对新源读瓦并把错代瓦片
+  灌进 LRU。
+- P3 十一项：showStartup 只读态现取 store 真源（不再无条件重置）、3D 贴面
+  线号 NormalizeF（去整数吸附台阶）、sfpkgwriter f4 收窄 Inf 拒写、
+  dataexport companions 三处 *error 判空、pythonenv PALEO_PYTHON 失效
+  qWarning（不再静默换解释器）、tileinference argmax 按实际类数设界 +
+  pIn 行外复用、layoutexport 旋转栅格拒算（走 extent 兜底）、
+  paleoprojectfile 死拷贝 georeferenceToJsonImpl 删除 + basemap 两成员
+  并入 PW-075 路径校验。
+
+### 仍未修（维持登记）
+
+L-11（GEOS 热路径预筛）、L-13（GUI 线程同步重算族）、L-14（petrophys 文件名
+竞态）、L-16（deviationsurvey 掉头段极值方向）、L-17（recover 只读介质行为）、
+L-20（AGC 色标标签语义，需 DESIGN 裁决）、L-21（本机 ctest 夹具环境）、L-22
+（wellcompositexml 六域写侧缺口，需设计决策）、L-26/L-27/L-28（constraintstore
+分页/备份时序、综合柱状图解析语义族、singlefactor 性能族）。
+
 ## 验证
 
 - 源码闸门（本机直跑）：layering --strict / --qgs-audit / qgis-spread / file-budget

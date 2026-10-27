@@ -52,7 +52,10 @@ void PreviewMapPage::openCoordinateTools()
             auto *tool = m_canvas->beginCoordinatePick();
             if (!tool) return;
             const auto restore = [guard = QPointer<PaleoCoordinateToolsDialog>(dialog)] {
-              if (guard) guard->dialog()->open();
+              // dialog() 判空：内层已毁、包装待删的窗口内保持结构安全
+              //（R2-D3 硬化——把正确性从时序论证变成显式守卫）。
+              if (guard && guard->dialog())
+                guard->dialog()->open();
             };
             connect(tool, &PaleoCoordinateMapTool::pointPicked, dialog,
                     [editor, restore](const auto &point) {

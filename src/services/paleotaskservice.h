@@ -224,6 +224,5 @@ private:
   PaleoProjectStore *m_store;
   qint64 m_nextId = 1;
   QVector<PaleoTask *> m_tasks;
-  QHash<QString, int> m_layerHolds; // layerId → 在飞任务数（引用计数解锁）
   QThreadPool *m_pool = nullptr; // D4.5 专用 ≤4 工作线程池
 };

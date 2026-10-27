@@ -1,6 +1,8 @@
 // 层：视图
 #include "projectmapsettingsdialog.h"
 #include "ui/paleotheme.h"
+#include "qgis/crsselector.h"
+#include "qgis/coordinateeditor.h"
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -12,8 +14,8 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QToolButton>
 #include <QVBoxLayout>
-#include <qgsprojectionselectionwidget.h>
 
 ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &configuration, QWidget *parent)
   : QDialog(parent), m_original(configuration)
@@ -40,6 +42,9 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
   fields->addRow(m_registered);
   PaleoGeoreference g = configuration.georeference.value_or(PaleoGeoreference{});
   const bool native = g.kind == QLatin1String("crs");
+  m_registered->setEnabled(!native);
+  m_registered->setToolTip(native ? tr("原生投影 CRS 是现有工程的计算基准，不能在此清除；如需更换，请新建工程并重新导入。")
+                                  : tr("启用后，以明确参数将局部米制网格配准到 WGS84。"));
   if (native) {
     reference->setTitle(tr("工程原生坐标系"));
     description->setText(tr("地质数据使用已声明的原生投影坐标；地图按精确投影转换显示，不需要再拟合局部网格配准。"));
@@ -48,23 +53,39 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
   }
   if (!configuration.georeference) g.a = 1;
   const QStringList captions = {tr("a（缩放 × cos 旋转角）"), tr("b（缩放 × sin 旋转角）"),
-      tr("东向平移 tE（米）"), tr("北向平移 tN（米）"), tr("锚点经度（度）"),
-      tr("锚点纬度（度）"), tr("每经度对应米数"), tr("每纬度对应米数")};
-  const QVector<double> values = {g.a, g.b, g.tE, g.tN, g.anchorLonDeg, g.anchorLatDeg,
+      tr("东向平移 tE（米）"), tr("北向平移 tN（米）"),
+      tr("每经度对应米数"), tr("每纬度对应米数")};
+  const QVector<double> values = {g.a, g.b, g.tE, g.tN,
                                  g.metersPerDegLon, g.metersPerDegLat};
   for (int i = 0; i < values.size(); ++i) {
     auto *spin = new QDoubleSpinBox(reference);
-    spin->setRange(-1e9, 1e9);
+    spin->setRange(i >= 4 ? 1e-9 : -1e9, 1e9);
     spin->setDecimals(12);
+    spin->setSuffix(i == 2 || i == 3 ? tr(" m") : i >= 4 ? tr(" m/°") : QString());
     spin->setValue(values[i]);
     spin->setFont(PaleoTheme::monoFont());
-    spin->setObjectName(QStringLiteral("georeferenceParameter%1").arg(i));
+    spin->setObjectName(QStringLiteral("georeferenceParameter%1").arg(i < 4 ? i : i + 2));
     spin->setEnabled(m_registered->isChecked());
     if (!native) fields->addRow(captions[i], spin);
     else spin->hide();
     m_parameters << spin;
     connect(m_registered, &QCheckBox::toggled, spin, &QWidget::setEnabled);
   }
+  m_anchor = new PaleoCoordinateEditor(reference);
+  m_anchor->setObjectName(QStringLiteral("georeferenceAnchorEditor"));
+  m_anchor->setSourceCrs(paleo::coordinates::crsFromDefinition(QStringLiteral("EPSG:4326")));
+  m_anchor->sourceSelector()->widget()->setEnabled(false);
+  m_anchor->sourceSelector()->widget()->setToolTip(tr("局部网格配准的目标固定为 WGS84 经纬度。"));
+  m_anchor->xEdit()->setObjectName(QStringLiteral("georeferenceParameter4"));
+  m_anchor->yEdit()->setObjectName(QStringLiteral("georeferenceParameter5"));
+  m_anchor->xEdit()->setFont(PaleoTheme::monoFont());
+  m_anchor->yEdit()->setFont(PaleoTheme::monoFont());
+  m_anchor->setPoint(paleo::coordinates::point(g.anchorLonDeg, g.anchorLatDeg));
+  m_anchor->mapPickButton()->hide();
+  m_anchor->widget()->setEnabled(m_registered->isChecked());
+  if (native) m_anchor->widget()->hide();
+  else fields->addRow(tr("WGS84 锚点"), m_anchor->widget());
+  connect(m_registered, &QCheckBox::toggled, m_anchor->widget(), &QWidget::setEnabled);
   auto *formula = new QLabel(tr("E = a·x − b·y + tE；N = b·x + a·y + tN\n经度 = 锚点经度 + E / 每经度米数\n纬度 = 锚点纬度 + N / 每纬度米数"), reference);
   formula->setWordWrap(true);
   if (!native) fields->addRow(formula);
@@ -80,9 +101,11 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
   form->addWidget(reference);
   auto *map = new QGroupBox(tr("地图显示与离线底图"), content);
   auto *mapForm = new QFormLayout(map);
-  m_crs = new QgsProjectionSelectionWidget(map);
-  m_crs->setCrs(QgsCoordinateReferenceSystem(configuration.mapCrs));
-  mapForm->addRow(tr("地图坐标系"), m_crs);
+  m_crs = new PaleoCrsSelector(true, map);
+  m_crs->setObjectName(QStringLiteral("projectMapCrsSelector"));
+  m_crs->setNotSetText(tr("局部工程网格（米，未投影）"));
+  m_crs->setDefinition(configuration.mapCrs);
+  mapForm->addRow(tr("地图坐标系"), m_crs->widget());
   m_basemapEnabled = new QCheckBox(tr("显示离线底图"), map);
   m_basemapEnabled->setChecked(configuration.basemapEnabled);
   mapForm->addRow(m_basemapEnabled);
@@ -108,7 +131,26 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
   m_error = new QLabel(this); m_error->setWordWrap(true); m_error->hide();
   layout->addWidget(m_error);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
-  connect(buttons, &QDialogButtonBox::accepted, this, &ProjectMapSettingsDialog::saveRequested);
+  connect(buttons, &QDialogButtonBox::accepted, this, [this] {
+    QString error;
+    if (!m_crs->validate(&error))
+    {
+      showError(error);
+      return;
+    }
+    if (m_registered->isChecked() &&
+        m_original.georeference.value_or(PaleoGeoreference{}).kind != QLatin1String("crs"))
+    {
+      auto anchor = paleo::coordinates::point();
+      if (!m_anchor->sourcePoint(&anchor, &error))
+      {
+        m_anchor->showError(error);
+        showError(error);
+        return;
+      }
+    }
+    emit saveRequested();
+  });
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
   layout->addWidget(buttons);
 }
@@ -116,7 +158,7 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
 PaleoProjectFile ProjectMapSettingsDialog::configuration() const
 {
   auto file = m_original;
-  file.mapCrs = m_crs->crs().authid().isEmpty() ? m_crs->crs().toWkt() : m_crs->crs().authid();
+  file.mapCrs = m_crs->definition();
   file.basemapEnabled = m_basemapEnabled->isChecked();
   file.basemapTopo = m_topo->text().trimmed();
   file.basemapHillshade = m_hillshade->text().trimmed();
@@ -124,10 +166,12 @@ PaleoProjectFile ProjectMapSettingsDialog::configuration() const
     auto g = file.georeference.value_or(PaleoGeoreference{});
     g.targetCrs = QStringLiteral("EPSG:4326");
     if (g.kind != QLatin1String("crs")) {
-    g.a = m_parameters[0]->value(); g.b = m_parameters[1]->value();
-    g.tE = m_parameters[2]->value(); g.tN = m_parameters[3]->value();
-    g.anchorLonDeg = m_parameters[4]->value(); g.anchorLatDeg = m_parameters[5]->value();
-    g.metersPerDegLon = m_parameters[6]->value(); g.metersPerDegLat = m_parameters[7]->value();
+      auto anchor = paleo::coordinates::point();
+      if (!m_anchor->sourcePoint(&anchor)) return m_original;
+      g.a = m_parameters[0]->value(); g.b = m_parameters[1]->value();
+      g.tE = m_parameters[2]->value(); g.tN = m_parameters[3]->value();
+      g.anchorLonDeg = anchor.x(); g.anchorLatDeg = anchor.y();
+      g.metersPerDegLon = m_parameters[4]->value(); g.metersPerDegLat = m_parameters[5]->value();
     }
     g.provenance = m_provenance->text();
     file.georeference = g;

@@ -11,7 +11,7 @@
 #include "pages/pageshared.h"
 #include "pages/datalist.h"
 #include "pages/wellsitingpanel.h"
-#include "maptools/sitingpicktool.h"
+#include "qgis/coordinatemaptool.h"
 #include "../workflow/wellsitingworkflow.h"
 #include "../workflow/workflows.h"
 
@@ -153,6 +153,7 @@ void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
     tabs->addTab(validatePage, tr("验证"));
     auto *panel = new WellSitingPanel(wf, tabs);
     m_wellSitingPanel = panel;
+    if (m_canvasCtl) panel->setCoordinateCanvas(m_canvasCtl->canvasWidget());
     tabs->addTab(panel, tr("布井辅助"));
     stack->insertWidget(idx, tabs);
     if (prevCurrent >= 0 && prevCurrent < stack->count())
@@ -167,15 +168,18 @@ void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
       // 「还没点就再点一次」的替换泄漏）。
       if (m_sitingPickTool)
         m_sitingPickTool->deleteLater();
-      auto *tool = new PaleoSitingPickTool(m_canvasCtl->canvas());
+      auto *tool = new PaleoCoordinateMapTool(m_canvasCtl->canvas());
       m_sitingPickTool = tool;
-      connect(tool, &PaleoSitingPickTool::pointPicked, this,
-              [this](double x, double y) {
+      connect(tool, &PaleoCoordinateMapTool::pointPicked, this,
+              [this](const auto &point) {
                 if (m_wellSitingPanel)
-                  m_wellSitingPanel->placePlannedAt(x, y);
+                  m_wellSitingPanel->placeMapPoint(point.x(), point.y());
               });
-      m_canvasCtl->setMapTool(tool);
-      statusBar()->showMessage(tr("在地图上单击放置计划井（Esc 取消）"), 8000);
+      connect(tool, &PaleoCoordinateMapTool::cancelled, this, [this] {
+        statusBar()->showMessage(tr("已取消地图布点"), 5000);
+      });
+      m_canvasCtl->setMapTool(tool->nativeTool());
+      statusBar()->showMessage(tr("在地图上单击放置计划井（Esc 或右键取消）"), 8000);
     });
 
     // 导出：面板只报场景，文件对话框由壳统一管。

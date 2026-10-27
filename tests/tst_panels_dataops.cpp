@@ -51,6 +51,9 @@
 #include "../src/workflow/workflows.h"
 #include "uipolish_capture.h"
 #include "../src/qgis/qgislayerservice.h"
+#include "../src/qgis/qgisprojectservice.h"
+#include "../src/qgis/qgisruntime.h"
+#include "helpers/visualcapture.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/io/dataimportservice.h"
@@ -2713,6 +2716,85 @@ class TestPanelsDataOps : public QObject
         QVERIFY(svc.catalog()->entities(QStringLiteral("well")).size() == wells);
     }
 
+    void dataops_d4_entityCoordinatesTransformAndRejectInvalidInput()
+    {
+        QTemporaryDir dir;
+        QgisProjectService project;
+        QVERIFY(project.createProject(dir.filePath(QStringLiteral("coordinates.qgz"))));
+        PaleoGeoreference reference;
+        reference.kind = QStringLiteral("crs");
+        reference.sourceCrs = QStringLiteral("EPSG:32649");
+        reference.targetCrs = QStringLiteral("EPSG:4326");
+        project.setGeoreference(reference);
+        DataImportService svc(nullptr, nullptr);
+        svc.setProjectDir(dir.filePath(QStringLiteral("data")));
+        DataOpsFixture fx;
+        fx.build(svc.catalog());
+        std::unique_ptr<DataPage> page(fx.makePage(&svc));
+        page->setProjectService(&project);
+        auto *ep = page->findChild<EntityPanel *>();
+        QVERIFY(ep);
+        driveModalNextTick([](QWidget *w) {
+            auto *dlg = qobject_cast<paleo::dataops::EntityCreateDialog *>(w);
+            if (!dlg) return;
+            auto *editor = dlg->findChild<PaleoCoordinateEditor *>(
+                QStringLiteral("entityCoordinateEditor"));
+            if (!editor)
+            {
+                dlg->reject();
+                QFAIL("Entity coordinate editor is missing");
+            }
+            QCOMPARE(editor->sourceSelector()->definition(), QStringLiteral("EPSG:32649"));
+            QVERIFY(editor->sourceSelector()->setDefinition(QStringLiteral("EPSG:4326")));
+            editor->xEdit()->setText(QStringLiteral("108.037366"));
+            editor->yEdit()->setText(QStringLiteral("36.086627"));
+            dlg->findChild<QLineEdit *>(QStringLiteral("entityNameEdit"))
+                ->setText(QStringLiteral("WGS-1"));
+            dlg->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        });
+        ep->beginCreateEntity();
+        CatalogEntity created;
+        for (const auto &entity : svc.catalog()->entities(QStringLiteral("well")))
+            if (entity.name == QLatin1String("WGS-1")) created = entity;
+        QVERIFY(!created.id.isEmpty());
+        QVERIFY(std::abs(created.surfaceX - 233240.46) < 0.03);
+        QVERIFY(std::abs(created.surfaceY - 3997621.08) < 0.03);
+
+        paleo::dataops::EntityEditDialog edit;
+        edit.setStorageContext(&project);
+        edit.loadEntity(created, paleo::dataops::EntityOverride());
+        auto *editor = edit.findChild<PaleoCoordinateEditor *>(
+            QStringLiteral("entityEditCoordinateEditor"));
+        QVERIFY(editor);
+        QVERIFY(editor->sourceSelector()->setDefinition(QStringLiteral("EPSG:4326")));
+        editor->setPoint(paleo::coordinates::point(108.037366, 36.086627));
+        edit.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QCOMPARE(edit.result(), int(QDialog::Accepted));
+        QVERIFY(std::abs(edit.editedX() - created.surfaceX) < 0.03);
+        QVERIFY(std::abs(edit.editedY() - created.surfaceY) < 0.03);
+        QVERIFY(paleo::tests::captureVisual(&edit, QStringLiteral("entity-coordinate-editor"),
+                                            QSize(560, 640)));
+
+        paleo::dataops::EntityEditDialog invalid;
+        invalid.setStorageContext(&project);
+        invalid.loadEntity(created, paleo::dataops::EntityOverride());
+        auto *invalidEditor = invalid.findChild<PaleoCoordinateEditor *>(
+            QStringLiteral("entityEditCoordinateEditor"));
+        QVERIFY(invalidEditor);
+        QVERIFY(invalidEditor->sourceSelector()->setDefinition(QStringLiteral("EPSG:4326")));
+        invalidEditor->xEdit()->setText(QStringLiteral("181"));
+        invalidEditor->yEdit()->setText(QStringLiteral("36.086627"));
+        invalid.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QCOMPARE(invalid.result(), int(QDialog::Rejected));
+        QVERIFY(!invalidEditor->sourceSelector()->setDefinition(QStringLiteral("not-a-crs")));
+        invalid.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QCOMPARE(invalid.result(), int(QDialog::Rejected));
+        paleo::dataops::EntityOverride unchanged;
+        invalid.edited(&unchanged);
+        QCOMPARE(unchanged.surfaceX, created.surfaceX);
+        QCOMPARE(unchanged.surfaceY, created.surfaceY);
+    }
+
     void dataops_d4_entityRenameViaDialog()
     {
         QTemporaryDir dir;
@@ -3327,9 +3409,11 @@ int main(int argc, char *argv[])
 {
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
-  QApplication app(argc, argv);
+  if (!QgisRuntime::initialize()) qFatal("QgisRuntime::initialize failed");
   TestPanelsDataOps tc;
-  return QTest::qExec(&tc, argc, argv);
+  const int result = QTest::qExec(&tc, argc, argv);
+  QgisRuntime::shutdown();
+  return result;
 }
 
 #include "tst_panels_dataops.moc"

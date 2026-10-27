@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QClipboard>
 #include <QTemporaryDir>
 #include <QLabel>
 #include <QStatusBar>
@@ -35,6 +36,9 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/qgis/coordinateeditor.h"
+#include "../src/qgis/coordinatetoolsdialog.h"
+#include "../src/qgis/crsselector.h"
 #include "../src/qgis/faciespartitioneditor.h"
 #include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/qgis/qgislayerservice.h"
@@ -201,6 +205,57 @@ class TestUiShell : public QObject
       QVERIFY(PaleoTheme::itemViewStyleSheet().contains(QStringLiteral("padding: 3px")));
       // Ctrl+K 归定位器独占（数据页命令面板改键的断言在 tst_panels
       // uipolish_commandPaletteShortcutMoved——裸壳不构建 DataPage）。
+    }
+
+    void coordinateMenuTransformsLocatesAndCopies()
+    {
+      QTemporaryDir dir;
+      QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("coordinates.qgz"))));
+      auto config = m_ctx->projectSvc()->mapConfiguration();
+      PaleoGeoreference reference;
+      reference.kind = QStringLiteral("crs");
+      reference.sourceCrs = QStringLiteral("EPSG:32649");
+      reference.targetCrs = QStringLiteral("EPSG:4326");
+      config.georeference = reference;
+      config.mapCrs = QStringLiteral("EPSG:32649");
+      QString error;
+      QVERIFY2(m_ctx->projectSvc()->updateMapConfiguration(config, &error), qPrintable(error));
+      auto *canvas = m_ctx->canvasCtl()->canvas();
+      canvas->setDestinationCrs(m_ctx->projectSvc()->project()->crs());
+      canvas->mapSettings().setTransformContext(m_ctx->projectSvc()->project()->transformContext());
+      auto *action = m_win->findChild<QAction *>(QStringLiteral("statusCoordinateToolsAction"));
+      QVERIFY(action);
+      action->trigger();
+      auto *dialog = m_win->findChild<PaleoCoordinateToolsDialog *>(QStringLiteral("coordinateToolsDialog"));
+      QVERIFY(dialog);
+      dialog->editor()->setSourceCrs(QgsCoordinateReferenceSystem(QStringLiteral("EPSG:4326")));
+      QVERIFY(dialog->targetSelector()->setDefinition(QStringLiteral("EPSG:32649")));
+      dialog->setSourcePoint(QgsPointXY(108.037366, 36.086627));
+      dialog->convertButton()->click();
+      auto *locate = dialog->dialog()->findChild<QPushButton *>(QStringLiteral("coordinateLocateButton"));
+      qInfo() << "coordinate conversion" << dialog->resultText()
+              << dialog->dialog()->findChild<QLabel *>(QStringLiteral("coordinateToolsError"))->text()
+              << dialog->editor()->sourceSelector()->definition() << dialog->targetSelector()->definition()
+              << dialog->editor()->xEdit()->text() << dialog->editor()->yEdit()->text();
+      QVERIFY(locate && locate->isEnabled());
+      const QString compactResult = dialog->resultText().remove(QChar(','));
+      QVERIFY(compactResult.contains(QStringLiteral("233240.471")));
+      QVERIFY(compactResult.contains(QStringLiteral("3997621.077")));
+      QVERIFY(paleo::tests::captureVisual(dialog->dialog(), QStringLiteral("coordinate-tools-main"), QSize(680, 640)));
+      canvas->setExtent(QgsRectangle(0, 0, 1000, 1000));
+      canvas->refresh();
+      locate->click();
+      const auto extentCenter = canvas->extent().center();
+      QVERIFY(std::abs(extentCenter.x() - 233240.46) < 0.03);
+      QVERIFY(std::abs(extentCenter.y() - 3997621.08) < 0.03);
+      emit canvas->xyCoordinates(extentCenter);
+      auto *copy = m_win->findChild<QAction *>(QStringLiteral("statusCopyWgs84Coordinates"));
+      QVERIFY(copy);
+      copy->trigger();
+      QVERIFY(QApplication::clipboard()->text().contains(QStringLiteral("108.037")));
+      QVERIFY(QApplication::clipboard()->text().contains(QStringLiteral("36.086")));
+      dialog->dialog()->close();
+      QVERIFY(paleo::tests::captureVisual(m_win, QStringLiteral("main-coordinate-tools"), QSize(1440, 900)));
     }
 
     // T32：全局焦点环进主窗样式表（2px #1B73D0）；工作流标签溢出走滚动

@@ -273,6 +273,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void attachPaleomapLibrary(DataPage *page);
     void wireDataImportRequests(DataPage *dataPage, DataImportService *importSvc, DataPreviewTabs *preview);
     void attachProjectDashboard(DataPage *dataPage, DataPreviewTabs *preview);
+    void attachDataProjectOpen(DataPage *dataPage);
     void attachDataPage(DataPage *dataPage, WellCorrelationPanel *corrPanel,
                         DataImportService *importSvc, PaleoTaskService *taskSvc);
     void attachPredictPage(PredictPage *predictPage, PredictionWorkflow *pred);
@@ -308,6 +309,7 @@ class PaleoMainWindow : public SARibbonMainWindow
                                              QgisEditingService *editSvc,
                                              QgisLayoutService *layoutSvc,
                                              PaleoTaskService *taskSvc);
+    void attachMapBookSurface();
     // 底栏「发布」页：库路径/当前清单/只读态（§6）三面均从工程存储注入。
     void attachReleasePanel(PaleoProjectStore *store);
     // attachMapping 三段：发布门（m_refreshPublishGate 本体）→ 导出接线 →
@@ -351,6 +353,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void buildLayerTreeDock();    // 左 dock 图层平台 + 空态同步
     void buildPageDocks();        // 右栏占位/底栏/地震剖面/连井/3D/Web dock 族
     void buildStatusBar();        // 状态栏族（层位/坐标/比例尺/CRS/打开进度）
+    void buildCoordinateTools(class QLabel *coordLabel); // QGIS 坐标定位/复制/转换
     void wireErrorHubStatus();    // 状态栏错误胶囊 + ErrorHub 计数同步
     void registerPageShortcuts(); // Ctrl+1..6 / Ctrl+Tab（方向 63 注册表）
     void restoreCorrelationDocks();
@@ -450,7 +453,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     class WellSitingPanel *m_wellSitingPanel = nullptr;
     // #411：在途布点工具——连续点「在地图上放置计划井」时旧工具被 setMapTool
     // 替换而无人删（canvas 不持有 map tool）。
-    QPointer<class QgsMapTool> m_sitingPickTool;
+    QPointer<class PaleoCoordinateMapTool> m_sitingPickTool;
     QgisProjectService *m_projectSvc;
     QgisLayerService *m_layerSvc;
     ToolAvailabilityService *m_tools;

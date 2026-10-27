@@ -285,7 +285,7 @@ QList<ShortcutEntry> catalogEntries()
       << make("map.siting.cancel", QKeySequence(Qt::Key_Escape), "main/map/siting-tool", K, "map",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "取消布井拾取并退出工具"),
               QT_TRANSLATE_NOOP("PaleoShortcuts", "布井拾取工具（焦点内）"),
-              "src/ui/maptools/sitingpicktool.cpp");
+              "src/qgis/coordinatemaptool.cpp");
 
   // ===== 剖面与三维 =====
   const char *sectionCanvas = QT_TRANSLATE_NOOP("PaleoShortcuts", "地震剖面画布（焦点内）");

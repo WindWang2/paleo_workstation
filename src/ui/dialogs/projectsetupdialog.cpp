@@ -3,6 +3,7 @@
 #include "../../workflow/projectsetup.h"
 #include "../paleotheme.h"
 #include "../../domain/mappinghorizons.h"
+#include "qgis/crsselector.h"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
@@ -56,8 +57,10 @@ ProjectSetupDialog::ProjectSetupDialog(ProjectSetupWorkflow *workflow, QWidget *
     if (result() != QDialog::Accepted) { m_blankLocked = false; m_empty = false; }
   });
   connect(m_workflow, &ProjectSetupWorkflow::previewReady, this, &ProjectSetupDialog::showPreview);
-  for (auto *edit : {m_points, m_wells, m_seismic, m_horizons, m_references, m_boundary, m_crs, m_projectCrs, m_paleomaps})
+  for (auto *edit : {m_points, m_wells, m_seismic, m_horizons, m_references, m_boundary, m_paleomaps})
     connect(edit, &QLineEdit::textEdited, this, [this] { m_dirty = true; ++m_revision; });
+  for (auto *selector : {m_crs, m_projectCrs})
+    connect(selector, &PaleoCrsSelector::definitionChanged, this, [this](const QString &) { m_dirty = true; ++m_revision; });
   showStep(0);
 }
 QWidget *ProjectSetupDialog::pathRow(QLineEdit *edit, bool directory, const QString &filter)
@@ -84,11 +87,11 @@ QWidget *ProjectSetupDialog::projectPage()
   m_output = new QLineEdit(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QStringLiteral("/Paleo"), page); m_output->setObjectName(QStringLiteral("projectDirectoryEdit"));
   m_root = new QLineEdit(page); m_root->setObjectName(QStringLiteral("projectSourceRootEdit")); m_root->setPlaceholderText(tr("可选：选择工区资料总目录，自动识别坐标表和测井文件夹"));
   form->addRow(tr("工程名称"), m_name); form->addRow(tr("工程保存位置"), pathRow(m_output, true)); form->addRow(tr("资料总目录（可选）"), pathRow(m_root, true));
-  m_projectCrs = new QLineEdit(page);
+  m_projectCrs = new PaleoCrsSelector(true, page);
   m_projectCrs->setObjectName(QStringLiteral("projectBaselineCrsEdit"));
-  m_projectCrs->setPlaceholderText(tr("自动沿用资料坐标；可指定 EPSG:32649 等米制投影"));
-  m_projectCrs->setToolTip(tr("统一井点、地震、层位和相图的计算基准。转换另存工程副本；未知坐标资料需先声明来源，不能仅修改标签。"));
-  form->addRow(tr("工程基准坐标系"), m_projectCrs);
+  m_projectCrs->setNotSetText(tr("自动沿用资料坐标（不指定）"));
+  m_projectCrs->widget()->setToolTip(tr("统一井点、地震、层位和相图的计算基准。仅接受米制投影 CRS；未知坐标资料需先声明来源，不能仅修改标签。"));
+  form->addRow(tr("工程基准坐标系"), m_projectCrs->widget());
   layout->addLayout(form);
   auto *note = new QLabel(tr("将在保存位置下新建同名工程文件夹。原资料保留，工程默认登记资料索引并保存生成图层；移动资料后可重新定位。"), page); note->setWordWrap(true); layout->addWidget(note); layout->addStretch();
   connect(m_root, &QLineEdit::editingFinished, this, &ProjectSetupDialog::discover);
@@ -109,7 +112,10 @@ QWidget *ProjectSetupDialog::pointPage()
     auto *box = new QComboBox(page); box->setObjectName(QStringLiteral("pointField_%1").arg(field.first)); m_fields.insert(field.first, box); form->addRow(field.second, box);
     connect(box, &QComboBox::activated, this, [this, key = field.first] { m_dirty = true; ++m_revision; if (key == QLatin1String("sheet")) { for (auto it = m_fields.begin(); it != m_fields.end(); ++it) if (it.key() != QLatin1String("sheet")) it.value()->clear(); scan(); } });
   }
-  m_crs = new QLineEdit(page); m_crs->setObjectName(QStringLiteral("pointSourceCrsEdit")); m_crs->setPlaceholderText(tr("自动识别；也可输入 EPSG:32649 等，未知时留空")); form->addRow(tr("资料坐标系"), m_crs); layout->addLayout(form);
+  m_crs = new PaleoCrsSelector(true, page);
+  m_crs->setObjectName(QStringLiteral("pointSourceCrsEdit"));
+  m_crs->widget()->setToolTip(tr("选择井点资料的真实来源 CRS。自动识别只读取资料声明，不按坐标数值猜带号；未知来源必须明确选择后再转换。"));
+  form->addRow(tr("资料坐标系"), m_crs->widget()); layout->addLayout(form);
   auto *scanButton = new QPushButton(tr("识别与预览"), page); scanButton->setObjectName(QStringLiteral("projectSetupScanButton")); connect(scanButton, &QPushButton::clicked, this, &ProjectSetupDialog::scan); layout->addWidget(scanButton);
   m_pointPreview = new QTableWidget(0, 3, page); m_pointPreview->setObjectName(QStringLiteral("projectPointPreview")); m_pointPreview->setHorizontalHeaderLabels({tr("井名"), tr("横坐标／经度"), tr("纵坐标／纬度")}); m_pointPreview->setEditTriggers(QAbstractItemView::NoEditTriggers); m_pointPreview->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); layout->addWidget(m_pointPreview, 1);
   return page;
@@ -192,11 +198,24 @@ void ProjectSetupDialog::setExistingProject(const QString &path, const ProjectSe
   m_horizons->setText(s.horizons); m_references->setText(s.references); m_boundary->setText(s.boundary);
   m_paleomaps->setText(s.paleomaps); m_normalizeMaps->setChecked(s.normalizeMaps); m_mapChoices = s.mapChoices;
   m_initialMapping = s.pointMapping; m_preview.wellTargets = s.wellTargets;
-  m_crs->setText(s.pointMapping.value("crs").toString()); m_projectCrs->setText(s.projectCrs); scan();
+  {
+    QSignalBlocker sourceBlock(m_crs), baselineBlock(m_projectCrs);
+    m_crs->setText(s.pointMapping.value("crs").toString());
+    m_projectCrs->setText(s.projectCrs);
+  }
+  m_projectCrs->widget()->setEnabled(false);
+  m_projectCrs->widget()->setToolTip(tr("已有工程的计算基准不可在此更改；如需另一基准，请新建工程并重新导入，避免既有成果失配。"));
+  scan();
 }
 void ProjectSetupDialog::scan()
 {
   if (m_blankLocked || (m_busy && m_scanRevision == m_revision)) return;
+  QString sourceError, baselineError;
+  if (!m_crs->validate(&sourceError) || !m_projectCrs->validate(&baselineError, true))
+  {
+    m_status->setText(!sourceError.isEmpty() ? sourceError : baselineError);
+    return;
+  }
   m_scanRevision = m_revision;
   m_empty = false; m_busy = true; m_next->setEnabled(false); m_status->setText(tr("正在识别资料，完成前可继续修改或取消。"));
   m_workflow->scan(sources());
@@ -232,7 +251,11 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
     if (!selected.isEmpty() && it.value()->findText(selected) < 0) it.value()->addItem(selected);
     it.value()->setCurrentText(p.pointMapping.value(it.key()).toString());
   }
-  m_crs->setText(p.pointSourceCrs); m_pointPreview->setRowCount(p.pointRows.size());
+  {
+    QSignalBlocker block(m_crs);
+    m_crs->setText(p.pointSourceCrs);
+  }
+  m_pointPreview->setRowCount(p.pointRows.size());
   for (int row = 0; row < p.pointRows.size(); ++row) for (int col = 0; col < 3; ++col) m_pointPreview->setItem(row, col, new QTableWidgetItem(p.pointRows[row].value(col)));
   refreshReview();
   const QString creationError = property("paleo.creationError").toString();

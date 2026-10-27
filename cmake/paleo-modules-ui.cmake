@@ -162,7 +162,6 @@ add_library(paleo_ui STATIC
   src/ui/locator/paleolocatorfilters.cpp
   src/ui/layoutdesignershell.cpp
   src/ui/maptools/paleomaptools.cpp
-  src/ui/maptools/sitingpicktool.cpp               # 方向34：地图布点拾取工具
   src/ui/maptools/identifypopup.cpp
   src/ui/maptools/paleoshapetools.cpp              # wave/shapetools
   src/ui/correlationpanel.cpp

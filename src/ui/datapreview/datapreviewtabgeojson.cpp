@@ -21,6 +21,7 @@ using namespace paleo::datapreview_detail;
 #include "../decorations/paleodecorations.h"
 #include "previewhistogramwidget.h"
 #include "previewmappage.h"
+#include "../dialogs/provisionalregistrationdialog.h"
 #include "previewmapstates.h"
 #include "previewprofilepanel.h"
 #include "previewtocpanel.h"
@@ -302,97 +303,16 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   lay->addWidget(boundsErr);
 
   connect(regBtn, &QPushButton::clicked, this, [this, assetId, abs, boundsErr]() {
-    double srcB[4];
-    QString berr;
-    if (!m_doc->geoJsonBounds(abs, srcB, &berr))
-    {
-      boundsErr->setText(tr("读不出坐标范围：%1").arg(berr));
-      boundsErr->setVisible(true);
-      return;
-    }
     boundsErr->setVisible(false);
-
-    QDialog dlg(this);
-    dlg.setWindowTitle(tr("临时配准（手工仿射）"));
-    auto *form = new QFormLayout(&dlg);
-    auto *srcLbl = new QLabel(
-        tr("源坐标范围：X %1–%2 · Y %3–%4")
-            .arg(QString::number(srcB[0], 'f', 2), QString::number(srcB[2], 'f', 2),
-                 QString::number(srcB[1], 'f', 2), QString::number(srcB[3], 'f', 2)),
-        &dlg);
-    srcLbl->setWordWrap(true);
-    form->addRow(srcLbl);
-    auto *gridHint = new QLabel(
-        tr("目标：工程局部测网（约 X 0–12800 · Y 0–16400，单位米）"), &dlg);
-    gridHint->setWordWrap(true);
-    PaleoTheme::applyThemedStyleSheet(gridHint,
-                                      [] { return PaleoTheme::mutedCaptionStyleSheet(); });
-    form->addRow(gridHint);
-
-    auto *tx = new QDoubleSpinBox(&dlg);
-    auto *ty = new QDoubleSpinBox(&dlg);
-    auto *sx = new QDoubleSpinBox(&dlg);
-    auto *sy = new QDoubleSpinBox(&dlg);
-    auto *rot = new QDoubleSpinBox(&dlg);
-    for (auto *s : {tx, ty})
+    QVariantMap parameters;
+    QString error;
+    if (PaleoProvisionalRegistration::prompt(this, m_doc, abs, &parameters, &error))
+      emit provisionalRegistrationRequested(assetId, parameters);
+    else if (!error.isEmpty())
     {
-      s->setRange(-1e9, 1e9);
-      s->setDecimals(2);
-      s->setSingleStep(1000.0);
+      boundsErr->setText(error);
+      boundsErr->setVisible(true);
     }
-    for (auto *s : {sx, sy})
-    {
-      s->setRange(1e-6, 1e6);
-      s->setDecimals(6);
-      s->setValue(1.0);
-    }
-    rot->setRange(-360.0, 360.0);
-    rot->setDecimals(2);
-    form->addRow(tr("平移 X（米）"), tx);
-    form->addRow(tr("平移 Y（米）"), ty);
-    form->addRow(tr("缩放 X"), sx);
-    form->addRow(tr("缩放 Y"), sy);
-    form->addRow(tr("旋转（度）"), rot);
-
-    auto *dstLbl = new QLabel(&dlg);
-    dstLbl->setObjectName(QStringLiteral("affineDstBounds"));
-    dstLbl->setWordWrap(true);
-    PaleoTheme::applyThemedStyleSheet(dstLbl,
-                                      [] { return PaleoTheme::mutedCaptionStyleSheet(); });
-    form->addRow(dstLbl);
-    const auto refreshDst = [this, srcB, tx, ty, sx, sy, rot, dstLbl]() {
-      const QVariantMap p{{QStringLiteral("tx"), tx->value()},
-                          {QStringLiteral("ty"), ty->value()},
-                          {QStringLiteral("sx"), sx->value()},
-                          {QStringLiteral("sy"), sy->value()},
-                          {QStringLiteral("rotDeg"), rot->value()}};
-      double lo[2], hi[2];
-      m_doc->affinePreviewBounds(srcB, p, lo, hi);
-      dstLbl->setText(tr("变换后范围：X %1–%2 · Y %3–%4")
-                          .arg(QString::number(lo[0], 'f', 1),
-                               QString::number(hi[0], 'f', 1),
-                               QString::number(lo[1], 'f', 1),
-                               QString::number(hi[1], 'f', 1)));
-    };
-    for (auto *s : {tx, ty, sx, sy, rot})
-      connect(s, qOverload<double>(&QDoubleSpinBox::valueChanged), dstLbl, refreshDst);
-    refreshDst();
-
-    auto *buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-    buttons->button(QDialogButtonBox::Ok)->setText(tr("登记为临时配准"));
-    form->addRow(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-    if (dlg.exec() != QDialog::Accepted)
-      return;
-
-    emit provisionalRegistrationRequested(
-        assetId, {{QStringLiteral("tx"), tx->value()},
-                  {QStringLiteral("ty"), ty->value()},
-                  {QStringLiteral("sx"), sx->value()},
-                  {QStringLiteral("sy"), sy->value()},
-                  {QStringLiteral("rotDeg"), rot->value()}});
   });
 
   auto *viewStack = new QStackedWidget(host);

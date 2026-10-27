@@ -6,6 +6,7 @@
 #include <QImage>
 #include <QList>
 #include <QPainter>
+#include <QPointF>
 #include <QPointer>
 #include <QRect>
 #include <QStack>
@@ -23,6 +24,8 @@ class QgsMapLayer;
 class QgsMapTool;
 class QgsProject;
 class QTimer;
+class PaleoCoordinateMapTool;
+class PaleoCoordinateToolsDialog;
 
 // qgis/previewmapcanvas — 数据预览专用画布封装（P2 D1.1）。
 //
@@ -108,6 +111,10 @@ class PreviewMapCanvas : public QWidget
 
     // ---- 坐标换算/比例（状态条用）----
     QgsPointXY toMapCoordinates( const QPoint &pixel ) const;
+    QString coordinateClipboardText( const QPointF &point, bool geographic,
+                                     QString *error = nullptr );
+    PaleoCoordinateToolsDialog *createCoordinateToolsDialog( QWidget *parent = nullptr );
+    PaleoCoordinateMapTool *beginCoordinatePick();
     double mapUnitsPerPixel() const;
     double scale() const;
 

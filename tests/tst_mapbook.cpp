@@ -19,14 +19,18 @@
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/qgis/mapbooklayout.h"
+#include "../src/qgis/mapextentwidget.h"
 #include "../src/qgis/qgisruntime.h"
+#include "helpers/visualcapture.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/layout/mapbookcontroller.h"
 #include "../src/ui/layout/mapbookpanel.h"
 #include "../src/workflow/mapbook.h"
 #include "../src/workflow/mapbookqueue.h"
 
+#include <qgsextentwidget.h>
 #include <qgslayoutitem.h>
+#include <qgsmapcanvas.h>
 #include <qgslayoutitemlabel.h>
 #include <qgslayoutitemmap.h>
 #include <qgslayoutitempage.h>
@@ -642,6 +646,25 @@ class TestMapBook : public QObject
       QVERIFY( !result.failures.isEmpty() );
       QCOMPARE( result.failures.constFirst().stage, QStringLiteral( "prepare" ) );
       QVERIFY( !QDir( dir.filePath( QStringLiteral( "book_x" ) ) ).exists() );
+    }
+
+    void panelUsesNativeMapExtent()
+    {
+      QgsMapCanvas canvas;
+      canvas.resize(640, 480);
+      const QgsCoordinateReferenceSystem crs(QStringLiteral("EPSG:32649"));
+      canvas.setDestinationCrs(crs);
+      canvas.setExtent(QgsRectangle(100, 200, 2100, 2200));
+      PaleoMapBookPanel panel;
+      panel.setMapCanvas(&canvas);
+      auto *extent = panel.findChild<PaleoMapExtentWidget *>(QStringLiteral("mapbookExtentWidget"));
+      QVERIFY(extent && extent->nativeWidget());
+      QCOMPARE(extent->nativeWidget()->outputCrs(), crs);
+      QVERIFY(panel.area().valid());
+      QCOMPARE(panel.area().xMin, canvas.extent().xMinimum());
+      panel.setArea(workArea());
+      QCOMPARE(panel.previewTiles().size(), 9);
+      QVERIFY(paleo::tests::captureVisual(&panel, QStringLiteral("mapbook-coordinate-extent"), QSize(380, 800)));
     }
 
     void panelOnlyEmitsSignals()

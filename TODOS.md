@@ -20,7 +20,7 @@
 界面减负、草稿/定位/快捷键和局部刷新修复见 `docs/progress/ui-simplification-20261023.md`。
 剩余工作不计为本批已完成：
 
-- **P1 / R04：影响分析和版本对比后台化。** prepare 固定工程世代/目录修订和输入版本；worker 独立持有数据源；GUI publish 校验世代，提供进度和协作取消。禁止后台直接调用当前 live MappingWorkbench/DataCatalog。验收大/小冻结输入、取消及切工程，GUI 持续响应且过期结果不发布。
+- **P1 / R04：已完成（2026-10-28，`docs/progress/impact-background-and-navtree-perf-20261028.md`）。** ImpactJob/CompareJob 三段式落地（worker 独立开层、commit 核对世代/修订/输入版本）；取消/切工程/修订前进不发布过期结果；GUI 响应性有确定性同步点证据（tst_impactrecompute 10/10）。
 - **P2 / R05、R09：统一旧新工作流与保存作用域。** 先列兼容工具能力清单，再迁移到同一命令/状态模型；区分保存工程、编辑、成果版本、发布和独立 Web 工程，保留各自撤销和版本契约。
 - **P2 / R07：预测前置条件。** 默认入口已改测井；Mock 所需的有效测井预测、层位资料等在点击前显示缺失项和准备入口，与功能层同一规则。
 - **P2 / R14：数据操作编排下沉。** “设主文件”已接既有共享撤销栈；将 SetPrimaryCmd 等数据操作从 ui/pages/dataops 迁入功能层，视图只发意图。

@@ -154,62 +154,20 @@ WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
     error.clear();
   } else if (action == "impactAnalysis") {
     // X13：版本对选择在功能层（同资产上一版 = 变化前），视图只传图件。
-    // 重放为同步长操作（≤64 产品 × 2 × 400 万像元）：等待光标 +
-    // 状态栏提示（DESIGN.md Motion「>1s 显示进度条」的同步路径
-    // 最小满足；异步任务化在 full-audit 台账记为剩余工作）。
-    // 光标 RAII：分析抛异常（bad_alloc 族）也不卡死在等待态（R2-07②）。
-    d.self->statusBar()->showMessage(PaleoMainWindow::tr("正在分析影响（重放冻结输入）…"), 0);
-    const WaitCursorGuard waitCursor;
-    *d.lastImpact = d.workbench->analyzeLayerVersionImpact(id, h, &error);
-    ok = !d.lastImpact->isEmpty();
-    d.page->setImpactAvailable(ok);
-    if (ok) {
-      const auto determined = d.lastImpact->value("determined").toList();
-      qint64 changedCells = 0;
-      for (const auto &value : determined)
-        changedCells += value.toMap().value("changed_cells").toLongLong();
-      const auto reportPath =
-          d.lastImpact->value("report_path").toString();
+    // 后台任务化：重放（≤64 产品 × 2 × 400 万像元）与图斑归属在 worker
+    // 线程执行（任务中心可见、可取消），结果经 impactAnalysisReady 回 GUI
+    // 线程发布（取消/切工程/目录修订前进 → 过期结果不发布）。
+    ok = d.workbench->startImpactAnalysis(id, h, &error);
+    if (ok)
       d.self->statusBar()->showMessage(
-          reportPath.isEmpty()
-              ? PaleoMainWindow::tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定"
-                   "变化 %3 像元（报告未能保存到工程目录）")
-                    .arg(d.lastImpact->value("direct_products").toList().size())
-                    .arg(d.lastImpact->value("potential_products").toList().size())
-                    .arg(changedCells)
-              : PaleoMainWindow::tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 "
-                   "%3 像元（详见 %4）")
-                    .arg(d.lastImpact->value("direct_products").toList().size())
-                    .arg(d.lastImpact->value("potential_products").toList().size())
-                    .arg(changedCells)
-                    .arg(reportPath),
-          20000);
-    }
+          PaleoMainWindow::tr("正在后台分析影响（重放冻结输入），进度见任务中心…"), 0);
   } else if (action == "compareRecompute") {
     // X13：受控重算成果 vs 其替代的旧版本（像元级 diff + 报告落盘）。
-    const auto report =
-        d.workbench->compareWithRecomputeSource(id, &error);
-    ok = !report.isEmpty();
-    if (ok) {
-      auto matrix = report.value("code_matrix").toList();
-      std::sort(matrix.begin(), matrix.end(),
-                [](const QVariant &a, const QVariant &b) {
-                  return a.toMap().value("cells").toLongLong() >
-                         b.toMap().value("cells").toLongLong();
-                });
-      QStringList top;
-      for (const auto &value : matrix.mid(0, 3))
-        top << PaleoMainWindow::tr("%1：%2 像元")
-                   .arg(value.toMap().value("transition").toString())
-                   .arg(value.toMap().value("cells").toLongLong());
+    // 后台任务化：结果经 versionCompareReady 回 GUI 线程。
+    ok = d.workbench->startVersionCompare(id, &error);
+    if (ok)
       d.self->statusBar()->showMessage(
-          PaleoMainWindow::tr("重算对比：变化 %1/%2 像元；主要转移 %3（详见 %4）")
-              .arg(report.value("cells_changed").toLongLong())
-              .arg(report.value("total_cells").toLongLong())
-              .arg(top.isEmpty() ? PaleoMainWindow::tr("无") : top.join("；"))
-              .arg(report.value("report_path").toString()),
-          20000);
-    }
+          PaleoMainWindow::tr("正在后台对比重算成果（像元级 diff），进度见任务中心…"), 0);
   } else if (action == "recompute") {
     if (d.lastImpact->isEmpty()) {
       ok = false;
@@ -558,6 +516,10 @@ void PaleoMainWindow::runWorkbenchCommand(
     message = error.isEmpty() ? tr("操作未完成，请检查输入。") : error;
   else if (action == "predict")
     message = tr("预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。");
+  else if (action == "impactAnalysis")
+    message = tr("影响分析已在后台执行，进度见任务中心；完成后状态栏提示结果。");
+  else if (action == "compareRecompute")
+    message = tr("重算对比已在后台执行，进度见任务中心；完成后状态栏提示结果。");
   else if (action == "polygonize")
     message = d.workbench->polygonizeBusy()
                   ? tr("相栅格转相面已在后台执行，进度见底栏任务中心；完成后自动登记并显示在对应地层组。")

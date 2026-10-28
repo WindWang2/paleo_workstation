@@ -331,20 +331,11 @@ QString MappingWorkbench::composedAncestorVersion(const QString &id) const {
   }
   return {};
 }
-std::shared_ptr<QgsMapLayer> MappingWorkbench::attributionLayer(
-    const QString &versionId) const {
-  if (!m_catalog || versionId.isEmpty())
-    return nullptr;
-  if (const auto cached = m_attributionLayers.value(versionId)) {
-    // 命中移到队尾；LRU 驱逐只丢缓存引用（X1），调用方 shared_ptr 保活。
-    m_attributionLru.removeAll(versionId);
-    m_attributionLru.append(versionId);
-    return cached;
-  }
-  const auto v = m_catalog->versionById(versionId);
-  if (v.id.isEmpty())
-    return nullptr;
-  const auto path = DataCatalog::resolvedVersionPath(m_dir, v) +
+std::shared_ptr<QgsMapLayer> MappingWorkbench::openVersionLayer(
+    const QString &dir, const CatalogVersion &v) {
+  // 纯路径 + 文件工作（无成员访问）：attributionLayer 的 GUI 线程 LRU 与
+  // 后台作业的 worker 局部缓存共用同一打开口径。
+  const auto path = DataCatalog::resolvedVersionPath(dir, v) +
                     v.extra.value("source_suffix").toString();
   if (path.isEmpty() || !QFileInfo::exists(path.section('|', 0, 0)))
     return nullptr;
@@ -365,12 +356,30 @@ std::shared_ptr<QgsMapLayer> MappingWorkbench::attributionLayer(
   if (!layer->crs().isValid())
     layer->setCrs(QgsCoordinateReferenceSystem::fromWkt(
         DataCatalog::localGridCrsWkt()));
+  return std::shared_ptr<QgsMapLayer>(std::move(layer));
+}
+
+std::shared_ptr<QgsMapLayer> MappingWorkbench::attributionLayer(
+    const QString &versionId) const {
+  if (!m_catalog || versionId.isEmpty())
+    return nullptr;
+  if (const auto cached = m_attributionLayers.value(versionId)) {
+    // 命中移到队尾；LRU 驱逐只丢缓存引用（X1），调用方 shared_ptr 保活。
+    m_attributionLru.removeAll(versionId);
+    m_attributionLru.append(versionId);
+    return cached;
+  }
+  const auto v = m_catalog->versionById(versionId);
+  if (v.id.isEmpty())
+    return nullptr;
+  auto layer = openVersionLayer(m_dir, v);
+  if (!layer)
+    return nullptr;
   while (m_attributionLru.size() >= 8)
     m_attributionLayers.remove(m_attributionLru.takeFirst());
-  std::shared_ptr<QgsMapLayer> shared(std::move(layer));
-  m_attributionLayers.insert(versionId, shared);
+  m_attributionLayers.insert(versionId, layer);
   m_attributionLru.append(versionId);
-  return shared;
+  return layer;
 }
 bool MappingWorkbench::resolveFrozenCompose(
     const QString &composedVersionId,

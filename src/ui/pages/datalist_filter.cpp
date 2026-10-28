@@ -4,6 +4,7 @@
 #include "dataopswidgets.h"
 #include "dataopsviews.h"
 #include "dataops/dataopsmodel.h"
+#include "pageshared.h"
 
 #include <QComboBox>
 #include <QHeaderView>
@@ -19,22 +20,26 @@
 void DataListPanel::applyListFilter()
 {
   using namespace paleo::dataops;
+  const paleo::pagesinternal::PagePerfStage perfTotal("applyListFilter");
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
-  if (!table)
+  if (!table || !m_doc)
     return;
   const QScopedValueRollback<bool> restoring(m_restoringSelection, true);
   syncLegacyControlsIntoFilter();
   // 可见集 = 行快照 × FilterGroup × 激活标签（D2.2/D2.4）。
   QSet<QString> visibleIds;
   int shown = 0;
-  for (const AssetRowInfo &row : m_rows)
   {
-    if (!m_activeTag.isEmpty() && !row.tags.contains(m_activeTag, Qt::CaseInsensitive))
-      continue;
-    if (!m_filter.matches(row))
-      continue;
-    visibleIds.insert(row.assetId);
-    ++shown;
+    const paleo::pagesinternal::PagePerfStage perf("filter-pass");
+    for (const AssetRowInfo &row : m_rows)
+    {
+      if (!m_activeTag.isEmpty() && !row.tags.contains(m_activeTag, Qt::CaseInsensitive))
+        continue;
+      if (!m_filter.matches(row))
+        continue;
+      visibleIds.insert(row.assetId);
+      ++shown;
+    }
   }
   QVector<AssetRowInfo> filtered;
   for (const auto &row : m_rows)
@@ -42,7 +47,10 @@ void DataListPanel::applyListFilter()
       filtered.append(row);
   const QString sortField = m_assetSortColumn == 1 ? QStringLiteral("type")
                            : m_assetSortColumn == 2 ? QStringLiteral("entity") : QStringLiteral("name");
-  if (m_assetSortColumn >= 0) sortAssetRows(&filtered, sortField, m_assetSortAscending);
+  if (m_assetSortColumn >= 0) {
+    const paleo::pagesinternal::PagePerfStage perf("sort");
+    sortAssetRows(&filtered, sortField, m_assetSortAscending);
+  }
   m_filteredRows = filtered;
   m_visibleAssetIds = visibleIds;
   const bool paged = m_rows.size() > 200;

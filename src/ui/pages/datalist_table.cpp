@@ -47,6 +47,7 @@ void DataListPanel::refreshAssetTable()
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
   if (!table || !m_doc)
     return;
+  const paleo::pagesinternal::PagePerfStage perf("refreshAssetTable");
   loadStoresForCatalog();
   DataCatalog *cat = m_doc->catalog();
   for (auto *model : m_entityChoiceModels) model->deleteLater();
@@ -488,6 +489,12 @@ void DataListPanel::setViewMode(int mode)
 {
   if (m_viewStack && mode >= 0 && mode < m_viewStack->count())
     m_viewStack->setCurrentIndex(mode);
+  // 切回树视图时补一次被延迟的树重建（refreshAssetTree 在非树视图只挂脏），
+  // 并按持久选中身份还原树选中——树可见期间数据从不陈旧。
+  if (mode == 0 && m_treeStale && m_tree) {
+    refreshAssetTree();
+    m_selKeep.restoreTree(m_tree);
+  }
 }
 
 void DataListPanel::openColumnConfig()

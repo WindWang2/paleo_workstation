@@ -208,6 +208,16 @@ public:
   //   before/after 版本快照（不建立在当前活动图层上），报告 JSON 落
   //   artifacts/reports/，返回 map 带 report_path。
   QVariantMap analyzeImpact(const QVariantMap &change, QString *error);
+  // 影响分析后台入口（analyzeLayerVersionImpact 的异步形态）：版本对解析与
+  // 目录快照在 prepare（GUI 线程）完成；重放/图斑归属在 worker 线程用独立
+  // 打开的图层执行；commit 回 GUI 线程核对工程世代（catalog/dir）、目录
+  // 修订与输入版本后才写报告并 emit impactAnalysisReady。取消、切工程、
+  // 目录重绑或修订前进 → 过期结果不发布（ready 以空报告 + error 收尾）。
+  // 需要任务服务；忙时拒绝启动。返回 false = 未启动（error 给因）。
+  bool startImpactAnalysis(const QString &layerId, const QString &horizon,
+                           QString *error);
+  bool impactAnalysisBusy() const;
+  void cancelImpactAnalysis();
   // G09 受控重算闭环。
   // recomputePlan：从影响分析结果生成重算计划（value object，不执行）。
   //   每条 entry：{target_version, horizon, mode:"local_rerun"|"whole_rerun",
@@ -227,6 +237,13 @@ public:
   //   polygon_counts:{before,after}, note}。坐标系不同的版本拒绝像元级对比。
   QVariantMap compareVersions(const QString &oldVersionId, const QString &newVersionId,
                               QString *error);
+  // 成果版本对比后台入口（compareWithRecomputeSource 的异步形态）：血统解析
+  // 在 prepare，像元 diff 与相面计数在 worker（独立打开栅格/矢量层），commit
+  // 核对工程世代/目录修订后写报告并 emit versionCompareReady。取消/过期不
+  // 发布。需要任务服务；忙时拒绝启动。
+  bool startVersionCompare(const QString &layerId, QString *error);
+  bool versionCompareBusy() const;
+  void cancelVersionCompare();
   // X13：从视图迁入的版本影响入口——所选图件为变化后版本，同资产的上一版
   // 为变化前；单一版本如实报错。
   QVariantMap analyzeLayerVersionImpact(const QString &layerId,
@@ -286,6 +303,11 @@ signals:
                           bool cancelled);
   // 证据索引后台同步终态（state 含 index_state/index_error/stats）。
   void evidenceIndexSynced(const QVariantMap &state);
+  // 后台影响分析终态（GUI 线程）：report 非空 = 成功（含 report_path）；
+  // 空 report 时 error 给因（含取消与过期丢弃）。
+  void impactAnalysisReady(const QVariantMap &report, const QString &error);
+  // 后台版本对比终态（GUI 线程）：口径同 impactAnalysisReady。
+  void versionCompareReady(const QVariantMap &report, const QString &error);
   void errorOccurred(const QString &message);
 
 private:
@@ -386,6 +408,84 @@ private:
       IndexSyncJob &job, const std::function<bool()> &cancel,
       const std::function<void(double, const QString &)> &progress);
   bool commitIndexSync(IndexSyncJob &job, QString *error);
+  // 影响分析作业快照（纯数据；worker 不碰 catalog——读取会被目录线程断言
+  // 拒绝，且属主写 + 他线程读是真实 UB）。Product 为下游闭包内单成果的
+  // 全部快照元数据；图斑归属子层随产品快照。
+  struct ImpactJob {
+    QString dir;
+    QVariantMap change;
+    QString kind, before, after, layerId;
+    CatalogVersion beforeSnapshot, afterSnapshot; // commit 期输入版本核对
+    int revision = 0;              // 快照时的 catalogRevision
+    QPointer<DataCatalog> catalog; // commit 时校验工程未切换/重绑
+    struct Input {
+      QString layerId, versionId; // 冻结版本 id（报告口径）
+      QString effectiveId;        // 替换后的版本 id（before→after）
+      CatalogVersion effective;    // 替换后版本快照（含 extra/path）
+      int priority = 0;
+    };
+    struct Product {
+      QString versionId;
+      QVariantMap extra;           // kind/title/horizon/parentVersionIds…
+      bool candidate = false;      // composed_facies 且直接消费 before（或
+                                   // constraint_edited 的全部 composed）
+      // prepare 期已可判定的潜在影响原因（间接下游/上游需重算）；compute
+      // 按产品序并入 potential_products。
+      QString potentialReason;
+      bool ordered = false;        // ordered_inputs 冻结记录存在
+      QVariantList facies;
+      QList<double> thresholds;
+      paleo::attribution::FrozenGrid grid;
+      QList<Input> baseInputs, subInputs;
+      QVariantList frozenUnresolved; // 目录级未决（版本删除等；prepare 判定）
+      QVector<CatalogVersion> children; // 相面/人工编辑后代（图斑归属用）
+    };
+    QList<Product> products;
+    bool truncated = false;
+    QVariantMap result;            // compute 产出的报告体（无 report_path）
+    QString error;
+  };
+  // 图层打开面：sync 路径 = attributionLayer 的 GUI 线程 LRU；worker 路径 =
+  // 独立打开（compute 内本地缓存）。compute 只经 opener 拿层，不碰成员。
+  using VersionLayerOpener =
+      std::function<std::shared_ptr<QgsMapLayer>(const CatalogVersion &)>;
+  // prepare（GUI 线程）：校验 + 版本对/血缘/输入快照。layerId 为请求身份
+  //（后台入口透传；同步直调为空）。
+  bool prepareImpactJob(const QVariantMap &change, const QString &layerId,
+                        ImpactJob &job, QString *error);
+  // compute（worker 或调用线程）：重放 + diff + 图斑归属；opener 决定层来源。
+  static bool computeImpactWith(
+      ImpactJob &job, const std::function<bool()> &cancel,
+      const std::function<void(double, const QString &)> &progress,
+      const VersionLayerOpener &opener);
+  // 报告落盘（artifacts/reports/impact-*.json，原子写）+ report_path 回填。
+  void writeImpactReport(ImpactJob &job) const;
+  // commit（GUI 线程）：核对工程世代/目录修订/输入版本 → 写报告 → 发信号。
+  bool commitImpact(ImpactJob &job, QString *error);
+  // 版本对比作业快照（纯数据；worker 打开两侧栅格与相面子层）。
+  struct CompareJob {
+    QString dir, layerId;
+    QString oldVersionId, newVersionId;
+    CatalogVersion oldVersion, newVersion; // 含 layer_type/source_suffix
+    QVector<CatalogVersion> oldPolygons, newPolygons; // facies_polygons 子层
+    int revision = 0;
+    QPointer<DataCatalog> catalog;
+    QVariantMap result;
+    QString error;
+  };
+  bool prepareVersionCompare(const QString &oldVersionId,
+                             const QString &newVersionId,
+                             const QString &layerId, CompareJob &job,
+                             QString *error);
+  static bool computeVersionCompareWith(
+      CompareJob &job, const std::function<bool()> &cancel,
+      const std::function<void(double, const QString &)> &progress,
+      const VersionLayerOpener &opener);
+  bool commitVersionCompare(CompareJob &job, QString *error);
+  // 独立打开版本图层（路径解析 + symlink 安全校验 + CRS 兜底；不碰成员，
+  // worker 线程可用）。attributionLayer 与 worker opener 的同口径实现。
+  static std::shared_ptr<QgsMapLayer> openVersionLayer(const QString &dir,
+                                                       const CatalogVersion &v);
   QVariantMap consistencyImpl(const QString &layerId, QString *error,
                               const QString &counterpartId, bool background);
   void finishPrediction(const RemotePredictionResult &result);
@@ -426,6 +526,8 @@ private:
   QPointer<PaleoTask> m_task;
   std::unique_ptr<paleo::jobs::JobRunner<PolygonizeJob>> m_polygonizeRunner;
   std::unique_ptr<paleo::jobs::JobRunner<ComposeJob>> m_composeRunner;
+  std::unique_ptr<paleo::jobs::JobRunner<ImpactJob>> m_impactRunner;
+  std::unique_ptr<paleo::jobs::JobRunner<CompareJob>> m_compareRunner;
   QString m_predictionHint;
   mutable QString m_logVersion;
   mutable LasDoc m_logCache;

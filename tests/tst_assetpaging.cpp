@@ -92,15 +92,23 @@ private slots:
   void scaleRenderingFilteringSortingSelection() {
     const int n = qEnvironmentVariableIntValue("PALEO_CATALOG_SCALE");
     if (n < 10000) QSKIP("PALEO_CATALOG_SCALE=10000 enables viewport/legacy ratio evidence");
+    // 阶段计时（任务 B 证据）：夹具生成 / 目录打开 与刷新链分开计时——
+    // 不把夹具或打开成本算进刷新；旧实现对照是独立 QTableWidget 的同样本
+    // 3 次循环。全部绝对值以毫秒报告（比值之外保留原始量）。
+    QElapsedTimer timer;
+    const qint64 tFixtureStart = timer.nsecsElapsed();
     QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), n));
+    const qint64 tFixture = timer.nsecsElapsed() - tFixtureStart;
+    timer.restart();
     DataImportService importer; importer.setProjectDir(dir.path()); PreviewDocService doc(&importer);
+    const qint64 tOpen = timer.nsecsElapsed();
     DataListPanel panel; panel.setDocService(&doc); panel.resize(640, 740); panel.setViewMode(1); panel.show();
     auto *table = panel.findChild<QTableWidget *>("assetTable"); QVERIFY(table);
     QCoreApplication::processEvents();
-    QElapsedTimer timer;
     // Same 10k catalog, the replaced full-row/full-cell-widget refresh baseline.
     QTableWidget legacy(0, 3); legacy.resize(640, 420);
     QVector<qint64> baseline, refreshed, filtered, located;
+    qint64 tSort = 0, tRestore = 0;
     int baselineStats = 0, refreshStats = 0;
 #ifdef Q_OS_LINUX
     traceStats = true;
@@ -150,7 +158,8 @@ private slots:
     bool found = false; for (int row = 0; row < table->rowCount(); ++row)
       found |= table->item(row, 0)->data(Qt::UserRole).toString() == target.id;
     QVERIFY(found);
-    panel.refreshAssetTable(); QVERIFY(panel.currentAssetSelection().contains(target.id));
+    timer.restart(); panel.refreshAssetTable(); tRestore = timer.nsecsElapsed();
+    QVERIFY(panel.currentAssetSelection().contains(target.id));
     auto *search = panel.findChild<QLineEdit *>("assetSearchEdit"); QVERIFY(search);
     timer.restart(); search->setText(target.displayName); panel.applyListFilter(); filtered << timer.nsecsElapsed();
     QCOMPARE(table->rowCount(), 1); QCOMPARE(table->item(0, 0)->data(Qt::UserRole).toString(), target.id);
@@ -158,17 +167,24 @@ private slots:
     search->clear(); panel.applyListFilter(); QVERIFY(panel.currentAssetSelection().contains(target.id));
     QVERIFY(search->text().isEmpty()); QVERIFY(table->rowCount() > 1);
     // Sort all logical rows, then first/last page navigation matches the global order.
+    timer.restart();
     QMetaObject::invokeMethod(table->horizontalHeader(), "sectionClicked", Q_ARG(int, 0));
     QMetaObject::invokeMethod(table->horizontalHeader(), "sectionClicked", Q_ARG(int, 0));
+    tSort = timer.nsecsElapsed();
     const auto last = *std::max_element(assets.begin(), assets.end(), [](const auto &a, const auto &b) { return a.displayName.compare(b.displayName, Qt::CaseInsensitive) < 0; });
     panel.selectAssetInViews(last.id); QVERIFY(panel.currentAssetSelection().contains(last.id));
     auto *previous = panel.findChild<QPushButton *>("assetPreviousPage");
     while (previous->isEnabled()) previous->click();
     QCOMPARE(table->item(0, 0)->text(), last.displayName);
     for (qint64 cost : filtered + located) QVERIFY(double(cost) / median(baseline) < 1.0);
+    const qint64 toMs = 1000000;
     qInfo() << "SCALE asset table" << n << "rendered" << rendered << "pageSize" << pageSize
             << "legacyStats" << baselineStats << "refreshStats" << refreshStats << "refresh/legacy" << refreshRatio << "filter/legacy" << double(filtered.first())/median(baseline)
-            << "locate/legacy" << double(located.first())/median(baseline);
+            << "locate/legacy" << double(located.first())/median(baseline)
+            << "ms: fixture" << tFixture / toMs << "open" << tOpen / toMs
+            << "legacy" << median(baseline) / toMs << "refresh" << median(refreshed) / toMs
+            << "filter" << filtered.first() / toMs << "sort" << tSort / toMs
+            << "locate" << located.first() / toMs << "restoreRefresh" << tRestore / toMs;
   }
   void viewportControlsBoundedAndSelectionRestored() {
     QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 300));
@@ -195,6 +211,52 @@ private slots:
     panel.resize(640, 850); QCoreApplication::processEvents();
     QVERIFY(table->rowCount() <= table->property("paleo.pageSize").toInt());
   }
+  // 任务 B（树刷新挂脏延迟）行为守卫：表格视图下的刷新不重建导航树
+  //（万条资产实测 ~250ms/次的瓶颈段）；切回树视图必须补建到**最新**目录
+  // 状态（含表格视图期间新增的资产）并按持久选中身份还原树选中——树可见
+  // 期间数据从不陈旧。
+  void treeDeferredRefreshRecoversOnViewSwitch() {
+    QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 300));
+    DataImportService importer; importer.setProjectDir(dir.path()); PreviewDocService doc(&importer);
+    DataListPanel panel; panel.setDocService(&doc); panel.resize(640, 740); panel.setViewMode(1); panel.show();
+    panel.refreshAssetTable(); QCoreApplication::processEvents();
+    auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+    QVERIFY(tree);
+    // 表格视图：树从未构建（挂脏路径真的跳过了全量重建）。
+    QCOMPARE(tree->topLevelItemCount(), 0);
+    // 表格视图下选中一个资产（选中身份持久在 m_pageSelection）。
+    const QString id = importer.catalog()->assets().constFirst().id;
+    panel.selectAssetInViews(id);
+    QVERIFY(panel.currentAssetSelection().contains(id));
+    // 表格视图期间目录前进：新增资产后再刷新（树继续挂脏）。
+    CatalogAsset extra;
+    extra.id = QStringLiteral("defer-extra-1");
+    extra.type = QStringLiteral("document");
+    extra.format = QStringLiteral("pdf");
+    extra.displayName = QStringLiteral("defer-extra.pdf");
+    QString err;
+    QVERIFY2(importer.catalog()->addAsset(extra, &err), qPrintable(err));
+    panel.refreshAssetTable();
+    QCOMPARE(tree->topLevelItemCount(), 0); // 仍不重建
+    // 切回树视图：补建到最新状态（新资产可见）且选中还原。
+    panel.setViewMode(0);
+    QCoreApplication::processEvents();
+    QVERIFY2(tree->topLevelItemCount() >= 5,
+             qPrintable(QStringLiteral("top=%1").arg(tree->topLevelItemCount())));
+    bool found = false, selectedPreserved = false;
+    for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+      const QString itemId = (*it)->data(0, Qt::UserRole).toString();
+      found |= itemId == QStringLiteral("defer-extra-1");
+      selectedPreserved |= itemId == id && (*it)->isSelected();
+    }
+    QVERIFY2(found, "树补建未包含表格视图期间新增的资产");
+    QVERIFY2(selectedPreserved, "切回树视图后选中未还原");
+    // 树视图模式下刷新回到立即重建路径（零变更 → Unchanged；现有 navTree*
+    // 测试覆盖树内增删改的正确性）。
+    panel.refreshAssetTable();
+    QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::Unchanged));
+  }
+
   // 数据导航树（用户契约）：大 catalog（>200，原降级分页树阈值）不再走
   // 「测区+当页拍平」——完整实体树，实体分组（测井/地震/成果图件/辅助资料
   // /计划井）全部默认收拢；#565 起树顶另有「工区概况」（按设计默认展开）、

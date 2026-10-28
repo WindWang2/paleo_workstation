@@ -5,7 +5,9 @@
 #include "../io/projectsetupscan.h"
 #include "../io/projectcoordinates.h"
 #include "../io/dataimportservice.h"
+#include "../io/areamodel.h"
 #include "../catalog/areawellprojection.h"
+#include "../catalog/areasourceprojection.h"
 #include "../metadata/paleoprojectfile.h"
 #include "../metadata/nativereference.h"
 #include "../domain/mappinghorizons.h"
@@ -304,6 +306,21 @@ void ProjectSetupWorkflow::importCatalogSources(const ProjectSetupSources &sourc
     QString scanSummary = preview.notes.join('\n');
     for (auto it = preview.sourceProblems.cbegin(); it != preview.sourceProblems.cend(); ++it)
       scanSummary += '\n' + tr("未导入 %1：%2").arg(it.key(), it.value());
+    const QString areaDatabase = paleo::area_model::directory(QFileInfo(m_project->projectPath()).absolutePath()) + "/data.sqlite";
+    if (QFileInfo::exists(areaDatabase)) {
+      QString registryError;
+      auto *service = m_imports->importService();
+      const QString project = QFileInfo(m_project->projectPath()).absolutePath();
+      const bool registered = applyAreaPointMapping(project, sources.points, sources.pointMapping, &registryError) &&
+          registerModelWells(m_imports, &registryError) && service && service->catalog() &&
+          registerAreaSources(*service->catalog(), &registryError);
+      const bool saved = registered && m_project->writeProject();
+      QString summary = tr("工程资料索引已根据工区数据模型更新，未重复读取原始文件。") + scanSummary;
+      if (!registryError.isEmpty()) summary += '\n' + registryError;
+      if (!saved) summary += '\n' + m_project->lastErrors().join('\n');
+      importMaps(sources, preview, session, summary, saved && preview.sourceProblems.isEmpty());
+      return;
+    }
     if (preview.paths.isEmpty()) {
       QString registryError;
       if (!registerModelWells(m_imports, &registryError)) { emit finished(registryError, false); return; }

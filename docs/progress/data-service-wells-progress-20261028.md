@@ -36,6 +36,16 @@ X（纵坐标）/Y（横坐标）按纵／横语义映射，不按列名前缀�
 保留，未经确认不猜投影。模型独有井在资产导入完成后登记，避免干扰用户确认的
 “新建井”选择。井树／详情、ProjectDataFacade 与井位 GeoJSON 因此共用模型事实。
 
+## 模型直登记（后续修正）
+
+模型与目录索引分开保存：Data_service 继续管理业务对象，独立 catalog.sqlite 只承担
+资产、版本与关联索引。新增 SourceIndexEntry 提供模型已保存的路径、存储路径和 SHA，
+不改变原 SourceEntry 或 ParseOptions 契约。目录创建完成后由模型来源表和对象关系
+批量生成索引，不再运行“导入所选文件”第二遍逐文件导入，也不再做来源分类扫描。
+同一来源重复登记复用资产，内容变化追加版本；原文件删除后仍可完成索引。显式井位
+well/x/y 列映射直接读取模型中的 SourceTable，再用 createWell/saveWellInfo 写回同一
+模型，不读取原件，也不改变子模块公共解析选项。
+
 ## 验证
 
 新增测试：百分比保持零时阶段文字与范围仍更新；模型坐标修改／更名／缺失值在
@@ -43,5 +53,5 @@ X（纵坐标）/Y（横坐标）按纵／横语义映射，不按列名前缀�
 并行／串行结果一致、取消和小内存预算沿用子模块 import_performance_tests。
 
 最终复验：宿主 10/10（5 个业务套件 + 5 个源码闸门），子模块独立 Release 20/20。
-日志：build/area-wells-resume-build.log、build/area-wells-resume-tests.log、
-build/data-service-resume-full-tests.log。
+日志：build/area-source-index-final-build.log、build/area-source-index-final-tests.log、
+build/data-service-index-clean-build.log、build/data-service-index-clean-tests.log。

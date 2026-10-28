@@ -6,6 +6,7 @@
 #include "services/previewdoc.h"
 #include "domain/wellcompositemodel.h"
 #include "catalog/areawellprojection.h"
+#include "catalog/areasourceprojection.h"
 #include "services/projectdata.h"
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -27,6 +28,32 @@ private slots:
     QCOMPARE(rows[1].value.wellheadX, 0.0); QVERIFY(rows[0].value.coordinateSystem.empty());
     DataCatalog catalog; QVERIFY(catalog.open(project, &error)); QVERIFY(registerAreaWells(catalog, &error));
     QCOMPARE(catalog.entities("well").size(), 2); QCOMPARE(catalog.entities("well")[1].surfaceY, 500.0);
+  }
+  void sourceIndexDoesNotReadOriginalFiles() {
+    QTemporaryDir temp; const QString input = temp.filePath("input"); QVERIFY(QDir().mkpath(input));
+    const QString path = input + "/well.las"; QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. SYNTH-1\nNULL. -999.25\n~Curve\nDEPT.M : depth\nGR.API : gamma\n~Ascii\n100 10\n101 20\n"); file.close();
+    const QString project = temp.filePath("project"); QString error; paleo::data::ImportReport report;
+    QVERIFY2(paleo::area_model::importDirectory(project, input, report, &error), qPrintable(error));
+    paleo::data::DataService reader; std::string detail;
+    QVERIFY(reader.openProjectReadOnly(paleo::area_model::directory(project).toUtf8().toStdString(), detail));
+    std::vector<paleo::data::SourceIndexEntry> sources; QVERIFY(reader.listSourceIndexEntries(sources, detail));
+    QCOMPARE(sources.size(), size_t(1)); QVERIFY(!sources.front().sha256.empty()); reader.closeProject();
+
+    DataCatalog catalog; QVERIFY(catalog.open(project, &error)); QVERIFY(registerAreaWells(catalog, &error));
+    QVERIFY(QFile::remove(path));
+    QVERIFY2(registerAreaSources(catalog, &error), qPrintable(error));
+    QCOMPARE(catalog.assets().size(), 1); QCOMPARE(catalog.assets().first().type, QString("well_log"));
+    QCOMPARE(catalog.versions().size(), 1);
+    const auto version = catalog.versions().first();
+    QCOMPARE(version.sha256, QString::fromUtf8(sources.front().sha256));
+    QCOMPARE(version.extra.value("areaModelSourceId").toLongLong(), sources.front().id);
+    QVERIFY(!version.managed);
+    const auto links = catalog.linksForAsset(version.assetId);
+    QCOMPARE(links.size(), 1); QCOMPARE(links.first().role, QString("well_log"));
+    QVERIFY2(registerAreaSources(catalog, &error), qPrintable(error));
+    QCOMPARE(catalog.assets().size(), 1); QCOMPARE(catalog.versions().size(), 1);
+    QCOMPARE(catalog.linksForAsset(version.assetId).size(), 1);
   }
   void wellCoordinatesComeFromAreaModel() {
     QTemporaryDir temp; const QString project = temp.filePath("project"); QString error;

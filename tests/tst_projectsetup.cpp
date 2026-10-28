@@ -331,6 +331,8 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(modelTaskVisible(), 10000);
     QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 30000);
     QVERIFY2(done[0][1].toBool(), qPrintable(done[0][0].toString()));
+    for (auto *task : tasks.tasks()) QVERIFY(task->title() != QStringLiteral("导入所选文件"));
+    QVERIFY(!service.catalog()->assets().isEmpty());
     const auto table = PreviewDocService::xmlDataListAt(input + "/anything.xml");
     QVERIFY2(table.ok, qPrintable(table.error)); QCOMPARE(table.format, QString("data_service"));
   }

@@ -1,5 +1,6 @@
 // 层：数据
 #include "datacatalog.h"
+#include "areawellprojection.h"
 #include "../metadata/storeerrors_internal.h"
 
 namespace
@@ -82,12 +83,14 @@ QVector<CatalogEntity> DataCatalog::entities(const QString &entityType) const
   if (!noteRead("entities"))
     return {};
   QVector<CatalogEntity> out;
-  if (entityType.isEmpty())
-    return m_entities;
+  if (entityType.isEmpty()) {
+    out = m_entities; projectAreaWells(projectDir(), out); return out;
+  }
   const QVector<int> rows = m_idx.entityRowsByType(entityType); // D5.1
   out.reserve(rows.size());
   for (int r : rows)
     out.append(m_entities.at(r));
+  if (entityType == "well") projectAreaWells(projectDir(), out);
   return out;
 }
 
@@ -96,7 +99,7 @@ CatalogEntity DataCatalog::entityById(const QString &id) const
   if (!noteRead("entityById"))
     return {};
   const int row = m_idx.entityRow(id); // D5.1 O(1)
-  return row >= 0 ? m_entities.at(row) : CatalogEntity();
+  return row >= 0 ? projectAreaWell(projectDir(), m_entities.at(row)) : CatalogEntity();
 }
 
 QString DataCatalog::normalizeWellName(const QString &name)
@@ -121,11 +124,14 @@ QStringList DataCatalog::wellsMatchingName(const QString &name) const
   if (needle.isEmpty())
     return out;
   const QVector<int> rows = m_idx.entityRowsByType(QStringLiteral("well")); // D5.1
-  for (int r : rows)
+  QVector<CatalogEntity> candidates; candidates.reserve(rows.size());
+  for (int r : rows) candidates.append(m_entities.at(r));
+  projectAreaWells(projectDir(), candidates);
+  for (const auto &entity : candidates)
   {
     // D12：井身份只走规范化 name——uwi/别名匹配已随字段一并剥离。
-    if (normalizeWellName(m_entities.at(r).name) == needle)
-      out.append(m_entities.at(r).id);
+    if (normalizeWellName(entity.name) == needle)
+      out.append(entity.id);
   }
   return out;
 }

@@ -3,6 +3,7 @@
 #include "folderimport.h"
 #include "../io/areamodel.h"
 #include "../io/dataimportservice.h"
+#include "../io/importclassification.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../services/futuretask.h"
 #include <paleo_data/service.h>
@@ -41,8 +42,14 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
   const auto modelProblems = std::make_shared<QMap<QString, QString>>();
   const auto modelSummary = std::make_shared<QString>();
   const auto importedSources = std::make_shared<QStringList>();
+  const auto importedTypes = std::make_shared<QMap<QString, QString>>();
   auto *watcher = new QFutureWatcher<QString>(this);
-  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, sources, preview, session, stop, project, staging, generation, importedSources, modelSummary, modelProblems] {
+  auto *modelTask = m_mapTasks ? m_mapTasks->beginExternal(QStringLiteral("导入工区数据模型"), {}, false) : nullptr;
+  const auto reportStage = [modelTask](int done, int total, const QString &text) {
+    paleo::tasks::reportProgress(modelTask, done, total, text);
+  };
+  reportStage(0, 0, QStringLiteral("准备工区数据模型"));
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, sources, preview, session, stop, project, staging, generation, importedSources, importedTypes, modelSummary, modelProblems] {
     const QString error = watcher->future().isCanceled() ? QStringLiteral("工区模型导入已取消") : watcher->result();
     watcher->deleteLater();
     if (generation != m_areaGeneration || !m_project || m_project->sessionId() != session || !m_imports) return;
@@ -63,17 +70,20 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
     projection.notes << *modelSummary;
     for (auto it = modelProblems->cbegin(); it != modelProblems->cend(); ++it) projection.sourceProblems.insert(it.key(), it.value());
     if (projection.paths.isEmpty()) for (const auto &path : *importedSources) {
-      const QString kind = m_imports->classifyFile(path);
+      const QString kind = importedTypes->value(path);
       if (kind.isEmpty() || kind == "unknown") continue;
       projection.paths << path; projection.types.insert(path, kind);
     }
     importCatalogSources(sources, projection, session);
   });
-  const auto future = QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [roots, project, stop, staging, importedSources, modelSummary, modelProblems](QPromise<QString> &promise) {
-    promise.setProgressRange(0, 1000);
+  const auto future = QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [roots, project, stop, staging, importedSources, importedTypes, modelSummary, modelProblems, reportStage](QPromise<QString> &promise) {
+    promise.setProgressRange(0, 0);
+    promise.setProgressValueAndText(0, QStringLiteral("准备工区数据模型"));
     const QString active = paleo::area_model::directory(project);
     const QString prepared = paleo::area_model::directory(staging->path());
     if (QFileInfo::exists(active + "/data.sqlite")) {
+      promise.setProgressValueAndText(0, QStringLiteral("准备现有工区模型的一致性快照"));
+      reportStage(0, 0, QStringLiteral("准备现有工区模型的一致性快照"));
       paleo::data::DataService current;
       std::string detail;
       QDir().mkpath(prepared);
@@ -88,14 +98,19 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
       if (!paleo::area_model::importDirectory(staging->path(), root, report, &error,
           [stop] { return stop->load(); }, {QDir(project).filePath("artifacts"), staging->path(),
            QDir(root) == QDir(project) ? QDir(project).filePath("artifacts") : project},
-          [&promise](int done, int total, const QString &text) {
-            promise.setProgressValueAndText(total > 0 ? done * 1000 / total : 0, text);
+          [&promise, reportStage](int done, int total, const QString &text) {
+            reportStage(done, total, text);
+            promise.setProgressRange(0, total);
+            promise.setProgressValueAndText(done, text);
           }))
         { promise.addResult(error.isEmpty() ? QStringLiteral("工区模型导入失败") : error); return; }
       if (report.failed > 0) modelProblems->insert(root, error);
       *modelSummary += ProjectSetupWorkflow::tr("工区模型：扫描 %1，导入 %2，登记 %3，待核对 %4，跳过 %5，失败 %6。")
           .arg(report.seen).arg(report.imported).arg(report.registered).arg(report.review).arg(report.skipped).arg(report.failed) + '\n';
     }
+    promise.setProgressRange(0, 0);
+    promise.setProgressValueAndText(0, QStringLiteral("读取工区模型来源，准备资产登记"));
+    reportStage(0, 0, QStringLiteral("读取工区模型来源，准备资产登记"));
     paleo::data::DataService reader; std::string detail;
     std::vector<paleo::data::SourceEntry> entries;
     if (!reader.openProjectReadOnly(prepared.toUtf8().toStdString(), detail) || !reader.listSources(entries, detail)) {
@@ -104,9 +119,16 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
     for (const auto &entry : entries) if (entry.status != "failed" && entry.status != "ignored")
       *importedSources << QString::fromUtf8(entry.path);
     importedSources->removeDuplicates();
+    for (const auto &path : *importedSources) {
+      if (stop->load()) { promise.addResult(QStringLiteral("工区模型导入已取消")); return; }
+      promise.setProgressValueAndText(0, QStringLiteral("准备资产登记：") + QFileInfo(path).fileName());
+      reportStage(0, 0, QStringLiteral("准备资产登记：") + QFileInfo(path).fileName());
+      importedTypes->insert(path, classifyImportFile(path).type);
+    }
     promise.addResult(QString());
   });
-  auto *task = paleo::tasks::track(m_mapTasks, watcher, future, QStringLiteral("导入工区数据模型"), true);
+  auto *task = paleo::tasks::track(m_mapTasks, watcher, future, QStringLiteral("导入工区数据模型"), false,
+      [watcher] { return watcher->future().resultCount() ? watcher->result() : QString(); }, true, modelTask);
   if (task) connect(task, &PaleoTask::cancelAsked, watcher, [stop] { stop->store(true); });
   watcher->setFuture(future);
 }

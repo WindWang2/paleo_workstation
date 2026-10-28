@@ -9,6 +9,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QDebug>
+#include <algorithm>
 
 namespace paleo::area_model {
 namespace {
@@ -71,6 +72,7 @@ bool importDirectory(const QString &project, const QString &source,
                      paleo::data::ImportReport &report, QString *error,
                      const std::function<bool()> &cancelled, const QStringList &excluded,
                      const std::function<void(int, int, const QString &)> &progress) {
+  if (progress) progress(0, 0, QStringLiteral("初始化工区数据模型"));
   paleo::data::DataService service;
   std::string detail;
   const auto root = directory(project).toUtf8().toStdString();
@@ -82,6 +84,11 @@ bool importDirectory(const QString &project, const QString &source,
   }
   paleo::data::ImportOptions options;
   options.copySources = false;
+  bool configured = false;
+  const int threads = qEnvironmentVariableIntValue("PALEO_IMPORT_PARSER_THREADS", &configured);
+  options.parserThreads = std::clamp(configured ? threads : 4, 1, 4);
+  const int pendingMb = qEnvironmentVariableIntValue("PALEO_IMPORT_PENDING_MB", &configured);
+  options.maxPendingBytes = qint64(std::clamp(configured ? pendingMb : 256, 8, 1024)) * 1024 * 1024;
   options.parsing.comprehensiveWellMetreDepth = true;
   for (const auto &path : excluded) options.excludedDirectories.push_back(path.toUtf8().toStdString());
   const bool ok = service.importDirectory(source.toUtf8().toStdString(), options, report, detail, [&progress](const paleo::data::ImportProgress &p) {
@@ -90,7 +97,8 @@ bool importDirectory(const QString &project, const QString &source,
   qInfo() << "area-import: files=" << report.seen << "elapsed_ms=" << report.elapsedMs
           << "hash_ms=" << report.hashMs << "parse_ms=" << report.parseMs
           << "copy_ms=" << report.copyMs << "store_ms=" << report.storeMs
-          << "hashed_bytes=" << report.hashedBytes << "copy_sources=false";
+          << "hashed_bytes=" << report.hashedBytes << "workers=" << report.workerCount
+          << "pending_bytes=" << options.maxPendingBytes << "copy_sources=false";
   if (error) *error = QString::fromUtf8(detail);
   return !report.cancelled && (ok || report.failed > 0);
 }

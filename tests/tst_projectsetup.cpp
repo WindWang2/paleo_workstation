@@ -1,5 +1,6 @@
 #include "io/areamodel.h"
 #include "services/previewdoc.h"
+#include "services/paleotaskservice.h"
 #include <QtTest>
 #include <QThread>
 #include <QSemaphore>
@@ -312,7 +313,9 @@ private slots:
     QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
     connect(&project, &QgisProjectService::projectOpened, &service,
             [&service](const QString &p) { service.setProjectDir(QFileInfo(p).absolutePath()); });
+    PaleoTaskService tasks;
     FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    workflow.setMapImportServices(nullptr, &tasks);
     ProjectSetupDialog dialog(&workflow);
     dialog.findChild<QLineEdit *>("projectDirectoryEdit")->setText(dir.filePath("output"));
     dialog.findChild<QLineEdit *>("projectSourceRootEdit")->setText(input);
@@ -321,6 +324,11 @@ private slots:
     QCOMPARE(dialog.sources().root, input); QVERIFY(dialog.preview().paths.isEmpty());
     QSignalSpy done(&workflow, &ProjectSetupWorkflow::finished);
     QVERIFY2(workflow.create(dialog.projectPath(), dialog.sources(), dialog.preview(), &error), qPrintable(error));
+    const auto modelTaskVisible = [&] {
+      for (auto *task : tasks.tasks()) if (task->title() == QStringLiteral("导入工区数据模型")) return !task->quiet();
+      return false;
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(modelTaskVisible(), 10000);
     QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 30000);
     QVERIFY2(done[0][1].toBool(), qPrintable(done[0][0].toString()));
     const auto table = PreviewDocService::xmlDataListAt(input + "/anything.xml");

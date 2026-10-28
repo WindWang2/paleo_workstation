@@ -12,14 +12,20 @@ namespace paleo::tasks {
 inline QThreadPool *pool(PaleoTaskService *service) {
   return service ? service->workerPool() : QThreadPool::globalInstance();
 }
+// QPromise may suppress text when its numeric value has not advanced.
+// Stages such as directory enumeration therefore have a separate queued channel.
+inline void reportProgress(PaleoTask *task, int done, int total, const QString &text) {
+  if (!task) return;
+  task->reportBytes(done, total); task->reportDetail(text);
+}
 template <class T>
 PaleoTask *track(PaleoTaskService *service, QFutureWatcher<T> *watcher,
                  const QFuture<T> &future, const QString &title,
                  bool quiet = false, std::function<QString()> error = {},
-                 bool cancellable = true) {
+                 bool cancellable = true, PaleoTask *existingTask = nullptr) {
   if (!service)
     return nullptr;
-  QPointer<PaleoTask> task = service->beginExternal(title, {}, quiet);
+  QPointer<PaleoTask> task = existingTask ? existingTask : service->beginExternal(title, {}, quiet);
   task->setCancellable(cancellable);
   QFuture<T> work = future;
   auto completed = std::make_shared<bool>(false);
@@ -40,6 +46,12 @@ PaleoTask *track(PaleoTaskService *service, QFutureWatcher<T> *watcher,
                        return;
                      task->reportBytes(done, observer->progressMaximum());
                      task->reportDetail(observer->progressText());
+                   });
+  QObject::connect(observer, &QFutureWatcherBase::progressTextChanged, task,
+                   [task](const QString &text) { if (task) task->reportDetail(text); });
+  QObject::connect(observer, &QFutureWatcherBase::progressRangeChanged, task,
+                   [task, observer](int, int maximum) {
+                     if (task) task->reportBytes(observer->progressValue(), maximum);
                    });
   QObject::connect(observer, &QFutureWatcherBase::finished, task,
                    [task, work, completed, ownerGone, error] {

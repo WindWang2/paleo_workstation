@@ -9,5 +9,5 @@ namespace paleo::native_model {
 Read open(const QString &path, const QString &kind, paleo::data::DataService &service,
           QVariantMap &binding, QString *error);
 void preserveWellColumns(paleo::data::ParsedFile &model,
-                         const dataimport_detail::FamilyContext &context);
+                         const dataimport_detail::FamilyContext &ctx);
 }

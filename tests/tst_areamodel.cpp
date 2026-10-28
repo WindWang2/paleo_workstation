@@ -5,10 +5,63 @@
 #include "io/welllogread.h"
 #include "services/previewdoc.h"
 #include "domain/wellcompositemodel.h"
+#include "catalog/areawellprojection.h"
+#include "services/projectdata.h"
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 
 class TestAreaModel : public QObject {
   Q_OBJECT
 private slots:
+  void coordinateCsvBuildsDomainWells() {
+    QTemporaryDir temp; const QString input=temp.filePath("input"); QVERIFY(QDir().mkpath(input));
+    QFile f(input + "/coordinates.csv"); QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("WELL,X,Y\nSYNTH-1,100,200\nSYNTH-2,0,500\nTOTAL,,\n"); f.close();
+    const QString project=temp.filePath("project"); QString error; paleo::data::ImportReport report;
+    QVERIFY2(paleo::area_model::importDirectory(project, input, report, &error), qPrintable(error));
+    paleo::data::DataService reader; std::string detail;
+    QVERIFY(reader.openProjectReadOnly(paleo::area_model::directory(project).toUtf8().toStdString(), detail));
+    std::vector<paleo::data::WellInfoRecord> rows; QVERIFY(reader.listWellInfos(rows, detail));
+    QCOMPARE(rows.size(), size_t(2)); QCOMPARE(rows[0].value.wellheadX, 100.0); QCOMPARE(rows[0].value.wellheadY, 200.0);
+    QCOMPARE(rows[1].value.wellheadX, 0.0); QVERIFY(rows[0].value.coordinateSystem.empty());
+    DataCatalog catalog; QVERIFY(catalog.open(project, &error)); QVERIFY(registerAreaWells(catalog, &error));
+    QCOMPARE(catalog.entities("well").size(), 2); QCOMPARE(catalog.entities("well")[1].surfaceY, 500.0);
+  }
+  void wellCoordinatesComeFromAreaModel() {
+    QTemporaryDir temp; const QString project = temp.filePath("project"); QString error;
+    DataCatalog catalog; QVERIFY2(catalog.open(project, &error), qPrintable(error));
+    CatalogEntity old; old.id="well-existing"; old.entityType="well"; old.name="SYNTH-1";
+    old.hasSurface=true; old.surfaceX=11; old.surfaceY=22; old.coordinateStatus="ok";
+    QVERIFY(catalog.addEntity(old, &error));
+    QVERIFY(paleo::area_model::ensureProject(project, &error));
+    paleo::data::DataService model; std::string detail;
+    QVERIFY(model.openProject(paleo::area_model::directory(project).toUtf8().toStdString(), detail));
+    paleo::data::WellInfo info; info.wellName="SYNTH-1"; info.wellheadX=100; info.wellheadY=200;
+    info.coordinateSystem="EPSG:32649"; info.coordinateUnit="m"; info.totalDrilledDepth=3000;
+    long long id=0; QVERIFY(model.createWell(info, id, detail));
+    paleo::data::WellInfo absent; absent.wellName="SYNTH-2"; long long absentId=0;
+    QVERIFY(model.createWell(absent, absentId, detail));
+    QVERIFY2(registerAreaWells(catalog, &error), qPrintable(error));
+    QCOMPARE(catalog.entities("well").size(), 2);
+    QCOMPARE(catalog.entityById(old.id).surfaceX, 100.0);
+    QCOMPARE(catalog.entityById(old.id).extra.value("wellCoordinatesCrs").toString(), QString("EPSG:32649"));
+    ProjectDataFacade facade; facade.setCatalog(&catalog, project);
+    info.wellheadX=0; info.wellheadY=250; info.wellName="SYNTH-RENAMED";
+    QVERIFY(model.saveWellInfo(id, info, detail));
+    QCOMPARE(catalog.entityById(old.id).surfaceX, 0.0); QCOMPARE(catalog.entityById(old.id).surfaceY, 250.0);
+    QCOMPARE(catalog.entityById(old.id).name, QString("SYNTH-RENAMED"));
+    QCOMPARE(facade.wells().first().surfaceY, 250.0);
+    QVERIFY(!catalog.entities("well").last().hasSurface);
+    const QString geojson=temp.filePath("wells.geojson"); QVERIFY(catalog.writeWellsGeoJson(geojson, &error));
+    QFile f(geojson); QVERIFY(f.open(QIODevice::ReadOnly));
+    const auto features=QJsonDocument::fromJson(f.readAll()).object()["features"].toArray();
+    QCOMPARE(features.size(), 1); QCOMPARE(features[0].toObject()["geometry"].toObject()["coordinates"].toArray()[1].toDouble(), 250.0);
+    // Removal of model coordinates cannot fall back to stale catalog coordinates.
+    info.wellheadX=paleo::data::Missing; info.wellheadY=paleo::data::Missing;
+    QVERIFY(model.saveWellInfo(id, info, detail)); QVERIFY(!catalog.entityById(old.id).hasSurface);
+    QVERIFY(catalog.entityById(old.id).coordinateStatus == "missing");
+  }
   void directoryModelDrivesBothPreviews() {
     QTemporaryDir temp;
     const QString input = temp.filePath("input"); QDir().mkpath(input);

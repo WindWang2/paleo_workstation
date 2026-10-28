@@ -13,7 +13,7 @@ namespace paleo::native_model {
 // Prepared in the import worker, published with RAW bytes by the existing
 // staging/journal transaction. Each version owns an immutable native data project.
 bool prepare(ImportSession &session, const CatalogVersion &version,
-             const dataimport_detail::FamilyContext &context,
+             const dataimport_detail::FamilyContext &ctx,
              const dataimport_detail::LogInspection *log, QString *error);
 void registerCatalog(const DataCatalog &catalog, const void *owner);
 void unregisterCatalog(const void *owner);

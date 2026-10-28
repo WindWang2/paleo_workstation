@@ -69,10 +69,10 @@ class CatalogStore
     QString sqlitePath() const { return m_sqlitePath; }
 
     bool begin(QString *error);
-    bool upsertEntity(const CatalogEntity &e, QString *error);
-    bool upsertAsset(const CatalogAsset &a, QString *error);
+    bool upsertEntity(const CatalogEntity &v, QString *error);
+    bool upsertAsset(const CatalogAsset &v, QString *error);
     bool upsertVersion(const CatalogVersion &v, QString *error);
-    bool upsertLink(int ord, const EntityAssetLink &l, QString *error);
+    bool upsertLink(int ord, const EntityAssetLink &v, QString *error);
     // 增量删除面（DataCatalog::removeAsset）。同事务内调用次序约定：先
     // upsert 后 delete（净效果 = 已删）。
     bool deleteAsset(const QString &id, QString *error);

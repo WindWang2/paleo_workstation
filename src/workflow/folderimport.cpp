@@ -220,12 +220,12 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::makeImportJob(const QSt
       qInfo() << "FolderImportWorkflow: project changed during import, ledger not written for"
               << ledgerDir;
     if (done)
-      done(s.rows, s.error);
+      done(s.rows, s.error, s.cancelled);
   };
   job->fail = [this, done] {
     emit importActiveChanged(false);
     if (done)
-      done({}, DataImportService::offThreadError());
+      done({}, DataImportService::offThreadError(), false);
   };
   emit importActiveChanged(true);
   enqueueImport(job);
@@ -461,7 +461,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
   if (!m_svc)
   {
     if (done)
-      done({}, QStringLiteral("导入服务未就绪"));
+      done({}, QStringLiteral("导入服务未就绪"), false);
     return {};
   }
   // D1b+T2+审计 02 M-8：任务池在场 → 整个文件夹导入（plan 扫描/哈希 +
@@ -497,7 +497,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
   emit importActiveChanged(false);
   recordLedger(dir, started, res, importErr);
   if (done)
-    done(res, importErr);
+    done(res, importErr, false);
   return {};
 }
 
@@ -531,7 +531,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
   if (!m_svc)
   {
     if (done)
-      done({}, QStringLiteral("导入服务未就绪"));
+      done({}, QStringLiteral("导入服务未就绪"), false);
     return {};
   }
   // 台账/溯源目录：首个文件所在目录（清单可跨目录——目录只是台账展示位）。
@@ -569,7 +569,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
   emit importActiveChanged(false);
   recordLedger(ledgerDir, started, res, importErr);
   if (done)
-    done(res, importErr);
+    done(res, importErr, false);
   return {};
 }
 

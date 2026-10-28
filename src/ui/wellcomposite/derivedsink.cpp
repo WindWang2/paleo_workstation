@@ -250,8 +250,27 @@ QString WellCompositeDerivedSink::registerDerived(const ComprehensiveWellData &d
       emit derivedFailed(msg);
       return QString();
     }
-    f.write(bytes);
+    // 短写必须当失败：落盘截断的 XML 会在下一步被按完整 sha256 登记成
+    // DERIVED 版本（内容与指纹不符，重开即解析失败）。校验写满 + flush +
+    // 最终错误位，任一不过即回收 staging 并不再 commit。
+    const qint64 written = f.write(bytes);
+    const bool flushed = f.flush();
+    const QString ioErr = f.errorString();
     f.close();
+    if (written != static_cast<qint64>(bytes.size()) || !flushed ||
+        f.error() != QFile::NoError)
+    {
+      QFile::remove(st.absolutePath);
+      const QString msg = QStringLiteral("派生产物写入不完整 %1（写入 %2/%3 字节%4）")
+                              .arg(st.absolutePath)
+                              .arg(written)
+                              .arg(bytes.size())
+                              .arg(ioErr.isEmpty() ? QString() : QStringLiteral("：") + ioErr);
+      if (error)
+        *error = msg;
+      emit derivedFailed(msg);
+      return QString();
+    }
   }
 
   QVariantMap extra;

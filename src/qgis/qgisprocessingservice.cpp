@@ -6,10 +6,12 @@
 #include "../metadata/paleoprojectstore.h"
 
 #include <QCloseEvent>
+#include <QCoreApplication>
 #include <QDir>
 #include <QLabel>
 #include <QMainWindow>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QWidget>
 
 #include <atomic>
@@ -585,11 +587,51 @@ private:
 };
 } // namespace
 
+const QgsProcessingAlgorithm *QgisProcessingService::lookupAlgorithm(const QString &algorithmId) const
+{
+  QgsProcessingRegistry *reg = QgsApplication::processingRegistry();
+  if (!reg)
+    return nullptr;
+  QMutexLocker lock(&m_registryMutex);
+  return reg->algorithmById(algorithmId);
+}
+
 QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVariantMap &parameters, QString *error,
                                        const ProcessingHooks &hooks)
 {
-  QgsProcessingRegistry *reg = QgsApplication::processingRegistry();
-  const QgsProcessingAlgorithm *alg = reg ? reg->algorithmById(algorithmId) : nullptr;
+  const QgsProcessingAlgorithm *alg = lookupAlgorithm(algorithmId);
+  if (!alg)
+  {
+    setError(error, tr("no processing algorithm registered as '%1'").arg(algorithmId));
+    return QVariantMap();
+  }
+  // #779：声明不可后台执行的算法（NoThreading）在 worker 线程里跑会碰主线程
+  // 独有对象（工程、层选择、非线程安全外部依赖）。此时把整段 run 搬到主线程
+  // ——run() 的「同步阻塞」契约不变（调用方阻塞到主线程跑完），前提是主线程
+  // 事件循环在转（应用 UI 主循环与测试壳的 qWait 均满足）。已在主线程、或无
+  // QCoreApplication 可投递（诊断壳）时按当前线程执行。
+  const bool needsMainThread = alg->flags() & Qgis::ProcessingAlgorithmFlag::NoThreading;
+  const QCoreApplication *app = QCoreApplication::instance();
+  if (needsMainThread && app && QThread::currentThread() != app->thread())
+  {
+    const QString id = algorithmId;
+    const QVariantMap params = parameters;
+    const ProcessingHooks copied = hooks;
+    QVariantMap marshaled;
+    QMetaObject::invokeMethod(const_cast<QCoreApplication *>(app),
+                              [this, &marshaled, id, params, error, copied] {
+                                marshaled = runBlocking(id, params, error, copied);
+                              },
+                              Qt::BlockingQueuedConnection);
+    return marshaled;
+  }
+  return runBlocking(algorithmId, parameters, error, hooks);
+}
+
+QVariantMap QgisProcessingService::runBlocking(const QString &algorithmId, const QVariantMap &parameters,
+                                               QString *error, const ProcessingHooks &hooks)
+{
+  const QgsProcessingAlgorithm *alg = lookupAlgorithm(algorithmId);
   if (!alg)
   {
     setError(error, tr("no processing algorithm registered as '%1'").arg(algorithmId));
@@ -696,7 +738,12 @@ QStringList QgisProcessingService::paleoAlgorithmIds() const
   // Registry ids are "providerId:algName"; the paleo provider's ids are
   // "paleo:<name>". A bare "paleo_*" prefix is also accepted so algorithms
   // registered under another provider still surface if named in-namespace.
-  const QList<const QgsProcessingAlgorithm *> algs = reg->algorithms();
+  // 枚举与 algorithmById 同锁（#779）：provider 增删与枚举并发即遍历中被改表。
+  QList<const QgsProcessingAlgorithm *> algs;
+  {
+    QMutexLocker lock(&m_registryMutex);
+    algs = reg->algorithms();
+  }
   for (const QgsProcessingAlgorithm *alg : algs)
   {
     const QString id = alg->id();
@@ -713,7 +760,10 @@ QStringList QgisProcessingService::algorithmIds() const
   QgsProcessingRegistry *reg = QgsApplication::processingRegistry();
   if (!reg)
     return ids;
-  const QList<const QgsProcessingAlgorithm *> algs = reg->algorithms();
+  const QList<const QgsProcessingAlgorithm *> algs = [&] {
+    QMutexLocker lock(&m_registryMutex);
+    return reg->algorithms();
+  }();
   for (const QgsProcessingAlgorithm *alg : algs)
     ids << alg->id();
   ids.removeDuplicates();
@@ -725,8 +775,7 @@ QWidget *QgisProcessingService::createAlgorithmDialog(const QString &algId,
                                                       const QVariantMap &presetParams,
                                                       QWidget *parent, QString *error)
 {
-  QgsProcessingRegistry *reg = QgsApplication::processingRegistry();
-  const QgsProcessingAlgorithm *alg = reg ? reg->algorithmById(algId) : nullptr;
+  const QgsProcessingAlgorithm *alg = lookupAlgorithm(algId);
   if (!alg)
   {
     setError(error, tr("no processing algorithm registered as '%1'").arg(algId));

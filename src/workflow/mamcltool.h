@@ -53,10 +53,18 @@ class MamclTool : public QObject
     void onStepFinished(const QString &step, bool ok, const QString &message);
     void finish(bool ok, const QString &message);
     bool extractMarkerValid() const;
-    void writeExtractMarker() const;
+    // 解包旗标 = 程序包 SHA-256（#142）。原子写 + 返回值校验：空/半截旗标
+    // 会让下次重复解包（#731）。
+    bool writeExtractMarker(QString *error) const;
+    // #735 TOCTOU：sha 核对与解包重新打开文件之间 zip 可被替换——先拷一份
+    // 自己的副本并再核一遍哈希，解包读的才是「已校验字节」。
+    bool stageVerifiedZipCopy(QString *copyPath, QString *error);
+    void discardVerifiedZipCopy();
 
     PythonEnvService *m_env;
     QString m_zipPath;
     QString m_zipSha256; // open() 校验通过的实际哈希，解包旗标内容
+    QString m_verifiedZipCopy; // 本次解包用的已校验副本（用完即删）
+    QString m_extractTmpDir;   // 解包临时目录（整棵 rename 到位后才写旗标）
     Stage m_stage = Idle;
 };

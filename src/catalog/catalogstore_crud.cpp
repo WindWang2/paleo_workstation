@@ -76,9 +76,11 @@ bool CatalogStore::upsertEntity(const CatalogEntity &e, QString *error)
   q.addBindValue(e.hasSurface ? 1 : 0);
   // The legacy schema has NOT NULL numeric columns. Explicit missing flags
   // preserve optional values without presenting a stored placeholder as data.
+  // #814：键带 '#' 前缀——内部记账不得占用用户前向扩展命名空间（同名用户键
+  // 会被这里的 insert 覆盖、再被 loadTables 剥掉，等于静默毁数据）。
   auto extra = e.extra;
-  extra.insert(QStringLiteral("kbMissing"), !std::isfinite(e.kb));
-  extra.insert(QStringLiteral("tdMissing"), !std::isfinite(e.td));
+  extra.insert(paleo::catalog_detail::kKbMissingKey, !std::isfinite(e.kb));
+  extra.insert(paleo::catalog_detail::kTdMissingKey, !std::isfinite(e.td));
   q.addBindValue(std::isfinite(e.kb) ? e.kb : 0.0);
   q.addBindValue(std::isfinite(e.td) ? e.td : 0.0);
   q.addBindValue(textArg(e.coordinateStatus));

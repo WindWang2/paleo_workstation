@@ -65,16 +65,19 @@ ProjectSetupDialog::ProjectSetupDialog(ProjectSetupWorkflow *workflow, QWidget *
 }
 QWidget *ProjectSetupDialog::pathRow(QLineEdit *edit, bool directory, const QString &filter)
 {
-  auto *row = new QWidget(this); auto *layout = new QHBoxLayout(row); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(8); layout->addWidget(edit);
+  auto *row = new QWidget(this); auto *layout = new QHBoxLayout(row); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(PaleoTheme::tokens().spacingSm); layout->addWidget(edit);
   auto *button = new QPushButton(tr("浏览…"), row); layout->addWidget(button);
   connect(button, &QPushButton::clicked, this, [this, edit, directory, filter] {
     const QString path = directory ? QFileDialog::getExistingDirectory(this, tr("选择文件夹"), edit->text())
                                   : QFileDialog::getOpenFileName(this, tr("选择资料"), edit->text(), filter);
     if (path.isEmpty()) return;
-    edit->setText(QDir::fromNativeSeparators(path)); m_dirty = true; ++m_revision;
+    // 归一化后再回填，m_lastPointFile 与编辑框文本同源——否则 editingFinished
+    // 的「文本未变则不重扫」判等因分隔符差异误判为已修改，白扫一次井点。
+    const QString normalized = QDir::fromNativeSeparators(path);
+    edit->setText(normalized); m_dirty = true; ++m_revision;
     if (edit == m_root) discover();
     if (edit == m_paleomaps) scan();
-    if (edit == m_points) { m_lastPointFile = path; for (auto *box : m_fields) box->clear(); m_crs->clear(); scan(); }
+    if (edit == m_points) { m_lastPointFile = normalized; for (auto *box : m_fields) box->clear(); m_crs->clear(); scan(); }
   });
   return row;
 }
@@ -216,6 +219,9 @@ void ProjectSetupDialog::scan()
     m_status->setText(!sourceError.isEmpty() ? sourceError : baselineError);
     return;
   }
+  // 上一轮创建失败（位置被占/拒访问）到此作废：否则 showPreview 仍把它当
+  // 最新状态压在识别结果之上，用户改完资料来源也看不到新的识别状态。
+  setProperty("paleo.creationError", QVariant());
   m_scanRevision = m_revision;
   m_empty = false; m_busy = true; m_next->setEnabled(false); m_status->setText(tr("正在识别资料，完成前可继续修改或取消。"));
   m_workflow->scan(sources());
@@ -259,6 +265,9 @@ void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
   for (int row = 0; row < p.pointRows.size(); ++row) for (int col = 0; col < 3; ++col) m_pointPreview->setItem(row, col, new QTableWidgetItem(p.pointRows[row].value(col)));
   refreshReview();
   const QString creationError = property("paleo.creationError").toString();
+  // 创建失败只压一次状态：读过即清，避免旧错误继续盖在后续识别结果之上
+  // （scan() 启动时已清过一次，这里是「扫描在途时又报创建失败」的兜底）。
+  if (!creationError.isEmpty()) setProperty("paleo.creationError", QVariant());
   m_status->setText(!creationError.isEmpty() ? creationError : !p.errors.isEmpty() ? tr("工程配置需要调整，详细原因见确认页。")
       : !p.sourceProblems.isEmpty() ? tr("部分资料未通过检查；仍可创建工程并导入其余资料，详情见确认页。")
       : p.paths.isEmpty() && p.maps.isEmpty() ? tr("未找到可导入资料；请选择资料来源，或创建空白工程。")

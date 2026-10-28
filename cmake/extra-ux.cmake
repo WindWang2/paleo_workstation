@@ -89,6 +89,22 @@ if(Python3_EXECUTABLE)
   add_test(NAME l10n_selftest COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_l10n.py --selftest)
   set_tests_properties(l10n l10n_selftest
                        PROPERTIES LABELS "l10n"
-                                  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+                                  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                                  # #767：同 paleo-test-infra 的 Python 闸门口径——
+                                  # 不在源码树留字节码（__pycache__）。
+                                  ENVIRONMENT "PYTHONUTF8=1;PYTHONDONTWRITEBYTECODE=1")
+  # #755：translations/*.ts 陈旧度棘轮接进 ctest（此前只有 lint 车道 Source gates
+  # 跑它，linux/windows 必过车道看不见）。接线即红属预期——#780-#815 批次新增
+  # tr() 未跑 lupdate，缺失数已超基线（lint 必红）。修复路径是一次集中 lupdate +
+  # 翻译补齐后 `--update-baseline` 把基线降下来；**不许靠上调基线换绿**（棘轮只降
+  # 不升，AGENTS.md 基线纪律）。当前红已在 docs/ci/known-reds.json 登记。
+  add_test(NAME check_ts_stale COMMAND ${Python3_EXECUTABLE}
+           ${CMAKE_SOURCE_DIR}/tools/check_ts_stale.py)
+  add_test(NAME check_ts_stale_selftest COMMAND ${Python3_EXECUTABLE}
+           ${CMAKE_SOURCE_DIR}/tools/check_ts_stale.py --selftest)
+  set_tests_properties(check_ts_stale check_ts_stale_selftest
+                       PROPERTIES LABELS "l10n"
+                                  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                                  ENVIRONMENT "PYTHONUTF8=1;PYTHONDONTWRITEBYTECODE=1")
 endif()
 

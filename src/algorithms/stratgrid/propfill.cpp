@@ -266,7 +266,12 @@ public:
                      (sd.k - m_lo[2]) / m_bin[2])]
           .push_back(static_cast<int>(s));
     }
-    m_minStep = std::min({m_sx * m_bin[0], m_sy * m_bin[1], m_sz * m_bin[2]});
+    // 下界用箱步的**幅值**：北向上栅格 dy<0 时 std::min 会取到最负的
+    // m_sy*m_bin[1]，其绝对值往往是三轴里最大的——bound 被高估，早退判据
+    // (bound² > 堆顶) 提前命中，壳内更近的种子还没扫到就停，KNN 静默缺项
+    // （issue #794：矩形像元 + 负 dy + 块内种子 >64 的属性体错值）。
+    m_minStep = std::min({std::abs(m_sx * m_bin[0]), std::abs(m_sy * m_bin[1]),
+                          std::abs(m_sz * m_bin[2])});
   }
 
   float estimate(int i, int j, int k) const

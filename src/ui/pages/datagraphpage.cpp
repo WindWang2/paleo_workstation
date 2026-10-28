@@ -222,10 +222,10 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   connect(refreshButton, &QToolButton::clicked, this, &DataGraphPage::refresh);
   connect(fit, &QToolButton::clicked, this, &DataGraphPage::fitGraphToView);
   connect(zoomIn, &QToolButton::clicked, this, [this] {
-    static_cast<DataGraphCanvas *>(m_view)->zoomBy(1.2);
+    static_cast<DataGraphCanvas *>(m_view)->zoomBy(1.2, QGraphicsView::AnchorViewCenter);
   });
   connect(zoomOut, &QToolButton::clicked, this, [this] {
-    static_cast<DataGraphCanvas *>(m_view)->zoomBy(1 / 1.2);
+    static_cast<DataGraphCanvas *>(m_view)->zoomBy(1 / 1.2, QGraphicsView::AnchorViewCenter);
   });
   connect(m_cancel, &QToolButton::clicked, m_workflow,
           &DataGraphWorkflow::cancel);

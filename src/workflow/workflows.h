@@ -277,8 +277,10 @@ class ConstraintWorkflow : public QObject
                                       const QVariantMap &params) const;
     // 当前口径命中已保存的井点提取（新鲜或过期）时置好行/消息并返回 true，
     // 页面据此刷新逐井表；无命中返回 false，维持「尚未提取」态。
+    // #811-2：恢复路径的可见失败（图层声明失败等）经 error 如实上报——旧实现
+    // 把它吞成「没有已保存数据」，用户无从知道真正原因。
     bool restoreWellFactors(const QString &horizon, const QString &factorId,
-                            const QVariantMap &params);
+                            const QVariantMap &params, QString *error = nullptr);
     // P3 任务G：成果版本来源/质控摘要 {summary, details}（只读血缘 extra）。
     static QVariantMap factorResultLineage(const QVariantMap &extra);
     QVariantList savedFactorResults(const QString &horizon, const QString &factorId) const;

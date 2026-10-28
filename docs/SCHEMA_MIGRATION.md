@@ -61,15 +61,31 @@
   - `1 → 2` 的结构差只有 `fault_set.surface`（TEXT，可空）。表还不存在时由
     FaultSetStore 按新表头创建；表已在且缺列时 `ALTER TABLE ADD COLUMN`。
     旧行 `surface` 为 NULL，payload 里的棒/切割不改写。
+- **迁移原子性与逐级（#736）**：采纳落后版本时走 `BEGIN IMMEDIATE` →
+  逐级调用各 store 登记的迁移步（`vN → vN+1`，幂等、可按步重放；版本已
+  到位也跑一次幂等 ensure——旧构建「先 bump 版本后建表」的崩溃窗口会留下
+  「版本新、表旧」的库，靠这一步自愈）→ **最后**才写
+  `PRAGMA user_version`（该 pragma 在事务内，回滚即复原，已实测）→
+  `COMMIT`。任一步失败整体 `ROLLBACK`：版本号与表结构同生同死，不再有
+  「版本已新、表还没建」的中间态。迁移步由各 store 以
+  `MetaStore::SchemaMigration` 回调登记（faultsetstore / layermanifest /
+  mapversionstore / releasestore / wellsectionstore / wellsitingstore /
+  layouttemplatestore 七家同款口径；当前各步都是版本无关的幂等全 schema
+  ensure，将来 `2 → 3` 的真实结构差在回调里按 `fromVersion` 分支）。
 - 列级迁移（版本内前向兼容）：`CREATE TABLE IF NOT EXISTS` + 逐列
   `PRAGMA table_info` 查缺后 `ALTER TABLE ADD COLUMN`（新列可空，旧行读默认）。
-  现存实例：`layer_declarations.title`（layermanifest.cpp:73-87）、
+  现存实例：`layer_declarations.title`（layermanifest.cpp `manifestEnsureSchema`）、
   map_versions 的发布门列（mapversionstore.cpp `ensureColumn`）。
-- 失败行为：user_version 门拒绝 → 三个 store 的 `open()` 全部 false（各自
+- 连接级 pragma（#733）：`MetaStore::openConnection` 打开成功后设
+  `PRAGMA busy_timeout = 5000`——同进程两条连接（后台任务 vs UI）抢写锁时
+  等待而不是立刻 `SQLITE_BUSY`。**journal_mode 仍不设 WAL**（§6 决议：
+  project.sqlite 维持单写者，WAL 是 catalog.sqlite 的已落地例外，不外推）。
+- 失败行为：user_version 门拒绝 → 各 store 的 `open()` 全部 false（各自
   错误串），后续读写全部失败；文件未被修改。
-- 升级流程（将来 bump 到 3 时）：改 `kUserVersion` + 在采纳分支后加一段幂等
-  迁移（`2 → 3`），同提交里更新 `futureVersionRefusedByAllStores` 的造库值
-  （该测试用 `kUserVersion + 1`，随常量走）。
+- 升级流程（将来 bump 到 3 时）：改 `kUserVersion` + 在相应 store 的迁移
+  回调里加一段幂等 `2 → 3` 结构差，同提交里更新
+  `futureVersionRefusedByAllStores` 的造库值（该测试用
+  `kUserVersion + 1`，随常量走）。
 - 当前 2：`src/metadata/faultsetstore.cpp` 补 `surface` 列。断面 mesh 不进
   payload，避免旧读者把棒文档和网格绑死。
 - 测试背书：`tests/tst_metastore.cpp` `freshDbAdoptsUserVersion` /
@@ -163,8 +179,12 @@ appcontext.cpp：该文件同时被并行 UX 包与编排会话修改，接线�
 
 - project.gpkg 尚无 Paleo 级版本号（§3 的 `paleo_meta` 表在第一次破坏性
   变更时引入）；在此之前 gpkg 演进只允许加列/加表。
-- `project.sqlite` 的 QSQLITE 连接未显式设 journal 模式（默认 journal）；单写者决议下无正确性
-  影响，若将来允许只读多开再评估 WAL。catalog.sqlite 是已落地的例外（§6、§8）：WAL + `synchronous=FULL`，不外推到 project.sqlite。
+- ~~`project.sqlite` 的 QSQLITE 连接未设 busy_timeout~~（已收口 #733：
+  `MetaStore::openConnection` 打开成功后设 `PRAGMA busy_timeout = 5000`，
+  同进程双连接抢写锁改为等待而非立刻 SQLITE_BUSY）。journal 模式维持默认
+  rollback journal：单写者决议下无正确性影响，若将来允许只读多开再评估
+  WAL。catalog.sqlite 是已落地的例外（§6、§8）：WAL + `synchronous=FULL`，
+  不外推到 project.sqlite。
 - ~~`ProjectDirLock` 的 AppContext 接线未落地~~（已收口：appcontext.cpp
   建锁+`tryLock`、失败降级只读，qgisprojectservice.cpp 亦有检查）。
 

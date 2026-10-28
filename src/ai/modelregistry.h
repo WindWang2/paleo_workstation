@@ -15,7 +15,8 @@
 //       "dataType": "amplitude",   // 适用数据类型（振幅/属性）
 //       "input":  { "name": "x", "dtype": "float32", "shape": [1,1,null,null] },
 //       "outputs": { "semantics": "logits", "classes": 3 },
-//       "sha256": "…"              // 可选钉哈希；不符 → FingerprintMismatch
+//       "sha256": "…"              // 钉哈希；缺该键 → 扫描仍判 Ok + 告警，
+//                                  // 但加载期默认拒绝（#737，见 PaleoOnnxService）
 //   } ] }
 // 扫描语义（如实降级，不报错轰炸）：
 //   · manifest 不存在 / models 空 → 「未装模型」状态（manifestFound=false，
@@ -26,6 +27,9 @@
 //   · #145 路径约束：name 必须是单个路径段；file 必须是相对路径、不含 ..
 //     段、canonical 后仍位于 models/ 内（防符号链接逃逸）→ 否则 ManifestInvalid。
 //   · 重名 name：后出现的条目 ManifestInvalid（不静默覆盖）。
+//   · #737：条目未钉 sha256 时扫描期仍是 Ok（结构合法）并 qWarning 点名实测
+//     指纹，但 PaleoOnnxService::loadModelMeta 拒绝加载——缺钉哈希时模型文件
+//     被替换无从发现，默认不放行（错误信息给出实测指纹供补钉）。
 
 struct ModelRegistryEntry
 {

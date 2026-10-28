@@ -241,3 +241,23 @@ Windows 环境豁免以 `tools/env_redset.json` 及 CI 现行规则为准。
 - CRS 迁移、层位特殊字符转义的复核，以及跨项目/会话反查恢复的验证。
 - `acceptsLocalGridCrs` 收紧为工程网格精确匹配。
 - 依据：[编图证据契约](docs/progress/mapping-evidence-implementation.md)。
+
+## P2 — env_redset STALE strict 档的到期开启计划（#764，2026-10-28）
+
+`PALEO_FLAKY_STRICT=1` 已随 #764 在 workflow 级 env 开启（flaky 台账跨 run 持久化后，
+同一测试被重跑洗满 3 次即硬红）。`PALEO_REDSET_STALE=strict` **暂不默认开启**：它把
+「豁免项本轮通过 → 名单可收缩」从 ::warning 升为 ::error，直接依赖
+`tools/env_redset.json` 现有 16 条（13 fixed + 3 exempt/localdeps）在 vendored 车道的
+实际通过面——翻转即可能在必过 linux 车道引入本地无法复现的新红。
+
+到期开启计划（满足任一条件即可在 ci.yml 删掉本节的「暂不」并在 workflow 级 env 加
+`PALEO_REDSET_STALE: strict`）：
+
+1. **证据条件**：连续 3 个 linux run 的 `tools/check_env_redset.py --strict` 输出里
+   STALE 条目集合稳定（同一批豁免项连续通过），且 `tools/env_redset.json` 已按该集合
+   删完可删条目——此时 STALE 只剩「新僵化」信号，升红不会误伤。
+2. **时间条件**：2027-01-28（与 `docs/ci/known-reds.json` 的
+   `ts-stale-lupdate-backlog` 复审期对齐）前未满足证据条件，则在本节补一轮复跑证据
+   并续期，不许无限期停在过渡档。
+3. 开启后首个 run 若因 STALE 红，按「先删名单条目、再放行」处理，不得回调
+   `PALEO_REDSET_STALE` 值。

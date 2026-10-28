@@ -184,17 +184,29 @@ namespace
 {
 
 // 时窗族公共骨架：visit 窗口 [lo, hi]（闭区间，已与序列边界求交）。
-template <typename Accum>
-void windowedWalk(const float *x, int n, int halfWindow, float *out,
-                  Accum accumulate)
+// #724：旧式逐窗直算 O(n·w)（RMS/能量/MaxAbs 在长窗大道上不可用）。
+// RMS/平均能量改平方前缀和 + NaN 计数前缀（窗内含缺失即如实 NaN，与逐窗
+// 直算同语义）；MaxAbs 改单调双端队列（队头 = 窗内 |x| 最大值）。
+// 前缀/队列缓冲只复用容量、内容逐段重写；非线程安全（调用方各自持一份）。
+struct WindowPrefix
 {
-  for (int i = 0; i < n; ++i)
+  std::vector<double> square; // 平方前缀和：square[i] = Σ_{j<i} x[j]²（NaN 计 0）
+  std::vector<int> missing;   // 缺失计数前缀：missing[i] = Σ_{j<i} [x[j] 非有限]
+  void build( const float *x, int n )
   {
-    const int lo = i - halfWindow < 0 ? 0 : i - halfWindow;
-    const int hi = i + halfWindow > n - 1 ? n - 1 : i + halfWindow;
-    out[i] = accumulate(x, lo, hi);
+    square.assign( static_cast<std::size_t>( n ) + 1, 0.0 );
+    missing.assign( static_cast<std::size_t>( n ) + 1, 0 );
+    for ( int i = 0; i < n; ++i )
+    {
+      const double v = double( x[i] );
+      const bool gap = !std::isfinite( v );
+      square[static_cast<std::size_t>( i ) + 1] =
+          square[static_cast<std::size_t>( i )] + ( gap ? 0.0 : v * v );
+      missing[static_cast<std::size_t>( i ) + 1] =
+          missing[static_cast<std::size_t>( i )] + ( gap ? 1 : 0 );
+    }
   }
-}
+};
 
 } // namespace
 
@@ -202,55 +214,84 @@ void windowedRms(const float *x, int n, int halfWindow, float *out)
 {
   if (!x || !out || n <= 0 || halfWindow < 0)
     return;
-  windowedWalk(x, n, halfWindow, out, [](const float *v, int lo, int hi)
+  WindowPrefix prefix;
+  prefix.build(x, n);
+  for (int i = 0; i < n; ++i)
   {
-    double sum = 0.0;
-    int cnt = 0;
-    for (int k = lo; k <= hi; ++k, ++cnt)
+    const int lo = i - halfWindow < 0 ? 0 : i - halfWindow;
+    const int hi = i + halfWindow > n - 1 ? n - 1 : i + halfWindow;
+    const std::size_t l = static_cast<std::size_t>(lo), h = static_cast<std::size_t>(hi) + 1;
+    if (prefix.missing[h] > prefix.missing[l])
     {
-      if (std::isnan(v[k]))
-        return kNaN;
-      sum += double(v[k]) * double(v[k]);
+      out[i] = kNaN; // 窗内含缺失：如实 NaN（同旧式逐窗直算）
+      continue;
     }
-    return float(std::sqrt(sum / double(cnt > 0 ? cnt : 1)));
-  });
+    const double sum = prefix.square[h] - prefix.square[l];
+    const int cnt = hi - lo + 1;
+    out[i] = float(std::sqrt(sum / double(cnt)));
+  }
 }
 
 void windowedMaxAbs(const float *x, int n, int halfWindow, float *out)
 {
   if (!x || !out || n <= 0 || halfWindow < 0)
     return;
-  windowedWalk(x, n, halfWindow, out, [](const float *v, int lo, int hi)
+  // 单调双端队列：mono 存窗内 |x| 单调不增的下标（队头即最大值），
+  // missing 存窗内缺失下标；两者都只增不缩（左端用游标跳过）。
+  std::vector<int> mono;
+  std::vector<int> missing;
+  std::size_t monoHead = 0, missingHead = 0;
+  int pushed = -1;
+  for (int i = 0; i < n; ++i)
   {
-    float m = 0.0f;
-    for (int k = lo; k <= hi; ++k)
+    const int lo = i - halfWindow < 0 ? 0 : i - halfWindow;
+    const int hi = i + halfWindow > n - 1 ? n - 1 : i + halfWindow;
+    while (pushed < hi)
     {
-      if (std::isnan(v[k]))
-        return kNaN;
-      const float a = std::fabs(v[k]);
-      if (a > m)
-        m = a;
+      const int j = ++pushed;
+      if (!std::isfinite(double(x[j])))
+      {
+        missing.push_back(j);
+        continue;
+      }
+      const double a = std::fabs(double(x[j]));
+      while (!mono.empty() && std::fabs(double(x[mono.back()])) <= a)
+        mono.pop_back();
+      mono.push_back(j);
     }
-    return m;
-  });
+    while (monoHead < mono.size() && mono[monoHead] < lo)
+      ++monoHead;
+    while (missingHead < missing.size() && missing[missingHead] < lo)
+      ++missingHead;
+    if (missingHead < missing.size() && missing[missingHead] <= hi)
+    {
+      out[i] = kNaN; // 窗内含缺失：如实 NaN（同旧式逐窗直算）
+      continue;
+    }
+    out[i] = float(std::fabs(double(x[mono[monoHead]])));
+  }
 }
 
 void windowedMeanEnergy(const float *x, int n, int halfWindow, float *out)
 {
   if (!x || !out || n <= 0 || halfWindow < 0)
     return;
-  windowedWalk(x, n, halfWindow, out, [](const float *v, int lo, int hi)
+  WindowPrefix prefix;
+  prefix.build(x, n);
+  for (int i = 0; i < n; ++i)
   {
-    double sum = 0.0;
-    int cnt = 0;
-    for (int k = lo; k <= hi; ++k, ++cnt)
+    const int lo = i - halfWindow < 0 ? 0 : i - halfWindow;
+    const int hi = i + halfWindow > n - 1 ? n - 1 : i + halfWindow;
+    const std::size_t l = static_cast<std::size_t>(lo), h = static_cast<std::size_t>(hi) + 1;
+    if (prefix.missing[h] > prefix.missing[l])
     {
-      if (std::isnan(v[k]))
-        return kNaN;
-      sum += double(v[k]) * double(v[k]);
+      out[i] = kNaN;
+      continue;
     }
-    return float(sum / double(cnt > 0 ? cnt : 1));
-  });
+    const double sum = prefix.square[h] - prefix.square[l];
+    const int cnt = hi - lo + 1;
+    out[i] = float(sum / double(cnt));
+  }
 }
 
 namespace

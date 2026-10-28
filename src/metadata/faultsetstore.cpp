@@ -38,16 +38,13 @@ bool columnExists(QSqlDatabase &db, const QString &column)
 
 // 幂等建表。user_version 1→2 的列迁移：旧表没有 surface 时 ALTER 补上。
 // 棒/切割仍在 payload，断面只进 surface 列（可空）。
+// #736：本函数即 MetaStore 的迁移步（幂等，可按步重复调用）——版本落后时
+// 在 openConnection 的事务内逐级跑到位，版本已到位时也跑一次 ensure（旧
+// 构建「先 bump 后建表」崩溃窗口留下的「版本新、表旧」库靠这一步自愈）。
 // #395：readOnly 连接不建表/不补列——schema 归写实例；read-write 打开
 // 还会撞写实例的排他锁（整库读不出）。
-bool faultsetEnsureOpen(const QString &path, bool readOnly, QString *error)
+bool faultsetEnsureSchema(QSqlDatabase &db, QString *error)
 {
-    QSqlDatabase db =
-        MetaStore::openConnection(path, faultsetConnectionName(path, readOnly), error, readOnly);
-    if (!db.isValid())
-        return false;
-    if (readOnly)
-        return true;
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral(
             "CREATE TABLE IF NOT EXISTS fault_set ("
@@ -66,6 +63,19 @@ bool faultsetEnsureOpen(const QString &path, bool readOnly, QString *error)
             return false;
         }
     }
+    return true;
+}
+
+bool faultsetEnsureOpen(const QString &path, bool readOnly, QString *error)
+{
+    QSqlDatabase db = MetaStore::openConnection(
+        path, faultsetConnectionName(path, readOnly), error, readOnly,
+        MetaStore::kUserVersion,
+        [](QSqlDatabase &db, int, int, QString *err) { return faultsetEnsureSchema(db, err); });
+    if (!db.isValid())
+        return false;
+    // 只读实例不建表/不补列（#80）——schema 归写实例；可写路径的 schema 已在
+    // openConnection 内确保（版本落后时在事务内逐级迁移，#736）。
     return true;
 }
 } // namespace

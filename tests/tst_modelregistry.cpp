@@ -33,6 +33,9 @@ private slots:
   void serviceRejectsReplacedModelAtLoad();
   void serviceRejectsUnsafeNameWithoutManifest();
   void brokenManifestBlocksAllModels();
+  // #737：manifest 条目未钉 sha256 → 拒绝加载（扫描仍报 Ok + 告警，见
+  // validManifestListsRunnableModels），不再「缺钉哈希也放行」。
+  void serviceRefusesUnpinnedManifestEntry();
 
 private:
   static void writeText( const QString &path, const QByteArray &bytes )
@@ -97,7 +100,8 @@ void TestModelRegistry::validManifestListsRunnableModels()
       "outputs": { "semantics": "probability", "classes": 1 } }
   ]
 })" );
-  // review-fix-dataio：未钉 sha256 仍可运行（兼容），但每个条目都要告警。
+  // #737 后：未钉 sha256 的条目扫描期仍判 Ok（结构合法）并告警，但加载期
+  // 默认拒绝（见 serviceRefusesUnpinnedManifestEntry）。
   QTest::ignoreMessage( QtWarningMsg, QRegularExpression( QStringLiteral( "模型 seg3 未在 manifest 钉 sha256" ) ) );
   QTest::ignoreMessage( QtWarningMsg, QRegularExpression( QStringLiteral( "模型 scorer 未在 manifest 钉 sha256" ) ) );
   const ModelRegistryScan scan = ModelRegistry::scan( dir.path() );
@@ -257,10 +261,13 @@ void TestModelRegistry::serviceExposesOnlyRunnableEntries()
   QVERIFY( OnnxFixtureWriter::writeAddScalar( dir.filePath( QStringLiteral( "good.onnx" ) ) ) );
   QVERIFY( OnnxFixtureWriter::writeAddScalar( dir.filePath( QStringLiteral( "swapped.onnx" ) ) ) );
   QVERIFY( OnnxFixtureWriter::writeAddScalar( dir.filePath( QStringLiteral( "stray.onnx" ) ) ) );
+  const QString goodSha = PaleoOnnxService::sha256OfFile( dir.filePath( QStringLiteral( "good.onnx" ) ) );
   writeText( QDir( dir.path() ).filePath( QStringLiteral( "manifest.json" ) ),
-             R"({ "models": [ { "name": "good", "file": "good.onnx" },
+             QStringLiteral( R"({ "models": [ { "name": "good", "file": "good.onnx", "sha256": "%1" },
   { "name": "swapped", "file": "swapped.onnx",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000" } ] })" );
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000" } ] })" )
+               .arg( goodSha )
+               .toUtf8() );
   PaleoOnnxService svc;
   svc.setModelRoot( dir.path() );
   svc.setModelRegistry( ModelRegistry::scan( dir.path() ) );
@@ -279,8 +286,12 @@ void TestModelRegistry::serviceLoadsViaManifestFileField()
   QVERIFY( dir.isValid() );
   QVERIFY( QDir( dir.path() ).mkpath( QStringLiteral( "sub" ) ) );
   QVERIFY( OnnxFixtureWriter::writeAddScalar( dir.filePath( QStringLiteral( "sub/model_v2.onnx" ) ) ) );
+  const QString segSha =
+      PaleoOnnxService::sha256OfFile( dir.filePath( QStringLiteral( "sub/model_v2.onnx" ) ) );
   writeText( QDir( dir.path() ).filePath( QStringLiteral( "manifest.json" ) ),
-             R"({ "models": [ { "name": "seg", "file": "sub/model_v2.onnx" } ] })" );
+             QStringLiteral( R"({ "models": [ { "name": "seg", "file": "sub/model_v2.onnx", "sha256": "%1" } ] })" )
+               .arg( segSha )
+               .toUtf8() );
   const ModelRegistryScan scan = ModelRegistry::scan( dir.path() );
   QCOMPARE( scan.runnableNames(), QStringList() << QStringLiteral( "seg" ) );
   PaleoOnnxService svc;
@@ -346,6 +357,27 @@ void TestModelRegistry::brokenManifestBlocksAllModels()
   QString err;
   QCOMPARE( svc.loadModelMeta( QStringLiteral( "m" ), nullptr, &err ), OnnxLoadStatus::NotFound );
   QVERIFY2( err.contains( QStringLiteral( "manifest" ) ), qPrintable( err ) );
+}
+
+void TestModelRegistry::serviceRefusesUnpinnedManifestEntry()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString model = dir.filePath( QStringLiteral( "seg3.onnx" ) );
+  QVERIFY( OnnxFixtureWriter::writeSeg( model, { 1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 0.1f } ) );
+  const QString sha = PaleoOnnxService::sha256OfFile( model );
+  // 条目没有 sha256 键：扫描期仍判 Ok（结构合法）+ qWarning 告警。
+  writeText( QDir( dir.path() ).filePath( QStringLiteral( "manifest.json" ) ),
+             R"({ "models": [ { "name": "seg3", "file": "seg3.onnx" } ] })" );
+  PaleoOnnxService svc;
+  svc.setModelRoot( dir.path() );
+  svc.setModelRegistry( ModelRegistry::scan( dir.path() ) );
+  QString err;
+  // 加载期默认拒绝：缺钉哈希时模型被替换无从发现，错误里给出实测指纹供补钉。
+  QCOMPARE( svc.loadModelMeta( QStringLiteral( "seg3" ), nullptr, &err ), OnnxLoadStatus::NotFound );
+  QVERIFY2( err.contains( QStringLiteral( "未在 manifest 钉 sha256" ) ), qPrintable( err ) );
+  QVERIFY2( err.contains( sha ), qPrintable( err ) );
+  QVERIFY( !svc.isModelLoaded( QStringLiteral( "seg3" ) ) );
 }
 
 int main( int argc, char *argv[] )

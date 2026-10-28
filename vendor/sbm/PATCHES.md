@@ -154,3 +154,20 @@ O(1e20)，灾难性抵消——精确仿射的 2×4 测网拟出 rms=2 m（FMA �
 - 消费面：`SectionGeometry`/canvas 道距标注（tst_seismic_index 米口径断言）。
   上游同步重放本补丁时若漏此字段，`seismictaskservice_slice.cpp` 编译失败
   即为显性信号。
+
+## P15 · #772：SgyIndexJob 重启时对仍 joinable 的 worker 赋值会 std::terminate
+
+`Start()` 原守卫只看 `running` 原子量，而 worker 线程对象在任务跑完后仍保持
+joinable（只有析构才 join）——首次任务收尾后 `running` 置 false、线程对象未
+join，紧接着第二次 `Start` 就对它赋值：`std::thread::operator=` 遇 joinable
+即 `std::terminate()`（C++ 标准明令）。Viewer 后台导入「重开同一体」路径必踩。
+
+- 守卫改为对 `worker.joinable()` 判定：joinable 且 `running` 仍为 true ⇒
+  旧任务在飞，拒绝重启（原语义）；joinable 而 `running` 已 false ⇒ 已收尾，
+  先 `cancel` + `join()` 回收旧线程，再走原有的重置/起线程流程。
+- 顺带消除一处竞态：旧 worker 在 `running=false` 之后仍会在持锁段写
+  result/error/cacheNote，原顺序下新 `Start` 的清结果可能与它交叉；先 join
+  保证旧线程完全退出后才重置。
+- 析构路径（`Cancel()` + joinable 判定 join）不变，无新增线程生命周期状态。
+- 无调用方行为变化：本仓无 `SgyIndexJob` 调用点（grep 仅 vendor 自身），
+  修复随 `paleo_sbm` 一并编入。

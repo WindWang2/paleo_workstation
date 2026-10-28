@@ -906,6 +906,34 @@ class TestWellSectionUi : public QObject
       QCOMPARE(fallback, inferred);
     }
 
+    // ---- issue-753：井网预览可访问——可聚焦（Tab 可达，只读预览不接键盘
+    // 事件）+ 可访问名/描述说明它画什么（此前既不可聚焦也无描述，读屏跳过）。
+    void fencePreviewAccessible()
+    {
+      QVector<WellSectionPanel::WellChoice> choices;
+      const char *ids[2] = {"a1", "b2"};
+      for (int i = 0; i < 2; ++i) {
+        WellSectionPanel::WellChoice c;
+        c.id = QLatin1String(ids[i]);
+        c.name = c.id;
+        c.hasCoordinates = true;
+        c.x = i * 200.0;
+        c.y = 0;
+        choices << c;
+      }
+      WellSectionFenceWidget::Params fp;
+      fp.choices = choices;
+      WellSectionFenceWidget fence(fp);
+      fence.setSections({QStringList({"a1", "b2"})});
+      auto *preview =
+          fence.findChild<QWidget *>(QStringLiteral("wellSectionFencePreview"));
+      QVERIFY(preview);
+      QVERIFY(preview->focusPolicy() == Qt::StrongFocus ||
+              preview->focusPolicy() == Qt::ClickFocus);
+      QVERIFY(!preview->accessibleName().isEmpty());
+      QVERIFY(!preview->accessibleDescription().isEmpty());
+    }
+
     // ---- 栅状图三处一致性：剖面面板域/井距用户动作 → 其余剖面同步 ----
     void fenceViewPrefSync()
     {
@@ -1419,6 +1447,43 @@ class TestWellSectionUi : public QObject
       shrunk.removeFirst();
       panel.setSection(shrunk);
       QCOMPARE(seisSpy.size(), 2);
+    }
+
+    // finding-177：无坐标井 x/y 为 NaN，NaN != NaN 恒真——旧判据把「两口都
+    // 无坐标」误判成井口坐标变了，无坐标井集的地震缝永远保不住、每次数据
+    // 刷新都清缝并重发地震请求。
+    void setSectionKeepsStripWhenCoordinatesBothNaN()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto noCoords = wells4();
+      for (auto &w : noCoords) {
+        w.x = qQNaN();
+        w.y = qQNaN();
+      }
+      panel.setSection(noCoords);
+      panel.setSeismicEnabled(true);
+      auto marker = stripFor(panel.wellIds().size() - 1);
+      marker.gaps[1].reason = QStringLiteral("KEEP");
+      panel.setSeismicStrip(marker);
+      QCOMPARE(panel.gapReason(1), QStringLiteral("KEEP"));
+
+      // 同井序、两口都无坐标（NaN，坐标未变）→ 不重发、缝保全。
+      QSignalSpy seisSpy(&panel, &WellSectionPanel::seismicRequested);
+      auto refreshed = noCoords;
+      refreshed[0].curves.clear();
+      refreshed[1].litho.clear();
+      panel.setSection(refreshed);
+      QCOMPARE(seisSpy.size(), 0);
+      QCOMPARE(panel.gapReason(1), QStringLiteral("KEEP"));
+
+      // 真的出现坐标 → 地震身份变了 → 清缝 + 重发。
+      auto moved = noCoords;
+      moved[2].x = 1234.0;
+      moved[2].y = 567.0;
+      panel.setSection(moved);
+      QCOMPARE(seisSpy.size(), 1);
+      QCOMPARE(panel.gapReason(1), QString());
     }
 
     // review-fix M7：版头键盘可达——StrongFocus；←/→ 选列，Ctrl+→ 移列，

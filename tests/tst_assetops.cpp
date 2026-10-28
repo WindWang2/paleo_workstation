@@ -209,6 +209,13 @@ private slots:
     QCOMPARE(cat.versionsForAsset(a.id).size(), 3);
 
     // PW-038：外链目标被改写（sha 不符）→ 拒绝回滚，索引不增版本。
+    // #756：writeFile 落盘即置为只读（见上方 helper），先补回写权限再做篡改——
+    // 否则 QVERIFY 先红在 open(WriteOnly)（Linux CI uid 1000 下只读文件不可写），
+    // 下面的篡改拒绝路径从未被执行，PW-038 实际零覆盖。
+    QFile::setPermissions(p2, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                QFileDevice::ReadUser | QFileDevice::WriteUser |
+                                QFileDevice::ReadGroup | QFileDevice::WriteGroup |
+                                QFileDevice::ReadOther | QFileDevice::WriteOther);
     QVERIFY(writeFile(p2, QByteArray("TAMPERED")));
     QString terr;
     const RollbackOutcome bad = rollbackToVersion(&cat, dir.absolutePath(), a.id,

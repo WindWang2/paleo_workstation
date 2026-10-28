@@ -44,6 +44,10 @@ SynthesisResult synthesizeFaciesRegions( const std::vector<CandidateRegion> &reg
   }
 
   // 点证据（faciesCode >= 0）一次性构建。
+  // #722：非有限/负的 weight·confidence·weightBoost 样本直接跳过——负权重会
+  // 把别的相的票抵掉，NaN 权重让整格总分变 NaN（静默不赋相），都按无效证据
+  // 处理而不是参与投票。weightBoost 的「<=0 视为 1」是头文件契约，保留；
+  // 非有限加成则按无效样本跳过。
   struct Voter
   {
     GeomPtr point;
@@ -53,9 +57,14 @@ SynthesisResult synthesizeFaciesRegions( const std::vector<CandidateRegion> &reg
   std::vector<Voter> voters;
   for ( const EvidenceSource &source : sources )
   {
+    const bool sourceWeightUsable = std::isfinite( source.weight ) && source.weight > 0.0;
     for ( const EvidenceSample &sample : source.samples )
     {
       if ( sample.faciesCode < 0 )
+        continue;
+      if ( !sourceWeightUsable || !std::isfinite( sample.x ) || !std::isfinite( sample.y ) ||
+           !std::isfinite( sample.confidence ) || sample.confidence < 0.0 ||
+           !std::isfinite( sample.weightBoost ) )
         continue;
       Voter voter;
       voter.point = makePoint( ctx.handle, sample.x, sample.y );
@@ -101,7 +110,10 @@ SynthesisResult synthesizeFaciesRegions( const std::vector<CandidateRegion> &reg
       const double vx = voter.sample->x, vy = voter.sample->y;
       if ( vx < rx0 || vx > rx1 || vy < ry0 || vy > ry1 )
         continue; // 包围盒外：必不相交
-      if ( GEOSIntersects_r( ctx.handle, regionGeom.get(), voter.point.get() ) != 1 )
+      // #722：归属用 Contains 而非 Intersects——落在公共边上的样本会被两个
+      // 相邻区同时 intersect 而双计票；Contains 对边界点判假（边界既不在任一
+      // 侧的内部），边界样本不投给任何一侧，双计票随之消失。
+      if ( GEOSContains_r( ctx.handle, regionGeom.get(), voter.point.get() ) != 1 )
         continue;
       const double weight = voter.source->weight * std::clamp( voter.sample->confidence, 0.0, 1.0 ) *
                             ( voter.sample->weightBoost > 0 ? voter.sample->weightBoost : 1.0 );

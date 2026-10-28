@@ -79,7 +79,12 @@ QVariantList copyDataset(const QString &source, const QString &directory, const 
       return {};
     }
   QVariantList result;
-  if (!QDir().mkpath(directory)) return {};
+  // mkpath 失败（只读盘/权限/路径非法）必须置 error：此前静默返回空，
+  // 调用方无法区分「失败」与「用户取消」，会当成没有配套文件继续走。
+  if (!QDir().mkpath(directory)) {
+    if (error) *error = QObject::tr("无法创建图件暂存目录：%1").arg(directory);
+    return {};
+  }
   for (const auto &path : files) {
     if (cancelled && cancelled()) { QDir(directory).removeRecursively(); return {}; }
     const auto target = QDir(directory).filePath(QFileInfo(path).fileName());

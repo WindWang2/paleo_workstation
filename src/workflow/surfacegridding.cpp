@@ -142,6 +142,28 @@ bool crsIsGeographic(const std::string &wkt)
   return geographic;
 }
 
+// 栅格 CRS 的线性单位名（OSRGetLinearUnits；英尺坐标系即 "ft"）。缺失/不可解析
+// 回落 "m"——调用方文案带单位名，不静默按 m2 宣称（#723）。
+QString linearUnitOf(const std::string &wkt)
+{
+  if (wkt.empty())
+    return QStringLiteral("m");
+  OGRSpatialReferenceH srs = OSRNewSpatialReference(nullptr);
+  QString unit = QStringLiteral("m");
+  if (OSRSetFromUserInput(srs, wkt.c_str()) == OGRERR_NONE)
+  {
+    // 签名：double OSRGetLinearUnits(srs, char **name)——返回「1 单位 = 多少米」，
+    // 单位名经 char** 出参给出（须 CPLFree）。
+    char *name = nullptr;
+    OSRGetLinearUnits(srs, &name);
+    if (name && *name)
+      unit = QString::fromUtf8(name);
+    CPLFree(name);
+  }
+  OSRDestroySpatialReference(srs);
+  return unit;
+}
+
 // 两侧均声明 CRS 时须等价；任一侧未声明按旧口径放行（保守：不拒绝历史无 CRS 栅格）。
 bool crsCompatible(const std::string &a, const std::string &b)
 {
@@ -664,6 +686,7 @@ QString SurfaceGriddingWorkflow::isopachBetweenRasters(const QString &topTif,
     report->nullCells = vr.nullCells;
     report->positiveCells = vr.positiveCells;
     report->negativeCells = vr.negativeCells;
+    report->linearUnit = linearUnitOf(top.wkt);
   }
 
   if (writeManaged)
@@ -746,11 +769,17 @@ QString SurfaceGriddingWorkflow::VolumeReport::csv() const
   out += QStringLiteral("null_cells,%1\n").arg(nullCells);
   out += QStringLiteral("positive_cells,%1\n").arg(positiveCells);
   out += QStringLiteral("negative_cells,%1\n").arg(negativeCells);
-  out += QStringLiteral("cell_area,%1\n").arg(cellArea, 0, 'g', 12);
-  out += QStringLiteral("area,%1\n").arg(area, 0, 'g', 12);
+  // #717：符号约定显式化——thickness = top − base（按栅格 z 单位），深度/TWT
+  // 向下为正的层位上用户可按 base − top 解读；文案不代选约定。
+  out += QStringLiteral("sign_convention,top_minus_base\n");
+  out += QStringLiteral("linear_unit,%1\n").arg(linearUnit);
+  out += QStringLiteral("cell_area_%1_2,%1\n").arg(cellArea, 0, 'g', 12).arg(linearUnit);
+  out += QStringLiteral("area_%1_2,%1\n").arg(area, 0, 'g', 12).arg(linearUnit);
   // 体积 = z 单位 × 面积单位（时间层位为 ms·m²，换算 m³ 需速度场）。
-  out += QStringLiteral("volume_z_units_times_area,%1\n").arg(volume, 0, 'g', 12);
-  out += QStringLiteral("abs_volume_z_units_times_area,%1\n").arg(absVolume, 0, 'g', 12);
+  out += QStringLiteral("volume_z_units_times_area_%1_2,%1\n")
+      .arg(volume, 0, 'g', 12).arg(linearUnit);
+  out += QStringLiteral("abs_volume_z_units_times_area_%1_2,%1\n")
+      .arg(absVolume, 0, 'g', 12).arg(linearUnit);
   out += QStringLiteral("min_thickness,%1\n").arg(minThickness, 0, 'g', 12);
   out += QStringLiteral("max_thickness,%1\n").arg(maxThickness, 0, 'g', 12);
   out += QStringLiteral("mean_thickness,%1\n").arg(meanThickness, 0, 'g', 12);

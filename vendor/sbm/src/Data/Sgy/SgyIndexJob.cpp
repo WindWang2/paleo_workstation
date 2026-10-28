@@ -55,8 +55,19 @@ void SgyIndexJob::Start(const std::filesystem::path& path, bool saveCache) {
 }
 
 void SgyIndexJob::Start(const SgyIndexBuildRequest& request) {
-    if(!impl_ || impl_->running.load()) {
+    if(!impl_) {
         return;
+    }
+    // #772: 对仍 joinable 的线程对象赋值会 std::terminate。worker 线程对象
+    // 在任务跑完后仍保持 joinable（只有析构才 join），直接重启即触发。旧任务
+    // 尚在跑（running 仍为 true）时拒绝重启；已收尾则先 join 回收旧线程，
+    // 同时顺带消除「新 Start 清结果与旧 worker 写结果」的竞态。
+    if(impl_->worker.joinable()) {
+        if(impl_->running.load()) {
+            return;
+        }
+        impl_->cancel.store(true);
+        impl_->worker.join();
     }
 
     impl_->cancel.store(false);

@@ -40,6 +40,9 @@ bool contourGridValueRange( const std::vector<double> &grid,
 //     取整），end<start 时交换
 //   count = floor((end-start)/step + 1e-10)，levels[i]=start+i*step 各按
 //     decimals 格式化（repr(float) 等价的十进制四舍五入）
+//   #725：start 上锚到「不小于 valueMin 的 step 整数倍」——数据最小值随图幅
+//     浮动，取整锚点会让同 step 的两张图级别集合错位、跨图不可比；step 整数倍
+//     锚点使同 step 的级别集合同源对齐（count 按锚点后跨度重算）。
 // #149：单次成图的等值级别数上限。间距过小（如 0~5000 值域配 1e-5 间距 → 5 亿级）
 // 会分配数 GB 并让逐级追线卡死，甚至 vector::reserve 抛 length_error 直接崩溃。
 // 1 万条已远超任何可读的等值线图（上游默认目标 10 条），正常间距不受影响。

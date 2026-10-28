@@ -58,6 +58,22 @@
       "steps": [
         "Source gates"
       ]
+    },
+    {
+      "id": "ts-stale-lupdate-backlog",
+      "scope": "test",
+      "match": "check_ts_stale",
+      "lanes": [
+        "lint",
+        "linux",
+        "windows"
+      ],
+      "category": "i18n",
+      "issue": 755,
+      "owner": "WindWang2",
+      "added": "2026-10-28",
+      "review_due": "2027-01-28",
+      "reason": "translations/*.ts 陈旧度棘轮（#755）：#780-#815 批次新增 tr() 未跑 lupdate，2026-10-28 实测 226 条不同字面量不在 .ts 里（基线 31）。本来自只有 lint 车道 Source gates 跑它（该车道红已由 lint job-scope 条目覆盖）；#755 把它接进 ctest （l10n 标签）后 linux/windows 必过车道同样见红，故按 test-scope 登记，红得明白。修复路径是一次集中 lupdate + 翻译补齐后 tools/check_ts_stale.py --update-baseline 把基线降下来——棘轮只降不升，禁止上调基线换绿。注意裸 lupdate 会整文件重排（tools/batch_translate.py 的位保真约定反对），且补齐后不得留下 <translation type=\"unfinished\">（check_l10n 的 0 未翻译项规则会红）。"
     }
   ]
 }

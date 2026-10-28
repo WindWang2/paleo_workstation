@@ -13,6 +13,7 @@
 #include "io/wellfileparsers.h"
 #include "io/welltable.h"
 #include "io/timedeptool.h"
+#include "io/ziparchive.h"
 
 namespace
 {
@@ -30,6 +31,54 @@ bool writeCsv(const QString &path, const QByteArray &csv)
   QDir().mkpath(QFileInfo(path).path());
   QFile file(path);
   return file.open(QIODevice::WriteOnly) && file.write(csv) == csv.size();
+}
+
+// 最小 OOXML 多工作表夹具（tst_projectsetup 同款写入口径，sheet 顺序即页序）。
+QString writeXlsxMulti(const QString &path, const QVector<QPair<QString, QVector<QStringList>>> &sheets)
+{
+  QByteArray sheetTags;
+  QByteArray rels;
+  QVector<QByteArray> parts;
+  for (int s = 0; s < sheets.size(); ++s)
+  {
+    const auto &[sheet, rows] = sheets.at(s);
+    QByteArray xml("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
+    for (int i = 0; i < rows.size(); ++i)
+    {
+      xml += "<row r=\"" + QByteArray::number(i + 1) + "\">";
+      for (int c = 0; c < rows[i].size(); ++c)
+        xml += "<c r=\"" + QByteArray(1, char('A' + c)) + QByteArray::number(i + 1) +
+               "\" t=\"inlineStr\"><is><t>" + rows[i][c].toHtmlEscaped().toUtf8() + "</t></is></c>";
+      xml += "</row>";
+    }
+    xml += "</sheetData></worksheet>";
+    parts.append(xml);
+    sheetTags += QString("<sheet name=\"%1\" sheetId=\"%2\" r:id=\"rId%2\"/>")
+                     .arg(sheet)
+                     .arg(s + 1)
+                     .toUtf8();
+    rels += QString("<Relationship Id=\"rId%1\" Target=\"worksheets/sheet%1.xml\"/>")
+               .arg(s + 1)
+               .toUtf8();
+  }
+  const QByteArray workbook =
+      QString("<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
+              "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
+              "<sheets>%1</sheets></workbook>")
+          .arg(QString::fromUtf8(sheetTags))
+          .toUtf8();
+  const QByteArray relations =
+      QString("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/"
+              "relationships\">%1</Relationships>")
+          .arg(QString::fromUtf8(rels))
+          .toUtf8();
+  QVector<paleo::io::ZipWriteEntry> entries{{"xl/workbook.xml", workbook},
+                                            {"xl/_rels/workbook.xml.rels", relations}};
+  for (int s = 0; s < parts.size(); ++s)
+    entries.append({QStringLiteral("xl/worksheets/sheet%1.xml").arg(s + 1), parts.at(s)});
+  QDir().mkpath(QFileInfo(path).absolutePath());
+  QString error;
+  return paleo::io::zipWriteArchive(path, entries, {}, &error) ? path : QString();
 }
 }
 
@@ -57,6 +106,10 @@ private slots:
   void topDepthComesFromMdNotBaseMd();
   void stratTableWithoutSourceCrsKeepsImporting();
   void csvQuotedFieldsFollowRfc4180();
+  // finding-58：分层表之后的纯井口页也要并入 heads（不再静默整表丢弃）
+  void stratificationThenWellHeadSheetKeepsHeads();
+  // issue-796 / finding-61：.dat 分层底界按井名+层名哈希匹配（O(N²) → 索引）
+  void layerIntervalDatBasesMatchByKey();
 };
 
 // PW-072：引号内逗号不切列，"" 还原为字面引号。
@@ -550,6 +603,89 @@ void WellFileParserTests::topDepthComesFromMdNotBaseMd()
   QCOMPARE(reversed.size(), 1);
   QVERIFY(reversed[0].hasMd);
   QCOMPARE(reversed[0].md, 100.0);
+}
+
+// finding-58：分层表（无坐标列）之后的纯井口页，井口坐标此前被静默整表
+// 丢弃——井口表与分层表同库时井位全失且无任何提示。
+void WellFileParserTests::stratificationThenWellHeadSheetKeepsHeads()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("mixed.xlsx"));
+  QVERIFY(!writeXlsxMulti(path,
+                          {{QStringLiteral("分层"),
+                            {{QStringLiteral("井号"), QStringLiteral("层位"), QStringLiteral("顶深")},
+                             {QStringLiteral("A1"), QStringLiteral("D61"), QStringLiteral("100")},
+                             {QStringLiteral("A1"), QStringLiteral("D62"), QStringLiteral("120")}}},
+                           {QStringLiteral("井口"),
+                            {{QStringLiteral("井号"), QStringLiteral("X"), QStringLiteral("Y")},
+                             {QStringLiteral("A1"), QStringLiteral("500000"), QStringLiteral("4400000")}}}})
+              .isEmpty());
+
+  const auto table = paleo::io::readWellTable(path);
+  QVERIFY2(table.error.isEmpty(), qPrintable(table.error));
+  // 层位+深度优先：整表仍判为分层（不被后页翻回井口）。
+  QCOMPARE(table.type, QStringLiteral("well_stratification"));
+  QCOMPARE(table.tops.size(), 2);
+  QCOMPARE(table.tops.at(0).topName, QStringLiteral("D61"));
+  // 井口页的坐标必须保留——旧实现在 parseSheet 里被整页丢弃。
+  QCOMPARE(table.heads.size(), 1);
+  QCOMPARE(table.heads.first().name, QStringLiteral("A1"));
+  QCOMPARE(table.heads.first().x, 500000.0);
+  QCOMPARE(table.heads.first().y, 4400000.0);
+
+  // 底界仍只取底界列（分层页无底界列 → 空）。
+  const auto bases = paleo::io::readWellTableBases(path);
+  QVERIFY(bases.isEmpty());
+}
+
+// issue-796 / finding-61：.dat 的底界注释按「井名+层名」哈希索引匹配
+// （此前逐条 find_if 是 O(底界×顶界)）；同时钉 64 MB 有界读入口仍能正常
+// 解析常规 .dat（闸只挡大小，不改口径）。
+void WellFileParserTests::layerIntervalDatBasesMatchByKey()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("layers.dat"));
+  const QByteArray dat =
+      "# WELL TOP MD\n"
+      "A1 D61 100\n"
+      "A1 D62 120\n"
+      "B2 D61 80\n"
+      "# PaleoLayerInterval: {\"well\":\"A1\",\"layer\":\"D62\",\"topMd\":120,\"baseMd\":140}\n"
+      "# PaleoLayerInterval: {\"well\":\"B2\",\"layer\":\"D61\",\"topMd\":80,\"baseMd\":95}\n"
+      "# PaleoLayerInterval: {\"well\":\"B2\",\"layer\":\"D62\",\"topMd\":999,\"baseMd\":1000}\n"
+      "# PaleoLayerInterval: {\"well\":\"A1\",\"layer\":\"D61\",\"topMd\":100,\"baseMd\":115}\n";
+  QVERIFY(writeCsv(path, dat));
+
+  const auto bases = paleo::io::readWellTableBases(path);
+  QCOMPARE(bases.size(), 3); // 第 3 条（B2/D62）无对应顶界 → 不匹配
+  QCOMPARE(bases.at(0).wellName, QStringLiteral("A1"));
+  QCOMPARE(bases.at(0).topName, QStringLiteral("D62"));
+  QVERIFY(bases.at(0).hasMd);
+  QCOMPARE(bases.at(0).md, 140.0);
+  QCOMPARE(bases.at(1).wellName, QStringLiteral("B2"));
+  QCOMPARE(bases.at(1).topName, QStringLiteral("D61"));
+  QCOMPARE(bases.at(1).md, 95.0);
+  QCOMPARE(bases.at(2).wellName, QStringLiteral("A1"));
+  QCOMPARE(bases.at(2).topName, QStringLiteral("D61"));
+  QCOMPARE(bases.at(2).md, 115.0);
+
+  // 同文件写入侧（writeWellLayerTable 的哈希索引）round-trip：底界随顶界
+  // 一起序列化，读回仍按井名+层名对得上。
+  const auto tops = parseWellTopsText(dat);
+  QCOMPARE(tops.size(), 3);
+  const auto written = paleo::io::writeWellLayerTable(tops, bases);
+  const QString out = dir.filePath(QStringLiteral("roundtrip.dat"));
+  QVERIFY(writeCsv(out, written));
+  const auto reparsed = paleo::io::readWellTableBases(out);
+  QCOMPARE(reparsed.size(), bases.size());
+  for (int i = 0; i < bases.size(); ++i)
+  {
+    QCOMPARE(reparsed.at(i).wellName, bases.at(i).wellName);
+    QCOMPARE(reparsed.at(i).topName, bases.at(i).topName);
+    QCOMPARE(reparsed.at(i).md, bases.at(i).md);
+  }
 }
 
 QTEST_GUILESS_MAIN(WellFileParserTests)

@@ -254,7 +254,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
               m_sectionLink, &SeismicMapLink::sectionCaptureCancelled);
       // 画布先死则置空不 delete（工具析构会碰已死场景的橡皮带——
       // tst_sectionlifecycle 既有坑序；正常收尾走 ~PaleoMainWindow）。
-      connect(canvas, &QObject::destroyed, this, [this]() {
+      m_sectionCaptureConn = connect(canvas, &QObject::destroyed, this, [this]() {
         m_sectionCaptureTool = nullptr;
       });
     }

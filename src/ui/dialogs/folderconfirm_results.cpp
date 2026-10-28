@@ -86,7 +86,11 @@ void DialogState::beginImport() {
   for (auto *choice : typeChoices) choice->setEnabled(false);
   for (auto *choice : wellChoices) choice->setEnabled(false);
   const auto state = shared_from_this();
-  const auto done = [state](const QVector<FolderRowResult> &rows, const QString &error) {
+  // #801：取消是结构化第三参——本层只呈现结果，暂不分支（视图已有 error 文案
+  // 可显示），但签名必须与 workflow 的 ImportDone 对齐。
+  const auto done = [state](const QVector<FolderRowResult> &rows, const QString &error,
+                          bool cancelled) {
+    Q_UNUSED(cancelled)
     if (state->dialog) state->applyResults(rows, error);
   };
   // F1（review-security）：预览展示过的路径全集随确认传入执行——执行期
@@ -99,7 +103,7 @@ void DialogState::beginImport() {
                              previewedPaths, done);
   else if (hooks.importAllWithForced) hooks.importAllWithForced(overrides, forcePaths, done);
   else if (hooks.importAll) hooks.importAll(overrides, done);
-  else done({}, QObject::tr("导入服务未接线"));
+  else done({}, QObject::tr("导入服务未接线"), false);
 }
 
 void DialogState::applyResults(const QVector<FolderRowResult> &rows, const QString &error) {

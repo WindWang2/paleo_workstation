@@ -204,9 +204,19 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
       e.startTimeMs = q.value(14).toDouble();
       e.corners = cornersFromJsonText(q.value(15).toString());
       e.extra = mapFromJson(q.value(16).toString());
-      if (e.extra.value(QStringLiteral("kbMissing")).toBool()) e.kb = qQNaN();
-      if (e.extra.value(QStringLiteral("tdMissing")).toBool()) e.td = qQNaN();
-      e.extra.remove(QStringLiteral("kbMissing")); e.extra.remove(QStringLiteral("tdMissing"));
+      // #814：缺失标记读侧同时认前缀键（新写入口）与旧构建的无前缀键
+      // （存量库/.bak 仍带它），读完从内存 extra 剥掉——内部记账不进
+      // 用户前向扩展面。见 catalogstore_internal.h 的键定义注。
+      if (e.extra.value(paleo::catalog_detail::kKbMissingKey).toBool() ||
+          e.extra.value(paleo::catalog_detail::kLegacyKbMissingKey).toBool())
+        e.kb = qQNaN();
+      if (e.extra.value(paleo::catalog_detail::kTdMissingKey).toBool() ||
+          e.extra.value(paleo::catalog_detail::kLegacyTdMissingKey).toBool())
+        e.td = qQNaN();
+      e.extra.remove(paleo::catalog_detail::kKbMissingKey);
+      e.extra.remove(paleo::catalog_detail::kTdMissingKey);
+      e.extra.remove(paleo::catalog_detail::kLegacyKbMissingKey);
+      e.extra.remove(paleo::catalog_detail::kLegacyTdMissingKey);
       out->entities.append(e);
     }
   }
@@ -463,6 +473,11 @@ bool CatalogStore::fromJson(const QJsonObject &root, Tables *out, QString *error
                         co.value(QStringLiteral("y")).toDouble()});
     }
     e.extra = o.value(QStringLiteral("extra")).toObject().toVariantMap();
+    // #814：与 loadTables 同口径——内部记账键（'#' 前缀）不进内存 extra。
+    // JSON 轨的 kb/td 缺失本来就是真 null（toJson 把 NaN 写成 null），
+    // 不靠标记还原；剥键只为两条装载路径对「什么是内部键」给同一答案。
+    e.extra.remove(paleo::catalog_detail::kKbMissingKey);
+    e.extra.remove(paleo::catalog_detail::kTdMissingKey);
     out->entities.append(e);
   }
   for (const auto &v : root.value(QStringLiteral("assets")).toArray())

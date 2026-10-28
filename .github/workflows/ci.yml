@@ -16,6 +16,15 @@ name: ci
 #     统一走 deb 闭包 vendored 路（BUILDING.md「依赖来源策略」第 2 档）。
 env:
   CMAKE_BUILD_PARALLEL_LEVEL: 2
+  # #764：flaky 台账 strict 档默认关闭 ⇒ 串行/直跑重跑放行「同一测试累计 ≥3 次」
+  # 永远只 ::warning::、门禁永远不红（绿灯通胀）。台账经 actions/cache 跨 run 持久
+  # 累计后开启 strict：同一测试被重跑洗白满阈值即硬红（check_flaky_ledger.py
+  # --strict，见 tools/ci_ctest_gate.sh / paleo-dev.ps1 的 #501 接线）。
+  # env_redset STALE 的 strict 档（PALEO_REDSET_STALE=strict）暂不默认开启：
+  # 它依赖 tools/env_redset.json 现有 exempt/fixed 条目在 vendored 车道的实际
+  # 通过面，翻转即可能在必过 linux 车道引入无法本地复现的新红——到期开启计划见
+  # TODOS.md（#764）。
+  PALEO_FLAKY_STRICT: "1"
 
 on:
   push:
@@ -116,10 +125,14 @@ jobs:
           # #474：--transitive 的 QGIS 头目录探测约定名（vendor deb 闭包前缀，
           # 与上面 compile_commands 的 QGIS_PREFIX_PATH 同源）——func/ui 两指标
           # 的外部 qgs 边可解析才参与闸门；缺位时工具自动只闸 heavy_*。
-          # #532/#533 口径：本车道是 func/ui 两指标与 --qgs-audit 的权威闸口；
+          # #533 口径：本车道是 func/ui 两指标与 --qgs-audit 的权威闸口；
           # ctest 侧 layering_transitive 不注入 QGIS_PREFIX（同一信号不复制进
           # linux/windows 必过车道，裁决见 CMakeLists.txt 与 AGENTS.md）。
           QGIS_PREFIX: ${{ github.workspace }}/vendor/prefix/usr
+          # #767：本步裸跑 python3 tools/check_*.py（不经 ctest），同样不要在
+          # 源码树留 __pycache__ 字节码——与 ctest 侧 paleo-test-infra.cmake 的
+          # PYTHONDONTWRITEBYTECODE=1 同口径。
+          PYTHONDONTWRITEBYTECODE: "1"
         run: |
           python3 tools/check_layering.py --strict
           python3 tools/check_layering.py --selftest
@@ -348,7 +361,13 @@ jobs:
       - name: Configure
         env:
           QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
+        # #762：与 linux 主 job 同口径的 -g1（仅行号表，无局部变量 DWARF）——
+        # 该 job 仍全量构建（ci_perf.sh 只链 ~32 个 perf 目标，但构建面是全树），
+        # 全量 -g 的调试段随静态库在 ~190 个可执行里逐个复制，链接期磁盘耗尽
+        # （#498/#505 同款事故）；continue-on-error 只让它「不拖累合并门禁」，
+        # 失败仍会静默丢趋势数据。
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_FLAGS_RELWITHDEBINFO='-O2 -g1 -DNDEBUG'
       - name: Build + run perf tests (serial)
         env:
           QT_QPA_PLATFORM: offscreen
@@ -518,6 +537,17 @@ jobs:
       - name: Vendor dependencies (OSGeo4W route per docs/phase0/et0-vendor-comparison.md)
         shell: pwsh
         run: ./paleo-dev.ps1 bootstrap fetch-only
+      # #501/#759：flaky 台账跨 run 持久化（key 带分片号）。此前 Windows 每次 run
+      # 从空台账起算，「同一测试累计 ≥3 次点名」永远达不到、#501 在 Windows 只剩
+      # 单次 warning。按 ctest -I shard,,4 的分片是稳定划分（同一测试恒落同一片），
+      # 故按分片各自累计即可得到跨 run 的命中次数。
+      - name: Restore flaky ledger
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
+        with:
+          path: tools/flaky-ledger.jsonl
+          key: ${{ runner.os }}-flaky-ledger-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-flaky-ledger-${{ matrix.shard }}-
       - name: Build (MSVC + vendored QGIS)
         id: build
         shell: pwsh
@@ -536,6 +566,13 @@ jobs:
           # -I start,,stride：四片各跑 1/4，片内保持串行。perf 仍不进必过门禁。
           PALEO_CTEST_ARGS: "-LE perf -I ${{ matrix.shard }},,4"
         run: ./paleo-dev.ps1 test
+      # #501/#759：红 run 的放行记录同样要累计，故 always() 落盘。
+      - name: Save flaky ledger
+        if: ${{ always() && hashFiles('tools/flaky-ledger.jsonl') != '' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
+        with:
+          path: tools/flaky-ledger.jsonl
+          key: ${{ runner.os }}-flaky-ledger-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (node24)
         if: always()
         with:

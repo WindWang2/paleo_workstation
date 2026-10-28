@@ -22,5 +22,7 @@ if(PALEO_PYTHON3)
   #（Windows cp1252 控制台下中文报告行不致 UnicodeEncodeError 假 traceback）。
   set_tests_properties(mamcl_lock mamcl_lock_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-                                  ENVIRONMENT "PYTHONUTF8=1")
+                                  # #767：同 paleo-test-infra 的 Python 闸门口径——
+                                  # 不在源码树留字节码（__pycache__）。
+                                  ENVIRONMENT "PYTHONUTF8=1;PYTHONDONTWRITEBYTECODE=1")
 endif()

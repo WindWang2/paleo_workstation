@@ -325,6 +325,82 @@ private slots:
     QCOMPARE(rawUserVersion(dbPath), MetaStore::kUserVersion);
   }
 
+  // #736：迁移任一步失败 → 整个事务回滚——user_version 不被写，迁移步
+  // 已建的表也不留（版本号与表结构同生同死，不再有「版本已新、表还没建」
+  // 的中间态）。逐级结构：0→1 步建表、1→2 步注入失败。
+  void failedMigrationStepRollsBackVersionAndSchema()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = dir.filePath(QStringLiteral("m.sqlite"));
+    QVERIFY(QDir().mkpath(QFileInfo(dbPath).absolutePath()));
+    QVERIFY(seedLegacyTable(dbPath));
+    QCOMPARE(rawUserVersion(dbPath), 0);
+
+    const QString conn = QStringLiteral("tst_metastore_migrate_fail");
+    {
+      QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+      db.setDatabaseName(dbPath);
+      QVERIFY(db.open());
+      int calls = 0;
+      QString err;
+      const bool ok = MetaStore::ensureUserVersion(
+          db, &err, MetaStore::kUserVersion,
+          [&calls](QSqlDatabase &db, int from, int, QString *stepErr) -> bool {
+            ++calls;
+            if (from == 0)
+            {
+              QSqlQuery q(db);
+              return q.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS migrate_probe(id TEXT)"));
+            }
+            if (stepErr)
+              *stepErr = QStringLiteral("injected migration failure");
+            return false;
+          });
+      QVERIFY2(!ok, "迁移步失败必须让 ensureUserVersion 失败");
+      QVERIFY2(err.contains(QStringLiteral("injected")), qPrintable(err));
+      QCOMPARE(calls, 2); // 0→1 跑过，1→2 失败
+      db.close();
+    }
+    QSqlDatabase::removeDatabase(conn);
+    QCOMPARE(rawUserVersion(dbPath), 0); // 版本没被写
+    QVERIFY2(!tablesOf(dbPath).contains(QStringLiteral("migrate_probe")),
+             qPrintable(QStringLiteral("迁移步建的表必须随回滚消失：%1")
+                            .arg(tablesOf(dbPath).join(QLatin1Char(',')))));
+    QVERIFY(tablesOf(dbPath).contains(QStringLiteral("legacy_thing"))); // 原表原样
+  }
+
+  // #733：openConnection 打开成功后设 busy_timeout——同进程两条连接
+  // （后台任务 vs UI）抢写锁时等待而不是立刻 SQLITE_BUSY。journal 模式
+  // 维持默认 rollback journal（docs/SCHEMA_MIGRATION.md §6：project.sqlite
+  // 不采用 WAL，WAL 是 catalog.sqlite 的已落地例外，不外推）。
+  void writableConnectionSetsBusyTimeoutAndKeepsRollbackJournal()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = dir.filePath(QStringLiteral("metadata/project.sqlite"));
+    const QString conn = QStringLiteral("tst_metastore_busy");
+    QString err;
+    {
+      QSqlDatabase db = MetaStore::openConnection(dbPath, conn, &err);
+      QVERIFY2(db.isValid(), qPrintable(err));
+      {
+        QSqlQuery q(db);
+        QVERIFY(q.exec(QStringLiteral("PRAGMA busy_timeout")));
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 5000);
+      }
+      {
+        QSqlQuery j(db);
+        QVERIFY(j.exec(QStringLiteral("PRAGMA journal_mode")));
+        QVERIFY(j.next());
+        QCOMPARE(j.value(0).toString(), QStringLiteral("delete"));
+      }
+      db.close();
+    }
+    QSqlDatabase::removeDatabase(conn);
+  }
+
   // ---- 并发：两实例同开一工程的写互斥（docs/SCHEMA_MIGRATION.md §6）----
 
   // 第二实例取锁必须失败，且错误带持有者信息（pid/主机/程序名）。

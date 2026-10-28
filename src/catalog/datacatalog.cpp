@@ -767,10 +767,14 @@ void DataCatalog::BatchSave::abort()
 // ---- D5 计数缓存 / 索引健康 ----
 QHash<QString, int> DataCatalog::entityCountsByType() const
 {
+  if (!noteRead("entityCountsByType"))
+    return {};
   return m_idx.entityCountsByType();
 }
 
 bool DataCatalog::indexHealthy(QString *mismatch) const
 {
+  if (!noteRead("indexHealthy"))
+    return false;
   return m_idx.verifyAgainst(m_entities, m_assets, m_versions, m_links, mismatch);
 }

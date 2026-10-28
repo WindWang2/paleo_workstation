@@ -118,6 +118,18 @@ inline bool execScript(QSqlDatabase &db, const char *sql, QString *error)
   return true;
 }
 
+// #814：kb/td 缺失值的 SQL 侧记账键。sqlite 数值列 NOT NULL，存不进 NaN，
+// 只能写伪 0 + 一个「缺失」标记；标记放在用户前向扩展命名空间里会被
+// upsertEntity 覆盖、被 loadTables 剥掉——用户在 extra 里放的同名键就此
+// 消失。'#' 前缀是仓库既定的内部/审计命名空间（版本 extra 的 #history/
+// #source 同款，updateVersionExtra 明文拒收带 '#' 的用户键），内部记账
+// 因此不会与用户数据争名。kLegacyKbMissingKey 是旧构建落盘的无前缀键，
+// 读侧继续认它（存量库/.bak 仍带这些键），写侧只写前缀键。
+inline const QString kKbMissingKey = QStringLiteral("#kbMissing");
+inline const QString kTdMissingKey = QStringLiteral("#tdMissing");
+inline const QString kLegacyKbMissingKey = QStringLiteral("kbMissing");
+inline const QString kLegacyTdMissingKey = QStringLiteral("tdMissing");
+
 // #476：versions(asset_id, version_number) 唯一索引（部分索引：>1 的显式
 // 编号族才参与——0/1 档是未编号/首版的存量语义面）——写侧 open 时尽力落
 //（对照 mapversionstore 的 map_versions(horizon,version) UNIQUE INDEX）。

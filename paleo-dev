@@ -96,10 +96,18 @@ case "$verb" in
   test)
     # ET1 消费侧：deb 闭包路（vendor/prefix 存在）自动注入 prefix 与动态库
     # 路径——测试 main() 读 QGIS_PREFIX_PATH（缺省 /usr），无需手工导出。
-    # 仅在用户显式 bootstrap 过 deb 路时接管；想回系统包 rm -rf vendor/prefix。
+    # #761：与 selfcheck 同口径——只在 QGIS_PREFIX_PATH 为空或已等于本地
+    # vendor/prefix/usr 时才接管。此前这里无条件覆盖：外部 QGIS / superbuild
+    # 构建叠加本地 vendor/prefix 残留时，test 会拿 deb 闭包的 QGIS 去跑按别的
+    # Qt/QGIS 编出来的二进制，ABI 不一致的红极难解释（想回系统包 rm -rf
+    # vendor/prefix；想显式指定就给出 QGIS_PREFIX_PATH，由调用方自管运行期库路径）。
     if [ -d vendor/prefix/usr ]; then
-      export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
-      export LD_LIBRARY_PATH="$(paleo_deb_libpath)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      case "${QGIS_PREFIX_PATH:-}" in
+        "$PWD"/vendor/prefix/usr|"")
+          [ -n "${QGIS_PREFIX_PATH:-}" ] || export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
+          export LD_LIBRARY_PATH="$(paleo_deb_libpath)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          ;;
+      esac
     fi
     # 闭包 GDAL 的格式插件（gdal_PNG/JPEG/...）不在编译期默认搜索路径上：
     # 不注入则栅格类测试（tst_previewmap_assets 的 world-file 图等）静默

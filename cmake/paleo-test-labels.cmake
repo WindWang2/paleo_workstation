@@ -22,7 +22,11 @@ set(_paleo_perf_tests
   # full-audit F10：吞吐比率断言（largeFieldThroughputRatio）无预热/无最小时
   # 长闸，CI linux 并行轮实证红、串行重跑洗白（run 38835970978）——挂 perf
   # 标签 + RUN_SERIAL 与同类比率门同一纪律。
-  tst_wellsiting_kernel)
+  tst_wellsiting_kernel
+  # #758：tst_cache_pyramid::tileLruHitFast 的零余量比率门（warmMs < coldMs/2.0）
+  # 在 -j8 并行车道下内存拷贝被抢占即假红；计时断言拆到 tst_cache_pyramid_perf
+  # 后，该门随测试一起进 perf 标签 + RUN_SERIAL，功能侧只留语义断言。
+  tst_cache_pyramid_perf)
 foreach(_t IN LISTS _paleo_perf_tests)
   if(TEST ${_t})
     set_property(TEST ${_t} APPEND PROPERTY LABELS perf)

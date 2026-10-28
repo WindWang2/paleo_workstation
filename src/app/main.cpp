@@ -195,6 +195,11 @@ int main(int argc, char *argv[])
     else if (QgisRuntime::initialize(qgisPrefix))
       report = QgisRuntime::coordinateRuntimeReport();
     else report = {{"ok", false}, {"errors", QJsonArray{QStringLiteral("QGIS initialization failed")}}};
+    // 降级说明（非 ASCII 安装路径拿不到 ASCII 锚点）是运行环境的真实状态：
+    // anchorNote 只写不读等于让它静默腐烂，接进 --check-runtime 报告。
+    if (!portable.anchorNote.isEmpty())
+      report.insert(QStringLiteral("warnings"),
+                    QJsonArray::fromStringList(QStringList{portable.anchorNote}));
     const auto bytes = QJsonDocument(report).toJson();
     bool written = true;
     if (!runtimeReportPath.isEmpty()) {

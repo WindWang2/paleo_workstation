@@ -301,7 +301,9 @@ private slots:
     observation->clock.start();
     pulse.start();
     workflow.importFiles(QStringList{xml} + paths, {}, {},
-        [observation, owner](const QVector<FolderRowResult> &result, const QString &message) {
+        [observation, owner](const QVector<FolderRowResult> &result, const QString &message,
+                          bool cancelled) {
+          Q_UNUSED(cancelled)
           observation->callbackOnOwner = QThread::currentThread() == owner;
           observation->rows = result;
           observation->error = message;

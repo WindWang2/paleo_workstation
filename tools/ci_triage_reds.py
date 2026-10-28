@@ -295,9 +295,19 @@ def classify(reds, jobs, lane_logs, today=None, out=None, summary_fh=None, lane_
         logs = lane_logs.get(lane)
         if not (logs and os.path.isdir(logs)):
             continue
-        failed = parse_last_failed(logs) | parse_test_xml(logs)
+        last_failed = parse_last_failed(logs)
+        xml_failed = parse_test_xml(logs)
+        first_failed = parse_first_failed(logs)
+        # #757：ctest 在 --rerun-failed 全通过后不清 LastTestsFailed.log（最小
+        # 工程实验证实），首轮失败名单会残留成「最终失败集」。gate 侧重跑放行即
+        # 删该文件（ci_ctest_gate.sh / paleo-dev.ps1），这里再兜底一层：最新 tag
+        # 的 Test.xml（= 重跑结果，E-7 口径）无任何失败、而 FirstRunFailed.log
+        # 非空 ⇒ LastTestsFailed.log 全部是已被重跑洗白的 flaky，不得再计入失败集。
+        if not xml_failed and first_failed:
+            last_failed -= first_failed
+        failed = last_failed | xml_failed
         lane_failed[lane] = failed
-        flaky_names |= parse_first_failed(logs) - failed
+        flaky_names |= first_failed - failed
         golden_details += collect_golden_details(logs)
 
     # ---- 第二遍：按 job 结论分诊 ----
@@ -569,6 +579,20 @@ def selftest():
     # 11) cancelled lane 不参与分诊
     run_case("cancelled", base_reds, {"linux": "cancelled"}, {"linux": last_failed},
              0, ("不参与分诊",))
+    # 12) #757：串行重跑全通过（gate exit 0 → 车道 success）后 LastTestsFailed.log
+    #     残留首轮名单、且无失败 Test.xml → 不得算最终失败集，须进 flaky 汇总。
+    run_case("rerun-washed-stale-lastfailed", base_reds, {"linux": "success"},
+             {"linux": {"Temporary/LastTestsFailed.log": "3 : tst_flaky_washed\n",
+                        "Temporary/FirstRunFailed.log": "3 : tst_flaky_washed\n"}},
+             0, ("flaky",))
+    # 13) #757 反证：重跑仍红（Test.xml 有失败）时 LastTestsFailed.log 必须照算。
+    run_case("rerun-still-red", base_reds, {"linux": "failure"},
+             {"linux": {"Temporary/LastTestsFailed.log": "3 : tst_real_red\n",
+                        "Temporary/FirstRunFailed.log": "3 : tst_real_red\n",
+                        "33001099/Test.xml":
+                            '<Site><Testing><Test Status="failed"><Name>tst_real_red</Name>'
+                            "</Test></Testing></Site>\n"}},
+             1, ("未知红项", "tst_real_red"))
 
     # ---- 名单校验夹具（坏结构必须 exit 2）----
     with tempfile.TemporaryDirectory() as tmp:

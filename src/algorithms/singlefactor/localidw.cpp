@@ -118,25 +118,30 @@ struct Engine
   bool krigingGlobal = false;
   bool krigingGlobalOk = false;
   geostat::LuWorkspace krigingGlobalLu;
+  double krigingGlobalScale = 0.0; // #720：全局分解的行归一化尺度（回代缩放右端/方差）
 };
 
-// 变差函数参数 → geostat 模型（各向异性 ratio<1 或不设方位即各向同性）。
-geostat::VariogramModel variogramModelOf( const ResolvedParameters &params )
-{
-  geostat::VariogramModel model;
-  if ( params.variogramModel == "exponential" )
-    model.type = geostat::VariogramModelType::Exponential;
-  else if ( params.variogramModel == "gaussian" )
-    model.type = geostat::VariogramModelType::Gaussian;
-  else
-    model.type = geostat::VariogramModelType::Spherical;
-  model.nugget = params.nugget;
-  model.sill = params.sill;
-  model.range = params.range;
-  model.anisotropyRatio = params.variogramAnisotropyRatio >= 1.0 ? params.variogramAnisotropyRatio : 1.0;
-  model.azimuthDeg = params.variogramAzimuthDeg >= 0.0 ? params.variogramAzimuthDeg : 0.0;
-  return geostat::regularizedForKriging( model ); // PW-018：高斯零块金下限
-}
+  // 变差函数参数 → geostat 模型（各向异性 ratio<1 = 主轴给反，PW-037；
+  // 不设方位/ratio 即各向同性）。
+  geostat::VariogramModel variogramModelOf( const ResolvedParameters &params )
+  {
+    geostat::VariogramModel model;
+    if ( params.variogramModel == "exponential" )
+      model.type = geostat::VariogramModelType::Exponential;
+    else if ( params.variogramModel == "gaussian" )
+      model.type = geostat::VariogramModelType::Gaussian;
+    else
+      model.type = geostat::VariogramModelType::Spherical;
+    model.nugget = params.nugget;
+    model.sill = params.sill;
+    model.range = params.range;
+    // ratio<1 透传（VariogramModel 内部按 1/ratio + 方位 +90° 处理）：旧式一律
+    // 钳到 1，把 krigingsurface R3-8 拟合出的各向异性静默丢成各向同性。
+    const double ratio = params.variogramAnisotropyRatio;
+    model.anisotropyRatio = ( ratio > 0.0 && std::isfinite( ratio ) ) ? ratio : 1.0;
+    model.azimuthDeg = params.variogramAzimuthDeg >= 0.0 ? params.variogramAzimuthDeg : 0.0;
+    return geostat::regularizedForKriging( model ); // PW-018：高斯零块金下限
+  }
 
 bool badSamples( const std::vector<Sample> &samples, std::string *message )
 {
@@ -273,9 +278,11 @@ Engine makeEngine( const std::vector<Sample> &wells, const ResolvedParameters &p
     {
       engine.krigingIndex = geostat::detail::NeighborIndex::build( engine.krigingSamples );
       engine.krigingValid = true;
-      constexpr std::size_t kMaxGlobalFactorSamples = 4000;
+      // #802：上限按矩阵内存预算推导（geostat/kriging.h：kMaxGlobalFactorSamples），
+      // 与 geostat 侧同一数量级口径（旧魔数 4000 → 峰值 ≈256 MiB）。
       if ( engine.krigingParams.maxPoints <= 0 && !( engine.krigingParams.searchRadius > 0 ) &&
-           engine.krigingSamples.size() <= kMaxGlobalFactorSamples )
+           engine.krigingSamples.size() <=
+               static_cast<std::size_t>( geostat::kMaxGlobalFactorSamples ) )
       {
         engine.krigingGlobal = true;
         const int n = static_cast<int>( engine.krigingSamples.size() );
@@ -294,6 +301,12 @@ Engine makeEngine( const std::vector<Sample> &wells, const ResolvedParameters &p
           a[static_cast<std::size_t>( i ) * n1 + n] = 1.0;
           a[static_cast<std::size_t>( n ) * n1 + i] = 1.0;
         }
+        // #720：分解前按物理块尺度归一化（Lagrange 边不动）——Γ 块随基台值缩放
+        // 而 Lagrange 边固定为 1，LU 末主元 ~n/sill 会掉到列主元下限被误判奇异
+        // （整幅 NumericalFailure）。尺度记进 engine，回代时右端按同尺度缩放、
+        // 方差乘回（λ 与 estimate 不变）。
+        engine.krigingGlobalScale =
+            geostat::scaleKrigingSystemRows( a, n1, n );
         engine.krigingGlobalOk = geostat::luFactor( a, n1, engine.krigingGlobalLu );
       }
     }
@@ -495,14 +508,28 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
 
         std::vector<double> solution;
         bool solved = false;
+        // #720：Γ 块与 Lagrange 边量级悬殊时 LU 末主元 ~n/sill 掉到列主元下限
+        // （按 Lagrange 列=1 取 1e-12）被误判 singular——按物理块尺度归一化前
+        // n 行与 b 再解；解出的 μ 与由 b 算出的方差小一个 systemScale 因子
+        // （λ 与 estimate 不变），后面乘回。
+        double systemScale = 0.0;
         if ( useGlobalFactor )
         {
+          if ( engine.krigingGlobalScale > 0.0 )
+          {
+            systemScale = engine.krigingGlobalScale;
+            for ( int i = 0; i < n; ++i )
+              b[static_cast<std::size_t>( i )] /= systemScale;
+          }
           solved = engine.krigingGlobalOk;
           if ( solved )
             geostat::luSolve( engine.krigingGlobalLu, n1, b, solution );
         }
         else
+        {
+          systemScale = geostat::scaleKrigingSystemRows( a, n1, n, &b );
           solved = geostat::solveDenseLu( a, n1, b, solution );
+        }
         if ( !solved )
         {
           krigingUnavailable = true;
@@ -510,16 +537,24 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
         else
         {
           double estimate = 0.0;
-          double variance = 0.0;
+          double lambdaB = 0.0; // Σλᵢ·bᵢ（b 可能已按 systemScale 归一化）
+          double absWeightSum = 0.0;
           for ( int i = 0; i < n; ++i )
           {
             const double weight = solution[static_cast<std::size_t>( i )];
+            absWeightSum += std::fabs( weight );
             estimate += weight * engine.krigingSamples[neighborhood[static_cast<std::size_t>( i )]].value;
-            variance += weight * b[static_cast<std::size_t>( i )];
+            lambdaB += weight * b[static_cast<std::size_t>( i )];
           }
-          variance += solution[static_cast<std::size_t>( n )]; // + μ
+          // #720：行归一化（矩阵与右端同步）不改变解——μ 不缩放，只有缩放后
+          // b 算出的 λᵀb 项小一个 systemScale 因子，方差按 scale·(λᵀb) + μ 拼回。
+          double variance = ( systemScale > 0.0 ? systemScale * lambdaB : lambdaB ) +
+                            solution[static_cast<std::size_t>( n )]; // + μ
 
-          if ( !std::isfinite( estimate ) || !std::isfinite( variance ) )
+          // #802：病态闸与 geostat 侧共用同一口径（krigingWeightsAdmissible）——
+          // 旧样式只查非有限，大幅正负相消的权重静默写进面。不过关即该格落 IDW。
+          if ( !std::isfinite( estimate ) || !std::isfinite( variance ) ||
+               !geostat::krigingWeightsAdmissible( absWeightSum ) )
           {
             krigingUnavailable = true;
           }

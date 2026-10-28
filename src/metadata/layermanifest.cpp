@@ -67,17 +67,11 @@ using paleo::store_detail::setError;
 
   const QString kColumns = QStringLiteral("layer_id,horizon,type,source,style_ref,grp,title");
 
-  // Lazily opens the connection and guarantees the schema. Lets every public
-  // method work even if the caller skipped open().
-  bool manifestEnsureOpen(const QString &path, bool readOnly, QString *error)
+  // 幂等建表 + 按需补列（老库没有 title 列——旧行 title 为 NULL，显示退回
+  // layerId）。#736：本函数即 MetaStore 的迁移步（幂等，可按步重复调用），
+  // 由 openConnection 在版本落后时于事务内逐级执行、版本已到位时作 ensure。
+  bool manifestEnsureSchema(QSqlDatabase &db, QString *error)
   {
-    QSqlDatabase db =
-        MetaStore::openConnection(path, manifestConnectionName(path, readOnly), error, readOnly);
-    if (!db.isValid())
-      return false;
-    if (readOnly)
-      return true; // 只读实例不建表/不补列（#80）——schema 归写实例
-
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS layer_declarations("
                                     "layer_id TEXT PRIMARY KEY,"
@@ -91,7 +85,6 @@ using paleo::store_detail::setError;
       setError(error, schema.lastError().text());
       return false;
     }
-    // 老库没有 title 列——按需补列，旧行 title 为 NULL（显示退回 layerId）。
     QSqlQuery cols(db);
     if (cols.exec(QStringLiteral("PRAGMA table_info(layer_declarations)")))
     {
@@ -106,6 +99,21 @@ using paleo::store_detail::setError;
         return false;
       }
     }
+    return true;
+  }
+
+  // Lazily opens the connection and guarantees the schema. Lets every public
+  // method work even if the caller skipped open().
+  bool manifestEnsureOpen(const QString &path, bool readOnly, QString *error)
+  {
+    QSqlDatabase db = MetaStore::openConnection(
+        path, manifestConnectionName(path, readOnly), error, readOnly,
+        MetaStore::kUserVersion,
+        [](QSqlDatabase &db, int, int, QString *err) { return manifestEnsureSchema(db, err); });
+    if (!db.isValid())
+      return false;
+    // 只读实例不建表/不补列（#80）——schema 归写实例；可写路径的 schema 已在
+    // openConnection 内确保（版本落后时在事务内逐级迁移，#736）。
     return true;
   }
 

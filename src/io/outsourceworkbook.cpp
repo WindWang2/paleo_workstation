@@ -55,6 +55,14 @@ constexpr int kMaxRows = 1048576;
 constexpr qint64 kMaxWorkbookCells = 4'000'000;
 constexpr qint64 kMaxWorkbookBytes = 512LL * 1024 * 1024;
 
+// 综合柱状图流式专用输入格数预算（issue-800 归因）：流式路径自己不驻留行
+// （行随读随交访问者，wellcompositexml 另按块装配并只留解析结果），这个
+// 预算闸的是「行数 × 列填充宽」的乘积放大而非常驻内存。HXN 实资料最大井
+// 373,301 个连续采样 × 43 个输出列 ≈ 1,600 万格（最大源文件 527 MiB，
+// 见 docs/progress/hxn-data-support-20261026.md「实现」节）——降回通用
+// kMaxWorkbookCells 会让真实工区资料整份拒收，故显式高于它并在此记归因。
+constexpr qint64 kStreamingWellCompositeCells = 16'000'000;
+
 void padTo( QStringList *values, int size )
 {
   while ( values->size() < size )
@@ -958,7 +966,7 @@ WorkbookReadResult streamSpreadsheetMlWorkbook(QIODevice *device, const QString 
     result.error = QStringLiteral("不是受支持的 SpreadsheetML 工作簿：%1").arg(path);
     return result;
   }
-  result = readSpreadsheetMl(path, reader, visitor, 16'000'000);
+  result = readSpreadsheetMl(path, reader, visitor, kStreamingWellCompositeCells);
   return result;
 }
 

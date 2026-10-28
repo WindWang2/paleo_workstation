@@ -182,29 +182,36 @@ CoKrigingPointResult solveCoreAt( const CokrigingCore &core, double x, double y,
     ws.b[static_cast<std::size_t>( n1 + n2 + 1 )] = 0.0;
   }
 
+  // #720：物理块（主/协 Γ 与交叉块）随基台值缩放而 Lagrange 边固定为 1，LU
+  // 末主元 ~n/sill 会掉到列主元下限被误判 singular——按物理块尺度归一化前
+  // n1+n2 行与 b 再解；解出的 μ 与由 b 算出的方差小一个 systemScale 因子
+  // （权重与 estimate 不变），后面乘回。
+  const double systemScale = scaleKrigingSystemRows( ws.a, m, n1 + n2, &ws.b );
   if ( !solveDenseLu( ws.a, m, ws.b, ws.solution, ws.lu ) )
   {
     result.systemSingular = true;
     return result;
   }
-
   double estimate = 0;
-  double variance = 0;
+  double lambdaB = 0; // Σλᵢ·bᵢ + Σνₖ·bₖ（b 可能已按 systemScale 归一化）
   for ( int i = 0; i < n1; ++i )
   {
     const double weight = ws.solution[static_cast<std::size_t>( i )];
     estimate +=
         weight * core.primary.index.point( ws.primaryHood[static_cast<std::size_t>( i )] ).value;
-    variance += weight * ws.b[static_cast<std::size_t>( i )];
+    lambdaB += weight * ws.b[static_cast<std::size_t>( i )];
   }
   for ( int k = 0; k < n2; ++k )
   {
     const double weight = ws.solution[static_cast<std::size_t>( n1 + k )];
     estimate += weight *
                 core.secondary.index.point( ws.secondaryHood[static_cast<std::size_t>( k )] ).value;
-    variance += weight * ws.b[static_cast<std::size_t>( n1 + k )];
+    lambdaB += weight * ws.b[static_cast<std::size_t>( n1 + k )];
   }
-  variance += ws.solution[static_cast<std::size_t>( n1 + n2 )]; // + μ1
+  // #720：行归一化（矩阵与右端同步）不改变解——μ1 不缩放，只有缩放后 b 算出
+  // 的权重·b 项小一个 systemScale 因子，方差按 scale·(λᵀb+νᵀb) + μ1 拼回。
+  const double variance = ( systemScale > 0.0 ? systemScale * lambdaB : lambdaB ) +
+                          ws.solution[static_cast<std::size_t>( n1 + n2 )]; // + μ1
   const double varianceScale =
       std::max( { 1.0, model.primary.nugget + model.primary.sill, std::fabs( model.crossCorrelation ) } );
   if ( !std::isfinite( estimate ) || !varianceAdmissible( variance, varianceScale ) )
@@ -573,9 +580,30 @@ ConstrainedKrigingPointResult ConstrainedKrigingSolver::solveAt( double x, doubl
 
   const double varianceScale = std::max( 1.0, model.nugget + model.sill );
   const double violationTolerance = 1e-9 * varianceScale;
+  // #720：Γ 块与 Lagrange 边量级悬殊时 LU 末主元 ~n/sill 掉到列主元下限被误判
+  // singular——按物理块尺度归一化前 n 行与 b 再解；μ 与由 b 算出的方差小一个
+  // systemScale 因子（权重与 estimate 不变）。罚项与 Γ 同行内，一并归一化。
+  double systemScale = 0.0;
+  for ( int i = 0; i < n; ++i )
+    for ( int j = 0; j < n; ++j )
+      systemScale = std::max( systemScale,
+                              std::fabs( gamma[static_cast<std::size_t>( i ) * n1 + j] ) );
+  if ( !( systemScale > 0.0 ) || !std::isfinite( systemScale ) )
+    systemScale = 0.0;
   std::vector<double> solution;
   std::vector<double> a;
   std::vector<double> b;
+  const auto scaleSystem = [&a, &b, n1, n, systemScale]() {
+    if ( systemScale <= 0.0 )
+      return;
+    const double inverse = 1.0 / systemScale;
+    for ( int i = 0; i < n; ++i )
+    {
+      for ( int j = 0; j < n1; ++j )
+        a[static_cast<std::size_t>( i ) * n1 + j] *= inverse;
+      b[static_cast<std::size_t>( i )] *= inverse;
+    }
+  };
   int passes = 0;
   // 软罚主动集（单调只增，不回退——回退会在「罚下满足/释放后违约」间振荡）：
   // 每轮解含当前主动集罚项的系统，把仍未满足（> cap）的非主动约束加入主动集；
@@ -597,6 +625,7 @@ ConstrainedKrigingPointResult ConstrainedKrigingSolver::solveAt( double x, doubl
           a[static_cast<std::size_t>( p ) * n1 + q] += constraint.penalty;
       }
     }
+    scaleSystem();
     if ( !solveDenseLu( a, n1, b, solution ) )
       return result;
     passes = attempt + 1;
@@ -619,16 +648,19 @@ ConstrainedKrigingPointResult ConstrainedKrigingSolver::solveAt( double x, doubl
   }
 
   double estimate = 0;
-  double variance = 0;
+  double lambdaB = 0; // Σλᵢ·bᵢ（b 可能已按 systemScale 归一化）
   double weightSum = 0;
   for ( int i = 0; i < n; ++i )
   {
     const double weight = solution[static_cast<std::size_t>( i )];
     estimate += weight * m_impl->index.point( neighborhood[static_cast<std::size_t>( i )] ).value;
-    variance += weight * rhs[static_cast<std::size_t>( i )];
+    lambdaB += weight * rhs[static_cast<std::size_t>( i )];
     weightSum += weight;
   }
-  variance += solution[static_cast<std::size_t>( n )]; // + μ
+  // #720：行归一化（矩阵与右端同步）不改变解——μ 不缩放，只有缩放后 b 算出
+  // 的 λᵀb 项小一个 systemScale 因子，方差按 scale·(λᵀb) + μ 拼回。
+  const double variance = ( systemScale > 0.0 ? systemScale * lambdaB : lambdaB ) +
+                          solution[static_cast<std::size_t>( n )]; // + μ
   if ( !std::isfinite( estimate ) || !varianceAdmissible( variance, varianceScale ) )
     return result;
   if ( std::fabs( weightSum - 1.0 ) > 1e-6 )

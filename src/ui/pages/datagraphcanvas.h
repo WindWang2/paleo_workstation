@@ -15,14 +15,16 @@ public:
   void includeFitScale(qreal scale) {
     if (std::isfinite(scale) && scale > 0) m_minimumZoom = qMin(.15, scale);
   }
-  void zoomBy(qreal factor) {
+  // issue-812：缩放锚点可配——滚轮用 AnchorUnderMouse（默认，贴着指针缩放），
+  // 按钮等无指针位置的操作传 AnchorViewCenter（绕视口中心），避免锚到无关坐标。
+  void zoomBy(qreal factor, QGraphicsView::ViewportAnchor anchor = QGraphicsView::AnchorUnderMouse) {
     if (!std::isfinite(factor) || factor <= 0) return;
     const qreal current = transform().m11();
     // A full-graph fit may be below the usual interactive floor. Preserve that
     // floor so zoom-in/out steps stay monotonic and can return to the fit.
     const qreal next = qBound(qMin(m_minimumZoom, current), current * factor, qMax(4.0, current));
     if (qFuzzyCompare(current, next)) return;
-    setTransformationAnchor(QGraphicsView::AnchorUnderMouse); scale(next / current, next / current);
+    setTransformationAnchor(anchor); scale(next / current, next / current);
     if (viewTransformChanged) viewTransformChanged();
   }
 protected:

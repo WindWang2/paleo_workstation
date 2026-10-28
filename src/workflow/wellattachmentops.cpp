@@ -81,9 +81,12 @@ DepthInputStatus WellAttachmentOps::parseDepthInput(const QString &text,
   if (!m.hasMatch())
     return DepthInputStatus::NotFinite;
   const QString suffix = m.captured(2).trimmed();
+  // #763：中文「米」必须走 QStringLiteral——QLatin1String 把字面量按 Latin-1
+  // 逐字节解释（"米" → U+00E7 U+00B1 U+00B3），与 UTF-8 解码出的 U+7C73 永不
+  // 相等，用户输入「1500米」会被误判成 BadUnit（tst_wellattachmentops 钉住）。
   const bool meterSuffix =
       suffix.compare(QLatin1String("m"), Qt::CaseInsensitive) == 0 ||
-      suffix == QLatin1String("米");
+      suffix == QStringLiteral("米");
   if (!suffix.isEmpty() && !meterSuffix)
     return DepthInputStatus::BadUnit;
   bool ok = false;

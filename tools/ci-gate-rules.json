@@ -1,0 +1,25 @@
+{
+  "_doc": "Windows / Linux 测试门禁共享规则（#760 单一真源）。两端脚本（tools/ci_ctest_gate.sh 与 paleo-dev.ps1 的 test verb）都从本文件取规则；各自保留的内联副本只是 python 不可用时的回落，一致性由 tools/ci_gate_rules.py --check-consistency（ctest 项 ci_gate_rules）每轮看守，防两端悄悄漂移。",
+  "version": 1,
+  "crash_markers": [
+    "***Exception",
+    "***Timeout",
+    "Subprocess aborted",
+    "Child aborted",
+    "Subprocess killed",
+    "Illegal",
+    "SegFault"
+  ],
+  "result_line_regex": "Test +#[0-9]+:",
+  "policy": {
+    "crash_no_rerun": "崩溃类失败（result_line 命中 crash_markers）不重跑、直接判红——崩溃=内存/生命周期缺陷，与负载无关（#81）。",
+    "timeout_is_crash": "ctest 的 ***Timeout 计崩溃类（挂死不按负载抖动放行）。Windows 侧一直如此，Linux 侧 #760 前漏了该项。",
+    "scan_scope": "崩溃判定只扫 ctest 结果行（result_line_regex），不扫测试自身输出——测试打印 'Illegal'/'SegFault' 字样不是崩溃。",
+    "non_crash_rerun_once": "非崩溃类失败串行/直跑重跑一次以排除负载抖动；重跑仍红即红。",
+    "perf_excluded_from_rerun": "perf 标签不重跑（确定性超限串行重跑只会再烧一遍；#136，perf 走独立的非阻断 linux-perf job）。",
+    "exempt_not_rerun": "env_redset 豁免红不进重跑集、不进 flaky 台账——环境债洗白会稀释 #501 的真 flaky 信号。",
+    "rerun_pass_ledger": "重跑放行逐条记入 tools/flaky-ledger.jsonl（#501），跨 run 累计（linux job 与 windows-shard 均 restore/save）。",
+    "rerun_pass_clears_last_tests_failed": "重跑放行即删 LastTestsFailed.log（#757）——ctest 全通过后不清它，残留名单会被 triage 误判成真红。",
+    "windows_direct_run_timeout": "Windows 直跑复用该 ctest 项的 TIMEOUT 属性作单测超时，超时杀进程树记红（#765）——此前无超时会干等到 job 级 360 分钟。"
+  }
+}

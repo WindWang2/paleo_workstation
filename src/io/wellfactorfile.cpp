@@ -1,9 +1,10 @@
 // 层：数据
 #include "wellfactorfile.h"
+#include "encodingdetect.h"
 #include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QSet>
-#include <QTextStream>
 #include <cmath>
 namespace {
 QStringList csvFields(const QString &line) {
@@ -31,13 +32,20 @@ QVariantList readWellFactorFile(const QString &path, QString *error) {
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly) || file.size() > 20 * 1024 * 1024)
     return fail(QStringLiteral("无法读取井单因素文件或超过 20 MB"));
-  QTextStream stream(&file);
-  const auto headers = csvFields(stream.readLine());
+  // issue-810：工区单因素表同样以 GB18030 面目出现——QTextStream 默认按
+  // UTF-8 解，中文井名/层位会静默变成 U+FFFD（井层对不上即静默丢记录）。
+  // 与其它井文本路径共用 EncodingDetect（D7.2 口径）。
+  const QByteArray raw = file.readAll();
+  file.close();
+  const QString content = EncodingDetect::decodeText(raw);
+  const QStringList lines = content.split(QRegularExpression(QStringLiteral("[\\r\\n]+")), Qt::SkipEmptyParts);
+  if (lines.isEmpty()) return fail(QStringLiteral("井单因素文件没有记录"));
+  const auto headers = csvFields(lines.first());
   for (const auto *key : {"well_name", "horizon", "sand_thick", "sand_ratio", "log_layer_thickness_md"})
     if (!headers.contains(QLatin1String(key))) return fail(QStringLiteral("井单因素文件缺少必需列"));
   QVariantList result; QSet<QString> identities;
-  while (!stream.atEnd()) {
-    const auto line = stream.readLine(); if (line.trimmed().isEmpty()) continue;
+  for (qsizetype li = 1; li < lines.size(); ++li) {
+    const auto line = lines.at(li); if (line.trimmed().isEmpty()) continue;
     const auto values = csvFields(line);
     if (values.size() != headers.size()) return fail(QStringLiteral("井单因素行列数或引号无效"));
     QVariantMap row;

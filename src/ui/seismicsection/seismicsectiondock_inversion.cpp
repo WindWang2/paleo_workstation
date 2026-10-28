@@ -12,7 +12,7 @@
 
 #include <QDir>
 #include <QFile>
-#include <QIODevice>
+#include <QTemporaryFile>
 #include <cmath>
 
 namespace seismic {
@@ -119,11 +119,24 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
         }
     }
     if (waveletPath.isEmpty()) {
-        // catalog 未注入或发布失败：临时文件承载（如实说明，不进谱系）。
-        waveletPath = QDir(QDir::temp()).filePath(QStringLiteral("paleo-wavelet-%1.json").arg(best->wellId));
-        QFile f(waveletPath);
-        if (f.open(QIODevice::WriteOnly))
-            f.write(paleo::inversion::waveletToJson(job.wavelet));
+        // #730：catalog 未注入或发布失败时落临时文件——旧实现用可预测的共享
+        // 路径 paleo-wavelet-<wellId>.json（同名占用/窥探，且写入成败不校验，
+        // 失败仍把无效路径回填进面板）。改 QTemporaryFile：随机名（Unix 下
+        // Qt 另给 0600 属主读写），写完 flush 校验成功才回填，失败如实报错。
+        QTemporaryFile waveletFile(
+            QDir::temp().filePath(QStringLiteral("paleo-wavelet-XXXXXX.json")));
+        waveletFile.setAutoRemove(false); // 面板路径要在本函数返回后仍可读
+        const QByteArray json = paleo::inversion::waveletToJson(job.wavelet);
+        if (waveletFile.open() && waveletFile.write(json) == json.size() &&
+            waveletFile.flush()) {
+            waveletPath = waveletFile.fileName();
+        } else {
+            if (m_invPanel)
+                m_invPanel->showResult(
+                    false, tr("子波已算出，但临时文件写入失败：%1")
+                               .arg(waveletFile.errorString()));
+            return;
+        }
     }
     if (m_invPanel) {
         m_invPanel->setWaveletPath(waveletPath);

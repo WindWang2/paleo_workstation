@@ -106,6 +106,9 @@ set_tests_properties(tst_import PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_io_importrows_derivation LIBS paleo_io)  # L5.9：DataImportService::previewFiles 推导 FolderPreviewRow 显示类型/词表/可改性/实体预显
 add_paleo_test(tst_imagelod LIBS paleo_services)              # 方向79：图片道 LOD/EXIF/LRU
 add_paleo_test(tst_wellattachmentpanel LIBS paleo_ui)        # 方向79：井附件面板 CRUD offscreen
+# #763：井附件锚深输入解析矩阵（parseDepthInput 纯函数直接锁定：.5/1,5/空串/
+# 单位后缀/非正数/溢出/reasonText 有无契约）——此前只被视图层测试间接覆盖。
+add_paleo_test(tst_wellattachmentops LIBS paleo_workflow)
 add_paleo_test(tst_drawctl LIBS paleo_ui)
 add_paleo_test(tst_procdialog LIBS paleo_qgis)
 add_paleo_test(tst_rehydrate)                               # 伞式（app 面全栈，兼容样本）

@@ -14,6 +14,8 @@ using paleo::store_detail::setError;
 
 QVector<CatalogVersion> DataCatalog::downstreamClosure(const QString &versionId) const
 {
+  if (!noteRead("downstreamClosure"))
+    return {};
   QVector<CatalogVersion> out;
   if (versionId.isEmpty())
     return out;

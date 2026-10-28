@@ -72,6 +72,11 @@ add_paleo_test(tst_perf_las LIBS paleo_io)
 add_paleo_test(tst_cache_segyindex LIBS paleo_io)
 add_paleo_test(tst_perf_segyindex LIBS paleo_io)
 add_paleo_test(tst_cache_pyramid LIBS paleo_io)
+# #758：LRU 命中墙钟比率门（warmMs < coldMs/2.0，零余量）从
+# tst_cache_pyramid::tileLruHitFast 拆出独立成 perf 标签测试（perf + RUN_SERIAL
+# 由 cmake/paleo-test-labels.cmake 统一登记）——功能测试只留字节一致性与命中计数
+# 等语义断言，-LE perf 不再丢瓦片金字塔的功能覆盖。
+add_paleo_test(tst_cache_pyramid_perf LIBS paleo_io)
 add_paleo_test(tst_perf_catalog LIBS paleo_io)
 add_paleo_test(tst_cache_async LIBS paleo_services)
 add_paleo_test(tst_cache_io LIBS paleo_io)

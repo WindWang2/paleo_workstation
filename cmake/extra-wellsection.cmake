@@ -2,6 +2,8 @@
 # 取数编排 + ui 图件面板/壳层装配。
 target_sources(paleo_domain PRIVATE src/domain/wellsection.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/wellsectionworkflow.cpp)
+# #729：剖面 CSV 原子落位收口（ui 层 io/* 白名单仅 lasdoc.h，写点经功能层）。
+target_sources(paleo_workflow PRIVATE src/workflow/wellsectionexport.cpp)
 # 方向 69 第二解释源：岩屑录井（cuttings）表读取面（先例 extra-sf-kriging.cmake）。
 target_sources(paleo_io PRIVATE src/io/cuttingsdoc.cpp)
 target_sources(paleo_store PRIVATE src/metadata/wellsectionstore.cpp)

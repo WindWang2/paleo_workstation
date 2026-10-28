@@ -17,6 +17,15 @@
 QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text);
 QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text, WellParseReport *report);
 
+// Committed native versions read through Data_service. Unbound legacy files
+// retain the text parsers; a broken bound model fails without RAW fallback.
+bool readWellHeads(const QString &path, QVector<WellHeadRecord> &rows,
+                   QString *error = nullptr, WellParseReport *report = nullptr);
+bool readWellTops(const QString &path, QVector<WellTopRecord> &rows,
+                  QString *error = nullptr, WellParseReport *report = nullptr);
+bool readTimeDepth(const QString &path, TimeDepthTable &table,
+                   QString *error = nullptr);
+
 QVector<WellTopRecord> parseWellTopsText(const QByteArray &text);
 QVector<WellTopRecord> parseWellTopsText(const QByteArray &text, WellParseReport *report);
 

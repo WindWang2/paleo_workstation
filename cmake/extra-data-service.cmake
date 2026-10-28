@@ -13,3 +13,8 @@ add_subdirectory(vendor/Data_service EXCLUDE_FROM_ALL)
 target_link_libraries(paleo_store PRIVATE Paleo::paleo_data_service)
 add_paleo_test(tst_dataservice LIBS paleo_store paleo_io Paleo::paleo_data_service)
 add_paleo_test(tst_dataservice_hd LIBS paleo_domain Paleo::paleo_data_service)
+add_paleo_test(tst_dataservice_batch LIBS paleo_domain Paleo::paleo_data_service)
+add_paleo_test(tst_nativeimport LIBS paleo_io paleo_services Paleo::paleo_data_service)
+
+target_sources(paleo_io PRIVATE src/io/nativemodel_prepare.cpp src/io/nativemodel_read.cpp src/io/nativemodel_tables.cpp src/io/wellfileread.cpp)
+target_link_libraries(paleo_io PRIVATE Paleo::paleo_data_service)

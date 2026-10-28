@@ -55,6 +55,7 @@
 #include "dataimport_internal.h"
 #include "dataimport_log.h"
 #include "importrecovery.h"
+#include "nativemodel.h"
 
 using paleo::dataimport_detail::setError;
 
@@ -299,6 +300,12 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   version.versionNumber = 1;
   version.fileName = fi.fileName();
   version.sourceUri = fi.absoluteFilePath();
+  if (cls.type == QLatin1String("well_head")) {
+    const auto sourceCrs=options.tableMapping.value("crs").toString();
+    const auto destinationCrs=options.tableMapping.value("projectCrs").toString();
+    version.extra.insert(QStringLiteral("wellCoordinatesCrs"),
+        !tableInput.normalized.isEmpty() && !destinationCrs.isEmpty() ? destinationCrs : sourceCrs);
+  }
   if (wellLogInput)
   {
     if (logInfo.comprehensiveTemplate) version.extra.insert(QStringLiteral("logCompositeTemplate"), true);
@@ -408,6 +415,8 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   if (!branchErr.isEmpty())
     return fail(branchErr);
   manifestLayerId = ctx.manifestLayerId;
+  if (!paleo::native_model::prepare(s, version, ctx, wellLogInput ? &logInfo : nullptr, error))
+    return fail(*error);
 
 
   // B3（wave/deepen-perf）：栅格资产（image_reference 的 tif/png/jpg）入库即

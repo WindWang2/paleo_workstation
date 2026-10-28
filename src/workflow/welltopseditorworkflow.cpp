@@ -69,15 +69,7 @@ bool WellTopsEditorWorkflow::loadAllRows(const QString &assetId, QVector<WellTop
     setError(error, QCoreApplication::translate("WellTopsEditorWorkflow", "版本文件缺失：%1").arg(path));
     return false;
   }
-  QByteArray bytes;
-  QString readErr;
-  if (!readAllBytes(path, &bytes, &readErr))
-  {
-    setError(error, readErr);
-    return false;
-  }
-  *rows = parseWellTopsText(bytes);
-  return true;
+  return readWellTops(path, *rows, error);
 }
 
 QVector<WellTopRecord> WellTopsEditorWorkflow::rowsForWell(const QVector<WellTopRecord> &all,

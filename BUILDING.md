@@ -32,8 +32,9 @@ git submodule update --init --recursive -- vendor/Data_service
 示例、测试与 SDK 安装，共用主项目已构建的 SBM 地震引擎。未初始化子模块时
 configure 明确失败并提示上述命令；CI checkout 同样递归初始化子模块。
 
-目录实体、资产、版本和关联的 SQL 读写已接入子模块；类型化测井等消费者的
-全量迁移仍在推进。模型映射、兼容边界与剩余工作见
+目录实体、资产、版本和关联的 SQL 读写已接入子模块；新建工程、五类井数据
+导入及主要读取门面已接通版本化模型。交互编辑输出等剩余迁移仍在推进。
+模型映射、兼容边界与剩余工作见
 [Data_service 接入方案](docs/DATA_SERVICE_INTEGRATION.md)。子模块独立构建与
 使用说明见 `vendor/Data_service/README.md`。
 

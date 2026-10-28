@@ -21,6 +21,19 @@ private:
   }
 
 private slots:
+  void nativeBackendRoundTripAndUnknownBackendRejected()
+  {
+    QTemporaryDir dir;
+    auto file=projectFileForQgz(dir.filePath("project.qgz"));
+    file.dataBackend="data_service_versioned";
+    file.catalog="artifacts/metadata/catalog.sqlite";
+    QString error; QVERIFY2(writeProjectFile(dir.path(),file,&error),qPrintable(error));
+    bool ok=false; const auto read=readProjectFile(dir.filePath("project.paleo"),&ok,&error);
+    QVERIFY2(ok,qPrintable(error)); QCOMPARE(read.dataBackend,file.dataBackend);
+    QCOMPARE(read.catalog,file.catalog); QCOMPARE(read.projectId,file.projectId);
+    const auto path=write(dir,R"({"format":"paleo-project","formatVersion":1,"dataBackend":"future-incompatible","members":{}})");
+    readProjectFile(path,&ok,&error); QVERIFY(!ok); QVERIFY(error.contains("backend"));
+  }
   void relativeMembersAccepted()
   {
     QTemporaryDir dir;

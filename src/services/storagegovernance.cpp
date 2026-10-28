@@ -87,6 +87,18 @@ Report scan(const Snapshot &s, const Progress &progress) {
     r.versionFiles.insert(v.id, f);
     // Dataset manifests keep coordinate/style members alive with their main file.
     QSet<QString> registeredCanonical; // 本版本已登记引用的 canonical（防族扫描重复入账）
+    CatalogVersion native; native.managed = true;
+    native.path = v.extra.value("nativeModel").toMap().value("path").toString();
+    if (!native.path.isEmpty()) {
+      const auto modelPath = DataCatalog::resolvedVersionPath(s.projectDir, native);
+      if (!modelPath.isEmpty())
+        for (const QString &suffix : {QString(), QStringLiteral("-wal"), QStringLiteral("-shm")}) {
+          const auto model = fact(modelPath + suffix, s.projectDir);
+          if (!model.canonicalPath.startsWith(projectCanonical + '/')) continue;
+          references.insert(model.canonicalPath); registeredCanonical.insert(model.canonicalPath);
+          if (model.sizeBytes >= 0) r.versionSidecars[v.id].append(model);
+        }
+    }
     for (const auto &entry : v.extra.value("bundle_members").toList()) {
       const auto name = entry.toMap().value("file").toString();
       if (!v.managed || !DataCatalog::isSafePathSegment(name) || name == QFileInfo(path).fileName()) continue;

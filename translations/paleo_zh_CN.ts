@@ -25745,6 +25745,10 @@ SHA-256：%2</translation>
 <context>
     <name>ProjectDataFacade</name>
     <message>
+        <source>测斜模型无法读取：%1</source>
+        <translation>测斜模型无法读取：%1</translation>
+    </message>
+    <message>
         <location filename="../src/services/projectdata.cpp" line="48"/>
         <source>无法打开工区目录的 catalog：%1（%2）</source>
         <translation>无法打开工区目录的 catalog：%1（%2）</translation>
@@ -35416,6 +35420,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>QgisProjectService</name>
+    <message>
+        <source>初始化工程数据目录失败：%1</source>
+        <translation>初始化工程数据目录失败：%1</translation>
+    </message>
     <message>
         <location filename="../src/qgis/qgisprojectservice.cpp" line="84"/>
         <source>打开已取消</source>

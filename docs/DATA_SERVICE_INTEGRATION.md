@@ -11,9 +11,24 @@ C++ 模型读写与更新。Paleo 保留地质语义、不可变资产版本、�
 成为类型适配与事务／恢复编排层。现有 `catalog.sqlite` 路径、表结构、rowid
 顺序、版本 ID、显式关联、嵌套 extra、JSON 迁移及备份格式保持兼容。
 
-**尚未完成全部读写替换。** 子模块原有的类型化 `DataService` 和本批的目录
-扩展是互补接口；没有建立井对象与版本内容之间的自动双写，也不把目录迁移
-误称为曲线、分层、地震和编辑元数据已经全量迁移。
+第二批已打通新建工程、类型化导入与井数据消费：
+
+- 新建工程先初始化共享目录 SQLite，再生成 QGIS 工程及 `project.paleo`；
+  清单标记 `data_service_versioned`。旧工程清单收养不会伪造迁移标记。
+- 测井、井位、分层、时深、测斜在导入 worker 中写入独立的 Data_service
+  数据项目，每个版本绑定 `sourceId`、内容 SHA-256 和模型数据库 SHA-256。
+  模型与 RAW/DERIVED 一起通过现有 intent + staging + catalog journal 发布。
+- `WellLogRead`/`LasCache`、预览井表、ProjectDataFacade、框架分层读取、岩石物理
+  时深读取与分层编辑的输入端优先读取已绑定的模型。旧版本仍用兼容解析器。
+- 井位和分层的共享语义对象之外，KB、井底坐标、分层 XY/时间等扩展列，通过
+  子模块公开的 SourceTable 存储保留；不在主项目再维护一份可写井数据库。
+- 标准化及深度补算的派生井表创建自己的模型。源文件保留原字节，缺失值以 NaN
+  入模型，有限负数不套用默认空值规则。无法确认的井身份不创建虚构井。
+
+**尚未完成全部读写替换。** 交互编辑输出、曲线计算成果、岩性/样品、地震体
+读口和地质编辑元数据仍有旧链路。路径重定位及通用版本回滚先清除旧模型绑定，
+用兼容读口读取新路径，避免把旧 sourceId 当成新路径的验证凭据；后续需要同样
+建立模型版本事务。QGIS 继续负责空间文件、布局与工程序列化。
 
 ## 结合点与差异
 
@@ -21,9 +36,9 @@ C++ 模型读写与更新。Paleo 保留地质语义、不可变资产版本、�
 |---|---|---|---|
 | 实体、资产、不可变版本、关联 | DataCatalog → CatalogStore | 新增 CatalogStorage 与标准 C++ 记录 | 本批实际接入生产读写；保留主项目事务和恢复策略 |
 | 井基础资料 | CatalogEntity、EntityView | WellInfo、listWells/readWellInfo/saveWellInfo | 井名不能作为跨库映射的唯一键；保留计划井与真实井区别、KB 与缺失值 |
-| 测井数组 | WellLogRead、LasCache、WellLogSet、PreviewDocService | LogSet、CurveSlice、readLogSet/updateCurveValue | 原始值、处理值、quality、MD/TVD/TVDSS、多文件并集与主文件必须逐项对拍 |
+| 测井数组 | WellLogRead、LasCache、WellLogSet、PreviewDocService | LogSet、CurveSlice、readLogSet/updateCurveValue | 新导入读取已接入；交互编辑输出及旧版本回填待迁移 |
 | 分层／岩性／样品 | WellComposite、wellrecords 等 | IntervalTrack、MarkerTrack、SampleTable | 保留多解释道、来源单元格、未钻穿与单位基准，不凭深度合并 |
-| 测斜／时深 | Deviationsurvey、TimeDepthModel 与预览门面 | TrajectorySurvey、TimeDepthTable | 井关联、角度约定、OWT/TWT、参考面与单位显式映射 |
+| 测斜／时深 | Deviationsurvey、TimeDepthModel 与预览门面 | TrajectorySurvey、TimeDepthTable | 导入及主要读取门面已接入；不推测 OWT/TWT 或参考面 |
 | 地震按需读 | SegyReader、SeismicTaskService、SBM 引擎 | inspectSeismic/readSeismicTrace/Line/TimeSlice | 共用同版本引擎；保留有界读取、索引缓存、取消和线程内句柄 |
 | 图件与附件 | catalog、PreviewDocService、QGIS 层 | GeologicalMap、CorePhotoTrack、Attachment | 登记路径不等于读完内容；空间读写仍使用 QGIS/GDAL |
 | 地质编辑与成果语义 | metadata 各 store、版本／发布状态机 | 当前无完整对等模型 | 保留 Paleo 语义；后续通过专用扩展接口落库，不塞进无类型字符串 |
@@ -53,19 +68,33 @@ C++ 模型读写与更新。Paleo 保留地质语义、不可变资产版本、�
 
 ## 后续全量替换的执行顺序
 
-1. 固定跨模型身份：CatalogVersion ID ↔ source/log_set/track/volume 稳定编号。
-   保存显式映射及输入版本，不按井名、文件名或当前列表下标推断。
-2. 给类型化更新增加版本事务：当前 updateCurveValue/saveWellInfo 是原位编辑，
-   不能直接绑定到 Paleo 的 RAW/DERIVED 历史版本。需先支持冻结输入、派生新版本、
-   来源／质量标记与回滚，再接入编辑命令和共享撤销栈。
-3. 在 prepare/worker/publish 中解析并保存类型化对象。目录版本登记和类型化
-   对象发布必须共享可恢复的提交协议；不在 catalog 提交后盲目双写 data.sqlite。
-4. 先迁移测井一条纵向链：导入 → 版本绑定 → readLogSet/CurveSlice → 预览／
-   单因素／预测 → 编辑产生新版本 → 关闭重开。通过之后移除该链旧解析读口。
-5. 同法迁移分层、测斜、时深、样品、地震和图件；逐条记录覆盖消费者与剩余
-   兼容格式。旧工程只在显式、事务性的迁移成功后切换唯一权威，失败保留原件。
-6. 对地质编辑、约束、成果和发布设计子模块扩展；QGIS 保持空间文件的执行器。
-   数据库是否物理合并另作决策，不能用改路径替代 schema 与事务迁移。
+1. 将交互编辑、通用派生注册、回滚及外链重定位接入同一模型快照发布协议；
+   保留 RAW、来源、quality、共享撤销栈与失败回滚，禁止原位修改已发布模型。
+2. 用相同的版本/source 映射迁移岩性、样品、地震与附件的专用读口。
+   地震仍采用共用引擎的有界读取及线程独立句柄，不把大 SEG-Y 搬进 SQLite。
+3. 为旧工程提供显式、可恢复的模型回填；当前不在打开工程时静默批量转换，
+   重复导入的 AlreadyStored 也不伪装成已完成回填。
+4. 逐条完成后移除相应旧读口，保留未覆盖的 DLIS/LIS 等解析与导出协议。
+   地质编辑、约束、成果与发布采用专用模型扩展，QGIS 保持空间执行器。
+
+## 类型化快照的提交与读取契约
+
+`CatalogVersion.extra.nativeModel` 保存 schema=1、相对模型路径、数据库摘要、
+来源摘要及子模块 source/object ID。模型位于
+`artifacts/raw/<asset>/<version>/native-model/data.sqlite`，即使 RAW 外链也由
+工程持有模型；受管来源使用相对引用，因此整个工程目录可以移动。
+
+写入顺序为验证原始内容 → prepare 类型对象 → 写入并关闭子模块 SQLite →
+摘要与只读权限 → 写 import intent → 移动全部成果 → 一次 catalog journal
+事务。崩溃恢复识别已登记模型；失败行清理及协作取消不提交模型。存储治理
+把模型及 SQLite sidecar 作为版本附件保护，不能当作孤儿回收。
+
+读取使用线程内独立只读 DataService 会话，校验数据库和来源摘要。绑定模型
+损坏或缺失时明确失败，不悄悄改读 RAW。测井 header 使用已提交的轻量元数据，
+样点读取才装载模型；LasCache 的指纹包含模型文件状态，损坏后旧缓存失效。
+共享外部路径若对应不一致的版本，路径本身无法判定版本，保留兼容读口，后续
+应推动消费接口显式携带版本 ID。绑定按服务实例管理，切换及关闭项目时释放，
+关闭的项目不会继续参与当前外部路径的消歧。
 
 ## 验收要求
 
@@ -75,7 +104,9 @@ C++ 模型读写与更新。Paleo 保留地质语义、不可变资产版本、�
   验证类型化曲线修改／重开／只读，并把宿主 ZIP 与服务解析器链接进同一程序。
 - 上游高清地震合成契约同时在宿主复用的引擎上运行，避免仅凭子模块独立
   引擎测试通过就断言宿主适配兼容。
-- 子模块独立测试验证目录标准记录的读写／回滚／重开及只读会话。
+- 子模块独立测试验证目录标准记录、准备模型的值与空值、事务回滚、摘要、取消、目录迁移及只读会话。
+- 宿主链路验证五类井数据、派生版本、受管/外链、重开/迁移、模型损坏导致缓存失效、存储保护和取消。
+- QGIS 真实新建后导入、保存、关闭、重开并读取曲线；目录初始化失败保留当前工程。
 - 无私人工区数据；夹具在临时目录生成。未运行的平台和消费者不计已迁移。
 
 最终命令和实际结果见 `docs/progress/data-service-integration-20261028.md`。

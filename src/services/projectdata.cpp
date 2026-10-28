@@ -5,6 +5,7 @@
 #include "../domain/mappinghorizons.h"
 #include "../io/wellcompositexml.h"
 #include "../io/wellfileparsers.h"
+#include "../io/nativemodel.h"
 #include "../metadata/layermanifest.h"
 
 #include <QDir>
@@ -223,11 +224,8 @@ QVector<WellTop> ProjectDataFacade::topsFromFile(const QString &path,
                                                  WellParseReport *report) const
 {
   QVector<WellTop> out;
-  QFile f(path);
-  if (!f.open(QIODevice::ReadOnly))
-    return out;
-  const QByteArray text = f.readAll();
-  f.close();
+  QVector<WellTopRecord> rows;
+  if (!readWellTops(path, rows, nullptr, report)) return out;
 
   // 井名按 catalog 的规范化规则匹配（连字符/空格/大小写不敏感）。
   QString wellName;
@@ -238,7 +236,6 @@ QVector<WellTop> ProjectDataFacade::topsFromFile(const QString &path,
   }
   const QString normalized = m_catalog ? DataCatalog::normalizeWellName(wellName) : wellName;
 
-  const auto rows = parseWellTopsText(text, report);
   if (report)
     for (QString &issue : report->issues)
       issue = QStringLiteral("%1：%2").arg(QFileInfo(path).fileName(), issue);
@@ -270,11 +267,8 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const
   if (path.isEmpty() || !QFile::exists(path))
     return out;
 
-  QFile f(path);
-  if (!f.open(QIODevice::ReadOnly))
-    return out;
-  const TimeDepthTable table = parseTimeDepthText(f.readAll());
-  f.close();
+  TimeDepthTable table;
+  if (!readTimeDepth(path, table)) return out;
 
   // 行保持文件顺序，不排序（PROJECT_AREA_PLAN §3）：单调性判定归
   // TimeDepthTool；-99999/缺列以 NaN 透传，由插值端剔除，这里不做取舍。
@@ -335,39 +329,50 @@ ProjectDataFacade::trajectoryFor(const QString &wellId, QString *error) const
   if (path.isEmpty() || !QFile::exists(path))
     return std::nullopt; // 无链接 = 直井（显式语义，不告警；与 topsFor/tdTableFor 同口径）
 
-  QFile f(path);
-  if (!f.open(QIODevice::ReadOnly))
-  {
-    m_lastError = tr("测斜文件无法读取：%1").arg(path);
-    if (error)
-      *error = m_lastError;
+  QVector<paleo::DeviationStation> stations;
+  DeviationTable native;
+  const auto state=paleo::native_model::deviation(path,native,error);
+  if(state==paleo::native_model::Read::Failed) {
+    m_lastError=error?*error:tr("测斜模型无法读取：%1").arg(path);
     return std::nullopt;
   }
-  const QByteArray text = f.readAll();
-  f.close();
-
-  QVector<paleo::DeviationStation> stations;
-  if (QFileInfo(path).suffix().compare(QLatin1String("xml"), Qt::CaseInsensitive) == 0)
-  {
-    QVector<WellComposite::XmlDeviationStation> parsed;
-    QString perr;
-    if (!WellComposite::parseDeviationSurvey(path, parsed, &perr))
+  if(state==paleo::native_model::Read::Ready) {
+    for(const auto &r:native.stations) stations.append({r.md,r.inclinationDeg,r.azimuthDeg});
+  } else {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
     {
-      m_lastError = tr("测斜 XML 解析失败：%1（%2）").arg(path, perr);
+      m_lastError = tr("测斜文件无法读取：%1").arg(path);
       if (error)
         *error = m_lastError;
       return std::nullopt;
     }
-    stations.reserve(parsed.size());
-    for (const auto &st : parsed)
-      stations.append({st.md, st.inclinationDeg, st.azimuthDeg});
-  }
-  else
-  {
-    const DeviationTable table = parseDeviationText(text);
-    stations.reserve(table.stations.size());
-    for (const DeviationStationRecord &r : table.stations)
-      stations.append({r.md, r.inclinationDeg, r.azimuthDeg});
+    const QByteArray text = f.readAll();
+    f.close();
+
+    if (QFileInfo(path).suffix().compare(QLatin1String("xml"), Qt::CaseInsensitive) == 0)
+    {
+      QVector<WellComposite::XmlDeviationStation> parsed;
+      QString perr;
+      if (!WellComposite::parseDeviationSurvey(path, parsed, &perr))
+      {
+        m_lastError = tr("测斜 XML 解析失败：%1（%2）").arg(path, perr);
+        if (error)
+          *error = m_lastError;
+        return std::nullopt;
+      }
+      stations.reserve(parsed.size());
+      for (const auto &st : parsed)
+        stations.append({st.md, st.inclinationDeg, st.azimuthDeg});
+    }
+    else
+    {
+      const DeviationTable table = parseDeviationText(text);
+      stations.reserve(table.stations.size());
+      for (const DeviationStationRecord &r : table.stations)
+        stations.append({r.md, r.inclinationDeg, r.azimuthDeg});
+    }
+
   }
 
   QString serr;

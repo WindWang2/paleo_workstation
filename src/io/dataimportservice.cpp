@@ -4,6 +4,7 @@
 // dataimport_session.cpp；公共 API 见 dataimportservice.h（零改动）。
 #include "dataimportservice.h"
 #include "importrecovery.h"
+#include "nativemodel.h"
 
 #include "../catalog/datacatalog.h"
 #include "../metadata/paleoprojectstore.h"
@@ -46,6 +47,7 @@ DataImportService::DataImportService(PaleoProjectStore *store, QObject *parent)
 
 DataImportService::~DataImportService()
 {
+  paleo::native_model::unregisterCatalog(this);
   // 方向57 阻塞解除：析构不再同步等待转换进程至多 2s（主线程事件循环冻结）。
   // 语义保留：kill() 照旧强杀；QProcess 交 deleteLater 异步回收（与
   // setProjectDir 的工程切换清理同一模式）。2s 等待上限的取消是本方向显式
@@ -74,6 +76,7 @@ void DataImportService::abortInflightConversion()
 
 void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<DataCatalog> &prepared)
 {
+  paleo::native_model::unregisterCatalog(this);
   // 工程切换时丢弃在途/排队转换——它们写向旧工程目录，且状态随之失效。
   abortInflightConversion();
   m_convQueue.clear();
@@ -107,6 +110,7 @@ void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<
   // T20a：记错误面 + 发信号——catalog 已进入拒绝写入态，后续 mutator
   // 都如实失败。状态栏/消息区接线归 paleomainwindow。
   m_catalogOpenError = m_catalogReady ? QString() : err;
+  if (m_catalogReady) paleo::native_model::registerCatalog(*m_catalog, this);
   if (!m_catalogReady)
   {
     qWarning("DataImportService: catalog open failed: %s", qPrintable(err));

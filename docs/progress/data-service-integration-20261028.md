@@ -75,7 +75,7 @@ git archive 导出原始 src/tools，以同一 QGIS 头目录复跑，仍为 6/5
 独立的 CI 脚本引用、docs_drift、git diff --check 亦已执行。
 没有跑全量工作站 GUI 套件，也没有在 Linux 实机编译，不宣称这两项通过。
 
-最终验证结果（子模块 pin `4992620`）：
+阶段一验证结果（子模块 pin `4992620`）：
 
 - 主仓四个目标编译成功，`tst_catalogstore`、`tst_datacatalog_sqlite`、
   `tst_dataservice` 3/3 通过；独立执行 `tst_dataservice_hd` 1/1 通过。
@@ -86,3 +86,45 @@ git archive 导出原始 src/tools，以同一 QGIS 头目录复跑，仍为 6/5
   `data-service-upstream-tests.log`、`data-service-sdk-build.log`、
   `source-gates.log`、`master-transitive.log`、`missing-submodule-check.log`；
   各对应 CTest 运行同时保留 JUnit。日志、数据库、二进制均未入库。
+
+## 阶段二：新建工程、类型化导入与主要井数据读取
+
+子模块已跟进上游 `acd3472`（批量时间切片、有界缓存），适配提交固定为
+`c41a6e30c5d37e4452b5a204752b27e57317c420`，配套上游 PR 仍为
+[Data_service #1](https://github.com/changyanyanchang/Data_service/pull/1)。
+主项目在 [#817](https://github.com/WindWang2/paleo_workstation/pull/817) 继续更新。
+
+实际落地：
+
+- 新建 QGIS 工程前初始化共享目录 SQLite，清单记录数据后端；目录初始化失败
+  不关闭当前工程。真实验证新建→导入→保存→关闭重开→读取曲线及稳定项目 ID。
+- 导入 worker 将已验证的测井、井位、分层、时深、测斜模型保存为各版本独立的
+  Data_service 数据项目；关闭写连接并计算摘要后，与源文件一起通过既有恢复协议
+  发布。外链源保留在原处，模型受管；受管来源使用相对引用，整个目录可移动。
+- 井表标准化及深度补算的派生版本建立独立模型，不能继承另一组字节的绑定。
+  KB、井底坐标、分层 XY/时间等扩展列通过公开 SourceTable 保留；已确认的坐标
+  CRS 对应处理后的坐标，未确认字段保持空。NaN 空值不再次套默认负数哨兵。
+- WellLogRead、LasCache、主要井表/时深/轨迹门面、框架分层、岩石物理时深和
+  分层编辑输入读取已绑定的模型。损坏明确失败，缓存感知模型变化，存储清理保护
+  模型；读取绑定跟随服务生命周期，在切换/关闭工程时释放。
+- 通用回滚和路径重定位清除旧 source 路径绑定；旧项目、未确认身份以及尚未迁移
+  的交互编辑输出保留兼容读口。没有声称地震、岩性/样品和所有编辑已全部替换。
+
+验收与范围：
+
+- 宿主 10 个目标编译并通过：目录两套回归、Data_service 接口、高清地震、批量
+  时间切片、原有导入 UX、项目坐标、清单安全、QGIS 工程服务和原生导入链路。
+- 子模块完整独立构建、20/20 CTest 通过；安装 SDK 后 11 个示例全部编译。
+- 本地源码 CTest 闸门 30/30 通过。显式给 QGIS 头目录的 transitive 全闸仍是
+  `ui_qtwidgets_notes 6 > 5`；独立 ts_stale 检查仍是 `169 > 31`。master 与
+  本 worktree 两项值相同，新增中文消息已入 TS，没有提高任何基线。
+- 从全新 bare 仓库经 `.gitmodules` 的上游 URL 成功获取固定提交，避免只能从
+  fork 获取、而普通递归克隆失效。没有修改上游 URL 来绕过此验证。
+- Windows/MSVC/Qt 6 验证；未在 Linux 本机编译，也未跑全量工作站 GUI 套件。
+  构建不超过 8 workers，Windows 测试串行。本机 MSVC 增量链接缓存曾损坏，
+  清理后在本地构建缓存设 `/INCREMENTAL:NO` 完成重新链接，不修改项目策略。
+
+阶段二日志（均在 gitignored `build/`）：`native-complete-tests.log`、
+`native-verified-tests.log`、`native-sdk-tests.log`、`native-sdk-examples.log`、
+`native-final-source-gates.log`、`native-full-transitive.log`；对应运行保存 JUnit。
+合成输入、SQLite、日志、对象文件和 SDK 安装产物均未入库。

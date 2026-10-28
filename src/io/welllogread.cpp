@@ -1,5 +1,6 @@
 // 层：数据
 #include "welllogread.h"
+#include "nativemodel.h"
 
 #include "dlisparser.h"
 #include "lisparser.h"
@@ -78,6 +79,12 @@ bool WellLogRead::readWellInfo(const QString &path, QString &wellName,
   if (error)
     error->clear();
   wellName.clear();
+  LasHeaderInfo nativeHeader;
+  const auto native = paleo::native_model::logHeader(path, nativeHeader, error);
+  if (native != paleo::native_model::Read::Unbound) {
+    if (native == paleo::native_model::Read::Ready) wellName = nativeHeader.wellName;
+    return native == paleo::native_model::Read::Ready;
+  }
   const auto format = detect(path);
   switch (format)
   {
@@ -131,6 +138,8 @@ bool WellLogRead::parseHeader(const QString &path, LasHeaderInfo &out,
 {
   if (error)
     error->clear();
+  const auto native = paleo::native_model::logHeader(path, out, error);
+  if (native != paleo::native_model::Read::Unbound) return native == paleo::native_model::Read::Ready;
   const auto format = detect(path);
   switch (format)
   {
@@ -165,6 +174,8 @@ bool WellLogRead::parse(const QString &path, WellLogFormat format,
   header = {};
   curves.clear();
   if (error) error->clear();
+  const auto native = paleo::native_model::log(path, header, curves, error);
+  if (native != paleo::native_model::Read::Unbound) return native == paleo::native_model::Read::Ready;
   LasHeaderInfo parsedHeader;
   QList<LasCurve> parsedCurves;
   bool ok = false;
@@ -209,6 +220,12 @@ bool WellLogRead::parseCurves(const QString &path, QStringList &curveNames,
     error->clear();
   curveNames.clear();
   curves.clear();
+  LasHeaderInfo nativeHeader;
+  const auto native = paleo::native_model::log(path, nativeHeader, curves, error);
+  if (native != paleo::native_model::Read::Unbound) {
+    if (native == paleo::native_model::Read::Ready) curveNames = nativeHeader.curveNames;
+    return native == paleo::native_model::Read::Ready;
+  }
   const auto format = detect(path);
   switch (format)
   {
@@ -245,6 +262,14 @@ bool WellLogRead::parseCurves(const QString &path, QStringList &curveNames,
 
 LasDoc WellLogRead::parseDoc(const QString &path, QList<LasIssue> *issues)
 {
+  LasDoc nativeDoc;
+  LasHeaderInfo nativeHeader;
+  const auto native = paleo::native_model::log(path, nativeHeader, nativeDoc.curves, &nativeDoc.error);
+  if (native != paleo::native_model::Read::Unbound) {
+    nativeDoc.ok = native == paleo::native_model::Read::Ready;
+    nativeDoc.curveNames = nativeHeader.curveNames;
+    return nativeDoc;
+  }
   const auto format = detect(path);
   switch (format)
   {

@@ -210,7 +210,11 @@ PaleoProjectFile projectFileForQgz(const QString &qgzPath)
   f.createdUtc =
       QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
   f.qgz = qi.fileName();
-  f.catalog = QStringLiteral("artifacts/metadata/catalog.json");
+  // Adoption is also used for old .qgz projects; do not advertise a migration
+  // merely because a manifest was created beside an existing project.
+  f.catalog = QFileInfo::exists(qi.dir().filePath(QStringLiteral("artifacts/metadata/catalog.sqlite")))
+      ? QStringLiteral("artifacts/metadata/catalog.sqlite")
+      : QStringLiteral("artifacts/metadata/catalog.json");
   f.manifest = qi.fileName() + QStringLiteral(".project.sqlite");
   f.gpkg = base + QStringLiteral(".gpkg");
   f.areaRules = QStringLiteral("project_area.json");
@@ -237,6 +241,7 @@ bool writeProjectFile(const QString &projectDir, const PaleoProjectFile &file,
   o.insert(QStringLiteral("name"), file.name);
   o.insert(QStringLiteral("projectId"), file.projectId);
   o.insert(QStringLiteral("createdUtc"), file.createdUtc);
+  if (!file.dataBackend.isEmpty()) o.insert(QStringLiteral("dataBackend"), file.dataBackend);
   o.insert(QStringLiteral("members"), membersToJson(file));
   o.insert(QStringLiteral("map"), QJsonObject{
       {QStringLiteral("crs"), file.mapCrs},
@@ -346,6 +351,18 @@ PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
   f.name = o.value(QStringLiteral("name")).toString();
   f.projectId = o.value(QStringLiteral("projectId")).toString();
   f.createdUtc = o.value(QStringLiteral("createdUtc")).toString();
+  const auto backend = o.value(QStringLiteral("dataBackend"));
+  if (!backend.isUndefined() && !backend.isString()) {
+    setErr(error, QStringLiteral("invalid project data backend"));
+    if (ok) *ok = false;
+    return f;
+  }
+  f.dataBackend = backend.toString();
+  if (!f.dataBackend.isEmpty() && f.dataBackend != QLatin1String("data_service_versioned")) {
+    setErr(error, QStringLiteral("unsupported project data backend: %1").arg(f.dataBackend));
+    if (ok) *ok = false;
+    return f;
+  }
   const QJsonObject m = o.value(QStringLiteral("members")).toObject();
   f.qgz = m.value(QStringLiteral("qgz")).toString();
   f.catalog = m.value(QStringLiteral("catalog")).toString();

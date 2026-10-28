@@ -2,6 +2,7 @@
 // 方向57：从 dataimportservice.cpp 按格式族析出。公共 API（dataimportservice.h）
 // 零改动；跨族共享辅助（setError/readFileOrEmpty/FamilyContext）经
 // dataimport_internal.h；importOneFile 分支体族函数亦声明于该头。
+#include "nativemodel.h"
 #include "dataimportservice.h"
 
 #include "lascache.h"
@@ -494,6 +495,7 @@ DataImportService::commitImport(ImportSession &s, QString *error, bool allowConf
     setError(error, msg);
     return CommitStatus::Failed;
   }
+  paleo::native_model::registerCatalog(*m_catalog, this);
   s.committed = true;
   s.recoveryPending = false;
   s.discardStaging();

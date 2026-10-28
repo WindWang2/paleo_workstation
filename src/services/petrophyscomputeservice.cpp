@@ -411,10 +411,8 @@ WellMergePlan planWellMerge(const DataCatalog *catalog, const QString &projectDi
     {
       const CatalogVersion v = catalog->currentVersion(tdLink->assetId);
       const QString tdPath = DataCatalog::resolvedVersionPath(projectDir, v);
-      QFile tf(tdPath);
-      if (!tdPath.isEmpty() && QFileInfo(tdPath).isFile() && tf.open(QIODevice::ReadOnly))
+      if (!tdPath.isEmpty() && readTimeDepth(tdPath, plan.tdTable))
       {
-        plan.tdTable = parseTimeDepthText(tf.readAll());
         plan.hasTdTable = plan.tdTable.rows.size() >= 2;
       }
     }

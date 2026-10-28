@@ -6,6 +6,7 @@
 #include "../metadata/atomicfile.h"
 #include "../metadata/paleoprojectfile.h"
 #include "../metadata/projectlock.h"
+#include "../catalog/datacatalog.h"
 
 #include <QDir>
 #include <QFile>
@@ -305,6 +306,16 @@ bool QgisProjectService::createProject( const QString &qgzPath )
     lockCheck.unlock();
   }
 
+  // Validate/materialize the shared Data_service catalog before replacing the
+  // current project. A database failure must not report a usable new project.
+  {
+    DataCatalog data;
+    QString error;
+    if (!data.open(projectDir, &error)) {
+      m_errors << tr("初始化工程数据目录失败：%1").arg(error);
+      return false;
+    }
+  }
   notifyAboutToClose();
   m_project->clear();
   m_path = qgzPath;
@@ -326,7 +337,9 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   // 清单写失败不拦工程创建——如实进 lastErrors。
   {
     QString werr;
-    const auto configuration = projectFileForQgz(qgzPath);
+    auto configuration = projectFileForQgz(qgzPath);
+    configuration.catalog = QStringLiteral("artifacts/metadata/catalog.sqlite");
+    configuration.dataBackend = QStringLiteral("data_service_versioned");
     if ( !writeProjectFile( QFileInfo( qgzPath ).absolutePath(),
                             configuration, &werr ) )
       m_errors << tr( "写入工程清单失败：%1" ).arg( werr );

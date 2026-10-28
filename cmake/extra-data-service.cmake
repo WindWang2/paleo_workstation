@@ -18,3 +18,10 @@ add_paleo_test(tst_nativeimport LIBS paleo_io paleo_services Paleo::paleo_data_s
 
 target_sources(paleo_io PRIVATE src/io/nativemodel_prepare.cpp src/io/nativemodel_read.cpp src/io/nativemodel_tables.cpp src/io/wellfileread.cpp)
 target_link_libraries(paleo_io PRIVATE Paleo::paleo_data_service)
+
+target_sources(paleo_io PRIVATE src/io/areamodel.cpp src/io/areamodel_log.cpp)
+target_sources(paleo_services PRIVATE src/services/previewdoc_area.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/projectsetup_area.cpp)
+target_link_libraries(paleo_services PRIVATE Paleo::paleo_data_service)
+target_link_libraries(paleo_workflow PRIVATE Paleo::paleo_data_service)
+add_paleo_test(tst_areamodel LIBS paleo_io paleo_services Paleo::paleo_data_service)

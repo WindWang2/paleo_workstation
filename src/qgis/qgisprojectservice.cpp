@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgisprojectservice.h"
+#include "../io/areamodel.h"
 
 #include "manifestprojection.h"
 #include "projectmapreference.h"
@@ -311,7 +312,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   {
     DataCatalog data;
     QString error;
-    if (!data.open(projectDir, &error)) {
+    if (!data.open(projectDir, &error) || !paleo::area_model::ensureProject(projectDir, &error)) {
       m_errors << tr("初始化工程数据目录失败：%1").arg(error);
       return false;
     }

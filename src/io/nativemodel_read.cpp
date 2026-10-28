@@ -1,5 +1,6 @@
 // 层：数据
 #include "nativemodel.h"
+#include "areamodel.h"
 #include "nativemodel_internal.h"
 #include "dataimport_log.h"
 #include "../catalog/datacatalog.h"
@@ -60,6 +61,8 @@ void headerFrom(const Reference &ref, LasHeaderInfo &header) {
 }
 
 void registerCatalog(const DataCatalog &catalog, const void *owner) {
+  paleo::area_model::registerProject(catalog.projectDir(), owner);
+  paleo::area_model::registerAliases(catalog, owner);
   QHash<QString, Reference> entries;
   for (const auto &version : catalog.versions()) {
     const auto binding = version.extra.value("nativeModel").toMap();
@@ -89,6 +92,7 @@ void registerCatalog(const DataCatalog &catalog, const void *owner) {
   projects.insert(owner, entries);
 }
 void unregisterCatalog(const void *owner) {
+  paleo::area_model::unregisterProject(owner);
   QMutexLocker lock(&mutex);
   projects.remove(owner);
 }
@@ -106,6 +110,9 @@ Read logHeader(const QString &path, LasHeaderInfo &header, QString *error) {
 
 Read log(const QString &path, LasHeaderInfo &header, QList<LasCurve> &curves,
          QString *error) {
+  const auto area = paleo::area_model::readLog(path, header, curves, error);
+  if (area == paleo::area_model::Read::Ready) return Read::Ready;
+  if (area == paleo::area_model::Read::Failed) return Read::Failed;
   const auto ref = lookup(path);
   if (!ref || ref->binding.value("kind") != QLatin1String("well_log")) return Read::Unbound;
   if (!ref->error.isEmpty()) return fail(error, ref->error);
@@ -160,6 +167,8 @@ Read open(const QString &path, const QString &kind, paleo::data::DataService &se
   return Read::Ready;
 }
 QString cacheToken(const QString &path) {
+  const auto area = paleo::area_model::cacheToken(path);
+  if (!area.isEmpty()) return area;
   const auto ref = lookup(path);
   if (!ref) return {};
   const QFileInfo file(ref->database);

@@ -27,6 +27,8 @@ signals:
   void previewReady(const ProjectSetupPreview &preview);
   void finished(const QString &summary, bool success);
 private:
+  void importAreaSources(const ProjectSetupSources &sources, const ProjectSetupPreview &preview, quint64 session);
+  void importCatalogSources(const ProjectSetupSources &sources, const ProjectSetupPreview &preview, quint64 session);
   void importMaps(const ProjectSetupSources &sources, const ProjectSetupPreview &preview,
                   quint64 session, const QString &summary, bool success, int group = 0);
   QPointer<QgisProjectService> m_project;
@@ -34,5 +36,7 @@ private:
   QPointer<QgisLayerService> m_mapLayers;
   QPointer<PaleoTaskService> m_mapTasks;
   std::shared_ptr<std::atomic_bool> m_stop;
+  std::shared_ptr<std::atomic_bool> m_areaStop;
+  quint64 m_areaGeneration = 0;
   quint64 m_generation = 0;
 };

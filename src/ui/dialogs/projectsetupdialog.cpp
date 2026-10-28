@@ -40,7 +40,14 @@ ProjectSetupDialog::ProjectSetupDialog(ProjectSetupWorkflow *workflow, QWidget *
   m_status = new QLabel(this); m_status->setWordWrap(true); m_status->setObjectName(QStringLiteral("projectSetupStatus")); layout->addWidget(m_status);
   auto *buttons = new QHBoxLayout;
   auto *empty = new QPushButton(tr("创建空白工程"), this); empty->setObjectName(QStringLiteral("createEmptyProjectButton")); buttons->addWidget(empty);
-  auto *review = new QPushButton(tr("直接核对"), this); buttons->addWidget(review); buttons->addStretch();
+  auto *directoryImport = new QPushButton(tr("创建并导入目录"), this);
+  directoryImport->setObjectName(QStringLiteral("createFromDirectoryButton")); buttons->addWidget(directoryImport);
+  connect(directoryImport, &QPushButton::clicked, this, [this] {
+    if (!QFileInfo(m_root->text().trimmed()).isDir()) { m_status->setText(tr("请选择有效的资料目录。")); return; }
+    m_directoryImport = true; finish();
+    if (result() != QDialog::Accepted) m_directoryImport = false;
+  });
+  auto *review = new QPushButton(tr("高级资料配置"), this); buttons->addWidget(review); buttons->addStretch();
   auto *cancel = new QPushButton(tr("取消"), this); buttons->addWidget(cancel);
   m_previous = new QPushButton(tr("上一步"), this); buttons->addWidget(m_previous);
   m_next = new QPushButton(tr("下一步"), this); m_next->setObjectName(QStringLiteral("projectSetupNextButton")); m_next->setDefault(true); buttons->addWidget(m_next);
@@ -48,7 +55,7 @@ ProjectSetupDialog::ProjectSetupDialog(ProjectSetupWorkflow *workflow, QWidget *
   connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
   connect(m_steps, &QTabBar::currentChanged, this, &ProjectSetupDialog::showStep);
   connect(m_previous, &QPushButton::clicked, this, [this] { m_steps->setCurrentIndex(m_steps->currentIndex() - 1); });
-  connect(review, &QPushButton::clicked, this, [this] { m_steps->setCurrentIndex(3); });
+  connect(review, &QPushButton::clicked, this, [this] { m_directoryImport = false; discover(); m_steps->setCurrentIndex(1); });
   connect(m_next, &QPushButton::clicked, this, [this] { if (m_steps->currentIndex() == 3) finish(); else m_steps->setCurrentIndex(m_steps->currentIndex() + 1); });
   connect(empty, &QPushButton::clicked, this, [this] {
     m_empty = true;
@@ -75,7 +82,10 @@ QWidget *ProjectSetupDialog::pathRow(QLineEdit *edit, bool directory, const QStr
     // 的「文本未变则不重扫」判等因分隔符差异误判为已修改，白扫一次井点。
     const QString normalized = QDir::fromNativeSeparators(path);
     edit->setText(normalized); m_dirty = true; ++m_revision;
-    if (edit == m_root) discover();
+    if (edit == m_root) {
+      discover();
+      if (m_name->text() == tr("未命名工程")) m_name->setText(QFileInfo(path).fileName());
+    }
     if (edit == m_paleomaps) scan();
     if (edit == m_points) { m_lastPointFile = normalized; for (auto *box : m_fields) box->clear(); m_crs->clear(); scan(); }
   });
@@ -84,11 +94,11 @@ QWidget *ProjectSetupDialog::pathRow(QLineEdit *edit, bool directory, const QStr
 QWidget *ProjectSetupDialog::projectPage()
 {
   auto *page = new QWidget(this); auto *layout = new QVBoxLayout(page);
-  auto *text = new QLabel(tr("选择资料总目录可自动填写各项。支持分井资料目录，也支持“坐标统计表＋测井 XML＋参考资料”的集中组织方式；创建后可继续补充资料。"), page); text->setWordWrap(true); layout->addWidget(text);
+  auto *text = new QLabel(tr("选择资料目录后，系统会递归导入支持的文件，建立工区数据模型。数据列表和地层图读取该模型；井点坐标和图层配置可稍后补充。"), page); text->setWordWrap(true); layout->addWidget(text);
   auto *form = new QFormLayout;
   m_name = new QLineEdit(tr("未命名工程"), page); m_name->setObjectName(QStringLiteral("projectNameEdit"));
   m_output = new QLineEdit(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QStringLiteral("/Paleo"), page); m_output->setObjectName(QStringLiteral("projectDirectoryEdit"));
-  m_root = new QLineEdit(page); m_root->setObjectName(QStringLiteral("projectSourceRootEdit")); m_root->setPlaceholderText(tr("可选：选择工区资料总目录，自动识别坐标表和测井文件夹"));
+  m_root = new QLineEdit(page); m_root->setObjectName(QStringLiteral("projectSourceRootEdit")); m_root->setPlaceholderText(tr("选择需要导入的资料目录，无需预先整理为固定文件夹结构"));
   form->addRow(tr("工程名称"), m_name); form->addRow(tr("工程保存位置"), pathRow(m_output, true)); form->addRow(tr("资料总目录（可选）"), pathRow(m_root, true));
   m_projectCrs = new PaleoCrsSelector(true, page);
   m_projectCrs->setObjectName(QStringLiteral("projectBaselineCrsEdit"));
@@ -96,8 +106,11 @@ QWidget *ProjectSetupDialog::projectPage()
   m_projectCrs->widget()->setToolTip(tr("统一井点、地震、层位和相图的计算基准。仅接受米制投影 CRS；未知坐标资料需先声明来源，不能仅修改标签。"));
   form->addRow(tr("工程基准坐标系"), m_projectCrs->widget());
   layout->addLayout(form);
-  auto *note = new QLabel(tr("将在保存位置下新建同名工程文件夹。原资料保留，工程默认登记资料索引并保存生成图层；移动资料后可重新定位。"), page); note->setWordWrap(true); layout->addWidget(note); layout->addStretch();
-  connect(m_root, &QLineEdit::editingFinished, this, &ProjectSetupDialog::discover);
+  auto *note = new QLabel(tr("将在保存位置下新建同名工程文件夹。原资料保留并由工程引用，解析后的数据保存在工区中；移动原资料后可重新定位。"), page); note->setWordWrap(true); layout->addWidget(note); layout->addStretch();
+  connect(m_root, &QLineEdit::editingFinished, this, [this] {
+    if (m_name->text() == tr("未命名工程") && !m_root->text().trimmed().isEmpty())
+      m_name->setText(QFileInfo(m_root->text().trimmed()).fileName());
+  });
   return page;
 }
 QWidget *ProjectSetupDialog::pointPage()
@@ -163,6 +176,9 @@ QWidget *ProjectSetupDialog::reviewPage()
 ProjectSetupSources ProjectSetupDialog::sources() const
 {
   if (m_empty || m_blankLocked) return {};
+  if (m_directoryImport) {
+    ProjectSetupSources s; s.root = m_root->text().trimmed(); s.projectCrs = m_projectCrs->text().trimmed(); return s;
+  }
   ProjectSetupSources s; s.root = m_root->text().trimmed(); s.points = m_points->text().trimmed(); s.wells = m_wells->text().trimmed(); s.seismic = m_seismic->text().trimmed(); s.horizons = m_horizons->text().trimmed(); s.references = m_references->text().trimmed(); s.boundary = m_boundary->text().trimmed();
   s.paleomaps = m_paleomaps->text().trimmed(); s.normalizeMaps = m_normalizeMaps->isChecked(); s.mapChoices = m_mapChoices;
   for (auto it = m_fields.cbegin(); it != m_fields.cend(); ++it) if (!it.value()->currentText().isEmpty()) s.pointMapping.insert(it.key(), it.value()->currentText());
@@ -192,6 +208,7 @@ void ProjectSetupDialog::discover()
 void ProjectSetupDialog::setSourceRoot(const QString &root) { m_root->setText(root); discover(); }
 void ProjectSetupDialog::setExistingProject(const QString &path, const ProjectSetupSources &s)
 {
+  findChild<QPushButton *>(QStringLiteral("createFromDirectoryButton"))->setText(tr("导入资料目录"));
   m_existingPath = path; setWindowTitle(tr("工程资料设置"));
   m_name->setText(QFileInfo(path).completeBaseName()); m_name->setEnabled(false);
   m_output->setText(QFileInfo(path).absolutePath()); m_output->setEnabled(false);
@@ -228,7 +245,7 @@ void ProjectSetupDialog::scan()
 }
 void ProjectSetupDialog::showPreview(const ProjectSetupPreview &p)
 {
-  if (m_blankLocked) return;
+  if (m_blankLocked || m_directoryImport) return;
   if (m_scanRevision != m_revision) { scan(); return; }
   m_preview = p; m_busy = false; m_dirty = false;
   showMaps(p);
@@ -323,12 +340,14 @@ void ProjectSetupDialog::showStep(int step)
     showCreationError(locationError); return;
   }
   if (step > 0) setProperty("paleo.creationError", QVariant());
+  findChild<QPushButton *>(QStringLiteral("createFromDirectoryButton"))->setDefault(step == 0);
+  m_next->setDefault(step != 0);
   m_pages->setCurrentIndex(step); m_previous->setEnabled(step > 0); m_next->setText(step == 3 ? (m_existingPath.isEmpty() ? tr("创建并导入") : tr("保存设置并导入")) : tr("下一步（本步可跳过）"));
   if ((step == 1 || step == 3) && m_dirty) scan();
   else if (step == 3) refreshReview();
 }
 ProjectSetupPreview ProjectSetupDialog::preview() const {
-  if (m_empty || m_blankLocked) {
+  if (m_empty || m_blankLocked || m_directoryImport) {
     ProjectSetupPreview result; result.projectCrs = m_projectCrs->text().trimmed(); return result;
   }
   return m_preview;
@@ -343,6 +362,11 @@ void ProjectSetupDialog::finish()
   }
   setProperty("paleo.creationError", QVariant());
   if (m_empty) { m_blankLocked = true; accept(); return; }
+  if (m_directoryImport) {
+    QString referenceError;
+    if (!m_projectCrs->validate(&referenceError, true)) { m_status->setText(referenceError); return; }
+    accept(); return;
+  }
   if (m_busy || m_dirty) { m_status->setText(tr("请等待本次识别完成后再创建。")); if (!m_busy) scan(); return; }
   if (!m_empty && !m_preview.errors.isEmpty()) { m_status->setText(tr("请调整有问题的资料来源，或将其清空后重新识别。")); return; }
   accept();
@@ -350,7 +374,7 @@ void ProjectSetupDialog::finish()
 
 void ProjectSetupDialog::showCreationError(const QString &error)
 {
-  m_blankLocked = false;
+  m_blankLocked = false; m_directoryImport = false;
   setProperty("paleo.creationError", error);
   m_steps->setCurrentIndex(0);
   m_status->setText(error);

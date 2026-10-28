@@ -441,6 +441,8 @@ bool PreviewDocService::wellCompositeAt(const QString &absPath,
 {
   if (!out)
     return false;
+  bool ready = false;
+  if (areaPreviewAt(absPath, nullptr, out, &ready, error)) return ready;
   return WellComposite::parseComprehensiveWellXml(absPath, *out, error);
 }
 
@@ -655,6 +657,7 @@ PreviewDocService::WorkbookPreview
 PreviewDocService::workbookPreviewAt(const QString &absPath)
 {
   WorkbookPreview out;
+  if (areaPreviewAt(absPath, &out, nullptr, nullptr, &out.error)) return out;
   const paleo::io::WorkbookReadResult wb = paleo::io::readWorkbook(absPath);
   out.ok = wb.ok;
   out.error = wb.error;

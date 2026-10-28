@@ -61,8 +61,12 @@ std::filesystem::path nativeDirectoryPath(const QString &directory)
 }
 
 ProjectSetupWorkflow::ProjectSetupWorkflow(QgisProjectService *project, FolderImportWorkflow *imports, QObject *parent)
-  : QObject(parent), m_project(project), m_imports(imports) {}
-ProjectSetupWorkflow::~ProjectSetupWorkflow() { if (m_stop) m_stop->store(true); }
+  : QObject(parent), m_project(project), m_imports(imports) {
+  if (project) connect(project, &QgisProjectService::projectAboutToClose, this, [this] {
+    if (m_areaStop) m_areaStop->store(true);
+  });
+}
+ProjectSetupWorkflow::~ProjectSetupWorkflow() { if (m_stop) m_stop->store(true); if (m_areaStop) m_areaStop->store(true); }
 ProjectSetupSources ProjectSetupWorkflow::discover(const QString &root) { return discoverProjectSources(root); }
 bool ProjectSetupWorkflow::containsProject(const QString &root)
 {
@@ -273,7 +277,14 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
   const quint64 session = m_project->sessionId();
   QTimer::singleShot(0, this, [this, sources, preview, session] {
     if (!m_project || m_project->sessionId() != session || !m_imports) return;
-    QString scanSummary;
+    importAreaSources(sources, preview, session);
+  });
+  return true;
+}
+void ProjectSetupWorkflow::importCatalogSources(const ProjectSetupSources &sources,
+    const ProjectSetupPreview &preview, quint64 session)
+{
+    QString scanSummary = preview.notes.join('\n');
     for (auto it = preview.sourceProblems.cbegin(); it != preview.sourceProblems.cend(); ++it)
       scanSummary += '\n' + tr("未导入 %1：%2").arg(it.key(), it.value());
     if (preview.paths.isEmpty()) {
@@ -302,6 +313,4 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
       }
       importMaps(sources, preview, session, summary, !failed && preview.sourceProblems.isEmpty() && error.isEmpty() && saved);
     }, preview.wellTargets, preview.hashes, {}, preview.paths, {}, preview.mappings);
-  });
-  return true;
 }

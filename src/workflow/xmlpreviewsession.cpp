@@ -37,6 +37,9 @@ void XmlPreviewSession::open(const QString &path, const QString &expectedSha)
           data.table.error = reason;
           return data;
         };
+        if (PreviewDocService::areaPreviewAt(path, &data.table, &data.chart,
+                                             &data.chartOk, &data.chartError))
+          return cancelled->load() ? XmlPreviewData{} : data;
         const QFileInfo info(path);
         if (!directory || !directory->isValid())
           return refuse(QStringLiteral("无法创建预览临时目录"));

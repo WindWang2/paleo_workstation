@@ -1,3 +1,5 @@
+#include "io/areamodel.h"
+#include "services/previewdoc.h"
 #include <QtTest>
 #include <QThread>
 #include <QSemaphore>
@@ -282,8 +284,12 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
     QVERIFY2(finished.first()[1].toBool(), qPrintable(finished.first()[0].toString()));
     QCOMPARE(service.catalog()->entities("well").size(), 2);
+    QVERIFY(QFileInfo::exists(paleo::area_model::directory(QFileInfo(target).absolutePath()) + "/data.sqlite"));
+    QCOMPARE(PreviewDocService::xmlDataListAt(root + QStringLiteral("/测井数据/A1.xml")).format, QString("data_service"));
     project.closeProject(); QVERIFY2(project.openProject(target), qPrintable(project.lastErrors().join('\n')));
     QCOMPARE(service.catalog()->entities("well").size(), 2);
+    QVERIFY(QFileInfo::exists(paleo::area_model::directory(QFileInfo(target).absolutePath()) + "/data.sqlite"));
+    QCOMPARE(PreviewDocService::xmlDataListAt(root + QStringLiteral("/测井数据/A1.xml")).format, QString("data_service"));
     QCOMPARE(workflow.currentSources().points, points);
     QCOMPARE(workflow.currentSources().wells, root + QStringLiteral("/测井数据"));
     QVERIFY(project.georeference().has_value());
@@ -298,6 +304,27 @@ private slots:
       QCOMPARE(samples.md, QVector<double>({1000, 1001})); QCOMPARE(samples.values, QVector<double>({8, 9}));
     }
     project.closeProject();
+  }
+  void directDirectoryCreationNeedsNoFolderConvention() {
+    QTemporaryDir dir; QString error;
+    const QString input = dir.filePath("arbitrary-layout");
+    QVERIFY(write(input + "/anything.xml", ImportUxFixtures::comprehensiveXml()));
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service,
+            [&service](const QString &p) { service.setProjectDir(QFileInfo(p).absolutePath()); });
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    ProjectSetupDialog dialog(&workflow);
+    dialog.findChild<QLineEdit *>("projectDirectoryEdit")->setText(dir.filePath("output"));
+    dialog.findChild<QLineEdit *>("projectSourceRootEdit")->setText(input);
+    dialog.findChild<QPushButton *>("createFromDirectoryButton")->click();
+    QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    QCOMPARE(dialog.sources().root, input); QVERIFY(dialog.preview().paths.isEmpty());
+    QSignalSpy done(&workflow, &ProjectSetupWorkflow::finished);
+    QVERIFY2(workflow.create(dialog.projectPath(), dialog.sources(), dialog.preview(), &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 30000);
+    QVERIFY2(done[0][1].toBool(), qPrintable(done[0][0].toString()));
+    const auto table = PreviewDocService::xmlDataListAt(input + "/anything.xml");
+    QVERIFY2(table.ok, qPrintable(table.error)); QCOMPARE(table.format, QString("data_service"));
   }
   void emptyRootDoesNotClaimRecognitionSucceeded() {
     QTemporaryDir dir;

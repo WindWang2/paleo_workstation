@@ -1,14 +1,17 @@
 # wave/seismic-engine-deep — 地震引擎深化的新测试挂载点
 # （源文件仍挂根 CMakeLists 模块表；新 vendor 源/测试集中此处，并行分支零冲突）
 
-add_paleo_test(tst_seismic_engine) # sdk::Dataset Open 矩阵/取消无半成品/paged 续跑幂等/瓦片/体素/LOD/interpolate 回落/P5 道字约定/StorageProfile
+# goal/perf-maintenance-20261027 链接收窄：engine/transcode 直接 include 面为
+# sbm+domain/seismic+services，perf 仅 sbm——伞式 paleo_core 会把 ui/workflow/
+# linkage/qgis/app/saribbon 全拖进 relink 闭包，按真实依赖改最小集（同 devex T1 口径）。
+add_paleo_test(tst_seismic_engine LIBS paleo_services) # sdk::Dataset Open 矩阵/取消无半成品/paged 续跑幂等/瓦片/体素/LOD/interpolate 回落/P5 道字约定/StorageProfile
 target_compile_definitions(tst_seismic_engine PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area"
   SEGY_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
 
 # 主线7 性能闸门：make_segy_fixture.py --mb 合成 ≥200MB 生产形状体（一次性
 # 生成缓存在构建目录，不入库）；QuickOpen/首剖面/时间片/任意剖面延迟预算。
-add_paleo_test(tst_seismic_perf)
+add_paleo_test(tst_seismic_perf LIBS paleo_sbm)
 # RUN_SERIAL：切片/索引墙钟基线在并行负载下偶发超限（tst_perf 先例）。
 set_tests_properties(tst_seismic_perf PROPERTIES RUN_SERIAL TRUE)
 find_program(PALEO_PERF_PYTHON3 NAMES python3 python)
@@ -28,7 +31,7 @@ target_compile_definitions(tst_seismic_baseline PRIVATE
   PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")
 
 # P5 Phase 1 转码链路：分阶段进度/断点续跑/并发写/质量报告/互斥/自适应 LOD
-add_paleo_test(tst_seismic_transcode)
+add_paleo_test(tst_seismic_transcode LIBS paleo_services)
 
 # P5 Phase 2 剖面 2D：三模/阈值极性/AGC/曲线/双刻度/纹理缓存/LOD 预算/
 # 8 档色标/导出/卷帘/道头卡/书签/复制/原因态

@@ -3,6 +3,6 @@
 target_sources(paleo_algorithms PRIVATE src/algorithms/welldist.cpp) # T11 welldist 单因素核
 
 # T10 ingestplan 幂等压力（重复执行/中断续跑/部分失败）+ 快照等价性
-add_paleo_test(tst_ingestplan)
+add_paleo_test(tst_ingestplan LIBS paleo_qgis)
 target_compile_definitions(tst_ingestplan PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

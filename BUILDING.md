@@ -172,10 +172,14 @@ cmake --build build -j8
 ctest --test-dir build -j8 --output-on-failure
 ```
 
-新 worktree 首次 configure 若漏 glm/saribbon/sbm/segyio 的 include，再跑同一条
-configure（已知接线问题，见 TODOS.md）。QScintilla 缺头 warning 在不包含
-QGIS 代码编辑器头的 Linux 构建中允许降级；Windows 使用已有 `CMAKE_PREFIX_PATH`
-前缀或显式 `-DQSCINTILLA_INCLUDE_DIR=<安装目录>/include` 提供头，详见任务框架历史账本。
+显式 `QGIS_PREFIX`（或 env `QGIS_PREFIX_PATH`）指向不存在的路径时，configure
+直接 FATAL_ERROR 并给出修复入口（早失败替代旧的静默回落系统栈——旧行为会
+链接系统库的同时把运行时 prefix 编译成悬空路径，见 TODOS.md P2 收口记录）；
+未显式给 prefix 时 configure 会用 STATUS 行明示命中的 QGIS 栈路线。护栏
+`ctest -R first_configure`（UNIX）用 stub prefix 覆盖依赖存在/缺失/幂等复用
+三情形。QScintilla 缺头 warning 在不包含 QGIS 代码编辑器头的 Linux 构建中
+允许降级；Windows 使用已有 `CMAKE_PREFIX_PATH` 前缀或显式
+`-DQSCINTILLA_INCLUDE_DIR=<安装目录>/include` 提供头，详见任务框架历史账本。
 
 ## Windows 本机开发（localdeps 统一链，方向 72）
 

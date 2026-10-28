@@ -322,6 +322,20 @@ add_test(NAME cpp_mainline_selftest COMMAND ${CMAKE_COMMAND}
          -P ${CMAKE_SOURCE_DIR}/cmake/verify-cpp-mainline.cmake)
 set_tests_properties(cpp_mainline cpp_mainline_selftest
                      PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+# ---- 新 worktree 首次 configure 早失败护栏（goal/perf-maintenance-20261027）----
+# cmake/verify-first-configure.cmake（cmake -P）：依赖存在（stub prefix 全链
+# 首配 + 四条 vendor include 落进 compile_commands——TODOS P2 原症状断言）/
+# 缺失（显式与 env 两路悬空 prefix 必须 configure 期 FATAL 且报文含修复
+# 入口）/ 幂等（同一命令重跑行为一致，不生成错误栈构建系统）。仅 UNIX
+# 注册：stub 库文件名/分隔符按 POSIX 写死，Windows 首配行为不在本护栏
+# 验收面（PR 如实标注，待 Windows 车道实跑后再放开）。
+if(UNIX)
+  add_test(NAME first_configure COMMAND ${CMAKE_COMMAND}
+           -DFIRSTCFG_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+           -DFIRSTCFG_BINARY_DIR=${CMAKE_BINARY_DIR}/first-configure-check
+           -P ${CMAKE_SOURCE_DIR}/cmake/verify-first-configure.cmake)
+  set_tests_properties(first_configure PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+endif()
 # 方向 81：paleo-dev.ps1 单元自检（AST 抽函数 + 合成夹具；-Mutate 换回 #297
 # 旧 Read-InstalledDbMap 必须被抓到）。找到 pwsh/powershell 才注册——Windows
 # CI 必跑，Linux 装了 pwsh 也跑。

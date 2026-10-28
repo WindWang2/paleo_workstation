@@ -54,7 +54,9 @@ class PaleoOnnxService : public QObject
     void setModelRoot(const QString &dir);         // models/<name>.onnx（清空注册表）
     // #145：模型注册表门控。manifest 存在 → 只有 status==Ok 的条目可见/可加载，
     // 按条目 file 解析路径并在加载时复核钉哈希；manifest 损坏 → 全部拒绝。
-    // 无 manifest（manifestFound=false）→ 开发降级：按目录枚举 *.onnx。
+    // #737：条目未钉 sha256 时加载期默认拒绝（缺钉哈希 = 文件被替换无从发现），
+    // 错误信息给出实测指纹供补钉；无 manifest（manifestFound=false）→ 开发降级：
+    // 按目录枚举 *.onnx（不走该闸）。
     // 须在 setModelRoot 之后调用（同一 models 目录的扫描结果）。
     void setModelRegistry(const ModelRegistryScan &scan);
     QStringList availableModels() const;            // 注册表 Ok 名；无 manifest 时 *.onnx basenames
@@ -113,6 +115,11 @@ class PaleoOnnxService : public QObject
     QString m_registryError;                        // manifest 损坏原因（非空 → 全拒绝）
     QHash<QString, ModelRegistryEntry> m_registryOk;   // name → Ok 条目
     QHash<QString, QString> m_registryRejected;        // name → 拒绝原因（诚实报错）
+    // 模型配置代际：setModelRoot/setModelRegistry 每次真变更 +1（持 m_mutex）。
+    // loadModelMeta 在解析路径的同一种际区取快照，收尾/入池段复核——解析与
+    // 构建之间换根或换注册表时，旧配置解析出的路径/池条目不得成为活动模型
+    // （只比 m_modelRoot 字符串不够：换注册表不改变根，池命中路径也绕开检查）。
+    quint64 m_modelConfigEpoch = 0;
     struct PoolEntry;                               // Ort::Session* + meta + LRU 戳（cpp 内定义）
     // 锁外推理期间的会话生命周期：条目带引用计数，被淘汰（LRU/指纹变化/
     // 换根/析构）时先退休（retired 列表），在飞 Run 归零后才真正 delete。

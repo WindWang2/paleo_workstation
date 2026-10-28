@@ -264,25 +264,26 @@ void LlmStreamParser::feed(const QByteArray &chunk, QStringList *deltas,
 
 QVector<ChatToolCall> LlmStreamParser::takeCompleteCalls() {
   QVector<ChatToolCall> out;
-  for (auto it = m_drafts.begin(); it != m_drafts.end();) {
-    const LlmToolDraft &draft = it.value();
+  // 按草稿 index 升序产出：QHash 迭代序任意，同一数据块内多个并行调用完成时
+  // 派发顺序不稳定——与 flush() 刻意保证的 index 升序相矛盾（下游按到达序
+  // 渲染工具调用帧）。收集后统一排序，只动顺序不动完成判定语义。
+  QList<int> indices = m_drafts.keys();
+  std::sort(indices.begin(), indices.end());
+  for (int index : indices) {
+    const LlmToolDraft draft = m_drafts.value(index);
     // 空实参不是「无参工具」，而是「分片还没到货」：真实服务首帧固定发
     // {id,name,arguments:""}，实参在后续增量里补齐——这里提前派发会把
     // 实参全丢（#278）。只有 arguments 非空且拼成合法 JSON 对象才算完成；
     // 真无参工具由 flush()（[DONE]/连接关闭）兜底产出。
-    if (!draft.hasIdentity() || draft.arguments.trimmed().isEmpty()) {
-      ++it;
+    if (!draft.hasIdentity() || draft.arguments.trimmed().isEmpty())
       continue;
-    }
     ChatToolCall call;
     call.id = draft.id;
     call.name = draft.name;
     call.argumentsJson = draft.arguments;
     if (call.hasValidArguments()) {
       out.append(call);
-      it = m_drafts.erase(it);
-    } else {
-      ++it;
+      m_drafts.remove(index);
     }
   }
   return out;
@@ -362,6 +363,11 @@ QNetworkReply *LlmClient::issueRequest(const QVector<ChatMessage> &messages,
   QNetworkRequest request(m_config.completionsUrl());
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     QStringLiteral("application/json"));
+  // 重定向策略显式设为手动（与 wellfaciesservice.cpp:230 同款纪律）：Qt 默认
+  // 会跟随跨源重定向，Bearer 密钥会被带到重定向目标主机上。此处不跟随——
+  // 3xx 由下方 finished 的 status 分支如实报错，调用方自行决定是否重试。
+  request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                       QNetworkRequest::ManualRedirectPolicy);
   request.setRawHeader(
     "Accept", m_config.stream ? "text/event-stream" : "application/json");
   if (!m_config.apiKey.isEmpty())
@@ -453,6 +459,19 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
     // 分类顺序：先看 HTTP 状态码，再看传输层错误——Qt 会把 401/403/404/5xx
     // 同时报成 error()（AuthenticationRequiredError 等），若先判 ok 就会把
     // 「密钥无效」误报成「网络错误」（实测 401 就踩过）。
+    if (status >= 300 && status < 400) {
+      // 请求不跟随重定向（见 issueRequest 的 RedirectPolicyAttribute）：3xx 必须
+      // 如实报错。若不拦，空体的重定向应答会走完「零增量 + finishUp(stop)」把
+      // 空答复冒充成功（#588 同款不诚实路径）。
+      const QString location =
+        reply->header(QNetworkRequest::LocationHeader).toString();
+      emit errorOccurred(
+        LlmErrorKind::Network,
+        QObject::tr("服务端要求重定向（HTTP %1 → %2）：未跟随（避免密钥跨源外泄）")
+          .arg(QString::number(status),
+               location.isEmpty() ? QStringLiteral("?") : location));
+      return;
+    }
     if (status == 401 || status == 403) {
       emit errorOccurred(
         LlmErrorKind::Unauthorized,

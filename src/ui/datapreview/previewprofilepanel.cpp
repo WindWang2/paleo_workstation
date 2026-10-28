@@ -451,7 +451,11 @@ bool PreviewProfilePanel::writeCsv( const QString &path ) const
       if ( sm.valid )
         ts << csvField( s.name ) << QStringLiteral( "," ) << QString::number( sm.distance, 'f', 2 )
            << QStringLiteral( "," ) << QString::number( sm.value, 'f', 4 ) << QLatin1Char( '\n' );
-  return true;
+  // 磁盘满/设备拔出/句柄被占：QTextStream 与 QFile 都要查——只看 open 结果
+  // 会把截断文件报成导出成功。
+  ts.flush();
+  return ts.status() == QTextStream::Ok && f.error() == QFile::NoError &&
+         f.flush() && f.error() == QFile::NoError;
 }
 
 bool PreviewProfilePanel::writePng( const QString &path ) const

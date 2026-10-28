@@ -60,13 +60,16 @@ QImage Seismic3DViewportWidget::grabViewportImage() {
 
 void Seismic3DViewportWidget::setWells(const std::vector<Seismic3DWell> &wells) {
     wellsForLabels_ = wells; // D7.3 标注叠绘原料（无 GL 也更新）
-    if (!volume_)
-        return;
-    if (glInitialized_) {
+    if (glInitialized_ && volume_ && volume_->IsLoaded()) {
         makeCurrent();
         frameRenderer_.UpdateWells(this, *volume_, wells);
         doneCurrent();
         update();
+        wellsPending_ = false;
+    } else {
+        // GL 未就绪（或体未到）不得静默丢弃：暂存副本，initializeGL /
+        // setVolume 就绪后补传（同 horizonsPending_ 契约）
+        wellsPending_ = true;
     }
 }
 
@@ -142,12 +145,16 @@ void Seismic3DViewportWidget::setWellLabelsVisible(bool visible) {
 
 void Seismic3DViewportWidget::setSecondaryVolume(std::shared_ptr<const SgyVolume> secondary) {
     secondaryVolume_ = std::move(secondary);
-    if (!volume_ || !glInitialized_)
-        return;
-    makeCurrent();
-    frameRenderer_.SetSecondaryVolume(this, *volume_, secondaryVolume_);
-    doneCurrent();
-    update();
+    if (glInitialized_ && volume_ && volume_->IsLoaded()) {
+        makeCurrent();
+        frameRenderer_.SetSecondaryVolume(this, *volume_, secondaryVolume_);
+        doneCurrent();
+        update();
+        secondaryPending_ = false;
+    } else {
+        // 同 setWells：GL/体未就绪时暂存，就绪后补传（次级体轮廓不得静默丢失）
+        secondaryPending_ = true;
+    }
 }
 
 } // namespace seismic

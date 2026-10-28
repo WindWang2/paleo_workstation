@@ -148,7 +148,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 QPointF(curtainPx - 7.0, vp.center().y() + 9.0),
                 QPointF(curtainPx - 2.0, vp.center().y())}));
             p.setFont(bodyFont);
-            p.setPen(QColor(QStringLiteral("#24303E")));
+            p.setPen(tok.text); // finding-157：随主题墨色——暗色画布下硬编码浅色墨几乎不可见
             // #482：A 侧恒为「当前」剖面——画布不持有当前剖面名（类定义
             // 冻结，无标签成员可填；旧实现两分支同串 tr("当前") 的死三元
             // 即此未写完的 A 侧标签，按「帘左 A（当前）」语义落定）。B 侧

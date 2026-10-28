@@ -121,7 +121,8 @@ bool writeBandRaster( const QString &path, int rows, int cols, GDALDataType dt,
   GDALDriverH drv = GDALGetDriverByName( "GTiff" );
   if ( !drv )
   {
-    *error = QObject::tr( "GTiff driver is not available" );
+    if ( error )
+      *error = QObject::tr( "GTiff 驱动不可用" );
     return false;
   }
   if ( QFile::exists( path ) )
@@ -129,7 +130,8 @@ bool writeBandRaster( const QString &path, int rows, int cols, GDALDataType dt,
   GDALDatasetH ds = GDALCreate( drv, path.toUtf8().constData(), cols, rows, 1, dt, nullptr );
   if ( !ds )
   {
-    *error = QObject::tr( "cannot create raster %1" ).arg( path );
+    if ( error )
+      *error = QObject::tr( "无法创建栅格 %1" ).arg( path );
     return false;
   }
   GDALSetGeoTransform( ds, const_cast<double *>( grid.gt ) );
@@ -141,7 +143,8 @@ bool writeBandRaster( const QString &path, int rows, int cols, GDALDataType dt,
   {
     GDALClose( ds );
     QFile::remove( path );
-    *error = QObject::tr( "failed to write raster %1" ).arg( path );
+    if ( error )
+      *error = QObject::tr( "栅格写入失败 %1" ).arg( path );
     return false;
   }
   if ( !provenanceJson.isEmpty() )
@@ -288,7 +291,10 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
   DerivedAssetRegistrar registrar( m_catalog, m_projectDir );
   if ( !registrar.isBound() )
   {
-    *error = tr( "AI 辅助未绑定 catalog 登记通道（T26）" );
+    // error 形参默认 nullptr（头文件契约）：writeTileProducts 亦可按默认契约
+    // 被调用，判空写入与同文件其余失败路径一致。
+    if ( error )
+      *error = tr( "AI 辅助未绑定 catalog 登记通道（T26）" );
     return false;
   }
   const int rows = result.grid.rows;
@@ -436,6 +442,13 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
     decl.title = p.title;
     if ( !m_layers->declare( decl, error ) )
     {
+      // 与另外三条失败路径对称：本段受管字节已 commit（只读），但尚未进
+      // committed 列表——transaction.abort() 只回滚 catalog，不删字节。
+      // 先恢复可写再删，否则 Windows 上删不掉， artifacts/derived 留下
+      // 「既未登记、库里又无」的孤儿文件。
+      QFile::setPermissions( st.absolutePath, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                               QFileDevice::ReadUser );
+      QFile::remove( st.absolutePath );
       discardCommitted();
       transaction.abort();
       return false;

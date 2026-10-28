@@ -173,10 +173,13 @@ void WellPredictionService::prepare() {
   QVector<Source> sources;
   ProjectDataFacade project;
   project.setCatalog(m_catalog, m_dir);
-  WellSectionWorkflow lithology(m_catalog);
   QStringList ids;
   for (const auto &v : m_request.wells) ids << v.toMap().value("id").toString();
-  const auto lithologies = lithology.lithologiesFor(ids);
+  // #213：岩性来源与剖面页同源——按壳层注入的显式解释岩性资产选择表取岩性，
+  // 不再用局部实例的默认「取最新」仲裁（否则用户在剖面页选定的解释资产被静默
+  // 忽略，预测输入的岩性与界面展示的不是同一份）。
+  const auto lithologies = WellSectionWorkflow::lithologiesForSelection(
+      m_catalog, m_dir, ids, m_lithoSelections);
   for (const auto &v : m_request.wells) {
     const auto well = v.toMap();
     const QString id = well.value("id").toString();

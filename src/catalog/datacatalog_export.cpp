@@ -10,6 +10,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMetaType>
 #include <QSaveFile>
 
 #include <cmath>
@@ -25,6 +26,12 @@ using paleo::store_detail::setError;
 
 bool DataCatalog::exportCatalogJson(const QString &path, QString *error) const
 {
+  // #476：快照导出读全部四张共享容器——与其它 const 读方法同款线程门。
+  if (!noteRead("exportCatalogJson"))
+  {
+    setError(error, tr("catalog 读取被拒绝：exportCatalogJson 不在 catalog 所属线程调用"));
+    return false;
+  }
   CatalogStore::Tables tables;
   tables.entities = m_entities;
   tables.assets = m_assets;
@@ -59,8 +66,26 @@ bool DataCatalog::writeSurveyGeoJson(const QString &path, QString *error) const
 {
   QJsonArray features;
   const auto areas = entities(QStringLiteral("seismic_survey")) + entities(QStringLiteral("study_area"));
+  // #476：entities() 读被拒（跨线程）时 areas 同样为空——落盘会把上一份好
+  // 文件换成空 FeatureCollection（图层要素全消失且无错误上报）。与
+  // writeWellsGeoJson 同约定：没有可导出的测区就不写文件、也不算失败。
+  if (areas.isEmpty())
+    return true;
   for (const auto &survey : areas) {
-    if (survey.corners.size() < 3) continue;
+    // 有 boundaryGeometry 时它是权威几何（面矢量导入的原始边界，见
+    // io/projectboundary.cpp）：不拿角点门槛卡它——只导 boundary 的
+    // study_area（ corners 为空或不足 3）此前被整条跳过，图层直接丢一个测区。
+    const auto boundary = survey.extra.value(QStringLiteral("boundaryGeometry"));
+    QJsonObject boundaryGeometry;
+    if (boundary.typeId() == QMetaType::QVariantMap) {
+      const auto candidate = QJsonObject::fromVariantMap(boundary.toMap());
+      // OGR 只认 Polygon：非面/非对象/coordinates 不是环数组的坏值不能冒充
+      // 几何——静默写进去会让图层读到空几何或解析失败。回落角点环。
+      if (candidate.value(QStringLiteral("type")).toString() == QLatin1String("Polygon") &&
+          candidate.value(QStringLiteral("coordinates")).isArray())
+        boundaryGeometry = candidate;
+    }
+    if (boundaryGeometry.isEmpty() && survey.corners.size() < 3) continue;
     double xmin = std::numeric_limits<double>::infinity(), ymin = xmin;
     double xmax = -xmin, ymax = -xmin;
     int finiteCorners = 0;
@@ -70,20 +95,23 @@ bool DataCatalog::writeSurveyGeoJson(const QString &path, QString *error) const
       xmin = std::min(xmin, corner.first); xmax = std::max(xmax, corner.first);
       ymin = std::min(ymin, corner.second); ymax = std::max(ymax, corner.second);
     }
-    if (finiteCorners < 3 || !(xmin < xmax && ymin < ymax)) continue;
-    QJsonArray ring;
-    for (const auto &corner : survey.corners)
-      if (std::isfinite(corner.first) && std::isfinite(corner.second)) ring.append(QJsonArray{corner.first, corner.second});
-    if (ring.first() != ring.last()) ring.append(ring.first());
-    // Polygon 的 coordinates 是环数组；QJsonArray{ring} 会调用拷贝构造，
-    // 把必要的外层数组丢掉，导致 OGR 读到空几何。
-    QJsonArray rings;
-    rings.append(ring);
+    if (boundaryGeometry.isEmpty() &&
+        (finiteCorners < 3 || !(xmin < xmax && ymin < ymax))) continue;
+    QJsonObject geometry = boundaryGeometry;
+    if (geometry.isEmpty()) {
+      QJsonArray ring;
+      for (const auto &corner : survey.corners)
+        if (std::isfinite(corner.first) && std::isfinite(corner.second)) ring.append(QJsonArray{corner.first, corner.second});
+      if (ring.first() != ring.last()) ring.append(ring.first());
+      // Polygon 的 coordinates 是环数组；QJsonArray{ring} 会调用拷贝构造，
+      // 把必要的外层数组丢掉，导致 OGR 读到空几何。
+      QJsonArray rings;
+      rings.append(ring);
+      geometry = QJsonObject{{"type", "Polygon"}, {"coordinates", rings}};
+    }
     features.append(QJsonObject{{"type", "Feature"},
         {"properties", QJsonObject{{"id", survey.id}, {"name", survey.name}}},
-        {"geometry", survey.extra.contains(QStringLiteral("boundaryGeometry"))
-             ? QJsonObject::fromVariantMap(survey.extra.value(QStringLiteral("boundaryGeometry")).toMap())
-             : QJsonObject{{"type", "Polygon"}, {"coordinates", rings}}}});
+        {"geometry", geometry}});
   }
   const QJsonObject root{{"type", "FeatureCollection"},
       {"crs", QJsonObject{{"type", "name"}, {"properties", QJsonObject{{"name", localGridCrsWkt()}}}}},
@@ -104,6 +132,10 @@ bool DataCatalog::writeWellsGeoJson(const QString &path, QString *error) const
 {
   // §4 井位图层数据源：只写有 surface 坐标且坐标有限的井；坐标是原始
   // surface_x/y（局部测网米），真投影参数出现前地图一直读它。
+  // #476：直接遍历共享容器 m_entities——与其它 const 读方法同款线程门
+  // （空井集本来就「不写文件、返回 true」，读被拒不会留下坏文件）。
+  if (!noteRead("writeWellsGeoJson"))
+    return true;
   QJsonArray feats;
   for (const CatalogEntity &e : m_entities)
   {

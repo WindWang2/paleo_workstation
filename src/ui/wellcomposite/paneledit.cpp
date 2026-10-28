@@ -4,6 +4,7 @@
 #include "editsession.h"
 #include "stratassignment.h"
 #include <QDialog>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -50,9 +51,12 @@ bool WellCompositePanel::saveDerived()
   // D1（wave/deepen-perf）：审计逐条随行——壳侧登记写「编辑审计」工作表
   emit derivedDocumentReady(derived, summary, m_editSession->auditLines());
 
-  // D3.11 审计摘要同步 sidecar（auditLog 在各编辑操作时已逐条累积）
-  if (m_store)
-    m_store->save();
+  // D3.11 审计摘要同步 sidecar（auditLog 在各编辑操作时已逐条累积）。
+  // sidecar 保存失败不得 markSaved()——否则脏态被清掉，钉注/书签/编辑审计
+  // 静默丢失且没有重试路径（保存失败后状态残留即重试入口）。
+  const bool sidecarOk = !m_store || persistSidecar();
+  if (!sidecarOk)
+    return false;
   m_editSession->markSaved();
   return true;
 }
@@ -123,13 +127,29 @@ void WellCompositePanel::loadSidecar()
   m_canvas->updateAll();
 }
 
-void WellCompositePanel::saveSidecar() const
+bool WellCompositePanel::persistSidecar()
+{
+  if (!m_store)
+    return false;
+  if (m_store->save())
+    return true;
+  // 保存失败如实上报：旧实现在全部 8 处调用点丢弃 save() 的 bool，钉注/书签/
+  // 地层指派/曲线覆盖层写不上去却毫无提示，用户以为已持久化。
+  PaleoNotify::warning(this, tr("井组合数据保存失败"),
+                       tr("无法写入 %1，本次修改未持久化，请重试或检查目录权限。")
+                           .arg(QDir::toNativeSeparators(m_store->sidecarPath())));
+  if (m_lblStatus)
+    m_lblStatus->setText(tr("保存失败: %1").arg(QDir::toNativeSeparators(m_store->sidecarPath())));
+  return false;
+}
+
+void WellCompositePanel::saveSidecar()
 {
   if (!m_store)
     return;
   m_store->setPins(m_canvas->pins());
   m_store->setBookmarks(m_bookmarks);
-  m_store->save();
+  persistSidecar();
 }
 
 void WellCompositePanel::applyStratAssignments(QVector<FormationInterval> *formations) const

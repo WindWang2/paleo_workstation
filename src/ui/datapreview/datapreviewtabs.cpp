@@ -10,6 +10,7 @@
 #include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
 #include "../../io/lasdoc.h"              // LasCurve（白名单：数据模型）
 #include "../../services/previewdoc.h"    // 唯一数据门面——解析/解码/SHA/PDF 编排全经它（W1）
+#include "../../services/seismictaskservice.h" // 瓦片渐进时间片信号（timeSliceTileReady 路由）
 #include "../../services/sectiondoc.h"   // SectionDoc 完整定义（方向 59 拆细头；onSectionReady 触碰成员）
 #include "../../services/welllogset.h"    // 井曲线并集（综合柱状图；只读 ~C 头）
 #include "../../services/paleotaskservice.h" // PaleoTask 进度/取消（地震转码区）
@@ -255,6 +256,56 @@ void DataPreviewTabs::setDocService(PreviewDocService *doc)
   attachDoc(doc);
 }
 
+// 瓦片渐进时间片路由（wave/seismic-engine-deep 主线2）：服务信号是广播的，
+// 按「画布 → (工作区, 采样号)」登记表逐项匹配，只贴都对上的那一块画布。
+// 只按采样号路由时，两个地震标签页开到同一采样号，瓦片会贴到后登记的画布上
+// （另一体的振幅块静默上屏）——故工作区身份（.sf3p 路径）一起进路由键。
+void DataPreviewTabs::connectTiledTileRoute(seismic::SeismicTaskService *tileService)
+{
+  if (!tileService || m_tiledSignalService == tileService)
+    return; // 每服务只接一次；门面重挂（换服务实例）时自动重接
+  m_tiledSignalService = tileService;
+  connect(tileService, &seismic::SeismicTaskService::timeSliceTileReady, this,
+          [this](const seismic::SeismicTimeTile &tile) {
+            if (!tile.image)
+              return;
+            for (const TiledTarget &t : m_tiledTargets)
+            {
+              if (!t.canvas || t.workspace != tile.datasetPath ||
+                  t.sampleIndex != tile.sampleIndex)
+                continue;
+              auto *canvas = qobject_cast<seismic::SeismicSectionCanvas *>(t.canvas.data());
+              if (canvas)
+                canvas->appendTimeSliceTile(*tile.image, tile.x, tile.y);
+              break; // 同一画布只会登记一条世代表
+            }
+          });
+}
+
+// 登记本次瓦片请求的画布身份：同画布的新请求顶替旧登记，不同画布（另一地震
+// 标签页）各登记一条；已销毁画布的登记顺手回收（迟到瓦片不会误贴）。
+void DataPreviewTabs::registerTiledTarget(QWidget *canvas, const QString &workspace,
+                                          int sampleIndex)
+{
+  bool registered = false;
+  for (TiledTarget &t : m_tiledTargets)
+  {
+    if (!t.canvas)
+      continue;
+    if (t.canvas == canvas)
+    {
+      t.workspace = workspace;
+      t.sampleIndex = sampleIndex;
+      registered = true;
+    }
+  }
+  if (!registered)
+    m_tiledTargets.append({canvas, workspace, sampleIndex});
+  for (int i = m_tiledTargets.size() - 1; i >= 0; --i)
+    if (!m_tiledTargets[i].canvas)
+      m_tiledTargets.removeAt(i);
+}
+
 void DataPreviewTabs::attachDoc(PreviewDocService *doc)
 {
   if (m_doc)
@@ -395,8 +446,8 @@ void DataPreviewTabs::closeAllTabs()
   }
   m_pendingSection.clear();
   m_pendingLas.clear();
-  m_tiledCanvas.clear();
-  m_tiledSample = -1;
+  m_tiledTargets.clear();
+  m_shaFailedOfVersion.clear();
   m_tabs->setVisible(false);
   m_emptyLabel->setVisible(true);
 }
@@ -431,6 +482,9 @@ bool DataPreviewTabs::relocateMissingSourceWith(const QString &assetId,
   }
   if (m_doc)
     m_doc->resetSha(assetId);
+  // 重新定位后旧指纹失配态作废——新源文件重新复验（后台任务回来后才会
+  // 再次回填，绝不拿上一次的失败原因钉死这一版）。
+  m_shaFailedOfVersion.remove(versionId);
   rebuildAssetTab(assetId);
   return true;
 }

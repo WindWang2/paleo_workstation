@@ -69,7 +69,7 @@ void WellCompositePanel::onPinCreateRequested(double depth)
   if (m_store)
   {
     m_store->setPins(pins);
-    m_store->save();
+    persistSidecar();
   }
 }
 
@@ -91,7 +91,7 @@ void WellCompositePanel::onPinEditRequested(int pinIndex)
   if (m_store)
   {
     m_store->setPins(pins);
-    m_store->save();
+    persistSidecar();
   }
 }
 
@@ -101,7 +101,7 @@ void WellCompositePanel::clearPins()
   if (m_store)
   {
     m_store->setPins({});
-    m_store->save();
+    persistSidecar();
   }
 }
 
@@ -113,7 +113,7 @@ void WellCompositePanel::addPinAt(double depth, const QString &text)
   if (m_store)
   {
     m_store->setPins(pins);
-    m_store->save();
+    persistSidecar();
   }
 }
 
@@ -164,7 +164,7 @@ bool WellCompositePanel::addBookmark(const QString &name, double depth)
   if (m_store)
   {
     m_store->setBookmarks(m_bookmarks);
-    m_store->save();
+    persistSidecar();
   }
   return true;
 }
@@ -175,7 +175,7 @@ void WellCompositePanel::setBookmarks(const QList<DepthBookmark> &bms)
   if (m_store)
   {
     m_store->setBookmarks(m_bookmarks);
-    m_store->save();
+    persistSidecar();
   }
 }
 

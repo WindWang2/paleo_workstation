@@ -191,7 +191,9 @@ QVariantList analyze(const QList<Opinion> &opinions, int targetFaciesCode,
   }
   const int majorityOpinionCount = votes.value(majorityCode, 0); // 不含图斑票
 
-  // 规则 2：known 编码 >=2 个不同值 → 每个少数方一条 Warning。
+  // 规则 2：参与计票的不同编码 >=2 个（effectiveVotes 含自动归因时图斑的
+  // 自投票，故与「known 编码 >=2 个不同值」相差一票——门按计票后的实际
+  // 分歧数取，注释口径以此为准）→ 每个少数方一条 Warning。
   QSet<int> flaggedMinority;
   if (effectiveVotes.size() >= 2) {
     for (int index : knownIndexes) {
@@ -277,6 +279,35 @@ QVariantList analyze(const QList<Opinion> &opinions, int targetFaciesCode,
           QStringLiteral("定位『%1』复核该意见，或修正人工解释").arg(displayName(op)),
           locatorFor(op));
     }
+  }
+
+  // 规则 3b：自动归因下全体 known 意见一致、但一致的那个编码 ≠ 图斑编码。
+  // 此前这一格零 finding：规则 2 的循环体跳过全部一致意见（op.faciesCode
+  // == majorityCode），规则 3 只覆盖 !autoAttributed，规则 1 又要求
+  // votes.contains(targetFaciesCode)——「全体一致反对图斑」于是不可见
+  // （finding-32）。
+  if (autoAttributed && !knownIndexes.isEmpty() && votes.size() == 1 &&
+      majorityCode != targetFaciesCode) {
+    QStringList names;
+    for (int index : knownIndexes) names << displayName(opinions[index]);
+    const QString shown =
+        names.size() <= 3 ? names.join(QStringLiteral("、"))
+                          : names.mid(0, 3).join(QStringLiteral("、")) + QStringLiteral(" 等");
+    const QString targetText = targetFaciesCode == 0
+                                  ? QStringLiteral("空（图斑未定相）")
+                                  : QStringLiteral("相 %1").arg(targetFaciesCode);
+    add(QStringLiteral("Warning"), QStringLiteral("consensus_target_conflict"),
+        QStringLiteral("interpretation_contradiction"), QStringLiteral("aggregation"),
+        QStringLiteral("%1 个相意见来源").arg(knownIndexes.size()), QString(),
+        QStringLiteral("%1 个来源一致判为相 %2，与图斑编码%3不符")
+            .arg(knownIndexes.size())
+            .arg(majorityCode)
+            .arg(targetText),
+        QStringLiteral("来源：%1；图斑编码为%2（attribution.status=%3，无少数方意见）")
+            .arg(shown)
+            .arg(targetText)
+            .arg(attributionStatus.isEmpty() ? QStringLiteral("缺失") : attributionStatus),
+        QStringLiteral("复核图斑编码与全部相意见的差异，必要时人工裁决"));
   }
 
   // 规则 8 + 约束状态：意见附带上下文的数据质量检查（known 与否都查）。

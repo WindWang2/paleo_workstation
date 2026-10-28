@@ -34,11 +34,50 @@ QVector<QPair<double, double>> pointsFromList(const QVariant &v)
 {
     QVector<QPair<double, double>> points;
     const QVariantList list = v.toList();
-    if (list.size() % 2 != 0)
-        return points;
+    // 奇数长度：保留 floor(n/2) 个成对点、丢弃末尾落单标量（旧实现整条清空，
+    // 于是一条损坏的点列让整条棒消失）。长度奇数本身由 fromJson /
+    // applySurfacesJson 侧如实报错——此处只保证「读到的点是成对的」。
+    points.reserve(list.size() / 2);
     for (int i = 0; i + 1 < list.size(); i += 2)
         points.append({list.at(i).toDouble(), list.at(i + 1).toDouble()});
     return points;
+}
+
+// 结构自检（finding-35）：棒点列平铺为 [x0,y0,…]，奇数长度 = 末尾落单一个
+// 标量；三角形记 {a,b,c} 对象或平铺三元组，缺元素 = 拓扑残行。两者此前都被
+// 静默吞掉（点列整条清空 / 三角形 continue），fromJson 全链无错误提示——
+// 断面几何与用户看到的数据静默不一致。返回空串 = 无结构问题。
+QString stickPointsDefect(const QVariantMap &stickMap)
+{
+    const QVariantList pts = stickMap.value(QStringLiteral("points")).toList();
+    if (!pts.isEmpty() && pts.size() % 2 != 0)
+        return QStringLiteral("棒 %1 的点列长度为奇数（%2 个标量，应成对为 x,y）")
+            .arg(stickMap.value(QStringLiteral("id")).toString(), QString::number(pts.size()));
+    return QString();
+}
+
+QString triangleDefect(const QVariantMap &surfaceMap)
+{
+    for (const QVariant &tv : surfaceMap.value(QStringLiteral("triangles")).toList()) {
+        const QVariantMap asMap = tv.toMap();
+        if (asMap.contains(QStringLiteral("a"))) {
+            if (!asMap.contains(QStringLiteral("b")) || !asMap.contains(QStringLiteral("c")))
+                return QStringLiteral("断面三角形缺 b/c 元素");
+        } else if (tv.toList().size() < 3) {
+            return QStringLiteral("断面三角形不足 3 个元素");
+        }
+    }
+    return QString();
+}
+
+QString faultDefect(const QVariantMap &faultMap)
+{
+    for (const QVariant &sv : faultMap.value(QStringLiteral("sticks")).toList()) {
+        const QString defect = stickPointsDefect(sv.toMap());
+        if (!defect.isEmpty())
+            return defect;
+    }
+    return triangleDefect(faultMap.value(QStringLiteral("surface")).toMap());
 }
 } // namespace
 
@@ -697,6 +736,12 @@ bool FaultSet::applySurfacesJson(const QByteArray &json, QString *error)
                 *error = QStringLiteral("断层 %1 的断面不是对象").arg(it.key());
             return false;
         }
+        const QString defect = triangleDefect(it.value().toObject().toVariantMap());
+        if (!defect.isEmpty()) {
+            if (error)
+                *error = QStringLiteral("断层 %1：%2").arg(it.key(), defect);
+            return false;
+        }
     }
     clearSurfaces();
     for (auto it = root.begin(); it != root.end(); ++it)
@@ -757,6 +802,14 @@ bool FaultSet::fromJson(const QByteArray &json, QString *error)
         if (f.id.isEmpty() || f.name.isEmpty()) {
             if (error)
                 *error = QStringLiteral("FaultSet 断层缺 id/name");
+            return false;
+        }
+        // finding-35：棒点列奇数长度 / 断面三角形缺元素不再静默吞掉——点列
+        // 已按 floor(n/2) 保留成对点，但数据本身损坏须拒用并指名。
+        const QString defect = faultDefect(v.toObject().toVariantMap());
+        if (!defect.isEmpty()) {
+            if (error)
+                *error = QStringLiteral("断层 %1：%2").arg(f.id, defect);
             return false;
         }
         if (f.id.startsWith(QLatin1String("f-")))

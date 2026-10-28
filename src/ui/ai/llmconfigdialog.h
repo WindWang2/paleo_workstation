@@ -4,6 +4,7 @@
 #include <QDialog>
 
 class QCheckBox;
+class QCloseEvent;
 class QDialogButtonBox;
 class QLabel;
 class QLineEdit;
@@ -25,6 +26,9 @@ class QSpinBox;
 //     助手保持禁用态并在状态行如实说明（诚实面，不冒充可用）。
 //   · 异步应用期间按钮禁用（busy 态），防止重复提交；结果经
 //     onApplyResult 回流，失败停留并提示，成功才关窗。
+//   busy 期间 reject()/closeEvent() 一并拦截：Esc、标题栏关闭、Alt+F4
+//   都不得在异步写入在途时关窗——关窗即让完成回调随对话框连接作废，
+//   落成「磁盘已存、运行时未应用」的静默分叉。
 class LlmConfigDialog : public QDialog {
   Q_OBJECT
 public:
@@ -41,6 +45,8 @@ signals:
 
 private:
   void accept() override;
+  void reject() override;
+  void closeEvent(QCloseEvent *event) override;
   LlmConfig formConfig() const;
   void note(const QString &text);
   void setBusy(bool busy);

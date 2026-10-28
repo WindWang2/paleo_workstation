@@ -48,8 +48,12 @@ void PreviewDocService::requestSurveyBounds(const QString &assetId,
     auto *task = m_taskSvc->start(tr("恢复完整测区范围"), work, QString(), true);
     m_surveyTask = task;
     connect(task, &PaleoTask::finished, this, [apply, task] {
-      if (task->state() != PaleoTask::State::Cancelled)
-        apply(task->state() == PaleoTask::State::Succeeded, task->errorText());
+      // 取消也走 apply：done 必须恰好回调一次，否则调用方 UI 永远挂在
+      // 「正在后台恢复」（旧实现 Cancelled 分支直接 return，done 永不执行）。
+      // 世代判定在 apply 内已有陈旧保护——新一代请求的结果照常丢弃；取消
+      // 态给空角点 + 错误文本，与 requestSection 的
+      // seismicSectionCancelled 同口径（完成通知，不是静默丢弃）。
+      apply(task->state() == PaleoTask::State::Succeeded, task->errorText());
     });
   } else {
     const QString error = work(nullptr);

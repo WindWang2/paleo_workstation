@@ -6,6 +6,6 @@ src/ui/edittools/editingtoolbar.cpp:1106
 src/ui/edittools/vertexeditortools.cpp:1318
 src/ui/pages/entitypanel.cpp:1462
 src/ui/pages/mappingworkbenchpage.cpp:1200
-src/ui/seismic3d/seismic3dviewpanel.cpp:1775
+src/ui/seismic3d/seismic3dviewpanel.cpp:1642
 src/ui/wellsection/wellsectionpanel.cpp:1541
 src/ui/welltops/welltopseditordialog.cpp:1006

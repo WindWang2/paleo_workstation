@@ -291,14 +291,29 @@ void OfficePreviewSession::readSocket(QTcpSocket *socket)
     const int colon = line.indexOf(':');
     if (colon > 0) headers.append({line.left(colon).trimmed(), line.mid(colon + 1).trimmed()});
   }
-  const int length = headerValue(headers, "content-length").toInt();
-  if (length < 0 || length > 256 * 1024 * 1024)
+  // #205：toInt() 不检查 ok——超范围/畸形值溢出为 0，等于宣称「无体」，
+  // 256MB 预算门被绕过且写 0 字节文件还按成功上报。解析失败按 400 拒；
+  // 无 Content-Length 头（GET/HEAD）按「无体」处理，不因此拒绝。
+  const QByteArray lengthHeader = headerValue(headers, "content-length");
+  bool lengthOk = !lengthHeader.isEmpty();
+  int length = 0;
+  if (!lengthHeader.isEmpty())
+    length = lengthHeader.toInt(&lengthOk);
+  if (!lengthOk || length < 0 || length > 256 * 1024 * 1024)
   {
-    respond(socket, 413, "Payload Too Large", "text/plain; charset=utf-8", "body");
+    respond(socket, lengthOk ? 413 : 400, lengthOk ? "Payload Too Large" : "Bad Request",
+            "text/plain; charset=utf-8", "body");
     return;
   }
   if (buf.size() - (headerEnd + 4) < length)
   {
+    // 声明了体长却收不满：累计缓冲一超预算即拒，不允许无限堆积等一个
+    // 永远不来的字节流（#205）。
+    if (buf.size() > headerEnd + 4 + 256 * 1024 * 1024)
+    {
+      respond(socket, 413, "Payload Too Large", "text/plain; charset=utf-8", "body");
+      return;
+    }
     if (headerValue(headers, "expect").toLower() == "100-continue" && !socket->property("continued").toBool())
     {
       socket->setProperty("continued", true);

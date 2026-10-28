@@ -150,8 +150,11 @@ bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
                           const_cast<int *>(cells.constData()), cols, rows,
                           GDT_Int32, 0, 0) == CE_None;
   GDALClose(ds);
-  if (ok && !paleoReplaceFile(partial, path))
-  {
+  if (!ok) {
+    // 写入失败：半截 .partial 不得留在产物目录——与上面注释「不留半截文件」
+    // 的承诺一致（#76）。
+    QFile::remove(partial);
+  } else if (!paleoReplaceFile(partial, path)) {
     QFile::remove(partial);
     ok = false;
   }

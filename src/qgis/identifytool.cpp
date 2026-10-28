@@ -130,8 +130,12 @@ void PaleoIdentifyTool::refreshAt(const QPoint &pixel, bool pin)
     return;
   const double tol = qMax(canvas()->mapUnitsPerPixel() * 8.0, 0.0);
   const QgsPointXY point = toMapCoordinates(pixel);
+  // #72：point/tol 都是画布目标 CRS 下的量；各图层 CRS 可能不同（配准工程 /
+  // 混 CRS 画布），由 identifyPoint 逐层变换后再查。
+  const auto settings = canvas()->mapSettings();
   QVector<IdentifyHit> hits;
-  const auto found = m_core->identifyPoint(canvas()->layers(), point, tol);
+  const auto found = m_core->identifyPoint(canvas()->layers(), point, tol, 0,
+                                           settings.destinationCrs(), settings.transformContext());
   hits.reserve(found.size());
   for (const PreviewIdentifyResult &result : found)
     hits.append(hitFrom(result));

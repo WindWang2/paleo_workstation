@@ -820,8 +820,10 @@ bool seed(DataCatalog *catalog, const QString &dir, QgisLayerService *layers,
   auto *active =
       layers ? qobject_cast<QgsVectorLayer *>(layers->layer(intervalLayerId()))
              : nullptr;
+  // #85：编辑中不能静默 return true——调用方会以为井数据已灌入（实际未写）。
+  // 与同文件 merge 路径同口径显式失败，由调用方决定是否忽略。
   if (active && active->isEditable())
-    return true;
+    return fail(error, tr("井段属性表正在编辑，请先保存或放弃编辑，再写入井数据"));
   QVariantList intervals;
   for (const auto &iv : data.lithologyIntervals)
     intervals << QVariantMap{{"well_id", wellId},

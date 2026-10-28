@@ -40,6 +40,8 @@ void TestPetroPhysPanel::testBuildAndDefaults()
   QVERIFY(p.currentRequest().params.grAutoBaseline);
   QVERIFY(std::isnan(p.currentRequest().params.rw));
   QCOMPARE(p.currentOutputMnemonic(), QStringLiteral("VSH"));
+  // Vsh 是体积分数：单位 v/v 显式（Expression 不适用，见 testCurrentRequestMapsForm）
+  QCOMPARE(p.currentRequest().outputUnit, QStringLiteral("v/v"));
 }
 
 void TestPetroPhysPanel::testKindSyncsOutputMnemonic()
@@ -102,6 +104,8 @@ void TestPetroPhysPanel::testCurrentRequestMapsForm()
   QCOMPARE(r3.formula, Formula::Expression);
   QCOMPARE(r3.expression, QStringLiteral("RHOB - 0.05*NPHI"));
   QCOMPARE(r3.outputMnemonic, QStringLiteral("EXR"));
+  // 表达式单位不可臆断（RHOB - 0.05*NPHI 出 g/cm³）：置空，不写伪 v/v
+  QVERIFY(r3.outputUnit.isEmpty());
   QVERIFY(r3.qcBandEnabled);
   QCOMPARE(r3.qcLo, 0.0);
   QCOMPARE(r3.qcHi, 1.0);

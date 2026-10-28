@@ -57,4 +57,8 @@ class ConstraintDrawController : public QObject
     QString m_horizon;
     QString m_shape;
     int m_faciesCode = -1;
+    // 画布换工具哨子连接（startCapture 重连）：本工具被外部换走时经
+    // QgsMapCanvas::mapToolSet 的 oldTool 认出并走 onAborted 收尾，
+    // 防 m_tool 陈旧（active() 谎报 + teardown 误卸外来工具）。
+    QMetaObject::Connection m_toolWatch;
 };

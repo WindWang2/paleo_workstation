@@ -33,11 +33,19 @@ int cellRow( const GridSpec &grid, double y )
   return static_cast<int>( std::min( fr, static_cast<double>( grid.rows - 1 ) ) );
 }
 
-void markCell( std::vector<std::uint8_t> &barrier, const GridSpec &grid, double x, double y )
+// cellColumn/cellRow 的钳位只服务源点与包围盒；屏障采样点落在网格外时若也
+// 钳到边缘格，会把域外的屏障顶点标成场内 barrier——这些格测地距离变 NaN、
+// Dijkstra 路径被迫绕行，滞后距被静默偏大或判不可达（issue 评审 finding）。
+// markCell 因此按 double 先判界，越界采样点直接丢弃（不落格）。
+bool markCell( std::vector<std::uint8_t> &barrier, const GridSpec &grid, double x, double y )
 {
-  const int column = cellColumn( grid, x );
-  const int row = cellRow( grid, y );
-  barrier[static_cast<std::size_t>( row ) * grid.cols + column] = 1;
+  const double fc = std::floor( ( x - grid.originX ) / grid.pixelWidth );
+  const double fr = std::floor( ( y - grid.originY ) / grid.pixelHeight );
+  if ( !( fc >= 0.0 ) || !( fr >= 0.0 ) || fc > grid.cols - 1 || fr > grid.rows - 1 )
+    return false;
+  barrier[static_cast<std::size_t>( static_cast<int>( fr ) ) * grid.cols +
+          static_cast<std::size_t>( static_cast<int>( fc ) )] = 1;
+  return true;
 }
 
 // 边界栅格化：半像元步长采样（support.cpp 的 labelHardBarriers 同口径，

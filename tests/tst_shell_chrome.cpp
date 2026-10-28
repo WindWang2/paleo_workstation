@@ -252,6 +252,28 @@ private slots:
     QVERIFY2(!left->userWantsVisible(), "user-hide intent was lost by the restore");
   }
 
+  // 地层对比 Web 页期间用户经「布局」菜单收起面板（toggleViewAction → setVisible
+  // 记下 userWantsVisible=false）：离开该页的 dock 恢复不得把它强制拉回。
+  void userHiddenPanelDuringCorrelationStaysHidden()
+  {
+    QgisCanvasController canvas(m_ctx);
+    PaleoMainWindow win(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(), m_ctx->toolSvc(),
+                        m_ctx->selection());
+    win.show();
+    win.showPage(QStringLiteral("predict"));
+    auto *left = qobject_cast<PaleoDockWidget *>(dock(win, "layerTreeDock"));
+    QVERIFY(left);
+    QVERIFY(!left->isHidden());
+    win.showPage(QStringLiteral("correlation"));
+    QVERIFY(left->isHidden());
+    left->hide(); // 用户手势：非程序化 setVisible
+    QVERIFY(!left->userWantsVisible());
+    win.showPage(QStringLiteral("predict"));
+    QVERIFY2(left->isHidden(),
+             "panel hidden by the user on the web page was force-restored on leaving it");
+    QVERIFY(!left->userWantsVisible());
+  }
+
   // 旧版设置（只有 windowState/windowGeometry、没有 windowDockIntent）：照常恢复不崩，
   // 图层树意愿保持默认 true，编图页照常显示。
   void legacySettingsWithoutIntentStillRestore()

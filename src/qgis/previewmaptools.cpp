@@ -266,12 +266,13 @@ void PreviewIdentifyTool::canvasPressEvent( QgsMapMouseEvent *e )
   if ( e->button() != Qt::LeftButton )
     return;
   m_pressPixel = e->pos();
+  m_pressed = true; // #79：独立哨兵——(0,0) 像素按下时 isNull() 恒真会误判
   m_dragging = false;
 }
 
 void PreviewIdentifyTool::canvasMoveEvent( QgsMapMouseEvent *e )
 {
-  if ( m_pressPixel.isNull() || !( e->buttons() & Qt::LeftButton ) )
+  if ( !m_pressed || !( e->buttons() & Qt::LeftButton ) )
     return;
   if ( ( e->pos() - m_pressPixel ).manhattanLength() > 5 )
   {
@@ -297,12 +298,14 @@ void PreviewIdentifyTool::canvasReleaseEvent( QgsMapMouseEvent *e )
     QgsRectangle rect( a, b );
     rect.normalize();
     m_pressPixel = QPoint();
+    m_pressed = false;
     m_dragging = false;
     emit identifyRectRequested( rect );
   }
   else
   {
     m_pressPixel = QPoint();
+    m_pressed = false;
     emit identifyPointRequested( toMapCoordinates( e->pos() ) );
   }
 }
@@ -313,6 +316,7 @@ void PreviewIdentifyTool::keyPressEvent( QKeyEvent *e )
   {
     m_rectBand->hide();
     m_dragging = false;
+    m_pressed = false;
     m_pressPixel = QPoint();
     emit escapeRequested();
     e->accept();
@@ -325,6 +329,7 @@ void PreviewIdentifyTool::deactivate()
 {
   m_rectBand->hide();
   m_dragging = false;
+  m_pressed = false;
   m_pressPixel = QPoint();
   QgsMapTool::deactivate();
 }

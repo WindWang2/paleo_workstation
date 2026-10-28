@@ -17,6 +17,8 @@
 #include <QTimer>
 #include <QVariantMap>
 
+#include <algorithm>
+
 #include "../catalog/datacatalog.h"
 #include "../io/atomicwrite.h"
 #include "../qgis/layoutexport.h"
@@ -310,6 +312,12 @@ PaleoTask *Exporter::start(const Request &request) {
       result.succeeded = 0;
       result.registered.clear();
       result.registeredIds.clear();
+      // 登记失败 = 整册一版都没进 catalog：逐页文件与 tileFiles 一并清空，
+      // 索引页同理不成立——否则 manifest 会按 tileFiles 逐页标 "ok"，与
+      // succeeded=0 自相矛盾（#197）。
+      result.files.clear();
+      result.indexPage.clear();
+      std::fill(job->state.tileFiles.begin(), job->state.tileFiles.end(), QString());
       writeManifest(job->request, result, job->state.tileFiles,
                     &result.manifest, nullptr);
     }

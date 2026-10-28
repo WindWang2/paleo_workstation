@@ -359,6 +359,14 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
                   PropertyModelWorkflow::segmentsFromFaultSet(m_propModelFaults->faultSet());
               req.faults.insert(req.faults.end(), segs.begin(), segs.end());
               req.faultThrows = extracted.throws;
+              req.faultThrowUnknownSideCuts = extracted.unknownSideCuts;
+              // #207：有断距但盘侧未定的切割本次不参与错位——非零时给一条非阻断
+              // 提示，别让用户以为声明的 throw_z 生效了。
+              if (extracted.unknownSideCuts > 0 && statusBar())
+                statusBar()->showMessage(
+                    tr("%1 条切割填了断距但未定盘侧，本次未参与断块错位")
+                        .arg(extracted.unknownSideCuts),
+                    10000);
             }
 
             // V2：方法/SGS/对象/相带参数（面板纯值 getter → 请求翻译）。

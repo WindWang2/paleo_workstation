@@ -827,7 +827,7 @@ void EntityPanel::refresh()
     if (propType) propType->setText(typeDisplay);
     if (propFormat) propFormat->setText(formatDisplay);
     if (propPath) propPath->setText(v.path.isEmpty() ? tr("—") : v.path);
-    if (propVersion) propVersion->setText(v.versionNumber > 0 ? tr("v%1").arg(v.versionNumber) : tr("v1"));
+    if (propVersion) propVersion->setText(v.versionNumber > 0 ? tr("v%1").arg(v.versionNumber) : tr("—"));
     if (propStatus)
     {
       if (isGeoJson && v.extra.value(QStringLiteral("provisional")).toBool())
@@ -1038,7 +1038,7 @@ void EntityPanel::refresh()
     const QVector<CatalogVersion> allVers = cat->versionsForAsset(a.id);
     for (const CatalogVersion &ver : allVers)
     {
-      if (ver.stage == QLatin1String("DERIVED") || ver.versionNumber > v.versionNumber)
+      if (ver.stage == QLatin1String("DERIVED") || (v.versionNumber > 0 && ver.versionNumber > v.versionNumber))
       {
         const int r = derived->rowCount();
         derived->insertRow(r);
@@ -1062,9 +1062,9 @@ void EntityPanel::refresh()
     missing->hide();
     // D4.8 统计段：资产态摘要。
     if (auto *stats = findChild<QLabel *>(QStringLiteral("propStatsText")))
-      stats->setText(tr("版本 %1 个（当前 v%2）· 关联 %3 条 · 未决 %4")
+      stats->setText(tr("版本 %1 个（当前 %2）· 关联 %3 条 · 未决 %4")
                          .arg(cat->versionsForAsset(a.id).size())
-                         .arg(v.versionNumber > 0 ? v.versionNumber : 1)
+                         .arg(v.versionNumber > 0 ? tr("v%1").arg(v.versionNumber) : tr("—"))
                          .arg(links.size())
                          .arg(int(std::count_if(links.begin(), links.end(),
                                                 [](const EntityAssetLink &l) {

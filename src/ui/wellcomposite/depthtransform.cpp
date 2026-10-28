@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers> // std::numbers::pi——std::numbers::pi 在 MSVC <cmath> 下不定义
+#include <vector>
 
 namespace WellComposite
 {
@@ -62,13 +63,42 @@ double DepthTransform::mdToTvdss(double md) const
 
 void DepthTransform::setTimeDepthTable(const QVector<QPair<double, double>> &tvdTwtPairs)
 {
-  m_twtStations = tvdTwtPairs;
+  m_twtStations.clear();
+  m_twtInvalidReason.clear();
+  if (tvdTwtPairs.size() < 2)
+    return; // 表缺失/点数不足：保持缺失态（twtUnavailableReason 报「缺失」）
+
+  // 先按深度稳定排序 + 同深去重再校验：上游表乱序或同深重复不再是「整表被拒」
+  // （校验器要求深度严格递增，未经排序的合法表会被误判为无效）。
+  QVector<QPair<double, double>> sorted = tvdTwtPairs;
+  std::stable_sort(sorted.begin(), sorted.end(),
+                   [](const QPair<double, double> &a, const QPair<double, double> &b) {
+                     return a.first < b.first;
+                   });
+  sorted.erase(std::unique(sorted.begin(), sorted.end(),
+                           [](const QPair<double, double> &a, const QPair<double, double> &b) {
+                             return std::abs(a.first - b.first) < 1e-4;
+                           }),
+               sorted.end());
+  if (sorted.size() < 2)
+  {
+    m_twtInvalidReason = QStringLiteral("去重后不足两个时深点");
+    return;
+  }
+
   seismic::TimeDepthModel validated;
   std::vector<seismic::TdPoint> points;
-  for (const auto &pair : tvdTwtPairs)
+  points.reserve(static_cast<std::size_t>(sorted.size()));
+  for (const auto &pair : sorted)
     points.push_back({pair.first, pair.second});
   if (!validated.setCheckshots(points))
-    m_twtStations.clear();
+  {
+    // 站表在但坏：与井斜同口径——记原因、保持禁用态，面板据此区分「表被拒」
+    // 与「表缺失」，不再把被拒的表误报成缺失。
+    m_twtInvalidReason = QStringLiteral("TVD/TWT 需非负且随时间单调递增（已按深度排序去重）");
+    return;
+  }
+  m_twtStations = sorted;
 }
 
 void DepthTransform::setMdTimeDepth(const std::optional<seismic::TimeDepthModel> &model, double shiftMs)
@@ -86,6 +116,8 @@ QString DepthTransform::twtUnavailableReason() const
 {
   if (hasTimeDepthTable())
     return QString();
+  if (!m_twtInvalidReason.isEmpty())
+    return QStringLiteral("时深表无效：") + m_twtInvalidReason;
   return QStringLiteral("时深表缺失：TWT 显示需 VSP/checkshot 时深数据");
 }
 

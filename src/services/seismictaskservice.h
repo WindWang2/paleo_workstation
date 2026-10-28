@@ -57,10 +57,13 @@ struct SeismicQuickPreview
 };
 
 // 渐进瓦片：x/y 为全网格列/行偏移（行 0 = 最大 inline 的显示向，与引擎一致）。
-// sampleIndex 供 UI 丢弃陈旧请求的瓦片。
+// sampleIndex + datasetPath 供 UI 丢弃陈旧请求的瓦片：信号是广播的，两个
+// 地震标签页同时开到同一采样号时，只有「工作区身份 + 采样号」都对上的
+// 画布才收这块瓦片（仅按采样号路由会把另一资产的振幅块贴到本画布上）。
 struct SeismicTimeTile
 {
   int sampleIndex = 0;
+  QString datasetPath; // 产出该瓦片的 .sf3p 分页工作区（请求身份）
   int x = 0;
   int y = 0;
   int completed = 0;
@@ -369,7 +372,13 @@ public:
 
   // 15. 道头查询（D2.11）：240B 道头解码。静态——无服务实例也可用（剖面
   //     dock 直接调用）。索引未命中时按二进制头推算道长（规则文件可靠）。
-  static SeismicTraceHeaderInfo readTraceHeader(const QString &sgyPath, int traceIndex);
+  // finding-94：index 由调用方传入其已在途的索引（如剖面 dock 的
+  //     m_volume->Index()）——本函数不再自行 SgyIndexCache::Load 全量加载
+  //     .sgyidx（那会在调用线程、常为主线程的道头卡上造成秒级 UI 冻结，而
+  //     它只服务于道数上界检查）。无索引时样本元数据退二进制头、道数上界
+  //     按 (文件长 − 首道偏移)/道长 纯头推算，与 sampleCount/formatCode 同源。
+  static SeismicTraceHeaderInfo readTraceHeader(const QString &sgyPath, int traceIndex,
+                                                const SgyIndexPtr &index = nullptr);
 
   // 15b. 体窗平面平移（wave/deepen-perf A1）：ReadVoxelWindow 结果的一个
   //     采样平面 → 时间片方向约定的 SgySliceImage（width=XL 数、height=IL 数、

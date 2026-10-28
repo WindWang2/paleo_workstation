@@ -12,8 +12,10 @@ namespace WellComposite
 namespace TrackOps
 {
 
-// 遗留 P3：CSV 单元格转义——层名/岩性名/结论文本含逗号、引号、换行时直接
-// 拼接会错位列结构（domain/wellsection.h TopsTable::csv 同款口径）。
+// CSV 单元格转义——层名/岩性名/结论文本含逗号、引号、换行时直接拼接会错位
+// 列结构（domain/wellsection.h TopsTable::csv 同款口径）。所有自由文本列
+// （含 Core 筒号、Symbol 标签、Stratigraphy 的系/统/组、Facies 的相/亚/微相）
+// 一律经此函数，不留裸拼接口。
 QString csvCell(const QString &v)
 {
   const bool need = v.contains(QLatin1Char(',')) || v.contains(QLatin1Char('"')) ||
@@ -107,7 +109,7 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,barrel,cut,recovered,rate\n");
     for (const auto &b : kt->barrels())
       ts << f1(b.topDepth) << QLatin1Char(',') << f1(b.bottomDepth) << QLatin1Char(',')
-         << b.barrelNo << QLatin1Char(',') << QString::number(b.cutLength, 'f', 2)
+         << csvCell(b.barrelNo) << QLatin1Char(',') << QString::number(b.cutLength, 'f', 2)
          << QLatin1Char(',') << QString::number(b.recoveredLength, 'f', 2)
          << QLatin1Char(',') << QString::number(b.recoveryRate, 'f', 1) << QLatin1Char('\n');
     break;
@@ -118,7 +120,7 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,label\n");
     for (const auto &si : st->items())
       ts << f1(si.topDepth) << QLatin1Char(',') << f1(si.bottomDepth) << QLatin1Char(',')
-         << si.label << QLatin1Char('\n');
+         << csvCell(si.label) << QLatin1Char('\n');
     break;
   }
   case TrackType::StratigraphyCompound:
@@ -127,8 +129,8 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,system,series,formation\n");
     for (const auto &si : sc->intervals())
       ts << f1(si.topDepth) << QLatin1Char(',') << f1(si.bottomDepth) << QLatin1Char(',')
-         << si.system << QLatin1Char(',') << si.series << QLatin1Char(',') << si.formation
-         << QLatin1Char('\n');
+         << csvCell(si.system) << QLatin1Char(',') << csvCell(si.series) << QLatin1Char(',')
+         << csvCell(si.formation) << QLatin1Char('\n');
     break;
   }
   case TrackType::FaciesCompound:
@@ -137,8 +139,8 @@ QString exportTrackCsv(const WellTrack &track)
     ts << QStringLiteral("top,bottom,major,sub,micro\n");
     for (const auto &fi : fc->intervals())
       ts << f1(fi.topDepth) << QLatin1Char(',') << f1(fi.bottomDepth) << QLatin1Char(',')
-         << fi.majorFacies << QLatin1Char(',') << fi.subFacies << QLatin1Char(',')
-         << fi.microFacies << QLatin1Char('\n');
+         << csvCell(fi.majorFacies) << QLatin1Char(',') << csvCell(fi.subFacies) << QLatin1Char(',')
+         << csvCell(fi.microFacies) << QLatin1Char('\n');
     break;
   }
   default:

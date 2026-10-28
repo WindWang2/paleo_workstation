@@ -2,6 +2,7 @@
 #include "faultsurfaceworkflow.h"
 #include "workflowerrors_internal.h"
 
+#include "../io/atomicwrite.h"
 #include "../metadata/faultsetstore.h"
 
 #include <QFile>
@@ -68,22 +69,20 @@ FaultSurfaceProduceResult FaultSurfaceWorkflow::produce(const FaultSurfaceReques
         return result;
     }
 
-    QFile file(staging.absolutePath);
-    if (!file.open(QIODevice::WriteOnly)) {
+    // 原子整写：短写/半截 JSON 不得被当成落盘成功（与 faciesclassify 的
+    // writeJsonAtomic 口径一致）。
+    QString writeErr;
+    if (!paleo::writeJsonAtomic(staging.absolutePath,
+                                QJsonDocument(QJsonObject::fromVariantMap(result.mesh.toMap())),
+                                &writeErr, QJsonDocument::Compact)) {
+        // stage 已建、写盘失败：清掉已产生的 staging 文件，不留孤儿字节。
+        QFile::remove(staging.absolutePath);
         result.ok = false;
-        result.error = QStringLiteral("无法写入断面 %1").arg(staging.absolutePath);
+        result.error = writeErr.isEmpty() ? QStringLiteral("无法写入断面 %1").arg(staging.absolutePath)
+                                          : writeErr;
         result.mesh = {};
         return result;
     }
-    const QByteArray body =
-        QJsonDocument(QJsonObject::fromVariantMap(result.mesh.toMap())).toJson(QJsonDocument::Compact);
-    if (file.write(body) != body.size()) {
-        result.ok = false;
-        result.error = QStringLiteral("断面写入不完整");
-        result.mesh = {};
-        return result;
-    }
-    file.close();
 
     QVariantMap extra;
     extra.insert(QStringLiteral("faultId"), request.fault.id);
@@ -94,6 +93,8 @@ FaultSurfaceProduceResult FaultSurfaceWorkflow::produce(const FaultSurfaceReques
                                : request.sourceUri;
     QString commitErr;
     if (!registrar.commit(staging, {request.parentVersionId}, source, extra, &commitErr)) {
+        // 登记失败：清掉本次 stage 自己写出的文件（catalog 未引用它）。
+        QFile::remove(staging.absolutePath);
         result.ok = false;
         result.error = commitErr;
         result.versionId.clear();

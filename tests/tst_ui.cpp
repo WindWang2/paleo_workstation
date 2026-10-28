@@ -861,7 +861,9 @@ class TestUiShell : public QObject
                qAbs(got.center().y() - saved.center().y()) < 0.01,
                qPrintable(got.toString()));
 
-      // Malformed/absent payload → no crash, extent untouched.
+      // Malformed/absent payload → no crash. 同步视角范围不变：坏值分支与
+      // 「键缺失」同口径，只是 *排队* zoomToFullExtent 兜底（QTimer 0 延迟），
+      // 事件循环转动后才生效，故这里仍断言范围未被同步改写。
       m_ctx->projectSvc()->project()->writeEntry(
           QStringLiteral("paleo"), QStringLiteral("canvasExtent"),
           QStringLiteral("bogus"));
@@ -1881,7 +1883,7 @@ class TestUiShell : public QObject
         FolderRowResult failed;
         failed.path = row.path; failed.classifiedType = row.classifiedType;
         failed.outcome = FolderRowResult::Outcome::Failed; failed.message = "合成输入缺少井名";
-        done({failed}, {});
+        done({failed}, {}, false); // 第三参 cancelled：合成失败非用户取消
       };
       PaleoFolderConfirm::buildFolderConfirmDialog(&folder, "/audit", {row}, hooks);
       folder.findChild<QPushButton *>("folderConfirmButton")->click();

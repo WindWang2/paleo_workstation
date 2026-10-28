@@ -210,6 +210,10 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
 
 PaleoMainWindow::~PaleoMainWindow()
 {
+  // #777：先断开画布 destroyed 接线（见 m_sectionCaptureConn 头注释）——本类
+  // 析构函数体内 vptr 仍为派生类，断开安全；否则画布作为子对象在 ~QObject
+  // 阶段删除时才触发该 lambda，会写已降级对象触发 UBSan vptr。
+  disconnect(m_sectionCaptureConn);
   if (m_horizonFlashTimer)
   {
     m_horizonFlashTimer->stop();
@@ -634,16 +638,28 @@ void PaleoMainWindow::restoreCanvasExtent()
     QTimer::singleShot(0, this, [this] { m_canvasCtl->zoomToFullExtent(); });
     return;
   }
+  // 坏值分支与「键缺失」分支同口径：排队 zoomToFullExtent 兜底，并落一条
+  // 警告——静默 return 会让画布停在不确定的默认范围且日志里查无此事。
+  const auto fallbackFullExtent = [this](const QString &reason) {
+    QgsMessageLog::logMessage(
+        tr("工程 canvasExtent 值损坏（%1），已回退到全幅范围").arg(reason),
+        QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+    QTimer::singleShot(0, this, [this] { m_canvasCtl->zoomToFullExtent(); });
+  };
   const QStringList parts = raw.split(QLatin1Char(','));
-  if (parts.size() != 4)
+  if (parts.size() != 4) {
+    fallbackFullExtent(tr("坐标段数 %1 ≠ 4").arg(parts.size()));
     return;
+  }
   bool conv[4] = {false, false, false, false};
   const double xmin = parts.at(0).toDouble(&conv[0]);
   const double ymin = parts.at(1).toDouble(&conv[1]);
   const double xmax = parts.at(2).toDouble(&conv[2]);
   const double ymax = parts.at(3).toDouble(&conv[3]);
-  if (!conv[0] || !conv[1] || !conv[2] || !conv[3])
+  if (!conv[0] || !conv[1] || !conv[2] || !conv[3]) {
+    fallbackFullExtent(tr("坐标不是合法数值"));
     return;
+  }
   QgsRectangle e(xmin, ymin, xmax, ymax);
   if (e.isEmpty())
     return;

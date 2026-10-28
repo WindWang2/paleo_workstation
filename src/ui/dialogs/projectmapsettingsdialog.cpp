@@ -17,6 +17,17 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+namespace
+{
+
+// 度米系数的物理合理下限（米/度）：地球上 1° 纬度 ≈ 110.6-111.7 km、1° 经度
+// ≤ 111.3 km。低于该值的配准换算必然失败——isComplete 只查 > 0，spinbox 下限
+// 静默夹出的 1e-9 能过检，落库一份「形式完整、换算必败」的配准。新建配准
+// 在 accept 处按此下限拦，不靠钳位值糊过去。
+constexpr double kMinMetersPerDegree = 1.0e3;
+
+} // namespace
+
 ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &configuration, QWidget *parent)
   : QDialog(parent), m_original(configuration)
 {
@@ -52,6 +63,9 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
     fields->addRow(tr("资料／计算坐标系"), source);
   }
   if (!configuration.georeference) g.a = 1;
+  // 无既有配准 = 首次启用：度米系数不预填钳位值（原实现下限 1e-9 会把 0 静默
+  // 夹成 1e-9 并原样存回），改留 0 + 特殊文案明示必填，accept 处再拦。
+  const bool firstRegistration = !configuration.georeference.has_value();
   const QStringList captions = {tr("a（缩放 × cos 旋转角）"), tr("b（缩放 × sin 旋转角）"),
       tr("东向平移 tE（米）"), tr("北向平移 tN（米）"),
       tr("每经度对应米数"), tr("每纬度对应米数")};
@@ -59,7 +73,9 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
                                  g.metersPerDegLon, g.metersPerDegLat};
   for (int i = 0; i < values.size(); ++i) {
     auto *spin = new QDoubleSpinBox(reference);
-    spin->setRange(i >= 4 ? 1e-9 : -1e9, 1e9);
+    spin->setRange(i >= 4 ? (firstRegistration ? 0.0 : 1e-9) : -1e9, 1e9);
+    if (i >= 4 && firstRegistration)
+      spin->setSpecialValueText(tr("未设置（必填）"));
     spin->setDecimals(12);
     spin->setSuffix(i == 2 || i == 3 ? tr(" m") : i >= 4 ? tr(" m/°") : QString());
     spin->setValue(values[i]);
@@ -131,7 +147,8 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
   m_error = new QLabel(this); m_error->setWordWrap(true); m_error->hide();
   layout->addWidget(m_error);
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
-  connect(buttons, &QDialogButtonBox::accepted, this, [this] {
+  connect(buttons, &QDialogButtonBox::accepted, this,
+          [this, firstRegistration, captions] {
     QString error;
     if (!m_crs->validate(&error))
     {
@@ -141,6 +158,20 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
     if (m_registered->isChecked() &&
         m_original.georeference.value_or(PaleoGeoreference{}).kind != QLatin1String("crs"))
     {
+      // 首次启用配准：度米系数必须显式给出且物理合理（不靠 spinbox 钳位值
+      // 蒙过去——1e-9 能过 isComplete 的 > 0 检查，换算却必然失败）。
+      if (firstRegistration)
+      {
+        for (const int index : {4, 5})
+        {
+          if (m_parameters[index]->value() >= kMinMetersPerDegree)
+            continue;
+          showError(tr("「%1」须按工区实际填写（≥ %2 米/度），否则换算必然失败。")
+                        .arg(captions[index])
+                        .arg(kMinMetersPerDegree, 0, 'g', 3));
+          return;
+        }
+      }
       auto anchor = paleo::coordinates::point();
       if (!m_anchor->sourcePoint(&anchor, &error))
       {

@@ -45,6 +45,10 @@ class TestDlisParser : public QObject
     void headerScanChainBudgetCapped();
     void successorBombBudgetCapped();
     void emptyFileFails();
+    // finding-44：对象行属性对齐要跳过模板不变列（INVATR）
+    void invariantTemplateColumnKeepsObjectRowAlignment();
+    // finding-45：UVARI 标量通道必须进目录与曲线（帧解码已解出值）
+    void uvariScalarChannelReachesCurves();
 
   private:
     QTemporaryDir m_tempDir;
@@ -721,6 +725,104 @@ void TestDlisParser::emptyFileFails()
   QVERIFY(!DlisParser::parse(path, header, curves, &error));
   QVERIFY(!error.isEmpty());
   QVERIFY(!DlisParser::sniff(path));
+}
+
+// finding-44：RP66 里模板不变列（INVATR）的值只在模板中出现，对象行不携带
+// 该列。对象行属性按列序线性对齐时若不跳过不变列，其后的可变列会整体左移
+// 一格——合法 DLIS 元数据（REPRESENTATION-CODE/UNITS）静默错位。
+void TestDlisParser::invariantTemplateColumnKeepsObjectRowAlignment()
+{
+  QByteArray body = setComponent(QStringLiteral("CHANNEL"), QString());
+  body += tmplAttr(QStringLiteral("LONG-NAME"), RepObname);
+  // INVATR（role 0x40）+ label + repc + 值：DIMENSION 恒为 1（标量）。
+  body += QByteArray(1, char(0x40 | 0x10 | 0x04 | 0x01)) +
+          identBytes(QStringLiteral("DIMENSION")) + u8b(quint64(RepUvari)) +
+          uvariBytes(quint64(1));
+  body += tmplAttr(QStringLiteral("REPRESENTATION-CODE"), RepUshort);
+  body += tmplAttr(QStringLiteral("UNITS"), RepUnits);
+  // 对象行只带 3 个可变列的值（LONG-NAME 缺省 / REPR / UNITS）——不变列
+  // DIMENSION 不在行内。
+  const auto channelRow = [&body](const QString &id, int repc, const QString &units) {
+    body += objectComponent(0, 0, id);
+    body += absentAttr();
+    body += valueAttr(u8b(quint64(repc)));
+    body += valueAttr(identBytes(units));
+  };
+  channelRow(QStringLiteral("DEPT"), 2 /*FSINGL*/, QStringLiteral("m"));
+  channelRow(QStringLiteral("GR"), 2 /*FSINGL*/, QStringLiteral("GAPI"));
+
+  QByteArray b = sul();
+  b += wrapLogicalRecord(3, true, body);
+  const QVector<FrameDef> frames = { { QStringLiteral("1000"),
+                                       { QStringLiteral("DEPT"), QStringLiteral("GR") },
+                                       QStringLiteral("BOREHOLE-DEPTH"),
+                                       QStringLiteral("INCREASING") } };
+  b += buildFrameEflr(frames);
+  for (int i = 0; i < 2; ++i)
+  {
+    QByteArray slotBytes;
+    slotBytes += fsinglBytes(float(1000.0 + i));
+    slotBytes += fsinglBytes(float(10.0 * (i + 1)));
+    b += buildFdata(QStringLiteral("1000"), quint64(i + 1), slotBytes);
+  }
+  const QString path = write(QStringLiteral("invattr.dlis"), b);
+
+  LasHeaderInfo header;
+  QList<LasCurve> curves;
+  QList<LasIssue> issues;
+  QString error;
+  QVERIFY2(DlisParser::parse(path, header, curves, &error, &issues), qPrintable(error));
+  // 左移错位时 REPR/UNITS 被挤掉（通道拿不到单位、表示码错成别的码），
+  // 目录直接空——两种表象都让下面的断言红。
+  QCOMPARE(header.curveNames, QStringList({ QStringLiteral("DEPT"), QStringLiteral("GR") }));
+  QCOMPARE(curves.size(), 2);
+  QCOMPARE(curves.at(0).unit, QStringLiteral("m"));
+  QCOMPARE(curves.at(1).unit, QStringLiteral("GAPI"));
+  QCOMPARE(curves.at(0).values.size(), 2);
+  QCOMPARE(curves.at(0).values.at(0), 1000.0);
+  QCOMPARE(curves.at(0).values.at(1), 1001.0);
+  QCOMPARE(curves.at(1).values.at(0), 10.0);
+  QCOMPARE(curves.at(1).values.at(1), 20.0);
+}
+
+// finding-45：UVARI 是可变宽数值表示码，consumeFdata 已按 uvari() 逐元素
+// 解码；目录（catalogNames）与曲线构造若仍要求 fixed>0，标量 UVARI 通道被
+// 双重排除——数据解出来了又静默丢掉（L-23 半截修复）。
+void TestDlisParser::uvariScalarChannelReachesCurves()
+{
+  const QVector<ChannelDef> channels = {
+    { QStringLiteral("DEPT"), QStringLiteral("m"), 2 /*FSINGL*/, {}, QString() },
+    { QStringLiteral("UVI"), QStringLiteral("count"), 18 /*UVARI*/, {}, QString() },
+  };
+  const QVector<FrameDef> frames = { { QStringLiteral("1000"),
+                                       { QStringLiteral("DEPT"), QStringLiteral("UVI") },
+                                       QStringLiteral("BOREHOLE-DEPTH"),
+                                       QStringLiteral("INCREASING") } };
+  QByteArray b = sul();
+  b += buildChannelEflr(channels);
+  b += buildFrameEflr(frames);
+  for (int i = 0; i < 3; ++i)
+  {
+    QByteArray slotBytes;
+    slotBytes += fsinglBytes(float(1000.0 + i));
+    slotBytes += uvariBytes(quint64(7 + i)); // UVARI 标量槽位（变宽）
+    b += buildFdata(QStringLiteral("1000"), quint64(i + 1), slotBytes);
+  }
+  const QString path = write(QStringLiteral("uvari.dlis"), b);
+
+  LasHeaderInfo header;
+  QList<LasCurve> curves;
+  QList<LasIssue> issues;
+  QString error;
+  QVERIFY2(DlisParser::parse(path, header, curves, &error, &issues), qPrintable(error));
+  QCOMPARE(header.curveNames, QStringList({ QStringLiteral("DEPT"), QStringLiteral("UVI") }));
+  QCOMPARE(curves.size(), 2);
+  QCOMPARE(curves.at(1).unit, QStringLiteral("count"));
+  QCOMPARE(curves.at(1).values.size(), 3);
+  QCOMPARE(curves.at(1).values.at(0), 7.0);
+  QCOMPARE(curves.at(1).values.at(2), 9.0);
+  // 深度轴不受变宽槽位影响（对齐全帧照常）。
+  QCOMPARE(curves.at(0).values.at(2), 1002.0);
 }
 
 QTEST_MAIN(TestDlisParser)

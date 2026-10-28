@@ -102,8 +102,14 @@ void phiNeutron(const double *nphi, int n, bool inPercent, double *out)
 void phiSonicWyllie(const double *dt, int n, double dtMa, double dtFluid,
                     double cpFactor, double *out)
 {
-  const double denom = (dtFluid - dtMa) * cpFactor;
-  const bool ok = denom != 0.0 && !std::isnan(denom) && cpFactor > 0.0;
+  // 头文件契约：前置 (Δtf − Δtma) 与 Cp 同号非零，且 Cp ≥ 1。旧式只查
+  // denom != 0 && !isnan(denom) && cpFactor > 0——dtMa/dtFluid 传反时
+  // (Δtf − Δtma) < 0 仍放行，静默产出符号翻转的孔隙度；Inf 参数 likewise
+  // 穿透。违反前置 → 全 NaN（同 phiDensity 的 ρma>ρf 口径）。
+  const double delta = dtFluid - dtMa;
+  const double denom = delta * cpFactor;
+  const bool ok = std::isfinite(delta) && delta > 0.0 && cpFactor >= 1.0 &&
+                  std::isfinite(cpFactor) && std::isfinite(denom);
   for (int i = 0; i < n; ++i)
     out[i] = (std::isnan(dt[i]) || !ok) ? kNan : (dt[i] - dtMa) / denom;
 }

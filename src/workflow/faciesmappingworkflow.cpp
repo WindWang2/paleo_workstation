@@ -1,6 +1,8 @@
 // 层：功能
 #include "faciesmappingworkflow.h"
 
+#include "../io/pathsegment.h"
+
 #include "derivedassets.h"
 #include "algorithmadapters.h"
 #include "nativecppadapter.h"
@@ -530,18 +532,26 @@ bool FaciesMappingWorkflow::commitComputed( const DraftFaciesRequest &request,
     return fail( tr( "工作流未绑定数据目录（catalog）——草稿相图无法登记" ) );
 
   const QString h = request.horizon;
+  // 层位名来自工程级配置：拼受管文件名与图层 id 前统一净化，非法路径
+  // 字符不再让整个分析失败（图层 id 亦保持定形）（#192）。
+  const QString hSeg = paleo::safeFileNameComponent( h );
 
   // ---- 草稿相图 GPKG：DERIVED 资产 + 版本 --------------------------------
   QString regErr;
   const DerivedStaging draftStaging = registrar.stage(
     QStringLiteral( "facies_draft_map" ), tr( "%1 草稿相图" ).arg( h ),
-    QStringLiteral( "FACIES_DRAFT_%1.gpkg" ).arg( h ), &regErr );
+    QStringLiteral( "FACIES_DRAFT_%1.gpkg" ).arg( hSeg ), &regErr );
   if ( !draftStaging.isValid() )
     return fail( regErr );
   QString gpkgErr;
   if ( !writeDraftGpkg( draftStaging.absolutePath, request.crsWkt, computed->regions,
                         computed->synthesis, &gpkgErr ) )
+  {
+    // stage 已建、写盘失败：清掉已产生的 staging 文件，不在受管目录留
+    // 「既未登记、catalog 又不引用」的孤儿字节（faciesclassify 口径，#193）。
+    QFile::remove( draftStaging.absolutePath );
     return fail( gpkgErr );
+  }
   const QStringList parents = computed->parentPaths.isEmpty()
                                 ? QStringList()
                                 : registrar.parentVersionIdsFor( computed->parentPaths );
@@ -561,7 +571,7 @@ bool FaciesMappingWorkflow::commitComputed( const DraftFaciesRequest &request,
   // ---- QA 报告 JSON：DERIVED 资产 + 版本 ---------------------------------
   const DerivedStaging reportStaging = registrar.stage(
     QStringLiteral( "facies_qa_report" ), tr( "%1 编图 QA 报告" ).arg( h ),
-    QStringLiteral( "FACIES_QA_%1.json" ).arg( h ), &regErr );
+    QStringLiteral( "FACIES_QA_%1.json" ).arg( hSeg ), &regErr );
   if ( !reportStaging.isValid() )
     return fail( regErr );
   QJsonObject report;
@@ -584,7 +594,10 @@ bool FaciesMappingWorkflow::commitComputed( const DraftFaciesRequest &request,
   report.insert( QStringLiteral( "issues" ), issues );
   // 原子整写 + 校验 write()==size（旧实现只查 <0，短写会放行）。
   if ( !paleo::writeJsonAtomic( reportStaging.absolutePath, QJsonDocument( report ) ) )
+  {
+    QFile::remove( reportStaging.absolutePath );
     return fail( tr( "QA 报告写入失败：%1" ).arg( reportStaging.absolutePath ) );
+  }
   QVariantMap reportExtra;
   reportExtra.insert( QStringLiteral( "asset_role" ), QStringLiteral( "qa_report" ) );
   reportExtra.insert( QStringLiteral( "issue_count" ),
@@ -605,7 +618,7 @@ bool FaciesMappingWorkflow::commitComputed( const DraftFaciesRequest &request,
 
   // ---- declare：正常图层管线（不产游离图层） -----------------------------
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "facies_draft.%1" ).arg( h );
+  decl.layerId = QStringLiteral( "facies_draft.%1" ).arg( hSeg );
   decl.horizon = h;
   decl.type = QStringLiteral( "vector" );
   decl.source = QStringLiteral( "%1|layername=facies_draft" ).arg( draftStaging.absolutePath );

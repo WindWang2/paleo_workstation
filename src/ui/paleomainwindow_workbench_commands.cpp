@@ -19,7 +19,9 @@
 #include "../services/errorhub.h"
 #include "../services/paleotaskservice.h" // QPointer<PaleoTask>::running 需完整类型
 #include "../services/previewdoc.h"
+#include "../workflow/constraintimport.h" // ConstraintImportFailure 机器可判定原因码
 #include "../workflow/mappingworkbench.h"
+#include "../domain/facieshierarchy.h" // #754：pinFaciesLevel 文案携带层级名
 #include "datapreview/datapreviewtabs.h"
 #include "notifications/paleonotify.h"
 #include "pages/constraintpage.h"
@@ -104,12 +106,16 @@ struct WorkbenchCmdDeps {
 
 // 查询族：predict / wellattributes / wellformations / cancel / show / graph /
 // catalog / reverseQuery / impactAnalysis / compareRecompute / recompute。
+// statusDetail：分支产出的量化详情成功文案（像元数、报告路径、逐条 reason）。
+// 分支只填文本不自行显示，由入口统一张贴（20s）——此前分支当场 showMessage
+// 后，入口尾部又以 10s 通用文案「操作完成，图件与版本已更新。」覆盖状态栏，
+// 量化结果用户实际不可见。
 WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
                                   const QString &action, const QString &h,
                                   const QString &id,
                                   const QStringList &inputs,
                                   const QVariantMap &p, bool &ok,
-                                  QString &error) {
+                                  QString &error, QString &statusDetail) {
   if (action == "predict")
     ok = d.workbench->predict(h, p.value("kind").toString(), inputs,
                               &error, p.value("horizon_file").toString());
@@ -170,7 +176,7 @@ WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
         changedCells += value.toMap().value("changed_cells").toLongLong();
       const auto reportPath =
           d.lastImpact->value("report_path").toString();
-      d.self->statusBar()->showMessage(
+      statusDetail =
           reportPath.isEmpty()
               ? PaleoMainWindow::tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定"
                    "变化 %3 像元（报告未能保存到工程目录）")
@@ -182,8 +188,7 @@ WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
                     .arg(d.lastImpact->value("direct_products").toList().size())
                     .arg(d.lastImpact->value("potential_products").toList().size())
                     .arg(changedCells)
-                    .arg(reportPath),
-          20000);
+                    .arg(reportPath);
     }
   } else if (action == "compareRecompute") {
     // X13：受控重算成果 vs 其替代的旧版本（像元级 diff + 报告落盘）。
@@ -202,13 +207,12 @@ WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
         top << PaleoMainWindow::tr("%1：%2 像元")
                    .arg(value.toMap().value("transition").toString())
                    .arg(value.toMap().value("cells").toLongLong());
-      d.self->statusBar()->showMessage(
+      statusDetail =
           PaleoMainWindow::tr("重算对比：变化 %1/%2 像元；主要转移 %3（详见 %4）")
               .arg(report.value("cells_changed").toLongLong())
               .arg(report.value("total_cells").toLongLong())
               .arg(top.isEmpty() ? PaleoMainWindow::tr("无") : top.join("；"))
-              .arg(report.value("report_path").toString()),
-          20000);
+              .arg(report.value("report_path").toString());
     }
   } else if (action == "recompute") {
     if (d.lastImpact->isEmpty()) {
@@ -220,28 +224,34 @@ WbCmdStep runWorkbenchQueryFamily(const WorkbenchCmdDeps &d,
       if (ok) {
         const WaitCursorGuard waitCursor;
         const auto execution = d.workbench->executeRecompute(plan, &error);
-        const auto results = execution.value("results").toList();
-        int started = 0;
-        QStringList notes;
-        for (const auto &value : results) {
-          const auto row = value.toMap();
-          if (row.value("ok").toBool())
-            ++started;
-          // 如实带上逐条结论（跳过/过期/已完成的 reason 都在结果行）。
-          const auto note = row.value("reason").toString().isEmpty()
-                                ? row.value("error").toString()
-                                : row.value("reason").toString();
-          if (!note.isEmpty() && notes.size() < 3)
-            notes << note;
+        // 执行整体失败（工程未开/报告过期）返回空图：不得伪报「已启动 0/0 项」。
+        if (execution.isEmpty()) {
+          ok = false;
+          if (error.isEmpty())
+            error = PaleoMainWindow::tr("受控重算未能执行，请检查工程状态后重试");
+        } else {
+          const auto results = execution.value("results").toList();
+          int started = 0;
+          QStringList notes;
+          for (const auto &value : results) {
+            const auto row = value.toMap();
+            if (row.value("ok").toBool())
+              ++started;
+            // 如实带上逐条结论（跳过/过期/已完成的 reason 都在结果行）。
+            const auto note = row.value("reason").toString().isEmpty()
+                                  ? row.value("error").toString()
+                                  : row.value("reason").toString();
+            if (!note.isEmpty() && notes.size() < 3)
+              notes << note;
+          }
+          statusDetail =
+              PaleoMainWindow::tr("受控重算已启动 %1/%2 项：%3新版本由任务中心生成，历史版本"
+                 "与已确认解释保持不变")
+                  .arg(started)
+                  .arg(results.size())
+                  .arg(notes.isEmpty() ? QString()
+                                       : notes.join("；") + QStringLiteral("。"));
         }
-        d.self->statusBar()->showMessage(
-            PaleoMainWindow::tr("受控重算已启动 %1/%2 项：%3新版本由任务中心生成，历史版本"
-               "与已确认解释保持不变")
-                .arg(started)
-                .arg(results.size())
-                .arg(notes.isEmpty() ? QString()
-                                     : notes.join("；") + QStringLiteral("。")),
-            20000);
       } else if (error.isEmpty())
         error = PaleoMainWindow::tr("影响报告中没有可重算的综合编图成果");
     }
@@ -431,10 +441,14 @@ WbCmdStep runWorkbenchLifecycleFamily(const WorkbenchCmdDeps &d,
         PaleoMainWindow::tr("矢量文件 (*.gpkg *.geojson *.json *.shp)"));
     if (path.isEmpty())
       return WbCmdStep::Return;
+    paleo::ConstraintImportFailure failure = paleo::ConstraintImportFailure::None;
     ok = d.workbench->importConstraints(h, path, QStringLiteral("auto"),
-                                        &error);
+                                        &error, &failure);
     // auto 判定失败 → 询问用户角色后重试（方向线 / 打断线）。
-    if (!ok && error.contains(PaleoMainWindow::tr("无法判断约束线类型"))) {
+    // 按功能层原因码分支：此前匹配 error 里的 tr() 译文，而该译文来自
+    // constraintimport 的 QObject::tr 上下文、与本文件的 PaleoMainWindow::tr
+    // 上下文不同，启用翻译后两者不再保持子串包含关系，对话框会静默失配不弹。
+    if (!ok && failure == paleo::ConstraintImportFailure::RoleUndetermined) {
       const QString choice = QInputDialog::getItem(
           d.self, PaleoMainWindow::tr("约束线类型"), PaleoMainWindow::tr("无法自动判断，请选择约束线类型："),
           {PaleoMainWindow::tr("方向线"), PaleoMainWindow::tr("打断线")}, 0, false, &ok);
@@ -502,6 +516,8 @@ void PaleoMainWindow::runWorkbenchCommand(
   };
   QString error;
   bool ok = true;
+  // 分支量化详情成功文案（影响分析/重算对比/受控重算）：见查询族 statusDetail。
+  QString statusDetail;
   // review-fix H1：未登记动作显式失败，不再落到默认成功文案。
   if (!paleo::workbenchcmd::isKnownAction(action)) {
     qWarning("runWorkbenchCommand: unknown action '%s'", qPrintable(action));
@@ -539,7 +555,7 @@ void PaleoMainWindow::runWorkbenchCommand(
   d.beginEdit = beginEdit;
   d.shown = shown;
   WbCmdStep step = runWorkbenchQueryFamily(d, action, h, id, inputs, p, ok,
-                                           error);
+                                           error, statusDetail);
   if (step == WbCmdStep::Skip)
     step = runWorkbenchEditFamily(d, action, id, inputs, p, ok, error);
   if (step == WbCmdStep::Skip)
@@ -554,16 +570,21 @@ void PaleoMainWindow::runWorkbenchCommand(
     error = tr("操作未执行：%1 当前不可用").arg(action);
   }
   QString message;
+  // 分支已产出量化详情（像元数/报告路径/逐条 reason）时直接复用为成功文案：
+  // 走下方通用分支会让 10s「操作完成，图件与版本已更新。」盖掉详情，
+  // 这类命令唯一的量化结果反馈随之不可见。
+  const bool detailed = ok && !statusDetail.isEmpty();
   if (!ok)
     message = error.isEmpty() ? tr("操作未完成，请检查输入。") : error;
+  else if (detailed)
+    message = statusDetail;
   else if (action == "predict")
     message = tr("预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。");
   else if (action == "polygonize")
     message = d.workbench->polygonizeBusy()
                   ? tr("相栅格转相面已在后台执行，进度见底栏任务中心；完成后自动登记并显示在对应地层组。")
                   : tr("相栅格已转为相面。");
-  else if (action == "compose" || action == "consistency" ||
-           action == "factor" || action == "contours")
+  else if (action == "compose" || action == "factor" || action == "contours")
     message =
         tr("任务已提交，进度和取消操作见任务中心；完成后显示结果。");
   else if (action == "wellattributes")
@@ -579,8 +600,15 @@ void PaleoMainWindow::runWorkbenchCommand(
         tr("已打开证据联动面板；可选择参考图件、添加并排视图，并开关范围与光标联动。");
   else if (action == "catalog")
     message = tr("已在数据管理中定位图件的保存版本和来源谱系。");
-  else if (action == "displayLevel" || action == "pinFaciesLevel")
+  else if (action == "displayLevel")
     message = tr("相图显示层级、标注与图例已更新。");
+  else if (action == "pinFaciesLevel") {
+    // #754：固定相显示层级单独文案并带上层级名；display_mode=auto 为解除固定。
+    const QString mode = p.value("display_mode").toString();
+    message = mode == QStringLiteral("auto")
+                  ? tr("已解除相显示层级固定，恢复跟随图层。")
+                  : tr("已固定相显示层级：%1。").arg(FaciesHierarchy::title(mode));
+  }
   else if (action == "addEvidence" || action == "removeEvidence")
     message = tr("解释证据已更新，可撤销；保存图件版本后持久化。");
   else if (action == "labels")
@@ -594,14 +622,18 @@ void PaleoMainWindow::runWorkbenchCommand(
   else if (action == "welltracks")
     message = tr("已打开井道与预测相修订面板。");
   else if (action == "consistency")
-    message = tr("已生成地震相与测井相一致性报告并留档；双击逐井行可在画布定位。");
+    // #751：同步路径当场出报告、后台路径转任务中心——按 queued 标志分流，
+    // 两条文案都不再是死分支（此前 consistency 被 :565 先捕获，本分支永不达）。
+    message = d.workbench->consistencyQueued()
+                  ? tr("任务已提交，进度和取消操作见任务中心；完成后显示结果。")
+                  : tr("已生成地震相与测井相一致性报告并留档；双击逐井行可在画布定位。");
   else if (action == "delete")
     message = declarationOnly ? tr("已从工程移除未登记图件，原始文件已保留。")
                               : tr("已删除图件及版本记录，受管文件正在后台清理。");
   else
     message = tr("操作完成，图件与版本已更新。");
   page->showMessage(message);
-  statusBar()->showMessage(message, 10000);
+  statusBar()->showMessage(message, detailed ? 20000 : 10000);
   if (!ok && action == "delete")
     PaleoNotify::warning(this, tr("图件未删除"), message);
   else if (!ok)

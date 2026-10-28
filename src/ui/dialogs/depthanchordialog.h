@@ -6,8 +6,9 @@
 // ui/dialogs/depthanchordialog — 井附件锚深编辑对话框（方向 79）：预览 +
 // 深度输入 + 显式清锚。纯输入面——校验经 workflow/wellattachmentops 的
 // parseDepthInput（结构化 reason → reasonText 出文案），落库归调用方。
-// 图片预览按 LOD 单张口径全载（imagelod::loadFull）；透明图垫棋盘底
-//（纸面图件中性灰，不随暗色翻转）。
+// 图片预览按 LOD 口径原图全载，但解码在工作线程（imagelod::requestDecode，
+// 排队失败退回 loadThumbnail 有界同步解码）；透明图垫棋盘底（纸面图件中性
+// 灰，不随暗色翻转）。
 namespace PaleoDepthAnchorDialog
 {
 

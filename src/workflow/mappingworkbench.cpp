@@ -669,8 +669,22 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
       kind,
       assetKey.isEmpty() ? QStringLiteral("%1-%2").arg(h, kind) : assetKey,
       QStringLiteral("result.%1").arg(QFileInfo(path).suffix()), error);
+  // #200：调用方传入的 staging 临时 gpkg（artifacts/staging/<uid>.gpkg）在
+  // 失败路径上无人回收——多个调用点在失败后残留文件（含 -wal/-shm/-journal/
+  // .aux.xml 边车）。只清理 staging 目录下的输入，不动受管副本与用户目录。
+  const auto discardStagingInput = [this, &path]() {
+    if (!QDir::cleanPath(path).startsWith(
+            QDir(m_dir).filePath("artifacts/staging/")))
+      return;
+    for (const QString &candidate : QStringList{path, path + "-wal", path + "-shm",
+                                                path + "-journal", path + ".aux.xml"})
+      QFile::remove(candidate);
+  };
   if (!st.isValid())
+  {
+    discardStagingInput();
     return {};
+  }
   bool published = false;
   QString registeredPath = st.absolutePath;
   const auto cleanup = qScopeGuard([&] {
@@ -723,6 +737,7 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
   if (fingerprint) {
     if (!fingerprint->matches(path) || !QFile::rename(path, st.absolutePath)) {
       fail(error, tr("无法发布已校验的计算成果"));
+      discardStagingInput(); // rename 未成功时输入仍在原处
       return {};
     }
     actual = st.absolutePath;
@@ -736,6 +751,7 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
                                fingerprint ? &attested : nullptr)) {
     if (fingerprint)
       QFile::remove(actual);
+    discardStagingInput();
     return {};
   }
   const auto registered = m_catalog->versionById(st.versionId);
@@ -747,19 +763,17 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
   d.source = registeredPath + suffix;
   d.group = group;
   d.title = title + tr(" · v%1").arg(registered.versionNumber);
-  if (!m_layers->declare(d, error)) return {};
+  if (!m_layers->declare(d, error)) {
+    discardStagingInput();
+    return {};
+  }
   if (!transaction.flush(error)) {
     m_layers->removeDeclaration(id);
+    discardStagingInput();
     return {};
   }
   published = true;
-  if (QDir::cleanPath(path).startsWith(
-          QDir(m_dir).filePath("artifacts/staging/"))) {
-    QFile::remove(path);
-    QFile::remove(path + "-wal");
-    QFile::remove(path + "-shm");
-    QFile::remove(path + ".aux.xml");
-  }
+  discardStagingInput();
   emit changed();
   emit productReady(h, id);
   if (m_project && !m_project->projectPath().isEmpty() &&
@@ -780,14 +794,28 @@ QString MappingWorkbench::openWellFormations(QString *error) {
 void MappingWorkbench::ensureWellBaseLayers() {
   if (!m_layers)
     return;
+  // #202：井位层/属性表物化失败此前只写进局部 error 后无人消费——井位层
+  // 没了完全静默。收集最后一次非空 error 经 errorOccurred 如实上抛。
   QString error;
   for (const auto table : {WellAttributeStore::Table::Intervals,
                            WellAttributeStore::Table::Formations,
-                           WellAttributeStore::Table::Factors})
-    WellAttributeStore::open(m_catalog, m_dir, m_layers, table,
-                             /*create=*/false, &error);
-  if (!m_layers->layer(QStringLiteral("wells")))
-    m_layers->instantiate(QStringLiteral("wells"), &error);
+                           WellAttributeStore::Table::Factors}) {
+    QString tableError;
+    if (!WellAttributeStore::open(m_catalog, m_dir, m_layers, table,
+                                  /*create=*/false, &tableError) &&
+        !tableError.isEmpty())
+      error = tableError;
+  }
+  if (!m_layers->layer(QStringLiteral("wells"))) {
+    QString wellsError;
+    m_layers->instantiate(QStringLiteral("wells"), &wellsError);
+    if (!wellsError.isEmpty())
+      error = wellsError;
+    else if (error.isEmpty() && !m_layers->layer(QStringLiteral("wells")))
+      error = tr("井位图层未能物化");
+  }
+  if (!error.isEmpty())
+    emit errorOccurred(error);
 }
 QVariantList MappingWorkbench::wellFormationUpdates(
     const QVariantList &points, const QVariantList &schema, bool predicted,

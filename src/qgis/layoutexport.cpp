@@ -524,7 +524,8 @@ namespace
 } // namespace
 
 QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectService *projectSvc,
-                                       const QString &horizon, QString *error )
+                                       const QString &horizon, QString *error,
+                                       QStringList *warnings )
 {
   const auto fail = [error]( const QString &msg ) -> QgsPrintLayout * {
     if ( error )
@@ -582,8 +583,14 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
   QList<QgsMapLayer *> mapLayers;
   mapLayers.append( thickness );
   if ( hasFacies )
+  {
     if ( QgsMapLayer *facies = layers->instantiate( faciesId ) )
       mapLayers.prepend( facies ); // 相面压在厚度栅格之上
+    else if ( warnings )
+      // #77：声明在案却实例化失败 = 图上缺相面。不能静默跳过——出降级警告，
+      // 让「图上少一层」在用户侧可察觉（rebuildProject 的缺源警告同档）。
+      *warnings << QObject::tr( "相面层「%1」无法实例化，图件中不含相面" ).arg( faciesId );
+  }
   if ( QgsMapLayer *wells = layers->instantiate( wellsId ) )
   {
     if ( auto *wellsVector = qobject_cast<QgsVectorLayer *>( wells ) )

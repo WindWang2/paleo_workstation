@@ -45,10 +45,13 @@ ChatSession ChatSession::fromJson(const QJsonObject &object) {
   session.id = object.value(QStringLiteral("id")).toString();
   session.title = object.value(QStringLiteral("title")).toString();
   session.model = object.value(QStringLiteral("model")).toString();
+  // toJson 写的是 toUTC() 后的串：读回必须补 toLocalTime()，否则时间戳停在
+  // UTC 墙钟，toMarkdown 的「创建」行静默偏差一个时区偏移（中国差 8 小时）。
+  // 与 ChatMessage::fromJson 的 timestamp 同款口径（chatmessage.cpp:124）。
   session.createdAt = QDateTime::fromString(
-    object.value(QStringLiteral("created_at")).toString(), Qt::ISODateWithMs);
+    object.value(QStringLiteral("created_at")).toString(), Qt::ISODateWithMs).toLocalTime();
   session.updatedAt = QDateTime::fromString(
-    object.value(QStringLiteral("updated_at")).toString(), Qt::ISODateWithMs);
+    object.value(QStringLiteral("updated_at")).toString(), Qt::ISODateWithMs).toLocalTime();
   const QJsonArray array = object.value(QStringLiteral("messages")).toArray();
   for (const QJsonValue &value : array)
     session.messages.append(ChatMessage::fromJson(value.toObject()));

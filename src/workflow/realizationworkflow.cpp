@@ -458,6 +458,15 @@ bool RealizationWorkflow::deriveStatistics( const QString &setId,
   }
 
   const std::size_t cells = static_cast<std::size_t>( cols ) * rows;
+  // L-09 同口径像元预算闸（algorithms/faciespolygonize.cpp:1424，1 亿格）：
+  // 均值/标准差/差值全栅格 double 常驻，无闸的超大集合是 bad_alloc/OOM
+  // 而不是如实报错。
+  if ( qint64( cols ) * rows > qint64( 100'000'000 ) )
+  {
+    setError( error, tr( "集合成员栅格 %1×%2 超过 1 亿像元预算，拒绝派生" )
+                         .arg( cols ).arg( rows ) );
+    return false;
+  }
   // 统计/差值声明沿用成员层位（成员 extra.horizon 由 publishSet 写入）。
   const QString horizon =
       m_catalog->versionById( set.members.first().versionId )
@@ -545,6 +554,11 @@ bool RealizationWorkflow::deriveStatistics( const QString &setId,
     if ( !registrar.commit( st, memberParentIds,
                             QStringLiteral( "paleo:realization_stat" ), extra, &commitErr ) )
     {
+      // commit 失败：受管字节已写进 staging——不收掉就在 artifacts/derived
+      // 留 catalog 不引用的孤儿（registration.cpp #588 B.9 同口径）。st.absolutePath
+      // 已置只读，先恢复可写再删。
+      QFile::setPermissions( st.absolutePath, QFileDevice::ReadOwner | QFileDevice::WriteOwner );
+      QFile::remove( st.absolutePath );
       setError( error, commitErr );
       return false;
     }
@@ -671,6 +685,14 @@ bool RealizationWorkflow::differenceOfMeans( const QString &setIdA,
   }
 
   const std::size_t cells = static_cast<std::size_t>( cols ) * rows;
+  // L-09 同口径像元预算闸（algorithms/faciespolygonize.cpp:1424）：a/b/diff
+  // 三份 double 全栅格常驻，超预算如实报错而非 OOM。
+  if ( qint64( cols ) * rows > qint64( 100'000'000 ) )
+  {
+    setError( error, tr( "均值面 %1×%2 超过 1 亿像元预算，拒绝求差" )
+                         .arg( cols ).arg( rows ) );
+    return false;
+  }
   std::vector<double> a( cells ), b( cells ), diff( cells );
   if ( !readBandSlice( GDALGetRasterBand( dsA, 1 ), 0, rows, cols, a.data() ) ||
        !readBandSlice( GDALGetRasterBand( dsB, 1 ), 0, rows, cols, b.data() ) )
@@ -720,6 +742,9 @@ bool RealizationWorkflow::differenceOfMeans( const QString &setIdA,
   if ( !registrar.commit( st, QStringList{ vidA, vidB },
                           QStringLiteral( "paleo:realization_diff" ), extra, &commitErr ) )
   {
+    // commit 失败回收本次 staging 自己写出的字节（registration.cpp #588 B.9 同口径）。
+    QFile::setPermissions( st.absolutePath, QFileDevice::ReadOwner | QFileDevice::WriteOwner );
+    QFile::remove( st.absolutePath );
     setError( error, commitErr );
     return false;
   }
@@ -897,14 +922,14 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
       GDALDatasetH ds = GDALOpen( m.rasterPath.toUtf8().constData(), GA_ReadOnly );
       if ( !ds )
       {
-        j.error = QObject::tr( "成员 %1 栅格打不开" ).arg( m.index );
+        j.error = RealizationWorkflow::tr( "成员 %1 栅格打不开" ).arg( m.index );
         return false;
       }
       GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
       if ( !band )
       {
         GDALClose( ds ); // 零波段栅格：同 1203 行差值路径的波段复核口径
-        j.error = QObject::tr( "成员 %1 栅格无可用波段" ).arg( m.index );
+        j.error = RealizationWorkflow::tr( "成员 %1 栅格无可用波段" ).arg( m.index );
         return false;
       }
       openDss.push_back( { ds, band } );
@@ -912,6 +937,14 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
 
     progress( 10.0, QStringLiteral( "read" ) );
 
+    // L-09 同口径像元预算闸（algorithms/faciespolygonize.cpp:1424）：moments
+    // + field 全栅格 double 常驻，超预算如实报错而非 OOM。
+    if ( qint64( cols ) * rows > qint64( 100'000'000 ) )
+    {
+      j.error = RealizationWorkflow::tr( "集合成员栅格 %1×%2 超过 1 亿像元预算" )
+                    .arg( cols ).arg( rows );
+      return false;
+    }
     std::vector<double> mean, stddev;
     if ( j.want.mean || j.want.stddev )
     {
@@ -923,7 +956,7 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
           return false;
         if ( !readBandSlice( openDss[i].band, 0, rows, cols, field.data() ) )
         {
-          j.error = QObject::tr( "成员 %1 栅格读失败" ).arg( j.members[i].index );
+          j.error = RealizationWorkflow::tr( "成员 %1 栅格读失败" ).arg( j.members[i].index );
           return false;
         }
         moments.addField( field.data() );
@@ -952,7 +985,7 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
       bands = paleo::ensemble::quantilesBanded( openDss.size(), cols, rows, qs, kMaxBandValues, readBand );
       if ( bands.size() != qs.size() )
       {
-        j.error = QObject::tr( "分位数行带计算中止（成员读失败）" );
+        j.error = RealizationWorkflow::tr( "分位数行带计算中止（成员读失败）" );
         return false;
       }
     }
@@ -968,7 +1001,7 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
           QStringLiteral( "paleo_realstat_%1_%2_%3.tif" ).arg( j.setId, token ).arg( ts ) );
       if ( !writeStatRaster( tmpFile, field, cols, rows, j.gt, projWktBytes ) )
       {
-        j.error = QObject::tr( "统计面 %1 临时写盘失败" ).arg( token );
+        j.error = RealizationWorkflow::tr( "统计面 %1 临时写盘失败" ).arg( token );
         return false;
       }
       j.outputs.push_back( { token, tmpFile } );
@@ -1028,6 +1061,9 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
       if ( !registrar.commit( st, j.memberParentIds,
                               QStringLiteral( "paleo:realization_stat" ), extra, &commitErr ) )
       {
+        // commit 失败回收本次 staging 字节（registration.cpp #588 B.9 同口径）。
+        QFile::setPermissions( st.absolutePath, QFileDevice::ReadOwner | QFileDevice::WriteOwner );
+        QFile::remove( st.absolutePath );
         setError( err, commitErr );
         emit errorOccurred( commitErr );
         return false;
@@ -1200,7 +1236,7 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
     {
       if ( dsA ) GDALClose( dsA );
       if ( dsB ) GDALClose( dsB );
-      j.error = QObject::tr( "集合均值面打不开" );
+      j.error = RealizationWorkflow::tr( "集合均值面打不开" );
       return false;
     }
     const auto guard = qScopeGuard( [dsA, dsB] {
@@ -1215,15 +1251,22 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
       if ( GDALGetRasterXSize( ds ) != cols || GDALGetRasterYSize( ds ) != rows ||
            GDALGetRasterCount( ds ) < 1 )
       {
-        j.error = QObject::tr( "集合均值面尺寸在准备后发生变化，请重试" );
+        j.error = RealizationWorkflow::tr( "集合均值面尺寸在准备后发生变化，请重试" );
         return false;
       }
     const std::size_t cells = static_cast<std::size_t>( cols ) * rows;
+    // L-09 同口径像元预算闸（algorithms/faciespolygonize.cpp:1424）。
+    if ( qint64( cols ) * rows > qint64( 100'000'000 ) )
+    {
+      j.error = RealizationWorkflow::tr( "均值面 %1×%2 超过 1 亿像元预算" )
+                    .arg( cols ).arg( rows );
+      return false;
+    }
     std::vector<double> a( cells ), b( cells ), diff( cells );
     if ( !readBandSlice( GDALGetRasterBand( dsA, 1 ), 0, rows, cols, a.data() ) ||
          !readBandSlice( GDALGetRasterBand( dsB, 1 ), 0, rows, cols, b.data() ) )
     {
-      j.error = QObject::tr( "均值面读盘失败" );
+      j.error = RealizationWorkflow::tr( "均值面读盘失败" );
       return false;
     }
     for ( std::size_t i = 0; i < cells; ++i )
@@ -1236,7 +1279,7 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
             .arg( j.setId, j.setIdB ).arg( QDateTime::currentMSecsSinceEpoch() ) );
     if ( !writeStatRaster( tmpFile, diff, cols, rows, j.gt, j.projWkt.toUtf8() ) )
     {
-      j.error = QObject::tr( "差值面写盘失败" );
+      j.error = RealizationWorkflow::tr( "差值面写盘失败" );
       return false;
     }
     j.outputs.push_back( { paleo::realization::kStatMeanDiff, tmpFile } );
@@ -1286,6 +1329,9 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
     if ( !registrar.commit( st, j.memberParentIds,
                             QStringLiteral( "paleo:realization_diff" ), extra, &commitErr ) )
     {
+      // commit 失败回收本次 staging 字节（registration.cpp #588 B.9 同口径）。
+      QFile::setPermissions( st.absolutePath, QFileDevice::ReadOwner | QFileDevice::WriteOwner );
+      QFile::remove( st.absolutePath );
       setError( err, commitErr );
       emit errorOccurred( commitErr );
       return false;

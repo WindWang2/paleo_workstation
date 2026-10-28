@@ -556,6 +556,66 @@ class TestVersions : public QObject
         QCOMPARE(QDir(published).entryList({"*.shx", "*.dbf", "*.prj"}, QDir::Files).size(), 3);
     }
 
+    // PW-023 / finding-63：prepared 发布路径（snapshotInputForPublish +
+    // prepareMapSnapshot + commitPreparedPublication）必须与直调 publish()
+    // 同样收数据集伴生文件——此前 legacy 分支只收主文件、冻结分支的伴生
+    // 文件也未进 input.files，shapefile 发布快照静默缺 .dbf/.shx/.prj，
+    // 成果产物不完整。命名与直调 publish() 同口径（主文件名基名 + 尾缀），
+    // GDAL/OGR 靠同基名发现伴生文件。
+    void preparedPublishCarriesDatasetSidecars_data()
+    {
+        QTest::addColumn<bool>("frozen");
+        QTest::newRow("legacy") << false;
+        QTest::newRow("frozen") << true;
+    }
+    void preparedPublishCarriesDatasetSidecars()
+    {
+        QFETCH(bool, frozen);
+        Fixture f; QVERIFY(f.init()); QString error;
+        const QString shp = f.dir.filePath("area.shp");
+        for (const QString ext : {QStringLiteral("shp"), QStringLiteral("shx"),
+                                  QStringLiteral("dbf"), QStringLiteral("prj")}) {
+            QFile file(f.dir.filePath("area." + ext));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(ext.toUtf8() + "-bytes");
+        }
+        LayerDeclaration decl; decl.layerId = "area.D61"; decl.horizon = "D61";
+        decl.type = "vector"; decl.source = shp;
+        QVERIFY2(f.layers.declare(decl, &error), qPrintable(error));
+        const auto pdf = makePdf(f.dir.filePath("area.pdf"));
+        QVERIFY(!pdf.isEmpty());
+        QVERIFY2(f.versions.recordLayoutProduct("D61", pdf, "ast-pdf-1",
+                                                DataCatalog::sha256FileHex(pdf), &error),
+                 qPrintable(error));
+        const auto saved = f.versions.saveVersion(
+            "D61", "{}", &error,
+            frozen ? QVector<LayerDeclaration>{decl} : QVector<LayerDeclaration>{});
+        QVERIFY2(saved.version > 0, qPrintable(error));
+        if (frozen) {
+            const auto layer = QJsonDocument::fromJson(saved.provenance.toUtf8()).object()
+                                   .value("saved_layers").toArray().first().toObject();
+            QCOMPARE(layer.value("sidecars").toArray().size(), 3);
+        }
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        auto input = f.versions.snapshotInputForPublish("D61", {decl}, summary, &error);
+        QVERIFY2(input.valid, qPrintable(error));
+        // 主文件 + 3 个伴生文件 + PDF。
+        QCOMPARE(input.files.size(), 5);
+        auto prepared = prepareMapSnapshot(input);
+        QVERIFY2(prepared.isValid(), qPrintable(prepared.error));
+        const QString placed = f.versions.commitPreparedPublication(prepared, &error);
+        QVERIFY2(!placed.isEmpty(), qPrintable(error));
+        // 伴生文件必须在快照里，且与主文件同基名（frozenStem + 尾缀）。
+        const QStringList shpNames = QDir(placed).entryList({"*.shp"}, QDir::Files);
+        QCOMPARE(shpNames.size(), 1);
+        const QString stem = QFileInfo(shpNames.first()).completeBaseName();
+        for (const QString ext : {QStringLiteral(".shx"), QStringLiteral(".dbf"),
+                                  QStringLiteral(".prj")})
+            QVERIFY2(QFileInfo::exists(QDir(placed).filePath(stem + ext)),
+                     qPrintable(stem + ext));
+        QCOMPARE(QDir(placed).entryList({"*.shx", "*.dbf", "*.prj"}, QDir::Files).size(), 3);
+    }
+
     void savedBytesAndPdfSurviveWorkingChanges() {
         Fixture f; QVERIFY(f.init()); QString error;
         const auto gpkg = makeFaciesGpkg(f.dir.filePath("working.gpkg"));

@@ -76,9 +76,11 @@ BandlimitedResult bandlimitedInversion(const float *trace, int n, double sampleI
     result.reason = "lowCutHz 必须 > 0";
     return result;
   }
+  // 缺失口径 = 非有限（NaN 与 ±Inf 同走缺失）：Inf 若当有效样参与 FFT/反褶积，
+  // 整道结果被污染成静默退化（ok=true + 低频模型直通/全 0/reflectivity 全 NaN）。
   int missing = 0;
   for (int i = 0; i < n; ++i)
-    missing += std::isnan(trace[i]) ? 1 : 0;
+    missing += std::isfinite(trace[i]) ? 0 : 1;
   if (missing * 10 > n * 3)
   {
     result.reason = "道缺失样 >30%，拒绝反演";
@@ -104,7 +106,7 @@ BandlimitedResult bandlimitedInversion(const float *trace, int n, double sampleI
     for (int p = 0; p < nFft; ++p)
     {
       const double v = double(trace[reflectIndex(p - leftPad, n)]);
-      sRe[std::size_t(p)] = std::isnan(v) ? 0.0 : v;
+      sRe[std::size_t(p)] = std::isfinite(v) ? v : 0.0;
     }
     std::vector<double> wRe(std::size_t(nFft), 0.0), wIm(std::size_t(nFft), 0.0);
     for (int j = 0; j < wl; ++j)
@@ -143,7 +145,7 @@ BandlimitedResult bandlimitedInversion(const float *trace, int n, double sampleI
   else
   {
     for (int i = 0; i < n; ++i)
-      refl[std::size_t(i)] = std::isnan(trace[i]) ? 0.0 : double(trace[i]);
+      refl[std::size_t(i)] = std::isfinite(trace[i]) ? double(trace[i]) : 0.0;
   }
 
   // ---- 振幅标定（#141）：道振幅 → 反射系数 --------------------------------
@@ -159,7 +161,7 @@ BandlimitedResult bandlimitedInversion(const float *trace, int n, double sampleI
   for (int i = 0; i + 1 < n; ++i)
   {
     double r = refl[std::size_t(i)];
-    if (!std::isfinite(r) || std::isnan(trace[i]))
+    if (!std::isfinite(r) || !std::isfinite(trace[i]))
       r = 0.0;
     else
     {
@@ -189,7 +191,7 @@ BandlimitedResult bandlimitedInversion(const float *trace, int n, double sampleI
   result.reflectivity.resize(std::size_t(n));
   for (int i = 0; i < n; ++i)
     result.reflectivity[std::size_t(i)] =
-        std::isnan(trace[i]) ? kNan : float(refl[std::size_t(i)]);
+        std::isfinite(trace[i]) ? float(refl[std::size_t(i)]) : kNan;
 
   // ---- 低频合并 ------------------------------------------------------------
   // 对数相对阻抗先做同 lowCut 高通（减同核移动平均）——否则相对项自带的低频
@@ -197,7 +199,7 @@ BandlimitedResult bandlimitedInversion(const float *trace, int n, double sampleI
   // 无低频模型时输出全带对数相对阻抗。
   std::vector<float> relOnly(std::size_t(n), kNan);
   for (int i = 0; i < n; ++i)
-    relOnly[std::size_t(i)] = std::isnan(trace[i]) ? kNan : float(relZ[std::size_t(i)]);
+    relOnly[std::size_t(i)] = std::isfinite(trace[i]) ? float(relZ[std::size_t(i)]) : kNan;
 
   if (!lowFreq)
   {

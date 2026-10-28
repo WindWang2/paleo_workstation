@@ -16,6 +16,17 @@
 #include <QTextBrowser>
 #include <QVBoxLayout>
 
+namespace {
+// 解释器行活体样式：缺失 = warning 警示色；在位 = muted 次级文字。属性
+// interpreterMissing 由 updateInterpreterRow 维护，换主题时随 relay 重算。
+QString interpreterRowStyleSheet(bool missing)
+{
+  return missing ? QStringLiteral("color: %1;")
+                       .arg(PaleoTheme::tokens().warning.name())
+                 : PaleoTheme::mutedCaptionStyleSheet();
+}
+} // namespace
+
 PythonConsolePanel::PythonConsolePanel(PythonConsoleController *controller,
                                        QWidget *parent)
     : QWidget(parent), m_controller(controller)
@@ -32,7 +43,9 @@ PythonConsolePanel::PythonConsolePanel(PythonConsoleController *controller,
          "（可选）见 tools/reference/scripts/README.md"),
       this);
   security->setObjectName(QStringLiteral("pythonSecurityHint"));
-  security->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());
+  // 次级文字活体样式：换主题（ApplicationPaletteChange）随 relay 重算。
+  PaleoTheme::applyThemedStyleSheet(
+      security, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   security->setWordWrap(true);
   layout->addWidget(security);
 
@@ -41,6 +54,12 @@ PythonConsolePanel::PythonConsolePanel(PythonConsoleController *controller,
   m_interpreterLabel = new QLabel(this);
   m_interpreterLabel->setObjectName(QStringLiteral("pythonInterpreterLabel"));
   m_interpreterLabel->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+  m_interpreterLabel->setProperty("interpreterMissing",
+                                  m_controller->interpreter().isEmpty());
+  PaleoTheme::applyThemedStyleSheet(m_interpreterLabel, [this] {
+    return interpreterRowStyleSheet(
+        m_interpreterLabel->property("interpreterMissing").toBool());
+  });
   interpreterRow->addWidget(m_interpreterLabel, 1);
   m_recheckButton = new QPushButton(tr("重新检测"), this);
   m_recheckButton->setObjectName(QStringLiteral("pythonRecheck"));
@@ -105,7 +124,8 @@ PythonConsolePanel::PythonConsolePanel(PythonConsoleController *controller,
   resultsLayout->setContentsMargins(0, 0, 0, 0);
   resultsLayout->setSpacing(tokens.spacingXs);
   auto *resultsTitle = new QLabel(tr("脚本产出"), resultsBox);
-  resultsTitle->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());
+  PaleoTheme::applyThemedStyleSheet(
+      resultsTitle, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   resultsLayout->addWidget(resultsTitle);
   m_resultsList = new QListWidget(resultsBox);
   m_resultsList->setObjectName(QStringLiteral("pythonResultsList"));
@@ -121,7 +141,8 @@ PythonConsolePanel::PythonConsolePanel(PythonConsoleController *controller,
   historyLayout->setContentsMargins(0, 0, 0, 0);
   historyLayout->setSpacing(tokens.spacingXs);
   auto *historyTitle = new QLabel(tr("运行历史（双击回填脚本与参数）"), historyBox);
-  historyTitle->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());
+  PaleoTheme::applyThemedStyleSheet(
+      historyTitle, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   historyLayout->addWidget(historyTitle);
   m_historyList = new QListWidget(historyBox);
   m_historyList->setObjectName(QStringLiteral("pythonHistoryList"));
@@ -193,22 +214,21 @@ void PythonConsolePanel::refresh()
 
 void PythonConsolePanel::updateInterpreterRow()
 {
-  const PaleoTheme::ThemeTokens &tokens = PaleoTheme::tokens();
-  QPalette palette = m_interpreterLabel->palette();
   const QString interpreter = m_controller->interpreter();
-  if (interpreter.isEmpty())
+  const bool missing = interpreter.isEmpty();
+  if (missing)
   {
     m_interpreterLabel->setText(
         tr("未找到 Python 解释器——请安装 Python 3，或设置 PALEO_PYTHON "
            "环境变量后点「重新检测」"));
-    palette.setColor(QPalette::WindowText, tokens.warning);
   }
   else
   {
     m_interpreterLabel->setText(tr("解释器：%1").arg(interpreter));
-    palette.setColor(QPalette::WindowText, tokens.textMuted);
   }
-  m_interpreterLabel->setPalette(palette);
+  m_interpreterLabel->setProperty("interpreterMissing", missing);
+  // 活体样式已在构造注册（读 interpreterMissing 属性）——这里即时重算一次。
+  m_interpreterLabel->setStyleSheet(interpreterRowStyleSheet(missing));
 }
 
 void PythonConsolePanel::appendOutput(const QString &text, int channel)

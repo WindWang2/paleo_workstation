@@ -8,6 +8,7 @@
 #include "../io/wellfileparsers.h"
 #include "derivedassets.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -24,7 +25,9 @@ bool readAllBytes(const QString &path, QByteArray *out, QString *error)
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))
   {
-    setError(error, QStringLiteral("无法读取版本文件：%1（%2）").arg(path, f.errorString()));
+    setError(error, QCoreApplication::translate("WellTopsEditorWorkflow",
+                                               "无法读取版本文件：%1（%2）")
+                       .arg(path, f.errorString()));
     return false;
   }
   *out = f.readAll(); // 空文件合法：解析结果为空行集
@@ -51,19 +54,19 @@ bool WellTopsEditorWorkflow::loadAllRows(const QString &assetId, QVector<WellTop
 {
   if (!m_catalog || !m_catalog->isOpen())
   {
-    setError(error, QStringLiteral("catalog 未打开——无法读取分层"));
+    setError(error, QCoreApplication::translate("WellTopsEditorWorkflow", "catalog 未打开——无法读取分层"));
     return false;
   }
   const CatalogVersion v = m_catalog->currentVersion(assetId);
   if (v.id.isEmpty())
   {
-    setError(error, QStringLiteral("资产无可用版本：%1").arg(assetId));
+    setError(error, QCoreApplication::translate("WellTopsEditorWorkflow", "资产无可用版本：%1").arg(assetId));
     return false;
   }
   const QString path = DataCatalog::resolvedVersionPath(m_projectDir, v);
   if (path.isEmpty() || !QFile::exists(path))
   {
-    setError(error, QStringLiteral("版本文件缺失：%1").arg(path));
+    setError(error, QCoreApplication::translate("WellTopsEditorWorkflow", "版本文件缺失：%1").arg(path));
     return false;
   }
   QByteArray bytes;
@@ -176,17 +179,17 @@ WellTopsEditorWorkflow::CommitOutcome WellTopsEditorWorkflow::rollbackTo(const Q
                                                                          const QString &targetVersionId)
 {
   if (!m_catalog)
-    return {.ok = false, .error = QStringLiteral("workflow 未绑定 catalog")};
+    return {.ok = false, .error = QCoreApplication::translate("WellTopsEditorWorkflow", "workflow 未绑定 catalog")};
   const CatalogVersion target = m_catalog->versionById(targetVersionId);
   if (target.id.isEmpty() || target.assetId != assetId)
     return {.ok = false,
-            .error = QStringLiteral("回滚目标不是该资产的版本：%1").arg(targetVersionId)};
+            .error = QCoreApplication::translate("WellTopsEditorWorkflow", "回滚目标不是该资产的版本：%1").arg(targetVersionId)};
   const CatalogVersion current = m_catalog->currentVersion(assetId);
   if (target.id == current.id)
-    return {.ok = false, .error = QStringLiteral("目标版本已是当前版本")};
+    return {.ok = false, .error = QCoreApplication::translate("WellTopsEditorWorkflow", "目标版本已是当前版本")};
   const QString path = DataCatalog::resolvedVersionPath(m_projectDir, target);
   if (path.isEmpty() || !QFile::exists(path))
-    return {.ok = false, .error = QStringLiteral("回滚目标文件缺失：%1").arg(path)};
+    return {.ok = false, .error = QCoreApplication::translate("WellTopsEditorWorkflow", "回滚目标文件缺失：%1").arg(path)};
   QByteArray bytes;
   QString readErr;
   if (!readAllBytes(path, &bytes, &readErr))
@@ -223,7 +226,7 @@ bool WellTopsEditorWorkflow::loadMergeRows(const QString &assetId, const QString
   const QVector<WellTopRecord> incoming = rowsForWell(parseWellTopsText(bytes), wellName);
   if (incoming.isEmpty())
   {
-    setError(error, QStringLiteral("文件中没有井「%1」的分层行").arg(wellName));
+    setError(error, QCoreApplication::translate("WellTopsEditorWorkflow", "文件中没有井「%1」的分层行").arg(wellName));
     return false;
   }
   *rows = WellTopsEdit::mergeDiff(rowsForWell(all, wellName), incoming);
@@ -254,7 +257,7 @@ QStringList WellTopsEditorWorkflow::validateAllWells(const DataCatalog *catalog,
     const WellTopsEdit::ValidationContext ctx = contextFor(catalog, well);
     for (const WellTopsEdit::Issue &issue : WellTopsEdit::validate(byWell.value(key), ctx))
       if (issue.isError())
-        errors.append(QStringLiteral("[%1] %2").arg(well, issue.message));
+        errors.append(QCoreApplication::translate("WellTopsEditorWorkflow", "[%1] %2").arg(well, issue.message));
   }
   return errors;
 }
@@ -288,13 +291,13 @@ WellTopsEditorWorkflow::CommitOutcome WellTopsEditorWorkflow::commitBytes(
     const QString &rollbackTarget)
 {
   if (!m_catalog || !m_catalog->isOpen())
-    return {.ok = false, .error = QStringLiteral("catalog 未打开——无法提交分层编辑")};
+    return {.ok = false, .error = QCoreApplication::translate("WellTopsEditorWorkflow", "catalog 未打开——无法提交分层编辑")};
   const CatalogAsset asset = m_catalog->assetById(assetId);
   if (asset.id.isEmpty())
-    return {.ok = false, .error = QStringLiteral("资产不存在：%1").arg(assetId)};
+    return {.ok = false, .error = QCoreApplication::translate("WellTopsEditorWorkflow", "资产不存在：%1").arg(assetId)};
   const CatalogVersion current = m_catalog->currentVersion(assetId);
   if (current.id.isEmpty())
-    return {.ok = false, .error = QStringLiteral("资产无基线版本，编辑无从落库")};
+    return {.ok = false, .error = QCoreApplication::translate("WellTopsEditorWorkflow", "资产无基线版本，编辑无从落库")};
 
   const QString fileName = current.fileName.isEmpty() ? asset.displayName : current.fileName;
   DerivedAssetRegistrar registrar(m_catalog, m_projectDir);
@@ -304,7 +307,8 @@ WellTopsEditorWorkflow::CommitOutcome WellTopsEditorWorkflow::commitBytes(
     return {.ok = false, .error = stageErr};
   if (st.assetId != assetId)
     return {.ok = false,
-            .error = QStringLiteral("同名资产多份，版本会落错资产（%1 ≠ %2）——请先在数据页"
+            .error = QCoreApplication::translate("WellTopsEditorWorkflow",
+                                    "同名资产多份，版本会落错资产（%1 ≠ %2）——请先在数据页"
                                     "区分资产名再编辑")
                         .arg(st.assetId, assetId)};
   if (!writeAtomic(st.absolutePath, bytes, &stageErr))

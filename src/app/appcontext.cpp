@@ -177,6 +177,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   m_taskSvc = new PaleoTaskService(m_store, this);
   paleo::imagelod::FullImageCache::shared().setTaskService(m_taskSvc);
   m_projectSvc = new QgisProjectService(this);
+  // #773：后台工程读取走任务服务专用池（退出 shutdown 排空 + 取消联动），
+  // 不占 QtConcurrent 全局池。
+  m_projectSvc->setTaskService(m_taskSvc);
 
   // Deferred binding: constructed un-opened on an empty path; rebound (same
   // object, same pointer the layer service holds) when a project opens.
@@ -200,7 +203,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
           [this](const LayerDeclaration &decl) {
             if (m_layerSvc) {
               QString derr;
-              m_layerSvc->declare(decl, &derr);
+              // declare 失败（清单冲突/来源被拒）不再静默吞掉——否则导入
+              // 产物层静默不上图且无任何线索。与 project open 的告警同口径。
+              if (!m_layerSvc->declare(decl, &derr))
+                qWarning() << "AppContext: import layer declare failed:" << derr;
             }
           });
 
@@ -573,6 +579,9 @@ void AppContext::releaseProjectSession()
   if (m_wellsitingWf) {
     m_wellsitingWf->setCatalog(nullptr, QString());
     m_wellsitingWf->setSitingStore(nullptr);
+    // #212：catalog 已解绑而 projectData 未解绑时，布井的 facade 回退分支
+    // 会继续读上一个工程的井——一并摘掉，打开新工程时随 setCatalog 重绑。
+    m_wellsitingWf->setProjectData(nullptr);
   }
   m_faultStore = FaultSetStore(QString(), nullptr);
   m_wellsitingStore = WellSitingStore(QString(), nullptr);
@@ -797,6 +806,7 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
   // Use the already-loaded catalog; never open/read a second copy.
   m_projectData->setCatalog(m_import->catalog(), fi.absolutePath());
   m_projectData->setManifest(m_manifest);
+  m_wellsitingWf->setProjectData(m_projectData); // #212：关工程时摘掉过，开工程重绑
 
   // §4 井位图层（预览壳重排）：catalog 已随 setProjectDir 打开——
   // 井点写 GeoJSON、声明「wells」、实例化后绑给 WellMapLink。

@@ -9,6 +9,14 @@
 
 namespace {
 constexpr char kObjectName[] = "paleoDraftAutosave";
+
+// 几何 / 结构修改判定（flush() 的早退条件）。undo() 需要区分「缓冲含几何
+// 修改」与「提交失败」两种 flush() 失败原因，各自文案不同，故抽出共用。
+bool hasGeometryOrStructureEdits(const QgsVectorLayerEditBuffer *buffer) {
+  return !buffer->addedFeatures().isEmpty() || !buffer->deletedFeatureIds().isEmpty() ||
+         !buffer->changedGeometries().isEmpty() || !buffer->addedAttributes().isEmpty() ||
+         !buffer->deletedAttributeIds().isEmpty();
+}
 }
 
 DraftAutosave *DraftAutosave::of(QgsVectorLayer *layer) {
@@ -57,9 +65,7 @@ bool DraftAutosave::flush() {
   if (!buffer || !buffer->isModified())
     return false;
   // 几何 / 结构修改：留给「保存编辑」，保住 QGIS 撤销栈。
-  if (!buffer->addedFeatures().isEmpty() || !buffer->deletedFeatureIds().isEmpty() ||
-      !buffer->changedGeometries().isEmpty() || !buffer->addedAttributes().isEmpty() ||
-      !buffer->deletedAttributeIds().isEmpty())
+  if (hasGeometryOrStructureEdits(buffer))
     return false;
   const QgsChangedAttributesMap changed = buffer->changedAttributeValues();
   if (changed.isEmpty())
@@ -105,8 +111,14 @@ bool DraftAutosave::undo(QString *error) {
     return reject(tr("没有可撤销的已自动保存修订"));
   if (!layer || !layer->isEditable())
     return reject(tr("请先开始编辑该工作副本"));
-  if (layer->editBuffer() && layer->editBuffer()->isModified() && !flush())
-    return reject(tr("当前编辑缓冲含几何修改，请先保存或撤销几何编辑"));
+  // flush() 失败有两种原因，文案必须分开：缓冲含几何/结构修改 vs 提交出错
+  // （磁盘满、缓冲含新增字段等）。一律报「含几何修改」会把真实错误吞掉。
+  if (layer->editBuffer() && layer->editBuffer()->isModified()) {
+    if (hasGeometryOrStructureEdits(layer->editBuffer()))
+      return reject(tr("当前编辑缓冲含几何修改，请先保存或撤销几何编辑"));
+    if (!flush())
+      return reject(m_lastError.isEmpty() ? tr("无法保存当前修订，请重试") : m_lastError);
+  }
   const QList<Change> entry = m_history.takeLast();
   m_undoing = true;
   layer->beginEditCommand(tr("撤销已自动保存的修订"));

@@ -24,7 +24,7 @@ namespace
 // missingIndices 直读，不靠文件存在猜测）。
 QString setItemText( const paleo::realization::RealizationSet &set )
 {
-  QString text = QStringLiteral( "%1（%2/%3 成员）" )
+  QString text = RealizationPanel::tr( "%1（%2/%3 成员）" )
                      .arg( set.title )
                      .arg( set.members.size() )
                      .arg( set.declaredCount );
@@ -136,10 +136,17 @@ RealizationPanel::RealizationPanel( QWidget *parent )
     if ( pos < 0 || pos >= order.size() )
       return;
     const int idx = order.at( pos );
+    // 滑块是播放帧位的唯一真源：拖动即同步 m_framePos，否则 onTick 仍按旧
+    // 帧位 +1，600ms 内把画面弹回用户刚拖开的位置（状态机两份位置不一致）。
+    m_framePos = pos;
     m_currentMember = idx;
     const int comboRow = m_memberCombo->findData( idx );
     if ( comboRow >= 0 )
       m_memberCombo->setCurrentIndex( comboRow );
+    m_frameLabel->setText( tr( "帧 %1/%2 · 成员 #%3" )
+                              .arg( m_framePos + 1 )
+                              .arg( order.size() )
+                              .arg( idx ) );
     emit memberShowRequested( m_currentSetId, idx );
   } );
   connect( m_statList, &QListWidget::itemActivated, this, [this]( QListWidgetItem *item ) {

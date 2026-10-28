@@ -47,6 +47,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPointer>
 #include <QSet>
 #include <QUuid>
 #include <QVariantList>
@@ -1195,6 +1196,12 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
       cleanupTemp();
       return false;
     }
+    // 与正常路径等价：降级成果也要暂存进 staging。异步栈下 prepareGeostatJob
+    // 已把 staging 置有效，publishGeostatJob 的拷贝以 !staging.isValid() 为条件
+    // ——漏了这次暂存，staging 里什么都没有，发布必然失败且报「缺少参数指纹
+    // 输入」之类误导性错误（#184）。
+    if ( !stageGeostatOutputs( job, cancelled ) )
+      return false;
     return true;
   }
 
@@ -1542,9 +1549,11 @@ bool ConstraintWorkflow::generateGeostatFactor( const QString &horizon, const QS
     auto shared = std::make_shared<GeostatJob>(job);
     return runFactorWork(
         tr("%1 单因素计算").arg(horizon),
-        [proc = m_proc.data(), shared](PaleoTask *task) {
+        // review L3（同 PW-031 / factor / localdirection）：不捕获裸 m_proc.data()
+        // ——QPointer 兜底，服务已拆则 computeGeostatJobWithService 入口判空报错。
+        [procGuard = QPointer<QgisProcessingService>(m_proc), shared](PaleoTask *task) {
           const bool ok = computeGeostatJobWithService(
-              proc, shared.get(), [task] { return task->cancelRequested(); },
+              procGuard.data(), shared.get(), [task] { return task->cancelRequested(); },
               [task](double p) {
                 task->reportStage("build", qBound(0, qRound(p), 95));
               });

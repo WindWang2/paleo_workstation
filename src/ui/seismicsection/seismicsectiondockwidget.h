@@ -224,6 +224,9 @@ private:
     SeismicSectionCanvas *m_canvas = nullptr;
     std::shared_ptr<const SgyVolume> m_volume;
     bool m_wellTraceBusy = false; // PW-100：井旁道异步提取在途
+    // 井旁道单线提取在途任务（SeismicTaskService 通道，#773）：退出/销毁时
+    // 取消——归还并发闸，排队/在飞读取受 PaleoTaskService shutdown 排空。
+    QPointer<PaleoTask> m_wellTraceTask;
     // IL/XL/Time 切片在途任务（SeismicTaskService 通道）：同型同号去抖 +
     // 新请求 requestCancel 顶替旧在途（被顶替的读取在逐线检查点退出，
     // 不再占并发闸）。完成回调按「世代号+请求号」守卫丢弃陈旧结果。

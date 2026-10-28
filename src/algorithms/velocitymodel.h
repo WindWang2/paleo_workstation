@@ -82,9 +82,11 @@ public:
   // V0kLinear 反闭合式 TWT(ms) ← TVD(m)（残差度量用）；IntervalAverage 沿
   // 分段线性反解。范围语义同正向（interval 不外推 / v0k 允许）。
   double wellTwtForDepth(const Well &w, double depthM) const;
-  // M4：IntervalAverage 单井外延——超出结点 TWT 范围时按首/末层区间速度线性
-  // 外延（深度/速度）。仅供空间 IDW 在「至少一口井在范围内」时补位用，避免
-  // 某井结点结束处权重突然掉出造成深度跳变/非单调；全部井都在范围外仍 NaN。
+  // M4：IntervalAverage 单井外延——超出结点 TWT 范围时线性外延（深度/速度）：
+  // 末结点之下按末层区间速度，首结点之上按 (0,0)-(t1,z1) 的地表-首结点平均
+  // 速度（旧式首层区间速度外延可把 TVD 推成负数，#719）。仅供空间 IDW 在
+  // 「至少一口井在范围内」时补位用，避免某井结点结束处权重突然掉出造成深度
+  // 跳变/非单调；全部井都在范围外仍 NaN。
   double wellDepthForTwtExtended(const Well &w, double twtMs) const;
   double wellVelocityAtExtended(const Well &w, double twtMs) const;
 
@@ -111,6 +113,9 @@ struct DepthGridResult
 
 // cancelled（可选）：逐行检查的协作取消谓词；命中 → r.cancelled=true 提前
 // 返回（部分 depthM 仍为 NaN，统计不完整——调用方不得把半途结果当成功）。
+// timeMs.size() 必须等于 rows×cols：不符即整体拒绝（depthM 全 NaN、
+// nodataCells=rows×cols，convertedCells=0）——旧式 QVector::value() 对越界
+// 下标静默取 0.0f，把缺幅面当成合法 TWT=0ms 换算成深度 0 的错值。
 DepthGridResult convertTimeGridToDepth(const VelocityModel &model,
                                        const QVector<float> &timeMs, int rows, int cols,
                                        const double gt[6], double nodata,

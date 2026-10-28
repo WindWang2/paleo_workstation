@@ -135,8 +135,10 @@ public:
 signals:
     // 模型任何变更（命令 redo/undo 后）；视图据此整刷。
     void faultSetChanged();
-    // 联动选择变化（fault: 前缀已剥；含本控制器广播后的回声）。
-    void faultSelectionChanged(const QStringList &faultIds);
+    // 联动选择变化（fault: 前缀已剥；含本控制器广播后的回声）。origin = 发起
+    // 视图名——消费端据此区分「自己发起的回声」与「别处改选/清空」：空选择若
+    // 无 origin 就无法与面板自己的清空回声分开，面板树会与全局选择真源分叉。
+    void faultSelectionChanged(const QStringList &faultIds, const QString &origin);
 
 private:
     // 命令内部无 undo 原语：改模型 → 落盘 → 发信号。返回落盘是否成功。

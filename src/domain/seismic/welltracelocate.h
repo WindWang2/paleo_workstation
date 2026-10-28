@@ -54,8 +54,21 @@ inline WellTraceLocation locateWellTrace(const SgyIndex &index, const SgyCoordin
                                          double x, double y)
 {
     WellTraceLocation out;
+    // 失败原因按分支自拟中文源串（本头自述的 translate 契约）。mapper.Describe()
+    // 是英文诊断串，且仿射奇异（MapXY 内 |det|<1e-12）时它返回的是「拟合成功
+    // 统计」而不是失败原因——直接塞进 error 会把用户引向一场并不存在的拟合
+    // 问题（finding-38）。故：中文文案作原因，Describe() 只作附录拼入。
     if (!mapper.valid() || !mapper.MapXY(x, y, out.inlineF, out.xlineF)) {
-        out.error = mapper.Describe();
+        out.error = mapper.valid()
+            ? QCoreApplication::translate("SeismicWellTraceLocate",
+                                          "测网坐标仿射奇异，井口无法反算到线号")
+                  .toStdString()
+            : QCoreApplication::translate("SeismicWellTraceLocate",
+                                          "测网坐标拟合不可用，井口无法换算到线号")
+                  .toStdString();
+        const std::string detail = mapper.Describe();
+        if (!detail.empty())
+            out.error += "（" + detail + "）";
         return out;
     }
     const bool haveIl = !index.inlineValues.empty();

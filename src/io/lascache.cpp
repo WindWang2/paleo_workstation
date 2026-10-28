@@ -161,18 +161,25 @@ void LasCache::bumpExtra(qint64 CacheStats::*field)
 
 QString LasCache::diskPathFor(const QString &fingerprint) const
 {
-  if (m_diskRoot.isEmpty())
+  // m_diskRoot 由 setDiskRoot 在工程切换时改写——读侧必须持 m_cfgMutex 取
+  // 局部拷贝（与写侧的锁声明一致），否则跨线程读写 QString 是数据竞争。
+  QString diskRoot;
+  {
+    QMutexLocker lock(&m_cfgMutex);
+    diskRoot = m_diskRoot;
+  }
+  if (diskRoot.isEmpty())
     return QString();
   const QByteArray h = QCryptographicHash::hash(fingerprint.toUtf8(),
                                                 QCryptographicHash::Sha256)
                            .toHex();
-  return m_diskRoot + QLatin1Char('/') + QString::fromLatin1(h.left(24)) +
+  return diskRoot + QLatin1Char('/') + QString::fromLatin1(h.left(24)) +
          QStringLiteral(".plc");
 }
 
 bool LasCache::writeDisk(const QString &fingerprint, const LasDoc &doc)
 {
-  if (m_diskRoot.isEmpty())
+  if (diskRoot().isEmpty())
     return false;
   const QString path = diskPathFor(fingerprint);
   const QByteArray payload = encodeDoc(fingerprint, doc);
@@ -184,7 +191,7 @@ bool LasCache::writeDisk(const QString &fingerprint, const LasDoc &doc)
 
 std::shared_ptr<LasDoc> LasCache::readDisk(const QString &fingerprint)
 {
-  if (m_diskRoot.isEmpty())
+  if (diskRoot().isEmpty())
     return nullptr;
   const QString path = diskPathFor(fingerprint);
   QByteArray payload;

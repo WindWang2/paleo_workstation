@@ -509,6 +509,80 @@ bool PreviewDocService::verifyExternalSha(const QString &assetId,
   return true;
 }
 
+void PreviewDocService::verifyExternalShaAsync(
+    const QString &assetId, const CatalogVersion &version, const QString &absPath,
+    QObject *receiver, std::function<void(bool, const QString &)> done)
+{
+  const auto settle = [&done](bool ok, const QString &error) {
+    if (done)
+      done(ok, error);
+  };
+  if (version.managed || version.sha256.isEmpty() || m_shaVerified.value(assetId))
+    return settle(true, QString()); // 托管副本/无指纹/本会话已验 → 放行
+  if (!m_taskSvc || !receiver)
+  {
+    QString err;
+    return settle(verifyExternalSha(assetId, version, &err), err);
+  }
+  const QString expected = version.sha256;
+  const QString versionId = version.id;
+  // 失配由 worker 经 shared_ptr 交接（与 requestSection 的 shaMismatch 同
+  // 纪律）——GUI 线程再判文案并碰 catalog，worker 只做纯 IO。
+  const auto mismatched = std::make_shared<bool>(false);
+  auto *task = m_taskSvc->start(
+      tr("校验外链完整性 %1").arg(QFileInfo(absPath).fileName()),
+      [absPath, expected, mismatched](PaleoTask *t) -> QString {
+        QString err;
+        if (!externalShaMatches(absPath, expected, t, &err, mismatched.get()))
+          return (t && t->cancelRequested()) ? QString() : err;
+        return QString();
+      },
+      QString(), /*quiet=*/true); // 交互内嵌校验——不拉起任务中心
+  if (!task)
+  {
+    QString err;
+    return settle(verifyExternalSha(assetId, version, &err), err);
+  }
+  const QPointer<PaleoTask> guard(task);
+  connect(receiver, &QObject::destroyed, task, [guard] {
+    if (guard)
+      guard->requestCancel(); // 页关闭：大外链不白读
+  });
+  connect(task, &PaleoTask::finished, receiver,
+          [this, guard, assetId, versionId, mismatched, done]() {
+            if (!guard)
+              return;
+            if (guard->state() == PaleoTask::State::Cancelled)
+              return; // 页已关闭/切换——不回填任何状态
+            if (guard->state() == PaleoTask::State::Succeeded)
+            {
+              m_shaVerified.insert(assetId, true); // 主线程写缓存（同同步口径）
+              if (done)
+                done(true, QString());
+              return;
+            }
+            if (*mismatched)
+            {
+              // B 包 staleness-lite：失配 → 下游 DERIVED 如实标过时（GUI 线程，
+              // 与 verifyExternalSha 同一口径；幂等）。
+              DataCatalog *cat = catalog();
+              if (cat)
+              {
+                QString markErr;
+                if (!cat->markDownstreamStale(
+                        versionId, QStringLiteral("上游外链版本 sha 校验失败"),
+                        &markErr))
+                  qWarning() << "markDownstreamStale:" << markErr;
+              }
+              if (done)
+                done(false, QStringLiteral("源文件与入库时的 SHA-256 不一致"));
+              return;
+            }
+            if (done)
+              done(false, guard->errorText());
+          });
+}
+
 void PreviewDocService::resetSha(const QString &assetId)
 {
   m_shaVerified.remove(assetId);

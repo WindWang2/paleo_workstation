@@ -31,6 +31,11 @@ constexpr std::uint16_t kZip64ExtraHeaderId = 0x0001;
 constexpr qint64 kMaxArchiveBytes = 512ll * 1024 * 1024;
 // 整包声明解压总量上限（zip bomb 闸；与单条目闸一起生效）。
 constexpr qint64 kMaxTotalUncompressedBytes = 512ll * 1024 * 1024;
+// finding-60：写面单条目上限。deflateRaw/crc32Of 的长度参数是 zlib 的
+// uInt（32 位），QByteArray 尺寸也是 int——>2 GiB 的条目在压缩/校验里
+// 静默截断，>4 GiB 更会让「自动 ZIP64」的 CRC 完整性契约失效。写面如实
+// 报因，不靠结构上的 ZIP64 掩盖内容面的 32 位截断。
+constexpr qint64 kMaxWriteEntryBytes = 2ll * 1024 * 1024 * 1024;
 
 std::uint16_t readU16( const QByteArray &buffer, int offset )
 {
@@ -481,6 +486,11 @@ QByteArray zipBuildArchive( const QVector<ZipWriteEntry> &entries, const ZipBuil
       return fail( QStringLiteral( "第 %1 个条目名字为空" ).arg( i + 1 ) );
     if ( seenNames.contains( entry.name ) )
       return fail( QStringLiteral( "ZIP 条目重名（写面不产重名包）：%1" ).arg( entry.name ) );
+    if ( static_cast<qint64>( entry.data.size() ) > kMaxWriteEntryBytes )
+      return fail( QStringLiteral( "条目「%1」大小 %2 字节超过写面上限 %3 字节（zlib 32 位长度/CRC 会截断）" )
+                       .arg( entry.name )
+                       .arg( static_cast<qint64>( entry.data.size() ) )
+                       .arg( kMaxWriteEntryBytes ) );
     seenNames.insert( entry.name );
   }
 
@@ -638,6 +648,12 @@ QByteArray zipBuildArchive( const QVector<ZipWriteEntry> &entries, const ZipBuil
   appendU32( &out, directoryOffset > 0xFFFFFFFFu ? kZip64Sentinel
                                                  : static_cast<std::uint32_t>( directoryOffset ) );
   appendU16( &out, 0 ); // comment
+  // finding-60：写面总包预算——读面早就拒 >512 MiB 的包（kMaxArchiveBytes），
+  // 写面却无闸，组出的包自己读不回来。
+  if ( static_cast<qint64>( out.size() ) > kMaxArchiveBytes )
+    return fail( QStringLiteral( "ZIP 组包结果 %1 字节超过上限 %2 字节" )
+                     .arg( static_cast<qint64>( out.size() ) )
+                     .arg( kMaxArchiveBytes ) );
   if ( zip64Used )
     *zip64Used = archive64;
   return out;

@@ -177,7 +177,10 @@ void PaleoCoordinateToolsDialog::convert()
   auto context = m_canvas ? m_canvas->mapSettings().transformContext()
                           : QgsCoordinateTransformContext();
   bool allowFallback = true;
-  if (m_operation->isVisible() && sourceCrs != targetCrs && m_operation->hasSelection())
+  // 采纳判据是「用户展开了基准操作面板」这一意图（isChecked），不是像素可见性
+  // （isVisible）：离屏/未 show 的面板 isVisible 恒假，折叠后用户已选的操作会被
+  // 静默忽略并回落默认转换。
+  if (m_operationToggle->isChecked() && sourceCrs != targetCrs && m_operation->hasSelection())
   {
     const auto operation = m_operation->selectedOperation();
     allowFallback = operation.allowFallback;

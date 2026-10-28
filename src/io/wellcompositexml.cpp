@@ -20,6 +20,9 @@ namespace WellComposite
 constexpr int kMaxSpreadsheetColumns = 16384;
 constexpr qint64 kMaxSheetCells = 4'000'000;
 constexpr qint64 kMaxWorkbookXmlBytes = 512LL * 1024 * 1024;
+// 单表装配块的数据行数（issue-800）：曲线与非曲线表同口径分块，块与块之间
+// 只通过 outData 的解析结果累积，不再把整表字符串驻留在内存里。
+constexpr int kSheetChunkRows = 4097;
 
 static bool parseComprehensiveWellDevice(QIODevice *device, const QString &path, ComprehensiveWellData &outData, QString *errorMsg);
 
@@ -32,6 +35,14 @@ static void appendCurveChunk(QVector<CurveData> &target, const CurveData &source
     return;
   }
   target.append(source);
+}
+
+// 值列同款哨兵过滤：>-900 且有限。深度/TWT 列必须过同一道闸——-9999 深度
+// 样本和 "nan"/"inf"（Qt toFloat/toDouble 对 nan/inf 置 ok=true）会静默进入
+// 曲线数据污染深度轴，与同循环里值列滤 -900 的口径不对称。
+static bool usableWellDepth(float v)
+{
+  return std::isfinite(v) && v > -900.0f;
 }
 
 static void updateCurveScales(QVector<CurveData> &curves, bool continuous)
@@ -92,6 +103,64 @@ static QString pickUnitForMnemonic(const QString &mnemonic)
   return QString();
 }
 
+// 文本道三级相区间的一行（顶/底 + 名称）。
+struct FaciesRow
+{
+  float top = 0.0f;
+  float bot = 0.0f;
+  QString name;
+};
+
+// 以最细一级区间为骨架，按中点包含向上补齐 相/亚相。三级行跨分块累积后
+// 统一在这里归并——分块装配（见 kSheetChunkRows）时块边界上的微相行仍要
+// 找得到别块里的沉积相行，逐块各自归并会静默丢层级。
+static void appendFaciesIntervals(ComprehensiveWellData &outData,
+                                  const QVector<FaciesRow> &majorRows,
+                                  const QVector<FaciesRow> &subRows,
+                                  const QVector<FaciesRow> &microRows)
+{
+  const QVector<FaciesRow> *base =
+      !microRows.isEmpty() ? &microRows : (!subRows.isEmpty() ? &subRows : &majorRows);
+  const int baseLevel = !microRows.isEmpty() ? 2 : (!subRows.isEmpty() ? 1 : 0);
+  const auto containing = [](const QVector<FaciesRow> &cands, float mid) -> const FaciesRow * {
+    const FaciesRow *best = nullptr;
+    for (const auto &c : cands)
+    {
+      if (mid >= c.top && mid <= c.bot &&
+          (!best || (c.bot - c.top) < (best->bot - best->top)))
+        best = &c;
+    }
+    return best;
+  };
+  // 同一相名映射到稳定淡色；层级越深明度略降
+  const auto faciesColor = [](const QString &name, int level) {
+    if (name.isEmpty()) return QColor(QStringLiteral("#ECEFF1"));
+    const int hue = static_cast<int>(qHash(name) % 360);
+    return QColor::fromHsl(hue, 96, 218 - level * 10);
+  };
+
+  for (const auto &br : *base)
+  {
+    const float mid = (br.top + br.bot) * 0.5f;
+    FaciesInterval fi;
+    fi.topDepth = br.top;
+    fi.bottomDepth = br.bot;
+    if (baseLevel == 0) fi.majorFacies = br.name;
+    if (baseLevel == 1) fi.subFacies = br.name;
+    if (baseLevel == 2) fi.microFacies = br.name;
+    if (fi.majorFacies.isEmpty())
+      if (const FaciesRow *m = containing(majorRows, mid)) fi.majorFacies = m->name;
+    if (fi.subFacies.isEmpty())
+      if (const FaciesRow *m = containing(subRows, mid)) fi.subFacies = m->name;
+    if (fi.microFacies.isEmpty())
+      if (const FaciesRow *m = containing(microRows, mid)) fi.microFacies = m->name;
+    fi.majorColor = faciesColor(fi.majorFacies, 0);
+    fi.subColor = faciesColor(fi.subFacies, 1);
+    fi.microColor = faciesColor(fi.microFacies, 2);
+    outData.faciesIntervals.append(fi);
+  }
+}
+
 bool parseComprehensiveWellXml(const QString &filePath, ComprehensiveWellData &outData, QString *errorMsg)
 {
   QFile file(filePath);
@@ -123,6 +192,8 @@ static bool parseComprehensiveWellDevice(QIODevice *device, const QString &path,
   QString currentSheetName;
   QVector<QStringList> sheetRows;
   sheetRows.reserve(512);
+  // 文本道三级相区间跨分块累积（流式结束后统一归并，见 appendFaciesIntervals）。
+  QVector<FaciesRow> faciesMajorRows, faciesSubRows, faciesMicroRows;
 
   // 解析并分流单个工作表
   const auto processSheet = [&](const QString &sheetName, const QVector<QStringList> &rows) {
@@ -163,7 +234,7 @@ static bool parseComprehensiveWellDevice(QIODevice *device, const QString &path,
 
         bool ok = false;
         const float d = row.at(depthCol).trimmed().toFloat(&ok);
-        if (!ok) continue;
+        if (!ok || !usableWellDepth(d)) continue;
 
         if (outData.wellName.isEmpty() && !row.isEmpty() && !row.first().isEmpty())
           outData.wellName = row.first().trimmed();
@@ -252,7 +323,7 @@ static bool parseComprehensiveWellDevice(QIODevice *device, const QString &path,
         if (row.size() <= depthCol) continue;
         bool ok = false;
         const float d = row.at(depthCol).trimmed().toFloat(&ok);
-        if (!ok) continue;
+        if (!ok || !usableWellDepth(d)) continue;
 
         int cIdx = 0;
         for (int c = 0; c < header.size(); ++c)
@@ -402,14 +473,7 @@ static bool parseComprehensiveWellDevice(QIODevice *device, const QString &path,
       // ['井号', '道名', '层号', '顶深', '顶TVD', '顶TVDSS', '底深', '底TVD', '底TVDSS', '文本']
       // 道名 = 沉积相/沉积亚相/沉积微相 的行是三级相区间，接入 faciesIntervals
       // （不再混入文本道）；其余行（取样结论等）保持原样。
-      struct FaciesRow
-      {
-        float top = 0.0f;
-        float bot = 0.0f;
-        QString name;
-      };
-      QVector<FaciesRow> majorRows, subRows, microRows;
-
+      // 三级行累积到函数级状态，流式结束后统一归并（见 appendFaciesIntervals）。
       for (int r = 1; r < rows.size(); ++r)
       {
         const QStringList &row = rows.at(r);
@@ -423,17 +487,17 @@ static bool parseComprehensiveWellDevice(QIODevice *device, const QString &path,
 
         if (category == QStringLiteral("沉积相"))
         {
-          if (bot > top) majorRows.append({top, bot, text});
+          if (bot > top) faciesMajorRows.append({top, bot, text});
           continue;
         }
         if (category == QStringLiteral("沉积亚相"))
         {
-          if (bot > top) subRows.append({top, bot, text});
+          if (bot > top) faciesSubRows.append({top, bot, text});
           continue;
         }
         if (category == QStringLiteral("沉积微相"))
         {
-          if (bot > top) microRows.append({top, bot, text});
+          if (bot > top) faciesMicroRows.append({top, bot, text});
           continue;
         }
 
@@ -443,48 +507,6 @@ static bool parseComprehensiveWellDevice(QIODevice *device, const QString &path,
         ti.bottomDepth = bot;
         ti.text = text;
         outData.textIntervals.append(ti);
-      }
-
-      // 以最细一级区间为骨架，按中点包含向上补齐 相/亚相
-      const QVector<FaciesRow> *base =
-          !microRows.isEmpty() ? &microRows : (!subRows.isEmpty() ? &subRows : &majorRows);
-      const int baseLevel = !microRows.isEmpty() ? 2 : (!subRows.isEmpty() ? 1 : 0);
-      const auto containing = [](const QVector<FaciesRow> &cands, float mid) -> const FaciesRow * {
-        const FaciesRow *best = nullptr;
-        for (const auto &c : cands)
-        {
-          if (mid >= c.top && mid <= c.bot &&
-              (!best || (c.bot - c.top) < (best->bot - best->top)))
-            best = &c;
-        }
-        return best;
-      };
-      // 同一相名映射到稳定淡色；层级越深明度略降
-      const auto faciesColor = [](const QString &name, int level) {
-        if (name.isEmpty()) return QColor(QStringLiteral("#ECEFF1"));
-        const int hue = static_cast<int>(qHash(name) % 360);
-        return QColor::fromHsl(hue, 96, 218 - level * 10);
-      };
-
-      for (const auto &br : *base)
-      {
-        const float mid = (br.top + br.bot) * 0.5f;
-        FaciesInterval fi;
-        fi.topDepth = br.top;
-        fi.bottomDepth = br.bot;
-        if (baseLevel == 0) fi.majorFacies = br.name;
-        if (baseLevel == 1) fi.subFacies = br.name;
-        if (baseLevel == 2) fi.microFacies = br.name;
-        if (fi.majorFacies.isEmpty())
-          if (const FaciesRow *m = containing(majorRows, mid)) fi.majorFacies = m->name;
-        if (fi.subFacies.isEmpty())
-          if (const FaciesRow *m = containing(subRows, mid)) fi.subFacies = m->name;
-        if (fi.microFacies.isEmpty())
-          if (const FaciesRow *m = containing(microRows, mid)) fi.microFacies = m->name;
-        fi.majorColor = faciesColor(fi.majorFacies, 0);
-        fi.subColor = faciesColor(fi.subFacies, 1);
-        fi.microColor = faciesColor(fi.microFacies, 2);
-        outData.faciesIntervals.append(fi);
       }
     }
     else if (sheetName.contains(QStringLiteral("取心数据道")))
@@ -579,19 +601,25 @@ static bool parseComprehensiveWellDevice(QIODevice *device, const QString &path,
           currentSheetName = sheet;
         }
         sheetRows.append(row);
-        const bool curve = sheet.startsWith(QStringLiteral("测井曲线")) || sheet.startsWith(QStringLiteral("离散曲线"));
-        // Only one bounded string chunk lives alongside the numeric curves.
-        if (curve && sheetRows.size() >= 4097) {
+        // issue-800：所有工作表都按块装配（此前只有曲线表分块，其余表把
+        // 整个工作表驻留在 sheetRows 里——病态宽/长表的字符串开销可达数
+        // 百 MB）。每块自带表头（processSheet 一律跳过第 0 行）。
+        if (sheetRows.size() >= kSheetChunkRows) {
           flushRows();
           sheetRows.append(headers);
         }
         return true;
       });
-  if (!workbook.ok || !workbook.issues.isEmpty()) {
+  // 行/单元格级坏数据走 issues（outsourceworkbook.h 诚实面：照常返回其余
+  // 行）——此前任何非致命 issue 都把整份综合柱状图判失败，与底层契约冲突。
+  // 文件级失败（!ok）才拒收。
+  if (!workbook.ok) {
     if (errorMsg) *errorMsg = workbook.error + workbook.issues.join(QLatin1Char('\n'));
     return false;
   }
   flushRows();
+  // 文本道三级相区间归并（跨分块累积的行统一解析）。
+  appendFaciesIntervals(outData, faciesMajorRows, faciesSubRows, faciesMicroRows);
   updateCurveScales(outData.continuousCurves, true);
   updateCurveScales(outData.discreteCurves, false);
 
@@ -1081,7 +1109,10 @@ bool parseTimeDepthTable(const QString &filePath, QVector<XmlTimeDepthPair> &out
     bool ok1 = false, ok2 = false;
     const double tvd = row.at(0).trimmed().toDouble(&ok1);
     const double twt = row.at(1).trimmed().toDouble(&ok2);
-    if (!ok1 || !ok2 || tvd < 0.0)
+    // 深度与 TWT 两列都过哨兵闸：-9999 与 "nan"/"inf"（Qt toDouble 对
+    // nan/inf 置 ok=true）会静默进时深表，与曲线值列滤 -900 同口径。
+    if (!ok1 || !ok2 || !std::isfinite(tvd) || !std::isfinite(twt) || tvd < 0.0 ||
+        !(twt > -900.0))
       continue;
     out.append({tvd, twt});
   }

@@ -193,6 +193,8 @@ void DataListPanel::showWellAttachments(const QString &wellId)
   if (!m_attachments)
   {
     m_attachments = new WellAttachmentPanel(m_ctx.cat, &m_recycle, this);
+    // #773：缩略图解码走任务服务专用池（可取消/退出排空），不用全局池。
+    m_attachments->setTaskService(m_doc ? m_doc->taskService() : nullptr);
     connect(m_attachments, &WellAttachmentPanel::removeRequested, this,
             [this](const QStringList &ids) {
               if (PaleoNotify::ask(

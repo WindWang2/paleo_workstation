@@ -247,6 +247,24 @@ namespace
     src->enc = EncodingDetect::detect(EncodingDetect::stripBom(sample));
     return true;
   }
+
+  // issue-810：行长闸。QIODevice::readLine() 对无换行的病态输入会把其后
+  // 全部字节读进内存（头段扫描只该读头部；缺 ~A 的文件更会一路读到尾）。
+  // peek 探不到换行即判超限——调用方如实拒收，不静默当 EOF。上限与
+  // scanHeaderFromFile 的 4MB 头段预算同量级（parseDoc 能解的头行这里也能）。
+  constexpr qint64 kMaxHeaderLineBytes = 4 * 1024 * 1024;
+
+  QByteArray readHeaderLine(LasLineSource &src, qint64 maxBytes, bool *tooLong)
+  {
+    *tooLong = false;
+    const QByteArray head = src.dev->peek(maxBytes + 1);
+    if (head.size() > maxBytes && !head.contains('\n'))
+    {
+      *tooLong = true;
+      return {};
+    }
+    return src.dev->readLine();
+  }
 } // namespace
 
 bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
@@ -281,7 +299,18 @@ bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
   // 是乱码——wellsMatchingName 零匹配，井曲线行全落「未决」链接。
   while (!src.dev->atEnd())
   {
-    const QString line = EncodingDetect::decodeAs(src.dev->readLine(), src.enc).trimmed();
+    bool lineTooLong = false;
+    const QString line = EncodingDetect::decodeAs(
+                             readHeaderLine(src, kMaxHeaderLineBytes, &lineTooLong),
+                             src.enc)
+                             .trimmed();
+    if (lineTooLong)
+    {
+      setError(error, QStringLiteral("LAS 头段存在超过 %1 字节无换行的行：%2")
+                          .arg(kMaxHeaderLineBytes)
+                          .arg(path));
+      return false;
+    }
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
     if (line.startsWith(QLatin1Char('~')))
@@ -366,7 +395,18 @@ bool LasParser::readWellInfo(const QString &path, QString &wellName, QString *er
   // EncodingDetect 解码，口径单源化。
   while (!src.dev->atEnd())
   {
-    const QString line = EncodingDetect::decodeAs(src.dev->readLine(), src.enc).trimmed();
+    bool lineTooLong = false;
+    const QString line = EncodingDetect::decodeAs(
+                             readHeaderLine(src, kMaxHeaderLineBytes, &lineTooLong),
+                             src.enc)
+                             .trimmed();
+    if (lineTooLong)
+    {
+      setError(error, QStringLiteral("LAS 头段存在超过 %1 字节无换行的行：%2")
+                          .arg(kMaxHeaderLineBytes)
+                          .arg(path));
+      return false;
+    }
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
     if (line.startsWith(QLatin1Char('~')))
@@ -1128,6 +1168,17 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
     }
     if (usable <= 0)
       break;
+    // #167 同口径：DOS Ctrl-Z（0x1A）= EOF——整读路径与 parseRange 流式
+    // 路径都在其后截停，本入口此前完全不认（同一文件两入口行集不一致）。
+    // 块内命中即截去其后字节并结束扫描。
+    bool sawCtrlZ = false;
+    if (const void *eofMarker = std::memchr(chunk.constData(), 0x1A, static_cast<std::size_t>(usable)))
+    {
+      usable = static_cast<const char *>(eofMarker) - chunk.constData();
+      sawCtrlZ = true;
+    }
+    if (usable <= 0)
+      break;
     qint64 i = 0;
     while (i < usable)
     {
@@ -1157,9 +1208,16 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
         if (col > 0)
         {
           const double depth = rowVals[0];
-          if (depth < lastDepth)
+          // #806：坏深度 token 已被置 nan()——NaN 参与任何比较都为 false，
+          // 旧判据 depth < lastDepth 恒假让单调性判定失效，非单调文件会在
+          // 越界处被静默截断。取反判定让 NaN 也判非单调（与整读路径
+          // parseAsciiRows 的「NaN 深度不进单调轴」口径一致）。
+          if (!(depth >= lastDepth))
             monotonicDepth = false;
-          lastDepth = depth;
+          // finding-49：NULL/NaN 深度行不更新 lastDepth——否则单调性检测
+          // 被污染，「越过 toDepth 即停」提前触发，静默丢后续有效行。
+          if (depth == depth && depth != nullValue)
+            lastDepth = depth;
           if (depth == depth && depth >= fromDepth && depth <= toDepth)
             for (int c = 0; c < nCurves; ++c)
             {
@@ -1178,6 +1236,8 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
         ++i;
     }
     pos += usable;
+    if (sawCtrlZ)
+      break; // Ctrl-Z 即 EOF：不再推进后续块
   }
   curves = cols;
   fillUnits(&curves, header);

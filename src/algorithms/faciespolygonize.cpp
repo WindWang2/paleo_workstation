@@ -1187,17 +1187,56 @@ QVector<CodedPoly> polygonizeGrid( const QVector<int> &grid, int cols, int rows,
   return polys;
 }
 
+// 临时产物清理（含 GPKG 的 -wal/-shm 伴生文件）。
+void removeGpkgStaging( const QString &staging )
+{
+  QFile::remove( staging );
+  QFile::remove( staging + QStringLiteral( "-wal" ) );
+  QFile::remove( staging + QStringLiteral( "-shm" ) );
+}
+
+// 写成功后把临时产物换成正式产物。旧产物先改名 .bak，staging rename 成功后再
+// 删 .bak；rename 失败时把 .bak 改回原名——不能先 remove(正式) 再 rename，
+// 那个窗口内新旧两失（同 factorcontour #74 / geostatrasterio #73 口径）。
+void commitStagingGpkg( const QString &staging, const QString &path )
+{
+  const QString backup = path + QStringLiteral( ".bak" );
+  QFile::remove( backup );
+  const bool hadOutput = QFile::exists( path );
+  if ( hadOutput && !QFile::rename( path, backup ) )
+  {
+    removeGpkgStaging( staging );
+    throw QgsProcessingException( QStringLiteral( "cannot move existing output aside: %1" )
+                                      .arg( path ) );
+  }
+  if ( !QFile::rename( staging, path ) )
+  {
+    if ( hadOutput )
+      QFile::rename( backup, path ); // 回滚：旧产物还原
+    removeGpkgStaging( staging );
+    throw QgsProcessingException( QStringLiteral( "cannot move facies polygons into place: %1" )
+                                      .arg( path ) );
+  }
+  QFile::remove( backup );
+  removeGpkgStaging( backup );
+}
+
 void writeGpkg( const QString &path, const QVector<CodedPoly> &polys, const QString &wkt,
                 const QString &provenance, const QHash<int, std::pair<double, bool>> valueBounds[2] = nullptr )
 {
-  if ( QFile::exists( path ) && !QFile::remove( path ) )
-    throw QgsProcessingException( QStringLiteral( "cannot replace %1" ).arg( path ) );
+  // 先写同目录临时路径，全部成功后才替换正式产物。旧式在正式路径上直接
+  // GDALCreate（先删旧文件），WKT 编码失败/CreateFeature 失败只 GDALClose 后
+  // 抛异常——OUTPUT 留下截断的半成品 GPKG，而此前的旧输出已被删（部分写 +
+  // 失败后状态残留）。
+  const QString staging = path + QStringLiteral( ".tmp" );
+  removeGpkgStaging( staging );
   GDALDriverH drv = GDALGetDriverByName( "GPKG" );
   if ( !drv )
     throw QgsProcessingException( QStringLiteral( "GPKG driver is not available" ) );
-  GDALDatasetH ds = GDALCreate( drv, path.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
+  GDALDatasetH ds = GDALCreate( drv, staging.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
   if ( !ds )
   {
+    removeGpkgStaging( staging );
     throw QgsProcessingException( QStringLiteral( "cannot create %1: %2" )
                                       .arg( path, QString::fromUtf8( CPLGetLastErrorMsg() ) ) );
   }
@@ -1223,6 +1262,7 @@ void writeGpkg( const QString &path, const QVector<CodedPoly> &polys, const QStr
   if ( !layer )
   {
     GDALClose( ds );
+    removeGpkgStaging( staging );
     throw QgsProcessingException( QStringLiteral( "cannot create facies_polygons layer" ) );
   }
   OGRFieldDefnH codeFld = OGR_Fld_Create( "facies_code", OFTInteger );
@@ -1248,6 +1288,7 @@ void writeGpkg( const QString &path, const QVector<CodedPoly> &polys, const QStr
     if ( OGR_G_CreateFromWkt( &wptr, nullptr, &og ) != OGRERR_NONE || !og )
     {
       GDALClose( ds );
+      removeGpkgStaging( staging );
       throw QgsProcessingException( QStringLiteral( "cannot encode facies polygon WKT" ) );
     }
     OGRFeatureH feat = OGR_F_Create( OGR_L_GetLayerDefn( layer ) );
@@ -1266,6 +1307,7 @@ void writeGpkg( const QString &path, const QVector<CodedPoly> &polys, const QStr
     {
       OGR_F_Destroy( feat );
       GDALClose( ds );
+      removeGpkgStaging( staging );
       throw QgsProcessingException( QStringLiteral( "failed to write a facies polygon feature" ) );
     }
     OGR_F_Destroy( feat );
@@ -1275,7 +1317,13 @@ void writeGpkg( const QString &path, const QVector<CodedPoly> &polys, const QStr
   if ( !wkt.isEmpty() )
     GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wkt.toUtf8().constData(), nullptr );
   GDALSetMetadataItem( ds, "PALEO_PROVENANCE", provenance.toUtf8().constData(), nullptr );
-  GDALClose( ds );
+  // GDALClose 才真正落盘；关失败同样算失败（半成品不得进位）。
+  if ( GDALClose( ds ) != CE_None )
+  {
+    removeGpkgStaging( staging );
+    throw QgsProcessingException( QStringLiteral( "failed to finalize %1" ).arg( path ) );
+  }
+  commitStagingGpkg( staging, path );
 }
 
 } // namespace

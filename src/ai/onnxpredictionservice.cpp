@@ -269,11 +269,13 @@ void PaleoOnnxService::setModelRoot( const QString &dir )
   m_registryError.clear();
   m_registryOk.clear();
   m_registryRejected.clear();
+  ++m_modelConfigEpoch; // 配置代际：作废解析与构建窗口内的旧根快照
 }
 
 void PaleoOnnxService::setModelRegistry( const ModelRegistryScan &scan )
 {
   QMutexLocker lock( &m_mutex );
+  ++m_modelConfigEpoch; // 换注册表同样作废解析与构建窗口内的旧快照
   m_registryActive = scan.manifestFound;
   m_registryError = scan.manifestError;
   m_registryOk.clear();
@@ -434,8 +436,18 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
   QString path;
   QString pinnedSha;
   QString resolveErr;
+  QString rootSnapshot;
+  quint64 epochSnapshot = 0;
+  bool registryActiveSnapshot = false;
   {
+    // 根/代际快照与路径解析放进同一临界区：否则 setModelRoot/setModelRegistry
+    // 可在「解析完 → 取构建锁」的窗口内整个换完（setModelRoot 持 m_loadMutex，
+    // 窗口内能改完并放行），旧目录解析出的路径随后被入池并成为活动模型，而
+    // 收尾段只比 m_modelRoot 字符串（换成新根后两值相等）对此失明。
     QMutexLocker lock( &m_mutex );
+    rootSnapshot = m_modelRoot;
+    epochSnapshot = m_modelConfigEpoch;
+    registryActiveSnapshot = m_registryActive;
     path = resolveModelPathLocked( name, &resolveErr, &pinnedSha );
   }
   if ( path.isEmpty() )
@@ -453,6 +465,14 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
     return finishFail( OnnxLoadStatus::NotFound,
                        tr( "模型 '%1' 钉哈希不符：manifest %2 vs 实测 %3（模型可能被替换）" )
                          .arg( name, pinnedSha, sha ) );
+  // #737：manifest 条目未钉 sha256 时，模型文件被替换无从发现——默认拒绝加载
+  // （扫描期已有 qWarning 点名该条目与实测指纹），补钉后才放行。
+  // 无 manifest 的开发降级路径不走此闸（路径不是经注册表解析的）。
+  if ( registryActiveSnapshot && pinnedSha.isEmpty() )
+    return finishFail( OnnxLoadStatus::NotFound,
+                       tr( "模型 '%1' 未在 manifest 钉 sha256，拒绝加载（实测 %2；"
+                           "请在 models/manifest.json 的该条目补钉该值）" )
+                         .arg( name, sha ) );
 
   OnnxModelMeta nextMeta;
   QString emitName;
@@ -463,13 +483,23 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
   // 串行化、不重复建会话。
   QMutexLocker loadLock( &m_loadMutex );
 
-  QString rootSnapshot;
   bool registryActive = false;
   bool registryHit = false;
   ModelRegistryEntry registryEntry;
   {
     QMutexLocker lock( &m_mutex );
-    rootSnapshot = m_modelRoot;
+    // 代际复核（池命中也一样）：解析路径之后模型目录或注册表被换过——
+    // setModelRegistry 只持 m_mutex，构建窗口内也能改完。旧配置解析出的
+    // 路径/池条目一律作废，不得成为活动模型（如实失败，让调用方重试）。
+    if ( m_destroying || m_modelRoot != rootSnapshot || m_modelConfigEpoch != epochSnapshot )
+    {
+      m_lastStatus = OnnxLoadStatus::CreateFailed;
+      m_lastMeta = OnnxModelMeta();
+      m_lastPoolHit = false;
+      if ( error )
+        *error = tr( "模型目录或注册表已切换，加载被丢弃：%1" ).arg( name );
+      return OnnxLoadStatus::CreateFailed;
+    }
     registryActive = m_registryActive;
     if ( registryActive )
     {
@@ -628,12 +658,12 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
         *error = msg;
       return status;
     };
-    if ( m_destroying || m_modelRoot != rootSnapshot )
+    if ( m_destroying || m_modelRoot != rootSnapshot || m_modelConfigEpoch != epochSnapshot )
     {
-      // 构建期间服务在销毁/模型目录被换：丢弃新会话，如实失败。
+      // 构建期间服务在销毁/模型目录或注册表被换：丢弃新会话，如实失败。
       delete session;
       return failLocked( OnnxLoadStatus::CreateFailed,
-                         tr( "模型目录已切换，构建中的会话被丢弃：%1" ).arg( path ) );
+                         tr( "模型目录或注册表已切换，构建中的会话被丢弃：%1" ).arg( path ) );
     }
     if ( PoolEntry *existing = m_pool.value( path ) )
     {
@@ -689,6 +719,10 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
     }
   }
 
+  // 信号在锁外发（文件头不变量：直连槽可安全回调本服务）。loadLock 是函数
+  // 域的 QMutexLocker，构建段结束不等于释放——持锁 emit 会让直连槽里再调
+  // loadModel/setModelRoot 撞上非递归 m_loadMutex 重入死锁，故显式解锁。
+  loadLock.unlock();
   if ( !emitName.isEmpty() )
     emit modelLoaded( emitName );
   return OnnxLoadStatus::Ok;

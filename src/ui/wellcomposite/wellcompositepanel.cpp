@@ -9,6 +9,8 @@
 #include "../dialogs/coreimageviewer.h"
 #include "../shortcuts/shortcutcatalog.h"
 #include "../help/whatsthiscatalog.h"
+#include "../notifications/paleonotify.h"
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QShortcut>
@@ -114,7 +116,36 @@ void WellCompositePanel::setSourceDataPath(const QString &path)
     return;
   }
   m_store = std::make_unique<WellCompositeStore>(path);
-  m_store->load();
+  if (!m_store->load())
+  {
+    // sidecar 损坏/不可读：先备份为 .corrupt 再如实报告。旧实现丢弃 load()
+    // 返回值直接按空库装配，下一次保存会用空库整体覆盖原文件——钉注/书签/
+    // 地层指派/曲线覆盖层永久丢失且无痕迹。
+    const QString sidecar = m_store->sidecarPath();
+    const QString backup = sidecar + QStringLiteral(".corrupt");
+    QString removeErr;
+    if (QFile::exists(backup) && !QFile::remove(backup))
+      removeErr = QFile(backup).errorString();
+    if (removeErr.isEmpty() && !QFile::copy(sidecar, backup))
+      removeErr = QFile(backup).errorString();
+    if (removeErr.isEmpty())
+    {
+      PaleoNotify::warning(
+          this, tr("井组合附属数据损坏"),
+          tr("无法读取 %1，已备份为 %2。钉注/书签/地层指派/曲线覆盖层未加载，"
+             "重新保存将写新的附属文件。")
+              .arg(QDir::toNativeSeparators(sidecar), QDir::toNativeSeparators(backup)));
+    }
+    else
+    {
+      // 备份不了就整体不作数：保留原文件不动，也不进入空库装配（否则保存即覆盖）
+      PaleoNotify::warning(this, tr("井组合附属数据损坏"),
+                           tr("无法读取 %1，且无法备份（%2）。已停止加载该井的附属数据。")
+                               .arg(QDir::toNativeSeparators(sidecar), removeErr));
+      m_store.reset();
+      return;
+    }
+  }
   const qint64 mtime = QFileInfo(path).lastModified().toMSecsSinceEpoch();
   if (m_editSession)
     m_editSession->setSourceMtime(mtime);

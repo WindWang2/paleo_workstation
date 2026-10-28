@@ -13,6 +13,8 @@
 #include <qgsgeometry.h>
 #include <qgspointxy.h>
 #include <qgsrectangle.h>
+#include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransformcontext.h>
 
 class QgsMapLayer;
 class QgsSpatialIndex;
@@ -54,10 +56,16 @@ class PreviewIdentifyCore : public QObject
     // 悬停识别等交互路径必须显式传小值——密要素区不设每层上限时，单层即可
     // 吃满全局预算，且 bbox 内每个候选 fid 各发一次 provider 查询，GUI
     // 线程上一次停顿就是全量查询（D.20）。
+    // \a sourceCrs / \a context：\a point 与容差矩形所在的 CRS（画布目标
+    // CRS）及其变换上下文。给了就逐层变换到图层 CRS 再查（#72：混 CRS 画布
+    // 下直接拿画布坐标问图层 = 错误位置采样或整体漏识别）；留空则按原样
+    // 使用（单 CRS 画布的既有行为）。
     QVector<PreviewIdentifyResult> identifyPoint( const QList<QgsMapLayer *> &layers,
                                                   const QgsPointXY &point,
                                                   double toleranceMapUnits,
-                                                  int maxPerLayer = 0 );
+                                                  int maxPerLayer = 0,
+                                                  const QgsCoordinateReferenceSystem &sourceCrs = QgsCoordinateReferenceSystem(),
+                                                  const QgsCoordinateTransformContext &context = QgsCoordinateTransformContext() );
     // 框选：矩形相交要素（每层上限 maxPerLayer，按要素 id 截断）。
     QVector<PreviewIdentifyResult> identifyRect( const QList<QgsMapLayer *> &layers,
                                                  const QgsRectangle &rect,

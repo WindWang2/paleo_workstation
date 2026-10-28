@@ -63,6 +63,10 @@ struct PropertyModelRequest
   // 断块错位：断距矢量驱动的柱位错动（空 = 全竖帘，V1 行为不变）。
   // 断层几何仍由 faults 承担连通屏障；这里只管几何错位。
   std::vector<paleo::stratgrid::FaultThrow> faultThrows;
+  // throwSegmentsFromFaultSet 统计的「有断距但盘侧 Unknown」切割数：这些断距
+  // 本次不参与错位（只进竖帘），计数随 provenance/caliber 如实带上，不静默
+  // 丢弃（#207）。
+  int faultThrowUnknownSideCuts = 0;
 
   // SGS：变差模型（垂向比 verticalRangeRatio 给三维格架用）+ 随机流参数。
   paleo::geostat::VariogramModel variogram;

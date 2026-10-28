@@ -11,6 +11,7 @@
 #include <QFileInfo>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QUuid>
 
 // 层：功能
 // ---------------------------------------------------------------------------
@@ -191,11 +192,52 @@ bool MamclTool::extractMarkerValid() const
          QFileInfo::exists( appScript() );
 }
 
-void MamclTool::writeExtractMarker() const
+bool MamclTool::writeExtractMarker( QString *error ) const
 {
-  QFile marker( extractMarkerPath( packageDir() ) );
-  if ( marker.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
-    marker.write( m_zipSha256.toUtf8() );
+  // 旗标写入也要校验（#731）：空/半截旗标会让 extractMarkerValid() 判失效
+  // （下次重复解包，代价低但不诚实），写失败如实报错。
+  return paleo::writeFileAtomic( extractMarkerPath( packageDir() ), m_zipSha256.toUtf8(),
+                                 error );
+}
+
+// #735：把已核对 SHA-256 的程序包拷成我们自己的副本并再核一遍——解包读的
+// 就是「已校验字节」，原路径在核对之后被换掉不再影响本次解包（TOCTOU 窗口
+// 从「原文件可被任意替换」缩到「须替换我们刚建的唯一名副本」）。
+bool MamclTool::stageVerifiedZipCopy( QString *copyPath, QString *error )
+{
+  const QString dir = QDir( m_env->rootDir() ).filePath( QStringLiteral( "pkg" ) );
+  if ( !QDir().mkpath( dir ) )
+  {
+    if ( error )
+      *error = tr( "无法创建目录 %1" ).arg( dir );
+    return false;
+  }
+  const QString copy = QDir( dir ).filePath( QStringLiteral( ".verify-%1.zip" )
+                            .arg( QUuid::createUuid().toString( QUuid::Id128 ) ) );
+  if ( !QFile::copy( packageZip(), copy ) )
+  {
+    if ( error )
+      *error = tr( "无法复制程序包 %1 → %2" ).arg( packageZip(), copy );
+    return false;
+  }
+  if ( sha256OfFile( copy ) != m_zipSha256 )
+  {
+    QFile::remove( copy );
+    if ( error )
+      *error = tr( "程序包副本校验失败（%1），拒绝解包执行" ).arg( packageZip() );
+    return false;
+  }
+  *copyPath = copy;
+  return true;
+}
+
+void MamclTool::discardVerifiedZipCopy()
+{
+  if ( !m_verifiedZipCopy.isEmpty() )
+  {
+    QFile::remove( m_verifiedZipCopy );
+    m_verifiedZipCopy.clear();
+  }
 }
 
 void MamclTool::open()
@@ -241,8 +283,20 @@ void MamclTool::advance()
         return;
       }
       emit statusMessage( tr( "首次运行：正在解包 MAMCL 程序…" ) );
-      // zip 内含同名顶层目录 → 解到 pkg/ 父目录即得 packageDir。
-      m_env->extractZip( packageZip(), QFileInfo( packageDir() ).dir().absolutePath() );
+      // #735：解包源取「已校验字节」副本；解到临时目录，整棵 rename 到位后
+      // 才写旗标——半解压的树不会被当成「已解包」。
+      if ( m_verifiedZipCopy.isEmpty() )
+      {
+        QString copyErr;
+        if ( !stageVerifiedZipCopy( &m_verifiedZipCopy, &copyErr ) )
+        {
+          finish( false, copyErr );
+          return;
+        }
+      }
+      m_extractTmpDir = QStringLiteral( "%1.extract-%2" )
+                            .arg( packageDir(), QUuid::createUuid().toString( QUuid::Id128 ) );
+      m_env->extractZip( m_verifiedZipCopy, m_extractTmpDir );
       return;
 
     case CreateVenv:
@@ -257,6 +311,8 @@ void MamclTool::advance()
       return;
 
     case InstallDeps:
+      { // 本 case 声明了带初始化的变量（normalized），必须整体加括号，
+        // 否则后续 case 标签跳过其初始化（C2360）。
       if ( QFileInfo::exists( depsMarkerPath() ) )
       {
         m_stage = Launch;
@@ -279,6 +335,15 @@ void MamclTool::advance()
                            .arg( lockFile() ) );
         return;
       }
+      // 依赖清单缺失/为空 ≠ 「无依赖」（#196）：静默写空清单交给 pip
+      // 「成功」，随后 app.py 因缺包崩溃且错误被完全吞掉。
+      const QByteArray normalized = normalizedRequirements();
+      if ( normalized.isEmpty() )
+      {
+        finish( false, tr( "MAMCL 依赖清单缺失或为空：%1，拒绝继续启动" )
+                           .arg( requirementsFile() ) );
+        return;
+      }
       emit statusMessage( tr( "警告：按未钉版本的 requirements.txt 安装 MAMCL 依赖" ) );
       {
         // 规范化副本落 venv 目录（程序包目录保持原样），pip 装副本。
@@ -286,7 +351,7 @@ void MamclTool::advance()
                                      .filePath( QStringLiteral( "requirements.paleo.txt" ) );
         // 原子整写并校验：半截依赖清单会让 pip 静默少装包。
         QString writeErr;
-        if ( !paleo::writeFileAtomic( normPath, normalizedRequirements(), &writeErr ) )
+        if ( !paleo::writeFileAtomic( normPath, normalized, &writeErr ) )
         {
           finish( false, tr( "无法写入依赖清单：%1（%2）" ).arg( normPath, writeErr ) );
           return;
@@ -294,6 +359,7 @@ void MamclTool::advance()
         m_env->installRequirements( venvName(), normPath );
       }
       return;
+      }
 
     case Launch:
     {
@@ -372,10 +438,50 @@ void MamclTool::onStepFinished( const QString &step, bool ok, const QString &mes
   {
     if ( !ok )
     {
+      if ( !m_extractTmpDir.isEmpty() )
+        QDir( m_extractTmpDir ).removeRecursively();
+      m_extractTmpDir.clear();
       finish( false, tr( "MAMCL 程序包解包失败：%1" ).arg( message ) );
       return;
     }
-    writeExtractMarker();
+    // zip 内含同名顶层目录 → 解出的唯一顶层目录才是 packageDir 的内容；
+    // 否则（根级散落文件）整棵临时目录即 packageDir。
+    QString contentRoot = m_extractTmpDir;
+    if ( !m_extractTmpDir.isEmpty() )
+    {
+      const QStringList entries =
+          QDir( m_extractTmpDir ).entryList( QDir::AllEntries | QDir::NoDotAndDotDot );
+      if ( entries.size() == 1 &&
+           QFileInfo( QDir( m_extractTmpDir ).filePath( entries.first() ) ).isDir() )
+        contentRoot = QDir( m_extractTmpDir ).filePath( entries.first() );
+    }
+    if ( contentRoot.isEmpty() )
+    {
+      finish( false, tr( "MAMCL 程序包解包结果为空" ) );
+      return;
+    }
+    // 整棵 rename 到位后才写旗标（半解压树不落最终位置）。
+    if ( QFileInfo::exists( packageDir() ) )
+      QDir( packageDir() ).removeRecursively();
+    if ( !QDir().rename( contentRoot, packageDir() ) )
+    {
+      if ( !m_extractTmpDir.isEmpty() )
+        QDir( m_extractTmpDir ).removeRecursively();
+      m_extractTmpDir.clear();
+      finish( false, tr( "无法落位解包结果到 %1" ).arg( packageDir() ) );
+      return;
+    }
+    if ( !m_extractTmpDir.isEmpty() )
+      QDir( m_extractTmpDir ).removeRecursively();
+    m_extractTmpDir.clear();
+    discardVerifiedZipCopy();
+    QString markerErr;
+    if ( !writeExtractMarker( &markerErr ) )
+    {
+      finish( false, tr( "无法写入解包旗标：%1（%2）" )
+                         .arg( extractMarkerPath( packageDir() ), markerErr ) );
+      return;
+    }
     m_stage = CreateVenv;
     advance();
   }
@@ -396,9 +502,14 @@ void MamclTool::onStepFinished( const QString &step, bool ok, const QString &mes
       finish( false, tr( "MAMCL 依赖安装失败：%1" ).arg( message ) );
       return;
     }
-    QFile marker( depsMarkerPath() );
-    if ( marker.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
-      marker.write( "ok\n" );
+    // 旗标写入校验（#731）：空旗标会让下次重复装依赖（代价低但不诚实）。
+    QString markerErr;
+    if ( !paleo::writeFileAtomic( depsMarkerPath(), QByteArrayLiteral( "ok\n" ), &markerErr ) )
+    {
+      finish( false, tr( "无法写入依赖旗标：%1（%2）" )
+                         .arg( depsMarkerPath(), markerErr ) );
+      return;
+    }
     m_stage = Launch;
     advance();
   }
@@ -406,6 +517,12 @@ void MamclTool::onStepFinished( const QString &step, bool ok, const QString &mes
 
 void MamclTool::finish( bool ok, const QString &message )
 {
+  discardVerifiedZipCopy();
+  if ( !m_extractTmpDir.isEmpty() )
+  {
+    QDir( m_extractTmpDir ).removeRecursively();
+    m_extractTmpDir.clear();
+  }
   m_stage = Idle;
   emit busyChanged( false );
   emit launchFinished( ok, message );

@@ -260,20 +260,22 @@ struct ImportQueueItem
   // cancelItem 对 Running 态先调它协作取消底层任务，再落 Canceled 状态。
   std::function<void()> cancelHook;
 
-  static QString stateText(ImportItemState s)
-  {
-    switch (s)
+    static QString stateText(ImportItemState s)
     {
-      case ImportItemState::Queued: return QStringLiteral("排队");
-      case ImportItemState::Running: return QStringLiteral("导入中");
-      case ImportItemState::Done: return QStringLiteral("完成");
-      case ImportItemState::Failed: return QStringLiteral("失败");
-      case ImportItemState::Skipped: return QStringLiteral("跳过");
-      case ImportItemState::Canceled: return QStringLiteral("已取消");
-      case ImportItemState::RetryWait: return QStringLiteral("等待重试");
+      // finding-128：队列状态文案走 QObject::tr（DESIGN.md「用户可见字符串走
+      // tr()」；与 dataopscommands.h 自由函数同口径）。
+      switch (s)
+      {
+        case ImportItemState::Queued: return QObject::tr("排队");
+        case ImportItemState::Running: return QObject::tr("导入中");
+        case ImportItemState::Done: return QObject::tr("完成");
+        case ImportItemState::Failed: return QObject::tr("失败");
+        case ImportItemState::Skipped: return QObject::tr("跳过");
+        case ImportItemState::Canceled: return QObject::tr("已取消");
+        case ImportItemState::RetryWait: return QObject::tr("等待重试");
+      }
+      return QString();
     }
-    return QString();
-  }
 };
 
 // 重试队列状态机：失败条目自动重试（RetryWait→Running），手动重试/跳过/

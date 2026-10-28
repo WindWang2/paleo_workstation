@@ -46,9 +46,16 @@ void appendStations(QVector<DeviationStation> &out,
 // 段几何/切分）逐字拷贝，只依赖 stations()/points() 公共面。治本版与基准
 // 必须逐位一致（等价重构红线——含 NaN/边界路径）。缓存策略再变更时本基准
 // 仍是同一条对拍口径。
+// 唯一的例外是**有意的数值行为变更**（缺陷修复）：此时基准须与治本版同步
+// 改成同一算式，否则闸门会把修复本身判红。2026-10-28 finding-30/31 即此例
+// （β≈π 掉头段 RF 发散改弦式极限、粗扫描极值改包络偏离判定），同步处在
+// refSegmentIncrement 与 RefSurvey::tvdToMd 的 reversal 分支内逐字标注。
 // ---------------------------------------------------------------------------
 namespace {
 constexpr double kDeg2RadRef = kPi / 180.0;
+
+// 后文定义（refArcFrame 之前），refSegmentIncrement 的 β≈π 分支要用。
+void refUnitTangent(double incDeg, double aziDeg, double out[3]);
 
 void refSegmentIncrement(double dMd, double i1Deg, double a1Deg, double i2Deg,
                          double a2Deg, double *dTvd, double *dNorth,
@@ -63,6 +70,29 @@ void refSegmentIncrement(double dMd, double i1Deg, double a1Deg, double i2Deg,
                    std::sin(i1) * std::sin(i2) * std::cos(a2 - a1);
   cosBeta = std::min(1.0, std::max(-1.0, cosBeta));
   const double beta = std::acos(cosBeta);
+
+  // 与治本版逐字一致（finding-30）：β 距 π 不足 1e-9 的退化带走弦式极限，
+  // 不用发散的 RF 式（β<1e-9 的直线段仍走下方 rf=1 的原路径）。
+  if (beta > kPi - 1e-9)
+  {
+    double t1[3], t2[3];
+    refUnitTangent(i1Deg, a1Deg, t1);
+    refUnitTangent(i2Deg, a2Deg, t2);
+    const double sx = t1[0] + t2[0], sy = t1[1] + t2[1], sz = t1[2] + t2[2];
+    const double len = std::sqrt(sx * sx + sy * sy + sz * sz);
+    if (len > 0.0)
+    {
+      const double k = dMd * (std::sin(beta * 0.5) / (beta * 0.5)) / len;
+      *dTvd = sz * k;
+      *dNorth = sx * k;
+      *dEast = sy * k;
+    }
+    else
+    {
+      *dTvd = *dNorth = *dEast = 0.0;
+    }
+    return;
+  }
 
   double rf = 1.0;
   if (beta > 1e-9)
@@ -277,17 +307,25 @@ struct RefSurvey
       }
       else if (f.reversal)
       {
-        double best = a.tvd;
+        // 与治本版逐字一致（finding-31）：极值类型由 i1 与 90° 的关系定，
+        // 只在段内采样点里取，不看两端点净垂深符号。
+        const DeviationStation &ra = stations.at(i - 1);
+        const DeviationStation &rb = stations.at(i);
+        const bool wantMax = ra.inclinationDeg < 90.0;
+        double rbest = 0.0;
+        int bestK = -1;
         for (int k = 1; k < 64; ++k)
         {
-          const double m = a.md + (b.md - a.md) * k / 64.0;
+          const double m = ra.md + (rb.md - ra.md) * k / 64.0;
           const double v = pointAt(m).tvd;
-          if ((b.tvd >= a.tvd) ? v < best : v > best)
+          if (bestK < 0 || (wantMax ? v > rbest : v < rbest))
           {
-            best = v;
-            split = m;
+            rbest = v;
+            bestK = k;
           }
         }
+        if (bestK > 0)
+          split = ra.md + (rb.md - ra.md) * bestK / 64.0;
       }
       double m0 = a.md, t0 = a.tvd;
       if (std::isfinite(split))
@@ -406,6 +444,9 @@ private slots:
   void extensionAndBoundaries();
   // #168：站间取点沿最小曲率圆弧（起点直井、终点 12°/90°：圆弧在正东竖直面内）。
   void interiorPointFollowsArc();
+  // finding-30/31：β≈π 对径掉头段——RF 发散被 0·∞ 放大成 O(ΔMD) 噪声；掉头
+  // 段内部垂深极值由 i1 与 90° 的关系定，不按端点净垂深符号定向。
+  void antipodalReversalStaysBounded();
   // #126：上翘井（井斜>90°）TVD→MD 反解满足正向换算，多解取首次到达。
   void tvdToMdUpDipWell();
   // 方向 98 治本逐位对拍：pointAt/tvdToMd 与治本前基准（RefSurvey）在
@@ -673,6 +714,66 @@ void tst_deviation::tvdToMdUpDipWell()
   // 比最深点还深：不可达 → 最深点 MD（井斜 90° 处，1000 + 30/60·1000 = 1500）。
   const double unreachable = survey->tvdToMd(5000.0);
   QVERIFY2(std::fabs(unreachable - 1500.0) < 1e-6, qPrintable(QString::number(unreachable)));
+}
+
+// finding-30/31：β≈π 对径掉头段（i2=180−i1 且 azi2=azi1±180 → t2=−t1，
+// β=acos(−1)=π，arcFrame 判 reversal）。此几何本身退化（圆弧平面不定），
+// 但数值必须有界：RF=(2/β)tan(β/2) 在 β=π 时≈1.04e16，与数学上恒 0 的
+// (cos i1+cos i2)（浮点 0±1ulp）相乘，旧实现把 1ulp 放大成 O(ΔMD) 噪声
+// ——本输入上旧实现整段位移总量≈0.99·ΔMD，超过半圆弧的弦长 2ΔMD/π。
+void tst_deviation::antipodalReversalStaysBounded()
+{
+  QVector<DeviationStation> stations;
+  appendStations(stations, {0.0, 60.0, 0.0, 1000.0, 120.0, 180.0});
+  QString err;
+  auto survey = WellDeviationSurvey::fromStations(stations, &err);
+  QVERIFY2(survey.has_value(), qPrintable(err));
+
+  // 整段位移量 = 弦长 2ΔMD/π（弦式极限，与噪声方向无关）。
+  const TrajectoryPoint &a = survey->points().constFirst();
+  const TrajectoryPoint &b = survey->points().constLast();
+  const double disp = std::sqrt((b.north - a.north) * (b.north - a.north) +
+                                (b.east - a.east) * (b.east - a.east) +
+                                (b.tvd - a.tvd) * (b.tvd - a.tvd));
+  const double chord = 2.0 * 1000.0 / kPi;
+  QVERIFY2(std::fabs(disp - chord) < 1e-9 * chord, qPrintable(QString::number(disp)));
+
+  // 站间取点走同一 segmentIncrement：全段有限，无 inf/NaN。
+  for (double md = -5.0; md <= 1005.0; md += 7.0)
+  {
+    const TrajectoryPoint p = survey->pointAt(md);
+    QVERIFY2(std::isfinite(p.tvd) && std::isfinite(p.north) && std::isfinite(p.east),
+             qPrintable(QStringLiteral("pointAt(%1) 非有限").arg(md)));
+  }
+
+  // 上行支（井斜自 60° 增到 90°，垂深严格递增）：「首次到达」往返自洽——
+  // 掉头段的内部极值切分点漏设时，tvdToMd 会在非单调片上二分，这条恒等式
+  // 先破。
+  for (double md : {50.0, 150.0, 300.0, 450.0})
+  {
+    const double tvd = survey->tvdAt(md);
+    const double back = survey->tvdToMd(tvd);
+    QVERIFY2(std::fabs(survey->tvdAt(back) - tvd) < 1e-6,
+             qPrintable(QStringLiteral("tvdToMd 往返失败：md=%1 tvd=%2 back=%3")
+                            .arg(md).arg(tvd).arg(back)));
+    QVERIFY2(std::fabs(back - md) < 1e-3,
+             qPrintable(QStringLiteral("首次到达漂移：md=%1 back=%2").arg(md).arg(back)));
+  }
+
+  // 垂井掉头 0°↔180°：同一弦式极限（量有界，不因方位无意义而发散）。
+  // 注：len==0（两端切向严格对径且向量和为零）的保护分支在现有平台上不可达
+  // ——sin(180°)=1.22e-16≠0 使 t1+t2 恒非零；保留它只为防 1/0。
+  QVector<DeviationStation> vertical;
+  appendStations(vertical, {0.0, 0.0, 0.0, 800.0, 180.0, 0.0});
+  auto vsurvey = WellDeviationSurvey::fromStations(vertical, &err);
+  QVERIFY2(vsurvey.has_value(), qPrintable(err));
+  const TrajectoryPoint &va = vsurvey->points().constFirst();
+  const TrajectoryPoint &vb = vsurvey->points().constLast();
+  const double vdisp = std::sqrt((vb.north - va.north) * (vb.north - va.north) +
+                                 (vb.east - va.east) * (vb.east - va.east) +
+                                 (vb.tvd - va.tvd) * (vb.tvd - va.tvd));
+  QVERIFY2(std::fabs(vdisp - 2.0 * 800.0 / kPi) < 1e-9 * vdisp,
+           qPrintable(QString::number(vdisp)));
 }
 
 void tst_deviation::tvdToMdParityWithLegacy()

@@ -34,6 +34,8 @@ class TestLisParser : public QObject
     void sniffDistinguishesFormats();
     void multiPrStitchingWithTrailersAndPads();
     void absentValueBecomesNaN();
+    // finding-48：模式 0 索引道的缺席值同样映射 NaN
+    void mode0DepthChannelAbsentValueBecomesNaN();
     void mode1DownStepsBySpacing();
     void mode1UpDecreases();
     void truncatedFileFailsWithReason();
@@ -170,6 +172,53 @@ void TestLisParser::absentValueBecomesNaN()
   QVERIFY(LisParser::parse(path, header, curves, &error));
   for (double v : curves.at(1).values)
     QVERIFY(v != -999.0);
+}
+
+// finding-48：模式 0 的深度道就是帧内第一个 spec（索引道）——它的缺席值
+// 也必须映射 NaN。此前只有值列过 lisIsAbsent，索引道原样入 depths，哨兵值
+// 直接污染深度轴（与同帧其它道口径不一致）。
+void TestLisParser::mode0DepthChannelAbsentValueBecomesNaN()
+{
+  LisDfsr d;
+  // 缺席值条目用 i16 编码；取正值 999——夹具的 encLisF32 对负 f32 的指数
+  // 未按 B.5 做 1 补码（与解析侧 decodeLisF32 不一致，历来无负 f32 夹具
+  // 覆盖），正值区间两侧互逆，测点不受该夹具缺陷影响。
+  d.absentReprc = 79;
+  d.absentValue = 999;
+  LisSpec dept;
+  dept.mnemonic = QStringLiteral("DEPT");
+  dept.units = QStringLiteral("M");
+  dept.reprc = 68;
+  LisSpec gr;
+  gr.mnemonic = QStringLiteral("GR");
+  gr.units = QStringLiteral("GAPI");
+  gr.reprc = 68;
+  d.specs = { dept, gr }; // 模式 0（默认）：索引道 = 帧内第一个 spec
+  QByteArray b;
+  b += physicalRecord(128, fileHeaderPayload(QStringLiteral("M0ABS")));
+  b += physicalRecord(34, wellsitePayload(QStringLiteral("W-M0ABS")));
+  b += physicalRecord(64, dfsrPayload(d));
+  QByteArray frames;
+  frames += f32Bytes(1500.0) + f32Bytes(90.0);
+  frames += f32Bytes(999.0) + f32Bytes(91.0); // 深度道缺席（= 缺席值）
+  frames += f32Bytes(1500.5) + f32Bytes(92.0);
+  b += physicalRecord(0, frames);
+  const QString path = write(QStringLiteral("m0abs.lis"), b);
+
+  LasHeaderInfo header;
+  QList<LasCurve> curves;
+  QString error;
+  QVERIFY2(LisParser::parse(path, header, curves, &error), qPrintable(error));
+  QCOMPARE(header.curveNames,
+           QStringList({ QStringLiteral("DEPT"), QStringLiteral("GR") }));
+  QCOMPARE(curves.at(0).values.size(), 3);
+  QCOMPARE(curves.at(0).values.at(0), 1500.0);
+  QVERIFY2(std::isnan(curves.at(0).values.at(1)),
+           "索引道缺席值必须映射 NaN，不能把 999 当深度");
+  QCOMPARE(curves.at(0).values.at(2), 1500.5);
+  // 同帧值列口径不变（-999 也已映射 NaN）。
+  QCOMPARE(curves.at(1).values.at(0), 90.0);
+  QCOMPARE(curves.at(1).values.at(2), 92.0);
 }
 
 void TestLisParser::mode1DownStepsBySpacing()

@@ -21,9 +21,15 @@
 #include <QVBoxLayout>
 
 namespace {
-void appendReadout(QVBoxLayout *root, QLabel *depth, QLabel *status) {
-  auto *row = new QHBoxLayout; row->addWidget(depth); row->addWidget(status, 1);
-  status->setWordWrap(true); root->addLayout(row); depth->show(); status->show();
+// 顶部读数行：深度读数 + 缩放读数 + 悬停/状态文字。
+// zoom 也走这一行——compactToolbar 只留常用控件，m_lblZoom 不在其中会被
+// 收进「更多」菜单并隐藏，而 zoomChanged/scaleRatioChanged 仍持续写它
+// （#803：缩放读数永久消失且连接死写）。
+void appendReadout(QVBoxLayout *root, QLabel *depth, QLabel *zoom, QLabel *status) {
+  auto *row = new QHBoxLayout;
+  row->addWidget(depth); row->addWidget(zoom); row->addWidget(status, 1);
+  status->setWordWrap(true); root->addLayout(row);
+  depth->show(); zoom->show(); status->show();
 }
 void compactToolbar(QWidget *topBar, QBoxLayout *layout, const QSet<QWidget *> &frequent) {
   auto *more = new QToolButton(topBar);
@@ -351,7 +357,7 @@ void WellCompositePanel::setupUi()
   topLay->addWidget(m_lblStatus);
 
   compactToolbar(topBar, topLay, {m_lblWellName, m_scaleCombo, m_btnResetZoom, m_btnGoto, m_btnConfigCurves, m_btnPredictFacies, m_btnExport});
-  rootLay->addWidget(topBar); appendReadout(rootLay, m_lblReadout, m_lblStatus);
+  rootLay->addWidget(topBar); appendReadout(rootLay, m_lblReadout, m_lblZoom, m_lblStatus);
   m_faciesStatus = new QLabel(this);
   m_faciesStatus->setObjectName(QStringLiteral("lblFaciesPredictionStatus"));
   m_faciesStatus->setWordWrap(true);

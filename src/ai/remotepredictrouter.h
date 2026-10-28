@@ -39,7 +39,8 @@ public:
   virtual bool isConfigured() const = 0;
   // 结果 method 字段（如 "local-ort:seg3"），同时用于 lastRoute()。
   virtual QString engineId() const = 0;
-  // 同网格重跑：成功填 cells（columns×rows 行主序相码，255=nodata）。
+  // 同网格重跑：成功填 cells（columns×rows 行主序相码；nodata 记 -9999——
+  // 与远端 PW-124 的逐像元口径一致，255 只是模型内部未分类哨兵，不外泄）。
   virtual bool predict(const RemotePredictionRequest &request,
                        QVector<int> &cells, QString *error) = 0;
 };

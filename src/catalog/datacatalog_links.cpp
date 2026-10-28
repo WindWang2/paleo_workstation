@@ -48,12 +48,17 @@ using paleo::store_detail::setError;
   }
 
   // 只剥词表追加在备注尾部的诊断。用户写在中间的同样字样后面还有内容，不匹配结尾。
+  // 角色名/实体类型段是「到行尾的任意非『；』字符」：自定义角色可含非 ASCII 与
+  // 空格（project_area.json 词表可扩），只认 [A-Za-z0-9_]+ 会让这些诊断永远
+  // 剥不掉——note 永久残留「未知角色: …」尾缀，重开工程也清不干净。
+  // 段内不含『；』（annotateRoleDiagnostics 用『；』连接），故不会越过分隔符
+  // 吃到用户写在诊断前面的内容。
   bool stripTrailingRoleDiagnosis(QString *note)
   {
     if (!note || note->isEmpty())
       return false;
     const QRegularExpression suffix(
-        QStringLiteral("(?:^|；)(?:未知角色: [A-Za-z0-9_]+|角色与实体类型不符: [A-Za-z0-9_]+ 于 [A-Za-z0-9_]+)$"));
+        QStringLiteral("(?:^|；)(?:未知角色: [^；]+|角色与实体类型不符: [^；]+ 于 [^；]+)$"));
     const auto match = suffix.match(*note);
     if (!match.hasMatch())
       return false;
@@ -368,6 +373,8 @@ void DataCatalog::reconcileRoleNotes()
 // 后仍可查；词表内的干净链接（含普通未决备注）不在其中。
 QVector<EntityAssetLink> DataCatalog::invalidRoleLinks() const
 {
+  if (!noteRead("invalidRoleLinks"))
+    return {};
   QVector<EntityAssetLink> out;
   for (const EntityAssetLink &l : m_links)
     if (!roleDiagnosis(l, m_roles).isEmpty())
@@ -400,6 +407,8 @@ QVector<EntityAssetLink> DataCatalog::linksForEntity(const QString &entityId) co
 
 QVector<EntityAssetLink> DataCatalog::unresolvedLinks() const
 {
+  if (!noteRead("unresolvedLinks"))
+    return {};
   QVector<EntityAssetLink> out;
   for (const EntityAssetLink &l : m_links)
     if (l.unresolved)

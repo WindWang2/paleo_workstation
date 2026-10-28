@@ -786,12 +786,12 @@ void MappingWorkbenchPage::updateState() {
   const bool ownsTarget = m_evidenceSnapshotOwned &&
       (m_evidenceSnapshot.isEmpty() || m_evidenceSnapshot.value("layer_id").toString() == selectedLayer());
   // #440：选择未变时复用已有详情快照，避免每次 updateState 都跑空间相交。
+  // finding-133：多选(size>1)一律重算——原缓存分支只查 contains("records")，选择集变化会静默显示旧图斑证据。
   const bool selectionMatchesCache = !m_evidenceSnapshot.isEmpty() && m_evidenceSnapshot.value("details_deferred").toBool() != evidenceDetailsVisible()
       && m_evidenceSnapshot.value("layer_id").toString() == selectedLayer()
       && ((evidenceSelection.isEmpty() && !m_evidenceSnapshot.contains("feature_id"))
           || (evidenceSelection.size() == 1 && m_evidenceSnapshot.contains("feature_id")
-              && evidenceSelection.first() == m_evidenceSnapshot.value("feature_id").toLongLong())
-          || (evidenceSelection.size() > 1 && m_evidenceSnapshot.contains("records")));
+              && evidenceSelection.first() == m_evidenceSnapshot.value("feature_id").toLongLong()));
   QVariantMap detailSnapshot;
   if (ownsTarget || selectionMatchesCache) {
     detailSnapshot = m_evidenceSnapshot;

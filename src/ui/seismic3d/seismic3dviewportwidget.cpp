@@ -150,6 +150,15 @@ void Seismic3DViewportWidget::initializeGL() {
 
     if (volume_ && volume_->IsLoaded()) {
         frameRenderer_.UpdateFromVolume(this, *volume_);
+        // D3.4/D3.12：GL 前（或体前）设置的井/次级体在此补传（同层位 pending）
+        if (wellsPending_) {
+            frameRenderer_.UpdateWells(this, *volume_, wellsForLabels_);
+            wellsPending_ = false;
+        }
+        if (secondaryPending_) {
+            frameRenderer_.SetSecondaryVolume(this, *volume_, secondaryVolume_);
+            secondaryPending_ = false;
+        }
         if (width() > 0 && height() > 0) {
             fitToBounds();
             initialFitDone_ = true;
@@ -323,6 +332,15 @@ void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
         makeCurrent();
         // D.13：换体即换归一化基准——按体而异的 GL 几何必须重建/清除（错位/越界）
         frameRenderer_.ResetForVolumeChange(this, *volume_);
+        // D3.4/D3.12：体前设置的井/次级体轮廓随新体补传（此前只暂存）
+        if (wellsPending_) {
+            frameRenderer_.UpdateWells(this, *volume_, wellsForLabels_);
+            wellsPending_ = false;
+        }
+        if (secondaryPending_) {
+            frameRenderer_.SetSecondaryVolume(this, *volume_, secondaryVolume_);
+            secondaryPending_ = false;
+        }
         horizonRenderer_.UpdateHorizons(this, *volume_, horizonItems_); // 层位面按新体重建
         if (width() > 0 && height() > 0) {
             fitToBounds();
@@ -332,6 +350,11 @@ void Seismic3DViewportWidget::setVolume(std::shared_ptr<SgyVolume> volume) {
         update();
     } else if (!volume_) {
         update(); // 清空：重画一帧（paintGL 跳过体相关渲染）
+    } else if (!horizonItems_.empty()) {
+        // #145：层位先于体设置（数据预览→三维立体标准流程）时 setHorizons 因
+        // 无体早退、horizonsPending_ 从未置位——GL 就绪后不会补传，层位面静默
+        // 丢失。这里补置，initializeGL 体积就绪后统一补传。
+        horizonsPending_ = true;
     }
     emit volumeLoaded();
 }
@@ -539,13 +562,17 @@ void Seismic3DViewportWidget::mousePressEvent(QMouseEvent *event) {
 }
 
 void Seismic3DViewportWidget::mouseMoveEvent(QMouseEvent *event) {
-    // D7.2 拾取悬停点刷新（橡皮线跟手）
-    if (sectionPickActive_ && dragMode_ == DragMode::None && !sectionPickPoints_.empty()) {
-        glm::ivec2 grid;
-        if (pickTopPlaneGrid(event->position(), grid) && grid != sectionHoverPoint_) {
-            sectionHoverPoint_ = grid;
-            sectionHoverValid_ = true;
-            updateSectionPreview();
+    // D7.2 拾取悬停点刷新（橡皮线跟手）。拾取态一律在此分支收口——无点时
+    // 也直接 return，不落入下方普通悬停分支把 setSectionPickMode 设好的十字
+    // 光标重置掉（#805：首点前十字光标须保持）。
+    if (sectionPickActive_ && dragMode_ == DragMode::None) {
+        if (!sectionPickPoints_.empty()) {
+            glm::ivec2 grid;
+            if (pickTopPlaneGrid(event->position(), grid) && grid != sectionHoverPoint_) {
+                sectionHoverPoint_ = grid;
+                sectionHoverValid_ = true;
+                updateSectionPreview();
+            }
         }
         return;
     }

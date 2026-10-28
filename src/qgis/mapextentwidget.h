@@ -48,5 +48,8 @@ private:
   QgsExtentWidget *m_native = nullptr;
   QComboBox *m_layers = nullptr;
   QLabel *m_status = nullptr;
-  QWidget *m_canvas = nullptr;
+  // #75：画布归外部持有，销毁后裸指针悬垂——activated 回调里对悬垂指针做
+  // qobject_cast 是对已删对象的虚调用。QPointer 在画布销毁时自动清零，各处的
+  // `if (!canvas)` 守卫即可拦截。
+  QPointer<QWidget> m_canvas;
 };

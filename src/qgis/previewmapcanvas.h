@@ -164,6 +164,10 @@ class PreviewMapCanvas : public QWidget
     QStack<QgsRectangle> m_backStack;
     QStack<QgsRectangle> m_forwardStack;
     bool m_suppressHistory = false;
+    // 交互路径的「变更前」基线（#78）：extentsChanged 到达时画布已是新范围，
+    // 入栈的必须是被它顶掉的那个。程序式路径显式同步，见 setExtentInternal /
+    // zoomBack / zoomForward。空值 = 尚未建立基线（首个 extentsChanged）。
+    QgsRectangle m_lastExtent;
 
     // 渲染状态
     bool m_rendering = false;

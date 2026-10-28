@@ -280,7 +280,14 @@ void ShaCache::loadDiskLocked()
   const QJsonObject obj = doc.object();
   m_disk.reserve(obj.size());
   for (auto it = obj.constBegin(); it != obj.constEnd(); ++it)
+  {
     m_disk.insert(it.key(), it.value().toString());
+    // LRU 收缩按 m_diskAge 找最旧——载入时不填年龄，flushDiskLocked 的收缩
+    // 循环遇到无龄条目即 break，从未命中的存量条目永不被裁（磁盘表可长期
+    // 停在 2×m_diskLimit），新算出的条目反被优先驱逐。载入条目置 0（最旧）：
+    // 本次会话没命中过的存量条目最先让位。
+    m_diskAge.insert(it.key(), 0);
+  }
 }
 
 void ShaCache::saveDiskLocked()

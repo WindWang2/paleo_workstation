@@ -162,7 +162,9 @@ struct ResolvedParameters
   double sill = 0;
   double range = 0;
   double variogramAzimuthDeg = -1;     // <0 = 全向拟合；>=0 = 双方向拟合各向异性
-  double variogramAnisotropyRatio = 0; // <=0 = 用方位拟合结果；>=1 显式覆盖
+  double variogramAnisotropyRatio = 0; // <=0 = 用方位拟合结果；>0 显式覆盖
+                                       // （0<ratio<1 = 主轴给反，PW-037：等价
+                                       // 方位 +90° 且取倒数，不是各向同性）
   // 克里金邻域：0 = 分量内全部样本（远场平台口径，每格 O(n³)）；>0 封顶 64。
   int krigingMaxPoints = 16;
   // 克里金邻域最少点数：邻域少于该值即不算克里金（该格回落 IDW）。无半径的

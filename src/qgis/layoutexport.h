@@ -164,8 +164,11 @@ ExportOutcome exportLayout( QgsPrintLayout *layout, const QString &outPath, Form
                             double dpi, const PageRange &range,
                             const ExportOptions &options = {} );
 // Builds the thickness map print layout on project (A4 landscape with map, title, legend, scalebar, north arrow, CRS caption).
+// \a warnings（可空）：不阻断出图的降级项（如相面层声明在案却实例化失败——
+// 图上会少相面，必须让用户看见，而不是静默跳过，#77）。
 QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectService *projectSvc,
-                                       const QString &horizon, QString *error = nullptr );
+                                       const QString &horizon, QString *error = nullptr,
+                                       QStringList *warnings = nullptr );
 
 // ---- 版面预览小部件（#531 薄壳的工厂面）----
 // PaleoLayoutPreview（layoutpreview.h）是 QgsLayoutView 的 QWidget 薄壳，其

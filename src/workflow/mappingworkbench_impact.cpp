@@ -291,11 +291,20 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
                 !f.geometry().contains(center.x(), center.y()))
               continue;
             const auto info = infos.value(id);
-            if (info.uid.isEmpty() || seen.contains(info.uid))
+            // #199：uid 缺失（无 paleo_feature_uid 字段或空值）时静默跳过，
+            // 会让受影响清单与保护计数归零，影响分析据此宣称「无人工解释受
+            // 影响」的假象。用图层内行号构造替代键（seen 按子图层重建，层内
+            // 唯一），并如实标注身份缺失——「无图元身份」是可见事实。
+            const bool identityMissing = info.uid.isEmpty();
+            const QString identityKey =
+                identityMissing ? QStringLiteral("row:%1").arg(id) : info.uid;
+            if (seen.contains(identityKey))
               continue;
-            seen.insert(info.uid);
+            seen.insert(identityKey);
             affected << QVariantMap{
                 {"feature_uid", info.uid},
+                {"identity_key", identityKey},
+                {"identity_missing", identityMissing},
                 {"layer_id", cv.extra.value("layer_id")},
                 {"product_version", child},
                 {"kind", childKind},
@@ -412,7 +421,8 @@ QVariantMap MappingWorkbench::recomputePlan(const QVariantMap &impactResult,
     QVariantList reviewRequired;
     bool truncated = false;
     const auto count = [&](const QString &status, const QString &uid,
-                           const QString &product, const QString &kind) {
+                           const QString &product, const QString &kind,
+                           bool identityMissing = false) {
       const bool needsReview = status == QLatin1String("NeedsReview") ||
                                status == QLatin1String("Disputed") ||
                                status == QLatin1String("Proposed");
@@ -425,6 +435,7 @@ QVariantMap MappingWorkbench::recomputePlan(const QVariantMap &impactResult,
       if (!status.isEmpty() && status != QLatin1String("none") &&
           reviewRequired.size() < 500)
         reviewRequired << QVariantMap{{"feature_uid", uid},
+                                      {"identity_missing", identityMissing},
                                       {"product_version", product},
                                       {"kind", kind},
                                       {"review_status", status}};
@@ -437,7 +448,8 @@ QVariantMap MappingWorkbench::recomputePlan(const QVariantMap &impactResult,
         count(row.value("review_status").toString(),
               row.value("feature_uid").toString(),
               row.value("product_version").toString(),
-              row.value("kind").toString());
+              row.value("kind").toString(),
+              row.value("identity_missing").toBool());
       }
     } else {
       // 无法局部化：扫全部下游相面/人工编辑成果的全部要素（有界）。
@@ -470,7 +482,7 @@ QVariantMap MappingWorkbench::recomputePlan(const QVariantMap &impactResult,
           const int uidField = f.fields().indexOf("paleo_feature_uid");
           count(status,
                 uidField < 0 ? QString() : f.attribute(uidField).toString(),
-                cv.id, childKind);
+                cv.id, childKind, uidField < 0);
         }
         if (truncated)
           break;
@@ -663,6 +675,9 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
       if (actual != plannedInputs)
         continue;
       const QVariantMap stored = cv.extra.value("algorithm_parameters").toMap();
+      // 参数等集合比较（#811-1）：只遍历计划侧是单向的——成果档里多出的键
+      // （例如后续版本新增的算法参数）不会被发现，于是「参数其实不同」的成果
+      // 被误判为同一计划，幂等续报 already_done 而不重算。两个方向都查。
       bool sameParams = true;
       for (auto it = plannedParams.cbegin(); it != plannedParams.cend(); ++it) {
         if (it.key() == QLatin1String("recompute"))
@@ -670,6 +685,17 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
         if (stored.value(it.key()) != it.value()) {
           sameParams = false;
           break;
+        }
+      }
+      if (sameParams) {
+        for (auto it = stored.cbegin(); it != stored.cend(); ++it) {
+          if (it.key() == QLatin1String("recompute"))
+            continue;
+          if (!plannedParams.contains(it.key()) ||
+              plannedParams.value(it.key()) != it.value()) {
+            sameParams = false;
+            break;
+          }
         }
       }
       if (sameParams)

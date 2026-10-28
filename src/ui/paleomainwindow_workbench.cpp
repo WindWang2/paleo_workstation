@@ -84,33 +84,55 @@ namespace {
 // 缺则建并接井联动），每次报告刷新内容 + raise。此前每次完成 new 一个无
 // 模式对话框，重复运行堆积。well_layer 随每次报告经属性刷新（井联动读
 // 属性，不吃首份报告的陈旧捕获）。
+// show 取 WorkbenchShowFn（返回是否显示成功）：井位定位以图层上图成功为
+// 前提，失败即中止定位而非静默移动地图。
 void showConsistencyReport(
     PaleoMainWindow *window, const QVariantMap &report,
     QgisCanvasController *canvasCtl, QgisLayerService *layerSvc,
     QgisProjectService *projectSvc,
-    const std::function<void(const QString &, QString *)> &show) {
+    const std::function<bool(const QString &, QString *)> &show) {
   auto *dialog = window->findChild<FaciesConsistencyDialog *>(
       QStringLiteral("faciesConsistencyDialog"));
   if (!dialog) {
     dialog = new FaciesConsistencyDialog(window);
     dialog->setObjectName(QStringLiteral("faciesConsistencyDialog"));
     QObject::connect(dialog, &FaciesConsistencyDialog::wellActivated, window,
-            [canvasCtl, layerSvc, projectSvc, show, dialog](const QString &,
-                                                            double x, double y) {
+            [canvasCtl, layerSvc, projectSvc, show, dialog, window](
+                const QString &, double x, double y) {
               const QString wellLayer = dialog->property("wellLayer").toString();
-              QString ignored;
-              show(wellLayer, &ignored);
+              // DESIGN.md「失败不写入、不移动地图」：定位链任一环失败即保持视图
+              // 不变并如实报错。此前 CRS 转换抛异常（或井图层未实例化）后仍用
+              // 未转换坐标 setCenter，地图会静默落到错误位置。
+              const auto fail = [window](const QString &text) {
+                window->statusBar()->showMessage(text, 15000);
+                PaleoNotify::warning(window, PaleoMainWindow::tr("井位定位失败"),
+                                     text);
+              };
+              QString showError;
+              if (!show(wellLayer, &showError)) {
+                fail(showError.isEmpty()
+                         ? PaleoMainWindow::tr("井图层 %1 未能显示，无法定位井位")
+                               .arg(wellLayer)
+                         : showError);
+                return;
+              }
+              auto *layer = layerSvc->layer(wellLayer);
+              if (!layer) {
+                fail(PaleoMainWindow::tr("井图层 %1 尚未实例化，无法定位井位")
+                         .arg(wellLayer));
+                return;
+              }
               QgsPointXY point(x, y);
               auto *canvas = canvasCtl->canvas();
-              if (auto *layer = layerSvc->layer(wellLayer)) {
-                try {
-                  point = QgsCoordinateTransform(
-                              layer->crs(),
-                              canvas->mapSettings().destinationCrs(),
-                              projectSvc->project())
-                              .transform(point);
-                } catch (const QgsCsException &) {
-                }
+              try {
+                point = QgsCoordinateTransform(
+                            layer->crs(),
+                            canvas->mapSettings().destinationCrs(),
+                            projectSvc->project())
+                            .transform(point);
+              } catch (const QgsCsException &e) {
+                fail(PaleoMainWindow::tr("井图层坐标转换失败：%1").arg(e.what()));
+                return;
               }
               canvas->setCenter(point);
               canvasCtl->canvas()->refresh();

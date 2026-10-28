@@ -43,14 +43,25 @@ QVector<StratigraphyInterval> applyAssignments(const QVector<StratigraphyInterva
       if (si.formation != a.layerName)
         continue;
       // 只填空，不覆盖已识别（程序不猜也不越权改）
+      // 系/统文字与配色同源回填（D4.1 色标表）——否则指派后的系/统子列用
+      // 结构体默认黄色，与同道内自动识别的同一系/统显示两种底色。
       if (si.system.isEmpty() && !a.system.isEmpty())
+      {
         si.system = a.system;
+        si.systemColor = ChronostratColors::systemColor(a.system);
+      }
       if (si.series.isEmpty() && !a.series.isEmpty())
+      {
         si.series = a.series;
+        si.seriesColor = ChronostratColors::seriesColor(a.series);
+      }
       if (!a.formation.isEmpty() && si.formation != a.formation)
         si.formation = a.formation; // 组名规范化（如 A → 指派的真实组名）
-      if (!a.member.isEmpty())
-        si.series = si.series.isEmpty() ? a.member : si.series; // 段信息并入展示列
+      if (!a.member.isEmpty() && si.series.isEmpty())
+      {
+        si.series = a.member; // 段信息并入展示列
+        si.seriesColor = ChronostratColors::seriesColor(a.member);
+      }
     }
   }
   return out;

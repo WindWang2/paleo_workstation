@@ -102,7 +102,9 @@ FaultInterpretationController::FaultInterpretationController(FaultSetStore *stor
     m_editStack = new FaultEditStack(this);
     if (m_selection)
         connect(m_selection, &SelectionContext::selectionChanged, this,
-                [this](const QStringList &ids, const QString &) { onContextSelection(ids, {}); });
+                [this](const QStringList &ids, const QString &origin) {
+                    onContextSelection(ids, origin);
+                });
 }
 
 FaultInterpretationController::~FaultInterpretationController() = default;
@@ -228,10 +230,14 @@ bool FaultInterpretationController::removeFault(const QString &faultId)
     if (!f)
         return false;
     const Fault snapshot = *f;
+    // 快照删除前的活动态：undo 必须对称恢复（redo 会清它），否则「删除→撤销」
+    // 之后活动目标丢失，与头文件「undo/redo 对称重放」的契约不符（#194）。
+    const QString activeSnapshot = m_activeFaultId;
     const bool ok = m_editStack->push(
         tr("删除断层 %1").arg(f->name),
-        [this, snapshot] {
+        [this, snapshot, activeSnapshot] {
             m_set.insertFault(snapshot);
+            m_activeFaultId = activeSnapshot;
             return commitModel();
         },
         [this, faultId] {
@@ -400,7 +406,8 @@ void FaultInterpretationController::selectFaults(const QStringList &faultIds,
         onContextSelection(payload, origin); // 无联动壳（测试）：本地回声
 }
 
-void FaultInterpretationController::onContextSelection(const QStringList &ids, const QString &)
+void FaultInterpretationController::onContextSelection(const QStringList &ids,
+                                                       const QString &origin)
 {
     QStringList faultIds;
     for (const QString &id : ids) {
@@ -424,7 +431,7 @@ void FaultInterpretationController::onContextSelection(const QStringList &ids, c
         m_mapLayer->selectByIds(fids);
         m_mapLayer->blockSignals(false);
     }
-    emit faultSelectionChanged(faultIds);
+    emit faultSelectionChanged(faultIds, origin);
 }
 
 void FaultInterpretationController::onMapLayerSelectionChanged()
@@ -606,7 +613,9 @@ void FaultInterpretationController::reset()
     m_lastError.clear();
     m_mapLayer = nullptr;
     emit faultSetChanged();
-    emit faultSelectionChanged({});
+    // 工程关闭/会话清理：空选择广播。origin 不是 fault_panel——视图据此把
+    // 「控制器复位」与「面板自己清空」区分开，照常清树。
+    emit faultSelectionChanged({}, QStringLiteral("fault_controller"));
 }
 
 // ---- 内部 ----

@@ -315,13 +315,8 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
     saveMemory();
   } );
 
-  connect( m_opacitySlider, &QSlider::valueChanged, this, [this]( int v ) {
-    if ( m_suppressSignals )
-      return;
-    if ( QgsMapLayer *l = currentLayer() )
-      emit layerOpacityChanged( l, v / 100.0 ); // D4.2
-    saveMemory();
-  } );
+  connect( m_opacitySlider, &QSlider::valueChanged, this,
+           &PreviewTocPanel::applyOpacityFromSlider );
   connect( m_blendCombo, &QComboBox::currentIndexChanged, this, [this]( int ) {
     if ( m_suppressSignals )
       return;
@@ -362,19 +357,27 @@ void PreviewTocPanel::addLayer( QgsMapLayer *layer, const QString &name, const Q
   row.layer = layer;
   row.name = name.isEmpty() ? layer->name() : name;
   row.sourcePath = sourcePath;
-  // D4.7 记忆恢复：同资产重开时沿用上次的可见位。
+  // D4.7 记忆恢复：同资产重开时沿用上次的可见位与透明度。
   bool visible = defaultVisible;
+  double opacity = 1.0;
   if ( !m_assetKey.isEmpty() )
   {
     const auto states = PreviewStateMemory::tocStates( m_assetKey );
     if ( states.contains( row.name ) )
+    {
       visible = states.value( row.name ).visible;
+      opacity = qBound( 0.0, states.value( row.name ).opacity, 1.0 );
+    }
   }
   row.visible = visible;
+  row.opacity = opacity;
   m_rows.prepend( row );
   rebuildList();
   if ( !visible )
     emit layerVisibilityChanged( layer, false );
+  // 透明度同理：新建图层默认 1.0，记忆值不同才让宿主刷画布（不发就是不动）。
+  if ( opacity < 1.0 )
+    emit layerOpacityChanged( layer, opacity );
   // 注意：这里不 saveMemory——增量加层期间整表重写会把「尚未加回的层」
   // 的记忆清掉（实测 D4.7 回归）。落盘时机：用户驱动的变化与页析构。
 }
@@ -533,6 +536,14 @@ void PreviewTocPanel::rebuildQuickPanel()
     m_quickPanel->setCurrentIndex( 0 );
   }
 
+  // 透明度滑杆回填当前层的记账值（D4.7 记忆恢复后选中层即见上次设定）。
+  {
+    const int row = m_list->currentRow();
+    if ( row >= 0 && row < m_rows.size() )
+      m_opacitySlider->setValue(
+          qRound( qBound( 0.0, m_rows.at( row ).opacity, 1.0 ) * 100.0 ) );
+  }
+
   // 属性速览（D4.5：源路径/类型/范围/单元大小）。
   QString typeText;
   QString extraText;
@@ -601,6 +612,18 @@ void PreviewTocPanel::applyRasterStyle( QgsRasterLayer *rl )
       });
 }
 
+void PreviewTocPanel::applyOpacityFromSlider( int value )
+{
+  if ( m_suppressSignals )
+    return;
+  // 记账先行：saveMemory 读 row.opacity——不同步就存错（D4.7 随资产记忆）。
+  if ( const int row = m_list->currentRow(); row >= 0 && row < m_rows.size() )
+    m_rows[row].opacity = value / 100.0;
+  if ( QgsMapLayer *l = currentLayer() )
+    emit layerOpacityChanged( l, value / 100.0 ); // D4.2
+  saveMemory();
+}
+
 void PreviewTocPanel::applyVectorStyle( QgsVectorLayer *vl )
 {
   if ( !vl )
@@ -650,7 +673,7 @@ void PreviewTocPanel::saveMemory() const
   {
     PreviewStateMemory::TocLayerState st;
     st.visible = r.visible;
-    st.opacity = 1.0;
+    st.opacity = r.opacity;
     order.append( r.name );
     states.insert( r.name, st );
   }

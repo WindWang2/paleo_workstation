@@ -74,9 +74,11 @@ class MapVersionStore
                              const QString &assetId = QString(),
                              const QString &sha256 = QString(),
                              QString *error = nullptr);
-    bool hasLayoutProduct(const QString &horizon) const;
+    // PW-111：SQL/连接失败经 error 出参如实上报，不与「无产物」混同（此前
+    // 这两个读面把失败静默吞成 false/空串）。
+    bool hasLayoutProduct(const QString &horizon, QString *error = nullptr) const;
     // 最近一次登记的 PDF 产物路径（发布确认对话展示文件名用）；无 → 空。
-    QString latestLayoutProduct(const QString &horizon) const;
+    QString latestLayoutProduct(const QString &horizon, QString *error = nullptr) const;
 
     // 残差摘要完整性（发布门同一条款，UI tooltip 复用）：summary 须是
     // MapVersionController::residualSummaryJson 产出的 JSON——

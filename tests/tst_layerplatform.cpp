@@ -721,9 +721,10 @@ class TestLayerPlatform : public QObject
       QVERIFY(visibleIds.contains(
           fx.layerSvc.layer(QStringLiteral("base.boundary"))->id())); // 层位无关层保留
 
-      // 树态：基础层仍可见，新层位的 T2 约束层不在 predict 主题里 → 隐藏
+      // 树态：基础层仍可见；新层位（T2）的约束层每次重放都并入 predict 档案
+      // （#80：首建时定格会让换层位后的当前层位约束层被旧主题记录隐藏）。
       QVERIFY(fx.layerChecked(QStringLiteral("base.boundary")));
-      QVERIFY(!fx.layerChecked(QStringLiteral("con.points")));
+      QVERIFY(fx.layerChecked(QStringLiteral("con.points")));
     }
 
     // ---- 主题随 .qgz 往返（QgisProjectService 自有工程，非单例）----

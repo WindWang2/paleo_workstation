@@ -82,12 +82,19 @@ PreviewMapCanvas::PreviewMapCanvas( QWidget *parent )
     hidePreviewOverlay(); // 低清/缓存快照让位真渲（D6.1）
     emit renderCompleted( m_lastRenderMs, current.size(), m_lastRenderElements );
   } );
-  // 视图历史（D3.3）：交互平移/缩放经 extentsChanged 入栈；程序式缩放由
-  // setExtentInternal 直接压栈并置抑制位，避免双记。
+  // 视图历史（D3.3）：交互平移/缩放经 extentsChanged 入栈「变更前」的范围
+  // （#78：入栈新范围会让第一次回退变成无操作，且初始视图永远回不去）；
+  // 程序式缩放由 setExtentInternal 直接压栈并置抑制位，避免双记。
   connect( m_canvas, &QgsMapCanvas::extentsChanged, this, [this] {
     const QgsRectangle ext = m_canvas->extent();
     if ( !m_suppressHistory )
-      pushHistory( ext );
+    {
+      if ( m_lastExtent.isNull() )
+        m_lastExtent = ext; // 首个范围变化只建立基线，没有可回退的「前一格」
+      else
+        pushHistory( m_lastExtent );
+    }
+    m_lastExtent = ext;
     emit extentChanged( ext );
   } );
   connect( m_canvas, &QgsMapCanvas::scaleChanged, this, &PreviewMapCanvas::scaleChanged );
@@ -198,11 +205,19 @@ void PreviewMapCanvas::forgetLayer( QObject *layer )
 {
   if ( m_teardown )
     return; // 析构期：画布先于层销毁，不得再同步（见 ~PreviewMapCanvas）
-  const QgsMapLayer *key = static_cast<const QgsMapLayer *>( layer );
-  const auto dead = const_cast<QgsMapLayer *>( key );
-  if ( !m_layers.contains( dead ) )
+  if ( !layer )
+    return;
+  // #778：destroyed 回调到达时 QgsMapLayer 子对象已析构，obj 只剩 QObject
+  // 部分——对它做 static_cast<QgsMapLayer*> 即 UBSan vptr 诊断。这里只按
+  // 地址比较、把活层指针从登记表里摘出来，全程不做向下转换（m_layers 里的
+  // 活层指针上转成 QObject* 是良构的）。
+  const auto it = std::find_if( m_layers.begin(), m_layers.end(), [layer]( const QgsMapLayer *l ) {
+    return static_cast<const QObject *>( l ) == layer;
+  } );
+  if ( it == m_layers.end() )
     return; // 已被 removeLayer 正常移除（或从未登记）
-  m_layers.removeOne( dead );
+  const QgsMapLayer *key = *it;
+  m_layers.erase( it );
   m_visible.remove( key );
   m_opacity.remove( key );
   m_blend.remove( key );
@@ -384,6 +399,7 @@ void PreviewMapCanvas::setExtentInternal( const QgsRectangle &rect )
   m_canvas->setExtent( rect );
   m_canvas->refresh();
   m_suppressHistory = false;
+  m_lastExtent = rect; // 抑制期内基线不更新，这里补上（见 #78）
 }
 
 void PreviewMapCanvas::zoomToFullExtent()
@@ -473,6 +489,7 @@ void PreviewMapCanvas::zoomBack()
   m_canvas->setExtent( prev );
   m_canvas->refresh();
   m_suppressHistory = false;
+  m_lastExtent = prev;
   emit extentChanged( prev );
 }
 
@@ -492,6 +509,7 @@ void PreviewMapCanvas::zoomForward()
   m_canvas->setExtent( next );
   m_canvas->refresh();
   m_suppressHistory = false;
+  m_lastExtent = next;
   emit extentChanged( next );
 }
 
@@ -499,6 +517,9 @@ void PreviewMapCanvas::clearHistory()
 {
   m_backStack.clear();
   m_forwardStack.clear();
+  // 基线对齐当前范围：否则清历史后的首次交互会把「当前范围」当回退目标
+  // 再入栈一次，回退即成无操作（#78）。
+  m_lastExtent = m_canvas ? m_canvas->extent() : QgsRectangle();
 }
 
 void PreviewMapCanvas::cancelRendering()

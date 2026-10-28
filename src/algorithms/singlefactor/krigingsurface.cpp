@@ -316,7 +316,11 @@ VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const 
   result.nugget = model.nugget;
   result.sill = model.sill;
   result.range = model.range;
-  result.azimuthDeg = model.anisotropyRatio > 1.0 ? model.azimuthDeg : 0.0;
+  // PW-037：ratio<1 = 主轴给反（等价方位 +90° 且取倒数），VariogramModel 的
+  // semivariance 内部按 swapAxes 处理——方位角照传。旧式按 ratio>1 才传方位，
+  // R3-8 拟合出的「垂直方向变程更长」各向异性在求解面与 QC/血缘里被静默丢弃。
+  const bool anisotropic = std::abs( model.anisotropyRatio - 1.0 ) > 1e-12;
+  result.azimuthDeg = anisotropic ? model.azimuthDeg : 0.0;
   result.anisotropyRatio = model.anisotropyRatio;
   result.fitted = true;
   result.ok = true;

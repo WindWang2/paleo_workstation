@@ -6,6 +6,7 @@
 #include "domain/seismic/sectionaxis.h" // opt-02：道头卡列号→线号换算
 #include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/seismictaskservice.h"
+#include "../notifications/paleonotify.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -58,8 +59,11 @@ void SeismicSectionDockWidget::applyBookmark(int index) {
     const bool modeChanged = m_cboSectionMode->currentIndex() != bm.modeIndex;
     bool sliceChanged = false;
     if (modeChanged)
-        m_cboSectionMode->setCurrentIndex(bm.modeIndex); // 触发重提取
-    else if (bm.modeIndex <= 2 && m_spinSlice->value() != bm.sliceValue) {
+        m_cboSectionMode->setCurrentIndex(bm.modeIndex); // 触发重提取（先落中线）
+    // 换模式后 spin 被 onSectionModeChanged 置成新模式的中线——书签存的线号
+    // 必须再落一次，否则跨模式书签恢复的是中线而非书签线（与 locateRequested
+    // 同款两段式：先切模式、再比线号）。
+    if (bm.modeIndex <= 2 && m_spinSlice->value() != bm.sliceValue) {
         m_spinSlice->setValue(bm.sliceValue); // 触发重提取
         sliceChanged = true;
     }
@@ -242,7 +246,10 @@ void SeismicSectionDockWidget::showTraceHeaderCard(int traceIndex) {
     }
     SeismicTraceHeaderInfo info;
     if (fileTrace >= 0)
-        info = SeismicTaskService::readTraceHeader(sgyPath, fileTrace);
+        // finding-94：把已在途的体索引交给 readTraceHeader——它不再自行
+        // 全量加载 .sgyidx（那会在本主线程调用上秒级冻结 UI）。
+        info = SeismicTaskService::readTraceHeader(sgyPath, fileTrace,
+                                                  m_volume->Index());
     else {
         info.ok = false;
         info.error = resolveNote;
@@ -293,16 +300,23 @@ void SeismicSectionDockWidget::showTraceHeaderCard(int traceIndex) {
 }
 
 void SeismicSectionDockWidget::onTraceClicked(int traceIndex, double twtMs, double depthM,
-                                              float amplitude, double, double) {
+                                              float amplitude, double mapX, double mapY) {
     // D2.11：点击道 → 道头信息卡；状态栏同步读数
     showTraceHeaderCard(traceIndex);
-    onTraceHovered(traceIndex, twtMs, depthM, amplitude, 0.0, 0.0);
+    // finding-154：mapX/mapY 是画布上报的地理坐标（时间切片模式下就是
+    // XL/IL）——旧实现填 0.0 让状态栏显示伪造的「XL:0/IL:0」，原样透传。
+    onTraceHovered(traceIndex, twtMs, depthM, amplitude, mapX, mapY);
 }
 
 // ---- D2.13 复制 / 打印 ----
 void SeismicSectionDockWidget::onCopyImage() {
     QApplication::clipboard()->setImage(m_canvas->grabCanvasImage(2.0));
-    setLineTitle(tr("剖面图已复制到剪贴板"));
+    // finding-158：瞬态操作反馈不得写进测线标题——标题承载「当前剖面」
+    // 语义（下一次提取前一直挂着「已复制」，读图时误导）。改走通知通道
+    // （ErrorHub info，与导出图件同口径）；两条文案均复用已在 .ts 的字面量
+    // （标题沿用旧反馈原文，正文取按钮 tooltip），不新增可译条目。
+    PaleoNotify::information(this, tr("剖面图已复制到剪贴板"),
+                             tr("复制剖面图到剪贴板（含坐标轴与色标）"));
 }
 
 void SeismicSectionDockWidget::onPrintImage() {

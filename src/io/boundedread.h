@@ -32,12 +32,28 @@ inline bool readBoundedFile(const QString &path, qint64 limit, QByteArray *out,
   }
   // 非常规文件（管道/设备）size 可能为 0：最多读 limit+1 字节以检出超限。
   QByteArray bytes = f.read(limit >= 0 ? limit + 1 : size);
+  if (f.error() != QFile::NoError)
+  {
+    if (error)
+      *error = QStringLiteral("read failed %1: %2").arg(path, f.errorString());
+    return false; // I/O 错误下的部分内容不是「整读成功」
+  }
   if (limit >= 0 && bytes.size() > limit)
   {
     if (error)
       *error = QStringLiteral("file too large (%1 MB limit): %2")
                    .arg(limit / (1024 * 1024))
                    .arg(path);
+    return false;
+  }
+  // limit<0（按 size 整读）：短读即失败——头注释承诺「读短返回 false」。
+  if (limit < 0 && bytes.size() != size)
+  {
+    if (error)
+      *error = QStringLiteral("short read %1 (%2 of %3 bytes)")
+                   .arg(path)
+                   .arg(bytes.size())
+                   .arg(size);
     return false;
   }
   if (out)

@@ -64,7 +64,15 @@ QgisProjectService::QgisProjectService( QObject *parent )
 QgisProjectService::~QgisProjectService()
 {
   cancelOpen();
-  m_openFuture.waitForFinished(); // provider/runtime 析构前排空独立读取器
+  // #773：读取改跑 PaleoTaskService 专用池后，排队未出队的 runnable 会被
+  // shutdown 的 pool->clear() 丢弃——那种 future 永不到终态，无条件
+  // waitForFinished 会把析构挂死。只等「已开跑」的读取器（worker 入口置
+  // started）；排队读取由 clear()/future 取消负责丢弃。
+  // ProjectLoadState 只在本 TU 之外定义（前向声明），析构里读不到它的成员；
+  // QFuture::isStarted() 是同语义的等价判据（runnable 已被线程取走即真，
+  // 排队未出队为假），且不需要完整类型。
+  if (m_openFuture.isStarted())
+    m_openFuture.waitForFinished(); // provider/runtime 析构前排空独立读取器
 }
 
 QgsProject *QgisProjectService::project() const
@@ -136,8 +144,11 @@ bool QgisProjectService::openProject( const QString &qgzPath )
 
   // project.paleo 清单入口（PROJECT_FILE_DESIGN）：.paleo → 解析出 qgz 成员
   // 再开；qgz 成员缺席 = 束损坏，拒开。其他成员缺失如实报 lastErrors 仍开。
-  m_georeference.reset();
-  m_mapConfiguration = {};
+  // #82：清单解析结果先落局部，runGate 通过后才覆盖成员——闸门拒绝/取消时
+  // 当前已打开工程的配准与版面配置必须原样保留（与 createProject 同款次序：
+  // 先闸门，后清状态），否则被拒后旧工程的两份状态已被抹掉。
+  std::optional<PaleoGeoreference> georeference;
+  PaleoProjectFile mapConfiguration;
   QString qgzFile = qgzPath;
   if ( qgzPath.endsWith( QLatin1String( ".paleo" ) ) )
   {
@@ -150,8 +161,8 @@ bool QgisProjectService::openProject( const QString &qgzPath )
                                    : perr );
       return false;
     }
-    m_georeference = pf.georeference;
-    m_mapConfiguration = pf;
+    georeference = pf.georeference;
+    mapConfiguration = pf;
     if ( !pf.georeferenceError.isEmpty() )
       m_errors << tr( "配准节无效：%1（按无配准继续）" ).arg( pf.georeferenceError );
     const QString dir = QFileInfo( qgzPath ).absolutePath();
@@ -172,6 +183,10 @@ bool QgisProjectService::openProject( const QString &qgzPath )
   // 取消时当前工程、路径、锁全部原样保留。
   if ( !runGate( QFileInfo( qgzFile ).absolutePath(), false ) )
     return false;
+  // 闸门已过、确定要换工程：此刻才把新工程的配准/版面配置落到成员
+  // （#82——早于闸门的话，被拒后旧工程的状态已被抹掉）。
+  m_georeference = georeference;
+  m_mapConfiguration = mapConfiguration;
 
   if ( !qgzPath.endsWith( QLatin1String( ".paleo" ) ) )
   {

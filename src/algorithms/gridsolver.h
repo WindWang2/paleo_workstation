@@ -88,6 +88,9 @@ bool solveMinimumCurvature(const std::vector<ScatterPoint> &points,
 
 // 质量面：每格中心到最近散点的欧氏距离（与 z 同平面单位）。核内部静态
 // KD-tree；points 为空 → false + error。屏障格照常给距离（纯几何量）。
+// 非有限（NaN/Inf）散点按 solveMinimumCurvature 同口径先行过滤——否则
+// nth_element 比较器违反严格弱序（UB）、knn 遍历被 NaN 距离全枝剪掉；
+// 全部非有限 → false + error。
 std::vector<float> distanceToData(const std::vector<ScatterPoint> &points,
                                   const GridGeometry &geometry, QString *error = nullptr);
 

@@ -1150,6 +1150,11 @@ void Seismic3DViewPanel::setTransferFunctionEnabled(bool enabled) {
 void Seismic3DViewPanel::applyTransferFunction() {
     if (!viewport_)
         return;
+    // #146：未打开过 TF 编辑器时 tf_ 仍是空停靠点——buildLutRgba 会给出
+    // 全 255 alpha 的均匀灰，一键开「传递函数」整个视口变成不透明灰色。
+    // 与 btnTfEdit_ 入口同守卫：回落「均匀半透明」预设。
+    if (tfActive_ && !tf_.isValid())
+        tf_ = Seismic3DTransferFunction::preset(QStringLiteral("均匀半透明"));
     viewport_->setTransferFunction(tf_.buildLutRgba(), tfActive_);
     for (int slot = 0; slot < 3; ++slot) {
         if (!cachedReady_[static_cast<std::size_t>(slot)])
@@ -1252,144 +1257,6 @@ void Seismic3DViewPanel::clearLineSection() {
     cachedLinePath_.clear();
     if (viewport_)
         viewport_->clearLineSection();
-}
-
-// ---- D7.4 切片动画扫掠 ----
-int Seismic3DViewPanel::sweepOrdinalCount() const {
-    auto vol = volume();
-    if (!vol || !vol->IsLoaded())
-        return 0;
-    switch (sweepAxis_) {
-    case SgySliceType::Inline: return int(vol->InlineValues().size());
-    case SgySliceType::Xline: return int(vol->XlineValues().size());
-    default: return vol->SampleMax() + 1;
-    }
-}
-
-int Seismic3DViewPanel::sweepIndexAt(int ordinal) const {
-    auto vol = volume();
-    if (!vol || !vol->IsLoaded())
-        return 0;
-    switch (sweepAxis_) {
-    case SgySliceType::Inline: {
-        const auto &v = vol->InlineValues();
-        return ordinal >= 0 && ordinal < int(v.size()) ? v[std::size_t(ordinal)]
-                                                       : vol->InlineMin();
-    }
-    case SgySliceType::Xline: {
-        const auto &v = vol->XlineValues();
-        return ordinal >= 0 && ordinal < int(v.size()) ? v[std::size_t(ordinal)]
-                                                       : vol->XlineMin();
-    }
-    default:
-        return ordinal; // T：原始采样号
-    }
-}
-
-SeismicSliceSlot Seismic3DViewPanel::sweepSlot() const {
-    switch (sweepAxis_) {
-    case SgySliceType::Inline: return SeismicSliceSlot::Inline;
-    case SgySliceType::Xline: return SeismicSliceSlot::Crossline;
-    default: return SeismicSliceSlot::Time;
-    }
-}
-
-void Seismic3DViewPanel::startSweep(SgySliceType axis, int fps) {
-    auto vol = volume();
-    if (!vol || !vol->IsLoaded())
-        return;
-    sweepAxis_ = axis;
-    if (sweepOrdinalCount() <= 0)
-        return;
-    if (!sweepTimer_) {
-        sweepTimer_ = new QTimer(this);
-        sweepTimer_->setTimerType(Qt::CoarseTimer);
-        connect(sweepTimer_, &QTimer::timeout, this, [this]() { onSweepTick(); });
-    }
-    sweepTimer_->setInterval(1000 / std::clamp(fps, 1, 60));
-    sweepOrdinal_ = 0;
-    sweepPrefetchInFlight_ = 0;
-    sweepTimer_->start();
-    emit sweepFrameChanged(sweepIndexAt(0));
-}
-
-void Seismic3DViewPanel::pauseSweep() {
-    if (sweepTimer_)
-        sweepTimer_->stop();
-}
-
-void Seismic3DViewPanel::resumeSweep() {
-    auto vol = volume();
-    if (sweepTimer_ && !sweepTimer_->isActive() && vol && vol->IsLoaded() &&
-        sweepOrdinalCount() > 0)
-        sweepTimer_->start();
-}
-
-void Seismic3DViewPanel::stopSweep() {
-    if (sweepTimer_)
-        sweepTimer_->stop();
-    sweepPrefetchInFlight_ = 0;
-}
-
-void Seismic3DViewPanel::setSweepExportDir(const QString &dir) {
-    sweepExportDir_ = dir;
-}
-
-void Seismic3DViewPanel::onSweepTick() {
-    auto vol = volume();
-    const int count = sweepOrdinalCount();
-    if (!vol || !vol->IsLoaded() || count <= 0) {
-        stopSweep();
-        return;
-    }
-
-    // 1. 导出上一帧（先导后进：grabFramebuffer 同步渲染当前态；无 GL 回退
-    //    导缓存切片 rgba——数据帧序列，离屏/回退态仍可出片）
-    if (!sweepExportDir_.isEmpty()) {
-        QImage img = viewport_->grabViewportImage();
-        if (img.isNull()) {
-            const std::size_t si = static_cast<std::size_t>(sweepSlot()) % 3;
-            if (cachedReady_[si]) {
-                const SgySliceImage &c = cachedSlices_[si];
-                img = QImage(c.rgba.data(), c.width, c.height,
-                             c.width * 4, QImage::Format_RGBA8888).copy();
-            }
-        }
-        if (!img.isNull()) {
-            const QString path = QDir(sweepExportDir_).filePath(
-                QStringLiteral("frame_%1.png").arg(sweepExportedCount_, 5, 10, QLatin1Char('0')));
-            if (img.save(path, "PNG"))
-                ++sweepExportedCount_;
-        }
-    }
-
-    // 2. 帧推进（回绕）+ 滑杆跟手（slider 路径内建吸附/取数/changed 广播）
-    sweepOrdinal_ = (sweepOrdinal_ + 1) % count;
-    const int index = sweepIndexAt(sweepOrdinal_);
-    if (sweepAxis_ == SgySliceType::Inline)
-        setInline(index);
-    else if (sweepAxis_ == SgySliceType::Xline)
-        setCrossline(index);
-    else
-        setTimeSample(index);
-
-    // 3. 前向预取窗口（结果丢弃、只暖 SgyDataCache；在途 > 2×窗口 时让路
-    //    UI 交互取数——预取是播放加速，不该抢并发闸）
-    if (taskSvc_ && sweepPrefetchInFlight_ < kSweepPrefetchWindow * 2) {
-        for (int k = 1; k <= kSweepPrefetchWindow; ++k) {
-            const int ord = (sweepOrdinal_ + k) % count;
-            const int idx = sweepIndexAt(ord);
-            ++sweepPrefetchInFlight_;
-            QPointer<Seismic3DViewPanel> guard(this);
-            taskSvc_->startSliceExtraction(
-                vol, sweepAxis_, idx,
-                [guard](bool, std::shared_ptr<const SgySliceImage>, const QString &) {
-                    if (guard)
-                        --guard->sweepPrefetchInFlight_;
-                }, pagedPath_);
-        }
-    }
-    emit sweepFrameChanged(index);
 }
 
 // ---- D3.4 / D3.12 / D7.3 ----

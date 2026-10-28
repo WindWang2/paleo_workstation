@@ -51,8 +51,20 @@ CandidateBoundaryResult extractCandidateRegions( const CandidateBoundaryRequest 
 
   // ---- 1) 域并集 + 等值线裁剪 -------------------------------------------
   GeomPtr domainUnion;
+  bool domainUnionFailed = false;
   if ( !request.domain.empty() )
+  {
     domainUnion = singlefactor::unionPolygons( ctx.handle, request.domain );
+    if ( !domainUnion )
+    {
+      // PW-088 同口径：域并集失败（GEOS 空指针）不得假装「无域」继续算——
+      // 那会让等值线不被裁剪、候选面越域仍返回 Ok，失败与未提供无法区分。
+      result.status = Status::NumericalFailure;
+      result.message = "编图域并集失败（几何拓扑异常）";
+      result.diagnostics.insert( QStringLiteral( "domain_union_failed" ), true );
+      return result;
+    }
+  }
   const bool hasDomain = domainUnion != nullptr;
 
   // 裁剪后的等值线（GeomPtr 持有；directParts 拆段只借指针）。
@@ -62,6 +74,7 @@ CandidateBoundaryResult extractCandidateRegions( const CandidateBoundaryRequest 
     GeomPtr geometry;
   };
   std::vector<ClippedContour> clippedContours;
+  int droppedContourLines = 0;
   for ( const ContourLevelLines &level : request.contours )
   {
     for ( std::size_t segment = 0; segment < level.lines.size(); ++segment )
@@ -76,7 +89,12 @@ CandidateBoundaryResult extractCandidateRegions( const CandidateBoundaryRequest 
         line = makeGeom( ctx.handle,
                          GEOSIntersection_r( ctx.handle, line.get(), domainUnion.get() ) );
       if ( !line || GEOSisEmpty_r( ctx.handle, line.get() ) == 1 )
+      {
+        // 求交失败（拓扑异常）与裁剪后为空都记账：前者是失败、后者是正常
+        // 裁掉——诊断字段让调用方能区分，不静默丢线。
+        ++droppedContourLines;
         continue;
+      }
       ClippedContour clipped;
       // 级别格式紧凑化（"5" 而非 "5.000000"）：证据标记进属性表，人读友好。
       std::ostringstream levelText;
@@ -176,7 +194,7 @@ CandidateBoundaryResult extractCandidateRegions( const CandidateBoundaryRequest 
       }
     }
     const bool touchesDomainEdge =
-        hasDomain && domainBoundary &&
+        hasDomain && domainBoundary && faceBoundary &&
         GEOSIntersects_r( ctx.handle, faceBoundary.get(), domainBoundary.get() ) == 1;
 
     // 约束区归属：交集面积 > 0 的每个区各出一批单元（区重叠 → 双出，
@@ -263,6 +281,7 @@ CandidateBoundaryResult extractCandidateRegions( const CandidateBoundaryRequest 
   result.diagnostics.insert( QStringLiteral( "zone_conflict_faces" ), zoneConflictFaces );
   result.diagnostics.insert( QStringLiteral( "clipped_contour_lines" ),
                              static_cast<int>( clippedContours.size() ) );
+  result.diagnostics.insert( QStringLiteral( "dropped_contour_lines" ), droppedContourLines );
   result.diagnostics.insert( QStringLiteral( "domain_present" ), hasDomain );
   if ( faceGeoms.empty() && !request.contours.empty() )
     result.message = "no closed faces from given contour lines and domain";

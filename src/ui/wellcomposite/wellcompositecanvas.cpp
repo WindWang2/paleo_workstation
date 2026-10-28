@@ -546,8 +546,18 @@ void WellCompositeCanvas::syncScrollBars()
   if (totalH > bodyH)
   {
     m_vScrollBar->setVisible(true);
-    m_vScrollBar->setRange(0, static_cast<int>(std::round(totalH - bodyH)));
+    // 滑块值随 pxPerMeter 同步重算：缩放改变 ppm 后 range 变化而滑块值停留在
+    // 旧比例像素上，滑块位置与实际视口深度脱钩；range 收缩时 Qt 自动 clamp 还会
+    // 触发 valueChanged 回调用新 ppm 反写 m_scrollDepth，造成视口跳转。
+    // 与水平条同口径：先夹回新范围，再 blockSignals + setValue。
+    const double visibleSpan = bodyH / pxPerMeter();
+    const double maxScroll = qMax(m_minDepth, m_maxDepth - visibleSpan);
+    m_scrollDepth = qBound(m_minDepth, m_scrollDepth, maxScroll);
+    const int maxV = static_cast<int>(std::round(totalH - bodyH));
+    const QSignalBlocker blocker(m_vScrollBar);
+    m_vScrollBar->setRange(0, maxV);
     m_vScrollBar->setPageStep(static_cast<int>(std::round(bodyH)));
+    m_vScrollBar->setValue(static_cast<int>(std::round((m_scrollDepth - m_minDepth) * pxPerMeter())));
   }
   else
   {

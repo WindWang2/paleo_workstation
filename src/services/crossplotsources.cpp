@@ -152,7 +152,12 @@ SampleResult CrossplotSources::load(const QVector<SourceSpec> &specs,
                             ? verifiedHashes.value(s.path)
                             : DataCatalog::sha256FileHex(s.path, &error);
       verifiedHashes.insert(s.path, hash);
-      if (hash != s.sha256)
+      // 读盘失败（hash 为空）不是「不一致」——如实报无法读取，别把合法的
+      // 外链资产误判成被篡改；sha 口径大小写不敏感（留底大写十六进制同样
+      // 合法，全仓 externalShaMatches 同口径）。
+      if (hash.isEmpty())
+        return fail(QStringLiteral("无法读取源文件：%1").arg(s.path));
+      if (hash.compare(s.sha256, Qt::CaseInsensitive) != 0)
         return fail(
             QStringLiteral("源文件与登记 SHA-256 不一致：%1").arg(s.path));
     }

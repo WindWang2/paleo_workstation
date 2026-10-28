@@ -14,6 +14,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QCryptographicHash>
 #include <QFile>
 #include <QFileInfo>
 #include <QMutexLocker>
@@ -940,6 +941,25 @@ QString SeismicTaskService::registerAttributeSliceAsset(
                           .arg(result.sectionIndex);
   catalog->addAsset(asset);
 
+  // finding-95：剖面属性登记幂等——SATR 容器内嵌 createdAt/readMs/computeMs，
+  // 同名重写的字节必然不同（sha 口径在此失效），按参数指纹 + 产物在盘比对
+  // 当前版本：命中即复用，不重复建版本行（对齐 viz.ts/vol 的 param_hash
+  // 口径；参数变了才建新版本——旧版本行不再被同名覆盖搅得 sha256 失真、
+  // 版本表不再随重复登记无限膨胀）。
+  QCryptographicHash ph(QCryptographicHash::Sha256);
+  ph.addData("paleo-attr-section-v1\n");
+  ph.addData(result.attrId.toUtf8());
+  ph.addData("\n");
+  ph.addData(sectionKey.toUtf8());
+  ph.addData(QByteArray::number(result.sectionIndex));
+  ph.addData("\n");
+  ph.addData(QByteArray::number(params.windowHalfSamples) + "," +
+             QByteArray::number(params.coherenceIlHalf) + "," +
+             QByteArray::number(params.coherenceXlHalf) + "," +
+             QByteArray::number(params.coherenceTimeHalf) + "," +
+             QByteArray::number(params.coherenceWeighting) + "\n");
+  const QString paramHash = QString::fromLatin1(ph.result().toHex());
+
   CatalogVersion v;
   v.id = QStringLiteral("ver_%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
   v.assetId = asset.id;
@@ -955,6 +975,13 @@ QString SeismicTaskService::registerAttributeSliceAsset(
   v.extra.insert(QStringLiteral("attrId"), result.attrId);
   v.extra.insert(QStringLiteral("section"), sectionKey);
   v.extra.insert(QStringLiteral("sectionIndex"), result.sectionIndex);
+  v.extra.insert(QStringLiteral("param_hash"), paramHash);
+  const CatalogVersion existing = catalog->currentVersion(asset.id);
+  if (!existing.id.isEmpty() &&
+      existing.extra.value(QStringLiteral("param_hash")).toString() ==
+          paramHash &&
+      QFileInfo::exists(existing.path))
+    return existing.path; // 同参数版本已登记且产物在盘 → 复用
   if (!catalog->addVersion(v))
   {
     if (error)

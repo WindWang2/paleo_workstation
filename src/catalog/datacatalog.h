@@ -284,6 +284,8 @@ class DataCatalog : public QObject
     bool removeAssets(const QStringList &assetIds, QString *error = nullptr);
     // Governance mutator: exact stale DERIVED versions only, one atomic save.
     // Retained descendants block removal; asset/link identities remain intact.
+    // Versions cited by a saved map result (extra retained_by_map_results) are
+    // refused too — the saved evidence row still points at them.
     bool removeStaleVersions(const QStringList &versionIds, QString *error = nullptr);
 
     // 更新版本 / 资产当前版本 extra 字典（合并键值，落盘原子写）
@@ -316,7 +318,13 @@ class DataCatalog : public QObject
     CatalogAsset assetById(const QString &id) const;
     QVector<CatalogVersion> versionsForAsset(const QString &assetId) const;
     // 全量版本表（只读快照口径——IngestPlan 构建 worker 线程用；COW O(1)）。
-    QVector<CatalogVersion> versions() const { return m_versions; }
+    // #476 线程门同其它读方法：跨线程调用回空集（默认拒绝，见 noteRead）。
+    QVector<CatalogVersion> versions() const
+    {
+      if (!noteRead("versions"))
+        return {};
+      return m_versions;
+    }
     CatalogVersion versionById(const QString &id) const;
     CatalogVersion currentVersion(const QString &assetId) const; // 最高 versionNumber
     // 空 entityId 是调用方 bug（audit row 35）：如实返回空集，不再静默命中

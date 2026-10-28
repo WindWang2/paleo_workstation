@@ -108,6 +108,20 @@ QWidget *DataPreviewTabs::buildWellFilteredContent(
   return host;
 }
 
+namespace {
+// 时深表预览面板：TIME–TVD 曲线（x = 时间 ms，y = TVD）。纵轴是 TVD 而不是
+// MD——标尺标题与悬停读数按 TVD 标注，免得把时深表深度当成测深读。
+CurvePanel *makeTimeDepthPanel(QWidget *parent, const QVector<double> &times,
+                               const QVector<double> &tvds)
+{
+  auto *panel = new CurvePanel(parent);
+  panel->setEmptyText(QObject::tr("无时深表")); // NaN 过滤后仍空的兜底文案
+  panel->setDepthBasis(QStringLiteral("TVD"));
+  panel->setCurve(QObject::tr("TIME–TVD"), QStringLiteral("ms"), times, tvds);
+  return panel;
+}
+} // namespace
+
 QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString &absPath,
                                         const QString &wellEntityId,
                                         const QString &wellName, QWidget *parent)
@@ -221,10 +235,7 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     // §4：time_depth 没有可用样点时写「无时深表」，不画假线。
     if (tvds.isEmpty())
       return stateLabel(tr("无时深表"), parent);
-    auto *panel = new CurvePanel(parent);
-    panel->setEmptyText(tr("无时深表")); // 双保险：NaN 过滤后仍空的兜底文案
-    panel->setCurve(tr("TIME–TVD"), QStringLiteral("ms"), times, tvds);
-    return panel;
+    return makeTimeDepthPanel(parent, times, tvds);
   }
 
   if (asset.type == QLatin1String("well_head"))

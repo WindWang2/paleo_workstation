@@ -303,7 +303,9 @@ QList<QVariantMap> WellSitingWorkflow::realWellsForSiting() const
   QList<QVariantMap> out;
   // planned 隔离红线：实井只认 entityType=="well"。catalog 直查按
   // writeWellsGeoJson 同口径过滤（hasSurface 且坐标有限）；catalog 缺席时
-  // 走 ProjectDataFacade::wells()（内部同样只查 "well"）并按坐标状态过滤。
+  // 走 ProjectDataFacade::wells()（内部同样只查 "well"）——谓词与 catalog
+  // 分支同口径：只认坐标状态 ok/untransformed（缺 surface 的井不进），
+  // "unknown" 一并归入不可用（否则无坐标井会以 (0,0) 实井参与布井，#212）。
   if ( d->catalog )
   {
     for ( const CatalogEntity &e : d->catalog->entities( QStringLiteral( "well" ) ) )
@@ -323,8 +325,10 @@ QList<QVariantMap> WellSitingWorkflow::realWellsForSiting() const
   {
     for ( const ProjectWell &w : d->projectData->wells() )
     {
-      if ( w.coordinateStatus == QLatin1String( "invalid" ) ||
-           w.coordinateStatus == QLatin1String( "missing" ) )
+      // 与 catalog 分支同一谓词：白名单只放已定位坐标的状态（invalid /
+      // missing / unknown 全不可用——unknown 并非「有坐标」的别名）。
+      if ( w.coordinateStatus != QLatin1String( "ok" ) &&
+           w.coordinateStatus != QLatin1String( "untransformed" ) )
         continue;
       if ( !std::isfinite( w.surfaceX ) || !std::isfinite( w.surfaceY ) )
         continue;

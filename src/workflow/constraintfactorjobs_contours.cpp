@@ -92,9 +92,9 @@ bool ConstraintWorkflow::generateContours( const QString &horizon, const QString
           return publishAnalysisContourJob(*shared, error);
         },
         [shared] {
-          if (shared->outputPath.contains("paleo-sf-"))
-            QDir(QFileInfo(shared->outputPath).absolutePath())
-                .removeRecursively();
+          // #481 P2-1：目录名前缀判定（discardTempTree），不用
+          // contains("paleo-sf-") 子串匹配（会误删用户目录）。
+          discardTempTree(shared->outputPath);
         },
         error);
   }
@@ -837,9 +837,9 @@ bool ConstraintWorkflow::generateContoursAtLevels( const QString &horizon, const
           return publishAnalysisContourJob(*shared, error);
         },
         [shared] {
-          if (shared->outputPath.contains("paleo-sf-"))
-            QDir(QFileInfo(shared->outputPath).absolutePath())
-                .removeRecursively();
+          // #481 P2-1：目录名前缀判定（discardTempTree），不用
+          // contains("paleo-sf-") 子串匹配（会误删用户目录）。
+          discardTempTree(shared->outputPath);
         },
         error);
   }

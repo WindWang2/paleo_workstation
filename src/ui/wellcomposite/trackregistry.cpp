@@ -2,6 +2,7 @@
 #include "trackregistry.h"
 
 #include <QMap>
+#include <QVariantMap>
 
 namespace WellComposite
 {
@@ -296,9 +297,27 @@ void TrackRegistry::ensureBuiltins()
     Q_UNUSED(mode);
     return t;
   };
+  // 捕获曲线道内各曲线的有效显示参数（D3.12 覆盖层，键契约见 TrackSpec::
+  // curveOverrides）：min/max/log/unit/color 五键全量捕获（不是差量）——captureSpec
+  // 拿不到曲线池，无从判断「与池值相同」，落成绝对有效值后由
+  // injectCurvesFromData 覆写到池值上，往返等价。
+  const auto curveOverridesOf = [](const CurveTrack &ct) {
+    QVariantMap ov;
+    for (const auto &c : ct.curves())
+    {
+      QVariantMap one;
+      one.insert(QStringLiteral("min"), c.minScale);
+      one.insert(QStringLiteral("max"), c.maxScale);
+      one.insert(QStringLiteral("log"), c.isLogarithmic);
+      one.insert(QStringLiteral("unit"), c.unit);
+      one.insert(QStringLiteral("color"), c.color.name());
+      ov.insert(c.name, one);
+    }
+    return ov;
+  };
   registerType({QStringLiteral("curve"), QStringLiteral("测井曲线道"), 170.0, true,
                 [makeCurveTrack](const TrackSpec &spec) { return makeCurveTrack(spec, CurveDisplayMode::Continuous); },
-                [](const std::shared_ptr<WellTrack> &t) -> TrackSpec {
+                [curveOverridesOf](const std::shared_ptr<WellTrack> &t) -> TrackSpec {
                   TrackSpec spec;
                   spec.typeId = QStringLiteral("curve");
                   if (auto ct = std::dynamic_pointer_cast<CurveTrack>(t))
@@ -309,12 +328,16 @@ void TrackRegistry::ensureBuiltins()
                     spec.params.insert(QStringLiteral("curves"), names);
                     spec.params.insert(QStringLiteral("showGrid"), ct->showGrid());
                     spec.params.insert(QStringLiteral("gridDensity"), ct->gridDensity());
+                    // D3.12：道内各曲线的有效量程/单位/颜色/对数态一并捕获
+                    // （curveOverrides 契约键）。此前只捕曲线名，对话框往返或
+                    // 会话恢复即把覆盖层静默清空。
+                    spec.setCurveOverrides(curveOverridesOf(*ct));
                   }
                   return spec;
                 }});
   registerType({QStringLiteral("gr"), QStringLiteral("GR 岩性曲线道"), 120.0, true,
                 [makeCurveTrack](const TrackSpec &spec) { return makeCurveTrack(spec, CurveDisplayMode::Continuous); },
-                [](const std::shared_ptr<WellTrack> &t) -> TrackSpec {
+                [curveOverridesOf](const std::shared_ptr<WellTrack> &t) -> TrackSpec {
                   TrackSpec spec;
                   spec.typeId = QStringLiteral("gr");
                   if (auto ct = std::dynamic_pointer_cast<CurveTrack>(t))
@@ -323,12 +346,13 @@ void TrackRegistry::ensureBuiltins()
                     for (const auto &c : ct->curves())
                       names << c.name;
                     spec.params.insert(QStringLiteral("curves"), names);
+                    spec.setCurveOverrides(curveOverridesOf(*ct));
                   }
                   return spec;
                 }});
   registerType({QStringLiteral("discrete"), QStringLiteral("离散实测散点道"), 160.0, true,
                 [makeCurveTrack](const TrackSpec &spec) { return makeCurveTrack(spec, CurveDisplayMode::Discrete); },
-                [](const std::shared_ptr<WellTrack> &t) -> TrackSpec {
+                [curveOverridesOf](const std::shared_ptr<WellTrack> &t) -> TrackSpec {
                   TrackSpec spec;
                   spec.typeId = QStringLiteral("discrete");
                   if (auto ct = std::dynamic_pointer_cast<CurveTrack>(t))
@@ -337,6 +361,7 @@ void TrackRegistry::ensureBuiltins()
                     for (const auto &c : ct->curves())
                       names << c.name;
                     spec.params.insert(QStringLiteral("curves"), names);
+                    spec.setCurveOverrides(curveOverridesOf(*ct));
                   }
                   return spec;
                 }});

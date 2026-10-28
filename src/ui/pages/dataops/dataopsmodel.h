@@ -392,6 +392,14 @@ public:
       m_entries.append(e);
       m_removed.insert(e.assetId);
     }
+    // finding-125：hidden 集合是已删资产的权威来源（含已被「清空记录」清掉
+    // entries 的资产）——与 entries 的 id 取并集，兼容无 hidden 字段的旧档。
+    for (const auto &v : root.value(QStringLiteral("hidden")).toArray())
+    {
+      const QString id = v.toString();
+      if (!id.isEmpty())
+        m_removed.insert(id);
+    }
   }
   bool save() const
   {
@@ -404,8 +412,15 @@ public:
         o.insert(it.key(), QJsonValue::fromVariant(it.value()));
       arr.append(o);
     }
+    // finding-125：「hidden」独立持久化已删资产 id 集合——清空记录后 entries 为
+    // 空但软删资产仍须保持隐藏；只存 entries 会让 load 重建的 m_removed 落空，
+    // 资产在重启后复活回主列表（与「不可恢复」确认文案相反）。
+    QJsonArray hidden;
+    for (const QString &id : m_removed)
+      hidden.append(id);
     QJsonObject root;
     root.insert(QStringLiteral("removed"), arr);
+    root.insert(QStringLiteral("hidden"), hidden);
     return saveSidecarObject(m_cat, QStringLiteral("recycle_bin.json"), root);
   }
   QVector<RecycleEntry> entries() const { return m_entries; }
@@ -439,8 +454,10 @@ public:
   bool purge(const QString &assetId) { return restore(assetId); } // 清除条目（不可恢复路径同形）
   void clearAll()
   {
+    // finding-125：只清可恢复的记录（entries），保留 m_removed——「清空记录」
+    // 后软删资产保持隐藏（不再可恢复，但也不复活回主列表）。清掉的 id 由
+    // save() 写入 hidden 字段持久化，重启后依旧隐藏。
     m_entries.clear();
-    m_removed.clear();
   }
 
 private:

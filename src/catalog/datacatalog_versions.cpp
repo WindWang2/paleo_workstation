@@ -1,5 +1,6 @@
 // 层：数据
 #include "datacatalog.h"
+#include "datacatalog_internal.h"
 #include "../metadata/managedpath.h"
 #include "../metadata/storeerrors_internal.h"
 
@@ -250,6 +251,17 @@ bool DataCatalog::removeStaleVersions(const QStringList &versionIds, QString *er
     const CatalogVersion v = versionById(id);
     if (v.id.isEmpty() || v.stage != QLatin1String("DERIVED") || !v.extra.value(QStringLiteral("stale")).toBool()) {
       setError(error, QStringLiteral("version is not stale DERIVED: %1").arg(id));
+      return false;
+    }
+    // 图版证据引用保护：被已存图版结果引用的版本不得经存储治理路径静默删除
+    // ——与 removeAssets 同口径（那里护的是资产血统，这里护的是图版证据链）。
+    // 存量 stale 版本只标 stale 不标引用，治理预览看不出它仍被图斑引用，
+    // 确认回收即让图版的 cited_sources 指向一个不存在的版本。
+    const auto retained = paleo::catalog_detail::mapResultRetention(
+        v.extra.value(QStringLiteral("retained_by_map_results")));
+    if (!retained.isEmpty()) {
+      setError(error, QStringLiteral("version %1 is cited by map result %2 — the saved result still references it")
+                       .arg(v.id, retained.first()));
       return false;
     }
     for (const QString &child : m_idx.childVersionIds(id))

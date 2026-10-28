@@ -9,7 +9,10 @@ namespace WellComposite
 
 namespace {
 
-// ICS 国际年代地层色标（规整化十六进制；按系收录 14 系 + 40 统/期 + 8 区域组）
+// ICS 国际年代地层色标（规整化十六进制；按系收录 14 系 + 45 统/期 + 13 区域组）。
+// 元古宇三分按 ICS 现行统序（新→老）：狭带/延展/盖层属中元古界，固结/造山/
+// 层侵/成铁属古元古界——切片错位会让指派界级联下拉把「固结系」挂到中元古界。
+// 寒武系四统为 ICS 现行命名（纽芬兰统/第二统/第三统/芙蓉统）。
 struct SeriesDef
 {
   const char *name;
@@ -48,11 +51,11 @@ static const SeriesDef kSilurianSeries[] = {
 static const SeriesDef kOrdovicianSeries[] = {
     {"上奥陶统", "#009270"}, {"中奥陶统", "#25A37E"}, {"下奥陶统", "#4AB58C"}};
 static const SeriesDef kCambrianSeries[] = {
-    {"芙蓉统", "#7FA056"}, {"第十统", "#8BAA66"}, {"第九统", "#97B476"}, {"幸运统", "#A3BE86"}, {"第二统", "#AFC896"}};
+    {"芙蓉统", "#7FA056"}, {"第三统", "#8BAA66"}, {"第二统", "#97B476"}, {"纽芬兰统", "#A3BE86"}};
 static const SeriesDef kPrecambrianSeries[] = {
     {"埃迪卡拉系", "#FE95C9"}, {"成冰系", "#FEC9E4"}, {"拉伸系", "#FEDCF0"},
-    {"延展系", "#FEE9F6"}, {"盖层系", "#FEF0FA"}, {"固结系", "#FEF6FD"},
-    {"造山系", "#F9F1E8"}, {"层侵系", "#F9F6F1"}, {"成铁系", "#FAFBF7"}};
+    {"狭带系", "#FEE4F4"}, {"延展系", "#FEE9F6"}, {"盖层系", "#FEF0FA"},
+    {"固结系", "#FEF6FD"}, {"造山系", "#F9F1E8"}, {"层侵系", "#F9F6F1"}, {"成铁系", "#FAFBF7"}};
 
 static const SystemDef kSystems[] = {
     {"第四系", "#F9F97F", kQuaternary, 2},
@@ -66,10 +69,10 @@ static const SystemDef kSystems[] = {
     {"泥盆系", "#CB8C37", kDevonianSeries, 3},
     {"志留系", "#B3E1B6", kSilurianSeries, 4},
     {"奥陶系", "#009270", kOrdovicianSeries, 3},
-    {"寒武系", "#7FA056", kCambrianSeries, 5},
+    {"寒武系", "#7FA056", kCambrianSeries, 4},
     {"新元古界", "#FE95C9", kPrecambrianSeries, 3},
     {"中元古界", "#FEC9E4", kPrecambrianSeries + 3, 3},
-    {"古元古界", "#FEE9F6", kPrecambrianSeries + 6, 3},
+    {"古元古界", "#FEE9F6", kPrecambrianSeries + 6, 4},
 };
 
 // 区域组名 → (系, 统)：珠江口盆地标准序列（退役 H1 if-else 硬编码）

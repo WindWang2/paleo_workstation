@@ -27,13 +27,18 @@ namespace
 // 与 io/horizonbinner + PaleoAlgoGuards 同口径的像元预算（审计 #33）。
 constexpr double kMaxCellCount = 100'000'000;
 
-// 规模反馈文案；超预算 → 非空 error。
+// 规模反馈文案；超预算或范围退化 → 非空 error + *overBudget = true（确认禁用）。
 QString dimsFeedback(double minX, double maxX, double minY, double maxY, double cellSize,
                      bool *overBudget)
 {
   *overBudget = false;
   if (!(cellSize > 0.0) || maxX <= minX || maxY <= minY)
+  {
+    // 范围退化与超预算同为「无法出图」：同样置门禁，否则用户会在明确提示
+    // 「网格尺寸无效」的状态下照常点确认，与超预算路径的禁用语义自相矛盾。
+    *overBudget = true;
     return QObject::tr("网格尺寸无效");
+  }
   const double cols = std::ceil((maxX - minX) / cellSize);
   const double rows = std::ceil((maxY - minY) / cellSize);
   const double cells = cols * rows;

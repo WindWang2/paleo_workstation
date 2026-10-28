@@ -223,8 +223,11 @@ bool readTimeSliceGeoTiffSummary(const QString &path,
   const QString dt = metaStr("PALEO_DT_MS");
   const QString t0 = metaStr("PALEO_T0_MS");
   const QString sidx = metaStr("PALEO_TIME_SAMPLE_INDEX");
+  // 三个时间键与身份键同口径：缺键即判缓存不可用——否则 tms/dt/t0 静默
+  // 回填 0.0，缓存摘要的时间域是错值（缺元数据键→视同未命中重算）。
   if (attrId.isEmpty() || hash.isEmpty() || validStr.isEmpty() ||
-      vmin.isEmpty() || vmax.isEmpty() || sidx.isEmpty())
+      vmin.isEmpty() || vmax.isEmpty() || sidx.isEmpty() || tms.isEmpty() ||
+      dt.isEmpty() || t0.isEmpty())
   {
     ok = false;
     setError(error, QStringLiteral("缓存栅格缺 PALEO_* 身份元数据：%1")

@@ -70,6 +70,13 @@ void CrossplotCanvas::densityImage() {
 void CrossplotCanvas::setFrame(const PlotFrame &f) {
   m_frame = f;
   m_selected.clear();
+  // 手势状态随新帧整体作废：异步 setFrame（切轴 / 换样本）可能在套索或框选
+  // 拖拽途中到达——m_gesture 已清空而 m_dragging 仍为 true 时，后续
+  // mouseMoveEvent 会对空 QVector 调 last()（UB，套索分支），框选分支也会
+  // 把已作废的 Shift 态继续用到松手。这里同步复位，松手即整段丢弃，不再据此
+  // 发定位或套索请求。
+  m_dragging = false;
+  m_box = false;
   m_gesture.clear();
   densityImage();
   m_cacheDirty = true;
@@ -82,11 +89,23 @@ void CrossplotCanvas::setSelection(const QVector<int> &indices) {
 }
 void CrossplotCanvas::changeEvent(QEvent *e) {
   if (e->type() == QEvent::ApplicationPaletteChange) {
-    densityImage();
-    m_cacheDirty = true;
+    invalidateThemeCaches();
     update();
   }
   QWidget::changeEvent(e);
+}
+// Qt6 实测：QApplication::setPalette 不给隐藏子控件发
+// ApplicationPaletteChange（事件只到顶层、不保证同步，见 paleotheme
+// ThemedStyleSheetRelay 注释）——隐藏状态下切主题后，整幅位图缓存与密度图
+// 仍按旧主题 textMuted / surface 配色，重新显示也不失效。绘制前按主题代次
+// 比对：不符则重建密度图并置脏缓存（重显必有一次绘制，由这次比对兜底）。
+void CrossplotCanvas::invalidateThemeCaches() {
+  const auto theme = PaleoTheme::currentTheme();
+  if (m_cacheTheme == theme)
+    return;
+  m_cacheTheme = theme;
+  densityImage();
+  m_cacheDirty = true;
 }
 // #557：非手势内容全部渲染进整幅位图缓存，paintEvent 只 blit + 橡皮筋——
 // 框选/套索手势期间每次 mouse move 从 O(样点数) 逐点 drawEllipse/setPen
@@ -94,6 +113,7 @@ void CrossplotCanvas::changeEvent(QEvent *e) {
 // 逐像素不变；DPR 口径同 PaleoIcons（按 devicePixelRatioF 光栅化，blit 1:1
 // 物理像素，不额外缩放补偿）。
 void CrossplotCanvas::paintEvent(QPaintEvent *) {
+  invalidateThemeCaches(); // 隐藏期切主题的兜底失效（事件路径见上）
   const qreal dpr = devicePixelRatioF();
   const QSize phys(qRound(width() * dpr), qRound(height() * dpr));
   if (m_cacheDirty || m_plotCache.size() != phys ||

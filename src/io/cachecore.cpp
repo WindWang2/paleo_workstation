@@ -248,6 +248,12 @@ bool readCacheFile(const QString &path, const QByteArray &magic,
     return false;
   }
   const QByteArray header = f.read(kHeaderSize);
+  // 头短读（并发截断/特殊文件）：36 字节布局的解析越界，按 truncated 拒收。
+  if (header.size() != kHeaderSize)
+  {
+    if (reason) *reason = QStringLiteral("truncated header");
+    return false;
+  }
   const char *p = header.constData();
   if (memcmp(p, magic.constData(), qMin<qsizetype>(8, magic.size())) != 0)
   {

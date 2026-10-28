@@ -143,14 +143,16 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
     cancel.SetPredicate([task]() { return task->cancelRequested(); });
 
     // 瓦片在 worker 线程回调里产生：排队投递回服务所在线程发射 timeSliceTileReady；
-    // 服务已析构则静默丢弃（UI 侧另有世代号过滤陈旧瓦片）。
-    auto publish = [self, task, sampleIndex](int x, int y, engine::Slice2D &&tile,
-                                             int completed, int total) -> bool {
+    // 服务已析构则静默丢弃（UI 侧另有世代号过滤陈旧瓦片）。payload 带
+    // datasetPath（请求身份）——广播信号下两个标签页同采样号也不会串画布。
+    auto publish = [self, task, sf3pPath, sampleIndex](int x, int y, engine::Slice2D &&tile,
+                                                       int completed, int total) -> bool {
       if (task->cancelRequested())
         return false;
       task->reportBytes(completed, std::max(1, total));
       SeismicTimeTile payload;
       payload.sampleIndex = sampleIndex;
+      payload.datasetPath = sf3pPath;
       payload.x = x;
       payload.y = y;
       payload.completed = completed;

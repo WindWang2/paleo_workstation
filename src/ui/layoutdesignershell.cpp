@@ -653,34 +653,33 @@ void PaleoLayoutDesignerShell::buildLayoutMenu()
   viewMenu()->addAction( rulerAction );
   viewMenu()->addSeparator();
 
-  // 吸附开关（方向 25 M6）：QgsLayoutSnapper 的三路吸附，默认参考线+项开
-  //（QGIS 设计器惯例）。网格吸附默认关（版面网格是排版参考，不常开）。
+  // 吸附开关（方向 25 M6）：QgsLayoutSnapper 的三路吸附。勾选态取 snapper
+  // 现值而非硬编码默认——版面可能带模板/工程恢复的吸附设置，模板值优先，
+  // 开机不得反向覆盖；QGIS 侧默认即参考线+项开、网格关。
   if ( m_layout )
   {
     struct SnapSpec
     {
         const char *objectName;
         const char *text;
-        bool initial;
+        bool ( QgsLayoutSnapper::*getter )() const;
         void ( QgsLayoutSnapper::*setter )( bool );
     };
     const SnapSpec snapSpecs[] = {
       { "actionSnapToGuides", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "吸附到参考线" ),
-        true, &QgsLayoutSnapper::setSnapToGuides },
+        &QgsLayoutSnapper::snapToGuides, &QgsLayoutSnapper::setSnapToGuides },
       { "actionSnapToItems", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "吸附到项" ),
-        true, &QgsLayoutSnapper::setSnapToItems },
+        &QgsLayoutSnapper::snapToItems, &QgsLayoutSnapper::setSnapToItems },
       { "actionSnapToGrid", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "吸附到网格" ),
-        false, &QgsLayoutSnapper::setSnapToGrid },
+        &QgsLayoutSnapper::snapToGrid, &QgsLayoutSnapper::setSnapToGrid },
     };
     for ( const SnapSpec &spec : snapSpecs )
     {
       QAction *a = new QAction( tr( spec.text ), this );
       a->setObjectName( QString::fromLatin1( spec.objectName ) );
       a->setCheckable( true );
-      a->setChecked( spec.initial );
-      // 初始态对齐 snapper 现值（版面可能带模板里的吸附设置）。
-      if ( spec.initial )
-        ( m_layout->snapper().*spec.setter )( true );
+      // 初始勾选态 = snapper 现值（版面可能带模板里的吸附设置，模板值优先）。
+      a->setChecked( ( m_layout->snapper().*spec.getter )() );
       connect( a, &QAction::toggled, this,
                [this, setter = spec.setter]( bool on )
                {

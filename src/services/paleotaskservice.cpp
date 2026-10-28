@@ -284,10 +284,12 @@ PaleoTask *PaleoTaskService::createTask(const QString &title,
   m_tasks.append(task);
   if (m_store && !layerId.isEmpty())
   {
-    // 同层位引用计数：store 的 busy 注册表是按键覆盖的 QHash，同层位多个
-    // 并发任务（批队列同层多方法、同文件预取+解码重叠）若各自 markLayerFree，
-    // 先终态者会提前放行 §35 工具门/编辑门/校验门——最后一个终态才真正解锁。
-    ++m_layerHolds[layerId];
+    // store 的 busy 注册表是多持有者按 taskId 分槽的（L-02）——同层位多个
+    // 并发任务（批队列同层多方法、同文件预取+解码重叠）各挂各的
+    // "task-<id>" 条目，终态时各摘各的；最后一个终态自然清空该层注册表，
+    // §35 工具门/编辑门/校验门到点放行。旧实现另维护引用计数、只在计数
+    // 归零时释放「最后一个」任务的条目——先终态者的条目永不摘除，该层被
+    // 会话级永久锁忙（#88）。
     m_store->markLayerBusy(layerId, QStringLiteral("task-%1").arg(task->id()),
                            title);
   }
@@ -369,18 +371,12 @@ void PaleoTaskService::onTaskFinished(PaleoTask *task)
 {
   if (m_store && !task->layerId().isEmpty())
   {
-    // 与 createTask 的 ++m_layerHolds 对账：每任务恰一次 finished（applyFinish
-    // 幂等闸保证），计数归零才是本服务持有的最后解锁点。
-    const auto it = m_layerHolds.find(task->layerId());
-    if (it != m_layerHolds.end() && --it.value() <= 0)
-    {
-      m_layerHolds.erase(it);
-      // L-02：按本任务 taskId 条件释放——无条件 markLayerFree 会把同键上
-      // 其他持有者（编辑会话/另一任务的注册条目）一并抹掉，§35 门被中途
-      // 放行；releaseLayerBusy 只摘自己名下的条目。
-      m_store->releaseLayerBusy(task->layerId(),
-                                QStringLiteral("task-%1").arg(task->id()));
-    }
+    // L-02 多持有表语义：每个任务终态只摘自己名下的 busy 条目
+    // （"task-<id>"）——同层位并发任务各摘各的，最后一个终态即该层解锁。
+    // 不需要引用计数对账：每任务恰一次 finished（applyFinish 幂等闸保证），
+    // 重复 release 也只是找不到条目返回 false。
+    m_store->releaseLayerBusy(task->layerId(),
+                              QStringLiteral("task-%1").arg(task->id()));
   }
   // #164：quiet 任务（切片/解码/预取）每次交互一条，终态后短暂停留供任务页
   // 显示「完成/已取消」，随后自动移除——否则注册表与任务页行数无界增长。

@@ -5,6 +5,7 @@
 #include "../paleotheme.h"
 
 #include <QContextMenuEvent>
+#include <QKeyEvent>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
@@ -20,13 +21,23 @@ Seismic3DTfEditorWidget::Seismic3DTfEditorWidget(QWidget *parent)
 {
     setMouseTracking(true);
     setMinimumSize(300, 150);
+    // #752：自绘数据控件也要键盘可达 + 无障碍名（读屏可识别用途与键位）
+    setFocusPolicy(Qt::StrongFocus);
+    setAccessibleName(tr("地震三维传递函数编辑器"));
+    setAccessibleDescription(tr("色带停靠点与不透明度曲线。Tab 或 Shift+Tab 选择停靠点，"
+                                "方向键微调位置与不透明度（Shift 粗调），Insert 插入停靠点，"
+                                "Delete 删除；也可拖动圆点、双击插入、右键删除。"));
     if (tf_.stops().isEmpty())
         tf_ = Seismic3DTransferFunction::preset(QStringLiteral("均匀半透明"));
 }
 
 void Seismic3DTfEditorWidget::setTransferFunction(const Seismic3DTransferFunction &tf)
 {
-    tf_ = tf;
+    // #147：空停靠点 TF 会让 paintEvent 对空 QVector 调 first()（UB）——回落默认预设
+    tf_ = tf.stops().isEmpty()
+        ? Seismic3DTransferFunction::preset(QStringLiteral("均匀半透明"))
+        : tf;
+    selectedStop_ = std::min(selectedStop_, int(tf_.stops().size()) - 1); // 选中随规模收敛
     update();
 }
 
@@ -163,7 +174,7 @@ void Seismic3DTfEditorWidget::paintEvent(QPaintEvent * /*event*/)
     p.drawPath(fillPath);
     p.setOpacity(1.0);
 
-    // 折线 + 停靠点（悬停/拖拽 = primary 高亮，其余 text 色；选中 chip 语义）
+    // 折线 + 停靠点（悬停/拖拽/选中 = primary 高亮，其余 text 色；选中 chip 语义）
     QPolygonF poly;
     for (int i = 0; i < tf_.stops().size(); ++i)
         poly << stopToPoint(i);
@@ -172,7 +183,7 @@ void Seismic3DTfEditorWidget::paintEvent(QPaintEvent * /*event*/)
     p.drawPolyline(poly);
     for (int i = 0; i < tf_.stops().size(); ++i)
     {
-        const bool active = (i == dragStop_ || i == hoverStop_);
+        const bool active = (i == dragStop_ || i == hoverStop_ || i == selectedStop_);
         const QPointF sp = stopToPoint(i);
         p.setPen(QPen(active ? t.primary : t.text, active ? 2 : 1));
         p.setBrush(interpolatedColor(tf_.stops()[i].pos));
@@ -204,6 +215,7 @@ void Seismic3DTfEditorWidget::mousePressEvent(QMouseEvent *event)
         if (hit >= 0)
         {
             dragStop_ = hit;
+            selectedStop_ = hit; // 鼠标点选即键盘选中（同一选区概念）
             update();
             return;
         }
@@ -253,6 +265,7 @@ void Seismic3DTfEditorWidget::mouseDoubleClickEvent(QMouseEvent *event)
     const float posF = std::clamp(float(pos.x() - cr.left()) / float(std::max(1, cr.width())), 0.0f, 1.0f);
     const float alphaF = std::clamp(float(cr.bottom() - pos.y()) / float(std::max(1, cr.height())), 0.0f, 1.0f);
     tf_.addStop(posF, interpolatedColor(posF).rgba(), alphaF);
+    selectedStop_ = tf_.stops().size() - 1; // 新点即选中（键盘可续调）
     emitChanged();
 }
 
@@ -273,8 +286,82 @@ void Seismic3DTfEditorWidget::contextMenuEvent(QContextMenuEvent *event)
     {
         tf_.removeStop(hit);
         hoverStop_ = -1;
+        selectedStop_ = -1;
         emitChanged();
     }
+}
+
+// #752：键盘操作路径（与鼠标语义一致：选中停靠点 + 微调 + 增删）
+void Seismic3DTfEditorWidget::keyPressEvent(QKeyEvent *event)
+{
+    const int n = tf_.stops().size();
+    if (n <= 0)
+    {
+        QWidget::keyPressEvent(event);
+        return;
+    }
+    // Shift = 粗调（0.1），裸键 = 微调（0.01）
+    const float step = (event->modifiers() & Qt::ShiftModifier) ? 0.1f : 0.01f;
+    switch (event->key())
+    {
+    case Qt::Key_Tab:
+    case Qt::Key_Backtab: // Shift+Tab：反向循环
+        selectedStop_ = selectedStop_ < 0
+            ? 0 : (selectedStop_ + (event->key() == Qt::Key_Tab ? 1 : -1) + n) % n;
+        update();
+        event->accept();
+        return;
+    case Qt::Key_Left:
+    case Qt::Key_Right:
+        if (selectedStop_ >= 0)
+        {
+            const float delta = event->key() == Qt::Key_Right ? step : -step;
+            tf_.setStopPos(selectedStop_, tf_.stops()[selectedStop_].pos + delta);
+            emitChanged();
+            event->accept();
+            return;
+        }
+        break;
+    case Qt::Key_Up:
+    case Qt::Key_Down:
+        if (selectedStop_ >= 0)
+        {
+            const float delta = event->key() == Qt::Key_Up ? step : -step;
+            tf_.setStopAlpha(selectedStop_, tf_.stops()[selectedStop_].alpha + delta);
+            emitChanged();
+            event->accept();
+            return;
+        }
+        break;
+    case Qt::Key_Insert:
+        // 选中点与后邻中点插入（插值色 + 中点不透明度）；末位后无区间可插
+        if (selectedStop_ >= 0 && selectedStop_ + 1 < n)
+        {
+            const auto &a = tf_.stops()[selectedStop_];
+            const auto &b = tf_.stops()[selectedStop_ + 1];
+            const float pos = (a.pos + b.pos) * 0.5f;
+            selectedStop_ =
+                tf_.addStop(pos, interpolatedColor(pos).rgba(), (a.alpha + b.alpha) * 0.5f);
+            emitChanged();
+            event->accept();
+            return;
+        }
+        break;
+    case Qt::Key_Delete:
+    case Qt::Key_Backspace:
+        // 同右键菜单守卫：两端锚点与仅剩 2 点时不可删
+        if (selectedStop_ > 0 && selectedStop_ < n - 1 && n > 2)
+        {
+            tf_.removeStop(selectedStop_);
+            selectedStop_ = std::min(selectedStop_, int(tf_.stops().size()) - 1);
+            emitChanged();
+        }
+        event->accept();
+        return;
+    default:
+        break;
+    }
+    QWidget::keyPressEvent(event);
 }
 
 void Seismic3DTfEditorWidget::emitChanged()

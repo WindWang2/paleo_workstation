@@ -1047,12 +1047,12 @@ prh_found: // NOLINT：PRH 先验命中处——绕过填充跳过直接按记�
               const int slack = bytes - fixed * sp.samples;
               if (slack > 0)
                 c.skip(slack);
-              if (lisIsAbsent(v, ls.absentValue, sp.reprc))
-                ls.flat.append(std::numeric_limits<double>::quiet_NaN());
-              else
-                ls.flat.append(v);
+              // 缺省值与同帧其它道同口径映射 NaN——模式 0 的索引道原样入
+              // depths 会让哨兵值污染深度轴（输出与其他道口径不一致）。
+              const bool absent = lisIsAbsent(v, ls.absentValue, sp.reprc);
+              ls.flat.append(absent ? std::numeric_limits<double>::quiet_NaN() : v);
               if (ls.depthMode == 0 && si == 0)
-                ls.depths.append(v);
+                ls.depths.append(absent ? std::numeric_limits<double>::quiet_NaN() : v);
             }
             if (ls.depthMode == 1)
             {

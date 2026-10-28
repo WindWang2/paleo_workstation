@@ -10,7 +10,27 @@ PreviewDocService::WorkbookPreview PreviewDocService::xmlDataListAt(const QStrin
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) { result.error = file.errorString(); return result; }
   QXmlStreamReader reader(&file);
-  if (!reader.readNextStartElement()) { result.error = reader.errorString(); return result; }
+  // L-07：预览的是导入的外委/第三方 XML——QXmlStreamReader 会展开 DTD 内
+  // 声明的内部实体（billion laughs：数十 KB 声明展开成 GB 级字符串，GUI
+  // 线程假死）。合法 SpreadsheetML/数据 XML 不带 DTD，见令牌即拒。
+  // 令牌级检查（照 outsourceworkbook.cpp 口径）：DOCTYPE 是文档级前导令牌，
+  // readNextStartElement() 会连它一起跳过再落到首个 StartElement——在它之后
+  // 判 isDTD() 永不命中（旧守卫是死代码）。这里自己读令牌到首个元素，
+  // 途中见到 DTD 即拒。
+  for (;;) {
+    const QXmlStreamReader::TokenType token = reader.readNext();
+    if (token == QXmlStreamReader::Invalid ||
+        token == QXmlStreamReader::EndDocument) {
+      result.error = reader.errorString();
+      return result;
+    }
+    if (token == QXmlStreamReader::DTD) {
+      result.error = tr("XML 含 DTD/实体声明，为防实体扩展攻击已拒收");
+      return result;
+    }
+    if (token == QXmlStreamReader::StartElement)
+      break;
+  }
   if (reader.name() == QLatin1String("Workbook") &&
       reader.namespaceUri() == QLatin1String("urn:schemas-microsoft-com:office:spreadsheet")) {
     file.seek(0);

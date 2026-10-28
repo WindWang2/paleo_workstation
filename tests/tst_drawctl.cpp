@@ -4,6 +4,7 @@
 #include <QSignalSpy>
 
 #include <qgsmapcanvas.h>
+#include <qgsmaptool.h>
 
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/qgiscanvascontroller.h"
@@ -30,6 +31,12 @@ class TestDrawController : public QObject
     std::unique_ptr<ConstraintWorkflow> wf;
     QgisCanvasController canvasCtl;
     std::unique_ptr<ConstraintDrawController> ctl;
+  };
+
+  // 外来工具夹具：别的子系统装在画布上的普通地图工具（#96 外部换走场景）。
+  struct ProbeForeignTool : public QgsMapTool
+  {
+    explicit ProbeForeignTool(QgsMapCanvas *canvas) : QgsMapTool(canvas) {}
   };
 
   static std::unique_ptr<Stack> makeStack(const QString &dir)
@@ -151,6 +158,46 @@ private slots:
     QCOMPARE(finSpy.at(0).at(1).toString(), QStringLiteral("c-1"));
     QCOMPARE(addedSpy.count(), 1);
     QVERIFY(!ctl.active());
+  }
+
+  // #96 回归：捕获中被外部换走工具（原生控件/编辑工具条抢装）——控制器
+  // 同步收尾（active() 归假、captureCancelled 上报），且 teardown 不把
+  // 画布上那个外来工具当成自己的 unset 掉（不踢用户正在用的工具）。
+  void externalToolSwapSyncsAndDoesNotKick()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto s = makeStack(dir.filePath(QStringLiteral("p")));
+    QVERIFY(s != nullptr);
+    auto &ctl = *s->ctl;
+
+    ctl.startCapture(QStringLiteral("T1"), QStringLiteral("line"), 7);
+    QVERIFY(ctl.active());
+    QgsMapTool *ours = ctl.currentTool();
+    QCOMPARE(s->canvasCtl.activeTool(), ours);
+
+    QSignalSpy cancelSpy(&ctl, &ConstraintDrawController::captureCancelled);
+    QSignalSpy finSpy(&ctl, &ConstraintDrawController::captureFinished);
+
+    // 外部换装：画布当前工具换成别的子系统的工具（QGIS 会 deactivate 我们的）。
+    auto *foreign = new ProbeForeignTool(s->canvasCtl.canvas());
+    s->canvasCtl.setMapTool(foreign);
+
+    // 哨子同步：会话状态清零 + 中止上报，m_tool 不再陈旧。
+    QVERIFY2(!ctl.active(), "external swap must clear the capture session");
+    QCOMPARE(cancelSpy.count(), 1);
+    QCOMPARE(finSpy.count(), 0);
+    QVERIFY(ctl.activeHorizon().isEmpty());
+    // 外来工具仍在画布上——没被控制器误卸。
+    QCOMPARE(s->canvasCtl.activeTool(), foreign);
+
+    // 收尾后重启捕获：陈旧工具不堆叠，新捕获正常装车。
+    ctl.startCapture(QStringLiteral("T1"), QStringLiteral("polygon"), 1);
+    QVERIFY(ctl.active());
+    QVERIFY(ctl.currentTool() != ours);
+    QCOMPARE(s->canvasCtl.activeTool(), ctl.currentTool());
+    ctl.cancel();
+    QCOMPARE(s->canvasCtl.activeTool(), nullptr);
   }
 
   // failure modes: empty horizon, unknown shape — no tool ever installed.

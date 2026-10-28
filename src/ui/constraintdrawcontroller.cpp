@@ -74,6 +74,18 @@ void ConstraintDrawController::startCapture( const QString &horizon,
   connect( m_tool, SIGNAL( drawAborted() ),
            this, SLOT( onAborted() ) );
 
+  // 画布换工具哨子：本工具被外部换走（原生控件 / 编辑工具条抢装、Esc 停止
+  // 按钮走 deactivateTool）时，控制器经画布 mapToolSet 的 oldTool 认出自己
+  // 被卸，走同一条收尾路径——否则 m_tool 陈旧：active() 谎报绘制中，
+  // teardown 还会把画布上那个外来工具当成自己的 unset 掉（踢用户工具）。
+  // 自走 teardown 时 m_tool 已先清零，oldTool 对不上即不会误触。
+  disconnect( m_toolWatch );
+  m_toolWatch = connect( canvas, &QgsMapCanvas::mapToolSet, this,
+                         [this]( QgsMapTool *newTool, QgsMapTool *oldTool ) {
+                           if ( oldTool == m_tool && newTool != m_tool )
+                             onAborted(); // 外部卸载：等同 Esc 中止的收尾
+                         } );
+
   m_canvasCtl->setMapTool( m_tool ); // activates; the Esc/right-click aborts
                                      // come back through onAborted()
 }
@@ -129,7 +141,11 @@ void ConstraintDrawController::teardown()
   m_horizon.clear();
   m_shape.clear();
   m_faciesCode = -1;
-  if ( m_canvasCtl )
+  // 只在画布当前工具仍是本控制器的工具时才走正式 unset（deactivate）路径——
+  // 工具已被外部换走时，画布上那个工具是别人的，unset 它会踢掉用户正在用的
+  // 工具（外部换走后的陈旧 m_tool 经 mapToolSet 哨子已同步清零，见
+  // startCapture）。
+  if ( m_canvasCtl && m_canvasCtl->activeTool() == tool )
     m_canvasCtl->setMapTool( nullptr ); // proper unset path (deactivate)
   tool->deleteLater();
 }

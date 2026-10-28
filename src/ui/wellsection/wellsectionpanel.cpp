@@ -8,6 +8,7 @@
 #include "../seismicsection/seismiccolormap.h"
 #include "wellsectiondialogs.h"
 #include "../notifications/paleonotify.h"
+#include "workflow/wellsectionexport.h"
 
 #include <QActionGroup>
 #include <QCursor>
@@ -34,6 +35,8 @@
 namespace {
 QSettings panelSettings() { return QSettings(QStringLiteral("paleo"),
                                              QStringLiteral("paleo")); }
+// 坐标相等：两者皆 NaN 视为相等（无坐标井 x/y 是 NaN，NaN != NaN 恒真）。
+bool sameCoord(double a, double b) { return (std::isnan(a) && std::isnan(b)) || a == b; }
 } // namespace
 
 WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
@@ -527,7 +530,7 @@ void WellSectionPanel::setSection(const QVector<wellsection::Well> &wells)
     for (int i = 0; i < wells.size(); ++i) {
       const wellsection::Well &o = m_wells.at(i);
       const wellsection::Well &n = wells.at(i);
-      if (o.id != n.id || o.x != n.x || o.y != n.y) {
+      if (o.id != n.id || !sameCoord(o.x, n.x) || !sameCoord(o.y, n.y)) {
         keepStrip = false;
         break;
       }
@@ -917,11 +920,8 @@ bool WellSectionPanel::exportTo(const QString &path) const
   if (path.endsWith(QLatin1String(".csv"), Qt::CaseInsensitive))
   {
     // 层位井深表：MD 值不随基准面模式变（拉平不变量），模式只进表头标记。
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-      return false;
-    const QByteArray bytes = topsCsv().toUtf8();
-    return file.write(bytes) == bytes.size();
+    // #729：原子整写（旁写 + commit）经功能层收口，写失败不毁同名旧文件。
+    return wellsection::exportTopsCsv(path, topsCsv());
   }
   if (path.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive))
   {

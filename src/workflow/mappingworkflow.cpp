@@ -834,7 +834,7 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     decl.type = QStringLiteral( "raster" );
     decl.source = st.absolutePath;
     decl.group = QStringLiteral( "04_SingleFactor" );
-    decl.title = QStringLiteral( "井点厚度（米，无层位栅格）" );
+    decl.title = tr( "井点厚度（米，无层位栅格）" );
     if (!recordThicknessDeclaration(decl, error))
       return fail( error ? *error : tr( "无法声明井点厚度图层" ) );
 
@@ -934,7 +934,7 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
   decl.type = QStringLiteral( "raster" );
   decl.source = st.absolutePath;
   decl.group = QStringLiteral( "04_SingleFactor" );
-  decl.title = QStringLiteral( "%1–%2 等厚（米）" ).arg( horizon, base );
+  decl.title = tr( "%1–%2 等厚（米）" ).arg( horizon, base );
   if (!recordThicknessDeclaration(decl, error))
     return fail( error ? *error : tr( "无法声明等厚图层" ) );
 

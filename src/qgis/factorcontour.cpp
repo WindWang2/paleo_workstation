@@ -40,6 +40,9 @@ QString stagingPathFor( const QString &outputGpkg )
 
 // 写成功后把临时文件换成正式产物；失败（含临时文件缺失）返回 false，
 // 此时正式产物保持调用前状态（不存在或仍是上一版）。
+// #74：不能先 QFile::remove(正式) 再 rename——remove 成功而 rename 失败的
+// 窗口内新旧两失。旧产物先改名 .bak，staging rename 成功后再删 .bak；
+// rename 失败时把 .bak 改回原名并保留 staging 供排查。
 bool commitStagingGpkg( const QString &stagingGpkg, const QString &outputGpkg,
                         QString *error )
 {
@@ -49,14 +52,24 @@ bool commitStagingGpkg( const QString &stagingGpkg, const QString &outputGpkg,
                           .arg( stagingGpkg ) );
     return false;
   }
-  QFile::remove( outputGpkg );
+  const QString backup = outputGpkg + QStringLiteral( ".bak" );
+  QFile::remove( backup );
+  const bool hadOutput = QFile::exists( outputGpkg );
+  if ( hadOutput && !QFile::rename( outputGpkg, backup ) )
+  {
+    setError( error, QStringLiteral( "cannot move existing contour output aside: %1" )
+                          .arg( outputGpkg ) );
+    return false;
+  }
   if ( !QFile::rename( stagingGpkg, outputGpkg ) )
   {
     setError( error, QStringLiteral( "cannot move contour output into place: %1" )
                           .arg( outputGpkg ) );
-    QFile::remove( stagingGpkg );
+    if ( hadOutput )
+      QFile::rename( backup, outputGpkg ); // 回滚：旧产物还原
     return false;
   }
+  QFile::remove( backup );
   return true;
 }
 
@@ -259,6 +272,16 @@ bool readStructuralRaster( const QString &rasterPath, std::vector<double> *grid,
   }
   int hasNodata = 0;
   const double nodata = GDALGetRasterNoDataValue( band, &hasNodata );
+  // L-09 同口径像元预算闸（algorithms/faciespolygonize.cpp:1424，1 亿格）：
+  // raw + grid 两份 double 全栅格常驻（约 16 字节/像元），无闸的超大输入是
+  // bad_alloc/OOM 而不是如实报错。
+  if ( qint64( nx ) * ny > qint64( 100'000'000 ) )
+  {
+    setError( error, QStringLiteral( "raster '%1' exceeds the 100M-cell budget (%2×%3)" )
+                         .arg( rasterPath ).arg( nx ).arg( ny ) );
+    GDALClose( src );
+    return false;
+  }
   std::vector<double> raw( static_cast<std::size_t>( nx ) * static_cast<std::size_t>( ny ) );
   if ( GDALRasterIO( band, GF_Read, 0, 0, nx, ny, raw.data(), nx, ny, GDT_Float64, 0,
                      0 ) != CE_None )

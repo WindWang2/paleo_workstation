@@ -63,34 +63,11 @@ using paleo::store_detail::setError;
     return true;
   }
 
-  // Lazily opens the connection and guarantees both tables (idempotent,
-  // forward-compatible: absent columns keep NULL defaults on old rows).
-  bool mapVersionEnsureOpen( const QString &path, bool readOnly, QString *error )
+  // 幂等建表 + 逐列补建（既有库补列：旧行一律 NULL → 读侧归一为未发布，
+  // 不回写）。#736：本函数即 MetaStore 的迁移步（幂等，可按步重复调用），
+  // 由 openConnection 在版本落后时于事务内逐级执行、版本已到位时作 ensure。
+  bool mapVersionEnsureSchema(QSqlDatabase &db, QString *error)
   {
-    // PW-111：QSqlDatabase 连接线程绑定——跨线程复用是未定义行为（Qt 只给一条
-    // 警告并返回无效连接，下游被误报成「驱动不可用」）。登记连接所属线程，
-    // 跨线程调用如实失败。
-    {
-      static QMutex ownersMutex;
-      static QHash<QString, QThread *> owners;
-      const QString name = mapVersionConnectionName( path, readOnly );
-      QMutexLocker lock( &ownersMutex );
-      const auto it = owners.constFind( name );
-      if ( it != owners.constEnd() && it.value() != QThread::currentThread() &&
-           QSqlDatabase::contains( name ) )
-      {
-        setError( error, QStringLiteral( "地图版本库连接 %1 属于另一线程，拒绝跨线程使用" ).arg( name ) );
-        return false;
-      }
-      owners.insert( name, QThread::currentThread() ); // 连接已移除则改归当前线程
-    }
-    QSqlDatabase db =
-        MetaStore::openConnection( path, mapVersionConnectionName( path, readOnly ), error, readOnly );
-    if ( !db.isValid() )
-      return false;
-    if ( readOnly )
-      return true; // 只读实例不建表/不补列（#80）——schema 归写实例
-
     QSqlQuery schema( db );
     if ( !schema.exec( QStringLiteral( "CREATE TABLE IF NOT EXISTS map_versions("
                                        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -125,7 +102,6 @@ using paleo::store_detail::setError;
       setError( error, schema.lastError().text() );
       return false;
     }
-    // 既有库补列（旧行一律 NULL → 读侧归一为未发布，不回写）。
     for ( const auto &col : { QStringLiteral( "pdf_asset_id" ),
                               QStringLiteral( "pdf_sha256" ),
                               QStringLiteral( "residual_summary" ) } )
@@ -136,6 +112,38 @@ using paleo::store_detail::setError;
       if ( !ensureColumn( db, QStringLiteral( "map_products" ), col,
                           QStringLiteral( "TEXT" ), error ) )
         return false;
+    return true;
+  }
+
+  // Lazily opens the connection and guarantees both tables (idempotent,
+  // forward-compatible: absent columns keep NULL defaults on old rows).
+  bool mapVersionEnsureOpen( const QString &path, bool readOnly, QString *error )
+  {
+    // PW-111：QSqlDatabase 连接线程绑定——跨线程复用是未定义行为（Qt 只给一条
+    // 警告并返回无效连接，下游被误报成「驱动不可用」）。登记连接所属线程，
+    // 跨线程调用如实失败。
+    {
+      static QMutex ownersMutex;
+      static QHash<QString, QThread *> owners;
+      const QString name = mapVersionConnectionName( path, readOnly );
+      QMutexLocker lock( &ownersMutex );
+      const auto it = owners.constFind( name );
+      if ( it != owners.constEnd() && it.value() != QThread::currentThread() &&
+           QSqlDatabase::contains( name ) )
+      {
+        setError( error, QStringLiteral( "地图版本库连接 %1 属于另一线程，拒绝跨线程使用" ).arg( name ) );
+        return false;
+      }
+      owners.insert( name, QThread::currentThread() ); // 连接已移除则改归当前线程
+    }
+    QSqlDatabase db = MetaStore::openConnection(
+        path, mapVersionConnectionName( path, readOnly ), error, readOnly,
+        MetaStore::kUserVersion,
+        []( QSqlDatabase &db, int, int, QString *err ) { return mapVersionEnsureSchema( db, err ); } );
+    if ( !db.isValid() )
+      return false;
+    // 只读实例不建表/不补列（#80）——schema 归写实例；可写路径的 schema 已在
+    // openConnection 内确保（版本落后时在事务内逐级迁移，#736）。
     return true;
   }
 
@@ -218,6 +226,35 @@ using paleo::store_detail::setError;
   {
     const int dot = name.lastIndexOf('.');
     return dot > 0 ? name.left(dot) : name;
+  }
+
+  // PW-023：legacy（非冻结）发布路径的图层文件清单单一实现——native
+  // publish() 与 prepared snapshotInputForPublish() 共用，避免两侧「伴生
+  // 文件收不收 / 缺失图层跳不跳」口径分叉（此前 prepared 路径只收主文件，
+  // shapefile 发布快照静默缺 .dbf/.shx/.prj）。
+  // 语义与 native 历史口径一致：base 为空或不在盘的图层在 legacy 口径下
+  // 跳过（冻结路径「缺源即拒」——旧行没有不可变清单，兼容读取优先）。
+  struct LegacyPublishLayer
+  {
+    QString layerId;
+    QString base;                                 // 主文件绝对路径
+    QList<QPair<QString, QString>> sidecars;      // (尾缀, 绝对路径)
+  };
+  QVector<LegacyPublishLayer> legacyPublishLayers(const QString &horizon,
+                                                  const QVector<LayerDeclaration> &decls)
+  {
+    QVector<LegacyPublishLayer> out;
+    for (const auto &d : decls)
+    {
+      if (d.horizon != horizon)
+        continue;
+      const QString base = d.source.section('|', 0, 0);
+      if (base.isEmpty() || !QFile::exists(base))
+        continue;
+      LegacyPublishLayer layer{d.layerId, base, datasetSidecars(base)};
+      out.append(layer);
+    }
+    return out;
   }
 
   QString snapshotHash(QJsonObject provenance) {
@@ -528,28 +565,36 @@ bool MapVersionStore::recordLayoutProduct( const QString &horizon, const QString
   return true;
 }
 
-bool MapVersionStore::hasLayoutProduct( const QString &horizon ) const
+bool MapVersionStore::hasLayoutProduct( const QString &horizon, QString *error ) const
 {
-  if ( !mapVersionEnsureOpen( m_dbPath, m_readOnly, nullptr ) )
+  if ( !mapVersionEnsureOpen( m_dbPath, m_readOnly, error ) )
     return false;
   QSqlQuery q( QSqlDatabase::database( mapVersionConnectionName( m_dbPath, m_readOnly ) ) );
   q.prepare( QStringLiteral( "SELECT COUNT(*) FROM map_products WHERE horizon=? AND kind='pdf'" ) );
   q.addBindValue( horizon );
   if ( !q.exec() || !q.next() )
+  {
+    // PW-111：SQL 失败如实上报，不与「无产物」混同。
+    setError( error, q.lastError().text() );
     return false;
+  }
   return q.value( 0 ).toInt() > 0;
 }
 
-QString MapVersionStore::latestLayoutProduct( const QString &horizon ) const
+QString MapVersionStore::latestLayoutProduct( const QString &horizon, QString *error ) const
 {
-  if ( !mapVersionEnsureOpen( m_dbPath, m_readOnly, nullptr ) )
+  if ( !mapVersionEnsureOpen( m_dbPath, m_readOnly, error ) )
     return QString();
   QSqlQuery q( QSqlDatabase::database( mapVersionConnectionName( m_dbPath, m_readOnly ) ) );
   q.prepare( QStringLiteral( "SELECT path FROM map_products"
                              " WHERE horizon=? AND kind='pdf' ORDER BY id DESC LIMIT 1" ) );
   q.addBindValue( horizon );
   if ( !q.exec() || !q.next() )
+  {
+    // PW-111：SQL 失败如实上报，不与「无产物」混同。
+    setError( error, q.lastError().text() );
     return QString();
+  }
   return q.value( 0 ).toString();
 }
 
@@ -948,15 +993,12 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
     }
   } else {
     // Old saved rows have no immutable manifest; retain the legacy read path.
-    for (const auto &d : decls) {
-      if (d.horizon != horizon) continue;
-      const QString base = d.source.section('|', 0, 0);
-      if (base.isEmpty() || !QFile::exists(base)) continue;
-      QString name = sanitizedFileName(d.layerId);
-      const QString suffix = QFileInfo(base).suffix();
+    for (const auto &layer : legacyPublishLayers(horizon, decls)) {
+      QString name = sanitizedFileName(layer.layerId);
+      const QString suffix = QFileInfo(layer.base).suffix();
       if (!suffix.isEmpty()) name += '.' + suffix;
-      if (!copyReadOnly(base, QDir(snapDir).filePath(name), error)) return {};
-      for (const auto &sc : datasetSidecars(base))
+      if (!copyReadOnly(layer.base, QDir(snapDir).filePath(name), error)) return {};
+      for (const auto &sc : layer.sidecars)
         if (!copyReadOnly(sc.second, QDir(snapDir).filePath(frozenStem(name) + sc.first), error))
           return {};
     }
@@ -1025,7 +1067,12 @@ MapSnapshotInput MapVersionStore::snapshotInputForSave(const QString &horizon, c
     const QVector<LayerDeclaration> &layers, QString *error) {
   MapSnapshotInput input;
   if (m_readOnly || !paleo::managedpath::isSafePathSegment(horizon) || !mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) {
-    setError(error, QStringLiteral("地图快照保存需要可写工程和合法层位")); return input;
+    // 只读/非法层位/打开失败三种来源共用一句泛化文案，但打开失败时
+    // ensureOpen 已写下具体原因（驱动/线程/SQL）——不得覆盖（数据库打不开
+    // 的真实理由曾被替换成误导性的「需要可写工程和合法层位」）。
+    if (error && error->isEmpty())
+      setError(error, QStringLiteral("地图快照保存需要可写工程和合法层位"));
+    return input;
   }
   QJsonParseError parse;
   if (!QJsonDocument::fromJson(provenanceJson.toUtf8(), &parse).isObject() || parse.error != QJsonParseError::NoError) {
@@ -1093,15 +1140,35 @@ MapSnapshotInput MapVersionStore::snapshotInputForPublish(const QString &horizon
       if (record.value("missing").toBool()) { setError(error, QStringLiteral("保存版本缺少图层来源")); return {}; }
       const auto source = paleo::managedpath::resolveManagedPath(input.projectDirectory, record.value("path").toString());
       if (source.isEmpty()) { setError(error, QStringLiteral("保存快照路径无效")); return {}; }
-      record.insert("source", source); input.files << record;
+      record.insert("source", source);
+      // 伴生文件（.dbf/.shx/.prj…）随主文件一并进快照：native publish() 的
+      // 冻结路径复制它们（frozenStem(name)+suffix），prepared 路径此前漏收，
+      // shapefile 发布快照会静默缺件（PW-023）。sidecar_of 记主文件在
+      // input.files 里的下标，prepareMapSnapshot 据此拼目标名。
+      const int baseIndex = input.files.size();
+      input.files << record;
+      for (const auto &sc : record.value("sidecars").toList()) {
+        const auto scRecord = sc.toMap();
+        const QString scSource = paleo::managedpath::resolveManagedPath(
+            input.projectDirectory, scRecord.value("path").toString());
+        if (scSource.isEmpty()) { setError(error, QStringLiteral("保存快照路径无效")); return {}; }
+        input.files << QVariantMap{{"layer_id", record.value("layer_id")}, {"source", scSource},
+                                   {"sha256", scRecord.value("sha256")},
+                                   {"sidecar_of", baseIndex}, {"sidecar", scRecord.value("suffix")}};
+      }
     }
     auto pdf = provenance.value("saved_pdf").toObject().toVariantMap();
     pdf.insert("source", paleo::managedpath::resolveManagedPath(input.projectDirectory, pdf.value("path").toString())); pdf.insert("pdf", true);
     input.files << pdf;
   } else {
-    for (const auto &layer : decls) {
-      if (layer.horizon != horizon) continue;
-      input.files << QVariantMap{{"layer_id", layer.layerId}, {"source", layer.source.section('|', 0, 0)}, {"legacy", true}};
+    // legacy（非冻结）：主文件 + 伴生文件 + 绑定 PDF，收集口径与 native
+    // publish() 共用 legacyPublishLayers（缺失/空源图层一并跳过）。
+    for (const auto &layer : legacyPublishLayers(horizon, decls)) {
+      const int baseIndex = input.files.size();
+      input.files << QVariantMap{{"layer_id", layer.layerId}, {"source", layer.base}, {"legacy", true}};
+      for (const auto &sc : layer.sidecars)
+        input.files << QVariantMap{{"layer_id", layer.layerId}, {"source", sc.second},
+                                   {"legacy", true}, {"sidecar_of", baseIndex}, {"sidecar", sc.first}};
     }
     QSqlQuery product(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
     product.prepare("SELECT path FROM map_products WHERE horizon=? AND kind='pdf' AND asset_id=? ORDER BY id DESC LIMIT 1");
@@ -1126,8 +1193,20 @@ MapVersion MapVersionStore::commitPreparedVersion(PreparedMapSnapshot &snapshot,
   insert.addBindValue(nowUtc()); insert.addBindValue(snapshot.input.pdfAssetId.isEmpty() ? QVariant() : QVariant(snapshot.input.pdfAssetId));
   insert.addBindValue(snapshot.input.pdfSha256.isEmpty() ? QVariant() : QVariant(snapshot.input.pdfSha256));
   if (!insert.exec() || !insert.next()) { setError(error, insert.lastError().text()); return {}; }
-  insert.finish(); if (!db.commit()) { setError(error, db.lastError().text()); return {}; }
-  snapshot.committed = true; return latest(snapshot.input.horizon);
+  const int id = insert.value(0).toInt();
+  insert.finish();
+  // 提交后的取值按 RETURNING 的 id 读回本行（同 saveVersion 的 sel 查询）：
+  // 用 latest() 会在它查询失败时返回 version=0 的空对象，把已成功落库的
+  // 保存误报为失败；读回失败如实报错并走上面的回滚护栏。
+  QSqlQuery sel(db);
+  sel.prepare(QStringLiteral("SELECT ") + QLatin1String(kSelectCols) +
+              QStringLiteral(" FROM map_versions WHERE id=?"));
+  sel.addBindValue(id);
+  if (!sel.exec() || !sel.next()) { setError(error, sel.lastError().text()); return {}; }
+  const auto result = rowToVersion(sel);
+  sel.finish();
+  if (!db.commit()) { setError(error, db.lastError().text()); return {}; }
+  snapshot.committed = true; return result;
 }
 QString MapVersionStore::commitPreparedPublication(PreparedMapSnapshot &snapshot, QString *error) {
   if (!mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) return {};

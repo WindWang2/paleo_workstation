@@ -138,7 +138,14 @@ SaveOutcome Library::registerContent( QgsLayout *layout, const QString &assetId,
     asset.format = QStringLiteral( "qpt" );
     asset.displayName = QStringLiteral( "template-%1.qpt" ).arg( finalAssetId );
     if ( !m_catalog->addAsset( asset, &catalogErr ) )
+    {
+      // 受管字节已落位但资产没入库——不留孤儿字节（dst 刚被置只读，Windows
+      // 删只读文件会失败，先恢复可写再删；mapexport.cpp:155 同口径）。
+      QFile::setPermissions( dst, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                      QFileDevice::ReadUser );
+      QFile::remove( dst );
       return fail( catalogErr.isEmpty() ? QObject::tr( "catalog addAsset 失败" ) : catalogErr );
+    }
   }
   CatalogVersion ver;
   ver.id = versionId;
@@ -150,7 +157,20 @@ SaveOutcome Library::registerContent( QgsLayout *layout, const QString &assetId,
   ver.sha256 = sha;
   ver.fileName = QStringLiteral( "template.qpt" );
   if ( !m_catalog->addVersion( ver, &catalogErr ) )
+  {
+    // 版本没入库：本次新建的资产一并回滚 + 清受管字节——不留「资产在、零
+    // 版本」幽灵与孤儿字节（mapexport.cpp:155-184 同口径；挂在既有资产上
+    // 的新版本失败不回滚资产本身，只清本次落位的字节）。
+    if ( isNewAsset )
+    {
+      QString removeErr;
+      m_catalog->removeAsset( finalAssetId, &removeErr );
+    }
+    QFile::setPermissions( dst, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                    QFileDevice::ReadUser );
+    QFile::remove( dst );
     return fail( catalogErr.isEmpty() ? QObject::tr( "catalog addVersion 失败" ) : catalogErr );
+  }
 
   out.ok = true;
   out.assetId = finalAssetId;

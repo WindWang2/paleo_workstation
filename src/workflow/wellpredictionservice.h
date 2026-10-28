@@ -18,6 +18,11 @@ public:
   ~WellPredictionService() override;
   void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
   void bindCatalog(DataCatalog *catalog, const QString &dir);
+  // #213：剖面页显式选择的解释岩性资产表（WellSectionWorkflow::
+  // lithoAssetSelections）。prepare() 按它取岩性——预测输入的岩性与界面展示
+  // 同源；不注入时回落默认「取最新」仲裁。
+  void setLithoAssetSelections(const QHash<QString, QString> &selection)
+  { m_lithoSelections = selection; }
   QString statusHint() const;
   void start(const RemotePredictionRequest &request) override;
   // 预测专项 P0：批量逐井准备检查（干跑）。与 start() 走同一条
@@ -47,6 +52,7 @@ private:
   bool m_configured = false;
   QPointer<DataCatalog> m_catalog;
   QString m_dir;
+  QHash<QString, QString> m_lithoSelections; // #213：剖面页显式岩性资产选择
   RemotePredictionRequest m_request;
   QVector<WellComposite::ComprehensiveWellData> m_data;
   struct Run { int well; WellFaciesRun prediction; };

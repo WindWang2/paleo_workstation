@@ -605,6 +605,25 @@ bool RasterPyramidService::tile(const QString &rasterPath, int z, int x, int y, 
     else
       meta = again;
   }
+  // 等锁期间可能发生过 ensure 换代重建（源被覆盖/层级变化）——层几何按最终
+  // meta 重算：锁外算出的 lw/lh/tilesX/tilesY 是旧源几何，双检命中的瓦片会
+  // 按旧宽高切片，samples 与 width×height 不符，下游按尺寸索引越界/静默错值。
+  levelGrid(meta, z, &lw, &lh, &tilesX, &tilesY);
+  if (z < 0 || z >= meta.levels || x < 0 || y < 0 || x >= tilesX || y >= tilesY)
+  {
+    if (error)
+      *error = z < 0 || z >= meta.levels
+                   ? QStringLiteral("level %1 out of range (0..%2)")
+                         .arg(z)
+                         .arg(meta.levels - 1)
+                   : QStringLiteral("tile %1/%2/%3 out of grid %4x%5")
+                         .arg(z)
+                         .arg(x)
+                         .arg(y)
+                         .arg(tilesX)
+                         .arg(tilesY);
+    return false;
+  }
   // 双检（并发首建可能已落盘）。
   if (const auto hit = m_tiles.get(key))
   {

@@ -815,13 +815,17 @@ PropertyModelWorkflow::computeSnapshot(const PropertyModelRequest &request,
     prov.insert(QStringLiteral("method"),
                 request.method == PropertyMethod::Sgs ? QStringLiteral("sgs")
                                                       : QStringLiteral("idw"));
-    prov.insert(QStringLiteral("caliber"),
-                QStringList{offsetCaliber, faciesCaliber, fillCaliber,
-                            objectMeta.placements.empty()
-                                ? QStringLiteral("无对象建模")
-                                : objectMeta.caliber,
-                            trajectoryCaliber}
-                    .join(QStringLiteral(" ｜ ")));
+    // caliber 如实带上「填了断距但盘侧未定」的切割数——否则用户声明的 throw_z
+    // 被静默丢弃，界面无任何提示（#207）。
+    QStringList caliberParts{offsetCaliber, faciesCaliber, fillCaliber,
+                             objectMeta.placements.empty()
+                                 ? QStringLiteral("无对象建模")
+                                 : objectMeta.caliber,
+                             trajectoryCaliber};
+    if (request.faultThrowUnknownSideCuts > 0)
+      caliberParts << QStringLiteral("%1 条切割填了断距但未定盘侧，本次未参与断块错位")
+                          .arg(request.faultThrowUnknownSideCuts);
+    prov.insert(QStringLiteral("caliber"), caliberParts.join(QStringLiteral(" ｜ ")));
     if (request.method == PropertyMethod::Sgs)
     {
       prov.insert(QStringLiteral("realization_index"), static_cast<int>(r));

@@ -287,7 +287,12 @@ PetroPhysTaskService::BatchRequest PetroPhysPanel::currentRequest() const
   r.formula = currentFormula();
   r.expression = m_editExpr->text();
   r.outputMnemonic = currentOutputMnemonic();
-  r.outputUnit = QStringLiteral("v/v");
+  // Vsh/φ/Sw 均为体积分数 v/v；Expression 是任意逐点公式（如
+  // RHOB - 0.05*NPHI 出 g/cm³），单位不可臆断——置空（outputUnit 可空，
+  // services/petrophyscomputeservice.h:93），不写伪单位进产物 LAS 的 unit 道。
+  r.outputUnit = currentFormula() == Formula::Expression
+                     ? QString()
+                     : QStringLiteral("v/v");
   r.outputDescr = QStringLiteral("petrophysics %1")
                       .arg(PetroPhysTaskService::formulaKey(r.formula));
   Params p;

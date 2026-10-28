@@ -450,9 +450,21 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
   {
     if ( explicitSoft.points.size() < 2 )
       continue;
-    appendSoft( explicitSoft.points, explicitSoft.lineId,
-                explicitSoft.radius > 0 ? explicitSoft.radius : softRadiusAuto,
-                explicitSoft.strength );
+    const double radius = explicitSoft.radius > 0 ? explicitSoft.radius : softRadiusAuto;
+    // PR457-closure R4 同口径：显式软边界同样只在半径内起趋势作用——与成图域
+    // 距离超半径的线数值上不产生任何效果，不得记入 softBoundaryIds（QC 回执
+    // 虚报 soft_boundary 已消费）。GEOSDistance 失败（退化几何）保守按可达
+    // 处理：保数值，不丢消费。
+    GeomPtr line = makeLineString( geos.handle, explicitSoft.points );
+    bool beyondReach = false;
+    if ( line )
+    {
+      if ( GEOSDistance_r( geos.handle, line.get(), domain.get(), &distanceBuffer ) != 0 )
+        beyondReach = distanceBuffer > radius;
+    }
+    if ( beyondReach )
+      continue; // 与域距离超半径：无数值作用，不消费
+    appendSoft( explicitSoft.points, explicitSoft.lineId, radius, explicitSoft.strength );
   }
 
   // 单区域求值：labels==0 的网格节点，样本=well_ids==0 的井

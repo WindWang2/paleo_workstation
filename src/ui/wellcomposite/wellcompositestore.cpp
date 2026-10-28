@@ -171,9 +171,12 @@ QVariantMap WellCompositeStore::loadWidthSet(const QString &project, const QStri
 WellCompositeStore::WellCompositeStore(const QString &sourceDataPath)
 {
   // <源名>.<ext> → <源名>.wc.json（同目录；源数据永不被写）
+  // 扩展名点只在最后一个路径分隔符之后找：源数据无扩展名而所在目录名含点时
+  // （如 /data/a.b/well），旧实现会把 sidecar 写到父目录去，钉注/书签静默失联。
   QString base = sourceDataPath;
+  const int sep = qMax(base.lastIndexOf(QLatin1Char('/')), base.lastIndexOf(QLatin1Char('\\')));
   const int dot = base.lastIndexOf(QLatin1Char('.'));
-  if (dot > 0)
+  if (dot > sep + 1) // 分隔符之后的点才算扩展名点（前导点文件名不截断）
     base.truncate(dot);
   m_sidecarPath = base + QStringLiteral(".wc.json");
 }

@@ -289,14 +289,31 @@ LithoLexicon LithoLexicon::fromProject(const QString &projectDir, QString *error
     QFile f(areaJsonPath);
     if (f.open(QIODevice::ReadOnly))
     {
-      const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+      QJsonParseError parseErr;
+      const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &parseErr);
+      if (doc.isNull())
+      {
+        // 坏 JSON 不外露就等于把 project_area.json 里坏掉的内嵌词表当成没有
+        // 内嵌词表——用户改坏了却零提示（同 275-282 行 litho_lexicon.json 路径
+        // 的「不静默回落」纪律）。
+        if (error)
+          *error = parseErr.errorString();
+        return lex;
+      }
       if (doc.isObject())
       {
         const QJsonObject obj = doc.object();
         if (obj.contains(QStringLiteral("litho_lexicon")))
         {
-          const QJsonObject lexObj = obj.value(QStringLiteral("litho_lexicon")).toObject();
-          LithoLexicon custom = fromMap(lexObj.toVariantMap());
+          const QJsonValue lexValue = obj.value(QStringLiteral("litho_lexicon"));
+          if (!lexValue.isObject())
+          {
+            // 节点非对象（数组/标量）：同样不当成空表静默吞掉。
+            if (error)
+              *error = QStringLiteral("project_area.json 的 litho_lexicon 不是对象");
+            return lex;
+          }
+          LithoLexicon custom = fromMap(lexValue.toObject().toVariantMap());
           LithoLexicon merged = defaultLexicon();
           merged.setName(QStringLiteral("area_custom"));
           for (const LithoRule &r : custom.rules())
@@ -304,6 +321,13 @@ LithoLexicon LithoLexicon::fromProject(const QString &projectDir, QString *error
           return merged;
         }
       }
+    }
+    else
+    {
+      // 文件在但读不开（权限/占用）：不外露就会静默回落默认词表。
+      if (error)
+        *error = f.errorString();
+      return lex;
     }
   }
 

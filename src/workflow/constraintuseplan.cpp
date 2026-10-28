@@ -114,6 +114,11 @@ ConstraintReadiness assessConstraintReadiness( const ConstraintUsePlan &plan )
 {
   ConstraintReadiness r;
   const int available = plan.availableBarriers + plan.availableDirections + plan.availableSoft;
+  // 停用约束是「线在、但被显式排除」的事实：任何文案都不得反称「没有约束线」
+  // ——否则用户画了线却被告知没有（plan.disabled 一直无人消费，#187）。
+  const QString disabledNote = plan.disabled > 0
+      ? QObject::tr( "另有 %1 条约束线已停用，不参与计算。" ).arg( plan.disabled )
+      : QString();
   if ( plan.blocking > 0 )
   {
     r.state = ConstraintReadinessState::RequiredUnmet;
@@ -127,16 +132,29 @@ ConstraintReadiness assessConstraintReadiness( const ConstraintUsePlan &plan )
     r.message = QObject::tr( "当前方法将使用 %1 条约束。" ).arg( plan.consumed );
     if ( plan.invalid > 0 )
       r.message += QObject::tr( "%1 条无效约束不参与计算。" ).arg( plan.invalid );
+    if ( !disabledNote.isEmpty() )
+      r.message += disabledNote;
   }
   else if ( available > 0 )
   {
     r.state = ConstraintReadinessState::PresentUnused;
     r.message = QObject::tr( "本层位有 %1 条可用约束，但当前算法未使用这些约束；可直接按井点计算。" ).arg( available );
+    if ( !disabledNote.isEmpty() )
+      r.message += disabledNote;
   }
   else if ( plan.invalid > 0 )
   {
     r.state = ConstraintReadinessState::InvalidExcluded;
     r.message = QObject::tr( "%1 条约束无效，不参与计算；可直接按井点计算。" ).arg( plan.invalid );
+    if ( !disabledNote.isEmpty() )
+      r.message += disabledNote;
+  }
+  else if ( plan.disabled > 0 )
+  {
+    // 只剩停用约束：如实说「有线但已停用」，不宣称「没有约束线」。
+    r.state = ConstraintReadinessState::NoneRunnable;
+    r.message = QObject::tr( "本层位有 %1 条约束线已停用，不参与计算；按井点直接计算。" )
+                    .arg( plan.disabled );
   }
   else
   {

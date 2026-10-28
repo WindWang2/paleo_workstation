@@ -290,7 +290,8 @@ void ProjectSetupWorkflow::importCatalogSources(const ProjectSetupSources &sourc
     if (preview.paths.isEmpty()) {
       importMaps(sources, preview, session, tr("工程已保存，可随时补充资料。") + scanSummary, preview.sourceProblems.isEmpty()); return;
     }
-    m_imports->importFiles(preview.paths, preview.types, {}, [this, sources, preview, session, scanSummary](const auto &rows, const QString &error, bool cancelled) {
+      m_imports->setLinkExternal(true); // 工区目录导入始终引用来源，不沿用上次确认表的复制选项。
+      m_imports->importFiles(preview.paths, preview.types, {}, [this, sources, preview, session, scanSummary](const auto &rows, const QString &error, bool cancelled) {
       if (!m_project || m_project->sessionId() != session) return;
       int failed = 0, imported = 0, skipped = 0, unresolved = 0;
       for (const auto &row : rows) {

@@ -8,6 +8,7 @@
 #include "io/lascache.h"
 #include "io/wellfileparsers.h"
 #include "io/nativemodel.h"
+#include "io/areamodel.h"
 #include "metadata/paleoprojectstore.h"
 #include "services/storagegovernance.h"
 #include "services/projectdata.h"
@@ -30,6 +31,58 @@ QStringList files(const QString &path) {
 class TestNativeImport : public QObject {
   Q_OBJECT
 private slots:
+  void areaBatchKeepsOneModel() {
+    QTemporaryDir temp; const auto input = temp.filePath("input"), project = temp.filePath("project");
+    QVERIFY(QDir().mkpath(input)); QStringList paths;
+    for (int i = 0; i < 24; ++i) {
+      const auto path = input + QString("/well-%1.las").arg(i); paths << path;
+      QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly));
+      QByteArray data = "~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. SYNTH-" + QByteArray::number(i)
+          + "\nNULL. -999.25\n~Curve\nDEPT.M : depth\nGR.API : gamma\n~Ascii\n";
+      for (int row = 0; row < 2000; ++row) data += QByteArray::number(row) + ' ' + QByteArray::number(row % 100) + '\n';
+      QCOMPARE(f.write(data), qint64(data.size()));
+    }
+    QString error; paleo::data::ImportReport report; QElapsedTimer timer; timer.start();
+    QVERIFY2(paleo::area_model::importDirectory(project, input, report, &error), qPrintable(error));
+    const auto areaMs = timer.restart();
+    PaleoProjectStore store; DataImportService imports(&store); imports.setProjectDir(project);
+    auto session = imports.beginImport(); QVERIFY(session); session->linkExternal = true;
+    DataImportService::produceFiles(*session, paths, {}, {});
+    for (const auto &row : session->rows) QVERIFY2(row.outcome != FolderRowResult::Outcome::Failed, qPrintable(row.message));
+    const auto projectionMs = timer.restart();
+    QCOMPARE(imports.commitImport(*session, &error), DataImportService::CommitStatus::Committed);
+    qInfo() << "24 LAS / 48000 samples: area_ms=" << areaMs << "catalog_ms=" << projectionMs << "commit_ms=" << timer.elapsed();
+    QCOMPARE(imports.catalog()->versions().size(), 24);
+    for (const auto &version : imports.catalog()->versions()) {
+      QVERIFY(!version.managed); QVERIFY(version.extra.value("nativeModel").toMap().isEmpty());
+    }
+    for (const auto &path : files(project)) QVERIFY2(!path.endsWith(".las") && !path.contains("/native-model/"), qPrintable(path));
+  }
+  void externalRegistrationReusesAreaModel() {
+    QTemporaryDir temp; const auto source = writeSource(temp);
+    const auto project = temp.filePath("project"); QString error;
+    paleo::data::ImportReport report;
+    QVERIFY2(paleo::area_model::importDirectory(project, temp.path(), report, &error, {}, {project}), qPrintable(error));
+    PaleoProjectStore store; DataImportService imports(&store); imports.setProjectDir(project);
+    paleo::data::DataService model; std::string detail;
+    QVERIFY(model.openProject(paleo::area_model::directory(project).toUtf8().toStdString(), detail));
+    std::vector<paleo::data::DataEntry> entries; QVERIFY(model.listData("curves", 0, entries, detail));
+    QVERIFY(!entries.empty()); QVERIFY(model.updateCurveValue(entries.front().id, 0, 88, detail)); model.closeProject();
+    DataImportService::ImportOptions options; options.linkExternal = true; options.forceType = "well_log";
+    const auto result = imports.importProjectFileEx(source, options, &error);
+    QVERIFY2(result.outcome == DataImportService::ImportOutcome::Imported, qPrintable(error));
+    const auto version = imports.catalog()->versions().first();
+    QVERIFY(!version.managed); QCOMPARE(version.path, source);
+    QVERIFY(version.extra.value("nativeModel").toMap().isEmpty());
+    for (const auto &path : files(project)) {
+      QVERIFY2(!path.endsWith(".las"), qPrintable(path));
+      QVERIFY2(!path.contains("/native-model/"), qPrintable(path));
+    }
+    LasHeaderInfo header; QList<LasCurve> curves;
+    QVERIFY2(WellLogRead::parse(source, header, curves, &error), qPrintable(error));
+    QCOMPARE(curves[1].values[0], 88.0);
+    QFile original(source); QVERIFY(original.open(QIODevice::ReadOnly)); QCOMPARE(original.readAll(), content());
+  }
   void managedAndExternal_data() {
     QTest::addColumn<bool>("external");
     QTest::newRow("managed") << false; QTest::newRow("external") << true;

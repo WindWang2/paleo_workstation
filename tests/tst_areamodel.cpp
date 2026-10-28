@@ -78,6 +78,22 @@ private slots:
     // Incremental directory import must preserve the user's model edit.
     QVERIFY(paleo::area_model::importDirectory(project, input, report, &error));
     QVERIFY(WellLogRead::parse(path, header, curves, &error)); QCOMPARE(curves[1].values[0], 88.0);
+    // A cached missing source must become visible after a DB/WAL update.
+    const QString second = input + "/second.las";
+    long long sourceId = 0; paleo::data::DataService reader;
+    QCOMPARE(paleo::area_model::openSource(second, reader, sourceId, &error), paleo::area_model::Read::Unbound);
+    QVERIFY(QFile::copy(path, second));
+    QFile secondFile(second); QVERIFY(secondFile.open(QIODevice::Append));
+    secondFile.write("# independent source\n"); secondFile.close();
+    QVERIFY(paleo::area_model::importDirectory(project, input, report, &error));
+    QCOMPARE(paleo::area_model::openSource(second, reader, sourceId, &error), paleo::area_model::Read::Ready);
+    QVERIFY(sourceId > 0);
+    QVERIFY(reader.listSourceData("curves", sourceId, entries, detail));
+    QCOMPARE(entries.size(), size_t(1)); QCOMPARE(entries[0].sourceId, sourceId);
+    QVERIFY(reader.listSourceData("tables", sourceId, entries, detail));
+    for (const auto &entry : entries) QCOMPARE(entry.sourceId, sourceId);
+    QVERIFY(reader.listSourceData("curves", sourceId + 999999, entries, detail)); QVERIFY(entries.empty());
+    QVERIFY(!reader.listSourceData("curves", 0, entries, detail));
     paleo::area_model::unregisterProject(this);
   }
   void excludedAndCancelledDirectories() {

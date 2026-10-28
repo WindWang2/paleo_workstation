@@ -15,7 +15,7 @@ bool chartFrom(paleo::data::DataService &service, long long source,
   QSet<qlonglong> sets, wells;
   double lo = std::numeric_limits<double>::infinity(), hi = -lo;
   const auto depth = [&](double d) { if (std::isfinite(d)) { lo = qMin(lo, d); hi = qMax(hi, d); } };
-  if (!service.listData("curves", 0, entries, error)) return false;
+  if (!service.listSourceData("curves", source, entries, error)) return false;
   for (const auto &entry : entries) {
     if (entry.sourceId != source || sets.contains(entry.parentId)) continue;
     sets.insert(entry.parentId); wells.insert(entry.wellId);
@@ -33,7 +33,7 @@ bool chartFrom(paleo::data::DataService &service, long long source,
       } else out.continuousCurves.append(value);
     }
   }
-  if (!service.listData("intervals", 0, entries, error)) return false;
+  if (!service.listSourceData("intervals", source, entries, error)) return false;
   for (const auto &entry : entries) {
     if (entry.sourceId != source) continue;
     wells.insert(entry.wellId);
@@ -108,7 +108,7 @@ bool PreviewDocService::areaPreviewAt(const QString &path, WorkbookPreview *tabl
     table->format = QStringLiteral("data_service");
     std::vector<paleo::data::DataEntry> entries;
     for (const std::string kind : {"intervals", "curves", "time_depth", "trajectories", "samples", "tables"}) {
-      if (!service.listData(kind, 0, entries, detail)) break;
+      if (!service.listSourceData(kind, source, entries, detail)) break;
       for (const auto &entry : entries) {
         if (entry.sourceId != source || table->sheets.size() >= 64) continue;
         paleo::data::DataTable data;

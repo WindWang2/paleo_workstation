@@ -3,6 +3,7 @@
 #include "nativemodel_internal.h"
 #include "dataimport_internal.h"
 #include "dataimport_log.h"
+#include "areamodel.h"
 #include <paleo_data/service.h>
 #include <QDir>
 #include <QFile>
@@ -132,6 +133,19 @@ bool prepare(ImportSession &session, const CatalogVersion &version,
              const dataimport_detail::LogInspection *log, QString *error) {
   if (!QStringList{"well_log", "well_head", "well_stratification", "time_depth", "well_deviation"}.contains(ctx.cls.type))
     return true; // CatalogStorage already registers all other resources; no empty DB per photo.
+  // RAW 外链已属于工区模型时，只登记资产与关联，不重复持久化整份曲线。
+  // DERIVED 与独立单文件导入仍需要自己的版本模型。
+  if (!version.managed && version.stage == QLatin1String("RAW")) {
+    paleo::data::DataService area; long long source = 0;
+    const auto state = area_model::openSource(version.path, area, source, error);
+    if (state == area_model::Read::Failed) return false;
+    if (state == area_model::Read::Ready) {
+      std::string detail;
+      if (area.verifySource(source, detail)) return true;
+      if (error) *error = q(detail);
+      return false;
+    }
+  }
   NativeFile model = log ? logFile(ctx, *log) : wellFile(ctx);
   if (model.status != "parsed") return true; // Unresolved identities keep the legacy read contract.
   preserveWellColumns(model, ctx);

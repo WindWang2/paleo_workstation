@@ -14,7 +14,7 @@ Read readLog(const QString &path, LasHeaderInfo &header, QList<LasCurve> &curves
   std::vector<paleo::data::DataEntry> entries;
   std::string detail;
   QSet<qlonglong> sets;
-  if (!service.listData("curves", 0, entries, detail)) {
+  if (!service.listSourceData("curves", source, entries, detail)) {
     if (error) *error = QString::fromUtf8(detail); return Read::Failed;
   }
   long long well = 0;

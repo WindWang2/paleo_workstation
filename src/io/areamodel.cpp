@@ -8,12 +8,15 @@
 #include <QHash>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QDebug>
 
 namespace paleo::area_model {
 namespace {
 QMutex mutex;
 QHash<const void *, QString> projects;
 QHash<const void *, QHash<QString, QString>> aliases;
+struct SourceIndex { QString stamp; QHash<QString, long long> ids; };
+QHash<QString, SourceIndex> sourceIndexes;
 QString key(const QString &path) {
   const QFileInfo info(path);
   auto result = QDir::cleanPath(info.canonicalFilePath().isEmpty() ? info.absoluteFilePath() : info.canonicalFilePath());
@@ -21,6 +24,37 @@ QString key(const QString &path) {
   result = result.toCaseFolded();
 #endif
   return result;
+}
+QString databaseStamp(const QString &root) {
+  QString result;
+  for (const auto &suffix : {"/data.sqlite", "/data.sqlite-wal"}) {
+    const QFileInfo file(root + suffix);
+    result += QString(":%1:%2:%3:%4").arg(file.size()).arg(file.lastModified().toMSecsSinceEpoch())
+        .arg(file.metadataChangeTime().toMSecsSinceEpoch()).arg(file.birthTime().toMSecsSinceEpoch());
+  }
+  return result;
+}
+bool indexedSource(const QString &root, const QString &wanted, long long &id, QString *error) {
+  const QString stamp = databaseStamp(root);
+  { QMutexLocker lock(&mutex);
+    const auto found = sourceIndexes.constFind(root);
+    if (found != sourceIndexes.cend() && found->stamp == stamp) {
+      id = found->ids.value(wanted); return true;
+    }
+  }
+  paleo::data::DataService reader; std::string detail;
+  std::vector<paleo::data::SourceEntry> sources;
+  if (!reader.openProjectReadOnly(root.toUtf8().toStdString(), detail) || !reader.listSources(sources, detail)) {
+    if (error) *error = QString::fromUtf8(detail); return false;
+  }
+  SourceIndex index; index.stamp = stamp;
+  for (const auto &source : sources) {
+    const QString path = key(QString::fromUtf8(source.path));
+    if (!index.ids.contains(path)) index.ids.insert(path, source.id);
+  }
+  id = index.ids.value(wanted);
+  if (databaseStamp(root) == stamp) { QMutexLocker lock(&mutex); sourceIndexes.insert(root, std::move(index)); }
+  return true;
 }
 }
 QString directory(const QString &project) { return QDir(project).filePath("artifacts/metadata/area-model"); }
@@ -53,12 +87,17 @@ bool importDirectory(const QString &project, const QString &source,
   const bool ok = service.importDirectory(source.toUtf8().toStdString(), options, report, detail, [&progress](const paleo::data::ImportProgress &p) {
     if (progress) progress(p.completed, p.total, QString::fromUtf8(p.status) + ": " + QString::fromUtf8(p.file));
   }, cancelled);
+  qInfo() << "area-import: files=" << report.seen << "elapsed_ms=" << report.elapsedMs
+          << "hash_ms=" << report.hashMs << "parse_ms=" << report.parseMs
+          << "copy_ms=" << report.copyMs << "store_ms=" << report.storeMs
+          << "hashed_bytes=" << report.hashedBytes << "copy_sources=false";
   if (error) *error = QString::fromUtf8(detail);
   return !report.cancelled && (ok || report.failed > 0);
 }
 void registerProject(const QString &project, const void *owner) {
   QMutexLocker lock(&mutex);
   projects.insert(owner, directory(project));
+  sourceIndexes.remove(directory(project));
 }
 void registerAliases(const DataCatalog &catalog, const void *owner) {
   QHash<QString, QString> entries;
@@ -67,7 +106,10 @@ void registerAliases(const DataCatalog &catalog, const void *owner) {
       entries.insert(key(catalog.versionFilePath(version)), key(version.sourceUri));
   QMutexLocker lock(&mutex); aliases.insert(owner, entries);
 }
-void unregisterProject(const void *owner) { QMutexLocker lock(&mutex); projects.remove(owner); aliases.remove(owner); }
+void unregisterProject(const void *owner) {
+  QMutexLocker lock(&mutex); const auto root = projects.take(owner); aliases.remove(owner);
+  if (!projects.values().contains(root)) sourceIndexes.remove(root);
+}
 Read openSource(const QString &path, paleo::data::DataService &service,
                 long long &sourceId, QString *error) {
   QList<QString> roots;
@@ -89,20 +131,14 @@ Read openSource(const QString &path, paleo::data::DataService &service,
   std::string detail;
   for (const auto &root : roots) {
     if (!QFileInfo::exists(root + "/data.sqlite")) continue;
-    paleo::data::DataService candidate;
-    if (!candidate.openProjectReadOnly(root.toUtf8().toStdString(), detail)) {
-      if (error) *error = QString::fromUtf8(detail);
-      return Read::Failed;
-    }
-    std::vector<paleo::data::SourceEntry> sources;
-    if (!candidate.listSources(sources, detail)) { if (error) *error = QString::fromUtf8(detail); return Read::Failed; }
-    for (const auto &source : sources) {
-      if (key(QString::fromUtf8(source.path)) != wanted) continue;
+    long long candidate = 0;
+    if (!indexedSource(root, wanted, candidate, error)) return Read::Failed;
+    if (candidate) {
       if (!selected.isEmpty() && selected != root) {
         if (error) *error = QStringLiteral("source belongs to multiple open area models");
         return Read::Failed;
       }
-      selected = root; sourceId = source.id; break;
+      selected = root; sourceId = candidate;
     }
   }
   if (selected.isEmpty()) return Read::Unbound;

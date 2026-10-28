@@ -17,6 +17,20 @@
 - 本机已装 QGIS 4.2.x 开发包（如 Arch `qgis 4.2.2`）时 bootstrap 短路 QGIS
   腿，只剩 onnxruntime 下载——注意这属**兜底档**，见下「依赖来源策略」。
 
+## Data_service 子模块
+
+`vendor/Data_service` 以 Git submodule 引入
+[changyanyanchang/Data_service](https://github.com/changyanyanchang/Data_service)，
+版本由主仓的 gitlink 固定。已有 checkout 或新建 worktree 后，在仓库根目录执行：
+
+```bash
+git submodule update --init --recursive -- vendor/Data_service
+```
+
+首次克隆也可使用 `git clone --recurse-submodules <主仓地址>`。
+本次仅登记子模块；其构建与使用说明见 `vendor/Data_service/README.md`，
+尚未接入 Paleo 的 CMake 构建或运行时调用。
+
 ## 依赖来源策略（2026-10-01 起）
 
 **原则：尽量不依赖系统库，尽量自编译 vendored。** 优先级：

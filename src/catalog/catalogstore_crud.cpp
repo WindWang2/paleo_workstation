@@ -5,19 +5,22 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QSqlDatabase>
-#include <QSqlQuery>
 #include <cmath>
 
 namespace
 {
 using paleo::store_detail::setError;
-using paleo::catalog_detail::execSql;
 
 // 未填的 QString 是 null。绑进 NOT NULL TEXT 会变成 SQL NULL 并被拒。
-QVariant textArg(const QString &s)
+std::string utf8(const QString &s)
 {
-  return s.isNull() ? QVariant(QStringLiteral("")) : QVariant(s);
+  return s.toUtf8().toStdString();
+}
+
+bool finishDataCall(bool ok, const std::string &detail, QString *error)
+{
+  if (!ok) setError(error, QString::fromUtf8(detail.data(), qsizetype(detail.size())));
+  return ok;
 }
 
 QString mapToJson(const QVariantMap &map)
@@ -52,231 +55,143 @@ QString parentsToJson(const QStringList &ids)
 // meta 写。事务语义：本域函数一律在调用方（DataCatalog::commitStore /
 // replaceAll）的事务边界内执行——begin/commit/rollback 在 _schema TU。
 
-bool CatalogStore::upsertEntity(const CatalogEntity &e, QString *error)
+bool CatalogStore::upsertEntity(const CatalogEntity &v, QString *error)
 {
-  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-  QSqlQuery q(db);
-  q.prepare(QStringLiteral(
-      "INSERT INTO entities (id, entity_type, name, surface_x, surface_y, has_surface, kb, td,"
-      " coordinate_status, inline_min, inline_max, xline_min, xline_max, sample_interval_us,"
-      " start_time_ms, corners_json, extra_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-      " ON CONFLICT(id) DO UPDATE SET"
-      " entity_type=excluded.entity_type, name=excluded.name, surface_x=excluded.surface_x,"
-      " surface_y=excluded.surface_y, has_surface=excluded.has_surface, kb=excluded.kb,"
-      " td=excluded.td, coordinate_status=excluded.coordinate_status,"
-      " inline_min=excluded.inline_min, inline_max=excluded.inline_max,"
-      " xline_min=excluded.xline_min, xline_max=excluded.xline_max,"
-      " sample_interval_us=excluded.sample_interval_us, start_time_ms=excluded.start_time_ms,"
-      " corners_json=excluded.corners_json, extra_json=excluded.extra_json"));
-  q.addBindValue(textArg(e.id));
-  q.addBindValue(textArg(e.entityType));
-  q.addBindValue(textArg(e.name));
-  q.addBindValue(e.surfaceX);
-  q.addBindValue(e.surfaceY);
-  q.addBindValue(e.hasSurface ? 1 : 0);
-  // The legacy schema has NOT NULL numeric columns. Explicit missing flags
-  // preserve optional values without presenting a stored placeholder as data.
-  // #814：键带 '#' 前缀——内部记账不得占用用户前向扩展命名空间（同名用户键
-  // 会被这里的 insert 覆盖、再被 loadTables 剥掉，等于静默毁数据）。
-  auto extra = e.extra;
-  extra.insert(paleo::catalog_detail::kKbMissingKey, !std::isfinite(e.kb));
-  extra.insert(paleo::catalog_detail::kTdMissingKey, !std::isfinite(e.td));
-  q.addBindValue(std::isfinite(e.kb) ? e.kb : 0.0);
-  q.addBindValue(std::isfinite(e.td) ? e.td : 0.0);
-  q.addBindValue(textArg(e.coordinateStatus));
-  q.addBindValue(e.inlineMin);
-  q.addBindValue(e.inlineMax);
-  q.addBindValue(e.xlineMin);
-  q.addBindValue(e.xlineMax);
-  q.addBindValue(e.sampleIntervalUs);
-  q.addBindValue(e.startTimeMs);
-  q.addBindValue(textArg(cornersToJson(e.corners)));
-  q.addBindValue(textArg(mapToJson(extra)));
-  if (!q.exec())
-  {
-    setError(error, q.lastError().text());
-    return false;
-  }
-  return true;
+  paleo::data::CatalogStorage store(utf8(m_connectionName));
+  std::string detail;
+  paleo::data::CatalogEntity record;
+  record.id = utf8(v.id);
+  record.entityType = utf8(v.entityType);
+  record.name = utf8(v.name);
+  record.surfaceX = v.surfaceX;
+  record.surfaceY = v.surfaceY;
+  record.hasSurface = v.hasSurface;
+  record.kb = v.kb;
+  record.td = v.td;
+  record.coordinateStatus = utf8(v.coordinateStatus);
+  record.inlineMin = v.inlineMin;
+  record.inlineMax = v.inlineMax;
+  record.xlineMin = v.xlineMin;
+  record.xlineMax = v.xlineMax;
+  record.sampleIntervalUs = v.sampleIntervalUs;
+  record.startTimeMs = v.startTimeMs;
+  auto extra = v.extra;
+  extra.insert(paleo::catalog_detail::kKbMissingKey, !std::isfinite(v.kb));
+  extra.insert(paleo::catalog_detail::kTdMissingKey, !std::isfinite(v.td));
+  record.kb = std::isfinite(v.kb) ? v.kb : 0.0;
+  record.td = std::isfinite(v.td) ? v.td : 0.0;
+  record.cornersJson = utf8(cornersToJson(v.corners));
+  record.extraJson = utf8(mapToJson(extra));
+  const bool ok = store.upsert(record, detail);
+  return finishDataCall(ok, detail, error);
 }
 
-bool CatalogStore::upsertAsset(const CatalogAsset &a, QString *error)
+bool CatalogStore::upsertAsset(const CatalogAsset &v, QString *error)
 {
-  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-  QSqlQuery q(db);
-  q.prepare(QStringLiteral(
-      "INSERT INTO assets (id, type, format, display_name) VALUES (?,?,?,?)"
-      " ON CONFLICT(id) DO UPDATE SET type=excluded.type, format=excluded.format,"
-      " display_name=excluded.display_name"));
-  q.addBindValue(textArg(a.id));
-  q.addBindValue(textArg(a.type));
-  q.addBindValue(textArg(a.format));
-  q.addBindValue(textArg(a.displayName));
-  if (!q.exec())
-  {
-    setError(error, q.lastError().text());
-    return false;
-  }
-  return true;
+  paleo::data::CatalogStorage store(utf8(m_connectionName));
+  std::string detail;
+  paleo::data::CatalogAsset record;
+  record.id = utf8(v.id);
+  record.type = utf8(v.type);
+  record.format = utf8(v.format);
+  record.displayName = utf8(v.displayName);
+  const bool ok = store.upsert(record, detail);
+  return finishDataCall(ok, detail, error);
 }
 
 bool CatalogStore::upsertVersion(const CatalogVersion &v, QString *error)
 {
-  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-  QSqlQuery q(db);
-  q.prepare(QStringLiteral(
-      "INSERT INTO versions (id, asset_id, stage, version_number, managed, path, source_uri,"
-      " sha256, file_name, parent_version_ids_json, extra_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-      " ON CONFLICT(id) DO UPDATE SET asset_id=excluded.asset_id, stage=excluded.stage,"
-      " version_number=excluded.version_number, managed=excluded.managed, path=excluded.path,"
-      " source_uri=excluded.source_uri, sha256=excluded.sha256, file_name=excluded.file_name,"
-      " parent_version_ids_json=excluded.parent_version_ids_json, extra_json=excluded.extra_json"));
-  q.addBindValue(textArg(v.id));
-  q.addBindValue(textArg(v.assetId));
-  q.addBindValue(textArg(v.stage));
-  q.addBindValue(v.versionNumber);
-  q.addBindValue(v.managed ? 1 : 0);
-  q.addBindValue(textArg(v.path));
-  q.addBindValue(textArg(v.sourceUri));
-  q.addBindValue(textArg(v.sha256));
-  q.addBindValue(textArg(v.fileName));
-  q.addBindValue(textArg(parentsToJson(v.parentVersionIds)));
-  q.addBindValue(textArg(mapToJson(v.extra)));
-  if (!q.exec())
-  {
-    setError(error, q.lastError().text());
-    return false;
-  }
-  return true;
+  paleo::data::CatalogStorage store(utf8(m_connectionName));
+  std::string detail;
+  paleo::data::CatalogVersion record;
+  record.id = utf8(v.id);
+  record.assetId = utf8(v.assetId);
+  record.stage = utf8(v.stage);
+  record.versionNumber = v.versionNumber;
+  record.managed = v.managed;
+  record.path = utf8(v.path);
+  record.sourceUri = utf8(v.sourceUri);
+  record.sha256 = utf8(v.sha256);
+  record.fileName = utf8(v.fileName);
+  record.parentVersionIdsJson = utf8(parentsToJson(v.parentVersionIds));
+  record.extraJson = utf8(mapToJson(v.extra));
+  const bool ok = store.upsert(record, detail);
+  return finishDataCall(ok, detail, error);
 }
 
-bool CatalogStore::upsertLink(int ord, const EntityAssetLink &l, QString *error)
+bool CatalogStore::upsertLink(int ord, const EntityAssetLink &v, QString *error)
 {
-  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-  QSqlQuery q(db);
-  q.prepare(QStringLiteral(
-      "INSERT INTO entity_asset_links (ord, entity_type, entity_id, asset_id, role, is_primary,"
-      " unresolved, ordinal, note) VALUES (?,?,?,?,?,?,?,?,?)"
-      " ON CONFLICT(ord) DO UPDATE SET entity_type=excluded.entity_type,"
-      " entity_id=excluded.entity_id, asset_id=excluded.asset_id, role=excluded.role,"
-      " is_primary=excluded.is_primary, unresolved=excluded.unresolved,"
-      " ordinal=excluded.ordinal, note=excluded.note"));
-  q.addBindValue(ord);
-  q.addBindValue(textArg(l.entityType));
-  q.addBindValue(textArg(l.entityId));
-  q.addBindValue(textArg(l.assetId));
-  q.addBindValue(textArg(l.role));
-  q.addBindValue(l.isPrimary ? 1 : 0);
-  q.addBindValue(l.unresolved ? 1 : 0);
-  q.addBindValue(l.ordinal);
-  q.addBindValue(textArg(l.note));
-  if (!q.exec())
-  {
-    setError(error, q.lastError().text());
-    return false;
-  }
-  return true;
+  paleo::data::CatalogStorage store(utf8(m_connectionName));
+  std::string detail;
+  paleo::data::CatalogLink record;
+  record.ord = ord;
+  record.entityType = utf8(v.entityType);
+  record.entityId = utf8(v.entityId);
+  record.assetId = utf8(v.assetId);
+  record.role = utf8(v.role);
+  record.isPrimary = v.isPrimary;
+  record.unresolved = v.unresolved;
+  record.ordinal = v.ordinal;
+  record.note = utf8(v.note);
+  const bool ok = store.upsert(record, detail);
+  return finishDataCall(ok, detail, error);
 }
 
 bool CatalogStore::deleteAsset(const QString &id, QString *error)
 {
-  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-  QSqlQuery q(db);
-  q.prepare(QStringLiteral("DELETE FROM assets WHERE id = ?"));
-  q.addBindValue(textArg(id));
-  if (!q.exec())
-  {
-    setError(error, q.lastError().text());
-    return false;
-  }
-  return true;
+  paleo::data::CatalogStorage store(utf8(m_connectionName));
+  std::string detail;
+  const bool ok = store.eraseAsset(utf8(id), detail);
+  return finishDataCall(ok, detail, error);
 }
 
 bool CatalogStore::deleteVersion(const QString &id, QString *error)
 {
-  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-  QSqlQuery q(db);
-  q.prepare(QStringLiteral("DELETE FROM versions WHERE id = ?"));
-  q.addBindValue(textArg(id));
-  if (!q.exec())
-  {
-    setError(error, q.lastError().text());
-    return false;
-  }
-  return true;
+  paleo::data::CatalogStorage store(utf8(m_connectionName));
+  std::string detail;
+  const bool ok = store.eraseVersion(utf8(id), detail);
+  return finishDataCall(ok, detail, error);
 }
 
-bool CatalogStore::replaceAllLinks(const QVector<EntityAssetLink> &links,
-                                   QString *error)
+bool CatalogStore::replaceAllLinks(const QVector<EntityAssetLink> &links, QString *error)
 {
-  // review-fix-dataio：先整表 DELETE 再逐行 upsert——事务外调用时中途失败
-  // 会把链接表留空/半写（自动提交逐句落盘）。Q_ASSERT 在 Release 是空操作，
-  // 这里运行期拒绝；现有调用方（DataCatalog::flush、测试）均在 begin() 内。
   Q_ASSERT(m_inTxn);
-  if (!m_inTxn)
-  {
+  if (!m_inTxn) {
     setError(error, QStringLiteral("replaceAllLinks must run inside a transaction"));
     return false;
   }
-  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-  {
-    QSqlQuery q(db);
-    if (!q.exec(QStringLiteral("DELETE FROM entity_asset_links")))
-    {
-      setError(error, q.lastError().text());
-      return false;
-    }
-  }
+  paleo::data::CatalogStorage store(utf8(m_connectionName));
+  std::string detail;
+  if (!store.clearLinks(detail)) return finishDataCall(false, detail, error);
   for (int ord = 0; ord < links.size(); ++ord)
-    if (!upsertLink(ord, links.at(ord), error))
-      return false;
+    if (!upsertLink(ord, links.at(ord), error)) return false;
   return true;
 }
 
 bool CatalogStore::writeMeta(const Meta &meta, QString *error)
 {
-  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-  QSqlQuery q(db);
-  q.prepare(QStringLiteral(
-      "INSERT INTO catalog_meta (key, value) VALUES (?, ?)"
-      " ON CONFLICT(key) DO UPDATE SET value=excluded.value"));
-  const QList<QPair<QString, QString>> rows = {
-      {QStringLiteral("schema_epoch"), QString::number(kSchemaEpoch)},
-      {QStringLiteral("catalog_revision"), QString::number(meta.revision)},
-      {QStringLiteral("mutation_seq"), QString::number(meta.mutationSeq)},
-      {QStringLiteral("asset_seq"), QString::number(meta.assetSeq)},
-      {QStringLiteral("version_seq"), QString::number(meta.versionSeq)},
-      {QStringLiteral("backup_keep"), QString::number(meta.backupKeep)},
-  };
-  for (const auto &row : rows)
-  {
-    q.bindValue(0, row.first);
-    q.bindValue(1, row.second);
-    if (!q.exec())
-    {
-      setError(error, q.lastError().text());
-      return false;
-    }
-  }
-  return true;
+  paleo::data::CatalogStorage store(utf8(m_connectionName));
+  std::string detail;
+  const std::vector<std::pair<std::string, std::string>> rows = {
+      {"schema_epoch", std::to_string(kSchemaEpoch)},
+      {"catalog_revision", std::to_string(meta.revision)},
+      {"mutation_seq", std::to_string(meta.mutationSeq)},
+      {"asset_seq", std::to_string(meta.assetSeq)},
+      {"version_seq", std::to_string(meta.versionSeq)},
+      {"backup_keep", std::to_string(meta.backupKeep)}};
+  const bool ok = store.writeMeta(rows, detail);
+  return finishDataCall(ok, detail, error);
 }
 
 bool CatalogStore::replaceAll(const Tables &tables, QString *error)
 {
   if (!begin(error))
     return false;
-  {
-    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
-    const char *deletes[] = {"DELETE FROM entity_asset_links", "DELETE FROM versions",
-                             "DELETE FROM assets", "DELETE FROM entities"};
-    for (const char *sql : deletes)
-    {
-      if (!execSql(db, QString::fromLatin1(sql), error))
-      {
-        rollback();
-        return false;
-      }
-    }
+  paleo::data::CatalogStorage store(utf8(m_connectionName));
+  std::string detail;
+  if (!store.clearRecords(detail)) {
+    rollback();
+    return finishDataCall(false, detail, error);
   }
   for (const CatalogEntity &e : tables.entities)
   {

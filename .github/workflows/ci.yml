@@ -64,6 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
         with:
+          submodules: recursive
           fetch-depth: 0 # check_tidy 需要 merge-base(origin/master)
       # clang-tidy 版本钉死：告警面随 LLVM 版本漂移，门禁必须可复现。
       # 升级 = 有意变更：改此包名 + 本地同步跑一轮收录新告警。
@@ -171,6 +172,8 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+        with:
+          submodules: recursive
       # 磁盘：与 linux-asan 同款清理 + 水位闸（ci-repo-hygiene）——linux 必过 job 曾在链接期磁盘耗尽，测试未跑即红；早失败报明确原因。
       - name: Free disk space
         run: |
@@ -314,6 +317,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+        with:
+          submodules: recursive
       # 磁盘：与 linux-asan 同款清理 + 水位闸（ci-repo-hygiene）——同 linux 主 job 全量构建体量。
       - name: Free disk space
         run: |
@@ -406,6 +411,8 @@ jobs:
       # 面，QGIS 栈走 bootstrap 拉 deb 闭包（tools/check_ci_scripts.py 守
       # 引用存在性，防再断链）。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+        with:
+          submodules: recursive
       # 磁盘：PR #496 run 38880554660 / master ddd1325e run 38835970978 的
       # asan 档均在 ~1970/2231 链接步 "No space left on device"（清理后
       # /dev/root 106G 可用仍耗尽）。大头是 -g 全量调试信息随静态库在 ~190
@@ -523,6 +530,8 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+        with:
+          submodules: recursive
       - name: Cache vendor artifacts
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
@@ -686,6 +695,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
         with:
+          submodules: recursive
           fetch-depth: 0 # known-reds diff notice 需要 base 可达（同 lint tidy 口径）
       # #497：known-reds 变更须 PR 显式——对 docs/ci/known-reds.json 的 paths
       # diff 输出 ::notice 点名（新增/删除/预算调整必须随 PR 评审，不允许在

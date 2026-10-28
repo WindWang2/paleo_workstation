@@ -41,6 +41,7 @@
 - [地震与剖面架构](seismic/ARCHITECTURE.md)
 - [版本与发布状态](VERSION_PUBLISH_STATE_MACHINE.md)
 - [Schema 迁移](SCHEMA_MIGRATION.md)
+- [Data_service 模型接入与迁移](DATA_SERVICE_INTEGRATION.md)
 
 ## 历史记录
 

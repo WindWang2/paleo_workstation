@@ -1,57 +1,84 @@
 // 层：数据
 #include "previewdoc.h"
 #include "catalog/datacatalog.h"
-#include "io/dataimportservice.h"
-#include "io/segyreader.h"
+#include "io/areamodel.h"
 #include "paleotaskservice.h"
+#include <paleo_data/seismic.h>
 #include <cmath>
 
+namespace {
+// 数据服务 status + 首两条提醒拼成界面直显文案；不在这里改写语义。
+QString surveyDetail(const paleo::data::SeismicCoordinateRange &range)
+{
+  QStringList parts;
+  if (!range.status.empty())
+    parts << QString::fromUtf8(range.status);
+  for (size_t i = 0; i < range.warnings.size() && i < 2; ++i)
+    parts << QString::fromUtf8(range.warnings[i]);
+  return parts.join(QStringLiteral("；"));
+}
+}
+
 void PreviewDocService::requestSurveyBounds(const QString &assetId,
-    std::function<void(const QVector<QPair<double, double>> &, const QString &)> done)
+    std::function<void(const SurveyBounds &)> done)
 {
   const int generation = ++m_surveyGeneration;
   if (m_surveyTask)
     m_surveyTask->requestCancel();
   const QString path = assetSource(assetId);
-  const QString cacheDir = m_svc ? m_svc->indexCacheDir() : QString();
-  const auto cached = m_segyReaders.value(assetId);
-  auto reader = std::make_shared<std::shared_ptr<SegyReader>>(cached);
-  auto corners = std::make_shared<QVector<QPair<double, double>>>();
-  const auto work = [path, cacheDir, reader, corners](PaleoTask *task) -> QString {
-    if (!*reader) {
-      SegyOptions options;
-      options.cancel = [task] { return task && task->cancelRequested(); };
-      options.progress = [task](qint64 done, qint64 total) {
-        if (task) task->reportBytes(done, total);
-      };
-      *reader = std::make_shared<SegyReader>();
-      QString error;
-      if (!(*reader)->openCached(path, cacheDir, &error, &options))
-        return error;
+  auto bounds = std::make_shared<SurveyBounds>();
+  const auto work = [path, bounds](PaleoTask *task) -> QString {
+    paleo::data::SeismicCoordinateRange range;
+    QString error;
+    const auto cancelled = [task] { return task && task->cancelRequested(); };
+    const auto state = paleo::area_model::surveyRange(path, range, &error, cancelled);
+    if (state == paleo::area_model::Read::Unbound)
+    {
+      // 未登记进工区模型：不是失败，如实报 Unbound，由界面说明原因，
+      // 不回落到重新解析 SEG-Y（那正是本次要退掉的重复几何计算）。
+      bounds->state = SurveyBounds::State::Unbound;
+      bounds->detail = error;
+      return QString();
     }
-    const auto geometry = (*reader)->geometry();
-    for (int corner = 0; corner < 4; ++corner)
-      if (std::isfinite(geometry.cornerX[corner]) && std::isfinite(geometry.cornerY[corner]))
-        corners->append({geometry.cornerX[corner], geometry.cornerY[corner]});
-    return corners->size() == 4 ? QString() : tr("完整测区角点不可用");
+    if (state == paleo::area_model::Read::Failed)
+      return error;
+    bounds->coordinateUnit = QString::fromUtf8(range.coordinateUnit);
+    bounds->rmsResidual = range.fitRmsResidual;
+    bounds->detail = surveyDetail(range);
+    if (!std::isfinite(range.minX) || !std::isfinite(range.minY)
+        || !std::isfinite(range.maxX) || !std::isfinite(range.maxY))
+    {
+      bounds->state = SurveyBounds::State::Unavailable;
+      return QString();
+    }
+    bounds->state = SurveyBounds::State::Ready;
+    bounds->minX = range.minX;
+    bounds->minY = range.minY;
+    bounds->maxX = range.maxX;
+    bounds->maxY = range.maxY;
+    return QString();
   };
-  const auto apply = [this, assetId, generation, reader, corners, done](bool ok, const QString &error) {
+  const auto apply = [this, generation, bounds, done](bool ok, const QString &error) {
     if (generation != m_surveyGeneration)
       return;
     m_surveyTask.clear();
-    if (ok)
-      m_segyReaders.insert(assetId, *reader);
+    if (!ok && bounds->state != SurveyBounds::State::Unavailable)
+    {
+      bounds->state = SurveyBounds::State::Unavailable;
+      if (bounds->detail.isEmpty())
+        bounds->detail = error;
+    }
     if (done)
-      done(ok ? *corners : QVector<QPair<double, double>>(), error);
+      done(*bounds);
   };
   if (m_taskSvc) {
-    auto *task = m_taskSvc->start(tr("恢复完整测区范围"), work, QString(), true);
+    auto *task = m_taskSvc->start(tr("读取测区平面范围"), work, QString(), true);
     m_surveyTask = task;
     connect(task, &PaleoTask::finished, this, [apply, task] {
       // 取消也走 apply：done 必须恰好回调一次，否则调用方 UI 永远挂在
       // 「正在后台恢复」（旧实现 Cancelled 分支直接 return，done 永不执行）。
       // 世代判定在 apply 内已有陈旧保护——新一代请求的结果照常丢弃；取消
-      // 态给空角点 + 错误文本，与 requestSection 的
+      // 态给 Unavailable + 错误文本，与 requestSection 的
       // seismicSectionCancelled 同口径（完成通知，不是静默丢弃）。
       apply(task->state() == PaleoTask::State::Succeeded, task->errorText());
     });

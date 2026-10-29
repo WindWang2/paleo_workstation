@@ -169,6 +169,49 @@ Read openSource(const QString &path, paleo::data::DataService &service,
   }
   return Read::Ready;
 }
+Read surveyRange(const QString &path, paleo::data::SeismicCoordinateRange &range,
+                 QString *error, const std::function<bool()> &cancelled) {
+  paleo::data::DataService service; long long source = 0;
+  const auto state = openSource(path, service, source, error);
+  if (state != Read::Ready) return state;
+  std::string detail;
+  std::vector<paleo::data::DataEntry> entries;
+  if (!service.listSourceData("volumes", source, entries, detail)) {
+    if (error) *error = QString::fromUtf8(detail); return Read::Failed;
+  }
+  if (entries.empty()) { if (error) *error = QStringLiteral("该来源未登记为地震体"); return Read::Failed; }
+  const long long volume = entries.front().id;
+  if (!service.readSeismicCoordinateRange(volume, range, detail, cancelled)) {
+    if (error) *error = QString::fromUtf8(detail); return Read::Failed;
+  }
+  return Read::Ready;
+}
+Read wellHeadRange(const QString &root, paleo::data::WellHeadRange &range, QString *error) {
+  if (root.isEmpty() || !QFileInfo::exists(root + "/data.sqlite")) {
+    if (error) *error = QStringLiteral("工区数据模型尚未建立"); return Read::Unbound;
+  }
+  paleo::data::DataService service; std::string detail;
+  if (!service.openProjectReadOnly(root.toUtf8().toStdString(), detail)) {
+    if (error) *error = QString::fromUtf8(detail); return Read::Failed;
+  }
+  if (!service.readWellHeadRange(range, detail)) {
+    if (error) *error = QString::fromUtf8(detail); return Read::Failed;
+  }
+  return Read::Ready;
+}
+Read projectRange(const QString &root, paleo::data::ProjectPlanarRange &range, QString *error) {
+  if (root.isEmpty() || !QFileInfo::exists(root + "/data.sqlite")) {
+    if (error) *error = QStringLiteral("工区数据模型尚未建立"); return Read::Unbound;
+  }
+  paleo::data::DataService service; std::string detail;
+  if (!service.openProjectReadOnly(root.toUtf8().toStdString(), detail)) {
+    if (error) *error = QString::fromUtf8(detail); return Read::Failed;
+  }
+  if (!service.readProjectPlanarRange(range, detail)) {
+    if (error) *error = QString::fromUtf8(detail); return Read::Failed;
+  }
+  return Read::Ready;
+}
 QString cacheToken(const QString &path) {
   paleo::data::DataService service; long long source = 0; QString error;
   const auto state = openSource(path, service, source, &error);

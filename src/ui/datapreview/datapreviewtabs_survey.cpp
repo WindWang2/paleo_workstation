@@ -365,12 +365,17 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
         crsLabel->setText(tr("正在后台恢复完整测区范围…"));
         QPointer<QWidget> guard = mapPage;
         m_doc->requestSurveyBounds(asset.id,
-            [guard, canvas, localCrs, completeSurvey, boundaryBand, btnBoundary, crsLabel, zoomFull](const auto &corners, const QString &error) {
+            [guard, canvas, localCrs, completeSurvey, boundaryBand, btnBoundary, crsLabel, zoomFull](const PreviewDocService::SurveyBounds &range) {
           if (!guard)
             return;
-          QgsRectangle bounds;
-          for (const auto &corner : corners)
-            bounds.combineExtentWith(QgsRectangle(corner.first, corner.second, corner.first, corner.second));
+          // 范围由数据服务给出（四角点按抽样道头拟合，包围盒同时算好），
+          // 界面不再自己从角点拼矩形——旧实现为此重开 SEG-Y 建整份道索引。
+          if (!range.valid()) {
+            crsLabel->setText(QObject::tr("测区范围不可用：%1")
+                .arg(range.detail.isEmpty() ? QObject::tr("地震体缺少有效坐标") : range.detail));
+            return;
+          }
+          const QgsRectangle bounds(range.minX, range.minY, range.maxX, range.maxY);
           if (!bounds.isEmpty()) {
             *completeSurvey = QgsGeometry::fromRect(bounds);
             boundaryBand->setToGeometry(*completeSurvey, localCrs);
@@ -379,10 +384,17 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
                 .arg(bounds.width() / 1000.0, 0, 'f', 1).arg(bounds.height() / 1000.0, 0, 'f', 1)
                 .arg(canvas->mapSettings().destinationCrs().type() == Qgis::CrsType::Engineering ? QObject::tr("局部工程坐标 (米)")
                     : canvas->mapSettings().destinationCrs().userFriendlyIdentifier()));
+            // 角点是拟合值，把残差与单位如实挂在提示里，不假装是实测角点。
+            const QString unit = range.coordinateUnit.isEmpty()
+                ? QObject::tr("（单位未声明）") : range.coordinateUnit;
+            crsLabel->setToolTip(std::isfinite(range.rmsResidual)
+                ? QObject::tr("角点由抽样道头拟合，残差 %1 %2；%3")
+                      .arg(range.rmsResidual, 0, 'f', 2).arg(unit, range.detail)
+                : QObject::tr("角点由抽样道头拟合，残差未知（%1）；%2").arg(unit, range.detail));
             zoomFull();
           } else {
             crsLabel->setText(QObject::tr("测区范围恢复失败：%1")
-                .arg(error.isEmpty() ? QObject::tr("地震体缺少有效坐标") : error));
+                .arg(range.detail.isEmpty() ? QObject::tr("地震体缺少有效坐标") : range.detail));
           }
         });
         break;

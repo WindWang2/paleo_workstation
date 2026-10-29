@@ -25,7 +25,9 @@ public:
       m_verificationCancelled->store(true);
   }
   void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
-  void open(const QString &path, const QString &expectedSha = QString());
+  void open(const QString &path, const QString &expectedSha = QString(),
+            const QString &modelProject = QString(), qlonglong modelSource = 0,
+            qlonglong modelWell = 0);
 signals:
   void ready(const XmlPreviewData &data);
 private:

@@ -2,6 +2,12 @@
 
 ## 工区模型作为预览数据源（本次修正）
 
+井道图通过子模块 `listSourceWells` / `readWellPlotData` 按稳定井 ID 汇集已入库的
+曲线、层段、标准层及照片引用。当前 RAW 测井预览按 `areaModelSourceId` 直接请求
+模型，原件离线仍可显示已入库的数值；模型失败如实报错。井坐标系／单位与工程
+目标坐标系／单位分别从模型读取并展示，不推测或隐式重投影。
+详细边界和验证见 [井道图接入记录](progress/welltracks-data-model-20261029.md)。
+
 新建空工程先通过 DataService.createProject 建立
 `artifacts/metadata/area-model/data.sqlite`；选择资料总目录后，在后台直接调用
 DataService.importDirectory 构建跨文件的井、曲线、地层、样品及工区资料模型。

@@ -97,6 +97,8 @@ QVector<ProjectWell> ProjectDataFacade::wells() const
     w.surfaceY = e.surfaceY;
     w.kb = e.kb;
     w.coordinateStatus = e.coordinateStatus;
+    w.coordinateSystem = e.extra.value("wellCoordinatesCrs").toString();
+    w.coordinateUnit = e.extra.value("wellCoordinateUnit").toString();
     if (!w.id.isEmpty())
       out.append(w);
   }

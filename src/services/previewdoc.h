@@ -215,6 +215,11 @@ class PreviewDocService : public QObject
         QStringList issues;          // 文件级 issues
     };
     // Returns false only for sources outside an open Data_service area model.
+    // Explicit model identity, independent of source existence and global aliases.
+    static bool areaPreviewSource(const QString &project, qlonglong source,
+        WorkbookPreview *table, WellComposite::ComprehensiveWellData *chart,
+        bool *chartOk, QString *error, qlonglong modelWell = 0,
+        const std::function<bool()> &cancelled = {});
     static bool areaPreviewAt(const QString &path, WorkbookPreview *table,
         WellComposite::ComprehensiveWellData *chart, bool *chartOk, QString *error);
     static WorkbookPreview workbookPreviewAt(const QString &absPath);

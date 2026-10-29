@@ -60,7 +60,9 @@ bool ComprehensiveWellData::isEmpty() const
 {
   return continuousCurves.isEmpty() && discreteCurves.isEmpty() &&
          lithologyIntervals.isEmpty() && formationIntervals.isEmpty() &&
-         stratigraphyIntervals.isEmpty() && faciesIntervals.isEmpty();
+         stratigraphyIntervals.isEmpty() && faciesIntervals.isEmpty() &&
+         sandIntervals.isEmpty() && sequenceIntervals.isEmpty() && textIntervals.isEmpty() &&
+         symbolItems.isEmpty() && coreBarrels.isEmpty() && images.isEmpty() && standardHorizons.isEmpty();
 }
 
 } // namespace WellComposite

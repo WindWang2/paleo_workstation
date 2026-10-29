@@ -5,6 +5,7 @@
 #include "../wellcomposite/wellcompositepanel.h"
 #include "../paleoviewport.h"
 #include <QStackedWidget>
+#include <cmath>
 
 using namespace paleo::datapreview_detail;
 
@@ -15,6 +16,7 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
   chart->setProjectName(catalogProjectDir(m_doc ? m_doc->catalog() : nullptr));
   chart->setObjectName("wellCompositePanel");
   auto *hint = new QLabel(tr("正在后台读取井道图与数据列表…"), host);
+  hint->setWordWrap(true);
   hint->setObjectName("xmlPendingHint");
   PaleoTheme::applyThemedStyleSheet(hint, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   auto *tableHost = new QWidget(host);
@@ -49,7 +51,18 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
       [this, abs, assetId, host, stack, chart, hint, tableHint, tableHost, tableLayout, reference](const XmlPreviewData &data) {
     hint->hide(); delete tableHint;
     buildWorkbookTable(data.table, tableHost, tableLayout);
-    if (data.chartOk) chart->loadWellData(data.chart, abs, reference);
+    if (data.chartOk) {
+      chart->loadWellData(data.chart, abs, reference);
+      if (data.chart.modelWellId) {
+        const auto known = [](const QString &value) { return value.isEmpty() ? tr("未确认") : value; };
+        const auto number = [](double value) { return std::isfinite(value) ? QString::number(value,'g',12) : tr("缺失"); };
+        hint->setText(tr("井口 X：%1，Y：%2；井坐标系：%3（%4）；工程坐标系：%5（%6）")
+            .arg(number(data.chart.x),number(data.chart.y),known(data.chart.coordinateSystem),known(data.chart.coordinateUnit),
+                 known(data.chart.projectCoordinateSystem),known(data.chart.projectCoordinateUnit))
+            + (data.chart.dataWarnings.isEmpty() ? QString() : "\n" + data.chart.dataWarnings.join('\n')));
+        hint->show();
+      }
+    }
     else {
       const int selected = stack->currentIndex();
       stack->removeWidget(chart); chart->deleteLater();
@@ -57,6 +70,13 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
       stack->insertWidget(0, failure); stack->setCurrentIndex(selected);
     }
   });
-  session->open(abs, expectedSha);
+  const auto *catalog = m_doc ? m_doc->catalog() : nullptr;
+  const auto version = catalog ? catalog->currentVersion(assetId) : CatalogVersion{};
+  const auto chosen = m_chosenVersionOfAsset.value(assetId);
+  const qlonglong modelSource = (chosen.isEmpty() || chosen == version.id) && version.stage == "RAW"
+      ? version.extra.value("areaModelSourceId").toLongLong() : 0;
+  const qlonglong modelWell = catalog
+      ? catalog->entityById(m_wellEntityOfAsset.value(assetId)).extra.value("areaModelWellId").toLongLong() : 0;
+  session->open(abs, expectedSha, catalogProjectDir(catalog), modelSource, modelWell);
   return host;
 }

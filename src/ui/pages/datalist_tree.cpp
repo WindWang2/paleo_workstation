@@ -64,14 +64,6 @@ QString navExpandedKey(const QTreeWidgetItem *it)
   return parts.join(QStringLiteral("\x1f"));
 }
 
-int countItemNodes(const QTreeWidgetItem *it)
-{
-  int n = 1;
-  for (int i = 0; i < it->childCount(); ++i)
-    n += countItemNodes(it->child(i));
-  return n;
-}
-
 // finding-126：按已决链接解析地震体各自归属的 seismic_survey；旧实现一律取首个测区（多测区错值），解析不到返回空。
 CatalogEntity seismicSurveyForAsset(DataCatalog *cat, const QString &assetId)
 {

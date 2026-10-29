@@ -3,9 +3,12 @@
 
 #include <QColor>
 #include <QPixmap>
+#include <QImage>
 #include <QPair>
 #include <QString>
+#include <QStringList>
 #include <QVector>
+#include <limits>
 
 // domain/wellcompositemodel — ResFormStar 风格单井综合柱状图的纯数据模型
 // （自 ui/wellcomposite/wellcompositetrack.h 下沉：io 解析器产出、ui 井道消费，
@@ -31,6 +34,7 @@ enum class CurveDisplayMode
 // 单根曲线数据模型
 struct CurveData
 {
+  qlonglong modelSourceId = 0, modelLogSetId = 0;
   QString name;
   QString unit;
   float minScale = 0.0f;
@@ -126,6 +130,7 @@ struct ImageDepthItem
   QString imagePath;
   QPixmap pixmap;
   QString caption;
+  QImage thumbnail; // Worker-decoded; GUI creates the pixmap when applying data.
 };
 
 // 符号道符号项
@@ -153,8 +158,12 @@ struct SymbolItem
 struct ComprehensiveWellData
 {
   QString wellName;
-  double x = 0.0;
-  double y = 0.0;
+  qlonglong modelWellId = 0;
+  QString coordinateSystem, coordinateUnit;
+  QString projectCoordinateSystem, projectCoordinateUnit;
+  QStringList dataWarnings;
+  double x = std::numeric_limits<double>::quiet_NaN();
+  double y = std::numeric_limits<double>::quiet_NaN();
   double minDepth = 0.0;
   double maxDepth = 0.0;
 

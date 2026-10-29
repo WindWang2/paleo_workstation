@@ -21,10 +21,11 @@ target_sources(paleo_io PRIVATE src/io/nativemodel_prepare.cpp src/io/nativemode
 target_link_libraries(paleo_io PRIVATE Paleo::paleo_data_service)
 
 target_sources(paleo_io PRIVATE src/io/areamodel.cpp src/io/areamodel_log.cpp)
-target_sources(paleo_services PRIVATE src/services/previewdoc_area.cpp)
+target_sources(paleo_services PRIVATE src/services/previewdoc_area.cpp src/services/areawellchart.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/projectsetup_area.cpp)
 target_sources(paleo_ui PRIVATE src/ui/dialogs/dataserviceimportwizard.cpp)
 add_paleo_test(tst_dataserviceimportwizard LIBS paleo_ui paleo_workflow paleo_io Paleo::paleo_data_service)
 target_link_libraries(paleo_services PRIVATE Paleo::paleo_data_service)
 target_link_libraries(paleo_workflow PRIVATE Paleo::paleo_data_service)
-add_paleo_test(tst_areamodel LIBS paleo_io paleo_services Paleo::paleo_data_service)
+add_paleo_test(tst_areamodel LIBS paleo_io paleo_services paleo_workflow Paleo::paleo_data_service)
+target_link_libraries(tst_wellcomposite PRIVATE Paleo::paleo_data_service)

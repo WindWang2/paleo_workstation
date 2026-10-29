@@ -9,7 +9,8 @@
 #include <QTemporaryDir>
 #include <QtConcurrent>
 
-void XmlPreviewSession::open(const QString &path, const QString &expectedSha)
+void XmlPreviewSession::open(const QString &path, const QString &expectedSha,
+                             const QString &modelProject, qlonglong modelSource, qlonglong modelWell)
 {
   if (m_verificationCancelled) m_verificationCancelled->store(true);
   m_verificationCancelled = std::make_shared<std::atomic_bool>(false);
@@ -30,13 +31,18 @@ void XmlPreviewSession::open(const QString &path, const QString &expectedSha)
               emit ready(data);
           });
   const auto future = QtConcurrent::run(
-      paleo::tasks::pool(m_tasks), [path, expectedSha, cancelled, directory] {
+      paleo::tasks::pool(m_tasks), [path, expectedSha, cancelled, directory, modelProject, modelSource, modelWell] {
         XmlPreviewData data;
         const auto refuse = [&data](const QString &reason) {
           data.chartError = reason;
           data.table.error = reason;
           return data;
         };
+        if (modelSource > 0) {
+          PreviewDocService::areaPreviewSource(modelProject, modelSource, &data.table,
+              &data.chart, &data.chartOk, &data.chartError, modelWell, [cancelled]{return cancelled->load();});
+          return cancelled->load() ? XmlPreviewData{} : data;
+        }
         if (PreviewDocService::areaPreviewAt(path, &data.table, &data.chart,
                                              &data.chartOk, &data.chartError))
           return cancelled->load() ? XmlPreviewData{} : data;

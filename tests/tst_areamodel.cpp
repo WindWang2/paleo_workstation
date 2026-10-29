@@ -8,6 +8,7 @@
 #include "catalog/areawellprojection.h"
 #include "catalog/areasourceprojection.h"
 #include "services/projectdata.h"
+#include "workflow/xmlpreviewsession.h"
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -15,6 +16,48 @@
 class TestAreaModel : public QObject {
   Q_OBJECT
 private slots:
+  void wellChartCombinesStoredSourcesAndCoordinates() {
+    QTemporaryDir temp; const QString input=temp.filePath("input");QVERIFY(QDir().mkpath(input));
+    const auto write=[&](const QString &name,const QByteArray &bytes){QFile file(input+"/"+name);return file.open(QIODevice::WriteOnly)&&file.write(bytes)==bytes.size();};
+    QVERIFY(write("one.las","~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. SYNTH-1\n~Curve\nMD.M\nGR.API\n~Ascii\n100 10\n101 20\n"));
+    QVERIFY(write("two.las","~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. SYNTH-1\n~Curve\nMD.FT\nRT.OHMM\n~Ascii\n100 30\n101 40\n"));
+    const QString project=temp.filePath("project");QString error;paleo::data::ImportReport report;
+    QVERIFY2(paleo::area_model::importDirectory(project,input,report,&error),qPrintable(error));
+    paleo::data::DataService service;std::string detail;
+    QVERIFY(service.openProject(paleo::area_model::directory(project).toStdString(),detail));
+    QVERIFY(service.setProjectCrs("EPSG:4326","degree",detail));
+    std::vector<paleo::data::WellInfoRecord> wells;QVERIFY(service.listWellInfos(wells,detail));QCOMPARE(wells.size(),size_t(1));
+    auto info=wells.front().value;info.wellheadX=0;info.wellheadY=300000;info.coordinateSystem="EPSG:32649";info.coordinateUnit="m";
+    QVERIFY(service.saveWellInfo(wells.front().id,info,detail));
+    std::vector<paleo::data::DataEntry> curves;QVERIFY(service.listData("curves",wells.front().id,curves,detail));QCOMPARE(curves.size(),size_t(2));
+    QVERIFY(service.updateCurveValue(curves.front().id,0,99,detail));
+    const auto source=curves.front().sourceId;service.closeProject();
+    QVERIFY(QFile::remove(input+"/one.las"));QVERIFY(QFile::remove(input+"/two.las"));
+    PreviewDocService::WorkbookPreview table;WellComposite::ComprehensiveWellData chart;bool ready=false;
+    QVERIFY(PreviewDocService::areaPreviewSource(project,source,&table,&chart,&ready,&error));
+    QVERIFY2(ready,qPrintable(error));QVERIFY(table.ok);QCOMPARE(chart.continuousCurves.size(),2);
+    QCOMPARE(chart.continuousCurves.front().values.front(),99.f);QCOMPARE(chart.x,0.0);QCOMPARE(chart.y,300000.0);
+    QCOMPARE(chart.coordinateSystem,QString("EPSG:32649"));QCOMPARE(chart.coordinateUnit,QString("m"));
+    QCOMPARE(chart.projectCoordinateSystem,QString("EPSG:4326"));QCOMPARE(chart.projectCoordinateUnit,QString("degree"));
+    QVERIFY(qAbs(chart.continuousCurves.back().depths.front()-30.48)<1e-4);
+    QVERIFY(chart.continuousCurves.front().modelSourceId!=chart.continuousCurves.back().modelSourceId);
+    XmlPreviewSession session;QSignalSpy loaded(&session,&XmlPreviewSession::ready);
+    session.open(input+"/one.las",{},project,source);
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(),1,10000);
+    const auto snapshot=qvariant_cast<XmlPreviewData>(loaded.front().front());
+    QVERIFY2(snapshot.chartOk,qPrintable(snapshot.chartError));
+    QCOMPARE(snapshot.chart.continuousCurves.size(),2);
+    QCOMPARE(snapshot.chart.projectCoordinateSystem,QString("EPSG:4326"));
+    // Unknown well CRS must remain unknown even when project CRS is known.
+    QVERIFY(service.openProject(paleo::area_model::directory(project).toStdString(),detail));
+    info.coordinateSystem.clear();info.coordinateUnit.clear();QVERIFY(service.saveWellInfo(wells.front().id,info,detail));service.closeProject();
+    QVERIFY(PreviewDocService::areaPreviewSource(project,source,nullptr,&chart,&ready,&error));QVERIFY(ready);
+    QVERIFY(chart.coordinateSystem.isEmpty());QCOMPARE(chart.projectCoordinateSystem,QString("EPSG:4326"));
+    QVERIFY(PreviewDocService::areaPreviewSource(project,source,nullptr,&chart,&ready,&error,999999));
+    QVERIFY(!ready);QVERIFY(chart.isEmpty());QVERIFY(!error.isEmpty());
+    QVERIFY(!PreviewDocService::areaPreviewSource(temp.filePath("missing"),source,nullptr,&chart,&ready,&error));
+    QVERIFY(!ready);QVERIFY(chart.isEmpty());
+  }
   void coordinateCsvBuildsDomainWells() {
     QTemporaryDir temp; const QString input=temp.filePath("input"); QVERIFY(QDir().mkpath(input));
     QFile f(input + "/coordinates.csv"); QVERIFY(f.open(QIODevice::WriteOnly));

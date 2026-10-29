@@ -32,6 +32,10 @@ namespace seismic {
 
 struct SeismicDatasetEntry;     // cpp 内定义：Dataset + 使用锁（engine 契约：单线程独占使用）
 struct SeismicDatasetRegistry;  // cpp 内定义：条目注册表（shared_ptr 共享给 worker，析构安全）
+struct SeismicNativeInfo {
+ int sampleCount=0,inlineMin=0,inlineMax=0,xlineMin=0,xlineMax=0;
+ double firstTimeMs=0,sampleIntervalMs=0;
+};
 
 // 秒级首屏快照（QuickOpenSegyPreview 的主线程可消费副本）：
 // 网格范围/角点验证结论/中央测线真振幅缩略（未读列 NaN）。
@@ -41,6 +45,7 @@ struct SeismicQuickPreview
   QString error;
   QString summary;          // 验证摘要或回落原因（fallback 时无缩略）
   bool ruleVerified = false;
+  std::shared_ptr<SgyVolume> volume; // provisional 3D geometry, ruleBased remains explicit
   qint64 traceCount = 0;
   int sampleCount = 0;
   int sampleIntervalUs = 0;
@@ -259,13 +264,16 @@ public:
 
   PaleoTaskService *taskService() const { return taskService_; }
   void setTaskService(PaleoTaskService *taskService) { taskService_ = taskService; }
+  PaleoTask *startDataInfo(const QString& path,std::function<void(bool,const SeismicNativeInfo&,const QString&)> done);
+  PaleoTask *startDataSlice(const QString& path,SgySliceType type,int index,
+      std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done);
 
   // 1. 异步索引 SEG-Y：优先读取磁盘缓存；未命中或强制刷新时提交至 PaleoTaskService 异步扫描
   PaleoTask *startIndexing(
       const QString &sgyPath,
       bool forceReindex,
       std::function<void(bool success, SgyIndexPtr index, const QString &error)> onFinished,
-      const QString &layerId = QString());
+      const QString &layerId = QString(), bool quiet = false);
 
   // 2. 异步切片提取：优先查询内存 LRU 缓存；未命中则提交后台任务提取。
   //    pagedPath 非空时改走显式 .sf3p 分页工作区（LOD 映射后端），
@@ -275,7 +283,7 @@ public:
       SgySliceType type,
       int sliceIndex,
       std::function<void(bool success, std::shared_ptr<const SgySliceImage> image, const QString &error)> onFinished,
-      const QString &pagedPath = QString());
+      const QString &pagedPath = QString(), bool viewer3D = false);
 
   // 3. 异步任意剖面提取：任意折线路径剖面提取
   PaleoTask *startSectionExtraction(

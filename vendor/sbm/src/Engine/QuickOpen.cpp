@@ -242,6 +242,7 @@ QuickOpenResult QuickOpenSegyPreview(const std::filesystem::path& path,
         result.times.publishMs = MsSince(stage);
     }
 
+    result.previewIndex = snapshot;
     result.times.totalMs = MsSince(start);
     result.status = Status::Ok();
     return result;

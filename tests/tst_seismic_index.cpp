@@ -1,11 +1,13 @@
 #include <QtTest>
 #include <QElapsedTimer>
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtEndian>
+#include <QScopeGuard>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -20,6 +22,9 @@
 #include "domain/seismic/sgyvolume.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
+#include "services/seismicdataprojection.h"
+#include "services/fspathutils.h"
+#include "io/areamodel.h"
 #include "perfbudget_relax.h"
 
 class TestSeismicIndex : public QObject
@@ -55,6 +60,7 @@ private:
     qToBigEndian<qint16>(dt, reinterpret_cast<uchar *>(binHdr.data()) + 16);
     qToBigEndian<qint16>(ns, reinterpret_cast<uchar *>(binHdr.data()) + 20);
     qToBigEndian<qint16>(5, reinterpret_cast<uchar *>(binHdr.data()) + 24); // IEEE float
+    qToBigEndian<qint16>(1, reinterpret_cast<uchar *>(binHdr.data()) + 54); // declared metres
     qToBigEndian<qint16>(0x0100, reinterpret_cast<uchar *>(binHdr.data()) + 300);
     file.write(binHdr);
 
@@ -75,6 +81,7 @@ private:
         qToBigEndian<qint32>(inlineNo, reinterpret_cast<uchar *>(trHdr.data()) + 8);
         qToBigEndian<qint32>(xlineNo, reinterpret_cast<uchar *>(trHdr.data()) + 20);
         qToBigEndian<qint16>(1, reinterpret_cast<uchar *>(trHdr.data()) + 70); // scalar
+        qToBigEndian<qint16>(1, reinterpret_cast<uchar *>(trHdr.data()) + 88); // length coordinates
         qToBigEndian<qint32>(1000 + j * 25, reinterpret_cast<uchar *>(trHdr.data()) + 72); // src X
         qToBigEndian<qint32>(5000 + i * 25, reinterpret_cast<uchar *>(trHdr.data()) + 76); // src Y
         qToBigEndian<qint32>(1000 + j * 25, reinterpret_cast<uchar *>(trHdr.data()) + 180); // cdp X
@@ -103,6 +110,66 @@ private:
   }
 
 private slots:
+  void registeredSourceFailsClosedAfterExternalChange()
+  {
+    const auto file=tempDir_.filePath("registered-source.sgy");QVERIFY(writeSyntheticVolume(file,10,12,20,23,16));
+    const auto project=tempDir_.filePath("registered-area");paleo::data::DataService service;std::string error;
+    QVERIFY2(service.createProject(paleo::area_model::directory(project).toUtf8().toStdString(),"seismic sources",error),error.c_str());
+    paleo::data::ImportReport report;QVERIFY2(service.importFile(file.toUtf8().toStdString(),{},report,error),error.c_str());
+    paleo::area_model::registerProject(project,&service);
+    const auto cleanup=qScopeGuard([&]{paleo::area_model::unregisterProject(&service);});
+    paleo::SeismicDataAccess source;QString detail;QVERIFY2(source.open(file,&detail),qPrintable(detail));
+    paleo::data::SectionReadOptions options;options.fullResolution=true;paleo::data::SeismicSectionResult section;
+    QVERIFY2(source.line(true,10,options,section,error),error.c_str());QCOMPARE(section.amplitudes.front(),11.f);
+    QFile changed(file);QVERIFY(changed.open(QIODevice::ReadWrite));QVERIFY(changed.seek(3600+240));
+    float value=1011.f;quint32 bits;std::memcpy(&bits,&value,4);char bytes[4];qToBigEndian(bits,reinterpret_cast<uchar*>(bytes));QCOMPARE(changed.write(bytes,4),qint64(4));
+    QVERIFY(changed.setFileTime(QDateTime::currentDateTimeUtc().addSecs(2),QFileDevice::FileModificationTime));changed.close();
+    QVERIFY(!source.line(true,10,options,section,error));QVERIFY(!error.empty());
+    QVERIFY2(paleo::data::DataService::readSeismicFileLine(file.toUtf8().toStdString(),"inline",10,options,section,error),error.c_str());QCOMPARE(section.amplitudes.front(),1011.f);
+  }
+
+  void nativeSectionsKeepDelayAndValuesWithoutViewerIndex()
+  {
+    const auto file=tempDir_.filePath(QStringLiteral("原生剖面.sgy"));
+    QVERIFY(writeSyntheticVolume(file,10,12,20,23,16));
+    QFile source(file);QVERIFY(source.open(QIODevice::ReadWrite));
+    for(int trace=0;trace<12;++trace){QVERIFY(source.seek(3600+trace*(240+16*4)+108));char delay[2];qToBigEndian<qint16>(100,reinterpret_cast<uchar*>(delay));QCOMPARE(source.write(delay,2),qint64(2));}source.close();
+    paleo::data::SectionReadOptions options;options.fullResolution=true;
+    paleo::data::SeismicSectionResult section;std::string error;
+    QVERIFY2(paleo::data::DataService::readSeismicFileLine(file.toUtf8().toStdString(),"inline",11,options,section,error),error.c_str());
+    QCOMPARE(section.columns,4);QCOMPARE(section.samples,16);QCOMPARE(section.firstTime,100.);QCOMPARE(section.amplitudes[0],21.f);
+    seismic::SgySliceImage image;QString detail;
+    QVERIFY2(paleo::readSeismicDataSlice(file,seismic::SgySliceType::Time,5,image,detail),qPrintable(detail));
+    QCOMPARE(image.width,4);QCOMPARE(image.height,3);QVERIFY(std::abs(image.Value(0,2)-11.5f)<.001);
+    QVERIFY(!std::filesystem::exists(seismic::SgyIndexCache::CachePathFor(paleo::toFsPath(file))));
+    options.maxValues=4;QVERIFY(!paleo::data::DataService::readSeismicFileLine(file.toUtf8().toStdString(),"inline",11,options,section,error));QVERIFY(section.amplitudes.empty());
+    options.maxValues=8000000;QVERIFY(!paleo::data::DataService::readSeismicFileLine(file.toUtf8().toStdString(),"inline",11,options,section,error,[]{return true;}));QVERIFY(section.amplitudes.empty());
+  }
+
+  void quick3DThenCachedFullResolution()
+  {
+    const auto path=tempDir_.filePath(QStringLiteral("progressive3d.sgy"));QVERIFY(writeSyntheticVolume(path,1,4,1,512,32));
+    PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);
+    bool ready=false,ok=false;QString error;std::shared_ptr<seismic::SgyVolume> coarse,full;
+    service.startQuickOpen(path,128,[&](bool success,const seismic::SeismicQuickPreview& preview){ok=success&&preview.ruleVerified;coarse=preview.volume;error=preview.error;ready=true;});
+    QTRY_VERIFY_WITH_TIMEOUT(ready,15000);QVERIFY2(ok,qPrintable(error));QVERIFY(coarse&&coarse->IsRuleBased());
+    const auto cache=seismic::SgyIndexCache::CachePathFor(paleo::toFsPath(path));QVERIFY(!std::filesystem::exists(cache));
+    std::shared_ptr<const seismic::SgySliceImage> image;ready=false;
+    service.startSliceExtraction(coarse,seismic::SgySliceType::Inline,2,[&](bool success,auto value,const QString& why){ok=success;image=value;error=why;ready=true;},{},true);
+    QTRY_VERIFY_WITH_TIMEOUT(ready,15000);QVERIFY2(ok,qPrintable(error));QVERIFY(image);QCOMPARE(image->width,128);
+    ready=false;service.startVolumeLoad(path,[&](bool success,auto value,const QString& why){ok=success;full=value;error=why;ready=true;},true);
+    QTRY_VERIFY_WITH_TIMEOUT(ready,15000);QVERIFY2(ok,qPrintable(error));QVERIFY(full&&!full->IsRuleBased());QVERIFY(std::filesystem::exists(cache));
+    ready=false;service.startSliceExtraction(full,seismic::SgySliceType::Inline,2,[&](bool success,auto value,const QString& why){ok=success;image=value;error=why;ready=true;},{},true);
+    QTRY_VERIFY_WITH_TIMEOUT(ready,15000);QVERIFY2(ok,qPrintable(error));QCOMPARE(image->width,512);QVERIFY(std::abs(image->Value(0,31)-21.f)<.001);
+    const auto stamp=std::filesystem::last_write_time(cache);ready=false;
+    service.startVolumeLoad(path,[&](bool success,auto value,const QString& why){ok=success&&value&&!value->IsRuleBased();error=why;ready=true;},true);
+    QTRY_VERIFY_WITH_TIMEOUT(ready,15000);QVERIFY2(ok,qPrintable(error));QVERIFY(std::filesystem::last_write_time(cache)==stamp);
+    QFile changed(path);QVERIFY(changed.open(QIODevice::Append));QCOMPARE(changed.write("x",1),qint64(1));changed.close();
+    ready=false;service.startSliceExtraction(full,seismic::SgySliceType::Inline,2,[&](bool success,auto value,const QString& why){ok=success;image=value;error=why;ready=true;},{},true);
+    QVERIFY(ready);QVERIFY(!ok);QVERIFY(!image);QVERIFY(!error.isEmpty());
+    std::string reason;QVERIFY(!seismic::SgyIndexCache::Load(paleo::toFsPath(path),reason));
+  }
+
   void initTestCase()
   {
     QVERIFY(tempDir_.isValid());

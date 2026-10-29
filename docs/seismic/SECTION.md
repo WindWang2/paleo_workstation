@@ -1,5 +1,14 @@
 # 剖面 2D（SECTION）
 
+2026-10-30：测线、时间切片及任意折线取数统一经 Data_service，预览不再建立另一套
+`SegyReader` 索引。已导入来源通过工区来源关系找到唯一地震体，关联异常直接报错；
+未登记的独立文件使用数据服务同一读取器的只读文件接口，不为预览导入或写库。
+采样轴、延迟时间、真实测线号、NaN、负振幅与零值随结果保留；原始分辨率超预算
+明确失败，不静默降采样。2D 时间片的元信息和读取不等待 3D 索引，也不使用 3D
+分页缓存。保存的 XY 剖面仍由 `saveSection`／`readSection`／`extractSection` 管理；
+交互中的 IL／XL 路径使用数据服务的原生网格剖面入口，不猜未确认的 CRS。
+线号弧长与物理距离分别保留，只有明确的米／英尺约定和有效坐标才能输出米弧长。
+
 > wave/seismic-chain-deep · Phase 2 交付（D2.1–D2.14）
 > 组件：`src/ui/seismicsection/seismicsectioncanvas.{h,cpp}`（画布）、
 > `seismicsectiondockwidget.{h,cpp}`（dock：工具栏+显示控制行+状态栏）、

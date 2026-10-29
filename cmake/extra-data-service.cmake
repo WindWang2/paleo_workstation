@@ -72,3 +72,7 @@ add_paleo_test(tst_stratigraphy_model LIBS paleo_workflow paleo_services Paleo::
 
 target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_preview.cpp src/ui/wellcomposite/multiwellview_range.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/stratigraphyworkflow_preview.cpp)
+
+target_sources(paleo_services PRIVATE src/services/seismicdataaccess.cpp src/services/seismicdataprojection.cpp)
+target_sources(paleo_services PRIVATE src/services/seismictaskservice_data.cpp)
+target_link_libraries(tst_seismic_index PRIVATE Paleo::paleo_data_service)

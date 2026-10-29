@@ -17,6 +17,7 @@
 #include <QSettings>
 #include <QHelpEvent>
 #include <QToolTip>
+#include "ui/paleotheme.h"
 
 #include <atomic>
 #include <cmath>
@@ -165,6 +166,7 @@ private:
 private slots:
   void initTestCase()
   {
+    PaleoTheme::pinRenderEnvironment();
     // goal/ui-experience-polish：显式给了取证目录就尊重（captureEvidence 用），
     // 仅未设置时钉 "0" 防渲染循环型用例误落盘。
     const QString cap = qEnvironmentVariable("PALEO_UI_CAPTURE");
@@ -1062,7 +1064,7 @@ private slots:
       put16(binary, 12, 4);
       put16(binary, 16, 2000);
       put16(binary, 20, 64);
-      put16(binary, 24, 4);
+      put16(binary, 24, 5); // fixture samples below are IEEE float32
       file.write(binary);
       for (int il = 0; il < 4; ++il)
         for (int xl = 0; xl < 4; ++xl)

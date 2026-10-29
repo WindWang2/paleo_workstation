@@ -56,6 +56,7 @@ using namespace paleo::datapreview_detail;
 #include <qgstextbuffersettings.h>
 #include <QButtonGroup>
 #include <QTimer>
+#include <QSignalBlocker>
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
@@ -278,6 +279,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
 
   // 2. 三维立体 (3D)
   auto *panel3d = new seismic::Seismic3DViewPanel(modeTabs);
+  panel3d->setProperty("fullPrecisionAfterIndex",true);
   panel3d->setObjectName(QStringLiteral("seismic3DPanel"));
   modeTabs->addTab(panel3d, tr("三维立体 (3D)"));
 
@@ -641,11 +643,10 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   quickInfo->setVisible(false);
 
   const QPointer<QLabel> quickInfoGuard(quickInfo);
-  const QPointer<QWidget> sectionPanelGuard(panel);
   const QPointer<seismic::Seismic3DViewPanel> panel3dGuard(panel3d);
 
   // 体就绪后的统一换装（两段共用；只装一次）
-  const auto finishVolumeSetup = [panel3dGuard, sliderTime, spinTime](const std::shared_ptr<seismic::SgyVolume> &vol) {
+  const auto finishVolumeSetup = [panel3dGuard](const std::shared_ptr<seismic::SgyVolume> &vol) {
     if (!panel3dGuard || !vol)
       return;
     if (panel3dGuard->viewport())
@@ -654,24 +655,18 @@ QWidget *DataPreviewTabs::buildSeismicContent(
       panel3dGuard->viewport()->fitToBounds();
     }
 
-    sliderTime->blockSignals(true);
-    spinTime->blockSignals(true);
-    sliderTime->setRange(0, vol->SampleMax());
-    spinTime->setRange(0, vol->SampleMax());
-    const int mid = vol->SampleMax() / 2;
-    sliderTime->setValue(mid);
-    spinTime->setValue(mid);
-    sliderTime->blockSignals(false);
-    spinTime->blockSignals(false);
+
   };
 
   const auto installVolume = [sharedVol, sharedPaged, panel3dGuard, finishVolumeSetup](
                                  const std::shared_ptr<seismic::SgyVolume> &vol) {
     // #280（UIV-02）：标签页可能已被关闭、3D 面板已销毁——守卫先于一切
     // 解引用，且在写 sharedVol 之前（没地方装的结果不占位）。
-    if (!panel3dGuard || *sharedVol != nullptr || !vol)
+    if (!panel3dGuard || !vol || (*sharedVol && !(*sharedVol)->IsRuleBased()))
       return;
+    const bool promoted=*sharedVol && panel3dGuard->promoteIndexedVolume(vol);
     *sharedVol = vol;
+    if(promoted)return;
     // paged 通道先于 volume：初始三槽切片请求即带 LOD 映射（从最粗层起步）
     if (!sharedPaged->isEmpty())
       panel3dGuard->setPagedWorkspace(*sharedPaged);
@@ -679,7 +674,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     finishVolumeSetup(vol);
   };
 
-  const auto ensureVolumeLoaded = [this, abs, sharedVol, panel3dGuard, quickInfoGuard, sectionPanelGuard, installVolume, host]() {
+  const auto ensureVolumeLoaded = [this, abs, sharedVol, panel3dGuard, quickInfoGuard, installVolume, host]() {
     if (*sharedVol != nullptr || abs.isEmpty() || !QFile::exists(abs))
       return;
     auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
@@ -697,7 +692,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     }
 
     // 第一段：QuickOpen 秒级首屏（网格/角点/中央测线真振幅缩略）
-    svc->startQuickOpen(abs, 128, [quickInfoGuard, sectionPanelGuard](bool ok, const seismic::SeismicQuickPreview &p) {
+    svc->startQuickOpen(abs, 128, [quickInfoGuard, installVolume](bool ok, const seismic::SeismicQuickPreview &p) {
       if (!quickInfoGuard)
         return;
       if (!ok)
@@ -720,33 +715,12 @@ QWidget *DataPreviewTabs::buildSeismicContent(
       {
         text = QObject::tr("秒开 %1 ms · %2").arg(p.totalMs, 0, 'f', 0).arg(p.summary);
       }
+      if(p.ruleVerified)text+=QObject::tr(" · 3D 粗预览，后台建立完整索引");
       quickInfoGuard->setText(text);
       quickInfoGuard->setVisible(true);
 
-      // 秒级缩略：真振幅中央测线先上 2D 剖面（测线解码结果到达后自然替换）
-      if (p.ruleVerified && p.preview && p.preview->width > 0 && sectionPanelGuard)
-      {
-        auto *sectionPanel = static_cast<SectionPanel *>(sectionPanelGuard.data());
-        if (!sectionPanel->hasImage())
-        {
-          QVector<SegyTrace> traces;
-          traces.reserve(p.preview->width);
-          for (int col = 0; col < p.preview->width; ++col)
-          {
-            SegyTrace t;
-            t.lineNo = p.previewInline;
-            t.xlineNo = p.xlineMin + col;
-            t.cdp = t.xlineNo;
-            t.sampleIntervalUs = static_cast<float>(p.sampleIntervalUs);
-            t.samples.reserve(p.preview->height);
-            for (int s = 0; s < p.preview->height; ++s) // row 0 = 最深采样
-              t.samples.push_back(p.preview->values[
-                  static_cast<std::size_t>(p.preview->height - 1 - s) * p.preview->width + col]);
-            traces.push_back(t);
-          }
-          sectionPanel->setTraces(traces, static_cast<float>(p.sampleIntervalUs), 0.0);
-        }
-      }
+      // 快速规则快照只用于 3D 浏览；普通 2D 剖面一律由 Data_service 获取。
+      if(p.ruleVerified&&p.volume)installVolume(p.volume);
     });
 
     // 第二段：后台体加载（.sgyidx 命中时秒级），完成换装 3D/时间片面板。
@@ -758,8 +732,8 @@ QWidget *DataPreviewTabs::buildSeismicContent(
                      bool ok, std::shared_ptr<seismic::SgyVolume> vol, const QString &err) {
               if (ok)
               {
-                if (panel3dGuard)
-                  installVolume(vol);
+                if (panel3dGuard)installVolume(vol);
+                if(quickInfoGuard){quickInfoGuard->setText(QObject::tr("索引已就绪 · 3D 原始分辨率交互"));quickInfoGuard->setVisible(true);}
                 return;
               }
               if (quickInfoGuard && !err.isEmpty())
@@ -782,101 +756,30 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   // 工区打开即启动两段式（不等页签切换）；页签切换回调只做幂等兜底与聚焦
   ensureVolumeLoaded();
 
-  // 时间片走任务服务：sdk::Dataset 在已转码时命中工作区随机访问后端；
-  // 未转码走 Direct（同一份 SgyVolume 实现）。防抖 120ms，仅贴最新请求。
-  // 取舍（主线2）：显式 .sf3p 存在时走瓦片渐进（引擎焦点优先，冷缓存
-  // 首见先出中心瓦片再补边角）；直读/热缓存一次性整图更省——两路并存。
-  auto *sliceDebounce = new QTimer(host);
-  sliceDebounce->setSingleShot(true);
-  sliceDebounce->setInterval(120);
-  const auto pendingIdx = std::make_shared<int>(-1);
-
-  // 瓦片信号路由（每服务接一次）：按「画布 → (工作区, 采样号)」登记表逐项
-  // 匹配，只贴登记一致的那一块画布（实现见 connectTiledTileRoute）。
-  if (auto *tileSvc = (m_doc ? m_doc->seismicTaskService() : nullptr))
-    connectTiledTileRoute(tileSvc);
-
-  const auto requestTimeSlice = [this, sharedVol, sharedPaged, timeCanvas, lblTimeMs, pendingIdx](int sampleIndex) {
-    if (!*sharedVol || !(*sharedVol)->IsLoaded())
-      return;
-    const auto &vol = *sharedVol;
-    const double ms = sampleIndex * (vol->SampleIntervalUs() / 1000.0);
-    lblTimeMs->setText(QStringLiteral("%1 ms").arg(ms, 0, 'f', 1));
-
-    auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
-    const QPointer<seismic::SeismicSectionCanvas> canvasGuard(timeCanvas);
-    if (svc && !sharedPaged->isEmpty())
-    {
-      // paged 通道：瓦片渐进（焦点=网格中心；tileSize 64 与引擎页几何匹配）。
-      // 焦点取轴上真值（InlineValues/XlineValues 中位）——step≠1 的轴上
-      // InlineMin()+count/2 不保证存在，引擎会退回默认中心。
-      const auto &inlVals = vol->InlineValues();
-      const auto &xlVals = vol->XlineValues();
-      // 轴表为空时取中位会越界——给出原因态，与 interp 路径「体测网轴为空」同语义
-      if (inlVals.empty() || xlVals.empty())
-      {
-        timeCanvas->clearData();
-        timeCanvas->setNoDataReason(tr("体测网轴为空，无法定位时间切片焦点"));
-        return;
-      }
-      const int inlCount = static_cast<int>(inlVals.size());
-      const int xlCount = static_cast<int>(xlVals.size());
-      const int focusInl = inlVals[static_cast<std::size_t>(inlCount / 2)];
-      const int focusXl = xlVals[static_cast<std::size_t>(xlCount / 2)];
-      timeCanvas->beginTimeSliceTiled(xlCount, inlCount, ms,
-                                      vol->InlineMin(), vol->InlineMax(),
-                                      vol->XlineMin(), vol->XlineMax());
-      registerTiledTarget(timeCanvas, *sharedPaged, sampleIndex);
-      // A3（wave/deepen-perf）：失败如实显示原因态（不再留整幅 NaN 灰无解释）；
-      // 被新请求顶替的取消回调经世代过滤（*pendingIdx 已是最新采样号）丢弃。
-      svc->startTimeSliceTiled(
-          *sharedPaged, sampleIndex, 64, focusInl, focusXl,
-          [canvasGuard, pendingIdx, sampleIndex](bool ok,
-                                                 std::shared_ptr<const seismic::SgySliceImage> img,
-                                                 const QString &error) {
-            if (!canvasGuard || *pendingIdx != sampleIndex)
-              return; // 陈旧请求（已被顶替/换采样）——静默丢弃
-            if (!ok || !img) {
-              canvasGuard->clearData();
-              canvasGuard->setNoDataReason(
-                  QObject::tr("时间切片获取失败（分页通道）\n%1").arg(error));
-              return;
-            }
-            canvasGuard->finishTimeSliceTiled(*img);
-          });
-      return;
-    }
-    if (svc)
-    {
-      // A3：直读/工作区通道同一空态语义（失败原因上屏，不留旧图冒充新采样）
-      svc->startSliceExtraction(
-          vol, seismic::SgySliceType::Time, sampleIndex,
-          [canvasGuard, pendingIdx, sampleIndex, ms, vol](
-              bool ok, std::shared_ptr<const seismic::SgySliceImage> img, const QString &error) {
-            if (!canvasGuard || *pendingIdx != sampleIndex)
-              return;
-            if (!ok || !img) {
-              canvasGuard->clearData();
-              canvasGuard->setNoDataReason(
-                  QObject::tr("时间切片获取失败\n%1").arg(error));
-              return;
-            }
-            canvasGuard->setTimeSliceData(*img, ms, vol->InlineMin(), vol->InlineMax(),
-                                          vol->XlineMin(), vol->XlineMax());
-          });
-      return;
-    }
-    seismic::SgySliceImage img;
-    std::string err;
-    if (vol->ExtractSlice(seismic::SgySliceType::Time, sampleIndex, img, err))
-    {
-      timeCanvas->setTimeSliceData(img, ms, vol->InlineMin(), vol->InlineMax(), vol->XlineMin(), vol->XlineMax());
-    }
+  // 2D 时间片独立查询 Data_service，不等待、不读取 3D 的索引或分页工作区。
+  auto *sliceDebounce=new QTimer(host);sliceDebounce->setSingleShot(true);sliceDebounce->setInterval(120);
+  auto pendingIdx=std::make_shared<int>(-1);
+  auto nativeInfo=std::make_shared<seismic::SeismicNativeInfo>();
+  auto nativeRead=std::make_shared<QPointer<PaleoTask>>();
+  auto nativeGeneration=std::make_shared<quint64>(0);
+  const QPointer<seismic::SeismicSectionCanvas> nativeCanvas(timeCanvas);
+  const auto requestTimeSlice=[this,abs,nativeInfo,nativeRead,nativeCanvas,lblTimeMs,pendingIdx,nativeGeneration](int index){
+    if(!nativeCanvas||index<0||index>=nativeInfo->sampleCount)return;
+    const auto generation=++(*nativeGeneration);
+    if(*nativeRead)(*nativeRead)->requestCancel();
+    const double ms=nativeInfo->firstTimeMs+index*nativeInfo->sampleIntervalMs;
+    lblTimeMs->setText(QStringLiteral("%1 ms").arg(ms,0,'f',1));
+    auto* service=m_doc?m_doc->seismicTaskService():nullptr;
+    if(!service){nativeCanvas->setNoDataReason(tr("后台地震服务未连接"));return;}
+    *nativeRead=service->startDataSlice(abs,seismic::SgySliceType::Time,index,
+      [nativeCanvas,nativeInfo,pendingIdx,index,ms,nativeGeneration,generation](bool ok,std::shared_ptr<const seismic::SgySliceImage> image,const QString& error){
+        if(!nativeCanvas||*pendingIdx!=index||*nativeGeneration!=generation)return;
+        if(!ok||!image){nativeCanvas->clearData();nativeCanvas->setNoDataReason(QObject::tr("时间切片获取失败\n%1").arg(error));return;}
+        nativeCanvas->setTimeSliceData(*image,ms,nativeInfo->inlineMin,nativeInfo->inlineMax,nativeInfo->xlineMin,nativeInfo->xlineMax);
+      });
   };
-  connect(sliceDebounce, &QTimer::timeout, host, [pendingIdx, requestTimeSlice]() {
-    if (*pendingIdx >= 0)
-      requestTimeSlice(*pendingIdx);
-  });
+  connect(host,&QObject::destroyed,this,[nativeRead]{if(*nativeRead)(*nativeRead)->requestCancel();});
+  connect(sliceDebounce,&QTimer::timeout,host,[pendingIdx,requestTimeSlice]{if(*pendingIdx>=0)requestTimeSlice(*pendingIdx);});
   const auto updateTimeSlice = [pendingIdx, sliceDebounce](int sampleIndex) {
     *pendingIdx = sampleIndex;
     sliceDebounce->start();
@@ -896,6 +799,16 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     updateTimeSlice(val);
   });
 
+  if(auto* service=m_doc?m_doc->seismicTaskService():nullptr) {
+    const QPointer<QSlider> slider(sliderTime);const QPointer<QSpinBox> spin(spinTime);
+    const QPointer<PaleoTask> infoTask=service->startDataInfo(abs,[nativeCanvas,nativeInfo,slider,spin,updateTimeSlice](bool ok,const seismic::SeismicNativeInfo& info,const QString& error){
+      if(!nativeCanvas||!slider||!spin)return;
+      if(!ok){nativeCanvas->setNoDataReason(QObject::tr("地震元数据查询失败\n%1").arg(error));return;}
+      *nativeInfo=info;QSignalBlocker a(slider),b(spin);slider->setRange(0,qMax(0,info.sampleCount-1));spin->setRange(0,qMax(0,info.sampleCount-1));
+      const int mid=qMax(0,info.sampleCount-1)/2;slider->setValue(mid);spin->setValue(mid);updateTimeSlice(mid);
+    });
+    connect(host,&QObject::destroyed,service,[infoTask]{if(infoTask)infoTask->requestCancel();});
+  }
   connect(modeTabs, &QTabWidget::currentChanged, host, [ensureVolumeLoaded, panel3d, timeCanvas, updateTimeSlice, sliderTime](int idx) {
     if (idx == 1)
     {

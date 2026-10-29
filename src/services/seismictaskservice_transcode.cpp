@@ -2,9 +2,11 @@
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
 #include "services/fspathutils.h"
+#include "seismicdataaccess.h"
 #include "services/paleotaskservice.h"
 
 #include "domain/seismic/sgyindexbuilder.h"
+#include "Data/Sgy/SgyIndexService.h"
 #include "domain/seismic/sgyindexcache.h"
 #include "Engine/PagedPipeline.h"
 #include "Engine/PagedWorkspace.h"
@@ -233,7 +235,7 @@ PaleoTask *SeismicTaskService::startIndexing(
     const QString &sgyPath,
     bool forceReindex,
     std::function<void(bool, SgyIndexPtr, const QString &)> onFinished,
-    const QString &layerId)
+    const QString &layerId, bool quiet)
 {
   if (!taskService_)
   {
@@ -242,63 +244,34 @@ PaleoTask *SeismicTaskService::startIndexing(
     return nullptr;
   }
 
-  const std::filesystem::path stdPath = paleo::toFsPath(sgyPath);
-  const QString title = tr("索引 SEG-Y: %1").arg(QFileInfo(sgyPath).fileName());
+  const QString title = tr("加载地震体索引: %1").arg(QFileInfo(sgyPath).fileName());
   auto resultIndex = std::make_shared<SgyIndexPtr>();
 
-  auto work = [stdPath, forceReindex, resultIndex](PaleoTask *task) -> QString {
-    if (!forceReindex)
-    {
-      std::string reason;
-      task->reportDetail(QCoreApplication::translate("seismic::SeismicTaskService", "检查本地磁盘索引缓存..."));
-      if (auto cached = SgyIndexCache::Load(stdPath, reason))
-      {
-        if (cached->complete)
-        {
-          *resultIndex = cached;
-          task->reportBytes(cached->traceCount, cached->traceCount);
-          return QString();
-        }
-      }
-    }
+  auto work = [sgyPath, forceReindex, resultIndex](PaleoTask *task) -> QString {
+    paleo::SeismicDataAccess source;QString error;if(!source.open(sgyPath,&error))return error;
+    const auto stdPath=paleo::toFsPath(source.sourcePath());
+    if(task->cancelRequested())return {};
+    task->reportDetail(QCoreApplication::translate("seismic::SeismicTaskService","检查索引缓存并顺序建立完整道头索引…"));
+    SgyIndexBuildRequest request;request.path=stdPath;request.useCache=!forceReindex;request.verbose=false;
+    request.windowBytes=8u<<20;request.readQueueDepth=2;
+    auto checkpointName=SgyIndexCache::CachePathFor(stdPath).filename();checkpointName+=".ckpt";
+    if(!forceReindex)request.checkpointPath=SgyIndexCache::CacheDirectory()/"scan-checkpoints"/checkpointName;
+    const auto outcome=BuildSgyIndexAuto(request,[task](int done,int total){task->reportBytes(done,total);return !task->cancelRequested();},[task]{return task->cancelRequested();});
+    if(outcome.cancelled||task->cancelRequested())return {};
+    const auto index=outcome.index;
+    if(!index)return QString::fromUtf8(outcome.message);
+    if(!index->FullyScanned())return QObject::tr("未获得完整道头索引");
+    std::error_code ec;const auto size=std::filesystem::file_size(stdPath,ec);
+    if(ec||size!=index->fileSize)return QObject::tr("索引期间地震来源已变化，请重新加载");
+    const auto stamp=std::filesystem::last_write_time(stdPath,ec);
+    if(ec||stamp.time_since_epoch().count()!=index->modifiedTimeTicks)return QObject::tr("索引期间地震来源已变化，请重新加载");
+    task->reportDetail(QString::fromUtf8(outcome.strategy+" · "+outcome.cacheNote+" · "+outcome.checkpointNote));
+    *resultIndex=index;
 
-    if (task->cancelRequested())
-      return QString();
-
-    task->reportDetail(QCoreApplication::translate("seismic::SeismicTaskService", "正在进行全卷道头扫描与几何提取..."));
-    SgyIndexBuildOptions opts;
-    opts.progressInterval = 64; // 敏捷响应取消（<50ms）
-    std::string err;
-    SgyIndexPtr index;
-
-    auto progress = [task](int processed, int total) -> bool {
-      if (task->cancelRequested())
-        return false;
-      task->reportBytes(processed, total);
-      return true;
-    };
-
-    if (!SgyIndexBuilder::Build(stdPath, index, err, progress, opts))
-    {
-      if (task->cancelRequested())
-        return QString();
-      return QString::fromStdString(err);
-    }
-
-    if (index && !task->cancelRequested())
-    {
-      std::string saveErr;
-      if (!SgyIndexCache::Save(index, saveErr))
-        // 磁盘满/权限失败被吞会让索引缓存永不落盘——每次打开同一文件都
-        // 全卷重扫（纯性能损失且无线索），至少留任务详情。
-        task->reportDetail(QStringLiteral("index cache save failed: %1")
-                               .arg(QString::fromStdString(saveErr)));
-      *resultIndex = index;
-    }
     return QString();
   };
 
-  PaleoTask *task = startBounded(title, work, layerId); // D6.4 ≤4 并发闸
+  PaleoTask *task = startBounded(title, work, layerId, quiet); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [this, task, sgyPath, resultIndex, onFinished]() {
     const bool success = (task->state() == PaleoTask::State::Succeeded);
     if (onFinished)

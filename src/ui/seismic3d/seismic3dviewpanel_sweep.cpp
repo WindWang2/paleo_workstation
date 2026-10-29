@@ -158,7 +158,7 @@ void Seismic3DViewPanel::onSweepTick() {
                 [guard](bool, std::shared_ptr<const SgySliceImage>, const QString &) {
                     if (guard)
                         --guard->sweepPrefetchInFlight_;
-                }, pagedPath_);
+                }, pagedPath_, true);
         }
     }
     emit sweepFrameChanged(index);

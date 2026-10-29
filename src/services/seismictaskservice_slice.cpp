@@ -1,5 +1,7 @@
 // 层：数据
 #include "workerexceptionsink.h"
+#include "seismicdataprojection.h"
+#include "../io/areamodel.h"
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
 #include "services/fspathutils.h"
@@ -27,6 +29,7 @@
 #include <limits>
 #include <atomic>
 #include <thread>
+#include <set>
 
 namespace seismic {
 
@@ -35,7 +38,7 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
     SgySliceType type,
     int sliceIndex,
     std::function<void(bool, std::shared_ptr<const SgySliceImage>, const QString &)> onFinished,
-    const QString &pagedPath)
+    const QString &pagedPath, bool viewer3D)
 {
   if (!volume || !volume->IsIndexComplete())
   {
@@ -44,6 +47,16 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
     return nullptr;
   }
 
+  std::error_code identityError;
+  const auto sourceSize=std::filesystem::file_size(volume->Path(),identityError);
+  const auto sourceStamp=std::filesystem::last_write_time(volume->Path(),identityError);
+  if(identityError||sourceSize!=volume->Index()->fileSize||sourceStamp.time_since_epoch().count()!=volume->Index()->modifiedTimeTicks) {
+    if(onFinished)onFinished(false,nullptr,tr("地震来源已变化，请重新加载后浏览"));
+    return nullptr;
+  }
+
+  const QFileInfo current(paleo::fromFsPath(volume->Path()));
+  const QString sourceToken=QStringLiteral("|%1:%2:%3").arg(current.size()).arg(current.lastModified().toMSecsSinceEpoch()).arg(current.metadataChangeTime().toMSecsSinceEpoch())+paleo::area_model::cacheToken(current.absoluteFilePath());
   const char *typeStr = (type == SgySliceType::Inline) ? "inl" : ((type == SgySliceType::Xline) ? "xl" : "time");
   // #291：缓存键的路径字节走 UTF-16 通道（path::string() 在 MSVC 上按 ACP
   // 返回窄字节、遇无法表示的字符还会抛——键会错乱甚至崩）。
@@ -53,7 +66,7 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
       SgyDataCache::MakeKey(typeStr, volume->Index()->fileSize,
                             static_cast<std::uint64_t>(sliceIndex)) +
       ":" + std::to_string(static_cast<long long>(volume->Index()->modifiedTimeTicks)) +
-      ":" + paleo::fromFsPath(volume->Path()).toStdString();
+      ":" + paleo::fromFsPath(volume->Path()).toStdString() + (viewer3D?":3d:":":data:") + (volume->IsRuleBased()?"preview":"full")+sourceToken.toStdString();
 
   // 1. 检查内存 LRU 缓存（显式 paged 通道不查直读缓存——两条通道语义独立）
   if (pagedPath.isEmpty())
@@ -86,7 +99,20 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
   const QString sgyPath = QString::fromStdString(sgyio::ToUtf8Path(volume->Index()->path));
   const auto registry = registry_;
 
-  auto work = [registry, volume, sgyPath, pagedPath, type, sliceIndex, outImage](PaleoTask *task) -> QString {
+  auto work = [registry, volume, sgyPath, pagedPath, type, sliceIndex, outImage, viewer3D](PaleoTask *task) -> QString {
+    if(!viewer3D) {
+      QString error;
+      if(!paleo::readSeismicDataSlice(sgyPath,type,sliceIndex,*outImage,error,[task]{return task->cancelRequested();}))return error;
+      return {};
+    }
+    if(volume->IsRuleBased()) {
+      std::string error;int columns=0,total=0;
+      const auto progress=[task](int done,int count){task->reportBytes(done,count);return !task->cancelRequested();};
+      const bool ok=type==SgySliceType::Time
+        ?volume->ExtractTimeSlicePreview(sliceIndex,48,64,*outImage,error,progress)
+        :volume->ExtractPreviewSlice(type,sliceIndex,128,*outImage,error,columns,total,true,progress);
+      return ok?QString():QString::fromUtf8(error);
+    }
     const auto entry = datasetEntryFor(registry, pagedPath.isEmpty() ? sgyPath : pagedPath,
                                        pagedPath.isEmpty() ? sdk::Backend::Auto : sdk::Backend::Paged);
     if (entry && entry->dataset)
@@ -221,106 +247,28 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   auto outStats = std::make_shared<SgySectionStats>();
 
   const QString sgyPath = QString::fromStdString(sgyio::ToUtf8Path(volume->Index()->path));
-  const auto registry = registry_;
-
-  auto work = [registry, volume, sgyPath, pathPoints, options, outImage, outStats](PaleoTask *task) -> QString {
-    const auto entry = datasetEntryFor(registry, sgyPath, sdk::Backend::Auto);
-    if (entry && entry->dataset)
-    {
-        engine::CancelToken cancel;
-        cancel.SetPredicate([task]() { return task->cancelRequested(); });
-        engine::SectionRequest request;
-        request.pathPoints.reserve(pathPoints.size());
-        for (const glm::ivec2 &p : pathPoints)
-          request.pathPoints.push_back({p.x, p.y});
-        request.interpolate = options.interpolate;
-        request.keepOutsideColumns = options.keepOutsideColumns;
-        request.maxColumns = options.maxColumns;
-        request.useReadPlan = true; // 去重+升序+范围合并的扇区读
-
-        engine::Slice2D slice;
-        engine::Status status;
-        {
-          QMutexLocker lock(&entry->mutex);
-          status = entry->dataset->ReadSection(request, slice, &cancel);
-        }
-        if (status.ok())
-        {
-          outImage->width = slice.width;
-          outImage->height = slice.height;
-          outImage->valueMin = slice.valueMin;
-          outImage->valueMax = slice.valueMax;
-          outImage->values = std::move(slice.values);
-          outImage->rgba = std::move(slice.rgba);
-          outStats->columns = slice.width;
-          outStats->tracesRead = slice.columnsRead;
-          // columnDistances 保持线号弧长口径：权威消费端
-          // SectionGeometry::fromColumns 以 pathPoints 线号折线为横轴、按
-          // mapPath 自行换算成米；此前（B-2）把它替换成米或在仿射不可得时
-          // 清空，前者让 fromColumns 把米当线号二次换算，后者让剖面退回
-          // 25m 默认道距（任意线总长/井位定位错位）。米口径另走
-          // columnDistancesM（仿射可得才填，不合成）。
-          outStats->columnDistances = std::move(slice.distances);
-          outStats->columnDistancesM.clear();
-          {
-            const auto mapper =
-                seismic::SgyCoordinateMapper::Fit(*volume->Index());
-            if (mapper.valid() &&
-                slice.inlineNos.size() == std::size_t(slice.width) &&
-                slice.xlineNos.size() == std::size_t(slice.width))
-            {
-              const auto &fit = mapper.fit();
-              std::vector<float> meters(std::size_t(slice.width > 0 ? slice.width : 1),
-                                        0.0f);
-              double acc = 0.0;
-              for (int c = 1; c < slice.width; ++c)
-              {
-                const double dIl =
-                    double(slice.inlineNos[std::size_t(c)]) -
-                    double(slice.inlineNos[std::size_t(c - 1)]);
-                const double dXl =
-                    double(slice.xlineNos[std::size_t(c)]) -
-                    double(slice.xlineNos[std::size_t(c - 1)]);
-                acc += std::hypot(fit.a * dIl + fit.b * dXl,
-                                  fit.d * dIl + fit.e * dXl);
-                meters[std::size_t(c)] = float(acc);
-              }
-              outStats->columnDistancesM = std::move(meters);
-            }
-          }
-          int missing = 0;
-          std::vector<int> traces = std::move(slice.traceIndices);
-          for (int t : traces)
-            missing += (t < 0) ? 1 : 0;
-          outStats->missingColumns = missing;
-          outStats->uniqueTraces = static_cast<int>(traces.size()) - missing;
-          task->reportBytes(slice.width * slice.height, slice.width * slice.height);
-          return QString();
-        }
-        if (status.code == engine::StatusCode::Cancelled || task->cancelRequested())
-          return QString();
-        // 引擎路径失败回落逐道构建
+  auto work = [sgyPath, pathPoints, options, outImage, outStats](PaleoTask *task) -> QString {
+    paleo::SeismicDataAccess source;QString error;if(!source.open(sgyPath,&error))return error;
+    std::vector<std::pair<int,int>> path;for(const auto& p:pathPoints)path.push_back({p.x,p.y});
+    paleo::data::SeismicSectionResult result;std::string detail;
+    if(!source.section(path,options.maxColumns,options.interpolate,options.keepOutsideColumns,result,detail,[task]{return task->cancelRequested();}))return QString::fromUtf8(detail);
+    *outImage=paleo::seismicSectionImage(result);outStats->columns=result.columns;
+    std::set<long long> unique;
+    for(auto ordinal:result.traceIndexes)if(ordinal>=0)unique.insert(ordinal);else ++outStats->missingColumns;
+    outStats->uniqueTraces=outStats->tracesRead=int(unique.size());outStats->duplicateColumns=result.columns-outStats->missingColumns-int(unique.size());
+    long long previous=-2;for(auto ordinal:unique){if(ordinal!=previous+1)++outStats->readRanges;previous=ordinal;}
+    for(double distance:result.distances)outStats->columnDistances.push_back(float(distance));
+    // Grid arc length stays separate from physical distance; use confirmed units only.
+    if((source.coordinateUnit()=="m"||source.coordinateUnit()=="ft")&&result.pathX.size()==size_t(result.columns)&&result.pathY.size()==size_t(result.columns)) {
+      double distance=0;const double scale=source.coordinateUnit()=="ft"?0.3048:1.;
+      for(int col=0;col<result.columns;++col) {
+        if(!std::isfinite(result.pathX[col])||!std::isfinite(result.pathY[col])){outStats->columnDistancesM.clear();break;}
+        if(col)distance+=std::hypot(result.pathX[col]-result.pathX[col-1],result.pathY[col]-result.pathY[col-1])*scale;
+        outStats->columnDistancesM.push_back(float(distance));
+      }
     }
+    task->reportBytes(result.columns,result.columns);return {};
 
-    std::string err;
-    auto progress = [task](int processed, int total) -> bool {
-      if (task->cancelRequested())
-        return false;
-      task->reportBytes(processed, total);
-      return true;
-    };
-
-    if (!BuildLineSection(*volume, pathPoints, options, *outImage, *outStats, err, progress))
-    {
-      if (task->cancelRequested())
-        return QString();
-      return QString::fromStdString(err);
-    }
-    // 回落路径：BuildLineSection 的 columnDistances 是线号弧长（与引擎路径
-    // 同口径，供 SectionGeometry 换算）；无 per-column 线号可做米换算，
-    // columnDistancesM 留空（不合成）。
-    outStats->columnDistancesM.clear();
-    return QString();
   };
 
   // quiet：剖面条拖动是交互内嵌取数，不拉起任务中心。
@@ -349,51 +297,12 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
 }
 
 PaleoTask *SeismicTaskService::startVolumeLoad(
-    const QString &sgyPath,
-    std::function<void(bool, std::shared_ptr<SgyVolume>, const QString &)> onFinished,
-    bool quiet)
-{
-  if (!taskService_)
-  {
-    if (onFinished)
-      onFinished(false, nullptr, QStringLiteral("PaleoTaskService not set"));
-    return nullptr;
-  }
-
-  const QString title = tr("加载地震体: %1").arg(QFileInfo(sgyPath).fileName());
-  auto outVolume = std::make_shared<std::shared_ptr<SgyVolume>>();
-
-  auto work = [sgyPath, outVolume](PaleoTask *task) -> QString {
-    auto volume = std::make_shared<SgyVolume>();
-    std::string err;
-    auto progress = [task](int processed, int total) -> bool {
-      if (task->cancelRequested())
-        return false;
-      task->reportBytes(processed, total);
-      return true;
-    };
-    if (!volume->Load(paleo::toFsPath(sgyPath), err, progress))
-    {
-      if (task->cancelRequested())
-        return QString();
-      return QString::fromStdString(err);
-    }
-    *outVolume = std::move(volume);
-    return QString();
-  };
-
-  PaleoTask *task = startBounded(title, work, QString(), quiet); // D6.4 ≤4 并发闸
-  connect(task, &PaleoTask::finished, this, [task, outVolume, onFinished]() {
-    if (!onFinished)
-      return;
-    if (task->state() == PaleoTask::State::Succeeded)
-      onFinished(true, *outVolume, QString());
-    else if (task->state() == PaleoTask::State::Cancelled)
-      onFinished(false, nullptr, tr("地震体加载已取消"));
-    else
-      onFinished(false, nullptr, task->errorText());
-  });
-  return task;
+    const QString &path,std::function<void(bool,std::shared_ptr<SgyVolume>,const QString&)> done,bool quiet) {
+  return startIndexing(path,false,[done](bool ok,SgyIndexPtr index,const QString& error){
+    std::shared_ptr<SgyVolume> volume;
+    if(ok&&index){volume=std::make_shared<SgyVolume>();volume->AdoptIndex(index);}
+    if(done)done(ok&&bool(volume),volume,error);
+  },{},quiet);
 }
 
 // ---- 地震属性（goal/seismic-attributes）------------------------------------
@@ -1015,6 +924,9 @@ qint64 SeismicTaskService::sectionCacheKey(const std::vector<glm::ivec2> &pathPo
       mix(qint64(static_cast<quint8>(ch)));
     mix(qint64(idx.fileSize));
     mix(idx.modifiedTimeTicks);
+    const QFileInfo source(paleo::fromFsPath(idx.path));
+    mix(source.size());mix(source.lastModified().toMSecsSinceEpoch());mix(source.metadataChangeTime().toMSecsSinceEpoch());
+    for(char c:paleo::area_model::cacheToken(source.absoluteFilePath()).toUtf8())mix(static_cast<unsigned char>(c));
   }
   // 提取选项：maxColumns/interpolate/keepOutsideColumns 不同则剖面不同
   mix(options.maxColumns);

@@ -42,7 +42,7 @@ src/ui/datapreview/datapreviewtabhorizon.cpp:fn:buildHorizonContent:429
 src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:372
 src/ui/datapreview/datapreviewtabs_survey.cpp:fn:buildSurveyAreaContent:317
 src/ui/datapreview/datapreviewtabs_well.cpp:fn:buildWellBody:251
-src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:742
+src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:654
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:238
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:284

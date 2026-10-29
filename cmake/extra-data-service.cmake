@@ -31,3 +31,28 @@ target_link_libraries(paleo_services PRIVATE Paleo::paleo_data_service)
 target_link_libraries(paleo_workflow PRIVATE Paleo::paleo_data_service)
 add_paleo_test(tst_areamodel LIBS paleo_io paleo_services paleo_workflow Paleo::paleo_data_service)
 target_link_libraries(tst_wellcomposite PRIVATE Paleo::paleo_data_service)
+
+target_sources(paleo_workflow PRIVATE src/workflow/stratigraphyworkflow.cpp src/workflow/stratigraphyworkflow.h)
+target_link_libraries(paleo_workflow PRIVATE Paleo::paleo_stratigraphy_service)
+target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage.cpp src/ui/pages/stratigraphypage.h)
+target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_options.cpp)
+
+target_sources(paleo_services PRIVATE src/services/stratigraphymodel.cpp)
+
+add_paleo_test(tst_stratigraphy_core LIBS Paleo::paleo_stratigraphy_service Qt6::Core)
+
+add_paleo_test(tst_stratigraphy_workflow LIBS Paleo::paleo_stratigraphy_service Qt6::Core)
+
+add_paleo_test(tst_stratigraphy_quick_workflow LIBS Paleo::paleo_stratigraphy_service Qt6::Core)
+
+add_paleo_test(tst_stratigraphy_endpoint_extrapolation LIBS Paleo::paleo_stratigraphy_service Qt6::Core)
+
+add_paleo_test(tst_stratigraphy_template_guidance LIBS Paleo::paleo_stratigraphy_service Qt6::Core)
+
+add_paleo_test(tst_stratigraphy_time_depth_selection LIBS Paleo::paleo_stratigraphy_service Qt6::Core)
+
+add_paleo_test(tst_stratigraphy_storage LIBS Paleo::paleo_stratigraphy_service Qt6::Core)
+
+target_include_directories(tst_stratigraphy_storage PRIVATE vendor/Data_service/src)
+target_link_libraries(tst_stratigraphy_storage PRIVATE Qt6::Sql)
+add_paleo_test(tst_stratigraphy_model LIBS paleo_workflow paleo_services Paleo::paleo_data_service)

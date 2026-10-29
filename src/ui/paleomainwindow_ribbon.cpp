@@ -22,6 +22,8 @@
 #include <qgis.h> // Qgis::version()（方向63 关于框）
 
 #include <QAction>
+#include <QComboBox>
+#include <QTabWidget>
 #include <QContextMenuEvent>
 #include <QHBoxLayout>
 #include <QMenu>
@@ -97,20 +99,42 @@ void PaleoMainWindow::buildRibbon()
   }
 
   // ---- 六个页签 = 六个工作流页（页签序 = paleo::pagesinternal::kPageIds 序）----
-  for (int i = 0; i < paleo::pagesinternal::kPageIds.size(); ++i)
+  const QStringList ribbonIds = {"data", "correlation", "predict", "seismic", "compose"};
+  const QStringList ribbonLabels = {tr("数据管理"), tr("地层对比"), tr("单井相分析"), tr("地震相分析"), tr("古地理编图")};
+  for (int i = 0; i < ribbonIds.size(); ++i)
   {
-    SARibbonCategory *cat = bar->addCategoryPage(pageLabels().at(i));
-    cat->setObjectName(QStringLiteral("ribbonCategory.") + paleo::pagesinternal::kPageIds.at(i));
-    cat->setProperty("paleo.pageId", paleo::pagesinternal::kPageIds.at(i));
+    SARibbonCategory *cat = bar->addCategoryPage(ribbonLabels.at(i));
+    cat->setObjectName(QStringLiteral("ribbonCategory.") + ribbonIds.at(i));
+    cat->setProperty("paleo.pageId", ribbonIds.at(i));
   }
-  m_stratigraphicWebPage->buildRibbon(categoryForPage(QStringLiteral("correlation")));
+  const auto addTask = [this](const QString &category, const QString &label, const QString &page, const QString &type = {}) {
+    auto *panel = categoryForPage(category)->addPanel(label);
+    auto *action = new QAction(label, panel);
+    action->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionFileOpen.svg")));
+    action->setObjectName(QStringLiteral("ribbonOpenTask.") + category + QLatin1Char('.') + page + type);
+    panel->addLargeAction(action);
+    connect(action, &QAction::triggered, this, [this, page, type] {
+      showPage(page);
+      if (!type.isEmpty()) if (auto *combo = findChild<QComboBox *>(QStringLiteral("predictTypeCombo")))
+        combo->setCurrentIndex(combo->findData(type));
+      if (!type.isEmpty()) if (auto *combo = findChild<QComboBox *>(QStringLiteral("predictionKind")))
+        combo->setCurrentIndex(combo->findData(type == "well_log_facies" ? "wells" : "seismic"));
+      if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("workbenchTabs.") + page)) tabs->setCurrentIndex(0);
+    });
+  };
+  addTask("data", tr("打开数据视图"), "data");
+  addTask("correlation", tr("打开地层对比"), "correlation");
+  addTask("predict", tr("井预测"), "predict", "well_log_facies");
+  addTask("predict", tr("编制单因素图"), "constraint");
+  addTask("seismic", tr("地震相预测"), "predict", "seismic_facies");
+  addTask("compose", tr("打开 QGIS 编图"), "compose");
   // W5 键盘可达 + 页循环快捷键（方向63 注册表）——paleomainwindow_shortcuts.cpp。
   registerPageShortcuts();
   connect(bar, &SARibbonBar::currentRibbonTabChanged, this, [this, bar](int idx) {
     SARibbonCategory *cat = bar->categoryByIndex(idx);
     const QString id = cat ? cat->property("paleo.pageId").toString() : QString();
-    if (!id.isEmpty() && id != m_currentPage)
-      showPage(id);
+    // Ribbon only selects commands. Visualization is activated by task actions.
+    setProperty("paleo.ribbonPage", id);
   });
 
   // ---- 「文件」应用按钮：工程级动作。起始页按钮是同一批动作的另一入口
@@ -258,7 +282,9 @@ void PaleoMainWindow::buildRibbon()
 SARibbonCategory *PaleoMainWindow::categoryForPage(const QString &pageId) const
 {
   SARibbonBar *bar = ribbonBar();
-  return bar ? bar->categoryByObjectName(QStringLiteral("ribbonCategory.") + pageId) : nullptr;
+  const QString id = pageId == QLatin1String("constraint") ? QStringLiteral("predict") :
+                     pageId == QLatin1String("validate") ? QStringLiteral("compose") : pageId;
+  return bar ? bar->categoryByObjectName(QStringLiteral("ribbonCategory.") + id) : nullptr;
 }
 
 void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)

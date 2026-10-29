@@ -30,6 +30,11 @@
 #include "layers/layerpropertiesdialog.h"
 #include "pages/pageshared.h"
 #include "pages/stratigraphicwebpage.h"
+#include "pages/stratigraphypage.h"
+#include "../workflow/stratigraphyworkflow.h"
+#include "../linkage/selectioncontext.h"
+#include <QTabBar>
+#include <QSignalBlocker>
 #include "../workflow/stratigraphicwebsession.h"
 #include "webviewpanel.h"
 #include "wellsection/wellsectionpanel.h"
@@ -290,7 +295,7 @@ void PaleoMainWindow::buildCenterArea()
   m_previewTabs->setAccessibleName(tr("数据预览"));
   m_previewTabs->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
   m_workspaceStack->addWidget(m_previewTabs); // 1: all remaining space is visualization
-  m_centerStack->addWidget(m_workspaceStack);
+  buildVisualizationWorkspace();
 
   // 画布装饰管理器（D11 临时配准水印等）：parent 到 canvas，renderComplete
   // 自连；各项默认关，按需 setEnabled。
@@ -315,10 +320,6 @@ void PaleoMainWindow::buildCenterArea()
         if (auto *button = m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
           button->setChecked(false);
     });
-
-  auto *correlationSession = new StratigraphicWebSession(this);
-  m_stratigraphicWebPage = new StratigraphicWebPage(correlationSession, m_workspaceStack);
-  m_workspaceStack->addWidget(m_stratigraphicWebPage); // index 2
 
   // ---- T31 空态：地图没有图层时画布上的居中指引（共享组件）----
   if (m_canvasCtl)
@@ -634,4 +635,50 @@ void PaleoMainWindow::buildPageDocks()
   };
   connect(addrOpen, &QPushButton::clicked, this, openWebUrl);
   connect(addrEdit, &QLineEdit::returnPressed, this, openWebUrl);
+}
+
+void PaleoMainWindow::buildVisualizationWorkspace() {
+  auto *visualizations = new QWidget(m_centerStack);
+  auto *visualLayout = new QVBoxLayout(visualizations);
+  visualLayout->setContentsMargins(0, 0, 0, 0); visualLayout->setSpacing(0);
+  m_visualizationTabs = new QTabBar(visualizations);
+  m_visualizationTabs->setObjectName(QStringLiteral("visualizationTabs"));
+  m_visualizationTabs->setAccessibleName(tr("可视化视图"));
+  m_visualizationTabs->setExpanding(false);
+  m_visualizationTabs->setTabsClosable(true);
+  connect(m_visualizationTabs, &QTabBar::tabCloseRequested, this, [this](int index) {
+    m_visualizationTabs->removeTab(index);
+    if (m_visualizationTabs->count() == 0) showStartup();
+  });
+  visualLayout->addWidget(m_visualizationTabs); visualLayout->addWidget(m_workspaceStack);
+  connect(m_visualizationTabs, &QTabBar::currentChanged, this, [this](int index) {
+    if (index >= 0) showPage(m_visualizationTabs->tabData(index).toMap().value(QStringLiteral("page")).toString());
+  });
+  m_centerStack->addWidget(visualizations);
+
+  m_stratigraphy = new StratigraphyWorkflow(m_taskSvc, this);
+  m_stratigraphyPage = new StratigraphyPage(m_stratigraphy, m_workspaceStack);
+  connect(m_stratigraphy, &StratigraphyWorkflow::classificationChanged, this, [this](const QStringList &horizons) {
+    if (auto *chips = findChild<HorizonChipBar *>()) chips->reloadHorizons();
+    for (auto *combo : findChildren<QComboBox *>(QStringLiteral("horizonCombo"))) {
+      const auto selected = combo->currentText(); combo->clear(); combo->addItems(horizons);
+      if (horizons.contains(selected)) combo->setCurrentText(selected);
+    }
+    if (m_selection && !horizons.isEmpty() && !horizons.contains(m_selection->activeHorizon())) {
+      m_selection->setActiveHorizon(horizons.first());
+      if (m_layerSvc) m_layerSvc->setActiveHorizon(horizons.first());
+    }
+  });
+  m_workspaceStack->addWidget(m_stratigraphyPage);
+  if (m_projectSvc) {
+    connect(m_projectSvc, &QgisProjectService::projectOpened, this, [this](const QString &path) {
+      m_stratigraphy->setProject(QFileInfo(path).absolutePath(), m_projectSvc->isReadOnly());
+    });
+    connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this] {
+      m_stratigraphy->setProject({}, false);
+      QSignalBlocker blocker(m_visualizationTabs);
+      while (m_visualizationTabs->count()) m_visualizationTabs->removeTab(0);
+    });
+  }
+
 }

@@ -19,6 +19,8 @@
 #include "../workflow/mappingworkbench.h" // 编图链三页测井基础图层保证在场
 
 #include <QAction>
+#include <QTabBar>
+#include <QSignalBlocker>
 #include <QDockWidget>
 #include <QMainWindow>
 #include <QStackedLayout>
@@ -140,17 +142,26 @@ void PaleoMainWindow::showPage(const QString &pageId)
         m_correlationHiddenDocks.append(dock);
   }
   m_currentPage = pageId;
+  if (m_visualizationTabs) {
+    const QString surface = pageId == QLatin1String("data") ? QStringLiteral("data") :
+                            pageId == QLatin1String("correlation") ? QStringLiteral("correlation") : QStringLiteral("compose");
+    QSignalBlocker blocker(m_visualizationTabs);
+    int tab = -1;
+    for (int i=0; i<m_visualizationTabs->count(); ++i)
+      if (m_visualizationTabs->tabData(i).toMap().value(QStringLiteral("surface")).toString() == surface) tab = i;
+    if (tab < 0) {
+      tab = m_visualizationTabs->addTab(surface == "data" ? tr("数据可视化") : surface == "correlation" ? tr("地层对比") : tr("QGIS 地理视图"));
+    }
+    m_visualizationTabs->setTabData(tab, QVariantMap{{QStringLiteral("surface"), surface}, {QStringLiteral("page"), pageId}});
+    m_visualizationTabs->setCurrentIndex(tab);
+  }
   if (m_workbench) m_workbench->setManualEvidenceRequired(pageId == QLatin1String("compose"));
   // Web 页自己的 Ctrl+S 保存独立解释，Paleo 工程的保存快捷键让出。
   if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
     paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), save,
-                                              pageId != QLatin1String("correlation"));
+                                              true);
 
-  // 页签 = 页：切到对应 ribbon 页签（currentRibbonTabChanged 回到这里时
-  // id == m_currentPage，不重入）。
-  if (SARibbonCategory *cat = categoryForPage(pageId))
-    if (ribbonBar()->currentIndex() != ribbonBar()->categoryIndex(cat))
-      ribbonBar()->raiseCategory(cat);
+  // Visualization activation preserves the user's selected Ribbon tools.
   // 各 attach 后续建的命令钮也要进 Tab 链（幂等，便宜的补漏点）。
   PaleoRibbon::makeKeyboardReachable(this);
 
@@ -187,7 +198,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
   {
     paleo::mainwindow_internal::hideAllDocksForCorrelation(this);
     m_centerStack->setCurrentIndex(1); // 无需先打开 QGIS/Paleo 工程
-    m_stratigraphicWebPage->activate();
+    // Native correlation shares the current Paleo project. No external process.
   }
   else if (leavingCorrelation && (!m_projectSvc || m_projectSvc->projectPath().isEmpty()) &&
            m_centerStack && m_centerStack->currentIndex() != 0)

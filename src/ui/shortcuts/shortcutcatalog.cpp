@@ -38,16 +38,16 @@ const GroupRow kGroups[] = {
     {"dialogs", QT_TRANSLATE_NOOP("PaleoShortcuts", "停靠与对话框")},
 };
 
-// 主窗六页的页名（页序/键序由 pagesinternal::kPageIds 决定，与
+// 主窗六页的页名（页序/键序由 pagesinternal::kRibbonIds 决定，与
 // PaleoMainWindow::buildRibbon 的旧 "Ctrl+%1" 循环逐位一致）。
 const char *pageDescription(const QString &pageId)
 {
   static const QHash<QString, const char *> descriptions = {
       {QStringLiteral("data"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「数据管理」页")},
       {QStringLiteral("correlation"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「地层对比」页")},
-      {QStringLiteral("predict"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「智能预测」页")},
-      {QStringLiteral("constraint"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「单因素图」页")},
-      {QStringLiteral("compose"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「智能编图」页")},
+      {QStringLiteral("predict"), QT_TRANSLATE_NOOP("PaleoShortcuts", "选择「单井相分析」工具")},
+      {QStringLiteral("seismic"), QT_TRANSLATE_NOOP("PaleoShortcuts", "选择「地震相分析」工具")},
+      {QStringLiteral("compose"), QT_TRANSLATE_NOOP("PaleoShortcuts", "选择「古地理编图」工具")},
       {QStringLiteral("validate"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「验证」页")},
   };
   return descriptions.value(pageId, QT_TRANSLATE_NOOP("PaleoShortcuts", "切换工作流页"));
@@ -120,9 +120,9 @@ QList<ShortcutEntry> catalogEntries()
 
   // ===== 全局导航（paleomainwindow.cpp buildRibbon / attach_shell）=====
   // W5：Ctrl+1..6 直切六页——id 尾段 = 页 id，键序 = 页序 + 1。
-  for (int i = 0; i < pagesinternal::kPageIds.size(); ++i)
+  for (int i = 0; i < pagesinternal::kRibbonIds.size(); ++i)
   {
-    const QString &pageId = pagesinternal::kPageIds.at(i);
+    const QString &pageId = pagesinternal::kRibbonIds.at(i);
     ShortcutEntry e = make("", QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)), "main", S,
                            "navigation", pageDescription(pageId), mainPanel,
                            "src/ui/paleomainwindow.cpp");

@@ -1,5 +1,6 @@
 // 层：数据
 #include "projectdata.h"
+#include "stratigraphymodel.h"
 
 #include "../catalog/datacatalog.h"
 #include "../domain/mappinghorizons.h"
@@ -144,6 +145,11 @@ QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId) const
 
 QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId, WellParseReport *report) const
 {
+  if (m_catalog) {
+    const auto entity = m_catalog->entityById(wellId);
+    const auto tops = stratigraphyModelTops(projectDir(), entity.extra.value("areaModelWellId").toLongLong());
+    if (!tops.isEmpty()) { if (report) *report = {}; return tops; }
+  }
   return topsForAsset(wellId, QString(), report);
 }
 
@@ -191,6 +197,10 @@ MappingTopsPick pickMappingTops(const ProjectDataFacade *facade, DataCatalog *ca
 } // namespace
 
 QVector<WellTop> ProjectDataFacade::topsForMapping(const QString &wellId) const {
+  if (m_catalog) {
+    const auto tops = stratigraphyModelTops(projectDir(), m_catalog->entityById(wellId).extra.value("areaModelWellId").toLongLong());
+    if (!tops.isEmpty()) return tops;
+  }
   const MappingTopsPick pick = pickMappingTops(this, m_catalog, wellId);
   if (pick.score > 0)
     return pick.tops;

@@ -330,17 +330,16 @@ class TestUiShell : public QObject
     }
 
     // §42 workflow chain: 数据管理/智能预测/单因素图/智能编图/验证
-    void workflowTabBarHasSixTabs()
+    void workflowTabBarHasFiveTabs()
     {
       auto *tabs = m_win->findChild<QTabBar *>(QStringLiteral("workflowTabs"));
       QVERIFY(tabs);
-      QCOMPARE(tabs->count(), 6);
+      QCOMPARE(tabs->count(), 5);
       QCOMPARE(tabs->tabText(0), QStringLiteral("数据管理"));
       QCOMPARE(tabs->tabText(1), QStringLiteral("地层对比"));
-      QCOMPARE(tabs->tabText(2), QStringLiteral("智能预测"));
-      QCOMPARE(tabs->tabText(3), QStringLiteral("单因素图"));
-      QCOMPARE(tabs->tabText(4), QStringLiteral("智能编图"));
-      QCOMPARE(tabs->tabText(5), QStringLiteral("验证"));
+      QCOMPARE(tabs->tabText(2), QStringLiteral("单井相分析"));
+      QCOMPARE(tabs->tabText(3), QStringLiteral("地震相分析"));
+      QCOMPARE(tabs->tabText(4), QStringLiteral("古地理编图"));
       QVERIFY(m_win->categoryForPage(QStringLiteral("data")));
       QVERIFY(m_win->categoryForPage(QStringLiteral("predict")));
       QVERIFY(m_win->categoryForPage(QStringLiteral("constraint")));
@@ -365,6 +364,7 @@ class TestUiShell : public QObject
 
     void showPageTracksCurrentPage()
     {
+      const int ribbonBefore=m_win->ribbonBar()->currentIndex();
       m_win->showPage(QStringLiteral("data"));
       QCOMPARE(m_win->currentPage(), QStringLiteral("data"));
 
@@ -372,7 +372,7 @@ class TestUiShell : public QObject
       QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
 
       auto *tabs = m_win->findChild<QTabBar *>(QStringLiteral("workflowTabs"));
-      QCOMPARE(tabs->currentIndex(), 5);
+      QCOMPARE(tabs->currentIndex(), ribbonBefore);
 
       // right panel stack follows the tab
       auto *host = m_win->findChild<QWidget *>(QStringLiteral("rightPanelHost"));
@@ -382,7 +382,7 @@ class TestUiShell : public QObject
       // unknown ids are rejected without disturbing current state
       m_win->showPage(QStringLiteral("bogus"));
       QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
-      QCOMPARE(tabs->currentIndex(), 5);
+      QCOMPARE(tabs->currentIndex(), ribbonBefore);
     }
 
     // §42.1: startup page shows until a project is opened, then the canvas
@@ -2387,6 +2387,43 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("predict"));
       QVERIFY(sNode->itemVisibilityChecked());
       QVERIFY(wNode->itemVisibilityChecked());
+    }
+
+    void ribbonSelectionKeepsVisualization() {
+      m_win->showPage(QStringLiteral("data"));
+      auto *workspace=m_win->findChild<QStackedWidget *>(QStringLiteral("workspaceStack"));
+      auto *visuals=m_win->findChild<QTabBar *>(QStringLiteral("visualizationTabs"));
+      QVERIFY(workspace);QVERIFY(visuals);const int before=workspace->currentIndex();
+      const int tabs=visuals->count();
+      const QStringList ids={"data","correlation","predict","seismic","compose"};
+      for(const auto &id:ids) {
+        auto *category=m_win->categoryForPage(id);QVERIFY(category);
+        m_win->ribbonBar()->raiseCategory(category);QCoreApplication::processEvents();
+        QCOMPARE(workspace->currentIndex(),before);QCOMPARE(visuals->count(),tabs);
+      }
+      m_win->showPage(QStringLiteral("correlation"));
+      QCOMPARE(workspace->currentIndex(),2);QVERIFY(m_win->findChild<QWidget *>(QStringLiteral("stratigraphyPage")));
+      const QString captures=qEnvironmentVariable("PALEO_VISUAL_CAPTURE");
+      if (!captures.isEmpty()) {
+        QVERIFY(QDir().mkpath(captures));m_win->resize(1600,1000);m_win->show();
+        auto *layoutButton=m_win->findChild<QToolButton *>(QStringLiteral("panelsMenuButton"));QVERIFY(layoutButton);
+        const auto setTheme=[this,layoutButton](bool dark) {
+          layoutButton->click();
+          auto *toggle=m_win->findChild<QAction *>(QStringLiteral("themeToggleAction"));
+          if (!toggle) return false;
+          toggle->setChecked(dark);
+          if (auto *menu=qobject_cast<QMenu *>(toggle->parent())) menu->close();
+          QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+          return true;
+        };
+        for (const bool dark : {false,true}) {
+          QVERIFY(setTheme(dark));QTest::qWait(100);
+          QVERIFY(m_win->grab().save(captures+QStringLiteral("/native-stratigraphy-")+
+                                    (dark?QStringLiteral("dark.png"):QStringLiteral("light.png"))));
+        }
+        QVERIFY(setTheme(false));
+      }
+      m_win->showPage(QStringLiteral("compose"));QCOMPARE(workspace->currentIndex(),0);
     }
 
 };

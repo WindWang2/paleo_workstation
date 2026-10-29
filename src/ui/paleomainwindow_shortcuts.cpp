@@ -9,28 +9,28 @@
 #include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表
 
 #include <QShortcut>
+#include <QTabBar>
 
 void PaleoMainWindow::registerPageShortcuts()
 {
   // W5 键盘可达：Ctrl+1..6 直切六个工作流页（页序 = 工作流链序）。
   // 方向63：键序登记在 shortcuts/shortcutcatalog（main.page.<页 id>）。
-  for (int i = 0; i < paleo::pagesinternal::kPageIds.size(); ++i)
+  for (int i = 0; i < paleo::pagesinternal::kRibbonIds.size(); ++i)
   {
     auto *sc = paleo::shortcuts::bindShortcut(
-        QStringLiteral("main.page.") + paleo::pagesinternal::kPageIds.at(i), this);
-    sc->setObjectName(QStringLiteral("pageShortcut.") + paleo::pagesinternal::kPageIds.at(i));
+        QStringLiteral("main.page.") + paleo::pagesinternal::kRibbonIds.at(i), this);
+    sc->setObjectName(QStringLiteral("pageShortcut.") + paleo::pagesinternal::kRibbonIds.at(i));
     connect(sc, &QShortcut::activated, this, [this, i] {
-      showPage(paleo::pagesinternal::kPageIds.at(i));
+      ribbonBar()->raiseCategory(categoryForPage(paleo::pagesinternal::kRibbonIds.at(i)));
     });
   }
   // goal/ui-experience-polish：Ctrl+Tab / Ctrl+Shift+Tab 循环切页（桌面页签
   // 惯例；与 Ctrl+1..6 互补——手不离开主行也能走完整工作流链）。
   {
     const auto cyclePage = [this](int step) {
-      const int idx = paleo::pagesinternal::kPageIds.indexOf(m_currentPage);
-      const int n = paleo::pagesinternal::kPageIds.size();
-      const int next = ((idx < 0 ? 0 : idx) + step + n) % n;
-      showPage(paleo::pagesinternal::kPageIds.at(next));
+      if (!m_visualizationTabs || m_visualizationTabs->count() == 0) return;
+      const int n = m_visualizationTabs->count();
+      m_visualizationTabs->setCurrentIndex((m_visualizationTabs->currentIndex() + step + n) % n);
     };
     auto *nextSc = paleo::shortcuts::bindShortcut(QStringLiteral("main.page.next"), this);
     nextSc->setObjectName(QStringLiteral("pageShortcut.next"));

@@ -946,6 +946,11 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
              parameters,
              &error);
       const auto outputVersion = versionForLayer(outputLayer);
+      if (!outputLayer.isEmpty() && error.isEmpty() && request.kind == "seismic") {
+        QString polygonError;
+        if (!startPolygonize(outputLayer, &polygonError))
+          emit errorOccurred(tr("地震相栅格已保存，生成预测相面失败：%1").arg(polygonError));
+      }
       if (m_task && !outputVersion.id.isEmpty())
         m_task->setNavigationContext({{"catalog_path", m_catalog->catalogPath()},
             {"version_id", outputVersion.id}, {"request_id", request.id}, {"horizon", request.horizon}});

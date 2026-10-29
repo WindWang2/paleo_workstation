@@ -175,6 +175,12 @@ bool MappingWorkbench::commitPolygonize(PolygonizeJob &job, QString *error) {
                     {"method", "paleo:paleo_facies_polygonize"},
                     {"mock", job.mock},
                     {"source_layer", job.sourceLayerId}};
+  const auto sourceKind = m_catalog->versionById(job.parent).extra.value("kind").toString();
+  if (sourceKind == QLatin1String("seismic_prediction")) {
+    extra.insert("prediction_family", QStringLiteral("seismic"));
+    extra.insert("source_prediction_version", job.parent);
+    extra.insert("result_scope", QStringLiteral("area"));
+  }
   if (!job.provenance.isNull() && job.provenance.isValid())
     extra.insert("polygonize_provenance", job.provenance);
   const auto id = record(job.outputPath, job.horizon, "facies_polygons",

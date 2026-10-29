@@ -2,6 +2,7 @@
 // paleomainwindow_attach — 壳接线聚合胶水层：attachWorkflows 入口 + 静态辅助函数 + 跨页图层显隐辅助
 //（子页面/域接线已解耦至 paleomainwindow_attach_<domain>.cpp，严格保证类定义与 API 零变更）。
 #include "paleomainwindow.h"
+#include "../workflow/stratigraphyworkflow.h"
 
 #include "paleotheme.h"
 #include "paleoicons.h"
@@ -369,7 +370,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   auto *stack = host ? qobject_cast<QStackedLayout *>(host->layout()) : nullptr;
   if (!stack)
     return;
-  m_taskSvc = taskSvc; // D1b：导入任务池（nullptr 时保持同步旧路径）
+  m_taskSvc = taskSvc; if (m_stratigraphy) m_stratigraphy->setTaskService(taskSvc);
   m_projectStore = store; // #275：三入口（网格化/编辑分层/面运算）调用时现取 gpkg
   m_importSvc = importSvc; // 「从工区文件夹新建」直达入口
   if (importSvc)

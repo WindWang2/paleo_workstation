@@ -223,7 +223,9 @@ target_include_directories(paleo_segyio SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/vendor
 # 64 位 seek 宏按平台：MSVC 无 fseeko/ftello（LLP64 long=32bit 走
 # _fseeki64/_ftelli64 分支），POSIX 走 fseeko/ftello。
 if(MSVC)
-  target_compile_definitions(paleo_segyio PRIVATE HAVE_SYS_STAT_H HAVE_FSEEKI64 HAVE_FTELLI64)
+  # 不定义 HAVE_FSTATI64 时，MSVC 的 fstat 是 _fstat64i32，st_size 仍为 32 位。
+  # 超过 2GB 的 SEG-Y 会 EOVERFLOW；segy_traces 把这次失败报成 segyio error=3。
+  target_compile_definitions(paleo_segyio PRIVATE HAVE_SYS_STAT_H HAVE_FSEEKI64 HAVE_FTELLI64 HAVE_FSTATI64)
 else()
   target_compile_definitions(paleo_segyio PRIVATE
     HAVE_SYS_STAT_H HAVE_FSEEKO HAVE_FTELLO _FILE_OFFSET_BITS=64)

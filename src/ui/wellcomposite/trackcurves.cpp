@@ -411,7 +411,7 @@ SymbolTrack::SymbolTrack(const QString &title, qreal width)
 
 void SymbolTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double /*currentDepth*/)
 {
-  paintHeaderChrome(painter, headerRect, QStringLiteral("段/点符号"), QString());
+  paintHeaderChrome(painter, headerRect, QString(), QString());
 }
 
 void SymbolTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
@@ -473,19 +473,19 @@ void SymbolTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
                                QPointF(c.x(), c.y() + 5), QPointF(c.x() - 5, c.y())});
       painter.drawPolygon(diamond);
     }
-    else if (sym.kind == SymbolKind::PositiveCycle) // 正旋回：向上变细 (正粒序，底宽顶窄喇叭/三角)
+    else if (sym.kind == SymbolKind::PositiveCycle) // 正旋回：底宽顶尖
     {
       const qreal cx = bodyRect.center().x();
-      const qreal halfW = qMin<qreal>(14.0, bodyRect.width() * 0.38);
+      const qreal halfW = qMax<qreal>(6.0, bodyRect.width() * 0.5 - 5.0);
       const QPolygonF triangle({QPointF(cx - halfW, y1), QPointF(cx + halfW, y1), QPointF(cx, y0)});
       painter.setPen(QPen(QColor(QStringLiteral("#D97706")), 1.5));
       painter.setBrush(QColor(QStringLiteral("#FEF3C7")));
       painter.drawPolygon(triangle);
     }
-    else if (sym.kind == SymbolKind::NegativeCycle) // 反旋回：向上变粗 (逆粒序，底窄顶宽漏斗/倒三角)
+    else if (sym.kind == SymbolKind::NegativeCycle) // 反旋回：顶宽底尖
     {
       const qreal cx = bodyRect.center().x();
-      const qreal halfW = qMin<qreal>(14.0, bodyRect.width() * 0.38);
+      const qreal halfW = qMax<qreal>(6.0, bodyRect.width() * 0.5 - 5.0);
       const QPolygonF triangle({QPointF(cx, y1), QPointF(cx - halfW, y0), QPointF(cx + halfW, y0)});
       painter.setPen(QPen(QColor(QStringLiteral("#2563EB")), 1.5));
       painter.setBrush(QColor(QStringLiteral("#DBEAFE")));

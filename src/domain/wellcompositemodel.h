@@ -153,6 +153,7 @@ struct SymbolItem
   float bottomDepth = 0.0f; // 若为单点，bottomDepth == topDepth
   SymbolKind kind = SymbolKind::Perforation;
   QString label;
+  QString track; // 旋回道名。三级、四级各自成道；空则留在隐藏符号道。
 };
 
 struct ComprehensiveWellData

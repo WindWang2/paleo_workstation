@@ -48,3 +48,25 @@ void DataListPanel::buildImportButtons(QVBoxLayout *importLay, QWidget *importSe
     importLay->addWidget(btn);
   }
 }
+
+// 方向 30：导入台账 + 工区体检 + 存储治理台（维护面，随导入区安放）。
+void DataListPanel::buildImportMaintenanceButtons(QVBoxLayout *importLay, QWidget *importSection) {
+  auto *ledgerBtn = new QPushButton(tr("导入台账"), importSection);
+  ledgerBtn->setObjectName(QStringLiteral("importLedgerButton"));
+  ledgerBtn->setToolTip(tr("查看最近导入批次的行级结局（入库/未决/失败/跳过）"));
+  ledgerBtn->setAccessibleName(tr("导入台账"));
+  connect(ledgerBtn, &QPushButton::clicked, this, &DataListPanel::showImportLedger);
+  importLay->addWidget(ledgerBtn);
+  auto *storage = new QPushButton(tr("存储治理台"), importSection);
+  storage->setObjectName(QStringLiteral("storageGovernanceButton"));
+  storage->setAccessibleName(storage->text());
+  storage->setToolTip(tr("汇总体积、扫描未引用文件、预览回收过时版本"));
+  connect(storage, &QPushButton::clicked, this, &DataListPanel::showStorageGovernance);
+  importLay->addWidget(storage);
+  auto *healthBtn = new QPushButton(tr("工区体检"), importSection);
+  healthBtn->setObjectName(QStringLiteral("healthCheckButton"));
+  healthBtn->setToolTip(tr("检查缺失文件 / SHA 失配 / 未决链接 / 孤立实体等"));
+  healthBtn->setAccessibleName(tr("工区体检"));
+  connect(healthBtn, &QPushButton::clicked, this, &DataListPanel::showHealthCheck);
+  importLay->addWidget(healthBtn);
+}

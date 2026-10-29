@@ -18,6 +18,9 @@ public:
 
 private:
   void refreshSources();
+  // 通道清单刷新的调度壳：面板可见→同步刷；不可见→后台预热 well_log 头
+  // 缓存，激活时命中（外链 SpreadsheetML 整本解析不能占 GUI 关键路径）。
+  void scheduleSourceRefresh();
   void load(const QStringList &);
   void project(const Axes &);
   void select(const QVector<QPointF> &);

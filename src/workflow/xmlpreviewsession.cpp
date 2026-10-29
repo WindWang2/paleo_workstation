@@ -84,3 +84,36 @@ void XmlPreviewSession::open(const QString &path, const QString &expectedSha,
             [cancelled] { cancelled->store(true); });
   watcher->setFuture(future);
 }
+
+void XmlPreviewSession::openModelWell(const QString &modelProject, qlonglong modelWell,
+                                      const QString &wellName)
+{
+  if (m_verificationCancelled) m_verificationCancelled->store(true);
+  m_verificationCancelled = std::make_shared<std::atomic_bool>(false);
+  const auto cancelled = m_verificationCancelled;
+  const auto generation = ++m_generation;
+  auto *watcher = new QFutureWatcher<XmlPreviewData>(this);
+  connect(watcher, &QFutureWatcherBase::finished, this,
+          [this, watcher, generation] {
+            const auto data = watcher->future().isCanceled() || !watcher->future().resultCount()
+                                  ? XmlPreviewData{}
+                                  : watcher->result();
+            watcher->deleteLater();
+            if (generation == m_generation)
+              emit ready(data);
+          });
+  const auto future = QtConcurrent::run(
+      paleo::tasks::pool(m_tasks), [modelProject, modelWell, cancelled] {
+        XmlPreviewData data;
+        PreviewDocService::areaPreviewWell(modelProject, modelWell, &data.table, &data.chart,
+                                            &data.chartOk, &data.chartError,
+                                            [cancelled] { return cancelled->load(); });
+        return cancelled->load() ? XmlPreviewData{} : data;
+      });
+  auto *task = paleo::tasks::track(m_tasks, watcher, future,
+                                   tr("读取井道图 %1").arg(wellName), true);
+  if (task)
+    connect(task, &PaleoTask::cancelAsked, watcher,
+            [cancelled] { cancelled->store(true); });
+  watcher->setFuture(future);
+}

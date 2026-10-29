@@ -36,7 +36,30 @@ namespace
         QString::fromUtf8(QJsonDocument(paleoGeoreferenceToJson(g))
                               .toJson(QJsonDocument::Compact)));
   }
+
 } // namespace
+
+void QgisProjectService::adoptConfirmedGeoreference(const QString &projectDir)
+{
+  if (m_georeference || projectDir.isEmpty()) return;
+  const auto crs = paleo::area_model::confirmedProjectCrs(projectDir);
+  if (crs.isEmpty()) return;
+  PaleoGeoreference adopted;
+  adopted.kind = QStringLiteral("crs");
+  adopted.sourceCrs = crs;
+  adopted.targetCrs = QStringLiteral("EPSG:4326");
+  m_georeference = adopted;
+  if (m_readOnly) return;
+  const QString paleoPath = paleoProjectFilePath(projectDir);
+  if (!QFile::exists(paleoPath)) return;
+  bool ok = false;
+  QString error;
+  auto file = readProjectFile(paleoPath, &ok, &error);
+  if (!ok || file.georeference) return;
+  file.georeference = m_georeference;
+  if (!writeProjectFile(projectDir, file, &error))
+    m_errors << tr("无法保存确认的工程坐标系：%1").arg(error);
+}
 
 // P0 spine service — owns a QgsProject per service instance. The project is
 // created with `new QgsProject()` (service owns its open/save lifecycle,
@@ -244,6 +267,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
         m_georeference = g;
     }
   }
+  adoptConfirmedGeoreference(QFileInfo(m_path).absolutePath());
   if ( m_georeference )
     embedGeoreferenceProperty( m_project, *m_georeference );
   else

@@ -8,6 +8,7 @@
 // 编排在 _project.cpp。
 #include "paleomainwindow.h"
 #include "paleomainwindow_internal.h"
+#include <cmath>
 #include "uienv_internal.h"
 
 #include "paleodockmanager.h"
@@ -661,8 +662,11 @@ void PaleoMainWindow::restoreCanvasExtent()
     return;
   }
   QgsRectangle e(xmin, ymin, xmax, ymax);
-  if (e.isEmpty())
+  if (e.isEmpty() || !std::isfinite(e.xMinimum()) || !std::isfinite(e.yMinimum())
+      || e.width() > 1e8 || e.height() > 1e8) {
+    fallbackFullExtent(tr("范围过大或不是有限数值"));
     return;
+  }
   const auto savedCrs = m_projectSvc->project()->readEntry("paleo", "canvasExtentCrs");
   const auto source = QgsCoordinateReferenceSystem::fromWkt(savedCrs.isEmpty() ? DataCatalog::localGridCrsWkt() : savedCrs);
   e = paleo::mapreference::mapExtent(m_canvasCtl->canvas(), e, source);

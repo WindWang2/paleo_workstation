@@ -274,6 +274,10 @@ class PaleoMainWindow : public SARibbonMainWindow
     void wireDataImportRequests(DataPage *dataPage, DataImportService *importSvc, DataPreviewTabs *preview);
     void attachProjectDashboard(DataPage *dataPage, DataPreviewTabs *preview);
     void attachDataProjectOpen(DataPage *dataPage);
+    // 开工程后对首个地震资产做一次轻量测区角点探测并写回目录实体
+    //（attachDataProjectOpen 的 openFinished 收尾，见 paleomainwindow_attach_data.cpp）。
+    void probeSurveyBoundsAsync();
+    void setImportToolsEnabled(bool enabled); // 数据页导入按钮门控（tooltip 存还纪律）
     void attachDataPage(DataPage *dataPage, WellCorrelationPanel *corrPanel,
                         DataImportService *importSvc, PaleoTaskService *taskSvc);
     void attachPredictPage(PredictPage *predictPage, PredictionWorkflow *pred);
@@ -423,7 +427,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 不与「在地图上显示」的双向同步打架。测试经 "horizonFlashActive"
     // 属性断言起止。
     void flashHorizonLayer(QgsMapLayer *layer);
-    void syncSeismicVolumeToDocks();
+    // includeLargeVolumes 为 false 时跳过超过 2GB 的体。打开工程走这条，避免索引整卷大 SEG-Y。
+    void syncSeismicVolumeToDocks(bool includeLargeVolumes = true);
     void attachSections(SeismicMapLink *link);
     // 连井剖面（well correlation section）：attachWorkflows 内
     // attachSections 之后、m_seismicTaskSvc 就位后调用。store 供剖面编辑

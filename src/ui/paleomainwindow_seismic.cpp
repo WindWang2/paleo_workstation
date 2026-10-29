@@ -65,7 +65,7 @@
 #include <QTimer>
 #include <memory>
 
-void PaleoMainWindow::syncSeismicVolumeToDocks()
+void PaleoMainWindow::syncSeismicVolumeToDocks(bool includeLargeVolumes)
 {
   if (m_projectSvc && m_projectSvc->isOpening()) return;
   DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr;
@@ -95,6 +95,8 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
     }
     const QString path = m_previewDoc->absolutePathForVersion(version);
     if (path.isEmpty() || !QFile::exists(path))
+      continue;
+    if (!includeLargeVolumes && QFileInfo(path).size() > 2LL * 1024 * 1024 * 1024)
       continue;
     const auto matches = [&path](const auto &volume) {
       return volume && paleo::fromFsPath(volume->Path()) == path;
@@ -136,7 +138,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
     const QPointer<QLabel> statusGuard(status);
     const QPointer<QProgressBar> progressGuard(progress);
     m_seismicOpenTask = m_seismicTaskSvc->startVolumeLoad(path,
-        [guard, generation, session, origin, statusGuard, progressGuard](bool ok,
+        [guard, generation, session, origin, statusGuard, progressGuard, includeLargeVolumes](bool ok,
               std::shared_ptr<seismic::SgyVolume> volume, const QString &error) {
       if (!guard || generation != guard->m_seismicOpenGeneration ||
           (guard->m_projectSvc && session != guard->m_projectSvc->sessionId()))
@@ -146,7 +148,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
       guard->m_seismicOpenPath.clear();
       if (!ok || !volume) {
         guard->statusBar()->showMessage(error, 10000);
-        guard->syncSeismicVolumeToDocks(); // #481 P3-8：失败终态同样推进余体
+        guard->syncSeismicVolumeToDocks(includeLargeVolumes); // #481 P3-8：失败终态同样推进余体
         return;
       }
       if (guard->m_seismic3dPanel) {
@@ -166,7 +168,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
       }
       guard->statusBar()->showMessage(QObject::tr("地震体加载完成"), 5000);
       // #481 P3-8 后半：终态后重扫余体（多体串行装载，已记账路径不重试）；循环尾 return 保单在途体。
-      guard->syncSeismicVolumeToDocks();
+      guard->syncSeismicVolumeToDocks(includeLargeVolumes);
     }, /*quiet=*/true); // 状态栏已有进度；自动加载不反复展开/收起底栏。
     if (m_seismicOpenTask) {
       QPointer<PaleoTask> task = m_seismicOpenTask;

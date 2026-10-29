@@ -52,6 +52,8 @@ DataPage::DataPage(QWidget *parent)
           &DataPage::assetActivated);
   connect(m_listPanel, &DataListPanel::assetWellActivated, this,
           &DataPage::assetWellActivated);
+  connect(m_listPanel, &DataListPanel::modelWellChartRequested, this,
+          &DataPage::modelWellChartRequested);
   connect(m_listPanel, &DataListPanel::seismicLineActivated, this,
           &DataPage::seismicLineActivated);
   connect(m_listPanel, &DataListPanel::wellSelected, this,

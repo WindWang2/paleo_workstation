@@ -57,6 +57,10 @@ class WellLogSet
 public:
   // 新导入的受管文件保存已验证表头，目录/GUI 查询无需再扫描 XML 数据体。
   static bool storedHeader(const CatalogVersion &version, LasHeaderInfo *out);
+  // 后台预热外链文件的头缓存（path+size+mtime 键控，进程级）：把
+  // parseHeader 的整本 SpreadsheetML 解析从 GUI 首次激活挪到开工程后的
+  // 工作线程。目录查询（wellCurveIndex 等）随后命中缓存免重扫。
+  static void warmHeaderCache(const QStringList &paths);
   // 仅转换已声明的深度单位，不把 TIME/TVD/TVDSS 或新格式未知轴冒充 MD。
   static bool mdAxisInMetres(const WellCurveRef &ref, const QList<LasCurve> &curves,
                             QVector<double> *axis, QString *error = nullptr);

@@ -8,14 +8,18 @@
 #include "qgis/qgislayerservice.h"
 #include "qgis/qgisprojectservice.h"
 #include "services/faciestraining.h"
+#include "services/welllogset.h"
+#include "catalog/datacatalog.h"
 #include "ui/crossplot/crossplotpanel.h"
 #include "ui/paleomainwindow.h"
 #include "workflow/faciesclassify.h"
 #include "ui/shortcuts/shortcutcatalog.h"
 #include <QAction>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QTabWidget>
 #include <QTimer>
+#include <QtConcurrent>
 #include <qgslayertreeview.h>
 namespace paleo::crossplot {
 CrossplotController::CrossplotController(AppContext *ctx,
@@ -81,7 +85,9 @@ CrossplotController::CrossplotController(AppContext *ctx,
             m_panel->setModelTrained(false);
             refreshTrainingState();
             m_map->clear();
-            refreshSources();
+            // projectOpened 是同步槽链（92% 进度停摆现场）：通道清单解析
+            // 挪出关键路径——可见即刷（后台已预热），不可见交给激活路径。
+            scheduleSourceRefresh();
           });
   connect(m_panel, &CrossplotPanel::samplesRequested, this,
           &CrossplotController::load);
@@ -183,8 +189,48 @@ CrossplotController::CrossplotController(AppContext *ctx,
     m_workflow->setCatalog(
         catalog, QFileInfo(ctx->projectSvc()->projectPath()).absolutePath());
   refreshTrainingState(); // 首启训练态：禁用原因由控制器单一出处下发
-  refreshSources();
+  scheduleSourceRefresh();
 }
+
+// 交会通道清单要 wellCurveIndex 全井扫表头：外链 SpreadsheetML 是整本解析，
+// 几十个文件分钟级——不能在工程打开（projectOpened 同步槽）或控制器构造
+// 的 GUI 关键路径上同步做。面板不可见时改为后台预热头缓存，真正激活面板
+// 时（tab currentChanged / action）refreshSources 命中缓存秒回。
+void CrossplotController::scheduleSourceRefresh() {
+  if (m_panel->isVisible()) {
+    refreshSources();
+    return;
+  }
+  const auto path = m_context->projectSvc()->projectPath();
+  auto *catalog = m_context->importSvc()->catalog();
+  if (!catalog || !catalog->isOpen())
+    return;
+  const QString dir = QFileInfo(path).absolutePath();
+  QStringList paths;
+  const auto wells = catalog->entities(QStringLiteral("well"));
+  for (const auto &well : wells)
+    for (const auto &link : catalog->linksForEntity(well.id)) {
+      if (link.role != QLatin1String("well_log") || link.unresolved)
+        continue;
+      const QString file =
+          DataCatalog::resolvedVersionPath(dir, catalog->currentVersion(link.assetId));
+      if (!file.isEmpty() && QFileInfo(file).isFile() && !paths.contains(file))
+        paths << file;
+    }
+  if (paths.isEmpty())
+    return;
+  auto *watcher = new QFutureWatcher<void>(this);
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher] {
+    watcher->deleteLater();
+    // 预热完成时面板已可见（用户先开了 tab）→ 立即补一次清单；仍不可见
+    // 则留给激活路径，不在这里白扫。
+    if (m_panel->isVisible())
+      refreshSources();
+  });
+  watcher->setFuture(QtConcurrent::run(
+      [paths] { WellLogSet::warmHeaderCache(paths); }));
+}
+
 void CrossplotController::refreshSources() {
   const auto path = m_context->projectSvc()->projectPath();
   m_sources = CrossplotSources::inventory(m_context->importSvc()->catalog(),

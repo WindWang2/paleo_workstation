@@ -2,7 +2,10 @@
 #include <QTemporaryDir>
 #include <QSqlDatabase>
 #include <QSqlError>
+#include <QSqlQuery>
+#include <QDir>
 #include <QFile>
+#include <QtEndian>
 #include <paleo_data/service.h>
 #include <paleo_data/catalog.h>
 #include "../src/catalog/datacatalog.h"
@@ -88,6 +91,78 @@ private slots:
     const auto parsed = paleo::data::parseFile(u(path));
     QVERIFY2(parsed.status != "failed", parsed.message.c_str());
     QVERIFY(QString::fromUtf8(parsed.documentText).contains("service bridge"));
+  }
+
+  void planarRangeMergesWellsAndSeismicGrid() {
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    const auto project = directory.filePath("area");
+    std::string error;
+    // 3×2 规则网格 SEG-Y（IEEE、4 样点、CDP 坐标；SgyCoordinateMapper 拟合
+    // 需要 ≥6 个坐标采样，2×2 不够）。
+    const auto sgy = directory.filePath("grid.sgy");
+    {
+      QByteArray bytes(3200, ' ');
+      QByteArray bin(400, '\0');
+      qToBigEndian<quint16>(2000, bin.data() + 16);
+      qToBigEndian<quint16>(4, bin.data() + 20);
+      qToBigEndian<quint16>(5, bin.data() + 24);
+      bytes += bin;
+      const struct { int il, xl; double x, y; } traces[6] = {
+          {10, 20, 1000, 5000}, {10, 21, 1050, 5000}, {10, 22, 1100, 5000},
+          {11, 20, 1000, 5100}, {11, 21, 1050, 5100}, {11, 22, 1100, 5100}};
+      for (const auto &trace : traces) {
+        QByteArray header(240, '\0');
+        qToBigEndian<qint16>(1, header.data() + 70);
+        qToBigEndian<qint32>(qint32(trace.x), header.data() + 72);
+        qToBigEndian<qint32>(qint32(trace.y), header.data() + 76);
+        qToBigEndian<qint32>(qint32(trace.x), header.data() + 180);
+        qToBigEndian<qint32>(qint32(trace.y), header.data() + 184);
+        qToBigEndian<qint32>(trace.il, header.data() + 188);
+        qToBigEndian<qint32>(trace.xl, header.data() + 192);
+        bytes += header + QByteArray(4 * 4, '\0');
+      }
+      QFile file(sgy); QVERIFY(file.open(QIODevice::WriteOnly)); file.write(bytes); file.close();
+    }
+    {
+      paleo::data::DataService service;
+      QVERIFY2(service.createProject(u(project), "planar", error), error.c_str());
+      paleo::data::WellInfo well;
+      well.wellName = "RANGE-1"; well.wellheadX = 1250; well.wellheadY = 5250;
+      well.coordinateSystem = "EPSG:32650"; well.coordinateUnit = "m";
+      long long id = 0;
+      QVERIFY2(service.createWell(well, id, error), error.c_str());
+      service.closeProject();
+    }
+    {
+      const auto name = QStringLiteral("tst_dataservice_planar");
+      auto db = QSqlDatabase::addDatabase("QSQLITE", name);
+      db.setDatabaseName(project + "/data.sqlite");
+      QVERIFY2(db.open(), qPrintable(db.lastError().text()));
+      QSqlQuery query(db);
+      const auto geometry = QStringLiteral(
+          R"({"traceCount":6,"inlineMin":10,"inlineMax":11,"crosslineMin":20,"crosslineMax":22,"crs":"","unit":""})");
+      const auto sampling = QStringLiteral(
+          R"({"sampleCount":4,"firstTime":0,"sampleInterval":2,"timeUnit":"ms","timeType":"","timeReference":""})");
+      QVERIFY2(query.exec(QStringLiteral(
+                    "INSERT INTO volumes(source_id,name,path,format,amplitude_unit,geometry,sampling) "
+                    "VALUES(NULL,'grid','%1','SEG-Y','','%2','%3')")
+                    .arg(QDir::toNativeSeparators(sgy), geometry, sampling)),
+               qPrintable(query.lastError().text()));
+      db.close(); QSqlDatabase::removeDatabase(name);
+    }
+    paleo::data::DataService reader;
+    QVERIFY2(reader.openProjectReadOnly(u(project), error), error.c_str());
+    paleo::data::ProjectPlanarRange range;
+    QVERIFY2(reader.readProjectPlanarRange(range, error), error.c_str());
+    QVERIFY(range.wells.valid);
+    QCOMPARE(range.wells.minX, 1250.0); QCOMPARE(range.wells.maxX, 1250.0);
+    QCOMPARE(range.wells.minY, 5250.0); QCOMPARE(range.wells.maxY, 5250.0);
+    QVERIFY2(range.seismic.valid, "规则网格体应可换算出平面范围");
+    QCOMPARE(range.seismic.minX, 1000.0); QCOMPARE(range.seismic.maxX, 1100.0);
+    QCOMPARE(range.seismic.minY, 5000.0); QCOMPARE(range.seismic.maxY, 5100.0);
+    QVERIFY(range.merged.valid);
+    QCOMPARE(range.merged.minX, 1000.0); QCOMPARE(range.merged.maxX, 1250.0);
+    QCOMPARE(range.merged.minY, 5000.0); QCOMPARE(range.merged.maxY, 5250.0);
   }
 };
 QTEST_GUILESS_MAIN(TestDataService)

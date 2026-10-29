@@ -10,6 +10,9 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QCoreApplication>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QDateTime>
 
 #include <algorithm>
 #include <cmath>
@@ -21,6 +24,61 @@
 
 namespace
 {
+  // 外链文件（managed=false、无 logCurveNames）每次 wellCurveIndex 都要走
+  // WellLogRead::parseHeader——SpreadsheetML 需整本流式解析，几十个文件即
+  // 分钟级。此缓存按 (path, size, mtime) 记住解析结果，同一版本会话内免重扫；
+  // warmHeaderCache 允许调用方在后台线程先行填满。
+  struct CachedHeader
+  {
+    qint64 size = -1;
+    qint64 mtimeMs = -1;
+    bool ok = false;
+    LasHeaderInfo header;
+    QString error;
+  };
+  QMutex &headerCacheMutex()
+  {
+    static QMutex mutex;
+    return mutex;
+  }
+  QHash<QString, CachedHeader> &headerCache()
+  {
+    static QHash<QString, CachedHeader> cache;
+    return cache;
+  }
+
+  bool parseHeaderCached(const QString &path, LasHeaderInfo &header, QString *error)
+  {
+    const QFileInfo info(path);
+    const qint64 size = info.exists() ? info.size() : -1;
+    const qint64 mtimeMs = info.exists() ? info.lastModified().toMSecsSinceEpoch() : -1;
+    {
+      QMutexLocker lock(&headerCacheMutex());
+      const auto found = headerCache().constFind(path);
+      if (found != headerCache().constEnd() && found->size == size && found->mtimeMs == mtimeMs)
+      {
+        header = found->header;
+        if (error)
+          *error = found->error;
+        return found->ok;
+      }
+    }
+    CachedHeader entry;
+    entry.size = size;
+    entry.mtimeMs = mtimeMs;
+    entry.ok = WellLogRead::parseHeader(path, entry.header, &entry.error);
+    {
+      QMutexLocker lock(&headerCacheMutex());
+      if (headerCache().size() >= 4096)
+        headerCache().clear();
+      headerCache().insert(path, entry);
+    }
+    header = entry.header;
+    if (error)
+      *error = entry.error;
+    return entry.ok;
+  }
+
   struct CurveItem
   {
     QString mnemonic;
@@ -175,7 +233,7 @@ namespace
       }
       LasHeaderInfo header;
       QString error;
-      if (!WellLogSet::storedHeader(version, &header) && !WellLogRead::parseHeader(path, header, &error))
+      if (!WellLogSet::storedHeader(version, &header) && !parseHeaderCached(path, header, &error))
       {
         addWarning(warnings, QStringLiteral("%1: %2").arg(path, error));
         continue;
@@ -252,6 +310,17 @@ namespace
     return refs;
   }
 } // namespace
+
+void WellLogSet::warmHeaderCache(const QStringList &paths)
+{
+  // 只做文件解析（WellLogRead 自由函数，可跨线程），不触碰 catalog。
+  for (const QString &path : paths)
+  {
+    LasHeaderInfo header;
+    QString error;
+    parseHeaderCached(path, header, &error);
+  }
+}
 
 QVector<WellLogFile> WellLogSet::wellLogFiles(const DataCatalog *catalog,
                                              const QString &projectDir,

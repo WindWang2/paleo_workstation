@@ -32,21 +32,26 @@ void appendInterval(const paleo::data::IntervalTrack &track, const paleo::data::
     if(item.formation.isEmpty())item.formation=text(v.intervalName);
     out.stratigraphyIntervals.append(item);
   } else if (kind.contains(QStringLiteral("旋回"))) {
-    WellComposite::SymbolItem item;item.topDepth=top;item.bottomDepth=bottom;item.label=text(v.intervalName);
+    WellComposite::SymbolItem item;item.topDepth=top;item.bottomDepth=bottom;item.label=text(v.intervalName);item.track=name;
     if(item.label.contains(QStringLiteral("反")))item.kind=WellComposite::SymbolKind::NegativeCycle;
     else if(item.label.contains(QStringLiteral("正")))item.kind=WellComposite::SymbolKind::PositiveCycle;
     else {WellComposite::TextInterval label;label.topDepth=top;label.bottomDepth=bottom;label.category=name;label.text=item.label;out.textIntervals.append(label);return;}
     out.symbolItems.append(item);
-  } else if (kind.contains(QStringLiteral("岩性"))) {
+  } else if (kind.contains(QStringLiteral("岩性")) || name.contains(QStringLiteral("岩性"))) {
     WellComposite::LithologyInterval item; item.topDepth=top; item.bottomDepth=bottom;
     item.lithoName=text(v.intervalName); item.lithoCode=property(v,{QStringLiteral("岩性代码")});
     out.lithologyIntervals.append(item);
-  } else if (kind.contains(QStringLiteral("沉积相"))) {
+  } else if (kind.contains(QStringLiteral("沉积相")) || name == QStringLiteral("相")
+             || name == QStringLiteral("亚相") || name == QStringLiteral("微相")) {
     WellComposite::FaciesInterval item; item.topDepth=top; item.bottomDepth=bottom;
     item.majorFacies=property(v,{QStringLiteral("相"),QStringLiteral("大相")});
     item.subFacies=property(v,{QStringLiteral("亚相")});
     item.microFacies=text(v.faciesType);
-    if (item.majorFacies.isEmpty()) item.majorFacies=text(v.intervalName);
+    const QString label = text(v.intervalName);
+    if (name == QStringLiteral("相") || name.contains(QStringLiteral("大相"))) item.majorFacies = label;
+    else if (name == QStringLiteral("亚相")) item.subFacies = label;
+    else if (name == QStringLiteral("微相")) item.microFacies = label;
+    else if (item.majorFacies.isEmpty()) item.majorFacies = label;
     out.faciesIntervals.append(item);
   } else if (kind.contains(QStringLiteral("取心"))) {
     WellComposite::CoreBarrel item; item.topDepth=top; item.bottomDepth=bottom; item.barrelNo=text(v.intervalName);
@@ -85,14 +90,22 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
   next.projectCoordinateUnit=text(model.projectCoordinates.coordinateUnit);
   double lo=std::numeric_limits<double>::infinity(), hi=-lo;
   const auto depth=[&](double d){if(std::isfinite(d)){lo=qMin(lo,d);hi=qMax(hi,d);}};
-  const auto scaleFor=[&](const paleo::data::DepthInfo &info, const QString &name){
+  double wellScale=qQNaN();
+  for (const auto &group : model.logs) {
+    const double scale=metreScale(group.value.depthInfo);
+    if (std::isfinite(scale)) { wellScale=scale; break; }
+  }
+  const auto scaleFor=[&](const paleo::data::DepthInfo &info, const QString &name, bool useWellDepth){
     const double scale=metreScale(info);
-    if (!std::isfinite(scale)) next.dataWarnings << QStringLiteral("%1：深度类型或单位未确认为 MD/m 或 MD/ft，未绘制").arg(name);
-    return scale;
+    if (std::isfinite(scale)) return scale;
+    const bool undeclared=info.depthType.empty() && text(info.depthUnit).trimmed().isEmpty();
+    if (useWellDepth && undeclared && std::isfinite(wellScale)) return wellScale;
+    next.dataWarnings << QStringLiteral("%1：深度类型或单位未确认为 MD/m 或 MD/ft，未绘制").arg(name);
+    return qQNaN();
   };
   for (const auto &group : model.logs) {
     if(cancelled && cancelled()){if(error)*error=QStringLiteral("Cancelled");return false;}
-    const auto &logs=group.value; const double scale=scaleFor(logs.depthInfo,text(logs.logSetName));
+    const auto &logs=group.value; const double scale=scaleFor(logs.depthInfo,text(logs.logSetName),false);
     if(!std::isfinite(scale))continue;
     for (const auto &curve : logs.logCurves) {
       WellComposite::CurveData value; value.name=text(curve.curveName); value.unit=text(curve.curveUnit);
@@ -117,7 +130,7 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
   }
   for (const auto &group : model.intervals) {
     if(cancelled && cancelled()){if(error)*error=QStringLiteral("Cancelled");return false;}
-    const auto &track=group.value; const double scale=scaleFor(track.depthInfo,text(track.trackName));
+    const auto &track=group.value; const double scale=scaleFor(track.depthInfo,text(track.trackName),true);
     if(!std::isfinite(scale))continue;
     for(const auto &row:track.intervals) {
       if(!std::isfinite(row.topDepth)||!std::isfinite(row.bottomDepth))continue;
@@ -125,14 +138,14 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
     }
   }
   for(const auto &group:model.markers) {
-    const double scale=scaleFor(group.value.depthInfo,text(group.value.trackName));
+    const double scale=scaleFor(group.value.depthInfo,text(group.value.trackName),true);
     if(!std::isfinite(scale))continue;
     for(const auto &marker:group.value.markers)if(std::isfinite(marker.depthValue)) {
       depth(marker.depthValue*scale);next.standardHorizons.append({marker.depthValue*scale,text(marker.markerName)});
     }
   }
   if(!model.photos.empty()) {
-    const double scale=scaleFor(model.defaultDepthInfo,QStringLiteral("岩心照片"));
+    const double scale=scaleFor(model.defaultDepthInfo,QStringLiteral("岩心照片"),true);
     if(std::isfinite(scale))for(const auto &group:model.photos)for(const auto &photo:group.value.photos) {
       if(!std::isfinite(photo.topDepth)||!std::isfinite(photo.bottomDepth))continue;
       WellComposite::ImageDepthItem item;item.topDepth=float(photo.topDepth*scale);item.bottomDepth=float(photo.bottomDepth*scale);

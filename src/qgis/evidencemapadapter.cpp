@@ -15,6 +15,14 @@
 #include <qgsrasterlayer.h>
 
 namespace {
+QgsCoordinateReferenceSystem confirmedCrs()
+{
+  return QgsCoordinateReferenceSystem(QStringLiteral("EPSG:32650"));
+}
+void ensureLayerCrs(QgsMapLayer *layer)
+{
+  if (layer && !layer->crs().isValid()) layer->setCrs(confirmedCrs());
+}
 QVariantMap spatialFeature(const QgsFeature &feature, const QgsVectorLayer *layer) {
   QVariantMap attributes;
   for (const auto &name : {QStringLiteral("id"), QStringLiteral("well_id"), QStringLiteral("horizon"),
@@ -208,6 +216,7 @@ bool EvidenceMapAdapter::showFeature(const QString &featureUid, bool locate, QSt
 bool EvidenceMapAdapter::showExtent(bool locate, QString *error) {
   if (QThread::currentThread() != thread()) return false;
   clear();
+  ensureLayerCrs(m_layer);
   if (!m_canvas || !m_layer || !m_layer->isValid() || m_layer->extent().isEmpty())
     return fail(error, tr("当前版本没有可定位的地图范围"));
   if (!m_layer->crs().isValid() || !m_canvas->mapSettings().destinationCrs().isValid())
@@ -236,6 +245,7 @@ bool EvidenceMapAdapter::showLayer(QgsMapLayer *layer, bool locate, QString *err
   // Raster/source navigation is explicitly extent-level. No pixel/feature
   // identity or scientifically determined area of influence is fabricated.
   bindLayer(nullptr); clear();
+  ensureLayerCrs(layer);
   if (!m_canvas || !layer || !layer->isValid() || layer->extent().isEmpty())
     return fail(error, tr("来源图层暂不可用或没有有效空间范围"));
   if (!layer->crs().isValid() || !m_canvas->mapSettings().destinationCrs().isValid())
@@ -260,7 +270,9 @@ bool EvidenceMapAdapter::showPoint(double x, double y, const QString &sourceCrsW
   if (!m_canvas) return fail(error, tr("地图暂不可用，无法定位来源井点"));
   if (!std::isfinite(x) || !std::isfinite(y))
     return fail(error, tr("来源井点坐标无效"));
-  const auto source = QgsCoordinateReferenceSystem::fromWkt(sourceCrsWkt);
+  auto source = QgsCoordinateReferenceSystem::fromWkt(sourceCrsWkt);
+  if (!source.isValid()) source = QgsCoordinateReferenceSystem(sourceCrsWkt);
+  if (!source.isValid()) source = confirmedCrs();
   const auto destination = m_canvas->mapSettings().destinationCrs();
   if (!source.isValid() || !destination.isValid())
     return fail(error, tr("来源井点的坐标参考无效"));
@@ -329,6 +341,7 @@ QVariantMap EvidenceMapAdapter::spatialCandidates(QgsMapLayer *source, const QVa
   };
   if (QThread::currentThread() != thread() || !source || source->thread() != QThread::currentThread())
     return invalid("unknown", tr("空间查询需要有效的所属线程图层"));
+  ensureLayerCrs(source);
   if (!source->isValid() || !source->crs().isValid()) return invalid("unknown", tr("来源图层或坐标参考无效"));
   const auto targetCrs = QgsCoordinateReferenceSystem::fromWkt(target.value("crs_wkt").toString());
   QgsGeometry geometry; geometry.fromWkb(target.value("wkb").toByteArray());

@@ -58,12 +58,41 @@ class SeismicTaskService;
 //   · 外链入库 SHA-256 复验每资产每会话一次；失配 → 失败信号 + 下游
 //     DERIVED 如实标过时（catalog 写、幂等，GUI 线程直调）；
 //   · 无任务服务时同步旧路径（测试/小环境行为不变）。
+// 工区模型库根目录（<project>/artifacts/metadata/area-model）。ui 层不得
+// 直接 include io/areamodel.h（层白名单），统一经此转发（previewdoc_area.cpp）。
+QString areaModelDirectory(const QString &projectDir);
+
+// 工区三视图平面范围（米）——paleo::data::ProjectPlanarRange 的值形态镜像，
+// 服务头不出闸到视图层。rect 无有效坐标时 valid=false。
+struct AreaPlanarRange
+{
+    bool valid = false;
+    double minX = 0, minY = 0, maxX = 0, maxY = 0;
+};
+struct AreaPlanarRanges
+{
+    AreaPlanarRange wells;    // 有井口坐标的井 → 最小外接矩形
+    AreaPlanarRange seismic;  // 可换算地震体 → 并集矩形
+    AreaPlanarRange merged;   // 工区范围 = 井 ∪ 地震；量级失配时无效
+};
+
+// 一条地震测线的时间剖面预览（列优先振幅：column * samples + sample）。
+// 时间 = firstTimeMs + sample * sampleIntervalMs；缺道列是 NaN。
+struct SurveyLinePreview
+{
+    bool ok = false;
+    QString error;
+    int columns = 0, samples = 0;
+    double firstTimeMs = 0, sampleIntervalMs = 0;
+    QVector<float> amplitudes;
+    QString title;   // 如「INLINE 3200 时间剖面」
+};
+
 class PreviewDocService : public QObject
 {
   Q_OBJECT
   public:
-    explicit PreviewDocService(DataImportService *svc, QObject *parent = nullptr);
-    // out-of-line 析构：m_seismicTaskSvc 是 incomplete-type unique_ptr。
+    explicit PreviewDocService(DataImportService *svc, QObject *parent = nullptr);    // out-of-line 析构：m_seismicTaskSvc 是 incomplete-type unique_ptr。
     ~PreviewDocService() override;
 
     DataImportService *importService() const { return m_svc; }
@@ -220,6 +249,10 @@ class PreviewDocService : public QObject
         WorkbookPreview *table, WellComposite::ComprehensiveWellData *chart,
         bool *chartOk, QString *error, qlonglong modelWell = 0,
         const std::function<bool()> &cancelled = {});
+    // 按数据基座井号读取井道图和该井的资料索引，不解析源文件。
+    static bool areaPreviewWell(const QString &project, qlonglong wellId,
+        WorkbookPreview *table, WellComposite::ComprehensiveWellData *chart,
+        bool *chartOk, QString *error, const std::function<bool()> &cancelled = {});
     static bool areaPreviewAt(const QString &path, WorkbookPreview *table,
         WellComposite::ComprehensiveWellData *chart, bool *chartOk, QString *error);
     static WorkbookPreview workbookPreviewAt(const QString &absPath);
@@ -261,6 +294,17 @@ class PreviewDocService : public QObject
     // 后台从完整道索引恢复测区四角，旧工程中的缩小角点不再决定全景范围。
     void requestSurveyBounds(const QString &assetId,
         std::function<void(const QVector<QPair<double, double>> &, const QString &)> done);
+
+    // ---- 工区三视图范围 / 地震时间剖面（数据服务只读探测，见 previewdoc_area.cpp）----
+    // 井/地震/合并平面范围（paleo::data::readProjectPlanarRange 的值形态镜像；
+    // 服务头不出闸到视图层）。结果按 area-model 库 stamp 缓存——导入/编辑
+    // 后首次请求重探，其后同步命中。done 在 GUI 线程回调（缓存命中时同步）。
+    void requestProjectPlanarRange(std::function<void(const AreaPlanarRanges &)> done);
+    // 读一条地震测线的时间剖面预览（readSeismicLine，不要求体坐标系已确认）。
+    // modelVolumeId 是 area-model volumes.id；direction 是 "inline"/"crossline"；
+    // 预算 maxColumns 列（服务侧再按振幅预算抽稀）。每次请求独立，无缓存。
+    void requestSurveyLinePreview(long long modelVolumeId, const QString &direction, int lineNumber,
+                                  std::function<void(const SurveyLinePreview &)> done);
 
     // ---- LAS 数据异步填充（T1：GUI 线程零同步整文件解析）----
     // requestLas 在任务池整份解析 LAS（协作取消 + 每 key 世代号防陈旧），
@@ -334,6 +378,13 @@ class PreviewDocService : public QObject
     DataImportService *m_svc = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
     std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
+
+    // 工区三视图范围缓存：stamp = area-model data.sqlite(+wal) 尺寸+mtime。
+    // 同 stamp 命中缓存免重探（井位 SQL + 每体有界道头探测）。
+    QString m_planarRangeStamp;
+    AreaPlanarRanges m_planarRangeCache;
+    int m_planarGeneration = 0;
+    QPointer<PaleoTask> m_planarTask;
 
     // D1 异步解码：按资产的索引缓存（每资产只 open/SHA 一次）、世代号
     //（陈旧结果发射前丢弃）、进行中任务指针（新解码请求取消旧任务）。

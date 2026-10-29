@@ -67,8 +67,9 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
     paleo::area_model::registerProject(project, m_imports->importService());
     auto projection = preview;
     const auto crs = QString::fromUtf8(coordinates->coordinateSystem);
+    const bool confirmed = coordinates->selectionBasis == "import" || coordinates->selectionBasis == "default";
     if (preview.projectCrs.isEmpty() && !m_project->georeference() &&
-        coordinates->selectionBasis == "import" && !coordinates->hasConflict &&
+        confirmed && !coordinates->hasConflict &&
         coordinates->coordinateUnit == "m" && paleo::io::isMetricProjectCrs(crs)) {
       auto configuration = m_project->mapConfiguration();
       PaleoGeoreference reference; reference.kind = QStringLiteral("crs");
@@ -121,12 +122,18 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
         !model.readProjectCrsInfo(*coordinates, detail)) { promise.addResult(QString::fromUtf8(detail)); return; }
     if (coordinates->hasConflict)
       *modelSummary += ProjectSetupWorkflow::tr("资料中存在坐标系或单位冲突，已在数据模型中保留各来源声明，请核对。") + '\n';
+    QString basisLabel = QString::fromUtf8(coordinates->selectionBasis);
+    if (basisLabel == QLatin1String("import")) basisLabel = ProjectSetupWorkflow::tr("来源声明");
+    else if (basisLabel == QLatin1String("default")) basisLabel = ProjectSetupWorkflow::tr("未声明 EPSG 时默认");
+    else if (basisLabel == QLatin1String("manual")) basisLabel = ProjectSetupWorkflow::tr("人工指定");
     if (!coordinates->coordinateSystem.empty())
       *modelSummary += ProjectSetupWorkflow::tr("数据模型坐标系：%1 [%2]；依据：%3；来源声明 %4 条。")
           .arg(QString::fromUtf8(coordinates->coordinateSystem), QString::fromUtf8(coordinates->coordinateUnit),
-               QString::fromUtf8(coordinates->selectionBasis)).arg(coordinates->candidates.size()) + '\n';
-    else if (!coordinates->hasConflict)
-      *modelSummary += ProjectSetupWorkflow::tr("资料未提供可唯一确定的 EPSG 坐标系，已保留原始坐标，不推测投影。") + '\n';
+               basisLabel).arg(coordinates->candidates.size()) + '\n';
+    if (coordinates->selectionBasis == "default" && !coordinates->candidates.empty())
+      *modelSummary += ProjectSetupWorkflow::tr("来源坐标系不是 EPSG 代码，工程基准已默认采用 EPSG:32650。已写明且不能对应到 EPSG 的坐标系保持原样。") + '\n';
+    else if (coordinates->coordinateSystem.empty() && !coordinates->hasConflict)
+      *modelSummary += ProjectSetupWorkflow::tr("资料未提供可唯一确定的 EPSG，工程基准已默认采用 EPSG:32650。") + '\n';
     reportStage(0, 0, QStringLiteral("工区数据模型已准备完成，正在更新资料索引"));
     promise.addResult(QString());
   });

@@ -53,13 +53,11 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
     buildWorkbookTable(data.table, tableHost, tableLayout);
     if (data.chartOk) {
       chart->loadWellData(data.chart, abs, reference);
-      if (data.chart.modelWellId) {
+      if (data.chart.modelWellId && std::isfinite(data.chart.x) && std::isfinite(data.chart.y)) {
         const auto known = [](const QString &value) { return value.isEmpty() ? tr("未确认") : value; };
-        const auto number = [](double value) { return std::isfinite(value) ? QString::number(value,'g',12) : tr("缺失"); };
-        hint->setText(tr("井口 X：%1，Y：%2；井坐标系：%3（%4）；工程坐标系：%5（%6）")
-            .arg(number(data.chart.x),number(data.chart.y),known(data.chart.coordinateSystem),known(data.chart.coordinateUnit),
-                 known(data.chart.projectCoordinateSystem),known(data.chart.projectCoordinateUnit))
-            + (data.chart.dataWarnings.isEmpty() ? QString() : "\n" + data.chart.dataWarnings.join('\n')));
+        hint->setText(tr("井口 X：%1，Y：%2；井坐标系：%3（%4）")
+            .arg(QString::number(data.chart.x, 'g', 12), QString::number(data.chart.y, 'g', 12),
+                 known(data.chart.coordinateSystem), known(data.chart.coordinateUnit)));
         hint->show();
       }
     }
@@ -79,4 +77,96 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
       ? catalog->entityById(m_wellEntityOfAsset.value(assetId)).extra.value("areaModelWellId").toLongLong() : 0;
   session->open(abs, expectedSha, catalogProjectDir(catalog), modelSource, modelWell);
   return host;
+}
+
+void DataPreviewTabs::openModelWell(qlonglong modelWellId, const QString &wellName)
+{
+  if (!m_doc || modelWellId <= 0)
+    return;
+  const QString key = QStringLiteral("model-well:%1").arg(modelWellId);
+  if (QWidget *existing = m_pageOfAsset.value(key))
+  {
+    m_tabs->setCurrentIndex(m_tabs->indexOf(existing));
+    return;
+  }
+  const QString title = wellName.isEmpty() ? tr("井 %1").arg(modelWellId) : wellName;
+  QWidget *page = new QWidget(this);
+  auto *pageLay = new QVBoxLayout(page);
+  pageLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm,
+                              PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  const int idx = m_tabs->addTab(page, title);
+  m_pageOfAsset.insert(key, page);
+  m_tabs->setVisible(true);
+  m_emptyLabel->setVisible(false);
+  m_tabs->setCurrentIndex(idx);
+
+  auto *chart = new WellComposite::WellCompositePanel(page);
+  const QString project = catalogProjectDir(m_doc->catalog());
+  chart->setProjectName(project);
+  auto *hint = new QLabel(tr("正在后台从数据基座读取 %1 的井道图…").arg(title), page);
+  hint->setWordWrap(true);
+  PaleoTheme::applyThemedStyleSheet(hint, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  auto *tableHost = new QWidget(page);
+  auto *tableLayout = new QVBoxLayout(tableHost);
+  tableLayout->setContentsMargins(0, 0, 0, 0);
+  auto *tableHint = new QLabel(tr("正在后台读取数据列表…"), tableHost);
+  tableLayout->addWidget(tableHint);
+  auto *stack = new QStackedWidget(page);
+  stack->addWidget(chart);
+  stack->addWidget(tableHost);
+  auto *bar = new QWidget(page);
+  auto *buttons = new QHBoxLayout(bar);
+  buttons->setContentsMargins(0, 0, 0, 0);
+  styleViewSwitchBar(bar);
+  auto *chartButton = new QToolButton(bar);
+  chartButton->setText(tr("井道图"));
+  chartButton->setCheckable(true);
+  chartButton->setChecked(true);
+  auto *tableButton = new QToolButton(bar);
+  tableButton->setText(tr("数据列表"));
+  tableButton->setCheckable(true);
+  const auto select = [stack, chartButton, tableButton](int index) {
+    stack->setCurrentIndex(index);
+    chartButton->setChecked(index == 0);
+    tableButton->setChecked(index == 1);
+  };
+  connect(chartButton, &QToolButton::clicked, page, [select] { select(0); });
+  connect(tableButton, &QToolButton::clicked, page, [select] { select(1); });
+  buttons->addWidget(caption8(tr("呈现模式:"), bar));
+  buttons->addWidget(chartButton);
+  buttons->addWidget(tableButton);
+  buttons->addStretch(1);
+  pageLay->addWidget(new PaleoToolRow(bar, page));
+  pageLay->addWidget(hint);
+  pageLay->addWidget(stack, 1);
+  auto *session = new XmlPreviewSession(page);
+  session->setTaskService(m_doc->taskService());
+  connect(session, &XmlPreviewSession::ready, page,
+          [page, stack, chart, hint, tableHint, tableHost, tableLayout, key, this](const XmlPreviewData &data) {
+            hint->hide();
+            delete tableHint;
+            buildWorkbookTable(data.table, tableHost, tableLayout);
+            if (data.chartOk)
+            {
+              chart->loadWellData(data.chart, QString(), false);
+              if (std::isfinite(data.chart.x) && std::isfinite(data.chart.y)) {
+                const auto known = [](const QString &value) { return value.isEmpty() ? tr("未确认") : value; };
+                hint->setText(tr("井口 X：%1，Y：%2；井坐标系：%3（%4）")
+                                  .arg(QString::number(data.chart.x, 'g', 12),
+                                       QString::number(data.chart.y, 'g', 12),
+                                       known(data.chart.coordinateSystem), known(data.chart.coordinateUnit)));
+                hint->show();
+              }
+            }
+            else
+            {
+              const int selected = stack->currentIndex();
+              stack->removeWidget(chart);
+              chart->deleteLater();
+              auto *failure = failureState(key, tr("井道图无法读取：%1").arg(data.chartError), page);
+              stack->insertWidget(0, failure);
+              stack->setCurrentIndex(selected);
+            }
+          });
+  session->openModelWell(project, modelWellId, title);
 }

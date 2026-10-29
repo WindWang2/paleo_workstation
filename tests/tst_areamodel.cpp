@@ -208,9 +208,12 @@ private slots:
     QVERIFY2(table.ok, qPrintable(table.error)); QVERIFY2(chartOk, qPrintable(error));
     QCOMPARE(chart.formationIntervals.size(), 1);
     QCOMPARE(chart.formationIntervals[0].name, QString("edited-in-model"));
+    QCOMPARE(table.sheets.size(), 2);
+    QCOMPARE(table.sheets[0].name, QStringLiteral("井"));
+    QCOMPARE(table.sheets[1].name, QStringLiteral("地震"));
     bool listed = false;
-    for (const auto &sheet : table.sheets) for (const auto &row : sheet.rows)
-      if (row.contains("edited-in-model")) listed = true;
+    for (const auto &row : table.sheets[0].rows)
+      if (row.contains(QStringLiteral("SYNTH-1")) && row.contains(QStringLiteral("地层单位道"))) listed = true;
     QVERIFY(listed);
     // A source change cannot silently switch either view back to a file parser.
     QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate)); file.write("broken XML"); file.close();

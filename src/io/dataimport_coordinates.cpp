@@ -14,7 +14,7 @@ bool prepareSeismicCoordinates(FamilyContext &ctx, const QString &sourceCrs) {
   auto from = paleo::io::wellSourceCrsHint(QString::fromLatin1(file.read(3200)));
   if (from.isEmpty()) from = sourceCrs;
   const auto target = ctx.s->georeference->sourceCrs;
-  if (from.isEmpty()) { *ctx.error = QStringLiteral("地震坐标系未知，请在工程资料设置中声明资料坐标系后重试"); return false; }
+  if (from.isEmpty()) return true;
   if (sameNativeCrs(from, target)) return true;
   if (!ctx.s->ensureStagingRoot(ctx.error)) return false;
   CatalogVersion derived;

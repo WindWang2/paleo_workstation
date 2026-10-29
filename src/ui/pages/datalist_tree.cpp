@@ -97,6 +97,31 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
   tops.append(buildOverviewNavSpec());
   tops += buildPaleomapNavSpec();
 
+  const paleo::dataops::EntityOverrideStore *ovStore = &m_entityOv;
+  const auto assetVisible = [this](const CatalogAsset &a) {
+    return !m_recycle.isRemoved(a.id);
+  };
+  const auto linkedToAuxEntity = [cat](const QString &assetId) {
+    for (const EntityAssetLink &l : cat->linksForAsset(assetId))
+    {
+      if (!l.entityId.isEmpty() &&
+          cat->entityById(l.entityId).entityType == QLatin1String("auxiliary"))
+        return true;
+    }
+    return false;
+  };
+  const auto linkedToWell = [cat](const QString &assetId) {
+    for (const EntityAssetLink &l : cat->linksForAsset(assetId))
+    {
+      if (!l.unresolved && !l.entityId.isEmpty() &&
+          cat->entityById(l.entityId).entityType == QLatin1String("well"))
+        return true;
+    }
+    return false;
+  };
+
+  // 工区模型已有井或地震时，这两支只读数据基座。空模型仍走下面的目录树。
+  if (!appendAreaModelWellSeismic(tops)) {
   // 1. 井 (Wells)——显示名走实体改写表（D4.1），排序按 D2.5 记忆键。
   QVector<CatalogEntity> wells = cat->entities(QStringLiteral("well"));
   // 软删实体（撤销新建等）不显示。
@@ -105,7 +130,6 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
     if (!m_recycle.isRemoved(e.id))
       wellsVisible.append(e);
   wells = wellsVisible;
-  const paleo::dataops::EntityOverrideStore *ovStore = &m_entityOv;
   std::sort(wells.begin(), wells.end(),
             [ovStore, this](const CatalogEntity &a, const CatalogEntity &b) {
               if (m_treeSort == paleo::dataops::TreeSortKind::Time)
@@ -257,31 +281,6 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
     wellRoot.children.append(wellItem);
   }
 
-  // 资产挂在 auxiliary 实体（reference 角色）上 = 辅助资料，不进测区井/测井分组。
-  // D1.6 软删资产全树不显示。
-  const auto assetVisible = [this](const CatalogAsset &a) {
-    return !m_recycle.isRemoved(a.id);
-  };
-  const auto linkedToAuxEntity = [cat](const QString &assetId) {
-    for (const EntityAssetLink &l : cat->linksForAsset(assetId))
-    {
-      if (!l.entityId.isEmpty() &&
-          cat->entityById(l.entityId).entityType == QLatin1String("auxiliary"))
-        return true;
-    }
-    return false;
-  };
-  // 已决挂井（井实体 + 非 unresolved）——这些曲线在井节点下显示，平铺侧不重复。
-  const auto linkedToWell = [cat](const QString &assetId) {
-    for (const EntityAssetLink &l : cat->linksForAsset(assetId))
-    {
-      if (!l.unresolved && !l.entityId.isEmpty() &&
-          cat->entityById(l.entityId).entityType == QLatin1String("well"))
-        return true;
-    }
-    return false;
-  };
-
   // 1b. 测井组内子分支：多井综合柱状图 + 未关联曲线（挂井曲线在井节点下）。
   QList<CatalogAsset> logAssets;
   QList<CatalogAsset> compositeAssets;
@@ -422,6 +421,7 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
     appendHorizonNavBranch(seismicRoot, horAssets);
   }
   tops.append(seismicRoot);
+  }
 
   // 4. 成果图件（智能预测/编图产物）：预测栅格、相面、综合相图、编辑
   //     副本。过程快照（input_snapshot/constraint_*）是追溯机器，不进用户面。

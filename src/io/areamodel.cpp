@@ -2,6 +2,7 @@
 #include "areamodel.h"
 #include "../catalog/datacatalog.h"
 #include <paleo_data/service.h>
+#include "projectcoordinates.h"
 #include <QDir>
 #include <QDateTime>
 #include <QFileInfo>
@@ -59,6 +60,15 @@ bool indexedSource(const QString &root, const QString &wanted, long long &id, QS
 }
 }
 QString directory(const QString &project) { return QDir(project).filePath("artifacts/metadata/area-model"); }
+QString confirmedProjectCrs(const QString &project) {
+  if (!QFileInfo::exists(directory(project) + QStringLiteral("/data.sqlite"))) return {};
+  paleo::data::DataService service; std::string detail;
+  if (!service.openProject(directory(project).toUtf8().toStdString(), detail)) return {};
+  paleo::data::ProjectCrsInfo info;
+  if (!service.readProjectCrsInfo(info, detail) || info.hasConflict || info.coordinateUnit != "m") return {};
+  const auto crs = QString::fromUtf8(info.coordinateSystem);
+  return paleo::io::isMetricProjectCrs(crs) ? crs : QString();
+}
 bool ensureProject(const QString &project, QString *error) {
   paleo::data::DataService service; std::string detail;
   const auto root = directory(project).toUtf8().toStdString();

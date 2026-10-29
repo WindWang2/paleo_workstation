@@ -138,8 +138,9 @@ void clearGrid(QGridLayout *grid, QVector<QWidget *> &cards)
 }
 } // namespace
 
-ProjectStatisticsPage::ProjectStatisticsPage(DataCatalog *catalog, QWidget *parent)
-    : QWidget(parent), m_catalog(catalog)
+ProjectStatisticsPage::ProjectStatisticsPage(DataCatalog *catalog, PreviewDocService *doc,
+                                             QWidget *parent)
+    : QWidget(parent), m_catalog(catalog), m_doc(doc)
 {
   setObjectName("projectStatisticsPage");
   const auto &t = PaleoTheme::tokens();
@@ -237,6 +238,8 @@ void ProjectStatisticsPage::refresh()
   const bool ready = !data.isEmpty();
   const auto locale = QLocale();
   findChild<QPushButton *>("dashboardOpenMap")->setEnabled(ready);
+  // 数据变了（导入/编辑）→ 三视图范围置脏重取（服务侧按库 stamp 缓存）。
+  m_rangesFetched = false;
   const auto number = [&](const char *key)
   { return ready ? locale.toString(data.value(key).toInt()) : tr("—"); };
   const auto area = data.value("survey_area_km2", -1).toDouble();
@@ -284,6 +287,20 @@ void ProjectStatisticsPage::refresh()
   refreshSurveyMap();
 }
 
+void ProjectStatisticsPage::requestAreaRanges()
+{
+  if (m_rangesFetched || !m_doc)
+    return;
+  m_rangesFetched = true; // 一次刷新周期只取一次；服务侧 stamp 缓存防重探
+  QPointer<ProjectStatisticsPage> guard(this);
+  m_doc->requestProjectPlanarRange([guard](const AreaPlanarRanges &ranges) {
+    if (!guard)
+      return;
+    guard->m_areaRanges = ranges;
+    guard->refreshSurveyMap();
+  });
+}
+
 void ProjectStatisticsPage::refreshSurveyMap()
 {
   if (!m_mapCanvas || !isVisible())
@@ -303,7 +320,19 @@ void ProjectStatisticsPage::refreshSurveyMap()
       hasSurvey = true;
     }
   }
-  DashboardSurveyMap::update(m_mapCanvas, wells, hasSurvey ? &survey : nullptr);
+  DashboardSurveyMap::AreaRanges ranges;
+  const auto convert = [](const AreaPlanarRange &in) {
+    DashboardSurveyMap::RangeRect out;
+    out.valid = in.valid;
+    out.minX = in.minX; out.minY = in.minY;
+    out.maxX = in.maxX; out.maxY = in.maxY;
+    return out;
+  };
+  ranges.wells = convert(m_areaRanges.wells);
+  ranges.seismic = convert(m_areaRanges.seismic);
+  ranges.merged = convert(m_areaRanges.merged);
+  DashboardSurveyMap::update(m_mapCanvas, wells, hasSurvey ? &survey : nullptr, &ranges);
+  requestAreaRanges();
 }
 
 bool ProjectStatisticsPage::eventFilter(QObject *watched, QEvent *event)
@@ -350,8 +379,12 @@ void ProjectStatisticsPage::buildSurveyMapCard()
   m_decorations->setScaleBarEnabled(true);
   m_decorations->setNorthArrowEnabled(true);
   auto *legend = new QLabel(tr("<span style=\"color:%1\">●</span>&nbsp;井位&nbsp;&nbsp;"
-                               "<span style=\"color:%2\">╌╌</span>&nbsp;工区范围")
-                                 .arg(qssHex(PaleoTheme::kColorPrimary), qssHex(PaleoTheme::kColorPrimary)), mapCard);
+                               "<span style=\"color:%1\">╌╌</span>&nbsp;工区范围&nbsp;&nbsp;"
+                               "<span style=\"color:%2\">⋯⋯</span>&nbsp;测井范围&nbsp;&nbsp;"
+                               "<span style=\"color:%3\">╌╌</span>&nbsp;地震范围")
+                                 .arg(qssHex(PaleoTheme::kColorPrimary),
+                                      DashboardSurveyMap::kWellRangeColor.name(),
+                                      DashboardSurveyMap::kSeismicRangeColor.name()), mapCard);
   legend->setTextFormat(Qt::RichText);
   PaleoTheme::applyThemedStyleSheet(legend, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   mapLay->addWidget(legend);

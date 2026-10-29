@@ -73,7 +73,10 @@ struct AreaPlanarRanges
 {
     AreaPlanarRange wells;    // 有井口坐标的井 → 最小外接矩形
     AreaPlanarRange seismic;  // 可换算地震体 → 并集矩形
-    AreaPlanarRange merged;   // 工区范围 = 井 ∪ 地震；量级失配时无效
+    AreaPlanarRange merged;   // 工区范围 = 井 ∪ 地震；约定未确认/冲突时无效
+    // 服务侧 status 原文（complete / partial / unavailable /
+    // conventions-unconfirmed / conventions-mismatch），界面提示直显。
+    QString status;
 };
 
 // 一条地震测线的时间剖面预览（列优先振幅：column * samples + sample）。
@@ -291,9 +294,27 @@ class PreviewDocService : public QObject
                         bool isInline, int lineNo);
     // 标签关闭时释放该资产的索引缓存/世代号/进行中任务。
     void releaseSection(const QString &assetId);
-    // 后台从完整道索引恢复测区四角，旧工程中的缩小角点不再决定全景范围。
+    // 后台取测区平面范围。四角点/包围盒统一由数据服务按抽样道头拟合算，
+    // 宿主不再重开 SEG-Y 自算角点（旧实现为此重建整份道索引）。
+    // 范围不可得是文件事实：state 如实给出 Ready/Unbound/Unavailable，
+    // 坐标缺失不用 0 冒充，detail 原样带数据服务的 status 与提醒文案。
+    struct SurveyBounds
+    {
+      enum class State
+      {
+        Ready,       // 四角点与包围盒都可用
+        Unbound,     // 该资产不在工区数据模型里（旧工程/外部文件）
+        Unavailable  // 已登记但测网号域或平面 XY 不可得
+      };
+      State state = State::Unbound;
+      double minX = 0, minY = 0, maxX = 0, maxY = 0;
+      QString coordinateUnit; // 地震体已确认的平面单位；空串 = 未声明
+      double rmsResidual = qQNaN(); // 角点拟合残差（同 coordinateUnit 的平面单位）
+      QString detail;         // status + 提醒，界面直显
+      bool valid() const { return state == State::Ready; }
+    };
     void requestSurveyBounds(const QString &assetId,
-        std::function<void(const QVector<QPair<double, double>> &, const QString &)> done);
+        std::function<void(const SurveyBounds &)> done);
 
     // ---- 工区三视图范围 / 地震时间剖面（数据服务只读探测，见 previewdoc_area.cpp）----
     // 井/地震/合并平面范围（paleo::data::readProjectPlanarRange 的值形态镜像；

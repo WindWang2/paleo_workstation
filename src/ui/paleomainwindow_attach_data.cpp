@@ -59,27 +59,11 @@ void PaleoMainWindow::attachDataProjectOpen(DataPage *dataPage)
         // #481 P3-3：自动装载记账随会话重置（新工程重扫）。
         m_seismicAutoLoadedPaths.clear();
         syncSeismicVolumeToDocks(false);
-        probeSurveyBoundsAsync();
       }
     });
   });
 }
 
-// 测区角点补探（轻量道头探测，规则网格秒回）：数据服务投影不带角点时
-// 目录实体 corners 为空，看板/全景首开只能画井位并集框——开工程后探一次
-// 并写回实体（成功回调里 catalog 已更新，页面随 changed 信号刷新）。
-// 空回调：只为写回，无页面待更新。
-void PaleoMainWindow::probeSurveyBoundsAsync()
-{
-  DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr;
-  if (!cat || !cat->isOpen())
-    return;
-  for (const CatalogAsset &asset : cat->assets())
-    if (asset.type == QLatin1String("seismic")) {
-      m_previewDoc->requestSurveyBounds(asset.id, {});
-      break;
-    }
-}
 
 // 数据页导入按钮的门控开关（#481 P2-4）：禁用存 tooltip、启用原样还原；
 // 与工程门取与——目录禁令解除≠全局门放开，谁的禁令用谁的理由。

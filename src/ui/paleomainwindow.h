@@ -274,9 +274,6 @@ class PaleoMainWindow : public SARibbonMainWindow
     void wireDataImportRequests(DataPage *dataPage, DataImportService *importSvc, DataPreviewTabs *preview);
     void attachProjectDashboard(DataPage *dataPage, DataPreviewTabs *preview);
     void attachDataProjectOpen(DataPage *dataPage);
-    // 开工程后对首个地震资产做一次轻量测区角点探测并写回目录实体
-    //（attachDataProjectOpen 的 openFinished 收尾，见 paleomainwindow_attach_data.cpp）。
-    void probeSurveyBoundsAsync();
     void setImportToolsEnabled(bool enabled); // 数据页导入按钮门控（tooltip 存还纪律）
     void attachDataPage(DataPage *dataPage, WellCorrelationPanel *corrPanel,
                         DataImportService *importSvc, PaleoTaskService *taskSvc);

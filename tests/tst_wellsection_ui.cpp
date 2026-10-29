@@ -1448,6 +1448,15 @@ class TestWellSectionUi : public QObject
       panel.setSection(shrunk);
       QCOMPARE(seisSpy.size(), 2);
     }
+    void timeDatumChangeInvalidatesSeismicStrip()
+    {
+      SelectionContext context;WellSectionPanel panel(&context);auto wells=wells4();
+      panel.setSection(wells);panel.setSeismicEnabled(true);panel.setSeismicStrip(stripFor(wells.size()-1));
+      QSignalSpy requested(&panel,&WellSectionPanel::seismicRequested);
+      seismic::TimeDepthModel model(2500.);wells[0].timeDepth=wellsection::TimeDepth{model,0,QString("校正"),QString("SRD")};
+      panel.setSection(wells);QCOMPARE(requested.size(),1);
+      wells[0].timeDepth->timeReference=QString("MSL");panel.setSection(wells);QCOMPARE(requested.size(),2);
+    }
 
     // finding-177：无坐标井 x/y 为 NaN，NaN != NaN 恒真——旧判据把「两口都
     // 无坐标」误判成井口坐标变了，无坐标井集的地震缝永远保不住、每次数据

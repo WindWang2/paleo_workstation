@@ -7,6 +7,10 @@
 `Data/Sgy/SgyIndexBuilder.cpp` 为规则快照补记来源 mtime，与完整索引使用同一时间戳
 口径，供浏览期间的来源变化检查使用。未修改抽样策略、振幅解码或渲染算法。
 
+`Data/Sgy/SgySectionBuilder.h` 的 `SgySectionStats` 增加可选的 `firstTimeMs`／
+`sampleIntervalMs`，默认未知。主工程由 Data_service 的剖面结果填入，保证任意线
+的显示、拾取时间轴与真实采样一致；不修改库的地震读取和剖面算法。
+
 相对于上游 pinned commit `aae56c77` 的全部有意分叉。同步上游时需逐一重放。
 
 ## P1 · `src/Data/Sgy/SgyIndexCache.{h,cpp}` — 伴生 `.sgyidx` + 项目化缓存目录

@@ -23,6 +23,7 @@
 #include "domain/seismic/timedepthmodel.h"
 #include "domain/seismic/sgysectionbuilder.h"
 #include "metadata/layermanifest.h"
+#include "seismicsectiondata.h"
 
 class PaleoTask;
 class PaleoTaskService;
@@ -265,6 +266,10 @@ public:
   PaleoTaskService *taskService() const { return taskService_; }
   void setTaskService(PaleoTaskService *taskService) { taskService_ = taskService; }
   PaleoTask *startDataInfo(const QString& path,std::function<void(bool,const SeismicNativeInfo&,const QString&)> done);
+  PaleoTask *startDataPlane(const QString& path,SgySliceType type,int index,
+      std::function<void(bool,std::shared_ptr<const SgySliceImage>,const SeismicNativeInfo&,const QString&)> done);
+  PaleoTask *startDataSection(const QString& path,const std::vector<std::pair<double,double>>& points,
+      const QString& timeReference,std::function<void(bool,std::shared_ptr<const SeismicSectionData>,const QString&)> done);
   PaleoTask *startDataSlice(const QString& path,SgySliceType type,int index,
       std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done);
 

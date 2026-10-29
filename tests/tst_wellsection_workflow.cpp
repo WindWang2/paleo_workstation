@@ -7,6 +7,12 @@
 #include "services/paleotaskservice.h"
 #include "services/projectdata.h"
 #include "services/seismictaskservice.h"
+#include "io/areamodel.h"
+#include "services/seismicdataaccess.h"
+#include "services/fspathutils.h"
+#include "domain/seismic/sgyindexcache.h"
+#include <paleo_data/service.h>
+#include <QScopeGuard>
 #include "workflow/sectionworkbench.h"
 #include "workflow/wellfaciesworkflow.h"
 #include "workflow/wellsectionexport.h"
@@ -210,6 +216,7 @@ bool writeSegy(const QString &path) {
   put16(binary, 16, 2000);
   put16(binary, 20, 64);
   put16(binary, 24, 5);
+  put16(binary, 54, 1);
   file.write(binary);
   for (int il = 0; il < 4; ++il)
     for (int xl = 0; xl < 4; ++xl) {
@@ -217,6 +224,9 @@ bool writeSegy(const QString &path) {
       put32(header, 0, il * 4 + xl + 1);
       put32(header, 188, 1000 + il);
       put32(header, 192, 2000 + xl);
+      put16(header,70,1);put16(header,88,1);
+      put32(header,180,xl*100);put32(header,184,il*100);
+      put16(header,108,50);put16(header,116,2000);
       put16(header, 114, 64);
       file.write(header);
       QByteArray samples(64 * 4, 0);
@@ -255,7 +265,7 @@ wellsection::Well sectionWell(const QString &name, double x, double y,
   if (withTd) {
     seismic::TimeDepthModel model;
     model.setCheckshots({{1000, 100}, {2000, 200}});
-    w.timeDepth = wellsection::TimeDepth{model, 0.0, QString("时深表")};
+    w.timeDepth = wellsection::TimeDepth{model, 0.0, QString("时深表"),QString("SRD")};
   }
   return w;
 }
@@ -263,6 +273,21 @@ wellsection::Well sectionWell(const QString &name, double x, double y,
 // 网格内坐标 ↔ (inline,xline)：x = 100*(xl-2000), y = 100*(inl-1000)。
 wellsection::Well gridWell(const QString &name, int inl, int xl, bool withTd) {
   return sectionWell(name, (xl - 2000) * 100.0, (inl - 1000) * 100.0, withTd);
+}
+
+bool registerSeismic(const QString& project,const QString& file,paleo::data::DataService& service,std::string& error) {
+  if(!service.createProject(paleo::area_model::directory(project).toUtf8().toStdString(),"alignment",error)||
+     !service.setProjectCrs("EPSG:32650","m",error))return false;
+  paleo::data::ImportReport report;if(!service.importFile(file.toUtf8().toStdString(),{},report,error))return false;
+  std::vector<paleo::data::DataEntry> entries;if(!service.listData("volumes",0,entries,error)||entries.size()!=1)return false;
+  paleo::data::SeismicVolume volume;paleo::data::SeismicFileInfo info;
+  if(!service.readVolume(entries[0].id,volume,error)||!service.inspectSeismic(entries[0].id,info,error))return false;
+  volume.geometry.coordinateSystem="EPSG:32650";volume.geometry.coordinateUnit="m";
+  volume.sampling.sampleCount=info.sampleCount;volume.sampling.firstTime=info.firstTime/1000.;
+  volume.sampling.sampleInterval=info.sampleInterval/1000.;volume.sampling.timeUnit="s";
+  volume.sampling.timeType="TWT";volume.sampling.timeReference="SRD";
+  if(!service.saveVolume(entries[0].id,volume,error))return false;
+  paleo::area_model::registerProject(project,&service);return true;
 }
 
 } // namespace
@@ -1773,24 +1798,24 @@ private slots:
         gridWell(QStringLiteral("A1"), 1000, 2000, true),
         gridWell(QStringLiteral("A2"), 1001, 2000, true)};
     QSignalSpy spy(&wf, &WellSectionWorkflow::seismicReady);
-    // 无体 → 「未加载带坐标的地震体」，缝原因 = 状态，同步发射。
+    // No selected source: explicit reason, synchronous delivery.
     int g = wf.requestSeismic(wells, {});
     QCOMPARE(spy.size(), 1);
     QCOMPARE(spy[0][0].toInt(), g);
     auto strip = spy[0][1].value<wellsection::SeismicStrip>();
-    QCOMPARE(strip.status, QStringLiteral("未加载带坐标的地震体"));
+    QCOMPARE(strip.status, QStringLiteral("未选择数据服务中的地震体"));
     QCOMPARE(strip.gaps.size(), 1);
     QCOMPARE(strip.gaps[0].reason, strip.status);
-    // 有体无测网 → 同样状态。
+    // Source selection failure is preserved.
     strip = {};
     WellSectionWorkflow::SeismicSource src;
-    src.volume = std::make_shared<seismic::SgyVolume>();
+    src.status=QStringLiteral("请选择地震体");
     wf.requestSeismic(wells, src);
     QCOMPARE(spy.size(), 2);
     QCOMPARE(spy[1][1].value<wellsection::SeismicStrip>().status,
-             QStringLiteral("未加载带坐标的地震体"));
+             QStringLiteral("请选择地震体"));
     // 无地震任务服务 → 服务不可用。
-    src.grid = makeGrid();
+    src.path=QStringLiteral("selected.sgy");
     wf.requestSeismic(wells, src);
     QCOMPARE(spy.size(), 3);
     QCOMPARE(spy[2][1].value<wellsection::SeismicStrip>().status,
@@ -1807,25 +1832,24 @@ private slots:
     PaleoTaskService tasks;
     seismic::SeismicTaskService seismic(&tasks);
     wf.setSeismicTaskService(&seismic);
-    auto volume = std::make_shared<seismic::SgyVolume>();
     WellSectionWorkflow::SeismicSource src;
-    src.volume = volume;
-    src.grid = makeGrid();
+    src.path=QStringLiteral("selected.sgy");
 
     wellsection::Well noCoords = sectionWell(QStringLiteral("NC"), qQNaN(),
                                              qQNaN(), true);
-    wellsection::Well out = gridWell(QStringLiteral("OUT"), 1000, 2000, true);
-    out.x = 1.0e6;
-    out.y = 1.0e6;
+    auto unknown=gridWell(QStringLiteral("UNKNOWN"),1000,2000,true);
+    unknown.timeDepth->timeReference.clear();
+    auto other=gridWell(QStringLiteral("OTHER"),1000,2000,true);
+    other.timeDepth->timeReference=QStringLiteral("MSL");
     const QVector<wellsection::Well> wells = {
         gridWell(QStringLiteral("G1"), 1000, 2000, true),
         noCoords,
         gridWell(QStringLiteral("G3"), 1001, 2000, true),
         gridWell(QStringLiteral("NT"), 1002, 2000, false),
         gridWell(QStringLiteral("G5"), 1003, 2000, true),
-        out,
+        unknown,
         gridWell(QStringLiteral("G7"), 1001, 2001, true),
-        sectionWell(QStringLiteral("G7t"), 110.0, 110.0, true), // 同道
+        other,
     };
     QSignalSpy spy(&wf, &WellSectionWorkflow::seismicReady);
     wf.requestSeismic(wells, src);
@@ -1836,9 +1860,9 @@ private slots:
     QCOMPARE(strip.gaps[1].reason, QStringLiteral("NC 缺少井口坐标"));
     QCOMPARE(strip.gaps[2].reason, QStringLiteral("NT 缺少时深关系"));
     QCOMPARE(strip.gaps[3].reason, QStringLiteral("NT 缺少时深关系"));
-    QCOMPARE(strip.gaps[4].reason, QStringLiteral("OUT 不在地震测网内"));
-    QCOMPARE(strip.gaps[5].reason, QStringLiteral("OUT 不在地震测网内"));
-    QCOMPARE(strip.gaps[6].reason, QStringLiteral("两井位于同一地震道"));
+    QVERIFY(strip.gaps[4].reason.contains(QStringLiteral("基准尚未确认")));
+    QVERIFY(strip.gaps[5].reason.contains(QStringLiteral("基准尚未确认")));
+    QVERIFY(strip.gaps[6].reason.contains(QStringLiteral("基准不一致")));
     QVERIFY(!strip.anyValid());
   }
 
@@ -1847,18 +1871,17 @@ private slots:
     QVERIFY(dir.isValid());
     const QString sgy = dir.filePath(QStringLiteral("grid.sgy"));
     QVERIFY(writeSegy(sgy));
-    auto volume = std::make_shared<seismic::SgyVolume>();
-    std::string serr;
-    QVERIFY2(volume->Load(sgy.toStdString(), serr), serr.c_str());
+    paleo::data::DataService data;std::string serr;
+    const auto project=dir.filePath("area");QVERIFY2(registerSeismic(project,sgy,data,serr),serr.c_str());
+    const auto cleanup=qScopeGuard([&]{paleo::area_model::unregisterProject(&data);});
     PaleoTaskService tasks;
     seismic::SeismicTaskService seismic(&tasks);
     DataCatalog cat;
     WellSectionWorkflow wf(&cat);
     wf.setSeismicTaskService(&seismic);
     WellSectionWorkflow::SeismicSource src;
-    src.volume = volume;
-    src.grid = makeGrid();
-    src.timeOriginMs = 50;
+    src.path=sgy;
+    QString sourceError;QCOMPARE(paleo::seismicProjectSource(project,{},&sourceError),sgy);
     const QVector<wellsection::Well> wells = {
         gridWell(QStringLiteral("A1"), 1000, 2000, true),
         gridWell(QStringLiteral("A2"), 1003, 2000, true)};
@@ -1882,6 +1905,74 @@ private slots:
     QVERIFY(strip.clip > 0.0f);
     QVERIFY(std::isfinite(gap.sampleAt(0.0, 50.0)));
     QVERIFY(std::isfinite(gap.sampleAt(1.0, 50.0)));
+    QVERIFY(std::abs(gap.sampleAt(0.,50.))<1e-6); // first sample, not reversed texture row
+    QVERIFY(std::abs(gap.sampleAt(1.,50.)-std::sin(3.f))<1e-6);
+    QVERIFY(std::abs(gap.sampleAt(0.,176.)-std::sin(63*.4f))<1e-6);
+    QVERIFY(!std::isfinite(gap.sampleAt(0.,48.)));
+    QCOMPARE(gap.columnDistancesM.front(),0.);QCOMPARE(gap.columnDistancesM.back(),300.);
+    QVERIFY(!std::filesystem::exists(seismic::SgyIndexCache::CachePathFor(paleo::toFsPath(sgy))));
+    // Reverse well order keeps source time orientation and reverses horizontal endpoints.
+    spy.clear();wf.requestSeismic({wells[1],wells[0]},src);QTRY_COMPARE_WITH_TIMEOUT(spy.size(),1,15000);
+    const auto reversed=spy[0][1].value<wellsection::SeismicStrip>().gaps[0];
+    QVERIFY(reversed.valid());QVERIFY(std::abs(reversed.sampleAt(0.,50.)-std::sin(3.f))<1e-6);
+    QVERIFY(std::abs(reversed.sampleAt(1.,50.))<1e-6);
+    // Mismatched volume/checkshot datum is rejected by the data service bridge.
+    std::vector<paleo::data::DataEntry> volumes;QVERIFY(data.listData("volumes",0,volumes,serr));
+    paleo::data::SeismicVolume metadata;QVERIFY(data.readVolume(volumes[0].id,metadata,serr));
+    metadata.sampling.timeReference="MSL";QVERIFY(data.saveVolume(volumes[0].id,metadata,serr));
+    spy.clear();wf.requestSeismic(wells,src);QTRY_COMPARE_WITH_TIMEOUT(spy.size(),1,15000);
+    const auto invalid=spy[0][1].value<wellsection::SeismicStrip>();
+    QVERIFY(!invalid.anyValid());QVERIFY(invalid.status.contains(QStringLiteral("时间基准")));
+  }
+
+  void modelCheckshotsAlignWellDepthToSeismicSamples() {
+    QTemporaryDir dir;const auto project=dir.filePath("project"),file=dir.filePath("grid.sgy");
+    QVERIFY(writeSegy(file));paleo::data::DataService data;std::string error;
+    QVERIFY2(registerSeismic(project,file,data,error),error.c_str());
+    const auto cleanup=qScopeGuard([&]{paleo::area_model::unregisterProject(&data);});
+    const auto tdFile=dir.filePath("checkshots.dat");const QByteArray content("synthetic source: declared MD, datum SRD\n");
+    QVERIFY(writeText(tdFile,QString::fromUtf8(content)));
+    paleo::data::ParsedFile model;model.kind="time_depth";model.status="parsed";
+    for(int well=0;well<2;++well) {
+      paleo::data::WellDataset w;w.wellInfo.wellName=well?"A2":"A1";
+      w.wellInfo.wellheadX=0;w.wellInfo.wellheadY=well?300:0;
+      w.wellInfo.coordinateSystem="EPSG:32650";w.wellInfo.coordinateUnit="m";
+      paleo::data::TimeDepthTable td;td.depthInfo.depthType="MD";td.timeReference="SRD";
+      td.depthInfo.depthUnit=well?"m":"ft";td.timeUnit=well?"ms":"s";td.timeType=well?"TWT":"OWT";
+      td.depthTimePairs=well?std::vector<paleo::data::TimeDepthPoint>{{1000,80},{2000,180}}:
+          std::vector<paleo::data::TimeDepthPoint>{{1000/.3048,.03},{2000/.3048,.08}};
+      w.timeDepthRelations.push_back(td);
+      if(!well){auto tvd=td;tvd.depthInfo.depthType="TVD";tvd.depthInfo.depthUnit="m";tvd.timeUnit="ms";tvd.timeType="TWT";
+        tvd.depthTimePairs={{900,60},{1800,160}};w.timeDepthRelations.push_back(tvd);}
+      model.wells.push_back(w);
+    }
+    long long source=0;const auto path=tdFile.toUtf8().toStdString();
+    const auto hash=QCryptographicHash::hash(content,QCryptographicHash::Sha256).toHex().toStdString();
+    QVERIFY2(data.importPreparedFile(path,path,path,hash,model,source,error),error.c_str());
+    DataCatalog cat;QString detail;QVERIFY2(cat.open(project,&detail),qPrintable(detail));
+    QVERIFY(addEntity(cat,"one","A1",true,0,0,2000));QVERIFY(addEntity(cat,"two","A2",true,0,300,2000));
+    QVERIFY(addFileLink(cat,"one","time_depth","td-one",tdFile,"time_depth",&detail));
+    QVERIFY(addFileLink(cat,"two","time_depth","td-two",tdFile,"time_depth",&detail));
+    ProjectDataFacade facade;facade.setCatalog(&cat,project);
+    const auto rows=facade.tdTableFor("one");QCOMPARE(rows.size(),2);
+    QVERIFY(std::abs(rows[0].md-1000)<1e-8);QCOMPARE(rows[0].timeMs,60.);QCOMPARE(rows[1].timeMs,160.);
+    QCOMPARE(rows[0].timeReference,QString("SRD"));
+    QCOMPARE(rows[0].tvd,900.);QCOMPARE(rows[1].tvd,1800.);
+    SectionWorkbench workbench(&cat);QVERIFY(workbench.setCalibration("one",false,2500,10,&detail));
+    QVERIFY(workbench.setCalibration("two",false,2500,-10,&detail));
+    PaleoTaskService tasks;seismic::SeismicTaskService seismic(&tasks);WellSectionWorkflow workflow(&cat);
+    workflow.setSectionWorkbench(&workbench);workflow.setSeismicTaskService(&seismic);
+    QSignalSpy wellsReady(&workflow,&WellSectionWorkflow::sectionReady);workflow.request({"one","two"},{});
+    QCOMPARE(wellsReady.size(),1);const auto wells=wellsReady[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.size(),2);QVERIFY(wells[0].timeDepth);QVERIFY(wells[1].timeDepth);
+    QCOMPARE(wells[0].timeDepth->twtAt(1500),120.);QCOMPARE(wells[1].timeDepth->twtAt(1500),120.);
+    QVERIFY(!std::isfinite(wells[0].timeDepth->twtAt(900))); // no extrapolation
+    QSignalSpy seismicReady(&workflow,&WellSectionWorkflow::seismicReady);
+    workflow.requestSeismic(wells,workflow.seismicSource());QTRY_COMPARE_WITH_TIMEOUT(seismicReady.size(),1,15000);
+    const auto strip=seismicReady[0][1].value<wellsection::SeismicStrip>();QVERIFY2(strip.anyValid(),qPrintable(strip.status));
+    const auto& gap=strip.gaps[0];
+    QVERIFY(std::abs(gap.sampleAt(0,wells[0].timeDepth->twtAt(1500))-std::sin(14.f))<1e-6);
+    QVERIFY(std::abs(gap.sampleAt(1,wells[1].timeDepth->twtAt(1500))-std::sin(17.f))<1e-6);
   }
 
   // ---- 方向 98 ②：store 间距契约（可空列——「缺」与「等距」可区分）----

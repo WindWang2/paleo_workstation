@@ -76,3 +76,4 @@ target_sources(paleo_workflow PRIVATE src/workflow/stratigraphyworkflow_preview.
 target_sources(paleo_services PRIVATE src/services/seismicdataaccess.cpp src/services/seismicdataprojection.cpp)
 target_sources(paleo_services PRIVATE src/services/seismictaskservice_data.cpp)
 target_link_libraries(tst_seismic_index PRIVATE Paleo::paleo_data_service)
+target_sources(paleo_services PRIVATE src/services/projectdata_timedepth.cpp)

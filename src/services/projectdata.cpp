@@ -272,29 +272,6 @@ QVector<WellTop> ProjectDataFacade::topsFromFile(const QString &path,
   return out;
 }
 
-QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const
-{
-  QVector<TdSample> out;
-  const QString path = assetFilePathFor(wellId, QStringLiteral("time_depth"));
-  if (path.isEmpty() || !QFile::exists(path))
-    return out;
-
-  TimeDepthTable table;
-  if (!readTimeDepth(path, table)) return out;
-
-  // 行保持文件顺序，不排序（PROJECT_AREA_PLAN §3）：单调性判定归
-  // TimeDepthTool；-99999/缺列以 NaN 透传，由插值端剔除，这里不做取舍。
-  for (const TdRow &row : table.rows)
-  {
-    TdSample s;
-    s.timeMs = row.timeMs;
-    s.tvd = row.hasTvd ? row.tvd : qQNaN();
-    s.md = row.hasMd ? row.md : qQNaN();
-    out.append(s);
-  }
-  return out;
-}
-
 QVector<WellImageAnchor> ProjectDataFacade::imagesFor(const QString &wellId) const
 {
   QVector<WellImageAnchor> out;

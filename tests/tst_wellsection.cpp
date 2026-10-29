@@ -263,6 +263,12 @@ private slots:
     bad.reason = "x";
     QCOMPARE(adaptiveClip({bad, g}, 0.99), 99.0f);
   }
+  void seismicGapUsesPhysicalColumnPositions() {
+    SeismicGap gap;gap.columns=4;gap.samples=2;gap.startMs=50;gap.stepMs=2;
+    gap.values={0,10,20,30,1,11,21,31};gap.columnDistancesM={0,5,90,100};
+    QCOMPARE(gap.sampleAt(.1,50),10.f);QCOMPARE(gap.sampleAt(.8,50),20.f);
+    QCOMPARE(gap.sampleAt(1.,51),30.5f);
+  }
   void timeDepthAndGapTwt() {
     seismic::TimeDepthModel ma, mb;
     QVERIFY(ma.setCheckshots({{1000, 100}, {2000, 200}}));

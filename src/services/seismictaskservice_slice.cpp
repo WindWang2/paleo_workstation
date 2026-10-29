@@ -253,6 +253,7 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
     paleo::data::SeismicSectionResult result;std::string detail;
     if(!source.section(path,options.maxColumns,options.interpolate,options.keepOutsideColumns,result,detail,[task]{return task->cancelRequested();}))return QString::fromUtf8(detail);
     *outImage=paleo::seismicSectionImage(result);outStats->columns=result.columns;
+    outStats->firstTimeMs=result.firstTime;outStats->sampleIntervalMs=result.sampleInterval;
     std::set<long long> unique;
     for(auto ordinal:result.traceIndexes)if(ordinal>=0)unique.insert(ordinal);else ++outStats->missingColumns;
     outStats->uniqueTraces=outStats->tracesRead=int(unique.size());outStats->duplicateColumns=result.columns-outStats->missingColumns-int(unique.size());

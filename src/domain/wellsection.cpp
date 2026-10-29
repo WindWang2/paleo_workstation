@@ -738,7 +738,7 @@ GrCutoffLithologyProvider::lithologyFor(const QString &) const {
 }
 
 bool SeismicGap::valid() const {
-  return reason.isEmpty() && columns > 0 && samples > 0 && stepMs > 0.0 &&
+  return reason.isEmpty() && columns > 0 && samples > 0 && std::isfinite(startMs) && std::isfinite(stepMs) && stepMs > 0.0 &&
          values.size() == static_cast<size_t>(columns) * samples;
 }
 
@@ -747,7 +747,14 @@ float SeismicGap::sampleAt(double columnFrac, double twtMs) const {
   if (!valid() || !std::isfinite(columnFrac) || !std::isfinite(twtMs) ||
       columnFrac < 0.0 || columnFrac > 1.0)
     return nan;
-  const int col = static_cast<int>(std::lround(columnFrac * (columns - 1)));
+  int col = static_cast<int>(std::lround(columnFrac * (columns - 1)));
+  if(columnDistancesM.size()==size_t(columns)&&columnDistancesM.back()>columnDistancesM.front()) {
+    const double distance=columnDistancesM.front()+columnFrac*(columnDistancesM.back()-columnDistancesM.front());
+    auto at=std::lower_bound(columnDistancesM.begin(),columnDistancesM.end(),distance);
+    col=int(at-columnDistancesM.begin());
+    if(col>=columns)col=columns-1;
+    else if(col>0&&distance-columnDistancesM[size_t(col-1)]<=columnDistancesM[size_t(col)]-distance)--col;
+  }
   const double row = (twtMs - startMs) / stepMs;
   if (row < 0.0 || row > samples - 1)
     return nan;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,9 @@ struct SgySectionOptions {
 };
 
 struct SgySectionStats {
+    // Host data-service section axis; unknown for legacy engine-only callers.
+    double firstTimeMs = std::numeric_limits<double>::quiet_NaN();
+    double sampleIntervalMs = std::numeric_limits<double>::quiet_NaN();
     int columns = 0;
     int uniqueTraces = 0;
     int tracesRead = 0;

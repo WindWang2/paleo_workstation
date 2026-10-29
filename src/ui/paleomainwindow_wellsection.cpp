@@ -18,6 +18,7 @@
 #include "qgis/qgisprojectservice.h"
 #include "services/previewdoc.h"
 #include "services/seismictaskservice.h"
+#include "services/fspathutils.h"
 #include "wellsection/fencewidget.h"
 #include "wellsection/wellsectionpanel.h"
 #include "workflow/sectionworkbench.h"
@@ -253,15 +254,8 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
 
   connect(panel, &WellSectionPanel::seismicRequested, this,
           [this, wf, panel] {
-            WellSectionWorkflow::SeismicSource src;
-            if (m_sectionLink)
-            {
-              src.volume = m_sectionLink->activeVolume();
-              src.grid = m_sectionLink->gridGeometry();
-            }
-            src.timeOriginMs = m_seismicSectionDock
-                                   ? m_seismicSectionDock->timeOriginMs()
-                                   : 0.0;
+            const auto volume=m_sectionLink?m_sectionLink->activeVolume():nullptr;
+            const auto src=wf->seismicSource(volume?paleo::fromFsPath(volume->Path()):QString());
             wf->requestSeismic(panel->wells(), src);
           });
   connect(wf, &WellSectionWorkflow::seismicReady, this,
@@ -272,11 +266,10 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           });
 
   // 地震可用性：初始一次 + 剖面体变更跟随（禁用按钮带原因，§35）。
-  const auto syncSeismic = [this, panel] {
-    const bool ok = m_sectionLink && m_sectionLink->activeVolume() &&
-                    m_sectionLink->gridGeometry().valid;
-    panel->setSeismicAvailable(
-        ok, tr("先在「数据管理」导入带坐标的地震体"));
+  const auto syncSeismic = [this, wf, panel] {
+    const auto volume=m_sectionLink?m_sectionLink->activeVolume():nullptr;
+    const auto source=wf->seismicSource(volume?paleo::fromFsPath(volume->Path()):QString());
+    panel->setSeismicAvailable(!source.path.isEmpty(),source.status);
   };
   syncSeismic();
   if (m_sectionLink)
@@ -350,7 +343,8 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
   };
   connect(debounce, &QTimer::timeout, this,
           [this, wf, panel, catalogPath, restoreWells, toChoices,
-           toTopsChoices] {
+           toTopsChoices, syncSeismic] {
+            syncSeismic();
             const auto freshChoices = toChoices(wf->wellChoices());
             panel->setWellChoices(freshChoices);
             // 分层来源候选随 catalog 链接刷新；面板侧对失效选择自动回落

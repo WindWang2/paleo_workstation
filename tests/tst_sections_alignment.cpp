@@ -196,6 +196,7 @@ private slots:
         put32(header, 0, il * 4 + xl + 1);
         put32(header, 188, 1000 + il);
         put32(header, 192, 2000 + xl);
+        put16(header,108,50); // source axis, independent of the dock's stale value
         put16(header, 114, 64);
         file.write(header);
         QByteArray samples(64 * 4, 0);
@@ -214,7 +215,7 @@ private slots:
     seismic::SeismicSectionDockWidget dock;
     dock.resize(1100, 500);
     dock.show();
-    dock.setTimeOriginMs(50);
+    dock.setTimeOriginMs(999);
     QSignalSpy done(
         &dock, &seismic::SeismicSectionDockWidget::sectionExtractionFinished);
     dock.extractSectionFromVolumeAsync(volume, {{1000, 2000}, {1003, 2000}},
@@ -267,6 +268,11 @@ private slots:
     QCOMPARE(requests, 0);
     link.triggerSectionFromMapPolyline({{0, 0}, {100, 200}, {200, 200}});
     QCOMPARE(requests, 1);
+    done.clear();dock.setTimeOriginMs(-100);
+    dock.extractSliceAsync(seismic::SgySliceType::Inline,1000);
+    QTRY_COMPARE_WITH_TIMEOUT(done.count(),1,10000);QVERIFY(done[0][0].toBool());
+    QCOMPARE(dock.canvas()->startSampleMs(),50.);QCOMPARE(dock.canvas()->sampleIntervalMs(),2.);
+    QCOMPARE(dock.canvas()->sectionRef().t0Ms,50.);
     // Destruction before extraction completion must not deliver into a deleted
     // widget.
     auto *closing = new seismic::SeismicSectionDockWidget;
@@ -400,15 +406,15 @@ private slots:
   }
 
   void extractionAndCachePreserveDistanceScale() {
-    const QString catalogPath = "/home/kevin/projects/paleo_data/artifacts/metadata/catalog.sqlite";
-    if (!QFile::exists(catalogPath)) return;
+    const QString project=qEnvironmentVariable("PALEO_SECTION_TEST_PROJECT");
+    const QString sgyPath=qEnvironmentVariable("PALEO_SECTION_TEST_SEGY");
+    if(project.isEmpty()||sgyPath.isEmpty())QSKIP("Optional external-data check: set PALEO_SECTION_TEST_PROJECT and PALEO_SECTION_TEST_SEGY");
     DataCatalog catalog;
-    if (!catalog.open("/home/kevin/projects/paleo_data")) return;
+    QVERIFY(catalog.open(project));
     SectionWorkbench workbench(&catalog);
     QString error;
     const auto points = workbench.wellRoute({"well-A1", "well-A2", "well-A3", "well-A4", "well-A5"}, &error);
     QCOMPARE(points.size(), 5);
-    const QString sgyPath = "/home/kevin/projects/paleo_data/1.地震资料构造解释-第9届/01.三维数据、工区加载相关参数及位置图/200P_seismic.sgy";
     auto volume = std::make_shared<seismic::SgyVolume>();
     std::string err;
     if (!volume->Load(sgyPath.toStdString(), err)) return;

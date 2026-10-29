@@ -31,10 +31,10 @@ public:
     double x = qQNaN(), y = qQNaN(); // 井位（视图排序用）
   };
   struct SeismicSource {
-    std::shared_ptr<const seismic::SgyVolume> volume;
-    SurveyGridGeometry grid;
-    double timeOriginMs = 0.0; // 剖面起始时间（catalog survey startTimeMs）
+    QString path;
+    QString status;
   };
+  SeismicSource seismicSource(const QString& preferredPath = {}) const;
   explicit WellSectionWorkflow(DataCatalog *catalog, QObject *parent = nullptr);
   ~WellSectionWorkflow() override; // 取消在途任务
   void setTaskService(PaleoTaskService *svc); // null → 同步构建

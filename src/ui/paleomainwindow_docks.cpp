@@ -647,6 +647,7 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
   m_visualizationTabs->setExpanding(false);
   m_visualizationTabs->setTabsClosable(true);
   connect(m_visualizationTabs, &QTabBar::tabCloseRequested, this, [this](int index) {
+    if (m_visualizationTabs->tabData(index).toMap().value(QStringLiteral("surface")) == QStringLiteral("compose")) return;
     m_visualizationTabs->removeTab(index);
     if (m_visualizationTabs->count() == 0) showStartup();
   });

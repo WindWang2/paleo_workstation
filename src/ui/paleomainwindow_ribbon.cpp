@@ -127,7 +127,6 @@ void PaleoMainWindow::buildRibbon()
   addTask("predict", tr("井预测"), "predict", "well_log_facies");
   addTask("predict", tr("编制单因素图"), "constraint");
   addTask("seismic", tr("地震相预测"), "predict", "seismic_facies");
-  addTask("compose", tr("打开 QGIS 编图"), "compose");
   // W5 键盘可达 + 页循环快捷键（方向63 注册表）——paleomainwindow_shortcuts.cpp。
   registerPageShortcuts();
   connect(bar, &SARibbonBar::currentRibbonTabChanged, this, [this, bar](int idx) {

@@ -146,11 +146,28 @@ void PaleoMainWindow::showPage(const QString &pageId)
     const QString surface = pageId == QLatin1String("data") ? QStringLiteral("data") :
                             pageId == QLatin1String("correlation") ? QStringLiteral("correlation") : QStringLiteral("compose");
     QSignalBlocker blocker(m_visualizationTabs);
+    // The embedded QGIS canvas is a project view, available without opening a task.
+    if (m_projectSvc && !m_projectSvc->projectPath().isEmpty()) {
+      bool hasMap = false;
+      for (int i=0; i<m_visualizationTabs->count(); ++i)
+        hasMap |= m_visualizationTabs->tabData(i).toMap().value(QStringLiteral("surface")) == QStringLiteral("compose");
+      if (!hasMap) {
+        const int map = m_visualizationTabs->addTab(tr("QGIS 视图"));
+        m_visualizationTabs->setTabData(map, QVariantMap{{QStringLiteral("surface"), QStringLiteral("compose")},
+                                                       {QStringLiteral("page"), QStringLiteral("compose")}});
+        m_visualizationTabs->setTabButton(map, QTabBar::LeftSide, nullptr);
+        m_visualizationTabs->setTabButton(map, QTabBar::RightSide, nullptr);
+      }
+    }
     int tab = -1;
     for (int i=0; i<m_visualizationTabs->count(); ++i)
       if (m_visualizationTabs->tabData(i).toMap().value(QStringLiteral("surface")).toString() == surface) tab = i;
     if (tab < 0) {
-      tab = m_visualizationTabs->addTab(surface == "data" ? tr("数据可视化") : surface == "correlation" ? tr("地层对比") : tr("QGIS 地理视图"));
+      tab = m_visualizationTabs->addTab(surface == "data" ? tr("数据可视化") : surface == "correlation" ? tr("地层对比") : tr("QGIS 视图"));
+      if (surface == QLatin1String("compose")) {
+        m_visualizationTabs->setTabButton(tab, QTabBar::LeftSide, nullptr);
+        m_visualizationTabs->setTabButton(tab, QTabBar::RightSide, nullptr);
+      }
     }
     m_visualizationTabs->setTabData(tab, QVariantMap{{QStringLiteral("surface"), surface}, {QStringLiteral("page"), pageId}});
     m_visualizationTabs->setCurrentIndex(tab);

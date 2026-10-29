@@ -2389,6 +2389,25 @@ class TestUiShell : public QObject
       QVERIFY(wNode->itemVisibilityChecked());
     }
 
+    void qgisIsPersistentProjectView() {
+      QTemporaryDir project;QVERIFY(project.isValid());
+      QVERIFY(m_ctx->projectSvc()->createProject(project.filePath(QStringLiteral("view.qgz"))));
+      auto *visuals=m_win->findChild<QTabBar *>(QStringLiteral("visualizationTabs"));
+      auto *workspace=m_win->findChild<QStackedWidget *>(QStringLiteral("workspaceStack"));
+      QVERIFY(visuals);QVERIFY(workspace);
+      QVERIFY(!m_win->findChild<QAction *>(QStringLiteral("ribbonOpenTask.compose.compose")));
+      int map=-1;
+      for(int i=0;i<visuals->count();++i)if(visuals->tabText(i)==QStringLiteral("QGIS 视图"))map=i;
+      QVERIFY(map>=0);
+      m_win->showPage(QStringLiteral("data"));const int before=workspace->currentIndex();
+      m_win->ribbonBar()->raiseCategory(m_win->categoryForPage(QStringLiteral("compose")));
+      QCoreApplication::processEvents();QCOMPARE(workspace->currentIndex(),before);
+      const int count=visuals->count();
+      QVERIFY(QMetaObject::invokeMethod(visuals,"tabCloseRequested",Q_ARG(int,map)));
+      QCOMPARE(visuals->count(),count);
+      visuals->setCurrentIndex(map);QCOMPARE(workspace->currentIndex(),0);
+    }
+
     void ribbonSelectionKeepsVisualization() {
       m_win->showPage(QStringLiteral("data"));
       auto *workspace=m_win->findChild<QStackedWidget *>(QStringLiteral("workspaceStack"));

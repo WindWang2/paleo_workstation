@@ -83,7 +83,7 @@ add_paleo_test(tst_project_wellinputs LIBS paleo_ui)
 add_paleo_test(tst_project_paleomaps LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
-add_paleo_test(tst_startupdatabases) # 空用户 CRS 库迁移及连井剖面工程绑定生命周期
+add_paleo_test(tst_startupdatabases) # 空用户 CRS 库迁移及连井剖面工程绑定生命周期（直接用 AppContext：closure 即需 paleo_app，伞式=真实最小）
 add_paleo_test(tst_perf LIBS paleo_qgis paleo_services paleo_algorithms)
 set_tests_properties(tst_perf PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_locator LIBS paleo_ui)
@@ -131,7 +131,7 @@ add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)
 add_paleo_test(tst_dlisparser LIBS paleo_io)          # 方向44：DLIS (RP66 v1) 全集读口
 add_paleo_test(tst_lisparser LIBS paleo_io)           # 方向44：LIS79 全集读口
-add_paleo_test(tst_keychainslot)                   # PW-122：共用钥匙串实现契约（header-only）
+add_paleo_test(tst_keychainslot LIBS paleo_ai)     # PW-122：共用钥匙串实现契约（header-only；include 面仅 src/ai/keychainslot.h）
 add_paleo_test(tst_lasperf LIBS paleo_io)    # 方向21：LAS 读面比率门探针（同进程参照实现）
 add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
 add_paleo_test(tst_shacache LIBS paleo_io) # setDiskFile 换绑不得把在途哈希写入新 sha.json
@@ -228,7 +228,7 @@ add_paleo_test(tst_previewdoc LIBS paleo_services paleo_qgis)
 target_compile_definitions(tst_previewdoc PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 add_paleo_test(tst_wellcomposite LIBS paleo_ui)
-add_paleo_test(tst_curvescale)                         # PW-020/021：共享曲线刻度
+add_paleo_test(tst_curvescale LIBS paleo_ui)           # PW-020/021：共享曲线刻度
 add_paleo_test(tst_smoke_realdata LIBS paleo_workflow) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
 add_paleo_test(tst_stratigraphicweb LIBS paleo_ui)
 add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable → fallback, host survives

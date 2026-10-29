@@ -89,7 +89,7 @@ jobs:
         run: |
           targets=$(cmake --build build --target help | grep -oE '[A-Za-z0-9_-]+_autogen' | sort -u)
           echo "autogen targets: $targets"
-          cmake --build build --target $targets
+          cmake --build build --target $targets --parallel 8
       # #137：直推 master 时 origin/master == HEAD，旧的 --base origin/master
       # 永远「无改动」。push 用 event.before（新分支首推的全零 SHA / 不可达时
       # 回退 HEAD~1），PR 用目标分支；check_tidy.py 自身也在 merge-base==HEAD
@@ -455,7 +455,7 @@ jobs:
           -DCMAKE_C_FLAGS=-gz -DCMAKE_CXX_FLAGS=-gz
           -DCMAKE_EXE_LINKER_FLAGS=-gz -DCMAKE_SHARED_LINKER_FLAGS=-gz -DCMAKE_MODULE_LINKER_FLAGS=-gz
       - name: Build
-        run: cmake --build build
+        run: cmake --build build --parallel 8
       - name: Disk usage after build
         if: always()
         run: |

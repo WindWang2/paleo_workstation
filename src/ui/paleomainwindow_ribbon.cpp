@@ -13,7 +13,6 @@
 #include "dialogs/projectmapsettingsdialog.h"
 #include "help/helpsurface.h" // 方向63 帮助面（菜单 + F1 总表挂主窗）
 #include "pages/pageshared.h" // kPageIds（页签序）
-#include "pages/stratigraphicwebpage.h"
 #include "datapreview/datapreviewtabs.h" // mapConfigurationChanged 重开测区标签
 #include "../qgis/qgiscanvascontroller.h" // mapConfigurationChanged → zoomToFullExtent
 #include "../qgis/qgisprojectservice.h"
@@ -98,7 +97,7 @@ void PaleoMainWindow::buildRibbon()
     tabs->setUsesScrollButtons(true);
   }
 
-  // ---- 六个页签 = 六个工作流页（页签序 = paleo::pagesinternal::kPageIds 序）----
+  // ---- 五个工具选项卡独立于中央可视化视图 ----
   const QStringList ribbonIds = {"data", "correlation", "predict", "seismic", "compose"};
   const QStringList ribbonLabels = {tr("数据管理"), tr("地层对比"), tr("单井相分析"), tr("地震相分析"), tr("古地理编图")};
   for (int i = 0; i < ribbonIds.size(); ++i)
@@ -107,11 +106,14 @@ void PaleoMainWindow::buildRibbon()
     cat->setObjectName(QStringLiteral("ribbonCategory.") + ribbonIds.at(i));
     cat->setProperty("paleo.pageId", ribbonIds.at(i));
   }
-  const auto addTask = [this](const QString &category, const QString &label, const QString &page, const QString &type = {}) {
+  const auto addTask = [this](const QString &category, const QString &label, const QString &page,
+                             const QString &help, const QString &type = {}) {
     auto *panel = categoryForPage(category)->addPanel(label);
     auto *action = new QAction(label, panel);
     action->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionFileOpen.svg")));
     action->setObjectName(QStringLiteral("ribbonOpenTask.") + category + QLatin1Char('.') + page + type);
+    action->setToolTip(help);
+    action->setWhatsThis(help);
     panel->addLargeAction(action);
     connect(action, &QAction::triggered, this, [this, page, type] {
       showPage(page);
@@ -122,11 +124,11 @@ void PaleoMainWindow::buildRibbon()
       if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("workbenchTabs.") + page)) tabs->setCurrentIndex(0);
     });
   };
-  addTask("data", tr("打开数据视图"), "data");
-  addTask("correlation", tr("打开地层对比"), "correlation");
-  addTask("predict", tr("井预测"), "predict", "well_log_facies");
-  addTask("predict", tr("编制单因素图"), "constraint");
-  addTask("seismic", tr("地震相预测"), "predict", "seismic_facies");
+  addTask("data", tr("打开数据视图"), "data", tr("打开当前工程的数据列表与资料预览。"));
+  addTask("correlation", tr("打开地层对比"), "correlation", tr("打开原生连井曲线与分层结果，使用当前工区的数据服务。"));
+  addTask("predict", tr("井预测"), "predict", tr("按当前地层预测井的相分类并保存井预测结果。"), "well_log_facies");
+  addTask("predict", tr("编制单因素图"), "constraint", tr("按当前地层选择单因素方法，编制对应图件。"));
+  addTask("seismic", tr("地震相预测"), "predict", tr("预测地震相并生成面状结果。"), "seismic_facies");
   // W5 键盘可达 + 页循环快捷键（方向63 注册表）——paleomainwindow_shortcuts.cpp。
   registerPageShortcuts();
   connect(bar, &SARibbonBar::currentRibbonTabChanged, this, [this, bar](int idx) {

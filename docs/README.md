@@ -30,7 +30,7 @@
 - [井矢量属性](WELL_VECTOR_ATTRIBUTES.md)
 - [数据操作的未完成接缝](dataops/GAPS.md)
 - [数据关系图](dataops/DATA_GRAPH.md)
-- [独立地层对比工作台](STRATIGRAPHIC_WEB.md)
+- [原生地层对比](STRATIGRAPHY.md)
 
 ## 编图与解释
 

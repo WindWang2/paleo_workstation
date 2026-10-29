@@ -100,8 +100,8 @@ sidecar 变化独立使索引失效，不依赖 catalog mutationSeq 是否增长
 
 地图操作限于目录中已登记为 mapping_product 的矢量/栅格成果。
 测井、地震、图片、Office 等文件仍使用现有真实版本预览和相关分析入口。
-地层对比 Web 工作台使用独立工程和解释库；当前宿主无稳定实体同步协议，
-本图谱不以切一个空页面冒充数据已同步。该边界见 docs/STRATIGRAPHIC_WEB.md。
+原生地层对比使用当前工区 Data_service 的输入快照与解释修订。
+保存的地层划分供分析读口与工程层位组织消费，见 [原生地层对比](../STRATIGRAPHY.md)。
 
 ## 后续阶段
 

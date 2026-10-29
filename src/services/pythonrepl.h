@@ -10,7 +10,7 @@ class QTimer;
 // 实验性）。一块 QProcess 长会话：stdin 写入 + stdout/stderr 原文回显；不做
 // 语法高亮/补全/对象内省（递延）。停止 = 先写 exit() 走正常退出，1s 未退转
 // terminate→kill 递进；析构强制回收（Unix 进程组整杀，
-// stratigraphicwebsession 先例），不留孤儿进程。
+// scriptrunner 同一口径），不留孤儿进程。
 class PythonReplSession : public QObject
 {
   Q_OBJECT

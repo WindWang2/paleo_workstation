@@ -2,7 +2,7 @@
 // 与帮助面回归——
 //   - 主窗内每个 QShortcut / 带键 QAction 都来自中央注册表，键序/上下文与登记一致
 //   - 行为不变：Ctrl+1 / Ctrl+3 直切、Ctrl+Tab / Ctrl+Shift+Tab 循环、Ctrl+K
-//     聚焦定位器、Ctrl+S 在地层对比页让出（≥5 条 offscreen 回归）
+//     聚焦定位器、Ctrl+S 在原生地层对比页保持工程保存（≥5 条 offscreen 回归）
 //   - F1 打开总表且条目数 = 注册数；Shift+F1 进入 / Esc 退出「这是什么？」
 //   - 「帮助」按钮三入口可达；核心面板 whatsThis 回填 ≥30 处
 #include <QtTest>
@@ -185,7 +185,7 @@ private slots:
     QTRY_VERIFY(edit->hasFocus());
   }
 
-  void saveShortcutYieldsOnCorrelationPage()
+  void saveShortcutStaysActiveOnNativeCorrelation()
   {
     auto *save = m_win->findChild<QAction *>(QStringLiteral("saveProjectAction"));
     QVERIFY(save);

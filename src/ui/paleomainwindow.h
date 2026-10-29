@@ -86,7 +86,6 @@ private:
   bool m_userWantsVisible = true;
 };
 
-class StratigraphicWebPage;
 class StratigraphyWorkflow;
 class StratigraphyPage;
 class QTabBar;
@@ -478,7 +477,6 @@ class PaleoMainWindow : public SARibbonMainWindow
     // validationDone 连接在验证跑完后调它（残差覆盖是门的一条腿）。
     std::function<void()> m_refreshPublishGate;
 
-    StratigraphicWebPage *m_stratigraphicWebPage = nullptr;
     StratigraphyWorkflow *m_stratigraphy = nullptr;
     StratigraphyPage *m_stratigraphyPage = nullptr;
     QTabBar *m_visualizationTabs = nullptr;

@@ -66,3 +66,22 @@ Data_service 本地提交为 `1106ba9`。
 操作契约补充：沿用原有矢量拓扑编辑及“相 → 亚相 → 微相”三级体系。
 已核对编辑工具条、相面分区编辑器、编辑会话接线和相分类核心与 master 的差异为空；
 古地理编图 Ribbon 仍通过既有 addEditingPanel 接入原操作及完整分类路径下拉。
+
+旧 Web 地层模块清理：删除 StratigraphicWebPage、StratigraphicWebSession、
+专属测试、构建项、翻译、帮助和配置入口；两套便携打包脚本不再复制外部地层
+项目、安装其 requirements 或注入 PALEO_CORRELATION_*。通用 Python 脚本台面
+及 Office 使用的 WebEngine 继续按原用途接线。当前使用说明迁至 STRATIGRAPHY.md，
+历史审计记录保留当时事实。attachWorkflows 规模冻结值从 412 下调至 404。
+
+本轮清理验证：MSVC 应用构建、界面所选回归 6 passed、完整快捷键回归
+15 passed、通用 WebViewPanel 和分层模型集成套件通过。帮助覆盖断言改为显式
+选择五个 Ribbon 工具选项卡，原生功能入口补齐用途帮助，完整窗口外壳回归
+21 passed（含初始化和清理）。打包器 Python CLI
+及 PowerShell 语法检查通过，未重新生成完整便携包。活跃源码、测试、构建清单
+和打包工具中无旧模块、专属环境变量或外部项目路径引用。
+
+层边界、Qgs 直连、QGIS 散布、UI invariants、主题 token、i18n、翻译 XML、
+文档漂移与环境红项检查器自测通过。file_budget/ui_size 仍报告 master 既有
+datalist_tree.cpp 1006 行；带 QGIS_PREFIX 的传递闸仍报告 ui_qtwidgets_notes
+6 > 冻结值 5（对应源文件、include 边及冻结值与本分支起点 master 无差异）。
+这些闸门未扩张基线。

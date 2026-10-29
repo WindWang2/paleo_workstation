@@ -29,13 +29,11 @@
 #include "../workflow/mappingworkbench.h"
 #include "layers/layerpropertiesdialog.h"
 #include "pages/pageshared.h"
-#include "pages/stratigraphicwebpage.h"
 #include "pages/stratigraphypage.h"
 #include "../workflow/stratigraphyworkflow.h"
 #include "../linkage/selectioncontext.h"
 #include <QTabBar>
 #include <QSignalBlocker>
-#include "../workflow/stratigraphicwebsession.h"
 #include "webviewpanel.h"
 #include "wellsection/wellsectionpanel.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"

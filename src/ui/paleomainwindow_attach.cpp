@@ -424,7 +424,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   auto *composePage = new ComposePage(compose, m_layerSvc, host);
   auto *validatePage = new ValidatePage(validate, host);
   stack->addWidget(dataProps);
-  stack->addWidget(new QWidget(host)); // 地层对比使用中央 Web 页，无右侧属性页
+  stack->addWidget(new QWidget(host)); // 地层对比使用原生中央视图，无右侧属性页
   stack->addWidget(predictPage);
   stack->addWidget(constraintPage);
   stack->addWidget(composePage);
@@ -756,14 +756,6 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   if (dataPage && dataPage->listPanel())
     dataPage->listPanel()->setProjectOpenProvider(
         [this] { return m_projectSvc && !m_projectSvc->projectPath().isEmpty(); });
-
-  // 页面自建的对比服务命令：attach 时 tooltip 还是作者的静态用途串
-  //（会话忙时的临时文案之后才出现），此刻固化成 whatsThis。
-  for (const char *name : {"correlationWebConnectAction", "correlationWebDirectoryAction",
-                           "correlationWebPythonAction", "correlationWebStartAction",
-                           "correlationWebExternalAction"})
-    if (auto *a = findChild<QAction *>(QLatin1String(name)); a && a->whatsThis().isEmpty())
-      a->setWhatsThis(a->toolTip());
 
   m_workflowsAttached = true;
 }

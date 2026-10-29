@@ -4,7 +4,7 @@
 // 问题：add_paleo_test 的 XDG/HOME 沙箱在 Linux 隔离了 QSettings（NativeFormat
 // = XDG 下的 ini），Windows 上 NativeFormat 走注册表 HKCU\Software\paleo\paleo，
 // 不受任何环境变量控制——测试读写的是开发者真实的应用配置：
-//   · tst_ui/tst_panels/tst_wellsection_ui/tst_stratigraphicweb 开局
+//   · tst_ui/tst_panels/tst_wellsection_ui 开局
 //     QSettings("paleo","paleo").clear()——每跑一次就清空本机真实配置；
 //   · 本机真实配置/策略残留让 7 个 UI 测试只在本机红、CI 干净 runner 绿。
 // 对策（产品零改动、注册表语义保留）：测试可执行文件静态初始化期（早于

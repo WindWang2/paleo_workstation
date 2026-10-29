@@ -42,7 +42,7 @@ inline void bindTrackedProperty(QObject *owner, const char *name, QObject *targe
 inline const QStringList kRibbonIds = {"data", "correlation", "predict", "seismic", "compose"};
 inline const QStringList kPageIds = {
   QStringLiteral("data"),       // 数据管理
-  QStringLiteral("correlation"), // 地层对比（独立 Web 工作台）
+  QStringLiteral("correlation"), // 地层对比（原生视图）
   QStringLiteral("predict"),    // 智能预测
   QStringLiteral("constraint"), // 单因素图
   QStringLiteral("compose"),    // 智能编图

@@ -60,8 +60,6 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"DataListPanel", "storageGovernanceButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "存储治理台：汇总占用体积、扫描未引用文件、预览可回收的过时版本。"), nullptr},
 
     // ---- 地层对比页 ----
-    {"StratigraphicWebPage", "correlationWebAddress", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层对比网页工作台的服务地址。"), nullptr},
-    {"StratigraphicWebPage", "correlationWebStatus", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层对比服务的连接状态与下一步提示。"), nullptr},
     {"StratigraphyPage", "stratigraphyWells", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择当前工区中参与对比的井；输入资料可显式指定或由优选方法选择。"), nullptr},
     {"StratigraphyPage", "stratigraphyStatus", QT_TRANSLATE_NOOP("PaleoWhatsThis", "显示界面计算、模板划分与版本保存的状态，以及需复核的来源和约定问题。"), nullptr},
 

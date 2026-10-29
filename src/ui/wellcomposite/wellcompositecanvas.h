@@ -74,6 +74,8 @@ public:
   // 视口深度范围与跨度查询
   double visibleTopDepth() const { return m_scrollDepth; }
   double visibleDepthSpan() const;
+  void setVisibleDepthRange(double top, double bottom);
+  QWidget *depthViewport() const;
   double visibleBottomDepth() const { return visibleTopDepth() + visibleDepthSpan(); }
 
   // 坐标转换
@@ -194,6 +196,7 @@ signals:
 
   // D3.x 编辑意图
   void markerMoved(const QString &markerName, double newDepth);
+  void markerSelected(const QString &markerName);
   void markerContextMenuRequested(const QString &markerName, double depth);
 
 protected:

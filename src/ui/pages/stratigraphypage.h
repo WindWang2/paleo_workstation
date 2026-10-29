@@ -6,7 +6,7 @@ class StratigraphyWorkflow;
 class QListWidget;
 class QTableWidget;
 class QLabel;
-class WellCorrelationPanel;
+namespace WellComposite { class MultiWellView; class WellCompositePanel; }
 class QBoxLayout;class QComboBox;class QLineEdit;class QDoubleSpinBox;class QCheckBox;
 class StratigraphyPage : public QWidget {
  Q_OBJECT
@@ -16,6 +16,8 @@ protected:
  void showEvent(QShowEvent *event) override;
 private:
  void refresh();
+ void refreshPreview();
+ void connectPreview(WellComposite::WellCompositePanel *panel, qlonglong well);
  void showConventions();
  void chooseResource();
  void buildActions(QBoxLayout* layout);
@@ -44,9 +46,9 @@ private:
  QListWidget *m_wells;
  QTableWidget *m_results;
  QLabel *m_status;
- WellCorrelationPanel *m_section;
+ WellComposite::MultiWellView *m_section=nullptr;
+ bool m_reloadPreview=true;
  bool m_refreshing=false;
- bool m_markerMove=false;
  qlonglong m_selectedWell=0;
  QString m_selectedObject;bool m_selectedCycle=false;
  QLineEdit* m_name=nullptr;
@@ -57,5 +59,5 @@ private:
  QComboBox *m_saved=nullptr,*m_revision=nullptr;
  QLabel* m_source=nullptr;
  QHash<QString,QString> m_markerIds;
- QString m_loadedIdentity;
+
 };

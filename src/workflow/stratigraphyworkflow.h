@@ -9,6 +9,7 @@
 #include <QJsonObject>
 namespace paleo::data { struct InterpretationDocument; struct CorrelationAlgorithmProfile; struct InterpretationClustering; struct InterpretationSeries; }
 class PaleoTaskService;
+namespace WellComposite { struct ComprehensiveWellData; }
 struct StratigraphyWell { qlonglong id; QString name; };
 struct StratigraphyRow { qlonglong wellId; QString well, id, name, level, status; double top, bottom;
  bool cycle=false,locked=false;int direction=0;QString source,evidence,segment,parent;double original=0;QString role; };
@@ -32,6 +33,7 @@ public:
  QList<StratigraphyWell> wells() const;
  QList<StratigraphyRow> rows() const;
  QList<StratigraphyTrack> tracks() const;
+ bool previewWellData(qlonglong well, WellComposite::ComprehensiveWellData *data, QString *error) const;
  void undo();
  void redo();
  bool canUndo() const;

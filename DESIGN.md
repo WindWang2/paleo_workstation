@@ -366,7 +366,7 @@ token——沿用 surface-alt 卡底 + border 1px + rounded.md（卡片既有口
 - 任务进度走状态栏/底部任务面板（`QgsTaskManagerWidget`），>1s 显示进度条，>10s 给预计时间。
 - 无 Qt 内建 reduced-motion；如未来加动画，走项目级设置开关（QSettings 绑定）。
 
-原生地层对比页占用中央工作区，收起 Paleo 的停靠面板；离页恢复用户可见状态。井组、曲线、分层结果及状态反馈沿用以上主题与交互规范，输入和解释版本使用当前工区 Data_service 模型。
+原生地层对比页占用中央工作区，收起 Paleo 的停靠面板；离页恢复用户可见状态。井道图直接复用数据预览的 WellCompositePanel / WellCompositeCanvas 及 MultiWellView；保留相同的图道布局与手势，不独立实现井道绘制。界线标注由预览标志层交互发出信号，解释工作流负责校验、撤销和保存。井组、曲线、分层结果及状态反馈沿用以上主题与交互规范，输入和解释版本使用当前工区 Data_service 模型。
 
 ## 错误呈现
 

@@ -39,7 +39,7 @@ target_sources(paleo_workflow PRIVATE src/workflow/stratigraphyworkflow_template
 target_link_libraries(paleo_workflow PRIVATE Paleo::paleo_stratigraphy_service)
 target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage.cpp src/ui/pages/stratigraphypage.h)
 target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_options.cpp)
-target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_controls.cpp src/ui/pages/stratigraphypage_editors.cpp src/ui/correlation/correlationpanel_annotation.cpp)
+target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_controls.cpp src/ui/pages/stratigraphypage_editors.cpp)
 target_link_libraries(paleo_ui PRIVATE Paleo::paleo_data_service)
 target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_settings.cpp)
 target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_results.cpp src/ui/pages/stratigraphyresultplot.cpp)
@@ -69,3 +69,6 @@ add_paleo_test(tst_stratigraphy_storage LIBS Paleo::paleo_stratigraphy_service Q
 target_include_directories(tst_stratigraphy_storage PRIVATE vendor/Data_service/src)
 target_link_libraries(tst_stratigraphy_storage PRIVATE Qt6::Sql)
 add_paleo_test(tst_stratigraphy_model LIBS paleo_workflow paleo_services Paleo::paleo_data_service)
+
+target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_preview.cpp src/ui/wellcomposite/multiwellview_range.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/stratigraphyworkflow_preview.cpp)

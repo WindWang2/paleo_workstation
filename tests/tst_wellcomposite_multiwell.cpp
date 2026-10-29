@@ -40,6 +40,28 @@ class TestWellCompositeMultiWell : public QObject
   Q_OBJECT
 
 private slots:
+  void testRowBeyondFourWellsAndViewportSync()
+  {
+    MultiWellView view;
+    view.setLayoutMode(MultiWellView::LayoutMode::Row);
+    view.clearPanels();
+    for (int i = 0; i < 6; ++i) {
+      auto *panel = new WellCompositePanel(&view);
+      QVERIFY(panel->loadLasCurves(QString::number(i), oneCurve("GR")));
+      panel->canvas()->setMarkerLines({{1100.0+i*10,"datum"}});
+      view.setPanel(i,panel);
+    }
+    view.resize(3600,800);view.show();QApplication::processEvents();
+    QCOMPARE(view.panelCount(),6);QCOMPARE(view.slotCount(),6);
+    QCOMPARE(view.correlationPairs().size(),5);
+    view.setDatumMarker("datum");view.setDisplayDepthRange(-50,250);
+    auto *first=view.panelAt(0)->canvas();auto *last=view.panelAt(5)->canvas();
+    QVERIFY(std::abs(first->depthToY(1100)-last->depthToY(1150))<1);
+    first->setZoomFactor(first->zoomFactor()*1.2);first->setScrollDepth(1080);
+    QVERIFY(std::abs(first->pxPerMeter()-last->pxPerMeter())<.01);
+    QVERIFY(std::abs(first->depthToY(1100)-last->depthToY(1150))<1);
+    view.clearPanels();QCOMPARE(view.panelCount(),0);QCOMPARE(view.slotCount(),1);
+  }
   // ---- D.8 relayout/setPanel 生命周期：退出布局的面板/占位标签不得残留可见 ----
   void testRelayoutLifecycle()
   {

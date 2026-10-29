@@ -5,7 +5,8 @@
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QLineEdit>
-#include <QGraphicsView>
+#include "../src/ui/wellcomposite/multiwellview.h"
+#include "../src/ui/wellcomposite/editsession.h"
 #include <QMouseEvent>
 #include <QJsonDocument>
 #include <QImage>
@@ -15,7 +16,7 @@
 #include "../src/io/areamodel.h"
 #include "../src/workflow/stratigraphyworkflow.h"
 #include "../src/ui/pages/stratigraphypage.h"
-#include "../src/ui/correlationpanel.h"
+#include "../src/services/previewdoc.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/services/stratigraphyexport.h"
@@ -30,8 +31,8 @@ struct Fixture {
   if(!service.createProject(path,"SYNTHETIC ONLY",e)){error=QString::fromStdString(e);return false;}
   for(int w=0;w<2;++w) {
    QFile file(directory.filePath(QString("SYNTH-%1.las").arg(w+1)));if(!file.open(QIODevice::WriteOnly))return false;
-   QByteArray las="~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. SYNTH-"+QByteArray::number(w+1)+"\nNULL. -999.25\n~Curve\nMD.m\nGR.API\n~Ascii\n";
-   for(int i=100;i<=240;++i)las+=QByteArray::number(i)+" "+QByteArray::number(50+20*std::sin(i*.3))+'\n';file.write(las);file.close();
+   QByteArray las="~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. SYNTH-"+QByteArray::number(w+1)+"\nNULL. -999.25\n~Curve\nMD.m\nGR.API\nSP.mV\n~Ascii\n";
+   for(int i=100;i<=240;++i)las+=QByteArray::number(i)+" "+QByteArray::number(50+20*std::sin(i*.3))+" "+QByteArray::number(-20+10*std::cos(i*.2))+'\n';file.write(las);file.close();
    ImportReport report;if(!service.importFile(file.fileName().toStdString(),{},report,e)){error=QString::fromStdString(e);return false;}
   }
   std::vector<WellSummary> wells;if(!service.listWells(wells,e)||wells.size()!=2)return false;
@@ -93,27 +94,48 @@ private slots:
   PaleoTheme::applyLightTheme();
   Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));StratigraphyWorkflow wf(nullptr);wf.setProject(fixture.directory.path(),false);
   StratigraphyPage page(&wf);page.resize(1800,1100);page.show();QTest::qWait(100);
-  auto* section=page.findChild<WellCorrelationPanel*>("stratigraphySection");QVERIFY(section);QVERIFY(section->hasCurves());
+  auto* section=page.findChild<WellComposite::MultiWellView*>("stratigraphySection");QVERIFY(section);QCOMPARE(section->panelCount(),2);
+  auto* panel=section->panelAt(0);QVERIFY(panel);auto* canvas=panel->canvas();auto* view=canvas->depthViewport();QVERIFY(view);
+  const auto id=panel->property("wellId").toLongLong();QCOMPARE(id,fixture.first);
+  WellComposite::ComprehensiveWellData preview;QVERIFY(PreviewDocService::wellCompositeForWell(paleo::area_model::directory(fixture.directory.path()),id,&preview,&error));
+  QCOMPARE(preview.continuousCurves.size(),2);QCOMPARE(panel->currentData().continuousCurves.size(),3);
+  QCOMPARE(panel->currentData().continuousCurves[1].name,preview.continuousCurves[1].name);
+  QCOMPARE(panel->currentData().continuousCurves[1].values,preview.continuousCurves[1].values);
+  auto firstTrack=canvas->tracks().front();const auto firstWidth=firstTrack->width();
   for(const auto& track:wf.tracks())QVERIFY2(!track.mnemonic.contains("CDMT"),"Cycle-index CDMT must not be rendered as a depth track");
-  auto* view=section->findChild<QGraphicsView*>("correlationView");QVERIFY(view);const auto id=QString::number(fixture.first);
+  const auto point=[canvas](double md){return QPoint(40,qRound(canvas->depthToY(md)));};
   auto* md=page.findChild<QDoubleSpinBox*>("boundaryMd");auto* name=page.findChild<QLineEdit*>("boundaryName");QVERIFY(md&&name);
-  QTest::mouseDClick(view->viewport(),Qt::LeftButton,Qt::NoModifier,section->positionForDepth(id,120));QCoreApplication::processEvents();
-  QVERIFY(std::abs(md->value()-120)<.5);md->setValue(120);name->setText("Native graph pick");page.findChild<QPushButton*>("addBoundary")->click();
+  QTest::mouseClick(view,Qt::LeftButton,Qt::NoModifier,point(120));QCoreApplication::processEvents();
+  QVERIFY2(std::abs(md->value()-120)<.5,qPrintable(QString("picked=%1, viewport=%2x%3, y=%4, range=%5..%6").arg(md->value()).arg(view->width()).arg(view->height()).arg(point(120).y()).arg(canvas->visibleTopDepth()).arg(canvas->visibleBottomDepth())));md->setValue(120);name->setText("Native graph pick");page.findChild<QPushButton*>("addBoundary")->click();
   const auto added=well(wf,fixture.first).boundaries.back().id;QCOMPARE(boundary(wf,fixture.first,added).md,120.);
   auto* flatten=page.findChild<QComboBox*>("flattenDatum");QVERIFY(flatten);flatten->setCurrentIndex(flatten->findData("T70"));QCoreApplication::processEvents();
-  QVERIFY(std::abs(section->positionForDepth(id,110).y()-section->positionForDepth(QString::number(fixture.second),120).y())<=1);
-  const auto start=section->positionForDepth(id,120),end=section->positionForDepth(id,123);
-  mouse(view->viewport(),QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
-  mouse(view->viewport(),QEvent::MouseMove,(start+end)/2,Qt::NoButton,Qt::LeftButton);
-  mouse(view->viewport(),QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
-  mouse(view->viewport(),QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+  QVERIFY(std::abs(canvas->depthToY(110)-section->panelAt(1)->canvas()->depthToY(120))<=1);
+  const auto start=point(120),end=point(123);
+  mouse(view,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+  mouse(view,QEvent::MouseMove,(start+end)/2,Qt::NoButton,Qt::LeftButton);
+  mouse(view,QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+  mouse(view,QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
   QTRY_VERIFY(std::abs(boundary(wf,fixture.first,added).md-123)<.5);
   wf.undo();QCOMPARE(boundary(wf,fixture.first,added).md,120.);wf.redo();QVERIFY(std::abs(boundary(wf,fixture.first,added).md-123)<.5);
   page.findChild<QDoubleSpinBox*>("displayTop")->setValue(0);page.findChild<QDoubleSpinBox*>("displayBottom")->setValue(30);page.findChild<QPushButton*>("applyDisplayRange")->click();
-  QCOMPARE(section->depthRange(),qMakePair(0.f,30.f));const auto imagePath=fixture.directory.filePath("all-wells.png");QVERIFY(section->exportImage(imagePath));QImage exported(imagePath);QVERIFY(!exported.isNull());QVERIFY(exported.width()>300);QVERIFY(exported.height()>300);
-  page.findChild<QPushButton*>("fitFormation")->click();QVERIFY(section->depthRange().first<0);QVERIFY(section->depthRange().second>80);
+  QVERIFY(std::abs(section->displayDepthRange().first)<.01);QVERIFY(std::abs(section->displayDepthRange().second-30)<.01);const auto imagePath=fixture.directory.filePath("all-wells.png");QVERIFY(section->grab().save(imagePath));QImage exported(imagePath);QVERIFY(!exported.isNull());QVERIFY(exported.width()>300);QVERIFY(exported.height()>300);
+  page.findChild<QPushButton*>("fitFormation")->click();QVERIFY(section->displayDepthRange().first<0);QVERIFY(section->displayDepthRange().second>80);
+  QCOMPARE(section->panelAt(0),panel);QCOMPARE(canvas->tracks().front(),firstTrack);QCOMPARE(firstTrack->width(),firstWidth);
+  QVERIFY(!panel->editSession()->isDirty());
+  const double oldPpm=canvas->pxPerMeter();canvas->setZoomFactor(canvas->zoomFactor()*1.2);canvas->setScrollDepth(115);
+  QVERIFY(canvas->pxPerMeter()>oldPpm);QVERIFY(std::abs(canvas->pxPerMeter()-section->panelAt(1)->canvas()->pxPerMeter())<.01);
+  QVERIFY(std::abs(canvas->depthToY(110)-section->panelAt(1)->canvas()->depthToY(120))<=1);
+  page.findChild<QPushButton*>("fitFormation")->click();
+  QCoreApplication::processEvents();
+  auto* secondCanvas=section->panelAt(1)->canvas();
+  QVERIFY(std::abs(view->mapTo(section,QPoint(0,qRound(canvas->depthToY(110)))).y()-secondCanvas->depthViewport()->mapTo(section,QPoint(0,qRound(secondCanvas->depthToY(120)))).y())<=1);
   const auto capture=qEnvironmentVariable("PALEO_VISUAL_CAPTURE");if(!capture.isEmpty()){QDir().mkpath(capture);QVERIFY(page.grab().save(capture+"/native-stratigraphy-annotated.png"));}
+  wf.setViewOptions({{"flatten","T70"},{"top",0.},{"bottom",30.}});wf.save();const auto saved=QString::fromStdString(wf.document().revision);
+  flatten->setCurrentIndex(0);QVERIFY(wf.loadVersion(fixture.interpretation,saved));
+  QTRY_VERIFY(std::abs(section->displayDepthRange().first)<.01&&std::abs(section->displayDepthRange().second-30)<.01);
   QVERIFY(wf.loadVersion(fixture.interpretation,fixture.revision));QCOMPARE(md->value(),0.);QVERIFY(name->text().isEmpty());
+  wf.setProject(fixture.directory.path(),true);QVERIFY(!section->panelAt(0)->canvas()->editMode());
+  section->panelAt(0)->setEditMode(true);QVERIFY(!section->panelAt(0)->canvas()->editMode());
  }
  void candidateAdoptionProfilesGeometryAndExport() {
   Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));StratigraphyWorkflow wf(nullptr);wf.setProject(fixture.directory.path(),false);

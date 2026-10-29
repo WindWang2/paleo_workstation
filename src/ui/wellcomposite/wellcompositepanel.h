@@ -136,6 +136,8 @@ public:
   // ---- D3.x 编辑模式面（D3.14 工具条随 editMode 显隐） ----
   void setEditMode(bool on);
   bool editMode() const;
+  // 外部解释工作流拥有界线与撤销栈；预览组件只提供绘制和深度手势。
+  void setBoundaryAnnotationMode(bool on, bool editable = true);
   EditSession *editSession() const { return m_editSession.get(); }
 
   // D3.9/D3.3 保存编辑：产派生文档意图信号 + sidecar 审计追加 + 标记已保存。
@@ -153,6 +155,7 @@ public:
   QLabel *readoutLabel() const { return m_lblReadout; }
 
 signals:
+  void boundaryDepthEdited(const QString &name, double md);
   void faciesDataChanged(const WellComposite::ComprehensiveWellData &data);
   void faciesPredictionRequested();
   void faciesCancelRequested();
@@ -255,6 +258,8 @@ private:
   QToolButton *m_btnSnap = nullptr;
   QToolButton *m_btnExport = nullptr;   // D4.5–D4.10 导出菜单入口
   QToolButton *m_btnEdit = nullptr;     // D3.1/D3.14 TOPs 编辑模式
+  bool m_boundaryAnnotationMode = false;
+  bool m_boundaryAnnotationEditable = false;
   QToolButton *m_btnSaveDerived = nullptr; // D1：保存派生版本（→壳 DERIVED 登记）
   QLabel *m_lblStatus = nullptr;
   QLabel *m_lblReadout = nullptr;       // D2.11

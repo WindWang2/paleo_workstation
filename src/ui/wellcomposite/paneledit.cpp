@@ -19,6 +19,7 @@ namespace WellComposite
 // ----------------------------------------------------------------------------
 void WellCompositePanel::setEditMode(bool on)
 {
+  if (m_boundaryAnnotationMode) on = m_boundaryAnnotationEditable;
   if (m_editSession && m_editSession->isReadOnly() && on)
   {
     // D3.15 只读降级：拒绝进入并给出原因
@@ -37,6 +38,18 @@ void WellCompositePanel::setEditMode(bool on)
 bool WellCompositePanel::editMode() const
 {
   return m_canvas->editMode();
+}
+
+void WellCompositePanel::setBoundaryAnnotationMode(bool on, bool editable)
+{
+  m_boundaryAnnotationMode = on;
+  m_boundaryAnnotationEditable = on && editable;
+  m_btnEdit->setEnabled(!on);
+  m_btnSaveDerived->setVisible(!on);
+  // 并排比较中读数换行不得改变某一井的道体起点，避免基准面像素错位。
+  if (on) m_lblStatus->setFixedHeight(m_lblStatus->fontMetrics().lineSpacing()*2);
+  else { m_lblStatus->setMinimumHeight(0); m_lblStatus->setMaximumHeight(QWIDGETSIZE_MAX); }
+  m_canvas->setEditMode(on && editable);
 }
 
 bool WellCompositePanel::saveDerived()
@@ -69,6 +82,10 @@ void WellCompositePanel::setHighContrast(bool on)
 
 void WellCompositePanel::onMarkerMoved(const QString &name, double newDepth)
 {
+  if (m_boundaryAnnotationMode) {
+    if (m_boundaryAnnotationEditable) emit boundaryDepthEdited(name, newDepth);
+    return;
+  }
   if (!m_editSession)
     return;
 

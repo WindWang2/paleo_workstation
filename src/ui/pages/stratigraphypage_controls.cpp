@@ -1,7 +1,7 @@
 // 层：视图
 #include "stratigraphypage.h"
 #include "../../workflow/stratigraphyworkflow.h"
-#include "../correlationpanel.h"
+#include "../wellcomposite/multiwellview.h"
 #include <paleo_data/interpretation.h>
 #include <QBoxLayout>
 #include <QFormLayout>
@@ -67,7 +67,7 @@ void StratigraphyPage::buildAdvanced(QBoxLayout* layout) {
  button(tr("应用分层到工程"),"activateStratigraphy",[this]{m_workflow->activateClassification(m_selectedWell);});
  m_flatten=new QComboBox(widget);m_flatten->setObjectName(QStringLiteral("flattenDatum"));m_flatten->addItem(tr("真实 MD"),QString());
  for(const char* r:{"T70","T72","T73","T80"})m_flatten->addItem(tr("拉平 %1").arg(QLatin1String(r)),QLatin1String(r));row->addWidget(m_flatten);
- connect(m_flatten,&QComboBox::currentIndexChanged,this,[this]{if(m_section){m_section->setFlattenMarker(m_flatten->currentData().toString());fitFormation();}m_workflow->setViewOptions({{"flatten",m_flatten->currentData().toString()}});});
+ connect(m_flatten,&QComboBox::currentIndexChanged,this,[this]{if(m_section&&!m_reloadPreview){m_section->setDatumMarker(m_flatten->currentData().toString());fitFormation();}m_workflow->setViewOptions({{"flatten",m_flatten->currentData().toString()}});});
  auto* second=new QHBoxLayout;box->addLayout(second);m_scope=new QComboBox(widget);m_scope->setObjectName(QStringLiteral("segmentScope"));m_scope->addItem(tr("全部段"),QString());
  for(const char* r:{"E12","E3","E4"})m_scope->addItem(QLatin1String(r),QLatin1String(r));second->addWidget(m_scope);
  connect(m_scope,&QComboBox::currentIndexChanged,this,[this]{m_workflow->setViewOptions({{"segmentScope",m_scope->currentData().toString()}});});

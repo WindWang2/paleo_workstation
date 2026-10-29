@@ -287,6 +287,7 @@ void WellCompositeBody::mousePressEvent(QMouseEvent *event)
     {
       m_canvas->m_markerDragIndex = hit;
       m_canvas->m_markerDragName = m_canvas->markerLines().at(hit).second;
+      emit m_canvas->markerSelected(m_canvas->m_markerDragName);
       m_canvas->m_markerDragOrigDepth = m_canvas->markerLines().at(hit).first;
       m_canvas->m_markerDragGrabOffset =
           m_canvas->markerLines().at(hit).first - m_canvas->yToDepth(event->pos().y());

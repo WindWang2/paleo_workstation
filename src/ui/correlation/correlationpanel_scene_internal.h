@@ -90,7 +90,6 @@ using paleo::ui_detail::kBorder;
       using QGraphicsScene::QGraphicsScene;
       std::function<void(const QString &)> clicked;
       std::function<void(const QString &)> doubleClicked;
-      std::function<void(const QString &,qreal)> depthPicked;
       std::function<void(int, int)> reorderRequested;
 
       // K-1（=20261020 D-06）：删列项前作废拖拽裸指针（防 UAF）。
@@ -170,7 +169,6 @@ using paleo::ui_detail::kBorder;
               clicked(id);
             if (doubleClicked)
               doubleClicked(id);
-            if(depthPicked&&e->scenePos().y()>=depthBodyTop())depthPicked(id,e->scenePos().y());
           }
         }
       }

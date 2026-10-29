@@ -80,7 +80,7 @@ class MarkerLineItem : public QGraphicsLineItem
 
     void mousePressEvent(QGraphicsSceneMouseEvent *e) override
     {
-      if (!m_editable || !m_set || !m_set->editable() || e->button() != Qt::LeftButton)
+      if (!m_editable || e->button() != Qt::LeftButton)
       {
         e->ignore();
         return;
@@ -90,14 +90,12 @@ class MarkerLineItem : public QGraphicsLineItem
       m_pressLineY = lineSceneY();
       m_pressDy = e->scenePos().y() - m_pressLineY;
       m_pressPick = m_set ? m_set->wellDepth(m_marker, m_wellId) : kNaNf;
-      m_pendingPick = m_pressPick;
-      if(m_set)emit m_set->markerSelected(m_marker,m_wellId);
       e->accept();
     }
 
     void mouseMoveEvent(QGraphicsSceneMouseEvent *e) override
     {
-      if (!m_editable || !m_set || !m_set->editable() || !(e->buttons() & Qt::LeftButton) || std::isnan(m_pressPick))
+      if (!m_editable || !(e->buttons() & Qt::LeftButton) || std::isnan(m_pressPick))
       {
         e->ignore();
         return;
@@ -114,12 +112,7 @@ class MarkerLineItem : public QGraphicsLineItem
       e->accept();
     }
 
-    void mouseReleaseEvent(QGraphicsSceneMouseEvent *e) override {
-      if(m_set&&m_set->editable()&&m_set->commitOnRelease()&&std::isfinite(m_pendingPick)&&m_pendingPick!=m_pressPick) {
-        // Commit one undoable operation after the mouse grab has ended.
-        QTimer::singleShot(0,m_set,[set=m_set,marker=m_marker,well=m_wellId,pick=m_pendingPick]{set->setWellDepth(marker,well,pick);});
-      }e->accept();
-    }
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *e) override { e->accept(); }
 
     void hoverEnterEvent(QGraphicsSceneHoverEvent *) override
     {
@@ -162,7 +155,6 @@ class MarkerLineItem : public QGraphicsLineItem
       if (std::isnan(delta))
         return;
       const float pick = m_pressPick + delta;
-      if(m_set->commitOnRelease()){m_pendingPick=pick;return;}
       // Deferred commit: emitting markerDepthChanged synchronously from in
       // here could let a directly connected panel rebuild (even
       // scene->clear()) delete this item while we are still on its stack.
@@ -189,7 +181,6 @@ class MarkerLineItem : public QGraphicsLineItem
     qreal m_pressDy = 0.0;
     qreal m_pressLineY = 0.0;
     float m_pressPick = kNaNf;
-    float m_pendingPick = kNaNf;
     struct Coalesce { float pick = kNaNf; bool queued = false; };
     std::shared_ptr<Coalesce> m_coalesce = std::make_shared<Coalesce>();
 };
@@ -386,7 +377,6 @@ void HorizonMarkerSet::rebuild(QGraphicsScene *scene, QGraphicsItem *parent,
       if (std::isnan(pick))
         continue;
       const qreal sceneY = yFor(displayDepth(g.wellId, pick)); // display space
-      if(m_clipToColumns&&(sceneY<g.rect.top()||sceneY>g.rect.bottom()))continue;
 
       MarkerLineItem *line = nullptr;
       if (grabber && !grabberReused
@@ -413,11 +403,10 @@ void HorizonMarkerSet::rebuild(QGraphicsScene *scene, QGraphicsItem *parent,
       }
       const QRectF r = rectInHost(g.rect);
       const qreal y = yInHost(sceneY);
-      line->configure(depthFor, editable&&m_editable);
+      line->configure(depthFor, editable);
       line->setLine(r.left(), y, r.right(), y); // spans its whole column
-      const bool selected=m.name==m_selectedMarker&&g.wellId==m_selectedWell;
-      line->setPen(selected?QPen(m.color,2.5):pen);
-      line->setZValue(active||selected ? kActiveZ : kNormalZ);
+      line->setPen(pen);
+      line->setZValue(active ? kActiveZ : kNormalZ);
 
       if (!anyPick || g.rect.left() < labelSceneRect.left())
       {
@@ -432,7 +421,7 @@ void HorizonMarkerSet::rebuild(QGraphicsScene *scene, QGraphicsItem *parent,
       // ONE label per marker — readable across the whole section, not
       // one per column. Mouse-transparent. 文字走 tokens().text（语义色
       // 在白底上对比度不足 AA）——标志色由标记线本身承载（色+线双编码）。
-      auto *label = new QGraphicsSimpleTextItem(m.label.isEmpty()?m.name:m.label, host);
+      auto *label = new QGraphicsSimpleTextItem(m.name, host);
       if (!host)
         scene->addItem(label);
       QFont f = label->font();

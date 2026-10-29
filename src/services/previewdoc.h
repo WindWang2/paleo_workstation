@@ -198,6 +198,9 @@ class PreviewDocService : public QObject
     static bool wellCompositeAt(const QString &absPath,
                                 WellComposite::ComprehensiveWellData *out,
                                 QString *error = nullptr);
+    static bool wellCompositeForWell(const QString &areaPath, qlonglong wellId,
+                                    WellComposite::ComprehensiveWellData *out,
+                                    QString *error = nullptr);
 
     // ---- 外链 SHA-256 闸门（§3/B 包）----
     // 非托管版本带 sha256 时先验后发；会话内每资产只验一次（resetSha 供

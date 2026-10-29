@@ -376,14 +376,15 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
       std::vector<std::uint32_t> neighborhood;
       // K=0（全样本）且井数大时每格 (n+1)^2 矩阵可达数 GB（20000 井 =
       // 3.2GB，bad_alloc 直接打穿任务线程）——按 512MiB 矩阵预算封顶邻域
-      // 数（超预算取最近 K 点；全样本语义在大井数下本就不可行）。
+      // 数（超预算取最近 K 点；全样本语义在大井数下本就不可行）。显式
+      // maxPoints 同闸：UI 旋钮限 4–64，但脚本/批处理参数无上界校验。
       const std::size_t kMatrixBudgetElems = ( 512u << 20 ) / sizeof( double );
       const int kMaxByMatrixBudget = static_cast<int>(
           std::min( std::sqrt( static_cast<double>( kMatrixBudgetElems ) ), 2.0e9 ) );
-      const int k = engine.krigingParams.maxPoints > 0
-                        ? engine.krigingParams.maxPoints
-                        : std::min( static_cast<int>( engine.krigingIndex.size() ),
-                                    kMaxByMatrixBudget );
+      const int k = std::min( engine.krigingParams.maxPoints > 0
+                                  ? engine.krigingParams.maxPoints
+                                  : static_cast<int>( engine.krigingIndex.size() ),
+                              kMaxByMatrixBudget );
       double totalGateEarly = 0.0;
       for ( std::size_t d = 0; d < engine.directions.size(); ++d )
         totalGateEarly += dirGate[d][static_cast<std::size_t>( q )];

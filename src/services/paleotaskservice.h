@@ -1,7 +1,6 @@
 // 层：数据
 #pragma once
 #include <QElapsedTimer>
-#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
@@ -149,7 +148,8 @@ public:
   ~PaleoTaskService() override;
 
   // layerId 非空时在 store busy 注册表挂账（§35 工具门在任务期挡该层）；
-  // 同层位并发任务按引用计数，最后一个终态才 markLayerFree。返回的 task
+  // 同层位并发任务各自登记 task-N 条目，终态各自 releaseLayerBusy 摘除
+  // 自己名下的条目（互不顶替也互不放行，见 onTaskFinished）。返回的 task
   // 属本服务，finished() 信号可接。
   // quiet=true：任务仍注册/可取消，但不拉起任务中心——交互内嵌取数专用。
   PaleoTask *start(const QString &title,
@@ -224,6 +224,5 @@ private:
   PaleoProjectStore *m_store;
   qint64 m_nextId = 1;
   QVector<PaleoTask *> m_tasks;
-  QHash<QString, int> m_layerHolds; // layerId → 在飞任务数（引用计数解锁）
   QThreadPool *m_pool = nullptr; // D4.5 专用 ≤4 工作线程池
 };

@@ -142,6 +142,43 @@ private slots:
     QVERIFY(!store.copyAudit(store.gpkgPath(), "H1", &error, &copied));
     QCOMPARE(store.history("gone"), events);
   }
+
+  // F-07（full-audit-20261028）：审计快照翻页判终不受损坏行干扰——
+  // readHistory 跳过损坏 JSON 行使页变短，「页短即终页」在损坏行落页内时
+  // 静默截断其后全部事件（快照用途是带走删除历史，静默缺失与用途相悖）。
+  void copyAuditSurvivesCorruptedRowsMidPagination() {
+    QTemporaryDir dir; ConstraintStore store(dir.filePath("constraints.gpkg")); QString error;
+    const int total = 205; // 超过 200/页 → 触发游标翻页
+    for (int i = 0; i < total; ++i)
+      QVERIFY2(store.append("H1", QStringLiteral("c%1").arg(i), "POINT(0 0)", "point", 1, &error),
+               qPrintable(error));
+    const QString path = store.gpkgPath();
+    // 损坏 DESC 首页内一行（最高 fid）：该页解析 199 行——旧判终在页短即
+    // break，其后 5 行全丢；新判终继续游标翻页。
+    QVERIFY(execute(path, "UPDATE constraint_audit SET event_json='{bad json' "
+                          "WHERE fid=(SELECT MAX(fid) FROM constraint_audit)"));
+    const auto snapshot = dir.filePath("snapshot-corrupt.gpkg");
+    int copied = -1;
+    QVERIFY2(store.copyAudit(snapshot, "H1", &error, &copied), qPrintable(error));
+    QCOMPARE(copied, total - 1); // 损坏 1 行如实丢弃，其余全数带走
+    // historyForHorizon 单页上限 200 读不回全量——直查快照行数验证完整性
+    //（旧判终只带 199 行：损坏行使首页解析 199 < 200 即 break）。
+    int rows = -1;
+    {
+      auto ds = GDALOpenEx(snapshot.toUtf8().constData(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr);
+      QVERIFY(ds);
+      auto result = GDALDatasetExecuteSQL(ds, "SELECT COUNT(*) AS n FROM constraint_audit", nullptr, "SQLITE");
+      QVERIFY(result);
+      if (auto f = OGR_L_GetNextFeature(result)) {
+        const int idx = OGR_FD_GetFieldIndex(OGR_L_GetLayerDefn(result), "n");
+        rows = int(OGR_F_GetFieldAsInteger64(f, idx));
+        OGR_F_Destroy(f);
+      }
+      GDALDatasetReleaseResultSet(ds, result);
+      GDALClose(ds);
+    }
+    QCOMPARE(rows, total - 1);
+  }
 };
 QTEST_GUILESS_MAIN(TestConstraintEvidence)
 #include "tst_constraintevidence.moc"

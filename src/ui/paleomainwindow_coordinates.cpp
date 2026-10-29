@@ -71,6 +71,9 @@ void PaleoMainWindow::buildCoordinateTools(QLabel *coordLabel)
     auto *canvas = m_canvasCtl->canvas();
     auto *dialog = new PaleoCoordinateToolsDialog(canvas, this);
     dialog->dialog()->setAttribute(Qt::WA_DeleteOnClose);
+    // WA_DeleteOnClose 只删内层 QDialog——QObject 包装是主窗子对象会长期
+    // 存活并带着悬垂的 m_editor/m_dialog；随内层销毁一起回收（预览宿主同款）。
+    connect(dialog->dialog(), &QObject::destroyed, dialog, &QObject::deleteLater);
     paleo::pagesinternal::markPrimaryButton(dialog->convertButton());
     dialog->editor()->xEdit()->setFont(PaleoTheme::monoFont());
     dialog->editor()->yEdit()->setFont(PaleoTheme::monoFont());
@@ -84,11 +87,23 @@ void PaleoMainWindow::buildCoordinateTools(QLabel *coordLabel)
     });
     connect(dialog->editor(), &PaleoCoordinateEditor::mapPickRequested, this,
             [this, canvas, dialog](PaleoCoordinateEditor *editor) {
-              if (m_sitingPickTool) m_sitingPickTool->deleteLater();
+              // 顶替旧工具前补发 cancelled：另一个入口（布井辅助地图布点）
+              // 共用 m_sitingPickTool，只 deleteLater 不发取消会把本对话框的
+              // restore 回调孤儿化——对话框永久隐藏且无提示。仅对仍挂在画布
+              // 上的旧工具补发（已完成的 native 已自清，再发会把早已关闭的
+              // 对话框重新拉起）。
+              if (m_sitingPickTool) {
+                if (m_sitingPickTool->isActiveOnCanvas())
+                  emit m_sitingPickTool->cancelled();
+                m_sitingPickTool->deleteLater();
+              }
               auto *tool = new PaleoCoordinateMapTool(canvas);
               m_sitingPickTool = tool;
               const auto restore = [guard = QPointer<PaleoCoordinateToolsDialog>(dialog)] {
-                if (guard) guard->dialog()->open();
+                // dialog() 判空：内层已毁、包装待删的窗口内保持结构安全
+                //（R2-D3 硬化——把正确性从时序论证变成显式守卫）。
+                if (guard && guard->dialog())
+                  guard->dialog()->open();
               };
               connect(tool, &PaleoCoordinateMapTool::pointPicked, dialog,
                       [editor, restore](const auto &point) {

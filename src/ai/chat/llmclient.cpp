@@ -207,6 +207,10 @@ void LlmStreamParser::feed(const QByteArray &chunk, QStringList *deltas,
       if (!line.startsWith("data:")) {
         continue; // event:/id:/retry: 等字段：本方向不使用，忽略而非报错
       }
+      // W3C SSE：同事件多条 data 行以 \n 连接成载荷——直接 += 会把规范
+      // 后端合法拆行的 JSON 拼坏（Malformed 整轮失败）。
+      if (!payload.isEmpty())
+        payload += QLatin1Char('\n');
       payload += QString::fromUtf8(line.mid(5).trimmed());
     }
     if (payload.trimmed() == QLatin1String("[DONE]")) {

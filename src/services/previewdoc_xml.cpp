@@ -15,6 +15,7 @@ PreviewDocService::WorkbookPreview PreviewDocService::xmlDataListAt(const QStrin
       reader.namespaceUri() == QLatin1String("urn:schemas-microsoft-com:office:spreadsheet")) {
     file.seek(0);
     QVector<int> rowCounts;
+    bool sheetCapped = false; // 64 表软上限后的整段跳过开关
     // 与通用 XML 分支同款单格口径（left(4096)）：格数预算不约束单格文本
     // 长度，恶意工作簿可用少数巨格把预览结构撑到 GB 级且驻留 GUI 线程。
     const auto cappedCells = [](const QStringList &cells) {
@@ -27,17 +28,25 @@ PreviewDocService::WorkbookPreview PreviewDocService::xmlDataListAt(const QStrin
     const auto workbook = paleo::io::streamSpreadsheetMlWorkbook(&file, path,
         [&](const QString &name, const QStringList &headers, const QStringList &row, int, bool isHeader) {
           if (isHeader) {
-            if (result.sheets.size() >= 64)
-              return false; // sheet 数预算（同族：通用分支 512 层 / 1000 行）
+            // sheet 数软上限（同族：通用分支 512 层 / 1000 行）——预算到顶后
+            // 跳过后续表头与数据行并 issues 留痕；visitor 返回 false 会被
+            // io 层当「调用方拒绝」整预览硬失败且错误文案是内部实现语。
+            if (result.sheets.size() >= 64) {
+              sheetCapped = true;
+              return true;
+            }
             WorkbookSheetPreview sheet; sheet.name = name; sheet.headers = cappedCells(headers);
             result.sheets.append(sheet); rowCounts.append(0);
           } else if (!result.sheets.isEmpty()) {
+            if (sheetCapped)
+              return true; // 超限表的数据行不落格——否则会归到第 64 张表的行里
             if (++rowCounts.last() <= 1000) result.sheets.last().rows.append(cappedCells(row));
           }
           return true;
         });
     result.ok = workbook.ok; result.error = workbook.error; result.format = workbook.format;
     result.issues = workbook.issues;
+    if (sheetCapped) result.issues << tr("工作簿超过 64 张工作表，仅预览前 64 张");
     if (!result.ok) { result.sheets.clear(); return result; }
     for (int i = 0; i < rowCounts.size(); ++i)
       if (rowCounts[i] > 1000) result.issues << tr("工作表「%1」仅预览前 1000 行").arg(result.sheets[i].name);

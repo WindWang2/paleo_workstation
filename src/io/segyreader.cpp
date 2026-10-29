@@ -1675,6 +1675,7 @@ bool SegyReader::freezeCornersFromFile(QFile &file, bool fromCdpXY)
   return true;
 }
 
+
 // ---- PW-070/071/125：共用道 ns 判定 / 字节序 / 样点格式 ----
 SegyReader::TraceNsInfo SegyReader::classifyTraceNs(quint16 rawTraceNs, int binNs)
 {

@@ -25,7 +25,11 @@ public:
       m_verificationCancelled->store(true);
   }
   void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
-  void open(const QString &path, const QString &expectedSha = QString());
+  void open(const QString &path, const QString &expectedSha = QString(),
+            const QString &modelProject = QString(), qlonglong modelSource = 0,
+            qlonglong modelWell = 0);
+  // 只按数据基座井号读取井道图，不读源文件。在任务池里跑，不占用界面线程。
+  void openModelWell(const QString &modelProject, qlonglong modelWell, const QString &wellName);
 signals:
   void ready(const XmlPreviewData &data);
 private:

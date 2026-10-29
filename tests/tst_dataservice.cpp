@@ -2,7 +2,10 @@
 #include <QTemporaryDir>
 #include <QSqlDatabase>
 #include <QSqlError>
+#include <QSqlQuery>
+#include <QDir>
 #include <QFile>
+#include <QtEndian>
 #include <paleo_data/service.h>
 #include <paleo_data/catalog.h>
 #include "../src/catalog/datacatalog.h"
@@ -89,6 +92,7 @@ private slots:
     QVERIFY2(parsed.status != "failed", parsed.message.c_str());
     QVERIFY(QString::fromUtf8(parsed.documentText).contains("service bridge"));
   }
+
 };
 QTEST_GUILESS_MAIN(TestDataService)
 #include "tst_dataservice.moc"

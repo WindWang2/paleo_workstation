@@ -14,7 +14,9 @@
 class DataImportService;
 class PaleoTaskService;
 class DataCatalog;
+class QHBoxLayout;
 class QLabel;
+class QgsRectangle;
 class QTabWidget;
 class QVBoxLayout;
 struct CatalogAsset;
@@ -83,6 +85,8 @@ class DataPreviewTabs : public QWidget
     // 打开指定资产并选定特定井（如 DC.dat 多井分层表或井口表预选该井）
     void refreshAssetAssociations(const QString &assetId);
     void openAssetForWell(const QString &assetId, const QString &wellId);
+    // 数据列表双击数据基座中的井：异步读取该井井道图，不解析源文件。
+    void openModelWell(qlonglong modelWellId, const QString &wellName);
 
     // 验证页「在数据页看这条剖面」（预览壳重排 §4）：打开/聚焦地震资产
     // 标签并把测线控件（lineMode/lineSpin）拨到 kind+line——控件自己的
@@ -184,6 +188,10 @@ class DataPreviewTabs : public QWidget
                                  const QVector<EntityAssetLink> &links,
                                  QWidget *host, QVBoxLayout *lay);
     QWidget *buildSurveyAreaContent(QWidget *page);
+    // 测区全景底部「地震时间剖面」预览条（datapreviewtabs_survey.cpp）：顶部
+    // 工具条挂开关，数据服务沿测区长轴读一条测线；无地震体时保持空态。
+    QWidget *buildTimeSectionStrip(QWidget *page, QHBoxLayout *topBarLay, const CatalogEntity &survey);
+    QgsRectangle loadSurveyWells(class QgsVectorLayer *wellsVl); // 井位灌层 + 并集范围
     QWidget *attachOnlineBasemap(QWidget *content); // #14 井位类页 GIS 底图挂载（datapreviewtabs_basemap.cpp）
     void rebuildAssetTab(const QString &assetId); // 重试或切换版本后重建内容
     // buildContent 在途时收到的重建请求（服务层转换失败信号在 ensure* 内

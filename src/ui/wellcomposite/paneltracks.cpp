@@ -414,6 +414,11 @@ void WellCompositePanel::applySpecsIncrementally(const QList<TrackSpec> &specs)
     reordered << match;
   }
   // 新数据中的曲线保留默认可见性；已由旧配置恢复的曲线不再重复附加。
+  // 旧会话没有三级层序/四级层序时，把这两道插回地层道右侧，避免被挤到图外。
+  int cycleInsert = 0;
+  for (int i = 0; i < reordered.size(); ++i)
+    if (reordered.at(i) && reordered.at(i)->type() == TrackType::Formation)
+      cycleInsert = i + 1;
   for (const auto &track : m_canvas->tracks())
   {
     if (!track || reordered.contains(track)) continue;
@@ -426,7 +431,9 @@ void WellCompositePanel::applySpecsIncrementally(const QList<TrackSpec> &specs)
       if (remaining.isEmpty()) continue;
       curve->setCurves(remaining);
     }
-    reordered << track;
+    const bool cycle = track->type() == TrackType::Symbol && track->title().contains(QStringLiteral("层序"));
+    if (cycle) { reordered.insert(cycleInsert, track); ++cycleInsert; }
+    else reordered << track;
   }
   m_canvas->setTracks(reordered);
   m_canvas->syncScrollBars();

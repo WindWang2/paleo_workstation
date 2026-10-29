@@ -199,6 +199,8 @@ class DataListPanel : public QWidget
     void topsEditRequested(const QString &assetId);
     // 树节点关联井选中 → 预览打开并定位到该井
     void assetWellActivated(const QString &assetId, const QString &wellId);
+    // 数据基座中的井：双击直接打开该井的井道图，不打开源文件。
+    void modelWellChartRequested(qlonglong modelWellId, const QString &wellName);
     void seismicLineActivated(const QString &assetId, const QString &mode);
     void wellSelected(const QString &wellId); // 树中选中井 → 地图高亮
     void projectDashboardActivated();
@@ -229,6 +231,7 @@ class DataListPanel : public QWidget
     // 方向34：计划井可见性过滤器（setPlannedVisibilityFilter 注入，可空）。
     std::function<bool(const QString &id)> m_plannedVisible;
     void buildImportButtons(QVBoxLayout *importLay, QWidget *importSection);
+    void buildImportMaintenanceButtons(QVBoxLayout *importLay, QWidget *importSection);
     void buildDataOpsUi();          // P3 增量 UI（过滤条/队列/视图页）
     void refreshAssetTree();
     // ---- 方向 92：树蓝图 + 增量通道（定义与实现见 datalist_tree.cpp）----
@@ -242,6 +245,8 @@ class DataListPanel : public QWidget
     // 双闸；定义在 datalist_navspec_internal.h，保持 tr() 上下文不变）。
     void appendHorizonNavBranch(NavNodeSpec &seismicRoot,
                                 const QList<CatalogAsset> &horAssets) const;
+    // 工区模型里已有井或地震时，测井/地震两支改读数据基座，不再用目录分类。
+    bool appendAreaModelWellSeismic(QVector<NavNodeSpec> &tops) const;
     // 辅助资料分支（参考相图/参考资料；实现在 datalist_auxnav.cpp）。
     NavNodeSpec buildAuxiliaryNavSpec(const QList<CatalogAsset> &auxAssets) const;
     void renderNavChildren(QTreeWidgetItem *parent, const QVector<NavNodeSpec> &specs);

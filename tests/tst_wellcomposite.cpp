@@ -1,3 +1,14 @@
+#include <paleo_data/service.h>
+#include "io/areamodel.h"
+#include "services/previewdoc.h"
+#include "io/dataimportservice.h"
+#include "catalog/areawellprojection.h"
+#include "catalog/areasourceprojection.h"
+#include "ui/datapreview/datapreviewtabs.h"
+#include "metadata/paleoprojectstore.h"
+#include <QPushButton>
+#include <QLabel>
+#include <QTemporaryDir>
 #include <QSignalSpy>
 #include <QTest>
 #include <QPainter>
@@ -688,6 +699,40 @@ private slots:
     p.end();
     QVERIFY(!img.isNull());
   }
+  void modelWellChartWorksWithoutExternalFile()
+{
+  QTemporaryDir tmp;const QString project=tmp.filePath("project");
+  QVERIFY(QDir().mkpath(project));
+  const QString input=tmp.filePath("input");QVERIFY(QDir().mkpath(input));
+  const QString path=input+"/source.las";QFile file(path);QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write("~Version\nVERS. 2.0\n~Well\nWELL. SYNTH-1\n~Curve\nMD.M\nGR.API\n~Ascii\n100 10\n101 20\n");file.close();
+  QString error;paleo::data::ImportReport report;
+  QVERIFY2(paleo::area_model::importDirectoryWithCrs(project,input,report,&error,{}, {}, {},"EPSG:32649","m"),qPrintable(error));
+  paleo::data::DataService reader;std::string detail;
+  QVERIFY(reader.openProjectReadOnly(paleo::area_model::directory(project).toStdString(),detail));
+  std::vector<paleo::data::SourceEntry> sources;QVERIFY(reader.listSources(sources,detail));QCOMPARE(sources.size(),size_t(1));reader.closeProject();
+  QVERIFY(QFile::remove(path));
+  WellComposite::ComprehensiveWellData data;bool ready=false;
+  QVERIFY(PreviewDocService::areaPreviewSource(project,sources.front().id,nullptr,&data,&ready,&error));QVERIFY2(ready,qPrintable(error));
+  WellComposite::WellCompositePanel panel;
+  QVERIFY(panel.loadWellData(data,path));
+  QCOMPARE(panel.currentData().continuousCurves.size(),1);
+  QCOMPARE(panel.currentData().continuousCurves.front().values.front(),10.f);
+  QCOMPARE(panel.currentData().projectCoordinateSystem,QString("EPSG:32649"));
+  QCOMPARE(panel.canvas()->minDepth(),100.0);QCOMPARE(panel.canvas()->maxDepth(),101.0);
+  PaleoProjectStore store;DataImportService importer(&store);importer.setProjectDir(project);
+  auto *catalog=importer.catalog();QVERIFY(registerAreaWells(*catalog,&error));QVERIFY(registerAreaSources(*catalog,&error));
+  QCOMPARE(catalog->assets().size(),1);
+  DataPreviewTabs preview;preview.setImportService(&importer);preview.openAsset(catalog->assets().front().id);
+  auto *rendered=preview.findChild<WellComposite::WellCompositePanel *>("wellCompositePanel");QVERIFY(rendered);
+  QTRY_COMPARE_WITH_TIMEOUT(rendered->currentData().continuousCurves.size(),1,10000);
+  QCOMPARE(rendered->currentData().continuousCurves.front().values.front(),10.f);
+  QCOMPARE(rendered->currentData().projectCoordinateSystem,QString("EPSG:32649"));
+  const auto *hint=preview.findChild<QLabel *>("xmlPendingHint");QVERIFY(hint);
+  QVERIFY(hint->text().contains("EPSG:32649"));QVERIFY(!hint->isHidden());
+  QVERIFY(!preview.findChild<QPushButton *>("relocateBtn"));
+}
+
 };
 
 int main(int argc, char *argv[])

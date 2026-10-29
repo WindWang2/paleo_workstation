@@ -6,6 +6,11 @@
 适用范围：Paleo Workbench C++ 主程序 / QGIS Vendor 集成层
 核心原则：QGIS 负责 GIS，Paleo Workbench 负责地质业务。
 
+2026-10-29 井道图补充：当前工区 RAW 测井预览按模型来源与井 ID 读取跨文件资料，
+井口坐标、井源 CRS／单位与工程目标 CRS／单位均由 Data_service 提供。原始数值
+文件离线仍可绘图；未知深度约定不混入 MD 米主轴。详见
+[井道图接入记录](progress/welltracks-data-model-20261029.md)。
+
 2026-10-29 导入写入与坐标补充：原始单元格及业务点行按 256 行批量插入；工程级
 EPSG 与单位持久化到 Data_service。新建工程使用专用 QWizard 收集目录、坐标和并行
 设置，补充资料保留原向导。

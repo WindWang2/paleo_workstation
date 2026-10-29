@@ -758,17 +758,19 @@ void TestPreviewMapAssets::surveyPageUsesFramework()
       st->preview->findChild<PaleoDecorationManager *>(QStringLiteral("surveyAreaDecorManager"));
   QVERIFY(decorMgr);
   QVERIFY(st->preview->findChild<QLabel *>(QStringLiteral("surveyAreaExtentLabel")));
-  QVERIFY(st->preview->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand")));
+  // 工区范围带（surveyAreaRubberBand/btnToggleSurveyBoundary）已按用户要求撤下。
+  QVERIFY(!st->preview->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand")));
   for (const char *n : {"btnSurveyFullExtent", "btnSurveyZoomIn", "btnSurveyZoomOut",
-                        "btnSurveyPan", "btnToggleSurveyBoundary", "btnToggleScaleBar",
+                        "btnSurveyPan", "btnToggleScaleBar",
                         "btnToggleNorthArrow", "btnToggleGrid", "btnSwitchToMainCanvas"})
     QVERIFY2(st->preview->findChild<QToolButton *>(QString::fromUtf8(n)), n);
+  QVERIFY(!st->preview->findChild<QToolButton *>(QStringLiteral("btnToggleSurveyBoundary")));
 }
 
-// 测区页快照不自愈回归——页内容在建页时刻一次性快照 catalog 井位/工区范围与
+// 测区页快照不自愈回归——页内容在建页时刻一次性快照 catalog 井位与
 // 工程底图克隆；测区节点在树里常驻、双击随时可激活（无工程门），早于数据就
-// 绪落成后旧重开路径只回灌井位，工区范围与底图永不合愈（截图：0 井 +
-// 10×10 默认范围 + 无底图）。激活必须按现状整体重建。
+// 绪落成后旧重开路径只回灌井位，底图永不合愈（截图：0 井 + 无底图）。
+// 激活必须按现状整体重建。
 void TestPreviewMapAssets::surveyPageHealsAfterDataReady()
 {
   QTemporaryDir tmp;
@@ -776,16 +778,13 @@ void TestPreviewMapAssets::surveyPageHealsAfterDataReady()
   QVERIFY(st);
   st->preview->setProject(st->projectSvc.project());
 
-  // catalog 已开但为空时落成降级页：0 井 + 10×10 默认工区范围。
+  // catalog 已开但为空时落成降级页：0 井 + 默认 10×10 取景幅面。
   st->preview->openSurveyArea();
   auto *vl = st->preview->findChild<QgsVectorLayer *>(QStringLiteral("surveyWellsLayer"));
   QVERIFY(vl);
   QCOMPARE(vl->featureCount(), 0);
-  auto *band = st->preview->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand"));
-  QVERIFY(band);
-  QVERIFY(band->asGeometry().boundingBox() == QgsRectangle(0, 0, 10000, 10000));
 
-  // 数据落地后重激活——井位/范围全部按当前 catalog 重建，不留降级残影。
+  // 数据落地后重激活——井位按当前 catalog 重建，不留降级残影。
   const Imported ids = importAll(*st, tmp);
   QVERIFY(!ids.wellHead.isEmpty());
   st->preview->openSurveyArea();
@@ -793,10 +792,6 @@ void TestPreviewMapAssets::surveyPageHealsAfterDataReady()
   auto *vl2 = st->preview->findChild<QgsVectorLayer *>(QStringLiteral("surveyWellsLayer"));
   QVERIFY(vl2);
   QCOMPARE(vl2->featureCount(), 20); // ExportWellHead.dat 全 20 井带坐标
-  auto *band2 = st->preview->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand"));
-  QVERIFY(band2);
-  // mini_seismic 角点全 (0,0) 退化 → 取界应续接到线号范围，而非 10×10 默认。
-  QCOMPARE(band2->asGeometry().boundingBox(), QgsRectangle(1000, 2000, 1002, 2003));
 }
 
 // 工程落地自愈：无工程时双击测区节点落成空页（m_project 缺席——底图块与
@@ -824,9 +819,6 @@ void TestPreviewMapAssets::surveyPageHealsWhenProjectLands()
   };
   QTRY_COMPARE(wellsCount(), 20);
   QVERIFY(st->preview->findChild<QLabel *>(QStringLiteral("surveyBasemapAttribution")));
-  auto *band = st->preview->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand"));
-  QVERIFY(band);
-  QCOMPARE(band->asGeometry().boundingBox(), QgsRectangle(1000, 2000, 1002, 2003));
 }
 
 // 在线 XYZ 底图：工程坐标系禁用并提示；真实坐标系下切换街道/卫星/地形，

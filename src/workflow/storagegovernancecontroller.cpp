@@ -207,7 +207,7 @@ void StorageGovernanceController::verifySha() {
               promise.setProgressValueAndText(n, path);
               return !promise.isCanceled();
             },
-            [&promise] { return promise.isCanceled(); }));
+            [&promise] { return promise.isCanceled(); }, source.projectDir));
       });
   paleo::tasks::track(m_tasks, watcher, future, tr("SHA-256 完整性校验"));
   m_work = future; watcher->setFuture(future);

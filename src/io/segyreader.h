@@ -78,6 +78,7 @@ class SegyReader
     bool openCached(const QString &path, const QString &indexCacheDir,
                     QString *error = nullptr, const SegyOptions *opts = nullptr);
 
+
     int traceCount() const { return static_cast<int>(m_index.size()); }
     int samplesPerTrace() const { return m_samplesPerTrace; }
     float sampleIntervalUs() const { return m_sampleIntervalUs; }

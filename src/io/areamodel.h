@@ -10,6 +10,7 @@ class DataCatalog;
 namespace paleo::area_model {
 bool ensureProject(const QString &project, QString *error);
 QString directory(const QString &project);
+QString confirmedProjectCrs(const QString &project);
 bool importDirectory(const QString &project, const QString &source,
                      paleo::data::ImportReport &report, QString *error,
                      const std::function<bool()> &cancelled = {}, const QStringList &excluded = {},

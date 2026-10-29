@@ -3,6 +3,15 @@
 #include "datalist.h"
 
 #include "../../catalog/datacatalog.h"
+#include <QTreeWidgetItem>
+
+inline int countItemNodes(const QTreeWidgetItem *item)
+{
+  int count = 1;
+  for (int i = 0; i < item->childCount(); ++i)
+    count += countItemNodes(item->child(i));
+  return count;
+}
 
 struct DataListPanel::NavNodeSpec
 {

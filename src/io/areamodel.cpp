@@ -2,6 +2,7 @@
 #include "areamodel.h"
 #include "../catalog/datacatalog.h"
 #include <paleo_data/service.h>
+#include "projectcoordinates.h"
 #include <QDir>
 #include <QDateTime>
 #include <QFileInfo>
@@ -59,6 +60,15 @@ bool indexedSource(const QString &root, const QString &wanted, long long &id, QS
 }
 }
 QString directory(const QString &project) { return QDir(project).filePath("artifacts/metadata/area-model"); }
+QString confirmedProjectCrs(const QString &project) {
+  if (!QFileInfo::exists(directory(project) + QStringLiteral("/data.sqlite"))) return {};
+  paleo::data::DataService service; std::string detail;
+  if (!service.openProject(directory(project).toUtf8().toStdString(), detail)) return {};
+  paleo::data::ProjectCrsInfo info;
+  if (!service.readProjectCrsInfo(info, detail) || info.hasConflict || info.coordinateUnit != "m") return {};
+  const auto crs = QString::fromUtf8(info.coordinateSystem);
+  return paleo::io::isMetricProjectCrs(crs) ? crs : QString();
+}
 bool ensureProject(const QString &project, QString *error) {
   paleo::data::DataService service; std::string detail;
   const auto root = directory(project).toUtf8().toStdString();
@@ -93,12 +103,15 @@ bool importDirectoryWithCrs(const QString &project, const QString &source,
   options.copySources = false;
   bool configured = false;
   const int threads = qEnvironmentVariableIntValue("PALEO_IMPORT_PARSER_THREADS", &configured);
-  options.parserThreads = std::clamp(configured ? threads : 4, 1, 4);
+  // Parallel parse workers have been aborting the process while publishing one
+  // file's result (fast-fail while freeing a parse note). Keep import serial
+  // until that result can be published safely.
+  options.parserThreads = std::clamp(configured ? threads : 1, 1, 1);
   const int pendingMb = qEnvironmentVariableIntValue("PALEO_IMPORT_PENDING_MB", &configured);
   options.maxPendingBytes = qint64(std::clamp(configured ? pendingMb : 256, 8, 1024)) * 1024 * 1024;
   options.parsing.comprehensiveWellMetreDepth = true;
-  options.parsing.coordinateSystem = crs.toUtf8().toStdString();
-  options.parsing.coordinateUnit = crsUnit.toUtf8().toStdString();
+  // A computation target is not a declaration of every input's source CRS.
+  // Data_service collects explicit source declarations during parsing.
   if (!crs.isEmpty() && !service.setProjectCrs(crs.toUtf8().toStdString(), crsUnit.toUtf8().toStdString(), detail)) {
     if (error) *error = QString::fromUtf8(detail);
     return false;

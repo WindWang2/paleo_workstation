@@ -43,6 +43,7 @@ struct ProjectWell
   double surfaceY = 0.0;
   double kb = 0.0;            // 补心海拔 m（海平面以上为正；缺数据 = 0）
   QString coordinateStatus;   // ok | untransformed | invalid | missing
+  QString coordinateSystem, coordinateUnit; // Source coordinates, never inferred from project CRS.
 };
 
 // 图片道数据锚（core/lab_analysis 角色井附件图片）：深度锚来自导入侧

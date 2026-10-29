@@ -217,7 +217,8 @@ PaleoTaskService::PaleoTaskService(PaleoProjectStore *store, QObject *parent)
   // D4.5：专用池 ≤4 工作线程——不占 globalInstance 默认（UI 侧仍有自己的
   // 池面），也不被 seismic 任务服务（P5 领地）牵连。
   m_pool = new QThreadPool(); // 无父：析构策略见 ~PaleoTaskService
-  m_pool->setMaxThreadCount(4);
+  // 井道图等数据基座读取各开自己的只读连接，可并行；上限与 setMaxWorkerThreads 一致。
+  m_pool->setMaxThreadCount(qBound(4, QThread::idealThreadCount(), 8));
   m_pool->setExpiryTimeout(30 * 1000);
 }
 

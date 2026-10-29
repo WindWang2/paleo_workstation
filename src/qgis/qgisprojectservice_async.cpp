@@ -12,6 +12,7 @@
 #include <QThread>
 #include <QtConcurrent>
 #include <atomic>
+#include <cmath>
 #include <qgslayoutmanager.h>
 #include <qgslayertree.h>
 #include <qgsauxiliarystorage.h>
@@ -307,6 +308,26 @@ void QgisProjectService::adoptBackgroundOpen(const std::shared_ptr<ProjectLoadSt
     m_project->elevationProfileManager()->resolveReferences(m_project);
     m_project->elevationProperties()->resolveReferences(m_project);
     m_project->gpsSettings()->resolveReferences(m_project);
+    // 空工程会把地图范围写成 double 上限。按这个范围恢复视图时，画布和底图变换会停在 92%。
+    const auto extents = state->document.elementsByTagName(QStringLiteral("extent"));
+    for (int i = 0; i < extents.count(); ++i) {
+      auto extent = extents.at(i).toElement();
+      bool absurd = false;
+      for (const char *tag : {"xmin", "ymin", "xmax", "ymax"}) {
+        bool ok = false;
+        const double value = extent.firstChildElement(QString::fromLatin1(tag)).text().toDouble(&ok);
+        if (!ok || !std::isfinite(value) || std::abs(value) > 1e8) absurd = true;
+      }
+      if (!absurd) continue;
+      const QMap<QString, double> replacement{{QStringLiteral("xmin"), 0}, {QStringLiteral("ymin"), 0},
+                                              {QStringLiteral("xmax"), 1000}, {QStringLiteral("ymax"), 1000}};
+      for (auto it = replacement.cbegin(); it != replacement.cend(); ++it) {
+        auto node = extent.firstChildElement(it.key());
+        if (node.isNull()) continue;
+        auto text = node.firstChild().toText();
+        if (!text.isNull()) text.setData(QString::number(it.value()));
+      }
+    }
     emit openProgress(92, tr("恢复打印布局与工程设置"));
     if (generation != m_openGeneration || state->cancelled.load()) return;
     if (!m_project->layoutManager()->readXml(state->document.documentElement(), state->document))
@@ -329,9 +350,10 @@ void QgisProjectService::adoptBackgroundOpen(const std::shared_ptr<ProjectLoadSt
       m_project->writeEntry("paleo", "georeference", QString::fromUtf8(
           QJsonDocument(paleoGeoreferenceToJson(*m_georeference)).toJson(QJsonDocument::Compact)));
     else m_project->removeEntry("paleo", "georeference");
-    applyMapConfiguration();
     // 清单收养在主线程/锁决策之后。
     const QString dir = QFileInfo(state->path).absolutePath();
+    adoptConfirmedGeoreference(dir);
+    applyMapConfiguration();
     if (!QFile::exists(paleoProjectFilePath(dir))) {
       auto adopted = projectFileForQgz(state->path);
       adopted.georeference = m_georeference;

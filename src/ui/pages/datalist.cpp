@@ -84,25 +84,7 @@ DataListPanel::DataListPanel(QWidget *parent)
 
   importLay->addWidget(caption(tr("数据导入"), importSection));
   buildImportButtons(importLay, importSection);
-  // 方向 30：导入台账 + 工区体检（维护面，随导入区安放）。
-  auto *ledgerBtn = new QPushButton(tr("导入台账"), importSection);
-  ledgerBtn->setObjectName(QStringLiteral("importLedgerButton"));
-  ledgerBtn->setToolTip(tr("查看最近导入批次的行级结局（入库/未决/失败/跳过）"));
-  ledgerBtn->setAccessibleName(tr("导入台账"));
-  connect(ledgerBtn, &QPushButton::clicked, this, &DataListPanel::showImportLedger);
-  importLay->addWidget(ledgerBtn);
-  auto *healthBtn = new QPushButton(tr("工区体检"), importSection);
-  healthBtn->setObjectName(QStringLiteral("healthCheckButton"));
-  healthBtn->setToolTip(tr("检查缺失文件 / SHA 失配 / 未决链接 / 孤立实体等"));
-  healthBtn->setAccessibleName(tr("工区体检"));
-  connect(healthBtn, &QPushButton::clicked, this, &DataListPanel::showHealthCheck);
-  auto *storage = new QPushButton(tr("存储治理台"), importSection);
-  storage->setObjectName(QStringLiteral("storageGovernanceButton"));
-  storage->setAccessibleName(storage->text());
-  storage->setToolTip(tr("汇总体积、扫描未引用文件、预览回收过时版本"));
-  connect(storage, &QPushButton::clicked, this, &DataListPanel::showStorageGovernance);
-  importLay->addWidget(storage);
-  importLay->addWidget(healthBtn);
+  buildImportMaintenanceButtons(importLay, importSection);
   lay->addWidget(importSection);
 
   // 列表面表头：标题 + 折叠/展开 + 视图切换
@@ -400,6 +382,13 @@ DataListPanel::DataListPanel(QWidget *parent)
     }
     if (nodeType == QLatin1String("well"))
     {
+      const qlonglong modelWell = item->data(0, Qt::UserRole + 4).toLongLong();
+      if (modelWell > 0)
+      {
+        item->setExpanded(true);
+        emit modelWellChartRequested(modelWell, item->text(0));
+        return;
+      }
       item->setExpanded(!item->isExpanded());
       // 双击或Enter激活井节点：打开第一条关联资产（如 A1.Las 测井曲线或井位）
       for (int i = 0; i < item->childCount(); ++i)

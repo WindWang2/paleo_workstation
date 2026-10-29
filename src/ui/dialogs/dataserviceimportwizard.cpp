@@ -59,12 +59,13 @@ QWizardPage *DataServiceImportWizard::settingsPage()
 {
   auto *page = new QWizardPage(this);
   page->setTitle(tr("坐标与导入设置"));
-  page->setSubTitle(tr("EPSG 与单位写入工程数据底座；坐标语义未确认时仍保留待核对。"));
+  page->setSubTitle(tr("默认从资料声明识别坐标系；也可指定米制投影作为工程计算基准，资料原有坐标系会保留。"));
   auto *form = new QFormLayout(page);
-  m_crs = new PaleoCrsSelector(false, page); m_crs->setObjectName(QStringLiteral("dataServiceCrsEdit"));
-  m_crs->setNotSetText(tr("请选择 EPSG 坐标系"));
+  m_crs = new PaleoCrsSelector(true, page); m_crs->setObjectName(QStringLiteral("dataServiceCrsEdit"));
+  m_crs->setNotSetText(tr("从资料自动识别"));
   m_crsUnit = new QComboBox(page); m_crsUnit->setObjectName(QStringLiteral("dataServiceCrsUnitCombo"));
-  m_crsUnit->addItems({QStringLiteral("m"), QStringLiteral("deg"), QStringLiteral("ft")});
+  m_crsUnit->addItem(QStringLiteral("m")); m_crsUnit->setPlaceholderText(tr("未设置"));
+  m_crsUnit->setEnabled(false);
   form->addRow(tr("工程坐标系"), m_crs->widget()); form->addRow(tr("坐标单位"), m_crsUnit);
   m_threads = new QComboBox(page); m_threads->setObjectName(QStringLiteral("dataServiceThreadsCombo"));
   m_threads->addItem(QStringLiteral("1"), 1); m_threads->addItem(QStringLiteral("2"), 2); m_threads->addItem(QStringLiteral("4"), 4);
@@ -78,12 +79,18 @@ QWizardPage *DataServiceImportWizard::settingsPage()
   m_xField = new QLineEdit(page); m_xField->setObjectName(QStringLiteral("dataServiceXColumnEdit"));
   m_yField = new QLineEdit(page); m_yField->setObjectName(QStringLiteral("dataServiceYColumnEdit"));
   form->addRow(tr("井名列"), m_wellField); form->addRow(tr("X 列"), m_xField); form->addRow(tr("Y 列"), m_yField);
+  m_coordinateStatus = new QLabel(page); m_coordinateStatus->setObjectName(QStringLiteral("dataServiceCoordinateStatus"));
+  m_coordinateStatus->setWordWrap(true); form->addRow(m_coordinateStatus);
   connect(m_crs, &PaleoCrsSelector::definitionChanged, this, [this](const QString &) {
-    m_crsUnit->setCurrentText(m_crs->crs().isGeographic() ? QStringLiteral("deg") : QStringLiteral("m"));
+    const auto crs = m_crs->crs();
+    m_crsUnit->setCurrentIndex(crs.isValid() && !crs.isGeographic() && crs.mapUnits() == Qgis::DistanceUnit::Meters ? 0 : -1);
+    m_coordinateStatus->clear();
     refreshReview();
   });
   connect(m_threads, &QComboBox::currentTextChanged, this, &DataServiceImportWizard::refreshReview);
   connect(m_pending, &QComboBox::currentTextChanged, this, &DataServiceImportWizard::refreshReview);
+  m_crs->clear();
+  m_crsUnit->setCurrentIndex(-1);
   return page;
 }
 
@@ -95,7 +102,9 @@ QWizardPage *DataServiceImportWizard::reviewPage()
   auto *layout = new QVBoxLayout(page);
   m_review = new QLabel(page); m_review->setObjectName(QStringLiteral("dataServiceReview"));
   m_review->setWordWrap(true); m_review->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-  layout->addWidget(m_review); layout->addStretch(1);
+  m_reviewStatus = new QLabel(page); m_reviewStatus->setObjectName(QStringLiteral("dataServiceCreationStatus"));
+  m_reviewStatus->setWordWrap(true);
+  layout->addWidget(m_review); layout->addWidget(m_reviewStatus); layout->addStretch(1);
   return page;
 }
 
@@ -122,7 +131,8 @@ ProjectSetupSources DataServiceImportWizard::sources() const
   result.pointMapping.insert("well", m_wellField->text().trimmed());
   result.pointMapping.insert("x", m_xField->text().trimmed());
   result.pointMapping.insert("y", m_yField->text().trimmed());
-  result.pointMapping.insert("crs", result.projectCrs); result.pointMapping.insert("unit", m_crsUnit->currentText());
+  result.pointMapping.insert("crs", result.projectCrs);
+  result.pointMapping.insert("unit", result.projectCrs.isEmpty() ? QString() : m_crsUnit->currentText());
   return result;
 }
 
@@ -145,30 +155,60 @@ void DataServiceImportWizard::setSourceRoot(const QString &root) { m_root->setTe
 
 void DataServiceImportWizard::showCreationError(const QString &error)
 {
-  setCurrentId(0); m_status->setText(error);
+  showPageError(2, error);
+}
+
+void DataServiceImportWizard::showPageError(int page, const QString &error)
+{
+  m_status->clear(); m_coordinateStatus->clear(); m_reviewStatus->clear();
+  setCurrentId(page);
+  (page == 0 ? m_status : page == 1 ? m_coordinateStatus : m_reviewStatus)->setText(error);
 }
 
 void DataServiceImportWizard::refreshReview()
 {
   if (!m_review) return;
   m_review->setText(tr("工程：%1\n资料目录：%2\n坐标系：%3 [%4]\n解析线程：%5；内存预算：%6 MiB\n\n原始文件只引用、不复制；模型导入完成后直接生成索引。")
-      .arg(m_name->text().trimmed(), m_root->text().trimmed(), m_crs->text().trimmed(),
-           m_crsUnit->currentText(), m_threads->currentText(), m_pending->currentText()));
+      .arg(m_name->text().trimmed(), m_root->text().trimmed(),
+           m_crs->text().trimmed().isEmpty() ? tr("从资料声明自动识别（未声明则保留未知）") : m_crs->text().trimmed(),
+           m_crs->text().trimmed().isEmpty() ? tr("未设置") : m_crsUnit->currentText(),
+           m_threads->currentText(), m_pending->currentText()));
+}
+
+bool DataServiceImportWizard::validateProjectInputs()
+{
+  const auto name = m_name->text().trimmed();
+  if (name.isEmpty() || name == "." || name == ".." || name.contains(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]")))) {
+    showPageError(0, tr("请填写有效的工程名称。")); return false;
+  }
+  if (!QFileInfo(m_root->text().trimmed()).isDir()) { showPageError(0, tr("请选择有效的资料目录。")); return false; }
+  if (!m_points->text().trimmed().isEmpty() && !QFileInfo(m_points->text().trimmed()).isFile()) {
+    showPageError(0, tr("井位坐标表不存在，请重新选择。")); return false;
+  }
+  QString error;
+  if (!ProjectSetupWorkflow::checkProjectLocation(projectPath(), &error)) { showPageError(0, error); return false; }
+  m_status->clear(); return true;
+}
+
+bool DataServiceImportWizard::validateCoordinateInputs()
+{
+  QString error;
+  if (!m_crs->validate(&error, true)) {
+    showPageError(1, error); m_crs->widget()->setFocus(); return false;
+  }
+  m_coordinateStatus->clear(); return true;
+}
+
+bool DataServiceImportWizard::validateCurrentPage()
+{
+  if (currentId() == 0) return validateProjectInputs();
+  if (currentId() == 1) return validateCoordinateInputs();
+  return true;
 }
 
 void DataServiceImportWizard::finish()
 {
-  const auto name = m_name->text().trimmed();
-  if (name.isEmpty() || name == "." || name == ".." || name.contains(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]")))) {
-    showCreationError(tr("请填写有效的工程名称。")); return;
-  }
-  if (!QFileInfo(m_root->text().trimmed()).isDir()) { showCreationError(tr("请选择有效的资料目录。")); return; }
-  if (!m_points->text().trimmed().isEmpty() && !QFileInfo(m_points->text().trimmed()).isFile()) {
-    showCreationError(tr("井位坐标表不存在，请重新选择。")); return;
-  }
-  QString error;
-  if (!m_crs->validate(&error)) { showCreationError(error); return; }
-  if (!ProjectSetupWorkflow::checkProjectLocation(projectPath(), &error)) { showCreationError(error); return; }
+  if (!validateProjectInputs() || !validateCoordinateInputs()) return;
   qputenv("PALEO_IMPORT_PARSER_THREADS", m_threads->currentData().toByteArray());
   qputenv("PALEO_IMPORT_PENDING_MB", m_pending->currentData().toByteArray());
   QWizard::accept();

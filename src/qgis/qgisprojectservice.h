@@ -60,6 +60,8 @@ class QgisProjectService : public QObject
     const std::optional<PaleoGeoreference> &georeference() const { return m_georeference; }
     void setGeoreference(const PaleoGeoreference &reference);
     void clearGeoreference();
+    // 工程还没有配准时，采用工区模型里已确认的米制 EPSG，保证 QGIS 来源可转换。
+    void adoptConfirmedGeoreference(const QString &projectDir);
     const PaleoProjectFile &mapConfiguration() const { return m_mapConfiguration; }
     static bool validateMapReference(const PaleoProjectFile &configuration, QString *error);
     bool updateMapConfiguration(const PaleoProjectFile &configuration, QString *error = nullptr);

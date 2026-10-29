@@ -2,11 +2,20 @@
 
 ## 工区模型作为预览数据源（本次修正）
 
+井道图通过子模块 `listSourceWells` / `readWellPlotData` 按稳定井 ID 汇集已入库的
+曲线、层段、标准层及照片引用。当前 RAW 测井预览按 `areaModelSourceId` 直接请求
+模型，原件离线仍可显示已入库的数值；模型失败如实报错。井坐标系／单位与工程
+目标坐标系／单位分别从模型读取并展示，不推测或隐式重投影。
+详细边界和验证见 [井道图接入记录](progress/welltracks-data-model-20261029.md)。
+
 新建空工程先通过 DataService.createProject 建立
 `artifacts/metadata/area-model/data.sqlite`；选择资料总目录后，在后台直接调用
 DataService.importDirectory 构建跨文件的井、曲线、地层、样品及工区资料模型。
 新建工程默认使用 Data_service 专用原生 QWizard，收集工程与资料目录、EPSG、
 坐标单位、并行预算及可选井位列映射，不再先跑旧分类扫描；旧向导仅用于补充资料。
+工程计算 CRS 可暂不设置，先建立模型；此时工程 CRS、单位和未声明的井源坐标
+约定保留未知。选择 CRS 时在坐标页校验米制投影，不再等创建失败后退回目录页；
+创建错误留在确认页展示，保留已填信息。
 任务页显示 importDirectory 的真实进度，结束后显示 ImportReport 数量。模型来源表及
 对象关系直接批量投影到独立目录索引，不再调用 importFiles 二次读取、哈希或解析原文件。
 资产目录继续承担文件版本、导入台账和 QGIS 图层登记，不能代替这个业务模型。

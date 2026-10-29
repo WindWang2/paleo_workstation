@@ -58,10 +58,44 @@ void PaleoMainWindow::attachDataProjectOpen(DataPage *dataPage)
       if (m_projectSvc && m_projectSvc->sessionId() == session) {
         // #481 P3-3：自动装载记账随会话重置（新工程重扫）。
         m_seismicAutoLoadedPaths.clear();
-        syncSeismicVolumeToDocks();
+        syncSeismicVolumeToDocks(false);
       }
     });
   });
+}
+
+
+// 数据页导入按钮的门控开关（#481 P2-4）：禁用存 tooltip、启用原样还原；
+// 与工程门取与——目录禁令解除≠全局门放开，谁的禁令用谁的理由。
+void PaleoMainWindow::setImportToolsEnabled(bool enabled)
+{
+  bool toolsOk = true;
+  QString toolsReason;
+  if (enabled && m_tools)
+    toolsOk = m_tools->check(QString(), &toolsReason);
+  for (const char *name : {"importAddData", "importOfflineBasemap", "importWells", "importWellLogs", "importSeismic",
+                           "importBoundary", "importFolder", "importFiles", "importPaleomap", "importPaleomapFolder"})
+    if (auto *btn = findChild<QPushButton *>(QLatin1String(name)))
+    {
+      if (enabled && toolsOk)
+      {
+        btn->setEnabled(true);
+        if (btn->property("paleoGateSavedTip").isValid())
+        {
+          btn->setToolTip(btn->property("paleoGateSavedTip").toString());
+          btn->setProperty("paleoGateSavedTip", QVariant());
+        }
+      }
+      else
+      {
+        if (!btn->property("paleoGateSavedTip").isValid())
+          btn->setProperty("paleoGateSavedTip", btn->toolTip());
+        btn->setEnabled(false);
+        btn->setToolTip(enabled && !toolsOk
+                            ? toolsReason
+                            : tr("数据目录打开失败 — 导入暂不可用（见状态栏）"));
+      }
+    }
 }
 
 void PaleoMainWindow::attachDataPage(DataPage *dataPage,
@@ -81,10 +115,10 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
     connect(m_previewDoc->catalog(), &DataCatalog::changed, this,
             [this, dataPage]() {
               QMetaObject::invokeMethod(dataPage, "refreshAssetTable");
-              syncSeismicVolumeToDocks();
+              syncSeismicVolumeToDocks(false);
             });
     dataPage->refreshAssetTable();
-    syncSeismicVolumeToDocks();
+    syncSeismicVolumeToDocks(false);
     // B2（wave/deepen-perf）：导入队列生产 runner（GAPS G-2.3 收口）——串行
     // 驱动 + loud 任务池逐文件导入 + 取消/重试状态机。面板持有 runner 闭包
     //（shared_ptr Hub 续命，GUI 线程投递），适配器本体随本栈析构不悬空。
@@ -115,35 +149,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
     //（门态存 paleoGateSavedTip、开门还原），且开门与工程门取与——目录禁令
     // 解除≠全局门放开，谁的禁令用谁的理由（旧实现开门清空原 tooltip、不
     // 看工程门就 enable）。
-    const auto setImportsEnabled = [this](bool enabled) {
-      bool toolsOk = true;
-      QString toolsReason;
-      if (enabled && m_tools)
-        toolsOk = m_tools->check(QString(), &toolsReason);
-      for (const char *name : {"importAddData", "importOfflineBasemap", "importWells", "importWellLogs", "importSeismic",
-                               "importBoundary", "importFolder", "importFiles", "importPaleomap", "importPaleomapFolder"})
-        if (auto *btn = findChild<QPushButton *>(QLatin1String(name)))
-        {
-          if (enabled && toolsOk)
-          {
-            btn->setEnabled(true);
-            if (btn->property("paleoGateSavedTip").isValid())
-            {
-              btn->setToolTip(btn->property("paleoGateSavedTip").toString());
-              btn->setProperty("paleoGateSavedTip", QVariant());
-            }
-          }
-          else
-          {
-            if (!btn->property("paleoGateSavedTip").isValid())
-              btn->setProperty("paleoGateSavedTip", btn->toolTip());
-            btn->setEnabled(false);
-            btn->setToolTip(enabled && !toolsOk
-                                ? toolsReason
-                                : tr("数据目录打开失败 — 导入暂不可用（见状态栏）"));
-          }
-        }
-    };
+    const auto setImportsEnabled = [this](bool enabled) { setImportToolsEnabled(enabled); };
     connect(m_previewDoc, &PreviewDocService::catalogOpenFailed, this,
             [catalogError, setImportsEnabled](const QString &error) {
               catalogError->setText(tr("数据目录打开失败：%1").arg(error));
@@ -165,7 +171,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                 else
                   setImportsEnabled(false); // 换了个工程仍然失败 → 保持禁用
                 dataPage->refreshAssetTable();
-                syncSeismicVolumeToDocks();
+                syncSeismicVolumeToDocks(false);
               });
     DataPreviewTabs *preview = m_previewTabs;
     if (preview)
@@ -222,6 +228,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                 }
               });
       connect(dataPage, &DataPage::assetWellActivated, preview, &DataPreviewTabs::openAssetForWell);
+      connect(dataPage, &DataPage::modelWellChartRequested, preview, &DataPreviewTabs::openModelWell);
       connect(dataPage, &DataPage::seismicLineActivated, preview,
               [preview](const QString &aid, const QString &mode) {
                 preview->openSeismicLine(aid, mode, 0, 0.0);

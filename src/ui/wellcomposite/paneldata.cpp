@@ -31,14 +31,16 @@ void WellCompositePanel::applyComprehensiveData(const ComprehensiveWellData &dat
                                                 const QString &xmlPath, bool reference)
 {
   m_data = data;
+  for (auto &image : m_data.images)
+    if (image.pixmap.isNull() && !image.thumbnail.isNull()) image.pixmap = QPixmap::fromImage(image.thumbnail);
   setWellName(data.wellName, reference);
-  setupTracksFromData(data);
+  setupTracksFromData(m_data);
   if (m_legendWidget)
-    m_legendWidget->setWellData(data);
+    m_legendWidget->setWellData(m_data);
   clearDepthTables(); // D1：换源复位井斜/时深（wellLoaded 后 sink 按新源重喂）
 
   // D3.x 编辑会话：工作副本 + 源 mtime 跟踪（D3.10）
-  m_editSession = std::make_unique<EditSession>(data, this);
+  m_editSession = std::make_unique<EditSession>(m_data, this);
   connect(m_editSession.get(), &EditSession::documentChanged, this, [this]() {
     syncSessionToTracks();
   });
@@ -65,7 +67,7 @@ bool WellCompositePanel::loadComprehensiveXmlAsync(const QString &xmlPath,
                                                    PaleoTaskService *svc)
 {
   // 快速失败留在同步侧（与旧路径一致：文件不存在 false，不拉任务）。
-  if (xmlPath.isEmpty() || !QFile::exists(xmlPath))
+  if (xmlPath.isEmpty())
     return false;
   if (!svc)
     return loadComprehensiveXml(xmlPath); // 无任务服务：同步旧路径（测试）

@@ -87,6 +87,12 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   lay->setContentsMargins(0, 0, 0, 0);
   lay->setSpacing(PaleoTheme::tokens().spacingSm);
 
+  // Model-backed current RAW logs use their stored identity, including when an
+  // external source is offline. A failed model read must remain a model error.
+  if (!auxOnly && asset.type == QLatin1String("well_log") && v.stage == QLatin1String("RAW") &&
+      v.id == cat->currentVersion(assetId).id && v.extra.value("areaModelSourceId").toLongLong() > 0)
+    return buildAuxiliaryXmlContent(abs, assetId, host, lay, {}, false);
+
   // 外链/受管缺失态（§4：「找不到源文件」+路径）。外链版本（wave4）多给一个
   // 「重新定位文件…」出口——服务层流式 SHA-256 复验，内容一致才重接，不一致
   // 如实拒绝；受管文件缺失不是这条恢复路径能解的，不给按钮、只留文案。

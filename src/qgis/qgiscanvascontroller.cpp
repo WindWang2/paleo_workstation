@@ -18,6 +18,7 @@
 #include <qgscoordinatetransform.h>
 #include <qgsrectangle.h>
 #include <qgssnappingutils.h>
+#include <cmath>
 
 #include <QColor>
 #include <QWidget>
@@ -219,6 +220,10 @@ void QgisCanvasController::zoomToFullExtent()
   for (auto *layer : m_canvas->layers())
     if (!layer->customProperty("paleoBasemap").toBool()) {
       auto bounds = layer->extent();
+      if (!std::isfinite(bounds.xMinimum()) || !std::isfinite(bounds.yMinimum())
+          || !std::isfinite(bounds.xMaximum()) || !std::isfinite(bounds.yMaximum())
+          || bounds.width() > 1e8 || bounds.height() > 1e8)
+        continue;
       if (!bounds.isNull() && bounds.isEmpty()) bounds.grow(50);
       extent.combineExtentWith(paleo::mapreference::mapExtent(m_canvas, bounds, layer->crs()));
     }

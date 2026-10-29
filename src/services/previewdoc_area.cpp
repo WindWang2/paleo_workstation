@@ -1,134 +1,189 @@
 // 层：数据
 #include "previewdoc.h"
+#include "areawellchart.h"
 #include "../io/areamodel.h"
 #include "../domain/wellcompositemodel.h"
 #include <paleo_data/service.h>
+#include <QFileInfo>
+#include <QHash>
 #include <QSet>
 #include <cmath>
 #include <limits>
+#include <algorithm>
+
+// ui 层不得直接 include io/areamodel.h（层白名单），目录口径经本服务转发。
+QString areaModelDirectory(const QString &projectDir)
+{
+  return paleo::area_model::directory(projectDir);
+}
 
 namespace {
 QString text(const std::string &s) { return QString::fromUtf8(s); }
 bool chartFrom(paleo::data::DataService &service, long long source,
-               WellComposite::ComprehensiveWellData &out, std::string &error) {
-  std::vector<paleo::data::DataEntry> entries;
-  QSet<qlonglong> sets, wells;
-  double lo = std::numeric_limits<double>::infinity(), hi = -lo;
-  const auto depth = [&](double d) { if (std::isfinite(d)) { lo = qMin(lo, d); hi = qMax(hi, d); } };
-  if (!service.listSourceData("curves", source, entries, error)) return false;
-  for (const auto &entry : entries) {
-    if (entry.sourceId != source || sets.contains(entry.parentId)) continue;
-    sets.insert(entry.parentId); wells.insert(entry.wellId);
-    paleo::data::LogSet logs;
-    if (!service.readLogSet(entry.parentId, true, logs, error)) return false;
-    for (const auto &curve : logs.logCurves) {
-      WellComposite::CurveData value;
-      value.name = text(curve.curveName); value.unit = text(curve.curveUnit);
-      for (size_t i = 0; i < logs.samplingAxis.depthValues.size(); ++i) {
-        value.depths.append(float(logs.samplingAxis.depthValues[i]));
-        value.values.append(float(curve.sampleValues.at(i))); depth(logs.samplingAxis.depthValues[i]);
-      }
-      if (text(logs.logSetName).contains(QStringLiteral("离散"))) {
-        value.mode = WellComposite::CurveDisplayMode::Discrete; out.discreteCurves.append(value);
-      } else out.continuousCurves.append(value);
-    }
+               WellComposite::ComprehensiveWellData &out, std::string &error, qlonglong selected,
+               const std::function<bool()> &cancelled) {
+  std::vector<long long> wells;
+  if (!service.listSourceWells(source, wells, error)) return false;
+  if (selected && std::find(wells.begin(), wells.end(), selected) == wells.end()) {
+    error = "Selected well does not belong to this model source"; return false;
   }
-  if (!service.listSourceData("intervals", source, entries, error)) return false;
-  for (const auto &entry : entries) {
-    if (entry.sourceId != source) continue;
-    wells.insert(entry.wellId);
-    paleo::data::IntervalTrack track;
-    std::vector<paleo::data::IntervalRecord> rows;
-    if (!service.readIntervalTrackInfo(entry.id, track, error) ||
-        !service.readIntervals(entry.id, paleo::data::Missing, paleo::data::Missing, rows, error)) return false;
-    const QString kind = text(track.trackType), name = text(track.trackName);
-    for (const auto &row : rows) {
-      const auto &v = row.value;
-      if (!std::isfinite(v.topDepth) || !std::isfinite(v.bottomDepth)) continue;
-      depth(v.topDepth); depth(v.bottomDepth);
-      if (kind.contains(QStringLiteral("岩性"))) {
-        WellComposite::LithologyInterval item;
-        item.topDepth = float(v.topDepth); item.bottomDepth = float(v.bottomDepth); item.lithoName = text(v.intervalName);
-        out.lithologyIntervals.append(item);
-      } else if (kind.contains(QStringLiteral("沉积相"))) {
-        WellComposite::FaciesInterval item;
-        item.topDepth = float(v.topDepth); item.bottomDepth = float(v.bottomDepth);
-        item.majorFacies = text(v.intervalName); item.microFacies = text(v.faciesType);
-        out.faciesIntervals.append(item);
-      } else if (kind.contains(QStringLiteral("取心"))) {
-        WellComposite::CoreBarrel item;
-        item.topDepth = float(v.topDepth); item.bottomDepth = float(v.bottomDepth); item.barrelNo = text(v.intervalName);
-        for (const auto &p : v.properties) {
-          const QString label = text(p.measurementName);
-          if (label.contains(QStringLiteral("进尺"))) item.cutLength = float(p.numericValue);
-          else if (label.contains(QStringLiteral("心长"))) item.recoveredLength = float(p.numericValue);
-          else if (label.contains(QStringLiteral("收获率"))) item.recoveryRate = float(p.numericValue);
-          else item.description += text(p.originalText) + " ";
-        }
-        out.coreBarrels.append(item);
-      } else if (kind.contains(QStringLiteral("地层")) || name.contains(QStringLiteral("砂层")) || name.contains(QStringLiteral("层序"))) {
-        WellComposite::FormationInterval item;
-        item.topDepth = float(v.topDepth); item.bottomDepth = float(v.bottomDepth);
-        item.name = text(v.intervalName); item.unitType = name;
-        if (name.contains(QStringLiteral("砂层"))) out.sandIntervals.append(item);
-        else if (name.contains(QStringLiteral("层序"))) out.sequenceIntervals.append(item);
-        else out.formationIntervals.append(item);
-      } else {
-        WellComposite::TextInterval item;
-        item.topDepth = float(v.topDepth); item.bottomDepth = float(v.bottomDepth);
-        item.category = name; item.text = text(v.intervalName);
-        for (const auto &property : v.properties) item.text += " " + text(property.originalText);
-        out.textIntervals.append(item);
-      }
-    }
+  if (!selected && wells.size() != 1) {
+    error = "Select a single model well before drawing this source"; return false;
   }
-  if (wells.size() > 1) { error = "source contains multiple wells; select one well before drawing"; return false; }
-  if (!wells.isEmpty() && *wells.begin() > 0) {
-    paleo::data::WellInfo info;
-    if (!service.readWellInfo(*wells.begin(), info, error)) return false;
-    out.wellName = text(info.wellName); out.x = info.wellheadX; out.y = info.wellheadY;
-  }
-  if (std::isfinite(lo)) { out.minDepth = lo; out.maxDepth = hi; }
-  return true;
+  QString detail;
+  const bool ok = readAreaWellChart(service, selected ? selected : wells.front(), out, &detail, cancelled);
+  error = detail.toUtf8().toStdString(); return ok;
 }
+QString kindLabel(const std::string &kind) {
+  if (kind == "curves") return QStringLiteral("曲线");
+  if (kind == "intervals") return QStringLiteral("分层");
+  if (kind == "time_depth") return QStringLiteral("时深");
+  if (kind == "trajectories") return QStringLiteral("井斜");
+  if (kind == "samples") return QStringLiteral("样品");
+  if (kind == "markers") return QStringLiteral("标志层");
+  if (kind == "core_photos") return QStringLiteral("岩心照片");
+  if (kind == "attachments") return QStringLiteral("附件");
+  if (kind == "volumes") return QStringLiteral("地震体");
+  if (kind == "horizons") return QStringLiteral("层位");
+  return text(kind);
 }
-
-bool PreviewDocService::areaPreviewAt(const QString &path, WorkbookPreview *table,
-    WellComposite::ComprehensiveWellData *chart, bool *chartOk, QString *error) {
-  paleo::data::DataService service;
-  long long source = 0;
-  const auto state = paleo::area_model::openSource(path, service, source, error);
-  if (state == paleo::area_model::Read::Unbound) return false;
+bool fillPreview(paleo::data::DataService &service, qlonglong source,
+    PreviewDocService::WorkbookPreview *table, WellComposite::ComprehensiveWellData *chart,
+    bool *chartOk, QString *error, qlonglong selected = 0, const std::function<bool()> &cancelled = {}) {
   if (table) *table = {};
   if (chart) *chart = {};
   if (chartOk) *chartOk = false;
-  if (state == paleo::area_model::Read::Failed) { if (table && error) table->error = *error; return true; }
   std::string detail;
   if (table) {
     table->format = QStringLiteral("data_service");
-    std::vector<paleo::data::DataEntry> entries;
-    for (const std::string kind : {"intervals", "curves", "time_depth", "trajectories", "samples", "tables"}) {
-      if (!service.listSourceData(kind, source, entries, detail)) break;
-      for (const auto &entry : entries) {
-        if (entry.sourceId != source || table->sheets.size() >= 64) continue;
-        paleo::data::DataTable data;
-        if (!service.readTable(kind, entry.id, 0, 1000, data, detail)) break;
-        WorkbookSheetPreview sheet; sheet.name = text(entry.name);
-        for (const auto &column : data.columns) sheet.headers << text(column).left(4096);
-        for (const auto &row : data.rows) {
-          QStringList cells; for (const auto &cell : row) cells << text(cell).left(4096);
-          sheet.rows.append(cells);
-        }
-        table->sheets.append(sheet);
-      }
-      if (!detail.empty()) break;
+    std::vector<paleo::data::WellInfoRecord> wells;
+    QHash<qlonglong, QString> wellNames;
+    if (service.listWellInfos(wells, detail)) {
+      for (const auto &well : wells) wellNames.insert(well.id, text(well.value.wellName));
     }
+    PreviewDocService::WorkbookSheetPreview wellSheet;
+    wellSheet.name = QStringLiteral("井");
+    wellSheet.headers = {QStringLiteral("井"), QStringLiteral("类别"), QStringLiteral("名称"),
+                         QStringLiteral("数量"), QStringLiteral("摘要")};
+    PreviewDocService::WorkbookSheetPreview seismicSheet;
+    seismicSheet.name = QStringLiteral("地震");
+    seismicSheet.headers = {QStringLiteral("类别"), QStringLiteral("名称"), QStringLiteral("数量"),
+                            QStringLiteral("摘要")};
+    QSet<qlonglong> seismicSources;
+    if (detail.empty()) {
+      for (const std::string kind : {"curves", "intervals", "time_depth", "trajectories", "samples",
+                                     "markers", "core_photos", "attachments"}) {
+        std::vector<paleo::data::DataEntry> entries;
+        if (!service.listData(kind, 0, entries, detail)) break;
+        for (const auto &entry : entries) {
+          const QString well = entry.wellId ? wellNames.value(entry.wellId, QString::number(entry.wellId))
+                                            : QStringLiteral("未归井");
+          wellSheet.rows.append({well, kindLabel(kind), text(entry.name),
+                                 QString::number(entry.count), text(entry.detail)});
+        }
+      }
+    }
+    if (detail.empty()) {
+      for (const std::string kind : {"volumes", "horizons"}) {
+        std::vector<paleo::data::DataEntry> entries;
+        if (!service.listData(kind, 0, entries, detail)) break;
+        for (const auto &entry : entries) {
+          seismicSources.insert(entry.sourceId);
+          seismicSheet.rows.append({kindLabel(kind), text(entry.name),
+                                    QString::number(entry.count), text(entry.detail)});
+        }
+      }
+    }
+    if (detail.empty()) {
+      std::vector<paleo::data::SourceEntry> sources;
+      if (service.listSources(sources, detail)) {
+        for (const auto &entry : sources) {
+          if ((entry.kind != "volume" && entry.kind != "horizon") || entry.status != "failed"
+              || seismicSources.contains(entry.id)) continue;
+          seismicSheet.rows.append({kindLabel(entry.kind), QFileInfo(text(entry.path)).fileName(),
+                                    QStringLiteral("0"), text(entry.message)});
+        }
+      }
+    }
+    std::stable_sort(wellSheet.rows.begin(), wellSheet.rows.end(),
+                     [](const QStringList &a, const QStringList &b) { return a.value(0) < b.value(0); });
+    table->sheets = {wellSheet, seismicSheet};
     table->ok = detail.empty(); table->error = text(detail);
   }
   if (chart) {
-    const bool ok = chartFrom(service, source, *chart, detail);
+    std::string chartError;
+    const bool ok = chartFrom(service, source, *chart, chartError, selected, cancelled);
+    if (!ok) detail = chartError;
     if (chartOk) *chartOk = ok && !chart->isEmpty();
   }
   if (error) *error = text(detail);
   return true;
+}
+}
+bool PreviewDocService::areaPreviewWell(const QString &project, qlonglong wellId, WorkbookPreview *table,
+    WellComposite::ComprehensiveWellData *chart, bool *chartOk, QString *error,
+    const std::function<bool()> &cancelled) {
+  if (table) *table = {};
+  if (chart) *chart = {};
+  if (chartOk) *chartOk = false;
+  paleo::data::DataService service;
+  std::string detail;
+  if (wellId <= 0 || !service.openProjectReadOnly(paleo::area_model::directory(project).toUtf8().toStdString(), detail)) {
+    if (error) *error = detail.empty() ? QStringLiteral("Invalid model well") : text(detail);
+    if (table && error) table->error = *error;
+    return false;
+  }
+  paleo::data::WellInfo info;
+  QString wellName = QString::number(wellId);
+  std::string infoError;
+  if (service.readWellInfo(wellId, info, infoError)) wellName = text(info.wellName);
+  if (table) {
+    table->format = QStringLiteral("data_service");
+    PreviewDocService::WorkbookSheetPreview wellSheet;
+    wellSheet.name = QStringLiteral("井");
+    wellSheet.headers = {QStringLiteral("井"), QStringLiteral("类别"), QStringLiteral("名称"),
+                         QStringLiteral("数量"), QStringLiteral("摘要")};
+    std::string tableError;
+    for (const std::string kind : {"curves", "intervals", "time_depth", "trajectories", "samples",
+                                   "markers", "core_photos", "attachments"}) {
+      if (cancelled && cancelled()) break;
+      std::vector<paleo::data::DataEntry> entries;
+      if (!service.listData(kind, wellId, entries, tableError)) break;
+      for (const auto &entry : entries)
+        wellSheet.rows.append({wellName, kindLabel(kind), text(entry.name),
+                               QString::number(entry.count), text(entry.detail)});
+    }
+    table->sheets = {wellSheet};
+    table->ok = tableError.empty();
+    table->error = text(tableError);
+    if (!tableError.empty() && error) *error = table->error;
+  }
+  if (chart) {
+    QString chartMessage;
+    const bool drawn = readAreaWellChart(service, wellId, *chart, &chartMessage, cancelled);
+    if (chartOk) *chartOk = drawn;
+    if (!drawn && error && error->isEmpty()) *error = chartMessage;
+  }
+  return true;
+}
+bool PreviewDocService::areaPreviewAt(const QString &path, WorkbookPreview *table,
+    WellComposite::ComprehensiveWellData *chart, bool *chartOk, QString *error) {
+  paleo::data::DataService service; long long source = 0;
+  const auto state = paleo::area_model::openSource(path, service, source, error);
+  if (state == paleo::area_model::Read::Unbound) return false;
+  if (state == paleo::area_model::Read::Ready) return fillPreview(service,source,table,chart,chartOk,error);
+  if(table){*table={};if(error)table->error=*error;}
+  if(chart)*chart={};if(chartOk)*chartOk=false;
+  return true;
+}
+bool PreviewDocService::areaPreviewSource(const QString &project, qlonglong source, WorkbookPreview *table,
+    WellComposite::ComprehensiveWellData *chart, bool *chartOk, QString *error, qlonglong selected,
+    const std::function<bool()> &cancelled) {
+  if(table)*table={};if(chart)*chart={};if(chartOk)*chartOk=false;
+  paleo::data::DataService service;std::string detail;
+  if(source<=0 || !service.openProjectReadOnly(paleo::area_model::directory(project).toUtf8().toStdString(),detail)) {
+    if(error)*error=detail.empty()?QStringLiteral("Invalid model source"):text(detail);
+    if(table&&error)table->error=*error;return false;
+  }
+  return fillPreview(service,source,table,chart,chartOk,error,selected,cancelled);
 }

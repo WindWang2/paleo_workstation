@@ -25,4 +25,8 @@ QString mbtilesUri(const QString &path);
 QgsRasterLayer *offlineBasemap(const QString &path, const QString &title,
                               QObject *parent = nullptr);
 QString attribution(QgsMapCanvas *canvas);
+// 工程已确认的测区 CRS：paleo/georeference 声明的投影 CRS；地理 CRS 或
+// 缺声明时回落 EPSG:32650（与导入侧「无声明即 32650」同口径——缺坐标系
+// 不得阻断来源功能）。测区全景画布、井位层、工区范围共用它。
+QgsCoordinateReferenceSystem confirmedSurveyCrs(QgsProject *project);
 }

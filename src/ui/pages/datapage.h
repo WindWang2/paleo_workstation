@@ -56,6 +56,7 @@ class DataPage : public QWidget
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开
     // 树节点关联井选中 → 预览打开并定位到该井
     void assetWellActivated(const QString &assetId, const QString &wellId);
+    void modelWellChartRequested(qlonglong modelWellId, const QString &wellName);
     void seismicLineActivated(const QString &assetId, const QString &mode); // 测线激活
     void wellSelected(const QString &wellId); // 树中选中井 → 地图高亮
     void projectDashboardActivated();

@@ -4,6 +4,7 @@
 #include "catalog/datacatalog.h"
 #include "qgiserrors_internal.h"
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QUrl>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -212,5 +213,22 @@ QString attribution(QgsMapCanvas *canvas)
     if (!source.isEmpty() && !sources.contains(source)) sources << source;
   }
   return sources.join(QStringLiteral(" · "));
+}
+
+QgsCoordinateReferenceSystem confirmedSurveyCrs(QgsProject *project)
+{
+  const QgsCoordinateReferenceSystem fallback(QStringLiteral("EPSG:32650"));
+  if (!project)
+    return fallback;
+  PaleoGeoreference reference;
+  QString error;
+  const auto json = project->readEntry(QStringLiteral("paleo"), QStringLiteral("georeference"));
+  if (paleoGeoreferenceFromJson(QJsonDocument::fromJson(json.toUtf8()).object(), &reference, &error)
+      && reference.kind == QLatin1String("crs")) {
+    const QgsCoordinateReferenceSystem declared(reference.sourceCrs);
+    if (declared.isValid() && !declared.isGeographic())
+      return declared;
+  }
+  return fallback;
 }
 }

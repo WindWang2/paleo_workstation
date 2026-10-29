@@ -85,6 +85,7 @@ add_library(paleo_ui STATIC
   src/ui/pages/mappingeditbasis.cpp
   src/ui/pages/mappingbasemapselector.cpp
   src/ui/datapreview/projectstatisticspage.cpp
+  src/ui/datapreview/surveytimesectionwidget.cpp # 测区全景内嵌地震时间剖面预览（数据服务测线）
   src/ui/datapreview/datapreviewtabdocument.cpp
   src/ui/pages/datagraphsceneitems.cpp
   src/ui/pages/datagraphicons.cpp
@@ -135,6 +136,7 @@ add_library(paleo_ui STATIC
   src/ui/pages/datalistops.h                       # 数据页·辅助类型与持久化工具
   src/ui/pages/datalist_table.cpp                  # 数据页·表格展现与行内动作
   src/ui/pages/datalist_tree.cpp                   # 数据页·树形层级与分组
+  src/ui/pages/datalist_modelnav.cpp               # 数据页·井震分支读数据基座
   src/ui/pages/datalist_select.cpp                 # 数据页·选中集管理与联动
   src/ui/pages/datalist_filter.cpp                 # 数据页·多维组合过滤与搜索
   src/ui/dialogs/geologicalexportdialog.cpp

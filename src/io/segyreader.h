@@ -78,14 +78,6 @@ class SegyReader
     bool openCached(const QString &path, const QString &indexCacheDir,
                     QString *error = nullptr, const SegyOptions *opts = nullptr);
 
-    // 免全扫几何探测（survey 边界恢复专用，不建索引）：规则网格（固定道长、
-    // 道序 inline 单调、inline 内 xline 单调）下只读首 inline 各道头 + 末段
-    // 三个道头，即可得到与全扫一致的 inline/xline 范围与四角坐标——196 GB
-    // 体秒回，而 open/openCached 要全文件扫索引。角点未探到的槽为 NaN
-    //（调用方按有限值过滤）。非常规布局（ordinal 方言 / 变道长 / 单调性
-    // 校验不过）返回 false，调用方回退全扫路径。
-    static bool probeGeometry(const QString &path, SegyGeometry *out,
-                              QString *error = nullptr);
 
     int traceCount() const { return static_cast<int>(m_index.size()); }
     int samplesPerTrace() const { return m_samplesPerTrace; }

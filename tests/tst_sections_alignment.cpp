@@ -189,6 +189,7 @@ private slots:
     put16(binary, 16, 2000);
     put16(binary, 20, 64);
     put16(binary, 24, 5);
+    put16(binary,54,1);
     file.write(binary);
     for (int il = 0; il < 4; ++il)
       for (int xl = 0; xl < 4; ++xl) {
@@ -197,6 +198,8 @@ private slots:
         put32(header, 188, 1000 + il);
         put32(header, 192, 2000 + xl);
         put16(header,108,50); // source axis, independent of the dock's stale value
+        put16(header,70,1);put16(header,88,1);
+        put32(header,180,il*100);put32(header,184,xl*200);
         put16(header, 114, 64);
         file.write(header);
         QByteArray samples(64 * 4, 0);
@@ -273,6 +276,12 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(done.count(),1,10000);QVERIFY(done[0][0].toBool());
     QCOMPARE(dock.canvas()->startSampleMs(),50.);QCOMPARE(dock.canvas()->sampleIntervalMs(),2.);
     QCOMPARE(dock.canvas()->sectionRef().t0Ms,50.);
+    QgsMapCanvas locating;locating.setDestinationCrs(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+    locating.setExtent(QgsRectangle(-100,-100,1000,1000));SeismicMapLink locator(&locating,nullptr);
+    connect(dock.canvas(),&seismic::SeismicSectionCanvas::traceClicked,&locator,&SeismicMapLink::onSectionTraceClicked);
+    QTest::mouseClick(dock.canvas(),Qt::LeftButton,Qt::NoModifier,
+                     QPoint(qRound(dock.canvas()->traceToPixelX(2)),qRound(dock.canvas()->timeToPixelY(100))));
+    QVERIFY(std::abs(locating.center().x())<1e-6);QVERIFY(std::abs(locating.center().y()-400)<1e-6);
     // Destruction before extraction completion must not deliver into a deleted
     // widget.
     auto *closing = new seismic::SeismicSectionDockWidget;

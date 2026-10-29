@@ -36,6 +36,9 @@ struct SeismicDatasetRegistry;  // cpp 内定义：条目注册表（shared_ptr 
 struct SeismicNativeInfo {
  int sampleCount=0,inlineMin=0,inlineMax=0,xlineMin=0,xlineMax=0;
  double firstTimeMs=0,sampleIntervalMs=0;
+ std::vector<glm::dvec2> columnCoordinates; // actual source XY, NaN when unavailable
+ std::vector<float> columnDistancesM;
+ QString coordinateSystem;
 };
 
 // 秒级首屏快照（QuickOpenSegyPreview 的主线程可消费副本）：

@@ -5,6 +5,7 @@
 #include "io/areamodel.h"
 #include <QDateTime>
 #include <QFileInfo>
+#include <cmath>
 
 namespace seismic {
 namespace {
@@ -25,6 +26,27 @@ PaleoTask *SeismicTaskService::startDataPlane(const QString& path,SgySliceType t
   const auto cancel=[task]{return task->cancelRequested();};paleo::data::SeismicFileInfo info;
   if(!source.inspect(info,detail,cancel))return QString::fromUtf8(detail);
   *axis={info.sampleCount,info.inlineMin,info.inlineMax,info.crosslineMin,info.crosslineMax,info.firstTime,info.sampleInterval};
+  axis->coordinateSystem=source.coordinateSystem();
+  if(type!=SgySliceType::Time) {
+   // A single native sample per trace supplies geometry even when texture values hit the LRU.
+   paleo::data::SectionReadOptions options;options.fullResolution=true;options.maxValues=64000000;
+   options.firstTime=options.lastTime=info.firstTime;paleo::data::SeismicSectionResult section;
+   if(!source.line(type==SgySliceType::Inline,index,options,section,detail,cancel)) {
+    if(cancel())return {};
+    // Entire first sample can be null while later samples and trace XY are valid.
+    options.firstTime=options.lastTime=paleo::data::Missing;
+    if(!source.line(type==SgySliceType::Inline,index,options,section,detail,cancel))return QString::fromUtf8(detail);
+   }
+   const auto unit=source.coordinateUnit().empty()?info.coordinateLengthUnit:source.coordinateUnit();
+   const double scale=unit=="ft"?.3048:1.;double distance=0;bool metric=unit=="m"||unit=="ft";
+   for(int col=0;col<section.columns;++col) {
+    const double x=section.x[size_t(col)],y=section.y[size_t(col)];
+    metric=metric&&std::isfinite(x)&&std::isfinite(y);
+    if(col)distance+=std::hypot(x-section.x[size_t(col-1)],y-section.y[size_t(col-1)])*scale;
+    axis->columnCoordinates.push_back({x,y});axis->columnDistancesM.push_back(float(distance));
+   }
+   if(!metric)axis->columnDistancesM.clear();
+  }
   if(!*image){auto values=std::make_shared<SgySliceImage>();if(!paleo::readSeismicDataSlice(path,type,index,*values,error,cancel))return error;*image=values;}return {};
  },{},true);
  connect(task,&PaleoTask::finished,this,[this,task,path,type,index,key,image,axis,done]{

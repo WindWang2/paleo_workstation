@@ -362,7 +362,7 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
             guard->m_sliceTask.clear();
             guard->m_progressBar->setVisible(false);
             const double origin=axis.firstTimeMs;
-            if(ok)guard->m_timeOriginMs=origin;
+            if(ok){guard->m_timeOriginMs=origin;guard->m_canvas->setProperty("seismicSourceCrs",axis.coordinateSystem);}
 
             if (!ok) {
                 // D2.14：原因态——画布显示可读原因而非空白
@@ -397,7 +397,7 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
                                                   vol->XlineMax());
             } else {
                 const float dtMs = float(axis.sampleIntervalMs);
-                guard->m_canvas->setSectionData(*image, dtMs, origin);
+                guard->m_canvas->setSectionData(*image, dtMs, origin,axis.columnDistancesM,axis.columnCoordinates);
             }
             // D4：剖面身份 + 最近切片（拾取解析/追踪原料）
             {
@@ -616,6 +616,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
         guard->m_route = route;
         guard->m_distances = geometry.distancesM;
         guard->m_timeOriginMs=stats.firstTimeMs;
+        guard->m_canvas->setProperty("seismicSourceCrs",QString::fromStdString(stats.coordinateSystem));
         guard->m_canvas->setSectionData(
             *image, float(stats.sampleIntervalMs), stats.firstTimeMs,
             geometry.distancesM, geometry.coordinates);

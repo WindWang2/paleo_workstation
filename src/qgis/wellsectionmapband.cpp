@@ -14,6 +14,7 @@
 
 #include <QColor>
 #include <QtGlobal>
+#include <cmath>
 
 WellSectionMapBand::WellSectionMapBand(QgsMapCanvas *canvas,
                                        QObject *parent)
@@ -61,9 +62,11 @@ void WellSectionMapBand::setSectionPath(
     transform = QgsCoordinateTransform(
         source, m_canvas->mapSettings().destinationCrs(),
         m_canvas->mapSettings().transformContext()); // PW-068：与画布同一变换上下文
-  m_band->reset(Qgis::GeometryType::Line);
+  if(m_layer&&source.isValid()&&!transform.isValid()){m_band->hide();return;}
+  QVector<QgsPointXY> projected;
   for (const auto &pt : points)
   {
+    if(!std::isfinite(pt.first)||!std::isfinite(pt.second)){m_band->hide();return;}
     QgsPointXY p(pt.first, pt.second);
     if (transform.isValid())
     {
@@ -73,12 +76,14 @@ void WellSectionMapBand::setSectionPath(
       }
       catch (const QgsCsException &)
       {
-        // 单点变换失败 → 跳过该点（线断比整带消失好）。
-        continue;
+        m_band->hide();return; // Never join across an unprojectable vertex.
       }
     }
-    m_band->addPoint(p);
+    if(!std::isfinite(p.x())||!std::isfinite(p.y())){m_band->hide();return;}
+    projected.push_back(p);
   }
+  m_band->reset(Qgis::GeometryType::Line);
+  for(const auto& point:projected)m_band->addPoint(point);
   m_band->show();
 }
 

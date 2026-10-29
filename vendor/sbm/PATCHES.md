@@ -10,6 +10,7 @@
 `Data/Sgy/SgySectionBuilder.h` 的 `SgySectionStats` 增加可选的 `firstTimeMs`／
 `sampleIntervalMs`，默认未知。主工程由 Data_service 的剖面结果填入，保证任意线
 的显示、拾取时间轴与真实采样一致；不修改库的地震读取和剖面算法。
+同一结构的 `coordinateSystem` 保存数据服务声明，供主工程的地图／剖面联动使用。
 
 相对于上游 pinned commit `aae56c77` 的全部有意分叉。同步上游时需逐一重放。
 

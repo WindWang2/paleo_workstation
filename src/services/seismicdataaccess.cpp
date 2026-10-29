@@ -4,7 +4,7 @@
 
 namespace paleo {
 bool SeismicDataAccess::open(const QString& path,QString *error) {
- m_volume=0;m_unit.clear();m_file=path.toUtf8().toStdString();long long source=0;
+ m_volume=0;m_unit.clear();m_crs.clear();m_file=path.toUtf8().toStdString();long long source=0;
  const auto state=area_model::openSource(path,m_service,source,error);
  if(state==area_model::Read::Failed)return false;
  if(state==area_model::Read::Unbound)return true;
@@ -17,7 +17,7 @@ bool SeismicDataAccess::open(const QString& path,QString *error) {
  if(!m_volume){if(error)*error=QStringLiteral("工区数据服务中未找到该来源的地震体");return false;}
  data::SeismicVolume volume;
  if(!m_service.readVolume(m_volume,volume,detail)){if(error)*error=QString::fromUtf8(detail);return false;}
- m_file=volume.dataFile;m_unit=volume.geometry.coordinateUnit;
+ m_file=volume.dataFile;m_unit=volume.geometry.coordinateUnit;m_crs=volume.geometry.coordinateSystem;
  return true;
 }
 bool SeismicDataAccess::inspect(data::SeismicFileInfo& result,std::string& error,const data::CancelCheck& cancel) {

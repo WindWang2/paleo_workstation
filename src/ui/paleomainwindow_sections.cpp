@@ -51,6 +51,8 @@ void wireSectionTraceLocate(SeismicMapLink *link,
           [locate](int a, double b, double c, float d, double e, double f) {
             locate(true, a, b, c, d, e, f);
           });
+  QObject::connect(dock,&seismic::SeismicSectionDockWidget::sectionExtractionFinished,link,
+          [link,dock](bool ok,const QString&){if(ok)link->setSourceCrs(dock->canvas()->property("seismicSourceCrs").toString());});
 }
 } // namespace
 
@@ -189,7 +191,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
     band->setVisible(visible && !route->empty());
   });
   connect(link, &SeismicMapLink::sectionExtractRequested, dock,
-          [this, dock, workbench, route, routeHorizon, band,
+          [this, dock, workbench, route, routeHorizon, band, link,
            setup](std::shared_ptr<const seismic::SgyVolume> volume,
                   std::vector<glm::ivec2> points, QString title,
                   std::vector<glm::dvec2> line) {
@@ -200,7 +202,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             QgsPolylineXY path;
             for (const auto &p : line) path << QgsPointXY(p.x, p.y);
             band->setToGeometry(QgsGeometry::fromPolylineXY(path),
-                                QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+                                link->sourceCrs().isEmpty()?QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()):QgsCoordinateReferenceSystem(link->sourceCrs()));
             band->show();
             dock->extractSectionFromVolumeAsync(volume, points, title, line,
                                                 workbench->sectionWells());
@@ -235,7 +237,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   // sectionCaptureRequested 意图（先例 threewaylocator）；工具的路径完成
   // 接回 linkage 的折线提取入口，Esc 取消直通其取消信号。
   connect(link, &SeismicMapLink::sectionCaptureRequested, this,
-          [this, workbench, setup] {
+          [this, workbench, setup, link] {
     QgsMapCanvas *canvas = m_canvasCtl ? m_canvasCtl->canvas() : nullptr;
     if (!canvas)
       return;
@@ -258,7 +260,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
         m_sectionCaptureTool = nullptr;
       });
     }
-    m_sectionCaptureTool->setSnapWells(workbench->wellSnapWells()); // 每次激活前刷新井集
+    m_sectionCaptureTool->setSnapWells(workbench->wellSnapWells(),link->sourceCrs()); // 每次激活前刷新井集
     canvas->setMapTool(m_sectionCaptureTool);
   });
   connect(setup, &SectionSetupDialog::buildRequested, this,

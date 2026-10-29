@@ -32,7 +32,7 @@ public:
   void flashWell(const QString &wellId);
 
 private:
-  QgsMapCanvas *m_canvas = nullptr;
+  QPointer<QgsMapCanvas> m_canvas;
   QPointer<QgsRubberBand> m_band;
   QPointer<QgsVectorLayer> m_layer;
   QString m_idField;

@@ -43,6 +43,8 @@ class SeismicMapLink : public QObject
     // 剖面控件的 setVolume。连接前先取 activeVolume() 做一次初始推送。
     void setGridGeometry(const SurveyGridGeometry &geom);
     SurveyGridGeometry gridGeometry() const { return m_gridGeom; }
+    void setSourceCrs(const QString& crs) { m_sourceCrs=crs; }
+    QString sourceCrs() const { return m_sourceCrs; }
 
     void setActiveVolume(std::shared_ptr<const seismic::SgyVolume> volume);
     std::shared_ptr<const seismic::SgyVolume> activeVolume() const { return m_volume; }
@@ -93,5 +95,6 @@ class SeismicMapLink : public QObject
 
     QgsVertexMarker *m_cursorMarker = nullptr;
     SurveyGridGeometry m_gridGeom;
+    QString m_sourceCrs;
     std::shared_ptr<const seismic::SgyVolume> m_volume;
 };

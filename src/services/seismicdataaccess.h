@@ -10,6 +10,7 @@ public:
  bool open(const QString& path, QString *error);
  QString sourcePath() const { return QString::fromUtf8(m_file); }
  std::string coordinateUnit() const { return m_unit; }
+ QString coordinateSystem() const { return QString::fromUtf8(m_crs); }
  bool inspect(paleo::data::SeismicFileInfo& result,std::string& error,const paleo::data::CancelCheck& cancel={});
  bool line(bool isInline,int number,const paleo::data::SectionReadOptions& options,paleo::data::SeismicSectionResult& result,std::string& error,const paleo::data::CancelCheck& cancel={});
  bool time(double ms,const paleo::data::TimeSliceReadOptions& options,paleo::data::SeismicTimeSliceResult& result,std::string& error,const paleo::data::CancelCheck& cancel={});
@@ -21,6 +22,7 @@ private:
  long long m_volume=0;
  std::string m_file;
  std::string m_unit;
+ std::string m_crs;
 };
 QString seismicProjectSource(const QString& project,const QString& preferred,QString *error);
 }

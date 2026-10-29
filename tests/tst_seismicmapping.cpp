@@ -10,6 +10,8 @@
 #include "../src/linkage/selectioncontext.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
 #include <qgsmapcanvas.h>
+#include <qgscoordinatetransform.h>
+#include "domain/seismic/sgyvolume.h"
 
 // wave3/derived-publish — §40 SeismicMapLink 的两个新建依赖（E1 决议）：
 //   · SurveyGridGeometry：P1/P2/P3 测网仿射，map XY ↔ (inline, crossline)；
@@ -335,6 +337,29 @@ private slots:
   }
   // review-fix-numerics R3-7：线号步长 >1 时吸附到实际存在的格线。
   void xyToInlineXlineHonoursLineStep();
+  void capturedPathSnapsToRealSparseAxes() {
+    auto index=std::make_shared<seismic::SgyIndex>();index->complete=true;index->coordinateFieldsPresent=true;
+    index->inlineMin=1000;index->inlineMax=1006;index->xlineMin=2000;index->xlineMax=2004;
+    index->inlineValues={1000,1002,1006};index->xlineValues={2000,2004};
+    for(int il:index->inlineValues)for(int xl:index->xlineValues)
+      index->coordinateSamples.push_back({0,il,xl,double(il-1000)*100,double(xl-2000)*50});
+    auto volume=std::make_shared<seismic::SgyVolume>();volume->AdoptIndex(index);
+    QgsMapCanvas canvas;SeismicMapLink link(&canvas,nullptr);link.setActiveVolume(volume);
+    QVERIFY(link.gridGeometry().valid);int calls=0;
+    connect(&link,&SeismicMapLink::sectionExtractRequested,this,
+      [&](std::shared_ptr<const seismic::SgyVolume>,std::vector<glm::ivec2> grid,QString,std::vector<glm::dvec2> route){
+        ++calls;QCOMPARE(grid.size(),size_t(2));QCOMPARE(grid[0].x,1002);QCOMPARE(grid[0].y,2000);
+        QCOMPARE(grid[1].x,1006);QCOMPARE(grid[1].y,2004);QCOMPARE(route[0].x,200.);QCOMPARE(route[0].y,0.);
+        QCOMPARE(route[1].x,600.);QCOMPARE(route[1].y,200.);
+      });
+    link.triggerSectionFromMapPolyline({{130,60},{570,190}});QCOMPARE(calls,1);
+    canvas.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:4326"));canvas.setExtent(QgsRectangle(-.01,-.01,.01,.01));link.setSourceCrs("EPSG:3857");
+    QgsCoordinateTransform transform(QgsCoordinateReferenceSystem("EPSG:3857"),canvas.mapSettings().destinationCrs(),canvas.mapSettings().transformContext());
+    link.onSectionPathCaptured({transform.transform(QgsPointXY(130,60)),transform.transform(QgsPointXY(570,190))});
+    QCOMPARE(calls,2);link.onSectionTraceClicked(0,50,0,1,200,0);
+    QVERIFY2(std::abs(canvas.center().x()-.001796630568239043)<1e-9,qPrintable(QString::number(canvas.center().x(),'g',17)));
+    QVERIFY(std::abs(canvas.center().y())<1e-9);
+  }
 };
 
 

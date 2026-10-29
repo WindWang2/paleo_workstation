@@ -25,6 +25,7 @@
 #include <qgsfeature.h>
 #include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
+#include <qgsrubberband.h>
 #include <qgsvectorlayer.h>
 #include "../src/metadata/wellsectionstore.h"
 #include "../src/ui/paleotheme.h"
@@ -2130,6 +2131,14 @@ class TestWellSectionUi : public QObject
       WellSectionMapBand bare(&canvas);
       bare.setSectionPath({{1.0, 2.0}, {3.0, 4.0}});
       bare.flashWell(QStringLiteral("well-1"));
+    }
+    void mapBandDoesNotBridgeMissingVertexAndSurvivesCanvasClose() {
+      auto *canvas=new QgsMapCanvas;WellSectionMapBand band(canvas);
+      band.setSectionPath({{0,0},{100,100}});QgsRubberBand *line=nullptr;
+      for(auto *item:canvas->scene()->items())if(auto *candidate=dynamic_cast<QgsRubberBand*>(item))line=candidate;
+      QVERIFY(line);QVERIFY(line->isVisible());
+      band.setSectionPath({{0,0},{qQNaN(),5},{100,100}});QVERIFY(!line->isVisible());
+      delete canvas;band.setSectionPath({{0,0},{100,100}});band.flashWell(QString("missing"));
     }
 
     void screenshots()

@@ -7,6 +7,9 @@
 #include "domain/wellcompositemodel.h"
 #include "catalog/areawellprojection.h"
 #include "catalog/areasourceprojection.h"
+#include "catalog/externalsourceverification.h"
+#include "services/cataloghealth.h"
+#include <QtEndian>
 #include "services/projectdata.h"
 #include "workflow/xmlpreviewsession.h"
 #include <QJsonDocument>
@@ -16,6 +19,40 @@
 class TestAreaModel : public QObject {
   Q_OBJECT
 private slots:
+  void seismicQuickFingerprintUsesModelVerification() {
+    QTemporaryDir temp; const auto input=temp.filePath("input"); QVERIFY(QDir().mkpath(input));
+    const auto path=input+"/synthetic.sgy"; QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+    QByteArray header(3600,'\0');
+    qToBigEndian(quint16(2000),header.data()+3216); qToBigEndian(quint16(8),header.data()+3220);
+    qToBigEndian(quint16(5),header.data()+3224); qToBigEndian(quint16(1),header.data()+3502);
+    file.write(header);
+    for (int i=0;i<4;++i) {
+      QByteArray trace(272,'\0'); qToBigEndian(quint16(8),trace.data()+114);
+      qToBigEndian(quint16(2000),trace.data()+116);
+      qToBigEndian(quint32(100+i/2),trace.data()+188); qToBigEndian(quint32(200+i%2),trace.data()+192);
+      file.write(trace);
+    }
+    file.close();
+    const auto project=temp.filePath("project"); QString error; paleo::data::ImportReport report;
+    QVERIFY2(paleo::area_model::importDirectory(project,input,report,&error),qPrintable(error));
+    QVERIFY(report.hashedBytes<=65536); QCOMPARE(report.copyMs,0LL);
+    DataCatalog catalog; QVERIFY(catalog.open(project,&error)); QVERIFY(registerAreaSources(catalog,&error));
+    QCOMPARE(catalog.versions().size(),1); auto version=catalog.versions().front();
+    QVERIFY(version.sha256.startsWith("quick:"));
+    QVERIFY2(catalog.verifyExternalVersionSha(version,&error),qPrintable(error));
+    QVERIFY(paleo::health::verifyExternalShas({version},{},{},project).isEmpty());
+    bool mismatch=true;
+    QVERIFY(verifyExternalSourceFile(project,version,&error,{},&mismatch)); QVERIFY(!mismatch);
+    auto invalid=version; invalid.extra.clear();
+    QVERIFY(!verifyExternalSourceFile(project,invalid,&error));
+    QVERIFY(!verifyExternalSourceFile({},version,&error));
+    invalid=version; invalid.sha256="quick:wrong";
+    QVERIFY(!verifyExternalSourceFile(project,invalid,&error,{},&mismatch)); QVERIFY(mismatch);
+    QVERIFY(!verifyExternalSourceFile(project,version,&error,[]{return true;}));
+    QVERIFY(file.open(QIODevice::Append)); file.write("changed"); file.close();
+    QVERIFY(!verifyExternalSourceFile(project,version,&error,{},&mismatch)); QVERIFY(mismatch);
+    QCOMPARE(paleo::health::verifyExternalShas({version},{},{},project).size(),1);
+  }
   void wellChartCombinesStoredSourcesAndCoordinates() {
     QTemporaryDir temp; const QString input=temp.filePath("input");QVERIFY(QDir().mkpath(input));
     const auto write=[&](const QString &name,const QByteArray &bytes){QFile file(input+"/"+name);return file.open(QIODevice::WriteOnly)&&file.write(bytes)==bytes.size();};

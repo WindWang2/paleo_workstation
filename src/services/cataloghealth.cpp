@@ -2,6 +2,7 @@
 #include "cataloghealth.h"
 
 #include "../catalog/datacatalog.h"
+#include "../catalog/externalsourceverification.h"
 
 #include <QFileInfo>
 
@@ -156,7 +157,7 @@ HealthReport buildCatalogHealth(const HealthSnapshot &s, const QString &projectD
 QVector<HealthIssue> verifyExternalShas(
     const QVector<CatalogVersion> &versions,
     const std::function<bool(int, int, const QString &)> &progress,
-    const std::function<bool()> &cancelled)
+    const std::function<bool()> &cancelled, const QString &project)
 {
   QVector<HealthIssue> issues;
   QVector<CatalogVersion> targets;
@@ -178,31 +179,13 @@ QVector<HealthIssue> verifyExternalShas(
     if (!fi.exists())
       continue; // 缺文件已由快速面报——SHA 段不重复计
     QString serr;
-    const QString actual = DataCatalog::sha256FileHex(v.path, &serr, cancelled);
+    const bool ok = verifyExternalSourceFile(project, v, &serr, cancelled);
     if (cancelled && cancelled()) break;
-    if (actual.isEmpty())
+    if (!ok)
     {
       HealthIssue i = makeIssue(IssueKind::ShaMismatch,
-                                v.fileName.isEmpty() ? v.path : v.fileName,
-                                QStringLiteral("摘要计算失败：%1").arg(serr));
-      i.assetId = v.assetId;
-      i.versionId = v.id;
-      i.sizeBytes = fi.size();
-      issues.append(i);
-      continue;
-    }
-    // 留底摘要可能是大写十六进制（合法 SHA 表示，catalog 原样载入无规范化），
-    // 大小写敏感比对会把合法资产误报成 ShaMismatch——同 dataexport.cpp:66
-    // 与 datacatalog_versions.cpp:233/:414 的 CaseInsensitive 口径。
-    if (actual.compare(v.sha256, Qt::CaseInsensitive) != 0)
-    {
-      HealthIssue i = makeIssue(
-          IssueKind::ShaMismatch, v.fileName.isEmpty() ? v.path : v.fileName,
-          QStringLiteral("源文件与入库时的 SHA-256 不一致（%1 ≠ 留底 %2）")
-              .arg(actual, v.sha256));
-      i.assetId = v.assetId;
-      i.versionId = v.id;
-      i.sizeBytes = fi.size();
+                                v.fileName.isEmpty() ? v.path : v.fileName, serr);
+      i.assetId = v.assetId; i.versionId = v.id; i.sizeBytes = fi.size();
       issues.append(i);
     }
   }

@@ -2,6 +2,7 @@
 #include "previewdoc.h"
 
 #include "../catalog/datacatalog.h"
+#include "../catalog/externalsourceverification.h"
 #include "../domain/arearules.h"
 #include "../domain/wellcompositemodel.h" // ComprehensiveWellData（wellCompositeAt 出参；方向 59 起显式）
 #include "../domain/wellrecords.h"        // WellHeadRecord 等（wellHeadsAt 出参；方向 59 起显式）
@@ -32,61 +33,13 @@
 namespace
 {
 
-// §3：外链源入库时留过 SHA-256——解码前照它再验一遍（文件可能在标签打开后
-// 被改动）。worker 侧逐 64KB 分块哈希 + 进度上报/协作取消（原 UI 内静态函数，
-// 分层收口时随解码编排一起下沉 services）。
-bool externalShaMatches(const QString &absPath, const QString &expected,
+// Snapshot-only verification keeps the worker independent of the live catalog.
+bool externalShaMatches(const QString &project, const CatalogVersion &version,
                         PaleoTask *task, QString *error, bool *mismatched = nullptr)
 {
-  QFile f(absPath);
-  if (!f.open(QIODevice::ReadOnly))
-  {
-    if (error)
-      *error = QStringLiteral("无法读取源文件：%1").arg(absPath);
-    return false;
-  }
-  const qint64 total = f.size();
-  QCryptographicHash hash(QCryptographicHash::Sha256);
-  // 64KB chunks: a 1MB stack buffer overflows the default Windows thread
-  // stack when the preview runs on the QTest main thread.
-  char buf[64 << 10];
-  qint64 done = 0;
-  int sinceReport = 0;
-  for (;;)
-  {
-    const qint64 n = f.read(buf, sizeof(buf));
-    if (n < 0)
-    {
-      if (error)
-        *error = QStringLiteral("读取源文件失败：%1").arg(absPath);
-      return false;
-    }
-    if (n == 0)
-      break;
-    hash.addData(QByteArrayView(buf, static_cast<qsizetype>(n)));
-    done += n;
-    if (task && ++sinceReport >= 16) // ~16MB 粒度上报
-    {
-      sinceReport = 0;
-      task->reportBytes(done, total);
-      if (task->cancelRequested())
-      {
-        if (error)
-          *error = QStringLiteral("cancelled");
-        return false;
-      }
-    }
-  }
-  if (QString::fromLatin1(hash.result().toHex())
-          .compare(expected, Qt::CaseInsensitive) != 0)
-  {
-    if (error)
-      *error = QStringLiteral("源文件与入库时的 SHA-256 不一致");
-    if (mismatched)
-      *mismatched = true;
-    return false;
-  }
-  return true;
+  return verifyExternalSourceFile(project, version, error,
+      [task] { return task && task->cancelRequested(); }, mismatched,
+      [task](qint64 done, qint64 total) { if (task) task->reportBytes(done, total); });
 }
 
 } // namespace
@@ -508,16 +461,16 @@ void PreviewDocService::verifyExternalShaAsync(
     QString err;
     return settle(verifyExternalSha(assetId, version, &err), err);
   }
-  const QString expected = version.sha256;
+  const QString project = catalog() ? catalog()->projectDir() : QString();
   const QString versionId = version.id;
   // 失配由 worker 经 shared_ptr 交接（与 requestSection 的 shaMismatch 同
   // 纪律）——GUI 线程再判文案并碰 catalog，worker 只做纯 IO。
   const auto mismatched = std::make_shared<bool>(false);
   auto *task = m_taskSvc->start(
       tr("校验外链完整性 %1").arg(QFileInfo(absPath).fileName()),
-      [absPath, expected, mismatched](PaleoTask *t) -> QString {
+      [project, version, mismatched](PaleoTask *t) -> QString {
         QString err;
-        if (!externalShaMatches(absPath, expected, t, &err, mismatched.get()))
+        if (!externalShaMatches(project, version, t, &err, mismatched.get()))
           return (t && t->cancelRequested()) ? QString() : err;
         return QString();
       },
@@ -559,7 +512,7 @@ void PreviewDocService::verifyExternalShaAsync(
                   qWarning() << "markDownstreamStale:" << markErr;
               }
               if (done)
-                done(false, QStringLiteral("源文件与入库时的 SHA-256 不一致"));
+                done(false, guard->errorText());
               return;
             }
             if (done)
@@ -835,7 +788,10 @@ void PreviewDocService::requestSection(const QString &assetId,
   // 任务池执行并回报字节进度/ETA；任务可协作取消。
   // P4 D2：磁盘索引目录在 GUI 线程取（worker 只值捕获）。
   const QString idxDir = m_svc ? m_svc->indexCacheDir() : QString();
-  const auto work = [absPath, isInline, lineNo, needSha, sha256, cachedReader, idxDir,
+  const QString project = catalog() ? catalog()->projectDir() : QString();
+  CatalogVersion sourceVersion = catalog() ? catalog()->versionById(versionId) : CatalogVersion();
+  sourceVersion.path = absPath; sourceVersion.sha256 = sha256; sourceVersion.managed = managed;
+  const auto work = [absPath, isInline, lineNo, needSha, project, sourceVersion, cachedReader, idxDir,
                      out, shaMismatch](PaleoTask *t) -> QString {
     std::shared_ptr<SegyReader> reader = cachedReader;
     SegyOptions opts;
@@ -849,7 +805,7 @@ void PreviewDocService::requestSection(const QString &assetId,
       if (needSha)
       {
         QString serr;
-        if (!externalShaMatches(absPath, sha256, t, &serr, shaMismatch.get()))
+        if (!externalShaMatches(project, sourceVersion, t, &serr, shaMismatch.get()))
           return (t && t->cancelRequested()) ? QString() : serr;
       }
       reader = std::make_shared<SegyReader>();

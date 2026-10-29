@@ -2,6 +2,7 @@
 #include "projectsetup.h"
 #include "folderimport.h"
 #include "../io/areamodel.h"
+#include "../io/projectcoordinates.h"
 #include "../io/dataimportservice.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../services/futuretask.h"
@@ -40,13 +41,14 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
   if (!staging->isValid()) { emit finished(QStringLiteral("无法创建工区模型暂存目录"), false); return; }
   const auto modelProblems = std::make_shared<QMap<QString, QString>>();
   const auto modelSummary = std::make_shared<QString>();
+  const auto coordinates = std::make_shared<paleo::data::ProjectCrsInfo>();
   auto *watcher = new QFutureWatcher<QString>(this);
   auto *modelTask = m_mapTasks ? m_mapTasks->beginExternal(QStringLiteral("导入工区数据模型"), {}, false) : nullptr;
   const auto reportStage = [modelTask](int done, int total, const QString &text) {
     paleo::tasks::reportProgress(modelTask, done, total, text);
   };
   reportStage(0, 0, QStringLiteral("准备工区数据模型"));
-  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, sources, preview, session, stop, project, staging, generation, modelSummary, modelProblems] {
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, sources, preview, session, stop, project, staging, generation, modelSummary, modelProblems, coordinates] {
     const QString error = watcher->future().isCanceled() ? QStringLiteral("工区模型导入已取消") : watcher->result();
     watcher->deleteLater();
     if (generation != m_areaGeneration || !m_project || m_project->sessionId() != session || !m_imports) return;
@@ -64,13 +66,25 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
     if (previous) QDir(backup).removeRecursively();
     paleo::area_model::registerProject(project, m_imports->importService());
     auto projection = preview;
+    const auto crs = QString::fromUtf8(coordinates->coordinateSystem);
+    if (preview.projectCrs.isEmpty() && !m_project->georeference() &&
+        coordinates->selectionBasis == "import" && !coordinates->hasConflict &&
+        coordinates->coordinateUnit == "m" && paleo::io::isMetricProjectCrs(crs)) {
+      auto configuration = m_project->mapConfiguration();
+      PaleoGeoreference reference; reference.kind = QStringLiteral("crs");
+      reference.sourceCrs = crs; reference.targetCrs = QStringLiteral("EPSG:4326");
+      configuration.georeference = reference;
+      QString coordinateError;
+      if (!m_project->updateMapConfiguration(configuration, &coordinateError))
+        modelProblems->insert(QStringLiteral("工区坐标系"), coordinateError);
+    }
     projection.notes << *modelSummary;
     for (auto it = modelProblems->cbegin(); it != modelProblems->cend(); ++it) projection.sourceProblems.insert(it.key(), it.value());
     importCatalogSources(sources, projection, session);
   });
   const auto crs = preview.projectCrs;
   const auto crsUnit = preview.pointMapping.value("unit").toString();
-  const auto future = QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [roots, project, stop, staging, modelSummary, modelProblems, reportStage, crs, crsUnit](QPromise<QString> &promise) {
+  const auto future = QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [roots, project, stop, staging, modelSummary, modelProblems, coordinates, reportStage, crs, crsUnit](QPromise<QString> &promise) {
     promise.setProgressRange(0, 0);
     promise.setProgressValueAndText(0, QStringLiteral("准备工区数据模型"));
     const QString active = paleo::area_model::directory(project);
@@ -102,6 +116,17 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
       *modelSummary += ProjectSetupWorkflow::tr("工区模型：扫描 %1，导入 %2，登记 %3，待核对 %4，跳过 %5，失败 %6。")
           .arg(report.seen).arg(report.imported).arg(report.registered).arg(report.review).arg(report.skipped).arg(report.failed) + '\n';
     }
+    paleo::data::DataService model; std::string detail;
+    if (!model.openProjectReadOnly(prepared.toUtf8().toStdString(), detail) ||
+        !model.readProjectCrsInfo(*coordinates, detail)) { promise.addResult(QString::fromUtf8(detail)); return; }
+    if (coordinates->hasConflict)
+      *modelSummary += ProjectSetupWorkflow::tr("资料中存在坐标系或单位冲突，已在数据模型中保留各来源声明，请核对。") + '\n';
+    if (!coordinates->coordinateSystem.empty())
+      *modelSummary += ProjectSetupWorkflow::tr("数据模型坐标系：%1 [%2]；依据：%3；来源声明 %4 条。")
+          .arg(QString::fromUtf8(coordinates->coordinateSystem), QString::fromUtf8(coordinates->coordinateUnit),
+               QString::fromUtf8(coordinates->selectionBasis)).arg(coordinates->candidates.size()) + '\n';
+    else if (!coordinates->hasConflict)
+      *modelSummary += ProjectSetupWorkflow::tr("资料未提供可唯一确定的 EPSG 坐标系，已保留原始坐标，不推测投影。") + '\n';
     reportStage(0, 0, QStringLiteral("工区数据模型已准备完成，正在更新资料索引"));
     promise.addResult(QString());
   });

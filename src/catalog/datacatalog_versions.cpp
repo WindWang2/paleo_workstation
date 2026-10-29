@@ -1,6 +1,7 @@
 // 层：数据
 #include "datacatalog.h"
 #include "datacatalog_internal.h"
+#include "externalsourceverification.h"
 #include "../metadata/managedpath.h"
 #include "../metadata/storeerrors_internal.h"
 
@@ -386,22 +387,7 @@ QString DataCatalog::sha256FileHex(const QString &path, QString *error, const st
 
 bool DataCatalog::verifyExternalVersionSha(const CatalogVersion &v, QString *error) const
 {
-  // 受管版本（自己写入的副本）与未留底的外链（旧 catalog）无从校验。
-  if (v.managed || v.sha256.isEmpty())
-    return true;
-  QString herr;
-  const QString current = sha256FileHex(v.path, &herr); // 外链 path 是绝对路径
-  if (current.isEmpty())
-  {
-    setError(error, herr.isEmpty() ? QStringLiteral("cannot read %1").arg(v.path) : herr);
-    return false;
-  }
-  if (current.compare(v.sha256, Qt::CaseInsensitive) != 0)
-  {
-    setError(error, QStringLiteral("源文件与入库时的 SHA-256 不一致"));
-    return false;
-  }
-  return true;
+  return verifyExternalSourceFile(projectDir(), v, error);
 }
 
 bool DataCatalog::isSafePathSegment(const QString &segment)

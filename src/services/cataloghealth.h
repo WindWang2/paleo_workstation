@@ -83,13 +83,15 @@ HealthReport buildCatalogHealth(const HealthSnapshot &snapshot, const QString &p
 HealthReport buildCatalogHealth(DataCatalog *cat, const QString &projectDir,
                                 QString *error = nullptr);
 
-// 外链带 SHA 版本的离线复验：对每个版本流式重算源文件 SHA-256 与留底比对。
+// 离线来源复验：完整 SHA 流式重算；模型 SEG-Y 快速指纹交给 Data_service。
+// 快速指纹要求 project，用模型 sourceId 校验身份，绝不降级为整文件哈希。
 // versions 是调用方在 GUI 线程拷出的值列表（只含 !managed && !sha256.isEmpty()
 // 的行——本函数再过滤一次防混入）。subject 用版本 fileName（worker 拿不到
 // 资产表，不回查 catalog）。progress(已验数, 总数, 文件名) 返回 false = 取消。
 QVector<HealthIssue> verifyExternalShas(const QVector<CatalogVersion> &versions,
                                         const std::function<bool(int, int,
                                                                  const QString &)> &progress = {},
-                                        const std::function<bool()> &cancelled = {});
+                                        const std::function<bool()> &cancelled = {},
+                                        const QString &project = {});
 
 } // namespace paleo::health

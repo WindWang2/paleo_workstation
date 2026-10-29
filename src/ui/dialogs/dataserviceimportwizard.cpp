@@ -59,10 +59,10 @@ QWizardPage *DataServiceImportWizard::settingsPage()
 {
   auto *page = new QWizardPage(this);
   page->setTitle(tr("坐标与导入设置"));
-  page->setSubTitle(tr("可以暂不设置，先建立数据模型；工程计算基准须为米制投影坐标系。"));
+  page->setSubTitle(tr("默认从资料声明识别坐标系；也可指定米制投影作为工程计算基准，资料原有坐标系会保留。"));
   auto *form = new QFormLayout(page);
   m_crs = new PaleoCrsSelector(true, page); m_crs->setObjectName(QStringLiteral("dataServiceCrsEdit"));
-  m_crs->setNotSetText(tr("暂不设置，先建立数据模型"));
+  m_crs->setNotSetText(tr("从资料自动识别"));
   m_crsUnit = new QComboBox(page); m_crsUnit->setObjectName(QStringLiteral("dataServiceCrsUnitCombo"));
   m_crsUnit->addItem(QStringLiteral("m")); m_crsUnit->setPlaceholderText(tr("未设置"));
   m_crsUnit->setEnabled(false);
@@ -170,7 +170,7 @@ void DataServiceImportWizard::refreshReview()
   if (!m_review) return;
   m_review->setText(tr("工程：%1\n资料目录：%2\n坐标系：%3 [%4]\n解析线程：%5；内存预算：%6 MiB\n\n原始文件只引用、不复制；模型导入完成后直接生成索引。")
       .arg(m_name->text().trimmed(), m_root->text().trimmed(),
-           m_crs->text().trimmed().isEmpty() ? tr("未设置（先建立模型，保留资料原有坐标约定）") : m_crs->text().trimmed(),
+           m_crs->text().trimmed().isEmpty() ? tr("从资料声明自动识别（未声明则保留未知）") : m_crs->text().trimmed(),
            m_crs->text().trimmed().isEmpty() ? tr("未设置") : m_crsUnit->currentText(),
            m_threads->currentText(), m_pending->currentText()));
 }

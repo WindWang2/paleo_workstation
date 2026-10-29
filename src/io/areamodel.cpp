@@ -97,8 +97,8 @@ bool importDirectoryWithCrs(const QString &project, const QString &source,
   const int pendingMb = qEnvironmentVariableIntValue("PALEO_IMPORT_PENDING_MB", &configured);
   options.maxPendingBytes = qint64(std::clamp(configured ? pendingMb : 256, 8, 1024)) * 1024 * 1024;
   options.parsing.comprehensiveWellMetreDepth = true;
-  options.parsing.coordinateSystem = crs.toUtf8().toStdString();
-  options.parsing.coordinateUnit = crsUnit.toUtf8().toStdString();
+  // A computation target is not a declaration of every input's source CRS.
+  // Data_service collects explicit source declarations during parsing.
   if (!crs.isEmpty() && !service.setProjectCrs(crs.toUtf8().toStdString(), crsUnit.toUtf8().toStdString(), detail)) {
     if (error) *error = QString::fromUtf8(detail);
     return false;

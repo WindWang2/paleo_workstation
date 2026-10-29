@@ -68,7 +68,9 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
     for (auto it = modelProblems->cbegin(); it != modelProblems->cend(); ++it) projection.sourceProblems.insert(it.key(), it.value());
     importCatalogSources(sources, projection, session);
   });
-  const auto future = QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [roots, project, stop, staging, modelSummary, modelProblems, reportStage](QPromise<QString> &promise) {
+  const auto crs = preview.projectCrs;
+  const auto crsUnit = preview.pointMapping.value("unit").toString();
+  const auto future = QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [roots, project, stop, staging, modelSummary, modelProblems, reportStage, crs, crsUnit](QPromise<QString> &promise) {
     promise.setProgressRange(0, 0);
     promise.setProgressValueAndText(0, QStringLiteral("准备工区数据模型"));
     const QString active = paleo::area_model::directory(project);
@@ -87,14 +89,14 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
       if (!QFileInfo(root).isDir()) continue;
       paleo::data::ImportReport report;
       QString error;
-      if (!paleo::area_model::importDirectory(staging->path(), root, report, &error,
+      if (!paleo::area_model::importDirectoryWithCrs(staging->path(), root, report, &error,
           [stop] { return stop->load(); }, {QDir(project).filePath("artifacts"), staging->path(),
            QDir(root) == QDir(project) ? QDir(project).filePath("artifacts") : project},
           [&promise, reportStage](int done, int total, const QString &text) {
             reportStage(done, total, text);
             promise.setProgressRange(0, total);
             promise.setProgressValueAndText(done, text);
-          }))
+          }, crs, crsUnit))
         { promise.addResult(error.isEmpty() ? QStringLiteral("工区模型导入失败") : error); return; }
       if (report.failed > 0) modelProblems->insert(root, error);
       *modelSummary += ProjectSetupWorkflow::tr("工区模型：扫描 %1，导入 %2，登记 %3，待核对 %4，跳过 %5，失败 %6。")

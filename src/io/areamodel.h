@@ -13,6 +13,11 @@ bool importDirectory(const QString &project, const QString &source,
                      paleo::data::ImportReport &report, QString *error,
                      const std::function<bool()> &cancelled = {}, const QStringList &excluded = {},
                      const std::function<void(int, int, const QString &)> &progress = {});
+bool importDirectoryWithCrs(const QString &project, const QString &source,
+                     paleo::data::ImportReport &report, QString *error,
+                     const std::function<bool()> &cancelled, const QStringList &excluded,
+                     const std::function<void(int, int, const QString &)> &progress,
+                     const QString &crs, const QString &crsUnit);
 void registerProject(const QString &project, const void *owner);
 void registerAliases(const DataCatalog &catalog, const void *owner);
 void unregisterProject(const void *owner);

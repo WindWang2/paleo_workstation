@@ -46,12 +46,20 @@ X（纵坐标）/Y（横坐标）按纵／横语义映射，不按列名前缀�
 well/x/y 列映射直接读取模型中的 SourceTable，再用 createWell/saveWellInfo 写回同一
 模型，不读取原件，也不改变子模块公共解析选项。
 
+## 批量写入、工程 EPSG 与专用向导
+
+原始单元格、层位点、层段和测量值按 256 行一批执行 execBatch；批次复用同一 SQL，
+在批次间检查取消。新增工程级 projectCrs/projectCrsUnit 元数据及 setProjectCrs，EPSG
+同时写入 ds_meta 与模型坐标约定，重开保留。新建工程改用 Data_service 专用 QWizard，
+收集目录、EPSG、单位、线程／内存预算和可选井位列映射；补充资料仍走原向导。
+
 ## 验证
 
 新增测试：百分比保持零时阶段文字与范围仍更新；模型坐标修改／更名／缺失值在
 目录、编图门面、井位导出中一致；模型独有井登记；目录模型任务为非静默任务。
 并行／串行结果一致、取消和小内存预算沿用子模块 import_performance_tests。
 
-最终复验：宿主 10/10（5 个业务套件 + 5 个源码闸门），子模块独立 Release 20/20。
-日志：build/area-source-index-final-build.log、build/area-source-index-final-tests.log、
-build/data-service-index-clean-build.log、build/data-service-index-clean-tests.log。
+最终复验：宿主 11/11（6 个业务套件 + 5 个源码闸门），子模块独立 Release 20/20。
+新增向导端到端测试覆盖 EPSG 元数据、模型井位及目录索引；批量写入覆盖数值、回滚与取消。
+日志：build/data-service-wizard-final-build.log、build/data-service-wizard-final-tests.log、
+build/data-service-crs-batch-full-build.log、build/data-service-crs-batch-full-tests.log。

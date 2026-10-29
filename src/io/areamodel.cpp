@@ -72,6 +72,13 @@ bool importDirectory(const QString &project, const QString &source,
                      paleo::data::ImportReport &report, QString *error,
                      const std::function<bool()> &cancelled, const QStringList &excluded,
                      const std::function<void(int, int, const QString &)> &progress) {
+  return importDirectoryWithCrs(project, source, report, error, cancelled, excluded, progress, {}, {});
+}
+bool importDirectoryWithCrs(const QString &project, const QString &source,
+                     paleo::data::ImportReport &report, QString *error,
+                     const std::function<bool()> &cancelled, const QStringList &excluded,
+                     const std::function<void(int, int, const QString &)> &progress,
+                     const QString &crs, const QString &crsUnit) {
   if (progress) progress(0, 0, QStringLiteral("初始化工区数据模型"));
   paleo::data::DataService service;
   std::string detail;
@@ -90,6 +97,12 @@ bool importDirectory(const QString &project, const QString &source,
   const int pendingMb = qEnvironmentVariableIntValue("PALEO_IMPORT_PENDING_MB", &configured);
   options.maxPendingBytes = qint64(std::clamp(configured ? pendingMb : 256, 8, 1024)) * 1024 * 1024;
   options.parsing.comprehensiveWellMetreDepth = true;
+  options.parsing.coordinateSystem = crs.toUtf8().toStdString();
+  options.parsing.coordinateUnit = crsUnit.toUtf8().toStdString();
+  if (!crs.isEmpty() && !service.setProjectCrs(crs.toUtf8().toStdString(), crsUnit.toUtf8().toStdString(), detail)) {
+    if (error) *error = QString::fromUtf8(detail);
+    return false;
+  }
   for (const auto &path : excluded) options.excludedDirectories.push_back(path.toUtf8().toStdString());
   const bool ok = service.importDirectory(source.toUtf8().toStdString(), options, report, detail, [&progress](const paleo::data::ImportProgress &p) {
     if (progress) progress(p.completed, p.total, QString::fromUtf8(p.status) + ": " + QString::fromUtf8(p.file));

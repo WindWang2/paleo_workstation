@@ -1,6 +1,7 @@
 // 层：视图
 #include "paleomainwindow.h"
 #include "dialogs/projectsetupdialog.h"
+#include "dialogs/dataserviceimportwizard.h"
 #include "../workflow/projectsetup.h"
 #include "notifications/paleonotify.h"
 #include "../qgis/qgisprojectservice.h"
@@ -20,8 +21,19 @@ void PaleoMainWindow::runNewProject(const QString &sourceRoot, bool supplement)
   // maybeSaveProject，用户一取消就连带丢弃本轮已填的扫描/映射/图件勾选；提前
   // 后取消仅退出（向导尚未打开，无输入可丢），重试循环内也不再弹。
   if (!maybeSaveProject()) { workflow->deleteLater(); return; }
+  if (!supplement) {
+    DataServiceImportWizard dialog(workflow, this);
+    if (!sourceRoot.isEmpty()) dialog.setSourceRoot(sourceRoot);
+    while (dialog.exec() == QDialog::Accepted) {
+      QString error;
+      if (workflow->create(dialog.projectPath(), dialog.sources(), dialog.preview(), &error)) return;
+      dialog.showCreationError(error);
+    }
+    workflow->deleteLater();
+    return;
+  }
   ProjectSetupDialog dialog(workflow, this);
-  if (supplement) dialog.setExistingProject(m_projectSvc->projectPath(), workflow->currentSources());
+  dialog.setExistingProject(m_projectSvc->projectPath(), workflow->currentSources());
   if (!sourceRoot.isEmpty()) dialog.setSourceRoot(sourceRoot);
   while (dialog.exec() == QDialog::Accepted) {
     QString error;

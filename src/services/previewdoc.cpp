@@ -48,8 +48,6 @@ PreviewDocService::~PreviewDocService()
 {
   // #390：在飞任务归还并发闸并打断 worker 的同服务调用面（resetProjectState
   // 同款取消循环——析构不能等任务自然结束）。
-  if (m_surveyTask)
-    m_surveyTask->requestCancel();
   for (auto it = m_decodeTask.begin(); it != m_decodeTask.end(); ++it)
     if (PaleoTask *t = it.value().data(); t && t->running())
       t->requestCancel();
@@ -1006,10 +1004,6 @@ QHash<QString, LasDoc> PreviewDocService::lasSiblingDocs(const QString &key) con
 
 void PreviewDocService::resetProjectState()
 {
-  ++m_surveyGeneration;
-  if (m_surveyTask)
-    m_surveyTask->requestCancel();
-  m_surveyTask.clear();
   for (auto it = m_decodeTask.begin(); it != m_decodeTask.end(); ++it)
     if (PaleoTask *t = it.value().data(); t && t->running())
       t->requestCancel();

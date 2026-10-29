@@ -306,7 +306,7 @@ void ProjectStatisticsPage::refreshSurveyMap()
   if (!m_mapCanvas || !isVisible())
     return;
   // 导入期间 DataCatalog::changed 密集触发防抖刷新；页面隐藏时整个跳过，
-  // showEvent 再补刷。停渲染→改层纪律与取界优先级在 DashboardSurveyMap::update。
+  // showEvent 再补刷。停渲染→改层纪律在 DashboardSurveyMap::update。
   QVector<CatalogEntity> wells;
   CatalogEntity survey;
   bool hasSurvey = false;
@@ -320,6 +320,7 @@ void ProjectStatisticsPage::refreshSurveyMap()
       hasSurvey = true;
     }
   }
+  // 三视图范围（数据服务）只用于取景；范围框按用户要求撤下，图上只画井位。
   DashboardSurveyMap::AreaRanges ranges;
   const auto convert = [](const AreaPlanarRange &in) {
     DashboardSurveyMap::RangeRect out;
@@ -356,7 +357,7 @@ void ProjectStatisticsPage::buildSurveyMapCard()
   if (m_mapCanvas || !m_content || !m_scroll->widget())
     return;
   auto *body = m_scroll->widget();
-  // 工区地图直接进看板：井位 + 工区范围，零设置（滚轮缩放、拖拽漫游）；
+  // 工区地图直接进看板：井位，零设置（滚轮缩放、拖拽漫游）；
   // 底图/比例尺/网格等完整工具在「工区全景地图」页，头部按钮直达。
   auto *mapCard = card(body);
   mapCard->setObjectName("dashboardSurveyMapCard");
@@ -378,13 +379,9 @@ void ProjectStatisticsPage::buildSurveyMapCard()
   m_decorations->setObjectName(QStringLiteral("dashboardSurveyDecor"));
   m_decorations->setScaleBarEnabled(true);
   m_decorations->setNorthArrowEnabled(true);
-  auto *legend = new QLabel(tr("<span style=\"color:%1\">●</span>&nbsp;井位&nbsp;&nbsp;"
-                               "<span style=\"color:%1\">╌╌</span>&nbsp;工区范围&nbsp;&nbsp;"
-                               "<span style=\"color:%2\">⋯⋯</span>&nbsp;测井范围&nbsp;&nbsp;"
-                               "<span style=\"color:%3\">╌╌</span>&nbsp;地震范围")
-                                 .arg(qssHex(PaleoTheme::kColorPrimary),
-                                      DashboardSurveyMap::kWellRangeColor.name(),
-                                      DashboardSurveyMap::kSeismicRangeColor.name()), mapCard);
+  // 范围图例项随范围框一并撤下（工区/测井/地震范围不再画），只留井位。
+  auto *legend = new QLabel(tr("<span style=\"color:%1\">●</span>&nbsp;井位")
+                                 .arg(qssHex(PaleoTheme::kColorPrimary)), mapCard);
   legend->setTextFormat(Qt::RichText);
   PaleoTheme::applyThemedStyleSheet(legend, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   mapLay->addWidget(legend);

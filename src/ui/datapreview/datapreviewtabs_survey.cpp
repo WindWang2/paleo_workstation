@@ -12,7 +12,6 @@
 #include <qgsmapcanvas.h>
 #include <qgslayertree.h>
 #include <qgsproject.h>
-#include <qgsrubberband.h>
 #include <QAction>
 #include "../../qgis/wellpointnavigation.h"
 #include <QTimer>
@@ -27,10 +26,10 @@ using namespace paleo::datapreview_detail;
 void DataPreviewTabs::openSurveyArea()
 {
   const QString key = QStringLiteral("survey_area");
-  // 页内容按建页时刻快照 catalog 井位/工区范围与工程底图克隆——测区节点在
+  // 页内容按建页时刻快照 catalog 井位与工程底图克隆——测区节点在
   // 树里常驻、随时可激活，页可能早于数据就绪落成降级态（0 井、10×10 默认
-  // 范围、无底图）。激活一律按现状整体重建：旧复用路径只能回灌井位，范围
-  // 与底图永不合愈。开销与初次建页相同（内存层 + rubber band + 底图克隆）。
+  // 范围、无底图）。激活一律按现状整体重建：旧复用路径只能回灌井位，底图
+  // 永不合愈。开销与初次建页相同（内存层 + 底图克隆）。
   if (m_pageOfAsset.contains(key))
     closeAssetTab(key);
 
@@ -106,17 +105,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   auto *btnPan = navButton("btnSurveyPan", tr("漫游"), tr("按住鼠标左键拖拽平移地图"),
                            QStringLiteral("mActionPan.svg"));
 
-  // 1. 工区概况图应该有比例尺，指南针，工区范围等显示
-  auto *btnBoundary = new QToolButton(topBar);
-  btnBoundary->setObjectName(QStringLiteral("btnToggleSurveyBoundary"));
-  btnBoundary->setText(tr("工区范围"));
-  btnBoundary->setToolTip(tr("显示/隐藏工区范围边界多边形"));
-  btnBoundary->setCheckable(true);
-  btnBoundary->setChecked(true);
-  btnBoundary->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")));
-  btnBoundary->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-  tbLay->addWidget(btnBoundary);
-
+  // 1. 工区概况图应该有比例尺，指南针等显示
   auto *btnScaleBar = new QToolButton(topBar);
   btnScaleBar->setObjectName(QStringLiteral("btnToggleScaleBar"));
   btnScaleBar->setText(tr("比例尺"));
@@ -192,8 +181,9 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   else
     mapPage->setOverviewVisible(false);
 
-  // 全景是固定内容画布：只挂私有井位层 + 工区范围 rubber band——不桥接
-  // QgsProject 图层树（其它画布/图层服务实例化的图层不外溢进来，也不联动）。
+  // 全景是固定内容画布：只挂私有井位层——不桥接 QgsProject 图层树（其它
+  // 画布/图层服务实例化的图层不外溢进来，也不联动）。工区范围带（原由地震
+  // 测区角点/井位并集拟合、后台恢复）按用户要求撤下。
   auto *wellsVl = makeMemoryPointLayer(tr("井位"), w);
   wellsVl->setObjectName(QStringLiteral("surveyWellsLayer"));
   wellsVl->setCrs(surveyCrs);
@@ -207,7 +197,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   decorMgr->setScaleBarEnabled(true);
   decorMgr->setNorthArrowEnabled(true);
 
-  // 构建工区边界 (QgsRubberBand)
+  // 首个测区实体：底部时间剖面按它的测网号域取线（范围框已撤，不再画角点）。
   CatalogEntity survey;
   if (m_doc && m_doc->catalog())
   {
@@ -216,65 +206,19 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
       survey = surveys.first();
   }
 
-  // 取界优先级：角点 → 井位并集 → 默认 10×10。
-  // 不拿 inline/xline 线号当坐标画框——线号是测网索引（百/千级），与米制
-  // 网格不同系（dashboardsurveymap 同口径）：画出来的「工区框」没有空间
-  // 意义，还会把全图缩放拖到假位置，井位缩成不可见的点。角点缺失时由
-  // 下方 requestSurveyBounds 异步补探（轻量道头探测，规则网格秒回）并写回
-  // 目录实体；井位并集只是补探完成前的临时框。
-  QgsGeometry surveyGeom;
-  if (survey.corners.size() >= 3)
-  {
-    QgsRectangle bounds;
-    for (const auto &c : survey.corners)
-      if (std::isfinite(c.first) && std::isfinite(c.second))
-        bounds.combineExtentWith(QgsRectangle(c.first, c.second, c.first, c.second));
-    if (!bounds.isEmpty())
-      surveyGeom = QgsGeometry::fromRect(bounds);
-  }
-  if (surveyGeom.isNull() && !wellsExtent.isNull())
-  {
-    // 无 survey 几何：井位并集做兜底范围（单井退化范围扩 50 m 边）。
-    if (wellsExtent.isEmpty())
-      wellsExtent.grow(50.0);
-    surveyGeom = QgsGeometry::fromRect(wellsExtent);
-  }
-  if (surveyGeom.isNull())
-  {
-    // 默认局部测区范围 (10 km × 10 km)
-    surveyGeom = QgsGeometry::fromRect(QgsRectangle(0, 0, 10000, 10000));
-  }
+  // 取景范围：井位并集（单井退化扩 50 m 边）；无井时 10 km 默认幅面。
+  // 工区范围带与「范围 X × Y」文案按用户要求撤下；测区角点/线号不再参与
+  // 取景（线号不是坐标，dashboardsurveymap 同口径）。
+  if (wellsExtent.isNull())
+    wellsExtent = QgsRectangle(0, 0, 10000, 10000);
+  else if (wellsExtent.isEmpty())
+    wellsExtent.grow(50.0);
 
-  auto *boundaryBand = new QgsRubberBand(canvas, Qgis::GeometryType::Polygon);
-  boundaryBand->setParent(canvas);
-  boundaryBand->setObjectName(QStringLiteral("surveyAreaRubberBand"));
-  if (!surveyGeom.isNull() && surveyGeom.isGeosValid())
-  {
-    boundaryBand->setToGeometry(surveyGeom, surveyCrs);
-  }
-  boundaryBand->setColor(QColor(27, 115, 208, 16)); // #1B73D0 浅蓝半透明填充
-  boundaryBand->setStrokeColor(QColor(QStringLiteral("#1B73D0"))); // 边界线
-  boundaryBand->setWidth(2);
-  boundaryBand->setLineStyle(Qt::DashLine);
-  boundaryBand->show();
-
-  // 工区范围与坐标系说明标签
-  QString extentStr;
-  if (!surveyGeom.isNull() && !surveyGeom.boundingBox().isEmpty())
-  {
-    const QgsRectangle box = surveyGeom.boundingBox();
-    const double wKm = box.width() / 1000.0;
-    const double hKm = box.height() / 1000.0;
-    extentStr = tr("工区范围: %1 km × %2 km · %3")
-                    .arg(QString::number(wKm, 'f', 1), QString::number(hKm, 'f', 1),
-                         canvas->mapSettings().destinationCrs().type() == Qgis::CrsType::Engineering ? tr("局部工程坐标 (米)")
-                             : canvas->mapSettings().destinationCrs().userFriendlyIdentifier());
-  }
-  else
-  {
-    extentStr = tr("局部工程坐标系统 (米)");
-  }
-  auto *crsLabel = new QLabel(extentStr, topBar);
+  // 坐标系说明标签（只报 CRS；原「工区范围 X × Y」文案随范围带一并撤下）
+  const QString crsText = canvas->mapSettings().destinationCrs().type() == Qgis::CrsType::Engineering
+                              ? tr("局部工程坐标 (米)")
+                              : canvas->mapSettings().destinationCrs().userFriendlyIdentifier();
+  auto *crsLabel = new QLabel(crsText, topBar);
   crsLabel->setObjectName(QStringLiteral("surveyAreaExtentLabel"));
   QFont crsFont = PaleoTheme::monoFont();
   crsFont.setPointSize(PaleoTheme::tokens().labelPt);
@@ -286,11 +230,11 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   lay->addWidget(new PaleoToolRow(topBar, w));
   lay->addWidget(mapPage, 1);
 
-  auto completeSurvey = std::make_shared<QgsGeometry>(surveyGeom);
-  auto zoomFull = [canvas, completeSurvey, surveyCrs]() {
-    if (!completeSurvey->isNull() && !completeSurvey->boundingBox().isEmpty())
+  auto completeExtent = std::make_shared<QgsRectangle>(wellsExtent);
+  auto zoomFull = [canvas, completeExtent, surveyCrs]() {
+    if (!completeExtent->isEmpty())
     {
-      QgsRectangle ext = paleo::mapreference::mapExtent(canvas, completeSurvey->boundingBox(), surveyCrs);
+      QgsRectangle ext = paleo::mapreference::mapExtent(canvas, *completeExtent, surveyCrs);
       if (ext.isEmpty()) return;
       ext.grow(qMax(ext.width(), ext.height()) * 0.08);
       canvas->setExtent(ext);
@@ -309,10 +253,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   connect(btnPan, &QToolButton::clicked, mapPage, [mapPage]() {
     mapPage->toolManager()->activate(PreviewMapToolManager::kPan);
   });
-  connect(btnBoundary, &QToolButton::toggled, canvas, [boundaryBand, canvas](bool checked) {
-    boundaryBand->setVisible(checked);
-    canvas->refresh();
-  });
+  // 工区范围带开关随范围框一并撤下（btnBoundary/boundaryBand 不再建）。
   const auto wireDecorToggle = [decorMgr, canvas](QToolButton *btn,
                                                   void (PaleoDecorationManager::*setter)(bool)) {
     connect(btn, &QToolButton::toggled, canvas, [decorMgr, canvas, setter](bool checked) {
@@ -331,53 +272,6 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
 
   // 延迟自适应全图（等几何尺寸就绪）
   QTimer::singleShot(100, mapPage, zoomFull);
-
-  if (m_doc && m_doc->catalog())
-    for (const auto &asset : m_doc->catalog()->assets())
-      if (asset.type == QLatin1String("seismic"))
-      {
-        bool matches = survey.id.isEmpty();
-        for (const auto &link : m_doc->catalog()->linksForAsset(asset.id))
-          matches = matches || (!link.unresolved && link.entityId == survey.id);
-        if (!matches)
-          continue;
-        crsLabel->setText(tr("正在后台恢复完整测区范围…"));
-        QPointer<QWidget> guard = mapPage;
-        m_doc->requestSurveyBounds(asset.id,
-            [guard, canvas, surveyCrs, completeSurvey, boundaryBand, btnBoundary, crsLabel, zoomFull](const PreviewDocService::SurveyBounds &range) {
-          if (!guard)
-            return;
-          // 范围由数据服务给出（四角点按抽样道头拟合，包围盒同时算好），
-          // 界面不再自己从角点拼矩形——旧实现为此重开 SEG-Y 建整份道索引。
-          if (!range.valid()) {
-            crsLabel->setText(QObject::tr("测区范围不可用：%1")
-                .arg(range.detail.isEmpty() ? QObject::tr("地震体缺少有效坐标") : range.detail));
-            return;
-          }
-          const QgsRectangle bounds(range.minX, range.minY, range.maxX, range.maxY);
-          if (!bounds.isEmpty()) {
-            *completeSurvey = QgsGeometry::fromRect(bounds);
-            boundaryBand->setToGeometry(*completeSurvey, surveyCrs);
-            boundaryBand->setVisible(btnBoundary->isChecked());
-            crsLabel->setText(QObject::tr("工区范围: %1 km × %2 km · %3")
-                .arg(bounds.width() / 1000.0, 0, 'f', 1).arg(bounds.height() / 1000.0, 0, 'f', 1)
-                .arg(canvas->mapSettings().destinationCrs().type() == Qgis::CrsType::Engineering ? QObject::tr("局部工程坐标 (米)")
-                    : canvas->mapSettings().destinationCrs().userFriendlyIdentifier()));
-            // 角点是拟合值，把残差与单位如实挂在提示里，不假装是实测角点。
-            const QString unit = range.coordinateUnit.isEmpty()
-                ? QObject::tr("（单位未声明）") : range.coordinateUnit;
-            crsLabel->setToolTip(std::isfinite(range.rmsResidual)
-                ? QObject::tr("角点由抽样道头拟合，残差 %1 %2；%3")
-                      .arg(range.rmsResidual, 0, 'f', 2).arg(unit, range.detail)
-                : QObject::tr("角点由抽样道头拟合，残差未知（%1）；%2").arg(unit, range.detail));
-            zoomFull();
-          } else {
-            crsLabel->setText(QObject::tr("测区范围恢复失败：%1")
-                .arg(range.detail.isEmpty() ? QObject::tr("地震体缺少有效坐标") : range.detail));
-          }
-        });
-        break;
-      }
 
   return w;
 }

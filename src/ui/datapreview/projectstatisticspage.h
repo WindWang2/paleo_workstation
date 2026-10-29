@@ -14,7 +14,8 @@ class ProjectStatisticsPage : public QWidget
 {
   Q_OBJECT
 public:
-  explicit ProjectStatisticsPage(DataCatalog *catalog, PreviewDocService *doc,
+  // doc 可空（既有测试壳只给 catalog）：空时不取三视图范围，取景回退角点/井位并集。
+  explicit ProjectStatisticsPage(DataCatalog *catalog, PreviewDocService *doc = nullptr,
                                  QWidget *parent = nullptr);
 signals:
   void surveyMapRequested();

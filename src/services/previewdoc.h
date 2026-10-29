@@ -214,6 +214,9 @@ class PreviewDocService : public QObject
         QVector<WorkbookSheetPreview> sheets;
         QStringList issues;          // 文件级 issues
     };
+    // Returns false only for sources outside an open Data_service area model.
+    static bool areaPreviewAt(const QString &path, WorkbookPreview *table,
+        WellComposite::ComprehensiveWellData *chart, bool *chartOk, QString *error);
     static WorkbookPreview workbookPreviewAt(const QString &absPath);
     // SpreadsheetML sheets or a bounded path/value list for ordinary XML.
     static WorkbookPreview xmlDataListAt(const QString &absPath);

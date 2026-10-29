@@ -1,4 +1,5 @@
 // 层：数据
+#include "nativemodel.h"
 #include "lascache.h"
 
 #include "../domain/wellnumeric.h"
@@ -227,7 +228,7 @@ LasDoc LasCache::load(const QString &path, QList<LasIssue> *issues)
   }
   const QString canon = PathCanon::canonicalize(path);
   const QString fp = PathCanon::fingerprint(
-      canon, info.lastModified().toMSecsSinceEpoch(), info.size());
+      canon, info.lastModified().toMSecsSinceEpoch(), info.size()) + paleo::native_model::cacheToken(path);
 
   // 1) 内存命中（指纹匹配才算）。
   if (const auto hit = m_mem.get(canon))
@@ -342,7 +343,7 @@ bool LasCache::isCached(const QString &path) const
   if (!hit)
     return false;
   return hit->fingerprint ==
-         PathCanon::fingerprint(canon, info.lastModified().toMSecsSinceEpoch(), info.size());
+         PathCanon::fingerprint(canon, info.lastModified().toMSecsSinceEpoch(), info.size()) + paleo::native_model::cacheToken(path);
 }
 
 CacheStats LasCache::stats() const

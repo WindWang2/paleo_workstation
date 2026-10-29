@@ -353,15 +353,9 @@ bool PreviewDocService::wellHeadsAt(const QString &absPath,
                                     QVector<WellHeadRecord> *out,
                                     QString *error)
 {
-  QFile f(absPath);
-  if (!f.open(QIODevice::ReadOnly))
-  {
-    if (error)
-      *error = f.errorString();
-    return false;
-  }
-  if (out)
-    *out = parseWellHeadText(f.readAll());
+  QVector<WellHeadRecord> rows;
+  if (!readWellHeads(absPath, rows, error)) return false;
+  if (out) *out = std::move(rows);
   return true;
 }
 
@@ -369,30 +363,18 @@ bool PreviewDocService::wellTopsAt(const QString &absPath,
                                    QVector<WellTopRecord> *out,
                                    QString *error)
 {
-  QFile f(absPath);
-  if (!f.open(QIODevice::ReadOnly))
-  {
-    if (error)
-      *error = f.errorString();
-    return false;
-  }
-  if (out)
-    *out = parseWellTopsText(f.readAll());
+  QVector<WellTopRecord> rows;
+  if (!readWellTops(absPath, rows, error)) return false;
+  if (out) *out = std::move(rows);
   return true;
 }
 
 bool PreviewDocService::timeDepthAt(const QString &absPath, TimeDepthTable *out,
                                     QString *error)
 {
-  QFile f(absPath);
-  if (!f.open(QIODevice::ReadOnly))
-  {
-    if (error)
-      *error = f.errorString();
-    return false;
-  }
-  if (out)
-    *out = parseTimeDepthText(f.readAll());
+  TimeDepthTable table;
+  if (!readTimeDepth(absPath, table, error)) return false;
+  if (out) *out = std::move(table);
   return true;
 }
 
@@ -459,6 +441,8 @@ bool PreviewDocService::wellCompositeAt(const QString &absPath,
 {
   if (!out)
     return false;
+  bool ready = false;
+  if (areaPreviewAt(absPath, nullptr, out, &ready, error)) return ready;
   return WellComposite::parseComprehensiveWellXml(absPath, *out, error);
 }
 
@@ -673,6 +657,7 @@ PreviewDocService::WorkbookPreview
 PreviewDocService::workbookPreviewAt(const QString &absPath)
 {
   WorkbookPreview out;
+  if (areaPreviewAt(absPath, &out, nullptr, nullptr, &out.error)) return out;
   const paleo::io::WorkbookReadResult wb = paleo::io::readWorkbook(absPath);
   out.ok = wb.ok;
   out.error = wb.error;

@@ -98,8 +98,15 @@ bool writeImportIntent(ImportSession &session, QString *error)
 bool recoverImportIntents(const QString &projectDir, const DataCatalog &catalog, QString *error)
 {
   QSet<QString> registered;
-  for (const auto &version : catalog.versions())
+  for (const auto &version : catalog.versions()) {
     if (version.managed) registered.insert(QDir::cleanPath(DataCatalog::resolvedVersionPath(projectDir, version)));
+    CatalogVersion model; model.managed = true;
+    model.path = version.extra.value("nativeModel").toMap().value("path").toString();
+    if (!model.path.isEmpty()) {
+      const auto path = DataCatalog::resolvedVersionPath(projectDir, model);
+      if (!path.isEmpty()) registered.insert(QDir::cleanPath(path));
+    }
+  }
   QDir staging(projectDir + QStringLiteral("/artifacts/staging"));
   for (const auto &entry : staging.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot))
   {

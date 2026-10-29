@@ -25745,6 +25745,10 @@ SHA-256：%2</translation>
 <context>
     <name>ProjectDataFacade</name>
     <message>
+        <source>测斜模型无法读取：%1</source>
+        <translation>测斜模型无法读取：%1</translation>
+    </message>
+    <message>
         <location filename="../src/services/projectdata.cpp" line="48"/>
         <source>无法打开工区目录的 catalog：%1（%2）</source>
         <translation>无法打开工区目录的 catalog：%1（%2）</translation>
@@ -26443,6 +26447,50 @@ SHA-256：%2</translation>
         <source>请调整有问题的资料来源，或将其清空后重新识别。</source>
         <translation>请调整有问题的资料来源，或将其清空后重新识别。</translation>
     </message>
+    <message>
+      <source>创建并导入目录</source>
+      <translation>创建并导入目录</translation>
+    </message>
+    <message>
+      <source>请选择有效的资料目录。</source>
+      <translation>请选择有效的资料目录。</translation>
+    </message>
+    <message>
+      <source>高级资料配置</source>
+      <translation>高级资料配置</translation>
+    </message>
+    <message>
+      <source>选择资料目录后，系统会递归导入支持的文件，建立工区数据模型。数据列表和地层图读取该模型；井点坐标和图层配置可稍后补充。</source>
+      <translation>选择资料目录后，系统会递归导入支持的文件，建立工区数据模型。数据列表和地层图读取该模型；井点坐标和图层配置可稍后补充。</translation>
+    </message>
+    <message>
+      <source>选择需要导入的资料目录，无需预先整理为固定文件夹结构</source>
+      <translation>选择需要导入的资料目录，无需预先整理为固定文件夹结构</translation>
+    </message>
+    <message>
+      <source>自动沿用资料坐标（不指定）</source>
+      <translation>自动沿用资料坐标（不指定）</translation>
+    </message>
+    <message>
+      <source>统一井点、地震、层位和相图的计算基准。仅接受米制投影 CRS；未知坐标资料需先声明来源，不能仅修改标签。</source>
+      <translation>统一井点、地震、层位和相图的计算基准。仅接受米制投影 CRS；未知坐标资料需先声明来源，不能仅修改标签。</translation>
+    </message>
+    <message>
+      <source>将在保存位置下新建同名工程文件夹。原资料保留并由工程引用，解析后的数据保存在工区中；移动原资料后可重新定位。</source>
+      <translation>将在保存位置下新建同名工程文件夹。原资料保留并由工程引用，解析后的数据保存在工区中；移动原资料后可重新定位。</translation>
+    </message>
+    <message>
+      <source>选择井点资料的真实来源 CRS。自动识别只读取资料声明，不按坐标数值猜带号；未知来源必须明确选择后再转换。</source>
+      <translation>选择井点资料的真实来源 CRS。自动识别只读取资料声明，不按坐标数值猜带号；未知来源必须明确选择后再转换。</translation>
+    </message>
+    <message>
+      <source>导入资料目录</source>
+      <translation>导入资料目录</translation>
+    </message>
+    <message>
+      <source>已有工程的计算基准不可在此更改；如需另一基准，请新建工程并重新导入，避免既有成果失配。</source>
+      <translation>已有工程的计算基准不可在此更改；如需另一基准，请新建工程并重新导入，避免既有成果失配。</translation>
+    </message>
 </context>
 <context>
     <name>ProjectSetupWorkflow</name>
@@ -26567,6 +26615,10 @@ SHA-256：%2</translation>
         <location filename="../src/workflow/projectsetupmaps.cpp" line="40"/>
         <source>已取消</source>
         <translation>已取消</translation>
+    </message>
+    <message>
+      <source>工区模型：扫描 %1，导入 %2，登记 %3，待核对 %4，跳过 %5，失败 %6。</source>
+      <translation>工区模型：扫描 %1，导入 %2，登记 %3，待核对 %4，跳过 %5，失败 %6。</translation>
     </message>
 </context>
 <context>
@@ -35416,6 +35468,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>QgisProjectService</name>
+    <message>
+        <source>初始化工程数据目录失败：%1</source>
+        <translation>初始化工程数据目录失败：%1</translation>
+    </message>
     <message>
         <location filename="../src/qgis/qgisprojectservice.cpp" line="84"/>
         <source>打开已取消</source>

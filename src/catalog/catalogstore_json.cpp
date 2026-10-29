@@ -9,7 +9,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSqlDatabase>
-#include <QSqlQuery>
 
 namespace
 {
@@ -115,15 +114,6 @@ QJsonArray cornersToJsonArray(const QVector<QPair<double, double>> &cs)
   return a;
 }
 
-bool tableExists(QSqlDatabase &db, const QString &name)
-{
-  QSqlQuery q(db);
-  q.prepare(QStringLiteral(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?"));
-  q.addBindValue(name);
-  return q.exec() && q.next();
-}
-
 void absorbMetaRow(CatalogStore::Meta *meta, const QString &key, const QString &value)
 {
   if (key == QLatin1String("catalog_revision"))
@@ -154,182 +144,121 @@ namespace paleo::catalog_detail
 
 bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
 {
-  *out = CatalogStore::Tables();
-  if (!tableExists(db, QStringLiteral("entities")))
-  {
-    // 无 entities 表 = 不是可用的 catalog 库（零长/异构库）。旧口径在这里
-    // 回「空表 + true」，等于把空库当权威空库放行：recover() 会把「读了个
-    // 空库」当成恢复成功，后续 .bak 代与 JSON 兜底永远够不着（H2）。
-    setError(error, QStringLiteral("catalog sqlite has no entities table"));
+  *out = {};
+  paleo::data::CatalogStorage store(db.connectionName().toUtf8().toStdString());
+  paleo::data::CatalogSnapshot snapshot;
+  std::string detail;
+  if (!store.load(snapshot, detail)) {
+    setError(error, QString::fromUtf8(detail.data(), qsizetype(detail.size())));
     return false;
   }
-  {
-    QSqlQuery q(db);
-    if (!q.exec(QStringLiteral("SELECT key, value FROM catalog_meta")))
-    {
-      setError(error, q.lastError().text());
-      return false;
-    }
-    while (q.next())
-      absorbMetaRow(&out->meta, q.value(0).toString(), q.value(1).toString());
+  const auto q = [](const std::string &v) { return QString::fromUtf8(v.data(), qsizetype(v.size())); };
+  for (const auto &[key, value] : snapshot.meta) absorbMetaRow(&out->meta, q(key), q(value));
+  for (const auto &row : snapshot.entities) {
+    CatalogEntity e;
+    e.id = q(row.id);
+    e.entityType = q(row.entityType);
+    e.name = q(row.name);
+    e.surfaceX = row.surfaceX;
+    e.surfaceY = row.surfaceY;
+    e.hasSurface = row.hasSurface;
+    e.kb = row.kb;
+    e.td = row.td;
+    e.coordinateStatus = q(row.coordinateStatus);
+    e.inlineMin = row.inlineMin;
+    e.inlineMax = row.inlineMax;
+    e.xlineMin = row.xlineMin;
+    e.xlineMax = row.xlineMax;
+    e.sampleIntervalUs = row.sampleIntervalUs;
+    e.startTimeMs = row.startTimeMs;
+    e.corners = cornersFromJsonText(q(row.cornersJson));
+    e.extra = mapFromJson(q(row.extraJson));
+    if (e.extra.value(paleo::catalog_detail::kKbMissingKey).toBool() ||
+        e.extra.value(paleo::catalog_detail::kLegacyKbMissingKey).toBool()) e.kb = qQNaN();
+    if (e.extra.value(paleo::catalog_detail::kTdMissingKey).toBool() ||
+        e.extra.value(paleo::catalog_detail::kLegacyTdMissingKey).toBool()) e.td = qQNaN();
+    e.extra.remove(paleo::catalog_detail::kKbMissingKey);
+    e.extra.remove(paleo::catalog_detail::kTdMissingKey);
+    e.extra.remove(paleo::catalog_detail::kLegacyKbMissingKey);
+    e.extra.remove(paleo::catalog_detail::kLegacyTdMissingKey);
+    out->entities.append(e);
   }
-  {
-    QSqlQuery q(db);
-    if (!q.exec(QStringLiteral(
-            "SELECT id, entity_type, name, surface_x, surface_y, has_surface, kb, td,"
-            " coordinate_status, inline_min, inline_max, xline_min, xline_max,"
-            " sample_interval_us, start_time_ms, corners_json, extra_json"
-            " FROM entities ORDER BY rowid")))
+  for (const auto &row : snapshot.assets)
+    out->assets.append({q(row.id), q(row.type), q(row.format), q(row.displayName)});
+  for (const auto &row : snapshot.versions) {
+    CatalogVersion v;
+    v.id = q(row.id);
+    v.assetId = q(row.assetId);
+    v.stage = q(row.stage);
+    v.versionNumber = row.versionNumber;
+    v.managed = row.managed;
+    v.path = q(row.path);
+    v.sourceUri = q(row.sourceUri);
+    v.sha256 = q(row.sha256);
+    v.fileName = q(row.fileName);
+    v.parentVersionIds = parentsFromJson(q(row.parentVersionIdsJson));
+    v.extra = mapFromJson(q(row.extraJson));
+    const QString bad = unsafeVersionReason(v);
+    if (!bad.isEmpty())
     {
-      setError(error, q.lastError().text());
-      return false;
+      // 已落盘的坏段留在库里，只从内存跳过。增量保存不会 DELETE 它。
+      qWarning("catalog: skipping version %s with unsafe path segment: %s", qPrintable(v.id),
+               qPrintable(bad));
+      // 但它的 ver-N 序号必须吸收：行还在 sqlite 里占着这个 id，后续
+      // absorbSeqs 只扫内存表看不到它——不吸收会让 nextVersionId 重发
+      // 同号，dup 检查（内存）也看不见坏行 → upsert 静默覆盖坏行，其它
+      // 版本 parentVersionIds 里指向旧 ver-N 的引用随之改接新版本。
+      bool seqOk = false;
+      const int seqN = v.id.startsWith(QStringLiteral("ver-")) ? v.id.mid(4).toInt(&seqOk) : 0;
+      if (seqOk && seqN > 0)
+        out->meta.versionSeq = qMax(out->meta.versionSeq, seqN);
+      continue;
     }
-    while (q.next())
-    {
-      CatalogEntity e;
-      e.id = q.value(0).toString();
-      e.entityType = q.value(1).toString();
-      e.name = q.value(2).toString();
-      e.surfaceX = q.value(3).toDouble();
-      e.surfaceY = q.value(4).toDouble();
-      e.hasSurface = q.value(5).toInt() != 0;
-      e.kb = q.value(6).isNull() ? qQNaN() : q.value(6).toDouble();
-      e.td = q.value(7).isNull() ? qQNaN() : q.value(7).toDouble();
-      e.coordinateStatus = q.value(8).toString();
-      e.inlineMin = q.value(9).toDouble();
-      e.inlineMax = q.value(10).toDouble();
-      e.xlineMin = q.value(11).toDouble();
-      e.xlineMax = q.value(12).toDouble();
-      e.sampleIntervalUs = q.value(13).toDouble();
-      e.startTimeMs = q.value(14).toDouble();
-      e.corners = cornersFromJsonText(q.value(15).toString());
-      e.extra = mapFromJson(q.value(16).toString());
-      // #814：缺失标记读侧同时认前缀键（新写入口）与旧构建的无前缀键
-      // （存量库/.bak 仍带它），读完从内存 extra 剥掉——内部记账不进
-      // 用户前向扩展面。见 catalogstore_internal.h 的键定义注。
-      if (e.extra.value(paleo::catalog_detail::kKbMissingKey).toBool() ||
-          e.extra.value(paleo::catalog_detail::kLegacyKbMissingKey).toBool())
-        e.kb = qQNaN();
-      if (e.extra.value(paleo::catalog_detail::kTdMissingKey).toBool() ||
-          e.extra.value(paleo::catalog_detail::kLegacyTdMissingKey).toBool())
-        e.td = qQNaN();
-      e.extra.remove(paleo::catalog_detail::kKbMissingKey);
-      e.extra.remove(paleo::catalog_detail::kTdMissingKey);
-      e.extra.remove(paleo::catalog_detail::kLegacyKbMissingKey);
-      e.extra.remove(paleo::catalog_detail::kLegacyTdMissingKey);
-      out->entities.append(e);
-    }
+    out->versions.append(v);
   }
-  {
-    QSqlQuery q(db);
-    if (!q.exec(QStringLiteral(
-            "SELECT id, type, format, display_name FROM assets ORDER BY rowid")))
+  int lastOrd = -1;
+  for (const auto &row : snapshot.links) {
+    EntityAssetLink l;
+    l.entityType = q(row.entityType);
+    l.entityId = q(row.entityId);
+    l.assetId = q(row.assetId);
+    l.role = q(row.role);
+    l.isPrimary = row.isPrimary;
+    l.unresolved = row.unresolved;
+    l.ordinal = row.ordinal;
+    l.note = q(row.note);
+    const int ord = row.ord;
+    if (ord < 0)
     {
-      setError(error, q.lastError().text());
-      return false;
+      // A-13（full-audit-20261020）：负 ord 行此前静默丢弃无告警——与同函数
+      // unsafeVersion 行/巨值 ord 口径对齐，外部损坏可见（行为不变）。
+      qWarning("catalogstore: skip link row with negative ord=%d (asset %s)",
+               ord, qPrintable(l.assetId));
+      continue;
     }
-    while (q.next())
+    if (ord == out->links.size())
+      out->links.append(l);
+    else
     {
-      out->assets.append(CatalogAsset{q.value(0).toString(), q.value(1).toString(),
-                                       q.value(2).toString(), q.value(3).toString()});
-    }
-  }
-  {
-    QSqlQuery q(db);
-    if (!q.exec(QStringLiteral(
-            "SELECT id, asset_id, stage, version_number, managed, path, source_uri, sha256,"
-            " file_name, parent_version_ids_json, extra_json FROM versions ORDER BY rowid")))
-    {
-      setError(error, q.lastError().text());
-      return false;
-    }
-    while (q.next())
-    {
-      CatalogVersion v;
-      v.id = q.value(0).toString();
-      v.assetId = q.value(1).toString();
-      v.stage = q.value(2).toString();
-      v.versionNumber = q.value(3).toInt();
-      v.managed = q.value(4).toInt() != 0;
-      v.path = q.value(5).toString();
-      v.sourceUri = q.value(6).toString();
-      v.sha256 = q.value(7).toString();
-      v.fileName = q.value(8).toString();
-      v.parentVersionIds = parentsFromJson(q.value(9).toString());
-      v.extra = mapFromJson(q.value(10).toString());
-      const QString bad = unsafeVersionReason(v);
-      if (!bad.isEmpty())
+      // FA-004：损坏/手改库的 ord 巨值会让 resize 做天文数字分配（工程
+      // 打开即崩）。正常增量写的 ord 恒连续——与已读行数偏离过大按损坏
+      // 行跳过并告警（同上方 unsafeVersion 行的既有口径）。
+      if (ord > out->links.size() + 4096)
       {
-        // 已落盘的坏段留在库里，只从内存跳过。增量保存不会 DELETE 它。
-        qWarning("catalog: skipping version %s with unsafe path segment: %s", qPrintable(v.id),
-                 qPrintable(bad));
-        // 但它的 ver-N 序号必须吸收：行还在 sqlite 里占着这个 id，后续
-        // absorbSeqs 只扫内存表看不到它——不吸收会让 nextVersionId 重发
-        // 同号，dup 检查（内存）也看不见坏行 → upsert 静默覆盖坏行，其它
-        // 版本 parentVersionIds 里指向旧 ver-N 的引用随之改接新版本。
-        bool seqOk = false;
-        const int seqN = v.id.startsWith(QStringLiteral("ver-")) ? v.id.mid(4).toInt(&seqOk) : 0;
-        if (seqOk && seqN > 0)
-          out->meta.versionSeq = qMax(out->meta.versionSeq, seqN);
+        qWarning("catalogstore: skip corrupt link row ord=%d (row count %lld)",
+                 ord, static_cast<qint64>(out->links.size()));
         continue;
       }
-      out->versions.append(v);
-    }
-  }
-  {
-    QSqlQuery q(db);
-    if (!q.exec(QStringLiteral(
-            "SELECT ord, entity_type, entity_id, asset_id, role, is_primary, unresolved,"
-            " ordinal, note FROM entity_asset_links ORDER BY ord")))
-    {
-      setError(error, q.lastError().text());
-      return false;
-    }
-    int lastOrd = -1;
-    while (q.next())
-    {
-      EntityAssetLink l;
-      l.entityType = q.value(1).toString();
-      l.entityId = q.value(2).toString();
-      l.assetId = q.value(3).toString();
-      l.role = q.value(4).toString();
-      l.isPrimary = q.value(5).toInt() != 0;
-      l.unresolved = q.value(6).toInt() != 0;
-      l.ordinal = q.value(7).toInt();
-      l.note = q.value(8).toString();
-      const int ord = q.value(0).toInt();
-      if (ord < 0)
-      {
-        // A-13（full-audit-20261020）：负 ord 行此前静默丢弃无告警——与同函数
-        // unsafeVersion 行/巨值 ord 口径对齐，外部损坏可见（行为不变）。
-        qWarning("catalogstore: skip link row with negative ord=%d (asset %s)",
+      if (ord <= lastOrd)
+        qWarning("catalogstore: duplicate link ord=%d retained (asset %s)",
                  ord, qPrintable(l.assetId));
-        continue;
-      }
-      if (ord == out->links.size())
-        out->links.append(l);
-      else
-      {
-        // FA-004：损坏/手改库的 ord 巨值会让 resize 做天文数字分配（工程
-        // 打开即崩）。正常增量写的 ord 恒连续——与已读行数偏离过大按损坏
-        // 行跳过并告警（同上方 unsafeVersion 行的既有口径）。
-        if (ord > out->links.size() + 4096)
-        {
-          qWarning("catalogstore: skip corrupt link row ord=%d (row count %lld)",
-                   ord, static_cast<qint64>(out->links.size()));
-          continue;
-        }
-        if (ord <= lastOrd)
-          qWarning("catalogstore: duplicate link ord=%d retained (asset %s)",
-                   ord, qPrintable(l.assetId));
-        // 跳号也不得 resize 补位：默认构造的 EntityAssetLink 是空 id 幻影
-        // 链接行，随后经 links()/toJson/replaceAllLinks 永久回流（查询侧
-        // 跳过空 id 所以看不见，整表重写却把它写回盘）。按表序追加保住这
-        // 一行；ord 的致密化由下一次 replaceAllLinks（ord = 行号）完成。
-        out->links.append(l);
-      }
-      lastOrd = ord;
+      // 跳号也不得 resize 补位：默认构造的 EntityAssetLink 是空 id 幻影
+      // 链接行，随后经 links()/toJson/replaceAllLinks 永久回流（查询侧
+      // 跳过空 id 所以看不见，整表重写却把它写回盘）。按表序追加保住这
+      // 一行；ord 的致密化由下一次 replaceAllLinks（ord = 行号）完成。
+      out->links.append(l);
     }
+    lastOrd = ord;
   }
   absorbSeqs(out);
   return true;

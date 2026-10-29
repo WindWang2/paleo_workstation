@@ -17,6 +17,27 @@
 - 本机已装 QGIS 4.2.x 开发包（如 Arch `qgis 4.2.2`）时 bootstrap 短路 QGIS
   腿，只剩 onnxruntime 下载——注意这属**兜底档**，见下「依赖来源策略」。
 
+## Data_service 子模块
+
+`vendor/Data_service` 以 Git submodule 引入
+[changyanyanchang/Data_service](https://github.com/changyanyanchang/Data_service)，
+版本由主仓的 gitlink 固定。已有 checkout 或新建 worktree 后，在仓库根目录执行：
+
+```bash
+git submodule update --init --recursive -- vendor/Data_service
+```
+
+首次克隆也可使用 `git clone --recurse-submodules <主仓地址>`。
+主项目通过 `cmake/extra-data-service.cmake` 嵌入其库目标，关闭独立演示、工具、
+示例、测试与 SDK 安装，共用主项目已构建的 SBM 地震引擎。未初始化子模块时
+configure 明确失败并提示上述命令；CI checkout 同样递归初始化子模块。
+
+目录实体、资产、版本和关联的 SQL 读写已接入子模块；新建工程、五类井数据
+导入及主要读取门面已接通版本化模型。交互编辑输出等剩余迁移仍在推进。
+模型映射、兼容边界与剩余工作见
+[Data_service 接入方案](docs/DATA_SERVICE_INTEGRATION.md)。子模块独立构建与
+使用说明见 `vendor/Data_service/README.md`。
+
 ## 依赖来源策略（2026-10-01 起）
 
 **原则：尽量不依赖系统库，尽量自编译 vendored。** 优先级：

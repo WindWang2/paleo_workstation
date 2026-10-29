@@ -3,6 +3,8 @@
 #include "wellfileparsers.h"
 #include "dataimportservice.h"
 #include "lasparser.h"
+#include "nativemodel.h"
+#include "dataimport_internal.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -62,11 +64,20 @@ bool storeNormalizedWellTable(ImportSession &s, const CatalogVersion &raw, const
     if (!v.parentVersionIds.contains(input)) v.parentVersionIds << input;
   v.sha256 = QString::fromLatin1(QCryptographicHash::hash(text, QCryptographicHash::Sha256).toHex());
   v.extra = raw.extra;
+  v.extra.remove(QStringLiteral("nativeModel")); // The derived bytes require their own immutable model.
   v.extra.insert(QStringLiteral("generatedFrom"), raw.id);
   const QString path = DataCatalog::resolvedVersionPath(s.stagingRoot, v);
   if (path.isEmpty() || !QDir().mkpath(QFileInfo(path).absolutePath())) { if (error) *error = QObject::tr("无法创建井表派生目录"); return false; }
   QSaveFile file(path);
   if (!file.open(QIODevice::WriteOnly) || file.write(text) != text.size() || !file.commit()) { if (error) *error = file.errorString(); return false; }
-  return s.cat->addVersion(v, error);
+  if (!s.cat->addVersion(v, error)) return false;
+  dataimport_detail::FamilyContext context;
+  context.cat=s.cat.get(); context.s=&s; context.assetId=v.assetId; context.versionId=v.id;
+  context.version=v;
+  context.cls.type=s.cat->assetById(v.assetId).type; context.fi=QFileInfo(path);
+  context.sourcePath=path;
+  if (context.cls.type == QLatin1String("well_head")) context.parsedHeads=parseWellHeadText(text);
+  else if (context.cls.type == QLatin1String("well_stratification")) context.parsedTops=parseWellTopsText(text);
+  return native_model::prepare(s,v,context,nullptr,error);
 }
 }

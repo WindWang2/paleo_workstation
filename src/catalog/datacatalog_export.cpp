@@ -137,7 +137,7 @@ bool DataCatalog::writeWellsGeoJson(const QString &path, QString *error) const
   if (!noteRead("writeWellsGeoJson"))
     return true;
   QJsonArray feats;
-  for (const CatalogEntity &e : m_entities)
+  for (const CatalogEntity &e : entities(QStringLiteral("well")))
   {
     if (e.entityType != QLatin1String("well") || !e.hasSurface)
       continue;

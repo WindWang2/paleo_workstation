@@ -11,6 +11,7 @@ struct LogInspection
 {
   bool comprehensiveTemplate = false;
   LasHeaderInfo header;
+  QList<LasCurve> curves; // validated numeric snapshot; native storage must not reparse
   QString summary;
   QStringList issues;
   QString preview;

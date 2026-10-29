@@ -599,6 +599,7 @@ QString DataImportService::relocateVersionSource(const QString &versionId,
   relocated.sha256 = v.sha256; // 已验证一致——沿用留底值
   relocated.fileName = fi.fileName();
   relocated.extra = v.extra;   // 外链夹带的图例等元数据随内容一起搬
+  relocated.extra.remove(QStringLiteral("nativeModel")); // Rebinding a path cannot reuse a source record pointing at the old file.
   relocated.extra.insert(QStringLiteral("relocatedFrom"), v.id);
   if (!m_catalog->addVersion(relocated, error))
     return fail(error->isEmpty() ? QStringLiteral("catalog addVersion failed") : *error);

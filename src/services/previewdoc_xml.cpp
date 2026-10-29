@@ -7,6 +7,7 @@
 PreviewDocService::WorkbookPreview PreviewDocService::xmlDataListAt(const QString &path)
 {
   WorkbookPreview result;
+  if (areaPreviewAt(path, &result, nullptr, nullptr, &result.error)) return result;
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) { result.error = file.errorString(); return result; }
   QXmlStreamReader reader(&file);

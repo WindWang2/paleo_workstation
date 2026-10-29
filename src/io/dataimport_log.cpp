@@ -125,6 +125,7 @@ bool inspectLog(const QString &path, LogInspection &out, QString *error)
   if (axis.unit.isEmpty()) out.issues << tr("索引单位未声明，保留原始数值；需要换算的业务将要求补充单位。");
   if (axis.unit.compare(QLatin1String("ft"), Qt::CaseInsensitive) == 0)
     out.issues << tr("索引单位为英尺，保留原始文件和单位；需要米的业务会明确换算。");
+  out.curves = std::move(doc.curves);
   return true;
 }
 

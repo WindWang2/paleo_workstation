@@ -24,7 +24,27 @@ private slots:
   void watcherDestroyedFinalizesCancellableTask();
   void nonCancellableTrackSurvivesWatcherDeath();
   void poolSelectsServicePool();
+  void stageTextChangesWhileValueStaysZero();
 };
+
+void TestFutureTask::stageTextChangesWhileValueStaysZero()
+{
+  PaleoTaskService service; QPromise<int> promise; promise.start();
+  promise.setProgressRange(0, 0);
+  QFutureWatcher<int> watcher;
+  auto *existing = service.beginExternal("stages");
+  auto *task = paleo::tasks::track(&service, &watcher, promise.future(), "stages", false, {}, true, existing);
+  QCOMPARE(task, existing); QCOMPARE(service.tasks().size(), 1);
+  watcher.setFuture(promise.future());
+  paleo::tasks::reportProgress(task, 0, 0, "scan");
+  QTRY_COMPARE(task->detailText(), QString("scan"));
+  paleo::tasks::reportProgress(task, 0, 0, "parse first large file");
+  QTRY_COMPARE(task->detailText(), QString("parse first large file"));
+  promise.setProgressRange(0, 24);
+  QTRY_COMPARE(task->bytesTotal(), qint64(24));
+  promise.addResult(1); promise.finish();
+  QTRY_COMPARE(task->state(), PaleoTask::State::Succeeded);
+}
 
 void TestFutureTask::trackSucceedsAndReportsTask()
 {

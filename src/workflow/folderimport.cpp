@@ -210,6 +210,9 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::makeImportJob(const QSt
     });
   };
   job->finish = [this, done, ledgerDir, started](ImportSession &s) {
+    qInfo() << "catalog-batch: rows=" << s.rows.size()
+            << "elapsed_ms=" << started.msecsTo(QDateTime::currentDateTime())
+            << "external=" << s.linkExternal << "committed=" << s.committed;
     emit importActiveChanged(false);
     // 台账写进「当前打开」工程的 sidecar：produce 期间若已切换工程，当前
     // catalog 是另一个工程的——把别处的、整批作废的导入记进它的审计台账

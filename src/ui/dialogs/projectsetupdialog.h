@@ -58,5 +58,6 @@ private:
   QString m_existingPath;
   QVariantMap m_initialMapping;
   quint64 m_revision = 0, m_scanRevision = 0;
+  bool m_directoryImport = false;
   bool m_busy = false, m_empty = false, m_blankLocked = false, m_dirty = true;
 };

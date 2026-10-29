@@ -364,7 +364,7 @@ private slots:
     QCOMPARE(h.catalog()->entities(QStringLiteral("well")).size(), 1);
     QCOMPARE(h.catalog()->links().size(), 1);
     QCOMPARE(h.catalog()->mutationSeq(), seq);
-    QCOMPARE(rawFiles(h.project).size(), 1);
+    QCOMPARE(rawFiles(h.project).size(), 2); // RAW plus its native model snapshot.
   }
 
   void duplicateShaCannotSilentlyIgnoreDifferentTarget_data()
@@ -512,7 +512,7 @@ private slots:
     // 晚到文件零痕迹：B1 井不存在、资产/raw 只有 first 的份。
     QVERIFY(h.wellId(QStringLiteral("B1")).isEmpty());
     QCOMPARE(h.catalog()->assets().size(), 1);
-    QCOMPARE(rawFiles(h.project).size(), 1);
+    QCOMPARE(rawFiles(h.project).size(), 2); // RAW plus its native model snapshot.
     QCOMPARE(h.curves(QStringLiteral("A1")).size(), 1);
   }
 
@@ -591,7 +591,7 @@ private slots:
     QCOMPARE(h.catalog()->entities(QStringLiteral("well")).size(), 1);
     QCOMPARE(h.catalog()->assets().size(), 1);
     QVERIFY(h.wellId(QStringLiteral("B1")).isEmpty());
-    QCOMPARE(rawFiles(h.project).size(), 1);
+    QCOMPARE(rawFiles(h.project).size(), 2); // RAW plus its native model snapshot.
   }
 
   // F5（review-security）：测井先建的井无坐标；井位表命中该井时回填坐标与
@@ -940,7 +940,7 @@ private slots:
     QVERIFY(QFile::remove(destination));
     QVERIFY2(!h.service->importProjectFile(path, &error).isEmpty(), qPrintable(error));
     QCOMPARE(h.curves().size(), 1);
-    QCOMPARE(rawFiles(h.project).size(), 1);
+    QCOMPARE(rawFiles(h.project).size(), 2); // RAW plus its native model snapshot.
   }
 
   void catalogMutationConflictUsesFreshSession()
@@ -996,7 +996,7 @@ private slots:
     QCOMPARE(retried.size(), 2);
     for (const auto &row : retried) QCOMPARE(row.outcome, RowOutcome::Imported);
     QCOMPARE(h.catalog()->entities(QStringLiteral("well")).size(), 2);
-    QCOMPARE(rawFiles(h.project).size(), 2);
+    QCOMPARE(rawFiles(h.project).size(), 4); // Two RAW files and two native model snapshots.
   }
 
   void interruptedPartialMoveCleansOnlyThisSessionsUnregisteredBytes()

@@ -919,11 +919,20 @@ void rollbackFailedRow(ImportSession &session,
     for (int i = cp.journalSize; i < ops.size(); ++i)
     {
       const CatalogOp &op = ops.at(i);
-      if (op.kind == CatalogOp::Kind::AddVersion && op.version.managed)
-      {
-        const QString abs = cat->versionFilePath(op.version);
-        if (abs.startsWith(rootCanon + QLatin1Char('/')))
-          stagedDirs.append(QFileInfo(abs).absolutePath());
+      if (op.kind == CatalogOp::Kind::AddVersion) {
+        const auto version = cat->versionById(op.version.id);
+        if (version.managed) {
+          const QString abs = cat->versionFilePath(version);
+          if (abs.startsWith(rootCanon + QLatin1Char('/')))
+            stagedDirs.append(QFileInfo(abs).absolutePath());
+        }
+        CatalogVersion model; model.managed = true;
+        model.path = version.extra.value("nativeModel").toMap().value("path").toString();
+        if (!model.path.isEmpty()) {
+          const auto path = DataCatalog::resolvedVersionPath(session.stagingRoot, model);
+          if (path.startsWith(rootCanon + QLatin1Char('/')))
+            stagedDirs.append(QFileInfo(path).absolutePath());
+        }
       }
     }
   }
@@ -933,15 +942,15 @@ void rollbackFailedRow(ImportSession &session,
     QDir d(dir);
     if (!d.exists())
       continue;
-    for (const QFileInfo &fi :
-         d.entryInfoList(QDir::Files | QDir::NoDotAndDotDot))
-    {
-      QFile::setPermissions(fi.absoluteFilePath(),
-                            fi.permissions() | QFileDevice::WriteOwner);
-      if (!QFile::remove(fi.absoluteFilePath()))
-        qWarning("import rollback: cannot remove staged file %s",
-                 qPrintable(fi.absoluteFilePath()));
+    const QString canonical = QFileInfo(dir).canonicalFilePath();
+    if (!canonical.startsWith(rootCanon + QLatin1Char('/'))) continue;
+    QDirIterator files(dir, QDir::Files | QDir::Hidden | QDir::System, QDirIterator::Subdirectories);
+    while (files.hasNext()) {
+      const QString file = files.next();
+      if (QFileInfo(file).isSymLink()) continue;
+      QFile::setPermissions(file, QFile::permissions(file) | QFileDevice::WriteOwner);
     }
+    if (!d.removeRecursively()) qWarning("import rollback: cannot remove staged directory %s", qPrintable(dir));
     QDir cur = d;
     while (cur.exists())
     {

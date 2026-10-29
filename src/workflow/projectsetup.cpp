@@ -5,6 +5,9 @@
 #include "../io/projectsetupscan.h"
 #include "../io/projectcoordinates.h"
 #include "../io/dataimportservice.h"
+#include "../io/areamodel.h"
+#include "../catalog/areawellprojection.h"
+#include "../catalog/areasourceprojection.h"
 #include "../metadata/paleoprojectfile.h"
 #include "../metadata/nativereference.h"
 #include "../domain/mappinghorizons.h"
@@ -18,11 +21,19 @@
 #include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <filesystem>
+#include <QElapsedTimer>
+#include <QScopeGuard>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
 
 namespace {
+bool registerModelWells(FolderImportWorkflow *imports, QString *error) {
+  auto *service = imports ? imports->importService() : nullptr;
+  auto *catalog = service ? service->catalog() : nullptr;
+  if (!catalog) { if (error) *error = QStringLiteral("import service is not ready"); return false; }
+  return registerAreaWells(*catalog, error);
+}
 bool restrictedProcess()
 {
 #ifdef Q_OS_WIN
@@ -61,8 +72,12 @@ std::filesystem::path nativeDirectoryPath(const QString &directory)
 }
 
 ProjectSetupWorkflow::ProjectSetupWorkflow(QgisProjectService *project, FolderImportWorkflow *imports, QObject *parent)
-  : QObject(parent), m_project(project), m_imports(imports) {}
-ProjectSetupWorkflow::~ProjectSetupWorkflow() { if (m_stop) m_stop->store(true); }
+  : QObject(parent), m_project(project), m_imports(imports) {
+  if (project) connect(project, &QgisProjectService::projectAboutToClose, this, [this] {
+    if (m_areaStop) m_areaStop->store(true);
+  });
+}
+ProjectSetupWorkflow::~ProjectSetupWorkflow() { if (m_stop) m_stop->store(true); if (m_areaStop) m_areaStop->store(true); }
 ProjectSetupSources ProjectSetupWorkflow::discover(const QString &root) { return discoverProjectSources(root); }
 bool ProjectSetupWorkflow::containsProject(const QString &root)
 {
@@ -107,6 +122,9 @@ void ProjectSetupWorkflow::scan(const ProjectSetupSources &sources)
 bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources &sources,
                                  const ProjectSetupPreview &preview, QString *error)
 {
+  QElapsedTimer creationTimer; creationTimer.start();
+  QString phase = QStringLiteral("validate");
+  const auto timing = qScopeGuard([&] { qInfo() << "project-create: final_phase=" << phase << "elapsed_ms=" << creationTimer.elapsed(); });
   if (error) error->clear();
   const auto fail = [&](const QString &message) { if (error) *error = message; return false; };
   if (!m_project || !m_imports) return fail(tr("工程或导入服务未就绪"));
@@ -159,6 +177,9 @@ bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources
     m_project->closeProject();
     removeCreated(removeError);
   };
+  qInfo() << "project-create: validate_ms=" << creationTimer.elapsed();
+  phase = QStringLiteral("qgis-and-databases");
+  const auto qgisStart = creationTimer.elapsed();
   if (!m_project->createProject(path)) {
     const QString message = m_project->lastErrors().join('\n');
     // 锁失败等早退还停在上一工程，不能 close。只有已经切走或清单写失败才回滚。
@@ -187,6 +208,8 @@ bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources
       return fail(reported + '\n' + m_project->lastErrors().join('\n'));
     return fail(reported);
   }
+  qInfo() << "project-create: qgis_and_databases_ms=" << creationTimer.elapsed() - qgisStart;
+  phase = QStringLiteral("schedule-directory-import");
   if (applySources(sources, preview, error)) return true;
   const QString message = error && !error->isEmpty() ? *error : tr("新建工程失败");
   QString removeError;
@@ -273,13 +296,38 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
   const quint64 session = m_project->sessionId();
   QTimer::singleShot(0, this, [this, sources, preview, session] {
     if (!m_project || m_project->sessionId() != session || !m_imports) return;
-    QString scanSummary;
+    importAreaSources(sources, preview, session);
+  });
+  return true;
+}
+void ProjectSetupWorkflow::importCatalogSources(const ProjectSetupSources &sources,
+    const ProjectSetupPreview &preview, quint64 session)
+{
+    QString scanSummary = preview.notes.join('\n');
     for (auto it = preview.sourceProblems.cbegin(); it != preview.sourceProblems.cend(); ++it)
       scanSummary += '\n' + tr("未导入 %1：%2").arg(it.key(), it.value());
+    const QString areaDatabase = paleo::area_model::directory(QFileInfo(m_project->projectPath()).absolutePath()) + "/data.sqlite";
+    if (QFileInfo::exists(areaDatabase)) {
+      QString registryError;
+      auto *service = m_imports->importService();
+      const QString project = QFileInfo(m_project->projectPath()).absolutePath();
+      const bool registered = applyAreaPointMapping(project, sources.points, sources.pointMapping, &registryError) &&
+          registerModelWells(m_imports, &registryError) && service && service->catalog() &&
+          registerAreaSources(*service->catalog(), &registryError);
+      const bool saved = registered && m_project->writeProject();
+      QString summary = tr("工程资料索引已根据工区数据模型更新，未重复读取原始文件。") + scanSummary;
+      if (!registryError.isEmpty()) summary += '\n' + registryError;
+      if (!saved) summary += '\n' + m_project->lastErrors().join('\n');
+      importMaps(sources, preview, session, summary, saved && preview.sourceProblems.isEmpty());
+      return;
+    }
     if (preview.paths.isEmpty()) {
+      QString registryError;
+      if (!registerModelWells(m_imports, &registryError)) { emit finished(registryError, false); return; }
       importMaps(sources, preview, session, tr("工程已保存，可随时补充资料。") + scanSummary, preview.sourceProblems.isEmpty()); return;
     }
-    m_imports->importFiles(preview.paths, preview.types, {}, [this, sources, preview, session, scanSummary](const auto &rows, const QString &error, bool cancelled) {
+      m_imports->setLinkExternal(true); // 工区目录导入始终引用来源，不沿用上次确认表的复制选项。
+      m_imports->importFiles(preview.paths, preview.types, {}, [this, sources, preview, session, scanSummary](const auto &rows, const QString &error, bool cancelled) {
       if (!m_project || m_project->sessionId() != session) return;
       int failed = 0, imported = 0, skipped = 0, unresolved = 0;
       for (const auto &row : rows) {
@@ -288,10 +336,13 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
         else if (row.outcome == FolderRowResult::Outcome::Unresolved) ++unresolved;
         else ++imported;
       }
-      const bool saved = m_project->writeProject();
+      QString registryError;
+      const bool registered = registerModelWells(m_imports, &registryError);
+      const bool saved = registered && m_project->writeProject();
       QString summary = tr("工程资料：已导入 %1，跳过 %2，待关联 %3，失败 %4。详细记录见任务与导入台账。").arg(imported).arg(skipped).arg(unresolved).arg(failed);
       summary += scanSummary;
       if (!error.isEmpty()) summary += '\n' + error;
+      if (!registryError.isEmpty()) summary += '\n' + registryError;
       if (!saved) summary += '\n' + m_project->lastErrors().join('\n');
       // 用户取消文件批后不得再开古地理图任务；已取消不是下一阶段的启动条件。
       // 取消是结构化标志（ImportDone 第三参），不再嗅探 error 文案——跨层文案
@@ -302,6 +353,4 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
       }
       importMaps(sources, preview, session, summary, !failed && preview.sourceProblems.isEmpty() && error.isEmpty() && saved);
     }, preview.wellTargets, preview.hashes, {}, preview.paths, {}, preview.mappings);
-  });
-  return true;
 }

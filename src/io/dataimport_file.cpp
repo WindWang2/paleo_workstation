@@ -36,6 +36,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QElapsedTimer>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QThread>
@@ -55,6 +56,7 @@
 #include "dataimport_internal.h"
 #include "dataimport_log.h"
 #include "importrecovery.h"
+#include "nativemodel.h"
 
 using paleo::dataimport_detail::setError;
 
@@ -168,9 +170,11 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   // 间戳换内容会让 dedup 误命中「字节已在库」、新数据静默丢失。dedup 身份、
   // 外链留底、预览指纹复核共用这一趟真哈希；命中性能损失由库内复核兜底
   // （versionBySha256 本就真哈希库内副本）。
+  QElapsedTimer timer; timer.start();
   ProjectClassification cls = classifyImportFile(sourcePath);
   cls.type = resolvedProjectImportType(sourcePath, cls.type, options.forceType);
   const QString sourceSha = paleo::dataimport_detail::logFileDigest(sourcePath);
+  const qint64 hashMs = timer.elapsed();
   if (sourceSha.isEmpty())
     return fail(QCoreApplication::translate("DataImportService", "无法读取或哈希源文件：%1").arg(sourcePath));
   if (!options.expectedSourceSha256.isEmpty() && sourceSha != options.expectedSourceSha256)
@@ -205,20 +209,22 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   QString validatedLogPath = sourcePath;
   if (wellLogInput)
   {
-    // 解析与受管复制消费同一份私有快照；源文件在确认/读取期间变化不能混入结果。
-    logSnapshot = std::make_unique<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/paleo-log-import-XXXXXX"));
-    validatedLogPath = logSnapshot->filePath(fi.fileName());
-    if (!logSnapshot->isValid() || !QFile::copy(sourcePath, validatedLogPath))
-      return fail(QCoreApplication::translate("DataImportService", "无法为 %1 创建导入快照，请检查临时目录空间与权限后重试。").arg(sourcePath));
-    QFile::setPermissions(validatedLogPath, QFile::permissions(validatedLogPath) | QFileDevice::WriteOwner);
-    if (paleo::dataimport_detail::logFileDigest(validatedLogPath) != sourceSha)
-      return fail(QCoreApplication::translate("DataImportService", "读取期间文件发生变化：%1。请重新生成预览后确认。").arg(sourcePath));
+    // 引用模式直接读取原文件/已建立的工区模型；只有显式受管导入需要私有副本。
+    if (!options.linkExternal) {
+      logSnapshot = std::make_unique<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/paleo-log-import-XXXXXX"));
+      validatedLogPath = logSnapshot->filePath(fi.fileName());
+      if (!logSnapshot->isValid() || !QFile::copy(sourcePath, validatedLogPath))
+        return fail(QCoreApplication::translate("DataImportService", "无法为 %1 创建导入快照，请检查临时目录空间与权限后重试。").arg(sourcePath));
+      QFile::setPermissions(validatedLogPath, QFile::permissions(validatedLogPath) | QFileDevice::WriteOwner);
+    }
     if (!paleo::dataimport_detail::inspectLog(validatedLogPath, logInfo, error))
     {
       error->replace(validatedLogPath, sourcePath);
       return fail(*error);
     }
     for (auto &issue : logInfo.issues) issue.replace(validatedLogPath, sourcePath);
+    if (paleo::dataimport_detail::logFileDigest(validatedLogPath) != sourceSha)
+      return fail(QCoreApplication::translate("DataImportService", "读取期间文件发生变化：%1。请重新生成预览后确认。").arg(sourcePath));
     parseSummary = logInfo.summary;
   }
   paleo::io::ValidatedWellInput tableInput;
@@ -231,6 +237,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     wellReport = tableInput.report; parseSummary = wellParseSummary(wellReport);
   }
 
+  const qint64 validationMs = timer.elapsed() - hashMs;
   // 重导据此走全新导入（issue #5）。
   const CatalogVersion existing =
       cat->versionBySha256(sourceSha);
@@ -299,6 +306,12 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   version.versionNumber = 1;
   version.fileName = fi.fileName();
   version.sourceUri = fi.absoluteFilePath();
+  if (cls.type == QLatin1String("well_head")) {
+    const auto sourceCrs=options.tableMapping.value("crs").toString();
+    const auto destinationCrs=options.tableMapping.value("projectCrs").toString();
+    version.extra.insert(QStringLiteral("wellCoordinatesCrs"),
+        !tableInput.normalized.isEmpty() && !destinationCrs.isEmpty() ? destinationCrs : sourceCrs);
+  }
   if (wellLogInput)
   {
     if (logInfo.comprehensiveTemplate) version.extra.insert(QStringLiteral("logCompositeTemplate"), true);
@@ -408,6 +421,13 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   if (!branchErr.isEmpty())
     return fail(branchErr);
   manifestLayerId = ctx.manifestLayerId;
+  const qint64 nativeStart = timer.elapsed();
+  if (!paleo::native_model::prepare(s, version, ctx, wellLogInput ? &logInfo : nullptr, error))
+    return fail(*error);
+  qInfo() << "catalog-import: file=" << fi.fileName() << "bytes=" << fi.size()
+          << "external=" << external << "elapsed_ms=" << timer.elapsed()
+          << "hash_ms=" << hashMs << "validation_ms=" << validationMs
+          << "native_ms=" << timer.elapsed() - nativeStart;
 
 
   // B3（wave/deepen-perf）：栅格资产（image_reference 的 tif/png/jpg）入库即

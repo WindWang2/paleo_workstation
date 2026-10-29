@@ -2,6 +2,7 @@
 #pragma once
 
 #include "catalogstore.h"
+#include <paleo_data/catalog.h>
 
 #include "../metadata/storeerrors_internal.h"
 
@@ -44,65 +45,7 @@ inline bool execSql(QSqlDatabase &db, const QString &sql, QString *error)
   return true;
 }
 
-inline const char *kSchemaSql =
-    "CREATE TABLE IF NOT EXISTS entities ("
-    " id TEXT PRIMARY KEY NOT NULL,"
-    " entity_type TEXT NOT NULL DEFAULT '',"
-    " name TEXT NOT NULL DEFAULT '',"
-    " surface_x REAL NOT NULL DEFAULT 0,"
-    " surface_y REAL NOT NULL DEFAULT 0,"
-    " has_surface INTEGER NOT NULL DEFAULT 0,"
-    " kb REAL NOT NULL DEFAULT 0,"
-    " td REAL NOT NULL DEFAULT 0,"
-    " coordinate_status TEXT NOT NULL DEFAULT '',"
-    " inline_min REAL NOT NULL DEFAULT 0,"
-    " inline_max REAL NOT NULL DEFAULT 0,"
-    " xline_min REAL NOT NULL DEFAULT 0,"
-    " xline_max REAL NOT NULL DEFAULT 0,"
-    " sample_interval_us REAL NOT NULL DEFAULT 0,"
-    " start_time_ms REAL NOT NULL DEFAULT 0,"
-    " corners_json TEXT NOT NULL DEFAULT '[]',"
-    " extra_json TEXT NOT NULL DEFAULT '{}'"
-    ");"
-    "CREATE INDEX IF NOT EXISTS idx_entities_type_name ON entities(entity_type, name);"
-    "CREATE TABLE IF NOT EXISTS assets ("
-    " id TEXT PRIMARY KEY NOT NULL,"
-    " type TEXT NOT NULL DEFAULT '',"
-    " format TEXT NOT NULL DEFAULT '',"
-    " display_name TEXT NOT NULL DEFAULT ''"
-    ");"
-    "CREATE TABLE IF NOT EXISTS versions ("
-    " id TEXT PRIMARY KEY NOT NULL,"
-    " asset_id TEXT NOT NULL,"
-    " stage TEXT NOT NULL DEFAULT '',"
-    " version_number INTEGER NOT NULL DEFAULT 1,"
-    " managed INTEGER NOT NULL DEFAULT 1,"
-    " path TEXT NOT NULL DEFAULT '',"
-    " source_uri TEXT NOT NULL DEFAULT '',"
-    " sha256 TEXT NOT NULL DEFAULT '',"
-    " file_name TEXT NOT NULL DEFAULT '',"
-    " parent_version_ids_json TEXT NOT NULL DEFAULT '[]',"
-    " extra_json TEXT NOT NULL DEFAULT '{}'"
-    ");"
-    "CREATE INDEX IF NOT EXISTS idx_versions_asset ON versions(asset_id);"
-    "CREATE TABLE IF NOT EXISTS entity_asset_links ("
-    " ord INTEGER PRIMARY KEY NOT NULL,"
-    " entity_type TEXT NOT NULL DEFAULT '',"
-    " entity_id TEXT NOT NULL DEFAULT '',"
-    " asset_id TEXT NOT NULL DEFAULT '',"
-    " role TEXT NOT NULL DEFAULT '',"
-    " is_primary INTEGER NOT NULL DEFAULT 1,"
-    " unresolved INTEGER NOT NULL DEFAULT 0,"
-    " ordinal INTEGER NOT NULL DEFAULT 0,"
-    " note TEXT NOT NULL DEFAULT ''"
-    ");"
-    "CREATE INDEX IF NOT EXISTS idx_links_entity_role "
-    " ON entity_asset_links(entity_type, entity_id, role);"
-    "CREATE INDEX IF NOT EXISTS idx_links_asset ON entity_asset_links(asset_id);"
-    "CREATE TABLE IF NOT EXISTS catalog_meta ("
-    " key TEXT PRIMARY KEY NOT NULL,"
-    " value TEXT NOT NULL"
-    ");";
+inline const char *kSchemaSql = paleo::data::CatalogStorage::schemaSql();
 
 inline bool execScript(QSqlDatabase &db, const char *sql, QString *error)
 {

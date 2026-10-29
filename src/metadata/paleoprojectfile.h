@@ -72,10 +72,11 @@ struct PaleoProjectFile
   QString name;
   QString projectId;
   QString createdUtc;
+  QString dataBackend; // empty = legacy; data_service_versioned = native per-version models
 
   // 束成员：全部工程根相对路径；允许空串（该成员工程里尚未产生）。
   QString qgz;       // *.qgz —— 唯一硬要求成员
-  QString catalog;   // artifacts/metadata/catalog.json
+  QString catalog;   // new projects: artifacts/metadata/catalog.sqlite; legacy JSON still readable
   QString manifest;  // <qgz>.project.sqlite
   QString gpkg;      // <basename>.gpkg
   QString areaRules; // project_area.json

@@ -79,10 +79,10 @@ QVector<WellTopRecord> FrameworkService::loadWellTops( QString *error ) const
     const QString abs = DataCatalog::resolvedVersionPath( m_projectDir, ver );
     if ( abs.isEmpty() )
       continue;
-    QFile f( abs );
-    if ( !f.open( QIODevice::ReadOnly ) )
+    QVector<WellTopRecord> rows;
+    if ( !readWellTops( abs, rows ) )
       continue; // 单个资产读不出不致命——其余井照常参与诊断
-    out.append( parseWellTopsText( f.readAll() ) );
+    out.append( rows );
   }
   if ( error )
     error->clear();

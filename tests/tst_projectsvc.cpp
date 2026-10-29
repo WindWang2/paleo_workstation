@@ -12,6 +12,9 @@
 #include "../src/catalog/datacatalog.h"
 #include "../src/metadata/paleoprojectfile.h"
 #include "../src/metadata/projectlock.h"
+#include "../src/metadata/paleoprojectstore.h"
+#include "../src/io/dataimportservice.h"
+#include "../src/io/welllogread.h"
 
 #include <qgscoordinatetransform.h>
 #include <qgsmaplayer.h>
@@ -29,6 +32,49 @@ class TestProjectService : public QObject
 {
   Q_OBJECT
 private slots:
+  void createImportCloseAndReopenNativeProject()
+  {
+    QTemporaryDir dir;
+    const auto path=dir.filePath("project.qgz");
+    QgisProjectService project;
+    QVERIFY2(project.createProject(path),qPrintable(project.lastErrors().join(';')));
+    const auto identity=project.mapConfiguration().projectId;
+    const auto source=dir.filePath("input.las");
+    QFile file(source); QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. SYNTH-1\n~Curve\nDEPT.M\nSP.MV\n~Ascii\n100 -20\n101 -30\n"); file.close();
+    QString asset,error;
+    {
+      PaleoProjectStore store;
+      store.setProjectPaths(path,dir.filePath("project.gpkg"),dir.filePath("metadata/project.sqlite"));
+      DataImportService imports(&store); imports.setProjectDir(dir.path());
+      DataImportService::ImportOptions options; options.targetWellId="new:SYNTH-1";
+      asset=imports.importProjectFile(source,options,&error);
+      QVERIFY2(!asset.isEmpty(),qPrintable(error));
+      QVERIFY(!imports.catalog()->currentVersion(asset).extra.value("nativeModel").toMap().isEmpty());
+    }
+    QVERIFY(project.writeProject()); project.closeProject();
+    QVERIFY2(project.openProject(dir.filePath("project.paleo")),qPrintable(project.lastErrors().join(';')));
+    QCOMPARE(project.mapConfiguration().projectId,identity);
+    PaleoProjectStore store; DataImportService imports(&store); imports.setProjectDir(dir.path());
+    const auto version=imports.catalog()->currentVersion(asset);
+    LasHeaderInfo header; QList<LasCurve> curves;
+    QVERIFY2(WellLogRead::parse(imports.catalog()->versionFilePath(version),header,curves,&error),qPrintable(error));
+    QCOMPARE(curves.size(),2); QCOMPARE(curves[1].values[1],-30.0);
+  }
+  void catalogFailurePreservesCurrentProject()
+  {
+    QTemporaryDir dir;
+    QgisProjectService service;
+    const auto original=dir.filePath("original.qgz");
+    QVERIFY(service.createProject(original));
+    const auto blocked=dir.filePath("blocked");
+    QVERIFY(QDir().mkpath(blocked+"/artifacts/metadata/catalog.sqlite"));
+    QSignalSpy close(&service,&QgisProjectService::projectAboutToClose);
+    QVERIFY(!service.createProject(blocked+"/new.qgz"));
+    QCOMPARE(service.projectPath(),original); QCOMPARE(close.count(),0);
+    QVERIFY(!QFile::exists(blocked+"/new.qgz"));
+    QVERIFY(!service.lastErrors().isEmpty());
+  }
   void createProjectWritesRealQgz()
   {
     QTemporaryDir dir;
@@ -40,6 +86,15 @@ private slots:
     QVERIFY2( svc.createProject( path ), qPrintable( svc.lastErrors().join( ';' ) ) );
     QCOMPARE( svc.projectPath(), path );
     QVERIFY( QFile::exists( path ) );
+    QVERIFY(QFile::exists(dir.filePath("artifacts/metadata/catalog.sqlite")));
+    bool manifestOk=false; QString manifestError;
+    const auto manifest=readProjectFile(dir.filePath("project.paleo"),&manifestOk,&manifestError);
+    QVERIFY2(manifestOk,qPrintable(manifestError));
+    QCOMPARE(manifest.dataBackend,QStringLiteral("data_service_versioned"));
+    QCOMPARE(manifest.catalog,QStringLiteral("artifacts/metadata/catalog.sqlite"));
+    QCOMPARE(svc.mapConfiguration().projectId,manifest.projectId);
+    DataCatalog data; QVERIFY2(data.open(dir.path(),&manifestError),qPrintable(manifestError));
+    QVERIFY(data.versions().isEmpty());
 
     // Must be a zip container, not bare XML — guards the temp-name suffix
     // handling in writeProject() (QgsProject picks storage by extension).

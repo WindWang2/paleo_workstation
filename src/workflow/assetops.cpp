@@ -236,6 +236,7 @@ RollbackOutcome rollbackToVersion(DataCatalog *cat, const QString &projectDir,
   // stale 标记除外：回滚就是把这些字节重新立为当前，带着「已被取代」标
   // 记会让 removeStaleVersions 视当前版本可清。
   nv.extra = target.extra;
+  nv.extra.remove(QStringLiteral("nativeModel")); // Copied bytes have a new path; old model references cannot be inherited.
   nv.extra.remove(QStringLiteral("stale"));
   nv.extra.remove(QStringLiteral("staleReason"));
   nv.extra.insert(QStringLiteral("rollbackOf"), target.id);

@@ -93,7 +93,10 @@ bool importDirectoryWithCrs(const QString &project, const QString &source,
   options.copySources = false;
   bool configured = false;
   const int threads = qEnvironmentVariableIntValue("PALEO_IMPORT_PARSER_THREADS", &configured);
-  options.parserThreads = std::clamp(configured ? threads : 4, 1, 4);
+  // Parallel parse workers have been aborting the process while publishing one
+  // file's result (fast-fail while freeing a parse note). Keep import serial
+  // until that result can be published safely.
+  options.parserThreads = std::clamp(configured ? threads : 1, 1, 1);
   const int pendingMb = qEnvironmentVariableIntValue("PALEO_IMPORT_PENDING_MB", &configured);
   options.maxPendingBytes = qint64(std::clamp(configured ? pendingMb : 256, 8, 1024)) * 1024 * 1024;
   options.parsing.comprehensiveWellMetreDepth = true;

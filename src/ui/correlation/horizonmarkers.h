@@ -37,6 +37,7 @@ class HorizonMarkerSet : public QObject
       QString name;
       QColor color;                       // data symbol — default orange #F29900
       QHash<QString, float> depthByWell;  // well id → pick depth (NaN = no pick)
+      QString label;
     };
 
     // --- model --------------------------------------------------------------
@@ -49,6 +50,13 @@ class HorizonMarkerSet : public QObject
     bool addMarker(const QString &name, const QColor &color = QColor());
     bool removeMarker(const QString &name);
     void setMarkerColor(const QString &name, const QColor &color);
+    void setMarkerLabel(const QString &name,const QString &label);
+    void setCommitOnRelease(bool enabled){m_commitOnRelease=enabled;}
+    bool commitOnRelease() const{return m_commitOnRelease;}
+    void setEditable(bool enabled){m_editable=enabled;}
+    bool editable() const{return m_editable;}
+    void setSelectedMarker(const QString& marker,const QString& well){m_selectedMarker=marker;m_selectedWell=well;}
+    void setClipToColumns(bool enabled){m_clipToColumns=enabled;}
     QColor markerColor(const QString &name) const;
 
     // Per-well picks. Setting the first pick of the flatten marker does
@@ -94,8 +102,12 @@ class HorizonMarkerSet : public QObject
     // A line was dragged (or a pick set programmatically) — the panel
     // re-renders affected wells (flatten mode makes it all of them).
     void markerDepthChanged(const QString &marker, const QString &wellId, float depth);
+    void markerSelected(const QString &marker,const QString &wellId);
 
   private:
     QList<Marker> m_markers;               // declaration order
     QString m_flatten;
+    bool m_commitOnRelease=false,m_editable=true;
+    bool m_clipToColumns=false;
+    QString m_selectedMarker,m_selectedWell;
 };

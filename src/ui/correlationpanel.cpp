@@ -46,6 +46,7 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
   auto *scene = new CorrelationScene(this);
   scene->clicked = [this](const QString &id) { emit wellClicked(id); };
   scene->doubleClicked = [this](const QString &id) { emit wellDoubleClicked(id); };
+  scene->depthPicked=[this](const QString& id,qreal y){emit wellDepthPicked(id,depthAtY(y)+m_markers->displayOffset(id));};
   scene->reorderRequested = [this](int from, int to) { reorder(from, to); };
   m_scene = scene;
 
@@ -516,6 +517,7 @@ void WellCorrelationPanel::setManifestHorizons(const QStringList &names)
 
 void WellCorrelationPanel::setFlattenMarker(const QString &name)
 {
+  if(m_markers->flattenMarker()!=name)m_fixedDepthRange=false;
   m_markers->setFlattenMarker(name);
   rebuildScene();
 }
@@ -531,6 +533,7 @@ bool WellCorrelationPanel::isFlattened() const
 // absolute depths.
 void WellCorrelationPanel::computeDepthAxis()
 {
+  if(m_fixedDepthRange)return;
   float lo = std::numeric_limits<float>::infinity();
   float hi = -lo;
   for (const auto &w : m_wells)

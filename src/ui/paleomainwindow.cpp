@@ -7,6 +7,7 @@
 // 定位、D11 临时配准、地震体后台装载。页切换在 _pages.cpp、工程打开/导入
 // 编排在 _project.cpp。
 #include "paleomainwindow.h"
+#include "../workflow/stratigraphyworkflow.h"
 #include "paleomainwindow_internal.h"
 #include <cmath>
 #include "uienv_internal.h"
@@ -862,6 +863,9 @@ bool PaleoMainWindow::resolveDirtyLayerEdits()
 // 返回 false = 取消。offscreen 且无 seam 时直接放行（无头自动化旧行为）。
 bool PaleoMainWindow::maybeSaveProject()
 {
+  if(m_stratigraphy&&m_stratigraphy->isRunning()) {
+    PaleoNotify::warning(this,tr("地层对比仍在计算"),tr("请等待计算完成或取消计算后再关闭或切换工程。"));return false;
+  }
   // 没有打开工程文件时，QgsProject 仍可能被标脏（空工程、标题 [*]）。
   // 关窗和换工程直接放行，不弹保存/放弃。
   if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
@@ -869,7 +873,7 @@ bool PaleoMainWindow::maybeSaveProject()
   if (!resolveDirtyLayerEdits())
     return false;
   QgsProject *proj = m_projectSvc->project();
-  if (!proj || !proj->isDirty())
+  if ((!proj || !proj->isDirty())&&(!m_stratigraphy||!m_stratigraphy->hasUnsavedChanges()))
     return true; // 不脏：直接放行
   if (isOffscreen() && !m_projectSaveAsk)
     return true;
@@ -890,7 +894,7 @@ bool PaleoMainWindow::maybeSaveProject()
   }
   const QString text =
       tr("当前工程有未保存的改动（版面、图层样式、图层树顺序、地图主题等"
-         "保存在工程文件里）。\n\n继续之前是否保存？");
+         "保存在工程文件里；地层对比的人工解释另存为数据服务修订）。\n\n继续之前是否保存？");
   const auto choice =
       m_projectSaveAsk
           ? m_projectSaveAsk(tr("保存工程改动？"), text)
@@ -923,6 +927,11 @@ bool PaleoMainWindow::saveProjectThroughStore(PaleoProjectStore *store, QString 
     store = m_projectStore;
   if (m_isProjectReadOnly || m_projectSvc->isReadOnly() || (store && store->isReadOnly()))
     return fail(tr("工程目录被另一个实例锁定——本实例只读，工程保存被拒绝"));
+  if(m_stratigraphy&&m_stratigraphy->isRunning())return fail(tr("地层对比仍在计算，请等待完成或取消计算"));
+  if(m_stratigraphy&&m_stratigraphy->hasUnsavedChanges()) {
+    m_stratigraphy->save();
+    if(m_stratigraphy->hasUnsavedChanges())return fail(tr("地层解释修订未能保存，工程保持打开；请查看地层对比中的错误提示。"));
+  }
   auto writeQgz = [this] {
     saveCanvasExtent(); // display state travels inside the .qgz
     const bool ok = m_projectSvc->writeProject();

@@ -8,6 +8,7 @@
 #include <QStringList>
 #include <QVector>
 #include <QWidget>
+#include <QPoint>
 
 #include "correlation/horizonmarkers.h"
 
@@ -135,6 +136,11 @@ class WellCorrelationPanel : public QWidget
     // 居中该 pick 线，否则居中柱体。未知井/层位仍记录目标（供状态断言
     // 与后续联动），视图不动。目标经 lastScroll* 暴露。
     void scrollToWellTop(const QString &wellId, const QString &horizon);
+    QPoint positionForDepth(const QString& wellId,double md) const;
+    void setDepthRange(float top,float bottom);
+    QPair<float,float> depthRange() const{return {m_axisMin,m_axisMax};}
+    bool exportImage(const QString& path) const;
+    void highlightMarker(const QString& marker,const QString& well);
     QString lastScrollWell() const { return m_scrollWell; }
     QString lastScrollHorizon() const { return m_scrollHorizon; }
 
@@ -144,6 +150,7 @@ class WellCorrelationPanel : public QWidget
   signals:
     void wellClicked(const QString &wellId);
     void wellDoubleClicked(const QString &wellId);
+    void wellDepthPicked(const QString& wellId,double md);
     // B1：quiet 异步 LAS 解析终态（ok = 解析成功且（loadWellLas 场合）曲线
     // 已回填/上轨；false 附原因于 lasLoadError）。同步路径不发——调用方当场
     // 拿到返回值。
@@ -191,6 +198,7 @@ class WellCorrelationPanel : public QWidget
     QGraphicsScene *m_scene = nullptr;
     QLabel *m_emptyLabel = nullptr;
     float m_axisMin = 0.0f, m_axisMax = 100.0f; // shared display-space depth window
+    bool m_fixedDepthRange=false;
     QString m_scrollWell, m_scrollHorizon;      // 三视图联动最近一次滚动目标
     bool m_updatesEnabled = true;
     bool m_sharedScale = false;

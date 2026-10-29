@@ -33,11 +33,24 @@ add_paleo_test(tst_areamodel LIBS paleo_io paleo_services paleo_workflow Paleo::
 target_link_libraries(tst_wellcomposite PRIVATE Paleo::paleo_data_service)
 
 target_sources(paleo_workflow PRIVATE src/workflow/stratigraphyworkflow.cpp src/workflow/stratigraphyworkflow.h)
+target_sources(paleo_workflow PRIVATE src/workflow/stratigraphyworkflow_edit.cpp src/workflow/stratigraphyworkflow_versions.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/stratigraphygeometry.cpp src/workflow/stratigraphyworkflow_settings.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/stratigraphyworkflow_templates.cpp)
 target_link_libraries(paleo_workflow PRIVATE Paleo::paleo_stratigraphy_service)
 target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage.cpp src/ui/pages/stratigraphypage.h)
 target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_options.cpp)
+target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_controls.cpp src/ui/pages/stratigraphypage_editors.cpp src/ui/correlation/correlationpanel_annotation.cpp)
+target_link_libraries(paleo_ui PRIVATE Paleo::paleo_data_service)
+target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_settings.cpp)
+target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_results.cpp src/ui/pages/stratigraphyresultplot.cpp)
+target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_templates.cpp)
+target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_view.cpp)
 
 target_sources(paleo_services PRIVATE src/services/stratigraphymodel.cpp)
+target_sources(paleo_services PRIVATE src/services/stratigraphyediting.cpp)
+target_sources(paleo_services PRIVATE src/services/stratigraphyexport.cpp)
+target_link_libraries(paleo_services PRIVATE Paleo::paleo_stratigraphy_service)
+add_paleo_test(tst_stratigraphy_editing LIBS paleo_ui paleo_workflow paleo_services Paleo::paleo_stratigraphy_service)
 
 add_paleo_test(tst_stratigraphy_core LIBS Paleo::paleo_stratigraphy_service Qt6::Core)
 

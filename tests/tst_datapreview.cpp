@@ -1481,32 +1481,24 @@ void TestDataPreview::surveyAreaOpensQgisCanvasAndEmitsShowOnMain()
   btnSwitchMain->click();
   QCOMPARE(spy.count(), 1);
 
-  // Check decorations and survey boundary rubberband
+  // Check decorations
   auto *decorMgr = canvas->findChild<PaleoDecorationManager *>(QStringLiteral("surveyAreaDecorManager"));
   QVERIFY(decorMgr);
   QVERIFY(decorMgr->isScaleBarEnabled());
   QVERIFY(decorMgr->isNorthArrowEnabled());
   QVERIFY(!decorMgr->isGridEnabled());
 
-  auto *band = canvas->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand"));
-  QVERIFY(band);
-  QVERIFY(band->isVisible());
+  // 工区范围带与开关按钮已按用户要求撤下（不再画地震来源的范围框）。
+  QVERIFY(!canvas->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand")));
 
-  auto *btnBoundary = st->preview->findChild<QToolButton *>(QStringLiteral("btnToggleSurveyBoundary"));
   auto *btnScaleBar = st->preview->findChild<QToolButton *>(QStringLiteral("btnToggleScaleBar"));
   auto *btnNorthArrow = st->preview->findChild<QToolButton *>(QStringLiteral("btnToggleNorthArrow"));
   auto *btnGrid = st->preview->findChild<QToolButton *>(QStringLiteral("btnToggleGrid"));
+  QVERIFY(!st->preview->findChild<QToolButton *>(QStringLiteral("btnToggleSurveyBoundary")));
 
-  QVERIFY(btnBoundary && btnBoundary->isChecked());
   QVERIFY(btnScaleBar && btnScaleBar->isChecked());
   QVERIFY(btnNorthArrow && btnNorthArrow->isChecked());
   QVERIFY(btnGrid && !btnGrid->isChecked());
-
-  // Test toggling boundary
-  btnBoundary->click();
-  QVERIFY(!band->isVisible());
-  btnBoundary->click();
-  QVERIFY(band->isVisible());
 
   // Test toggling decorations
   btnScaleBar->click();

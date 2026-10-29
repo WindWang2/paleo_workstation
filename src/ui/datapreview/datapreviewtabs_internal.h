@@ -619,6 +619,7 @@ inline void stylePointLayer( QgsVectorLayer *vl, bool withLabels )
 // 通用「探井」图式（TJLBD1-5）——外细圆环 + 内实心圆盘靶标（圆盘≈0.73
 // 外径，与环间留细缝）。规范默认黑墨；彩色工作图用应用蓝 #1B73D0。
 // 全景是固定内容画布，井位层只有「井位」一种符号。
+// 尺寸按用户要求缩小约四分之一（环 6→4.5、盘 4.4→3.3，比例不变）。
 inline void styleSurveyWellLayer( QgsVectorLayer *vl )
 {
   if ( !vl )
@@ -628,13 +629,13 @@ inline void styleSurveyWellLayer( QgsVectorLayer *vl )
   ring[QStringLiteral( "color" )] = QStringLiteral( "255,255,255,0" );
   ring[QStringLiteral( "outline_color" )] = QStringLiteral( "#1B73D0" );
   ring[QStringLiteral( "outline_width" )] = QStringLiteral( "0.5" );
-  ring[QStringLiteral( "size" )] = QStringLiteral( "6" );
+  ring[QStringLiteral( "size" )] = QStringLiteral( "4.5" );
   std::unique_ptr<QgsMarkerSymbol> sym = QgsMarkerSymbol::createSimple( ring );
   QVariantMap disk;
   disk[QStringLiteral( "name" )] = QStringLiteral( "circle" );
   disk[QStringLiteral( "color" )] = QStringLiteral( "#1B73D0" );
   disk[QStringLiteral( "outline_style" )] = QStringLiteral( "no" );
-  disk[QStringLiteral( "size" )] = QStringLiteral( "4.4" );
+  disk[QStringLiteral( "size" )] = QStringLiteral( "3.3" );
   sym->appendSymbolLayer( QgsSimpleMarkerSymbolLayer::create( disk ) );
   vl->setRenderer( new QgsSingleSymbolRenderer( sym.release() ) );
   applyPointNameLabels( vl );

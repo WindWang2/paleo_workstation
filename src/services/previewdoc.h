@@ -253,27 +253,6 @@ class PreviewDocService : public QObject
                         bool isInline, int lineNo);
     // 标签关闭时释放该资产的索引缓存/世代号/进行中任务。
     void releaseSection(const QString &assetId);
-    // 后台取测区平面范围。四角点/包围盒统一由数据服务按抽样道头拟合算，
-    // 宿主不再重开 SEG-Y 自算角点（旧实现为此重建整份道索引）。
-    // 范围不可得是文件事实：state 如实给出 Ready/Unbound/Unavailable，
-    // 坐标缺失不用 0 冒充，detail 原样带数据服务的 status 与提醒文案。
-    struct SurveyBounds
-    {
-      enum class State
-      {
-        Ready,       // 四角点与包围盒都可用
-        Unbound,     // 该资产不在工区数据模型里（旧工程/外部文件）
-        Unavailable  // 已登记但测网号域或平面 XY 不可得
-      };
-      State state = State::Unbound;
-      double minX = 0, minY = 0, maxX = 0, maxY = 0;
-      QString coordinateUnit; // 地震体已确认的平面单位；空串 = 未声明
-      double rmsResidual = qQNaN(); // 角点拟合残差（同 coordinateUnit 的平面单位）
-      QString detail;         // status + 提醒，界面直显
-      bool valid() const { return state == State::Ready; }
-    };
-    void requestSurveyBounds(const QString &assetId,
-        std::function<void(const SurveyBounds &)> done);
 
     // ---- LAS 数据异步填充（T1：GUI 线程零同步整文件解析）----
     // requestLas 在任务池整份解析 LAS（协作取消 + 每 key 世代号防陈旧），
@@ -353,8 +332,6 @@ class PreviewDocService : public QObject
     QHash<QString, std::shared_ptr<SegyReader>> m_segyReaders;
     QHash<QString, int> m_decodeSeq;
     QHash<QString, QPointer<PaleoTask>> m_decodeTask;
-    int m_surveyGeneration = 0;
-    QPointer<PaleoTask> m_surveyTask;
     // assetId → 本会话已过 SHA 复验（mutable：verifyExternalSha 是 const——
     // 会话级缓存不算对象逻辑状态，seismicTieMarker 等 const 读路径可用）。
     mutable QHash<QString, bool> m_shaVerified;

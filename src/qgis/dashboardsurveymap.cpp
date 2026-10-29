@@ -12,7 +12,6 @@
 #include <qgsmarkersymbollayer.h>
 #include <qgspallabeling.h>
 #include <qgsrectangle.h>
-#include <qgsrubberband.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgstextbuffersettings.h>
 #include <qgstextformat.h>
@@ -25,7 +24,6 @@
 namespace
 {
   const char *kWells = "dashboardWellsLayer";
-  const char *kBand = "dashboardSurveyRubberBand";
 
   // 与 datapreviewtabs_internal.h styleSurveyWellLayer/applyPointNameLabels 同图式
   //（Q/HS 1011—2016 表 K.1 探井靶标 + 白晕井名）。
@@ -37,13 +35,13 @@ namespace
     ring[QStringLiteral( "color" )] = QStringLiteral( "255,255,255,0" );
     ring[QStringLiteral( "outline_color" )] = hex;
     ring[QStringLiteral( "outline_width" )] = QStringLiteral( "0.5" );
-    ring[QStringLiteral( "size" )] = QStringLiteral( "6" );
+    ring[QStringLiteral( "size" )] = QStringLiteral( "4.5" );
     std::unique_ptr<QgsMarkerSymbol> sym = QgsMarkerSymbol::createSimple( ring );
     QVariantMap disk;
     disk[QStringLiteral( "name" )] = QStringLiteral( "circle" );
     disk[QStringLiteral( "color" )] = hex;
     disk[QStringLiteral( "outline_style" )] = QStringLiteral( "no" );
-    disk[QStringLiteral( "size" )] = QStringLiteral( "4.4" );
+    disk[QStringLiteral( "size" )] = QStringLiteral( "3.3" );
     sym->appendSymbolLayer( QgsSimpleMarkerSymbolLayer::create( disk ) );
     vl->setRenderer( new QgsSingleSymbolRenderer( sym.release() ) );
 
@@ -84,19 +82,6 @@ namespace DashboardSurveyMap
     vl->setObjectName( QString::fromLatin1( kWells ) );
     styleWells( vl, style );
     c->setLayers( { vl } );
-
-    auto *band = new QgsRubberBand( c, Qgis::GeometryType::Polygon );
-    band->setObjectName( QString::fromLatin1( kBand ) );
-    QColor fill = style.primary;
-    fill.setAlpha( 16 );
-    band->setColor( fill );
-    band->setStrokeColor( style.primary );
-    band->setWidth( 2 );
-    band->setLineStyle( Qt::DashLine );
-    band->show();
-    // QgsRubberBand 挂在画布场景里，不是画布的 QObject 子对象——按名找不到
-    //（#697 起曾因此每次 update 提前返回，看板井位从不灌层）。存裸指针属性。
-    map->setProperty( kBand, QVariant::fromValue( static_cast<QObject *>( band ) ) );
     return map;
   }
 
@@ -106,15 +91,14 @@ namespace DashboardSurveyMap
     return m ? m->canvas() : nullptr;
   }
 
-  void update( QWidget *map, const QVector<CatalogEntity> &wells, const CatalogEntity *survey )
+  void update( QWidget *map, const QVector<CatalogEntity> &wells )
   {
     auto *m = qobject_cast<PreviewMapCanvas *>( map );
     if ( !m )
       return;
     QgsMapCanvas *c = m->canvas();
     auto *vl = m->findChild<QgsVectorLayer *>( QString::fromLatin1( kWells ) );
-    auto *band = qobject_cast<QgsRubberBand *>( m->property( kBand ).value<QObject *>() );
-    if ( !vl || !band )
+    if ( !vl )
       return;
     // 内存层 truncate/重灌若与在飞渲染作业并发即堆损坏（0xc0000374）。
     c->stopRendering();
@@ -133,37 +117,15 @@ namespace DashboardSurveyMap
       extent.combineExtentWith( QgsRectangle( well.surfaceX, well.surfaceY, well.surfaceX, well.surfaceY ) );
     }
     vl->updateExtents();
-
-    QgsGeometry surveyGeom;
-    if ( survey && survey->corners.size() >= 3 )
+    // 工区范围带（原由地震测区角点/井位并集拟合）按用户要求撤下，看板小地图
+    // 只留井位；取景随之只按井位并集，无井时 10 km 默认幅面。
+    if ( extent.isNull() || extent.isEmpty() )
     {
-      QgsRectangle bounds;
-      for ( const auto &p : survey->corners )
-        if ( std::isfinite( p.first ) && std::isfinite( p.second ) )
-          bounds.combineExtentWith( QgsRectangle( p.first, p.second, p.first, p.second ) );
-      if ( !bounds.isEmpty() )
-        surveyGeom = QgsGeometry::fromRect( bounds );
-    }
-    // 注意：不要拿 inline/xline 线号当局部网格米坐标画兜底框——线号是测网
-    // 索引（百/千级），与米制网格单位不同系，画出来的「工区框」没有空间意义，
-    // 还会把视图缩放范围拖到假位置。测区角点（corners，导入时按 SEGY 头
-    // geometry 冻结，已是局部米）不可用时，直接落到下面的井位并集 / 10 km
-    // 默认框；要按线号补框，须先在导入侧把测网仿射换算成局部米（同
-    // SgyCoordinateMapper 口径）再写 corners。
-    if ( surveyGeom.isNull() && !extent.isNull() )
-    {
-      if ( extent.isEmpty() )
+      if ( extent.isNull() )
+        extent = QgsRectangle( 0, 0, 10000, 10000 );
+      else
         extent.grow( 50.0 );
-      surveyGeom = QgsGeometry::fromRect( extent );
     }
-    if ( surveyGeom.isNull() )
-      surveyGeom = QgsGeometry::fromRect( QgsRectangle( 0, 0, 10000, 10000 ) );
-    const auto localCrs = QgsCoordinateReferenceSystem::fromWkt( DataCatalog::localGridCrsWkt() );
-    if ( surveyGeom.isGeosValid() )
-      band->setToGeometry( surveyGeom, localCrs );
-    extent.combineExtentWith( surveyGeom.boundingBox() );
-    if ( extent.isEmpty() )
-      extent = QgsRectangle( 0, 0, 10000, 10000 );
     extent.scale( 1.08 );
     c->setExtent( extent );
     c->refresh();

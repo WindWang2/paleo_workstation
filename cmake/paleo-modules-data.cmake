@@ -193,7 +193,6 @@ add_library(paleo_services STATIC
   src/services/toolavailability.cpp
   src/services/previewdoc.cpp                       # W1 数据页唯一数据门面
   src/services/previewdoc_xml.cpp
-  src/services/previewdoc_survey.cpp                # 完整测区范围后台恢复
   src/services/singlefactordef.cpp                  # m2：单因素定义注册表
   src/services/faciesdisplaysettings.cpp
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表

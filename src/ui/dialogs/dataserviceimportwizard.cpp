@@ -82,8 +82,7 @@ QWizardPage *DataServiceImportWizard::settingsPage()
   m_coordinateStatus = new QLabel(page); m_coordinateStatus->setObjectName(QStringLiteral("dataServiceCoordinateStatus"));
   m_coordinateStatus->setWordWrap(true); form->addRow(m_coordinateStatus);
   connect(m_crs, &PaleoCrsSelector::definitionChanged, this, [this](const QString &) {
-    const auto crs = m_crs->crs();
-    m_crsUnit->setCurrentIndex(crs.isValid() && !crs.isGeographic() && crs.mapUnits() == Qgis::DistanceUnit::Meters ? 0 : -1);
+    m_crsUnit->setCurrentIndex(!m_crs->definition().isEmpty()&&m_crs->validate(nullptr,true)?0:-1);
     m_coordinateStatus->clear();
     refreshReview();
   });

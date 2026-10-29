@@ -16,6 +16,7 @@ class PaleoTaskService;
 class DataCatalog;
 class QHBoxLayout;
 class QLabel;
+class QgsRectangle;
 class QTabWidget;
 class QVBoxLayout;
 struct CatalogAsset;
@@ -190,6 +191,7 @@ class DataPreviewTabs : public QWidget
     // 测区全景底部「地震时间剖面」预览条（datapreviewtabs_survey.cpp）：顶部
     // 工具条挂开关，数据服务沿测区长轴读一条测线；无地震体时保持空态。
     QWidget *buildTimeSectionStrip(QWidget *page, QHBoxLayout *topBarLay, const CatalogEntity &survey);
+    QgsRectangle loadSurveyWells(class QgsVectorLayer *wellsVl); // 井位灌层 + 并集范围
     QWidget *attachOnlineBasemap(QWidget *content); // #14 井位类页 GIS 底图挂载（datapreviewtabs_basemap.cpp）
     void rebuildAssetTab(const QString &assetId); // 重试或切换版本后重建内容
     // buildContent 在途时收到的重建请求（服务层转换失败信号在 ensure* 内

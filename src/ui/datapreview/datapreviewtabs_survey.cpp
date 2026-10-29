@@ -190,27 +190,14 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
     ovAction->setVisible(false);
   }
   else
-  {
     mapPage->setOverviewVisible(false);
-  }
 
   // 全景是固定内容画布：只挂私有井位层 + 工区范围 rubber band——不桥接
   // QgsProject 图层树（其它画布/图层服务实例化的图层不外溢进来，也不联动）。
   auto *wellsVl = makeMemoryPointLayer(tr("井位"), w);
   wellsVl->setObjectName(QStringLiteral("surveyWellsLayer"));
   wellsVl->setCrs(surveyCrs);
-  QgsRectangle wellsExtent;
-  if (m_doc && m_doc->catalog())
-  {
-    for (const CatalogEntity &well : m_doc->catalog()->entities(QStringLiteral("well")))
-    {
-      if (!well.hasSurface || !std::isfinite(well.surfaceX) || !std::isfinite(well.surfaceY))
-        continue;
-      addMemoryPoint(wellsVl, well.surfaceX, well.surfaceY, well.name, QStringLiteral("well"), well.id);
-      wellsExtent.combineExtentWith(QgsRectangle(well.surfaceX, well.surfaceY,
-                                                 well.surfaceX, well.surfaceY));
-    }
-  }
+  QgsRectangle wellsExtent = loadSurveyWells(wellsVl);
   styleSurveyWellLayer(wellsVl);
   mapPage->addMapLayer(wellsVl, tr("井位"), QString()); wireWellNavigation(mapPage, wellsVl);
 
@@ -393,6 +380,23 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
       }
 
   return w;
+}
+
+// 有井口坐标的井灌入全景井位层，返回井位并集（无有效井为空矩形）。
+QgsRectangle DataPreviewTabs::loadSurveyWells(QgsVectorLayer *wellsVl)
+{
+  QgsRectangle extent;
+  if (!m_doc || !m_doc->catalog())
+    return extent;
+  for (const CatalogEntity &well : m_doc->catalog()->entities(QStringLiteral("well")))
+  {
+    if (!well.hasSurface || !std::isfinite(well.surfaceX) || !std::isfinite(well.surfaceY))
+      continue;
+    addMemoryPoint(wellsVl, well.surfaceX, well.surfaceY, well.name, QStringLiteral("well"), well.id);
+    extent.combineExtentWith(QgsRectangle(well.surfaceX, well.surfaceY,
+                                          well.surfaceX, well.surfaceY));
+  }
+  return extent;
 }
 
 QWidget *DataPreviewTabs::buildTimeSectionStrip(QWidget *page, QHBoxLayout *topBarLay,

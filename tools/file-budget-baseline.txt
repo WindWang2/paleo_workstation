@@ -40,7 +40,7 @@ src/ui/crossplot/crossplotpanel.cpp:fn:CrossplotPanel:240
 src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:407
 src/ui/datapreview/datapreviewtabhorizon.cpp:fn:buildHorizonContent:429
 src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:372
-src/ui/datapreview/datapreviewtabs_survey.cpp:fn:buildSurveyAreaContent:318
+src/ui/datapreview/datapreviewtabs_survey.cpp:fn:buildSurveyAreaContent:317
 src/ui/datapreview/datapreviewtabs_well.cpp:fn:buildWellBody:251
 src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:742
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:238

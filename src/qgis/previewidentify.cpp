@@ -4,6 +4,7 @@
 #include <QPointer>
 #include <QSet>
 
+#include <qgscoordinatetransform.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
 #include <qgsfields.h>
@@ -13,6 +14,7 @@
 #include <qgsrasterlayer.h>
 #include <qgsspatialindex.h>
 #include <qgsvectorlayer.h>
+#include <qgsexception.h>
 
 #include <cmath>
 
@@ -28,6 +30,35 @@ QVariantMap attributesToMap( QgsVectorLayer *layer, const QgsFeature &feature )
   for ( int i = 0; i < fields.size() && i < attrs.size(); ++i )
     out.insert( fields.at( i ).name(), attrs.at( i ) );
   return out;
+}
+
+// #72：把画布 CRS 下的点与容差矩形变换到图层 CRS。返回 false = 无法变换
+// （CRS 无效或 PROJ 造不出操作）——此时该层宁可不识别，也不拿画布坐标去问
+// 图层（静默错值比漏识别更难发现）。
+bool toLayerCrs( const QgsCoordinateReferenceSystem &sourceCrs,
+                 const QgsCoordinateTransformContext &context,
+                 const QgsCoordinateReferenceSystem &layerCrs, const QgsPointXY &point,
+                 const QgsRectangle &filter, QgsPointXY *layerPoint, QgsRectangle *layerFilter )
+{
+  if ( !sourceCrs.isValid() || !layerCrs.isValid() || sourceCrs == layerCrs )
+  {
+    *layerPoint = point;
+    *layerFilter = filter;
+    return true;
+  }
+  try
+  {
+    QgsCoordinateTransform transform( sourceCrs, layerCrs, context );
+    if ( !transform.isValid() )
+      return false;
+    *layerPoint = transform.transform( point );
+    *layerFilter = transform.transformBoundingBox( filter );
+    return std::isfinite( layerPoint->x() ) && std::isfinite( layerPoint->y() );
+  }
+  catch ( const QgsCsException & )
+  {
+    return false;
+  }
 }
 } // namespace
 
@@ -106,7 +137,8 @@ void PreviewIdentifyCore::hookLayerInvalidation( QgsVectorLayer *layer )
 
 QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
     const QList<QgsMapLayer *> &layers, const QgsPointXY &point, double toleranceMapUnits,
-    int maxPerLayer )
+    int maxPerLayer, const QgsCoordinateReferenceSystem &sourceCrs,
+    const QgsCoordinateTransformContext &context )
 {
   QVector<PreviewIdentifyResult> out;
   const double tol = qMax( 0.0, toleranceMapUnits );
@@ -122,12 +154,18 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
   {
     if ( !ml )
       continue;
+    // #72：查询几何先逐层变换到图层 CRS（画布 CRS 下的坐标直接问图层 = 错误
+    // 位置采样/整体漏识别）。变换不可得的层跳过，不静默用错坐标。
+    QgsPointXY layerPoint;
+    QgsRectangle layerFilter;
+    if ( !toLayerCrs( sourceCrs, context, ml->crs(), point, filter, &layerPoint, &layerFilter ) )
+      continue;
     if ( auto *vl = qobject_cast<QgsVectorLayer *>( ml ) )
     {
       if ( QgsSpatialIndex *index = ensureIndex( vl ) )
       {
         // 空间索引先粗筛（bbox），再按几何精筛（点容差与真实相交）。
-        QList<QgsFeatureId> ids = index->intersects( filter );
+        QList<QgsFeatureId> ids = index->intersects( layerFilter );
         // 每层上限先截断候选再取要素：D.20 之前这里逐 fid 各发一次
         // provider 查询（密要素区 = N 次往返）且无每层上限（单层吃满全局
         // 200 条预算）——悬停识别一次停顿就把 GUI 线程堵死。
@@ -145,7 +183,7 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
         while ( it.nextFeature( full ) )
         {
           const QgsGeometry geom = full.geometry();
-          if ( !geom.isNull() && !geom.intersects( filter ) )
+          if ( !geom.isNull() && !geom.intersects( layerFilter ) )
             continue;
           PreviewIdentifyResult r;
           r.layer = vl;
@@ -161,7 +199,7 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
       else
       {
         QgsFeatureRequest req;
-        req.setFilterRect( filter );
+        req.setFilterRect( layerFilter );
         if ( perLayerCapped )
           req.setLimit( maxPerLayer );
         QgsFeatureIterator it = vl->getFeatures( req );
@@ -182,7 +220,7 @@ QVector<PreviewIdentifyResult> PreviewIdentifyCore::identifyPoint(
     {
       double nearest = 0.0;
       double bilinear = 0.0;
-      if ( sampleRaster( rl, point, 1, &nearest, &bilinear ) )
+      if ( sampleRaster( rl, layerPoint, 1, &nearest, &bilinear ) )
       {
         PreviewIdentifyResult r;
         r.layer = rl;

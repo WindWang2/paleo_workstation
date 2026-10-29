@@ -205,7 +205,7 @@ void IoImportLedgerTests::rejectedRowsReachLedgerAndAcceptedTops()
   FolderImportWorkflow workflow(&importer, nullptr);
   QVector<FolderRowResult> rows;
   QString error;
-  workflow.importFolder(src, {}, [&](const auto &r, const QString &e) { rows = r; error = e; });
+  workflow.importFolder(src, {}, [&](const auto &r, const QString &e, bool) { rows = r; error = e; });
   QVERIFY2(error.isEmpty(), qPrintable(error));
   QCOMPARE(rows.size(), 2);
   const FolderRowResult *tops = nullptr;
@@ -242,14 +242,14 @@ void IoImportLedgerTests::rejectedRowsReachLedgerAndAcceptedTops()
   QCOMPARE(report.value(QStringLiteral("sentinelHits")).toInt(), 3);
   // 同字节重导入，报告仍回到本次导入台账。
   rows.clear();
-  workflow.importFolder(src, {}, [&](const auto &r, const QString &e) { rows = r; error = e; });
+  workflow.importFolder(src, {}, [&](const auto &r, const QString &e, bool) { rows = r; error = e; });
   QVERIFY2(error.isEmpty(), qPrintable(error));
   bool reportedAgain = false;
   for (const auto &row : rows)
     if (row.path == topsPath) reportedAgain = row.message.contains(QStringLiteral("哨兵 3"));
   QVERIFY(reportedAgain);
   rows.clear();
-  workflow.importFolder(src, {}, {topsPath}, [&](const auto &r, const QString &e) { rows = r; error = e; });
+  workflow.importFolder(src, {}, {topsPath}, [&](const auto &r, const QString &e, bool) { rows = r; error = e; });
   QVERIFY2(error.isEmpty(), qPrintable(error));
   reportedAgain = false;
   for (const auto &row : rows)
@@ -269,7 +269,7 @@ void IoImportLedgerTests::allInvalidRowsAreFailureWithReasons()
   QVERIFY(importer.catalogWritable());
   FolderImportWorkflow workflow(&importer, nullptr);
   QVector<FolderRowResult> rows;
-  workflow.importFolder(dir.filePath(QStringLiteral("src")), {}, [&](const auto &r, const QString &) { rows = r; });
+  workflow.importFolder(dir.filePath(QStringLiteral("src")), {}, [&](const auto &r, const QString &, bool) { rows = r; });
   QCOMPARE(rows.size(), 1);
   QCOMPARE(rows[0].outcome, FolderRowResult::Outcome::Failed);
   QVERIFY2(rows[0].message.contains(QStringLiteral("拒收 3 行")), qPrintable(rows[0].message));
@@ -310,7 +310,7 @@ void IoImportLedgerTests::corruptLedgerPreservedBeforeOverwrite()
 
   FolderImportWorkflow workflow(&importer, nullptr);
   QString error;
-  workflow.importFolder(src, {}, [&](const auto &, const QString &e) { error = e; });
+  workflow.importFolder(src, {}, [&](const auto &, const QString &e, bool) { error = e; });
   QVERIFY2(error.isEmpty(), qPrintable(error));
 
   // 原损坏字节被逐字保全（恰一份备份），新台账只含本批且可正常读回。
@@ -327,7 +327,7 @@ void IoImportLedgerTests::corruptLedgerPreservedBeforeOverwrite()
   QCOMPARE(after.count(), 1);
   QCOMPARE(after.batches()[0].dir, src);
   // 再写一批：不再重复备份（损坏件只保全一次）。
-  workflow.importFolder(src, {}, [&](const auto &, const QString &e) { error = e; });
+  workflow.importFolder(src, {}, [&](const auto &, const QString &e, bool) { error = e; });
   QCOMPARE(li.dir().entryList(QStringList{li.fileName() + QStringLiteral(".corrupt-*")},
                               QDir::Files).size(), 1);
   after.load(importer.catalog());

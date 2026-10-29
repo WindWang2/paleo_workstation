@@ -330,7 +330,8 @@ QVariantMap MappingWorkbench::faciesConsistency(const QString &id,
 bool MappingWorkbench::startFaciesConsistency(const QString &id, QString *error,
                                               const QString &other) {
   const auto result = consistencyImpl(id, error, other, true);
-  if (!result.isEmpty() && !result.value("queued").toBool())
+  m_consistencyQueued = result.value("queued").toBool();
+  if (!result.isEmpty() && !m_consistencyQueued)
     emit consistencyReady(result);
   return !result.isEmpty();
 }

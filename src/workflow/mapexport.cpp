@@ -31,9 +31,10 @@ using paleo::workflow_detail::setError;
 } // namespace
 
 QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectService *projectSvc,
-                                       const QString &horizon, QString *error )
+                                       const QString &horizon, QString *error,
+                                       QStringList *warnings )
 {
-  return PaleoLayoutExport::buildHorizonMapLayout( layers, projectSvc, horizon, error );
+  return PaleoLayoutExport::buildHorizonMapLayout( layers, projectSvc, horizon, error, warnings );
 }
 
 QString exportHorizonMapPdf( QgisLayerService *layers, QgisProjectService *projectSvc,
@@ -47,9 +48,13 @@ QString exportHorizonMapPdf( QgisLayerService *layers, QgisProjectService *proje
   if ( outPath.isEmpty() )
     return fail( QObject::tr( "导出路径为空" ) );
 
-  QgsPrintLayout *layout = buildHorizonMapLayout( layers, projectSvc, horizon, error );
+  QStringList warnings;
+  QgsPrintLayout *layout = buildHorizonMapLayout( layers, projectSvc, horizon, error, &warnings );
   if ( !layout )
     return QString();
+  // 图上缺层（如相面层实例化失败）不阻断导出，但必须可见——与 startMapLayoutExport
+  // 的快照缺源警告同一入账口径（#77）。
+  paleo::workflow_detail::reportSnapshotWarnings( warnings );
 
   const auto outcome = PaleoLayoutExport::exportLayout(
       layout, outPath, PaleoLayoutExport::Format::Pdf, 300.0,

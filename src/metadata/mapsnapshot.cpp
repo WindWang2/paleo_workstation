@@ -27,6 +27,21 @@ PreparedMapSnapshot prepareMapSnapshot(const MapSnapshotInput &input,
     return false;
   };
   if (!input.valid || stop()) { if (out.error.isEmpty()) out.error = QStringLiteral("地图快照输入无效"); return out; }
+  // 数据集伴生文件的目标名 = 主文件目标名的「基名 + 尾缀」
+  // （mapversionstore.cpp frozenStem 同款口径）：GDAL/OGR 靠同基名发现
+  // .dbf/.shx/.prj，缺一件 shapefile 就打不开（PW-023）。
+  const auto snapshotStem = [](const QString &name) {
+    const int dot = name.lastIndexOf('.');
+    return dot > 0 ? name.left(dot) : name;
+  };
+  // input.files[baseIndex] 这个主文件记录在本次快照里的目标名（与下面主文件
+  // 分支的命名规则逐字一致——sidecar_of 记的就是主文件的下标）。
+  const auto baseFileName = [&](int baseIndex) {
+    const auto base = input.files[baseIndex].toMap();
+    return QString::number(baseIndex) + "_" + QString::fromLatin1(QCryptographicHash::hash(
+               base.value("layer_id").toString().toUtf8(), QCryptographicHash::Sha256)
+               .toHex().left(16)) + "." + QFileInfo(base.value("source").toString()).suffix();
+  };
   const auto token = QUuid::createUuid().toString(QUuid::WithoutBraces);
   if (input.operation == "publish") {
     out.finalDirectory = QDir(input.projectDirectory).filePath(QStringLiteral("result/%1/v%2").arg(input.horizon).arg(input.versionNumber));
@@ -42,6 +57,23 @@ PreparedMapSnapshot prepareMapSnapshot(const MapSnapshotInput &input,
   for (int n = 0; n < input.files.size(); ++n) {
     if (stop()) return out;
     auto record = input.files[n].toMap(); const auto source = record.value("source").toString();
+    const bool sidecar = record.contains("sidecar_of");
+    // 尾缀直接拼进目标文件名：必须是干净的尾部片段（无路径分隔、无 ..）。
+    const QString sidecarTail = record.value("sidecar").toString();
+    int sidecarBase = -1;
+    if (sidecar) {
+      sidecarBase = record.value("sidecar_of").toInt();
+      const auto baseRecord = input.files.value(sidecarBase).toMap();
+      const bool badBase = sidecarBase < 0 || sidecarBase >= input.files.size() ||
+          sidecarBase == n || baseRecord.contains("sidecar_of") ||
+          baseRecord.value("pdf").toBool() || baseRecord.value("source").toString().isEmpty();
+      const bool badTail = sidecarTail.isEmpty() || sidecarTail.contains(QLatin1Char('/')) ||
+          sidecarTail.contains(QLatin1Char('\\')) || sidecarTail.contains(QLatin1String("..")) ||
+          !sidecarTail.startsWith(QLatin1Char('.'));
+      if (badBase || badTail) {
+        out.error = QStringLiteral("地图快照的伴生文件记录无效：%1").arg(source); return out;
+      }
+    }
     if (!QFileInfo(source).isFile()) {
       if (input.operation == "save") {
         if (!record.value("pdf").toBool()) {
@@ -65,6 +97,7 @@ PreparedMapSnapshot prepareMapSnapshot(const MapSnapshotInput &input,
     QVariantMap frozen = copied.value(key);
     if (frozen.isEmpty()) {
       const QString name = record.value("pdf").toBool() ? QStringLiteral("layout.pdf") :
+          sidecar ? snapshotStem(baseFileName(sidecarBase)) + sidecarTail :
           QString::number(n) + "_" + QString::fromLatin1(QCryptographicHash::hash(record.value("layer_id").toString().toUtf8(), QCryptographicHash::Sha256).toHex().left(16)) + "." + QFileInfo(source).suffix();
       const auto destination = QDir(out.directory).filePath(name);
       QFile reader(source); QSaveFile writer(destination);

@@ -49,7 +49,6 @@ private:
   QVector<QgsPointXY> m_points;
   QStringList m_vertexWellIds; // 与 m_points 等长；自由顶点为空串
   QVector<wellsection::Well> m_snapWells;
-  int m_hoveredWell = -1;
   QgsRubberBand *m_rubberBand = nullptr;
   QgsVertexMarker *m_snapMarker = nullptr;
 };

@@ -72,6 +72,16 @@ int countItemNodes(const QTreeWidgetItem *it)
   return n;
 }
 
+// finding-126：按已决链接解析地震体各自归属的 seismic_survey；旧实现一律取首个测区（多测区错值），解析不到返回空。
+CatalogEntity seismicSurveyForAsset(DataCatalog *cat, const QString &assetId)
+{
+  for (const EntityAssetLink &l : cat->linksForAsset(assetId))
+    if (!l.unresolved && !l.entityId.isEmpty() &&
+        cat->entityById(l.entityId).entityType == QLatin1String("seismic_survey"))
+      return cat->entityById(l.entityId);
+  return {};
+}
+
 } // namespace
 
 // ---- 方向 92：树蓝图（NavNodeSpec）------------------------------------------------
@@ -364,11 +374,6 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
   seismicRoot.icon = QStringLiteral("mIconPolygonLayer.svg");
   seismicRoot.expanded = false;
 
-  const QVector<CatalogEntity> surveys = cat->entities(QStringLiteral("seismic_survey"));
-  CatalogEntity survey;
-  if (!surveys.isEmpty())
-    survey = surveys.front();
-
   for (const CatalogAsset &a : seisAssets)
   {
     NavNodeSpec seisItem;
@@ -376,6 +381,7 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
     seisItem.id = a.id;
     seisItem.type = QStringLiteral("seismic_volume");
     seisItem.icon = QStringLiteral("mIconPolygonLayer.svg");
+    const CatalogEntity survey = seismicSurveyForAsset(cat, a.id);
     if (!survey.id.isEmpty() && survey.inlineMax > survey.inlineMin)
     {
       seisItem.text1 = QStringLiteral("Inline %1–%2 · Xline %3–%4 · %5ms")

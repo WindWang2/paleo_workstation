@@ -95,6 +95,20 @@ SeismicClusterResult clusterSeismicHorizon(
   grid.c = (g.cornerY[1] - g.cornerY[0]) / dx;
   grid.b = (g.cornerX[3] - g.cornerX[0]) / di;
   grid.d = (g.cornerY[3] - g.cornerY[0]) / di;
+  // finding-91：线号步长不能默认 1——步长 >1 的测网上，默认步长会把连续
+  // 解 round 到不存在的线号（inline 侧整线样点被 readInline 丢弃、xline 侧
+  // 样点静默丢弃，约一半栅格样点丢失）。从读取器索引的实际线号序列推最小
+  // 间隔（同 gridPropagated 的 axisStep 口径）；推不出（<2 条线）保持 1。
+  const auto axisStep = [](const QVector<qint32> &lines) {
+    if (lines.size() < 2)
+      return 1;
+    int step = int(lines[1] - lines[0]);
+    for (int i = 2; i < lines.size(); ++i)
+      step = std::min(step, int(lines[i] - lines[i - 1]));
+    return std::max(1, step);
+  };
+  grid.inlineStep = axisStep(reader.inlineNumbers());
+  grid.xlineStep = axisStep(reader.crosslineNumbers());
   grid.valid = std::isfinite(grid.a * grid.d - grid.b * grid.c) &&
                std::abs(grid.a * grid.d - grid.b * grid.c) > 1e-12;
   if (!grid.valid) {

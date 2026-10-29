@@ -40,6 +40,9 @@ class CacheCoreTests : public QObject
     void cacheFileRejectsVersionOutOfRange();
     void cacheFileRejectsCorruptPayload();
     void cacheFileSelfHealsTruncated();
+    // finding-43②：头短读（< 36 字节布局）按 truncated header 拒收，
+    // 不得越界解析 QByteArray 缓冲区。
+    void cacheFileRejectsShortHeader();
     void cacheFileRejectsCorruptSizeFields();
     void cacheFileAtomicCreatesParentDirs();
     void cacheIoPrimitivesRoundtrip();
@@ -359,6 +362,26 @@ void CacheCoreTests::cacheFileSelfHealsTruncated()
   QString reason;
   QVERIFY(!readCacheFile(path, QByteArray("TRNCTST!"), 1, 1, nullptr, nullptr, &reason));
   QVERIFY(reason.contains(QStringLiteral("truncated")) || reason.contains(QStringLiteral("size")));
+}
+
+// finding-43②：文件被截到不足一个头（36 字节定长布局）时，读侧此前按
+// header.constData() 直接解 36 字节——越界读 QByteArray 缓冲区。短读必须
+// 按「truncated header」拒收（调用方据此自愈删除）。
+void CacheCoreTests::cacheFileRejectsShortHeader()
+{
+  QTemporaryDir dir;
+  const QString path = dir.filePath("short.cache");
+  QVERIFY(writeCacheFileAtomic(path, QByteArray("SHRTHDR!"), 1, CacheFlags::None,
+                               QByteArray(4000, 'q')));
+  QFile f(path);
+  QVERIFY(f.open(QIODevice::ReadWrite));
+  f.resize(20); // 头只写到第 20 字节（magic+version+flags+crc 在，payloadCrc 起就没了）
+  f.close();
+  QString reason;
+  QByteArray payload;
+  QVERIFY(!readCacheFile(path, QByteArray("SHRTHDR!"), 1, 1, &payload, nullptr, &reason));
+  QVERIFY2(reason.contains(QStringLiteral("truncated header")), qPrintable(reason));
+  QVERIFY(payload.isEmpty());
 }
 
 void CacheCoreTests::cacheFileRejectsCorruptSizeFields()

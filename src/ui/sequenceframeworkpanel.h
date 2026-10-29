@@ -103,6 +103,12 @@ class SequenceFrameworkPanel : public QWidget
     SequenceFramework::Framework m_draft;
     SequenceFramework::DiagnosticReport m_report;
     QVector<SequenceFramework::SuggestionCandidate> m_suggestions;
+    // 最近一次井分层读取的画像：失败原因 + 实读条数。loadWellTops 的 error
+    // 出参以前在本面板被取了却从不检查——服务没接 catalog 时照样拿空表往下
+    // 算，对外刷出「已生成 0 条候选 / 诊断完成：0 项」的成功文案。槽函数据
+    // 此把「读不出」「无资料」「正常」三种状态分开上报状态栏。
+    QString m_lastLoadError;
+    int m_wellTopsCount = 0;
     bool m_dirty = false;
 
     QSplitter *m_splitter = nullptr;

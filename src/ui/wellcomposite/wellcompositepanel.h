@@ -217,7 +217,9 @@ private:
 
   // sidecar
   void loadSidecar();
-  void saveSidecar() const;
+  void saveSidecar();
+  // 持久化 sidecar 并如实上报失败（返回是否落盘成功；无 store 返回 false）
+  bool persistSidecar();
 
   // D3.6 指派应用（编辑会话内；分层名未识别时由用户显式指派）
   void applyStratAssignments(QVector<FormationInterval> *formations) const;

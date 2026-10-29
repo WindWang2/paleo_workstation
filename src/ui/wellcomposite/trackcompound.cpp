@@ -1,6 +1,7 @@
 // 层：视图
 // 综合图道·复合道（地层系统组 StratigraphyCompound / 沉积相 FaciesCompound）与访问器——自 wellcompositetrack.cpp 拆出（方向 66，行为零变更）
 #include "wellcompositetrack.h"
+#include "chronostratcolors.h"
 #include "ui/paleotheme.h"
 #include <QCoreApplication>
 #include <cmath>
@@ -235,70 +236,18 @@ void StratigraphyCompoundTrack::autoDeriveStratigraphy(const QVector<FormationIn
       si.formation = f.name;
       si.formationColor = f.color;
 
-      const QString n = f.name.trimmed();
-      if (n.contains(QStringLiteral("粤海")) || n.contains(QStringLiteral("万山")))
-      {
-        si.system = QStringLiteral("新近系");
-        si.series = QStringLiteral("上新统");
-        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
-        si.seriesColor = QColor(QStringLiteral("#FFF59D"));
-      }
-      else if (n.contains(QStringLiteral("韩江")))
-      {
-        si.system = QStringLiteral("新近系");
-        si.series = QStringLiteral("中新统");
-        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
-        si.seriesColor = QColor(QStringLiteral("#FFE082"));
-      }
-      else if (n.contains(QStringLiteral("珠江")))
-      {
-        si.system = QStringLiteral("新近系");
-        si.series = QStringLiteral("早中新统");
-        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
-        si.seriesColor = QColor(QStringLiteral("#FFD54F"));
-      }
-      else if (n.contains(QStringLiteral("珠海")))
-      {
-        si.system = QStringLiteral("古近系");
-        si.series = QStringLiteral("渐新统");
-        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
-        si.seriesColor = QColor(QStringLiteral("#FFCC80"));
-      }
-      else if (n.contains(QStringLiteral("恩平")))
-      {
-        si.system = QStringLiteral("古近系");
-        si.series = QStringLiteral("始新统");
-        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
-        si.seriesColor = QColor(QStringLiteral("#FFA726"));
-      }
-      else if (n.contains(QStringLiteral("文昌")))
-      {
-        si.system = QStringLiteral("古近系");
-        si.series = QStringLiteral("始新统");
-        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
-        si.seriesColor = QColor(QStringLiteral("#FFA726"));
-      }
-      else if (n.contains(QStringLiteral("新近")))
-      {
-        si.system = QStringLiteral("新近系");
-        si.series = QStringLiteral("中新统");
-        si.systemColor = QColor(QStringLiteral("#FFF9C4"));
-        si.seriesColor = QColor(QStringLiteral("#FFE082"));
-      }
-      else if (n.contains(QStringLiteral("古近")))
-      {
-        si.system = QStringLiteral("古近系");
-        si.series = QStringLiteral("古新统");
-        si.systemColor = QColor(QStringLiteral("#FFF3E0"));
-        si.seriesColor = QColor(QStringLiteral("#FFCC80"));
-      }
-      else if (n.contains(QStringLiteral("白垩")))
-      {
-        si.system = QStringLiteral("白垩系");
-        si.series = QStringLiteral("上白垩统");
-        si.systemColor = QColor(QStringLiteral("#E8F5E9"));
-        si.seriesColor = QColor(QStringLiteral("#C8E6C9"));
-      }
+      // D4.1：系/统与配色一律走 chronostratcolors 查表（ICS/GB 色标单一事实源）。
+      // 此处原为本地 if-else + 自配色，与色标表的组名覆盖面/色值早已分歧，
+      // 同一井里自动派生与指派对话框给出两套归属。
+      QString sys;
+      QString ser;
+      ChronostratColors::lookupByFormation(f.name.trimmed(), &sys, &ser);
+      si.system = sys;
+      si.series = ser;
+      if (!sys.isEmpty())
+        si.systemColor = ChronostratColors::systemColor(sys);
+      if (!ser.isEmpty())
+        si.seriesColor = ChronostratColors::seriesColor(ser);
       // 未识别层名：不臆造系/统，仅显示真实层名
       m_intervals.append(si);
     }

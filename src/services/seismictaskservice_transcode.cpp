@@ -845,7 +845,8 @@ QString SeismicTranscodeReport::toJsonLine() const
 
 // ---- D2.11 道头查询 -----------------------------------------------------------
 
-SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPath, int traceIndex)
+SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPath, int traceIndex,
+                                                           const SgyIndexPtr &index)
 {
   SeismicTraceHeaderInfo info;
   info.traceIndex = traceIndex;
@@ -855,39 +856,39 @@ SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPat
     return info;
   }
 
-  // 样本数/格式码：索引命中最好；未命中退二进制头（规则文件可靠）
-  int sampleCount = 0;
-  int formatCode = 5;
-  double dtUs = 0.0;
-  std::string reason;
-  if (SgyIndexPtr index = SgyIndexCache::Load(paleo::toFsPath(sgyPath), reason))
-  {
-    if (traceIndex >= static_cast<int>(index->traces.size()))
-    {
-      info.error = QStringLiteral("道序号 %1 超出索引范围（共 %2 道）").arg(traceIndex).arg(index->traces.size());
-      return info;
-    }
-    sampleCount = index->sampleCount;
-    formatCode = index->formatCode;
-    dtUs = index->sampleIntervalUs;
-  }
-
+  // finding-94：本函数曾被剖面 dock 的道头卡在主线程调用，旧实现在此
+  // SgyIndexCache::Load 全量加载 .sgyidx 只为道数上界检查——大体量测秒级
+  // 冻结 UI。索引改由调用方传入其已在途的副本（dock 持 m_volume->Index()），
+  // 无索引时样本元数据退二进制头、道数上界按 文件长/道长 纯头推算（与
+  // sampleCount/formatCode 同源），彻底不再触碰磁盘索引。
   QFile file(sgyPath);
   if (!file.open(QIODevice::ReadOnly))
   {
     info.error = QStringLiteral("无法打开 SEG-Y 文件");
     return info;
   }
-  // 3200 文本头 + 400 二进制头总是要读：样本元数据可走索引，但首道偏移
-  // trace0 只在二进制头里（rev2 首道偏移字段 3521 / rev0-1 扩展文本头数
-  // 3505→3200+400+N·3200）。旧实现硬编码 3600——带扩展文本头的文件读到
-  // 错误道的头（inline/xline/坐标全错）。规则与 vendor 读取通道同源
-  // （SgyVolume 走 segyio metadata.trace0），此处直接复用 segy_trace0。
+  // 3200 文本头 + 400 二进制头总是要读：样本元数据可走调用方在途索引，否则
+  // 退二进制头（规则文件可靠）。首道偏移 trace0 只在二进制头里（rev2 首道
+  // 偏移字段 3521 / rev0-1 扩展文本头数 3505→3200+400+N·3200）。旧实现硬编码
+  // 3600——带扩展文本头的文件读到错误道的头（inline/xline/坐标全错）。规则与
+  // vendor 读取通道同源（SgyVolume 走 segyio metadata.trace0），此处直接复用
+  // segy_trace0。
   QByteArray binHdr = file.read(3600);
   if (binHdr.size() < 3600)
   {
     info.error = QStringLiteral("SEG-Y 头读取失败");
     return info;
+  }
+
+  // 样本数/格式码：调用方在途索引优先；未命中退二进制头（规则文件可靠）
+  int sampleCount = 0;
+  int formatCode = 5;
+  double dtUs = 0.0;
+  if (index)
+  {
+    sampleCount = index->sampleCount;
+    formatCode = index->formatCode;
+    dtUs = index->sampleIntervalUs;
   }
   if (sampleCount <= 0)
   {
@@ -910,6 +911,19 @@ SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPat
   if (trace0 < 3600)
     trace0 = 3600; // 异常字段不放大成负/零偏移：回落常轨布局
   const qint64 traceBytes = 240 + qint64(sampleCount) * bytesPerSample;
+  // 道数上界：在途索引给精确值；否则按 (文件长 − 首道偏移)/道长 纯头推算。
+  qint64 traceCount = -1;
+  if (index)
+    traceCount = qint64(index->traces.size());
+  else if (traceBytes > 0)
+    traceCount = (file.size() - qint64(trace0)) / traceBytes;
+  if (traceCount >= 0 && traceIndex >= traceCount)
+  {
+    info.error = QStringLiteral("道序号 %1 超出道数范围（共 %2 道）")
+                     .arg(traceIndex)
+                     .arg(traceCount);
+    return info;
+  }
   info.fileOffset = qint64(trace0) + qint64(traceIndex) * traceBytes;
   if (!file.seek(info.fileOffset))
   {

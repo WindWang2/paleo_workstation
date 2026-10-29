@@ -41,6 +41,9 @@ class CacheIoTests : public QObject
     void streamingCsvRecords();
     void streamingGeoJsonBoundsMatchesDom();
     void streamingGeoJsonCountsFeatures();
+    // finding-56：坏 JSON 结构 → false（streaming.h:29 契约）
+    void streamingGeoJsonRejectsMalformedStructure();
+    void streamingGeoJsonRejectsInvalidNumber();
     void streamingCancelStopsEarly();
     void partialReadMissingFile();
     void writeGuardWaitSucceedsWhenReleased();
@@ -462,6 +465,42 @@ void CacheIoTests::streamingGeoJsonCountsFeatures()
   QCOMPARE(Streaming::geoJsonFeatureCountStreaming(path, &keys), qint64(42));
   QVERIFY(keys.contains(QStringLiteral("kind")));
   QVERIFY(keys.contains(QStringLiteral("weight")));
+}
+
+// finding-56：streaming.h:29 承诺「坏 JSON 结构 → false」。截断文件（括号不
+// 配平）此前会静默交出已扫到的那部分包围盒——下游按半份包围盒裁图。
+void CacheIoTests::streamingGeoJsonRejectsMalformedStructure()
+{
+  const QString path = m_dir.filePath("truncated.geojson");
+  {
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\","
+               "\"geometry\":{\"type\":\"Point\",\"coordinates\":[10,20]}}");
+    // 缺最外层 ]}——文件在此截断
+  }
+  double bounds[4] = {0, 0, 0, 0};
+  QString err;
+  QVERIFY2(!Streaming::geoJsonBoundsStreaming(path, bounds, nullptr, &err),
+           "截断的 GeoJSON 必须判失败，不能静默返回部分包围盒");
+  QVERIFY2(!err.isEmpty(), "拒收必须给因");
+}
+
+// 同一契约的数值面：畸形坐标 token（toDouble 置 ok=false）不得当 0 用。
+void CacheIoTests::streamingGeoJsonRejectsInvalidNumber()
+{
+  const QString path = m_dir.filePath("badnum.geojson");
+  {
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\","
+               "\"coordinates\":[1.2.3, 20]}}");
+  }
+  double bounds[4] = {0, 0, 0, 0};
+  QString err;
+  QVERIFY2(!Streaming::geoJsonBoundsStreaming(path, bounds, nullptr, &err),
+           "非法坐标数值必须判失败");
+  QVERIFY2(!err.isEmpty(), "拒收必须给因");
 }
 
 void CacheIoTests::streamingCancelStopsEarly()

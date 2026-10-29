@@ -62,6 +62,12 @@ public:
   // 整表恢复（开工程/换工程时壳层灌入；清空传空表）。
   void setLithoAssetSelections(const QHash<QString, QString> &selection);
   QHash<QString, QString> lithoAssetSelections() const { return m_lithoSelection; }
+  // #213：按外部（壳层剖面页）显式选择的解释岩性资产表取岩性——非剖面消费者
+  // （测井预测等）复用同一仲裁口径，不再新建带空选择表的局部实例（否则预测
+  // 输入的岩性与界面展示的不是同一份）。selection 为空 = 默认「取最新」。
+  static QHash<QString, QVector<wellsection::LithoSegment>> lithologiesForSelection(
+      DataCatalog *catalog, const QString &projectDir, const QStringList &wellIds,
+      const QHash<QString, QString> &selection, QStringList *warnings = nullptr);
   // ---- 分层来源切换（剖面级：同井多份 tops 资产显式选择层序）----
   struct TopsSourceChoice {
     QString assetId;      // 消费指向的资产 id

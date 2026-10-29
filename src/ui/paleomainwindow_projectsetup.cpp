@@ -16,11 +16,14 @@ void PaleoMainWindow::runNewProject(const QString &sourceRoot, bool supplement)
     else PaleoNotify::warning(this, tr("工程资料导入结果"), summary);
     workflow->deleteLater();
   });
+  // #798：保存确认提前到打开向导之前。原先在 dialog.exec() accept 之后才弹
+  // maybeSaveProject，用户一取消就连带丢弃本轮已填的扫描/映射/图件勾选；提前
+  // 后取消仅退出（向导尚未打开，无输入可丢），重试循环内也不再弹。
+  if (!maybeSaveProject()) { workflow->deleteLater(); return; }
   ProjectSetupDialog dialog(workflow, this);
   if (supplement) dialog.setExistingProject(m_projectSvc->projectPath(), workflow->currentSources());
   if (!sourceRoot.isEmpty()) dialog.setSourceRoot(sourceRoot);
   while (dialog.exec() == QDialog::Accepted) {
-    if (!maybeSaveProject()) { workflow->deleteLater(); return; }
     QString error;
     const bool ok = supplement ? workflow->applySources(dialog.sources(), dialog.preview(), &error)
                                : workflow->create(dialog.projectPath(), dialog.sources(), dialog.preview(), &error);

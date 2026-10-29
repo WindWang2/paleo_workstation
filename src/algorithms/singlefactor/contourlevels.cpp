@@ -38,7 +38,8 @@ int spinDecimals( double step )
 
 // levels = [spin_round(start + i*step, decimals) for i in 0..count]，
 // count = floor(max(0,end-start)/step + 1e-10)。start/end 已是最终 spin 值，
-// 不再按 step 的 decimals 重取整。
+// 不再按 step 的 decimals 重取整。start 另按 #725 上锚到不小于 valueMin 的
+// step 整数倍（跨图级别对齐），条数随之重算。
 ContourLevelPlan finalizePlan( double lo, double hi, double start, double end,
                                double step )
 {
@@ -60,6 +61,16 @@ ContourLevelPlan finalizePlan( double lo, double hi, double start, double end,
     return plan;
   }
   // #149：先用 double 估计条数并设上限，避免 double→int 溢出（UB）与巨量分配。
+  // #725：级别锚点取「不小于 valueMin 的 step 整数倍」而非四舍五入后的数据
+  // 最小值——数据最小值随图幅浮动，取整后各级别相对 step 的相位随图不同，
+  // 同一 step 的两张图级别集合错位、跨图不可比。step 整数倍锚点使同 step 的
+  // 级别集合同源对齐；仍不低于 valueMin，不丢数据下方的一级。条数按锚点后的
+  // 跨度重算，避免末级别被推出 end 之上。
+  const double anchorQuotient = plan.valueMin / plan.step;
+  const double anchorEps = 1e-9 * std::max( 1.0, std::abs( anchorQuotient ) );
+  const double anchor = std::ceil( anchorQuotient - anchorEps ) * plan.step;
+  if ( std::isfinite( anchor ) && anchor > plan.start && anchor <= plan.end )
+    plan.start = anchor;
   const double estimated =
       estimateContourLevelCount( std::max( 0.0, plan.end - plan.start ), plan.step );
   plan.estimatedLevels = estimated;

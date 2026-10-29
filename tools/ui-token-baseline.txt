@@ -21,4 +21,11 @@
 #           setPen(Qt::white) 例外源码已不存在（#564 改码未重钉））。
 #           → 353（单井曲线网格改用浅色主题令牌，再移除一条纸面灰色字面量例外）。
 #           → 350（二维地震预览图例共用振幅 LUT，再移除三条固定 RGB 例外）。
-350
+#           → 341（wellcomposite 修复：trackcompound.cpp 自动派生地层改走
+#             ChronostratColors 查表，删除本地 if-else 与 9 条自配色例外
+#             （si.systemColor/seriesColor，hex 计数合计 18）；同 commit 因
+#             chronostratcolors.cpp 元古宇切片/寒武系统表改正同步重钉 5 条
+#             例外源码文本，条目数不变，仅随代码更新）。
+#           → 340（finding-157：卷帘 A/B 标签墨色 #24303E 改取 tokens().text，
+#             seismicsectioncanvas_paint.cpp 该 hex 例外随之过期删除）。
+340

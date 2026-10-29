@@ -639,7 +639,11 @@ bool solveMinimumCurvature(const std::vector<ScatterPoint> &points,
                       .arg(maxDelta)
                       .arg(maxDelta / zRange, 0, 'g', 3)
                       .arg(st.sweeps));
-    progressDone += params.maxSweeps;
+    // 本层实际跑到的遍数（提前收敛时 < maxSweeps）：progressDone 只累加实际
+    // 执行的扫描，GriddingStats::sweeps（契约「实跑遍数」）才不虚报——旧式
+    // 无条件 += maxSweeps 让提前收敛的层级也记满档，经 surfacegridding 发布进
+    // QC 元数据。
+    progressDone = st.sweeps;
     if (finest)
     {
       // 屏障格显式置 NaN（初始化即 NaN，此处双保险）。
@@ -683,7 +687,23 @@ std::vector<float> distanceToData(const std::vector<ScatterPoint> &points,
       *error = QStringLiteral("no scatter points");
     return {};
   }
-  KdTree tree(points);
+  // 与 solveMinimumCurvature 同口径过滤非有限散点：NaN/Inf 坐标进 KdTree 会让
+  // nth_element 的比较器违反严格弱序（UB），knn 里 NaN 距离又把遍历整枝剪掉、
+  // 质量面大面积静默 NaN/错值。z 不参与距离但仍一并不有限即拒（同口径语义）。
+  std::vector<ScatterPoint> finite;
+  finite.reserve(points.size());
+  for (const ScatterPoint &p : points)
+  {
+    if (std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z))
+      finite.push_back(p);
+  }
+  if (finite.empty())
+  {
+    if (error)
+      *error = QStringLiteral("all scatter points were rejected (non-finite)");
+    return {};
+  }
+  KdTree tree(finite);
   const std::size_t n = static_cast<std::size_t>(geometry.rows) * geometry.cols;
   std::vector<float> out(n, std::numeric_limits<float>::quiet_NaN());
   std::vector<std::pair<double, int>> best;

@@ -10,6 +10,7 @@
 #include "trackregistry.h"
 #include <QDialog>
 #include <QFileDialog>
+#include <QSaveFile>
 #include <QSet>
 #include <algorithm>
 #include <QMap>
@@ -223,14 +224,19 @@ void WellCompositePanel::onTrackCsvRequested(int trackIndex)
   if (!path.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive))
     path += QStringLiteral(".csv");
 
-  QFile f(path);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  // 原子写 + 写满校验：旧实现 QFile Truncate 直写且丢弃 write() 返回值，
+  // 磁盘满/路径失效时产出截断文件却仍提示「已导出」。
+  QSaveFile f(path);
+  const QByteArray payload = QByteArray("\xEF\xBB\xBF") + csv.toUtf8(); // UTF-8 BOM（Excel 中文兼容）
+  if (!f.open(QIODevice::WriteOnly) || f.write(payload) != payload.size() || !f.commit())
   {
-    PaleoNotify::warning(this, tr("导出失败"), tr("无法写入文件: %1").arg(path));
+    const QString detail = f.errorString();
+    f.cancelWriting();
+    PaleoNotify::warning(this, tr("导出失败"),
+                         tr("无法写入文件: %1%2")
+                             .arg(path, detail.isEmpty() ? QString() : QStringLiteral("（") + detail + QStringLiteral("）")));
     return;
   }
-  f.write("\xEF\xBB\xBF"); // UTF-8 BOM（Excel 中文兼容）
-  f.write(csv.toUtf8());
   m_lblStatus->setText(tr("已导出: %1").arg(path));
 }
 
@@ -239,12 +245,36 @@ void WellCompositePanel::onTrackConfigRequested(int trackIndex)
   if (trackIndex < 0 || trackIndex >= m_canvas->trackCount())
     return;
 
-  const auto track = m_canvas->tracks().at(trackIndex); // 拷贝 shared_ptr：tracks() 按值返回，后续跨 exec()
+  const auto track = m_canvas->tracks().at(trackIndex); // 拷贝 shared_ptr：后续跨 exec()
   TrackSpec initial = TrackRegistry::instance().captureSpec(track);
   if (initial.typeId.isEmpty())
     initial.typeId = TrackRegistry::typeIdForEnum(track->type());
 
-  TrackConfigDialog dlg(initial, TrackOps::combinedCurvePool(m_data.continuousCurves, m_data.discreteCurves), this);
+  // 曲线族道：曲线池按「道内有效值优先」装配（同名曲线用道上的当前值替换池值）。
+  // 旧实现直接传裸池值——对话框按池值预填、按池值做差，用户此前（或 sidecar
+  // 覆盖层）设过的量程/单位/颜色/对数态在往返中被静默清空（D3.12 覆盖层
+  // 从未被任何代码写入 sidecar）。
+  QVector<CurveData> curvePool = TrackOps::combinedCurvePool(m_data.continuousCurves, m_data.discreteCurves);
+  if (auto ct = std::dynamic_pointer_cast<CurveTrack>(track))
+  {
+    for (const auto &eff : ct->curves())
+    {
+      for (auto &pooled : curvePool)
+      {
+        if (pooled.name.compare(eff.name, Qt::CaseInsensitive) == 0)
+        {
+          pooled.minScale = eff.minScale;
+          pooled.maxScale = eff.maxScale;
+          pooled.isLogarithmic = eff.isLogarithmic;
+          pooled.unit = eff.unit;
+          pooled.color = eff.color;
+          break;
+        }
+      }
+    }
+  }
+
+  TrackConfigDialog dlg(initial, curvePool, this);
   if (dlg.exec() != QDialog::Accepted)
     return;
 
@@ -265,6 +295,26 @@ void WellCompositePanel::onTrackConfigRequested(int trackIndex)
     ct->setGridDensity(spec.gridDensity());
     if (!spec.curveNames().isEmpty())
       TrackOps::injectCurvesFromWellData(*ct, spec, m_data);
+    // D3.12：曲线覆盖层落 sidecar（此前只读不写，重开即丢）。
+    // 合并口径：sidecar 已有条目保留，本次对话框的差量叠加进去——曲线未改时
+    // 不产生差量，原有覆盖层不会被清空。
+    if (m_store && !spec.curveNames().isEmpty())
+    {
+      QVariantMap merged = m_store->curveOverrides();
+      const QVariantMap edited = spec.curveOverrides();
+      for (const QString &name : spec.curveNames())
+      {
+        const QVariantMap diff = edited.value(name).toMap();
+        if (diff.isEmpty())
+          continue;
+        QVariantMap one = merged.value(name).toMap();
+        for (auto it = diff.constBegin(); it != diff.constEnd(); ++it)
+          one.insert(it.key(), it.value());
+        merged.insert(name, one);
+      }
+      m_store->setCurveOverrides(merged);
+      persistSidecar();
+    }
   }
   m_canvas->updateAll();
   onTrackOrderOrWidthChanged();

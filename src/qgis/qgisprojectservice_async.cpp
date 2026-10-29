@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "qgisprojectservice.h"
 #include "metadata/paleoprojectfile.h"
+#include "../services/futuretask.h"
 #include <QDomDocument>
 #include <QDateTime>
 #include <QDir>
@@ -34,6 +35,7 @@ struct ProjectLoadState {
   QDomDocument document;
   QDomDocument treeDocument;
   std::atomic_bool cancelled{false};
+  std::atomic_bool started{false}; // worker 已开跑（析构排空等待的前提）
   bool handoffStarted = false; // owner-thread only
   QDateTime modified;
   qint64 size = 0;
@@ -60,6 +62,9 @@ void QgisProjectService::cancelOpen()
   if (!m_opening)
     return;
   ++m_openGeneration;
+  // #773：取消 future——worker 经 promise.future().isCanceled() 在阶段之间
+  // 自查退出；排队未出队的读取被取消后开跑即立刻返回（不读清单、不建工程）。
+  m_openFuture.cancel();
   if (m_pendingLoad) {
     m_pendingLoad->cancelled.store(true);
     if (m_pendingLoad->handoffStarted) {
@@ -127,7 +132,19 @@ bool QgisProjectService::openProjectAsync(const QString &input)
   m_opening = true;
   emit openActiveChanged(true);
   emit openProgress(0, tr("后台解析工程清单"));
-  m_openFuture = QtConcurrent::run([state, ownerThread, prepareData](QPromise<void> &promise) {
+  // #773：改跑 PaleoTaskService 的专用 workerPool（≤4 线程）——退出时
+  // shutdown 的 pool->clear()+waitForDone 对排队/在飞读取生效，不再拖
+  // QtConcurrent 全局池延迟进程退出。无服务宿主（测试壳）回落全局池。
+  // promise 取消与工程切换联动：cancelOpen()/closeProject() 取消 future，
+  // worker 在阶段之间自查 cancelled()。
+  m_openFuture = QtConcurrent::run(paleo::tasks::pool(m_taskService),
+                                   [state, ownerThread, prepareData](
+                                       QPromise<void> &promise) {
+    state->started.store(true);
+    const auto cancelled = [&promise, state] {
+      return state->cancelled.load() || promise.future().isCanceled();
+    };
+    if (cancelled()) return;
     promise.setProgressRange(0, 100);
     state->path = state->input;
     const QString dir = QFileInfo(state->input).absolutePath();
@@ -155,7 +172,7 @@ bool QgisProjectService::openProjectAsync(const QString &input)
     const QFileInfo file(state->path);
     if (!file.isFile()) { state->error = tr("工程 QGIS 成员不存在"); return; }
     state->size = file.size(); state->modified = file.lastModified();
-    if (state->cancelled.load()) return;
+    if (cancelled()) return;
     state->project = std::make_unique<QgsProject>();
     const auto documentConnection = QObject::connect(state->project.get(), &QgsProject::readProject, state->project.get(),
                      [target = state.get()](const QDomDocument &doc) { target->document = doc.cloneNode(true).toDocument(); });
@@ -172,12 +189,12 @@ bool QgisProjectService::openProjectAsync(const QString &input)
       state->project.reset();
       return;
     }
-    if (state->cancelled.load()) { state->project.reset(); return; }
+    if (cancelled()) { state->project.reset(); return; }
     if (prepareData) {
       promise.setProgressValueAndText(76, tr("后台读取目录库、井数据与模型索引"));
-      prepareData([state] { return state->cancelled.load(); });
+      prepareData(cancelled);
     }
-    if (state->cancelled.load()) { state->project.reset(); return; }
+    if (cancelled()) { state->project.reset(); return; }
     // 冻结完成引用解析后的图层树（含嵌入组和自定义绘制顺序）。接管图层会改变旧树。
     auto root = state->treeDocument.createElement("qgis");
     state->treeDocument.appendChild(root);

@@ -13,8 +13,6 @@
 
 #include <QCheckBox>
 #include <QDialog>
-#include <QFutureWatcher>
-#include <QtConcurrent/QtConcurrentRun>
 #include <QDialogButtonBox>
 #include "../notifications/paleonotify.h"
 #include <QPainter>
@@ -306,7 +304,8 @@ void SeismicSectionDockWidget::showArbitraryLineEditor() {
 
 // D5.6 井旁道小图：最近井位置的地震道 wiggle + 分层刻度
 void SeismicSectionDockWidget::showWellSideTrace() {
-    if (!m_volume || !m_volume->IsLoaded() || m_candidateWells.empty()) {
+    if (!m_volume || !m_volume->IsLoaded() || m_candidateWells.empty() ||
+        !m_taskService) {
         PaleoNotify::information(this, tr("井旁道"), tr("无可用的候选井。"));
         return;
     }
@@ -349,61 +348,69 @@ void SeismicSectionDockWidget::showWellSideTrace() {
     const int il = loc.inlineNo;
     const int xl = loc.xlineNo;
 
-    // PW-100：剖面读取移出 GUI 线程（分页/远程体与长测线下同步读会卡界面），
-    // 结果经 QFutureWatcher 回到 GUI 线程；体已切换则丢弃过期结果。
-    struct ExtractResult {
-        bool ok = false;
-        SgySliceImage slice;
-        std::string err;
-    };
+    // PW-100：剖面读取移出 GUI 线程（分页/远程体与长测线下同步读会卡界面）。
+    // #773：改走 SeismicTaskService 的 PaleoTaskService workerPool 通道
+    // （≤4 并发闸 + 逐线协作取消 + 切片 LRU）——排队/在飞读取受 shutdown
+    // 排空管辖，dock 析构即取消，不再占 QtConcurrent 全局池；体已切换则
+    // 丢弃过期结果。
     if (m_wellTraceBusy)
         return;
     m_wellTraceBusy = true;
     const std::shared_ptr<const SgyVolume> vol = m_volume;
     const SectionWellInfo well = *best; // 值拷贝：候选井表在等待期间可能被刷新
     const int locColumn = loc.column;
-    auto *watcher = new QFutureWatcher<ExtractResult>(this);
-    connect(watcher, &QFutureWatcher<ExtractResult>::finished, this,
-            [this, watcher, vol, well, il, xl, locColumn]() {
-        watcher->deleteLater();
-        m_wellTraceBusy = false;
-        const ExtractResult r = watcher->result();
-        if (vol != m_volume)
-            return; // 体已切换
-        if (!r.ok) {
-            PaleoNotify::warning(this, tr("井旁道"), tr("道提取失败：%1").arg(QString::fromStdString(r.err)));
-            return;
-        }
-        // 列 = xl 在体实际线号表中的位置（#147 同口径：线距可 >1）；剖面宽度须与
-        // 线号表一致，否则列轴对不上——如实拒绝，不按单位线距猜。
-        const int col = int(vol->XlineValues().size()) == r.slice.width ? locColumn : -1;
-        if (col < 0 || col >= r.slice.width) {
-            PaleoNotify::warning(this, tr("井旁道"), tr("XL %1 不在 IL %2 剖面列轴上").arg(xl).arg(il));
-            return;
-        }
+    // 体快照（SgyVolume 拷贝廉价：索引经 shared_ptr 不可变共享，服务通道
+    // 只走 const 面）——同 extractSliceAsync 口径。
+    auto volume = std::make_shared<SgyVolume>(*vol);
+    QPointer<SeismicSectionDockWidget> guard(this);
+    PaleoTask *task = m_taskService->startSliceExtraction(
+        volume, SgySliceType::Inline, il,
+        [guard, vol, well, il, xl, locColumn](
+            bool ok, std::shared_ptr<const SgySliceImage> image, const QString &error) {
+            if (!guard)
+                return;
+            guard->m_wellTraceBusy = false;
+            guard->m_wellTraceTask.clear();
+            if (vol != guard->m_volume)
+                return; // 体已切换
+            if (!ok || !image || image->width <= 0 || image->height <= 0 ||
+                image->values.empty()) {
+                PaleoNotify::warning(guard, guard->tr("井旁道"),
+                                     guard->tr("道提取失败：%1")
+                                         .arg(error.isEmpty() ? guard->tr("切片无有效道") : error));
+                return;
+            }
+            // 列 = xl 在体实际线号表中的位置（#147 同口径：线距可 >1）；剖面宽度须与
+            // 线号表一致，否则列轴对不上——如实拒绝，不按单位线距猜。
+            const int col = int(vol->XlineValues().size()) == image->width ? locColumn : -1;
+            if (col < 0 || col >= image->width) {
+                PaleoNotify::warning(guard, guard->tr("井旁道"),
+                                     guard->tr("XL %1 不在 IL %2 剖面列轴上").arg(xl).arg(il));
+                return;
+            }
 
-        // review memory#1：不在 finished 槽里栈上 exec()——嵌套事件循环期间 dock
-        // 被析构会先 delete 子对话框、栈展开再析构一次（double free）。改为堆上
-        // 窗口模态 + open()，关闭即 deleteLater；dock 先亡时随父对象一并析构。
-        auto *dlg = new QDialog(this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        dlg->setWindowTitle(tr("井旁道 · %1（IL %2 / XL %3）").arg(well.wellName).arg(il).arg(xl));
-        dlg->setMinimumSize(300, 520);
-        auto *lay = new QVBoxLayout(dlg);
-        auto *trace = new class WellSideTraceWidget(&well, col, r.slice, m_canvas->sampleIntervalMs(),
-                                                     m_timeOriginMs, dlg);
-        lay->addWidget(trace, 1);
-        auto *btnClose = new QToolButton(dlg);
-        btnClose->setText(tr("关闭"));
-        connect(btnClose, &QToolButton::clicked, dlg, &QDialog::close);
-        lay->addWidget(btnClose, 0, Qt::AlignRight);
-        dlg->open();
-    });
-    watcher->setFuture(QtConcurrent::run([vol, il]() {
-        ExtractResult r;
-        r.ok = vol->ExtractSlice(SgySliceType::Inline, il, r.slice, r.err);
-        return r;
-    }));
+            // review memory#1：不在 finished 槽里栈上 exec()——嵌套事件循环期间 dock
+            // 被析构会先 delete 子对话框、栈展开再析构一次（double free）。改为堆上
+            // 窗口模态 + open()，关闭即 deleteLater；dock 先亡时随父对象一并析构。
+            auto *dlg = new QDialog(guard);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            dlg->setWindowTitle(guard->tr("井旁道 · %1（IL %2 / XL %3）")
+                                    .arg(well.wellName).arg(il).arg(xl));
+            dlg->setMinimumSize(300, 520);
+            auto *lay = new QVBoxLayout(dlg);
+            auto *trace = new WellSideTraceWidget(&well, col, *image,
+                                                  guard->m_canvas->sampleIntervalMs(),
+                                                  guard->m_timeOriginMs, dlg);
+            lay->addWidget(trace, 1);
+            auto *btnClose = new QToolButton(dlg);
+            btnClose->setText(guard->tr("关闭"));
+            connect(btnClose, &QToolButton::clicked, dlg, &QDialog::close);
+            lay->addWidget(btnClose, 0, Qt::AlignRight);
+            dlg->open();
+        });
+    // startSliceExtraction 的缓存命中/索引未完成路径已同步执行回调
+    // （m_wellTraceBusy 在其中复位）——此处只挂在途句柄供析构取消。
+    m_wellTraceTask = task;
 }
 
 } // namespace seismic

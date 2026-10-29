@@ -147,6 +147,17 @@ LineCdpMap LineCdpMap::fromObservations( const QVector<QVector<qint64>> &observa
                []( const QPair<qint64, qint64> &l, const QPair<qint64, qint64> &r ) {
                  return l.first < r.first;
                } );
+    // 同 xline 的冲突 CDP 观测：unique 只按 xline 去重，会把冲突对任意丢
+    // 其一（std::sort 不稳定 → 丢哪个不可复现），幸存者还能通过下面的仿射
+    // 校验——违反头文件契约「非线性（乱序/跳变）的线整线拒绝」。排序后同
+    // xline 相邻，先去重前检冲突：命中即整线跳过（查询走「测线无 CDP 映射」
+    // 原因，而不是拿着任意选中的 CDP 冒充仿射）。
+    bool conflicting = false;
+    for ( int i = 1; i < pts.size() && !conflicting; ++i )
+      if ( pts[i].first == pts[i - 1].first && pts[i].second != pts[i - 1].second )
+        conflicting = true;
+    if ( conflicting )
+      continue;
     pts.erase( std::unique( pts.begin(), pts.end(),
                             []( const QPair<qint64, qint64> &l, const QPair<qint64, qint64> &r ) {
                               return l.first == r.first;

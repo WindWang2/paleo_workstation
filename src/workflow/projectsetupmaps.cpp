@@ -24,6 +24,12 @@ void ProjectSetupWorkflow::importMaps(const ProjectSetupSources &sources, const 
     return;
   }
   if (!m_mapTasks) {
+    // 惰化分支只服务「未接装配根」的调用方（单测/脚本化导入）：这个局部
+    // PaleoTaskService 不在 app 共享任务服务的排空管辖内——退出时它的线程池
+    // 不会被统一 drain（~PaleoTaskService 明示可孤立 pool）。生产路径必须经
+    // setMapImportServices 注入共享服务（#811-3）。
+    qWarning() << "project setup: map import task service lazily created"
+               << "(not drained by the shared task service; bind via setMapImportServices)";
     m_mapTasks = new PaleoTaskService(nullptr, this);
     connect(m_project, &QgisProjectService::projectAboutToClose, m_mapTasks, &PaleoTaskService::beginNewSession);
   }

@@ -103,7 +103,6 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   });
   connect(m_intervals, &QTableWidget::currentCellChanged, this,
           [this](int row) {
-            m_apply->setEnabled(row >= 0 && m_facies->count() > 0);
             if (row >= 0 && m_well->currentIndex() >= 0) {
               auto intervals = m_wells[m_well->currentIndex()]
                                    .toMap()
@@ -113,6 +112,10 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
                 m_facies->setCurrentIndex(m_facies->findData(
                     intervals[row].toMap().value("code").toInt()));
             }
+            // finding-134：code 不在 schema → m_facies 落无选中（findData=-1）；
+            // 应用钮追加 currentIndex 门控，不再以 currentData()=0 发出空修订意图。
+            m_apply->setEnabled(row >= 0 && m_facies->count() > 0 &&
+                                m_facies->currentIndex() >= 0);
           });
   connect(
       m_canvas, &WellCompositeCanvas::depthClicked, this, [this](double depth) {
@@ -202,7 +205,14 @@ void WellPredictionPanel::rebuildList() {
           f.value("name").toString(), f.value("code").toInt());
     }
     const int current = skipped ? 0 : combo->findData(w.value("facies_code").toInt());
-    combo->setCurrentIndex(current >= 0 ? current : 0);
+    if (!skipped && current < 0)
+    {
+      // finding-134：facies_code 不在当前 schema 时补一个 data 无效的「未归类」
+      // 占位项（同 FaciesCatalog::find 口径）——旧实现回退到首个分类名（静默错值），
+      // 与井段表「未归类」不一致；占位项 data 无效，activated 回调据此不发修订。
+      combo->addItem(tr("未归类（%1）").arg(w.value("facies_code").toString()), QVariant());
+    }
+    combo->setCurrentIndex(current >= 0 ? current : combo->count() - 1);
     combo->setEnabled(!m_schema.isEmpty());
     const QString wellId = w.value("id").toString();
     connect(combo, &QComboBox::activated, this, [this, combo, wellId](int index) {

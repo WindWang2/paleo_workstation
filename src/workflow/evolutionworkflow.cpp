@@ -1,5 +1,7 @@
 // 层：功能
 #include "evolutionworkflow.h"
+
+#include "../io/pathsegment.h"
 #include "workflows_internal.h"
 
 #include "../algorithms/evolution/compare.h"
@@ -288,9 +290,11 @@ bool EvolutionWorkflow::analyzePair( const QString &earlierHorizon, const QStrin
   if ( metrics.status != paleo::evolution::Status::Ok )
     return fail( tr( "演化对比拒算（%1 → %2）：%3" )
                    .arg( earlierHorizon, laterHorizon, QString::fromStdString( metrics.message ) ) );
-  m_last = metrics;
 
-  // ---- 迁移矢量图层（staged derived → declare → 样式） --------------------
+  // ---- 迁移矢量 + 指标表：先 stage + 写盘全部成功，再统一逐个 commit ------
+  // （faciesclassify 口径：写盘失败清理全部已写文件、catalog 零登记，不留
+  //  半套孤儿；commit 失败无法回滚已登记件，如实列出已登记件并给重试路径。）
+  // m_last 只在全部产物成功后刷新——失败的分析对不得刷新 lastMetrics()。
   if ( !m_catalog )
     return fail( tr( "演化工作流未绑定数据目录（catalog）——派生产物无法登记到工程" ) );
   DerivedAssetRegistrar registrar( m_catalog.data(), m_projectDir );
@@ -334,9 +338,27 @@ bool EvolutionWorkflow::analyzePair( const QString &earlierHorizon, const QStrin
   const DerivedStaging vectorStaging = registrar.stage(
     QStringLiteral( "evolution_vectors" ),
     tr( "迁移矢量 %1→%2" ).arg( earlierHorizon, laterHorizon ),
-    QStringLiteral( "EVOLUTION_VECTORS_%1.gpkg" ).arg( laterHorizon ), &regErr );
+    // 层位名来自工程级配置，非法路径字符会让整个 stage 失败——拼文件名前
+    // 统一净化（#192）。
+    QStringLiteral( "EVOLUTION_VECTORS_%1.gpkg" )
+        .arg( paleo::safeFileNameComponent( laterHorizon ) ), &regErr );
   if ( !vectorStaging.isValid() )
     return fail( regErr );
+
+  // 指标表与矢量同批 stage：任一 stage 失败即清掉已 stage 的文件，catalog
+  // 保持零登记（faciesclassify 口径，不落半套孤儿）。
+  const DerivedStaging metricsStaging =
+    registrar.stage( QStringLiteral( "evolution_metrics" ), tr( "演化指标表" ),
+                     QStringLiteral( "evolution_metrics.csv" ), &regErr );
+  if ( !metricsStaging.isValid() )
+  {
+    QFile::remove( vectorStaging.absolutePath );
+    return fail( regErr );
+  }
+  const auto discardStaged = [&vectorStaging, &metricsStaging]() {
+    QFile::remove( vectorStaging.absolutePath );
+    QFile::remove( metricsStaging.absolutePath );
+  };
 
   QJsonObject prov;
   prov.insert( QStringLiteral( "algorithm" ), QStringLiteral( "paleo:evolution_compare_v1" ) );
@@ -349,44 +371,9 @@ bool EvolutionWorkflow::analyzePair( const QString &earlierHorizon, const QStrin
   if ( writeVectorGpkg( vectorStaging.absolutePath, rows, earlierRead.coverage.grid.crs,
                         provenanceJson, &writeErr )
        .isEmpty() )
-    return fail( writeErr );
-
-  QVariantMap vectorExtra;
-  vectorExtra.insert( QStringLiteral( "earlier_horizon" ), earlierHorizon );
-  vectorExtra.insert( QStringLiteral( "later_horizon" ), laterHorizon );
-  vectorExtra.insert( QStringLiteral( "vector_count" ), static_cast<int>( rows.size() ) );
-  vectorExtra.insert( QStringLiteral( "method_note" ),
-                      QString::fromStdString( metrics.methodNote ) );
-  QString commitErr;
-  if ( !registrar.commitExternal( vectorStaging, vectorStaging.absolutePath,
-                                  registrar.parentVersionIdsFor( { earlierSource.section( QLatin1Char( '|' ), 0, 0 ),
-                                                                   laterSource.section( QLatin1Char( '|' ), 0, 0 ) } ),
-                                  QStringLiteral( "paleo:evolution_compare_v1" ), vectorExtra,
-                                  &commitErr ) )
-    return fail( commitErr );
-
-  LayerDeclaration vectorDecl;
-  vectorDecl.layerId = QStringLiteral( "evolution.vectors.%1" ).arg( laterHorizon );
-  vectorDecl.horizon = laterHorizon;
-  vectorDecl.type = QStringLiteral( "vector" );
-  vectorDecl.source =
-    QStringLiteral( "%1|layername=evolution_vectors" ).arg( vectorStaging.absolutePath );
-  vectorDecl.group = QStringLiteral( "05_PaleoMap" );
-  vectorDecl.title = tr( "迁移矢量 %1→%2" ).arg( earlierHorizon, laterHorizon );
-  if ( !layers->declare( vectorDecl, error ) )
-    return fail( error && !error->isEmpty() ? *error
-                                            : tr( "迁移矢量图层声明失败：%1" ).arg( vectorDecl.layerId ) );
-  paleo::workflow_detail::stampLayerAssetLink( layers, vectorDecl.layerId, vectorStaging.assetId );
-
-  // 样式应用 best-effort：声明已成立，实例化/样式失败不回滚产物（下回
-  // 打开工程重挂）。不借 *error 出口——避免「成功但 error 非空」的歧义。
-  if ( QgsMapLayer *layer = layers->instantiate( vectorDecl.layerId, nullptr ) )
   {
-    if ( auto *vector = qobject_cast<QgsVectorLayer *>( layer ) )
-    {
-      QgisStyleService::applyMigrationVectorStyle( vector );
-      vector->triggerRepaint();
-    }
+    discardStaged();
+    return fail( writeErr );
   }
 
   // ---- 指标表 CSV 资产（版本化：每对分析落一个新版本快照） ----------------
@@ -419,28 +406,77 @@ bool EvolutionWorkflow::analyzePair( const QString &earlierHorizon, const QStrin
     pendingRows.append( row );
   }
 
-  const DerivedStaging metricsStaging =
-    registrar.stage( QStringLiteral( "evolution_metrics" ), tr( "演化指标表" ),
-                     QStringLiteral( "evolution_metrics.csv" ), &regErr );
-  if ( !metricsStaging.isValid() )
-    return fail( regErr );
   {
     // 先 append 再生成 CSV——否则写出的文件缺产生它的这一对（第 N 对
-    // CSV 只有 1..N-1 行）。写失败回滚 append，保「失败不污染累计」语义。
+    // CSV 只有 1..N-1 行）。写失败回滚 append，保「失败不污染累计」语义；
+    // 同时清掉两件已 stage 的文件（catalog 此时仍是零登记）。
     m_metricsRows.append( pendingRows );
     const QByteArray bytes = buildMetricsCsv().toUtf8();
     QFile csv( metricsStaging.absolutePath );
     if ( !csv.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
     {
       m_metricsRows.remove( m_metricsRows.size() - pendingRows.size(), pendingRows.size() );
+      discardStaged();
       return fail( tr( "无法写指标表：%1" ).arg( metricsStaging.absolutePath ) );
     }
     if ( csv.write( bytes ) != bytes.size() )
     {
       m_metricsRows.remove( m_metricsRows.size() - pendingRows.size(), pendingRows.size() );
+      discardStaged();
       return fail( tr( "指标表写入不完整：%1" ).arg( metricsStaging.absolutePath ) );
     }
   }
+
+  QVariantMap vectorExtra;
+  vectorExtra.insert( QStringLiteral( "earlier_horizon" ), earlierHorizon );
+  vectorExtra.insert( QStringLiteral( "later_horizon" ), laterHorizon );
+  vectorExtra.insert( QStringLiteral( "vector_count" ), static_cast<int>( rows.size() ) );
+  vectorExtra.insert( QStringLiteral( "method_note" ),
+                      QString::fromStdString( metrics.methodNote ) );
+  QString commitErr;
+  if ( !registrar.commitExternal( vectorStaging, vectorStaging.absolutePath,
+                                  registrar.parentVersionIdsFor( { earlierSource.section( QLatin1Char( '|' ), 0, 0 ),
+                                                                   laterSource.section( QLatin1Char( '|' ), 0, 0 ) } ),
+                                  QStringLiteral( "paleo:evolution_compare_v1" ), vectorExtra,
+                                  &commitErr ) )
+  {
+    discardStaged();
+    return fail( tr( "迁移矢量登记失败：%1（尚未登记任何版本）" ).arg( commitErr ) );
+  }
+
+  LayerDeclaration vectorDecl;
+  vectorDecl.layerId =
+      QStringLiteral( "evolution.vectors.%1" ).arg( paleo::safeFileNameComponent( laterHorizon ) );
+  vectorDecl.horizon = laterHorizon;
+  vectorDecl.type = QStringLiteral( "vector" );
+  vectorDecl.source =
+    QStringLiteral( "%1|layername=evolution_vectors" ).arg( vectorStaging.absolutePath );
+  vectorDecl.group = QStringLiteral( "05_PaleoMap" );
+  vectorDecl.title = tr( "迁移矢量 %1→%2" ).arg( earlierHorizon, laterHorizon );
+  if ( !layers->declare( vectorDecl, error ) )
+  {
+    // 矢量资产已入 catalog、图层未声明：如实列出已登记件（不伪造零残留），
+    // 并清掉尚未登记的指标表暂存文件、回滚累计行（faciesclassify 口径）。
+    QFile::remove( metricsStaging.absolutePath );
+    m_metricsRows.remove( m_metricsRows.size() - pendingRows.size(), pendingRows.size() );
+    return fail( error && !error->isEmpty()
+                   ? *error
+                   : tr( "迁移矢量已登记但图层声明失败：%1（可重跑本对）" )
+                         .arg( vectorDecl.layerId ) );
+  }
+  paleo::workflow_detail::stampLayerAssetLink( layers, vectorDecl.layerId, vectorStaging.assetId );
+
+  // 样式应用 best-effort：声明已成立，实例化/样式失败不回滚产物（下回
+  // 打开工程重挂）。不借 *error 出口——避免「成功但 error 非空」的歧义。
+  if ( QgsMapLayer *layer = layers->instantiate( vectorDecl.layerId, nullptr ) )
+  {
+    if ( auto *vector = qobject_cast<QgsVectorLayer *>( layer ) )
+    {
+      QgisStyleService::applyMigrationVectorStyle( vector );
+      vector->triggerRepaint();
+    }
+  }
+
   QVariantMap metricsExtra;
   metricsExtra.insert( QStringLiteral( "earlier_horizon" ), earlierHorizon );
   metricsExtra.insert( QStringLiteral( "later_horizon" ), laterHorizon );
@@ -452,8 +488,16 @@ bool EvolutionWorkflow::analyzePair( const QString &earlierHorizon, const QStrin
                                                                    laterSource.section( QLatin1Char( '|' ), 0, 0 ) } ),
                                   QStringLiteral( "paleo:evolution_compare_v1" ), metricsExtra,
                                   &commitErr ) )
-    return fail( commitErr );
+  {
+    // 迁移矢量已入 catalog：无单版本级删除面可回滚，如实列出已登记件、
+    // 回滚累计指标行，并指向重试（重跑本对按资产递增下一版本，不覆盖已登记件）。
+    QFile::remove( metricsStaging.absolutePath );
+    m_metricsRows.remove( m_metricsRows.size() - pendingRows.size(), pendingRows.size() );
+    return fail( tr( "迁移矢量已登记；演化指标表登记失败：%1（可重跑本对生成下一版本）" )
+                   .arg( commitErr ) );
+  }
 
+  m_last = metrics; // 两件产物全部成功才刷新——失败路径不回填 lastMetrics()
   emit pairAnalyzed( earlierHorizon, laterHorizon, vectorDecl.layerId );
   return true;
 }

@@ -18,13 +18,10 @@ namespace paleo::geostat
 namespace
 {
 
-// 合法 OK 权重的负值来自屏蔽效应，Σ|λ| 通常 ≤ 2~3；超过此阈视为病态。
-constexpr double kMaxAbsWeightSum = 10.0;
-
 bool finishOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
                             const detail::NeighborIndex &index, const VariogramModel &model,
                             const std::vector<double> &b, const std::vector<double> &solution,
-                            KrigingPointResult *out );
+                            KrigingPointResult *out, double systemScale = 0.0 );
 
 // 解普通克里金方程组（加边 LU）。points 为邻域样本（已去重）。
 bool solveOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
@@ -51,45 +48,57 @@ bool solveOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
   }
   b[static_cast<std::size_t>( n )] = 1.0;
 
+  // #720：前 n 行（Γ 块 + Lagrange 列项）与 b 同除 scale 再解——Γ 块随基台值
+  // 缩放而 Lagrange 边固定为 1，LU 末主元 ~n/sill 会掉到列主元下限（按 Lagrange
+  // 列 =1 取 1e-12）被误判奇异，整幅 NumericalFailure（尺度悬崖）。
+  const double systemScale = scaleKrigingSystemRows( a, n1, n, &b );
   std::vector<double> solution;
   if ( !solveDenseLu( a, n1, b, solution ) )
     return false;
-  return finishOrdinaryKriging( neighborhood, index, model, b, solution, out );
+  return finishOrdinaryKriging( neighborhood, index, model, b, solution, out, systemScale );
 }
 
 // 解向量 → 估值/方差 + 合理性闸（局部邻域与全局一次分解两条路径共用）。
 bool finishOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
                             const detail::NeighborIndex &index, const VariogramModel &model,
                             const std::vector<double> &b, const std::vector<double> &solution,
-                            KrigingPointResult *out )
+                            KrigingPointResult *out, double systemScale )
 {
   const int n = static_cast<int>( neighborhood.size() );
   double estimate = 0;
-  double variance = 0;
+  double lambdaB = 0; // Σλᵢ·bᵢ（b 可能已按 systemScale 归一化）
   double absWeightSum = 0;
   for ( int i = 0; i < n; ++i )
   {
     const double weight = solution[static_cast<std::size_t>( i )];
     absWeightSum += std::fabs( weight );
     estimate += weight * index.point( neighborhood[static_cast<std::size_t>( i )] ).value;
-    variance += weight * b[static_cast<std::size_t>( i )];
+    lambdaB += weight * b[static_cast<std::size_t>( i )];
   }
-  variance += solution[static_cast<std::size_t>( n )]; // + μ
+  // #720：系统行已按 scale 归一化（矩阵与右端同步缩放，解本身不变）——只有
+  // 由缩放后 b 算出的 λᵀb 项小一个 scale 因子；μ（Lagrange 乘子）不缩放，
+  // 方差按 scale·(λᵀb) + μ 拼回。
+  const double variance =
+      ( systemScale > 0.0 ? systemScale * lambdaB : lambdaB ) + solution[static_cast<std::size_t>( n )];
   if ( !std::isfinite( estimate ) || !std::isfinite( variance ) )
     return false;
   // PW-018：病态闸——Σλ=1 下 Σ|λ| 远大于 1 意味着大幅正负抵消的权重
   //（近奇异方程组），估值可越出数据范围数个量级。如实判失败而非 ok=true。
-  if ( absWeightSum > kMaxAbsWeightSum )
+  // 闸口径与 singlefactor/localidw 共用（kriging.h：krigingWeightsAdmissible）。
+  if ( !krigingWeightsAdmissible( absWeightSum ) )
     return false;
   const double varianceScale = std::max( 1.0, model.nugget + model.sill );
   if ( variance < 0 )
   {
     if ( variance < -1e-9 * varianceScale )
       return false; // 显著负方差 = 数值失败，不静默输出
-    variance = 0;
+    out->variance = 0; // 数值零附近：钳到 0
+  }
+  else
+  {
+    out->variance = variance;
   }
   out->estimate = estimate;
-  out->variance = variance;
   out->ok = true;
   return true;
 }
@@ -151,15 +160,18 @@ struct SolverCore
   // PW-079：maxPoints<=0 且无半径 = 每格都用全部 n 个样本。方程组矩阵与待估点
   // 无关（只有右端项变），一次分解后每格只做 O(n²) 回代，替代每格 O(n³)。
   // 内存 (n+1)² double，n 超过上限时退回逐格求解（旧口径）。
-  static constexpr std::size_t kMaxGlobalFactorSamples = 4000;
+  // 内存 (n+1)² double（+ luFactor 工作区副本）；上限按矩阵内存预算推导
+  // （kriging.h：kMaxGlobalFactorSamples，#802），超限退回逐格求解。
   bool global = false;
   bool globalFactorOk = false;
   LuWorkspace globalLu;
   std::vector<std::uint32_t> globalOrder;
+  double globalScale = 0.0; // #720：构造时的行归一化尺度（回代时 b 按同尺度缩放）
 
   void buildGlobalFactor()
   {
-    if ( params.maxPoints > 0 || params.searchRadius > 0 || index.size() > kMaxGlobalFactorSamples )
+    if ( params.maxPoints > 0 || params.searchRadius > 0 ||
+         index.size() > static_cast<std::size_t>( kMaxGlobalFactorSamples ) )
       return;
     global = true;
     const int n = static_cast<int>( index.size() );
@@ -181,6 +193,9 @@ struct SolverCore
       a[static_cast<std::size_t>( i ) * n1 + n] = 1.0;
       a[static_cast<std::size_t>( n ) * n1 + i] = 1.0;
     }
+    // #720：分解前按物理块尺度归一化（Lagrange 边不动）——b 侧无右端项可除，
+    // 尺度由 buildGlobalFactor 记录，solveGlobal 回代时按同尺度缩放右端。
+    globalScale = scaleKrigingSystemRows( a, n1, n );
     globalFactorOk = luFactor( a, n1, globalLu );
   }
 
@@ -196,9 +211,13 @@ struct SolverCore
       const Sample &si = index.point( static_cast<std::uint32_t>( i ) );
       b[static_cast<std::size_t>( i )] = model.semivariance( si.x - x0, si.y - y0 );
     }
+    // #720：回代时右端按构造时的同尺度缩放（分解已按该尺度归一化）。
+    if ( globalScale > 0.0 )
+      for ( int i = 0; i < n; ++i )
+        b[static_cast<std::size_t>( i )] /= globalScale;
     std::vector<double> solution;
     luSolve( globalLu, n + 1, b, solution );
-    return finishOrdinaryKriging( globalOrder, index, model, b, solution, out );
+    return finishOrdinaryKriging( globalOrder, index, model, b, solution, out, globalScale );
   }
 
   bool solve( double x, double y, std::vector<std::uint32_t> *scratch, KrigingPointResult *out ) const

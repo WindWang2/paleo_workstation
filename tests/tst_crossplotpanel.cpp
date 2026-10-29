@@ -22,6 +22,8 @@ private slots:
   void methodComboOrder();
   void trainingFlow();
   void sourceSelectionSurvivesRebuild();
+  void asyncFrameAbortsInFlightGesture();
+  void hiddenCanvasCacheFollowsThemeChange();
 };
 void TestPanel::intents() {
   PaleoTheme::pinRenderEnvironment();
@@ -442,6 +444,68 @@ void TestPanel::sourceSelectionSurvivesRebuild() {
   // 全新列表：旧选择不再命中
   panel.setSources({{"d", "DT", "well"}});
   QCOMPARE(selectedIds(), QStringList());
+}
+// 套索/框选拖拽途中异步 setFrame（切轴、换样本、refreshSamples）到达：手势
+// 整体作废——m_gesture 已清空，m_dragging 必须同步复位。否则后续
+// mouseMoveEvent 会对空 QVector 调 last()（UB），松手还会把这个已被换帧
+// 吞掉的 press 当成单击，向 controller 发一次定位请求。
+void TestPanel::asyncFrameAbortsInFlightGesture() {
+  PaleoTheme::pinRenderEnvironment();
+  CrossplotPanel panel;
+  panel.resize(900, 480);
+  panel.show();
+  SampleSet samples;
+  samples.names = {"X", "Y"};
+  samples.units = {"", ""};
+  samples.values = {0, 0, 1, 1};
+  samples.locations.resize(2);
+  auto frame = CrossplotSamples::project(samples, {});
+  panel.setDimensions(samples.names);
+  panel.setFrame(frame);
+  auto *canvas = panel.canvas();
+  QSignalSpy point(&panel, &CrossplotPanel::pointRequested),
+      lasso(&panel, &CrossplotPanel::lassoRequested);
+  const QPoint press = canvas->plotRect().center().toPoint();
+  QTest::mousePress(canvas, Qt::LeftButton, Qt::NoModifier, press);
+  panel.setFrame(frame); // 拖拽途中的换帧
+  QTest::mouseRelease(canvas, Qt::LeftButton, Qt::NoModifier, press);
+  QCOMPARE(lasso.count(), 0);
+  QCOMPARE(point.count(), 0);
+  // 作废的拖拽不影响此后一次正常点击
+  QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, press);
+  QCOMPARE(point.count(), 1);
+  QCOMPARE(lasso.count(), 0);
+}
+// 主题切换：Qt6 QApplication::setPalette 不给隐藏子控件发
+// ApplicationPaletteChange（事件只到顶层、不保证同步，见 paleotheme
+// ThemedStyleSheetRelay 注释）——隐藏期切主题后，整幅位图缓存与密度图仍按
+// 旧主题 textMuted/surface 配色，重新显示也不失效。绘制前按 currentTheme()
+// 比对代次，不符即重建（重显必有一次绘制，由这次比对兜底）。
+void TestPanel::hiddenCanvasCacheFollowsThemeChange() {
+  PaleoTheme::applyLightTheme();
+  CrossplotPanel panel;
+  panel.resize(900, 480);
+  panel.show();
+  SampleSet samples;
+  samples.names = {"X", "Y"};
+  samples.units = {"", ""};
+  samples.values = {0, 0, 1, 1};
+  samples.locations.resize(2);
+  panel.setFrame(CrossplotSamples::project(samples, {}));
+  auto *canvas = panel.canvas();
+  const auto background = [canvas] {
+    return canvas->grab().toImage().pixelColor(2, 2).rgb();
+  };
+  QCOMPARE(background(), PaleoTheme::tokens().surface.rgb());
+  canvas->hide(); // 隐藏态切主题：事件路径不送达隐藏子控件
+  PaleoTheme::applyDarkTheme();
+  canvas->show();
+  QTest::qWait(10);
+  QCOMPARE(background(), PaleoTheme::tokens().surface.rgb());
+  QVERIFY(background() != PaleoTheme::tokens(PaleoTheme::Theme::Light).surface.rgb());
+  PaleoTheme::applyLightTheme();
+  QTest::qWait(10);
+  QCOMPARE(background(), PaleoTheme::tokens().surface.rgb());
 }
 QTEST_MAIN(TestPanel)
 #include "tst_crossplotpanel.moc"

@@ -54,12 +54,12 @@ QString PaleoDistanceTransformAlgorithm::shortHelpString() const
     "disabled rows, non-blocking blockMode such as display_only, invalid params and "
     "invalid geometry are skipped and listed in CONSTRAINT_RECEIPTS), those lines are "
     "hard barriers and the cell value becomes the "
-    "barrier-avoiding path distance: an 8-connected Dijkstra over the output grid "
-    "(edge costs 1 and sqrt(2) cells, well cells seeded at 0; diagonal moves are "
-    "disallowed when either orthogonal side cell is a barrier, so walls rasterized "
-    "to corner-touching cells still seal). Barrier cells and "
-    "cells with no path to any well become nodata. Grid covers the input extent "
-    "grown by 10%% per side using CELL_SIZE cells." );
+    "barrier-avoiding path distance: a 16-connected Dijkstra over the output grid "
+    "(edge costs 1, sqrt(2) and sqrt(5) cells, well cells seeded at 0; diagonal and "
+    "knight moves are disallowed when any cell of the box they cut across is a "
+    "barrier, so walls rasterized to corner-touching cells still seal). Barrier "
+    "cells and cells with no path to any well become nodata. Grid covers the input "
+    "extent grown by 10%% per side using CELL_SIZE cells." );
 }
 
 void PaleoDistanceTransformAlgorithm::initAlgorithm( const QVariantMap & )
@@ -212,8 +212,12 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
     return out;
   }
 
-  // ---- multi-source Dijkstra（8 邻接，边权 1 / √2 格；对角步穿角检查见
-  //      下方松弛循环）---------------------------------------------------------
+  // ---- multi-source Dijkstra（16 邻接，边权 1 / √2 / √5 格；对角步穿角检查
+  //      与骑马步包围盒检查见下方松弛循环）-----------------------------------
+  // issue #721：一有屏障整幅退化成 8 邻域 chamfer（对欧氏距离系统性高估最多
+  // ~8%）。补 8 个骑马步（±2,±1）/（±1,±2）（代价 √5 格 = 该位移的精确长度）
+  // 后最大相对误差降到 ~3%，且井格 0 / 正交邻格 1 / 对角 √2 这些契约值不变
+  // （tst_algorithm_harness 冻结口径）。
   std::vector<double> dist( static_cast<size_t>( cellCount ),
                             std::numeric_limits<double>::infinity() );
   using Item = std::pair<double, qsizetype>;
@@ -233,6 +237,16 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
     }
   }
   const double ortho = cellSize, diag = cellSize * std::numbers::sqrt2;
+  const double knight = cellSize * std::sqrt( 5.0 );
+  // 16 个邻接位移（4 正交 + 4 对角 + 8 骑马步）与对应边权。
+  const int neighborDc[16] = { 1, -1, 0, 0, 1, 1, -1, -1, 2, 2, -2, -2, 1, 1, -1, -1 };
+  const int neighborDr[16] = { 0, 0, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 2, 2, -2, -2 };
+  const double neighborWeight[16] = { ortho, ortho, ortho, ortho, diag, diag, diag, diag,
+                                      knight, knight, knight, knight, knight, knight, knight,
+                                      knight };
+  const auto barrierAt = [&]( int r, int c ) {
+    return blocked[static_cast<size_t>( r ) * nCols + c] != 0;
+  };
   qsizetype settled = 0; // 每 4096 次松弛查一次取消 + 报进度（虚调用节流）
   while ( !pq.empty() )
   {
@@ -252,31 +266,53 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
     }
     const int cr = static_cast<int>( cur.second / nCols );
     const int cc = static_cast<int>( cur.second % nCols );
-    for ( int dr = -1; dr <= 1; ++dr )
-      for ( int dc = -1; dc <= 1; ++dc )
+    for ( int k = 0; k < 16; ++k )
+    {
+      const int nr = cr + neighborDr[k], nc = cc + neighborDc[k];
+      if ( nr < 0 || nr >= nRows || nc < 0 || nc >= nCols )
+        continue;
+      const qsizetype n = static_cast<qsizetype>( nr ) * nCols + nc;
+      if ( barrierAt( nr, nc ) )
+        continue;
+      if ( neighborDr[k] != 0 && neighborDc[k] != 0 )
       {
-        if ( dr == 0 && dc == 0 )
-          continue;
-        const int nr = cr + dr, nc = cc + dc;
-        if ( nr < 0 || nr >= nRows || nc < 0 || nc >= nCols )
-          continue;
-        const qsizetype n = static_cast<qsizetype>( nr ) * nCols + nc;
-        if ( blocked[static_cast<size_t>( n )] )
-          continue;
-        // 斜墙角点密封（issue #292）：半格采样栅格化的障碍链只保证 8 连通
-        // （相邻障碍格可能仅角接），对角步若两侧正交格任一被挡则禁行，否则
-        // 路径会从两个角接障碍格之间斜穿，绕障距离退化成近欧氏距离。
-        if ( dr != 0 && dc != 0 &&
-             ( blocked[static_cast<size_t>( cr * nCols + cc + dc )] ||
-               blocked[static_cast<size_t>( ( cr + dr ) * nCols + cc )] ) )
-          continue;
-        const double nd = cur.first + ( ( dr != 0 && dc != 0 ) ? diag : ortho );
-        if ( nd < dist[static_cast<size_t>( n )] )
+        // 对角/骑马步都可能从两个角接障碍格之间斜穿：
+        // · 对角步（±1,±1）：两侧正交格任一被挡即禁行（issue #292 斜墙角点密封）。
+        // · 骑马步（±2,±1）/（±1,±2）：线段穿过源格与目标格之间的包围盒，
+        //   保守要求该包围盒内（除两端）全部自由——包括它掠过的格角，防
+        //   角接屏障被零宽缝隙穿过。
+        if ( std::abs( neighborDr[k] ) == 1 && std::abs( neighborDc[k] ) == 1 )
         {
-          dist[static_cast<size_t>( n )] = nd;
-          pq.push( { nd, n } );
+          if ( barrierAt( cr + neighborDr[k], cc ) || barrierAt( cr, cc + neighborDc[k] ) )
+            continue;
+        }
+        else
+        {
+          const int rLo = std::min( cr, nr ), rHi = std::max( cr, nr );
+          const int cLo = std::min( cc, nc ), cHi = std::max( cc, nc );
+          bool gated = false;
+          for ( int rr = rLo; rr <= rHi && !gated; ++rr )
+            for ( int cc2 = cLo; cc2 <= cHi; ++cc2 )
+            {
+              if ( ( rr == cr && cc2 == cc ) || ( rr == nr && cc2 == nc ) )
+                continue; // 两端点格已单独判定
+              if ( barrierAt( rr, cc2 ) )
+              {
+                gated = true;
+                break;
+              }
+            }
+          if ( gated )
+            continue;
         }
       }
+      const double nd = cur.first + neighborWeight[k];
+      if ( nd < dist[static_cast<size_t>( n )] )
+      {
+        dist[static_cast<size_t>( n )] = nd;
+        pq.push( { nd, n } );
+      }
+    }
   }
 
   QVector<float> rowBuf( nCols );

@@ -96,11 +96,16 @@ void ExportEngine::applyExportRenderHints(QPainter &painter)
 
 QStringList ExportEngine::headerLines(const Options &opt)
 {
+  // 固定 context「WellCompositeExport」：导出成品是纸面文档而非界面控件，
+  // 与 exportCanvas 的 translate 调用同一 context，同一出口只有一套翻译口径。
   return {
-      QStringLiteral("井名: %1").arg(opt.wellName.isEmpty() ? QStringLiteral("—") : opt.wellName),
-      QStringLiteral("工程: %1").arg(opt.projectName.isEmpty() ? QStringLiteral("—") : opt.projectName),
-      QStringLiteral("日期: %1").arg(QDate::currentDate().toString(Qt::ISODate)),
-      QStringLiteral("比例尺: %1").arg(opt.scaleRatio),
+      QCoreApplication::translate("WellCompositeExport", "井名: %1")
+          .arg(opt.wellName.isEmpty() ? QStringLiteral("—") : opt.wellName),
+      QCoreApplication::translate("WellCompositeExport", "工程: %1")
+          .arg(opt.projectName.isEmpty() ? QStringLiteral("—") : opt.projectName),
+      QCoreApplication::translate("WellCompositeExport", "日期: %1")
+          .arg(QDate::currentDate().toString(Qt::ISODate)),
+      QCoreApplication::translate("WellCompositeExport", "比例尺: %1").arg(opt.scaleRatio),
   };
 }
 
@@ -128,7 +133,7 @@ QList<LegendGenerator::LegendEntry> LegendGenerator::collect(
     }
     LegendEntry e;
     e.symbol = li.lithoName;
-    e.detail = QStringLiteral("岩性");
+    e.detail = QCoreApplication::translate("WellCompositeExport", "岩性");
     e.swatch = li.baseColor;
     entries << e;
   }
@@ -143,7 +148,7 @@ QList<LegendGenerator::LegendEntry> LegendGenerator::collect(
     seenFacies << name;
     LegendEntry e;
     e.symbol = name;
-    e.detail = QStringLiteral("微相");
+    e.detail = QCoreApplication::translate("WellCompositeExport", "微相");
     e.swatch = fi.microColor;
     entries << e;
   }
@@ -172,7 +177,8 @@ QList<LegendGenerator::LegendEntry> LegendGenerator::collect(
   {
     LegendEntry e;
     e.symbol = m.second;
-    e.detail = QStringLiteral("%1 m 标志层").arg(QString::number(m.first, 'f', 1));
+    e.detail = QCoreApplication::translate("WellCompositeExport", "%1 m 标志层")
+                   .arg(QString::number(m.first, 'f', 1));
     e.swatch = QColor(QStringLiteral("#B45309"));
     entries << e;
   }
@@ -281,7 +287,8 @@ void paintPageHeader(QPainter &p, const QRectF &rect, const ExportEngine::Option
   p.setFont(f);
   p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted);
   p.drawText(QRectF(rect.right() - 120, rect.top(), 120, 18), Qt::AlignRight | Qt::AlignVCenter,
-             QStringLiteral("页 %1/%2").arg(pageNo).arg(totalPages));
+             QCoreApplication::translate("WellCompositeExport", "页 %1/%2")
+                 .arg(pageNo).arg(totalPages));
   p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   p.drawLine(rect.bottomLeft(), rect.bottomRight());
   p.restore();
@@ -292,6 +299,14 @@ void paintPageHeader(QPainter &p, const QRectF &rect, const ExportEngine::Option
 // ----------------------------------------------------------------------------
 // D4.6 PNG 渲染
 // ----------------------------------------------------------------------------
+namespace {
+
+// 图例区预留高度（与 exportToPagedDevice 的 legendBlockH 同口径）
+constexpr qreal kLegendBlockH = 150.0;
+constexpr qreal kHeaderRowH = 72.0;
+
+} // namespace
+
 QImage ExportEngine::renderToImage(const WellCompositeCanvas &canvas,
                                    const ComprehensiveWellData &data, const Options &opt,
                                    QString *errorOut)
@@ -311,18 +326,30 @@ QImage ExportEngine::renderToImage(const WellCompositeCanvas &canvas,
   const double pxPerMeter = 39.3701 * opt.dpi / (okDenom && denom > 0 ? denom : 500);
 
   const double span = qMax(1.0, opt.bottomDepth - opt.topDepth);
-  const qreal headerRowH = 72.0;
+  const qreal headerRowH = kHeaderRowH;
   const qreal width = exportTracksWidth(tracks) + 2.0;
+  // 页眉块与图例块按同一口径预留（D4.6 修复：旧实现只按 headerRowH + 数据区
+  // 定高，随后把图例画在 img.height()-150 上——白底图例直接覆盖井柱体区，
+  // 井底一段深度不出现在成品里）。
+  const qreal headBlockH = opt.includeHeader ? 24.0 : 2.0;
+  const qreal legendBlockH = opt.includeLegend ? kLegendBlockH : 0.0;
 
   // QImage 高度上限保护（>16384px 时按上限折减等效分辨率）
   const double maxH = 16384.0;
-  const double effPpm = std::min(pxPerMeter, (maxH - headerRowH) / span);
-  const qreal height = headerRowH + span * effPpm;
+  const double fixedH = headBlockH + headerRowH + legendBlockH;
+  const double effPpm = std::min(pxPerMeter, (maxH - fixedH) / span);
+  const qreal height = headBlockH + headerRowH + span * effPpm + legendBlockH;
 
   QImage img(qMax(64, qRound(width)), qMax(64, qRound(height)), QImage::Format_ARGB32_Premultiplied);
   img.fill(Qt::white);
 
   QPainter p(&img);
+  if (!p.isActive())
+  {
+    if (errorOut)
+      *errorOut = QStringLiteral("无法创建位图画布（%1×%2）").arg(img.width()).arg(img.height());
+    return QImage();
+  }
   applyExportRenderHints(p);
   CurvePenGuard penGuard(tracks);
 
@@ -331,13 +358,13 @@ QImage ExportEngine::renderToImage(const WellCompositeCanvas &canvas,
     paintPageHeader(p, QRectF(1, 1, width - 2, 20), opt, 1, 1);
   }
 
-  const QPointF origin(1.0, opt.includeHeader ? 24.0 : 2.0);
+  const QPointF origin(1.0, headBlockH);
   paintTracksRegion(p, tracks, opt.topDepth, opt.bottomDepth, effPpm, origin, headerRowH);
 
   if (opt.includeLegend)
   {
     const QList<LegendGenerator::LegendEntry> entries = LegendGenerator::collect(data, tracks);
-    const QRectF legendRect(1.0, img.height() - 150.0, width - 2.0, 148.0);
+    const QRectF legendRect(1.0, img.height() - legendBlockH, width - 2.0, legendBlockH);
     p.fillRect(legendRect, Qt::white);
     LegendGenerator::paint(p, legendRect, entries);
   }
@@ -384,7 +411,7 @@ QString ExportEngine::exportCanvas(const WellCompositeCanvas &canvas,
   if (tracks.isEmpty())
     return QStringLiteral("无可导出的道（全部隐藏或关闭打印）");
 
-  const qreal headerRowH = 72.0;
+  const qreal headerRowH = kHeaderRowH;
 
   if (format == Format::Png)
   {
@@ -399,25 +426,34 @@ QString ExportEngine::exportCanvas(const WellCompositeCanvas &canvas,
 
   if (format == Format::Svg)
   {
+    // 画布高度按「页眉块 + 道头 + 数据区 + 图例块」预留（与 PNG/PDF 同口径）：
+    // 旧实现只算 headerRowH + 数据区，图例画在画布底缘之外被静默丢弃。
+    const qreal headBlockH = opt.includeHeader ? 24.0 : 2.0;
+    const qreal legendBlockH = opt.includeLegend ? kLegendBlockH : 0.0;
+    const double dataH = qMax(1.0, opt.bottomDepth - opt.topDepth) * 8.0;
     QSvgGenerator gen;
     gen.setFileName(path);
     gen.setSize(QSize(qMax(64, qRound(exportTracksWidth(tracks) + 2)),
-                      qMax(64, qRound(headerRowH + (opt.bottomDepth - opt.topDepth) * 8.0))));
+                      qMax(64, qRound(headBlockH + headerRowH + dataH + legendBlockH))));
     gen.setViewBox(QRect(0, 0, gen.size().width(), gen.size().height()));
     gen.setTitle(QCoreApplication::translate("WellCompositeExport", "综合柱状图 %1").arg(opt.wellName));
     QPainter p(&gen);
+    if (!p.isActive())
+      return QStringLiteral("无法写入文件: %1").arg(path);
     applyExportRenderHints(p);
     CurvePenGuard penGuard(tracks);
     if (opt.includeHeader)
       paintPageHeader(p, QRectF(1, 1, gen.size().width() - 2, 20), opt, 1, 1);
     paintTracksRegion(p, tracks, opt.topDepth, opt.bottomDepth, 8.0,
-                      QPointF(1.0, opt.includeHeader ? 24.0 : 2.0), headerRowH);
+                      QPointF(1.0, headBlockH), headerRowH);
     if (opt.includeLegend)
     {
       const auto entries = LegendGenerator::collect(data, tracks);
-      LegendGenerator::paint(p, QRectF(1, gen.size().height() - 150, gen.size().width() - 2, 148), entries);
+      LegendGenerator::paint(p, QRectF(1, gen.size().height() - legendBlockH,
+                                       gen.size().width() - 2, legendBlockH), entries);
     }
-    p.end();
+    if (!p.end())
+      return QStringLiteral("SVG 写入失败: %1").arg(path);
     return QString();
   }
 
@@ -439,9 +475,13 @@ QString ExportEngine::exportToPagedDevice(const WellCompositeCanvas &canvas,
   if (tracks.isEmpty())
     return QStringLiteral("无可导出的道（全部隐藏或关闭打印）");
 
-  const qreal headerRowH = 72.0;
+  const qreal headerRowH = kHeaderRowH;
 
   QPainter p(&device);
+  // 设备不可写（路径无权限/磁盘满/打印端口失效）时 QPainter 构造成功但不
+  // active——旧实现继续绘制，全部绘制调用静默丢弃后返回空串（=成功）。
+  if (!p.isActive())
+    return QStringLiteral("无法打开输出设备（绘图未启动）");
   applyExportRenderHints(p);
   CurvePenGuard penGuard(tracks);
 
@@ -456,7 +496,7 @@ QString ExportEngine::exportToPagedDevice(const WellCompositeCanvas &canvas,
 
   const QRectF pageRect = QRectF(0, 0, device.width(), device.height());
   const qreal headBlockH = opt.includeHeader ? 26.0 : 2.0;
-  const qreal legendBlockH = opt.includeLegend ? 150.0 : 2.0;
+  const qreal legendBlockH = opt.includeLegend ? kLegendBlockH : 2.0;
   const qreal contentH = pageRect.height() - headBlockH - legendBlockH - 4.0;
 
   // D4.8 分页策略：metersPerPage 自适应（0 = 按页面容量）
@@ -493,7 +533,9 @@ QString ExportEngine::exportToPagedDevice(const WellCompositeCanvas &canvas,
       LegendGenerator::paint(p, legendRect, entries);
     }
   }
-  p.end();
+  // end() 的返回值一并纳入判断：矢量设备（PDF/打印）写入失败时它返回 false
+  if (!p.end())
+    return QStringLiteral("写入输出设备失败");
   return QString();
 }
 

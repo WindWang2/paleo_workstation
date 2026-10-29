@@ -10,6 +10,7 @@
 #include "../qgis/mappingartifactwriter.h"
 #include "../services/evidenceindex.h"
 #include "derivedassets.h"
+#include "wellpredictionservice.h" // QPointer<WellPredictionService> 需完整类型
 #include <QObject>
 #include <QPointer>
 #include <QSet>
@@ -26,7 +27,6 @@ class QgsMapLayer;
 class ConstraintWorkflow;
 class PaleoTask;
 class PaleoTaskService;
-class WellPredictionService;
 namespace paleo::jobs {
 template <class JobT> class JobRunner;
 }
@@ -57,6 +57,7 @@ public:
   DataCatalog *catalog() const { return m_catalog; }
   void setPredictionService(RemotePredictionService *service);
   void setWellPredictionService(WellPredictionService *service);
+  WellPredictionService *wellPredictionService() const { return m_wellRemote.data(); }
   QString wellPredictionStatusHint() const;
   // 预测专项 P0：所选井的批量准备检查（干跑，异步，不阻塞 GUI）。与
   // predict(h, "wells", ids) 用同一份请求组装（wellRequestEntry）与同一条
@@ -130,9 +131,12 @@ public:
   bool removeProduct(const QString &layerId, QString *error,
                      bool includeDerived = false);
   // role: "direction" | "barrier" | "auto"（auto 无法判定时返回错误，
-  // 调用侧应询问用户后重试）。
+  // 调用侧应询问用户后重试）。failure 带机器可判定的原因码
+  // （ConstraintImportFailure::RoleUndetermined 等），调用侧按码分支，
+  // 不匹配 tr() 译文。
   bool importConstraints(const QString &horizon, const QString &path,
-                         const QString &role, QString *error);
+                         const QString &role, QString *error,
+                         paleo::ConstraintImportFailure *failure = nullptr);
   bool startConstraintImport(const QString &horizon, const QString &path, const QString &role,
                              QString *error);
   bool importConstraints(const QString &horizon, const QString &path,
@@ -148,8 +152,11 @@ public:
                         double interval, QString *error);
   bool startCompose(const QString &horizon, const QStringList &layerIds,
                     const QVariantMap &params, QString *error);
-  bool startFaciesConsistency(const QString &layerId, QString *error,
+  bool startFaciesConsistency(const QString &id, QString *error,
                               const QString &counterpartId = {});
+  // #751：最近一次 startFaciesConsistency 是否转后台（queued）。同步路径当场
+  // 发 consistencyReady 出报告，后台路径稍后经任务中心产出——消息文案据此分流。
+  bool consistencyQueued() const { return m_consistencyQueued; }
   QString compose(const QString &horizon, const QStringList &layerIds,
                   const QVariantMap &params, QString *error);
   QString snapshotConstraints(const QString &horizon,
@@ -517,6 +524,7 @@ private:
   QVariantMap m_editEvidence; // 会话依据：冻结版本；切层位或工程即清空。
   bool m_manualEvidenceRequired = false;
   bool m_catalogSyncQueued = false;
+  bool m_consistencyQueued = false; // #751：见 consistencyQueued()
   RemotePredictionRequest m_request;
   QVariantMap m_predictionParameters;
   std::shared_ptr<std::atomic_bool> m_mockCancelled;

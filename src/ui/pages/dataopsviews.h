@@ -651,17 +651,31 @@ public:
     QMenu menu(parent);
     menu.setObjectName(QStringLiteral("columnFunnelMenu"));
     menu.setWindowTitle(QObject::tr("列过滤"));
+    // finding-131：回显当前过滤态——该列任一可见数据行含此值即勾选，已激活的
+    // 列过滤不再被「全勾」静默重置。
+    QSet<QString> visibleValues;
+    for (int r = 0; r < table->rowCount(); ++r)
+    {
+      const QTableWidgetItem *name = table->item(r, 0);
+      const QTableWidgetItem *it = table->item(r, column);
+      if (!name || name->data(Qt::UserRole).toString().isEmpty() || !it)
+        continue;
+      if (!table->isRowHidden(r))
+        visibleValues.insert(it->text());
+    }
     QList<QAction *> acts;
     for (const QString &v : values)
     {
       QAction *a = menu.addAction(v);
       a->setCheckable(true);
-      a->setChecked(true);
+      a->setChecked(visibleValues.contains(v));
       acts.append(a);
     }
     if (acts.isEmpty())
       return false;
-    menu.exec(QCursor::pos());
+    // finding-131：Esc/点击外部取消（exec 返回 nullptr）→ 不提交，保留已激活过滤。
+    if (!menu.exec(QCursor::pos()))
+      return false;
     QSet<QString> keep;
     for (QAction *a : acts)
       if (a->isChecked())

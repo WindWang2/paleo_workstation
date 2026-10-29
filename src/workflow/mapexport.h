@@ -37,8 +37,11 @@ QString exportHorizonMapPdf( QgisLayerService *layers, QgisProjectService *proje
 
 // 构建厚度图打印布局（导出与测试共用这条路径）。返回堆对象，调用方负责
 // delete；失败 → nullptr + *error。
+// \a warnings（可空）：不阻断出图的降级项（如相面层实例化失败 → 图上缺相面），
+// 调用方需如实上报（reportSnapshotWarnings 同档，#77）。
 QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectService *projectSvc,
-                                       const QString &horizon, QString *error = nullptr );
+                                       const QString &horizon, QString *error = nullptr,
+                                       QStringList *warnings = nullptr );
 
 // 阶段E — 导出产物登记：把已写出的 PDF 复制进 catalog 受管 OUTPUT 区
 // （artifacts/output/<asset_id>/<version_id>/<filename>，落盘只读），登记

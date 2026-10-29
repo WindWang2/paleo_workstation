@@ -113,7 +113,11 @@ class PreviewIdentifyTool : public QgsMapTool
     void escapeRequested();
 
   private:
+    // 「有按下」用独立布尔位而不是 QPoint::isNull() 哨兵——视口左上角像素
+    // (0,0) 按下时 isNull() 恒真，拖拽框选会被误判为无按下而静默退化成点选
+    // （#79）。press 置位，release / Esc / deactivate 复位。
     QPoint m_pressPixel;
+    bool m_pressed = false;
     bool m_dragging = false;
     QgsRubberBand *m_rectBand = nullptr;
 };

@@ -101,11 +101,14 @@ void DataExportDialog::refreshVersions() {
       combo->addItem(tr("v%1 · %2 · %3").arg(version.versionNumber).arg(version.stage, version.id), version.id);
     }
     if (combo->count() == 0) {
-      // L5.4：RAW scope 下该资产没有 RAW 版本——原来下拉留空（index -1），
+      // L5.4：该资产取不到可导出的版本 id——原来下拉留空（index -1），
       // request() 仍把空串塞进 versionIds，下游只报「来源版本缺失：」且主语
       // 为空，资产还被静默排除出批量导出。改为显式占位项 + 禁用下拉，用户
-      // 在行内就看到「没有 RAW 版本」，applySummary 据同名清单拦住导出。
-      combo->addItem(tr("没有 RAW 版本"), QString());
+      // 在行内就看到原因，applySummary 据同名清单拦住导出。
+      // 文案按当前 scope 归因：RAW 范围是真的「没有 RAW 版本」；其他范围
+      // （当前成果／成果及其制作源数据）过不了筛选只是因为该资产压根没有任何
+      // 版本，报 RAW 话术属于错误归因。
+      combo->addItem(original ? tr("没有 RAW 版本") : tr("没有可导出版本"), QString());
       combo->setEnabled(false);
     }
     const int at = combo->findData(row < m_selectedVersions.size() ? m_selectedVersions[row] : current.id);
@@ -115,7 +118,8 @@ void DataExportDialog::refreshVersions() {
   }
 }
 // L5.4：行内版本下拉取不到版本 id 的资产名单（RAW scope 下的「没有 RAW 版本」
-// 行）。导出前据此拦人并点名，不把空 id 送进 DataRequest 让下游报无主语失败。
+// 行、其他 scope 下「没有可导出版本」的行）。导出前据此拦人并点名，不把空 id
+// 送进 DataRequest 让下游报无主语失败。
 QStringList DataExportDialog::rowsMissingVersion() const {
   QStringList names;
   for (int row = 0; row < m_versions->rowCount(); ++row) {
@@ -127,16 +131,20 @@ QStringList DataExportDialog::rowsMissingVersion() const {
   }
   return names;
 }
-// L5.4：汇总文案统一出口——缺 RAW 版本的提示必须常驻可见，不被预览结果或
+// L5.4：汇总文案统一出口——缺版本的提示必须常驻可见，不被预览结果或
 // 「正在检查」文案覆盖（否则用户只看到下游那条无主语的「来源版本缺失：」）。
+// 话术随当前 scope：RAW 范围报缺 RAW 原始版本，其余范围报该资产没有任何版本。
 void DataExportDialog::applySummary(const QString &base) {
   const QStringList missing = rowsMissingVersion();
   if (missing.isEmpty()) {
     m_summary->setText(base);
     return;
   }
-  const QString notice = tr("以下 %1 项没有 RAW 原始版本，不能按原始文件导出：%2")
-                             .arg(missing.size()).arg(missing.join(tr("、")));
+  const QString notice = m_scope->currentIndex() == 1
+      ? tr("以下 %1 项没有 RAW 原始版本，不能按原始文件导出：%2")
+            .arg(missing.size()).arg(missing.join(tr("、")))
+      : tr("以下 %1 项没有任何版本，不能导出：%2")
+            .arg(missing.size()).arg(missing.join(tr("、")));
   m_summary->setText(base.isEmpty() ? notice : notice + QStringLiteral("\n") + base);
 }
 void DataExportDialog::updateAvailability() {

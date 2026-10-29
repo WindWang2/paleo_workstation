@@ -15,7 +15,11 @@ if ($errs.Count) {
   $errs | ForEach-Object { Write-Host ("PARSE ERROR: {0} @ line {1}" -f $_.Message, $_.Extent.StartLineNumber) }
   exit 1
 }
-$want = 'Read-InstalledDbMap', 'Compare-PinnedClosure', 'Enter-LocalDepsEnvironment', 'Invoke-EnsureQgisResources', 'Assert-NoEnvDebtRegression'
+# #774：Get-UpstreamVersion 必须一起抽进来——Compare-PinnedClosure 的「仅打包
+# 修订号漂移降级为 warning」分支调它，缺了它本自检在 Windows 必过车道上恒红
+# （CommandNotFoundException → $ErrorActionPreference='Stop' 直接终止），
+# 后面 30+ 条断言一条都没跑到。
+$want = 'Read-InstalledDbMap', 'Compare-PinnedClosure', 'Get-UpstreamVersion', 'Enter-LocalDepsEnvironment', 'Invoke-EnsureQgisResources', 'Assert-NoEnvDebtRegression'
 $fns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
 foreach ($f in $fns) { if ($want -contains $f.Name) { Invoke-Expression $f.Extent.Text } }
 foreach ($n in $want) { if (-not (Get-Command $n -CommandType Function -ErrorAction SilentlyContinue)) { throw "function $n not found in $Script" } }

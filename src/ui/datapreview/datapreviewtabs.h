@@ -4,6 +4,7 @@
 #include <QPointer>
 #include <QSet>
 #include <QString>
+#include <QVector>
 #include <QWidget>
 #include <functional>
 #include <memory>
@@ -22,6 +23,10 @@ struct EntityAssetLink;
 class QgsProject;
 class QgsMapCanvas;
 class PreviewMapPage;
+namespace seismic
+{
+class SeismicTaskService;
+}
 
 // ui/datapreview — 数据页页内预览标签栏（docs/PROJECT_AREA_PLAN.md §4）。
 // 普通 QTabWidget（可关闭标签），样式走 DESIGN.md dock 面板，不用工作流
@@ -126,6 +131,11 @@ class DataPreviewTabs : public QWidget
     QPointer<QWidget> m_detailsHost;
     QHash<QString, QPointer<QWidget>> m_detailsOfAsset;
     QWidget *buildContent(const QString &assetId, QWidget *page);
+    // 外链 SHA-256 闸门（§3；datapreviewtabs_content.cpp）：返回空 = 放行，
+    // 非空 = 死胡同文案。同步/后台两条路 + 失配回填都在里面。
+    QString externalShaGateError(const QString &assetId, const CatalogVersion &sourceVersion,
+                                 const QString &abs, bool auxOnly,
+                                 const QVariantMap &versionExtra, QWidget *host);
     QWidget *buildReferenceDocumentContent(const QString &path, QWidget *host, QVBoxLayout *layout);
     QWidget *buildMapProductContent(DataCatalog *cat, const CatalogAsset &asset,
                                     const CatalogVersion &v, const QString &abs,
@@ -219,6 +229,13 @@ class DataPreviewTabs : public QWidget
     // 挂接门面（私有）：setImportService/setDocService 共用入口。
     void attachDoc(PreviewDocService *doc);
 
+    // 瓦片渐进时间片路由（datapreviewtabseismic.cpp 调）：服务信号是广播的，
+    // 这里按「画布 → (工作区, 采样号)」登记表逐项匹配。connectTiledTileRoute
+    // 每服务接一次（m_tiledSignalService 记已接线的服务，门面重挂时自动重接）；
+    // registerTiledTarget 在每次瓦片请求前登记/顶替该画布的世代表。
+    void connectTiledTileRoute(seismic::SeismicTaskService *tileService);
+    void registerTiledTarget(QWidget *canvas, const QString &workspace, int sampleIndex);
+
   // 视图侧持有的数据门面：一切解析/解码/SHA/PDF 编排都经它（W1 下沉）。
   PreviewDocService *m_doc = nullptr;             // 挂接的门面（非持有）
   std::unique_ptr<PreviewDocService> m_docOwned;  // setImportService 自建时持有
@@ -262,10 +279,21 @@ class DataPreviewTabs : public QWidget
     QHash<QString, LasPending> m_pendingLas;
 
     // 瓦片渐进时间片（wave/seismic-engine-deep 主线2）：服务信号是广播的，
-    // 这里只记最新一次瓦片请求的目标画布 + 世代（采样号）——旧请求/其他
-    // 资产标签的瓦片不进当前画布。m_tiledSignalService 记已接线的服务，
+    // 这里按「画布 → (工作区, 采样号)」登记世代表逐项匹配——只有工作区
+    // 身份与采样号同时对上的画布才收瓦片；旧请求（同画布被新采样顶替）、
+    // 其他资产标签的瓦片一律丢弃。m_tiledSignalService 记已接线的服务，
     // 门面重挂（换服务实例）时自动重接。
+    struct TiledTarget
+    {
+      QPointer<QWidget> canvas; // SeismicSectionCanvas（cpp 内 qobject_cast）
+      QString workspace;        // .sf3p 分页工作区路径（请求身份）
+      int sampleIndex = -1;
+    };
     QPointer<QObject> m_tiledSignalService;
-    QPointer<QWidget> m_tiledCanvas; // SeismicSectionCanvas（cpp 内 qobject_cast）
-    int m_tiledSample = -1;
+    QVector<TiledTarget> m_tiledTargets;
+
+    // 外链 SHA-256 后台复验的失配回填（§3）：versionId → 失败原因。任务回来
+    // 发现失配时记一份并 rebuildAssetTab，重入的 buildContent 直接据此上屏
+    // （不再整读一遍大文件）；「重新定位文件」后清空重验。
+    QHash<QString, QString> m_shaFailedOfVersion;
 };

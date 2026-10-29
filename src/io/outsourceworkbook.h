@@ -54,7 +54,8 @@ WorkbookReadResult previewXlsxWorkbook(const QString &path, bool *limited);
 // when the file extension differs. Uses the same cell and XML safety checks.
 WorkbookReadResult readSpreadsheetMlWorkbook( const QString &path, const QByteArray &bytes );
 
-// Bounded file streaming for comprehensive well documents (1 GiB / 16M cells).
+// Bounded file streaming for comprehensive well documents (1 GiB /
+// kStreamingWellCompositeCells input cells — 16M, attribution in the .cpp).
 // The header is delivered as the first row; subsequent callbacks retain physical
 // row numbers. No data rows are retained in the returned workbook metadata.
 using SpreadsheetMlRowVisitor = std::function<bool(const QString &sheet, const QStringList &headers,

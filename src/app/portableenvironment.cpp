@@ -142,7 +142,7 @@ PortableEnvironment initializePortableEnvironment()
     if (!anchor.isEmpty())
       result = inspectPortableEnvironment(directory, result.values, anchor);
     else
-      result.anchorNote = QStringLiteral(
+      result.anchorNote = QObject::tr(
           "安装路径含非 ASCII 字符且无法建立 ASCII 锚点（8.3 短路径与 "
           "ProgramData 联接均不可用），环境变量保留长路径");
   }

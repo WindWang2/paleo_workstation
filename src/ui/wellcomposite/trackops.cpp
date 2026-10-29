@@ -12,8 +12,10 @@ namespace WellComposite
 namespace TrackOps
 {
 
-// 遗留 P3：CSV 单元格转义——层名/岩性名/结论文本含逗号、引号、换行时直接
-// 拼接会错位列结构（domain/wellsection.h TopsTable::csv 同款口径）。
+// CSV 单元格转义——层名/岩性名/结论文本含逗号、引号、换行时直接拼接会错位
+// 列结构（domain/wellsection.h TopsTable::csv 同款口径）。所有自由文本列
+// （含 Core 筒号、Symbol 标签、Stratigraphy 的系/统/组、Facies 的相/亚/微相）
+// 一律经此函数，不留裸拼接口。
 QString csvCell(const QString &v)
 {
   const bool need = v.contains(QLatin1Char(',')) || v.contains(QLatin1Char('"')) ||
@@ -128,8 +130,7 @@ QString exportTrackCsv(const WellTrack &track)
     for (const auto &si : sc->intervals())
       ts << f1(si.topDepth) << QLatin1Char(',') << f1(si.bottomDepth) << QLatin1Char(',')
          << csvCell(si.system) << QLatin1Char(',') << csvCell(si.series) << QLatin1Char(',')
-         << csvCell(si.formation)
-         << QLatin1Char('\n');
+         << csvCell(si.formation) << QLatin1Char('\n');
     break;
   }
   case TrackType::FaciesCompound:

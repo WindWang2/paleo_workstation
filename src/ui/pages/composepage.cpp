@@ -21,6 +21,7 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 
@@ -51,6 +52,19 @@ namespace
   {
     return d.group == QLatin1String(group) ||
            d.group.startsWith(QLatin1String(group) + QLatin1Char('/'));
+  }
+  // finding-121：整表重建前按 UserRole(layerId) 快照已勾选项，重建后恢复——
+  // layerDeclared 触发的重建不再静默清空融合清单/参考图的用户勾选态（与栅格
+  // 下拉的 previous 恢复同法）。只需记 Checked 项（重建默认全 Unchecked）。
+  QSet<QString> checkedLayerIds(QListWidget *list)
+  {
+    QSet<QString> out;
+    if (!list)
+      return out;
+    for (int i = 0; i < list->count(); ++i)
+      if (list->item(i)->checkState() == Qt::Checked)
+        out.insert(list->item(i)->data(Qt::UserRole).toString());
+    return out;
   }
 } // namespace
 
@@ -231,10 +245,10 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
       fuse->setToolTip(QString());
     }
   };
-  connect(list->model(), &QAbstractItemModel::rowsInserted, this, gateFuse);
-  connect(list->model(), &QAbstractItemModel::rowsRemoved, this, gateFuse);
-  connect(list->model(), &QAbstractItemModel::modelReset, this, gateFuse);
-  connect(list->model(), &QAbstractItemModel::dataChanged, this,
+  connect(list->model(), &QAbstractItemModel::rowsInserted, list, gateFuse);
+  connect(list->model(), &QAbstractItemModel::rowsRemoved, list, gateFuse);
+  connect(list->model(), &QAbstractItemModel::modelReset, list, gateFuse);
+  connect(list->model(), &QAbstractItemModel::dataChanged, list,
           [gateFuse](const QModelIndex &, const QModelIndex &,
                      const QVector<int> &roles) {
             if (roles.isEmpty() || roles.contains(Qt::CheckStateRole))
@@ -599,6 +613,7 @@ void ComposePage::refreshFactors()
   if (!layers || !layers->tryDeclared(&declared))
     return;
   const QString horizon = property(kComposeHorizonProp).toString();
+  const QSet<QString> checkedFactors = checkedLayerIds(list);
   list->clear();
   for (const LayerDeclaration &d : declared)
   {
@@ -616,7 +631,8 @@ void ComposePage::refreshFactors()
     auto *it = new QListWidgetItem(d.layerId, list);
     it->setData(Qt::UserRole, d.layerId);
     it->setFlags(it->flags() | Qt::ItemIsUserCheckable);
-    it->setCheckState(Qt::Unchecked);
+    // finding-121：恢复重建前的勾选态（默认全 Unchecked，命中快照才勾上）。
+    it->setCheckState(checkedFactors.contains(d.layerId) ? Qt::Checked : Qt::Unchecked);
   }
 
   auto *combo = child<QComboBox>(this, "faciesRasterCombo");
@@ -649,6 +665,7 @@ void ComposePage::refreshFactors()
   // m2(C)：参考图清单（06_Reference 组声明图层；子组同前缀规则）。
   if (auto *refs = child<QListWidget>(this, "referenceList"))
   {
+    const QSet<QString> checkedRefs = checkedLayerIds(refs);
     const QSignalBlocker block(refs); // populate 阶段不发可见性意图
     refs->clear();
     for (const LayerDeclaration &d : declared)
@@ -659,7 +676,9 @@ void ComposePage::refreshFactors()
       it->setToolTip(d.layerId);
       it->setData(Qt::UserRole, d.layerId);
       it->setFlags(it->flags() | Qt::ItemIsUserCheckable);
-      it->setCheckState(Qt::Unchecked);
+      // finding-121：恢复重建前的勾选态——参考图层在画布上仍可见，勾选框
+      // 不再被重置为未勾选（免「隐藏需两次点击」）。
+      it->setCheckState(checkedRefs.contains(d.layerId) ? Qt::Checked : Qt::Unchecked);
     }
   }
 

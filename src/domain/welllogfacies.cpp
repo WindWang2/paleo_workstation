@@ -364,15 +364,26 @@ WellFaciesPlan planWellFaciesRuns(const ComprehensiveWellData &data,
       chosen.insert(m.formationGroup, &m);
   }
   const QStringList groups = wellGroups(data);
+  // 组匹配口径与 prepare 层一致（finding-39/40）：prepareWellFaciesInput /
+  // planWellFaciesFormationRun 用 matchesFormationGroup 的宽松段式匹配
+  // （「珠江一段」↔「珠江组」），这里此前只用单向 w.startsWith(group)——
+  // 段式命名的井组被静默跳过，还在 covered 检查里被谎报「无对应模型」。
+  // startsWith 保留为并集一支（组名不以「组」结尾时它是唯一命中路径）。
+  const auto groupMatches = [](const QString &wellGroup, const QString &group) {
+    return wellGroup.startsWith(group) || matchesFormationGroup(wellGroup, group);
+  };
   QSet<qint64> used;
   for (const QString &group : order) {
     const bool present =
         group.isEmpty() ||
-        std::any_of(groups.cbegin(), groups.cend(), [&group](const QString &w) {
-          return w.startsWith(group);
+        std::any_of(groups.cbegin(), groups.cend(), [&group, &groupMatches](const QString &w) {
+          return groupMatches(w, group);
         });
-    if (!present)
+    if (!present) {
+      // 不静默：模型组在井上不存在也进 skipped（否则用户只看到「少跑了一组」）。
+      plan.skipped << tr("%1（井上无该地层组）").arg(group.isEmpty() ? tr("整井") : group);
       continue;
+    }
     const WellFaciesModel &model = *chosen.value(group);
     const QString label = group.isEmpty() ? tr("整井") : group;
     WellFaciesInput input = prepareWellFaciesInput(data, model);
@@ -403,8 +414,8 @@ WellFaciesPlan planWellFaciesRuns(const ComprehensiveWellData &data,
   }
   for (const QString &w : groups) {
     const bool covered =
-        std::any_of(models.cbegin(), models.cend(), [&w](const WellFaciesModel &m) {
-          return m.formationGroup.isEmpty() || w.startsWith(m.formationGroup);
+        std::any_of(models.cbegin(), models.cend(), [&w, &groupMatches](const WellFaciesModel &m) {
+          return m.formationGroup.isEmpty() || groupMatches(w, m.formationGroup);
         });
     if (!covered)
       plan.skipped << tr("%1（无对应模型）").arg(w);

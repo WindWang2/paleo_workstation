@@ -16,6 +16,7 @@ class QPushButton;
 class QTableWidget;
 class QTableWidgetItem;
 class DataCatalog;
+class PaleoTaskService;
 namespace paleo::dataops
 {
 class RecycleBin;
@@ -47,6 +48,11 @@ class WellAttachmentPanel : public QDialog
     // catalog 对象换成另一个时改绑（原地 open 不必调用）。指针不变则空操作。
     void setCatalog(DataCatalog *cat);
 
+    // #773：缩略图后台解码的任务服务（PaleoTaskService 专用 workerPool，
+    // ≤4 线程 + 退出排空 + 面板先亡取消在途解码）。无服务宿主（测试壳）
+    // 回落 QtConcurrent 全局池（paleo::tasks::pool 的既有口径）。
+    void setTaskService(PaleoTaskService *service);
+
   signals:
     // 软删意图（属主走 BatchRemoveCmd——可撤销、共享可回收清单）。
     void removeRequested(const QStringList &assetIds);
@@ -72,6 +78,7 @@ class WellAttachmentPanel : public QDialog
 
     DataCatalog *m_cat = nullptr;
     const paleo::dataops::RecycleBin *m_recycle = nullptr;
+    PaleoTaskService *m_taskService = nullptr;
     QVector<paleo::WellAttachmentRow> m_rows;
     QComboBox *m_wellBox = nullptr;
     QTableWidget *m_table = nullptr;

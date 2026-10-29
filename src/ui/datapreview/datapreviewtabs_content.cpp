@@ -110,25 +110,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   }
 
   // 外链完整性（§3）：入库时留过 SHA-256 的源文件被改过就不再解码——
-  // 正文如实写「源文件与入库时的 SHA-256 不一致」。
-  // D1：地震资产接了任务服务时把这道哈希移交异步解码任务——体量大不该堵
-  // 住建标签；辅助 XML 的校验同样交后台解析会话。
-  // 托管/无指纹/本会话已验的短路、失配后的下游标过时都在门面里。
-  const bool deferShaToTask =
-      OfficePreviewSession::supports(abs) ||
-      v.extra.value(QStringLiteral("logCompositeTemplate")).toBool() ||
-      (abs.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) &&
-       (auxOnly || asset.type == QLatin1String("unknown") || asset.type == QLatin1String("auxiliary") ||
-        asset.type == QLatin1String("outsource_workbook"))) ||
-      (m_doc->taskService() && asset.type == QLatin1String("seismic"));
-  if (!deferShaToTask)
+  // 正文如实写「源文件与入库时的 SHA-256 不一致」。闸门本体（同步/后台
+  // 两条路 + 失配回填）在 externalShaGateError。
+  const QString shaGate =
+      externalShaGateError(assetId, sourceVersion, abs, auxOnly, v.extra, host);
+  if (!shaGate.isEmpty())
   {
-    QString verr;
-    if (!m_doc->verifyExternalSha(assetId, sourceVersion, &verr))
-    {
-      lay->addWidget(stateLabel(verr, host, true), 1);
-      return host;
-    }
+    lay->addWidget(stateLabel(shaGate, host, true), 1);
+    return host;
   }
 
   // Office 原件交给本机编辑页。SHA 在后台核对。编辑结果另存为
@@ -223,4 +212,55 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     lay->addWidget(makeOpenExternalRow(abs, host), 0, Qt::AlignLeft);
     return host;
   }
+}
+
+// 外链完整性闸门（§3）：返回空 = 放行；非空 = 死胡同文案（调用方上屏）。
+// 三条路并存的理由：Office 原件 / logCompositeTemplate / 辅助 XML 由各自的
+// 后台会话复验（OfficePreviewWidget / XmlPreviewSession），地震解码任务自带
+// 复验——都不在本页重复做。其余资产类（大体积外链栅格/GeoJSON/井表…）接上
+// 任务服务时走后台复验：hash 在任务池算，未返回前先放行骨架，失配再由任务
+// 回填失败态（rebuildAssetTab 重入时由 m_shaFailedOfVersion 直接上屏，不再
+// 整读一遍）——GUI 线程不再为一道 SHA 整读大文件。无任务服务（测试/小夹具）
+// 保持同步复验旧路径。托管/无指纹/本会话已验的短路在门面里。
+QString DataPreviewTabs::externalShaGateError(const QString &assetId,
+                                              const CatalogVersion &sourceVersion,
+                                              const QString &abs, bool auxOnly,
+                                              const QVariantMap &versionExtra,
+                                              QWidget *host)
+{
+  if (!m_doc)
+    return QString();
+  // 上一次后台复验已回填的失配原因：重入时直接上屏。
+  const QString failedBefore = m_shaFailedOfVersion.value(sourceVersion.id);
+  if (!failedBefore.isEmpty())
+    return failedBefore;
+  DataCatalog *cat = m_doc->catalog();
+  if (!cat)
+    return QString();
+  const CatalogAsset asset = cat->assetById(assetId);
+  const bool shaCheckedElsewhere =
+      OfficePreviewSession::supports(abs) ||
+      versionExtra.value(QStringLiteral("logCompositeTemplate")).toBool() ||
+      (abs.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) &&
+       (auxOnly || asset.type == QLatin1String("unknown") ||
+        asset.type == QLatin1String("auxiliary") ||
+        asset.type == QLatin1String("outsource_workbook"))) ||
+      (m_doc->taskService() && asset.type == QLatin1String("seismic"));
+  if (shaCheckedElsewhere)
+    return QString(); // 复验由对应后台通道承担
+  if (!m_doc->taskService())
+  {
+    QString verr;
+    return m_doc->verifyExternalSha(assetId, sourceVersion, &verr) ? QString() : verr;
+  }
+  const QString versionId = sourceVersion.id;
+  m_doc->verifyExternalShaAsync(
+      assetId, sourceVersion, abs, host,
+      [this, assetId, versionId](bool ok, const QString &error) {
+        if (ok)
+          return;
+        m_shaFailedOfVersion.insert(versionId, error);
+        rebuildAssetTab(assetId); // 回填失败态
+      });
+  return QString();
 }

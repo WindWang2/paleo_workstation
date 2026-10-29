@@ -14,6 +14,8 @@
 #include <QHBoxLayout>
 #include <QApplication>
 #include <QWheelEvent>
+#include <QKeyEvent>
+#include <QChildEvent>
 #include <QLabel>
 #include <QPushButton>
 #include <QMouseEvent>
@@ -178,6 +180,11 @@ void MappingReferencePanel::clearReference(const QString &message)
 
 void MappingReferencePanel::updateCaption()
 {
+  // issue-743：组合框禁用态保留 refreshSources()(:138-139) 写的禁用原因文案
+  // （「暂无此类图件…」）——否则 updateCaption 的来源备注会立即覆盖它，用户看不到
+  // 为何禁用。
+  if (!m_sources->isEnabled())
+    return;
   const auto row = selectedSource();
   const auto horizon = row.value("horizon").toString();
   const QString note = row.isEmpty() ? tr("选择本视图的参考证据，与主图联动对照。")
@@ -221,6 +228,10 @@ public:
     setFixedWidth(width);
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     setCursor(Qt::SplitHCursor);
+    // issue-744：键盘与读屏可用——可获得焦点、方向键步进调宽、带无障碍名称。
+    setFocusPolicy(Qt::StrongFocus);
+    setAccessibleName(QObject::tr("调整证据视图宽度"));
+    setAccessibleDescription(QObject::tr("按左方向键收窄、右方向键加宽此证据视图"));
   }
 
 protected:
@@ -245,8 +256,22 @@ protected:
     m_cb(e->globalPosition().toPoint().x() - m_pressX, true);
     e->accept();
   }
+  // issue-744：键盘步进调宽——先以当前宽度设起点（dx=0 回调记录 startWidth），
+  // 再 ±kKeyStep（finished 落持久化），与拖动手感一致。
+  void keyPressEvent(QKeyEvent *e) override
+  {
+    if (e->key() == Qt::Key_Left || e->key() == Qt::Key_Right)
+    {
+      m_cb(0, false);
+      m_cb(e->key() == Qt::Key_Right ? kKeyStep : -kKeyStep, true);
+      e->accept();
+      return;
+    }
+    QWidget::keyPressEvent(e);
+  }
 
 private:
+  static constexpr int kKeyStep = 20; // 每次方向键的宽度步进（像素）
   Callback m_cb;
   int m_pressX = 0;
   bool m_dragging = false;
@@ -322,7 +347,7 @@ MappingReferencePanel *MappingEvidencePanel::addView()
         if (dx == 0 && !finished) { *startWidth = view->width(); return; }
         setViewWidth(view, *startWidth + dx, finished);
       }, m_scroll->widget());
-  handle->setToolTip(tr("左右拖动调整此证据视图宽度"));
+  handle->setToolTip(tr("左右拖动或聚焦后按左/右方向键调整此证据视图宽度"));
   handle->installEventFilter(this); // 手柄上的滚轮同样横向滚动
   m_handles << handle;
   view->installEventFilter(this);
@@ -396,7 +421,10 @@ void MappingEvidencePanel::updateViewSizes()
   }
   // 总宽超过视口时出现水平滚动条（ScrollBarAsNeeded）。
   m_scroll->widget()->setMinimumWidth(total);
-  m_scroll->widget()->setFixedHeight(m_scroll->viewport()->height());
+  // issue-812：矮停靠栏视口高低于视图最小高(200，见 layoutViews)时，行高按 200
+  // 兜底——否则视图被压到最小高以下、canvas 内容被裁。视口更矮时底部超出视口
+  // （竖滚恒关，测试口径如此），至少保证视图按最小高完整渲染而非压扁。
+  m_scroll->widget()->setFixedHeight(qMax(m_scroll->viewport()->height(), 200));
 }
 
 void MappingEvidencePanel::setViewWidth(MappingReferencePanel *view, int width, bool persist)
@@ -437,6 +465,14 @@ void MappingEvidencePanel::saveWidths()
 
 bool MappingEvidencePanel::eventFilter(QObject *watched, QEvent *event)
 {
+  // issue-747：视图内后续新增的子控件（如运行时弹出的控件）也要装滚轮过滤器
+  // ——addView 时只对当时已有的子控件快照式安装，动态新增的会漏掉横向滚轮。
+  if (event->type() == QEvent::ChildAdded)
+  {
+    if (auto *child = static_cast<QChildEvent *>(event)->child())
+      if (auto *w = qobject_cast<QWidget *>(child))
+        w->installEventFilter(this);
+  }
   if (event->type() == QEvent::Resize && watched == m_scroll->viewport()) updateViewSizes();
   if (event->type() == QEvent::Wheel) {
     auto *wheel = static_cast<QWheelEvent *>(event);

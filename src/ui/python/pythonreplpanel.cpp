@@ -33,7 +33,9 @@ PythonReplPanel::PythonReplPanel(PythonConsoleController *controller,
   m_status = new QLabel(tr("会话未启动"), this);
   m_status->setObjectName(QStringLiteral("pythonReplStatus"));
   m_status->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
-  m_status->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());
+  // 次级文字活体样式：换主题（ApplicationPaletteChange）随 relay 重算。
+  PaleoTheme::applyThemedStyleSheet(
+      m_status, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   header->addWidget(m_status, 1);
   m_startButton = new QPushButton(tr("启动会话"), this);
   m_startButton->setObjectName(QStringLiteral("pythonReplStart"));
@@ -47,7 +49,9 @@ PythonReplPanel::PythonReplPanel(PythonConsoleController *controller,
   auto *security = new QLabel(
       tr("会话以当前用户权限执行输入的代码、无沙箱——只输入可信语句"), this);
   security->setObjectName(QStringLiteral("pythonReplSecurityHint"));
-  security->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());
+  // 次级文字活体样式：换主题（ApplicationPaletteChange）随 relay 重算。
+  PaleoTheme::applyThemedStyleSheet(
+      security, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   security->setWordWrap(true);
   layout->addWidget(security);
 

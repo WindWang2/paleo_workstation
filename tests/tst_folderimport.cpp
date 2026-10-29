@@ -177,7 +177,7 @@ private slots:
     QString importErr;
     wf.importFiles(paths, {}, {},
                    [&doneCalled, &rows, &importErr](const QVector<FolderRowResult> &r,
-                                                    const QString &e) {
+                                                    const QString &e, bool) {
                      doneCalled = true;
                      rows = r;
                      importErr = e;
@@ -229,7 +229,7 @@ private slots:
     QString importErr;
     wf.importFolder(tmp.filePath(QStringLiteral("src_area")), {},
                     [&doneCalled, &rows, &importErr](
-                        const QVector<FolderRowResult> &r, const QString &e) {
+                        const QVector<FolderRowResult> &r, const QString &e, bool) {
                       doneCalled = true;
                       rows = r;
                       importErr = e;
@@ -276,7 +276,7 @@ private slots:
     bool done = false;
     QString err;
     wf.importFolder(tmp.filePath(QStringLiteral("src_area")), {},
-                    [&done, &err](const QVector<FolderRowResult> &, const QString &e) {
+                    [&done, &err](const QVector<FolderRowResult> &, const QString &e, bool) {
                       done = true;
                       err = e;
                     });
@@ -295,7 +295,7 @@ private slots:
     bool done2 = false;
     QString err2;
     wf.importFiles({second}, {}, {},
-                   [&done2, &err2](const QVector<FolderRowResult> &, const QString &e) {
+                   [&done2, &err2](const QVector<FolderRowResult> &, const QString &e, bool) {
                      done2 = true;
                      err2 = e;
                    });
@@ -697,7 +697,9 @@ void concurrentWorkflowImportsCommitOnGuiThread()
   QStringList errors;
   QVector<int> importedAtDone;
   for (const QString &d : folders)
-    wf.importFolder(d, {}, [&](const QVector<FolderRowResult> &rows, const QString &e) {
+    wf.importFolder(d, {}, [&](const QVector<FolderRowResult> &rows, const QString &e,
+                           bool cancelled) {
+      Q_UNUSED(cancelled)
       ++doneCount;
       importedAtDone.append(importedSignals);
       if (!e.isEmpty())
@@ -809,7 +811,7 @@ void folderImportSurvivesServiceTeardownHonestly()
   bool done = false;
   QVector<FolderRowResult> rows;
   QString err;
-  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e, bool) {
     done = true;
     rows = r;
     err = e;
@@ -840,7 +842,7 @@ void folderImportSurvivesServiceTeardownHonestly()
   // 服务不在场时再发起导入：importFolder 入口的 !m_svc 守卫直接走失败回调
   //（空行 + 原因），不建作业、不触悬垂指针。
   bool failed = false;
-  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e, bool) {
     failed = r.isEmpty() && !e.isEmpty();
   });
   QVERIFY(failed);
@@ -875,7 +877,7 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
   bool done = false;
   QVector<FolderRowResult> rows;
   QString err;
-  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e, bool) {
     done = true;
     rows = r;
     err = e;
@@ -909,7 +911,7 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
   catB = stack->importSvc->catalog();
   QVERIFY(catB && catB->isOpen());
   done = false;
-  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e, bool) {
     done = true;
     rows = r;
     err = e;
@@ -935,7 +937,7 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
   QVERIFY2(catC && catC->isOpen(), qPrintable(stack->importSvc->catalogOpenError()));
   QVERIFY(QDir::cleanPath(catC->catalogPath()).startsWith(QDir::cleanPath(aliasC)));
   done = false;
-  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e, bool) {
     done = true;
     rows = r;
     err = e;
@@ -991,7 +993,7 @@ void batchTerminalGuardDiscardsProducedCatalog()
   bool done = false;
   QString error;
   QVector<FolderRowResult> results;
-  workflow.importFiles({head, log}, {}, {}, [&](const auto &rows, const QString &message) {
+  workflow.importFiles({head, log}, {}, {}, [&](const auto &rows, const QString &message, bool) {
     results = rows;
     error = message;
     done = true;
@@ -1045,19 +1047,19 @@ void batchCancellationHandleGuardsCommitAndKeepsSameSourceJob()
   });
   int completions = 0;
   QString firstError;
-  cancelFirst = workflow.importFiles({head}, {}, {}, [&](const auto &, const auto &error) {
+  cancelFirst = workflow.importFiles({head}, {}, {}, [&](const auto &, const auto &error, bool) {
     firstError = error;
     QVERIFY(stack->importSvc->catalog()->assets().isEmpty());
     ++completions;
   });
-  auto cancelSecond = workflow.importFiles({head}, {}, {}, [&](const auto &rows, const auto &error) {
+  auto cancelSecond = workflow.importFiles({head}, {}, {}, [&](const auto &rows, const auto &error, bool) {
     QVERIFY2(error.isEmpty(), qPrintable(error));
     QVERIFY(!rows.isEmpty());
     QCOMPARE(rows.first().outcome, FolderRowResult::Outcome::Imported);
     cancelFirst(); // 已完成句柄不得取消下一批（来源可以完全相同）。
     ++completions;
   });
-  workflow.importFiles({log}, {}, {}, [&](const auto &rows, const auto &error) {
+  workflow.importFiles({log}, {}, {}, [&](const auto &rows, const auto &error, bool) {
     QVERIFY2(error.isEmpty(), qPrintable(error));
     QVERIFY(!rows.isEmpty());
     QCOMPARE(rows.first().outcome, FolderRowResult::Outcome::Imported);
@@ -1089,12 +1091,12 @@ void queuedBatchCancellationHandleNeverStartsWorker()
   FolderImportWorkflow workflow(stack->importSvc.get(), &tasks);
   QSignalSpy added(&tasks, &PaleoTaskService::taskAdded);
   int completions = 0;
-  workflow.importFolder(QFileInfo(head).absolutePath(), {}, [&](const auto &, const auto &error) {
+  workflow.importFolder(QFileInfo(head).absolutePath(), {}, [&](const auto &, const auto &error, bool) {
     QVERIFY2(error.isEmpty(), qPrintable(error));
     ++completions;
   });
   QString cancelledError;
-  const auto cancel = workflow.importFiles({log}, {}, {}, [&](const auto &rows, const auto &error) {
+  const auto cancel = workflow.importFiles({log}, {}, {}, [&](const auto &rows, const auto &error, bool) {
     QVERIFY(rows.isEmpty());
     cancelledError = error;
     ++completions;
@@ -1215,7 +1217,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
   hooks.importAllWithForced =
       [&gotForced](const QMap<QString, QString> &, const QStringList &forcePaths,
                    const std::function<void(const QVector<FolderRowResult> &,
-                                            const QString &)> &) {
+                                            const QString &, bool)> &) {
         gotForced = forcePaths;
       };
   PaleoFolderConfirm::buildFolderConfirmDialog(
@@ -1273,7 +1275,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
     QVERIFY(!rowFor(rows, QStringLiteral("A1.Las")).needsWellChoice);
 
     bool done = false;
-    wf.importFolder(dir, {}, [&done](const QVector<FolderRowResult> &, const QString &) {
+    wf.importFolder(dir, {}, [&done](const QVector<FolderRowResult> &, const QString &, bool) {
       done = true;
     });
     QVERIFY(done);
@@ -1329,7 +1331,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
     QString importErr;
     bool done = false;
     wf.importFolder(tmp.filePath(QStringLiteral("src_area")), {},
-                    [&](const QVector<FolderRowResult> &r, const QString &e) {
+                    [&](const QVector<FolderRowResult> &r, const QString &e, bool) {
                       rows = r;
                       importErr = e;
                       done = true;
@@ -1422,7 +1424,7 @@ void folderConfirmEstimateForceImportAndErrorReport()
     // 再导一批（重复决策）→ 台账两批，窗口滚动。
     bool done2 = false;
     wf.importFolder(tmp.filePath(QStringLiteral("src_area")), {},
-                    [&done2](const QVector<FolderRowResult> &, const QString &) {
+                    [&done2](const QVector<FolderRowResult> &, const QString &, bool) {
                       done2 = true;
                     });
     QVERIFY(done2);

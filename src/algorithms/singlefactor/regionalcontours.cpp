@@ -111,6 +111,9 @@ double squaredDist( Point2 a, Point2 b )
 }
 
 // 线段缝合：端点就近串成折线，剩余孤立段自成一线。
+// 双向生长：除 chain.back() 外同时探测 chain.front()（命中则前插，或整链
+// 翻转后追加）——单向生长在种子段位于连通链中段时会把同一条连续等值线拆成
+// 多条折线输出（等值线拓扑随种子选择漂移）。
 void stitchSegments( const std::vector<Segment> &segments, double toleranceSq,
                      std::vector<std::vector<Point2>> *out )
 {
@@ -139,6 +142,19 @@ void stitchSegments( const std::vector<Segment> &segments, double toleranceSq,
         else if ( squaredDist( chain.back(), segments[j].b ) <= toleranceSq )
         {
           chain.push_back( segments[j].a );
+          used[j] = 1;
+          extended = true;
+        }
+        // 前端命中：j 与 chain.front() 首尾相接，前插到链首。
+        else if ( squaredDist( chain.front(), segments[j].b ) <= toleranceSq )
+        {
+          chain.insert( chain.begin(), segments[j].a );
+          used[j] = 1;
+          extended = true;
+        }
+        else if ( squaredDist( chain.front(), segments[j].a ) <= toleranceSq )
+        {
+          chain.insert( chain.begin(), segments[j].b );
           used[j] = 1;
           extended = true;
         }

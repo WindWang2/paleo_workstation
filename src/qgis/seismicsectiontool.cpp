@@ -9,6 +9,9 @@
 #include <qgssnappingutils.h>
 #include <qgsvertexmarker.h>
 
+#include "catalog/datacatalog.h"
+#include "projectmapreference.h"
+
 SeismicSectionTool::SeismicSectionTool(QgsMapCanvas *canvas)
   : QgsMapTool(canvas)
 {
@@ -37,14 +40,43 @@ SeismicSectionTool::~SeismicSectionTool()
 
 void SeismicSectionTool::setSnapWells(const QVector<wellsection::Well> &wells)
 {
-  m_snapWells = wells;
+  m_snapWells.clear();
+  if (!canvas())
+  {
+    m_snapWells = wells;
+    return;
+  }
+  // 井口坐标是局部测网米制值（DataCatalog::localGridCrsWkt），而吸附比较与
+  // 落点都发生在画布 CRS 上——配准工程（画布 CRS ≠ 测网）下不投影就是「度
+  // vs 米」的跨框架比较：吸附静默永不命中，数值巧合命中时落点双重错位
+  // （#795；SeismicMapLink::onSectionPathCaptured 还会从画布 CRS 变换回测
+  // 网）。故注入时按画布目标 CRS 整体投影，投影失败的井移出吸附集；未配准
+  // 工程（画布 CRS 与测网同源或无效）原样直通。
+  const auto destination = canvas()->mapSettings().destinationCrs();
+  const auto source = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  if (!destination.isValid() || destination == source ||
+      destination.toWkt() == source.toWkt())
+  {
+    m_snapWells = wells;
+    return;
+  }
+  for (const auto &well : wells)
+  {
+    QgsPointXY projected;
+    if (!paleo::mapreference::transformPoint(canvas(), QgsPointXY(well.x, well.y), source,
+                                             destination, &projected))
+      continue;
+    wellsection::Well snap = well;
+    snap.x = projected.x();
+    snap.y = projected.y();
+    m_snapWells << snap;
+  }
 }
 
 void SeismicSectionTool::activate()
 {
   m_points.clear();
   m_vertexWellIds.clear();
-  m_hoveredWell = -1;
   clearSnapFeedback();
   if (m_rubberBand)
     m_rubberBand->reset(Qgis::GeometryType::Line);
@@ -55,7 +87,6 @@ void SeismicSectionTool::deactivate()
 {
   m_points.clear();
   m_vertexWellIds.clear();
-  m_hoveredWell = -1;
   clearSnapFeedback();
   if (m_rubberBand)
     m_rubberBand->reset(Qgis::GeometryType::Line);
@@ -64,15 +95,24 @@ void SeismicSectionTool::deactivate()
 
 double SeismicSectionTool::snapToleranceMapUnits() const
 {
-  // 容差取画布 QGIS 吸附设置的像素容差；未启用/未配置时回退 12 像素。
-  double pixels = 12.0;
+  // 容差取画布 QGIS 吸附设置，单位按 QgsSnappingConfig::units() 分支：像素
+  // 容差经 mapUnitsPerPixel 折算；工程（地图）单位已是本函数要回的地图单位
+  // 口径；层单位没有参考层可依（吸附井集不属任何图层），按工程单位处理。
+  // 未启用/未配置时回退 12 像素。
+  double tolerance = 12.0;
+  auto units = Qgis::MapToolUnit::Pixels;
   if (canvas() && canvas()->snappingUtils())
   {
     const QgsSnappingConfig cfg = canvas()->snappingUtils()->config();
     if (cfg.enabled() && cfg.tolerance() > 0)
-      pixels = cfg.tolerance();
+    {
+      tolerance = cfg.tolerance();
+      units = cfg.units();
+    }
   }
-  return pixels * (canvas() ? canvas()->mapUnitsPerPixel() : 1.0);
+  if (units == Qgis::MapToolUnit::Pixels)
+    return tolerance * (canvas() ? canvas()->mapUnitsPerPixel() : 1.0);
+  return tolerance;
 }
 
 void SeismicSectionTool::clearSnapFeedback()
@@ -96,7 +136,6 @@ void SeismicSectionTool::canvasPressEvent(QgsMapMouseEvent *e)
                             : wellsection::nearestWellWithin(m_snapWells, pressed.x(),
                                                              pressed.y(),
                                                              snapToleranceMapUnits());
-    m_hoveredWell = hovered; // 与 move 缓存同口径，避免下一点使用过期值
     if (hovered >= 0)
     {
       const wellsection::Well &w = m_snapWells.at(hovered);
@@ -145,14 +184,16 @@ void SeismicSectionTool::canvasPressEvent(QgsMapMouseEvent *e)
 void SeismicSectionTool::canvasMoveEvent(QgsMapMouseEvent *e)
 {
   const auto pt = e->mapPoint();
-  m_hoveredWell = m_snapWells.isEmpty()
-                      ? -1
-                      : wellsection::nearestWellWithin(m_snapWells, pt.x(), pt.y(),
-                                                       snapToleranceMapUnits());
+  // 吸附命中在事件内现算并即用：press 路径同样复算（程序化点击或指针瞬移
+  // 可能没有中间 move），不存在需要跨事件缓存的消费者。
+  const int hovered = m_snapWells.isEmpty()
+                          ? -1
+                          : wellsection::nearestWellWithin(m_snapWells, pt.x(), pt.y(),
+                                                           snapToleranceMapUnits());
   QgsPointXY hover = pt;
-  if (m_hoveredWell >= 0)
+  if (hovered >= 0)
   {
-    const wellsection::Well &w = m_snapWells.at(m_hoveredWell);
+    const wellsection::Well &w = m_snapWells.at(hovered);
     hover = QgsPointXY(w.x, w.y);
     if (m_snapMarker)
     {
@@ -186,7 +227,6 @@ void SeismicSectionTool::keyPressEvent(QKeyEvent *e) {
   if (e->key() == Qt::Key_Escape) {
     m_points.clear();
     m_vertexWellIds.clear();
-    m_hoveredWell = -1;
     clearSnapFeedback();
     redraw();
     emit captureCancelled();

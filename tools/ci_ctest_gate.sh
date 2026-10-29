@@ -17,6 +17,16 @@
 #      ::warning:: 过渡档；PALEO_REDSET_STALE=strict 升级为 ::error:: 红。
 #      REGRESSED/UNEXPECTED 仍走下方既有串行重跑路径裁决。
 #
+# #760 Windows/Linux 门禁语义对齐：崩溃 markers、扫描范围、豁免放行、超时判红
+# 四项规则收敛到 tools/ci-gate-rules.json 单一真源（两端同读；内联副本仅是
+# python 不可用时的回落，一致性由 ctest 项 ci_gate_rules 看守）：
+#   ① 崩溃 markers 补 ***Timeout（挂死不按负载抖动放行，Windows 侧一直如此）；
+#   ② 崩溃判定只扫 ctest 结果行，不扫测试自身输出（Windows 侧此前扫整份日志，
+#      测试打印 "Illegal" 字样即假红）；
+#   ③ 豁免红不进重跑集、不进 flaky 台账（Windows 侧早已如此，Linux 侧此前全量
+#      重跑——环境债洗白混进 #501 的真 flaky 信号）；
+#   ④ 超时重跑差异随①②一并消失。
+#
 # 用法：tools/ci_ctest_gate.sh <ctest 选择参数...>（如 -LE 'core|perf' / -L core -LE perf）
 set -uo pipefail
 
@@ -42,15 +52,31 @@ fi
 # ctest 结果行形如：
 #   17/117 Test #17: tst_factorworkflow ....***Exception: SegFault  2.69 sec
 #   Test #9: foo ....Subprocess aborted***Exception:   0.10 sec
-crash_re='\*\*\*Exception|Subprocess aborted|Child aborted|Subprocess killed|Illegal|SegFault'
-if grep -E "Test +#[0-9]+:" "$log" | grep -E "$crash_re"; then
+# #760：崩溃 markers 与「只扫 ctest 结果行」的口径单一真源在
+# tools/ci-gate-rules.json，与 Windows paleo-dev.ps1 同读一份（此前两端各自演化：
+# Linux 漏 ***Timeout、Windows 扫整份日志）。python3 不可用时退回内联副本；
+# 副本与 JSON 的一致性由 ctest 项 ci_gate_rules 每轮看守，防悄悄漂移。
+crash_re="$(python3 "$script_dir/ci_gate_rules.py" --regex 2>/dev/null || true)"
+if [ -z "$crash_re" ]; then
+  crash_re='\*\*\*Exception|\*\*\*Timeout|Subprocess aborted|Child aborted|Subprocess killed|Illegal|SegFault'
+fi
+result_line_re="$(python3 "$script_dir/ci_gate_rules.py" --result-line-regex 2>/dev/null || true)"
+if [ -z "$result_line_re" ]; then
+  result_line_re='Test +#[0-9]+:'
+fi
+if grep -E "$result_line_re" "$log" | grep -E "$crash_re"; then
   echo "::error::并行轮出现崩溃（见上），崩溃不按负载抖动重跑放行"
   exit 1
 fi
 
 # ---- #501(2)：env_redset 分类（--strict 口径；只读 junit，不改变重跑裁决）----
 junit="$build_dir/Testing/ctest-junit.xml"
+redset_out=""
+redset_rc=0
+redset_ran=0
+unexpected_file="$build_dir/Testing/env-redset-unexpected.txt"
 if command -v python3 >/dev/null 2>&1 && [ -f "$junit" ]; then
+  redset_ran=1
   route="${PALEO_REDSET_ROUTE:-}"
   if [ -z "$route" ]; then
     if [ -d vendor/prefix/usr ] || [ -d vendor/superbuild/prefix ]; then
@@ -59,8 +85,12 @@ if command -v python3 >/dev/null 2>&1 && [ -f "$junit" ]; then
       route=localdeps
     fi
   fi
+  # #760：--emit-unexpected 把不放行集合（REGRESSED|UNEXPECTED，--strict 下含
+  # STALE）落盘，供下方重跑集过滤用（与 paleo-dev.ps1 同口径）。
+  rm -f "$unexpected_file"
   redset_out="$(python3 "$script_dir/check_env_redset.py" \
-    --build "$build_dir" --junit "$junit" --route "$route" --strict 2>&1)"
+    --build "$build_dir" --junit "$junit" --route "$route" --strict \
+    --emit-unexpected "$unexpected_file" 2>&1)"
   redset_rc=$?
   echo "$redset_out"
   if [ "$redset_rc" -ne 0 ]; then
@@ -92,28 +122,70 @@ fi
 # 的项即「本轮 flaky 放行集合」，必须写台账（此前只有一行 warning，无从复审）。
 first_failed_log="$build_dir/Testing/Temporary/FirstRunFailed.log"
 cp -f "$build_dir/Testing/Temporary/LastTestsFailed.log" "$first_failed_log" 2>/dev/null || true
+
+# ---- #760：重跑集 = env_redset 不放行集合（与 Windows paleo-dev.ps1 同口径）----
+# EXEMPT（已登记环境债）与 DOCUMENTED（#475 文档化红项）按设计分诊放行：既不重跑
+# 也不入 flaky 台账。此前 Linux 侧全量重跑——环境债洗白会被记成 flaky（#501），
+# 把「已知环境债务」混进「真 flaky」信号；豁免红重跑再红还会让本 gate 判红，
+# 豁免在 Linux 侧形同虚设。python/junit 缺位、或检查器非零退出却没给出不放行
+# 名单（异常/解析失败）时不过滤——退化到 #760 前的全量重跑，而不是放行。
+rerun_names="$failed_names"
+if [ "$redset_ran" -eq 1 ] && { [ "$redset_rc" -eq 0 ] || [ -s "$unexpected_file" ]; }; then
+  keep_file="$build_dir/Testing/env-redset-keep.txt"
+  if [ "$redset_rc" -eq 0 ]; then
+    # 无 REGRESSED/UNEXPECTED/STALE → 本轮失败项全部按设计放行
+    : > "$keep_file"
+  else
+    # --strict 会把 STALE 也写进不放行文件；STALE 项本轮是通过的（不在失败集里），
+    # 从 keep 集剔除不改变放行语义（同 paleo-dev.ps1 口径）。
+    stale_names="$(printf '%s\n' "$redset_out" | sed -nE 's/^STALE[[:space:]]+([^:]+):.*/\1/p' | sort -u)"
+    if [ -n "$stale_names" ]; then
+      grep -vxF -f <(printf '%s\n' "$stale_names") "$unexpected_file" > "$keep_file" || true
+    else
+      cp "$unexpected_file" "$keep_file"
+    fi
+  fi
+  if [ -s "$keep_file" ]; then
+    rerun_names="$(printf '%s\n' "$failed_names" | grep -xF -f "$keep_file" || true)"
+  else
+    rerun_names=""
+  fi
+fi
+if [ -z "$rerun_names" ]; then
+  echo "env_redset: 本轮失败项均为名单内豁免/文档化放行——不进重跑集、不记 flaky 台账（#760）"
+  exit 0
+fi
+rerun_re="^($(printf '%s\n' "$rerun_names" | paste -sd'|' -))$"
 # #136：perf 标签（墙钟预算）不重跑——确定性超限串行重跑只会再烧 200 s 后
 # 照样红；perf 在独立的非阻断 linux-perf job 里跑（tools/ci_perf.sh）。
 # #397：串行重跑也走 ./paleo-dev test——裸 ctest 丢失 vendored 环境注入
 #（QGIS_PREFIX_PATH/deb 库路径/GDAL_DRIVER_PATH），重跑裁决与第一轮
 # 不同条件：加载 flake 变硬红、栅格类静默丢驱动。
-./paleo-dev test -j1 --rerun-failed -LE perf
+# #760：用 -R 显式点名（替代 --rerun-failed）——重跑集 = 非豁免的失败项，
+# 豁免项既不重跑也不入台账；名单与 --rerun-failed 同源（同一次 -N 抽取）。
+./paleo-dev test -j1 -R "$rerun_re" -LE perf
 rc2=$?
-# #501：放行必须留痕——持久 JSONL 台账（tools/flaky-ledger.jsonl，累计命中
+# #501：放行必须留痕——持久 JSONL 台账（累计命中
 # 由 check_flaky_ledger.py 聚合点名）+ 逐项 annotation / step summary /
 # 构建目录台账（PR 评审面可见）。首轮红、重跑绿 = flaky，反复入账升硬红。
-if [ "$rc2" -eq 0 ] && [ -n "$failed_names" ]; then
+if [ "$rc2" -eq 0 ] && [ -n "$rerun_names" ]; then
+  # #757：ctest 在重跑全通过后**不清** LastTestsFailed.log（最小工程实验证实）——
+  # 首轮失败名单会残留成「最终失败集」上传，triage 据此把已洗白的 flaky 误判成
+  # 真红，而 flaky 汇总又因它仍在失败集里而漏掉该项。重跑放行即删，让 artifact
+  # 反映真实结论（triage 侧另有 FirstRunFailed.log + 最新 tag Test.xml 口径兜底，
+  # 见 tools/ci_triage_reds.py 的 E-7）。
+  rm -f "$build_dir/Testing/Temporary/LastTestsFailed.log"
   utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   lane="$(printf '%s' "$*" | tr -d '"\\')"
   n=0
-  for t in $failed_names; do
+  for t in $rerun_names; do
     printf '{"test":"%s","utc":"%s","event":"serial-rerun-pass","lane":"%s"}\n' \
       "$t" "$utc" "$lane" >> "$ledger"
     n=$((n + 1))
   done
   {
     echo "=== ${utc} run=${GITHUB_RUN_ID:-local} ==="
-    printf '%s\n' $failed_names
+    printf '%s\n' $rerun_names
   } >> "$build_dir/Testing/flaky-ledger.txt"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     {
@@ -121,10 +193,10 @@ if [ "$rc2" -eq 0 ] && [ -n "$failed_names" ]; then
       echo ""
       echo "首轮失败、串行重跑通过——已放行但**须复审**（同一测试反复入账应升级为硬红）："
       echo ""
-      printf -- '- `%s`\n' $failed_names
+      printf -- '- `%s`\n' $rerun_names
     } >> "$GITHUB_STEP_SUMMARY"
   fi
-  for t in $failed_names; do
+  for t in $rerun_names; do
     echo "::warning title=flaky 放行 (${n} 项)::$t 首轮失败、重跑通过——已记入 flaky 台账"
   done
   echo "::warning::串行重跑放行 $n 项（已逐条记入 tools/flaky-ledger.jsonl；同一测试累计 ≥3 次将被点名）"

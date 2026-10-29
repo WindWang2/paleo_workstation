@@ -154,9 +154,14 @@ SampleResult CrossplotSamples::planes(const QVector<Plane> &planes,
   const auto size = std::size_t(s.grid.rows) * std::size_t(s.grid.cols);
   // B-05/A-15（full-audit-20261020）：采样内存预算闸——对齐 #468「拒绝而非
   // 钳制」口径；抽稀会篡改交会样本口径，超限只报数。
+  // finding-84：峰值必须把调用方仍持有的 planes 本体（每通道 R×C×8B）一并
+  // 计入——rasters() 尾调本函数时它的 planes 向量还活着，只算输出样本会让
+  // 「本体 + 输出」达到约 2× 预算（两处闸各自放行后叠加，大栅格交会 OOM）。
   {
+    const std::uint64_t held =
+        std::uint64_t(size) * 8 * std::uint64_t(planes.size());
     const std::uint64_t bytes =
-        std::uint64_t(size) * (8 * std::uint64_t(planes.size()) + 16);
+        held + std::uint64_t(size) * (8 * std::uint64_t(planes.size()) + 16);
     if (bytes > kMaxSamplingBytes)
       return fail(QStringLiteral("平面采样内存预算超限（%1×%2 像素 × %3 通道 ≈ %4 GB > %5 GB）——请先重采样或裁剪")
                       .arg(s.grid.cols)

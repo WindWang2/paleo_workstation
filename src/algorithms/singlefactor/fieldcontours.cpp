@@ -160,9 +160,9 @@ GeomPtr makeCollectionOf( GEOSContextHandle_t handle,
 }
 
 // field_mesh：无墙 → 网格线 ∪ domain.boundary → polygonize → CDT。
-// 返回 false 时 message 已写。
+// 返回 false 时 message 已写；status 非空时按该状态上报（预算超限 → BudgetExceeded）。
 bool buildMesh( GEOSContextHandle_t handle, TrendField *field, ContourMesh *mesh,
-                std::string *message )
+                std::string *message, Status *status = nullptr )
 {
   const std::vector<double> &xs = field->xs;
   const std::vector<double> &ys = field->ys;
@@ -175,7 +175,14 @@ bool buildMesh( GEOSContextHandle_t handle, TrendField *field, ContourMesh *mesh
   collectPolygons( handle, field->domain.get(), &mesh->regions );
 
   // grid lines：先全部竖线（xs 序），再全部横线（ys 序）。
+  // 加密线总量预算：divisions ≤ 16 → 每格最多追加 2×15 = 30 条；格数一多
+  // （粗粹趋势面 + 大网格）unaryUnion 的输入可放大 ~30×格数，挂起/OOM 且全程
+  // 无取消检查点。超限如实报 BudgetExceeded，不静默产出巨型几何。
+  constexpr std::size_t kMaxGridLines = 200000;
+  const std::size_t cellsBudget = ( xs.size() + 1 ) * ( ys.size() + 1 );
+  const std::size_t gridBudget = std::max( kMaxGridLines, cellsBudget );
   std::vector<GeomPtr> gridLines;
+  gridLines.reserve( std::min( xs.size() + ys.size(), gridBudget ) );
   for ( const double x : xs )
     gridLines.push_back(
         makeLineString( handle, { Point2{ x, ys.front() }, Point2{ x, ys.back() } } ) );
@@ -214,6 +221,14 @@ bool buildMesh( GEOSContextHandle_t handle, TrendField *field, ContourMesh *mesh
                     std::max( 1.0, std::ceil( std::sqrt( error / field->tolerance ) ) ) ) );
       if ( divisions <= 1 )
         continue;
+      if ( gridLines.size() + 2 * static_cast<std::size_t>( divisions - 1 ) > gridBudget )
+      {
+        *message = "网格加密线总量超预算（" + std::to_string( gridBudget ) +
+                   " 条）：趋势面过于粗粹或网格过大，请降低分辨率/分块处理";
+        if ( status )
+          *status = Status::BudgetExceeded;
+        return false;
+      }
       for ( int k = 1; k < divisions; ++k )
       {
         const double x = xs[c] + ( xs[c + 1] - xs[c] ) * k / divisions;
@@ -867,10 +882,11 @@ bool buildField( GEOSContextHandle_t handle, const FieldContourSurface &surface,
 }
 
 // field_only 提取尾部：mesh → partition → clip → smooth → filter。
+// status 非空时失败原因按其上报（预算超限 → BudgetExceeded）。
 bool extractFieldOnly( GEOSContextHandle_t handle, const FieldContourSurface &surface,
                        const std::vector<double> &levels, bool smooth,
                        std::vector<ContourLevelLines> *out, double *meshStep,
-                       std::string *message )
+                       std::string *message, Status *status = nullptr )
 {
   TrendField field;
   if ( !buildField( handle, surface, &field, message ) )
@@ -882,7 +898,7 @@ bool extractFieldOnly( GEOSContextHandle_t handle, const FieldContourSurface &su
     return false;
   }
   ContourMesh mesh;
-  const bool meshed = buildMesh( handle, &field, &mesh, message );
+  const bool meshed = buildMesh( handle, &field, &mesh, message, status );
   if ( !meshed )
     return false;
   std::vector<ContourLevelLines> raw = partitionContours( handle, mesh, levels );
@@ -1057,10 +1073,11 @@ FieldContourResult extractFieldContours( const FieldContourSurface &surface,
 
   std::string message;
   double meshStep = 0;
+  Status extractStatus = Status::InvalidInput;
   if ( !extractFieldOnly( geos.handle, base, levels, smooth, &result.initial,
-                          &meshStep, &message ) )
+                          &meshStep, &message, &extractStatus ) )
   {
-    result.status = Status::InvalidInput;
+    result.status = extractStatus;
     result.message = message;
     return result;
   }
@@ -1137,10 +1154,11 @@ FieldContourResult extractFieldContours( const FieldContourSurface &surface,
   result.workInfo = info;
 
   double workStep = 0;
+  extractStatus = Status::InvalidInput;
   if ( !extractFieldOnly( geos.handle, work, levels, smooth, &result.contours,
-                          &workStep, &message ) )
+                          &workStep, &message, &extractStatus ) )
   {
-    result.status = Status::InvalidInput;
+    result.status = extractStatus;
     result.message = message;
     return result;
   }

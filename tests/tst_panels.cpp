@@ -179,7 +179,7 @@ class TestPanels : public QObject
         called = true;
         targets = wells;
         expectedHashes = hashes;
-        done({}, QStringLiteral("源文件已变化，请重新选择"));
+        done({}, QStringLiteral("源文件已变化，请重新选择"), false);
       };
       QDialog dialog;
       PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {row}, hooks);
@@ -222,7 +222,7 @@ class TestPanels : public QObject
         result.classifiedType = row.classifiedType;
         result.outcome = FolderRowResult::Outcome::Failed;
         result.message = QStringLiteral("源文件暂不可读");
-        done({result}, {});
+        done({result}, {}, false);
       };
       QString retryTarget;
       QString retryHash;
@@ -294,7 +294,7 @@ class TestPanels : public QObject
       const auto done = [&](const QMap<QString, QString> &types, auto complete) {
         called = true;
         overrides = types;
-        complete({}, QStringLiteral("暂不可读"));
+        complete({}, QStringLiteral("暂不可读"), false);
       };
       if (forcedHook)
         hooks.importAllWithForced = [&](const auto &types, const auto &paths, auto complete) {
@@ -350,7 +350,7 @@ class TestPanels : public QObject
       QCOMPARE(cancellations, 1);
       delete dialog;
       QCOMPARE(cancellations, 1);
-      finish({}, QStringLiteral("已取消")); // 窗口析构后的异步回包安全丢弃。
+      finish({}, QStringLiteral("已取消"), true); // 窗口析构后的异步回包安全丢弃。
     }
 
     void folderConfirm_closeCompletedDoesNotCancelAnotherBatch()
@@ -366,7 +366,7 @@ class TestPanels : public QObject
         FolderRowResult result;
         result.path = row.path;
         result.outcome = FolderRowResult::Outcome::Imported;
-        done({result}, {});
+        done({result}, {}, false);
       };
       QDialog dialog;
       PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {row}, hooks);
@@ -398,7 +398,7 @@ class TestPanels : public QObject
         skips = skipped;
         targets = wells;
         hashes = expected;
-        done({}, QStringLiteral("暂不可读"));
+        done({}, QStringLiteral("暂不可读"), false);
       };
       QDialog dialog;
       PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {conflict, valid}, hooks);
@@ -442,7 +442,7 @@ class TestPanels : public QObject
           const QStringList &skips, const QStringList &, auto done) {
         forced = force;
         skipped = skips;
-        done({}, QStringLiteral("暂不可读"));
+        done({}, QStringLiteral("暂不可读"), false);
       };
       QDialog dialog;
       PaleoFolderConfirm::buildFolderConfirmDialog(&dialog, QStringLiteral("/audit"), {row}, hooks);
@@ -499,10 +499,10 @@ class TestPanels : public QObject
       hooks.importAllWithWells = [&](const auto &overrides, const auto &forced,
           const auto &targets, const auto &hashes, const auto &skipped,
           const auto &previewed, auto done) {
-        workflow.importFiles(paths, overrides, forced, [&](const auto &rows, const auto &err) {
+        workflow.importFiles(paths, overrides, forced, [&](const auto &rows, const auto &err, bool) {
           results = rows;
           error = err;
-          done(rows, err);
+          done(rows, err, false);
         }, targets, hashes, skipped, previewed);
       };
       QDialog dialog;

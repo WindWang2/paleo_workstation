@@ -42,9 +42,11 @@ class FolderImportWorkflow : public QObject
   Q_OBJECT
 
   public:
-    // done(rows, importErr)：res 为空且 importErr 非空 = 整体失败（视图可重试）。
+    // done(rows, importErr, cancelled)：res 为空且 importErr 非空 = 整体失败
+    // （视图可重试）；cancelled = 用户叫停了本次导入（结构化事实，调用方据此
+    // 决定后续阶段，不必嗅探 importErr 文案——#801）。
     using ImportDone =
-        std::function<void(const QVector<FolderRowResult> &, const QString &)>;
+        std::function<void(const QVector<FolderRowResult> &, const QString &, bool cancelled)>;
     // 精确定向本次作业；可忽略返回值。完成后调用无效，不影响后续或同源作业。
     using CancelImport = std::function<void()>;
 

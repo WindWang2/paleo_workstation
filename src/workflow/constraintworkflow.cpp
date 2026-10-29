@@ -947,6 +947,9 @@ bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString 
     if (!layer->deleteFeature(row.value(QStringLiteral("fid")).toLongLong()))
     {
       layer->destroyEditCommand();
+      // 删除失败不写 error，调用方只拿到静默 false（#188）——与其余路径一致
+      // 如实报错。
+      paleo::workflow_detail::setError(error, tr("删除约束失败"));
       return false;
     }
     layer->endEditCommand();

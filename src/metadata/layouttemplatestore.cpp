@@ -23,16 +23,10 @@ using paleo::store_detail::setError;
            (readOnly ? QStringLiteral("_ro") : QString());
   }
 
-  bool layoutTemplateEnsureOpen(const QString &path, bool readOnly, QString *error)
+  // 幂等建表。#736：本函数即 MetaStore 的迁移步（幂等，可按步重复调用），
+  // 由 openConnection 在版本落后时于事务内逐级执行、版本已到位时作 ensure。
+  bool layoutTemplateEnsureSchema(QSqlDatabase &db, QString *error)
   {
-    QSqlDatabase db =
-        MetaStore::openConnection(path, layoutTemplateConnectionName(path, readOnly),
-                                  error, readOnly);
-    if (!db.isValid())
-      return false;
-    if (readOnly)
-      return true; // 只读实例不建表（#80）——schema 归写实例
-
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral(
             "CREATE TABLE IF NOT EXISTS layout_templates("
@@ -50,6 +44,19 @@ using paleo::store_detail::setError;
       setError(error, schema.lastError().text());
       return false;
     }
+    return true;
+  }
+
+  bool layoutTemplateEnsureOpen(const QString &path, bool readOnly, QString *error)
+  {
+    QSqlDatabase db = MetaStore::openConnection(
+        path, layoutTemplateConnectionName(path, readOnly),
+        error, readOnly, MetaStore::kUserVersion,
+        [](QSqlDatabase &db, int, int, QString *err) { return layoutTemplateEnsureSchema(db, err); });
+    if (!db.isValid())
+      return false;
+    // 只读实例不建表（#80）——schema 归写实例；可写路径的 schema 已在
+    // openConnection 内确保（版本落后时在事务内逐级迁移，#736）。
     return true;
   }
 

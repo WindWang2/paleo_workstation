@@ -33,6 +33,14 @@ ProjectLayerData ProjectLayerRefreshWorkflow::prepare(DataCatalog &snapshot, con
   error.clear();
   data.trajectoryBytes = paleo::wellTrajectoriesGeoJson(&facade, &snapshot, &error);
   if (!error.isEmpty()) data.warnings << error;
+  if (!error.isEmpty())
+  {
+    // #203：轨迹计算失败（返回空 + error）≠ 确认无轨迹。此时不发布空集合、
+    // 不改写已持久化的 well_trajectories.geojson——一次读错误就静默毁掉
+    // 既有图层数据。保留原状，由 warnings 如实披露失败原因。
+    data.trajectoriesPrepared = false;
+    return data;
+  }
   if (data.trajectoryBytes.isEmpty() && QFile::exists(directory + "/artifacts/layers/well_trajectories.geojson")) {
     QJsonObject root{{"type", "FeatureCollection"}, {"features", QJsonArray()},
       {"crs", QJsonObject{{"type", "name"}, {"properties", QJsonObject{{"name", DataCatalog::localGridCrsWkt()}}}}}};

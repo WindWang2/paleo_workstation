@@ -59,7 +59,7 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
     hintFont.setPointSize(PaleoTheme::tokens().bodyPt);
     p.setFont(hintFont);
     p.drawText(rect(), Qt::AlignCenter,
-               QStringLiteral("未加载井数据\n从数据页打开 LAS 曲线或综合柱状图 XML 后此处渲染道"));
+               tr("未加载井数据\n从数据页打开 LAS 曲线或综合柱状图 XML 后此处渲染道"));
     return;
   }
 

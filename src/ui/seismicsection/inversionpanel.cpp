@@ -182,6 +182,11 @@ void InversionPanel::showResult(bool ok, const QString &summary)
 
 void InversionPanel::syncEnabledState()
 {
+    // 运行/取消与 setBusy 语义同源（姊妹面板 attrpanel 同款）：静止态
+    // 「取消」若可点，用户点了只发一个无人受理的取消意图——初始即按
+    // m_busy=false 落定。
+    m_btnRun->setEnabled(!m_busy);
+    m_btnCancel->setEnabled(m_busy);
     const bool sparse = m_cboMethod->currentData().toString() == QStringLiteral("sparse");
     m_spinLambda->setEnabled(sparse);
     m_spinIterations->setEnabled(sparse);

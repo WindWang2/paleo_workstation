@@ -2,6 +2,8 @@
 #pragma once
 #include <QString>
 
+#include <functional>
+
 class QSqlDatabase;
 
 // metadata/metastore — metadata/project.sqlite 的共享 schema 版本门
@@ -18,6 +20,10 @@ namespace MetaStore
 {
   const int kUserVersion = 2;
 
+  // #736：schema 迁移步。见 openConnection 的 migrate 形参注释。
+  using SchemaMigration = std::function<bool(QSqlDatabase &db, int fromVersion,
+                                             int toVersion, QString *error)>;
+
   // Reuses the caller's named connection, creates its directory if needed, and
   // checks user_version even for an already-open connection. Invalid on failure.
   //
@@ -28,9 +34,17 @@ namespace MetaStore
   // userVersion：版本门的「当前版本」常量。project.sqlite 系 store 用默认
   // kUserVersion；catalog.sqlite 走自己的版本域（catalogstore.cpp），
   // 不与 project schema 推进耦合。
+  //
+  // migrate（#736）：该库的 schema 迁移步——把 db 从 fromVersion 的 schema
+  // 推到 toVersion，必须幂等（同一步可重复执行）。版本落后时在单事务内逐级
+  // 调用（vN→vN+1，最后一步到位后才写 user_version，整体原子）；版本已到位
+  // 时也调用一次 (v, v) 作幂等 ensure——旧构建「先 bump 后建表」的崩溃窗口
+  // 会留下「版本新、表旧」的库，没有这一步就再也补不齐表。不传 = 纯版本门
+  // （catalog 的 schema 走自己的 epoch 域，在 openConnection 之外装载）。
   QSqlDatabase openConnection(const QString &path, const QString &connectionName,
                               QString *error, bool readOnly = false,
-                              int userVersion = kUserVersion);
+                              int userVersion = kUserVersion,
+                              const SchemaMigration &migrate = nullptr);
 
   // #80：关闭并从 QtSql 注册表移除「当前线程拥有、databaseName 指向 path」的
   // 全部命名连接（工程切换/关闭时调用，避免句柄常驻与同路径陈旧连接复用）。
@@ -42,5 +56,8 @@ namespace MetaStore
 
   // 门本体：db 必须已 open。按上述规则检查/推进；拒绝或执行失败 → false +
   // *error（调用方应让 open 整体失败，不得继续建表）。userVersion 语义同上。
-  bool ensureUserVersion(QSqlDatabase &db, QString *error, int userVersion = kUserVersion);
+  // migrate 语义见 openConnection——版本落后时单事务内逐级迁移后再设版本
+  // （#736：不再「事务外直接 bump、先设版本后建表」）。
+  bool ensureUserVersion(QSqlDatabase &db, QString *error, int userVersion = kUserVersion,
+                         const SchemaMigration &migrate = nullptr);
 }

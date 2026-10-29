@@ -475,9 +475,14 @@ void ConstraintPage::restoreWellFactorDisplay() {
   const QString factor = factorIdOfRow(factors, checkedRow(factors));
   if (factor.isEmpty())
     return;
-  if (wf->restoreWellFactors(h->currentText(), factor, wellFactorParams())) {
+  QString restoreError;
+  if (wf->restoreWellFactors(h->currentText(), factor, wellFactorParams(), &restoreError)) {
     // D-13：恢复出的行属（层位, 因子）——写入归属键供建议函数校验。
     setProperty("paleo.page.wellRowsKey", h->currentText() + QChar(0x1f) + factor);
     refreshWellFactorResults();
+  } else if (!restoreError.isEmpty()) {
+    // #811-2：恢复失败（如井点因子图层声明失败）如实显示，不静默留在旧表。
+    if (auto *hint = findChild<QLabel *>(QStringLiteral("wellFactorHint")))
+      hint->setText(restoreError);
   }
 }

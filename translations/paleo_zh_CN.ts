@@ -38581,6 +38581,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>格架服务未接线，保存未完成</translation>
     </message>
     <message>
+        <location filename="../src/ui/sequenceframeworkpanel.cpp" line="401"/>
+        <location filename="../src/ui/sequenceframeworkpanel.cpp" line="455"/>
+        <source>格架服务未接线</source>
+        <translation>格架服务未接线</translation>
+    </message>
+    <message>
         <location filename="../src/ui/sequenceframeworkpanel.cpp" line="368"/>
         <source>格架保存失败：%1</source>
         <translation>格架保存失败：%1</translation>
@@ -38666,6 +38672,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/sequenceframeworkpanel.cpp" line="629"/>
         <source>诊断完成：%1 项（高 %2 / 中 %3 / 低 %4）</source>
         <translation>诊断完成：%1 项（高 %2 / 中 %3 / 低 %4）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/sequenceframeworkpanel.cpp" line="645"/>
+        <location filename="../src/ui/sequenceframeworkpanel.cpp" line="667"/>
+        <source>井分层读取失败：%1</source>
+        <translation>井分层读取失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/sequenceframeworkpanel.cpp" line="650"/>
+        <source>无井分层资料，未生成候选</source>
+        <translation>无井分层资料，未生成候选</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/sequenceframeworkpanel.cpp" line="674"/>
+        <source>无井分层资料，诊断结果可能不完整</source>
+        <translation>无井分层资料，诊断结果可能不完整</translation>
     </message>
 </context>
 <context>

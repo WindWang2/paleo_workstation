@@ -431,6 +431,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     void attachWellSection(PaleoTaskService *taskSvc,
                            PaleoProjectStore *store = nullptr);
     void clearWellSectionStores();
+    // #213：把剖面页的显式解释岩性资产选择表推给测井预测服务（预测输入的
+    // 岩性与界面展示同源）。
+    void pushLithoSelectionsToPrediction();
     bool bindWellSectionStores(PaleoProjectStore *store, QString *boundPath);
     SeismicMapLink *m_sectionLink = nullptr;
     SectionWorkbench *m_sectionWorkbench = nullptr; // attachSections 持有（this 父子）
@@ -439,9 +442,15 @@ class PaleoMainWindow : public SARibbonMainWindow
     // unsetMapTool 再 delete；画布先死则由 destroyed 接线置空（坑序同
     // tst_sectionlifecycle 既有规避：活动工具不可直接 delete）。
     SeismicSectionTool *m_sectionCaptureTool = nullptr;
+    // #777：画布 destroyed 接线句柄。该 lambda 写派生类成员
+    // m_sectionCaptureTool，必须在本类析构函数体（vptr 仍为派生类）内显式
+    // 断开；否则拖到 ~QObject 删画布子对象时才触发会写已降级对象，UBSan 报
+    // vptr。析构即断开后，画布先死的正常路径（工程关闭）仍由 lambda 置空。
+    QMetaObject::Connection m_sectionCaptureConn;
     PaleoDockWidget *m_wellSectionDock = nullptr;
     WellSectionPanel *m_wellSectionPanel = nullptr;
     WellSectionWorkflow *m_wellSectionWf = nullptr;
+    bool m_lithoSyncConnected = false; // #213：岩性选择→预测服务推送已接线
     metadata::WellSectionStore *m_wellSectionStore = nullptr;
     FaultSetStore *m_wellSectionFaultStore = nullptr;
     class WellSectionFenceWidget *m_wellSectionFence = nullptr;

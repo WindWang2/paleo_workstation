@@ -293,6 +293,15 @@ void IssueLocatorFilter::triggerResult( const QgsLocatorResult &result )
 // ---------------------------------------------------------------------------
 namespace
 {
+  // 析构安全（#775）：Qt 在 QLineEdit 析构途中仍会向已安装的 eventFilter 投递
+  // 事件（实测 delete 聚焦编辑框/销毁窗口时有 FocusAboutToChange、FocusOut、
+  // Hide、WindowDeactivate、Destroy 等到达过滤器，且已到 ~QWidget 阶段——对象
+  // 动态类型随析构链降级）。此刻任何按 QLineEdit 静态类型的成员访问都是 UB
+  // （UBSan vptr：member call on address ... does not point to an object of
+  // type 'QLineEdit'），QPointer<QLineEdit> 的下转型比较也在同一片雷区。
+  // 对策：m_edit 只以 QObject* 做地址比较；真要碰编辑框成员前先用 inherits()
+  // 确认动态类型仍在 QgsLocatorLineEdit——inherits 是 QObject 的非虚拟成员，
+  // 沿元对象链走，任何析构阶段都能安全调用，且半析构时必为 false。
   class LocatorKeyboardExit : public QObject
   {
     public:
@@ -310,8 +319,12 @@ namespace
     protected:
       bool eventFilter(QObject *obj, QEvent *ev) override
       {
-        if (obj != m_edit || ev->type() != QEvent::KeyPress)
+        // 半析构守卫：非 KeyPress 直接放行；地址只按 QObject* 比；动态类型已降级
+        // （编辑框正在析构）时同样放行，绝不摸半析构对象。
+        if (ev->type() != QEvent::KeyPress || !m_edit || obj != m_edit.data()
+            || !obj->inherits("QgsLocatorLineEdit"))
           return false;
+        auto *edit = static_cast<QLineEdit *>(obj);
         auto *ke = static_cast<QKeyEvent *>(ev);
         const bool fwd = ke->key() == Qt::Key_Tab && ke->modifiers() == Qt::NoModifier;
         const bool bwd = ke->key() == Qt::Key_Backtab; // Qt 把 Shift+Tab 投递成 Backtab
@@ -319,10 +332,10 @@ namespace
         {
           bool seen = false, visible = false;
           int rows = 0;
-          resultsViewState(seen, visible, rows);
-          if (seen && rows == 0 && m_edit->text().trimmed().isEmpty())
+          resultsViewState(edit, seen, visible, rows);
+          if (seen && rows == 0 && edit->text().trimmed().isEmpty())
           {
-            moveFocus(fwd);
+            moveFocus(edit, fwd);
             return true;
           }
           return false; // 其余情形 Tab/Shift+Tab 仍归 QGIS：补全、上/下一条结果
@@ -331,23 +344,23 @@ namespace
         {
           bool seen = false, visible = false;
           int rows = 0;
-          resultsViewState(seen, visible, rows);
+          resultsViewState(edit, seen, visible, rows);
           // 列表可见且有结果行才归 QGIS 收；空行/隐藏浮窗 Esc 放行出框。
           if (!seen || (visible && rows > 0))
             return false;
           if (m_prev && m_prev != m_edit && m_prev->isVisible() && m_prev->isEnabled())
             m_prev->setFocus(Qt::OtherFocusReason);
           else
-            moveFocus(false);
+            moveFocus(edit, false);
           return true;
         }
         return false;
       }
 
     private:
-      void resultsViewState(bool &seen, bool &visible, int &rows) const
+      void resultsViewState(QLineEdit *edit, bool &seen, bool &visible, int &rows) const
       {
-        for (QWidget *w : m_edit->window()->findChildren<QWidget *>())
+        for (QWidget *w : edit->window()->findChildren<QWidget *>())
           if (w->inherits("QgsLocatorResultsView"))
           {
             seen = true;
@@ -368,11 +381,11 @@ namespace
       }
 
       // focusNextPrevChild 是 protected——沿焦点链找第一个可聚焦件。
-      void moveFocus(bool forward)
+      void moveFocus(QLineEdit *edit, bool forward)
       {
-        for (QWidget *w = forward ? m_edit->nextInFocusChain() : m_edit->previousInFocusChain();
-             w && w != m_edit; w = forward ? w->nextInFocusChain() : w->previousInFocusChain())
-          if ((w->focusPolicy() & Qt::TabFocus) && w->isVisibleTo(m_edit->window()) &&
+        for (QWidget *w = forward ? edit->nextInFocusChain() : edit->previousInFocusChain();
+             w && w != edit; w = forward ? w->nextInFocusChain() : w->previousInFocusChain())
+          if ((w->focusPolicy() & Qt::TabFocus) && w->isVisibleTo(edit->window()) &&
               w->isEnabled())
           {
             w->setFocus(forward ? Qt::TabFocusReason : Qt::BacktabFocusReason);
@@ -380,7 +393,8 @@ namespace
           }
       }
 
-      QPointer<QLineEdit> m_edit;
+      // 见类前注释：只做地址比较，不下转型；成员访问前另有动态类型守卫。
+      QPointer<QObject> m_edit;
       QPointer<QWidget> m_prev;
   };
 } // namespace

@@ -89,6 +89,8 @@ private:
   // 站表无效（重复 MD/越界角等）→ 保持在禁用态并记原因（面板如实显示）。
   std::optional<paleo::WellDeviationSurvey> m_survey;
   QString m_deviationInvalidReason;
+  // 时深表被拒的原因（空 = 表缺失；非空 = 表在但校验不过）
+  QString m_twtInvalidReason;
   QVector<QPair<double, double>> m_twtStations;
   std::optional<seismic::TimeDepthModel> m_mdTimeDepth;
   double m_timeShiftMs = 0.0;

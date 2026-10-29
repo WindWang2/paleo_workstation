@@ -10,6 +10,9 @@
 #include "io/attrgridout.h"
 #include "io/sattrio.h"
 #include "metadata/atomicfile.h"
+// readSgyStartTimeMs 首道偏移与 readTraceHeader/vendor 读取通道同源
+// （segyio metadata.trace0）
+#include <segyio/segy.h>
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -35,13 +38,24 @@ namespace
 {
 
 // 源 SEG-Y 首样延迟（t0，ms）：首道道头字节 109-110（big-endian i16）。
-// 单次 240B 预读——比开整个 SegyReader 索引轻三个量级。
+// 单次 3600B 预读——比开整个 SegyReader 索引轻三个量级。
 double readSgyStartTimeMs(const QString &sgyPath)
 {
   QFile f(sgyPath);
   if (!f.open(QIODevice::ReadOnly))
     return 0.0;
-  if (!f.seek(3600 + 108))
+  const QByteArray binHdr = f.read(3600);
+  if (binHdr.size() < 3600)
+    return 0.0;
+  // finding-93：首道偏移不在固定 3600——rev2 字段 3521-3528 / rev0-1 扩展
+  // 文本头数 3505→3200+400+N·3200。硬编码 3600 会把扩展文本头字节当道头
+  // 延迟读出垃圾值（时间轴元数据静默错值）。与 readTraceHeader 同源走
+  // segy_trace0（vendor 读取通道亦用 segyio metadata.trace0）。
+  unsigned long long trace0 = 3600;
+  segy_trace0(binHdr.constData() + 3200, &trace0, /*ext_textheader_count=*/-1);
+  if (trace0 < 3600)
+    trace0 = 3600; // 异常字段不放大成负/零偏移：回落常轨布局
+  if (!f.seek(qint64(trace0) + 108))
     return 0.0;
   uchar b[2] = {0, 0};
   if (f.read(reinterpret_cast<char *>(b), 2) != 2)

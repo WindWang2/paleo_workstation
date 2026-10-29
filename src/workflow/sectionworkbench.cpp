@@ -215,8 +215,13 @@ QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &st
     modelFor(w.id, false, &tvdOk);
     modelFor(w.id, true, &mdOk);
     const auto samples = m_data.tdTableFor(w.id);
-    const double listedVelocity =
-        c.value("velocity").toDouble() > 100.0 ? c.value("velocity").toDouble() : 2500.0;
+    // 与 344 行 fallbackVelocity 同一条双侧判定（opt-02：界面状态串与
+    // TimeDepthModel 实际取值必须同口径——只查下界会让越界值在界面宣称一个
+    // 速度、换算时却回落 2500）。
+    const double listedVelocity = [&c] {
+      const double v = c.value("velocity").toDouble();
+      return v > 100.0 && v < 20000.0 ? v : 2500.0;
+    }();
     QString status =
         c.value("constant").toBool()
             ? tr("常速近似（需复核）")

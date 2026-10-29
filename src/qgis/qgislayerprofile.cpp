@@ -144,9 +144,14 @@ bool QgisLayerProfileService::applyPageProfile(const QString &pageId)
                                                            m_model);
     collection->insert(themeName, rec);
   }
-  else if (!applyPrunedTheme(themeName))
+  else
   {
-    return false;
+    if (!applyPrunedTheme(themeName))
+      return false;
+    // 当前层位约束层每次重放都并入（#80）：主题记录是首建时定格的，只靠
+    // applyTheme 重放的话，换层位后新层位的约束层会被旧记录隐藏。
+    if (pageId == QStringLiteral("predict") && !mergeActiveHorizonConstraints())
+      return false;
   }
 
   m_currentPage = pageId;
@@ -218,6 +223,42 @@ bool QgisLayerProfileService::stageTreeVisibility(const QStringList &groups,
   }
 
   syncGroupCheckStates(root, declById);
+  return true;
+}
+
+bool QgisLayerProfileService::mergeActiveHorizonConstraints()
+{
+  QgsLayerTree *root = m_project ? m_project->layerTreeRoot() : nullptr;
+  if (!root || !m_layerService)
+    return true; // 无图层服务：无从判定当前层位，不动可见性（fail-safe）
+
+  QVector<LayerDeclaration> decls;
+  if (!m_layerService->tryDeclared(&decls, nullptr))
+    return false; // 读失败 ≠ 无声明：如实上报，不做「无声明」式的静默合并
+  QHash<QString, LayerDeclaration> declById;
+  for (const LayerDeclaration &d : decls)
+    declById.insert(d.layerId, d);
+
+  const QString activeHorizon = m_layerService->activeHorizon();
+  if (activeHorizon.isEmpty())
+    return true;
+
+  for (QgsLayerTreeLayer *nodeLayer : root->findLayers())
+  {
+    QgsMapLayer *layer = nodeLayer->layer();
+    if (!layer)
+      continue;
+    const QString paleoId = paleoLayerIdOf(layer);
+    if (paleoId.isEmpty())
+      continue;
+    const auto it = declById.constFind(paleoId);
+    if (it == declById.constEnd())
+      continue;
+    const LayerDeclaration &decl = it.value();
+    if (PaleoLayerVocabulary::canonicalize(decl.group) == PaleoLayerVocabulary::kConstraintsGroup &&
+        decl.horizon == activeHorizon)
+      nodeLayer->setItemVisibilityChecked(true); // 当前层位约束层并入
+  }
   return true;
 }
 

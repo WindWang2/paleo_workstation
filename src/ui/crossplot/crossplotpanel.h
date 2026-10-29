@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 #include "domain/faciesclassification.h"
+#include "ui/paleotheme.h"
 #include <QImage>
 #include <QPixmap>
 #include <QWidget>
@@ -34,6 +35,9 @@ protected:
 private:
   QPointF normalized(QPointF) const;
   void densityImage();
+  // 主题代次比对：隐藏子控件收不到 ApplicationPaletteChange，位图缓存与
+  // 密度图会留着旧主题配色——绘制前按 currentTheme() 比对失效。
+  void invalidateThemeCaches();
   // #557：非手势内容全量渲染（背景/轴/密度图/散点/选点，不含橡皮筋）——
   // 缓存直绘共用同一函数，同输入逐像素一致。
   void renderPlot(QPainter &);
@@ -43,6 +47,9 @@ private:
   QPointF m_start;
   bool m_dragging = false, m_box = false;
   QImage m_density;
+  // 密度图 / 位图缓存构建时的主题（PaleoTheme::Theme）：切换后与
+  // currentTheme() 不符即重建，防隐藏期切主题留下旧配色。
+  PaleoTheme::Theme m_cacheTheme = PaleoTheme::Theme::Light;
   // #557：整幅位图缓存——手势（框选/套索）期间 paintEvent 只 blit 缓存 +
   // 重画橡皮筋，鼠标 move 不再逐点重绘散点；随 setFrame/setSelection/主题
   // 切换置脏，尺寸或 DPR 变化在重建时就地检出。

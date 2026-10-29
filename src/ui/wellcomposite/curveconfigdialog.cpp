@@ -527,9 +527,10 @@ bool CurveConfigDialog::renameTrack(int trkIdx, const QString &newTitle)
   if (trkIdx < 0 || trkIdx >= m_tracks.size() || newTitle.trimmed().isEmpty())
     return false;
 
+  // 只改本地副本：画布上的原井道对象由 applyConfiguration 的统一通道生效
+  // （与非曲线道同口径）。此处若直接 setTitle 写穿，点「取消」或直接关窗
+  // 后改名不回滚。
   m_tracks[trkIdx].title = newTitle.trimmed();
-  if (m_tracks[trkIdx].trackRef)
-    m_tracks[trkIdx].trackRef->setTitle(newTitle.trimmed());
   populateTree(trkIdx);
   return true;
 }

@@ -352,8 +352,16 @@ PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
   f.manifest = m.value(QStringLiteral("manifest")).toString();
   f.gpkg = m.value(QStringLiteral("gpkg")).toString();
   f.areaRules = m.value(QStringLiteral("areaRules")).toString();
+  const QJsonObject map = o.value(QStringLiteral("map")).toObject();
+  f.mapCrs = map.value(QStringLiteral("crs")).toString(QStringLiteral("EPSG:3857"));
+  const auto basemap = map.value(QStringLiteral("basemap")).toObject();
+  f.basemapEnabled = basemap.value(QStringLiteral("enabled")).toBool(true);
+  f.basemapTopo = basemap.value(QStringLiteral("topo")).toString();
+  f.basemapHillshade = basemap.value(QStringLiteral("hillshade")).toString();
   // PW-075：成员必须是项目内相对路径——绝对路径/盘符/「..」段会让共享工程包
-  // 把应用指向项目外任意文件（gpkg/sqlite 会被读写打开）。
+  // 把应用指向项目外任意文件（gpkg/sqlite 会被读写打开）。底图两个成员也
+  // 必须在赋值之后接受同一道检查（此前解析晚于本循环，检查恒对空串跑，
+  // PW-075 防线对 basemap 完全失效）。
   for (const QString *member :
        {&f.qgz, &f.catalog, &f.manifest, &f.gpkg, &f.areaRules, &f.basemapTopo, &f.basemapHillshade})
   {
@@ -370,12 +378,6 @@ PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
   f.sourceAreaRoot = s.value(QStringLiteral("root")).toString();
   f.sourceAreaImportedUtc = s.value(QStringLiteral("importedUtc")).toString();
   f.sourceStats = s.value(QStringLiteral("stats")).toObject().toVariantMap();
-  const auto map = o.value(QStringLiteral("map")).toObject();
-  f.mapCrs = map.value(QStringLiteral("crs")).toString(QStringLiteral("EPSG:3857"));
-  const auto basemap = map.value(QStringLiteral("basemap")).toObject();
-  f.basemapEnabled = basemap.value(QStringLiteral("enabled")).toBool(true);
-  f.basemapTopo = basemap.value(QStringLiteral("topo")).toString();
-  f.basemapHillshade = basemap.value(QStringLiteral("hillshade")).toString();
   if (o.contains(QStringLiteral("georeference")))
   {
     PaleoGeoreference g;

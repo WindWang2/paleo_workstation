@@ -407,7 +407,10 @@ FaciesQaResult runFaciesQa( const std::vector<FaciesMapUnit> &units,
 
   // 整合接触切两侧相：任一侧标 conformable 的共享边（交集为线）两侧相代码
   // 已知且不同 → 报 ConformableCutFacies（与编辑门禁同语义——QA 只报告）。
-  for ( std::size_t i = 0; i + 1 < units.size(); ++i )
+  // 内层从 j=i+1 起：旧式全量内层对同一单元对按 (i,j)/(j,i) 各报一次
+  // （regionIds 互换的两条同源问题），诊断计数随之翻倍；conformable 判定改为
+  // 「i 或 j 任一侧」保持「任一侧」语义不漏检。
+  for ( std::size_t i = 0; i < units.size(); ++i )
   {
     if ( cancelled() )
     {
@@ -416,11 +419,14 @@ FaciesQaResult runFaciesQa( const std::vector<FaciesMapUnit> &units,
       result.issues.clear();
       return result;
     }
-    if ( !unitGeoms[i] || units[i].boundaryKind != std::string( "conformable" ) )
+    if ( !unitGeoms[i] )
       continue;
-    for ( std::size_t j = 0; j < units.size(); ++j )
+    for ( std::size_t j = i + 1; j < units.size(); ++j )
     {
-      if ( j == i || !unitGeoms[j] )
+      if ( !unitGeoms[j] )
+        continue;
+      if ( units[i].boundaryKind != std::string( "conformable" ) &&
+           units[j].boundaryKind != std::string( "conformable" ) )
         continue;
       if ( units[i].faciesCode < 0 || units[j].faciesCode < 0 ||
            units[i].faciesCode == units[j].faciesCode )

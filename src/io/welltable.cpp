@@ -1,11 +1,13 @@
 // 层：数据
 #include "welltable.h"
+#include "boundedread.h" // PW-076：.dat 分支同口径有界读
 #include "outsourceworkbook.h"
 #include "wellfileparsers.h"
 #include "welltabletext.h"
 #include "../domain/wellnumeric.h"
 #include <QFileInfo>
 #include <QFile>
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
@@ -17,6 +19,11 @@
 
 namespace paleo::io {
 namespace {
+// FA-001 同口径的格数预算（SpreadsheetML/xlsx 4M 格）：挡「行数 × 列填充宽」
+// 的乘积放大，矢量全读与文本/工作簿路径一致。
+constexpr qint64 kMaxWellTableCells = 4'000'000;
+// 预览与全量路径共用的层数闸（此前只有预览路径有）。
+constexpr int kMaxWellTableLayers = 16;
 bool wellNumber(const QString &text, double *value)
 {
   return paleo::wellnumeric::parse(text, value) == paleo::wellnumeric::NumberKind::Value;
@@ -50,11 +57,24 @@ WorkbookReadResult vectorOrText(const QString &path, int rowLimit = 1000001, boo
 {
   WorkbookReadResult out;
   int sampledRows = 0;
+  // issue-810：累计格数预算（与 SpreadsheetML/xlsx 的 4M 格同口径）——行数
+  // 闸挡不住「行数 × 列填充宽」的乘积放大，宽表可把整表 QString 撑到 GB 级。
+  qint64 cellBudget = kMaxWellTableCells;
   GDALAllRegister();
   auto *ds = static_cast<GDALDataset *>(GDALOpenEx(path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
   if (!ds) { out.error = QStringLiteral("无法读取矢量或文本表：%1").arg(path); return out; }
+  // issue-810：全量路径（readWellTable 正式导入）补层数闸——预览路径早就有
+  // 16 层口径，正式路径此前完全裸奔（gpkg 几百层会整库读进来）。
+  if (!limited && ds->GetLayerCount() > kMaxWellTableLayers)
+  {
+    out.error = QStringLiteral("矢量图层超过 %1 个，请拆分后导入：%2")
+                    .arg(kMaxWellTableLayers)
+                    .arg(path);
+    GDALClose(ds);
+    return out;
+  }
   for (int i = 0; i < ds->GetLayerCount(); ++i) {
-    if (limited && i >= 16) { *limited = true; break; }
+    if (limited && i >= kMaxWellTableLayers) { *limited = true; break; }
     auto *layer = ds->GetLayer(i);
     if (!layer) continue;
     WorkbookSheet sheet;
@@ -62,6 +82,7 @@ WorkbookReadResult vectorOrText(const QString &path, int rowLimit = 1000001, boo
     auto *def = layer->GetLayerDefn();
     for (int c = 0; c < def->GetFieldCount(); ++c)
       sheet.headers << QString::fromUtf8(def->GetFieldDefn(c)->GetNameRef());
+    cellBudget -= sheet.headers.size();
     const bool points = wkbFlatten(layer->GetGeomType()) == wkbPoint;
     if (points) sheet.headers << QStringLiteral("__geometry_x") << QStringLiteral("__geometry_y");
     while (auto *f = layer->GetNextFeature()) {
@@ -74,13 +95,27 @@ WorkbookReadResult vectorOrText(const QString &path, int rowLimit = 1000001, boo
             << (p ? QString::number(p->getY(), 'g', 17) : QString());
       }
       sheet.rows << row;
+      cellBudget -= qint64(row.size());
       ++sampledRows;
       OGRFeature::DestroyFeature(f);
-      if ((limited && sampledRows >= rowLimit) || sheet.rows.size() >= 1000001) {
+      const bool overRows = (limited && sampledRows >= rowLimit) || sheet.rows.size() >= 1000001;
+      if (overRows || cellBudget < 0) {
         if (limited) *limited = true;
-        else out.error = QStringLiteral("井表超过一百万行，请拆分后导入");
+        else out.error = cellBudget < 0
+            ? QStringLiteral("井表累计单元格超过 %1 上限，请拆分后导入：%2").arg(kMaxWellTableCells).arg(path)
+            : QStringLiteral("井表超过一百万行，请拆分后导入");
         break;
       }
+    }
+    // finding-59：遍历中途出错（坏层/IO 错）不能当正常结束——GDAL 的错误
+    // 栈非空即说明这次读取不完整，静默部分导入会把坏文件当好数据收。
+    if (!limited && CPLGetLastErrorType() != CE_None)
+    {
+      out.error = QStringLiteral("矢量层读取中途出错（可能文件损坏）：%1 — %2")
+                      .arg(path, QString::fromUtf8(CPLGetLastErrorMsg()));
+      out.sheets.clear();
+      GDALClose(ds);
+      return out;
     }
     out.sheets << sheet;
     if (out.format.isEmpty() && layer->GetSpatialRef()) {
@@ -109,7 +144,8 @@ QString inferredCrs(const QString &text)
   }
   return {};
 }
-void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m, bool bases = false)
+void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m,
+                QVector<WellTopRecord> *basesOut = nullptr)
 {
   const auto &h = sheet.headers;
   const int name = column(h, {QStringLiteral("井号"), QStringLiteral("井名"), "WELL", "WELLNAME", "NAME"}, m.value("well").toString());
@@ -118,23 +154,33 @@ void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m
   const int kb = column(h, {"KB", QStringLiteral("补心海拔")}, m.value("kb").toString());
   const int td = column(h, {"TD", QStringLiteral("完钻井深"), QStringLiteral("总井深")}, m.value("td").toString());
   const int top = column(h, {QStringLiteral("层位"), QStringLiteral("层名"), "HORIZON", "TOP"});
-  const int md = column(h, bases ? QStringList{"BOTTOM_MD", "BASE_MD", QStringLiteral("底界测深"), QStringLiteral("底测深")}
-                                : QStringList{"MD", QStringLiteral("顶界测深"), QStringLiteral("顶深")});
-  const int tvd = column(h, bases ? QStringList{"BOTTOM_TVD", "BASE_TVD", QStringLiteral("底界垂深"), QStringLiteral("底垂深")}
-                                 : QStringList{"TVD", QStringLiteral("顶界垂深"), QStringLiteral("顶垂深")});
+  const int md = column(h, {"MD", QStringLiteral("顶界测深"), QStringLiteral("顶深")});
+  const int tvd = column(h, {"TVD", QStringLiteral("顶界垂深"), QStringLiteral("顶垂深")});
+  // issue-796：底界列与顶界列在同一趟行解析里解出——此前分层表先整表解析
+  // 一遍取 tops、再整表解析一遍取 bases（两次全表扫描 + 两次列匹配）。
+  const int mdBase = basesOut ? column(h, {"BOTTOM_MD", "BASE_MD", QStringLiteral("底界测深"), QStringLiteral("底测深")}) : -1;
+  const int tvdBase = basesOut ? column(h, {"BOTTOM_TVD", "BASE_TVD", QStringLiteral("底界垂深"), QStringLiteral("底垂深")}) : -1;
   const bool heads = name >= 0 && x >= 0 && y >= 0;
   const bool tops = top >= 0 && (md >= 0 || tvd >= 0);
   if (!heads && !tops) return;
   if (tops && name < 0 && QRegularExpression(QStringLiteral("^(Sheet\\d*|说明|总表|分层)$"), QRegularExpression::CaseInsensitiveOption).match(sheet.name).hasMatch()) return;
   // 层位+深度优先：分层表即使重复了井口坐标，也不能被当成井口把层丢掉。
   const QString type = tops ? QStringLiteral("well_stratification") : QStringLiteral("well_head");
-  if (!out.type.isEmpty() && out.type != type && !tops) return;
+  // 已判定分层后，后续纯井口页仍并入 heads——否则井口坐标被静默整表丢弃
+  // （与 tableFromWorkbook 里 well_head 后遇分层仍保留层的 probe 逻辑对称）。
+  // 只是不再把 type 翻回井口；映射/CRS 只由定型页登记，避免重新导入时
+  // mapping 指向井口页而丢层。
+  const bool definesTable = out.type.isEmpty() || out.type == type;
+  if (!out.type.isEmpty() && out.type != type && !tops && out.type != QLatin1String("well_stratification"))
+    return;
   if (out.type.isEmpty() || tops) out.type = type;
   if (heads) {
-    out.columns = h;
-    out.mapping = {{"sheet", sheet.name}, {"well", h.value(name)}, {"x", h.value(x)}, {"y", h.value(y)}, {"kb", h.value(kb)}, {"td", h.value(td)}};
-    if (out.crs.isEmpty()) out.crs = inferredCrs(sheet.name + " " + h.value(x) + " " + h.value(y));
-    if (out.crs.isEmpty() && (h.value(x).contains(QStringLiteral("经度")) || h.value(x).compare("LONGITUDE", Qt::CaseInsensitive) == 0)) out.crs = "EPSG:4326";
+    if (definesTable) {
+      out.columns = h;
+      out.mapping = {{"sheet", sheet.name}, {"well", h.value(name)}, {"x", h.value(x)}, {"y", h.value(y)}, {"kb", h.value(kb)}, {"td", h.value(td)}};
+      if (out.crs.isEmpty()) out.crs = inferredCrs(sheet.name + " " + h.value(x) + " " + h.value(y));
+      if (out.crs.isEmpty() && (h.value(x).contains(QStringLiteral("经度")) || h.value(x).compare("LONGITUDE", Qt::CaseInsensitive) == 0)) out.crs = "EPSG:4326";
+    }
   }
   int line = sheet.headerRowNumber;
   for (const auto &r : sheet.rows) {
@@ -171,6 +217,19 @@ void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m
       record.hasTvd = hasTvd; record.tvd = tvdVal;
       out.tops << record;
     }
+    // 底界记录（同一趟行解析产出）：层名与顶界同键，深度取底界列。
+    if (basesOut && top >= 0 && !well.isEmpty() && !r.value(top).trimmed().isEmpty()) {
+      double baseMd = 0, baseTvd = 0;
+      const bool hasBaseMd = mdBase >= 0 && wellNumber(r.value(mdBase), &baseMd);
+      const bool hasBaseTvd = tvdBase >= 0 && wellNumber(r.value(tvdBase), &baseTvd);
+      if (hasBaseMd || hasBaseTvd) {
+        WellTopRecord base;
+        base.wellName = well; base.topName = r.value(top).trimmed();
+        base.hasMd = hasBaseMd; base.md = baseMd;
+        base.hasTvd = hasBaseTvd; base.tvd = baseTvd;
+        *basesOut << base;
+      }
+    }
     ++out.report.acceptedRows;
   }
 }
@@ -181,16 +240,27 @@ QVector<WellTopRecord> readWellTableBases(const QString &path)
 {
   const auto extension = QFileInfo(path).suffix().toLower();
   if (extension == "dat") {
-    QFile file(path); if (!file.open(QIODevice::ReadOnly)) return {};
-    const auto bytes = file.readAll(); const auto tops = parseWellTopsText(bytes);
+    // finding-61：与 readWellDelimitedTable 同口径的 64 MB 预算——此前
+    // readAll() 无闸，坏/巨大 .dat 会把整文件读进内存。
+    QByteArray bytes;
+    if (!readBoundedFile(path, 64ll * 1024 * 1024, &bytes)) return {};
+    const auto tops = parseWellTopsText(bytes);
+    // issue-796：井名+层名 → 顶界记录的哈希索引（首条命中，与 find_if 一致）
+    // ——逐行 find_if 是 O(行×顶界)，大表直接把分类/导入卡死。
+    QHash<QString, const WellTopRecord *> topIndex;
+    topIndex.reserve(tops.size());
+    for (const auto &t : tops) {
+      const QString key = t.wellName + QLatin1Char('\x1f') + t.topName;
+      if (!topIndex.contains(key)) topIndex.insert(key, &t);
+    }
     QVector<WellTopRecord> out;
     for (const auto &line : bytes.split('\n')) {
       const QByteArray prefix("# PaleoLayerInterval: "); if (!line.startsWith(prefix)) continue;
       const auto row = QJsonDocument::fromJson(line.mid(prefix.size())).object();
-      const auto current = std::find_if(tops.cbegin(), tops.cend(), [&](const auto &top) {
-        return top.wellName == row.value("well").toString() && top.topName == row.value("layer").toString();
-      });
-      if (current == tops.cend() || current->hasMd != row.contains("topMd") || current->hasTvd != row.contains("topTvd")) continue;
+      const auto found = topIndex.constFind(row.value("well").toString() + QLatin1Char('\x1f') + row.value("layer").toString());
+      if (found == topIndex.constEnd()) continue;
+      const WellTopRecord *current = found.value();
+      if (current->hasMd != row.contains("topMd") || current->hasTvd != row.contains("topTvd")) continue;
       if ((current->hasMd && std::abs(current->md - row.value("topMd").toDouble()) >= .001) ||
           (current->hasTvd && std::abs(current->tvd - row.value("topTvd").toDouble()) >= .001)) continue;
       WellTopRecord base; base.wellName = current->wellName; base.topName = current->topName;
@@ -201,9 +271,12 @@ QVector<WellTopRecord> readWellTableBases(const QString &path)
     return out;
   }
   const auto workbook = extension == "xlsx" ? readWorkbook(path) : readWellDelimitedTable(path);
-  WellTable out;
-  if (workbook.ok) for (const auto &sheet : workbook.sheets) parseSheet(out, sheet, {}, true);
-  return out.tops;
+  // 底界收进 bases（与旧的 parseSheet(..., bases=true) 出口一致）；顶界落进
+  // scratch 后丢弃——单趟行解析同时产出两者，见 parseSheet 的 basesOut。
+  WellTable scratch;
+  QVector<WellTopRecord> bases;
+  if (workbook.ok) for (const auto &sheet : workbook.sheets) parseSheet(scratch, sheet, {}, &bases);
+  return bases;
 }
 bool isWellTableContainer(const QString &path)
 {
@@ -213,6 +286,8 @@ static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantM
 {
   WellTable out;
   if (!wb.ok) { out.error = wb.error; return out; }
+  // 分层表的底界记录（与顶界同一趟行解析产出，见 parseSheet 的 basesOut）。
+  QVector<WellTopRecord> layerBases;
   out.crs = mapping.value("crs").toString();
   if (!QStringList{"xlsx", "headerless", ""}.contains(wb.format) && out.crs.isEmpty()) out.crs = wb.format;
   for (const auto &sheet : wb.sheets) {
@@ -227,7 +302,9 @@ static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantM
       if (probe.type != QLatin1String("well_stratification")) continue;
     }
     if (out.columns.isEmpty()) out.columns = sheet.headers;
-    parseSheet(out, sheet, mapping);
+    // issue-796：底界与顶界在同一趟行解析里产出——此前分层表在这里解析一遍
+    // 取 tops、下面再对全表解析一遍取 bases（两次全表扫描）。
+    parseSheet(out, sheet, mapping, &layerBases);
   }
   out.mapping.insert("crs", out.crs);
   if (wb.format == QLatin1String("headerless")) out.mapping.insert(QStringLiteral("headerless"), true);
@@ -241,12 +318,7 @@ static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantM
       !projectWellCoordinates(&out.heads, out.crs, mapping.value("projectCrs").toString(), &out.error)) return out;
   if (out.type.isEmpty()) out.error = QStringLiteral("未识别到井名与坐标，或层位与深度列，请调整字段对应关系");
   if (out.type == QLatin1String("well_stratification")) {
-    WellTable bases;
-    for (const auto &sheet : wb.sheets) {
-      if (!mapping.value("sheet").toString().isEmpty() && sheet.name != mapping.value("sheet").toString()) continue;
-      parseSheet(bases, sheet, mapping, true);
-    }
-    out.normalized = writeWellLayerTable(out.tops, bases.tops);
+    out.normalized = writeWellLayerTable(out.tops, layerBases);
   }
   else {
     QTextStream stream(&out.normalized);
@@ -287,9 +359,18 @@ WellTable previewWellTable(const QString &path, const QVariantMap &mapping)
 }
 QByteArray writeWellLayerTable(const QVector<WellTopRecord> &tops, const QVector<WellTopRecord> &bases) {
     auto bytes = writeWellTopsText(tops);
+    // issue-796：井名+层名 → 顶界记录哈希索引（首条命中，与 find_if 一致）
+    // ——逐条 find_if 是 O(底界×顶界)，大表导入直接卡死。
+    QHash<QString, const WellTopRecord *> topIndex;
+    topIndex.reserve(tops.size());
+    for (const auto &t : tops) {
+      const QString key = t.wellName + QLatin1Char('\x1f') + t.topName;
+      if (!topIndex.contains(key)) topIndex.insert(key, &t);
+    }
     for (const auto &base : bases) {
-      const auto top = std::find_if(tops.cbegin(), tops.cend(), [&](const auto &t) { return t.wellName == base.wellName && t.topName == base.topName; });
-      if (top == tops.cend()) continue;
+      const auto found = topIndex.constFind(base.wellName + QLatin1Char('\x1f') + base.topName);
+      if (found == topIndex.constEnd()) continue;
+      const WellTopRecord *top = found.value();
       QJsonObject row{{"well", base.wellName}, {"layer", base.topName}};
       if (top->hasMd) row.insert("topMd", top->md);
       if (top->hasTvd) row.insert("topTvd", top->tvd);

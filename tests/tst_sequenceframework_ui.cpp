@@ -2,6 +2,7 @@
 #include <QtTest>
 #include <QDir>
 #include <QFile>
+#include <QPushButton>
 #include <QSignalSpy>
 #include <QTableWidget>
 #include <QTemporaryDir>
@@ -335,6 +336,58 @@ private slots:
     const QString md = QString::fromUtf8( f.readAll() );
     QVERIFY( md.contains( QStringLiteral( "|" ) ) );
     QVERIFY( md.contains( diagnosticCode( DiagnosticKind::OrphanWellLayer ) ) );
+  }
+
+  // finding-156：refreshSuggestions/refreshDiagnostics 曾把 loadWellTops 的
+  // error 出参取了却从不检查——服务没接 catalog 时照样拿空表往下算，对外刷
+  // 「已生成 0 条候选 / 诊断完成：0 项」的成功文案。现在原因必须经
+  // statusMessage 上报，且「无井分层资料」与「读取失败」分开报。
+  void wellTopLoadErrorsSurfaceInStatus()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+
+    // ① 服务没接 catalog → loadWellTops 报错，按钮文案只报原因不报成功。
+    FrameworkService unwired( dir.path() );
+    SequenceFrameworkPanel panel;
+    panel.setService( &unwired );
+    QVERIFY( panel.isEnabled() );
+    QSignalSpy status( &panel, &SequenceFrameworkPanel::statusMessage );
+    panel.refreshSuggestions();
+    QVERIFY2( panel.suggestions().isEmpty(), "读不出时不得拿空表当零候选" );
+    panel.refreshDiagnostics();
+    QVERIFY2( panel.diagnosticReport().isEmpty(), "读不出时不得刷空报告" );
+    auto clickByText = []( QWidget *root, const QString &text ) {
+      for ( QPushButton *b : root->findChildren<QPushButton *>() )
+        if ( b->text() == text )
+          b->click();
+    };
+    clickByText( &panel, QStringLiteral( "生成建议" ) );
+    clickByText( &panel, QStringLiteral( "重新诊断" ) );
+    QCOMPARE( status.count(), 2 );
+    for ( int i = 0; i < status.count(); ++i )
+    {
+      const QString msg = status.at( i ).at( 0 ).toString();
+      QVERIFY2( msg.startsWith( QStringLiteral( "井分层读取失败：" ) ), qPrintable( msg ) );
+      QVERIFY2( msg.contains( QStringLiteral( "catalog 未接线" ) ), qPrintable( msg ) );
+    }
+
+    // ② 接了 catalog 但没有任何井分层资产 → 「无资料」，不与「读不出」混。
+    DataCatalog cat;
+    QVERIFY( cat.open( dir.path() ) );
+    FrameworkService wired( dir.path() );
+    wired.attachCatalog( &cat );
+    SequenceFrameworkPanel panel2;
+    panel2.setService( &wired );
+    QSignalSpy status2( &panel2, &SequenceFrameworkPanel::statusMessage );
+    clickByText( &panel2, QStringLiteral( "生成建议" ) );
+    clickByText( &panel2, QStringLiteral( "重新诊断" ) );
+    QCOMPARE( status2.count(), 2 );
+    QVERIFY2( status2.at( 0 ).at( 0 ).toString() == QStringLiteral( "无井分层资料，未生成候选" ),
+              qPrintable( status2.at( 0 ).at( 0 ).toString() ) );
+    QVERIFY2( status2.at( 1 ).at( 0 ).toString()
+                  == QStringLiteral( "无井分层资料，诊断结果可能不完整" ),
+              qPrintable( status2.at( 1 ).at( 0 ).toString() ) );
   }
 };
 

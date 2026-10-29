@@ -47,10 +47,17 @@ bool reject(QString *error, const QString &reason) {
 }
 namespace FaciesTaxonomy {
 QVariantList library() {
-  // resourcePath initializes the bundled resource for standalone domain tests.
-  QFile file(FaciesCatalog::resourcePath("facies-hierarchy.json"));
-  if (!file.open(QIODevice::ReadOnly)) return {};
-  return QJsonDocument::fromJson(file.readAll()).toVariant().toList();
+  // 同 FaciesCatalog::library()：resourcePath 会顺带 Q_INIT_RESOURCE(geology)
+  // （独立 domain 测试的资源初始化入口），而资源一经注册即常驻——解析结果用
+  // 函数级 static 缓存。此前每次调用都重开并整体解析 facies-hierarchy.json，
+  // 而 path()/place() 的调用方在嵌套循环里反复调 library()——一次图例构建
+  // 可放大成数百次全量资源重读（finding-33）。
+  static const QVariantList items = [] {
+    QFile file(FaciesCatalog::resourcePath("facies-hierarchy.json"));
+    if (!file.open(QIODevice::ReadOnly)) return QVariantList();
+    return QJsonDocument::fromJson(file.readAll()).toVariant().toList();
+  }();
+  return items;
 }
 QVariantList templates() {
   auto result = library();

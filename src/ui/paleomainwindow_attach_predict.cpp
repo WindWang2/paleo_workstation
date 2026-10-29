@@ -34,11 +34,14 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
   if (pred && predictPage)
   {
     // 工程打开后 appcontext 已把 onnx 模型根重设到 <工程>/models——算法
-    // 列表随之刷新（未装模型 → 页面如实降级文案）。
-    connect(m_projectSvc, &QgisProjectService::projectOpened, this,
-            [this, pred, predictPage] {
-              predictPage->setAlgorithms(pred->availableAlgorithms());
-            });
+    // 列表随之刷新（未装模型 → 页面如实降级文案）。projectSvc 为空的装配
+    // （测试壳传 nullptr）不连，否则 Qt 只打「Cannot connect (null)」告警、
+    // 连接静默失效。
+    if (m_projectSvc)
+      connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+              [this, pred, predictPage] {
+                predictPage->setAlgorithms(pred->availableAlgorithms());
+              });
     // ---- m2(A): 预测运行任务化 + 历史结果显示接线 ----
     // #277 三段式（仿约束页）：prepare（catalog stage 线程闸，GUI 线程）→
     // worker 只跑 compute（Processing / ONNX 推理 + 栅格落盘，不碰 catalog）

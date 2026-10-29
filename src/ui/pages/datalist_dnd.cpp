@@ -97,21 +97,45 @@ void DataListPanel::handleExternalFiles(const QStringList &paths)
     return;
   }
   // D8.6：目录/大量文件 → 预估 + 分批确认；单文件直接走壳导入流。
-  QString dir;
+  QStringList dirs;
   int fileCount = 0;
   for (const QString &p : paths)
   {
     const QFileInfo fi(p);
     if (fi.isDir())
-      dir = p;
+      dirs << p;
     else if (fi.isFile())
       ++fileCount;
   }
-  if (!dir.isEmpty() || paths.size() > 20)
+  QStringList toImport = paths;
+  if (!dirs.isEmpty() || paths.size() > 20)
   {
     ImportEstimate estimate;
-    if (!dir.isEmpty())
-      estimate = estimateDirectory(dir);
+    if (!dirs.isEmpty())
+    {
+      // finding-123：多目录拖入逐目录累计预估（旧实现只 estimateDirectory(最后一
+      // 个目录)，其余目录的文件数/字节被漏计）；byExtension 按扩展名合并计数。
+      QHash<QString, int> extCount;
+      for (const QString &d : dirs)
+      {
+        const ImportEstimate e = estimateDirectory(d);
+        estimate.fileCount += e.fileCount;
+        estimate.totalBytes += e.totalBytes;
+        estimate.largeFileCount += e.largeFileCount;
+        estimate.canceled = estimate.canceled || e.canceled;
+        for (const QString &part : e.byExtension)
+        {
+          const int colon = part.indexOf(QLatin1Char(':'));
+          if (colon > 0)
+            extCount[part.left(colon)] += part.mid(colon + 1).toInt();
+        }
+      }
+      QStringList parts;
+      for (auto e = extCount.constBegin(); e != extCount.constEnd(); ++e)
+        parts << QStringLiteral("%1:%2").arg(e.key()).arg(e.value());
+      parts.sort();
+      estimate.byExtension = parts;
+    }
     else
     {
       estimate.fileCount = fileCount;
@@ -123,18 +147,23 @@ void DataListPanel::handleExternalFiles(const QStringList &paths)
     dlg.setEstimate(estimate);
     if (dlg.exec() != QDialog::Accepted)
       return;
-    emit statusMessage(dlg.batchChosen()
-                           ? tr("分批导入已确认（首批 %1 项）").arg(batchPaths(paths, 200).size())
-                           : tr("整批导入已确认（%1 项）").arg(paths.size()));
+    // finding-123：分批选择落到实际入队/导入路径（旧实现仅改状态栏文案，仍全量
+    // 开跑）——分批确认后按 batchPaths 截首批，整批确认才全量。
+    const bool batched = dlg.batchChosen();
+    if (batched)
+      toImport = batchPaths(paths, 200);
+    emit statusMessage(batched
+                           ? tr("分批导入已确认（首批 %1 项）").arg(toImport.size())
+                           : tr("整批导入已确认（%1 项）").arg(toImport.size()));
   }
   // 视图只发意图：实际导入由壳的 FolderImport 流执行（T22 确认表复用）。
-  emit externalImportRequested(paths);
+  emit externalImportRequested(toImport);
   // 导入队列（D8.1）：未注入 runner 时仅登记（生产接线见 docs/dataops/GAPS.md）。
   if (m_importQueue)
   {
     QHash<QString, QString> typeByExt;
     for (const ImportPreset &p : importPresets())
       typeByExt = p.typeMap; // 预设的类型映射（最后一个命中的预设）
-    m_importQueue->enqueuePaths(paths, typeByExt);
+    m_importQueue->enqueuePaths(toImport, typeByExt);
   }
 }

@@ -692,6 +692,24 @@ void WellSitingPanel::setEvalBusy( bool busy )
                                 QStringLiteral( "sitingEvalButton" ) } )
     if ( auto *btn = findChild<QPushButton *>( name ) )
       btn->setEnabled( !busy );
+  // finding-135：保存方案纳入忙期禁用清单——它内部会同步重算全场指标（与在飞
+  // 评估重复采样、冻结界面）。解除忙态时按「有无计划井」恢复其启用条件（与
+  // refreshPlannedTable 同口径），避免清空计划井后残留启用。
+  if ( auto *save = findChild<QPushButton *>( QStringLiteral( "sitingSaveScenarioButton" ) ) )
+  {
+    if ( busy )
+    {
+      save->setEnabled( false );
+      save->setToolTip( tr( "评估计算中——请等待或取消" ) );
+    }
+    else
+    {
+      const bool has = m_wf && !m_wf->plannedWells().isEmpty();
+      save->setEnabled( has );
+      save->setToolTip( has ? QString()
+                            : tr( "还没有计划井——先在地图或表单添加布井候选" ) );
+    }
+  }
 }
 
 void WellSitingPanel::applyEvaluation( const QVariantMap &evaluation )

@@ -940,6 +940,17 @@ QHash<QString, QVector<wellsection::LithoSegment>> WellSectionWorkflow::litholog
   return result;
 }
 
+// #213：同上，但仲裁表由调用方给出（剖面页显式选择的解释岩性资产）。worker
+// 线程也可调用——只读传入的值表，不碰任何 QObject 状态。
+QHash<QString, QVector<wellsection::LithoSegment>> WellSectionWorkflow::lithologiesForSelection(
+    DataCatalog *catalog, const QString &projectDir, const QStringList &wellIds,
+    const QHash<QString, QString> &selection, QStringList *warnings) {
+  CatalogWellLithologyProvider provider(catalog, projectDir, warnings, &selection, nullptr);
+  QHash<QString, QVector<wellsection::LithoSegment>> result;
+  for (const QString &id : wellIds) result.insert(id, provider.lithologyFor(id));
+  return result;
+}
+
 QVector<WellSectionWorkflow::LithoSourceChoice>
 WellSectionWorkflow::lithoSourceChoices(const QString &wellId) const {
   QVector<LithoSourceChoice> out;
@@ -987,7 +998,11 @@ void WellSectionWorkflow::setLithoAssetSelection(const QString &wellId,
 
 void WellSectionWorkflow::setLithoAssetSelections(
     const QHash<QString, QString> &selection) {
-  m_lithoSelection = selection; // 恢复路径：不发 lithoSelectionChanged
+  m_lithoSelection = selection;
+  // 整表灌入也逐井广播（#213）：测井预测等订阅方据此同步「剖面页显式选择的
+  // 解释岩性资产」，否则恢复路径的选择对订阅方不可见。广播内容是事实（表已变）。
+  for (auto it = m_lithoSelection.cbegin(); it != m_lithoSelection.cend(); ++it)
+    emit lithoSelectionChanged(it.key(), it.value());
 }
 
 QVector<WellSectionWorkflow::TopsSourceChoice>

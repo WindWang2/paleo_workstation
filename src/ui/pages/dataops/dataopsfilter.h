@@ -5,6 +5,7 @@
 #pragma once
 
 #include <QRegularExpression>
+#include <QObject>
 #include <QSettings>
 #include <QSharedData>
 #include <QString>
@@ -54,18 +55,20 @@ inline QString filterDimKey(FilterDim d)
 
 inline QString filterDimLabel(FilterDim d)
 {
+  // finding-128：面向用户的维度标签走 QObject::tr（与 dataopscommands.h 自由
+  // 函数同口径）——DESIGN.md「全部用户可见字符串走 tr()」，chip 文案随之可翻译。
   switch (d)
   {
-    case FilterDim::Search: return QStringLiteral("搜索");
-    case FilterDim::Type: return QStringLiteral("类型");
-    case FilterDim::Status: return QStringLiteral("状态");
-    case FilterDim::Role: return QStringLiteral("角色");
-    case FilterDim::Entity: return QStringLiteral("实体");
-    case FilterDim::Tag: return QStringLiteral("标签");
-    case FilterDim::Regex: return QStringLiteral("正则");
-    case FilterDim::Unlinked: return QStringLiteral("未挂接");
-    case FilterDim::UnknownType: return QStringLiteral("类型未知");
-    case FilterDim::Warned: return QStringLiteral("有警告");
+    case FilterDim::Search: return QObject::tr("搜索");
+    case FilterDim::Type: return QObject::tr("类型");
+    case FilterDim::Status: return QObject::tr("状态");
+    case FilterDim::Role: return QObject::tr("角色");
+    case FilterDim::Entity: return QObject::tr("实体");
+    case FilterDim::Tag: return QObject::tr("标签");
+    case FilterDim::Regex: return QObject::tr("正则");
+    case FilterDim::Unlinked: return QObject::tr("未挂接");
+    case FilterDim::UnknownType: return QObject::tr("类型未知");
+    case FilterDim::Warned: return QObject::tr("有警告");
   }
   return QString();
 }
@@ -86,7 +89,7 @@ struct FilterCondition
   QString display() const
   {
     const QString base = filterDimLabel(dim) + QStringLiteral(": ") + value;
-    return negate ? QStringLiteral("非 ") + base : base;
+    return negate ? QObject::tr("非 ") + base : base;
   }
 
   // 单条件匹配（negate 在此应用）。

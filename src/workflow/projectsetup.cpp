@@ -279,7 +279,7 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
     if (preview.paths.isEmpty()) {
       importMaps(sources, preview, session, tr("工程已保存，可随时补充资料。") + scanSummary, preview.sourceProblems.isEmpty()); return;
     }
-    m_imports->importFiles(preview.paths, preview.types, {}, [this, sources, preview, session, scanSummary](const auto &rows, const QString &error) {
+    m_imports->importFiles(preview.paths, preview.types, {}, [this, sources, preview, session, scanSummary](const auto &rows, const QString &error, bool cancelled) {
       if (!m_project || m_project->sessionId() != session) return;
       int failed = 0, imported = 0, skipped = 0, unresolved = 0;
       for (const auto &row : rows) {
@@ -294,7 +294,9 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
       if (!error.isEmpty()) summary += '\n' + error;
       if (!saved) summary += '\n' + m_project->lastErrors().join('\n');
       // 用户取消文件批后不得再开古地理图任务；已取消不是下一阶段的启动条件。
-      if (error.contains(QStringLiteral("已取消"))) {
+      // 取消是结构化标志（ImportDone 第三参），不再嗅探 error 文案——跨层文案
+      // 耦合一改措辞就失效（#801）。
+      if (cancelled) {
         emit finished(summary, false);
         return;
       }

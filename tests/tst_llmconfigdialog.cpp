@@ -15,8 +15,8 @@
 #include "../src/ui/ai/llmconfigdialog.h"
 #include "../src/ui/paleotheme.h"
 
-// 方向62：图形化配置对话框——视图契约（表单值/校验阻断/busy 态/密钥掩码/
-// 无钥匙串禁用态）。落盘 round-trip 在 tst_aichatcontroller 的 applyConfig
+// 方向62：图形化配置对话框——视图契约（表单值/校验阻断/busy 态含关窗拦截/
+// 密钥掩码/无钥匙串禁用态）。落盘 round-trip 在 tst_aichatcontroller 的 applyConfig
 // 用例（对话框不落盘——只发 applyRequested 意图）。
 //
 // 隔离：QStandardPaths 测试模式 + PALEO_LLM_NO_KEYCHAIN=1（两平台一致的
@@ -27,6 +27,7 @@ private slots:
   void initTestCase();
   void cleanupTestCase();
   void validFormEmitsApplyRequestOnceAndGoesBusy();
+  void busyBlocksCloseUntilApplyResultReturns();
   void invalidEndpointBlocksApply();
   void missingKeyStillAppliesButKeepsDisabledHint();
   void keyNeverEchoedInPlaintext();
@@ -96,6 +97,41 @@ void TestLlmConfigDialog::validFormEmitsApplyRequestOnceAndGoesBusy() {
   QCOMPARE(applied.size(), 2); // 失败后可重新提交
   dialog.onApplyResult(true, QString());
   QCOMPARE(dialog.result(), QDialog::Accepted);
+}
+
+void TestLlmConfigDialog::busyBlocksCloseUntilApplyResultReturns() {
+  // busy 在途（密钥异步写入未回流）时 Esc / 系统关闭一律拦在窗内：
+  // 关窗即让宿主完成回调随对话框连接作废，落成「磁盘已存、运行时未应用」。
+  LlmConfigDialog dialog{LlmConfig()};
+  dialog.findChild<QLineEdit *>(QStringLiteral("llmConfigEndpoint"))
+    ->setText(QStringLiteral("https://llm.example.com/v1"));
+  dialog.findChild<QLineEdit *>(QStringLiteral("llmConfigModel"))
+    ->setText(QStringLiteral("geo-model"));
+  dialog.show();
+  auto *buttons = dialog.findChild<QDialogButtonBox *>();
+  auto *cancel = buttons->button(QDialogButtonBox::Cancel);
+  QSignalSpy applied(&dialog, &LlmConfigDialog::applyRequested);
+  buttons->button(QDialogButtonBox::Ok)->click();
+  QCOMPARE(applied.size(), 1);
+  QVERIFY(dialog.isVisible());
+
+  QTest::keyClick(&dialog, Qt::Key_Escape); // Esc 路径
+  QVERIFY(dialog.isVisible());
+  QCOMPARE(dialog.result(), 0); // 未 Accepted
+  dialog.close(); // 系统关闭路径（标题栏 X / Alt+F4）
+  QVERIFY(dialog.isVisible());
+  QCOMPARE(dialog.result(), 0);
+  QVERIFY(!cancel->isEnabled()); // busy 期 Cancel 本就禁用
+  cancel->click();               // 禁用态点击无效
+  QVERIFY(dialog.isVisible());
+  QCOMPARE(dialog.result(), 0);
+  QCOMPARE(applied.size(), 1); // 拦截不得触发新意图
+
+  // 失败回流解除 busy 后，Cancel 恢复正常关窗语义。
+  dialog.onApplyResult(false, QStringLiteral("故意失败"));
+  cancel->click();
+  QVERIFY(!dialog.isVisible()); // busy 解除：关窗恢复
+  QCOMPARE(dialog.result(), QDialog::Rejected);
 }
 
 void TestLlmConfigDialog::invalidEndpointBlocksApply() {

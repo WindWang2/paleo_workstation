@@ -20,6 +20,10 @@
 #include <QTemporaryDir>
 #include <QTimer>
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 // 方向 32 UI 面（offscreen）：编辑器对话框的 CRUD/脏行标记/校验阻断/保存
 // round-trip、合并对话框默认取舍。模态 QMessageBox 用预置定时器自动关掉。
 class TestWellTopsEditorUi : public QObject
@@ -33,6 +37,7 @@ private slots:
   void insertDeleteSortRows();
   void zWithoutXYBlocksSave();
   void halfGroupRowLoadsCleanAndSaves();
+  void missingZRowLoadsCleanAndWritesSentinel();
   void precisionAndZSurviveEditorRoundTrip();
   void mergeDialogDefaultsAndResolutions();
 
@@ -42,6 +47,9 @@ private:
     QTemporaryDir dir;
     DataCatalog cat;
     QString assetId;
+    // true = A1 行块末尾追加一行 Z 缺失（DC.dat 该列空/哨兵，解析器置 NaN）
+    // ——finding-180 场景：编辑表须按缺失显示/收集，写盘落哨兵而非 0.000。
+    bool zMissingRow = false;
 
     static WellTopRecord rec(const QString &well, const QString &top, double md, double tvd)
     {
@@ -72,6 +80,14 @@ private:
            << rec(QStringLiteral("A1"), QStringLiteral("A"), 942.5, 942.5)
            << rec(QStringLiteral("A1"), QStringLiteral("B"), 1146.0, 1146.0)
            << rec(QStringLiteral("A2"), QStringLiteral("X"), 800.0, 800.0);
+      if (zMissingRow)
+      {
+        // Z 列缺失：写侧对非有限值落 -99999 哨兵（wellfileparsers.cpp
+        // writeWellTopsText），解析回读即 NaN。
+        WellTopRecord noZ = rec(QStringLiteral("A1"), QStringLiteral("ZTOP"), 1200.0, 1200.0);
+        noZ.z = std::numeric_limits<double>::quiet_NaN();
+        rows << noZ;
+      }
       CatalogEntity e;
       e.id = cat.nextEntityId(QStringLiteral("well"));
       e.entityType = QStringLiteral("well");
@@ -205,6 +221,66 @@ void TestWellTopsEditorUi::validationBlocksSaveOnErrorThenPasses()
   save->click();
   QCOMPARE(fx.cat.versionsForAsset(fx.assetId).size(), 2);
   delete dlg;
+}
+
+void TestWellTopsEditorUi::missingZRowLoadsCleanAndWritesSentinel()
+{
+  Fixture fx;
+  fx.zMissingRow = true;
+  QVERIFY(fx.build());
+  auto *dlg = openDialog(fx);
+  auto *table = dlg->findChild<QTableWidget *>(QStringLiteral("topsEditTable"));
+  QVERIFY(table);
+  QCOMPARE(table->rowCount(), 4);
+  // Z 缺失行：Z 单元格显示空而非 nan；且打开即净（不假脏——isDirty 恒真
+  // 会在关闭时误报「未保存的改动」）。
+  const int zRow = table->rowCount() - 1;
+  QCOMPARE(table->item(zRow, 1)->text(), QStringLiteral("ZTOP"));
+  QCOMPARE(table->item(zRow, 6)->text(), QString());
+  for (int r = 0; r < table->rowCount(); ++r)
+    QCOMPARE(table->item(r, 0)->text(), QStringLiteral("—"));
+
+  // 整口井可保存（finding-180 前：collectRows 拒收非有限值 → 保存被拦）。
+  table->item(2, 2)->setText(QStringLiteral("1150.000"));
+  auto *save = dlg->findChild<QPushButton *>(QStringLiteral("topsSaveButton"));
+  autoDismissModalBoxes();
+  save->click();
+  QCOMPARE(fx.cat.versionsForAsset(fx.assetId).size(), 2);
+  delete dlg;
+
+  // 写盘侧：Z 缺失落 -99999 哨兵，不落源文件里没有的 0.000。
+  const CatalogVersion v2 = fx.cat.currentVersion(fx.assetId);
+  QFile f(QDir(fx.dir.path()).absoluteFilePath(v2.path));
+  QVERIFY(f.open(QIODevice::ReadOnly));
+  const QByteArray bytes = f.readAll();
+  f.close();
+  bool foundZTop = false;
+  for (const QString &line : QString::fromUtf8(bytes).split(QLatin1Char('\n')))
+  {
+    const QStringList t = line.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    if (t.size() >= 6 && t.at(1) == QLatin1String("ZTOP"))
+    {
+      QCOMPARE(t.at(5), QStringLiteral("-99999.000"));
+      foundZTop = true;
+      break;
+    }
+  }
+  QVERIFY(foundZTop); // 哨兵断言必须真的落到 ZTOP 行上
+  const QVector<WellTopRecord> reread = parseWellTopsText(bytes);
+  const auto zIt = std::find_if(reread.cbegin(), reread.cend(),
+                                [](const WellTopRecord &r)
+                                { return r.topName == QLatin1String("ZTOP"); });
+  QVERIFY(zIt != reread.cend());
+  QVERIFY(zIt->hasX && zIt->hasY);
+  QVERIFY(std::isnan(zIt->z)); // 回读仍是缺失——round-trip 稳定
+
+  // 重开仍净：修好的显示/收集口径不因往返回来而假脏。
+  auto *reopened = openDialog(fx);
+  auto *table2 = reopened->findChild<QTableWidget *>(QStringLiteral("topsEditTable"));
+  QCOMPARE(table2->item(table2->rowCount() - 1, 6)->text(), QString());
+  for (int r = 0; r < table2->rowCount(); ++r)
+    QCOMPARE(table2->item(r, 0)->text(), QStringLiteral("—"));
+  delete reopened;
 }
 
 void TestWellTopsEditorUi::precisionAndZSurviveEditorRoundTrip()

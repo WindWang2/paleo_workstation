@@ -1,10 +1,12 @@
 // 层：QGIS 封装
 #include "projectnativegrid.h"
 #include "../catalog/datacatalog.h"
+#include <cmath>
 #include <qgscoordinatetransform.h>
 #include <qgsdatumtransform.h>
 #include <qgsexception.h>
 #include <qgsproject.h>
+#include <qgsrectangle.h>
 
 bool configureNativeProjectGrid(QgsProject *project, const QString &sourceCrs, const QString &destination, QString *error)
 {
@@ -32,6 +34,23 @@ bool configureNativeProjectGrid(QgsProject *project, const QString &sourceCrs, c
         if (error) *error = QObject::tr("无法注册工程坐标转换：%1").arg(id);
         return false;
       }
+      // 注册后同款可用性校验（affine 路径 projectmapreference.cpp:112-125 的
+      // 口径）：只验证实例化不够——坏操作串要到渲染期才静默出现，而工程此刻
+      // 已把坏上下文存盘。保存前确认点/边界/往返都真的能算。
+      QgsCoordinateTransform transform(local, crs, context);
+      if (!transform.isValid()) { if (error) *error = QObject::tr("工程坐标转换不能使用：%1").arg(id); return false; }
+      const auto point = transform.transform(QgsPointXY(0, 0));
+      if (!std::isfinite(point.x()) || !std::isfinite(point.y()))
+      { if (error) *error = QObject::tr("工程坐标转换返回无效位置：%1").arg(id); return false; }
+      // 地图绘制还会调用原生范围转换；保存配置前一并确认其正反向可用。
+      const auto bounds = transform.transformBoundingBox(QgsRectangle(0, 0, 1000, 1000));
+      const auto inverseBounds = transform.transformBoundingBox(bounds, Qgis::TransformDirection::Reverse);
+      const auto roundTrip = transform.transform(point, Qgis::TransformDirection::Reverse);
+      if (!std::isfinite(bounds.xMinimum()) || !std::isfinite(bounds.yMinimum())
+          || !std::isfinite(bounds.xMaximum()) || !std::isfinite(bounds.yMaximum())
+          || !std::isfinite(inverseBounds.xMinimum()) || !std::isfinite(inverseBounds.yMinimum())
+          || std::hypot(roundTrip.x(), roundTrip.y()) > 0.001)
+      { if (error) *error = QObject::tr("工程坐标范围转换不可用：%1").arg(id); return false; }
     }
   } catch (const QgsCsException &e) { if (error) *error = e.what(); return false; }
   project->setTransformContext(context);

@@ -50,7 +50,7 @@ private slots:
     void onItemChanged(QTreeWidgetItem *item, int column);
     void onHangingSideChanged();
     void onFaultSetChanged();
-    void onFaultSelectionChanged(const QStringList &faultIds);
+    void onFaultSelectionChanged(const QStringList &faultIds, const QString &origin);
 
 private:
     void buildUi();
@@ -71,6 +71,10 @@ private:
     QLabel *m_lblStatus = nullptr;
     QPointer<QgsMapTool> m_cutTool; // 层位图切割绘制工具（激活期间）
     QPointer<QgsAdvancedDigitizingDockWidget> m_cadDock; // 工具的 CAD dock（canvas 生命周期）
+    // 画布换工具哨子连接（onToggleCutDraw 重连）：本工具被外部换走时经
+    // QgsMapCanvas::mapToolSet 的 oldTool 认出并走中止收尾，防 m_cutTool 陈旧
+    // （按钮假激活 + teardown 误卸画布上别人的工具）。
+    QMetaObject::Connection m_toolWatch;
     bool mRefreshing = false;      // 程序化刷新期间屏蔽树信号
     bool mSyncingSelection = false; // 联动回声期间屏蔽选中信号
 };

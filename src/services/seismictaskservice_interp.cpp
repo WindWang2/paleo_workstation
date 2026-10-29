@@ -863,6 +863,17 @@ QString registerHorizonVersionEntry(
   v.parentVersionIds = QStringList{seismicVersionId};
   v.extra.insert(QStringLiteral("origin"), origin);
   v.extra.insert(QStringLiteral("pickCount"), pickCount);
+  // finding-95：登记幂等——产物路径同名原地覆盖，旧实现每次登记都新建版本行
+  // （UUID 全新 + versionNumber=1），标准迭代流程（拾取→登记→再拾取→再登记）
+  // 让被覆盖的旧版本行 sha256 失真、版本表无限膨胀；下面 addVersion 失败
+  // 分支的「重复登记」实际不可达（v.id 恒新）。登记前先比对当前版本：同
+  // sha 且产物在盘 → 复用返回（对齐 viz.cpp:625 的 ts/vol 口径）。
+  if (!v.sha256.isEmpty()) {
+    const CatalogVersion existing = catalog->currentVersion(asset.id);
+    if (!existing.id.isEmpty() && existing.sha256 == v.sha256 &&
+        QFileInfo::exists(existing.path))
+      return existing.path;
+  }
   if (!catalog->addVersion(v))
   {
     // 版本可能已存在（重复登记）——按 (asset, version) 幂等返回路径
@@ -1074,6 +1085,14 @@ QString SeismicTaskService::registerFaultAsset(
   v.fileName = fileName;
   v.parentVersionIds = QStringList{seismicVersionId};
   v.extra.insert(QStringLiteral("origin"), QStringLiteral("seismic-interpretation"));
+  // finding-95：同 registerHorizonVersionEntry——产物同名原地覆盖，登记前
+  // 比对当前版本（同 sha 且产物在盘即复用），版本表不随重复登记膨胀。
+  if (!v.sha256.isEmpty()) {
+    const CatalogVersion existing = catalog->currentVersion(asset.id);
+    if (!existing.id.isEmpty() && existing.sha256 == v.sha256 &&
+        QFileInfo::exists(existing.path))
+      return existing.path;
+  }
   if (!catalog->addVersion(v))
   {
     if (error)

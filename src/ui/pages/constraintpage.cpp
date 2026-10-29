@@ -365,10 +365,16 @@ void ConstraintPage::refreshFactorLayers() {
   auto *table = child<QTableWidget>(this, "factorTable");
   if (!table || !horizons)
     return;
+  // finding-120：清单读取失败时 declared() 返回空表，会被误当成「无已生成
+  // 因素」——瞬时 IO 失败会把全部因素状态清成「未生成」并清空已生成图层映射。
+  // 改用 tryDeclared，失败即早退保留现有状态（同 ComposePage::refreshFactors 守卫）。
+  QVector<LayerDeclaration> declared;
+  if (svc && !svc->tryDeclared(&declared))
+    return;
   const QString prefix = QStringLiteral("factor.%1.").arg(horizons->currentText());
   QVariantMap generated;
   if (svc)
-    for (const auto &d : svc->declared())
+    for (const auto &d : declared)
       if (d.horizon == horizons->currentText() && d.layerId.startsWith(prefix))
         generated.insert(d.layerId.mid(prefix.size()), d.layerId);
   setProperty(kFactorGenProp, generated);

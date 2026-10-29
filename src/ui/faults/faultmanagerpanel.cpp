@@ -192,8 +192,19 @@ void FaultManagerPanel::onRenameFault()
                                                tr("新名称："), QLineEdit::Normal, f->name, &ok);
     if (!ok || name.trimmed().isEmpty() || name.trimmed() == f->name)
         return;
-    if (!m_controller->renameFault(faultId, name.trimmed())) {
-        m_lblStatus->setText(tr("重命名失败：名称「%1」已被占用").arg(name.trimmed()));
+    const QString newName = name.trimmed();
+    if (!m_controller->renameFault(faultId, newName)) {
+        // 失败原因必须分流：撞名（controller 入栈前预检，模型不变、不落盘）与
+        // 落盘失败（commitModel 把原因记进 lastError）。落盘失败的真实原因不能
+        // 被「已被占用」盖掉——那会误导用户去改一个不相关的名字。
+        // 判据取 hasFaultNamed 而非「lastError 非空」：lastError 只在成功落盘
+        // 时清零，上一次失败的原因会残留，拿它分流会把撞名误报成旧磁盘错误。
+        if (m_controller->faultSet().hasFaultNamed(newName))
+            m_lblStatus->setText(tr("重命名失败：名称「%1」已被占用").arg(newName));
+        else if (const QString err = m_controller->lastError(); !err.isEmpty())
+            m_lblStatus->setText(tr("重命名失败：%1").arg(err));
+        else
+            m_lblStatus->setText(tr("重命名失败：新名称无法应用"));
         return;
     }
     m_lblStatus->clear();
@@ -225,13 +236,26 @@ void FaultManagerPanel::onToggleCutDraw(bool checked)
         m_btnDrawCut->setChecked(false); // 无画布：复位开关，不留假激活态
         return;
     }
+    if (m_cutTool)
+        teardownCutTool(); // 重复开镜：先收旧工具，别覆盖 m_cutTool 留下泄漏
     if (!m_cadDock) // CAD dock 随 canvas 生命周期（QgsMapToolAdvancedDigitizing 需要非空）
         m_cadDock = new QgsAdvancedDigitizingDockWidget(canvas, canvas);
     auto *tool = new PaleoDrawPolygonTool(canvas, m_cadDock);
     connect(tool, SIGNAL(constraintDrawn(QString)), this, SLOT(onCutDrawn(QString)));
     connect(tool, SIGNAL(drawAborted()), this, SLOT(onCutDrawAborted()));
+    m_cutTool = tool; // 先登记再装：换工具哨子靠它认出「自己被外部换走」
+    // 画布换工具哨子（ConstraintDrawController 同款口径）：本工具被外部换走
+    // （原生控件/编辑工具条抢装、Esc 走 deactivateTool）时，经画布 mapToolSet
+    // 的 oldTool 认出自己被卸，走同一条中止收尾——否则按钮假激活，teardown
+    // 还会把画布上那个外来工具当成自己的 unset 掉（踢用户工具）。
+    // 自走 teardown 时 m_cutTool 已先清零，oldTool 对不上即不会误触。
+    disconnect(m_toolWatch);
+    m_toolWatch = connect(canvas, &QgsMapCanvas::mapToolSet, this,
+                          [this](QgsMapTool *newTool, QgsMapTool *oldTool) {
+                              if (oldTool == m_cutTool && newTool != m_cutTool)
+                                  onCutDrawAborted(); // 外部卸载：等同 Esc 中止
+                          });
     m_canvasCtl->setMapTool(tool);
-    m_cutTool = tool;
     emit cutDrawToggled(true);
     m_lblStatus->setText(tr("绘制中：左键加点，右键收笔（≥3 点）；Esc 取消。目标层位 = %1")
                              .arg(m_controller->activeHorizon()));
@@ -299,16 +323,36 @@ void FaultManagerPanel::onHangingSideChanged()
 void FaultManagerPanel::onFaultSetChanged()
 {
     refreshTree();
+    // 落盘提示随 lastError 状态同步：失败时如实显示，恢复后即清——否则一次
+    // 失败后的提示会粘滞在面板上，冒充后续每一次操作的状态。
     if (m_controller && !m_controller->lastError().isEmpty())
         m_lblStatus->setText(tr("落盘失败：%1").arg(m_controller->lastError()));
+    else
+        m_lblStatus->clear();
 }
 
-void FaultManagerPanel::onFaultSelectionChanged(const QStringList &faultIds)
+void FaultManagerPanel::onFaultSelectionChanged(const QStringList &faultIds,
+                                                const QString &origin)
 {
-    if (faultIds.isEmpty())
+    if (!m_controller)
         return;
+    if (origin == QStringLiteral("fault_panel"))
+        return; // 自己发起的选择回声（含空选择）：树即真源，无需再搬
+    if (faultIds.isEmpty()) {
+        // 其他视图（地图镜像层/剖面/工程复位）清空选择：面板树必须跟着清，
+        // 否则树选中与全局选择真源长期分叉，后续编辑会打到用户已放弃的断层上。
+        // 选中与当前项都要清——selectedFaultId() 有 currentItem 兜底，只清
+        // 选中会留下一个「看起来没选、实际还选着」的幽灵活动断层。
+        mSyncingSelection = true;
+        m_tree->clearSelection();
+        m_tree->setCurrentItem(nullptr);
+        mSyncingSelection = false;
+        m_controller->setActiveFaultId(QString());
+        m_cboHangingSide->setCurrentIndex(0); // 复位上盘方向显示
+        return;
+    }
     if (faultIds.size() == 1 && faultIds.first() == selectedFaultId())
-        return; // 自己发起的选择回声，无需搬树
+        return; // 与树现状一致的回声，无需搬树
     // 其他视图（地图/剖面）发起：镜像到树选中（屏蔽信号防再广播）
     mSyncingSelection = true;
     const QString &id = faultIds.first();
@@ -371,7 +415,11 @@ void FaultManagerPanel::teardownCutTool()
         return;
     QgsMapTool *tool = m_cutTool;
     m_cutTool = nullptr;
-    if (m_canvasCtl)
+    // 只在画布当前工具仍是本面板的工具时才走正式 unset（deactivate）路径——
+    // 工具已被外部换走时，画布上那个是别人的，unset 它会踢掉用户正在用的工具
+    // （陈旧 m_cutTool 已由 mapToolSet 哨子同步清零，见 onToggleCutDraw；
+    // ConstraintDrawController::teardown 同款口径）。
+    if (m_canvasCtl && m_canvasCtl->activeTool() == tool)
         m_canvasCtl->setMapTool(nullptr); // 正式 unset（deactivate）路径
     tool->deleteLater();
 }

@@ -63,6 +63,13 @@ class FencePreview : public QWidget
     explicit FencePreview(QWidget *parent = nullptr) : QWidget(parent)
     {
         setMinimumHeight(160);
+        // #753：只读预览也要可被读屏报到——可聚焦（Tab 可到，键盘不改内容，
+        // 不接键盘事件）+ 可访问名/描述说明它画什么。
+        setFocusPolicy(Qt::StrongFocus);
+        setAccessibleName(tr("井网预览"));
+        setAccessibleDescription(
+            tr("栅状图井网预览：按井位坐标绘制各剖面条带的折线与交点井，"
+               "无坐标井不参与绘制"));
     }
     void setModel(QVector<WellSectionPanel::WellChoice> choices,
                   QVector<QStringList> sections)

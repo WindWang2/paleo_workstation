@@ -203,6 +203,13 @@ if(PALEO_PYTHON3)
   # 此前零注册（检查器自身坏掉不能静默变绿；跨 run 聚合接线见 #501 后续）。
   add_test(NAME flaky_ledger_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_flaky_ledger.py --selftest)
+  # #760：Windows/Linux 测试门禁共享规则（tools/ci-gate-rules.json 单一真源）——
+  # consistency 逐轮核对两端脚本的内联回落副本与 JSON 一致、且都从共享规则取
+  # 结果行口径，防两端门禁语义悄悄漂移；selftest 验证渲染/转义/Timeout 入库。
+  add_test(NAME ci_gate_rules COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/ci_gate_rules.py --check-consistency)
+  add_test(NAME ci_gate_rules_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/ci_gate_rules.py --selftest)
   # goal/ui-experience-polish：UI 不变量闸门——DESIGN.md Motion 禁编排动画
   #（src/ui 零 QPropertyAnimation/QEasingCurve/setAnimated(true)）+ QSS 裸
   # hex 零容忍（token 单一真源 = paleotheme；baseline 只缩不涨，strict 防回升）。
@@ -288,6 +295,7 @@ if(PALEO_PYTHON3)
                        layering_symbol_audit layering_transitive
                        layering_qgs_audit
                        ci_known_reds ci_triage_reds_selftest flaky_ledger_selftest
+                       ci_gate_rules ci_gate_rules_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        ui_size ui_size_strict ui_size_selftest
@@ -303,6 +311,31 @@ if(PALEO_PYTHON3)
                        lo_pin lo_pin_selftest
                        role_tables role_tables_selftest
                        PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
+  # #767：Python 闸门项此前会在源码树留下字节码（tools/__pycache__/…、
+  # tests/__pycache__/…）——ctest 跑完工作树即脏（git status 噪音），且跨平台
+  # 大小写敏感文件系统上陈旧 .pyc 有隐性风险。全部 Python 闸门项统一注入
+  # PYTHONDONTWRITEBYTECODE=1；与 PYTHONUTF8 合并设置——ENVIRONMENT 是整体
+  # 覆盖非追加，两个值必须在同一串里，否则后一次 set_tests_properties 会把
+  # 前一次注入的 PYTHONUTF8 顶掉（Windows cp1252 控制台下中文报告行即假红）。
+  set(_paleo_py_gates
+      well_facies_input_audit
+      layering layering_strict layering_selftest
+      layering_symbol_audit layering_transitive layering_qgs_audit
+      qgis_spread qgis_spread_strict qgis_spread_selftest
+      ci_known_reds ci_triage_reds_selftest flaky_ledger_selftest
+      ci_gate_rules ci_gate_rules_selftest
+      ui_invariants ui_invariants_strict ui_invariants_selftest
+      i18n i18n_selftest
+      ui_tokens ui_tokens_strict ui_tokens_selftest
+      ui_size ui_size_strict ui_size_selftest
+      file_budget file_budget_strict file_budget_selftest
+      qgis_versions qgis_versions_selftest
+      qgis_resources_selftest env_redset_validate env_redset_selftest
+      pin_osgeo4w_selftest docs_drift docs_drift_selftest
+      lo_pin lo_pin_selftest
+      role_tables role_tables_selftest)
+  set_tests_properties(${_paleo_py_gates}
+                       PROPERTIES ENVIRONMENT "PYTHONUTF8=1;PYTHONDONTWRITEBYTECODE=1")
 endif()
 # ---- C++ 主线边界护栏（goal/cpp-primary-boundary-20261025）----
 # cmake/verify-cpp-mainline.cmake（cmake -P，零 Python 依赖）：src/ 零 Python

@@ -2,6 +2,7 @@
 #include "wellattachmentpanel.h"
 
 #include "../../catalog/datacatalog.h"
+#include "../../services/futuretask.h"
 #include "../../services/imagelod.h"
 #include "../dialogs/depthanchordialog.h"
 #include "../notifications/paleonotify.h"
@@ -21,7 +22,6 @@
 #include <QPushButton>
 #include <QSet>
 #include <QTableWidget>
-#include <QThreadPool>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QtConcurrent>
@@ -198,6 +198,11 @@ void WellAttachmentPanel::setCatalog(DataCatalog *cat)
   refresh();
 }
 
+void WellAttachmentPanel::setTaskService(PaleoTaskService *service)
+{
+  m_taskService = service;
+}
+
 void WellAttachmentPanel::reloadWells()
 {
   if (!m_cat)
@@ -357,6 +362,10 @@ void WellAttachmentPanel::decodeThumbnails(
   // D.4：解码搬到工作线程——loadThumbnail 线程安全（只交 QImage）；
   // QPixmap 不是线程安全的，fromImage 与缓存写入都在完成回调（GUI 线程）做
   // （imagelod.h 口径）。失败图也回传（键要清 pending，下次刷新重试）。
+  // #773：改跑 PaleoTaskService 的专用 workerPool（≤4 线程）并经
+  // futuretask 登记（quiet 任务：可取消、退出 shutdown 排空时不再拖全局池；
+  // 面板先亡即取消在途解码）。无服务宿主（测试壳）回落全局池——与
+  // imagelod FullImageCache::requestDecode 同口径。
   using Batch = QVector<QPair<QString, QImage>>;
   auto *watcher = new QFutureWatcher<Batch>(this);
   connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
@@ -372,8 +381,8 @@ void WellAttachmentPanel::decodeThumbnails(
     }
     applyThumbnailBatch(decoded);
   });
-  watcher->setFuture(QtConcurrent::run(QThreadPool::globalInstance(),
-                                       [jobs]() -> Batch {
+  const auto future =
+      QtConcurrent::run(paleo::tasks::pool(m_taskService), [jobs]() -> Batch {
     Batch out;
     out.reserve(jobs.size());
     for (const auto &job : jobs)
@@ -383,7 +392,10 @@ void WellAttachmentPanel::decodeThumbnails(
       out.append({job.first, ti.thumbnail}); // 失败 = 空图（键照常回传）
     }
     return out;
-  }));
+  });
+  paleo::tasks::track(m_taskService, watcher, future,
+                      tr("解码井附件缩略图"), /*quiet=*/true);
+  watcher->setFuture(future);
 }
 
 void WellAttachmentPanel::applyThumbnailBatch(

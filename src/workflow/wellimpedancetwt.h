@@ -80,8 +80,28 @@ inline bool wellImpedanceTwt(const std::vector<double> &acDepthsM, const std::ve
         return false;
     twtMs->clear();
     impedance->clear();
-    std::vector<double> depths = acDepthsM;
-    depths.insert(depths.end(), denDepthsM.begin(), denDepthsM.end());
+    // #211：深度并集直接 std::sort / std::unique / upper_bound——并集里只要
+    // 有一个 NaN 就破坏严格弱序（未定义行为），插值结果也可能静默错值。
+    // 入口先按 appendTimeDepthPairs 同口径剔除非有限深度样（连同样值一并
+    // 剔），并集与插值都用过滤后的表。
+    std::vector<double> acDepths;
+    std::vector<float> acValues;
+    for (std::size_t i = 0; i < acDepthsM.size(); ++i)
+        if (std::isfinite(acDepthsM[i]) && std::isfinite(acUsPerM[i])) {
+            acDepths.push_back(acDepthsM[i]);
+            acValues.push_back(acUsPerM[i]);
+        }
+    std::vector<double> denDepths;
+    std::vector<float> denVals;
+    for (std::size_t i = 0; i < denDepthsM.size(); ++i)
+        if (std::isfinite(denDepthsM[i]) && std::isfinite(denValues[i])) {
+            denDepths.push_back(denDepthsM[i]);
+            denVals.push_back(denValues[i]);
+        }
+    if (acDepths.empty() || denDepths.empty())
+        return false;
+    std::vector<double> depths = acDepths;
+    depths.insert(depths.end(), denDepths.begin(), denDepths.end());
     std::sort(depths.begin(), depths.end());
     depths.erase(std::unique(depths.begin(), depths.end()), depths.end());
     auto interp = [](const std::vector<double> &xs, const std::vector<float> &ys, double x) -> double {
@@ -96,8 +116,8 @@ inline bool wellImpedanceTwt(const std::vector<double> &acDepthsM, const std::ve
         return double(ys[lo]) + f * (double(ys[hi]) - double(ys[lo]));
     };
     for (double d : depths) {
-        const double dt = interp(acDepthsM, acUsPerM, d);
-        const double denV = interp(denDepthsM, denValues, d);
+        const double dt = interp(acDepths, acValues, d);
+        const double denV = interp(denDepths, denVals, d);
         if (!(dt > 1e-6) || !(denV > 0.0))
             continue;
         const double t = interpTwtNoExtrapolate(tdDepthM, tdTwtMs, d);

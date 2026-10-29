@@ -388,26 +388,44 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
         continue;
       }
       const QgsGeometry g = f.geometry();
-      const QgsPointXY p = g.isMultipart() ? g.asMultiPoint().value( 0 ) : g.asPoint();
-      if ( !std::isfinite( p.x() ) || !std::isfinite( p.y() ) )
+      // PW-129 同口径：多部件点要素逐部件入样——旧式只取第 1 个点，其余部件
+      // 的井样被静默丢弃（插值面错值、取样回执失真）。回执按部件记，并标注
+      // part_count 便于下游识别多部件井。
+      QVector<QgsPointXY> parts;
+      if ( g.isMultipart() )
+        parts = g.asMultiPoint();
+      else
+        parts << g.asPoint();
+      const int partCount = parts.size();
+      for ( int part = 0; part < partCount; ++part )
       {
-        skip( QStringLiteral( "non_finite_coordinate" ) );
-        continue;
+        const QgsPointXY &p = parts.at( part );
+        if ( !std::isfinite( p.x() ) || !std::isfinite( p.y() ) )
+        {
+          skip( QStringLiteral( "non_finite_coordinate" ) );
+          continue;
+        }
+        const QVariant zv = f.attribute( fieldIdx );
+        bool ok = false;
+        const double z = zv.toDouble( &ok );
+        if ( zv.isNull() || !ok || !std::isfinite( z ) )
+        {
+          skip( QStringLiteral( "field_missing_or_non_finite" ) ); // 不让 NaN/Inf 污染网格
+          continue;
+        }
+        QVariantMap partReceipt = receipt;
+        if ( partCount > 1 )
+        {
+          partReceipt.insert( QStringLiteral( "part" ), part );
+          partReceipt.insert( QStringLiteral( "part_count" ), partCount );
+        }
+        partReceipt.insert( QStringLiteral( "participating" ), true );
+        partReceipt.insert( QStringLiteral( "x" ), p.x() );
+        partReceipt.insert( QStringLiteral( "y" ), p.y() );
+        partReceipt.insert( QStringLiteral( "value" ), z );
+        sampleReceipts << partReceipt;
+        samples.push_back( { p.x(), p.y(), z } );
       }
-      const QVariant zv = f.attribute( fieldIdx );
-      bool ok = false;
-      const double z = zv.toDouble( &ok );
-      if ( zv.isNull() || !ok || !std::isfinite( z ) )
-      {
-        skip( QStringLiteral( "field_missing_or_non_finite" ) ); // 不让 NaN/Inf 污染网格
-        continue;
-      }
-      receipt.insert( QStringLiteral( "participating" ), true );
-      receipt.insert( QStringLiteral( "x" ), p.x() );
-      receipt.insert( QStringLiteral( "y" ), p.y() );
-      receipt.insert( QStringLiteral( "value" ), z );
-      sampleReceipts << receipt;
-      samples.push_back( { p.x(), p.y(), z } );
     }
   }
   if ( samples.empty() )
@@ -1033,6 +1051,20 @@ QVariantMap GeologicalSmoothingAlgorithm::processAlgorithm( const QVariantMap &p
     throw QgsProcessingException( QStringLiteral( "INPUT raster has no band" ) );
   GDALRasterBandH inBand = GDALGetRasterBand( inDs.get(), 1 );
   const GridInfo grid = gridOf( inDs.get() );
+  // #33 同口径像元预算闸（PaleoAlgoGuards::gridDimsForExtent 的 1e8）：整幅
+  // 读入 + 双缓冲（cur/nxt 各 4B/像元）在超大输入下 bad_alloc 不被转成
+  // Processing 错误——超限如实报错（提示降低分辨率/分块），不带着未捕获异常
+  // 崩在任务线程里。
+  constexpr qint64 kMaxSmoothingCells = 100'000'000;
+  const qint64 smoothingCells = static_cast<qint64>( grid.cols ) * grid.rows;
+  if ( !( grid.cols > 0 ) || !( grid.rows > 0 ) || smoothingCells > kMaxSmoothingCells )
+    throw QgsProcessingException( QStringLiteral(
+        "INPUT raster %1x%2 (%3 cells) exceeds the %4-cell budget — reduce the "
+        "resolution or process it in tiles" )
+        .arg( grid.cols )
+        .arg( grid.rows )
+        .arg( smoothingCells )
+        .arg( kMaxSmoothingCells ) );
   bool hasNodata = false;
   double nodata = 0;
   bandNodata( inBand, hasNodata, nodata );

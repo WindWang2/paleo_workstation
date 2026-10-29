@@ -787,7 +787,8 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   return id;
 }
 bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
-                                         const QString &role, QString *error) {
+                                         const QString &role, QString *error,
+                                         paleo::ConstraintImportFailure *failure) {
   if (!ready(h, error))
     return false;
   // 与既有导入同一坐标门：约束几何必须落在本工程局部米制网格。
@@ -803,7 +804,7 @@ bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
       importMeta = importCrsProvenance(probe.crs());
   }
   const auto records =
-      paleo::readConstraintImportFeatures(path, role, nullptr, error);
+      paleo::readConstraintImportFeatures(path, role, nullptr, error, {}, failure);
   if (records.isEmpty())
     return false;
   // Copy the entire source into a managed GPKG (including shapefile sidecars).

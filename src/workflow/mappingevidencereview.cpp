@@ -186,12 +186,28 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
   if (!read(f, &records, &interpretation, &error)) { out.insert("error", error); return out; }
   const QVariantMap spatialTarget{{"wkb", f.geometry().asWkb()}, {"crs_wkt", v->crs().toWkt()}};
   QSet<QString> spatialSources;
+  // #198：详情视图此前对每条 evidence record 逐条跑空间解析/空间查询，既无
+  // 记录数上界也不走缓存（缓存只在 loadSavedSource=true 分支生效）——records
+  // 累积后单次点击即卡死 UI。缓存同样服务本路径（同来源的重复记录命中，不
+  // 重跑查询），并对空间核查设记录数上界。
+  QHash<QString, QVariantMap> spatialResults;
   const auto spatial = [&](const QVariantMap &row) {
-    return resolveEvidenceSource(row, spatialTarget, false, &spatialSources);
+    return resolveEvidenceSource(row, spatialTarget, false, &spatialSources, &spatialResults);
   };
   // Catalog answers use stable IDs and O(1) lookups; no active QGIS object is
   // passed to the background graph workflow.
-  for (auto &value : records) value = spatial(value.toMap());
+  const int spatialBudget = 100; // 与 evidence() 的详情上限同口径
+  for (int n = 0; n < records.size(); ++n) {
+    if (n >= spatialBudget) {
+      auto row = records[n].toMap();
+      row.insert("spatial_state", "deferred");
+      row.insert("spatial_message",
+                 tr("证据记录较多，仅核查前 %1 条的空间关联").arg(spatialBudget));
+      records[n] = row;
+      continue;
+    }
+    records[n] = spatial(records[n].toMap());
+  }
   QVariantList spatialCandidates;
   for (int n = 0; n < qMin(8, int(generation.size())); ++n) {
     auto row = spatial(generation[n].toMap()); generation[n] = row;
@@ -557,9 +573,12 @@ QVariantMap MappingWorkbench::resolveEvidenceSource(const QVariantMap &record,
   }
   const auto pinnedUid = row.value("source_feature_uid").toString().trimmed();
   if (loadSavedSource && pinnedUid.isEmpty()) return row; // catalog health is enough for an unpinned reference.
+  // 缓存键带上 loadSavedSource 模式：两条路径的结果形状/限额不同（saved 走
+  // LIMIT 1 的精确核查，detail 走 LIMIT 20 的候选列举），不共用同一条目。
   const auto spatialKey = paleo::evidence::fingerprint(QVariantList{sourceId, pinnedUid,
       QString::fromLatin1(QCryptographicHash::hash(spatialTarget.value("wkb").toByteArray(), QCryptographicHash::Sha256).toHex()),
-      spatialTarget.value("crs_wkt")});
+      spatialTarget.value("crs_wkt"),
+      loadSavedSource ? QStringLiteral("saved") : QStringLiteral("detail")});
   const auto applySpatial = [&](const QString &layerId, const QVariantMap &result) {
     const auto state = result.value("state").toString();
     row.insert("source_layer", layerId); row.insert("spatial_state", state); row.insert("spatial_query", result);
@@ -568,7 +587,7 @@ QVariantMap MappingWorkbench::resolveEvidenceSource(const QVariantMap &record,
     if (state == "intersects" || state == "disjoint") row.insert("spatial_intersection", state == "intersects");
     if (state == "missing" || state == "ambiguous") row.insert("source_feature_missing", true);
   };
-  if (loadSavedSource && spatialResults && spatialResults->contains(spatialKey)) {
+  if (spatialResults && spatialResults->contains(spatialKey)) {
     const auto cached = spatialResults->value(spatialKey);
     applySpatial(cached.value("layer_id").toString(), cached.value("result").toMap()); return row;
   }
@@ -631,6 +650,10 @@ QVariantMap MappingWorkbench::resolveEvidenceSource(const QVariantMap &record,
   adapter->bindLayer(qobject_cast<QgsVectorLayer *>(loaded));
   const auto result = adapter->spatialCandidates(loaded, spatialTarget, pinnedUid, 20);
   applySpatial(sourceLayer, result);
+  // #198：详情路径（loadSavedSource=false）也进缓存——同来源的多条记录不再
+  // 重跑同一空间查询。
+  if (spatialResults && spatialResults->size() < 1024)
+    spatialResults->insert(spatialKey, {{"layer_id", sourceLayer}, {"result", result}});
   return row;
 }
 bool MappingWorkbench::addEvidence(const QString &id, const QList<qint64> &ids, const QVariantMap &entry, QString *error) {

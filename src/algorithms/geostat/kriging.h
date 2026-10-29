@@ -4,6 +4,7 @@
 #include "types.h"
 #include "variogram.h"
 
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -16,6 +17,24 @@
 // 层：数据
 namespace paleo::geostat
 {
+
+// PW-018 / #802：OK 权重病态闸——Σλ=1 下 Σ|λ| 远大于 1 意味着大幅正负抵消的
+// 权重（近奇异方程组），估值可越出数据范围数个量级。geostat 与 singlefactor
+// （localidw 的克里金分支）共用同一口径：旧式只在 geostat 侧设闸，另一处
+// 静默放行，同族实现两道闸分叉。
+constexpr double kMaxKrigingAbsWeightSum = 10.0;
+
+inline bool krigingWeightsAdmissible( double absWeightSum )
+{
+  return std::isfinite( absWeightSum ) && absWeightSum <= kMaxKrigingAbsWeightSum;
+}
+
+// #802：全局一次分解（PW-079）的样本数上限——按矩阵内存预算推导而非魔数。
+// (n+1)² double 的加边矩阵与 luFactor 的工作区副本双份驻留：64 MiB 矩阵预算
+// → n+1 ≤ sqrt(64MiB/8) = 2896 → n ≤ 2895（峰值 ≈ 128 MiB；旧魔数 4000 的
+// 峰值 ≈ 256 MiB）。超限退逐格求解（该路径对 n>上限本就存在；maxPoints<=0 时
+// 逐格用全部样本，井数大时应配 krigingMaxPoints>0 而非追加上限）。
+inline constexpr int kMaxGlobalFactorSamples = 2895;
 
 struct KrigingParams
 {

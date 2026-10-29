@@ -58,7 +58,8 @@ struct CandidateBoundaryResult
   Status status = Status::InvalidInput;
   std::string message;
   std::vector<CandidateRegion> regions;
-  QVariantMap diagnostics;  // face_count/dropped_small/zone_conflict_faces/…
+  QVariantMap diagnostics;  // face_count/dropped_small/zone_conflict_faces/
+                            // dropped_contour_lines/domain_union_failed/…
 };
 
 // 几何管线：域并集 → 等值线裁剪到域 →（域环+等值线）unaryUnion 节点化 →

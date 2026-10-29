@@ -172,6 +172,14 @@ class PreviewDocService : public QObject
     // 「重新定位文件」后重验）。失配时由服务内部把下游 DERIVED 如实标过时。
     bool verifyExternalSha(const QString &assetId, const CatalogVersion &version,
                            QString *error) const;
+    // 同一道闸门的后台版（镜像地震解码任务的 hash 路径）：整份哈希跑任务池
+    // （字节进度/协作取消），结果回主线程再碰 catalog。短路口径与同步版一致
+    // （托管/无指纹/本会话已验 → 立即 ok）；无任务服务时退回同步复验（测试/
+    // 小夹具环境）。done 只在主线程调一次；receiver 销毁即取消在途校验
+    // （大体积外链不白读），取消时不回调（页已关闭，无处回填）。
+    void verifyExternalShaAsync(const QString &assetId, const CatalogVersion &version,
+                                const QString &absPath, QObject *receiver,
+                                std::function<void(bool ok, const QString &error)> done);
     void resetSha(const QString &assetId);
     bool markDownstreamStale(const QString &versionId, const QString &reason,
                              QString *error);

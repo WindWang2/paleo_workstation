@@ -482,8 +482,24 @@ switch ($Verb) {
       # ctest 的 --output-on-failure 在 Windows runner 上回收不到子进程
       # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台。
       # 与 Linux gate 对齐：崩溃/abort 不按一次性环境抖动放行。
-      $crashPattern = '\*\*\*Exception|\*\*\*Timeout|Subprocess aborted|Child aborted|Subprocess killed|Illegal|SegFault'
-      if (Select-String -Path $log -Pattern $crashPattern -Quiet) {
+      # #760：崩溃 markers 与「只扫 ctest 结果行」的口径单一真源在
+      # tools/ci-gate-rules.json，与 Linux tools/ci_ctest_gate.sh 同读一份。
+      # python 不可用时退回内联副本；副本与 JSON 的一致性由 ctest 项 ci_gate_rules
+      # 每轮看守（防两端悄悄漂移）。扫描范围收敛到 ctest 结果行——此前扫整份日志，
+      # 测试自身输出里出现 "Illegal" 字样即假红。
+      $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
+      $crashPattern = ''
+      try { $crashPattern = (& $py (Join-Path $Root 'tools/ci_gate_rules.py') --regex 2>$null | Select-Object -First 1) } catch { }
+      if (-not $crashPattern) {
+        $crashPattern = '\*\*\*Exception|\*\*\*Timeout|Subprocess aborted|Child aborted|Subprocess killed|Illegal|SegFault'
+      }
+      $resultLineRegex = ''
+      try { $resultLineRegex = (& $py (Join-Path $Root 'tools/ci_gate_rules.py') --result-line-regex 2>$null | Select-Object -First 1) } catch { }
+      if (-not $resultLineRegex) { $resultLineRegex = 'Test +#[0-9]+:' }
+      $crashLines = @(Select-String -Path $log -Pattern $resultLineRegex |
+        Where-Object { $_.Line -match $crashPattern })
+      if ($crashLines.Count -gt 0) {
+        $crashLines | ForEach-Object { $_.Line }
         throw 'CTest failed (crash-class failure)'
       }
       $names = @( & ctest --test-dir $Build --rerun-failed -N @ctestExtra 2>$null |
@@ -494,7 +510,8 @@ switch ($Verb) {
       # #501：接 --strict——STALE（exempt 项本轮通过 → 名单可收缩）不再静默：
       # 过渡档只警告（名单僵化提醒），PALEO_REDSET_STALE=strict 升红；STALE
       # 不影响豁免红自身的放行（keep 集剔除 STALE 条目）。
-      $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
+      # #760：keep 集（不放行集合）即直跑集，与 Linux ci_ctest_gate.sh 的
+      # rerun_names 同口径——EXEMPT/DOCUMENTED 既不直跑也不入 flaky 台账。
       $unexpectedFile = Join-Path $Build 'Testing/env-redset-unexpected.txt'
       Remove-Item $unexpectedFile -Force -ErrorAction SilentlyContinue
       $redsetExit = 1
@@ -539,10 +556,13 @@ switch ($Verb) {
         $qtout = Join-Path $logDir "$n.qtout.txt"
         # 直跑复现 ctest 环境（该测试的 ENVIRONMENT 属性 + 工作目录=构建目录）。
         $saved = @{}
+        # #765：该 ctest 项的 TIMEOUT 属性，用作下面直跑的单测超时（缺省 1500s）。
+        $timeoutSec = 0
         try {
           $json = & ctest --test-dir $Build -R "^$([regex]::Escape($n))`$" --show-only=json-v1 2>$null | Out-String | ConvertFrom-Json
           foreach ($t in @($json.tests)) {
             foreach ($p in @($t.properties)) {
+              if ($p.name -eq 'TIMEOUT') { $timeoutSec = [int]$p.value }
               if ($p.name -ne 'ENVIRONMENT') { continue }
               foreach ($kv in @($p.value)) {
                 $i = $kv.IndexOf('=')
@@ -557,8 +577,50 @@ switch ($Verb) {
         $rerunExit = 1
         Push-Location $Build
         try {
-          & $exe -o "$qtout,txt" 2>&1 | Tee-Object -FilePath $log -Append
-          $rerunExit = $LASTEXITCODE
+          # #765：直跑必须带单测超时。此前 `& $exe | Tee-Object` 无超时，挂死的
+          # 测试会让 windows 车道干等到 job 级 360 分钟才被杀。这里复用该 ctest
+          # 项的 TIMEOUT 属性（缺省 1500s，与 Linux ctest 同源），超时即杀进程树
+          # 并按红记（挂死不按负载抖动放行，与 Linux ci_ctest_gate.sh 的崩溃判红
+          # 同口径）。stdout/stderr 走异步读（ReadToEndAsync + Task.WaitAll）——
+          # 管道缓冲被写满时同步读会与「进程阻塞在写」互锁，造成假超时。
+          if ($timeoutSec -le 0) { $timeoutSec = 1500 }
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = $exe
+          $psi.Arguments = '-o "' + $qtout + ',txt"'
+          $psi.WorkingDirectory = $Build
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow = $true
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $outTask = $proc.StandardOutput.ReadToEndAsync()
+          $errTask = $proc.StandardError.ReadToEndAsync()
+          if ($proc.WaitForExit($timeoutSec * 1000)) {
+            $rerunExit = $proc.ExitCode
+          } else {
+            try { & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null } catch { }
+            $null = $proc.WaitForExit(30000)
+            $rerunExit = 1
+            ("=== {0} (direct run) TIMED OUT after {1}s — process tree killed, counted red (#765) ===" -f $n, $timeoutSec) |
+              Tee-Object -FilePath $log -Append
+          }
+          # WaitForExit(ms) 不等异步输出读完，这里收尾（有界等待，防读线程卡死）。
+          $stdoutText = ''; $stderrText = ''
+          if ([System.Threading.Tasks.Task]::WaitAll(@($outTask, $errTask), 30000)) {
+            $stdoutText = $outTask.Result
+            $stderrText = $errTask.Result
+          }
+          if ($stderrText) {
+            "--- stderr ---" | Tee-Object -FilePath $log -Append
+            $stderrText | Tee-Object -FilePath $log -Append
+          }
+          if ($stdoutText) {
+            "--- stdout ---" | Tee-Object -FilePath $log -Append
+            $stdoutText | Tee-Object -FilePath $log -Append
+          }
+        } catch {
+          $rerunExit = 1
+          "  (direct run failed: $_)" | Tee-Object -FilePath $log -Append
         } finally {
           Pop-Location
           foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process') }
@@ -570,6 +632,12 @@ switch ($Verb) {
         }
       }
       if ($rerunFailed -or $unhandled) { throw 'CTest failed' }
+      # #757：直跑全通过时 LastTestsFailed.log 仍是**首轮**失败名单（直跑不经
+      # ctest，不会更新它）——残留名单上传后被 triage 当最终失败集，已洗白的
+      # flaky 被误判成真红、flaky 汇总反而漏掉它（同 tools/ci_ctest_gate.sh 口径）。
+      if (-not $rerunFailed -and -not $unhandled) {
+        Remove-Item (Join-Path $Build 'Testing/Temporary/LastTestsFailed.log') -Force -ErrorAction SilentlyContinue
+      }
       # #501：直跑放行记账（与 Linux tools/ci_ctest_gate.sh 同路径）——持久
       # JSONL 台账（累计命中由 check_flaky_ledger.py 聚合点名）+ step
       # summary / 逐项 annotation / 构建目录台账（PR 评审面可见）。放行不再无痕。

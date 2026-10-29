@@ -68,7 +68,7 @@ class PreviewMapCanvas : public QWidget
     void setLayerVisible( QgsMapLayer *layer, bool visible );
     bool isLayerVisible( const QgsMapLayer *layer ) const;
     // 显式底图选择覆盖已有底图；传空恢复选择前的显隐。
-    void selectBasemap( QgsMapLayer *layer );
+    void selectBasemap( QgsMapLayer *selected );
     void setLayerOpacity( QgsMapLayer *layer, double opacity );      // 0..1
     double layerOpacity( const QgsMapLayer *layer ) const;
     void setLayerBlendMode( QgsMapLayer *layer, QPainter::CompositionMode mode );
@@ -164,6 +164,10 @@ class PreviewMapCanvas : public QWidget
     QStack<QgsRectangle> m_backStack;
     QStack<QgsRectangle> m_forwardStack;
     bool m_suppressHistory = false;
+    // 交互路径的「变更前」基线（#78）：extentsChanged 到达时画布已是新范围，
+    // 入栈的必须是被它顶掉的那个。程序式路径显式同步，见 setExtentInternal /
+    // zoomBack / zoomForward。空值 = 尚未建立基线（首个 extentsChanged）。
+    QgsRectangle m_lastExtent;
 
     // 渲染状态
     bool m_rendering = false;

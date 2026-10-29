@@ -22,7 +22,11 @@ std::vector<SectionWellInfo> SectionWellProjector::ProjectWells(
     // Calculate vertex distances if not provided
     std::vector<double> vDist = vertexDistancesM;
     if (vDist.size() != polylinePoints.size()) {
-        vDist.resize(polylinePoints.size(), 0.0);
+        // 尺寸不匹配 = 调用方给的累计距离不可信，整体重算。用 assign 而非
+        // resize：resize 只初始化新增元素，原样保留的前若干个值是调用方残留
+        // （vDist[0] 尤其——重算循环从 i=1 起，永不清它），距离基准被污染后
+        // 井位沿剖面距离与 tracePosition 静默错值（finding-37）。
+        vDist.assign(polylinePoints.size(), 0.0);
         double cum = 0.0;
         for (std::size_t i = 1; i < polylinePoints.size(); ++i) {
             cum += glm::length(polylinePoints[i] - polylinePoints[i - 1]);

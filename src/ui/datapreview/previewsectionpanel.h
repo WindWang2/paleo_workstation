@@ -37,6 +37,11 @@ namespace paleo::datapreview_detail {
 class SectionPanel : public QWidget
 {
 public:
+  // 振幅显示增益：映射前固定放大 1.35 倍（弱振幅更醒目）。色标顶/底因此对应
+  // 实测振幅 maxAmp/1.35（饱和点），刻度按这个标——否则按色标读振幅会静默
+  // 偏大 35%。
+  static constexpr float kAmplitudeGain = 1.35f;
+
   SectionPanel(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(320, 260); }
   seismic::SectionColorMapType colorMap() const { return m_colorMap; }
   void setColorMap(seismic::SectionColorMapType type)
@@ -96,7 +101,7 @@ public:
         float sample = 0.0f;
         if (!grid.sampleAt(t, y, dtUs, t0Ms, &sample)) continue;
         if (!std::isfinite(sample)) continue;
-        const float v = std::clamp((sample / amp) * 1.35f, -1.0f, 1.0f);
+        const float v = std::clamp((sample / amp) * kAmplitudeGain, -1.0f, 1.0f);
         const int index = qRound(v * 127.0f) + 128;
         // 极弱负振幅仍使用负极性颜色，不能被量化到零后染成正极性。
         m_img.setPixel(x, y, v < 0.0f ? qMin(127, index) : index);
@@ -231,7 +236,8 @@ protected:
     colorBarFont.setBold(true);
     p.setFont(colorBarFont);
     p.setPen(PaleoTheme::tokens().text);
-    p.drawText(QRect(dst.right(), 4, rightMargin, labelHeight), Qt::AlignCenter, tr("色标"));
+    p.drawText(QRect(dst.right(), 4, rightMargin, labelHeight), Qt::AlignCenter,
+               QObject::tr("色标 ×%1").arg(kAmplitudeGain, 0, 'f', 2));
 
     const int barW = 10;
     const int barX = dst.right() + 6;
@@ -249,12 +255,15 @@ protected:
     // 刻度值
     p.setFont(monoFont);
     p.setPen(PaleoTheme::tokens().text);
-    const QString maxStr = m_maxAmp >= 1000.0f
-        ? QStringLiteral("+%1k").arg(m_maxAmp / 1000.0f, 0, 'f', 0)
-        : QStringLiteral("+%1").arg(qRound(m_maxAmp));
-    const QString minStr = m_maxAmp >= 1000.0f
-        ? QStringLiteral("-%1k").arg(m_maxAmp / 1000.0f, 0, 'f', 0)
-        : QStringLiteral("-%1").arg(qRound(m_maxAmp));
+    // 刻度值：色标两端对应的是「饱和点」实测振幅 = maxAmp / 显示增益
+    // （≥ 该值的采样一律染成极色），不是 maxAmp 本身。
+    const float satAmp = m_maxAmp / kAmplitudeGain;
+    const QString maxStr = satAmp >= 1000.0f
+        ? QStringLiteral("+%1k").arg(satAmp / 1000.0f, 0, 'f', 0)
+        : QStringLiteral("+%1").arg(qRound(satAmp));
+    const QString minStr = satAmp >= 1000.0f
+        ? QStringLiteral("-%1k").arg(satAmp / 1000.0f, 0, 'f', 0)
+        : QStringLiteral("-%1").arg(qRound(satAmp));
 
     p.drawLine(QPointF(barX + barW, barTop), QPointF(barX + barW + 3, barTop));
     p.drawText(QRectF(barX + barW + 4, barTop - monoHeight / 2.0, rightMargin - barW - 10, monoHeight), Qt::AlignLeft | Qt::AlignVCenter, maxStr);

@@ -46,11 +46,15 @@ class SurfaceGriddingWorkflow : public QObject
   };
 
   // 面运算报告（等厚/基准面上方体积）；体积 = z 单位 × 面积单位。
+  // linearUnit = 栅格 CRS 的线性单位名（OSRGetLinearUnits；英尺坐标系为 "ft"），
+  // area/cellArea 即该单位的平方——面积单位不再硬写 m²（#723）。CRS 缺失时
+  // 回落 "m"（历史口径，调用方文案可见单位名）。
   struct VolumeReport
   {
     double volume = 0, absVolume = 0, area = 0, cellArea = 0;
     double minThickness = 0, maxThickness = 0, meanThickness = 0;
     qlonglong cells = 0, nullCells = 0, positiveCells = 0, negativeCells = 0;
+    QString linearUnit = QStringLiteral("m");
     QString csv() const;
   };
 

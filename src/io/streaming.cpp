@@ -177,6 +177,10 @@ namespace
                 m_pendingString.clear(); // 上一串值不清会污染键名（键从头累积）
                 m_strStart = true;
               }
+              else if (c == '{' || c == '[')
+                ++m_docDepth; // 全文档括号深度（结构完整性契约）
+              else if (c == '}' || c == ']')
+                --m_docDepth;
               break;
             case State::InString:
               if (c == '\\')
@@ -244,6 +248,7 @@ namespace
                 {
                   m_state = State::InProperties;
                   m_propDepth = 0;
+                  ++m_docDepth; // properties 对象的开括号（闭括号在 InProperties 里计）
                   // 新对象首键前无分隔符——复位（上一要素遗留的 false 会把
                   // 本对象首键误判成值字符串而丢键）。
                   m_lastPropSep = true;
@@ -254,7 +259,12 @@ namespace
                   m_typeValue.clear();
                 }
                 else
+                {
+                  // 交回 Outside 处理该字节（括号深度计数/结构态都在那里）——
+                  // 直接吞掉会让 "bbox":[…] 之类的数组值少计一层深度。
                   m_state = State::Outside;
+                  m_i--;
+                }
               }
               break;
             case State::InValueString:
@@ -299,6 +309,7 @@ namespace
               if (c == '{')
               {
                 ++m_propDepth;
+                ++m_docDepth; // properties 对象的括号也计入全文档深度
                 // 新 properties 对象：键分隔符复位（否则上一要素遗留的 false
                 // 会把本对象首键误判成值字符串——goal/perf-systematize F3
                 // 等价性测试抓到的丢键 bug）。
@@ -307,6 +318,7 @@ namespace
               }
               else if (c == '}')
               {
+                --m_docDepth;
                 if (m_propDepth == 0)
                   m_state = State::Outside;
                 else
@@ -366,6 +378,9 @@ namespace
       double maxY() const { return m_maxY; }
       qint64 featureCount() const { return m_featureCount; }
       QSet<QString> propertyKeys() const { return m_propKeys; }
+      // streaming.h:29 的「坏 JSON 结构 → false」契约：数值非法，或扫完全文
+      // 括号深度非零（截断/畸形）都算结构坏。
+      bool structuralError() const { return m_badNumber || m_docDepth != 0; }
 
     private:
       enum class State
@@ -393,6 +408,7 @@ namespace
         if (c == '[')
         {
           ++m_depth;
+          ++m_docDepth; // 全文档括号深度：EOF 时非零 = 结构截断/畸形
           m_numAtDepth = 0;
           m_numBuf.clear();
           m_inNumber = false;
@@ -403,6 +419,7 @@ namespace
             flushNumber();
           if (m_depth > 0)
             --m_depth;
+          --m_docDepth;
           if (m_depth == 0)
             m_state = State::Outside; // coordinates 值区结束
           m_numAtDepth = 0;
@@ -429,8 +446,17 @@ namespace
         m_inNumber = false;
         if (m_numBuf.isEmpty())
           return;
-        const double v = m_numBuf.toDouble();
+        // toDouble 的 ok 标志必须看：畸形数值（"1.2.3"/"1e"/"--3"）会返回
+        // 0.0 且 ok=false，静默当一个坐标用会把包围盒算错。nan/inf 同样
+        // 不是合法 GeoJSON 坐标。
+        bool numOk = false;
+        const double v = m_numBuf.toDouble(&numOk);
         m_numBuf.clear();
+        if (!numOk || !std::isfinite(v))
+        {
+          m_badNumber = true;
+          return;
+        }
         if (m_numAtDepth == 0)
         {
           m_pendingX = v;
@@ -464,6 +490,7 @@ namespace
       QSet<QString> m_propKeys;
 
       int m_depth = 0;
+      int m_docDepth = 0; // 全文档括号深度（字符串内的括号由字符串态吞掉，不计）
       int m_runCount = 0;
       int m_propDepth = 0;
       int m_numAtDepth = 0;
@@ -471,6 +498,7 @@ namespace
       bool m_inNumber = false;
       double m_pendingX = 0.0;
       bool m_haveAny = false;
+      bool m_badNumber = false; // coordinates 里出现过非法数值
       double m_minX = 0.0, m_minY = 0.0, m_maxX = 0.0, m_maxY = 0.0;
       qint64 m_featureCount = 0;
 
@@ -510,6 +538,15 @@ bool geoJsonBoundsStreaming(const QString &path, double outBounds[4],
   {
     if (error)
       *error = QStringLiteral("no coordinates found in %1").arg(path);
+    return false;
+  }
+  // streaming.h:29：「坏 JSON 结构 → false」。非法坐标数值，或扫完全文
+  // 括号深度非零（文件被截断/括号不配平）都算结构坏——此前无数值合法性
+  // 检查、无结构校验，截断或畸形 GeoJSON 会静默交出部分/错误包围盒。
+  if (scanner.structuralError())
+  {
+    if (error)
+      *error = QStringLiteral("malformed GeoJSON structure in %1").arg(path);
     return false;
   }
   outBounds[0] = scanner.minX();

@@ -638,6 +638,9 @@ QVariantMap replay(const QList<ResolvedInput> &inputs, const QVariantList &facie
                    QStringLiteral("priority-first-valid; categorical-nearest; "
                                   "threshold-classification")},
                   {QStringLiteral("unresolved"), unresolved}};
+  // 「相编码不在当前相分类」之外的 unresolved 条目数（输入缺失/网格重建失败）：
+  // 尾部的消息分支据此区分「缺输入」与「编码出谱」两种互斥原因。
+  const int unresolvedBeforeCodes = unresolved.size();
   out.insert(QStringLiteral("grid_source"),
              grid.usable ? grid.source : QStringLiteral("unavailable"));
   if (!unresolved.isEmpty() && !grid.usable) {
@@ -765,6 +768,9 @@ QVariantMap replay(const QList<ResolvedInput> &inputs, const QVariantList &facie
          QStringLiteral("采样中 %1 个像元的相编码不在当前相分类中（运行时"
                         "会整幅拒收；冻结数据与当前 schema 可能不一致）")
              .arg(rejectedCodeCells)}};
+  // out 在构造时（上面 QVariantMap out{...}）就持有了 unresolved 的副本——
+  // 之后追加的诊断必须回写，否则静默丢失，调用方看不到「编码出谱」这一项。
+  out.insert(QStringLiteral("unresolved"), unresolved);
   if (request.faciesCode != 0 && decided > 0) {
     const auto matching = codeCells.value(request.faciesCode, 0);
     out.insert(QStringLiteral("consistent_fraction"),
@@ -778,10 +784,13 @@ QVariantMap replay(const QList<ResolvedInput> &inputs, const QVariantList &facie
     out.insert(QStringLiteral("status"), QStringLiteral("unresolved"));
     out.insert(QStringLiteral("message"),
                QStringLiteral("图斑范围内所有采样点均为 nodata"));
-  } else if (!unresolved.isEmpty()) {
-    // 部分输入缺失：已用可打开的冻结输入重放，缺失者如实列出。
+  } else if (unresolved.size() > unresolvedBeforeCodes) {
+    // 输入缺失：已用可打开的冻结输入重放，缺失者如实列出。
     out.insert(QStringLiteral("message"),
-               QStringLiteral("部分输入缺失，重放结果仅覆盖可用的冻结输入"));
+               unresolvedBeforeCodes > 0
+                   ? QStringLiteral("部分输入缺失，重放结果仅覆盖可用的冻结输入")
+                   : QStringLiteral("重放用的冻结数据含当前相分类之外的相编码，"
+                                    "统计仅覆盖可用像元"));
   }
   return out;
 }

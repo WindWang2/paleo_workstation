@@ -779,13 +779,6 @@
   {
     "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "hex",
-    "source": "p.setPen(QColor(QStringLiteral(\"#24303E\")));",
-    "count": 1,
-    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
-  },
-  {
-    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
-    "rule": "hex",
     "source": "p.setPen(QColor(QStringLiteral(\"#F29900\")));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
@@ -989,7 +982,7 @@
   {
     "file": "src/ui/wellcomposite/chronostratcolors.cpp",
     "rule": "hex",
-    "source": "{\"古元古界\", \"#FEE9F6\", kPrecambrianSeries + 6, 3},",
+    "source": "{\"古元古界\", \"#FEE9F6\", kPrecambrianSeries + 6, 4},",
     "count": 1,
     "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
   },
@@ -1024,14 +1017,14 @@
   {
     "file": "src/ui/wellcomposite/chronostratcolors.cpp",
     "rule": "hex",
-    "source": "{\"寒武系\", \"#7FA056\", kCambrianSeries, 5},",
+    "source": "{\"寒武系\", \"#7FA056\", kCambrianSeries, 4},",
     "count": 1,
     "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
   },
   {
     "file": "src/ui/wellcomposite/chronostratcolors.cpp",
     "rule": "hex",
-    "source": "{\"延展系\", \"#FEE9F6\"}, {\"盖层系\", \"#FEF0FA\"}, {\"固结系\", \"#FEF6FD\"},",
+    "source": "{\"狭带系\", \"#FEE4F4\"}, {\"延展系\", \"#FEE9F6\"}, {\"盖层系\", \"#FEF0FA\"},",
     "count": 3,
     "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
   },
@@ -1101,15 +1094,15 @@
   {
     "file": "src/ui/wellcomposite/chronostratcolors.cpp",
     "rule": "hex",
-    "source": "{\"芙蓉统\", \"#7FA056\"}, {\"第十统\", \"#8BAA66\"}, {\"第九统\", \"#97B476\"}, {\"幸运统\", \"#A3BE86\"}, {\"第二统\", \"#AFC896\"}};",
-    "count": 5,
+    "source": "{\"芙蓉统\", \"#7FA056\"}, {\"第三统\", \"#8BAA66\"}, {\"第二统\", \"#97B476\"}, {\"纽芬兰统\", \"#A3BE86\"}};",
+    "count": 4,
     "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
   },
   {
     "file": "src/ui/wellcomposite/chronostratcolors.cpp",
     "rule": "hex",
-    "source": "{\"造山系\", \"#F9F1E8\"}, {\"层侵系\", \"#F9F6F1\"}, {\"成铁系\", \"#FAFBF7\"}};",
-    "count": 3,
+    "source": "{\"固结系\", \"#FEF6FD\"}, {\"造山系\", \"#F9F1E8\"}, {\"层侵系\", \"#F9F6F1\"}, {\"成铁系\", \"#FAFBF7\"}};",
+    "count": 4,
     "reason": "DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。"
   },
   {
@@ -2041,69 +2034,6 @@
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#D97706\")), 1.5));",
     "count": 1,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/trackcompound.cpp",
-    "rule": "hex",
-    "source": "si.seriesColor = QColor(QStringLiteral(\"#C8E6C9\"));",
-    "count": 1,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/trackcompound.cpp",
-    "rule": "hex",
-    "source": "si.seriesColor = QColor(QStringLiteral(\"#FFA726\"));",
-    "count": 2,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/trackcompound.cpp",
-    "rule": "hex",
-    "source": "si.seriesColor = QColor(QStringLiteral(\"#FFCC80\"));",
-    "count": 2,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/trackcompound.cpp",
-    "rule": "hex",
-    "source": "si.seriesColor = QColor(QStringLiteral(\"#FFD54F\"));",
-    "count": 1,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/trackcompound.cpp",
-    "rule": "hex",
-    "source": "si.seriesColor = QColor(QStringLiteral(\"#FFE082\"));",
-    "count": 2,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/trackcompound.cpp",
-    "rule": "hex",
-    "source": "si.seriesColor = QColor(QStringLiteral(\"#FFF59D\"));",
-    "count": 1,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/trackcompound.cpp",
-    "rule": "hex",
-    "source": "si.systemColor = QColor(QStringLiteral(\"#E8F5E9\"));",
-    "count": 1,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/trackcompound.cpp",
-    "rule": "hex",
-    "source": "si.systemColor = QColor(QStringLiteral(\"#FFF3E0\"));",
-    "count": 4,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/trackcompound.cpp",
-    "rule": "hex",
-    "source": "si.systemColor = QColor(QStringLiteral(\"#FFF9C4\"));",
-    "count": 4,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {

@@ -165,11 +165,17 @@ public:
     });
     connect(m_close, &QToolButton::clicked, this, [this] {
       if (!m_queue.hasPending())
+      {
+        m_userCollapsed = true;
         hide();
+      }
       // D.2：确认走 PaleoNotify::ask（ErrorHub 入账），不用裸 QMessageBox。
       else if (PaleoNotify::ask(this, tr("导入进行中"),
                                 tr("还有未完成项，仍要收起面板？")))
+      {
+        m_userCollapsed = true; // finding-129：确认收起——后续回调不再强制弹出
         hide();
+      }
     });
     // RetryWait → Queued 的自动驱动拍（D8.2 自动重试）；同时刷整体 ETA（B2）。
     m_timer = new QTimer(this);
@@ -191,6 +197,7 @@ public:
   // 批确认由装配方先行）。
   void enqueuePaths(const QStringList &paths, const QHash<QString, QString> &typeByExt)
   {
+    m_userCollapsed = false; // finding-129：新一批入队——面板重新可见
     for (const QString &p : paths)
     {
       ImportQueueItem it;
@@ -336,7 +343,11 @@ public slots:
       m_table->setCellWidget(r, 3, ops);
     }
     m_count->setText(tr("%1 项 · 待处理 %2").arg(items.size()).arg(pending));
-    setVisible(items.size() > 0);
+    // finding-129：用户确认收起后，完成/取消回调（refresh）不再 setVisible(true)；
+    // 队列排空（全部完成并被清理）才解除收起态，让下一批可正常弹出。
+    if (items.isEmpty())
+      m_userCollapsed = false;
+    setVisible(!m_userCollapsed && items.size() > 0);
     refreshOverall();
   }
 
@@ -394,6 +405,9 @@ private:
   QElapsedTimer m_batchClock;
   int m_batchFinishedBase = 0;
   bool m_batchActive = false;
+  // finding-129：用户确认收起后，完成/取消回调不得把面板强制弹回；仅下一批
+  // enqueuePaths 或队列排空（全部完成并被清理）时复位。
+  bool m_userCollapsed = false;
 };
 
 // ---- D8.3 导入预设对话框 --------------------------------------------------------

@@ -40,7 +40,7 @@ struct Hooks
   // 整批导入：done(rows, importErr) 总在 GUI 线程回调。
   std::function<void(const QMap<QString, QString> &overrides,
                      std::function<void(const QVector<FolderRowResult> &,
-                                        const QString &)> done)>
+                                        const QString &, bool cancelled)> done)>
       importAll;
   // （T2 跳过策略，additive）带「仍导入」改判的整批导入：forceImportPaths
   // 是用户对「重复→跳过」行点了「仍导入」的源路径集合。给了这个出口，
@@ -48,7 +48,7 @@ struct Hooks
   std::function<void(const QMap<QString, QString> &overrides,
                      const QStringList &forceImportPaths,
                      std::function<void(const QVector<FolderRowResult> &,
-                                        const QString &)> done)>
+                                        const QString &, bool cancelled)> done)>
       importAllWithForced;
   std::function<void(const QMap<QString, QString> &overrides,
                      const QStringList &forceImportPaths,
@@ -57,7 +57,8 @@ struct Hooks
                      const QStringList &skippedPaths,
                      const QStringList &previewedPaths,
                      std::function<void(const QVector<FolderRowResult> &,
-                                        const QString &)> done)> importAllWithWells;
+                                        const QString &, bool cancelled)> done)>
+      importAllWithWells;
   // 确认完成后按行源文件名反查刚入库的井口资产（空 → 不开预览）。
   std::function<QString(const QString &rowPath)> importedWellHead;
   // 「查看未决」→ 数据页切未决过滤。

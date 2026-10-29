@@ -39,6 +39,7 @@
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -65,12 +66,15 @@ void note(bool ok, const QString &what)
     ++fails;
 }
 
-QString requireFile(const QString &path)
+// 输入文件必须存在——缺失即报错返回（#483：不 ::exit——QgisExitGuard 只兜
+// return 路径，直接 exit 会绕过 initQgis 后的 exitQgis，provider/数据集句柄
+// 又回到「全靠进程退出兜底」状态）。
+bool requireFile(const QString &path, QString *error)
 {
   if (QFile::exists(path))
-    return path;
-  std::printf("缺少输入文件: %s\n", qPrintable(path));
-  ::exit(2);
+    return true;
+  *error = QStringLiteral("缺少输入文件: %1").arg(path);
+  return false;
 }
 
 // 表头子串定位列（-1 = 无）。
@@ -697,21 +701,17 @@ int runManifest(const QString &manifestPath, const QString &outDirArg,
 int main(int argc, char *argv[])
 {
   qputenv("QT_QPA_PLATFORM", "offscreen");
-  QgsApplication app(argc, argv, false);
-  // prefix 解析走 QgisRuntime 唯一事实源（#483：不再手工复制 env/缺省序列）。
-  app.setPrefixPath(
-      QgisRuntime::resolvePrefixPath(QString(),
-                                     qEnvironmentVariable("QGIS_PREFIX_PATH")),
-      true);
-  app.initQgis();
-  // exitQgis 收尾护栏（#483）：main 的每条错误路径 return 前统一排空 QGIS——
-  // 此前 initQgis 后从不 exitQgis，provider/数据集句柄全靠进程退出兜底。
-  // 护栏先于栈上 app 析构（声明序即析构逆序），exitQgis→~QgsApplication 顺序正确。
-  struct QgisExitGuard
-  {
-    ~QgisExitGuard() { QgsApplication::exitQgis(); }
-  } qgisExit;
-
+  // 先解析后初始化（同 main.cpp 次序）：QCommandLineParser::process 的
+  // --help/参数错误路径直接退出进程，#483 的 QgisExitGuard 在这些路径上
+  // 永不执行（initQgis 已过而 exitQgis 不到）。解析挪到 QgsApplication
+  // 构造与 initQgis 之前——这些退出路径不经 QGIS 初始化，无需护栏兜底。
+  // 程序名显式置好：无 app 实例时 QCommandLineParser 的错误前缀
+  // （applicationName() + ": "）会是空的。
+  QCoreApplication::setApplicationName(QStringLiteral("paleo_mkproject"));
+  QStringList args;
+  args.reserve(argc);
+  for (int i = 0; i < argc; ++i)
+    args << QString::fromLocal8Bit(argv[i]);
   QCommandLineParser parser;
   parser.setApplicationDescription(
       QStringLiteral("paleo_workstation demo 工程无头构建（鄂尔多斯竞赛数据；"
@@ -728,7 +728,23 @@ int main(int argc, char *argv[])
                       "expect；path 相对 manifest 所在目录；--data 不要求）"),
        "file"},
   });
-  parser.process(app);
+  parser.process(args);
+
+  QgsApplication app(argc, argv, false);
+  // prefix 解析走 QgisRuntime 唯一事实源（#483：不再手工复制 env/缺省序列）。
+  app.setPrefixPath(
+      QgisRuntime::resolvePrefixPath(QString(),
+                                     qEnvironmentVariable("QGIS_PREFIX_PATH")),
+      true);
+  app.initQgis();
+  // exitQgis 收尾护栏（#483）：main 的每条错误路径 return 前统一排空 QGIS——
+  // 此前 initQgis 后从不 exitQgis，provider/数据集句柄全靠进程退出兜底。
+  // 护栏先于栈上 app 析构（声明序即析构逆序），exitQgis→~QgsApplication 顺序正确。
+  struct QgisExitGuard
+  {
+    ~QgisExitGuard() { QgsApplication::exitQgis(); }
+  } qgisExit;
+
   // manifest 模式早退——后续竞赛路径零改动（方向 78 向后兼容红线）。
   if (parser.isSet("manifest"))
   {
@@ -756,7 +772,7 @@ int main(int argc, char *argv[])
     std::printf("数据根不存在: %s\n", qPrintable(dataRoot));
     return 2;
   }
-  const QString projectName = name;
+  const QString &projectName = name;
   if (QFile::exists(QDir(outDir).filePath(
           QString::fromLatin1(PaleoProjectFile::kFileName))))
   {
@@ -767,18 +783,29 @@ int main(int argc, char *argv[])
   }
 
   // 输入清单（第 9 届竞赛数据布局）。
-  const QString wellCoordXlsx = requireFile(
-      data.filePath(QStringLiteral("2.沉积相分析-第9届/2.1井位坐标/井位坐标.xlsx")));
-  const QString stratXlsx = requireFile(
-      data.filePath(QStringLiteral("2.沉积相分析-第9届/2.2分层数据/分层数据.xlsx")));
+  const QString wellCoordXlsx =
+      data.filePath(QStringLiteral("2.沉积相分析-第9届/2.1井位坐标/井位坐标.xlsx"));
+  const QString stratXlsx =
+      data.filePath(QStringLiteral("2.沉积相分析-第9届/2.2分层数据/分层数据.xlsx"));
   const QString lasDir =
       data.filePath(QStringLiteral("2.沉积相分析-第9届/2.5测井资料"));
-  const QString a3SeismicLas = requireFile(data.filePath(
-      QStringLiteral("1.地震资料构造解释-第9届/03.测井曲线/A3_log.las")));
-  const QString topsDat = requireFile(data.filePath(QStringLiteral(
-      "1.地震资料构造解释-第9届/01.三维数据、工区加载相关参数及位置图/20kou_tops.dat")));
-  const QString sgy = requireFile(data.filePath(QStringLiteral(
-      "1.地震资料构造解释-第9届/01.三维数据、工区加载相关参数及位置图/200P_seismic.sgy")));
+  const QString a3SeismicLas = data.filePath(
+      QStringLiteral("1.地震资料构造解释-第9届/03.测井曲线/A3_log.las"));
+  const QString topsDat = data.filePath(QStringLiteral(
+      "1.地震资料构造解释-第9届/01.三维数据、工区加载相关参数及位置图/20kou_tops.dat"));
+  const QString sgy = data.filePath(QStringLiteral(
+      "1.地震资料构造解释-第9届/01.三维数据、工区加载相关参数及位置图/200P_seismic.sgy"));
+  // 齐全性校验（lasDir 除外——目录缺失走后续遍历自然零件，不硬退）。
+  // 缺失即 return 2：经 QgisExitGuard 走 exitQgis，不直接退出进程。
+  QString reqErr;
+  if (!requireFile(wellCoordXlsx, &reqErr) ||
+      !requireFile(stratXlsx, &reqErr) ||
+      !requireFile(a3SeismicLas, &reqErr) ||
+      !requireFile(topsDat, &reqErr) || !requireFile(sgy, &reqErr))
+  {
+    std::printf("%s\n", qPrintable(reqErr));
+    return 2;
+  }
 
   std::printf("== 1/5 创建工程 %s ==\n", qPrintable(outDir));
   QgisProjectService projectSvc;

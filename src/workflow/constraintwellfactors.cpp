@@ -105,7 +105,16 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   if (!captured && !pointsId.isEmpty() && layers) {
     out.hasMapSource = true;
     auto *layer = qobject_cast<QgsVectorLayer *>(layers->instantiate(pointsId, error));
-    if (!layer || layer->geometryType() != Qgis::GeometryType::Point) return out;
+    if (!layer)
+      return out;
+    if (layer->geometryType() != Qgis::GeometryType::Point)
+    {
+      // 实例化成功但几何类型不符：不写 error 会让采集阶段判成功，最终只报
+      // 「0 口井可参与插值」而不点名真正原因（#189）。
+      if (error)
+        *error = ConstraintWorkflow::tr("井点图层 %1 不是点几何图层").arg(pointsId);
+      return out;
+    }
     out.crs = layer->crs();
     out.paths << layer->source().section(QLatin1Char('|'), 0, 0);
     const auto layerVersions = DerivedAssetRegistrar(wf->catalog(), wf->projectDir()).parentVersionIdsFor(out.paths);
@@ -638,7 +647,7 @@ QString ConstraintWorkflow::preparedWellFactorVersion(const QString &horizon,
 }
 
 bool ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QString &factorId,
-                                            const QVariantMap &params) {
+                                            const QVariantMap &params, QString *error) {
   if (factorBusy() || !catalog() || !layerService())
     return false;
   if (!preparedWellFactorVersion(horizon, factorId, params).isEmpty())
@@ -667,7 +676,15 @@ bool ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QStrin
       const bool present = std::any_of(declarations.cbegin(), declarations.cend(), [&declaration](const auto &d) {
         return d.layerId == declaration.layerId && d.source == declaration.source;
       });
-      if (!present && !layerService()->declare(declaration)) continue;
+      if (!present && !layerService()->declare(declaration)) {
+        // #811-2：声明失败旧实现直接 continue 吞掉——调用方只看到「没有已保存
+        // 数据」，真正原因（图层声明失败）不可见。declare 失败即未入账，没有
+        // 已声明图层要回滚；如实上报失败，让调用方停止而不是静默重算。
+        if (error)
+          *error = tr("无法声明井点因子图层 %1，已保存的井点数据本轮不可用")
+                       .arg(declaration.layerId);
+        return false;
+      }
     }
     const auto old = m_preparedWellFactors;
     m_preparedWellFactors = {
@@ -699,13 +716,21 @@ bool ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QStrin
 
 bool ConstraintWorkflow::startWellFactorExtraction(const QString &horizon, const QString &factorId,
                                                    const QVariantMap &params, QString *error) {
+  QString restoreError;
   if (!params.value(QStringLiteral("forceRefresh")).toBool() &&
-      restoreWellFactors(horizon, factorId, params) &&
+      restoreWellFactors(horizon, factorId, params, &restoreError) &&
       !preparedWellFactorVersion(horizon, factorId, params).isEmpty()) {
     const auto version = catalog()->versionById(m_preparedWellFactors.value("version_id").toString());
     m_wellFactorMessage = tr("已读取本层位已保存的单因素井值 v%1，无需重新计算。").arg(version.versionNumber);
     emit wellFactorsExtracted(horizon, factorId);
     return true;
+  }
+  if (!restoreError.isEmpty()) {
+    // #811-2：恢复路径的可见失败如实上报，不静默落到重新提取（那会让用户以为
+    // 「没有保存数据」，并触发一次本可避免的全量重算）。
+    if (error)
+      *error = restoreError;
+    return false;
   }
   return extractWellFactorsImpl(horizon, factorId, params, error, false);
 }
@@ -1049,7 +1074,7 @@ bool ConstraintWorkflow::prepareFactorInputs(const QString &horizon, const QStri
   }
   QString version = preparedWellFactorVersion(horizon, factorId, params);
   QString points = m_preparedWellFactors.value("points_layer_id").toString();
-  if (version.isEmpty() && restoreWellFactors(horizon, factorId, params)) {
+  if (version.isEmpty() && restoreWellFactors(horizon, factorId, params, nullptr)) {
     version = preparedWellFactorVersion(horizon, factorId, params);
     points = m_preparedWellFactors.value("points_layer_id").toString();
   }

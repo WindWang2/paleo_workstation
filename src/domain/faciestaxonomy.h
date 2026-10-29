@@ -13,7 +13,7 @@ QVariantList templates();
 bool complete(const QVariantMap &leaf);
 // 把单条类别安放进三级体系：微相可识别则采用模板路径；相/亚相级旧类别落
 // 「未细分」；无法识别的落「其他 / 未归类」。不复制父级名称伪造子级。
-QVariantMap place(const QVariantMap &entry);
+QVariantMap place(const QVariantMap &source);
 // 旧分类整表迁移：逐条安放并去重路径；已合规的输入原样返回。
 bool upgrade(const QVariantList &source, QVariantList *result, QString *error = nullptr);
 // 仅补全已知微相或有明确父级的自定义微相；不把父级名称复制为子级。

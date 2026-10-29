@@ -11,6 +11,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QUuid>
 #include <QVariantList>
 #include <algorithm>
 #include <cpl_error.h>
@@ -288,6 +289,10 @@ QVector<Row> readVersion(const CatalogVersion &version, const QString &filePath,
   const int reviewIndex = OGR_FD_GetFieldIndex(defn, kReviewField);
   OGR_L_ResetReading(layer);
   qint64 seen = 0;
+  // OGR_L_GetNextFeature 返回 nullptr 既可能是「读尽」也可能是读取失败——
+  // 下面循环结束后按 CPL 错误类型区分二者。先清掉打开/建层阶段的错误，
+  // 只保留本次迭代期间产生的失败。
+  CPLErrorReset();
   OGRFeatureH feature = nullptr;
   while ((feature = OGR_L_GetNextFeature(layer)) != nullptr) {
     const QString uid = fieldString(feature, uidIndex);
@@ -398,6 +403,20 @@ QVector<Row> readVersion(const CatalogVersion &version, const QString &filePath,
       break;
     }
   }
+  // 循环正常走完 ≠ 读尽：OGR 读取失败同样以 nullptr 结束迭代。旧实现静默
+  // 当作读尽，产出无登记的部分索引，还被 synchronize 的「sha 未变跳过」
+  // 永久固化。命中 GDAL 失败 → 置 versionError + truncated：该轮如实登记
+  // （indexed_versions.error/truncated 可见），truncated 使下一轮不跳过、
+  // 重读重试。上限截断/取消分支早已置位，不在此覆写。
+  if (!*aborted && !*truncated && CPLGetLastErrorType() == CE_Failure) {
+    const char *msg = CPLGetLastErrorMsg();
+    *versionError = QStringLiteral("成果文件读取失败：%1%2")
+                        .arg(filePath, msg && *msg
+                                           ? QStringLiteral("（%1）")
+                                                 .arg(QString::fromUtf8(msg))
+                                           : QString());
+    *truncated = true; // 未完成：下一轮 synchronize 不得按 sha 跳过
+  }
   GDALClose(ds);
   CPLPopErrorHandler();
   return rows;
@@ -437,8 +456,11 @@ bool Index::open(const QString &projectDir, QString *error) {
   if (!dir.mkpath(QStringLiteral("artifacts")))
     return fail(error, QStringLiteral("无法创建 artifacts 目录：%1").arg(projectDir));
   const QString path = dir.filePath(QStringLiteral("artifacts/evidence-index.sqlite"));
+  // #771：连接名按 this 地址生成——open 失败重试（同地址新对象）或跨线程
+  // 析构路径会与未 removeDatabase 的旧连接重名（Qt 重复连接名告警 + 拿到
+  // 别人家的连接）。改用 QUuid，每次 open 唯一。
   m_connection = QStringLiteral("paleo_evidence_index_%1")
-                     .arg(QString::number(reinterpret_cast<quintptr>(this), 16));
+                     .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
   {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connection);
     db.setDatabaseName(path);

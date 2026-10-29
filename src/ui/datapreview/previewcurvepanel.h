@@ -78,6 +78,17 @@ public:
     update();
   }
 
+  // 纵轴深度基准（"MD" | "TVD"）：驱动标尺标题「<基准> (m)」与悬停读数
+  // 「<基准>: 值 m」。默认 MD（测井道检视页保持原口径）。
+  void setDepthBasis(const QString &basis)
+  {
+    const QString norm = basis.isEmpty() ? QStringLiteral("MD") : basis;
+    if (norm == m_depthBasis)
+      return;
+    m_depthBasis = norm;
+    update();
+  }
+
   void clearCurves()
   {
     m_curves.clear();
@@ -319,7 +330,8 @@ protected:
       }
       else
       {
-        QString info = QString::asprintf("MD: %.1f m", m_hoverDepth);
+        QString info = QString::asprintf("%s: %.1f m", qPrintable(m_depthBasis),
+                                         m_hoverDepth);
         for (const CurveData &c : m_curves)
         {
           if (c.visible && !std::isnan(c.hoverValue))
@@ -529,13 +541,13 @@ protected:
     p.setPen(PaleoTheme::tokens().border);
     p.drawLine(kRulerW, pRect.top(), kRulerW, pRect.bottom());
 
-    // Ruler title "MD (m)"
+    // Ruler title "<depth basis> (m)"
     QFont fCaption = font();
     fCaption.setPointSize(PaleoTheme::tokens().labelPt);
     p.setFont(fCaption);
     p.setPen(PaleoTheme::tokens().textMuted);
     p.drawText(QRect(2, 4, kRulerW - 4, pRect.top() - 4), Qt::AlignCenter | Qt::AlignVCenter,
-               QObject::tr("MD (m)"));
+               QObject::tr("%1 (m)").arg(m_depthBasis));
 
     p.drawRect(pRect);
 
@@ -696,6 +708,9 @@ private:
   int m_dragStartY = 0;
   double m_dragStartScrollDepth = 0.0;
   QString m_emptyText = QObject::tr("无有效采样");
+  // 深度基准标注（默认 MD）：纵轴不是 MD 的页面（时深表 TIME–TVD 的 y 是
+  // TVD）传 "TVD"——标尺标题与悬停读数同源取这一份，不再硬编码 MD。
+  QString m_depthBasis = QStringLiteral("MD");
 };
 
 } // namespace paleo::datapreview_detail

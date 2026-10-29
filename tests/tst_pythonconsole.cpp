@@ -57,6 +57,7 @@ private slots:
   void protocolDrivesProgressAndResults();
   void unknownResultDisablesImport();
   void interpreterMissingShowsGuidance();
+  void interpreterRowStyleFollowsThemeSwitch();
   void replRoundTripThroughPanel();
 
 private:
@@ -253,6 +254,49 @@ void TestPythonConsole::interpreterMissingShowsGuidance()
   QVERIFY(!run->isEnabled()); // 禁用态而非空按钮
   QVERIFY(label->text().contains(QStringLiteral("PALEO_PYTHON")));
   QVERIFY(!replStart->isEnabled());
+}
+
+void TestPythonConsole::interpreterRowStyleFollowsThemeSwitch()
+{
+  // finding-140 回归：解释器行与次级文字不得停在旧主题 token 上。缺失档
+  // warning 是语义色（两主题同值）；在位档 muted 次级文字必须随主题翻转。
+  ConsoleFixture f;
+  auto *label =
+      f.panel.findChild<QLabel *>(QStringLiteral("pythonInterpreterLabel"));
+  auto *security =
+      f.panel.findChild<QLabel *>(QStringLiteral("pythonSecurityHint"));
+  QVERIFY(label && security);
+  const bool missing = label->property("interpreterMissing").toBool();
+  const auto expectRow = [missing](PaleoTheme::Theme theme) {
+    return missing ? QStringLiteral("color: %1;")
+                         .arg(PaleoTheme::tokens(theme).warning.name())
+                   : PaleoTheme::mutedCaptionStyleSheet(theme);
+  };
+  const QString lightRow = label->styleSheet();
+  const QString lightHint = security->styleSheet();
+  QVERIFY2(lightRow == expectRow(PaleoTheme::Theme::Light),
+           qPrintable(lightRow));
+  QVERIFY2(lightHint == PaleoTheme::mutedCaptionStyleSheet(
+                            PaleoTheme::Theme::Light),
+           qPrintable(lightHint));
+
+  PaleoTheme::applyDarkTheme();
+  QVERIFY2(label->styleSheet() == expectRow(PaleoTheme::Theme::Dark),
+           qPrintable(label->styleSheet()));
+  QVERIFY2(security->styleSheet() == PaleoTheme::mutedCaptionStyleSheet(
+                                         PaleoTheme::Theme::Dark),
+           qPrintable(security->styleSheet()));
+  if (!missing)
+  {
+    QVERIFY2(label->styleSheet() != lightRow, "在位档必须翻转为暗色 muted");
+    QVERIFY2(security->styleSheet() != lightHint,
+             "次级文字必须翻转为暗色 muted");
+  }
+
+  PaleoTheme::applyLightTheme();
+  QVERIFY2(label->styleSheet() == lightRow, qPrintable(label->styleSheet()));
+  QVERIFY2(security->styleSheet() == lightHint,
+           qPrintable(security->styleSheet()));
 }
 
 void TestPythonConsole::replRoundTripThroughPanel()

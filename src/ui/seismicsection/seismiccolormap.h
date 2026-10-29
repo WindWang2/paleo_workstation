@@ -28,6 +28,14 @@ enum class SectionColorMapType {
 
 constexpr int kSectionColorMapCount = 8;
 
+// finding-150：零幅值锚定白色的对称色带——k=1（零幅值）→ (255,255,255)，
+// k=0（满幅）→ 端色 (r,g,b)。旧实现把三通道同乘 k：零幅值端反而落在端色、
+// 满幅端落黑，零点两侧颜色硬跳变（零幅值读不出「无信号」的白）。
+inline QRgb WhiteAnchoredRamp(float k, float r, float g, float b) {
+    return qRgba(ToByte(r + (1.0f - r) * k), ToByte(g + (1.0f - g) * k),
+                 ToByte(b + (1.0f - b) * k), 255);
+}
+
 // D2.8：colormap 采样（t ∈ [-1,1] → RGB），预设 8 档
 inline QRgb SampleColorMap(SectionColorMapType type, float t) {
     switch (type) {
@@ -68,15 +76,15 @@ inline QRgb SampleColorMap(SectionColorMapType type, float t) {
         const float mag = std::pow(std::abs(t), 0.85f);
         const float k = 1.0f - mag;
         if (t < 0.0f)
-            return qRgba(255, ToByte(0.80f * k), 255, 255);
-        return qRgba(ToByte(0.20f * k), ToByte(0.78f * k), ToByte(0.30f * k), 255);
+            return WhiteAnchoredRamp(k, 1.0f, 0.0f, 1.0f);   // Trough→Magenta
+        return WhiteAnchoredRamp(k, 0.0f, 0.78f, 0.20f);     // Peak→Green
     }
     case SectionColorMapType::CyanWhiteOrange: {
         const float mag = std::pow(std::abs(t), 0.85f);
         const float k = 1.0f - mag;
         if (t < 0.0f)
-            return qRgba(255, ToByte(0.60f * k), ToByte(0.13f * k), 255);
-        return qRgba(ToByte(0.10f * k), ToByte(0.75f * k), 255, 255);
+            return WhiteAnchoredRamp(k, 1.0f, 0.55f, 0.10f); // Trough→Orange
+        return WhiteAnchoredRamp(k, 0.0f, 0.75f, 1.0f);      // Peak→Cyan
     }
     case SectionColorMapType::Rainbow:
     default: {

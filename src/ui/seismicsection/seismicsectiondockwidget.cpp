@@ -78,6 +78,10 @@ SeismicSectionDockWidget::~SeismicSectionDockWidget() {
         m_invTask->requestCancel();
         m_invTask.clear();
     }
+    if (m_wellTraceTask) {
+        m_wellTraceTask->requestCancel();
+        m_wellTraceTask.clear();
+    }
     if (m_extraction)
         m_extraction->requestCancel();
 }
@@ -134,6 +138,12 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
   ++m_generation;
   m_route.clear();
   m_distances.clear();
+  // finding-155：换体即作废旧体的剖面身份与追踪原料——不清的话，新体首条
+  // 剖面提取完成前的窗口内，追踪会拿旧体切片当种子写进新体会话落盘，断层
+  // 也能挂到旧体任意线身份上（SectionRef/任意线点串同源作废）。
+  m_lastPathPoints.clear();
+  m_lastSlice = SgySliceImage{};
+  m_canvas->setSectionRef(SectionRef{});
   m_canvas->clearData();
   m_canvas->setWells({});
   m_progressBar->hide();

@@ -11,7 +11,14 @@ ProjectClassification classifyImportFile(const QString &path)
 {
   if (paleo::io::isWellFactorFile(path)) return {QStringLiteral("tabular"), QStringLiteral("csv"), QStringLiteral("input")};
   if (paleo::io::isWellTableContainer(path) && QFileInfo(path).size() <= 64ll * 1024 * 1024) {
-    const auto table = paleo::io::readWellTable(path);
+    // issue-810：分类期先做有界预览——readWellTable 会把整表读进来（百万行
+    // 矢量/工作簿在分类阶段全量解析，扫大目录时直接卡死）。previewWellTable
+    // 同口径识别 type/mapping，行数与层数都受限。预览被预算截断且仍定不了型
+    // （超大 xlsx/矢量）时才回落整读：分类结论要覆盖大表，不能因为预览配额
+    // 把井表降级成 outsource_workbook。
+    auto table = paleo::io::previewWellTable(path);
+    if (table.type.isEmpty() && table.scanLimited)
+      table = paleo::io::readWellTable(path);
     if (!table.type.isEmpty() && !table.mapping.value(QStringLiteral("headerless")).toBool())
       return {table.type, QFileInfo(path).suffix().toLower(), QStringLiteral("input")};
   }

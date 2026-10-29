@@ -106,27 +106,40 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
       QFile::remove(qgz);
       QFile::remove(paleoProjectFilePath(dir));
     };
+    // 重开原工程失败时如实把失败原因并进 openFailed 的 detail——否则用户被
+    // 静默留在「无工程打开」状态，只收到一条泛化的新建失败提示（#206）。
     const auto restorePrevious = [&] {
-      if (!previous.isEmpty() && m_projSvc->projectPath().isEmpty())
-        m_projSvc->openProject(previous);
+      if (previous.isEmpty() || !m_projSvc->projectPath().isEmpty())
+        return QString();
+      const bool reopened = m_projSvc->openProject(previous);
+      if (reopened || m_projSvc->lastOpenCancelled())
+        return QString();
+      return m_projSvc->lastErrors().join(QLatin1Char('\n'));
     };
     if (!m_projSvc->createProject(qgz))
     {
       const bool switchedAway = m_projSvc->projectPath().isEmpty();
       if (switchedAway)
         dropThisAttempt();
-      restorePrevious();
+      const QString restoreError = restorePrevious();
       if (!m_projSvc->lastOpenCancelled()) // #152：锁冲突时用户取消 → 不报错
         emit openFailed(tr("新建工程失败"),
-                      m_projSvc->lastErrors().join(QLatin1Char('\n')), true);
+                      m_projSvc->lastErrors().join(QLatin1Char('\n')) +
+                          (restoreError.isEmpty()
+                               ? QString()
+                               : tr("\n恢复原工程 %1 失败：%2")
+                                     .arg(previous, restoreError)),
+                      true);
       return false;
     }
     if (!QFile::exists(paleoProjectFilePath(dir)))
     {
-      const QString message = m_projSvc->lastErrors().join(QLatin1Char('\n'));
+      QString message = m_projSvc->lastErrors().join(QLatin1Char('\n'));
       m_projSvc->closeProject();
       dropThisAttempt();
-      restorePrevious();
+      const QString restoreError = restorePrevious();
+      if (!restoreError.isEmpty())
+        message += tr("\n恢复原工程 %1 失败：%2").arg(previous, restoreError);
       emit openFailed(tr("新建工程失败"),
                       message.isEmpty() ? tr("写入工程清单失败") : message, true);
       return false;

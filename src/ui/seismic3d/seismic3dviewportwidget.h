@@ -263,7 +263,11 @@ private:
     // D7.3 层位/井标注（GL 前暂存 + initializeGL 补传；井列表供标注投影）
     std::vector<Seismic3DHorizonSurface> horizonItems_;
     bool horizonsPending_ = false;
+    // D3.4/D3.12：井轨迹/次级体轮廓同样「暂存 + 就绪补传」——setWells /
+    // setSecondaryVolume 早于 GL 就绪（或早于体）时不得静默丢弃
     std::vector<Seismic3DWell> wellsForLabels_;
+    bool wellsPending_ = false;
+    bool secondaryPending_ = false;
     bool wellLabelsVisible_ = false;
 };
 } // namespace seismic

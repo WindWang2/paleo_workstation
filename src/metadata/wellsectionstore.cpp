@@ -125,16 +125,13 @@ bool wellSectionEnsureColumn(QSqlDatabase &db, const QString &table,
     return true;
 }
 
+// 幂等建表 + 逐列补建（前向升级口径见上）。#736：本函数即 MetaStore 的
+// 迁移步（幂等，可按步重复调用），由 openConnection 在版本落后时于事务内
+// 逐级执行、版本已到位时作 ensure。
 // #395：readOnly 连接不建表/不补列——schema 归写实例；read-write 打开会
 // 撞写实例的排他锁（整库读不出）。
-bool wellSectionEnsureOpen(const QString &path, bool readOnly, QString *error)
+bool wellSectionEnsureSchema(QSqlDatabase &db, QString *error)
 {
-    QSqlDatabase db =
-        MetaStore::openConnection(path, wellSectionConnectionName(path, readOnly), error, readOnly);
-    if (!db.isValid())
-        return false;
-    if (readOnly)
-        return true;
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral(
             "CREATE TABLE IF NOT EXISTS well_section_edits ("
@@ -168,6 +165,19 @@ bool wellSectionEnsureOpen(const QString &path, bool readOnly, QString *error)
         setError(error, selection.lastError().text());
         return false;
     }
+    return true;
+}
+
+bool wellSectionEnsureOpen(const QString &path, bool readOnly, QString *error)
+{
+    QSqlDatabase db = MetaStore::openConnection(
+        path, wellSectionConnectionName(path, readOnly), error, readOnly,
+        MetaStore::kUserVersion,
+        [](QSqlDatabase &db, int, int, QString *err) { return wellSectionEnsureSchema(db, err); });
+    if (!db.isValid())
+        return false;
+    // 只读实例不建表/不补列（#395/#80）——schema 归写实例；可写路径的 schema
+    // 已在 openConnection 内确保（版本落后时在事务内逐级迁移，#736）。
     return true;
 }
 

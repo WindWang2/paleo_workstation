@@ -142,7 +142,8 @@ QVariantMap barrierParams( const sf::FeatureAttributes &attrs )
 
 QVector<ImportedConstraintRecord>
 readConstraintImportFeatures(const QString &path, const QString &role, QString *resolvedRole,
-                             QString *error, const std::function<bool()> &cancelled) {
+                             QString *error, const std::function<bool()> &cancelled,
+                             ConstraintImportFailure *failure) {
   QgsVectorLayer layer( path, QStringLiteral( "constraints" ), QStringLiteral( "ogr" ) );
   if ( !layer.isValid() )
   {
@@ -158,7 +159,13 @@ readConstraintImportFeatures(const QString &path, const QString &role, QString *
   {
     effective = detectRole( layer, path, error );
     if ( effective.isEmpty() )
+    {
+      // detectRole 仅在此一种情形返回空串（已写 error）——置机器可判定码，
+      // 调用侧据此询问用户显式指定角色，不匹配译文。
+      if ( failure )
+        *failure = ConstraintImportFailure::RoleUndetermined;
       return {};
+    }
   }
   if ( effective != QLatin1String( "direction" ) && effective != QLatin1String( "barrier" ) &&
        effective != QLatin1String( "generic" ) )

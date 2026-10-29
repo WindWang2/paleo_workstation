@@ -15,7 +15,8 @@
 //     · 末条 assistant 带 toolCalls → 工具相：runner 逐帧执行 → 每结果一条
 //       role=tool 消息（toolCallId 对账）→ 全部到齐 → 新 assistant 占位 +
 //       再发一轮（带 tools[]），直到模型不再要工具（终答）。
-//     · 往返数超 kMaxToolRounds → 如实报错停轮（防模型无限点工具）。
+//     · 往返数超 kMaxToolRounds → 如实报错停轮（防模型无限点工具），停轮前
+//       给未应答 calls 合成 role=tool 应答（同 cancel 口径）。
 //   cancel → 作废（口径见 aichattoolrunner.h）：在途结果不回灌，未应答的
 //   tool_call_id 合成「已取消」role=tool 应答——否则历史里 assistant 带
 //   calls 而缺应答，下轮请求直接违反协议（OpenAI 400）。
@@ -65,30 +66,7 @@ AiChatController::AiChatController(QObject *parent)
             // 历史里仍挂着未应答帧；下轮请求原样上送即违反协议（OpenAI 400），
             // 该会话每轮复现。按「尾部 assistant 的 calls 是否已有 role=tool
             // 应答」补齐缺口，错误应答同样满足「每 call 必答」。
-            if (!m_session.messages.isEmpty() &&
-                m_session.messages.last().role == ChatRole::Assistant &&
-                !m_session.messages.last().toolCalls.isEmpty()) {
-              QSet<QString> answered;
-              for (const ChatMessage &m : m_session.messages)
-                if (m.role == ChatRole::Tool && !m.toolCallId.isEmpty())
-                  answered.insert(m.toolCallId);
-              const QVector<ChatToolCall> calls = m_session.messages.last().toolCalls;
-              for (const ChatToolCall &call : calls) {
-                if (answered.contains(call.id))
-                  continue;
-                QJsonObject payload;
-                payload.insert(QStringLiteral("tool"), call.name);
-                payload.insert(QStringLiteral("error"),
-                               tr("请求出错：本调用未执行"));
-                ChatMessage tool;
-                tool.role = ChatRole::Tool;
-                tool.toolCallId = call.id;
-                tool.content = QString::fromUtf8(
-                  QJsonDocument(payload).toJson(QJsonDocument::Compact));
-                tool.timestamp = QDateTime::currentDateTime();
-                appendMessage(tool);
-              }
-            }
+            padUnansweredToolCalls(tr("请求出错：本调用未执行"));
             m_pendingToolResults = 0;
             m_unansweredCalls.clear();
             // 出错后占位若仍为空就摘掉（同 cancel：工具相占位带 toolCalls
@@ -111,6 +89,36 @@ AiChatController::AiChatController(QObject *parent)
           [this](const ChatToolCall &call, bool ok, const QString &resultJson) {
             onToolFinished(call, ok, resultJson);
           });
+}
+
+// 协议完整性（见文件头注释）：尾部 assistant 的 tool_calls 若没有对应
+// role=tool 应答，下一轮请求就违反「每个 tool_call 必有一条应答」
+// （OpenAI 400，且该会话每轮复现，直到该轮滑出历史窗口）。按 reason 合成
+// 错误应答补齐缺口——取消 / 请求出错 / 往返超限三条停轮路径共用同一补齐，
+// 缺一条都会把协议违规留给后续每一轮。
+void AiChatController::padUnansweredToolCalls(const QString &reason) {
+  if (m_session.messages.isEmpty() ||
+      m_session.messages.last().role != ChatRole::Assistant ||
+      m_session.messages.last().toolCalls.isEmpty())
+    return;
+  QSet<QString> answered;
+  for (const ChatMessage &m : m_session.messages)
+    if (m.role == ChatRole::Tool && !m.toolCallId.isEmpty())
+      answered.insert(m.toolCallId);
+  for (const ChatToolCall &call : m_session.messages.last().toolCalls) {
+    if (answered.contains(call.id))
+      continue;
+    QJsonObject payload;
+    payload.insert(QStringLiteral("tool"), call.name); // 模型可控：经 JSON 序列化转义
+    payload.insert(QStringLiteral("error"), reason);
+    ChatMessage tool;
+    tool.role = ChatRole::Tool;
+    tool.toolCallId = call.id;
+    tool.content = QString::fromUtf8(
+      QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    tool.timestamp = QDateTime::currentDateTime();
+    appendMessage(tool);
+  }
 }
 
 QString AiChatController::statusText() const {
@@ -488,6 +496,12 @@ void AiChatController::onRoundFinished(const QString &reason) {
     return;
   }
   if (++m_toolRound > kMaxToolRounds) {
+    // 超限停轮同样要补齐协议：尾部 assistant 的 tool_calls 还没有任何
+    // role=tool 应答（m_unansweredCalls 尚未填充），不带应答就停轮会让
+    // 该会话后续每一轮请求都违反「每个 tool_call 必须有一条 tool 应答」
+    // （OpenAI 400），直到这一轮滑出 kMaxHistoryTurns 历史窗口。
+    padUnansweredToolCalls(tr("工具往返超过 %1 次上限，本调用未执行")
+                             .arg(kMaxToolRounds));
     setStreaming(false);
     emit errorOccurred(tr("工具往返超过 %1 次上限，已停止本轮（模型反复点"
                           "工具不给终答）").arg(kMaxToolRounds));
@@ -585,30 +599,7 @@ void AiChatController::cancel() {
   // 流式中途取消（轮未 finish，m_unansweredCalls 未填充）时尾部 assistant
   // 可能已带 tool_calls——按「尾部 assistant 的 calls 是否已有应答」补齐
   // （与 errorOccurred 同口径；只靠 m_unansweredCalls 会漏掉这批帧）。
-  if (!m_session.messages.isEmpty() &&
-      m_session.messages.last().role == ChatRole::Assistant &&
-      !m_session.messages.last().toolCalls.isEmpty()) {
-    QSet<QString> answered;
-    for (const ChatMessage &m : m_session.messages)
-      if (m.role == ChatRole::Tool && !m.toolCallId.isEmpty())
-        answered.insert(m.toolCallId);
-    const QVector<ChatToolCall> calls = m_session.messages.last().toolCalls;
-    for (const ChatToolCall &call : calls) {
-      if (answered.contains(call.id))
-        continue;
-      QJsonObject payload;
-      payload.insert(QStringLiteral("tool"), call.name);
-      payload.insert(QStringLiteral("error"),
-                     tr("用户取消：本调用未执行或结果已作废"));
-      ChatMessage tool;
-      tool.role = ChatRole::Tool;
-      tool.toolCallId = call.id;
-      tool.content = QString::fromUtf8(
-        QJsonDocument(payload).toJson(QJsonDocument::Compact));
-      tool.timestamp = QDateTime::currentDateTime();
-      appendMessage(tool);
-    }
-  }
+  padUnansweredToolCalls(tr("用户取消：本调用未执行或结果已作废"));
   m_pendingToolResults = 0;
   setStreaming(false);
   // 取消后占位消息若仍为空就摘掉——不给用户留一条空白的"助手回答"。

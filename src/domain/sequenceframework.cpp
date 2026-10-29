@@ -6,6 +6,8 @@
 #include <QJsonDocument>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace SequenceFramework
 {
@@ -232,7 +234,14 @@ Framework fromJson( const QJsonObject &obj, QString *error )
     const QJsonValue v = obj.value( QStringLiteral( "schema_version" ) );
     if ( !v.isDouble() )
       return fail( tr( "格架 schema_version 不是数字" ) );
-    fw.schemaVersion = v.toInt();
+    const double d = v.toDouble();
+    // 非整数（2.5）或超 int 范围（1e10）：此前直接 toInt() 静默截断成 0 或
+    // 垃圾值——「过新版本如实拒绝」的保护被绕过，版本号 roundtrip 后还被改写
+    // （finding-41）。先验整数性与范围，不合法就如实报错。
+    if ( !std::isfinite( d ) || std::floor( d ) != d || d < std::numeric_limits<int>::min() ||
+         d > std::numeric_limits<int>::max() )
+      return fail( tr( "格架 schema_version 不是整数或超出范围：%1" ).arg( QString::number( d ) ) );
+    fw.schemaVersion = static_cast<int>( d );
   }
   // 未来版本信号：高于本二进制所知的版本如实报错，不静默截断字段。
   if ( fw.schemaVersion > kSchemaVersion )

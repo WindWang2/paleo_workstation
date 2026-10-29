@@ -94,7 +94,12 @@ void EntityPanel::beginCreateEntity()
                                      : QStringLiteral("aux"));
   if (m_stack)
   {
-    m_stack->push(new EntityCreateCmd(m_ctx, e));
+    // finding-130：接住 push() 失败——命令未入栈时不再谎报「已新建（可撤销）」。
+    if (!m_stack->push(new EntityCreateCmd(m_ctx, e)))
+    {
+      emit statusMessage(tr("新建实体失败：%1").arg(m_stack->lastError()));
+      return;
+    }
     if (m_history)
       m_history->push(tr("新建实体 %1").arg(name));
   }
@@ -149,13 +154,29 @@ void EntityPanel::beginRenameEntity(const QString &entityId)
   next.note = dlg.editedNote();
   if (m_stack)
   {
-    m_stack->push(new EntityEditCmd(m_ctx, e.id, next,
-                                    m_ctx.entityOverrides
-                                        ? m_ctx.entityOverrides->overrideFor(e.id)
-                                        : EntityOverride(),
-                                    false));
+    // finding-130：接住 push() 失败——不谎报「已更新（可撤销）」。
+    if (!m_stack->push(new EntityEditCmd(m_ctx, e.id, next,
+                                         m_ctx.entityOverrides
+                                             ? m_ctx.entityOverrides->overrideFor(e.id)
+                                             : EntityOverride(),
+                                         false)))
+    {
+      emit statusMessage(tr("实体更新失败：%1").arg(m_stack->lastError()));
+      return;
+    }
     if (m_history)
       m_history->push(tr("编辑实体 %1").arg(newName));
+  }
+  else
+  {
+    // finding-130：无栈兜底——直接落 override 并保存（与 EntityEditCmd::redo
+    // 同口径）；失败不再谎报成功（m_ctx.valid() 已保证 entityOverrides 非空）。
+    m_ctx.entityOverrides->setOverride(e.id, next);
+    if (!m_ctx.entityOverrides->save())
+    {
+      emit statusMessage(tr("实体更新失败：sidecar 写入失败"));
+      return;
+    }
   }
   refresh();
   emit entityRefreshRequested();

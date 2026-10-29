@@ -89,11 +89,14 @@ class PreviewTocPanel : public QWidget
       QString name;
       QString sourcePath;
       bool visible = true;
+      double opacity = 1.0; // 滑杆当前值（0..1；D4.7 随资产记忆）
     };
     void rebuildList();
     void rebuildQuickPanel();
     void applyRasterStyle( QgsRasterLayer *rl );
     void applyVectorStyle( QgsVectorLayer *vl );
+    // 透明度滑杆：记账（row.opacity，D4.7 记忆）+ 让宿主刷画布透明度。
+    void applyOpacityFromSlider( int value );
 
     QString m_assetKey;
     QList<RowInfo> m_rows; // index 0 = 顶

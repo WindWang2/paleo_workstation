@@ -183,9 +183,13 @@ QVariantMap normalizeComposed( const QVariantMap &extra, QVariantMap out )
     const QString versionId = row.value( QStringLiteral( "version_id" ) ).toString();
     if ( !versionId.isEmpty() )
       receiptVersions.insert( versionId );
+    // dimension=inputs：这些是图层/版本行，不是约束维度——不标维度就会被
+    // compareWithPlan 的约束口径当成约束参与事实，与「约束使用计划」对比
+    // 必然产生成片伪差异（finding-36）。
     QVariantMap base{ { QStringLiteral( "layer_id" ), row.value( QStringLiteral( "layer_id" ) ) },
                       { QStringLiteral( "version_id" ), row.value( QStringLiteral( "version_id" ) ) },
-                      { QStringLiteral( "priority" ), row.value( QStringLiteral( "priority" ) ) } };
+                      { QStringLiteral( "priority" ), row.value( QStringLiteral( "priority" ) ) },
+                      { QStringLiteral( "dimension" ), QStringLiteral( "inputs" ) } };
     const qlonglong wonCells = row.value( QStringLiteral( "won_cells" ) ).toLongLong();
     accepted << base;
     if ( wonCells > 0 )
@@ -211,7 +215,8 @@ QVariantMap normalizeComposed( const QVariantMap &extra, QVariantMap out )
     ++uncovered;
     skipped << QVariantMap{ { QStringLiteral( "version_id" ), versionId },
                             { QStringLiteral( "layer_id" ), entry.toMap().value( QStringLiteral( "layer_id" ) ) },
-                            { QStringLiteral( "reason" ), tr( "运行回执未覆盖该输入" ) } };
+                            { QStringLiteral( "reason" ), tr( "运行回执未覆盖该输入" ) },
+                            { QStringLiteral( "dimension" ), QStringLiteral( "inputs" ) } };
   }
   if ( uncovered > 0 )
     addFinding( out, QStringLiteral( "Warning" ), QStringLiteral( "receipt_inputs_incomplete" ),
@@ -265,6 +270,8 @@ QVariantMap normalizePolygons( const QVariantMap &extra, QVariantMap out )
     if ( !sourceLayer.isEmpty() )
       row.insert( QStringLiteral( "layer_id" ), sourceLayer );
     row.insert( QStringLiteral( "version_id" ), parent );
+    // dimension=parents：血缘父版本行，不是约束维度（finding-36）。
+    row.insert( QStringLiteral( "dimension" ), QStringLiteral( "parents" ) );
     accepted << row;
     // 转面读取整个父相栅格（grid 戳即其口径），无部分参与维度。
     QVariantMap used = row;
@@ -396,28 +403,34 @@ QVariantMap compareWithPlan( const QVariantMap &normalizedReceipts, const QVaria
   if ( normalizedReceipts.value( QStringLiteral( "legacy" ) ).toBool() )
     return notComparable( tr( "尚未运行，不能把计划当实际结果（该版本无运行回执）" ) );
 
-  // 实际事实：约束维度的 consumed / skipped（样点/井维度不参与约束计划对比）。
+  // 实际事实：约束维度的 consumed / skipped（样点/井/输入版本维度不参与约束
+  // 计划对比）。维度标签由各 normalize 家族写入；未标注的行一律不当作约束
+  // 参与事实——把无 dimension 行默认成约束，会让 composed_facies 的图层/版本
+  // 行与 facies_polygons 的父版本行混进约束对比，成片伪差异（finding-36）。
   QSet<QString> consumedIds;
   QHash<QString, QString> skipReasons;
   const auto isConstraintDimension = []( const QVariantMap &row ) {
-    return !row.contains( QStringLiteral( "dimension" ) ) ||
-           row.value( QStringLiteral( "dimension" ) ).toString() == QStringLiteral( "constraints" );
+    return row.value( QStringLiteral( "dimension" ) ).toString() == QStringLiteral( "constraints" );
   };
   for ( const QVariant &entry : normalizedReceipts.value( QStringLiteral( "consumed_inputs" ) ).toList() )
   {
     const QVariantMap row = entry.toMap();
-    if ( isConstraintDimension( row ) )
-      consumedIds.insert( rowIdentity( row, { "id", "version_id" } ) );
+    if ( !isConstraintDimension( row ) )
+      continue;
+    // 空 id（version_id 缺失的行）不构成事实：否则会产出 id 为空的伪差异行。
+    const QString id = rowIdentity( row, { "id", "version_id" } );
+    if ( id.isEmpty() )
+      continue;
+    consumedIds.insert( id );
   }
   for ( const QVariant &entry : normalizedReceipts.value( QStringLiteral( "skipped_inputs" ) ).toList() )
   {
     const QVariantMap row = entry.toMap();
-    if ( isConstraintDimension( row ) )
-    {
-      const QString id = rowIdentity( row, { "id", "version_id" } );
-      if ( !id.isEmpty() )
-        skipReasons.insert( id, row.value( QStringLiteral( "reason" ) ).toString() );
-    }
+    if ( !isConstraintDimension( row ) )
+      continue;
+    const QString id = rowIdentity( row, { "id", "version_id" } );
+    if ( !id.isEmpty() )
+      skipReasons.insert( id, row.value( QStringLiteral( "reason" ) ).toString() );
   }
   // 无 consumed 不等于未运行（克里金等方法约束零消费但 skipped 有记录）；
   // 只有约束维度整条回执都没有时才不可比。

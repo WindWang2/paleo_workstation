@@ -15,6 +15,8 @@
 
 #include <qgsconfig.h> // _QGIS_VERSION
 
+#include "metadata/processprobe.h" // paleo::proc::probeProcess（旗标属主存活探测）
+
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -65,6 +67,42 @@ long currentPid()
 #else
   return static_cast<long>(::getpid());
 #endif
+}
+
+// 旗标内容 "pid=%1\nstarted=%2\n" 里的属主 pid；没有/解析不出 → -1。
+qint64 pidFromFlagContent(const QByteArray &content)
+{
+  const int at = content.indexOf("pid=");
+  if (at < 0)
+    return -1;
+  qint64 pid = 0;
+  bool any = false;
+  for (int i = at + 4; i < content.size(); ++i) {
+    const char c = content.at(i);
+    if (c < '0' || c > '9')
+      break;
+    pid = pid * 10 + (c - '0');
+    any = true;
+  }
+  return any ? pid : -1;
+}
+
+// .running-<pid> 旗标的属主 pid：文件名后缀优先；legacy .running 无后缀，
+// 读文件内容的 "pid=" 行。两者都取不到 → -1（老格式/损坏旗标）。
+qint64 flagOwnerPid(const QString &path)
+{
+  const QString name = QFileInfo(path).fileName();
+  const QString prefix = QStringLiteral(".running-");
+  if (name.startsWith(prefix)) {
+    bool ok = false;
+    const qint64 pid = name.mid(int(prefix.size())).toLongLong(&ok);
+    if (ok && pid > 0)
+      return pid;
+  }
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly))
+    return -1;
+  return pidFromFlagContent(f.readAll());
 }
 
 // ---- fd 原语（两个平台同一语义）----
@@ -374,7 +412,20 @@ SessionStart installCrashHandler(const QString &baseDir)
   const QString pidFlag = pidFlagPath(dir);
   const QStringList runningFiles = QDir(dir).entryList(
       {QStringLiteral(".running*")}, QDir::Files | QDir::Hidden);
-  out.previousDirtyExit = !runningFiles.isEmpty();
+  // 脏退出判定必须剔除「其它存活实例」的旗标：并发双实例时第二个实例启动
+  // 必看到第一个实例留下的 .running/.running-<pid>——旧实现见旗标即报，
+  // 双开用户每次都被伪告「上次未能正常退出 Paleo」。属主 pid 仍存活且不是
+  // 本进程 ⇒ 别人家的在飞会话，不构成脏退出；属主已死、探不到 pid 的老
+  // 旗标（Unknown）一并按脏退出——诊断面宁可多报，不漏报。
+  out.previousDirtyExit = false;
+  for (const QString &name : runningFiles) {
+    const qint64 owner = flagOwnerPid(QDir(dir).filePath(name));
+    if (owner > 0 && owner != currentPid() &&
+        paleo::proc::probeProcess(owner) == paleo::proc::ProcessState::Alive)
+      continue;
+    out.previousDirtyExit = true;
+    break;
+  }
   if (out.previousDirtyExit)
     out.lastReportPath = latestReportPath(baseDir);
 

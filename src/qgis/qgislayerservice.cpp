@@ -181,22 +181,25 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   QString readError;
   if (!m_manifest->find(layerId, &stored, &readError))
   {
+    // #81：这些文案经 instantiateHorizon → horizonInstantiationFailed 直达用户
+    // （layertreepanel 原样呈现），必须走 tr()——裸英文串在中文界面里是混排
+    // 诊断，翻译管线也归类不到本类。
     setError(error, readError.isEmpty()
-                        ? QStringLiteral("failed to read layer manifest")
-                        : QStringLiteral("failed to read layer manifest: %1").arg(readError));
+                        ? tr("读取图层清单失败")
+                        : tr("读取图层清单失败：%1").arg(readError));
     return nullptr;
   }
   const LayerDeclaration *decl = stored.layerId.isEmpty() ? nullptr : &stored;
   if (!decl)
   {
-    setError(error, QStringLiteral("no layer declaration for '%1'").arg(layerId));
+    setError(error, tr("图层清单中没有「%1」的声明").arg(layerId));
     return nullptr;
   }
 
   QgsProject *proj = svcProject(m_projectSvc);
   if (!proj)
   {
-    setError(error, QStringLiteral("no QgsProject available to host '%1'").arg(layerId));
+    setError(error, tr("没有可承载「%1」的工程").arg(layerId));
     return nullptr;
   }
 
@@ -212,8 +215,10 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   if (!layer || !layer->isValid())
   {
     const QString detail = layer ? layer->error().message() : tr("离线底图不存在或无法读取");
-    setError(error, QStringLiteral("failed to instantiate layer '%1': %2")
-                        .arg(layerId, detail.isEmpty() ? QStringLiteral("provider rejected source '%1'").arg(decl->source) : detail));
+    setError(error, tr("无法实例化图层「%1」：%2")
+                        .arg(layerId, detail.isEmpty()
+                                          ? tr("数据提供方拒绝了来源「%1」").arg(decl->source)
+                                          : detail));
     return nullptr;
   }
 
@@ -245,7 +250,7 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   QgsMapLayer *added = proj->addMapLayer(layer.get());
   if (!added)
   {
-    setError(error, QStringLiteral("QgsProject refused layer '%1'").arg(layerId));
+    setError(error, tr("工程拒绝加入图层「%1」").arg(layerId));
     return nullptr;
   }
   layer.release();
@@ -406,7 +411,7 @@ bool QgisLayerService::tryDeclared(QVector<LayerDeclaration> *out, QString *erro
 {
   if (!m_manifest)
   {
-    setError(error, QStringLiteral("layer service has no manifest"));
+    setError(error, tr("图层服务未绑定图层清单"));
     return false;
   }
   return m_manifest->readAll(out, error);

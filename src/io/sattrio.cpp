@@ -393,7 +393,15 @@ bool SattrVolumeWriter::finish(double valueMin, double valueMax,
     file_.close();
     return false;
   }
-  file_.flush();
+  // flush 失败 = 落盘失败：与 writeSattrSection 的发布检查同口径，不向
+  // 调用方报「成功」后交一个内容不全的 .satv。
+  if (!file_.flush())
+  {
+    setError(error, QStringLiteral("SATV 刷盘失败：%1（%2）")
+                         .arg(file_.fileName(), file_.errorString()));
+    file_.close();
+    return false;
+  }
   file_.close();
   return true;
 }

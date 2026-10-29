@@ -5,6 +5,7 @@
 #include "../paleotheme.h"
 
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QFileInfo>
@@ -167,4 +168,22 @@ void LlmConfigDialog::onApplyResult(bool ok, const QString &error) {
     return;
   }
   QDialog::accept();
+}
+
+void LlmConfigDialog::reject() {
+  // busy 在途（密钥异步写入）时拦截 Esc / Cancel / 编程式 reject：关窗会让
+  // 宿主侧完成回调随对话框连接一起作废，配置已落盘却未应用到运行时。
+  if (m_busy)
+    return;
+  QDialog::reject();
+}
+
+void LlmConfigDialog::closeEvent(QCloseEvent *event) {
+  // 系统关闭（标题栏 X / Alt+F4 / closeAllWindows）走 closeEvent，不经
+  // reject()——busy 在途同样拦截，理由同 reject()。
+  if (m_busy) {
+    event->ignore();
+    return;
+  }
+  QDialog::closeEvent(event);
 }

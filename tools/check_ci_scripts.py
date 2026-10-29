@@ -25,6 +25,7 @@
 #   - workflows 目录存在且含至少一个 yml/yaml（整目录缺失视为树损坏）；
 #   - 每个 run: 块引用的受守脚本路径在源码根下存在。
 import re
+import subprocess
 import sys
 import tempfile
 import shutil
@@ -90,8 +91,12 @@ def extract_tokens(run_text: str):
     return {t.rstrip('.,:;)"\'') for t in REF_RE.findall(body)}
 
 
-def check(root: Path):
-    """返回 (exit_code, 报告行列表)。0=引用全存在，1=断链/树损坏。"""
+def check(root: Path, gate_rules: bool = True):
+    """返回 (exit_code, 报告行列表)。0=引用全存在，1=断链/树损坏。
+
+    gate_rules=False 用于合成夹具（只有 tools/ok.sh 的最小树）——#760 的门禁
+    共享规则一致性检查只在真树上跑，避免夹具被自己的缺失打红。
+    """
     wf_dir = root / WORKFLOWS_DIR
     ymls = sorted(p for p in wf_dir.glob("*.yml")) + \
         sorted(p for p in wf_dir.glob("*.yaml"))
@@ -111,6 +116,26 @@ def check(root: Path):
             else:
                 missing += 1
                 lines.append("  %-14s %s MISSING" % (yml.name, ref))
+    if gate_rules:
+        # #760：Windows/Linux 测试门禁共享规则一致性——tools/ci-gate-rules.json 是
+        # 单一真源，ci_gate_rules.py 的 --check-consistency 核对两端脚本
+        # （tools/ci_ctest_gate.sh / paleo-dev.ps1）的内联回落副本与 JSON 一致、
+        # 且都从共享规则取结果行口径。断链/漂移与脚本引用断链同罪。
+        reader = root / "tools" / "ci_gate_rules.py"
+        rules = root / "tools" / "ci-gate-rules.json"
+        if not (reader.is_file() and rules.is_file()):
+            missing += 1
+            lines.append("FAIL tools/ci-gate-rules.json 或 tools/ci_gate_rules.py 缺失"
+                         "（#760 门禁共享规则单一真源）")
+        else:
+            proc = subprocess.run([sys.executable, str(reader), "--check-consistency"],
+                                  cwd=str(root), capture_output=True, text=True)
+            for ln in (proc.stdout or "").splitlines():
+                lines.append("  %-14s %s" % ("gate-rules", ln.strip()))
+            if proc.returncode != 0:
+                missing += 1
+                lines.append("FAIL ci_gate_rules --check-consistency：两端门禁规则与"
+                             " ci-gate-rules.json 漂移（#760）")
     if missing:
         lines.append("FAIL %d/%d 个脚本引用断链（脚本不存在）" % (missing, total_refs))
         return 1, lines
@@ -184,11 +209,36 @@ def selftest() -> int:
             tree.mkdir()
             if yml is not None:
                 _selftest_write_tree(tree, yml, files)
-            code, _ = check(tree)
+            code, _ = check(tree, gate_rules=False)
             status = "ok" if code == want else "FAIL"
             if code != want:
                 failed += 1
             print("  selftest %-22s -> exit %d (期望 %d) %s" % (name, code, want, status))
+        # #760：门禁共享规则一致性自检——真树口径（gate_rules=True）下，
+        # 复制真 rules + reader + 两端门禁脚本进合成树必须绿；reader 缺失必须红。
+        here = Path(__file__).resolve().parent
+        repo = here.parent
+        ok_tree = base / "gate_rules_present"
+        ok_tree.mkdir()
+        _selftest_write_tree(ok_tree, SELFTEST_YML_BASE, ("tools/ok.sh",))
+        for rel in ("tools/ci_gate_rules.py", "tools/ci-gate-rules.json",
+                    "tools/ci_ctest_gate.sh", "paleo-dev.ps1"):
+            shutil.copy(repo / rel, ok_tree / rel)
+        code, out = check(ok_tree, gate_rules=True)
+        print("  selftest %-22s -> exit %d (期望 0) %s"
+              % ("gate-rules 一致", code, "ok" if code == 0 else "FAIL"))
+        if code != 0:
+            failed += 1
+            for ln in out:
+                print("      " + ln)
+        broken_tree = base / "gate_rules_missing"
+        broken_tree.mkdir()
+        _selftest_write_tree(broken_tree, SELFTEST_YML_BASE, ("tools/ok.sh",))
+        code, _ = check(broken_tree, gate_rules=True)
+        print("  selftest %-22s -> exit %d (期望 1) %s"
+              % ("gate-rules 断链", code, "ok" if code == 1 else "FAIL"))
+        if code != 1:
+            failed += 1
     finally:
         shutil.rmtree(base, ignore_errors=True)
     print("  selftest %s" % ("OK" if failed == 0 else "FAILED (%d)" % failed))

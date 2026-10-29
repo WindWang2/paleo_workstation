@@ -92,7 +92,7 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
                                         const QStringList &previewedPaths,
                                         FolderImportWorkflow::ImportDone done) {
       if (!m_projectSvc || m_projectSvc->sessionId() != session || isProjectReadOnly() || m_projectSvc->isOpening()) {
-        if (done) done({}, tr("工程已变化，请重新选择资料。"));
+        if (done) done({}, tr("工程已变化，请重新选择资料。"), false);
         return;
       }
       // 方向 D1：确认动作在对话框内经本出口发起——此刻读「复制进工程」勾选：
@@ -178,7 +178,7 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
                         const QStringList &previewedPaths,
                         FolderImportWorkflow::ImportDone done) {
               if (!m_projectSvc || m_projectSvc->sessionId() != session || isProjectReadOnly() || m_projectSvc->isOpening()) {
-                if (done) done({}, tr("工程已变化，请重新选择资料。"));
+                if (done) done({}, tr("工程已变化，请重新选择资料。"), false);
                 return;
               }
               // 方向 D1：与 runFolderImportAt 同口径——确认时读「复制进工程」

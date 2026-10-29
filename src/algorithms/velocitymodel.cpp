@@ -51,19 +51,99 @@ double v0kTwt(double v0, double k, double depthM)
   return 2000.0 / k * std::log1p(u);
 }
 
+// V0-k 两点拟合（#718）：过原点恒速在两结点不共线时井上误差可达 km 级
+// （首结点不在 SRD 时尤甚）。改以首结点为参考解
+//   z₂ = z₁·(e^{a·t₂}−1)/(e^{a·t₁}−1),  a = k/2000 ≠ 0
+// 再折算回过原点口径 v₀ = k·z₁/(e^{k·t₁/2000}−1)——折算后模型仍过原点，
+// 且**精确过两结点**（位级锚点，fitRmsMs≈0）。首结点就在 SRD（t₁≤0）或
+// z₁≤0 时过原点恒速即精确（无需求解）；折算出非正速度/速度在井段内非正时
+// 回落过原点恒速（调用方按 V0 非正跳过该井）。
+void fitV0kTwoKnots( const QVector<VelocityKnot> &knots, double *v0Out, double *kOut )
+{
+  const double t1 = knots.at( 0 ).twtMs, z1 = knots.at( 0 ).depthM;
+  const double t2 = knots.at( 1 ).twtMs, z2 = knots.at( 1 ).depthM;
+  const auto constantThroughOrigin = [&]() {
+    *v0Out = 2000.0 * ( z2 - z1 ) / ( t2 - t1 );
+    *kOut = 0.0;
+  };
+  if ( !( t1 > 0.0 ) || !( z1 > 0.0 ) || !( t2 > t1 ) || !std::isfinite( t1 ) ||
+       !std::isfinite( z1 ) || !std::isfinite( t2 ) || !std::isfinite( z2 ) )
+  {
+    constantThroughOrigin(); // 首结点在 SRD 或数据退化：过原点恒速已精确/唯一可选
+    return;
+  }
+  // g(a) = z₁·(e^{a·t₂}−1) − z₂·(e^{a·t₁}−1)；g(0)≡0（过原点恒速解），所求为
+  // 另一非零根。g'(0) = z₁·t₂ − z₂·t₁ 的符号决定非零根在 a 的哪一侧。
+  const double gPrime0 = z1 * t2 - z2 * t1;
+  if ( std::abs( gPrime0 ) <= 1e-12 * ( std::abs( z1 * t2 ) + std::abs( z2 * t1 ) ) )
+  {
+    constantThroughOrigin(); // 两结点与原点共线：过原点恒速即精确解
+    return;
+  }
+  const double side = gPrime0 < 0.0 ? 1.0 : -1.0; // g'(0)<0 → 根在正侧，反之负侧
+  const auto g = [&]( double a ) {
+    return z1 * std::expm1( a * t2 ) - z2 * std::expm1( a * t1 );
+  };
+  // 括号 + 二分：固定迭代次数（确定性，同输入同输出）。
+  double lo = 0.0, hi = side * 1e-6;
+  double flo = 0.0, fhi = g( hi );
+  int expand = 0;
+  while ( fhi * flo >= 0.0 && expand < 200 )
+  {
+    lo = hi;
+    flo = fhi;
+    hi *= 2.0;
+    fhi = g( hi );
+    ++expand;
+  }
+  if ( fhi * flo >= 0.0 || !std::isfinite( fhi ) || !std::isfinite( flo ) )
+  {
+    constantThroughOrigin(); // 未括号到异号根（极端数据）：回落旧口径
+    return;
+  }
+  for ( int iter = 0; iter < 200; ++iter )
+  {
+    const double mid = 0.5 * ( lo + hi );
+    const double fm = g( mid );
+    if ( fm == 0.0 )
+    {
+      lo = hi = mid;
+      break;
+    }
+    if ( fm * flo < 0.0 )
+      hi = mid;
+    else
+    {
+      lo = mid;
+      flo = fm;
+    }
+  }
+  const double a = 0.5 * ( lo + hi );
+  const double k = 2000.0 * a;
+  const double u = k * t1 / 2000.0; // = a·t1
+  // v₀ = k·z₁/(e^{k·t₁/2000}−1)；|u| 极小时用极限 2000·z₁/t₁（数值消减）。
+  const double v0 = std::abs( u ) < 1e-9 ? 2000.0 * z1 / t1 : k * z1 / std::expm1( u );
+  // 速度必须在井段内恒正（对数/指数定义域）；否则该两点无法用合法 V0-k 表示。
+  if ( !( v0 > 0.0 ) || !std::isfinite( v0 ) || !( v0 + k * std::max( z1, z2 ) > 0.0 ) )
+  {
+    constantThroughOrigin();
+    return;
+  }
+  *v0Out = v0;
+  *kOut = k;
+}
+
 // V0-k 拟合：TWT 域 2 参数 Gauss-Newton，残差 r_i = T(z_i) − t_i（T 为反闭
 // 合式）。层间速度是 1/v 的调和型层平均，对瞬时速度线做线性 LS 有系统偏差
 // （积分关系不闭合）；直接在时深对上解 v(z)=V0+k·z 才与正闭合式自洽。
-// 单层井（2 控制点）不强解梯度：V0=Vint、k=0（常速，诚实口径）。
+// 两个控制点不强解梯度：以首结点为参考解出精确过两结点的 V0-k（#718），
+// 参考解不成立时回落 V0=Vint、k=0（过原点恒速）。
 // 固定迭代上限的确定性算法——同输入同输出（序列化/幂等语义依赖）。
 void fitV0k(const QVector<VelocityKnot> &knots, double *v0Out, double *kOut)
 {
   if (knots.size() < 3)
   {
-    const double dt = knots.at(1).twtMs - knots.at(0).twtMs;
-    const double dz = knots.at(1).depthM - knots.at(0).depthM;
-    *v0Out = 2000.0 * dz / dt;
-    *kOut = 0.0;
+    fitV0kTwoKnots( knots, v0Out, kOut );
     return;
   }
   // 初值：常速 LS（t = 2000z/v0 对 v0 的最小二乘）。
@@ -283,8 +363,15 @@ double VelocityModel::wellDepthForTwtExtended(const Well &w, double twtMs) const
   }
   if (twtMs < kn.first().twtMs)
   {
-    const double vint = (kn.at(1).depthM - kn.at(0).depthM) / (kn.at(1).twtMs - kn.at(0).twtMs);
-    return kn.first().depthM - (kn.first().twtMs - twtMs) * vint;
+    // #719：首结点之上不外延「首层区间速度」——t1 相对 (0,0) 的深时比常与该层
+    // 不同，外延距离一大就把 TVD 外延成负数（速度模型向首结点之上外延时 TVD
+    // 为负）。改按 (0,0)-(t1,z1) 线性插值（地表到首结点的常速语义），并留
+    // z<0 守卫：数值上仍为负则如实 NaN，不输出负深度。
+    const double t1 = kn.first().twtMs, z1 = kn.first().depthM;
+    if ( !( t1 > 0.0 ) )
+      return qQNaN(); // 首结点 TWT 非正：无 (0,0) 参考可插值
+    const double z = twtMs * z1 / t1;
+    return z < 0.0 ? qQNaN() : z;
   }
   return wellDepthForTwt(w, twtMs);
 }
@@ -300,7 +387,13 @@ double VelocityModel::wellVelocityAtExtended(const Well &w, double twtMs) const
   if (twtMs > kn.last().twtMs)
     return 2000.0 * (kn.at(n - 1).depthM - kn.at(n - 2).depthM) / (kn.at(n - 1).twtMs - kn.at(n - 2).twtMs);
   if (twtMs < kn.first().twtMs)
-    return 2000.0 * (kn.at(1).depthM - kn.at(0).depthM) / (kn.at(1).twtMs - kn.at(0).twtMs);
+  {
+    // 与 wellDepthForTwtExtended 的 (0,0)-(t1,z1) 插值同口径：首结点之上的
+    // 有效速度是地表到首结点的平均速度（2000·z1/t1），不再是首层区间速度
+    // ——否则深度与速度两条外延曲线在首结点之上互相矛盾（#719）。
+    const double t1 = kn.first().twtMs, z1 = kn.first().depthM;
+    return t1 > 0.0 ? 2000.0 * z1 / t1 : qQNaN();
+  }
   return wellVelocityAt(w, twtMs);
 }
 
@@ -465,6 +558,14 @@ DepthGridResult convertTimeGridToDepth(const VelocityModel &model,
   DepthGridResult r;
   r.depthM.resize(rows * cols);
   std::fill(r.depthM.begin(), r.depthM.end(), qQNaN());
+  // 尺寸契约：timeMs 必须就是 rows×cols。旧式用 QVector::value() 静默取 0.0f，
+  // 越界像元被当成合法 TWT=0ms 换算成深度 0 写进输出——错误被吞成貌似合理
+  // 的错值。不符即整体拒绝（保持全 NaN），不发布半真半假的深度面。
+  if (timeMs.size() != qsizetype(rows) * cols)
+  {
+    r.nodataCells = qsizetype(rows) * cols; // 没有一格被转换，如实计数
+    return r;
+  }
   for (int row = 0; row < rows; ++row)
   {
     if (cancelled && cancelled())

@@ -590,33 +590,46 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
       if ( !feature.hasGeometry() || feature.geometry().isEmpty() )
         continue;
       const QgsGeometry geometry = feature.geometry();
-      const QgsPointXY point = geometry.isMultipart() ? geometry.asMultiPoint().value( 0 ) : geometry.asPoint();
-      sf::Sample sample;
-      sample.stableRowId = feature.id() >= 0 ? std::to_string( static_cast<long long>( feature.id() ) )
-                                             : ( "row-" + std::to_string( ++sequence ) );
-      QString wellId;
-      if ( wellIdx >= 0 )
-        wellId = feature.attribute( wellIdx ).toString().trimmed();
-      if ( wellId.isEmpty() && nameIdx >= 0 )
-        wellId = feature.attribute( nameIdx ).toString().trimmed();
-      if ( wellId.isEmpty() )
-        wellId = utf8( sample.stableRowId );
-      sample.wellId = wellId.toUtf8().toStdString();
-      sample.x = point.x();
-      sample.y = point.y();
-      bool ok = false;
-      const auto value = feature.attribute( fieldIdx );
-      const double z = value.toDouble( &ok );
-      sample.value = !value.isNull() && ok ? z : std::numeric_limits<double>::quiet_NaN();
-      sample.componentOverride = -1;
-      if ( overrideIdx >= 0 && !feature.attribute( overrideIdx ).isNull() )
+      // 多部件点要素逐点展开：旧式只取第 1 个点，其余井位坐标被静默丢弃且
+      // 不留 ignored/QC 记录。每点一条 Sample，行号加部件序号后缀保持可追溯。
+      QVector<QgsPointXY> points;
+      if ( geometry.isMultipart() )
+        points = geometry.asMultiPoint();
+      else
+        points << geometry.asPoint();
+      for ( int part = 0; part < points.size(); ++part )
       {
-        bool overrideOk = false;
-        const int overrideValue = feature.attribute( overrideIdx ).toInt( &overrideOk );
-        if ( overrideOk && overrideValue >= 0 )
-          sample.componentOverride = overrideValue;
+        const QgsPointXY &point = points.at( part );
+        sf::Sample sample;
+        sample.stableRowId = feature.id() >= 0
+                                 ? std::to_string( static_cast<long long>( feature.id() ) )
+                                 : ( "row-" + std::to_string( ++sequence ) );
+        if ( points.size() > 1 )
+          sample.stableRowId += "#" + std::to_string( part );
+        QString wellId;
+        if ( wellIdx >= 0 )
+          wellId = feature.attribute( wellIdx ).toString().trimmed();
+        if ( wellId.isEmpty() && nameIdx >= 0 )
+          wellId = feature.attribute( nameIdx ).toString().trimmed();
+        if ( wellId.isEmpty() )
+          wellId = utf8( sample.stableRowId );
+        sample.wellId = wellId.toUtf8().toStdString();
+        sample.x = point.x();
+        sample.y = point.y();
+        bool ok = false;
+        const auto value = feature.attribute( fieldIdx );
+        const double z = value.toDouble( &ok );
+        sample.value = !value.isNull() && ok ? z : std::numeric_limits<double>::quiet_NaN();
+        sample.componentOverride = -1;
+        if ( overrideIdx >= 0 && !feature.attribute( overrideIdx ).isNull() )
+        {
+          bool overrideOk = false;
+          const int overrideValue = feature.attribute( overrideIdx ).toInt( &overrideOk );
+          if ( overrideOk && overrideValue >= 0 )
+            sample.componentOverride = overrideValue;
+        }
+        rows.push_back( std::move( sample ) );
       }
-      rows.push_back( std::move( sample ) );
     }
   }
   if ( rows.empty() )
@@ -961,19 +974,30 @@ QVariantMap SurferIdwAlgorithm::processAlgorithm( const QVariantMap &parameters,
       if ( !feature.hasGeometry() || feature.geometry().isEmpty() )
         continue;
       const QgsGeometry geometry = feature.geometry();
-      const QgsPointXY point =
-          geometry.isMultipart() ? geometry.asMultiPoint().value( 0 ) : geometry.asPoint();
-      sf::Sample sample;
-      sample.stableRowId = feature.id() >= 0
-                               ? std::to_string( static_cast<long long>( feature.id() ) )
-                               : ( "row-" + std::to_string( ++sequence ) );
-      sample.wellId = sample.stableRowId;
-      sample.x = point.x();
-      sample.y = point.y();
-      bool ok = false;
-      const double z = feature.attribute( fieldIdx ).toDouble( &ok );
-      sample.value = ok ? z : std::numeric_limits<double>::quiet_NaN();
-      rows.push_back( std::move( sample ) );
+      // 多部件点要素逐点展开（同 :593 口径）：只取第 1 个点会静默丢弃其余
+      // 井位坐标，行号加部件序号后缀保持可追溯。
+      QVector<QgsPointXY> points;
+      if ( geometry.isMultipart() )
+        points = geometry.asMultiPoint();
+      else
+        points << geometry.asPoint();
+      for ( int part = 0; part < points.size(); ++part )
+      {
+        const QgsPointXY &point = points.at( part );
+        sf::Sample sample;
+        sample.stableRowId = feature.id() >= 0
+                                 ? std::to_string( static_cast<long long>( feature.id() ) )
+                                 : ( "row-" + std::to_string( ++sequence ) );
+        if ( points.size() > 1 )
+          sample.stableRowId += "#" + std::to_string( part );
+        sample.wellId = sample.stableRowId;
+        sample.x = point.x();
+        sample.y = point.y();
+        bool ok = false;
+        const double z = feature.attribute( fieldIdx ).toDouble( &ok );
+        sample.value = ok ? z : std::numeric_limits<double>::quiet_NaN();
+        rows.push_back( std::move( sample ) );
+      }
     }
   }
   if ( rows.empty() )

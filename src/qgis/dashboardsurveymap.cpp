@@ -144,9 +144,12 @@ namespace DashboardSurveyMap
       if ( !bounds.isEmpty() )
         surveyGeom = QgsGeometry::fromRect( bounds );
     }
-    if ( survey && surveyGeom.isNull() && survey->inlineMax > survey->inlineMin && survey->xlineMax > survey->xlineMin )
-      surveyGeom = QgsGeometry::fromRect( QgsRectangle( survey->inlineMin, survey->xlineMin,
-                                                        survey->inlineMax, survey->xlineMax ) );
+    // 注意：不要拿 inline/xline 线号当局部网格米坐标画兜底框——线号是测网
+    // 索引（百/千级），与米制网格单位不同系，画出来的「工区框」没有空间意义，
+    // 还会把视图缩放范围拖到假位置。测区角点（corners，导入时按 SEGY 头
+    // geometry 冻结，已是局部米）不可用时，直接落到下面的井位并集 / 10 km
+    // 默认框；要按线号补框，须先在导入侧把测网仿射换算成局部米（同
+    // SgyCoordinateMapper 口径）再写 corners。
     if ( surveyGeom.isNull() && !extent.isNull() )
     {
       if ( extent.isEmpty() )

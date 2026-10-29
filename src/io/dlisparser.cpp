@@ -80,6 +80,17 @@ using paleo::io_detail::addIssue;
     }
   }
 
+  // L-23 半截修复的收口：UVARI/ORIGIN 是可变宽数值表示码（readNumeric 本可
+  // 解码），consumeFdata 已按「elems==1 && numericRep && (fixed>0 ||
+  // varWidthNumeric)」把它们解进 values——目录（catalogNames）与曲线构造
+  // 若仍要求 fixed>0，这些通道被双重排除、数据静默丢弃。三处共用同一
+  // 白名单口径。
+  bool whitelistedScalarNumeric(int repc)
+  {
+    return numericRep(repc) &&
+           (fixedRepSize(repc) > 0 || repc == RepUvari || repc == RepOrigin);
+  }
+
   // ---- 字节游标：越界置 bad，调用方统一收口报错（不抛异常） ----
   struct DlisCur
   {
@@ -120,8 +131,14 @@ using paleo::io_detail::addIssue;
       {
         case 0x00: return qint64(b & 0x3F);
         case 0x40: return (qint64(b & 0x3F) << 8) | u8();
-        case 0x80: return (qint64(b & 0x3F) << 24) | (qint64(u8()) << 16) |
-                          (qint64(u8()) << 8) | u8();
+        case 0x80:
+        {
+          // 逐字节取局部变量再拼接：位或运算的两个操作数无求值顺序保证，
+          // 编译器换序即高低字交换（深度/曲线值静默错）。
+          const quint32 b1 = u8(), b2 = u8(), b3 = u8();
+          return (qint64(b & 0x3F) << 24) | (qint64(b1) << 16) |
+                 (qint64(b2) << 8) | qint64(b3);
+        }
         default: bad = true; return 0;
       }
     }
@@ -235,13 +252,17 @@ using paleo::io_detail::addIssue;
       }
       case RepFdoubl:
       {
-        const quint64 bits = (quint64(c.u32()) << 32) | c.u32();
-        return bitsToDouble(bits);
+        // 高低字按序取局部变量：位或的两个 u32() 无求值顺序保证，换序即
+        // 高低字交换（Fdoubl/Fdoub1/Fdoub2 同款）。
+        const quint32 hi = c.u32();
+        const quint32 lo = c.u32();
+        return bitsToDouble((quint64(hi) << 32) | lo);
       }
       case RepFdoub1: case RepFdoub2:
       {
-        const quint64 bits = (quint64(c.u32()) << 32) | c.u32();
-        const double v = bitsToDouble(bits);
+        const quint32 hi = c.u32();
+        const quint32 lo = c.u32();
+        const double v = bitsToDouble((quint64(hi) << 32) | lo);
         c.skip(repc == RepFdoub1 ? 8 : 16);
         return v;
       }
@@ -533,6 +554,14 @@ using paleo::io_detail::addIssue;
           if ((ad & 0xE0) == 0x60 || (ad & 0xE0) == 0xE0 || (ad & 0xE0) == 0xC0 ||
               (ad & 0xE0) == 0xA0)
             break; // 下一对象 / 下一 Set
+          // RP66：模板不变列（INVATR）的值只在模板里出现，对象行不携带——
+          // 不跳过就会把其后每个可变列整体左移一格（合法 DLIS 元数据错位）。
+          // 先把这些列按模板值落位，再对对象行的下一个属性。
+          while (col < out.tmpl.size() && out.tmpl.at(col).invariant)
+          {
+            current.attrs.append(out.tmpl.at(col));
+            ++col;
+          }
           if (col >= out.tmpl.size())
           {
             if (error)
@@ -1031,7 +1060,8 @@ using paleo::io_detail::addIssue;
       // 级如实报错）。
       if (!dimProduct(ch.dimension, &elems))
         continue;
-      if (elems == 1 && numericRep(ch.repc) && fixedRepSize(ch.repc) > 0)
+      // 与 consumeFdata 同口径：固定宽数值 + UVARI/ORIGIN 可变宽数值码。
+      if (elems == 1 && whitelistedScalarNumeric(ch.repc))
         names.append(chRef.id);
     }
     return names;
@@ -1438,8 +1468,10 @@ bool DlisParser::parse(const QString &path, LasHeaderInfo &header,
     qint64 elems = 1;
     if (!dimProduct(ch.dimension, &elems))
       continue;
-    if (elems != 1 || !numericRep(ch.repc) || fixedRepSize(ch.repc) <= 0)
-      continue; // 白名单通道：目录里没有（catalogNames 同口径）
+    // 白名单通道：目录里没有的（catalogNames 同口径）——含 UVARI/ORIGIN
+    // 标量（consumeFdata 已解码其值，这里必须收，否则静默丢弃）。
+    if (elems != 1 || !whitelistedScalarNumeric(ch.repc))
+      continue;
     LasCurve curve;
     curve.name = chRef.id;
     curve.unit = ch.units;

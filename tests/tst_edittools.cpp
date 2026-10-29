@@ -164,6 +164,7 @@ class TestEditTools : public QObject
     void vertexTopoOffLeavesNeighborUntouched();
     void vertexCoincidentEnvelopeBoundsNoise();
     void vertexTopoDoubleClickInsertsOnSharedEdge();
+    void vertexTopoDoubleClickInsertsOnSharedEdgeOfNonFirstPart();
     void vertexTopoDeleteRemovesCoincidentVertices();
     void vertexTopoReleaseWeldsToNeighborVertex();
     void toolbarTopologicalActionMirrorsProjectFlag();
@@ -1394,6 +1395,63 @@ void TestEditTools::vertexTopoDoubleClickInsertsOnSharedEdge()
   // B's ring: (30,10)(50,10)(50,30)(30,30) (30,20) closure — reversed edge
   QVERIFY( qgsDoubleNear( ringB->xAt( 4 ), 30.0, 1e-6 ) );
   QVERIFY( qgsDoubleNear( ringB->yAt( 4 ), clickPt.y(), 1e-6 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+// 拓扑插点的共享边回查必须覆盖全几何的 dense 顶点编号：vertexCount() 的默认实参是
+// part 0 / ring 0（首环），共享边落在邻居要素的非首环/非首部件时会被整段漏扫，
+// 相邻面拿不到插点。这里用「邻居是多部件要素、共享边落在第 2 部件」钉死。
+void TestEditTools::vertexTopoDoubleClickInsertsOnSharedEdgeOfNonFirstPart()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  // A = plain square (30,5)-(50,25). B = MultiPolygon whose part 0 is
+  // (5,5)-(25,25) and part 1 is (50,5)-(70,25) — the x=50 edge is shared with A.
+  QgsVectorLayer layer( QStringLiteral( "Polygon?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "topo-ins-mp" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory polygon layer failed to initialize" );
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromWkt( squareWkt( 30, 5, 20 ) ) );
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromWkt( QStringLiteral(
+      "MultiPolygon (((5 5, 25 5, 25 25, 5 25, 5 5)), ((50 5, 70 5, 70 25, 50 25, 50 5)))" ) ) );
+  layer.startEditing();
+  layer.selectByIds( { fidA } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+
+  QCOMPARE( vertexTotal( layer, fidA ), 5 );
+  QCOMPARE( vertexTotal( layer, fidB ), 10 ); // 两个部件各 5 个顶点
+
+  // Double-click the midpoint of A's right edge — the segment shared with B's part 1.
+  QgsMapMouseEvent dbl( &canvas, QEvent::MouseButtonDblClick, pxAt( canvas, 50, 15 ),
+                        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasDoubleClickEvent( &dbl );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  QCOMPARE( layer.undoStack()->count(), 1 );
+  QCOMPARE( vertexTotal( layer, fidA ), 6 );
+  QCOMPARE( vertexTotal( layer, fidB ), 11 ); // 共享边在第 2 部件，同样要同步插点
+
+  // 邻居新顶点落在共享边中点的投影上：x 精确等于 50（垂直边投影），y 取所点像素的
+  // map 坐标（与 vertexTopoDoubleClickInsertsOnSharedEdge 同口径，勿硬编码 15）。
+  const QgsPointXY clickPt = mapPt( canvas, pxAt( canvas, 50, 15 ).x(), pxAt( canvas, 50, 15 ).y() );
+  const QgsGeometry neighbor = layer.getFeature( fidB ).geometry();
+  QgsVertexId vid;
+  bool onSharedEdge = false;
+  for ( int nr = 0; neighbor.vertexIdFromVertexNr( nr, vid ); ++nr )
+  {
+    const QgsPoint pt = neighbor.constGet()->vertexAt( vid );
+    if ( qgsDoubleNear( pt.x(), 50.0, 1e-6 ) && qgsDoubleNear( pt.y(), clickPt.y(), 1e-6 ) )
+      onSharedEdge = true;
+  }
+  QVERIFY2( onSharedEdge, "neighbor must gain the vertex on the shared edge midpoint" );
 
   canvas.unsetMapTool( &tool );
   layer.rollBack();

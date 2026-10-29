@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 
+#include <QKeyEvent>
 #include <QWidget>
 
 #include "seismic3dtf.h"
@@ -10,7 +11,9 @@ namespace seismic {
 // D7.1 TF 编辑器（自绘数据控件，同剖面画布护城河组件模式）：
 // 下半=色带停靠点渐变（数据符号，不走 UI token），上半=不透明度折线。
 // 交互：拖停靠点（横=pos 纵=alpha，邻居区间内）；双击空区插入；右键停靠
-// 点删除（保留 ≥2）。变更实时发 transferFunctionChanged（面板即时重传 LUT）。
+// 点删除（保留 ≥2）。键盘（#752）：Tab/Shift+Tab 循环选节点，方向键微调
+// 位置/不透明度（Shift 粗调），Insert 插入、Delete 删除。变更实时发
+// transferFunctionChanged（面板即时重传 LUT）。
 class Seismic3DTfEditorWidget : public QWidget
 {
     Q_OBJECT
@@ -27,6 +30,7 @@ signals:
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
@@ -44,6 +48,7 @@ private:
     Seismic3DTransferFunction tf_;
     int dragStop_ = -1;
     int hoverStop_ = -1;
+    int selectedStop_ = -1; // #752：键盘选中的停靠点（Tab 循环；鼠标点选同步）
 };
 
 } // namespace seismic

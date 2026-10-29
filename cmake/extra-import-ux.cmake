@@ -36,4 +36,8 @@ target_sources(paleo_ui PRIVATE src/ui/pages/mappingworkbenchpage_evidence.cpp
 if(PALEO_PYTHON3)
   add_test(NAME geology_preparation COMMAND ${PALEO_PYTHON3}
     ${CMAKE_SOURCE_DIR}/tools/test_geology_preparation.py)
+  # #767：同 paleo-test-infra 的 Python 闸门口径——不在源码树留字节码（__pycache__）。
+  set_tests_properties(geology_preparation
+                       PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                                  ENVIRONMENT "PYTHONUTF8=1;PYTHONDONTWRITEBYTECODE=1")
 endif()

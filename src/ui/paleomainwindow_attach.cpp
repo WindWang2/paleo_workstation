@@ -308,11 +308,15 @@ void runSurfaceOps(PaleoMainWindow *win, QgisLayerService *layerSvc, DataCatalog
   metrics.append({QObject::tr("有效像元"), QString::number(rep.cells)});
   metrics.append({QObject::tr("空值像元"), QString::number(rep.nullCells)});
   metrics.append({QObject::tr("正厚度像元"), QString::number(rep.positiveCells)});
-  metrics.append({QObject::tr("负厚度像元（顶低于底）"), QString::number(rep.negativeCells)});
-  metrics.append({QObject::tr("面积"), QObject::tr("%1 m²").arg(rep.area, 0, 'g', 8)});
-  metrics.append({QObject::tr("体积（z 单位·m²）"),
-                  QObject::tr("%1（时间层位为 ms·m²，换算 m³ 需速度场）")
-                      .arg(rep.volume, 0, 'g', 8)});
+  // #717：不宣称「顶低于底」——深度/TWT 向下为正的层位上符号约定相反，文案
+  // 只描述算式本身（顶 − 底 < 0），不代用户选定 Convention。
+  metrics.append({QObject::tr("负厚度像元（顶 − 底 < 0）"), QString::number(rep.negativeCells)});
+  // #723：面积/体积单位随栅格 CRS 的线性单位（英尺坐标系即 ft²），不硬写 m²。
+  const QString areaUnit = QObject::tr("%1²").arg(rep.linearUnit);
+  metrics.append({QObject::tr("面积"), QObject::tr("%1 %2").arg(rep.area, 0, 'g', 8).arg(areaUnit)});
+  metrics.append({QObject::tr("体积（z 单位·%1）").arg(areaUnit),
+                  QObject::tr("%1（时间层位为 ms·%2，换算 m³ 需速度场）")
+                      .arg(rep.volume, 0, 'g', 8).arg(areaUnit)});
   metrics.append({QObject::tr("厚度范围"),
                   QObject::tr("%1 ~ %2").arg(rep.minThickness, 0, 'g', 6)
                                         .arg(rep.maxThickness, 0, 'g', 6)});

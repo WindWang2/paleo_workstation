@@ -147,7 +147,11 @@ QVector<UnitSignature> buildSignatures( const Framework &fw,
   const WellIntervalTable table = buildWellIntervals( fw, obs );
 
   // 每单元的逐井区间 → 取均值；成员厚度单独累计。
+  // 累计前按 (wellName, unitId) 去重：同一口井的区间 top/base 随其确认成员
+  // 条数被重复 append，会把头文件钉死的「各井均值」偏置成「按成员条数加权」
+  // （成员多的井话语权被放大），无本井成员时的回落区间与距离随之偏移。
   QHash<QString, QVector<double>> topVals, baseVals, thickVals;
+  QSet<QString> countedWellUnits; // "wellName\x1funitId"：每井每单元只入样一次
   for ( const WellLayerObservation &o : obs )
   {
     const QString unit = owner.value( o.layerName );
@@ -156,7 +160,11 @@ QVector<UnitSignature> buildSignatures( const Framework &fw,
     if ( o.hasTop )
     {
       const UnitInterval iv = table.value( o.wellName ).value( unit );
-      if ( iv.valid )
+      // Qt6 QSet::insert 返回 iterator（已存在时返回 end()）而非 pair——
+      // 「仅首次入样」语义按「插入成功」判定。
+      if ( iv.valid &&
+           countedWellUnits.insert( o.wellName + QLatin1Char( '\x1f' ) + unit ) !=
+               countedWellUnits.end() )
       {
         topVals[ unit ].append( iv.top );
         baseVals[ unit ].append( iv.base );

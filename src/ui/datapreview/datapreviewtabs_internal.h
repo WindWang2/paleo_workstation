@@ -707,6 +707,13 @@ inline QString firstExistingField( QgsVectorLayer *vlayer, std::initializer_list
   return {};
 }
 
+// 相字段唯一值收集的有界口径（与同文件 8MB DOM 预算同族）：GUI 线程不再
+// 无预算全要素遍历——扫过 kFaciesScanFeatures 个要素、或去重计数已达
+// kFaciesMaxCategories 即停；未列全的相值落默认类别（图例标「未列全」，
+// 不谎报完备）。阈值内保持原口径（全量去重）。
+constexpr int kFaciesScanFeatures = 100000; // 扫描要素上限
+constexpr int kFaciesMaxCategories = 64;    // 唯一相值上限（默认类别另算）
+
 inline void applyFaciesRendererToLayer( QgsVectorLayer *vlayer, const QString &fieldName )
 {
   if ( !vlayer || !vlayer->isValid() || fieldName.isEmpty() )
@@ -716,13 +723,24 @@ inline void applyFaciesRendererToLayer( QgsVectorLayer *vlayer, const QString &f
     return;
   const bool point = vlayer->geometryType() == Qgis::GeometryType::Point;
   QSet<QString> uniqueVals;
-  QgsFeatureIterator it = vlayer->getFeatures();
-  QgsFeature feat;
-  while ( it.nextFeature( feat ) )
+  bool valuesTruncated = false;
   {
-    const QString v = feat.attribute( fieldIdx ).toString().trimmed();
-    if ( !v.isEmpty() )
+    QgsFeatureIterator it = vlayer->getFeatures();
+    QgsFeature feat;
+    for ( int scanned = 0; scanned < kFaciesScanFeatures; ++scanned )
+    {
+      if ( !it.nextFeature( feat ) )
+        break;
+      const QString v = feat.attribute( fieldIdx ).toString().trimmed();
+      if ( v.isEmpty() || uniqueVals.contains( v ) )
+        continue;
+      if ( uniqueVals.size() >= kFaciesMaxCategories )
+      {
+        valuesTruncated = true; // 相的种类超出配色预算——其余归默认类别
+        break;
+      }
       uniqueVals.insert( v );
+    }
   }
   QgsCategoryList categories;
   for ( const QString &val : uniqueVals )
@@ -735,7 +753,9 @@ inline void applyFaciesRendererToLayer( QgsVectorLayer *vlayer, const QString &f
   std::unique_ptr<QgsSymbol> defSym =
       point ? unifiedWellPointSymbol()
             : createFaciesSymbol( vlayer->geometryType(), QColor( QStringLiteral( "#CFD8DC" ) ) );
-  categories.append( QgsRendererCategory( QVariant(), defSym.release(), QObject::tr( "其他" ) ) );
+  categories.append( QgsRendererCategory(
+      QVariant(), defSym.release(),
+      valuesTruncated ? QObject::tr( "其他（未列全）" ) : QObject::tr( "其他" ) ) );
   vlayer->setRenderer( new QgsCategorizedSymbolRenderer( fieldName, categories ) );
 
   const QString labelField = vlayer->fields().at( fieldIdx ).name();

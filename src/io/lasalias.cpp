@@ -94,7 +94,10 @@ void LasAliasMap::buildTables()
   // 错误映射，MM 如实落到未知单位分支）。
   unit(QStringLiteral("m"), {"M", "METER", "METERS", "METRE", "METRES"});
   unit(QStringLiteral("ft"), {"FT", "FEET", "F", "FOOT"});
-  unit(QStringLiteral("us"), {"US", "USEC", "MICROSEC", "MICROSECONDS", "USM", "USEC/M", "US/M", "USFT", "US/FT"});
+  // USFT / US/FT 是 µs/ft（美制声波时差），与 µs/m 差 3.28 倍——同 #414
+  // 对 MM 的口径：不归一到 "us"，如实落入未知单位分支（normalizeUnitKey
+  // 会把 "US/FT" 归一成 usft，与 "USFT" 同键）。
+  unit(QStringLiteral("us"), {"US", "USEC", "MICROSEC", "MICROSECONDS", "USM", "USEC/M", "US/M"});
   unit(QStringLiteral("ms"), {"MS", "MSEC", "MILLISEC"});
   unit(QStringLiteral("gapi"), {"GAPI", "API", "G"});
   unit(QStringLiteral("ohmm"), {"OHMM", "OHM/M", "OHMM", "OHM", "OHMS"});

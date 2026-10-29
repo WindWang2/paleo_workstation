@@ -15,6 +15,9 @@
 // 预测相/专家约束）加权投票 → 单元相归属 + 置信度。诚实语义：票数不足或
 // 加权得分份额低于阈值 → 不赋相（assignedCode = -1）；无点证据但有约束相
 // 代码 → 继承约束并如实标记（confidence = 0，证据来源=约束而非井）。
+// #722：非有限/负的源权重、样本 confidence/weightBoost 的样本按无效证据跳过；
+// 归属判定用「区 contains 样本点」——公共边上的样本不投给任何一侧（旧式
+// intersects 会让相邻两区各得一票，双计票）。
 
 namespace paleo::faciesmapping
 {

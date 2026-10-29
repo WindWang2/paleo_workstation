@@ -249,15 +249,11 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     }
     if ( !inputLayer )
     {
-      for ( const LayerDeclaration &d : layers->declared() )
-      {
-        if ( d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) == 0 )
-        {
-          inputLayer = layers->instantiate( d.layerId );
-          if ( inputLayer )
-            break;
-        }
-      }
+      // 找不到目标层位的栅格就如实失败：旧实现回退取声明表里第一个任意
+      // 类型 raster 图层，预测会静默跑在无关栅格上、又按目标层位登记
+      // （#204）。确需兜底的调用方请显式传 INPUT，不要靠这里猜。
+      return fail( tr( "找不到层位 %1 的输入栅格（horizon.%1*），请先导入或生成该层位栅格" )
+                       .arg( target ) );
     }
     if ( inputLayer )
       job->params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( inputLayer ) );

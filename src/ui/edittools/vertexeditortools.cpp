@@ -1207,7 +1207,7 @@ QList<PaleoVertexTool::CoincidentMember> PaleoVertexTool::sharedEdgeMembers(
     const QgsGeometry og = hit.layer->getFeature( hit.fid ).geometry();
     if ( !og.constGet() )
       continue;
-    const int total = og.constGet()->vertexCount();
+    const int total = og.constGet()->nCoordinates(); // 全几何 dense 上界：vertexCount() 默认只数首环 part0/ring0，内环/多部件会漏扫
     for ( int nr = 0; nr + 1 < total; ++nr )
     {
       QgsVertexId va, vb;

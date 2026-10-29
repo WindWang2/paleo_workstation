@@ -27,6 +27,14 @@ class TestLas : public QObject
     void parseRangeStreamingSurfacesTruncatedIssues();
     void gbkHeaderLinesDecodedWithFileEncoding();
     void utf16BomParsesViaTranscodeAndRangeRejects();
+    // finding-51：流式深度段入口同认 DOS Ctrl-Z EOF
+    void depthRangeStopsAtCtrlZLikeParseRange();
+    // issue-806：坏深度 token 的 NaN 不得击穿单调性判定
+    void depthRangeBadDepthTokenKeepsMonotonicGuard();
+    // finding-49：NULL/NaN 深度行不得污染 lastDepth
+    void depthRangeNullDepthRowDoesNotStopScan();
+    // issue-810：头段超长无换行行如实拒收
+    void headerLineGateRejectsGiantLine();
 
   private:
     QTemporaryDir m_tempDir;
@@ -809,6 +817,95 @@ void TestLas::utf16BomParsesViaTranscodeAndRangeRejects()
   QStringList names;
   QVERIFY(!LasParser::parseRange(path, 0, 1, names, curves, &err));
   QVERIFY(err.contains(QStringLiteral("UTF-16")));
+}
+
+// finding-51：#167 修了 parseDoc/parseRange 两个入口的 DOS Ctrl-Z EOF，流式
+// 深度段入口（parseDepthRange）漏了——同一文件三个入口行集不一致。Ctrl-Z
+// 之后的行不是数据，深度段也不能收。
+void TestLas::depthRangeStopsAtCtrlZLikeParseRange()
+{
+  const QString path = m_tempDir.filePath("depthrange_ctrlz.las");
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  file.write("~V\nVERS. 2.0 :\nWRAP. NO :\n~W\nNULL. -999.25 :\nWELL. W1 :\n"
+             "~C\nDEPT.M :\nGR.API :\n~A\n100 10\n101 20\n\x1a\n102 30\n103 40\n");
+  file.close();
+
+  QStringList names;
+  QList<LasCurve> ranged;
+  QString error;
+  QVERIFY2(LasParser::parseDepthRange(path, 0.0, 1e9, names, ranged, &error), qPrintable(error));
+  QCOMPARE(ranged.size(), 2);
+  QCOMPARE(ranged[0].values, (QVector<double>{100.0, 101.0}));
+  QCOMPARE(ranged[1].values, (QVector<double>{10.0, 20.0}));
+}
+
+// issue-806：深度列坏 token 被置 NaN 后，旧判据 depth < lastDepth 恒假 →
+// 单调性判定失效 → 非单调文件在「越过 toDepth 即停」处被静默截断，
+// 其后仍在请求区间内的有效段整段丢失。
+void TestLas::depthRangeBadDepthTokenKeepsMonotonicGuard()
+{
+  const QString path = m_tempDir.filePath("depthrange_baddepth.las");
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  // 坏深度 token（BAD）之后出现越界深度 200——旧实现此时 monotonicDepth 仍为
+  // true（NaN 击穿判定），「越界即停」提前收尾，103/104 两行静默丢失。
+  file.write("~V\nVERS. 2.0 :\nWRAP. NO :\n~W\nNULL. -999.25 :\nWELL. W1 :\n"
+             "~C\nDEPT.M :\nGR.API :\n~A\n"
+             "100 10\n101 20\nBAD 30\n200 40\n102 50\n103 60\n");
+  file.close();
+
+  QStringList names;
+  QList<LasCurve> ranged;
+  QString error;
+  QVERIFY2(LasParser::parseDepthRange(path, 100.0, 103.0, names, ranged, &error), qPrintable(error));
+  QCOMPARE(ranged.size(), 2);
+  QCOMPARE(ranged[0].values, (QVector<double>{100.0, 101.0, 102.0, 103.0}));
+  QCOMPARE(ranged[1].values, (QVector<double>{10.0, 20.0, 50.0, 60.0}));
+}
+
+// finding-49：NULL/NaN 深度行不得更新 lastDepth——否则单调性检测被污染，
+// 「越过 toDepth 即停」提前触发，静默丢掉后续有效行。
+void TestLas::depthRangeNullDepthRowDoesNotStopScan()
+{
+  const QString path = m_tempDir.filePath("depthrange_nulldepth.las");
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  // NULL 深度行之后是越界深度 200，再往后才是区间内的 101——旧实现把 NaN
+  // 写进 lastDepth 后，200 行即触发「越界即停」，101 行静默丢失。
+  file.write("~V\nVERS. 2.0 :\nWRAP. NO :\n~W\nNULL. -999.25 :\nWELL. W1 :\n"
+             "~C\nDEPT.M :\nGR.API :\n~A\n"
+             "100 10\n-999.25 20\n200 30\n101 40\n");
+  file.close();
+
+  QStringList names;
+  QList<LasCurve> ranged;
+  QString error;
+  QVERIFY2(LasParser::parseDepthRange(path, 100.0, 101.0, names, ranged, &error), qPrintable(error));
+  QCOMPARE(ranged.size(), 2);
+  QCOMPARE(ranged[0].values, (QVector<double>{100.0, 101.0}));
+  QCOMPARE(ranged[1].values, (QVector<double>{10.0, 40.0}));
+}
+
+// issue-810：parseHeader 的 readLine 对无换行的病态输入会把整文件读进内存
+// （缺 ~A 的文件更会一路读到尾）。超长行如实拒收。
+void TestLas::headerLineGateRejectsGiantLine()
+{
+  const QString path = m_tempDir.filePath("giant_line.las");
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("~V\nVERS. 2.0 :\n");
+    f.write(QByteArray(5 * 1024 * 1024, 'x')); // 头段里无换行的 5MB 行
+    f.write("\n~W\nNULL. -999.25 :\nWELL. W1 :\n~C\nDEPT.M :\nGR.API :\n~A\n100 10\n");
+  }
+  LasHeaderInfo h;
+  QString err;
+  QVERIFY2(!LasParser::parseHeader(path, h, &err), "超长无换行行必须拒收");
+  QVERIFY2(err.contains(QStringLiteral("无换行")), qPrintable(err));
+  // readWellInfo 同一入口同口径。
+  QString well;
+  QVERIFY2(!LasParser::readWellInfo(path, well, &err), "readWellInfo 同受行长闸");
 }
 
 QTEST_MAIN(TestLas)

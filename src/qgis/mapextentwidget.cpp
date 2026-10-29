@@ -52,7 +52,9 @@ PaleoMapExtentWidget::PaleoMapExtentWidget(QWidget *parent)
   connect(m_native, &QgsExtentWidget::toggleDialogVisibility,
           this, &PaleoMapExtentWidget::canvasVisibilityRequested);
   connect(m_layers, &QComboBox::activated, this, [this](int index) {
-    auto *canvas = qobject_cast<QgsMapCanvas *>(m_canvas);
+    // m_canvas 是 QPointer：画布已销毁时为零，qobject_cast 拿到 nullptr，
+    // 下面的守卫直接返回（#75）。
+    auto *canvas = qobject_cast<QgsMapCanvas *>(m_canvas.data());
     if (!canvas || index <= 0) return;
     const QString id = m_layers->itemData(index).toString();
     for (auto *layer : canvas->layers())
@@ -120,7 +122,8 @@ void PaleoMapExtentWidget::setArea(const PaleoMapExtent &area)
 void PaleoMapExtentWidget::setCanvas(QWidget *canvas)
 {
   if (m_canvas == canvas) return;
-  if (auto *previous = qobject_cast<QgsMapCanvas *>(m_canvas)) disconnect(previous, nullptr, this, nullptr);
+  // 与 m_canvas 的 QPointer 比较：旧画布已销毁时它已清零，不会再对它解引用。
+  if (auto *previous = qobject_cast<QgsMapCanvas *>(m_canvas.data())) disconnect(previous, nullptr, this, nullptr);
   m_canvas = canvas;
   auto *mapCanvas = qobject_cast<QgsMapCanvas *>(canvas);
   m_layers->setEnabled(mapCanvas != nullptr);
@@ -158,7 +161,7 @@ void PaleoMapExtentWidget::refreshLayers()
 {
   m_layers->clear();
   m_layers->addItem(tr("按实际图层范围…"));
-  auto *canvas = qobject_cast<QgsMapCanvas *>(m_canvas);
+  auto *canvas = qobject_cast<QgsMapCanvas *>(m_canvas.data());
   if (!canvas) return;
   m_native->setOriginalExtent(canvas->fullExtent(), canvas->mapSettings().destinationCrs());
   for (auto *layer : canvas->layers())

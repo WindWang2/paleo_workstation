@@ -23,6 +23,7 @@
 #include "workflow/sectionworkbench.h"
 #include "workflow/wellattachmentops.h"
 #include "workflow/wellsectionworkflow.h"
+#include "../workflow/mappingworkbench.h" // #213：推岩性选择表给测井预测服务
 
 #include <QInputDialog>
 #include <QTimer>
@@ -57,12 +58,23 @@ fromStoreOverrides(const QVector<metadata::WellSectionLinkOverride> &in) {
 }
 } // namespace
 
+void PaleoMainWindow::pushLithoSelectionsToPrediction()
+{
+  // #213：预测服务按这张表取岩性；无 workbench/服务（未接编图链）时静默跳过。
+  auto *service = m_workbench ? m_workbench->wellPredictionService() : nullptr;
+  if (!service)
+    return;
+  service->setLithoAssetSelections(m_wellSectionWf ? m_wellSectionWf->lithoAssetSelections()
+                                                   : QHash<QString, QString>{});
+}
+
 void PaleoMainWindow::clearWellSectionStores()
 {
   if (m_wellSectionWf) {
     m_wellSectionWf->setFaultSetStore(nullptr);
     m_wellSectionWf->setLithoAssetSelections({});
   }
+  pushLithoSelectionsToPrediction(); // 选择表已清空：预测回落默认仲裁
   if (m_wellSectionFence) m_wellSectionFence->setStore(nullptr, nullptr);
   delete m_wellSectionStore; m_wellSectionStore = nullptr;
   delete m_wellSectionFaultStore; m_wellSectionFaultStore = nullptr;
@@ -107,6 +119,14 @@ bool PaleoMainWindow::bindWellSectionStores(PaleoProjectStore *store, QString *b
     m_wellSectionBand->setWellLayer(wells, QStringLiteral("id"));
   }
   if (m_wellSectionFence) m_wellSectionFence->setStore(m_wellSectionStore, m_wellSectionFaultStore);
+  // #213：剖面页的解释岩性资产选择（含整表恢复）→ 推给测井预测服务，预测输入
+  // 的岩性与界面展示同源。连接只需建一次；恢复路径由
+  // setLithoAssetSelections 的逐条广播触发（本函数先于恢复调用）。
+  if (m_wellSectionWf && !m_lithoSyncConnected) {
+    m_lithoSyncConnected = true;
+    connect(m_wellSectionWf, &WellSectionWorkflow::lithoSelectionChanged, this,
+            [this] { pushLithoSelectionsToPrediction(); });
+  }
   return true;
 }
 

@@ -27,6 +27,7 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QJsonObject>
+#include <QPointer>
 #include <QSet>
 
 #include <qgsabstractgeometry.h>
@@ -571,10 +572,14 @@ bool CompositionWorkflow::startDeriveFaciesPolygons( const QString &horizon, con
   if ( !prepareFaciesPolygons( horizon, rasterLayerId, params, job.get(), error ) )
     return false;
   JobRunner<FaciesPolygonJob>::Callbacks cb;
-  QgisProcessingService *proc = m_proc.data();
-  cb.compute = [proc]( FaciesPolygonJob &j, const paleo::jobs::CancelFn &cancel,
-                       const paleo::jobs::ProgressFn &report ) {
-    return computeFaciesPolygons( j, proc, cancel, [&report]( double p ) {
+  // #379 / #480-P3-3 / PW-031 纪律：worker 线程的 compute 不捕裸 proc 指针
+  // （作业在飞期服务可被拆除即悬垂解引用）。按值捕 QPointer，procGuard 为
+  // 空时 computeFaciesPolygons 入口如实报错（同 constraintfactorjobs.cpp:236
+  // 的 procGuard 写法）。
+  const QPointer<QgisProcessingService> procGuard = m_proc;
+  cb.compute = [procGuard]( FaciesPolygonJob &j, const paleo::jobs::CancelFn &cancel,
+                            const paleo::jobs::ProgressFn &report ) {
+    return computeFaciesPolygons( j, procGuard.data(), cancel, [&report]( double p ) {
       if ( report )
         report( p, QStringLiteral( "build" ) );
     } );

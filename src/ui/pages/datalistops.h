@@ -58,22 +58,47 @@ QVector<UndoRecord> loadUndoVault(DataCatalog *cat, QHash<QString, QString> *not
 void saveUndoVault(DataCatalog *cat, const QVector<UndoRecord> &records,
                    const QHash<QString, QString> &notes);
 
-// 自然数字字母排序（Well-2 < Well-10）
+// 自然数字字母排序（Well-2 < Well-10）：逐段走查，数字段按数值、其余段按
+// 字典序。数字段去前导 0 后「先比长度、后比字典序」等价于数值比较，免
+// toInt 溢出，并正确处理带尾串的显示名（如 .las 扩展名）与多数字段名。
+// finding-127：旧实现只取首个数字后的整段 toInt——多段名（同首数不同尾串）
+// 会被判成「相等」而丢失段间次序，主要场景退化字典序。
 inline bool naturalNameSort(const QString &na, const QString &nb)
 {
   int ia = 0, ib = 0;
-  while (ia < na.size() && !na.at(ia).isDigit()) ++ia;
-  while (ib < nb.size() && !nb.at(ib).isDigit()) ++ib;
-  const QString preA = na.left(ia);
-  const QString preB = nb.left(ib);
-  if (preA != preB)
-    return preA < preB;
-  bool okA = false, okB = false;
-  const int numA = na.mid(ia).toInt(&okA);
-  const int numB = nb.mid(ib).toInt(&okB);
-  if (okA && okB)
-    return numA < numB;
-  return na < nb;
+  const int la = na.size(), lb = nb.size();
+  while (ia < la && ib < lb)
+  {
+    const QChar ca = na.at(ia);
+    const QChar cb = nb.at(ib);
+    if (ca.isDigit() && cb.isDigit())
+    {
+      int ea = ia, eb = ib;
+      while (ea < la && na.at(ea).isDigit()) ++ea;
+      while (eb < lb && nb.at(eb).isDigit()) ++eb;
+      int za = ia, zb = ib;
+      while (za < ea - 1 && na.at(za) == QChar('0')) ++za; // 去前导 0，留至少一位
+      while (zb < eb - 1 && nb.at(zb) == QChar('0')) ++zb;
+      const QString da = na.mid(za, ea - za);
+      const QString db = nb.mid(zb, eb - zb);
+      if (da.size() != db.size())
+        return da.size() < db.size();
+      if (da != db)
+        return da < db;
+      ia = ea;
+      ib = eb; // 数值相等，继续比后续段
+    }
+    else if (ca != cb)
+    {
+      return ca < cb;
+    }
+    else
+    {
+      ++ia;
+      ++ib;
+    }
+  }
+  return (la - ia) < (lb - ib); // 前缀耗尽者小
 }
 
 // 快捷键表（D6.3 数据源；registerCommands 同步登记）

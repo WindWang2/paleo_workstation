@@ -70,12 +70,21 @@ bool OnnxLocalPredictor::predict(const RemotePredictionRequest &request,
     if (rawClass == 255) {
       cells[i] = -9999; // Standard NoData
     } else if (!request.facies.isEmpty()) {
-      if (rawClass < request.facies.size()) {
-        const QVariantMap f = request.facies[rawClass].toMap();
-        cells[i] = f.value(QStringLiteral("code")).toInt();
-      } else {
-        cells[i] = int(rawClass) + 1;
+      // 越词表类号 / facies 项不是对象或缺 code 键：一律置 -9999，与远端
+      // PW-124 的逐像元 nodata 口径对齐（onnxlocalpredictor.h 的 predict 契约）。
+      // 修前把越词表类号发明成 rawClass+1、缺 code 静默得 0，下游逐格校验
+      // 会把整张降级图整体否决，而不是只把该像元记无数据。
+      QVariantMap facies;
+      if (rawClass < request.facies.size())
+        facies = request.facies[rawClass].toMap();
+      int code = -9999;
+      if (!facies.isEmpty()) {
+        bool ok = false;
+        const int pinned = facies.value(QStringLiteral("code")).toInt(&ok);
+        if (ok)
+          code = pinned;
       }
+      cells[i] = code;
     } else {
       cells[i] = int(rawClass);
     }

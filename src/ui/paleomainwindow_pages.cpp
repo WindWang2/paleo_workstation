@@ -101,8 +101,14 @@ void PaleoMainWindow::restoreCorrelationDocks()
   for (const auto &dock : m_correlationHiddenDocks)
     if (dock)
     {
+      // 与 applyPageDockPolicy 同一纪律：Web 页期间用户经「布局」菜单收起面板
+      // （toggleViewAction → setVisible 记下 userWantsVisible=false）后，离开
+      // 时不得被恢复强制拉回。
       if (auto *paleoDock = qobject_cast<PaleoDockWidget *>(dock.data()))
-        paleoDock->setProgrammaticVisible(true);
+      {
+        if (paleoDock->userWantsVisible())
+          paleoDock->setProgrammaticVisible(true);
+      }
       else
         dock->show();
     }

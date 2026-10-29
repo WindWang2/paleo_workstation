@@ -394,13 +394,26 @@ bool SequenceFrameworkPanel::reloadFramework()
 void SequenceFrameworkPanel::refreshSuggestions()
 {
   m_suggestions.clear();
-  if ( m_service != nullptr )
+  m_lastLoadError.clear();
+  m_wellTopsCount = 0;
+  if ( m_service == nullptr )
   {
-    QString err;
-    const QVector<WellTopRecord> tops = m_service->loadWellTops( &err );
-    // 只出候选：这里不写库（commitAccepted 才是唯一写口）。
-    m_suggestions = m_service->suggest( tops );
+    m_lastLoadError = tr( "格架服务未接线" );
+    rebuildSuggestionTable();
+    return;
   }
+  QString err;
+  const QVector<WellTopRecord> tops = m_service->loadWellTops( &err );
+  if ( !err.isEmpty() )
+  {
+    // 读不出 ≠ 零候选：错误必须留给状态栏，不能拿空表当成功结果往下算。
+    m_lastLoadError = err;
+    rebuildSuggestionTable();
+    return;
+  }
+  m_wellTopsCount = int( tops.size() );
+  // 只出候选：这里不写库（commitAccepted 才是唯一写口）。
+  m_suggestions = m_service->suggest( tops );
   rebuildSuggestionTable();
 }
 
@@ -435,12 +448,25 @@ bool SequenceFrameworkPanel::applySuggestions()
 void SequenceFrameworkPanel::refreshDiagnostics()
 {
   m_report = SequenceFramework::DiagnosticReport();
-  if ( m_service != nullptr )
+  m_lastLoadError.clear();
+  m_wellTopsCount = 0;
+  if ( m_service == nullptr )
   {
-    QString err;
-    const QVector<WellTopRecord> tops = m_service->loadWellTops( &err );
-    m_report = m_service->diagnose( tops );
+    m_lastLoadError = tr( "格架服务未接线" );
+    rebuildDiagnosticTree();
+    return;
   }
+  QString err;
+  const QVector<WellTopRecord> tops = m_service->loadWellTops( &err );
+  if ( !err.isEmpty() )
+  {
+    // 同 refreshSuggestions：井分层读不出不得对外报「诊断完成：0 项」。
+    m_lastLoadError = err;
+    rebuildDiagnosticTree();
+    return;
+  }
+  m_wellTopsCount = int( tops.size() );
+  m_report = m_service->diagnose( tops );
   rebuildDiagnosticTree();
 }
 
@@ -614,6 +640,16 @@ void SequenceFrameworkPanel::onReload()
 void SequenceFrameworkPanel::onRefreshSuggestions()
 {
   refreshSuggestions();
+  if ( !m_lastLoadError.isEmpty() )
+  {
+    emit statusMessage( tr( "井分层读取失败：%1" ).arg( m_lastLoadError ) );
+    return;
+  }
+  if ( m_wellTopsCount == 0 )
+  {
+    emit statusMessage( tr( "无井分层资料，未生成候选" ) );
+    return;
+  }
   emit statusMessage( tr( "已生成 %1 条候选（未确认，不写库）" )
                           .arg( QString::number( m_suggestions.size() ) ) );
 }
@@ -626,6 +662,18 @@ void SequenceFrameworkPanel::onApplySuggestions()
 void SequenceFrameworkPanel::onRefreshDiagnostics()
 {
   refreshDiagnostics();
+  if ( !m_lastLoadError.isEmpty() )
+  {
+    emit statusMessage( tr( "井分层读取失败：%1" ).arg( m_lastLoadError ) );
+    return;
+  }
+  if ( m_wellTopsCount == 0 )
+  {
+    // 无井分层时只剩格架自身的一致性检查——明说资料缺失，别让「0 项」
+    // 读成「全部通过」。
+    emit statusMessage( tr( "无井分层资料，诊断结果可能不完整" ) );
+    return;
+  }
   emit statusMessage( tr( "诊断完成：%1 项（高 %2 / 中 %3 / 低 %4）" )
                           .arg( QString::number( m_report.items.size() ),
                                 QString::number( m_report.countOf( SequenceFramework::Severity::High ) ),

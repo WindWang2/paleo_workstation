@@ -1055,8 +1055,11 @@ bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const 
     auto shared = std::make_shared<LocalDirectionJob>(job);
     return runFactorWork(
         tr("%1 单因素计算").arg(horizon),
-        // review L3（同 PW-031）：不捕获裸 m_proc.data()——QPointer 兜底，服务已拆
-        // 则作业失败（proc 为空时 computeLocalDirectionJobWithService 报错）。
+        // review L3（同 PW-031 / 本文件 1329 行口径）：不捕获裸 m_proc.data()。
+        // 生命周期保证来自 AppContext::drainTasks（拆除前排空任务池）；QPointer
+        // 只是兜底——服务已拆则 computeLocalDirectionJobWithService 入口判空报错，
+        // 而不是悬垂调用。注意 QPointer 的读/写并非线程安全：worker 里只读这一次
+        // 快照，主线程的拆装仍靠 drainTasks 的先后次序保证，不靠指针本身（#770）。
         [procGuard = QPointer<QgisProcessingService>(m_proc), shared](PaleoTask *task) {
           const bool ok = computeLocalDirectionJobWithService(
               procGuard.data(), shared.get(), [task] { return task->cancelRequested(); },
@@ -1069,9 +1072,9 @@ bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const 
           return publishLocalDirectionJob(*shared, error);
         },
         [shared] {
-          if (shared->outputPath.contains("paleo-sf-"))
-            QDir(QFileInfo(shared->outputPath).absolutePath())
-                .removeRecursively();
+          // #481 P2-1：目录名前缀判定（discardTempTree），不用
+          // contains("paleo-sf-") 子串匹配（会误删用户目录）。
+          discardTempTree(shared->outputPath);
           if (shared->catalogPublished)
             return; // 已入库（只读在册）：删除即悬垂版本——临时树已由
                     // publish 内 discardTemp 收尾，这里不再动 staging。

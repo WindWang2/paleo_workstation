@@ -11,12 +11,16 @@ namespace paleo
 namespace
 {
 constexpr double kDeg2Rad = std::numbers::pi / 180.0;
+constexpr double kPi = std::numbers::pi;
 
 void fail(QString *error, const QString &text)
 {
   if (error)
     *error = text;
 }
+
+// 后文定义（arcFrame 之前），segmentIncrement 的 β≈π 退化分支要用。
+void unitTangent(double incDeg, double aziDeg, double out[3]);
 
 // 段增量（最小曲率）：自 (md, i1, A1) 到角度 (i2, A2)、弧长 dMd 的位置增量。
 // dogleg 只用角度差——弧长由调用方给（整段=ΔMD，站间查询=子段弧长）。
@@ -32,6 +36,38 @@ void segmentIncrement(double dMd, double i1Deg, double a1Deg, double i2Deg,
                    std::sin(i1) * std::sin(i2) * std::cos(a2 - a1);
   cosBeta = std::min(1.0, std::max(-1.0, cosBeta));
   const double beta = std::acos(cosBeta);
+
+  // β 距 π 不足 1e-9 的退化带（与 arcFrame 的 reversal 判定同阈：那边先判
+  // β<1e-9 直线、再判 sinβ<1e-9 掉头，故 sinβ<1e-9 在 arcFrame 里等价于
+  // β>π−1e-9；这里 β<1e-9 的直线段仍走下方 rf=1 的原路径）。此类站对
+  // （i2=180−i1 且 azi2=azi1±180，即 t2=−t1 对径掉头，能通过全部入参校验）
+  // 的 cos i1+cos i2 数学恒 0、浮点为 0±1ulp，而 RF=(2/β)·tan(β/2) 在
+  // β=acos(−1)=π 时≈1.04e16——0·∞ 把 1ulp 放大成 O(ΔMD) 的位置噪声
+  // （finding-30）。fromStations 累计站点与 pointAt 的掉头子段都经本函数，
+  // 故同一判定即「累计前先过 arcFrame 同款 β≈π 判定」。退化带内改用同式的
+  // 弦式极限：位移 = ΔMD·[sin(β/2)/(β/2)]·单位(t1+t2)（|t1+t2| = 2cos(β/2)
+  // 为精确恒等式，β→0 时因子→1 与 RF 式连续；β→π 时量级收敛到弦长
+  // 2ΔMD/π，不再发散）。两端切向严格对径且向量和为零时净位移取 0（防 1/0）。
+  if (beta > kPi - 1e-9)
+  {
+    double t1[3], t2[3];
+    unitTangent(i1Deg, a1Deg, t1);
+    unitTangent(i2Deg, a2Deg, t2);
+    const double sx = t1[0] + t2[0], sy = t1[1] + t2[1], sz = t1[2] + t2[2];
+    const double len = std::sqrt(sx * sx + sy * sy + sz * sz);
+    if (len > 0.0)
+    {
+      const double k = dMd * (std::sin(beta * 0.5) / (beta * 0.5)) / len;
+      *dTvd = sz * k;
+      *dNorth = sx * k;
+      *dEast = sy * k;
+    }
+    else
+    {
+      *dTvd = *dNorth = *dEast = 0.0;
+    }
+    return;
+  }
 
   double rf = 1.0;
   if (beta > 1e-9)
@@ -198,19 +234,31 @@ std::optional<WellDeviationSurvey> WellDeviationSurvey::fromStations(
     }
     else if (seg.reversal)
     {
-      const TrajectoryPoint &a = survey.m_points.at(i - 1);
-      const TrajectoryPoint &b = survey.m_points.at(i);
-      double best = a.tvd;
+      // 掉头段（β≈π）粗扫描取段内垂深极值。定向不能看两端点净垂深
+      // (b.tvd >= a.tvd)：对径站 cos i1+cos i2≡0，净垂深真值恒≈0，符号纯是
+      // 舍入噪声——旧实现按它定向，约半数掉头段的内部极值被漏设（finding-31）。
+      // 极值类型由几何定：井斜自 i1 单调到 180−i1，cos i 至多变号一次 →
+      // i1<90° 段内先增后减（极大）、i1>90° 先减后增（极小）、i1=90° 近水平。
+      // 极值只在**段内**采样点（k=1..63，不含两端）里取：端点 tvd 本身含
+      // 对径掉头的舍入残差（见 segmentIncrement 的 β≈π 注），拿它当基准会
+      // 把真极值淹掉。
+      const DeviationStation &a = stations.at(i - 1);
+      const DeviationStation &b = stations.at(i);
+      const bool wantMax = a.inclinationDeg < 90.0;
+      double best = 0.0;
+      int bestK = -1;
       for (int k = 1; k < 64; ++k)
       {
         const double m = a.md + (b.md - a.md) * k / 64.0;
         const double v = survey.pointAt(m).tvd;
-        if ((b.tvd >= a.tvd) ? v < best : v > best)
+        if (bestK < 0 || (wantMax ? v > best : v < best))
         {
           best = v;
-          seg.splitMd = m;
+          bestK = k;
         }
       }
+      if (bestK > 0)
+        seg.splitMd = a.md + (b.md - a.md) * bestK / 64.0;
     }
   }
   return survey;

@@ -9,7 +9,9 @@
 #include "services/seismictaskservice.h"
 #include "workflow/sectionworkbench.h"
 #include "workflow/wellfaciesworkflow.h"
+#include "workflow/wellsectionexport.h"
 #include "workflow/wellsectionworkflow.h"
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -268,6 +270,48 @@ wellsection::Well gridWell(const QString &name, int inl, int xl, bool withTd) {
 class TestWellSectionWorkflow : public QObject {
   Q_OBJECT
 private slots:
+  // #729：剖面分层 CSV 的原子落位收口（ui 层 io/* 白名单仅 lasdoc.h，写点
+  // 经功能层）。成功路径内容原样落盘；失败路径（父目录不存在）返回 false 且
+  // 不留下目标文件——旧实现 QFile+Truncate 原地覆写会截断毁掉同名旧文件
+  // （原子性本体由 tst_io_atomicwrite 覆盖）。
+  void exportTopsCsvAtomic() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("tops.csv"));
+    const QByteArray body = QByteArrayLiteral("井名,顶名,MD(m)\nW1,T1,100.0\n");
+    QVERIFY(wellsection::exportTopsCsv(path, QString::fromUtf8(body)));
+    // 读句柄用完即关：Windows 上开着的读句柄会让 QSaveFile 的 commit 替换
+    // 撞共享冲突（tst_io_atomicwrite 的 slurp 逐次开关同此口径）。
+    {
+      QFile out(path);
+      QVERIFY(out.open(QIODevice::ReadOnly));
+      QCOMPARE(out.readAll(), body);
+    }
+
+    // 同名替换：内容整体换掉（旁写 + commit，非原地覆写）。
+    const QByteArray body2 = QByteArrayLiteral("井名,顶名,MD(m)\nW1,T1,200.0\n");
+    QString err2;
+    QVERIFY2(wellsection::exportTopsCsv(path, QString::fromUtf8(body2), &err2),
+             qPrintable(err2));
+    {
+      QFile out(path);
+      QVERIFY(out.open(QIODevice::ReadOnly));
+      QCOMPARE(out.readAll(), body2);
+    }
+    // 无 QSaveFile 暂存残留（commit 成功即清理）。
+    QCOMPARE(QDir(dir.path()).entryList(QDir::Files | QDir::Hidden),
+             QStringList{QStringLiteral("tops.csv")});
+
+    // 失败路径：父目录不存在 → false + 有原因 + 无目标文件落地。
+    const QString bad = dir.filePath(QStringLiteral("no_such_dir/tops.csv"));
+    QString err;
+    QVERIFY(!wellsection::exportTopsCsv(bad, QStringLiteral("x\n"), &err));
+    QVERIFY(!err.isEmpty());
+    QVERIFY(!QFile::exists(bad));
+    // 空路径同样拒收（不写、不造文件）。
+    QVERIFY(!wellsection::exportTopsCsv(QString(), QStringLiteral("x\n"), &err));
+  }
+
   void unifiedCurveBodiesRequireMdAndUnits_data() {
     QTest::addColumn<QString>("format");
     QTest::addColumn<QString>("axis");

@@ -1,5 +1,6 @@
 // 层：数据
 #include "projectcoordinates.h"
+#include "../metadata/atomicfile.h" // paleoReplaceFile：发布用替换语义（不预删目标）
 #include <QFile>
 #include <QtEndian>
 #include <ogr_spatialref.h>
@@ -90,7 +91,19 @@ bool projectRasterFile(const QString &path, const QString &target, QString *erro
   }
   GDALClose(output);
   // Both files are private staged outputs; never replace external source files.
-  if (!QFile::remove(path) || !QFile::rename(destination, path)) return fail(error, QStringLiteral("无法保存坐标转换栅格"));
+  // issue-810：先 rename 到 .old（腾位）再发布——先删后 rename 一旦失败，
+  // 原文件已失、新文件也没上线，私有暂存栅格两头空。腾位失败即现场不动；
+  // 发布失败把原文件改回原位（constraintstore 还原路径同款口径）。
+  const auto backup = path + QStringLiteral(".crs-old");
+  QFile::remove(backup);
+  if (!QFile::rename(path, backup))
+    return fail(error, QStringLiteral("无法保存坐标转换栅格"));
+  if (!paleoReplaceFile(destination, path)) {
+    QFile::rename(backup, path); // 回滚：原文件还给我
+    QFile::remove(destination);
+    return fail(error, QStringLiteral("无法保存坐标转换栅格"));
+  }
+  QFile::remove(backup);
   return true;
 }
 bool projectSegyFile(const QString &source, const QString &output, const QString &from,

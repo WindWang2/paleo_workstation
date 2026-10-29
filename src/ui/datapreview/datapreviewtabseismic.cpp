@@ -122,6 +122,56 @@ QWidget *makeSeismic2DTab(QWidget *parent, SectionPanel *panel, QWidget *bar, QL
   layout->addWidget(panel, 1);
   return page;
 }
+
+// 测线号范围：按当前模式取 survey 冻结几何；两轴都缺（无 survey 元数据，
+// 导入时未冻结）时放开到 0..1000000。初始建页与模式切换处理器同走这一份
+// ——回退曾只写在建页处，切模式后范围塌缩成 [0,0] 把输入锁死。
+void applyLineSpinRange(QSpinBox *no, const CatalogEntity &survey, bool isInline)
+{
+  const double lo = isInline ? survey.inlineMin : survey.xlineMin;
+  const double hi = isInline ? survey.inlineMax : survey.xlineMax;
+  if (lo == 0.0 && hi == 0.0)
+  {
+    no->setRange(0, 1000000);
+    return;
+  }
+  no->setRange(static_cast<int>(lo), static_cast<int>(qMax(hi, lo)));
+}
+
+// 转码进度条/取消按钮接线（.sf3c 与 .sf3p 共用同一组控件）。绑定前摘掉上一
+// 任务的连接——否则一次取消会同时 requestCancel 两个在途任务，先完成的
+// 任务还会把另一任务的进度条与取消入口一并隐藏。可见性按在途任务计数管理
+// （active 归零才隐藏）；cancel 只作用于最近一次绑定的任务（bound）。
+void bindTranscodeTaskUi(QProgressBar *bar, QToolButton *cancel, PaleoTask *task,
+                         const std::shared_ptr<int> &active,
+                         const std::shared_ptr<QPointer<PaleoTask>> &bound)
+{
+  if (!task)
+    return;
+  if (PaleoTask *prev = bound->data())
+  {
+    QObject::disconnect(prev, nullptr, bar, nullptr);
+    QObject::disconnect(cancel, &QToolButton::clicked, prev, &PaleoTask::requestCancel);
+  }
+  *bound = task;
+  ++(*active);
+  bar->setVisible(true);
+  bar->setValue(0);
+  cancel->setVisible(true);
+  const QPointer<PaleoTask> taskGuard(task);
+  QObject::connect(task, &PaleoTask::changed, bar, [taskGuard, bar]() {
+    if (taskGuard)
+      bar->setValue(taskGuard->percent());
+  });
+  QObject::connect(cancel, &QToolButton::clicked, task, &PaleoTask::requestCancel);
+  QObject::connect(task, &PaleoTask::finished, bar, [bar, cancel, active]() {
+    if (--(*active) <= 0)
+    {
+      bar->setVisible(false);
+      cancel->setVisible(false);
+    }
+  });
+}
 }
 
 QWidget *DataPreviewTabs::buildSeismicContent(
@@ -155,10 +205,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   auto *no = new QSpinBox(bar);
   no->setObjectName(QStringLiteral("lineSpin"));
   no->setAccessibleName(tr("测线号"));
-  no->setRange(static_cast<int>(survey.inlineMin),
-               static_cast<int>(qMax(survey.inlineMax, survey.inlineMin)));
-  if (survey.inlineMin == 0 && survey.inlineMax == 0) // 无 survey 元数据时放开范围
-    no->setRange(0, 1000000);
+  applyLineSpinRange(no, survey, /*isInline=*/true); // 初始页 = 纵测线
   if (initialInline >= 0)
     no->setValue(initialInline);
   auto *panel = new SectionPanel(host);
@@ -201,10 +248,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   };
 
   connect(mode, &QComboBox::currentIndexChanged, host, [mode, no, survey, decode]() {
-    const bool isInline = mode->currentData().toString() == QLatin1String("inline");
-    no->setRange(isInline ? static_cast<int>(survey.inlineMin) : static_cast<int>(survey.xlineMin),
-                 isInline ? static_cast<int>(qMax(survey.inlineMax, survey.inlineMin))
-                          : static_cast<int>(qMax(survey.xlineMax, survey.xlineMin)));
+    applyLineSpinRange(no, survey, mode->currentData().toString() == QLatin1String("inline"));
     decode();
   });
   connect(no, &QSpinBox::valueChanged, host, decode);
@@ -450,23 +494,13 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     });
   };
 
-  // 转码任务的进度条/取消接线（两通道共用）
-  const auto bindTranscodeTask = [transcodeProgress, btnCancelTranscode](PaleoTask *task) {
-    if (!task)
-      return;
-    transcodeProgress->setVisible(true);
-    transcodeProgress->setValue(0);
-    btnCancelTranscode->setVisible(true);
-    const QPointer<PaleoTask> taskGuard(task);
-    QObject::connect(task, &PaleoTask::changed, transcodeProgress, [taskGuard, transcodeProgress]() {
-      if (taskGuard)
-        transcodeProgress->setValue(taskGuard->percent());
-    });
-    QObject::connect(btnCancelTranscode, &QToolButton::clicked, task, &PaleoTask::requestCancel);
-    QObject::connect(task, &PaleoTask::finished, transcodeProgress, [transcodeProgress, btnCancelTranscode]() {
-      transcodeProgress->setVisible(false);
-      btnCancelTranscode->setVisible(false);
-    });
+  // 转码任务的进度条/取消接线（两通道共用同一组控件；实现见匿名命名空间的
+  // bindTranscodeTaskUi——绑定前摘旧连接 + 在途任务计数管可见性）。
+  const auto activeTasks = std::make_shared<int>(0);
+  const auto boundTask = std::make_shared<QPointer<PaleoTask>>();
+  const auto bindTranscodeTask = [transcodeProgress, btnCancelTranscode, activeTasks,
+                                  boundTask](PaleoTask *task) {
+    bindTranscodeTaskUi(transcodeProgress, btnCancelTranscode, task, activeTasks, boundTask);
   };
 
   connect(btnTranscode, &QToolButton::clicked, host, [this, abs, btnTranscode, bindTranscodeTask, refreshBackendStatus]() {
@@ -757,21 +791,10 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   sliceDebounce->setInterval(120);
   const auto pendingIdx = std::make_shared<int>(-1);
 
-  // 瓦片信号路由（每服务接一次）：只贴最新一次瓦片请求的目标画布，
-  // 采样号世代不符（陈旧请求/其他资产标签）直接丢弃。
-  if (auto *tileSvc = (m_doc ? m_doc->seismicTaskService() : nullptr);
-      tileSvc && m_tiledSignalService != tileSvc)
-  {
-    m_tiledSignalService = tileSvc;
-    connect(tileSvc, &seismic::SeismicTaskService::timeSliceTileReady, this,
-            [this](const seismic::SeismicTimeTile &tile) {
-              if (!m_tiledCanvas || tile.sampleIndex != m_tiledSample || !tile.image)
-                return;
-              auto *canvas = qobject_cast<seismic::SeismicSectionCanvas *>(m_tiledCanvas.data());
-              if (canvas)
-                canvas->appendTimeSliceTile(*tile.image, tile.x, tile.y);
-            });
-  }
+  // 瓦片信号路由（每服务接一次）：按「画布 → (工作区, 采样号)」登记表逐项
+  // 匹配，只贴登记一致的那一块画布（实现见 connectTiledTileRoute）。
+  if (auto *tileSvc = (m_doc ? m_doc->seismicTaskService() : nullptr))
+    connectTiledTileRoute(tileSvc);
 
   const auto requestTimeSlice = [this, sharedVol, sharedPaged, timeCanvas, lblTimeMs, pendingIdx](int sampleIndex) {
     if (!*sharedVol || !(*sharedVol)->IsLoaded())
@@ -803,8 +826,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
       timeCanvas->beginTimeSliceTiled(xlCount, inlCount, ms,
                                       vol->InlineMin(), vol->InlineMax(),
                                       vol->XlineMin(), vol->XlineMax());
-      m_tiledCanvas = timeCanvas;
-      m_tiledSample = sampleIndex;
+      registerTiledTarget(timeCanvas, *sharedPaged, sampleIndex);
       // A3（wave/deepen-perf）：失败如实显示原因态（不再留整幅 NaN 灰无解释）；
       // 被新请求顶替的取消回调经世代过滤（*pendingIdx 已是最新采样号）丢弃。
       svc->startTimeSliceTiled(

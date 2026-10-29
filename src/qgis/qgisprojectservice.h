@@ -15,6 +15,7 @@
 
 class QgsProject;
 struct ProjectLoadState;
+class PaleoTaskService;
 
 // P0 spine service — owns QgsProject open/save. Never write .qgz directly:
 // writes are sequenced by PaleoProjectStore (gpkg commit -> .qgz backup -> atomic .qgz write).
@@ -42,6 +43,11 @@ class QgisProjectService : public QObject
     void cancelOpen();
     bool isOpening() const { return m_opening; }
     bool isBackgroundOpenRunning() const { return m_openFuture.isRunning(); }
+    // #773：后台打开读取改跑 PaleoTaskService 的专用 workerPool（≤4 线程）
+    // ——退出时 AppContext 的 shutdown 排空会清掉排队读取、等在飞读取，
+    // 不再占 QtConcurrent 全局池；同时 cancelOpen() 取消 future，worker 经
+    // promise.future().isCanceled() 协作退出。不设（测试壳）回落全局池。
+    void setTaskService(PaleoTaskService *service) { m_taskService = service; }
     bool createProject(const QString &qgzPath);
     bool writeProject();                            // atomic temp+rename via store ordering
     QString projectPath() const;
@@ -127,4 +133,5 @@ class QgisProjectService : public QObject
   QFuture<void> m_openFuture;
   std::shared_ptr<ProjectLoadState> m_pendingLoad;
   OpenPreparation m_openPreparation;
+  PaleoTaskService *m_taskService = nullptr;
 };

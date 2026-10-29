@@ -155,24 +155,32 @@ void transformBoundariesTo( std::vector<sf::Polygon> &boundaries,
 }
 
 // 上游 _extract_current_wells 的要素视图：属性保持字段声明序。
-sf::WellFeatureRow wellRowFromFeature( const QgsFeature &feature )
+// 多部件点要素逐部件出一行（旧式只取第 1 个点，其余井位被静默丢弃）。
+QVector<sf::WellFeatureRow> wellRowsFromFeature( const QgsFeature &feature )
 {
+  QVector<sf::WellFeatureRow> out;
   sf::WellFeatureRow row;
   const QgsFields fields = feature.fields();
   const QVariantList values = feature.attributes();
   for ( int i = 0; i < fields.size() && i < values.size(); ++i )
     row.attributes.append( { fields.at( i ).name(), values.at( i ) } );
   const QgsGeometry geometry = feature.geometry();
-  if ( !geometry.isEmpty() &&
-       QgsWkbTypes::geometryType( geometry.wkbType() ) == Qgis::GeometryType::Point )
+  if ( geometry.isEmpty() ||
+       QgsWkbTypes::geometryType( geometry.wkbType() ) != Qgis::GeometryType::Point )
+    return out;
+  row.isPoint = true;
+  QVector<QgsPointXY> points;
+  if ( geometry.isMultipart() )
+    points = geometry.asMultiPoint();
+  else
+    points << geometry.asPoint();
+  for ( const QgsPointXY &point : points )
   {
-    row.isPoint = true;
-    const QgsPointXY point =
-        geometry.isMultipart() ? geometry.asMultiPoint().value( 0 ) : geometry.asPoint();
     row.x = point.x();
     row.y = point.y();
+    out.append( row );
   }
-  return row;
+  return out;
 }
 
 void writeDoubleGrid( const QString &path, int cols, int rows, double originX, double originY,
@@ -391,7 +399,8 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
     {
       if ( feedback && feedback->isCanceled() )
         throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-      rows.push_back( wellRowFromFeature( feature ) );
+      for ( const sf::WellFeatureRow &row : wellRowsFromFeature( feature ) )
+        rows.push_back( row );
     }
   }
   const sf::WellAcquisitionResult acquired = sf::acquireWells( rows, boundaries, acquire );

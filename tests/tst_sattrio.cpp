@@ -12,6 +12,9 @@
 #include <vector>
 
 #include "io/sattrio.h"
+#include "io/attrgridout.h"
+
+#include <gdal.h>
 
 using paleo::sattr::SattrSectionHeader;
 using paleo::sattr::SattrVolumeInfo;
@@ -560,6 +563,78 @@ private slots:
     QVERIFY2(reader.extractTime(info.nS - 1, &plane, &err), qPrintable(err));
     QVERIFY2(reader.readCell(3, 1, 2, &cell, &err), qPrintable(err));
     QCOMPARE(cell, cellValue(3, 1, 2));
+  }
+
+  // finding-42：缓存 GeoTIFF 摘要读回必须对 PALEO_TIME_MS / PALEO_DT_MS /
+  // PALEO_T0_MS 三个键与身份键同口径——缺键即如实失败（视同未命中重算），
+  // 不得静默回填 0.0 后返回成功（缓存摘要的时间域会是错值）。
+  void timeSliceSummaryRejectsMissingTimeKeys()
+  {
+    using paleo::sattr::AttrTimeSliceGrid;
+    using paleo::sattr::readTimeSliceGeoTiffSummary;
+    using paleo::sattr::writeTimeSliceGeoTiff;
+
+    AttrTimeSliceGrid grid;
+    grid.attrId = QStringLiteral("envelope");
+    grid.nIl = 3;
+    grid.nXl = 4;
+    grid.ilValues = {100, 101, 102};
+    grid.xlValues = {200, 201, 202, 203};
+    grid.values.assign(std::size_t(grid.nIl) * grid.nXl, 1.5f);
+    grid.values[5] = std::numeric_limits<float>::quiet_NaN();
+    grid.valueMin = 1.5;
+    grid.valueMax = 1.5;
+    grid.validCells = grid.values.size() - 1;
+    grid.sampleIndex = 7;
+    grid.timeMs = 1732.5;
+    grid.sampleIntervalMs = 4.0;
+    grid.startTimeMs = 1604.5;
+    grid.sourceSgyPath = QStringLiteral("/tmp/survey.sgy");
+    grid.paramHash = QStringLiteral("abc123");
+    const double affine[6] = {25.0, 0.5, 600000.0, 0.0, 25.0, 4400000.0};
+
+    const QString path = tempDir_.filePath(QStringLiteral("slice.tif"));
+    QString err;
+    QVERIFY2(writeTimeSliceGeoTiff(path, grid, affine, &err), qPrintable(err));
+
+    AttrTimeSliceGrid back;
+    QVERIFY2(readTimeSliceGeoTiffSummary(path, &back, &err), qPrintable(err));
+    QCOMPARE(back.attrId, grid.attrId);
+    QCOMPARE(back.paramHash, grid.paramHash);
+    QCOMPARE(back.nIl, grid.nIl);
+    QCOMPARE(back.nXl, grid.nXl);
+    QCOMPARE(back.validCells, grid.validCells);
+    QCOMPARE(back.sampleIndex, grid.sampleIndex);
+    QCOMPARE(back.timeMs, grid.timeMs);
+    QCOMPARE(back.sampleIntervalMs, grid.sampleIntervalMs);
+    QCOMPARE(back.startTimeMs, grid.startTimeMs);
+
+    // 逐个抠掉三个时间键：都必须判失败（而不是回填 0.0 当成功）。
+    for (const char *key : {"PALEO_TIME_MS", "PALEO_DT_MS", "PALEO_T0_MS"})
+    {
+      const QString stripped = tempDir_.filePath(
+          QStringLiteral("slice_%1.tif").arg(QLatin1String(key)));
+      QVERIFY(QFile::copy(path, stripped));
+      QVERIFY(stripDatasetMetadataItem(stripped, key));
+      AttrTimeSliceGrid broken;
+      QString brokenErr;
+      QVERIFY2(!readTimeSliceGeoTiffSummary(stripped, &broken, &brokenErr),
+               qPrintable(QStringLiteral("缺 %1 必须拒收").arg(QLatin1String(key))));
+      QVERIFY2(!brokenErr.isEmpty(), qPrintable(brokenErr));
+    }
+  }
+
+  // 用 GDAL 抠掉数据集级元数据键（测试辅助：模拟「旧版写盘缺键」的缓存产物）。
+  static bool stripDatasetMetadataItem(const QString &path, const QString &key)
+  {
+    GDALAllRegister();
+    GDALDatasetH ds = GDALOpen(path.toUtf8().constData(), GA_Update);
+    if (!ds)
+      return false;
+    const bool ok = GDALSetMetadataItem(ds, key.toUtf8().constData(), nullptr,
+                                        nullptr) == CE_None;
+    GDALClose(ds);
+    return ok;
   }
 };
 

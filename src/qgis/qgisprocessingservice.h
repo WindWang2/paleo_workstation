@@ -13,6 +13,7 @@ class QgsProject;
 
 class QgsProcessingContext;
 class QgsProcessingFeedback;
+class QgsProcessingAlgorithm;
 class PaleoProjectStore;
 // 方向 59：QWidget 只以指针/返回值出现——前向声明即可，include <QWidget>
 // 会把 QtWidgets 传递灌进 11 个直接消费本头的 workflow TU（--transitive
@@ -83,7 +84,17 @@ class QgisProcessingService : public QObject
     QWidget *lastAlgorithmDialog() const;
 
   private:
+    // #779：processing registry 的读（algorithmById / algorithms）与写
+    // （addProvider / addAlgorithm）没有内部锁，而 run() 会被 worker 线程调用
+    // （constraintfactorjobs / MappingWorkbench 转面）。注册表访问一律走这把
+    // 锁，避免与启动期/设置面的注册表写入并发。
+    const QgsProcessingAlgorithm *lookupAlgorithm(const QString &algorithmId) const;
+    // 真正干活的同步 run（在调用者线程执行）；run() 只负责线程路由。
+    QVariantMap runBlocking(const QString &algorithmId, const QVariantMap &parameters, QString *error,
+                            const ProcessingHooks &hooks);
+
     QMutex m_contextMutex;
+    mutable QMutex m_registryMutex;
     QgsCoordinateTransformContext m_transformSnapshot;
     QMetaObject::Connection m_contextConnection;
     PaleoProjectStore *m_store;

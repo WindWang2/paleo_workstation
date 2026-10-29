@@ -28,7 +28,7 @@ uint qHash( const Key &k, uint seed = 0 )
 // 最近已拾取场（#479 去平方化）：格 → 最近 picked 点（欧氏距离平方 + 平手
 // 取小 inline/xline 的字典序）。种子/拾取按处理序增量播撒（Dijkstra 式向
 // 外传播，仅在「更近」时覆盖），查询 O(1)——替代逐候选全量扫 picked 的
-// O(n·m)。域限制在候选包围盒内。
+// O(n·m)。域限制在候选包围盒内，且泛洪按距离平方上限截断（见 seed()）。
 struct NearestField
 {
   struct Rec
@@ -52,10 +52,18 @@ struct NearestField
   {
     return std::tie( a.d2, a.il, a.xl ) < std::tie( b.d2, b.il, b.xl );
   }
-  void seed( int il, int xl )
+  void seed( int il, int xl, int d2Limit )
   {
     // 优先队列按 d2 升序弹出；仅当候选记录（距离平方 + 平手裁决键）严格
     // 更优才覆盖并继续传播——每格写入次数摊还后 O(1)，总代价 ~O(域)。
+    //
+    // d2Limit 截断：候选格恒落在某颗种子 ±radius 的方块内（生成式保证），
+    // 而种子本身必被 record() 入 picked，故「候选到最近拾取」的距离平方恒
+    // ≤ 2·radius²。上限之外的格既不可能是任何候选的最近拾取来源、也永不被
+    // 查询，截断后单次泛洪 ~O(radius²)（与候选数同阶），不再随种子间距拉大
+    // 后的包围盒 hull 面积爆炸（修前首次 record() 即对整个 hull 全量
+    // Dijkstra，内存/耗时直到 OOM/挂死，且发生在逐道取消检查之前无法中止）。
+    // 平手裁决不受影响：等距并列的拾取距离同为最小值 ≤ 上限，仍会被覆盖。
     using Item = std::tuple<int, int, int>; // (d2, 格il, 格xl)
     std::priority_queue<Item, std::vector<Item>, std::greater<Item>> pq;
     pq.push( { 0, il, xl } );
@@ -78,7 +86,10 @@ struct NearestField
         if ( !inBounds( nIl, nXl ) )
           continue;
         const int dIl = nIl - il, dXl = nXl - xl;
-        pq.push( { dIl * dIl + dXl * dXl, nIl, nXl } );
+        const int nd2 = dIl * dIl + dXl * dXl;
+        if ( nd2 > d2Limit )
+          continue; // 超出有效距离：无候选会以此格为最近拾取来源
+        pq.push( { nd2, nIl, nXl } );
       }
     }
   }
@@ -148,9 +159,13 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
     maxXl = std::max( maxXl, seed.xlineNo + radius );
   }
   NearestField nearest( minIl, maxIl, minXl, maxXl );
-  const auto record = [&picked, &nearest]( const TrackingSuggestion &s ) {
+  // 泛洪距离上限：候选必在某颗种子 ±radius 方块内、种子必在 picked 中，故
+  // 候选到最近拾取的距离平方恒 ≤ 2·radius²（radius ≤ kMaxRadius=4096 →
+  // 上限 ≤ 33554432，int 不溢出）。
+  const int nearestD2Limit = 2 * radius * radius;
+  const auto record = [&picked, &nearest, nearestD2Limit]( const TrackingSuggestion &s ) {
     picked.insert( Key { s.inlineNo, s.xlineNo }, s );
-    nearest.seed( s.inlineNo, s.xlineNo );
+    nearest.seed( s.inlineNo, s.xlineNo, nearestD2Limit );
   };
 
   for ( const TrackingSeed &seed : seeds )

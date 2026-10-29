@@ -1,5 +1,6 @@
 // 层：数据
 #include "wellsection.h"
+#include <QHash>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -561,11 +562,17 @@ int nearestWellWithin(const QVector<Well> &wellsWithCoords, double x, double y,
 
 QStringList orderWellsNearestNeighbor(const QStringList &ids,
                                       const QVector<Well> &wellsWithCoords) {
+  // #807：入口一次建 QHash<QString, const Well*>，locate 由 O(wells) 线性扫
+  // 降为 O(1)——旧实现在起点的极值比较与每步最近邻扫描里反复 locate，
+  // 千井工程一次重排即 O(n³)（10⁹ 次比较）。重复 id 保留先出现者（与旧
+  // 线性扫「首个匹配即返回」语义一致）。
+  QHash<QString, const Well *> byId;
+  byId.reserve(wellsWithCoords.size());
+  for (const Well &w : wellsWithCoords)
+    if (!byId.contains(w.id))
+      byId.insert(w.id, &w);
   const auto locate = [&](const QString &id) -> const Well * {
-    for (const Well &w : wellsWithCoords)
-      if (w.id == id)
-        return &w;
-    return nullptr;
+    return byId.value(id, nullptr);
   };
   QVector<int> pending; // 有坐标井的 ids 下标
   QStringList tail;     // 缺坐标（保原相对序排末）

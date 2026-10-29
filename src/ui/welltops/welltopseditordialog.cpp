@@ -56,14 +56,14 @@ QString numericCell(double v, bool has)
   return has ? WellTopsEdit::formatDepth(v) : QString();
 }
 
-// 单元格文本 → (值, 是否有效；空 = 缺失)。解析失败 → false。
+// 单元格文本 → (值, 是否有效；空 = 缺失，值取 NaN——Z 列无判空标志，写侧对非有限值落哨兵）。解析失败 → false。
 bool parseNumericCell(const QString &text, bool *has, double *out)
 {
   const QString t = text.trimmed();
   if (t.isEmpty())
   {
     *has = false;
-    *out = 0.0;
+    *out = std::numeric_limits<double>::quiet_NaN();
     return true;
   }
   bool ok = false;
@@ -335,9 +335,9 @@ void WellTopsEditorDialog::fillTableFrom(const QVector<WellTopRecord> &rows)
     m_table->setItem(row, ColTvd, new QTableWidgetItem(numericCell(r.tvd, r.hasTvd)));
     m_table->setItem(row, ColX, new QTableWidgetItem(numericCell(r.x, r.hasX)));
     m_table->setItem(row, ColY, new QTableWidgetItem(numericCell(r.y, r.hasY)));
-    // Z 无独立判空标志：与 X/Y 同列组语义——X/Y 任一有效即显示（写侧同口径）。
+    // Z 无独立判空标志：与 X/Y 同列组语义——X/Y 任一有效且值有限才显示（解析器对空/哨兵 Z 置 NaN，显示 nan 会让 collectRows 拒收整行）。
     m_table->setItem(row, ColZ,
-                     new QTableWidgetItem(numericCell(r.z, r.hasX || r.hasY)));
+                     new QTableWidgetItem(numericCell(r.z, (r.hasX || r.hasY) && qIsFinite(r.z))));
     m_table->setItem(row, ColTime, new QTableWidgetItem(numericCell(r.timeMs, r.hasTime)));
     for (int c = ColMd; c < ColCount; ++c)
       if (QTableWidgetItem *it = m_table->item(row, c))
@@ -384,7 +384,7 @@ QVector<WellTopRecord> WellTopsEditorDialog::collectRows(QString *error) const
     r.wellName = well;
     r.topName =
         m_table->item(row, ColTopName) ? m_table->item(row, ColTopName)->text().trimmed() : QString();
-    bool dummyHas = false; // Z 无判空标志——空单元格=0，写侧以 X/Y 组决定出列
+    bool dummyHas = false; // Z 无判空标志——空单元格=缺失（NaN），写侧对非有限值落哨兵
     const struct
     {
       int col;
@@ -588,7 +588,7 @@ void WellTopsEditorDialog::refreshRowStatus(int row)
                         ? m_table->item(row, ColTopName)->text().trimmed()
                         : QString();
   bool badNumber = false;
-  bool dummyHas = false;
+  bool dummyHas = false; // Z 无判空标志——空单元格=缺失（NaN），与 collectRows 同口径
   const struct
   {
     int col;

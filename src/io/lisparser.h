@@ -48,10 +48,10 @@ class LisParser
                             QString *error = nullptr,
                             QList<LasIssue> *issues = nullptr);
     // Caller-owned bounded device for scan probes; does not read the source path.
-    static bool parseHeader(QIODevice &source, LasHeaderInfo &out,
+    static bool parseHeader(QIODevice &f, LasHeaderInfo &out,
                             QString *error = nullptr, QList<LasIssue> *issues = nullptr);
 
     // 内容嗅探：TIF 记录头模式或裸 PRH 模式可完整走通 → true。
     static bool sniff(const QString &path);
-    static bool sniff(QIODevice &source);
+    static bool sniff(QIODevice &f);
 };

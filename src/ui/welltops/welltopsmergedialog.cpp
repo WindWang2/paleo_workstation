@@ -23,9 +23,10 @@ QString WellTopsMergeDialog::valueText(const WellTopRecord &r)
   auto f = [](bool has, double v) {
     return has ? WellTopsEdit::formatDepth(v) : tr("空");
   };
+  // Z 无独立判空标志：解析器对空/哨兵 Z 置 NaN——按缺失显示「空」，不把 nan 当数值摆给用户裁决（finding-180）。
   return tr("MD %1 TVD %2 X %3 Y %4 Z %5 T %6")
       .arg(f(r.hasMd, r.md), f(r.hasTvd, r.tvd), f(r.hasX, r.x), f(r.hasY, r.y),
-           f(r.hasX || r.hasY, r.z), f(r.hasTime, r.timeMs));
+           f((r.hasX || r.hasY) && qIsFinite(r.z), r.z), f(r.hasTime, r.timeMs));
 }
 
 WellTopsMergeDialog::WellTopsMergeDialog(const QVector<WellTopsEdit::MergeRow> &rows,

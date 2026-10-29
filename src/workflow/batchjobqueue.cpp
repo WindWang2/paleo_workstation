@@ -697,8 +697,15 @@ bool BatchQueue::resume( const BatchSpec &spec, QString *error )
   // 读既有状态续跑（无状态则按新定义起批）。
   QVector<BatchItem> items;
   QString readErr;
-  if ( !readState( spec2, &items, &readErr ) || items.isEmpty() )
+  const bool hadStateFile = QFileInfo::exists( statePath( spec2.batchId ) );
+  const bool resumed = readState( spec2, &items, &readErr ) && !items.isEmpty();
+  if ( !resumed )
     items = fresh;
+  // #808：状态档损坏/版本不兼容/展开对不上账时，旧实现把 readErr 一丢就按新批
+  // 全量重跑——用户以为在续跑，实际从头再来且无任何痕迹。有档却续用不上即
+  // 留痕（首跑无档是正常路径，不警告）。
+  if ( !resumed && hadStateFile && !readErr.isEmpty() )
+    qWarning() << "batch queue: 批次状态未能续用，按新批全量重跑：" << readErr;
 
   m_items = items;
   m_indexById.clear();

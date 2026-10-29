@@ -91,8 +91,8 @@ QStringList validateLithoIntervals(const QVector<LithologyInterval> &intervals)
     if (li.bottomDepth <= li.topDepth)
       issues << QStringLiteral("第 %1 段「%2」：底深 %3 ≤ 顶深 %4")
                     .arg(QString::number(i + 1), li.lithoName,
-                         QString::number(li.topDepth, 'f', 1),
-                         QString::number(li.bottomDepth, 'f', 1));
+                         QString::number(li.bottomDepth, 'f', 1),
+                         QString::number(li.topDepth, 'f', 1));
     if (li.lithoName.trimmed().isEmpty())
       issues << QStringLiteral("第 %1 段：岩性名为空").arg(QString::number(i + 1));
   }

@@ -284,12 +284,9 @@ PaleoTask *PaleoTaskService::createTask(const QString &title,
   m_tasks.append(task);
   if (m_store && !layerId.isEmpty())
   {
-    // store 的 busy 注册表是多持有者按 taskId 分槽的（L-02）——同层位多个
-    // 并发任务（批队列同层多方法、同文件预取+解码重叠）各挂各的
-    // "task-<id>" 条目，终态时各摘各的；最后一个终态自然清空该层注册表，
-    // §35 工具门/编辑门/校验门到点放行。旧实现另维护引用计数、只在计数
-    // 归零时释放「最后一个」任务的条目——先终态者的条目永不摘除，该层被
-    // 会话级永久锁忙（#88）。
+    // L-02：busy 注册表是按 taskId 的多持有表——同层位多个并发任务（批队列
+    // 同层多方法、同文件预取+解码重叠）各自 markLayerBusy(task-N)，终态在
+    // onTaskFinished 各自 releaseLayerBusy(task-N)，互不顶替也互不放行。
     m_store->markLayerBusy(layerId, QStringLiteral("task-%1").arg(task->id()),
                            title);
   }
@@ -371,10 +368,11 @@ void PaleoTaskService::onTaskFinished(PaleoTask *task)
 {
   if (m_store && !task->layerId().isEmpty())
   {
-    // L-02 多持有表语义：每个任务终态只摘自己名下的 busy 条目
-    // （"task-<id>"）——同层位并发任务各摘各的，最后一个终态即该层解锁。
-    // 不需要引用计数对账：每任务恰一次 finished（applyFinish 幂等闸保证），
-    // 重复 release 也只是找不到条目返回 false。
+    // 每任务恰一次 finished（applyFinish 幂等闸保证）——终态无条件摘掉自己
+    // 名下的注册条目；releaseLayerBusy 只动 task-N 自己，不会放行同层位其他
+    // 持有者（编辑会话/另一任务）。旧「计数归零才释放」闸是单槽 markLayerFree
+    // 时代的遗产：多持有表下它让先终态任务的条目永久驻留（#815 引入的回归，
+    // tst_taskservice 同层双任务用例锁定）。
     m_store->releaseLayerBusy(task->layerId(),
                               QStringLiteral("task-%1").arg(task->id()));
   }

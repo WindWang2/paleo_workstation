@@ -1,7 +1,6 @@
 // 层：数据
 #pragma once
 #include <QElapsedTimer>
-#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
@@ -149,9 +148,9 @@ public:
   ~PaleoTaskService() override;
 
   // layerId 非空时在 store busy 注册表挂账（§35 工具门在任务期挡该层）；
-  // 注册表是多持有者按 taskId 分槽的（PaleoProjectStore L-02），同层位并发
-  // 任务各挂各的条目、终态各摘各的，最后一个终态才真正放行该层。返回的
-  // task 属本服务，finished() 信号可接。
+  // 同层位并发任务各自登记 task-N 条目，终态各自 releaseLayerBusy 摘除
+  // 自己名下的条目（互不顶替也互不放行，见 onTaskFinished）。返回的 task
+  // 属本服务，finished() 信号可接。
   // quiet=true：任务仍注册/可取消，但不拉起任务中心——交互内嵌取数专用。
   PaleoTask *start(const QString &title,
                    std::function<QString(PaleoTask *)> work,

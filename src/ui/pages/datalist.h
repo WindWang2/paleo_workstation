@@ -295,6 +295,10 @@ class DataListPanel : public QWidget
     PreviewDocService *m_doc = nullptr;
     paleo::dataops::DataNavTree *m_tree = nullptr;
     QStackedWidget *m_viewStack = nullptr;
+    // 树视图不可见期间挂脏的树重建标记（见 refreshAssetTree：非树视图下的
+    // 每次刷新都重建整树蓝图是大目录实测瓶颈；切回树视图时强制补建，
+    // 树可见期间从不陈旧）。
+    bool m_treeStale = false;
     // D5 视图命令栈（挂接/标签/改型/软删…；壳订阅 stackChanged 刷按钮态）。
     paleo::dataops::DataOpsUndoStack *m_opStack = nullptr;
 

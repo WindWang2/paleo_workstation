@@ -292,23 +292,42 @@ FaciesQaResult runFaciesQa( const std::vector<FaciesMapUnit> &units,
     }
     if ( !unitGeoms[i] )
       continue;
+    // L-11 预筛补齐（检测器 5）：第一遍只用「包围盒扩张 wellCoverageRadius」
+    // 判定覆盖/半径内——盒外的井既不可能与单元相交也不可能进半径，四次
+    // 比较挡掉全对 GEOSIntersects/geosDistance。metric 只对确定要出报告的
+    // 单元有意义，此时再全量精确算 nearest（语义与旧实现逐位一致：预筛
+    // 跳过的远井若参与 metric，值只会从真实最近距离漂成 +inf）。
+    const auto &env = unitEnvelopes[i];
+    const double pad = std::max( 0.0, options.wellCoverageRadius );
     bool covered = false;
-    double nearest = std::numeric_limits<double>::infinity();
-    for ( const GeomPtr &well : wellGeoms )
+    bool withinRadius = false;
+    for ( std::size_t w = 0; w < wells.size(); ++w )
     {
-      if ( GEOSIntersects_r( ctx.handle, unitGeoms[i].get(), well.get() ) == 1 )
+      if ( wells[w].x < env[0] - pad || wells[w].x > env[2] + pad ||
+           wells[w].y < env[1] - pad || wells[w].y > env[3] + pad )
+        continue;
+      if ( GEOSIntersects_r( ctx.handle, unitGeoms[i].get(), wellGeoms[w].get() ) == 1 )
       {
         covered = true;
         break;
       }
-      nearest = std::min( nearest,
-                          singlefactor::geosDistance( ctx.handle, unitGeoms[i].get(),
-                                                      well.get() ) );
+      if ( options.wellCoverageRadius > 0 &&
+           singlefactor::geosDistance( ctx.handle, unitGeoms[i].get(),
+                                       wellGeoms[w].get() ) <= options.wellCoverageRadius )
+      {
+        withinRadius = true;
+        break;
+      }
     }
     if ( covered )
       continue;
-    if ( options.wellCoverageRadius > 0 && nearest <= options.wellCoverageRadius )
+    if ( withinRadius )
       continue; // 缓冲半径内算覆盖
+    double nearest = std::numeric_limits<double>::infinity();
+    for ( const GeomPtr &well : wellGeoms )
+      nearest = std::min( nearest,
+                          singlefactor::geosDistance( ctx.handle, unitGeoms[i].get(),
+                                                      well.get() ) );
     FaciesQaIssue issue;
     issue.type = FaciesQaIssueType::NoWellCoverage;
     issue.regionIds = { units[i].regionId };

@@ -2,4 +2,4 @@
 target_sources(paleo_domain PRIVATE src/domain/seismic/sectiongeometry.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/sectionworkbench.cpp)
 target_sources(paleo_ui PRIVATE src/ui/seismicsection/sectionsetupdialog.cpp src/ui/seismicsection/sectionsetupdialog_order.cpp src/ui/paleomainwindow_sections.cpp)
-add_paleo_test(tst_sections_alignment)
+add_paleo_test(tst_sections_alignment LIBS paleo_ui)

@@ -20,7 +20,7 @@ public:
   static bool checkProjectLocation(const QString &path, QString *error);
   void scan(const ProjectSetupSources &sources);
   bool create(const QString &path, const ProjectSetupSources &sources, const ProjectSetupPreview &preview, QString *error);
-  bool applySources(const ProjectSetupSources &sources, const ProjectSetupPreview &preview, QString *error);
+  bool applySources(const ProjectSetupSources &sources, const ProjectSetupPreview &input, QString *error);
   ProjectSetupSources currentSources() const;
   void setMapImportServices(QgisLayerService *layers, PaleoTaskService *tasks);
 signals:

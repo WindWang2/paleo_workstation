@@ -101,6 +101,12 @@ QgsMapTool *PaleoCoordinateMapTool::nativeTool() const
   return m_native.data();
 }
 
+bool PaleoCoordinateMapTool::isActiveOnCanvas() const
+{
+  return m_native && m_native->canvas() &&
+         m_native->canvas()->mapTool() == m_native.data();
+}
+
 PaleoCoordinateMapTool *PaleoCoordinateMapTool::fromMapTool(QgsMapTool *tool)
 {
   return tool ? qobject_cast<PaleoCoordinateMapTool *>(

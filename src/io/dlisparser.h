@@ -54,13 +54,13 @@ class DlisParser
                             QString *error = nullptr,
                             QList<LasIssue> *issues = nullptr);
     // Caller-owned bounded device for scan probes; does not read the source path.
-    static bool parseHeader(QIODevice &source, LasHeaderInfo &out,
+    static bool parseHeader(QIODevice &f, LasHeaderInfo &out,
                             QString *error = nullptr, QList<LasIssue> *issues = nullptr);
 
     // 内容嗅探：前 200 字节内找到合法 SUL（80 字节 RECORD 结构）→ true。
     // 扩展名不参与判定——扩展名分派在 welllogread 层做。
     static bool sniff(const QString &path);
-    static bool sniff(QIODevice &source);
+    static bool sniff(QIODevice &f);
 
     // ---- RP66 值类型（EFLR 属性 / 帧槽共用解码面；仅测试与内部使用）----
     struct Obname

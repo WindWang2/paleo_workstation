@@ -10,11 +10,15 @@
 #include "../src/workflow/workflows.h"
 #include "../src/domain/faciescatalog.h"
 #include "../src/workflow/mappingworkbench.h"
+#include "../src/services/paleotaskservice.h"
+#include <QCoreApplication>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <atomic>
 #include <gdal.h>
 #include <qgsapplication.h>
 #include <qgsfeatureiterator.h>
@@ -22,6 +26,7 @@
 #include <qgsvectorlayer.h>
 #include <qgsrasterlayer.h>
 #include <memory>
+#include <thread>
 
 class TestImpactRecompute : public QObject {
   Q_OBJECT
@@ -656,8 +661,317 @@ private slots:
     QVERIFY(f.work.compareWithRecomputeSource(polygonsV1, &error).isEmpty());
     QVERIFY(!error.isEmpty());
   }
-  static int countKind(const DataCatalog &catalog, const QString &kind) {
-    int n = 0;
+  // —— A：影响分析/版本对比后台任务化 ——
+  // 覆盖：同步/后台结果等价（小输入）、GUI 事件循环在排队与执行期间保持
+  // 响应（受控同步点：占满池的 blocker 任务）、忙拒绝、排队期协作取消、
+  // 目录修订前进（旧请求晚到）不发布、切工程重绑不发布、执行期取消、
+  // 对象销毁安全、版本对比后台等价 + 取消。
+  void backgroundImpactAnalysisLifecycle() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    // 链（cellSize 1 → 100×100 网格，worker 段有可观察时长）：
+    QVERIFY(f.declarePoints({QVariantMap{{"x", 0}, {"y", 0}, {"z", 0}},
+                             QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
+                             QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
+                             QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}},
+                            "bg-samples-a.geojson", &error));
+    QVERIFY2(f.work.generateFactor(
+                  "D61", "sandthick",
+                  {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 0.5}},
+                  &error),
+             qPrintable(error));
+    const auto factorV1 = f.latest("single_factor_raster");
+    QVERIFY(!factorV1.isEmpty());
+    const auto factorV1Version = f.work.versionForLayer(factorV1);
+    const auto polygonsV1 = f.work.compose(
+        "D61", {factorV1}, {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}}},
+        &error);
+    QVERIFY2(!polygonsV1.isEmpty(), qPrintable(error));
+    QVERIFY(f.declarePoints({QVariantMap{{"x", 0}, {"y", 0}, {"z", 100}},
+                             QVariantMap{{"x", 100}, {"y", 0}, {"z", 100}},
+                             QVariantMap{{"x", 0}, {"y", 100}, {"z", 100}},
+                             QVariantMap{{"x", 100}, {"y", 100}, {"z", 100}}},
+                            "bg-samples-b.geojson", &error));
+    QVERIFY2(f.work.generateFactor(
+                  "D61", "sandthick",
+                  {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 0.5}},
+                  &error),
+             qPrintable(error));
+    const auto factorV2 = f.latest("single_factor_raster");
+    const auto factorV2Version = f.work.versionForLayer(factorV2);
+    QVERIFY(factorV2Version.assetId == factorV1Version.assetId);
+
+    // 1. 同步路径契约保留（无任务服务时 analyzeLayerVersionImpact 同口径）。
+    const auto syncReport = f.work.analyzeImpact(
+        {{"kind", "input_version"},
+         {"before_version_id", factorV1Version.id},
+         {"after_version_id", factorV2Version.id},
+         {"horizon", "D61"}},
+        &error);
+    QVERIFY2(!syncReport.isEmpty(), qPrintable(error));
+
+    // 2. 后台执行 + 与同步结果等价（除时间戳/报告路径外逐字段一致）。
+    PaleoTaskService tasks;
+    f.work.setTaskService(&tasks);
+    QSignalSpy ready(&f.work, &MappingWorkbench::impactAnalysisReady);
+    QElapsedTimer launched;
+    launched.start();
+    QVERIFY2(f.work.startImpactAnalysis(factorV2, "D61", &error), qPrintable(error));
+    QVERIFY(f.work.impactAnalysisBusy());
+    QVERIFY2(launched.elapsed() < 500,
+             qPrintable(QStringLiteral("start 阻塞 %1ms").arg(launched.elapsed())));
+    QString busyError;
+    QVERIFY(!f.work.startImpactAnalysis(factorV2, "D61", &busyError));
+    QVERIFY2(busyError.contains(QStringLiteral("已有")),
+             qPrintable(busyError)); // 忙拒绝
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
+    {
+      const auto args = ready.takeFirst();
+      QCOMPARE(args.at(1).toString(), QString());
+      const auto bg = args.at(0).toMap();
+      QVariantMap expected = syncReport, actual = bg;
+      expected.remove("analyzed_at");
+      actual.remove("analyzed_at");
+      expected.remove("report_path");
+      actual.remove("report_path");
+      QCOMPARE(actual, expected);
+      QVERIFY(QFile::exists(bg.value("report_path").toString()));
+      QVERIFY(!f.work.impactAnalysisBusy()); // 成功后恢复
+    }
+
+    // 3. GUI 响应性：排队期间与 worker 执行期间，GUI 事件循环都在处理事件。
+    tasks.setMaxWorkerThreads(1);
+    // 占满唯一 worker 线程 → 影响分析排队（确定性同步点）。返回的闸门由
+    // 用例显式放开；启动失败返回空（QVERIFY 留在用例体——非 void lambda
+    // 里 QVERIFY 的 return 不可用）。
+    const auto startBlocked = [&f, &tasks, &factorV2](const char *tag) {
+      auto release = std::make_shared<std::atomic_bool>(false);
+      tasks.start(QStringLiteral("blocker-%1").arg(QLatin1String(tag)),
+                  [release](PaleoTask *) {
+                    while (!release->load())
+                      QThread::msleep(5);
+                    return QString();
+                  });
+      QString err;
+      const bool ok = f.work.startImpactAnalysis(factorV2, "D61", &err);
+      if (!ok)
+        qWarning("startImpactAnalysis failed: %s", qPrintable(err));
+      return ok ? release : nullptr;
+    };
+    {
+      const auto release = startBlocked("tick");
+      QVERIFY(release);
+      QVERIFY(f.work.impactAnalysisBusy());
+      int queuedTicks = 0;
+      QElapsedTimer t;
+      t.start();
+      while (t.elapsed() < 150) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        ++queuedTicks;
+      }
+      QVERIFY2(queuedTicks >= 4,
+               qPrintable(QStringLiteral("排队 %1 ticks——GUI 循环被阻塞")
+                              .arg(queuedTicks)));
+      release->store(true);
+      bool busySeenWhileProcessing = false;
+      t.restart();
+      while (t.elapsed() < 60000 && ready.count() == 0) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+        if (f.work.impactAnalysisBusy())
+          busySeenWhileProcessing = true;
+      }
+      QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
+      QVERIFY2(busySeenWhileProcessing,
+               "worker 执行期间 GUI 事件循环未处理事件");
+      QVERIFY(!ready.first().at(0).toMap().isEmpty());
+      ready.clear();
+      QTRY_VERIFY_WITH_TIMEOUT(!f.work.impactAnalysisBusy(), 5000);
+    }
+
+    // 4. 排队期协作取消（确定性同步点）：不发布任何报告。
+    {
+      const auto release = startBlocked("cancel");
+      QVERIFY(release);
+      f.work.cancelImpactAnalysis();
+      release->store(true);
+      QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
+      const auto args = ready.takeFirst();
+      QVERIFY(args.at(0).toMap().isEmpty());
+      QVERIFY2(args.at(1).toString().contains(QStringLiteral("取消")),
+               qPrintable(args.at(1).toString()));
+      QTRY_VERIFY_WITH_TIMEOUT(!f.work.impactAnalysisBusy(), 5000);
+    }
+
+    // 5. 旧请求晚到：排队期间目录修订前进 → 过期结果不发布、不写报告。
+    {
+      const auto release = startBlocked("stale");
+      QVERIFY(release);
+      CatalogAsset bump;
+      bump.id = QStringLiteral("bg-bump-asset");
+      bump.type = QStringLiteral("document");
+      bump.displayName = QStringLiteral("bg-bump");
+      QString catError;
+      QVERIFY2(f.catalog.addAsset(bump, &catError), qPrintable(catError));
+      release->store(true);
+      QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
+      const auto args = ready.takeFirst();
+      QVERIFY(args.at(0).toMap().isEmpty());
+      QVERIFY2(args.at(1).toString().contains(QStringLiteral("过期")),
+               qPrintable(args.at(1).toString()));
+      QTRY_VERIFY_WITH_TIMEOUT(!f.work.impactAnalysisBusy(), 5000);
+    }
+
+    // 6. 切工程（重绑同一 catalog 也算世代切换）：排队即取消，不发布。
+    {
+      const auto release = startBlocked("rebind");
+      QVERIFY(release);
+      f.work.bindCatalog(&f.catalog, f.dir.path());
+      release->store(true);
+      QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
+      const auto args = ready.takeFirst();
+      QVERIFY(args.at(0).toMap().isEmpty());
+      QTRY_VERIFY_WITH_TIMEOUT(!f.work.impactAnalysisBusy(), 5000);
+    }
+
+    // 7. 对象销毁：作业在飞时销毁 workbench（连带 runner），worker 经
+    //    shared 状态安全收尾，不崩溃、不回调已亡对象。
+    {
+      auto *ephemeral = new Fixture;
+      QVERIFY(ephemeral->init());
+      PaleoTaskService doomed;
+      ephemeral->work.setTaskService(&doomed);
+      doomed.setMaxWorkerThreads(1);
+      std::atomic_bool release{false};
+      doomed.start(QStringLiteral("blocker"), [&release](PaleoTask *) {
+        while (!release.load())
+          QThread::msleep(5);
+        return QString();
+      });
+      QString err;
+      QVERIFY2(ephemeral->work.startImpactAnalysis(factorV2Of(*ephemeral, err),
+                                                   QStringLiteral("D61"), &err),
+               qPrintable(err));
+      delete ephemeral; // 在飞作业 + runner + workbench 全部销毁
+      release.store(true);
+      for (int i = 0; i < 20; ++i)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+      QVERIFY(doomed.shutdown());
+    }
+  }
+  // 销毁用夹具的第二个单因素版本层（与首个构成可分析的版本对；无版本对
+  // 场景由 prepare 同步失败——该分支也要如实报错，不崩溃）。
+  static QString factorV2Of(Fixture &f, QString &error) {
+    QString err;
+    for (const char *name : {"doom-samples-a.geojson", "doom-samples-b.geojson"}) {
+      if (!f.declarePoints({QVariantMap{{"x", 0}, {"y", 0}, {"z", 0}},
+                            QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}}},
+                           name, &err))
+        return (error = err), QString();
+      if (!f.work.generateFactor(
+              "D61", "sandthick",
+              {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 4}},
+              &err))
+        return (error = err), QString();
+    }
+    return f.latest("single_factor_raster");
+  }
+
+  // 版本对比后台化：受控重算产物 vs 旧版本的像元 diff 在 worker 执行，
+  // 结果与同步 compareWithRecomputeSource 等价；取消不发布。
+  void backgroundVersionCompareEquivalenceAndCancel() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    QVERIFY(f.declarePoints({QVariantMap{{"x", 0}, {"y", 0}, {"z", 0}},
+                             QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
+                             QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
+                             QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}},
+                            "bc-samples-a.geojson", &error));
+    QVERIFY2(f.work.generateFactor(
+                  "D61", "sandthick",
+                  {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 0.5}},
+                  &error),
+             qPrintable(error));
+    const auto factorV1 = f.latest("single_factor_raster");
+    const auto polygonsV1 = f.work.compose(
+        "D61", {factorV1}, {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}}},
+        &error);
+    QVERIFY2(!polygonsV1.isEmpty(), qPrintable(error));
+    QVERIFY(f.declarePoints({QVariantMap{{"x", 0}, {"y", 0}, {"z", 100}},
+                             QVariantMap{{"x", 100}, {"y", 0}, {"z", 100}},
+                             QVariantMap{{"x", 0}, {"y", 100}, {"z", 100}},
+                             QVariantMap{{"x", 100}, {"y", 100}, {"z", 100}}},
+                            "bc-samples-b.geojson", &error));
+    QVERIFY2(f.work.generateFactor(
+                  "D61", "sandthick",
+                  {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 0.5}},
+                  &error),
+             qPrintable(error));
+    const auto factorV2 = f.latest("single_factor_raster");
+    const auto impact = f.work.analyzeImpact(
+        {{"kind", "input_version"},
+         {"before_version_id", f.work.versionForLayer(factorV1).id},
+         {"after_version_id", f.work.versionForLayer(factorV2).id},
+         {"horizon", "D61"}},
+        &error);
+    QVERIFY2(!impact.isEmpty(), qPrintable(error));
+    const auto plan = f.work.recomputePlan(impact, &error);
+    QVERIFY2(!plan.isEmpty(), qPrintable(error));
+    // 无任务服务：executeRecompute 同步产出受控重算成果。
+    const auto execution = f.work.executeRecompute(plan, &error);
+    const auto results = execution.value("results").toList();
+    QVERIFY2(!results.isEmpty() && results.first().toMap().value("ok").toBool(),
+             qPrintable(error));
+    const auto polygonsV2 = f.latest("facies_polygons");
+    QVERIFY(!polygonsV2.isEmpty());
+
+    // 同步基准。
+    const auto syncReport = f.work.compareWithRecomputeSource(polygonsV2, &error);
+    QVERIFY2(!syncReport.isEmpty(), qPrintable(error));
+
+    // 后台等价。
+    PaleoTaskService tasks;
+    f.work.setTaskService(&tasks);
+    QSignalSpy ready(&f.work, &MappingWorkbench::versionCompareReady);
+    QVERIFY2(f.work.startVersionCompare(polygonsV2, &error), qPrintable(error));
+    QVERIFY(f.work.versionCompareBusy());
+    QString busyError;
+    QVERIFY(!f.work.startVersionCompare(polygonsV2, &busyError));
+    QVERIFY2(busyError.contains(QStringLiteral("已有")), qPrintable(busyError));
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
+    {
+      const auto args = ready.takeFirst();
+      QCOMPARE(args.at(1).toString(), QString());
+      const auto bg = args.at(0).toMap();
+      QVariantMap expected = syncReport, actual = bg;
+      expected.remove("report_path");
+      actual.remove("report_path");
+      QCOMPARE(actual, expected);
+      QVERIFY(QFile::exists(bg.value("report_path").toString()));
+      QVERIFY(!f.work.versionCompareBusy());
+    }
+
+    // 排队期取消：不发布。
+    tasks.setMaxWorkerThreads(1);
+    std::atomic_bool release{false};
+    tasks.start(QStringLiteral("blocker"), [&release](PaleoTask *) {
+      while (!release.load())
+        QThread::msleep(5);
+      return QString();
+    });
+    QVERIFY2(f.work.startVersionCompare(polygonsV2, &error), qPrintable(error));
+    f.work.cancelVersionCompare();
+    release.store(true);
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
+    const auto args = ready.takeFirst();
+    QVERIFY(args.at(0).toMap().isEmpty());
+    QVERIFY2(args.at(1).toString().contains(QStringLiteral("取消")),
+             qPrintable(args.at(1).toString()));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.versionCompareBusy(), 5000);
+  }
+
+  static int countKind(const DataCatalog &catalog, const QString &kind) {    int n = 0;
     for (const auto &v : catalog.versions())
       if (v.extra.value("kind").toString() == kind)
         ++n;

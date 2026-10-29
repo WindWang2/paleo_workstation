@@ -97,16 +97,21 @@ QVector<QVariantMap> readHistory(GDALDatasetH ds, const QString &column, const Q
                              ? QStringLiteral(" AND fid < ") + QString::number(fidBelow)
                              : QString();
   const QString offsetClause = fidBelow >= 0 ? QStringLiteral("0") : QString::number(qMax(0, offset));
+  // fid 按名取 + 层 FID 兜底：GDAL SQLite 方言对 GPKG 层的 fid 列有特殊
+  // 映射——实测（GDAL 3.13）裸列名与「fid AS audit_fid」别名都会被从结果
+  // 字段表剥离、改为承载在层 FID 上，固定列序按位读会把 fid 值当
+  // event_json，整表行被判损坏跳过、审计历史恒空（#815 引入的回归）。
+  // 按名取 event_json；audit_fid 不在场时以 OGR_F_GetFID 取回同一值。
   QString query;
   if (column == QLatin1String("constraint_id")) {
-    query = QStringLiteral("SELECT fid, event_json FROM constraint_audit WHERE constraint_id=")
+    query = QStringLiteral("SELECT fid AS audit_fid, event_json FROM constraint_audit WHERE constraint_id=")
         + quoteSql(key) + cursor
         + QStringLiteral(" ORDER BY fid DESC LIMIT ")
         + QString::number(qBound(1, limit, 200))
         + QStringLiteral(" OFFSET ")
         + offsetClause;
   } else if (column == QLatin1String("horizon")) {
-    query = QStringLiteral("SELECT fid, event_json FROM constraint_audit WHERE horizon=")
+    query = QStringLiteral("SELECT fid AS audit_fid, event_json FROM constraint_audit WHERE horizon=")
         + quoteSql(key) + cursor
         + QStringLiteral(" ORDER BY fid DESC LIMIT ")
         + QString::number(qBound(1, limit, 200))
@@ -119,10 +124,21 @@ QVector<QVariantMap> readHistory(GDALDatasetH ds, const QString &column, const Q
   const auto sql = query.toUtf8();
   CPLErrorReset(); auto rows = GDALDatasetExecuteSQL(ds, sql.constData(), nullptr, "SQLITE");
   if (!rows) { if (error) *error = QString::fromUtf8(CPLGetLastErrorMsg()); return result; }
+  auto *defn = OGR_L_GetLayerDefn(rows);
+  const int jsonIdx = OGR_FD_GetFieldIndex(defn, "event_json");
+  const int fidIdx = OGR_FD_GetFieldIndex(defn, "audit_fid");
+  if (jsonIdx < 0) {
+    GDALDatasetReleaseResultSet(ds, rows);
+    if (error) *error = QObject::tr("约束审计结果列缺失");
+    return result;
+  }
   while (auto raw = OGR_L_GetNextFeature(rows)) {
     Feature feature(raw, OGR_F_Destroy); QJsonParseError parse;
-    const qint64 fid = OGR_F_GetFieldAsInteger64(raw, 0);
-    const auto rawBytes = QByteArray(OGR_F_GetFieldAsString(raw, 1));
+    // SQLite 方言把 GPKG 的 fid 列映射进层 FID（audit_fid 字段被剥离）：
+    // 字段在场则按名读，缺席时 GetFID 即同一 fid——两代方言行为都正确。
+    const qint64 fid = fidIdx >= 0 ? OGR_F_GetFieldAsInteger64(raw, fidIdx)
+                                   : OGR_F_GetFID(raw);
+    const auto rawBytes = QByteArray(OGR_F_GetFieldAsString(raw, jsonIdx));
     auto document = QJsonDocument::fromJson(rawBytes, &parse);
     if (parse.error != QJsonParseError::NoError || !document.isObject()) {
       qWarning() << "[ConstraintStore] Corrupted audit event row skipped:" << rawBytes;
@@ -540,7 +556,10 @@ bool ConstraintStore::copyAudit(const QString &destination, const QString &horiz
     const auto page = historyForHorizon(horizon, 200, 0, &reason, fidBelow, &minFid);
     if (!reason.isEmpty()) { if (error) *error = reason; return false; }
     events += page;
-    if (page.size() < 200 || minFid == 0) break;
+    // 判终只看「整页无有效行」：readHistory 会跳过损坏 JSON 行（页变短但
+    // 后续页仍有数据），「页短即终页」会在损坏密集区静默截断快照；游标
+    // 每轮严格递减（fid 单调 + fid<fidBelow），无死循环面。
+    if (page.isEmpty() || minFid == 0) break;
     fidBelow = minFid;
   }
   if (events.isEmpty()) return true;

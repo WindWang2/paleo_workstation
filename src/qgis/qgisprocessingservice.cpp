@@ -614,7 +614,7 @@ QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVarian
   const QCoreApplication *app = QCoreApplication::instance();
   if (needsMainThread && app && QThread::currentThread() != app->thread())
   {
-    const QString id = algorithmId;
+    const QString &id = algorithmId;
     const QVariantMap params = parameters;
     const ProcessingHooks copied = hooks;
     QVariantMap marshaled;

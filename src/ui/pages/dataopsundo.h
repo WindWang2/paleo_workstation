@@ -200,7 +200,7 @@ signals:
   // 任何栈变化（push/undo/redo/clear）——订阅方刷新按钮态/菜单文案/面板。
   void stackChanged();
   // PW-015：命令执行失败（原因文案）。
-  void operationFailed(const QString &error);
+  void operationFailed(const QString &error); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 private:
   // PW-015：undo/redo 失败后历史已不再描述真实状态——整栈作废（失败命令

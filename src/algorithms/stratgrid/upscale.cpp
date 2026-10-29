@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <QDebug>
 
 namespace paleo::stratgrid
 {
@@ -89,7 +90,14 @@ void addGridCrossings(double u0, double du, std::vector<double> *ts)
   const double loD = std::floor(std::min(u0, u1));
   const double hiD = std::floor(std::max(u0, u1));
   if (!(loD >= -1.0e9) || !(hiD <= 1.0e9))
+  {
+    // 域界外静默跳过=该段格线穿越全丢（属性平均退化），fallback 如实留痕
+    //（异常井轨迹的站坐标超出 ±1e9 格单位）。
+    qWarning("upscale: well trajectory station outside grid domain "
+             "(u0=%g du=%g) — grid crossings dropped for this segment",
+             u0, du);
     return;
+  }
   const int lo = static_cast<int>(loD);
   const int hi = static_cast<int>(hiD);
   for (int n = lo + 1; n <= hi; ++n)

@@ -59,7 +59,7 @@ private:
   void fitGraphToView();
   void rebuildGraphEdges();
   void updateGraphHighlights();
-  void createEvidenceFilters(QWidget *parent);
+  void createEvidenceFilters(QWidget *bar);
   void selectNode(const paleo::datagraph::Node &node, bool navigate);
   void activateNode(const paleo::datagraph::Node &node);
   QString selectedPath() const;

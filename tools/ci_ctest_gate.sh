@@ -38,6 +38,13 @@ ledger="$script_dir/flaky-ledger.jsonl"
 # #230：并行度交给 paleo-dev 的 min(核数, 8) 缺省（AGENTS.md -j8 上限）。
 ./paleo-dev test "$@" 2>&1 | tee "$log"
 rc=${PIPESTATUS[0]}
+# goal/perf-maintenance-20261027：选择器命中 0 个测试时 ctest 退出 0——
+# 「没跑任何测试」不等于「通过」（注册/发现漂移会静默变绿）。正常注册的
+# 树在车道选择器下非空；空集在此判红。
+if grep -q "No tests were found" "$log"; then
+  echo "::error::ctest 选中 0 个测试（选择参数：$*）——测试注册或选择器漂移，不是通过"
+  exit 1
+fi
 if [ "$rc" -eq 0 ]; then
   exit 0
 fi

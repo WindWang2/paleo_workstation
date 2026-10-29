@@ -599,7 +599,7 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
         points << geometry.asPoint();
       for ( int part = 0; part < points.size(); ++part )
       {
-        const QgsPointXY point = points.at( part );
+        const QgsPointXY &point = points.at( part );
         sf::Sample sample;
         sample.stableRowId = feature.id() >= 0
                                  ? std::to_string( static_cast<long long>( feature.id() ) )
@@ -983,7 +983,7 @@ QVariantMap SurferIdwAlgorithm::processAlgorithm( const QVariantMap &parameters,
         points << geometry.asPoint();
       for ( int part = 0; part < points.size(); ++part )
       {
-        const QgsPointXY point = points.at( part );
+        const QgsPointXY &point = points.at( part );
         sf::Sample sample;
         sample.stableRowId = feature.id() >= 0
                                  ? std::to_string( static_cast<long long>( feature.id() ) )

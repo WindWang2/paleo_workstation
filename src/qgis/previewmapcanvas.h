@@ -68,7 +68,7 @@ class PreviewMapCanvas : public QWidget
     void setLayerVisible( QgsMapLayer *layer, bool visible );
     bool isLayerVisible( const QgsMapLayer *layer ) const;
     // 显式底图选择覆盖已有底图；传空恢复选择前的显隐。
-    void selectBasemap( QgsMapLayer *layer );
+    void selectBasemap( QgsMapLayer *selected );
     void setLayerOpacity( QgsMapLayer *layer, double opacity );      // 0..1
     double layerOpacity( const QgsMapLayer *layer ) const;
     void setLayerBlendMode( QgsMapLayer *layer, QPainter::CompositionMode mode );

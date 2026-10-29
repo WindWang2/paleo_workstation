@@ -165,9 +165,15 @@ void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
       if (!m_canvasCtl || !m_wellSitingPanel)
         return;
       // #411：重复请求时拆掉仍挂着的旧工具（拾取/Esc 已自清，覆盖的是
-      // 「还没点就再点一次」的替换泄漏）。
-      if (m_sitingPickTool)
+      // 「还没点就再点一次」的替换泄漏）。顶替前补发 cancelled——旧工具
+      // 可能是坐标对话框的地图选点（共用槽位），不发取消其 restore 回调
+      // 被孤儿化、对话框永久隐藏（paleomainwindow_coordinates 同款）；仅
+      // 对仍挂在画布上的旧工具补发，已完成的不再打扰。
+      if (m_sitingPickTool) {
+        if (m_sitingPickTool->isActiveOnCanvas())
+          emit m_sitingPickTool->cancelled();
         m_sitingPickTool->deleteLater();
+      }
       auto *tool = new PaleoCoordinateMapTool(m_canvasCtl->canvas());
       m_sitingPickTool = tool;
       connect(tool, &PaleoCoordinateMapTool::pointPicked, this,

@@ -399,7 +399,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
       const int partCount = parts.size();
       for ( int part = 0; part < partCount; ++part )
       {
-        const QgsPointXY p = parts.at( part );
+        const QgsPointXY &p = parts.at( part );
         if ( !std::isfinite( p.x() ) || !std::isfinite( p.y() ) )
         {
           skip( QStringLiteral( "non_finite_coordinate" ) );

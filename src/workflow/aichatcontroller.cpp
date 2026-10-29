@@ -517,6 +517,13 @@ void AiChatController::onRoundFinished(const QString &reason) {
   QVector<ChatToolCall> distinctCalls = m_session.messages.last().toolCalls;
   distinctCalls.erase(std::remove_if(distinctCalls.begin(), distinctCalls.end(),
                                      [&distinctCallIds](const ChatToolCall &c) {
+                                       // 空 id 不参与去重：解析边界（fromJson/
+                                       // 流式 flush）允许省略 id 的调用帧，两个
+                                       // 互不相同但 id 均空的合法调用会被误判
+                                       // 重复而静默丢弃——恰好复现本修复要消灭
+                                       // 的「每 call 恰好一答」400。
+                                       if (c.id.isEmpty())
+                                         return false;
                                        const bool dup = distinctCallIds.contains(c.id);
                                        distinctCallIds.insert(c.id);
                                        return dup;
@@ -528,7 +535,7 @@ void AiChatController::onRoundFinished(const QString &reason) {
   // 遍历快照而非活容器：onToolFinished 会按到达序从 m_unansweredCalls
   // removeAt——runner 虽已统一异步回报（#281），快照让本循环不再依赖
   // 「run() 绝不同步回调」这一 runner 内部前提。
-  for (const ChatToolCall &call : m_unansweredCalls)
+  for (const ChatToolCall &call : distinctCalls)
     m_runner.run(call);
 }
 
@@ -544,7 +551,12 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok,
   appendMessage(tool);
   for (int i = 0; i < m_unansweredCalls.size(); ++i)
     if (m_unansweredCalls[i].id == call.id)
+    {
+      // 每次应答只摘首条匹配：连续 removeAt 后 ++i 会跳过补位元素（空 id
+      // 同名多条时一次摘不全、m_unansweredCalls 与 pending 计数裂缝）。
       m_unansweredCalls.removeAt(i);
+      break;
+    }
   // 卡片摘要：成功给首 160 字符；失败给 error 字段原文（不吞）。
   QString summary;
   if (ok) {

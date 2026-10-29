@@ -1151,7 +1151,14 @@ bool ConstraintWorkflow::runFactorWork(
       paleo::workflow_detail::setError(error, err);
       return false;
     }
-    return publish(error);
+    // 同步路径没有 Pending 析构兜底——发布失败同样要收 staging（异步路径
+    // 由 ~Pending 补，两径口径一致），否则未入库五件套滞留盘上。
+    if (!publish(error)) {
+      if (cleanup)
+        cleanup();
+      return false;
+    }
+    return true;
   }
   if (factorBusy()) {
     paleo::workflow_detail::setError(error, tr("已有单因素任务"));

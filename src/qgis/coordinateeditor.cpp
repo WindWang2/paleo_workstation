@@ -123,14 +123,21 @@ void PaleoCoordinateEditor::setMapCanvas(QWidget *canvas)
 {
   m_canvas = qobject_cast<QgsMapCanvas *>(canvas);
   m_mapPick->setEnabled(m_canvas != nullptr);
-  if (!m_canvas) m_mapPick->setToolTip(tr("地图画布尚未就绪，不能地图选点。"));
+  // 双分支都写 tooltip：只写未就绪分支会让挂上真实画布后按钮永远带着
+  // 禁用原因文案（启用控件带禁用说明，违反 §35 禁用原因纪律的反向情形）。
+  m_mapPick->setToolTip(m_canvas
+                            ? tr("在地图上单击拾取坐标，Esc 或右键取消；地图拾取不会自动保存业务数据。")
+                            : tr("地图画布尚未就绪，不能地图选点。"));
 }
 
 void PaleoCoordinateEditor::setPoint(const QgsPointXY &point)
 {
   QSignalBlocker blockX(m_x), blockY(m_y);
-  m_x->setText(paleo::coordinates::formatOrdinate(point.x(), true, m_source->crs(), format(), 9));
-  m_y->setText(paleo::coordinates::formatOrdinate(point.y(), false, m_source->crs(), format(), 9));
+  // 回显精度按坐标系走：地理十进制度保留 9 位（≈1mm），投影米制 3 位
+  //（≈1mm）——统一 9 位会让投影坐标回显一长串尾零噪声（placeholder 3 位口径）。
+  const int decimals = m_source->crs().isGeographic() ? 9 : 3;
+  m_x->setText(paleo::coordinates::formatOrdinate(point.x(), true, m_source->crs(), format(), decimals));
+  m_y->setText(paleo::coordinates::formatOrdinate(point.y(), false, m_source->crs(), format(), decimals));
   m_error->hide();
   emit pointChanged();
 }

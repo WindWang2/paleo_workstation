@@ -10,6 +10,19 @@ set(QGIS_PREFIX "" CACHE PATH "QGIS install prefix（vendor superbuild/deb 闭�
 if(NOT QGIS_PREFIX AND DEFINED ENV{QGIS_PREFIX_PATH})
   set(QGIS_PREFIX "$ENV{QGIS_PREFIX_PATH}" CACHE PATH "QGIS install prefix" FORCE)
 endif()
+# 新 worktree 首配早失败（TODOS P2 / goal/perf-maintenance-20261027）：显式
+# 给出的 QGIS_PREFIX（cache 或 env）必须真实存在。此前悬空 prefix 会让下方
+# find_* 静默回落系统包——链接系统库的同时把 PALEO_QGIS_PREFIX_DEFAULT
+# 编译成悬空路径（链接/运行资源栈分裂），故障延迟到运行期才爆。依赖缺失
+# 在 configure 期直接报因并给修复入口，替代「红一轮再重跑」的隐式恢复。
+if(QGIS_PREFIX AND NOT EXISTS "${QGIS_PREFIX}")
+  message(FATAL_ERROR
+    "QGIS_PREFIX='${QGIS_PREFIX}' 不存在（gitignored 依赖不随新 worktree 出现）。"
+    "修复入口：按 BUILDING.md「独立 worktree 开发」对 vendor/superbuild/prefix"
+    "（或 vendor/prefix/usr）建 symlink，或运行 ./paleo-dev bootstrap"
+    "（Windows: paleo-dev.ps1 bootstrap）准备 vendored 依赖；确实要走系统包"
+    "兜底档时显式传 -DQGIS_PREFIX= 置空再配置。")
+endif()
 if(QGIS_PREFIX)
   list(PREPEND CMAKE_PREFIX_PATH "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6")
 endif()
@@ -81,6 +94,26 @@ find_path(GEOS_INCLUDE_DIR geos_c.h HINTS
   "${QGIS_PREFIX}/include" "${QGIS_PREFIX}/usr/include" PATHS /usr/include REQUIRED)
 find_library(GEOS_C_LIB geos_c HINTS
   "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
+# 显式 prefix 的完整性检查（同 goal/perf-maintenance-20261027）：prefix 存在
+# 但没提供 QGIS 头时，上面的 find_path 会静默命中 PATHS 里的系统路径——与
+# 悬空 prefix 同族的链接/运行栈分裂。显式给定就必须命中在 prefix 之内，
+# 否则报因早失败。顺带把命中的 QGIS 栈明示出来：新 worktree 忘建 symlink
+# 时开发者能直接看到自己构建的是哪条路线，而不是无声走系统兜底。
+if(QGIS_PREFIX)
+  string(FIND "${QGIS_INCLUDE_DIR}" "${QGIS_PREFIX}" _pal_prefix_hit)
+  if(NOT _pal_prefix_hit EQUAL 0)
+    message(FATAL_ERROR
+      "QGIS_PREFIX='${QGIS_PREFIX}' 未提供 QGIS 头（实际命中 ${QGIS_INCLUDE_DIR}）。"
+      "prefix 布局不完整或缺 qgis-devel：重跑 bootstrap 重解包，或按 BUILDING.md"
+      "「QGIS prefix 解析顺序」核对布局；要改走系统包兜底档时显式传 "
+      "-DQGIS_PREFIX= 置空再配置。")
+  endif()
+  unset(_pal_prefix_hit)
+  message(STATUS "QGIS 栈路线: 显式 prefix ${QGIS_PREFIX}（头 ${QGIS_INCLUDE_DIR}）")
+else()
+  message(STATUS "QGIS 栈路线: 系统兜底档（头 ${QGIS_INCLUDE_DIR}）——"
+                  "vendored 优先策略与三路口径见 BUILDING.md「依赖来源策略」")
+endif()
 # QGIS 的 qgscodeeditor.h 传递包含 <Qsci/qsciapis.h>。该包含是「QGIS 头 →
 # QScintilla 头」的形式，不在任何 *_INCLUDE_DIR 探测的范围内，故 QGIS 的
 # include 目录里并没有 Qsci/——头只存在于 QScintilla 自己的前缀里。缺这行时，

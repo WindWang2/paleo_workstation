@@ -1,4 +1,4 @@
-# 2026-10-27 +3：qgis.h / Qis:: 对两正则隐形（盲区修复入册，非新增散布）——
+# 2026-10-27 +3：qgis.h / Qgis:: 对两正则隐形（盲区修复入册，非新增散布）——
 # paleomainwindow_ribbon/_seismic、evidencerecord 为存量直连。
 # qgis-spread 基线 —— Qgs 散布符号级现状冻结清单（#472，
 # tools/check_qgis_spread.py 生成，勿手写路径）。

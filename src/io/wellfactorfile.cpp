@@ -45,7 +45,7 @@ QVariantList readWellFactorFile(const QString &path, QString *error) {
     if (!headers.contains(QLatin1String(key))) return fail(QStringLiteral("井单因素文件缺少必需列"));
   QVariantList result; QSet<QString> identities;
   for (qsizetype li = 1; li < lines.size(); ++li) {
-    const auto line = lines.at(li); if (line.trimmed().isEmpty()) continue;
+    const auto &line = lines.at(li); if (line.trimmed().isEmpty()) continue;
     const auto values = csvFields(line);
     if (values.size() != headers.size()) return fail(QStringLiteral("井单因素行列数或引号无效"));
     QVariantMap row;

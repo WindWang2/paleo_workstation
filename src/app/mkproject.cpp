@@ -772,7 +772,7 @@ int main(int argc, char *argv[])
     std::printf("数据根不存在: %s\n", qPrintable(dataRoot));
     return 2;
   }
-  const QString projectName = name;
+  const QString &projectName = name;
   if (QFile::exists(QDir(outDir).filePath(
           QString::fromLatin1(PaleoProjectFile::kFileName))))
   {

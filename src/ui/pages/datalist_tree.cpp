@@ -1,5 +1,6 @@
 // 层：视图
 #include "datalist.h"
+#include "pageshared.h"
 #include "datalist_navspec_internal.h"
 #include "datalistops.h"
 #include "../paleotheme.h"
@@ -22,6 +23,7 @@
 #include <QQueue>
 #include <QScrollBar>
 #include <QTreeWidget>
+#include <QStackedWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
 
@@ -882,6 +884,11 @@ void DataListPanel::refreshAssetTree()
 {
   if (!m_tree)
     return;
+  // 万条资产实测：整树蓝图 + reconcile ~250ms/次（10k 目录，首建 ~2.5s）；
+  // 非树视图不显示树——不可见挂脏，setViewMode(0) 切回补建并还原选中。
+  if (m_viewStack && m_viewStack->currentIndex() != 0) { m_treeStale = true; return; }
+  m_treeStale = false;
+  const paleo::pagesinternal::PagePerfStage perf("refreshAssetTree");
   const QVector<NavNodeSpec> specs = buildNavTreeSpec();
   if (reconcileNavTree(specs))
     return;

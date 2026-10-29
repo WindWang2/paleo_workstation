@@ -11,13 +11,17 @@
 # 输出：每个文件的 tst relink 计数行，可直接粘进 docs/progress/devex.md 对比表。
 
 import argparse
+import os
 import subprocess
 import sys
 
 
-def measure(build, src_file):
+def measure(build, src_file, jobs):
     subprocess.run(["touch", src_file], check=True)
-    run = subprocess.run(["ninja", "-C", build], capture_output=True, text=True)
+    # AGENTS.md -j8 纪律（goal/perf-maintenance-20261027）：测量构建同样限并行
+    # ——relink 计数与并行度无关，不限会吃满核数干扰同机其它会话。
+    run = subprocess.run(["ninja", "-C", build, "-j", str(jobs)],
+                         capture_output=True, text=True)
     if run.returncode != 0:
         print(f"FAIL build after touching {src_file}:\n{run.stdout[-2000:]}", file=sys.stderr)
         sys.exit(1)
@@ -29,9 +33,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", default="build")
     ap.add_argument("--src", nargs="+", required=True, help="仓库根相对路径的 .cpp")
+    ap.add_argument("--jobs", type=int,
+                    default=int(os.environ.get("PALEO_JOBS", "8")),
+                    help="测量构建并行度（默认 8，PALEO_JOBS 可调；计数与并行度无关）")
     args = ap.parse_args()
     for f in args.src:
-        n = measure(args.build, f)
+        n = measure(args.build, f, args.jobs)
         print(f"{f}\t{n}")
 
 

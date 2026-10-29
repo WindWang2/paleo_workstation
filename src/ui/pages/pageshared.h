@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QComboBox>
+#include <QElapsedTimer>
 #include <QLabel>
 #include <QPushButton>
 #include <QSizePolicy>
@@ -171,5 +172,30 @@ T *child(QObject *root, const char *name)
 {
   return root->findChild<T *>(QLatin1String(name));
 }
+
+// PALEO_PAGE_PERF=1 时在析构点打印阶段耗时（数据页性能证据采集；缺省
+// 只做一次 env 查询，计时器本身纳秒级——刷新链路常开无感）。
+class PagePerfStage
+{
+public:
+  explicit PagePerfStage(const char *name) : m_name(name)
+  {
+    if (enabled())
+      m_timer.start();
+  }
+  ~PagePerfStage()
+  {
+    if (enabled() && m_timer.isValid())
+      qWarning("[page-perf] %s: %lld ms", m_name, qint64(m_timer.elapsed()));
+  }
+  static bool enabled()
+  {
+    static const bool on = !qEnvironmentVariableIsEmpty("PALEO_PAGE_PERF");
+    return on;
+  }
+private:
+  const char *m_name;
+  QElapsedTimer m_timer;
+};
 
 } // namespace paleo::pagesinternal

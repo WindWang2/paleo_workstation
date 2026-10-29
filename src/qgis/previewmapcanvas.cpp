@@ -617,7 +617,13 @@ PaleoCoordinateMapTool *PreviewMapCanvas::beginCoordinatePick()
 {
   if ( !m_canvas ) return nullptr;
   if ( auto *previous = PaleoCoordinateMapTool::fromMapTool( m_canvas->mapTool() ) )
+  {
+    // 当前 mapTool 仍是拾取工具 ⇒ 上一轮未完成：补发 cancelled 让宿主的
+    // restore 回调（重开被隐藏的对话框）有机会执行，再拆旧工具——否则
+    // 坐标对话框被永久孤儿化。
+    emit previous->cancelled();
     previous->deleteLater();
+  }
   auto *tool = new PaleoCoordinateMapTool( m_canvas );
   m_canvas->setMapTool( tool->nativeTool() );
   return tool;

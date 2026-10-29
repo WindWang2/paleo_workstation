@@ -43,7 +43,7 @@ QString exportTrackCsv(const WellTrack &track)
     QStringList head;
     head << QStringLiteral("depth");
     for (const auto &c : ct->curves())
-      head << (c.unit.isEmpty() ? c.name : QStringLiteral("%1(%2)").arg(c.name, c.unit));
+      head << csvCell(c.unit.isEmpty() ? c.name : QStringLiteral("%1(%2)").arg(c.name, c.unit));
     ts << head.join(QLatin1Char(',')) << QLatin1Char('\n');
 
     // 深度轴取各曲线的并集（多 LAS 合并的曲线各有自己的深度列）：各自

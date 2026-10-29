@@ -14,6 +14,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QFile>
+#include <QPointer>
 #include <QUuid>
 #include <qgscoordinatereferencesystem.h>
 #include <qgsrasterlayer.h>
@@ -237,7 +238,10 @@ bool MappingWorkbench::startPolygonize(const QString &id, QString *error) {
     return false;
 
   JobRunner<PolygonizeJob>::Callbacks cb;
-  QgisProcessingService *processing = m_processing;
+  // #768/#769 家族同型点：compute 在池线程执行，裸服务指针在 drainTasks
+  // 先拆的窗口悬垂——QPointer 捕获，computePolygonize 对 null 有显式失败
+  // 路径（「处理服务不可用」），与 constraintfactorjobs 的 PW-031 口径一致。
+  const QPointer<QgisProcessingService> processing = m_processing;
   cb.compute = [processing](PolygonizeJob &j, const paleo::jobs::CancelFn &cancel,
                             const paleo::jobs::ProgressFn &report) {
     return computePolygonize(
@@ -247,7 +251,7 @@ bool MappingWorkbench::startPolygonize(const QString &id, QString *error) {
             report(p, p < 90.0 ? QStringLiteral("build")
                                : QStringLiteral("publish"));
         },
-        processing);
+        processing.data());
   };
   cb.commit = [this](PolygonizeJob &j, QString *err) {
     if (!j.error.isEmpty()) { // compute 失败态也进 commit：如实上报

@@ -209,6 +209,10 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   if (m_composeRunner)
     m_composeRunner->requestCancel();
   cancelPolygonize(); // 旧工程的转面结果由 commit 会话守卫丢弃
+  if (m_impactRunner)
+    m_impactRunner->requestCancel(); // 旧工程的影响分析同理（commit 双保险）
+  if (m_compareRunner)
+    m_compareRunner->requestCancel();
   if (m_catalog)
     disconnect(m_catalog, nullptr, this, nullptr);
   m_constraints->clearConstraintSnapshots(); // L-01：替代动态属性前缀清理暗道

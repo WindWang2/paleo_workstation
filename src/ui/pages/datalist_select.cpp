@@ -139,6 +139,10 @@ void DataListPanel::selectAssetsForEntities(const QStringList &entityIds)
 
 void DataListPanel::selectAssetInViews(const QString &assetId)
 {
+  // 树视图不可见时不动树项（选中身份在 m_pageSelection/m_selKeep 持久，
+  // 切回树视图由 setViewMode 补建并还原）——10k 资产的树全项迭代与
+  // clearSelection 在表格/图标等视图下是纯开销。
+  const bool treeActive = !m_viewStack || m_viewStack->currentIndex() == 0;
   if (assetId == QLatin1String("project_dashboard") || assetId == QLatin1String("survey_area")) {
     auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
     if (table) { const QSignalBlocker block(table); table->clearSelection(); }
@@ -146,7 +150,7 @@ void DataListPanel::selectAssetInViews(const QString &assetId)
     if (m_groupTree) { const QSignalBlocker block(m_groupTree); m_groupTree->clearSelection(); }
     if (m_virtualView) { const QSignalBlocker block(m_virtualView->selectionModel()); m_virtualView->clearSelection(); }
     m_pageSelection.clear(); m_selKeep.snapshotIds({});
-    if (m_tree) {
+    if (m_tree && treeActive) {
       const QSignalBlocker block(m_tree); m_tree->clearSelection();
       for (QTreeWidgetItemIterator it(m_tree); *it; ++it)
         if ((*it)->data(0, Qt::UserRole).toString() == assetId) {
@@ -163,7 +167,7 @@ void DataListPanel::selectAssetInViews(const QString &assetId)
   // graph commands could silently apply to a previously selected icon/tree row.
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
   if (table) { const QSignalBlocker block(table); table->clearSelection(); }
-  if (m_tree) { const QSignalBlocker block(m_tree); m_tree->clearSelection(); }
+  if (m_tree && treeActive) { const QSignalBlocker block(m_tree); m_tree->clearSelection(); }
   if (m_iconView) { const QSignalBlocker block(m_iconView); m_iconView->clearSelection(); }
   if (m_groupTree) { const QSignalBlocker block(m_groupTree); m_groupTree->clearSelection(); }
   if (m_virtualView) { const QSignalBlocker block(m_virtualView->selectionModel()); m_virtualView->clearSelection(); }
@@ -175,7 +179,7 @@ void DataListPanel::selectAssetInViews(const QString &assetId)
     if (!live) return;
     m_pageSelection = {assetId};
     { const QSignalBlocker block(table); table->clearSelection(); }
-    if (m_tree) { const QSignalBlocker block(m_tree); m_tree->clearSelection(); }
+    if (m_tree && treeActive) { const QSignalBlocker block(m_tree); m_tree->clearSelection(); }
     for (int i = 0; i < m_filteredRows.size(); ++i)
       if (m_filteredRows.at(i).assetId == assetId)
       {
@@ -200,7 +204,7 @@ void DataListPanel::selectAssetInViews(const QString &assetId)
     }
   }
 
-  if (m_tree)
+  if (m_tree && treeActive)
   {
     const QList<QTreeWidgetItem *> sel = m_tree->selectedItems();
     if (sel.isEmpty() || sel.front()->data(0, Qt::UserRole).toString() != assetId)

@@ -43,6 +43,20 @@ void fail(QString *error, const QString &text) {
     *error = text;
 }
 
+// commit 期输入版本核对：live 目录里的版本与快照完全一致才发布。版本本应
+// 不可变，但 updateVersionExtra 可就地改 extra（revision 同步前进）；逐字段
+// 比对把「分析期间输入被动过」显式拦下，不靠 revision 单一信号。
+bool versionMatches(const DataCatalog *cat, const CatalogVersion &snapshot) {
+  const auto live = cat->versionById(snapshot.id);
+  return live.id == snapshot.id && live.assetId == snapshot.assetId &&
+         live.versionNumber == snapshot.versionNumber &&
+         live.stage == snapshot.stage && live.managed == snapshot.managed &&
+         live.path == snapshot.path && live.fileName == snapshot.fileName &&
+         live.sha256 == snapshot.sha256 &&
+         live.parentVersionIds == snapshot.parentVersionIds &&
+         live.extra == snapshot.extra;
+}
+
 // 像元级 diff：同一网格上重放两次，返回变化像元与范围。
 struct GridDiff {
   bool valid = false;
@@ -92,21 +106,51 @@ GridDiff diffGrids(const paleo::attribution::GridReplay &before,
 
 QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
                                             QString *error) {
-  if (!m_catalog || !m_catalog->isOpen() || m_dir.isEmpty()) {
-    fail(error, tr("请先打开工程再分析影响"));
+  ImpactJob job;
+  if (!prepareImpactJob(change, QString(), job, error))
+    return {};
+  // 同步路径（测试壳/无任务服务）：图层经 attributionLayer 的 GUI 线程 LRU
+  // 打开——与历史行为一致（缓存跨操作保活）。
+  const VersionLayerOpener ownerOpener = [this](const CatalogVersion &v) {
+    return attributionLayer(v.id);
+  };
+  if (!computeImpactWith(job, {}, {}, ownerOpener)) {
+    fail(error, job.error);
     return {};
   }
+  writeImpactReport(job);
+  return job.result;
+}
+
+bool MappingWorkbench::prepareImpactJob(const QVariantMap &change,
+                                        const QString &layerId,
+                                        ImpactJob &job, QString *error) {
+  job = ImpactJob{};
+  job.dir = m_dir;
+  job.change = change;
+  job.layerId = layerId;
+  job.catalog = m_catalog;
+  if (!m_catalog || !m_catalog->isOpen() || m_dir.isEmpty()) {
+    fail(error, tr("请先打开工程再分析影响"));
+    return false;
+  }
+  job.revision = m_catalog->catalogRevision();
   const QString kind = change.value("kind").toString();
   const QString before = change.value("before_version_id").toString();
   const QString after = change.value("after_version_id").toString();
+  job.kind = kind;
+  job.before = before;
+  job.after = after;
+  job.beforeSnapshot = m_catalog->versionById(before);
+  job.afterSnapshot = m_catalog->versionById(after);
   if (kind.isEmpty()) {
     fail(error, tr("影响分析需要变化类型"));
-    return {};
+    return false;
   }
   if (kind == QLatin1String("input_version") &&
       (before.isEmpty() || after.isEmpty())) {
     fail(error, tr("输入版本变化需要 before/after 版本号"));
-    return {};
+    return false;
   }
   QVariantMap out{{"kind", kind},
                   {"source_before_version", before},
@@ -153,7 +197,7 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
     seeds << before;
   } else {
     fail(error, tr("该变化类型需要版本号"));
-    return {};
+    return false;
   }
   QStringList downstream;
   for (const auto &seed : seeds)
@@ -164,7 +208,7 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
     downstream = downstream.mid(0, kImpactMaxProducts);
     out.insert("truncated", true);
   }
-  QVariantList direct, potential;
+  QVariantList direct;
   for (const auto &vid : downstream) {
     const auto v = m_catalog->versionById(vid);
     if (v.id.isEmpty())
@@ -172,54 +216,183 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
     direct << QVariantMap{{"version_id", vid},
                           {"kind", v.extra.value("kind")},
                           {"title", v.extra.value("title")}};
+    // 下游成果快照：元数据 + determined 候选的冻结输入/替换输入版本 +
+    // 图斑归属子层。compute 不再回读目录（跨线程读被拒且属 UB）。
+    ImpactJob::Product product;
+    product.versionId = vid;
+    product.extra = v.extra;
+    if (v.extra.value("kind").toString() == QLatin1String("composed_facies")) {
+      if (kind == QLatin1String("input_version") &&
+          !v.parentVersionIds.contains(before))
+        product.potentialReason = tr("间接下游：无法局部证明空间影响");
+      else if (kind != QLatin1String("input_version"))
+        product.potentialReason = tr("上游单因素需重算后才能确定空间影响");
+      else {
+        product.candidate = true;
+        product.facies = v.extra.value("facies").toList();
+        for (const auto &t : v.extra.value("thresholds").toList())
+          product.thresholds << t.toDouble();
+        product.grid = paleo::attribution::frozenGridFromExtra(v.extra);
+        // base = 冻结原版本；sub = before→after 替换后的重算口径。两张表
+        // 必须分开：同一替换表会让两侧重放完全相同，diff 恒为零。
+        const QHash<QString, QString> identity;
+        const QHash<QString, QString> sub{{before, after}};
+        const auto fill = [this](const QVariantList &ordered,
+                                 const QHash<QString, QString> &substitute,
+                                 QList<ImpactJob::Input> *inputs) {
+          for (const auto &entryValue : ordered) {
+            const auto entry = entryValue.toMap();
+            ImpactJob::Input input;
+            input.layerId = entry.value("layer_id").toString();
+            input.versionId = entry.value("version_id").toString();
+            input.priority = entry.value("priority").toInt();
+            input.effectiveId =
+                substitute.value(input.versionId, input.versionId);
+            input.effective = m_catalog->versionById(input.effectiveId);
+            *inputs << input;
+          }
+        };
+        const auto ordered = v.extra.value("ordered_inputs").toList();
+        fill(ordered, identity, &product.baseInputs);
+        fill(ordered, sub, &product.subInputs);
+        product.ordered = !ordered.isEmpty();
+        if (!product.ordered)
+          product.frozenUnresolved << QVariantMap{
+              {"reason", tr("成果缺少 ordered_inputs 冻结记录，无法重放")}};
+        // 变化像元 → 相面图斑归属（有界）：下游闭包内全部相面与人工编辑
+        // 成果（解释/复核记录保存在 edited_facies 后代版本，X7）。
+        for (const auto &cv : m_catalog->downstreamClosure(vid)) {
+          const auto childKind = cv.extra.value("kind").toString();
+          if (childKind == QLatin1String("facies_polygons") ||
+              childKind == QLatin1String("edited_facies"))
+            product.children << cv;
+        }
+      }
+    }
+    job.products << product;
   }
   out.insert("direct_products", direct);
-  // 可确定空间影响：只对 composed_facies 且直接消费了变化输入的成果做像元 diff。
+  // 元数据级输出（骨架/直接依赖/截断/无消费提示）就此定稿；determined 与
+  // compute 期分类的 potential/unresolved 由 computeImpactWith 收口。
+  job.result = out;
+  return true;
+}
+
+bool MappingWorkbench::computeImpactWith(
+    ImpactJob &job, const std::function<bool()> &cancel,
+    const std::function<void(double, const QString &)> &progress,
+    const VersionLayerOpener &opener) {
+  QVariantMap out = job.result;
+  QVariantList potential = out.value("potential_products").toList();
   QVariantList determined;
   QVariantList unresolvedOut = out.value("unresolved").toList();
-  for (const auto &vid : downstream) {
-    const auto v = m_catalog->versionById(vid);
-    if (v.extra.value("kind").toString() != QLatin1String("composed_facies"))
-      continue;
-    if (kind == QLatin1String("input_version") &&
-        !v.parentVersionIds.contains(before)) {
-      potential << QVariantMap{{"version_id", vid},
-                               {"reason", tr("间接下游：无法局部证明空间影响")}};
+  // 快照输入规格 → 重放输入（口径 = resolveFrozenCompose：目录删除 →
+  // 路径存在性 → 打开，missing 分类与原因逐字一致；图层经 opener 拿，
+  // sync 路径是 GUI 线程 LRU，worker 路径是本作业独立打开的层）。
+  const auto resolveInputs = [&job, &opener](
+                                 const QList<ImpactJob::Input> &specs,
+                                 QVariantList *unresolved) {
+    QList<paleo::attribution::ResolvedInput> inputs;
+    for (const auto &spec : specs) {
+      paleo::attribution::ResolvedInput input;
+      input.layerId = spec.layerId;
+      input.versionId = spec.versionId;
+      input.priority = spec.priority;
+      const auto &v = spec.effective;
+      input.title = v.extra.value("title").toString();
+      input.assetId = v.assetId;
+      const auto kind = v.extra.value("kind").toString();
+      const auto valueSource = v.extra.value("value_source").toString();
+      input.continuous =
+          input.layerId.startsWith(QLatin1String("factor.")) ||
+          v.extra.contains("factor_id") ||
+          paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
+      if (v.id.isEmpty()) {
+        input.missing = true;
+        input.catalogMissing = true;
+        input.missingReason =
+            tr("输入版本 %1 已从目录删除").arg(spec.effectiveId);
+      } else {
+        const auto path = DataCatalog::resolvedVersionPath(job.dir, v) +
+                          v.extra.value("source_suffix").toString();
+        const auto file = path.section('|', 0, 0);
+        // 声明口径的栅格位：文件缺失时也已知（网格重建不依赖能否打开）。
+        input.raster =
+            v.extra.value("layer_type").toString() ==
+                QLatin1String("raster") ||
+            file.endsWith(QLatin1String(".tif"), Qt::CaseInsensitive) ||
+            file.endsWith(QLatin1String(".tiff"), Qt::CaseInsensitive);
+        if (path.isEmpty() || !QFileInfo::exists(file)) {
+          input.missing = true;
+          input.missingReason =
+              tr("冻结输入文件缺失（版本 %1）").arg(spec.effectiveId);
+        } else {
+          input.hold = opener(v);
+          input.layer = input.hold.get();
+          if (!input.layer) {
+            input.missing = true;
+            input.missingReason = tr("冻结输入无法按保存时状态打开（版本 %1）")
+                                      .arg(spec.effectiveId);
+          }
+        }
+      }
+      if (input.missing)
+        *unresolved << QVariantMap{{"layer_id", input.layerId},
+                                   {"version_id", input.versionId},
+                                   {"reason", input.missingReason}};
+      inputs << input;
+    }
+    return inputs;
+  };
+  int done = 0;
+  const int total = job.products.size();
+  for (const auto &product : job.products) {
+    if (cancel && cancel()) {
+      job.error = tr("已取消");
+      return false;
+    }
+    if (!product.potentialReason.isEmpty()) {
+      potential << QVariantMap{{"version_id", product.versionId},
+                               {"reason", product.potentialReason}};
       continue;
     }
-    if (kind != QLatin1String("input_version")) {
-      potential << QVariantMap{{"version_id", vid},
-                               {"reason", tr("上游单因素需重算后才能确定空间影响")}};
+    if (!product.candidate)
       continue;
-    }
-    FrozenCompose frozen, substituted;
-    const QHash<QString, QString> sub{{before, after}};
-    const bool baseOk = resolveFrozenCompose(vid, {}, &frozen);
-    const bool subOk = resolveFrozenCompose(vid, sub, &substituted);
-    if (!baseOk || !subOk) {
-      unresolvedOut << QVariantMap{{"version_id", vid},
-                                   {"reason", frozen.unresolved + substituted.unresolved}};
-      potential << QVariantMap{{"version_id", vid},
+    if (progress)
+      progress(total > 0 ? 100.0 * done / qMax(1, total) : 0.0,
+               QStringLiteral("scan"));
+    QVariantList baseUnresolved = product.frozenUnresolved;
+    QVariantList subUnresolved = product.frozenUnresolved;
+    const auto baseInputs = resolveInputs(product.baseInputs, &baseUnresolved);
+    const auto subInputs = resolveInputs(product.subInputs, &subUnresolved);
+    if (!baseUnresolved.isEmpty() || !subUnresolved.isEmpty()) {
+      unresolvedOut << QVariantMap{
+          {"version_id", product.versionId},
+          {"reason", baseUnresolved + subUnresolved}};
+      potential << QVariantMap{{"version_id", product.versionId},
                                {"reason", tr("冻结输入不完整，退化为潜在影响")}};
+      ++done;
       continue;
     }
     const auto beforeGrid = paleo::attribution::replayGrid(
-        frozen.inputs, frozen.facies, frozen.thresholds, kImpactMaxGridCells,
-        frozen.grid);
+        baseInputs, product.facies, product.thresholds, kImpactMaxGridCells,
+        product.grid);
     // 变更后版本按新输入重建网格（composeRaster 同规则：新定网格栅格或新的
     // 合并范围）。沿用旧冻结网格会让「范围变了」的重算被错认成同口径 diff。
     const auto afterGrid = paleo::attribution::replayGrid(
-        substituted.inputs, substituted.facies, substituted.thresholds,
-        kImpactMaxGridCells, paleo::attribution::FrozenGrid{});
+        subInputs, product.facies, product.thresholds, kImpactMaxGridCells,
+        paleo::attribution::FrozenGrid{});
     const auto diff = diffGrids(beforeGrid, afterGrid);
     if (!diff.valid) {
-      unresolvedOut << QVariantMap{{"version_id", vid},
-                                   {"reason", tr("网格口径不同或超出像元上限，无法像元级对比")}};
-      potential << QVariantMap{{"version_id", vid},
+      unresolvedOut << QVariantMap{
+          {"version_id", product.versionId},
+          {"reason", tr("网格口径不同或超出像元上限，无法像元级对比")}};
+      potential << QVariantMap{{"version_id", product.versionId},
                                {"reason", tr("整体可能受影响（无法局部化）")}};
+      ++done;
       continue;
     }
-    QVariantMap entry{{"product_version", vid},
+    QVariantMap entry{{"product_version", product.versionId},
                       {"algorithm", QStringLiteral("priority-first-valid; "
                                                    "categorical-nearest; "
                                                    "threshold-classification")},
@@ -238,13 +411,14 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
       QVariantList affected;
       constexpr int kMaxAffectedFeatures = 5000; // 每成果行数上界
       bool affectedTruncated = false;
-      for (const auto &cv : m_catalog->downstreamClosure(vid)) {
+      for (const auto &cv : product.children) {
+        if (cancel && cancel()) {
+          job.error = tr("已取消");
+          return false;
+        }
         const auto child = cv.id;
         const auto childKind = cv.extra.value("kind").toString();
-        if (childKind != QLatin1String("facies_polygons") &&
-            childKind != QLatin1String("edited_facies"))
-          continue;
-        const auto childHold = attributionLayer(child);
+        const auto childHold = opener(cv);
         auto *layer = qobject_cast<QgsVectorLayer *>(childHold.get());
         if (!layer) {
           unresolvedOut << QVariantMap{{"version_id", child},
@@ -260,6 +434,10 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
           QgsFeature f;
           auto it = layer->getFeatures();
           while (it.nextFeature(f)) {
+            if (cancel && cancel()) {
+              job.error = tr("已取消");
+              return false;
+            }
             if (f.geometry().isEmpty())
               continue;
             QgsFeature indexed(f.id());
@@ -267,8 +445,7 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
             index.addFeature(indexed);
             FeatureInfo info;
             const int field = f.fields().indexOf("paleo_feature_uid");
-            info.uid =
-                field < 0 ? QString() : f.attribute(field).toString();
+            info.uid = field < 0 ? QString() : f.attribute(field).toString();
             // 建索引时一次性读取解释（本图层每要素一次；N1 纪律）。
             QVariantMap interpretation;
             QString parseError;
@@ -323,6 +500,7 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
                          .arg(diff.samplingStride));
     }
     determined << entry;
+    ++done;
   }
   out.insert("potential_products", potential);
   out.insert("determined", determined);
@@ -330,21 +508,138 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
   out.insert("status", determined.isEmpty() && potential.isEmpty()
                            ? QStringLiteral("no_impact")
                            : QStringLiteral("ok"));
+  job.result = out;
+  return true;
+}
+
+void MappingWorkbench::writeImpactReport(ImpactJob &job) const {
   // 历史快照：固定版本对的完整报告落盘（不建立在当前活动图层上）。
-  if (QDir().mkpath(m_dir + "/artifacts/reports")) {
-    QJsonDocument doc(QJsonObject::fromVariantMap(out));
-    const auto path = m_dir + "/artifacts/reports/impact-" +
+  if (QDir().mkpath(job.dir + "/artifacts/reports")) {
+    QJsonDocument doc(QJsonObject::fromVariantMap(job.result));
+    const auto path = job.dir + "/artifacts/reports/impact-" +
                       QUuid::createUuid().toString(QUuid::WithoutBraces).left(8) +
                       ".json";
     // 原子整写并校验：写失败（磁盘满等）不得对外宣称 report_path 可用。
     QString writeErr;
     if (paleo::writeJsonAtomic(path, doc, &writeErr))
-      out.insert("report_path", path);
+      job.result.insert("report_path", path);
     else
       qWarning() << "impact report write failed:" << writeErr;
   }
-  return out;
 }
+
+bool MappingWorkbench::commitImpact(ImpactJob &job, QString *error) {
+  if (!job.error.isEmpty()) {
+    fail(error, job.error);
+    emit impactAnalysisReady({}, job.error);
+    return false;
+  }
+  if (!m_catalog || m_catalog != job.catalog || m_dir != job.dir) {
+    fail(error, tr("工程已切换，影响分析结果已丢弃"));
+    emit impactAnalysisReady({}, *error);
+    return false;
+  }
+  if (m_catalog->catalogRevision() != job.revision) {
+    fail(error, tr("工程目录已变化（修订 %1 → %2），影响分析结果已过期，请重新分析")
+                  .arg(job.revision)
+                  .arg(m_catalog->catalogRevision()));
+    emit impactAnalysisReady({}, *error);
+    return false;
+  }
+  if (!versionMatches(m_catalog, job.beforeSnapshot) ||
+      !versionMatches(m_catalog, job.afterSnapshot)) {
+    fail(error, tr("输入版本已变化，影响分析结果已过期，请重新分析"));
+    emit impactAnalysisReady({}, *error);
+    return false;
+  }
+  writeImpactReport(job);
+  emit impactAnalysisReady(job.result, QString());
+  return true;
+}
+
+bool MappingWorkbench::startImpactAnalysis(const QString &layerId,
+                                           const QString &horizon,
+                                           QString *error) {
+  if (!m_catalog || !m_catalog->isOpen() || m_dir.isEmpty()) {
+    fail(error, tr("请先打开工程再分析影响"));
+    return false;
+  }
+  if (!m_taskSvc) {
+    fail(error, tr("后台影响分析需要任务服务"));
+    return false;
+  }
+  // X13 版本对解析（同 analyzeLayerVersionImpact 的口径，GUI 线程完成）。
+  const auto after = versionForLayer(layerId);
+  if (after.id.isEmpty()) {
+    fail(error, tr("所选图件尚未登记到数据管理"));
+    return false;
+  }
+  QString before;
+  int beforeNumber = 0;
+  for (const auto &v : m_catalog->versionsForAsset(after.assetId)) {
+    if (v.versionNumber < after.versionNumber && v.versionNumber > beforeNumber) {
+      before = v.id;
+      beforeNumber = v.versionNumber;
+    }
+  }
+  if (before.isEmpty()) {
+    fail(error, tr("该图件只有单一版本，没有可分析的版本变化"));
+    return false;
+  }
+  auto job = std::make_shared<ImpactJob>();
+  if (!prepareImpactJob({{QStringLiteral("kind"),
+                          QStringLiteral("input_version")},
+                         {QStringLiteral("before_version_id"), before},
+                         {QStringLiteral("after_version_id"), after.id},
+                         {QStringLiteral("horizon"), horizon}},
+                        layerId, *job, error))
+    return false;
+  if (!m_impactRunner)
+    m_impactRunner = std::make_unique<paleo::jobs::JobRunner<ImpactJob>>(this);
+  m_impactRunner->setTaskService(m_taskSvc);
+  if (m_impactRunner->busy()) {
+    fail(error, tr("已有影响分析任务在进行"));
+    return false;
+  }
+  paleo::jobs::JobRunner<ImpactJob>::Callbacks cb;
+  cb.compute = [](ImpactJob &j, const std::function<bool()> &cancel,
+                  const std::function<void(double, const QString &)> &progress) {
+    // worker 图层面：版本 id → 本作业局部缓存（compute 结束随缓存析构），
+    // 不触碰 attributionLayer 的 GUI 线程 LRU 与 live catalog。
+    QHash<QString, std::shared_ptr<QgsMapLayer>> local;
+    const VersionLayerOpener workerOpener = [&local, &j](const CatalogVersion &v) {
+      if (const auto hit = local.value(v.id))
+        return hit;
+      const auto layer = openVersionLayer(j.dir, v);
+      if (layer)
+        local.insert(v.id, layer);
+      return layer;
+    };
+    return computeImpactWith(j, cancel, progress, workerOpener);
+  };
+  cb.commit = [this](ImpactJob &j, QString *err) { return commitImpact(j, err); };
+  cb.onDropped = [this](ImpactJob &, paleo::jobs::DropReason reason) {
+    // 取消/过期丢弃：不发布任何结果（半成品不登记成报告）。
+    if (reason == paleo::jobs::DropReason::PrepareFailed)
+      return; // 启动失败由 start 的同步 error 上报
+    emit impactAnalysisReady(
+        {}, reason == paleo::jobs::DropReason::Cancelled
+                          ? tr("影响分析已取消")
+                          : tr("影响分析已过期（工程已切换），结果未发布"));
+  };
+  return m_impactRunner->start(tr("影响分析（重放冻结输入）"), job, cb,
+                               job->layerId) != nullptr;
+}
+
+bool MappingWorkbench::impactAnalysisBusy() const {
+  return m_impactRunner && m_impactRunner->busy();
+}
+
+void MappingWorkbench::cancelImpactAnalysis() {
+  if (m_impactRunner)
+    m_impactRunner->requestCancel();
+}
+
 
 QVariantMap MappingWorkbench::recomputePlan(const QVariantMap &impactResult,
                                             QString *error) {
@@ -667,6 +962,11 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
       for (auto it = plannedParams.cbegin(); it != plannedParams.cend(); ++it) {
         if (it.key() == QLatin1String("recompute"))
           continue;
+        // ordered_inputs 是计划携带的冻结旧版本快照，成果存档里是重算当次的
+        // 新输入——输入身份已由上方 actual/plannedInputs 按序列表比对，参数
+        // 快照不重复当输入比对（否则幂等命中永不成立）。
+        if (it.key() == QLatin1String("ordered_inputs"))
+          continue;
         if (stored.value(it.key()) != it.value()) {
           sameParams = false;
           break;
@@ -741,47 +1041,102 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
 QVariantMap MappingWorkbench::compareVersions(const QString &oldVersionId,
                                               const QString &newVersionId,
                                               QString *error) {
-  if (!m_catalog) {
-    fail(error, tr("目录未绑定"));
+  CompareJob job;
+  if (!prepareVersionCompare(oldVersionId, newVersionId, QString(), job, error))
+    return {};
+  // 同步路径：图层经 attributionLayer LRU 打开（与历史行为一致）。
+  const VersionLayerOpener ownerOpener = [this](const CatalogVersion &v) {
+    return attributionLayer(v.id);
+  };
+  if (!computeVersionCompareWith(job, {}, {}, ownerOpener)) {
+    fail(error, job.error);
     return {};
   }
-  const auto beforeHold = attributionLayer(oldVersionId);
-  const auto afterHold = attributionLayer(newVersionId);
+  return job.result;
+}
+
+bool MappingWorkbench::prepareVersionCompare(const QString &oldVersionId,
+                                             const QString &newVersionId,
+                                             const QString &layerId,
+                                             CompareJob &job, QString *error) {
+  job = CompareJob{};
+  if (!m_catalog) {
+    fail(error, tr("目录未绑定"));
+    return false;
+  }
+  job.dir = m_dir;
+  job.layerId = layerId;
+  job.catalog = m_catalog;
+  job.revision = m_catalog->catalogRevision();
+  job.oldVersionId = oldVersionId;
+  job.newVersionId = newVersionId;
+  job.oldVersion = m_catalog->versionById(oldVersionId);
+  job.newVersion = m_catalog->versionById(newVersionId);
+  if (job.oldVersion.id.isEmpty() || job.newVersion.id.isEmpty()) {
+    fail(error, tr("对比需要两个可读的栅格成果版本"));
+    return false;
+  }
+  // 相面计数子层快照（worker 不回读目录）。
+  const auto polygonChildren = [this](const QString &vid) {
+    QVector<CatalogVersion> out;
+    for (const auto &cv : m_catalog->downstreamClosure(vid))
+      if (cv.extra.value("kind").toString() == QLatin1String("facies_polygons"))
+        out << cv;
+    return out;
+  };
+  job.oldPolygons = polygonChildren(oldVersionId);
+  job.newPolygons = polygonChildren(newVersionId);
+  return true;
+}
+
+bool MappingWorkbench::computeVersionCompareWith(
+    CompareJob &job, const std::function<bool()> &cancel,
+    const std::function<void(double, const QString &)> &progress,
+    const VersionLayerOpener &opener) {
+  const auto beforeHold = opener(job.oldVersion);
+  const auto afterHold = opener(job.newVersion);
   auto *before = qobject_cast<QgsRasterLayer *>(beforeHold.get());
   auto *after = qobject_cast<QgsRasterLayer *>(afterHold.get());
   if (!before || !after) {
-    fail(error, tr("对比需要两个可读的栅格成果版本"));
-    return {};
+    job.error = tr("对比需要两个可读的栅格成果版本");
+    return false;
   }
   // 坐标系不同则逐下标比较的像元不在同一空间口径——如实拒绝而不是错位
   // 对比（与网格口径防御同理；两侧图层同源打开时 CRS 表示一致）。
   if (before->crs() != after->crs()) {
-    fail(error, tr("两版本坐标系不同，无法像元级对比"));
-    return {};
+    job.error = tr("两版本坐标系不同，无法像元级对比");
+    return false;
   }
   if (before->width() != after->width() || before->height() != after->height() ||
       before->extent() != after->extent()) {
-    fail(error, tr("两版本网格口径不同（范围或分辨率不一致），无法像元级对比"));
-    return {};
+    job.error = tr("两版本网格口径不同（范围或分辨率不一致），无法像元级对比");
+    return false;
   }
   const int cols = before->width(), rows = before->height();
   if (qint64(cols) * rows > kImpactMaxGridCells) {
-    fail(error, tr("网格超出对比上限"));
-    return {};
+    job.error = tr("网格超出对比上限");
+    return false;
   }
   std::unique_ptr<QgsRasterBlock> beforeBlock(
       before->dataProvider()->block(1, before->extent(), cols, rows));
   std::unique_ptr<QgsRasterBlock> afterBlock(
       after->dataProvider()->block(1, after->extent(), cols, rows));
   if (!beforeBlock || !beforeBlock->isValid() || !afterBlock || !afterBlock->isValid()) {
-    fail(error, tr("无法读取成果栅格"));
-    return {};
+    job.error = tr("无法读取成果栅格");
+    return false;
   }
   qint64 changed = 0, unchanged = 0, total = 0;
   QHash<QString, qint64> matrix; // "from>to" → cells
   const qint64 blockCells =
       qint64(beforeBlock->width()) * beforeBlock->height();
-  for (int i = 0; i < blockCells; ++i) {
+  for (qint64 i = 0; i < blockCells; ++i) {
+    if (cancel && ((i & 0xFFFF) == 0) && cancel()) {
+      job.error = tr("已取消");
+      return false;
+    }
+    if ((i & 0x3FFFF) == 0 && progress)
+      progress(blockCells > 0 ? 100.0 * i / blockCells : 0.0,
+               QStringLiteral("scan"));
     const bool nodataBefore = beforeBlock->isNoData(i);
     const bool nodataAfter = afterBlock->isNoData(i);
     if (nodataBefore && nodataAfter)
@@ -802,30 +1157,133 @@ QVariantMap MappingWorkbench::compareVersions(const QString &oldVersionId,
     codeMatrix << QVariantMap{{"transition", it.key()},
                               {"cells", QVariant::fromValue(it.value())}};
   QVariantMap out{{"method", QStringLiteral("cell_diff")},
-                  {"old_version", oldVersionId},
-                  {"new_version", newVersionId},
+                  {"old_version", job.oldVersionId},
+                  {"new_version", job.newVersionId},
                   {"cells_changed", QVariant::fromValue(changed)},
                   {"cells_unchanged", QVariant::fromValue(unchanged)},
                   {"total_cells", QVariant::fromValue(total)},
                   {"code_matrix", codeMatrix}};
   // 相面统计：两版本各自相面子版本的图斑数。图斑身份在重算后重新生成，
   // 不做跨版本一一匹配——空间对应以像元转移矩阵为准。
-  auto polygonCount = [this](const QString &versionId) -> int {
-    for (const auto &cv : m_catalog->downstreamClosure(versionId)) {
-      if (cv.extra.value("kind").toString() != QLatin1String("facies_polygons"))
-        continue;
-      const auto hold = attributionLayer(cv.id);
+  const auto polygonCount = [&opener](const QVector<CatalogVersion> &children) {
+    for (const auto &cv : children) {
+      const auto hold = opener(cv);
       auto *layer = qobject_cast<QgsVectorLayer *>(hold.get());
       return layer ? int(layer->featureCount()) : -1;
     }
     return -1;
   };
   out.insert("polygon_counts",
-             QVariantMap{{"before", polygonCount(oldVersionId)},
-                         {"after", polygonCount(newVersionId)}});
+             QVariantMap{{"before", polygonCount(job.oldPolygons)},
+                         {"after", polygonCount(job.newPolygons)}});
   out.insert("note", tr("重算后图斑身份重新生成，不做跨版本图斑一一匹配；"
                         "空间对应以像元级转移矩阵为准"));
-  return out;
+  job.result = out;
+  return true;
+}
+
+bool MappingWorkbench::commitVersionCompare(CompareJob &job, QString *error) {
+  if (!job.error.isEmpty()) {
+    fail(error, job.error);
+    emit versionCompareReady({}, job.error);
+    return false;
+  }
+  if (!m_catalog || m_catalog != job.catalog || m_dir != job.dir) {
+    fail(error, tr("工程已切换，版本对比结果已丢弃"));
+    emit versionCompareReady({}, *error);
+    return false;
+  }
+  if (m_catalog->catalogRevision() != job.revision ||
+      !versionMatches(m_catalog, job.oldVersion) ||
+      !versionMatches(m_catalog, job.newVersion)) {
+    fail(error, tr("工程目录或对比版本已变化，对比结果已过期，请重新对比"));
+    emit versionCompareReady({}, *error);
+    return false;
+  }
+  QVariantMap out = job.result;
+  // 对比报告落盘：与影响报告同一目录约定。
+  if (QDir().mkpath(m_dir + "/artifacts/reports")) {
+    const auto path = m_dir + "/artifacts/reports/compare-" +
+                      QUuid::createUuid().toString(QUuid::WithoutBraces).left(8) +
+                      ".json";
+    QString writeErr;
+    if (paleo::writeJsonAtomic(path, QJsonDocument(QJsonObject::fromVariantMap(out)), &writeErr))
+      out.insert("report_path", path);
+    else
+      qWarning() << "compare report write failed:" << writeErr;
+  }
+  job.result = out;
+  emit versionCompareReady(out, QString());
+  return true;
+}
+
+bool MappingWorkbench::startVersionCompare(const QString &layerId,
+                                            QString *error) {
+  if (!m_catalog || !m_catalog->isOpen()) {
+    fail(error, tr("请先打开工程再对比"));
+    return false;
+  }
+  if (!m_taskSvc) {
+    fail(error, tr("后台版本对比需要任务服务"));
+    return false;
+  }
+  // 血统解析（compareWithRecomputeSource 的口径，GUI 线程完成）。
+  const auto composedId = composedAncestorVersion(layerId);
+  if (composedId.isEmpty()) {
+    fail(error, tr("该图件没有综合编图计算血统"));
+    return false;
+  }
+  const auto composed = m_catalog->versionById(composedId);
+  const auto provenance = composed.extra.value("recompute_provenance").toMap();
+  const auto oldId = provenance.value("recompute_of").toString();
+  if (oldId.isEmpty()) {
+    fail(error, tr("该成果不是受控重算产物，无可对比的旧版本"));
+    return false;
+  }
+  auto job = std::make_shared<CompareJob>();
+  if (!prepareVersionCompare(oldId, composedId, layerId, *job, error))
+    return false;
+  if (!m_compareRunner)
+    m_compareRunner = std::make_unique<paleo::jobs::JobRunner<CompareJob>>(this);
+  m_compareRunner->setTaskService(m_taskSvc);
+  if (m_compareRunner->busy()) {
+    fail(error, tr("已有版本对比任务在进行"));
+    return false;
+  }
+  paleo::jobs::JobRunner<CompareJob>::Callbacks cb;
+  cb.compute = [](CompareJob &j, const std::function<bool()> &cancel,
+                  const std::function<void(double, const QString &)> &progress) {
+    QHash<QString, std::shared_ptr<QgsMapLayer>> local;
+    const VersionLayerOpener workerOpener = [&local, &j](const CatalogVersion &v) {
+      if (const auto hit = local.value(v.id))
+        return hit;
+      const auto layer = openVersionLayer(j.dir, v);
+      if (layer)
+        local.insert(v.id, layer);
+      return layer;
+    };
+    return computeVersionCompareWith(j, cancel, progress, workerOpener);
+  };
+  cb.commit = [this](CompareJob &j, QString *err) { return commitVersionCompare(j, err); };
+  cb.onDropped = [this](CompareJob &, paleo::jobs::DropReason reason) {
+    if (reason == paleo::jobs::DropReason::PrepareFailed)
+      return;
+    emit versionCompareReady(
+        {}, reason == paleo::jobs::DropReason::Cancelled
+                          ? tr("版本对比已取消")
+                          : tr("版本对比已过期（工程已切换），结果未发布"));
+  };
+  return m_compareRunner->start(tr("成果版本对比（像元级 diff）"), job, cb,
+                                job->layerId) != nullptr;
+}
+
+bool MappingWorkbench::versionCompareBusy() const {
+  return m_compareRunner && m_compareRunner->busy();
+}
+
+void MappingWorkbench::cancelVersionCompare() {
+  if (m_compareRunner)
+    m_compareRunner->requestCancel();
 }
 
 QVariantMap MappingWorkbench::analyzeLayerVersionImpact(

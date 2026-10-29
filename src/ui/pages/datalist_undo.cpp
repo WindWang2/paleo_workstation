@@ -1,6 +1,7 @@
 // 层：视图
 #include "datalist.h"
 #include "datalistops.h"
+#include "pageshared.h"
 #include "../../catalog/datacatalog.h"
 #include "../../catalog/realizationset.h"
 #include "../../services/jsonsidecar.h"
@@ -265,22 +266,26 @@ void DataListPanel::loadStoresForCatalog()
 void DataListPanel::rebuildRowSnapshot()
 {
   using namespace paleo::dataops;
+  const paleo::pagesinternal::PagePerfStage perf("rebuildRowSnapshot");
   m_rows.clear();
   PreviewDocService *svc = m_doc;
   DataCatalog *cat = svc ? svc->catalog() : nullptr;
   if (!cat)
     return;
   const bool unresolvedOnly = property("paleo.page.filterUnresolved").toBool();
-  const auto assets = cat->assets();
-  m_rows.reserve(assets.size());
-  for (const CatalogAsset &a : assets)
   {
-    if (m_recycle.isRemoved(a.id))
-      continue;
-    AssetRowInfo row = buildAssetRow(cat, a, m_tags, m_typeOv, m_recycle, m_entityOv, assets.size() <= 200);
-    if (unresolvedOnly && !row.unresolved)
-      continue;
-    m_rows.append(row);
+    const paleo::pagesinternal::PagePerfStage rowPerf("buildAssetRow-loop");
+    const auto assets = cat->assets();
+    m_rows.reserve(assets.size());
+    for (const CatalogAsset &a : assets)
+    {
+      if (m_recycle.isRemoved(a.id))
+        continue;
+      AssetRowInfo row = buildAssetRow(cat, a, m_tags, m_typeOv, m_recycle, m_entityOv, assets.size() <= 200);
+      if (unresolvedOnly && !row.unresolved)
+        continue;
+      m_rows.append(row);
+    }
   }
 }
 

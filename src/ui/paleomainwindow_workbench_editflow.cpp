@@ -12,11 +12,72 @@
 #include <QDialog>
 #include <QSet>
 #include <QStatusBar>
+#include <algorithm>
 
 void PaleoMainWindow::attachMappingEditFlow(MappingWorkbench *workbench) {
   workbench->setManualEvidenceRequired(currentPage() == QLatin1String("compose"));
   // 切工程时丢弃旧影响报告；会话依据由功能层一并清空。
   connect(workbench, &MappingWorkbench::catalogBound, this, [this] { m_lastImpact.clear(); });
+  // 后台影响分析终态（GUI 线程发布）：成功填 m_lastImpact（受控重算入口）
+  // 并翻页内可用态；空报告 = 失败/取消/过期（error 给因，可用态翻回 false）。
+  connect(workbench, &MappingWorkbench::impactAnalysisReady, this,
+          [this](const QVariantMap &report, const QString &error) {
+    const bool ok = !report.isEmpty();
+    m_lastImpact = report;
+    for (auto *page : findChildren<MappingWorkbenchPage *>())
+      page->setImpactAvailable(ok);
+    if (!ok) {
+      statusBar()->showMessage(
+          error.isEmpty() ? tr("影响分析未完成。") : error, 20000);
+      return;
+    }
+    const auto determined = report.value("determined").toList();
+    qint64 changedCells = 0;
+    for (const auto &value : determined)
+      changedCells += value.toMap().value("changed_cells").toLongLong();
+    const auto reportPath = report.value("report_path").toString();
+    statusBar()->showMessage(
+        reportPath.isEmpty()
+            ? tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定"
+                 "变化 %3 像元（报告未能保存到工程目录）")
+                  .arg(report.value("direct_products").toList().size())
+                  .arg(report.value("potential_products").toList().size())
+                  .arg(changedCells)
+            : tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 "
+                 "%3 像元（详见 %4）")
+                  .arg(report.value("direct_products").toList().size())
+                  .arg(report.value("potential_products").toList().size())
+                  .arg(changedCells)
+                  .arg(reportPath),
+        20000);
+  });
+  // 后台版本对比终态：与旧同步分支相同的结果呈现（转移矩阵 Top3）。
+  connect(workbench, &MappingWorkbench::versionCompareReady, this,
+          [this](const QVariantMap &report, const QString &error) {
+    if (report.isEmpty()) {
+      statusBar()->showMessage(
+          error.isEmpty() ? tr("重算对比未完成。") : error, 20000);
+      return;
+    }
+    auto matrix = report.value("code_matrix").toList();
+    std::sort(matrix.begin(), matrix.end(),
+              [](const QVariant &a, const QVariant &b) {
+                return a.toMap().value("cells").toLongLong() >
+                       b.toMap().value("cells").toLongLong();
+              });
+    QStringList top;
+    for (const auto &value : matrix.mid(0, 3))
+      top << tr("%1：%2 像元")
+                 .arg(value.toMap().value("transition").toString())
+                 .arg(value.toMap().value("cells").toLongLong());
+    statusBar()->showMessage(
+        tr("重算对比：变化 %1/%2 像元；主要转移 %3（详见 %4）")
+            .arg(report.value("cells_changed").toLongLong())
+            .arg(report.value("total_cells").toLongLong())
+            .arg(top.isEmpty() ? tr("无") : top.join("；"))
+            .arg(report.value("report_path").toString()),
+        20000);
+  });
 }
 
 bool PaleoMainWindow::runMappingEditFlow(MappingWorkbenchPage *page, const QString &action,

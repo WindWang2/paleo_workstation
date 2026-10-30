@@ -190,8 +190,8 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                              "ribbonIdentifyAction");
   }
   const auto navPanel = [&](SARibbonCategory *cat) {
-    if (!panAct)
-      return;
+    if (!panAct || !cat || cat->findChild<SARibbonPanel *>(QStringLiteral("ribbonNavPanel")))
+      return; // #824 后单因素图/验证并入同一页签：共用组只建一次
     SARibbonPanel *p = panel(cat, tr("地图"), "ribbonNavPanel");
     addLarge(p, panAct);
     addSmall(p, identifyAct);
@@ -438,9 +438,12 @@ void addPartitionPanel(SARibbonCategory *category, PaleoEditingToolbar *toolbar)
 void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb,
                                       bool compact)
 {
+  // #824 后单因素图并入「单井相分析」页签：同一页签只挂一个「矢量编辑」组。
+  if (!category || category->findChild<SARibbonPanel *>(QStringLiteral("ribbonEditPanel")))
+    return;
   if (!compact)
     addFaciesDisplayPanel(category);
-  if (!category || !editTb)
+  if (!editTb)
     return;
   SARibbonPanel *p = category->addPanel(tr("矢量编辑"));
   p->setObjectName(QStringLiteral("ribbonEditPanel"));

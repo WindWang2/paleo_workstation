@@ -500,6 +500,19 @@ private slots:
       QTest::qWait(60);
       QWidget *cat = win.categoryForPage(id);
       QVERIFY(cat);
+      {
+        // 构建后各组须已落几何、互不叠放（#824 去重后 movePanel 之后的组曾停在 x=0）。
+        QMap<int, QString> panelAtX;
+        for (auto *panel : cat->findChildren<QWidget *>(Qt::FindDirectChildrenOnly))
+        {
+          if (!panel->inherits("SARibbonPanel") || !panel->isVisibleTo(cat))
+            continue;
+          QVERIFY2(!panelAtX.contains(panel->x()),
+                   qPrintable(QStringLiteral("%1: %2 overlaps %3 at x=%4").arg(id, panel->objectName(),
+                                                                         panelAtX.value(panel->x())).arg(panel->x())));
+          panelAtX.insert(panel->x(), panel->objectName());
+        }
+      }
       QToolButton *rightmost = nullptr;
       int rightmostX = -1;
       for (auto *b : cat->findChildren<QToolButton *>())

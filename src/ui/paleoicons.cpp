@@ -194,6 +194,8 @@ QIcon PaleoIcons::commandIcon(const QString &command)
       {"subIntervalS4", "mIconRasterLayer.svg"},
       {"subIntervalAggregate", "processingAlgorithm.svg"},
       {"subIntervalExpand", "mActionIdentify.svg"},
+      {"subIntervalSchemeCombo", "mIconPolygonLayer.svg"},
+      {"subIntervalRevisionCombo", "mActionHistory.svg"},
 
       {"storageGovernanceButton", "mActionOptions.svg"},
       {"treeViewButton", "mActionShowAllLayers.svg"},

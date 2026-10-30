@@ -48,8 +48,10 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"PaleoMainWindow", "subIntervalS3", QT_TRANSLATE_NOOP("PaleoWhatsThis", "子层段 S3（自上而下第三段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。"), nullptr},
     {"PaleoMainWindow", "subIntervalS4", QT_TRANSLATE_NOOP("PaleoWhatsThis", "子层段 S4（自上而下第四段，含底界）。选中后单因素/编图/相分析按稳定子层段 ID 归属。"), nullptr},
     {"PaleoMainWindow", "subIntervalAggregate", QT_TRANSLATE_NOOP("PaleoWhatsThis", "父单元显式综合（厚度加权）；缺任一子层段成果时综合不可用。"), nullptr},
-    {"PaleoMainWindow", "subIntervalExpand", QT_TRANSLATE_NOOP("PaleoWhatsThis", "展开查看当前父单元四个子层段的稳定 ID 与选中状态。"), nullptr},
+    {"PaleoMainWindow", "subIntervalExpand", QT_TRANSLATE_NOOP("PaleoWhatsThis", "展开查看四个子层段的完整性/可用资料/受影响状态（红绿灯，接 DS occurrence 与成果绑定）。"), nullptr},
     {"PaleoMainWindow", "subIntervalModeLabel", QT_TRANSLATE_NOOP("PaleoWhatsThis", "层段分析模式标识；与上方界面编辑层位条分工，互不重置对方状态。"), nullptr},
+    {"PaleoMainWindow", "subIntervalSchemeCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层解释方案。选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。"), nullptr},
+    {"PaleoMainWindow", "subIntervalRevisionCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "方案修订快照。选择后写入 UnitSelection.revision；分析成果按修订对齐。"), nullptr},
 
     {"PaleoMainWindow", "newProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "通过可跳过的引导创建 Paleo 工程，可自动识别井点、井资料、地震和层位；也可创建空白工程。"), nullptr},
     {"PaleoMainWindow", "openProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "打开已有的 Paleo 工程。"), nullptr},
@@ -82,6 +84,7 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"PredictPage", "btnPublishSeismicAggregate", QT_TRANSLATE_NOOP("PaleoWhatsThis", "将切片投票按 weighted_mode 聚合并写入 Data Service Interval 绑定。"), nullptr},
 
     {"PredictPage", "horizonCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "历史层位下拉（兼容）。层段分析优先用画布父单元→S1–S4；成果身份为 SubIntervalId。"), nullptr},
+    {"ConstraintPage", "horizonCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "[legacy] 历史层位下拉（兼容）。层段分析优先用画布「层段分析」选择器；成果身份为 SubIntervalId / UnitSelection。"), nullptr},
     {"PredictPage", "algoCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择预测算法；下方参数区按所选算法重建。"), nullptr},
     {"PredictPage", "runButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按层段分析选择（父单元/S1–S4）或层位下拉运行；成果登记 Data Service，可供编图证据拉取。"), nullptr},
     {"PredictPage", "cancelRunButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "取消正在运行的预测。"), nullptr},

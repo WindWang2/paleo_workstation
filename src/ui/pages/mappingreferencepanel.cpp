@@ -1,7 +1,7 @@
 // 层：视图
 #include "mappingreferencepanel.h"
 
-#include "../../qgis/mappingreferencecanvas.h"
+#include "../../qgis/referenceview.h"
 #include "../decorations/paleodecorations.h"
 #include "../paleotheme.h"
 
@@ -63,10 +63,10 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   m_empty->setWordWrap(true);
   m_empty->setAlignment(Qt::AlignCenter);
   layout->addWidget(m_empty, 1);
-  m_view = new MappingReferenceCanvas(mainCanvas, project, this);
-  m_view->setMinimumSize(240, 160);
-  layout->addWidget(m_view, 1);
-  m_view->hide();
+  m_view = createReferenceView(mainCanvas, project, this);
+  m_view->widget()->setMinimumSize(240, 160);
+  layout->addWidget(m_view->widget(), 1);
+  m_view->widget()->hide();
   m_decor = new PaleoDecorationManager(canvas());
   m_decor->setScaleBarEnabled(true);
   connect(m_sources, &QComboBox::currentIndexChanged, this, [this] {
@@ -82,7 +82,7 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
 
 MappingReferencePanel::~MappingReferencePanel()
 {
-  disconnect(m_view, nullptr, this, nullptr);
+  disconnect(m_view->widget(), nullptr, this, nullptr);
   m_view->clearReference();
 }
 QgsMapCanvas *MappingReferencePanel::canvas() const { return m_view->canvas(); }
@@ -159,7 +159,7 @@ void MappingReferencePanel::setReference(QgsMapLayer *layer, const QVariantMap &
   if (!layer) return;
   m_metadata = metadata;
   m_empty->hide();
-  m_view->show();
+  m_view->widget()->show();
   m_view->setReference(layer, metadata);
   updateCaption();
   setProperty("paleo.referenceVersion", selectedSource().value("version_id"));
@@ -170,7 +170,7 @@ void MappingReferencePanel::clearReference(const QString &message)
 {
   m_view->clearReference();
   m_metadata.clear();
-  m_view->hide();
+  m_view->widget()->hide();
   m_empty->setText(message.isEmpty() ? tr("从上方下拉框选择参考证据。\n"
                                          "可选择地震相、测井相、单因素图或参考相图。") : message);
   m_empty->show();

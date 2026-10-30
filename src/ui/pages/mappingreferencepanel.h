@@ -17,7 +17,7 @@ class QgsMapCanvas;
 class QgsMapLayer;
 class QgsProject;
 class PaleoDecorationManager;
-class MappingReferenceCanvas;
+class ReferenceView;
 
 // 私有参考画布，不接管主图图层、编辑目标或地图工具；来源由宿主编排。
 class MappingReferencePanel : public QWidget
@@ -51,7 +51,7 @@ private:
   QVariantMap selectedSource() const;
 
   PaleoDecorationManager *m_decor = nullptr;
-  MappingReferenceCanvas *m_view = nullptr;
+  ReferenceView *m_view = nullptr;
   QComboBox *m_sources = nullptr;
   QToolButton *m_remove = nullptr;
   QToolButton *m_linked = nullptr;

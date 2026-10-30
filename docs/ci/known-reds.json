@@ -50,11 +50,11 @@
         "lint"
       ],
       "category": "gate-red",
-      "issue": 540,
+      "issue": 755,
       "owner": "WindWang2",
       "added": "2026-10-18",
       "review_due": "2027-01-18",
-      "reason": "lint 车道 Source gates 三处红（#540-7：triage needs lint，含红闸即恒红，故按 job-scope 登记而非留未知红）：① --transitive 带 QGIS_PREFIX 实测 ui_qtwidgets_notes 7>baseline 6——#531 导出链封装新增的 src/qgis/layoutpreview.h（PaleoLayoutPreview : QWidget 薄壳）被 geologicalexportdialog.cpp include 带入 1 条视图层记录边（设计后果；#533 相面修复员已删掉原 2 条 faciespartitiontool 边，净剩 1 条差额，两文件均不属本岗可改范围，口径裁决见 AGENTS.md 与 tools/transitive-baseline.txt 头注）；② ui_size --strict 2 个条目（见 ui-size-strict-grown-20261018）；③ #538 新接线的 file_budget --strict 5 个条目（见 file-budget-strict-grown-20261018）。qgs-audit/qgis-spread 两步已转绿（#523 封装收敛 + 基线删 4 行）（2026-10-19 审计第三轮：file_budget/ui_size 族红已修复转绿、对应条目已删；本 job 级条目覆盖剩余 lint Source gates 红，当前为 layering_transitive 的 ui_qtwidgets_notes #533 裁决挂起项）",
+      "reason": "lint 车道 Source gates 红（#540-7：triage needs lint，含红闸即恒红，故按 job-scope 登记而非留未知红）。2026-10-31 对账（#825 修复）：layering_transitive 已转绿——ui_qtwidgets_notes 实测 6>baseline 5，根因是 mappingreferencepanel.cpp 直接 include qgis/mappingreferencecanvas.h（经 previewmapcanvas.h 传递引入 QtWidgets），已改为只依赖 qgis/referenceview.h 的接口+工厂（构造点留在 qgis 层），实测回到 5；旧条目里 #531 layoutpreview.h / #533 faciespartitiontool / #540 的 `7>6` 归因全部作废（相关 issue 均已关闭）。Source gates 余下唯一红为 check_ts_stale（2026-10-31 本机实测 606 条 > 基线 31，见 ts-stale-lupdate-backlog 与 #755），本条目改挂 #755 只为让 lint job 的红继续可分诊；ts_stale 转绿后本条目应删除。",
       "steps": [
         "Source gates"
       ]
@@ -73,7 +73,7 @@
       "owner": "WindWang2",
       "added": "2026-10-28",
       "review_due": "2027-01-28",
-      "reason": "translations/*.ts 陈旧度棘轮（#755）：#780-#815 批次新增 tr() 未跑 lupdate，2026-10-28 实测 226 条不同字面量不在 .ts 里（基线 31）。本来自只有 lint 车道 Source gates 跑它（该车道红已由 lint job-scope 条目覆盖）；#755 把它接进 ctest （l10n 标签）后 linux/windows 必过车道同样见红，故按 test-scope 登记，红得明白。修复路径是一次集中 lupdate + 翻译补齐后 tools/check_ts_stale.py --update-baseline 把基线降下来——棘轮只降不升，禁止上调基线换绿。注意裸 lupdate 会整文件重排（tools/batch_translate.py 的位保真约定反对），且补齐后不得留下 <translation type=\"unfinished\">（check_l10n 的 0 未翻译项规则会红）。"
+      "reason": "translations/*.ts 陈旧度棘轮（#755）：#780-#815 批次新增 tr() 未跑 lupdate，2026-10-28 实测 226 条不同字面量不在 .ts 里（基线 31）。本来自只有 lint 车道 Source gates 跑它（该车道红已由 lint job-scope 条目覆盖）；#755 把它接进 ctest （l10n 标签）后 linux/windows 必过车道同样见红，故按 test-scope 登记，红得明白。修复路径是一次集中 lupdate + 翻译补齐后 tools/check_ts_stale.py --update-baseline 把基线降下来——棘轮只降不升，禁止上调基线换绿。注意裸 lupdate 会整文件重排（tools/batch_translate.py 的位保真约定反对），且补齐后不得留下 <translation type=\"unfinished\">（check_l10n 的 0 未翻译项规则会红）。2026-10-31 本机复测 606 条（基线 31，高于本条登记的 226）——登记值之后仍在累积；#825-#828 修复新增约 6 条 tr() 文案，一并计入 backlog。"
     }
   ]
 }

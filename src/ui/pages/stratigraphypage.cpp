@@ -23,6 +23,16 @@
 #include <QJsonDocument>
 #include <paleo_data/interpretation.h>
 #include <algorithm>
+namespace {
+// QSplitter 首次布局按「sizeHint×拉伸系数」分配初始高度。剖面滚动区的 sizeHint 仅为内容提示
+// （~22px），3:1 拉伸会落成剖面 1/4；给它与结果表默认提示（192px）同量级的高度提示，
+// 3:1 拉伸才落成剖面约 3/4（D9.1 禁程序化 setSizes，宽高只由拉伸系数与用户拖动决定）。
+class SectionScrollArea final : public QScrollArea {
+public:
+ using QScrollArea::QScrollArea;
+ QSize sizeHint() const override { const QSize base=QScrollArea::sizeHint(); return {base.width(),std::max(base.height(),192)}; }
+};
+}
 StratigraphyPage::StratigraphyPage(StratigraphyWorkflow* workflow,QWidget* parent)
  :QWidget(parent),m_workflow(workflow) {
  setObjectName(QStringLiteral("stratigraphyPage"));
@@ -37,7 +47,7 @@ StratigraphyPage::StratigraphyPage(StratigraphyWorkflow* workflow,QWidget* paren
  m_wells->setObjectName(QStringLiteral("stratigraphyWells"));m_wells->setAccessibleName(tr("参与对比的井"));body->addWidget(m_wells,1);
  auto* splitter=new QSplitter(Qt::Vertical,this);
  splitter->setObjectName(QStringLiteral("stratigraphySplit"));
- auto* scroll=new QScrollArea(splitter);scroll->setWidgetResizable(true);
+ auto* scroll=new SectionScrollArea(splitter);scroll->setWidgetResizable(true);
  m_section=new WellComposite::MultiWellView(scroll);m_section->setObjectName(QStringLiteral("stratigraphySection"));
  m_section->setLayoutMode(WellComposite::MultiWellView::LayoutMode::Row);
  m_section->setToolTip(tr("单击预览井道拾取 MD，拖动界线修改解释；带 * 的派生曲线需重算相应段。"));
@@ -92,7 +102,6 @@ void StratigraphyPage::showEvent(QShowEvent* event){
  if(!property("initialSplitApplied").toBool()) {
   setProperty("initialSplitApplied",true);
   QTimer::singleShot(0,this,[this]{
-   if(auto* split=findChild<QSplitter*>(QStringLiteral("stratigraphySplit")))split->setSizes({split->height()*3/4,split->height()/4});
    const auto view=QJsonDocument::fromJson(QByteArray::fromStdString(m_workflow->document().viewStateJson)).object();
    if(view["top"].isDouble()&&view["bottom"].toDouble()>view["top"].toDouble())m_section->setDisplayDepthRange(view["top"].toDouble(),view["bottom"].toDouble());else fitFormation();
   });

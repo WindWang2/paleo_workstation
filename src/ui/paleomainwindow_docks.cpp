@@ -231,7 +231,7 @@ QToolButton *makeBoundaryPicker(QWidget *chips, SelectionContext *selection, QWi
 
 void installSubIntervalSelectorBar(PaleoMainWindow *mw, SelectionContext *selection,
                                    const QStringList &boundaries, QWidget *canvasPane,
-                                   QVBoxLayout *canvasLay)
+                                   QVBoxLayout *canvasLay, QWidget *boundaryPicker)
 {
   auto *unitBar = new SubIntervalSelectorBar(selection, canvasPane);
   unitBar->setObjectName(QStringLiteral("subIntervalSelectorBar"));
@@ -249,6 +249,7 @@ void installSubIntervalSelectorBar(PaleoMainWindow *mw, SelectionContext *select
                            PaleoMainWindow::tr("分析层段：%1").arg(u.displayName), 4000);
                    });
   PaleoIcons::applyCommandIcons(unitBar);
+  unitBar->insertLeadingWidget(boundaryPicker); // 「界限」入口并入本条，顶部只剩一行
   canvasLay->addWidget(unitBar);
 }
 } // namespace
@@ -273,25 +274,20 @@ void PaleoMainWindow::buildCenterArea()
   auto *canvasLay = new QVBoxLayout(canvasPane);
   canvasLay->setContentsMargins(0, 0, 0, 0);
   canvasLay->setSpacing(0);
-  // 界限行：ribbon 之下、画布之上。界限 chip 收进「界限」下拉（见
-  // makeBoundaryPicker）；切换 = activeHorizon + 懒加载。
-  auto *chipsRow = new QWidget(canvasPane);
-  chipsRow->setObjectName(QStringLiteral("horizonChipRow"));
-  auto *chipsLay = new QHBoxLayout(chipsRow);
-  chipsLay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingXs);
-  auto *chips = new HorizonChipBar(m_selection, m_layerSvc, chipsRow);
+  // 界限入口：ribbon 之下、画布之上，并入层段分析条最左端（不再单独一行）。
+  // 界限 chip 收进「界限」下拉（见 makeBoundaryPicker）；切换 = activeHorizon + 懒加载。
+  auto *chips = new HorizonChipBar(m_selection, m_layerSvc, canvasPane);
   chips->setObjectName(QStringLiteral("horizonChips"));
   chips->setAccessibleName(tr("界限切换"));
-  // C2：编辑中拒切层位的原因此前无人接（信号发出去就丢了）——落状态栏。
+  // C2：编辑中拒切界限的原因此前无人接（信号发出去就丢了）——落状态栏。
   connect(chips, &HorizonChipBar::horizonSwitchRefused, this,
           [this](const QString &reason) {
             if (statusBar())
               statusBar()->showMessage(reason, 8000);
           });
-  chipsLay->addWidget(makeBoundaryPicker(chips, m_selection, chipsRow));
-  chipsLay->addStretch(1);
-  canvasLay->addWidget(chipsRow);
-  installSubIntervalSelectorBar(this, m_selection, mappingHorizons(), canvasPane, canvasLay);
+  auto *boundaryPicker = makeBoundaryPicker(chips, m_selection, canvasPane);
+  installSubIntervalSelectorBar(this, m_selection, mappingHorizons(), canvasPane, canvasLay,
+                                boundaryPicker);
   if (m_canvasCtl)
   {
     QgsMapCanvas *canvas = m_canvasCtl->canvas();

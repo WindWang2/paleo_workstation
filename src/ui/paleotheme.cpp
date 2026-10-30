@@ -494,10 +494,9 @@ namespace PaleoTheme
                "QDockWidget::title { background: %1; color: %2; padding: {spacing.sm}px {spacing.md}px; }"
                "QStatusBar { background: %1; color: %3; }"
                "QWidget#mapInteractionContext { background: %1; color: %3;"
-               " border-bottom: 1px solid %4; }"
-               "QWidget#horizonChipRow { background: %5; border-bottom: 1px solid %4; }"))
+               " border-bottom: 1px solid %4; }"))
                .arg(qssHex(t.surfaceAlt), qssHex(t.text), qssHex(t.textMuted),
-                    qssHex(t.border), qssHex(t.surface))
+                    qssHex(t.border))
         // 条目视图三件套（选中/hover/斑马纹/密度 padding）统一出口——
         // goal/ui-experience-polish：三类列表控件不再各写选中态。
         + controlStyleSheet(theme) + itemViewStyleSheet(theme);

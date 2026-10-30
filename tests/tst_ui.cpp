@@ -567,18 +567,21 @@ class TestUiShell : public QObject
       if (auto *d = m_win->findChild<QToolButton *>(QStringLiteral("designerButton")))
         QVERIFY(!d->icon().isNull());
 
-      auto *chipsRow =
-          m_win->findChild<QWidget *>(QStringLiteral("horizonChipRow"));
-      QVERIFY(chipsRow);
-      auto *chips =
-          chipsRow->findChild<QWidget *>(QStringLiteral("horizonChips"));
-      QVERIFY2(chips, "horizon chips must live on the dedicated action row");
       // 2026-10-30 用户裁决：地震层位是地层界限而非地层单元——chip 不再默认
-      // 铺在画布上方，收进「界限」下拉弹层（仍是界限切换入口）。
+      // 铺在画布上方，收进「界限」下拉弹层（仍是界限切换入口）；演化动览移除后
+      // 「界限」按钮并入层段分析条最左端，顶部不再有单独的 chip/动览行。
+      QVERIFY2(!m_win->findChild<QWidget *>(QStringLiteral("horizonChipRow")),
+               "the standalone chip row must be gone");
+      auto *unitBar =
+          m_win->findChild<QWidget *>(QStringLiteral("subIntervalSelectorBar"));
+      QVERIFY(unitBar);
       auto *boundaryBtn =
-          chipsRow->findChild<QToolButton *>(QStringLiteral("horizonBoundaryButton"));
-      QVERIFY2(boundaryBtn, "boundary picker must replace the always-on chip row");
+          unitBar->findChild<QToolButton *>(QStringLiteral("horizonBoundaryButton"));
+      QVERIFY2(boundaryBtn, "boundary picker must lead the sub-interval selector bar");
       QVERIFY(boundaryBtn->text().startsWith(QStringLiteral("界限")));
+      auto *chips =
+          boundaryBtn->findChild<QWidget *>(QStringLiteral("horizonChips"));
+      QVERIFY2(chips, "horizon chips must live in the boundary picker popup");
       QVERIFY2(!chips->isVisible(), "horizon chips must be hidden until the boundary picker opens");
       // 2026-10-30 用户裁决：演化动览（上一期/播放/下一期、定格导出）不再保留在
       // 主窗 UI；EvolutionPlayerPanel 类与 tst_evolutionplayer 单测保留。

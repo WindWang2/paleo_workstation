@@ -44,6 +44,10 @@ class SubIntervalSelectorBar : public QWidget
     void setSchemeSnapshot( const paleo::data::StratigraphicScheme &scheme,
                             const std::vector<paleo::data::SubIntervalResultBinding> &bindings = {} );
 
+    // 把壳侧「界限」入口（地震层位 = 地层界限）放到本条最左端并加分隔线，
+    // 画布顶部不再单独占一行。
+    void insertLeadingWidget( QWidget *widget );
+
     // 测试/状态栏：当前选中的显示名；无选择时为空。
     QString currentDisplayName() const;
     paleo::strat::UnitSelection currentSelection() const { return m_current; }

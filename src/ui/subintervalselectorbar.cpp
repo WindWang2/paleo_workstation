@@ -124,9 +124,9 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   setAccessibleName( tr( "层段分析选择" ) );
 
   auto *root = new QVBoxLayout( this );
-  // 与上方界限/动览行同一水平内边距（spacingMd），纵向只留 spacingXs，不额外占高。
+  // 画布顶部唯一一行：水平 spacingMd，上下各 spacingXs，不额外占高。
   const PaleoTheme::ThemeTokens &tk = PaleoTheme::tokens();
-  root->setContentsMargins( tk.spacingMd, 0, tk.spacingMd, tk.spacingXs );
+  root->setContentsMargins( tk.spacingMd, tk.spacingXs, tk.spacingMd, tk.spacingXs );
   root->setSpacing( tk.spacingXs );
 
   auto *row = new QWidget( this );
@@ -343,6 +343,17 @@ void SubIntervalSelectorBar::setStatusText( const QString &text )
 {
   m_status->setText( text );
   m_status->setToolTip( text );
+}
+
+void SubIntervalSelectorBar::insertLeadingWidget( QWidget *widget )
+{
+  auto *row = findChild<QWidget *>( QStringLiteral( "subIntervalSelectorRow" ) );
+  auto *lay = row ? qobject_cast<QHBoxLayout *>( row->layout() ) : nullptr;
+  if ( !lay || !widget )
+    return;
+  widget->setParent( row );
+  lay->insertWidget( 0, widget );
+  lay->insertWidget( 1, makeGroupSeparator( row ) );
 }
 
 QString SubIntervalSelectorBar::currentDisplayName() const

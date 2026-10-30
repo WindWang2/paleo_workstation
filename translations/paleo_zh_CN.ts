@@ -24434,6 +24434,11 @@ SHA-256：%2</translation>
 <context>
     <name>PaleoWhatsThis</name>
     <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>历史层位下拉（兼容）。层段分析优先用画布父单元→S1–S4；成果身份为 SubIntervalId。</source>
+        <translation>历史层位下拉（兼容）。层段分析优先用画布父单元→S1–S4；成果身份为 SubIntervalId。</translation>
+    </message>
+    <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="30"/>
         <source>工作流页签：按数据管理、地层对比、智能预测、单因素图、智能编图、验证的顺序切换六个工作页。</source>
         <translation>工作流页签：按数据管理、地层对比、智能预测、单因素图、智能编图、验证的顺序切换六个工作页。</translation>
@@ -24589,8 +24594,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="66"/>
-        <source>选择预测类型：沉积相、地震相或测井相。</source>
-        <translation>选择预测类型：沉积相、地震相或测井相。</translation>
+        <source>沉积相 / 地震相 / 测井相。地震相切片预测与层段综合分列；测井相走井面板，砂地比等单因素按子层段深度窗。</source>
+        <translation>沉积相 / 地震相 / 测井相。地震相切片预测与层段综合分列；测井相走井面板，砂地比等单因素按子层段深度窗。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="67"/>
@@ -24599,8 +24604,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="68"/>
-        <source>按当前类型、算法与参数运行预测。</source>
-        <translation>按当前类型、算法与参数运行预测。</translation>
+        <source>按层段分析选择（父单元/S1–S4）或层位下拉运行；成果登记 Data Service，可供编图证据拉取。</source>
+        <translation>按层段分析选择（父单元/S1–S4）或层位下拉运行；成果登记 Data Service，可供编图证据拉取。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="69"/>
@@ -25122,6 +25127,41 @@ SHA-256：%2</translation>
 </context>
 <context>
     <name>PredictPage</name>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>沉积相 / 地震相 / 测井相。地震相若仅有时间切片模型，结果标注为「切片预测」，层段综合需可验证聚合，不得把单切片冒充整段。</source>
+        <translation>沉积相 / 地震相 / 测井相。地震相若仅有时间切片模型，结果标注为「切片预测」，层段综合需可验证聚合，不得把单切片冒充整段。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>&lt;b&gt;预测类型&lt;/b&gt;&lt;p&gt;&lt;b&gt;测井相&lt;/b&gt;：按子层段深度窗取测井/岩性，砂地比等单因素可插值分类，成果带 SubIntervalId。&lt;br/&gt;&lt;b&gt;地震相&lt;/b&gt;：按子层段掩膜提取；切片与层段综合分列。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;预测类型&lt;/b&gt;&lt;p&gt;&lt;b&gt;测井相&lt;/b&gt;：按子层段深度窗取测井/岩性，砂地比等单因素可插值分类，成果带 SubIntervalId。&lt;br/&gt;&lt;b&gt;地震相&lt;/b&gt;：按子层段掩膜提取；切片与层段综合分列。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>历史层位下拉（兼容）。层段分析请优先用画布上方的父单元→S1–S4 选择条；运行时以选择条的 SubIntervalId 为成果身份。</source>
+        <translation>历史层位下拉（兼容）。层段分析请优先用画布上方的父单元→S1–S4 选择条；运行时以选择条的 SubIntervalId 为成果身份。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>&lt;b&gt;层位&lt;/b&gt;&lt;p&gt;旧工程按单一界面名取输入栅格。启用层段分析后，输入仍取父单元上界面栅格，井相/地震相/单因素成果写入对应子层段。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;层位&lt;/b&gt;&lt;p&gt;旧工程按单一界面名取输入栅格。启用层段分析后，输入仍取父单元上界面栅格，井相/地震相/单因素成果写入对应子层段。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>按当前层段分析选择（或层位下拉）运行预测；中间与最终结果登记到 Data Service，可供编图证据拉取。</source>
+        <translation>按当前层段分析选择（或层位下拉）运行预测；中间与最终结果登记到 Data Service，可供编图证据拉取。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>&lt;b&gt;运行预测&lt;/b&gt;&lt;p&gt;优先使用画布层段分析条的父单元/S1–S4。砂地比等单因素在子层段深度窗内计算并分类；成果带井 ID、输入版本、解释修订与层段身份。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;运行预测&lt;/b&gt;&lt;p&gt;优先使用画布层段分析条的父单元/S1–S4。砂地比等单因素在子层段深度窗内计算并分类；成果带井 ID、输入版本、解释修订与层段身份。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>测井相预测按井读取曲线、分层并匹配模型，请在测井相预测面板运行；本页用于沉积相 / 地震相。层段分析请用画布父单元→S1–S4；砂地比等单因素在约束页按子层段深度窗提取</source>
+        <translation>测井相预测按井读取曲线、分层并匹配模型，请在测井相预测面板运行；本页用于沉积相 / 地震相。层段分析请用画布父单元→S1–S4；砂地比等单因素在约束页按子层段深度窗提取</translation>
+    </message>
     <message>
         <location filename="../src/ui/pages/predictpage.cpp" line="63"/>
         <source>预测类型</source>

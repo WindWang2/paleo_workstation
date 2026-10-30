@@ -177,9 +177,13 @@ QScrollArea *wrapHorizonChipsInScroll(QWidget *chips, QWidget *parent)
   scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   scroll->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
   scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  scroll->setStyleSheet(QStringLiteral("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }"));
+  // 横向滚动条压成 spacingXs 细条：宽度充足时只预留一条细缝，不再常驻一整条
+  // 滚动条高度的空白（层位行默认更紧凑）；窄屏仍可拖动滚动。
+  scroll->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral(
+      "QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }"
+      "QScrollBar:horizontal { height: {spacing.xs}px; }")));
   scroll->setWidget(chips);
-  scroll->setFixedHeight(chips->sizeHint().height() + scroll->horizontalScrollBar()->sizeHint().height());
+  scroll->setFixedHeight(chips->sizeHint().height() + PaleoTheme::tokens().spacingXs);
   return scroll;
 }
 

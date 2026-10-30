@@ -66,5 +66,8 @@
   - `autoBindSandRatioExtraction` / `publishSeismicSliceAggregate` / `openProjectDataService`；约束 `sandratio` 提取后自动 bind 单因素+井相。
   - 井综合测井相：`panelfacieschrome` 只读 UnitSelection；预测页地震相 Slice|Interval 掩膜条 + 切片投票→层段综合发布；horizonCombo 标 `[legacy]`。
   - 测试：`autoBindAndSeismicPublishPath`；聚焦闸门本轮引入 0。
-- **仍待**：多方案/修订 UI；子层段红绿灯接 DS occurrence；其余页内 horizonCombo 彻底去字符串语义；编图发布行挂稳定 ID（证据导航已按稳定 ID）。
+- **多方案/修订 + occurrence 红绿灯（续轮）**：
+  - 选择器方案/修订下拉 → `UnitSelection.schemeId/revision`；`summarizeSubIntervalOccurrences` 展开红绿灯；编图 tip / ConstraintPage whatsThis legacy。
+  - 测试：`occurrenceSummaryAndSchemeLoad`。
+- **仍待**：业务页 horizonCombo 彻底去字符串分析路径；编图发布行挂稳定 ID（证据导航已按稳定 ID）；超多修订的搜索/分页。
 - TVD/TVDSS/OWT/TWT 换算沿用现有时深服务；本框架只记录 `depthType`，不做换算。

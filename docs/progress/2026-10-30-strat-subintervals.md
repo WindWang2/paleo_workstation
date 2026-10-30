@@ -56,6 +56,18 @@ flock -x /workspace/audit/fix4/.git/paleo-shared-build-j4.lock \
 5. **file_budget**：`panelsetup::setupUi` 基线 411→339（只缩）。
 
 ### 仍待（明确限制）
-- 多方案 / 修订版本完整 UI。
-- 子层段时深/解释就绪红绿灯接 DS occurrence。
-- 其余页内 horizonCombo 彻底去字符串语义（预测页已 legacy 标注；分析路径已 UnitSelection）。
+- （已迁到「多方案/修订 + occurrence 红绿灯」完成清单。）
+
+## 续：多方案/修订 + occurrence 红绿灯（Asia/Shanghai 2026-10-30 19:xx）
+
+### 完成
+1. **多方案/修订 UI**：`SubIntervalSelectorBar` 增加方案/修订下拉；`reloadFromProject` 经 `loadProjectSchemeFromDir` 读 DS；切换后 `makeSelection` 写入 `UnitSelection.schemeId/revision` → `SelectionContext::setActiveUnit`；状态行可读「方案名 / 修订」。
+2. **红绿灯接 occurrence**：`summarizeSubIntervalOccurrences` 汇总井出现（complete/affected/pending）+ bindings（可用资料/受影响）；展开「状态」显示 `[绿]/[黄]/[红]/[灰]` 行。
+3. **其余页 horizon 语义**：编图页厚度链/批导出 tip 标 `[legacy]`；whatsThis 增 ConstraintPage horizonCombo + 方案/修订条目；图标 `subIntervalSchemeCombo`/`subIntervalRevisionCombo`。
+4. **测试**：`occurrenceSummaryAndSchemeLoad`；`check_ts_stale` 维持缺失 595（未扩大）。
+5. **闸门**：layering / file_budget / ui_size / qgs-audit / qgis-spread / docs_drift / ui_invariants 绿。
+
+### 仍待（明确限制）
+- 业务页内 horizonCombo 彻底移除字符串驱动的分析路径（预测/约束已 legacy；分析只走 UnitSelection）。
+- 编图发布行挂稳定 SubIntervalId（证据导航已按稳定 ID）。
+- 方案下拉在超多修订时的分页/搜索（当前全量列表）。

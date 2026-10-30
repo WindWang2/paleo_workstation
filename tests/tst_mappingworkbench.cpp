@@ -323,6 +323,17 @@ public:
 
 class TestMappingWorkbench : public QObject {
   Q_OBJECT
+  // #745：宽度键 = mappingEvidence/viewWidths/<工程文件 SHA1 | unscoped>，与
+  // MappingEvidencePanel 同源；测试用独立工程路径隔离，避免跨用例/跨工程污染。
+  static QString evidenceWidthsKey(const QgsProject *project = nullptr)
+  {
+    const QString file = project ? project->fileName() : QString();
+    const QString scope = file.isEmpty()
+        ? QStringLiteral("unscoped")
+        : QString::fromLatin1(QCryptographicHash::hash(file.toUtf8(),
+                                                     QCryptographicHash::Sha1).toHex());
+    return QStringLiteral("mappingEvidence/viewWidths/") + scope;
+  }
   struct Fixture {
     QTemporaryDir dir;
     DataCatalog catalog;
@@ -3131,10 +3142,83 @@ private slots:
     main.stopRendering();
   }
 
+  // #746：空视图不创建画布——首次选证据才建；其余空视图保持零 canvas。
+  void evidenceViewsCreateCanvasLazily() {
+    QgsMapCanvas main;
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    MappingEvidencePanel panel(&main, nullptr);
+    panel.resize(800, 360); panel.show();
+    QCOMPARE(panel.views().size(), 4);
+    QCOMPARE(panel.findChildren<QgsMapCanvas *>("referenceCanvas").size(), 0);
+    for (auto *view : panel.views()) QVERIFY(view->canvas() == nullptr);
+    const QVariantList rows{QVariantMap{{"id", "wells"}, {"name", "D61 测井相 v1"},
+                                        {"horizon", "D61"}, {"type", "vector"},
+                                        {"kind", "wells_prediction"}}};
+    panel.setSources(rows, "D61");
+    connect(&panel, &MappingEvidencePanel::referenceRequested, &panel,
+            [](MappingReferencePanel *view, const QString &) {
+      view->setReference(new QgsVectorLayer("Point?crs=EPSG:3857", "evidence", "memory"), {});
+    });
+    auto *first = panel.views().first();
+    first->selectSource("wells");
+    QVERIFY(first->hasReference());
+    QVERIFY(first->canvas() != nullptr);
+    QCOMPARE(first->findChildren<QgsMapCanvas *>("referenceCanvas").size(), 1);
+    for (int i = 1; i < panel.views().size(); ++i)
+      QVERIFY(panel.views()[i]->canvas() == nullptr);
+  }
+
+  // #745：宽度按工程存；删视图立刻落盘，后续视图不再左移套用别人的宽度。
+  void evidenceViewWidthsFollowProjectAndDeletion() {
+    QTemporaryDir dirA, dirB;
+    QVERIFY(dirA.isValid() && dirB.isValid());
+    QgsProject projectA, projectB;
+    projectA.setFileName(dirA.filePath("a.qgz"));
+    projectB.setFileName(dirB.filePath("b.qgz"));
+    QSettings settings("paleo", "paleo");
+    const auto clean = [&settings, &projectA, &projectB] {
+      settings.remove(evidenceWidthsKey(&projectA));
+      settings.remove(evidenceWidthsKey(&projectB));
+    };
+    clean();
+    const auto cleanup = qScopeGuard([&clean] { clean(); });
+    const int distinctive = 333;
+    QgsMapCanvas main;
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    {
+      MappingEvidencePanel panel(&main, &projectA);
+      panel.resize(800, 360); panel.show();
+      QCOMPARE(panel.views().size(), 4);
+      panel.setViewWidth(panel.views().at(1), distinctive, true);
+      QCOMPARE(settings.value(evidenceWidthsKey(&projectA)).toList().size(), 4);
+      QCOMPARE(panel.viewWidth(panel.views().at(1)), distinctive);
+    }
+    {
+      MappingEvidencePanel panel(&main, &projectA);
+      panel.resize(800, 360); panel.show();
+      QCOMPARE(panel.viewWidth(panel.views().at(1)), distinctive); // 同工程沿用
+      panel.views().at(1)->findChild<QToolButton *>("referenceRemoveView")->click();
+      QCOMPARE(panel.views().size(), 3);
+    }
+    {
+      MappingEvidencePanel panel(&main, &projectA);
+      panel.resize(800, 360); panel.show();
+      for (auto *view : panel.views()) QVERIFY(panel.viewWidth(view) != distinctive);
+    }
+    {
+      MappingEvidencePanel panel(&main, &projectB);
+      panel.resize(800, 360); panel.show();
+      QCOMPARE(panel.views().size(), 4);
+      for (auto *view : panel.views()) QVERIFY(panel.viewWidth(view) != distinctive);
+    }
+  }
+
   // 证据视图宽度可逐个调整：一屏可见数随宽度变化，超出视口出现水平滚动条。
   void evidenceViewWidthsAreAdjustableAndDriveVisibleCount() {
-    QSettings("paleo", "paleo").remove("mappingEvidence/viewWidths");
-    const auto cleanup = qScopeGuard([] { QSettings("paleo", "paleo").remove("mappingEvidence/viewWidths"); });
+    QSettings("paleo", "paleo").remove(evidenceWidthsKey());
+    const auto cleanup = qScopeGuard([] { QSettings("paleo", "paleo").remove(evidenceWidthsKey()); });
     QgsMapCanvas main;
     main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
     main.setExtent(QgsRectangle(0, 0, 600, 400));
@@ -3177,7 +3261,7 @@ private slots:
     QCOMPARE(first->width(), MappingEvidencePanel::kMinViewWidth + 600);
     QTRY_VERIFY(scroll->horizontalScrollBar()->isVisible());
     QVERIFY(panel.visibleViewCount() < 4);
-    const auto saved = QSettings("paleo", "paleo").value("mappingEvidence/viewWidths").toList();
+    const auto saved = QSettings("paleo", "paleo").value(evidenceWidthsKey()).toList();
     QCOMPARE(saved.size(), 4);
     QCOMPARE(saved.first().toInt(), MappingEvidencePanel::kMinViewWidth + 600);
     if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty()) {

@@ -81,4 +81,4 @@ target_sources(paleo_services PRIVATE src/services/projectdata_timedepth.cpp)
 # 四子层段体系（docs/STRATIGRAPHIC_SUBINTERVALS.md）：选择/分类值类型 + Data Service 适配
 target_sources(paleo_domain PRIVATE src/domain/stratigraphicunit.cpp)
 target_sources(paleo_services PRIVATE src/services/stratigraphicsubintervals.cpp)
-add_paleo_test(tst_stratigraphic_subintervals LIBS paleo_services Paleo::paleo_data_service)
+add_paleo_test(tst_stratigraphic_subintervals LIBS paleo_services paleo_linkage Paleo::paleo_data_service)

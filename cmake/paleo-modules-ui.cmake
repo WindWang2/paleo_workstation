@@ -6,6 +6,7 @@
 # ---- 功能层 ----
 add_library(paleo_linkage STATIC
   src/linkage/selectioncontext.cpp
+  src/linkage/unitselectionbridge.cpp
   src/linkage/wellmaplink.cpp
   src/linkage/seismicmaplink.cpp
   src/linkage/threewaylocator.cpp                  # 问题→三视图联动
@@ -236,6 +237,7 @@ add_library(paleo_ui STATIC
   src/ui/sequenceframeworkcolumn.cpp               # 方向28：格架柱状视图（层级色带）
   src/ui/sequenceframeworkpanel.cpp                # 方向28：格架树/标志层/诊断/建议面板
   src/ui/horizonchipbar.cpp                        # 8层位chip条（阶段E）
+  src/ui/subintervalselectorbar.cpp                 # 四子层段二级选择器（分析模式）
   src/ui/releasepanel.cpp
   src/ui/taskpanel.cpp
   src/ui/attributetablepanel.cpp

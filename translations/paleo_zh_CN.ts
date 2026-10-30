@@ -50311,4 +50311,199 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>从剖面移除</translation>
     </message>
 </context>
+ <context>
+    <name>StratSubIntervalRound</name>
+    <message>
+        <source> · 当前选中</source>
+        <translation> · 当前选中</translation>
+    </message>
+    <message>
+        <source> 层段分析</source>
+        <translation> 层段分析</translation>
+    </message>
+    <message>
+        <source>%1：稳定 ID %2%3</source>
+        <translation>%1：稳定 ID %2%3</translation>
+    </message>
+    <message>
+        <source>QGIS 坐标工具：输入或地图拾取点位，选择来源与目标 CRS，执行坐标转换、定位，或复制地图坐标与 WGS84 经纬度。</source>
+        <translation>QGIS 坐标工具：输入或地图拾取点位，选择来源与目标 CRS，执行坐标转换、定位，或复制地图坐标与 WGS84 经纬度。</translation>
+    </message>
+    <message>
+        <source>先在顶部选择层位或层段（本阶段目标 %1）</source>
+        <translation>先在顶部选择层位或层段（本阶段目标 %1）</translation>
+    </message>
+    <message>
+        <source>分析层段：%1</source>
+        <translation>分析层段：%1</translation>
+    </message>
+    <message>
+        <source>分析层段：S%1</source>
+        <translation>分析层段：S%1</translation>
+    </message>
+    <message>
+        <source>分析层段：父单元综合</source>
+        <translation>分析层段：父单元综合</translation>
+    </message>
+    <message>
+        <source>可视化视图</source>
+        <translation>可视化视图</translation>
+    </message>
+    <message>
+        <source>子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析按稳定子层段 ID 归属，不拆分界面名。</source>
+        <translation>子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析按稳定子层段 ID 归属，不拆分界面名。</translation>
+    </message>
+    <message>
+        <source>子层段 S1（自上而下第一段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</source>
+        <translation>子层段 S1（自上而下第一段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</translation>
+    </message>
+    <message>
+        <source>子层段 S2（自上而下第二段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</source>
+        <translation>子层段 S2（自上而下第二段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</translation>
+    </message>
+    <message>
+        <source>子层段 S3（自上而下第三段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</source>
+        <translation>子层段 S3（自上而下第三段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</translation>
+    </message>
+    <message>
+        <source>子层段 S4（自上而下第四段，含底界）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</source>
+        <translation>子层段 S4（自上而下第四段，含底界）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</translation>
+    </message>
+    <message>
+        <source>尚未加载界面名单——请先打开工程并确认层序界面。</source>
+        <translation>尚未加载界面名单——请先打开工程并确认层序界面。</translation>
+    </message>
+    <message>
+        <source>层段分析</source>
+        <translation>层段分析</translation>
+    </message>
+    <message>
+        <source>层段分析模式标识；与上方界面编辑层位条分工，互不重置对方状态。</source>
+        <translation>层段分析模式标识；与上方界面编辑层位条分工，互不重置对方状态。</translation>
+    </message>
+    <message>
+        <source>层段分析模式的当前父单元/子层段；与界面编辑层位独立，切换不重置地图。</source>
+        <translation>层段分析模式的当前父单元/子层段；与界面编辑层位独立，切换不重置地图。</translation>
+    </message>
+    <message>
+        <source>层段分析模式：选择父单元与 S1–S4 子层段；与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。</source>
+        <translation>层段分析模式：选择父单元与 S1–S4 子层段；与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。</translation>
+    </message>
+    <message>
+        <source>层段分析选择</source>
+        <translation>层段分析选择</translation>
+    </message>
+    <message>
+        <source>层段分析选择：先选父层间单元（如 T70–T71），再选 S1–S4 或综合；各分析页共用同一选择。</source>
+        <translation>层段分析选择：先选父层间单元（如 T70–T71），再选 S1–S4 或综合；各分析页共用同一选择。</translation>
+    </message>
+    <message>
+        <source>展开子层段状态</source>
+        <translation>展开子层段状态</translation>
+    </message>
+    <message>
+        <source>展开查看当前父单元四个子层段的就绪与成果提示。</source>
+        <translation>展开查看当前父单元四个子层段的就绪与成果提示。</translation>
+    </message>
+    <message>
+        <source>展开查看当前父单元四个子层段的稳定 ID 与选中状态。</source>
+        <translation>展开查看当前父单元四个子层段的稳定 ID 与选中状态。</translation>
+    </message>
+    <message>
+        <source>当前分析层段（父单元/S1–S4）；与层位条独立，切换不重置地图或编辑。</source>
+        <translation>当前分析层段（父单元/S1–S4）；与层位条独立，切换不重置地图或编辑。</translation>
+    </message>
+    <message>
+        <source>当前父单元在方案中不存在。</source>
+        <translation>当前父单元在方案中不存在。</translation>
+    </message>
+    <message>
+        <source>当前：%1（综合需各子层段成果齐全）</source>
+        <translation>当前：%1（综合需各子层段成果齐全）</translation>
+    </message>
+    <message>
+        <source>显示界面计算、模板划分与版本保存的状态，以及需复核的来源和约定问题。</source>
+        <translation>显示界面计算、模板划分与版本保存的状态，以及需复核的来源和约定问题。</translation>
+    </message>
+    <message>
+        <source>未加载界面——打开工程后自动按层序界面生成父单元。</source>
+        <translation>未加载界面——打开工程后自动按层序界面生成父单元。</translation>
+    </message>
+    <message>
+        <source>父单元显式综合（厚度加权）。不是任一子层段；缺任一子层段成果时综合结果不可用。</source>
+        <translation>父单元显式综合（厚度加权）。不是任一子层段；缺任一子层段成果时综合结果不可用。</translation>
+    </message>
+    <message>
+        <source>父单元显式综合（厚度加权）；缺任一子层段成果时综合不可用。</source>
+        <translation>父单元显式综合（厚度加权）；缺任一子层段成果时综合不可用。</translation>
+    </message>
+    <message>
+        <source>父层间单元</source>
+        <translation>父层间单元</translation>
+    </message>
+    <message>
+        <source>父层间单元（相邻两条界面，如 T70–T71）。展开后可查看四个子层段的就绪状态。</source>
+        <translation>父层间单元（相邻两条界面，如 T70–T71）。展开后可查看四个子层段的就绪状态。</translation>
+    </message>
+    <message>
+        <source>父层间单元：相邻两条界面构成；展开「状态」可查看四个子层段就绪情况。</source>
+        <translation>父层间单元：相邻两条界面构成；展开「状态」可查看四个子层段就绪情况。</translation>
+    </message>
+    <message>
+        <source>界面不足——至少需要两条相邻界面才能分析层段。</source>
+        <translation>界面不足——至少需要两条相邻界面才能分析层段。</translation>
+    </message>
+    <message>
+        <source>界面不足两条，无法构成父层间单元。请在工程参数中配置层序界面。</source>
+        <translation>界面不足两条，无法构成父层间单元。请在工程参数中配置层序界面。</translation>
+    </message>
+    <message>
+        <source>界面编辑模式的当前层位（上方层位条）。</source>
+        <translation>界面编辑模式的当前层位（上方层位条）。</translation>
+    </message>
+    <message>
+        <source>界面编辑模式的当前层位（上方层位条）；绘制约束与井因子仍按此界面。分析请看「分析层段」。</source>
+        <translation>界面编辑模式的当前层位（上方层位条）；绘制约束与井因子仍按此界面。分析请看「分析层段」。</translation>
+    </message>
+    <message>
+        <source>综合</source>
+        <translation>综合</translation>
+    </message>
+    <message>
+        <source>综合：当前选中（需 S1–S4 齐全才可出综合成果）</source>
+        <translation>综合：当前选中（需 S1–S4 齐全才可出综合成果）</translation>
+    </message>
+    <message>
+        <source>综合：未选中</source>
+        <translation>综合：未选中</translation>
+    </message>
+    <message>
+        <source>该父单元尚未派生完整四子层段，请检查解释方案。</source>
+        <translation>该父单元尚未派生完整四子层段，请检查解释方案。</translation>
+    </message>
+    <message>
+        <source>请先选择父层间单元。</source>
+        <translation>请先选择父层间单元。</translation>
+    </message>
+    <message>
+        <source>请选择父单元与子层段（S1–S4）；界面编辑请用上方层位条。</source>
+        <translation>请选择父单元与子层段（S1–S4）；界面编辑请用上方层位条。</translation>
+    </message>
+    <message>
+        <source>请选择父层间单元。</source>
+        <translation>请选择父层间单元。</translation>
+    </message>
+    <message>
+        <source>选择当前工区中参与对比的井；输入资料可显式指定或由优选方法选择。</source>
+        <translation>选择当前工区中参与对比的井；输入资料可显式指定或由优选方法选择。</translation>
+    </message>
+    <message>
+        <source>鼠标所在位置的坐标：由 QGIS 按工程显示设置格式化；未配准工程显示局部米制网格，已配准工程按显示设置格式化，不冒充经纬度。</source>
+        <translation>鼠标所在位置的坐标：由 QGIS 按工程显示设置格式化；未配准工程显示局部米制网格，已配准工程按显示设置格式化，不冒充经纬度。</translation>
+    </message>
+    <message>
+        <source>（未派生）</source>
+        <translation>（未派生）</translation>
+    </message>
+ </context>
 </TS>

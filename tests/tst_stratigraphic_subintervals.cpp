@@ -12,6 +12,7 @@
 #include "../src/domain/stratigraphicunit.h"
 #include "../src/services/stratigraphicsubintervals.h"
 #include "../src/linkage/unitselectionbridge.h"
+#include "../src/linkage/selectioncontext.h"
 #include "../src/services/subintervalfactors.h"
 #include "../src/domain/wellsection.h"
 
@@ -66,6 +67,39 @@ private slots:
     QCOMPARE( fromMap( m ), s2 );
     QCOMPARE( analysisLayerKey( s2 ), layerToken( s2 ) );
     QCOMPARE( analysisLayerKey( {}, QStringLiteral( "T70" ) ), QStringLiteral( "T70" ) );
+  }
+
+  void bindAnalysisIgnoresPageHorizonString()
+  {
+    // combo / pageHorizon 不可驱动分析键；无 UnitSelection → analysisKey 空。
+    SelectionContext ctx;
+    ctx.setActiveHorizon( QStringLiteral( "T70" ) );
+    {
+      const auto b = bindAnalysis( &ctx, QStringLiteral( "D61" ) );
+      QVERIFY( !b.hasUnit );
+      QVERIFY( b.analysisKey.isEmpty() );
+      QCOMPARE( b.constraintHorizon, QStringLiteral( "D61" ) ); // 界面编辑 legacy
+    }
+    UnitSelection u;
+    u.schemeId = QStringLiteral( "sch" );
+    u.revision = QStringLiteral( "r1" );
+    u.intervalId = QStringLiteral( "int-1" );
+    u.subIntervalId = QStringLiteral( "sub-abc" );
+    u.subIndex = 2;
+    u.topBoundary = QStringLiteral( "T70" );
+    u.bottomBoundary = QStringLiteral( "T71" );
+    u.displayName = QStringLiteral( "T70–T71/S2" );
+    QVERIFY( u.isValid() );
+    ctx.setActiveUnit( u );
+    {
+      const auto b = bindAnalysis( &ctx, QStringLiteral( "D61" ) );
+      QVERIFY( b.hasUnit );
+      QCOMPARE( b.analysisKey, QStringLiteral( "sub-abc" ) );
+      QCOMPARE( b.constraintHorizon, QStringLiteral( "T70" ) );
+      const auto id = b.publishIdentity();
+      QCOMPARE( id.value( QStringLiteral( "subIntervalId" ) ).toString(), QStringLiteral( "sub-abc" ) );
+      QCOMPARE( id.value( QStringLiteral( "source_horizon" ) ).toString(), QStringLiteral( "sub-abc" ) );
+    }
   }
 
 

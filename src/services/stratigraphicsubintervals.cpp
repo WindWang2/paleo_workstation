@@ -95,6 +95,7 @@ UnitSelection makeSelection( const StratigraphicScheme &scheme, const QString &i
   if ( subIndex == 0 )
   {
     sel.aggregate = true;
+    sel.subIndex = 0;
     sel.displayName = QString::fromStdString( fw::displayName( scheme, iid ) ) + QStringLiteral( "（综合）" );
     return sel;
   }
@@ -102,6 +103,7 @@ UnitSelection makeSelection( const StratigraphicScheme &scheme, const QString &i
   if ( static_cast<int>( subs.size() ) < subIndex )
     return UnitSelection{}; // 方案未派生完整四子层段：不给出半成品选择
   sel.subIntervalId = QString::fromStdString( subs.at( subIndex - 1 )->id.value );
+  sel.subIndex = subIndex;
   sel.displayName = QString::fromStdString( fw::displayName( scheme, subs.at( subIndex - 1 )->id ) );
   return sel;
 }

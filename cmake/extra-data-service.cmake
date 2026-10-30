@@ -82,3 +82,7 @@ target_sources(paleo_services PRIVATE src/services/projectdata_timedepth.cpp)
 target_sources(paleo_domain PRIVATE src/domain/stratigraphicunit.cpp)
 target_sources(paleo_services PRIVATE src/services/stratigraphicsubintervals.cpp)
 add_paleo_test(tst_stratigraphic_subintervals LIBS paleo_services paleo_linkage Paleo::paleo_data_service)
+
+# 子层段砂地比 / 井相 / 地震相成果与编图证据（docs/STRATIGRAPHIC_SUBINTERVALS.md §井相地震相）
+target_sources(paleo_domain PRIVATE src/domain/subintervalfacies.cpp)
+target_sources(paleo_services PRIVATE src/services/subintervalfactors.cpp)

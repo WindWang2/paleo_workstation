@@ -412,6 +412,13 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
 
   bar->endUpdate();
   bar->updateRibbonGeometry();
+  // 「矢量编辑」组内 movePanel 会在构建中途同步 doLayout，此后再加的组只置脏、
+  // 不落几何（停在 x=0 叠放，直到下一次缩放/滚动）；构建完统一重排一次。
+  bar->iterateCategory([](SARibbonCategory *c) {
+    if (auto *lay = qobject_cast<SARibbonCategoryLayout *>(c->layout()))
+      lay->doLayout();
+    return true;
+  });
 }
 
 namespace {

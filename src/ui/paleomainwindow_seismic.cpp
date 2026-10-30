@@ -38,7 +38,6 @@
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgislayerprofile.h"
 #include "../qgis/qgiseditingservice.h" // resolveDirtyLayerEdits 走编辑服务提交/回滚
-#include "../qgis/seismicsectiontool.h" // 剖面捕获工具壳持有（R4 信号化）：析构需完整类型
 #include "../services/previewdoc.h"
 #include "../services/paleotaskservice.h"
 #include "../services/toolavailability.h" // 全局门控（无工程置灰导入命令）

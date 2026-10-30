@@ -201,6 +201,7 @@ QToolButton *makeBoundaryPicker(HorizonChipBar *chips, SelectionContext *selecti
   btn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   btn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
   btn->setIconSize(PaleoIcons::toolbarSize());
+  btn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed); // 窄画布也完整显示当前界限名
   btn->setAccessibleName(PaleoMainWindow::tr("界限切换"));
   btn->setToolTip(PaleoMainWindow::tr("切换当前地层界限（地震层位是地层界限，不是地层单元）。"
                                       "用于界限查看/编辑；层段分析请用下方父单元与 S1–S4。"));

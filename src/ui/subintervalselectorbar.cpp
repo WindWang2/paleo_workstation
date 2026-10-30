@@ -163,6 +163,9 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_schemeCombo->setMinimumContentsLength( 10 ); // 可编辑+清除钮占位，留足中文方案名
   m_schemeCombo->setIconSize( PaleoIcons::toolbarSize() );
   m_schemeCombo->setSizeAdjustPolicy( QComboBox::AdjustToContents );
+  // 宽度足够时按内容展开；画布变窄时先让方案框收缩（全名在 tooltip/下拉里），
+  // 不去挤「界限」按钮与 S1–S4。
+  m_schemeCombo->setMinimumWidth( fontMetrics().horizontalAdvance( QStringLiteral( "M" ) ) * 5 );
   enableSearchableCombo( m_schemeCombo );
   connect( m_schemeCombo, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
            &SubIntervalSelectorBar::onSchemeChanged );
@@ -206,6 +209,7 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_revisionCombo->setMinimumContentsLength( 10 );
   m_revisionCombo->setIconSize( PaleoIcons::toolbarSize() );
   m_revisionCombo->setSizeAdjustPolicy( QComboBox::AdjustToContents );
+  m_revisionCombo->setMinimumWidth( fontMetrics().horizontalAdvance( QStringLiteral( "M" ) ) * 5 );
   enableSearchableCombo( m_revisionCombo );
   connect( m_revisionCombo, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
            &SubIntervalSelectorBar::onRevisionChanged );
@@ -269,7 +273,9 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_status->setObjectName( QStringLiteral( "subIntervalStatus" ) );
   m_status->setTextInteractionFlags( Qt::TextSelectableByMouse );
   styleMutedLabel( m_status );
-  lay->addWidget( m_status );
+  // 状态文字可被截断（全文在 tooltip），不拿它的最小宽挤压前面的按钮。
+  m_status->setSizePolicy( QSizePolicy::Ignored, QSizePolicy::Preferred );
+  lay->addWidget( m_status, 1 );
   lay->addStretch( 1 );
 
   root->addWidget( row );
@@ -318,6 +324,7 @@ void SubIntervalSelectorBar::buildSubButtonGroup( QWidget *row, QHBoxLayout *lay
                          .arg( i ) );
     btn->setStatusTip( tr( "分析层段：S%1" ).arg( i ) );
     styleSubButton( btn, i == 1 ? 1 : ( i == kSubIntervalCount ? 3 : 2 ) );
+    btn->setSizePolicy( QSizePolicy::Minimum, QSizePolicy::Fixed ); // 窄画布不把 S1–S4 挤成空框
     connect( btn, &QToolButton::clicked, this, [this, i] { onSubClicked( i ); } );
     m_subs.push_back( btn );
     seg->addWidget( btn );

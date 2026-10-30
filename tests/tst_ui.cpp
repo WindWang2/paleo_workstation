@@ -33,6 +33,11 @@
 #include "../src/domain/faciescatalog.h"
 #include "../src/io/dataimportservice.h" // 测试可直触 io（断言 DataImportService 信号）
 #include "../src/linkage/selectioncontext.h"
+#include "../src/ui/horizonchipbar.h"
+#include "../src/domain/mappinghorizons.h"
+#include <qgslocator.h>
+#include <qgslocatorwidget.h>
+#include <qgslocatorfilter.h>
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgiscanvascontroller.h"
@@ -587,6 +592,66 @@ class TestUiShell : public QObject
       // 主窗 UI；EvolutionPlayerPanel 类与 tst_evolutionplayer 单测保留。
       QVERIFY2(!m_win->findChild<QWidget *>(QStringLiteral("evolutionPlayer")),
                "evolution player controls must no longer be mounted in the main window");
+    }
+
+    // A4/A2（2026-10-30）：「界限」按钮与 Ctrl+K 定位器两条界限入口真实可用；
+    // 编辑中拒切界限时弹层自动收起，原因仍落状态栏。
+    void boundaryPickerAndLocatorSwitchBoundary()
+    {
+      auto *btn = m_win->findChild<QToolButton *>(QStringLiteral("horizonBoundaryButton"));
+      QVERIFY(btn);
+      auto *chips = btn->findChild<HorizonChipBar *>(QStringLiteral("horizonChips"));
+      QVERIFY(chips);
+      auto *popup = btn->findChild<QWidget *>(QStringLiteral("horizonBoundaryPopup"));
+      QVERIFY(popup);
+      chips->setAllowEmptyHorizons(true); // 工作台同款：无栅格的界限也可点
+      const QStringList hs = mappingHorizons();
+      QVERIFY(hs.size() >= 2);
+      const QString start = m_ctx->selection()->activeHorizon();
+      const QString target = hs.at(hs.at(0) == start ? 1 : 0);
+
+      // 入口一：点「界限」按钮 → 弹层展开 → 点 chip → 切换并收起，按钮显示当前界限。
+      btn->click();
+      QTRY_VERIFY(popup->isVisible());
+      auto *chip = chips->findChild<QToolButton *>(QStringLiteral("chip_%1").arg(target));
+      QVERIFY(chip);
+      QVERIFY(chip->isEnabled());
+      chip->click();
+      QCOMPARE(m_ctx->selection()->activeHorizon(), target);
+      QTRY_VERIFY(!popup->isVisible());
+      QCOMPARE(btn->text(), QStringLiteral("界限：%1").arg(target));
+
+      // 编辑中拒切：弹层收起，状态栏保留原因。
+      btn->click();
+      QTRY_VERIFY(popup->isVisible());
+      const QString reason = QStringLiteral("正在编辑「测试层」——先保存或放弃编辑，再切换层位");
+      emit chips->horizonSwitchRefused(reason);
+      QTRY_VERIFY(!popup->isVisible());
+      QCOMPARE(m_win->statusBar()->currentMessage(), reason);
+      QCOMPARE(m_ctx->selection()->activeHorizon(), target);
+
+      // 入口二：Ctrl+K 定位器的界限过滤器触发结果 → 切换当前界限，按钮跟随。
+      if (!m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                               m_ctx->compositionWf(), m_ctx->validationWf(),
+                               m_ctx->importSvc(), m_ctx->seismicLink(),
+                               m_ctx->processingSvc(), m_ctx->store(),
+                               m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                               m_ctx->taskSvc());
+      auto *locatorWidget = m_win->findChild<QgsLocatorWidget *>(QStringLiteral("paleoLocator"));
+      QVERIFY(locatorWidget);
+      QgsLocatorFilter *horizonFilter = nullptr;
+      for (QgsLocatorFilter *f : locatorWidget->locator()->filters())
+        if (f->name() == QStringLiteral("paleo_horizons"))
+          horizonFilter = f;
+      QVERIFY(horizonFilter);
+      QgsLocatorResult result;
+      result.filter = horizonFilter;
+      result.displayString = start.isEmpty() ? hs.at(0) : start;
+      result.setUserData(result.displayString);
+      horizonFilter->triggerResult(result);
+      QCOMPARE(m_ctx->selection()->activeHorizon(), result.displayString);
+      QCOMPARE(btn->text(), QStringLiteral("界限：%1").arg(result.displayString));
     }
 
     // T29「在地图上显示」shell 接线：意图 → 实例化 + zoomToLayer + ~400ms

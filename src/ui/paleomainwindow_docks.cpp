@@ -193,7 +193,7 @@ QScrollArea *wrapHorizonChipsInScroll(QWidget *chips, QWidget *parent)
 // 切换当前界限的入口（与定位器 Ctrl+K 同口径），层段分析一律走下方
 // SubIntervalSelectorBar（父单元 + S1–S4）。弹层是按钮的子对象，
 // findChild<HorizonChipBar*>() 的重建/放空接线不受影响。
-QToolButton *makeBoundaryPicker(QWidget *chips, SelectionContext *selection, QWidget *parent)
+QToolButton *makeBoundaryPicker(HorizonChipBar *chips, SelectionContext *selection, QWidget *parent)
 {
   auto *btn = new QToolButton(parent);
   btn->setObjectName(QStringLiteral("horizonBoundaryButton"));
@@ -221,6 +221,10 @@ QToolButton *makeBoundaryPicker(QWidget *chips, SelectionContext *selection, QWi
       refresh();
       popup->hide();
     });
+  // 编辑中拒切界限：收起弹层，原因由壳侧另行落状态栏（见 buildCenterArea）。
+  QObject::connect(chips, &HorizonChipBar::horizonSwitchRefused, popup, [popup](const QString &) {
+    popup->hide();
+  });
   QObject::connect(btn, &QToolButton::clicked, btn, [btn, popup] {
     popup->adjustSize();
     popup->move(btn->mapToGlobal(QPoint(0, btn->height())));

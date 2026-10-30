@@ -3,6 +3,9 @@
 // 导入 → 校验 → 单井相 → 地震掩膜 → 单因素 → 编图 → 综合 → 修改 → 失效 → 保存重开。
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <cmath>
 #include <paleo_data/service.h>
 #include "../src/domain/mappinghorizons.h"
@@ -145,6 +148,63 @@ private slots:
     const auto prox = sandRatioForProvisionalSub( 1000, 1100, 2, segs, nullptr );
     QVERIFY( prox.ok );
     QCOMPARE( prox.sandRatio, metrics.sandRatio );
+  }
+
+
+  void autoBindAndSeismicPublishPath()
+  {
+    // 生产路径：提取行 → autoBindSandRatio；切片投票 → publishSeismicSliceAggregate
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString projectDir = dir.path();
+    const QString areaRoot = projectDir + QStringLiteral( "/artifacts/metadata/area-model" );
+    QVERIFY( QDir().mkpath( areaRoot ) );
+
+    UnitSelection s2;
+    QVariantList rows;
+    {
+      std::string err;
+      paleo::data::DataService ds;
+      QVERIFY2( ds.createProject( areaRoot.toStdString(), "自动绑定", err ), err.c_str() );
+      auto draft = draftScheme( "auto-scheme", "自动", boundaries(), tops() );
+      paleo::data::StratigraphicScheme head;
+      std::vector<paleo::data::FrameworkIssue> issues;
+      QVERIFY2( ds.commitStratigraphicScheme( draft, {}, head, issues, err ), err.c_str() );
+      const auto options = selectorOptions( head );
+      s2 = makeSelection( head, options[0].intervalId, 2 );
+      QVERIFY( s2.isValid() );
+
+      QVariantMap row;
+      row.insert( QStringLiteral( "well_id" ), QStringLiteral( "W1" ) );
+      row.insert( QStringLiteral( "value" ), 0.8 );
+      row.insert( QStringLiteral( "contributing" ), true );
+      row.insert( QStringLiteral( "windowTopMd" ), 1025.0 );
+      row.insert( QStringLiteral( "windowBottomMd" ), 1050.0 );
+      rows << row;
+
+      const auto metrics = metricsFromKnownRatio( 1025.0, 1050.0, 0.8 );
+      QVERIFY( metrics.ok );
+      QCOMPARE( metrics.faciesClass.id, QStringLiteral( "clean_sand" ) );
+
+      QVector<SeismicSliceVote> votes{ { 3, 10 }, { 3, 5 }, { 2, 4 } };
+      const auto pub = publishSeismicSliceAggregate( ds, s2, votes, QStringLiteral( "seis-int-pub" ), 0.5,
+                                                     true, QStringLiteral( "seis-slice-pub" ) );
+      QVERIFY2( pub.ok, qPrintable( pub.error ) );
+      QCOMPARE( pub.aggregate.classCode, 3 );
+      QVERIFY( pub.intervalBind.ok );
+      QVERIFY( pub.sliceBinds.size() >= 2 );
+      QVERIFY( !bindSeismicFaciesResult( ds, s2, SeismicFaciesScope::Interval, 1, 0.9, {}, "bad" ).ok );
+    }
+
+    // 无 area-model → 跳过
+    const auto skip = autoBindSandRatioExtraction( projectDir + QStringLiteral( "/empty" ), s2, rows,
+                                                   QStringLiteral( "asset" ) );
+    QVERIFY( !skip.attempted );
+
+    // 有 area-model/data.sqlite → 自动 bind 砂地比+井相
+    const auto bound = autoBindSandRatioExtraction( projectDir, s2, rows, QStringLiteral( "asset-auto" ) );
+    QVERIFY2( bound.attempted, qPrintable( bound.message ) );
+    QCOMPARE( bound.boundWells, 1 );
   }
 
   void endToEnd()

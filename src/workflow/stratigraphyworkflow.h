@@ -33,7 +33,11 @@ public:
  QList<StratigraphyWell> wells() const;
  QList<StratigraphyRow> rows() const;
  QList<StratigraphyTrack> tracks() const;
- bool previewWellData(qlonglong well, WellComposite::ComprehensiveWellData *data, QString *error) const;
+ // 井道预览数据。baseLoaded 非空时回写工区模型基础井道的装载结果（#827）：
+ // 为 false 表示基础模型读失败，data 里只剩解释版本派生曲线——调用方必须
+ // 显式提示，不得把「有曲线」当作装载成功。
+ bool previewWellData(qlonglong well, WellComposite::ComprehensiveWellData *data, QString *error,
+                      bool *baseLoaded=nullptr) const;
  void undo();
  void redo();
  bool canUndo() const;
@@ -42,6 +46,9 @@ public:
  bool isRunning() const;
  void exportCurve(const paleo::data::InterpretationSeries& series,const QString& path);
  const paleo::data::InterpretationDocument& document() const;
+ // #828：最近一次打开工程读取解释失败的原因（读取失败/列表失败）；无解释方案
+ // 与读取成功均为空。界面据此区分「没有解释」与「读不出来」。
+ QString documentLoadError() const;
  void loadWells(const QList<qlonglong>& wells);
  void derive(const QString& segment);
  void propagate(const QList<StratigraphyAssignment>& assignments,const QString& segment);

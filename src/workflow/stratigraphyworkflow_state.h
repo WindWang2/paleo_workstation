@@ -8,6 +8,7 @@
 struct StratigraphyWorkflow::State {
  PaleoTaskService* tasks=nullptr;QPointer<PaleoTask> task;
  QString path,project;quint64 generation=0;bool readOnly=false,dirty=false;
+ QString documentError; // #828：打开工程读取解释失败的原因（空 = 无失败）
  QList<StratigraphyWell> wells;paleo::data::InterpretationDocument document;
  paleo::data::CorrelationInputRequest preferred;
  struct Geometry {

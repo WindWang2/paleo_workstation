@@ -36,18 +36,32 @@ void StratigraphyWorkflow::setProject(const QString &project,bool readOnly) {
  ++d->generation; if(d->task) d->task->requestCancel(); d->task=nullptr;
  d->project=project;d->path=project.isEmpty()?QString():paleo::area_model::directory(project);
  d->readOnly=readOnly; d->dirty=false;d->wells.clear(); d->document={};d->history.clear();d->future.clear();d->preferred={};
+ d->documentError.clear();
  if(!d->path.isEmpty()) {
   DataService service;std::string error;std::vector<WellSummary> wells;
   const bool opened=readOnly?service.openProjectReadOnly(d->path.toStdString(),error):service.openProject(d->path.toStdString(),error);
   if(opened&&service.listWells(wells,error)) {
    for(const auto &w:wells)d->wells.append({w.id,text(w.name)});
    std::vector<InterpretationSummary> versions;
-   if(service.listInterpretations(versions,error)&&!versions.empty())
-    service.readInterpretationRevision(versions.back().id,{},d->document,error);
+   if(!service.listInterpretations(versions,error)) {
+    d->documentError=tr("解释方案列表读取失败：%1").arg(text(error));emit statusChanged(d->documentError);
+   } else if(!versions.empty()) {
+    // #828：最新修订读取失败必须如实报错——readInterpretationRevision() 失败会
+    // 先把 document 清空，静默当作「没有解释」会让用户以为工程里没有版本，
+    // 随后重新加载井再保存还会盖掉原修订。
+    std::string detail;
+    if(!service.readInterpretationRevision(versions.back().id,{},d->document,detail)) {
+     d->document={};
+     d->documentError=tr("解释版本读取失败（%1 · %2）：%3")
+         .arg(text(versions.back().name),text(versions.back().revision),text(detail));
+     emit statusChanged(d->documentError);
+    }
+   }
   } else emit statusChanged(text(error));
  }
  emit busyChanged(false);emit documentReplaced();emit changed();
 }
+QString StratigraphyWorkflow::documentLoadError() const {return d->documentError;}
 QList<StratigraphyWell> StratigraphyWorkflow::wells() const {return d->wells;}
 bool StratigraphyWorkflow::canEdit() const {return !d->path.isEmpty()&&!d->readOnly&&!d->task;}
 void StratigraphyWorkflow::refreshWells() {

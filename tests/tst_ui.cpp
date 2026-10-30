@@ -594,6 +594,53 @@ class TestUiShell : public QObject
                "evolution player controls must no longer be mounted in the main window");
     }
 
+    // 2026-10-30（#829 窄窗溢出）：层段分析条宽度不够时折成两行——第一行「界限」+
+    // 方案/修订，第二行父单元 + S1–S4 + 综合 + 状态；宽窗仍单行，任何宽度下控件不越界。
+    void subIntervalBarWrapsOnNarrowWidth()
+    {
+      auto *bar = m_win->findChild<QWidget *>(QStringLiteral("subIntervalSelectorBar"));
+      QVERIFY(bar);
+      auto *rows = bar->findChild<QWidget *>(QStringLiteral("subIntervalSelectorRows"));
+      auto *primary = bar->findChild<QWidget *>(QStringLiteral("subIntervalSelectorRow"));
+      auto *secondary = bar->findChild<QWidget *>(QStringLiteral("subIntervalSelectorSecondaryRow"));
+      QVERIFY(rows && primary && secondary);
+      auto *dir = qobject_cast<QBoxLayout *>(rows->layout());
+      QVERIFY(dir);
+      auto *lead = bar->findChild<QToolButton *>(QStringLiteral("horizonBoundaryButton"));
+      QVERIFY(lead);
+      QCOMPARE(lead->parentWidget(), primary);
+      QCOMPARE(bar->findChild<QComboBox *>(QStringLiteral("subIntervalSchemeCombo"))->parentWidget(), primary);
+      QCOMPARE(bar->findChild<QComboBox *>(QStringLiteral("subIntervalRevisionCombo"))->parentWidget(), primary);
+      QCOMPARE(bar->findChild<QComboBox *>(QStringLiteral("subIntervalParentCombo"))->parentWidget(), secondary);
+      QCOMPARE(bar->findChild<QToolButton *>(QStringLiteral("subIntervalExpand"))->parentWidget(), secondary);
+      const QSize before = m_win->size();
+      m_win->showPage(QStringLiteral("compose"));
+      m_win->show();
+      QVERIFY(QTest::qWaitForWindowExposed(m_win));
+      const auto inside = [bar](QWidget *w) {
+        const QRect r(w->mapTo(bar, QPoint(0, 0)), w->size());
+        return r.left() >= 0 && r.right() < bar->width();
+      };
+      const auto check = [&](int width, bool wrapped) {
+        m_win->resize(width, 800);
+        QTRY_COMPARE(dir->direction() == QBoxLayout::TopToBottom, wrapped);
+        QTest::qWait(50);
+        QVERIFY(bar->isVisible());
+        if (wrapped)
+          QVERIFY2(secondary->geometry().top() >= primary->geometry().bottom(), "second row sits below the first");
+        else
+          QCOMPARE(secondary->geometry().top(), primary->geometry().top());
+        for (QToolButton *b : secondary->findChildren<QToolButton *>())
+          if (b->isVisibleTo(bar))
+            QVERIFY2(inside(b), qPrintable(b->objectName()));
+        QVERIFY(inside(lead));
+      };
+      check(2400, false);
+      check(1024, true);
+      check(2400, false); // 拉宽后恢复单行
+      m_win->resize(before);
+    }
+
     // A4/A2（2026-10-30）：「界限」按钮与 Ctrl+K 定位器两条界限入口真实可用；
     // 编辑中拒切界限时弹层自动收起，原因仍落状态栏。
     void boundaryPickerAndLocatorSwitchBoundary()

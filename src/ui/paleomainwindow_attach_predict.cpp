@@ -10,6 +10,7 @@
 #include "../workflow/workflows.h"
 #include "../workflow/mamcltool.h"
 #include "pages/pagepanels.h"
+#include "../linkage/unitselectionbridge.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -59,6 +60,11 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                   status->setText(msg);
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::Critical);
               };
+              // 层段分析：优先 activeUnit；输入栅格仍按父单元上界面取，成果身份走 subIntervalId。
+              const auto bind = paleo::strat::bindAnalysis(m_selection, horizon);
+              const QVariantMap runParams = bind.enrich(params);
+              const QString dataHorizon =
+                  bind.hasUnit && !bind.constraintHorizon.isEmpty() ? bind.constraintHorizon : horizon;
               if (m_taskSvc)
               {
                 for (PaleoTask *t : m_taskSvc->tasks())
@@ -73,14 +79,14 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
               if (!m_taskSvc)
               {
                 QString err;
-                if (!pred->runPrediction(horizon, algId, params, &err))
+                if (!pred->runPrediction(dataHorizon, algId, runParams, &err))
                   logFail(tr("预测失败：%1")
                               .arg(err.isEmpty() ? tr("未知原因") : err));
                 return;
               }
               auto job = std::make_shared<PredictionWorkflow::PredictionJob>();
               QString prepErr;
-              if (!pred->preparePredictionJob(horizon, algId, params, job.get(), &prepErr))
+              if (!pred->preparePredictionJob(dataHorizon, algId, runParams, job.get(), &prepErr))
               {
                 logFail(tr("预测失败：%1")
                             .arg(prepErr.isEmpty() ? tr("参数准备失败") : prepErr));
@@ -88,7 +94,7 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
               }
               predictPage->setRunBusy(true);
               PaleoTask *task = m_taskSvc->start(
-                  tr("预测 %1 · %2").arg(horizon, algId),
+                  tr("预测 %1 · %2").arg(bind.hasUnit ? bind.unit.displayName : dataHorizon, algId),
                   [pred, job](PaleoTask *t) -> QString {
                     job->isCancelled = [t]() -> bool { return t ? t->cancelRequested() : false; };
                     if (pred->computePredictionJob(job.get()))

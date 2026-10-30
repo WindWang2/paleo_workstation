@@ -75,9 +75,10 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"StratigraphyPage", "stratigraphyStatus", QT_TRANSLATE_NOOP("PaleoWhatsThis", "显示界面计算、模板划分与版本保存的状态，以及需复核的来源和约定问题。"), nullptr},
 
     // ---- 智能预测页 ----
-    {"PredictPage", "predictTypeCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择预测类型：沉积相、地震相或测井相。"), nullptr},
-    {"PredictPage", "algoCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择预测算法；下方参数区按所选算法重建。"), nullptr},
-    {"PredictPage", "runButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按当前类型、算法与参数运行预测。"), nullptr},
+    {"PredictPage", "predictTypeCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "沉积相 / 地震相 / 测井相。地震相切片预测与层段综合分列；测井相走井面板，砂地比等单因素按子层段深度窗。"), nullptr},
+
+    {"PredictPage", "horizonCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "历史层位下拉（兼容）。层段分析优先用画布父单元→S1–S4；成果身份为 SubIntervalId。"), nullptr},    {"PredictPage", "algoCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择预测算法；下方参数区按所选算法重建。"), nullptr},
+    {"PredictPage", "runButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按层段分析选择（父单元/S1–S4）或层位下拉运行；成果登记 Data Service，可供编图证据拉取。"), nullptr},
     {"PredictPage", "cancelRunButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "取消正在运行的预测。"), nullptr},
     {"PredictPage", "historyList", QT_TRANSLATE_NOOP("PaleoWhatsThis", "当前层位的历史预测结果；点行内「显示」可在地图上查看。"), nullptr},
     {"PredictPage", "mamclButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "启动独立的地震多属性智能分析程序（MAMCL）；首次启动会自动准备 Python 环境。"), nullptr},

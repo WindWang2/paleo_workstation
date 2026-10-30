@@ -29,6 +29,7 @@ struct UnitSelection
   QString intervalId;
   QString subIntervalId; // aggregate=false 时必填
   bool aggregate = false; // true = 父单元显式派生综合（不是任何单一子层段）
+  int subIndex = 0;       // 0=综合；1..4 = S1..S4
   QString displayName;   // 仅用于显示，不参与身份
   // 父单元上下界面名（由方案派生写入，禁止调用方自行拆分显示名）。
   // 仅作历史图层键桥接（constraints.<top>）；身份仍是 intervalId/subIntervalId。
@@ -44,7 +45,8 @@ struct UnitSelection
   bool operator==( const UnitSelection &o ) const
   {
     return schemeId == o.schemeId && revision == o.revision && intervalId == o.intervalId &&
-           subIntervalId == o.subIntervalId && aggregate == o.aggregate;
+           subIntervalId == o.subIntervalId && aggregate == o.aggregate &&
+           subIndex == o.subIndex;
   }
 };
 

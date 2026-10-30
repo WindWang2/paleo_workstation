@@ -90,6 +90,8 @@ QVariantMap toMap( const UnitSelection &selection )
   if ( !selection.aggregate )
     m.insert( QStringLiteral( "subIntervalId" ), selection.subIntervalId );
   m.insert( QStringLiteral( "aggregate" ), selection.aggregate );
+  if ( selection.subIndex > 0 )
+    m.insert( QStringLiteral( "subIndex" ), selection.subIndex );
   if ( !selection.displayName.isEmpty() )
     m.insert( QStringLiteral( "displayName" ), selection.displayName );
   if ( !selection.topBoundary.isEmpty() )
@@ -107,6 +109,7 @@ UnitSelection fromMap( const QVariantMap &map )
   s.intervalId = map.value( QStringLiteral( "intervalId" ) ).toString();
   s.subIntervalId = map.value( QStringLiteral( "subIntervalId" ) ).toString();
   s.aggregate = map.value( QStringLiteral( "aggregate" ) ).toBool();
+  s.subIndex = map.value( QStringLiteral( "subIndex" ) ).toInt();
   s.displayName = map.value( QStringLiteral( "displayName" ) ).toString();
   s.topBoundary = map.value( QStringLiteral( "topBoundary" ) ).toString();
   s.bottomBoundary = map.value( QStringLiteral( "bottomBoundary" ) ).toString();

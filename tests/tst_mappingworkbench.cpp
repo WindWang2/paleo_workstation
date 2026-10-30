@@ -4571,8 +4571,17 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
     const auto raster = f.latest("seismic_prediction");
     QVERIFY(!raster.isEmpty());
+    // #824：地震相预测后自动转面；比对取本层位最新地震侧成果 = 该栅格派生的相面。
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.polygonizeBusy(), 60000);
+    const auto autoPolygons = f.latest("facies_polygons");
+    QVERIFY(!autoPolygons.isEmpty());
+    QCOMPARE(f.work.versionForLayer(autoPolygons).extra.value("source_layer").toString(), raster);
     error.clear();
-    const auto report = f.work.faciesConsistency(wells, &error);
+    const auto latestSide = f.work.faciesConsistency(wells, &error); // 缺省对侧 = 最新地震侧成果
+    QVERIFY2(!latestSide.isEmpty(), qPrintable(error));
+    QCOMPARE(latestSide.value("seismic_layer").toString(), autoPolygons);
+    error.clear(); // 栅格取样口径：显式指定该相栅格为对侧，以下断言与 #824 前同强度
+    const auto report = f.work.faciesConsistency(wells, &error, raster);
     QVERIFY2(!report.isEmpty(), qPrintable(error));
     QCOMPARE(report.value("well_layer").toString(), wells);
     QCOMPARE(report.value("seismic_layer").toString(), raster);
@@ -4802,13 +4811,19 @@ private slots:
     QVERIFY2(f.work.predict("D61", "seismic", {input}, &error),
              qPrintable(error));
     QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.polygonizeBusy(), 60000); // #824 自动转面收尾
     QCOMPARE(errors.count(), 0);
     const auto rasterId = f.latest("seismic_prediction");
     QVERIFY(!rasterId.isEmpty());
     // #421：productReady spy 落地断言（原为死 spy——信号丢失无人察觉）。
-    QCOMPARE(ready.count(), 1);
+    // #824：恰好两次——先相栅格，再由它自动转出的相面。
+    QCOMPARE(ready.count(), 2);
     QCOMPARE(ready.first().at(0).toString(), QString("D61"));
     QCOMPARE(ready.first().at(1).toString(), rasterId);
+    QCOMPARE(ready.at(1).at(0).toString(), QString("D61"));
+    const auto autoPolygons = ready.at(1).at(1).toString();
+    QCOMPARE(f.work.versionForLayer(autoPolygons).extra.value("kind").toString(), QString("facies_polygons"));
+    QCOMPARE(f.work.versionForLayer(autoPolygons).extra.value("source_layer").toString(), rasterId);
     auto v = f.work.versionForLayer(rasterId);
     QVERIFY(v.parentVersionIds.contains(f.catalog.currentVersion(input).id));
     QVERIFY(v.extra.value("mock").toBool());
@@ -4898,6 +4913,8 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
     const auto rasterId = f.latest("seismic_prediction");
     QVERIFY(!rasterId.isEmpty());
+    // #824：预测后自动转面占着单一转面槽；等它收尾再验证手动后台转面。
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.polygonizeBusy(), 60000);
     QSignalSpy done(&f.work, &MappingWorkbench::polygonizeFinished);
     const int before = tasks.tasks().size();
     QVERIFY2(f.work.startPolygonize(rasterId, &error), qPrintable(error));

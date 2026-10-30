@@ -7,6 +7,7 @@
 #include "domain/litholexicon.h"
 #include "domain/mappinghorizons.h"
 #include "domain/subintervalfacies.h"
+#include "services/subintervalfactors.h"
 #include "domain/stratigraphicunit.h"
 #include "domain/singlefactorstrategy.h"
 #include "services/projectdata.h"
@@ -302,6 +303,7 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     row.thicknessReason = ConstraintWorkflow::tr("缺少顶/底分层 MD（%1→%2）").arg(effectiveTopName, effectiveBaseName);
     row.sandReason = row.thicknessReason;
     if (std::isfinite(top) && std::isfinite(base) && base > top) {
+      const double parentTop = top, parentBase = base;
       if (unitSel.isValid() && !unitSel.aggregate && unitSel.subIndex >= 1 && unitSel.subIndex <= 4) {
         double st = top, sb = base;
         if (paleo::strat::provisionalSubRange(top, base, unitSel.subIndex, &st, &sb)) {
@@ -309,6 +311,10 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
           base = sb;
           row.provenance.insert(QStringLiteral("subIntervalId"), unitSel.subIntervalId);
           row.provenance.insert(QStringLiteral("subIndex"), unitSel.subIndex);
+          row.provenance.insert(QStringLiteral("windowTopMd"), top);
+          row.provenance.insert(QStringLiteral("windowBottomMd"), base);
+          row.provenance.insert(QStringLiteral("parentTopMd"), parentTop);
+          row.provenance.insert(QStringLiteral("parentBottomMd"), parentBase);
         }
       }
       if (!row.maintainedThickness) row.attributes.insert(layerThickness, base - top);
@@ -880,6 +886,14 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
     }
     m_wellFactorRows = result->rows;
     m_wellFactorMessage = result->message + tr(" 井点结果已保存为 v%1。").arg(st.versionNumber);
+    // 砂地比（及相关单因素）：提取成功后自动写入 DS 单因素/井相绑定。
+    if (factorId == QLatin1String("sandratio")) {
+      const auto unitSel = paleo::strat::fromMap(params.value(QStringLiteral("unitSelection")).toMap());
+      const auto bind = paleo::strat::autoBindSandRatioExtraction(
+          projectDir(), unitSel, result->rows, id);
+      if (!bind.message.isEmpty())
+        m_wellFactorMessage += QLatin1Char(' ') + bind.message;
+    }
     m_preparedWellFactors = {{"horizon", horizon},
                              {"factor_id", factorId},
                              {"params", extractionParams(params)},

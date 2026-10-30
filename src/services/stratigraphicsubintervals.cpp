@@ -81,11 +81,17 @@ UnitSelection makeSelection( const StratigraphicScheme &scheme, const QString &i
 {
   UnitSelection sel;
   const paleo::data::IntervalId iid{ intervalId.toStdString() };
-  if ( !fw::findInterval( scheme, iid ) || subIndex < 0 || subIndex > kSubIntervalCount )
+  const auto *iv = fw::findInterval( scheme, iid );
+  if ( !iv || subIndex < 0 || subIndex > kSubIntervalCount )
     return sel;
   sel.schemeId = QString::fromStdString( scheme.id );
   sel.revision = QString::fromStdString( scheme.revision.value );
   sel.intervalId = intervalId;
+  // 上下界面从方案边界表派生写入，禁止调用方拆分显示名。
+  if ( const auto *top = fw::findBoundary( scheme, iv->top ) )
+    sel.topBoundary = QString::fromStdString( top->name );
+  if ( const auto *bot = fw::findBoundary( scheme, iv->bottom ) )
+    sel.bottomBoundary = QString::fromStdString( bot->name );
   if ( subIndex == 0 )
   {
     sel.aggregate = true;

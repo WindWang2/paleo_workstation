@@ -419,9 +419,16 @@ void GeostatWorkflowTests::geographicWellsAreRejected()
   params2.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
   params2.insert( QStringLiteral( "cellSize" ), 2.0 );
   params2.insert( QStringLiteral( "method" ), QStringLiteral( "kriging" ) );
-  QVERIFY2( !wf2.generateFactor( QStringLiteral( "NOSRS" ), QStringLiteral( "sandthick" ), params2, &err2 ),
-            "no-SRS wells must be refused by geostat compute" );
-  QVERIFY2( err2.contains( QStringLiteral( "坐标系" ) ), qPrintable( err2 ) );
+  // #822 口径：缺坐标系井层回落 EPSG:32650（米制投影）后可参与地统计；
+  // 上方地理坐标（4326）井层仍被拒收。
+  QVERIFY2( wf2.generateFactor( QStringLiteral( "NOSRS" ), QStringLiteral( "sandthick" ), params2, &err2 ),
+            qPrintable( err2 ) );
+  QVERIFY2( err2.isEmpty(), qPrintable( err2 ) );
+  QVERIFY2( hasDeclaredLayer( f.layers, QStringLiteral( "factor.NOSRS.sandthick" ) ), "fallback-CRS factor must be declared" );
+  auto *nosrsFactor = f.layers.instantiate( QStringLiteral( "factor.NOSRS.sandthick" ), &err2 );
+  QVERIFY2( nosrsFactor, qPrintable( err2 ) );
+  QCOMPARE( nosrsFactor->crs().authid(), QStringLiteral( "EPSG:32650" ) ); // 产物沿用回落 CRS，非地理
+  QVERIFY( !nosrsFactor->crs().isGeographic() );
 }
 
 int main( int argc, char *argv[] )

@@ -76,6 +76,7 @@ struct ConstraintWorkflow::GeostatJob
   QString field;
   double cellSize = 1.0;
   QString wellUri;
+  QString wellCrsFallbackWkt; // #822：井源缺 CRS 时沿用图层服务回落的 CRS（主线程物化时取）
   QStringList parentPaths;
   QVariantMap params;
   QString outputPath;

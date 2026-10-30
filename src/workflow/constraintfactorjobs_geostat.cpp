@@ -221,6 +221,10 @@ bool sampleGeostatWells( ConstraintWorkflow::GeostatJob *job,
   // P2（pr457-closure）：地统计距离/变差函数/网格间距全按米制口径——经纬度
   // 坐标下把角度当米会得出错误的空间结构与估值。与 local_direction /
   // structural 引擎同口径明确拒绝（提示先投影），不静默执行。
+  // #822：缺 CRS 回落与图层服务同口径（EPSG:32650 或 georeference 声明）；
+  // 回落后仍须通过下方「非地理坐标」检查。
+  if ( !wells->crs().isValid() && !job->wellCrsFallbackWkt.isEmpty() )
+    wells->setCrs( QgsCoordinateReferenceSystem::fromWkt( job->wellCrsFallbackWkt ) );
   if ( !wells->crs().isValid() )
   {
     job->error = ConstraintWorkflow::tr( "井点图层没有可识别的坐标系：距离/变差函数的单位无法核实，"
@@ -277,7 +281,7 @@ bool sampleGeostatWells( ConstraintWorkflow::GeostatJob *job,
     supportingWells << observation;
     samples.push_back(paleo::geostat::Sample{point.x(), point.y(), z});
   }
-  crs = wells->sourceCrs();
+  crs = wells->crs();
   if ( samples.empty() )
   {
     job->error = ConstraintWorkflow::tr( "井点图层没有可用样本（字段 %1）" ).arg( job->field );
@@ -1099,6 +1103,14 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
   {
     paleo::workflow_detail::setError( error, tr( "井点图层 %1 没有数据源" ).arg( pointsId ) );
     return false;
+  }
+  {
+    QString crsErr;
+    QgsMapLayer *declaredWells = layers->layer( pointsId );
+    if ( !declaredWells )
+      declaredWells = layers->instantiate( pointsId, &crsErr );
+    if ( declaredWells && declaredWells->crs().isValid() )
+      job->wellCrsFallbackWkt = declaredWells->crs().toWkt();
   }
   job->parentPaths << job->wellUri.section( QLatin1Char( '|' ), 0, 0 );
   job->params.insert("well_input_version_ids", DerivedAssetRegistrar(m_catalog, m_projectDir).parentVersionIdsFor(job->parentPaths));

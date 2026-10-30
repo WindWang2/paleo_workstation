@@ -108,7 +108,7 @@ private slots:
         b.subInterval.value = sel.subIntervalId.toStdString();
         b.aggregate = sel.aggregate;
         b.wellId = well;
-        b.cacheKey = cacheKey( sel, QString::fromStdString( fw::subIntervalFingerprint( head, b.subInterval ) ), "p" ).toStdString();
+        b.assetRef = cacheKey( sel, QString::fromStdString( fw::subIntervalFingerprint( head, b.subInterval ) ), "p" ).toStdString();
         QVERIFY2( ds.bindSubIntervalResult( b, out, err ), err.c_str() );
       };
       bind( "well_facies", s2, 1 );

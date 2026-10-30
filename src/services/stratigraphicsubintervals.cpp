@@ -93,6 +93,8 @@ UnitSelection makeSelection( const StratigraphicScheme &scheme, const QString &i
     return sel;
   }
   const auto subs = fw::subIntervalsOf( scheme, iid );
+  if ( static_cast<int>( subs.size() ) < subIndex )
+    return UnitSelection{}; // 方案未派生完整四子层段：不给出半成品选择
   sel.subIntervalId = QString::fromStdString( subs.at( subIndex - 1 )->id.value );
   sel.displayName = QString::fromStdString( fw::displayName( scheme, subs.at( subIndex - 1 )->id ) );
   return sel;

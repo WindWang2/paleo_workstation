@@ -22,6 +22,12 @@ class PredictPage : public QWidget
     PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidget *parent = nullptr);
     void setHorizons(const QStringList &horizons);
     void setAlgorithms(const QStringList &algIds);
+    // 壳在 activeUnitChanged 时刷新（同父单元切 S1–S4 时 combo 不变）。
+    void refreshHistory();                             // historyList ← manifest 当前分析键声明
+    // 预测专项 P0：准备检查（predictReadinessLabel + runButton 可用性/原因）。
+    // 只判页面真实掌握的事实（层段选择/算法/类型/运行库/输入映射），数据级校验
+    // 仍由 workflow 在运行时做——不另立一套与推理不一致的规则。
+    void updateReadiness();
 
   public slots:
     // m2(A) 任务化运行：busy=true → 运行禁用（带 reason tooltip）+ 取消按钮
@@ -52,11 +58,6 @@ class PredictPage : public QWidget
     QVariantMap parseInputParams();                    // onnx:* 三控件（行为不变）
     void rebuildSchemaForm();                          // paramsFormArea 按算法 schema 重建
     bool collectSchemaParams(QVariantMap *out);        // schema 控件 → QVariantMap
-    void refreshHistory();                             // historyList ← manifest 当前层位声明
-    // 预测专项 P0：准备检查（predictReadinessLabel + runButton 可用性/原因）。
-    // 只判页面真实掌握的事实（层位/算法/类型/运行库/输入映射），数据级校验
-    // 仍由 workflow 在运行时做——不另立一套与推理不一致的规则。
-    void updateReadiness();
     void setOnnxAdvancedExpanded(bool expanded);
     void setupSeismicMaskChrome(QVBoxLayout *lay);
     void syncSeismicMaskChrome();

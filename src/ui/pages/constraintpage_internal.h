@@ -5,14 +5,18 @@
 // 解析助手与本页动态属性键，不含业务。
 #pragma once
 
+#include <QComboBox>
 #include <QLabel>
 #include <QRegularExpression>
 #include <QString>
 #include <QTableWidget>
+#include <QVariant>
 #include <QVector>
 #include <QVBoxLayout>
 
 #include "../paleotheme.h"
+#include "../../domain/stratigraphicunit.h"
+#include "../../linkage/selectioncontext.h"
 
 class QWidget;
 
@@ -130,6 +134,39 @@ inline void appendMovedItem(QVBoxLayout *target, QLayoutItem *item)
   }
   else
     target->addItem(item);
+}
+
+
+// 分析成果键：已接线 paleo.selection 时只认 UnitSelection（无效→空）；
+// 无接线时才回落 combo（测试壳）。combo 永不在生产路径驱动分析键。
+inline QString pageAnalysisKey( const QWidget *page, const QComboBox *horizons )
+{
+  const QString legacy = horizons ? horizons->currentText() : QString();
+  if ( !page )
+    return legacy;
+  if ( auto *sel = qobject_cast<SelectionContext *>(
+           page->property( "paleo.selection" ).value<QObject *>() ) )
+    return paleo::strat::analysisLayerKey( sel->activeUnit() );
+  return legacy;
+}
+
+// 界面编辑用层位（constraints.<top> / 井点归档）：有单元取 topBoundary，否则 combo/legacy。
+inline QString pageEditHorizon( const QWidget *page, const QComboBox *horizons )
+{
+  const QString legacy = horizons ? horizons->currentText() : QString();
+  if ( !page )
+    return legacy;
+  if ( auto *sel = qobject_cast<SelectionContext *>(
+           page->property( "paleo.selection" ).value<QObject *>() ) )
+  {
+    const auto u = sel->activeUnit();
+    if ( u.isValid() && !u.topBoundary.isEmpty() )
+      return u.topBoundary;
+    if ( u.isValid() )
+      return paleo::strat::analysisLayerKey( u );
+    return QString(); // 已接线但未选定 → 不回落 combo
+  }
+  return legacy;
 }
 
 } // namespace paleo::constraintpage_internal

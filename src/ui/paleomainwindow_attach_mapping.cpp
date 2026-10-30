@@ -229,15 +229,17 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
   connect(composePage, &ComposePage::thicknessChainRequested, this,
           [this, mapping, analysisBind, status]() {
             const auto bind = analysisBind();
-            const QString h = bind.analysisKey;
-            if (h.isEmpty())
+            if (!bind.hasUnit || bind.analysisKey.isEmpty())
             {
-              status(tr("先在顶部选择层位或层段（本阶段目标 %1）")
+              status(tr("厚度链须先在顶部层段选择器选定子层段（本阶段标定目标 %1）")
                          .arg(AreaRules::active().targetHorizon));
               return;
             }
+            // 几何仍按父单元上界面；发布行挂稳定 SubIntervalId（publishIdentity）。
+            const QString geom =
+                !bind.constraintHorizon.isEmpty() ? bind.constraintHorizon : bind.analysisKey;
             QString err;
-            if (!mapping->startThicknessChain(h, &err))
+            if (!mapping->startThicknessChain(geom, &err, bind.publishIdentity()))
               QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
           });
 
@@ -250,8 +252,11 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
   // 层位图 PDF（阶段C+E）：导出 → catalog OUTPUT 资产登记 → 布局产物记录 →
   // 发布门重算。失败弹「导出失败 + 原因 + 重试」；成功弹路径 + SHA-256。
   connect(composePage, &ComposePage::exportPdfRequested, this,
-          [this, versionStore, catalog, activeHorizon, status]() {
-    const auto horizon = activeHorizon();
+          [this, versionStore, catalog, activeHorizon, analysisBind, status]() {
+    const auto bind = analysisBind();
+    // 发布上下文优先挂稳定 SubIntervalId；无单元时仍可用界面标签作 legacy 显示。
+    const auto horizon = !bind.analysisKey.isEmpty() ? bind.analysisKey : activeHorizon();
+    const auto publishId = bind.publishIdentity();
     auto *canvas = m_canvasCtl ? m_canvasCtl->canvas() : nullptr;
     if (!canvas || !m_projectSvc || !m_projectSvc->project() || !catalog || !catalog->isOpen()) {
       status(tr("请先打开工程并选择地图")); return;
@@ -320,6 +325,8 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
     request.context = {{"project", project->title()}, {"horizon", horizon},
         {"map_version", settings.version}, {"scope", "current_visible_saved_layers"},
         {"unbound_layers", unbound}, {"validation", "unverified"}};
+    for (auto it = publishId.constBegin(); it != publishId.constEnd(); ++it)
+      request.context.insert(it.key(), it.value());
     QString error;
     auto *task = PaleoGeologicalExport::start(dialog.layout(), catalog, m_taskSvc, request, this,
         [this, versionStore, status, horizon](const PaleoGeologicalExport::Result &result) {

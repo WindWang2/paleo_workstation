@@ -9,6 +9,7 @@
 #include "../workflow/workflows.h"
 #include "pages/pagepanels.h"
 #include "../linkage/unitselectionbridge.h"
+#include "../linkage/selectioncontext.h"
 #include "../services/subintervalfactors.h"
 
 #include <qgsmapcanvas.h>
@@ -19,6 +20,7 @@
 #include <qgsmessagelog.h>
 
 #include <QLabel>
+#include <QVariant>
 #include <QStatusBar>
 #include <QDir>
 #include <QStandardPaths>
@@ -32,6 +34,17 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
 {
   if (pred && predictPage)
   {
+    // 分析就绪读 UnitSelection；页内 horizonCombo 仅 legacy，不可驱动分析。
+    if (m_selection)
+    {
+      predictPage->setProperty("paleo.selection",
+                               QVariant::fromValue(static_cast<QObject *>(m_selection)));
+      connect(m_selection, &SelectionContext::activeUnitChanged, predictPage,
+              [predictPage](const paleo::strat::UnitSelection &) {
+                predictPage->updateReadiness();
+                predictPage->refreshHistory();
+              });
+    }
     // 工程打开后 appcontext 已把 onnx 模型根重设到 <工程>/models——算法
     // 列表随之刷新（未装模型 → 页面如实降级文案）。projectSvc 为空的装配
     // （测试壳传 nullptr）不连，否则 Qt 只打「Cannot connect (null)」告警、
@@ -58,11 +71,17 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                   status->setText(msg);
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::Critical);
               };
-              // 层段分析：优先 activeUnit；输入栅格仍按父单元上界面取，成果身份走 subIntervalId。
-              const auto bind = paleo::strat::bindAnalysis(m_selection, horizon);
+              // 层段分析：只认 UnitSelection；页内 horizon 字符串不可驱动分析键。
+              Q_UNUSED(horizon);
+              const auto bind = paleo::strat::bindAnalysis(m_selection);
+              if (!bind.hasUnit || bind.analysisKey.isEmpty())
+              {
+                logFail(tr("分析须先在顶部层段选择器选定子层段；层位下拉不可驱动分析"));
+                return;
+              }
               const QVariantMap runParams = bind.enrich(params);
               const QString dataHorizon =
-                  bind.hasUnit && !bind.constraintHorizon.isEmpty() ? bind.constraintHorizon : horizon;
+                  !bind.constraintHorizon.isEmpty() ? bind.constraintHorizon : bind.analysisKey;
               if (m_taskSvc)
               {
                 for (PaleoTask *t : m_taskSvc->tasks())

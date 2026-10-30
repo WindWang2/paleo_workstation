@@ -8,6 +8,8 @@
 #endif
 
 #include "pageshared.h"
+#include "../../linkage/selectioncontext.h"
+#include "../../domain/stratigraphicunit.h"
 
 #include "../../ai/onnxpredictionservice.h" // ORT-free header; runtimeAvailable 调用受 PALEO_HAVE_ORT 保护
 #include "../../domain/arearules.h"
@@ -51,7 +53,7 @@ void applySubIntervalAnalysisTips(QComboBox *types, QComboBox *horizons, QPushBu
   }
   if (run)
   {
-    const QString tip = PredictPage::tr("按当前层段分析选择（或层位下拉）运行预测；"
+    const QString tip = PredictPage::tr("按顶部层段选择器（UnitSelection）运行预测；层位下拉仅 legacy，不可驱动分析。"
                                         "中间与最终结果登记到 Data Service，可供编图证据拉取。");
     run->setToolTip(QString());
     run->setStatusTip(tip);
@@ -795,7 +797,15 @@ void PredictPage::updateReadiness()
               "本页用于沉积相 / 地震相。层段分析请用画布父单元→S1–S4；"
               "砂地比等单因素在约束页按子层段深度窗提取");
   }
-  else if (horizon.isEmpty())
+  else if (auto *sel = qobject_cast<SelectionContext *>(
+               property("paleo.selection").value<QObject *>());
+           sel && !sel->activeUnit().isValid())
+  {
+    ready = false;
+    text = tr("不可运行：请先在顶部层段选择器选定子层段（S1–S4 或父单元综合）；"
+              "层位下拉仅 legacy，不可驱动分析");
+  }
+  else if (!property("paleo.selection").isValid() && horizon.isEmpty())
   {
     ready = false;
     text = tr("不可运行：工程中没有可用层位。请先在「数据管理」导入层位或井分层");
@@ -819,8 +829,17 @@ void PredictPage::updateReadiness()
   }
   else
   {
-    text = tr("可运行：层位 %1 · 算法 %2（输入图层与数据在运行时再次校验）")
-               .arg(horizon, algText);
+    QString unitLabel = horizon;
+    if (auto *sel = qobject_cast<SelectionContext *>(
+            property("paleo.selection").value<QObject *>()))
+    {
+      const auto u = sel->activeUnit();
+      if (u.isValid())
+        unitLabel = !u.displayName.isEmpty() ? u.displayName
+                    : (!u.subIntervalId.isEmpty() ? u.subIntervalId : u.intervalId);
+    }
+    text = tr("可运行：层段 %1 · 算法 %2（输入图层与数据在运行时再次校验）")
+               .arg(unitLabel, algText);
   }
   label->setText(text);
   if (jump)
@@ -872,7 +891,17 @@ void PredictPage::refreshHistory()
   if (!layers || !horizons)
     return; // 未绑定图层服务（如测试桩）→ 空清单
 
-  const QString horizon = horizons->currentText();
+  // 历史清单按分析键过滤；已接线 selection 时只认 UnitSelection（无效→空，不回落 combo）。
+  QString horizon;
+  if (auto *sel = qobject_cast<SelectionContext *>(
+          property("paleo.selection").value<QObject *>()))
+  {
+    const auto u = sel->activeUnit();
+    if (u.isValid())
+      horizon = paleo::strat::analysisLayerKey(u);
+  }
+  else
+    horizon = horizons->currentText(); // 无 selection 接线的测试壳
   // 兼容清单收口到词表权威（主线1）：02_Prediction 家族 = canonical + 旧名。
   const QStringList predictGroups = PaleoLayerVocabulary::groupFamily(
       QStringLiteral("02_Prediction"));

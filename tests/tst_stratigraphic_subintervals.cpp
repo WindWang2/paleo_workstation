@@ -8,6 +8,7 @@
 #include "../src/domain/mappinghorizons.h"
 #include "../src/domain/stratigraphicunit.h"
 #include "../src/services/stratigraphicsubintervals.h"
+#include "../src/linkage/unitselectionbridge.h"
 
 namespace fw = paleo::data::framework;
 using namespace paleo::strat;
@@ -39,6 +40,26 @@ private slots:
     QVERIFY( requiresSubInterval( "single_factor" ) && requiresSubInterval( "map" ) );
     // 工程默认界面名单由参数决定，mappingHorizons 仍可用（标定/历史兼容）
     QVERIFY( adjacentIntervals( mappingHorizons() ).size() == std::max<qsizetype>( 0, mappingHorizons().size() - 1 ) );
+  }
+
+  
+  void bridgePackingAndTopBottom()
+  {
+    using namespace paleo::strat;
+    qRegisterMetaType<UnitSelection>();
+    const QStringList bounds{ QStringLiteral( "T70" ), QStringLiteral( "T71" ), QStringLiteral( "T72" ) };
+    const auto scheme = draftScheme( QStringLiteral( "project-default" ), QStringLiteral( "t" ), bounds, {} );
+    const auto opts = selectorOptions( scheme );
+    QVERIFY( opts.size() >= 1 );
+    const UnitSelection s2 = makeSelection( scheme, opts.at( 0 ).intervalId, 2 );
+    QVERIFY( s2.isValid() );
+    QCOMPARE( s2.topBoundary, QStringLiteral( "T70" ) );
+    QCOMPARE( s2.bottomBoundary, QStringLiteral( "T71" ) );
+    const QVariantMap m = toMap( s2 );
+    QVERIFY( m.contains( QStringLiteral( "subIntervalId" ) ) );
+    QCOMPARE( fromMap( m ), s2 );
+    QCOMPARE( analysisLayerKey( s2 ), layerToken( s2 ) );
+    QCOMPARE( analysisLayerKey( {}, QStringLiteral( "T70" ) ), QStringLiteral( "T70" ) );
   }
 
   void endToEnd()

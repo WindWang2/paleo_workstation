@@ -443,4 +443,125 @@ bool openProjectDataService( const QString &projectDir, paleo::data::DataService
   return true;
 }
 
+QVector<SchemeChoice> listProjectSchemes( paleo::data::DataService &ds, QString *error )
+{
+  QVector<SchemeChoice> out;
+  std::vector<paleo::data::StratigraphicSchemeSummary> rows;
+  std::string err;
+  if ( !ds.listStratigraphicSchemes( rows, err ) )
+  {
+    if ( error )
+      *error = QStringLiteral( "列举地层方案失败：%1" ).arg( QString::fromStdString( err ) );
+    return out;
+  }
+  out.reserve( static_cast<int>( rows.size() ) );
+  for ( const auto &r : rows )
+  {
+    SchemeChoice c;
+    c.id = QString::fromStdString( r.id );
+    c.name = QString::fromStdString( r.name );
+    c.headRevision = QString::fromStdString( r.headRevision.value );
+    out.push_back( c );
+  }
+  return out;
+}
+
+QVector<SchemeRevisionChoice> listProjectSchemeRevisions( paleo::data::DataService &ds, const QString &schemeId,
+                                                          QString *error )
+{
+  QVector<SchemeRevisionChoice> out;
+  std::vector<paleo::data::StratigraphicSchemeRevisionSummary> rows;
+  std::string err;
+  if ( !ds.listStratigraphicSchemeRevisions( schemeId.toStdString(), rows, err ) )
+  {
+    if ( error )
+      *error = QStringLiteral( "列举方案修订失败：%1" ).arg( QString::fromStdString( err ) );
+    return out;
+  }
+  out.reserve( static_cast<int>( rows.size() ) );
+  for ( const auto &r : rows )
+  {
+    SchemeRevisionChoice c;
+    c.revision = QString::fromStdString( r.revision.value );
+    c.parentRevision = QString::fromStdString( r.parentRevision.value );
+    c.created = QString::fromStdString( r.created );
+    c.author = QString::fromStdString( r.author );
+    c.note = QString::fromStdString( r.note );
+    out.push_back( c );
+  }
+  return out;
+}
+
+bool loadProjectScheme( paleo::data::DataService &ds, const QString &schemeId, const QString &revision,
+                        paleo::data::StratigraphicScheme &out, QString *error )
+{
+  std::string err;
+  if ( !ds.readStratigraphicScheme( schemeId.toStdString(), revision.toStdString(), out, err ) )
+  {
+    if ( error )
+      *error = QStringLiteral( "读取地层方案失败：%1" ).arg( QString::fromStdString( err ) );
+    return false;
+  }
+  return true;
+}
+
+bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeId, const QString &revision,
+                               paleo::data::StratigraphicScheme &out,
+                               std::vector<paleo::data::SubIntervalResultBinding> *bindings, QString *error )
+{
+  paleo::data::DataService ds;
+  if ( !openProjectDataService( projectDir, ds, error ) )
+    return false;
+  QString sid = schemeId;
+  QString rev = revision;
+  if ( sid.isEmpty() )
+  {
+    QString listErr;
+    const auto schemes = listProjectSchemes( ds, &listErr );
+    if ( schemes.isEmpty() )
+    {
+      if ( error )
+        *error = listErr.isEmpty() ? QStringLiteral( "工程尚无地层方案" ) : listErr;
+      return false;
+    }
+    sid = schemes.first().id;
+    if ( rev.isEmpty() )
+      rev = schemes.first().headRevision;
+  }
+  if ( !loadProjectScheme( ds, sid, rev, out, error ) )
+    return false;
+  if ( bindings )
+  {
+    std::string err;
+    paleo::data::SubIntervalId empty;
+    if ( !ds.listSubIntervalResults( out.id, empty, *bindings, err ) && error && error->isEmpty() )
+      *error = QStringLiteral( "列举子层段成果失败：%1" ).arg( QString::fromStdString( err ) );
+    // 成果列举失败不阻断方案加载——红绿灯退化为仅 occurrence。
+  }
+  return true;
+}
+
+
+bool listProjectSchemesFromDir( const QString &projectDir, QVector<SchemeChoice> &out, QString *error )
+{
+  out.clear();
+  paleo::data::DataService ds;
+  if ( !openProjectDataService( projectDir, ds, error ) )
+    return false;
+  out = listProjectSchemes( ds, error );
+  return !out.isEmpty() || ( error && error->isEmpty() );
+}
+
+bool listProjectSchemeRevisionsFromDir( const QString &projectDir, const QString &schemeId,
+                                        QVector<SchemeRevisionChoice> &out, QString *error )
+{
+  out.clear();
+  paleo::data::DataService ds;
+  if ( !openProjectDataService( projectDir, ds, error ) )
+    return false;
+  out = listProjectSchemeRevisions( ds, schemeId, error );
+  return true;
+}
+
+
 } // namespace paleo::strat

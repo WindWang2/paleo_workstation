@@ -113,4 +113,39 @@ bool openProjectDataService( const QString &projectDir, paleo::data::DataService
 QVariantList evidenceRowsFromBindings( const std::vector<paleo::data::SubIntervalResultBinding> &bindings,
                                        const QStringList &kinds = {} );
 
+// 方案 / 修订目录（只读；供选择器写入 UnitSelection.schemeId/revision）。
+struct SchemeChoice
+{
+  QString id;
+  QString name;
+  QString headRevision;
+};
+struct SchemeRevisionChoice
+{
+  QString revision;
+  QString parentRevision;
+  QString created;
+  QString author;
+  QString note;
+};
+
+QVector<SchemeChoice> listProjectSchemes( paleo::data::DataService &ds, QString *error = nullptr );
+QVector<SchemeRevisionChoice> listProjectSchemeRevisions( paleo::data::DataService &ds, const QString &schemeId,
+                                                          QString *error = nullptr );
+bool loadProjectScheme( paleo::data::DataService &ds, const QString &schemeId, const QString &revision,
+                        paleo::data::StratigraphicScheme &out, QString *error = nullptr );
+
+// 打开工程 DS 后读取方案；可选拉全方案 bindings（展开红绿灯用）。
+// schemeId/revision 空 → 取第一个方案的头修订。无方案 → false。
+bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeId, const QString &revision,
+                               paleo::data::StratigraphicScheme &out,
+                               std::vector<paleo::data::SubIntervalResultBinding> *bindings = nullptr,
+                               QString *error = nullptr );
+
+
+bool listProjectSchemesFromDir( const QString &projectDir, QVector<SchemeChoice> &out, QString *error = nullptr );
+bool listProjectSchemeRevisionsFromDir( const QString &projectDir, const QString &schemeId,
+                                        QVector<SchemeRevisionChoice> &out, QString *error = nullptr );
+
+
 } // namespace paleo::strat

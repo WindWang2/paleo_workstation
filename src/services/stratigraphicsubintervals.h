@@ -4,6 +4,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <vector>
 
 #include "domain/stratigraphicunit.h"
 #include "paleo_data/stratigraphic_framework.h"
@@ -53,5 +54,25 @@ double wellSubIntervalMean( const paleo::data::StratigraphicScheme &scheme, qlon
 // 父单元显式综合（厚度加权）：任一子层段无值 → NaN 且 missing 列出缺失的 Sn。
 double aggregateInterval( const paleo::data::StratigraphicScheme &scheme, qlonglong wellId, const QString &intervalId,
                           const QHash<QString, double> &perSubValue, QStringList *missing = nullptr );
+
+// 父单元下各子层段的井出现 + 成果绑定就绪摘要（展开状态行 / 红绿灯）。
+// wellOccurrences 挂在 IntervalId；同一父单元四子层段共享井出现计数，
+// 再按 SubIntervalId 叠加 bindings（可用资料 / 受影响）。
+struct SubIntervalOccurrenceSummary
+{
+  QString subIntervalId;
+  QString label; // S1..S4
+  QString light; // green|yellow|red|gray
+  QString line;  // 一行中文（含灯号）
+  int wellsComplete = 0;
+  int wellsAffected = 0; // top_missing|not_penetrated|pinched_out|faulted
+  int wellsPending = 0;
+  int bindingsCurrent = 0;
+  int bindingsStale = 0; // stale|review_required
+};
+
+QVector<SubIntervalOccurrenceSummary> summarizeSubIntervalOccurrences(
+    const paleo::data::StratigraphicScheme &scheme, const QString &intervalId,
+    const std::vector<paleo::data::SubIntervalResultBinding> *bindings = nullptr );
 
 } // namespace paleo::strat

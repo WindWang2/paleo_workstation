@@ -169,4 +169,89 @@ double aggregateInterval( const StratigraphicScheme &scheme, qlonglong wellId, c
   return ( ok && total > 0 ) ? weighted / total : std::numeric_limits<double>::quiet_NaN();
 }
 
+QVector<SubIntervalOccurrenceSummary> summarizeSubIntervalOccurrences(
+    const StratigraphicScheme &scheme, const QString &intervalId,
+    const std::vector<paleo::data::SubIntervalResultBinding> *bindings )
+{
+  QVector<SubIntervalOccurrenceSummary> out;
+  const paleo::data::IntervalId iid{ intervalId.toStdString() };
+  int complete = 0, affected = 0, pending = 0;
+  for ( const auto &o : scheme.wellOccurrences )
+  {
+    if ( o.interval.value != iid.value )
+      continue;
+    const std::string &st = o.status;
+    if ( st == "complete" )
+      ++complete;
+    else if ( st == "pending" )
+      ++pending;
+    else
+      ++affected; // top_missing|not_penetrated|pinched_out|faulted|其他异常
+  }
+  const auto pickLight = [&]( int bindCurrent, int bindStale ) -> QString {
+    const int wells = complete + affected + pending;
+    if ( wells == 0 && bindCurrent == 0 && bindStale == 0 )
+      return QStringLiteral( "gray" );
+    if ( bindStale > 0 || ( wells > 0 && complete == 0 && pending == 0 ) )
+      return QStringLiteral( "red" );
+    if ( pending > 0 || affected > 0 || ( wells > 0 && complete < wells ) )
+      return QStringLiteral( "yellow" );
+    return QStringLiteral( "green" );
+  };
+  const auto lightTag = []( const QString &light ) -> QString {
+    if ( light == QLatin1String( "green" ) )
+      return QStringLiteral( "[绿]" );
+    if ( light == QLatin1String( "yellow" ) )
+      return QStringLiteral( "[黄]" );
+    if ( light == QLatin1String( "red" ) )
+      return QStringLiteral( "[红]" );
+    return QStringLiteral( "[灰]" );
+  };
+  for ( const auto *sub : fw::subIntervalsOf( scheme, iid ) )
+  {
+    SubIntervalOccurrenceSummary row;
+    row.subIntervalId = QString::fromStdString( sub->id.value );
+    row.label = QStringLiteral( "S%1" ).arg( sub->index );
+    row.wellsComplete = complete;
+    row.wellsAffected = affected;
+    row.wellsPending = pending;
+    if ( bindings )
+    {
+      for ( const auto &b : *bindings )
+      {
+        if ( b.subInterval.value != sub->id.value )
+          continue;
+        if ( b.status == "current" || b.status == "candidate" )
+          ++row.bindingsCurrent;
+        else if ( b.status == "stale" || b.status == "review_required" )
+          ++row.bindingsStale;
+        else if ( b.status == "legacy_unresolved" )
+          ++row.bindingsStale;
+      }
+    }
+    row.light = pickLight( row.bindingsCurrent, row.bindingsStale );
+    // 完整性 / 可用资料 / 受影响 —— 一行可读中文。
+    const int wells = complete + affected + pending;
+    QString completeness;
+    if ( wells == 0 )
+      completeness = QStringLiteral( "无井出现记录" );
+    else
+      completeness = QStringLiteral( "井出现 完整%1/受影响%2/待定%3" )
+                         .arg( complete )
+                         .arg( affected )
+                         .arg( pending );
+    const QString materials = row.bindingsCurrent > 0
+                                  ? QStringLiteral( "可用资料 %1" ).arg( row.bindingsCurrent )
+                                  : QStringLiteral( "暂无登记成果" );
+    const QString impact = row.bindingsStale > 0
+                               ? QStringLiteral( "受影响 %1" ).arg( row.bindingsStale )
+                               : QStringLiteral( "无失效成果" );
+    row.line = QStringLiteral( "%1 %2：%3；%4；%5 · ID %6" )
+                   .arg( lightTag( row.light ), row.label, completeness, materials, impact, row.subIntervalId );
+    out.push_back( row );
+  }
+  return out;
+}
+
+
 } // namespace paleo::strat

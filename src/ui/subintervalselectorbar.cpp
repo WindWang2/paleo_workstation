@@ -124,7 +124,7 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   setAccessibleName( tr( "层段分析选择" ) );
 
   auto *root = new QVBoxLayout( this );
-  // 与上方层位 chip 行同一水平内边距（spacingMd），纵向只留 spacingXs，不额外占高。
+  // 与上方界限/动览行同一水平内边距（spacingMd），纵向只留 spacingXs，不额外占高。
   const PaleoTheme::ThemeTokens &tk = PaleoTheme::tokens();
   root->setContentsMargins( tk.spacingMd, 0, tk.spacingMd, tk.spacingXs );
   root->setSpacing( tk.spacingXs );
@@ -138,7 +138,7 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_modeLabel = new QLabel( tr( "层段分析" ), row );
   m_modeLabel->setObjectName( QStringLiteral( "subIntervalModeLabel" ) );
   m_modeLabel->setToolTip( tr( "层段分析模式：选择方案/修订、父单元与 S1–S4；"
-                               "与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。" ) );
+                               "与「界限」切换（地震层位 = 地层界限，非地层单元）独立，不切换地图图层或中断编辑。" ) );
   {
     QFont f = m_modeLabel->font();
     f.setWeight( QFont::DemiBold );
@@ -237,7 +237,7 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_parent = new QComboBox( row );
   m_parent->setObjectName( QStringLiteral( "subIntervalParentCombo" ) );
   m_parent->setAccessibleName( tr( "父层间单元" ) );
-  m_parent->setToolTip( tr( "父层间单元（相邻两条界面，如 T70–T71）。"
+  m_parent->setToolTip( tr( "父层间单元（相邻两条界限，如 T70–T71）。"
                             "展开「状态」可查看四个子层段的井出现与成果红绿灯。" ) );
   m_parent->setMinimumContentsLength( 7 );
   m_parent->setSizeAdjustPolicy( QComboBox::AdjustToContents );
@@ -314,7 +314,7 @@ void SubIntervalSelectorBar::buildSubButtonGroup( QWidget *row, QHBoxLayout *lay
     btn->setCheckable( true );
     btn->setToolButtonStyle( Qt::ToolButtonTextOnly );
     btn->setToolTip( tr( "子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析"
-                         "按稳定子层段 ID 归属，不拆分界面名。" )
+                         "按稳定子层段 ID 归属，不拆分界限名。" )
                          .arg( i ) );
     btn->setStatusTip( tr( "分析层段：S%1" ).arg( i ) );
     styleSubButton( btn, i == 1 ? 1 : ( i == kSubIntervalCount ? 3 : 2 ) );
@@ -355,7 +355,7 @@ QStringList SubIntervalSelectorBar::subIntervalStatusLines() const
   QStringList lines;
   if ( m_scheme.intervals.empty() )
   {
-    lines << tr( "尚未加载界面名单——请先打开工程并确认层序界面。" );
+    lines << tr( "尚未加载界限名单——请先打开工程并确认层序界限。" );
     return lines;
   }
   const QString iid = m_parent && m_parent->currentIndex() >= 0
@@ -397,7 +397,7 @@ void SubIntervalSelectorBar::reloadFromBoundaries( const QStringList &orderedBou
   rebuildStatusPanel();
   setStatusText( readinessText() );
   if ( orderedBoundaries.size() < 2 )
-    emit readinessMessage( tr( "界面不足两条，无法构成父层间单元。请在工程参数中配置层序界面。" ) );
+    emit readinessMessage( tr( "界限不足两条，无法构成父层间单元。请在工程参数中配置层序界限。" ) );
 }
 
 void SubIntervalSelectorBar::reloadFromProject( const QString &projectDir,
@@ -757,7 +757,7 @@ void SubIntervalSelectorBar::rebuildStatusPanel()
   m_expandStatus->setText( statusPanelHtml() );
   m_expandStatus->setToolTip( m_fromDataService
                                   ? tr( "子层段红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。" )
-                                  : tr( "当前为工程草稿方案，井出现来自界面名单；打开含层段方案的工区后可切换修订。\n"
+                                  : tr( "当前为工程草稿方案，井出现来自界限名单；打开含层段方案的工区后可切换修订。\n"
                                         "红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。" ) );
 }
 
@@ -810,9 +810,9 @@ QString SubIntervalSelectorBar::statusPanelHtml() const
 QString SubIntervalSelectorBar::readinessText() const
 {
   if ( m_scheme.boundaries.empty() )
-    return tr( "未加载界面——打开工程后自动按层序界面生成父单元。" );
+    return tr( "未加载界限——打开工程后自动按层序界限生成父单元。" );
   if ( m_scheme.intervals.empty() )
-    return tr( "界面不足——至少需要两条相邻界面才能分析层段。" );
+    return tr( "界限不足——至少需要两条相邻界限才能分析层段。" );
   const QString schemeBit = m_fromDataService
                                 ? tr( "方案 %1 / 修订 %2" )
                                       .arg( QString::fromStdString( m_scheme.name ),

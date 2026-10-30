@@ -2115,7 +2115,16 @@ class TestUiShell : public QObject
       // 验证注入的远端替身——先切到「地震体 → 相栅格（预测服务）」。
       auto *kindBox=page->findChild<QComboBox *>("predictionKind");QVERIFY(kindBox);QVERIFY(kindBox->findData(QStringLiteral("seismic"))>=0);kindBox->setCurrentIndex(kindBox->findData(QStringLiteral("seismic")));
       auto *run=m_win->findChild<QAction *>("ribbonRunPrediction");QVERIFY(run && run->isEnabled());run->trigger();QVERIFY(m_ctx->mappingWorkbench()->busy());QVERIFY(!run->isEnabled());QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->busy(),5000);
-      const auto id=page->selectedLayer();QVERIFY(!id.isEmpty());auto *layer=m_ctx->layerSvc()->layer(id);QVERIFY(layer);QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(layer));QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),layer);
+      // #824：地震相预测成功后自动转面，选中随之落到相面成果（源为本次相栅格）。
+      const auto rasterId=page->selectedLayer();QVERIFY(!rasterId.isEmpty());
+      QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->polygonizeBusy(),60000);
+      const auto autoPoly=page->selectedLayer();QVERIFY(!autoPoly.isEmpty());QVERIFY(autoPoly!=rasterId);
+      QVERIFY(m_ctx->mappingWorkbench()->isFaciesPolygon(autoPoly));
+      QCOMPARE(m_ctx->mappingWorkbench()->versionForLayer(autoPoly).extra.value("evidence").toMap().value("support").toMap().value("source_layer").toString(),rasterId);
+      // 以下沿用相栅格口径（栅格图件、TIF、手动转面链路）：显式选回本次相栅格。
+      auto *autoPolyLayer=m_ctx->layerSvc()->layer(autoPoly);QVERIFY(autoPolyLayer);QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(autoPolyLayer));QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),autoPolyLayer);
+      page->selectLayer(rasterId);QCOMPARE(page->selectedLayer(),rasterId);QVERIFY(page->commandButton("show")->isEnabled());page->commandButton("show")->click();
+      const auto id=rasterId;auto *layer=m_ctx->layerSvc()->layer(id);QVERIFY(layer);QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(layer));QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),layer);
       auto *decor=m_win->findChild<PaleoDecorationManager *>();QVERIFY(decor);QVERIFY(decor->isNorthArrowEnabled());QVERIFY(decor->isScaleBarEnabled());
       // 图例经 legendRefresh（50ms 单发去抖，#528）在 layersChanged 之后才重算——
       // 等去抖落地再断言同一内容，不放宽断言本身。

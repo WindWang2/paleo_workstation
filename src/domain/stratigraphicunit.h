@@ -2,6 +2,7 @@
 #pragma once
 #include <QString>
 #include <QStringList>
+#include <QPair>
 #include <QVector>
 
 // domain/ — 宿主侧「四子层段」选择与历史标签分类（docs/STRATIGRAPHIC_SUBINTERVALS.md）。

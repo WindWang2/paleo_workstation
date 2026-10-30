@@ -249,15 +249,17 @@ QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &st
 }
 bool SectionWorkbench::mdTimeDepth(const QString &wellId,
                                    seismic::TimeDepthModel *model,
-                                   double *shiftMs, QString *status) {
+                                   double *shiftMs, QString *status, QString *timeReference) {
   syncProject();
   const auto c = calibration(wellId);
   bool ok = false;
   const auto m = modelFor(wellId, true, &ok);
+  const auto samples=m_data.tdTableFor(wellId);
+  if(timeReference)*timeReference=samples.isEmpty()?QString():samples.front().timeReference;
   if (!ok) {
     if (status)
-      *status = m_data.tdTableFor(wellId).isEmpty()
-                    ? tr("无时深表")
+      *status = samples.isEmpty()
+                    ? (m_data.lastError().isEmpty()?tr("无时深表"):m_data.lastError())
                     : tr("时深表无序或有效样点不足");
     return false;
   }

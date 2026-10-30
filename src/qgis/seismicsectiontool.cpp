@@ -38,7 +38,7 @@ SeismicSectionTool::~SeismicSectionTool()
   // scene 自会清理自己的项，工具不越权。
 }
 
-void SeismicSectionTool::setSnapWells(const QVector<wellsection::Well> &wells)
+void SeismicSectionTool::setSnapWells(const QVector<wellsection::Well> &wells,const QString& sourceCrs)
 {
   m_snapWells.clear();
   if (!canvas())
@@ -53,7 +53,7 @@ void SeismicSectionTool::setSnapWells(const QVector<wellsection::Well> &wells)
   // 网）。故注入时按画布目标 CRS 整体投影，投影失败的井移出吸附集；未配准
   // 工程（画布 CRS 与测网同源或无效）原样直通。
   const auto destination = canvas()->mapSettings().destinationCrs();
-  const auto source = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  const auto source = sourceCrs.isEmpty()?QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()):QgsCoordinateReferenceSystem(sourceCrs);
   if (!destination.isValid() || destination == source ||
       destination.toWkt() == source.toWkt())
   {

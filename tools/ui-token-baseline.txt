@@ -28,4 +28,6 @@
 #             例外源码文本，条目数不变，仅随代码更新）。
 #           → 340（finding-157：卷帘 A/B 标签墨色 #24303E 改取 tokens().text，
 #             seismicsectioncanvas_paint.cpp 该 hex 例外随之过期删除）。
-340
+#           → 338（2026-10-30 rebase：测区范围改由服务提供并复用地图控件，
+#             删除原 boundaryBand 两条已不存在的颜色例外）。
+338

@@ -39,7 +39,8 @@ public:
   {
     Single,
     Dual, // 1×2
-    Quad  // 2×2
+    Quad, // 2×2
+    Row   // 任意井数横排，外层可用 QScrollArea
   };
 
   explicit MultiWellView(QWidget *parent = nullptr);
@@ -51,6 +52,12 @@ public:
   int setPanel(int slot, WellCompositePanel *panel);
   WellCompositePanel *panelAt(int slot) const;
   int panelCount() const;
+  int slotCount() const { return int(m_panels.size()); }
+  void clearPanels();
+  void setDisplayDepthRange(double top, double bottom);
+  QPair<double, double> displayDepthRange() const;
+  double displayOffset(const WellCompositePanel *panel) const;
+  void setDatumMarker(const QString &name) { m_datumMarker = name; }
 
   // D5.1/D2.9 锁步滚动开关
   void setLinkScroll(bool link);

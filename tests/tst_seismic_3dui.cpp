@@ -26,6 +26,8 @@
 #include "../src/domain/seismic/sgyvolume.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/services/seismictaskservice.h"
+#include "../src/services/fspathutils.h"
+#include "Engine/QuickOpen.h"
 #include "../src/ui/seismic3d/seismic3dcolormap.h"
 #include "../src/ui/seismic3d/seismic3dfallback.h"
 #include "../src/ui/seismic3d/seismiccameracontroller.h"
@@ -135,6 +137,24 @@ class TestSeismic3DUi : public QObject
   QTemporaryDir m_settingsDir; // initTestCase 前构造：settings 沙箱路径
 
 private slots:
+  void indexedPromotionKeepsCameraAndSelection()
+  {
+    QTemporaryDir dir;const auto file=dir.filePath("promote.sgy");QVERIFY(writeTestSegy(file,4,8,32));
+    auto quick=engine::QuickOpenSegyPreview(paleo::toFsPath(file),4);QVERIFY(quick.ruleVerified&&quick.previewIndex);
+    auto coarse=std::make_shared<SgyVolume>();coarse->AdoptIndex(quick.previewIndex);
+    auto full=std::make_shared<SgyVolume>();std::string error;QVERIFY2(full->Load(paleo::toFsPath(file),error),error.c_str());
+    PaleoTaskService tasks;SeismicTaskService service(&tasks);Seismic3DViewPanel panel;panel.setTaskService(&service);
+    panel.setVolume(coarse);panel.setInline(1001);panel.setCrossline(2003);panel.setTimeSample(7);
+    auto state=panel.viewport()->camera().state();state.yaw=17;state.pitch=21;state.distance=12;
+    panel.viewport()->restoreCamera(state);
+    QVERIFY(panel.promoteIndexedVolume(full));QVERIFY(!panel.volume()->IsRuleBased());
+    QCOMPARE(panel.currentInline(),1001);QCOMPARE(panel.currentCrossline(),2003);QCOMPARE(panel.currentTimeSample(),7);
+    QCOMPARE(panel.viewport()->camera().state().yaw,17.f);QCOMPARE(panel.viewport()->camera().state().distance,12.f);
+    QVERIFY(waitForQuiet([&]{for(auto* task:tasks.tasks())if(task->running())return false;return true;}));
+    QCOMPARE(panel.currentInline(),1001);QVERIFY(!panel.volume()->IsRuleBased());
+    QVERIFY(!panel.promoteIndexedVolume(coarse));
+  }
+
   void initTestCase()
   {
     // 相机书签走 QSettings() 默认构造：测试进程没设组织名时，Windows

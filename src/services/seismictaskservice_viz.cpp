@@ -2,6 +2,7 @@
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
 #include "services/fspathutils.h"
+#include "seismicdataaccess.h"
 #include "services/paleotaskservice.h"
 
 #include "catalog/datacatalog.h"
@@ -51,8 +52,9 @@ PaleoTask *SeismicTaskService::startQuickOpen(
   auto work = [sgyPath, maxColumns, result](PaleoTask *task) -> QString {
     engine::CancelToken cancel;
     cancel.SetPredicate([task]() { return task->cancelRequested(); });
+    paleo::SeismicDataAccess source;QString error;if(!source.open(sgyPath,&error))return error;
     const engine::QuickOpenResult quick = engine::QuickOpenSegyPreview(
-        paleo::toFsPath(sgyPath), maxColumns, &cancel);
+        paleo::toFsPath(source.sourcePath()), maxColumns, &cancel);
 
     if (quick.status.code == engine::StatusCode::Cancelled || task->cancelRequested())
       return QString();
@@ -77,6 +79,9 @@ PaleoTask *SeismicTaskService::startQuickOpen(
     result->columnsRead = quick.columnsRead;
     result->columnsTotal = quick.columnsTotal;
     result->totalMs = quick.times.totalMs;
+    if (quick.ruleVerified && quick.previewIndex) {
+      result->volume=std::make_shared<SgyVolume>();result->volume->AdoptIndex(quick.previewIndex);
+    }
     if (quick.ruleVerified)
       result->preview = std::make_shared<SgySliceImage>(quick.preview);
     task->reportBytes(std::max(1, quick.columnsRead), std::max(1, quick.columnsTotal));

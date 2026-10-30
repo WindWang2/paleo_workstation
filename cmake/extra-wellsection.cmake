@@ -25,6 +25,7 @@ target_sources(paleo_ui PRIVATE
 
 add_paleo_test(tst_wellsection LIBS paleo_domain)
 add_paleo_test(tst_wellsection_workflow LIBS paleo_workflow paleo_store)
+target_link_libraries(tst_wellsection_workflow PRIVATE Paleo::paleo_data_service)
 add_paleo_test(tst_wellsection_ui LIBS paleo_ui)
 
 # 方向 79：图片道深化——LOD 装载/缓存键代际失效/放大全载/锚双击 + 面板 CRUD。

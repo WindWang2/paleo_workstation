@@ -350,10 +350,10 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     const auto request = ++m_sliceRequest;
     QPointer<SeismicSectionDockWidget> guard(this);
 
-    PaleoTask *rawTask = m_taskService->startSliceExtraction(
-        vol, type, index,
-        [guard, generation, request, vol, type, index, title, origin](
-            bool ok, std::shared_ptr<const SgySliceImage> image, const QString &error) {
+    PaleoTask *rawTask = m_taskService->startDataPlane(
+        paleo::fromFsPath(vol->Path()), type, index,
+        [guard, generation, request, vol, type, index, title](
+            bool ok, std::shared_ptr<const SgySliceImage> image,const SeismicNativeInfo& axis, const QString &error) {
             // 双重守卫：世代号（切体/重开）+ 请求号（被更新的切片请求
             // 顶替）。被顶替/取消的旧任务静默丢弃——cancelled 不是失败，
             // 不弹误导错误、不覆盖新请求已应用的画面。
@@ -361,6 +361,8 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
                 return;
             guard->m_sliceTask.clear();
             guard->m_progressBar->setVisible(false);
+            const double origin=axis.firstTimeMs;
+            if(ok){guard->m_timeOriginMs=origin;guard->m_canvas->setProperty("seismicSourceCrs",axis.coordinateSystem);}
 
             if (!ok) {
                 // D2.14：原因态——画布显示可读原因而非空白
@@ -387,14 +389,15 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
             if (guard->m_btnCurtain && guard->m_btnCurtain->isChecked())
                 guard->updateCompareSlice(); // D2.10：当前线变了，相邻线 B 图同步
             if (type == SgySliceType::Time) {
-                const double ms = origin + index * (vol->SampleIntervalUs() / 1000.0);
+                const double ms = origin + index * axis.sampleIntervalMs;
+                guard->setLineTitle(guard->tr("水平时间切片 TWT %1 ms").arg(ms,0,'f',1));
+                guard->m_lblTimeMs->setText(guard->tr("%1 ms").arg(ms,0,'f',1));
                 guard->m_canvas->setTimeSliceData(*image, ms, vol->InlineMin(),
                                                   vol->InlineMax(), vol->XlineMin(),
                                                   vol->XlineMax());
             } else {
-                const float dtMs = vol->SampleIntervalUs() > 0
-                                       ? (vol->SampleIntervalUs() / 1000.0f) : 2.0f;
-                guard->m_canvas->setSectionData(*image, dtMs, origin);
+                const float dtMs = float(axis.sampleIntervalMs);
+                guard->m_canvas->setSectionData(*image, dtMs, origin,axis.columnDistancesM,axis.columnCoordinates);
             }
             // D4：剖面身份 + 最近切片（拾取解析/追踪原料）
             {
@@ -579,7 +582,6 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
   setLineTitle(tr("%1 · 提取中…").arg(lineTitle));
   m_progressBar->setRange(0, 0);
   m_progressBar->show();
-  const double origin = m_timeOriginMs;
   SgySectionOptions options;
   options.maxColumns = 2048;
   options.interpolate = false;
@@ -587,8 +589,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
   m_extraction = m_taskService->startSectionExtraction(
       std::make_shared<SgyVolume>(*volume), pathPoints, options,
       [guard, generation, volume, pathPoints, lineTitle, mapPolyline,
-       candidateWells,
-       origin](bool ok, std::shared_ptr<const SgySliceImage> image,
+       candidateWells](bool ok, std::shared_ptr<const SgySliceImage> image,
                const SgySectionStats &stats, const QString &error) {
         if (!guard || guard->m_generation != generation)
           return;
@@ -614,8 +615,10 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
             pathPoints, route, stats.columnDistances);
         guard->m_route = route;
         guard->m_distances = geometry.distancesM;
+        guard->m_timeOriginMs=stats.firstTimeMs;
+        guard->m_canvas->setProperty("seismicSourceCrs",QString::fromStdString(stats.coordinateSystem));
         guard->m_canvas->setSectionData(
-            *image, volume->SampleIntervalUs() / 1000.0f, origin,
+            *image, float(stats.sampleIntervalMs), stats.firstTimeMs,
             geometry.distancesM, geometry.coordinates);
         guard->refreshWellOverlay(candidateWells);
         guard->setLineTitle(lineTitle);

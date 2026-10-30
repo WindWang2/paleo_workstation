@@ -71,6 +71,7 @@ struct TdSample
   double timeMs = 0.0;        // two-way time, milliseconds
   double tvd = qQNaN();       // true vertical depth, meters (NaN = -99999/缺列)
   double md = qQNaN();        // measured depth, meters (NaN = -99999/缺列)
+  QString timeReference;     // confirmed datum from data service; empty for legacy unknowns
 };
 
 struct HorizonRasterInfo

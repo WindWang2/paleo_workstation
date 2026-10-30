@@ -28,7 +28,6 @@ class QTemporaryDir;
 class DataImportService;
 class PaleoTask;
 class PaleoTaskService;
-class SegyReader; // io/segyreader.h——实现侧类型，头文件只留指针容器
 struct CatalogEntity;
 struct CatalogVersion;
 struct TimeDepthTable;    // domain/wellrecords.h（timeDepthAt 出参）
@@ -52,7 +51,7 @@ class SeismicTaskService;
 // markDownstreamStale 这一处如实标过时）。
 //
 // 剖面异步语义与旧 UI 内实现逐字节一致：
-//   · SegyReader 按 assetId 缓存——换测线只重解码该线，不重建索引；
+//   · 地震剖面通过 Data_service 查询，按资产世代隔离后台结果；
 //   · 每资产世代号——旧请求的结果在发射前就丢弃（UI 无需再判陈旧）；
 //   · 新请求协作取消同资产仍在跑的任务；
 //   · 外链入库 SHA-256 复验每资产每会话一次；失配 → 失败信号 + 下游
@@ -198,6 +197,9 @@ class PreviewDocService : public QObject
     static bool wellCompositeAt(const QString &absPath,
                                 WellComposite::ComprehensiveWellData *out,
                                 QString *error = nullptr);
+    static bool wellCompositeForWell(const QString &areaPath, qlonglong wellId,
+                                    WellComposite::ComprehensiveWellData *out,
+                                    QString *error = nullptr);
 
     // ---- 外链 SHA-256 闸门（§3/B 包）----
     // 非托管版本带 sha256 时先验后发；会话内每资产只验一次（resetSha 供
@@ -388,7 +390,6 @@ class PreviewDocService : public QObject
 
     // D1 异步解码：按资产的索引缓存（每资产只 open/SHA 一次）、世代号
     //（陈旧结果发射前丢弃）、进行中任务指针（新解码请求取消旧任务）。
-    QHash<QString, std::shared_ptr<SegyReader>> m_segyReaders;
     QHash<QString, int> m_decodeSeq;
     QHash<QString, QPointer<PaleoTask>> m_decodeTask;
     // assetId → 本会话已过 SHA 复验（mutable：verifyExternalSha 是 const——

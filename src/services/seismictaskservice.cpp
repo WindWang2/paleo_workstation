@@ -6,6 +6,8 @@
 
 #include <QCryptographicHash>
 #include <QFile>
+#include <QFileInfo>
+#include <QDateTime>
 #include <QMutexLocker>
 #include <QStringList>
 
@@ -22,7 +24,9 @@ namespace seismic {
 // 条目键：路径 + 后端枚举（同一 .sgy 的 Auto 直读与显式 .sf3p 并存）。
 QString entryKey(const QString &path, sdk::Backend backend)
 {
-  return path + QLatin1Char('|') + QString::number(static_cast<int>(backend));
+  const QFileInfo source(path);
+  return path + QLatin1Char('|') + QString::number(static_cast<int>(backend)) +
+      QStringLiteral("|%1:%2:%3").arg(source.size()).arg(source.lastModified().toMSecsSinceEpoch()).arg(source.metadataChangeTime().toMSecsSinceEpoch());
 }
 
 // Slice2D → SgySliceImage 的字段平移（values/rgba 保有 NaN 语义）。

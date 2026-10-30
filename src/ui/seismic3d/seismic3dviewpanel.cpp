@@ -373,7 +373,7 @@ void Seismic3DViewPanel::setPagedWorkspace(const QString &sf3pPath) {
 
 void Seismic3DViewPanel::onSliderPressed() {
     lodRefineTimer_->stop();
-    if (!pagedPath_.isEmpty() && coarsestLod_ > 0 && activeLod_ != coarsestLod_)
+    if (!property("fullPrecisionAfterIndex").toBool() && !pagedPath_.isEmpty() && coarsestLod_ > 0 && activeLod_ != coarsestLod_)
         switchLod(coarsestLod_, /*refreshAfter=*/false);
     // D3.1 体渲染交互降采样：拖动期间只显示 4 层
     if (stackMode_)
@@ -541,8 +541,8 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
         const int lodAtDispatch = activeLod_; // A2：判定内容粗细以派发时层级为准
         PaleoTask *task = taskSvc_->startSliceExtraction(
             vol, type, index,
-            [guard, slot, si, type, index, lodAtDispatch](bool success, std::shared_ptr<const SgySliceImage> image, const QString &error) {
-            if (!guard)
+            [guard, slot, si, type, index, lodAtDispatch, generation=volumeGeneration_, provisional=vol->IsRuleBased()](bool success, std::shared_ptr<const SgySliceImage> image, const QString &error) {
+            if (!guard || guard->volumeGeneration_ != generation)
                 return;
             if (slot == SeismicSliceSlot::Inline) {
                 guard->inlineExtracting_ = false;
@@ -560,7 +560,7 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
                 guard->cachedSlices_[si] = *image;
                 guard->cachedIndex_[si] = index;
                 guard->cachedReady_[si] = true;
-                guard->slotCoarse_[si] = lodAtDispatch != 0; // A2：粗层产物标记（精化需重取）
+                guard->slotCoarse_[si] = provisional || lodAtDispatch != 0; // A2：粗层产物标记（精化需重取）
                 if (guard->tfActive_) {
                     // D7.1：TF 模式直传 values（渲染器 LUT 取色），CPU 零重烘焙
                     guard->viewport_->updateSlice(slot, type, index, *image);
@@ -608,7 +608,7 @@ void Seismic3DViewPanel::requestSliceUpdate(SeismicSliceSlot slot, SgySliceType 
                 guard->pendingTime_ = -1;
                 guard->requestSliceUpdate(slot, type, next);
             }
-        }, pagedPath_);
+        }, pagedPath_, true);
         slotTasks_[si] = task; // A2：在途句柄（缓存命中同步回调时 task 已终态，QPointer 自清）
     } else {
         // Synchronous fallback (e.g. testing)
@@ -1497,7 +1497,7 @@ void Seismic3DViewPanel::requestStackLayersPerLayer(const std::vector<int> &samp
                         }
                         if (guard && --(*remaining) == 0)
                             guard->stackExtracting_ = false;
-                    }, pagedPath_);
+                    }, pagedPath_, true);
             } else {
                 SgySliceImage img;
                 std::string err;

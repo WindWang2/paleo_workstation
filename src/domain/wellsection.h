@@ -38,6 +38,7 @@ struct TimeDepth {
   seismic::TimeDepthModel model;
   double shiftMs = 0.0;
   QString status; // 「时深表」/「常速校正」等
+  QString timeReference; // confirmed seismic/checkshot time datum; empty remains unknown
   double twtAt(double md) const;
 };
 
@@ -331,6 +332,7 @@ struct SeismicGap {
   int columns = 0, samples = 0;
   double startMs = 0.0, stepMs = 0.0;
   std::vector<float> values;
+  std::vector<double> columnDistancesM; // actual along-path positions; empty = legacy uniform columns
   bool valid() const; // reason 空 && 尺寸 > 0 && values 数吻合 && stepMs > 0
   // columnFrac ∈ [0,1] → 最近列；时间向样点间线性；越界/无效 → NaN。
   float sampleAt(double columnFrac, double twtMs) const;

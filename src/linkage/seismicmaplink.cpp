@@ -96,6 +96,7 @@ void SeismicMapLink::setGridGeometry(const SurveyGridGeometry &geom)
 void SeismicMapLink::setActiveVolume(std::shared_ptr<const seismic::SgyVolume> volume)
 {
   m_volume = volume;
+  m_sourceCrs.clear();
   m_gridGeom = {};
   if (volume && volume->Index()) {
     const auto mapper = seismic::SgyCoordinateMapper::Fit(*volume->Index());
@@ -151,6 +152,11 @@ void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &ma
           false,
           tr("节点位于地震范围外，保留完整路径后请重新绘制：%1").arg(reason));
       return;
+    }
+    if(m_volume->Index()&&!m_volume->InlineValues().empty()&&!m_volume->XlineValues().empty()) {
+      double actualIl=0,actualXl=0;
+      m_gridGeom.xyToInlineXlineContinuous(pt.x(),pt.y(),&actualIl,&actualXl);
+      inl=m_volume->FindNearestInlineValue(actualIl);xl=m_volume->FindNearestXlineValue(actualXl);
     }
     if (!pathPoints.empty() && pathPoints.back() == glm::ivec2(inl, xl))
       continue;
@@ -247,7 +253,7 @@ void SeismicMapLink::onSectionTraceHovered(
   const auto destCrs = m_canvas->mapSettings().destinationCrs();
   if (destCrs.isValid()) {
     if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(mapX, mapY),
-        cachedLocalGridCrs(),
+        m_sourceCrs.isEmpty()?cachedLocalGridCrs():QgsCoordinateReferenceSystem(m_sourceCrs),
         destCrs, &mapped)) { m_cursorMarker->hide(); return; }
   }
   m_cursorMarker->setCenter(mapped);
@@ -265,7 +271,7 @@ void SeismicMapLink::onSectionTraceClicked(
     const auto destCrs = m_canvas->mapSettings().destinationCrs();
     if (destCrs.isValid()) {
       if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(mapX, mapY),
-          cachedLocalGridCrs(),
+          m_sourceCrs.isEmpty()?cachedLocalGridCrs():QgsCoordinateReferenceSystem(m_sourceCrs),
           destCrs, &mapped)) return;
     }
     m_canvas->setCenter(mapped);
@@ -281,7 +287,7 @@ void SeismicMapLink::onSectionPathCaptured(const QVector<QgsPointXY> &points,
   for (const auto &point : points) {
     QgsPointXY transformed;
     if (!paleo::mapreference::transformPoint(m_canvas, point, m_canvas->mapSettings().destinationCrs(),
-        cachedLocalGridCrs(), &transformed)) {
+        m_sourceCrs.isEmpty()?cachedLocalGridCrs():QgsCoordinateReferenceSystem(m_sourceCrs), &transformed)) {
       emit sectionExtractedFromMap(false, tr("无法把地图位置换算到地震测网，请检查工程坐标设置"));
       return;
     }

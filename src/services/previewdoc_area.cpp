@@ -187,3 +187,14 @@ bool PreviewDocService::areaPreviewSource(const QString &project, qlonglong sour
   }
   return fillPreview(service,source,table,chart,chartOk,error,selected,cancelled);
 }
+
+bool PreviewDocService::wellCompositeForWell(const QString &areaPath, qlonglong wellId,
+    WellComposite::ComprehensiveWellData *out, QString *error) {
+  if (!out || wellId <= 0) return false;
+  *out = {};
+  paleo::data::DataService service;std::string detail;
+  if(!service.openProjectReadOnly(areaPath.toUtf8().toStdString(),detail)) {
+    if(error)*error=QString::fromUtf8(detail);return false;
+  }
+  return readAreaWellChart(service,wellId,*out,error,{});
+}

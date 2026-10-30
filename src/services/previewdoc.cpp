@@ -13,7 +13,7 @@
 #include "../io/lasdoc.h" // LasCurve/LasDoc/LasHeaderInfo（契约类型；解析入口不再直触）
 #include "../io/outsourceworkbook.h" // readWorkbook（workbookPreviewAt 出参来源）
 #include "../io/welllogread.h" // 方向44：格式分派
-#include "../io/segyreader.h"
+#include "seismicdataaccess.h"
 #include "../io/streaming.h" // F3：GeoJSON 流式统计（无 DOM 增量扫描）
 #include "../io/timedeptool.h"
 #include "../io/wellcompositexml.h"
@@ -768,66 +768,43 @@ void PreviewDocService::requestSection(const QString &assetId,
   // worker 产出（跨线程交接，GUI 只读 finished 后的快照）。
   struct DecodeOut
   {
-    std::shared_ptr<SegyReader> opened; // worker 新建索引时填（回填缓存）
     SectionDoc doc;
   };
   auto out = std::make_shared<DecodeOut>();
   out->doc.isInline = isInline;
   out->doc.lineNo = lineNo;
 
-  const std::shared_ptr<SegyReader> cachedReader = m_segyReaders.value(assetId);
   const bool needSha =
       !managed && !sha256.isEmpty() && !m_shaVerified.value(assetId);
   // B 包 staleness-lite：sha 是否失配由 worker 判定（bool 经 shared_ptr
   // 交接），回 GUI 线程再碰 catalog——下游标记的线程纪律与库内一致。
   const auto shaMismatch = std::make_shared<bool>(false);
 
-  // T23+D1：索引/SHA 每资产一次（缓存命中即跳过）；道索引与测线解码在
-  // 任务池执行并回报字节进度/ETA；任务可协作取消。
-  // P4 D2：磁盘索引目录在 GUI 线程取（worker 只值捕获）。
-  const QString idxDir = m_svc ? m_svc->indexCacheDir() : QString();
   const QString project = catalog() ? catalog()->projectDir() : QString();
   CatalogVersion sourceVersion = catalog() ? catalog()->versionById(versionId) : CatalogVersion();
   sourceVersion.path = absPath; sourceVersion.sha256 = sha256; sourceVersion.managed = managed;
-  const auto work = [absPath, isInline, lineNo, needSha, project, sourceVersion, cachedReader, idxDir,
-                     out, shaMismatch](PaleoTask *t) -> QString {
-    std::shared_ptr<SegyReader> reader = cachedReader;
-    SegyOptions opts;
-    if (t)
-    {
-      opts.progress = [t](qint64 d, qint64 tot) { t->reportBytes(d, tot); };
-      opts.cancel = [t]() { return t->cancelRequested(); };
+  const auto work = [absPath,isInline,lineNo,needSha,project,sourceVersion,out,shaMismatch](PaleoTask *t)->QString {
+    if(needSha) {
+      QString error;if(!externalShaMatches(project,sourceVersion,t,&error,shaMismatch.get()))return error;
     }
-    if (!reader)
-    {
-      if (needSha)
-      {
-        QString serr;
-        if (!externalShaMatches(project, sourceVersion, t, &serr, shaMismatch.get()))
-          return (t && t->cancelRequested()) ? QString() : serr;
-      }
-      reader = std::make_shared<SegyReader>();
-      QString err;
-      // P4 D2：磁盘索引层——会话内重开免扫全文件道头（大 survey 分钟级 →
-      // 亚秒）。索引目录取导入服务的工程级 artifacts/index/segy；无工程
-      // （测试/外链未接线）时退回 open() 旧路径。
-      const bool opened = idxDir.isEmpty() ? reader->open(absPath, &err, &opts)
-                                           : reader->openCached(absPath, idxDir, &err, &opts);
-      if (!opened)
-        return (t && t->cancelRequested())
-                   ? QString()
-                   : (err.isEmpty() ? QStringLiteral("无法打开文件") : err);
-      out->opened = reader;
+    paleo::SeismicDataAccess source;QString error;if(!source.open(absPath,&error))return error;
+    paleo::data::SectionReadOptions options;options.fullResolution=true;options.maxValues=64000000;
+    paleo::data::SeismicSectionResult section;std::string detail;
+    const auto cancel=[t]{return t&&t->cancelRequested();};
+    if(!source.line(isInline,lineNo,options,section,detail,cancel))return QString::fromUtf8(detail);
+    out->doc.sampleIntervalUs=float(section.sampleInterval*1000);out->doc.startTimeMs=section.firstTime;
+    out->doc.readReport.requestedTraceCount=section.columns;
+    for(int column=0;column<section.columns;++column) {
+      SegyTrace trace;trace.lineNo=section.inlineNumbers.at(column);trace.xlineNo=section.crosslineNumbers.at(column);
+      trace.cdp=isInline?trace.xlineNo:trace.lineNo; // SDK ordinal is not the raw tracl header.
+      trace.sampleIntervalUs=out->doc.sampleIntervalUs;trace.startTimeMs=section.firstTime;
+      trace.samples.reserve(section.samples);
+      for(int sample=0;sample<section.samples;++sample)trace.samples.append(section.amplitudes[size_t(column)*section.samples+sample]);
+      if(section.traceIndexes.at(column)>=0)++out->doc.readReport.decodedTraceCount;
+      out->doc.traces.append(std::move(trace));
     }
-    QString err;
-    const bool ok =
-        isInline ? reader->readInline(lineNo, &out->doc.traces, &err, &opts, &out->doc.readReport)
-                 : reader->readCrossline(lineNo, &out->doc.traces, &err, &opts, &out->doc.readReport);
-    if (!ok && !(t && t->cancelRequested()))
-      return err.isEmpty() ? QStringLiteral("无法解码测线") : err;
-    out->doc.sampleIntervalUs = reader->sampleIntervalUs();
-    out->doc.startTimeMs = reader->geometry().startTimeMs;
-    return QString();
+    if(t)t->reportBytes(section.columns,section.columns);
+    return {};
   };
 
   const auto apply = [this, assetId, seq, out, shaMismatch,
@@ -836,8 +813,6 @@ void PreviewDocService::requestSection(const QString &assetId,
       return; // 陈旧结果丢弃：更新一代 decode 已接管（发射前压制）
     if (st == PaleoTask::State::Succeeded)
     {
-      if (out->opened)
-        m_segyReaders.insert(assetId, out->opened);
       m_shaVerified.insert(assetId, true);
       emit seismicSectionReady(assetId, out->doc);
     }
@@ -884,7 +859,6 @@ void PreviewDocService::releaseSection(const QString &assetId)
 {
   // 标签关掉即释放该资产的索引缓存（持有文件句柄级状态）与世代号；进行
   // 中的解码任务请求取消——结果没人等了。
-  m_segyReaders.remove(assetId);
   // 世代号 +1 而不是移除：移除后同 assetId 的下一次请求会从 1 重新计数，
   // 与刚取消、尚未落地的旧代撞号（#154：换工程后 ast-N 复用时尤甚）。
   ++m_decodeSeq[assetId];
@@ -1020,7 +994,6 @@ void PreviewDocService::resetProjectState()
   m_decodeTask.clear();
   m_lasTask.clear();
   m_pyramidTask.clear();
-  m_segyReaders.clear();
   m_shaVerified.clear();
   m_lasSiblings.clear();
   m_lasDeliveryQueue.clear();

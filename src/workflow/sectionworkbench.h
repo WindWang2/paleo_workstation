@@ -38,7 +38,7 @@ public:
   // shift 为校正时间平移。false = 无可用时深，status 写原因
   // （「无时深表」/「时深表无序或有效样点不足」）。
   bool mdTimeDepth(const QString &wellId, seismic::TimeDepthModel *model,
-                   double *shiftMs, QString *status);
+                   double *shiftMs, QString *status, QString *timeReference = nullptr);
   QString wellForSource(const QString &path, const QString &name);
   std::vector<glm::dvec2> wellRoute(const QStringList &ids, QString *error);
   // 「按空间关系重排」：mode "nearest"=最近邻链 / "pca"=主轴投影（domain

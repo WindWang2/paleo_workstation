@@ -44,7 +44,7 @@ selfcheck；QGIS/GDAL 运行时闭包不随默认安装复制，MAMCL 外部工�
 |------|------|------|
 | Development/Validation | 源码闸门（layering/i18n/ui_size/…）、CI 脚本、打包与 vendor 钉版 | `tools/`、`vendor/*.py`、`.github/workflows/` |
 | 测试/数据 | 夹具与黄金对拍生成器、进程级测试夹具 | `tools/reference/`、`tests/fixtures/scripts/`、`spikes/` |
-| Optional Scripting（运行时，用户显式启用） | 用户脚本控制台、REPL、MAMCL venv、地层对比独立 Web 项目的启动器 | C++ 模块 + `tools/reference/scripts/` 示例 |
+| Optional Scripting（运行时，用户显式启用） | 用户脚本控制台、REPL、MAMCL venv | C++ 模块 + `tools/reference/scripts/` 示例 |
 
 口径推论：**「应用无内嵌 Python」成立，「整个仓库无 Python」不成立**——
 质量闸门与部分测试依赖 python3（`cmake/paleo-test-infra.cmake` 的

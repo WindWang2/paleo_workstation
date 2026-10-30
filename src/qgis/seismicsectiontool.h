@@ -29,7 +29,7 @@ public:
   void deactivate() override;
 
   // 吸附井集（有效坐标井；空集 = 关闭吸附，行为同纯任意线）。
-  void setSnapWells(const QVector<wellsection::Well> &wells);
+  void setSnapWells(const QVector<wellsection::Well> &wells,const QString& sourceCrs = {});
 
 signals:
   // 完成：折线顶点 + 吸附井的有序 id 列表（<2 口时壳按纯任意线处理）。

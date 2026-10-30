@@ -26,8 +26,6 @@
      "fix": "同 tst_ui"},
     {"test": "tst_wellsection_ui", "category": "qsettings", "status": "fixed",
      "fix": "同 tst_ui"},
-    {"test": "tst_stratigraphicweb", "category": "qsettings", "status": "fixed",
-     "fix": "同 tst_ui"},
     {"test": "tst_wellfaciesconfig", "category": "qsettings", "status": "fixed",
      "fix": "PALEO_WELL_FACIES_CONFIG 覆盖 → 配置文件进用例临时目录（Windows 配置目录是 %LOCALAPPDATA%，不看 XDG）"},
     {"test": "tst_pythonrepl", "category": "python", "status": "fixed",

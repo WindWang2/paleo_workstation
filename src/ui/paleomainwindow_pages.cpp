@@ -1,6 +1,6 @@
 // 层：视图
 // paleomainwindow_pages — 页切换域（方向 83 拆 TU）：showPage（六页/启动页/
-// 地层对比 Web 页的中央面与 dock 显隐编排）、地层对比页进出时的 dock
+// 原生地层对比页的中央面与 dock 显隐编排）、地层对比页进出时的 dock
 // 保存/恢复、任务驱动的底栏自动露出。自本体移入，逻辑逐行保持。
 #include "paleomainwindow.h"
 #include "paleomainwindow_internal.h"
@@ -9,8 +9,6 @@
 #include "datapreview/datapreviewtabs.h" // m_previewTabs 的 findChild 需完整类型（上行转换）
 #include "pages/pageshared.h" // kPageIds（页序表）
 #include "paleoribbon.h"      // makeKeyboardReachable（页签命令钮进 Tab 链）
-#include "pages/stratigraphicwebpage.h" // correlation 页 activate()
-#include "shortcuts/shortcutcatalog.h" // 方向63：Ctrl+S 让渡（correlation 页）
 #include "taskpanel.h" // syncBottomDockForTasks 切到任务页
 #include "../qgis/qgiscanvascontroller.h" // 非编辑页停用活动工具
 #include "../qgis/qgislayerprofile.h" // applyPageProfile（页面档案）
@@ -18,7 +16,8 @@
 #include "../services/paleotaskservice.h" // PaleoTask::running/quiet
 #include "../workflow/mappingworkbench.h" // 编图链三页测井基础图层保证在场
 
-#include <QAction>
+#include <QTabBar>
+#include <QSignalBlocker>
 #include <QDockWidget>
 #include <QMainWindow>
 #include <QStackedLayout>
@@ -84,7 +83,7 @@ void applyPageDockPolicy(const QString &pageId, const PageDockState &s,
 
 void hideAllDocksForCorrelation(QMainWindow *win)
 {
-  // Web 工作台拥有井组、属性和任务面；整片中央区域让给它。
+  // 原生地层对比页拥有井组、曲线和结果面；整片中央区域让给它。
   for (auto *dock : win->findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
     if (auto *paleoDock = qobject_cast<PaleoDockWidget *>(dock))
       paleoDock->setProgrammaticVisible(false);
@@ -96,12 +95,10 @@ void hideAllDocksForCorrelation(QMainWindow *win)
 
 void PaleoMainWindow::restoreCorrelationDocks()
 {
-  if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
-    paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), save, true);
   for (const auto &dock : m_correlationHiddenDocks)
     if (dock)
     {
-      // 与 applyPageDockPolicy 同一纪律：Web 页期间用户经「布局」菜单收起面板
+      // 与 applyPageDockPolicy 同一纪律：地层对比页期间用户经「布局」菜单收起面板
       // （toggleViewAction → setVisible 记下 userWantsVisible=false）后，离开
       // 时不得被恢复强制拉回。
       if (auto *paleoDock = qobject_cast<PaleoDockWidget *>(dock.data()))
@@ -140,17 +137,39 @@ void PaleoMainWindow::showPage(const QString &pageId)
         m_correlationHiddenDocks.append(dock);
   }
   m_currentPage = pageId;
+  if (m_visualizationTabs) {
+    const QString surface = pageId == QLatin1String("data") ? QStringLiteral("data") :
+                            pageId == QLatin1String("correlation") ? QStringLiteral("correlation") : QStringLiteral("compose");
+    QSignalBlocker blocker(m_visualizationTabs);
+    // The embedded QGIS canvas is a project view, available without opening a task.
+    if (m_projectSvc && !m_projectSvc->projectPath().isEmpty()) {
+      bool hasMap = false;
+      for (int i=0; i<m_visualizationTabs->count(); ++i)
+        hasMap |= m_visualizationTabs->tabData(i).toMap().value(QStringLiteral("surface")) == QStringLiteral("compose");
+      if (!hasMap) {
+        const int map = m_visualizationTabs->addTab(tr("QGIS 视图"));
+        m_visualizationTabs->setTabData(map, QVariantMap{{QStringLiteral("surface"), QStringLiteral("compose")},
+                                                       {QStringLiteral("page"), QStringLiteral("compose")}});
+        m_visualizationTabs->setTabButton(map, QTabBar::LeftSide, nullptr);
+        m_visualizationTabs->setTabButton(map, QTabBar::RightSide, nullptr);
+      }
+    }
+    int tab = -1;
+    for (int i=0; i<m_visualizationTabs->count(); ++i)
+      if (m_visualizationTabs->tabData(i).toMap().value(QStringLiteral("surface")).toString() == surface) tab = i;
+    if (tab < 0) {
+      tab = m_visualizationTabs->addTab(surface == "data" ? tr("数据可视化") : surface == "correlation" ? tr("地层对比") : tr("QGIS 视图"));
+      if (surface == QLatin1String("compose")) {
+        m_visualizationTabs->setTabButton(tab, QTabBar::LeftSide, nullptr);
+        m_visualizationTabs->setTabButton(tab, QTabBar::RightSide, nullptr);
+      }
+    }
+    m_visualizationTabs->setTabData(tab, QVariantMap{{QStringLiteral("surface"), surface}, {QStringLiteral("page"), pageId}});
+    m_visualizationTabs->setCurrentIndex(tab);
+  }
   if (m_workbench) m_workbench->setManualEvidenceRequired(pageId == QLatin1String("compose"));
-  // Web 页自己的 Ctrl+S 保存独立解释，Paleo 工程的保存快捷键让出。
-  if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
-    paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), save,
-                                              pageId != QLatin1String("correlation"));
 
-  // 页签 = 页：切到对应 ribbon 页签（currentRibbonTabChanged 回到这里时
-  // id == m_currentPage，不重入）。
-  if (SARibbonCategory *cat = categoryForPage(pageId))
-    if (ribbonBar()->currentIndex() != ribbonBar()->categoryIndex(cat))
-      ribbonBar()->raiseCategory(cat);
+  // Visualization activation preserves the user's selected Ribbon tools.
   // 各 attach 后续建的命令钮也要进 Tab 链（幂等，便宜的补漏点）。
   PaleoRibbon::makeKeyboardReachable(this);
 
@@ -186,8 +205,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (pageId == QLatin1String("correlation"))
   {
     paleo::mainwindow_internal::hideAllDocksForCorrelation(this);
-    m_centerStack->setCurrentIndex(1); // 无需先打开 QGIS/Paleo 工程
-    m_stratigraphicWebPage->activate();
+    m_centerStack->setCurrentIndex(1); // 显示原生地层对比视图
+    // Native correlation shares the current Paleo project. No external process.
   }
   else if (leavingCorrelation && (!m_projectSvc || m_projectSvc->projectPath().isEmpty()) &&
            m_centerStack && m_centerStack->currentIndex() != 0)

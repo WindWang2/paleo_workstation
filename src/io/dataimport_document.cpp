@@ -364,7 +364,7 @@ void DataImportService::startNextConversion()
 #ifdef Q_OS_UNIX
   // 独立进程组（#555）：soffice 入口是壳脚本、真身 soffice.bin 是孙进程——
   // 超时回收必须整组连坐，否则只杀壳会留下孤儿 soffice.bin 继续占
-  // UserInstallation profile 锁（scriptrunner/stratigraphicwebsession 先例）。
+  // UserInstallation profile 锁（scriptrunner 先例）。
   m_convProc->setChildProcessModifier([] { ::setsid(); });
 #endif
   connect(m_convProc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),

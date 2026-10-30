@@ -1,5 +1,6 @@
 // 层：数据
 #include "projectdata.h"
+#include "stratigraphymodel.h"
 
 #include "../catalog/datacatalog.h"
 #include "../domain/mappinghorizons.h"
@@ -144,6 +145,11 @@ QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId) const
 
 QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId, WellParseReport *report) const
 {
+  if (m_catalog) {
+    const auto entity = m_catalog->entityById(wellId);
+    const auto tops = stratigraphyModelTops(projectDir(), entity.extra.value("areaModelWellId").toLongLong());
+    if (!tops.isEmpty()) { if (report) *report = {}; return tops; }
+  }
   return topsForAsset(wellId, QString(), report);
 }
 
@@ -191,6 +197,10 @@ MappingTopsPick pickMappingTops(const ProjectDataFacade *facade, DataCatalog *ca
 } // namespace
 
 QVector<WellTop> ProjectDataFacade::topsForMapping(const QString &wellId) const {
+  if (m_catalog) {
+    const auto tops = stratigraphyModelTops(projectDir(), m_catalog->entityById(wellId).extra.value("areaModelWellId").toLongLong());
+    if (!tops.isEmpty()) return tops;
+  }
   const MappingTopsPick pick = pickMappingTops(this, m_catalog, wellId);
   if (pick.score > 0)
     return pick.tops;
@@ -258,29 +268,6 @@ QVector<WellTop> ProjectDataFacade::topsFromFile(const QString &path,
       top.y = r.y;
     }
     out.append(top);
-  }
-  return out;
-}
-
-QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const
-{
-  QVector<TdSample> out;
-  const QString path = assetFilePathFor(wellId, QStringLiteral("time_depth"));
-  if (path.isEmpty() || !QFile::exists(path))
-    return out;
-
-  TimeDepthTable table;
-  if (!readTimeDepth(path, table)) return out;
-
-  // 行保持文件顺序，不排序（PROJECT_AREA_PLAN §3）：单调性判定归
-  // TimeDepthTool；-99999/缺列以 NaN 透传，由插值端剔除，这里不做取舍。
-  for (const TdRow &row : table.rows)
-  {
-    TdSample s;
-    s.timeMs = row.timeMs;
-    s.tvd = row.hasTvd ? row.tvd : qQNaN();
-    s.md = row.hasMd ? row.md : qQNaN();
-    out.append(s);
   }
   return out;
 }

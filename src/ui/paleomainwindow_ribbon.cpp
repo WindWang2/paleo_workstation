@@ -13,7 +13,6 @@
 #include "dialogs/projectmapsettingsdialog.h"
 #include "help/helpsurface.h" // 方向63 帮助面（菜单 + F1 总表挂主窗）
 #include "pages/pageshared.h" // kPageIds（页签序）
-#include "pages/stratigraphicwebpage.h"
 #include "datapreview/datapreviewtabs.h" // mapConfigurationChanged 重开测区标签
 #include "../qgis/qgiscanvascontroller.h" // mapConfigurationChanged → zoomToFullExtent
 #include "../qgis/qgisprojectservice.h"
@@ -22,6 +21,8 @@
 #include <qgis.h> // Qgis::version()（方向63 关于框）
 
 #include <QAction>
+#include <QComboBox>
+#include <QTabWidget>
 #include <QContextMenuEvent>
 #include <QHBoxLayout>
 #include <QMenu>
@@ -96,21 +97,45 @@ void PaleoMainWindow::buildRibbon()
     tabs->setUsesScrollButtons(true);
   }
 
-  // ---- 六个页签 = 六个工作流页（页签序 = paleo::pagesinternal::kPageIds 序）----
-  for (int i = 0; i < paleo::pagesinternal::kPageIds.size(); ++i)
+  // ---- 五个工具选项卡独立于中央可视化视图 ----
+  const QStringList ribbonIds = {"data", "correlation", "predict", "seismic", "compose"};
+  const QStringList ribbonLabels = {tr("数据管理"), tr("地层对比"), tr("单井相分析"), tr("地震相分析"), tr("古地理编图")};
+  for (int i = 0; i < ribbonIds.size(); ++i)
   {
-    SARibbonCategory *cat = bar->addCategoryPage(pageLabels().at(i));
-    cat->setObjectName(QStringLiteral("ribbonCategory.") + paleo::pagesinternal::kPageIds.at(i));
-    cat->setProperty("paleo.pageId", paleo::pagesinternal::kPageIds.at(i));
+    SARibbonCategory *cat = bar->addCategoryPage(ribbonLabels.at(i));
+    cat->setObjectName(QStringLiteral("ribbonCategory.") + ribbonIds.at(i));
+    cat->setProperty("paleo.pageId", ribbonIds.at(i));
   }
-  m_stratigraphicWebPage->buildRibbon(categoryForPage(QStringLiteral("correlation")));
+  const auto addTask = [this](const QString &category, const QString &label, const QString &page,
+                             const QString &help, const QString &type = {}) {
+    auto *panel = categoryForPage(category)->addPanel(label);
+    auto *action = new QAction(label, panel);
+    action->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionFileOpen.svg")));
+    action->setObjectName(QStringLiteral("ribbonOpenTask.") + category + QLatin1Char('.') + page + type);
+    action->setToolTip(help);
+    action->setWhatsThis(help);
+    panel->addLargeAction(action);
+    connect(action, &QAction::triggered, this, [this, page, type] {
+      showPage(page);
+      if (!type.isEmpty()) if (auto *combo = findChild<QComboBox *>(QStringLiteral("predictTypeCombo")))
+        combo->setCurrentIndex(combo->findData(type));
+      if (!type.isEmpty()) if (auto *combo = findChild<QComboBox *>(QStringLiteral("predictionKind")))
+        combo->setCurrentIndex(combo->findData(type == "well_log_facies" ? "wells" : "seismic"));
+      if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("workbenchTabs.") + page)) tabs->setCurrentIndex(0);
+    });
+  };
+  addTask("data", tr("打开数据视图"), "data", tr("打开当前工程的数据列表与资料预览。"));
+  addTask("correlation", tr("打开地层对比"), "correlation", tr("打开原生连井曲线与分层结果，使用当前工区的数据服务。"));
+  addTask("predict", tr("井预测"), "predict", tr("按当前地层预测井的相分类并保存井预测结果。"), "well_log_facies");
+  addTask("predict", tr("编制单因素图"), "constraint", tr("按当前地层选择单因素方法，编制对应图件。"));
+  addTask("seismic", tr("地震相预测"), "predict", tr("预测地震相并生成面状结果。"), "seismic_facies");
   // W5 键盘可达 + 页循环快捷键（方向63 注册表）——paleomainwindow_shortcuts.cpp。
   registerPageShortcuts();
   connect(bar, &SARibbonBar::currentRibbonTabChanged, this, [this, bar](int idx) {
     SARibbonCategory *cat = bar->categoryByIndex(idx);
     const QString id = cat ? cat->property("paleo.pageId").toString() : QString();
-    if (!id.isEmpty() && id != m_currentPage)
-      showPage(id);
+    // Ribbon only selects commands. Visualization is activated by task actions.
+    setProperty("paleo.ribbonPage", id);
   });
 
   // ---- 「文件」应用按钮：工程级动作。起始页按钮是同一批动作的另一入口
@@ -258,7 +283,9 @@ void PaleoMainWindow::buildRibbon()
 SARibbonCategory *PaleoMainWindow::categoryForPage(const QString &pageId) const
 {
   SARibbonBar *bar = ribbonBar();
-  return bar ? bar->categoryByObjectName(QStringLiteral("ribbonCategory.") + pageId) : nullptr;
+  const QString id = pageId == QLatin1String("constraint") ? QStringLiteral("predict") :
+                     pageId == QLatin1String("validate") ? QStringLiteral("compose") : pageId;
+  return bar ? bar->categoryByObjectName(QStringLiteral("ribbonCategory.") + id) : nullptr;
 }
 
 void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)

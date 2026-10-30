@@ -86,7 +86,9 @@ private:
   bool m_userWantsVisible = true;
 };
 
-class StratigraphicWebPage;
+class StratigraphyWorkflow;
+class StratigraphyPage;
+class QTabBar;
 class QStackedWidget;
 class QSplitter;
 class DataPreviewTabs;
@@ -350,6 +352,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 方向 83 拆 TU：buildShell 按原文行序分解为下列构建段（初始化序/
     // 连接序逐行保持；实现分布 paleomainwindow_docks/_status/_errorhub/
     // _ribbon/_shortcuts.cpp）。
+    void buildVisualizationWorkspace();
     void buildCenterArea();       // 中央面：启动页/画布面/数据面/地层对比页
     void buildLayerTreeDock();    // 左 dock 图层平台 + 空态同步
     void buildPageDocks();        // 右栏占位/底栏/地震剖面/连井/3D/Web dock 族
@@ -474,7 +477,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     // validationDone 连接在验证跑完后调它（残差覆盖是门的一条腿）。
     std::function<void()> m_refreshPublishGate;
 
-    StratigraphicWebPage *m_stratigraphicWebPage = nullptr;
+    StratigraphyWorkflow *m_stratigraphy = nullptr;
+    StratigraphyPage *m_stratigraphyPage = nullptr;
+    QTabBar *m_visualizationTabs = nullptr;
     QList<QPointer<QDockWidget>> m_correlationHiddenDocks;
     QByteArray m_beforeCorrelationWindowState;
     QStackedWidget *m_centerStack = nullptr;   // page0=startup, page1=workspace

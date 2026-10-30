@@ -2,7 +2,7 @@
 // 与帮助面回归——
 //   - 主窗内每个 QShortcut / 带键 QAction 都来自中央注册表，键序/上下文与登记一致
 //   - 行为不变：Ctrl+1 / Ctrl+3 直切、Ctrl+Tab / Ctrl+Shift+Tab 循环、Ctrl+K
-//     聚焦定位器、Ctrl+S 在地层对比页让出（≥5 条 offscreen 回归）
+//     聚焦定位器、Ctrl+S 在原生地层对比页保持工程保存（≥5 条 offscreen 回归）
 //   - F1 打开总表且条目数 = 注册数；Shift+F1 进入 / Esc 退出「这是什么？」
 //   - 「帮助」按钮三入口可达；核心面板 whatsThis 回填 ≥30 处
 #include <QtTest>
@@ -147,7 +147,7 @@ private slots:
     }
     QVERIFY2(problems.isEmpty(), qPrintable(problems.join('\n')));
     QVERIFY2(checked >= 10, qPrintable(QString::number(checked)));
-    for (const char *id : {"main.page.data", "main.page.validate", "main.page.next", "main.page.prev",
+    for (const char *id : {"main.page.data", "main.page.seismic", "main.page.next", "main.page.prev",
                            "main.locator.focus"})
       QVERIFY2(shortcutById(QString::fromLatin1(id)), id);
   }
@@ -155,16 +155,20 @@ private slots:
   // ---- 行为回归（≥5 条，offscreen 真按键）----
   void pageShortcutsUnchanged()
   {
+    m_win->showPage(QStringLiteral("data"));
     QTest::keyClick(m_win, Qt::Key_1, Qt::ControlModifier); // Ctrl+1
     QCOMPARE(m_win->currentPage(), QStringLiteral("data"));
     QTest::keyClick(m_win, Qt::Key_3, Qt::ControlModifier); // Ctrl+3
-    QCOMPARE(m_win->currentPage(), QStringLiteral("predict"));
+    QCOMPARE(m_win->currentPage(), QStringLiteral("data"));
+    QCOMPARE(m_win->ribbonBar()->currentIndex(), 2);
+    m_win->showPage(QStringLiteral("predict"));
     QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier); // Ctrl+Tab
-    QCOMPARE(m_win->currentPage(), QStringLiteral("constraint"));
+    QCOMPARE(m_win->currentPage(), QStringLiteral("data"));
     QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier | Qt::ShiftModifier); // Ctrl+Shift+Tab
     QCOMPARE(m_win->currentPage(), QStringLiteral("predict"));
-    QTest::keyClick(m_win, Qt::Key_6, Qt::ControlModifier); // Ctrl+6
-    QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
+    QTest::keyClick(m_win, Qt::Key_5, Qt::ControlModifier);
+    QCOMPARE(m_win->ribbonBar()->currentIndex(), 4);
+    QCOMPARE(m_win->currentPage(), QStringLiteral("predict"));
   }
 
   void ctrlKFocusesLocator()
@@ -181,12 +185,12 @@ private slots:
     QTRY_VERIFY(edit->hasFocus());
   }
 
-  void saveShortcutYieldsOnCorrelationPage()
+  void saveShortcutStaysActiveOnNativeCorrelation()
   {
     auto *save = m_win->findChild<QAction *>(QStringLiteral("saveProjectAction"));
     QVERIFY(save);
     m_win->showPage(QStringLiteral("correlation"));
-    QVERIFY(save->shortcut().isEmpty());
+      QCOMPARE(save->shortcut(), QKeySequence(QKeySequence::Save));
     m_win->showPage(QStringLiteral("data"));
     QCOMPARE(save->shortcut(), QKeySequence(QKeySequence::Save));
     QCOMPARE(save->property(kShortcutIdProperty).toString(), QStringLiteral("main.project.save"));
@@ -299,7 +303,7 @@ private slots:
   {
     static const QStringList shellScopes = {
         QStringLiteral("PaleoMainWindow"), QStringLiteral("DataListPanel"),
-        QStringLiteral("StratigraphicWebPage"), QStringLiteral("PredictPage"),
+        QStringLiteral("StratigraphyPage"), QStringLiteral("PredictPage"),
         QStringLiteral("ConstraintPage"), QStringLiteral("ComposePage"),
         QStringLiteral("ValidatePage")};
     QStringList missing;

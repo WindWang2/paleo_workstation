@@ -39,9 +39,10 @@ inline void bindTrackedProperty(QObject *owner, const char *name, QObject *targe
 
 // 六页序表：ribbon 页签序 = 阅读序 = 右栏栈序。壳（paleomainwindow.cpp）
 // 与接线 TU（paleomainwindow_attach.cpp）共用，W4 后两处 TU 都要查序。
+inline const QStringList kRibbonIds = {"data", "correlation", "predict", "seismic", "compose"};
 inline const QStringList kPageIds = {
   QStringLiteral("data"),       // 数据管理
-  QStringLiteral("correlation"), // 地层对比（独立 Web 工作台）
+  QStringLiteral("correlation"), // 地层对比（原生视图）
   QStringLiteral("predict"),    // 智能预测
   QStringLiteral("constraint"), // 单因素图
   QStringLiteral("compose"),    // 智能编图

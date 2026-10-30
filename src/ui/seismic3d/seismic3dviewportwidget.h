@@ -86,6 +86,7 @@ public:
     [[nodiscard]] bool isFrameVisible() const;
 
     void setPresetView(SeismicCameraController::PresetView preset);
+    void restoreCamera(const SeismicCameraController::CameraState &state);
     void fitToBounds();
 
     // D3.3 切片透明度（0..1）

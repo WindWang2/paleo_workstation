@@ -39,7 +39,7 @@ private slots:
     QCOMPARE(wizard.currentId(),2);
     QCOMPARE(wizard.findChild<QLabel *>("dataServiceCreationStatus")->text(),QString("test creation error"));
   }
-  void createsModelWithoutInventingCoordinates() {
+  void createsModelWithDeclaredDefaultProjectCrs() {
     QTemporaryDir temp; const QString input=temp.filePath("input"); QVERIFY(QDir().mkpath(input));
     QFile file(input+"/coordinates.csv"); QVERIFY(file.open(QIODevice::WriteOnly));
     file.write("WELL,X,Y\nSYNTH-1,0,200\n");file.close();
@@ -59,9 +59,11 @@ private slots:
     paleo::data::DataService model;std::string detail;
     QVERIFY(model.openProjectReadOnly(paleo::area_model::directory(QFileInfo(wizard.projectPath()).absolutePath()).toStdString(),detail));
     paleo::data::ProjectCoordinates coordinates;QVERIFY(model.readProjectCoordinates(coordinates,detail));
-    QVERIFY(coordinates.coordinateSystem.empty());QVERIFY(coordinates.coordinateUnit.empty());
+    QCOMPARE(coordinates.coordinateSystem,std::string("EPSG:32650"));QCOMPARE(coordinates.coordinateUnit,std::string("m"));
+    paleo::data::ProjectCrsInfo crs;QVERIFY(model.readProjectCrsInfo(crs,detail));QCOMPARE(crs.selectionBasis,std::string("default"));
     std::vector<paleo::data::WellInfoRecord> wells;QVERIFY(model.listWellInfos(wells,detail));QCOMPARE(wells.size(),size_t(1));
-    QCOMPARE(wells.front().value.wellheadX,0.0);QVERIFY(wells.front().value.coordinateSystem.empty());QVERIFY(wells.front().value.coordinateUnit.empty());
+    QCOMPARE(wells.front().value.wellheadX,0.0);QCOMPARE(wells.front().value.wellheadY,200.0);
+    QCOMPARE(wells.front().value.coordinateSystem,std::string("EPSG:32650"));QCOMPARE(wells.front().value.coordinateUnit,std::string("m"));
     project.closeProject();
   }
   void wizardCreatesProjectWithEpsgMetadata() {

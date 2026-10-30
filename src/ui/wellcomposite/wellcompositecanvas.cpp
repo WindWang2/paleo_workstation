@@ -216,6 +216,16 @@ double WellCompositeCanvas::visibleDepthSpan() const
   return bodyH / pxPerMeter();
 }
 
+QWidget *WellCompositeCanvas::depthViewport() const { return m_body; }
+
+void WellCompositeCanvas::setVisibleDepthRange(double top, double bottom)
+{
+  if (!std::isfinite(top) || !std::isfinite(bottom) || bottom <= top) return;
+  setDepthRange(qMin(m_minDepth, top), qMax(m_maxDepth, bottom));
+  setZoomFactor(zoomFactor() * visibleDepthSpan() / (bottom - top));
+  setScrollDepth(top);
+}
+
 void WellCompositeCanvas::notifyViewportChanged()
 {
   emit viewportChanged(visibleTopDepth(), visibleBottomDepth(), visibleDepthSpan());

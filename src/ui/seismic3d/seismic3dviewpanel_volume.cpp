@@ -8,6 +8,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QWidget>
+#include <QTimer>
 
 // SF-1（full-audit-20261020）：视图侧堆叠层清理入口定义在此 TU——
 // viewportwidget 主文件 1003 冻结值不涨（file-budget/ui-size 只缩不涨纪律）。
@@ -25,6 +26,23 @@ void seismic::Seismic3DViewportWidget::clearStackLayers() {
 }
 
 namespace seismic {
+
+void Seismic3DViewportWidget::restoreCamera(const SeismicCameraController::CameraState &state) {
+    camera_.setState(state);initialFitDone_=true;update();
+}
+
+bool Seismic3DViewPanel::promoteIndexedVolume(std::shared_ptr<SgyVolume> next) {
+    const auto previous=volume();
+    if(!previous||!next||!previous->IsRuleBased()||next->IsRuleBased()||!next->IsIndexComplete()||previous->Path()!=next->Path())return false;
+    const auto state=viewport_->camera().state();
+    const int il=currentInline(),xl=currentCrossline(),sample=currentTimeSample();
+    setVolume(next);
+    setInline(next->FindNearestInlineValue(il));setCrossline(next->FindNearestXlineValue(xl));
+    setTimeSample(std::clamp(sample,0,next->SampleMax()));
+    viewport_->restoreCamera(state);
+    if(property("fullPrecisionAfterIndex").toBool()&&!pagedPath_.isEmpty())lodRefineTimer_->start(0);
+    return true;
+}
 
 void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
     // #158：换体/清体先中止旧体在途的切片读取（结果按槽位句柄丢弃）。

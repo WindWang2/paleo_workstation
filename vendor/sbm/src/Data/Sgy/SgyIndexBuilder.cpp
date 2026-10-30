@@ -210,6 +210,8 @@ SgyIndexPtr SgyIndexBuilder::BuildRuleBasedSnapshot(
     if(ec) {
         index->fileSize = 0;
     }
+    const auto writeTime=std::filesystem::last_write_time(index->path,ec);
+    if(!ec)index->modifiedTimeTicks=static_cast<std::int64_t>(writeTime.time_since_epoch().count());
     index->traceCount = traceCount;
     index->scannedTraceCount = 0;
     index->sampleCount = sampleCount;

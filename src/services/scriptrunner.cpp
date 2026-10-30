@@ -17,7 +17,7 @@
 namespace
 {
   // 取消/超时的优雅退出窗口：terminate（Unix=进程组 SIGTERM）后给脚本
-  // finally/atexit 清理机会，仍未退出再 kill（先例 stratigraphicwebsession）。
+  // finally/atexit 清理机会，仍未退出再 kill。
   constexpr int kKillGraceMs = 2000;
   // 无换行输出的半行缓冲上限（#479）：巨量无换行输出（如误把二进制写进
   // stdout）不得无上限积攒——超限即按「强制行」冲刷，单行长度恒有界，
@@ -211,8 +211,7 @@ void ScriptRunnerService::launch(Run *run)
   run->proc = proc;
   proc->setProcessChannelMode(QProcess::SeparateChannels);
 #ifdef Q_OS_UNIX
-  // 独立进程组：取消/超时时整组回收脚本拉起的子进程，不留孤儿
-  //（stratigraphicwebsession 先例）。
+  // 独立进程组：取消/超时时整组回收脚本拉起的子进程，不留孤儿。
   proc->setChildProcessModifier([] { ::setsid(); });
 #endif
   auto env = QProcessEnvironment::systemEnvironment();

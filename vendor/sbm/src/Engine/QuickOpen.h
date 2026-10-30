@@ -45,6 +45,7 @@ struct QuickOpenResult {
     int selectedXline = 0;
     int columnsRead = 0;
     int columnsTotal = 0;
+    SgyIndexPtr previewIndex; // memory-only verified rule; never a full-header cache
     SgySliceImage preview; // real amplitudes; unread columns are NaN
     QuickOpenTimings times;
 };

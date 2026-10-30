@@ -8,6 +8,15 @@
 #include <cmath>
 
 using namespace paleo::datapreview_detail;
+namespace {
+QString coordinateSummary(const WellComposite::ComprehensiveWellData& data) {
+  const auto known=[](const QString& value){return value.isEmpty()?QObject::tr("未确认"):value;};
+  const auto number=[](double value){return std::isfinite(value)?QString::number(value,'g',12):QObject::tr("未提供");};
+  return QObject::tr("井口 X：%1，Y：%2；井坐标系：%3（%4）；工程坐标系：%5（%6）")
+      .arg(number(data.x),number(data.y),known(data.coordinateSystem),known(data.coordinateUnit),
+           known(data.projectCoordinateSystem),known(data.projectCoordinateUnit));
+}
+}
 
 QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QString &assetId,
                                                    QWidget *host, QVBoxLayout *lay, const QString &expectedSha, bool reference)
@@ -53,11 +62,8 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
     buildWorkbookTable(data.table, tableHost, tableLayout);
     if (data.chartOk) {
       chart->loadWellData(data.chart, abs, reference);
-      if (data.chart.modelWellId && std::isfinite(data.chart.x) && std::isfinite(data.chart.y)) {
-        const auto known = [](const QString &value) { return value.isEmpty() ? tr("未确认") : value; };
-        hint->setText(tr("井口 X：%1，Y：%2；井坐标系：%3（%4）")
-            .arg(QString::number(data.chart.x, 'g', 12), QString::number(data.chart.y, 'g', 12),
-                 known(data.chart.coordinateSystem), known(data.chart.coordinateUnit)));
+      if (data.chart.modelWellId) {
+        hint->setText(coordinateSummary(data.chart));
         hint->show();
       }
     }
@@ -149,12 +155,8 @@ void DataPreviewTabs::openModelWell(qlonglong modelWellId, const QString &wellNa
             if (data.chartOk)
             {
               chart->loadWellData(data.chart, QString(), false);
-              if (std::isfinite(data.chart.x) && std::isfinite(data.chart.y)) {
-                const auto known = [](const QString &value) { return value.isEmpty() ? tr("未确认") : value; };
-                hint->setText(tr("井口 X：%1，Y：%2；井坐标系：%3（%4）")
-                                  .arg(QString::number(data.chart.x, 'g', 12),
-                                       QString::number(data.chart.y, 'g', 12),
-                                       known(data.chart.coordinateSystem), known(data.chart.coordinateUnit)));
+              if (data.chart.modelWellId) {
+                hint->setText(coordinateSummary(data.chart));
                 hint->show();
               }
             }

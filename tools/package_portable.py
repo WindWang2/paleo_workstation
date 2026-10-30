@@ -47,12 +47,8 @@ QGIS_PREFIX = Path(r"C:\Users\wangj.KEVIN\paleo-qgis-prefix")
 QT_PDF_BIN = Path(r"C:\deps\Qt\6.11.2\msvc2022_64\bin")
 ORT_LIB = REPO_ROOT / "vendor" / "onnxruntime" / "lib"
 
-# ---- 地层对比独立项目 + 随包 Python（--correlation-dir/--conda 可覆盖）----
-CORRELATION_PROJECT = Path(r"C:/Users/wangj.KEVIN/projects/独立Web项目_20261004")
+# ---- 脚本台面的随包 Python（--conda 可覆盖）----
 CONDA = Path(r"C:/ProgramData/anaconda3/Scripts/conda.exe")
-# 包内落位用纯 ASCII 名：启动器是 cmd 批处理，中文路径在 chcp 前后会被
-# 重新按不同码页解析（旧便携包实测把「独立Web项目」读成 ??Web??）。
-CORRELATION_PKG_DIR = "correlation/web-20261004"
 
 # 搜索根：收集 DLL 时按优先级查找（同名 DLL 前面的根胜出——
 # conda deps 的 Qt 6.11.2 必须压过官方前缀，避免混 ABI）。
@@ -228,8 +224,6 @@ LAUNCHER_BAT = (
     "set \"QSG_RHI_BACKEND=opengl\"\r\n"
     "set \"PYTHONUTF8=1\"\r\n"
     "set \"PALEO_PYTHON=%~dp0python\\python.exe\"\r\n"
-    "set \"PALEO_CORRELATION_PYTHON=%~dp0python\\python.exe\"\r\n"
-    "set \"PALEO_CORRELATION_PROJECT_DIR=%~dp0correlation\\web-20261004\"\r\n"
     "set \"PATH=%~dp0;%~dp0python;%~dp0python\\Library\\bin;%~dp0python\\Scripts;%PATH\"\r\n"
     "start \"\" \"%~dp0paleo.exe\" %*\r\n"
 )
@@ -248,11 +242,11 @@ README_TXT = (
     "  share/gdal,proj  GDAL/PROJ 数据目录（坐标系与栅格驱动元数据）\r\n"
     "  resources-paleo/ 应用内样式、文档、示例\r\n"
     "  office-editor/   Office 原件编辑页（OnlyOffice WASM；AGPL——见 office-editor-NOTICE.txt）\r\n"
-    "  python/          Python 3.10 运行时（脚本台面与地层对比共用，已装 requirements）\r\n"
-    "  correlation/     地层对比独立项目（run.py + 数据）\r\n"
+    "  python/          Python 3.10 运行时（脚本台面）\r\n"
     "  testdata/        示例工程与地质夹具（可删）\r\n\r\n"
     "系统要求：Windows 10/11 x64。无需安装 Python、Qt 或 QGIS。\r\n"
-    "Python 与地层对比环境已随包（python/），启动器已设 PALEO_PYTHON / PALEO_CORRELATION_*。\r\n"
+    "Python 脚本环境已随包（python/），启动器已设 PALEO_PYTHON。\r\n"
+    "地层对比使用原生界面与当前工程数据服务。\r\n"
 )
 
 
@@ -300,10 +294,8 @@ def main():
     ap.add_argument("--build-dir", required=True, help="构建目录（含产物 exe）")
     ap.add_argument("--out", default=None, help="输出目录，默认 <build>/portable")
     ap.add_argument("--zip", action="store_true", help="额外产出 zip")
-    ap.add_argument("--correlation-dir", default=None, help="地层对比项目目录（默认已知位置）")
     ap.add_argument("--conda", default=None, help="conda.exe 路径")
     ap.add_argument("--skip-python", action="store_true", help="不打 Python 运行时")
-    ap.add_argument("--skip-correlation", action="store_true", help="不打地层对比项目")
     ap.add_argument("--verify", action="store_true",
                     help="净环境跑包内 selfcheck + paleo.exe 冒烟（模拟新机）")
     args = ap.parse_args()
@@ -326,7 +318,7 @@ def main():
     out.mkdir(parents=True)
 
     # 1) 产品 exe
-    print("[1/7] 收集产品 exe …")
+    print("[1/8] 收集产品 exe …")
     exes = []
     for name in PRODUCT_EXES:
         p = build / name
@@ -338,13 +330,13 @@ def main():
             print(f"      ! 缺失 {name}")
 
     # 2) DLL 闭包
-    print("[2/7] 解析 DLL 传递依赖闭包（dumpbin BFS）…")
+    print("[2/8] 解析 DLL 传递依赖闭包（dumpbin BFS）…")
     closure, missing = collect_dll_closure(exes, dumpbin)
     print(f"      收集 {len(closure)} 个 DLL；未解析 {len(missing)} 个")
     for m in sorted(missing)[:20]:
         print(f"        - {m}")
 
-    print("[3/7] 复制 DLL …")
+    print("[3/8] 复制 DLL …")
     system32 = Path(r"C:\Windows\System32").resolve()
     skipped_sys = 0
     for name, src in sorted(closure.items()):
@@ -392,12 +384,12 @@ def main():
         print(f"      + WebEngine 运行件（process + {n_pak} resources + locales → share/qt6）")
 
     # 4) Qt 插件（Qt 6.11.2 conda 布局，与运行时 Qt 同 ABI）
-    print("[4/7] 复制 Qt 插件 …")
+    print("[4/8] 复制 Qt 插件 …")
     for c in copy_qt_plugins(out):
         print(f"      + {c}")
 
     # 5) QGIS 前缀资源（qgis/ 子目录即 prefix——app 便携分支契约）
-    print("[5/7] 复制 QGIS 运行时资源 …")
+    print("[5/8] 复制 QGIS 运行时资源 …")
     qres = QGIS_PREFIX / "resources"
     if qres.is_dir():
         shutil.copytree(qres, out / "qgis" / "resources", dirs_exist_ok=True)
@@ -406,7 +398,7 @@ def main():
         print(f"      ! 缺失 {qres}")
 
     # 6) GDAL/PROJ 数据 + 应用资源 + Office 编辑页
-    print("[6/9] 复制 GDAL/PROJ 数据与应用资源 …")
+    print("[6/8] 复制 GDAL/PROJ 数据与应用资源 …")
     for s, name in ((DEPS / "Library" / "share" / "gdal", "share/gdal"),
                     (DEPS / "Library" / "share" / "proj", "share/proj")):
         if s.is_dir():
@@ -434,33 +426,17 @@ def main():
         print("      ! vendor/ranuts-document 未安装——Office 预览将不可用"
               "（先运行 vendor/fetch-ranuts-document.sh 再打包）")
 
-    # 7) Python 运行时（地层对比 + 脚本台面共用；conda 建 py3.10 + correlation requirements）
-    print("[7/9] Python 3.10 运行时（conda create + pip install，数分钟）…")
+    # 7) Python 运行时（脚本台面；不依赖外部地层项目）
+    print("[7/8] Python 3.10 运行时（conda create，数分钟）…")
     if not args.skip_python:
         if run([str(CONDA), "create", "-y", "-p", str(out / "python"), "python=3.10"]).returncode != 0:
             sys.exit("conda create 失败")
-        py = out / "python" / "python.exe"
-        req = (Path(args.correlation_dir) if args.correlation_dir else CORRELATION_PROJECT) / "requirements.txt"
-        if run([str(py), "-m", "pip", "install", "--no-warn-script-location", "-r", str(req)]).returncode != 0:
-            sys.exit("pip install 失败")
         print(f"      python/  {dir_size(out / 'python')}")
     else:
         print("      跳过（--skip-python）")
 
-    # 8) 地层对比独立项目（run.py + 数据；__pycache__/.venv 不进包）
-    print("[8/9] 地层对比独立项目 …")
-    if not args.skip_correlation:
-        src = Path(args.correlation_dir) if args.correlation_dir else CORRELATION_PROJECT
-        if not (src / "run.py").is_file():
-            sys.exit(f"缺少地层对比项目 run.py: {src}")
-        shutil.copytree(src, out / CORRELATION_PKG_DIR,
-                        ignore=shutil.ignore_patterns("__pycache__", ".venv"))
-        print(f"      {CORRELATION_PKG_DIR}/  {dir_size(out / CORRELATION_PKG_DIR)}")
-    else:
-        print("      跳过（--skip-correlation）")
-
-    # 9) 启动器 + 说明 + 完整性校验
-    print("[9/9] 生成启动器、说明与完整性校验 …")
+    # 8) 启动器 + 说明 + 完整性校验
+    print("[8/8] 生成启动器、说明与完整性校验 …")
     (out / "启动-paleo.bat").write_text(LAUNCHER_BAT, encoding="utf-8")
     (out / "使用说明.txt").write_text(README_TXT, encoding="utf-8")
     # 0xc0000007b 在目标机多为拷贝/解压损坏——SHA256SUMS + 包内 python 校验器

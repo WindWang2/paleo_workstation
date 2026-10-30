@@ -252,7 +252,7 @@ private slots:
     QVERIFY2(!left->userWantsVisible(), "user-hide intent was lost by the restore");
   }
 
-  // 地层对比 Web 页期间用户经「布局」菜单收起面板（toggleViewAction → setVisible
+  // 原生地层对比页期间用户经「布局」菜单收起面板（toggleViewAction → setVisible
   // 记下 userWantsVisible=false）：离开该页的 dock 恢复不得把它强制拉回。
   void userHiddenPanelDuringCorrelationStaysHidden()
   {
@@ -620,14 +620,15 @@ private slots:
     QSet<QAction *> coveredActions;
     QStringList missing;
     for (bool hasTarget : {false, true}) {
-      for (const QString &id : paleo::pagesinternal::kPageIds) {
-        win.showPage(id);
-        // 页面切换会重算编辑目标；在每一页覆盖无目标与有目标两种布局。
+      for (const QString &id : paleo::pagesinternal::kRibbonIds) {
+        auto *cat = win.categoryForPage(id);
+        QVERIFY(cat);
+        win.ribbonBar()->raiseCategory(cat);
+        QCoreApplication::processEvents();
+        // Ribbon 与视图独立；显式选择工具，并覆盖无目标与有目标两种布局。
         editing->setLayers(hasTarget ? QList<QgsVectorLayer *>{&target} : QList<QgsVectorLayer *>{});
         editing->setCurrentLayer(hasTarget ? &target : nullptr);
         QCOMPARE(editing->actionSelect()->isEnabled(), hasTarget);
-        QWidget *cat = win.categoryForPage(id);
-        QVERIFY(cat);
         bool hasCommand = false;
         for (auto *b : cat->findChildren<QToolButton *>()) {
           if (!b->inherits("SARibbonToolButton") || !b->isVisibleTo(cat))
@@ -641,7 +642,7 @@ private slots:
         coveredPages.insert(id);
       }
     }
-    QCOMPARE(coveredPages.size(), paleo::pagesinternal::kPageIds.size());
+    QCOMPARE(coveredPages.size(), paleo::pagesinternal::kRibbonIds.size());
     for (auto *action : {editing->actionSelect(), editing->actionEditMode(), editing->actionSave(), editing->actionCancel()})
       QVERIFY2(coveredActions.contains(action), qPrintable(action->text()));
     QVERIFY2(missing.isEmpty(), qPrintable(missing.join(QLatin1Char('\n'))));

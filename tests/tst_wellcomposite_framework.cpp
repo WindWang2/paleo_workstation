@@ -116,8 +116,8 @@ private slots:
       }
       data.continuousCurves << c;
     }
-    WellCompositeStore::clearSessionTracks({}, data.wellName);
-    WellCompositeStore::clearSessionTracks({}, "UT-StandardLas");
+    WellCompositeStore::clearSessionTracks("default", data.wellName);
+    WellCompositeStore::clearSessionTracks("default", "UT-StandardLas");
     WellCompositePanel xml, las;
     QVERIFY(xml.loadWellData(data));
     QVERIFY(las.loadLasCurves("UT-StandardLas", data.continuousCurves, {}));

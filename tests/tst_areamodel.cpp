@@ -105,7 +105,9 @@ private slots:
     QVERIFY(reader.openProjectReadOnly(paleo::area_model::directory(project).toUtf8().toStdString(), detail));
     std::vector<paleo::data::WellInfoRecord> rows; QVERIFY(reader.listWellInfos(rows, detail));
     QCOMPARE(rows.size(), size_t(2)); QCOMPARE(rows[0].value.wellheadX, 100.0); QCOMPARE(rows[0].value.wellheadY, 200.0);
-    QCOMPARE(rows[1].value.wellheadX, 0.0); QVERIFY(rows[0].value.coordinateSystem.empty());
+    QCOMPARE(rows[1].value.wellheadX, 0.0); QCOMPARE(rows[0].value.coordinateSystem,std::string("EPSG:32650"));
+    QCOMPARE(rows[0].value.coordinateUnit,std::string("m"));
+    paleo::data::ProjectCrsInfo crs;QVERIFY(reader.readProjectCrsInfo(crs,detail));QCOMPARE(crs.selectionBasis,std::string("default"));
     DataCatalog catalog; QVERIFY(catalog.open(project, &error)); QVERIFY(registerAreaWells(catalog, &error));
     QCOMPARE(catalog.entities("well").size(), 2); QCOMPARE(catalog.entities("well")[1].surfaceY, 500.0);
   }

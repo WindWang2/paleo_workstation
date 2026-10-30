@@ -40,13 +40,13 @@ public:
 
     // 相邻可见面板之间：同名标志层 (x1,y1)-(x2,y2) 直线
     QList<QPair<WellCompositePanel *, QRect>> geom;
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < m_owner->slotCount(); ++i)
     {
       WellCompositePanel *panel = m_owner->panelAt(i);
       if (!panel || !panel->isVisible())
         continue;
       // 面板画布 body 区域映射到容器坐标
-      QWidget *canvas = panel->canvas();
+      QWidget *canvas = panel->canvas()->depthViewport();
       if (!canvas)
         continue;
       const QPoint tl = canvas->mapTo(m_owner, QPoint(0, 0));
@@ -106,6 +106,7 @@ int MultiWellView::capacity() const
   case LayoutMode::Single: return 1;
   case LayoutMode::Dual: return 2;
   case LayoutMode::Quad: return 4;
+  case LayoutMode::Row: return qMax(1, int(m_panels.size()));
   }
   return 1;
 }
@@ -191,6 +192,7 @@ void MultiWellView::relayout()
 
 int MultiWellView::setPanel(int slot, WellCompositePanel *panel)
 {
+  if (m_mode == LayoutMode::Row && slot >= m_panels.size()) m_panels.resize(slot + 1);
   const int cap = capacity();
   if (slot < 0 || slot >= cap)
     slot = cap - 1;
@@ -201,6 +203,7 @@ int MultiWellView::setPanel(int slot, WellCompositePanel *panel)
   {
     WellCompositePanel *old = m_panels.at(slot);
     old->hide();
+    disconnect(old->canvas(), nullptr, this, nullptr);
     old->setParent(nullptr);
     m_panels[slot] = nullptr;
   }
@@ -270,7 +273,11 @@ void MultiWellView::onPanelViewportChanged(double top, double bottom, double spa
   {
     if (!p || p == src)
       continue;
-    p->canvas()->setScrollDepth(top);
+    if (m_mode == LayoutMode::Row) {
+      const double ppm = src->canvas()->pxPerMeter();
+      p->canvas()->setZoomFactor(p->canvas()->zoomFactor() * ppm / p->canvas()->pxPerMeter());
+      p->canvas()->setScrollDepth(top - displayOffset(src) + displayOffset(p));
+    } else p->canvas()->setScrollDepth(top);
   }
   m_syncingScroll = false;
   m_overlay->update();

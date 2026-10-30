@@ -295,7 +295,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     addLarge(p, paramsAct);
     if (attrAct)
     {
-      SARibbonPanel *cp = panel(cat, tr("叠加对照"), "ribbonPanel.predict.compare");
+      SARibbonPanel *cp = panel(categoryForPage(QStringLiteral("seismic")), tr("地震浏览与对照"), "ribbonPanel.predict.compare");
       addLarge(cp, attrAct);
       QAction *pSeismic3d = newAction(tr("三维地震"), icon("3d.svg"),
                                       tr("打开三维地震立体视口"), "ribbonPredictSeismic3D");

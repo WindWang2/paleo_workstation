@@ -35,6 +35,7 @@ public:
 
     void setTaskService(SeismicTaskService *taskSvc);
     void setVolume(std::shared_ptr<SgyVolume> volume);
+    bool promoteIndexedVolume(std::shared_ptr<SgyVolume> volume);
     [[nodiscard]] std::shared_ptr<SgyVolume> volume() const;
 
     // 渐进 LOD（wave/seismic-engine-deep 主线4）：显式 .sf3p 分页工作区。

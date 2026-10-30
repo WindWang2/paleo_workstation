@@ -233,7 +233,6 @@ target_compile_definitions(tst_previewdoc PRIVATE
 add_paleo_test(tst_wellcomposite LIBS paleo_ui)
 add_paleo_test(tst_curvescale LIBS paleo_ui)           # PW-020/021：共享曲线刻度
 add_paleo_test(tst_smoke_realdata LIBS paleo_workflow) # real-data smoke; skips unless PALEO_REAL_PROJECT_AREA is set
-add_paleo_test(tst_stratigraphicweb LIBS paleo_ui)
 add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable → fallback, host survives
 # ---- wave3/ux-consistency ----
 # (fonts qrc + theme singleton live in paleo_core below; UI-domain tests here)

@@ -58,7 +58,7 @@ inline const QStringList &pageDockTitles()
 {
   static const QStringList titles = {
       QCoreApplication::translate("PaleoMainWindow", "数据属性"),
-      QCoreApplication::translate("PaleoMainWindow", "地层对比连接"),
+      QCoreApplication::translate("PaleoMainWindow", "地层对比参数"),
       QCoreApplication::translate("PaleoMainWindow", "预测参数"),
       QCoreApplication::translate("PaleoMainWindow", "单因素参数"),
       QCoreApplication::translate("PaleoMainWindow", "编图参数"),

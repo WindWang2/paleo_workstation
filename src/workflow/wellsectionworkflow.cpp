@@ -16,6 +16,7 @@
 #include "services/imagelod.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
+#include "services/seismicdataaccess.h"
 #include "services/welllogset.h"
 #include <QCoreApplication>
 #include <QDateTime>
@@ -279,8 +280,9 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       seismic::TimeDepthModel model;
       double shift = 0.0;
       QString status;
-      if (m_workbench->mdTimeDepth(pw->id, &model, &shift, &status))
-        well.timeDepth = wellsection::TimeDepth{model, shift, status};
+      QString timeReference;
+      if (m_workbench->mdTimeDepth(pw->id, &model, &shift, &status, &timeReference))
+        well.timeDepth = wellsection::TimeDepth{model, shift, status, timeReference};
       else if (!status.isEmpty())
         shared->warnings << tr("井 %1 的时深不可用：%2").arg(pw->name, status);
     } else {
@@ -295,7 +297,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       }
       seismic::TimeDepthModel model;
       if (model.setCheckshots(points)) {
-        well.timeDepth = wellsection::TimeDepth{model, 0.0, tr("时深表")};
+        well.timeDepth = wellsection::TimeDepth{model, 0.0, tr("时深表"),td.front().timeReference};
       } else if (!td.isEmpty() && tvdOnlyRows && points.empty()) {
         // TVD-only 表在但连井剖面时深契约是 MD 域——如实告警，不凭空换算。
         shared->warnings
@@ -1052,6 +1054,10 @@ void WellSectionWorkflow::attachLithoSegments(
   }
 }
 
+WellSectionWorkflow::SeismicSource WellSectionWorkflow::seismicSource(const QString& preferred) const {
+  SeismicSource source;source.path=paleo::seismicProjectSource(projectDir(),preferred,&source.status);return source;
+}
+
 int WellSectionWorkflow::requestSeismic(
     const QVector<wellsection::Well> &wells, const SeismicSource &source) {
   const int generation = ++m_seismicGeneration;
@@ -1073,8 +1079,8 @@ int WellSectionWorkflow::requestSeismic(
     emit seismicReady(generation, *strip);
     return generation;
   };
-  if (!source.volume || !source.grid.valid)
-    return emitStatus(tr("未加载带坐标的地震体"));
+  if (source.path.isEmpty())
+    return emitStatus(source.status.isEmpty()?tr("未选择数据服务中的地震体"):source.status);
   if (!m_seismicTasks)
     return emitStatus(tr("地震任务服务不可用"));
 
@@ -1096,13 +1102,10 @@ int WellSectionWorkflow::requestSeismic(
     if (--batch->pending == 0 && batch->armed)
       finalize();
   };
-  const double stepMs = source.volume->SampleIntervalUs() / 1000.0;
   for (int i = 0; i < gaps; ++i) {
     const wellsection::Well &a = wells[i];
     const wellsection::Well &b = wells[i + 1];
     auto &gap = strip->gaps[i];
-    int inlA = 0, xlA = 0, inlB = 0, xlB = 0;
-    QString reason;
     if (!a.hasCoordinates())
       gap.reason = tr("%1 缺少井口坐标").arg(a.name);
     else if (!b.hasCoordinates())
@@ -1111,42 +1114,21 @@ int WellSectionWorkflow::requestSeismic(
       gap.reason = tr("%1 缺少时深关系").arg(a.name);
     else if (!b.timeDepth)
       gap.reason = tr("%1 缺少时深关系").arg(b.name);
-    else if (!source.grid.xyToInlineXline(a.x, a.y, &inlA, &xlA, &reason))
-      gap.reason = tr("%1 不在地震测网内").arg(a.name);
-    else if (!source.grid.xyToInlineXline(b.x, b.y, &inlB, &xlB, &reason))
-      gap.reason = tr("%1 不在地震测网内").arg(b.name);
-    else if (inlA == inlB && xlA == xlB)
-      gap.reason = tr("两井位于同一地震道");
+    else if (a.timeDepth->timeReference.isEmpty() || b.timeDepth->timeReference.isEmpty())
+      gap.reason = tr("%1 / %2 的时深时间基准尚未确认").arg(a.name,b.name);
+    else if (a.timeDepth->timeReference != b.timeDepth->timeReference)
+      gap.reason = tr("%1 / %2 的时深时间基准不一致，请先校正").arg(a.name,b.name);
     if (!gap.reason.isEmpty())
       continue;
     ++batch->pending;
-    seismic::SgySectionOptions options;
-    options.maxColumns = 512;
-    options.interpolate = false;
-    const double startMs = source.timeOriginMs;
-    PaleoTask *task = m_seismicTasks->startSectionExtraction(
-        std::make_shared<seismic::SgyVolume>(*source.volume),
-        {glm::ivec2(inlA, xlA), glm::ivec2(inlB, xlB)}, options,
-        [strip, batch, finishOne, i, startMs, stepMs](
-            bool ok, std::shared_ptr<const seismic::SgySliceImage> image,
-            const seismic::SgySectionStats &stats, const QString &error) {
+    PaleoTask *task = m_seismicTasks->startDataSection(
+        source.path,{{a.x,a.y},{b.x,b.y}},a.timeDepth->timeReference,
+        [strip, finishOne, i](bool ok,std::shared_ptr<const seismic::SeismicSectionData> section,const QString &error) {
           auto &gap = strip->gaps[i];
-          if (ok && image && image->width > 0 && image->height > 0 &&
-              image->values.size() ==
-                  static_cast<size_t>(image->width) * image->height) {
-            gap.columns = image->width;
-            gap.samples = image->height;
-            gap.startMs = startMs;
-            gap.stepMs = stepMs;
-            gap.values = image->values;
-            // 列 0 必须是左井端：道距序倒挂 → 每行翻转列序。
-            if (stats.columnDistances.size() >= 2 &&
-                stats.columnDistances.front() > stats.columnDistances.back()) {
-              for (int r = 0; r < gap.samples; ++r)
-                std::reverse(
-                    gap.values.begin() + size_t(r) * gap.columns,
-                    gap.values.begin() + size_t(r + 1) * gap.columns);
-            }
+          if(ok&&section&&section->columns>0&&section->samples>0&&section->values.size()==size_t(section->columns)*section->samples) {
+            gap.columns=section->columns;gap.samples=section->samples;
+            gap.startMs=section->firstTimeMs;gap.stepMs=section->sampleIntervalMs;
+            gap.values=section->values;gap.columnDistancesM=section->distancesM;
           } else {
             gap.columns = 0;
             gap.samples = 0;

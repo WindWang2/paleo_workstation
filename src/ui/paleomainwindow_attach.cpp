@@ -2,6 +2,7 @@
 // paleomainwindow_attach — 壳接线聚合胶水层：attachWorkflows 入口 + 静态辅助函数 + 跨页图层显隐辅助
 //（子页面/域接线已解耦至 paleomainwindow_attach_<domain>.cpp，严格保证类定义与 API 零变更）。
 #include "paleomainwindow.h"
+#include "../workflow/stratigraphyworkflow.h"
 
 #include "paleotheme.h"
 #include "paleoicons.h"
@@ -369,7 +370,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   auto *stack = host ? qobject_cast<QStackedLayout *>(host->layout()) : nullptr;
   if (!stack)
     return;
-  m_taskSvc = taskSvc; // D1b：导入任务池（nullptr 时保持同步旧路径）
+  m_taskSvc = taskSvc; if (m_stratigraphy) m_stratigraphy->setTaskService(taskSvc);
   m_projectStore = store; // #275：三入口（网格化/编辑分层/面运算）调用时现取 gpkg
   m_importSvc = importSvc; // 「从工区文件夹新建」直达入口
   if (importSvc)
@@ -423,7 +424,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   auto *composePage = new ComposePage(compose, m_layerSvc, host);
   auto *validatePage = new ValidatePage(validate, host);
   stack->addWidget(dataProps);
-  stack->addWidget(new QWidget(host)); // 地层对比使用中央 Web 页，无右侧属性页
+  stack->addWidget(new QWidget(host)); // 地层对比使用原生中央视图，无右侧属性页
   stack->addWidget(predictPage);
   stack->addWidget(constraintPage);
   stack->addWidget(composePage);
@@ -755,14 +756,6 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   if (dataPage && dataPage->listPanel())
     dataPage->listPanel()->setProjectOpenProvider(
         [this] { return m_projectSvc && !m_projectSvc->projectPath().isEmpty(); });
-
-  // 页面自建的对比服务命令：attach 时 tooltip 还是作者的静态用途串
-  //（会话忙时的临时文案之后才出现），此刻固化成 whatsThis。
-  for (const char *name : {"correlationWebConnectAction", "correlationWebDirectoryAction",
-                           "correlationWebPythonAction", "correlationWebStartAction",
-                           "correlationWebExternalAction"})
-    if (auto *a = findChild<QAction *>(QLatin1String(name)); a && a->whatsThis().isEmpty())
-      a->setWhatsThis(a->toolTip());
 
   m_workflowsAttached = true;
 }

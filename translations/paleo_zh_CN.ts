@@ -50755,4 +50755,117 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>&lt;b&gt;预测相&lt;/b&gt;&lt;p&gt;按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId，可供编图证据拉取。&lt;/p&gt;</translation>
     </message>
 </context>
+<context>
+    <name>SubIntervalSelectorBar</name>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>地层方案</source>
+        <translation>地层方案</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>解释修订</source>
+        <translation>解释修订</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>工程草稿</source>
+        <translation>工程草稿</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>（草稿）</source>
+        <translation>（草稿）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>方案 %1 / 修订 %2</source>
+        <translation>方案 %1 / 修订 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>%1 · 请选择父单元与子层段（S1–S4）</source>
+        <translation>%1 · 请选择父单元与子层段（S1–S4）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>%1 · 当前：%2</source>
+        <translation>%1 · 当前：%2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>%1 · 当前：%2（综合需各子层段成果齐全）</source>
+        <translation>%1 · 当前：%2（综合需各子层段成果齐全）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>已加载地层方案「%1」修订 %2</source>
+        <translation>已加载地层方案「%1」修订 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>当前父单元尚未派生四子层段。</source>
+        <translation>当前父单元尚未派生四子层段。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>提示：当前为工程草稿方案，井出现来自界面名单；打开含层段方案的工区后可切换修订。</source>
+        <translation>提示：当前为工程草稿方案，井出现来自界面名单；打开含层段方案的工区后可切换修订。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>地层解释方案。切换后分析选择写入该方案的稳定 ID；无提交方案时显示工程草稿。</source>
+        <translation>地层解释方案。切换后分析选择写入该方案的稳定 ID；无提交方案时显示工程草稿。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>方案修订快照（不可变）。选择后 UnitSelection.revision 写入该修订；分析成果按修订对齐。</source>
+        <translation>方案修订快照（不可变）。选择后 UnitSelection.revision 写入该修订；分析成果按修订对齐。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>层段分析模式：选择方案/修订、父单元与 S1–S4；与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。</source>
+        <translation>层段分析模式：选择方案/修订、父单元与 S1–S4；与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>父层间单元（相邻两条界面，如 T70–T71）。展开「状态」可查看四个子层段的井出现与成果红绿灯。</source>
+        <translation>父层间单元（相邻两条界面，如 T70–T71）。展开「状态」可查看四个子层段的井出现与成果红绿灯。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>展开查看当前父单元四个子层段的完整性/可用资料/受影响状态（红绿灯）。</source>
+        <translation>展开查看当前父单元四个子层段的完整性/可用资料/受影响状态（红绿灯）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>地层解释方案。选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。</source>
+        <translation>地层解释方案。选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>方案修订快照。选择后写入 UnitSelection.revision；分析成果按修订对齐。</source>
+        <translation>方案修订快照。选择后写入 UnitSelection.revision；分析成果按修订对齐。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>展开查看四个子层段的完整性/可用资料/受影响状态（红绿灯，接 DS occurrence 与成果绑定）。</source>
+        <translation>展开查看四个子层段的完整性/可用资料/受影响状态（红绿灯，接 DS occurrence 与成果绑定）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>[legacy] 编图厚度链仍跟顶部界面 chip；层段分析请用画布「层段分析」选择器（UnitSelection）。</source>
+        <translation>[legacy] 编图厚度链仍跟顶部界面 chip；层段分析请用画布「层段分析」选择器（UnitSelection）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>[legacy] 按界面 chip 组批导出；层段分析成果请用 UnitSelection / SubIntervalId 归属。</source>
+        <translation>[legacy] 按界面 chip 组批导出；层段分析成果请用 UnitSelection / SubIntervalId 归属。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>[legacy] 历史层位下拉（兼容）。层段分析优先用画布「层段分析」选择器；成果身份为 SubIntervalId / UnitSelection。</source>
+        <translation>[legacy] 历史层位下拉（兼容）。层段分析优先用画布「层段分析」选择器；成果身份为 SubIntervalId / UnitSelection。</translation>
+    </message>
+</context>
 </TS>

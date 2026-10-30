@@ -3888,6 +3888,16 @@
         <source>按有效井值自动推荐值域与等值线间距，默认参数即可成图。</source>
         <translation>按有效井值自动推荐值域与等值线间距，默认参数即可成图。</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_generate.cpp" line="1"/>
+        <source>输入：请先在顶部层段选择器选定子层段；层位下拉不可驱动分析</source>
+        <translation>输入：请先在顶部层段选择器选定子层段；层位下拉不可驱动分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_generate.cpp" line="1"/>
+        <source>请先在顶部层段选择器选定子层段；层位下拉不可驱动分析。</source>
+        <translation>请先在顶部层段选择器选定子层段；层位下拉不可驱动分析。</translation>
+    </message>
 </context>
 <context>
     <name>ConstraintWorkflow</name>
@@ -23279,6 +23289,31 @@ SHA-256：%2</translation>
         <source>请先保存编辑，再输出图件。</source>
         <translation>请先保存编辑，再输出图件。</translation>
     </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_constraint.cpp" line="1"/>
+        <source>分析须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</source>
+        <translation>分析须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="1"/>
+        <source>厚度链须先在顶部层段选择器选定子层段（本阶段标定目标 %1）</source>
+        <translation>厚度链须先在顶部层段选择器选定子层段（本阶段标定目标 %1）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_compose.cpp" line="1"/>
+        <source>编图合成须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</source>
+        <translation>编图合成须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_compose.cpp" line="1"/>
+        <source>相多边形须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</source>
+        <translation>相多边形须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_compose.cpp" line="1"/>
+        <source>合成编图失败，请检查所选图层与当前层段</source>
+        <translation>合成编图失败，请检查所选图层与当前层段</translation>
+    </message>
 </context>
 <context>
     <name>PaleoMapBookController</name>
@@ -25590,6 +25625,21 @@ SHA-256：%2</translation>
         <location filename="../src/ui/pages/predictpage.cpp" line="852"/>
         <source>在地图上显示 %1</source>
         <translation>在地图上显示 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>按顶部层段选择器（UnitSelection）运行预测；层位下拉仅 legacy，不可驱动分析。中间与最终结果登记到 Data Service，可供编图证据拉取。</source>
+        <translation>按顶部层段选择器（UnitSelection）运行预测；层位下拉仅 legacy，不可驱动分析。中间与最终结果登记到 Data Service，可供编图证据拉取。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>不可运行：请先在顶部层段选择器选定子层段（S1–S4 或父单元综合）；层位下拉仅 legacy，不可驱动分析</source>
+        <translation>不可运行：请先在顶部层段选择器选定子层段（S1–S4 或父单元综合）；层位下拉仅 legacy，不可驱动分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>可运行：层段 %1 · 算法 %2（输入图层与数据在运行时再次校验）</source>
+        <translation>可运行：层段 %1 · 算法 %2（输入图层与数据在运行时再次校验）</translation>
     </message>
 </context>
 <context>

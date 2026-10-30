@@ -69,5 +69,10 @@
 - **多方案/修订 + occurrence 红绿灯（续轮）**：
   - 选择器方案/修订下拉 → `UnitSelection.schemeId/revision`；`summarizeSubIntervalOccurrences` 展开红绿灯；编图 tip / ConstraintPage whatsThis legacy。
   - 测试：`occurrenceSummaryAndSchemeLoad`。
-- **仍待**：业务页 horizonCombo 彻底去字符串分析路径；编图发布行挂稳定 ID（证据导航已按稳定 ID）；超多修订的搜索/分页。
+- **horizonCombo 去字符串分析 + 编图发布 SubIntervalId（续轮）**：
+  - `bindAnalysis`：combo/`activeHorizon` 仅 `constraintHorizon`；分析键只认有效 UnitSelection；`publishIdentity()` 供编图/发布。
+  - 约束/预测/合成/厚度分析入口拒绝无单元；`pageAnalysisKey`/`pageEditHorizon` 在已接线 selection 时不回落 combo。
+  - 编图厚度链与合成发布行挂 `source_horizon`/`subIntervalId`（稳定 ID）；证据导航此前已按稳定 ID。
+  - 测试：`bindAnalysisIgnoresPageHorizonString`。
+- **仍待**：超多修订的搜索/分页（当前方案/修订下拉全量列表）。
 - TVD/TVDSS/OWT/TWT 换算沿用现有时深服务；本框架只记录 `depthType`，不做换算。

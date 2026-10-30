@@ -68,6 +68,16 @@ flock -x /workspace/audit/fix4/.git/paleo-shared-build-j4.lock \
 5. **闸门**：layering / file_budget / ui_size / qgs-audit / qgis-spread / docs_drift / ui_invariants 绿。
 
 ### 仍待（明确限制）
-- 业务页内 horizonCombo 彻底移除字符串驱动的分析路径（预测/约束已 legacy；分析只走 UnitSelection）。
-- 编图发布行挂稳定 SubIntervalId（证据导航已按稳定 ID）。
-- 方案下拉在超多修订时的分页/搜索（当前全量列表）。
+- （已迁到「horizonCombo 去字符串分析 + 编图发布 SubIntervalId」完成清单。）
+
+## 续：horizonCombo 去字符串分析 + 编图发布 SubIntervalId（Asia/Shanghai 2026-10-30 19:xx）
+
+### 完成
+1. **bindAnalysis**：无有效 UnitSelection → `analysisKey` 空；`pageHorizonFallback`/`activeHorizon` 只填 `constraintHorizon`（界面编辑 legacy），不可驱动分析成果键。新增 `AnalysisBinding::publishIdentity()`（`source_horizon`/`horizon`/`subIntervalId`/方案修订）。
+2. **业务页**：约束/预测/编图/合成 attach 分析入口一律 `bind.hasUnit && !analysisKey.isEmpty()`；已接线 `paleo.selection` 时 `pageAnalysisKey`/`pageEditHorizon` 不回落 combo；生成门控与 IPO 指向 `subIntervalSelectorBar`。horizonCombo tip 标 `[legacy]`。
+3. **编图发布**：`MappingWorkflow` 厚度链/`publishIdentityFromAnalysisKey`/`mergePublishIdentity` 把稳定 ID 写入 diagnostics·extra；attach_mapping `startThicknessChain(..., bind.publishIdentity())`；合成成果 `job->horizon = analysisLayerKey`。
+4. **测试**：`bindAnalysisIgnoresPageHorizonString`；聚焦闸门 layering/file_budget/ui_size/i18n/docs_drift/l10n/`tst_stratigraphic_subintervals` 绿；`check_ts_stale` 既有红缺失维持 595。
+5. **file_budget**：attach_constraint 727→646、attach_compose 416→369（只缩）；helpers 提到文件域自由函数。
+
+### 仍待（明确限制）
+- 方案下拉在超多修订时的搜索/分页（当前全量列表）。

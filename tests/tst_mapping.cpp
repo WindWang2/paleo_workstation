@@ -1484,6 +1484,13 @@ class TestMapping : public QObject
                                        &layoutErr );
             QVERIFY2( layout != nullptr, qPrintable( layoutErr ) );
             QCOMPARE( layout->project(), f.projectSvc.project() ); // 服务工程，非单例
+            {   // #822：缺 CRS 厚度栅格回落后，图框范围仍按工程网格米覆盖栅格 (0,0)-(1000,800)。
+                auto *mapItem = qobject_cast<QgsLayoutItemMap *>( layout->itemById( "map" ) );
+                QVERIFY( mapItem );
+                const QgsRectangle mapExtent = mapItem->extent();
+                QVERIFY2( mapExtent.contains( QgsRectangle( 0, 0, 1000, 800 ) ), qPrintable( mapExtent.toString() ) );
+                QVERIFY2( mapExtent.width() < 2000 && mapExtent.height() < 2000, qPrintable( mapExtent.toString() ) );
+            }
 
             auto *title = qobject_cast<QgsLayoutItemLabel *>( layout->itemById( "title" ) );
             QVERIFY2( title != nullptr, "title item missing" );

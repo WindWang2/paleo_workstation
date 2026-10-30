@@ -21,7 +21,7 @@ class CacheAsyncTests : public QObject
     Q_OBJECT
 
   private slots:
-    void dedicatedPoolCapsConcurrencyAtFour();
+    void dedicatedPoolCapsConcurrencyByCores();
     void priorityHighBeatsLow();
     void stageProgressEvents();
     void cancelReachesCooperativeWorker();
@@ -43,11 +43,14 @@ void CacheAsyncTests::spinUntil(PaleoTask *task, int timeoutMs)
     QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
 }
 
-void CacheAsyncTests::dedicatedPoolCapsConcurrencyAtFour()
+void CacheAsyncTests::dedicatedPoolCapsConcurrencyByCores()
 {
-  // D4.5：20 个阻塞任务同时提交——观测并发 ≤4。
+  // D4.5：20 个阻塞任务同时提交——观测并发 ≤ 池上限。池上限按核数取
+  // qBound(4, idealThreadCount, 8)：须落在 [4,8] 且与本机核数关系一致。
   PaleoTaskService svc;
-  QCOMPARE(svc.maxWorkerThreads(), 4);
+  const int cap = svc.maxWorkerThreads();
+  QVERIFY2(cap >= 4 && cap <= 8, qPrintable(QStringLiteral("cap=%1 不在 [4,8]").arg(cap)));
+  QCOMPARE(cap, qBound(4, QThread::idealThreadCount(), 8));
   std::atomic_int running{0};
   std::atomic_int peak{0};
   std::atomic_int completed{0};
@@ -69,9 +72,9 @@ void CacheAsyncTests::dedicatedPoolCapsConcurrencyAtFour()
   for (PaleoTask *t : tasks)
     spinUntil(t, 10000);
   QCoreApplication::processEvents();
-  QVERIFY2(peak.load() <= 4, qPrintable(QStringLiteral("peak=%1 > 4").arg(peak.load())));
+  QVERIFY2(peak.load() <= cap, qPrintable(QStringLiteral("peak=%1 > cap=%2").arg(peak.load()).arg(cap)));
   // 并发下限是主机属性（真单核/受限容器串行执行 peak==1 也是合法），池契约
-  // 由 maxWorkerThreads()==4 钉住——不拿宿主机核数当被测断言。
+  // 由上面的 cap 断言钉住——观测到的峰值只断言上界。
   QCOMPARE(completed.load(), 20);
   QCOMPARE(svc.runningCount(), 0);
 }
@@ -90,12 +93,16 @@ void CacheAsyncTests::priorityHighBeatsLow()
       spinUntil(t, 5000);
   }
 
-  constexpr int kLowCount = 8;
+  // 低优数 = 2×池上限：前一半占满全部工作线程，后一半留在队列里等高优插队
+  // （池上限随核数在 [4,8]，固定 8 个在 8 线程池上会全部立即开跑、无从插队）。
+  constexpr int kMaxLowCount = 16;
+  const int kLowCount = 2 * svc.maxWorkerThreads();
+  QVERIFY(kLowCount <= kMaxLowCount);
   std::atomic_int started{0};
   std::atomic_int highOrder{-1};
   std::atomic_int orderSeq{0};
   std::atomic_bool releaseLows{false};
-  std::array<std::atomic_int, kLowCount> lowOrders;
+  std::array<std::atomic_int, kMaxLowCount> lowOrders;
   for (auto &o : lowOrders)
     o.store(-1);
   QVector<PaleoTask *> lows;
@@ -107,8 +114,8 @@ void CacheAsyncTests::priorityHighBeatsLow()
         QThread::msleep(1);
       return QString();
     }, QString(), PaleoTask::Priority::Low));
-  // 等首批低优把 4 个工作线程占满再投高优：队列里还剩 4 个低优，
-  // 高优必然插到它们前面，lowsAfterHigh 恒为 4 不再抖动。
+  // 等首批低优把全部工作线程占满再投高优：队列里还剩 cap 个低优，
+  // 高优必然插到它们前面，lowsAfterHigh 恒为 cap 不再抖动。
   QElapsedTimer gate;
   gate.start();
   while (started.load() < svc.maxWorkerThreads() && gate.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000))
@@ -128,8 +135,9 @@ void CacheAsyncTests::priorityHighBeatsLow()
   // 高优任务先于至少一半低优开始。
   QVERIFY2(highOrder.load() >= 0, "高优序号未记录");
   int lowsAfterHigh = 0;
-  for (const auto &o : lowOrders)
+  for (int i = 0; i < kLowCount; ++i)
   {
+    const auto &o = lowOrders[i];
     QVERIFY2(o.load() >= 0, "低优序号未记录");
     if (o.load() > highOrder.load())
       ++lowsAfterHigh;

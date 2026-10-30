@@ -88,7 +88,10 @@ private slots:
   void concurrencyCap()
   {
     PaleoTaskService svc;
-    QCOMPARE(svc.workerPool()->maxThreadCount(), 4);
+    // 池上限按核数取 qBound(4, idealThreadCount, 8)：须在 [4,8] 且与本机核数一致。
+    const int cap = svc.workerPool()->maxThreadCount();
+    QVERIFY2(cap >= 4 && cap <= 8, qPrintable(QStringLiteral("cap=%1 不在 [4,8]").arg(cap)));
+    QCOMPARE(cap, qBound(4, QThread::idealThreadCount(), 8));
     qDebug() << "PaleoTaskService worker cap:" << svc.workerPool()->maxThreadCount();
   }
 

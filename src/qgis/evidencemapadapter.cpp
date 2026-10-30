@@ -272,7 +272,7 @@ bool EvidenceMapAdapter::showPoint(double x, double y, const QString &sourceCrsW
     return fail(error, tr("来源井点坐标无效"));
   auto source = QgsCoordinateReferenceSystem::fromWkt(sourceCrsWkt);
   if (!source.isValid()) source = QgsCoordinateReferenceSystem(sourceCrsWkt);
-  if (!source.isValid()) source = confirmedCrs();
+  if (!source.isValid() && sourceCrsWkt.trimmed().isEmpty()) source = confirmedCrs(); // 仅缺失回落，非法仍拒
   const auto destination = m_canvas->mapSettings().destinationCrs();
   if (!source.isValid() || !destination.isValid())
     return fail(error, tr("来源井点的坐标参考无效"));

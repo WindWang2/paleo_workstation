@@ -3,6 +3,7 @@
 #include <QStringList>
 #include <QVector>
 #include <QWidget>
+#include <vector>
 
 #include "domain/stratigraphicunit.h"
 #include "paleo_data/stratigraphic_framework.h"
@@ -16,7 +17,8 @@ class QToolButton;
 //
 // 与 HorizonChipBar（界面编辑模式）并列：本控件只写 SelectionContext::setActiveUnit，
 // 不调用 QgisLayerService::setActiveHorizon，因此不重置地图视角、编辑会话或面板布局。
-// 缺方案 / 未确认解释 / 时深不明等状态用可读中文提示，不弹冗长向导。
+// 方案 / 修订下拉把 schemeId+revision 写入 UnitSelection；展开区按 DS occurrence
+// 与成果绑定显示红绿灯。缺方案时回退工程草稿。
 class SubIntervalSelectorBar : public QWidget
 {
   Q_OBJECT
@@ -28,11 +30,18 @@ class SubIntervalSelectorBar : public QWidget
                                const QString &schemeId = QStringLiteral( "project-default" ),
                                const QString &schemeName = QStringLiteral( "工程默认" ) );
 
+    // 优先从工程 area-model 加载方案/修订；失败则回退 draftScheme(fallbackBoundaries)。
+    void reloadFromProject( const QString &projectDir, const QStringList &fallbackBoundaries );
+
+    // 测试：直接注入方案快照与可选 bindings。
+    void setSchemeSnapshot( const paleo::data::StratigraphicScheme &scheme,
+                            const std::vector<paleo::data::SubIntervalResultBinding> &bindings = {} );
+
     // 测试/状态栏：当前选中的显示名；无选择时为空。
     QString currentDisplayName() const;
     paleo::strat::UnitSelection currentSelection() const { return m_current; }
 
-    // 父单元下四个子层段的可读状态文案（展开区）。
+    // 父单元下四个子层段的可读状态文案（展开区，含红绿灯）。
     QStringList subIntervalStatusLines() const;
 
   signals:
@@ -42,24 +51,36 @@ class SubIntervalSelectorBar : public QWidget
     void readinessMessage( const QString &message );
 
   private:
+    void rebuildSchemeCombo();
+    void rebuildRevisionCombo();
     void rebuildParentCombo();
     void rebuildSubButtons();
     void rebuildStatusPanel();
     void applySelection( const paleo::strat::UnitSelection &sel, bool broadcast );
+    void onSchemeChanged( int index );
+    void onRevisionChanged( int index );
     void onParentChanged( int index );
     void onSubClicked( int subIndex ); // 1..4；0 = 综合
     void syncFromContext( const paleo::strat::UnitSelection &unit );
+    void applyLoadedScheme( const paleo::data::StratigraphicScheme &scheme, bool broadcast );
+    bool loadSelectedScheme( bool broadcast );
     QString readinessText() const;
 
     SelectionContext *m_selection = nullptr;
+    QComboBox *m_schemeCombo = nullptr;
+    QComboBox *m_revisionCombo = nullptr;
     QComboBox *m_parent = nullptr;
     QLabel *m_modeLabel = nullptr;
     QLabel *m_status = nullptr;
     QLabel *m_expandStatus = nullptr;
     QToolButton *m_expand = nullptr;
-    QVector<QToolButton *> m_subs; // S1..S4 + 可选综合
+    QVector<QToolButton *> m_subs;
     QToolButton *m_agg = nullptr;
     paleo::data::StratigraphicScheme m_scheme;
+    std::vector<paleo::data::SubIntervalResultBinding> m_bindings;
+    QString m_projectDir;
+    QStringList m_fallbackBoundaries;
     paleo::strat::UnitSelection m_current;
     bool m_block = false;
+    bool m_fromDataService = false;
 };

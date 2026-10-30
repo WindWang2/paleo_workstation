@@ -189,6 +189,7 @@ void installSubIntervalSelectorBar(PaleoMainWindow *mw, SelectionContext *select
 {
   auto *unitBar = new SubIntervalSelectorBar(selection, canvasPane);
   unitBar->setObjectName(QStringLiteral("subIntervalSelectorBar"));
+  // 初始无工区路径时先草稿；工程打开后再 reloadFromProject。
   unitBar->reloadFromBoundaries(boundaries);
   QObject::connect(unitBar, &SubIntervalSelectorBar::readinessMessage, mw,
                    [mw](const QString &msg) {
@@ -684,7 +685,11 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
   m_stratigraphyPage = new StratigraphyPage(m_stratigraphy, m_workspaceStack);
   connect(m_stratigraphy, &StratigraphyWorkflow::classificationChanged, this, [this](const QStringList &horizons) {
     if (auto *chips = findChild<HorizonChipBar *>()) chips->reloadHorizons();
-    if (auto *unit = findChild<SubIntervalSelectorBar *>()) unit->reloadFromBoundaries(horizons);
+    if (auto *unit = findChild<SubIntervalSelectorBar *>()) {
+      const QString dir = m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
+      unit->reloadFromProject(dir, horizons);
+    }
+    // horizonCombo：历史兼容刷新名单；分析身份走 SubIntervalSelectorBar → UnitSelection。
     for (auto *combo : findChildren<QComboBox *>(QStringLiteral("horizonCombo"))) {
       const auto selected = combo->currentText(); combo->clear(); combo->addItems(horizons);
       if (horizons.contains(selected)) combo->setCurrentText(selected);
@@ -697,10 +702,15 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
   m_workspaceStack->addWidget(m_stratigraphyPage);
   if (m_projectSvc) {
     connect(m_projectSvc, &QgisProjectService::projectOpened, this, [this](const QString &path) {
-      m_stratigraphy->setProject(QFileInfo(path).absolutePath(), m_projectSvc->isReadOnly());
+      const QString dir = QFileInfo(path).absolutePath();
+      m_stratigraphy->setProject(dir, m_projectSvc->isReadOnly());
+      if (auto *unit = findChild<SubIntervalSelectorBar *>())
+        unit->reloadFromProject(dir, {});
     });
     connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this] {
       m_stratigraphy->setProject({}, false);
+      if (auto *unit = findChild<SubIntervalSelectorBar *>())
+        unit->reloadFromBoundaries({});
       QSignalBlocker blocker(m_visualizationTabs);
       while (m_visualizationTabs->count()) m_visualizationTabs->removeTab(0);
     });

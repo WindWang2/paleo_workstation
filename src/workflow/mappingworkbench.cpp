@@ -810,7 +810,10 @@ void MappingWorkbench::ensureWellBaseLayers() {
         !tableError.isEmpty())
       error = tableError;
   }
-  if (!m_layers->layer(QStringLiteral("wells"))) {
+  // 未声明 wells = 工区尚无可定位井（AppContext 约定不声明空图层），静默降级；
+  // 只有已声明却物化失败才上抛（#202）。
+  if (!m_layers->layer(QStringLiteral("wells")) &&
+      !m_layers->declaration(QStringLiteral("wells")).layerId.isEmpty()) {
     QString wellsError;
     m_layers->instantiate(QStringLiteral("wells"), &wellsError);
     if (!wellsError.isEmpty())

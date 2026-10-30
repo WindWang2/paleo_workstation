@@ -411,7 +411,8 @@ void GeostatWorkflowTests::geographicWellsAreRejected()
   QVERIFY2( f.layers.declare( nosrs, &err2 ), qPrintable( err2 ) );
   auto *nosrsLayer = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( QStringLiteral( "wells.NOSRS" ), &err2 ) );
   QVERIFY2( nosrsLayer, qPrintable( err2 ) );
-  QVERIFY( !nosrsLayer->crs().isValid() );
+  // #822 口径：缺坐标系的井图层实例化时回落 EPSG:32650（不再保持无效 CRS）。
+  QCOMPARE( nosrsLayer->crs().authid(), QStringLiteral( "EPSG:32650" ) );
   ConstraintWorkflow wf2( &f.proc, &f.layers );
   wf2.setCatalog( &f.catalog, f.projectDir() );
   QVariantMap params2;

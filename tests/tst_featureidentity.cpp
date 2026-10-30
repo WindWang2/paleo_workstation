@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <cmath>
 #include <QElapsedTimer>
 #include <QCryptographicHash>
 #include <QJsonDocument>
@@ -560,8 +561,14 @@ private slots:
     QVERIFY2(adapter.showLayer(&source, true, &error), qPrintable(error));
     QVERIFY(!canvas.currentLayer()); QVERIFY(!adapter.layer());
     QVERIFY(canvas.extent().width() > 0); QVERIFY(canvas.extent().width() < 1);
-    source.setCrs(QgsCoordinateReferenceSystem());
-    QVERIFY(!adapter.showLayer(&source, true, &error)); QVERIFY(!error.isEmpty());
+    // #822 口径：缺坐标系（空 CRS）回落 EPSG:32650 且可定位，不再拒收。
+    source.setCrs(QgsCoordinateReferenceSystem()); error.clear();
+    QVERIFY2(adapter.showLayer(&source, true, &error), qPrintable(error)); QVERIFY(error.isEmpty());
+    QCOMPARE(source.crs().authid(), QString("EPSG:32650"));
+    QVERIFY(!canvas.currentLayer()); QVERIFY(!adapter.layer());
+    const auto fallback = canvas.extent().center(); // UTM50N 东距 0..20m ≈ 112.5°E, 赤道
+    QVERIFY(canvas.extent().width() > 0); QVERIFY(fallback.x() > 110 && fallback.x() < 115);
+    QVERIFY(std::abs(fallback.y()) < 1);
   }
   void pointNavigationRejectsUnavailableOrDestroyedCanvas() {
     const auto wkt = QgsCoordinateReferenceSystem("EPSG:3857").toWkt(); QString error;
@@ -579,8 +586,15 @@ private slots:
     QgsMapCanvas canvas; canvas.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
     canvas.setExtent(QgsRectangle(-1000, -1000, 1000, 1000));
     EvidenceMapAdapter adapter(&canvas); QString error;
+    // 非法（非空且不可解析）坐标系仍拒收；#822 只回落「缺失」的空坐标系。
     QVERIFY(!adapter.showPoint(10, 20, "invalid crs", true, &error));
     QVERIFY(!error.isEmpty());
+    error.clear(); QVERIFY(!adapter.showPoint(10, 20, "PROJCS[\"broken\"", true, &error));
+    QVERIFY(!error.isEmpty());
+    error.clear(); QVERIFY2(adapter.showPoint(500000, 0, QString(), true, &error), qPrintable(error));
+    QVERIFY(error.isEmpty()); // 缺失 → EPSG:32650：UTM50N (500000,0) = 117°E 赤道
+    const auto missingCenter = canvas.extent().center();
+    QVERIFY(std::abs(missingCenter.x() - 13024380.42) < 1000); QVERIFY(std::abs(missingCenter.y()) < 1000);
     const auto wkt = QgsCoordinateReferenceSystem("EPSG:4326").toWkt();
     QVERIFY(adapter.showPoint(1, 1, wkt, true, &error));
     const auto center = canvas.extent().center();
@@ -682,7 +696,11 @@ private slots:
     QCOMPARE(adapter.spatialCandidates(target, "fictional-fid").value("state").toString(), QString("missing"));
     const auto legacyRow = adapter.spatialCandidates(target).value("features").toList().first().toMap();
     QCOMPARE(legacyRow.value("identity_state").toString(), QString("legacy_missing"));
+    // #822 口径：来源图层缺坐标系回落 EPSG:32650 并给出确定判定（3857 的 (1,1) 远离 UTM50N 原点附近要素）。
     legacy->setCrs(QgsCoordinateReferenceSystem());
+    QCOMPARE(adapter.spatialCandidates(target).value("state").toString(), QString("disjoint"));
+    QCOMPARE(legacy->crs().authid(), QString("EPSG:32650"));
+    target.insert("crs_wkt", "invalid crs"); // 目标侧非法坐标系仍判 unknown
     QCOMPARE(adapter.spatialCandidates(target).value("state").toString(), QString("unknown"));
   }
   void spatialCandidatesAreBoundedAndRasterScopeIsExtentOnly() {

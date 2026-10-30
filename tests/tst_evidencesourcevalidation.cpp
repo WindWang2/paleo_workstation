@@ -134,7 +134,13 @@ private slots:
   void unknownPinnedGeometryIsNotReportedAsDeleted() {
     Fixture f; QVERIFY2(f.init(), qPrintable(f.error)); const auto source = f.source("invalid", "D61"); QVERIFY(!source.isEmpty());
     QVERIFY2(f.link(source), qPrintable(f.error)); auto *v = f.sourceLayer(source); QVERIFY(v);
+    // #822 口径：来源图层缺坐标系回落 EPSG:32650，空间判定可用（不再是 unknown），且不误报删除。
     v->setCrs(QgsCoordinateReferenceSystem());
+    const auto fallback = f.detail().value("records").toList().first().toMap();
+    QCOMPARE(fallback.value("spatial_state").toString(), QString("intersects")); QVERIFY(!fallback.value("source_feature_missing").toBool());
+    QCOMPARE(v->crs().authid(), QString("EPSG:32650"));
+    // 目标快照侧坐标系不可用（回落只作用于来源图层）：仍判 unknown、不报删除、阻断确认且不改写。
+    f.layer()->setCrs(QgsCoordinateReferenceSystem());
     const auto detail = f.detail(); const auto record = detail.value("records").toList().first().toMap();
     QCOMPARE(record.value("spatial_state").toString(), QString("unknown")); QVERIFY(!record.value("source_feature_missing").toBool());
     const auto before = f.raw(); QVERIFY(!f.confirm()); QVERIFY(f.error.contains("核查尚未完成")); QCOMPARE(f.raw(), before);

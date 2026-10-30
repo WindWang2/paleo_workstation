@@ -220,7 +220,8 @@ void EvidenceInteraction::navigate(const QVariantMap &evidence, bool locate) {
   if (evidence.contains("project_id") && evidence.value("project_id").toString() != projectId()) { emit navigationFailed(tr("证据属于其他工程")); return; }
   if (evidence.contains("project_session") && m_project && evidence.value("project_session").toULongLong() != m_project->sessionId()) { emit navigationFailed(tr("证据查询已过期，请刷新")); return; }
   const auto h = evidence.value("source_horizon", evidence.value("horizon")).toString();
-  if (!h.isEmpty() && h != m_selection->activeHorizon()) { emit navigationFailed(tr("来源属于其他层位，请先切换层位")); return; }
+  // 稳定 ID / 分析令牌：禁止仅按 horizon 显示名字符串相等。
+  if (!h.isEmpty() && !paleo::strat::matchesActiveAnalysis(m_selection, h)) { emit navigationFailed(tr("来源属于其他层位，请先切换层位")); return; }
   const auto entity = evidence.value("entity_id").toString();
   if (!entity.isEmpty() && evidence.value("has_coordinates").toBool()) {
     QString error;
@@ -252,7 +253,7 @@ void EvidenceInteraction::navigateFeature(const QVariantMap &hit) {
   if (hit.contains("project_id") && hit.value("project_id").toString() != projectId()) { emit navigationFailed(tr("命中图斑属于其他工程")); return; }
   if (hit.contains("project_session") && m_project && hit.value("project_session").toULongLong() != m_project->sessionId()) { emit navigationFailed(tr("反查结果已过期，请刷新")); return; }
   const auto h = hit.value("horizon").toString();
-  if (!h.isEmpty() && h != m_selection->activeHorizon()) { emit navigationFailed(tr("命中图斑属于层位 %1，请先切换层位").arg(h)); return; }
+  if (!h.isEmpty() && !paleo::strat::matchesActiveAnalysis(m_selection, h)) { emit navigationFailed(tr("命中图斑属于层位 %1，请先切换层位").arg(h)); return; }
   const auto version = hit.value("version_id").toString();
   QString error;
   // 命中行定位其自身版本（可能是旧成果版本），不走来源解析。

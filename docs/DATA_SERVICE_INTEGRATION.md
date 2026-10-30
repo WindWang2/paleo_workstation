@@ -175,3 +175,7 @@ C++ 模型读写与更新。Paleo 保留地质语义、不可变资产版本、�
 - 无私人工区数据；夹具在临时目录生成。未运行的平台和消费者不计已迁移。
 
 最终命令和实际结果见 `docs/progress/data-service-integration-20261028.md`。
+
+## 四子层段方案（2026-10-30）
+
+方案/修订/成果归属表与 API 见 `docs/STRATIGRAPHIC_SUBINTERVALS.md` §4；宿主经 `src/services/stratigraphicsubintervals.h` 访问，不保存副本。

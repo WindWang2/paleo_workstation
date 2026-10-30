@@ -311,6 +311,64 @@ private slots:
     QCOMPARE( r.top, 1025.0 );
     QCOMPARE( r.bottom, 1060.0 );
   }
+
+  void occurrenceSummaryAndSchemeLoad()
+  {
+    // 红绿灯：井出现 complete/affected/pending + bindings current/stale
+    const auto scheme = draftScheme( QStringLiteral( "occ" ), QStringLiteral( "出现" ), boundaries(), tops() );
+    const auto opts = selectorOptions( scheme );
+    QVERIFY( !opts.isEmpty() );
+    const QString iid = opts.at( 0 ).intervalId;
+    // 草稿含井 1 complete、井 2 not_penetrated（缺 T72 但 T70–T71 完整）— 对 T70–T71：两井均 complete
+    auto rows = summarizeSubIntervalOccurrences( scheme, iid, nullptr );
+    QCOMPARE( rows.size(), 4 );
+    QCOMPARE( rows.at( 0 ).label, QStringLiteral( "S1" ) );
+    QVERIFY( rows.at( 0 ).wellsComplete >= 1 );
+    QCOMPARE( rows.at( 0 ).light, QStringLiteral( "green" ) );
+    QVERIFY( rows.at( 0 ).line.contains( QStringLiteral( "[绿]" ) ) );
+
+    // 注入 stale 绑定 → 应变红
+    std::vector<paleo::data::SubIntervalResultBinding> binds;
+    paleo::data::SubIntervalResultBinding stale;
+    stale.subInterval.value = rows.at( 1 ).subIntervalId.toStdString();
+    stale.status = "stale";
+    stale.kind = "single_factor";
+    binds.push_back( stale );
+    auto withStale = summarizeSubIntervalOccurrences( scheme, iid, &binds );
+    QCOMPARE( withStale.at( 1 ).bindingsStale, 1 );
+    QCOMPARE( withStale.at( 1 ).light, QStringLiteral( "red" ) );
+    QVERIFY( withStale.at( 1 ).line.contains( QStringLiteral( "[红]" ) ) );
+
+    // makeSelection 写入 schemeId（草稿 revision 可空）
+    const UnitSelection sel = makeSelection( scheme, iid, 2 );
+    QVERIFY( sel.isValid() );
+    QCOMPARE( sel.schemeId, QStringLiteral( "occ" ) );
+    QCOMPARE( sel.subIndex, 2 );
+
+    // 方案目录：提交后可 list/load
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const std::string path = dir.filePath( "scheme-ui" ).toStdString();
+    std::string err;
+    paleo::data::DataService ds;
+    QVERIFY2( ds.createProject( path, "方案UI", err ), err.c_str() );
+    auto draft = draftScheme( QStringLiteral( "ui-scheme" ), QStringLiteral( "UI方案" ), boundaries(), tops() );
+    paleo::data::StratigraphicScheme committed;
+    std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY2( ds.commitStratigraphicScheme( draft, {}, committed, issues, err ), err.c_str() );
+    QString qerr;
+    const auto choices = listProjectSchemes( ds, &qerr );
+    QVERIFY2( !choices.isEmpty(), qerr.toUtf8().constData() );
+    QCOMPARE( choices.first().id, QStringLiteral( "ui-scheme" ) );
+    paleo::data::StratigraphicScheme loaded;
+    QVERIFY( loadProjectScheme( ds, QStringLiteral( "ui-scheme" ), {}, loaded, &qerr ) );
+    QCOMPARE( QString::fromStdString( loaded.revision.value ), QString::fromStdString( committed.revision.value ) );
+    const UnitSelection fromLoaded = makeSelection( loaded, selectorOptions( loaded ).at( 0 ).intervalId, 1 );
+    QCOMPARE( fromLoaded.schemeId, QStringLiteral( "ui-scheme" ) );
+    QCOMPARE( fromLoaded.revision, QString::fromStdString( committed.revision.value ) );
+  }
+
+
 };
 
 QTEST_MAIN( StratigraphicSubIntervalsTest )

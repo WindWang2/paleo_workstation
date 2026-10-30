@@ -21,6 +21,21 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+// 分析成果图层键：任务参数携带 analysisLayerKey（来自 UnitSelection::layerToken）时优先；
+// 否则回落入口 horizon（旧界面标签 / 兼容路径）。
+inline QString factorResultHorizonKey( const QString &horizon, const QVariantMap &params )
+{
+  const QString key = params.value( QStringLiteral( "analysisLayerKey" ) ).toString().trimmed();
+  return key.isEmpty() ? horizon : key;
+}
+
+// 约束/井因子仍按界面名：参数 constraintHorizon 优先，否则入口 horizon。
+inline QString factorConstraintHorizonKey( const QString &horizon, const QVariantMap &params )
+{
+  const QString key = params.value( QStringLiteral( "constraintHorizon" ) ).toString().trimmed();
+  return key.isEmpty() ? horizon : key;
+}
+
 #include <gdal.h>     // contourFeatureCountOf（U8 等值线要素计数）
 #include <ogr_api.h>
 

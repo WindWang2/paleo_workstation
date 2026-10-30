@@ -1,5 +1,6 @@
 // 层：功能
 #include "evidenceinteraction.h"
+#include "linkage/unitselectionbridge.h"
 #include "mappingworkbench.h"
 #include "../qgis/evidencemapadapter.h"
 #include "../qgis/qgislayerservice.h"
@@ -142,7 +143,7 @@ void EvidenceInteraction::observe(const QString &id) {
 void EvidenceInteraction::setLayer(const QString &id) {
   if (!m_workbench || !m_selection || !m_layers || id.isEmpty()) return;
   const auto d = m_workbench->declaration(id);
-  if (!d.horizon.isEmpty() && d.horizon != m_selection->activeHorizon()) return;
+  if (!d.horizon.isEmpty() && !paleo::strat::matchesActiveAnalysis(m_selection, d.horizon)) return;
   observe(id); capture(id);
 }
 void EvidenceInteraction::capture(const QString &id) {
@@ -172,7 +173,7 @@ void EvidenceInteraction::capture(const QString &id) {
 void EvidenceInteraction::receive(const SelectionTarget &target, const QString &origin, quint64 generation) {
   if (m_receiving || !m_workbench || !m_selection || !m_layers) return;
   if (target.isEmpty()) { m_snapshot.clear(); m_primary->clear(); m_source->clear(); emit detailsChanged({}, generation); return; }
-  if (target.projectId != projectId() || (!target.horizon.isEmpty() && target.horizon != m_selection->activeHorizon())) return;
+  if (target.projectId != projectId() || (!target.horizon.isEmpty() && !paleo::strat::matchesActiveAnalysis(m_selection, target.horizon))) return;
   QScopedValueRollback<bool> guard(m_receiving, true);
   if (target.layerId != m_snapshot.value("layer_id").toString() ||
       target.featureUid != m_snapshot.value("feature_uid").toString()) m_source->clear();
@@ -276,7 +277,7 @@ bool EvidenceInteraction::canGoBack() const {
   if (!m_selection) return false;
   for (const auto &target : m_back)
     if (target.projectId == projectId() &&
-        (target.horizon.isEmpty() || target.horizon == m_selection->activeHorizon()))
+        (target.horizon.isEmpty() || paleo::strat::matchesActiveAnalysis(m_selection, target.horizon)))
       return true;
   return false;
 }
@@ -286,7 +287,7 @@ void EvidenceInteraction::back() {
   while (!m_back.isEmpty()) {
     const auto target = m_back.takeLast();
     if (target.projectId != projectId() ||
-        (!target.horizon.isEmpty() && target.horizon != m_selection->activeHorizon()))
+        (!target.horizon.isEmpty() && !paleo::strat::matchesActiveAnalysis(m_selection, target.horizon)))
       continue; // 其他工程/层位的历史项不可定位，丢弃继续找
     m_selection->setTarget(target, QStringLiteral("back"));
     break;
@@ -298,13 +299,13 @@ void EvidenceInteraction::navigateGraphNode(const QVariantMap &node) {
   if (!m_workbench || !m_selection || !m_layers) return;
   if (node.contains("project_id") && node.value("project_id").toString() != projectId()) { emit navigationFailed(tr("图谱节点属于其他工程")); return; }
   if (node.contains("project_session") && m_project && node.value("project_session").toULongLong() != m_project->sessionId()) { emit navigationFailed(tr("图谱查询已过期，请刷新")); return; }
-  if (!node.value("horizon").toString().isEmpty() && node.value("horizon").toString() != m_selection->activeHorizon()) { emit navigationFailed(tr("图谱节点属于其他层位，请先切换层位")); return; }
+  if (!node.value("horizon").toString().isEmpty() && !paleo::strat::matchesActiveAnalysis(m_selection, node.value("horizon").toString())) { emit navigationFailed(tr("图谱节点属于其他层位，请先切换层位")); return; }
   const auto version = node.value("version_id").toString(); QString error;
   QString layerId = node.value("layer_id").toString();
   if (layerId.isEmpty() || (!version.isEmpty() && m_workbench->versionForLayer(layerId).id != version)) layerId = m_workbench->layerForVersion(version, &error);
   if (layerId.isEmpty()) { emit navigationFailed(error); return; }
   const auto declaration = m_workbench->declaration(layerId);
-  if (!declaration.horizon.isEmpty() && declaration.horizon != m_selection->activeHorizon()) { emit navigationFailed(tr("图谱节点属于其他层位，请先切换层位")); return; }
+  if (!declaration.horizon.isEmpty() && !paleo::strat::matchesActiveAnalysis(m_selection, declaration.horizon)) { emit navigationFailed(tr("图谱节点属于其他层位，请先切换层位")); return; }
   auto *layer = m_layers->instantiate(layerId, &error);
   if (!layer) { emit navigationFailed(error); return; }
   const auto uid = node.value("feature_uid").toString();

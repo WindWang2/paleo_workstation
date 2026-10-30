@@ -80,6 +80,11 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
   QVariantMap params = inputParams;
+  // UnitSelection 桥接：分析成果键与约束界面键可分离（禁止调用方拆分 T70 字符串）。
+  if ( !params.contains( QStringLiteral( "constraintHorizon" ) ) )
+    params.insert( QStringLiteral( "constraintHorizon" ), horizon );
+  if ( !params.contains( QStringLiteral( "analysisLayerKey" ) ) )
+    params.insert( QStringLiteral( "analysisLayerKey" ), horizon );
   if (factorId == QLatin1String("strathick") && params.contains("factorSource") &&
       params.value("factorSource") != QLatin1String("wells") && params.value("factorSource") != QLatin1String("surfaces")) {
     paleo::workflow_detail::setError(error, tr("未知地层厚度来源，请选择井分层厚度或构造面相减"));
@@ -100,14 +105,14 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
 
-  if (!prepareFactorInputs(horizon, factorId, params, error))
+  if (!prepareFactorInputs(factorConstraintHorizonKey(horizon, params), factorId, params, error))
     return false;
   if (factorId == QLatin1String("strathick") && params.contains("factorSource"))
     params.insert(QStringLiteral("depthDomain"), params.value("factorSource") == QLatin1String("wells") ? QStringLiteral("MD") : QStringLiteral("surface_difference"));
   if (def.processingAlgId == QLatin1String("paleo:paleo_constraint_idw") &&
       params.value("method").toString() != QLatin1String("structural_idw")) {
     const auto pointsId =
-        params.value("pointsLayerId", wellsLayerIdFor(layers, horizon)).toString();
+        params.value("pointsLayerId", wellsLayerIdFor(layers, factorConstraintHorizonKey(horizon, params))).toString();
     auto *points = layers->instantiate(pointsId, error);
     if (!points)
       return false;
@@ -208,8 +213,8 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
   const DerivedStaging st = registrar.stage(
-      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, horizon ),
-      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, horizon ), &regErr );
+      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, factorResultHorizonKey( horizon, params ) ),
+      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, factorResultHorizonKey( horizon, params ) ), &regErr );
   if ( !st.isValid() )
   {
     paleo::workflow_detail::setError( error, regErr );
@@ -232,7 +237,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     paleo::workflow_detail::setError( error, manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
     return false;
   }
-  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( factorConstraintHorizonKey( horizon, params ) );
   const bool hasConstraints = std::any_of(
       declared.cbegin(), declared.cend(),
       [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
@@ -241,7 +246,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   {
     QString constraintErr;
     QgsMapLayer *constraints = layers->instantiate( constraintLayerId, &constraintErr );
-    const auto frozenPath=constraintSnapshotPath(horizon); // L-01：typed 通道替代动态属性
+    const auto frozenPath=constraintSnapshotPath(factorConstraintHorizonKey(horizon, params)); // L-01：typed 通道替代动态属性
     if(!frozenPath.isEmpty()) {
       frozenConstraints=std::make_unique<QgsVectorLayer>(frozenPath+"|layername=features","constraints","ogr");
       if(!frozenConstraints->isValid()){paleo::workflow_detail::setError(error,tr("约束快照无法读取"));return false;}
@@ -282,9 +287,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
         extra.insert("layer_id", "product." + st.versionId);
         extra.insert(
             "manifest_layer_id",
-            QStringLiteral("factor.%1.%2")
-                .arg(horizon,
-                     factorId)); // C4：catalog 侧权威反链（清单 layerId）
+            QStringLiteral( "factor.%1.%2" ).arg( factorResultHorizonKey( horizon, params ), factorId )); // C4：catalog 侧权威反链（清单 layerId）
         extra.insert("layer_type", "raster");
         extra.insert("title", tr("%1·%2").arg(def.title, horizon));
         extra.insert("group", "04_SingleFactor");
@@ -300,7 +303,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
         extra.insert(QStringLiteral("kind"),
                      QStringLiteral("single_factor_raster"));
         parentPaths.append(
-            constraintSnapshotPath(horizon)); // L-01：typed 通道替代动态属性
+            constraintSnapshotPath(factorConstraintHorizonKey(horizon, params))); // L-01：typed 通道替代动态属性
         QStringList parentIds = registrar.parentVersionIdsFor(parentPaths);
         parentIds.append(params.value("parentVersionIds").toStringList());
         parentIds.removeDuplicates();
@@ -381,8 +384,8 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
     return false;
   }
   const DerivedStaging st = registrar.stage(
-      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, horizon ),
-      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, horizon ), &regErr );
+      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, factorResultHorizonKey( horizon, params ) ),
+      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, factorResultHorizonKey( horizon, params ) ), &regErr );
   if ( !st.isValid() )
   {
     paleo::workflow_detail::setError( error, regErr );
@@ -495,8 +498,8 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
     return false;
   }
   const DerivedStaging st = registrar.stage(
-      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, horizon ),
-      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, horizon ), &regErr );
+      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, factorResultHorizonKey( horizon, params ) ),
+      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, factorResultHorizonKey( horizon, params ) ), &regErr );
   if ( !st.isValid() )
   {
     paleo::workflow_detail::setError( error, regErr );
@@ -518,7 +521,7 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
     paleo::workflow_detail::setError( error, manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
     return false;
   }
-  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( factorConstraintHorizonKey( horizon, params ) );
   const bool hasConstraints = std::any_of(
       declared.cbegin(), declared.cend(),
       [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
@@ -568,7 +571,7 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
                      QStringLiteral("single_factor_raster"));
         extra.insert(
             QStringLiteral("manifest_layer_id"),
-            QStringLiteral("factor.%1.%2").arg(horizon, factorId)); // C4 反链
+            QStringLiteral("factor.%1.%2").arg(factorResultHorizonKey(horizon, params), factorId)); // C4 反链
         extra.insert(QStringLiteral("points_layer_id"), pointsId);
         // algo-atom P1-extend：distance_transform 经 publishArtifacts
         const AlgorithmRunResult runResult =
@@ -749,7 +752,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
     paleo::workflow_detail::setError( error, manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
     return false;
   }
-  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( factorConstraintHorizonKey( horizon, params ) );
   const bool hasConstraints = std::any_of(
       declared.cbegin(), declared.cend(),
       [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
@@ -766,7 +769,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
     QString constraintErr;
     constraints = layers->instantiate( constraintLayerId, &constraintErr );
     // L-01：typed 通道替代动态属性（ARCH-02/06 家族）。
-    const QString frozenPath = constraintSnapshotPath( horizon );
+    const QString frozenPath = constraintSnapshotPath( factorConstraintHorizonKey( horizon, params ) );
     if ( !frozenPath.isEmpty() )
     {
       frozenConstraints = std::make_unique<QgsVectorLayer>(
@@ -798,8 +801,8 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
     return false;
   }
   const DerivedStaging st = registrar.stage(
-      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, horizon ),
-      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, horizon ), &regErr );
+      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, factorResultHorizonKey( horizon, params ) ),
+      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( factorId, factorResultHorizonKey( horizon, params ) ), &regErr );
   if ( !st.isValid() )
   {
     paleo::workflow_detail::setError( error, regErr );
@@ -951,7 +954,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
         extra.insert(QStringLiteral("layer_id"),
                      QStringLiteral("product.") + st.versionId);
         extra.insert(QStringLiteral("manifest_layer_id"),
-                     QStringLiteral("factor.%1.%2").arg(horizon, factorId));
+                     QStringLiteral("factor.%1.%2").arg(factorResultHorizonKey(horizon, params), factorId));
         extra.insert(QStringLiteral("layer_type"), QStringLiteral("raster"));
         extra.insert(QStringLiteral("title"),
                      tr("%1·%2").arg(def.title, horizon));
@@ -1114,6 +1117,7 @@ bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
   }
 
   LayerDeclaration decl;
+  // horizon 入口在分析模式下已是 analysisLayerKey（稳定令牌）；旧路径仍是界面名。
   decl.layerId = QStringLiteral( "factor.%1.%2" ).arg( horizon, factorId );
   decl.horizon = horizon;
   decl.type = QStringLiteral( "raster" );

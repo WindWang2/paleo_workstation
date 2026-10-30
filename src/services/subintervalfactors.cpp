@@ -563,5 +563,35 @@ bool listProjectSchemeRevisionsFromDir( const QString &projectDir, const QString
   return true;
 }
 
+PagedLabeledChoices pageLabeledChoices( const QVector<LabeledIdChoice> &all, const QString &filter, int page,
+                                        int pageSize )
+{
+  PagedLabeledChoices out;
+  out.pageSize = pageSize > 0 ? pageSize : kSchemeRevisionPageSize;
+  QVector<LabeledIdChoice> filtered;
+  filtered.reserve( all.size() );
+  const QString needle = filter.trimmed();
+  for ( const auto &c : all )
+  {
+    if ( needle.isEmpty()
+         || c.label.contains( needle, Qt::CaseInsensitive )
+         || c.id.contains( needle, Qt::CaseInsensitive ) )
+      filtered.push_back( c );
+  }
+  out.filteredTotal = filtered.size();
+  out.pageCount = out.filteredTotal == 0 ? 0 : ( out.filteredTotal + out.pageSize - 1 ) / out.pageSize;
+  if ( out.pageCount == 0 )
+  {
+    out.pageIndex = 0;
+    return out;
+  }
+  out.pageIndex = qBound( 0, page, out.pageCount - 1 );
+  const int begin = out.pageIndex * out.pageSize;
+  const int end = qMin( begin + out.pageSize, out.filteredTotal );
+  out.items.reserve( end - begin );
+  for ( int i = begin; i < end; ++i )
+    out.items.push_back( filtered.at( i ) );
+  return out;
+}
 
 } // namespace paleo::strat

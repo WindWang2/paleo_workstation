@@ -147,5 +147,23 @@ bool listProjectSchemesFromDir( const QString &projectDir, QVector<SchemeChoice>
 bool listProjectSchemeRevisionsFromDir( const QString &projectDir, const QString &schemeId,
                                         QVector<SchemeRevisionChoice> &out, QString *error = nullptr );
 
+// 方案/修订下拉：关键字过滤 + 分页（超多修订时不全量塞进 popup）。
+inline constexpr int kSchemeRevisionPageSize = 40;
+struct LabeledIdChoice
+{
+  QString label;
+  QString id;
+};
+struct PagedLabeledChoices
+{
+  QVector<LabeledIdChoice> items;
+  int filteredTotal = 0;
+  int pageIndex = 0; // 0-based，已夹紧
+  int pageCount = 0;
+  int pageSize = kSchemeRevisionPageSize;
+};
+// filter 空 = 不过滤；MatchContains、大小写不敏感。page 越界夹到末页。
+PagedLabeledChoices pageLabeledChoices( const QVector<LabeledIdChoice> &all, const QString &filter, int page,
+                                        int pageSize = kSchemeRevisionPageSize );
 
 } // namespace paleo::strat

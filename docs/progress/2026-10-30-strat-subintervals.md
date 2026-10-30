@@ -80,4 +80,15 @@ flock -x /workspace/audit/fix4/.git/paleo-shared-build-j4.lock \
 5. **file_budget**：attach_constraint 727→646、attach_compose 416→369（只缩）；helpers 提到文件域自由函数。
 
 ### 仍待（明确限制）
-- 方案下拉在超多修订时的搜索/分页（当前全量列表）。
+- （已迁到「超多修订搜索/分页」完成清单。）
+
+## 续：超多修订搜索/分页（Asia/Shanghai 2026-10-30 20:10）
+
+### 完成
+1. **pageLabeledChoices**：services 纯函数——关键字 MatchContains 过滤 + 每页 40 条分页（越界夹紧）。
+2. **SubIntervalSelectorBar**：方案/修订下拉可输入过滤；超一页时左右翻页与页码；图标标签 + item 图标；whatsThis/tooltip/catalog 跟上。
+3. **测试**：`pageLabeledChoicesFiltersAndPages`。
+4. **闸门**：聚焦 layering/file_budget/ui_size/i18n/`tst_stratigraphic_subintervals`；ts 缺失维持既有红。
+
+### 仍待（明确限制）
+- 无本条遗留；其它长期项见设计文档 §8（时深换算、legacy 标签等）。

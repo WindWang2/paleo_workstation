@@ -74,5 +74,5 @@
   - 约束/预测/合成/厚度分析入口拒绝无单元；`pageAnalysisKey`/`pageEditHorizon` 在已接线 selection 时不回落 combo。
   - 编图厚度链与合成发布行挂 `source_horizon`/`subIntervalId`（稳定 ID）；证据导航此前已按稳定 ID。
   - 测试：`bindAnalysisIgnoresPageHorizonString`。
-- **仍待**：超多修订的搜索/分页（当前方案/修订下拉全量列表）。
+- **超多修订搜索/分页（续轮）**：方案/修订下拉可输入过滤（MatchContains）；超过每页 40 条时左右翻页 + 页码提示；图标/whatsThis/tooltip 跟上。
 - TVD/TVDSS/OWT/TWT 换算沿用现有时深服务；本框架只记录 `depthType`，不做换算。

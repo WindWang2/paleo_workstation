@@ -8,8 +8,11 @@
 #include "paleotheme.h"
 
 #include <QComboBox>
+#include <QCompleter>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
+#include <QLineEdit>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -38,6 +41,46 @@ void styleSubButton( QToolButton *btn )
 QString shortRevision( const QString &rev )
 {
   return rev.size() > 10 ? rev.left( 8 ) + QStringLiteral( "…" ) : rev;
+}
+
+void enableSearchableCombo( QComboBox *box )
+{
+  if ( !box )
+    return;
+  box->setEditable( true );
+  box->setInsertPolicy( QComboBox::NoInsert );
+  if ( QCompleter *c = box->completer() )
+  {
+    c->setCaseSensitivity( Qt::CaseInsensitive );
+    c->setFilterMode( Qt::MatchContains );
+    c->setCompletionMode( QCompleter::PopupCompletion );
+  }
+  if ( QLineEdit *edit = box->lineEdit() )
+    edit->setClearButtonEnabled( true );
+}
+
+QToolButton *makePageButton( QWidget *parent, const QString &objectName, const QString &iconName,
+                             const QString &tip )
+{
+  auto *btn = new QToolButton( parent );
+  btn->setObjectName( objectName );
+  btn->setAutoRaise( true );
+  btn->setIcon( PaleoIcons::qgisTheme( iconName ) );
+  btn->setIconSize( PaleoIcons::toolbarSize() );
+  btn->setToolTip( tip );
+  btn->setVisible( false );
+  return btn;
+}
+
+QLabel *makeIconLabel( QWidget *parent, const QString &objectName, const QString &iconName,
+                       const QString &tip )
+{
+  auto *lab = new QLabel( parent );
+  lab->setObjectName( objectName );
+  lab->setToolTip( tip );
+  if ( const QIcon ic = PaleoIcons::qgisTheme( iconName ); !ic.isNull() )
+    lab->setPixmap( ic.pixmap( PaleoIcons::toolbarSize() ) );
+  return lab;
 }
 
 } // namespace
@@ -70,27 +113,89 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   }
   lay->addWidget( m_modeLabel );
 
+  m_schemeIcon = makeIconLabel( row, QStringLiteral( "subIntervalSchemeIcon" ),
+                                QStringLiteral( "mIconPolygonLayer.svg" ),
+                                tr( "地层解释方案" ) );
+  lay->addWidget( m_schemeIcon );
   m_schemeCombo = new QComboBox( row );
   m_schemeCombo->setObjectName( QStringLiteral( "subIntervalSchemeCombo" ) );
   m_schemeCombo->setAccessibleName( tr( "地层方案" ) );
-  m_schemeCombo->setToolTip( tr( "地层解释方案。切换后分析选择写入该方案的稳定 ID；"
-                                 "无提交方案时显示工程草稿。" ) );
+  m_schemeCombo->setToolTip( tr( "地层解释方案。可输入关键字过滤；列表超过一页时可翻页。"
+                                 "切换后分析选择写入该方案稳定 ID；无提交方案时显示工程草稿。" ) );
+  m_schemeCombo->setWhatsThis( tr( "<b>地层方案</b><p>选择解释方案并写入 UnitSelection.schemeId。"
+                                   "输入关键字可过滤；超多方案时分页浏览（每页 %1 条）。"
+                                   "</p>" )
+                                   .arg( paleo::strat::kSchemeRevisionPageSize ) );
   m_schemeCombo->setMinimumContentsLength( 8 );
   m_schemeCombo->setSizeAdjustPolicy( QComboBox::AdjustToContents );
+  enableSearchableCombo( m_schemeCombo );
   connect( m_schemeCombo, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
            &SubIntervalSelectorBar::onSchemeChanged );
+  if ( QLineEdit *edit = m_schemeCombo->lineEdit() )
+    connect( edit, &QLineEdit::textEdited, this, &SubIntervalSelectorBar::onSchemeFilterEdited );
   lay->addWidget( m_schemeCombo );
+  m_schemePrev = makePageButton( row, QStringLiteral( "subIntervalSchemePrev" ),
+                                 QStringLiteral( "mActionArrowLeft.svg" ),
+                                 tr( "上一页方案" ) );
+  connect( m_schemePrev, &QToolButton::clicked, this, [this] {
+    --m_schemePage;
+    refillSchemeComboPage();
+  } );
+  lay->addWidget( m_schemePrev );
+  m_schemeNext = makePageButton( row, QStringLiteral( "subIntervalSchemeNext" ),
+                                 QStringLiteral( "mActionArrowRight.svg" ),
+                                 tr( "下一页方案" ) );
+  connect( m_schemeNext, &QToolButton::clicked, this, [this] {
+    ++m_schemePage;
+    refillSchemeComboPage();
+  } );
+  lay->addWidget( m_schemeNext );
+  m_schemePageLabel = new QLabel( row );
+  m_schemePageLabel->setObjectName( QStringLiteral( "subIntervalSchemePageLabel" ) );
+  m_schemePageLabel->setVisible( false );
+  lay->addWidget( m_schemePageLabel );
 
+  m_revisionIcon = makeIconLabel( row, QStringLiteral( "subIntervalRevisionIcon" ),
+                                  QStringLiteral( "mActionHistory.svg" ),
+                                  tr( "解释修订快照" ) );
+  lay->addWidget( m_revisionIcon );
   m_revisionCombo = new QComboBox( row );
   m_revisionCombo->setObjectName( QStringLiteral( "subIntervalRevisionCombo" ) );
   m_revisionCombo->setAccessibleName( tr( "解释修订" ) );
-  m_revisionCombo->setToolTip( tr( "方案修订快照（不可变）。选择后 UnitSelection.revision "
-                                   "写入该修订；分析成果按修订对齐。" ) );
+  m_revisionCombo->setToolTip( tr( "方案修订快照（不可变）。可输入关键字过滤；超多修订时分页。"
+                                   "选择后 UnitSelection.revision 写入该修订；分析成果按修订对齐。" ) );
+  m_revisionCombo->setWhatsThis( tr( "<b>解释修订</b><p>选择修订快照并写入 UnitSelection.revision。"
+                                     "输入关键字可按修订号/备注/时间过滤；超过 %1 条时分页。"
+                                     "</p>" )
+                                     .arg( paleo::strat::kSchemeRevisionPageSize ) );
   m_revisionCombo->setMinimumContentsLength( 8 );
   m_revisionCombo->setSizeAdjustPolicy( QComboBox::AdjustToContents );
+  enableSearchableCombo( m_revisionCombo );
   connect( m_revisionCombo, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
            &SubIntervalSelectorBar::onRevisionChanged );
+  if ( QLineEdit *edit = m_revisionCombo->lineEdit() )
+    connect( edit, &QLineEdit::textEdited, this, &SubIntervalSelectorBar::onRevisionFilterEdited );
   lay->addWidget( m_revisionCombo );
+  m_revisionPrev = makePageButton( row, QStringLiteral( "subIntervalRevisionPrev" ),
+                                   QStringLiteral( "mActionArrowLeft.svg" ),
+                                   tr( "上一页修订" ) );
+  connect( m_revisionPrev, &QToolButton::clicked, this, [this] {
+    --m_revisionPage;
+    refillRevisionComboPage();
+  } );
+  lay->addWidget( m_revisionPrev );
+  m_revisionNext = makePageButton( row, QStringLiteral( "subIntervalRevisionNext" ),
+                                   QStringLiteral( "mActionArrowRight.svg" ),
+                                   tr( "下一页修订" ) );
+  connect( m_revisionNext, &QToolButton::clicked, this, [this] {
+    ++m_revisionPage;
+    refillRevisionComboPage();
+  } );
+  lay->addWidget( m_revisionNext );
+  m_revisionPageLabel = new QLabel( row );
+  m_revisionPageLabel->setObjectName( QStringLiteral( "subIntervalRevisionPageLabel" ) );
+  m_revisionPageLabel->setVisible( false );
+  lay->addWidget( m_revisionPageLabel );
 
   m_parent = new QComboBox( row );
   m_parent->setObjectName( QStringLiteral( "subIntervalParentCombo" ) );
@@ -304,8 +409,9 @@ void SubIntervalSelectorBar::rebuildSchemeCombo()
 {
   if ( !m_schemeCombo )
     return;
-  m_block = true;
-  m_schemeCombo->clear();
+  m_schemeChoices.clear();
+  m_schemeFilter.clear();
+  m_schemePage = 0;
   if ( m_fromDataService && !m_projectDir.isEmpty() )
   {
     QVector<paleo::strat::SchemeChoice> schemes;
@@ -314,28 +420,31 @@ void SubIntervalSelectorBar::rebuildSchemeCombo()
     {
       for ( const auto &c : schemes )
       {
-        const QString label = c.name.isEmpty() ? c.id : c.name;
-        m_schemeCombo->addItem( label, c.id );
+        SubIntervalLabeledChoice row;
+        row.id = c.id;
+        row.label = c.name.isEmpty() ? c.id : c.name;
+        m_schemeChoices.push_back( row );
       }
     }
   }
-  if ( m_schemeCombo->count() == 0 )
+  if ( m_schemeChoices.isEmpty() )
   {
-    const QString id = QString::fromStdString( m_scheme.id );
+    SubIntervalLabeledChoice row;
+    row.id = QString::fromStdString( m_scheme.id );
     const QString name = QString::fromStdString( m_scheme.name );
-    m_schemeCombo->addItem( name.isEmpty() ? tr( "工程草稿" ) : name, id );
+    row.label = name.isEmpty() ? tr( "工程草稿" ) : name;
+    m_schemeChoices.push_back( row );
   }
-  const int idx = m_schemeCombo->findData( QString::fromStdString( m_scheme.id ) );
-  m_schemeCombo->setCurrentIndex( idx >= 0 ? idx : 0 );
-  m_block = false;
+  refillSchemeComboPage();
 }
 
 void SubIntervalSelectorBar::rebuildRevisionCombo()
 {
   if ( !m_revisionCombo )
     return;
-  m_block = true;
-  m_revisionCombo->clear();
+  m_revisionChoices.clear();
+  m_revisionFilter.clear();
+  m_revisionPage = 0;
   const QString schemeId = m_schemeCombo ? m_schemeCombo->currentData().toString()
                                          : QString::fromStdString( m_scheme.id );
   if ( m_fromDataService && !m_projectDir.isEmpty() && !schemeId.isEmpty() )
@@ -346,23 +455,180 @@ void SubIntervalSelectorBar::rebuildRevisionCombo()
     {
       for ( const auto &r : revs )
       {
-        QString label = shortRevision( r.revision );
+        SubIntervalLabeledChoice row;
+        row.id = r.revision;
+        row.label = shortRevision( r.revision );
         if ( !r.note.isEmpty() )
-          label += QStringLiteral( " · " ) + r.note;
+          row.label += QStringLiteral( " · " ) + r.note;
         else if ( !r.created.isEmpty() )
-          label += QStringLiteral( " · " ) + r.created;
-        m_revisionCombo->addItem( label, r.revision );
+          row.label += QStringLiteral( " · " ) + r.created;
+        m_revisionChoices.push_back( row );
       }
     }
   }
-  if ( m_revisionCombo->count() == 0 )
+  if ( m_revisionChoices.isEmpty() )
   {
-    const QString rev = QString::fromStdString( m_scheme.revision.value );
-    m_revisionCombo->addItem( rev.isEmpty() ? tr( "（草稿）" ) : shortRevision( rev ), rev );
+    SubIntervalLabeledChoice row;
+    row.id = QString::fromStdString( m_scheme.revision.value );
+    row.label = row.id.isEmpty() ? tr( "（草稿）" ) : shortRevision( row.id );
+    m_revisionChoices.push_back( row );
   }
-  const int idx = m_revisionCombo->findData( QString::fromStdString( m_scheme.revision.value ) );
-  m_revisionCombo->setCurrentIndex( idx >= 0 ? idx : 0 );
+  refillRevisionComboPage();
+}
+
+void SubIntervalSelectorBar::refillSchemeComboPage()
+{
+  if ( !m_schemeCombo )
+    return;
+  QVector<paleo::strat::LabeledIdChoice> all;
+  all.reserve( m_schemeChoices.size() );
+  for ( const auto &c : m_schemeChoices )
+    all.push_back( { c.label, c.id } );
+  const QString keep = QString::fromStdString( m_scheme.id );
+  // 无过滤时跳到含当前方案的页，避免「当前项不在本页」被误当成第 0 项。
+  if ( m_schemeFilter.trimmed().isEmpty() && !keep.isEmpty() )
+  {
+    int found = -1;
+    for ( int i = 0; i < all.size(); ++i )
+    {
+      if ( all.at( i ).id == keep )
+      {
+        found = i;
+        break;
+      }
+    }
+    if ( found >= 0 )
+      m_schemePage = found / paleo::strat::kSchemeRevisionPageSize;
+  }
+  const auto page = paleo::strat::pageLabeledChoices( all, m_schemeFilter, m_schemePage );
+  m_schemePage = page.pageIndex;
+  m_block = true;
+  m_schemeCombo->clear();
+  const QIcon ic = PaleoIcons::qgisTheme( QStringLiteral( "mIconPolygonLayer.svg" ) );
+  for ( const auto &c : page.items )
+    m_schemeCombo->addItem( ic, c.label, c.id );
+  const int idx = m_schemeCombo->findData( keep );
+  if ( idx >= 0 )
+    m_schemeCombo->setCurrentIndex( idx );
+  else
+    m_schemeCombo->setCurrentIndex( -1 );
   m_block = false;
+  updateSchemePageChrome();
+  if ( QLineEdit *edit = m_schemeCombo->lineEdit() )
+  {
+    edit->setPlaceholderText( tr( "搜索方案…" ) );
+    if ( !m_schemeFilter.isEmpty() )
+      edit->setText( m_schemeFilter );
+  }
+}
+
+void SubIntervalSelectorBar::refillRevisionComboPage()
+{
+  if ( !m_revisionCombo )
+    return;
+  QVector<paleo::strat::LabeledIdChoice> all;
+  all.reserve( m_revisionChoices.size() );
+  for ( const auto &c : m_revisionChoices )
+    all.push_back( { c.label, c.id } );
+  const QString keep = QString::fromStdString( m_scheme.revision.value );
+  if ( m_revisionFilter.trimmed().isEmpty() && !keep.isEmpty() )
+  {
+    int found = -1;
+    for ( int i = 0; i < all.size(); ++i )
+    {
+      if ( all.at( i ).id == keep )
+      {
+        found = i;
+        break;
+      }
+    }
+    if ( found >= 0 )
+      m_revisionPage = found / paleo::strat::kSchemeRevisionPageSize;
+  }
+  const auto page = paleo::strat::pageLabeledChoices( all, m_revisionFilter, m_revisionPage );
+  m_revisionPage = page.pageIndex;
+  m_block = true;
+  m_revisionCombo->clear();
+  const QIcon ic = PaleoIcons::qgisTheme( QStringLiteral( "mActionHistory.svg" ) );
+  for ( const auto &c : page.items )
+    m_revisionCombo->addItem( ic, c.label, c.id );
+  const int idx = m_revisionCombo->findData( keep );
+  if ( idx >= 0 )
+    m_revisionCombo->setCurrentIndex( idx );
+  else
+    m_revisionCombo->setCurrentIndex( -1 );
+  m_block = false;
+  updateRevisionPageChrome();
+  if ( QLineEdit *edit = m_revisionCombo->lineEdit() )
+  {
+    edit->setPlaceholderText( tr( "搜索修订…" ) );
+    if ( !m_revisionFilter.isEmpty() )
+      edit->setText( m_revisionFilter );
+  }
+}
+
+void SubIntervalSelectorBar::updateSchemePageChrome()
+{
+  QVector<paleo::strat::LabeledIdChoice> all;
+  for ( const auto &c : m_schemeChoices )
+    all.push_back( { c.label, c.id } );
+  const auto page = paleo::strat::pageLabeledChoices( all, m_schemeFilter, m_schemePage );
+  const bool multi = page.pageCount > 1;
+  if ( m_schemePrev )
+  {
+    m_schemePrev->setVisible( multi );
+    m_schemePrev->setEnabled( multi && page.pageIndex > 0 );
+  }
+  if ( m_schemeNext )
+  {
+    m_schemeNext->setVisible( multi );
+    m_schemeNext->setEnabled( multi && page.pageIndex + 1 < page.pageCount );
+  }
+  if ( m_schemePageLabel )
+  {
+    m_schemePageLabel->setVisible( multi || !m_schemeFilter.isEmpty() );
+    if ( page.filteredTotal == 0 )
+      m_schemePageLabel->setText( tr( "无匹配方案" ) );
+    else if ( multi )
+      m_schemePageLabel->setText( tr( "%1/%2页 · 共%3" )
+                                      .arg( page.pageIndex + 1 )
+                                      .arg( page.pageCount )
+                                      .arg( page.filteredTotal ) );
+    else
+      m_schemePageLabel->setText( tr( "共%1" ).arg( page.filteredTotal ) );
+  }
+}
+
+void SubIntervalSelectorBar::updateRevisionPageChrome()
+{
+  QVector<paleo::strat::LabeledIdChoice> all;
+  for ( const auto &c : m_revisionChoices )
+    all.push_back( { c.label, c.id } );
+  const auto page = paleo::strat::pageLabeledChoices( all, m_revisionFilter, m_revisionPage );
+  const bool multi = page.pageCount > 1;
+  if ( m_revisionPrev )
+  {
+    m_revisionPrev->setVisible( multi );
+    m_revisionPrev->setEnabled( multi && page.pageIndex > 0 );
+  }
+  if ( m_revisionNext )
+  {
+    m_revisionNext->setVisible( multi );
+    m_revisionNext->setEnabled( multi && page.pageIndex + 1 < page.pageCount );
+  }
+  if ( m_revisionPageLabel )
+  {
+    m_revisionPageLabel->setVisible( multi || !m_revisionFilter.isEmpty() );
+    if ( page.filteredTotal == 0 )
+      m_revisionPageLabel->setText( tr( "无匹配修订" ) );
+    else if ( multi )
+      m_revisionPageLabel->setText( tr( "%1/%2页 · 共%3" )
+                                        .arg( page.pageIndex + 1 )
+                                        .arg( page.pageCount )
+                                        .arg( page.filteredTotal ) );
+    else
+      m_revisionPageLabel->setText( tr( "共%1" ).arg( page.filteredTotal ) );
+  }
 }
 
 void SubIntervalSelectorBar::rebuildParentCombo()
@@ -468,19 +734,39 @@ bool SubIntervalSelectorBar::loadSelectedScheme( bool broadcast )
   return true;
 }
 
-void SubIntervalSelectorBar::onSchemeChanged( int )
+void SubIntervalSelectorBar::onSchemeFilterEdited( const QString &text )
 {
   if ( m_block )
     return;
+  m_schemeFilter = text;
+  m_schemePage = 0;
+  refillSchemeComboPage();
+}
+
+void SubIntervalSelectorBar::onRevisionFilterEdited( const QString &text )
+{
+  if ( m_block )
+    return;
+  m_revisionFilter = text;
+  m_revisionPage = 0;
+  refillRevisionComboPage();
+}
+
+void SubIntervalSelectorBar::onSchemeChanged( int index )
+{
+  if ( m_block || index < 0 )
+    return;
+  m_schemeFilter.clear();
   rebuildRevisionCombo();
   if ( !loadSelectedScheme( true ) && !m_fromDataService )
     rebuildParentCombo();
 }
 
-void SubIntervalSelectorBar::onRevisionChanged( int )
+void SubIntervalSelectorBar::onRevisionChanged( int index )
 {
-  if ( m_block )
+  if ( m_block || index < 0 )
     return;
+  m_revisionFilter.clear();
   loadSelectedScheme( true );
 }
 

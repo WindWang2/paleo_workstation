@@ -50,8 +50,8 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"PaleoMainWindow", "subIntervalAggregate", QT_TRANSLATE_NOOP("PaleoWhatsThis", "父单元显式综合（厚度加权）；缺任一子层段成果时综合不可用。"), nullptr},
     {"PaleoMainWindow", "subIntervalExpand", QT_TRANSLATE_NOOP("PaleoWhatsThis", "展开查看四个子层段的完整性/可用资料/受影响状态（红绿灯，接 DS occurrence 与成果绑定）。"), nullptr},
     {"PaleoMainWindow", "subIntervalModeLabel", QT_TRANSLATE_NOOP("PaleoWhatsThis", "层段分析模式标识；与上方界面编辑层位条分工，互不重置对方状态。"), nullptr},
-    {"PaleoMainWindow", "subIntervalSchemeCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层解释方案。选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。"), nullptr},
-    {"PaleoMainWindow", "subIntervalRevisionCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "方案修订快照。选择后写入 UnitSelection.revision；分析成果按修订对齐。"), nullptr},
+    {"PaleoMainWindow", "subIntervalSchemeCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层解释方案。可输入关键字过滤，超多方案时分页；选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。"), nullptr},
+    {"PaleoMainWindow", "subIntervalRevisionCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "方案修订快照。可输入关键字过滤，超多修订时分页；选择后写入 UnitSelection.revision；分析成果按修订对齐。"), nullptr},
 
     {"PaleoMainWindow", "newProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "通过可跳过的引导创建 Paleo 工程，可自动识别井点、井资料、地震和层位；也可创建空白工程。"), nullptr},
     {"PaleoMainWindow", "openProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "打开已有的 Paleo 工程。"), nullptr},

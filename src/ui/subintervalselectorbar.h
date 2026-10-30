@@ -13,12 +13,18 @@ class QComboBox;
 class QLabel;
 class QToolButton;
 
+struct SubIntervalLabeledChoice
+{
+  QString label;
+  QString id;
+};
+
 // ui/subintervalselectorbar — 层段分析模式的二级选择器（父单元 → S1–S4）。
 //
 // 与 HorizonChipBar（界面编辑模式）并列：本控件只写 SelectionContext::setActiveUnit，
 // 不调用 QgisLayerService::setActiveHorizon，因此不重置地图视角、编辑会话或面板布局。
-// 方案 / 修订下拉把 schemeId+revision 写入 UnitSelection；展开区按 DS occurrence
-// 与成果绑定显示红绿灯。缺方案时回退工程草稿。
+// 方案 / 修订下拉把 schemeId+revision 写入 UnitSelection；超长列表可输入过滤并分页。
+// 展开区按 DS occurrence 与成果绑定显示红绿灯。缺方案时回退工程草稿。
 class SubIntervalSelectorBar : public QWidget
 {
   Q_OBJECT
@@ -53,14 +59,20 @@ class SubIntervalSelectorBar : public QWidget
   private:
     void rebuildSchemeCombo();
     void rebuildRevisionCombo();
+    void refillSchemeComboPage();
+    void refillRevisionComboPage();
     void rebuildParentCombo();
     void rebuildSubButtons();
     void rebuildStatusPanel();
+    void updateSchemePageChrome();
+    void updateRevisionPageChrome();
     void applySelection( const paleo::strat::UnitSelection &sel, bool broadcast );
     void onSchemeChanged( int index );
     void onRevisionChanged( int index );
     void onParentChanged( int index );
     void onSubClicked( int subIndex ); // 1..4；0 = 综合
+    void onSchemeFilterEdited( const QString &text );
+    void onRevisionFilterEdited( const QString &text );
     void syncFromContext( const paleo::strat::UnitSelection &unit );
     void applyLoadedScheme( const paleo::data::StratigraphicScheme &scheme, bool broadcast );
     bool loadSelectedScheme( bool broadcast );
@@ -71,13 +83,27 @@ class SubIntervalSelectorBar : public QWidget
     QComboBox *m_revisionCombo = nullptr;
     QComboBox *m_parent = nullptr;
     QLabel *m_modeLabel = nullptr;
+    QLabel *m_schemeIcon = nullptr;
+    QLabel *m_revisionIcon = nullptr;
+    QLabel *m_schemePageLabel = nullptr;
+    QLabel *m_revisionPageLabel = nullptr;
     QLabel *m_status = nullptr;
     QLabel *m_expandStatus = nullptr;
     QToolButton *m_expand = nullptr;
+    QToolButton *m_schemePrev = nullptr;
+    QToolButton *m_schemeNext = nullptr;
+    QToolButton *m_revisionPrev = nullptr;
+    QToolButton *m_revisionNext = nullptr;
     QVector<QToolButton *> m_subs;
     QToolButton *m_agg = nullptr;
     paleo::data::StratigraphicScheme m_scheme;
     std::vector<paleo::data::SubIntervalResultBinding> m_bindings;
+    QVector<SubIntervalLabeledChoice> m_schemeChoices;
+    QVector<SubIntervalLabeledChoice> m_revisionChoices;
+    QString m_schemeFilter;
+    QString m_revisionFilter;
+    int m_schemePage = 0;
+    int m_revisionPage = 0;
     QString m_projectDir;
     QStringList m_fallbackBoundaries;
     paleo::strat::UnitSelection m_current;

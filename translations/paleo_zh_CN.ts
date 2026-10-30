@@ -50889,13 +50889,13 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
-        <source>地层解释方案。选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。</source>
-        <translation>地层解释方案。选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。</translation>
+        <source>地层解释方案。可输入关键字过滤，超多方案时分页；选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。</source>
+        <translation>地层解释方案。可输入关键字过滤，超多方案时分页；选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。</translation>
     </message>
     <message>
         <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
-        <source>方案修订快照。选择后写入 UnitSelection.revision；分析成果按修订对齐。</source>
-        <translation>方案修订快照。选择后写入 UnitSelection.revision；分析成果按修订对齐。</translation>
+        <source>方案修订快照。可输入关键字过滤，超多修订时分页；选择后写入 UnitSelection.revision；分析成果按修订对齐。</source>
+        <translation>方案修订快照。可输入关键字过滤，超多修订时分页；选择后写入 UnitSelection.revision；分析成果按修订对齐。</translation>
     </message>
     <message>
         <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
@@ -50916,6 +50916,86 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
         <source>[legacy] 历史层位下拉（兼容）。层段分析优先用画布「层段分析」选择器；成果身份为 SubIntervalId / UnitSelection。</source>
         <translation>[legacy] 历史层位下拉（兼容）。层段分析优先用画布「层段分析」选择器；成果身份为 SubIntervalId / UnitSelection。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>地层解释方案</source>
+        <translation>地层解释方案</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>地层解释方案。可输入关键字过滤；列表超过一页时可翻页。切换后分析选择写入该方案稳定 ID；无提交方案时显示工程草稿。</source>
+        <translation>地层解释方案。可输入关键字过滤；列表超过一页时可翻页。切换后分析选择写入该方案稳定 ID；无提交方案时显示工程草稿。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>&lt;b&gt;地层方案&lt;/b&gt;&lt;p&gt;选择解释方案并写入 UnitSelection.schemeId。输入关键字可过滤；超多方案时分页浏览（每页 %1 条）。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;地层方案&lt;/b&gt;&lt;p&gt;选择解释方案并写入 UnitSelection.schemeId。输入关键字可过滤；超多方案时分页浏览（每页 %1 条）。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>上一页方案</source>
+        <translation>上一页方案</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>下一页方案</source>
+        <translation>下一页方案</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>解释修订快照</source>
+        <translation>解释修订快照</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>方案修订快照（不可变）。可输入关键字过滤；超多修订时分页。选择后 UnitSelection.revision 写入该修订；分析成果按修订对齐。</source>
+        <translation>方案修订快照（不可变）。可输入关键字过滤；超多修订时分页。选择后 UnitSelection.revision 写入该修订；分析成果按修订对齐。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>&lt;b&gt;解释修订&lt;/b&gt;&lt;p&gt;选择修订快照并写入 UnitSelection.revision。输入关键字可按修订号/备注/时间过滤；超过 %1 条时分页。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;解释修订&lt;/b&gt;&lt;p&gt;选择修订快照并写入 UnitSelection.revision。输入关键字可按修订号/备注/时间过滤；超过 %1 条时分页。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>上一页修订</source>
+        <translation>上一页修订</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>下一页修订</source>
+        <translation>下一页修订</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>搜索方案…</source>
+        <translation>搜索方案…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>搜索修订…</source>
+        <translation>搜索修订…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>无匹配方案</source>
+        <translation>无匹配方案</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>无匹配修订</source>
+        <translation>无匹配修订</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>%1/%2页 · 共%3</source>
+        <translation>%1/%2页 · 共%3</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>共%1</source>
+        <translation>共%1</translation>
     </message>
 </context>
 </TS>

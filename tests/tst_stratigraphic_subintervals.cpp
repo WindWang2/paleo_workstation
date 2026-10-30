@@ -403,6 +403,54 @@ private slots:
   }
 
 
+  void pageLabeledChoicesFiltersAndPages()
+  {
+    QVector<LabeledIdChoice> all;
+    for ( int i = 0; i < 95; ++i )
+    {
+      LabeledIdChoice c;
+      c.id = QStringLiteral( "id-%1" ).arg( i, 3, 10, QChar( '0' ) );
+      c.label = QStringLiteral( "修订-%1%2" ).arg( i ).arg( i % 7 == 0 ? QStringLiteral( "-特殊" ) : QString() );
+      all.push_back( c );
+    }
+    // 默认页大小 40 → 3 页
+    auto p0 = pageLabeledChoices( all, {}, 0 );
+    QCOMPARE( p0.filteredTotal, 95 );
+    QCOMPARE( p0.pageCount, 3 );
+    QCOMPARE( p0.pageIndex, 0 );
+    QCOMPARE( p0.items.size(), kSchemeRevisionPageSize );
+    QCOMPARE( p0.items.first().id, QStringLiteral( "id-000" ) );
+
+    auto p2 = pageLabeledChoices( all, {}, 2 );
+    QCOMPARE( p2.pageIndex, 2 );
+    QCOMPARE( p2.items.size(), 15 );
+    QCOMPARE( p2.items.last().id, QStringLiteral( "id-094" ) );
+
+    // 越界夹到末页
+    auto pOver = pageLabeledChoices( all, {}, 99 );
+    QCOMPARE( pOver.pageIndex, 2 );
+
+    // 过滤「特殊」：95/7 ≈ 14 条（0,7,...,91）→ 单页
+    auto filtered = pageLabeledChoices( all, QStringLiteral( "特殊" ), 0 );
+    QCOMPARE( filtered.filteredTotal, 14 );
+    QCOMPARE( filtered.pageCount, 1 );
+    QVERIFY( filtered.items.first().label.contains( QStringLiteral( "特殊" ) ) );
+
+    // 小页大小
+    auto tiny = pageLabeledChoices( all, {}, 1, 10 );
+    QCOMPARE( tiny.pageSize, 10 );
+    QCOMPARE( tiny.pageCount, 10 );
+    QCOMPARE( tiny.pageIndex, 1 );
+    QCOMPARE( tiny.items.size(), 10 );
+    QCOMPARE( tiny.items.first().id, QStringLiteral( "id-010" ) );
+
+    // 无匹配
+    auto none = pageLabeledChoices( all, QStringLiteral( "不存在的关键字XYZ" ), 0 );
+    QCOMPARE( none.filteredTotal, 0 );
+    QCOMPARE( none.pageCount, 0 );
+    QVERIFY( none.items.isEmpty() );
+  }
+
 };
 
 QTEST_MAIN( StratigraphicSubIntervalsTest )

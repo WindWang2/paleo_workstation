@@ -76,8 +76,13 @@ QList<WhatsThisEntry> whatsThisEntries()
 
     // ---- 智能预测页 ----
     {"PredictPage", "predictTypeCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "沉积相 / 地震相 / 测井相。地震相切片预测与层段综合分列；测井相走井面板，砂地比等单因素按子层段深度窗。"), nullptr},
+    {"PredictPage", "seismicScopeCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地震相范围：Slice=切片预测；Interval=子层段掩膜综合。二者分列，禁止切片冒充整段。"), nullptr},
+    {"PredictPage", "seismicMinCoverageSpin", QT_TRANSLATE_NOOP("PaleoWhatsThis", "Interval 最低覆盖率；低于阈值拒绝发布层段综合。"), nullptr},
+    {"PredictPage", "seismicVotesEdit", QT_TRANSLATE_NOOP("PaleoWhatsThis", "切片投票列表（相码,权重），供切片→层段聚合。"), nullptr},
+    {"PredictPage", "btnPublishSeismicAggregate", QT_TRANSLATE_NOOP("PaleoWhatsThis", "将切片投票按 weighted_mode 聚合并写入 Data Service Interval 绑定。"), nullptr},
 
-    {"PredictPage", "horizonCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "历史层位下拉（兼容）。层段分析优先用画布父单元→S1–S4；成果身份为 SubIntervalId。"), nullptr},    {"PredictPage", "algoCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择预测算法；下方参数区按所选算法重建。"), nullptr},
+    {"PredictPage", "horizonCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "历史层位下拉（兼容）。层段分析优先用画布父单元→S1–S4；成果身份为 SubIntervalId。"), nullptr},
+    {"PredictPage", "algoCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择预测算法；下方参数区按所选算法重建。"), nullptr},
     {"PredictPage", "runButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按层段分析选择（父单元/S1–S4）或层位下拉运行；成果登记 Data Service，可供编图证据拉取。"), nullptr},
     {"PredictPage", "cancelRunButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "取消正在运行的预测。"), nullptr},
     {"PredictPage", "historyList", QT_TRANSLATE_NOOP("PaleoWhatsThis", "当前层位的历史预测结果；点行内「显示」可在地图上查看。"), nullptr},
@@ -124,6 +129,9 @@ QList<WhatsThisEntry> whatsThisEntries()
 
     // ---- 综合柱状图 ----
     {"WellComposite::WellCompositePanel", "scaleCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择纵向比例尺，或自适应窗口高度。"), nullptr},
+    {"WellComposite::WellCompositePanel", "lblAnalysisUnit", QT_TRANSLATE_NOOP("PaleoWhatsThis", "当前分析层段（UnitSelection）。测井相深度窗与成果身份跟随画布层段分析条；本处只读。"), nullptr},
+    {"WellComposite::WellCompositePanel", "faciesPredictionModel", QT_TRANSLATE_NOOP("PaleoWhatsThis", "测井相网络模型版本。层段身份由分析层段决定，不要把本下拉当作层位选择。"), nullptr},
+    {"WellComposite::WellCompositePanel", "btnPredictFacies", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId。"), nullptr},
     {"WellComposite::WellCompositePanel", "btnCompResetZoom", QT_TRANSLATE_NOOP("PaleoWhatsThis", "恢复显示全井段；也可双击道内任意位置。"), nullptr},
     {"WellComposite::WellCompositePanel", "btnCompGoto", QT_TRANSLATE_NOOP("PaleoWhatsThis", "跳转到指定深度。"), "wellcomposite.gotoDepth"},
     {"WellComposite::WellCompositePanel", "btnCompBookmarks", QT_TRANSLATE_NOOP("PaleoWhatsThis", "深度书签：添加、跳转或删除。"), nullptr},

@@ -43,6 +43,8 @@ class PredictPage : public QWidget
     void mamclLaunchRequested();
     // 预测专项：测井相预测在测井相面板执行；主入口的「前往测井相面板」。
     void wellFaciesPanelRequested();
+    // 地震相：切片投票 → 层段综合发布（Slice≠Interval；Interval 强制策略+覆盖率）。
+    void seismicMaskPublishRequested(const QVariantMap &params);
 
   private:
     QVBoxLayout *buildOnnxAdvanced(QWidget *parent, QVBoxLayout *into, QWidget **body);
@@ -56,4 +58,7 @@ class PredictPage : public QWidget
     // 仍由 workflow 在运行时做——不另立一套与推理不一致的规则。
     void updateReadiness();
     void setOnnxAdvancedExpanded(bool expanded);
+    void setupSeismicMaskChrome(QVBoxLayout *lay);
+    void syncSeismicMaskChrome();
+    void collectSeismicMaskParams(QVariantMap *params);
 };

@@ -57,7 +57,6 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_modeLabel->setObjectName( QStringLiteral( "subIntervalModeLabel" ) );
   m_modeLabel->setToolTip( tr( "层段分析模式：选择父单元与 S1–S4 子层段；"
                                "与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。" ) );
-  m_modeLabel->setWhatsThis( m_modeLabel->toolTip() );
   if ( const QIcon ic = PaleoIcons::qgisTheme( QStringLiteral( "mIconPolygonLayer.svg" ) ); !ic.isNull() )
   {
     m_modeLabel->setPixmap( ic.pixmap( PaleoIcons::toolbarSize() ) );
@@ -70,7 +69,6 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_parent->setAccessibleName( tr( "父层间单元" ) );
   m_parent->setToolTip( tr( "父层间单元（相邻两条界面，如 T70–T71）。"
                             "展开后可查看四个子层段的就绪状态。" ) );
-  m_parent->setWhatsThis( m_parent->toolTip() );
   m_parent->setMinimumContentsLength( 10 );
   m_parent->setSizeAdjustPolicy( QComboBox::AdjustToContents );
   connect( m_parent, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
@@ -89,7 +87,6 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
     btn->setToolTip( tr( "子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析"
                          "按稳定子层段 ID 归属，不拆分界面名。" )
                          .arg( i ) );
-    btn->setWhatsThis( btn->toolTip() );
     btn->setStatusTip( tr( "分析层段：S%1" ).arg( i ) );
     styleSubButton( btn );
     connect( btn, &QToolButton::clicked, this, [this, i] { onSubClicked( i ); } );
@@ -108,7 +105,6 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_agg->setIconSize( PaleoIcons::toolbarSize() );
   m_agg->setToolTip( tr( "父单元显式综合（厚度加权）。不是任一子层段；"
                          "缺任一子层段成果时综合结果不可用。" ) );
-  m_agg->setWhatsThis( m_agg->toolTip() );
   m_agg->setStatusTip( tr( "分析层段：父单元综合" ) );
   styleSubButton( m_agg );
   connect( m_agg, &QToolButton::clicked, this, [this] { onSubClicked( 0 ); } );
@@ -124,7 +120,6 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_expand->setIconSize( PaleoIcons::toolbarSize() );
   m_expand->setText( tr( "状态" ) );
   m_expand->setToolTip( tr( "展开查看当前父单元四个子层段的就绪与成果提示。" ) );
-  m_expand->setWhatsThis( m_expand->toolTip() );
   m_expand->setStatusTip( tr( "展开子层段状态" ) );
   connect( m_expand, &QToolButton::toggled, this, [this]( bool on ) {
     if ( m_expandStatus )

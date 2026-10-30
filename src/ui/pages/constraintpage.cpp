@@ -63,7 +63,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   auto *horizons = new QComboBox( this );
   horizons->setObjectName( QStringLiteral( "horizonCombo" ) );
   horizons->setAccessibleName( tr( "单因素图层位" ) );
-  horizons->setToolTip( tr( "选择当前图件所属层位；暂无层位时请先打开工程" ) );
+  horizons->setToolTip( tr( "[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。" ) );
+  horizons->setWhatsThis( tr( "<b>层位（legacy）</b><p>旧工程按单一界面名取输入。启用层段分析后，输入仍取父单元上界面，成果写入对应子层段。</p>" ) );
   lay->addWidget( horizons );
 
   // ---- m2(B)：单因素清单 + 生成 双区（§10 词表驱动）------------------------

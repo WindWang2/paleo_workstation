@@ -6,11 +6,10 @@
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
 #include "../services/paleotaskservice.h"
-#include "../services/pythonenv.h"
 #include "../workflow/workflows.h"
-#include "../workflow/mamcltool.h"
 #include "pages/pagepanels.h"
 #include "../linkage/unitselectionbridge.h"
+#include "../services/subintervalfactors.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -22,7 +21,6 @@
 #include <QLabel>
 #include <QStatusBar>
 #include <QDir>
-#include <QFileInfo>
 #include <QStandardPaths>
 #include <memory>
 
@@ -108,7 +106,7 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                                    predictPage->updateProgress(pct);
                                });
               QObject::connect(task, &PaleoTask::finished, predictPage,
-                               [predictPage, pred, job, status, logFail, task] {
+                               [this, predictPage, pred, job, status, logFail, task] {
                                  predictPage->setRunBusy(false);
                                  if (task->state() == PaleoTask::State::Cancelled)
                                  {
@@ -143,9 +141,13 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                                  // 图层声明（worker 做会被 catalog 线程闸拒绝）。
                                  QString pubErr;
                                  if (!pred->publishPredictionJob(*job, &pubErr))
+                                 {
                                    logFail(tr("预测失败：%1")
                                                .arg(pubErr.isEmpty() ? tr("成果发布失败")
                                                                      : pubErr));
+                                   return;
+                                 }
+                                 bindSeismicSliceAfterPublish(pred, job->params, job->layerId, job->outputPath, status);
                                });
             });
     // 取消按钮 → 协作式取消请求（worker 自查 cancelRequested）。
@@ -187,44 +189,5 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
     // ---- m2(A) end ----
   }
 
-  // MAMCL 外部工具：视图只发意图；解包/venv/依赖/启动编排在 MamclTool
-  // （功能层）+ PythonEnvService（数据层）。与 pred 是否在场无关，独立接线。
-  if (predictPage)
-  {
-    auto *status = predictPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
-    const QString envRoot =
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) +
-        QStringLiteral("/external/mamcl");
-    auto *pyenv = new PythonEnvService(envRoot, this);
-    auto *mamcl = new MamclTool(pyenv, this);
-    connect(predictPage, &PredictPage::mamclLaunchRequested, mamcl, &MamclTool::open);
-    // 预测专项：测井相预测的实际运行面在「数据管理」里井的综合显示（测井相
-    // 面板，WellFaciesWorkflow）。主入口跳过去并说明下一步，不让用户猜。
-    connect(predictPage, &PredictPage::wellFaciesPanelRequested, this,
-            [this, status] {
-              showPage(QStringLiteral("data"));
-              const QString hint = tr("已切到「数据管理」：在数据列表中打开一口井的综合显示，"
-                                   "在测井相面板选择模型、检查输入并运行预测");
-              if (status)
-                status->setText(hint); // 切回预测页仍可见
-              statusBar()->showMessage(hint, 10000);
-            });
-    connect(mamcl, &MamclTool::busyChanged, predictPage, &PredictPage::setMamclBusy);
-    connect(mamcl, &MamclTool::statusMessage, predictPage,
-            [status](const QString &msg) {
-              if (status)
-                status->setText(msg);
-            });
-    connect(mamcl, &MamclTool::launchFinished, predictPage,
-            [status](bool ok, const QString &msg) {
-              if (status)
-                status->setText(msg);
-              if (!ok)
-                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::Critical);
-            });
-    // pip/解包逐行输出落消息日志（状态条只承载阶段文案，不刷屏）。
-    connect(pyenv, &PythonEnvService::outputLine, this, [](const QString &line) {
-      QgsMessageLog::logMessage(line, QStringLiteral("MAMCL"), Qgis::Info);
-    });
-  }
+  attachPredictPageTools(predictPage, pred);
 }

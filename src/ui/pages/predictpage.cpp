@@ -35,32 +35,26 @@ namespace {
 
 void applySubIntervalAnalysisTips(QComboBox *types, QComboBox *horizons, QPushButton *run)
 {
+  // whatsThis 留给 help::applyWhatsThis 目录回填（tst_shortcuts_shell 校验目录全文）；
+  // 运行钮可运行态 tip 必须空（DESIGN.md：禁用才写原因 tip）。
   if (types)
   {
     types->setToolTip(PredictPage::tr("沉积相 / 地震相 / 测井相。地震相若仅有时间切片模型，"
                                       "结果标注为「切片预测」，层段综合需可验证聚合，不得把单切片冒充整段。"));
     types->setStatusTip(types->toolTip());
-    types->setWhatsThis(PredictPage::tr("<b>预测类型</b><p><b>测井相</b>：按子层段深度窗取测井/岩性，"
-                                        "砂地比等单因素可插值分类，成果带 SubIntervalId。<br/>"
-                                        "<b>地震相</b>：按子层段掩膜提取；切片与层段综合分列。</p>"));
   }
   if (horizons)
   {
-    horizons->setToolTip(PredictPage::tr("历史层位下拉（兼容）。层段分析请优先用画布上方的父单元→S1–S4 选择条；"
-                                         "运行时以选择条的 SubIntervalId 为成果身份。"));
+    horizons->setToolTip(PredictPage::tr("[legacy] 历史层位下拉（兼容旧工程）。层段分析请用画布父单元→S1–S4；"
+                                         "分析路径以 UnitSelection / SubIntervalId 为成果身份，勿依赖本框字符串。"));
     horizons->setStatusTip(horizons->toolTip());
-    horizons->setWhatsThis(PredictPage::tr("<b>层位</b><p>旧工程按单一界面名取输入栅格。"
-                                           "启用层段分析后，输入仍取父单元上界面栅格，"
-                                           "井相/地震相/单因素成果写入对应子层段。</p>"));
   }
   if (run)
   {
-    run->setToolTip(PredictPage::tr("按当前层段分析选择（或层位下拉）运行预测；"
-                                    "中间与最终结果登记到 Data Service，可供编图证据拉取。"));
-    run->setStatusTip(run->toolTip());
-    run->setWhatsThis(PredictPage::tr("<b>运行预测</b><p>优先使用画布层段分析条的父单元/S1–S4。"
-                                      "砂地比等单因素在子层段深度窗内计算并分类；"
-                                      "成果带井 ID、输入版本、解释修订与层段身份。</p>"));
+    const QString tip = PredictPage::tr("按当前层段分析选择（或层位下拉）运行预测；"
+                                        "中间与最终结果登记到 Data Service，可供编图证据拉取。");
+    run->setToolTip(QString());
+    run->setStatusTip(tip);
   }
 }
 
@@ -112,6 +106,7 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   horizons->setObjectName(QStringLiteral("horizonCombo"));
   lay->addWidget(horizons);
   applySubIntervalAnalysisTips(types, horizons, nullptr);
+  setupSeismicMaskChrome(lay);
 
   lay->addWidget(caption(tr("算法"), this));
   auto *algos = new QComboBox(this);
@@ -685,6 +680,7 @@ bool PredictPage::collectSchemaParams(QVariantMap *out)
   // 预测类型随参数下发（英文 stable id；QgsProcessing 忽略未定义键，无副作用）。
   if (auto *types = child<QComboBox>(this, "predictTypeCombo"))
     params.insert(QStringLiteral("predictType"), types->currentData());
+  collectSeismicMaskParams(&params);
   *out = params;
   // 校验通过即下发：清掉上一轮的失败文案（陈旧错误不残留）。
   if (status)
@@ -834,7 +830,10 @@ void PredictPage::updateReadiness()
     return; // 忙碌态由 setRunBusy 管
   run->setEnabled(ready);
   if (ready)
-    applySubIntervalAnalysisTips(nullptr, nullptr, run);
+  {
+    run->setToolTip(QString());
+    applySubIntervalAnalysisTips(nullptr, nullptr, run); // statusTip only
+  }
   else
     run->setToolTip(text);
 }

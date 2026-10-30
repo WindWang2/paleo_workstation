@@ -22,6 +22,8 @@ QVariantMap AnalysisBinding::enrich( QVariantMap params ) const
     params.insert( QStringLiteral( "schemeRevision" ), unit.revision );
   if ( !unit.displayName.isEmpty() )
     params.insert( QStringLiteral( "unitDisplayName" ), unit.displayName );
+  if ( unit.subIndex > 0 )
+    params.insert( QStringLiteral( "subIndex" ), unit.subIndex );
   return params;
 }
 

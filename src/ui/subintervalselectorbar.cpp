@@ -129,11 +129,9 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   root->setContentsMargins( tk.spacingMd, tk.spacingXs, tk.spacingMd, tk.spacingXs );
   root->setSpacing( tk.spacingXs );
 
-  auto *row = new QWidget( this );
-  row->setObjectName( QStringLiteral( "subIntervalSelectorRow" ) );
-  auto *lay = new QHBoxLayout( row );
-  lay->setContentsMargins( 0, 0, 0, 0 );
-  lay->setSpacing( tk.spacingXs );
+  QHBoxLayout *lay2 = nullptr;
+  QWidget *row = buildRowContainers( &lay2 ); // 主段/次段，窄画布折两行
+  auto *lay = qobject_cast<QHBoxLayout *>( row->layout() );
 
   m_modeLabel = new QLabel( tr( "层段分析" ), row );
   m_modeLabel->setObjectName( QStringLiteral( "subIntervalModeLabel" ) );
@@ -236,8 +234,11 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_revisionPageLabel->setObjectName( QStringLiteral( "subIntervalRevisionPageLabel" ) );
   m_revisionPageLabel->setVisible( false );
   lay->addWidget( m_revisionPageLabel );
+  m_splitSeparator = makeGroupSeparator( row );
+  lay->addWidget( m_splitSeparator ); // 单行时分隔两段；折行后隐藏
+  row = m_secondaryRow;
+  lay = lay2;
 
-  lay->addWidget( makeGroupSeparator( row ) );
   m_parent = new QComboBox( row );
   m_parent->setObjectName( QStringLiteral( "subIntervalParentCombo" ) );
   m_parent->setAccessibleName( tr( "父层间单元" ) );
@@ -276,9 +277,7 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   // 状态文字可被截断（全文在 tooltip），不拿它的最小宽挤压前面的按钮。
   m_status->setSizePolicy( QSizePolicy::Ignored, QSizePolicy::Preferred );
   lay->addWidget( m_status, 1 );
-  lay->addStretch( 1 );
-
-  root->addWidget( row );
+  root->addWidget( m_rowContainer );
 
   m_expandStatus = new QLabel( this );
   m_expandStatus->setObjectName( QStringLiteral( "subIntervalExpandStatus" ) );

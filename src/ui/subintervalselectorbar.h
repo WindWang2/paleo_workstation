@@ -10,6 +10,7 @@
 
 class SelectionContext;
 class QComboBox;
+class QBoxLayout;
 class QHBoxLayout;
 class QLabel;
 class QToolButton;
@@ -47,6 +48,8 @@ class SubIntervalSelectorBar : public QWidget
     // 把壳侧「界限」入口（地震层位 = 地层界限）放到本条最左端并加分隔线，
     // 画布顶部不再单独占一行。
     void insertLeadingWidget( QWidget *widget );
+    // 窄画布折成两行（界限+方案/修订 / 父单元+S1–S4+综合+状态）时为 true。
+    bool isWrapped() const;
 
     // 测试/状态栏：当前选中的显示名；无选择时为空。
     QString currentDisplayName() const;
@@ -62,6 +65,9 @@ class SubIntervalSelectorBar : public QWidget
     void readinessMessage( const QString &message );
 
   private:
+    void resizeEvent( QResizeEvent *event ) override;
+    void updateWrap();
+    QWidget *buildRowContainers( QHBoxLayout **secondaryLayout );
     void rebuildSchemeCombo();
     void rebuildRevisionCombo();
     void refillSchemeComboPage();
@@ -96,6 +102,11 @@ class SubIntervalSelectorBar : public QWidget
     QLabel *m_schemePageLabel = nullptr;
     QLabel *m_revisionPageLabel = nullptr;
     QLabel *m_status = nullptr;
+    QWidget *m_rowContainer = nullptr;
+    QWidget *m_primaryRow = nullptr;
+    QWidget *m_secondaryRow = nullptr;
+    QWidget *m_splitSeparator = nullptr;
+    QBoxLayout *m_rowLayout = nullptr;
     QLabel *m_expandStatus = nullptr;
     QToolButton *m_expand = nullptr;
     QToolButton *m_schemePrev = nullptr;

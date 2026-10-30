@@ -241,6 +241,7 @@ add_library(paleo_ui STATIC
   src/ui/sequenceframeworkpanel.cpp                # 方向28：格架树/标志层/诊断/建议面板
   src/ui/horizonchipbar.cpp                        # 8层位chip条（阶段E）
   src/ui/subintervalselectorbar.cpp                 # 四子层段二级选择器（分析模式）
+  src/ui/subintervalselectorbar_wrap.cpp            # 层段分析条窄画布折两行
   src/ui/releasepanel.cpp
   src/ui/taskpanel.cpp
   src/ui/attributetablepanel.cpp

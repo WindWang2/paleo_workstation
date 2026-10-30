@@ -150,7 +150,8 @@ private slots:
     QTest::addColumn<QString>("id");
     QTest::addColumn<QKeySequence>("key");
     // 每行 = f130fb2 上的原字面量（文件:行见 ledger R0 清单）。
-    const QStringList pages = paleo::pagesinternal::kPageIds;
+    // #824：Ctrl+1..5 改为直选五个 Ribbon 工具页签（kRibbonIds），键序 = 页签序 + 1。
+    const QStringList pages = paleo::pagesinternal::kRibbonIds;
     for (int i = 0; i < pages.size(); ++i)
       QTest::newRow(qPrintable(QStringLiteral("main.page.") + pages.at(i)))
           << QStringLiteral("main.page.") + pages.at(i)
@@ -186,6 +187,9 @@ private slots:
     const ShortcutEntry e = registry().entry(id);
     QVERIFY2(!e.id.isEmpty(), qPrintable(id));
     QCOMPARE(e.key, key);
+    // #824 撤掉的旧页键不得残留在目录里（否则 Ctrl+N 会双绑）。
+    for (const char *gone : {"main.page.constraint", "main.page.validate"})
+      QVERIFY2(registry().entry(QLatin1String(gone)).id.isEmpty(), gone);
     QCOMPARE(e.binding, Binding::Shortcut);
     QCOMPARE(e.qtContext, id == QStringLiteral("layers.remove")
         ? Qt::WidgetWithChildrenShortcut : Qt::WindowShortcut);

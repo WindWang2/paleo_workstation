@@ -52,6 +52,19 @@
 // 图件输出 → 版本）、验证（验证 → 联动定位 → 地图 → 发布）。
 // 页面板按钮是状态源：ribbon 动作经 PaleoRibbon::mirror 镜像它们。
 // ---------------------------------------------------------------------------
+namespace {
+// 「矢量编辑」组内 movePanel 会在构建中途同步 doLayout，此后再加的组只置脏、
+// 不落几何（停在 x=0 叠放，直到下一次缩放/滚动）；构建完统一重排一次。
+void relayoutRibbonCategories(SARibbonBar *bar) {
+  bar->updateRibbonGeometry();
+  bar->iterateCategory([](SARibbonCategory *c) {
+    if (auto *lay = qobject_cast<SARibbonCategoryLayout *>(c->layout()))
+      lay->doLayout();
+    return true;
+  });
+}
+} // namespace
+
 void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                                         ConstraintPage *constraint, ComposePage *compose,
                                         ValidatePage *validate, PaleoEditingToolbar *editTb)
@@ -411,14 +424,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   }
 
   bar->endUpdate();
-  bar->updateRibbonGeometry();
-  // 「矢量编辑」组内 movePanel 会在构建中途同步 doLayout，此后再加的组只置脏、
-  // 不落几何（停在 x=0 叠放，直到下一次缩放/滚动）；构建完统一重排一次。
-  bar->iterateCategory([](SARibbonCategory *c) {
-    if (auto *lay = qobject_cast<SARibbonCategoryLayout *>(c->layout()))
-      lay->doLayout();
-    return true;
-  });
+  relayoutRibbonCategories(bar);
 }
 
 namespace {

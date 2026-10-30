@@ -21,10 +21,12 @@ struct AnalysisBinding
 
   // 把 UnitSelection 写入任务参数（identity 字段）；不覆盖调用方已有键以外的业务参数。
   QVariantMap enrich( QVariantMap params ) const;
+  // 编图/发布 diagnostics·extra 用的稳定身份（source_horizon=analysisKey；有单元时挂 subIntervalId）。
+  QVariantMap publishIdentity() const;
 };
 
-// pageHorizonFallback = 页内 combo 当前文本（可能是旧界面标签）。
-// 优先 activeUnit；无效时 analysisKey/constraintHorizon 都回落 pageHorizon 或 activeHorizon。
+// pageHorizonFallback = 页内 combo / activeHorizon（仅界面编辑 legacy）。
+// 分析成果键只认有效 UnitSelection；combo 字符串不可驱动 analysisKey。
 AnalysisBinding bindAnalysis( const SelectionContext *selection, const QString &pageHorizonFallback = {} );
 
 // 证据/图层声明是否属于当前分析选择（稳定 ID 或父单元上界面或 activeHorizon）。

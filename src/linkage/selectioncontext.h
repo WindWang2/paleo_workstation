@@ -28,7 +28,7 @@ Q_DECLARE_METATYPE(SelectionTarget)
 // 层段分析选择（UnitSelection）与界面编辑选择（activeHorizon）并列：
 //   · setActiveUnit 只广播 activeUnitChanged，不碰 layerSvc / 地图视角 / 面板布局；
 //   · HorizonChipBar 仍走 setActiveHorizon（编辑模式，可触发懒加载）；
-//   · 分析页读 activeUnit；无效时回落 activeHorizon（legacy）。
+//   · 分析页只读 activeUnit；combo/activeHorizon 仅界面编辑，不可驱动分析。
 class SelectionContext : public QObject
 {
   Q_OBJECT

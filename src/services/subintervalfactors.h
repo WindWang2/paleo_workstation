@@ -67,6 +67,48 @@ BindResult bindSeismicFaciesResult( paleo::data::DataService &ds, const UnitSele
                                     const QString &strategyId, const QString &assetRef,
                                     const QString &status = QStringLiteral( "current" ) );
 
+// 已知砂地比 + 深度窗 → 指标（砂厚 = ratio × 层厚）。
+SandRatioMetrics metricsFromKnownRatio( double topMd, double bottomMd, double sandRatio,
+                                        const SandRatioBins &bins = {} );
+
+struct AutoBindReport
+{
+  bool attempted = false;
+  int boundWells = 0;
+  int skipped = 0;
+  QString message;
+};
+
+// 单因素提取收口：当 UnitSelection 有效且工程有 area-model 时，对 contributing
+// 井行自动 bindSandRatioFactor + bindWellFaciesFromSandRatio。
+// 深度窗优先行内 windowTopMd/windowBottomMd；否则用 parentTop/Bottom+subIndex 等比窗。
+// DS 不可用或选择无效 → attempted=false，不抛错（提取本身已成功）。
+AutoBindReport autoBindSandRatioExtraction( const QString &projectDir, const UnitSelection &sel,
+                                            const QVariantList &rows, const QString &assetRef,
+                                            double parentTopMd = 0, double parentBottomMd = 0 );
+
+// 切片投票 → 层段综合并写入 DS（先可写若干 slice 绑定，再写 interval）。
+// Slice 与 Interval 分列；Interval 强制 weighted_mode + coverage。
+struct SeismicPublishReport
+{
+  bool ok = false;
+  QString error;
+  BindResult intervalBind;
+  QVector<BindResult> sliceBinds;
+  SeismicIntervalAggregate aggregate;
+};
+
+SeismicPublishReport publishSeismicSliceAggregate( paleo::data::DataService &ds, const UnitSelection &sel,
+                                                   const QVector<SeismicSliceVote> &votes,
+                                                   const QString &intervalAssetRef,
+                                                   double minCoverage = 0.5,
+                                                   bool alsoBindSlices = false,
+                                                   const QString &sliceAssetPrefix = {} );
+
+// 打开工程 area-model 的 Data Service（供视图层绑定，避免 ui→io）。
+// 无 data.sqlite / 打开失败 → false，error 可读中文原因。
+bool openProjectDataService( const QString &projectDir, paleo::data::DataService &ds, QString *error = nullptr );
+
 // 自 DS bindings 拉编图证据行（按 kind 过滤）；稳定 ID，不匹配 horizon 名。
 QVariantList evidenceRowsFromBindings( const std::vector<paleo::data::SubIntervalResultBinding> &bindings,
                                        const QStringList &kinds = {} );

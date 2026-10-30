@@ -3,6 +3,9 @@
 
 #include "domain/litholexicon.h"
 #include "paleo_data/service.h"
+#include "io/areamodel.h"
+#include <QDir>
+#include <QFileInfo>
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -252,6 +255,151 @@ BindResult bindSeismicFaciesResult( paleo::data::DataService &ds, const UnitSele
   return bindKind( ds, sel, QStringLiteral( "seismic_facies" ), 0, assetRef, status, detail );
 }
 
+
+SandRatioMetrics metricsFromKnownRatio( double topMd, double bottomMd, double sandRatio,
+                                        const SandRatioBins &bins )
+{
+  SandRatioMetrics m;
+  if ( !std::isfinite( sandRatio ) || sandRatio < 0.0 || sandRatio > 1.0 + 1e-9 )
+  {
+    m.reason = QStringLiteral( "砂地比超出 [0,1] 或非有限值" );
+    return m;
+  }
+  if ( !std::isfinite( topMd ) || !std::isfinite( bottomMd ) || !( bottomMd > topMd ) )
+  {
+    m.reason = QStringLiteral( "子层段顶底无效或倒置" );
+    return m;
+  }
+  const double thickness = bottomMd - topMd;
+  return makeSandRatioMetrics( topMd, bottomMd, sandRatio * thickness, bins );
+}
+
+AutoBindReport autoBindSandRatioExtraction( const QString &projectDir, const UnitSelection &sel,
+                                            const QVariantList &rows, const QString &assetRef,
+                                            double parentTopMd, double parentBottomMd )
+{
+  AutoBindReport report;
+  if ( !sel.isValid() || sel.aggregate )
+  {
+    report.message = QStringLiteral( "无有效子层段选择，跳过 DS 绑定" );
+    return report;
+  }
+  const QString root = paleo::area_model::directory( projectDir );
+  if ( root.isEmpty() || !QFileInfo::exists( root + QStringLiteral( "/data.sqlite" ) ) )
+  {
+    report.message = QStringLiteral( "工程尚无 Data Service 工区，跳过 DS 绑定" );
+    return report;
+  }
+  paleo::data::DataService ds;
+  std::string err;
+  if ( !ds.openProject( root.toUtf8().toStdString(), err ) )
+  {
+    report.message = QStringLiteral( "打开 Data Service 失败：%1" ).arg( QString::fromStdString( err ) );
+    return report;
+  }
+  report.attempted = true;
+  const bool haveParent = std::isfinite( parentTopMd ) && std::isfinite( parentBottomMd )
+                          && parentBottomMd > parentTopMd;
+  for ( const auto &v : rows )
+  {
+    const auto row = v.toMap();
+    if ( !row.value( QStringLiteral( "contributing" ) ).toBool()
+         && !row.value( QStringLiteral( "participating" ) ).toBool() )
+    {
+      ++report.skipped;
+      continue;
+    }
+    const QString wellId = row.value( QStringLiteral( "well_id" ) ).toString();
+    if ( wellId.isEmpty() )
+    {
+      ++report.skipped;
+      continue;
+    }
+    double ratio = qQNaN();
+    if ( row.contains( QStringLiteral( "value" ) ) )
+      ratio = row.value( QStringLiteral( "value" ) ).toDouble();
+    else if ( row.contains( QStringLiteral( "sand_ratio" ) ) )
+      ratio = row.value( QStringLiteral( "sand_ratio" ) ).toDouble();
+    else if ( row.contains( QStringLiteral( "factor_value" ) ) )
+      ratio = row.value( QStringLiteral( "factor_value" ) ).toDouble();
+    if ( !std::isfinite( ratio ) )
+    {
+      ++report.skipped;
+      continue;
+    }
+    bool okTop = false, okBottom = false;
+    double top = row.value( QStringLiteral( "windowTopMd" ) ).toDouble( &okTop );
+    double bottom = row.value( QStringLiteral( "windowBottomMd" ) ).toDouble( &okBottom );
+    if ( !okTop || !okBottom || !( bottom > top ) )
+    {
+      if ( sel.subIndex >= 1 && sel.subIndex <= 4 && haveParent )
+        provisionalSubRange( parentTopMd, parentBottomMd, sel.subIndex, &top, &bottom );
+      else
+      {
+        ++report.skipped;
+        continue;
+      }
+    }
+    const auto metrics = metricsFromKnownRatio( top, bottom, ratio );
+    if ( !metrics.ok )
+    {
+      ++report.skipped;
+      continue;
+    }
+    const qlonglong wid = stableWellKey( wellId );
+    const QString ref = assetRef.isEmpty() ? QStringLiteral( "wellfactor.%1" ).arg( wellId ) : assetRef;
+    const auto f = bindSandRatioFactor( ds, sel, wid, metrics, ref );
+    const auto w = bindWellFaciesFromSandRatio( ds, sel, wid, metrics, ref + QStringLiteral( ".facies" ) );
+    if ( f.ok && w.ok )
+      ++report.boundWells;
+    else
+      ++report.skipped;
+  }
+  report.message = QStringLiteral( "DS 绑定：成功 %1 井，跳过 %2" )
+                       .arg( report.boundWells )
+                       .arg( report.skipped );
+  return report;
+}
+
+SeismicPublishReport publishSeismicSliceAggregate( paleo::data::DataService &ds, const UnitSelection &sel,
+                                                   const QVector<SeismicSliceVote> &votes,
+                                                   const QString &intervalAssetRef, double minCoverage,
+                                                   bool alsoBindSlices, const QString &sliceAssetPrefix )
+{
+  SeismicPublishReport report;
+  if ( !sel.isValid() || sel.aggregate )
+  {
+    report.error = QStringLiteral( "层段综合需要有效子层段 UnitSelection" );
+    return report;
+  }
+  report.aggregate = aggregateSeismicSliceVotes( votes, minCoverage );
+  if ( !report.aggregate.ok )
+  {
+    report.error = report.aggregate.reason;
+    return report;
+  }
+  if ( alsoBindSlices )
+  {
+    int i = 0;
+    for ( const auto &v : votes )
+    {
+      if ( v.classCode <= 0 || !( v.weight > 0 ) )
+        continue;
+      const QString ref = ( sliceAssetPrefix.isEmpty() ? QStringLiteral( "seis-slice" ) : sliceAssetPrefix )
+                          + QStringLiteral( ".%1" ).arg( i++ );
+      report.sliceBinds << bindSeismicFaciesResult( ds, sel, SeismicFaciesScope::Slice, v.classCode, 0, {},
+                                                    ref );
+    }
+  }
+  report.intervalBind = bindSeismicFaciesResult( ds, sel, SeismicFaciesScope::Interval,
+                                                 report.aggregate.classCode, report.aggregate.coverage,
+                                                 report.aggregate.strategyId, intervalAssetRef );
+  report.ok = report.intervalBind.ok;
+  if ( !report.ok )
+    report.error = report.intervalBind.error;
+  return report;
+}
+
 QVariantList evidenceRowsFromBindings( const std::vector<paleo::data::SubIntervalResultBinding> &bindings,
                                        const QStringList &kinds )
 {
@@ -274,6 +422,25 @@ QVariantList evidenceRowsFromBindings( const std::vector<paleo::data::SubInterva
       b.wellId, QString::fromStdString( b.assetRef ), QString::fromStdString( b.status ), detail ) );
   }
   return rows;
+}
+
+bool openProjectDataService( const QString &projectDir, paleo::data::DataService &ds, QString *error )
+{
+  const QString root = paleo::area_model::directory( projectDir );
+  if ( root.isEmpty() || !QFileInfo::exists( root + QStringLiteral( "/data.sqlite" ) ) )
+  {
+    if ( error )
+      *error = QStringLiteral( "工程尚无 Data Service 工区" );
+    return false;
+  }
+  std::string err;
+  if ( !ds.openProject( root.toUtf8().toStdString(), err ) )
+  {
+    if ( error )
+      *error = QStringLiteral( "打开 Data Service 失败：%1" ).arg( QString::fromStdString( err ) );
+    return false;
+  }
+  return true;
 }
 
 } // namespace paleo::strat

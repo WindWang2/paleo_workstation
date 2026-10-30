@@ -277,6 +277,11 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   QVariantMap fusionExtra;
   fusionExtra.insert( QStringLiteral( "factors" ), factorLayerIds );
   fusionExtra.insert( QStringLiteral( "horizon" ), horizon );
+  fusionExtra.insert( QStringLiteral( "source_horizon" ), horizon );
+  if ( horizon.startsWith( QStringLiteral( "agg-" ) ) )
+    fusionExtra.insert( QStringLiteral( "intervalId" ), horizon.mid( 4 ) );
+  else if ( !horizon.isEmpty() )
+    fusionExtra.insert( QStringLiteral( "subIntervalId" ), horizon );
   fusionExtra.insert( QStringLiteral( "method" ), QStringLiteral( "paleo:paleo_facies_fusion" ) );
   const QStringList fusionParents = registrar.parentVersionIdsFor( parentPaths );
   fusionExtra.insert( QStringLiteral( "evidence" ),
@@ -387,6 +392,19 @@ bool CompositionWorkflow::prepareFaciesPolygons( const QString &horizon, const Q
     if ( params.contains( key ) )
       job->algParams.insert( key, params.value( key ) );
   }
+  // UnitSelection 身份字段随任务进发布行（subIntervalId / analysisLayerKey 等）
+  for ( const QString &key : { QStringLiteral( "subIntervalId" ), QStringLiteral( "intervalId" ),
+                               QStringLiteral( "schemeId" ), QStringLiteral( "schemeRevision" ),
+                               QStringLiteral( "unitSelection" ), QStringLiteral( "analysisLayerKey" ) } )
+  {
+    if ( params.contains( key ) )
+      job->algParams.insert( key, params.value( key ) );
+  }
+  {
+    const QString analysisKey = params.value( QStringLiteral( "analysisLayerKey" ) ).toString();
+    if ( !analysisKey.isEmpty() )
+      job->horizon = analysisKey; // 成果归属稳定 ID，覆盖栅格声明上的旧界面标签
+  }
   const QString constraintId = params.value( QStringLiteral( "CONSTRAINT_LAYER" ) ).toString();
   job->constrained = !constraintId.isEmpty();
   if ( !constraintId.isEmpty() )
@@ -485,6 +503,17 @@ bool CompositionWorkflow::commitFaciesPolygons( FaciesPolygonJob &job, QString *
   faciesExtra.insert( QStringLiteral( "raster_layer" ), job.rasterLayerId );
   faciesExtra.insert( QStringLiteral( "constrained" ), job.constrained );
   faciesExtra.insert( QStringLiteral( "horizon" ), job.horizon );
+  faciesExtra.insert( QStringLiteral( "source_horizon" ), job.horizon );
+  if ( job.horizon.startsWith( QStringLiteral( "agg-" ) ) )
+    faciesExtra.insert( QStringLiteral( "intervalId" ), job.horizon.mid( 4 ) );
+  else if ( !job.horizon.isEmpty() )
+    faciesExtra.insert( QStringLiteral( "subIntervalId" ), job.horizon );
+  // 任务参数里若已有 UnitSelection 身份字段，覆盖写入（优先稳定 ID）
+  for ( const char *k : { "subIntervalId", "intervalId", "schemeId", "schemeRevision", "unitSelection" } )
+  {
+    if ( job.algParams.contains( QLatin1String( k ) ) )
+      faciesExtra.insert( QLatin1String( k ), job.algParams.value( QLatin1String( k ) ) );
+  }
   faciesExtra.insert( QStringLiteral( "method" ), QStringLiteral( "paleo:paleo_facies_polygonize" ) );
   QVariantMap algorithmParameters = job.algParams;
   algorithmParameters.remove( QStringLiteral( "OUTPUT" ) ); // staging 路径不进参数指纹

@@ -343,6 +343,7 @@ int main(int argc, char *argv[])
   PaleoMainWindow window(ctx.canvasCtl(), ctx.projectSvc(), ctx.layerSvc(),
                          ctx.toolSvc(), ctx.selection());
   startup->setStage(QObject::tr("正在加载工作区工具…"));
+  WellComposite::WellCompositePanel::setSelectionContextProvider(ctx.selection());
   WellComposite::WellCompositePanel::setFaciesWorkflowFactory(
       [&ctx, &window](QObject *parent) {
         auto *wf = new WellFaciesWorkflow(parent);

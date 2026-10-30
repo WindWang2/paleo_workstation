@@ -62,5 +62,9 @@
   - services `subintervalfactors`：井×子层段砂厚/砂地比 → DS `single_factor` / `well_facies` / `seismic_facies` 绑定；`evidenceRowsFromBindings` 按稳定 ID 拉编图证据。
   - 约束井因子：`UnitSelection.subIndex` 驱动 provisional 深度窗；预测页入口 `bindAnalysis` + 帮助/图标；证据导航 `matchesActiveAnalysis`。
   - 测试：`sandRatioWellFaciesAndEvidence`（子层段→砂地比→井相→DS→证据；切片≠层段）。
-- **仍待**：测井相井综合面板 / 地震相掩膜提取 UI 全路径发布到 DS；页内 horizonCombo 彻底去字符串语义；编图发布行挂稳定 ID；多方案/修订 UI；子层段红绿灯接 DS occurrence；生产路径在每次单因素提取后自动 `bindSandRatioFactor`（当前 API+测试闭环已通，约束页深度窗已用 SubInterval）。
+- **生产路径落地（续轮）**：
+  - `autoBindSandRatioExtraction` / `publishSeismicSliceAggregate` / `openProjectDataService`；约束 `sandratio` 提取后自动 bind 单因素+井相。
+  - 井综合测井相：`panelfacieschrome` 只读 UnitSelection；预测页地震相 Slice|Interval 掩膜条 + 切片投票→层段综合发布；horizonCombo 标 `[legacy]`。
+  - 测试：`autoBindAndSeismicPublishPath`；聚焦闸门本轮引入 0。
+- **仍待**：多方案/修订 UI；子层段红绿灯接 DS occurrence；其余页内 horizonCombo 彻底去字符串语义；编图发布行挂稳定 ID（证据导航已按稳定 ID）。
 - TVD/TVDSS/OWT/TWT 换算沿用现有时深服务；本框架只记录 `depthType`，不做换算。

@@ -43,6 +43,19 @@ flock -x /workspace/audit/fix4/.git/paleo-shared-build-j4.lock \
 - 测试：`tst_stratigraphic_subintervals::sandRatioWellFaciesAndEvidence` 通过。
 - 闸门：layering / file_budget / ui_size / ui_invariants / i18n 本轮引入 0；ts 缺失维持 595（既有红）。
 
-### 未完成
-- 生产路径：每次砂地比提取后自动写入 DS；地震相掩膜 UI 与切片聚合发布。
-- 井综合测井相面板 Combo 迁 UnitSelection。
+### 未完成（本续轮已清空强制项；见下节）
+- （已迁到「生产路径落地」完成清单。）
+
+## 续：生产路径落地（Asia/Shanghai 2026-10-30 18:xx）
+
+### 完成（必须项 1–3）
+1. **砂地比提取后自动 bind**：`autoBindSandRatioExtraction` + `openProjectDataService`；约束井因子 `sandratio` 发布成功后对 contributing 行写 DS `single_factor`/`well_facies`。
+2. **测井相井综合面板**：`panelfacieschrome` 去掉层位 Combo，改为只读分析层段（`SelectionContext::activeUnit`）；`main.cpp` 注入 provider；中文 tip/whatsThis + 图标齐全。
+3. **地震相掩膜 UI + 切片→层段发布**：`predictpage_seismic`（Slice|Interval 语义条、投票、覆盖率、发布按钮）；`paleomainwindow_attach_predict_seismic`（`publishSeismicSliceAggregate` / 切片后 bind；无 qgs 直连）；预测页 horizonCombo 标 `[legacy]`，分析路径走 UnitSelection。
+4. **测试**：`autoBindAndSeismicPublishPath` 通过；聚焦闸门 layering / file_budget / qgis_spread / qgs_audit / docs_drift / ui_size / ui_invariants / mappingpages / shortcuts_shell 绿；`check_ts_stale` 既有红 595（未扩大）。
+5. **file_budget**：`panelsetup::setupUi` 基线 411→339（只缩）。
+
+### 仍待（明确限制）
+- 多方案 / 修订版本完整 UI。
+- 子层段时深/解释就绪红绿灯接 DS occurrence。
+- 其余页内 horizonCombo 彻底去字符串语义（预测页已 legacy 标注；分析路径已 UnitSelection）。

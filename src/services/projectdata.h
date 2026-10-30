@@ -112,6 +112,10 @@ class ProjectDataFacade : public QObject
     // （C3/C6/D53/D61…）最多的文件，不用只含 C7/Y 的主分层。
     // 没有任何编图层名时回落主 tops。
     QVector<WellTop> topsForMapping(const QString &wellId) const;
+    // #826：error 非空时写明「工区模型存在但分层读取失败」。该情形返回空且
+    // 不回退更早修订/旧 tops 文件——与「模型里没有这口井的分层」区分开，
+    // 调用方必须把 error 报出去。
+    QVector<WellTop> topsForMapping(const QString &wellId, QString *error) const;
     // topsForMapping 实际读的资产；回落主 tops 时也是那个资产。无分层则空。
     QString mappingTopsAssetId(const QString &wellId) const;
     // 指定 tops 资产的分层（连井剖面「分层来源」切换）：assetId 空 = 主 tops

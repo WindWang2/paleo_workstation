@@ -20160,11 +20160,6 @@ Crossline: %3 ~ %4</source>
         <translation>层位切换</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="208"/>
-        <source>演化动览</source>
-        <translation>演化动览</translation>
-    </message>
-    <message>
         <location filename="../src/ui/paleomainwindow_docks.cpp" line="232"/>
         <source>结束工具</source>
         <translation>结束工具</translation>
@@ -21595,11 +21590,6 @@ PDF：%3
         <translation>地质图正在后台导出，可在任务中心查看进度或取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="379"/>
-        <source>演化帧正在后台导出，可在任务中心查看</source>
-        <translation>演化帧正在后台导出，可在任务中心查看</translation>
-    </message>
-    <message>
         <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="412"/>
         <source>正在保存成果快照，可在任务中心查看进度或取消</source>
         <translation>正在保存成果快照，可在任务中心查看进度或取消</translation>
@@ -21662,31 +21652,12 @@ SHA-256：%2</source>
 SHA-256：%2</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="346"/>
-        <source>动览尚未定格到任何层位</source>
-        <translation>动览尚未定格到任何层位</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="351"/>
-        <source>画布不可用，无法抓帧</source>
-        <translation>画布不可用，无法抓帧</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="359"/>
-        <source>未打开工程数据目录，演化帧无法登记为导出资产</source>
-        <translation>未打开工程数据目录，演化帧无法登记为导出资产</translation>
-    </message>
-    <message>
         <source>演化帧抓取失败</source>
         <translation type="vanished">演化帧抓取失败</translation>
     </message>
     <message>
         <source>演化帧资产登记失败</source>
         <translation type="vanished">演化帧资产登记失败</translation>
-    </message>
-    <message>
-        <source>演化帧已登记：%1</source>
-        <translation type="vanished">演化帧已登记：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="405"/>
@@ -23313,6 +23284,30 @@ SHA-256：%2</translation>
         <location filename="../src/ui/paleomainwindow_attach_compose.cpp" line="1"/>
         <source>合成编图失败，请检查所选图层与当前层段</source>
         <translation>合成编图失败，请检查所选图层与当前层段</translation>
+    </message>
+    <message>
+        <source>切换当前地层界限（地震层位是地层界限，不是地层单元）。用于界限查看/编辑；层段分析请用下方父单元与 S1–S4。</source>
+        <translation>切换当前地层界限（地震层位是地层界限，不是地层单元）。用于界限查看/编辑；层段分析请用下方父单元与 S1–S4。</translation>
+    </message>
+    <message>
+        <source>子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析按稳定子层段 ID 归属，不拆分界限名。</source>
+        <translation>子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析按稳定子层段 ID 归属，不拆分界限名。</translation>
+    </message>
+    <message>
+        <source>层段分析模式：选择方案/修订、父单元与 S1–S4；与「界限」切换（地震层位 = 地层界限，非地层单元）独立，不切换地图图层或中断编辑。</source>
+        <translation>层段分析模式：选择方案/修订、父单元与 S1–S4；与「界限」切换（地震层位 = 地层界限，非地层单元）独立，不切换地图图层或中断编辑。</translation>
+    </message>
+    <message>
+        <source>父层间单元（相邻两条界限，如 T70–T71）。展开「状态」可查看四个子层段的井出现与成果红绿灯。</source>
+        <translation>父层间单元（相邻两条界限，如 T70–T71）。展开「状态」可查看四个子层段的井出现与成果红绿灯。</translation>
+    </message>
+    <message>
+        <source>界限切换</source>
+        <translation>界限切换</translation>
+    </message>
+    <message>
+        <source>界限：%1</source>
+        <translation>界限：%1</translation>
     </message>
 </context>
 <context>
@@ -34936,16 +34931,6 @@ SHA-256：%2</translation>
         <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="62"/>
         <source>工程已切换，请重新打开导入。</source>
         <translation>工程已切换，请重新打开导入。</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="371"/>
-        <source>演化帧导出已取消或工程已切换</source>
-        <translation>演化帧导出已取消或工程已切换</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="375"/>
-        <source>演化帧已登记：%1</source>
-        <translation>演化帧已登记：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="41"/>
@@ -50859,31 +50844,6 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
-        <source>提示：当前为工程草稿方案，井出现来自界面名单；打开含层段方案的工区后可切换修订。</source>
-        <translation>提示：当前为工程草稿方案，井出现来自界面名单；打开含层段方案的工区后可切换修订。</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
-        <source>地层解释方案。切换后分析选择写入该方案的稳定 ID；无提交方案时显示工程草稿。</source>
-        <translation>地层解释方案。切换后分析选择写入该方案的稳定 ID；无提交方案时显示工程草稿。</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
-        <source>方案修订快照（不可变）。选择后 UnitSelection.revision 写入该修订；分析成果按修订对齐。</source>
-        <translation>方案修订快照（不可变）。选择后 UnitSelection.revision 写入该修订；分析成果按修订对齐。</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
-        <source>层段分析模式：选择方案/修订、父单元与 S1–S4；与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。</source>
-        <translation>层段分析模式：选择方案/修订、父单元与 S1–S4；与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
-        <source>父层间单元（相邻两条界面，如 T70–T71）。展开「状态」可查看四个子层段的井出现与成果红绿灯。</source>
-        <translation>父层间单元（相邻两条界面，如 T70–T71）。展开「状态」可查看四个子层段的井出现与成果红绿灯。</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
         <source>展开查看当前父单元四个子层段的完整性/可用资料/受影响状态（红绿灯）。</source>
         <translation>展开查看当前父单元四个子层段的完整性/可用资料/受影响状态（红绿灯）。</translation>
     </message>
@@ -50996,6 +50956,56 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
         <source>共%1</source>
         <translation>共%1</translation>
+    </message>
+    <message>
+        <source> · &lt;b&gt;当前&lt;/b&gt;</source>
+        <translation> · &lt;b&gt;当前&lt;/b&gt;</translation>
+    </message>
+    <message>
+        <source>子层段红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。</source>
+        <translation>子层段红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。</translation>
+    </message>
+    <message>
+        <source>尚未加载界限名单——请先打开工程并确认层序界限。</source>
+        <translation>尚未加载界限名单——请先打开工程并确认层序界限。</translation>
+    </message>
+    <message>
+        <source>当前为工程草稿方案，井出现来自界限名单；打开含层段方案的工区后可切换修订。
+红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。</source>
+        <translation>当前为工程草稿方案，井出现来自界限名单；打开含层段方案的工区后可切换修订。
+红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。</translation>
+    </message>
+    <message>
+        <source>未加载界限——打开工程后自动按层序界限生成父单元。</source>
+        <translation>未加载界限——打开工程后自动按层序界限生成父单元。</translation>
+    </message>
+    <message>
+        <source>灰</source>
+        <translation>灰</translation>
+    </message>
+    <message>
+        <source>界限</source>
+        <translation>界限</translation>
+    </message>
+    <message>
+        <source>界限不足——至少需要两条相邻界限才能分析层段。</source>
+        <translation>界限不足——至少需要两条相邻界限才能分析层段。</translation>
+    </message>
+    <message>
+        <source>界限不足两条，无法构成父层间单元。请在工程参数中配置层序界限。</source>
+        <translation>界限不足两条，无法构成父层间单元。请在工程参数中配置层序界限。</translation>
+    </message>
+    <message>
+        <source>红</source>
+        <translation>红</translation>
+    </message>
+    <message>
+        <source>绿</source>
+        <translation>绿</translation>
+    </message>
+    <message>
+        <source>黄</source>
+        <translation>黄</translation>
     </message>
 </context>
 </TS>

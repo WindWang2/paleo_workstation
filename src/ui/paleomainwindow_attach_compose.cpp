@@ -1,6 +1,7 @@
 // 层：视图
 // paleomainwindow_attach_compose — 综合编图页接线（W4 拆分段）
 #include "paleomainwindow.h"
+#include "../linkage/unitselectionbridge.h"
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -82,6 +83,77 @@ bool askHorizonBatchExportOptions(QWidget *parent, PaleoHorizonBatchExport::Form
   return true;
 }
 
+void runComposeFuse(CompositionWorkflow *compose, ComposePage *composePage,
+                    SelectionContext *selection, const QStringList &factorIds)
+{
+  QString err;
+  const auto bind = paleo::strat::bindAnalysis(selection);
+  if (!bind.hasUnit || bind.analysisKey.isEmpty())
+  {
+    err = PaleoMainWindow::tr("编图合成须先在顶部层段选择器选定子层段；层位下拉不可驱动分析");
+    QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+    if (auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+      status->setText(err);
+    return;
+  }
+  // 成果归属挂稳定 SubIntervalId（analysisKey=layerToken）
+  if (compose->fuseFactors(bind.analysisKey, factorIds, &err))
+    composePage->refreshFactors();
+  else
+  {
+    // 失败原因落地到页面状态行（空清单/未声明/解释性层拒绝等
+    // 全在 workflow 的 err 里），不再静默吞掉。
+    if (!err.isEmpty())
+      QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+    if (auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+      status->setText(err.isEmpty()
+                          ? PaleoMainWindow::tr("合成编图失败，请检查所选图层与当前层段")
+                          : err);
+  }
+}
+
+bool runComposePolygonize(CompositionWorkflow *compose, ComposePage *composePage,
+                          SelectionContext *selection, QWidget *statusHost,
+                          const QString &rasterId, double minArea, double simplify,
+                          QString *statusMsg)
+{
+  QString err;
+  const auto bind = paleo::strat::bindAnalysis(selection);
+  if (!bind.hasUnit || bind.analysisKey.isEmpty())
+  {
+    err = PaleoMainWindow::tr("相多边形须先在顶部层段选择器选定子层段；层位下拉不可驱动分析");
+    QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+    if (statusMsg)
+      *statusMsg = err;
+    return false;
+  }
+  QVariantMap params = bind.enrich({{QStringLiteral("constraintHorizon"), bind.constraintHorizon}});
+  params.insert(QStringLiteral("MIN_AREA"), minArea);
+  params.insert(QStringLiteral("SIMPLIFY"), simplify);
+  // facies-ux 1：转换进任务中心后台执行（未注入任务服务时同步）；
+  // 完成经 faciesPolygonsReady 收尾，失败经 faciesPolygonsFailed。
+  if (!compose->startDeriveFaciesPolygons(bind.analysisKey, rasterId, params, &err))
+  {
+    if (!err.isEmpty())
+    {
+      QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+      if (statusMsg)
+        *statusMsg = err;
+    }
+    return false;
+  }
+  if (compose->faciesPolygonsBusy())
+  {
+    if (statusMsg)
+      *statusMsg = PaleoMainWindow::tr("相栅格转相多边形已在后台执行，进度见底栏任务中心。");
+    return true;
+  }
+  composePage->refreshFactors();
+  Q_UNUSED(statusHost);
+  return true;
+}
+
+
 } // namespace
 
 void PaleoMainWindow::attachComposePage(ComposePage *composePage,
@@ -92,45 +164,15 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
   {
     connect(composePage, &ComposePage::fuseRequested, this,
             [this, compose, composePage](const QStringList &factorIds) {
-              QString err;
-              const QString horizon = m_selection ? m_selection->activeHorizon() : QString();
-              if (compose->fuseFactors(horizon, factorIds, &err))
-                composePage->refreshFactors();
-              else
-              {
-                // 失败原因落地到页面状态行（空清单/未声明/解释性层拒绝等
-                // 全在 workflow 的 err 里），不再静默吞掉。
-                if (!err.isEmpty())
-                  QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
-                                            Qgis::MessageLevel::Warning);
-                if (auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
-                  status->setText(err.isEmpty()
-                                      ? tr("合成编图失败，请检查所选图层与当前层位")
-                                      : err);
-              }
+              runComposeFuse(compose, composePage, m_selection, factorIds);
             });
     connect(composePage, &ComposePage::polygonizeRequested, this,
             [this, compose, composePage](const QString &rasterId, double minArea, double simplify) {
-              QString err;
-              const QString horizon = m_selection ? m_selection->activeHorizon() : QString();
-              QVariantMap params;
-              params.insert(QStringLiteral("MIN_AREA"), minArea);
-              params.insert(QStringLiteral("SIMPLIFY"), simplify);
-              // facies-ux 1：转换进任务中心后台执行（未注入任务服务时同步）；
-              // 完成经 faciesPolygonsReady 收尾，失败经 faciesPolygonsFailed。
-              if (!compose->startDeriveFaciesPolygons(horizon, rasterId, params, &err))
-              {
-                if (!err.isEmpty())
-                {
-                  QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-                  statusBar()->showMessage(err, 10000);
-                }
-              }
-              else if (compose->faciesPolygonsBusy())
-                statusBar()->showMessage(
-                    tr("相栅格转相多边形已在后台执行，进度见底栏任务中心。"), 10000);
-              else
-                composePage->refreshFactors();
+              QString msg;
+              runComposePolygonize(compose, composePage, m_selection, this, rasterId, minArea,
+                                   simplify, &msg);
+              if (!msg.isEmpty())
+                statusBar()->showMessage(msg, 10000);
             });
     connect(compose, &CompositionWorkflow::faciesPolygonsFailed, this,
             [this](const QString &, const QString &error) {

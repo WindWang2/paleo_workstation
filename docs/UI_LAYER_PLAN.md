@@ -203,7 +203,11 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 定位与转换工具壳接线；地图册装配由 `_attach_shell.cpp` 拆为 `attachMapBookSurface`。
 当前家族为 30 TU。**
 
-家族全表（`src/ui/paleomainwindow_*.cpp` 30 TU + 本体 1 行 = 表 31 行，平铺不
+**实测（2026-10-30，goal/strat-subinterval-20261030）：paleomainwindow.cpp 932 行（家族 31 TU）**
+（#829：`_attach_predict_seismic.cpp` 自预测页接线拆出，承载地震相掩膜 DS 发布与
+MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直连 qgs*。）
+
+家族全表（`src/ui/paleomainwindow_*.cpp` 31 TU + 本体 1 行 = 表 32 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：
 
@@ -226,7 +230,8 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 | `_ribbon.cpp` | 258 | ribbon 骨架域（#312）：buildRibbon 页签/文件菜单/全局按钮组 |
 | `_pages.cpp` | 239 | 页切换域（#312）：showPage 六页编排/dock 保存恢复/底栏自动露出 |
 | `_project.cpp` | 210 | 工程打开/导入编排入口域（#312）：openPath/确认表/懒建编排器 |
-| `_attach_predict.cpp` | 209 | 智能预测页接线（W4 段） |
+| `_attach_predict.cpp` | 193 | 智能预测页接线（W4 段；运行/取消/显示结果） |
+| `_attach_predict_seismic.cpp` | 147 | 预测页地震相 DS 发布与工具接线（#829 拆分；无 qgs 直连） |
 | `_attach_validate.cpp` | 205 | 验证与布井辅助接线（W4 段） |
 | `_coordinates.cpp` | 105 | 坐标工具壳接线：状态栏坐标复制、定位、转换与地图拾取（2026-10-27） |
 | `_status.cpp` | 186 | 状态栏域（#312）：层位/坐标/比例尺/CRS 读数 + 工程进度 |

@@ -11,6 +11,7 @@
 
 SelectionContext::SelectionContext(QObject *parent) : QObject(parent) {
   qRegisterMetaType<SelectionTarget>();
+  qRegisterMetaType<paleo::strat::UnitSelection>();
 }
 
 void SelectionContext::setTarget(const SelectionTarget &target, const QString &origin)
@@ -89,6 +90,34 @@ void SelectionContext::setActiveHorizon(const QString &horizon)
   settlePending("setActiveHorizon");
 }
 
+void SelectionContext::setActiveUnit(const paleo::strat::UnitSelection &unit)
+{
+  if (m_unit == unit && !m_unitPending)
+    return;
+  if (m_broadcastDepth > 0) {
+    m_pendingUnit = unit;
+    m_unitPending = true;
+    return;
+  }
+  broadcastUnit(unit);
+  settlePending("setActiveUnit");
+}
+
+void SelectionContext::clearActiveUnit()
+{
+  setActiveUnit({});
+}
+
+void SelectionContext::broadcastUnit(const paleo::strat::UnitSelection &unit)
+{
+  if (m_unit == unit)
+    return;
+  m_unit = unit;
+  ++m_broadcastDepth;
+  emit activeUnitChanged(m_unit);
+  --m_broadcastDepth;
+}
+
 void SelectionContext::broadcastHorizon(const QString &horizon)
 {
   if (m_horizon == horizon) return;
@@ -124,12 +153,16 @@ void SelectionContext::settlePending(const char *caller)
   // generation still emits at most one merged payload. Bound at 4 iterations.
   int settleGenerations = 0;
   constexpr int kMaxSettleGenerations = 4;
-  while ((m_pending || m_targetPending || m_horizonPending) && settleGenerations < kMaxSettleGenerations)
+  while ((m_pending || m_targetPending || m_horizonPending || m_unitPending) && settleGenerations < kMaxSettleGenerations)
   {
     ++settleGenerations;
     if (m_horizonPending) {
       m_horizonPending = false;
       broadcastHorizon(m_pendingHorizon);
+    }
+    if (m_unitPending) {
+      m_unitPending = false;
+      broadcastUnit(m_pendingUnit);
     }
     if (m_pending) {
       m_pending = false;
@@ -154,11 +187,12 @@ void SelectionContext::settlePending(const char *caller)
       }
     }
   }
-  if (m_pending || m_targetPending || m_horizonPending)
+  if (m_pending || m_targetPending || m_horizonPending || m_unitPending)
   {
     qWarning("SelectionContext::%s: settle iteration limit reached, dropped runaway pending selection", caller);
     m_pending = false;
     m_targetPending = false;
     m_horizonPending = false;
+    m_unitPending = false;
   }
 }

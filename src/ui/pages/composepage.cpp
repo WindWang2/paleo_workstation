@@ -98,7 +98,7 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   auto *chain = new QPushButton(tr("生成等厚图"), this);
   chain->setObjectName(QStringLiteral("thicknessChainButton"));
   chain->setEnabled(false);
-  chain->setToolTip(tr("先在顶部层位 chip 选择层位"));
+  chain->setToolTip(tr("[legacy] 编图厚度链仍跟顶部界面 chip；层段分析请用画布「层段分析」选择器（UnitSelection）。"));
   chain->setAccessibleName(tr("生成等厚图"));
   connect(chain, &QPushButton::clicked, this, [this] { emit thicknessChainRequested(); });
   markPrimaryButton(chain);
@@ -177,7 +177,7 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   auto *batchExport = new QPushButton(tr("批量出图（按层位组）"), this);
   batchExport->setObjectName(QStringLiteral("batchFigureExportButton"));
   batchExport->setAccessibleName(tr("批量出图"));
-  batchExport->setToolTip(tr("每个层位组导出一幅（工程_层位_日期），登记 catalog"));
+  batchExport->setToolTip(tr("[legacy] 按界面 chip 组批导出；层段分析成果请用 UnitSelection / SubIntervalId 归属。"));
   connect(batchExport, &QPushButton::clicked, this,
           [this] { emit batchFigureExportRequested(); });
 

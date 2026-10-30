@@ -10,6 +10,8 @@
 // project_area.json 的 sequence_boundaries 覆盖，序=浅→深）；内置默认 =
 // 本工区 8 层序界面。编图 chip、厚度基面推导都以这个有序集合为准。
 // 井分层里的其余名字只出现在连井面板，不进 chip、不参与编图。
+// 注意：这里的成员是界面（Boundary），不是地层单元；单元 = 相邻界面对
+//（paleo::strat::adjacentIntervals）及其 S1–S4，见 docs/STRATIGRAPHIC_SUBINTERVALS.md。
 inline QStringList mappingHorizons()
 {
   return AreaRules::active().sequenceBoundaries;

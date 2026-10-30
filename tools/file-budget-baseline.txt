@@ -66,8 +66,8 @@ src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:384
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:277
 src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:225
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:404
-src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:399
-src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:692
+src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:369
+src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:646
 src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:224
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:477
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:283
@@ -82,7 +82,7 @@ src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupDisplayBar:253
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupUi:386
 src/ui/shortcuts/shortcutcatalog.cpp:fn:catalogEntries:228
 src/ui/wellcomposite/compositebody.cpp:fn:paintEvent:202
-src/ui/wellcomposite/panelsetup.cpp:fn:setupUi:411
+src/ui/wellcomposite/panelsetup.cpp:fn:setupUi:339
 src/ui/wellcomposite/wellpositionlegendwidget.cpp:fn:setupUi:262
 src/ui/wellsection/wellsectiondialogs.cpp:fn:WellSectionTracksDialog:256
 src/ui/wellsection/wellsectionpanel.cpp:file:1541

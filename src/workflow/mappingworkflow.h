@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QVariantMap>
 #include <QVariantList>
 #include <QVector>
 #include <functional>
@@ -70,7 +71,8 @@ class MappingWorkflow : public QObject
 
     ~MappingWorkflow() override;
     void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
-    bool startThicknessChain(const QString &horizon, QString *error = nullptr);
+    bool startThicknessChain(const QString &horizon, QString *error = nullptr,
+                             const QVariantMap &publishIdentity = {});
     void setProjectData( ProjectDataFacade *projectData );
 
     // T26：厚度链派生产物（等厚栅格 / wells.thickness GeoJSON）的登记通道。
@@ -92,7 +94,8 @@ class MappingWorkflow : public QObject
     // 完整链（autoplan §5C）：等厚 = 双程时差栅格 × IDW²(Vint)，写在 D61 网格上，
     // 凸包外 -9999。层位栅格缺失 → 退回井点厚度 IDW「井点厚度（米，无层位栅格）」。
     // 成功声明「D61–D62 等厚（米）」并发 chainDone(horizon, layerId)。
-    bool runThicknessChain( const QString &horizon, QString *error = nullptr );
+    bool runThicknessChain( const QString &horizon, QString *error = nullptr,
+                            const QVariantMap &publishIdentity = {} );
 
     // 最近一次厚度评估的行表/文案（约束页面板渲染源；typed 镜像到
     // ConstraintWorkflow::setThicknessSamples——面板只持有它，ARCH-06）。
@@ -105,11 +108,13 @@ class MappingWorkflow : public QObject
 
   private:
     void publishThicknessSamples( const QVector<ThicknessSample> &samples,
-                                  const QString &message );
+                                  const QString &message,
+                                  const QVariantMap &publishIdentity = {} );
     // wells.thickness.<h> 井点图层：厚度样本的井位/井名（PDF 标注与图面定位用）。
     // 声明失败不失败链路——厚度栅格本身已经产出；只记警告。
     void declareThicknessWellsLayer( const QString &horizon,
-                                     const QVector<ThicknessSample> &samples );
+                                     const QVector<ThicknessSample> &samples,
+                                     const QVariantMap &publishIdentity = {} );
 
     bool recordThicknessDeclaration(const LayerDeclaration &decl,
                                     QString *error = nullptr);

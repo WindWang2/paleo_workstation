@@ -6,6 +6,9 @@
 
 #include "pageshared.h"
 
+#include "../../linkage/selectioncontext.h"
+#include "../../domain/stratigraphicunit.h"
+
 #include "../../qgis/qgislayerservice.h"
 #include "../../services/singlefactordef.h"
 #include "../../workflow/workflows.h"
@@ -63,7 +66,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   auto *horizons = new QComboBox( this );
   horizons->setObjectName( QStringLiteral( "horizonCombo" ) );
   horizons->setAccessibleName( tr( "单因素图层位" ) );
-  horizons->setToolTip( tr( "选择当前图件所属层位；暂无层位时请先打开工程" ) );
+  horizons->setToolTip( tr( "[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。" ) );
+  horizons->setWhatsThis( tr( "<b>层位（legacy）</b><p>旧工程按单一界面名取输入。启用层段分析后，输入仍取父单元上界面，成果写入对应子层段。</p>" ) );
   lay->addWidget( horizons );
 
   // ---- m2(B)：单因素清单 + 生成 双区（§10 词表驱动）------------------------
@@ -371,16 +375,17 @@ void ConstraintPage::refreshFactorLayers() {
   QVector<LayerDeclaration> declared;
   if (svc && !svc->tryDeclared(&declared))
     return;
-  const QString prefix = QStringLiteral("factor.%1.").arg(horizons->currentText());
+  const QString analysisKey = pageAnalysisKey( this, horizons );
+  const QString prefix = QStringLiteral("factor.%1.").arg(analysisKey);
   QVariantMap generated;
   if (svc)
     for (const auto &d : declared)
-      if (d.horizon == horizons->currentText() && d.layerId.startsWith(prefix))
+      if (d.horizon == analysisKey && d.layerId.startsWith(prefix))
         generated.insert(d.layerId.mid(prefix.size()), d.layerId);
   setProperty(kFactorGenProp, generated);
-  // 「（旧输入）」按层位记在属性里：refreshFactorLayers 任何一次重声明都会
-  // 重写状态列文本，后缀写在文本里会被静默抹掉（D11）。切层位天然隔离。
-  const QString staleKey = QStringLiteral("paleo.page.factorstale.%1").arg(horizons->currentText());
+  // 「（旧输入）」按分析键记在属性里：refreshFactorLayers 任何一次重声明都会
+  // 重写状态列文本，后缀写在文本里会被静默抹掉（D11）。切层段天然隔离。
+  const QString staleKey = QStringLiteral("paleo.page.factorstale.%1").arg(analysisKey);
   const QStringList stale = property(staleKey.toUtf8().constData()).toStringList();
   const QString staleSuffix = tr("（旧输入）");
   const QSignalBlocker blocker(table);
@@ -397,15 +402,16 @@ void ConstraintPage::refreshFactorLayers() {
 void ConstraintPage::noteFactorLayer( const QString &factorId, const QString &layerId )
 {
   auto *horizons = child<QComboBox>(this, "horizonCombo");
-  if (!horizons || layerId != QStringLiteral("factor.%1.%2").arg(horizons->currentText(), factorId))
+  const QString analysisKey = pageAnalysisKey( this, horizons );
+  if (analysisKey.isEmpty() || layerId != QStringLiteral("factor.%1.%2").arg(analysisKey, factorId))
     return;
   QVariantMap generated = property( kFactorGenProp ).toMap();
   generated.insert( factorId, layerId );
   setProperty( kFactorGenProp, generated );
-  // 新输入已生成：清掉该因素的「（旧输入）」标记（D11 同族，按层位属性）。
+  // 新输入已生成：清掉该因素的「（旧输入）」标记（D11 同族，按分析键属性）。
   {
     const QString staleKey =
-        QStringLiteral( "paleo.page.factorstale.%1" ).arg( horizons->currentText() );
+        QStringLiteral( "paleo.page.factorstale.%1" ).arg( analysisKey );
     QStringList stale = property( staleKey.toUtf8().constData() ).toStringList();
     if ( stale.removeAll( factorId ) > 0 )
       setProperty( staleKey.toUtf8().constData(), stale );
@@ -494,8 +500,9 @@ void ConstraintPage::markInputsStale()
   // 恢复后缀——此前只写在文本里，任何 layerDeclared 重声明都会静默抹掉。
   if ( auto *horizons = child<QComboBox>( this, "horizonCombo" ) )
   {
+    const QString analysisKey = pageAnalysisKey( this, horizons );
     const QString staleKey =
-        QStringLiteral( "paleo.page.factorstale.%1" ).arg( horizons->currentText() );
+        QStringLiteral( "paleo.page.factorstale.%1" ).arg( analysisKey );
     QStringList stale = property( staleKey.toUtf8().constData() ).toStringList();
     if ( !stale.contains( factorId ) )
     {

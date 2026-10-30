@@ -6,6 +6,7 @@
 # ---- 功能层 ----
 add_library(paleo_linkage STATIC
   src/linkage/selectioncontext.cpp
+  src/linkage/unitselectionbridge.cpp
   src/linkage/wellmaplink.cpp
   src/linkage/seismicmaplink.cpp
   src/linkage/threewaylocator.cpp                  # 问题→三视图联动
@@ -120,6 +121,7 @@ add_library(paleo_ui STATIC
   src/ui/paleomainwindow_attach.cpp                # 壳接线聚合胶水层
   src/ui/paleomainwindow_attach_data.cpp           # 数据管理页接线
   src/ui/paleomainwindow_attach_predict.cpp        # 智能预测页接线
+  src/ui/paleomainwindow_attach_predict_seismic.cpp # 地震相 Slice|Interval DS 发布
   src/ui/paleomainwindow_attach_constraint.cpp     # 约束与单因素页接线
   src/ui/paleomainwindow_attach_compose.cpp        # 综合编图页接线
   src/ui/paleomainwindow_attach_validate.cpp       # 验证与布井辅助接线
@@ -150,6 +152,7 @@ add_library(paleo_ui STATIC
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
   src/ui/pages/wellreadinesspanel.cpp               # 预测专项：测井批量准备检查面板
   src/ui/pages/predictpage.cpp                     # W5b ①智能预测
+  src/ui/pages/predictpage_seismic.cpp             # 地震相 Slice|Interval 掩膜发布条
   src/ui/pages/constraintpage.cpp                  # W5b ②约束与单因素（方向96：ctor 编排 + 因子清单面）
   src/ui/pages/constraintpage_wellfactors.cpp      # 方向96：井点因子域 TU
   src/ui/pages/constraintpage_interpolation.cpp    # 方向96：插值方法参数域 TU
@@ -229,6 +232,7 @@ add_library(paleo_ui STATIC
   src/ui/wellcomposite/panelsetup.cpp              # 方向 66：面板 UI 搭建
   src/ui/wellcomposite/paneldata.cpp               # 方向 66：数据装配（XML/LAS→道布局）
   src/ui/wellcomposite/paneltracks.cpp             # 方向 66：道编排与会话同步
+  src/ui/wellcomposite/panelfacieschrome.cpp       # 测井相工具条 + UnitSelection 只读条
   src/ui/wellcomposite/paneldepth.cpp              # 方向 66：深度交互（书签/pin/TWT/读数）
   src/ui/wellcomposite/paneledit.cpp               # 方向 66：编辑会话与导出
   src/ui/wellcomposite/curveconfigdialog.cpp
@@ -236,6 +240,8 @@ add_library(paleo_ui STATIC
   src/ui/sequenceframeworkcolumn.cpp               # 方向28：格架柱状视图（层级色带）
   src/ui/sequenceframeworkpanel.cpp                # 方向28：格架树/标志层/诊断/建议面板
   src/ui/horizonchipbar.cpp                        # 8层位chip条（阶段E）
+  src/ui/subintervalselectorbar.cpp                 # 四子层段二级选择器（分析模式）
+  src/ui/subintervalselectorbar_wrap.cpp            # 层段分析条窄画布折两行
   src/ui/releasepanel.cpp
   src/ui/taskpanel.cpp
   src/ui/attributetablepanel.cpp

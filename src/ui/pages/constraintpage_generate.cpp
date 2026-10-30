@@ -7,6 +7,7 @@
 #include "constraintpage_internal.h"
 
 #include "pageshared.h"
+#include "../../linkage/selectioncontext.h"
 
 #include "../../domain/singlefactorstrategy.h" // 方向67：strategy_id 血缘（生成 handler 查策略包）
 #include "../../services/singlefactordef.h"
@@ -388,7 +389,20 @@ void ConstraintPage::updateFactorActionStates()
     return;
   }
   const auto *horizon = child<QComboBox>(this, "horizonCombo");
-  if (!horizon || horizon->currentText().trimmed().isEmpty())
+  if (auto *sel = qobject_cast<SelectionContext *>(
+          property("paleo.selection").value<QObject *>());
+      sel && !sel->activeUnit().isValid())
+  {
+    generate->setEnabled(false);
+    generate->setToolTip(tr("输入：请先在顶部层段选择器选定子层段；层位下拉不可驱动分析"));
+    generate->setProperty("preparationTarget", QStringLiteral("subIntervalSelectorBar"));
+    contour->setEnabled(false);
+    contour->setToolTip(generate->toolTip());
+    updateOperationGuidance();
+    return;
+  }
+  if (!property("paleo.selection").isValid()
+      && (!horizon || horizon->currentText().trimmed().isEmpty()))
   {
     generate->setEnabled(false);
     generate->setToolTip(tr("输入：请先打开工程并选择层位"));
@@ -441,13 +455,17 @@ void ConstraintPage::updateFactorActionStates()
       generate->setEnabled(false);
       generate->setToolTip(property("paleo.page.constraintreadinessmessage").toString());
       generate->setProperty("preparationTarget", QStringLiteral("constraintFamiliesSection"));
-    } else if (!wf || !h ||
-               wf->preparedWellFactorVersion(h->currentText(), factorIdOfRow(factors, r),
-                                             wellFactorParams())
-                   .isEmpty()) {
-      generate->setEnabled(false);
-      generate->setToolTip(tr("输入：先提取并保存当前地层的井点数据"));
-      generate->setProperty("preparationTarget", QStringLiteral("extractWellFactorsButton"));
+    } else {
+      // 井点成果按父单元上界面归档；已接线 selection 时不回落 combo。
+      const QString editH = pageEditHorizon(this, h);
+      if (!wf || editH.isEmpty() ||
+          wf->preparedWellFactorVersion(editH, factorIdOfRow(factors, r), wellFactorParams())
+              .isEmpty())
+      {
+        generate->setEnabled(false);
+        generate->setToolTip(tr("输入：先提取并保存当前地层的井点数据"));
+        generate->setProperty("preparationTarget", QStringLiteral("extractWellFactorsButton"));
+      }
     }
     // 必需的协变量不能因高级参数折叠而被忽略；定位入口会展开其所在分组。
     const auto *method = child<QComboBox>(this, "factorMethodCombo");
@@ -507,9 +525,11 @@ void ConstraintPage::updateOperationGuidance()
   const int row = checkedRow(table);
   const QString factorId = factorIdOfRow(table, row);
   const auto def = factorDefinition(factorId);
-  const QString h = horizon->currentText();
+  const QString analysisKey = pageAnalysisKey(this, horizon);
+  const QString editH = pageEditHorizon(this, horizon);
+  const QString labelH = !analysisKey.isEmpty() ? analysisKey : editH;
   child<QLabel>(this, "factorRequestSummary")->setText(
-      row < 0 ? tr("当前图件：尚未选择因素") : tr("当前图件：%1 · %2").arg(h.isEmpty() ? tr("未选层位") : h, def.title));
+      row < 0 ? tr("当前图件：尚未选择因素") : tr("当前图件：%1 · %2").arg(labelH.isEmpty() ? tr("未选层位") : labelH, def.title));
   QString inputNote;
   if (row >= 0)
     inputNote = tr("输入：%1").arg(table->item(row, 2)->text());
@@ -526,7 +546,14 @@ void ConstraintPage::updateOperationGuidance()
   const bool busy = property("paleo.page.runbusy").toBool();
   if (busy)
     text = tr("任务运行中，可取消；详细进度与日志见任务中心。");
-  else if (h.trimmed().isEmpty())
+  else if (auto *sel = qobject_cast<SelectionContext *>(
+               property("paleo.selection").value<QObject *>());
+           sel && !sel->activeUnit().isValid())
+  {
+    text = tr("请先在顶部层段选择器选定子层段；层位下拉不可驱动分析。");
+    target = QStringLiteral("subIntervalSelectorBar");
+  }
+  else if (!property("paleo.selection").isValid() && editH.trimmed().isEmpty())
   {
     text = tr("请先打开工程并选择层位。");
     target = QStringLiteral("horizonCombo");
@@ -541,7 +568,7 @@ void ConstraintPage::updateOperationGuidance()
     target = checkedFactorLayerId().isEmpty() ? QStringLiteral("factorSettingsCaption")
                                             : QStringLiteral("factorContourModeCombo");
     action = checkedFactorLayerId().isEmpty() ? tr("检查参数") : tr("去提等值线");
-    const QString staleKey = QStringLiteral("paleo.page.factorstale.%1").arg(h);
+    const QString staleKey = QStringLiteral("paleo.page.factorstale.%1").arg(analysisKey);
     if (property(staleKey.toUtf8().constData()).toStringList().contains(factorId))
     {
       text = tr("输入已变更；已保存的等值面对应旧输入，请重新计算更新成果。");
@@ -578,7 +605,7 @@ void ConstraintPage::updateOperationGuidance()
   next->setProperty("target", target);
   next->setToolTip(tr("定位到下一步操作"));
   hint->setText(text);
-  updateIpoStepper(h, row, generate, target);
+  updateIpoStepper(analysisKey.isEmpty() ? editH : analysisKey, row, generate, target);
   updateOneClickState();
   if (auto *contourHint = child<QLabel>(this, "factorContourHint"))
   {
@@ -729,8 +756,9 @@ void ConstraintPage::refreshFactorResults() {
   table->hide();
   if (!wf)
     return;
+  const QString editH = pageEditHorizon(this, h);
   for (const auto &entry :
-       wf->savedFactorResults(h->currentText(), factorIdOfRow(factors, checkedRow(factors)))) {
+       wf->savedFactorResults(editH, factorIdOfRow(factors, checkedRow(factors)))) {
     auto row = entry.toMap();
     const bool available = QFileInfo::exists(row.value("path").toString());
     row.insert("available", available);
@@ -762,17 +790,22 @@ void ConstraintPage::updateIpoStepper(const QString &horizon, int row, const QPu
     return; // 任务运行中保持原阶段，避免默认 target 误判回「输入」
   // 输入就绪：层位 + 因素已选，且门控不再指向输入阶段（井点提取/字段维护/选因素）。
   const bool inputTarget = nextTarget == QLatin1String("horizonCombo")
+      || nextTarget == QLatin1String("subIntervalSelectorBar")
       || nextTarget == QLatin1String("factorTable")
       || nextTarget == QLatin1String("extractWellFactorsButton")
       || nextTarget == QLatin1String("maintainWellFactorsButton")
       || nextTarget == QLatin1String("factorModeCombo");
-  bool inputDone = !horizon.trimmed().isEmpty() && row >= 0 && !inputTarget;
-  const QString staleKey = QStringLiteral("paleo.page.factorstale.%1").arg(horizon);
+  const auto *horizons = child<QComboBox>(this, "horizonCombo");
+  const QString analysisKey = pageAnalysisKey(this, horizons);
+  const QString editH = pageEditHorizon(this, horizons);
+  const QString displayKey = !analysisKey.isEmpty() ? analysisKey : horizon;
+  bool inputDone = !displayKey.trimmed().isEmpty() && row >= 0 && !inputTarget;
+  const QString staleKey = QStringLiteral("paleo.page.factorstale.%1").arg(analysisKey);
   const QString factorId = factorIdOfRow(child<QTableWidget>(this, "factorTable"), row);
   if (auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
       wf && interpolantEngine(factorDefinition(factorId).processingAlgId))
-    inputDone = !horizon.trimmed().isEmpty() && row >= 0 &&
-        !wf->preparedWellFactorVersion(horizon, factorId, wellFactorParams()).isEmpty();
+    inputDone = !editH.trimmed().isEmpty() && row >= 0 &&
+        !wf->preparedWellFactorVersion(editH, factorId, wellFactorParams()).isEmpty();
   const bool stale = property(staleKey.toUtf8().constData()).toStringList().contains(factorId);
   const bool processDone = inputDone && !checkedFactorLayerId().isEmpty() && !stale;
   const auto *results = child<QTableWidget>(this, "factorResultsTable");

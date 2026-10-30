@@ -281,6 +281,29 @@ using paleo::workflow_detail::raiseToErrorHub;
     return m;
   }
 
+  QVariantMap publishIdentityFromAnalysisKey( const QString &analysisKey )
+  {
+    QVariantMap m;
+    if ( analysisKey.isEmpty() )
+      return m;
+    m.insert( QStringLiteral( "source_horizon" ), analysisKey );
+    m.insert( QStringLiteral( "horizon" ), analysisKey );
+    if ( analysisKey.startsWith( QStringLiteral( "agg-" ) ) )
+      m.insert( QStringLiteral( "intervalId" ), analysisKey.mid( 4 ) );
+    else
+      m.insert( QStringLiteral( "subIntervalId" ), analysisKey );
+    return m;
+  }
+
+  void mergePublishIdentity( QVariantMap *dest, const QString &analysisKey )
+  {
+    if ( !dest )
+      return;
+    const QVariantMap id = publishIdentityFromAnalysisKey( analysisKey );
+    for ( auto it = id.constBegin(); it != id.constEnd(); ++it )
+      dest->insert( it.key(), it.value() );
+  }
+
   // 厚度样本井点层（wells.thickness.<h>）——PDF 上的井位/井名标注源。
   // GeoJSON 内嵌 "crs" 成员写工程米制 WKT（OGR 仍认 legacy crs 写法），
   // 不落到 4326 假设。只写有坐标的井；贡献井带 thickness_m 属性。
@@ -354,14 +377,15 @@ bool MappingWorkflow::recordThicknessDeclaration(const LayerDeclaration &decl,
 }
 
 bool MappingWorkflow::startThicknessChain(const QString &horizon,
-                                          QString *error) {
+                                          QString *error,
+                                          const QVariantMap &publishIdentity) {
   const auto reject = [&](const QString &why) {
     setError(error, why);
     emit chainFailed(horizon, why);
     return false;
   };
   if (!m_tasks)
-    return runThicknessChain(horizon, error);
+    return runThicknessChain(horizon, error, publishIdentity);
   if (m_chainTask && m_chainTask->running())
     return reject(tr("已有厚度计算在进行"));
   if (!m_catalog || !m_projectData || !m_layers)
@@ -387,7 +411,7 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
   auto *data = m_projectData;
   auto *task = m_tasks->start(
       tr("%1 厚度计算").arg(horizon),
-      [job, directory, horizon](PaleoTask *task) {
+      [job, directory, horizon, publishIdentity](PaleoTask *task) {
         ProjectDataFacade facade;
         facade.setCatalog(job->catalog.get(), directory);
         facade.setDeclarationSnapshot(job->inputs);
@@ -400,7 +424,7 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
         worker.setProjectData(&facade);
         worker.setCatalog(job->catalog.get(), job->staging->path());
         task->reportStage("prepare", 0);
-        job->ok = worker.runThicknessChain(horizon, &job->error);
+        job->ok = worker.runThicknessChain(horizon, &job->error, publishIdentity);
         job->outputs = worker.m_preparedDeclarations;
         job->rows = worker.thicknessSampleRows();
         job->message = worker.thicknessSampleMessage();
@@ -410,7 +434,7 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
       });
   m_chainTask = task;
   connect(task, &PaleoTask::finished, this,
-          [this, job, catalog, directory, data, horizon, task] {
+          [this, job, catalog, directory, data, horizon, publishIdentity, task] {
             // C-3 同族（full-audit-20261021）：摘除 mutationSeq 陈旧判据
             //（#480 P3-3 口径——厚度链输入提交时已冻结，无关写不再判废）。
             const bool stale = task->session() != m_tasks->session() ||
@@ -428,6 +452,8 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
               m_constraints->setThicknessSamples(job->rows, job->message);
             QString error = job->error;
             QHash<QString, QString> idMap; // R2-SF-1：撞号重映射表
+            const QString publishKey =
+                publishIdentity.value( QStringLiteral( "source_horizon" ), horizon ).toString();
             if (job->ok && publishMapExportJournal(catalog, directory,
                                                    job->staging->path(),
                                                    job->journal, &error, &idMap)) {
@@ -451,8 +477,8 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
                   break;
               }
               if (error.isEmpty())
-                emit chainDone(horizon,
-                               QStringLiteral("factor.%1.idw").arg(horizon));
+                emit chainDone(publishKey,
+                               QStringLiteral("factor.%1.idw").arg(publishKey));
             }
             if (!error.isEmpty()) {
               task->failPublication(error);
@@ -606,12 +632,18 @@ QVector<ThicknessPoint> MappingWorkflow::computeThickness( const QString &horizo
 }
 
 void MappingWorkflow::publishThicknessSamples( const QVector<ThicknessSample> &samples,
-                                               const QString &message )
+                                               const QString &message,
+                                               const QVariantMap &publishIdentity )
 {
   QVariantList rows;
   rows.reserve( samples.size() );
   for ( const ThicknessSample &s : samples )
-    rows.append( thicknessSampleToMap( s ) );
+  {
+    QVariantMap row = thicknessSampleToMap( s );
+    for ( auto it = publishIdentity.constBegin(); it != publishIdentity.constEnd(); ++it )
+      row.insert( it.key(), it.value() );
+    rows.append( row );
+  }
   m_thicknessRows = rows;
   m_thicknessMessage = message;
   // 约束页面板只持有 ConstraintWorkflow* —— 行表 typed 镜像过去，
@@ -631,14 +663,17 @@ QString MappingWorkflow::thicknessSampleMessage() const
 }
 
 void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
-                                                  const QVector<ThicknessSample> &samples )
+                                                  const QVector<ThicknessSample> &samples,
+                                                  const QVariantMap &publishIdentity )
 {
   if ( !m_catalog )
     return; // 无登记通道：链路主栅格已产出，井点层按旧语义只跳过（见调用序）
+  const QString publishKey =
+      publishIdentity.value( QStringLiteral( "source_horizon" ), horizon ).toString();
   DerivedAssetRegistrar registrar( m_catalog, m_projectDir );
   const DerivedStaging st = registrar.stage(
-      QStringLiteral( "thickness_wells" ), tr( "%1 厚度井位" ).arg( horizon ),
-      QStringLiteral( "WELLS_THICKNESS_%1.geojson" ).arg( horizon ) );
+      QStringLiteral( "thickness_wells" ), tr( "%1 厚度井位" ).arg( publishKey ),
+      QStringLiteral( "WELLS_THICKNESS_%1.geojson" ).arg( publishKey ) );
   if ( !st.isValid() )
   {
     qWarning() << "thickness wells layer staging failed";
@@ -664,9 +699,12 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
   AlgorithmRunResult wellsRun =
       paleo::runResultFromOutputPath( st.absolutePath, QStringLiteral( "OUTPUT" ) );
   wellsRun.diagnostics.insert( QStringLiteral( "asset_role" ), QStringLiteral( "thickness_wells" ) );
+  mergePublishIdentity( &wellsRun.diagnostics, publishKey );
+  for ( auto it = publishIdentity.constBegin(); it != publishIdentity.constEnd(); ++it )
+    wellsRun.diagnostics.insert( it.key(), it.value() );
   if ( !paleo::publishArtifacts( registrar, st, wellsRun, {},
-                                 QStringLiteral( "mappingworkflow/thickness_wells" ), {},
-                                 &commitErr ) )
+                                 QStringLiteral( "mappingworkflow/thickness_wells" ),
+                                 wellsRun.diagnostics, &commitErr ) )
   {
     qWarning() << "thickness wells version registration failed:" << commitErr;
     raiseToErrorHub( ErrorHub::Level::Error, QStringLiteral( "mapping" ),
@@ -675,8 +713,8 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
   }
 
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "wells.thickness.%1" ).arg( horizon );
-  decl.horizon = horizon;
+  decl.layerId = QStringLiteral( "wells.thickness.%1" ).arg( publishKey );
+  decl.horizon = publishKey;
   decl.type = QStringLiteral( "vector" );
   decl.source = st.absolutePath;
   decl.group = QStringLiteral( "04_SingleFactor" );
@@ -695,13 +733,18 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
 // 编图链（autoplan §5C 新语义）
 // ---------------------------------------------------------------------------
 
-bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error )
+bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error,
+                                         const QVariantMap &publishIdentity )
 {
   const auto fail = [this, &horizon, error]( const QString &msg ) {
     setError( error, msg );
     emit chainFailed( horizon, msg );
     return false;
   };
+  const QString publishKey =
+      publishIdentity.value( QStringLiteral( "source_horizon" ), horizon ).toString();
+  const QVariantMap identity =
+      publishIdentity.isEmpty() ? publishIdentityFromAnalysisKey( horizon ) : publishIdentity;
 
   if ( !m_projectData )
     return fail( tr( "未绑定工程数据（读侧门面）" ) );
@@ -720,7 +763,7 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
   const QVector<ThicknessSample> samples = computeThicknessSamples( horizon, base, &sampleErr );
   if ( !sampleErr.isEmpty() )
     return fail( sampleErr );
-  publishThicknessSamples( samples, QString() );
+  publishThicknessSamples( samples, QString(), identity );
 
   QVector<ThicknessSample> contributing;
   for ( const ThicknessSample &s : samples )
@@ -728,9 +771,9 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
       contributing.append( s );
 
   // n = 提供样本的井数：0 → 「没有厚度样本」；<3 或凸包无面积 → 「不足以成面」。
-  const auto insufficientSamples = [this, &samples, &fail]( int n ) {
+  const auto insufficientSamples = [this, &samples, &fail, &identity]( int n ) {
     const QString msg = n == 0 ? tr( "没有厚度样本" ) : tr( "厚度样本不足以成面" );
-    publishThicknessSamples( samples, msg );
+    publishThicknessSamples( samples, msg, identity );
     return fail( msg );
   };
 
@@ -825,6 +868,9 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     fallbackExtra.insert( QStringLiteral( "rows" ), rows );
     fallbackExtra.insert( QStringLiteral( "cols" ), cols );
     fallbackExtra.insert( QStringLiteral( "wells" ), pts.size() );
+    mergePublishIdentity( &fallbackExtra, publishKey );
+    for ( auto it = identity.constBegin(); it != identity.constEnd(); ++it )
+      fallbackExtra.insert( it.key(), it.value() );
     // algo-atom：井点厚度回落栅格经 publishArtifacts
     QString commitErr;
     AlgorithmRunResult fbRun =
@@ -836,8 +882,8 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
       return fail( commitErr );
 
     LayerDeclaration decl;
-    decl.layerId = QStringLiteral( "factor.%1.idw" ).arg( horizon );
-    decl.horizon = horizon;
+    decl.layerId = QStringLiteral( "factor.%1.idw" ).arg( publishKey );
+    decl.horizon = publishKey;
     decl.type = QStringLiteral( "raster" );
     decl.source = st.absolutePath;
     decl.group = QStringLiteral( "04_SingleFactor" );
@@ -845,8 +891,8 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     if (!recordThicknessDeclaration(decl, error))
       return fail( error ? *error : tr( "无法声明井点厚度图层" ) );
 
-    declareThicknessWellsLayer( horizon, samples );
-    emit chainDone( horizon, decl.layerId );
+    declareThicknessWellsLayer( horizon, samples, identity );
+    emit chainDone( publishKey, decl.layerId );
     return true;
   }
 
@@ -922,6 +968,9 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
   extra.insert( QStringLiteral( "cols" ), cols );
   extra.insert( QStringLiteral( "base_horizon" ), base );
   extra.insert( QStringLiteral( "contributing_wells" ), contributing.size() );
+  mergePublishIdentity( &extra, publishKey );
+  for ( auto it = identity.constBegin(); it != identity.constEnd(); ++it )
+    extra.insert( it.key(), it.value() );
   const QStringList parents = registrar.parentVersionIdsFor(
       QStringList{ rasterTop.path, rasterBase.path } );
   // algo-atom：主等厚栅格经 publishArtifacts（独立 staging，非多端口单 RunResult——
@@ -936,8 +985,8 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     return fail( commitErr );
 
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "factor.%1.idw" ).arg( horizon );
-  decl.horizon = horizon;
+  decl.layerId = QStringLiteral( "factor.%1.idw" ).arg( publishKey );
+  decl.horizon = publishKey;
   decl.type = QStringLiteral( "raster" );
   decl.source = st.absolutePath;
   decl.group = QStringLiteral( "04_SingleFactor" );
@@ -945,9 +994,9 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
   if (!recordThicknessDeclaration(decl, error))
     return fail( error ? *error : tr( "无法声明等厚图层" ) );
 
-  declareThicknessWellsLayer( horizon, samples );
+  declareThicknessWellsLayer( horizon, samples, identity );
   // 厚度栅格不是相编码——不调用 deriveFaciesPolygons（autoplan §5C）。
-  emit chainDone( horizon, decl.layerId );
+  emit chainDone( publishKey, decl.layerId );
   return true;
 }
 

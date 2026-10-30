@@ -471,6 +471,12 @@ class PaleoMainWindow : public SARibbonMainWindow
     QgisProjectService *m_projectSvc;
     QgisLayerService *m_layerSvc;
     ToolAvailabilityService *m_tools;
+    void attachPredictPageTools(PredictPage *predictPage, PredictionWorkflow *pred);
+    void publishSeismicMaskAggregate(PredictPage *predictPage, PredictionWorkflow *pred,
+                                      const QVariantMap &params);
+    void bindSeismicSliceAfterPublish(PredictionWorkflow *pred, const QVariantMap &jobParams,
+                                      const QString &layerId, const QString &outputPath, QLabel *status);
+
     SelectionContext *m_selection;
 
     // 阶段E 发布门重算钩子：attachMapping 安装，attachWorkflows 的

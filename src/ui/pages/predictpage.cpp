@@ -8,6 +8,8 @@
 #endif
 
 #include "pageshared.h"
+#include "../../linkage/selectioncontext.h"
+#include "../../domain/stratigraphicunit.h"
 
 #include "../../ai/onnxpredictionservice.h" // ORT-free header; runtimeAvailable 调用受 PALEO_HAVE_ORT 保护
 #include "../../domain/arearules.h"
@@ -30,6 +32,36 @@
 #include <QVBoxLayout>
 
 using namespace paleo::pagesinternal;
+
+namespace {
+
+void applySubIntervalAnalysisTips(QComboBox *types, QComboBox *horizons, QPushButton *run)
+{
+  // whatsThis 留给 help::applyWhatsThis 目录回填（tst_shortcuts_shell 校验目录全文）；
+  // 运行钮可运行态 tip 必须空（DESIGN.md：禁用才写原因 tip）。
+  if (types)
+  {
+    types->setToolTip(PredictPage::tr("沉积相 / 地震相 / 测井相。地震相若仅有时间切片模型，"
+                                      "结果标注为「切片预测」，层段综合需可验证聚合，不得把单切片冒充整段。"));
+    types->setStatusTip(types->toolTip());
+  }
+  if (horizons)
+  {
+    horizons->setToolTip(PredictPage::tr("[legacy] 历史层位下拉（兼容旧工程）。层段分析请用画布父单元→S1–S4；"
+                                         "分析路径以 UnitSelection / SubIntervalId 为成果身份，勿依赖本框字符串。"));
+    horizons->setStatusTip(horizons->toolTip());
+  }
+  if (run)
+  {
+    const QString tip = PredictPage::tr("按顶部层段选择器（UnitSelection）运行预测；层位下拉仅 legacy，不可驱动分析。"
+                                        "中间与最终结果登记到 Data Service，可供编图证据拉取。");
+    run->setToolTip(QString());
+    run->setStatusTip(tip);
+  }
+}
+
+} // namespace
+
 
 // 层：视图
 // ---------------------------------------------------------------------------
@@ -75,6 +107,8 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   auto *horizons = new QComboBox(this);
   horizons->setObjectName(QStringLiteral("horizonCombo"));
   lay->addWidget(horizons);
+  applySubIntervalAnalysisTips(types, horizons, nullptr);
+  setupSeismicMaskChrome(lay);
 
   lay->addWidget(caption(tr("算法"), this));
   auto *algos = new QComboBox(this);
@@ -152,6 +186,7 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
 
   auto *run = new QPushButton(tr("运行预测"), this);
   run->setObjectName(QStringLiteral("runButton"));
+  applySubIntervalAnalysisTips(nullptr, nullptr, run);
   lay->addWidget(run);
   const auto recheck = [this] { updateReadiness(); };
   connect(horizons, &QComboBox::currentIndexChanged, this, recheck);
@@ -647,6 +682,7 @@ bool PredictPage::collectSchemaParams(QVariantMap *out)
   // 预测类型随参数下发（英文 stable id；QgsProcessing 忽略未定义键，无副作用）。
   if (auto *types = child<QComboBox>(this, "predictTypeCombo"))
     params.insert(QStringLiteral("predictType"), types->currentData());
+  collectSeismicMaskParams(&params);
   *out = params;
   // 校验通过即下发：清掉上一轮的失败文案（陈旧错误不残留）。
   if (status)
@@ -668,25 +704,32 @@ void PredictPage::setRunBusy(bool busy)
   const QString busyTip = busy ? tr("预测正在运行——完成后自动恢复，或点取消") : QString();
 
   setProperty("paleo.page.runbusy", busy);
+  auto *types = child<QComboBox>(this, "predictTypeCombo");
+  auto *horizons = child<QComboBox>(this, "horizonCombo");
   if (run && busy)
   {
     run->setEnabled(false);
     run->setToolTip(busyTip);
   }
-  if (auto *types = child<QComboBox>(this, "predictTypeCombo"))
+  if (types)
   {
     types->setEnabled(!busy);
-    types->setToolTip(busyTip);
+    if (busy)
+      types->setToolTip(busyTip);
   }
-  if (auto *horizons = child<QComboBox>(this, "horizonCombo"))
+  if (horizons)
   {
     horizons->setEnabled(!busy);
-    horizons->setToolTip(busyTip);
+    if (busy)
+      horizons->setToolTip(busyTip);
   }
+  if (!busy)
+    applySubIntervalAnalysisTips(types, horizons, run);
   if (auto *algos = child<QComboBox>(this, "algoCombo"))
   {
     algos->setEnabled(!busy);
-    algos->setToolTip(busyTip);
+    if (busy)
+      algos->setToolTip(busyTip);
   }
   if (auto *mamcl = child<QPushButton>(this, "mamclButton"))
   {
@@ -751,9 +794,18 @@ void PredictPage::updateReadiness()
   {
     ready = false;
     text = tr("测井相预测按井读取曲线、分层并匹配模型，请在测井相预测面板运行；"
-              "本页用于层位级沉积相 / 地震相预测");
+              "本页用于沉积相 / 地震相。层段分析请用画布父单元→S1–S4；"
+              "砂地比等单因素在约束页按子层段深度窗提取");
   }
-  else if (horizon.isEmpty())
+  else if (auto *sel = qobject_cast<SelectionContext *>(
+               property("paleo.selection").value<QObject *>());
+           sel && !sel->activeUnit().isValid())
+  {
+    ready = false;
+    text = tr("不可运行：请先在顶部层段选择器选定子层段（S1–S4 或父单元综合）；"
+              "层位下拉仅 legacy，不可驱动分析");
+  }
+  else if (!property("paleo.selection").isValid() && horizon.isEmpty())
   {
     ready = false;
     text = tr("不可运行：工程中没有可用层位。请先在「数据管理」导入层位或井分层");
@@ -777,8 +829,17 @@ void PredictPage::updateReadiness()
   }
   else
   {
-    text = tr("可运行：层位 %1 · 算法 %2（输入图层与数据在运行时再次校验）")
-               .arg(horizon, algText);
+    QString unitLabel = horizon;
+    if (auto *sel = qobject_cast<SelectionContext *>(
+            property("paleo.selection").value<QObject *>()))
+    {
+      const auto u = sel->activeUnit();
+      if (u.isValid())
+        unitLabel = !u.displayName.isEmpty() ? u.displayName
+                    : (!u.subIntervalId.isEmpty() ? u.subIntervalId : u.intervalId);
+    }
+    text = tr("可运行：层段 %1 · 算法 %2（输入图层与数据在运行时再次校验）")
+               .arg(unitLabel, algText);
   }
   label->setText(text);
   if (jump)
@@ -787,7 +848,13 @@ void PredictPage::updateReadiness()
   if (property("paleo.page.runbusy").toBool())
     return; // 忙碌态由 setRunBusy 管
   run->setEnabled(ready);
-  run->setToolTip(ready ? QString() : text);
+  if (ready)
+  {
+    run->setToolTip(QString());
+    applySubIntervalAnalysisTips(nullptr, nullptr, run); // statusTip only
+  }
+  else
+    run->setToolTip(text);
 }
 
 void PredictPage::updateProgress(int percent)
@@ -824,7 +891,17 @@ void PredictPage::refreshHistory()
   if (!layers || !horizons)
     return; // 未绑定图层服务（如测试桩）→ 空清单
 
-  const QString horizon = horizons->currentText();
+  // 历史清单按分析键过滤；已接线 selection 时只认 UnitSelection（无效→空，不回落 combo）。
+  QString horizon;
+  if (auto *sel = qobject_cast<SelectionContext *>(
+          property("paleo.selection").value<QObject *>()))
+  {
+    const auto u = sel->activeUnit();
+    if (u.isValid())
+      horizon = paleo::strat::analysisLayerKey(u);
+  }
+  else
+    horizon = horizons->currentText(); // 无 selection 接线的测试壳
   // 兼容清单收口到词表权威（主线1）：02_Prediction 家族 = canonical + 旧名。
   const QStringList predictGroups = PaleoLayerVocabulary::groupFamily(
       QStringLiteral("02_Prediction"));

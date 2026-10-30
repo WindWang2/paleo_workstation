@@ -77,3 +77,12 @@ target_sources(paleo_services PRIVATE src/services/seismicdataaccess.cpp src/ser
 target_sources(paleo_services PRIVATE src/services/seismictaskservice_data.cpp)
 target_link_libraries(tst_seismic_index PRIVATE Paleo::paleo_data_service)
 target_sources(paleo_services PRIVATE src/services/projectdata_timedepth.cpp)
+
+# 四子层段体系（docs/STRATIGRAPHIC_SUBINTERVALS.md）：选择/分类值类型 + Data Service 适配
+target_sources(paleo_domain PRIVATE src/domain/stratigraphicunit.cpp)
+target_sources(paleo_services PRIVATE src/services/stratigraphicsubintervals.cpp)
+add_paleo_test(tst_stratigraphic_subintervals LIBS paleo_services paleo_linkage Paleo::paleo_data_service)
+
+# 子层段砂地比 / 井相 / 地震相成果与编图证据（docs/STRATIGRAPHIC_SUBINTERVALS.md §井相地震相）
+target_sources(paleo_domain PRIVATE src/domain/subintervalfacies.cpp)
+target_sources(paleo_services PRIVATE src/services/subintervalfactors.cpp)

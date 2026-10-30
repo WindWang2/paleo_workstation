@@ -33,6 +33,11 @@
 #include "../src/domain/faciescatalog.h"
 #include "../src/io/dataimportservice.h" // 测试可直触 io（断言 DataImportService 信号）
 #include "../src/linkage/selectioncontext.h"
+#include "../src/ui/horizonchipbar.h"
+#include "../src/domain/mappinghorizons.h"
+#include <qgslocator.h>
+#include <qgslocatorwidget.h>
+#include <qgslocatorfilter.h>
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgiscanvascontroller.h"
@@ -589,12 +594,133 @@ class TestUiShell : public QObject
       if (auto *d = m_win->findChild<QToolButton *>(QStringLiteral("designerButton")))
         QVERIFY(!d->icon().isNull());
 
-      auto *chipsRow =
-          m_win->findChild<QWidget *>(QStringLiteral("horizonChipRow"));
-      QVERIFY(chipsRow);
+      // 2026-10-30 用户裁决：地震层位是地层界限而非地层单元——chip 不再默认
+      // 铺在画布上方，收进「界限」下拉弹层（仍是界限切换入口）；演化动览移除后
+      // 「界限」按钮并入层段分析条最左端，顶部不再有单独的 chip/动览行。
+      QVERIFY2(!m_win->findChild<QWidget *>(QStringLiteral("horizonChipRow")),
+               "the standalone chip row must be gone");
+      auto *unitBar =
+          m_win->findChild<QWidget *>(QStringLiteral("subIntervalSelectorBar"));
+      QVERIFY(unitBar);
+      auto *boundaryBtn =
+          unitBar->findChild<QToolButton *>(QStringLiteral("horizonBoundaryButton"));
+      QVERIFY2(boundaryBtn, "boundary picker must lead the sub-interval selector bar");
+      QVERIFY(boundaryBtn->text().startsWith(QStringLiteral("界限")));
       auto *chips =
-          chipsRow->findChild<QWidget *>(QStringLiteral("horizonChips"));
-      QVERIFY2(chips, "horizon chips must live on the dedicated action row");
+          boundaryBtn->findChild<QWidget *>(QStringLiteral("horizonChips"));
+      QVERIFY2(chips, "horizon chips must live in the boundary picker popup");
+      QVERIFY2(!chips->isVisible(), "horizon chips must be hidden until the boundary picker opens");
+      // 2026-10-30 用户裁决：演化动览（上一期/播放/下一期、定格导出）不再保留在
+      // 主窗 UI；EvolutionPlayerPanel 类与 tst_evolutionplayer 单测保留。
+      QVERIFY2(!m_win->findChild<QWidget *>(QStringLiteral("evolutionPlayer")),
+               "evolution player controls must no longer be mounted in the main window");
+    }
+
+    // 2026-10-30（#829 窄窗溢出）：层段分析条宽度不够时折成两行——第一行「界限」+
+    // 方案/修订，第二行父单元 + S1–S4 + 综合 + 状态；宽窗仍单行，任何宽度下控件不越界。
+    void subIntervalBarWrapsOnNarrowWidth()
+    {
+      auto *bar = m_win->findChild<QWidget *>(QStringLiteral("subIntervalSelectorBar"));
+      QVERIFY(bar);
+      auto *rows = bar->findChild<QWidget *>(QStringLiteral("subIntervalSelectorRows"));
+      auto *primary = bar->findChild<QWidget *>(QStringLiteral("subIntervalSelectorRow"));
+      auto *secondary = bar->findChild<QWidget *>(QStringLiteral("subIntervalSelectorSecondaryRow"));
+      QVERIFY(rows && primary && secondary);
+      auto *dir = qobject_cast<QBoxLayout *>(rows->layout());
+      QVERIFY(dir);
+      auto *lead = bar->findChild<QToolButton *>(QStringLiteral("horizonBoundaryButton"));
+      QVERIFY(lead);
+      QCOMPARE(lead->parentWidget(), primary);
+      QCOMPARE(bar->findChild<QComboBox *>(QStringLiteral("subIntervalSchemeCombo"))->parentWidget(), primary);
+      QCOMPARE(bar->findChild<QComboBox *>(QStringLiteral("subIntervalRevisionCombo"))->parentWidget(), primary);
+      QCOMPARE(bar->findChild<QComboBox *>(QStringLiteral("subIntervalParentCombo"))->parentWidget(), secondary);
+      QCOMPARE(bar->findChild<QToolButton *>(QStringLiteral("subIntervalExpand"))->parentWidget(), secondary);
+      const QSize before = m_win->size();
+      m_win->showPage(QStringLiteral("compose"));
+      m_win->show();
+      QVERIFY(QTest::qWaitForWindowExposed(m_win));
+      const auto inside = [bar](QWidget *w) {
+        const QRect r(w->mapTo(bar, QPoint(0, 0)), w->size());
+        return r.left() >= 0 && r.right() < bar->width();
+      };
+      const auto check = [&](int width, bool wrapped) {
+        m_win->resize(width, 800);
+        QTRY_COMPARE(dir->direction() == QBoxLayout::TopToBottom, wrapped);
+        QTest::qWait(50);
+        QVERIFY(bar->isVisible());
+        if (wrapped)
+          QVERIFY2(secondary->geometry().top() >= primary->geometry().bottom(), "second row sits below the first");
+        else
+          QCOMPARE(secondary->geometry().top(), primary->geometry().top());
+        for (QToolButton *b : secondary->findChildren<QToolButton *>())
+          if (b->isVisibleTo(bar))
+            QVERIFY2(inside(b), qPrintable(b->objectName()));
+        QVERIFY(inside(lead));
+      };
+      check(2400, false);
+      check(1024, true);
+      check(2400, false); // 拉宽后恢复单行
+      m_win->resize(before);
+    }
+
+    // A4/A2（2026-10-30）：「界限」按钮与 Ctrl+K 定位器两条界限入口真实可用；
+    // 编辑中拒切界限时弹层自动收起，原因仍落状态栏。
+    void boundaryPickerAndLocatorSwitchBoundary()
+    {
+      auto *btn = m_win->findChild<QToolButton *>(QStringLiteral("horizonBoundaryButton"));
+      QVERIFY(btn);
+      auto *chips = btn->findChild<HorizonChipBar *>(QStringLiteral("horizonChips"));
+      QVERIFY(chips);
+      auto *popup = btn->findChild<QWidget *>(QStringLiteral("horizonBoundaryPopup"));
+      QVERIFY(popup);
+      chips->setAllowEmptyHorizons(true); // 工作台同款：无栅格的界限也可点
+      const QStringList hs = mappingHorizons();
+      QVERIFY(hs.size() >= 2);
+      const QString start = m_ctx->selection()->activeHorizon();
+      const QString target = hs.at(hs.at(0) == start ? 1 : 0);
+
+      // 入口一：点「界限」按钮 → 弹层展开 → 点 chip → 切换并收起，按钮显示当前界限。
+      btn->click();
+      QTRY_VERIFY(popup->isVisible());
+      auto *chip = chips->findChild<QToolButton *>(QStringLiteral("chip_%1").arg(target));
+      QVERIFY(chip);
+      QVERIFY(chip->isEnabled());
+      chip->click();
+      QCOMPARE(m_ctx->selection()->activeHorizon(), target);
+      QTRY_VERIFY(!popup->isVisible());
+      QCOMPARE(btn->text(), QStringLiteral("界限：%1").arg(target));
+
+      // 编辑中拒切：弹层收起，状态栏保留原因。
+      btn->click();
+      QTRY_VERIFY(popup->isVisible());
+      const QString reason = QStringLiteral("正在编辑「测试层」——先保存或放弃编辑，再切换层位");
+      emit chips->horizonSwitchRefused(reason);
+      QTRY_VERIFY(!popup->isVisible());
+      QCOMPARE(m_win->statusBar()->currentMessage(), reason);
+      QCOMPARE(m_ctx->selection()->activeHorizon(), target);
+
+      // 入口二：Ctrl+K 定位器的界限过滤器触发结果 → 切换当前界限，按钮跟随。
+      if (!m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                               m_ctx->compositionWf(), m_ctx->validationWf(),
+                               m_ctx->importSvc(), m_ctx->seismicLink(),
+                               m_ctx->processingSvc(), m_ctx->store(),
+                               m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                               m_ctx->taskSvc());
+      auto *locatorWidget = m_win->findChild<QgsLocatorWidget *>(QStringLiteral("paleoLocator"));
+      QVERIFY(locatorWidget);
+      QgsLocatorFilter *horizonFilter = nullptr;
+      for (QgsLocatorFilter *f : locatorWidget->locator()->filters())
+        if (f->name() == QStringLiteral("paleo_horizons"))
+          horizonFilter = f;
+      QVERIFY(horizonFilter);
+      QgsLocatorResult result;
+      result.filter = horizonFilter;
+      result.displayString = start.isEmpty() ? hs.at(0) : start;
+      result.setUserData(result.displayString);
+      horizonFilter->triggerResult(result);
+      QCOMPARE(m_ctx->selection()->activeHorizon(), result.displayString);
+      QCOMPARE(btn->text(), QStringLiteral("界限：%1").arg(result.displayString));
     }
 
     // T29「在地图上显示」shell 接线：意图 → 实例化 + zoomToLayer + ~400ms

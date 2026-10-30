@@ -1,6 +1,8 @@
 // 层：视图
 // paleomainwindow_attach_constraint — 约束与单因素页接线（W4 拆分段）
 #include "paleomainwindow.h"
+#include "../linkage/unitselectionbridge.h"
+#include "../linkage/selectioncontext.h"
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -38,11 +40,127 @@
 #include <QFileInfo>
 #include <QFileDialog>
 #include <QLabel>
+#include <QVariant>
 #include <QLineEdit>
 #include <QStatusBar>
 #include <QUndoStack>
 #include <functional>
 #include <memory>
+
+namespace {
+struct AnalysisRun
+{
+  paleo::strat::AnalysisBinding bind;
+  QVariantMap params;
+};
+AnalysisRun makeAnalysisRun(SelectionContext *selection, const QString &pageHorizon,
+                            const QVariantMap &params)
+{
+  // pageHorizon 只喂界面编辑 legacy（constraints.<top>）；analysisKey 只认 UnitSelection。
+  AnalysisRun r;
+  r.bind = paleo::strat::bindAnalysis(selection, pageHorizon);
+  r.params = r.bind.enrich(params);
+  r.params.insert(QStringLiteral("constraintHorizon"), r.bind.constraintHorizon);
+  return r;
+}
+
+void runConstraintPageIdw(ConstraintWorkflow *constraint,
+                          ConstraintPage *constraintPage,
+                          SelectionContext *selection,
+                          QgisLayerService *layerSvc,
+                          PaleoTask *factorTask,
+                          const QString &pageHorizon)
+{
+  auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+  const auto fail = [status](const QString &msg) {
+    if (status)
+      status->setText(msg);
+    QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+  };
+  if (constraint->factorBusy() || (factorTask && factorTask->running())) {
+    fail(PaleoMainWindow::tr("已有单因素计算在进行"));
+    return;
+  }
+  // 兼容 IDW 也只认 UnitSelection；pageHorizon/combo 不可驱动分析键。
+  const auto bind = paleo::strat::bindAnalysis(selection, pageHorizon);
+  if (!bind.hasUnit || bind.analysisKey.isEmpty())
+  {
+    fail(PaleoMainWindow::tr("分析须先在顶部层段选择器选定子层段；层位下拉不可驱动分析"));
+    return;
+  }
+  const QString editHorizon =
+      !bind.constraintHorizon.isEmpty() ? bind.constraintHorizon : bind.analysisKey;
+
+  QString field = QStringLiteral("z");
+  if (auto *edit = constraintPage->findChild<QLineEdit *>(QStringLiteral("idwField")))
+  {
+    const QString typed = edit->text().trimmed();
+    if (!typed.isEmpty())
+      field = typed;
+  }
+  double cellSize = 1.0;
+  if (auto *spin = constraintPage->findChild<QDoubleSpinBox *>(QStringLiteral("idwCellSize")))
+    cellSize = spin->value();
+
+  QString pointsId;
+  if (!layerSvc)
+  {
+    fail(PaleoMainWindow::tr("图层服务未就绪"));
+    return;
+  }
+  QVector<LayerDeclaration> decls;
+  QString readErr;
+  if (!layerSvc->tryDeclared(&decls, &readErr))
+  {
+    fail(readErr.isEmpty() ? PaleoMainWindow::tr("无法读取图层清单") : readErr);
+    return;
+  }
+  QString agnostic;
+  for (const LayerDeclaration &d : decls)
+  {
+    if (d.type.compare(QStringLiteral("vector"), Qt::CaseInsensitive) != 0)
+      continue;
+    if (!d.layerId.startsWith(QStringLiteral("wells")))
+      continue;
+    if (d.horizon == editHorizon || d.horizon == bind.analysisKey)
+    {
+      pointsId = d.layerId;
+      break;
+    }
+    if (agnostic.isEmpty() && d.horizon.isEmpty())
+      agnostic = d.layerId;
+  }
+  if (pointsId.isEmpty())
+    pointsId = agnostic;
+  if (pointsId.isEmpty())
+  {
+    fail(PaleoMainWindow::tr("层位 %1 没有井点图层").arg(editHorizon));
+    return;
+  }
+
+  QString err;
+  // 成果键用 analysisKey（稳定 SubIntervalId）；井点匹配可用父单元上界面。
+  if (!constraint->runConstraintIDW(bind.analysisKey, pointsId, field, cellSize, &err))
+    fail(err.isEmpty() ? PaleoMainWindow::tr("约束插值失败") : err);
+}
+
+void wireConstraintUnitRefresh(ConstraintPage *constraintPage, SelectionContext *selection)
+{
+  if (!selection)
+    return;
+  constraintPage->setProperty("paleo.selection",
+                              QVariant::fromValue(static_cast<QObject *>(selection)));
+  // 同父单元切 S1–S4 时 combo 文本不变，须靠 activeUnitChanged 刷新分析态。
+  QObject::connect(selection, &SelectionContext::activeUnitChanged, constraintPage,
+                   [constraintPage](const paleo::strat::UnitSelection &) {
+                     // refreshFactorLayers 末尾已调 updateFactorActionStates。
+                     constraintPage->refreshFactorLayers();
+                     constraintPage->refreshFactorResults();
+                   });
+}
+
+} // namespace
+
 
 // ---------------------------------------------------------------------------
 // 约束页接线：绘制捕获 + IDW 插值（W4 拆分段）
@@ -138,6 +256,8 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
 {
   if (constraint && constraintPage)
   {
+    // 分析就绪读 UnitSelection；页内 horizonCombo 仅 legacy，不可驱动分析。
+    wireConstraintUnitRefresh(constraintPage, m_selection);
     connect(constraint, &ConstraintWorkflow::wellAttributeTableRequested, this, &PaleoMainWindow::showAttributeTable);
     connect(constraintPage, &ConstraintPage::maintainWellFactorsRequested, this,
             [this, constraint, constraintPage](const QString &horizon) {
@@ -148,69 +268,9 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
     // 约束页端到端: 绘制请求 → 画布上的捕获工具 → workflow 提交 (§42).
     attachConstraintDrawController(constraintPage, constraint);
     connect(constraintPage, &ConstraintPage::runIdwRequested, this,
-            [this, constraint, constraintPage](const QString &horizon) {
-              auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel"));
-              const auto fail = [status](const QString &msg) {
-                if (status)
-                  status->setText(msg);
-                QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-              };
-              if (constraint->factorBusy() ||
-                  (m_factorTask && m_factorTask->running())) {
-                fail(tr("已有单因素计算在进行"));
-                return;
-              }
-
-              QString field = QStringLiteral("z");
-              if (auto *edit = constraintPage->findChild<QLineEdit *>(QStringLiteral("idwField")))
-              {
-                const QString typed = edit->text().trimmed();
-                if (!typed.isEmpty())
-                  field = typed;
-              }
-              double cellSize = 1.0;
-              if (auto *spin = constraintPage->findChild<QDoubleSpinBox *>(QStringLiteral("idwCellSize")))
-                cellSize = spin->value();
-
-              QString pointsId;
-              if (!m_layerSvc)
-              {
-                fail(tr("图层服务未就绪"));
-                return;
-              }
-              QVector<LayerDeclaration> decls;
-              QString readErr;
-              if (!m_layerSvc->tryDeclared(&decls, &readErr))
-              {
-                fail(readErr.isEmpty() ? tr("无法读取图层清单") : readErr);
-                return;
-              }
-              QString agnostic;
-              for (const LayerDeclaration &d : decls)
-              {
-                if (d.type.compare(QStringLiteral("vector"), Qt::CaseInsensitive) != 0)
-                  continue;
-                if (!d.layerId.startsWith(QStringLiteral("wells")))
-                  continue;
-                if (d.horizon == horizon)
-                {
-                  pointsId = d.layerId;
-                  break;
-                }
-                if (agnostic.isEmpty() && d.horizon.isEmpty())
-                  agnostic = d.layerId;
-              }
-              if (pointsId.isEmpty())
-                pointsId = agnostic;
-              if (pointsId.isEmpty())
-              {
-                fail(tr("层位 %1 没有井点图层").arg(horizon));
-                return;
-              }
-
-              QString err;
-              if (!constraint->runConstraintIDW(horizon, pointsId, field, cellSize, &err))
-                fail(err.isEmpty() ? tr("约束插值失败") : err);
+            [this, constraint, constraintPage](const QString &pageHorizon) {
+              runConstraintPageIdw(constraint, constraintPage, m_selection, m_layerSvc,
+                                   m_factorTask, pageHorizon);
             });
 
     // ---- m2(B): 单因素图页（deliverable 2）接线——三入口的类型化捕获。----
@@ -277,12 +337,18 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               }
             });
     connect(constraintPage, &ConstraintPage::extractWellFactorsRequested, this,
-            [constraint, constraintPage](const QString &factorId, const QString &horizon,
+            [this, constraint, constraintPage](const QString &factorId, const QString &horizon,
                                          const QVariantMap &params) {
               QString error;
-              if (!constraint->startWellFactorExtraction(horizon, factorId, params, &error))
-                if (auto *status =
-                        constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+              const auto run = makeAnalysisRun(m_selection, horizon, params);
+              if (!run.bind.hasUnit || run.bind.analysisKey.isEmpty())
+              {
+                if (auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(tr("分析须先在顶部层段选择器选定子层段；层位下拉不可驱动分析"));
+                return;
+              }
+              if (!constraint->startWellFactorExtraction(run.bind.constraintHorizon, factorId, run.params, &error))
+                if (auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
                   status->setText(error);
             });
     connect(constraint, &ConstraintWorkflow::factorJobStateChanged,
@@ -314,13 +380,19 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                                            const QString &horizon,
                                            const QVariantMap &params) {
           QString error;
-          bool ready = !(m_factorTask && m_factorTask->running()) && !constraint->factorBusy();
-          if (ready)
-            ready = constraint->saveConstraintEdits(horizon, &error);
+          const auto run = makeAnalysisRun(m_selection, horizon, params);
+          if (!run.bind.hasUnit || run.bind.analysisKey.isEmpty())
+          {
+            if (auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+              status->setText(tr("分析须先在顶部层段选择器选定子层段；层位下拉不可驱动分析"));
+            return;
+          }
+          bool ready = !(m_factorTask && m_factorTask->running()) && !constraint->factorBusy()
+                       && constraint->saveConstraintEdits(run.bind.constraintHorizon, &error);
           // Freeze editable constraints as a managed input version before any surface calculation.
-          if (ready && m_workbench && !constraint->loadConstraints(horizon).isEmpty())
-            ready = !m_workbench->snapshotConstraints(horizon, {}, &error).isEmpty();
-          if (!ready || !constraint->generateFactor(horizon, factorId, params, &error)) {
+          if (ready && m_workbench && !constraint->loadConstraints(run.bind.constraintHorizon).isEmpty())
+            ready = !m_workbench->snapshotConstraints(run.bind.constraintHorizon, {}, &error).isEmpty();
+          if (!ready || !constraint->generateFactor(run.bind.analysisKey, factorId, run.params, &error)) {
             if (auto *status = constraintPage->findChild<QLabel *>(
                     QStringLiteral("statusLabel")))
               status->setText(error.isEmpty()

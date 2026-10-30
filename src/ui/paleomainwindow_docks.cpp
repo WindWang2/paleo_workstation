@@ -24,7 +24,8 @@
 #include "../qgis/qgislayerprofile.h"
 #include "datapreview/datapreviewtabs.h"
 #include "horizonchipbar.h"
-#include "evolution/evolutionplayerpanel.h"
+#include "subintervalselectorbar.h"
+#include "../domain/mappinghorizons.h"
 #include "layers/layertreepanel.h"
 #include "../workflow/mappingworkbench.h"
 #include "layers/layerpropertiesdialog.h"
@@ -32,7 +33,9 @@
 #include "pages/stratigraphypage.h"
 #include "../workflow/stratigraphyworkflow.h"
 #include "../linkage/selectioncontext.h"
+#include <QFrame>
 #include <QTabBar>
+#include <QToolButton>
 #include <QSignalBlocker>
 #include "webviewpanel.h"
 #include "wellsection/wellsectionpanel.h"
@@ -175,10 +178,84 @@ QScrollArea *wrapHorizonChipsInScroll(QWidget *chips, QWidget *parent)
   scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   scroll->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
   scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  scroll->setStyleSheet(QStringLiteral("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }"));
+  // 横向滚动条压成 spacingXs 细条：宽度充足时只预留一条细缝，不再常驻一整条
+  // 滚动条高度的空白（层位行默认更紧凑）；窄屏仍可拖动滚动。
+  scroll->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral(
+      "QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }"
+      "QScrollBar:horizontal { height: {spacing.xs}px; }")));
   scroll->setWidget(chips);
-  scroll->setFixedHeight(chips->sizeHint().height() + scroll->horizontalScrollBar()->sizeHint().height());
+  scroll->setFixedHeight(chips->sizeHint().height() + PaleoTheme::tokens().spacingXs);
   return scroll;
+}
+
+// 地震层位是地层「界限」，不是地层单元（用户裁决 2026-10-30）：画布上方不再
+// 默认铺开整行层位 chip。chip 条收进「界限」下拉弹层——仍是界限查看/编辑时
+// 切换当前界限的入口（与定位器 Ctrl+K 同口径），层段分析一律走下方
+// SubIntervalSelectorBar（父单元 + S1–S4）。弹层是按钮的子对象，
+// findChild<HorizonChipBar*>() 的重建/放空接线不受影响。
+QToolButton *makeBoundaryPicker(HorizonChipBar *chips, SelectionContext *selection, QWidget *parent)
+{
+  auto *btn = new QToolButton(parent);
+  btn->setObjectName(QStringLiteral("horizonBoundaryButton"));
+  btn->setAutoRaise(true);
+  btn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  btn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
+  btn->setIconSize(PaleoIcons::toolbarSize());
+  btn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed); // 窄画布也完整显示当前界限名
+  btn->setAccessibleName(PaleoMainWindow::tr("界限切换"));
+  btn->setToolTip(PaleoMainWindow::tr("切换当前地层界限（地震层位是地层界限，不是地层单元）。"
+                                      "用于界限查看/编辑；层段分析请用下方父单元与 S1–S4。"));
+  auto *popup = new QFrame(btn, Qt::Popup);
+  popup->setObjectName(QStringLiteral("horizonBoundaryPopup"));
+  popup->setFrameShape(QFrame::StyledPanel);
+  auto *lay = new QHBoxLayout(popup);
+  const int pad = PaleoTheme::tokens().spacingXs;
+  lay->setContentsMargins(pad, pad, pad, pad);
+  lay->addWidget(wrapHorizonChipsInScroll(chips, popup));
+  const auto refresh = [btn, selection] {
+    const QString h = selection ? selection->activeHorizon() : QString();
+    btn->setText(h.isEmpty() ? PaleoMainWindow::tr("界限") : PaleoMainWindow::tr("界限：%1").arg(h));
+  };
+  refresh();
+  if (selection)
+    QObject::connect(selection, &SelectionContext::activeHorizonChanged, btn, [refresh, popup](const QString &) {
+      refresh();
+      popup->hide();
+    });
+  // 编辑中拒切界限：收起弹层，原因由壳侧另行落状态栏（见 buildCenterArea）。
+  QObject::connect(chips, &HorizonChipBar::horizonSwitchRefused, popup, [popup](const QString &) {
+    popup->hide();
+  });
+  QObject::connect(btn, &QToolButton::clicked, btn, [btn, popup] {
+    popup->adjustSize();
+    popup->move(btn->mapToGlobal(QPoint(0, btn->height())));
+    popup->show();
+  });
+  return btn;
+}
+
+void installSubIntervalSelectorBar(PaleoMainWindow *mw, SelectionContext *selection,
+                                   const QStringList &boundaries, QWidget *canvasPane,
+                                   QVBoxLayout *canvasLay, QWidget *boundaryPicker)
+{
+  auto *unitBar = new SubIntervalSelectorBar(selection, canvasPane);
+  unitBar->setObjectName(QStringLiteral("subIntervalSelectorBar"));
+  // 初始无工区路径时先草稿；工程打开后再 reloadFromProject。
+  unitBar->reloadFromBoundaries(boundaries);
+  QObject::connect(unitBar, &SubIntervalSelectorBar::readinessMessage, mw,
+                   [mw](const QString &msg) {
+                     if (mw->statusBar())
+                       mw->statusBar()->showMessage(msg, 8000);
+                   });
+  QObject::connect(unitBar, &SubIntervalSelectorBar::unitSelectionCommitted, mw,
+                   [mw](const paleo::strat::UnitSelection &u) {
+                     if (mw->statusBar() && u.isValid())
+                       mw->statusBar()->showMessage(
+                           PaleoMainWindow::tr("分析层段：%1").arg(u.displayName), 4000);
+                   });
+  PaleoIcons::applyCommandIcons(unitBar);
+  unitBar->insertLeadingWidget(boundaryPicker); // 「界限」入口并入本条，顶部只剩一行
+  canvasLay->addWidget(unitBar);
 }
 } // namespace
 
@@ -202,34 +279,20 @@ void PaleoMainWindow::buildCenterArea()
   auto *canvasLay = new QVBoxLayout(canvasPane);
   canvasLay->setContentsMargins(0, 0, 0, 0);
   canvasLay->setSpacing(0);
-  // 层位 chip 条：ribbon 之下、画布之上（DESIGN.md 结构层）。切换 =
-  // activeHorizon + 懒加载。
-  auto *chipsRow = new QWidget(canvasPane);
-  chipsRow->setObjectName(QStringLiteral("horizonChipRow"));
-  auto *chipsLay = new QHBoxLayout(chipsRow);
-  chipsLay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingXs);
-  auto *chips = new HorizonChipBar(m_selection, m_layerSvc, chipsRow);
+  // 界限入口：ribbon 之下、画布之上，并入层段分析条最左端（不再单独一行）。
+  // 界限 chip 收进「界限」下拉（见 makeBoundaryPicker）；切换 = activeHorizon + 懒加载。
+  auto *chips = new HorizonChipBar(m_selection, m_layerSvc, canvasPane);
   chips->setObjectName(QStringLiteral("horizonChips"));
-  chips->setAccessibleName(tr("层位切换"));
-  // C2：编辑中拒切层位的原因此前无人接（信号发出去就丢了）——落状态栏。
+  chips->setAccessibleName(tr("界限切换"));
+  // C2：编辑中拒切界限的原因此前无人接（信号发出去就丢了）——落状态栏。
   connect(chips, &HorizonChipBar::horizonSwitchRefused, this,
           [this](const QString &reason) {
             if (statusBar())
               statusBar()->showMessage(reason, 8000);
           });
-  chipsLay->addWidget(wrapHorizonChipsInScroll(chips, chipsRow), 1);
-  // 方向35：多期演化动览——步进序 = mappingHorizons()，定格导出为 intent
-  //（壳侧在 attachMappingExport 接画布抓帧与 OUTPUT 资产登记）。
-  auto *player = new EvolutionPlayerPanel(m_selection, m_layerSvc, chipsRow);
-  player->setObjectName(QStringLiteral("evolutionPlayer"));
-  player->setAccessibleName(tr("演化动览"));
-  connect(player, &EvolutionPlayerPanel::horizonSwitchRefused, this,
-          [this](const QString &reason) {
-            if (statusBar())
-              statusBar()->showMessage(reason, 8000);
-          });
-  chipsLay->addWidget(player);
-  canvasLay->addWidget(chipsRow);
+  auto *boundaryPicker = makeBoundaryPicker(chips, m_selection, canvasPane);
+  installSubIntervalSelectorBar(this, m_selection, mappingHorizons(), canvasPane, canvasLay,
+                                boundaryPicker);
   if (m_canvasCtl)
   {
     QgsMapCanvas *canvas = m_canvasCtl->canvas();
@@ -659,6 +722,11 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
   m_stratigraphyPage = new StratigraphyPage(m_stratigraphy, m_workspaceStack);
   connect(m_stratigraphy, &StratigraphyWorkflow::classificationChanged, this, [this](const QStringList &horizons) {
     if (auto *chips = findChild<HorizonChipBar *>()) chips->reloadHorizons();
+    if (auto *unit = findChild<SubIntervalSelectorBar *>()) {
+      const QString dir = m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
+      unit->reloadFromProject(dir, horizons);
+    }
+    // horizonCombo：历史兼容刷新名单；分析身份走 SubIntervalSelectorBar → UnitSelection。
     for (auto *combo : findChildren<QComboBox *>(QStringLiteral("horizonCombo"))) {
       const auto selected = combo->currentText(); combo->clear(); combo->addItems(horizons);
       if (horizons.contains(selected)) combo->setCurrentText(selected);
@@ -671,10 +739,15 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
   m_workspaceStack->addWidget(m_stratigraphyPage);
   if (m_projectSvc) {
     connect(m_projectSvc, &QgisProjectService::projectOpened, this, [this](const QString &path) {
-      m_stratigraphy->setProject(QFileInfo(path).absolutePath(), m_projectSvc->isReadOnly());
+      const QString dir = QFileInfo(path).absolutePath();
+      m_stratigraphy->setProject(dir, m_projectSvc->isReadOnly());
+      if (auto *unit = findChild<SubIntervalSelectorBar *>())
+        unit->reloadFromProject(dir, {});
     });
     connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this] {
       m_stratigraphy->setProject({}, false);
+      if (auto *unit = findChild<SubIntervalSelectorBar *>())
+        unit->reloadFromBoundaries({});
       QSignalBlocker blocker(m_visualizationTabs);
       while (m_visualizationTabs->count()) m_visualizationTabs->removeTab(0);
     });

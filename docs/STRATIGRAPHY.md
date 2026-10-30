@@ -42,3 +42,7 @@ QGIS 作为工程常驻的中央地图视图。Ribbon 选择保留当前可视�
 
 算法定义见 [Data_service 算法说明](../vendor/Data_service/docs/stratigraphy-algorithms.md)，
 接入与验证记录见 [版本实现记录](progress/facies-stratigraphy-20261029.md)。
+
+## 四子层段体系
+
+界面（T70 等）不是地层单元；相邻界面构成父单元、每个父单元 S1–S4。E12（T70–T72）等恩平算法分段保持不变，不能改名为单元。详见 `docs/STRATIGRAPHIC_SUBINTERVALS.md`。

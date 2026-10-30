@@ -35,6 +35,7 @@ class QBoxLayout;
 
 class PaleoTaskService; // F2：两段式 XML 任务池（全局作用域——勿入 WellComposite）
 class WellFaciesWorkflow;
+class SelectionContext;
 
 namespace WellComposite
 {
@@ -53,7 +54,10 @@ public:
   // 组装根注入功能层；面板只发意图、接收可用性与绘图数据。
   using FaciesWorkflowFactory = std::function<WellFaciesWorkflow *(QObject *)>;
   static void setFaciesWorkflowFactory(FaciesWorkflowFactory factory);
+  // 组装根注入层段分析选择（只读跟随 activeUnit；可空）。
+  static void setSelectionContextProvider(SelectionContext *selection);
   void bindFaciesWorkflow(WellFaciesWorkflow *workflow);
+  void bindSelectionContext(SelectionContext *selection);
   void showFaciesPrediction(const WellFaciesResult &result);
   void showWellAttributes(const ComprehensiveWellData &data);
 
@@ -202,6 +206,8 @@ private slots:
 private:
   void clearFaciesPrediction();
   void setupUi();
+  void setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
+                        const std::function<QString()> &themedBtnStyle);
   void setupTracksFromData(const ComprehensiveWellData &data);
   // F2：已解析数据的 GUI 线程装配（同步/异步路径共用；不碰文件）。
   void applyComprehensiveData(const ComprehensiveWellData &data, const QString &xmlPath, bool reference = true);
@@ -267,6 +273,8 @@ private:
   QToolButton *m_btnFaciesService = nullptr, *m_btnRefreshFacies = nullptr, *m_btnShowFacies = nullptr;
   QComboBox *m_faciesModel = nullptr;
   QLabel *m_faciesStatus = nullptr;
+  QLabel *m_analysisUnitLabel = nullptr;
+  QPointer<SelectionContext> m_selectionContext;
   QPointer<WellFaciesWorkflow> m_faciesWorkflow;
   QString m_faciesPlan; // 逐地层组预测计划摘要（功能层给，面板只渲染）
   bool m_faciesReady = false;

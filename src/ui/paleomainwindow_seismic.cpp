@@ -11,7 +11,6 @@
 #include "datapreview/datapreviewtabs.h"
 #include "decorations/paleodecorations.h"
 #include "edittools/editingtoolbar.h"
-#include "evolution/evolutionplayerpanel.h" // FD-001：工程打开重灌演化动览帧表
 #include "horizonchipbar.h"
 #include "layout/mapbookcontroller.h" // #148：工程关闭时 resetProject
 #include "layout/mapbookpanel.h"

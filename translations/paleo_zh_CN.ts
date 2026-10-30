@@ -1859,6 +1859,16 @@
 <context>
     <name>ConstraintPage</name>
     <message>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="1"/>
+        <source>[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。</source>
+        <translation>[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="1"/>
+        <source>&lt;b&gt;层位（legacy）&lt;/b&gt;&lt;p&gt;旧工程按单一界面名取输入。启用层段分析后，输入仍取父单元上界面，成果写入对应子层段。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;层位（legacy）&lt;/b&gt;&lt;p&gt;旧工程按单一界面名取输入。启用层段分析后，输入仍取父单元上界面，成果写入对应子层段。&lt;/p&gt;</translation>
+    </message>
+    <message>
         <source>层位</source>
         <translation type="vanished">层位</translation>
     </message>
@@ -3877,6 +3887,16 @@
         <location filename="../src/ui/pages/constraintpage_defaults.cpp" line="64"/>
         <source>按有效井值自动推荐值域与等值线间距，默认参数即可成图。</source>
         <translation>按有效井值自动推荐值域与等值线间距，默认参数即可成图。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_generate.cpp" line="1"/>
+        <source>输入：请先在顶部层段选择器选定子层段；层位下拉不可驱动分析</source>
+        <translation>输入：请先在顶部层段选择器选定子层段；层位下拉不可驱动分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_generate.cpp" line="1"/>
+        <source>请先在顶部层段选择器选定子层段；层位下拉不可驱动分析。</source>
+        <translation>请先在顶部层段选择器选定子层段；层位下拉不可驱动分析。</translation>
     </message>
 </context>
 <context>
@@ -19996,6 +20016,46 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoMainWindow</name>
     <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>请先在画布层段分析条选择具体子层段（S1–S4），再发布层段综合</source>
+        <translation>请先在画布层段分析条选择具体子层段（S1–S4），再发布层段综合</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>工程尚无 Data Service 工区，无法发布地震相绑定</source>
+        <translation>工程尚无 Data Service 工区，无法发布地震相绑定</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>请填写至少一行切片投票（相码,权重）</source>
+        <translation>请填写至少一行切片投票（相码,权重）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>层段综合发布失败：%1</source>
+        <translation>层段综合发布失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>已发布层段综合：相码 %1，覆盖率 %2（%3）%4</source>
+        <translation>已发布层段综合：相码 %1，覆盖率 %2（%3）%4</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>；并已登记切片绑定</source>
+        <translation>；并已登记切片绑定</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>预测已发布；地震相切片已绑定 Data Service</source>
+        <translation>预测已发布；地震相切片已绑定 Data Service</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>预测已发布；切片 DS 绑定跳过：%1</source>
+        <translation>预测已发布；切片 DS 绑定跳过：%1</translation>
+    </message>
+    <message>
         <location filename="../src/ui/paleomainwindow_internal.h" line="46"/>
         <source>数据管理</source>
         <translation>数据管理</translation>
@@ -20098,11 +20158,6 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/paleomainwindow_docks.cpp" line="196"/>
         <source>层位切换</source>
         <translation>层位切换</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="208"/>
-        <source>演化动览</source>
-        <translation>演化动览</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_docks.cpp" line="232"/>
@@ -21535,11 +21590,6 @@ PDF：%3
         <translation>地质图正在后台导出，可在任务中心查看进度或取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="379"/>
-        <source>演化帧正在后台导出，可在任务中心查看</source>
-        <translation>演化帧正在后台导出，可在任务中心查看</translation>
-    </message>
-    <message>
         <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="412"/>
         <source>正在保存成果快照，可在任务中心查看进度或取消</source>
         <translation>正在保存成果快照，可在任务中心查看进度或取消</translation>
@@ -21602,31 +21652,12 @@ SHA-256：%2</source>
 SHA-256：%2</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="346"/>
-        <source>动览尚未定格到任何层位</source>
-        <translation>动览尚未定格到任何层位</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="351"/>
-        <source>画布不可用，无法抓帧</source>
-        <translation>画布不可用，无法抓帧</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="359"/>
-        <source>未打开工程数据目录，演化帧无法登记为导出资产</source>
-        <translation>未打开工程数据目录，演化帧无法登记为导出资产</translation>
-    </message>
-    <message>
         <source>演化帧抓取失败</source>
         <translation type="vanished">演化帧抓取失败</translation>
     </message>
     <message>
         <source>演化帧资产登记失败</source>
         <translation type="vanished">演化帧资产登记失败</translation>
-    </message>
-    <message>
-        <source>演化帧已登记：%1</source>
-        <translation type="vanished">演化帧已登记：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="405"/>
@@ -23229,6 +23260,55 @@ SHA-256：%2</translation>
         <source>请先保存编辑，再输出图件。</source>
         <translation>请先保存编辑，再输出图件。</translation>
     </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_constraint.cpp" line="1"/>
+        <source>分析须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</source>
+        <translation>分析须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="1"/>
+        <source>厚度链须先在顶部层段选择器选定子层段（本阶段标定目标 %1）</source>
+        <translation>厚度链须先在顶部层段选择器选定子层段（本阶段标定目标 %1）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_compose.cpp" line="1"/>
+        <source>编图合成须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</source>
+        <translation>编图合成须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_compose.cpp" line="1"/>
+        <source>相多边形须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</source>
+        <translation>相多边形须先在顶部层段选择器选定子层段；层位下拉不可驱动分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_compose.cpp" line="1"/>
+        <source>合成编图失败，请检查所选图层与当前层段</source>
+        <translation>合成编图失败，请检查所选图层与当前层段</translation>
+    </message>
+    <message>
+        <source>切换当前地层界限（地震层位是地层界限，不是地层单元）。用于界限查看/编辑；层段分析请用下方父单元与 S1–S4。</source>
+        <translation>切换当前地层界限（地震层位是地层界限，不是地层单元）。用于界限查看/编辑；层段分析请用下方父单元与 S1–S4。</translation>
+    </message>
+    <message>
+        <source>子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析按稳定子层段 ID 归属，不拆分界限名。</source>
+        <translation>子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析按稳定子层段 ID 归属，不拆分界限名。</translation>
+    </message>
+    <message>
+        <source>层段分析模式：选择方案/修订、父单元与 S1–S4；与「界限」切换（地震层位 = 地层界限，非地层单元）独立，不切换地图图层或中断编辑。</source>
+        <translation>层段分析模式：选择方案/修订、父单元与 S1–S4；与「界限」切换（地震层位 = 地层界限，非地层单元）独立，不切换地图图层或中断编辑。</translation>
+    </message>
+    <message>
+        <source>父层间单元（相邻两条界限，如 T70–T71）。展开「状态」可查看四个子层段的井出现与成果红绿灯。</source>
+        <translation>父层间单元（相邻两条界限，如 T70–T71）。展开「状态」可查看四个子层段的井出现与成果红绿灯。</translation>
+    </message>
+    <message>
+        <source>界限切换</source>
+        <translation>界限切换</translation>
+    </message>
+    <message>
+        <source>界限：%1</source>
+        <translation>界限：%1</translation>
+    </message>
 </context>
 <context>
     <name>PaleoMapBookController</name>
@@ -24434,6 +24514,46 @@ SHA-256：%2</translation>
 <context>
     <name>PaleoWhatsThis</name>
     <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>地震相范围：Slice=切片预测；Interval=子层段掩膜综合。二者分列，禁止切片冒充整段。</source>
+        <translation>地震相范围：Slice=切片预测；Interval=子层段掩膜综合。二者分列，禁止切片冒充整段。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>Interval 最低覆盖率；低于阈值拒绝发布层段综合。</source>
+        <translation>Interval 最低覆盖率；低于阈值拒绝发布层段综合。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>切片投票列表（相码,权重），供切片→层段聚合。</source>
+        <translation>切片投票列表（相码,权重），供切片→层段聚合。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>将切片投票按 weighted_mode 聚合并写入 Data Service Interval 绑定。</source>
+        <translation>将切片投票按 weighted_mode 聚合并写入 Data Service Interval 绑定。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>当前分析层段（UnitSelection）。测井相深度窗与成果身份跟随画布层段分析条；本处只读。</source>
+        <translation>当前分析层段（UnitSelection）。测井相深度窗与成果身份跟随画布层段分析条；本处只读。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>测井相网络模型版本。层段身份由分析层段决定，不要把本下拉当作层位选择。</source>
+        <translation>测井相网络模型版本。层段身份由分析层段决定，不要把本下拉当作层位选择。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId。</source>
+        <translation>按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>历史层位下拉（兼容）。层段分析优先用画布父单元→S1–S4；成果身份为 SubIntervalId。</source>
+        <translation>历史层位下拉（兼容）。层段分析优先用画布父单元→S1–S4；成果身份为 SubIntervalId。</translation>
+    </message>
+    <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="30"/>
         <source>工作流页签：按数据管理、地层对比、智能预测、单因素图、智能编图、验证的顺序切换六个工作页。</source>
         <translation>工作流页签：按数据管理、地层对比、智能预测、单因素图、智能编图、验证的顺序切换六个工作页。</translation>
@@ -24465,8 +24585,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="36"/>
-        <source>层位切换条：点击层位切换当前层位，地图与各页随之刷新；有图层正在编辑时会拒绝切换。</source>
-        <translation>层位切换条：点击层位切换当前层位，地图与各页随之刷新；有图层正在编辑时会拒绝切换。</translation>
+        <source>界限切换：地震层位是地层界限（不是地层单元）。点击界限切换当前界限，地图与各页随之刷新；有图层正在编辑时会拒绝切换。层段分析请用父单元与 S1–S4。</source>
+        <translation>界限切换：地震层位是地层界限（不是地层单元）。点击界限切换当前界限，地图与各页随之刷新；有图层正在编辑时会拒绝切换。层段分析请用父单元与 S1–S4。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="37"/>
@@ -24589,8 +24709,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="66"/>
-        <source>选择预测类型：沉积相、地震相或测井相。</source>
-        <translation>选择预测类型：沉积相、地震相或测井相。</translation>
+        <source>沉积相 / 地震相 / 测井相。地震相切片预测与层段综合分列；测井相走井面板，砂地比等单因素按子层段深度窗。</source>
+        <translation>沉积相 / 地震相 / 测井相。地震相切片预测与层段综合分列；测井相走井面板，砂地比等单因素按子层段深度窗。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="67"/>
@@ -24599,8 +24719,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="68"/>
-        <source>按当前类型、算法与参数运行预测。</source>
-        <translation>按当前类型、算法与参数运行预测。</translation>
+        <source>按层段分析选择（父单元/S1–S4）或层位下拉运行；成果登记 Data Service，可供编图证据拉取。</source>
+        <translation>按层段分析选择（父单元/S1–S4）或层位下拉运行；成果登记 Data Service，可供编图证据拉取。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="69"/>
@@ -25123,6 +25243,127 @@ SHA-256：%2</translation>
 <context>
     <name>PredictPage</name>
     <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>[legacy] 历史层位下拉（兼容旧工程）。层段分析请用画布父单元→S1–S4；分析路径以 UnitSelection / SubIntervalId 为成果身份，勿依赖本框字符串。</source>
+        <translation>[legacy] 历史层位下拉（兼容旧工程）。层段分析请用画布父单元→S1–S4；分析路径以 UnitSelection / SubIntervalId 为成果身份，勿依赖本框字符串。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>地震相范围</source>
+        <translation>地震相范围</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>时间切片（Slice）</source>
+        <translation>时间切片（Slice）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>层段综合（Interval）</source>
+        <translation>层段综合（Interval）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>Slice=单一切片预测，不得冒充整段；Interval=子层段掩膜内可验证聚合（weighted_mode）。</source>
+        <translation>Slice=单一切片预测，不得冒充整段；Interval=子层段掩膜内可验证聚合（weighted_mode）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>层段综合最低覆盖率</source>
+        <translation>层段综合最低覆盖率</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>Interval 专用：有效权重 / 总权重低于此值则拒绝发布层段综合。</source>
+        <translation>Interval 专用：有效权重 / 总权重低于此值则拒绝发布层段综合。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>切片投票（每行：相码,权重）</source>
+        <translation>切片投票（每行：相码,权重）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>切片投票列表</source>
+        <translation>切片投票列表</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>例如：
+3,10
+3,5
+2,4</source>
+        <translation>例如：
+3,10
+3,5
+2,4</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>掩膜内各时间切片的相分类码与有效样点权重；用于切片→层段聚合发布。</source>
+        <translation>掩膜内各时间切片的相分类码与有效样点权重；用于切片→层段聚合发布。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>同时登记各切片（Slice）绑定</source>
+        <translation>同时登记各切片（Slice）绑定</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>除 Interval 综合外，为每个有效投票再写一条 Slice 绑定（语义分列）。</source>
+        <translation>除 Interval 综合外，为每个有效投票再写一条 Slice 绑定（语义分列）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>发布层段综合到 Data Service</source>
+        <translation>发布层段综合到 Data Service</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>按当前画布分析层段（UnitSelection）将切片投票聚合并写入 DS；需选择 Interval 范围。Slice 范围请用运行预测登记切片成果。</source>
+        <translation>按当前画布分析层段（UnitSelection）将切片投票聚合并写入 DS；需选择 Interval 范围。Slice 范围请用运行预测登记切片成果。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>层段综合发布需要将范围设为「层段综合（Interval）」</source>
+        <translation>层段综合发布需要将范围设为「层段综合（Interval）」</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>沉积相 / 地震相 / 测井相。地震相若仅有时间切片模型，结果标注为「切片预测」，层段综合需可验证聚合，不得把单切片冒充整段。</source>
+        <translation>沉积相 / 地震相 / 测井相。地震相若仅有时间切片模型，结果标注为「切片预测」，层段综合需可验证聚合，不得把单切片冒充整段。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>&lt;b&gt;预测类型&lt;/b&gt;&lt;p&gt;&lt;b&gt;测井相&lt;/b&gt;：按子层段深度窗取测井/岩性，砂地比等单因素可插值分类，成果带 SubIntervalId。&lt;br/&gt;&lt;b&gt;地震相&lt;/b&gt;：按子层段掩膜提取；切片与层段综合分列。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;预测类型&lt;/b&gt;&lt;p&gt;&lt;b&gt;测井相&lt;/b&gt;：按子层段深度窗取测井/岩性，砂地比等单因素可插值分类，成果带 SubIntervalId。&lt;br/&gt;&lt;b&gt;地震相&lt;/b&gt;：按子层段掩膜提取；切片与层段综合分列。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>历史层位下拉（兼容）。层段分析请优先用画布上方的父单元→S1–S4 选择条；运行时以选择条的 SubIntervalId 为成果身份。</source>
+        <translation>历史层位下拉（兼容）。层段分析请优先用画布上方的父单元→S1–S4 选择条；运行时以选择条的 SubIntervalId 为成果身份。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>&lt;b&gt;层位&lt;/b&gt;&lt;p&gt;旧工程按单一界面名取输入栅格。启用层段分析后，输入仍取父单元上界面栅格，井相/地震相/单因素成果写入对应子层段。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;层位&lt;/b&gt;&lt;p&gt;旧工程按单一界面名取输入栅格。启用层段分析后，输入仍取父单元上界面栅格，井相/地震相/单因素成果写入对应子层段。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>按当前层段分析选择（或层位下拉）运行预测；中间与最终结果登记到 Data Service，可供编图证据拉取。</source>
+        <translation>按当前层段分析选择（或层位下拉）运行预测；中间与最终结果登记到 Data Service，可供编图证据拉取。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>&lt;b&gt;运行预测&lt;/b&gt;&lt;p&gt;优先使用画布层段分析条的父单元/S1–S4。砂地比等单因素在子层段深度窗内计算并分类；成果带井 ID、输入版本、解释修订与层段身份。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;运行预测&lt;/b&gt;&lt;p&gt;优先使用画布层段分析条的父单元/S1–S4。砂地比等单因素在子层段深度窗内计算并分类；成果带井 ID、输入版本、解释修订与层段身份。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>测井相预测按井读取曲线、分层并匹配模型，请在测井相预测面板运行；本页用于沉积相 / 地震相。层段分析请用画布父单元→S1–S4；砂地比等单因素在约束页按子层段深度窗提取</source>
+        <translation>测井相预测按井读取曲线、分层并匹配模型，请在测井相预测面板运行；本页用于沉积相 / 地震相。层段分析请用画布父单元→S1–S4；砂地比等单因素在约束页按子层段深度窗提取</translation>
+    </message>
+    <message>
         <location filename="../src/ui/pages/predictpage.cpp" line="63"/>
         <source>预测类型</source>
         <translation>预测类型</translation>
@@ -25379,6 +25620,21 @@ SHA-256：%2</translation>
         <location filename="../src/ui/pages/predictpage.cpp" line="852"/>
         <source>在地图上显示 %1</source>
         <translation>在地图上显示 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>按顶部层段选择器（UnitSelection）运行预测；层位下拉仅 legacy，不可驱动分析。中间与最终结果登记到 Data Service，可供编图证据拉取。</source>
+        <translation>按顶部层段选择器（UnitSelection）运行预测；层位下拉仅 legacy，不可驱动分析。中间与最终结果登记到 Data Service，可供编图证据拉取。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>不可运行：请先在顶部层段选择器选定子层段（S1–S4 或父单元综合）；层位下拉仅 legacy，不可驱动分析</source>
+        <translation>不可运行：请先在顶部层段选择器选定子层段（S1–S4 或父单元综合）；层位下拉仅 legacy，不可驱动分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>可运行：层段 %1 · 算法 %2（输入图层与数据在运行时再次校验）</source>
+        <translation>可运行：层段 %1 · 算法 %2（输入图层与数据在运行时再次校验）</translation>
     </message>
 </context>
 <context>
@@ -34675,16 +34931,6 @@ SHA-256：%2</translation>
         <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="62"/>
         <source>工程已切换，请重新打开导入。</source>
         <translation>工程已切换，请重新打开导入。</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="371"/>
-        <source>演化帧导出已取消或工程已切换</source>
-        <translation>演化帧导出已取消或工程已切换</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_attach_mapping.cpp" line="375"/>
-        <source>演化帧已登记：%1</source>
-        <translation>演化帧已登记：%1</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="41"/>
@@ -50309,6 +50555,457 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="471"/>
         <source>从剖面移除</source>
         <translation>从剖面移除</translation>
+    </message>
+</context>
+ <context>
+    <name>StratSubIntervalRound</name>
+    <message>
+        <source> · 当前选中</source>
+        <translation> · 当前选中</translation>
+    </message>
+    <message>
+        <source> 层段分析</source>
+        <translation> 层段分析</translation>
+    </message>
+    <message>
+        <source>%1：稳定 ID %2%3</source>
+        <translation>%1：稳定 ID %2%3</translation>
+    </message>
+    <message>
+        <source>QGIS 坐标工具：输入或地图拾取点位，选择来源与目标 CRS，执行坐标转换、定位，或复制地图坐标与 WGS84 经纬度。</source>
+        <translation>QGIS 坐标工具：输入或地图拾取点位，选择来源与目标 CRS，执行坐标转换、定位，或复制地图坐标与 WGS84 经纬度。</translation>
+    </message>
+    <message>
+        <source>先在顶部选择层位或层段（本阶段目标 %1）</source>
+        <translation>先在顶部选择层位或层段（本阶段目标 %1）</translation>
+    </message>
+    <message>
+        <source>分析层段：%1</source>
+        <translation>分析层段：%1</translation>
+    </message>
+    <message>
+        <source>分析层段：S%1</source>
+        <translation>分析层段：S%1</translation>
+    </message>
+    <message>
+        <source>分析层段：父单元综合</source>
+        <translation>分析层段：父单元综合</translation>
+    </message>
+    <message>
+        <source>可视化视图</source>
+        <translation>可视化视图</translation>
+    </message>
+    <message>
+        <source>子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析按稳定子层段 ID 归属，不拆分界面名。</source>
+        <translation>子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析按稳定子层段 ID 归属，不拆分界面名。</translation>
+    </message>
+    <message>
+        <source>子层段 S1（自上而下第一段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</source>
+        <translation>子层段 S1（自上而下第一段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</translation>
+    </message>
+    <message>
+        <source>子层段 S2（自上而下第二段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</source>
+        <translation>子层段 S2（自上而下第二段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</translation>
+    </message>
+    <message>
+        <source>子层段 S3（自上而下第三段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</source>
+        <translation>子层段 S3（自上而下第三段）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</translation>
+    </message>
+    <message>
+        <source>子层段 S4（自上而下第四段，含底界）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</source>
+        <translation>子层段 S4（自上而下第四段，含底界）。选中后单因素/编图/相分析按稳定子层段 ID 归属。</translation>
+    </message>
+    <message>
+        <source>尚未加载界面名单——请先打开工程并确认层序界面。</source>
+        <translation>尚未加载界面名单——请先打开工程并确认层序界面。</translation>
+    </message>
+    <message>
+        <source>层段分析</source>
+        <translation>层段分析</translation>
+    </message>
+    <message>
+        <source>层段分析模式标识；与上方界面编辑层位条分工，互不重置对方状态。</source>
+        <translation>层段分析模式标识；与上方界面编辑层位条分工，互不重置对方状态。</translation>
+    </message>
+    <message>
+        <source>层段分析模式的当前父单元/子层段；与界面编辑层位独立，切换不重置地图。</source>
+        <translation>层段分析模式的当前父单元/子层段；与界面编辑层位独立，切换不重置地图。</translation>
+    </message>
+    <message>
+        <source>层段分析模式：选择父单元与 S1–S4 子层段；与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。</source>
+        <translation>层段分析模式：选择父单元与 S1–S4 子层段；与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。</translation>
+    </message>
+    <message>
+        <source>层段分析选择</source>
+        <translation>层段分析选择</translation>
+    </message>
+    <message>
+        <source>层段分析选择：先选父层间单元（如 T70–T71），再选 S1–S4 或综合；各分析页共用同一选择。</source>
+        <translation>层段分析选择：先选父层间单元（如 T70–T71），再选 S1–S4 或综合；各分析页共用同一选择。</translation>
+    </message>
+    <message>
+        <source>展开子层段状态</source>
+        <translation>展开子层段状态</translation>
+    </message>
+    <message>
+        <source>展开查看当前父单元四个子层段的就绪与成果提示。</source>
+        <translation>展开查看当前父单元四个子层段的就绪与成果提示。</translation>
+    </message>
+    <message>
+        <source>展开查看当前父单元四个子层段的稳定 ID 与选中状态。</source>
+        <translation>展开查看当前父单元四个子层段的稳定 ID 与选中状态。</translation>
+    </message>
+    <message>
+        <source>当前分析层段（父单元/S1–S4）；与层位条独立，切换不重置地图或编辑。</source>
+        <translation>当前分析层段（父单元/S1–S4）；与层位条独立，切换不重置地图或编辑。</translation>
+    </message>
+    <message>
+        <source>当前父单元在方案中不存在。</source>
+        <translation>当前父单元在方案中不存在。</translation>
+    </message>
+    <message>
+        <source>当前：%1（综合需各子层段成果齐全）</source>
+        <translation>当前：%1（综合需各子层段成果齐全）</translation>
+    </message>
+    <message>
+        <source>显示界面计算、模板划分与版本保存的状态，以及需复核的来源和约定问题。</source>
+        <translation>显示界面计算、模板划分与版本保存的状态，以及需复核的来源和约定问题。</translation>
+    </message>
+    <message>
+        <source>未加载界面——打开工程后自动按层序界面生成父单元。</source>
+        <translation>未加载界面——打开工程后自动按层序界面生成父单元。</translation>
+    </message>
+    <message>
+        <source>父单元显式综合（厚度加权）。不是任一子层段；缺任一子层段成果时综合结果不可用。</source>
+        <translation>父单元显式综合（厚度加权）。不是任一子层段；缺任一子层段成果时综合结果不可用。</translation>
+    </message>
+    <message>
+        <source>父单元显式综合（厚度加权）；缺任一子层段成果时综合不可用。</source>
+        <translation>父单元显式综合（厚度加权）；缺任一子层段成果时综合不可用。</translation>
+    </message>
+    <message>
+        <source>父层间单元</source>
+        <translation>父层间单元</translation>
+    </message>
+    <message>
+        <source>父层间单元（相邻两条界面，如 T70–T71）。展开后可查看四个子层段的就绪状态。</source>
+        <translation>父层间单元（相邻两条界面，如 T70–T71）。展开后可查看四个子层段的就绪状态。</translation>
+    </message>
+    <message>
+        <source>父层间单元：相邻两条界面构成；展开「状态」可查看四个子层段就绪情况。</source>
+        <translation>父层间单元：相邻两条界面构成；展开「状态」可查看四个子层段就绪情况。</translation>
+    </message>
+    <message>
+        <source>界面不足——至少需要两条相邻界面才能分析层段。</source>
+        <translation>界面不足——至少需要两条相邻界面才能分析层段。</translation>
+    </message>
+    <message>
+        <source>界面不足两条，无法构成父层间单元。请在工程参数中配置层序界面。</source>
+        <translation>界面不足两条，无法构成父层间单元。请在工程参数中配置层序界面。</translation>
+    </message>
+    <message>
+        <source>界面编辑模式的当前层位（上方层位条）。</source>
+        <translation>界面编辑模式的当前层位（上方层位条）。</translation>
+    </message>
+    <message>
+        <source>界面编辑模式的当前层位（上方层位条）；绘制约束与井因子仍按此界面。分析请看「分析层段」。</source>
+        <translation>界面编辑模式的当前层位（上方层位条）；绘制约束与井因子仍按此界面。分析请看「分析层段」。</translation>
+    </message>
+    <message>
+        <source>综合</source>
+        <translation>综合</translation>
+    </message>
+    <message>
+        <source>综合：当前选中（需 S1–S4 齐全才可出综合成果）</source>
+        <translation>综合：当前选中（需 S1–S4 齐全才可出综合成果）</translation>
+    </message>
+    <message>
+        <source>综合：未选中</source>
+        <translation>综合：未选中</translation>
+    </message>
+    <message>
+        <source>该父单元尚未派生完整四子层段，请检查解释方案。</source>
+        <translation>该父单元尚未派生完整四子层段，请检查解释方案。</translation>
+    </message>
+    <message>
+        <source>请先选择父层间单元。</source>
+        <translation>请先选择父层间单元。</translation>
+    </message>
+    <message>
+        <source>请选择父单元与子层段（S1–S4）；界面编辑请用上方层位条。</source>
+        <translation>请选择父单元与子层段（S1–S4）；界面编辑请用上方层位条。</translation>
+    </message>
+    <message>
+        <source>请选择父层间单元。</source>
+        <translation>请选择父层间单元。</translation>
+    </message>
+    <message>
+        <source>选择当前工区中参与对比的井；输入资料可显式指定或由优选方法选择。</source>
+        <translation>选择当前工区中参与对比的井；输入资料可显式指定或由优选方法选择。</translation>
+    </message>
+    <message>
+        <source>鼠标所在位置的坐标：由 QGIS 按工程显示设置格式化；未配准工程显示局部米制网格，已配准工程按显示设置格式化，不冒充经纬度。</source>
+        <translation>鼠标所在位置的坐标：由 QGIS 按工程显示设置格式化；未配准工程显示局部米制网格，已配准工程按显示设置格式化，不冒充经纬度。</translation>
+    </message>
+    <message>
+        <source>（未派生）</source>
+        <translation>（未派生）</translation>
+    </message>
+ </context>
+<context>
+    <name>WellCompositePanel</name>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>当前分析层段</source>
+        <translation>当前分析层段</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>分析层段：未选</source>
+        <translation>分析层段：未选</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>测井相按子层段深度窗提交；请用画布上方父单元→S1–S4 选择条切换。此处只读显示，不改地图编辑层位。</source>
+        <translation>测井相按子层段深度窗提交；请用画布上方父单元→S1–S4 选择条切换。此处只读显示，不改地图编辑层位。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>&lt;b&gt;分析层段&lt;/b&gt;&lt;p&gt;测井相预测归属稳定 SubIntervalId。切换请用画布层段分析条；本标签只反映 SelectionContext::activeUnit。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;分析层段&lt;/b&gt;&lt;p&gt;测井相预测归属稳定 SubIntervalId。切换请用画布层段分析条；本标签只反映 SelectionContext::activeUnit。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>网络测井相模型版本；层段身份由上方分析层段决定，不在此下拉选择界面名。</source>
+        <translation>网络测井相模型版本；层段身份由上方分析层段决定，不在此下拉选择界面名。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>&lt;b&gt;测井相模型&lt;/b&gt;&lt;p&gt;选择服务端模型版本。预测深度窗与成果身份跟随分析层段（UnitSelection），勿把本下拉当作层位选择。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;测井相模型&lt;/b&gt;&lt;p&gt;选择服务端模型版本。预测深度窗与成果身份跟随分析层段（UnitSelection），勿把本下拉当作层位选择。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>&lt;b&gt;预测相&lt;/b&gt;&lt;p&gt;按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId，可供编图证据拉取。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;预测相&lt;/b&gt;&lt;p&gt;按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId，可供编图证据拉取。&lt;/p&gt;</translation>
+    </message>
+</context>
+<context>
+    <name>SubIntervalSelectorBar</name>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>地层方案</source>
+        <translation>地层方案</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>解释修订</source>
+        <translation>解释修订</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>工程草稿</source>
+        <translation>工程草稿</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>（草稿）</source>
+        <translation>（草稿）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>方案 %1 / 修订 %2</source>
+        <translation>方案 %1 / 修订 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>%1 · 请选择父单元与子层段（S1–S4）</source>
+        <translation>%1 · 请选择父单元与子层段（S1–S4）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>%1 · 当前：%2</source>
+        <translation>%1 · 当前：%2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>%1 · 当前：%2（综合需各子层段成果齐全）</source>
+        <translation>%1 · 当前：%2（综合需各子层段成果齐全）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>已加载地层方案「%1」修订 %2</source>
+        <translation>已加载地层方案「%1」修订 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>当前父单元尚未派生四子层段。</source>
+        <translation>当前父单元尚未派生四子层段。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>展开查看当前父单元四个子层段的完整性/可用资料/受影响状态（红绿灯）。</source>
+        <translation>展开查看当前父单元四个子层段的完整性/可用资料/受影响状态（红绿灯）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>地层解释方案。可输入关键字过滤，超多方案时分页；选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。</source>
+        <translation>地层解释方案。可输入关键字过滤，超多方案时分页；选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>方案修订快照。可输入关键字过滤，超多修订时分页；选择后写入 UnitSelection.revision；分析成果按修订对齐。</source>
+        <translation>方案修订快照。可输入关键字过滤，超多修订时分页；选择后写入 UnitSelection.revision；分析成果按修订对齐。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>展开查看四个子层段的完整性/可用资料/受影响状态（红绿灯，接 DS occurrence 与成果绑定）。</source>
+        <translation>展开查看四个子层段的完整性/可用资料/受影响状态（红绿灯，接 DS occurrence 与成果绑定）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>[legacy] 编图厚度链仍跟顶部界面 chip；层段分析请用画布「层段分析」选择器（UnitSelection）。</source>
+        <translation>[legacy] 编图厚度链仍跟顶部界面 chip；层段分析请用画布「层段分析」选择器（UnitSelection）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>[legacy] 按界面 chip 组批导出；层段分析成果请用 UnitSelection / SubIntervalId 归属。</source>
+        <translation>[legacy] 按界面 chip 组批导出；层段分析成果请用 UnitSelection / SubIntervalId 归属。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>[legacy] 历史层位下拉（兼容）。层段分析优先用画布「层段分析」选择器；成果身份为 SubIntervalId / UnitSelection。</source>
+        <translation>[legacy] 历史层位下拉（兼容）。层段分析优先用画布「层段分析」选择器；成果身份为 SubIntervalId / UnitSelection。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>地层解释方案</source>
+        <translation>地层解释方案</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>地层解释方案。可输入关键字过滤；列表超过一页时可翻页。切换后分析选择写入该方案稳定 ID；无提交方案时显示工程草稿。</source>
+        <translation>地层解释方案。可输入关键字过滤；列表超过一页时可翻页。切换后分析选择写入该方案稳定 ID；无提交方案时显示工程草稿。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>&lt;b&gt;地层方案&lt;/b&gt;&lt;p&gt;选择解释方案并写入 UnitSelection.schemeId。输入关键字可过滤；超多方案时分页浏览（每页 %1 条）。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;地层方案&lt;/b&gt;&lt;p&gt;选择解释方案并写入 UnitSelection.schemeId。输入关键字可过滤；超多方案时分页浏览（每页 %1 条）。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>上一页方案</source>
+        <translation>上一页方案</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>下一页方案</source>
+        <translation>下一页方案</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>解释修订快照</source>
+        <translation>解释修订快照</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>方案修订快照（不可变）。可输入关键字过滤；超多修订时分页。选择后 UnitSelection.revision 写入该修订；分析成果按修订对齐。</source>
+        <translation>方案修订快照（不可变）。可输入关键字过滤；超多修订时分页。选择后 UnitSelection.revision 写入该修订；分析成果按修订对齐。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>&lt;b&gt;解释修订&lt;/b&gt;&lt;p&gt;选择修订快照并写入 UnitSelection.revision。输入关键字可按修订号/备注/时间过滤；超过 %1 条时分页。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;解释修订&lt;/b&gt;&lt;p&gt;选择修订快照并写入 UnitSelection.revision。输入关键字可按修订号/备注/时间过滤；超过 %1 条时分页。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>上一页修订</source>
+        <translation>上一页修订</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>下一页修订</source>
+        <translation>下一页修订</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>搜索方案…</source>
+        <translation>搜索方案…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>搜索修订…</source>
+        <translation>搜索修订…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>无匹配方案</source>
+        <translation>无匹配方案</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>无匹配修订</source>
+        <translation>无匹配修订</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>%1/%2页 · 共%3</source>
+        <translation>%1/%2页 · 共%3</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/subintervalselectorbar.cpp" line="1"/>
+        <source>共%1</source>
+        <translation>共%1</translation>
+    </message>
+    <message>
+        <source> · &lt;b&gt;当前&lt;/b&gt;</source>
+        <translation> · &lt;b&gt;当前&lt;/b&gt;</translation>
+    </message>
+    <message>
+        <source>子层段红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。</source>
+        <translation>子层段红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。</translation>
+    </message>
+    <message>
+        <source>尚未加载界限名单——请先打开工程并确认层序界限。</source>
+        <translation>尚未加载界限名单——请先打开工程并确认层序界限。</translation>
+    </message>
+    <message>
+        <source>当前为工程草稿方案，井出现来自界限名单；打开含层段方案的工区后可切换修订。
+红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。</source>
+        <translation>当前为工程草稿方案，井出现来自界限名单；打开含层段方案的工区后可切换修订。
+红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。</translation>
+    </message>
+    <message>
+        <source>未加载界限——打开工程后自动按层序界限生成父单元。</source>
+        <translation>未加载界限——打开工程后自动按层序界限生成父单元。</translation>
+    </message>
+    <message>
+        <source>灰</source>
+        <translation>灰</translation>
+    </message>
+    <message>
+        <source>界限</source>
+        <translation>界限</translation>
+    </message>
+    <message>
+        <source>界限不足——至少需要两条相邻界限才能分析层段。</source>
+        <translation>界限不足——至少需要两条相邻界限才能分析层段。</translation>
+    </message>
+    <message>
+        <source>界限不足两条，无法构成父层间单元。请在工程参数中配置层序界限。</source>
+        <translation>界限不足两条，无法构成父层间单元。请在工程参数中配置层序界限。</translation>
+    </message>
+    <message>
+        <source>红</source>
+        <translation>红</translation>
+    </message>
+    <message>
+        <source>绿</source>
+        <translation>绿</translation>
+    </message>
+    <message>
+        <source>黄</source>
+        <translation>黄</translation>
     </message>
 </context>
 </TS>

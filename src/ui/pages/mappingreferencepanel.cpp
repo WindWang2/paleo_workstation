@@ -16,12 +16,14 @@
 #include <QWheelEvent>
 #include <QKeyEvent>
 #include <QChildEvent>
+#include <QCryptographicHash>
 #include <QLabel>
 #include <QPushButton>
 #include <QMouseEvent>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
+#include <qgsproject.h>
 
 #include <functional>
 #include <memory>
@@ -63,12 +65,17 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   m_empty->setWordWrap(true);
   m_empty->setAlignment(Qt::AlignCenter);
   layout->addWidget(m_empty, 1);
-  m_view = createReferenceView(mainCanvas, project, this);
-  m_view->widget()->setMinimumSize(240, 160);
-  layout->addWidget(m_view->widget(), 1);
-  m_view->widget()->hide();
-  m_decor = new PaleoDecorationManager(canvas());
-  m_decor->setScaleBarEnabled(true);
+  // #746：空视图不再各带一套 canvas/装饰器——容器先占位，首次选证据时
+  // ensureView() 再创建（默认四个视图不再常驻四个 QgsMapCanvas）。
+  m_mainCanvas = mainCanvas;
+  m_project = project;
+  m_viewHost = new QWidget(this);
+  m_viewHost->setObjectName(QStringLiteral("referenceViewHost"));
+  auto *hostLayout = new QVBoxLayout(m_viewHost);
+  hostLayout->setContentsMargins(0, 0, 0, 0);
+  hostLayout->setSpacing(0);
+  layout->addWidget(m_viewHost, 1);
+  m_viewHost->hide();
   connect(m_sources, &QComboBox::currentIndexChanged, this, [this] {
     clearReference();
     updateCaption();
@@ -80,14 +87,30 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   refreshSources();
 }
 
+void MappingReferencePanel::ensureView()
+{
+  if (m_view) return;
+  m_view = createReferenceView(m_mainCanvas, m_project, m_viewHost);
+  m_view->widget()->setMinimumSize(240, 160);
+  m_viewHost->layout()->addWidget(m_view->widget());
+  m_view->widget()->hide();
+  m_decor = new PaleoDecorationManager(canvas());
+  m_decor->setScaleBarEnabled(true);
+  // 创建前已到达的显隐/联动状态补上，避免首个证据不跟随主图。
+  m_view->setLinked(m_linked->isChecked());
+  m_view->setViewActive(m_active);
+  emit viewCreated(m_view->widget());
+}
+
 MappingReferencePanel::~MappingReferencePanel()
 {
+  if (!m_view) return;
   disconnect(m_view->widget(), nullptr, this, nullptr);
   m_view->clearReference();
 }
-QgsMapCanvas *MappingReferencePanel::canvas() const { return m_view->canvas(); }
+QgsMapCanvas *MappingReferencePanel::canvas() const { return m_view ? m_view->canvas() : nullptr; }
 QString MappingReferencePanel::sourceId() const { return m_sources->currentData().toString(); }
-bool MappingReferencePanel::hasReference() const { return m_view->hasReference(); }
+bool MappingReferencePanel::hasReference() const { return m_view && m_view->hasReference(); }
 
 QString MappingReferencePanel::category(const QVariantMap &row)
 {
@@ -157,8 +180,10 @@ void MappingReferencePanel::setReference(QgsMapLayer *layer, const QVariantMap &
 {
   clearReference();
   if (!layer) return;
+  ensureView();
   m_metadata = metadata;
   m_empty->hide();
+  m_viewHost->show();
   m_view->widget()->show();
   m_view->setReference(layer, metadata);
   updateCaption();
@@ -168,9 +193,12 @@ void MappingReferencePanel::setReference(QgsMapLayer *layer, const QVariantMap &
 
 void MappingReferencePanel::clearReference(const QString &message)
 {
-  m_view->clearReference();
+  if (m_view) {
+    m_view->clearReference();
+    m_view->widget()->hide();
+  }
+  if (m_viewHost) m_viewHost->hide();
   m_metadata.clear();
-  m_view->widget()->hide();
   m_empty->setText(message.isEmpty() ? tr("从上方下拉框选择参考证据。\n"
                                          "可选择地震相、测井相、单因素图或参考相图。") : message);
   m_empty->show();
@@ -196,12 +224,13 @@ void MappingReferencePanel::updateCaption()
 
 void MappingReferencePanel::setViewActive(bool active)
 {
-  m_view->setViewActive(active);
+  m_active = active;
+  if (m_view) m_view->setViewActive(active);
 }
 
 void MappingReferencePanel::updateLink()
 {
-  m_view->setLinked(m_linked->isChecked());
+  if (m_view) m_view->setLinked(m_linked->isChecked());
 }
 
 // D-12（full-audit-20261020）：#547 裁决允许关闭最后一个视图——按钮恒可点，
@@ -215,7 +244,16 @@ void MappingReferencePanel::setRemoveHint(bool lastView)
 }
 
 namespace {
-constexpr char kWidthsKey[] = "mappingEvidence/viewWidths";
+// #745：宽度按工程作用域存——旧的全局键让 A 工程的布局影响 B 工程。键里只放
+// 工程文件路径的 SHA1（路径分隔符会污染 QSettings 的层级键）。
+QString widthsKey(QgsProject *project)
+{
+  const QString file = project ? project->fileName() : QString();
+  const QString scope = file.isEmpty()
+      ? QStringLiteral("unscoped")
+      : QString::fromLatin1(QCryptographicHash::hash(file.toUtf8(), QCryptographicHash::Sha1).toHex());
+  return QStringLiteral("mappingEvidence/viewWidths/") + scope;
+}
 
 // 证据视图右缘的拖动手柄：左右拖动即调整其左侧视图宽度。
 class EvidenceResizeHandle : public QWidget
@@ -326,7 +364,7 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   m_scroll->viewport()->installEventFilter(this);
   {
     const QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
-    for (const auto &v : settings.value(QLatin1String(kWidthsKey)).toList()) m_savedWidths << v.toInt();
+    for (const auto &v : settings.value(widthsKey(m_project)).toList()) m_savedWidths << v.toInt();
   }
   connect(add, &QPushButton::clicked, this, [this] { addView(); });
   for (int i = 0; i < kDefaultViewCount; ++i) addView();
@@ -355,6 +393,12 @@ MappingReferencePanel *MappingEvidencePanel::addView()
   connect(view, &MappingReferencePanel::referenceRequested, this, [this, view](const QString &id) {
     emit referenceRequested(view, id);
   });
+  // #746：画布延迟创建，addView 时的子控件快照装不到它——创建后补装过滤器，
+  // 否则滚轮落在 canvas viewport 上不会转成横向滚动。
+  connect(view, &MappingReferencePanel::viewCreated, this, [this](QWidget *created) {
+    created->installEventFilter(this);
+    for (auto *child : created->findChildren<QWidget *>()) child->installEventFilter(this);
+  });
   connect(view, &MappingReferencePanel::removeViewRequested, this, [this, view] { removeView(view); });
   layoutViews();
   QTimer::singleShot(0, view, [this, view] {
@@ -369,6 +413,9 @@ void MappingEvidencePanel::removeView(MappingReferencePanel *view)
   if (index < 0) return;
   m_views.removeAt(index);
   m_widths.remove(view);
+  // #745：宽度按序号存，删视图必须立刻落盘——否则后续视图的宽度依次左移套到
+  // 别的视图上（直到用户下次拖动才纠正）。
+  if (index < m_savedWidths.size()) m_savedWidths.removeAt(index);
   QWidget *handle = m_handles.takeAt(index);
   m_row->removeWidget(handle);
   handle->deleteLater();
@@ -377,6 +424,7 @@ void MappingEvidencePanel::removeView(MappingReferencePanel *view)
   view->hide();
   view->deleteLater();
   layoutViews();
+  saveWidths(); // 用剩余视图重建序号表（已删项不留空洞）
 }
 
 void MappingEvidencePanel::layoutViews()
@@ -460,7 +508,7 @@ void MappingEvidencePanel::saveWidths()
     widths << m_savedWidths.last();
   }
   QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
-  settings.setValue(QLatin1String(kWidthsKey), widths);
+  settings.setValue(widthsKey(m_project), widths);
 }
 
 bool MappingEvidencePanel::eventFilter(QObject *watched, QEvent *event)

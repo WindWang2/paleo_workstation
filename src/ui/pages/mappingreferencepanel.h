@@ -36,20 +36,28 @@ public:
   void clearReference(const QString &message = {});
   void setViewActive(bool active);
   void setRemoveHint(bool lastView); // D-12：#547 允许关最后视图——仅换提示，不改可点性
+  // #746：画布按需创建——首次选证据前返回 nullptr（面板不再为空视图常驻一套
+  // canvas + 装饰器）。调用方须先 setReference()。
   QgsMapCanvas *canvas() const;
 
 signals:
   void referenceRequested(const QString &layerId);
   void removeViewRequested();
   void referenceChanged(const QString &title, const QString &versionId);
+  // #746：画布延迟创建——宿主要在拿到控件后补装滚轮/尺寸过滤器。
+  void viewCreated(QWidget *view);
 
 private:
+  void ensureView();
   void refreshSources();
   void updateCaption();
   void updateLink();
   static QString category(const QVariantMap &row);
   QVariantMap selectedSource() const;
 
+  QgsMapCanvas *m_mainCanvas = nullptr;
+  QgsProject *m_project = nullptr;
+  QWidget *m_viewHost = nullptr; // 画布容器：ensureView() 时才装入控件
   PaleoDecorationManager *m_decor = nullptr;
   ReferenceView *m_view = nullptr;
   QComboBox *m_sources = nullptr;
@@ -59,6 +67,7 @@ private:
   QVariantList m_rows;
   QVariantMap m_metadata;
   QString m_activeHorizon;
+  bool m_active = false;
 };
 
 // 单一停靠面板的内容：内部视图可增减，每个视图独立选择证据。

@@ -57,5 +57,10 @@
 ## 8. 未完成 / 限制
 
 - **本轮已完成**：画布区 `SubIntervalSelectorBar`（父单元→S1–S4/综合）、`SelectionContext::activeUnit` 广播（不重置地图/编辑/布局）、状态栏「分析层段」、whatsThis/图标/tooltip；单因素/井因子/相面派生/厚度链/证据匹配经 `unitselectionbridge` 写入 `UnitSelection` 与 `analysisLayerKey`（成果键）并与 `constraintHorizon`（编辑态界面）分离。
-- **仍待**：预测页/地震相/单井相页内 combo 与 Ribbon 命令全面去掉对 `horizonCombo` 字符串的依赖；编图发布/版本行是否改挂稳定 ID；DS 方案选择器（多方案/修订）UI；时深不明/未确认解释的逐子层段红绿灯需接 DS occurrence 状态。
+- **井相 / 地震相 / 砂地比（本续轮）**：
+  - domain `subintervalfacies`：砂地比分类、等比子层段深度窗、地震相 Slice vs Interval + `weighted_mode` 聚合、证据行（`source_horizon`=SubIntervalId）。
+  - services `subintervalfactors`：井×子层段砂厚/砂地比 → DS `single_factor` / `well_facies` / `seismic_facies` 绑定；`evidenceRowsFromBindings` 按稳定 ID 拉编图证据。
+  - 约束井因子：`UnitSelection.subIndex` 驱动 provisional 深度窗；预测页入口 `bindAnalysis` + 帮助/图标；证据导航 `matchesActiveAnalysis`。
+  - 测试：`sandRatioWellFaciesAndEvidence`（子层段→砂地比→井相→DS→证据；切片≠层段）。
+- **仍待**：测井相井综合面板 / 地震相掩膜提取 UI 全路径发布到 DS；页内 horizonCombo 彻底去字符串语义；编图发布行挂稳定 ID；多方案/修订 UI；子层段红绿灯接 DS occurrence；生产路径在每次单因素提取后自动 `bindSandRatioFactor`（当前 API+测试闭环已通，约束页深度窗已用 SubInterval）。
 - TVD/TVDSS/OWT/TWT 换算沿用现有时深服务；本框架只记录 `depthType`，不做换算。

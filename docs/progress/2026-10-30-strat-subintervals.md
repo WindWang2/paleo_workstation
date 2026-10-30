@@ -31,5 +31,18 @@ flock -x /workspace/audit/fix4/.git/paleo-shared-build-j4.lock \
 
 ### 未完成
 - Ribbon 各业务页内二级选择器与页内 horizonCombo 彻底去字符串语义。
-- 地震相 / 单井相 / 预测页迁移。
+- 测井相井综合面板 / 地震相掩膜提取 UI 全路径自动 bind DS。
 - 多方案与修订版本选择器；子层段时深/解释就绪红绿灯接 DS。
+
+## 续：井相 / 地震相 / 砂地比 → DS → 编图证据（Asia/Shanghai 2026-10-30 16:xx）
+
+### 完成
+- domain：`subintervalfacies`（砂地比分类、provisional 窗、地震 Slice|Interval + weighted_mode、证据行）。
+- services：`subintervalfactors`（砂厚累计、DS bind single_factor/well_facies/seismic_facies、证据列表）。
+- UnitSelection.subIndex；约束井因子按子层段深度窗；预测 `bindAnalysis` + tip/whatsThis/图标；证据导航稳定 ID。
+- 测试：`tst_stratigraphic_subintervals::sandRatioWellFaciesAndEvidence` 通过。
+- 闸门：layering / file_budget / ui_size / ui_invariants / i18n 本轮引入 0；ts 缺失维持 595（既有红）。
+
+### 未完成
+- 生产路径：每次砂地比提取后自动写入 DS；地震相掩膜 UI 与切片聚合发布。
+- 井综合测井相面板 Combo 迁 UnitSelection。

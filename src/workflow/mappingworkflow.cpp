@@ -505,7 +505,14 @@ QVector<ThicknessSample> MappingWorkflow::computeThicknessSamples( const QString
     s.wellId = well.id;
     s.wellName = well.name;
 
-    const QVector<WellTop> tops = m_projectData->topsForMapping( well.id );
+    QString topsError;
+    const QVector<WellTop> tops = m_projectData->topsForMapping( well.id, &topsError );
+    if ( !topsError.isEmpty() )
+    {
+      // #826：模型分层读不出时必须失败，不能拿旧修订/旧文件的厚度继续出图。
+      setError( error, tr( "井 %1 分层读取失败：%2" ).arg( well.name, topsError ) );
+      return {};
+    }
     const WellTop *top = nullptr;
     const WellTop *base = nullptr;
     for ( const WellTop &t : tops )
@@ -977,7 +984,16 @@ computeTimeResiduals(const ProjectDataFacade *projectData,
     row.wellId = well.id;
     row.wellName = well.name;
 
-    const QVector<WellTop> tops = projectData->topsForMapping( well.id );
+    QString topsError;
+    const QVector<WellTop> tops = projectData->topsForMapping( well.id, &topsError );
+    if ( !topsError.isEmpty() )
+    {
+      // #826：读失败不能记成「无分层」——报告里必须区分资料缺失与读取失败。
+      row.reason = QObject::tr( "分层读取失败：%1" ).arg( topsError );
+      MappingSamples::pickSamplePoint( well, nullptr, &row.x, &row.y );
+      rows.append( row );
+      continue;
+    }
     const WellTop *pick = nullptr;
     for ( const WellTop &top : tops )
       if ( top.horizon == horizon )

@@ -197,9 +197,23 @@ MappingTopsPick pickMappingTops(const ProjectDataFacade *facade, DataCatalog *ca
 } // namespace
 
 QVector<WellTop> ProjectDataFacade::topsForMapping(const QString &wellId) const {
+  return topsForMapping(wellId, nullptr);
+}
+
+QVector<WellTop> ProjectDataFacade::topsForMapping(const QString &wellId, QString *error) const {
+  if (error)
+    error->clear();
   if (m_catalog) {
-    const auto tops = stratigraphyModelTops(projectDir(), m_catalog->entityById(wellId).extra.value("areaModelWellId").toLongLong());
-    if (!tops.isEmpty()) return tops;
+    const ModelTopsResult model = readStratigraphyModelTops(
+        projectDir(), m_catalog->entityById(wellId).extra.value("areaModelWellId").toLongLong());
+    if (model.status == ModelTopsStatus::Failed) {
+      // 模型读不出时不回退旧修订/旧 tops：那会让编图、厚度与井预测静默用过期分层。
+      if (error)
+        *error = model.error;
+      return {};
+    }
+    if (!model.tops.isEmpty())
+      return model.tops;
   }
   const MappingTopsPick pick = pickMappingTops(this, m_catalog, wellId);
   if (pick.score > 0)

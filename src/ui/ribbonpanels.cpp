@@ -52,6 +52,19 @@
 // 图件输出 → 版本）、验证（验证 → 联动定位 → 地图 → 发布）。
 // 页面板按钮是状态源：ribbon 动作经 PaleoRibbon::mirror 镜像它们。
 // ---------------------------------------------------------------------------
+namespace {
+// 「矢量编辑」组内 movePanel 会在构建中途同步 doLayout，此后再加的组只置脏、
+// 不落几何（停在 x=0 叠放，直到下一次缩放/滚动）；构建完统一重排一次。
+void relayoutRibbonCategories(SARibbonBar *bar) {
+  bar->updateRibbonGeometry();
+  bar->iterateCategory([](SARibbonCategory *c) {
+    if (auto *lay = qobject_cast<SARibbonCategoryLayout *>(c->layout()))
+      lay->doLayout();
+    return true;
+  });
+}
+} // namespace
+
 void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                                         ConstraintPage *constraint, ComposePage *compose,
                                         ValidatePage *validate, PaleoEditingToolbar *editTb)
@@ -190,8 +203,8 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                              "ribbonIdentifyAction");
   }
   const auto navPanel = [&](SARibbonCategory *cat) {
-    if (!panAct)
-      return;
+    if (!panAct || !cat || cat->findChild<SARibbonPanel *>(QStringLiteral("ribbonNavPanel")))
+      return; // #824 后单因素图/验证并入同一页签：共用组只建一次
     SARibbonPanel *p = panel(cat, tr("地图"), "ribbonNavPanel");
     addLarge(p, panAct);
     addSmall(p, identifyAct);
@@ -411,7 +424,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   }
 
   bar->endUpdate();
-  bar->updateRibbonGeometry();
+  relayoutRibbonCategories(bar);
 }
 
 namespace {
@@ -438,9 +451,12 @@ void addPartitionPanel(SARibbonCategory *category, PaleoEditingToolbar *toolbar)
 void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb,
                                       bool compact)
 {
+  // #824 后单因素图并入「单井相分析」页签：同一页签只挂一个「矢量编辑」组。
+  if (!category || category->findChild<SARibbonPanel *>(QStringLiteral("ribbonEditPanel")))
+    return;
   if (!compact)
     addFaciesDisplayPanel(category);
-  if (!category || !editTb)
+  if (!editTb)
     return;
   SARibbonPanel *p = category->addPanel(tr("矢量编辑"));
   p->setObjectName(QStringLiteral("ribbonEditPanel"));

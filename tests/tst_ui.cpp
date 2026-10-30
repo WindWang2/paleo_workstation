@@ -178,20 +178,42 @@ class TestUiShell : public QObject
     {
       m_win->show();
       QTest::qWait(10);
-      // 起点不限（首启是 startup 页）；Ctrl+4 → 单因素图。
-      QTest::keyClick(m_win, Qt::Key_4, Qt::ControlModifier);
-      QCOMPARE(m_win->currentPage(), QStringLiteral("constraint"));
-      // Ctrl+Tab → 智能编图
-      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
-      QCOMPARE(m_win->currentPage(), QStringLiteral("compose"));
-      // Ctrl+Tab → 验证；再进一格环绕回数据管理
-      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
-      QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
-      QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
-      QCOMPARE(m_win->currentPage(), QStringLiteral("data"));
-      // Ctrl+Shift+Tab 从首页环绕到末页
+      // #824：Ctrl+1..5 只选 Ribbon 工具页签（kRibbonIds 序），不切中央可视化视图。
+      const QString pageBefore = m_win->currentPage();
+      const QStringList ribbonIds = {QStringLiteral("data"), QStringLiteral("correlation"),
+                                     QStringLiteral("predict"), QStringLiteral("seismic"),
+                                     QStringLiteral("compose")};
+      for (int i = 0; i < ribbonIds.size(); ++i)
+      {
+        QTest::keyClick(m_win, Qt::Key(Qt::Key_1 + i), Qt::ControlModifier);
+        SARibbonCategory *expected = m_win->categoryForPage(ribbonIds.at(i));
+        QVERIFY2(expected, qPrintable(ribbonIds.at(i)));
+        QCOMPARE(m_win->ribbonBar()->currentIndex(), m_win->ribbonBar()->categoryIndex(expected));
+        QCOMPARE(m_win->currentPage(), pageBefore);
+      }
+      // Ctrl+Tab / Ctrl+Shift+Tab 在中央可视化视图页签间循环（含首尾环绕），页随页签切换。
+      QTemporaryDir cycleDir;
+      QVERIFY(m_ctx->projectSvc()->createProject(cycleDir.filePath(QStringLiteral("cycle.qgz"))));
+      for (const QString &p : {QStringLiteral("data"), QStringLiteral("correlation"), QStringLiteral("compose")})
+        m_win->showPage(p);
+      auto *visuals = m_win->findChild<QTabBar *>(QStringLiteral("visualizationTabs"));
+      QVERIFY(visuals);
+      const int n = visuals->count();
+      QVERIFY2(n >= 3, qPrintable(QString::number(n)));
+      const auto pageOf = [visuals](int i) {
+        return visuals->tabData(i).toMap().value(QStringLiteral("page")).toString();
+      };
+      visuals->setCurrentIndex(0);
+      QCOMPARE(m_win->currentPage(), pageOf(0));
+      for (int step = 1; step <= n; ++step)
+      {
+        QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
+        QCOMPARE(visuals->currentIndex(), step % n);
+        QCOMPARE(m_win->currentPage(), pageOf(step % n));
+      }
       QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier | Qt::ShiftModifier);
-      QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
+      QCOMPARE(visuals->currentIndex(), n - 1);
+      QCOMPARE(m_win->currentPage(), pageOf(n - 1));
       // 密度切换（菜单 action objectName 契约 + 行为等价的公共面）：
       // applyDensity 切档 → QSS padding 档位即时跟随；settings 往返守恒。
       PaleoTheme::applyDensity(PaleoTheme::Density::Compact);
@@ -1252,10 +1274,13 @@ class TestUiShell : public QObject
                                  "ribbonPanel.constraint.result", "ribbonPanel.constraint.more",
                                  "ribbonEditPanel"})
           QVERIFY2(cat->findChild<SARibbonPanel *>(QLatin1String(name)), name);
-        for (const char *name : {"ribbonFaciesDisplayPanel",
-                                 "ribbonNavPanel", "ribbonPanel.constraint.correlation",
+        // #824：单因素图命令并入「单井相分析」页签（与井预测共用），共用组各只出现一次，
+        // 单因素图专属的连井面板仍不得出现（入口在「更多」菜单）。
+        QCOMPARE(cat, m_win->categoryForPage(QStringLiteral("predict")));
+        for (const char *name : {"ribbonFaciesDisplayPanel", "ribbonNavPanel", "ribbonEditPanel",
                                  "ribbonPanel.sections"})
-          QVERIFY2(!cat->findChild<SARibbonPanel *>(QLatin1String(name)), name);
+          QVERIFY2(cat->findChildren<SARibbonPanel *>(QLatin1String(name)).size() <= 1, name);
+        QVERIFY(!cat->findChild<SARibbonPanel *>(QStringLiteral("ribbonPanel.constraint.correlation")));
       }
       // 所有命令仍可达：动作对象在主窗，溢出菜单收纳导航/显示/捕捉撤销。
       for (const char *name : {"ribbonDrawConstraint", "ribbonDrawDirection", "ribbonDrawBreakLine",
@@ -1298,18 +1323,20 @@ class TestUiShell : public QObject
 
       // 编辑命令组只在编图链三页（predict / constraint / compose）的 ribbon 页签中；
       // 数据管理页与验证页无此面板。
-      for (const QString &p : {QStringLiteral("data"), QStringLiteral("validate")})
+      // #824：五个工具页签；验证命令并入「古地理编图」页签。数据管理/地层对比/地震相分析
+      // 页签无编辑面板；单井相分析（含单因素图）与古地理编图（含验证）各恰有一个。
+      for (const QString &p : {QStringLiteral("data"), QStringLiteral("correlation"), QStringLiteral("seismic")})
       {
         SARibbonCategory *cat = m_win->categoryForPage(p);
         QVERIFY(cat);
-        QVERIFY(!cat->findChild<SARibbonPanel *>(QStringLiteral("ribbonEditPanel")));
+        QVERIFY2(!cat->findChild<SARibbonPanel *>(QStringLiteral("ribbonEditPanel")), qPrintable(p));
       }
       for (const QString &p : {QStringLiteral("predict"), QStringLiteral("constraint"),
-                               QStringLiteral("compose")})
+                               QStringLiteral("compose"), QStringLiteral("validate")})
       {
         SARibbonCategory *cat = m_win->categoryForPage(p);
         QVERIFY(cat);
-        QVERIFY(cat->findChild<SARibbonPanel *>(QStringLiteral("ribbonEditPanel")));
+        QCOMPARE(cat->findChildren<SARibbonPanel *>(QStringLiteral("ribbonEditPanel")).size(), 1);
       }
 
       // 活动工具随页停用：借原生 QgsMapToolPan 当活动工具，落数据页后
@@ -1577,21 +1604,25 @@ class TestUiShell : public QObject
     // 3. 预测/单因素/智能编图/验证页处于画布面（index 0：层位 chips + QgsMapCanvas）。
     void ribbonWorkflowCategoriesAndWorkspaceSwitching()
     {
+      // #824：五个工具页签独立于可视化视图；单因素图/验证页的命令分别归「单井相分析」「古地理编图」页签。
       const QStringList pages = {
-        QStringLiteral("data"), QStringLiteral("predict"), QStringLiteral("constraint"),
-        QStringLiteral("compose"), QStringLiteral("validate")
+        QStringLiteral("data"), QStringLiteral("correlation"), QStringLiteral("predict"),
+        QStringLiteral("seismic"), QStringLiteral("compose")
       };
       const QStringList expectedTitles = {
-        QStringLiteral("数据管理"), QStringLiteral("智能预测"), QStringLiteral("单因素图"),
-        QStringLiteral("智能编图"), QStringLiteral("验证")
+        QStringLiteral("数据管理"), QStringLiteral("地层对比"), QStringLiteral("单井相分析"),
+        QStringLiteral("地震相分析"), QStringLiteral("古地理编图")
       };
-
+      SARibbonBar *bar = m_win->ribbonBar();
       for (int i = 0; i < pages.size(); ++i)
       {
         SARibbonCategory *cat = m_win->categoryForPage(pages.at(i));
         QVERIFY2(cat != nullptr, qPrintable("Missing category for page: " + pages.at(i)));
         QCOMPARE(cat->categoryName(), expectedTitles.at(i));
+        QCOMPARE(bar->categoryByIndex(i), cat); // 页签序 = kRibbonIds 序
       }
+      QCOMPARE(m_win->categoryForPage(QStringLiteral("constraint")), m_win->categoryForPage(QStringLiteral("predict")));
+      QCOMPARE(m_win->categoryForPage(QStringLiteral("validate")), m_win->categoryForPage(QStringLiteral("compose")));
       QVERIFY(m_win->categoryForPage(QStringLiteral("nonexistent")) == nullptr);
 
       auto *workspaceStack = m_win->findChild<QStackedWidget *>(QStringLiteral("workspaceStack"));
@@ -2084,7 +2115,16 @@ class TestUiShell : public QObject
       // 验证注入的远端替身——先切到「地震体 → 相栅格（预测服务）」。
       auto *kindBox=page->findChild<QComboBox *>("predictionKind");QVERIFY(kindBox);QVERIFY(kindBox->findData(QStringLiteral("seismic"))>=0);kindBox->setCurrentIndex(kindBox->findData(QStringLiteral("seismic")));
       auto *run=m_win->findChild<QAction *>("ribbonRunPrediction");QVERIFY(run && run->isEnabled());run->trigger();QVERIFY(m_ctx->mappingWorkbench()->busy());QVERIFY(!run->isEnabled());QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->busy(),5000);
-      const auto id=page->selectedLayer();QVERIFY(!id.isEmpty());auto *layer=m_ctx->layerSvc()->layer(id);QVERIFY(layer);QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(layer));QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),layer);
+      // #824：地震相预测成功后自动转面，选中随之落到相面成果（源为本次相栅格）。
+      const auto rasterId=page->selectedLayer();QVERIFY(!rasterId.isEmpty());
+      QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->polygonizeBusy(),60000);
+      const auto autoPoly=page->selectedLayer();QVERIFY(!autoPoly.isEmpty());QVERIFY(autoPoly!=rasterId);
+      QVERIFY(m_ctx->mappingWorkbench()->isFaciesPolygon(autoPoly));
+      QCOMPARE(m_ctx->mappingWorkbench()->versionForLayer(autoPoly).extra.value("evidence").toMap().value("support").toMap().value("source_layer").toString(),rasterId);
+      // 以下沿用相栅格口径（栅格图件、TIF、手动转面链路）：显式选回本次相栅格。
+      auto *autoPolyLayer=m_ctx->layerSvc()->layer(autoPoly);QVERIFY(autoPolyLayer);QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(autoPolyLayer));QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),autoPolyLayer);
+      page->selectLayer(rasterId);QCOMPARE(page->selectedLayer(),rasterId);QVERIFY(page->commandButton("show")->isEnabled());page->commandButton("show")->click();
+      const auto id=rasterId;auto *layer=m_ctx->layerSvc()->layer(id);QVERIFY(layer);QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(layer));QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),layer);
       auto *decor=m_win->findChild<PaleoDecorationManager *>();QVERIFY(decor);QVERIFY(decor->isNorthArrowEnabled());QVERIFY(decor->isScaleBarEnabled());
       // 图例经 legendRefresh（50ms 单发去抖，#528）在 layersChanged 之后才重算——
       // 等去抖落地再断言同一内容，不放宽断言本身。

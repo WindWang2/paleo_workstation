@@ -3,6 +3,8 @@
 #include <QString>
 #include <QStringList>
 #include <QPair>
+#include <QMetaType>
+#include <QVariantMap>
 #include <QVector>
 
 // domain/ — 宿主侧「四子层段」选择与历史标签分类（docs/STRATIGRAPHIC_SUBINTERVALS.md）。
@@ -28,6 +30,10 @@ struct UnitSelection
   QString subIntervalId; // aggregate=false 时必填
   bool aggregate = false; // true = 父单元显式派生综合（不是任何单一子层段）
   QString displayName;   // 仅用于显示，不参与身份
+  // 父单元上下界面名（由方案派生写入，禁止调用方自行拆分显示名）。
+  // 仅作历史图层键桥接（constraints.<top>）；身份仍是 intervalId/subIntervalId。
+  QString topBoundary;
+  QString bottomBoundary;
 
   bool isValid() const
   {
@@ -75,4 +81,14 @@ bool requiresSubInterval( const QString &resultKind );
 // 有序界面 → 父单元（相邻对）。界面名单来自工程参数，不写死任何层位。
 QVector<QPair<QString, QString>> adjacentIntervals( const QStringList &orderedBoundaries );
 
+// 任务参数 / 信号载荷往返（显示名不参与身份；缺字段 → 无效选择）。
+QVariantMap toMap( const UnitSelection &selection );
+UnitSelection fromMap( const QVariantMap &map );
+
+// 分析成果图层键：有效 UnitSelection → layerToken；否则回落 legacyHorizon（旧界面标签）。
+// 调用方不得再自行拆分「T70–T71」字符串。
+QString analysisLayerKey( const UnitSelection &selection, const QString &legacyHorizon = {} );
+
 } // namespace paleo::strat
+
+Q_DECLARE_METATYPE( paleo::strat::UnitSelection )

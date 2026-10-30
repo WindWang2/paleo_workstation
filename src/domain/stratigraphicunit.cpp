@@ -3,6 +3,7 @@
 
 #include <QCryptographicHash>
 #include <QRegularExpression>
+#include <QVariantMap>
 
 namespace paleo::strat
 {
@@ -76,6 +77,53 @@ QVector<QPair<QString, QString>> adjacentIntervals( const QStringList &orderedBo
   for ( int i = 0; i + 1 < orderedBoundaries.size(); ++i )
     out.push_back( { orderedBoundaries.at( i ), orderedBoundaries.at( i + 1 ) } );
   return out;
+}
+
+QVariantMap toMap( const UnitSelection &selection )
+{
+  QVariantMap m;
+  if ( !selection.isValid() )
+    return m;
+  m.insert( QStringLiteral( "schemeId" ), selection.schemeId );
+  m.insert( QStringLiteral( "revision" ), selection.revision );
+  m.insert( QStringLiteral( "intervalId" ), selection.intervalId );
+  if ( !selection.aggregate )
+    m.insert( QStringLiteral( "subIntervalId" ), selection.subIntervalId );
+  m.insert( QStringLiteral( "aggregate" ), selection.aggregate );
+  if ( !selection.displayName.isEmpty() )
+    m.insert( QStringLiteral( "displayName" ), selection.displayName );
+  if ( !selection.topBoundary.isEmpty() )
+    m.insert( QStringLiteral( "topBoundary" ), selection.topBoundary );
+  if ( !selection.bottomBoundary.isEmpty() )
+    m.insert( QStringLiteral( "bottomBoundary" ), selection.bottomBoundary );
+  return m;
+}
+
+UnitSelection fromMap( const QVariantMap &map )
+{
+  UnitSelection s;
+  s.schemeId = map.value( QStringLiteral( "schemeId" ) ).toString();
+  s.revision = map.value( QStringLiteral( "revision" ) ).toString();
+  s.intervalId = map.value( QStringLiteral( "intervalId" ) ).toString();
+  s.subIntervalId = map.value( QStringLiteral( "subIntervalId" ) ).toString();
+  s.aggregate = map.value( QStringLiteral( "aggregate" ) ).toBool();
+  s.displayName = map.value( QStringLiteral( "displayName" ) ).toString();
+  s.topBoundary = map.value( QStringLiteral( "topBoundary" ) ).toString();
+  s.bottomBoundary = map.value( QStringLiteral( "bottomBoundary" ) ).toString();
+  if ( !s.isValid() )
+    return {};
+  return s;
+}
+
+QString analysisLayerKey( const UnitSelection &selection, const QString &legacyHorizon )
+{
+  if ( selection.isValid() )
+  {
+    const QString tok = layerToken( selection );
+    if ( !tok.isEmpty() )
+      return tok;
+  }
+  return legacyHorizon.trimmed();
 }
 
 } // namespace paleo::strat

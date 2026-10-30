@@ -611,8 +611,12 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
        thickness->crs() != project->crs() ) {
     try {
       QgsCoordinateTransform transform(thickness->crs(), project->crs(), project->transformContext());
-      if (!transform.isValid()) return fail(QObject::tr("无法将图件范围转换到工程地图坐标系"));
-      extent = transform.transformBoundingBox(extent);
+      // #822：缺 CRS 的产物被回落成测区 CRS 后，未配准的工程坐标系与之无坐标操作；
+      // 这类产物坐标本就是工程网格米，范围即图面坐标（回落前同口径）。真实 CRS 仍须可转换。
+      const bool fallbackOnGrid = !transform.isValid() && project->crs().type() == Qgis::CrsType::Engineering &&
+          thickness->customProperty(QStringLiteral("paleoCrsProvenance")).toString() == QLatin1String("confirmed_project_crs");
+      if (!transform.isValid() && !fallbackOnGrid) return fail(QObject::tr("无法将图件范围转换到工程地图坐标系"));
+      if (!fallbackOnGrid) extent = transform.transformBoundingBox(extent);
     } catch (const QgsCsException &ex) { return fail(ex.what()); }
   }
 
@@ -630,10 +634,11 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
   map->setId( QStringLiteral( "map" ) );
   map->setLayers( mapLayers );
   map->setCrs(project->crs());
-  map->setExtent( extent );
   layout->addLayoutItem( map );
   map->attemptResize( QgsLayoutSize( 277, 165, Qgis::LayoutUnit::Millimeters ) );
   map->attemptMove( QgsLayoutPoint( 10, 22, Qgis::LayoutUnit::Millimeters ) );
+  map->zoomToExtent( extent ); // 先定尺寸再定范围：零尺寸下 setExtent 会按 0/0 算出 NaN 高度
+
 
   auto *title = new QgsLayoutItemLabel( layout );
   title->setId( QStringLiteral( "title" ) );

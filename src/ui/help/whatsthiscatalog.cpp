@@ -33,7 +33,7 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"PaleoMainWindow", "processingButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "处理算法：按提供者分组列出可用算法，点击后打开该算法的参数对话框。"), nullptr},
     {"PaleoMainWindow", "webServiceButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "显示或隐藏「Web 服务」面板，在应用内打开网页服务地址。"), nullptr},
     {"PaleoMainWindow", "helpMenuButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "帮助菜单：快捷键总表、「这是什么？」模式与关于信息。"), "main.help.shortcuts"},
-    {"PaleoMainWindow", "horizonChips", QT_TRANSLATE_NOOP("PaleoWhatsThis", "层位切换条：点击层位切换当前层位，地图与各页随之刷新；有图层正在编辑时会拒绝切换。"), nullptr},
+    {"PaleoMainWindow", "horizonChips", QT_TRANSLATE_NOOP("PaleoWhatsThis", "界限切换：地震层位是地层界限（不是地层单元）。点击界限切换当前界限，地图与各页随之刷新；有图层正在编辑时会拒绝切换。层段分析请用父单元与 S1–S4。"), nullptr},
     {"PaleoMainWindow", "stopMapToolButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "结束当前地图操作（绘制、编辑、拾取等）；尚未保存的图层编辑会保留。"), nullptr},
     {"PaleoMainWindow", "statusCoords", QT_TRANSLATE_NOOP("PaleoWhatsThis", "鼠标所在位置的坐标：由 QGIS 按工程显示设置格式化；未配准工程显示局部米制网格，已配准工程按显示设置格式化，不冒充经纬度。"), nullptr},
     {"PaleoMainWindow", "statusCoordinateToolsButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "QGIS 坐标工具：输入或地图拾取点位，选择来源与目标 CRS，执行坐标转换、定位，或复制地图坐标与 WGS84 经纬度。"), nullptr},

@@ -573,6 +573,13 @@ class TestUiShell : public QObject
       auto *chips =
           chipsRow->findChild<QWidget *>(QStringLiteral("horizonChips"));
       QVERIFY2(chips, "horizon chips must live on the dedicated action row");
+      // 2026-10-30 用户裁决：地震层位是地层界限而非地层单元——chip 不再默认
+      // 铺在画布上方，收进「界限」下拉弹层（仍是界限切换入口）。
+      auto *boundaryBtn =
+          chipsRow->findChild<QToolButton *>(QStringLiteral("horizonBoundaryButton"));
+      QVERIFY2(boundaryBtn, "boundary picker must replace the always-on chip row");
+      QVERIFY(boundaryBtn->text().startsWith(QStringLiteral("界限")));
+      QVERIFY2(!chips->isVisible(), "horizon chips must be hidden until the boundary picker opens");
     }
 
     // T29「在地图上显示」shell 接线：意图 → 实例化 + zoomToLayer + ~400ms

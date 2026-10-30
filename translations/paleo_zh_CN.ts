@@ -24590,8 +24590,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="36"/>
-        <source>层位切换条：点击层位切换当前层位，地图与各页随之刷新；有图层正在编辑时会拒绝切换。</source>
-        <translation>层位切换条：点击层位切换当前层位，地图与各页随之刷新；有图层正在编辑时会拒绝切换。</translation>
+        <source>界限切换：地震层位是地层界限（不是地层单元）。点击界限切换当前界限，地图与各页随之刷新；有图层正在编辑时会拒绝切换。层段分析请用父单元与 S1–S4。</source>
+        <translation>界限切换：地震层位是地层界限（不是地层单元）。点击界限切换当前界限，地图与各页随之刷新；有图层正在编辑时会拒绝切换。层段分析请用父单元与 S1–S4。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="37"/>

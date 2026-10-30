@@ -34,7 +34,9 @@
 #include "pages/stratigraphypage.h"
 #include "../workflow/stratigraphyworkflow.h"
 #include "../linkage/selectioncontext.h"
+#include <QFrame>
 #include <QTabBar>
+#include <QToolButton>
 #include <QSignalBlocker>
 #include "webviewpanel.h"
 #include "wellsection/wellsectionpanel.h"
@@ -187,6 +189,47 @@ QScrollArea *wrapHorizonChipsInScroll(QWidget *chips, QWidget *parent)
   return scroll;
 }
 
+// 地震层位是地层「界限」，不是地层单元（用户裁决 2026-10-30）：画布上方不再
+// 默认铺开整行层位 chip。chip 条收进「界限」下拉弹层——仍是界限查看/编辑时
+// 切换当前界限的入口（与定位器、演化动览同口径），层段分析一律走下方
+// SubIntervalSelectorBar（父单元 + S1–S4）。弹层是按钮的子对象，
+// findChild<HorizonChipBar*>() 的重建/放空接线不受影响。
+QToolButton *makeBoundaryPicker(QWidget *chips, SelectionContext *selection, QWidget *parent)
+{
+  auto *btn = new QToolButton(parent);
+  btn->setObjectName(QStringLiteral("horizonBoundaryButton"));
+  btn->setAutoRaise(true);
+  btn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  btn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
+  btn->setIconSize(PaleoIcons::toolbarSize());
+  btn->setAccessibleName(PaleoMainWindow::tr("界限切换"));
+  btn->setToolTip(PaleoMainWindow::tr("切换当前地层界限（地震层位是地层界限，不是地层单元）。"
+                                      "用于界限查看/编辑；层段分析请用下方父单元与 S1–S4。"));
+  auto *popup = new QFrame(btn, Qt::Popup);
+  popup->setObjectName(QStringLiteral("horizonBoundaryPopup"));
+  popup->setFrameShape(QFrame::StyledPanel);
+  auto *lay = new QHBoxLayout(popup);
+  const int pad = PaleoTheme::tokens().spacingXs;
+  lay->setContentsMargins(pad, pad, pad, pad);
+  lay->addWidget(wrapHorizonChipsInScroll(chips, popup));
+  const auto refresh = [btn, selection] {
+    const QString h = selection ? selection->activeHorizon() : QString();
+    btn->setText(h.isEmpty() ? PaleoMainWindow::tr("界限") : PaleoMainWindow::tr("界限：%1").arg(h));
+  };
+  refresh();
+  if (selection)
+    QObject::connect(selection, &SelectionContext::activeHorizonChanged, btn, [refresh, popup](const QString &) {
+      refresh();
+      popup->hide();
+    });
+  QObject::connect(btn, &QToolButton::clicked, btn, [btn, popup] {
+    popup->adjustSize();
+    popup->move(btn->mapToGlobal(QPoint(0, btn->height())));
+    popup->show();
+  });
+  return btn;
+}
+
 void installSubIntervalSelectorBar(PaleoMainWindow *mw, SelectionContext *selection,
                                    const QStringList &boundaries, QWidget *canvasPane,
                                    QVBoxLayout *canvasLay)
@@ -231,22 +274,23 @@ void PaleoMainWindow::buildCenterArea()
   auto *canvasLay = new QVBoxLayout(canvasPane);
   canvasLay->setContentsMargins(0, 0, 0, 0);
   canvasLay->setSpacing(0);
-  // 层位 chip 条：ribbon 之下、画布之上（DESIGN.md 结构层）。切换 =
-  // activeHorizon + 懒加载。
+  // 界限/动览行：ribbon 之下、画布之上。界限 chip 收进「界限」下拉（见
+  // makeBoundaryPicker）；切换 = activeHorizon + 懒加载。
   auto *chipsRow = new QWidget(canvasPane);
   chipsRow->setObjectName(QStringLiteral("horizonChipRow"));
   auto *chipsLay = new QHBoxLayout(chipsRow);
   chipsLay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingXs);
   auto *chips = new HorizonChipBar(m_selection, m_layerSvc, chipsRow);
   chips->setObjectName(QStringLiteral("horizonChips"));
-  chips->setAccessibleName(tr("层位切换"));
+  chips->setAccessibleName(tr("界限切换"));
   // C2：编辑中拒切层位的原因此前无人接（信号发出去就丢了）——落状态栏。
   connect(chips, &HorizonChipBar::horizonSwitchRefused, this,
           [this](const QString &reason) {
             if (statusBar())
               statusBar()->showMessage(reason, 8000);
           });
-  chipsLay->addWidget(wrapHorizonChipsInScroll(chips, chipsRow), 1);
+  chipsLay->addWidget(makeBoundaryPicker(chips, m_selection, chipsRow));
+  chipsLay->addStretch(1);
   // 方向35：多期演化动览——步进序 = mappingHorizons()，定格导出为 intent
   //（壳侧在 attachMappingExport 接画布抓帧与 OUTPUT 资产登记）。
   auto *player = new EvolutionPlayerPanel(m_selection, m_layerSvc, chipsRow);

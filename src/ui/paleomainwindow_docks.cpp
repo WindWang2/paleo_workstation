@@ -26,7 +26,6 @@
 #include "horizonchipbar.h"
 #include "subintervalselectorbar.h"
 #include "../domain/mappinghorizons.h"
-#include "evolution/evolutionplayerpanel.h"
 #include "layers/layertreepanel.h"
 #include "../workflow/mappingworkbench.h"
 #include "layers/layerpropertiesdialog.h"
@@ -191,7 +190,7 @@ QScrollArea *wrapHorizonChipsInScroll(QWidget *chips, QWidget *parent)
 
 // 地震层位是地层「界限」，不是地层单元（用户裁决 2026-10-30）：画布上方不再
 // 默认铺开整行层位 chip。chip 条收进「界限」下拉弹层——仍是界限查看/编辑时
-// 切换当前界限的入口（与定位器、演化动览同口径），层段分析一律走下方
+// 切换当前界限的入口（与定位器 Ctrl+K 同口径），层段分析一律走下方
 // SubIntervalSelectorBar（父单元 + S1–S4）。弹层是按钮的子对象，
 // findChild<HorizonChipBar*>() 的重建/放空接线不受影响。
 QToolButton *makeBoundaryPicker(QWidget *chips, SelectionContext *selection, QWidget *parent)
@@ -274,7 +273,7 @@ void PaleoMainWindow::buildCenterArea()
   auto *canvasLay = new QVBoxLayout(canvasPane);
   canvasLay->setContentsMargins(0, 0, 0, 0);
   canvasLay->setSpacing(0);
-  // 界限/动览行：ribbon 之下、画布之上。界限 chip 收进「界限」下拉（见
+  // 界限行：ribbon 之下、画布之上。界限 chip 收进「界限」下拉（见
   // makeBoundaryPicker）；切换 = activeHorizon + 懒加载。
   auto *chipsRow = new QWidget(canvasPane);
   chipsRow->setObjectName(QStringLiteral("horizonChipRow"));
@@ -291,17 +290,6 @@ void PaleoMainWindow::buildCenterArea()
           });
   chipsLay->addWidget(makeBoundaryPicker(chips, m_selection, chipsRow));
   chipsLay->addStretch(1);
-  // 方向35：多期演化动览——步进序 = mappingHorizons()，定格导出为 intent
-  //（壳侧在 attachMappingExport 接画布抓帧与 OUTPUT 资产登记）。
-  auto *player = new EvolutionPlayerPanel(m_selection, m_layerSvc, chipsRow);
-  player->setObjectName(QStringLiteral("evolutionPlayer"));
-  player->setAccessibleName(tr("演化动览"));
-  connect(player, &EvolutionPlayerPanel::horizonSwitchRefused, this,
-          [this](const QString &reason) {
-            if (statusBar())
-              statusBar()->showMessage(reason, 8000);
-          });
-  chipsLay->addWidget(player);
   canvasLay->addWidget(chipsRow);
   installSubIntervalSelectorBar(this, m_selection, mappingHorizons(), canvasPane, canvasLay);
   if (m_canvasCtl)

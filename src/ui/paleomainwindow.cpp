@@ -20,7 +20,6 @@
 #include "datapreview/datapreviewtabs.h"
 #include "decorations/paleodecorations.h"
 #include "edittools/editingtoolbar.h"
-#include "evolution/evolutionplayerpanel.h" // FD-001：工程打开重灌演化动览帧表
 #include "horizonchipbar.h"
 #include "subintervalselectorbar.h"
 #include "../domain/mappinghorizons.h"
@@ -488,8 +487,6 @@ void PaleoMainWindow::onProjectOpened()
     bar->reloadHorizons();
   if (auto *unit = findChild<SubIntervalSelectorBar *>())
     unit->reloadFromBoundaries(mappingHorizons());
-  if (auto *player = findChild<EvolutionPlayerPanel *>()) // FD-001：演化动览帧表随工程词表重灌
-    player->reloadFrames();
   // 同一词表填充预测/单因素页的层位下拉（此前生产链从未填充，页面发出的
   // 意图恒携带空层位）；已选层位原样跟随，未选时下拉给词表首项。
   {

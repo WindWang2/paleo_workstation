@@ -580,6 +580,10 @@ class TestUiShell : public QObject
       QVERIFY2(boundaryBtn, "boundary picker must replace the always-on chip row");
       QVERIFY(boundaryBtn->text().startsWith(QStringLiteral("界限")));
       QVERIFY2(!chips->isVisible(), "horizon chips must be hidden until the boundary picker opens");
+      // 2026-10-30 用户裁决：演化动览（上一期/播放/下一期、定格导出）不再保留在
+      // 主窗 UI；EvolutionPlayerPanel 类与 tst_evolutionplayer 单测保留。
+      QVERIFY2(!m_win->findChild<QWidget *>(QStringLiteral("evolutionPlayer")),
+               "evolution player controls must no longer be mounted in the main window");
     }
 
     // T29「在地图上显示」shell 接线：意图 → 实例化 + zoomToLayer + ~400ms

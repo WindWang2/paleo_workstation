@@ -19,7 +19,6 @@
 #include "../qgis/geologicalmaplayout.h"
 #include "dialogs/geologicalexportdialog.h"
 #include "../workflow/mapversioncontroller.h"
-#include "evolution/evolutionplayerpanel.h"
 #include "layout/layoutexportactions.h"
 #include "layout/mapbookcontroller.h"
 #include "pages/pagepanels.h"
@@ -41,7 +40,6 @@
 #include <memory>
 
 #include "../services/paleotaskservice.h"
-#include <QDateTime>
 #include <QStatusBar>
 #include <QTemporaryFile>
 
@@ -344,56 +342,6 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
     }, &error);
     status(task ? tr("地质图正在后台导出，可在任务中心查看进度或取消") : error);
   });
-
-  // 方向35：演化动览「定格导出」——当前帧（activeHorizon 的画布现状）抓 PNG
-  // 落 catalog OUTPUT 受管资产（PNG 须显式登记为 png，不冒充 pdf）。catalog
-  // 缺席（无工程数据目录）→ 如实拒绝，不落无主文件。
-  if (auto *player = findChild<EvolutionPlayerPanel *>(QStringLiteral("evolutionPlayer")))
-  {
-    connect(player, &EvolutionPlayerPanel::frameExportRequested, this,
-            [this, catalog](const QString &h) {
-              const auto note = [this](const QString &text) {
-                if (statusBar())
-                  statusBar()->showMessage(text, 8000);
-              };
-              if (h.isEmpty())
-              {
-                note(tr("动览尚未定格到任何层位"));
-                return;
-              }
-              if (!m_canvasCtl || !m_canvasCtl->canvas())
-              {
-                note(tr("画布不可用，无法抓帧"));
-                return;
-              }
-              const QString projectDir =
-                  m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
-                               : QString();
-              if (!catalog || projectDir.isEmpty())
-              {
-                note(tr("未打开工程数据目录，演化帧无法登记为导出资产"));
-                return;
-              }
-              const auto image = m_canvasCtl->canvas()->grab().toImage();
-              const auto name = QStringLiteral("frame_%1_%2.png")
-                                    .arg(h)
-                                    .arg(QDateTime::currentMSecsSinceEpoch());
-              QString error;
-              auto *task = startMapFrameExport(
-                  image, m_taskSvc, catalog, projectDir, name, this,
-                  [note](const MapProductExportOutcome &outcome) {
-                    if (outcome.cancelled)
-                      note(QObject::tr("演化帧导出已取消或工程已切换"));
-                    else if (outcome.assetId.isEmpty())
-                      note(outcome.error);
-                    else
-                      note(QObject::tr("演化帧已登记：%1")
-                               .arg(outcome.managedPath));
-                  },
-                  &error);
-              note(task ? tr("演化帧正在后台导出，可在任务中心查看") : error);
-            });
-  }
 
   // 保存版本：commit + 版本号递增（undo 清空在 controller 内，§1223）；
 }

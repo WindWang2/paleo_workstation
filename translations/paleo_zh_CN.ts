@@ -1859,6 +1859,16 @@
 <context>
     <name>ConstraintPage</name>
     <message>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="1"/>
+        <source>[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。</source>
+        <translation>[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage.cpp" line="1"/>
+        <source>&lt;b&gt;层位（legacy）&lt;/b&gt;&lt;p&gt;旧工程按单一界面名取输入。启用层段分析后，输入仍取父单元上界面，成果写入对应子层段。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;层位（legacy）&lt;/b&gt;&lt;p&gt;旧工程按单一界面名取输入。启用层段分析后，输入仍取父单元上界面，成果写入对应子层段。&lt;/p&gt;</translation>
+    </message>
+    <message>
         <source>层位</source>
         <translation type="vanished">层位</translation>
     </message>
@@ -19996,6 +20006,46 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoMainWindow</name>
     <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>请先在画布层段分析条选择具体子层段（S1–S4），再发布层段综合</source>
+        <translation>请先在画布层段分析条选择具体子层段（S1–S4），再发布层段综合</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>工程尚无 Data Service 工区，无法发布地震相绑定</source>
+        <translation>工程尚无 Data Service 工区，无法发布地震相绑定</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>请填写至少一行切片投票（相码,权重）</source>
+        <translation>请填写至少一行切片投票（相码,权重）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>层段综合发布失败：%1</source>
+        <translation>层段综合发布失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>已发布层段综合：相码 %1，覆盖率 %2（%3）%4</source>
+        <translation>已发布层段综合：相码 %1，覆盖率 %2（%3）%4</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>；并已登记切片绑定</source>
+        <translation>；并已登记切片绑定</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>预测已发布；地震相切片已绑定 Data Service</source>
+        <translation>预测已发布；地震相切片已绑定 Data Service</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_predict_seismic.cpp" line="1"/>
+        <source>预测已发布；切片 DS 绑定跳过：%1</source>
+        <translation>预测已发布；切片 DS 绑定跳过：%1</translation>
+    </message>
+    <message>
         <location filename="../src/ui/paleomainwindow_internal.h" line="46"/>
         <source>数据管理</source>
         <translation>数据管理</translation>
@@ -24435,6 +24485,41 @@ SHA-256：%2</translation>
     <name>PaleoWhatsThis</name>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>地震相范围：Slice=切片预测；Interval=子层段掩膜综合。二者分列，禁止切片冒充整段。</source>
+        <translation>地震相范围：Slice=切片预测；Interval=子层段掩膜综合。二者分列，禁止切片冒充整段。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>Interval 最低覆盖率；低于阈值拒绝发布层段综合。</source>
+        <translation>Interval 最低覆盖率；低于阈值拒绝发布层段综合。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>切片投票列表（相码,权重），供切片→层段聚合。</source>
+        <translation>切片投票列表（相码,权重），供切片→层段聚合。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>将切片投票按 weighted_mode 聚合并写入 Data Service Interval 绑定。</source>
+        <translation>将切片投票按 weighted_mode 聚合并写入 Data Service Interval 绑定。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>当前分析层段（UnitSelection）。测井相深度窗与成果身份跟随画布层段分析条；本处只读。</source>
+        <translation>当前分析层段（UnitSelection）。测井相深度窗与成果身份跟随画布层段分析条；本处只读。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>测井相网络模型版本。层段身份由分析层段决定，不要把本下拉当作层位选择。</source>
+        <translation>测井相网络模型版本。层段身份由分析层段决定，不要把本下拉当作层位选择。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
+        <source>按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId。</source>
+        <translation>按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="1"/>
         <source>历史层位下拉（兼容）。层段分析优先用画布父单元→S1–S4；成果身份为 SubIntervalId。</source>
         <translation>历史层位下拉（兼容）。层段分析优先用画布父单元→S1–S4；成果身份为 SubIntervalId。</translation>
     </message>
@@ -25127,6 +25212,92 @@ SHA-256：%2</translation>
 </context>
 <context>
     <name>PredictPage</name>
+    <message>
+        <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
+        <source>[legacy] 历史层位下拉（兼容旧工程）。层段分析请用画布父单元→S1–S4；分析路径以 UnitSelection / SubIntervalId 为成果身份，勿依赖本框字符串。</source>
+        <translation>[legacy] 历史层位下拉（兼容旧工程）。层段分析请用画布父单元→S1–S4；分析路径以 UnitSelection / SubIntervalId 为成果身份，勿依赖本框字符串。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>地震相范围</source>
+        <translation>地震相范围</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>时间切片（Slice）</source>
+        <translation>时间切片（Slice）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>层段综合（Interval）</source>
+        <translation>层段综合（Interval）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>Slice=单一切片预测，不得冒充整段；Interval=子层段掩膜内可验证聚合（weighted_mode）。</source>
+        <translation>Slice=单一切片预测，不得冒充整段；Interval=子层段掩膜内可验证聚合（weighted_mode）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>层段综合最低覆盖率</source>
+        <translation>层段综合最低覆盖率</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>Interval 专用：有效权重 / 总权重低于此值则拒绝发布层段综合。</source>
+        <translation>Interval 专用：有效权重 / 总权重低于此值则拒绝发布层段综合。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>切片投票（每行：相码,权重）</source>
+        <translation>切片投票（每行：相码,权重）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>切片投票列表</source>
+        <translation>切片投票列表</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>例如：
+3,10
+3,5
+2,4</source>
+        <translation>例如：
+3,10
+3,5
+2,4</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>掩膜内各时间切片的相分类码与有效样点权重；用于切片→层段聚合发布。</source>
+        <translation>掩膜内各时间切片的相分类码与有效样点权重；用于切片→层段聚合发布。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>同时登记各切片（Slice）绑定</source>
+        <translation>同时登记各切片（Slice）绑定</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>除 Interval 综合外，为每个有效投票再写一条 Slice 绑定（语义分列）。</source>
+        <translation>除 Interval 综合外，为每个有效投票再写一条 Slice 绑定（语义分列）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>发布层段综合到 Data Service</source>
+        <translation>发布层段综合到 Data Service</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>按当前画布分析层段（UnitSelection）将切片投票聚合并写入 DS；需选择 Interval 范围。Slice 范围请用运行预测登记切片成果。</source>
+        <translation>按当前画布分析层段（UnitSelection）将切片投票聚合并写入 DS；需选择 Interval 范围。Slice 范围请用运行预测登记切片成果。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/predictpage_seismic.cpp" line="1"/>
+        <source>层段综合发布需要将范围设为「层段综合（Interval）」</source>
+        <translation>层段综合发布需要将范围设为「层段综合（Interval）」</translation>
+    </message>
     <message>
         <location filename="../src/ui/pages/predictpage.cpp" line="1"/>
         <source>沉积相 / 地震相 / 测井相。地震相若仅有时间切片模型，结果标注为「切片预测」，层段综合需可验证聚合，不得把单切片冒充整段。</source>
@@ -50546,4 +50717,42 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>（未派生）</translation>
     </message>
  </context>
+<context>
+    <name>WellCompositePanel</name>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>当前分析层段</source>
+        <translation>当前分析层段</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>分析层段：未选</source>
+        <translation>分析层段：未选</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>测井相按子层段深度窗提交；请用画布上方父单元→S1–S4 选择条切换。此处只读显示，不改地图编辑层位。</source>
+        <translation>测井相按子层段深度窗提交；请用画布上方父单元→S1–S4 选择条切换。此处只读显示，不改地图编辑层位。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>&lt;b&gt;分析层段&lt;/b&gt;&lt;p&gt;测井相预测归属稳定 SubIntervalId。切换请用画布层段分析条；本标签只反映 SelectionContext::activeUnit。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;分析层段&lt;/b&gt;&lt;p&gt;测井相预测归属稳定 SubIntervalId。切换请用画布层段分析条；本标签只反映 SelectionContext::activeUnit。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>网络测井相模型版本；层段身份由上方分析层段决定，不在此下拉选择界面名。</source>
+        <translation>网络测井相模型版本；层段身份由上方分析层段决定，不在此下拉选择界面名。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>&lt;b&gt;测井相模型&lt;/b&gt;&lt;p&gt;选择服务端模型版本。预测深度窗与成果身份跟随分析层段（UnitSelection），勿把本下拉当作层位选择。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;测井相模型&lt;/b&gt;&lt;p&gt;选择服务端模型版本。预测深度窗与成果身份跟随分析层段（UnitSelection），勿把本下拉当作层位选择。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="1"/>
+        <source>&lt;b&gt;预测相&lt;/b&gt;&lt;p&gt;按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId，可供编图证据拉取。&lt;/p&gt;</source>
+        <translation>&lt;b&gt;预测相&lt;/b&gt;&lt;p&gt;按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId，可供编图证据拉取。&lt;/p&gt;</translation>
+    </message>
+</context>
 </TS>

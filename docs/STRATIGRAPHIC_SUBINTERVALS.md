@@ -56,5 +56,6 @@
 
 ## 8. 未完成 / 限制
 
-- 五个 Ribbon 页面中的二级选择器 UI、单因素/编图任务调用点从 `horizon` 字符串迁移到 `UnitSelection`、地震相/井震标定 UI 接入，本 PR **未完成**；已提供服务层 API 与测试，调用点迁移需后续逐页完成。
+- **本轮已完成**：画布区 `SubIntervalSelectorBar`（父单元→S1–S4/综合）、`SelectionContext::activeUnit` 广播（不重置地图/编辑/布局）、状态栏「分析层段」、whatsThis/图标/tooltip；单因素/井因子/相面派生/厚度链/证据匹配经 `unitselectionbridge` 写入 `UnitSelection` 与 `analysisLayerKey`（成果键）并与 `constraintHorizon`（编辑态界面）分离。
+- **仍待**：预测页/地震相/单井相页内 combo 与 Ribbon 命令全面去掉对 `horizonCombo` 字符串的依赖；编图发布/版本行是否改挂稳定 ID；DS 方案选择器（多方案/修订）UI；时深不明/未确认解释的逐子层段红绿灯需接 DS occurrence 状态。
 - TVD/TVDSS/OWT/TWT 换算沿用现有时深服务；本框架只记录 `depthType`，不做换算。

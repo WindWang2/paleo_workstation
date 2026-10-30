@@ -10,6 +10,7 @@
 
 class SelectionContext;
 class QComboBox;
+class QHBoxLayout;
 class QLabel;
 class QToolButton;
 
@@ -77,6 +78,9 @@ class SubIntervalSelectorBar : public QWidget
     void applyLoadedScheme( const paleo::data::StratigraphicScheme &scheme, bool broadcast );
     bool loadSelectedScheme( bool broadcast );
     QString readinessText() const;
+    QString statusPanelHtml() const;
+    void buildSubButtonGroup( QWidget *row, QHBoxLayout *lay );
+    void setStatusText( const QString &text );
 
     SelectionContext *m_selection = nullptr;
     QComboBox *m_schemeCombo = nullptr;

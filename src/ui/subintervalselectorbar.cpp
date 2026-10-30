@@ -9,6 +9,7 @@
 
 #include <QComboBox>
 #include <QCompleter>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
@@ -21,20 +22,50 @@ using paleo::strat::kSubIntervalCount;
 
 namespace {
 
-void styleSubButton( QToolButton *btn )
+// 分段按钮组：seg = 0 独立 / 1 首 / 2 中 / 3 尾。相邻段共用一条边框（后段去左边框），
+// 圆角只落在组的外侧，选中态主色实底。颜色/尺寸全部取 ThemeTokens。
+void styleSubButton( QToolButton *btn, int seg = 0 )
 {
-  PaleoTheme::applyThemedStyleSheet( btn, [btn] {
+  PaleoTheme::applyThemedStyleSheet( btn, [btn, seg] {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+    const int r = PaleoTheme::chipRadius( btn->font() );
+    const int rl = ( seg == 0 || seg == 1 ) ? r : 0;
+    const int rr = ( seg == 0 || seg == 3 ) ? r : 0;
+    const QString leftBorder = ( seg == 2 || seg == 3 ) ? QStringLiteral( "border-left: none;" ) : QString();
     return PaleoTheme::metricStyleSheet( QStringLiteral(
-               "QToolButton { border-radius: %6px; padding: {spacing.xs}px {spacing.sm}px;"
-               " background: %1; border: 1px solid %2; color: %3; }"
-               "QToolButton:checked { background: %4; border-color: %4; color: %5; }"
-               "QToolButton:hover:!checked { border-color: %4; }"
+               "QToolButton { padding: 0 {spacing.sm}px; min-height: %8px;"
+               " border-top-left-radius: %6px; border-bottom-left-radius: %6px;"
+               " border-top-right-radius: %9px; border-bottom-right-radius: %9px;"
+               " background: %1; border: 1px solid %2; %10 color: %3; }"
+               "QToolButton:checked { background: %4; border-color: %4; color: %5; font-weight: 600; }"
+               "QToolButton:hover:!checked { background: %11; }"
                "QToolButton:disabled { color: %7; }" ) )
         .arg( t.surface.name(), t.border.name(), t.text.name(), t.primary.name(),
               t.onPrimary.name() )
-        .arg( PaleoTheme::chipRadius( btn->font() ) )
-        .arg( t.textDisabled.name() );
+        .arg( rl )
+        .arg( t.textDisabled.name() )
+        .arg( PaleoIcons::toolbarSize().height() )
+        .arg( rr )
+        .arg( leftBorder, t.surfaceAlt.name() );
+  } );
+}
+
+QFrame *makeGroupSeparator( QWidget *parent )
+{
+  auto *sep = new QFrame( parent );
+  sep->setFrameShape( QFrame::VLine );
+  sep->setFixedWidth( 1 );
+  PaleoTheme::applyThemedStyleSheet( sep, [] {
+    return QStringLiteral( "QFrame { background: %1; border: none; }" )
+        .arg( PaleoTheme::tokens().border.name() );
+  } );
+  return sep;
+}
+
+void styleMutedLabel( QLabel *lab )
+{
+  PaleoTheme::applyThemedStyleSheet( lab, [] {
+    return QStringLiteral( "QLabel { color: %1; }" ).arg( PaleoTheme::tokens().textMuted.name() );
   } );
 }
 
@@ -93,25 +124,28 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   setAccessibleName( tr( "层段分析选择" ) );
 
   auto *root = new QVBoxLayout( this );
-  root->setContentsMargins( 0, 0, 0, 0 );
-  root->setSpacing( PaleoTheme::tokens().spacingXs );
+  // 与上方层位 chip 行同一水平内边距（spacingMd），纵向只留 spacingXs，不额外占高。
+  const PaleoTheme::ThemeTokens &tk = PaleoTheme::tokens();
+  root->setContentsMargins( tk.spacingMd, 0, tk.spacingMd, tk.spacingXs );
+  root->setSpacing( tk.spacingXs );
 
   auto *row = new QWidget( this );
   row->setObjectName( QStringLiteral( "subIntervalSelectorRow" ) );
   auto *lay = new QHBoxLayout( row );
   lay->setContentsMargins( 0, 0, 0, 0 );
-  lay->setSpacing( PaleoTheme::tokens().spacingSm );
+  lay->setSpacing( tk.spacingXs );
 
   m_modeLabel = new QLabel( tr( "层段分析" ), row );
   m_modeLabel->setObjectName( QStringLiteral( "subIntervalModeLabel" ) );
   m_modeLabel->setToolTip( tr( "层段分析模式：选择方案/修订、父单元与 S1–S4；"
                                "与上方「界面编辑」层位条独立，不切换地图图层或中断编辑。" ) );
-  if ( const QIcon ic = PaleoIcons::qgisTheme( QStringLiteral( "mIconPolygonLayer.svg" ) ); !ic.isNull() )
   {
-    m_modeLabel->setPixmap( ic.pixmap( PaleoIcons::toolbarSize() ) );
-    m_modeLabel->setText( tr( " 层段分析" ) );
+    QFont f = m_modeLabel->font();
+    f.setWeight( QFont::DemiBold );
+    m_modeLabel->setFont( f );
   }
   lay->addWidget( m_modeLabel );
+  lay->addWidget( makeGroupSeparator( row ) );
 
   m_schemeIcon = makeIconLabel( row, QStringLiteral( "subIntervalSchemeIcon" ),
                                 QStringLiteral( "mIconPolygonLayer.svg" ),
@@ -126,7 +160,8 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
                                    "输入关键字可过滤；超多方案时分页浏览（每页 %1 条）。"
                                    "</p>" )
                                    .arg( paleo::strat::kSchemeRevisionPageSize ) );
-  m_schemeCombo->setMinimumContentsLength( 8 );
+  m_schemeCombo->setMinimumContentsLength( 10 ); // 可编辑+清除钮占位，留足中文方案名
+  m_schemeCombo->setIconSize( PaleoIcons::toolbarSize() );
   m_schemeCombo->setSizeAdjustPolicy( QComboBox::AdjustToContents );
   enableSearchableCombo( m_schemeCombo );
   connect( m_schemeCombo, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
@@ -168,7 +203,8 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
                                      "输入关键字可按修订号/备注/时间过滤；超过 %1 条时分页。"
                                      "</p>" )
                                      .arg( paleo::strat::kSchemeRevisionPageSize ) );
-  m_revisionCombo->setMinimumContentsLength( 8 );
+  m_revisionCombo->setMinimumContentsLength( 10 );
+  m_revisionCombo->setIconSize( PaleoIcons::toolbarSize() );
   m_revisionCombo->setSizeAdjustPolicy( QComboBox::AdjustToContents );
   enableSearchableCombo( m_revisionCombo );
   connect( m_revisionCombo, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
@@ -197,53 +233,25 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_revisionPageLabel->setVisible( false );
   lay->addWidget( m_revisionPageLabel );
 
+  lay->addWidget( makeGroupSeparator( row ) );
   m_parent = new QComboBox( row );
   m_parent->setObjectName( QStringLiteral( "subIntervalParentCombo" ) );
   m_parent->setAccessibleName( tr( "父层间单元" ) );
   m_parent->setToolTip( tr( "父层间单元（相邻两条界面，如 T70–T71）。"
                             "展开「状态」可查看四个子层段的井出现与成果红绿灯。" ) );
-  m_parent->setMinimumContentsLength( 10 );
+  m_parent->setMinimumContentsLength( 7 );
   m_parent->setSizeAdjustPolicy( QComboBox::AdjustToContents );
   connect( m_parent, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
            &SubIntervalSelectorBar::onParentChanged );
   lay->addWidget( m_parent );
 
-  for ( int i = 1; i <= kSubIntervalCount; ++i )
-  {
-    auto *btn = new QToolButton( row );
-    btn->setObjectName( QStringLiteral( "subIntervalS%1" ).arg( i ) );
-    btn->setText( QStringLiteral( "S%1" ).arg( i ) );
-    btn->setCheckable( true );
-    btn->setToolButtonStyle( Qt::ToolButtonTextBesideIcon );
-    btn->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "mIconRasterLayer.svg" ) ) );
-    btn->setIconSize( PaleoIcons::toolbarSize() );
-    btn->setToolTip( tr( "子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析"
-                         "按稳定子层段 ID 归属，不拆分界面名。" )
-                         .arg( i ) );
-    btn->setStatusTip( tr( "分析层段：S%1" ).arg( i ) );
-    styleSubButton( btn );
-    connect( btn, &QToolButton::clicked, this, [this, i] { onSubClicked( i ); } );
-    m_subs.push_back( btn );
-    lay->addWidget( btn );
-  }
-
-  m_agg = new QToolButton( row );
-  m_agg->setObjectName( QStringLiteral( "subIntervalAggregate" ) );
-  m_agg->setText( tr( "综合" ) );
-  m_agg->setCheckable( true );
-  m_agg->setToolButtonStyle( Qt::ToolButtonTextBesideIcon );
-  m_agg->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "processingAlgorithm.svg" ) ) );
-  m_agg->setIconSize( PaleoIcons::toolbarSize() );
-  m_agg->setToolTip( tr( "父单元显式综合（厚度加权）。不是任一子层段；"
-                         "缺任一子层段成果时综合结果不可用。" ) );
-  m_agg->setStatusTip( tr( "分析层段：父单元综合" ) );
-  styleSubButton( m_agg );
-  connect( m_agg, &QToolButton::clicked, this, [this] { onSubClicked( 0 ); } );
-  lay->addWidget( m_agg );
+  buildSubButtonGroup( row, lay );
+  lay->addWidget( makeGroupSeparator( row ) );
 
   m_expand = new QToolButton( row );
   m_expand->setObjectName( QStringLiteral( "subIntervalExpand" ) );
   m_expand->setCheckable( true );
+  m_expand->setAutoRaise( true );
   m_expand->setToolButtonStyle( Qt::ToolButtonTextBesideIcon );
   m_expand->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "mActionIdentify.svg" ) ) );
   m_expand->setIconSize( PaleoIcons::toolbarSize() );
@@ -260,16 +268,27 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_status = new QLabel( row );
   m_status->setObjectName( QStringLiteral( "subIntervalStatus" ) );
   m_status->setTextInteractionFlags( Qt::TextSelectableByMouse );
-  lay->addWidget( m_status, 1 );
+  styleMutedLabel( m_status );
+  lay->addWidget( m_status );
+  lay->addStretch( 1 );
 
   root->addWidget( row );
 
   m_expandStatus = new QLabel( this );
   m_expandStatus->setObjectName( QStringLiteral( "subIntervalExpandStatus" ) );
-  m_expandStatus->setWordWrap( true );
+  m_expandStatus->setWordWrap( false );
+  m_expandStatus->setTextFormat( Qt::RichText );
+  m_expandStatus->setSizePolicy( QSizePolicy::Maximum, QSizePolicy::Maximum );
+  PaleoTheme::applyThemedStyleSheet( m_expandStatus, [] {
+    const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+    return PaleoTheme::metricStyleSheet( QStringLiteral(
+               "QLabel { background: %1; border: 1px solid %2; border-radius: {rounded.sm}px;"
+               " padding: {spacing.xs}px {spacing.sm}px; color: %3; }" ) )
+        .arg( t.surfaceAlt.name(), t.border.name(), t.text.name() );
+  } );
   m_expandStatus->setVisible( false );
   m_expandStatus->setTextInteractionFlags( Qt::TextSelectableByMouse );
-  root->addWidget( m_expandStatus );
+  root->addWidget( m_expandStatus, 0, Qt::AlignLeft );
 
   if ( m_selection )
   {
@@ -277,7 +296,53 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
              &SubIntervalSelectorBar::syncFromContext );
     syncFromContext( m_selection->activeUnit() );
   }
-  m_status->setText( readinessText() );
+  setStatusText( readinessText() );
+}
+
+void SubIntervalSelectorBar::buildSubButtonGroup( QWidget *row, QHBoxLayout *lay )
+{
+  // S1–S4：紧凑分段按钮组（组内零间距，共享边框）。
+  auto *seg = new QHBoxLayout();
+  seg->setContentsMargins( 0, 0, 0, 0 );
+  seg->setSpacing( 0 );
+
+  for ( int i = 1; i <= kSubIntervalCount; ++i )
+  {
+    auto *btn = new QToolButton( row );
+    btn->setObjectName( QStringLiteral( "subIntervalS%1" ).arg( i ) );
+    btn->setText( QStringLiteral( "S%1" ).arg( i ) );
+    btn->setCheckable( true );
+    btn->setToolButtonStyle( Qt::ToolButtonTextOnly );
+    btn->setToolTip( tr( "子层段 S%1（自上而下第 %1 段）。选中后单因素/编图/相分析"
+                         "按稳定子层段 ID 归属，不拆分界面名。" )
+                         .arg( i ) );
+    btn->setStatusTip( tr( "分析层段：S%1" ).arg( i ) );
+    styleSubButton( btn, i == 1 ? 1 : ( i == kSubIntervalCount ? 3 : 2 ) );
+    connect( btn, &QToolButton::clicked, this, [this, i] { onSubClicked( i ); } );
+    m_subs.push_back( btn );
+    seg->addWidget( btn );
+  }
+  lay->addLayout( seg );
+
+  m_agg = new QToolButton( row );
+  m_agg->setObjectName( QStringLiteral( "subIntervalAggregate" ) );
+  m_agg->setText( tr( "综合" ) );
+  m_agg->setCheckable( true );
+  m_agg->setToolButtonStyle( Qt::ToolButtonTextBesideIcon );
+  m_agg->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "processingAlgorithm.svg" ) ) );
+  m_agg->setIconSize( PaleoIcons::toolbarSize() );
+  m_agg->setToolTip( tr( "父单元显式综合（厚度加权）。不是任一子层段；"
+                         "缺任一子层段成果时综合结果不可用。" ) );
+  m_agg->setStatusTip( tr( "分析层段：父单元综合" ) );
+  styleSubButton( m_agg, 0 );
+  connect( m_agg, &QToolButton::clicked, this, [this] { onSubClicked( 0 ); } );
+  lay->addWidget( m_agg );
+}
+
+void SubIntervalSelectorBar::setStatusText( const QString &text )
+{
+  m_status->setText( text );
+  m_status->setToolTip( text );
 }
 
 QString SubIntervalSelectorBar::currentDisplayName() const
@@ -315,10 +380,6 @@ QStringList SubIntervalSelectorBar::subIntervalStatusLines() const
   }
   if ( m_current.aggregate && m_current.intervalId == iid )
     lines << tr( "综合：当前选中（需 S1–S4 齐全才可出综合成果）" );
-  else
-    lines << tr( "综合：未选中" );
-  if ( !m_fromDataService )
-    lines << tr( "提示：当前为工程草稿方案，井出现来自界面名单；打开含层段方案的工区后可切换修订。" );
   return lines;
 }
 
@@ -334,7 +395,7 @@ void SubIntervalSelectorBar::reloadFromBoundaries( const QStringList &orderedBou
   rebuildParentCombo();
   rebuildSubButtons();
   rebuildStatusPanel();
-  m_status->setText( readinessText() );
+  setStatusText( readinessText() );
   if ( orderedBoundaries.size() < 2 )
     emit readinessMessage( tr( "界面不足两条，无法构成父层间单元。请在工程参数中配置层序界面。" ) );
 }
@@ -392,7 +453,7 @@ void SubIntervalSelectorBar::applyLoadedScheme( const paleo::data::Stratigraphic
     {
       m_current = {};
       rebuildSubButtons();
-      m_status->setText( readinessText() );
+      setStatusText( readinessText() );
       rebuildStatusPanel();
     }
   }
@@ -400,7 +461,7 @@ void SubIntervalSelectorBar::applyLoadedScheme( const paleo::data::Stratigraphic
   {
     m_current = {};
     rebuildSubButtons();
-    m_status->setText( readinessText() );
+    setStatusText( readinessText() );
     rebuildStatusPanel();
   }
 }
@@ -693,7 +754,57 @@ void SubIntervalSelectorBar::rebuildStatusPanel()
     m_expandStatus->clear();
     return;
   }
-  m_expandStatus->setText( subIntervalStatusLines().join( QChar( '\n' ) ) );
+  m_expandStatus->setText( statusPanelHtml() );
+  m_expandStatus->setToolTip( m_fromDataService
+                                  ? tr( "子层段红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。" )
+                                  : tr( "当前为工程草稿方案，井出现来自界面名单；打开含层段方案的工区后可切换修订。\n"
+                                        "红绿灯：绿=成果齐全，黄=部分/待定，红=成果失效，灰=暂无记录。" ) );
+}
+
+QString SubIntervalSelectorBar::statusPanelHtml() const
+{
+  const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+  const QString iid = m_parent && m_parent->currentIndex() >= 0 ? m_parent->currentData().toString() : QString();
+  const auto rows = iid.isEmpty() || m_scheme.intervals.empty()
+                        ? QVector<paleo::strat::SubIntervalOccurrenceSummary>{}
+                        : paleo::strat::summarizeSubIntervalOccurrences(
+                              m_scheme, iid, m_bindings.empty() ? nullptr : &m_bindings );
+  if ( rows.isEmpty() )
+  {
+    QStringList esc;
+    for ( const QString &l : subIntervalStatusLines() )
+      esc << l.toHtmlEscaped();
+    return esc.join( QStringLiteral( "<br>" ) );
+  }
+  QString html = QStringLiteral( "<table cellspacing='0' cellpadding='1'>" );
+  for ( const auto &r : rows )
+  {
+    QColor dot = t.textDisabled;
+    QString name = tr( "灰" );
+    if ( r.light == QLatin1String( "green" ) ) { dot = t.success; name = tr( "绿" ); }
+    else if ( r.light == QLatin1String( "yellow" ) ) { dot = t.warning; name = tr( "黄" ); }
+    else if ( r.light == QLatin1String( "red" ) ) { dot = t.error; name = tr( "红" ); }
+    // service 行形如「[灯] S1：明细 · ID xxx」——去掉文本灯号，ID 降为弱化色。
+    QString body = r.line.mid( r.line.indexOf( QChar( ' ' ) ) + 1 );
+    QString id;
+    if ( const int at = body.lastIndexOf( QStringLiteral( " · ID " ) ); at >= 0 )
+    {
+      id = body.mid( at + 6 );
+      body = body.left( at );
+    }
+    if ( const int colon = body.indexOf( QStringLiteral( "：" ) ); colon >= 0 )
+      body = body.mid( colon + 1 );
+    const bool selected = m_current.isValid() && !m_current.aggregate && m_current.subIntervalId == r.subIntervalId;
+    html += QStringLiteral( "<tr><td><span style='color:%1'>&#9679;</span>&nbsp;%2&nbsp;</td>"
+                            "<td><b>%3</b>&nbsp;</td><td>%4%5</td>"
+                            "<td>&nbsp;<span style='color:%6'>%7</span></td></tr>" )
+                .arg( dot.name(), name, r.label, body.toHtmlEscaped(),
+                      selected ? tr( " · <b>当前</b>" ) : QString(), t.textMuted.name(), id.toHtmlEscaped() );
+  }
+  if ( m_current.aggregate && m_current.intervalId == iid )
+    html += QStringLiteral( "<tr><td></td><td colspan='3'>%1</td></tr>" )
+                .arg( tr( "综合：当前选中（需 S1–S4 齐全才可出综合成果）" ) );
+  return html + QStringLiteral( "</table>" );
 }
 
 QString SubIntervalSelectorBar::readinessText() const
@@ -809,7 +920,7 @@ void SubIntervalSelectorBar::applySelection( const UnitSelection &sel, bool broa
 {
   m_current = sel;
   rebuildSubButtons();
-  m_status->setText( readinessText() );
+  setStatusText( readinessText() );
   rebuildStatusPanel();
   if ( broadcast && m_selection )
     m_selection->setActiveUnit( sel );
@@ -830,6 +941,6 @@ void SubIntervalSelectorBar::syncFromContext( const UnitSelection &unit )
     m_block = false;
   }
   rebuildSubButtons();
-  m_status->setText( readinessText() );
+  setStatusText( readinessText() );
   rebuildStatusPanel();
 }

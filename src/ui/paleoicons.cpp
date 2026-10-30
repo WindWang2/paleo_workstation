@@ -188,6 +188,13 @@ QIcon PaleoIcons::commandIcon(const QString &command)
       {"openWellFaciesButton", "mLayoutItemElevationProfile.svg"},
       {"recomputeWellFactorsButton", "mActionRefresh.svg"},
       {"runButton", "mActionStart.svg"},
+      {"subIntervalS1", "mIconRasterLayer.svg"},
+      {"subIntervalS2", "mIconRasterLayer.svg"},
+      {"subIntervalS3", "mIconRasterLayer.svg"},
+      {"subIntervalS4", "mIconRasterLayer.svg"},
+      {"subIntervalAggregate", "processingAlgorithm.svg"},
+      {"subIntervalExpand", "mActionIdentify.svg"},
+
       {"storageGovernanceButton", "mActionOptions.svg"},
       {"treeViewButton", "mActionShowAllLayers.svg"},
       {"workbench.cancel", "mActionCancelEdits.svg"},

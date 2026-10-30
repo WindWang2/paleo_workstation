@@ -24,6 +24,8 @@
 #include "../qgis/qgislayerprofile.h"
 #include "datapreview/datapreviewtabs.h"
 #include "horizonchipbar.h"
+#include "subintervalselectorbar.h"
+#include "../domain/mappinghorizons.h"
 #include "evolution/evolutionplayerpanel.h"
 #include "layers/layertreepanel.h"
 #include "../workflow/mappingworkbench.h"
@@ -180,6 +182,28 @@ QScrollArea *wrapHorizonChipsInScroll(QWidget *chips, QWidget *parent)
   scroll->setFixedHeight(chips->sizeHint().height() + scroll->horizontalScrollBar()->sizeHint().height());
   return scroll;
 }
+
+void installSubIntervalSelectorBar(PaleoMainWindow *mw, SelectionContext *selection,
+                                   const QStringList &boundaries, QWidget *canvasPane,
+                                   QVBoxLayout *canvasLay)
+{
+  auto *unitBar = new SubIntervalSelectorBar(selection, canvasPane);
+  unitBar->setObjectName(QStringLiteral("subIntervalSelectorBar"));
+  unitBar->reloadFromBoundaries(boundaries);
+  QObject::connect(unitBar, &SubIntervalSelectorBar::readinessMessage, mw,
+                   [mw](const QString &msg) {
+                     if (mw->statusBar())
+                       mw->statusBar()->showMessage(msg, 8000);
+                   });
+  QObject::connect(unitBar, &SubIntervalSelectorBar::unitSelectionCommitted, mw,
+                   [mw](const paleo::strat::UnitSelection &u) {
+                     if (mw->statusBar() && u.isValid())
+                       mw->statusBar()->showMessage(
+                           PaleoMainWindow::tr("分析层段：%1").arg(u.displayName), 4000);
+                   });
+  PaleoIcons::applyCommandIcons(unitBar);
+  canvasLay->addWidget(unitBar);
+}
 } // namespace
 
 void PaleoMainWindow::buildCenterArea()
@@ -230,6 +254,7 @@ void PaleoMainWindow::buildCenterArea()
           });
   chipsLay->addWidget(player);
   canvasLay->addWidget(chipsRow);
+  installSubIntervalSelectorBar(this, m_selection, mappingHorizons(), canvasPane, canvasLay);
   if (m_canvasCtl)
   {
     QgsMapCanvas *canvas = m_canvasCtl->canvas();
@@ -659,6 +684,7 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
   m_stratigraphyPage = new StratigraphyPage(m_stratigraphy, m_workspaceStack);
   connect(m_stratigraphy, &StratigraphyWorkflow::classificationChanged, this, [this](const QStringList &horizons) {
     if (auto *chips = findChild<HorizonChipBar *>()) chips->reloadHorizons();
+    if (auto *unit = findChild<SubIntervalSelectorBar *>()) unit->reloadFromBoundaries(horizons);
     for (auto *combo : findChildren<QComboBox *>(QStringLiteral("horizonCombo"))) {
       const auto selected = combo->currentText(); combo->clear(); combo->addItems(horizons);
       if (horizons.contains(selected)) combo->setCurrentText(selected);

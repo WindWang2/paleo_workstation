@@ -73,7 +73,17 @@ void PaleoMainWindow::buildStatusBar()
     return tr("层位：%1").arg(h.isEmpty() ? QStringLiteral("—") : h);
   };
   horizonLabel->setText(horizonText(m_selection ? m_selection->activeHorizon() : QString()));
+  horizonLabel->setToolTip(tr("界面编辑模式的当前层位（上方层位条）。"));
   statusBar()->addPermanentWidget(horizonLabel);
+
+  auto *unitLabel = new QLabel(this);
+  unitLabel->setObjectName(QStringLiteral("statusUnit"));
+  const auto unitText = [](const paleo::strat::UnitSelection &u) {
+    return tr("分析层段：%1").arg(u.isValid() ? u.displayName : QStringLiteral("—"));
+  };
+  unitLabel->setText(unitText(m_selection ? m_selection->activeUnit() : paleo::strat::UnitSelection{}));
+  unitLabel->setToolTip(tr("层段分析模式的当前父单元/子层段；与界面编辑层位独立，切换不重置地图。"));
+  statusBar()->addPermanentWidget(unitLabel);
 
   // Canvas-fed status readouts (the dedicated QGIS statusbar coordinate/scale
   // widgets are app-only in 4.2 — plain labels fed by canvas signals instead).
@@ -131,8 +141,14 @@ void PaleoMainWindow::buildStatusBar()
     statusBar()->addWidget(sources, 1);
   }
   if (m_selection)
+  {
     connect(m_selection, &SelectionContext::activeHorizonChanged, horizonLabel,
             [horizonLabel, horizonText](const QString &h) { horizonLabel->setText(horizonText(h)); });
+    connect(m_selection, &SelectionContext::activeUnitChanged, unitLabel,
+            [unitLabel, unitText](const paleo::strat::UnitSelection &u) {
+              unitLabel->setText(unitText(u));
+            });
+  }
 
   // ---- 错误历史状态栏胶囊 + ErrorHub 计数同步（方向 64 呈现域 TU）----
   wireErrorHubStatus();

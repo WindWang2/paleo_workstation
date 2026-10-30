@@ -22,6 +22,8 @@
 #include "edittools/editingtoolbar.h"
 #include "evolution/evolutionplayerpanel.h" // FD-001：工程打开重灌演化动览帧表
 #include "horizonchipbar.h"
+#include "subintervalselectorbar.h"
+#include "../domain/mappinghorizons.h"
 #include "layout/mapbookcontroller.h" // #148：工程关闭时 resetProject
 #include "layout/mapbookpanel.h"
 #include "notifications/paleonotify.h"
@@ -39,7 +41,6 @@
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
-#include "../domain/mappinghorizons.h" // baseHorizonFor（工程打开后的层位文案）
 #include "../linkage/seismicmaplink.h"
 #include "../linkage/selectioncontext.h" // ctor 的 activeHorizonChanged 接线
 #include "../workflow/sectionworkbench.h" // m_sectionWorkbench->cancelPreviewData（resetProjectScopedState）
@@ -485,6 +486,8 @@ void PaleoMainWindow::onProjectOpened()
   // chip 条按新词表重建；标定层位相关文案重写。
   if (auto *bar = findChild<HorizonChipBar *>())
     bar->reloadHorizons();
+  if (auto *unit = findChild<SubIntervalSelectorBar *>())
+    unit->reloadFromBoundaries(mappingHorizons());
   if (auto *player = findChild<EvolutionPlayerPanel *>()) // FD-001：演化动览帧表随工程词表重灌
     player->reloadFrames();
   // 同一词表填充预测/单因素页的层位下拉（此前生产链从未填充，页面发出的

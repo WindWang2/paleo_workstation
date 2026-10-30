@@ -6,6 +6,8 @@
 #include "algorithms/singlefactor/wellacquisition.h"
 #include "domain/litholexicon.h"
 #include "domain/mappinghorizons.h"
+#include "domain/subintervalfacies.h"
+#include "domain/stratigraphicunit.h"
 #include "domain/singlefactorstrategy.h"
 #include "services/projectdata.h"
 #include "services/singlefactordef.h"
@@ -176,6 +178,15 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   const bool autoThickness = params.value("factorMode") == QLatin1String("auto") && params.value("factorId") == QLatin1String("strathick");
   const bool metrics = params.isEmpty() || autoSand || autoThickness || requested.contains(layerThickness) || requested.contains(sandThickness);
   const bool sandMetric = params.isEmpty() || autoSand || requested.contains(sandThickness);
+  // 子层段：UnitSelection 驱动深度窗（父单元顶底 → 等比 Sn）；身份用 subIntervalId。
+  const paleo::strat::UnitSelection unitSel =
+      paleo::strat::fromMap(params.value(QStringLiteral("unitSelection")).toMap());
+  QString effectiveTopName = horizon;
+  QString effectiveBaseName = baseName;
+  if (unitSel.isValid() && !unitSel.topBoundary.isEmpty())
+    effectiveTopName = unitSel.topBoundary;
+  if (unitSel.isValid() && !unitSel.bottomBoundary.isEmpty())
+    effectiveBaseName = unitSel.bottomBoundary;
   const auto wells = data.wells();
   QStringList ids, lithologyWarnings;
   for (const auto &well : wells) ids << well.id;
@@ -285,12 +296,21 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     if (!metrics) continue;
     double top = qQNaN(), base = qQNaN();
     for (const WellTop &t : data.topsForMapping(well.id)) {
-      if (t.horizon == horizon) top = t.md;
-      if (t.horizon == baseName) base = t.md;
+      if (t.horizon == effectiveTopName) top = t.md;
+      if (t.horizon == effectiveBaseName) base = t.md;
     }
-    row.thicknessReason = ConstraintWorkflow::tr("缺少顶/底分层 MD（%1→%2）").arg(horizon, baseName);
+    row.thicknessReason = ConstraintWorkflow::tr("缺少顶/底分层 MD（%1→%2）").arg(effectiveTopName, effectiveBaseName);
     row.sandReason = row.thicknessReason;
     if (std::isfinite(top) && std::isfinite(base) && base > top) {
+      if (unitSel.isValid() && !unitSel.aggregate && unitSel.subIndex >= 1 && unitSel.subIndex <= 4) {
+        double st = top, sb = base;
+        if (paleo::strat::provisionalSubRange(top, base, unitSel.subIndex, &st, &sb)) {
+          top = st;
+          base = sb;
+          row.provenance.insert(QStringLiteral("subIntervalId"), unitSel.subIntervalId);
+          row.provenance.insert(QStringLiteral("subIndex"), unitSel.subIndex);
+        }
+      }
       if (!row.maintainedThickness) row.attributes.insert(layerThickness, base - top);
       row.thicknessReason.clear();
       const auto segs = lithologies.value(well.id);

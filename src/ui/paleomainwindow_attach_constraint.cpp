@@ -1,6 +1,7 @@
 // 层：视图
 // paleomainwindow_attach_constraint — 约束与单因素页接线（W4 拆分段）
 #include "paleomainwindow.h"
+#include "../linkage/unitselectionbridge.h"
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -43,6 +44,24 @@
 #include <QUndoStack>
 #include <functional>
 #include <memory>
+
+namespace {
+struct AnalysisRun
+{
+  paleo::strat::AnalysisBinding bind;
+  QVariantMap params;
+};
+AnalysisRun makeAnalysisRun(SelectionContext *selection, const QString &pageHorizon,
+                            const QVariantMap &params)
+{
+  AnalysisRun r;
+  r.bind = paleo::strat::bindAnalysis(selection, pageHorizon);
+  r.params = r.bind.enrich(params);
+  r.params.insert(QStringLiteral("constraintHorizon"), r.bind.constraintHorizon);
+  return r;
+}
+} // namespace
+
 
 // ---------------------------------------------------------------------------
 // 约束页接线：绘制捕获 + IDW 插值（W4 拆分段）
@@ -277,12 +296,12 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               }
             });
     connect(constraintPage, &ConstraintPage::extractWellFactorsRequested, this,
-            [constraint, constraintPage](const QString &factorId, const QString &horizon,
+            [this, constraint, constraintPage](const QString &factorId, const QString &horizon,
                                          const QVariantMap &params) {
               QString error;
-              if (!constraint->startWellFactorExtraction(horizon, factorId, params, &error))
-                if (auto *status =
-                        constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+              const auto run = makeAnalysisRun(m_selection, horizon, params);
+              if (!constraint->startWellFactorExtraction(run.bind.constraintHorizon, factorId, run.params, &error))
+                if (auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
                   status->setText(error);
             });
     connect(constraint, &ConstraintWorkflow::factorJobStateChanged,
@@ -314,13 +333,13 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                                            const QString &horizon,
                                            const QVariantMap &params) {
           QString error;
-          bool ready = !(m_factorTask && m_factorTask->running()) && !constraint->factorBusy();
-          if (ready)
-            ready = constraint->saveConstraintEdits(horizon, &error);
+          const auto run = makeAnalysisRun(m_selection, horizon, params);
+          bool ready = !(m_factorTask && m_factorTask->running()) && !constraint->factorBusy()
+                       && constraint->saveConstraintEdits(run.bind.constraintHorizon, &error);
           // Freeze editable constraints as a managed input version before any surface calculation.
-          if (ready && m_workbench && !constraint->loadConstraints(horizon).isEmpty())
-            ready = !m_workbench->snapshotConstraints(horizon, {}, &error).isEmpty();
-          if (!ready || !constraint->generateFactor(horizon, factorId, params, &error)) {
+          if (ready && m_workbench && !constraint->loadConstraints(run.bind.constraintHorizon).isEmpty())
+            ready = !m_workbench->snapshotConstraints(run.bind.constraintHorizon, {}, &error).isEmpty();
+          if (!ready || !constraint->generateFactor(run.bind.analysisKey, factorId, run.params, &error)) {
             if (auto *status = constraintPage->findChild<QLabel *>(
                     QStringLiteral("statusLabel")))
               status->setText(error.isEmpty()

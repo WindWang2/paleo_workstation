@@ -1,6 +1,7 @@
 // 层：视图
 // paleomainwindow_attach_compose — 综合编图页接线（W4 拆分段）
 #include "paleomainwindow.h"
+#include "../linkage/unitselectionbridge.h"
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -112,13 +113,13 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
     connect(composePage, &ComposePage::polygonizeRequested, this,
             [this, compose, composePage](const QString &rasterId, double minArea, double simplify) {
               QString err;
-              const QString horizon = m_selection ? m_selection->activeHorizon() : QString();
-              QVariantMap params;
+              const auto bind = paleo::strat::bindAnalysis(m_selection);
+              QVariantMap params = bind.enrich({{QStringLiteral("constraintHorizon"), bind.constraintHorizon}});
               params.insert(QStringLiteral("MIN_AREA"), minArea);
               params.insert(QStringLiteral("SIMPLIFY"), simplify);
               // facies-ux 1：转换进任务中心后台执行（未注入任务服务时同步）；
               // 完成经 faciesPolygonsReady 收尾，失败经 faciesPolygonsFailed。
-              if (!compose->startDeriveFaciesPolygons(horizon, rasterId, params, &err))
+              if (!compose->startDeriveFaciesPolygons(bind.analysisKey, rasterId, params, &err))
               {
                 if (!err.isEmpty())
                 {

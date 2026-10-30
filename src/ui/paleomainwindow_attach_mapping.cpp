@@ -1,6 +1,7 @@
 // 层：视图
 // paleomainwindow_attach_mapping — 编图流水线与版本域接线（W4 拆分段）
 #include "paleomainwindow.h"
+#include "../linkage/unitselectionbridge.h"
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -206,6 +207,12 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
   const auto activeHorizon = [this]() -> QString {
     return m_selection ? m_selection->activeHorizon() : QString();
   };
+  const auto analysisBind = [this](const QString &pageHorizon = {}) {
+    const QString fallback = !pageHorizon.isEmpty()
+                                 ? pageHorizon
+                                 : ( m_selection ? m_selection->activeHorizon() : QString() );
+    return paleo::strat::bindAnalysis(m_selection, fallback);
+  };
 
   // 链路状态文案走 statusLabel（成功/失败都落页面，再进日志）。
   connect(mapping, &MappingWorkflow::chainDone, this,
@@ -220,11 +227,12 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
   // 「选层位 → 算厚度 → IDW → 转相面」：层位来自 chip 的 activeHorizon，
   // 提示里的目标层位随工程参数（AreaRules targetHorizon）。
   connect(composePage, &ComposePage::thicknessChainRequested, this,
-          [this, mapping, activeHorizon, status]() {
-            const QString h = activeHorizon();
+          [this, mapping, analysisBind, status]() {
+            const auto bind = analysisBind();
+            const QString h = bind.analysisKey;
             if (h.isEmpty())
             {
-              status(tr("先在顶部 chip 选择层位（本阶段目标 %1）")
+              status(tr("先在顶部选择层位或层段（本阶段目标 %1）")
                          .arg(AreaRules::active().targetHorizon));
               return;
             }

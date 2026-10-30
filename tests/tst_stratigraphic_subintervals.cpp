@@ -9,6 +9,8 @@
 #include "../src/domain/stratigraphicunit.h"
 #include "../src/services/stratigraphicsubintervals.h"
 #include "../src/linkage/unitselectionbridge.h"
+#include "../src/services/subintervalfactors.h"
+#include "../src/domain/wellsection.h"
 
 namespace fw = paleo::data::framework;
 using namespace paleo::strat;
@@ -55,11 +57,94 @@ private slots:
     QVERIFY( s2.isValid() );
     QCOMPARE( s2.topBoundary, QStringLiteral( "T70" ) );
     QCOMPARE( s2.bottomBoundary, QStringLiteral( "T71" ) );
+    QCOMPARE( s2.subIndex, 2 );
     const QVariantMap m = toMap( s2 );
     QVERIFY( m.contains( QStringLiteral( "subIntervalId" ) ) );
     QCOMPARE( fromMap( m ), s2 );
     QCOMPARE( analysisLayerKey( s2 ), layerToken( s2 ) );
     QCOMPARE( analysisLayerKey( {}, QStringLiteral( "T70" ) ), QStringLiteral( "T70" ) );
+  }
+
+
+  void sandRatioWellFaciesAndEvidence()
+  {
+    // 子层段 → 砂地比单因素 → 井相分类 → DS 持久化 → 编图证据可读
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const std::string path = dir.filePath( "facies" ).toStdString();
+    std::string err;
+    paleo::data::DataService ds;
+    QVERIFY2( ds.createProject( path, "相", err ), err.c_str() );
+    auto draft = draftScheme( "facies-scheme", "相方案", boundaries(), tops() );
+    paleo::data::StratigraphicScheme head;
+    std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY2( ds.commitStratigraphicScheme( draft, {}, head, issues, err ), err.c_str() );
+    const auto options = selectorOptions( head );
+    const UnitSelection s2 = makeSelection( head, options[0].intervalId, 2 );
+    QVERIFY( s2.isValid() );
+
+    // 井 1：T70–T71 = [1000,1100]，S2 等比 = [1025,1050)
+    QVector<wellsection::LithoSegment> segs;
+    wellsection::LithoSegment mud, sand;
+    mud.topMd = 1000; mud.baseMd = 1030; mud.litho = QStringLiteral( "泥岩" );
+    sand.topMd = 1030; sand.baseMd = 1060; sand.litho = QStringLiteral( "细砂岩" );
+    segs << mud << sand;
+
+    const auto metrics = sandRatioForWellSubInterval( head, s2.subIntervalId, 1, segs, nullptr );
+    QVERIFY2( metrics.ok, qPrintable( metrics.reason ) );
+    QCOMPARE( metrics.topMd, 1025.0 );
+    QCOMPARE( metrics.bottomMd, 1050.0 );
+    QCOMPARE( metrics.thicknessMd, 25.0 );
+    QCOMPARE( metrics.sandThicknessMd, 20.0 ); // [1030,1050)
+    QCOMPARE( metrics.sandRatio, 0.8 );
+    QCOMPARE( metrics.faciesClass.id, QStringLiteral( "clean_sand" ) );
+
+    const qlonglong wid = stableWellKey( QStringLiteral( "W1" ) );
+    const auto factorBind = bindSandRatioFactor( ds, s2, wid, metrics, QStringLiteral( "asset-sand" ) );
+    QVERIFY2( factorBind.ok, qPrintable( factorBind.error ) );
+    const auto faciesBind = bindWellFaciesFromSandRatio( ds, s2, wid, metrics, QStringLiteral( "asset-facies" ) );
+    QVERIFY2( faciesBind.ok, qPrintable( faciesBind.error ) );
+
+    // 地震：切片 ≠ 层段；层段综合需策略
+    {
+      BindResult bad = bindSeismicFaciesResult( ds, s2, SeismicFaciesScope::Interval, 3, 0.9, {},
+                                                QStringLiteral( "seis" ) );
+      QVERIFY( !bad.ok );
+    }
+    QVector<SeismicSliceVote> votes{ { 3, 10 }, { 3, 5 }, { 2, 4 }, { 0, 2 } };
+    const auto agg = aggregateSeismicSliceVotes( votes, 0.5 );
+    QVERIFY( agg.ok );
+    QCOMPARE( agg.classCode, 3 );
+    const auto seisBind = bindSeismicFaciesResult( ds, s2, SeismicFaciesScope::Interval, agg.classCode,
+                                                   agg.coverage, agg.strategyId, QStringLiteral( "seis-int" ) );
+    QVERIFY2( seisBind.ok, qPrintable( seisBind.error ) );
+    const auto sliceBind = bindSeismicFaciesResult( ds, s2, SeismicFaciesScope::Slice, 2, 0, {},
+                                                    QStringLiteral( "seis-slice" ) );
+    QVERIFY2( sliceBind.ok, qPrintable( sliceBind.error ) );
+
+    std::vector<paleo::data::SubIntervalResultBinding> results;
+    QVERIFY( ds.listSubIntervalResults( "facies-scheme", {}, results, err ) );
+    QVERIFY( results.size() >= 4 );
+    const auto rows = evidenceRowsFromBindings(
+      results, { QStringLiteral( "single_factor" ), QStringLiteral( "well_facies" ),
+                 QStringLiteral( "seismic_facies" ) } );
+    QVERIFY( rows.size() >= 4 );
+    for ( const auto &v : rows )
+    {
+      const auto m = v.toMap();
+      // 证据身份是稳定 SubIntervalId，不是 horizon 显示名
+      QCOMPARE( m.value( QStringLiteral( "source_horizon" ) ).toString(), s2.subIntervalId );
+      QVERIFY( m.value( QStringLiteral( "subIntervalId" ) ).toString() == s2.subIntervalId );
+    }
+
+    // provisional 窗与 wellRange 一致（未解释内部分界时）
+    double pt = 0, pb = 0;
+    QVERIFY( provisionalSubRange( 1000, 1100, 2, &pt, &pb ) );
+    QCOMPARE( pt, 1025.0 );
+    QCOMPARE( pb, 1050.0 );
+    const auto prox = sandRatioForProvisionalSub( 1000, 1100, 2, segs, nullptr );
+    QVERIFY( prox.ok );
+    QCOMPARE( prox.sandRatio, metrics.sandRatio );
   }
 
   void endToEnd()

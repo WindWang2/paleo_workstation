@@ -23,7 +23,7 @@ void StratigraphyPage::showResults() {
  for(const auto& w:document.wells)for(const auto& s:w.series){all.push_back(&s);combo->addItem(QString::fromStdString(w.name+" / "+s.segmentId+" / "+s.kind+" / "+s.name));}
  if(all.empty()){m_status->setText(tr("请先计算曲线或完成层序划分。"));return;}layout->addWidget(combo);
  auto* note=new QLabel(&dialog);note->setWordWrap(true);layout->addWidget(note);auto* split=new QSplitter(&dialog);auto* plot=new StratigraphyResultPlot(split);plot->setMinimumWidth(450);split->addWidget(plot);
- auto* table=new QTableWidget(0,3,split);table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);table->setEditTriggers(QAbstractItemView::NoEditTriggers);split->addWidget(table);split->setSizes({650,350});layout->addWidget(split,1);
+ auto* table=new QTableWidget(0,3,split);table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);table->setEditTriggers(QAbstractItemView::NoEditTriggers);split->addWidget(table);split->setStretchFactor(0,13);split->setStretchFactor(1,7);layout->addWidget(split,1);
  auto* bottom=new QHBoxLayout;bottom->addWidget(new QLabel(tr("表格起始行（每页 500 行）"),&dialog));auto* offset=new QSpinBox(&dialog);bottom->addWidget(offset);bottom->addStretch();
  auto* info=new QPushButton(tr("参数与来源"),&dialog);auto* csv=new QPushButton(tr("导出完整 CSV"),&dialog);auto* close=new QPushButton(tr("关闭"),&dialog);for(auto* b:{info,csv,close})bottom->addWidget(b);layout->addLayout(bottom);
  const auto refresh=[&]{const auto& s=*all[size_t(combo->currentIndex())];plot->series=&s;plot->update();const size_t n=std::min(s.axis.size(),s.values.size());

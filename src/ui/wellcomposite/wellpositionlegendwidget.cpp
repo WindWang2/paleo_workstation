@@ -31,10 +31,34 @@ namespace WellComposite
 GraphicScaleBar::GraphicScaleBar(QWidget *parent)
   : QWidget(parent)
 {
-  setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-  setFixedWidth(72);
-  setFixedHeight(24);
+  // #877：不再硬固定 72×24（小于自身 sizeHint，文字被裁）——尺寸由 sizeHint（按标注字体推导）决定。
+  setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
   setToolTip(tr("物理标尺：根据当前测深缩放倍率计算屏幕真实对应米数"));
+}
+
+QFontMetrics GraphicScaleBar::labelMetrics() const
+{
+  QFont font = PaleoTheme::monoFont(this->font().pointSize());
+  font.setStyleHint(QFont::TypeWriter);
+  font.setPointSize(PaleoTheme::tokens().labelPt);
+  return QFontMetrics(font);
+}
+
+int GraphicScaleBar::labelBoxWidth() const
+{
+  // 最宽标注（如「2000m」）+ 两侧余量；替代原硬 30px 文本框。
+  return labelMetrics().horizontalAdvance(QStringLiteral("2000m")) + 4;
+}
+
+QSize GraphicScaleBar::sizeHint() const
+{
+  // 标尺条最长 65px（见 setScaleMetrics 步长选择）+ 末端标注半宽 + 起点余量。
+  return QSize(3 + 65 + labelBoxWidth() / 2 + 2, labelMetrics().height() + 10);
+}
+
+QSize GraphicScaleBar::minimumSizeHint() const
+{
+  return QSize(3 + 30 + labelBoxWidth() / 2 + 2, labelMetrics().height() + 8);
 }
 
 void GraphicScaleBar::setScaleMetrics(double pxPerMeter, const QString &scaleRatioStr)
@@ -69,7 +93,7 @@ void GraphicScaleBar::paintEvent(QPaintEvent * /*event*/)
   const qreal w = width();
   const qreal h = height();
 
-  const qreal barW = qBound(25.0, m_pixelLength, w - 8.0);
+  const qreal barW = qBound(25.0, m_pixelLength, w - 3.0 - labelBoxWidth() / 2.0);
   const qreal startX = 3.0;
   const qreal barH = 4.0;
   const qreal barY = h - 8.0;
@@ -89,12 +113,13 @@ void GraphicScaleBar::paintEvent(QPaintEvent * /*event*/)
   const QString midStr = (std::fmod(halfMeters, 1.0) == 0.0)
                              ? QString::number(halfMeters, 'f', 0)
                              : QString::number(halfMeters, 'f', 1);
-  p.drawText(QRectF(startX + barW * 0.5 - 15, 0, 30, barY - 1), Qt::AlignCenter, midStr);
+  const qreal box = labelBoxWidth();
+  p.drawText(QRectF(startX + barW * 0.5 - box / 2, 0, box, barY - 1), Qt::AlignCenter, midStr);
 
   const QString maxStr = QStringLiteral("%1m").arg(
       (std::fmod(m_segmentMeters, 1.0) == 0.0) ? QString::number(m_segmentMeters, 'f', 0)
                                                : QString::number(m_segmentMeters, 'f', 1));
-  p.drawText(QRectF(startX + barW - 15, 0, 30, barY - 1), Qt::AlignCenter, maxStr);
+  p.drawText(QRectF(startX + barW - box / 2, 0, box, barY - 1), Qt::AlignCenter, maxStr);
 
   // 标尺条分为左右两段黑白相间
   const qreal midX = startX + barW * 0.5;
@@ -118,8 +143,8 @@ void GraphicScaleBar::paintEvent(QPaintEvent * /*event*/)
 WellOverviewMiniBar::WellOverviewMiniBar(QWidget *parent)
   : QWidget(parent)
 {
+  // #877：高度/宽度走 sizeHint（字体推导），不再 setFixedHeight(18)。
   setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-  setFixedHeight(18);
   setCursor(Qt::PointingHandCursor);
   setToolTip(tr("全井微缩示意图例：蓝色方框指示当前视口位置，点击或拖拽可快速定位井深"));
 }
@@ -614,7 +639,6 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
 
   m_miniBar = new WellOverviewMiniBar(this);
   m_miniBar->setObjectName(QStringLiteral("wellOverviewMiniBar"));
-  m_miniBar->setFixedWidth(120);
   mainLay->addWidget(m_miniBar);
 
   connect(m_miniBar, &WellOverviewMiniBar::requestScrollDepth, this, &WellPositionLegendWidget::requestScrollDepth);

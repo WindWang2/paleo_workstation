@@ -542,6 +542,13 @@ private slots:
     QVERIFY(panel.legendWidget()->height() >= 30);
     QVERIFY(panel.legendWidget()->scaleBar() != nullptr);
     QVERIFY(panel.legendWidget()->miniBar() != nullptr);
+    // #877：比例尺/鹰眼条不得硬固定宽高；比例尺宽须容纳最宽标注。
+    auto *scaleBar = panel.legendWidget()->scaleBar();
+    auto *miniBar = panel.legendWidget()->miniBar();
+    QVERIFY(scaleBar->maximumWidth() == QWIDGETSIZE_MAX && scaleBar->maximumHeight() == QWIDGETSIZE_MAX);
+    QVERIFY(miniBar->maximumWidth() == QWIDGETSIZE_MAX && miniBar->maximumHeight() == QWIDGETSIZE_MAX);
+    QVERIFY(scaleBar->sizeHint().width() >= scaleBar->minimumSizeHint().width());
+    QVERIFY(scaleBar->sizeHint().width() > 65 + scaleBar->fontMetrics().averageCharWidth());
 
     // 4. 验证渲染正常
     QImage imgLegend(1000, 50, QImage::Format_ARGB32_Premultiplied);

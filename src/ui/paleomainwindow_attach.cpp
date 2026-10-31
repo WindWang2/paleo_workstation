@@ -299,7 +299,7 @@ void runSurfaceOps(PaleoMainWindow *win, QgisLayerService *layerSvc, DataCatalog
   SurfaceGriddingWorkflow::VolumeReport rep;
   const QString err = wf->isopachBetweenRasters(
       candidates.at(sel.topIndex).second, candidates.at(sel.baseIndex).second, label, &rep,
-      sel.writeManaged, nullptr);
+      sel.writeManaged, nullptr, sel.zPositiveDown);
   if (!err.isEmpty())
   {
     PaleoNotify::warning(win, QObject::tr("面运算失败"), err);
@@ -309,14 +309,21 @@ void runSurfaceOps(PaleoMainWindow *win, QgisLayerService *layerSvc, DataCatalog
   metrics.append({QObject::tr("有效像元"), QString::number(rep.cells)});
   metrics.append({QObject::tr("空值像元"), QString::number(rep.nullCells)});
   metrics.append({QObject::tr("正厚度像元"), QString::number(rep.positiveCells)});
-  // #717：不宣称「顶低于底」——深度/TWT 向下为正的层位上符号约定相反，文案
-  // 只描述算式本身（顶 − 底 < 0），不代用户选定 Convention。
-  metrics.append({QObject::tr("负厚度像元（顶 − 底 < 0）"), QString::number(rep.negativeCells)});
+  // #717：文案按用户所选 z 约定描述算式。
+  metrics.append({QObject::tr("z 方向约定"),
+                  sel.zPositiveDown ? QObject::tr("向下为正（厚度 = 底 − 顶）")
+                                    : QObject::tr("向上为正（厚度 = 顶 − 底）")});
+  metrics.append({sel.zPositiveDown ? QObject::tr("负厚度像元（底 − 顶 < 0，顶在底之下）")
+                                    : QObject::tr("负厚度像元（顶 − 底 < 0，顶低于底）"),
+                  QString::number(rep.negativeCells)});
+  if (rep.cells > 0 && rep.negativeCells * 2 > rep.cells)
+    metrics.append({QObject::tr("提示"),
+                    QObject::tr("多数像元厚度为负：请确认顶/底选择与 z 方向约定")});
   // #723：面积/体积单位随栅格 CRS 的线性单位（英尺坐标系即 ft²），不硬写 m²。
   const QString areaUnit = QObject::tr("%1²").arg(rep.linearUnit);
   metrics.append({QObject::tr("面积"), QObject::tr("%1 %2").arg(rep.area, 0, 'g', 8).arg(areaUnit)});
   metrics.append({QObject::tr("体积（z 单位·%1）").arg(areaUnit),
-                  QObject::tr("%1（时间层位为 ms·%2，换算 m³ 需速度场）")
+                  QObject::tr("%1（z 为 TWT 时单位为 ms·%2，换算体积需速度场）")
                       .arg(rep.volume, 0, 'g', 8).arg(areaUnit)});
   metrics.append({QObject::tr("厚度范围"),
                   QObject::tr("%1 ~ %2").arg(rep.minThickness, 0, 'g', 6)

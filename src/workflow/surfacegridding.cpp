@@ -644,7 +644,8 @@ QString SurfaceGriddingWorkflow::isopachBetweenRasters(const QString &topTif,
                                                        const QString &baseTif,
                                                        const QString &label,
                                                        VolumeReport *report, bool writeManaged,
-                                                       Outcome *isopachOutcome)
+                                                       Outcome *isopachOutcome,
+                                                       bool zPositiveDown)
 {
   RasterGrid top, base;
   std::vector<float> zTop, zBase;
@@ -664,8 +665,13 @@ QString SurfaceGriddingWorkflow::isopachBetweenRasters(const QString &topTif,
 
   const std::size_t n = std::size_t(top.rows) * top.cols;
   std::vector<float> iso(n);
-  rasteralgebra::applyBinary(zTop.data(), zBase.data(), n, rasteralgebra::BinaryOp::Subtract,
-                             iso.data());
+  // #717：向下为正（TWT/TVD）时厚度 = base − top，否则 top − base。
+  if (zPositiveDown)
+    rasteralgebra::applyBinary(zBase.data(), zTop.data(), n,
+                               rasteralgebra::BinaryOp::Subtract, iso.data());
+  else
+    rasteralgebra::applyBinary(zTop.data(), zBase.data(), n,
+                               rasteralgebra::BinaryOp::Subtract, iso.data());
 
   surfacevolumes::VolumeReport vr;
   QString volErr;

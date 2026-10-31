@@ -1,5 +1,6 @@
 // 层：视图
 #include "datalist.h"
+#include "../windowsizing_internal.h"
 #include "datalistops.h"
 #include "assetentitychoicemodel.h"
 #include "pageshared.h"
@@ -625,8 +626,8 @@ void DataListPanel::buildDataOpsUi()
   m_redoBtn->setObjectName(QStringLiteral("dataRedoButton"));
   m_redoBtn->setEnabled(false);
   m_redoBtn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
-  m_undoBtn->setMaximumWidth(150); // 长操作名截断（tooltip 全文）
-  m_redoBtn->setMaximumWidth(150);
+  m_undoBtn->setMaximumWidth(paleo::ui_detail::charColumns(m_undoBtn, 20)); // R6 #845 // 长操作名截断（tooltip 全文）
+  m_redoBtn->setMaximumWidth(paleo::ui_detail::charColumns(m_redoBtn, 20));
   connect(m_undoBtn, &QPushButton::clicked, this, &DataListPanel::undoOp);
   connect(m_redoBtn, &QPushButton::clicked, this, &DataListPanel::redoOp);
   tl->addWidget(m_undoBtn);

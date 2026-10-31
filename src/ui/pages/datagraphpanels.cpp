@@ -1,5 +1,6 @@
 // 层：视图
 #include "datagraphpage.h"
+#include "../windowsizing_internal.h"
 #include "datagraphcanvas.h"
 #include "datagraphstyle.h"
 #include "../paleotheme.h"
@@ -76,7 +77,7 @@ QWidget *DataGraphPage::createGraphPanels() {
   m_relations->header()->setSectionResizeMode(2, QHeaderView::Stretch);
   m_relations->setEditTriggers(QAbstractItemView::NoEditTriggers);
   m_relations->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  m_relations->setMaximumHeight(200); m_relations->setMinimumHeight(100);
+  // R6 #845：高度只由 refresh 的 setFixedHeight(qBound…) 决定（原此处 max200/min100 与之冲突）。
   connect(m_relations, &QTreeWidget::itemActivated, this,
           [this](QTreeWidgetItem *item) {
             const auto id = item->data(0, Qt::UserRole).toString();

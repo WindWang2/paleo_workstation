@@ -9,7 +9,6 @@
 #include "derivationgraph.h"
 #include "pageshared.h"
 #include "../paleotheme.h"
-#include "../../services/previewdoc.h"
 #include "../../services/paleotaskservice.h" // F3：GeoJSON 统计任务池路径
 #include "../../catalog/datacatalog.h"
 #include "../../catalog/entityview.h"

@@ -315,7 +315,10 @@ void PaleoLayoutDesignerShell::showEvent( QShowEvent *event )
   if ( !m_initialZoomDone && m_layout )
   {
     m_initialZoomDone = true;
-    QMetaObject::invokeMethod( m_view, &QgsLayoutView::zoomFull, Qt::QueuedConnection );
+    QMetaObject::invokeMethod( m_view, [this] {
+      m_dockManager->fitIfCentralCramped(); // R6 #844：按屏收窄后两侧 dock 不得把画布挤到几十 px
+      m_view->zoomFull();
+    }, Qt::QueuedConnection );
   }
 }
 

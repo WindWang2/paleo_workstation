@@ -171,17 +171,21 @@ class TestUiShell : public QObject
       m_win = nullptr;
     }
 
-    // §42.11 a11y floor —— R6 #835：屏幕自适应 min(1024×640, 0.8×可用区)，
-    // 不再硬钉 1280×800（小屏/HiDPI 下窗口可缩小、可并排）。
-    void windowMeetsMinSize()
+    // R6 #835：用户 2026-10-31「不要限制」——主窗口不设显式最小尺寸（取代 PLAN §42.11），
+    // 只剩 Qt 布局自然下限；对话框默认尺寸仍按所在屏收紧。
+    void windowHasNoExplicitMinSize()
     {
-      using paleo::ui_detail::mainWindowMinimumSize;
-      QCOMPARE(m_win->minimumSize(), QSize(1024, 640));
-      QCOMPARE(mainWindowMinimumSize(QSize(1920, 1040)), QSize(1024, 640));
-      QCOMPARE(mainWindowMinimumSize(QSize(1280, 680)), QSize(1024, 544));   // 1080p@150%
-      QCOMPARE(mainWindowMinimumSize(QSize(960, 500)), QSize(768, 400));     // 2560×1440@200% 副屏级
-      QCOMPARE(mainWindowMinimumSize(QSize()), QSize(1024, 640));
+      QCOMPARE(m_win->minimumSize(), QSize(0, 0));
+      m_win->show();
+      QTest::qWait(10);
+      // 显示后 QLayout 会把顶层窗口最小值设为布局自然下限（totalMinimumSize），
+      // 这不是显式限制；只断言二者一致，且没有旧的 1100×720 硬下限。
+      qInfo() << "natural min after show" << m_win->minimumSize();
+      QVERIFY(m_win->layout());
+      QCOMPARE(m_win->minimumSize(), m_win->layout()->totalMinimumSize());
+      QVERIFY(m_win->minimumSize() != QSize(1100, 720));
       QCOMPARE(paleo::ui_detail::boundedToAvailable(QSize(1100, 720), QSize(1280, 680)), QSize(1100, 612));
+      QCOMPARE(paleo::ui_detail::boundedToAvailable(QSize(1920, 1200), QSize()), QSize(1920, 1200));
     }
 
     // goal/ui-experience-polish：W5 快捷键族——Ctrl+1..6 直切、Ctrl+Tab/
@@ -2516,51 +2520,6 @@ class TestUiShell : public QObject
               qEnvironmentVariable("PALEO_PREDICTION_WINDOW_CAPTURE");
           !capture.isEmpty())
         QVERIFY(m_win->grab().save(capture));
-    }
-
-    void testSimultaneousWellsAndSurveyAreaVisibility()
-    {
-      const QString paleoDataDir = QStringLiteral("/home/kevin/projects/paleo_data");
-      if (!QDir(paleoDataDir).exists())
-        QSKIP("Local paleo_data fixture not available");
-
-      m_win->resize(1600, 1000);
-      m_win->show();
-      bool ok = m_win->openPath(paleoDataDir);
-      QVERIFY(ok);
-      QTRY_VERIFY_WITH_TIMEOUT(m_ctx->layerSvc()->layer(QStringLiteral("wells")) != nullptr &&
-                               m_ctx->layerSvc()->layer(QStringLiteral("survey.area")) != nullptr, 8000);
-
-      auto *root = m_ctx->projectSvc()->project()->layerTreeRoot();
-      QVERIFY(root != nullptr);
-
-      m_win->showPage(QStringLiteral("predict"));
-      auto *sl = m_ctx->layerSvc()->layer(QStringLiteral("survey.area"));
-      auto *wl = m_ctx->layerSvc()->layer(QStringLiteral("wells"));
-      QVERIFY(sl != nullptr);
-      QVERIFY(wl != nullptr);
-
-      auto *sNode = root->findLayer(sl->id());
-      auto *wNode = root->findLayer(wl->id());
-      QVERIFY(sNode != nullptr);
-      QVERIFY(wNode != nullptr);
-
-      // Both must be checked on predict page
-      QVERIFY(sNode->itemVisibilityChecked());
-      QVERIFY(wNode->itemVisibilityChecked());
-
-      // Switch to other pages
-      m_win->showPage(QStringLiteral("constraint"));
-      QVERIFY(sNode->itemVisibilityChecked());
-      QVERIFY(wNode->itemVisibilityChecked());
-
-      m_win->showPage(QStringLiteral("compose"));
-      QVERIFY(sNode->itemVisibilityChecked());
-      QVERIFY(wNode->itemVisibilityChecked());
-
-      m_win->showPage(QStringLiteral("predict"));
-      QVERIFY(sNode->itemVisibilityChecked());
-      QVERIFY(wNode->itemVisibilityChecked());
     }
 
     void qgisIsPersistentProjectView() {

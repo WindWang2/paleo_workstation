@@ -28,6 +28,17 @@ namespace {
 bool supervisedClassifier(Classifier m) {
   return m == Classifier::Lda || m == Classifier::Qda || m == Classifier::Knn;
 }
+// #837：控制栏与图区放进可拖动、可收起的 QSplitter（原 setFixedWidth(320) +
+// setMaximumWidth(320) 使长通道名截断且比例不可调）。
+QSplitter *makeControlsSplitter(QWidget *controls, QWidget *display, QWidget *parent) {
+  auto *splitter = new QSplitter(Qt::Horizontal, parent);
+  splitter->setObjectName(QStringLiteral("crossplotSplitter"));
+  splitter->addWidget(controls);
+  splitter->addWidget(display);
+  splitter->setStretchFactor(1, 1);
+  splitter->setSizes({320, 680});
+  return splitter;
+}
 } // namespace
 CrossplotCanvas::CrossplotCanvas(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("crossplotCanvas"));
@@ -421,21 +432,10 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   scroll->setWidget(controls);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
-  // #837：控制栏与图区放进可拖动 QSplitter（原 setFixedWidth(320) +
-  // setMaximumWidth(320) 使长通道名截断且比例不可调）；控制栏可收起。
-  scroll->setMinimumWidth(0);
-  auto *splitter = new QSplitter(Qt::Horizontal, this);
-  splitter->setObjectName(QStringLiteral("crossplotSplitter"));
-  splitter->setChildrenCollapsible(true);
-  splitter->addWidget(scroll);
-  auto *displayHost = new QWidget(splitter);
+  auto *displayHost = new QWidget(this);
   auto *display = new QVBoxLayout(displayHost);
   display->setContentsMargins(0, 0, 0, 0);
-  splitter->addWidget(displayHost);
-  splitter->setStretchFactor(0, 0);
-  splitter->setStretchFactor(1, 1);
-  splitter->setSizes({320, 680});
-  outer->addWidget(splitter);
+  outer->addWidget(makeControlsSplitter(scroll, displayHost, this));
   m_canvas = new CrossplotCanvas(this);
   display->addWidget(m_canvas, 1);
   m_stats = new QLabel(tr("选区：N=0"), this);

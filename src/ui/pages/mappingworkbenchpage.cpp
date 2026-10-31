@@ -395,7 +395,6 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   auto *evidenceGroup = paleo::collapsible::create(tr("选中要素的解释证据"), body, "workbenchEvidence", mode == "compose");
   auto *groupLayout = new QVBoxLayout(evidenceGroup);
   buildEvidenceSection(evidenceGroup, groupLayout);
-  evidenceGroup->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding); // R6 #836
   layout->addWidget(evidenceGroup, 2); // R6 #836：多余高度给证据区，而非末尾空白
   auto *details = paleo::collapsible::create(tr("来源与生成参数"), body, "workbenchProvenance", true, remember("provenance"));
   auto *detailsLayout = new QVBoxLayout(details);
@@ -412,7 +411,6 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   sl->addWidget(schemaBody);
   buildFaciesSchema(schemaBody);
   layout->addWidget(schema);
-  // R6 #836：去掉末尾 addStretch，否则会抢走证据区的增高份额
   connect(m_results, &QTreeWidget::currentItemChanged, this,
           [this] { updateState(); emit targetLayerChanged(selectedLayer()); });
   connect(m_results, &QTreeWidget::itemActivated, this,

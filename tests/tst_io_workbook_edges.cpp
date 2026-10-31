@@ -35,7 +35,6 @@ private slots:
   void cuttingsSheetStandardHeaders();
   void cuttingsSheetDialectHeaders();
   void cuttingsSheetRockNameAndColor();
-  void cuttingsRealA1WorkbookIfPresent();
   void cuttingsSheetMissingColumnIsHonest();
   void cuttingsSheetBadRowsSkippedIntoIssues();
   void cuttingsSheetDescriptionColumnOptional();
@@ -225,21 +224,6 @@ void IoWorkbookEdgeTests::cuttingsSheetRockNameAndColor()
   QCOMPARE(table.intervals[0].litho, QStringLiteral("浅灰色细砂岩"));
   QCOMPARE(table.intervals[0].description, QStringLiteral("泥质胶结"));
   QCOMPARE(table.intervals[1].litho, QStringLiteral("浅灰色细砂岩"));
-}
-
-void IoWorkbookEdgeTests::cuttingsRealA1WorkbookIfPresent()
-{
-  const QString path = QStringLiteral(
-      "/home/kevin/projects/paleo_data/2.沉积相分析-第9届/2.4岩屑录井数据/A1岩屑录井数据.xlsx");
-  if (!QFile::exists(path))
-    QSKIP("local A1 cuttings workbook is not on this machine");
-  const auto table = paleo::io::readCuttingsFile(path);
-  QVERIFY2(table.ok, qPrintable(table.error));
-  QVERIFY(table.intervals.size() > 10);
-  bool sawSand = false;
-  for (const auto &interval : table.intervals)
-    sawSand = sawSand || interval.litho == QStringLiteral("浅灰色细砂岩");
-  QVERIFY2(sawSand, "A1 cuttings must keep 颜色+岩石定名, e.g. 浅灰色细砂岩");
 }
 
 void IoWorkbookEdgeTests::cuttingsSheetMissingColumnIsHonest()

@@ -129,7 +129,7 @@ D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P
 | `geojson` | 要素个数、坐标范围、相名字段。注明「经纬度，与本测网不是同一空间」，不加入地图 |
 | `xml` 参考 | HZ28-6-1 写「未配准，不加入地图」和「不对应 A1–A20」 |
 
-键盘焦点是 2px #1B73D0 描边。禁用控件带原因 tooltip。资产表、预览标签、井下拉框、验证表的 accessible name 等于各自的可见标题。线框里的搜索是现有定位器，不在这一段新做。窗口最小仍是 1280×800。本计划不做手机版。dock 可以浮动。
+键盘焦点是 2px #1B73D0 描边。禁用控件带原因 tooltip。资产表、预览标签、井下拉框、验证表的 accessible name 等于各自的可见标题。线框里的搜索是现有定位器，不在这一段新做。主窗口不设最小尺寸（用户 2026-10-31 决定，取代 PLAN §42.11）。本计划不做手机版。dock 可以浮动。
 
 ```
 工作流标签    层位 chips                 搜索
@@ -241,7 +241,7 @@ D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P
 - The validation table lists all 20 wells with name, signed residual or reason, and the 10 ms threshold. Tags are 通过, 超过阈值, and 未计算, and the header count is 「n 口超过 10 ms」. Before the run the panel says 「还没有计算 D61 残差」. Off-survey and nodata rows are not numeric zeros. The click stays on 验证, moves the shared map, selects the existing 连井剖面 bottom-dock tab, and scrolls it. 「在数据页看这条剖面」 switches to 数据管理 and focuses the data-page seismic tab for that one line. No preview tab bar is added on 验证.
 - 「导出 D61 图件」 fills one layout: title 「D61 厚度」, well labels, a meter legend, nodata not drawn, scale bar, north arrow, and the CRS sentence. Success shows the path and SHA-256. Failure shows 「导出失败」 and the reason. Publish is a separate confirm. It stays disabled, with a tooltip naming the missing well or the missing PDF, until every well has a residual or a reason and the PDF is in the snapshot. A published row is tagged 「已发布」. The next save is labeled as a new version.
 - Horizon chips with no raster stay disabled with tooltip 「这一阶段还没有这个层位的栅格」. A prediction tensor that is not 411×641 shows 「结果不是 411×641，没有写入栅格」 and writes no raster.
-- Keyboard focus is a 2px #1B73D0 ring. Disabled controls carry a reason tooltip. The asset table, preview tabs, well combo, and validation table have accessible names. The window minimum stays 1280×800. This plan does not add a phone layout.
+- Keyboard focus is a 2px #1B73D0 ring. Disabled controls carry a reason tooltip. The asset table, preview tabs, well combo, and validation table have accessible names. The main window has no minimum size (user decision 2026-10-31, supersedes PLAN §42.11). This plan does not add a phone layout.
 - Verify: folder confirm opens only the well-head tab; an unresolved row shows 「未决」; a multi-well tab shows 「先选择一口井」 until a well is chosen and does not change when another asset is selected; Publish stays disabled, with the reason in the tooltip, when a residual or the PDF is missing.
 <!-- /autoplan-accepted:design -->
 
@@ -583,7 +583,7 @@ Approval readiness for the decisions applied above: the measured SEG-Y index, th
 - The validation table lists all 20 wells with name, signed residual or reason, and the 10 ms threshold. Tags are 通过, 超过阈值, and 未计算, and the header count is 「n 口超过 10 ms」. Before the run the panel says 「还没有计算 D61 残差」. Off-survey and nodata rows are not numeric zeros. The click stays on 验证, moves the shared map, selects the existing 连井剖面 bottom-dock tab, and scrolls it. 「在数据页看这条剖面」 switches to 数据管理 and focuses the data-page seismic tab for that one line. No preview tab bar is added on 验证.
 - 「导出 D61 图件」 fills one layout: title 「D61 厚度」, well labels, a meter legend, nodata not drawn, scale bar, north arrow, and the CRS sentence. Success shows the path and SHA-256. Failure shows 「导出失败」 and the reason. Publish is a separate confirm. It stays disabled, with a tooltip naming the missing well or the missing PDF, until every well has a residual or a reason and the PDF is in the snapshot. A published row is tagged 「已发布」. The next save is labeled as a new version.
 - Horizon chips with no raster stay disabled with tooltip 「这一阶段还没有这个层位的栅格」. A prediction tensor that is not 411×641 shows 「结果不是 411×641，没有写入栅格」 and writes no raster.
-- Keyboard focus is a 2px #1B73D0 ring. Disabled controls carry a reason tooltip. The asset table, preview tabs, well combo, and validation table have accessible names. The window minimum stays 1280×800. This plan does not add a phone layout.
+- Keyboard focus is a 2px #1B73D0 ring. Disabled controls carry a reason tooltip. The asset table, preview tabs, well combo, and validation table have accessible names. The main window has no minimum size (user decision 2026-10-31, supersedes PLAN §42.11). This plan does not add a phone layout.
 - Verify: folder confirm opens only the well-head tab; an unresolved row shows 「未决」; a multi-well tab shows 「先选择一口井」 until a well is chosen and does not change when another asset is selected; Publish stays disabled, with the reason in the tooltip, when a residual or the PDF is missing.
 <!-- /autoplan-accepted:design -->
 
@@ -659,7 +659,7 @@ After: 9/10. Those tokens are in the preview, validation, and publish rules. No 
 
 Before: 3/10. The code has a 1280×800 minimum. The plan did not say so, and it did not say there is no phone layout.
 
-After: 8/10. Minimum stays 1280×800. Docks can float. Focus ring, accessible names, and disabled tooltips are required. A phone stack is out of scope for this workstation. Dock widths when every dock is open at exactly 1280 are still the window manager's job.
+After: 8/10. No main-window minimum (superseded 2026-10-31 by user decision; was 1280×800). Docks can float. Focus ring, accessible names, and disabled tooltips are required. A phone stack is out of scope for this workstation. Dock widths when every dock is open at exactly 1280 are still the window manager's job.
 
 #### Pass 7 — Decisions
 

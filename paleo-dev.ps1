@@ -556,7 +556,7 @@ switch ($Verb) {
         $qtout = Join-Path $logDir "$n.qtout.txt"
         # 直跑复现 ctest 环境（该测试的 ENVIRONMENT 属性 + 工作目录=构建目录）。
         $saved = @{}
-        # #765：该 ctest 项的 TIMEOUT 属性，用作下面直跑的单测超时（缺省 1500s）。
+        # #765：该 ctest 项的 TIMEOUT 属性，用作下面直跑的单测超时（缺省 300s）。
         $timeoutSec = 0
         try {
           $json = & ctest --test-dir $Build -R "^$([regex]::Escape($n))`$" --show-only=json-v1 2>$null | Out-String | ConvertFrom-Json
@@ -579,11 +579,11 @@ switch ($Verb) {
         try {
           # #765：直跑必须带单测超时。此前 `& $exe | Tee-Object` 无超时，挂死的
           # 测试会让 windows 车道干等到 job 级 360 分钟才被杀。这里复用该 ctest
-          # 项的 TIMEOUT 属性（缺省 1500s，与 Linux ctest 同源），超时即杀进程树
+          # 项的 TIMEOUT 属性（缺省 300s，与 Linux ctest 同源），超时即杀进程树
           # 并按红记（挂死不按负载抖动放行，与 Linux ci_ctest_gate.sh 的崩溃判红
           # 同口径）。stdout/stderr 走异步读（ReadToEndAsync + Task.WaitAll）——
           # 管道缓冲被写满时同步读会与「进程阻塞在写」互锁，造成假超时。
-          if ($timeoutSec -le 0) { $timeoutSec = 1500 }
+          if ($timeoutSec -le 0) { $timeoutSec = 300 }
           $psi = New-Object System.Diagnostics.ProcessStartInfo
           $psi.FileName = $exe
           $psi.Arguments = '-o "' + $qtout + ',txt"'

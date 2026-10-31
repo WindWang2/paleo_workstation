@@ -289,9 +289,8 @@ void PaleoMainWindow::buildShell()
                                 m_bottomDockAutoShown, m_rightDock}, this);
          }
        }});
-  // §42.11 a11y floor（R6 #835：屏幕自适应——min(1024×640, 0.8×可用区)，
-  // showEvent 起随 screenChanged 重算；待用户确认的设计改写）。
-  applyScreenAwareMinimumSize();
+  // R6 #835（用户 2026-10-31 决定「不要限制」，取代 PLAN §42.11 的 1280×800 最小窗口）：
+  // 不再设置主窗口最小尺寸，只保留 Qt 布局自然下限。
 
   // ---- center: startup page stacked under the workspace ----
   buildCenterArea();
@@ -525,23 +524,6 @@ void PaleoMainWindow::onProjectOpened()
 
   // 工区打开默认进入数据看板；具体预览页在目录绑定完成后由 attachDataPage 激活。
   showPage(QStringLiteral("data"));
-}
-
-void PaleoMainWindow::applyScreenAwareMinimumSize()
-{
-  const QSize avail = paleo::ui_detail::isOffscreen() ? QSize() : paleo::ui_detail::availableSizeFor(this);
-  setMinimumSize(paleo::ui_detail::mainWindowMinimumSize(avail));
-}
-
-void PaleoMainWindow::showEvent(QShowEvent *event)
-{
-  SARibbonMainWindow::showEvent(event);
-  if (!m_screenWatchInstalled && windowHandle())
-  {
-    m_screenWatchInstalled = true;
-    connect(windowHandle(), &QWindow::screenChanged, this, [this](QScreen *) { applyScreenAwareMinimumSize(); });
-    applyScreenAwareMinimumSize();
-  }
 }
 
 void PaleoMainWindow::closeEvent(QCloseEvent *event)

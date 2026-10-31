@@ -523,7 +523,9 @@ jobs:
   windows-shard:
     # PW-058：固定 runner 镜像，升级 = 有意改这里。
     runs-on: windows-2025
-    timeout-minutes: 360
+    # R6 测试管控（用户 2026-10-31「一定要控制测试」）：实测 Build 68–100 min，
+    # 片内测试正常 <60 min；挂死不再吊满 6h——Test 步自身 90 min 上限，job 200 min。
+    timeout-minutes: 200
     strategy:
       fail-fast: false
       matrix:
@@ -570,10 +572,14 @@ jobs:
       - name: Test (headless；QSettings 走测试私有注册表 hive（方向 81），片内串行)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
+        # 挂死快速判红：单测 ctest TIMEOUT 默认 300s（cmake PALEO_TEST_TIMEOUT，--timeout
+        # 兜底无属性项），整步 90 min 硬上限。不用 --stop-on-failure：它会让 flaky 直跑放行
+        # 后其余未跑的测试被当成通过（#501 台账语义）。
+        timeout-minutes: 90
         env:
           QT_QPA_PLATFORM: offscreen
           # -I start,,stride：四片各跑 1/4，片内保持串行。perf 仍不进必过门禁。
-          PALEO_CTEST_ARGS: "-LE perf -I ${{ matrix.shard }},,4"
+          PALEO_CTEST_ARGS: "-LE perf --timeout 300 -I ${{ matrix.shard }},,4"
         run: ./paleo-dev.ps1 test
       # #501/#759：红 run 的放行记录同样要累计，故 always() 落盘。
       - name: Save flaky ledger

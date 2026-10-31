@@ -11,7 +11,7 @@ bool prepareSeismicCoordinates(FamilyContext &ctx, const QString &sourceCrs) {
   if (!ctx.s->georeference || ctx.s->georeference->kind != "crs") return true;
   QFile file(ctx.sourcePath);
   if (!file.open(QIODevice::ReadOnly)) { *ctx.error = QStringLiteral("无法读取地震坐标声明"); return false; }
-  auto from = paleo::io::wellSourceCrsHint(QString::fromLatin1(file.read(3200)));
+  auto from = paleo::io::wellSourceCrsHint(paleo::io::segyTextHeaderToString(file.read(3200)));
   if (from.isEmpty()) from = sourceCrs;
   const auto target = ctx.s->georeference->sourceCrs;
   if (from.isEmpty()) return true;

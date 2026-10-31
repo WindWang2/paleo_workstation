@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
 // 层：数据
 namespace paleo::io
@@ -106,16 +107,31 @@ QByteArray deflateRaw( const QByteArray &input, QString *error )
     return {};
   }
   QByteArray out;
-  const uInt bound = deflateBound( &stream, static_cast<uLong>( input.size() ) );
-  out.resize( static_cast<int>( bound ) ); // zlib 自己的上界（不可压数据也放得下）
+  // #858：deflateBound 返回 uLong；≈2 GiB 输入的上界会超 INT_MAX（旧码强转 int
+  // 得负数→空缓冲却报 avail_out=bound，堆越界写）。超出 uInt 的一律拒绝。
+  const uLong bound = deflateBound( &stream, static_cast<uLong>( input.size() ) );
+  if ( bound > static_cast<uLong>( std::numeric_limits<uInt>::max() ) ||
+       static_cast<qint64>( bound ) > std::numeric_limits<qsizetype>::max() )
+  {
+    deflateEnd( &stream );
+    *error = QStringLiteral( "条目过大，无法压缩（%1 字节）" ).arg( input.size() );
+    return {};
+  }
+  out.resize( static_cast<qsizetype>( bound ) ); // zlib 自己的上界（不可压数据也放得下）
+  if ( out.size() != static_cast<qsizetype>( bound ) )
+  {
+    deflateEnd( &stream );
+    *error = QStringLiteral( "压缩缓冲分配失败" );
+    return {};
+  }
   stream.next_in = reinterpret_cast<Bytef *>( const_cast<char *>( input.constData() ) );
   stream.avail_in = static_cast<uInt>( input.size() );
   stream.next_out = reinterpret_cast<Bytef *>( out.data() );
-  stream.avail_out = bound;
+  stream.avail_out = static_cast<uInt>( bound );
   const int status = deflate( &stream, Z_FINISH );
   const bool ok = status == Z_STREAM_END && stream.total_in == static_cast<uLong>( input.size() );
   if ( ok )
-    out.resize( static_cast<int>( stream.total_out ) );
+    out.resize( static_cast<qsizetype>( stream.total_out ) );
   deflateEnd( &stream );
   if ( !ok )
   {

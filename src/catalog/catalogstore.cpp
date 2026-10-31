@@ -105,11 +105,18 @@ using paleo::catalog_detail::loadTables;
       for (int gen = keep - 1; gen >= 2; --gen)
       {
         const QString src = bak + QStringLiteral(".%1").arg(gen);
-        if (QFile::exists(src))
-          paleoReplaceFile(src, bak + QStringLiteral(".%1").arg(gen + 1));
+        // #859：任一代移位失败即停止轮转——继续会让新备份盖掉尚未移走的旧代。
+        if (QFile::exists(src) && !paleoReplaceFile(src, bak + QStringLiteral(".%1").arg(gen + 1)))
+        {
+          setError(error, QStringLiteral("cannot rotate backup %1").arg(src));
+          return false;
+        }
       }
-      if (QFile::exists(bak))
-        paleoReplaceFile(bak, bak + QStringLiteral(".2"));
+      if (QFile::exists(bak) && !paleoReplaceFile(bak, bak + QStringLiteral(".2")))
+      {
+        setError(error, QStringLiteral("cannot rotate backup %1").arg(bak));
+        return false;
+      }
     }
     const QString bakTmp = bak + QStringLiteral(".tmp");
     QFile::remove(bakTmp);

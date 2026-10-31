@@ -176,6 +176,74 @@ private slots:
     QVERIFY(std::abs(lon - 108.037366) < 1e-6); QVERIFY(std::abs(lat - 36.086627) < 1e-6);
     QFile original(from); QVERIFY(original.open(QIODevice::ReadOnly)); QCOMPARE(original.readAll(), file + trace + samples);
   }
+  // #855：小端 + 1 个扩展文本头的 SEG-Y 也要能转换（旧码按大端读 format/ns、
+  // ext≠0 直接拒绝）。#857：目标为地理坐标系时写 units=2（弧秒）。
+  void littleEndianExtendedSegyTransformsToGeographic() {
+    QTemporaryDir root; QString error;
+    QByteArray file(3600, ' '); file.replace(3200, 400, QByteArray(400, '\0'));
+    qToLittleEndian<quint16>(2, file.data() + 3220); qToLittleEndian<quint16>(5, file.data() + 3224);
+    qToLittleEndian<qint16>(1, file.data() + 3504);
+    file += QByteArray("((SEG: ENDTEXT))").leftJustified(3200, ' ');
+    QByteArray trace(240, '\0'); qToLittleEndian<quint16>(2, trace.data() + 114);
+    qToLittleEndian<qint16>(-100, trace.data() + 70); qToLittleEndian<qint16>(1, trace.data() + 88);
+    qToLittleEndian<qint32>(23324046, trace.data() + 180); qToLittleEndian<qint32>(399762112, trace.data() + 184);
+    const QByteArray samples(8, '\x11');
+    const auto from = root.filePath("le.sgy"), to = root.filePath("le_out.sgy");
+    write(from, file + trace + samples);
+    QVERIFY2(paleo::io::projectSegyFile(from, to, "EPSG:32649", "EPSG:4326", &error), qPrintable(error));
+    QFile converted(to); QVERIFY(converted.open(QIODevice::ReadOnly)); const auto bytes = converted.readAll();
+    QCOMPARE(bytes.size(), file.size() + trace.size() + samples.size());
+    const char *h = bytes.constData() + 6800;
+    QCOMPARE(qFromLittleEndian<qint16>(h + 88), qint16(2));
+    QCOMPARE(qFromLittleEndian<qint16>(h + 70), qint16(-100));
+    const double lon = qFromLittleEndian<qint32>(h + 180) / 100. / 3600.;
+    const double lat = qFromLittleEndian<qint32>(h + 184) / 100. / 3600.;
+    QVERIFY2(std::abs(lon - 108.037366) < 1e-5, qPrintable(QString::number(lon, 'f', 7)));
+    QVERIFY2(std::abs(lat - 36.086627) < 1e-5, qPrintable(QString::number(lat, 'f', 7)));
+    QCOMPARE(bytes.right(8), samples);
+    QCOMPARE(bytes.mid(3600, 3200), file.mid(3600, 3200)); // 扩展头不动
+  }
+  // #856：EBCDIC 卷头按 EBCDIC 写回、C39/C40 不被覆盖；EBCDIC 里的 EPSG 可识别；
+  // CDP (0,0) 未赋值保持 (0,0)。
+  void ebcdicHeaderStaysEbcdicAndUnassignedCdpStaysZero() {
+    QTemporaryDir root; QString error;
+    auto ebcdic = [](const QByteArray &ascii) {
+      QByteArray out(ascii.size(), '\0');
+      for (int i = 0; i < ascii.size(); ++i) {
+        const char c = ascii[i];
+        out[i] = c == ' ' ? '\x40' : c == ':' ? '\x7a' : c >= '0' && c <= '9' ? char(0xf0 + c - '0')
+               : c >= 'A' && c <= 'I' ? char(0xc1 + c - 'A') : c >= 'J' && c <= 'R' ? char(0xd1 + c - 'J')
+               : c >= 'S' && c <= 'Z' ? char(0xe2 + c - 'S') : '\x40';
+      }
+      return out;
+    };
+    QByteArray text;
+    for (int line = 1; line <= 40; ++line) {
+      QByteArray l = QByteArray("C") + QByteArray::number(line).rightJustified(2, '0');
+      if (line == 5) l += " CRS EPSG:32649";
+      if (line == 39) l += " SEG Y REV1";
+      if (line == 40) l += " END TEXTUAL HEADER";
+      text += l.leftJustified(80, ' ');
+    }
+    QByteArray file = ebcdic(text) + QByteArray(400, '\0');
+    qToBigEndian<quint16>(2, file.data() + 3220); qToBigEndian<quint16>(5, file.data() + 3224);
+    QCOMPARE(paleo::io::wellSourceCrsHint(paleo::io::segyTextHeaderToString(file.left(3200))), QString("EPSG:32649"));
+    QByteArray trace(240, '\0'); qToBigEndian<quint16>(2, trace.data() + 114);
+    qToBigEndian<qint16>(-100, trace.data() + 70);
+    qToBigEndian<qint32>(23324046, trace.data() + 72); qToBigEndian<qint32>(399762112, trace.data() + 76);
+    const auto from = root.filePath("e.sgy"), to = root.filePath("e_out.sgy");
+    write(from, file + trace + QByteArray(8, '\0'));
+    QVERIFY2(paleo::io::projectSegyFile(from, to, "EPSG:32649", "EPSG:3857", &error), qPrintable(error));
+    QFile converted(to); QVERIFY(converted.open(QIODevice::ReadOnly)); const auto bytes = converted.readAll();
+    QCOMPARE(bytes.mid(38 * 80, 160), file.mid(38 * 80, 160));          // C39/C40 原样
+    for (unsigned char c : bytes.left(3200)) QVERIFY(c == 0x40 || c >= 0x4b); // 无 ASCII 空格混入
+    const auto decoded = paleo::io::segyTextHeaderToString(bytes.left(3200));
+    QCOMPARE(paleo::io::wellSourceCrsHint(decoded), QString("EPSG:3857"));
+    QVERIFY(decoded.mid(37 * 80, 80).startsWith("C38 CRS EPSG:3857"));
+    QCOMPARE(qFromBigEndian<qint32>(bytes.constData() + 3600 + 180), 0);
+    QCOMPARE(qFromBigEndian<qint32>(bytes.constData() + 3600 + 184), 0);
+    QVERIFY(qFromBigEndian<qint32>(bytes.constData() + 3600 + 72) != 23324046);
+  }
   void nativeHorizonAcceptsRealRotatedCorners() {
     const QByteArray text = "# Projection: EPSG:32649\n# Grid_size: 2x2\n"
         "# P1: 1,1,233000,3990000\n# P2: 1,2,233020,3990002\n# P3: 2,2,233017,3990022\n"

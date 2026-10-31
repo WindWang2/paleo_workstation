@@ -129,6 +129,7 @@ add_library(paleo_qgis STATIC
   src/qgis/previewmapcanvas.cpp                     # P2 D1.1 预览画布封装（私有层容器+CRS+历史栈+渐进渲染）
   src/qgis/dashboardsurveymap.cpp                   # PW-004 看板工区地图 QGIS 面（自 ui 收口）
   src/qgis/mappingreferencecanvas.cpp
+  src/qgis/projectscope.cpp                        # 工程级 UI 状态作用域键（视图层不直连 qgsproject.h）
   src/qgis/previewmaptools.cpp                      # P2 D1.2 预览工具注册表（量测/identify/剖面线）
   src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）
   src/qgis/identifytool.cpp                         # 主画布识别浏览（经 IdentifyPresenter 驱动视图弹层）

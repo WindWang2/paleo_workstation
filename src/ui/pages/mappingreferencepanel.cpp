@@ -1,6 +1,7 @@
 // 层：视图
 #include "mappingreferencepanel.h"
 
+#include "../../qgis/projectscope.h"
 #include "../../qgis/referenceview.h"
 #include "../decorations/paleodecorations.h"
 #include "../paleotheme.h"
@@ -16,7 +17,6 @@
 #include <QWheelEvent>
 #include <QKeyEvent>
 #include <QChildEvent>
-#include <QCryptographicHash>
 #include <QLabel>
 #include <QPushButton>
 #include <QMouseEvent>
@@ -243,15 +243,13 @@ void MappingReferencePanel::setRemoveHint(bool lastView)
 }
 
 namespace {
-// #745：宽度按工程作用域存——旧的全局键让 A 工程的布局影响 B 工程。键里只放
-// 工程文件路径的 SHA1（路径分隔符会污染 QSettings 的层级键）。
+// #745：宽度按工程作用域存——旧的全局键让 A 工程的布局影响 B 工程。
+// 作用域键由 qgis 层给出（路径 SHA1），视图层不直连 qgsproject.h（qgs-audit）。
 QString widthsKey(QgsProject *project)
 {
-  const QString file = referenceProjectFilePath(project);
-  const QString scope = file.isEmpty()
-      ? QStringLiteral("unscoped")
-      : QString::fromLatin1(QCryptographicHash::hash(file.toUtf8(), QCryptographicHash::Sha1).toHex());
-  return QStringLiteral("mappingEvidence/viewWidths/") + scope;
+  const QString scope = paleoProjectScopeKey(project);
+  return QStringLiteral("mappingEvidence/viewWidths/")
+      + (scope.isEmpty() ? QStringLiteral("unscoped") : scope);
 }
 
 // 证据视图右缘的拖动手柄：左右拖动即调整其左侧视图宽度。

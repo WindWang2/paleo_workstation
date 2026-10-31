@@ -89,6 +89,33 @@ private:
   }
 
 private slots:
+  void predictionSeparatesInputBoundaryFromResultUnit()
+  {
+    Fixture f;
+    QVERIFY(initFixture(f));
+    const auto path = makeRaster(f.dir.filePath("unit-input.tif"), 2, 2, {1, 2, 1, 2});
+    QVERIFY(!path.isEmpty());
+    QString error;
+    QVERIFY(f.layers.declare(decl("horizon.T1", "T1", "raster", path), &error));
+    auto *input = f.layers.instantiate("horizon.T1", &error);
+    QVERIFY(input);
+    PredictionWorkflow workflow(&f.proc, &f.layers);
+    workflow.setCatalog(&f.catalog, f.dir.path());
+    const QVariantMap unit{{"subIntervalId", "sub-result"}, {"schemeId", "scheme"}, {"revision", "r1"}};
+    const QVariantMap params{{"INPUT", QVariant::fromValue(input)}, {"analysisLayerKey", "sub-result"},
+                             {"unitSelection", unit}};
+    PredictionWorkflow::PredictionJob job;
+    QVERIFY2(workflow.preparePredictionJob("T1", "paleo:paleo_geological_smoothing", params, &job, &error), qPrintable(error));
+    QCOMPARE(job.horizon, QString("sub-result"));
+    QVERIFY(job.layerId.startsWith("predict.sub-result."));
+    QCOMPARE(job.inputUri, path);
+    QCOMPARE(job.commitExtra.value("unitSelection").toMap(), unit);
+    QVERIFY(!job.commitExtra.value("algorithm_parameters").toMap().contains("INPUT"));
+    workflow.setCatalog(&f.catalog, f.dir.path()); // even same path reopened is a new session
+    QVERIFY(!workflow.publishPredictionJob(job, &error));
+    QVERIFY(error.contains(QStringLiteral("工程已切换")));
+    PaleoWorkflowDiscardPredictionStagingDir(job.staging.versionId, job.staging.absolutePath);
+  }
 
   void initTestCase()
   {

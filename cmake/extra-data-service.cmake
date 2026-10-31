@@ -86,3 +86,10 @@ add_paleo_test(tst_stratigraphic_subintervals LIBS paleo_services paleo_linkage 
 # 子层段砂地比 / 井相 / 地震相成果与编图证据（docs/STRATIGRAPHIC_SUBINTERVALS.md §井相地震相）
 target_sources(paleo_domain PRIVATE src/domain/subintervalfacies.cpp)
 target_sources(paleo_services PRIVATE src/services/subintervalfactors.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/analysisresultsync.cpp src/workflow/wellfaciesworkflow_unit.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/analysisframework.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/seismicresultpublisher.cpp)
+add_paleo_test(tst_analysisresultsync LIBS paleo_workflow Paleo::paleo_data_service)
+add_paleo_test(tst_dataservice_framework LIBS Paleo::paleo_data_service Qt6::Core)
+target_link_libraries(tst_wellfacies PRIVATE Paleo::paleo_data_service)
+target_link_libraries(paleo PRIVATE Paleo::paleo_data_service)

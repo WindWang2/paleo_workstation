@@ -23,7 +23,6 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
-#include <qgsproject.h>
 
 #include <functional>
 #include <memory>
@@ -248,7 +247,7 @@ namespace {
 // 工程文件路径的 SHA1（路径分隔符会污染 QSettings 的层级键）。
 QString widthsKey(QgsProject *project)
 {
-  const QString file = project ? project->fileName() : QString();
+  const QString file = referenceProjectFilePath(project);
   const QString scope = file.isEmpty()
       ? QStringLiteral("unscoped")
       : QString::fromLatin1(QCryptographicHash::hash(file.toUtf8(), QCryptographicHash::Sha1).toHex());

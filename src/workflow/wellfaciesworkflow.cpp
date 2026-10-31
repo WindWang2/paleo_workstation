@@ -417,7 +417,8 @@ QString WellFaciesWorkflow::cachePath(const WellFaciesRun &run) const {
   // 键必须含模型版本与标签词表：同 id 的服务端模型换版（或同版本换标签集）
   // 后，旧键会回放上一版预测结果——预测结果与产它的模型不再对得上。
   const QByteArray bytes =
-      QJsonDocument(QJsonObject{{"service", m_config.baseUrl.toString()},
+      QJsonDocument(QJsonObject{{"unitSelection", QJsonObject::fromVariantMap(paleo::strat::toMap(m_analysisUnit))},
+                                {"service", m_config.baseUrl.toString()},
                                 {"modelId", run.model.id},
                                 {"modelVersion", run.model.version},
                                 {"labels", run.model.labels.join(QLatin1Char(','))},
@@ -471,6 +472,7 @@ void WellFaciesWorkflow::updateInput(bool restoreCache) {
                                  &run.input, &reason)) break;
     }
   }
+  if (reason.isEmpty()) scopePlanToUnit(&reason);
   emit planChanged(reason.isEmpty() ? planSummary() : QString());
   emit availabilityChanged(reason.isEmpty(), reason);
   if (!reason.isEmpty()) { m_plan.runs.clear(); return; }
@@ -495,6 +497,16 @@ void WellFaciesWorkflow::updateInput(bool restoreCache) {
 void WellFaciesWorkflow::run() {
   if (m_busy || m_loading || !m_plan.ready() || (m_attributeLayer && m_attributeLayer->isEditable()))
     return;
+  m_unitParentVersions.clear();
+  if (m_catalog) {
+    const auto ids = m_catalog->wellsMatchingName(m_data.wellName);
+    if (ids.size() == 1)
+      for (const auto &link : m_catalog->linksForEntity(ids.first())) {
+        if (link.unresolved || link.role == "interpretation") continue;
+        const auto v = m_catalog->currentVersion(link.assetId);
+        if (!v.id.isEmpty()) m_unitParentVersions.append(v.id);
+      }
+  }
   m_busy = true;
   m_runs = m_plan.runs;
   m_runTasks.clear();
@@ -629,8 +641,12 @@ void WellFaciesWorkflow::finishRun() {
   if (!results.isEmpty()) {
     // 产品装配回写可维护矢量相属性；旧测试/无图层服务保留资产兼容路。
     const bool stale = m_taskSvc && m_taskSvc->session() != m_runSession;
-    const QString publishNote =
+    QString publishNote =
         stale ? tr("工程已切换，结果未写入属性") : publishLithoAsset(merged);
+    if (!stale) {
+      const QString unitError = publishUnitResult(merged);
+      if (!unitError.isEmpty()) publishNote += (publishNote.isEmpty() ? QString() : QStringLiteral("；")) + unitError;
+    }
     note = cacheError.isEmpty() ? tr("结果已保存")
                                 : tr("结果缓存保存失败：%1").arg(cacheError);
     if (!publishNote.isEmpty())

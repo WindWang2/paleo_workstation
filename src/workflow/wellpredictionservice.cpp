@@ -195,7 +195,9 @@ void WellPredictionService::prepare() {
         if (!version.id.isEmpty()) m_request.sourceVersionIds << version.id;
       }
     // 编图与砂地比、厚度、残差同一套层序，不跟 20kou 这类主分层。
-    source.tops = project.topsForMapping(id);
+    QString topsError;
+    source.tops = project.topsForMapping(id, &topsError);
+    if (!topsError.isEmpty()) skip(int(sources.size()), topsError);
     QString topsVersion;
     const QString topsAsset = project.mappingTopsAssetId(id);
     if (!topsAsset.isEmpty())

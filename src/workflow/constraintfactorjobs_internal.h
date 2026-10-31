@@ -69,6 +69,8 @@ namespace paleo::constraint_detail
                            QStringLiteral("parentVersionIds"), QStringLiteral("pointsLayerId"),
                            QStringLiteral("factorInputPrepared")}) effective.remove(key);
     extra.insert(QStringLiteral("algorithm_parameters"), effective);
+    if (params.contains(QStringLiteral("unitSelection")))
+      extra.insert(QStringLiteral("unitSelection"), params.value(QStringLiteral("unitSelection")));
     if (params.contains(QStringLiteral("factorSource")))
       extra.insert(QStringLiteral("factor_source"), params.value(QStringLiteral("factorSource")));
     if (params.contains(QStringLiteral("depthDomain")))

@@ -113,6 +113,7 @@ class PredictionWorkflow : public QObject
     // 线程不发信号，错误经 job.error 交给调用侧上屏）。
     struct PredictionJob
     {
+        quint64 projectGeneration = 0;
         bool prepared = false;
         bool ok = false;
         QString error;
@@ -123,6 +124,7 @@ class PredictionWorkflow : public QObject
         // 独立层——主线程拥有的活 QgsMapLayer 不跨线程传（FC-001，
         // qgisprocessingservice.cpp 的成文契约；runFactorAlgorithm 同款范式）。
         QString inputUri;
+          QVariantMap extraInputLayers;
         QString inputProvider;
         QString inputCrsWkt;
         bool inputIsRaster = true;
@@ -176,6 +178,7 @@ class PredictionWorkflow : public QObject
     QPointer<DataCatalog> m_catalog;
     QString m_projectDir;
 
+    quint64 m_projectGeneration = 0;
     // m2/mapping-pages(A)：结果层 id 的稳定段（algorithmId 净化）——同一
     // horizon+algorithmId 重跑复用同一 layerId，manifest upsert 不新增重复行。
     static QString stableResultSuffix(const QString &algorithmId);

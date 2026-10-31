@@ -443,6 +443,23 @@ void SubIntervalSelectorBar::reloadFromProject( const QString &projectDir,
   reloadFromBoundaries( fallbackBoundaries );
 }
 
+void SubIntervalSelectorBar::refreshProjectResults()
+{
+  if (m_projectDir.isEmpty()) return;
+  if (!m_fromDataService) { reloadFromProject(m_projectDir, m_fallbackBoundaries); return; }
+  paleo::data::StratigraphicScheme loaded;
+  std::vector<paleo::data::SubIntervalResultBinding> bindings;
+  QString error;
+  if (!paleo::strat::loadProjectSchemeFromDir(m_projectDir, m_current.schemeId, m_current.revision,
+                                             loaded, &bindings, &error)) {
+    emit readinessMessage(error); return;
+  }
+  m_bindings = std::move(bindings);
+  rebuildSchemeCombo();
+  rebuildRevisionCombo();
+  rebuildStatusPanel();
+}
+
 void SubIntervalSelectorBar::setSchemeSnapshot(
     const paleo::data::StratigraphicScheme &scheme,
     const std::vector<paleo::data::SubIntervalResultBinding> &bindings )
@@ -812,7 +829,7 @@ QString SubIntervalSelectorBar::statusPanelHtml() const
     if ( const int colon = body.indexOf( QStringLiteral( "：" ) ); colon >= 0 )
       body = body.mid( colon + 1 );
     const bool selected = m_current.isValid() && !m_current.aggregate && m_current.subIntervalId == r.subIntervalId;
-    html += QStringLiteral( "<tr><td><span style='color:%1'>&#9679;</span>&nbsp;%2&nbsp;</td>"
+    html += QStringLiteral( "<tr><td><span style='color:%1'>●</span>&nbsp;%2&nbsp;</td>"
                             "<td><b>%3</b>&nbsp;</td><td>%4%5</td>"
                             "<td>&nbsp;<span style='color:%6'>%7</span></td></tr>" )
                 .arg( dot.name(), name, r.label, body.toHtmlEscaped(),

@@ -728,6 +728,15 @@ QVariantMap QgisProcessingService::runBlocking(const QString &algorithmId, const
   return results;
 }
 
+bool QgisProcessingService::algorithmRequiresParameter(const QString &algorithmId, const QString &name) const
+{
+  QMutexLocker lock(&m_registryMutex);
+  const auto *registry = QgsApplication::processingRegistry();
+  const auto *algorithm = registry ? registry->algorithmById(algorithmId) : nullptr;
+  const auto *parameter = algorithm ? algorithm->parameterDefinition(name) : nullptr;
+  return parameter && !parameter->flags().testFlag(Qgis::ProcessingParameterFlag::Optional);
+}
+
 QStringList QgisProcessingService::paleoAlgorithmIds() const
 {
   QStringList ids;

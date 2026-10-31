@@ -1,6 +1,7 @@
 // 层：视图
 // 综合图画布·道体渲染与手势（绘制/滚轮缩放/橡皮筋/标志层编辑拖拽/右键菜单）——自 wellcompositecanvas.cpp 拆出（方向 66，行为零变更）
 #include "wellcompositecanvas.h"
+#include "ui/common/wheelzoom.h"
 #include "../paleotheme.h"
 #include <QApplication>
 #include <QContextMenuEvent>
@@ -255,9 +256,8 @@ void WellCompositeBody::wheelEvent(QWheelEvent *event)
   if (event->modifiers() & Qt::ControlModifier)
   {
     // Ctrl+Shift ×5 加速缩放
-    double factor = delta > 0 ? 1.2 : 0.8333;
-    if (event->modifiers() & Qt::ShiftModifier)
-      factor = factor > 1.0 ? 7.0 : 0.14;
+    const double factor = paleo::ui::wheelZoomFactor(
+        delta, (event->modifiers() & Qt::ShiftModifier) ? 7.0 : 1.2);
     // D2.4 锚点：鼠标模式取光标深度，中心模式取视口中点
     const double anchor = m_canvas->wheelZoomAtMouse()
                               ? m_canvas->yToDepth(event->position().y())

@@ -11,7 +11,7 @@ namespace seismic {
 Seismic3DFallbackWidget::Seismic3DFallbackWidget(QWidget *parent)
     : QWidget(parent)
 {
-    setMinimumSize(400, 260);
+    setMinimumSize(240, 160);  // #847：原 400x260
 }
 
 void Seismic3DFallbackWidget::setSlice(int slot, const QImage &image, const QString &label)

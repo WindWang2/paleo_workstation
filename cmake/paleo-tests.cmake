@@ -427,3 +427,4 @@ add_paleo_test(tst_dragtop_render LIBS paleo_qgis)  # 拖拽到树顶后画布�
 add_paleo_test(tst_layerorganizer LIBS paleo_qgis)  # 图层树布局器：置顶共享/层位组/组秩/树层双绑
 add_paleo_test(tst_layertreepanel LIBS paleo_ui)    # 筛选/组级显隐/复制图层/objectName 兼容
 add_paleo_test(tst_layerproperties LIBS paleo_ui)   # 矢量/栅格/缺源三类 + 业务页字段
+add_paleo_test(tst_r6_uiviews LIBS paleo_ui)                # R6 ui-views：尺寸约束/滚轮缩放/预览曲线回归

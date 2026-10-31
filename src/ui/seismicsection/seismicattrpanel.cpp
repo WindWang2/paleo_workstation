@@ -1,5 +1,6 @@
 // 层：视图
 #include "ui/seismicsection/seismicattrpanel.h"
+#include "ui/common/fitwidth.h"
 #include "ui/paleotheme.h"
 
 #include <QComboBox>
@@ -44,7 +45,7 @@ void SeismicAttrPanel::buildUi()
         {Kind::Sweetness, SeismicTaskService::seismicAttrDisplayName(Kind::Sweetness)}};
     for (const auto &k : kinds)
         m_cboKind->addItem(k.second, int(k.first));
-    m_cboKind->setFixedWidth(150);
+    paleo::ui::fitWidthAtLeast(m_cboKind, 150);
     row1->addWidget(m_cboKind);
     // goal/attr-volume：扫描范围——本剖面（叠加显示）/时间切片（地理参考
     // 栅格 → 层树）/属性体（SATV → 3D 体视）
@@ -54,7 +55,7 @@ void SeismicAttrPanel::buildUi()
     m_cboScope->addItem(tr("本剖面"), 0);
     m_cboScope->addItem(tr("时间切片"), 1);
     m_cboScope->addItem(tr("属性体"), 2);
-    m_cboScope->setFixedWidth(88);
+    paleo::ui::fitWidthAtLeast(m_cboScope, 88);
     m_cboScope->setToolTip(tr("时间切片/属性体按属性族所需窗口全测网扫描"
                               "（瞬时族整道谱、时窗族垂向窗、相干三维窗）"));
     row1->addWidget(m_cboScope);
@@ -64,7 +65,7 @@ void SeismicAttrPanel::buildUi()
     m_spinTimeSample = new QSpinBox();
     m_spinTimeSample->setObjectName(QStringLiteral("attrTimeSample"));
     m_spinTimeSample->setRange(0, 0);
-    m_spinTimeSample->setFixedWidth(64);
+    paleo::ui::fitWidthAtLeast(m_spinTimeSample, 64);
     row1->addWidget(m_spinTimeSample);
 
     auto mkBtn = [this](const QString &text, const QString &tip, bool primary) {
@@ -105,26 +106,26 @@ void SeismicAttrPanel::buildUi()
     m_spinWindowHalf->setObjectName(QStringLiteral("attrWindowHalf"));
     m_spinWindowHalf->setRange(0, 128);
     m_spinWindowHalf->setValue(8);
-    m_spinWindowHalf->setFixedWidth(56);
+    paleo::ui::fitWidthAtLeast(m_spinWindowHalf, 56);
     row2->addWidget(m_spinWindowHalf);
     row2->addWidget(new QLabel(tr("相干 IL/XL/垂向半窗:")));
     m_spinIlHalf = new QSpinBox();
     m_spinIlHalf->setObjectName(QStringLiteral("attrIlHalf"));
     m_spinIlHalf->setRange(1, 4);
     m_spinIlHalf->setValue(1);
-    m_spinIlHalf->setFixedWidth(40);
+    paleo::ui::fitWidthAtLeast(m_spinIlHalf, 40);
     row2->addWidget(m_spinIlHalf);
     m_spinXlHalf = new QSpinBox();
     m_spinXlHalf->setObjectName(QStringLiteral("attrXlHalf"));
     m_spinXlHalf->setRange(1, 4);
     m_spinXlHalf->setValue(1);
-    m_spinXlHalf->setFixedWidth(40);
+    paleo::ui::fitWidthAtLeast(m_spinXlHalf, 40);
     row2->addWidget(m_spinXlHalf);
     m_spinTimeHalf = new QSpinBox();
     m_spinTimeHalf->setObjectName(QStringLiteral("attrTimeHalf"));
     m_spinTimeHalf->setRange(1, 16);
     m_spinTimeHalf->setValue(2);
-    m_spinTimeHalf->setFixedWidth(40);
+    paleo::ui::fitWidthAtLeast(m_spinTimeHalf, 40);
     row2->addWidget(m_spinTimeHalf);
     // goal/attr-volume：相干道距加权档（等权=原语义；道距加权按 IL/XL 道距
     // 反比抬近道贡献——各向异性测网时两档结果不同）
@@ -133,14 +134,14 @@ void SeismicAttrPanel::buildUi()
     m_cboWeight->setObjectName(QStringLiteral("attrWeightCombo"));
     m_cboWeight->addItem(tr("等权"), 0);
     m_cboWeight->addItem(tr("道距加权"), 1);
-    m_cboWeight->setFixedWidth(88);
+    paleo::ui::fitWidthAtLeast(m_cboWeight, 88);
     row2->addWidget(m_cboWeight);
     row2->addWidget(new QLabel(tr("叠加透明度:")));
     m_sliderAlpha = new QSlider(Qt::Horizontal);
     m_sliderAlpha->setObjectName(QStringLiteral("attrAlpha"));
     m_sliderAlpha->setRange(0, 100);
     m_sliderAlpha->setValue(65);
-    m_sliderAlpha->setFixedWidth(110);
+    paleo::ui::fitWidthAtLeast(m_sliderAlpha, 110);
     row2->addWidget(m_sliderAlpha);
     row2->addStretch();
     lay->addLayout(row2);

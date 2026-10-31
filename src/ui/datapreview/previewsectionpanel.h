@@ -42,7 +42,7 @@ public:
   // 偏大 35%。
   static constexpr float kAmplitudeGain = 1.35f;
 
-  SectionPanel(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(320, 260); }
+  SectionPanel(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(200, 160); }  // #848：原 320x260
   seismic::SectionColorMapType colorMap() const { return m_colorMap; }
   void setColorMap(seismic::SectionColorMapType type)
   {

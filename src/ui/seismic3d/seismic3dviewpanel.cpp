@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：井轨迹配色与色带编辑示例字符串，保存为数据样式。（tools/ui-token-exceptions.json 精确计数）。
 #include "seismic3dviewpanel.h"
+#include "ui/common/fitwidth.h"
 
 #include "../paleotheme.h"
 #include "domain/seismic/sgysectionbuilder.h"
@@ -164,7 +165,7 @@ void Seismic3DViewPanel::buildUi() {
     inlineSpin_ = new QSpinBox(bottomBar);
     inlineSpin_->setObjectName(QStringLiteral("inlineSpin"));
     inlineSpin_->setFont(monoFont);
-    inlineSpin_->setFixedWidth(75);
+    paleo::ui::fitWidthAtLeast(inlineSpin_, 75);
 
     bottomLay->addWidget(lblIl, 0, 0);
     bottomLay->addWidget(inlineSlider_, 0, 1);
@@ -181,7 +182,7 @@ void Seismic3DViewPanel::buildUi() {
     xlineSpin_ = new QSpinBox(bottomBar);
     xlineSpin_->setObjectName(QStringLiteral("xlineSpin"));
     xlineSpin_->setFont(monoFont);
-    xlineSpin_->setFixedWidth(75);
+    paleo::ui::fitWidthAtLeast(xlineSpin_, 75);
 
     bottomLay->addWidget(lblXl, 1, 0);
     bottomLay->addWidget(xlineSlider_, 1, 1);
@@ -198,7 +199,7 @@ void Seismic3DViewPanel::buildUi() {
     timeSpin_ = new QSpinBox(bottomBar);
     timeSpin_->setObjectName(QStringLiteral("timeSpin"));
     timeSpin_->setFont(monoFont);
-    timeSpin_->setFixedWidth(75);
+    paleo::ui::fitWidthAtLeast(timeSpin_, 75);
     timeMsLabel_ = new QLabel(QStringLiteral("0.0 ms"), bottomBar);
     timeMsLabel_->setObjectName(QStringLiteral("timeMsLabel"));
     timeMsLabel_->setFont(monoFont);
@@ -687,7 +688,7 @@ void Seismic3DViewPanel::buildColorControls(QHBoxLayout *lay, QWidget *bar) {
     sliderAlpha_ = new QSlider(Qt::Horizontal, bar);
     sliderAlpha_->setRange(10, 100);
     sliderAlpha_->setValue(100);
-    sliderAlpha_->setFixedWidth(70);
+    paleo::ui::fitWidthAtLeast(sliderAlpha_, 70);
     lay->addWidget(sliderAlpha_);
     auto *lblRange = new QLabel(tr("值域:"), bar);
     PaleoTheme::applyThemedStyleSheet(lblRange, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
@@ -696,12 +697,12 @@ void Seismic3DViewPanel::buildColorControls(QHBoxLayout *lay, QWidget *bar) {
     spinRangeMin_->setRange(0.0, 0.9);
     spinRangeMin_->setSingleStep(0.05);
     spinRangeMin_->setValue(0.0);
-    spinRangeMin_->setFixedWidth(48);
+    paleo::ui::fitWidthAtLeast(spinRangeMin_, 48);
     spinRangeMax_ = new QDoubleSpinBox(bar);
     spinRangeMax_->setRange(0.1, 1.0);
     spinRangeMax_->setSingleStep(0.05);
     spinRangeMax_->setValue(1.0);
-    spinRangeMax_->setFixedWidth(48);
+    paleo::ui::fitWidthAtLeast(spinRangeMax_, 48);
     lay->addWidget(spinRangeMin_);
     lay->addWidget(new QLabel(QStringLiteral("–"), bar));
     lay->addWidget(spinRangeMax_);
@@ -908,7 +909,7 @@ void Seismic3DViewPanel::buildSweepControls(QHBoxLayout *lay, QWidget *bar) {
     cboSweepAxis_->addItem(tr("IL"));
     cboSweepAxis_->addItem(tr("XL"));
     cboSweepAxis_->setToolTip(tr("扫掠轴向：时间切片 / 纵测线 / 横测线"));
-    cboSweepAxis_->setFixedWidth(48);
+    paleo::ui::fitWidthAtLeast(cboSweepAxis_, 48);
     lay->addWidget(cboSweepAxis_);
     spinSweepFps_ = new QSpinBox(bar);
     spinSweepFps_->setObjectName(QStringLiteral("spin3dSweepFps"));
@@ -916,7 +917,7 @@ void Seismic3DViewPanel::buildSweepControls(QHBoxLayout *lay, QWidget *bar) {
     spinSweepFps_->setValue(8);
     spinSweepFps_->setSuffix(tr(" fps"));
     spinSweepFps_->setToolTip(tr("扫掠帧率（播放中可调，即时生效）"));
-    spinSweepFps_->setFixedWidth(64);
+    paleo::ui::fitWidthAtLeast(spinSweepFps_, 64);
     lay->addWidget(spinSweepFps_);
     btnSweepPlay_ = createToolBtn(tr("扫掠"), tr("切片动画扫掠：按轴向逐帧推进\n（当前帧异步取数 + 前向预取，UI 不阻塞）"), true);
     lay->addWidget(btnSweepPlay_);
@@ -970,7 +971,7 @@ void Seismic3DViewPanel::buildViewControls(QHBoxLayout *lay, QWidget *bar) {
     PaleoTheme::applyThemedStyleSheet(lblCam, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     lay->addWidget(lblCam);
     cboCamBookmark_ = new QComboBox(bar);
-    cboCamBookmark_->setFixedWidth(90);
+    paleo::ui::fitWidthAtLeast(cboCamBookmark_, 90);
     lay->addWidget(cboCamBookmark_);
     btnCamSave_ = createToolBtn(tr("存"), tr("保存当前视角为书签"));
     btnCamDel_ = createToolBtn(tr("删"), tr("删除选中的视角书签"));

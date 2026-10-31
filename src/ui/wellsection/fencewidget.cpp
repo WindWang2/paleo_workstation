@@ -241,13 +241,13 @@ WellSectionFenceWidget::WellSectionFenceWidget(const Params &params,
     // ---- 主体：左列表 + 中 tabs + 右预览 ----
     m_list = new QListWidget(this);
     m_list->setObjectName(QStringLiteral("wellSectionFenceList"));
-    m_list->setMinimumWidth(180);
+    m_list->setMinimumWidth(120);  // #850：原 180
     m_tabs = new QTabWidget(this);
     m_tabs->setObjectName(QStringLiteral("wellSectionFenceTabs"));
     m_tabs->setTabsClosable(false);
     m_preview = new FencePreview(this);
     m_preview->setObjectName(QStringLiteral("wellSectionFencePreview"));
-    m_preview->setMinimumWidth(220);
+    m_preview->setMinimumWidth(160);  // #850：原 220
     PaleoTheme::applyThemedStyleSheet(m_preview, [] {
         return QStringLiteral("#wellSectionFencePreview { background: %1; }")
             .arg(PaleoTheme::tokens().surface.name());

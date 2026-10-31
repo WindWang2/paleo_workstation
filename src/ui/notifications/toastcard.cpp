@@ -9,12 +9,16 @@
 #include <QStyle>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QSizePolicy>
 
 ToastCard::ToastCard(QWidget *parent) : QFrame(parent)
 {
     setObjectName(QStringLiteral("paleoToastCard"));
     setAttribute(Qt::WA_StyledBackground, true);
-    setFixedWidth(360);  // = NotificationCenter::kCardWidth（DESIGN.md）
+    // #851：窄屏上 360 固定宽会超出；最大 360，允许随宿主收窄。
+    setMaximumWidth(360);
+    setMinimumWidth(200);
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     // 活体主题样式（换深/浅色主题自动重算）；级别切换只改动态属性 + repolish，不重建串。
     PaleoTheme::applyThemedStyleSheet(this, [] {
         const auto &t = PaleoTheme::tokens();

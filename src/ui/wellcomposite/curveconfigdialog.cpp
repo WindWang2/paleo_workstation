@@ -1,5 +1,6 @@
 // 层：视图
 #include "curveconfigdialog.h"
+#include "ui/common/screenfit.h"
 #include "trackops.h"
 #include "ui/paleoicons.h"
 #include "../paleotheme.h"
@@ -38,7 +39,7 @@ CurveConfigDialog::CurveConfigDialog(WellCompositeCanvas *canvas, QWidget *paren
   , m_canvas(canvas)
 {
   setWindowTitle(tr("测井道配置与排列管理"));
-  resize(880, 560);
+  paleo::ui::resizeWithinScreen(this, 880, 560);  // #854
   setupUi();
   loadFromCanvas();
   populateTree();

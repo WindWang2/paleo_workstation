@@ -548,7 +548,8 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
   : QWidget(parent)
 {
   setObjectName(QStringLiteral("wellPositionLegendWidget"));
-  setFixedHeight(32);
+  // #851：固定 32px 在大字体/HiDPI 字号下裁切文字——至少 32，随字体增高。
+  setFixedHeight(qMax(32, fontMetrics().height() + 2 * PaleoTheme::tokens().spacingSm));
   // 底部栏 chrome 跟随主题；导航按钮用正文 text 色，不占用 primary 交互蓝
   PaleoTheme::applyThemedStyleSheet(this, [] {
     const auto &t = PaleoTheme::tokens();

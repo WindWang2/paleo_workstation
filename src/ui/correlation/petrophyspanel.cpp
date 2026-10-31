@@ -1,5 +1,6 @@
 // 层：视图
 #include "ui/correlation/petrophyspanel.h"
+#include "ui/common/fitwidth.h"
 #include "ui/paleotheme.h"
 
 #include <QCheckBox>
@@ -54,7 +55,7 @@ void PetroPhysPanel::buildUi()
       {Formula::Expression, PetroPhysTaskService::formulaName(Formula::Expression)}};
   for (const auto &k : kinds)
     m_cboKind->addItem(k.second, int(k.first));
-  m_cboKind->setFixedWidth(170);
+  paleo::ui::fitWidthAtLeast(m_cboKind, 170);
   row1->addWidget(m_cboKind);
 
   auto mkBtn = [this](const QString &text, const QString &tip, bool primary) {
@@ -104,7 +105,7 @@ void PetroPhysPanel::buildUi()
     s->setDecimals(dec);
     s->setValue(val);
     s->setSingleStep(step);
-    s->setFixedWidth(72);
+    paleo::ui::fitWidthAtLeast(s, 72);
     s->setToolTip(tip);
     return s;
   };
@@ -196,7 +197,7 @@ void PetroPhysPanel::buildUi()
   m_editPhiMnemonic = new QLineEdit(params);
   m_editPhiMnemonic->setObjectName(QStringLiteral("petrophysPhiMnemonic"));
   m_editPhiMnemonic->setPlaceholderText(tr("空 = 用上方 ρma/ρf 从 RHOB 内联算 φD"));
-  m_editPhiMnemonic->setFixedWidth(200);
+  paleo::ui::fitWidthAtLeast(m_editPhiMnemonic, 200);
   form->addRow(tr("Archie φ 曲线:"), m_editPhiMnemonic);
 
   // 表达式
@@ -213,7 +214,7 @@ void PetroPhysPanel::buildUi()
   outLay->setSpacing(PaleoTheme::tokens().spacingXs);
   m_editOutMnemonic = new QLineEdit(outRow);
   m_editOutMnemonic->setObjectName(QStringLiteral("petrophysOutMnemonic"));
-  m_editOutMnemonic->setFixedWidth(80);
+  paleo::ui::fitWidthAtLeast(m_editOutMnemonic, 80);
   outLay->addWidget(m_editOutMnemonic);
   m_chkQc = new QCheckBox(tr("QC 门"), outRow);
   m_chkQc->setObjectName(QStringLiteral("petrophysQcEnabled"));

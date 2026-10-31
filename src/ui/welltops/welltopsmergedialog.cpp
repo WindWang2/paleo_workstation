@@ -1,5 +1,6 @@
 // 层：视图
 #include "welltopsmergedialog.h"
+#include "ui/common/screenfit.h"
 
 #include "../../domain/welltopsedit.h"
 #include "../paleotheme.h"
@@ -37,7 +38,7 @@ WellTopsMergeDialog::WellTopsMergeDialog(const QVector<WellTopsEdit::MergeRow> &
   setObjectName(QStringLiteral("wellTopsMergeDialog"));
   setWindowTitle(tr("合并再导入分层"));
   setModal(true);
-  resize(900, 480);
+  paleo::ui::resizeWithinScreen(this, 900, 480);  // #854
 
   auto *root = new QVBoxLayout(this);
   auto *intro = new QLabel(

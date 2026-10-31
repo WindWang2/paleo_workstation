@@ -613,7 +613,8 @@ void TestPetroPhysBatch::testArchieInlineDensity()
   QVERIFY(done);
   QVERIFY2(batch.wells.at(0).ok, qPrintable(batch.wells.at(0).error));
   const double phi = 0.2 / 1.65;
-  const double sw = std::sqrt(0.1 / (phi * phi * 5.0));
+  // R6 #838（已确认）：Archie Sw 物理上限钳到 1（未钳值 ≈1.167）。
+  const double sw = std::min(1.0, std::sqrt(0.1 / (phi * phi * 5.0)));
   for (int i = 0; i < n; ++i)
     QVERIFY2(std::fabs(batch.wells.at(0).values.at(i) - sw) < 1e-9,
              qPrintable(QString("sw %1 vs %2").arg(batch.wells.at(0).values.at(i)).arg(sw)));

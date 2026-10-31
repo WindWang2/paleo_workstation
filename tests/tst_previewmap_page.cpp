@@ -555,10 +555,13 @@ void TestPreviewMapPage::overviewRendersManagedGridVector()
   QCOMPARE(ovCanvas->layers().size(), 1);
   QVERIFY(!ovCanvas->extent().isEmpty());
 
-  // 修复点 3：停靠右下角（TOOLS.md §5「右下角 200×150 导航小图」）。
-  QCOMPARE(ov->size(), QSize(200, 150));
+  // 修复点 3：停靠右下角；R6 #848 起尺寸随主画布缩放（≈22% 宽、4:3，96×72..200×150）。
   const int margin = PaleoTheme::tokens().spacingSm;
   const auto *host = m_page->mapCanvas();
+  QVERIFY(ov->width() >= 96 && ov->width() <= 200);
+  QVERIFY(ov->height() >= 72 && ov->height() <= 150);
+  QVERIFY(qAbs(ov->width() * 3 - ov->height() * 4) <= 4);
+  QVERIFY(ov->width() <= qMax(96, host->width() * 22 / 100));
   QCOMPARE(ov->x() + ov->width(), host->width() - margin);
   QCOMPARE(ov->y() + ov->height(), host->height() - margin);
 }

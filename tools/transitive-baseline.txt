@@ -62,3 +62,6 @@ heavy_tus: 49
 # ---- 2026-10-25 review-fix-archui：上游漂移 heavy_tus 50→52（821f4bb3 segyreader.h→
 #   segyindexstore.h；#697 paleomainwindow_seismic.cpp→seismicmaplink.h）经削边修复，
 #   实测 heavy_edges 52→51 / heavy_tus 52→49，只缩下调。
+# ---- 2026-10-31 收口（#825/#831/#832）：mappingreferencepanel.cpp 改经
+#   qgis/referenceview.h 接口拿画布（不再 include qgis/mappingreferencecanvas.h），
+#   同时 #830 删掉 layoutpreview 边——实测 ui_qtwidgets_notes 5→4，只缩下调。----

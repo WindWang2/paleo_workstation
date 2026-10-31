@@ -1,4 +1,5 @@
 // 层：视图
+#include <QFile>
 #include "paleoicons.h"
 #include "paleotheme.h"
 
@@ -142,7 +143,16 @@ QIcon PaleoIcons::themed(const QIcon &icon)
 
 QIcon PaleoIcons::qgisTheme(const QString &name)
 {
-  return themed(QgsApplication::getThemeIcon(QStringLiteral("/") + name));
+  QIcon icon = QgsApplication::getThemeIcon(QStringLiteral("/") + name);
+  if (icon.isNull())
+  {
+    // 主题路径未就绪（未 initQgis / 测试 / 主题目录缺失）时 getThemeIcon 返回空；
+    // 图标本身仍编进 libqgis_core 的资源里，直接按资源路径取，ribbon 命令不至于无图标。
+    const QString res = QStringLiteral(":/images/themes/default/") + name;
+    if (QFile::exists(res))
+      icon = QIcon(res);
+  }
+  return themed(icon);
 }
 
 QIcon PaleoIcons::tintForDarkTheme(const QIcon &icon)

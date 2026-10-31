@@ -1,6 +1,7 @@
 // 层：视图
 // 地震相掩膜：Slice vs Interval 语义条 + 切片投票→层段综合发布入口（自 PredictPage 拆出控规模）。
 #include "predictpage.h"
+#include "../windowsizing_internal.h"
 #include "pageshared.h"
 #include "../paleotheme.h"
 #include "../paleoicons.h"
@@ -58,7 +59,7 @@ void PredictPage::setupSeismicMaskChrome(QVBoxLayout *lay)
   votes->setObjectName(QStringLiteral("seismicVotesEdit"));
   votes->setAccessibleName(tr("切片投票列表"));
   votes->setPlaceholderText(tr("例如：\n3,10\n3,5\n2,4"));
-  votes->setMaximumHeight(90);
+  votes->setMaximumHeight(paleo::ui_detail::lineRows(votes, 5)); // R6 #845：行高口径
   votes->setToolTip(tr("掩膜内各时间切片的相分类码与有效样点权重；用于切片→层段聚合发布。"));
   v->addWidget(votes);
 

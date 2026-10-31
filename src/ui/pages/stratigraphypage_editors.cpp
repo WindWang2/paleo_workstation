@@ -1,5 +1,6 @@
 // 层：视图
 #include "stratigraphypage.h"
+#include "../windowsizing_internal.h"
 #include "../../workflow/stratigraphyworkflow.h"
 #include <paleo_data/interpretation.h>
 #include <QBoxLayout>
@@ -32,7 +33,7 @@ void StratigraphyPage::showHierarchy() {
  QList<StratigraphyRow> children;for(const auto& r:rows)if(r.cycle&&r.level=="4"&&r.wellId==m_selectedWell&&r.segment==segment)children.append(r);
  std::sort(children.begin(),children.end(),[](const auto& a,const auto& b){return a.top<b.top;});
  if(children.isEmpty()){m_status->setText(tr("请先选择一口井的旋回，或选择具体段；该段须有四级旋回。"));return;}
- QDialog dialog(this);dialog.setObjectName(QStringLiteral("stratigraphyHierarchyDialog"));dialog.setWindowTitle(tr("三级组合 · %1").arg(segment));dialog.resize(650,500);
+ QDialog dialog(this);dialog.setObjectName(QStringLiteral("stratigraphyHierarchyDialog"));dialog.setWindowTitle(tr("三级组合 · %1").arg(segment));paleo::ui_detail::resizeWithinScreen(&dialog,QSize(650,500));
  auto* layout=new QVBoxLayout(&dialog);auto* note=new QLabel(tr("连续四级旋回填写相同组号，即组成一个三级旋回。组号递增，0 表示不建立父级；同组方向须一致。共享端点与原深度保持不变。"),&dialog);note->setWordWrap(true);layout->addWidget(note);
  auto* table=new QTableWidget(children.size(),3,&dialog);table->setObjectName(QStringLiteral("hierarchyGroups"));table->setHorizontalHeaderLabels({tr("四级旋回"),tr("三级组号"),tr("三级方向")});table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);layout->addWidget(table);
  std::map<QString,int> groupIds;int count=0;
@@ -66,7 +67,7 @@ void StratigraphyPage::showDiagnostics() {
  const auto& doc=m_workflow->document();QStringList text;
  for(const auto& w:doc.wells){text.append(QString::fromStdString(w.name));for(const auto& warning:w.warnings)text.append(QString::fromStdString(warning));}
  for(const auto& run:doc.runs){text.append(QString::fromStdString(run.kind+" · "+run.status));text.append(QString::fromStdString(run.parametersJson));text.append(QString::fromStdString(run.diagnosticsJson));}
- QDialog dialog(this);dialog.setWindowTitle(tr("资料与计算诊断"));dialog.resize(850,600);auto* layout=new QVBoxLayout(&dialog);auto* view=new QPlainTextEdit(&dialog);view->setReadOnly(true);view->setPlainText(text.join('\n'));layout->addWidget(view);acceptButtons(dialog,layout);dialog.exec();
+ QDialog dialog(this);dialog.setWindowTitle(tr("资料与计算诊断"));paleo::ui_detail::resizeWithinScreen(&dialog,QSize(850,600));auto* layout=new QVBoxLayout(&dialog);auto* view=new QPlainTextEdit(&dialog);view->setReadOnly(true);view->setPlainText(text.join('\n'));layout->addWidget(view);acceptButtons(dialog,layout);dialog.exec();
 }
 void StratigraphyPage::showWellOrder() {
  QDialog dialog(this);dialog.setWindowTitle(tr("拖动调整井序"));auto* layout=new QVBoxLayout(&dialog);auto* list=new QListWidget(&dialog);list->setDragDropMode(QAbstractItemView::InternalMove);

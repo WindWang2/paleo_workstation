@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QSplitter>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QElapsedTimer>
@@ -241,6 +242,9 @@ private slots:
     health.setReport(report, -1, 0);
     auto *categories = health.findChild<QListWidget *>(QStringLiteral("healthCategories"));
     QVERIFY(categories);
+    // R6 #843：分类列表放进 QSplitter，不再 setFixedWidth(180)。
+    QVERIFY(qobject_cast<QSplitter *>(categories->parentWidget()));
+    QCOMPARE(categories->maximumWidth(), QWIDGETSIZE_MAX);
     for (int i = 0; i < categories->count(); ++i)
       if (categories->item(i)->text().startsWith(QStringLiteral("过时版本"))) categories->setCurrentRow(i);
     auto *issues = health.findChild<QTableWidget *>(QStringLiteral("healthIssues"));

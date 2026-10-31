@@ -3,6 +3,7 @@
 // paleomainwindow.cpp 迁出（仍是 PaleoMainWindow 成员函数，定义在本 TU）。
 // 页面板按钮是状态源：ribbon 动作经 PaleoRibbon::mirror 镜像它们。
 #include "paleomainwindow.h"
+#include "windowsizing_internal.h"
 
 #include "paleotheme.h"
 #include "paleoicons.h"
@@ -360,7 +361,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                       "ribbonFuse"));
     addSmall(p, mirrored(compose, "polygonizeButton", tr("转为相多边形"),
                       icon("mActionCapturePolygon.svg"), "ribbonPolygonize"));
-    addLarge(p, paramsAct);
+    addSmall(p, paramsAct); // R6 #860
     if (wellSectionAct)
       addLarge(panel(cat, tr("连井分析"), "ribbonPanel.compose.correlation"),
             wellSectionAct);
@@ -372,7 +373,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                        "ribbonExportPdf"));
     if (QAction *designer = findChild<QAction *>(QStringLiteral("ribbonDesignerAction")))
     {
-      addLarge(op, designer);
+      addSmall(op, designer); // R6 #860：次要输出改小按钮，1920 少横向溢出
       if (auto *b = PaleoRibbon::buttonFor(op, designer))
       {
         b->setObjectName(QStringLiteral("designerButton"));
@@ -381,7 +382,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     }
     if (QAction *mapBook = findChild<QAction *>(QStringLiteral("ribbonMapBookAction")))
     {
-      addLarge(op, mapBook);
+      addSmall(op, mapBook); // R6 #860
       if (auto *b = PaleoRibbon::buttonFor(op, mapBook))
       {
         b->setObjectName(QStringLiteral("mapBookButton"));
@@ -389,12 +390,12 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       }
     }
 
-    SARibbonPanel *vp = panel(cat, tr("版本"), "ribbonPanel.compose.version");
-    addLarge(vp, mirrored(compose, "saveVersionButton", tr("保存版本"), icon("mActionFileSaveAs.svg"),
+    // R6 #860：版本动作并入「图件输出」，少一组标题/分隔，1920 少 › 滚动
+    addSmall(op, mirrored(compose, "saveVersionButton", tr("保存版本"), icon("mActionFileSaveAs.svg"),
                        "ribbonSaveVersion", true));
-    addLarge(vp, mirrored(compose, "publishButton", tr("发布"), icon("mActionSharing.svg"),
+    addSmall(op, mirrored(compose, "publishButton", tr("发布"), icon("mActionSharing.svg"),
                        "ribbonPublish"));
-    addSmall(vp, toValidate);
+    addSmall(op, toValidate);
   }
 
   // ================= 验证 =================
@@ -471,7 +472,7 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   combo->setPlaceholderText(tr("选择可编辑图层"));
   combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
   combo->setMinimumContentsLength(12);
-  combo->setMaximumWidth(200);
+  combo->setMaximumWidth(paleo::ui_detail::charColumns(combo, 28)); // R6 #845：字符宽口径
   combo->setModel(master->model());
   auto *state = new QLabel(p);
   state->setObjectName(QStringLiteral("ribbonEditState"));
@@ -497,7 +498,7 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   context->setObjectName(QStringLiteral("ribbonEditContextPanel"));
   // Insert the context before the tools to keep the workflow left-to-right.
   category->movePanel(category->panelIndex(context), category->panelIndex(p));
-  state->setMaximumWidth(200);
+  state->setMaximumWidth(paleo::ui_detail::charColumns(state, 28));
   state->setToolTip(editTb->stateLabel()->text());
   context->addSmallWidget(combo);
   context->addSmallWidget(state);

@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：地质相模型表格中可编辑的颜色值。（tools/ui-token-exceptions.json 精确计数）。
 #include "mappingworkbenchpage.h"
+#include "../windowsizing_internal.h"
 #include <QCheckBox>
 #include "../faciesdisplaycontrol.h"
 #include "../../domain/predictionevidence.h"
@@ -153,9 +154,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     showStatus();
     m_inputs = new QListWidget(body);
     m_inputs->setObjectName("workbenchInputs");
-    m_inputs->setFixedHeight(96);
+    m_inputs->setMinimumHeight(paleo::ui_detail::lineRows(m_inputs, 4)); // R6 #836：行高口径，不钉死
     m_inputs->setAccessibleName(tr("编图输入，按空格勾选"));
-    layout->addWidget(m_inputs);
+    layout->addWidget(m_inputs, 1);
     connect(m_kind, &QComboBox::currentIndexChanged, this,
             [this] { refreshInputs(); });
     auto *all = new QPushButton(body);
@@ -294,10 +295,10 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_results->setRootIsDecorated(false);
   m_results->setAccessibleName(tr("本层位图件与版本，按回车显示"));
   m_results->setSelectionMode(QAbstractItemView::SingleSelection);
-  m_results->setFixedHeight(120);
+  m_results->setMinimumHeight(paleo::ui_detail::lineRows(m_results, 5)); // R6 #836
   m_results->header()->setSectionResizeMode(0, QHeaderView::Stretch);
   m_results->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-  layout->addWidget(m_results);
+  layout->addWidget(m_results, 1);
   m_allHorizons = new QCheckBox(tr("查看全部层位的图件"), body);
   m_allHorizons->setObjectName(QStringLiteral("workbenchAllHorizons"));
   layout->addWidget(m_allHorizons);
@@ -394,7 +395,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   auto *evidenceGroup = paleo::collapsible::create(tr("选中要素的解释证据"), body, "workbenchEvidence", mode == "compose");
   auto *groupLayout = new QVBoxLayout(evidenceGroup);
   buildEvidenceSection(evidenceGroup, groupLayout);
-  layout->addWidget(evidenceGroup);
+  evidenceGroup->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding); // R6 #836
+  layout->addWidget(evidenceGroup, 2); // R6 #836：多余高度给证据区，而非末尾空白
   auto *details = paleo::collapsible::create(tr("来源与生成参数"), body, "workbenchProvenance", true, remember("provenance"));
   auto *detailsLayout = new QVBoxLayout(details);
   m_details = new QLabel(tr("选择图件查看来源、生成参数和文件位置。"), details);
@@ -410,7 +412,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   sl->addWidget(schemaBody);
   buildFaciesSchema(schemaBody);
   layout->addWidget(schema);
-  layout->addStretch();
+  // R6 #836：去掉末尾 addStretch，否则会抢走证据区的增高份额
   connect(m_results, &QTreeWidget::currentItemChanged, this,
           [this] { updateState(); emit targetLayerChanged(selectedLayer()); });
   connect(m_results, &QTreeWidget::itemActivated, this,

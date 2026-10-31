@@ -1,4 +1,5 @@
 // 层：视图
+#include "../windowsizing_internal.h"
 #include "mappingworkbenchpage.h"
 #include "../../domain/faciescatalog.h"
 #include "../../domain/faciestaxonomy.h"
@@ -24,7 +25,7 @@ void MappingWorkbenchPage::buildFaciesSchema(QWidget *schemaBody) {
   tree->setObjectName("faciesHierarchyTree");
   tree->setAccessibleName(tr("相、亚相、微相三级图例"));
   tree->setHeaderLabels({tr("相 → 亚相 → 微相"), tr("微相编码")});
-  tree->setMinimumHeight(140);
+  tree->setMinimumHeight(paleo::ui_detail::lineRows(tree, 6));
   tree->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
   tabs->addTab(tree, tr("三级图例"));
   auto *editor = new QWidget(tabs);
@@ -39,7 +40,7 @@ void MappingWorkbenchPage::buildFaciesSchema(QWidget *schemaBody) {
                                        tr("纹理")});
   m_facies->horizontalHeader()->setSectionResizeMode(
       QHeaderView::ResizeToContents);
-  m_facies->setMinimumHeight(140);
+  m_facies->setMinimumHeight(paleo::ui_detail::lineRows(m_facies, 6));
   editLayout->addWidget(m_facies);
   auto *library = new QComboBox(schemaBody);
   library->setObjectName("faciesTextureLibrary");

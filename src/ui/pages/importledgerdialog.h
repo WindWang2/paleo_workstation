@@ -8,6 +8,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QListWidget>
+#include <QSplitter>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -36,12 +37,11 @@ class ImportLedgerDialog : public QDialog
       m_summary = new QLabel(this);
       m_summary->setObjectName(QStringLiteral("ledgerSummary"));
       lay->addWidget(m_summary);
-      auto *split = new QWidget(this);
-      auto *hl = new QHBoxLayout(split);
-      hl->setContentsMargins(0, 0, 0, 0);
+      // R6 #843：批次列表 / 明细表用 QSplitter（原 setFixedWidth(260)）。
+      auto *split = new QSplitter(Qt::Horizontal, this);
+      split->setObjectName(QStringLiteral("ledgerSplitter"));
       m_batches = new QListWidget(split);
       m_batches->setObjectName(QStringLiteral("ledgerBatches"));
-      m_batches->setFixedWidth(260);
       m_rows = new QTableWidget(0, 5, split);
       m_rows->setObjectName(QStringLiteral("ledgerRows"));
       m_rows->setHorizontalHeaderLabels({tr("路径"), tr("类型"), tr("实体"), tr("结局"), tr("原因")});
@@ -49,8 +49,11 @@ class ImportLedgerDialog : public QDialog
       m_rows->setEditTriggers(QAbstractItemView::NoEditTriggers);
       m_rows->verticalHeader()->setVisible(false);
       m_rows->horizontalHeader()->setStretchLastSection(true);
-      hl->addWidget(m_batches);
-      hl->addWidget(m_rows, 1);
+      split->addWidget(m_batches);
+      split->addWidget(m_rows);
+      split->setStretchFactor(0, 0);
+      split->setStretchFactor(1, 1);
+      split->setSizes({260, 600});
       lay->addWidget(split, 1);
       auto *row = new QWidget(this);
       auto *rl = new QHBoxLayout(row);

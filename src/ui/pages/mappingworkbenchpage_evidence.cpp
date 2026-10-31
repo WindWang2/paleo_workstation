@@ -1,4 +1,5 @@
 // 层：视图
+#include "../windowsizing_internal.h"
 #include "mappingworkbenchpage.h"
 #include "pageshared.h"
 #include "../../workflow/mappingworkbench.h"
@@ -24,9 +25,9 @@ void MappingWorkbenchPage::buildEvidenceSection(QWidget *parent, QVBoxLayout *la
   m_evidence = new QListWidget(parent);
   m_evidence->setObjectName("faciesEvidenceList");
   m_evidence->setAccessibleName(tr("解释证据列表"));
-  m_evidence->setMinimumHeight(80); m_evidence->setMaximumHeight(120);
+  m_evidence->setMinimumHeight(paleo::ui_detail::lineRows(m_evidence, 4)); // R6 #836：不再封顶，随 dock 增高
   layout->addWidget(new QLabel(tr("已保存的证据（选择后可修订）"), parent));
-  layout->addWidget(m_evidence);
+  layout->addWidget(m_evidence, 2);
   auto *navigation = new QHBoxLayout;
   navigation->addWidget(evidenceButton("locateEvidence", tr("定位来源"), parent));
   navigation->addWidget(evidenceButton("removeEvidence", tr("移除证据"), parent));
@@ -63,8 +64,8 @@ void MappingWorkbenchPage::buildEvidenceEditor(QWidget *parent, QVBoxLayout *lay
   m_evidenceText->setAccessibleName(tr("手工解释证据内容"));
   m_evidenceText->setPlaceholderText(
       tr("输入井段、地震反射、单因素特征或专家解释；证据按上方编辑层级记录。"));
-  m_evidenceText->setMaximumHeight(100);
-  layout->addWidget(m_evidenceText);
+  m_evidenceText->setMinimumHeight(paleo::ui_detail::lineRows(m_evidenceText, 3));
+  layout->addWidget(m_evidenceText, 1);
   auto *semantics = new QFormLayout;
   m_evidenceRole = new QComboBox(parent);
   m_evidenceRole->setObjectName("faciesEvidenceRole");
@@ -84,9 +85,9 @@ void MappingWorkbenchPage::buildEvidenceSources(QWidget *, QTabWidget *tabs) {
   m_generationEvidence = new QListWidget(page);
   m_generationEvidence->setObjectName("faciesGenerationEvidence");
   m_generationEvidence->setAccessibleName(tr("生成来源版本"));
-  m_generationEvidence->setMaximumHeight(120);
+  m_generationEvidence->setMinimumHeight(paleo::ui_detail::lineRows(m_generationEvidence, 4));
   layout->addWidget(new QLabel(tr("生成来源与局部空间候选"), page));
-  layout->addWidget(m_generationEvidence);
+  layout->addWidget(m_generationEvidence, 1);
   connect(m_generationEvidence, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
     emit evidenceActivated(item->data(Qt::UserRole).toMap());
   });
@@ -113,8 +114,8 @@ void MappingWorkbenchPage::buildEvidenceSources(QWidget *, QTabWidget *tabs) {
   m_reverseResults = new QListWidget(page);
   m_reverseResults->setObjectName("evidenceReverseResults");
   m_reverseResults->setAccessibleName(tr("证据反查结果"));
-  m_reverseResults->setMaximumHeight(100);
-  layout->addWidget(m_reverseResults);
+  m_reverseResults->setMinimumHeight(paleo::ui_detail::lineRows(m_reverseResults, 3));
+  layout->addWidget(m_reverseResults, 1);
   connect(m_reverseResults, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
     // 反查命中行的主目标是图斑本身（layer/version/feature_uid），不是其
     // 证据来源——走独立信号，由交互层 navigateFeature 定位。
@@ -210,8 +211,8 @@ void MappingWorkbenchPage::buildEvidenceHistory(QWidget *, QTabWidget *tabs) {
   m_evidenceHistory->setObjectName("faciesEvidenceHistory");
   m_evidenceHistory->setReadOnly(true);
   m_evidenceHistory->setAccessibleName(tr("解释修订历史"));
-  m_evidenceHistory->setMaximumHeight(180);
-  layout->addWidget(m_evidenceHistory);
+  m_evidenceHistory->setMinimumHeight(paleo::ui_detail::lineRows(m_evidenceHistory, 4));
+  layout->addWidget(m_evidenceHistory, 1);
   auto *historyNavigation = new QHBoxLayout;
   historyNavigation->addWidget(evidenceButton("historyOlder", tr("更早历史"), page));
   historyNavigation->addWidget(evidenceButton("historyNewer", tr("较新历史"), page));
@@ -235,12 +236,12 @@ void MappingWorkbenchPage::buildEvidenceHistory(QWidget *, QTabWidget *tabs) {
   m_attributionTargets = new QListWidget(attributionPage);
   m_attributionTargets->setObjectName("attributionTargets");
   m_attributionTargets->setAccessibleName(tr("可定位对象"));
-  m_attributionTargets->setMaximumHeight(120);
+  m_attributionTargets->setMinimumHeight(paleo::ui_detail::lineRows(m_attributionTargets, 3));
   connect(m_attributionTargets, &QListWidget::itemActivated, this,
           [this](QListWidgetItem *item) {
             emit evidenceActivated(item->data(Qt::UserRole).toMap());
           });
-  attributionLayout->addWidget(m_attributionTargets);
+  attributionLayout->addWidget(m_attributionTargets, 1);
 }
 
 void MappingWorkbenchPage::wireEvidenceControls() {

@@ -1,5 +1,6 @@
 // 层：视图
 #include "geologicalexportdialog.h"
+#include "../windowsizing_internal.h"
 #include "../paleotheme.h"
 #include <QCheckBox>
 #include <QComboBox>
@@ -102,7 +103,7 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
   connect(m_dpi, &QSpinBox::valueChanged, this, [this] { scheduleRebuild(); });
   connect(m_scale, &QDoubleSpinBox::valueChanged, this, [this] { scheduleRebuild(); });
   connect(m_destinationMode, &QComboBox::currentIndexChanged, this, destinationChanged);
-  resize(1100, 720); destinationChanged();
+  paleo::ui_detail::resizeWithinScreen(this, QSize(1100, 720)); destinationChanged(); // R6 #844
 }
 GeologicalExportDialog::~GeologicalExportDialog() { delete m_preview; }
 void GeologicalExportDialog::scheduleRebuild() { m_rebuildTimer->start(); }

@@ -2,6 +2,7 @@
 // constraintpage_wellfactors — 井点因子域 TU（方向 96 自 constraintpage.cpp
 // 拆出，原文行序保持）：wellFactorSection 构建（口径下拉/字段三下拉/提取与
 // 维护/结果表）+ 井点因子六方法 + wellAttributes/horizons/factors 触发接线。
+#include "ui/windowsizing_internal.h"
 #include "constraintpage.h"
 #include "constraintpage_internal.h"
 
@@ -108,7 +109,7 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
   wellTable->setHorizontalHeaderLabels({tr("井名"), tr("因子值"), tr("来源或缺失原因")});
   wellTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
   wellTable->verticalHeader()->hide(); wellTable->horizontalHeader()->setStretchLastSection(true);
-  wellTable->setMinimumHeight(120);
+  wellTable->setMinimumHeight(paleo::ui_detail::tableHeightForRows(wellTable, 4)); // R6 #842：按行高，不用裸像素
   detailSection->containerLayout()->addWidget(wellTable);
   auto *wellHint = new QLabel(tr("优先读取已保存井值；缺少或来源变化时重新计算并保存。"), wellFactors);
   wellHint->setObjectName(QStringLiteral("wellFactorHint")); wellHint->setWordWrap(true);
@@ -253,9 +254,7 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
       table->setRowHidden(row, hidden);
       if (hidden && table->item(row, 0)->checkState() == Qt::Checked) table->item(row, 0)->setCheckState(Qt::Unchecked);
     }
-    int height = qMax(table->horizontalHeader()->height(), table->horizontalHeader()->sizeHint().height()) + 2 * table->frameWidth();
-    for (int row = 0; row < table->rowCount(); ++row) if (!table->isRowHidden(row)) height += table->rowHeight(row);
-    table->setFixedHeight(height + PaleoTheme::tokens().spacingXs);
+    table->setFixedHeight(paleo::ui_detail::tableHeightForRows(table) + PaleoTheme::tokens().spacingXs); // R6 #842：与构造同口径
   }
   auto *factors = child<QTableWidget>(this, "factorTable");
   const QString factor = factorIdOfRow(factors, checkedRow(factors));

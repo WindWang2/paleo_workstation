@@ -85,9 +85,11 @@ void PaleoMainWindow::buildRibbon()
   if (!bar)
     return;
   bar->setRibbonStyle(SARibbonBar::RibbonStyleCompactThreeRow);
-  bar->setPanelSpacing(8);
+  // R6 #860：1920×1080 下分组易横向溢出。字换行让按钮按固定列宽折行（不再被长标签撑宽），
+  // 组间距收紧；完整「大→小→仅图标→下拉」自适应折叠见报告，需产品拍板。
+  bar->setPanelSpacing(4);
   bar->setPanelToolButtonIconSize(QSize(16, 16), QSize(24, 24));
-  bar->setEnableWordWrap(false);
+  bar->setEnableWordWrap(true);
   bar->setTabDoubleClickToMinimumMode(true); // 双击页签收起/展开 ribbon（Office 惯例）
   if (SARibbonTabBar *tabs = bar->ribbonTabBar())
   {
@@ -226,7 +228,8 @@ void PaleoMainWindow::buildRibbon()
   // ---- 右侧全局按钮组：[搜索][处理算法][面板][Web 服务] ----
   // 搜索（QGIS locator 控件）与处理算法依赖服务，attachWorkflows 里补进来。
   SARibbonButtonGroupWidget *right = bar->rightButtonGroup();
-  right->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  // R6 #860：右侧全局钮改纯图标，把横向空间让给分类面板
+  right->setToolButtonStyle(Qt::ToolButtonIconOnly);
   auto *locatorSlot = new QWidget(right);
   locatorSlot->setObjectName(QStringLiteral("locatorSlot"));
   auto *slotLay = new QHBoxLayout(locatorSlot);
@@ -240,7 +243,7 @@ void PaleoMainWindow::buildRibbon()
   panelsBtn->setText(tr("布局"));
   panelsBtn->setAccessibleName(tr("布局与面板管理"));
   panelsBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionShowAllLayers.svg")));
-  panelsBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  panelsBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
   connect(panelsBtn, &QToolButton::clicked, this, [this, panelsBtn] {
     showPanelMenu(panelsBtn->mapToGlobal(QPoint(0, panelsBtn->height())));
   });
@@ -256,7 +259,7 @@ void PaleoMainWindow::buildRibbon()
   helpBtn->setAccessibleName(tr("帮助菜单"));
   helpBtn->setToolTip(tr("快捷键总表、「这是什么？」与关于"));
   helpBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHelpContents.svg")));
-  helpBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  helpBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
   helpBtn->setPopupMode(QToolButton::InstantPopup);
   helpBtn->setMenu(help->menu());
   right->addWidget(helpBtn);

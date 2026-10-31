@@ -146,6 +146,7 @@ class FaultSetStore;
 class WellSectionWorkflow;
 class SectionWorkbench;
 class QCloseEvent;
+class QShowEvent;
 class QContextMenuEvent;
 class QPoint;
 
@@ -337,12 +338,15 @@ class PaleoMainWindow : public SARibbonMainWindow
 
   protected:
     void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent *event) override;
     // 面板管理右键（§42 壳规约）：只在停靠区标题栏/边距触发——命中件
     // 落在某个 QDockWidget 的「非内容」区域（标题栏）时弹 createPopupMenu；
     // dock 内容子树与画布各有自己的右键语义，不抢。
     void contextMenuEvent(QContextMenuEvent *event) override;
 
   private:
+    void applyScreenAwareMinimumSize();
+    bool m_screenWatchInstalled = false;
     PaleoDockManager *m_dockManager = nullptr;
     void buildShell();
     // ribbon 骨架：五个页签、「文件」菜单、右侧按钮组（面板/Web 服务）。

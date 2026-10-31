@@ -8,6 +8,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QListWidget>
+#include <QSplitter>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -62,12 +63,11 @@ CatalogHealthDialog::CatalogHealthDialog(QWidget *parent)
   m_summary->setWordWrap(true);
   lay->addWidget(m_summary);
 
-  auto *split = new QWidget(this);
-  auto *hl = new QHBoxLayout(split);
-  hl->setContentsMargins(0, 0, 0, 0);
+  // R6 #843：分类列表 / 明细表用 QSplitter，用户可拖动分配宽度（原 setFixedWidth(180) 截断长分类名）。
+  auto *split = new QSplitter(Qt::Horizontal, this);
+  split->setObjectName(QStringLiteral("healthSplitter"));
   m_categories = new QListWidget(split);
   m_categories->setObjectName(QStringLiteral("healthCategories"));
-  m_categories->setFixedWidth(180);
   m_issues = new QTableWidget(0, 2, split);
   m_issues->setObjectName(QStringLiteral("healthIssues"));
   m_issues->setHorizontalHeaderLabels({tr("对象"), tr("明细")});
@@ -76,8 +76,11 @@ CatalogHealthDialog::CatalogHealthDialog(QWidget *parent)
   m_issues->setEditTriggers(QAbstractItemView::NoEditTriggers);
   m_issues->verticalHeader()->setVisible(false);
   m_issues->horizontalHeader()->setStretchLastSection(true);
-  hl->addWidget(m_categories);
-  hl->addWidget(m_issues, 1);
+  split->addWidget(m_categories);
+  split->addWidget(m_issues);
+  split->setStretchFactor(0, 0);
+  split->setStretchFactor(1, 1);
+  split->setSizes({200, 560});
   lay->addWidget(split, 1);
 
   m_shaState = new QLabel(this);

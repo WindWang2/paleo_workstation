@@ -1,5 +1,6 @@
 // 层：视图
 #include "faciespinnedlevellist.h"
+#include "windowsizing_internal.h"
 #include "../domain/facieshierarchy.h"
 #include "../qgis/collapsiblegroup.h"
 #include <QGroupBox>
@@ -38,7 +39,7 @@ FaciesPinnedLevelList::FaciesPinnedLevelList(QWidget *parent) : QWidget(parent) 
   m_list->header()->setSectionResizeMode(0, QHeaderView::Stretch);
   m_list->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
   m_list->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-  m_list->setMaximumHeight(200);
+  m_list->setMaximumHeight(paleo::ui_detail::lineRows(m_list, 10)); // R6 #845：行高口径
   layout->addWidget(m_list);
   setState({}, {}, false, QString());
 }

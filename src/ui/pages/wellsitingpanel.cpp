@@ -1,5 +1,6 @@
 // 层：视图
 #include "wellsitingpanel.h"
+#include "../windowsizing_internal.h"
 #include "pageshared.h"
 #include "../paleotheme.h"
 #include "../../workflow/wellsitingworkflow.h"
@@ -364,7 +365,7 @@ void WellSitingPanel::buildEvaluationSection( QVBoxLayout *lay )
   evalProgress->setObjectName( QStringLiteral( "sitingEvalProgress" ) );
   evalProgress->setRange( 0, 0 ); // 不确定进度（跑马灯）
   evalProgress->setTextVisible( false );
-  evalProgress->setMaximumWidth( 120 );
+  evalProgress->setMaximumWidth( paleo::ui_detail::charColumns( evalProgress, 16 ) ); // R6 #845
   evalProgress->hide();
   evalLay->addWidget( evalProgress );
   auto *evalCancel = new QPushButton( tr( "取消评估" ), evalRow );

@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 #include <QDialog>
+#include "../windowsizing_internal.h"
 #include <QLabel>
 #include <QPushButton>
 #include <QTableWidget>
@@ -81,7 +82,8 @@ class VersionTableDialog : public QDialog
       m_compareDetail = new QTextEdit(this);
       m_compareDetail->setObjectName(QStringLiteral("versionCompareDetail"));
       m_compareDetail->setReadOnly(true);
-      m_compareDetail->setMaximumHeight(160);
+      // R6 #845：去掉 maxHeight(160)——它与下面的 stretch 1 冲突，拉高对话框只会留白。
+      m_compareDetail->setMinimumHeight(paleo::ui_detail::lineRows(m_compareDetail, 4));
       lay->addWidget(m_compareDetail, 1);
       auto *row = new QWidget(this);
       auto *rl = new QHBoxLayout(row);

@@ -3,6 +3,7 @@
 // 底图来源读数 + 工程打开进度与取消钮。原 buildShell 的状态栏段按原文行序
 // 移入（错误胶囊段在 paleomainwindow_errorhub.cpp 的 wireErrorHubStatus）。
 #include "paleomainwindow.h"
+#include "windowsizing_internal.h"
 
 #include "paleotheme.h" // T32：坐标/比例尺读数的 mono 数字面 token
 
@@ -159,7 +160,7 @@ void PaleoMainWindow::buildStatusBar()
     auto *openProgress = new QProgressBar(this);
     openProgress->setObjectName(QStringLiteral("projectOpenProgress"));
     openProgress->setRange(0, 100);
-    openProgress->setMaximumWidth(160);
+    openProgress->setMaximumWidth(paleo::ui_detail::charColumns(openProgress, 22)); // R6 #845
     auto *cancelOpen = new QToolButton(this);
     cancelOpen->setObjectName(QStringLiteral("cancelProjectOpenButton"));
     cancelOpen->setText(tr("取消打开"));

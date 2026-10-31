@@ -262,6 +262,7 @@ add_library(paleo_ui STATIC
   src/ui/paleoicons.cpp                            # ribbon 图标出口
   src/ui/paleoribbon.cpp                           # SARibbon 壳公用件
   src/ui/ribboncollapse.cpp                        # #860 Office 式分组自适应折叠
+  src/ui/ribbontitlefit.cpp                        # #860 标题行页签优先
   resources/seismic_shaders.qrc
   resources/paleo_fonts.qrc
 )

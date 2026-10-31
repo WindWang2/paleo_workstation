@@ -237,6 +237,7 @@ add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable
 # (fonts qrc + theme singleton live in paleo_core below; UI-domain tests here)
 add_paleo_test(tst_uxtheme LIBS paleo_ui)
 add_paleo_test(tst_ribboncollapse LIBS paleo_ui)  # #860 Office 式分组自适应折叠
+add_paleo_test(tst_ribbontitlefit LIBS paleo_ui)  # #860 标题行页签优先（scale 2）
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx LIBS paleo_ai)
   add_paleo_test(tst_onnxsessions LIBS paleo_ai)

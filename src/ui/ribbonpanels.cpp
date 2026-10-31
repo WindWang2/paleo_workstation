@@ -9,6 +9,7 @@
 #include "paleoicons.h"
 #include "paleoribbon.h"
 #include "ribboncollapse.h"
+#include "ribbontitlefit.h"
 #include "faciesdisplaycontrol.h"
 
 #include "pages/pagepanels.h"
@@ -66,6 +67,7 @@ void relayoutRibbonCategories(SARibbonBar *bar) {
   });
   // #860：组全部就位后接管自适应折叠（大→小→仅图标→下拉，滚动箭头兜底）。
   PaleoRibbon::enableAdaptiveCollapse(bar);
+  PaleoRibbon::enableTitleRowFit(bar); // 标题行页签优先
 }
 } // namespace
 

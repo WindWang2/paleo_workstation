@@ -558,6 +558,7 @@ private slots:
                         m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(),
                         m_ctx->processingSvc(), m_ctx->store(), m_ctx->editingSvc(),
                         m_ctx->layoutSvc(), m_ctx->taskSvc());
+    win.resize(1920, 1000); // 够宽：标题行不折叠，帮助钮/搜索框都在原位（折叠另见 tst_ribbontitlefit）
     win.show();
     win.activateWindow();
     QTest::qWait(80);

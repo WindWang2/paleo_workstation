@@ -150,6 +150,8 @@ void fitV0k(const QVector<VelocityKnot> &knots, double *v0Out, double *kOut)
   double szz = 0.0, szt = 0.0, zMax = 0.0;
   for (const VelocityKnot &kn : knots)
   {
+    if (!(kn.depthM > 0.0) || !std::isfinite(kn.twtMs)) // #838：z<=0 结点使 log1p/除零无定义
+      continue;
     szz += kn.depthM * kn.depthM;
     szt += kn.depthM * kn.twtMs;
     zMax = std::max(zMax, kn.depthM);
@@ -168,6 +170,8 @@ void fitV0k(const QVector<VelocityKnot> &knots, double *v0Out, double *kOut)
     for (const VelocityKnot &kn : knots)
     {
       const double z = kn.depthM;
+      if (!(z > 0.0) || !std::isfinite(kn.twtMs))
+        continue;
       const double v = v0 + k * z;
       const double r = v0kTwt(v0, k, z) - kn.twtMs;
       const double dTdv0 = -2000.0 * z / (v0 * v);
@@ -573,7 +577,6 @@ DepthGridResult convertTimeGridToDepth(const VelocityModel &model,
       r.cancelled = true;
       return r; // 半途结果：统计不完整，调用方必须弃用
     }
-    const double cy = gt[3] + (row + 0.5) * gt[5];
     for (int col = 0; col < cols; ++col)
     {
       const int idx = row * cols + col;
@@ -584,7 +587,9 @@ DepthGridResult convertTimeGridToDepth(const VelocityModel &model,
         ++r.nodataCells;
         continue;
       }
-      const double cx = gt[0] + (col + 0.5) * gt[1];
+      // #834：完整 GDAL 仿射（含旋转项 gt[2]/gt[4]），原生旋转测网不可只用 gt[1]/gt[5]。
+      const double cx = gt[0] + (col + 0.5) * gt[1] + (row + 0.5) * gt[2];
+      const double cy = gt[3] + (col + 0.5) * gt[4] + (row + 0.5) * gt[5];
       const double z = model.depthForTwt(cx, cy, static_cast<double>(t));
       if (std::isnan(z))
       {

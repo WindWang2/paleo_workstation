@@ -1,4 +1,5 @@
 // 层：视图
+#include "ui/windowsizing_internal.h"
 #include "ui/paleoicons.h"
 #include "ui/paleotheme.h"
 #include "constraintpage.h"
@@ -118,9 +119,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
     factors->setItem( row, 3, status );
     ++row;
   }
-  factors->setFixedHeight(factors->horizontalHeader()->sizeHint().height()
-                         + factors->rowCount() * factors->verticalHeader()->defaultSectionSize()
-                         + 2 * factors->frameWidth());
+  factors->setFixedHeight(paleo::ui_detail::tableHeightForRows(factors) + PaleoTheme::tokens().spacingXs); // R6 #842：与刷新同口径
   lay->addWidget( factors );
   auto *inputHint = caption(QString(), content);
   inputHint->setObjectName(QStringLiteral("factorInputHint"));

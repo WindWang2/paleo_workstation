@@ -181,7 +181,7 @@ namespace
           }
           // 重排会复位横向滚动：焦点在本页按钮上就重新滚入（键盘用户不丢焦点件）。
           QWidget *f = QApplication::focusWidget();
-          if (f && m_cat->isAncestorOf(f))
+          if (f && m_cat->isAncestorOf(f) && f->property("paleoKbdFocus").toBool())
             PaleoRibbon::scrollIntoView(f);
         });
         PaleoRibbon::makeKeyboardReachable(m_cat);

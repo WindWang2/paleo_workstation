@@ -1,5 +1,6 @@
 // 层：视图
 #include "paleoribbon.h"
+#include <QFocusEvent>
 
 #include "paleotheme.h"
 
@@ -129,6 +130,13 @@ namespace
         // 聚焦瞬间的几何可能还是页签切换前的旧值（LayoutRequest 排队未跑）——
         // 推到下一轮事件循环再量，量到什么就滚什么，一次直滚到位。
         auto *btn = qobject_cast<QWidget *>(obj);
+        // 只追键盘焦点：切页签 / 鼠标点击时控件自取焦点不该把类别滚走（首组被裁）。
+        const Qt::FocusReason why = static_cast<QFocusEvent *>(ev)->reason();
+        const bool kbd = why == Qt::TabFocusReason || why == Qt::BacktabFocusReason || why == Qt::ShortcutFocusReason;
+        if (btn)
+          btn->setProperty("paleoKbdFocus", kbd);
+        if (!kbd)
+          return false;
         QTimer::singleShot(0, this, [btn = QPointer<QWidget>(btn)] { PaleoRibbon::scrollIntoView(btn); });
         return false;
       }

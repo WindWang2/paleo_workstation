@@ -2,6 +2,7 @@
 #include "toastcard.h"
 
 #include "../paleotheme.h"
+#include "../windowsizing_internal.h"
 
 #include <QCoreApplication>
 #include <QHBoxLayout>
@@ -16,8 +17,9 @@ ToastCard::ToastCard(QWidget *parent) : QFrame(parent)
     setObjectName(QStringLiteral("paleoToastCard"));
     setAttribute(Qt::WA_StyledBackground, true);
     // #851：窄屏上 360 固定宽会超出；最大 360，允许随宿主收窄。
-    setMaximumWidth(360);
-    setMinimumWidth(200);
+    // R7 #888：上下限按字符宽推导（随字体/DPI 缩放；默认字体下约 200–360 px），不写裸 px。
+    setMaximumWidth(paleo::ui_detail::charColumns(this, 45));
+    setMinimumWidth(paleo::ui_detail::charColumns(this, 25));
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     // 活体主题样式（换深/浅色主题自动重算）；级别切换只改动态属性 + repolish，不重建串。
     PaleoTheme::applyThemedStyleSheet(this, [] {

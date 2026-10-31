@@ -922,7 +922,6 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error,
       return fail(tr("已取消"));
     if (m_progress && r % 16 == 0)
       m_progress(5 + 85.0 * r / rows);
-    const double cy = gTop.gt[3] + ( r + 0.5 ) * gTop.gt[5];
     for ( int c = 0; c < cols; ++c )
     {
       const int idx = r * cols + c;
@@ -932,7 +931,9 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error,
         continue;
       if ( !std::isfinite( tTop ) || !std::isfinite( tBase ) )
         continue;
-      const double cx = gTop.gt[0] + ( c + 0.5 ) * gTop.gt[1];
+      // #834：完整仿射（含旋转项），与井样点世界坐标同一口径。
+      const double cx = gTop.gt[0] + ( c + 0.5 ) * gTop.gt[1] + ( r + 0.5 ) * gTop.gt[2];
+      const double cy = gTop.gt[3] + ( c + 0.5 ) * gTop.gt[4] + ( r + 0.5 ) * gTop.gt[5];
       if ( !hullContains( hull, cx, cy ) )
         continue; // 凸包外 → -9999
       const double isochronMs = static_cast<double>( tBase ) - tTop;

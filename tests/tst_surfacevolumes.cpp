@@ -61,6 +61,7 @@ class TestSurfaceVolumes : public QObject
   Q_OBJECT
 
 private slots:
+  void infCellsTreatedAsNull();
   // Oracle 3：规则几何面解析断言（≥2 用例）。
   void prismExactVolume();     // 棱柱：精确
   void wedgeExactVolume();     // 楔形：线性面矩形法则精确
@@ -261,6 +262,27 @@ void TestSurfaceVolumes::isopachEndToEnd()
   // = 18。像元中心范围 [10,990]×[10,790] → [50+1−31.6, 50+99−0.4]。
   QVERIFY(r.minThickness > 19.0 && r.minThickness < 20.0);
   QVERIFY(r.maxThickness > 148.0 && r.maxThickness < 150.0);
+}
+
+
+// #838：±Inf 像元与 NaN 同按 null 计，不得污染体积为 Inf。
+void TestSurfaceVolumes::infCellsTreatedAsNull()
+{
+  const float inf = std::numeric_limits<float>::infinity();
+  auto top = std::vector<float>{10.0f, inf, 10.0f};
+  auto base = std::vector<float>{0.0f, 0.0f, -inf};
+  VolumeReport r;
+  QString err;
+  QVERIFY(volumeBetween(top.data(), base.data(), 3, 1, 1.0, 1.0, &r, &err));
+  QCOMPARE(r.cells, 1);
+  QCOMPARE(r.nullCells, 2);
+  QCOMPARE(r.volume, 10.0);
+  auto z = std::vector<float>{5.0f, inf};
+  VolumeReport d;
+  QVERIFY(volumeAboveDatum(z.data(), 2, 1, 1.0, 1.0, 0.0, &d, &err));
+  QCOMPARE(d.cells, 1);
+  QCOMPARE(d.nullCells, 1);
+  QCOMPARE(d.volume, 5.0);
 }
 
 QTEST_MAIN(TestSurfaceVolumes)

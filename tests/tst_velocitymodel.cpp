@@ -56,6 +56,8 @@ private slots:
   void anchorsExactAtWells();
   void v0kClosedFormMatchesQuadrature();
   void v0kFitRecoversSyntheticTruth();
+  void gridConversionRotatedGeoTransform();
+  void v0kFitIgnoresNonPositiveDepthKnots();
   void v0kFitRmsReportsAnchorResidual();
   void v0kFitNoisyDataReachesLeastSquaresOptimum();
   void serializationRoundtrip();
@@ -449,6 +451,50 @@ void TestVelocityModel::v0kNegativeKBeyondSingularityIsNaN()
   QVERIFY(w.k < 0.0);
   const double t = m.wellTwtForDepth(w, -w.v0 / w.k * 1.5);
   QVERIFY2(qIsNaN(t), qPrintable(QString::number(t)));
+}
+
+
+// #834：旋转 45° 的原生测网——格心世界坐标必须走完整仿射（gt[2]/gt[4]）。
+void TestVelocityModel::gridConversionRotatedGeoTransform()
+{
+  const auto a = well(QStringLiteral("A"), 0.0, 0.0, {{1000.0, 1000.0}, {2000.0, 2000.0}});   // 2000 m/s
+  const auto b = well(QStringLiteral("B"), 1000.0, 0.0, {{1000.0, 2000.0}, {2000.0, 4000.0}}); // 4000 m/s
+  const VelocityModel m = VelocityModel::fit({a, b}, ModelType::IntervalAverage);
+  const double s = 100.0 * std::sqrt(0.5);
+  const double gt[6] = {0.0, s, -s, 0.0, s, s}; // 45° 旋转
+  const int rows = 3, cols = 3;
+  const QVector<float> t(rows * cols, 1000.0f);
+  const DepthGridResult r = convertTimeGridToDepth(m, t, rows, cols, gt, -9999.0);
+  QCOMPARE(r.convertedCells, rows * cols);
+  for (int row = 0; row < rows; ++row)
+    for (int col = 0; col < cols; ++col)
+    {
+      const double x = gt[0] + (col + 0.5) * gt[1] + (row + 0.5) * gt[2];
+      const double y = gt[3] + (col + 0.5) * gt[4] + (row + 0.5) * gt[5];
+      const double truth = m.depthForTwt(x, y, 1000.0);
+      QVERIFY2(qAbs(r.depthM[row * cols + col] - truth) < 1e-3,
+               qPrintable(QStringLiteral("r%1c%2 got %3 want %4").arg(row).arg(col)
+                              .arg(r.depthM[row * cols + col]).arg(truth)));
+    }
+}
+
+// #838：z<=0 结点（如 KB/海面 0,0 锚点）不得让 V0-k 拟合变 NaN。
+void TestVelocityModel::v0kFitIgnoresNonPositiveDepthKnots()
+{
+  const double v0True = 1800.0, kTrue = 0.6;
+  QVector<VelocityKnot> knots;
+  knots.append(VelocityKnot{0.0, 0.0, QStringLiteral("SRD")});
+  for (const double twt : {600.0, 1200.0, 1800.0, 2400.0})
+    knots.append(VelocityKnot{twt, v0True / kTrue * std::expm1(kTrue * twt / 2000.0),
+                              QStringLiteral("L%1").arg(knots.size())});
+  VelocityWellControl c;
+  c.wellId = QStringLiteral("SYN0"); c.x = 0.0; c.y = 0.0; c.knots = knots;
+  const VelocityModel m = VelocityModel::fit({c}, ModelType::V0kLinear);
+  QVERIFY(!m.wells().isEmpty());
+  const VelocityModel::Well &w = m.wells().first();
+  QVERIFY2(std::isfinite(w.v0) && std::isfinite(w.k), "fit must stay finite");
+  QVERIFY(qAbs(w.v0 - v0True) < 1e-6 * v0True);
+  QVERIFY(qAbs(w.k - kTrue) < 1e-6 * kTrue);
 }
 
 QTEST_MAIN(TestVelocityModel)

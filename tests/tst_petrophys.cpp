@@ -219,8 +219,8 @@ void TestPetroPhys::testSwArchieAnalytic()
            qPrintable(QString("sw got %1").arg(out[0])));
   QVERIFY2(std::fabs(out[1] - 0.565685424949238 / std::sqrt(10.0)) < 1e-9,
            "Rt×10 → Sw/√10");
-  QVERIFY2(std::fabs(out[2] - 0.565685424949238 * std::sqrt(10.0)) < 1e-9,
-           "Rt/10 → Sw·√10");
+  // #838：解析值 1.789 > 1 物理上不可能 → 截断到 Sw=1。
+  QVERIFY2(out[2] == 1.0, "Sw clamped to 1");
   QVERIFY(std::isnan(out[3])); // φ=0 域外
   QVERIFY(std::isnan(out[4])); // φ>1 域外
   QVERIFY(std::isnan(out[5])); // NaN 传播

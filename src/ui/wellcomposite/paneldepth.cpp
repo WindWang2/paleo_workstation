@@ -1,6 +1,7 @@
 // 层：视图
 // 综合图面板·深度交互（区间统计/标注钉/跳转/书签/单位/gap/井斜时深表/TWT 读数）——自 wellcompositepanel.cpp 拆出（方向 66，行为零变更）
 #include "wellcompositepanel.h"
+#include "../notifications/paleonotify.h"
 #include "../paleotheme.h"
 #include "intervalstatistics.h"
 #include <QApplication>
@@ -49,6 +50,7 @@ void WellCompositePanel::onIntervalSelected(double top, double bottom)
   lay->addWidget(btnRow);
   connect(btnCopy, &QPushButton::clicked, this, [edit]() {
     QApplication::clipboard()->setText(edit->toPlainText());
+    PaleoNotify::copied(edit, QObject::tr("TSV"));
   });
   connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
   dlg.exec();

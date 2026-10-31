@@ -1,5 +1,8 @@
 // 层：视图
 #include "stratigraphypage.h"
+#include "../notifications/paleonotify.h"
+#include "../shortcuts/shortcutcatalog.h"
+#include <QShortcut>
 #include "../../workflow/stratigraphyworkflow.h"
 #include "../wellcomposite/multiwellview.h"
 #include <paleo_data/interpretation.h>
@@ -11,7 +14,6 @@
 #include <QDoubleSpinBox>
 #include <QCheckBox>
 #include <QLabel>
-#include <QMessageBox>
 #include <QInputDialog>
 #include <QSignalBlocker>
 void StratigraphyPage::buildActions(QBoxLayout* layout) {
@@ -23,6 +25,9 @@ void StratigraphyPage::buildActions(QBoxLayout* layout) {
  auto* save=button(tr("保存分层版本"),"saveInterpretation",[this]{m_workflow->setViewOptions({{"flatten",m_flatten->currentData().toString()},{"segmentScope",m_scope->currentData().toString()}});m_workflow->save();});
  auto* undo=button(tr("撤销"),"undoInterpretation",[this]{m_workflow->undo();});
  auto* redo=button(tr("重做"),"redoInterpretation",[this]{m_workflow->redo();});
+ // #869：页内键盘撤销/重做（键序登记在 ShortcutCatalog stratigraphy.*；按钮禁用时 click 无效）。
+ connect(paleo::shortcuts::bindShortcut(QStringLiteral("stratigraphy.undo"),this),&QShortcut::activated,undo,&QPushButton::click);
+ connect(paleo::shortcuts::bindShortcut(QStringLiteral("stratigraphy.redo"),this),&QShortcut::activated,redo,&QPushButton::click);
  auto* advanced=button(tr("更多设置与历史"),"stratigraphyAdvancedToggle",[this](bool checked){if(auto* w=findChild<QWidget*>(QStringLiteral("stratigraphyAdvanced")))w->setVisible(checked);});advanced->setCheckable(true);
  button(tr("计算结果…"),"stratigraphyResultsButton",[this]{showResults();});
  auto* cancel=button(tr("取消计算"),"cancelStratigraphy",[this]{m_workflow->cancel();});cancel->hide();
@@ -45,7 +50,8 @@ void StratigraphyPage::buildEditor(QBoxLayout* layout) {
  button(tr("确认／采用候选"),"confirmBoundary",[this]{if(!m_selectedCycle&&!m_selectedObject.isEmpty())m_workflow->confirmBoundary(m_selectedWell,m_selectedObject);});
  button(tr("删除界线并合并相邻旋回"),"removeBoundary",[this]{
   if(m_selectedCycle||m_selectedObject.isEmpty())return;
-  if(QMessageBox::question(this,tr("合并相邻旋回"),tr("删除此内部界面并合并相邻两个四级旋回？其他旋回和三级边界保持不变。"))==QMessageBox::Yes)m_workflow->removeBoundary(m_selectedWell,m_selectedObject);
+  // #868：破坏性确认走统一出口，默认键=否（回车不误删）。
+  if(PaleoNotify::ask(this,tr("合并相邻旋回"),tr("删除此内部界面并合并相邻两个四级旋回？其他旋回和三级边界保持不变。"),PaleoNotify::AskButtons::YesNo,PaleoNotify::AskDefault::Reject,PaleoNotify::AskIcon::Warning))m_workflow->removeBoundary(m_selectedWell,m_selectedObject);
  });
  form->addRow(tr("旋回级别"),m_level);form->addRow(tr("旋回方向"),m_direction);
  button(tr("应用旋回属性"),"applyCycle",[this]{if(m_selectedCycle)m_workflow->editCycle(m_selectedWell,m_selectedObject,m_name->text(),m_level->currentData().toInt(),m_direction->currentData().toInt());});

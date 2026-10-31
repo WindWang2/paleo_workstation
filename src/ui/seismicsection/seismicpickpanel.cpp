@@ -14,6 +14,9 @@
 #include <QLabel>
 #include <QLineEdit>
 #include "../notifications/paleonotify.h"
+#include "../shortcuts/shortcutcatalog.h"
+#include <QShortcut>
+#include <QUndoStack>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QToolButton>
@@ -37,6 +40,24 @@ QToolButton *mkBtn(const QString &text, const QString &tooltip)
 }
 } // namespace
 
+namespace {
+// #869：按钮提示带上将撤销/重做的命令名（对齐数据清单「撤销 %1」）。
+void syncUndoButtons(QUndoStack *stack, QAbstractButton *undo, QAbstractButton *redo)
+{
+    if (!stack || !undo || !redo)
+        return;
+    undo->setEnabled(stack->canUndo());
+    redo->setEnabled(stack->canRedo());
+    const QString u = stack->undoText(), r = stack->redoText();
+    undo->setToolTip(!stack->canUndo() ? QObject::tr("没有可撤销的拾取变更")
+                     : u.isEmpty()     ? QObject::tr("撤销上一次拾取变更")
+                                       : QObject::tr("撤销：%1").arg(u));
+    redo->setToolTip(!stack->canRedo() ? QObject::tr("没有可重做的拾取变更")
+                     : r.isEmpty()     ? QObject::tr("重做")
+                                       : QObject::tr("重做：%1").arg(r));
+}
+} // namespace
+
 SeismicPickPanel::SeismicPickPanel(SeismicSectionDockWidget *dock, QWidget *parent)
     : QWidget(parent), dock_(dock)
 {
@@ -45,12 +66,13 @@ SeismicPickPanel::SeismicPickPanel(SeismicSectionDockWidget *dock, QWidget *pare
 
 void SeismicPickPanel::setUndoStack(QUndoStack *stack)
 {
+    if (undoStack_)
+        disconnect(undoStack_, &QUndoStack::indexChanged, this, nullptr);
     undoStack_ = stack;
-    if (btnUndo_ && stack)
-    {
-        btnUndo_->setEnabled(stack->canUndo());
-        btnRedo_->setEnabled(stack->canRedo());
-    }
+    if (stack)
+        connect(stack, &QUndoStack::indexChanged, this,
+                [this] { syncUndoButtons(undoStack_, btnUndo_, btnRedo_); });
+    syncUndoButtons(stack, btnUndo_, btnRedo_);
 }
 
 void SeismicPickPanel::buildUi()
@@ -177,6 +199,11 @@ void SeismicPickPanel::buildUi()
         if (undoStack_)
             undoStack_->redo();
     });
+    // #869：面板内键盘撤销/重做（键序登记在 ShortcutCatalog section.pick.*）。
+    connect(paleo::shortcuts::bindShortcut(QStringLiteral("section.pick.undo"), this),
+            &QShortcut::activated, btnUndo_, &QToolButton::click);
+    connect(paleo::shortcuts::bindShortcut(QStringLiteral("section.pick.redo"), this),
+            &QShortcut::activated, btnRedo_, &QToolButton::click);
 }
 
 void SeismicPickPanel::refreshFromSession()
@@ -214,11 +241,7 @@ void SeismicPickPanel::refreshFromSession()
         cboInterpreter_->setCurrentText(current);
     cboInterpreter_->blockSignals(false);
 
-    if (undoStack_)
-    {
-        btnUndo_->setEnabled(undoStack_->canUndo());
-        btnRedo_->setEnabled(undoStack_->canRedo());
-    }
+    syncUndoButtons(undoStack_, btnUndo_, btnRedo_);
 
     // goal/horizon-3d — 拾取集变化即刷新 3D 传播可用性（种子 = 手动拾取）
     if (dock_)

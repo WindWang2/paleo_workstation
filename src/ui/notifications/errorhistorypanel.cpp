@@ -1,5 +1,6 @@
 // 层：视图
 #include "errorhistorypanel.h"
+#include "paleonotify.h"
 
 #include "../paleotheme.h"
 
@@ -185,5 +186,8 @@ QString ErrorHistoryPanel::copyText() const
 void ErrorHistoryPanel::copyToClipboard()
 {
     if (QClipboard *cb = QApplication::clipboard())
+    {
         cb->setText(copyText());
+        PaleoNotify::copied(this, tr("错误历史"));
+    }
 }

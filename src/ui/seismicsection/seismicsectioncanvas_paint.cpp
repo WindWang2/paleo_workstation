@@ -180,9 +180,9 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
     } else {
         p.setPen(tok.textMuted);
         p.setFont(bodyFont);
-        // D2.14：有原因态时展示原因（如「线号 1234 不在测网…」），否则通用占位
+        // D2.14：有原因态时展示原因（如「线号 1234 不在测网…」），否则通用占位（#871：含下一步）
         const QString placeholder = m_noDataReason.isEmpty()
-            ? tr("未加载地震剖面数据\n（支持拖拽测线或从地图生成连井/任意剖面）")
+            ? tr("还没有加载地震剖面 — 先在「数据管理」的数据清单中打开地震体，\n再在地图上拖拽测线，或生成连井/任意剖面")
             : m_noDataReason;
         p.drawText(vp, Qt::AlignCenter | Qt::TextWordWrap, placeholder);
     }

@@ -183,6 +183,11 @@ void TestAiAssistDock::unconfiguredControllerShowsDisabledState() {
   QVERIFY(!send->isEnabled());
   QVERIFY(!input->isEnabled());
   QVERIFY(!stop->isEnabled());
+  // #870：空 transcript 给空态指引，且指向「配置…」。
+  auto *empty = dock.findChild<QLabel *>(QStringLiteral("aiAssistantEmptyState"));
+  QVERIFY(empty);
+  QVERIFY(!empty->isHidden());
+  QVERIFY2(empty->text().contains(QStringLiteral("配置")), qPrintable(empty->text()));
 }
 
 void TestAiAssistDock::streamingRendersIntoTranscript() {
@@ -197,6 +202,8 @@ void TestAiAssistDock::streamingRendersIntoTranscript() {
     dock.findChild<QTextBrowser *>(QStringLiteral("aiAssistantTranscript"));
   QVERIFY(input && send && transcript);
   QVERIFY(send->isEnabled()); // 配置齐全 → 可用
+  auto *empty = dock.findChild<QLabel *>(QStringLiteral("aiAssistantEmptyState"));
+  QVERIFY(empty && !empty->isHidden()); // #870：开局空态
 
   input->setPlainText(QStringLiteral("这段是什么岩性？"));
   send->click();
@@ -206,6 +213,7 @@ void TestAiAssistDock::streamingRendersIntoTranscript() {
   QVERIFY2(text.contains(QStringLiteral("砂岩")), qPrintable(text));
   QVERIFY2(text.contains(QStringLiteral("这段是什么岩性？")),
            qPrintable(text)); // 用户那条也要上屏
+  QVERIFY(empty->isHidden()); // #870：有对话即隐藏空态
   dropSession(&controller);
 }
 

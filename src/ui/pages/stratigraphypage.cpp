@@ -16,7 +16,7 @@
 #include <QLineEdit>
 #include <QDoubleSpinBox>
 #include <QCheckBox>
-#include <QMessageBox>
+#include "../notifications/paleonotify.h"
 #include <QGraphicsView>
 #include <QPushButton>
 #include <QTimer>
@@ -73,7 +73,7 @@ QList<qlonglong> StratigraphyPage::selectedWells() const {
  if(!m_wells)return {};
  QList<qlonglong> ids;for(int i=0;i<m_wells->count();++i)if(m_wells->item(i)->checkState()==Qt::Checked)ids.append(m_wells->item(i)->data(Qt::UserRole).toLongLong());return ids;
 }
-bool StratigraphyPage::confirmReplace(){return !m_workflow->hasUnsavedChanges()||QMessageBox::question(this,tr("未保存的解释"),tr("当前方案有未保存修改，是否放弃并加载所选井或版本？"),QMessageBox::Discard|QMessageBox::Cancel,QMessageBox::Cancel)==QMessageBox::Discard;}
+bool StratigraphyPage::confirmReplace(){return !m_workflow->hasUnsavedChanges()||PaleoNotify::ask(this,tr("未保存的解释"),tr("当前方案有未保存修改，是否放弃并加载所选井或版本？"),PaleoNotify::AskButtons::DiscardCancel,PaleoNotify::AskDefault::Reject);} // #868
 void StratigraphyPage::clearSelection(){m_selectedWell=0;m_selectedObject.clear();m_selectedCycle=false;if(m_name)m_name->clear();if(m_depth)m_depth->setValue(0);if(m_lock)m_lock->setChecked(false);if(m_source){m_source->clear();m_source->setToolTip({});}highlightSelection();}
 void StratigraphyPage::selectObject(qlonglong well,const QString& id,bool cycle) {
  clearSelection();m_selectedWell=well;m_selectedObject=id;m_selectedCycle=cycle;

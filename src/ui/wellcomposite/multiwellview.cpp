@@ -366,7 +366,7 @@ QString MultiWellView::deltaTableText() const
   };
   QList<Col> cols;
   QStringList header;
-  header << QStringLiteral("层段");
+  header << tr("层段"); // #871
   for (int i = 0; i < m_panels.size() && i < capacity(); ++i)
   {
     auto *p = m_panels.at(i);

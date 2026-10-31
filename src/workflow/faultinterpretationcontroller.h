@@ -36,6 +36,9 @@ public:
     bool canUndo() const { return !m_done.isEmpty(); }
     bool canRedo() const { return !mUndone.isEmpty(); }
     int count() const { return static_cast<int>(m_done.size()); }
+    // #869：将撤销/重做的命令简述（push 时的 text；空栈为空串）。
+    QString undoText() const { return m_done.isEmpty() ? QString() : m_done.last().text; }
+    QString redoText() const { return mUndone.isEmpty() ? QString() : mUndone.last().text; }
     void clear();
 
 signals:

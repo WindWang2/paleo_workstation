@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：曲线样式预设编辑器的数据色值，使用者选择后写入曲线配置。（tools/ui-token-exceptions.json 精确计数）。
 #include "trackconfigdialog.h"
+#include "../windowsizing_internal.h"
 
 #include <QCheckBox>
 #include <QColorDialog>
@@ -60,7 +61,10 @@ TrackConfigDialog::TrackConfigDialog(const TrackSpec &spec, const QVector<CurveD
 {
   setObjectName(QStringLiteral("wellCompositeTrackConfigDialog"));
   setWindowTitle(tr("道配置"));
-  setMinimumSize(QSize(460, 420));
+  // #881：最小尺寸按字体推导并夹到可用屏幕内（同 #844 口径）。
+  setMinimumSize(paleo::ui_detail::boundedToAvailable(
+      QSize(fontMetrics().averageCharWidth() * 56, fontMetrics().lineSpacing() * 22),
+      paleo::ui_detail::availableSizeFor(this)));
   buildUi();
 }
 
@@ -133,7 +137,7 @@ void TrackConfigDialog::buildUi()
       {tr("选用"), tr("曲线"), tr("最小值"), tr("最大值"), tr("对数"), tr("单位"), tr("颜色")});
   m_curveTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
   m_curveTable->verticalHeader()->hide();
-  m_curveTable->setMaximumHeight(200);
+  m_curveTable->setMaximumHeight(paleo::ui_detail::lineRows(m_curveTable, 10)); // #881
   curveLay->addWidget(m_curveTable);
 
   auto *gridRow = new QHBoxLayout();

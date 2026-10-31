@@ -376,7 +376,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   PaleoTheme::applyThemedStyleSheet(lblTimeMs, [] {
     return QStringLiteral("color: %1;").arg(qssHex(PaleoTheme::tokens().text));
   });
-  lblTimeMs->setFixedWidth(90);
+  lblTimeMs->setFixedWidth(lblTimeMs->fontMetrics().horizontalAdvance(QStringLiteral("99999.9 ms")) + lblTimeMs->fontMetrics().averageCharWidth()); // #881
   timeBarLay->addWidget(lblTimeMs);
 
   // 时间片/转码区按钮统一走一份活体样式（原 8.5pt + 浅色字面量收口）。
@@ -448,7 +448,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
 
   auto *transcodeProgress = new QProgressBar(timeBar);
   transcodeProgress->setObjectName(QStringLiteral("transcodeProgress"));
-  transcodeProgress->setFixedWidth(140);
+  transcodeProgress->setFixedWidth(transcodeProgress->fontMetrics().averageCharWidth() * 20); // #881
   transcodeProgress->setRange(0, 100);
   transcodeProgress->setVisible(false);
   timeBarLay->addWidget(transcodeProgress);

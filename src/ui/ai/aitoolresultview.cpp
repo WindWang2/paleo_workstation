@@ -1,5 +1,6 @@
 // 层：视图
 #include "aitoolresultview.h"
+#include "../windowsizing_internal.h"
 
 #include "../paleotheme.h"
 #include "../pages/derivationgraph.h"
@@ -126,7 +127,10 @@ QTableWidget *AiToolResultView::makeCompactTable(int columns,
   table->setSizeAdjustPolicy(QAbstractItemView::AdjustToContents);
   // dock 卡内可读性（DESIGN.md「紧凑表格」）：高度封顶 ≈ 六行 + 表头，
   // 更长走内部滚动，不把卡片区顶穿。
-  table->setMaximumHeight(192);
+  // #881：上限按实际行高推导（表头 + 六行），不再硬 192px。
+  table->setMaximumHeight(table->horizontalHeader()->sizeHint().height() +
+                          6 * table->fontMetrics().lineSpacing() * 3 / 2 +
+                          2 * table->frameWidth());
   return table;
 }
 
@@ -471,7 +475,7 @@ void AiToolResultView::buildFallback(const QJsonObject &payload) {
              .arg(kFallbackCharCap)
              .arg(text.size());
   json->setText(text);
-  json->setMaximumHeight(180);
+  json->setMaximumHeight(paleo::ui_detail::lineRows(json, 10)); // #881：十行，字体推导
   json->hide();
   layout->addWidget(json);
   connect(toggle, &QToolButton::toggled, this, [toggle, json](bool on) {

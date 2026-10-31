@@ -89,13 +89,6 @@ class TestRibbonCollapse : public QObject
 
     void cleanupTestCase() { delete m_win; }
 
-    // 诊断（不判失败）：QGIS 主题图标资源是否可用。
-    void diagThemeIconResource()
-    {
-      qInfo() << "qgis theme resource present:"
-              << QFile::exists(QStringLiteral(":/images/themes/default/mActionSelectRectangle.svg"));
-    }
-
     void wideIsFull()
     {
       setWidth(2600);

@@ -153,12 +153,13 @@ namespace
           setLevel(m_groups[i], level[i]);
         lay->invalidate();
         // 同步落几何：stub 刚插入时停在 x=0，等下一轮事件才排开会短暂叠放。
-        if (m_cat->isVisible())
-          lay->setGeometry(m_cat->rect());
+        // 不论页签当前是否可见都同步落几何：隐藏页签里新插的 stub 否则全停在 x=0，
+        // 直到该页再次 resize 才排开（tst_shell_chrome 叠放检查）。
+        lay->setGeometry(m_cat->rect());
         m_applying = false;
         // 隐藏时插入的 stub 要等可见后再排一次；同步那次可能被 SARibbon 的重入守卫吞掉。
         QTimer::singleShot(0, this, [this] {
-          if (!m_cat || !m_cat->isVisible())
+          if (!m_cat)
             return;
           if (auto *l = qobject_cast<SARibbonCategoryLayout *>(m_cat->layout()))
           {

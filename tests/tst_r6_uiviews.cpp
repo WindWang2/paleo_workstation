@@ -11,6 +11,7 @@
 #include "ui/common/fitwidth.h"
 #include "ui/common/screenfit.h"
 #include "ui/common/wheelzoom.h"
+#include "ui/correlationpanel.h"
 #include "ui/crossplot/crossplotpanel.h"
 #include "ui/datapreview/previewcurvepanel.h"
 #include "ui/paleotheme.h"
@@ -39,6 +40,7 @@ private slots:
   void fitWidthNeverClipsContent();           // #846/#847/#850
   void dialogDefaultBoundedToScreen();        // #854
   void crossplotControlsInResizableSplitter(); // #837
+  void correlationBrowserInResizableSplitter(); // #843 handoff
   void seismicPanelsDoNotForceDockWidth();    // #846
   void seismicCoordLabelDoesNotGrowMinWidth(); // #846
   void previewCurveSortedAndLasNullDropped(); // #853
@@ -103,6 +105,26 @@ void TestR6UiViews::crossplotControlsInResizableSplitter() {
   QCOMPARE(split->sizes().at(0), 0); // 可收起给图让位
 }
 
+
+void TestR6UiViews::correlationBrowserInResizableSplitter() {
+  // R6 #843 handoff：连井右侧 CurveBrowser 不再 setFixedWidth。
+  WellCorrelationPanel panel(nullptr);
+  panel.resize(1000, 600);
+  panel.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&panel));
+  auto *split = panel.findChild<QSplitter *>(QStringLiteral("correlationSplitter"));
+  QVERIFY(split);
+  QCOMPARE(split->count(), 2);
+  QWidget *browser = split->widget(1);
+  QVERIFY(browser);
+  QCOMPARE(browser->maximumWidth(), QWIDGETSIZE_MAX);
+  split->setSizes({700, 300});
+  QCoreApplication::processEvents();
+  QVERIFY(split->sizes().at(1) > 232); // 可拉宽于原固定宽度
+  split->setSizes({1000, 0});
+  QCoreApplication::processEvents();
+  QCOMPARE(split->sizes().at(1), 0); // 可收起
+}
 void TestR6UiViews::seismicPanelsDoNotForceDockWidth() {
   seismic::SeismicSectionDockWidget dock;
   dock.resize(900, 650);

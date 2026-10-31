@@ -24,6 +24,7 @@
 #include <QGraphicsView>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QSplitter>
 #include <QLabel>
 #include <QPainter>
 #include <QPen>
@@ -89,13 +90,23 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
   connect(sharedScaleBox, &QCheckBox::toggled, this, &WellCorrelationPanel::setSharedCurveScale);
   grid->addWidget(sharedScaleBox, 1, 0);
 
-  // Section strip + LAS curve browser on the right.
-  auto *hbox = new QHBoxLayout(this);
-  hbox->setContentsMargins(0, 0, 0, 0);
-  hbox->setSpacing(0);
-  hbox->addLayout(grid, 1);
-  m_browser->setFixedWidth(kBrowserWidth);
-  hbox->addWidget(m_browser);
+  // R6 #843：剖面与右侧曲线浏览器用 QSplitter（原 setFixedWidth(kBrowserWidth)
+  // 使长助记符/井名被截断且比例不可调）。
+  auto *sectionHost = new QWidget(this);
+  sectionHost->setObjectName(QStringLiteral("correlationSectionHost"));
+  sectionHost->setLayout(grid);
+  auto *splitter = new QSplitter(Qt::Horizontal, this);
+  splitter->setObjectName(QStringLiteral("correlationSplitter"));
+  splitter->setChildrenCollapsible(true);
+  splitter->addWidget(sectionHost);
+  splitter->addWidget(m_browser);
+  splitter->setStretchFactor(0, 1);
+  splitter->setStretchFactor(1, 0);
+  splitter->setSizes({800, kBrowserWidth});
+  auto *root = new QHBoxLayout(this);
+  root->setContentsMargins(0, 0, 0, 0);
+  root->setSpacing(0);
+  root->addWidget(splitter);
 
   if (m_ctx)
   {

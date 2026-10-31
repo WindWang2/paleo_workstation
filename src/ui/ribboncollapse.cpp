@@ -6,6 +6,7 @@
 #include <SARibbon.h>
 
 #include <QAction>
+#include <QApplication>
 #include <QCoreApplication>
 #include <QEvent>
 #include <QFrame>
@@ -149,13 +150,24 @@ namespace
             level[i] = L;
           }
 
+        bool changed = false;
         for (size_t i = 0; i < m_groups.size(); ++i)
+        {
+          changed |= m_groups[i].level != level[i];
           setLevel(m_groups[i], level[i]);
+        }
+        if (!changed)
+        {
+          // 级别没变就不重排：重排会把 SARibbon 的横向滚动（聚焦滚入）复位。
+          m_applying = false;
+          return;
+        }
         lay->invalidate();
         // 同步落几何：stub 刚插入时停在 x=0，等下一轮事件才排开会短暂叠放。
         // 不论页签当前是否可见都同步落几何：隐藏页签里新插的 stub 否则全停在 x=0，
         // 直到该页再次 resize 才排开（tst_shell_chrome 叠放检查）。
         lay->setGeometry(m_cat->rect());
+        relayoutPanels();
         m_applying = false;
         // 隐藏时插入的 stub 要等可见后再排一次；同步那次可能被 SARibbon 的重入守卫吞掉。
         QTimer::singleShot(0, this, [this] {
@@ -165,9 +177,28 @@ namespace
           {
             l->invalidate();
             l->setGeometry(m_cat->rect());
+            relayoutPanels();
           }
+          // 重排会复位横向滚动：焦点在本页按钮上就重新滚入（键盘用户不丢焦点件）。
+          QWidget *f = QApplication::focusWidget();
+          if (f && m_cat->isAncestorOf(f))
+            PaleoRibbon::scrollIntoView(f);
         });
         PaleoRibbon::makeKeyboardReachable(m_cat);
+      }
+
+      // 组尺寸没变时 SARibbon 不重排组内按钮（同 rect 跳过）——级别切换后按钮
+      // 会停在旧坐标、跑出组外（tst_shell_chrome 聚焦滚入）。逐组强制落几何。
+      void relayoutPanels()
+      {
+        for (auto &g : m_groups)
+          for (SARibbonPanel *p : {g.panel.data(), g.stub.data()})
+            if (p && p->isVisibleTo(m_cat))
+              if (SARibbonPanelLayout *pl = p->panelLayout())
+              {
+                pl->invalidate();
+                pl->setGeometry(p->rect());
+              }
       }
 
       void schedule()

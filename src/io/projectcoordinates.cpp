@@ -1,6 +1,7 @@
 // 层：数据
 #include "projectcoordinates.h"
 #include "../metadata/atomicfile.h" // paleoReplaceFile：发布用替换语义（不预删目标）
+#include "segyreader.h"
 #include <QFile>
 #include <QtEndian>
 #include <ogr_spatialref.h>
@@ -17,28 +18,70 @@ Transform transformation(const QString &from, const QString &to) {
   return {OGRCreateCoordinateTransformation(&a, &b), OCTDestroyCoordinateTransformation};
 }
 bool fail(QString *error, const QString &message) { if (error) *error = message; return false; }
-bool transformHeader(QByteArray &header, OGRCoordinateTransformation *ct, bool geographic) {
-  const qint16 scalar = qFromBigEndian<qint16>(header.constData() + 70);
-  const qint16 units = qFromBigEndian<qint16>(header.constData() + 88);
+qint16 rd16(const char *p, bool le) { return le ? qFromLittleEndian<qint16>(p) : qFromBigEndian<qint16>(p); }
+quint16 rdU16(const char *p, bool le) { return le ? qFromLittleEndian<quint16>(p) : qFromBigEndian<quint16>(p); }
+qint32 rd32(const char *p, bool le) { return le ? qFromLittleEndian<qint32>(p) : qFromBigEndian<qint32>(p); }
+void wr16(qint16 v, char *p, bool le) { if (le) qToLittleEndian<qint16>(v, p); else qToBigEndian<qint16>(v, p); }
+void wr32(qint32 v, char *p, bool le) { if (le) qToLittleEndian<qint32>(v, p); else qToBigEndian<qint32>(v, p); }
+// #855/#857：按源文件字节序读写道头；目标为地理坐标系时写 rev1 units=2（弧秒，
+// scalar -100 → 0.01″ ≈ 0.3 m），不再把度值当长度 ×100（精度仅 0.01° 且单位错标）。
+bool transformHeader(QByteArray &header, OGRCoordinateTransformation *ct, bool geographic,
+                     bool targetGeographic, bool le) {
+  const qint16 scalar = rd16(header.constData() + 70, le);
+  const qint16 units = rd16(header.constData() + 88, le);
   if ((geographic && units != 0 && units != 2 && units != 3) ||
       (!geographic && units != 0 && units != 1)) return false;
   const double scale = (scalar < 0 ? -1. / scalar : scalar > 0 ? scalar : 1.) /
                        (geographic && units == 2 ? 3600. : 1.);
+  const double outFactor = targetGeographic ? 3600. * 100. : 100.;
   for (int offset : {72, 80, 180}) {
-    double x = qFromBigEndian<qint32>(header.constData() + offset) * scale;
-    double y = qFromBigEndian<qint32>(header.constData() + offset + 4) * scale;
-    if (offset != 180 && x == 0 && y == 0) continue; // Unassigned acquisition coordinates stay unassigned.
+    double x = rd32(header.constData() + offset, le) * scale;
+    double y = rd32(header.constData() + offset + 4, le) * scale;
+    // #856：任何坐标对 (0,0) 都是未赋值（含 CDP 181/185），保持未赋值。
+    if (x == 0 && y == 0) continue;
     if (!ct->Transform(1, &x, &y) || !std::isfinite(x) || !std::isfinite(y) ||
-        std::abs(x * 100) > 2147483647. || std::abs(y * 100) > 2147483647.) return false;
-    qToBigEndian<qint32>(qint32(std::llround(x * 100)), header.data() + offset);
-    qToBigEndian<qint32>(qint32(std::llround(y * 100)), header.data() + offset + 4);
+        std::abs(x * outFactor) > 2147483647. || std::abs(y * outFactor) > 2147483647.) return false;
+    wr32(qint32(std::llround(x * outFactor)), header.data() + offset, le);
+    wr32(qint32(std::llround(y * outFactor)), header.data() + offset + 4, le);
   }
-  qToBigEndian<qint16>(-100, header.data() + 70);
-  qToBigEndian<qint16>(1, header.data() + 88);
+  wr16(-100, header.data() + 70, le);
+  wr16(targetGeographic ? 2 : 1, header.data() + 88, le);
   return true;
 }
+// IBM EBCDIC cp037 ⇄ Latin-1（SEG-Y 文本头可打印子集）。
+const unsigned char kEbcdicToAscii[256] = {
+  0,1,2,3,156,9,134,127,151,141,142,11,12,13,14,15,16,17,18,19,157,133,8,135,24,25,146,143,28,29,30,31,
+  128,129,130,131,132,10,23,27,136,137,138,139,140,5,6,7,144,145,22,147,148,149,150,4,152,153,154,155,20,21,158,26,
+  32,160,226,228,224,225,227,229,231,241,162,46,60,40,43,124,38,233,234,235,232,237,238,239,236,223,33,36,42,41,59,172,
+  45,47,194,196,192,193,195,197,199,209,166,44,37,95,62,63,248,201,202,203,200,205,206,207,204,96,58,35,64,39,61,34,
+  216,97,98,99,100,101,102,103,104,105,171,187,240,253,254,177,176,106,107,108,109,110,111,112,113,114,170,186,230,184,198,164,
+  181,126,115,116,117,118,119,120,121,122,161,191,208,221,222,174,94,163,165,183,169,167,182,188,189,190,91,93,175,168,180,215,
+  123,65,66,67,68,69,70,71,72,73,173,244,246,242,243,245,125,74,75,76,77,78,79,80,81,82,185,251,252,249,250,255,
+  92,247,83,84,85,86,87,88,89,90,178,212,214,210,211,213,48,49,50,51,52,53,54,55,56,57,179,219,220,217,218,159};
+bool segyTextIsEbcdic(const QByteArray &text) {
+  int ascii = 0, ebcdic = 0;
+  for (unsigned char c : text) {
+    if (c == 0x20 || (c >= 0x30 && c <= 0x39)) ++ascii;          // ASCII 空格/数字
+    else if (c == 0x40 || c >= 0xC1) ++ebcdic;                    // EBCDIC 空格/字母/数字
+  }
+  return ebcdic > ascii;
+}
+QByteArray encodeEbcdic(const QByteArray &latin1) {
+  static unsigned char reverse[256]; static bool built = false;
+  if (!built) { for (int i = 0; i < 256; ++i) reverse[kEbcdicToAscii[i]] = uchar(i); built = true; }
+  QByteArray out(latin1.size(), '\0');
+  for (int i = 0; i < latin1.size(); ++i) out[i] = char(reverse[uchar(latin1[i])]);
+  return out;
+}
+bool isEndText(const QString &record) { return record.toUpper().contains(QStringLiteral("((SEG: ENDTEXT))")); }
 }
 namespace paleo::io {
+QString segyTextHeaderToString(const QByteArray &text) {
+  if (!segyTextIsEbcdic(text)) return QString::fromLatin1(text);
+  QByteArray out(text.size(), '\0');
+  for (int i = 0; i < text.size(); ++i) out[i] = char(kEbcdicToAscii[uchar(text[i])]);
+  return QString::fromLatin1(out);
+}
 bool isMetricProjectCrs(const QString &crs) {
   OGRSpatialReference srs;
   return srs.SetFromUserInput(crs.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) == OGRERR_NONE && srs.IsProjected()
@@ -52,6 +95,8 @@ QString coordinateWkt(const QString &crs) {
 bool projectRasterFile(const QString &path, const QString &target, QString *error, const QString &source) {
   GDALAllRegister();
   if (!source.isEmpty()) {
+    // #859：此处以 GA_Update 原地写来源 CRS 声明——path 必须是私有暂存副本
+    // （调用方 dataimport_geodata 传 staged），绝不能传用户的外部源文件。
     auto declared = GDALOpen(path.toUtf8().constData(), GA_Update);
     const auto wkt = coordinateWkt(source).toUtf8();
     if (!declared || wkt.isEmpty()) { if (declared) GDALClose(declared); return fail(error, QStringLiteral("栅格来源坐标系无效")); }
@@ -116,13 +161,30 @@ bool projectSegyFile(const QString &source, const QString &output, const QString
   if (!input.open(QIODevice::ReadOnly)) return fail(error, QStringLiteral("无法读取地震源文件"));
   const auto header = input.read(3600);
   if (header.size() != 3600) return fail(error, QStringLiteral("地震头不完整"));
-  const int format = qFromBigEndian<quint16>(header.constData() + 3224);
-  const int samples = qFromBigEndian<quint16>(header.constData() + 3220);
-  const int bytes = (format == 1 || format == 2 || format == 5) ? 4 : format == 3 ? 2 : format == 8 ? 1 : 0;
-  if (!bytes || !samples || qFromBigEndian<qint16>(header.constData() + 3504) != 0)
+  // #855：与 SegyReader 同口径判字节序与扩展文本头。
+  const bool le = SegyReader::detectLittleEndian(reinterpret_cast<const unsigned char *>(header.constData() + 3200));
+  const int format = rd16(header.constData() + 3224, le);
+  const int samples = rdU16(header.constData() + 3220, le);
+  const int bytes = SegyReader::sampleBytesForFormat(format);
+  const int extHeaders = rd16(header.constData() + 3504, le);
+  if (!bytes || !samples || extHeaders < -1)
     return fail(error, QStringLiteral("当前地震格式不能安全转换坐标，请提供固定道长 SEG-Y"));
-  const qint64 stride = 240 + samples * bytes;
-  if ((input.size() - 3600) % stride) return fail(error, QStringLiteral("地震道长不一致，已拒绝坐标转换"));
+  qint64 firstTrace = 3600;
+  if (extHeaders >= 0) firstTrace += qint64(extHeaders) * 3200;
+  else {
+    bool found = false;
+    while (!found) {
+      const auto record = input.read(3200);
+      if (record.size() != 3200) return fail(error, QStringLiteral("扩展文本头缺少 EndText 记录"));
+      firstTrace += 3200; found = isEndText(segyTextHeaderToString(record));
+    }
+  }
+  const qint64 stride = 240 + qint64(samples) * bytes;
+  if (input.size() < firstTrace || (input.size() - firstTrace) % stride)
+    return fail(error, QStringLiteral("地震道长不一致，已拒绝坐标转换"));
+  OGRSpatialReference targetReference;
+  targetReference.SetFromUserInput(target.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get());
+  const bool targetGeographic = targetReference.IsGeographic();
   const QString partial = output + QStringLiteral(".partial");
   QFile::remove(partial);
   if (!QFile::copy(source, partial)) return fail(error, QStringLiteral("无法创建地震坐标转换副本"));
@@ -134,23 +196,28 @@ bool projectSegyFile(const QString &source, const QString &output, const QString
     return fail(error, message);
   };
   if (!copy.open(QIODevice::ReadWrite)) return abortPartial(QStringLiteral("无法写入地震副本"));
-  for (qint64 offset = 3600; offset < copy.size(); offset += stride) {
+  for (qint64 offset = firstTrace; offset < copy.size(); offset += stride) {
     if (!copy.seek(offset)) return abortPartial(QStringLiteral("无法定位地震道头"));
     auto trace = copy.read(240);
-    const int ns = trace.size() == 240 ? qFromBigEndian<quint16>(trace.constData() + 114) : -1;
-    if ((ns && ns != samples) || !transformHeader(trace, ct.get(), sourceReference.IsGeographic()) || !copy.seek(offset) || copy.write(trace) != 240)
+    const int ns = trace.size() == 240 ? rdU16(trace.constData() + 114, le) : -1;
+    if ((ns && ns != samples) || !transformHeader(trace, ct.get(), sourceReference.IsGeographic(), targetGeographic, le) || !copy.seek(offset) || copy.write(trace) != 240)
       return abortPartial(QStringLiteral("地震坐标转换失败；未发布半成品"));
   }
-  for (int line = 0; line < 40; ++line) {
-    if (line != 38 && !header.mid(line * 80, 80).toUpper().contains("EPSG")) continue;
-    const auto text = QStringLiteral("C%1 CRS %2; COORDINATES TRANSFORMED; SAMPLES UNCHANGED")
+  // #856：按卷头原编码（EBCDIC/ASCII）写回；固定改写 C38（C39/C40 是 rev1 版本与
+  // END TEXTUAL HEADER 标识，不动），另把原先声明 EPSG 的行改成新 CRS。
+  const bool ebcdic = segyTextIsEbcdic(header.left(3200));
+  const QString decoded = segyTextHeaderToString(header.left(3200));
+  for (int line = 0; line < 38; ++line) {
+    if (line != 37 && !decoded.mid(line * 80, 80).toUpper().contains(QStringLiteral("EPSG"))) continue;
+    auto text = QStringLiteral("C%1 CRS %2; COORDINATES TRANSFORMED; SAMPLES UNCHANGED")
         .arg(line + 1, 2, 10, QLatin1Char('0')).arg(target).toLatin1().left(80).leftJustified(80, ' ');
+    if (ebcdic) text = encodeEbcdic(text);
     if (!copy.seek(line * 80) || copy.write(text) != 80)
       return abortPartial(QStringLiteral("无法保存地震坐标声明"));
   }
   copy.close();
-  QFile::remove(output);
-  if (!QFile::rename(partial, output)) return abortPartial(QStringLiteral("无法发布地震坐标转换结果"));
+  // #859：替换语义发布（不先删目标）。
+  if (!paleoReplaceFile(partial, output)) return abortPartial(QStringLiteral("无法发布地震坐标转换结果"));
   return true;
 }
 }

@@ -192,7 +192,8 @@ void TestWellSitingPanel::scenarioSaveAndCompareTable()
   emit panel.findChild<QPushButton *>( QStringLiteral( "sitingSaveScenarioButton" ) )->clicked();
   auto *scenarioTable =
       panel.findChild<QTableWidget *>( QStringLiteral( "sitingScenarioTable" ) );
-  QCOMPARE( scenarioTable->rowCount(), 1 );
+  // #820：保存复用异步评估结果（不在 GUI 线程同步重算）——泵事件等落地。
+  QTRY_COMPARE_WITH_TIMEOUT( scenarioTable->rowCount(), 1, 5000 );
   QCOMPARE( scenarioTable->item( 0, 0 )->text(), QStringLiteral( "加密东北" ) );
   QCOMPARE( scenarioTable->item( 0, 1 )->text(), QStringLiteral( "1" ) );
   // 覆盖率列是百分数（方案把东北空洞清零 → 100%）。
@@ -201,7 +202,10 @@ void TestWellSitingPanel::scenarioSaveAndCompareTable()
   // 诊断按钮 → 摘要/口径注记上屏（诚实面）。
   emit panel.findChild<QPushButton *>( QStringLiteral( "sitingRunButton" ) )->clicked();
   auto *summary = panel.findChild<QLabel *>( QStringLiteral( "sitingSummaryLabel" ) );
-  QVERIFY( summary->text().contains( QStringLiteral( "空洞" ) ) );
+  // #820：诊断在工作池执行；忙期按钮禁用，落地后复位。
+  QVERIFY( !panel.findChild<QPushButton *>( QStringLiteral( "sitingRunButton" ) )->isEnabled() );
+  QTRY_VERIFY_WITH_TIMEOUT( summary->text().contains( QStringLiteral( "空洞" ) ), 5000 );
+  QVERIFY( panel.findChild<QPushButton *>( QStringLiteral( "sitingRunButton" ) )->isEnabled() );
   auto *note = panel.findChild<QLabel *>( QStringLiteral( "sitingNoteLabel" ) );
   QVERIFY( note->text().contains( QStringLiteral( "欧氏" ) ) );
 }

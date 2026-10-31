@@ -94,6 +94,7 @@ class TestWellSitingWorkflow : public QObject
     void scenarioPersistenceReopen();
     void scenarioSchemaVersionGate();
     void exports();
+    void asyncComputeMatchesSync(); // #820
     void cleanupTestCase();
 };
 
@@ -550,6 +551,46 @@ void TestWellSitingWorkflow::exports()
   // 无方案时图表如实拒绝。
   WellSitingWorkflow emptyWf( nullptr, nullptr );
   QVERIFY( !emptyWf.exportComparisonChart( chartPath, &error ) );
+}
+
+// #820：诊断/候选异步入口与同步口径一致；保存方案复用匹配的评估。
+void TestWellSitingWorkflow::asyncComputeMatchesSync()
+{
+  SitingStack s;
+  QString error;
+  QVERIFY( s.wf.runDiagnosis( holeParams(), &error ) );
+  const QVariantMap syncSummary = s.wf.lastDiagnosisSummary();
+  QVERIFY( s.wf.generateCandidates( holeParams(), &error ) );
+  const QList<QVariantMap> syncCandidates = s.wf.lastCandidates();
+
+  QSignalSpy diagSpy( &s.wf, &WellSitingWorkflow::diagnosisAsyncDone );
+  s.wf.runDiagnosisAsync( holeParams() );
+  QTRY_COMPARE_WITH_TIMEOUT( diagSpy.size(), 1, 5000 );
+  QVERIFY( diagSpy.first().at( 0 ).toBool() );
+  QCOMPARE( s.wf.lastDiagnosisSummary(), syncSummary );
+
+  QSignalSpy candSpy( &s.wf, &WellSitingWorkflow::candidatesAsyncDone );
+  s.wf.generateCandidatesAsync( holeParams() );
+  QTRY_COMPARE_WITH_TIMEOUT( candSpy.size(), 1, 5000 );
+  QVERIFY( candSpy.first().at( 0 ).toBool() );
+  QCOMPARE( s.wf.lastCandidates(), syncCandidates );
+
+  // 取消：陈旧结果不落地、不发信号。
+  s.wf.runDiagnosisAsync( holeParams() );
+  s.wf.cancelSitingCompute();
+  QTest::qWait( 200 );
+  QCOMPARE( diagSpy.size(), 1 );
+
+  // 评估缓存匹配：同参数同计划井 → 命中；改参数 → 失效。
+  const QString planned = s.wf.addPlannedWell( QStringLiteral( "P" ), 9000, 9000, &error );
+  QVERIFY( !planned.isEmpty() );
+  QVERIFY( !s.wf.hasEvaluationFor( holeParams(), { planned } ) );
+  QVERIFY( !s.wf.evaluateScenario( holeParams(), { planned }, &error ).isEmpty() );
+  QVERIFY( s.wf.hasEvaluationFor( holeParams(), { planned } ) );
+  WellSitingParams other = holeParams();
+  other.controlRadius += 1;
+  QVERIFY( !s.wf.hasEvaluationFor( other, { planned } ) );
+  QVERIFY( !s.wf.hasEvaluationFor( holeParams(), {} ) );
 }
 
 void TestWellSitingWorkflow::cleanupTestCase()

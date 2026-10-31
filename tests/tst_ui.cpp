@@ -178,7 +178,12 @@ class TestUiShell : public QObject
       QCOMPARE(m_win->minimumSize(), QSize(0, 0));
       m_win->show();
       QTest::qWait(10);
-      QCOMPARE(m_win->minimumSize(), QSize(0, 0));
+      // 显示后 QLayout 会把顶层窗口最小值设为布局自然下限（totalMinimumSize），
+      // 这不是显式限制；只断言二者一致，且没有旧的 1100×720 硬下限。
+      qInfo() << "natural min after show" << m_win->minimumSize();
+      QVERIFY(m_win->layout());
+      QCOMPARE(m_win->minimumSize(), m_win->layout()->totalMinimumSize());
+      QVERIFY(m_win->minimumSize() != QSize(1100, 720));
       QCOMPARE(paleo::ui_detail::boundedToAvailable(QSize(1100, 720), QSize(1280, 680)), QSize(1100, 612));
       QCOMPARE(paleo::ui_detail::boundedToAvailable(QSize(1920, 1200), QSize()), QSize(1920, 1200));
     }

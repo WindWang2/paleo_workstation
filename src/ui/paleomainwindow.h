@@ -361,7 +361,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void buildStatusBar();        // 状态栏族（层位/坐标/比例尺/CRS/打开进度）
     void buildCoordinateTools(class QLabel *coordLabel); // QGIS 坐标定位/复制/转换
     void wireErrorHubStatus();    // 状态栏错误胶囊 + ErrorHub 计数同步
-    void registerPageShortcuts(); // Ctrl+1..6 / Ctrl+Tab（方向 63 注册表）
+    void registerPageShortcuts(); // Ctrl+1..5 / Ctrl+Tab（方向 63 注册表）
     void restoreCorrelationDocks();
     bool showMappingReference(const QString &layerId, QString *error);
     void buildRibbonPanels(DataPage *data, PredictPage *predict, ConstraintPage *constraint,

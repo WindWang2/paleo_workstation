@@ -88,7 +88,7 @@ void PaleoMainWindow::buildRibbon()
   bar->setRibbonStyle(SARibbonBar::RibbonStyleCompactThreeRow);
   // R6 #860：字换行让按钮按固定列宽折行（不再被长标签撑宽），组间距收紧；
   // 窄窗下的 Office 式「大→小→仅图标→下拉」逐组折叠见 ribboncollapse.h。
-  bar->setPanelSpacing(4);
+  bar->setPanelSpacing(PaleoTheme::tokens().spacingXs); // R7 #888：token，不写裸 px
   bar->setPanelToolButtonIconSize(QSize(16, 16), QSize(24, 24));
   bar->setEnableWordWrap(true);
   bar->setTabDoubleClickToMinimumMode(true); // 双击页签收起/展开 ribbon（Office 惯例）

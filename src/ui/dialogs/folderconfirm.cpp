@@ -21,6 +21,7 @@
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace PaleoFolderConfirm
 {
@@ -368,7 +369,7 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   state->hooks = hooks;
   dlg->setObjectName(QStringLiteral("folderImportDialog"));
   dlg->setWindowTitle(QObject::tr("导入数据 — %1").arg(dir));
-  dlg->resize(860, 520);
+  paleo::ui::resizeWithinScreen(dlg, 860, 520);
   auto *layout = new QVBoxLayout(dlg);
   state->hint = new QLabel(dlg);
   state->hint->setObjectName(QStringLiteral("folderImportHint"));

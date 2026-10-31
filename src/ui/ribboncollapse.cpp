@@ -2,6 +2,7 @@
 #include "ribboncollapse.h"
 
 #include "paleoribbon.h"
+#include "paleotheme.h"
 
 #include <SARibbon.h>
 
@@ -354,7 +355,10 @@ namespace
         popup->setAutoFillBackground(true);
         popup->setAccessibleName(g.panel->panelName());
         auto *v = new QVBoxLayout(popup);
-        v->setContentsMargins(2, 2, 2, 2);
+        {
+          const int m = PaleoTheme::tokens().spacingXs; // #876: DESIGN token, not raw px
+          v->setContentsMargins(m, m, m, m);
+        }
         // 命令执行完收起弹框（Office 行为）；输入类控件（下拉/数值框）不触发 actionTriggered，可连续操作。
         connect(g.panel, &SARibbonPanel::actionTriggered, popup, &QWidget::hide);
         g.popup = popup;

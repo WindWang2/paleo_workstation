@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 void DataListPanel::editAssociationForSelection() {
   const auto selected = currentAssetSelection();
@@ -127,5 +128,5 @@ void DataListPanel::editAssociationForSelection() {
     target->setCurrentIndex(qMax(0, target->findData(link.entityId)));
     primary->setChecked(link.isPrimary);
   }
-  updateRoles(); update(); dialog->resize(560, 400); dialog->show();
+  updateRoles(); update(); paleo::ui::resizeWithinScreen(dialog, 560, 400); dialog->show();
 }

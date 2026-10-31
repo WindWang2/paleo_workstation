@@ -10,6 +10,7 @@
 #include <QVBoxLayout>
 
 #include "../../workflow/assetops.h" // PendingProposal（数据面；扫描/应用在壳）
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace paleo::dataops
 {
@@ -29,7 +30,7 @@ class PendingLinkDialog : public QDialog
       setObjectName(QStringLiteral("pendingLinkDialog"));
       setWindowTitle(tr("未决链接批量归位"));
       setModal(true);
-      resize(720, 420);
+      paleo::ui::resizeWithinScreen(this, 720, 420);
       auto *lay = new QVBoxLayout(this);
       m_note = new QLabel(this);
       m_note->setObjectName(QStringLiteral("pendingLinkNote"));

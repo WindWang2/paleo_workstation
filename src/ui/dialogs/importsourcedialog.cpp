@@ -17,11 +17,12 @@
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QVBoxLayout>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 ImportSourceDialog::ImportSourceDialog(const QString &kind, QWidget *parent)
   : QDialog(parent), m_kind(kind)
 {
-  setObjectName(QStringLiteral("dataImportSourceDialog")); setProperty("importKind", kind); resize(680, 430);
+  setObjectName(QStringLiteral("dataImportSourceDialog")); setProperty("importKind", kind); paleo::ui::resizeWithinScreen(this, 680, 430);
   const QMap<QString, QString> titles{{"wells", tr("导入井数据")}, {"well_log", tr("导入测井数据")},
       {"seismic", tr("导入地震数据")}, {"boundary", tr("导入边界数据")}, {"files", tr("导入资料文件")},
       {"folder", tr("导入工区文件夹")}, {"paleomap", tr("导入现有古地理图")}, {"paleomap_folder", tr("导入古地理图文件夹")}};

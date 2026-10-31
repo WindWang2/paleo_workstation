@@ -1,6 +1,6 @@
 // 层：视图
 // paleomainwindow_shortcuts — 页快捷键域（方向 63 注册表 / 方向 83 自成 TU）：
-// Ctrl+1..6 直切六工作流页 + Ctrl+Tab / Ctrl+Shift+Tab 循环切页。键序唯一
+// Ctrl+1..N 直切工作流 ribbon 页（N = kRibbonIds.size()，现为 5）+ Ctrl+Tab / Ctrl+Shift+Tab 循环切中央视图页签。键序唯一
 // 真源在 shortcuts/shortcutcatalog（main.page.<页 id> / main.page.next/prev）；
 // buildRibbon 在页签创建后、tab 切换接线前调用（原行序）。
 #include "paleomainwindow.h"
@@ -13,7 +13,7 @@
 
 void PaleoMainWindow::registerPageShortcuts()
 {
-  // W5 键盘可达：Ctrl+1..6 直切六个工作流页（页序 = 工作流链序）。
+  // W5 键盘可达：Ctrl+1..N 直切工作流 ribbon 页（N = kRibbonIds.size()；页序 = 工作流链序）。
   // 方向63：键序登记在 shortcuts/shortcutcatalog（main.page.<页 id>）。
   for (int i = 0; i < paleo::pagesinternal::kRibbonIds.size(); ++i)
   {
@@ -24,8 +24,8 @@ void PaleoMainWindow::registerPageShortcuts()
       ribbonBar()->raiseCategory(categoryForPage(paleo::pagesinternal::kRibbonIds.at(i)));
     });
   }
-  // goal/ui-experience-polish：Ctrl+Tab / Ctrl+Shift+Tab 循环切页（桌面页签
-  // 惯例；与 Ctrl+1..6 互补——手不离开主行也能走完整工作流链）。
+  // goal/ui-experience-polish：Ctrl+Tab / Ctrl+Shift+Tab 循环切中央视图页签
+  // （m_visualizationTabs，桌面页签惯例）；Ctrl+1..N 切的是 ribbon 工作流页，二者不是同一对象。
   {
     const auto cyclePage = [this](int step) {
       if (!m_visualizationTabs || m_visualizationTabs->count() == 0) return;

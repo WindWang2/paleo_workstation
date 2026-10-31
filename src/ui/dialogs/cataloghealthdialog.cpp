@@ -12,6 +12,7 @@
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace
 {
@@ -55,7 +56,7 @@ CatalogHealthDialog::CatalogHealthDialog(QWidget *parent)
   setWindowTitle(tr("工区资产体检"));
   setAccessibleName(windowTitle());
   setModal(true);
-  resize(760, 480);
+  paleo::ui::resizeWithinScreen(this, 760, 480);
 
   auto *lay = new QVBoxLayout(this);
   m_summary = new QLabel(this);

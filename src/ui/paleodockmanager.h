@@ -29,7 +29,7 @@ public:
   void captureDefaultLayout();
   void restoreDefaultLayout();
   void fitLayout();
-  /// 中央区宽度不足窗口一半时执行 fitLayout()（首开/窄屏用，不覆盖正常布局）。
+  /// 中央区宽度不足窗口一半时执行 fitLayout()（首开/窄屏/主窗缩窗时自动调用，不覆盖正常布局）。
   void fitIfCentralCramped();
   QMenu *createMenu(QWidget *parent = nullptr);
 
@@ -63,6 +63,7 @@ private:
   bool m_dragging = false;
   Qt::DockWidgetArea m_target = Qt::NoDockWidgetArea;
   QTimer m_dragTimer;
+  QTimer m_crampTimer; // R7 #886：主窗 resize → fitIfCentralCramped（合并）
   QVector<QLabel *> m_guides;
   QRubberBand *m_preview;
 };

@@ -17,8 +17,9 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 OfflineBasemapDialog::OfflineBasemapDialog(bool registered, QWidget *parent) : QDialog(parent) {
-  setObjectName("offlineBasemapImportDialog"); setWindowTitle(tr("导入工程离线底图")); resize(620, 300);
+  setObjectName("offlineBasemapImportDialog"); setWindowTitle(tr("导入工程离线底图")); paleo::ui::resizeWithinScreen(this, 620, 300);
   auto *layout = new QVBoxLayout(this); const auto &tokens = PaleoTheme::tokens();
   layout->setContentsMargins(tokens.spacingMd, tokens.spacingMd, tokens.spacingMd, tokens.spacingMd); layout->setSpacing(tokens.spacingSm);
   auto *hint = new QLabel(tr("导入已下载的 MBTiles、GeoTIFF、IMG、栅格 GeoPackage 或已配准图片。底图及定位／样式文件会复制进工程，移动整个工程后仍可离线使用。"), this);

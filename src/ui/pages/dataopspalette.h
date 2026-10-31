@@ -19,6 +19,7 @@
 #include "../paleotheme.h"
 #include "dataops/dataopsfuzzy.h"
 #include "../shortcuts/shortcutcatalog.h"
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace paleo::dataops
 {
@@ -47,7 +48,7 @@ public:
     setObjectName(QStringLiteral("dataCommandPalette"));
     setWindowTitle(tr("命令面板"));
     setModal(true);
-    resize(480, 360);
+    paleo::ui::resizeWithinScreen(this, 480, 360);
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
     lay->setSpacing(PaleoTheme::tokens().spacingSm);
@@ -186,7 +187,7 @@ public:
     setObjectName(QStringLiteral("shortcutsDialog"));
     setWindowTitle(tr("快捷键表"));
     setModal(true);
-    resize(520, 420);
+    paleo::ui::resizeWithinScreen(this, 520, 420);
     auto *lay = new QVBoxLayout(this);
     m_table = new QTableWidget(0, 3, this);
     m_table->setObjectName(QStringLiteral("shortcutsTable"));

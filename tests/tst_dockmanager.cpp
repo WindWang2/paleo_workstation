@@ -409,6 +409,60 @@ private slots:
     QVERIFY(dock->isFloating());
     QCOMPARE(dock->frameGeometry().topLeft(), before);
   }
+
+  // R7 #886：自适应布局不再把侧栏钉回 ≤360 px——大窗口上用户拖宽的合理宽度保留。
+  void fitLayoutHasNoArbitraryPixelCap()
+  {
+    QMainWindow window;
+    window.resize(2400, 900);
+    window.setCentralWidget(new QWidget);
+    PaleoDockManager manager(&window, "test/fitcap");
+    auto *dock = new QDockWidget("Wide");
+    dock->setObjectName("wide");
+    dock->setWidget(new QLabel("content"));
+    manager.addDock(Qt::LeftDockWidgetArea, dock);
+    window.show();
+    QTest::qWait(30);
+    window.resizeDocks({dock}, {500}, Qt::Horizontal);
+    QTest::qWait(30);
+    QVERIFY(dock->width() >= 480);
+    manager.fitLayout();
+    QTest::qWait(30);
+    QVERIFY2(dock->width() >= 480, qPrintable(QString::number(dock->width())));
+    // 过宽（> 可用 1/4）才收回；且不低于内容下限。
+    window.resizeDocks({dock}, {1500}, Qt::Horizontal);
+    QTest::qWait(30);
+    manager.fitLayout();
+    QTest::qWait(30);
+    QVERIFY(dock->width() <= window.width() / 4 + 8);
+    QVERIFY(dock->width() >= dock->minimumSizeHint().width());
+  }
+
+  // R7 #886：主窗口缩窗把中央区挤到不足一半时自动让位（原仅布局设计器调用）。
+  void mainWindowShrinkUncrampsCentral()
+  {
+    QMainWindow window;
+    window.resize(1600, 800);
+    auto *center = new QWidget;
+    window.setCentralWidget(center);
+    PaleoDockManager manager(&window, "test/cramp");
+    auto *left = new QDockWidget("L");
+    left->setObjectName("l");
+    left->setWidget(new QLabel("left"));
+    auto *right = new QDockWidget("R");
+    right->setObjectName("r");
+    right->setWidget(new QLabel("right"));
+    manager.addDock(Qt::LeftDockWidgetArea, left);
+    manager.addDock(Qt::RightDockWidgetArea, right);
+    window.show();
+    QTest::qWait(30);
+    window.resizeDocks({left, right}, {350, 350}, Qt::Horizontal);
+    QTest::qWait(30);
+    QVERIFY(center->width() >= window.width() / 2);
+    window.resize(900, 800);
+    QTRY_VERIFY2(center->width() >= window.width() / 2 - 16,
+                 qPrintable(QStringLiteral("center=%1 window=%2").arg(center->width()).arg(window.width())));
+  }
 };
 QTEST_MAIN(TestDockManager)
 #include "tst_dockmanager.moc"

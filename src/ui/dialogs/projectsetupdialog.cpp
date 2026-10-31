@@ -23,11 +23,12 @@
 #include <QTabBar>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 ProjectSetupDialog::ProjectSetupDialog(ProjectSetupWorkflow *workflow, QWidget *parent)
   : QDialog(parent), m_workflow(workflow)
 {
-  setObjectName(QStringLiteral("projectSetupDialog")); setWindowTitle(tr("新建工程")); resize(840, 650);
+  setObjectName(QStringLiteral("projectSetupDialog")); setWindowTitle(tr("新建工程")); paleo::ui::resizeWithinScreen(this, 840, 650);
   auto *layout = new QVBoxLayout(this);
   const auto &tokens = PaleoTheme::tokens();
   layout->setContentsMargins(tokens.spacingMd, tokens.spacingMd, tokens.spacingMd, tokens.spacingMd); layout->setSpacing(tokens.spacingSm);

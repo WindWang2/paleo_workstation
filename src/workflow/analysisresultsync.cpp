@@ -72,8 +72,10 @@ QString syncAnalysisResults(DataCatalog *catalog, const QString &projectDir,
       const auto id = QString::fromStdString(b.id);
       registered.insert(id);
       if (b.status == "stale" || b.status == "legacy_unresolved") invalidated.insert(id);
-      if (!invalidated.contains(id) && id.startsWith("catalog.") && catalog->versionById(id.mid(8)).id.isEmpty())
+      if (!invalidated.contains(id) && id.startsWith("catalog.") && catalog->versionById(id.mid(8)).id.isEmpty()) {
         if (!ds.invalidateSubIntervalResult(b.id, detail)) return QString::fromStdString(detail);
+        invalidated.insert(id); // #890：记账，后续同 id 不再重复 invalidate
+      }
     }
   }
   if (!error.isEmpty()) return error;

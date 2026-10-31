@@ -171,17 +171,16 @@ class TestUiShell : public QObject
       m_win = nullptr;
     }
 
-    // §42.11 a11y floor —— R6 #835：屏幕自适应 min(1024×640, 0.8×可用区)，
-    // 不再硬钉 1280×800（小屏/HiDPI 下窗口可缩小、可并排）。
-    void windowMeetsMinSize()
+    // R6 #835：用户 2026-10-31「不要限制」——主窗口不设显式最小尺寸（取代 PLAN §42.11），
+    // 只剩 Qt 布局自然下限；对话框默认尺寸仍按所在屏收紧。
+    void windowHasNoExplicitMinSize()
     {
-      using paleo::ui_detail::mainWindowMinimumSize;
-      QCOMPARE(m_win->minimumSize(), QSize(1024, 640));
-      QCOMPARE(mainWindowMinimumSize(QSize(1920, 1040)), QSize(1024, 640));
-      QCOMPARE(mainWindowMinimumSize(QSize(1280, 680)), QSize(1024, 544));   // 1080p@150%
-      QCOMPARE(mainWindowMinimumSize(QSize(960, 500)), QSize(768, 400));     // 2560×1440@200% 副屏级
-      QCOMPARE(mainWindowMinimumSize(QSize()), QSize(1024, 640));
+      QCOMPARE(m_win->minimumSize(), QSize(0, 0));
+      m_win->show();
+      QTest::qWait(10);
+      QCOMPARE(m_win->minimumSize(), QSize(0, 0));
       QCOMPARE(paleo::ui_detail::boundedToAvailable(QSize(1100, 720), QSize(1280, 680)), QSize(1100, 612));
+      QCOMPARE(paleo::ui_detail::boundedToAvailable(QSize(1920, 1200), QSize()), QSize(1920, 1200));
     }
 
     // goal/ui-experience-polish：W5 快捷键族——Ctrl+1..6 直切、Ctrl+Tab/

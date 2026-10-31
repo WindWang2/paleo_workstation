@@ -2,8 +2,7 @@
 #pragma once
 
 // R6 #835/#844：窗口/对话框尺寸按「所在屏」约束的单一口径。
-// - 主窗口最小尺寸：min(1024×640, 0.8×可用区)，换屏重算（PLAN §42.11 用户选择 A 的
-//   屏幕自适应改写，待用户确认）。
+// - 主窗口不设最小尺寸（用户 2026-10-31「不要限制」，取代 PLAN §42.11）；首次启动按所在屏 90% 起步。
 // - 对话框默认尺寸：preferred.boundedTo(0.9×可用区)，与 paleostartupscreen 同口径。
 
 #include <QGuiApplication>
@@ -13,21 +12,6 @@
 #include <QWidget>
 
 namespace paleo::ui_detail {
-
-inline constexpr int kMainWindowMinWidth = 1024;
-inline constexpr int kMainWindowMinHeight = 640;
-
-/// 主窗口最小尺寸：不超过 1024×640，也不超过可用区的 80%（小屏/HiDPI 仍可缩小、并排）。
-/// avail 无效（offscreen/无屏）时返回 1024×640。
-inline QSize mainWindowMinimumSize(const QSize &avail)
-{
-    QSize s(kMainWindowMinWidth, kMainWindowMinHeight);
-    if (avail.width() > 0)
-        s.setWidth(qMin(s.width(), qRound(avail.width() * 0.8)));
-    if (avail.height() > 0)
-        s.setHeight(qMin(s.height(), qRound(avail.height() * 0.8)));
-    return s;
-}
 
 /// 期望尺寸按可用区 frac 收紧（avail 无效时原样返回）。
 inline QSize boundedToAvailable(const QSize &preferred, const QSize &avail, double frac = 0.9)

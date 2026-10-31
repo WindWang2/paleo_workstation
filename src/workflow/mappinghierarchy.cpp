@@ -87,28 +87,55 @@ QVariantMap MappingWorkbench::pinnedLevels(const QString &id) const {
 }
 bool MappingWorkbench::setPinnedLevel(const QString &id, const QString &nodeKey,
                                       const QString &mode, QString *error) {
+  // #741：被拒时也发 displayChanged，视图（固定列表组合框）按真实数据回滚，
+  // 不再停留在被拒选项上。
+  const auto refused = [this, &id, error](const QString &message) {
+    reject(error, message);
+    if (m_layers->layer(id))
+      emit displayChanged(id);
+    return false;
+  };
   const bool remove = mode.isEmpty() || mode == "auto";
   if (!remove && !FaciesHierarchy::levels().contains(mode))
-    return reject(error, tr("请选择相、亚相或微相"));
+    return refused(tr("请选择相、亚相或微相"));
   if (!supportsFaciesDisplay(id))
-    return reject(error, tr("请选择相图件"));
+    return refused(tr("请选择相图件"));
   bool known = false;
   for (const auto &node : FaciesHierarchy::pinCandidates(versionForLayer(id).extra.value("facies").toList()))
     known |= node.toMap().value("key").toString() == nodeKey;
   if (!known && !(remove && pinnedLevels(id).contains(nodeKey)))
-    return reject(error, tr("请选择当前图件分类中的相类"));
+    return refused(tr("请选择当前图件分类中的相类"));
   auto *layer = m_layers->instantiate(id, error);
   if (!layer)
-    return reject(error, tr("请选择相图件"));
+    return refused(tr("请选择相图件"));
   auto pins = pinnedLevels(id);
+  if (remove ? !pins.contains(nodeKey) : pins.value(nodeKey).toString() == mode) {
+    emit displayChanged(id); // 无变化：不入撤销栈，视图照常对齐
+    return true;
+  }
   if (remove)
     pins.remove(nodeKey);
   else
     pins.insert(nodeKey, mode);
   const auto encoded = FaciesHierarchy::encodePins(pins);
   // 清空时写入 "{}" 而非删除属性：显式清空不应被版本记录中的固定项重新带回。
-  layer->setCustomProperty("paleo/faciesPinnedLevels",
-                           encoded.isEmpty() ? QStringLiteral("{}") : encoded);
+  const QVariant before = layer->customProperty("paleo/faciesPinnedLevels");
+  const QVariant after = encoded.isEmpty() ? QStringLiteral("{}") : encoded;
+  if (!applyPinnedRaw(id, after))
+    return refused(tr("请选择相图件"));
+  m_propertyEdits.record(remove ? tr("取消相类固定显示层级") : tr("固定相类显示层级"),
+                         [this, id, before] { return applyPinnedRaw(id, before); },
+                         [this, id, after] { return applyPinnedRaw(id, after); });
+  return true;
+}
+bool MappingWorkbench::applyPinnedRaw(const QString &id, const QVariant &raw) {
+  auto *layer = m_layers->instantiate(id, nullptr);
+  if (!layer)
+    return false;
+  if (raw.isValid())
+    layer->setCustomProperty("paleo/faciesPinnedLevels", raw);
+  else
+    layer->removeCustomProperty("paleo/faciesPinnedLevels");
   if (m_project && m_project->project())
     m_project->project()->setDirty(true);
   styleLayer(id);

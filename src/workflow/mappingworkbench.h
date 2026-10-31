@@ -9,6 +9,7 @@
 #include "../qgis/composeattribution.h"
 #include "../qgis/mappingartifactwriter.h"
 #include "../services/evidenceindex.h"
+#include "closureeditstack.h"
 #include "derivedassets.h"
 #include "wellpredictionservice.h" // QPointer<WellPredictionService> 需完整类型
 #include <QObject>
@@ -183,8 +184,13 @@ public:
   // fixed level whatever the layer mode/scale. Per-polygon locks still win.
   QVariantMap pinnedLevels(const QString &id) const;
   // mode "auto" (or empty) removes the pin for that node.
+  // #741：成功的修改记入 propertyEditStack()（可撤销）；被拒时发 displayChanged
+  // 让视图按真实数据回滚控件。
   bool setPinnedLevel(const QString &id, const QString &nodeKey, const QString &mode,
                       QString *error);
+  // #741/#742：工作台图层属性与会话外约束绘制的撤销栈（编辑会话内的要素修改
+  // 仍走图层原生撤销栈）。重开工程（bindCatalog）时清空。
+  paleo::workflow::ClosureEditStack *propertyEditStack() { return &m_propertyEdits; }
   void updateDisplayScale(double scale);
   FaciesHierarchy::ScaleThresholds displayThresholds() const;
   bool setDisplayThresholds(double facies, double micro, QString *error);
@@ -507,6 +513,9 @@ private:
                                     const QVariantList &schema, bool predicted,
                                     const QString &method = {},
                                     const QString &jobId = {}) const;
+  // #741：写入固定层级原始属性串（空 QVariant = 无属性），刷新样式并通知视图。
+  bool applyPinnedRaw(const QString &id, const QVariant &raw);
+  paleo::workflow::ClosureEditStack m_propertyEdits;
   QgisLayerService *m_layers;
   QgisProcessingService *m_processing;
   QgisProjectService *m_project;

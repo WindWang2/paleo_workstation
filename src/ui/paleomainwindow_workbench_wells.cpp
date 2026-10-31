@@ -125,10 +125,11 @@ void attachWellPanelActions(PaleoMainWindow *self, MappingWorkbench *workbench,
 void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
                             QgisCanvasController *canvasCtl,
                             QgisLayerService *layerSvc,
-                            const std::function<bool(const QString &)> &beginEdit) {
+                            const std::function<bool(const QString &)> &beginEdit,
+                            const QPointer<MappingWorkbenchPage> &page) {
   QObject::connect(
       canvasCtl->canvas(), &QgsMapCanvas::contextMenuAboutToShow, self,
-      [self, workbench, canvasCtl, layerSvc, beginEdit](QMenu *menu, QgsMapMouseEvent *event) {
+      [self, workbench, canvasCtl, layerSvc, beginEdit, page](QMenu *menu, QgsMapMouseEvent *event) {
         auto *v = qobject_cast<QgsVectorLayer *>(
             canvasCtl->canvas()->currentLayer());
         if (!v || v->fields().indexOf("facies_code") < 0)
@@ -145,11 +146,18 @@ void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
         if (hits.isEmpty())
           return;
         const auto original = hits.first().mFeature;
-        // 相类固定显示层级：图层属性，非要素编辑，直接走后端 setPinnedLevel。
+        // 相类固定显示层级：#741 与固定列表同走 runWorkbenchCommand("pinFaciesLevel")
+        //（撤销栈、ErrorHub 失败回报口径一致）；图层 id 显式取右键图层。
         FaciesPinMenu::add(menu, schema, original.attribute("facies_code"),
                            workbench->pinnedLevels(id),
-                           [self, workbench, id](const QString &key, const QString &mode) {
-                             QString error;
+                           [self, workbench, id, page](const QString &key, const QString &mode) {
+                             if (page) {
+                               emit page->commandRequested(
+                                   QStringLiteral("pinFaciesLevel"),
+                                   {{"layer", id}, {"pin_key", key}, {"display_mode", mode}});
+                               return;
+                             }
+                             QString error; // 无工作台页（测试壳）：后端直调兜底
                              const bool ok = workbench->setPinnedLevel(id, key, mode, &error);
                              self->statusBar()->showMessage(
                                  ok ? PaleoMainWindow::tr("相图显示层级、标注与图例已更新。") : error, 10000);
@@ -364,6 +372,6 @@ PaleoMainWindow::WorkbenchWells PaleoMainWindow::attachWorkbenchWells(
             });
   }
   attachCanvasFaciesMenu(this, workbench, m_canvasCtl, m_layerSvc,
-                         beginEdit);
+                         beginEdit, QPointer<MappingWorkbenchPage>(pages.value(0)));
   return {wellPanel, wellDock, openWells, beginEdit};
 }

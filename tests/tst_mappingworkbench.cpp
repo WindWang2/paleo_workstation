@@ -1711,6 +1711,22 @@ private slots:
     // Changing an existing pin's level, invalid requests, and removal.
     QVERIFY(f.work.setPinnedLevel(draft, river, "facies", &error));
     QCOMPARE(keyOf(byCode[2]), expected(2, "facies"));
+    {
+      // #741：固定层级进工作台撤销栈；undo/redo 还原属性并刷新显示。
+      auto *undo = f.work.propertyEditStack();
+      QVERIFY(undo->canUndo());
+      QVERIFY(undo->undo());
+      QCOMPARE(f.work.pinnedLevels(draft).value(river).toString(), QString("micro_facies"));
+      QCOMPARE(keyOf(byCode[2]), expected(2, "micro_facies"));
+      QVERIFY(undo->redo());
+      QCOMPARE(f.work.pinnedLevels(draft).value(river).toString(), QString("facies"));
+      // 被拒时发 displayChanged（视图按真实数据回滚组合框），且不入栈。
+      const int depth = undo->count();
+      QSignalSpy refreshed(&f.work, &MappingWorkbench::displayChanged);
+      QVERIFY(!f.work.setPinnedLevel(draft, river, "invalid", &error));
+      QCOMPARE(refreshed.count(), 1);
+      QCOMPARE(undo->count(), depth);
+    }
     QVERIFY(!f.work.setPinnedLevel(draft, river, "invalid", &error));
     QVERIFY(!f.work.setPinnedLevel(draft, "[\"不存在\"]", "facies", &error));
     QVERIFY(!f.work.setPinnedLevel(draft, "garbage", "facies", &error));

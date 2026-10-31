@@ -205,6 +205,7 @@ MappingWorkbench::~MappingWorkbench() {
     m_prepareCancelled->store(true);
 }
 void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
+  m_propertyEdits.clear(); // #741：旧工程的属性撤销历史随工程切换作废
   cancelPrediction();
   if (m_composeRunner)
     m_composeRunner->requestCancel();

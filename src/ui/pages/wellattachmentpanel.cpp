@@ -1,5 +1,6 @@
 // 层：视图
 #include "wellattachmentpanel.h"
+#include "../windowsizing_internal.h"
 
 #include "../../catalog/datacatalog.h"
 #include "../../services/futuretask.h"
@@ -77,7 +78,7 @@ WellAttachmentPanel::WellAttachmentPanel(
   setObjectName(QStringLiteral("wellAttachmentPanel"));
   setModal(false);
   setWindowTitle(tr("井附件管理"));
-  setMinimumSize(QSize(720, 420));
+  setMinimumSize(paleo::ui_detail::boundedToAvailable(QSize(720, 420), paleo::ui_detail::availableSizeFor(this))); // R6 #844
   buildUi();
   // 锚深编辑走 catalog mutator（changed() 触发 refresh）；软删不落
   // catalog（sidecar），由属主在命令完成后显式调 refresh()。

@@ -1,5 +1,6 @@
 // 层：视图
 #include "stratigraphypage.h"
+#include "../windowsizing_internal.h"
 #include "../../workflow/stratigraphyworkflow.h"
 #include <paleo_data/interpretation.h>
 #include <QDialog>
@@ -25,7 +26,7 @@ void buttons(QDialog& d,QVBoxLayout* l) {
 }
 void StratigraphyPage::showGeometry() {
  if(!m_workflow->canEdit())return;auto settings=m_workflow->geometrySettings();
- QDialog dialog(this);dialog.setWindowTitle(tr("确认坐标与时深约定"));dialog.resize(700,700);auto* layout=new QVBoxLayout(&dialog);
+ QDialog dialog(this);dialog.setWindowTitle(tr("确认坐标与时深约定"));paleo::ui_detail::resizeWithinScreen(&dialog,QSize(700,700));auto* layout=new QVBoxLayout(&dialog);
  auto* note=new QLabel(tr("仅按资料来源填写。未知项留空会阻止相关自动转换；已声明冲突不会被覆盖。外推只使用时深端部趋势，原始 GR 与时深采样保持不变。"),&dialog);note->setWordWrap(true);layout->addWidget(note);
  auto* scroll=new QScrollArea(&dialog);scroll->setWidgetResizable(true);auto* content=new QWidget(scroll);auto* form=new QFormLayout(content);scroll->setWidget(content);layout->addWidget(scroll);
  QList<QPair<QString,QLineEdit*>> strings;QList<QPair<QString,QDoubleSpinBox*>> numbers;QList<QPair<QString,QCheckBox*>> flags;
@@ -52,7 +53,7 @@ void StratigraphyPage::showClustering() {
 void StratigraphyPage::startHorizons() {
  const auto ids=selectedWells();if(!m_workflow->selectionMatches(ids)&&!confirmReplace())return;
  const auto issues=m_workflow->inputIssues(ids);if(issues.isEmpty()){m_workflow->calculate(ids,false);return;}
- QDialog dialog(this);dialog.setWindowTitle(tr("仅处理未能自动匹配的资料"));dialog.resize(850,420);auto* layout=new QVBoxLayout(&dialog);
+ QDialog dialog(this);dialog.setWindowTitle(tr("仅处理未能自动匹配的资料"));paleo::ui_detail::resizeWithinScreen(&dialog,QSize(850,420));auto* layout=new QVBoxLayout(&dialog);
  auto* note=new QLabel(tr("唯一来源已自动选择。缺失资料请先在数据管理中补齐；多个候选仅需明确选择一个来源。"),&dialog);note->setWordWrap(true);layout->addWidget(note);
  auto* table=new QTableWidget(issues.size(),3,&dialog);table->setHorizontalHeaderLabels({tr("井／界面"),tr("待确认来源"),tr("说明")});table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);layout->addWidget(table);
  for(int i=0;i<issues.size();++i){const auto& issue=issues[i];QString name;for(const auto& w:m_workflow->wells())if(w.id==issue.well)name=w.name;table->setItem(i,0,new QTableWidgetItem(name+" · "+issue.field));table->setItem(i,2,new QTableWidgetItem(issue.message));auto* combo=new QComboBox(table);combo->addItem(tr("请选择一个来源"),0);

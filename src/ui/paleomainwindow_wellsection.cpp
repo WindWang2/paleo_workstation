@@ -3,6 +3,7 @@
 // 取数（连井剖面）+ SeismicTaskService 井间缝 + catalog 变更去抖刷新 +
 // 逐工区井集持久化。
 #include "paleomainwindow.h"
+#include "windowsizing_internal.h"
 
 #include "catalog/datacatalog.h"
 #include "dialogs/depthanchordialog.h"
@@ -510,7 +511,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             auto *fence = new WellSectionFenceWidget(fp, this);
             fence->setAttribute(Qt::WA_DeleteOnClose);
             fence->setWindowFlags(Qt::Window);
-            fence->resize(1100, 700);
+            paleo::ui_detail::resizeWithinScreen(fence, QSize(1100, 700)); // R6 #844
             m_wellSectionFence = fence;
             // 反向一致性：fence 内用户域/井距动作 → 主面板（程序化 setter
             // 不发信号，与正向接线无环路）。域动作同属用户驱动 → 一并落库

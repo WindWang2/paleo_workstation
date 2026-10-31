@@ -19,6 +19,7 @@
 #include <QTemporaryDir>
 #include <QToolButton>
 
+#include "../src/ui/ribboncollapse.h"
 #include "../src/app/appcontext.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/qgis/qgiscanvascontroller.h"
@@ -83,6 +84,8 @@ private slots:
     for (const auto *name : {"ribbonPanel.constraint.input", "ribbonPanel.constraint.constraints",
                              "ribbonPanel.constraint.idw", "ribbonPanel.constraint.result"}) {
       auto *panel = category->findChild<SARibbonPanel *>(QString::fromLatin1(name)); QVERIFY(panel);
+      // #860：窄时整组收成下拉，序位看占位 stub。
+      if (auto *stub = PaleoRibbon::collapsedStub(panel)) panel = stub;
       const int index = category->panelIndex(panel); QVERIFY(index > previous); previous = index;
     }
     for (const auto *name : {"ribbonExtractWellFactors", "ribbonDrawBreakLine", "ribbonDrawDirection",
@@ -644,7 +647,11 @@ private slots:
         QCOMPARE(editing->actionSelect()->isEnabled(), hasTarget);
         bool hasCommand = false;
         for (auto *b : cat->findChildren<QToolButton *>()) {
-          if (!b->inherits("SARibbonToolButton") || !b->isVisibleTo(cat))
+          // #860：收成下拉的组，其按钮在弹框里（弹框是 cat 的子窗口），同样算可见命令。
+          QWidget *popup = b->window();
+          const bool inCollapsedPopup =
+              popup->objectName() == QLatin1String("ribbonCollapsePopup") && b->isVisibleTo(popup);
+          if (!b->inherits("SARibbonToolButton") || !(b->isVisibleTo(cat) || inCollapsedPopup))
             continue;
           hasCommand = true;
           if (auto *action = b->defaultAction()) coveredActions.insert(action);

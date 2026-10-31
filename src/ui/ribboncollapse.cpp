@@ -151,8 +151,11 @@ namespace
 
         for (size_t i = 0; i < m_groups.size(); ++i)
           setLevel(m_groups[i], level[i]);
-        m_applying = false;
         lay->invalidate();
+        // 同步落几何：stub 刚插入时停在 x=0，等下一轮事件才排开会短暂叠放。
+        if (m_cat->isVisible())
+          lay->setGeometry(m_cat->contentsRect());
+        m_applying = false;
         PaleoRibbon::makeKeyboardReachable(m_cat);
       }
 
@@ -284,6 +287,7 @@ namespace
         act->setObjectName(g.panel->objectName() + QStringLiteral(".collapsedButton"));
         const QString tip = QCoreApplication::translate("PaleoRibbon", "展开「%1」组的全部命令").arg(title);
         act->setToolTip(tip);
+        act->setWhatsThis(tip);
         act->setWhatsThis(tip);
         stub->addLargeAction(act);
         if (auto *b = stub->actionToRibbonToolButton(act))

@@ -90,6 +90,35 @@ QList<ShortcutEntry> mapEditUndoEntries()
   return out;
 }
 
+// #869：面板内撤销/重做（焦点在面板内时生效；与 map/data 作用域互为兄弟，
+// 不冲突）。独立成段以守 catalogEntries 函数预算。
+QList<ShortcutEntry> panelUndoEntries()
+{
+  const char *pick = QT_TRANSLATE_NOOP("PaleoShortcuts", "地震拾取面板（焦点内）");
+  const char *fault = QT_TRANSLATE_NOOP("PaleoShortcuts", "断层管理面板（焦点内）");
+  const char *strat = QT_TRANSLATE_NOOP("PaleoShortcuts", "地层解释页（焦点内）");
+  const char *pickSrc = "src/ui/seismicsection/seismicpickpanel.cpp";
+  const char *faultSrc = "src/ui/faults/faultmanagerpanel.cpp";
+  const char *stratSrc = "src/ui/pages/stratigraphypage_controls.cpp";
+  const auto undo = QKeySequence(QKeySequence::StandardKey::Undo);
+  const auto redo = QKeySequence(QKeySequence::StandardKey::Redo);
+  constexpr auto W = Qt::WidgetWithChildrenShortcut;
+  QList<ShortcutEntry> out;
+  out << make("section.pick.undo", undo, "main/seismic-section/pick-panel", S, "sections",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销上一次地震拾取变更"), pick, pickSrc, W)
+      << make("section.pick.redo", redo, "main/seismic-section/pick-panel", S, "sections",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做地震拾取变更"), pick, pickSrc, W)
+      << make("fault.edit.undo", undo, "main/faults", S, "map",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销最近一次断层编辑"), fault, faultSrc, W)
+      << make("fault.edit.redo", redo, "main/faults", S, "map",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做被撤销的断层编辑"), fault, faultSrc, W)
+      << make("stratigraphy.undo", undo, "main/correlation", S, "data",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销上次地层人工编辑"), strat, stratSrc, W)
+      << make("stratigraphy.redo", redo, "main/correlation", S, "data",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做地层人工编辑"), strat, stratSrc, W);
+  return out;
+}
+
 struct BuiltRegistry
 {
   ShortcutRegistry registry;
@@ -274,6 +303,7 @@ QList<ShortcutEntry> catalogEntries()
               QT_TRANSLATE_NOOP("PaleoShortcuts", "取消当前要素编辑并退出工具（移动工具先撤回拖动预览）"),
               editTool, "src/ui/edittools/editingtools.cpp")
       << mapEditUndoEntries() // PW-118
+      << panelUndoEntries()   // #869
       << make("map.vertex.delete", QKeySequence(Qt::Key_Delete), "main/map/vertex-tool", K, "map",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "删除光标处（按吸附结果）的节点"), vertexTool, "src/ui/edittools/vertexeditortools.cpp")
       << make("map.vertex.deleteBackspace", QKeySequence(Qt::Key_Backspace), "main/map/vertex-tool", K,
@@ -425,6 +455,9 @@ QString contextForWidget(const QWidget *widget)
       {"DerivationGraph", "main/data/derivation-graph"},
       {"DataListPanel", "main/data"},
       {"DataPage", "main/data"},
+      {"seismic::SeismicPickPanel", "main/seismic-section/pick-panel"},
+      {"paleo::fault::FaultManagerPanel", "main/faults"},
+      {"StratigraphyPage", "main/correlation"},
       {"seismic::SeismicSectionCanvas", "main/seismic-section/canvas"},
       {"seismic::SeismicSectionDockWidget", "main/seismic-section"},
       {"seismic::Seismic3DViewportWidget", "main/seismic3d/viewport"},

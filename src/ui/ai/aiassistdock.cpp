@@ -1,5 +1,7 @@
 // 层：视图
 #include "aiassistdock.h"
+#include "../paleoemptystate.h"
+#include <QTextDocument>
 #include "../notifications/paleonotify.h"
 
 #include "aitoolresultview.h"
@@ -97,6 +99,11 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
   m_transcript->setOpenExternalLinks(false);
   m_transcript->setFont(PaleoTheme::bodyFont());
   layout->addWidget(m_transcript, 1);
+  // #870：对话区无内容时居中给下一步指引（未配置 → 去「配置…」；已就绪 → 在下方输入）。
+  m_emptyState = new PaleoEmptyStateLabel(QString(), m_transcript->viewport());
+  m_emptyState->setObjectName(QStringLiteral("aiAssistantEmptyState"));
+  connect(m_transcript->document(), &QTextDocument::contentsChanged, this,
+          &AiAssistDock::updateEmptyState);
 
   // 工具调用占位卡片区（本方向只展示「模型想调什么 + 分发结论」）。
   m_cards = new QWidget(this);
@@ -271,7 +278,22 @@ void AiAssistDock::refresh() {
   updateActionStates();
 }
 
+void AiAssistDock::updateEmptyState() {
+  if (!m_emptyState)
+    return;
+  const bool empty = m_transcript->document()->isEmpty();
+  m_emptyState->setVisible(empty);
+  if (!empty)
+    return;
+  const bool ready = m_controller && m_controller->enabled();
+  m_emptyState->setDetailText(
+      !m_controller ? tr("助手尚未接入 — 打开工程后再使用 AI 助手")
+      : ready       ? tr("还没有对话 — 在下方输入问题并按「发送」，或点「新会话」开始新的话题")
+                    : tr("助手尚未配置 — 点上方「配置…」设置大模型服务后即可提问"));
+}
+
 void AiAssistDock::updateActionStates() {
+  updateEmptyState();
   const bool hasController = m_controller != nullptr;
   const bool streaming = hasController && m_controller->streaming();
   const bool ready = hasController && m_controller->enabled();

@@ -62,8 +62,7 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
       , m_host( host )
     {
       setObjectName( QStringLiteral( "previewOverviewMap" ) );
-      // #848：尺寸随主画布缩放（≈22% 宽，4:3，96x72..200x150），
-      // 小画布上不再固定 200x150 盖住大半主图。
+      // #848：尺寸随主画布缩放（≈22% 宽，4:3，96x72..200x150），不再固定盖住小画布。
       resize( 200, 150 );
       setAttribute( Qt::WA_TransparentForMouseEvents, false );
 
@@ -103,10 +102,7 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
       int h = w * 3 / 4;
       const int maxH = qMax( 72, canvas.height() * 30 / 100 );
       if ( h > maxH )
-      {
-        h = maxH;
-        w = h * 4 / 3;
-      }
+        return { maxH * 4 / 3, maxH };
       return { w, h };
     }
 

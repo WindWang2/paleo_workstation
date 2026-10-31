@@ -120,7 +120,6 @@ void SeismicSectionDockWidget::setupUi() {
     auto *mainLay = new QVBoxLayout(container);
     mainLay->setContentsMargins(0, 0, 0, 0);
     mainLay->setSpacing(0);
-
     // ==========================================
     // 1. Top Toolbar（chrome 全 token，活体注册随主题切换重算）
     // ==========================================
@@ -133,7 +132,6 @@ void SeismicSectionDockWidget::setupUi() {
     auto *toolLay = new QHBoxLayout(toolbar);
     toolLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
     toolLay->setSpacing(PaleoTheme::tokens().spacingSm);
-
     auto applyBtnStyle = [](QToolButton *btn) {
         PaleoTheme::applyThemedStyleSheet(btn, [] { return PaleoTheme::toolButtonStyleSheet(); });
     };
@@ -399,10 +397,8 @@ void SeismicSectionDockWidget::setupUi() {
             .arg(PaleoTheme::tokens().text.name().toUpper());
     });
     m_lblCoordinates->setText(tr("道: -- | 距离: -- | TWT: -- ms | 深度: -- m | 振幅: -- | (X: --, Y: --)"));
-    // #846：坐标文本随鼠标变长（313→592px），不得推大 dock 最小宽：
-    // 水平 Ignored + 最小宽 0，超长时右侧裁切。
+    // #846：坐标文本随鼠标变长（313→592px）不得推大 dock 最小宽——水平 Ignored，超长右侧裁切。
     m_lblCoordinates->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_lblCoordinates->setMinimumWidth(0);
     statusLay->addWidget(m_lblCoordinates, 1);
 
     m_progressBar = new QProgressBar(statusBar);

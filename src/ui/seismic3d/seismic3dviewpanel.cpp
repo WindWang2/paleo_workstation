@@ -1071,7 +1071,6 @@ void Seismic3DViewPanel::buildViewControls(QHBoxLayout *lay, QWidget *bar) {
 }
 
 
-
 // ---- D3.5/D3.3：重着色 + 值域裁剪（alpha 带外置 0）+ 上传 ----
 void Seismic3DViewPanel::recolorizeSlice(SeismicSliceSlot slot) {
     const std::size_t si = static_cast<std::size_t>(slot) % 3;

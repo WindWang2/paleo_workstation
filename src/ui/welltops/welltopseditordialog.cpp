@@ -485,7 +485,6 @@ void WellTopsEditorDialog::onWellChanged()
                                                QString::number(m_table->rowCount())));
 }
 
-
 void WellTopsEditorDialog::onInsertRow()
 {
   if (m_wellCombo->count() == 0)

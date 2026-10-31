@@ -89,7 +89,9 @@ public:
   int viewWidth(MappingReferencePanel *view) const;
   int visibleViewCount() const; // 当前视口内（至少部分）可见的视图数
   static constexpr int kDefaultViewCount = 4;
-  static constexpr int kMinViewWidth = 260;
+  // #875：视图最窄/最矮按字体推导（随 DPI/字号缩放），不再是硬 260/200 像素。
+  int minViewWidth() const;
+  int minViewHeight() const;
   static constexpr int kMaxViewWidth = 4000;
   QSize sizeHint() const override { return {640, 340}; }
 

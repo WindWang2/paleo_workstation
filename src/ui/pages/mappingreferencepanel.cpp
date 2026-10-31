@@ -82,7 +82,8 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   });
   connect(m_linked, &QToolButton::toggled, this, &MappingReferencePanel::updateLink);
   connect(m_remove, &QToolButton::clicked, this, &MappingReferencePanel::removeViewRequested);
-  setMinimumSize(260, 260);
+  // #875：最小尺寸按字体推导（约 16 字宽 × 8 行），窄/矮停靠可继续收缩。
+  setMinimumSize(fontMetrics().averageCharWidth() * 16, fontMetrics().lineSpacing() * 8);
   refreshSources();
 }
 
@@ -90,7 +91,7 @@ void MappingReferencePanel::ensureView()
 {
   if (m_view) return;
   m_view = createReferenceView(m_mainCanvas, m_project, m_viewHost);
-  m_view->widget()->setMinimumSize(240, 160);
+  m_view->widget()->setMinimumSize(fontMetrics().averageCharWidth() * 12, fontMetrics().lineSpacing() * 5);
   m_viewHost->layout()->addWidget(m_view->widget());
   m_view->widget()->hide();
   m_decor = new PaleoDecorationManager(canvas());
@@ -338,7 +339,8 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   m_scroll->setFrameShape(QFrame::NoFrame);
   m_scroll->setWidgetResizable(true);
   m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  // #875：矮停靠下视图不可裁掉——按需出现竖滚，保证底部控件可达。
+  m_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   auto *body = new QWidget(m_scroll);
   body->setObjectName(QStringLiteral("referenceViewsRow"));
   body->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Expanding);
@@ -375,7 +377,7 @@ MappingReferencePanel *MappingEvidencePanel::addView()
   const int index = int(m_views.size());
   m_views << view;
   if (index < m_savedWidths.size() && m_savedWidths[index] > 0)
-    m_widths.insert(view, qBound(kMinViewWidth, m_savedWidths[index], kMaxViewWidth));
+    m_widths.insert(view, qBound(minViewWidth(), m_savedWidths[index], kMaxViewWidth));
   auto startWidth = std::make_shared<int>(0);
   auto *handle = new EvidenceResizeHandle(qMax(6, PaleoTheme::tokens().spacingSm),
       [this, view, startWidth](int dx, bool finished) {
@@ -431,7 +433,7 @@ void MappingEvidencePanel::layoutViews()
   // All evidence views remain in one horizontal strip, including narrow docks.
   for (qsizetype i = 0; i < m_views.size(); ++i) {
     auto *view = m_views[i];
-    view->setMinimumHeight(200);
+    view->setMinimumHeight(minViewHeight());
     view->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     view->setRemoveHint(m_views.size() == 1);
     view->setAccessibleName(tr("证据视图 %1").arg(i + 1));
@@ -447,12 +449,22 @@ void MappingEvidencePanel::layoutViews()
   m_emptyHint->setVisible(m_views.isEmpty());
 }
 
+int MappingEvidencePanel::minViewWidth() const
+{
+  return fontMetrics().averageCharWidth() * 16;
+}
+
+int MappingEvidencePanel::minViewHeight() const
+{
+  return fontMetrics().lineSpacing() * 8;
+}
+
 int MappingEvidencePanel::defaultViewWidth() const
 {
-  // 未调整过的视图一屏约放四个；不足四个时均分，最窄 kMinViewWidth。
+  // 未调整过的视图一屏约放四个；不足四个时均分，最窄 minViewWidth()（字体推导，#875）。
   const int per = qBound(1, int(m_views.size()), kDefaultViewCount);
   const int gap = m_handles.isEmpty() ? 0 : m_handles.first()->width();
-  return qMax(kMinViewWidth, (m_scroll->viewport()->width() - per * gap) / per);
+  return qMax(minViewWidth(), (m_scroll->viewport()->width() - per * gap) / per);
 }
 
 void MappingEvidencePanel::updateViewSizes()
@@ -466,17 +478,16 @@ void MappingEvidencePanel::updateViewSizes()
   }
   // 总宽超过视口时出现水平滚动条（ScrollBarAsNeeded）。
   m_scroll->widget()->setMinimumWidth(total);
-  // issue-812：矮停靠栏视口高低于视图最小高(200，见 layoutViews)时，行高按 200
-  // 兜底——否则视图被压到最小高以下、canvas 内容被裁。视口更矮时底部超出视口
-  // （竖滚恒关，测试口径如此），至少保证视图按最小高完整渲染而非压扁。
-  m_scroll->widget()->setFixedHeight(qMax(m_scroll->viewport()->height(), 200));
+  // #875（取代 issue-812 的硬 200 兜底）：行高 = max(视口高, 视图最小高)；视口更矮时
+  // 竖滚按需出现，视图下半（图层/底部控件）可滚到，不再被裁或压扁。
+  m_scroll->widget()->setFixedHeight(qMax(m_scroll->viewport()->height(), minViewHeight()));
 }
 
 void MappingEvidencePanel::setViewWidth(MappingReferencePanel *view, int width, bool persist)
 {
   if (!m_views.contains(view)) return;
   if (width <= 0) m_widths.remove(view);
-  else m_widths.insert(view, qBound(kMinViewWidth, width, kMaxViewWidth));
+  else m_widths.insert(view, qBound(minViewWidth(), width, kMaxViewWidth));
   updateViewSizes();
   m_row->activate();
   if (persist) saveWidths();

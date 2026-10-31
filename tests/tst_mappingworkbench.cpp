@@ -2273,6 +2273,10 @@ private slots:
     auto *toggle = page.findChild<QToolButton *>("mappingComposeToggle"); QVERIFY(toggle);
     QVERIFY(!toggle->isChecked());
     auto *text = page.findChild<QPlainTextEdit *>("editBasisText"); QVERIFY(text);
+    // #878：来源列表/说明框不得钉死最大高，随面板增高。
+    QCOMPARE(text->maximumHeight(), QWIDGETSIZE_MAX);
+    auto *basisSources = page.findChild<QListWidget *>("editBasisSources"); QVERIFY(basisSources);
+    QCOMPARE(basisSources->maximumHeight(), QWIDGETSIZE_MAX);
     auto *reason = page.findChild<QLineEdit *>("editBasisReason"); QVERIFY(reason);
     text->setPlainText(QStringLiteral("砂厚高值区与井相支持河道展布"));
     reason->setText(QStringLiteral("调整河道边界"));
@@ -3132,7 +3136,7 @@ private slots:
     QCOMPARE(panel.views().size(), 5);
     auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
     auto *add = panel.findChild<QPushButton *>("referenceAddView"); QVERIFY(add);
-    QCOMPARE(scroll->verticalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
+    QCOMPARE(scroll->verticalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
     QTRY_VERIFY(scroll->horizontalScrollBar()->maximum() > 0);
     QVERIFY(add->mapTo(&panel, QPoint()).y() + add->height() <= scroll->mapTo(&panel, QPoint()).y());
     auto *first = panel.views().first();
@@ -3168,6 +3172,29 @@ private slots:
     panel.views()[2]->findChild<QToolButton *>("referenceRemoveView")->click();
     QCOMPARE(panel.views().size(), 4); QCoreApplication::processEvents();
     for (auto *view : panel.views()) QCOMPARE(view->y(), first->y());
+    main.stopRendering();
+  }
+
+  // #875：矮/窄停靠——视图不得被竖向裁掉（竖滚可达底部），中等宽度默认四视图不横滚。
+  void evidenceViewsReachableInShortNarrowDock() {
+    QSettings("paleo", "paleo").remove(evidenceWidthsKey());
+    QgsMapCanvas main;
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    MappingEvidencePanel panel(&main, nullptr);
+    panel.show();
+    auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
+    for (const QSize size : {QSize(400, 120), QSize(280, 110)}) {
+      panel.resize(size); QCoreApplication::processEvents();
+      auto *body = scroll->widget();
+      const bool fits = body->height() <= scroll->viewport()->height();
+      QVERIFY2(fits || scroll->verticalScrollBar()->maximum() >= body->height() - scroll->viewport()->height(),
+               qPrintable(QString("clipped at %1x%2").arg(size.width()).arg(size.height())));
+      for (auto *view : panel.views()) QVERIFY(view->height() >= view->minimumHeight());
+    }
+    panel.resize(900, 400); QCoreApplication::processEvents();
+    QTRY_VERIFY(scroll->horizontalScrollBar()->maximum() == 0);
+    QCOMPARE(panel.visibleViewCount(), 4);
     main.stopRendering();
   }
 
@@ -3264,14 +3291,14 @@ private slots:
     for (auto *view : panel.views())
       QVERIFY(scroll->viewport()->rect().contains(QRect(view->mapTo(scroll->viewport(), QPoint()), view->size())));
     // 全部调窄后仍可放下四个。
-    for (auto *view : panel.views()) panel.setViewWidth(view, MappingEvidencePanel::kMinViewWidth);
+    for (auto *view : panel.views()) panel.setViewWidth(view, panel.minViewWidth());
     QCoreApplication::processEvents();
     QTRY_VERIFY(!scroll->horizontalScrollBar()->isVisible());
     QCOMPARE(panel.visibleViewCount(), 4);
-    for (auto *view : panel.views()) QCOMPARE(view->width(), MappingEvidencePanel::kMinViewWidth);
+    for (auto *view : panel.views()) QCOMPARE(view->width(), panel.minViewWidth());
     // 宽度下限保护。
     panel.setViewWidth(panel.views().first(), 10);
-    QCOMPARE(panel.viewWidth(panel.views().first()), MappingEvidencePanel::kMinViewWidth);
+    QCOMPARE(panel.viewWidth(panel.views().first()), panel.minViewWidth());
     // 拖动第一个视图的右缘手柄加宽 → 溢出，滚动条出现，且宽度写入 QSettings。
     auto *first = panel.views().first();
     auto *handle = handles.first();
@@ -3287,19 +3314,19 @@ private slots:
     sendMouse(QEvent::MouseMove, 300, Qt::LeftButton);
     sendMouse(QEvent::MouseButtonRelease, 600, Qt::NoButton);
     QCoreApplication::processEvents();
-    QCOMPARE(first->width(), MappingEvidencePanel::kMinViewWidth + 600);
+    QCOMPARE(first->width(), panel.minViewWidth() + 600);
     QTRY_VERIFY(scroll->horizontalScrollBar()->isVisible());
     QVERIFY(panel.visibleViewCount() < 4);
     const auto saved = QSettings("paleo", "paleo").value(evidenceWidthsKey()).toList();
     QCOMPARE(saved.size(), 4);
-    QCOMPARE(saved.first().toInt(), MappingEvidencePanel::kMinViewWidth + 600);
+    QCOMPARE(saved.first().toInt(), panel.minViewWidth() + 600);
     if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty()) {
       QDir().mkpath(qa); QVERIFY(panel.grab().save(qa + QString("/evidence-resizable.png")));
     }
     // 新面板沿用保存的宽度。
     {
       MappingEvidencePanel again(&main, nullptr);
-      QCOMPARE(again.viewWidth(again.views().first()), MappingEvidencePanel::kMinViewWidth + 600);
+      QCOMPARE(again.viewWidth(again.views().first()), again.minViewWidth() + 600);
     }
     main.stopRendering();
   }

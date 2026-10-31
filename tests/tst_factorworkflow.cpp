@@ -35,6 +35,7 @@
 #include <ogr_srs_api.h>
 
 #include <QJsonArray>
+#include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
@@ -376,6 +377,7 @@ class TestFactorWorkflow : public QObject
       file.write("synthetic"); file.close();
       paleo::data::ParsedFile parsed; parsed.path=raw.toStdString(); parsed.kind="test"; parsed.status="parsed";
       paleo::data::WellDataset source; source.wellInfo.wellName="SYNTH-1";
+      source.wellInfo.wellheadX=1.;source.wellInfo.wellheadY=2.;
       source.defaultDepthInfo.depthType="MD"; source.defaultDepthInfo.depthUnit="m";
       paleo::data::IntervalTrack track; track.trackName="岩性"; track.trackType="岩性";
       for (const auto &v : {std::tuple{100.,125.,"砂岩"},std::tuple{125.,200.,"泥岩"}}) {
@@ -383,7 +385,8 @@ class TestFactorWorkflow : public QObject
         track.intervals.push_back(row);
       }
       source.wellbore.intervalTracks.push_back(track); parsed.wells.push_back(source); long long sourceId=0;
-      QVERIFY2(ds.importPreparedFile(raw.toStdString(),raw.toStdString(),raw.toStdString(),"synthetic",parsed,sourceId,detail),detail.c_str());
+      const auto sha=QCryptographicHash::hash("synthetic",QCryptographicHash::Sha256).toHex().toStdString();
+      QVERIFY2(ds.importPreparedFile(raw.toStdString(),raw.toStdString(),raw.toStdString(),sha,parsed,sourceId,detail),detail.c_str());
       std::vector<paleo::data::WellSummary> wells; QVERIFY(ds.listWells(wells,detail)); QCOMPARE(wells.size(),size_t(1));
       CatalogEntity well; well.id="well-model";well.name="SYNTH-1";well.entityType="well";
       well.hasSurface=true;well.surfaceX=1;well.surfaceY=2;well.coordinateStatus="untransformed";

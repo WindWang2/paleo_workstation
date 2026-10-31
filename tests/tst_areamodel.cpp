@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QCryptographicHash>
 #include <paleo_data/service.h>
 #include "io/areamodel.h"
 #include "io/welllogread.h"
@@ -9,6 +10,10 @@
 #include "catalog/areasourceprojection.h"
 #include "catalog/externalsourceverification.h"
 #include "services/cataloghealth.h"
+#include "catalog/wellavailability.h"
+#include "workflow/wellsectionworkflow.h"
+#include "workflow/stratigraphyworkflow.h"
+#include "workflow/sectionworkbench.h"
 #include <QtEndian>
 #include "services/projectdata.h"
 #include "workflow/xmlpreviewsession.h"
@@ -19,6 +24,52 @@
 class TestAreaModel : public QObject {
   Q_OBJECT
 private slots:
+  void timeDepthOnlyWellsStayVisibleButDoNotEnterAnalysisChoices() {
+    QTemporaryDir temp; const auto project=temp.filePath("project");
+    paleo::data::DataService ds;std::string error;
+    QVERIFY2(ds.createProject(paleo::area_model::directory(project).toStdString(),"synthetic",error),error.c_str());
+    const auto path=temp.filePath("source.txt");QFile file(path);QVERIFY(file.open(QIODevice::WriteOnly));file.write("fixture");file.close();
+    paleo::data::ParsedFile parsed;parsed.path=path.toStdString();parsed.kind="test";parsed.status="parsed";
+    for(int n=0;n<3;++n) {
+      paleo::data::WellDataset w;w.wellInfo.wellName=std::string("SYNTH-")+std::to_string(n);
+      w.wellInfo.wellheadX=100.*n;w.wellInfo.wellheadY=200.;
+      w.defaultDepthInfo.depthType="MD";w.defaultDepthInfo.depthUnit="m";
+      if(n==0) {paleo::data::TimeDepthTable td;td.relationName="checkshot";td.depthTimePairs={{100,200},{200,300}};w.timeDepthRelations.push_back(td);}
+      if(n==1) {paleo::data::LogSet logs;logs.logSetName="logs";logs.depthInfo=w.defaultDepthInfo;logs.samplingAxis.depthValues={100,101};
+        paleo::data::LogCurve curve;curve.curveName="GR";curve.curveUnit="API";curve.sampleValues={10,20};logs.logCurves.push_back(curve);w.wellbore.logSets.push_back(logs);
+        paleo::data::IntervalTrack track;track.trackName="组";track.trackType="地层";
+        paleo::data::GeologicalInterval interval;interval.intervalName="F1";interval.topDepth=100;interval.bottomDepth=200;track.intervals.push_back(interval);w.wellbore.intervalTracks.push_back(track);}
+      if(n==2) {paleo::data::IntervalTrack track;track.trackName="岩性";track.trackType="岩性";track.depthInfo=w.defaultDepthInfo;
+        paleo::data::GeologicalInterval row;row.intervalName="砂岩";row.topDepth=100;row.bottomDepth=120;track.intervals.push_back(row);w.wellbore.intervalTracks.push_back(track);}
+      parsed.wells.push_back(w);
+    }
+    const auto sha=QCryptographicHash::hash("fixture",QCryptographicHash::Sha256).toHex().toStdString();
+    long long source=0;QVERIFY2(ds.importPreparedFile(path.toStdString(),path.toStdString(),path.toStdString(),sha,parsed,source,error),error.c_str());
+    QHash<qlonglong,WellDataAvailability> support;QString detail;QVERIFY(readWellDataAvailability(ds,support,&detail));
+    ds.closeProject();QVERIFY(QFile::remove(path));
+    DataCatalog catalog;QVERIFY(catalog.open(project,&detail));QVERIFY(registerAreaWells(catalog,&detail));
+    QCOMPARE(catalog.entities("well").size(),3);
+    const auto td=catalog.entityById(catalog.wellsMatchingName("SYNTH-0").front());
+    QVERIFY(!wellSupportsAnalysis(&catalog,td));QVERIFY(td.extra.value("wellDataSummary").toString().contains(QStringLiteral("时深")));
+    WellSectionWorkflow sections(&catalog);QCOMPARE(sections.wellChoices().size(),2);
+    SectionWorkbench seismic(&catalog);QCOMPARE(seismic.wells().size(),2);
+    QCOMPARE(seismic.wellSnapWells(true).size(),2);QCOMPARE(seismic.wellSnapWells().size(),3);
+    bool ready=false;SectionWorkbench::PreviewData preview;
+    seismic.requestPreviewData([&](const auto &value){preview=value;ready=true;},false);
+    QTRY_VERIFY(ready);QCOMPARE(preview.wells.size(),2);QVERIFY(preview.sectionWells.empty());
+    ProjectDataFacade facade;facade.setCatalog(&catalog,project);
+    const auto tops=facade.topsFor(catalog.wellsMatchingName("SYNTH-1").front());
+    QVERIFY(std::any_of(tops.begin(),tops.end(),[](const auto &t){return t.horizon=="F1"&&t.md==100.;}));
+    QVERIFY(std::any_of(tops.begin(),tops.end(),[](const auto &t){return t.horizon==QStringLiteral("F1底")&&t.md==200.;}));
+    QSignalSpy sectionReady(&sections,&WellSectionWorkflow::sectionReady);
+    sections.request({catalog.wellsMatchingName("SYNTH-1").front()},{});
+    QCOMPARE(sectionReady.size(),1);
+    const auto restored=qvariant_cast<QVector<wellsection::Well>>(sectionReady.front().at(1));
+    QCOMPARE(restored.size(),1);
+    QVERIFY(std::any_of(restored.front().tops.begin(),restored.front().tops.end(),[](const auto &t){return t.name=="F1"&&t.md==100.;}));
+    StratigraphyWorkflow stratigraphy(nullptr);stratigraphy.setProject(project,true);
+    QCOMPARE(stratigraphy.wells().size(),1);QCOMPARE(stratigraphy.wells().front().name,QString("SYNTH-1"));
+  }
   void reimportedSourcesDoNotRestoreInactiveBatchIdentity() {
     QTemporaryDir temp; const auto input=temp.filePath("input"); QVERIFY(QDir().mkpath(input));
     const auto path=input+"/one.las"; QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));

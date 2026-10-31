@@ -105,6 +105,15 @@ private slots:
     for (const auto &binding : results)
       if (binding.kind == "map") mapStale = binding.status == "stale";
     QVERIFY(mapStale);
+    CatalogAsset contour;contour.id="contour";contour.type="contour_lines";QVERIFY(catalog.addAsset(contour,&detail));
+    CatalogVersion line;line.id="contour-v1";line.assetId=contour.id;line.stage="DERIVED";
+    line.path="contour.gpkg";line.parentVersionIds={version.id};QVERIFY(catalog.addVersion(line,&detail));
+    QCOMPARE(analysisResultUnitSelection(&catalog,line),unit);
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    QVERIFY(ds.listSubIntervalResults(head.id,{},results,error));QCOMPARE(results.size(),size_t(3));
+    bool contourStale=false;
+    for(const auto &binding:results)if(binding.assetRef=="contour-v1")contourStale=binding.kind=="single_factor"&&binding.status=="stale";
+    QVERIFY(contourStale);
     paleo::data::DataService reader;
     QVERIFY(reader.openProjectReadOnly((dir.path()+"/artifacts/metadata/area-model").toStdString(), error));
     QVERIFY(!reader.invalidateSubIntervalResult("catalog.prediction-v1", error));

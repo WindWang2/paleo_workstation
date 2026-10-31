@@ -164,7 +164,7 @@ class ConstraintPage : public QWidget
     // updateEngineRows 析出的两个下拉重建段（file_budget 防增长闸）。
     void rebuildCovariateCombo();
     void rebuildBoundaryCombo( QComboBox *boundaryCombo );
-    void invalidateWellFactors();
+    void invalidateWellFactors(bool markStale = true);
     void updateWellFactorActionState();
     void refreshWellFactorGeoHint();
     void markInputsStale();

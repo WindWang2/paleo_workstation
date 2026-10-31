@@ -67,6 +67,7 @@ struct AreaPlanarRange
 {
     bool valid = false;
     double minX = 0, minY = 0, maxX = 0, maxY = 0;
+    QString coordinateSystem, coordinateUnit;
 };
 struct AreaPlanarRanges
 {

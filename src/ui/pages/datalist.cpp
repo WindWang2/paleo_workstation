@@ -383,13 +383,7 @@ DataListPanel::DataListPanel(QWidget *parent)
     }
     if (nodeType == QLatin1String("well"))
     {
-      const qlonglong modelWell = item->data(0, Qt::UserRole + 4).toLongLong();
-      if (modelWell > 0)
-      {
-        item->setExpanded(true);
-        emit modelWellChartRequested(modelWell, item->text(0));
-        return;
-      }
+      if (activateModelWell(item)) return;
       item->setExpanded(!item->isExpanded());
       // 双击或Enter激活井节点：打开第一条关联资产（如 A1.Las 测井曲线或井位）
       for (int i = 0; i < item->childCount(); ++i)
@@ -933,6 +927,14 @@ void DataListPanel::buildDataOpsUi()
 #if __has_include("moc_dataopsviews.cpp")
 #include "moc_dataopsviews.cpp"
 #endif
+bool DataListPanel::activateModelWell(QTreeWidgetItem *item) {
+  const qlonglong id=item->data(0,Qt::UserRole+4).toLongLong();
+  if(id<=0)return false;
+  item->setExpanded(true);
+  if(item->data(0,Qt::UserRole+3).toString()!=QLatin1String("well_auxiliary"))
+    emit modelWellChartRequested(id,item->text(0));
+  return true;
+}
 #if __has_include("moc_dataopswidgets.cpp")
 #include "moc_dataopswidgets.cpp"
 #endif

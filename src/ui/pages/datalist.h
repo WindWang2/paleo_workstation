@@ -228,6 +228,7 @@ class DataListPanel : public QWidget
     bool eventFilter(QObject *watched, QEvent *event) override;
 
   private:
+    bool activateModelWell(QTreeWidgetItem *item);
     // 方向34：计划井可见性过滤器（setPlannedVisibilityFilter 注入，可空）。
     std::function<bool(const QString &id)> m_plannedVisible;
     void buildImportButtons(QVBoxLayout *importLay, QWidget *importSection);

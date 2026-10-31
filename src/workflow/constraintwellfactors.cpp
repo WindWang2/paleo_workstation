@@ -3,6 +3,7 @@
 #include "constraintfactorjobs_internal.h"
 #include "workflows_internal.h"
 #include "wellsectionworkflow.h"
+#include "analysisresultsync.h"
 #include "algorithms/singlefactor/wellacquisition.h"
 #include "domain/litholexicon.h"
 #include "domain/mappinghorizons.h"
@@ -677,7 +678,7 @@ bool savedFactorInputsCurrent(const DataCatalog *catalog, QgisLayerService *laye
     const auto row=value.toMap(); const auto sourceId=row.value("source_layer_id").toString();
     if (sourceId.isEmpty()) continue;
     const auto found=std::find_if(declarations.cbegin(),declarations.cend(),[&](const auto &d){return d.layerId==sourceId;});
-    if (found==declarations.cend() || found->source!=row.value("source_uri").toString()) return false;
+    if (found!=declarations.cend() && found->source!=row.value("source_uri").toString()) return false;
   }
   return true;
 }
@@ -1264,18 +1265,23 @@ QVariantMap ConstraintWorkflow::factorResultLineage(const QVariantMap &extra) {
 }
 
 QVariantList ConstraintWorkflow::savedFactorResults(const QString &horizon,
-                                                    const QString &factorId) const {
+                                                    const QString &factorId,
+                                                    const QVariantMap &unitSelection) const {
   QVariantList rows;
+  const auto unit=paleo::strat::fromMap(unitSelection);
+  const auto resultKey=unit.isValid()?paleo::strat::analysisLayerKey(unit):horizon;
   if (!catalog() || horizon.isEmpty() || factorId.isEmpty())
     return rows;
   for (const auto &v : catalog()->versions()) {
     const auto extra = v.extra;
     const auto kind = extra.value("kind").toString();
     const auto factorLayer = extra.value("factor_layer_id").toString();
-    if (extra.value("horizon") != horizon ||
+    const bool points=kind==QLatin1String("well_factor_points");
+    if (extra.value("horizon") != (points?horizon:resultKey) ||
         (extra.value("factor_id") != factorId &&
-         factorLayer != QStringLiteral("factor.%1.%2").arg(horizon, factorId)))
+         factorLayer != QStringLiteral("factor.%1.%2").arg(resultKey, factorId)))
       continue;
+    if (unit.isValid() && analysisResultUnitSelection(catalog(),v)!=unit)continue;
     QString type;
     if (kind == QLatin1String("well_factor_points"))
       type = tr("井点数据");

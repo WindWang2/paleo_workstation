@@ -3,6 +3,7 @@
 #include "../qgis/wellattributestore.h"
 #include "algorithms/faultsurface/faultsurface.h"
 #include "catalog/datacatalog.h"
+#include "catalog/wellavailability.h"
 #include "domain/faultset.h"
 #include "domain/wellnumeric.h"
 #include "io/cuttingsdoc.h"
@@ -177,7 +178,7 @@ WellSectionWorkflow::wellChoices() const {
   QVector<WellChoice> out;
   syncData();
   for (const ProjectWell &w : m_data.wells())
-    out.push_back({w.id, w.name, usableCoords(w),
+    if(wellSupportsAnalysis(m_catalog,m_catalog->entityById(w.id))) out.push_back({w.id, w.name, usableCoords(w),
                    usableCoords(w) ? w.surfaceX : qQNaN(),
                    usableCoords(w) ? w.surfaceY : qQNaN()});
   return out;
@@ -257,7 +258,8 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
         shared->warnings << tr("井 %1 未挂接所选分层来源，分层留空")
                                 .arg(pw->name);
     }
-    const auto tops = m_data.topsForAsset(pw->id, m_topsSource, &topsReport);
+    const auto tops = m_topsSource.isEmpty() ? m_data.topsFor(pw->id, &topsReport)
+                                           : m_data.topsForAsset(pw->id, m_topsSource, &topsReport);
     if (!topsReport.issues.isEmpty())
       shared->warnings << tr("井 %1 的分层文件读面：%2")
                               .arg(pw->name, wellParseSummary(topsReport));

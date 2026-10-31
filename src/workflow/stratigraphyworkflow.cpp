@@ -2,6 +2,7 @@
 #include "stratigraphyworkflow_state.h"
 #include "stratigraphygeometry.h"
 #include "../io/areamodel.h"
+#include "catalog/wellavailability.h"
 #include "../services/paleotaskservice.h"
 #include <paleo_stratigraphy/quick_workflow.h>
 #include <paleo_stratigraphy/time_depth_selection.h>
@@ -41,7 +42,10 @@ void StratigraphyWorkflow::setProject(const QString &project,bool readOnly) {
   DataService service;std::string error;std::vector<WellSummary> wells;
   const bool opened=readOnly?service.openProjectReadOnly(d->path.toStdString(),error):service.openProject(d->path.toStdString(),error);
   if(opened&&service.listWells(wells,error)) {
-   for(const auto &w:wells)d->wells.append({w.id,text(w.name)});
+   QHash<qlonglong,WellDataAvailability> support;QString supportError;
+   if(readWellDataAvailability(service,support,&supportError)) {
+    for(const auto &w:wells)if(support.value(w.id).curves)d->wells.append({w.id,text(w.name)});
+   } else emit statusChanged(supportError);
    std::vector<InterpretationSummary> versions;
    if(!service.listInterpretations(versions,error)) {
     d->documentError=tr("解释方案列表读取失败：%1").arg(text(error));emit statusChanged(d->documentError);
@@ -68,7 +72,9 @@ void StratigraphyWorkflow::refreshWells() {
  if(d->task||d->path.isEmpty())return;
  DataService service;std::string error;std::vector<WellSummary> wells;
  if(!service.openProjectReadOnly(d->path.toStdString(),error)||!service.listWells(wells,error)){emit statusChanged(text(error));return;}
- d->wells.clear();for(const auto &well:wells)d->wells.append({well.id,text(well.name)});emit changed();
+ QHash<qlonglong,WellDataAvailability> support;QString supportError;
+ if(!readWellDataAvailability(service,support,&supportError)){emit statusChanged(supportError);return;}
+ d->wells.clear();for(const auto &well:wells)if(support.value(well.id).curves)d->wells.append({well.id,text(well.name)});emit changed();
 }
 QList<StratigraphyTrack> StratigraphyWorkflow::tracks() const {
  QList<StratigraphyTrack> result;const auto policy=conventions();

@@ -527,7 +527,9 @@ void ConstraintPage::updateOperationGuidance()
   const auto def = factorDefinition(factorId);
   const QString analysisKey = pageAnalysisKey(this, horizon);
   const QString editH = pageEditHorizon(this, horizon);
-  const QString labelH = !analysisKey.isEmpty() ? analysisKey : editH;
+  QString labelH = !analysisKey.isEmpty() ? analysisKey : editH;
+  if(auto *selection=qobject_cast<SelectionContext *>(property("paleo.selection").value<QObject *>());
+      selection && !selection->activeUnit().displayName.isEmpty()) labelH=selection->activeUnit().displayName;
   child<QLabel>(this, "factorRequestSummary")->setText(
       row < 0 ? tr("当前图件：尚未选择因素") : tr("当前图件：%1 · %2").arg(labelH.isEmpty() ? tr("未选层位") : labelH, def.title));
   QString inputNote;
@@ -758,7 +760,8 @@ void ConstraintPage::refreshFactorResults() {
     return;
   const QString editH = pageEditHorizon(this, h);
   for (const auto &entry :
-       wf->savedFactorResults(editH, factorIdOfRow(factors, checkedRow(factors)))) {
+       wf->savedFactorResults(editH, factorIdOfRow(factors, checkedRow(factors)),
+                              wellFactorParams().value("unitSelection").toMap())) {
     auto row = entry.toMap();
     const bool available = QFileInfo::exists(row.value("path").toString());
     row.insert("available", available);

@@ -9,6 +9,7 @@
 #include "catalog/datacatalog.h"
 #include "catalog/areawellprojection.h"
 #include "catalog/areasourceprojection.h"
+#include "catalog/wellavailability.h"
 #include "metadata/projectlock.h"
 #include "domain/welllogfacies.h"
 #include "domain/wellsection.h"
@@ -66,6 +67,11 @@ private slots:
       counts[kind] = QJsonObject{{"objects", int(entries.size())}, {"rows", double(rows)}};
     }
     report["counts"] = counts; report["sourceCount"] = int(sources.size()); report["sourceFailures"] = failures;
+    QHash<qlonglong,WellDataAvailability> availability;QString availabilityError;
+    QVERIFY2(readWellDataAvailability(ds,availability,&availabilityError),qPrintable(availabilityError));
+    int withTracks=0,withCurves=0,timeDepthOnly=0;
+    for(const auto &value:availability){withTracks+=value.tracks;withCurves+=value.curves;timeDepthOnly+=!value.tracks&&value.timeDepth;}
+    report["wellAvailability"]=QJsonObject{{"withTrackData",withTracks},{"withCurves",withCurves},{"timeDepthWithoutTracks",timeDepthOnly}};
     qInfo().noquote() << QJsonDocument(counts).toJson(QJsonDocument::Compact);
     QVERIFY(counts["curves"].toObject()["objects"].toInt() > 0);
     QVERIFY(counts["horizons"].toObject()["objects"].toInt() > 0);

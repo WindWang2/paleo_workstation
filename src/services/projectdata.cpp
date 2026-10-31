@@ -7,6 +7,8 @@
 #include "../io/wellcompositexml.h"
 #include "../io/wellfileparsers.h"
 #include "../io/nativemodel.h"
+#include "../io/areamodel.h"
+#include <paleo_data/service.h>
 #include "../metadata/layermanifest.h"
 
 #include <QDir>
@@ -139,6 +141,48 @@ QString ProjectDataFacade::assetFilePathFor(const QString &wellId, const QString
   return DataCatalog::resolvedVersionPath(projectDir(), v);
 }
 
+namespace {
+QVector<WellTop> storedWellTops(const QString &project,qlonglong well,QString *error) {
+  if(error)error->clear(); QVector<WellTop> result;QHash<QString,double> seen;
+  paleo::data::DataService ds;std::string detail;
+  const auto fail=[&]{if(error)*error=QString::fromUtf8(detail);return QVector<WellTop>{};};
+  if(!ds.openProjectReadOnly(paleo::area_model::directory(project).toUtf8().toStdString(),detail))return fail();
+  paleo::data::WellPlotOptions options;options.includeLogs=false;options.includePhotos=false;
+  paleo::data::WellPlotData data;if(!ds.readWellPlotData(well,options,data,detail))return fail();
+  const auto scale=[&](paleo::data::DepthInfo info) {
+    if(info.depthType.empty()&&info.depthUnit.empty())info=data.defaultDepthInfo;
+    if(info.depthType!="MD")return qQNaN();
+    const auto unit=QString::fromUtf8(info.depthUnit).trimmed().toLower();
+    return unit=="m"||unit=="metre"||unit=="meter"?1.:unit=="ft"||unit=="feet"?.3048:qQNaN();
+  };
+  const auto append=[&](const QString &name,double depth) {
+    if(name.isEmpty()||!std::isfinite(depth))return true;
+    if(seen.contains(name)) {
+      if(std::abs(seen.value(name)-depth)>1e-6){detail="Conflicting stored well boundary depths";return false;}
+      return true;
+    }
+    WellTop top;top.horizon=name;top.md=depth;result.append(top);seen.insert(name,depth);return true;
+  };
+  for(const auto &group:data.markers) {
+    const double factor=scale(group.value.depthInfo);
+    if(!std::isfinite(factor)){detail="Well marker depth convention is not confirmed as MD";return fail();}
+    for(const auto &v:group.value.markers)if(!append(QString::fromUtf8(v.markerName),v.depthValue*factor))return fail();
+  }
+  for(const auto &group:data.intervals) {
+    const auto &track=group.value;
+    if(!QString::fromUtf8(track.trackType).contains(QStringLiteral("地层")))continue;
+    const double factor=scale(track.depthInfo);
+    if(!std::isfinite(factor)){detail="Formation depth convention is not confirmed as MD";return fail();}
+    for(const auto &v:track.intervals) {
+      const auto name=QString::fromUtf8(v.intervalName);
+      if(name.isEmpty())continue;
+      if(!append(name,v.topDepth*factor)||!append(name+QStringLiteral("顶"),v.topDepth*factor))return fail();
+      if(v.bottomNotPenetrated!=1&&!append(name+QStringLiteral("底"),v.bottomDepth*factor))return fail();
+    }
+  }
+  return result;
+}
+}
 QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId) const
 {
   return topsFor(wellId, nullptr);
@@ -148,8 +192,14 @@ QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId, WellParseRepo
 {
   if (m_catalog) {
     const auto entity = m_catalog->entityById(wellId);
-    const auto tops = stratigraphyModelTops(projectDir(), entity.extra.value("areaModelWellId").toLongLong());
-    if (!tops.isEmpty()) { if (report) *report = {}; return tops; }
+    const auto modelWell=entity.extra.value("areaModelWellId").toLongLong();
+    const auto model = readStratigraphyModelTops(projectDir(),modelWell);
+    if(model.status==ModelTopsStatus::Ready){if(report)*report={};return model.tops;}
+    if(model.status==ModelTopsStatus::Failed){m_lastError=model.error;if(report)report->issues.append(model.error);return {};}
+    if(modelWell>0) {
+      const auto tops=storedWellTops(projectDir(),modelWell,&m_lastError);
+      if(report){*report={};if(!m_lastError.isEmpty())report->issues.append(m_lastError);}return tops;
+    }
   }
   return topsForAsset(wellId, QString(), report);
 }
@@ -213,8 +263,9 @@ QVector<WellTop> ProjectDataFacade::topsForMapping(const QString &wellId, QStrin
         *error = model.error;
       return {};
     }
-    if (!model.tops.isEmpty())
-      return model.tops;
+    if (model.status==ModelTopsStatus::Ready)return model.tops;
+    const auto modelWell=m_catalog->entityById(wellId).extra.value("areaModelWellId").toLongLong();
+    if(modelWell>0)return storedWellTops(projectDir(),modelWell,error);
   }
   const MappingTopsPick pick = pickMappingTops(this, m_catalog, wellId);
   if (pick.score > 0)

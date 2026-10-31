@@ -3085,7 +3085,8 @@ private slots:
       QVERIFY2(x > previousX, qPrintable(placed));
       previousX = x;
     }
-    QVERIFY(scroll->widget()->minimumWidth() > scroll->viewport()->width());
+    // #875：最小宽按字体推导后，三视图（≤默认四个）在 800 宽内放得下，不必横滚。
+    QVERIFY(scroll->widget()->minimumWidth() <= scroll->viewport()->width());
     QCOMPARE(first->sourceId(), QString("wells"));
     QCOMPARE(second->sourceId(), QString("seismic"));
     QCOMPARE(first->canvas()->layers().first(), firstLayer.data());

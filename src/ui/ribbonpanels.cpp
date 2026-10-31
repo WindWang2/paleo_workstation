@@ -64,6 +64,8 @@ void relayoutRibbonCategories(SARibbonBar *bar) {
       lay->doLayout();
     return true;
   });
+  // #860：组全部就位后接管自适应折叠（大→小→仅图标→下拉，滚动箭头兜底）。
+  PaleoRibbon::enableAdaptiveCollapse(bar);
 }
 } // namespace
 
@@ -427,8 +429,6 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
 
   bar->endUpdate();
   relayoutRibbonCategories(bar);
-  // #860：组全部就位后接管自适应折叠（大→小→仅图标→下拉，滚动箭头兜底）。
-  PaleoRibbon::enableAdaptiveCollapse(bar);
 }
 
 namespace {

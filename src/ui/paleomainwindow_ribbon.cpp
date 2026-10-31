@@ -226,6 +226,19 @@ void PaleoMainWindow::buildRibbon()
     appBtn->setPopupMode(QToolButton::InstantPopup);
   }
 
+  buildRibbonRightGroup(bar);
+
+
+  // vendor SARibbon 把命令钮设成 NoFocus：补 TabFocus + 聚焦滚入；滚动按钮
+  // 是匿名图标件，命名一轮。两处都是幂等，attachWorkflows 后再补一轮。
+  PaleoRibbon::makeKeyboardReachable(this);
+  PaleoRibbon::nameScrollButtons(this);
+  PaleoRibbon::enableAdaptiveCollapse(bar);
+}
+
+// 右侧全局按钮组（从 buildRibbon 拆出，守 file_budget 单函数 ≤200 行）。
+void PaleoMainWindow::buildRibbonRightGroup(SARibbonBar *bar)
+{
   // ---- 右侧全局按钮组：[搜索][处理算法][面板][Web 服务] ----
   // 搜索（QGIS locator 控件）与处理算法依赖服务，attachWorkflows 里补进来。
   SARibbonButtonGroupWidget *right = bar->rightButtonGroup();
@@ -277,12 +290,6 @@ void PaleoMainWindow::buildRibbon()
       webToggle->setAccessibleName(tr("Web 服务面板"));
     }
   }
-
-  // vendor SARibbon 把命令钮设成 NoFocus：补 TabFocus + 聚焦滚入；滚动按钮
-  // 是匿名图标件，命名一轮。两处都是幂等，attachWorkflows 后再补一轮。
-  PaleoRibbon::makeKeyboardReachable(this);
-  PaleoRibbon::nameScrollButtons(this);
-  PaleoRibbon::enableAdaptiveCollapse(bar);
 }
 
 SARibbonCategory *PaleoMainWindow::categoryForPage(const QString &pageId) const

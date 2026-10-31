@@ -1,5 +1,5 @@
 // 层：数据
-#include "io/shaequals.h"
+#include "domain/shaequals.h"
 #include "mapversionstore.h"
 #include "mapsnapshot.h"
 #include "storeerrors_internal.h"
@@ -478,7 +478,7 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
           return {};
         }
         // Historical integrations used short test hashes; enforce full scientific fingerprints.
-        if (pdfSha256.size() == 64 && !paleo::io::shaEquals(savedPdf.value("sha256").toString(), pdfSha256)) {
+        if (pdfSha256.size() == 64 && !paleo::domain::shaEquals(savedPdf.value("sha256").toString(), pdfSha256)) {
           setError(error, QStringLiteral("PDF 内容与已登记指纹不一致，请重新导出后保存"));
           QDir(freezeDir).removeRecursively();
           return {};
@@ -804,7 +804,7 @@ void MapVersionStore::recoverInterruptedPublications() {
     }
     const QString actualSha = paleo::managedpath::sha256FileHex(
         QDir(finalDirectory).filePath(QStringLiteral("evidence-snapshot.json")));
-    if (expectedSha.size() != 64 || !paleo::io::shaEquals(actualSha, expectedSha)) {
+    if (expectedSha.size() != 64 || !paleo::domain::shaEquals(actualSha, expectedSha)) {
       qWarning() << "MapVersionStore: publication manifest does not match the journal; left untouched" << opId;
       continue;
     }
@@ -967,13 +967,13 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
     const QString relative = record.value("path").toString();
     const QString source = paleo::managedpath::resolveManagedPath(projectDir, relative);
     if (source.isEmpty() || record.value("sha256").toString().size() != 64 ||
-        !paleo::io::shaEquals(paleo::managedpath::sha256FileHex(source, error), record.value("sha256").toString())) {
+        !paleo::domain::shaEquals(paleo::managedpath::sha256FileHex(source, error), record.value("sha256").toString())) {
       setError(error, QStringLiteral("保存版本的成果快照缺失或指纹不一致：%1").arg(relative));
       return false;
     }
     const QString destination = QDir(snapDir).filePath(name);
     if (!copyReadOnly(source, destination, error)) return false;
-    if (!paleo::io::shaEquals(paleo::managedpath::sha256FileHex(destination, error), record.value("sha256").toString())) {
+    if (!paleo::domain::shaEquals(paleo::managedpath::sha256FileHex(destination, error), record.value("sha256").toString())) {
       setError(error, QStringLiteral("发布复制期间快照内容发生变化：%1").arg(relative)); return false;
     }
     return true;

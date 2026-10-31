@@ -3,7 +3,7 @@
 #include "../domain/faciescatalog.h"
 #include "../qgis/paleomapsource.h"
 #include "../io/paleomapfiles.h"
-#include "../io/shaequals.h"
+#include "../domain/shaequals.h"
 #include "paleomapimport_internal.h"
 #include "../metadata/paleoprojectfile.h"
 #include <QCryptographicHash>
@@ -31,7 +31,7 @@ bool intact(const QString &project, const CatalogVersion &raw, const std::functi
     const auto row = entry.toMap();
     const auto name = row.value("file").toString();
     if (!DataCatalog::isSafePathSegment(name) ||
-        !paleo::io::shaEquals(DataCatalog::sha256FileHex(directory.filePath(name), nullptr, cancelled),
+        !paleo::domain::shaEquals(DataCatalog::sha256FileHex(directory.filePath(name), nullptr, cancelled),
                                row.value("sha256").toString()))
       return false;
   }
@@ -115,7 +115,7 @@ bool prepare(DataCatalog *catalog, const QString &projectDir, const QString &sta
                      intact(projectDir, oldRaw, cancelled);
   if (reuse && current.extra.value("normalization_policy") == policy &&
       (existingAsset.isEmpty() || current.extra.value("mapping_product").toBool()) &&
-      paleo::io::shaEquals(
+      paleo::domain::shaEquals(
           DataCatalog::sha256FileHex(DataCatalog::resolvedVersionPath(projectDir, current), nullptr, cancelled),
           current.sha256))
   {

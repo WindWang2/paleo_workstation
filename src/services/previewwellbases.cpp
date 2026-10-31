@@ -3,7 +3,7 @@
 #include "projectdata.h"
 #include "../catalog/datacatalog.h"
 #include "../io/welltable.h"
-#include "../io/shaequals.h"
+#include "../domain/shaequals.h"
 #include <QFileInfo>
 #include <QSet>
 #include <algorithm>
@@ -46,13 +46,13 @@ QVector<WellTopRecord> previewWellBases(DataCatalog *catalog, const QString &wel
   // getter 才 stat），后取值的 preInfo 会与 postInfo 同刻采样、比较恒等。
   const qint64 preSize = QFileInfo(path).size();
   const QDateTime preMtime = QFileInfo(path).lastModified();
-  if (version.sha256.isEmpty() || !paleo::io::shaEquals(DataCatalog::sha256FileHex(path), version.sha256))
+  if (version.sha256.isEmpty() || !paleo::domain::shaEquals(DataCatalog::sha256FileHex(path), version.sha256))
     return unavailable();
   const auto originals = paleo::io::readWellTable(path).tops;
   const auto bases = paleo::io::readWellTableBases(path);
   const QFileInfo postInfo(path);
   if (postInfo.size() != preSize || postInfo.lastModified() != preMtime)
-    if (!paleo::io::shaEquals(DataCatalog::sha256FileHex(path), version.sha256))
+    if (!paleo::domain::shaEquals(DataCatalog::sha256FileHex(path), version.sha256))
       return unavailable();
   QVector<WellTopRecord> out;
   for (const auto &base : bases) {

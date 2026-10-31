@@ -1,5 +1,5 @@
 // 层：数据
-#include "io/shaequals.h"
+#include "domain/shaequals.h"
 #include "areasourceprojection.h"
 #include "../domain/projectclassifier.h"
 #include <paleo_data/service.h>
@@ -286,11 +286,11 @@ bool registerAreaSources(DataCatalog &catalog, QString *error) {
     if (previous.id.isEmpty()) {
       const auto candidates = byPath.value(path);
       for (auto it = candidates.crbegin(); it != candidates.crend(); ++it) {
-        if (previous.id.isEmpty() && paleo::io::shaEquals(it->sha256, q(source.sha256))) previous = *it;
+        if (previous.id.isEmpty() && paleo::domain::shaEquals(it->sha256, q(source.sha256))) previous = *it;
       }
       if (previous.id.isEmpty() && !candidates.isEmpty()) previous = candidates.last();
     }
-    if (!previous.id.isEmpty() && paleo::io::shaEquals(previous.sha256, q(source.sha256))) {
+    if (!previous.id.isEmpty() && paleo::domain::shaEquals(previous.sha256, q(source.sha256))) {
       if (previous.extra.value("areaModelSourceId").toLongLong() != source.id) {
         if (!catalog.updateVersionExtra(previous.id, "areaModelSourceId", qlonglong(source.id), error)) {
           batch.abort(); return false;

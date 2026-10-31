@@ -778,17 +778,10 @@ void PaleoEditingToolbar::updateActionStates()
   mActionCancel->setToolTip( editing ? mActionCancel->property( "hint" ).toString() : noSession );
 
   mActionUndo->setEnabled( mUndoStack && mUndoStack->canUndo() );
-  // #869：可撤销时提示带上将撤销的命令名（对齐数据清单「撤销 %1」）。
-  const auto stepTip = [this]( QAction *a, const QString &name, const QString &verb ) {
-    return name.isEmpty() ? a->property( "hint" ).toString() : tr( "%1：%2" ).arg( verb, name );
-  };
-  mActionUndo->setToolTip( ( mUndoStack && mUndoStack->canUndo() )
-                               ? stepTip( mActionUndo, mUndoStack->undoText(), tr( "撤销" ) )
-                               : tr( "没有可撤销的编辑" ) );
+  const auto stepTip = [this]( QAction *a, const QString &n, const QString &v ) { return n.isEmpty() ? a->property( "hint" ).toString() : tr( "%1：%2" ).arg( v, n ); }; // #869：提示带命令名
+  mActionUndo->setToolTip( ( mUndoStack && mUndoStack->canUndo() ) ? stepTip( mActionUndo, mUndoStack->undoText(), tr( "撤销" ) ) : tr( "没有可撤销的编辑" ) );
   mActionRedo->setEnabled( mUndoStack && mUndoStack->canRedo() );
-  mActionRedo->setToolTip( ( mUndoStack && mUndoStack->canRedo() )
-                               ? stepTip( mActionRedo, mUndoStack->redoText(), tr( "重做" ) )
-                               : tr( "没有可重做的编辑" ) );
+  mActionRedo->setToolTip( ( mUndoStack && mUndoStack->canRedo() ) ? stepTip( mActionRedo, mUndoStack->redoText(), tr( "重做" ) ) : tr( "没有可重做的编辑" ) );
 
   updatePartitionControls(noEdit);
   updateStateLabel();

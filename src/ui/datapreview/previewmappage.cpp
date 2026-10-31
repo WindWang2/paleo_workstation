@@ -992,8 +992,7 @@ void PreviewMapPage::runIdentifyRect( const QgsRectangle &rect )
 
 void PreviewMapPage::copyScreenshot()
 {
-  QApplication::clipboard()->setPixmap( m_canvas->canvas()->grab() );
-  PaleoNotify::copied( this, tr( "地图截图" ) );
+  QApplication::clipboard()->setPixmap( m_canvas->canvas()->grab() ); PaleoNotify::copied( this, tr( "地图截图" ) );
 }
 
 void PreviewMapPage::setTaskService(PaleoTaskService *tasks) {

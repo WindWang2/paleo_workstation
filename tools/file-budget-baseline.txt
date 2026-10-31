@@ -46,7 +46,7 @@ src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:654
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:238
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:284
-src/ui/edittools/editingtoolbar.cpp:file:1106
+src/ui/edittools/editingtoolbar.cpp:file:1104
 src/ui/edittools/editingtoolbar.cpp:fn:buildUi:231
 src/ui/edittools/vertexeditortools.cpp:file:1318
 src/ui/edittools/vertexeditortools.cpp:fn:deleteVertexAtMapPoint:245

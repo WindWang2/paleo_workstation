@@ -1,5 +1,6 @@
 // 层：视图
 #include "../paleotheme.h"
+#include "../windowsizing_internal.h"
 #include "stratassignment.h"
 
 #include <QCheckBox>
@@ -78,7 +79,9 @@ StratAssignmentDialog::StratAssignmentDialog(const QStringList &layerNames,
 {
   setObjectName(QStringLiteral("wellCompositeStratAssignDialog"));
   setWindowTitle(tr("地层单元指派"));
-  setMinimumSize(QSize(560, 320));
+  setMinimumSize(paleo::ui_detail::boundedToAvailable(
+      QSize(fontMetrics().averageCharWidth() * 68, fontMetrics().lineSpacing() * 16),
+      paleo::ui_detail::availableSizeFor(this))); // #881：字体推导 + 屏幕夹取
 
   // 既有指派预填
   m_assignments.clear();

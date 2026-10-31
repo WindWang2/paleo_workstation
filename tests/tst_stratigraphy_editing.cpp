@@ -109,6 +109,8 @@ private slots:
   StratigraphyPage page(&wf);page.resize(1800,1100);page.show();QTest::qWait(100);
   auto* section=page.findChild<WellComposite::MultiWellView*>("stratigraphySection");QVERIFY(section);QCOMPARE(section->panelCount(),2);
   auto* panel=section->panelAt(0);QVERIFY(panel);auto* canvas=panel->canvas();auto* view=canvas->depthViewport();QVERIFY(view);
+  // #880：道总宽不得钉成井柱 panel 的最小宽（窄预览区靠画布自带横滚）。
+  QVERIFY(panel->minimumWidth()<qRound(canvas->totalTracksWidth()));
   const auto id=panel->property("wellId").toLongLong();QCOMPARE(id,fixture.first);
   WellComposite::ComprehensiveWellData preview;QVERIFY(PreviewDocService::wellCompositeForWell(paleo::area_model::directory(fixture.directory.path()),id,&preview,&error));
   QCOMPARE(preview.continuousCurves.size(),2);QCOMPARE(panel->currentData().continuousCurves.size(),3);

@@ -45,7 +45,8 @@ void StratigraphyPage::refreshPreview() {
        .arg(data.wellName.isEmpty()?QString::number(well.wellId):data.wellName,error);
    auto* panel=new WellCompositePanel(m_section);panel->setProperty("wellId",qlonglong(well.wellId));
    panel->setObjectName(QStringLiteral("stratigraphyWell_%1").arg(well.wellId));
-   panel->loadWellData(data);panel->setMinimumWidth(qRound(panel->canvas()->totalTracksWidth())+PaleoTheme::tokens().spacingSm);
+   panel->loadWellData(data);
+   // #880：不再把道总宽钉成 panel 最小宽——井柱画布自带水平滚动条，窄预览区可挤窄对照。
    connectPreview(panel,well.wellId);m_section->setPanel(slot++,panel);
   }
   if(!previewWarnings.isEmpty()) m_status->setText(previewWarnings.join(QStringLiteral("\n")));

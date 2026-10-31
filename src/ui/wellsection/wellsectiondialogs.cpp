@@ -377,7 +377,7 @@ WellSectionTracksDialog::WellSectionTracksDialog(
   cf->addRow(QString(), m_log1);
   m_color1 = new QToolButton(m_curveForm);
   m_color1->setObjectName(QStringLiteral("wellSectionCurve1Color"));
-  m_color1->setFixedSize(40, 22);
+  m_color1->setFixedSize(m_color1->fontMetrics().height() * 2 + 4, m_color1->fontMetrics().height() + 6); // #881：色块随字体缩放
   connect(m_color1, &QToolButton::clicked, this,
           [this] { pickSwatch(m_color1, this, tr("曲线颜色")); });
   cf->addRow(tr("颜色"), m_color1);
@@ -412,7 +412,7 @@ WellSectionTracksDialog::WellSectionTracksDialog(
   c2f->addRow(QString(), m_log2);
   m_color2 = new QToolButton(m_curve2Row);
   m_color2->setObjectName(QStringLiteral("wellSectionCurve2Color"));
-  m_color2->setFixedSize(40, 22);
+  m_color2->setFixedSize(m_color2->fontMetrics().height() * 2 + 4, m_color2->fontMetrics().height() + 6); // #881：色块随字体缩放
   connect(m_color2, &QToolButton::clicked, this,
           [this] { pickSwatch(m_color2, this, tr("曲线颜色")); });
   c2f->addRow(tr("颜色"), m_color2);
@@ -444,7 +444,7 @@ WellSectionTracksDialog::WellSectionTracksDialog(
   c3f->addRow(QString(), m_log3);
   m_color3 = new QToolButton(m_curve3Row);
   m_color3->setObjectName(QStringLiteral("wellSectionCurve3Color"));
-  m_color3->setFixedSize(40, 22);
+  m_color3->setFixedSize(m_color3->fontMetrics().height() * 2 + 4, m_color3->fontMetrics().height() + 6); // #881：色块随字体缩放
   connect(m_color3, &QToolButton::clicked, this,
           [this] { pickSwatch(m_color3, this, tr("曲线颜色")); });
   c3f->addRow(tr("颜色"), m_color3);

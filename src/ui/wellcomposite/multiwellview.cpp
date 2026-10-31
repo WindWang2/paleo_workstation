@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：参考井地层关联线的琥珀色数据叠加。（tools/ui-token-exceptions.json 精确计数）。
 #include "../paleotheme.h"
+#include "../windowsizing_internal.h"
 #include "multiwellview.h"
 
 #include <QCheckBox>
@@ -418,7 +419,9 @@ WellSelectionDialog::WellSelectionDialog(const QStringList &wells, const QString
 {
   setObjectName(QStringLiteral("wellCompositeWellSelectionDialog"));
   setWindowTitle(tr("选择对比井"));
-  setMinimumSize(QSize(320, 380));
+  setMinimumSize(paleo::ui_detail::boundedToAvailable(
+      QSize(fontMetrics().averageCharWidth() * 40, fontMetrics().lineSpacing() * 20),
+      paleo::ui_detail::availableSizeFor(this))); // #881：字体推导 + 屏幕夹取
 
   auto *root = new QVBoxLayout(this);
   root->addWidget(new QLabel(tr("测区井（蓝）/ 参考井（琥珀）"), this));

@@ -1,5 +1,6 @@
 // 层：视图
 #include "shortcutsheetdialog.h"
+#include "../notifications/paleonotify.h"
 #include "ui/common/screenfit.h"
 
 #include "../paleotheme.h"
@@ -285,8 +286,10 @@ QString ShortcutSheetDialog::copySelected()
 {
   const QString text = clipboardTextFor(selectedEntryId());
   if (!text.isEmpty())
-    if (QClipboard *cb = QGuiApplication::clipboard())
+    if (QClipboard *cb = QGuiApplication::clipboard()) {
       cb->setText(text);
+      PaleoNotify::copied(this, tr("快捷键"));
+    }
   return text;
 }
 

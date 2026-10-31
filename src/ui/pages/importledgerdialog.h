@@ -14,6 +14,7 @@
 #include <QVBoxLayout>
 
 #include "../../workflow/importledger.h" // LedgerBatch（数据面；加载由壳完成）
+#include "../notifications/paleonotify.h"
 
 namespace paleo::dataops
 {
@@ -68,8 +69,10 @@ class ImportLedgerDialog : public QDialog
       connect(m_closeBtn, &QPushButton::clicked, this, &QDialog::reject);
       connect(m_copyBtn, &QPushButton::clicked, this, [this] {
         const QString text = currentBatchText();
-        if (!text.isEmpty())
+        if (!text.isEmpty()) {
           QApplication::clipboard()->setText(text);
+          PaleoNotify::copied(this, tr("导入明细"));
+        }
       });
       connect(m_batches, &QListWidget::currentRowChanged, this,
               [this](int row) { fillRows(row); });

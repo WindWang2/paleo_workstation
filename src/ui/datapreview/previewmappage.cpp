@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：预览地图固定纸面与视口位置符号（透明蓝），避免背景改变数据读图基准。（tools/ui-token-exceptions.json 精确计数）。
 #include "previewmappage.h"
+#include "../notifications/paleonotify.h"
 #include "../paleodockmanager.h"
 #include "../paleoviewport.h"
 #include <QMainWindow>
@@ -992,6 +993,7 @@ void PreviewMapPage::runIdentifyRect( const QgsRectangle &rect )
 void PreviewMapPage::copyScreenshot()
 {
   QApplication::clipboard()->setPixmap( m_canvas->canvas()->grab() );
+  PaleoNotify::copied( this, tr( "地图截图" ) );
 }
 
 void PreviewMapPage::setTaskService(PaleoTaskService *tasks) {

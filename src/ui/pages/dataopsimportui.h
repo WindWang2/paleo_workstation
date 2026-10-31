@@ -61,8 +61,9 @@ public:
     rl->setContentsMargins(0, 0, 0, 0);
     auto *copy = new QPushButton(tr("复制"), row);
     copy->setObjectName(QStringLiteral("importReportCopy"));
-    connect(copy, &QPushButton::clicked, this, [text] {
+    connect(copy, &QPushButton::clicked, this, [this, text] {
       QGuiApplication::clipboard()->setText(text->toPlainText());
+      PaleoNotify::copied(this, tr("导入报告"));
     });
     auto *box = new QDialogButtonBox(QDialogButtonBox::Close, row);
     connect(box, &QDialogButtonBox::rejected, this, &QDialog::reject);

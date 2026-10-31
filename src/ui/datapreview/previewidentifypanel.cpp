@@ -114,6 +114,7 @@ PreviewIdentifyPanel::PreviewIdentifyPanel( QWidget *parent )
                                         .arg( m_attrTable->item( row, 0 )->text(),
                                               m_attrTable->item( row, 1 )->text() );
                QApplication::clipboard()->setText( text );
+               PaleoNotify::copied( this, QObject::tr( "属性行" ) );
              }
            } );
   lay->addWidget( m_attrTable, 1 );

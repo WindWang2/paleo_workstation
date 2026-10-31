@@ -1,5 +1,6 @@
 // 层：视图
 #include "aiassistdock.h"
+#include "../notifications/paleonotify.h"
 
 #include "aitoolresultview.h"
 
@@ -429,8 +430,10 @@ void AiAssistDock::copyTranscript() {
   } else {
     text = m_transcript->toPlainText();
   }
-  if (QClipboard *clipboard = QGuiApplication::clipboard())
+  if (QClipboard *clipboard = QGuiApplication::clipboard()) {
     clipboard->setText(text);
+    PaleoNotify::copied(this, tr("对话内容"));
+  }
 }
 
 void AiAssistDock::exportSession() {

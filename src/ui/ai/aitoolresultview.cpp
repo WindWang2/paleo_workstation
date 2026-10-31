@@ -1,5 +1,6 @@
 // 层：视图
 #include "aitoolresultview.h"
+#include "../notifications/paleonotify.h"
 
 #include "../paleotheme.h"
 #include "../pages/derivationgraph.h"
@@ -215,8 +216,10 @@ void AiToolResultView::buildTable(const QJsonObject &payload,
         cells << (table->item(r, c) ? table->item(r, c)->text() : QString());
       lines << cells.join(QLatin1Char('\t'));
     }
-    if (QClipboard *clipboard = QGuiApplication::clipboard())
+    if (QClipboard *clipboard = QGuiApplication::clipboard()) {
       clipboard->setText(lines.join(QLatin1Char('\n')));
+      PaleoNotify::copied(this, tr("表格"));
+    }
   });
   // 行点击 = 导航意图（不是数据修改）：空 id 不发（出参没有引用就诚实无跳转）。
   connect(table, &QTableWidget::cellClicked, this,

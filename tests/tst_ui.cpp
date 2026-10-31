@@ -24,6 +24,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include "../src/ui/pages/constraintpage.h"
+#include "../src/ui/windowsizing_internal.h"
 #include "../src/io/constraintstore.h"
 #include "../src/workflow/workflows.h"
 #include "helpers/visualcapture.h"
@@ -170,11 +171,17 @@ class TestUiShell : public QObject
       m_win = nullptr;
     }
 
-    // §42.11 a11y floor
+    // §42.11 a11y floor —— R6 #835：屏幕自适应 min(1024×640, 0.8×可用区)，
+    // 不再硬钉 1280×800（小屏/HiDPI 下窗口可缩小、可并排）。
     void windowMeetsMinSize()
     {
-      QVERIFY(m_win->minimumWidth() >= 1280);
-      QVERIFY(m_win->minimumHeight() >= 800);
+      using paleo::ui_detail::mainWindowMinimumSize;
+      QCOMPARE(m_win->minimumSize(), QSize(1024, 640));
+      QCOMPARE(mainWindowMinimumSize(QSize(1920, 1040)), QSize(1024, 640));
+      QCOMPARE(mainWindowMinimumSize(QSize(1280, 680)), QSize(1024, 544));   // 1080p@150%
+      QCOMPARE(mainWindowMinimumSize(QSize(960, 500)), QSize(768, 400));     // 2560×1440@200% 副屏级
+      QCOMPARE(mainWindowMinimumSize(QSize()), QSize(1024, 640));
+      QCOMPARE(paleo::ui_detail::boundedToAvailable(QSize(1100, 720), QSize(1280, 680)), QSize(1100, 612));
     }
 
     // goal/ui-experience-polish：W5 快捷键族——Ctrl+1..6 直切、Ctrl+Tab/
@@ -324,11 +331,12 @@ class TestUiShell : public QObject
                  QStringLiteral("徽标接线"), QStringLiteral("正文"));
       QCOMPARE(hub->size(), 1);
       QVERIFY(btn->isVisible()); // count > 0 → 可见
-      QCOMPARE(btn->text(), QStringLiteral("1"));
+      QCOMPARE(btn->text(), QStringLiteral("1 条错误/警告")); // R6 #860：不再是孤零零的 "1"
+      QVERIFY(!btn->icon().isNull());
 
       hub->raise(ErrorHub::Level::Warning, QStringLiteral("test"),
                  QStringLiteral("第二条"), QStringLiteral("正文2"));
-      QCOMPARE(btn->text(), QStringLiteral("2"));
+      QCOMPARE(btn->text(), QStringLiteral("2 条错误/警告"));
 
       hub->clear();
       QCOMPARE(hub->size(), 0);

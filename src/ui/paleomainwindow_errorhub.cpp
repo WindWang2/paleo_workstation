@@ -14,6 +14,8 @@
 
 #include <QStatusBar>
 #include <QToolButton>
+#include <QIcon>
+#include <QStyle>
 
 // 状态栏错误胶囊（点击唤出错误历史面板）+ ErrorHub 计数同步。原 buildShell
 // 的两段（状态钮 960-975 / hub 同步 1013-1029）合并入本函数：两段间原有的
@@ -24,7 +26,11 @@ void PaleoMainWindow::wireErrorHubStatus()
   // 错误历史状态栏胶囊按钮
   m_statusErrorBtn = new QToolButton(this);
   m_statusErrorBtn->setObjectName(QStringLiteral("statusErrorHistoryButton"));
-  m_statusErrorBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHistory.svg")));
+  // R6 #860：QGIS 主题图标缺失时（打包/路径差异）回退到内置警告图标，避免只剩一个孤立数字。
+  QIcon errorIcon = PaleoIcons::qgisTheme(QStringLiteral("mActionHistory.svg"));
+  if (errorIcon.isNull() || errorIcon.pixmap(16, 16).isNull())
+    errorIcon = style()->standardIcon(QStyle::SP_MessageBoxWarning);
+  m_statusErrorBtn->setIcon(errorIcon);
   m_statusErrorBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   m_statusErrorBtn->setAutoRaise(true);
   m_statusErrorBtn->setCursor(Qt::PointingHandCursor);
@@ -49,7 +55,8 @@ void PaleoMainWindow::wireErrorHubStatus()
         m_statusErrorBtn->setVisible(false);
       } else {
         m_statusErrorBtn->setVisible(true);
-        m_statusErrorBtn->setText(QString::number(count));
+        // R6 #860：带文字说明，不再只显示无标识的数字。
+        m_statusErrorBtn->setText(tr("%1 条错误/警告").arg(count));
         m_statusErrorBtn->setToolTip(tr("错误与警告历史（共 %1 条记录），点击查看").arg(count));
       }
     };

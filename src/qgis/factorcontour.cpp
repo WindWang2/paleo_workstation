@@ -353,6 +353,9 @@ bool readAnalysisField( const QString &rasterPath, std::vector<double> *grid,
     return false;
   const int nx = *nxOut;
   const int ny = *nyOut;
+  // #834 旁注：可分轴 xs[c]/ys[k] 只能表示北向上无旋转网格。上面已拒绝
+  // gt[2]/gt[4]≠0；此处不可套完整仿射——那会让 xs 仍与行无关，看起来像"修了"
+  // 实际仍错。旋转测网的静默错值修在 velocitymodel/mappingworkflow（#834）。
   xs->resize( static_cast<std::size_t>( nx ) );
   ys->resize( static_cast<std::size_t>( ny ) );
   for ( int c = 0; c < nx; ++c )

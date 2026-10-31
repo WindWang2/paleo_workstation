@@ -399,6 +399,18 @@ class TestUiShell : public QObject
       QVERIFY(recentLabel->styleSheet().contains(QStringLiteral("font-size: 12pt")));
       for (auto *button : {newButton, openButton, areaButton})
         QCOMPARE(button->iconSize(), recentList->iconSize());
+      // R7 #885：操作列取内容宽（不被 1:2 横向拉伸），最近工程列表高度贴合条目。
+      QCOMPARE(recentList->sizeAdjustPolicy(), QAbstractScrollArea::AdjustToContents);
+      if (auto *content = m_win->findChild<QWidget *>(QStringLiteral("startupContent")))
+      {
+        content->resize(content->maximumWidth(), content->sizeHint().height());
+        content->layout()->activate();
+        QVERIFY2(newButton->width() * 3 < recentList->width(),
+                 qPrintable(QStringLiteral("btn=%1 list=%2").arg(newButton->width()).arg(recentList->width())));
+        QVERIFY(newButton->width() <= newButton->sizeHint().width() + 1 || newButton->width() <= areaButton->sizeHint().width() + 1);
+      }
+      else
+        QFAIL("startupContent missing");
     }
 
     void showPageTracksCurrentPage()

@@ -1,6 +1,7 @@
 // 层：功能
 #include "assetops.h"
 #include "../io/pathcanon.h"
+#include "../domain/shaequals.h"
 #include "../io/paleomapfiles.h"
 
 #include "../catalog/datacatalog.h"
@@ -180,7 +181,7 @@ RollbackOutcome rollbackToVersion(DataCatalog *cat, const QString &projectDir,
       firstError(error, QStringLiteral("回滚副本摘要计算失败：%1").arg(serr));
       return out;
     }
-    if (!target.sha256.isEmpty() && actualSha != target.sha256)
+    if (!target.sha256.isEmpty() && !paleo::domain::shaEquals(actualSha, target.sha256))
     {
       QFile::remove(dst);
       firstError(error, QStringLiteral("回滚副本与目标版本 SHA-256 不一致（%1 ≠ %2），已丢弃")
@@ -211,7 +212,7 @@ RollbackOutcome rollbackToVersion(DataCatalog *cat, const QString &projectDir,
         firstError(error, QStringLiteral("外链目标摘要计算失败：%1").arg(serr));
         return out;
       }
-      if (actualSha != target.sha256)
+      if (!paleo::domain::shaEquals(actualSha, target.sha256))
       {
         firstError(error, QStringLiteral("外链目标已在库外被修改（SHA-256 %1 ≠ 留底 %2），拒绝回滚")
                          .arg(actualSha, target.sha256));
@@ -276,7 +277,7 @@ VersionCompare compareVersions(const QString &projectDir, const CatalogVersion &
 {
   VersionCompare c;
   c.shaKnown = !a.sha256.isEmpty() && !b.sha256.isEmpty();
-  c.sameSha = c.shaKnown && a.sha256 == b.sha256;
+  c.sameSha = c.shaKnown && paleo::domain::shaEquals(a.sha256, b.sha256);
 
   // 受管版本只认 resolvedVersionPath 的包含性结论：解析为空（绝对路径/
   // 反斜杠/不安全路径段/路径上任一段是符号链接/规范路径越出工程）即视为

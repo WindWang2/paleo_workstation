@@ -64,6 +64,9 @@ bool DataCatalog::exportCatalogJson(const QString &path, QString *error) const
 
 bool DataCatalog::writeSurveyGeoJson(const QString &path, QString *error) const
 {
+  // 与 writeWellsGeoJson 对称：显式线程门（entities() 内也有，但这里写明契约）。
+  if (!noteRead("writeSurveyGeoJson"))
+    return true;
   QJsonArray features;
   const auto areas = entities(QStringLiteral("seismic_survey")) + entities(QStringLiteral("study_area"));
   // #476：entities() 读被拒（跨线程）时 areas 同样为空——落盘会把上一份好
@@ -113,6 +116,10 @@ bool DataCatalog::writeSurveyGeoJson(const QString &path, QString *error) const
         {"properties", QJsonObject{{"id", survey.id}, {"name", survey.name}}},
         {"geometry", geometry}});
   }
+  // #889：测区实体存在但全被过滤（角点非有限/bbox 退化/坏 boundary）时同样
+  // 不写——否则会把磁盘上上一份好图层静默换成空 FeatureCollection。
+  if (features.isEmpty())
+    return true;
   const QJsonObject root{{"type", "FeatureCollection"},
       {"crs", QJsonObject{{"type", "name"}, {"properties", QJsonObject{{"name", localGridCrsWkt()}}}}},
       {"features", features}};

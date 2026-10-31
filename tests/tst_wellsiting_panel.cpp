@@ -45,6 +45,7 @@ class TestWellSitingPanel : public QObject
     void mapPlacementAddsPlannedWell();
     void coordinateInputTransformsBeforeSaving();
     void scenarioSaveAndCompareTable();
+    void paramsFitNarrowDock();
     void cleanupTestCase();
 
   private:
@@ -90,6 +91,22 @@ class TestWellSitingPanel : public QObject
         }
     };
 };
+
+// #879：三组参数不再单行并排（最小宽≈475 撑开窄停靠）。
+void TestWellSitingPanel::paramsFitNarrowDock()
+{
+  Stack s;
+  WellSitingPanel panel( &s.wf );
+  panel.show();
+  auto *radius = panel.findChild<QDoubleSpinBox *>( QStringLiteral( "sitingControlRadius" ) );
+  auto *cell = panel.findChild<QDoubleSpinBox *>( QStringLiteral( "sitingCellSize" ) );
+  auto *spacing = panel.findChild<QDoubleSpinBox *>( QStringLiteral( "sitingGridSpacing" ) );
+  QVERIFY( radius && cell && spacing );
+  QCoreApplication::processEvents();
+  QVERIFY( radius->y() < cell->y() && cell->y() < spacing->y() );
+  QVERIFY( radius->parentWidget()->minimumSizeHint().width()
+           < radius->sizeHint().width() + cell->sizeHint().width() + spacing->sizeHint().width() );
+}
 
 void TestWellSitingPanel::initTestCase()
 {

@@ -73,6 +73,7 @@ bool PaleoUndoStack::setLayer( QgsVectorLayer *layer )
   mStack = layer->undoStack(); // not owned; the stack the edit commands land on
   connect( mStack, &QUndoStack::canUndoChanged, this, &PaleoUndoStack::canUndoChanged );
   connect( mStack, &QUndoStack::canRedoChanged, this, &PaleoUndoStack::canRedoChanged );
+  connect( mStack, &QUndoStack::indexChanged, this, &PaleoUndoStack::indexChanged );
 
   // Foreign destruction (project teardown, layers living on test stacks):
   // clear the borrowed pointers without touching any QgsVectorLayer/QUndoStack
@@ -118,6 +119,16 @@ bool PaleoUndoStack::canUndo() const
 bool PaleoUndoStack::canRedo() const
 {
   return mStack && mStack->canRedo();
+}
+
+QString PaleoUndoStack::undoText() const
+{
+  return mStack ? mStack->undoText() : QString();
+}
+
+QString PaleoUndoStack::redoText() const
+{
+  return mStack ? mStack->redoText() : QString();
 }
 
 int PaleoUndoStack::count() const

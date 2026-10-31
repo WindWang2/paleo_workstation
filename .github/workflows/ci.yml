@@ -121,7 +121,7 @@ jobs:
           fi
           echo "tidy base: $base ($(git rev-parse --short "$base" 2>/dev/null || echo '?'))"
           python3 tools/check_tidy.py --base "$base"
-      - name: Source gates (layering / qgs-audit / ui invariants / ui size / file budget / i18n / QGIS 版本口径 / docs drift / cpp mainline，按脚本位置定位源码根)
+      - name: Source gates (layering / qgs-audit / ui invariants / ui size / ui tokens / file budget / i18n / QGIS 版本口径 / docs drift / cpp mainline，按脚本位置定位源码根)
         env:
           # #474：--transitive 的 QGIS 头目录探测约定名（vendor deb 闭包前缀，
           # 与上面 compile_commands 的 QGIS_PREFIX_PATH 同源）——func/ui 两指标
@@ -145,6 +145,10 @@ jobs:
           python3 tools/check_ui_invariants.py --selftest
           python3 tools/check_ui_size.py --strict
           python3 tools/check_ui_size.py --selftest
+          # #876：ui_tokens 与 ctest ui_tokens/_strict（linux 必过）同口径，
+          # 免得 lint「Source gates 绿」不代表表意 token 面。
+          python3 tools/check_ui_tokens.py --strict
+          python3 tools/check_ui_tokens.py --selftest
           python3 tools/check_file_budget.py --strict
           python3 tools/check_file_budget.py --selftest
           python3 tools/check_i18n.py
@@ -580,7 +584,19 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           # -I start,,stride：四片各跑 1/4，片内保持串行。perf 仍不进必过门禁。
           PALEO_CTEST_ARGS: "-LE perf --timeout 300 -I ${{ matrix.shard }},,4"
-        run: ./paleo-dev.ps1 test
+        # #872：各片恰在「第一个 C++ 测试可执行文件」处挂死（run 41103414173：
+        # shard1 tst_basemap_project / shard3 tst_runtime 之后 ~4.8h 无输出），
+        # 脚本测全绿——进程启动期挂死，最符合「加载器缺 DLL / 崩溃时弹模态框，
+        # 无人点确定」。SetErrorMode 可继承：在调 ctest 的 pwsh 进程里设
+        # SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|SEM_NOOPENFILEERRORBOX，
+        # 测试子进程缺 DLL 即以 0xC0000135 立刻退出、崩溃直接返回码，而不是吊到
+        # TIMEOUT；WER DontShowUI 兜底 WerFault 弹窗。ctest 输出里的退出码即根因线索。
+        run: |
+          Add-Type -Namespace PaleoCi -Name Native -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetErrorMode(uint mode);'
+          [void][PaleoCi.Native]::SetErrorMode(0x8003)
+          New-Item -Path 'HKCU:\Software\Microsoft\Windows\Windows Error Reporting' -Force | Out-Null
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\Windows Error Reporting' -Name DontShowUI -Value 1 -Type DWord
+          ./paleo-dev.ps1 test
       # #501/#759：红 run 的放行记录同样要累计，故 always() 落盘。
       - name: Save flaky ledger
         if: ${{ always() && hashFiles('tools/flaky-ledger.jsonl') != '' }}

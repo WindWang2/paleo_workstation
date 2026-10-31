@@ -69,7 +69,7 @@ struct UnitSignature
   double thicknessRef = 0.0;    // 成员厚度均值
   double spanScale = 1.0;       // 归一化尺度 = max(区间跨度, 1.0)
   double thicknessScale = 1.0;  // = max(厚度离散度, 0.5|thicknessRef|, 1.0)
-  int sampleCount = 0;          // 参与统计的（井,成员）样本数
+  int sampleCount = 0;          // 参与区间统计的井数（每井每单元一次，#882）
   bool valid() const { return sampleCount > 0; }
 };
 

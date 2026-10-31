@@ -250,6 +250,7 @@ PaleoEditingToolbar::PaleoEditingToolbar( QgsMapCanvas *canvas, QWidget *parent 
 
   connect( mUndoStack.get(), &PaleoUndoStack::canUndoChanged, this, &PaleoEditingToolbar::updateActionStates );
   connect( mUndoStack.get(), &PaleoUndoStack::canRedoChanged, this, &PaleoEditingToolbar::updateActionStates );
+  connect( mUndoStack.get(), &PaleoUndoStack::indexChanged, this, &PaleoEditingToolbar::updateActionStates );
   updateActionStates();
   watchProject( nullptr ); // 默认监听进程级 QgsProject::instance()
 }
@@ -777,13 +778,10 @@ void PaleoEditingToolbar::updateActionStates()
   mActionCancel->setToolTip( editing ? mActionCancel->property( "hint" ).toString() : noSession );
 
   mActionUndo->setEnabled( mUndoStack && mUndoStack->canUndo() );
-  mActionUndo->setToolTip( ( mUndoStack && mUndoStack->canUndo() )
-                               ? mActionUndo->property( "hint" ).toString()
-                               : tr( "没有可撤销的编辑" ) );
+  const auto stepTip = [this]( QAction *a, const QString &n, const QString &v ) { return n.isEmpty() ? a->property( "hint" ).toString() : tr( "%1：%2" ).arg( v, n ); }; // #869：提示带命令名
+  mActionUndo->setToolTip( ( mUndoStack && mUndoStack->canUndo() ) ? stepTip( mActionUndo, mUndoStack->undoText(), tr( "撤销" ) ) : tr( "没有可撤销的编辑" ) );
   mActionRedo->setEnabled( mUndoStack && mUndoStack->canRedo() );
-  mActionRedo->setToolTip( ( mUndoStack && mUndoStack->canRedo() )
-                               ? mActionRedo->property( "hint" ).toString()
-                               : tr( "没有可重做的编辑" ) );
+  mActionRedo->setToolTip( ( mUndoStack && mUndoStack->canRedo() ) ? stepTip( mActionRedo, mUndoStack->redoText(), tr( "重做" ) ) : tr( "没有可重做的编辑" ) );
 
   updatePartitionControls(noEdit);
   updateStateLabel();

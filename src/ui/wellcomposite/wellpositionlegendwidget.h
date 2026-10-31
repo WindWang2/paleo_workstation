@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QFontMetrics>
 #include <QLabel>
 #include <QPainter>
 #include <QToolButton>
@@ -38,13 +39,15 @@ public:
 
   void setScaleMetrics(double pxPerMeter, const QString &scaleRatioStr);
 
-  QSize sizeHint() const override { return QSize(120, 26); }
-  QSize minimumSizeHint() const override { return QSize(80, 24); }
+  QSize sizeHint() const override;
+  QSize minimumSizeHint() const override;
 
 protected:
   void paintEvent(QPaintEvent *event) override;
 
 private:
+  QFontMetrics labelMetrics() const;
+  int labelBoxWidth() const;
   double m_pxPerMeter = 7.559; // 默认 1:500 对应 ~7.559 px/m
   QString m_scaleRatio = QStringLiteral("1:500");
   double m_segmentMeters = 10.0;
@@ -66,8 +69,14 @@ public:
   void setVisibleRange(double topDepth, double bottomDepth);
   void setFormations(const QVector<FormationInterval> &formations);
 
-  QSize sizeHint() const override { return QSize(180, 22); }
-  QSize minimumSizeHint() const override { return QSize(100, 18); }
+  QSize sizeHint() const override
+  {
+    return QSize(fontMetrics().averageCharWidth() * 20, fontMetrics().height() + 4);
+  }
+  QSize minimumSizeHint() const override
+  {
+    return QSize(fontMetrics().averageCharWidth() * 10, fontMetrics().height());
+  }
 
 signals:
   void requestScrollDepth(double depth);
@@ -145,6 +154,8 @@ private:
   double m_currentTopDepth = 0.0;
   double m_currentBottomDepth = 500.0;
   double m_currentSpan = 500.0;
+  QFontMetrics labelMetrics() const;
+  int labelBoxWidth() const;
   double m_pxPerMeter = 7.559;
   QString m_scaleRatioStr = QStringLiteral("1:500");
 };

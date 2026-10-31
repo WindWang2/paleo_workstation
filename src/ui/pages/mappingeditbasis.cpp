@@ -2,6 +2,7 @@
 #include "mappingeditbasis.h"
 #include "../../workflow/mappingworkbench.h"
 #include "../paleotheme.h"
+#include "../windowsizing_internal.h"
 #include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
@@ -18,7 +19,7 @@ MappingEditBasis::MappingEditBasis(MappingWorkbench *workbench, QWidget *parent)
   auto *group = new QGroupBox(tr("2 · 本次解释依据"), this);
   auto *layout = new QVBoxLayout(group);
   layout->setSpacing(PaleoTheme::tokens().spacingSm);
-  root->addWidget(group);
+  root->addWidget(group, 1);
   auto *hint = new QLabel(tr("选择正在参考的证据，补充解释说明及修改目的后启用。"
                              "随后新建、改类和共边修改会自动记录这些依据；修改说明后需重新启用。"),
                           group);
@@ -34,8 +35,9 @@ MappingEditBasis::MappingEditBasis(MappingWorkbench *workbench, QWidget *parent)
   m_sources = new QListWidget(group);
   m_sources->setObjectName("editBasisSources");
   m_sources->setAccessibleName(tr("本次解释引用的已保存版本"));
-  m_sources->setMaximumHeight(96);
-  layout->addWidget(m_sources);
+  // #878：不再钉死 96px——按行高给最小高，随面板增高（stretch）。
+  m_sources->setMinimumHeight(paleo::ui_detail::lineRows(m_sources, 3));
+  layout->addWidget(m_sources, 1);
   auto *remove = new QPushButton(tr("移除选中参考"), group);
   remove->setObjectName("editBasisRemoveSource");
   layout->addWidget(remove);
@@ -48,8 +50,8 @@ MappingEditBasis::MappingEditBasis(MappingWorkbench *workbench, QWidget *parent)
   m_text->setAccessibleName(tr("本次解释说明"));
   m_text->setPlaceholderText(
       tr("描述井、地震或单因素的具体观察，以及为何支持此次解释；也可填写纯人工依据。"));
-  m_text->setMaximumHeight(96);
-  layout->addWidget(m_text);
+  m_text->setMinimumHeight(paleo::ui_detail::lineRows(m_text, 3));
+  layout->addWidget(m_text, 2);
   m_reason = new QLineEdit(group);
   m_reason->setObjectName("editBasisReason");
   m_reason->setAccessibleName(tr("本次修改目的"));

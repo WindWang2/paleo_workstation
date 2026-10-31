@@ -11,7 +11,7 @@
 运行 lupdate 更新 .ts（并补译文），然后 `--update-baseline` 把基线降下来。
 
 用法：
-  check_ts_stale.py [--root PATH] [--update-baseline]
+  check_ts_stale.py [--root PATH] [--update-baseline] [--verbose]
   check_ts_stale.py --selftest
 未知参数 exit 2。
 """
@@ -33,7 +33,14 @@ def unescape(s):
     return re.sub(r'\\(.)', lambda m: ESC.get(m.group(1), '\\' + m.group(1)), s)
 
 
-def src_literals(root):
+# lupdate 看不见的调用面（#866）：文件内自定义的自由函数 tr() 包装、以及 obj->tr()/obj.tr()。
+# 这些字面量无论跑多少次 lupdate 都进不了 .ts，计入棘轮会让「跑 lupdate」这一修复路径失效，
+# 故单独计数仅作提示（--verbose 列出），不入门禁。
+FREE_TR_RE = re.compile(r'^\s*(?:static\s+)?(?:inline\s+)?QString\s+tr\s*\(', re.M)
+MEMBER_TR_RE = re.compile(r'(?:->|\.)\s*$')
+
+
+def src_literals(root, invisible=None):
     out = set()
     for d, _, files in os.walk(os.path.join(root, 'src')):
         for f in files:
@@ -43,10 +50,20 @@ def src_literals(root):
                 text = open(os.path.join(d, f), encoding='utf-8', errors='replace').read()
             except OSError:
                 continue
+            free_wrapper = bool(FREE_TR_RE.search(text))
             for m in TR_RE.finditer(text):
                 lit = ''.join(unescape(x) for x in LIT_RE.findall(m.group(1)))
-                if lit:
-                    out.add(lit)
+                if not lit:
+                    continue
+                line_start = text.rfind('\n', 0, m.start()) + 1
+                if '//' in text[line_start:m.start()]:
+                    continue  # 行注释里的 tr("…") 不是调用
+                bare_tr = text.startswith('tr', m.start())
+                if bare_tr and (free_wrapper or MEMBER_TR_RE.search(text[max(0, m.start() - 8):m.start()])):
+                    if invisible is not None:
+                        invisible.add(lit)
+                    continue
+                out.add(lit)
     return out
 
 
@@ -62,12 +79,19 @@ def ts_sources(root):
     return out
 
 
-def missing_count(root):
-    return len(src_literals(root) - ts_sources(root))
+def missing_count(root, invisible=None):
+    return len(src_literals(root, invisible) - ts_sources(root))
 
 
-def run(root, update):
-    n = missing_count(root)
+def run(root, update, verbose=False):
+    inv = set()
+    n = missing_count(root, inv)
+    inv -= ts_sources(root)
+    if inv:
+        print(f'check_ts_stale: note {len(inv)} literal(s) via free tr() wrapper / obj->tr() are invisible to lupdate (not gated)')
+        if verbose:
+            for s in sorted(inv):
+                print(f'  invisible: {s!r}')
     bpath = os.path.join(root, 'tools', 'ts_stale_baseline.json')
     if update:
         with open(bpath, 'w', encoding='utf-8') as fh:
@@ -101,6 +125,14 @@ def selftest():
         assert run(t, True) == 0 and run(t, False) == 0
         open(os.path.join(t, 'src', 'b.cpp'), 'w').write('tr("New");')
         assert run(t, False) == 1
+        # #866：lupdate 看不见的调用面不入门禁
+        open(os.path.join(t, 'src', 'b.cpp'), 'w').write(
+            'namespace {\nQString tr(const char *s) { return QCoreApplication::translate("C", s); } }\n'
+            'f(tr("Wrapped"));')
+        open(os.path.join(t, 'src', 'c.cpp'), 'w').write('g(guard->tr("Member")); h(w.tr("Dot"));\n// old tr("Comment")\n')
+        inv = set()
+        assert missing_count(t, inv) == 2 and inv == {'Wrapped', 'Member', 'Dot'}, inv
+        assert run(t, False) == 0
     print('check_ts_stale selftest OK')
     return 0
 
@@ -108,18 +140,21 @@ def selftest():
 def main(argv):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     update = False
+    verbose = False
     it = iter(argv)
     for a in it:
         if a == '--selftest':
             return selftest()
         if a == '--update-baseline':
             update = True
+        elif a == '--verbose':
+            verbose = True
         elif a == '--root':
             root = next(it)
         else:
             print(f'unknown arg {a}', file=sys.stderr)
             return 2
-    return run(root, update)
+    return run(root, update, verbose)
 
 
 if __name__ == '__main__':

@@ -5,7 +5,10 @@
 #include "../uienv_internal.h"
 #include "notificationcenter.h"
 
+#include <QCoreApplication>
+#include <QCursor>
 #include <QDebug>
+#include <QToolTip>
 #include <QDialog>
 #include <QPointer>
 #include <QPushButton>
@@ -83,6 +86,27 @@ void information(QWidget *parent, const QString &title, const QString &text,
         }
         QMessageBox::information(parent, title, text);
     }
+}
+
+void copied(QWidget *parent, const QString &what)
+{
+    const QString subject =
+        what.isEmpty() ? QCoreApplication::translate("PaleoNotify", "内容") : what;
+    const QString text =
+        QCoreApplication::translate("PaleoNotify", "%1已复制到剪贴板").arg(subject);
+    ErrorHub *hub = activeHub();
+    if (hub && presentsOnHost(hub, parent))
+    {
+        hub->raise(ErrorHub::Level::Info, sourceOf(parent, QString()),
+                   QCoreApplication::translate("PaleoNotify", "已复制"), text);
+        return;
+    }
+    if (isOffscreen())
+    {
+        qInfo().noquote() << "[PaleoNotify::copied]" << text;
+        return;
+    }
+    QToolTip::showText(QCursor::pos(), text, parent);
 }
 
 void critical(QWidget *parent, const QString &title, const QString &text,

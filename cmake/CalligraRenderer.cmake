@@ -1,4 +1,6 @@
 # Included by the pinned Calligra build, after its libraries and parts exist.
+# Not referenced from this tree's CMakeLists on purpose: vendor/fetch-calligra.sh appends
+# include(".../cmake/CalligraRenderer.cmake") to the extracted Calligra CMakeLists (#874).
 add_executable(paleo_office_renderer "${PALEO_WORKSTATION_SOURCE}/src/app/officepreviewrenderer.cpp")
 target_include_directories(paleo_office_renderer PRIVATE
   ${KOMAIN_INCLUDES} ${KOPAGEAPP_INCLUDES}

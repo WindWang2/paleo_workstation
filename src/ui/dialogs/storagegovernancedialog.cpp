@@ -10,6 +10,7 @@
 #include <QTabWidget>
 #include <QTableView>
 #include <QVBoxLayout>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace {
 // Value-backed table: Qt paints only visible rows, no per-record widgets/items.
@@ -64,7 +65,7 @@ QStringList selected(QTableView *view) {
 StorageGovernanceDialog::StorageGovernanceDialog(QWidget *parent) : QDialog(parent) {
   setObjectName(QStringLiteral("storageGovernanceDialog"));
   setWindowTitle(tr("存储治理台")); setAccessibleName(windowTitle());
-  setWindowModality(Qt::WindowModal); resize(900, 560);
+  setWindowModality(Qt::WindowModal); paleo::ui::resizeWithinScreen(this, 900, 560);
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd,
                             PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd);
@@ -135,7 +136,7 @@ void StorageGovernanceDialog::setPreview(const paleo::storage::Preview &p) {
   auto *dialog = new QDialog(this); dialog->setAttribute(Qt::WA_DeleteOnClose);
   dialog->setObjectName(QStringLiteral("storageCleanupPreview"));
   dialog->setWindowTitle(tr("确认回收预览")); dialog->setAccessibleName(dialog->windowTitle());
-  dialog->setWindowModality(Qt::WindowModal); dialog->resize(780, 440);
+  dialog->setWindowModality(Qt::WindowModal); paleo::ui::resizeWithinScreen(dialog, 780, 440);
   auto *layout = new QVBoxLayout(dialog);
   layout->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd,
                             PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd);

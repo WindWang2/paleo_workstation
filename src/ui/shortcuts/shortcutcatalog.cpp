@@ -90,6 +90,35 @@ QList<ShortcutEntry> mapEditUndoEntries()
   return out;
 }
 
+// #869：面板内撤销/重做（焦点在面板内时生效；与 map/data 作用域互为兄弟，
+// 不冲突）。独立成段以守 catalogEntries 函数预算。
+QList<ShortcutEntry> panelUndoEntries()
+{
+  const char *pick = QT_TRANSLATE_NOOP("PaleoShortcuts", "地震拾取面板（焦点内）");
+  const char *fault = QT_TRANSLATE_NOOP("PaleoShortcuts", "断层管理面板（焦点内）");
+  const char *strat = QT_TRANSLATE_NOOP("PaleoShortcuts", "地层解释页（焦点内）");
+  const char *pickSrc = "src/ui/seismicsection/seismicpickpanel.cpp";
+  const char *faultSrc = "src/ui/faults/faultmanagerpanel.cpp";
+  const char *stratSrc = "src/ui/pages/stratigraphypage_controls.cpp";
+  const auto undo = QKeySequence(QKeySequence::StandardKey::Undo);
+  const auto redo = QKeySequence(QKeySequence::StandardKey::Redo);
+  constexpr auto W = Qt::WidgetWithChildrenShortcut;
+  QList<ShortcutEntry> out;
+  out << make("section.pick.undo", undo, "main/seismic-section/pick-panel", S, "sections",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销上一次地震拾取变更"), pick, pickSrc, W)
+      << make("section.pick.redo", redo, "main/seismic-section/pick-panel", S, "sections",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做地震拾取变更"), pick, pickSrc, W)
+      << make("fault.edit.undo", undo, "main/faults", S, "map",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销最近一次断层编辑"), fault, faultSrc, W)
+      << make("fault.edit.redo", redo, "main/faults", S, "map",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做被撤销的断层编辑"), fault, faultSrc, W)
+      << make("stratigraphy.undo", undo, "main/correlation", S, "data",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销上次地层人工编辑"), strat, stratSrc, W)
+      << make("stratigraphy.redo", redo, "main/correlation", S, "data",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做地层人工编辑"), strat, stratSrc, W);
+  return out;
+}
+
 struct BuiltRegistry
 {
   ShortcutRegistry registry;
@@ -119,7 +148,7 @@ QList<ShortcutEntry> catalogEntries()
   const char *mainPanel = QT_TRANSLATE_NOOP("PaleoShortcuts", "主窗口");
 
   // ===== 全局导航（paleomainwindow.cpp buildRibbon / attach_shell）=====
-  // W5：Ctrl+1..6 直切六页——id 尾段 = 页 id，键序 = 页序 + 1。
+  // W5：Ctrl+1..N 直切工作流 ribbon 页（N = kRibbonIds.size()）——id 尾段 = 页 id，键序 = 页序 + 1。
   for (int i = 0; i < pagesinternal::kRibbonIds.size(); ++i)
   {
     const QString &pageId = pagesinternal::kRibbonIds.at(i);
@@ -130,10 +159,10 @@ QList<ShortcutEntry> catalogEntries()
     out.append(e);
   }
   out << make("main.page.next", QKeySequence(QStringLiteral("Ctrl+Tab")), "main", S, "navigation",
-              QT_TRANSLATE_NOOP("PaleoShortcuts", "循环切换到下一个工作流页"), mainPanel,
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "循环切换到下一个视图页签"), mainPanel,
               "src/ui/paleomainwindow.cpp")
       << make("main.page.prev", QKeySequence(QStringLiteral("Ctrl+Shift+Tab")), "main", S, "navigation",
-              QT_TRANSLATE_NOOP("PaleoShortcuts", "循环切换到上一个工作流页"), mainPanel,
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "循环切换到上一个视图页签"), mainPanel,
               "src/ui/paleomainwindow.cpp")
       << make("main.locator.focus", QKeySequence(QStringLiteral("Ctrl+K")), "main", S, "navigation",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "聚焦顶栏搜索框，查找井位或层位"), mainPanel,
@@ -273,7 +302,7 @@ QList<ShortcutEntry> catalogEntries()
       << make("map.edit.cancel", QKeySequence(Qt::Key_Escape), "main/map/edit-tool", K, "map",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "取消当前要素编辑并退出工具（移动工具先撤回拖动预览）"),
               editTool, "src/ui/edittools/editingtools.cpp")
-      << mapEditUndoEntries() // PW-118
+      << mapEditUndoEntries() << panelUndoEntries() // PW-118 / #869
       << make("map.vertex.delete", QKeySequence(Qt::Key_Delete), "main/map/vertex-tool", K, "map",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "删除光标处（按吸附结果）的节点"), vertexTool, "src/ui/edittools/vertexeditortools.cpp")
       << make("map.vertex.deleteBackspace", QKeySequence(Qt::Key_Backspace), "main/map/vertex-tool", K,
@@ -425,6 +454,9 @@ QString contextForWidget(const QWidget *widget)
       {"DerivationGraph", "main/data/derivation-graph"},
       {"DataListPanel", "main/data"},
       {"DataPage", "main/data"},
+      {"seismic::SeismicPickPanel", "main/seismic-section/pick-panel"},
+      {"paleo::fault::FaultManagerPanel", "main/faults"},
+      {"StratigraphyPage", "main/correlation"},
       {"seismic::SeismicSectionCanvas", "main/seismic-section/canvas"},
       {"seismic::SeismicSectionDockWidget", "main/seismic-section"},
       {"seismic::Seismic3DViewportWidget", "main/seismic3d/viewport"},

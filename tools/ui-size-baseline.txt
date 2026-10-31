@@ -2,7 +2,7 @@
 # 生成：tools/check_ui_size.py --emit-baseline（口径由 count_lines 单点定义，勿手改数字）
 # 上限：1000 行；条目降到 ≤ 1000 行后应从本文件删除（--strict 会红）。
 # 条目数：8
-src/ui/edittools/editingtoolbar.cpp:1106
+src/ui/edittools/editingtoolbar.cpp:1104
 src/ui/edittools/vertexeditortools.cpp:1318
 src/ui/pages/entitypanel.cpp:1462
 src/ui/pages/mappingworkbenchpage.cpp:1200

@@ -13,7 +13,9 @@
 
 #include "catalogindex.h" // D5 邻接索引（纯派生加速结构，四张 QVector 仍是唯一事实源）
 
+#include <cmath>
 #include <memory>
+#include <optional>
 
 class CatalogStore;
 
@@ -40,7 +42,14 @@ struct CatalogEntity
   // 地图一直读它；project_x/y 仅 coordinate_status=="ok" 时才写。
   double surfaceX = 0.0, surfaceY = 0.0;
   bool hasSurface = false;
+  // #890：kb/td 的唯一合规读法是 kbValue()/tdValue()（缺失 → nullopt）。
+  // 内存约定：缺失 = NaN。盘上 sqlite 列 NOT NULL，缺失落为伪 0 +
+  // extra '#kbMissing'/'#tdMissing' 标记（无 schema 变更）；装载侧经
+  // catalog_detail::storedDepth() 还原为 NaN。不要直接读 kb/td 做显示或
+  // 计算——0 可能是伪值（旧数据）也可能是真 0，NaN 也不能直接参与运算。
   double kb = 0.0, td = 0.0;
+  std::optional<double> kbValue() const { return std::isfinite(kb) ? std::optional<double>(kb) : std::nullopt; }
+  std::optional<double> tdValue() const { return std::isfinite(td) ? std::optional<double>(td) : std::nullopt; }
   QString coordinateStatus; // "ok" | "untransformed" | "invalid" | "missing"
 
   // seismic_survey 几何（打开时冻结）。

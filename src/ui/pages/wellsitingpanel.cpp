@@ -7,6 +7,7 @@
 #include "qgis/coordinateeditor.h"
 
 #include <QDoubleSpinBox>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -74,23 +75,23 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
   // ---- 诊断参数段 ----
   lay->addWidget( caption( tr( "覆盖诊断" ), this ) );
   auto *paramsRow = new QWidget( this );
-  auto *paramsLay = new QHBoxLayout( paramsRow );
+  auto *paramsLay = new QGridLayout( paramsRow ); // #879：原单行最小宽≈475 撑开窄停靠→「标签|数值」两列网格
   paramsLay->setContentsMargins( 0, 0, 0, 0 );
-  paramsLay->setSpacing(PaleoTheme::tokens().spacingSm);
-  paramsLay->addWidget( new QLabel( tr( "井控半径" ), paramsRow ) );
+  paramsLay->setHorizontalSpacing( PaleoTheme::tokens().spacingSm );
+  paramsLay->setVerticalSpacing( PaleoTheme::tokens().spacingXs );
+  paramsLay->addWidget( new QLabel( tr( "井控半径" ), paramsRow ), 0, 0 );
   auto *radius = paramSpin( 2500, 100, 20000, 100, QStringLiteral( "sitingControlRadius" ),
                             tr( "井控半径" ), paramsRow );
-  paramsLay->addWidget( radius );
-  paramsLay->addWidget( new QLabel( tr( "采样格宽" ), paramsRow ) );
+  paramsLay->addWidget( radius, 0, 1 );
+  paramsLay->addWidget( new QLabel( tr( "采样格宽" ), paramsRow ), 1, 0 );
   auto *cell = paramSpin( 100, 10, 1000, 10, QStringLiteral( "sitingCellSize" ),
                           tr( "采样格宽" ), paramsRow );
-  paramsLay->addWidget( cell );
-  auto *spacingLabel = new QLabel( tr( "候选间距" ), paramsRow );
-  paramsLay->addWidget( spacingLabel );
+  paramsLay->addWidget( cell, 1, 1 );
+  paramsLay->addWidget( new QLabel( tr( "候选间距" ), paramsRow ), 2, 0 );
   auto *spacing = paramSpin( 0, 0, 20000, 100, QStringLiteral( "sitingGridSpacing" ),
                              tr( "候选间距（0 = 同井控半径）" ), paramsRow );
-  paramsLay->addWidget( spacing );
-  paramsLay->addStretch( 1 );
+  paramsLay->addWidget( spacing, 2, 1 );
+  paramsLay->setColumnStretch( 1, 1 );
   lay->addWidget( paramsRow );
 
   auto *run = new QPushButton( tr( "诊断覆盖" ), this );

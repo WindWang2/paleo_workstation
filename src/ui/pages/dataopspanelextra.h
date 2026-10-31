@@ -45,6 +45,7 @@
 #include "qgis/coordinateeditor.h"
 #include "qgis/crsselector.h"
 #include <limits>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 class QgisProjectService;
 
@@ -785,7 +786,7 @@ public:
     setObjectName(QStringLiteral("operationsHistoryDialog"));
     setWindowTitle(tr("最近操作"));
     setModal(false);
-    resize(420, 300);
+    paleo::ui::resizeWithinScreen(this, 420, 300);
     auto *lay = new QVBoxLayout(this);
     m_list = new QListWidget(this);
     m_list->setObjectName(QStringLiteral("operationsHistoryList"));

@@ -7,6 +7,7 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 FaciesConsistencyDialog::FaciesConsistencyDialog(QWidget *parent) : QDialog(parent) {
   setObjectName("faciesConsistencyDialog");
@@ -55,7 +56,7 @@ FaciesConsistencyDialog::FaciesConsistencyDialog(QWidget *parent) : QDialog(pare
     emit wellActivated(r.value("well_id").toString(), r.value("x").toDouble(),
                        r.value("y").toDouble());
   });
-  resize(720, 520);
+  paleo::ui::resizeWithinScreen(this, 720, 520);
 }
 
 void FaciesConsistencyDialog::setReport(const QVariantMap &report) {

@@ -12,6 +12,7 @@
 #include "paleoviewport.h" // PaleoViewportStack + PaleoPanelHost
 #include "paleoemptystate.h" // T31 空态卡片共享组件
 #include "paleotheme.h"
+#include "windowsizing_internal.h" // charColumns（R7 #885 启动页块宽）
 #include "paleoicons.h"
 #include "notifications/paleonotify.h" // 启动页「新建工程失败」弹窗
 #include "decorations/paleodecorations.h" // PaleoDecorationManager（D11 水印宿主）
@@ -83,10 +84,21 @@ using paleo::mainwindow_internal::readRecentProjects;
 // openProjectButton.
 QWidget *makeStartupPage()
 {
-  auto *page = new QWidget;
-  page->setObjectName(QStringLiteral("startupPage"));
+  auto *outer = new QWidget;
+  outer->setObjectName(QStringLiteral("startupPage"));
+  auto *outerLay = new QVBoxLayout(outer);
+  outerLay->setContentsMargins(PaleoTheme::tokens().spacing2xl, PaleoTheme::tokens().spacing2xl, PaleoTheme::tokens().spacing2xl, PaleoTheme::tokens().spacing2xl);
+  // R7 #885：内容块整体居中（上下各一份 stretch），宽屏不再左上漂 + 大片空白；块宽上限取
+  // 「舒适阅读行宽」≈ 100 个平均字符（随字体/DPI 缩放，非裸 px），窄窗下照常收窄。
+  auto *page = new QWidget(outer);
+  page->setObjectName(QStringLiteral("startupContent"));
+  page->setMaximumWidth(paleo::ui_detail::charColumns(page, 100));
+  page->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred); // 对齐布局下仍可横向伸展到上限
+  outerLay->addStretch(1);
+  outerLay->addWidget(page, 0, Qt::AlignHCenter);
+  outerLay->addStretch(1);
   auto *lay = new QVBoxLayout(page);
-  lay->setContentsMargins(PaleoTheme::tokens().spacing2xl, PaleoTheme::tokens().spacing2xl, PaleoTheme::tokens().spacing2xl, PaleoTheme::tokens().spacing2xl);
+  lay->setContentsMargins(0, 0, 0, 0);
   lay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *title = new QLabel(QCoreApplication::translate("PaleoMainWindow", "Paleo Workbench"), page);
@@ -107,6 +119,10 @@ QWidget *makeStartupPage()
   list->setObjectName(QStringLiteral("recentProjectsList"));
   list->setAccessibleName(QCoreApplication::translate("PaleoMainWindow", "最近工程列表"));
   list->setIconSize(PaleoIcons::toolbarSize());
+  // R7 #885：列表高度贴合条目（空态仅一行提示，不再是占满 2/3 列的大白框）；条目多时
+  // 受可用高度约束并出滚动条。AdjustToContents 随 clear()/新增条目自动重算 sizeHint。
+  list->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+  list->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
   const QStringList recent = readRecentProjects();
   for (const QString &p : recent)
   {
@@ -142,21 +158,23 @@ QWidget *makeStartupPage()
   actionColumn->addWidget(newBtn);
   actionColumn->addWidget(openBtn);
   actionColumn->addWidget(fromAreaBtn);
-  actionColumn->addStretch(1);
+  actionColumn->addStretch(1); // 纵向：按钮顶对齐
   auto *recentColumn = new QVBoxLayout;
   recentColumn->setSpacing(PaleoTheme::tokens().spacingSm);
   recentColumn->addWidget(recentLabel);
-  recentColumn->addWidget(list, 1);
+  recentColumn->addWidget(list);
+  recentColumn->addStretch(1);
   auto *contentRow = new QHBoxLayout;
   contentRow->setSpacing(PaleoTheme::tokens().spacingXl);
-  contentRow->addLayout(actionColumn, 1);
-  contentRow->addLayout(recentColumn, 2);
+  // R7 #885：操作列取按钮内容宽（stretch 0），不再被 1:2 横向拉成半屏扁条。
+  contentRow->addLayout(actionColumn, 0);
+  contentRow->addLayout(recentColumn, 1);
 
   lay->addWidget(title);
   lay->addWidget(sub);
   lay->addSpacing(PaleoTheme::tokens().spacingMd);
-  lay->addLayout(contentRow, 1);
-  return page;
+  lay->addLayout(contentRow);
+  return outer;
 }
 // T31 空态标签已收敛为共享组件 ui/paleoemptystate（本文件旧匿名类删除）；
 // layertreepanel 的复制版迁移登记在 docs/progress/ux.md seam 表。

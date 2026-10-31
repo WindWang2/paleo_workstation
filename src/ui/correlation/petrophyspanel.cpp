@@ -237,7 +237,7 @@ void PetroPhysPanel::buildUi()
   m_progress->setObjectName(QStringLiteral("petrophysProgress"));
   m_progress->setRange(0, 100);
   m_progress->setValue(0);
-  m_progress->setFixedWidth(160);
+  m_progress->setFixedWidth(m_progress->fontMetrics().averageCharWidth() * 20); // #881：字体推导
   m_progress->setTextVisible(false);
   row3->addWidget(m_progress);
   m_lblStatus = new QLabel(tr("未计算"));

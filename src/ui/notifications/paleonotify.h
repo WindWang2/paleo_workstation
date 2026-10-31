@@ -26,6 +26,12 @@ void information(QWidget *parent, const QString &title, const QString &text,
 void critical(QWidget *parent, const QString &title, const QString &text,
               const QString &source = QString());
 
+// #864：复制到剪贴板后的轻量非阻塞反馈（统一口径「<what>已复制到剪贴板」）。
+// 有呈现层且调用方在宿主/对话框内 → 入账 ErrorHub Info（状态栏）；否则（独立
+// 顶层窗/无呈现层）在光标处给一个短暂 tooltip——**永不模态**，复制不该打断用户。
+// what 为空时用「内容」。
+void copied(QWidget *parent, const QString &what = QString());
+
 // 模态保留：报告型提示（多行统计/路径清单等需要用户读完的内容）。
 void report(QWidget *parent, const QString &title, const QString &text);
 

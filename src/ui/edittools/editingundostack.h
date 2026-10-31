@@ -52,10 +52,15 @@ class PaleoUndoStack : public QObject
     bool canUndo() const;
     bool canRedo() const;
     int count() const; // command groups on the native stack
+    // #869：将撤销/重做的命令名（QUndoStack::undoText/redoText 原样转发；
+    // 无可撤销或命令未命名时为空），供按钮提示展示「撤销 %1」。
+    QString undoText() const;
+    QString redoText() const;
 
   signals:
     void canUndoChanged( bool canUndo );
     void canRedoChanged( bool canRedo );
+    void indexChanged(); // 栈位置变化（命令名可能变化，canUndo 不一定变）
     void layerChanged( QgsVectorLayer *layer );            // after a successful setLayer
     void switchRefused( const QString &layerId, const QString &reason );
 

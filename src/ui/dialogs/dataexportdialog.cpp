@@ -19,6 +19,7 @@
 #include <QUuid>
 #include <QVBoxLayout>
 #include <QTimer>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 DataExportDialog::DataExportDialog(DataCatalog *catalog, const QStringList &assetIds, PaleoTaskService *tasks, QWidget *parent, const QStringList &selectedVersions)
     : QDialog(parent), m_catalog(catalog), m_tasks(tasks), m_assetIds(assetIds), m_selectedVersions(selectedVersions) {
@@ -76,7 +77,7 @@ DataExportDialog::DataExportDialog(DataCatalog *catalog, const QStringList &asse
   connect(m_references, &QCheckBox::toggled, this, &DataExportDialog::schedulePreview);
   connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-  root->addWidget(buttons); refreshVersions(); schedulePreview(); resize(680, 460);
+  root->addWidget(buttons); refreshVersions(); schedulePreview(); paleo::ui::resizeWithinScreen(this, 680, 460);
 }
 DataExportDialog::~DataExportDialog() { if (m_previewTask && m_previewTask->running()) m_previewTask->requestCancel(); }
 void DataExportDialog::schedulePreview() {

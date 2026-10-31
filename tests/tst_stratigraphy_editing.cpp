@@ -90,12 +90,27 @@ private slots:
   QVERIFY(wf.loadVersion(fixture.interpretation,QString::fromStdString(saved)));QCOMPARE(boundary(wf,id,"T72").md,142.);QVERIFY(!wf.canUndo());
   wf.setProject(fixture.directory.path(),true);wf.addBoundary(id,118,"read only");QCOMPARE(wf.document().revision,saved);
  }
+ // #868/#869：未保存时「加载井道图」走 PaleoNotify::ask，离屏默认拒绝（旧 QMessageBox 会阻塞）；
+ // 页内 Ctrl+Z（stratigraphy.undo）撤销编辑。
+ void unsavedReplaceDefaultsToCancelAndUndoShortcut() {
+  Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));StratigraphyWorkflow wf(nullptr);wf.setProject(fixture.directory.path(),false);
+  StratigraphyPage page(&wf);page.show();QVERIFY(QTest::qWaitForWindowExposed(&page));
+  const auto id=fixture.first;wf.addBoundary(id,120,"Manual pick");QVERIFY(wf.hasUnsavedChanges());const auto cycles=well(wf,id).cycles.size();
+  auto* load=page.findChild<QPushButton*>("loadCorrelationWells");QVERIFY(load);load->click();
+  QVERIFY(wf.hasUnsavedChanges());QCOMPARE(well(wf,id).cycles.size(),cycles);
+  QVERIFY(wf.canUndo());auto* undoButton=page.findChild<QPushButton*>("undoInterpretation");QVERIFY(undoButton);QTRY_VERIFY(undoButton->isEnabled());
+  page.activateWindow();QVERIFY(QTest::qWaitForWindowActive(&page));page.setFocus();
+  QTest::keySequence(&page,QKeySequence(QKeySequence::Undo));QCoreApplication::processEvents();
+  QCOMPARE(well(wf,id).cycles.size(),cycles-1);
+ }
  void annotationOnWellTracksAndFlattenedDrag() {
   PaleoTheme::applyLightTheme();
   Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));StratigraphyWorkflow wf(nullptr);wf.setProject(fixture.directory.path(),false);
   StratigraphyPage page(&wf);page.resize(1800,1100);page.show();QTest::qWait(100);
   auto* section=page.findChild<WellComposite::MultiWellView*>("stratigraphySection");QVERIFY(section);QCOMPARE(section->panelCount(),2);
   auto* panel=section->panelAt(0);QVERIFY(panel);auto* canvas=panel->canvas();auto* view=canvas->depthViewport();QVERIFY(view);
+  // #880：道总宽不得钉成井柱 panel 的最小宽（窄预览区靠画布自带横滚）。
+  QVERIFY(panel->minimumWidth()<qRound(canvas->totalTracksWidth()));
   const auto id=panel->property("wellId").toLongLong();QCOMPARE(id,fixture.first);
   WellComposite::ComprehensiveWellData preview;QVERIFY(PreviewDocService::wellCompositeForWell(paleo::area_model::directory(fixture.directory.path()),id,&preview,&error));
   QCOMPARE(preview.continuousCurves.size(),2);QCOMPARE(panel->currentData().continuousCurves.size(),3);

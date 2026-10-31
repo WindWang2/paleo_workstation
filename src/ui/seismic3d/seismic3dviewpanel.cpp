@@ -207,7 +207,7 @@ void Seismic3DViewPanel::buildUi() {
         return QStringLiteral("color: %1;")
             .arg(PaleoTheme::tokens().textMuted.name().toUpper());
     });
-    timeMsLabel_->setFixedWidth(80);
+    timeMsLabel_->setFixedWidth(timeMsLabel_->fontMetrics().horizontalAdvance(QStringLiteral("99999.9 ms")) + timeMsLabel_->fontMetrics().averageCharWidth()); // #881
 
     bottomLay->addWidget(lblTime, 2, 0);
     bottomLay->addWidget(timeSlider_, 2, 1);

@@ -1,4 +1,5 @@
 // 层：数据
+#include "domain/shaequals.h"
 #include "externalsourceverification.h"
 #include "datacatalog.h"
 #include <paleo_data/service.h>
@@ -66,7 +67,7 @@ bool verifyExternalSourceFile(const QString &project, const CatalogVersion &vers
     if (source.id != sourceId) continue;
     std::string actualPath;
     if (!service.sourcePath(sourceId, actualPath, detail)) return fail(QString::fromUtf8(detail));
-    if (QString::fromUtf8(source.sha256) != version.sha256 ||
+    if (!paleo::domain::shaEquals(QString::fromUtf8(source.sha256), version.sha256) ||
         pathKey(QString::fromUtf8(actualPath)) != pathKey(version.path)) {
       if (mismatched) *mismatched = true;
       return fail(QStringLiteral("资料版本与工区模型来源不一致，请刷新资料索引"));

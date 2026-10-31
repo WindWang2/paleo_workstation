@@ -97,6 +97,8 @@ private:
   QPushButton *m_rename = nullptr;
   QPushButton *m_delete = nullptr;
   QTextBrowser *m_transcript = nullptr;
+  class PaleoEmptyStateLabel *m_emptyState = nullptr; // #870 对话区空态指引
+  void updateEmptyState();
   QWidget *m_cards = nullptr;
   QVBoxLayout *m_cardLayout = nullptr;
   QTextEdit *m_input = nullptr;

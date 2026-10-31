@@ -49,6 +49,9 @@ PaleoDockManager::PaleoDockManager(QMainWindow *window, const QString &settingsK
   window->setAnimated(false); // Native drop preview must follow the pointer immediately.
   window->setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::South);
   m_preview->setAttribute(Qt::WA_TransparentForMouseEvents);
+  m_crampTimer.setSingleShot(true);
+  m_crampTimer.setInterval(0);
+  connect(&m_crampTimer, &QTimer::timeout, this, &PaleoDockManager::fitIfCentralCramped);
   const QStringList labels = {tr("← 左侧停靠"), tr("右侧停靠 →"),
                               tr("↑ 顶部停靠"), tr("↓ 底部停靠")};
   for (const QString &label : labels) {
@@ -152,7 +155,10 @@ void PaleoDockManager::showLayoutMessage(const QString &text)
 
 void PaleoDockManager::fitLayout()
 {
-  // An explicit user command; never connected to content or page changes.
+  // An explicit user command (or the cramped-central guard); never connected to content or page changes.
+  // R7 #886：不再钉 120/360/280 任意像素帽。每个 dock 的目标 = 当前宽/高夹在
+  // [dock 自身 minimumSizeHint, 可用区 1/4] 之间：大屏上 1/4 随窗口变大、用户拖宽的合理
+  // 宽度保留；只把挤占中央区的过宽栏收回、把塌到内容下限以下的栏撑回内容下限。
   for (Qt::DockWidgetArea area : areas) {
     QList<QDockWidget *> docks;
     QList<int> sizes;
@@ -160,8 +166,11 @@ void PaleoDockManager::fitLayout()
     const int available = side ? m_window->width() : m_window->height();
     for (const auto &dock : m_docks)
       if (dock && dock->isVisible() && !dock->isFloating() && m_window->dockWidgetArea(dock) == area) {
+        const QSize hint = dock->minimumSizeHint();
+        const int lo = side ? hint.width() : hint.height();
+        const int hi = qMax(lo, available / 4);
         docks.append(dock);
-        sizes.append(qBound(120, available / 4, side ? 360 : 280));
+        sizes.append(qBound(lo, side ? dock->width() : dock->height(), hi));
       }
     if (!docks.isEmpty())
       m_window->resizeDocks(docks, sizes, side ? Qt::Horizontal : Qt::Vertical);
@@ -249,6 +258,10 @@ QMenu *PaleoDockManager::createMenu(QWidget *parent)
 
 bool PaleoDockManager::eventFilter(QObject *object, QEvent *event)
 {
+  // R7 #886：主窗口缩窗时与布局设计器同口径——中央区被侧栏挤到不足一半才自动让位
+  // （合并到下一轮事件循环，拖拽缩窗期间只跑一次）。
+  if (object == m_window && m_window->isWindow() && event->type() == QEvent::Resize)
+    m_crampTimer.start();
   // Floating panels belong to their preview tab, not to every preview at once.
   if (object == m_window && !m_window->isWindow()) {
     if (event->type() == QEvent::Hide)

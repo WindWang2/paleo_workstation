@@ -162,8 +162,6 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
     e.surfaceX = row.surfaceX;
     e.surfaceY = row.surfaceY;
     e.hasSurface = row.hasSurface;
-    e.kb = row.kb;
-    e.td = row.td;
     e.coordinateStatus = q(row.coordinateStatus);
     e.inlineMin = row.inlineMin;
     e.inlineMax = row.inlineMax;
@@ -173,10 +171,8 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
     e.startTimeMs = row.startTimeMs;
     e.corners = cornersFromJsonText(q(row.cornersJson));
     e.extra = mapFromJson(q(row.extraJson));
-    if (e.extra.value(paleo::catalog_detail::kKbMissingKey).toBool() ||
-        e.extra.value(paleo::catalog_detail::kLegacyKbMissingKey).toBool()) e.kb = qQNaN();
-    if (e.extra.value(paleo::catalog_detail::kTdMissingKey).toBool() ||
-        e.extra.value(paleo::catalog_detail::kLegacyTdMissingKey).toBool()) e.td = qQNaN();
+    e.kb = paleo::catalog_detail::storedKb(row.kb, e.extra).value_or(qQNaN());
+    e.td = paleo::catalog_detail::storedTd(row.td, e.extra).value_or(qQNaN());
     e.extra.remove(paleo::catalog_detail::kKbMissingKey);
     e.extra.remove(paleo::catalog_detail::kTdMissingKey);
     e.extra.remove(paleo::catalog_detail::kLegacyKbMissingKey);

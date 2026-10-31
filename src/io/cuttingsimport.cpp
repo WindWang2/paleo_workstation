@@ -1,4 +1,5 @@
 // 层：数据
+#include "domain/shaequals.h"
 #include "cuttingsimport.h"
 #include "cuttingsdoc.h"
 #include "dataimportservice.h"
@@ -11,12 +12,12 @@ namespace paleo::io {
 bool storeImportedCuttings(ImportSession &s, const CatalogVersion &raw,
                            const QString &path, QString *error) {
   const auto fail = [&](const QString &message) { if (error) *error = message; return false; };
-  if (DataCatalog::sha256FileHex(path) != raw.sha256)
+  if (!paleo::domain::shaEquals(DataCatalog::sha256FileHex(path), raw.sha256))
     return fail(QObject::tr("岩屑录井表内容已变化，请重新预览：%1").arg(path));
   const auto table = readCuttingsFile(path);
   if (!table.ok || table.intervals.isEmpty())
     return fail(QObject::tr("岩屑录井表没有可用井段：%1；%2").arg(path, table.error));
-  if (DataCatalog::sha256FileHex(path) != raw.sha256)
+  if (!paleo::domain::shaEquals(DataCatalog::sha256FileHex(path), raw.sha256))
     return fail(QObject::tr("岩屑录井表读取期间发生变化，请重试：%1").arg(path));
   QByteArray bytes = QStringLiteral("顶深,底深,岩性,描述,数据来源\n").toUtf8();
   const auto quote = [](QString value) { value.replace('"', "\"\""); return '"' + value + '"'; };

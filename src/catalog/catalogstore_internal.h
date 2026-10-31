@@ -7,6 +7,10 @@
 #include "../metadata/storeerrors_internal.h"
 
 #include <QFileInfo>
+#include <QVariantMap>
+
+#include <cmath>
+#include <optional>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -72,6 +76,20 @@ inline const QString kKbMissingKey = QStringLiteral("#kbMissing");
 inline const QString kTdMissingKey = QStringLiteral("#tdMissing");
 inline const QString kLegacyKbMissingKey = QStringLiteral("kbMissing");
 inline const QString kLegacyTdMissingKey = QStringLiteral("tdMissing");
+
+// #890：sqlite 行 kb/td 的唯一合规读路径——尊重缺失标记（前缀键与旧无前缀键），
+// 标记为真则返回 nullopt（列里的 0 是伪值），否则返回原列值。
+inline std::optional<double> storedDepth(double raw, const QVariantMap &extra,
+                                         const QString &key, const QString &legacyKey)
+{
+  if (extra.value(key).toBool() || extra.value(legacyKey).toBool() || !std::isfinite(raw))
+    return std::nullopt;
+  return raw;
+}
+inline std::optional<double> storedKb(double raw, const QVariantMap &extra)
+{ return storedDepth(raw, extra, kKbMissingKey, kLegacyKbMissingKey); }
+inline std::optional<double> storedTd(double raw, const QVariantMap &extra)
+{ return storedDepth(raw, extra, kTdMissingKey, kLegacyTdMissingKey); }
 
 // #476：versions(asset_id, version_number) 唯一索引（部分索引：>1 的显式
 // 编号族才参与——0/1 档是未编号/首版的存量语义面）——写侧 open 时尽力落

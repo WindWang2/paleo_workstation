@@ -182,6 +182,29 @@ class TestRibbonTitleFit : public QObject
       QVERIFY(!named<QToolButton>("titleMoreButton")->isVisible());
     }
 
+    // R7 #884：成品在 enableTitleRowFit 之后才往快速访问栏加带文字的保存/撤销/重做；
+    // 仅靠事件循环（不手动 refit）也必须让页签不进横滚。
+    void quickAccessGrowthAfterFitRefits()
+    {
+      setWidth(1600);
+      auto *qab = bar()->quickAccessBar();
+      QVERIFY(qab);
+      qab->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+      const QIcon ic = QApplication::style()->standardIcon(QStyle::SP_DialogSaveButton);
+      for (const char *n : {"保存工程", "撤销", "重做"})
+        qab->addAction(new QAction(ic, QString::fromUtf8(n), qab));
+      m_win->resize(864, m_win->height());
+      QTest::qWait(50);
+      QApplication::processEvents();
+      QTest::qWait(50);
+      QVERIFY2(tabsProblem().isEmpty(), qPrintable(tabsProblem()));
+      // 还原，免得影响后续用例
+      for (QAction *a : qab->actions())
+        qab->removeAction(a);
+      qab->setToolButtonStyle(Qt::ToolButtonIconOnly);
+      setWidth(1600);
+    }
+
     void cleanupTestCase() { delete m_win; }
 };
 

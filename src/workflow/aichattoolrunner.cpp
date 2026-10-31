@@ -547,7 +547,10 @@ void AiChatToolRunner::runQuery(const ChatToolCall &call,
         wellLike[i].name.isEmpty() ? wellLike[i].id : wellLike[i].name);
       entry.insert(QStringLiteral("id"), wellLike[i].id);
       entry.insert(QStringLiteral("type"), wellLike[i].entityType);
-      entry.insert(QStringLiteral("td"), wellLike[i].td);
+      if (const auto td = wellLike[i].tdValue())
+        entry.insert(QStringLiteral("td"), *td);
+      else
+        entry.insert(QStringLiteral("td"), QJsonValue::Null); // #890：缺失不冒充 0
       wells.append(entry);
     }
     payload.insert(QStringLiteral("count"), wellLike.size());

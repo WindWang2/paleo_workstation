@@ -13,3 +13,10 @@ leak:libQt6Widgets
 leak:qt_plugin_instance
 leak:QApplication
 leak:QObjectPrivate
+# #873：fontconfig 在 QFontDatabase::addApplicationFont → FcConfigGetFonts 内经
+# expat 解析 fonts.conf 时分配的配置缓存（进程级，设计内不释放）。run 41103414173
+# linux-asan 全部 13 条 leak 报告（256B direct + 64B indirect，14 个 ui 测例
+# Subprocess aborted，入口 PaleoTheme::ensureApplicationFonts）栈底均为此；
+# 无 Paleo 自有分配。
+leak:libfontconfig.so
+leak:FcConfigGetFonts

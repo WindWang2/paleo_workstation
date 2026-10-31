@@ -209,7 +209,7 @@ void SeismicSectionDockWidget::setupUi() {
         return QStringLiteral("color: %1;")
             .arg(PaleoTheme::tokens().text.name().toUpper());
     });
-    m_lblTimeMs->setFixedWidth(68);
+    m_lblTimeMs->setFixedWidth(m_lblTimeMs->fontMetrics().horizontalAdvance(QStringLiteral("99999.9 ms")) + m_lblTimeMs->fontMetrics().averageCharWidth()); // #881：按最宽读数推导，防抖动且不裁切
     m_lblTimeMs->setVisible(false);
     sliceLay->addWidget(m_lblTimeMs);
 
@@ -405,7 +405,7 @@ void SeismicSectionDockWidget::setupUi() {
     m_progressBar->setObjectName(QStringLiteral("sectionProgressBar"));
     m_progressBar->setRange(0, 100);
     m_progressBar->setValue(0);
-    m_progressBar->setFixedWidth(140);
+    m_progressBar->setFixedWidth(m_progressBar->fontMetrics().averageCharWidth() * 20); // #881：字体推导
     m_progressBar->setTextVisible(true);
     m_progressBar->setVisible(false);
     statusLay->addWidget(m_progressBar);

@@ -35,6 +35,7 @@
 #include "../paleotheme.h"
 #include "../notifications/paleonotify.h"
 #include "dataops/dataopsimportlogic.h"
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace paleo::dataops
 {
@@ -50,7 +51,7 @@ public:
     setObjectName(QStringLiteral("importReportDialog"));
     setWindowTitle(tr("导入摘要"));
     setModal(true);
-    resize(520, 320);
+    paleo::ui::resizeWithinScreen(this, 520, 320);
     auto *lay = new QVBoxLayout(this);
     auto *text = new QPlainTextEdit(report, this);
     text->setObjectName(QStringLiteral("importReportText"));
@@ -61,8 +62,9 @@ public:
     rl->setContentsMargins(0, 0, 0, 0);
     auto *copy = new QPushButton(tr("复制"), row);
     copy->setObjectName(QStringLiteral("importReportCopy"));
-    connect(copy, &QPushButton::clicked, this, [text] {
+    connect(copy, &QPushButton::clicked, this, [this, text] {
       QGuiApplication::clipboard()->setText(text->toPlainText());
+      PaleoNotify::copied(this, tr("导入报告"));
     });
     auto *box = new QDialogButtonBox(QDialogButtonBox::Close, row);
     connect(box, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -421,7 +423,7 @@ public:
     setObjectName(QStringLiteral("importPresetDialog"));
     setWindowTitle(tr("导入预设"));
     setModal(true);
-    resize(520, 380);
+    paleo::ui::resizeWithinScreen(this, 520, 380);
     auto *lay = new QVBoxLayout(this);
     m_list = new QTreeWidget(this);
     m_list->setObjectName(QStringLiteral("importPresetList"));
@@ -484,7 +486,7 @@ public:
     setObjectName(QStringLiteral("duplicateDialog"));
     setWindowTitle(tr("重复文件检测"));
     setModal(true);
-    resize(560, 360);
+    paleo::ui::resizeWithinScreen(this, 560, 360);
     auto *lay = new QVBoxLayout(this);
     auto *hint = new QLabel(tr("以下文件与库内资产重复（SHA-256 或同名）。"
                                "逐条选择处置方式："), this);

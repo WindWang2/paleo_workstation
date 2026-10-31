@@ -1,9 +1,11 @@
 // 层：视图
 #include "faultmanagerpanel.h"
+#include <QShortcut>
 
 #include "qgis/qgiscanvascontroller.h"
 #include "ui/maptools/paleomaptools.h"
 #include "ui/paleotheme.h"
+#include "ui/shortcuts/shortcutcatalog.h"
 #include "workflow/faultinterpretationcontroller.h"
 
 #include <QComboBox>
@@ -58,10 +60,21 @@ FaultManagerPanel::FaultManagerPanel(FaultInterpretationController *controller,
         connect(m_controller, &FaultInterpretationController::faultSelectionChanged, this,
                 &FaultManagerPanel::onFaultSelectionChanged);
         if (auto *stack = m_controller->editStack()) {
-            connect(stack, &FaultEditStack::canUndoChanged, m_btnUndo, &QToolButton::setEnabled);
-            connect(stack, &FaultEditStack::canRedoChanged, m_btnRedo, &QToolButton::setEnabled);
-            m_btnUndo->setEnabled(stack->canUndo());
-            m_btnRedo->setEnabled(stack->canRedo());
+            // #869：按钮提示带将撤销/重做的命令名；每次 push/undo/redo 栈都发 can*Changed。
+            const auto sync = [this, stack] {
+                m_btnUndo->setEnabled(stack->canUndo());
+                m_btnRedo->setEnabled(stack->canRedo());
+                const QString u = stack->undoText(), r = stack->redoText();
+                m_btnUndo->setToolTip(!stack->canUndo() ? tr("没有可撤销的断层编辑")
+                                      : u.isEmpty()     ? tr("撤销最近一次断层编辑")
+                                                        : tr("撤销：%1").arg(u));
+                m_btnRedo->setToolTip(!stack->canRedo() ? tr("没有可重做的断层编辑")
+                                      : r.isEmpty()     ? tr("重做被撤销的断层编辑")
+                                                        : tr("重做：%1").arg(r));
+            };
+            connect(stack, &FaultEditStack::canUndoChanged, this, sync);
+            connect(stack, &FaultEditStack::canRedoChanged, this, sync);
+            sync();
         }
     }
     refreshTree();
@@ -144,6 +157,11 @@ void FaultManagerPanel::buildUi()
     connect(m_btnAdd, &QToolButton::clicked, this, &FaultManagerPanel::onAddFault);
     connect(m_btnRename, &QToolButton::clicked, this, &FaultManagerPanel::onRenameFault);
     connect(m_btnRemove, &QToolButton::clicked, this, &FaultManagerPanel::onRemoveFault);
+    // #869：面板内键盘撤销/重做（键序登记在 ShortcutCatalog fault.edit.*）。
+    connect(paleo::shortcuts::bindShortcut(QStringLiteral("fault.edit.undo"), this),
+            &QShortcut::activated, m_btnUndo, &QToolButton::click);
+    connect(paleo::shortcuts::bindShortcut(QStringLiteral("fault.edit.redo"), this),
+            &QShortcut::activated, m_btnRedo, &QToolButton::click);
     connect(m_btnUndo, &QToolButton::clicked, this, [this] {
         if (m_controller && m_controller->editStack())
             m_controller->editStack()->undo();

@@ -81,6 +81,7 @@ private slots:
     void askReturnsAcceptButton();
     void separateTopLevelKeepsModal();
     void historyOnlyNotPresented();
+    void copiedFeedbackNonModal();
     void cardFollowsThemeSwitch();
     void stormDoesNotFreezeMainThread();
     void stormFromWorkerThreadDelivered();
@@ -444,5 +445,23 @@ void TestNotifications::historyRingEvictionVisible()
     QCOMPARE(panel.rowCount(), 1);
 }
 
+// #864：复制到剪贴板必须有可见、非模态反馈（状态栏），文案统一。
+void TestNotifications::copiedFeedbackNonModal()
+{
+    Rig r;
+    ErrorHub::installGlobal(&r.hub);
+    const int before = r.hub.size();
+    PaleoNotify::copied(&r.win, QStringLiteral("错误历史"));
+    QCOMPARE(r.hub.size(), before + 1);
+    const auto e = r.hub.entries().last();
+    QCOMPARE(e.level, ErrorHub::Level::Info);
+    QCOMPARE(e.text, QStringLiteral("错误历史已复制到剪贴板"));
+    QCOMPARE(r.win.statusBar()->currentMessage(), QStringLiteral("错误历史已复制到剪贴板"));
+    QCOMPARE(r.center->modalShownCount(), 0);
+    QCOMPARE(r.center->visibleCardCount(), 0);
+    ErrorHub::installGlobal(nullptr);
+}
+
 QTEST_MAIN(TestNotifications)
 #include "tst_notifications.moc"
+

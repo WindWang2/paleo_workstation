@@ -33,6 +33,22 @@ struct VolumeReport
 bool volumeBetween(const float *top, const float *base, int cols, int rows, double dx,
                    double dy, VolumeReport *out, QString *error = nullptr);
 
+// #717：z 方向约定。高程（向上为正）厚度 = top − base；TWT/TVD 深度（向下
+// 为正）厚度 = base − top。调用方按层位域或用户选择传入，本核不猜。
+enum class ZConvention
+{
+  ElevationUp,  // z 向上为正（海拔/高程）
+  PositiveDown, // z 向下为正（TWT 时间、TVD 深度）
+};
+
+// 单像元带符号厚度（按约定）；任一侧非有限 → NaN。
+double signedThickness(double top, double base, ZConvention conv);
+
+// 按约定的层位面间体积：PositiveDown 时等价 volumeBetween(base, top, …)。
+bool volumeBetweenWithConvention(const float *top, const float *base, int cols, int rows,
+                                 double dx, double dy, ZConvention conv, VolumeReport *out,
+                                 QString *error = nullptr);
+
 // 基准面上方体积：thickness = max(z − datum, 0)（仅累计正部分；面低于
 // 基准的格计入 cells/面积但不贡献体积——与「挖方/填方」的挖方侧语义
 // 一致，如实不抵消）。

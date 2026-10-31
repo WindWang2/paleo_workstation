@@ -62,6 +62,7 @@ class TestSurfaceVolumes : public QObject
 
 private slots:
   void infCellsTreatedAsNull();
+  void positiveDownConventionIsPositive();
   // Oracle 3：规则几何面解析断言（≥2 用例）。
   void prismExactVolume();     // 棱柱：精确
   void wedgeExactVolume();     // 楔形：线性面矩形法则精确
@@ -283,6 +284,27 @@ void TestSurfaceVolumes::infCellsTreatedAsNull()
   QCOMPARE(d.cells, 1);
   QCOMPARE(d.nullCells, 1);
   QCOMPARE(d.volume, 5.0);
+}
+
+// #717：TWT 1000 ms 顶 / 1200 ms 底（向下为正）→ 厚度 +200、体积为正。
+void TestSurfaceVolumes::positiveDownConventionIsPositive()
+{
+  const std::vector<float> top(4, 1000.0f), base(4, 1200.0f);
+  QCOMPARE(signedThickness(1000.0, 1200.0, ZConvention::PositiveDown), 200.0);
+  QCOMPARE(signedThickness(1000.0, 1200.0, ZConvention::ElevationUp), -200.0);
+  QVERIFY(std::isnan(signedThickness(kNan, 1.0, ZConvention::PositiveDown)));
+  VolumeReport r;
+  QString err;
+  QVERIFY(volumeBetweenWithConvention(top.data(), base.data(), 2, 2, 10.0, 10.0,
+                                      ZConvention::PositiveDown, &r, &err));
+  QCOMPARE(r.positiveCells, 4);
+  QCOMPARE(r.negativeCells, 0);
+  QCOMPARE(r.meanThickness, 200.0);
+  QCOMPARE(r.volume, 200.0 * 400.0);
+  QVERIFY(volumeBetweenWithConvention(top.data(), base.data(), 2, 2, 10.0, 10.0,
+                                      ZConvention::ElevationUp, &r, &err));
+  QCOMPARE(r.negativeCells, 4);
+  QVERIFY(r.volume < 0);
 }
 
 QTEST_MAIN(TestSurfaceVolumes)

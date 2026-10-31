@@ -175,26 +175,13 @@ QVector<SubIntervalOccurrenceSummary> summarizeSubIntervalOccurrences(
 {
   QVector<SubIntervalOccurrenceSummary> out;
   const paleo::data::IntervalId iid{ intervalId.toStdString() };
-  int complete = 0, affected = 0, pending = 0;
-  for ( const auto &o : scheme.wellOccurrences )
-  {
-    if ( o.interval.value != iid.value )
-      continue;
-    const std::string &st = o.status;
-    if ( st == "complete" )
-      ++complete;
-    else if ( st == "pending" )
-      ++pending;
-    else
-      ++affected; // top_missing|not_penetrated|pinched_out|faulted|其他异常
-  }
-  const auto pickLight = [&]( int bindCurrent, int bindStale ) -> QString {
-    const int wells = complete + affected + pending;
-    if ( wells == 0 && bindCurrent == 0 && bindStale == 0 )
+  const auto pickLight = []( const SubIntervalOccurrenceSummary &r ) -> QString {
+    const int wells = r.wellsComplete + r.wellsProvisional + r.wellsAffected + r.wellsPending;
+    if ( wells == 0 && r.bindingsCurrent == 0 && r.bindingsStale == 0 )
       return QStringLiteral( "gray" );
-    if ( bindStale > 0 || ( wells > 0 && complete == 0 && pending == 0 ) )
+    if ( r.bindingsStale > 0 || ( wells > 0 && r.wellsAffected == wells ) )
       return QStringLiteral( "red" );
-    if ( pending > 0 || affected > 0 || ( wells > 0 && complete < wells ) )
+    if ( r.wellsProvisional > 0 || r.wellsPending > 0 || r.wellsAffected > 0 )
       return QStringLiteral( "yellow" );
     return QStringLiteral( "green" );
   };
@@ -212,9 +199,24 @@ QVector<SubIntervalOccurrenceSummary> summarizeSubIntervalOccurrences(
     SubIntervalOccurrenceSummary row;
     row.subIntervalId = QString::fromStdString( sub->id.value );
     row.label = QStringLiteral( "S%1" ).arg( sub->index );
-    row.wellsComplete = complete;
-    row.wellsAffected = affected;
-    row.wellsPending = pending;
+    // #862：每口有父单元记录的井按本子层段自己的顶底判定。
+    for ( const auto &o : scheme.wellOccurrences )
+    {
+      if ( o.interval.value != iid.value )
+        continue;
+      if ( o.status == "pending" )
+      {
+        ++row.wellsPending;
+        continue;
+      }
+      const auto r = fw::wellRange( scheme, o.wellId, sub->id );
+      if ( !r.resolved )
+        ++row.wellsAffected;
+      else if ( r.provisional )
+        ++row.wellsProvisional;
+      else
+        ++row.wellsComplete;
+    }
     if ( bindings )
     {
       for ( const auto &b : *bindings )
@@ -229,17 +231,19 @@ QVector<SubIntervalOccurrenceSummary> summarizeSubIntervalOccurrences(
           ++row.bindingsStale;
       }
     }
-    row.light = pickLight( row.bindingsCurrent, row.bindingsStale );
+    row.light = pickLight( row );
     // 完整性 / 可用资料 / 受影响 —— 一行可读中文。
-    const int wells = complete + affected + pending;
+    const int wells =
+      row.wellsComplete + row.wellsProvisional + row.wellsAffected + row.wellsPending;
     QString completeness;
     if ( wells == 0 )
       completeness = QStringLiteral( "无井出现记录" );
     else
-      completeness = QStringLiteral( "井出现 完整%1/受影响%2/待定%3" )
-                         .arg( complete )
-                         .arg( affected )
-                         .arg( pending );
+      completeness = QStringLiteral( "本子层段井 已约束%1/按比例派生%2/受影响%3/待定%4" )
+                         .arg( row.wellsComplete )
+                         .arg( row.wellsProvisional )
+                         .arg( row.wellsAffected )
+                         .arg( row.wellsPending );
     const QString materials = row.bindingsCurrent > 0
                                   ? QStringLiteral( "可用资料 %1" ).arg( row.bindingsCurrent )
                                   : QStringLiteral( "暂无登记成果" );

@@ -3230,6 +3230,26 @@ private slots:
     main.stopRendering();
   }
 
+  // #746：窄停靠首屏不横向滚动——默认视图数 = max(1, 视口/最窄视图)，≤4。
+  void evidencePanelDefaultViewCountFitsNarrowDock() {
+    QgsMapCanvas main;
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    MappingEvidencePanel panel(&main, nullptr);
+    QCOMPARE(panel.views().size(), 1); // 未显示前只有一个视图
+    panel.resize(panel.minViewWidth() * 2 + panel.minViewWidth() / 2, 360);
+    panel.show();
+    QCoreApplication::processEvents();
+    auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
+    const int expected = panel.fittingViewCount(scroll->viewport()->width());
+    QVERIFY(expected >= 1 && expected <= 2);
+    QCOMPARE(int(panel.views().size()), expected);
+    QVERIFY(!scroll->horizontalScrollBar()->isVisible());
+    QCOMPARE(panel.fittingViewCount(0), 1);
+    QCOMPARE(panel.fittingViewCount(100000), int(MappingEvidencePanel::kDefaultViewCount));
+    main.stopRendering();
+  }
+
   // #746：空视图不创建画布——首次选证据才建；其余空视图保持零 canvas。
   void evidenceViewsCreateCanvasLazily() {
     QgsMapCanvas main;

@@ -155,6 +155,8 @@ jobs:
           python3 tools/check_i18n.py --selftest
           python3 tools/check_ts_stale.py
           python3 tools/check_ts_stale.py --selftest
+          python3 tools/sync_en_ts_skeleton.py --check
+          python3 tools/sync_en_ts_skeleton.py --selftest
           python3 tools/check_qgis_versions.py
           python3 tools/check_qgis_versions.py --selftest
           python3 tools/check_ci_scripts.py
@@ -573,8 +575,26 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: ./paleo-dev.ps1 selfcheck
-      - name: Test (headless；QSettings 走测试私有注册表 hive（方向 81），片内串行)
+      # #872 探针：正式 Test 前只跑一个 C++ 测试（tst_runtime），单测 60s、整步 5 min。
+      # 加载器缺 DLL / 插件挂死在这里数分钟内判红并带 QT_DEBUG_PLUGINS 输出，
+      # 不再吊满 90 min；同样设 SetErrorMode/WER，退出码（如 0xC0000135）即根因。
+      - name: Probe first C++ test (fail fast, #872)
+        id: probe
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        timeout-minutes: 5
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_DEBUG_PLUGINS: "1"
+          PALEO_CTEST_ARGS: "-R ^tst_runtime$ --timeout 60 -V"
+        run: |
+          Add-Type -Namespace PaleoCi -Name Native -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetErrorMode(uint mode);'
+          [void][PaleoCi.Native]::SetErrorMode(0x8003)
+          New-Item -Path 'HKCU:\Software\Microsoft\Windows\Windows Error Reporting' -Force | Out-Null
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\Windows Error Reporting' -Name DontShowUI -Value 1 -Type DWord
+          ./paleo-dev.ps1 test
+      - name: Test (headless；QSettings 走测试私有注册表 hive（方向 81），片内串行)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.probe.outcome == 'success' }}
         shell: pwsh
         # 挂死快速判红：单测 ctest TIMEOUT 默认 300s（cmake PALEO_TEST_TIMEOUT，--timeout
         # 兜底无属性项），整步 90 min 硬上限。不用 --stop-on-failure：它会让 flaky 直跑放行

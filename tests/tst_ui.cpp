@@ -2308,7 +2308,9 @@ class TestUiShell : public QObject
       QCOMPARE(m_win->dockWidgetArea(dataRefWindow), Qt::BottomDockWidgetArea);
       QVERIFY(m_win->findChildren<QDialog *>("mappingReferenceWindow").isEmpty());
       auto *evidencePanel = dataRefWindow->findChild<MappingEvidencePanel *>(); QVERIFY(evidencePanel);
-      QCOMPARE(evidencePanel->views().size(), 4);
+      // #746：默认视图数按停靠视口宽推导（≤4），宽停靠下至少两视图并排。
+      const int defaultViews = int(evidencePanel->views().size());
+      QVERIFY(defaultViews >= 2 && defaultViews <= MappingEvidencePanel::kDefaultViewCount);
       QCOMPARE(evidencePanel->views().first()->property("paleo.referenceVersion").toString(), mapVersion.id);
       QCOMPARE(m_ctx->selection()->activeHorizon(),QString("D61"));
       QCOMPARE(page->selectedLayer(),id);
@@ -2390,7 +2392,7 @@ class TestUiShell : public QObject
       for (auto *dock : m_win->findChildren<PaleoDockWidget *>())
         if (dock->property("paleo.mappingReference").toBool()) ++referenceCount;
       QCOMPARE(referenceCount, 1);
-      QCOMPARE(evidencePanel->views().size(), 4); // 再次打开入口不再创建面板或空视图。
+      QCOMPARE(evidencePanel->views().size(), defaultViews); // 再次打开入口不再创建面板或空视图。
       auto *newReference = evidencePanel->views()[1];
       QCOMPARE(newReference->findChildren<QComboBox *>().size(), 1);
       newReference->selectSource(id);
@@ -2409,7 +2411,7 @@ class TestUiShell : public QObject
       }
       const QRect panelGeometry = editingRef->geometry();
       evidencePanel->findChild<QPushButton *>("referenceAddView")->click();
-      QCOMPARE(evidencePanel->views().size(), 5);
+      QCOMPARE(evidencePanel->views().size(), defaultViews + 1);
       QCoreApplication::processEvents();
       QCOMPARE(editingRef->geometry(), panelGeometry);
       QCOMPARE(m_win->findChildren<MappingEvidencePanel *>().size(), 1);
@@ -2422,7 +2424,7 @@ class TestUiShell : public QObject
       if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty())
         QVERIFY(m_win->grab().save(qa + "/evidence-panels-five-light.png"));
       thirdView->findChild<QToolButton *>("referenceRemoveView")->click();
-      QCOMPARE(evidencePanel->views().size(), 4);
+      QCOMPARE(evidencePanel->views().size(), defaultViews);
       m_win->showPage("data");
       QVERIFY(editingRef->isHidden());
       m_win->showPage("compose");

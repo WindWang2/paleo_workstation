@@ -64,9 +64,11 @@ struct SubIntervalOccurrenceSummary
   QString label; // S1..S4
   QString light; // green|yellow|red|gray
   QString line;  // 一行中文（含灯号）
-  int wellsComplete = 0;
-  int wellsAffected = 0; // top_missing|not_penetrated|pinched_out|faulted
-  int wellsPending = 0;
+  // #862：逐子层段统计（fw::wellRange），不再抄父单元计数。
+  int wellsComplete = 0;    // resolved && !provisional（界限已被解释约束）
+  int wellsProvisional = 0; // resolved && provisional（按父单元 Division 比例派生）
+  int wellsAffected = 0;    // !resolved（缺失/未钻穿/尖灭/断失等）
+  int wellsPending = 0;     // 父单元出现状态 pending
   int bindingsCurrent = 0;
   int bindingsStale = 0; // stale|review_required
 };

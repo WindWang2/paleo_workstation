@@ -9,6 +9,7 @@
 #include <QComboBox>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QShowEvent>
 #include <QSizePolicy>
 #include <QTimer>
 #include <QToolButton>
@@ -365,8 +366,12 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
     const QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
     for (const auto &v : settings.value(widthsKey(m_project)).toList()) m_savedWidths << v.toInt();
   }
-  connect(add, &QPushButton::clicked, this, [this] { addView(); });
-  for (int i = 0; i < kDefaultViewCount; ++i) addView();
+  connect(add, &QPushButton::clicked, this, [this] {
+    m_autoFill = false;
+    addView();
+  });
+  // #746：先放一个视图；首次可见时按视口宽补足（窄停靠不再首屏横向滚动）。
+  addView();
 }
 
 MappingReferencePanel *MappingEvidencePanel::addView()
@@ -410,6 +415,7 @@ void MappingEvidencePanel::removeView(MappingReferencePanel *view)
 {
   const auto index = m_views.indexOf(view);
   if (index < 0) return;
+  m_autoFill = false;
   m_views.removeAt(index);
   m_widths.remove(view);
   // #745：宽度按序号存，删视图必须立刻落盘——否则后续视图的宽度依次左移套到
@@ -452,6 +458,30 @@ void MappingEvidencePanel::layoutViews()
 int MappingEvidencePanel::minViewWidth() const
 {
   return fontMetrics().averageCharWidth() * 16;
+}
+
+int MappingEvidencePanel::fittingViewCount(int viewportWidth) const
+{
+  const int gap = m_handles.isEmpty() ? 0 : m_handles.first()->sizeHint().width();
+  const int per = minViewWidth() + gap;
+  return qBound(1, per > 0 ? viewportWidth / per : 1, int(kDefaultViewCount));
+}
+
+void MappingEvidencePanel::showEvent(QShowEvent *event)
+{
+  QWidget::showEvent(event);
+  if (m_autoFill) fillDefaultViews();
+}
+
+void MappingEvidencePanel::fillDefaultViews()
+{
+  if (!m_autoFill) return;
+  if (layout()) layout()->activate();
+  const int width = m_scroll->viewport()->width();
+  if (width <= 0) return;
+  m_autoFill = false;
+  const int target = fittingViewCount(width);
+  while (m_views.size() < target) addView();
 }
 
 int MappingEvidencePanel::minViewHeight() const
@@ -529,7 +559,10 @@ bool MappingEvidencePanel::eventFilter(QObject *watched, QEvent *event)
       if (auto *w = qobject_cast<QWidget *>(child))
         w->installEventFilter(this);
   }
-  if (event->type() == QEvent::Resize && watched == m_scroll->viewport()) updateViewSizes();
+  if (event->type() == QEvent::Resize && watched == m_scroll->viewport()) {
+    if (m_autoFill && isVisible()) fillDefaultViews();
+    updateViewSizes();
+  }
   if (event->type() == QEvent::Wheel) {
     auto *wheel = static_cast<QWheelEvent *>(event);
     const bool horizontal = qAbs(wheel->pixelDelta().x()) > qAbs(wheel->pixelDelta().y()) ||

@@ -1,5 +1,6 @@
 // 层：视图
 #include "seismicpickpanel.h"
+#include "ui/common/fitwidth.h"
 
 #include "../paleotheme.h"
 
@@ -63,11 +64,11 @@ void SeismicPickPanel::buildUi()
     row1->addWidget(new QLabel(tr("解释者:")));
     cboInterpreter_ = new QComboBox();
     cboInterpreter_->setEditable(true);
-    cboInterpreter_->setFixedWidth(110);
+    paleo::ui::fitWidthAtLeast(cboInterpreter_, 110);
     row1->addWidget(cboInterpreter_);
     row1->addWidget(new QLabel(tr("层位:")));
     editHorizon_ = new QLineEdit(tr("H1"));
-    editHorizon_->setFixedWidth(70);
+    paleo::ui::fitWidthAtLeast(editHorizon_, 70);
     row1->addWidget(editHorizon_);
     row1->addStretch();
     btnUndo_ = mkBtn(tr("↶ 撤销"), tr("撤销上一次拾取变更"));
@@ -83,14 +84,14 @@ void SeismicPickPanel::buildUi()
     spinTrackWindow_ = new QSpinBox();
     spinTrackWindow_->setRange(8, 128);
     spinTrackWindow_->setValue(24);
-    spinTrackWindow_->setFixedWidth(56);
+    paleo::ui::fitWidthAtLeast(spinTrackWindow_, 56);
     row2->addWidget(spinTrackWindow_);
     row2->addWidget(new QLabel(tr("相关阈值:")));
     spinTrackThreshold_ = new QDoubleSpinBox();
     spinTrackThreshold_->setRange(0.1, 0.99);
     spinTrackThreshold_->setSingleStep(0.05);
     spinTrackThreshold_->setValue(0.6);
-    spinTrackThreshold_->setFixedWidth(52);
+    paleo::ui::fitWidthAtLeast(spinTrackThreshold_, 52);
     row2->addWidget(spinTrackThreshold_);
     btnTrack_ = mkBtn(tr("▶ 追踪同相轴"), tr("以选中拾取（或最后拾取）为种子，局部互相关沿同相轴双向追踪"));
     row2->addWidget(btnTrack_);

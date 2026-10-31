@@ -5,6 +5,7 @@
 // 匿名命名空间：每个包含它的 TU 各持一份内部实现，不导出符号。
 
 #include "../correlationpanel.h"
+#include "ui/common/wheelzoom.h"
 #include "correlation_internal.h"
 #include "../paleotheme.h"
 #include "../../linkage/selectioncontext.h"
@@ -239,7 +240,7 @@ using paleo::ui_detail::kBorder;
       {
         if (e->modifiers() & Qt::ControlModifier)
         {
-          const qreal f = e->angleDelta().y() > 0 ? 1.15 : 1.0 / 1.15;
+          const qreal f = paleo::ui::wheelZoomFactor(e->angleDelta().y(), 1.15);
           const qreal cur = transform().m22();
           if ((f > 1.0 && cur < 20.0) || (f < 1.0 && cur > 0.25))
           {

@@ -62,14 +62,15 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
       , m_host( host )
     {
       setObjectName( QStringLiteral( "previewOverviewMap" ) );
-      setFixedSize( 200, 150 );
+      // #848：尺寸随主画布缩放（≈22% 宽，4:3，96x72..200x150），
+      // 小画布上不再固定 200x150 盖住大半主图。
+      resize( 200, 150 );
       setAttribute( Qt::WA_TransparentForMouseEvents, false );
 
       m_canvas = new QgsMapCanvas( this );
       m_canvas->setObjectName( QStringLiteral( "previewOverviewCanvas" ) );
       m_canvas->enableAntiAliasing( true );
       m_canvas->setCanvasColor( Qt::white );
-      m_canvas->setFixedSize( 200, 150 );
       // 不给工具：事件过滤接管点击/拖动（避免小画布抢滚轮/右键）。
       m_canvas->installEventFilter( this );
       // 停靠右下角（TOOLS.md §5）：父画布尺寸变化时随行。
@@ -96,8 +97,24 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
       reposition();
     }
 
+    static QSize sizeForCanvas( const QSize &canvas )
+    {
+      int w = qBound( 96, canvas.width() * 22 / 100, 200 );
+      int h = w * 3 / 4;
+      const int maxH = qMax( 72, canvas.height() * 30 / 100 );
+      if ( h > maxH )
+      {
+        h = maxH;
+        w = h * 4 / 3;
+      }
+      return { w, h };
+    }
+
     void reposition()
     {
+      const QSize want = sizeForCanvas( m_host->m_canvas->size() );
+      if ( size() != want )
+        resize( want );
       const int m = PaleoTheme::tokens().spacingSm;
       move( qMax( 0, m_host->m_canvas->width() - width() - m ),
             qMax( 0, m_host->m_canvas->height() - height() - m ) );

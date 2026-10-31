@@ -20,7 +20,7 @@ Seismic3DTfEditorWidget::Seismic3DTfEditorWidget(QWidget *parent)
     : QWidget(parent)
 {
     setMouseTracking(true);
-    setMinimumSize(300, 150);
+    setMinimumSize(200, 120);  // #847：原 300x150
     // #752：自绘数据控件也要键盘可达 + 无障碍名（读屏可识别用途与键位）
     setFocusPolicy(Qt::StrongFocus);
     setAccessibleName(tr("地震三维传递函数编辑器"));

@@ -53,7 +53,7 @@ class CurvePanel : public QWidget
 public:
   explicit CurvePanel(QWidget *parent = nullptr) : QWidget(parent)
   {
-    setMinimumSize(280, 320);
+    setMinimumSize(200, 200);  // #848：原 280x320
     setMouseTracking(true);
     m_vScroll = new QScrollBar(Qt::Vertical, this);
     m_vScroll->setVisible(false);
@@ -118,7 +118,8 @@ public:
     {
       const double v = values.at(i);
       const double d = depths.at(i);
-      if (std::isnan(v) || std::isnan(d) || v <= -9999.0)
+      // #853：LAS 标准空值 -999.25 也视为缺测（原仅滤 <= -9999）。
+      if (std::isnan(v) || std::isnan(d) || v <= -9999.0 || std::abs(v + 999.25) < 1e-6)
         continue;
       cd.pts.append(QPointF(v, d));
       vMin = qMin(vMin, v);
@@ -127,6 +128,10 @@ public:
       dMax = qMax(dMax, d);
     }
 
+    // #853：updateHoverValues 按深度 lower_bound 二分，必须深度升序；
+    // 深度递减（上倾/时间反向）数据原先悬停读数错误。
+    std::stable_sort(cd.pts.begin(), cd.pts.end(),
+                     [](const QPointF &a, const QPointF &b) { return a.y() < b.y(); });
     if (!cd.pts.isEmpty())
     {
       cd.vRange = {vMin == vMax ? vMin - 1.0 : vMin, vMax == vMin ? vMax + 1.0 : vMax};
@@ -136,6 +141,15 @@ public:
     m_curves.append(cd);
     updateScrollBar();
     update();
+  }
+
+  // 测试/只读：某曲线的有效点（深度升序）。
+  QVector<QPointF> curvePoints(const QString &name) const
+  {
+    for (const CurveData &c : m_curves)
+      if (c.name == name)
+        return c.pts;
+    return {};
   }
 
   // 单道兼容接口（time_depth 或旧代码调用）

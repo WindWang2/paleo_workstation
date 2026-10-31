@@ -24,7 +24,7 @@ SeismicSectionCanvas::SeismicSectionCanvas(QWidget *parent)
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    setMinimumSize(400, 300);
+    setMinimumSize(200, 150);  // #846：原 400x300 直接成为 dock 硬下限
     setToolTip(tr("左键拖拽平移；滚轮平移（Shift+滚轮横向）；Ctrl+滚轮缩放；双击适应窗口\n"
                   "方向键平移；+/- 缩放；PgUp/PgDn 步进切片"));
 }

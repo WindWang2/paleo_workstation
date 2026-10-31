@@ -110,7 +110,10 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
   m_input->setPlaceholderText(
     tr("向助手提问（Enter 发送，Shift+Enter 换行）"));
   m_input->setFont(PaleoTheme::bodyFont());
-  m_input->setFixedHeight(64);
+  // #851：原固定 64px，大字体下不足三行——至少 64，按字体三行高度。
+  m_input->setFixedHeight(
+    qMax(64, m_input->fontMetrics().lineSpacing() * 3 +
+                 2 * m_input->frameWidth() + 8));
   layout->addWidget(m_input);
 
   auto *actions = new QHBoxLayout;

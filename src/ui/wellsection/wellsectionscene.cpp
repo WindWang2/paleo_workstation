@@ -4,6 +4,7 @@
 // 吸顶版头 HeaderWidget + 视图 View。ColumnItem 在 _columns/_images、
 // 井间缝在 _seismicgap、断层投绘在 _faults（同族 TU）。
 #include "wellsectionscene.h"
+#include "ui/common/wheelzoom.h"
 
 #include "domain/faciesclassification.h"
 #include "domain/seismic/nicestep.h"
@@ -653,7 +654,7 @@ void View::wheelEvent(QWheelEvent *e)
     QGraphicsView::wheelEvent(e);
     return;
   }
-  const double f = delta > 0 ? 1.15 : 1.0 / 1.15;
+  const double f = paleo::ui::wheelZoomFactor(delta, 1.15);
   const auto mods = e->modifiers();
   if ((mods & Qt::ControlModifier) && (mods & Qt::ShiftModifier))
   {

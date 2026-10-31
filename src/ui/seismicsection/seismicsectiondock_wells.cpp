@@ -3,6 +3,7 @@
 // 任意线路径编辑器。投影/定位口径（#129/#146/#147）逐条照搬。
 // token 例外：DESIGN 数据符号例外：井旁道的分层位置标记，与数据图像使用原有蓝色。（tools/ui-token-exceptions.json 精确计数）。
 #include "ui/seismicsection/seismicsectiondockwidget.h"
+#include <QScreen>
 
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/welltracelocate.h"
@@ -44,8 +45,11 @@ public:
         // 与 paint 的 frac=(twt-t0)/(n·dt) 分层刻度（物理 TWT 升序）对齐。
         for (int s = 0; s < h; ++s)
             m_trace.push_back(slice.Value(col, h - 1 - s));
-        setMinimumSize(260, 460);
+        // #849：原 min 260x460（对话框 min 300x520 在 768 高屏放不下）；
+        // 首选尺寸仍为 300x520，最小只保留可读下限。
+        setMinimumSize(200, 240);
     }
+    QSize sizeHint() const override { return {300, 520}; }
 
 protected:
     void paintEvent(QPaintEvent *) override {
@@ -396,7 +400,14 @@ void SeismicSectionDockWidget::showWellSideTrace() {
             dlg->setAttribute(Qt::WA_DeleteOnClose);
             dlg->setWindowTitle(guard->tr("井旁道 · %1（IL %2 / XL %3）")
                                     .arg(well.wellName).arg(il).arg(xl));
-            dlg->setMinimumSize(300, 520);
+            dlg->setMinimumSize(240, 300);
+            {
+                // #849：首选 340x600，但不超过当前屏幕可用区 90%。
+                QSize want(340, 600);
+                if (QScreen *scr = guard->screen())
+                    want = want.boundedTo(scr->availableGeometry().size() * 0.9);
+                dlg->resize(want);
+            }
             auto *lay = new QVBoxLayout(dlg);
             auto *trace = new WellSideTraceWidget(&well, col, *image,
                                                   guard->m_canvas->sampleIntervalMs(),

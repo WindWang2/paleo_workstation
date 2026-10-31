@@ -1,5 +1,6 @@
 // 层：视图
 #include "datapreviewtabs.h"
+#include "ui/common/fitwidth.h"
 #include "datapreviewtabs_internal.h"
 
 // 共享辅助（caption8/qssHex/SectionPanel/CurvePanel 等）来自内部头——
@@ -356,7 +357,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
 
   auto *sliderTime = new QSlider(Qt::Horizontal, timeBar);
   sliderTime->setObjectName(QStringLiteral("timeSliceSlider"));
-  sliderTime->setFixedWidth(160);
+  paleo::ui::fitWidthAtLeast(sliderTime, 160);
   timeBarLay->addWidget(sliderTime);
 
   QFont mono8 = PaleoTheme::monoFont();
@@ -365,7 +366,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   auto *spinTime = new QSpinBox(timeBar);
   spinTime->setObjectName(QStringLiteral("timeSliceSpin"));
   spinTime->setFont(mono8);
-  spinTime->setFixedWidth(64);
+  paleo::ui::fitWidthAtLeast(spinTime, 64);
   timeBarLay->addWidget(spinTime);
 
   // 时间读数：mono 数字面 + 正文色（数值读数不是装饰蓝的三许可用途）。

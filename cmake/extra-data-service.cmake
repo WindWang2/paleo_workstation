@@ -129,4 +129,5 @@ add_paleo_test(tst_analysisresultsync LIBS paleo_workflow Paleo::paleo_data_serv
 add_paleo_test(tst_dataservice_framework LIBS Paleo::paleo_data_service Qt6::Core)
 target_link_libraries(tst_wellfacies PRIVATE Paleo::paleo_data_service)
 target_link_libraries(tst_factorworkflow PRIVATE Paleo::paleo_data_service)
+target_link_libraries(tst_mappingworkbench PRIVATE Paleo::paleo_data_service)
 target_link_libraries(paleo PRIVATE Paleo::paleo_data_service)

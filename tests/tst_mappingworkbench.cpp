@@ -2327,7 +2327,9 @@ private slots:
   }
   void analysisUnitBlankMapUsesFrozenSchemeIdentity() {
     Fixture f;QVERIFY(f.init());QString error;std::string detail;paleo::data::DataService ds;
-    QVERIFY(ds.createProject((f.dir.path()+"/artifacts/metadata/area-model").toStdString(),"test",detail));
+    const auto root=f.dir.path()+"/artifacts/metadata/area-model";
+    QVERIFY2(QFileInfo::exists(root+"/data.sqlite") ? ds.openProject(root.toStdString(),detail)
+               : ds.createProject(root.toStdString(),"test",detail),detail.c_str());
     auto draft=paleo::strat::draftScheme("test","test",{"A","B"},{});
     paleo::data::StratigraphicScheme scheme;std::vector<paleo::data::FrameworkIssue> issues;
     QVERIFY(ds.commitStratigraphicScheme(draft,{},scheme,issues,detail));
@@ -6298,8 +6300,10 @@ int main(int argc, char **argv) {
   // __fastfail（0xc0000409）缓冲的 stdout 也一起丢，ctest --output-on-failure
   // 什么都看不到。故追加 `-o <file>,txt` 让每条用例结果落盘，崩到哪条一目了然。
   const QByteArray logPath = QByteArray(QT_TESTCASE_BUILDDIR) + "/tst_mappingworkbench-result.txt";
-  QgsApplication app(argc, argv, true);
-  app.setPrefixPath("/usr", true);
+  QTemporaryDir profile;
+  if(!profile.isValid())return 1;
+  QgsApplication app(argc, argv, true,profile.path());
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH",QStringLiteral("/usr")), true);
   app.initQgis();
   GDALAllRegister();
   TestMappingWorkbench test;

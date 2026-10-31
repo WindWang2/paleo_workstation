@@ -166,8 +166,22 @@ void routeCanvasUndo(PaleoMainWindow *self, PaleoEditingToolbar *edit, MappingWo
   };
   edit->setSecondaryUndo([step] { return step(true); }, [step] { return step(false); });
 }
-} // namespace
-
+bool matchesWorkbenchHorizon(const SelectionContext *selection,const QString &horizon) {
+  return selection && (horizon==selection->activeHorizon() || horizon==paleo::strat::analysisLayerKey(selection->activeUnit()));
+}
+void bindWorkbenchPageHorizon(MappingWorkbenchPage *page,SelectionContext *selection) {
+  if(page->mode()==QLatin1String("compose")) {
+    const auto apply=[page](const paleo::strat::UnitSelection &unit) {
+      page->setProperty("paleo.unitDisplayName",unit.displayName);
+      page->setHorizon(paleo::strat::analysisLayerKey(unit));
+    };
+    apply(selection->activeUnit());QObject::connect(selection,&SelectionContext::activeUnitChanged,page,apply);
+  } else {
+    page->setHorizon(selection->activeHorizon());
+    QObject::connect(selection,&SelectionContext::activeHorizonChanged,page,&MappingWorkbenchPage::setHorizon);
+  }
+}
+}
 void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInteraction *evidence) {
   if (!workbench || property("workbenchAttached").toBool())
     return;
@@ -316,9 +330,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                                   m_projectSvc, show);
           });
   for (auto *page : pages) {
-    page->setHorizon(m_selection->activeHorizon());
-    connect(m_selection, &SelectionContext::activeHorizonChanged, page,
-            &MappingWorkbenchPage::setHorizon);
+    bindWorkbenchPageHorizon(page,m_selection);
     // #473：命令分发 lambda 链拆至 runWorkbenchCommand——捕获面转参数，
     // 捕获列表保持原名原序。
     connect(
@@ -345,7 +357,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
   connect(workbench, &MappingWorkbench::productReady, this,
           [this, show, pages, workbench, openWells,
            wellDock](const QString &h, const QString &id) {
-            if (h == m_selection->activeHorizon()) {
+            if (h == m_selection->activeHorizon() || h==paleo::strat::analysisLayerKey(m_selection->activeUnit())) {
               QString error;
               if (!show(id, &error))
                 statusBar()->showMessage(error, 10000);
@@ -486,7 +498,7 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
       const auto d = workbench->declaration(layerId);
       const auto extra = workbench->versionForLayer(layerId).extra;
       const auto horizon = d.horizon.isEmpty() ? extra.value("horizon").toString() : d.horizon;
-      if (!horizon.isEmpty() && horizon != h) return false;
+      if (!horizon.isEmpty() && !matchesWorkbenchHorizon(m_selection,horizon)) return false;
       return !layer->customProperty("paleo/faciesDisplayLegend").toList().isEmpty() ||
           workbench->supportsFaciesDisplay(layerId) ||
           paleo::singlefactor::isAnalysisFactorRaster(extra.value("kind").toString(), extra.value("value_source").toString()) ||
@@ -567,7 +579,7 @@ PaleoMainWindow::WorkbenchShowFn PaleoMainWindow::makeWorkbenchShow(
   return [this, workbench, legend, shown](const QString &id,
                                           QString *error) {
     const auto d = workbench->declaration(id);
-    if (!d.horizon.isEmpty() && d.horizon != m_selection->activeHorizon()) {
+    if (!d.horizon.isEmpty() && !matchesWorkbenchHorizon(m_selection,d.horizon)) {
       if (error)
         *error = tr("请切换至图件所属层位 %1，或打开参考面板").arg(d.horizon);
       return false;
@@ -662,7 +674,7 @@ void PaleoMainWindow::attachFaciesDisplayControls(MappingWorkbench *workbench) {
       const auto id = layer->customProperty("paleoLayerId").toString();
       const auto horizon = workbench->declaration(id).horizon;
       if (m_selection && !m_selection->activeHorizon().isEmpty() &&
-          horizon != m_selection->activeHorizon()) return false;
+          !matchesWorkbenchHorizon(m_selection,horizon)) return false;
       return !workbench->isWellPrediction(id) && workbench->supportsFaciesDisplay(id);
     };
     auto *target = canvas->currentLayer();

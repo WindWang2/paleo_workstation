@@ -441,7 +441,8 @@ bool MappingWorkbench::ready(const QString &h, QString *error) const {
   }
   if(!isMappingHorizon(h)) {
     paleo::data::StratigraphicScheme scheme;
-    if(m_analysisUnit.revision.isEmpty() || !paleo::strat::loadProjectSchemeFromDir(m_dir,m_analysisUnit.schemeId,m_analysisUnit.revision,scheme,nullptr,error))return false;
+    if(m_analysisUnit.revision.isEmpty()){fail(error,tr("请先选择有效编图层位"));return false;}
+    if(!paleo::strat::loadProjectSchemeFromDir(m_dir,m_analysisUnit.schemeId,m_analysisUnit.revision,scheme,nullptr,error))return false;
     const auto *sub=paleo::data::framework::findSubInterval(scheme,{m_analysisUnit.subIntervalId.toStdString()});
     const bool valid=m_analysisUnit.aggregate
         ? paleo::data::framework::findInterval(scheme,{m_analysisUnit.intervalId.toStdString()})!=nullptr

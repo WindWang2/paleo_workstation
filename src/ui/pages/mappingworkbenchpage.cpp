@@ -502,7 +502,7 @@ void MappingWorkbenchPage::refresh() {
   m_refreshTimer->stop();
   m_heading->setText(m_horizon.isEmpty()
                          ? tr("请选择编图层位")
-                         : tr("%1 · %2").arg(m_horizon, m_mode == "predict"
+                         : tr("%1 · %2").arg(property("paleo.unitDisplayName").toString().isEmpty() ? m_horizon : property("paleo.unitDisplayName").toString(), m_mode == "predict"
                                                             ? tr("智能预测")
                                                         : m_mode == "constraint"
                                                             ? tr("单因素图")

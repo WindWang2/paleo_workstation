@@ -197,6 +197,8 @@ QVariantMap ConstraintPage::wellFactorParams() const {
   const auto *table = findChild<QTableWidget *>(QStringLiteral("factorTable"));
   if (factorIdOfRow(table, checkedRow(table)) == QLatin1String("strathick"))
     params.insert(QStringLiteral("factorSource"), value("factorSourceCombo"));
+  if (auto *selection=qobject_cast<SelectionContext *>(property("paleo.selection").value<QObject *>()))
+    params.insert(QStringLiteral("unitSelection"),paleo::strat::toMap(selection->activeUnit()));
   return params;
 }
 void ConstraintPage::refreshWellFactorFields() {
@@ -316,6 +318,12 @@ void ConstraintPage::invalidateWellFactors() {
     hint->setText(tr("优先读取已保存井值；缺少或来源变化时重新计算并保存。"));
   markInputsStale(); updateWellFactorActionState();
   updateFactorActionStates();
+}
+void ConstraintPage::refreshAnalysisUnit() {
+  invalidateWellFactors();
+  restoreWellFactorDisplay();
+  refreshFactorLayers();
+  refreshFactorResults();
 }
 void ConstraintPage::refreshWellFactorGeoHint()
 {

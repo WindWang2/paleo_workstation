@@ -179,9 +179,12 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   const bool autoThickness = params.value("factorMode") == QLatin1String("auto") && params.value("factorId") == QLatin1String("strathick");
   const bool metrics = params.isEmpty() || autoSand || autoThickness || requested.contains(layerThickness) || requested.contains(sandThickness);
   const bool sandMetric = params.isEmpty() || autoSand || requested.contains(sandThickness);
-  // 子层段：UnitSelection 驱动深度窗（父单元顶底 → 等比 Sn）；身份用 subIntervalId。
+  // 子层段深度窗由不可变解释修订解析，保留已确认的非等比分界。
   const paleo::strat::UnitSelection unitSel =
       paleo::strat::fromMap(params.value(QStringLiteral("unitSelection")).toMap());
+  paleo::data::StratigraphicScheme scheme;
+  if (unitSel.isValid() && !paleo::strat::loadProjectSchemeFromDir(wf->projectDir(), unitSel.schemeId,
+      unitSel.revision, scheme, nullptr, error)) return {};
   QString effectiveTopName = horizon;
   QString effectiveBaseName = baseName;
   if (unitSel.isValid() && !unitSel.topBoundary.isEmpty())
@@ -295,9 +298,33 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
       }
     }
     if (!metrics) continue;
+    // Legacy interface fields have no child-window identity. Automatic analysis
+    // must recompute from the selected revision rather than reuse parent values.
+    if (unitSel.isValid() && (autoSand || autoThickness)) {
+      for (const auto &field : {layerThickness,sandThickness,QStringLiteral("sand_thick"),QStringLiteral("sand_ratio"),QStringLiteral("thickness")})
+        row.attributes.remove(field);
+      row.maintainedThickness=false; row.maintainedSand=false;
+    }
     double top = qQNaN(), base = qQNaN();
     QString topsError;
-    const auto tops = data.topsForMapping(well.id, &topsError);
+    if (unitSel.isValid()) {
+      const auto key=paleo::strat::stableWellKey(well.id);
+      for (const auto &sub : scheme.subIntervals) {
+        if (unitSel.aggregate ? sub.interval.value != unitSel.intervalId.toStdString()
+                              : sub.id.value != unitSel.subIntervalId.toStdString()) continue;
+        const auto range=paleo::data::framework::wellRange(scheme,key,sub.id);
+        if (!range.resolved || range.depthType != "MD" || range.depthUnit != "m") {
+          topsError=QString::fromStdString(range.reason.empty() ? "Analysis window requires confirmed MD/m" : range.reason); break;
+        }
+        top=std::isfinite(top) ? qMin(top,range.top) : range.top;
+        base=std::isfinite(base) ? qMax(base,range.bottom) : range.bottom;
+      }
+      if (!std::isfinite(top) && topsError.isEmpty()) topsError=QStringLiteral("No well occurrence in selected analysis revision");
+      row.provenance.insert(QStringLiteral("subIntervalId"),unitSel.subIntervalId);
+      row.provenance.insert(QStringLiteral("windowTopMd"),top);
+      row.provenance.insert(QStringLiteral("windowBottomMd"),base);
+    }
+    const auto tops = unitSel.isValid() ? QVector<WellTop>{} : data.topsForMapping(well.id, &topsError);
     if (!topsError.isEmpty()) {
       row.thicknessReason = topsError;
       row.sandReason = topsError;
@@ -310,20 +337,6 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     row.thicknessReason = ConstraintWorkflow::tr("缺少顶/底分层 MD（%1→%2）").arg(effectiveTopName, effectiveBaseName);
     row.sandReason = row.thicknessReason;
     if (std::isfinite(top) && std::isfinite(base) && base > top) {
-      const double parentTop = top, parentBase = base;
-      if (unitSel.isValid() && !unitSel.aggregate && unitSel.subIndex >= 1 && unitSel.subIndex <= 4) {
-        double st = top, sb = base;
-        if (paleo::strat::provisionalSubRange(top, base, unitSel.subIndex, &st, &sb)) {
-          top = st;
-          base = sb;
-          row.provenance.insert(QStringLiteral("subIntervalId"), unitSel.subIntervalId);
-          row.provenance.insert(QStringLiteral("subIndex"), unitSel.subIndex);
-          row.provenance.insert(QStringLiteral("windowTopMd"), top);
-          row.provenance.insert(QStringLiteral("windowBottomMd"), base);
-          row.provenance.insert(QStringLiteral("parentTopMd"), parentTop);
-          row.provenance.insert(QStringLiteral("parentBottomMd"), parentBase);
-        }
-      }
       if (!row.maintainedThickness) row.attributes.insert(layerThickness, base - top);
       row.thicknessReason.clear();
       const auto segs = lithologies.value(well.id);
@@ -633,7 +646,7 @@ namespace {
 QVariantMap extractionParams(const QVariantMap &params) {
   QVariantMap result;
   for (const auto &key :
-       {"factorMode", "valueField", "numeratorField", "denominatorField", "baseHorizon", "factorSource"})
+       {"factorMode", "valueField", "numeratorField", "denominatorField", "baseHorizon", "factorSource", "unitSelection"})
     if (params.contains(key))
       result.insert(QString::fromLatin1(key), params.value(key));
   // 成图参数里的 field 是插值列名，不是提取口径。auto 不选字段，
@@ -641,10 +654,12 @@ QVariantMap extractionParams(const QVariantMap &params) {
   if (result.value(QStringLiteral("factorMode")).toString() != QLatin1String("auto") &&
       !result.contains("valueField") && params.contains("field"))
     result.insert("valueField", params.value("field"));
+  if (result.value("factorMode") == QLatin1String("auto"))
+    for (const auto *key : {"valueField","numeratorField","denominatorField"}) result.remove(QLatin1String(key));
   return result;
 }
 
-bool savedFactorInputsCurrent(const DataCatalog *catalog, const QString &dir, const CatalogVersion &v) {
+bool savedFactorInputsCurrent(const DataCatalog *catalog, QgisLayerService *layers, const QString &dir, const CatalogVersion &v) {
   if (v.id.isEmpty() || !QFile::exists(DataCatalog::resolvedVersionPath(dir, v))) return false;
   for (const auto &parent : v.parentVersionIds) {
     const auto input = catalog->versionById(parent);
@@ -656,6 +671,13 @@ bool savedFactorInputsCurrent(const DataCatalog *catalog, const QString &dir, co
     const auto state = it.value().toMap();
     if (!file.exists() || file.size() != state.value("size").toLongLong() ||
         file.lastModified().toMSecsSinceEpoch() != state.value("modified").toLongLong()) return false;
+  }
+  const auto declarations=layers->declared();
+  for (const auto &value : v.extra.value("rows").toList()) {
+    const auto row=value.toMap(); const auto sourceId=row.value("source_layer_id").toString();
+    if (sourceId.isEmpty()) continue;
+    const auto found=std::find_if(declarations.cbegin(),declarations.cend(),[&](const auto &d){return d.layerId==sourceId;});
+    if (found==declarations.cend() || found->source!=row.value("source_uri").toString()) return false;
   }
   return true;
 }
@@ -670,7 +692,7 @@ QString ConstraintWorkflow::preparedWellFactorVersion(const QString &horizon,
       m_preparedWellFactors.value("params").toMap() != extractionParams(params))
     return {};
   const auto v = catalog()->versionById(m_preparedWellFactors.value("version_id").toString());
-  if (!savedFactorInputsCurrent(catalog(), projectDir(), v))
+  if (!savedFactorInputsCurrent(catalog(), layerService(), projectDir(), v))
     return {};
   for (const auto &d : layerService()->declared())
     if (d.layerId == m_preparedWellFactors.value("points_layer_id").toString() &&
@@ -696,7 +718,7 @@ bool ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QStrin
     if (v.extra.value("horizon") != horizon || v.extra.value("factor_id") != factorId ||
         extractionParams(v.extra) != extractionParams(params))
       continue;
-    if (savedFactorInputsCurrent(catalog(), projectDir(), v)) {
+    if (savedFactorInputsCurrent(catalog(), layerService(), projectDir(), v)) {
       // 工程重开后可仅凭已登记版本恢复点图层，不重新读取全部井资料。
       LayerDeclaration declaration;
       declaration.layerId = QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId);

@@ -102,6 +102,7 @@ class PreviewDocService : public QObject
     QString absolutePathForVersion(const CatalogVersion &version) const;
     CatalogVersion versionForPreview(const QString &versionId) const;
     QString entityIdForAsset(const QString &assetId) const;
+    QString entityIdForModelWell(qlonglong modelWellId) const;
     // ---- 壳只读出口（W2：主窗不再 include io/dataimportservice.h）----
     QString catalogOpenError() const;
     QStringList assetIds(const QString &type = QString()) const; // svc->assets

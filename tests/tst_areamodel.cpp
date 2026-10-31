@@ -19,6 +19,31 @@
 class TestAreaModel : public QObject {
   Q_OBJECT
 private slots:
+  void reimportedSourcesDoNotRestoreInactiveBatchIdentity() {
+    QTemporaryDir temp; const auto input=temp.filePath("input"); QVERIFY(QDir().mkpath(input));
+    const auto path=input+"/one.las"; QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. SYNTH-1\n~Curve\nMD.M\nGR.API\n~Ascii\n100 10\n101 20\n"); file.close();
+    const auto project=temp.filePath("project"); QString error; paleo::data::ImportReport report;
+    QVERIFY2(paleo::area_model::importDirectory(project,input,report,&error),qPrintable(error));
+    DataCatalog catalog; QVERIFY(catalog.open(project,&error));
+    QVERIFY(registerAreaWells(catalog,&error)); QVERIFY(registerAreaSources(catalog,&error));
+    paleo::data::DataService ds; std::string detail;
+    QVERIFY(ds.openProject(paleo::area_model::directory(project).toStdString(),detail));
+    std::vector<paleo::data::SourceEntry> sources; QVERIFY(ds.listSources(sources,detail)); QCOMPARE(sources.size(),size_t(1));
+    const auto old=sources.front().id;
+    QVERIFY2(ds.reimportSource(old,{},report,detail),detail.c_str());
+    QVERIFY(ds.listSources(sources,detail)); QCOMPARE(sources.size(),size_t(2));
+    qlonglong current=0;
+    for(const auto &s:sources) { if(s.id==old) QVERIFY(!s.active); if(s.active) current=s.id; }
+    QVERIFY(current>old);
+    std::vector<paleo::data::SourceIndexEntry> index; QVERIFY(ds.listSourceIndexEntries(index,detail));
+    for(const auto &s:index) QCOMPARE(s.active,s.id==current);
+    for(int retry=0;retry<3;++retry) {
+      QVERIFY2(registerAreaSources(catalog,&error),qPrintable(error));
+      QCOMPARE(catalog.versions().size(),1);
+      QCOMPARE(catalog.versions().front().extra.value("areaModelSourceId").toLongLong(),current);
+    }
+  }
   void seismicQuickFingerprintUsesModelVerification() {
     QTemporaryDir temp; const auto input=temp.filePath("input"); QVERIFY(QDir().mkpath(input));
     const auto path=input+"/synthetic.sgy"; QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));

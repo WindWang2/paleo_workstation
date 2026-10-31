@@ -204,6 +204,12 @@ ctest --test-dir build -j8 --output-on-failure
 
 ## Windows 本机开发（localdeps 统一链，方向 72）
 
+Windows 构建会从固定的 `vendor/Data_service/vendor/freexl` 源码编译兼容版
+`paleo_freexl.dll`，放在应用与测试程序同目录，保留 BIFF 内嵌图表等格式修复，避免
+加载 PATH 上未经修补的版本，也不替换 GDAL 自身的 FreeXL。构建按依赖闭包选择
+`iconv-2.dll` 或 `iconv.dll` / `charset.dll`；安装树携带
+FreeXL 的来源、许可和补丁说明。显式 `PALEO_FREEXL_LIBRARY` 仍可用于诊断。
+
 `paleo-dev.ps1 build` 会用实际 MSVC + Ninja 的小型头文件夹具验证依赖前缀，
 修正本地化 `/showIncludes` 与控制台代码页造成的错误匹配。仅设置 `VSLANG`
 不足以解决未安装英文编译器语言包的机器。首次修复会清理生成目标后重建，

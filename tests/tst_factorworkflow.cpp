@@ -61,6 +61,10 @@
 #include "../src/domain/litholexicon.h"
 #include "../src/io/wellfactorfile.h"
 #include "../src/metadata/mapversionstore.h"
+#include "services/stratigraphicsubintervals.h"
+#include "services/subintervalfactors.h"
+#include "io/areamodel.h"
+#include <paleo_data/service.h>
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -68,6 +72,7 @@
 #include <QThread>
 #include <functional>
 #include <memory>
+#include <tuple>
 
 // m2(B) 单因素图页 — 真实栈（tst_workflows 模式：临时 manifest+catalog+真实
 // QGIS 引导）。覆盖：注册表 processingAlgId 在运行时可用（algorithmIds 核实）、
@@ -360,6 +365,49 @@ class TestFactorWorkflow : public QObject
     }
 
   private slots:
+    void modelLithologyAndInterpretedWindowDriveFactorsWithoutRawFiles() {
+      Fixture f; QVERIFY(initFixture(f)); QString error; std::string detail;
+      paleo::data::DataService ds;
+      const auto modelDir=paleo::area_model::directory(f.dir.path());
+      const bool opened=QFileInfo::exists(modelDir+"/data.sqlite") ? ds.openProject(modelDir.toStdString(),detail)
+          : ds.createProject(modelDir.toStdString(),"synthetic",detail);
+      QVERIFY2(opened,detail.c_str());
+      const auto raw=f.dir.filePath("source.txt"); QFile file(raw); QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write("synthetic"); file.close();
+      paleo::data::ParsedFile parsed; parsed.path=raw.toStdString(); parsed.kind="test"; parsed.status="parsed";
+      paleo::data::WellDataset source; source.wellInfo.wellName="SYNTH-1";
+      source.defaultDepthInfo.depthType="MD"; source.defaultDepthInfo.depthUnit="m";
+      paleo::data::IntervalTrack track; track.trackName="岩性"; track.trackType="岩性";
+      for (const auto &v : {std::tuple{100.,125.,"砂岩"},std::tuple{125.,200.,"泥岩"}}) {
+        paleo::data::GeologicalInterval row; row.topDepth=std::get<0>(v);row.bottomDepth=std::get<1>(v);row.intervalName=std::get<2>(v);
+        track.intervals.push_back(row);
+      }
+      source.wellbore.intervalTracks.push_back(track); parsed.wells.push_back(source); long long sourceId=0;
+      QVERIFY2(ds.importPreparedFile(raw.toStdString(),raw.toStdString(),raw.toStdString(),"synthetic",parsed,sourceId,detail),detail.c_str());
+      std::vector<paleo::data::WellSummary> wells; QVERIFY(ds.listWells(wells,detail)); QCOMPARE(wells.size(),size_t(1));
+      CatalogEntity well; well.id="well-model";well.name="SYNTH-1";well.entityType="well";
+      well.hasSurface=true;well.surfaceX=1;well.surfaceY=2;well.coordinateStatus="untransformed";
+      well.extra.insert("areaModelWellId",wells.front().id); QVERIFY(f.catalog.addEntity(well,&error));
+      auto draft=paleo::strat::draftScheme("scheme","scheme",{"TOP","BASE"},{{paleo::strat::stableWellKey(well.id),{{"TOP",100.},{"BASE",200.}}}});
+      draft.wellOccurrences.front().internal={110.,150.,180.};
+      draft.wellOccurrences.front().internalStatus={"confirmed","confirmed","confirmed"};
+      paleo::data::StratigraphicScheme scheme; std::vector<paleo::data::FrameworkIssue> issues;
+      QVERIFY2(ds.commitStratigraphicScheme(draft,{},scheme,issues,detail),detail.c_str()); ds.closeProject();
+      QVERIFY(QFile::remove(raw));
+      const auto unit=paleo::strat::makeSelection(scheme,QString::fromStdString(scheme.intervals.front().id.value),2);
+      ConstraintWorkflow workflow(&f.proc,&f.layers);workflow.setCatalog(&f.catalog,f.dir.path());
+      const QVariantMap params{{"factorMode","auto"},{"unitSelection",paleo::strat::toMap(unit)}};
+      QVERIFY2(workflow.extractWellFactors("TOP","sandratio",params,&error),qPrintable(error));
+      auto row=workflow.wellFactorRows().front().toMap(); QVERIFY2(row.value("contributing").toBool(),qPrintable(row.value("reason").toString()));
+      QCOMPARE(row.value("value").toDouble(),.375);
+      const auto other=paleo::strat::makeSelection(scheme,unit.intervalId,1);
+      const QVariantMap otherParams{{"factorMode","auto"},{"unitSelection",paleo::strat::toMap(other)}};
+      QVERIFY(workflow.preparedWellFactorVersion("TOP","sandratio",otherParams).isEmpty());
+      QVERIFY(!workflow.restoreWellFactors("TOP","sandratio",otherParams,&error));
+      QVERIFY(!workflow.preparedWellFactorVersion("TOP","sandratio",params).isEmpty());
+      QVERIFY2(workflow.extractWellFactors("TOP","strathick",params,&error),qPrintable(error));
+      QCOMPARE(workflow.wellFactorRows().front().toMap().value("value").toDouble(),40.);
+    }
     void savedWellFactorsAreReadAcrossWorkflowAndLayerRestart()
     {
       Fixture f; QVERIFY(initFixture(f)); QString error; QVERIFY2(setupWells(f, &error), qPrintable(error));

@@ -18,6 +18,7 @@
 #include "services/seismictaskservice.h"
 #include "services/seismicdataaccess.h"
 #include "services/welllogset.h"
+#include "services/areawellchart.h"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -711,6 +712,13 @@ public:
         return segs;
       }
       // 资产读失败（已告警）或无该井段：落 cuttings 兜底（不重复告警）。
+    }
+    const auto modelWell=m_catalog->entityById(wellId).extra.value("areaModelWellId").toLongLong();
+    if (modelWell > 0) {
+      QVector<wellsection::LithoSegment> segments; QString error;
+      if (!readAreaWellLithology(m_projectDir,modelWell,segments,&error) && m_warnings)
+        *m_warnings << wellId + QStringLiteral(": ") + error;
+      return segments; // Model-backed wells never fall through to stale source files.
     }
     return cuttingsLithologyFor(wellId);
   }

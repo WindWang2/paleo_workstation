@@ -29,6 +29,8 @@ public:
   void captureDefaultLayout();
   void restoreDefaultLayout();
   void fitLayout();
+  /// 中央区宽度不足窗口一半时执行 fitLayout()（首开/窄屏用，不覆盖正常布局）。
+  void fitIfCentralCramped();
   QMenu *createMenu(QWidget *parent = nullptr);
 
   // restoreState 会经 dock->setVisible 把「页面策略隐藏」读成用户意愿；

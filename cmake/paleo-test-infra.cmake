@@ -91,7 +91,7 @@ function(paleo_test_sandbox name)
     "QTEST_FUNCTION_TIMEOUT=900000")
   # #840：QTEST_FUNCTION_TIMEOUT 只在进程已进入 QtTest 后生效；进程卡在启动前
   # （如 Windows 加载器弹框）时整片吊满 6h job 超时且不点名。给每个测试兜底
-  # 进程级 ctest TIMEOUT（30 min），超时即 ***Timeout 判红并点名。个别测试的
+  # 进程级 ctest TIMEOUT（默认 300s，R6 用户「一定要控制测试」），超时即 ***Timeout 判红并点名。个别测试的
   # 显式 TIMEOUT（paleo-test-labels.cmake 等，后设）照常覆盖此默认值。
   get_test_property(${name} TIMEOUT _paleo_t)
   if(NOT _paleo_t)
@@ -100,7 +100,9 @@ function(paleo_test_sandbox name)
 endfunction()
 
 # #840：每测试默认超时（秒），可 -DPALEO_TEST_TIMEOUT=… 覆盖。
-set(PALEO_TEST_TIMEOUT 1800 CACHE STRING "Default per-test ctest TIMEOUT in seconds (#840)")
+# R6（用户 2026-10-31「一定要控制测试」）：1800 → 300；真正慢的测试在
+# paleo-test-labels.cmake 里按本机实测单独放宽并写明理由。
+set(PALEO_TEST_TIMEOUT 300 CACHE STRING "Default per-test ctest TIMEOUT in seconds (#840, R6)")
 
 set(PALEO_QTEST_FIRST_RUN_DIR "${CMAKE_BINARY_DIR}/Testing/qtest-first-run")
 file(MAKE_DIRECTORY "${PALEO_QTEST_FIRST_RUN_DIR}")

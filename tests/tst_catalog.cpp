@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <thread>
 
@@ -132,6 +133,7 @@ private slots:
   void bothCorruptRefusesWrites();               // T5：主/bak 都坏 → 拒写态
   void wellsGeoJsonKeepsOldFileOnFailedWrite();  // T6：写失败不截断旧文件
   void surveyGeoJsonContainsClosedPolygonRing();
+  void surveyGeoJsonKeepsOldFileWhenAllAreasFiltered();
   void lockedReadOnlyRefusesMutationsButReadsFine(); // T4
   void thousandEntityQueryBudget();              // T3：catalog.sqlite 触发条件量化
   void sqliteOpenCostAttribution();              // 方向21：sqlite 稳态 open 的成本归因
@@ -1767,6 +1769,41 @@ void TestCatalog::surveyGeoJsonContainsClosedPolygonRing()
   OGR_G_DestroyGeometry(polygon);
   QVERIFY(valid);
   QCOMPARE(area, 12793.0 * 16406.0);
+}
+
+// #889：测区实体存在但全被过滤（角点 NaN / bbox 退化）时不得把旧图层换成空集。
+void TestCatalog::surveyGeoJsonKeepsOldFileWhenAllAreasFiltered()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QString error;
+  QVERIFY2(cat.open(dir.path(), &error), qPrintable(error));
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  CatalogEntity bad;
+  bad.id = QStringLiteral("survey-nan");
+  bad.entityType = QStringLiteral("seismic_survey");
+  bad.name = QStringLiteral("nan-survey");
+  bad.corners = {{nan, 0}, {1, nan}, {nan, nan}, {0, 0}};
+  QVERIFY2(cat.addEntity(bad, &error), qPrintable(error));
+  CatalogEntity flat;
+  flat.id = QStringLiteral("area-flat");
+  flat.entityType = QStringLiteral("study_area");
+  flat.name = QStringLiteral("flat-area");
+  flat.corners = {{0, 5}, {10, 5}, {20, 5}};
+  QVERIFY2(cat.addEntity(flat, &error), qPrintable(error));
+  const QString path = dir.filePath(QStringLiteral("layers/survey.geojson"));
+  QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
+  const QByteArray previous = R"({"type":"FeatureCollection","features":[{"type":"Feature"}]})";
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    QCOMPARE(f.write(previous), qint64(previous.size()));
+  }
+  QVERIFY2(cat.writeSurveyGeoJson(path, &error), qPrintable(error));
+  QFile f(path);
+  QVERIFY(f.open(QIODevice::ReadOnly));
+  QCOMPARE(f.readAll(), previous);
 }
 
 void TestCatalog::wellsGeoJsonKeepsOldFileOnFailedWrite()

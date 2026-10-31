@@ -1,5 +1,6 @@
 // 层：视图
 #pragma once
+#include <QSet>
 
 #include <QVariantMap>
 #include <QWidget>
@@ -46,6 +47,9 @@ class WellSitingPanel : public QWidget
     // D.3：异步评估交付（GUI 线程）——成功上指标，失败/取消如实说明。
     void onEvaluationAsyncDone( const QVariantMap &evaluation, const QString &error );
     void saveScenarioFromInput();
+    // #820：诊断/候选异步终态。
+    void onDiagnosisAsyncDone( bool ok, const QString &error );
+    void onCandidatesAsyncDone( bool ok, const QString &error );
     void deleteSelectedScenario();
     void exportScenarioCsv();
     void exportComparisonChart();
@@ -61,8 +65,12 @@ class WellSitingPanel : public QWidget
     // D.3：忙面（不确定进度条 + 取消钮 + 禁重动词）与指标文本上屏。
     void setEvalBusy( bool busy );
     void applyEvaluation( const QVariantMap &evaluation );
+    void setComputeBusy( const QString &buttonName, bool busy );
+    void connectAsyncResults();
     WellSitingWorkflow *m_wf = nullptr;
     PaleoCoordinateEditor *m_pointEditor = nullptr;
     bool m_evalBusy = false;    // 在飞评估（单飞——忙期新意图只登记待办）
     bool m_evalPending = false; // 忙期到达的新意图：落地后补跑一次
+    bool m_savePending = false; // #820：保存方案等待异步评估落地
+    QSet<QString> m_computeBusy; // #820：在飞诊断/候选（按按钮 objectName）
 };

@@ -64,7 +64,7 @@ src/ui/pages/entitypanel.cpp:fn:refresh:778
 src/ui/pages/mappingworkbenchpage.cpp:file:1189
 src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:383
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:277
-src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:225
+src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:223
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:404
 src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:369
 src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:646

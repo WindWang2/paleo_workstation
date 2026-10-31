@@ -287,9 +287,7 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
              &WellSitingPanel::refreshCandidateTable );
     connect( m_wf, &WellSitingWorkflow::diagnosisDone, this,
              &WellSitingPanel::refreshDiagnosisLabels );
-    // D.3：后台评估交付回 GUI 线程落地（陈旧/取消结果由 workflow 世代号丢弃）。
-    connect( m_wf, &WellSitingWorkflow::evaluationAsyncDone, this,
-             &WellSitingPanel::onEvaluationAsyncDone );
+    connectAsyncResults();
   }
   reloadFromWorkflow();
 }
@@ -382,10 +380,23 @@ void WellSitingPanel::buildEvaluationSection( QVBoxLayout *lay )
       m_wf->cancelScenarioEvaluation();
     m_evalBusy = false;
     m_evalPending = false;
+    m_savePending = false; // #820：取消评估同时放弃等待中的保存
     setEvalBusy( false );
     if ( auto *label = findChild<QLabel *>( QStringLiteral( "sitingEvalLabel" ) ) )
       label->setText( tr( "评估已取消" ) );
   } );
+}
+
+void WellSitingPanel::connectAsyncResults()
+{
+  // D.3 / #820：后台评估、诊断、候选交付回 GUI 线程落地（陈旧/取消结果由
+  // workflow 世代号丢弃）。
+  connect( m_wf, &WellSitingWorkflow::evaluationAsyncDone, this,
+           &WellSitingPanel::onEvaluationAsyncDone );
+  connect( m_wf, &WellSitingWorkflow::diagnosisAsyncDone, this,
+           &WellSitingPanel::onDiagnosisAsyncDone );
+  connect( m_wf, &WellSitingWorkflow::candidatesAsyncDone, this,
+           &WellSitingPanel::onCandidatesAsyncDone );
 }
 
 void WellSitingPanel::reloadFromWorkflow()
@@ -401,10 +412,37 @@ void WellSitingPanel::runDiagnosis()
 {
   if ( !m_wf )
     return;
-  QString error;
-  if ( !m_wf->runDiagnosis( paramsFromPanel( this ), &error ) )
+  // #820：全场采样在任务服务工作池执行，结果经 diagnosisAsyncDone 落地。
+  setComputeBusy( QStringLiteral( "sitingRunButton" ), true );
+  if ( auto *summary = findChild<QLabel *>( QStringLiteral( "sitingSummaryLabel" ) ) )
+    summary->setText( tr( "覆盖诊断计算中…（进度见任务中心）" ) );
+  m_wf->runDiagnosisAsync( paramsFromPanel( this ) );
+}
+
+void WellSitingPanel::onDiagnosisAsyncDone( bool ok, const QString &error )
+{
+  setComputeBusy( QStringLiteral( "sitingRunButton" ), false );
+  if ( !ok )
     PaleoNotify::warning( this, tr( "覆盖诊断" ), error );
   refreshDiagnosisLabels();
+}
+
+void WellSitingPanel::onCandidatesAsyncDone( bool ok, const QString &error )
+{
+  setComputeBusy( QStringLiteral( "sitingGenButton" ), false );
+  if ( !ok )
+    PaleoNotify::warning( this, tr( "候选生成" ), error );
+  refreshCandidateTable();
+}
+
+void WellSitingPanel::setComputeBusy( const QString &buttonName, bool busy )
+{
+  if ( busy )
+    m_computeBusy.insert( buttonName );
+  else
+    m_computeBusy.remove( buttonName );
+  if ( auto *btn = findChild<QPushButton *>( buttonName ) )
+    btn->setEnabled( !busy && !m_evalBusy );
 }
 
 void WellSitingPanel::refreshDiagnosisLabels()
@@ -466,10 +504,8 @@ void WellSitingPanel::generateCandidates()
 {
   if ( !m_wf )
     return;
-  QString error;
-  if ( !m_wf->generateCandidates( paramsFromPanel( this ), &error ) )
-    PaleoNotify::warning( this, tr( "候选生成" ), error );
-  refreshCandidateTable();
+  setComputeBusy( QStringLiteral( "sitingGenButton" ), true );
+  m_wf->generateCandidatesAsync( paramsFromPanel( this ) );
 }
 
 void WellSitingPanel::refreshCandidateTable()
@@ -647,6 +683,7 @@ void WellSitingPanel::refreshEvaluation()
       m_wf->cancelScenarioEvaluation();
       m_evalBusy = false;
       m_evalPending = false;
+      m_savePending = false;
       setEvalBusy( false );
     }
     label->setText( tr( "还没有评估——添加计划井后自动评估" ) );
@@ -673,6 +710,16 @@ void WellSitingPanel::onEvaluationAsyncDone( const QVariantMap &evaluation,
     label->setText( error.isEmpty() ? tr( "评估失败" ) : error );
   m_evalBusy = false;
   setEvalBusy( false );
+  // #820：保存方案在等这次评估——复用刚算好的指标保存（失败如实提示）。
+  if ( m_savePending && !m_evalPending )
+  {
+    m_savePending = false;
+    if ( evaluation.isEmpty() )
+      PaleoNotify::warning( this, tr( "保存方案" ),
+                            error.isEmpty() ? tr( "评估未完成，方案未保存" ) : error );
+    else
+      saveScenarioFromInput();
+  }
   // 忙期积压的新意图（连改计划井）——补跑一次，只落地最后状态。
   if ( m_evalPending )
   {
@@ -693,7 +740,7 @@ void WellSitingPanel::setEvalBusy( bool busy )
                                 QStringLiteral( "sitingGenButton" ),
                                 QStringLiteral( "sitingEvalButton" ) } )
     if ( auto *btn = findChild<QPushButton *>( name ) )
-      btn->setEnabled( !busy );
+      btn->setEnabled( !busy && !m_computeBusy.contains( name ) );
   // finding-135：保存方案纳入忙期禁用清单——它内部会同步重算全场指标（与在飞
   // 评估重复采样、冻结界面）。解除忙态时按「有无计划井」恢复其启用条件（与
   // refreshPlannedTable 同口径），避免清空计划井后残留启用。
@@ -746,9 +793,20 @@ void WellSitingPanel::saveScenarioFromInput()
   QStringList plannedIds;
   for ( const QVariantMap &w : m_wf->plannedWells() )
     plannedIds.append( w.value( QStringLiteral( "id" ) ).toString() );
+  const WellSitingParams params = paramsFromPanel( this );
+  // #820：没有与当前（参数, 计划井）对应的评估 → 先走异步评估，落地后再保存；
+  // 绝不在 GUI 线程同步重算全场指标。
+  if ( !m_wf->hasEvaluationFor( params, plannedIds ) )
+  {
+    m_savePending = true;
+    if ( !m_evalBusy )
+      refreshEvaluation();
+    else
+      m_evalPending = true;
+    return;
+  }
   QString error;
-  if ( !m_wf->saveScenario( name ? name->text() : QString(), plannedIds,
-                            paramsFromPanel( this ), &error ) )
+  if ( !m_wf->saveScenario( name ? name->text() : QString(), plannedIds, params, &error ) )
     PaleoNotify::warning( this, tr( "保存方案" ), error );
 }
 

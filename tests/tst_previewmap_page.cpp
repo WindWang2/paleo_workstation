@@ -54,6 +54,7 @@ class TestPreviewMapPage : public QObject
     void coordinateLabelTracksMouse();
     void bookmarkAddJumpRemove();
     void overviewVisibleToggle();
+    void overviewScalesWithCanvas(); // #848
     void decorationToggleByName();
     void copyCoordinateToClipboard();
     void copyScreenshotToClipboard();
@@ -256,6 +257,26 @@ void TestPreviewMapPage::bookmarkAddJumpRemove()
   QVERIFY(m_page->removeBookmark(QStringLiteral("b1")));
   QCOMPARE(m_page->bookmarkCount(), 0);
   QVERIFY(!m_page->jumpToBookmark(QStringLiteral("b1"))); // 已删：跳转失败
+}
+
+void TestPreviewMapPage::overviewScalesWithCanvas()
+{
+  m_page->show();
+  QVERIFY(QTest::qWaitForWindowExposed(m_page.get()));
+  auto *ov = m_page->findChild<QWidget *>(QStringLiteral("previewOverviewMap"));
+  QVERIFY(ov);
+  QTRY_VERIFY(ov->width() <= 200 && ov->height() <= 150);
+  // 小画布：原实现恒为 200x150，几乎盖住主图。
+  m_page->resize(420, 300);
+  QTest::qWait(300);
+  if (const QString dir = qEnvironmentVariable("R6_SHOT_DIR"); !dir.isEmpty())
+    m_page->grab().save(dir + QStringLiteral("/previewmap-420x300.png"));
+  const QSize c = m_page->mapCanvas()->size();
+  QTRY_VERIFY2(ov->width() < 200, qPrintable(QStringLiteral("%1x%2 on %3x%4")
+                                                 .arg(ov->width()).arg(ov->height())
+                                                 .arg(c.width()).arg(c.height())));
+  QVERIFY(ov->width() >= 96 && ov->height() >= 72);
+  QVERIFY(ov->width() * ov->height() * 5 < c.width() * c.height());
 }
 
 void TestPreviewMapPage::overviewVisibleToggle()
@@ -534,10 +555,13 @@ void TestPreviewMapPage::overviewRendersManagedGridVector()
   QCOMPARE(ovCanvas->layers().size(), 1);
   QVERIFY(!ovCanvas->extent().isEmpty());
 
-  // 修复点 3：停靠右下角（TOOLS.md §5「右下角 200×150 导航小图」）。
-  QCOMPARE(ov->size(), QSize(200, 150));
+  // 修复点 3：停靠右下角；R6 #848 起尺寸随主画布缩放（≈22% 宽、4:3，96×72..200×150）。
   const int margin = PaleoTheme::tokens().spacingSm;
   const auto *host = m_page->mapCanvas();
+  QVERIFY(ov->width() >= 96 && ov->width() <= 200);
+  QVERIFY(ov->height() >= 72 && ov->height() <= 150);
+  QVERIFY(qAbs(ov->width() * 3 - ov->height() * 4) <= 4);
+  QVERIFY(ov->width() <= qMax(96, host->width() * 22 / 100));
   QCOMPARE(ov->x() + ov->width(), host->width() - margin);
   QCOMPARE(ov->y() + ov->height(), host->height() - margin);
 }

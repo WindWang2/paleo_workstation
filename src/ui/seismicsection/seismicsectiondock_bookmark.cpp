@@ -259,7 +259,7 @@ void SeismicSectionDockWidget::showTraceHeaderCard(int traceIndex) {
         m_traceCard = new QDialog(this);
         m_traceCard->setWindowTitle(tr("道头信息"));
         m_traceCard->setModal(false);
-        m_traceCard->setMinimumSize(360, 300);
+        m_traceCard->setMinimumSize(280, 220);  // #849：原 360x300
         auto *lay = new QVBoxLayout(m_traceCard);
         m_traceCardTable = new QTableWidget(m_traceCard);
         m_traceCardTable->setColumnCount(2);

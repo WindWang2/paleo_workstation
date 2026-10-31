@@ -2,6 +2,7 @@
 // 方向 65：剖面 dock 的 UI 装配 TU——顶部工具栏 / D2.x 显示控制行 / 解释·属性·
 // 反演三个面板的构造与信号接线。构造顺序与信号语义逐条照搬，无「顺手改进」。
 #include "ui/seismicsection/seismicsectiondockwidget.h"
+#include "ui/common/fitwidth.h"
 #include "ui/seismicsection/seismicattrpanel.h"
 #include "ui/seismicsection/seismicpickpanel.h"
 #include "ui/seismicsection/inversionpanel.h"
@@ -29,6 +30,44 @@
 #include <QMenu>
 #include <QUndoStack>
 #include <QVBoxLayout>
+#include <QEvent>
+#include <QSizePolicy>
+
+namespace {
+// #846：解释/属性/反演面板是单行宽控件条，直接进 mainLay 会把整行最小宽
+// (≥745px) 变成 dock 最小宽。与顶部工具行一样包进 PaleoToolRow（横向滚动、
+// 最小宽 0），宿主可见性跟随面板 setVisible（ShowToParent/HideToParent）。
+class PanelRowVisibilitySync : public QObject {
+public:
+    PanelRowVisibilitySync(QWidget *panel, QWidget *host) : QObject(host), m_host(host) {
+        panel->installEventFilter(this);
+    }
+    bool eventFilter(QObject *, QEvent *e) override {
+        if (e->type() == QEvent::ShowToParent)
+            m_host->setVisible(true);
+        else if (e->type() == QEvent::HideToParent)
+            m_host->setVisible(false);
+        return false;
+    }
+private:
+    QWidget *m_host;
+};
+
+void addScrollablePanelRow(QWidget *parent, QWidget *panel) {
+    auto *mainLay = qobject_cast<QVBoxLayout *>(parent->layout());
+    if (!mainLay)
+        return;
+    const bool visible = !panel->isHidden();
+    auto *host = new PaleoToolRow(panel, parent);
+    host->setObjectName(panel->objectName().isEmpty()
+                            ? QStringLiteral("scrollablePanelRow")
+                            : panel->objectName() + QStringLiteral("Row"));
+    new PanelRowVisibilitySync(panel, host);
+    panel->setVisible(visible);
+    host->setVisible(visible);
+    mainLay->addWidget(host);
+}
+} // namespace
 
 namespace seismic {
 
@@ -81,7 +120,6 @@ void SeismicSectionDockWidget::setupUi() {
     auto *mainLay = new QVBoxLayout(container);
     mainLay->setContentsMargins(0, 0, 0, 0);
     mainLay->setSpacing(0);
-
     // ==========================================
     // 1. Top Toolbar（chrome 全 token，活体注册随主题切换重算）
     // ==========================================
@@ -94,7 +132,6 @@ void SeismicSectionDockWidget::setupUi() {
     auto *toolLay = new QHBoxLayout(toolbar);
     toolLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
     toolLay->setSpacing(PaleoTheme::tokens().spacingSm);
-
     auto applyBtnStyle = [](QToolButton *btn) {
         PaleoTheme::applyThemedStyleSheet(btn, [] { return PaleoTheme::toolButtonStyleSheet(); });
     };
@@ -146,7 +183,7 @@ void SeismicSectionDockWidget::setupUi() {
     m_sliderSlice->setObjectName(QStringLiteral("sliderSectionSlice"));
     m_sliderSlice->setRange(1, 100);
     m_sliderSlice->setValue(1);
-    m_sliderSlice->setFixedWidth(90);
+    paleo::ui::fitWidthAtLeast(m_sliderSlice, 90);
     sliceLay->addWidget(m_sliderSlice);
 
     m_spinSlice = new QSpinBox(m_sliceGroup);
@@ -158,7 +195,7 @@ void SeismicSectionDockWidget::setupUi() {
     }
     m_spinSlice->setRange(1, 100);
     m_spinSlice->setValue(1);
-    m_spinSlice->setFixedWidth(64);
+    paleo::ui::fitWidthAtLeast(m_spinSlice, 64);
     sliceLay->addWidget(m_spinSlice);
 
     m_lblTimeMs = new QLabel(QStringLiteral("0.0 ms"), m_sliceGroup);
@@ -251,7 +288,7 @@ void SeismicSectionDockWidget::setupUi() {
     m_sliderGain->setObjectName(QStringLiteral("sliderSectionGain"));
     m_sliderGain->setRange(10, 500); // 0.1x to 5.0x
     m_sliderGain->setValue(100);     // 1.0x
-    m_sliderGain->setFixedWidth(80);
+    paleo::ui::fitWidthAtLeast(m_sliderGain, 80);
     toolLay->addWidget(m_sliderGain);
 
     m_spinGain = new QDoubleSpinBox(toolbar);
@@ -260,7 +297,7 @@ void SeismicSectionDockWidget::setupUi() {
     m_spinGain->setSingleStep(0.1);
     m_spinGain->setValue(1.0);
     m_spinGain->setSuffix(QStringLiteral("x"));
-    m_spinGain->setFixedWidth(56);
+    paleo::ui::fitWidthAtLeast(m_spinGain, 56);
     toolLay->addWidget(m_spinGain);
 
     // Well Overlay Options
@@ -360,6 +397,8 @@ void SeismicSectionDockWidget::setupUi() {
             .arg(PaleoTheme::tokens().text.name().toUpper());
     });
     m_lblCoordinates->setText(tr("道: -- | 距离: -- | TWT: -- ms | 深度: -- m | 振幅: -- | (X: --, Y: --)"));
+    // #846：坐标文本随鼠标变长（313→592px）不得推大 dock 最小宽——水平 Ignored，超长右侧裁切。
+    m_lblCoordinates->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     statusLay->addWidget(m_lblCoordinates, 1);
 
     m_progressBar = new QProgressBar(statusBar);
@@ -500,7 +539,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_spinThreshold->setSingleStep(0.05);
     m_spinThreshold->setValue(0.0);
     m_spinThreshold->setToolTip(tr("低于该归一化阈值的振幅压为 0（压噪声底）"));
-    m_spinThreshold->setFixedWidth(52);
+    paleo::ui::fitWidthAtLeast(m_spinThreshold, 52);
     lay->addWidget(m_spinThreshold);
 
     m_btnPolarity = new QToolButton(bar);
@@ -523,7 +562,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_spinAgcWindow->setValue(200);
     m_spinAgcWindow->setSuffix(QStringLiteral("ms"));
     m_spinAgcWindow->setToolTip(tr("AGC 时窗宽度（毫秒）"));
-    m_spinAgcWindow->setFixedWidth(72);
+    paleo::ui::fitWidthAtLeast(m_spinAgcWindow, 72);
     lay->addWidget(m_spinAgcWindow);
 
     // D2.4 手动增益曲线
@@ -543,7 +582,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_spinVExag->setValue(1.0);
     m_spinVExag->setSuffix(QStringLiteral("x"));
     m_spinVExag->setToolTip(tr("纵向拉伸系数（1.0 = 适应窗口基线）"));
-    m_spinVExag->setFixedWidth(56);
+    paleo::ui::fitWidthAtLeast(m_spinVExag, 56);
     lay->addWidget(m_spinVExag);
 
     // D2.5 双刻度
@@ -565,7 +604,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     m_sliderCurtain = new QSlider(Qt::Horizontal, bar);
     m_sliderCurtain->setRange(2, 98);
     m_sliderCurtain->setValue(50);
-    m_sliderCurtain->setFixedWidth(90);
+    paleo::ui::fitWidthAtLeast(m_sliderCurtain, 90);
     m_sliderCurtain->setVisible(false);
     lay->addWidget(m_sliderCurtain);
 
@@ -603,7 +642,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
     themedCaptionStyle(lblBookmark);
     lay->addWidget(lblBookmark);
     m_cboBookmark = new QComboBox(bar);
-    m_cboBookmark->setFixedWidth(120);
+    paleo::ui::fitWidthAtLeast(m_cboBookmark, 120);
     themedComboStyle(m_cboBookmark);
     lay->addWidget(m_cboBookmark);
     m_btnBookmarkAdd = new QToolButton(bar);
@@ -723,8 +762,7 @@ void SeismicSectionDockWidget::setupInterpretationUi(QWidget *parent) {
     // D4 解释面板：画布下方可折叠行
     m_pickPanel = new SeismicPickPanel(this, parent);
     m_pickPanel->setVisible(false);
-    if (auto *mainLay = qobject_cast<QVBoxLayout *>(parent->layout()))
-        mainLay->addWidget(m_pickPanel);
+    addScrollablePanelRow(parent, m_pickPanel);
 
     m_undoStack = new QUndoStack(this);
     m_pickPanel->setUndoStack(m_undoStack);
@@ -779,8 +817,7 @@ void SeismicSectionDockWidget::setupInterpretationUi(QWidget *parent) {
 void SeismicSectionDockWidget::setupAttrPanelUi(QWidget *parent) {
     m_attrPanel = new SeismicAttrPanel(this);
     m_attrPanel->setVisible(false);
-    if (auto *mainLay = qobject_cast<QVBoxLayout *>(parent->layout()))
-        mainLay->addWidget(m_attrPanel);
+    addScrollablePanelRow(parent, m_attrPanel);
 
     connect(m_attrPanel, &SeismicAttrPanel::computeRequested, this,
             [this](seismic::SeismicTaskService::SeismicAttrKind kind,
@@ -817,8 +854,7 @@ void SeismicSectionDockWidget::setupAttrPanelUi(QWidget *parent) {
 void SeismicSectionDockWidget::setupInversionPanelUi(QWidget *parent) {
     m_invPanel = new InversionPanel(this);
     m_invPanel->setVisible(false);
-    if (auto *mainLay = qobject_cast<QVBoxLayout *>(parent->layout()))
-        mainLay->addWidget(m_invPanel);
+    addScrollablePanelRow(parent, m_invPanel);
 
     connect(m_invPanel, &InversionPanel::inversionRequested, this,
             [this](const InversionPanelParams &params) { runInversion(params); });

@@ -1,5 +1,6 @@
 // 层：视图
 #include "previewhistogramwidget.h"
+#include "ui/common/fitwidth.h"
 #include "datapreview_internal.h"
 
 #include "../paleotheme.h"
@@ -26,7 +27,7 @@ PreviewHistogramWidget::PreviewHistogramWidget( bool compact, QWidget *parent )
   , m_compact( compact )
 {
   setMouseTracking( true );
-  setMinimumSize( compact ? 200 : 320, compact ? 110 : 220 );
+  setMinimumSize( compact ? 200 : 240, compact ? 110 : 160 ); // #848：原 320x220
 
   auto *lay = new QVBoxLayout( this );
   lay->setContentsMargins( 0, 0, 0, 0 );
@@ -48,7 +49,7 @@ PreviewHistogramWidget::PreviewHistogramWidget( bool compact, QWidget *parent )
     m_binsSpin->setObjectName( QStringLiteral( "histBinsSpin" ) );
     m_binsSpin->setRange( 8, 512 );
     m_binsSpin->setValue( 64 );
-    m_binsSpin->setFixedWidth( 64 );
+    paleo::ui::fitWidthAtLeast(m_binsSpin, 64);
     barLay->addWidget( m_binsSpin );
     connect( m_binsSpin, &QSpinBox::valueChanged, this,
              &PreviewHistogramWidget::binsChanged );

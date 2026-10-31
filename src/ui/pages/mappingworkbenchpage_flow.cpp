@@ -1,4 +1,5 @@
 // 层：视图
+#include "../windowsizing_internal.h"
 #include "../../workflow/mappingworkbench.h"
 #include "../paleotheme.h"
 #include "mappingworkbenchpage.h"
@@ -40,9 +41,9 @@ void MappingWorkbenchPage::buildComposeAdvanced(QWidget *body, QVBoxLayout *root
   layout->addWidget(hint);
   m_inputs = new QListWidget(group);
   m_inputs->setObjectName("workbenchInputs");
-  m_inputs->setFixedHeight(96);
+  m_inputs->setMinimumHeight(paleo::ui_detail::lineRows(m_inputs, 4)); // R6 #836：行高口径，不钉死
   m_inputs->setAccessibleName(tr("编图输入，按空格勾选"));
-  layout->addWidget(m_inputs);
+  layout->addWidget(m_inputs, 1);
   auto *order = new QHBoxLayout;
   for (bool up : {true, false}) {
     auto *b = new QPushButton(up ? tr("上移优先级") : tr("下移优先级"), group);

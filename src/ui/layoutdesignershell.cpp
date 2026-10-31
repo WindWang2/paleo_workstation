@@ -1,5 +1,6 @@
 // 层：视图
 #include "ui/paleoicons.h"
+#include "windowsizing_internal.h"
 #include "paleotheme.h"
 #include "layoutdesignershell.h"
 
@@ -121,7 +122,7 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   setWindowTitle( !layoutName.isEmpty()
                     ? tr( "%1 — 图件设计器" ).arg( layoutName )
                     : tr( "图件设计器" ) );
-  resize( 1200, 800 );
+  paleo::ui_detail::resizeWithinScreen( this, QSize( 1200, 800 ) ); // R6 #844：不超出所在屏
 
   auto *outer = new QVBoxLayout( this );
   outer->setContentsMargins( 0, 0, 0, 0 );
@@ -314,7 +315,10 @@ void PaleoLayoutDesignerShell::showEvent( QShowEvent *event )
   if ( !m_initialZoomDone && m_layout )
   {
     m_initialZoomDone = true;
-    QMetaObject::invokeMethod( m_view, &QgsLayoutView::zoomFull, Qt::QueuedConnection );
+    QMetaObject::invokeMethod( m_view, [this] {
+      m_dockManager->fitIfCentralCramped(); // R6 #844：按屏收窄后两侧 dock 不得把画布挤到几十 px
+      m_view->zoomFull();
+    }, Qt::QueuedConnection );
   }
 }
 

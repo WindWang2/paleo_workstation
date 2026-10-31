@@ -49,6 +49,8 @@ namespace PaleoRibbon
   // 不可达。给它们补 TabFocus，并在聚焦被裁切的按钮时把类别横向滚过去
   // （幂等：已处理的按钮带 paleoFocusScroll 标记，可反复调用）。
   void makeKeyboardReachable(QWidget *root);
+  // 把（已聚焦的）类别命令钮横向滚入可见区；折叠重排后复位滚动时也要补滚。
+  void scrollIntoView(QWidget *button);
 
   // 门控只服务镜像 action（带 "paleoButtonMirror" 子件的）：把原因存进
   // action 的动态属性 "paleoGateReason"（空串=放行）并手动补一轮同步——

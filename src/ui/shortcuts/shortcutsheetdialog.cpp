@@ -1,5 +1,6 @@
 // 层：视图
 #include "shortcutsheetdialog.h"
+#include "ui/common/screenfit.h"
 
 #include "../paleotheme.h"
 #include "shortcutcatalog.h"
@@ -37,7 +38,7 @@ ShortcutSheetDialog::ShortcutSheetDialog(const ShortcutRegistry &registry, QWidg
   setObjectName(QStringLiteral("shortcutSheetDialog"));
   setWindowTitle(tr("快捷键总表"));
   setModal(false);
-  resize(680, 540);
+  paleo::ui::resizeWithinScreen(this, 680, 540);  // #854
 
   const auto &tk = PaleoTheme::tokens();
   auto *lay = new QVBoxLayout(this);

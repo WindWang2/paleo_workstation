@@ -1,5 +1,6 @@
 // 层：视图
 #include "ui/seismicsection/inversionpanel.h"
+#include "ui/common/fitwidth.h"
 #include "ui/paleotheme.h"
 
 #include <QComboBox>
@@ -35,7 +36,7 @@ void InversionPanel::buildUi()
     m_cboMethod->setObjectName(QStringLiteral("invMethodCombo"));
     m_cboMethod->addItem(tr("带限道积分"), QStringLiteral("bandlimited"));
     m_cboMethod->addItem(tr("稀疏脉冲"), QStringLiteral("sparse"));
-    m_cboMethod->setFixedWidth(120);
+    paleo::ui::fitWidthAtLeast(m_cboMethod, 120);
     row1->addWidget(m_cboMethod);
 
     auto mkBtn = [this](const QString &text, const QString &tip, bool primary) {
@@ -72,7 +73,7 @@ void InversionPanel::buildUi()
     m_spinLowCut->setSingleStep(1.0);
     m_spinLowCut->setValue(8.0);
     m_spinLowCut->setSuffix(tr(" Hz"));
-    m_spinLowCut->setFixedWidth(72);
+    paleo::ui::fitWidthAtLeast(m_spinLowCut, 72);
     row2->addWidget(m_spinLowCut);
 
     row2->addWidget(new QLabel(tr("λ(稀疏):")));
@@ -83,7 +84,7 @@ void InversionPanel::buildUi()
     m_spinLambda->setSingleStep(0.005);
     m_spinLambda->setValue(0.0);
     m_spinLambda->setSpecialValueText(tr("自动"));
-    m_spinLambda->setFixedWidth(72);
+    paleo::ui::fitWidthAtLeast(m_spinLambda, 72);
     row2->addWidget(m_spinLambda);
 
     row2->addWidget(new QLabel(tr("迭代上限:")));
@@ -91,7 +92,7 @@ void InversionPanel::buildUi()
     m_spinIterations->setObjectName(QStringLiteral("invIterations"));
     m_spinIterations->setRange(8, 10000);
     m_spinIterations->setValue(200);
-    m_spinIterations->setFixedWidth(64);
+    paleo::ui::fitWidthAtLeast(m_spinIterations, 64);
     row2->addWidget(m_spinIterations);
     row2->addStretch();
     lay->addLayout(row2);

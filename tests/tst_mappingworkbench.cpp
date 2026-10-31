@@ -1,3 +1,4 @@
+#include "../src/qgis/collapsiblegroup.h"
 #include "../src/ai/remotepredictconfig.h"
 #include "../src/app/aiwiring.h"
 #include "../src/domain/faciescatalog.h"
@@ -35,6 +36,7 @@
 #include <QMenu>
 #include <qgscollapsiblegroupbox.h>
 #include <QGroupBox>
+#include <QAbstractScrollArea>
 #include <QScrollBar>
 #include <QWheelEvent>
 #include "../src/ui/pages/mappingreferencepanel.h"
@@ -1090,6 +1092,33 @@ private slots:
       QVERIFY(appearance->isCollapsed());
     }
   }
+  // R6 #836：证据区/输入/结果列表不再被 setMaximumHeight/setFixedHeight 钉死；
+  // 拉高页面时证据列表随之增高，而不是留白 + 小框滚动。
+  void evidenceListsGrowWithTallPage() {
+    Fixture f;
+    QVERIFY(f.init());
+    MappingWorkbenchPage page("compose", &f.work);
+    for (const char *name : {"faciesEvidenceList", "faciesGenerationEvidence", "faciesEvidenceHistory",
+                             "evidenceReverseResults", "attributionTargets", "workbenchInputs", "workbenchResults"})
+      for (auto *w : page.findChildren<QAbstractScrollArea *>(QString::fromLatin1(name)))
+        QVERIFY2(w->maximumHeight() == QWIDGETSIZE_MAX, name);
+    auto *evidence = page.findChild<QListWidget *>("faciesEvidenceList");
+    QVERIFY(evidence);
+    auto *group = page.findChild<QGroupBox *>("workbenchEvidence");
+    QVERIFY(group);
+    paleo::collapsible::setCollapsed(group, false); // compose 默认折叠；展开后才谈得上随高度增长
+    page.resize(520, 700); page.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&page));
+    QTest::qWait(50);
+    const int shortHeight = evidence->height();
+    page.resize(520, 2600);
+    QTest::qWait(50);
+    if (const QString dir = qEnvironmentVariable("PALEO_R6_SHOT_DIR"); !dir.isEmpty())
+      page.grab().save(dir + QStringLiteral("/r6-836-workbench-tall.png"));
+    QVERIFY2(evidence->height() > qMax(120, shortHeight),
+             qPrintable(QStringLiteral("evidence list stuck at %1px (short %2px)").arg(evidence->height()).arg(shortHeight)));
+  }
+
   void workbenchCommandsAreExplicitlyRegistered() {
     // H1：页面所有按钮动作必须在命令登记表内（或为页内消化动作），登记表须与
     // 分派源码的 `action == "…"` 分支集合一致——新增按钮漏接分派会在此失败，

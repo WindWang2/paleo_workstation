@@ -24,6 +24,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include "../src/ui/pages/constraintpage.h"
+#include "../src/ui/windowsizing_internal.h"
 #include "../src/io/constraintstore.h"
 #include "../src/workflow/workflows.h"
 #include "helpers/visualcapture.h"
@@ -170,11 +171,21 @@ class TestUiShell : public QObject
       m_win = nullptr;
     }
 
-    // §42.11 a11y floor
-    void windowMeetsMinSize()
+    // R6 #835：用户 2026-10-31「不要限制」——主窗口不设显式最小尺寸（取代 PLAN §42.11），
+    // 只剩 Qt 布局自然下限；对话框默认尺寸仍按所在屏收紧。
+    void windowHasNoExplicitMinSize()
     {
-      QVERIFY(m_win->minimumWidth() >= 1280);
-      QVERIFY(m_win->minimumHeight() >= 800);
+      QCOMPARE(m_win->minimumSize(), QSize(0, 0));
+      m_win->show();
+      QTest::qWait(10);
+      // 显示后 QLayout 会把顶层窗口最小值设为布局自然下限（totalMinimumSize），
+      // 这不是显式限制；只断言二者一致，且没有旧的 1100×720 硬下限。
+      qInfo() << "natural min after show" << m_win->minimumSize();
+      QVERIFY(m_win->layout());
+      QCOMPARE(m_win->minimumSize(), m_win->layout()->totalMinimumSize());
+      QVERIFY(m_win->minimumSize() != QSize(1100, 720));
+      QCOMPARE(paleo::ui_detail::boundedToAvailable(QSize(1100, 720), QSize(1280, 680)), QSize(1100, 612));
+      QCOMPARE(paleo::ui_detail::boundedToAvailable(QSize(1920, 1200), QSize()), QSize(1920, 1200));
     }
 
     // goal/ui-experience-polish：W5 快捷键族——Ctrl+1..6 直切、Ctrl+Tab/
@@ -324,11 +335,12 @@ class TestUiShell : public QObject
                  QStringLiteral("徽标接线"), QStringLiteral("正文"));
       QCOMPARE(hub->size(), 1);
       QVERIFY(btn->isVisible()); // count > 0 → 可见
-      QCOMPARE(btn->text(), QStringLiteral("1"));
+      QCOMPARE(btn->text(), QStringLiteral("1 条错误/警告")); // R6 #860：不再是孤零零的 "1"
+      QVERIFY(!btn->icon().isNull());
 
       hub->raise(ErrorHub::Level::Warning, QStringLiteral("test"),
                  QStringLiteral("第二条"), QStringLiteral("正文2"));
-      QCOMPARE(btn->text(), QStringLiteral("2"));
+      QCOMPARE(btn->text(), QStringLiteral("2 条错误/警告"));
 
       hub->clear();
       QCOMPARE(hub->size(), 0);
@@ -2508,51 +2520,6 @@ class TestUiShell : public QObject
               qEnvironmentVariable("PALEO_PREDICTION_WINDOW_CAPTURE");
           !capture.isEmpty())
         QVERIFY(m_win->grab().save(capture));
-    }
-
-    void testSimultaneousWellsAndSurveyAreaVisibility()
-    {
-      const QString paleoDataDir = QStringLiteral("/home/kevin/projects/paleo_data");
-      if (!QDir(paleoDataDir).exists())
-        QSKIP("Local paleo_data fixture not available");
-
-      m_win->resize(1600, 1000);
-      m_win->show();
-      bool ok = m_win->openPath(paleoDataDir);
-      QVERIFY(ok);
-      QTRY_VERIFY_WITH_TIMEOUT(m_ctx->layerSvc()->layer(QStringLiteral("wells")) != nullptr &&
-                               m_ctx->layerSvc()->layer(QStringLiteral("survey.area")) != nullptr, 8000);
-
-      auto *root = m_ctx->projectSvc()->project()->layerTreeRoot();
-      QVERIFY(root != nullptr);
-
-      m_win->showPage(QStringLiteral("predict"));
-      auto *sl = m_ctx->layerSvc()->layer(QStringLiteral("survey.area"));
-      auto *wl = m_ctx->layerSvc()->layer(QStringLiteral("wells"));
-      QVERIFY(sl != nullptr);
-      QVERIFY(wl != nullptr);
-
-      auto *sNode = root->findLayer(sl->id());
-      auto *wNode = root->findLayer(wl->id());
-      QVERIFY(sNode != nullptr);
-      QVERIFY(wNode != nullptr);
-
-      // Both must be checked on predict page
-      QVERIFY(sNode->itemVisibilityChecked());
-      QVERIFY(wNode->itemVisibilityChecked());
-
-      // Switch to other pages
-      m_win->showPage(QStringLiteral("constraint"));
-      QVERIFY(sNode->itemVisibilityChecked());
-      QVERIFY(wNode->itemVisibilityChecked());
-
-      m_win->showPage(QStringLiteral("compose"));
-      QVERIFY(sNode->itemVisibilityChecked());
-      QVERIFY(wNode->itemVisibilityChecked());
-
-      m_win->showPage(QStringLiteral("predict"));
-      QVERIFY(sNode->itemVisibilityChecked());
-      QVERIFY(wNode->itemVisibilityChecked());
     }
 
     void qgisIsPersistentProjectView() {

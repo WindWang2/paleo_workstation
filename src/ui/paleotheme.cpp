@@ -753,7 +753,7 @@ namespace PaleoTheme
                // 固定高度标题行的搜索框不能叠加正文输入框的纵向 padding。
                "QWidget#locatorSlot QLineEdit { padding: 0 {spacing.sm}px; }"
                "SARibbonPanel QComboBox { border: 1px solid %6; border-radius: {rounded.sm}px;"
-               " background: %7; color: %1; padding: {spacing.xs}px {spacing.sm}px; min-width: 132px; }"
+               " background: %7; color: %1; padding: {spacing.xs}px {spacing.sm}px; min-width: 10em; }"
                "SARibbonPanel QLabel#ribbonEditState { color: %8; }"))
         .arg(qssHex(t.text), qssHex(t.primary), qssHex(t.surfaceAltRaised),
              qssHex(t.textDisabled), qssHex(t.primaryText), qssHex(t.border),

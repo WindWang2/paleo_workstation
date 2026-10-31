@@ -16,6 +16,7 @@
 #include <QSet>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <cmath>
@@ -27,10 +28,21 @@ namespace {
 bool supervisedClassifier(Classifier m) {
   return m == Classifier::Lda || m == Classifier::Qda || m == Classifier::Knn;
 }
+// #837：控制栏与图区放进可拖动、可收起的 QSplitter（原 setFixedWidth(320) +
+// setMaximumWidth(320) 使长通道名截断且比例不可调）。
+QSplitter *makeControlsSplitter(QWidget *controls, QWidget *display, QWidget *parent) {
+  auto *splitter = new QSplitter(Qt::Horizontal, parent);
+  splitter->setObjectName(QStringLiteral("crossplotSplitter"));
+  splitter->addWidget(controls);
+  splitter->addWidget(display);
+  splitter->setStretchFactor(1, 1);
+  splitter->setSizes({320, 680});
+  return splitter;
+}
 } // namespace
 CrossplotCanvas::CrossplotCanvas(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("crossplotCanvas"));
-  setMinimumSize(320, 200);
+  setMinimumSize(160, 120);
   setMouseTracking(true);
   setFocusPolicy(Qt::StrongFocus);
   setAccessibleName(tr("散点交会图，拖动套索，Shift 拖动框选，单击定位"));
@@ -275,7 +287,6 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   auto *form = new QVBoxLayout(controls);
   form->setContentsMargins(0, 0, 0, 0);
   form->setSpacing(PaleoTheme::tokens().spacingSm);
-  controls->setMaximumWidth(320);
   m_sources = new QListWidget(controls);
   m_sources->setObjectName(QStringLiteral("crossplotSources"));
   m_sources->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -421,9 +432,10 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   scroll->setWidget(controls);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
-  scroll->setFixedWidth(320);
-  outer->addWidget(scroll);
-  auto *display = new QVBoxLayout;
+  auto *displayHost = new QWidget(this);
+  auto *display = new QVBoxLayout(displayHost);
+  display->setContentsMargins(0, 0, 0, 0);
+  outer->addWidget(makeControlsSplitter(scroll, displayHost, this));
   m_canvas = new CrossplotCanvas(this);
   display->addWidget(m_canvas, 1);
   m_stats = new QLabel(tr("选区：N=0"), this);
@@ -447,7 +459,6 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   m_message->setWordWrap(true);
   m_message->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   display->addWidget(m_message);
-  outer->addLayout(display, 1);
   connect(m_load, &QPushButton::clicked, this, [this] {
     QStringList ids;
     for (auto *item : m_sources->selectedItems())

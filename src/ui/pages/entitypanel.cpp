@@ -1,5 +1,6 @@
 // 层：视图
 #include "entitypanel.h"
+#include "../windowsizing_internal.h"
 #include "../../workflow/derivationworkflow.h"
 #include <QHideEvent>
 #include <QSet>
@@ -8,7 +9,6 @@
 #include "derivationgraph.h"
 #include "pageshared.h"
 #include "../paleotheme.h"
-#include "../../services/previewdoc.h"
 #include "../../services/paleotaskservice.h" // F3：GeoJSON 统计任务池路径
 #include "../../catalog/datacatalog.h"
 #include "../../catalog/entityview.h"
@@ -383,7 +383,7 @@ void EntityPanel::buildD4Ui()
       auto *secTopo = new CollapsibleSection(tr("关联拓扑"), host);
       secTopo->setObjectName(QStringLiteral("secTopo"));
       m_topology = new TopologyGraph(secTopo->container());
-      m_topology->setMaximumHeight(220);
+      m_topology->setMinimumHeight(paleo::ui_detail::lineRows(m_topology, 8)); // R6 #836
       secTopo->containerLayout()->addWidget(m_topology);
       // D4.5 点击节点 → 定位（资产 → assetFocus；实体 → entitiesFocus 由壳接）。
       connect(m_topology, &TopologyGraph::nodeClicked, this,

@@ -85,6 +85,9 @@
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTimer>
+#include <QShowEvent>
+#include <QWindow>
+#include "windowsizing_internal.h"
 
 #include <memory>
 
@@ -286,11 +289,8 @@ void PaleoMainWindow::buildShell()
                                 m_bottomDockAutoShown, m_rightDock}, this);
          }
        }});
-  const auto *screen = QGuiApplication::primaryScreen();
-  const QRect avail = (screen && !paleo::ui_detail::isOffscreen()) ? screen->availableGeometry() : QRect();
-  const int minW = (avail.width() > 0 && avail.width() < 1280) ? qMax(960, avail.width() - 40) : 1280;
-  const int minH = (avail.height() > 0 && avail.height() < 800) ? qMax(540, avail.height() - 40) : 800;
-  setMinimumSize(minW, minH); // §42.11 a11y floor with low-viewport adaptive fallback
+  // R6 #835（用户 2026-10-31 决定「不要限制」，取代 PLAN §42.11 的 1280×800 最小窗口）：
+  // 不再设置主窗口最小尺寸，只保留 Qt 布局自然下限。
 
   // ---- center: startup page stacked under the workspace ----
   buildCenterArea();
@@ -600,6 +600,9 @@ void PaleoMainWindow::restoreWindowState()
   const QByteArray geom = s.value(QStringLiteral("windowGeometry")).toByteArray();
   if (!geom.isEmpty())
     restoreGeometry(geom);
+  else if (!paleo::ui_detail::isOffscreen())
+    // R6 #835：首次启动按所在屏 90% 起步，而不是停在最小尺寸、四周留白。
+    resize(paleo::ui_detail::boundedToAvailable(QSize(1920, 1200), paleo::ui_detail::availableSizeFor(this)));
   const QByteArray state = s.value(QStringLiteral("windowState")).toByteArray();
   if (!state.isEmpty())
   {

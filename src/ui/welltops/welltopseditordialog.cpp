@@ -1,5 +1,6 @@
 // 层：视图
 #include "welltopseditordialog.h"
+#include "ui/common/screenfit.h"
 
 #include "../../catalog/datacatalog.h"
 #include "../../workflow/welltopseditorworkflow.h"
@@ -95,7 +96,7 @@ WellTopsEditorDialog::WellTopsEditorDialog(DataCatalog *catalog, const QString &
   setObjectName(QStringLiteral("wellTopsEditorDialog"));
   setWindowTitle(tr("编辑分层"));
   setModal(true);
-  resize(880, 560);
+  paleo::ui::resizeWithinScreen(this, 880, 560);  // #854
   buildUi();
 
   if (m_catalog)
@@ -483,7 +484,6 @@ void WellTopsEditorDialog::onWellChanged()
   setSummaryLine(tr("已切换到 %1（%2 行）").arg(m_currentWell,
                                                QString::number(m_table->rowCount())));
 }
-
 
 void WellTopsEditorDialog::onInsertRow()
 {

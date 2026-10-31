@@ -1,5 +1,6 @@
 // 层：视图
 #include "paleoribbon.h"
+#include <QFocusEvent>
 
 #include "paleotheme.h"
 
@@ -129,33 +130,47 @@ namespace
         // 聚焦瞬间的几何可能还是页签切换前的旧值（LayoutRequest 排队未跑）——
         // 推到下一轮事件循环再量，量到什么就滚什么，一次直滚到位。
         auto *btn = qobject_cast<QWidget *>(obj);
-        QTimer::singleShot(0, this, [btn = QPointer<QWidget>(btn)] {
-          if (!btn)
-            return;
-          SARibbonCategory *cat = nullptr;
-          for (QWidget *p = btn->parentWidget(); p && !cat; p = p->parentWidget())
-            cat = qobject_cast<SARibbonCategory *>(p);
-          // categoryLayout() 是 protected——同一对象经公有 layout() 也能拿到
-          //（vendor 内部也用 qobject_cast 这条等价路径）。
-          auto *lay = cat ? qobject_cast<SARibbonCategoryLayout *>(cat->layout()) : nullptr;
-          if (!lay)
-            return;
-          const QRect r(btn->mapTo(cat, QPoint(0, 0)), btn->size());
-          // 可见的滚动钮压住类别边缘，预留它的宽度免得焦点件藏在按钮底下。
-          int marginL = 0, marginR = 0;
-          for (auto *tb : cat->findChildren<QToolButton *>())
-            if (tb->inherits("SARibbonCategoryScrollButton") && tb->isVisibleTo(cat))
-              (tb->arrowType() == Qt::LeftArrow ? marginL : marginR) = tb->width();
-          // LTR 的 mXBase ∈ [类别宽-总宽, 0]：负 px 才把内容左移、露出右裁件。
-          if (r.right() > cat->width())
-            lay->scroll(-(r.right() - cat->width() + marginR));
-          else if (r.left() < 0)
-            lay->scroll(-r.left() + marginL);
-        });
+        // 只追键盘焦点：切页签 / 鼠标点击时控件自取焦点不该把类别滚走（首组被裁）。
+        const Qt::FocusReason why = static_cast<QFocusEvent *>(ev)->reason();
+        const bool kbd = why == Qt::TabFocusReason || why == Qt::BacktabFocusReason || why == Qt::ShortcutFocusReason;
+        if (btn)
+          btn->setProperty("paleoKbdFocus", kbd);
+        if (!kbd)
+          return false;
+        QTimer::singleShot(0, this, [btn = QPointer<QWidget>(btn)] { PaleoRibbon::scrollIntoView(btn); });
         return false;
       }
   };
 } // namespace
+
+namespace PaleoRibbon
+{
+  void scrollIntoView(QWidget *btn)
+  {
+    if (!btn)
+      return;
+    SARibbonCategory *cat = nullptr;
+    for (QWidget *p = btn->parentWidget(); p && !cat; p = p->parentWidget())
+      cat = qobject_cast<SARibbonCategory *>(p);
+    // categoryLayout() 是 protected——同一对象经公有 layout() 也能拿到
+    //（vendor 内部也用 qobject_cast 这条等价路径）。
+    auto *lay = cat ? qobject_cast<SARibbonCategoryLayout *>(cat->layout()) : nullptr;
+    if (!lay)
+      return;
+    const QRect r(btn->mapTo(cat, QPoint(0, 0)), btn->size());
+    // 可见的滚动钮压住类别边缘，预留它的宽度免得焦点件藏在按钮底下。
+    int marginL = 0, marginR = 0;
+    for (auto *tb : cat->findChildren<QToolButton *>())
+      if (tb->inherits("SARibbonCategoryScrollButton") && tb->isVisibleTo(cat))
+        (tb->arrowType() == Qt::LeftArrow ? marginL : marginR) = tb->width();
+    // LTR 的 mXBase ∈ [类别宽-总宽, 0]：负 px 才把内容左移、露出右裁件。
+    if (r.right() > cat->width())
+      lay->scroll(-(r.right() - cat->width() + marginR));
+    else if (r.left() < 0)
+      lay->scroll(-r.left() + marginL);
+  }
+} // namespace PaleoRibbon
+
 
 namespace PaleoRibbon
 {

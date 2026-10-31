@@ -48,6 +48,10 @@ fail() { echo "FAIL fetch-deps: $1" >&2; echo "       fix: $2" >&2; exit 1; }
 
 # --print-only 只读锁文件（格式校验 + 列表打印），宿主不需要 apt/python——
 # CI 冒烟门（ci.yml lint job）跑在任何 runner 上都不应被工具链前置检查绊倒。
+# #839：pool/snapshot 偶发 5xx/超时——下载与探测统一带退避重试（--retry-all-errors
+# 覆盖 502/503；404 也会重试几次，代价仅数秒）。
+CURL_RETRY=(--retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 30)
+
 snapshot_url_for() { # 仅 Ubuntu 官方 pool 有 snapshot；其他源回空串
   case "$1" in
     http://archive.ubuntu.com/ubuntu/pool/*|https://archive.ubuntu.com/ubuntu/pool/*|\
@@ -120,9 +124,9 @@ if [ "$PRINT_ONLY" = "1" ]; then
     missing=0
     while read -r quoted name size hash; do
       url=${quoted#\'}; url=${url%\'}
-      curl -fsIL --max-time 60 "$url" >/dev/null 2>&1 && continue
+      curl -fsIL "${CURL_RETRY[@]}" --max-time 60 "$url" >/dev/null 2>&1 && continue
       snap=$(snapshot_url_for "$url")
-      if [ -n "$snap" ] && curl -fsIL --max-time 60 "$snap" >/dev/null 2>&1; then
+      if [ -n "$snap" ] && curl -fsIL "${CURL_RETRY[@]}" --max-time 60 "$snap" >/dev/null 2>&1; then
         echo "  .. pool miss, snapshot ok: $name"
         continue
       fi
@@ -146,13 +150,13 @@ printf '%s\n' "$URIS" | while read -r quoted name size hash; do
   url=${quoted#\'}; url=${url%\'}
   if [ ! -f "$CACHE/$name" ]; then
     echo "  .. fetch $name"
-    if ! curl -fsSL "$url" -o "$CACHE/$name.part"; then
+    if ! curl -fsSL "${CURL_RETRY[@]}" "$url" -o "$CACHE/$name.part"; then
       rm -f "$CACHE/$name.part"
       # 只对 Ubuntu 官方 pool 回退 snapshot（qgis.org 等第三方源没有快照服务）。
       snap=$(snapshot_url_for "$url")
       [ -n "$snap" ] || fail "cannot download $name from $url" "refresh $LOCK with --update-lock"
       echo "     pool miss — retry from snapshot $DEB_SNAPSHOT"
-      curl -fsSL "$snap" -o "$CACHE/$name.part" || {
+      curl -fsSL "${CURL_RETRY[@]}" "$snap" -o "$CACHE/$name.part" || {
         rm -f "$CACHE/$name.part"
         fail "cannot download $name (pool and snapshot $DEB_SNAPSHOT)" \
              "refresh $LOCK with --update-lock on Ubuntu 26.04, or set PALEO_DEB_SNAPSHOT"

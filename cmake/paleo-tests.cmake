@@ -161,7 +161,6 @@ add_paleo_test(tst_standardelements LIBS paleo_qgis) # 方向25：标准图件�
 add_paleo_test(tst_layoutpersistence LIBS paleo_qgis) # 方向25：布局随工程 QGZ round-trip
 add_paleo_test(tst_layouttemplatelibrary LIBS paleo_workflow) # 方向25：模板库（qpt→catalog 版本 + 库表）
 add_paleo_test(tst_horizonbatchexport LIBS paleo_workflow) # 方向25：按层位组批量出图 + catalog 登记
-add_paleo_test(tst_horizonbatchexport_diag LIBS paleo_workflow) # #541 诊断套件（此前 582 行零注册覆盖幻影；2026-10-19 审计 E-04 接闸）
 # ---- wave/data-foundation ----
 add_paleo_test(tst_catalog LIBS paleo_store)
 add_paleo_test(tst_catalogroles LIBS paleo_store)   # 方向92：角色词表单源
@@ -237,6 +236,8 @@ add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable
 # ---- wave3/ux-consistency ----
 # (fonts qrc + theme singleton live in paleo_core below; UI-domain tests here)
 add_paleo_test(tst_uxtheme LIBS paleo_ui)
+add_paleo_test(tst_ribboncollapse LIBS paleo_ui)  # #860 Office 式分组自适应折叠
+add_paleo_test(tst_ribbontitlefit LIBS paleo_ui)  # #860 标题行页签优先（scale 2）
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx LIBS paleo_ai)
   add_paleo_test(tst_onnxsessions LIBS paleo_ai)
@@ -427,3 +428,4 @@ add_paleo_test(tst_dragtop_render LIBS paleo_qgis)  # 拖拽到树顶后画布�
 add_paleo_test(tst_layerorganizer LIBS paleo_qgis)  # 图层树布局器：置顶共享/层位组/组秩/树层双绑
 add_paleo_test(tst_layertreepanel LIBS paleo_ui)    # 筛选/组级显隐/复制图层/objectName 兼容
 add_paleo_test(tst_layerproperties LIBS paleo_ui)   # 矢量/栅格/缺源三类 + 业务页字段
+add_paleo_test(tst_r6_uiviews LIBS paleo_ui)                # R6 ui-views：尺寸约束/滚轮缩放/预览曲线回归

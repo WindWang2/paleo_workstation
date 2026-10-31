@@ -27,8 +27,9 @@ struct ContourLine
   QVector<QPointF> points;
 };
 
-bool writeGrid( const QString &path, int cols, int rows, double originX, double originY, double cell,
-                const QVector<float> &values, float nodata )
+
+bool writeGridWithGt( const QString &path, int cols, int rows, const double geoTransform[6],
+                      const QVector<float> &values, float nodata )
 {
   GDALDriverH driver = GDALGetDriverByName( "GTiff" );
   if ( !driver || values.size() != cols * rows )
@@ -36,8 +37,7 @@ bool writeGrid( const QString &path, int cols, int rows, double originX, double 
   GDALDatasetH dataset = GDALCreate( driver, path.toUtf8().constData(), cols, rows, 1, GDT_Float32, nullptr );
   if ( !dataset )
     return false;
-  double geoTransform[6] = { originX, cell, 0.0, originY, 0.0, -cell };
-  if ( GDALSetGeoTransform( dataset, geoTransform ) != CE_None )
+  if ( GDALSetGeoTransform( dataset, const_cast<double *>( geoTransform ) ) != CE_None )
   {
     GDALClose( dataset );
     return false;
@@ -52,6 +52,13 @@ bool writeGrid( const QString &path, int cols, int rows, double originX, double 
   }
   GDALClose( dataset );
   return QFile::exists( path );
+}
+
+bool writeGrid( const QString &path, int cols, int rows, double originX, double originY, double cell,
+                const QVector<float> &values, float nodata )
+{
+  const double geoTransform[6] = { originX, cell, 0.0, originY, 0.0, -cell };
+  return writeGridWithGt( path, cols, rows, geoTransform, values, nodata );
 }
 
 void appendLine( OGRGeometryH geometry, double level, QVector<ContourLine> *out )
@@ -129,6 +136,7 @@ private slots:
   void intervalContoursIgnoreNodata();
   void blockedOutputLeavesPreviousContentIntact();
   void failedRequestKeepsPreviousOutput();
+  void analysisFieldContoursRejectRotatedGrid(); // #834 handoff: contract, not silent wrong XY
 };
 
 void SingleFactorContourTests::constantFieldHasNoFalseLoops()
@@ -406,6 +414,27 @@ void SingleFactorContourTests::failedRequestKeepsPreviousOutput()
   QFile kept( output );
   QVERIFY2( kept.open( QIODevice::ReadOnly ), "失败不得删掉上一版产物" );
   QCOMPARE( kept.readAll(), contents );
+}
+
+
+// #834 旁路：factorcontour 的分析场提线用可分 xs/ys，不能表示旋转；契约是
+// 拒绝旋转栅格（响亮失败），不是像 velocitymodel 那样静默用错坐标。
+void SingleFactorContourTests::analysisFieldContoursRejectRotatedGrid()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const double s = 10.0 * std::sqrt( 0.5 );
+  const double gt[6] = { 0.0, s, -s, 0.0, s, s }; // 45°
+  const QString raster = dir.filePath( QStringLiteral( "rotated.tif" ) );
+  QVERIFY( writeGridWithGt( raster, 4, 4, gt, QVector<float>( 16, 5.0f ), -9999.0f ) );
+  const QString out = dir.filePath( QStringLiteral( "out.gpkg" ) );
+  QString err;
+  QVERIFY2( !FactorContourService::generateAnalysisFieldContours( raster, out, { 5.0 }, 0.0, nullptr, &err ),
+            "rotated analysis field must be rejected" );
+  QVERIFY2( err.contains( QStringLiteral( "北向上" ) ) || err.contains( QStringLiteral( "旋转" ) )
+                || err.contains( QStringLiteral( "规则网格" ) ),
+            qPrintable( err ) );
+  QVERIFY( !QFile::exists( out ) );
 }
 
 int main( int argc, char *argv[] )

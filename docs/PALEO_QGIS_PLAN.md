@@ -1469,7 +1469,7 @@ Facies Polygon Layer (可编辑)
 10. **Undo 可见性（D14）**：Ctrl+Z/Y 作用于当前画布编辑会话（跨层操作原子撤销）；编辑菜单提供"编辑历史"面板按会话列条目，兼作编辑审计。
 
 **可达性与窗口规则（D10）**
-11. 最小窗口 1280×800；低于此宽 dock 自动折叠为 tab。
+11. ~~最小窗口 1280×800~~ —— 已取代（用户 2026-10-31，R6 #835「不要限制」）：主窗口不设最小尺寸，只保留 Qt 布局自然下限；首次启动按所在屏 90% 起步。
 12. Tab 序 = 阅读序（canvas→左→右→底部→状态栏）；所有自定义控件设 `accessibleName`/`accessibleDescription`。
 13. 焦点环 = `focus-ring` token（2px primary 描边），禁用文本 = `text-disabled`，占位 = `placeholder`——禁用控件仍须 §35 reason tooltip。
 14. 应用级"减少动画"设置（Qt 无 OS 级 prefers-reduced-motion）：开启后 §1.1 动画全部替换为即时切换。

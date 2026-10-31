@@ -6,6 +6,7 @@
 #include <QDockWidget>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLayout>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMouseEvent>
@@ -165,6 +166,16 @@ void PaleoDockManager::fitLayout()
     if (!docks.isEmpty())
       m_window->resizeDocks(docks, sizes, side ? Qt::Horizontal : Qt::Vertical);
   }
+}
+
+void PaleoDockManager::fitIfCentralCramped()
+{
+  QWidget *center = m_window->centralWidget();
+  if (!center || center->width() >= m_window->width() / 2)
+    return;
+  fitLayout();
+  if (QLayout *l = m_window->layout())
+    l->activate();
 }
 
 QMenu *PaleoDockManager::createMenu(QWidget *parent)

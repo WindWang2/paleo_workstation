@@ -523,6 +523,7 @@ private slots:
   void fromJsonReportsStructuredSchemaFlag();
   void corruptJsonWithoutBackupDoesNotCreateSqlite();
   void secondOpenSnapshotsBakAndRecoverySkipsNewerCommits();
+  void failedBackupShiftKeepsOlderGenerations(); // #859
   void futureUserVersionRefusesWithoutBak();
   void futureSchemaEpochRefusesWithoutBak();
   void unsafeVersionInsertedLaterIsSkippedButKept();
@@ -746,6 +747,42 @@ void TestCatalogStore::corruptJsonWithoutBackupDoesNotCreateSqlite()
   QCOMPARE(readAllBytes(jsonPath, &ok), original);
   QVERIFY(ok);
   store.close();
+}
+
+// #859：轮转中某代移位失败（这里 .bak.3 被一个非空目录占住）时必须停手，
+// 旧码忽略返回值继续把 .bak 移到 .bak.2 并写新 .bak，丢掉一代备份。
+void TestCatalogStore::failedBackupShiftKeepsOlderGenerations()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sqlitePath = CatalogStore::sqlitePathFor(dir.path());
+  const QString bak = sqlitePath + QStringLiteral(".bak");
+  QString err;
+  for (int i = 0; i < 3; ++i)
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    store.close();
+  }
+  QVERIFY(QFile::exists(bak));
+  QVERIFY(QFile::exists(bak + QStringLiteral(".2")));
+  QFile::remove(bak + QStringLiteral(".3"));
+  QVERIFY(QDir().mkpath(bak + QStringLiteral(".3/blocker")));
+  bool ok = false;
+  QFile::remove(bak); QVERIFY(QFile::copy(sqlitePath, bak)); // known content
+  QFile marker2(bak + QStringLiteral(".2"));
+  QVERIFY(marker2.open(QIODevice::WriteOnly)); marker2.write("generation-2"); marker2.close();
+  const QByteArray bakBefore = readAllBytes(bak, &ok);
+  QVERIFY(ok);
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    store.close();
+  }
+  QCOMPARE(readAllBytes(bak + QStringLiteral(".2"), &ok), QByteArray("generation-2"));
+  QCOMPARE(readAllBytes(bak, &ok), bakBefore);
 }
 
 void TestCatalogStore::secondOpenSnapshotsBakAndRecoverySkipsNewerCommits()

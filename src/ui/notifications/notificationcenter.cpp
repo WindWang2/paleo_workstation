@@ -183,7 +183,11 @@ void NotificationCenter::relayout()
     std::sort(order, order + n,
               [](const ToastCard *a, const ToastCard *b) { return a->seq() > b->seq(); });
     int bottom = m_host->height() - t.spacingMd;
-    const int x = std::max(0, m_host->width() - t.spacingMd - kCardWidth);
+    // #851：卡宽 = min(kCardWidth, host-边距)，与 ToastCard 最大宽对齐。
+    const int cardW = std::min(kCardWidth, std::max(200, m_host->width() - 2 * t.spacingMd));
+    for (int i = 0; i < n; ++i)
+        order[i]->setFixedWidth(cardW);
+    const int x = std::max(0, m_host->width() - t.spacingMd - cardW);
     for (int i = 0; i < n; ++i)
     {
         ToastCard *card = order[i];

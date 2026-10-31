@@ -1,5 +1,6 @@
 // 层：视图
 #include "dataserviceimportwizard.h"
+#include "../windowsizing_internal.h"
 #include "../../workflow/projectsetup.h"
 #include "../../qgis/crsselector.h"
 #include <QComboBox>
@@ -23,7 +24,7 @@ DataServiceImportWizard::DataServiceImportWizard(ProjectSetupWorkflow *workflow,
   setWizardStyle(QWizard::ModernStyle);
   setOption(QWizard::NoBackButtonOnStartPage, true);
   setOption(QWizard::HaveHelpButton, false);
-  setMinimumSize(720, 420);
+  setMinimumSize(paleo::ui_detail::boundedToAvailable(QSize(720, 420), paleo::ui_detail::availableSizeFor(this))); // R6 #844
   addPage(projectPage()); addPage(settingsPage()); addPage(reviewPage());
   setButtonText(QWizard::FinishButton, tr("创建并导入"));
   if (auto *create = button(QWizard::FinishButton)) create->setObjectName(QStringLiteral("dataServiceCreateButton"));

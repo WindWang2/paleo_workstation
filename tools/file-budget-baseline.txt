@@ -36,7 +36,7 @@
 # 临时仿射对话框）、WellSitingPanel 253→225（buildCoordinateSection）、
 # attachShellSurfaces 548→477（attachMapBookSurface）。
 src/ui/correlation/petrophyspanel.cpp:fn:buildUi:220
-src/ui/crossplot/crossplotpanel.cpp:fn:CrossplotPanel:240
+src/ui/crossplot/crossplotpanel.cpp:fn:CrossplotPanel:239
 src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:407
 src/ui/datapreview/datapreviewtabhorizon.cpp:fn:buildHorizonContent:429
 src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:372
@@ -62,7 +62,7 @@ src/ui/pages/entitypanel.cpp:file:1462
 src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
 src/ui/pages/entitypanel.cpp:fn:refresh:778
 src/ui/pages/mappingworkbenchpage.cpp:file:1189
-src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:384
+src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:383
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:277
 src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:225
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:404

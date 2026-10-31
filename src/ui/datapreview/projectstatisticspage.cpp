@@ -372,7 +372,7 @@ void ProjectStatisticsPage::buildSurveyMapCard()
   m_mapCanvas->setObjectName(QStringLiteral("dashboardSurveyMap"));
   QWidget *canvasWidget = DashboardSurveyMap::canvasWidget(m_mapCanvas);
   canvasWidget->setObjectName(QStringLiteral("dashboardSurveyMapCanvas"));
-  m_mapCanvas->setMinimumHeight(340);
+  m_mapCanvas->setMinimumHeight(200);  // #848：原 340
   mapLay->addWidget(m_mapCanvas);
   // 地图要素（非设置）：比例尺 + 指北针 + 图例行。
   m_decorations = PaleoDecorationManager::forCanvasWidget(canvasWidget, canvasWidget);

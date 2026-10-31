@@ -1,5 +1,6 @@
 // 层：视图
 // paleomainwindow_attach_shell — 壳面与全局组件接线（W4 拆分段）
+#include "ribbontitlefit.h"
 #include "paleomainwindow.h"
 
 #include "paleoicons.h"
@@ -113,7 +114,6 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       locatorWidget->setPlaceholderText(
           locatorKey.isEmpty() ? tr("搜索井位/层位")
                                : tr("搜索井位/层位  %1").arg(locatorKey));
-      locatorWidget->setMinimumWidth(220);
       // QGIS 定位器把 Tab 留给补全/下一条、Esc 只收结果列表：键盘进了搜索框
       // 就出不来。装 Esc 出口（Tab 不动）；顺手给输入框补无障碍名。
       installLocatorKeyboardExit(locatorWidget);
@@ -187,8 +187,9 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
 
       topBar->layout()->addWidget(locatorWidget);
       auto *focus = paleo::shortcuts::bindShortcut(QStringLiteral("main.locator.focus"), this);
-      connect(focus, &QShortcut::activated, locatorWidget,
-              [locatorWidget] { locatorWidget->search(QString()); });
+      connect(focus, &QShortcut::activated, locatorWidget, [this, locatorWidget] { // 收成图标时先展开
+        PaleoRibbon::revealTitleSearch(ribbonBar());
+        locatorWidget->search(QString()); });
     }
 
     if (store && m_projectSvc)

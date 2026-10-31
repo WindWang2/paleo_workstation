@@ -1,5 +1,6 @@
 // 层：视图
 #include "wellpredictionpanel.h"
+#include "../windowsizing_internal.h"
 #include "../paleotheme.h"
 #include "../../domain/faciescatalog.h"
 #include "../wellcomposite/wellcompositecanvas.h"
@@ -58,13 +59,13 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   m_list->verticalHeader()->hide();
   m_list->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
   m_list->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-  m_list->setMinimumWidth(240);
+  m_list->setMinimumWidth(m_list->fontMetrics().averageCharWidth() * 16); // R6 #844：原 240px
   connect(m_list, &QTableWidget::currentCellChanged, this, [this](int row) {
     if (row >= 0 && row < m_well->count() && row != m_well->currentIndex())
       m_well->setCurrentIndex(row);
   });
   m_canvas = new WellCompositeCanvas(split);
-  m_canvas->setMinimumSize(360, 220);
+  m_canvas->setMinimumSize(240, 160); // R6 #844：原 360×220，窄 dock 放不下
   auto *right = new QWidget(split);
   right->setAutoFillBackground(true);
   auto *rl = new QVBoxLayout(right);

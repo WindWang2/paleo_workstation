@@ -1,5 +1,6 @@
 // 层：视图
 #include "wellreadinesspanel.h"
+#include "../windowsizing_internal.h"
 #include "../../workflow/mappingworkbench.h"
 #include <QHBoxLayout>
 #include <QLabel>
@@ -32,7 +33,7 @@ WellReadinessPanel::WellReadinessPanel(MappingWorkbench *workbench, QListWidget 
   m_reasons = new QListWidget(this);
   m_reasons->setObjectName(QStringLiteral("wellReadinessReasons"));
   m_reasons->setAccessibleName(tr("逐井预测准备情况"));
-  m_reasons->setMaximumHeight(120);
+  m_reasons->setMinimumHeight(paleo::ui_detail::lineRows(m_reasons, 4)); // R6 #836
   m_reasons->hide();
   lay->addWidget(m_reasons);
   connect(m_toggle, &QPushButton::toggled, m_reasons, &QWidget::setVisible);

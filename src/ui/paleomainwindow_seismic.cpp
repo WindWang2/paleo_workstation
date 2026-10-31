@@ -2,6 +2,7 @@
 // paleomainwindow：地震体同步到各停靠面板（file-budget 拆分）
 
 #include "paleomainwindow.h"
+#include "windowsizing_internal.h"
 #include "paleomainwindow_internal.h"
 #include "uienv_internal.h"
 #include "paleodockmanager.h"
@@ -124,7 +125,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks(bool includeLargeVolumes)
       status->setObjectName(QStringLiteral("projectSeismicLoadStatus"));
       progress = new QProgressBar(this);
       progress->setObjectName(QStringLiteral("projectSeismicLoadProgress"));
-      progress->setMaximumWidth(160);
+      progress->setMaximumWidth(paleo::ui_detail::charColumns(progress, 22)); // R6 #845
       statusBar()->addPermanentWidget(status);
       statusBar()->addPermanentWidget(progress);
     }

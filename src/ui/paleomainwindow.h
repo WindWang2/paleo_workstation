@@ -146,6 +146,7 @@ class FaultSetStore;
 class WellSectionWorkflow;
 class SectionWorkbench;
 class QCloseEvent;
+class QShowEvent;
 class QContextMenuEvent;
 class QPoint;
 
@@ -349,6 +350,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 页签内的命令组依赖页面板与服务，由 buildRibbonPanels 在 attachWorkflows
     // 末尾填充。
     void buildRibbon();
+    void buildRibbonRightGroup(SARibbonBar *bar);
     // 方向 83 拆 TU：buildShell 按原文行序分解为下列构建段（初始化序/
     // 连接序逐行保持；实现分布 paleomainwindow_docks/_status/_errorhub/
     // _ribbon/_shortcuts.cpp）。

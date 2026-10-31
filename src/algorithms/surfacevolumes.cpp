@@ -63,7 +63,7 @@ bool volumeBetween(const float *top, const float *base, int cols, int rows, doub
   const std::size_t n = static_cast<std::size_t>(rows) * cols;
   for (std::size_t i = 0; i < n; ++i)
   {
-    if (std::isnan(top[i]) || std::isnan(base[i]))
+    if (!std::isfinite(top[i]) || !std::isfinite(base[i])) // #838：Inf 同 null
     {
       ++r.nullCells;
       continue;
@@ -110,7 +110,7 @@ bool volumeAboveDatum(const float *z, int cols, int rows, double dx, double dy,
   const std::size_t n = static_cast<std::size_t>(rows) * cols;
   for (std::size_t i = 0; i < n; ++i)
   {
-    if (std::isnan(z[i]))
+    if (!std::isfinite(z[i])) // #838
     {
       ++r.nullCells;
       continue;

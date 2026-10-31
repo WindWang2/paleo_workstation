@@ -25,6 +25,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QSizePolicy>
 
 // ui/ai — AI 工具结果结构化视图实现（方向 93）。
 //
@@ -361,7 +362,9 @@ void AiToolResultView::buildLineageGraph(const QJsonObject &payload) {
   graphView->setObjectName(QStringLiteral("aiResultLineageGraph"));
   // 卡内快照高度（渲染核缺省 260 起）：两行节点 + 边的可读快照，更大
   // 交互（缩放/过滤）走「在血缘页打开」。
-  graphView->setFixedHeight(240);
+  // #851：原固定 240，窄 dock 空白/无法随高伸展——最小 160，可伸展。
+  graphView->setMinimumHeight(160);
+  graphView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   graphView->loadGraph(graph);
   graphView->highlight(seedVersion, closure);
   // 结果可能早在 dock 隐藏时到达：立即 fit 一次（布局完备的场合直接对），

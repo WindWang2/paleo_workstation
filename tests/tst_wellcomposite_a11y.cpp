@@ -256,7 +256,8 @@ private slots:
     TrackSpec spec;
     spec.typeId = QStringLiteral("curve");
     TrackConfigDialog cfgDlg(spec, {});
-    QVERIFY(cfgDlg.minimumSize().width() >= 400);
+    // #881：最小宽按字体推导（56 均宽字符），不再断言固定 400 px。
+    QVERIFY(cfgDlg.minimumSize().width() >= cfgDlg.fontMetrics().averageCharWidth() * 56);
   }
 
   // ---- B-R3 窄面（2026-10-12 深化）：缩放读数在 1200×700 不裁字 ----

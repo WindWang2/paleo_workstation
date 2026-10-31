@@ -359,8 +359,14 @@ bool SattrVolumeWriter::writeInline(const float *values, QString *error)
 
 void SattrVolumeWriter::abort()
 {
+  // #890：begin 已 Truncate 目标，abort 时残件不可用——删掉，不留半截体。
+  // 调用方仍应写 staging 路径（.partial）再替换，见 sattrio.h。
   if (file_.isOpen())
+  {
+    const QString path = file_.fileName();
     file_.close();
+    QFile::remove(path);
+  }
   block_.clear();
   writtenIl_ = 0;
 }

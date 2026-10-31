@@ -109,7 +109,8 @@ public:
   bool writeInline(const float *values, QString *error = nullptr);
   bool finish(double valueMin, double valueMax, qint64 validCells,
               QString *error = nullptr);
-  // 放弃写入（取消/失败路径）：关文件弃半成品（调用方可删 .partial 文件）。
+  // 关闭并删除 begin 打开的目标文件（已被 Truncate，残件不可用）。务必对
+  // staging 路径（如 .partial）begin，成功 finish 后再替换最终 .satv（#890）。
   void abort();
 
   [[nodiscard]] qint64 inlinesWritten() const { return writtenIl_; }

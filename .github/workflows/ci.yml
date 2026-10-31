@@ -121,7 +121,7 @@ jobs:
           fi
           echo "tidy base: $base ($(git rev-parse --short "$base" 2>/dev/null || echo '?'))"
           python3 tools/check_tidy.py --base "$base"
-      - name: Source gates (layering / qgs-audit / ui invariants / ui size / file budget / i18n / QGIS 版本口径 / docs drift / cpp mainline，按脚本位置定位源码根)
+      - name: Source gates (layering / qgs-audit / ui invariants / ui size / ui tokens / file budget / i18n / QGIS 版本口径 / docs drift / cpp mainline，按脚本位置定位源码根)
         env:
           # #474：--transitive 的 QGIS 头目录探测约定名（vendor deb 闭包前缀，
           # 与上面 compile_commands 的 QGIS_PREFIX_PATH 同源）——func/ui 两指标
@@ -145,6 +145,10 @@ jobs:
           python3 tools/check_ui_invariants.py --selftest
           python3 tools/check_ui_size.py --strict
           python3 tools/check_ui_size.py --selftest
+          # #876：ui_tokens 与 ctest ui_tokens/_strict（linux 必过）同口径，
+          # 免得 lint「Source gates 绿」不代表表意 token 面。
+          python3 tools/check_ui_tokens.py --strict
+          python3 tools/check_ui_tokens.py --selftest
           python3 tools/check_file_budget.py --strict
           python3 tools/check_file_budget.py --selftest
           python3 tools/check_i18n.py

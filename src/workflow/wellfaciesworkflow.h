@@ -4,6 +4,7 @@
 #include "../services/paleotaskservice.h"
 #include <QPointer>
 #include <QVariantList>
+#include "domain/stratigraphicunit.h"
 class DataCatalog;
 class QgisLayerService;
 class QgsVectorLayer;
@@ -22,6 +23,7 @@ public:
   void selectModel(const QString &id);
   void refreshModels();
   void run();
+  void setAnalysisUnit(const paleo::strat::UnitSelection &unit);
   void cancel();
   // 绑定图层服务时预测回写可维护矢量相属性；未绑定保留旧资产兼容缝。
   // 方向 69：旧接口落 catalog DERIVED 解释岩性资产（well_litho_intervals
@@ -56,6 +58,11 @@ signals:
   void attributeTableRequested(const QString &layerId);
 
 private:
+  bool scopePlanToUnit(QString *error);
+  QString publishUnitResult(const WellFaciesResult &result);
+  paleo::strat::UnitSelection m_analysisUnit;
+  bool m_hasAnalysisContext = false;
+  QStringList m_unitParentVersions;
   void updateInput(bool restoreCache = true);
   void loadKeyFromKeychain();
   int m_configGeneration = 0; // configure() 递增：迟到的钥匙串读结果不覆盖新配置

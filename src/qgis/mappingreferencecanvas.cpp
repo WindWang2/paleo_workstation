@@ -156,6 +156,11 @@ void MappingReferenceCanvas::updateLink()
   if (m_link) m_link->setEnabled(m_active && m_linked);
 }
 
+QString referenceProjectFilePath(const QgsProject *project)
+{
+  return project ? project->fileName() : QString();
+}
+
 void MappingReferenceCanvas::resizeEvent(QResizeEvent *event)
 {
   PreviewMapCanvas::resizeEvent(event);

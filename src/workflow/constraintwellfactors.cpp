@@ -296,7 +296,14 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     }
     if (!metrics) continue;
     double top = qQNaN(), base = qQNaN();
-    for (const WellTop &t : data.topsForMapping(well.id)) {
+    QString topsError;
+    const auto tops = data.topsForMapping(well.id, &topsError);
+    if (!topsError.isEmpty()) {
+      row.thicknessReason = topsError;
+      row.sandReason = topsError;
+      continue;
+    }
+    for (const WellTop &t : tops) {
       if (t.horizon == effectiveTopName) top = t.md;
       if (t.horizon == effectiveBaseName) base = t.md;
     }

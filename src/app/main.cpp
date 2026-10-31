@@ -6,6 +6,8 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include "../workflow/wellfaciesworkflow.h"
+#include "../workflow/stratigraphyworkflow.h"
+#include "../ui/subintervalselectorbar.h"
 #include "../workflow/workflows.h"
 #include "../linkage/selectioncontext.h"
 #include "../ui/wellcomposite/wellcompositepanel.h"
@@ -361,6 +363,12 @@ int main(int argc, char *argv[])
       });
   QObject::connect(&ctx, &AppContext::projectReadOnlyChanged,
                    &window, &PaleoMainWindow::setProjectReadOnly);
+  QObject::connect(&ctx, &AppContext::analysisResultsReady, &window, [&window] {
+    if (auto *selector = window.findChild<SubIntervalSelectorBar *>()) selector->refreshProjectResults();
+  });
+  if (auto *stratigraphy = window.findChild<StratigraphyWorkflow *>())
+    QObject::connect(stratigraphy, &StratigraphyWorkflow::classificationChanged,
+                     &ctx, &AppContext::refreshAnalysisResults);
   window.attachWorkflows(ctx.predictionWf(), ctx.constraintWf(),
                          ctx.compositionWf(), ctx.validationWf(), ctx.importSvc(),
                          ctx.seismicLink(), ctx.processingSvc(), ctx.store(),

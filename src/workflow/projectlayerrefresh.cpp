@@ -1,5 +1,7 @@
 // 层：功能
 #include "projectlayerrefresh.h"
+#include "analysisresultsync.h"
+#include "domain/mappinghorizons.h"
 #include "../catalog/datacatalog.h"
 #include "../services/futuretask.h"
 #include "../services/projectdata.h"
@@ -59,6 +61,7 @@ void ProjectLayerRefreshWorkflow::request(DataCatalog *catalog, const QString &d
   auto snapshot = std::shared_ptr<DataCatalog>(catalog->createStagingCopy(QString()));
   m_stop = std::make_shared<std::atomic_bool>(false);
   const auto stop = m_stop;
+  const auto boundaries = mappingHorizons();
   auto *watcher = new QFutureWatcher<ProjectLayerData>(this);
   watcher->setObjectName("projectLayerRefreshWatcher");
   connect(watcher, &QFutureWatcherBase::finished, this,
@@ -89,8 +92,15 @@ void ProjectLayerRefreshWorkflow::request(DataCatalog *catalog, const QString &d
             }
           });
   const auto future = QtConcurrent::run(
-      paleo::tasks::pool(m_tasks), [snapshot, directory, stop] {
-        return prepare(*snapshot, directory, stop);
+      paleo::tasks::pool(m_tasks), [snapshot, directory, stop, boundaries] {
+        auto data = prepare(*snapshot, directory, stop);
+        if (!stop->load()) {
+          const auto frameworkError = ensureProjectAnalysisScheme(snapshot.get(), directory, boundaries);
+          if (!frameworkError.isEmpty()) data.warnings << frameworkError;
+          const auto error = syncAnalysisResults(snapshot.get(), directory, [stop] { return stop->load(); });
+          if (!error.isEmpty()) data.warnings << error;
+        }
+        return data;
       });
   auto *task = paleo::tasks::track(m_tasks, watcher, future,
                                    tr("准备井位与井轨迹"), true);

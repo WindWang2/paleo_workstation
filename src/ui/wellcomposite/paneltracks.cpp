@@ -2,6 +2,7 @@
 // 综合图面板·道编排与会话（编辑会话同步、相工作流、道操作槽、spec 增量、会话记忆）——自 wellcompositepanel.cpp 拆出（方向 66，行为零变更）
 #include "wellcompositepanel.h"
 #include "../../workflow/wellfaciesworkflow.h"
+#include "../../linkage/selectioncontext.h"
 #include "editsession.h"
 #include "wellpositionlegendwidget.h"
 #include "trackconfigdialog.h"
@@ -124,6 +125,7 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
   if (auto *button = findChild<QToolButton *>(QStringLiteral("btnWellFormations")))
     connect(button, &QToolButton::clicked, workflow, &WellFaciesWorkflow::requestFormationTable);
   workflow->setData(m_data);
+  if (m_selectionContext) workflow->setAnalysisUnit(m_selectionContext->activeUnit());
 }
 void WellCompositePanel::showWellAttributes(const ComprehensiveWellData &data) {
   m_data.lithologyIntervals = data.lithologyIntervals;

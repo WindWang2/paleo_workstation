@@ -20,6 +20,7 @@
 #include <QSet>
 
 #include <memory>
+#include <vector>
 
 #include <gdal.h>
 
@@ -49,6 +50,7 @@ PredictionWorkflow::PredictionWorkflow( QgisProcessingService *proc, QgisLayerSe
 
 void PredictionWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
 {
+  ++m_projectGeneration;
   m_catalog = catalog;
   m_projectDir = projectDir;
 }
@@ -107,7 +109,17 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     return false;
   }
   *job = PredictionJob();
-  job->horizon = horizon;
+  job->projectGeneration = m_projectGeneration;
+  const QString resultKey = params.value(QStringLiteral("analysisLayerKey"), horizon).toString();
+  job->horizon = resultKey;
+  job->commitExtra.insert(QStringLiteral("unitSelection"), params.value(QStringLiteral("unitSelection")));
+  job->commitExtra.insert(QStringLiteral("source_horizon"), resultKey);
+  QVariantMap metadata = params;
+  metadata.remove(QStringLiteral("INPUT"));
+  metadata.remove(QStringLiteral("OUTPUT"));
+  for (const auto &key : metadata.keys())
+    if (metadata.value(key).value<QgsMapLayer *>()) metadata.remove(key);
+  job->commitExtra.insert(QStringLiteral("algorithm_parameters"), metadata);
   job->algorithmId = algorithmId;
   job->params = params;
 
@@ -171,8 +183,8 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     if ( !registrar.isBound() )
       return fail( regErr );
     job->staging = registrar.stage(
-        QStringLiteral( "onnx_prediction" ), tr( "%1 onnx %2 预测" ).arg( horizon, model ),
-        QStringLiteral( "ONNX_%1_%2.tif" ).arg( horizon, model ), &regErr );
+        QStringLiteral( "onnx_prediction" ), tr( "%1 onnx %2 预测" ).arg( resultKey, model ),
+        QStringLiteral( "ONNX_%1_%2.tif" ).arg( resultKey, model ), &regErr );
     if ( !job->staging.isValid() )
       return fail( regErr );
     job->sourceUri = QStringLiteral( "onnxworkflow/%1" ).arg( model );
@@ -203,9 +215,9 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
         }
       }
     }
-    job->layerId = QStringLiteral( "pred.%1.onnx.%2" ).arg( horizon, model );
+    job->layerId = QStringLiteral( "pred.%1.onnx.%2" ).arg( resultKey, model );
     job->layerGroup = QStringLiteral( "03_Predict" ); // 历史分组保持（m2(A)）
-    job->layerTitle = tr( "%1 onnx %2 预测" ).arg( horizon, model );
+    job->layerTitle = tr( "%1 onnx %2 预测" ).arg( resultKey, model );
     job->prepared = true;
     return true;
   }
@@ -226,14 +238,15 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
   if ( !registrar.isBound() )
     return fail( regErr );
   job->staging = registrar.stage(
-      QStringLiteral( "prediction_raster" ), tr( "%1 %2 预测" ).arg( horizon, algorithmId ),
-      QStringLiteral( "PREDICT_%1.tif" ).arg( horizon ), &regErr );
+      QStringLiteral( "prediction_raster" ), tr( "%1 %2 预测" ).arg( resultKey, algorithmId ),
+      QStringLiteral( "PREDICT_%1.tif" ).arg( resultKey ), &regErr );
   if ( !job->staging.isValid() )
     return fail( regErr );
   job->params.insert( QStringLiteral( "OUTPUT" ), job->staging.absolutePath );
 
   // P0-1: 自动解析层位输入栅格图层作为 INPUT（页面只收标量参数，图层输入由工作流上下文解析）
-  if ( !job->params.contains( QStringLiteral( "INPUT" ) ) || job->params.value( QStringLiteral( "INPUT" ) ).isNull() )
+  if (proc->algorithmRequiresParameter(algorithmId, QStringLiteral("INPUT")) &&
+      (!job->params.contains(QStringLiteral("INPUT")) || job->params.value(QStringLiteral("INPUT")).isNull()))
   {
     QgsMapLayer *inputLayer = nullptr;
     const QString target = horizon.trimmed().isEmpty() ? AreaRules::active().targetHorizon : horizon.trimmed();
@@ -281,13 +294,21 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
       parentPaths.append( src );
   }
   job->parentVersionIds = registrar.parentVersionIdsFor( parentPaths );
+  for (const auto &key : job->params.keys())
+    if (const auto *layer = job->params.value(key).value<QgsMapLayer *>()) {
+      job->extraInputLayers.insert(key, QVariantMap{{"uri", layer->source()}, {"provider", layer->providerType()},
+          {"crs", layer->crs().toWkt()}, {"raster", qobject_cast<const QgsRasterLayer *>(layer) != nullptr}});
+      job->parentVersionIds.append(registrar.parentVersionIdsFor({layer->source().section('|', 0, 0)}));
+      job->params.remove(key);
+    }
+  job->parentVersionIds.removeDuplicates();
   job->sourceUri = QStringLiteral( "predictionworkflow/%1" ).arg( algorithmId );
   // m2(A)：稳定结果 id——同一 horizon+algorithmId 重跑复用同一 layerId
   // （manifest INSERT OR REPLACE upsert，清单不新增重复行）； tst_workflows
   // 既有断言 startsWith("predict.<h>.") 由稳定段继续满足。
-  job->layerId = QStringLiteral( "predict.%1.%2" ).arg( horizon, stableResultSuffix( algorithmId ) );
+  job->layerId = QStringLiteral( "predict.%1.%2" ).arg( resultKey, stableResultSuffix( algorithmId ) );
   job->layerGroup = QStringLiteral( "01_Prediction" ); // 历史分组保持（m2(A)：新声明面才用 02_Prediction）
-  job->layerTitle = tr( "%1 %2 预测" ).arg( horizon, algorithmId );
+  job->layerTitle = tr( "%1 %2 预测" ).arg( resultKey, algorithmId );
   job->prepared = true;
   return true;
 }
@@ -389,6 +410,17 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
   // FC-001：worker 自建独立输入层（URI 冻结快照回放）——同线程直调
   // runPrediction 时行为等价（layer 数据同源），跨线程时不再触碰主线程活层。
   QVariantMap runParams = job->params;
+  std::vector<std::unique_ptr<QgsMapLayer>> extraInputs;
+  for (auto it = job->extraInputLayers.cbegin(); it != job->extraInputLayers.cend(); ++it) {
+    const auto ref = it.value().toMap();
+    std::unique_ptr<QgsMapLayer> layer;
+    if (ref.value("raster").toBool()) layer = std::make_unique<QgsRasterLayer>(ref.value("uri").toString(), it.key(), ref.value("provider").toString());
+    else layer = std::make_unique<QgsVectorLayer>(ref.value("uri").toString(), it.key(), ref.value("provider").toString());
+    if (!layer->isValid()) return fail(tr("无法读取预测输入图层：%1").arg(ref.value("uri").toString()));
+    layer->setCrs(QgsCoordinateReferenceSystem::fromWkt(ref.value("crs").toString()));
+    runParams.insert(it.key(), QVariant::fromValue(layer.get()));
+    extraInputs.push_back(std::move(layer));
+  }
   std::unique_ptr<QgsMapLayer> inputLayer;
   if ( !job->inputUri.isEmpty() )
   {
@@ -440,6 +472,10 @@ bool PredictionWorkflow::publishPredictionJob( const PredictionJob &job, QString
   };
   if ( !job.prepared )
     return fail( tr( "预测任务未准备" ) );
+  if (job.projectGeneration && job.projectGeneration != m_projectGeneration) {
+    PaleoWorkflowDiscardPredictionStagingDir(job.staging.versionId, job.staging.absolutePath);
+    return fail(tr("工程已切换，预测结果未发布"));
+  }
   if ( !job.ok || job.outputPath.isEmpty() )
     return fail( job.error.isEmpty() ? tr( "预测未返回输出路径" ) : job.error );
 

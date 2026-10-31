@@ -147,6 +147,7 @@ void WellCompositePanel::bindSelectionContext(SelectionContext *selection)
     m_selectionContext = nullptr;
   }
   const auto apply = [this](const paleo::strat::UnitSelection &u) {
+    if (m_faciesWorkflow) m_faciesWorkflow->setAnalysisUnit(u);
     if (!m_analysisUnitLabel)
       return;
     if (!u.isValid()) {

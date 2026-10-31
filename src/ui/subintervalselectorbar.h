@@ -40,6 +40,7 @@ class SubIntervalSelectorBar : public QWidget
 
     // 优先从工程 area-model 加载方案/修订；失败则回退 draftScheme(fallbackBoundaries)。
     void reloadFromProject( const QString &projectDir, const QStringList &fallbackBoundaries );
+    void refreshProjectResults();
 
     // 测试：直接注入方案快照与可选 bindings。
     void setSchemeSnapshot( const paleo::data::StratigraphicScheme &scheme,

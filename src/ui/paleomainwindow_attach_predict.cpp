@@ -166,7 +166,6 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                                                                      : pubErr));
                                    return;
                                  }
-                                 bindSeismicSliceAfterPublish(pred, job->params, job->layerId, job->outputPath, status);
                                });
             });
     // 取消按钮 → 协作式取消请求（worker 自查 cancelRequested）。

@@ -250,6 +250,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
     if (directory != m_projectDir || m_projectSvc->projectPath().isEmpty() ||
         sequence != m_import->catalog()->mutationSeq()) return;
     for (const auto &warning : data.warnings) qWarning() << "project layer refresh:" << warning;
+    emit analysisResultsReady();
     const bool readOnly = isProjectReadOnly();
     if (readOnly || (data.wellsPrepared && publishPreparedLayer(directory + "/artifacts/layers/wells.geojson", data.wellsBytes)))
       refreshWellsLayer(true, true);
@@ -805,6 +806,7 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
     qWarning() << "AppContext: map version store open failed" << metaPath << versionErr;
   // Use the already-loaded catalog; never open/read a second copy.
   m_projectData->setCatalog(m_import->catalog(), fi.absolutePath());
+  m_projectLayerRefresh->request(m_import->catalog(), fi.absolutePath());
   m_projectData->setManifest(m_manifest);
   m_wellsitingWf->setProjectData(m_projectData); // #212：关工程时摘掉过，开工程重绑
 
@@ -928,4 +930,10 @@ AppContext::~AppContext()
 
   if (s_runtimeOwners.remove(this))
     QgisRuntime::shutdown();
+}
+
+void AppContext::refreshAnalysisResults()
+{
+  if (m_projectLayerRefresh && m_import && !m_projectDir.isEmpty())
+    m_projectLayerRefresh->request(m_import->catalog(), m_projectDir);
 }

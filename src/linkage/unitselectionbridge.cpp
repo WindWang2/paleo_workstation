@@ -37,6 +37,7 @@ QVariantMap AnalysisBinding::publishIdentity() const
   }
   if ( !hasUnit || !unit.isValid() )
     return m;
+  m.insert(QStringLiteral("unitSelection"), toMap(unit));
   if ( !unit.subIntervalId.isEmpty() )
     m.insert( QStringLiteral( "subIntervalId" ), unit.subIntervalId );
   if ( !unit.intervalId.isEmpty() )

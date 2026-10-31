@@ -6,6 +6,10 @@
 #include "ui/wellcomposite/wellcompositepanel.h"
 #include "ui/wellcomposite/curveconfigdialog.h"
 #include "workflow/wellfaciesworkflow.h"
+#include "catalog/datacatalog.h"
+#include "services/subintervalfactors.h"
+#include "services/stratigraphicsubintervals.h"
+#include "paleo_data/service.h"
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -171,7 +175,7 @@ public:
                                {"categoricalFields",
                                 QJsonArray{QStringLiteral("段"),
                                            QStringLiteral("岩性")}},
-                               {"window", 128}}}});
+                               {"window", m.window}}}});
             json = {{"models", list}};
           } else if (path.endsWith("/predict")) {
             ++predictCount;
@@ -967,6 +971,52 @@ private slots:
     QCOMPARE(merged.response.value("groups").toArray().size(), 2);
   }
   // 逐组预测：每组一次 /predict、逐组返回合并显示，每组一条任务中心任务。
+  void workflowSubIntervalUsesOnlySelectedDepthWindow() {
+    QTemporaryDir dir;
+    DataCatalog catalog;
+    QString error;
+    QVERIFY(catalog.open(dir.path(), &error));
+    CatalogEntity entity; entity.id="well-1"; entity.entityType="well"; entity.name="W-1";
+    QVERIFY(catalog.addEntity(entity, &error));
+    paleo::data::DataService ds;
+    std::string detail;
+    QVERIFY(ds.createProject((dir.path()+"/artifacts/metadata/area-model").toStdString(), "test", detail));
+    paleo::strat::WellTopTable tops;
+    tops[paleo::strat::stableWellKey(entity.id)]={{"A",1000},{"B",1016}};
+    auto draft=paleo::strat::draftScheme("scope", "scope", {"A","B"}, tops);
+    paleo::data::StratigraphicScheme head;
+    std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(ds.commitStratigraphicScheme(draft, {}, head, issues, detail));
+    const auto options=paleo::strat::selectorOptions(head);
+    const auto unit=paleo::strat::makeSelection(head,options.first().intervalId,1);
+    Server server;
+    auto small=model(); small.window=16; server.models={small};
+    WellFaciesWorkflow workflow;
+    workflow.setCatalog(&catalog,dir.path());
+    workflow.configure(server.config(),false);
+    workflow.setAnalysisUnit(unit);
+    QSignalSpy ready(&workflow,&WellFaciesWorkflow::availabilityChanged);
+    QSignalSpy results(&workflow,&WellFaciesWorkflow::resultReady);
+    QSignalSpy busy(&workflow,&WellFaciesWorkflow::busyChanged);
+    workflow.setData(well());
+    QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
+    results.clear();
+    workflow.run();
+    QTRY_VERIFY(!busy.isEmpty() && !busy.last()[0].toBool());
+    QCOMPARE(server.predictRows,(QList<int>{32}));
+    QVERIFY(!results.isEmpty());
+    const auto result=qvariant_cast<WellFaciesResult>(results.last()[0]);
+    QCOMPARE(result.confidence.depths.size(),32);
+    QVERIFY(result.confidence.depths.last()<1004);
+    bool stored=false;
+    for(const auto &v:catalog.versions())
+      if(catalog.assetById(v.assetId).type=="well_facies_prediction") {
+        QCOMPARE(v.extra.value("unitSelection").toMap(),paleo::strat::toMap(unit)); stored=true;
+      }
+    QVERIFY(stored);
+    workflow.setAnalysisUnit({});
+    QVERIFY(!ready.last()[0].toBool());
+  }
   void workflowPredictsFormationByFormation() {
     Server server;
     server.models = {model(), zhuhaiModel()};
@@ -1495,9 +1545,8 @@ private slots:
     QVERIFY2(!plan.ready(), "Must not dispatch 珠海组 or 恩平组 model for 文昌组");
   }
 
-  // FA-001/FA-002：综合柱状图 XML 的列填充放大闸与直读大小闸——
-  // 300 行 × ss:Index="16384" 必须被累计格数预算拒收；>512MB 的 .xml 在
-  // readAll 之前被大小闸拦下。
+  // Streaming comprehensive documents use 16M cells / 1 GiB (#821), while
+  // ordinary workbooks retain 4M cells. Exercise the actual streaming limits.
   void comprehensiveXmlRejectsCellFillAmplificationAndOversize()
   {
     QTemporaryDir dir;
@@ -1511,7 +1560,7 @@ private slots:
                "<Worksheet ss:Name=\"测井曲线1\"><Table>");
     const QByteArray rowTpl(
         "<Row><Cell ss:Index=\"16384\"><Data ss:Type=\"String\">x</Data></Cell></Row>");
-    for (int i = 0; i < 300; ++i)
+    for (int i = 0; i < 1000; ++i)
       file.write(rowTpl);
     file.write("</Table></Worksheet></Workbook>");
     file.close();
@@ -1524,12 +1573,12 @@ private slots:
     const QString huge = dir.filePath(QStringLiteral("huge.xml"));
     QFile hugeFile(huge);
     QVERIFY(hugeFile.open(QIODevice::WriteOnly));
-    hugeFile.resize(512LL * 1024 * 1024 + 1); // 稀疏占位：闸在 readAll 之前
+    hugeFile.resize(1024LL * 1024 * 1024 + 1); // Sparse file; reject before parsing.
     hugeFile.close();
     ComprehensiveWellData hugeData;
     QString hugeError;
     QVERIFY2(!parseComprehensiveWellXml(huge, hugeData, &hugeError), "超限文件必须被拒收");
-    QVERIFY2(hugeError.contains(QStringLiteral("512MB")), qPrintable(hugeError));
+    QVERIFY2(hugeError.contains(QStringLiteral("1 GiB")), qPrintable(hugeError));
   }
 };
 QTEST_MAIN(TestWellFacies)

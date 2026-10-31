@@ -132,6 +132,7 @@ class AppContext : public QObject
     // 关闭当前工程（经 QgisProjectService::closeProject：aboutToClose → 清
     // 工程 → projectClosed → 释放锁/句柄）。
     void closeProject();
+    void refreshAnalysisResults();
 
     // #152 锁冲突决策钩子（测试/嵌入方用）：返回 true = 只读打开，false =
     // 取消打开（当前工程保持不变）。未设置时 GUI 弹框询问、无头自动只读。
@@ -147,6 +148,7 @@ class AppContext : public QObject
 
   signals:
     void projectReadOnlyChanged(bool readOnly);
+    void analysisResultsReady();
 
   private:
     // §4 井位图层：catalog 井点 → artifacts/layers/wells.geojson → manifest

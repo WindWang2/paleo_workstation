@@ -32,3 +32,4 @@ public:
 // 唯一构造点（qgis 层实现）。返回值随 parent 一起销毁。
 ReferenceView *createReferenceView(QgsMapCanvas *mainCanvas, QgsProject *project,
                                    QWidget *parent);
+QString referenceProjectFilePath(const QgsProject *project);

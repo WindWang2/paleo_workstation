@@ -513,7 +513,7 @@ QString FaciesCompoundTrack::trackToolTip(double depth) const
   if (idx < 0)
     return title();
   const auto &fi = m_intervals.at(idx);
-  return QStringLiteral("%1\n相: %2\n亚: %3\n微: %4")
+  return QCoreApplication::translate("WellComposite", "%1\n相: %2\n亚: %3\n微: %4") // #871
       .arg(title(), fi.majorFacies, fi.subFacies, fi.microFacies);
 }
 

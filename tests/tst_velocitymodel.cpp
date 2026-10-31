@@ -70,6 +70,7 @@ private slots:
   // review-fix-numerics M4 / M5 / L8。
   void idwBlendsAcrossUnequalWellRanges();
   void v0kNegativeKBeyondSingularityIsNaN();
+  void v0kFitRmsSkipsNonPositiveDepthKnots();
 };
 
 // 用例1：恒速 2500 m/s（k=0 极限 + 层间平均同值）——z = v·twt/2000 解析。
@@ -495,6 +496,31 @@ void TestVelocityModel::v0kFitIgnoresNonPositiveDepthKnots()
   QVERIFY2(std::isfinite(w.v0) && std::isfinite(w.k), "fit must stay finite");
   QVERIFY(qAbs(w.v0 - v0True) < 1e-6 * v0True);
   QVERIFY(qAbs(w.k - kTrue) < 1e-6 * kTrue);
+}
+
+// #883：fitRmsMs 残差环与 fitV0k 同口径——负深度结点（v0kTwt=NaN）不得
+// 把 RMS 污染成 NaN；分母取有效结点数，结果与仅正深度子集一致。
+void TestVelocityModel::v0kFitRmsSkipsNonPositiveDepthKnots()
+{
+  QVector<VelocityKnot> pos;
+  const double noise[] = {8.0, -6.0, 5.0};
+  int i = 0;
+  for (const double twt : {600.0, 1200.0, 1800.0})
+    pos.append(VelocityKnot{twt + noise[i++], 1800.0 / 0.6 * std::expm1(0.6 * twt / 2000.0),
+                            QStringLiteral("L%1").arg(i)});
+  QVector<VelocityKnot> withNeg = pos;
+  withNeg.prepend(VelocityKnot{0.0, 0.0, QStringLiteral("SRD")});
+  withNeg.prepend(VelocityKnot{-20.0, -10.0, QStringLiteral("NEG")});
+  VelocityWellControl a; a.wellId = QStringLiteral("POS"); a.x = 0.0; a.y = 0.0; a.knots = pos;
+  VelocityWellControl b; b.wellId = QStringLiteral("NEG"); b.x = 0.0; b.y = 0.0; b.knots = withNeg;
+  const VelocityModel ma = VelocityModel::fit({a}, ModelType::V0kLinear);
+  const VelocityModel mb = VelocityModel::fit({b}, ModelType::V0kLinear);
+  QCOMPARE(ma.wells().size(), 1);
+  QCOMPARE(mb.wells().size(), 1);
+  const double ra = ma.wells().first().fitRmsMs, rb = mb.wells().first().fitRmsMs;
+  QVERIFY2(std::isfinite(rb), "fitRmsMs must be finite with z<=0 knots");
+  QVERIFY(ra > 0.0);
+  QVERIFY2(qAbs(ra - rb) < 1e-9 * ra, qPrintable(QStringLiteral("pos=%1 neg=%2").arg(ra).arg(rb)));
 }
 
 QTEST_MAIN(TestVelocityModel)

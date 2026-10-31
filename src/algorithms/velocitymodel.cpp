@@ -318,13 +318,18 @@ VelocityModel VelocityModel::fit(const QVector<VelocityWellControl> &controls,
         m.m_notes << QStringLiteral("跳过 %1：V0-k 拟合非正速度").arg(c.wellId);
         continue;
       }
+      // #883：与 fitV0k 同口径——仅 z>0 且 TWT 有限的结点入样，分母取有效点数。
       double resid2 = 0.0;
+      int nUsed = 0;
       for (const VelocityKnot &kn : c.knots)
       {
+        if (!(kn.depthM > 0.0) || !std::isfinite(kn.twtMs))
+          continue;
+        ++nUsed;
         const double dt = v0kTwt(w.v0, w.k, kn.depthM) - kn.twtMs;
         resid2 += dt * dt;
       }
-      w.fitRmsMs = std::sqrt(resid2 / c.knots.size());
+      w.fitRmsMs = nUsed > 0 ? std::sqrt(resid2 / nUsed) : 0.0;
     }
     m.m_wells.append(w);
   }

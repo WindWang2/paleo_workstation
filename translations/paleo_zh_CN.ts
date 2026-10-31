@@ -4,123 +4,143 @@
 <context>
     <name>AiAssistDock</name>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="61"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="64"/>
         <source>未配置</source>
         <translation>未配置</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="68"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="71"/>
         <source>新会话</source>
         <translation>新会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="70"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="73"/>
         <source>配置…</source>
         <translation>配置…</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="79"/>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="441"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="82"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="465"/>
         <source>会话</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="83"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="86"/>
         <source>重命名</source>
         <translation>重命名</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="85"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="88"/>
         <source>删除</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="111"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="119"/>
         <source>向助手提问（Enter 发送，Shift+Enter 换行）</source>
         <translation>向助手提问（Enter 发送，Shift+Enter 换行）</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="120"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="127"/>
         <source>复制</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="122"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="129"/>
         <source>导出…</source>
         <translation>导出…</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="124"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="131"/>
         <source>重发</source>
         <translation>重发</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="126"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="133"/>
         <source>发送</source>
         <translation>发送</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="128"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="135"/>
         <source>停止</source>
         <translation>停止</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="269"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="276"/>
         <source>未接入助手编排</source>
         <translation>未接入助手编排</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="297"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="289"/>
+        <source>助手尚未接入 — 打开工程后再使用 AI 助手</source>
+        <translation>助手尚未接入 — 打开工程后再使用 AI 助手</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="290"/>
+        <source>还没有对话 — 在下方输入问题并按「发送」，或点「新会话」开始新的话题</source>
+        <translation>还没有对话 — 在下方输入问题并按「发送」，或点「新会话」开始新的话题</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="291"/>
+        <source>助手尚未配置 — 点上方「配置…」设置大模型服务后即可提问</source>
+        <translation>助手尚未配置 — 点上方「配置…」设置大模型服务后即可提问</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="319"/>
         <source>（未命名会话）</source>
         <translation>（未命名会话）</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="317"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="339"/>
         <source>重命名会话</source>
         <translation>重命名会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="317"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="339"/>
         <source>会话标题：</source>
         <translation>会话标题：</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="360"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="382"/>
         <source>结果已回传模型（%1 字符）</source>
         <translation>结果已回传模型（%1 字符）</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="445"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="456"/>
+        <source>对话内容</source>
+        <translation>对话内容</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="469"/>
         <source>导出会话</source>
         <translation>导出会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="445"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="469"/>
         <source>Markdown 文件 (*.md)</source>
         <translation>Markdown 文件 (*.md)</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="450"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="474"/>
         <source>导出失败</source>
         <translation>导出失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="487"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="511"/>
         <source>待执行</source>
         <translation>待执行</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="517"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="541"/>
         <source>执行中</source>
         <translation>执行中</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="527"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="551"/>
         <source>已完成</source>
         <translation>已完成</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="527"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="551"/>
         <source>失败</source>
         <translation>失败</translation>
     </message>
@@ -492,128 +512,133 @@
 <context>
     <name>AiToolResultView</name>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="144"/>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="283"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="149"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="290"/>
         <source>井名</source>
         <translation>井名</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="144"/>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="148"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="149"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="153"/>
         <source>类型</source>
         <translation>类型</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="144"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="149"/>
         <source>井深(m)</source>
         <translation>井深(m)</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="146"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="151"/>
         <source>层位</source>
         <translation>层位</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="146"/>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="148"/>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="293"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="151"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="153"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="300"/>
         <source>版本</source>
         <translation>版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="146"/>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="148"/>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="293"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="151"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="153"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="300"/>
         <source>阶段</source>
         <translation>阶段</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="148"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="153"/>
         <source>名称</source>
         <translation>名称</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="196"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="201"/>
         <source>共 %1 条</source>
         <translation>共 %1 条</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="203"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="208"/>
         <source>复制表格</source>
         <translation>复制表格</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="256"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="225"/>
+        <source>表格</source>
+        <translation>表格</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="263"/>
         <source>实体 · %1</source>
         <translation>实体 · %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="260"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="267"/>
         <source>资产 · %1</source>
         <translation>资产 · %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="261"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="268"/>
         <source>catalog 修订</source>
         <translation>catalog 修订</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="284"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="291"/>
         <source>井 ID</source>
         <translation>井 ID</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="285"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="292"/>
         <source>关联资产</source>
         <translation>关联资产</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="289"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="296"/>
         <source>截断</source>
         <translation>截断</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="293"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="300"/>
         <source>角色</source>
         <translation>角色</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="293"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="300"/>
         <source>资产</source>
         <translation>资产</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="293"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="300"/>
         <source>主用</source>
         <translation>主用</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="300"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="307"/>
         <source>是</source>
         <translation>是</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="383"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="390"/>
         <source>闭包 %1 版本 · 图上 %2 节点 · 已折叠上游 %3 / 下游 %4</source>
         <translation>闭包 %1 版本 · 图上 %2 节点 · 已折叠上游 %3 / 下游 %4</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="396"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="403"/>
         <source>在血缘页打开</source>
         <translation>在血缘页打开</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="438"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="445"/>
         <source>闭包 %1 节点超过小图上限 %2，已按 JSON 折叠——「在血缘页打开」前的完整事实都在下方出参里</source>
         <translation>闭包 %1 节点超过小图上限 %2，已按 JSON 折叠——「在血缘页打开」前的完整事实都在下方出参里</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="453"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="460"/>
         <source>完整 JSON</source>
         <translation>完整 JSON</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="470"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="477"/>
         <source>
 …（显示前 %1 字符，原始 %2 字符；全文已回传模型）</source>
         <translation>
@@ -867,128 +892,128 @@
 <context>
     <name>CatalogHealthDialog</name>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="27"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="28"/>
         <source>缺失文件</source>
         <translation>缺失文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="28"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="29"/>
         <source>SHA 不一致</source>
         <translation>SHA 不一致</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="29"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="30"/>
         <source>未决链接</source>
         <translation>未决链接</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="30"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="31"/>
         <source>孤立实体</source>
         <translation>孤立实体</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="31"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="32"/>
         <source>无版本资产</source>
         <translation>无版本资产</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="32"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="33"/>
         <source>角色词表违例</source>
         <translation>角色词表违例</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="55"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="56"/>
         <source>工区资产体检</source>
         <translation>工区资产体检</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="73"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="74"/>
         <source>对象</source>
         <translation>对象</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="73"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="74"/>
         <source>明细</source>
         <translation>明细</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="96"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="97"/>
         <source>重新体检</source>
         <translation>重新体检</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="98"/>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="171"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="99"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="172"/>
         <source>校验外链 SHA-256</source>
         <translation>校验外链 SHA-256</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="100"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="101"/>
         <source>关闭</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="105"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="106"/>
         <source>体检问题分类</source>
         <translation>体检问题分类</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="106"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="107"/>
         <source>体检问题明细</source>
         <translation>体检问题明细</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="107"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="108"/>
         <source>体检汇总</source>
         <translation>体检汇总</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="108"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="109"/>
         <source>后台检查进度</source>
         <translation>后台检查进度</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="171"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="172"/>
         <source>取消校验</source>
         <translation>取消校验</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="188"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="189"/>
         <source>回收站积压  %1</source>
         <translation>回收站积压  %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="223"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="224"/>
         <source>回收站无积压。</source>
         <translation>回收站无积压。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="225"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="226"/>
         <source>可回收清单中有 %1 项软删资产（%2）。双击无法跳转——请在数据页「可回收清单」处理。</source>
         <translation>可回收清单中有 %1 项软删资产（%2）。双击无法跳转——请在数据页「可回收清单」处理。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="246"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="247"/>
         <source>体检通过：未发现问题（共 %1 类检查）。</source>
         <translation>体检通过：未发现问题（共 %1 类检查）。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="247"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="248"/>
         <source>共 %1 条问题；当前分类 %2 条。双击问题行可跳到对应资产。</source>
         <translation>共 %1 条问题；当前分类 %2 条。双击问题行可跳到对应资产。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="251"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="252"/>
         <source>目录体检未完成；问题清单仅覆盖已扫部分。</source>
         <translation>目录体检未完成；问题清单仅覆盖已扫部分。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="253"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="254"/>
         <source>（外链 SHA 校验未扫完，结果只是已扫部分）</source>
         <translation>（外链 SHA 校验未扫完，结果只是已扫部分）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="33"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="34"/>
         <source>过时版本</source>
         <translation>过时版本</translation>
     </message>
@@ -5120,17 +5145,17 @@
         <translation>文件回收提交中，请等待回收完成后再打开工程。</translation>
     </message>
     <message>
-        <location filename="../src/catalog/datacatalog_export.cpp" line="180"/>
+        <location filename="../src/catalog/datacatalog_export.cpp" line="187"/>
         <source>井点 GeoJSON 写入失败：%1（%2）</source>
         <translation>井点 GeoJSON 写入失败：%1（%2）</translation>
     </message>
     <message>
-        <location filename="../src/catalog/datacatalog_export.cpp" line="187"/>
+        <location filename="../src/catalog/datacatalog_export.cpp" line="194"/>
         <source>井点 GeoJSON 写入失败：%1</source>
         <translation>井点 GeoJSON 写入失败：%1</translation>
     </message>
     <message>
-        <location filename="../src/catalog/datacatalog_export.cpp" line="120"/>
+        <location filename="../src/catalog/datacatalog_export.cpp" line="127"/>
         <source>无法创建测区图层目录</source>
         <translation>无法创建测区图层目录</translation>
     </message>
@@ -5140,7 +5165,7 @@
         <translation>catalog 读取被拒绝：exportCatalogJson 不在 catalog 所属线程调用</translation>
     </message>
     <message>
-        <location filename="../src/catalog/datacatalog_export.cpp" line="126"/>
+        <location filename="../src/catalog/datacatalog_export.cpp" line="133"/>
         <source>测区图层写入失败：%1</source>
         <translation>测区图层写入失败：%1</translation>
     </message>
@@ -5163,102 +5188,102 @@
 <context>
     <name>DataExportDialog</name>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="25"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="26"/>
         <source>导出数据</source>
         <translation>导出数据</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="30"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="31"/>
         <source>当前成果／所选版本</source>
         <translation>当前成果／所选版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="30"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="31"/>
         <source>原始文件（RAW）</source>
         <translation>原始文件（RAW）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="30"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="31"/>
         <source>成果及其制作源数据</source>
         <translation>成果及其制作源数据</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="33"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="34"/>
         <source>保持原格式</source>
         <translation>保持原格式</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="33"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="34"/>
         <source>自动交换格式（GPKG / GeoTIFF）</source>
         <translation>自动交换格式（GPKG / GeoTIFF）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="33"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="34"/>
         <source>GeoPackage</source>
         <translation>GeoPackage</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="33"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="34"/>
         <source>GeoJSON</source>
         <translation>GeoJSON</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="33"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="34"/>
         <source>Shapefile</source>
         <translation>Shapefile</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="33"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="34"/>
         <source>CSV</source>
         <translation>CSV</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="33"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="34"/>
         <source>GeoTIFF</source>
         <translation>GeoTIFF</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="34"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="35"/>
         <source>导出内容</source>
         <translation>导出内容</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="34"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="35"/>
         <source>数据格式</source>
         <translation>数据格式</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="36"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="37"/>
         <source>选择目录…</source>
         <translation>选择目录…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="38"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="39"/>
         <source>保存到</source>
         <translation>保存到</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="40"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="41"/>
         <source>选择导出父目录</source>
         <translation>选择导出父目录</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="43"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="44"/>
         <source>附带仅作参考的资料（非计算输入）</source>
         <translation>附带仅作参考的资料（非计算输入）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="46"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="47"/>
         <source>数据文件</source>
         <translation>数据文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="46"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="47"/>
         <source>导出版本</source>
         <translation>导出版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="50"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="51"/>
         <source>每次导出创建独立批次目录，附版本、来源关系和 SHA-256。
 制作源数据使用当次输入版本；未保存的编辑请先保存。
 GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
@@ -5267,50 +5292,50 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
 GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="56"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="57"/>
         <source>开始导出</source>
         <translation>开始导出</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="65"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="66"/>
         <source>已检查：%1 项数据，源文件约 %2 MB；%3 项问题。
 %4</source>
         <translation>已检查：%1 项数据，源文件约 %2 MB；%3 项问题。
 %4</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="85"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="86"/>
         <source>正在检查所选版本、制作来源和文件大小…</source>
         <translation>正在检查所选版本、制作来源和文件大小…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="101"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="102"/>
         <source>v%1 · %2 · %3</source>
         <translation>v%1 · %2 · %3</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="111"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="112"/>
         <source>没有 RAW 版本</source>
         <translation>没有 RAW 版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="111"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="112"/>
         <source>没有可导出版本</source>
         <translation>没有可导出版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="144"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="145"/>
         <source>以下 %1 项没有 RAW 原始版本，不能按原始文件导出：%2</source>
         <translation>以下 %1 项没有 RAW 原始版本，不能按原始文件导出：%2</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="145"/>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="147"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="146"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="148"/>
         <source>、</source>
         <translation>、</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="146"/>
+        <location filename="../src/ui/dialogs/dataexportdialog.cpp" line="147"/>
         <source>以下 %1 项没有任何版本，不能导出：%2</source>
         <translation>以下 %1 项没有任何版本，不能导出：%2</translation>
     </message>
@@ -6472,133 +6497,133 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <translation>确认</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="24"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="25"/>
         <source>调整资料归属</source>
         <translation>调整资料归属</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="30"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="31"/>
         <source>文件：%1</source>
         <translation>文件：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="34"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="35"/>
         <source>添加补充资料</source>
         <translation>添加补充资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="34"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="35"/>
         <source>替换此用途的主文件</source>
         <translation>替换此用途的主文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="34"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="35"/>
         <source>更改已有归属或用途</source>
         <translation>更改已有归属或用途</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="35"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="36"/>
         <source>操作</source>
         <translation>操作</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="45"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="46"/>
         <source>%1 · %2%3</source>
         <translation>%1 · %2%3</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="45"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="46"/>
         <source>待关联</source>
         <translation>待关联</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="46"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="47"/>
         <source> · 主文件</source>
         <translation> · 主文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="48"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="49"/>
         <source>此文件尚无关联</source>
         <translation>此文件尚无关联</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="50"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="51"/>
         <source>原关联</source>
         <translation>原关联</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="52"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="53"/>
         <source>选择井或地震测区</source>
         <translation>选择井或地震测区</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="55"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="56"/>
         <source>井</source>
         <translation>井</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="55"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="56"/>
         <source>地震测区</source>
         <translation>地震测区</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="60"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="61"/>
         <source>归属对象</source>
         <translation>归属对象</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="62"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="63"/>
         <source>资料用途</source>
         <translation>资料用途</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="63"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="64"/>
         <source>作为此用途的主文件</source>
         <translation>作为此用途的主文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="72"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="73"/>
         <source>保存关联</source>
         <translation>保存关联</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="73"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="74"/>
         <location filename="../src/ui/pages/datalist_table.cpp" line="287"/>
         <source>取消</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="90"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="91"/>
         <source>将文件加入所选用途；已有主文件保持生效。尚无主文件时，首份资料自动成为主文件。</source>
         <translation>将文件加入所选用途；已有主文件保持生效。尚无主文件时，首份资料自动成为主文件。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="92"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="93"/>
         <source>此文件成为所选用途的主文件，原主文件保留为补充资料。原始文件和历史版本均保留。</source>
         <translation>此文件成为所选用途的主文件，原主文件保留为补充资料。原始文件和历史版本均保留。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="93"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="94"/>
         <source>只更改上方选中的一条关联，其他井、测区及用途的关联保持不变。</source>
         <translation>只更改上方选中的一条关联，其他井、测区及用途的关联保持不变。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="110"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="111"/>
         <source>工程已切换，请关闭此编辑器后重试</source>
         <translation>工程已切换，请关闭此编辑器后重试</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="114"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="115"/>
         <source>文件或目标对象已移入回收清单，请重新选择</source>
         <translation>文件或目标对象已移入回收清单，请重新选择</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="119"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="120"/>
         <source>调整资料归属：%1 → %2 · %3</source>
         <translation>调整资料归属：%1 → %2 · %3</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="121"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="122"/>
         <source>已更新资料归属，井与地震资料视图将同步刷新</source>
         <translation>已更新资料归属，井与地震资料视图将同步刷新</translation>
     </message>
@@ -6833,7 +6858,7 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
 %3</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/datalist_association.cpp" line="55"/>
+        <location filename="../src/ui/pages/datalist_association.cpp" line="56"/>
         <location filename="../src/ui/pages/datalist_logsummary.cpp" line="28"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
@@ -9216,153 +9241,153 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <translation>新建 Data_service 工区</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="29"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="30"/>
         <source>创建并导入</source>
         <translation>创建并导入</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="38"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="39"/>
         <source>工程与资料</source>
         <translation>工程与资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="39"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="40"/>
         <source>直接建立 Data_service 工区模型，原始文件默认只引用、不复制。</source>
         <translation>直接建立 Data_service 工区模型，原始文件默认只引用、不复制。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="42"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="43"/>
         <source>未命名工程</source>
         <translation>未命名工程</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="46"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="47"/>
         <source>选择需要导入的资料目录，无需按固定目录结构整理</source>
         <translation>选择需要导入的资料目录，无需按固定目录结构整理</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="47"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="48"/>
         <source>工程名称</source>
         <translation>工程名称</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="48"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="49"/>
         <source>工程保存位置</source>
         <translation>工程保存位置</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="49"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="50"/>
         <source>资料总目录</source>
         <translation>资料总目录</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="52"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="53"/>
         <source>可选：井位坐标表；留空由数据模型自动识别</source>
         <translation>可选：井位坐标表；留空由数据模型自动识别</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="53"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="54"/>
         <source>井位坐标表</source>
         <translation>井位坐标表</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="62"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="63"/>
         <source>坐标与导入设置</source>
         <translation>坐标与导入设置</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="63"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="64"/>
         <source>默认从资料声明识别坐标系；也可指定米制投影作为工程计算基准，资料原有坐标系会保留。</source>
         <translation>默认从资料声明识别坐标系；也可指定米制投影作为工程计算基准，资料原有坐标系会保留。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="66"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="67"/>
         <source>从资料自动识别</source>
         <translation>从资料自动识别</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="68"/>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="174"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="69"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="175"/>
         <source>未设置</source>
         <translation>未设置</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="70"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="71"/>
         <source>工程坐标系</source>
         <translation>工程坐标系</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="70"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="71"/>
         <source>坐标单位</source>
         <translation>坐标单位</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="76"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="77"/>
         <source>并行解析线程</source>
         <translation>并行解析线程</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="76"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="77"/>
         <source>待解析内存预算</source>
         <translation>待解析内存预算</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="77"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="78"/>
         <source>仅在井位表使用自定义列名时填写；默认使用模型识别的井号、X、Y 表头。</source>
         <translation>仅在井位表使用自定义列名时填写；默认使用模型识别的井号、X、Y 表头。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="82"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="83"/>
         <source>井名列</source>
         <translation>井名列</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="82"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="83"/>
         <source>X 列</source>
         <translation>X 列</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="82"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="83"/>
         <source>Y 列</source>
         <translation>Y 列</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="100"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="101"/>
         <source>确认创建</source>
         <translation>确认创建</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="101"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="102"/>
         <source>创建后先建立数据模型，再由模型生成目录索引，不执行第二遍文件导入。</source>
         <translation>创建后先建立数据模型，再由模型生成目录索引，不执行第二遍文件导入。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="115"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="116"/>
         <source>浏览…</source>
         <translation>浏览…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="118"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="119"/>
         <source>选择目录</source>
         <translation>选择目录</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="119"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="120"/>
         <source>选择井位坐标表</source>
         <translation>选择井位坐标表</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="120"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="121"/>
         <source>表格文件 (*.csv *.txt *.xls *.xlsx *.xml)</source>
         <translation>表格文件 (*.csv *.txt *.xls *.xlsx *.xml)</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="144"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="145"/>
         <source>由 Data_service 建立工区模型，再直接生成目录索引。</source>
         <translation>由 Data_service 建立工区模型，再直接生成目录索引。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="171"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="172"/>
         <source>工程：%1
 资料目录：%2
 坐标系：%3 [%4]
@@ -9377,22 +9402,22 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
 原始文件只引用、不复制；模型导入完成后直接生成索引。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="173"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="174"/>
         <source>从资料声明自动识别（未声明则保留未知）</source>
         <translation>从资料声明自动识别（未声明则保留未知）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="182"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="183"/>
         <source>请填写有效的工程名称。</source>
         <translation>请填写有效的工程名称。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="184"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="185"/>
         <source>请选择有效的资料目录。</source>
         <translation>请选择有效的资料目录。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="186"/>
+        <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="187"/>
         <source>井位坐标表不存在，请重新选择。</source>
         <translation>井位坐标表不存在，请重新选择。</translation>
     </message>
@@ -10991,87 +11016,92 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>ErrorHistoryPanel</name>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="26"/>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="53"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="27"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="54"/>
         <source>错误</source>
         <translation>错误</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="27"/>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="53"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="28"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="54"/>
         <source>警告</source>
         <translation>警告</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="28"/>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="53"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="29"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="54"/>
         <source>信息</source>
         <translation>信息</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="53"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="54"/>
         <source>全部级别</source>
         <translation>全部级别</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="54"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="55"/>
         <source>级别过滤</source>
         <translation>级别过滤</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="57"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="58"/>
         <source>过滤来源/标题/内容</source>
         <translation>过滤来源/标题/内容</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="59"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="60"/>
         <source>复制</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="61"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="62"/>
         <source>复制选中行（无选中则复制全部可见行）</source>
         <translation>复制选中行（无选中则复制全部可见行）</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="62"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="63"/>
         <source>清空</source>
         <translation>清空</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="64"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="65"/>
         <source>清空错误历史</source>
         <translation>清空错误历史</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="74"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="75"/>
         <source>时间</source>
         <translation>时间</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="74"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="75"/>
         <source>级别</source>
         <translation>级别</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="74"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="75"/>
         <source>来源</source>
         <translation>来源</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="74"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="75"/>
         <source>次数</source>
         <translation>次数</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="74"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="75"/>
         <source>标题</source>
         <translation>标题</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="74"/>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="75"/>
         <source>内容</source>
         <translation>内容</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/notifications/errorhistorypanel.cpp" line="191"/>
+        <source>错误历史</source>
+        <translation>错误历史</translation>
     </message>
 </context>
 <context>
@@ -11531,57 +11561,57 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>FaciesConsistencyDialog</name>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="13"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="14"/>
         <source>地震相 × 测井相一致性报告</source>
         <translation>地震相 × 测井相一致性报告</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="28"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="29"/>
         <source>井</source>
         <translation>井</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="28"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="29"/>
         <source>测井相</source>
         <translation>测井相</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="28"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="29"/>
         <source>地震相</source>
         <translation>地震相</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="28"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="29"/>
         <source>一致性</source>
         <translation>一致性</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="28"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="29"/>
         <source>说明</source>
         <translation>说明</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="33"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="34"/>
         <source>逐井一致性</source>
         <translation>逐井一致性</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="34"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="35"/>
         <source>逐井</source>
         <translation>逐井</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="38"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="39"/>
         <source>混淆矩阵：行为测井相，列为地震相</source>
         <translation>混淆矩阵：行为测井相，列为地震相</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="39"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="40"/>
         <source>混淆矩阵（行：测井相 / 列：地震相）</source>
         <translation>混淆矩阵（行：测井相 / 列：地震相）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="67"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="68"/>
         <source>层位 %1
 测井相：%2
 地震相：%3
@@ -11592,33 +11622,33 @@ Crossline: %3 ~ %4</source>
 参与比对 %4 井，一致 %5 井，一致率 %6；Cohen κ = %7；未比对 %8 井（未预测或井位在地震相范围外）。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="74"/>
         <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="75"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="76"/>
         <source>—</source>
         <translation>—</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="89"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="90"/>
         <source>未比对</source>
         <translation>未比对</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="90"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="91"/>
         <source>一致</source>
         <translation>一致</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="91"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="92"/>
         <source>不一致</source>
         <translation>不一致</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="116"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="117"/>
         <source>对角线 = 一致</source>
         <translation>对角线 = 一致</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="123"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="124"/>
         <source>报告已留档：%1</source>
         <translation>报告已留档：%1</translation>
     </message>
@@ -12639,187 +12669,187 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>ImportSourceDialog</name>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="25"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="26"/>
         <source>导入井数据</source>
         <translation>导入井数据</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="25"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="26"/>
         <source>导入测井数据</source>
         <translation>导入测井数据</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="26"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="27"/>
         <source>导入地震数据</source>
         <translation>导入地震数据</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="26"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="27"/>
         <source>导入边界数据</source>
         <translation>导入边界数据</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="26"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="27"/>
         <source>导入资料文件</source>
         <translation>导入资料文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="27"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="28"/>
         <source>导入工区文件夹</source>
         <translation>导入工区文件夹</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="27"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="28"/>
         <source>导入现有古地理图</source>
         <translation>导入现有古地理图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="27"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="28"/>
         <source>导入古地理图文件夹</source>
         <translation>导入古地理图文件夹</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="29"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="30"/>
         <source>新增%1</source>
         <translation>新增%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="29"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="30"/>
         <source>导入资料</source>
         <translation>导入资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="32"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="33"/>
         <source>选择井位、分层、时深或轨迹资料，支持 XLSX、文本表和点矢量。可多选文件，也可选择井资料目录。</source>
         <translation>选择井位、分层、时深或轨迹资料，支持 XLSX、文本表和点矢量。可多选文件，也可选择井资料目录。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="33"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="34"/>
         <source>选择 LAS、DLIS、LIS、XML 或文本测井资料，也可选择测井目录。下一步核对识别类型及井归属。</source>
         <translation>选择 LAS、DLIS、LIS、XML 或文本测井资料，也可选择测井目录。下一步核对识别类型及井归属。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="34"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="35"/>
         <source>选择 SEG-Y 文件或地震目录。地震体保持外部链接，确认后在后台建立索引。</source>
         <translation>选择 SEG-Y 文件或地震目录。地震体保持外部链接，确认后在后台建立索引。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="35"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="36"/>
         <source>选择测区范围面矢量。SHP 须与 SHX、DBF 等配套文件放在同一目录，下一步核对后生成范围图层。</source>
         <translation>选择测区范围面矢量。SHP 须与 SHX、DBF 等配套文件放在同一目录，下一步核对后生成范围图层。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="36"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="37"/>
         <source>选择现有古地理图，或切换到目录模式。完整保存原图与配套文件，下一步设置层位与三级相整理。</source>
         <translation>选择现有古地理图，或切换到目录模式。完整保存原图与配套文件，下一步设置层位与三级相整理。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="37"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="38"/>
         <source>选择古地理图目录。SHP 按一套图件处理，下一步设置层位归属与三级相整理。</source>
         <translation>选择古地理图目录。SHP 按一套图件处理，下一步设置层位归属与三级相整理。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="38"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="39"/>
         <source>先选择资料来源，再预览和确认导入内容。取消不会导入任何资料。</source>
         <translation>先选择资料来源，再预览和确认导入内容。取消不会导入任何资料。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="42"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="43"/>
         <source>选择文件（可多选）</source>
         <translation>选择文件（可多选）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="42"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="43"/>
         <source>选择文件夹（包含子目录）</source>
         <translation>选择文件夹（包含子目录）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="42"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="43"/>
         <source>资料来源</source>
         <translation>资料来源</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="47"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="48"/>
         <source>选择文件…</source>
         <translation>选择文件…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="48"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="49"/>
         <source>移除所选</source>
         <translation>移除所选</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="52"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="53"/>
         <source>选择目录或粘贴目录路径</source>
         <translation>选择目录或粘贴目录路径</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="53"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="54"/>
         <source>选择文件夹…</source>
         <translation>选择文件夹…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="54"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="55"/>
         <source>将递归识别目录中的资料，下一步逐项核对；未确认前不开始导入。</source>
         <translation>将递归识别目录中的资料，下一步逐项核对；未确认前不开始导入。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="57"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="58"/>
         <source>原图与配套文件整套保存；可另外生成三级相版本。</source>
         <translation>原图与配套文件整套保存；可另外生成三级相版本。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="58"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="59"/>
         <source>下一步可核对类型、显示名称与导入方式；默认建立索引，也可选择复制进工程。</source>
         <translation>下一步可核对类型、显示名称与导入方式；默认建立索引，也可选择复制进工程。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="61"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="62"/>
         <source>下一步：核对</source>
         <translation>下一步：核对</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="62"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="63"/>
         <source>取消</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="84"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="85"/>
         <source>%1 (%2);;所有文件 (*)</source>
         <translation>%1 (%2);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="86"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="87"/>
         <source>井位与井资料 (*.xlsx *.txt *.csv *.tsv *.dat *.las *.dlis *.lis *.xml *.gpkg *.shp *.geojson);;所有文件 (*)</source>
         <translation>井位与井资料 (*.xlsx *.txt *.csv *.tsv *.dat *.las *.dlis *.lis *.xml *.gpkg *.shp *.geojson);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="87"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="88"/>
         <source>古地理图 (*.shp *.gpkg *.geojson *.tif *.tiff *.img *.png *.jpg *.jpeg *.pdf *.svg);;所有文件 (*)</source>
         <translation>古地理图 (*.shp *.gpkg *.geojson *.tif *.tiff *.img *.png *.jpg *.jpeg *.pdf *.svg);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="92"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="93"/>
         <source>资料文件 (%1);;所有文件 (*)</source>
         <translation>资料文件 (%1);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="119"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="120"/>
         <source>确认后预览目录中的资料。</source>
         <translation>确认后预览目录中的资料。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="119"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="120"/>
         <source>已选择 %1 个文件</source>
         <translation>已选择 %1 个文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="125"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="126"/>
         <source>请先选择资料文件或文件夹。</source>
         <translation>请先选择资料文件或文件夹。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="127"/>
+        <location filename="../src/ui/dialogs/importsourcedialog.cpp" line="128"/>
         <source>资料路径不存在或类型不符：%1</source>
         <translation>资料路径不存在或类型不符：%1</translation>
     </message>
@@ -13650,82 +13680,82 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>MappingEditBasis</name>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="18"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="19"/>
         <source>2 · 本次解释依据</source>
         <translation>2 · 本次解释依据</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="22"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="23"/>
         <source>选择正在参考的证据，补充解释说明及修改目的后启用。随后新建、改类和共边修改会自动记录这些依据；修改说明后需重新启用。</source>
         <translation>选择正在参考的证据，补充解释说明及修改目的后启用。随后新建、改类和共边修改会自动记录这些依据；修改说明后需重新启用。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="27"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="28"/>
         <source>填写解释说明和修改目的，启用后开始绘制。</source>
         <translation>填写解释说明和修改目的，启用后开始绘制。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="29"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="30"/>
         <source>选取当前显示的参考证据</source>
         <translation>选取当前显示的参考证据</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="36"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="37"/>
         <source>本次解释引用的已保存版本</source>
         <translation>本次解释引用的已保存版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="39"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="41"/>
         <source>移除选中参考</source>
         <translation>移除选中参考</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="48"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="50"/>
         <source>本次解释说明</source>
         <translation>本次解释说明</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="50"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="52"/>
         <source>描述井、地震或单因素的具体观察，以及为何支持此次解释；也可填写纯人工依据。</source>
         <translation>描述井、地震或单因素的具体观察，以及为何支持此次解释；也可填写纯人工依据。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="55"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="57"/>
         <source>本次修改目的</source>
         <translation>本次修改目的</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="56"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="58"/>
         <source>修改目的，例如：根据砂厚高值区调整河道边界</source>
         <translation>修改目的，例如：根据砂厚高值区调整河道边界</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="58"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="60"/>
         <source>启用本次解释依据</source>
         <translation>启用本次解释依据</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="118"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="120"/>
         <source>将本次依据用于后续元素修改</source>
         <translation>将本次依据用于后续元素修改</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="119"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="121"/>
         <source>请先选择层位，填写解释说明和修改目的，合计不超过 9000 字</source>
         <translation>请先选择层位，填写解释说明和修改目的，合计不超过 9000 字</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="129"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="131"/>
         <source>尚未启用依据；请先启用，再绘制或修改元素。</source>
         <translation>尚未启用依据；请先启用，再绘制或修改元素。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="130"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="132"/>
         <source>已启用：%1 个参考版本及人工说明。解释仍需复核，参考图不自动视为地质支持。 </source>
         <translation>已启用：%1 个参考版本及人工说明。解释仍需复核，参考图不自动视为地质支持。 </translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="132"/>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="134"/>
         <source>表单已改动；当前编辑仍采用上一次启用的依据，请重新启用。</source>
         <translation>表单已改动；当前编辑仍采用上一次启用的依据，请重新启用。</translation>
     </message>
@@ -13733,32 +13763,32 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>MappingEvidencePanel</name>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="329"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="330"/>
         <source>添加视图</source>
         <translation>添加视图</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="331"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="332"/>
         <source>在同一行添加参考视图，左右滚动查看更多证据</source>
         <translation>在同一行添加参考视图，左右滚动查看更多证据</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="353"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="355"/>
         <source>无证据视图——点「添加视图」恢复对照</source>
         <translation>无证据视图——点「添加视图」恢复对照</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="385"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="387"/>
         <source>左右拖动或聚焦后按左/右方向键调整此证据视图宽度</source>
         <translation>左右拖动或聚焦后按左/右方向键调整此证据视图宽度</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="437"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="439"/>
         <source>证据视图 %1</source>
         <translation>证据视图 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="445"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="447"/>
         <source>%1 个视图</source>
         <translation>%1 个视图</translation>
     </message>
@@ -13816,80 +13846,80 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="55"/>
         <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="56"/>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="242"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="243"/>
         <source>关闭此证据</source>
         <translation>关闭此证据</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="61"/>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="201"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="202"/>
         <source>从上方下拉框选择参考证据。
 可选择地震相、测井相、单因素图或参考相图。</source>
         <translation>从上方下拉框选择参考证据。
 可选择地震相、测井相、单因素图或参考相图。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="148"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="149"/>
         <source>请选择参考证据</source>
         <translation>请选择参考证据</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="153"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="154"/>
         <source>地震相</source>
         <translation>地震相</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="154"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="155"/>
         <source>测井相</source>
         <translation>测井相</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="155"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="156"/>
         <source>单因素图</source>
         <translation>单因素图</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="155"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="156"/>
         <source>参考图</source>
         <translation>参考图</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="156"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="157"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="162"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="163"/>
         <source>选择要对照的图件；同一面板可随时切换来源</source>
         <translation>选择要对照的图件；同一面板可随时切换来源</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="163"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="164"/>
         <source>暂无此类图件，请先导入参考相图或生成预测、单因素成果</source>
         <translation>暂无此类图件，请先导入参考相图或生成预测、单因素成果</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="217"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="218"/>
         <source>选择本视图的参考证据，与主图联动对照。</source>
         <translation>选择本视图的参考证据，与主图联动对照。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="219"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="220"/>
         <source>参考层位：%1 · 当前绘制层位：%2（跨层位对照）</source>
         <translation>参考层位：%1 · 当前绘制层位：%2（跨层位对照）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="220"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="221"/>
         <source>参考层位：%1 · 保留所选版本，与主图独立管理</source>
         <translation>参考层位：%1 · 保留所选版本，与主图独立管理</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="220"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="221"/>
         <source>共享资料</source>
         <translation>共享资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="241"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="242"/>
         <source>将关闭最后一个证据视图（可随时再添加）</source>
         <translation>将关闭最后一个证据视图（可随时再添加）</translation>
     </message>
@@ -17735,77 +17765,77 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>OfflineBasemapDialog</name>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="21"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="22"/>
         <source>导入工程离线底图</source>
         <translation>导入工程离线底图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="24"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="25"/>
         <source>导入已下载的 MBTiles、GeoTIFF、IMG、栅格 GeoPackage 或已配准图片。底图及定位／样式文件会复制进工程，移动整个工程后仍可离线使用。</source>
         <translation>导入已下载的 MBTiles、GeoTIFF、IMG、栅格 GeoPackage 或已配准图片。底图及定位／样式文件会复制进工程，移动整个工程后仍可离线使用。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="27"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="28"/>
         <source>选择底图文件或粘贴完整路径</source>
         <translation>选择底图文件或粘贴完整路径</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="28"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="29"/>
         <source>选择文件…</source>
         <translation>选择文件…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="28"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="29"/>
         <source>底图文件</source>
         <translation>底图文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="29"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="30"/>
         <source>地形／影像底图</source>
         <translation>地形／影像底图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="29"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="30"/>
         <source>地形阴影</source>
         <translation>地形阴影</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="29"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="30"/>
         <source>用作</source>
         <translation>用作</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="30"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="31"/>
         <source>导入后显示工程离线底图</source>
         <translation>导入后显示工程离线底图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="31"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="32"/>
         <source>工程尚未配准：可以先导入保存，完成“文件 → 工程坐标与底图”设置后再显示。</source>
         <translation>工程尚未配准：可以先导入保存，完成“文件 → 工程坐标与底图”设置后再显示。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="32"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="33"/>
         <source>同一用途的新底图替换当前选择，已有文件保留。普通 PNG／JPG 需带定位文件和坐标系；VRT 请先导出为 GeoTIFF。</source>
         <translation>同一用途的新底图替换当前选择，已有文件保留。普通 PNG／JPG 需带定位文件和坐标系；VRT 请先导出为 GeoTIFF。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="36"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="37"/>
         <source>导入并保存</source>
         <translation>导入并保存</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="37"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="38"/>
         <source>取消</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="42"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="43"/>
         <source>选择离线底图</source>
         <translation>选择离线底图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="43"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="44"/>
         <source>离线栅格底图 (*.mbtiles *.tif *.tiff *.img *.gpkg *.png *.jpg *.jpeg);;所有文件 (*)</source>
         <translation>离线栅格底图 (*.mbtiles *.tif *.tiff *.img *.gpkg *.png *.jpg *.jpeg);;所有文件 (*)</translation>
     </message>
@@ -18249,107 +18279,107 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoDockManager</name>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="52"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="55"/>
         <source>← 左侧停靠</source>
         <translation>← 左侧停靠</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="52"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="55"/>
         <source>右侧停靠 →</source>
         <translation>右侧停靠 →</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="53"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="56"/>
         <source>↑ 顶部停靠</source>
         <translation>↑ 顶部停靠</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="53"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="56"/>
         <source>↓ 底部停靠</source>
         <translation>↓ 底部停靠</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="183"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="192"/>
         <source>布局与面板</source>
         <translation>布局与面板</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="185"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="194"/>
         <source>自适应布局</source>
         <translation>自适应布局</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="186"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="195"/>
         <source>保存当前布局</source>
         <translation>保存当前布局</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="197"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="206"/>
         <source>恢复保存的布局</source>
         <translation>恢复保存的布局</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="212"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="221"/>
         <source>恢复上次手动保存的面板位置与尺寸</source>
         <translation>恢复上次手动保存的面板位置与尺寸</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="213"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="222"/>
         <source>请先保存当前布局</source>
         <translation>请先保存当前布局</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="214"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="223"/>
         <source>恢复默认布局</source>
         <translation>恢复默认布局</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="221"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="230"/>
         <source>移动面板</source>
         <translation>移动面板</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="222"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="231"/>
         <source>停靠到左侧</source>
         <translation>停靠到左侧</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="222"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="231"/>
         <source>停靠到右侧</source>
         <translation>停靠到右侧</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="222"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="231"/>
         <source>停靠到顶部</source>
         <translation>停靠到顶部</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="222"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="231"/>
         <source>停靠到底部</source>
         <translation>停靠到底部</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="227"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="236"/>
         <source>浮动窗口</source>
         <translation>浮动窗口</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="195"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="204"/>
         <source>布局已保存</source>
         <translation>布局已保存</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="206"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="215"/>
         <source>已恢复保存的布局</source>
         <translation>已恢复保存的布局</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="208"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="217"/>
         <source>保存的布局与当前面板不兼容，未能恢复</source>
         <translation>保存的布局与当前面板不兼容，未能恢复</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleodockmanager.cpp" line="121"/>
+        <location filename="../src/ui/paleodockmanager.cpp" line="124"/>
         <source>已恢复默认布局</source>
         <translation>已恢复默认布局</translation>
     </message>
@@ -18420,88 +18450,88 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoEditingToolbar</name>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="395"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="396"/>
         <source>先保存或取消图层 %1 的编辑，再切换图层</source>
         <translation>先保存或取消图层 %1 的编辑，再切换图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="431"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="432"/>
         <source>选择可编辑图层</source>
         <translation>选择可编辑图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="476"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="477"/>
         <source>选择</source>
         <translation>选择</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="476"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="477"/>
         <source>单击或框选要素（Shift 追加 / Ctrl 去除）</source>
         <translation>单击或框选要素（Shift 追加 / Ctrl 去除）</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="483"/>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="516"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="484"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="517"/>
         <source>添加</source>
         <translation>添加</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="484"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="485"/>
         <source>添加要素：点 / 线 / 面</source>
         <translation>添加要素：点 / 线 / 面</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="497"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="498"/>
         <source>添加点</source>
         <translation>添加点</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="497"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="498"/>
         <source>单击添加点；Esc 结束工具</source>
         <translation>单击添加点；Esc 结束工具</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="499"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="500"/>
         <source>添加线</source>
         <translation>添加线</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="499"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="500"/>
         <source>左键添加节点，右键完成线；Esc 结束工具</source>
         <translation>左键添加节点，右键完成线；Esc 结束工具</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="501"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="502"/>
         <source>添加面</source>
         <translation>添加面</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="501"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="502"/>
         <source>左键添加节点，右键完成面；Esc 结束工具</source>
         <translation>左键添加节点，右键完成面；Esc 结束工具</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="525"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="526"/>
         <source>整形</source>
         <translation>整形</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="525"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="526"/>
         <source>沿画线重构所选要素的几何</source>
         <translation>沿画线重构所选要素的几何</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="527"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="528"/>
         <source>移动</source>
         <translation>移动</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="527"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="528"/>
         <source>拖动移动所选要素</source>
         <translation>拖动移动所选要素</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="529"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="530"/>
         <source>删除</source>
         <translation>删除</translation>
     </message>
@@ -18521,223 +18551,230 @@ Crossline: %3 ~ %4</source>
         <translation>无法将选择矩形转换到图层坐标系</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="310"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="311"/>
         <source>切换工程：编辑%1</source>
         <translation>切换工程：编辑%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="452"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="453"/>
         <source>编辑模式</source>
         <translation>编辑模式</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="452"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="453"/>
         <source>进入编辑；退出时保存或放弃本段编辑</source>
         <translation>进入编辑；退出时保存或放弃本段编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="465"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="466"/>
         <source>退出编辑</source>
         <translation>退出编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="466"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="467"/>
         <source>本段编辑尚未确认保存。保存编辑，或放弃本段修改？</source>
         <translation>本段编辑尚未确认保存。保存编辑，或放弃本段修改？</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="467"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="468"/>
         <source>保存</source>
         <translation>保存</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="467"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="468"/>
         <source>放弃</source>
         <translation>放弃</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="467"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="468"/>
         <source>取消</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="529"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="530"/>
         <source>单击删除光标下的要素（命中式，不删整个选区）</source>
         <translation>单击删除光标下的要素（命中式，不删整个选区）</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="531"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="532"/>
         <source>节点</source>
         <translation>节点</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="531"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="532"/>
         <source>编辑所选要素的节点</source>
         <translation>编辑所选要素的节点</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="538"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="539"/>
         <source>拓扑</source>
         <translation>拓扑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="538"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="539"/>
         <source>拓扑编辑：共边节点随选区节点一起动/增/删</source>
         <translation>拓扑编辑：共边节点随选区节点一起动/增/删</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="552"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="553"/>
         <source>跨层</source>
         <translation>跨层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="552"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="553"/>
         <source>跨层拓扑：共点节点延伸到同 CRS 的其他编辑层（各层 undo 独立）</source>
         <translation>跨层拓扑：共点节点延伸到同 CRS 的其他编辑层（各层 undo 独立）</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="564"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="565"/>
         <source>保存编辑</source>
         <translation>保存编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="564"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="565"/>
         <source>提交当前图层的编辑</source>
         <translation>提交当前图层的编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="566"/>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="585"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="567"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="586"/>
         <source>放弃编辑</source>
         <translation>放弃编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="566"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="567"/>
         <source>放弃当前图层的编辑</source>
         <translation>放弃当前图层的编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="570"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="571"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="782"/>
         <source>撤销</source>
         <translation>撤销</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="570"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="571"/>
         <source>撤销上一步编辑</source>
         <translation>撤销上一步编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="572"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="573"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="784"/>
         <source>重做</source>
         <translation>重做</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="572"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="573"/>
         <source>重做被撤销的编辑</source>
         <translation>重做被撤销的编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="586"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="587"/>
         <source>将放弃图层 %1 的全部未保存编辑（%2 条命令），是否继续？</source>
         <translation>将放弃图层 %1 的全部未保存编辑（%2 条命令），是否继续？</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="612"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="613"/>
         <source> px</source>
         <translation> px</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="613"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="614"/>
         <source>捕捉容差</source>
         <translation>捕捉容差</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="614"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="615"/>
         <source>井点、层位边界与既有约束顶点/线段的屏幕捕捉容差</source>
         <translation>井点、层位边界与既有约束顶点/线段的屏幕捕捉容差</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="643"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="644"/>
         <source>撤销栈深度</source>
         <translation>撤销栈深度</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="644"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="645"/>
         <source>下一段编辑会话的最大撤销命令数；放弃编辑仍恢复整段起始快照</source>
         <translation>下一段编辑会话的最大撤销命令数；放弃编辑仍恢复整段起始快照</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="685"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="686"/>
         <source>● %1</source>
         <translation>● %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="726"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="727"/>
         <source>先在图层树或图层下拉框选择矢量图层</source>
         <translation>先在图层树或图层下拉框选择矢量图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="728"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="729"/>
         <source>当前图层为只读，可选择要素，不能修改</source>
         <translation>当前图层为只读，可选择要素，不能修改</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="729"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="730"/>
         <source>当前图层的数据源不支持编辑</source>
         <translation>当前图层的数据源不支持编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="730"/>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="938"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="731"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="936"/>
         <source>约束编辑需要工程 store 同步服务</source>
         <translation>约束编辑需要工程 store 同步服务</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="748"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="749"/>
         <source>三级相面共用边界，必须保持拓扑编辑</source>
         <translation>三级相面共用边界，必须保持拓扑编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="752"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="753"/>
         <source>先开启拓扑编辑，再考虑跨层联动</source>
         <translation>先开启拓扑编辑，再考虑跨层联动</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="758"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="759"/>
         <source>添加点仅适用于点图层</source>
         <translation>添加点仅适用于点图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="759"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="760"/>
         <source>添加线仅适用于线图层</source>
         <translation>添加线仅适用于线图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="760"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="761"/>
         <source>添加面仅适用于面图层</source>
         <translation>添加面仅适用于面图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="762"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="763"/>
         <source>整形仅适用于线或面图层</source>
         <translation>整形仅适用于线或面图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="766"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="767"/>
         <source>约束新增请使用约束页的类型化绘制入口</source>
         <translation>约束新增请使用约束页的类型化绘制入口</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="769"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="770"/>
         <source>约束编辑使用单图层与 store 一致的撤销会话</source>
         <translation>约束编辑使用单图层与 store 一致的撤销会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="773"/>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1003"/>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1091"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="774"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1001"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1089"/>
         <source>当前没有进行中的编辑会话</source>
         <translation>当前没有进行中的编辑会话</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="781"/>
+        <source>%1：%2</source>
+        <translation>%1：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/edittools/editingtoolbar.cpp" line="782"/>
@@ -18745,74 +18782,74 @@ Crossline: %3 ~ %4</source>
         <translation>没有可撤销的编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="786"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="784"/>
         <source>没有可重做的编辑</source>
         <translation>没有可重做的编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="801"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="799"/>
         <source>编辑中：%1</source>
         <translation>编辑中：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="806"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="804"/>
         <source>浏览：%1</source>
         <translation>浏览：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="807"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="805"/>
         <source>未选择矢量图层</source>
         <translation>未选择矢量图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="851"/>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="933"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="849"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="931"/>
         <source>先选择一个可编辑图层</source>
         <translation>先选择一个可编辑图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="945"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="943"/>
         <source>图层 %1 已在编辑中</source>
         <translation>图层 %1 已在编辑中</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="951"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="949"/>
         <source>先保存或取消图层 %1 的编辑，再编辑其他图层</source>
         <translation>先保存或取消图层 %1 的编辑，再编辑其他图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="966"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="964"/>
         <source>无法开始编辑图层 %1</source>
         <translation>无法开始编辑图层 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1015"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1013"/>
         <source>提交图层 %1 的编辑失败</source>
         <translation>提交图层 %1 的编辑失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1038"/>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1100"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1036"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1098"/>
         <source>回滚图层 %1 失败</source>
         <translation>回滚图层 %1 失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1042"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1040"/>
         <source>已提交</source>
         <translation>已提交</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1042"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1040"/>
         <source>已放弃</source>
         <translation>已放弃</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1066"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1064"/>
         <source>编辑图层被移除：编辑%1</source>
         <translation>编辑图层被移除：编辑%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1080"/>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1078"/>
         <source>工程已清空：编辑已丢弃</source>
         <translation>工程已清空：编辑已丢弃</translation>
     </message>
@@ -19972,205 +20009,205 @@ Crossline: %3 ~ %4</source>
         <translation>验证结果</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="92"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="104"/>
         <source>Paleo Workbench</source>
         <translation>Paleo Workbench</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="98"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="110"/>
         <source>古地理编图工作台 — 新建工程或打开最近工程开始</source>
         <translation>古地理编图工作台 — 新建工程或打开最近工程开始</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="103"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="115"/>
         <source>最近工程</source>
         <translation>最近工程</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="108"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="120"/>
         <source>最近工程列表</source>
         <translation>最近工程列表</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="122"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="138"/>
         <source>（暂无最近工程）</source>
         <translation>（暂无最近工程）</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="126"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="142"/>
         <source>新建工程</source>
         <translation>新建工程</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="128"/>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="403"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="144"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="421"/>
         <source>打开工程</source>
         <translation>打开工程</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="131"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="147"/>
         <location filename="../src/ui/paleomainwindow_project.cpp" line="247"/>
         <source>从工区文件夹新建</source>
         <translation>从工区文件夹新建</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="217"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="235"/>
         <source>界限</source>
         <translation>界限</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="254"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="272"/>
         <location filename="../src/ui/paleomainwindow_status.cpp" line="83"/>
         <source>分析层段：%1</source>
         <translation>分析层段：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="312"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="330"/>
         <source>结束工具</source>
         <translation>结束工具</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="313"/>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="330"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="331"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="348"/>
         <source>结束当前地图操作，保留尚未保存的图层编辑</source>
         <translation>结束当前地图操作，保留尚未保存的图层编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="320"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="338"/>
         <source>浏览</source>
         <translation>浏览</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="321"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="339"/>
         <source>未选择图层</source>
         <translation>未选择图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="323"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="341"/>
         <source>在地图中操作；结束工具后保留图层编辑</source>
         <translation>在地图中操作；结束工具后保留图层编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="324"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="342"/>
         <source>选择上方地图工具开始操作</source>
         <translation>选择上方地图工具开始操作</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="325"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="343"/>
         <source>%1 · %2 — %3</source>
         <translation>%1 · %2 — %3</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="331"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="349"/>
         <source>当前没有活动地图工具</source>
         <translation>当前没有活动地图工具</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="346"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="364"/>
         <location filename="../src/ui/ribbonpanels.cpp" line="229"/>
         <source>数据列表</source>
         <translation>数据列表</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="356"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="374"/>
         <location filename="../src/ui/ribbonpanels.cpp" line="256"/>
         <source>数据预览</source>
         <translation>数据预览</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="389"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="407"/>
         <source>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「智能预测」运行预测</source>
         <translation>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「智能预测」运行预测</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="707"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="725"/>
         <source>可视化视图</source>
         <translation>可视化视图</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="430"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="448"/>
         <source>从工区文件夹新建工程</source>
         <translation>从工区文件夹新建工程</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="452"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="470"/>
         <source>图层</source>
         <translation>图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="477"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="495"/>
         <source>提示：当前 QGIS 未含「标注随图层」补丁，地图标注将始终置顶显示</source>
         <translation>提示：当前 QGIS 未含「标注随图层」补丁，地图标注将始终置顶显示</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="492"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="510"/>
         <source>该图层尚未登记资料版本，请先导入或保存图件</source>
         <translation>该图层尚未登记资料版本，请先导入或保存图件</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="526"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="544"/>
         <source>未打开工程</source>
         <translation>未打开工程</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="562"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="580"/>
         <source> — 面板待实现</source>
         <translation> — 面板待实现</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="571"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="589"/>
         <source>日志 / 任务</source>
         <translation>日志 / 任务</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="575"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="593"/>
         <source>底部面板页签</source>
         <translation>底部面板页签</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="577"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="595"/>
         <source>日志</source>
         <translation>日志</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="581"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="599"/>
         <source>任务队列 — 待实现</source>
         <translation>任务队列 — 待实现</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="293"/>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="296"/>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="582"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="600"/>
         <source>任务</source>
         <translation>任务</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="589"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="607"/>
         <source>地震剖面 / 井震综合</source>
         <translation>地震剖面 / 井震综合</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="633"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="651"/>
         <source>三维地震视口 (3D)</source>
         <translation>三维地震视口 (3D)</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="645"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="663"/>
         <source>Web 服务</source>
         <translation>Web 服务</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="656"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="674"/>
         <source>Web 服务地址</source>
         <translation>Web 服务地址</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="657"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="675"/>
         <source>http:// 或 https:// 服务地址</source>
         <translation>http:// 或 https:// 服务地址</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="659"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="677"/>
         <source>打开</source>
         <translation>打开</translation>
     </message>
@@ -20257,12 +20294,12 @@ Crossline: %3 ~ %4</source>
         <translation>地层对比</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="613"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="631"/>
         <source>时间切片属性已上图：%1</source>
         <translation>时间切片属性已上图：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="623"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="641"/>
         <location filename="../src/ui/ribbonpanels.cpp" line="153"/>
         <source>连井剖面</source>
         <translation>连井剖面</translation>
@@ -22560,7 +22597,7 @@ PDF：%3
         <translation>路线、逐井时深校正与来源关系已保存为工程新版本。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="404"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="422"/>
         <source>Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)</source>
         <translation>Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)</translation>
     </message>
@@ -23105,18 +23142,18 @@ PDF：%3
         <translation>合成编图失败，请检查所选图层与当前层段</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="206"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="224"/>
         <source>切换当前地层界限（地震层位是地层界限，不是地层单元）。用于界限查看/编辑；层段分析请用下方父单元与 S1–S4。</source>
         <translation>切换当前地层界限（地震层位是地层界限，不是地层单元）。用于界限查看/编辑；层段分析请用下方父单元与 S1–S4。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="205"/>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="286"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="223"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="304"/>
         <source>界限切换</source>
         <translation>界限切换</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_docks.cpp" line="217"/>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="235"/>
         <source>界限：%1</source>
         <translation>界限：%1</translation>
     </message>
@@ -23516,6 +23553,24 @@ PDF：%3
     </message>
 </context>
 <context>
+    <name>PaleoNotify</name>
+    <message>
+        <location filename="../src/ui/notifications/paleonotify.cpp" line="94"/>
+        <source>内容</source>
+        <translation>内容</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/notifications/paleonotify.cpp" line="96"/>
+        <source>%1已复制到剪贴板</source>
+        <translation>%1已复制到剪贴板</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/notifications/paleonotify.cpp" line="101"/>
+        <source>已复制</source>
+        <translation>已复制</translation>
+    </message>
+</context>
+<context>
     <name>PaleoOnnxService</name>
     <message>
         <location filename="../src/ai/onnxpredictionservice.cpp" line="304"/>
@@ -23794,7 +23849,7 @@ PDF：%3
         <translation>向右滚动工具栏</translation>
     </message>
     <message>
-        <location filename="../src/ui/ribboncollapse.cpp" line="330"/>
+        <location filename="../src/ui/ribboncollapse.cpp" line="331"/>
         <source>展开「%1」组的全部命令</source>
         <translation>展开「%1」组的全部命令</translation>
     </message>
@@ -23823,7 +23878,7 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="34"/>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="231"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="260"/>
         <source>综合柱状图</source>
         <translation>综合柱状图</translation>
     </message>
@@ -23839,7 +23894,7 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="37"/>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="331"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="360"/>
         <source>图件设计器</source>
         <translation>图件设计器</translation>
     </message>
@@ -23869,267 +23924,257 @@ PDF：%3
         <translation>切换工作流页</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="119"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="148"/>
         <source>主窗口</source>
         <translation>主窗口</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="133"/>
-        <source>循环切换到下一个工作流页</source>
-        <translation>循环切换到下一个工作流页</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="136"/>
-        <source>循环切换到上一个工作流页</source>
-        <translation>循环切换到上一个工作流页</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="139"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="168"/>
         <source>聚焦顶栏搜索框，查找井位或层位</source>
         <translation>聚焦顶栏搜索框，查找井位或层位</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="142"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="171"/>
         <source>打开底部「交会相分类」面板</source>
         <translation>打开底部「交会相分类」面板</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="147"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="176"/>
         <source>保存工程（「地层对比」页让给网页工作台自己的保存）</source>
         <translation>保存工程（「地层对比」页让给网页工作台自己的保存）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="152"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="181"/>
         <source>打开快捷键总表</source>
         <translation>打开快捷键总表</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="155"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="184"/>
         <source>进入「这是什么？」模式，再点击控件查看说明</source>
         <translation>进入「这是什么？」模式，再点击控件查看说明</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="158"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="187"/>
         <source>复制总表中所选的快捷键条目</source>
         <translation>复制总表中所选的快捷键条目</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="159"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="188"/>
         <source>快捷键总表</source>
         <translation>快捷键总表</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="163"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="192"/>
         <source>数据管理页</source>
         <translation>数据管理页</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="164"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="193"/>
         <source>数据列表</source>
         <translation>数据列表</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="165"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="194"/>
         <source>资产列表（焦点内）</source>
         <translation>资产列表（焦点内）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="166"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="195"/>
         <source>数据页命令面板</source>
         <translation>数据页命令面板</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="168"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="197"/>
         <source>打开数据页命令面板，搜索资产、实体、动作与过滤器</source>
         <translation>打开数据页命令面板，搜索资产、实体、动作与过滤器</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="171"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="200"/>
         <source>撤销上一步数据列表操作</source>
         <translation>撤销上一步数据列表操作</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="174"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="203"/>
         <source>重做数据列表操作</source>
         <translation>重做数据列表操作</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="177"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="206"/>
         <source>反选资产</source>
         <translation>反选资产</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="179"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="208"/>
         <source>选中当前过滤结果中的全部资产</source>
         <translation>选中当前过滤结果中的全部资产</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="182"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="211"/>
         <source>重命名树中所选的实体</source>
         <translation>重命名树中所选的实体</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="185"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="214"/>
         <source>打开数据页快捷键表</source>
         <translation>打开数据页快捷键表</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="188"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="217"/>
         <source>聚焦资产搜索框</source>
         <translation>聚焦资产搜索框</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="190"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="219"/>
         <source>开关 Vim 风导航（j/k/g/G//）</source>
         <translation>开关 Vim 风导航（j/k/g/G//）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="193"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="222"/>
         <source>切换当前行的选中状态</source>
         <translation>切换当前行的选中状态</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="196"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="225"/>
         <source>把所选资产移入可回收清单（确认后执行，可撤销）</source>
         <translation>把所选资产移入可回收清单（确认后执行，可撤销）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="199"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="228"/>
         <source>同 Delete：把所选资产移入可回收清单</source>
         <translation>同 Delete：把所选资产移入可回收清单</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="202"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="231"/>
         <source>Vim 风导航开启时：下移一行</source>
         <translation>Vim 风导航开启时：下移一行</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="205"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="234"/>
         <source>Vim 风导航开启时：上移一行</source>
         <translation>Vim 风导航开启时：上移一行</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="208"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="237"/>
         <source>Vim 风导航开启时：跳到第一行</source>
         <translation>Vim 风导航开启时：跳到第一行</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="211"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="240"/>
         <source>Vim 风导航开启时：跳到最后一行</source>
         <translation>Vim 风导航开启时：跳到最后一行</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="214"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="243"/>
         <source>Vim 风导航开启时：聚焦搜索框</source>
         <translation>Vim 风导航开启时：聚焦搜索框</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="217"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="246"/>
         <source>在命令面板结果中上移选择</source>
         <translation>在命令面板结果中上移选择</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="220"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="249"/>
         <source>在命令面板结果中下移选择</source>
         <translation>在命令面板结果中下移选择</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="222"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="251"/>
         <source>派生关系图（焦点内）</source>
         <translation>派生关系图（焦点内）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="224"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="253"/>
         <source>选中焦点所在的版本节点（同单击）</source>
         <translation>选中焦点所在的版本节点（同单击）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="227"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="256"/>
         <source>同回车：选中焦点所在的版本节点</source>
         <translation>同回车：选中焦点所在的版本节点</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="232"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="261"/>
         <source>柱状图画布（焦点内）</source>
         <translation>柱状图画布（焦点内）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="234"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="263"/>
         <source>跳转到指定深度</source>
         <translation>跳转到指定深度</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="238"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="267"/>
         <source>取消进行中的道头拖动、框选或标志层拖动</source>
         <translation>取消进行中的道头拖动、框选或标志层拖动</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="241"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="270"/>
         <source>向浅处滚动可见井段的十分之一</source>
         <translation>向浅处滚动可见井段的十分之一</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="244"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="273"/>
         <source>向深处滚动可见井段的十分之一</source>
         <translation>向深处滚动可见井段的十分之一</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="247"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="276"/>
         <source>放大深度比例（= 键同效）</source>
         <translation>放大深度比例（= 键同效）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="250"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="279"/>
         <source>缩小深度比例</source>
         <translation>缩小深度比例</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="254"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="283"/>
         <source>打开键盘焦点所在道的配置</source>
         <translation>打开键盘焦点所在道的配置</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="257"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="286"/>
         <source>把键盘焦点移到下一道</source>
         <translation>把键盘焦点移到下一道</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="261"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="290"/>
         <source>地图绘制工具（焦点内）</source>
         <translation>地图绘制工具（焦点内）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="262"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="291"/>
         <source>地图编辑工具（焦点内）</source>
         <translation>地图编辑工具（焦点内）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="263"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="292"/>
         <source>节点编辑工具（焦点内）</source>
         <translation>节点编辑工具（焦点内）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="265"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="294"/>
         <source>删除图层树中所选的图层或组（正在编辑的图层会被拒绝）</source>
         <translation>删除图层树中所选的图层或组（正在编辑的图层会被拒绝）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="266"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="295"/>
         <source>图层树</source>
         <translation>图层树</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="268"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="297"/>
         <source>完成当前绘制</source>
         <translation>完成当前绘制</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="271"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="300"/>
         <source>放弃当前绘制并退出工具</source>
         <translation>放弃当前绘制并退出工具</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="274"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="303"/>
         <source>取消当前要素编辑并退出工具（移动工具先撤回拖动预览）</source>
         <translation>取消当前要素编辑并退出工具（移动工具先撤回拖动预览）</translation>
     </message>
@@ -24165,142 +24210,197 @@ PDF：%3
         <translation>重做被撤销的地图要素编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="278"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="97"/>
+        <source>地震拾取面板（焦点内）</source>
+        <translation>地震拾取面板（焦点内）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="98"/>
+        <source>断层管理面板（焦点内）</source>
+        <translation>断层管理面板（焦点内）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="99"/>
+        <source>地层解释页（焦点内）</source>
+        <translation>地层解释页（焦点内）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="108"/>
+        <source>撤销上一次地震拾取变更</source>
+        <translation>撤销上一次地震拾取变更</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="110"/>
+        <source>重做地震拾取变更</source>
+        <translation>重做地震拾取变更</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="112"/>
+        <source>撤销最近一次断层编辑</source>
+        <translation>撤销最近一次断层编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="114"/>
+        <source>重做被撤销的断层编辑</source>
+        <translation>重做被撤销的断层编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="116"/>
+        <source>撤销上次地层人工编辑</source>
+        <translation>撤销上次地层人工编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="118"/>
+        <source>重做地层人工编辑</source>
+        <translation>重做地层人工编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="162"/>
+        <source>循环切换到下一个视图页签</source>
+        <translation>循环切换到下一个视图页签</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="165"/>
+        <source>循环切换到上一个视图页签</source>
+        <translation>循环切换到上一个视图页签</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="307"/>
         <source>删除光标处（按吸附结果）的节点</source>
         <translation>删除光标处（按吸附结果）的节点</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="280"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="309"/>
         <source>同 Delete：删除光标处的节点</source>
         <translation>同 Delete：删除光标处的节点</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="283"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="312"/>
         <source>拖动节点时放回原位；未拖动时退出工具</source>
         <translation>拖动节点时放回原位；未拖动时退出工具</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="286"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="315"/>
         <source>取消布井拾取并退出工具</source>
         <translation>取消布井拾取并退出工具</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="287"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="316"/>
         <source>布井拾取工具（焦点内）</source>
         <translation>布井拾取工具（焦点内）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="291"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="320"/>
         <source>地震剖面画布（焦点内）</source>
         <translation>地震剖面画布（焦点内）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="292"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="321"/>
         <source>三维视口（焦点内）</source>
         <translation>三维视口（焦点内）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="296"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="325"/>
         <source>向左平移剖面视图</source>
         <translation>向左平移剖面视图</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="298"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="327"/>
         <source>向右平移剖面视图</source>
         <translation>向右平移剖面视图</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="300"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="329"/>
         <source>向上平移剖面视图</source>
         <translation>向上平移剖面视图</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="302"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="331"/>
         <source>向下平移剖面视图</source>
         <translation>向下平移剖面视图</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="304"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="333"/>
         <source>放大剖面（= 键同效）</source>
         <translation>放大剖面（= 键同效）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="306"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="335"/>
         <source>缩小剖面</source>
         <translation>缩小剖面</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="308"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="337"/>
         <source>切片号后退一步</source>
         <translation>切片号后退一步</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="310"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="339"/>
         <source>切片号前进一步</source>
         <translation>切片号前进一步</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="312"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="341"/>
         <source>向左旋转三维视角</source>
         <translation>向左旋转三维视角</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="314"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="343"/>
         <source>向右旋转三维视角</source>
         <translation>向右旋转三维视角</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="316"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="345"/>
         <source>向上俯仰三维视角</source>
         <translation>向上俯仰三维视角</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="318"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="347"/>
         <source>向下俯仰三维视角</source>
         <translation>向下俯仰三维视角</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="320"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="349"/>
         <source>拉近三维视角（= 键同效）</source>
         <translation>拉近三维视角（= 键同效）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="322"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="351"/>
         <source>推远三维视角</source>
         <translation>推远三维视角</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="324"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="353"/>
         <source>剖面拾取中：提交折线（至少两点）</source>
         <translation>剖面拾取中：提交折线（至少两点）</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="327"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="356"/>
         <source>剖面拾取中：取消拾取</source>
         <translation>剖面拾取中：取消拾取</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="333"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="362"/>
         <source>撤销版面编辑</source>
         <translation>撤销版面编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="335"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="364"/>
         <source>重做版面编辑</source>
         <translation>重做版面编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="337"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="366"/>
         <source>删除所选版面元素</source>
         <translation>删除所选版面元素</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="341"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="370"/>
         <source>拖动停靠面板时取消，面板留在原处</source>
         <translation>拖动停靠面板时取消，面板留在原处</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="342"/>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="371"/>
         <source>停靠面板拖动中</source>
         <translation>停靠面板拖动中</translation>
     </message>
@@ -25187,78 +25287,78 @@ PDF：%3
 <context>
     <name>PhotoDialog</name>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="98"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="99"/>
         <source>岩心照片 — %1</source>
         <translation>岩心照片 — %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="105"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="106"/>
         <source>测深：%1–%2 m</source>
         <translation>测深：%1–%2 m</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="106"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="107"/>
         <source>锚深：%1 m</source>
         <translation>锚深：%1 m</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="117"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="118"/>
         <source>滚轮缩放，按住左键拖动浏览；关闭窗口返回井道。</source>
         <translation>滚轮缩放，按住左键拖动浏览；关闭窗口返回井道。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="140"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="141"/>
         <source>放大</source>
         <translation>放大</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="141"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="142"/>
         <source>缩小</source>
         <translation>缩小</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="142"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="143"/>
         <source>适应窗口</source>
         <translation>适应窗口</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="143"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="144"/>
         <source>原始大小（100%）</source>
         <translation>原始大小（100%）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="145"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="146"/>
         <source>原图读取完成后可查看原始大小</source>
         <translation>原图读取完成后可查看原始大小</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="155"/>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="158"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="156"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="159"/>
         <source>没有可显示的照片。</source>
         <translation>没有可显示的照片。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="156"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="157"/>
         <source>仅有内嵌图片，按现有分辨率显示。</source>
         <translation>仅有内嵌图片，按现有分辨率显示。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="161"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="162"/>
         <source>正在读取原图…</source>
         <translation>正在读取原图…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="169"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="170"/>
         <source>无法读取原图；如有缩略图，可继续查看缩略图。</source>
         <translation>无法读取原图；如有缩略图，可继续查看缩略图。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="175"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="176"/>
         <source>原图：%1 × %2 像素</source>
         <translation>原图：%1 × %2 像素</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="177"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="178"/>
         <source>无法启动原图读取；请关闭窗口后重试。</source>
         <translation>无法启动原图读取；请关闭窗口后重试。</translation>
     </message>
@@ -25266,7 +25366,7 @@ PDF：%3
 <context>
     <name>PhotoView</name>
     <message>
-        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="31"/>
+        <location filename="../src/ui/dialogs/coreimageviewer.cpp" line="32"/>
         <source>岩心照片放大视图</source>
         <translation>岩心照片放大视图</translation>
     </message>
@@ -25971,19 +26071,24 @@ PDF：%3
 <context>
     <name>PreviewMapPage</name>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="289"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="290"/>
         <source>当前预览面板</source>
         <translation>当前预览面板</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="293"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="294"/>
         <source>图层 / 识别 / 剖面</source>
         <translation>图层 / 识别 / 剖面</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="300"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="301"/>
         <source>统计与分析</source>
         <translation>统计与分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="995"/>
+        <source>地图截图</source>
+        <translation>地图截图</translation>
     </message>
     <message>
         <location filename="../src/ui/datapreview/previewmapcoordinates.cpp" line="21"/>
@@ -26127,107 +26232,107 @@ PDF：%3
 <context>
     <name>ProjectMapSettingsDialog</name>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="34"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="35"/>
         <source>工程坐标与底图</source>
         <translation>工程坐标与底图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="46"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="47"/>
         <source>参数保存在 project.paleo。原始地质数据使用局部米制网格；地图按配准参数显示真实位置。</source>
         <translation>参数保存在 project.paleo。原始地质数据使用局部米制网格；地图按配准参数显示真实位置。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="49"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="50"/>
         <source>局部网格 → WGS84 经纬度</source>
         <translation>局部网格 → WGS84 经纬度</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="51"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="52"/>
         <source>启用工程坐标配准</source>
         <translation>启用工程坐标配准</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="57"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="58"/>
         <source>原生投影 CRS 是现有工程的计算基准，不能在此清除；如需更换，请新建工程并重新导入。</source>
         <translation>原生投影 CRS 是现有工程的计算基准，不能在此清除；如需更换，请新建工程并重新导入。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="58"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="59"/>
         <source>启用后，以明确参数将局部米制网格配准到 WGS84。</source>
         <translation>启用后，以明确参数将局部米制网格配准到 WGS84。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="60"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="61"/>
         <source>工程原生坐标系</source>
         <translation>工程原生坐标系</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="61"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="62"/>
         <source>地质数据使用已声明的原生投影坐标；地图按精确投影转换显示，不需要再拟合局部网格配准。</source>
         <translation>地质数据使用已声明的原生投影坐标；地图按精确投影转换显示，不需要再拟合局部网格配准。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="63"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="64"/>
         <source>资料／计算坐标系</source>
         <translation>资料／计算坐标系</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="69"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="70"/>
         <source>a（缩放 × cos 旋转角）</source>
         <translation>a（缩放 × cos 旋转角）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="69"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="70"/>
         <source>b（缩放 × sin 旋转角）</source>
         <translation>b（缩放 × sin 旋转角）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="70"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="71"/>
         <source>东向平移 tE（米）</source>
         <translation>东向平移 tE（米）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="70"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="71"/>
         <source>北向平移 tN（米）</source>
         <translation>北向平移 tN（米）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="71"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="72"/>
         <source>每经度对应米数</source>
         <translation>每经度对应米数</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="71"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="72"/>
         <source>每纬度对应米数</source>
         <translation>每纬度对应米数</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="78"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="79"/>
         <source>未设置（必填）</source>
         <translation>未设置（必填）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="80"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="81"/>
         <source> m</source>
         <translation> m</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="80"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="81"/>
         <source> m/°</source>
         <translation> m/°</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="94"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="95"/>
         <source>局部网格配准的目标固定为 WGS84 经纬度。</source>
         <translation>局部网格配准的目标固定为 WGS84 经纬度。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="103"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="104"/>
         <source>WGS84 锚点</source>
         <translation>WGS84 锚点</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="105"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="106"/>
         <source>E = a·x − b·y + tE；N = b·x + a·y + tN
 经度 = 锚点经度 + E / 每经度米数
 纬度 = 锚点纬度 + N / 每纬度米数</source>
@@ -26236,67 +26341,67 @@ PDF：%3
 纬度 = 锚点纬度 + N / 每纬度米数</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="110"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="111"/>
         <source>参数来源</source>
         <translation>参数来源</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="112"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="113"/>
         <source>现有控制点：%1 个；最大残差：%2 米。保存修改时重新计算残差。</source>
         <translation>现有控制点：%1 个；最大残差：%2 米。保存修改时重新计算残差。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="118"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="119"/>
         <source>地图显示与离线底图</source>
         <translation>地图显示与离线底图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="122"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="123"/>
         <source>局部工程网格（米，未投影）</source>
         <translation>局部工程网格（米，未投影）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="124"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="125"/>
         <source>地图坐标系</source>
         <translation>地图坐标系</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="125"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="126"/>
         <source>显示离线底图</source>
         <translation>显示离线底图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="133"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="134"/>
         <source>选择…</source>
         <translation>选择…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="136"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="137"/>
         <source>选择已下载的离线底图</source>
         <translation>选择已下载的离线底图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="136"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="137"/>
         <source>离线栅格底图 (*.mbtiles *.tif *.tiff *.img *.gpkg *.png *.jpg *.jpeg)</source>
         <translation>离线栅格底图 (*.mbtiles *.tif *.tiff *.img *.gpkg *.png *.jpg *.jpeg)</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="142"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="143"/>
         <source>地形底图</source>
         <translation>地形底图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="143"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="144"/>
         <source>地形阴影</source>
         <translation>地形阴影</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="169"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="170"/>
         <source>「%1」须按工区实际填写（≥ %2 米/度），否则换算必然失败。</source>
         <translation>「%1」须按工区实际填写（≥ %2 米/度），否则换算必然失败。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="215"/>
+        <location filename="../src/ui/dialogs/projectmapsettingsdialog.cpp" line="216"/>
         <source>保存失败：%1</source>
         <translation>保存失败：%1</translation>
     </message>
@@ -26357,314 +26462,314 @@ PDF：%3
 <context>
     <name>ProjectSetupDialog</name>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="291"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="292"/>
         <source>快速识别完成；已展示预览样本，完整校验将在导入时执行。</source>
         <translation>快速识别完成；已展示预览样本，完整校验将在导入时执行。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="316"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="317"/>
         <source>以下为识别样本统计，完整数量与校验以导入结果为准。
 </source>
         <translation>以下为识别样本统计，完整数量与校验以导入结果为准。
 </translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="146"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="147"/>
         <source>可选：分井目录，或集中存放 XML／LAS 的测井资料目录</source>
         <translation>可选：分井目录，或集中存放 XML／LAS 的测井资料目录</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="290"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="291"/>
         <source>未找到可导入资料；请选择资料来源，或创建空白工程。</source>
         <translation>未找到可导入资料；请选择资料来源，或创建空白工程。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="30"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="31"/>
         <source>新建工程</source>
         <translation>新建工程</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="35"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="36"/>
         <source>1 工程与来源</source>
         <translation>1 工程与来源</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="35"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="36"/>
         <source>2 井点</source>
         <translation>2 井点</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="35"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="36"/>
         <source>3 其他资料</source>
         <translation>3 其他资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="35"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="36"/>
         <source>4 确认创建</source>
         <translation>4 确认创建</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="42"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="43"/>
         <source>创建空白工程</source>
         <translation>创建空白工程</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="51"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="52"/>
         <source>取消</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="52"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="53"/>
         <source>上一步</source>
         <translation>上一步</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="53"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="54"/>
         <source>下一步</source>
         <translation>下一步</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="76"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="77"/>
         <source>浏览…</source>
         <translation>浏览…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="78"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="79"/>
         <source>选择文件夹</source>
         <translation>选择文件夹</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="79"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="80"/>
         <source>选择资料</source>
         <translation>选择资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="87"/>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="99"/>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="111"/>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="205"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="88"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="100"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="112"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="206"/>
         <source>未命名工程</source>
         <translation>未命名工程</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="102"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="103"/>
         <source>工程名称</source>
         <translation>工程名称</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="102"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="103"/>
         <source>工程保存位置</source>
         <translation>工程保存位置</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="102"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="103"/>
         <source>资料总目录（可选）</source>
         <translation>资料总目录（可选）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="107"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="108"/>
         <source>工程基准坐标系</source>
         <translation>工程基准坐标系</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="119"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="120"/>
         <source>可选：井位表或点矢量；井名和位置自动识别</source>
         <translation>可选：井位表或点矢量；井名和位置自动识别</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="125"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="126"/>
         <source>井点资料</source>
         <translation>井点资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="125"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="126"/>
         <source>井位表和矢量 (*.xlsx *.csv *.tsv *.txt *.dat *.gpkg *.shp *.geojson);;所有文件 (*)</source>
         <translation>井位表和矢量 (*.xlsx *.csv *.tsv *.txt *.dat *.gpkg *.shp *.geojson);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="126"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="127"/>
         <source>工作表／图层</source>
         <translation>工作表／图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="126"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="127"/>
         <source>井名字段</source>
         <translation>井名字段</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="126"/>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="136"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="127"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="137"/>
         <source>横坐标／经度</source>
         <translation>横坐标／经度</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="126"/>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="136"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="127"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="137"/>
         <source>纵坐标／纬度</source>
         <translation>纵坐标／纬度</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="126"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="127"/>
         <source>补心海拔（可选）</source>
         <translation>补心海拔（可选）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="126"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="127"/>
         <source>完钻井深（可选）</source>
         <translation>完钻井深（可选）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="134"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="135"/>
         <source>资料坐标系</source>
         <translation>资料坐标系</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="135"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="136"/>
         <source>识别与预览</source>
         <translation>识别与预览</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="136"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="137"/>
         <source>井名</source>
         <translation>井名</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="144"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="145"/>
         <source>井数据文件夹</source>
         <translation>井数据文件夹</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="144"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="145"/>
         <source>地震文件夹</source>
         <translation>地震文件夹</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="144"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="145"/>
         <source>层位文件夹</source>
         <translation>层位文件夹</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="144"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="145"/>
         <source>参考资料文件夹</source>
         <translation>参考资料文件夹</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="145"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="146"/>
         <source>可选，留空即可跳过</source>
         <translation>可选，留空即可跳过</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="147"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="148"/>
         <source>可选；未提供时，使用地震数据生成覆盖范围</source>
         <translation>可选；未提供时，使用地震数据生成覆盖范围</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="149"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="150"/>
         <source>可选：现有古地理图目录，也可填写单个图件路径</source>
         <translation>可选：现有古地理图目录，也可填写单个图件路径</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="151"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="152"/>
         <source>现有古地理图</source>
         <translation>现有古地理图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="152"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="153"/>
         <source>测区范围矢量</source>
         <translation>测区范围矢量</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="152"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="153"/>
         <source>面矢量 (*.gpkg *.shp *.geojson);;所有文件 (*)</source>
         <translation>面矢量 (*.gpkg *.shp *.geojson);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="153"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="154"/>
         <source>自动识别微相、整理三级相与系统纹理（保留原图）</source>
         <translation>自动识别微相、整理三级相与系统纹理（保留原图）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="155"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="156"/>
         <source>导入图件（配套文件按套）</source>
         <translation>导入图件（配套文件按套）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="155"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="156"/>
         <source>所属层位</source>
         <translation>所属层位</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="155"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="156"/>
         <source>格式／配套文件</source>
         <translation>格式／配套文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="163"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="164"/>
         <source>井资料按井名关联。古地理图默认优先同名 GPKG、取消勾选预览图，可改选 SHP；SHP、SHX、DBF 必须齐全，投影、编码和样式一并保存。空文件、旧工程和重复分层会在确认页说明。</source>
         <translation>井资料按井名关联。古地理图默认优先同名 GPKG、取消勾选预览图，可改选 SHP；SHP、SHX、DBF 必须齐全，投影、编码和样式一并保存。空文件、旧工程和重复分层会在确认页说明。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="169"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="170"/>
         <source>核对将要建立的工程内容。资料导入与地震索引在后台任务中执行，完成后自动生成井点和范围图层。</source>
         <translation>核对将要建立的工程内容。资料导入与地震索引在后台任务中执行，完成后自动生成井点和范围图层。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="171"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="172"/>
         <source>井名冲突的文件</source>
         <translation>井名冲突的文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="171"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="172"/>
         <source>文件内部井名</source>
         <translation>文件内部井名</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="171"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="172"/>
         <source>确认导入归属</source>
         <translation>确认导入归属</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="212"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="213"/>
         <source>工程资料设置</source>
         <translation>工程资料设置</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="243"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="244"/>
         <source>正在识别资料，完成前可继续修改或取消。</source>
         <translation>正在识别资料，完成前可继续修改或取消。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="262"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="263"/>
         <source>保留内部井名 %1</source>
         <translation>保留内部井名 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="263"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="264"/>
         <source>关联到 %1</source>
         <translation>关联到 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="288"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="289"/>
         <source>工程配置需要调整，详细原因见确认页。</source>
         <translation>工程配置需要调整，详细原因见确认页。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="289"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="290"/>
         <source>部分资料未通过检查；仍可创建工程并导入其余资料，详情见确认页。</source>
         <translation>部分资料未通过检查；仍可创建工程并导入其余资料，详情见确认页。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="302"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="303"/>
         <source>请选择层位</source>
         <translation>请选择层位</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="310"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="311"/>
         <source>%1 · %2 个文件</source>
         <translation>%1 · %2 个文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="317"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="318"/>
         <source>将建立：%1 口井、%2 条井分层、%3 份测井、%4 个地震文件、%5 个层位面、%6 份其他资料。
 生成井点、井名标注和有效地震覆盖范围，并随工程保存。
 共 %7 个资料文件，另按套导入下列古地理图：
@@ -26675,40 +26780,40 @@ PDF：%3
 </translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="321"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="322"/>
         <source>暂不导入 %1：%2
 </source>
         <translation>暂不导入 %1：%2
 </translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="321"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="322"/>
         <source>尚未选择有效层位</source>
         <translation>尚未选择有效层位</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="323"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="324"/>
         <source>%1 · %2 · 配套 %3 个文件
 </source>
         <translation>%1 · %2 · 配套 %3 个文件
 </translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="325"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="326"/>
         <source>已选 %1 套古地理图。
 </source>
         <translation>已选 %1 套古地理图。
 </translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="326"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="327"/>
         <source>资料坐标系：%1
 </source>
         <translation>资料坐标系：%1
 </translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="327"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="328"/>
         <source>
 需要调整（也可清空对应来源后跳过）：
 </source>
@@ -26717,7 +26822,7 @@ PDF：%3
 </translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="329"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="330"/>
         <source>
 以下资料暂不导入，其余资料继续；修正后可通过工程资料设置重试：
 </source>
@@ -26726,7 +26831,7 @@ PDF：%3
 </translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="332"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="333"/>
         <source>
 识别说明：
 </source>
@@ -26735,87 +26840,87 @@ PDF：%3
 </translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="345"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="346"/>
         <source>创建并导入</source>
         <translation>创建并导入</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="345"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="346"/>
         <source>保存设置并导入</source>
         <translation>保存设置并导入</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="345"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="346"/>
         <source>下一步（本步可跳过）</source>
         <translation>下一步（本步可跳过）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="358"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="359"/>
         <source>请填写有效的工程名称和保存位置。</source>
         <translation>请填写有效的工程名称和保存位置。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="370"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="371"/>
         <source>请等待本次识别完成后再创建。</source>
         <translation>请等待本次识别完成后再创建。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="371"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="372"/>
         <source>请调整有问题的资料来源，或将其清空后重新识别。</source>
         <translation>请调整有问题的资料来源，或将其清空后重新识别。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="43"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="44"/>
         <source>创建并导入目录</source>
         <translation>创建并导入目录</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="46"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="47"/>
         <source>请选择有效的资料目录。</source>
         <translation>请选择有效的资料目录。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="50"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="51"/>
         <source>高级资料配置</source>
         <translation>高级资料配置</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="97"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="98"/>
         <source>选择资料目录后，系统会递归导入支持的文件，建立工区数据模型。数据列表和地层图读取该模型；井点坐标和图层配置可稍后补充。</source>
         <translation>选择资料目录后，系统会递归导入支持的文件，建立工区数据模型。数据列表和地层图读取该模型；井点坐标和图层配置可稍后补充。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="101"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="102"/>
         <source>选择需要导入的资料目录，无需预先整理为固定文件夹结构</source>
         <translation>选择需要导入的资料目录，无需预先整理为固定文件夹结构</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="105"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="106"/>
         <source>自动沿用资料坐标（不指定）</source>
         <translation>自动沿用资料坐标（不指定）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="106"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="107"/>
         <source>统一井点、地震、层位和相图的计算基准。仅接受米制投影 CRS；未知坐标资料需先声明来源，不能仅修改标签。</source>
         <translation>统一井点、地震、层位和相图的计算基准。仅接受米制投影 CRS；未知坐标资料需先声明来源，不能仅修改标签。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="109"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="110"/>
         <source>将在保存位置下新建同名工程文件夹。原资料保留并由工程引用，解析后的数据保存在工区中；移动原资料后可重新定位。</source>
         <translation>将在保存位置下新建同名工程文件夹。原资料保留并由工程引用，解析后的数据保存在工区中；移动原资料后可重新定位。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="133"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="134"/>
         <source>选择井点资料的真实来源 CRS。自动识别只读取资料声明，不按坐标数值猜带号；未知来源必须明确选择后再转换。</source>
         <translation>选择井点资料的真实来源 CRS。自动识别只读取资料声明，不按坐标数值猜带号；未知来源必须明确选择后再转换。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="211"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="212"/>
         <source>导入资料目录</source>
         <translation>导入资料目录</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="227"/>
+        <location filename="../src/ui/dialogs/projectsetupdialog.cpp" line="228"/>
         <source>已有工程的计算基准不可在此更改；如需另一基准，请新建工程并重新导入，避免既有成果失配。</source>
         <translation>已有工程的计算基准不可在此更改；如需另一基准，请新建工程并重新导入，避免既有成果失配。</translation>
     </message>
@@ -28030,154 +28135,154 @@ PDF：%3
         <translation>其他</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="33"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="34"/>
         <source>井口</source>
         <translation>井口</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="34"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="35"/>
         <source>测井</source>
         <translation>测井</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="35"/>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="52"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="36"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="53"/>
         <source>井分层</source>
         <translation>井分层</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="36"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="37"/>
         <source>时深</source>
         <translation>时深</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="37"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="38"/>
         <source>井斜</source>
         <translation>井斜</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="38"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="39"/>
         <source>层位</source>
         <translation>层位</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="39"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="40"/>
         <source>地震</source>
         <translation>地震</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="40"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="41"/>
         <source>表格</source>
         <translation>表格</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="41"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="42"/>
         <source>GeoJSON</source>
         <translation>GeoJSON</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="42"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="43"/>
         <source>文档</source>
         <translation>文档</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="43"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="44"/>
         <source>图像</source>
         <translation>图像</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="44"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="45"/>
         <source>单因素数据包</source>
         <translation>单因素数据包</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="45"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="46"/>
         <source>外部成果工作簿</source>
         <translation>外部成果工作簿</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="46"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="47"/>
         <source>辅助资料</source>
         <translation>辅助资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="47"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="48"/>
         <location filename="../src/ui/pages/constraintpage_interpolation.cpp" line="477"/>
         <source>测区范围</source>
         <translation>测区范围</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="48"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="49"/>
         <source>沉积相多边形</source>
         <translation>沉积相多边形</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="49"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="50"/>
         <source>沉积相分类体系</source>
         <translation>沉积相分类体系</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="50"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="51"/>
         <source>古地理图</source>
         <translation>古地理图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="51"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="52"/>
         <source>地震相预测</source>
         <translation>地震相预测</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="54"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="55"/>
         <source>参考资料</source>
         <translation>参考资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="322"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="323"/>
         <source>本次跳过 %1</source>
         <translation>本次跳过 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="370"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="371"/>
         <source>导入数据 — %1</source>
         <translation>导入数据 — %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="385"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="386"/>
         <source>导入数据确认表</source>
         <translation>导入数据确认表</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="387"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="388"/>
         <source>显示识别类型、显示名、内容摘要与目标井；取消勾选可跳过该文件，确认后直接导入</source>
         <translation>显示识别类型、显示名、内容摘要与目标井；取消勾选可跳过该文件，确认后直接导入</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="388"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="389"/>
         <source>显示识别类型、显示名、内容摘要与目标井；确认后直接导入</source>
         <translation>显示识别类型、显示名、内容摘要与目标井；确认后直接导入</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="390"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="391"/>
         <source>目标实体</source>
         <translation>目标实体</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="390"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="391"/>
         <source>内容 / 结果</source>
         <translation>内容 / 结果</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="390"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="391"/>
         <source>显示名</source>
         <translation>显示名</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="433"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="434"/>
         <source>将文件复制进工程目录（受管副本）</source>
         <translation>将文件复制进工程目录（受管副本）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="436"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="437"/>
         <source>默认只建立索引引用原文件，不复制；勾选后复制进工程 artifacts/raw</source>
         <translation>默认只建立索引引用原文件，不复制；勾选后复制进工程 artifacts/raw</translation>
     </message>
@@ -28206,8 +28311,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/batchjobpanel.cpp" line="63"/>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="55"/>
-        <location filename="../src/ui/pages/versiondialog.h" line="46"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="56"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="47"/>
         <location filename="../src/workflow/batchjobqueue.cpp" line="62"/>
         <location filename="../src/workflow/boundaryeditrules.cpp" line="18"/>
         <source>未知</source>
@@ -28229,119 +28334,119 @@ PDF：%3
         <translation>%1 分 %2 秒</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="68"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="69"/>
         <source>局部工程坐标，单位米。源文件里的 EPSG:4326 只是标签，不会画到地图上。</source>
         <translation>局部工程坐标，单位米。源文件里的 EPSG:4326 只是标签，不会画到地图上。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="107"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="108"/>
         <source>数据页展示的显示名；物理文件名不变</source>
         <translation>数据页展示的显示名；物理文件名不变</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="134"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="135"/>
         <source>该文件固定为参考资料</source>
         <translation>该文件固定为参考资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="135"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="136"/>
         <source>%1
 该文件固定为参考资料</source>
         <translation>%1
 该文件固定为参考资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="142"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="143"/>
         <source>跳过：%1</source>
         <translation>跳过：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="156"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="157"/>
         <source>重复→跳过</source>
         <translation>重复→跳过</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="158"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="159"/>
         <source>重复→新版本</source>
         <translation>重复→新版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="195"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="196"/>
         <source>已入库</source>
         <translation>已入库</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="198"/>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="123"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="199"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="127"/>
         <source>未决</source>
         <translation>未决</translation>
     </message>
     <message>
         <location filename="../src/services/seismictaskservice_transcode.cpp" line="793"/>
         <location filename="../src/ui/batchjobpanel.cpp" line="57"/>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="201"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="202"/>
         <location filename="../src/ui/pages/dataops/dataopsimportlogic.h" line="272"/>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="125"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="129"/>
         <location filename="../src/workflow/batchjobqueue.cpp" line="56"/>
         <source>失败</source>
         <translation>失败</translation>
     </message>
     <message>
         <location filename="../src/ui/batchjobpanel.cpp" line="59"/>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="204"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="205"/>
         <location filename="../src/ui/pages/dataops/dataopsimportlogic.h" line="273"/>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="127"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="131"/>
         <source>跳过</source>
         <translation>跳过</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="209"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="210"/>
         <location filename="../src/ui/dialogs/folderconfirm_results.cpp" line="19"/>
         <source>%1：%2</source>
         <translation>%1：%2</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="227"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="228"/>
         <source>重试</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="230"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="231"/>
         <source>重试导入 %1</source>
         <translation>重试导入 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="259"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="260"/>
         <source>入库 %1，未决 %2，失败 %3</source>
         <translation>入库 %1，未决 %2，失败 %3</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="264"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="265"/>
         <source>，跳过 %1</source>
         <translation>，跳过 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="313"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="314"/>
         <source>将导入 %1 项 · 约 %2</source>
         <translation>将导入 %1 项 · 约 %2</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="315"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="316"/>
         <source>（%1 项大小未知）</source>
         <translation>（%1 项大小未知）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="318"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="319"/>
         <source>重复跳过 %1</source>
         <translation>重复跳过 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="320"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="321"/>
         <source>枚举跳过 %1</source>
         <translation>枚举跳过 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="389"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="390"/>
         <source>路径</source>
         <translation>路径</translation>
     </message>
@@ -28349,7 +28454,7 @@ PDF：%3
         <location filename="../src/ui/datapreview/previewtocpanel.cpp" line="38"/>
         <location filename="../src/ui/pages/dataopspanelops.h" line="327"/>
         <location filename="../src/ui/pages/dataopspanelops.h" line="339"/>
-        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="82"/>
+        <location filename="../src/ui/pages/faciesconsistencydialog.cpp" line="83"/>
         <source>—</source>
         <translation>—</translation>
     </message>
@@ -28679,7 +28784,7 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/datapreview/previewtocpanel.cpp" line="562"/>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="389"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="390"/>
         <location filename="../src/ui/pages/dataops/dataopsfilter.h" line="63"/>
         <source>类型</source>
         <translation>类型</translation>
@@ -28864,23 +28969,23 @@ PDF：%3
         <translation>已自动识别文件。检查内容后直接确认导入；仅有问题的项目需要调整。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="443"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="444"/>
         <source>确认导入</source>
         <translation>确认导入</translation>
     </message>
     <message>
         <location filename="../src/ui/batchjobpanel.cpp" line="61"/>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="446"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="447"/>
         <source>取消</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="447"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="448"/>
         <source>查看未决</source>
         <translation>查看未决</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="449"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="450"/>
         <source>查看未决资产</source>
         <translation>查看未决资产</translation>
     </message>
@@ -30146,295 +30251,300 @@ PDF：%3
         <translation>复制行</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="121"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="117"/>
+        <source>属性行</source>
+        <translation>属性行</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="122"/>
         <source>未命中任何要素</source>
         <translation>未命中任何要素</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="174"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="175"/>
         <source>层</source>
         <translation>层</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="175"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="176"/>
         <source>波段</source>
         <translation>波段</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="176"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="177"/>
         <source>最近邻值</source>
         <translation>最近邻值</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="177"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="178"/>
         <source>双线性插值</source>
         <translation>双线性插值</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="193"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="194"/>
         <source>导出识别结果 CSV</source>
         <translation>导出识别结果 CSV</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="200"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="201"/>
         <location filename="../src/ui/datapreview/previewprofilepanel.cpp" line="424"/>
         <location filename="../src/ui/datapreview/previewprofilepanel.cpp" line="438"/>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="286"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="287"/>
         <location filename="../src/ui/pages/dataopspanelops.h" line="382"/>
         <source>导出失败</source>
         <translation>导出失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="200"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="201"/>
         <location filename="../src/ui/datapreview/previewprofilepanel.cpp" line="424"/>
         <location filename="../src/ui/datapreview/previewprofilepanel.cpp" line="438"/>
         <source>无法写入 %1</source>
         <translation>无法写入 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="244"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="245"/>
         <source>属性表 — %1</source>
         <translation>属性表 — %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="256"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="257"/>
         <source>过滤</source>
         <translation>过滤</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="259"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="260"/>
         <source>包含文本…</source>
         <translation>包含文本…</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="263"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="264"/>
         <source>全列</source>
         <translation>全列</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="271"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="272"/>
         <source>应用</source>
         <translation>应用</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="296"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="297"/>
         <source>没有匹配的要素——清除过滤或换个过滤列</source>
         <translation>没有匹配的要素——清除过滤或换个过滤列</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="303"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="304"/>
         <source>上一页</source>
         <translation>上一页</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="305"/>
+        <location filename="../src/ui/datapreview/previewidentifypanel.cpp" line="306"/>
         <source>下一页</source>
         <translation>下一页</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="241"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="242"/>
         <source>缩放至图层</source>
         <translation>缩放至图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="250"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="251"/>
         <source>复制坐标（%1）</source>
         <translation>复制坐标（%1）</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="253"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="254"/>
         <source>无光标位置</source>
         <translation>无光标位置</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="255"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="559"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="256"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="560"/>
         <source>复制 WGS84 坐标</source>
         <translation>复制 WGS84 坐标</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="257"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="573"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="258"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="574"/>
         <source>复制画布截图</source>
         <translation>复制画布截图</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="260"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="261"/>
         <source>把当前视图存为书签…</source>
         <translation>把当前视图存为书签…</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="264"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="841"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="265"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="842"/>
         <source>新建书签</source>
         <translation>新建书签</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="264"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="841"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="265"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="842"/>
         <source>书签名</source>
         <translation>书签名</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="265"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="842"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="266"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="843"/>
         <source>视图 %1</source>
         <translation>视图 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="282"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="283"/>
         <location filename="../src/ui/datapreview/previewtocpanel.cpp" line="51"/>
         <source>图层</source>
         <translation>图层</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="283"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="284"/>
         <source>识别</source>
         <translation>识别</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="284"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="285"/>
         <source>剖面</source>
         <translation>剖面</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="322"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="323"/>
         <source>渲染中…</source>
         <translation>渲染中…</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="340"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="341"/>
         <source>%1 层 · %2 图元 · %3 ms</source>
         <translation>%1 层 · %2 图元 · %3 ms</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="374"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="375"/>
         <source>周长 %1 · 面积 %2%3</source>
         <translation>周长 %1 · 面积 %2%3</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="377"/>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="381"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="378"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="382"/>
         <source> · 完成</source>
         <translation> · 完成</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="379"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="380"/>
         <source>长度 %1%2</source>
         <translation>长度 %1%2</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="505"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="506"/>
         <source>漫游</source>
         <translation>漫游</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="507"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="508"/>
         <source>框选放大</source>
         <translation>框选放大</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="509"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="510"/>
         <source>框选缩小</source>
         <translation>框选缩小</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="511"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="512"/>
         <source>识别要素</source>
         <translation>识别要素</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="514"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="515"/>
         <source>距离测量</source>
         <translation>距离测量</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="516"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="517"/>
         <source>面积测量</source>
         <translation>面积测量</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="518"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="519"/>
         <source>层位剖面线</source>
         <translation>层位剖面线</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="533"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="534"/>
         <source>全图复位</source>
         <translation>全图复位</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="534"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="535"/>
         <source>缩放到全部图层范围（快捷键 0）</source>
         <translation>缩放到全部图层范围（快捷键 0）</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="539"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="540"/>
         <source>上一视图</source>
         <translation>上一视图</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="543"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="544"/>
         <source>下一视图</source>
         <translation>下一视图</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="551"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="552"/>
         <source>复制坐标</source>
         <translation>复制坐标</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="553"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="554"/>
         <source>复制光标处工程坐标（右键菜单亦可）</source>
         <translation>复制光标处工程坐标（右键菜单亦可）</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="561"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="562"/>
         <source>按当前预览转换上下文复制 WGS84 经纬度</source>
         <translation>按当前预览转换上下文复制 WGS84 经纬度</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="566"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="567"/>
         <source>坐标定位与转换…</source>
         <translation>坐标定位与转换…</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="582"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="583"/>
         <source>书签：保存/跳转/删除视图</source>
         <translation>书签：保存/跳转/删除视图</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="592"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="593"/>
         <source>画布装饰：比例尺/指北针/网格</source>
         <translation>画布装饰：比例尺/指北针/网格</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="606"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="607"/>
         <source>比例尺</source>
         <translation>比例尺</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="607"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="608"/>
         <source>指北针</source>
         <translation>指北针</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="608"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="609"/>
         <source>网格</source>
         <translation>网格</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="618"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="619"/>
         <source>鹰眼</source>
         <translation>鹰眼</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="837"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="838"/>
         <source>保存当前视图…</source>
         <translation>保存当前视图…</translation>
     </message>
     <message>
-        <location filename="../src/ui/datapreview/previewmappage.cpp" line="861"/>
+        <location filename="../src/ui/datapreview/previewmappage.cpp" line="862"/>
         <source>删除「%1」</source>
         <translation>删除「%1」</translation>
     </message>
@@ -30664,81 +30774,81 @@ PDF：%3
         <translation>重命名 %1 → %2</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="96"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="97"/>
         <source>派生</source>
         <translation>派生</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="97"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="98"/>
         <source>中间</source>
         <translation>中间</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="98"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="99"/>
         <source>输出</source>
         <translation>输出</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="99"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="100"/>
         <location filename="../src/ui/pages/derivationgraph.cpp" line="67"/>
         <source>原始</source>
         <translation>原始</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="320"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="321"/>
         <source>存储方式：%1 → %2</source>
         <translation>存储方式：%1 → %2</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="321"/>
         <location filename="../src/ui/pages/dataopspanelextra.h" line="322"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="323"/>
         <source>受管</source>
         <translation>受管</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="321"/>
         <location filename="../src/ui/pages/dataopspanelextra.h" line="322"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="323"/>
         <location filename="../src/ui/pages/derivationgraph.cpp" line="68"/>
         <source>外链</source>
         <translation>外链</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="324"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="325"/>
         <source>阶段：%1 → %2</source>
         <translation>阶段：%1 → %2</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="326"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="327"/>
         <source>内容相同（SHA-256 一致）</source>
         <translation>内容相同（SHA-256 一致）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="352"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="353"/>
         <source>v%1（%2） ↔ v%3（%4）</source>
         <translation>v%1（%2） ↔ v%3（%4）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="358"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="359"/>
         <source>· 内容一致（SHA-256 相同）</source>
         <translation>· 内容一致（SHA-256 相同）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="361"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="362"/>
         <source>· 大小差：%1 KB</source>
         <translation>· 大小差：%1 KB</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="362"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="363"/>
         <source>· SHA：%1… ↔ %2…</source>
         <translation>· SHA：%1… ↔ %2…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="365"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="366"/>
         <source>· 字段差异：</source>
         <translation>· 字段差异：</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="366"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="367"/>
         <source>  （无）</source>
         <translation>  （无）</translation>
     </message>
@@ -30768,143 +30878,143 @@ PDF：%3
         <translation>CSV 清单 (*.csv);;JSON 清单 (*.json)</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="40"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="41"/>
         <source>网格尺寸无效</source>
         <translation>网格尺寸无效</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="48"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="49"/>
         <source>输出网格 %1×%2（%3 像元）超出 %4 像元预算——增大网格尺寸或缩小范围</source>
         <translation>输出网格 %1×%2（%3 像元）超出 %4 像元预算——增大网格尺寸或缩小范围</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="54"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="55"/>
         <source>输出网格 %1×%2（%3 像元）</source>
         <translation>输出网格 %1×%2（%3 像元）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="69"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="70"/>
         <location filename="../src/ui/paleomainwindow_attach.cpp" line="221"/>
         <source>网格化 %1（最小曲率）</source>
         <translation>网格化 %1（最小曲率）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="90"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="91"/>
         <location filename="../src/ui/dialogs/provisionalregistrationdialog.cpp" line="70"/>
         <location filename="../src/ui/dialogs/provisionalregistrationdialog.cpp" line="71"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="40"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="41"/>
         <source> m</source>
         <translation> m</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="92"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="93"/>
         <source>输出栅格像元尺寸（平面单位）</source>
         <translation>输出栅格像元尺寸（平面单位）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="101"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="102"/>
         <source>连续曲率样条张力：0=最小曲率（平面/二次面精确），大值抑制过冲</source>
         <translation>连续曲率样条张力：0=最小曲率（平面/二次面精确），大值抑制过冲</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="108"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="109"/>
         <source>多级级联每级迭代上限（累计进元数据）</source>
         <translation>多级级联每级迭代上限（累计进元数据）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="110"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="111"/>
         <source>约束库 break_line 作硬屏障</source>
         <translation>约束库 break_line 作硬屏障</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="115"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="116"/>
         <source>断层/约束线两侧各自插值（无约束线时无效果）</source>
         <translation>断层/约束线两侧各自插值（无约束线时无效果）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="117"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="118"/>
         <source>留一法交叉验证（QC）</source>
         <translation>留一法交叉验证（QC）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="144"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="145"/>
         <source>网格尺寸</source>
         <translation>网格尺寸</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="145"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="146"/>
         <source>张力</source>
         <translation>张力</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="146"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="147"/>
         <source>迭代上限</source>
         <translation>迭代上限</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="149"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="150"/>
         <source>CV 折数</source>
         <translation>CV 折数</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="150"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="151"/>
         <source>输出规模</source>
         <translation>输出规模</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="198"/>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="242"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="199"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="243"/>
         <location filename="../src/ui/paleomainwindow_attach.cpp" line="280"/>
         <source>面运算</source>
         <translation>面运算</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="199"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="200"/>
         <source>需要至少两个已声明的栅格图层（顶/底结构面）。</source>
         <translation>需要至少两个已声明的栅格图层（顶/底结构面）。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="204"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="205"/>
         <source>等厚 / 体积（面运算）</source>
         <translation>等厚 / 体积（面运算）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="218"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="219"/>
         <source>底面（较老层位）；厚度 = 顶 − 底，带符号</source>
         <translation>底面（较老层位）；厚度 = 顶 − 底，带符号</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="220"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="221"/>
         <source>写出受管等厚栅格并上图</source>
         <translation>写出受管等厚栅格并上图</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="225"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="226"/>
         <source>顶面（上层位）</source>
         <translation>顶面（上层位）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="226"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="227"/>
         <source>底面（下层位）</source>
         <translation>底面（下层位）</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="242"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="243"/>
         <source>顶/底不能是同一图层。</source>
         <translation>顶/底不能是同一图层。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="272"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="273"/>
         <source>导出 CSV…</source>
         <translation>导出 CSV…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="278"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="279"/>
         <source>导出体积报告</source>
         <translation>导出体积报告</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="287"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="288"/>
         <location filename="../src/ui/pages/dataopspanelops.h" line="383"/>
         <source>无法写入文件：%1</source>
         <translation>无法写入文件：%1</translation>
@@ -31063,7 +31173,7 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/services/dataexport.cpp" line="393"/>
-        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="290"/>
+        <location filename="../src/ui/dialogs/griddingdialog.cpp" line="291"/>
         <source>导出完成</source>
         <translation>导出完成</translation>
     </message>
@@ -31773,44 +31883,44 @@ PDF：%3
         <translation>请输入有效的服务地址和 API 密钥</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="41"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="42"/>
         <location filename="../src/ui/pages/dataopspanelops.h" line="329"/>
-        <location filename="../src/ui/pages/versiondialog.h" line="48"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="49"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="43"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="44"/>
         <location filename="../src/ui/pages/dataopspanelops.h" line="331"/>
-        <location filename="../src/ui/pages/versiondialog.h" line="50"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="51"/>
         <source>%1 KB</source>
         <translation>%1 KB</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="45"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="46"/>
         <location filename="../src/ui/pages/dataopspanelops.h" line="333"/>
-        <location filename="../src/ui/pages/versiondialog.h" line="51"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="52"/>
         <source>%1 MB</source>
         <translation>%1 MB</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="46"/>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="47"/>
         <location filename="../src/ui/pages/dataopspanelops.h" line="334"/>
         <source>%1 GB</source>
         <translation>%1 GB</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="41"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="43"/>
         <source>上盘: 左</source>
         <translation>上盘: 左</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="43"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="45"/>
         <source>上盘: 右</source>
         <translation>上盘: 右</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="45"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="47"/>
         <source>上盘: 未定</source>
         <translation>上盘: 未定</translation>
     </message>
@@ -31825,22 +31935,22 @@ PDF：%3
         <translation>列主序</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="121"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="125"/>
         <source>入库</source>
         <translation>入库</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="85"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="86"/>
         <source>井 %1</source>
         <translation>井 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="181"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="182"/>
         <source>SHA: —</source>
         <translation>SHA: —</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="181"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="182"/>
         <source>SHA: %1…</source>
         <translation>SHA: %1…</translation>
     </message>
@@ -32612,12 +32722,12 @@ PDF：%3
         <translation>版面没有可设置的页面</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="58"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="59"/>
         <source>%1 km²</source>
         <translation>%1 km²</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="63"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="64"/>
         <source>%1 m</source>
         <translation>%1 m</translation>
     </message>
@@ -33226,19 +33336,19 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ai/chat/chatsession.cpp" line="219"/>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="42"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="45"/>
         <source>你</source>
         <translation>你</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/chatsession.cpp" line="222"/>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="44"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="47"/>
         <source>助手</source>
         <translation>助手</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/chatsession.cpp" line="225"/>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="46"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="49"/>
         <source>工具</source>
         <translation>工具</translation>
     </message>
@@ -33339,7 +33449,7 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="172"/>
-        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="53"/>
+        <location filename="../src/ui/dialogs/folderconfirm.cpp" line="54"/>
         <source>测井相预测</source>
         <translation>测井相预测</translation>
     </message>
@@ -33520,12 +33630,12 @@ PDF：%3
         <translation>图层「%1」保存编辑失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="40"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="43"/>
         <source>系统</source>
         <translation>系统</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="48"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="51"/>
         <source>消息</source>
         <translation>消息</translation>
     </message>
@@ -33871,22 +33981,22 @@ PDF：%3
         <translation>深度与曲线样点数不一致（%1/%2）</translation>
     </message>
     <message>
-        <location filename="../src/io/cuttingsimport.cpp" line="15"/>
+        <location filename="../src/io/cuttingsimport.cpp" line="16"/>
         <source>岩屑录井表内容已变化，请重新预览：%1</source>
         <translation>岩屑录井表内容已变化，请重新预览：%1</translation>
     </message>
     <message>
-        <location filename="../src/io/cuttingsimport.cpp" line="18"/>
+        <location filename="../src/io/cuttingsimport.cpp" line="19"/>
         <source>岩屑录井表没有可用井段：%1；%2</source>
         <translation>岩屑录井表没有可用井段：%1；%2</translation>
     </message>
     <message>
-        <location filename="../src/io/cuttingsimport.cpp" line="20"/>
+        <location filename="../src/io/cuttingsimport.cpp" line="21"/>
         <source>岩屑录井表读取期间发生变化，请重试：%1</source>
         <translation>岩屑录井表读取期间发生变化，请重试：%1</translation>
     </message>
     <message>
-        <location filename="../src/io/cuttingsimport.cpp" line="44"/>
+        <location filename="../src/io/cuttingsimport.cpp" line="45"/>
         <source>无法创建岩性表派生目录</source>
         <translation>无法创建岩性表派生目录</translation>
     </message>
@@ -34842,7 +34952,7 @@ PDF：%3
         <translation>%1：深度轴非严格单调或含非有限值，该井曲线在合并结果中保留为空值（NaN）</translation>
     </message>
     <message>
-        <location filename="../src/services/previewwellbases.cpp" line="37"/>
+        <location filename="../src/services/previewwellbases.cpp" line="38"/>
         <source>原始分层表缺失或内容已变化，未采用其底界；末层仅按测井显示范围截取。</source>
         <translation>原始分层表缺失或内容已变化，未采用其底界；末层仅按测井显示范围截取。</translation>
     </message>
@@ -34857,17 +34967,17 @@ PDF：%3
         <translation>当前层位没有有效测井相预测，无法标定地震聚类</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="39"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="41"/>
         <source>井</source>
         <translation>井</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aitoolresultview.cpp" line="41"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="43"/>
         <source>计划井</source>
         <translation>计划井</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="62"/>
+        <location filename="../src/ui/dialogs/offlinebasemapdialog.cpp" line="63"/>
         <source>工程已切换，请重新打开导入。</source>
         <translation>工程已切换，请重新打开导入。</translation>
     </message>
@@ -35256,37 +35366,37 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>底图导入已取消。</translation>
     </message>
     <message>
-        <location filename="../src/workflow/paleomapimport.cpp" line="74"/>
+        <location filename="../src/workflow/paleomapimport.cpp" line="75"/>
         <source>该图件已在可回收清单中（删除状态），请先恢复或永久删除后再导入</source>
         <translation>该图件已在可回收清单中（删除状态），请先恢复或永久删除后再导入</translation>
     </message>
     <message>
-        <location filename="../src/workflow/paleomapimport.cpp" line="85"/>
+        <location filename="../src/workflow/paleomapimport.cpp" line="86"/>
         <source>原图或配套文件缺失／已变化，不能整理；请重新导入完整原图</source>
         <translation>原图或配套文件缺失／已变化，不能整理；请重新导入完整原图</translation>
     </message>
     <message>
-        <location filename="../src/workflow/paleomapimport.cpp" line="166"/>
+        <location filename="../src/workflow/paleomapimport.cpp" line="168"/>
         <source>图件缺少有效坐标系，请先完成配准后重试三级相整理</source>
         <translation>图件缺少有效坐标系，请先完成配准后重试三级相整理</translation>
     </message>
     <message>
-        <location filename="../src/workflow/paleomapimport.cpp" line="188"/>
+        <location filename="../src/workflow/paleomapimport.cpp" line="190"/>
         <source>未识别到微相字段，请指定原图中的微相字段名后重试</source>
         <translation>未识别到微相字段，请指定原图中的微相字段名后重试</translation>
     </message>
     <message>
-        <location filename="../src/workflow/paleomapimport.cpp" line="189"/>
+        <location filename="../src/workflow/paleomapimport.cpp" line="191"/>
         <source>仅已配准的矢量面图件可整理三级相；图片和 PDF 请先矢量化</source>
         <translation>仅已配准的矢量面图件可整理三级相；图片和 PDF 请先矢量化</translation>
     </message>
     <message>
-        <location filename="../src/workflow/paleomapimport.cpp" line="193"/>
+        <location filename="../src/workflow/paleomapimport.cpp" line="195"/>
         <source>%1：原图已保存，仅供参考；三级相副本未生成：%2</source>
         <translation>%1：原图已保存，仅供参考；三级相副本未生成：%2</translation>
     </message>
     <message>
-        <location filename="../src/workflow/paleomapimport.cpp" line="220"/>
+        <location filename="../src/workflow/paleomapimport.cpp" line="222"/>
         <source>%1 · 三级相</source>
         <translation>%1 · 三级相</translation>
     </message>
@@ -35561,12 +35671,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>登记为临时配准</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="268"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="269"/>
         <source>调整证据视图宽度</source>
         <translation>调整证据视图宽度</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="269"/>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="270"/>
         <source>按左方向键收窄、右方向键加宽此证据视图</source>
         <translation>按左方向键收窄、右方向键加宽此证据视图</translation>
     </message>
@@ -35604,6 +35714,41 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/wellfaciesworkflow.cpp" line="130"/>
         <source>仅当前用户可读写</source>
         <translation>仅当前用户可读写</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="52"/>
+        <source>没有可撤销的拾取变更</source>
+        <translation>没有可撤销的拾取变更</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="53"/>
+        <source>撤销上一次拾取变更</source>
+        <translation>撤销上一次拾取变更</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="54"/>
+        <source>撤销：%1</source>
+        <translation>撤销：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="55"/>
+        <source>没有可重做的拾取变更</source>
+        <translation>没有可重做的拾取变更</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56"/>
+        <source>重做</source>
+        <translation>重做</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57"/>
+        <source>重做：%1</source>
+        <translation>重做：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="53"/>
+        <source>TSV</source>
+        <translation>TSV</translation>
     </message>
 </context>
 <context>
@@ -37699,10 +37844,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="185"/>
-        <source>未加载地震剖面数据
-（支持拖拽测线或从地图生成连井/任意剖面）</source>
-        <translation>未加载地震剖面数据
-（支持拖拽测线或从地图生成连井/任意剖面）</translation>
+        <source>还没有加载地震剖面 — 先在「数据管理」的数据清单中打开地震体，
+再在地图上拖拽测线，或生成连井/任意剖面</source>
+        <translation>还没有加载地震剖面 — 先在「数据管理」的数据清单中打开地震体，
+再在地图上拖拽测线，或生成连井/任意剖面</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectioncanvas_paint.cpp" line="330"/>
@@ -39399,253 +39544,253 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>StorageGovernanceDialog</name>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="26"/>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="116"/>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="119"/>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="122"/>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="127"/>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="152"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="27"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="117"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="120"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="123"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="128"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="153"/>
         <source>体积</source>
         <translation>体积</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="55"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="56"/>
         <source>未知</source>
         <translation>未知</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="55"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="56"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="66"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="67"/>
         <source>存储治理台</source>
         <translation>存储治理台</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="72"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="73"/>
         <source>尚未扫描；受管目录覆盖与 SHA 复验分别报告。</source>
         <translation>尚未扫描；受管目录覆盖与 SHA 复验分别报告。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="73"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="74"/>
         <source>存储汇总</source>
         <translation>存储汇总</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="76"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="77"/>
         <source>存储治理分类</source>
         <translation>存储治理分类</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="77"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="78"/>
         <source>按实体汇总体积</source>
         <translation>按实体汇总体积</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="78"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="79"/>
         <source>按类型汇总体积</source>
         <translation>按类型汇总体积</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="79"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="80"/>
         <source>未引用文件清单</source>
         <translation>未引用文件清单</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="80"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="81"/>
         <source>过时衍生版本清单</source>
         <translation>过时衍生版本清单</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="81"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="82"/>
         <source>按实体</source>
         <translation>按实体</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="81"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="82"/>
         <source>按类型</source>
         <translation>按类型</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="82"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="83"/>
         <source>未引用文件</source>
         <translation>未引用文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="82"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="83"/>
         <source>过时衍生版本</source>
         <translation>过时衍生版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="85"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="86"/>
         <source>存储治理状态</source>
         <translation>存储治理状态</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="89"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="90"/>
         <source>存储治理进度</source>
         <translation>存储治理进度</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="95"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="96"/>
         <source>扫描存储</source>
         <translation>扫描存储</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="96"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="97"/>
         <source>预览选中项回收…</source>
         <translation>预览选中项回收…</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="97"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="98"/>
         <source>扫描完整后，选中未引用文件或过时版本，再查看数量、体积与影响版本。</source>
         <translation>扫描完整后，选中未引用文件或过时版本，再查看数量、体积与影响版本。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="98"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="99"/>
         <source>复验外链 SHA</source>
         <translation>复验外链 SHA</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="99"/>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="162"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="100"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="163"/>
         <source>取消</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="101"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="102"/>
         <source>关闭</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="115"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="116"/>
         <source>未挂接实体</source>
         <translation>未挂接实体</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="116"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="117"/>
         <source>实体</source>
         <translation>实体</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="116"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="117"/>
         <source>身份</source>
         <translation>身份</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="119"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="120"/>
         <source>资产类型</source>
         <translation>资产类型</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="122"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="123"/>
         <source>未被任何版本引用的文件</source>
         <translation>未被任何版本引用的文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="124"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="125"/>
         <source>未记录原因</source>
         <translation>未记录原因</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="127"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="128"/>
         <source>资产</source>
         <translation>资产</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="127"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="128"/>
         <source>版本</source>
         <translation>版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="127"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="128"/>
         <source>过时原因</source>
         <translation>过时原因</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="128"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="129"/>
         <source>版本逻辑体积 %1；大小未知 %2 个版本。按实体去重链接计量，多实体共享会重复计入。
 扫描范围：%3；未覆盖：%4。未引用文件仅表示没有版本引用，未判断用途。</source>
         <translation>版本逻辑体积 %1；大小未知 %2 个版本。按实体去重链接计量，多实体共享会重复计入。
 扫描范围：%3；未覆盖：%4。未引用文件仅表示没有版本引用，未判断用途。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="131"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="132"/>
         <source>无</source>
         <translation>无</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="131"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="132"/>
         <source>扫描未完成</source>
         <translation>扫描未完成</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="137"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="138"/>
         <source>确认回收预览</source>
         <translation>确认回收预览</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="143"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="144"/>
         <source>未引用文件 %1 个；过时版本 %2 个；影响版本 %3 个；拟释放 %4。
 外链源与保留版本共享的文件不会回收。确认后删除不可撤销。</source>
         <translation>未引用文件 %1 个；过时版本 %2 个；影响版本 %3 个；拟释放 %4。
 外链源与保留版本共享的文件不会回收。确认后删除不可撤销。</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="146"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="147"/>
         <source>回收预览汇总</source>
         <translation>回收预览汇总</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="148"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="149"/>
         <source>回收预览明细</source>
         <translation>回收预览明细</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="151"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="152"/>
         <source>版本记录 %1</source>
         <translation>版本记录 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="152"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="153"/>
         <source>回收对象</source>
         <translation>回收对象</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="154"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="155"/>
         <source>回收阻断原因</source>
         <translation>回收阻断原因</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="157"/>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="159"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="158"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="160"/>
         <source>确认回收</source>
         <translation>确认回收</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="161"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="162"/>
         <source>按预览执行回收</source>
         <translation>按预览执行回收</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="161"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="162"/>
         <source>预览为空、未完成或有引用阻断，不能回收</source>
         <translation>预览为空、未完成或有引用阻断，不能回收</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="164"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="165"/>
         <source>取消回收</source>
         <translation>取消回收</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="166"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="167"/>
         <source>回收确认操作</source>
         <translation>回收确认操作</translation>
     </message>
     <message>
-        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="181"/>
+        <location filename="../src/ui/dialogs/storagegovernancedialog.cpp" line="182"/>
         <source>已处理 %1：%2</source>
         <translation>已处理 %1：%2</translation>
     </message>
@@ -39729,21 +39874,21 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ui/pages/stratigraphypage.cpp" line="93"/>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="40"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="45"/>
         <location filename="../src/ui/pages/stratigraphypage_editors.cpp" line="42"/>
         <source>正旋回</source>
         <translation>正旋回</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/stratigraphypage.cpp" line="93"/>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="40"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="45"/>
         <location filename="../src/ui/pages/stratigraphypage_editors.cpp" line="42"/>
         <source>反旋回</source>
         <translation>反旋回</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/stratigraphypage.cpp" line="93"/>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="40"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="45"/>
         <location filename="../src/ui/pages/stratigraphypage_editors.cpp" line="42"/>
         <source>方向待定</source>
         <translation>方向待定</translation>
@@ -39754,224 +39899,224 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation> · 保护</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="20"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="22"/>
         <source>加载井道图</source>
         <translation>加载井道图</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="21"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="23"/>
         <source>计算区域界面</source>
         <translation>计算区域界面</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="22"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="24"/>
         <source>按统一模板划分</source>
         <translation>按统一模板划分</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="23"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="25"/>
         <source>保存分层版本</source>
         <translation>保存分层版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="24"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="26"/>
         <source>撤销</source>
         <translation>撤销</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="25"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="27"/>
         <source>重做</source>
         <translation>重做</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="26"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="31"/>
         <source>更多设置与历史</source>
         <translation>更多设置与历史</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="27"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="32"/>
         <source>计算结果…</source>
         <translation>计算结果…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="28"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="33"/>
         <source>取消计算</source>
         <translation>取消计算</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="37"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="42"/>
         <location filename="../src/ui/pages/stratigraphypage_view.cpp" line="17"/>
         <source> m</source>
         <translation> m</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="38"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="43"/>
         <source>人工保护</source>
         <translation>人工保护</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="39"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="44"/>
         <source>三级旋回</source>
         <translation>三级旋回</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="39"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="44"/>
         <location filename="../src/ui/pages/stratigraphypage_editors.cpp" line="38"/>
         <source>四级旋回</source>
         <translation>四级旋回</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="41"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="46"/>
         <source>界线／旋回名称</source>
         <translation>界线／旋回名称</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="41"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="46"/>
         <source>界线 MD</source>
         <translation>界线 MD</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="43"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="48"/>
         <source>应用界线属性</source>
         <translation>应用界线属性</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="44"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="49"/>
         <source>新增内部界线</source>
         <translation>新增内部界线</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="45"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="50"/>
         <source>确认／采用候选</source>
         <translation>确认／采用候选</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="46"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="51"/>
         <source>删除界线并合并相邻旋回</source>
         <translation>删除界线并合并相邻旋回</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="48"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="54"/>
         <source>合并相邻旋回</source>
         <translation>合并相邻旋回</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="48"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="54"/>
         <source>删除此内部界面并合并相邻两个四级旋回？其他旋回和三级边界保持不变。</source>
         <translation>删除此内部界面并合并相邻两个四级旋回？其他旋回和三级边界保持不变。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="50"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="56"/>
         <source>旋回级别</source>
         <translation>旋回级别</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="50"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="56"/>
         <source>旋回方向</source>
         <translation>旋回方向</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="51"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="57"/>
         <source>应用旋回属性</source>
         <translation>应用旋回属性</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="52"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="58"/>
         <source>编辑三级组合…</source>
         <translation>编辑三级组合…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="62"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="68"/>
         <source>项目约定…</source>
         <translation>项目约定…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="62"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="68"/>
         <source>选择输入资料…</source>
         <translation>选择输入资料…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="63"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="69"/>
         <source>坐标与时深…</source>
         <translation>坐标与时深…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="64"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="70"/>
         <source>算法参数…</source>
         <translation>算法参数…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="64"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="70"/>
         <source>资料与计算诊断…</source>
         <translation>资料与计算诊断…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="65"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="71"/>
         <source>井序…</source>
         <translation>井序…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="66"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="72"/>
         <source>井群分组…</source>
         <translation>井群分组…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="67"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="73"/>
         <source>应用分层到工程</source>
         <translation>应用分层到工程</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="68"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="74"/>
         <source>真实 MD</source>
         <translation>真实 MD</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="69"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="75"/>
         <source>拉平 %1</source>
         <translation>拉平 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="71"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="77"/>
         <source>全部段</source>
         <translation>全部段</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="74"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="80"/>
         <source>重算所选段曲线</source>
         <translation>重算所选段曲线</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="76"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="82"/>
         <source>各井各段模板传播…</source>
         <translation>各井各段模板传播…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="77"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="83"/>
         <source>保存人工标准模板…</source>
         <translation>保存人工标准模板…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="78"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="84"/>
         <source>人工标准模板</source>
         <translation>人工标准模板</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="78"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="84"/>
         <source>模板名称</source>
         <translation>模板名称</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="79"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="85"/>
         <source>人工解释端点协调</source>
         <translation>人工解释端点协调</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="79"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="85"/>
         <source>模板提取容差 / m（0 为严格一致，不移动原井端点）</source>
         <translation>模板提取容差 / m（0 为严格一致，不移动原井端点）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="82"/>
+        <location filename="../src/ui/pages/stratigraphypage_controls.cpp" line="88"/>
         <source>读取所选版本</source>
         <translation>读取所选版本</translation>
     </message>
@@ -41142,28 +41287,28 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>TitleRowFitter</name>
     <message>
-        <location filename="../src/ui/ribbontitlefit.cpp" line="230"/>
+        <location filename="../src/ui/ribbontitlefit.cpp" line="248"/>
         <source>搜索</source>
         <translation>搜索</translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbontitlefit.cpp" line="231"/>
+        <location filename="../src/ui/ribbontitlefit.cpp" line="249"/>
         <source>搜索井位 / 层位</source>
         <translation>搜索井位 / 层位</translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbontitlefit.cpp" line="232"/>
+        <location filename="../src/ui/ribbontitlefit.cpp" line="250"/>
         <source>展开搜索</source>
         <translation>展开搜索</translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbontitlefit.cpp" line="240"/>
+        <location filename="../src/ui/ribbontitlefit.cpp" line="258"/>
         <source>更多</source>
         <translation>更多</translation>
     </message>
     <message>
-        <location filename="../src/ui/ribbontitlefit.cpp" line="241"/>
-        <location filename="../src/ui/ribbontitlefit.cpp" line="242"/>
+        <location filename="../src/ui/ribbontitlefit.cpp" line="259"/>
+        <location filename="../src/ui/ribbontitlefit.cpp" line="260"/>
         <source>更多命令</source>
         <translation>更多命令</translation>
     </message>
@@ -41171,17 +41316,17 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>ToastCard</name>
     <message>
-        <location filename="../src/ui/notifications/toastcard.cpp" line="61"/>
+        <location filename="../src/ui/notifications/toastcard.cpp" line="63"/>
         <source>关闭通知</source>
         <translation>关闭通知</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/toastcard.cpp" line="88"/>
+        <location filename="../src/ui/notifications/toastcard.cpp" line="90"/>
         <source>错误</source>
         <translation>错误</translation>
     </message>
     <message>
-        <location filename="../src/ui/notifications/toastcard.cpp" line="89"/>
+        <location filename="../src/ui/notifications/toastcard.cpp" line="91"/>
         <source>警告</source>
         <translation>警告</translation>
     </message>
@@ -41545,7 +41690,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="66"/>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="108"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="109"/>
         <source>文件名</source>
         <translation>文件名</translation>
     </message>
@@ -41556,147 +41701,147 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="80"/>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="343"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="344"/>
         <source>井附件管理</source>
         <translation>井附件管理</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="108"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="109"/>
         <source>缩略</source>
         <translation>缩略</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="108"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="109"/>
         <source>锚深 (m)</source>
         <translation>锚深 (m)</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="109"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="110"/>
         <source>来源</source>
         <translation>来源</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="109"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="110"/>
         <source>角色</source>
         <translation>角色</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="109"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="110"/>
         <source>版本</source>
         <translation>版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="110"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="111"/>
         <source>状态</source>
         <translation>状态</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="153"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="154"/>
         <source>编辑锚深…</source>
         <translation>编辑锚深…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="155"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="156"/>
         <source>预览照片并输入新深度（单位米）</source>
         <translation>预览照片并输入新深度（单位米）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="161"/>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="501"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="162"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="502"/>
         <source>清除锚定</source>
         <translation>清除锚定</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="163"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="164"/>
         <source>移除锚深（版本元数据操作，不删文件）</source>
         <translation>移除锚深（版本元数据操作，不删文件）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="169"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="170"/>
         <source>移除附件…</source>
         <translation>移除附件…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="171"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="172"/>
         <source>移入可回收清单（软删，可撤销；磁盘文件保留）</source>
         <translation>移入可回收清单（软删，可撤销；磁盘文件保留）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="174"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="175"/>
         <source>关闭</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="322"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="323"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="324"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="325"/>
         <source>受管副本</source>
         <translation>受管副本</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="324"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="325"/>
         <source>外链</source>
         <translation>外链</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="328"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="329"/>
         <source>未决关联</source>
         <translation>未决关联</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="328"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="329"/>
         <source>已锚定</source>
         <translation>已锚定</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="328"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="329"/>
         <source>未锚定</source>
         <translation>未锚定</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="344"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="345"/>
         <source>井附件管理 — %1</source>
         <translation>井附件管理 — %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="398"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="399"/>
         <source>解码井附件缩略图</source>
         <translation>解码井附件缩略图</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="436"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="437"/>
         <source>输入为空：填新深度，或用「清除锚定」按钮</source>
         <translation>输入为空：填新深度，或用「清除锚定」按钮</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="452"/>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="490"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="453"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="491"/>
         <source>已更新锚深：%1 → %2 m</source>
         <translation>已更新锚深：%1 → %2 m</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="486"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="487"/>
         <source>锚深更新失败：%1</source>
         <translation>锚深更新失败：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="489"/>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="513"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="490"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="514"/>
         <source>已清除锚深（%1 回到未锚定）</source>
         <translation>已清除锚深（%1 回到未锚定）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="502"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="503"/>
         <source>移除「%1」的锚深？
 （版本元数据操作，不删文件；图片回到「未锚定」，可随时再补）</source>
         <translation>移除「%1」的锚深？
 （版本元数据操作，不删文件；图片回到「未锚定」，可随时再补）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="510"/>
+        <location filename="../src/ui/pages/wellattachmentpanel.cpp" line="511"/>
         <source>清除锚深失败：%1</source>
         <translation>清除锚深失败：%1</translation>
     </message>
@@ -42015,6 +42160,20 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/qgis/wellattributestore.cpp" line="640"/>
         <source>测井分层沉积相属性表正在编辑，请先保存或放弃编辑，再运行预测</source>
         <translation>测井分层沉积相属性表正在编辑，请先保存或放弃编辑，再运行预测</translation>
+    </message>
+</context>
+<context>
+    <name>WellComposite</name>
+    <message>
+        <location filename="../src/ui/wellcomposite/trackcompound.cpp" line="516"/>
+        <source>%1
+相: %2
+亚: %3
+微: %4</source>
+        <translation>%1
+相: %2
+亚: %3
+微: %4</translation>
     </message>
 </context>
 <context>
@@ -42424,7 +42583,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>WellComposite::GraphicScaleBar</name>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="37"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="36"/>
         <source>物理标尺：根据当前测深缩放倍率计算屏幕真实对应米数</source>
         <translation>物理标尺：根据当前测深缩放倍率计算屏幕真实对应米数</translation>
     </message>
@@ -42483,45 +42642,50 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>WellComposite::MultiWellView</name>
     <message>
-        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="175"/>
+        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="176"/>
         <source>槽位 %1：从井选择器加入井</source>
         <translation>槽位 %1：从井选择器加入井</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="370"/>
+        <source>层段</source>
+        <translation>层段</translation>
     </message>
 </context>
 <context>
     <name>WellComposite::StratAssignmentDialog</name>
     <message>
-        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="80"/>
+        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="81"/>
         <source>地层单元指派</source>
         <translation>地层单元指派</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="96"/>
+        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="99"/>
         <source>未识别层名需显式指派系/统/组/段（程序不自动猜测）。指派保存到 sidecar，不改源数据。</source>
         <translation>未识别层名需显式指派系/统/组/段（程序不自动猜测）。指派保存到 sidecar，不改源数据。</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="104"/>
+        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="107"/>
         <source>层名</source>
         <translation>层名</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="104"/>
+        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="107"/>
         <source>系</source>
         <translation>系</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="104"/>
+        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="107"/>
         <source>统</source>
         <translation>统</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="104"/>
+        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="107"/>
         <source>组</source>
         <translation>组</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="104"/>
+        <location filename="../src/ui/wellcomposite/stratassignment.cpp" line="107"/>
         <source>段</source>
         <translation>段</translation>
     </message>
@@ -42529,117 +42693,117 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>WellComposite::TrackConfigDialog</name>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="62"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="63"/>
         <source>道配置</source>
         <translation>道配置</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="82"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="86"/>
         <source>道类型:</source>
         <translation>道类型:</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="85"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="89"/>
         <source>标题:</source>
         <translation>标题:</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="91"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="95"/>
         <source>道宽:</source>
         <translation>道宽:</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="93"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="97"/>
         <source>参与打印/导出</source>
         <translation>参与打印/导出</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="105"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="109"/>
         <source>关闭</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="107"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="111"/>
         <source>岩性块按此深度间隔分格（层厚 35、粒度 10 → 10/10/10/5 四格）；屏上每格不足 6 px 时不画分隔线</source>
         <translation>岩性块按此深度间隔分格（层厚 35、粒度 10 → 10/10/10/5 四格）；屏上每格不足 6 px 时不画分隔线</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="108"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="112"/>
         <source>高度粒度:</source>
         <translation>高度粒度:</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="122"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="126"/>
         <source>颜色集:</source>
         <translation>颜色集:</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="133"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="137"/>
         <source>选用</source>
         <translation>选用</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="133"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="137"/>
         <source>曲线</source>
         <translation>曲线</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="133"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="137"/>
         <source>最小值</source>
         <translation>最小值</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="133"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="137"/>
         <source>最大值</source>
         <translation>最大值</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="133"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="137"/>
         <source>对数</source>
         <translation>对数</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="133"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="137"/>
         <source>单位</source>
         <translation>单位</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="133"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="137"/>
         <source>颜色</source>
         <translation>颜色</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="143"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="147"/>
         <source>密度:</source>
         <translation>密度:</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="145"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="149"/>
         <source>无</source>
         <translation>无</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="146"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="150"/>
         <source>2 等分</source>
         <translation>2 等分</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="147"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="151"/>
         <source>4 等分</source>
         <translation>4 等分</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="148"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="152"/>
         <source>10 分含次网格</source>
         <translation>10 分含次网格</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="211"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="215"/>
         <source>曲线颜色</source>
         <translation>曲线颜色</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="140"/>
+        <location filename="../src/ui/wellcomposite/trackconfigdialog.cpp" line="144"/>
         <source>浅灰背景网格</source>
         <translation>浅灰背景网格</translation>
     </message>
@@ -43253,85 +43417,85 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation> 副本</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="32"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="33"/>
         <source>区间统计 [%1~%2m]</source>
         <translation>区间统计 [%1~%2m]</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="44"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="45"/>
         <source>复制 TSV</source>
         <translation>复制 TSV</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="45"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="46"/>
         <source>关闭</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="60"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="62"/>
         <source>添加深度标注</source>
         <translation>添加深度标注</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="61"/>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="84"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="63"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="86"/>
         <source>深度 %1 m 的标注文字:</source>
         <translation>深度 %1 m 的标注文字:</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="83"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="85"/>
         <source>编辑深度标注</source>
         <translation>编辑深度标注</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="133"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="135"/>
         <source>在视口顶部添加书签…</source>
         <translation>在视口顶部添加书签…</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="136"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="138"/>
         <source>添加书签</source>
         <translation>添加书签</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="137"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="139"/>
         <source>书签名（深度 %1 m）:</source>
         <translation>书签名（深度 %1 m）:</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="153"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="155"/>
         <source>清除全部书签</source>
         <translation>清除全部书签</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="224"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="226"/>
         <source>深度装配：井斜表%1、时深表%2（TVD/TWT 副刻度已%3）</source>
         <translation>深度装配：井斜表%1、时深表%2（TVD/TWT 副刻度已%3）</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="225"/>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="226"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="227"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="228"/>
         <source>已加载</source>
         <translation>已加载</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="225"/>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="226"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="227"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="228"/>
         <source>缺失</source>
         <translation>缺失</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="227"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="229"/>
         <source>启用</source>
         <translation>启用</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="227"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="229"/>
         <source>禁用</source>
         <translation>禁用</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="241"/>
+        <location filename="../src/ui/wellcomposite/paneldepth.cpp" line="243"/>
         <source>时深对齐：%1 · 平移 %2 ms</source>
         <translation>时深对齐：%1 · 平移 %2 ms</translation>
     </message>
@@ -43440,247 +43604,247 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>WellComposite::WellLegendDialog</name>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="262"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="287"/>
         <source>综合柱状图 — 地质与道图例</source>
         <translation>综合柱状图 — 地质与道图例</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="295"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="320"/>
         <source>图例花纹</source>
         <translation>图例花纹</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="295"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="320"/>
         <source>岩性名称</source>
         <translation>岩性名称</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="295"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="320"/>
         <source>地质说明</source>
         <translation>地质说明</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="307"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="332"/>
         <source>含油气储层主要赋存骨架岩性</source>
         <translation>含油气储层主要赋存骨架岩性</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="308"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="333"/>
         <source>中等颗粒碎屑岩储集层</source>
         <translation>中等颗粒碎屑岩储集层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="309"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="334"/>
         <source>高孔高渗粗粒碎屑岩储层</source>
         <translation>高孔高渗粗粒碎屑岩储层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="310"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="335"/>
         <source>近源快速沉积扇体骨架</source>
         <translation>近源快速沉积扇体骨架</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="311"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="336"/>
         <source>主力生烃与区域优质泥岩盖层</source>
         <translation>主力生烃与区域优质泥岩盖层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="312"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="337"/>
         <source>过渡相薄互层砂质泥岩微相</source>
         <translation>过渡相薄互层砂质泥岩微相</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="313"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="338"/>
         <source>海相碳酸盐岩储集体</source>
         <translation>海相碳酸盐岩储集体</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="314"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="339"/>
         <source>晶粒/残余粒屑白云岩储层</source>
         <translation>晶粒/残余粒屑白云岩储层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="315"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="340"/>
         <source>富有机质致密页岩油气层</source>
         <translation>富有机质致密页岩油气层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="316"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="341"/>
         <source>含煤地层标志层与烃源岩</source>
         <translation>含煤地层标志层与烃源岩</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="317"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="342"/>
         <source>基底或火成岩裂缝储层</source>
         <translation>基底或火成岩裂缝储层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="318"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="343"/>
         <source>强封闭性区域盐膏质蒸发盖层</source>
         <translation>强封闭性区域盐膏质蒸发盖层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="349"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="374"/>
         <source>岩性花纹图例</source>
         <translation>岩性花纹图例</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="358"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="383"/>
         <source>相、亚相、微相三级纹理图例</source>
         <translation>相、亚相、微相三级纹理图例</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="359"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="384"/>
         <source>相 → 亚相 → 微相</source>
         <translation>相 → 亚相 → 微相</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="359"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="384"/>
         <source>微相纹理</source>
         <translation>微相纹理</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="378"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="403"/>
         <source>未定义</source>
         <translation>未定义</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="401"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="426"/>
         <source>沉积相纹理图例</source>
         <translation>沉积相纹理图例</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="410"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="435"/>
         <source>色标</source>
         <translation>色标</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="410"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="435"/>
         <source>地层单元</source>
         <translation>地层单元</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="410"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="435"/>
         <source>顶深 (m)</source>
         <translation>顶深 (m)</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="410"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="435"/>
         <source>底深 (m)</source>
         <translation>底深 (m)</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="439"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="464"/>
         <source>地层分层图例</source>
         <translation>地层分层图例</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="448"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="473"/>
         <source>曲线</source>
         <translation>曲线</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="448"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="473"/>
         <source>单位</source>
         <translation>单位</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="448"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="473"/>
         <source>最小值</source>
         <translation>最小值</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="448"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="473"/>
         <source>最大值</source>
         <translation>最大值</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="448"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="473"/>
         <source>样式</source>
         <translation>样式</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="488"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="513"/>
         <source>测井曲线样式</source>
         <translation>测井曲线样式</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="497"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="522"/>
         <source>符号色标</source>
         <translation>符号色标</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="497"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="522"/>
         <source>解释结论</source>
         <translation>解释结论</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="497"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="522"/>
         <source>水动力及储层属性</source>
         <translation>水动力及储层属性</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="507"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="532"/>
         <source>油层</source>
         <translation>油层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="507"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="532"/>
         <source>高含油饱和度工业油流层段</source>
         <translation>高含油饱和度工业油流层段</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="508"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="533"/>
         <source>差油层</source>
         <translation>差油层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="508"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="533"/>
         <source>低丰度/弱显示含油储集层</source>
         <translation>低丰度/弱显示含油储集层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="509"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="534"/>
         <source>气层</source>
         <translation>气层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="509"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="534"/>
         <source>高电阻强声波异常天然气层</source>
         <translation>高电阻强声波异常天然气层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="510"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="535"/>
         <source>油水同层</source>
         <translation>油水同层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="510"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="535"/>
         <source>过渡带油水混合流体产出层</source>
         <translation>过渡带油水混合流体产出层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="511"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="536"/>
         <source>含水层</source>
         <translation>含水层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="511"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="536"/>
         <source>高水淹低电阻纯水层</source>
         <translation>高水淹低电阻纯水层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="512"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="537"/>
         <source>干层</source>
         <translation>干层</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="512"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="537"/>
         <source>物性极差致密未充注层段</source>
         <translation>物性极差致密未充注层段</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="534"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="559"/>
         <source>储层解释符号</source>
         <translation>储层解释符号</translation>
     </message>
@@ -43688,7 +43852,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>WellComposite::WellOverviewMiniBar</name>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="124"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="149"/>
         <source>全井微缩示意图例：蓝色方框指示当前视口位置，点击或拖拽可快速定位井深</source>
         <translation>全井微缩示意图例：蓝色方框指示当前视口位置，点击或拖拽可快速定位井深</translation>
     </message>
@@ -43696,48 +43860,48 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>WellComposite::WellPositionLegendWidget</name>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="592"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="617"/>
         <source>视口: 0.0 ~ 500.0m (跨度 500.0m)</source>
         <translation>视口: 0.0 ~ 500.0m (跨度 500.0m)</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="598"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="623"/>
         <source>全井: 0.0 ~ 3000.0m (0.0%~16.7%)</source>
         <translation>全井: 0.0 ~ 3000.0m (0.0%~16.7%)</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="609"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="634"/>
         <source>全井导航:</source>
         <translation>全井导航:</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="623"/>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="699"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="647"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="723"/>
         <source>光标: —</source>
         <translation>光标: —</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="641"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="665"/>
         <source>地质图例</source>
         <translation>地质图例</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="642"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="666"/>
         <source>查看岩性花纹、地层色标、曲线样式与储层解释符号图例</source>
         <translation>查看岩性花纹、地层色标、曲线样式与储层解释符号图例</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="655"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="679"/>
         <source>视口: %1 ~ %2m (跨度 %3m)</source>
         <translation>视口: %1 ~ %2m (跨度 %3m)</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="666"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="690"/>
         <source>全井: %1 ~ %2m (%3%~%4%)</source>
         <translation>全井: %1 ~ %2m (%3%~%4%)</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="695"/>
+        <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="719"/>
         <source>光标: %1m</source>
         <translation>光标: %1m</translation>
     </message>
@@ -43745,12 +43909,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>WellComposite::WellSelectionDialog</name>
     <message>
-        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="420"/>
+        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="421"/>
         <source>选择对比井</source>
         <translation>选择对比井</translation>
     </message>
     <message>
-        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="424"/>
+        <location filename="../src/ui/wellcomposite/multiwellview.cpp" line="427"/>
         <source>测区井（蓝）/ 参考井（琥珀）</source>
         <translation>测区井（蓝）/ 参考井（琥珀）</translation>
     </message>
@@ -45682,372 +45846,372 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>WellSitingPanel</name>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="75"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="405"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="76"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="408"/>
         <source>覆盖诊断</source>
         <translation>覆盖诊断</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="80"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="82"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="83"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="85"/>
         <source>井控半径</source>
         <translation>井控半径</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="84"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="86"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="87"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="89"/>
         <source>采样格宽</source>
         <translation>采样格宽</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="88"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="91"/>
         <source>候选间距</source>
         <translation>候选间距</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="91"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="94"/>
         <source>候选间距（0 = 同井控半径）</source>
         <translation>候选间距（0 = 同井控半径）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="96"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="99"/>
         <source>诊断覆盖</source>
         <translation>诊断覆盖</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="102"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="421"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="105"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="424"/>
         <source>还没有运行覆盖诊断</source>
         <translation>还没有运行覆盖诊断</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="109"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="112"/>
         <source>覆盖空洞表</source>
         <translation>覆盖空洞表</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="111"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="114"/>
         <source>空洞</source>
         <translation>空洞</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="111"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="114"/>
         <source>面积</source>
         <translation>面积</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="111"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="114"/>
         <source>最深距</source>
         <translation>最深距</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="111"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="114"/>
         <source>最深点</source>
         <translation>最深点</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="125"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="128"/>
         <source>候选点位</source>
         <translation>候选点位</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="129"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="132"/>
         <source>生成候选</source>
         <translation>生成候选</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="132"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="135"/>
         <source>清除候选</source>
         <translation>清除候选</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="148"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="151"/>
         <source>候选点位表</source>
         <translation>候选点位表</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="150"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="153"/>
         <source>序</source>
         <translation>序</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="150"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="153"/>
         <source>策略</source>
         <translation>策略</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="150"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="163"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="153"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="166"/>
         <source>X</source>
         <translation>X</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="150"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="163"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="153"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="166"/>
         <source>Y</source>
         <translation>Y</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="150"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="153"/>
         <source>空洞深度</source>
         <translation>空洞深度</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="150"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="153"/>
         <source>空洞贡献</source>
         <translation>空洞贡献</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="298"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="301"/>
         <source>计划井（布井候选）</source>
         <translation>计划井（布井候选）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="310"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="544"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="553"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="313"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="547"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="556"/>
         <source>地图布点</source>
         <translation>地图布点</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="163"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="317"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="166"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="320"/>
         <source>名称</source>
         <translation>名称</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="320"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="323"/>
         <source>计划井名</source>
         <translation>计划井名</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="322"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="325"/>
         <source>添加</source>
         <translation>添加</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="162"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="165"/>
         <source>计划井表</source>
         <translation>计划井表</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="173"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="176"/>
         <source>重命名</source>
         <translation>重命名</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="176"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="181"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="198"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="199"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="179"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="184"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="201"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="202"/>
         <source>先在计划井表选中一行</source>
         <translation>先在计划井表选中一行</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="178"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="181"/>
         <source>删除</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="353"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="356"/>
         <source>方案评估</source>
         <translation>方案评估</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="354"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="651"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="357"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="654"/>
         <source>还没有评估——添加计划井后自动评估</source>
         <translation>还没有评估——添加计划井后自动评估</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="361"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="364"/>
         <source>重新评估</source>
         <translation>重新评估</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="553"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="556"/>
         <source>无法把地图坐标转换到计划井输入坐标系，未添加计划井。</source>
         <translation>无法把地图坐标转换到计划井输入坐标系，未添加计划井。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="704"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="707"/>
         <source>评估计算中——请等待或取消</source>
         <translation>评估计算中——请等待或取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="798"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="801"/>
         <source>删除方案“%1”及其计划井？此操作无法撤销。</source>
         <translation>删除方案“%1”及其计划井？此操作无法撤销。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="208"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="211"/>
         <source>方案对比</source>
         <translation>方案对比</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="215"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="218"/>
         <source>方案名</source>
         <translation>方案名</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="217"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="751"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="220"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="754"/>
         <source>保存方案</source>
         <translation>保存方案</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="221"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="570"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="711"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="224"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="573"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="714"/>
         <source>还没有计划井——先在地图或表单添加布井候选</source>
         <translation>还没有计划井——先在地图或表单添加布井候选</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="228"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="231"/>
         <source>方案对比表</source>
         <translation>方案对比表</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="230"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="233"/>
         <source>方案</source>
         <translation>方案</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="230"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="233"/>
         <source>井数</source>
         <translation>井数</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="230"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="233"/>
         <source>空洞面积</source>
         <translation>空洞面积</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="230"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="233"/>
         <source>覆盖率</source>
         <translation>覆盖率</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="230"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="233"/>
         <source>均距</source>
         <translation>均距</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="241"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="797"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="804"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="244"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="800"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="807"/>
         <source>删除方案</source>
         <translation>删除方案</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="244"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="249"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="270"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="271"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="247"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="252"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="273"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="274"/>
         <source>先在方案对比表选中一行</source>
         <translation>先在方案对比表选中一行</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="246"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="249"/>
         <source>导出点位表 CSV</source>
         <translation>导出点位表 CSV</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="251"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="254"/>
         <source>导出对比图</source>
         <translation>导出对比图</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="311"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="314"/>
         <source>在地图上拾取一个计划井点位，按当前工程转换上下文写入；支持吸附。</source>
         <translation>在地图上拾取一个计划井点位，按当前工程转换上下文写入；支持吸附。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="371"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="374"/>
         <source>取消评估</source>
         <translation>取消评估</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="373"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="376"/>
         <source>停止正在后台运行的方案评估（已算出的指标不落地）</source>
         <translation>停止正在后台运行的方案评估（已算出的指标不落地）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="386"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="389"/>
         <source>评估已取消</source>
         <translation>评估已取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="428"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="431"/>
         <source>%1 口井 · %2 个空洞（%3）· 覆盖率 %4% · 域面积 %5 · 域来源：%6</source>
         <translation>%1 口井 · %2 个空洞（%3）· 覆盖率 %4% · 域面积 %5 · 域来源：%6</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="451"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="454"/>
         <source>∞（无井）</source>
         <translation>∞（无井）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="470"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="473"/>
         <source>候选生成</source>
         <translation>候选生成</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="491"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="494"/>
         <source>最大空洞圆心</source>
         <translation>最大空洞圆心</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="492"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="495"/>
         <source>规则网格</source>
         <translation>规则网格</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="519"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="527"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="522"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="530"/>
         <source>添加计划井</source>
         <translation>添加计划井</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="524"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="541"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="527"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="544"/>
         <source>计划井</source>
         <translation>计划井</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="601"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="608"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="604"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="611"/>
         <source>删除计划井</source>
         <translation>删除计划井</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="602"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="605"/>
         <source>删除计划井“%1”？此操作无法撤销。</source>
         <translation>删除计划井“%1”？此操作无法撤销。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="622"/>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="628"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="625"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="631"/>
         <source>重命名计划井</source>
         <translation>重命名计划井</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="623"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="626"/>
         <source>计划井新名称</source>
         <translation>计划井新名称</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="662"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="665"/>
         <source>评估计算中…</source>
         <translation>评估计算中…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="672"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="675"/>
         <source>评估失败</source>
         <translation>评估失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="723"/>
+        <location filename="../src/ui/pages/wellsitingpanel.cpp" line="726"/>
         <source>基线：空洞 %1 / 覆盖率 %2% / 均距 %3
 方案（%4 口计划井）：空洞 %5 / 覆盖率 %6% / 均距 %7</source>
         <translation>基线：空洞 %1 / 覆盖率 %2% / 均距 %3
@@ -47848,22 +48012,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::DataCommandPalette</name>
     <message>
-        <location filename="../src/ui/pages/dataopspalette.h" line="48"/>
+        <location filename="../src/ui/pages/dataopspalette.h" line="49"/>
         <source>命令面板</source>
         <translation>命令面板</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspalette.h" line="56"/>
+        <location filename="../src/ui/pages/dataopspalette.h" line="57"/>
         <source>搜索资产 / 实体 / 动作 / 过滤器…</source>
         <translation>搜索资产 / 实体 / 动作 / 过滤器…</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspalette.h" line="166"/>
+        <location filename="../src/ui/pages/dataopspalette.h" line="167"/>
         <source>无匹配 — 换个关键词试试</source>
         <translation>无匹配 — 换个关键词试试</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspalette.h" line="167"/>
+        <location filename="../src/ui/pages/dataopspalette.h" line="168"/>
         <source>%1 条结果（↑↓ 选择 · 回车执行）</source>
         <translation>%1 条结果（↑↓ 选择 · 回车执行）</translation>
     </message>
@@ -47907,67 +48071,67 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::DuplicateDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="485"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="487"/>
         <source>重复文件检测</source>
         <translation>重复文件检测</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="489"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="491"/>
         <source>以下文件与库内资产重复（SHA-256 或同名）。逐条选择处置方式：</source>
         <translation>以下文件与库内资产重复（SHA-256 或同名）。逐条选择处置方式：</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="495"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="497"/>
         <source>新文件</source>
         <translation>新文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="495"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="497"/>
         <source>命中</source>
         <translation>命中</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="495"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="497"/>
         <source>处置</source>
         <translation>处置</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="505"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="507"/>
         <source>全部跳过</source>
         <translation>全部跳过</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="506"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="508"/>
         <source>全部重命名</source>
         <translation>全部重命名</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="507"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="509"/>
         <source>全部作新版本</source>
         <translation>全部作新版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="539"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="541"/>
         <source>SHA 相同</source>
         <translation>SHA 相同</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="540"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="542"/>
         <source>同名</source>
         <translation>同名</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="546"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="548"/>
         <source>跳过</source>
         <translation>跳过</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="547"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="549"/>
         <source>重命名导入</source>
         <translation>重命名导入</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="548"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="550"/>
         <source>覆盖 → 派生新版本</source>
         <translation>覆盖 → 派生新版本</translation>
     </message>
@@ -47975,52 +48139,52 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::EntityCreateDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="534"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="535"/>
         <source>新建实体</source>
         <translation>新建实体</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="541"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="542"/>
         <source>井</source>
         <translation>井</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="542"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="543"/>
         <source>辅助资料</source>
         <translation>辅助资料</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="543"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="544"/>
         <source>地震工区</source>
         <translation>地震工区</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="544"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="545"/>
         <source>层序界面</source>
         <translation>层序界面</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="545"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="546"/>
         <source>计划井（布井候选）</source>
         <translation>计划井（布井候选）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="546"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="547"/>
         <source>类型:</source>
         <translation>类型:</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="549"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="550"/>
         <source>名称:</source>
         <translation>名称:</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="559"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="560"/>
         <source>井口坐标（输入 → 工程存储）:</source>
         <translation>井口坐标（输入 → 工程存储）:</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="604"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="605"/>
         <source>输入真实来源 CRS 的井口位置，确认后转换到 %1 保存。</source>
         <translation>输入真实来源 CRS 的井口位置，确认后转换到 %1 保存。</translation>
     </message>
@@ -48028,22 +48192,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::EntityDeleteDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="625"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="626"/>
         <source>删除实体</source>
         <translation>删除实体</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="628"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="629"/>
         <source>该实体关联 %1 个资产。删除实体（软删，可从可回收清单恢复）时，资产如何处置？</source>
         <translation>该实体关联 %1 个资产。删除实体（软删，可从可回收清单恢复）时，资产如何处置？</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="633"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="634"/>
         <source>保留资产（解除全部关联，资产转为未挂接）</source>
         <translation>保留资产（解除全部关联，资产转为未挂接）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="634"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="635"/>
         <source>资产一并移入可回收清单</source>
         <translation>资产一并移入可回收清单</translation>
     </message>
@@ -48051,37 +48215,37 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::EntityEditDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="659"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="660"/>
         <source>编辑实体</source>
         <translation>编辑实体</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="665"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="666"/>
         <source>名称:</source>
         <translation>名称:</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="674"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="675"/>
         <source>坐标（输入 → 工程存储）:</source>
         <translation>坐标（输入 → 工程存储）:</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="678"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="679"/>
         <source>备注:</source>
         <translation>备注:</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="693"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="694"/>
         <source>名称不能为空</source>
         <translation>名称不能为空</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="700"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="701"/>
         <source>名称含非法字符（/ \ ..）</source>
         <translation>名称含非法字符（/ \ ..）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="720"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="721"/>
         <source>输入真实来源 CRS 的位置，确认后转换到 %1 保存。</source>
         <translation>输入真实来源 CRS 的位置，确认后转换到 %1 保存。</translation>
     </message>
@@ -48324,29 +48488,29 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::ImportEstimateDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="586"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="588"/>
         <source>导入预估</source>
         <translation>导入预估</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="592"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="594"/>
         <source>一次全部导入</source>
         <translation>一次全部导入</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="593"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="595"/>
         <source>分批导入（每批 200 个文件）</source>
         <translation>分批导入（每批 200 个文件）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="604"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="606"/>
         <source>目录内共 %1 个文件 · 约 %2 MB%3
 扩展名分布：%4</source>
         <translation>目录内共 %1 个文件 · 约 %2 MB%3
 扩展名分布：%4</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="608"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="610"/>
         <source>（其中 %1 个 &gt;100MB）</source>
         <translation>（其中 %1 个 &gt;100MB）</translation>
     </message>
@@ -48354,84 +48518,89 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::ImportLedgerDialog</name>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="33"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="35"/>
         <source>导入台账</source>
         <translation>导入台账</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="47"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="49"/>
         <source>路径</source>
         <translation>路径</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="47"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="49"/>
         <source>类型</source>
         <translation>类型</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="47"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="49"/>
         <source>实体</source>
         <translation>实体</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="47"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="49"/>
         <source>结局</source>
         <translation>结局</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="47"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="49"/>
         <source>原因</source>
         <translation>原因</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="61"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="63"/>
         <source>复制明细</source>
         <translation>复制明细</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="63"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="65"/>
         <source>关闭</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="76"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="75"/>
+        <source>导入明细</source>
+        <translation>导入明细</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="80"/>
         <source>最近 %1 批（窗口滚动保留）——新批次在上。</source>
         <translation>最近 %1 批（窗口滚动保留）——新批次在上。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="87"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="91"/>
         <source>%1 · %2
 入库 %3 / 未决 %4 / 失败 %5 / 跳过 %6</source>
         <translation>%1 · %2
 入库 %3 / 未决 %4 / 失败 %5 / 跳过 %6</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="99"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="103"/>
         <source>暂无导入批次记录（首批导入后将在此留痕）。</source>
         <translation>暂无导入批次记录（首批导入后将在此留痕）。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="100"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="104"/>
         <source>共 %1 批在窗口内。选中批次查看逐行结局；「复制明细」可把行级报告拷出。</source>
         <translation>共 %1 批在窗口内。选中批次查看逐行结局；「复制明细」可把行级报告拷出。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="160"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="164"/>
         <source>批次 %1</source>
         <translation>批次 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="161"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="165"/>
         <source>目录：%1</source>
         <translation>目录：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="162"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="166"/>
         <source>时间：%1 → %2</source>
         <translation>时间：%1 → %2</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/importledgerdialog.h" line="165"/>
+        <location filename="../src/ui/pages/importledgerdialog.h" line="169"/>
         <source>入库 %1 / 未决 %2 / 失败 %3 / 跳过 %4</source>
         <translation>入库 %1 / 未决 %2 / 失败 %3 / 跳过 %4</translation>
     </message>
@@ -48439,37 +48608,37 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::ImportPresetDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="422"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="424"/>
         <source>导入预设</source>
         <translation>导入预设</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="428"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="430"/>
         <source>预设</source>
         <translation>预设</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="428"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="430"/>
         <source>目录数</source>
         <translation>目录数</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="428"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="430"/>
         <source>类型映射</source>
         <translation>类型映射</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="434"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="436"/>
         <source>把当前设置存为预设</source>
         <translation>把当前设置存为预设</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="436"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="438"/>
         <source>删除选中预设</source>
         <translation>删除选中预设</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="438"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="440"/>
         <source>关闭</source>
         <translation>关闭</translation>
     </message>
@@ -48477,97 +48646,97 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::ImportQueuePanel</name>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="97"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="99"/>
         <source>导入队列</source>
         <translation>导入队列</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="107"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="109"/>
         <source>摘要</source>
         <translation>摘要</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="109"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="111"/>
         <source>清已完成</source>
         <translation>清已完成</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="114"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="116"/>
         <source>收起队列面板</source>
         <translation>收起队列面板</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="122"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="124"/>
         <source>文件</source>
         <translation>文件</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="122"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="124"/>
         <source>状态</source>
         <translation>状态</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="122"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="124"/>
         <source>进度</source>
         <translation>进度</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="122"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="124"/>
         <source>操作</source>
         <translation>操作</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="145"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="147"/>
         <source>全部取消</source>
         <translation>全部取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="147"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="149"/>
         <source>取消所有排队和进行中的导入</source>
         <translation>取消所有排队和进行中的导入</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="173"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="175"/>
         <source>导入进行中</source>
         <translation>导入进行中</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="174"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="176"/>
         <source>还有未完成项，仍要收起面板？</source>
         <translation>还有未完成项，仍要收起面板？</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="211"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="213"/>
         <source>同一路径已在导入队列中</source>
         <translation>同一路径已在导入队列中</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="311"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="313"/>
         <source>取消</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="324"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="326"/>
         <source>重试</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="326"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="328"/>
         <source>跳过</source>
         <translation>跳过</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="345"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="347"/>
         <source>%1 项 · 待处理 %2</source>
         <translation>%1 项 · 待处理 %2</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="380"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="382"/>
         <source>剩余 %1 项 · %2</source>
         <translation>剩余 %1 项 · %2</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="388"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="390"/>
         <source>已完成 %1 项</source>
         <translation>已完成 %1 项</translation>
     </message>
@@ -48575,14 +48744,19 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::ImportReportDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="51"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="52"/>
         <source>导入摘要</source>
         <translation>导入摘要</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopsimportui.h" line="62"/>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="63"/>
         <source>复制</source>
         <translation>复制</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/dataopsimportui.h" line="67"/>
+        <source>导入报告</source>
+        <translation>导入报告</translation>
     </message>
 </context>
 <context>
@@ -48596,7 +48770,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::OperationsHistoryDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="786"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="787"/>
         <source>最近操作</source>
         <translation>最近操作</translation>
     </message>
@@ -48604,57 +48778,57 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::PendingLinkDialog</name>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="30"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="31"/>
         <source>未决链接批量归位</source>
         <translation>未决链接批量归位</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="40"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="41"/>
         <source>归位</source>
         <translation>归位</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="40"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="41"/>
         <source>资产</source>
         <translation>资产</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="40"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="41"/>
         <source>目标井</source>
         <translation>目标井</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="40"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="41"/>
         <source>判定名</source>
         <translation>判定名</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="47"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="48"/>
         <source>归位选中项</source>
         <translation>归位选中项</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="49"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="50"/>
         <source>关闭</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="90"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="91"/>
         <source>当前没有可自动归位的未决链接（%1 条未决均无「恰好一口井」的匹配——多候选或零匹配不猜，请走单资产「挂接到实体」）。</source>
         <translation>当前没有可自动归位的未决链接（%1 条未决均无「恰好一口井」的匹配——多候选或零匹配不猜，请走单资产「挂接到实体」）。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="93"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="94"/>
         <source>%1 条未决链接中，%2 条可按文件名/备注恰好命中一口井自动归位；其余 %3 条无唯一匹配，保持未决。</source>
         <translation>%1 条未决链接中，%2 条可按文件名/备注恰好命中一口井自动归位；其余 %3 条无唯一匹配，保持未决。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="105"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="106"/>
         <source>已归位 %1 条（单事务落盘）。</source>
         <translation>已归位 %1 条（单事务落盘）。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/pendinglinkdialog.h" line="106"/>
+        <location filename="../src/ui/pages/pendinglinkdialog.h" line="107"/>
         <source>请求 %1 条，实际归位 %2 条（执行时按 catalog 当前事实重判——部分项已不满足判据或落位被占）。</source>
         <translation>请求 %1 条，实际归位 %2 条（执行时按 catalog 当前事实重判——部分项已不满足判据或落位被占）。</translation>
     </message>
@@ -48811,27 +48985,27 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::ShortcutsDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopspalette.h" line="187"/>
+        <location filename="../src/ui/pages/dataopspalette.h" line="188"/>
         <source>快捷键表</source>
         <translation>快捷键表</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspalette.h" line="193"/>
+        <location filename="../src/ui/pages/dataopspalette.h" line="194"/>
         <source>操作</source>
         <translation>操作</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspalette.h" line="193"/>
+        <location filename="../src/ui/pages/dataopspalette.h" line="194"/>
         <source>快捷键</source>
         <translation>快捷键</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspalette.h" line="193"/>
+        <location filename="../src/ui/pages/dataopspalette.h" line="194"/>
         <source>分类</source>
         <translation>分类</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspalette.h" line="238"/>
+        <location filename="../src/ui/pages/dataopspalette.h" line="239"/>
         <source>快捷键冲突：%1</source>
         <translation>快捷键冲突：%1</translation>
     </message>
@@ -48857,12 +49031,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::TopologyGraph</name>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="384"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="385"/>
         <source>关联拓扑图</source>
         <translation>关联拓扑图</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="428"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="429"/>
         <source>当前资料 / 实体的一层关联，最多各 64 项；完整关联请打开资料图谱</source>
         <translation>当前资料 / 实体的一层关联，最多各 64 项；完整关联请打开资料图谱</translation>
     </message>
@@ -48870,7 +49044,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::VersionDiffDialog</name>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="338"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="339"/>
         <source>版本比较</source>
         <translation>版本比较</translation>
     </message>
@@ -48878,136 +49052,136 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::VersionTableDialog</name>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="62"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="63"/>
         <source>资产版本</source>
         <translation>资产版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="71"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="72"/>
         <source>版本</source>
         <translation>版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="71"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="72"/>
         <source>阶段</source>
         <translation>阶段</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="71"/>
-        <location filename="../src/ui/pages/versiondialog.h" line="140"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="72"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="141"/>
         <source>受管</source>
         <translation>受管</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="71"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="72"/>
         <source>大小</source>
         <translation>大小</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="71"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="72"/>
         <source>文件名</source>
         <translation>文件名</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="91"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="92"/>
         <source>回滚到此版本</source>
         <translation>回滚到此版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="93"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="94"/>
         <source>关闭</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="108"/>
-        <location filename="../src/ui/pages/versiondialog.h" line="204"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="109"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="205"/>
         <source>选中两行可对比；选中单行（非当前版本）可回滚。</source>
         <translation>选中两行可对比；选中单行（非当前版本）可回滚。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="113"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="114"/>
         <source>「%1」的版本历史（回滚 = 产生指向旧内容的新版本，不删历史）</source>
         <translation>「%1」的版本历史（回滚 = 产生指向旧内容的新版本，不删历史）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="130"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="131"/>
         <source>v%1%2%3</source>
         <translation>v%1%2%3</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="131"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="132"/>
         <source>（当前）</source>
         <translation>（当前）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="133"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="134"/>
         <source>（%1）</source>
         <translation>（%1）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="140"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="141"/>
         <source>外链</source>
         <translation>外链</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="148"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="149"/>
         <source>无留底 SHA</source>
         <translation>无留底 SHA</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="203"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="204"/>
         <source>版本对比尚未接入</source>
         <translation>版本对比尚未接入</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="210"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="211"/>
         <source>至少一侧无留底 SHA——内容一致性无法判定；</source>
         <translation>至少一侧无留底 SHA——内容一致性无法判定；</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="212"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="213"/>
         <source>两版本字节内容一致（SHA 相同）；</source>
         <translation>两版本字节内容一致（SHA 相同）；</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="214"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="215"/>
         <source>两版本内容不同；</source>
         <translation>两版本内容不同；</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="215"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="216"/>
         <source>大小 %1 ↔ %2。</source>
         <translation>大小 %1 ↔ %2。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="217"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="218"/>
         <source> 文本首差异块：%1 行 ↔ %2 行。</source>
         <translation> 文本首差异块：%1 行 ↔ %2 行。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="219"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="220"/>
         <source> （非文本格式或超限，不做行级对比）</source>
         <translation> （非文本格式或超限，不做行级对比）</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="224"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="225"/>
         <source>【%1】%2 → %3
 </source>
         <translation>【%1】%2 → %3
 </translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="227"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="228"/>
         <source>—— 首差异块（“-” 旧 / “+” 新）——</source>
         <translation>—— 首差异块（“-” 旧 / “+” 新）——</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="245"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="246"/>
         <source>新增一条内容与目标版本一致的新版本；历史全保留</source>
         <translation>新增一条内容与目标版本一致的新版本；历史全保留</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/versiondialog.h" line="246"/>
+        <location filename="../src/ui/pages/versiondialog.h" line="247"/>
         <source>请单选一个非当前版本</source>
         <translation>请单选一个非当前版本</translation>
     </message>
@@ -49015,42 +49189,42 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::dataops::VersionTimeline</name>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="119"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="120"/>
         <source>版本时间线</source>
         <translation>版本时间线</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="124"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="125"/>
         <source>比较所选两版</source>
         <translation>比较所选两版</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="143"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="144"/>
         <source>该资产暂无多版本记录</source>
         <translation>该资产暂无多版本记录</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="212"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="213"/>
         <source>选为比较</source>
         <translation>选为比较</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="248"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="249"/>
         <source>%1 KB</source>
         <translation>%1 KB</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="261"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="262"/>
         <source>来源：%1</source>
         <translation>来源：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="237"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="238"/>
         <source>预览</source>
         <translation>预览</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/dataopspanelextra.h" line="238"/>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="239"/>
         <source>预览此版本并定位衍生血缘</source>
         <translation>预览此版本并定位衍生血缘</translation>
     </message>
@@ -49444,162 +49618,184 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::fault::FaultManagerPanel</name>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="101"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="114"/>
         <source>+ 断层</source>
         <translation>+ 断层</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="101"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="114"/>
         <source>新建命名断层</source>
         <translation>新建命名断层</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="102"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="115"/>
         <source>重命名选中断层</source>
         <translation>重命名选中断层</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="102"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="115"/>
         <source>重命名</source>
         <translation>重命名</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="103"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="116"/>
         <source>删除</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="103"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="116"/>
         <source>删除断层及其全部断层棒/切割（可撤销）</source>
         <translation>删除断层及其全部断层棒/切割（可撤销）</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="104"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="117"/>
         <source>撤销</source>
         <translation>撤销</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="104"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="69"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="117"/>
         <source>撤销最近一次断层编辑</source>
         <translation>撤销最近一次断层编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="105"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="118"/>
         <source>重做</source>
         <translation>重做</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="105"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="72"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="118"/>
         <source>重做被撤销的断层编辑</source>
         <translation>重做被撤销的断层编辑</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="106"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="119"/>
         <source>画切割</source>
         <translation>画切割</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="106"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="119"/>
         <source>在层位平面图上绘制选中断层的切割多边形</source>
         <translation>在层位平面图上绘制选中断层的切割多边形</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="118"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="131"/>
         <source>断层</source>
         <translation>断层</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="118"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="131"/>
         <source>内容</source>
         <translation>内容</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="127"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="140"/>
         <source>上盘方向：</source>
         <translation>上盘方向：</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="174"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="192"/>
         <source>新建断层</source>
         <translation>新建断层</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="174"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="192"/>
         <source>断层名：</source>
         <translation>断层名：</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="191"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="209"/>
         <source>重命名断层</source>
         <translation>重命名断层</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="203"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="221"/>
         <source>重命名失败：名称「%1」已被占用</source>
         <translation>重命名失败：名称「%1」已被占用</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="192"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="210"/>
         <source>新名称：</source>
         <translation>新名称：</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="205"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="68"/>
+        <source>没有可撤销的断层编辑</source>
+        <translation>没有可撤销的断层编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="70"/>
+        <source>撤销：%1</source>
+        <translation>撤销：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="71"/>
+        <source>没有可重做的断层编辑</source>
+        <translation>没有可重做的断层编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="73"/>
+        <source>重做：%1</source>
+        <translation>重做：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="223"/>
         <source>重命名失败：%1</source>
         <translation>重命名失败：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="207"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="225"/>
         <source>重命名失败：新名称无法应用</source>
         <translation>重命名失败：新名称无法应用</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="260"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="278"/>
         <source>绘制中：左键加点，右键收笔（≥3 点）；Esc 取消。目标层位 = %1</source>
         <translation>绘制中：左键加点，右键收笔（≥3 点）；Esc 取消。目标层位 = %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="274"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="292"/>
         <source>切割多边形已记录（同断层同层位重画即替换）</source>
         <translation>切割多边形已记录（同断层同层位重画即替换）</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="329"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="347"/>
         <source>落盘失败：%1</source>
         <translation>落盘失败：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="378"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="396"/>
         <source>解释者：%1</source>
         <translation>解释者：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="379"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="397"/>
         <source>（未记录）</source>
         <translation>（未记录）</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="382"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="400"/>
         <source>%1 棒 · %2 切割</source>
         <translation>%1 棒 · %2 切割</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="391"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="409"/>
         <source>无纵向样值</source>
         <translation>无纵向样值</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="393"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="411"/>
         <source>深度 %1–%2 m</source>
         <translation>深度 %1–%2 m</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="395"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="413"/>
         <source>TWT %1–%2 ms</source>
         <translation>TWT %1–%2 ms</translation>
     </message>
     <message>
-        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="400"/>
+        <location filename="../src/ui/faults/faultmanagerpanel.cpp" line="418"/>
         <source>切割 @%1</source>
         <translation>切割 @%1</translation>
     </message>
@@ -49902,86 +50098,91 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>paleo::shortcuts::ShortcutSheetDialog</name>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="39"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="40"/>
         <source>快捷键总表</source>
         <translation>快捷键总表</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="50"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="51"/>
         <source>搜索按键、功能或面板…</source>
         <translation>搜索按键、功能或面板…</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="51"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="52"/>
         <source>搜索快捷键</source>
         <translation>搜索快捷键</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="55"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="56"/>
         <source>只看当前位置可用的条目</source>
         <translation>只看当前位置可用的条目</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="57"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="58"/>
         <source>依据按 F1 时键盘焦点所在的面板过滤</source>
         <translation>依据按 F1 时键盘焦点所在的面板过滤</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="63"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="64"/>
         <source>快捷键列表</source>
         <translation>快捷键列表</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="65"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="66"/>
         <source>按键</source>
         <translation>按键</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="65"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="66"/>
         <source>功能</source>
         <translation>功能</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="65"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="66"/>
         <source>适用范围</source>
         <translation>适用范围</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="82"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="83"/>
         <source>复制所选</source>
         <translation>复制所选</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="84"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="85"/>
         <source>把所选条目以「按键、功能、适用范围」复制到剪贴板</source>
         <translation>把所选条目以「按键、功能、适用范围」复制到剪贴板</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="97"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="98"/>
         <source>提示：按 %1 进入「这是什么？」模式，再点击界面上的控件即可查看它的说明。</source>
         <translation>提示：按 %1 进入「这是什么？」模式，再点击界面上的控件即可查看它的说明。</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="116"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="117"/>
         <source>复制此条</source>
         <translation>复制此条</translation>
     </message>
     <message numerus="yes">
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="194"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="195"/>
         <source>共 %n 条</source>
         <translation>
             <numerusform>共 %n 条</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="196"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="197"/>
         <source>没有匹配的条目</source>
         <translation>没有匹配的条目</translation>
     </message>
     <message>
-        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="198"/>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="199"/>
         <source>显示 %1 / %2 条</source>
         <translation>显示 %1 / %2 条</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutsheetdialog.cpp" line="291"/>
+        <source>快捷键</source>
+        <translation>快捷键</translation>
     </message>
 </context>
 <context>
@@ -50535,330 +50736,330 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>seismic::SeismicPickPanel</name>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="64"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="86"/>
         <source>解释者:</source>
         <translation>解释者:</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="69"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="91"/>
         <source>层位:</source>
         <translation>层位:</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="70"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="92"/>
         <source>H1</source>
         <translation>H1</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="74"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="96"/>
         <source>↶ 撤销</source>
         <translation>↶ 撤销</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="74"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="96"/>
         <source>撤销上一次拾取变更</source>
         <translation>撤销上一次拾取变更</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="75"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="97"/>
         <source>↷ 重做</source>
         <translation>↷ 重做</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="75"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="97"/>
         <source>重做</source>
         <translation>重做</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="83"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="105"/>
         <source>追踪窗(样):</source>
         <translation>追踪窗(样):</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="89"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="111"/>
         <source>相关阈值:</source>
         <translation>相关阈值:</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="96"/>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="394"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="118"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="417"/>
         <source>▶ 追踪同相轴</source>
         <translation>▶ 追踪同相轴</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="96"/>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="396"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="118"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="419"/>
         <source>以选中拾取（或最后拾取）为种子，局部互相关沿同相轴双向追踪</source>
         <translation>以选中拾取（或最后拾取）为种子，局部互相关沿同相轴双向追踪</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="100"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="122"/>
         <source>倾角引导</source>
         <translation>倾角引导</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="101"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="123"/>
         <source>最近拾取的最小二乘斜率预测下一道搜索窗中心（陡倾角不被平坦邻轴抢走）；估计失败自动回落</source>
         <translation>最近拾取的最小二乘斜率预测下一道搜索窗中心（陡倾角不被平坦邻轴抢走）；估计失败自动回落</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="103"/>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="370"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="125"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="393"/>
         <source>◈ 3D 传播</source>
         <translation>◈ 3D 传播</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="103"/>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="372"/>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="386"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="125"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="395"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="409"/>
         <source>种子剖面沿 inline 全体扩散成层位面（滑窗调度，进度/取消走任务面板）</source>
         <translation>种子剖面沿 inline 全体扩散成层位面（滑窗调度，进度/取消走任务面板）</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="118"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="140"/>
         <source>ID</source>
         <translation>ID</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="118"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="140"/>
         <source>IL</source>
         <translation>IL</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="118"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="140"/>
         <source>XL</source>
         <translation>XL</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="118"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="140"/>
         <source>TWT(ms)</source>
         <translation>TWT(ms)</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="119"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="141"/>
         <source>置信度</source>
         <translation>置信度</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="119"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="141"/>
         <source>解释者</source>
         <translation>解释者</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="119"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="141"/>
         <source>层位</source>
         <translation>层位</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="125"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="147"/>
         <source>还没有拾取——在剖面上按住 Ctrl+左键 拾取同相轴，或「载入会话」恢复上次解释</source>
         <translation>还没有拾取——在剖面上按住 Ctrl+左键 拾取同相轴，或「载入会话」恢复上次解释</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="139"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="161"/>
         <source>定位</source>
         <translation>定位</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="139"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="161"/>
         <source>画布跳到选中拾取（线号+TWT）</source>
         <translation>画布跳到选中拾取（线号+TWT）</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="140"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="162"/>
         <source>删除</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="140"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="162"/>
         <source>删除选中拾取</source>
         <translation>删除选中拾取</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="141"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="163"/>
         <source>重命名</source>
         <translation>重命名</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="141"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="163"/>
         <source>修改选中拾取所属的层位名称</source>
         <translation>修改选中拾取所属的层位名称</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="143"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="165"/>
         <source>将拾取网格化为层位，并登记为派生版本</source>
         <translation>将拾取网格化为层位，并登记为派生版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="293"/>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="306"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="316"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="329"/>
         <source>派生版本已登记到数据目录：
 %1</source>
         <translation>派生版本已登记到数据目录：
 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="142"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="164"/>
         <source>导出 CSV</source>
         <translation>导出 CSV</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="142"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="164"/>
         <source>拾取集导出 CSV</source>
         <translation>拾取集导出 CSV</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="143"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="165"/>
         <source>生成层位资产</source>
         <translation>生成层位资产</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="144"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="166"/>
         <source>登记断层</source>
         <translation>登记断层</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="144"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="166"/>
         <source>断层集 → 矢量派生资产登记</source>
         <translation>断层集 → 矢量派生资产登记</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="145"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="167"/>
         <source>保存会话</source>
         <translation>保存会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="145"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="167"/>
         <source>解释会话写入 &lt;sgy&gt;.seispicks.json</source>
         <translation>解释会话写入 &lt;sgy&gt;.seispicks.json</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="146"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="168"/>
         <source>载入会话</source>
         <translation>载入会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="146"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="168"/>
         <source>从伴生文件恢复解释会话</source>
         <translation>从伴生文件恢复解释会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="260"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="283"/>
         <source>重命名层位</source>
         <translation>重命名层位</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="261"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="284"/>
         <source>新层位名：</source>
         <translation>新层位名：</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="273"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="296"/>
         <source>导出拾取 CSV</source>
         <translation>导出拾取 CSV</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="273"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="296"/>
         <source>CSV (*.csv)</source>
         <translation>CSV (*.csv)</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="278"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="301"/>
         <source>导出失败</source>
         <translation>导出失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="280"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="303"/>
         <source>已导出</source>
         <translation>已导出</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="280"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="303"/>
         <source>拾取已保存到:
 %1</source>
         <translation>拾取已保存到:
 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="290"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="313"/>
         <source>层位资产登记失败</source>
         <translation>层位资产登记失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="292"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="315"/>
         <source>层位资产已登记</source>
         <translation>层位资产已登记</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="303"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="326"/>
         <source>断层资产登记失败</source>
         <translation>断层资产登记失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="305"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="328"/>
         <source>断层资产已登记</source>
         <translation>断层资产已登记</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="315"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="338"/>
         <source>会话保存失败</source>
         <translation>会话保存失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="317"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="340"/>
         <source>会话已保存</source>
         <translation>会话已保存</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="318"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="341"/>
         <source>解释会话已写入:
 %1</source>
         <translation>解释会话已写入:
 %1</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="327"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="350"/>
         <source>会话载入失败</source>
         <translation>会话载入失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="370"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="393"/>
         <source>■ 取消传播</source>
         <translation>■ 取消传播</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="371"/>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="385"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="394"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="408"/>
         <source>取消在途体传播任务</source>
         <translation>取消在途体传播任务</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="375"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="398"/>
         <source>体传播中…（进度见任务面板）</source>
         <translation>体传播中…（进度见任务面板）</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="394"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="417"/>
         <source>■ 取消追踪</source>
         <translation>■ 取消追踪</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="395"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="418"/>
         <source>取消在途追踪任务</source>
         <translation>取消在途追踪任务</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="399"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="422"/>
         <source>追踪中…</source>
         <translation>追踪中…</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="410"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="433"/>
         <source>覆盖 %1/%2 道（%3%）· 均值置信 %4 · %5</source>
         <translation>覆盖 %1/%2 道（%3%）· 均值置信 %4 · %5</translation>
     </message>
     <message>
-        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="415"/>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="438"/>
         <source>—</source>
         <translation>—</translation>
     </message>

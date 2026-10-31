@@ -2,6 +2,9 @@
 #include "../qgis/layervocabulary.h"
 #include "../services/paleotaskservice.h"
 #include "workflows.h"
+#include "closureeditstack.h" // #742 会话外绘制撤销
+#include <QPointer>
+#include <memory>
 #include "constraintjobs.h" // #558：job 族完整定义（原内嵌 workflows.h）
 #include "workflows_internal.h"
 
@@ -465,24 +468,53 @@ bool ConstraintWorkflow::drawConstraint( const QString &horizon, const QString &
                                          int faciesCode, QString *error, QString *constraintIdOut,
                                          const QVariantMap &lineParams )
 {
-  // 完成绘制即持久化；只有用户已开启的矢量编辑会话才保留撤销/取消语义。
+  return drawConstraintResult( horizon, wkt, type, faciesCode, error, constraintIdOut, lineParams )
+         != DrawResult::Failed;
+}
+
+ConstraintWorkflow::DrawResult ConstraintWorkflow::drawConstraintResult(
+    const QString &horizon, const QString &wkt, const QString &type, int faciesCode, QString *message,
+    QString *constraintIdOut, const QVariantMap &lineParams )
+{
+  // 完成绘制即持久化；用户已开启的矢量编辑会话走原生撤销栈，会话外（#742）
+  // 记入工作台撤销栈：undo 删除该约束，redo 以原参数重画（id 随之更新）。
   if (horizon.isEmpty()) {
-    paleo::workflow_detail::setError(error, tr("没有活动层位，无法绘制约束"));
-    return false;
+    paleo::workflow_detail::setError(message, tr("没有活动层位，无法绘制约束"));
+    return DrawResult::Failed;
   }
-  if (!addConstraint(horizon, wkt, type, faciesCode, error, constraintIdOut, lineParams))
-    return false;
+  const QString layerId = QStringLiteral("constraints.%1").arg(horizon);
+  auto *sessionLayer = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(layerId)) : nullptr;
+  const bool inSession = sessionLayer && sessionLayer->isEditable();
+  QString id;
+  if (!addConstraint(horizon, wkt, type, faciesCode, message, &id, lineParams))
+    return DrawResult::Failed;
+  if (constraintIdOut)
+    *constraintIdOut = id;
+  if (!inSession && m_propertyEdits) {
+    auto current = std::make_shared<QString>(id);
+    QPointer<ConstraintWorkflow> self(this);
+    m_propertyEdits->record(
+        tr("绘制约束"),
+        [self, current] { return self && self->removeConstraint(*current); },
+        [self, current, horizon, wkt, type, faciesCode, lineParams] {
+          QString again;
+          if (!self || !self->addConstraint(horizon, wkt, type, faciesCode, nullptr, &again, lineParams))
+            return false;
+          *current = again;
+          return true;
+        });
+  }
   if (constraintStore() && m_layers) {
     QString layerError;
-    auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(QStringLiteral("constraints.%1").arg(horizon), &layerError));
+    auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(layerId, &layerError));
     if (!layer) {
-      paleo::workflow_detail::setError(error, tr("约束已保存，但矢量图层加载失败：%1").arg(layerError));
-      return false;
+      paleo::workflow_detail::setError(message, tr("约束已保存，但矢量图层加载失败：%1").arg(layerError));
+      return DrawResult::SavedLayerFailed;
     }
     QgisStyleService::applyConstraintLayerStyle(layer);
     layer->triggerRepaint();
   }
-  return true;
+  return DrawResult::Saved;
 }
 
 bool ConstraintWorkflow::saveConstraintEdits(const QString &horizon, QString *error)

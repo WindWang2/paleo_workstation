@@ -51,6 +51,7 @@ struct WorkflowExecutionContext
 };
 
 class ConstraintWorkflow;
+namespace paleo::workflow { class ClosureEditStack; }
 class PredictionWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
@@ -236,7 +237,19 @@ class ConstraintWorkflow : public QObject
     // 空 QRectF——调用方（约束页计划）据此保持「域未知」，不臆造域。
     QRectF lastFactorComputeDomain(const QString &horizon) const;
 
-    // 完成绘制即写入工程矢量层；已有手动编辑会话时加入其原生撤销栈。
+    // #742：绘制结果三态。SavedLayerFailed = 约束已落盘（可撤销），仅矢量图层
+    // 加载失败——调用方按「已保存 + 警告」处理，不得当作未写入。
+    enum class DrawResult { Failed, Saved, SavedLayerFailed };
+    DrawResult drawConstraintResult(const QString &horizon, const QString &wkt, const QString &type,
+                                    int faciesCode, QString *message = nullptr,
+                                    QString *constraintIdOut = nullptr,
+                                    const QVariantMap &lineParams = {});
+    // #742：会话外绘制记入该撤销栈（undo = 删除该约束，redo = 原参数重画）；
+    // 会话内绘制仍走图层原生撤销栈。栈由 MappingWorkbench 持有，可空。
+    void setPropertyEditStack(paleo::workflow::ClosureEditStack *stack) { m_propertyEdits = stack; }
+    // 完成绘制即写入工程矢量层；已有手动编辑会话时加入其原生撤销栈，会话外
+    // 记入 setPropertyEditStack 的撤销栈。返回 true = 约束已落盘（图层加载
+    // 失败时 *error 为警告文案，见 drawConstraintResult）。
     bool drawConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                         QString *error = nullptr, QString *constraintIdOut = nullptr,
                         const QVariantMap &lineParams = {});
@@ -306,6 +319,7 @@ class ConstraintWorkflow : public QObject
                         const QVariantMap &inputParams, QString *error = nullptr);
 
   private:
+    paleo::workflow::ClosureEditStack *m_propertyEdits = nullptr; // #742，不持有
     bool addConstraintThroughSession(QgsVectorLayer *layer, ConstraintStore *store, const QString &horizon,
                                      const QString &id, const QString &wkt, const QString &storedType,
                                      int faciesCode, const QString &paramsJson, bool extended, QString *error);

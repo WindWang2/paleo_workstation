@@ -10,6 +10,7 @@
 
 #include <qgsadvanceddigitizingdockwidget.h>
 #include <qgsmapcanvas.h>
+#include <qgsmessagelog.h>
 
 ConstraintDrawController::ConstraintDrawController( QgisCanvasController *canvasCtl,
                                                     ConstraintWorkflow *wf,
@@ -121,7 +122,12 @@ void ConstraintDrawController::onDrawn( const QString &wkt )
   const QString horizon = m_horizon; // capture before teardown clears state
   teardown();
   if ( ok )
+  {
+    // #742：已落盘但图层加载失败——成功 + 警告，不当作未写入。
+    if ( !err.isEmpty() )
+      QgsMessageLog::logMessage( err, QStringLiteral( "Paleo" ), Qgis::MessageLevel::Warning );
     emit captureFinished( horizon, constraintId );
+  }
   else
     emit captureFailed( err.isEmpty() ? tr( "约束提交失败" ) : err );
 }

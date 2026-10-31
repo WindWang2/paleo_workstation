@@ -2897,6 +2897,21 @@ private slots:
     QCOMPARE(layer->getFeature(feature.id()).attribute("facies_evidence"), beforeEvidence);
     QCOMPARE(layer->getFeature(feature.id()).attribute("paleo_interpretation"), beforeInterp);
   }
+  void outOfSessionConstraintDrawIsUndoable() {
+    // #742：编辑会话外绘制约束记入工作台撤销栈：undo 删除、redo 重画。
+    Fixture f; QVERIFY(f.init()); QString error, id;
+    QVERIFY2(f.constraints.drawConstraint("D61", "LINESTRING(0 0,10 5)", "break_line", 0, &error, &id), qPrintable(error));
+    QVERIFY(error.isEmpty());
+    QCOMPARE(f.constraints.loadConstraints("D61").size(), 1);
+    auto *undo = f.work.propertyEditStack();
+    QVERIFY(undo->canUndo());
+    QVERIFY(undo->undo());
+    QVERIFY(f.constraints.loadConstraints("D61").isEmpty());
+    QVERIFY(undo->redo());
+    QCOMPARE(f.constraints.loadConstraints("D61").size(), 1);
+    QVERIFY(undo->undo());
+    QVERIFY(f.constraints.loadConstraints("D61").isEmpty());
+  }
   void constraintSnapshotSavesVectorEditsAutomatically() {
     Fixture f; QVERIFY(f.init()); QString error;
     QgisEditingService edits(&f.store); f.constraints.setEditingService(&edits);

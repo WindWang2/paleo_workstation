@@ -145,6 +145,8 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
                                    QObject *parent)
     : QObject(parent), m_layers(layers), m_processing(processing),
       m_project(project), m_constraints(constraints) {
+  if (m_constraints) // #742：会话外绘制约束与固定层级共用工作台撤销栈
+    m_constraints->setPropertyEditStack(&m_propertyEdits);
   connect(&FaciesDisplaySettings::instance(), &FaciesDisplaySettings::thresholdsChanged,
       this, [this] { updateDisplayScale(m_displayScale); emit changed(); });
   // 方向51：不再自装测试替身（原先这里 setPredictionService(new <替身>(this))，
@@ -199,6 +201,8 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
   // constraints.<horizon> 声明图层（直读 store，reload 即新）。
 }
 MappingWorkbench::~MappingWorkbench() {
+  if (m_constraints)
+    m_constraints->setPropertyEditStack(nullptr);
   if (m_mockCancelled)
     m_mockCancelled->store(true);
   if (m_prepareCancelled)

@@ -160,12 +160,12 @@ QVector<UnitSignature> buildSignatures( const Framework &fw,
     if ( o.hasTop )
     {
       const UnitInterval iv = table.value( o.wellName ).value( unit );
-      // Qt6 QSet::insert 返回 iterator（已存在时返回 end()）而非 pair——
-      // 「仅首次入样」语义按「插入成功」判定。
-      if ( iv.valid &&
-           countedWellUnits.insert( o.wellName + QLatin1Char( '\x1f' ) + unit ) !=
-               countedWellUnits.end() )
+      // 「仅首次入样」：Qt6 QSet::insert 无论键是否已存在都返回指向该元素的
+      // iterator（从不返回 end()），不能用其返回值判定插入成功（#882）。
+      const QString key = o.wellName + QLatin1Char( '\x1f' ) + unit;
+      if ( iv.valid && !countedWellUnits.contains( key ) )
       {
+        countedWellUnits.insert( key );
         topVals[ unit ].append( iv.top );
         baseVals[ unit ].append( iv.base );
       }

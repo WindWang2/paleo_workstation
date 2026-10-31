@@ -349,6 +349,40 @@ private slots:
   }
 
   // Oracle 3：建议只出候选——未确认前 catalog 零写入。
+  // #882：同井同单元多个确认成员 → 区间只按井入样一次（各井均值，非成员加权）。
+  void signaturesCountEachWellOncePerUnit()
+  {
+    Framework fw;
+    FrameworkUnit u;
+    u.id = QStringLiteral( "u1" );
+    u.name = QStringLiteral( "SQ1" );
+    fw.units.append( u );
+    MarkerBed mk;
+    mk.id = QStringLiteral( "m1" );
+    mk.unitId = QStringLiteral( "u1" );
+    mk.layerNames << QStringLiteral( "C1" ) << QStringLiteral( "C2" ) << QStringLiteral( "C3" );
+    fw.markers.append( mk );
+    auto ob = []( const char *w, const char *l, double top ) {
+      WellLayerObservation o;
+      o.wellName = QString::fromLatin1( w );
+      o.layerName = QString::fromLatin1( l );
+      o.topMd = top;
+      o.thickness = 50.0;
+      o.hasTop = true;
+      o.hasThickness = true;
+      return o;
+    };
+    QVector<WellLayerObservation> obs;
+    obs << ob( "A", "C1", 1000.0 ) << ob( "A", "C2", 1050.0 ) << ob( "A", "C3", 1100.0 )
+        << ob( "B", "C1", 2000.0 );
+    const QVector<UnitSignature> sigs = buildSignatures( fw, obs );
+    QCOMPARE( sigs.size(), 1 );
+    QCOMPARE( sigs.at( 0 ).sampleCount, 2 );
+    // A 区间 [1000,1150]，B 区间 [2000,2050] → 各井均值。
+    QCOMPARE( sigs.at( 0 ).topRef, 1500.0 );
+    QCOMPARE( sigs.at( 0 ).baseRef, 1600.0 );
+  }
+
   void suggestionsAreCandidatesOnly()
   {
     QTemporaryDir dir;

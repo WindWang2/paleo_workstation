@@ -237,6 +237,7 @@ add_paleo_test(tst_webviewpanel LIBS paleo_ui)   # offscreen: engine unavailable
 # ---- wave3/ux-consistency ----
 # (fonts qrc + theme singleton live in paleo_core below; UI-domain tests here)
 add_paleo_test(tst_uxtheme LIBS paleo_ui)
+add_paleo_test(tst_ribboncollapse LIBS paleo_ui)  # #860 Office 式分组自适应折叠
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnx LIBS paleo_ai)
   add_paleo_test(tst_onnxsessions LIBS paleo_ai)

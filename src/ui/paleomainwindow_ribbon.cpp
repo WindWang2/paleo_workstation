@@ -10,6 +10,7 @@
 #include "paleotheme.h"
 #include "paleodockmanager.h" // showPanelMenu 的布局菜单出口
 #include "paleoribbon.h"     // 滚动按钮命名 / 镜像重同步
+#include "ribboncollapse.h"  // #860 分组自适应折叠
 #include "dialogs/projectmapsettingsdialog.h"
 #include "help/helpsurface.h" // 方向63 帮助面（菜单 + F1 总表挂主窗）
 #include "pages/pageshared.h" // kPageIds（页签序）
@@ -85,8 +86,8 @@ void PaleoMainWindow::buildRibbon()
   if (!bar)
     return;
   bar->setRibbonStyle(SARibbonBar::RibbonStyleCompactThreeRow);
-  // R6 #860：1920×1080 下分组易横向溢出。字换行让按钮按固定列宽折行（不再被长标签撑宽），
-  // 组间距收紧；完整「大→小→仅图标→下拉」自适应折叠见报告，需产品拍板。
+  // R6 #860：字换行让按钮按固定列宽折行（不再被长标签撑宽），组间距收紧；
+  // 窄窗下的 Office 式「大→小→仅图标→下拉」逐组折叠见 ribboncollapse.h。
   bar->setPanelSpacing(4);
   bar->setPanelToolButtonIconSize(QSize(16, 16), QSize(24, 24));
   bar->setEnableWordWrap(true);
@@ -281,6 +282,7 @@ void PaleoMainWindow::buildRibbon()
   // 是匿名图标件，命名一轮。两处都是幂等，attachWorkflows 后再补一轮。
   PaleoRibbon::makeKeyboardReachable(this);
   PaleoRibbon::nameScrollButtons(this);
+  PaleoRibbon::enableAdaptiveCollapse(bar);
 }
 
 SARibbonCategory *PaleoMainWindow::categoryForPage(const QString &pageId) const

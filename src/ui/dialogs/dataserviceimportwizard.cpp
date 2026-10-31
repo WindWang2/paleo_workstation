@@ -24,8 +24,9 @@ DataServiceImportWizard::DataServiceImportWizard(ProjectSetupWorkflow *workflow,
   setWizardStyle(QWizard::ModernStyle);
   setOption(QWizard::NoBackButtonOnStartPage, true);
   setOption(QWizard::HaveHelpButton, false);
-  setMinimumSize(paleo::ui_detail::boundedToAvailable(QSize(720, 420), paleo::ui_detail::availableSizeFor(this))); // R6 #844
   addPage(projectPage()); addPage(settingsPage()); addPage(reviewPage());
+  // R7 #887：不再钉 720×420 最小尺寸（大屏无法缩到内容）；最小由布局 sizeHint 决定，720×420 仅作默认并按所在屏收紧。
+  paleo::ui_detail::resizeWithinScreen(this, QSize(720, 420).expandedTo(minimumSizeHint()));
   setButtonText(QWizard::FinishButton, tr("创建并导入"));
   if (auto *create = button(QWizard::FinishButton)) create->setObjectName(QStringLiteral("dataServiceCreateButton"));
   connect(this, &QWizard::currentIdChanged, this, &DataServiceImportWizard::refreshReview);

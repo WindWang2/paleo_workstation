@@ -24,7 +24,11 @@ inline QSize boundedToAvailable(const QSize &preferred, const QSize &avail, doub
 /// 控件所在屏（未显示时退回 primaryScreen）的可用区尺寸。
 inline QSize availableSizeFor(const QWidget *w)
 {
-    const QScreen *screen = w ? w->screen() : nullptr;
+    // 未显示的顶层对话框尚未绑定屏：以父窗口所在屏为准（多屏下随主窗，R7 #887 合并 screenfit 口径）。
+    const QWidget *anchor = w;
+    if (w && w->isWindow() && !w->isVisible() && w->parentWidget())
+        anchor = w->parentWidget()->window();
+    const QScreen *screen = anchor ? anchor->screen() : nullptr;
     if (!screen)
         screen = QGuiApplication::primaryScreen();
     return screen ? screen->availableGeometry().size() : QSize();

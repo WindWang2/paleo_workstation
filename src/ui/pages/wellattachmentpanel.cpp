@@ -78,8 +78,9 @@ WellAttachmentPanel::WellAttachmentPanel(
   setObjectName(QStringLiteral("wellAttachmentPanel"));
   setModal(false);
   setWindowTitle(tr("井附件管理"));
-  setMinimumSize(paleo::ui_detail::boundedToAvailable(QSize(720, 420), paleo::ui_detail::availableSizeFor(this))); // R6 #844
   buildUi();
+  // R7 #887：不再钉 720×420 最小尺寸（大屏无法缩到内容）；最小由布局 sizeHint 决定，720×420 仅作默认并按所在屏收紧。
+  paleo::ui_detail::resizeWithinScreen(this, QSize(720, 420).expandedTo(minimumSizeHint()));
   // 锚深编辑走 catalog mutator（changed() 触发 refresh）；软删不落
   // catalog（sidecar），由属主在命令完成后显式调 refresh()。
   setCatalog(cat);

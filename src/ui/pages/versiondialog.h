@@ -14,6 +14,7 @@
 #include <QVector>
 
 #include "../../workflow/assetops.h" // VersionCompare（对比渲染类型；计算由壳注入）
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace paleo::dataops
 {
@@ -61,7 +62,7 @@ class VersionTableDialog : public QDialog
       setObjectName(QStringLiteral("versionTableDialog"));
       setWindowTitle(tr("资产版本"));
       setModal(true);
-      resize(780, 520);
+      paleo::ui::resizeWithinScreen(this, 780, 520);
       auto *lay = new QVBoxLayout(this);
       m_title = new QLabel(this);
       m_title->setObjectName(QStringLiteral("versionDialogTitle"));

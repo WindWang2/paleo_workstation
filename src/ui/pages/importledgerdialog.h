@@ -14,6 +14,7 @@
 #include <QVBoxLayout>
 
 #include "../../workflow/importledger.h" // LedgerBatch（数据面；加载由壳完成）
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace paleo::dataops
 {
@@ -32,7 +33,7 @@ class ImportLedgerDialog : public QDialog
       setObjectName(QStringLiteral("importLedgerDialog"));
       setWindowTitle(tr("导入台账"));
       setModal(true);
-      resize(860, 500);
+      paleo::ui::resizeWithinScreen(this, 860, 500);
       auto *lay = new QVBoxLayout(this);
       m_summary = new QLabel(this);
       m_summary->setObjectName(QStringLiteral("ledgerSummary"));

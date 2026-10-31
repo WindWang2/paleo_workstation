@@ -1,4 +1,5 @@
 // 层：视图
+#include "ui/common/screenfit.h" // R7 #887
 #include "griddingdialog.h"
 
 #include <QCheckBox>
@@ -258,7 +259,7 @@ QString showVolumeReport(QWidget *parent, const QString &title,
   dlg.setObjectName(QStringLiteral("volumeReportDialog"));
   dlg.setWindowTitle(title);
   dlg.setModal(true);
-  dlg.resize(420, 360);
+  paleo::ui::resizeWithinScreen(&dlg, 420, 360);
 
   auto *text = new QPlainTextEdit(&dlg);
   text->setObjectName(QStringLiteral("volumeReportText"));

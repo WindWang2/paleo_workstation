@@ -20,6 +20,7 @@
 #include <QWheelEvent>
 #include <cmath>
 #include <functional>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace {
 QString tr(const char *text) { return QCoreApplication::translate("CoreImageViewer", text); }
@@ -96,7 +97,7 @@ public:
     setWindowFlag(Qt::WindowMaximizeButtonHint);
     const QString name = item.caption.isEmpty() ? QFileInfo(item.imagePath).fileName() : item.caption;
     setWindowTitle(::tr("岩心照片 — %1").arg(wellName.isEmpty() ? name : wellName + " · " + name));
-    resize(900, 700);
+    paleo::ui::resizeWithinScreen(this, 900, 700);
     auto *layout = new QVBoxLayout(this);
     const int margin = PaleoTheme::tokens().spacingMd;
     layout->setContentsMargins(margin, margin, margin, margin);

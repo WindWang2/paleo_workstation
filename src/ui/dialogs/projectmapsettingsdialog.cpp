@@ -16,6 +16,7 @@
 #include <QScrollArea>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace
 {
@@ -33,7 +34,7 @@ ProjectMapSettingsDialog::ProjectMapSettingsDialog(const PaleoProjectFile &confi
 {
   setWindowTitle(tr("工程坐标与底图"));
   setObjectName(QStringLiteral("projectMapSettingsDialog"));
-  resize(620, 700);
+  paleo::ui::resizeWithinScreen(this, 620, 700);
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd,
                              PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd);

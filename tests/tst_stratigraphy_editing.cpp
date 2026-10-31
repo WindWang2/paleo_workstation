@@ -90,6 +90,18 @@ private slots:
   QVERIFY(wf.loadVersion(fixture.interpretation,QString::fromStdString(saved)));QCOMPARE(boundary(wf,id,"T72").md,142.);QVERIFY(!wf.canUndo());
   wf.setProject(fixture.directory.path(),true);wf.addBoundary(id,118,"read only");QCOMPARE(wf.document().revision,saved);
  }
+ // #868/#869：未保存时「加载井道图」走 PaleoNotify::ask，离屏默认拒绝（旧 QMessageBox 会阻塞）；
+ // 页内 Ctrl+Z（stratigraphy.undo）撤销编辑。
+ void unsavedReplaceDefaultsToCancelAndUndoShortcut() {
+  Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));StratigraphyWorkflow wf(nullptr);wf.setProject(fixture.directory.path(),false);
+  StratigraphyPage page(&wf);page.show();QVERIFY(QTest::qWaitForWindowExposed(&page));
+  const auto id=fixture.first;wf.addBoundary(id,120,"Manual pick");QVERIFY(wf.hasUnsavedChanges());const auto cycles=well(wf,id).cycles.size();
+  auto* load=page.findChild<QPushButton*>("loadCorrelationWells");QVERIFY(load);load->click();
+  QVERIFY(wf.hasUnsavedChanges());QCOMPARE(well(wf,id).cycles.size(),cycles);
+  QVERIFY(wf.canUndo());page.activateWindow();page.setFocus();
+  QTest::keySequence(&page,QKeySequence(QKeySequence::Undo));QCoreApplication::processEvents();
+  QCOMPARE(well(wf,id).cycles.size(),cycles-1);
+ }
  void annotationOnWellTracksAndFlattenedDrag() {
   PaleoTheme::applyLightTheme();
   Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));StratigraphyWorkflow wf(nullptr);wf.setProject(fixture.directory.path(),false);

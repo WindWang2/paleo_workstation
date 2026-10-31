@@ -98,7 +98,8 @@ private slots:
   const auto id=fixture.first;wf.addBoundary(id,120,"Manual pick");QVERIFY(wf.hasUnsavedChanges());const auto cycles=well(wf,id).cycles.size();
   auto* load=page.findChild<QPushButton*>("loadCorrelationWells");QVERIFY(load);load->click();
   QVERIFY(wf.hasUnsavedChanges());QCOMPARE(well(wf,id).cycles.size(),cycles);
-  QVERIFY(wf.canUndo());page.activateWindow();page.setFocus();
+  QVERIFY(wf.canUndo());auto* undoButton=page.findChild<QPushButton*>("undoInterpretation");QVERIFY(undoButton);QTRY_VERIFY(undoButton->isEnabled());
+  page.activateWindow();QVERIFY(QTest::qWaitForWindowActive(&page));page.setFocus();
   QTest::keySequence(&page,QKeySequence(QKeySequence::Undo));QCoreApplication::processEvents();
   QCOMPARE(well(wf,id).cycles.size(),cycles-1);
  }

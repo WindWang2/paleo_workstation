@@ -37,6 +37,11 @@ namespace
           m_right->installEventFilter(this);
         if (QWidget *tabs = bar->ribbonTabBar())
           tabs->installEventFilter(this);
+        // R7 #884：快速访问栏与页签同处标题行。成品在挂上 fitter 之后才往 QAB 里加
+        // 保存/撤销/重做——原先只盯右侧组的 ActionAdded，QAB 变宽不触发重排，
+        // HiDPI 下页签被挤进横滚而搜索框仍展开。
+        if (QWidget *qab = bar->quickAccessBar())
+          qab->installEventFilter(this);
         connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) {
           if (m_expanded)
             QTimer::singleShot(0, this, [this, now = QPointer<QWidget>(now)] { maybeCollapse(now); });
@@ -154,6 +159,13 @@ namespace
                 QTimer::singleShot(0, this, [this] { keepMoreLast(); });
               schedule();
             }
+            else if (obj == m_bar->quickAccessBar())
+              schedule();
+            break;
+          case QEvent::ActionRemoved:
+          case QEvent::ActionChanged:
+            if (obj == m_bar->quickAccessBar())
+              schedule();
             break;
           case QEvent::FontChange:
           case QEvent::StyleChange:
@@ -162,8 +174,8 @@ namespace
 #endif
             schedule();
             break;
-          case QEvent::LayoutRequest: // 页签文字 / 增删页签改了页签行宽
-            if (obj == m_bar->ribbonTabBar())
+          case QEvent::LayoutRequest: // 页签文字 / 增删页签 / QAB 按钮文字改了标题行宽
+            if (obj == m_bar->ribbonTabBar() || obj == m_bar->quickAccessBar())
               schedule();
             break;
           default:
@@ -186,8 +198,14 @@ namespace
         const int rightEnd = m_right->geometry().right() + 1;
         const QMargins tm = tb->tabMargin();
         int used = tb->x() + tb->sizeHint().width() + tm.left() + tm.right();
-        if (QWidget *qab = m_bar->quickAccessBar(); qab && qab->isVisibleTo(m_bar) && qab->x() >= tb->x())
-          used += qab->sizeHint().width();
+        // R7 #884：QAB 是否与页签同行按纵向重叠判断，不按当前 x——页签已被挤占时 SARibbon
+        // 把 QAB 摆到 endX - qabW，可能落到页签起点左侧，原 x 判据会漏算 QAB → deficit 归零。
+        if (QWidget *qab = m_bar->quickAccessBar(); qab && qab->isVisibleTo(m_bar))
+        {
+          const QRect q = qab->geometry(), t = tb->geometry();
+          if (q.top() < t.bottom() && q.bottom() > t.top())
+            used += qab->sizeHint().width();
+        }
         const int slack = QFontMetrics(m_bar->font()).averageCharWidth();
         return rightEnd - used - slack;
       }

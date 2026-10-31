@@ -357,9 +357,43 @@ private slots:
     auto rows = summarizeSubIntervalOccurrences( scheme, iid, nullptr );
     QCOMPARE( rows.size(), 4 );
     QCOMPARE( rows.at( 0 ).label, QStringLiteral( "S1" ) );
-    QVERIFY( rows.at( 0 ).wellsComplete >= 1 );
-    QCOMPARE( rows.at( 0 ).light, QStringLiteral( "green" ) );
-    QVERIFY( rows.at( 0 ).line.contains( QStringLiteral( "[绿]" ) ) );
+    // #862：草稿内部分界全 NaN（按比例派生）→ 不得报 [绿]
+    QCOMPARE( rows.at( 0 ).wellsComplete, 0 );
+    QVERIFY( rows.at( 0 ).wellsProvisional >= 1 );
+    QCOMPARE( rows.at( 0 ).light, QStringLiteral( "yellow" ) );
+    QVERIFY( rows.at( 0 ).line.contains( QStringLiteral( "按比例派生" ) ) );
+    QVERIFY( !rows.at( 0 ).line.contains( QStringLiteral( "[绿]" ) ) );
+    {
+      // 所有井的内部三分界均解释确认 → S1..S4 已约束 → 绿；
+      // 仅确认 internal[0] → S1 顶底（父顶 + internal[0]）已约束、S2 仍派生：行可区分。
+      auto confirmedAll = scheme;
+      auto firstOnly = scheme;
+      for ( size_t k = 0; k < scheme.wellOccurrences.size(); ++k )
+      {
+        auto &a = confirmedAll.wellOccurrences[k];
+        auto &f = firstOnly.wellOccurrences[k];
+        if ( a.interval.value != iid.toStdString() || !std::isfinite( a.top ) || !std::isfinite( a.bottom ) )
+          continue;
+        const double h = a.bottom - a.top;
+        for ( int j = 0; j < 3; ++j )
+        {
+          a.internal[j] = a.top + h * ( j + 1 ) / 4.0;
+          a.internalStatus[j] = "confirmed";
+        }
+        f.internal[0] = f.top + h / 4.0;
+        f.internalStatus[0] = "confirmed";
+      }
+      const auto all = summarizeSubIntervalOccurrences( confirmedAll, iid, nullptr );
+      QCOMPARE( all.at( 0 ).light, QStringLiteral( "green" ) );
+      QCOMPARE( all.at( 3 ).light, QStringLiteral( "green" ) );
+      QCOMPARE( all.at( 0 ).wellsProvisional, 0 );
+      const auto first = summarizeSubIntervalOccurrences( firstOnly, iid, nullptr );
+      QVERIFY( first.at( 0 ).wellsComplete >= 1 );
+      QCOMPARE( first.at( 0 ).wellsProvisional, 0 );
+      QCOMPARE( first.at( 1 ).wellsComplete, 0 );
+      QVERIFY( first.at( 1 ).wellsProvisional >= 1 );
+      QVERIFY( first.at( 0 ).light != first.at( 1 ).light );
+    }
 
     // 注入 stale 绑定 → 应变红
     std::vector<paleo::data::SubIntervalResultBinding> binds;

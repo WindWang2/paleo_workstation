@@ -154,8 +154,18 @@ namespace
         lay->invalidate();
         // 同步落几何：stub 刚插入时停在 x=0，等下一轮事件才排开会短暂叠放。
         if (m_cat->isVisible())
-          lay->setGeometry(m_cat->contentsRect());
+          lay->setGeometry(m_cat->rect());
         m_applying = false;
+        // 隐藏时插入的 stub 要等可见后再排一次；同步那次可能被 SARibbon 的重入守卫吞掉。
+        QTimer::singleShot(0, this, [this] {
+          if (!m_cat || !m_cat->isVisible())
+            return;
+          if (auto *l = qobject_cast<SARibbonCategoryLayout *>(m_cat->layout()))
+          {
+            l->invalidate();
+            l->setGeometry(m_cat->rect());
+          }
+        });
         PaleoRibbon::makeKeyboardReachable(m_cat);
       }
 

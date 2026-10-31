@@ -173,7 +173,34 @@ private slots:
   void failedBatchFlushRollsBackMemory();
   void openSkipsIdsOfOrphanedManagedDirs();
   void generationEvidenceIsImmutableAfterRegistration();
+  void missingKbTdReadBackAsNullopt();
 };
+
+// #890：kb/td 缺失在 sqlite 里是伪 0 + '#kbMissing' 标记；唯一读法
+// kbValue()/tdValue() 必须给 nullopt，真 0 仍是 0，内部键不漏进 extra。
+void TestDataCatalogSqlite::missingKbTdReadBackAsNullopt()
+{
+  QTemporaryDir tmp; QVERIFY(tmp.isValid()); QString error;
+  {
+    DataCatalog catalog; QVERIFY2(catalog.open(tmp.path(), &error), qPrintable(error));
+    CatalogEntity a = wellEntity(QStringLiteral("w-missing"), QStringLiteral("M1"));
+    a.kb = qQNaN(); a.td = qQNaN();
+    CatalogEntity b = wellEntity(QStringLiteral("w-zero"), QStringLiteral("Z1"));
+    b.kb = 0.0; b.td = 1234.5;
+    QVERIFY2(catalog.addEntity(a, &error), qPrintable(error));
+    QVERIFY2(catalog.addEntity(b, &error), qPrintable(error));
+  }
+  DataCatalog reopened; QVERIFY2(reopened.open(tmp.path(), &error), qPrintable(error));
+  const CatalogEntity a = reopened.entityById(QStringLiteral("w-missing"));
+  const CatalogEntity b = reopened.entityById(QStringLiteral("w-zero"));
+  QVERIFY(!a.kbValue().has_value());
+  QVERIFY(!a.tdValue().has_value());
+  QVERIFY(b.kbValue().has_value());
+  QCOMPARE(*b.kbValue(), 0.0);
+  QCOMPARE(b.tdValue().value_or(-1.0), 1234.5);
+  QVERIFY(!a.extra.contains(QStringLiteral("#kbMissing")));
+  QVERIFY(!b.extra.contains(QStringLiteral("#tdMissing")));
+}
 
 void TestDataCatalogSqlite::generationEvidenceIsImmutableAfterRegistration()
 {

@@ -10,6 +10,7 @@
 #include "../metadata/layermanifest.h"
 
 #include <QDir>
+#include <QtNumeric>
 #include <QFile>
 #include <QFileInfo>
 #include <QSet>
@@ -96,7 +97,7 @@ QVector<ProjectWell> ProjectDataFacade::wells() const
     w.name = e.name;
     w.surfaceX = e.surfaceX;
     w.surfaceY = e.surfaceY;
-    w.kb = e.kb;
+    w.kb = e.kbValue().value_or(qQNaN()); // #890：缺失保持 NaN
     w.coordinateStatus = e.coordinateStatus;
     w.coordinateSystem = e.extra.value("wellCoordinatesCrs").toString();
     w.coordinateUnit = e.extra.value("wellCoordinateUnit").toString();

@@ -1146,10 +1146,12 @@ void EntityPanel::refresh()
     }
     if (propZRange)
     {
-      if (view.entity.td > 0)
+      const auto td = view.entity.tdValue();
+      const auto kb = view.entity.kbValue();
+      if (td && *td > 0)
         propZRange->setText(tr("完钻井深 %1 m (补心高 %2 m)")
-            .arg(QString::number(view.entity.td, 'f', 2))
-            .arg(QString::number(view.entity.kb, 'f', 2)));
+            .arg(QString::number(*td, 'f', 2))
+            .arg(kb ? QString::number(*kb, 'f', 2) : tr("—")));
       else
         propZRange->setText(tr("—"));
     }

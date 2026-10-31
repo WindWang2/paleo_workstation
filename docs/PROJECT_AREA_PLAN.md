@@ -100,6 +100,8 @@ D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P
 
 井在剖面上的位置、最近层位采样和残差都用该层分层点的 X、Y。分层点没有坐标时才退回井口。井口和分层点相差超过一个像元时，剖面上标出这个偏移。第一段默认打开的测线是 A1 对应的那条 inline。
 
+**井 kb/td 缺失（#890）**：catalog.sqlite 的 kb/td 列 NOT NULL，不做 schema 变更；缺失落为伪 0 + extra 内部键 `#kbMissing`/`#tdMissing`（旧库无前缀键同样认）。装载唯一经 `catalog_detail::storedKb/storedTd` 还原为 NaN；业务代码只经 `CatalogEntity::kbValue()/tdValue()`（`std::optional<double>`）读取，不直接读裸 `kb`/`td`。
+
 ## 4. 数据页用标签页预览
 
 预览只出现在数据管理页，不泄漏到预测、约束、编图、验证。顶部工作流标签栏仍然是唯一的签名元素。预览用页内普通的 `QTabWidget`，样式走 `DESIGN.md` 的 dock 面板，不用工作流标签的蓝色下划线。

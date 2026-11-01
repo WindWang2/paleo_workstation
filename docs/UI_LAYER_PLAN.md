@@ -212,7 +212,11 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 `src/ui/workbench/mappingworkbenchcommandcontroller.cpp`——`WorkbenchCommandHandler`
 接口的首个工作台控制器；`paleomainwindow.h` 删 `runWorkbenchCommand` 声明。）
 
-家族全表（`src/ui/paleomainwindow_*.cpp` 30 TU + 本体 1 行 = 表 31 行，平铺不
+**实测（2026-11-01，fix/r9-all-20261101 集成）：paleomainwindow.cpp 964 行（家族 31 TU）**
+（#748 撤销组：`_undogroup.cpp` 承载 `undoRouter`/`bindUndoGroup`，本 TU 不直连 qgs*；
+`newLayoutShell` 落在已入基线的 `_attach_compose.cpp`。与 #749 迁出 `_workbench_commands.cpp` 相抵后净 +1。）
+
+家族全表（`src/ui/paleomainwindow_*.cpp` 31 TU + 本体 1 行 = 表 32 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：
 
@@ -248,6 +252,7 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 | `_attach_python.cpp` | 36 | Python 控制台/REPL 接线（方向 68） |
 | `_projectsetup.cpp` | 25 | 新建工程可选资料向导接线 |
 | `_seismic.cpp` | 183 | 地震体→停靠面板同步（syncSeismicVolumeToDocks；PW 深审批 file-budget 拆分） |
+| `_undogroup.cpp` | 22 | 撤销组域（#748）：QUndoGroup 路由器懒建与编辑工具条/画布作用域登记 |
 | `_faults.cpp` | 27 | 断层解释壳接线（方向 7）：剖面 dock 编排器 + 管理面板 dock |
 
 （`paleoribbon.cpp`/`ribbonpanels.cpp` 是 ribbon 命令组构建与镜像绑定的

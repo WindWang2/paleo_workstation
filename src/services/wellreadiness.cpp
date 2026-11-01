@@ -2,6 +2,7 @@
 #include "wellreadiness.h"
 #include "catalog/datacatalog.h"
 #include "catalog/wellavailability.h"
+#include "domain/seismic/timedepthmodel.h"
 #include "io/wellfileparsers.h"
 #include "io/timedeptool.h"
 #include <paleo_data/service.h>
@@ -36,19 +37,22 @@ QString stampOf(const QString &root) {
   return stamp;
 }
 
-// 与 ProjectDataFacade::tdTableFor 的元数据门同口径：单位 / 单双程 / 基准
-// 已确认 + 至少两个有限样点（深度换算交给消费端的严格表，这里只判可用性）。
+// 与 ProjectDataFacade::tdTableFor 的元数据门同口径，并进一步对齐装配端
+// 严格表可建性（HY 验收 2026-11-01：HZ19-3-2 确认通过但 826 行含 53 处
+// 时间回落，装配 setCheckshots 整表拒——就绪层须同步拒，避免「过滤放行
+// 又在剖面报错」）：域外段（时间零点以上）裁剪后须能建严格表
+//（≥2 点 + 深度/时间双严格递增——TimeDepthModel::setCheckshots 自带）。
 bool relationUsable(const data::TimeDepthTable &t) {
   if ((t.timeUnit != "ms" && t.timeUnit != "s") ||
       (t.timeType != "TWT" && t.timeType != "OWT") || t.timeReference.empty() ||
       (t.depthInfo.depthUnit != "m" && t.depthInfo.depthUnit != "ft"))
     return false;
-  int finite = 0;
-  for (const auto &p : t.depthTimePairs) {
-    if (std::isfinite(p.depthValue) && std::isfinite(p.timeValue) && ++finite >= 2)
-      return true;
-  }
-  return false;
+  std::vector<seismic::TdPoint> points;
+  for (const auto &p : t.depthTimePairs)
+    if (std::isfinite(p.depthValue) && std::isfinite(p.timeValue) && p.timeValue >= 0.0)
+      points.push_back({p.depthValue, p.timeValue});
+  seismic::TimeDepthModel model;
+  return model.setCheckshots(points);
 }
 } // namespace
 

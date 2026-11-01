@@ -2031,6 +2031,18 @@ private slots:
         "200.000          -2000.000        2000.000       2000.000\n")));
     QVERIFY(addFileLink(cat,"two","time_depth","td-two",a9Td,"time_depth",&detail));
     QVERIFY(addFileLink(cat,"two","well_log","log-two",lasFile,"well_log",&detail));
+    // three = 脏井回归（HZ19-3-2 型）：时间回落行——确认通过但严格表拒，
+    // 就绪层须同步拒（口径与装配对齐，不「放行又在剖面报错」）。
+    const auto dirtyFile=dir.filePath("Dirty_TDR");
+    QVERIFY(writeText(dirtyFile,QString::fromUtf8(
+        "# Petrel checkshots format\n# Unit in depth: m\nVERSION 1\nBEGIN HEADER\nX\nY\nZ\n"
+        "TWT picked\nMD\nWell\nEND HEADER\n"
+        "1 2 -100 -50 110 \"A7\"\n"
+        "1 2 -150 -80 150 \"A7\"\n"
+        "1 2 -200 -70 210 \"A7\"\n")));
+    QVERIFY2(data.importFile(dirtyFile.toUtf8().toStdString(),{},report,error),error.c_str());
+    QVERIFY(addEntity(cat,"three","A7",true,0,600,210));
+    QVERIFY(addFileLink(cat,"three","time_depth","td-three",dirtyFile,"time_depth",&detail));
     ProjectDataFacade facade;facade.setCatalog(&cat,project);
     // 确认前：元数据门拒绝（不猜单位/基准），诊断可行动。
     QVERIFY(facade.tdTableFor("one").isEmpty());
@@ -2049,6 +2061,9 @@ private slots:
     QVERIFY(!facade.confirmTimeDepthSemantics("no-such-well","ms","TWT","MSL",true,&confirmError));
     QVERIFY(confirmError.contains(QStringLiteral("时深资产")));
     QVERIFY2(facade.confirmTimeDepthSemantics("one","ms","TWT","MSL",true,&confirmError),
+             qPrintable(confirmError));
+    // 脏井也走确认（元数据门应通过）——但时间回落使严格表不可建。
+    QVERIFY2(facade.confirmTimeDepthSemantics("three","ms","TWT","MSL",true,&confirmError),
              qPrintable(confirmError));
     // 确认后：同井表读取交付确认口径（浅表负时间原样、域内正时间）+ 确认基准
     //（原始库值不动由服务侧测试覆盖）。
@@ -2070,6 +2085,8 @@ private slots:
     const auto readinessAfter=paleo::analysisReadiness(&cat,project);
     QVERIFY(readinessAfter.value("one").analysisReady());
     QVERIFY(readinessAfter.value("two").analysisReady());
+    QVERIFY(!readinessAfter.value("three").tdUsable); // 确认过但脏表——严格拒
+    QVERIFY(!readinessAfter.value("three").analysisReady());
     WellSectionWorkflow wf(&cat);
     const auto choices=wf.wellChoices();
     QCOMPARE(choices.size(),2);

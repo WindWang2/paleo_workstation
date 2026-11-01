@@ -4,6 +4,9 @@
 #                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。
 #   build                : $env:CI 已设时 ninja -k 0，一次暴露全部编译错误。
 #   test                 : $env:PALEO_CTEST_ARGS 透传给 ctest（如 "-LE perf"）。
+#   diagdeps <test>      : #872 探针失败诊断——列 build 下 <test>.exe 的
+#                          dumpbin /dependents，并在测试同款 PATH 下逐个
+#                          定位（MISSING 即加载器 0xC0000135 的根因候选）。
 #   checkenv             : Qt 编译/运行链一致性自检（方向 72 防回归）。
 #   ensure-resources     : 补齐 QGIS 前缀 resources/**（含 srs.db；方向 81，
 #                          localdeps 的 test/selfcheck 缺 srs.db 时自动调用）。
@@ -445,6 +448,15 @@ switch ($Verb) {
   }
   'test' {
     Enter-DependencyEnvironment
+    # #872：CI 下在 ctest 的父进程内设 SetErrorMode（可继承给测试子进程）：
+    # SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|SEM_NOOPENFILEERRORBOX，
+    # 缺 DLL/崩溃即带退出码返回而非弹模态框吊到 TIMEOUT。此前只在 ci.yml
+    # 的 pwsh 步里设，本地/其他入口调 test 时缺这一层；这里收为单一真源
+    # （ci.yml 保留同值冗余兜底）。本机交互调试要 JIT 弹窗时不设 CI 即可。
+    if ($env:CI) {
+      Add-Type -Namespace PaleoDev -Name Native -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetErrorMode(uint mode);'
+      [void][PaleoDev.Native]::SetErrorMode(0x8003)
+    }
     $env:QT_QPA_PLATFORM = 'offscreen'
     # 方向 72：本机沙箱策略对「镜像位于仓库树内的进程」实施文件监狱——只能
     # 写树内路径。%TEMP% 默认在树外 → QTemporaryDir/QFile 全线「拒绝访问」
@@ -672,6 +684,32 @@ switch ($Verb) {
         } catch { "  (flaky 台账检查器不可用：$_)" | Tee-Object -FilePath $log -Append }
       }
     }
+  }
+  'diagdeps' {
+    # #872：探针（tst_runtime 等首个 C++ 测试）判红后的依赖清单。只读诊断，
+    # 不改构建树；任何一步失败都只打 warning，不掩盖探针本身的红。
+    if (-not $Arg) { throw 'usage: paleo-dev.ps1 diagdeps <test-name>' }
+    $ErrorActionPreference = 'Continue'
+    Enter-DependencyEnvironment
+    try { Enter-MsvcEnvironment } catch { Write-Warning "MSVC 环境不可用（$_），跳过 dumpbin" }
+    $exe = Get-ChildItem -Path $Build -Recurse -File -Filter "$Arg.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $exe) { Write-Warning "build 下找不到 $Arg.exe"; exit 0 }
+    Write-Host "== $($exe.FullName) =="
+    if (-not (Get-Command dumpbin.exe -ErrorAction SilentlyContinue)) {
+      Write-Warning 'dumpbin.exe 不在 PATH，无法列依赖'; exit 0
+    }
+    $deps = @(& dumpbin.exe /nologo /dependents $exe.FullName |
+      Where-Object { $_ -match '^\s+(\S+\.dll)\s*$' } | ForEach-Object { $Matches[1] })
+    $missing = 0
+    foreach ($d in $deps) {
+      $hit = Get-Command $d -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+      if (-not $hit -and (Test-Path (Join-Path $exe.DirectoryName $d))) { $hit = Get-Item (Join-Path $exe.DirectoryName $d) }
+      if ($hit) { "  ok      {0} -> {1}" -f $d, $(if ($hit.Source) { $hit.Source } else { $hit.FullName }) }
+      elseif ($d -match '^(api-ms-|ext-ms-)') { "  apiset  $d" }
+      else { "  MISSING $d"; $missing++ }
+    }
+    if ($missing -gt 0) { Write-Host "::error::$Arg.exe 有 $missing 个直接依赖 DLL 在测试 PATH 下找不到（加载器 0xC0000135 候选根因）" }
+    exit 0
   }
   'selfcheck' {
     Enter-DependencyEnvironment

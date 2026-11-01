@@ -196,11 +196,18 @@ private slots:
     const auto well = onlyWellId(*stack.imports->catalog()); doc.wellTopsForLog(well, &result, &warnings);
     QCOMPARE(result.size(), 2); QCOMPARE(result[0].md, 180.0); QCOMPARE(result[1].md, 220.0);
     QVERIFY(!warnings.isEmpty());
-    // 修订对照文件为重复 TVD、多解 MD；不把 TVD 直接冒充 MD。
-    QVERIFY(ImportUxFixtures::write(td,
-        "#TimeDepth File From SMI\n# Well : A1\n0 0 0 0\n1 -100 100 120\n2 -100 100 240\n"));
+    // 时深表已绑定进数据服务：原地改写来源文件后旧对象拒读，TVD 分层不绘制，
+    // 也不退回直井等深把 TVD 冒充 MD。
+    const QByteArray revised = "#TimeDepth File From SMI\n# Well : A1\n0 0 0 0\n1 -100 100 120\n2 -100 100 240\n";
+    QVERIFY(ImportUxFixtures::write(td, revised));
     doc.wellTopsForLog(well, &result, &warnings);
-    QCOMPARE(result.size(), 1); QCOMPARE(result.first().md, 220.0); QVERIFY(warnings.join(' ').contains("不单调"));
+    QCOMPARE(result.size(), 1); QCOMPARE(result.first().md, 220.0);
+    QVERIFY2(warnings.join(' ').contains("时深表不可用"), qPrintable(warnings.join(' ')));
+    // 重新导入修订后的对照（重复 TVD、多解 MD）：判为不单调，仍不把 TVD 冒充 MD。
+    QVERIFY2(!stack.imports->importProjectFile(td, options, &error).isEmpty(), qPrintable(error));
+    doc.wellTopsForLog(well, &result, &warnings);
+    QCOMPARE(result.size(), 1); QCOMPARE(result.first().md, 220.0);
+    QVERIFY2(warnings.join(' ').contains("不单调"), qPrintable(warnings.join(' ')));
     options.forceType = "well_deviation";
     // TVD 150 -> MD 300 is interpolation inside this 60-degree survey.
     const auto deviation = stack.source("A1_dev.dat", "# Well : A1\n0 60 0\n1000 60 0\n");

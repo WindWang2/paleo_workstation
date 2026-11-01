@@ -152,7 +152,10 @@ seismic::TimeDepthModel SectionWorkbench::modelFor(const QString &id, bool md,
   std::vector<seismic::TdPoint> points;
   for (const auto &p : m_data.tdTableFor(id)) {
     double d = md ? p.md : p.tvd;
-    if (std::isfinite(d) && std::isfinite(p.timeMs))
+    // 时间基准面以上的采样（确认 negated 口径后时间为负——海拔在零点之上）
+    // 在地震时间域之外（体自 0ms 起，之上无同相轴可对），裁掉域外段再建
+    // 严格表；不改值（#476：负时间进表即整表拒，由调用方守域）。
+    if (std::isfinite(d) && std::isfinite(p.timeMs) && p.timeMs >= 0.0)
       points.push_back({d, p.timeMs});
   }
   *ok = model.setCheckshots(points);

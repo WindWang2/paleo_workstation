@@ -1992,9 +1992,12 @@ private slots:
              data.openProject(paleo::area_model::directory(project).toUtf8().toStdString(),error),error.c_str());
     QVERIFY(data.setProjectCrs("EPSG:32650","m",error));
     const auto tdFile=dir.filePath("Merge_TDR");
+    // 首行海拔 +50（海平面以上）：确认 negated 口径后时间为负（-35）——
+    // 地震时间域外，建表须裁掉，不因此整表拒（HZ19-6-1d/DT_ALL 实例）。
     QVERIFY(writeText(tdFile,QString::fromUtf8(
         "# Petrel checkshots format\n# Unit in depth: m\nVERSION 1\nBEGIN HEADER\nX\nY\nZ\n"
-        "TWT picked\nMD\nWell\nEND HEADER\n1 2 -100 -50 110 \"A1\"\n1 2 -200 -100 210 \"A1\"\n")));
+        "TWT picked\nMD\nWell\nEND HEADER\n"
+        "1 2 50 35 0 \"A1\"\n1 2 -100 -50 110 \"A1\"\n1 2 -200 -100 210 \"A1\"\n")));
     paleo::data::ImportReport report;
     QVERIFY2(data.importFile(tdFile.toUtf8().toStdString(),{},report,error),error.c_str());
     paleo::area_model::registerProject(project,&data);
@@ -2014,12 +2017,21 @@ private slots:
     QVERIFY(confirmError.contains(QStringLiteral("时深资产")));
     QVERIFY2(facade.confirmTimeDepthSemantics("one","ms","TWT","MSL",true,&confirmError),
              qPrintable(confirmError));
-    // 确认后：同井表读取交付正时间 + 确认基准（原始库值不动由服务侧测试覆盖）。
+    // 确认后：同井表读取交付确认口径（浅表负时间原样、域内正时间）+ 确认基准
+    //（原始库值不动由服务侧测试覆盖）。
     const auto rows=facade.tdTableFor("one");
-    QCOMPARE(rows.size(),2);
-    QCOMPARE(rows[0].md,110.);QCOMPARE(rows[0].timeMs,50.);
-    QCOMPARE(rows[1].md,210.);QCOMPARE(rows[1].timeMs,100.);
+    QCOMPARE(rows.size(),3);
+    QCOMPARE(rows[0].md,0.);QCOMPARE(rows[0].timeMs,-35.);
+    QCOMPARE(rows[1].md,110.);QCOMPARE(rows[1].timeMs,50.);
+    QCOMPARE(rows[2].md,210.);QCOMPARE(rows[2].timeMs,100.);
     QCOMPARE(rows[0].timeReference,QStringLiteral("MSL"));
+    // 建模：时间基准面以上段被裁（不整表拒），域内插值可用、域外 NaN。
+    SectionWorkbench workbench(&cat);
+    seismic::TimeDepthModel model;double shift=0;QString status,ref;
+    QVERIFY(workbench.mdTimeDepth("one",&model,&shift,&status,&ref));
+    QCOMPARE(ref,QStringLiteral("MSL"));
+    QVERIFY(!std::isfinite(model.DepthToTwtMs(50.)));
+    QVERIFY(std::abs(model.DepthToTwtMs(150.)-70.)<1e-9); // 110→50、210→100 线性内插
     QVERIFY(facade.lastError().isEmpty());
   }
 

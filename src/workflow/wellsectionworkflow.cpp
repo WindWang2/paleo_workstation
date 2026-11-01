@@ -306,7 +306,9 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       std::vector<seismic::TdPoint> points;
       bool tvdOnlyRows = false;
       for (const TdSample &s : td) {
-        if (std::isfinite(s.md) && std::isfinite(s.timeMs))
+        // 时间基准面以上（确认 negated 口径后时间为负）的采样在地震时间域
+        // 之外——裁掉域外段建严格表，不改值（与 workbench::modelFor 同口径）。
+        if (std::isfinite(s.md) && std::isfinite(s.timeMs) && s.timeMs >= 0.0)
           points.push_back({s.md, s.timeMs});
         else if (!std::isfinite(s.md) && std::isfinite(s.tvd))
           tvdOnlyRows = true;

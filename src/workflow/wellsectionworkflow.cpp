@@ -19,6 +19,7 @@
 #include "services/seismictaskservice.h"
 #include "services/seismicdataaccess.h"
 #include "services/welllogset.h"
+#include "services/wellreadiness.h"
 #include "services/areawellchart.h"
 #include <QCoreApplication>
 #include <QDateTime>
@@ -177,8 +178,11 @@ QVector<WellSectionWorkflow::WellChoice>
 WellSectionWorkflow::wellChoices() const {
   QVector<WellChoice> out;
   syncData();
+  // 就绪井口径（HY 验收 2026-11-01）：分析选井面只进「曲线+可用时深」双全
+  // 的井；stamp 缓存，确认/导入后自愈。数据管理面不受此过滤。
+  const auto readiness = paleo::analysisReadiness(m_catalog, projectDir());
   for (const ProjectWell &w : m_data.wells())
-    if(wellSupportsAnalysis(m_catalog,m_catalog->entityById(w.id))) out.push_back({w.id, w.name, usableCoords(w),
+    if(readiness.value(w.id).analysisReady()) out.push_back({w.id, w.name, usableCoords(w),
                    usableCoords(w) ? w.surfaceX : qQNaN(),
                    usableCoords(w) ? w.surfaceY : qQNaN()});
   return out;

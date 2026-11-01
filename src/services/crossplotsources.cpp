@@ -1,5 +1,6 @@
 // 层：数据
 #include "crossplotsources.h"
+#include "wellreadiness.h"
 #include "fspathutils.h"
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyvolume.h"
@@ -26,8 +27,12 @@ CrossplotSources::inventory(DataCatalog *cat, const QString &dir,
   QVector<SourceSpec> out;
   if (!cat || !cat->isOpen())
     return out;
+  // 就绪井口径（HY 验收 2026-11-01）：交会图井源只进「曲线+可用时深」双全
+  // 的井（stamp 缓存，确认/导入后自愈）；数据管理面不受此过滤。
+  const auto readiness = paleo::analysisReadiness(cat, dir);
   for (const auto &entity : cat->entities())
-    if (entity.entityType == QLatin1String("well"))
+    if (entity.entityType == QLatin1String("well") &&
+        readiness.value(entity.id).analysisReady())
       for (const auto &ref : WellLogSet::wellCurveIndex(cat, dir, entity.id)) {
         // 头解析失败的文件已由 WellLogSet 跳过。sha/managed 按源版本回查。
         const CatalogVersion version = cat->versionById(ref.sourceVersionId);

@@ -6,6 +6,7 @@
 #include "metadata/wellsectionstore.h"
 #include "services/paleotaskservice.h"
 #include "services/projectdata.h"
+#include "services/wellreadiness.h"
 #include "services/seismictaskservice.h"
 #include "io/areamodel.h"
 #include "services/seismicdataaccess.h"
@@ -160,10 +161,14 @@ bool buildCatalog(DataCatalog &cat, const QDir &dir, QString *err) {
                              "100.000          -1000.000        1000.000       1000.000\n"
                              "200.000          -2000.000        2000.000       2000.000\n")))
     return false;
-  if (!addFileLink(cat, QStringLiteral("well-1"), QStringLiteral("time_depth"),
-                   QStringLiteral("ast-td"), tdPath,
-                   QStringLiteral("time_depth"), err))
-    return false;
+  // 就绪井口径（HY 验收 2026-11-01）：选井面只进「曲线+可用时深」双全的井
+  //——三口装配井都补主时深表（legacy 固定列序），保持 3 井装配场景。
+  for (const QString &id : {QStringLiteral("well-1"), QStringLiteral("well-2"),
+                            QStringLiteral("well-3")})
+    if (!addFileLink(cat, id, QStringLiteral("time_depth"),
+                     QStringLiteral("ast-td-%1").arg(id), tdPath,
+                     QStringLiteral("time_depth"), err))
+      return false;
   const QString las1 =
       writeLas(dir.filePath(QStringLiteral("a1.las")), QStringLiteral("M"),
                {QStringLiteral("DEPT"), QStringLiteral("NGR"),
@@ -531,7 +536,9 @@ private slots:
              "METER 是规范别名，不得按未知单位丢弃");
 
     const auto &w2 = wells[0];
-    QVERIFY(!w2.timeDepth.has_value()); // 无时深关联
+    // 就绪口径夹具翻新：三口井都挂了主时深表（wellChoices 过滤所需），
+    // well-2 现同样有时深（同一份有效固定列序表）。
+    QVERIFY(w2.timeDepth.has_value());
     QVERIFY(std::isnan(w2.totalDepth));
     const auto *gr2 = w2.curve("GR");
     QVERIFY(gr2);
@@ -2004,11 +2011,37 @@ private slots:
     const auto cleanup=qScopeGuard([&]{paleo::area_model::unregisterProject(&data);});
     DataCatalog cat;QString detail;QVERIFY2(cat.open(project,&detail),qPrintable(detail));
     QVERIFY(addEntity(cat,"one","A1",true,0,0,210));
+    QVERIFY(addEntity(cat,"two","A9",true,0,300,210));
     QVERIFY(addFileLink(cat,"one","time_depth","td-one",tdFile,"time_depth",&detail));
+    const auto lasFile=dir.filePath("a1.las");
+    QVERIFY(writeText(lasFile,QStringLiteral("~WELL\nWELL: A1\n~CURVE\nDEPT DEPT\n~A\n100 1\n")));
+    QVERIFY(addFileLink(cat,"one","well_log","log-one",lasFile,"well_log",&detail));
+    // 模型井 A1 补曲线（井号/深度表）——就绪口径的曲线位走工区模型
+    //（wellHasCurveData extra），legacy LAS 链接不喂模型井。
+    const auto curvesCsv=dir.filePath("logs.csv");
+    QVERIFY(writeText(curvesCsv,QString::fromUtf8("井号,深度,GR\nA1,1000,55.5\nA1,1010,56.5\n")));
+    QVERIFY2(data.importFile(curvesCsv.toUtf8().toStdString(),{},report,error),error.c_str());
+    // two = legacy 双全井（曲线链接 + 固定列序时深链接，无模型）——覆盖
+    // 就绪表的 legacy 兜底分支。
+    const auto a9Td=dir.filePath("a9_td.dat");
+    QVERIFY(writeText(a9Td,QStringLiteral(
+        "#TimeDepth File From SMI\n# Well : A9\n"
+        "#TIME            TVDSS            TVD            MD\n"
+        "100.000          -1000.000        1000.000       1000.000\n"
+        "200.000          -2000.000        2000.000       2000.000\n")));
+    QVERIFY(addFileLink(cat,"two","time_depth","td-two",a9Td,"time_depth",&detail));
+    QVERIFY(addFileLink(cat,"two","well_log","log-two",lasFile,"well_log",&detail));
     ProjectDataFacade facade;facade.setCatalog(&cat,project);
     // 确认前：元数据门拒绝（不猜单位/基准），诊断可行动。
     QVERIFY(facade.tdTableFor("one").isEmpty());
     QVERIFY(facade.lastError().contains(QStringLiteral("尚未确认")));
+    // 就绪口径：模型井曲线在、时深未确认 → 不就绪；legacy 双全井即就绪
+    //（覆盖兜底分支）。
+    const auto readinessBefore=paleo::analysisReadiness(&cat,project);
+    QVERIFY(readinessBefore.value("one").hasCurves);
+    QVERIFY(!readinessBefore.value("one").tdUsable);
+    QVERIFY(!readinessBefore.value("one").analysisReady());
+    QVERIFY(readinessBefore.value("two").analysisReady());
     // 校验面：单位/单双程/基准逐项拒绝，未挂链井如实报错。
     QString confirmError;
     QVERIFY(!facade.confirmTimeDepthSemantics("one","ns","TWT","MSL",true,&confirmError));
@@ -2032,6 +2065,16 @@ private slots:
     QCOMPARE(ref,QStringLiteral("MSL"));
     QVERIFY(!std::isfinite(model.DepthToTwtMs(50.)));
     QVERIFY(std::abs(model.DepthToTwtMs(150.)-70.)<1e-9); // 110→50、210→100 线性内插
+    // 确认后就绪（曲线+已确认时深双全），stamp 缓存自动失效重查生效；
+    // 连井剖面选井面只剩就绪井（one 模型确认后 + two legacy 双全）。
+    const auto readinessAfter=paleo::analysisReadiness(&cat,project);
+    QVERIFY(readinessAfter.value("one").analysisReady());
+    QVERIFY(readinessAfter.value("two").analysisReady());
+    WellSectionWorkflow wf(&cat);
+    const auto choices=wf.wellChoices();
+    QCOMPARE(choices.size(),2);
+    QVERIFY(std::any_of(choices.begin(),choices.end(),
+                        [](const WellSectionWorkflow::WellChoice &c){return c.id==QStringLiteral("one");}));
     QVERIFY(facade.lastError().isEmpty());
   }
 

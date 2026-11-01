@@ -29,19 +29,20 @@ bool readWellTops(const QString &path,QVector<WellTopRecord> &rows,QString *erro
   QByteArray text; if(!bytes(path,text,error))return false;
   rows=parseWellTopsText(text,report); return true;
 }
-bool readTimeDepth(const QString &path,TimeDepthTable &table,QString *error) {
-  table={}; if(error)error->clear();
+bool readTimeDepth(const QString &path,TimeDepthTable &table,QString *error,QString *parseNote) {
+  table={}; if(error)error->clear(); if(parseNote)parseNote->clear();
   const auto state=paleo::native_model::timeDepth(path,table,error);
   if(state!=paleo::native_model::Read::Unbound)return state==paleo::native_model::Read::Ready;
   QByteArray text; if(!bytes(path,text,error))return false;
   WellParseReport report;
   table=parseTimeDepthText(text,&report);
-  // 空表必须带原因出口：Petrel 整表拒收 / 全空行等解析性失败不能静默成
-  //「成功但零行」——调用方（tdTableFor→连井剖面）靠 error 如实上报。
-  if(table.rows.isEmpty()&&error) {
-    *error=report.issues.isEmpty()
+  // false 只留给 IO；「解析完成但零可用行」（Petrel 整表拒收 / 全哨兵）是
+  // 解析结论不是读取失败——原因走 parseNote（消费方分流：预览面板显示
+  //「无时深表」，tdTableFor 把 note 记 lastError 如实上报）。
+  if(table.rows.isEmpty()&&parseNote) {
+    *parseNote=report.issues.isEmpty()
         ?QStringLiteral("时深表没有可用数据行")
         :report.issues.constFirst();
   }
-  return !table.rows.isEmpty();
+  return true;
 }

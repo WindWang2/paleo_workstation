@@ -318,8 +318,8 @@ void WellFileParserTests::petrelCheckshotsHeaderRejectsWholeTable()
   QVERIFY(okReport.issues.isEmpty());
 }
 
-// 空表/整表拒收必须以 error 出口（tdTableFor→连井剖面据此如实上报），
-// 不能静默成「成功但零行」。
+// 空表/整表拒收的契约：false 仅 IO；解析完成但零行 → true + 空表 +
+// parseNote 首诊断（tdTableFor 记 lastError 如实上报，预览面板按空表处理）。
 void WellFileParserTests::readTimeDepthSurfacesEmptyTableReason()
 {
   QTemporaryDir dir;
@@ -331,30 +331,32 @@ void WellFileParserTests::readTimeDepthSurfacesEmptyTableReason()
                "322680.97 2401617.76 25.50 33.55 0.00 \"HZ08-1-1\" 1520.12\n") > 0);
   petrelFile.close();
   TimeDepthTable table;
-  QString error;
-  QVERIFY(!readTimeDepth(petrelPath, table, &error));
+  QString error, note;
+  QVERIFY(readTimeDepth(petrelPath, table, &error, &note));
   QVERIFY(table.rows.isEmpty());
-  QVERIFY(error.contains(QStringLiteral("Petrel checkshots")));
+  QVERIFY(error.isEmpty());
+  QVERIFY(note.contains(QStringLiteral("Petrel checkshots")));
 
   const QString emptyishPath = dir.filePath(QStringLiteral("all_nulls.tdt"));
   QFile emptyish(emptyishPath);
   QVERIFY(emptyish.open(QIODevice::WriteOnly));
   QVERIFY(emptyish.write("# Well : W2\nbad\tbad\tbad\tbad\n") > 0);
   emptyish.close();
-  QVERIFY(!readTimeDepth(emptyishPath, table, &error));
+  note.clear();
+  QVERIFY(readTimeDepth(emptyishPath, table, &error, &note));
   QVERIFY(table.rows.isEmpty());
-  // 错误出口带首个解析诊断（列级文案含物理行号），不再静默「成功但零行」。
-  QVERIFY(!error.isEmpty());
-  QVERIFY(error.contains(QStringLiteral("第 2 行")));
+  // note 带首个解析诊断（列级文案含物理行号），不再静默「成功但零行」。
+  QVERIFY(note.contains(QStringLiteral("第 2 行")));
 
   const QString goodPath = dir.filePath(QStringLiteral("good.tdt"));
   QFile good(goodPath);
   QVERIFY(good.open(QIODevice::WriteOnly));
   QVERIFY(good.write("100\t0\t100\t100\n200\t0\t200\t200\n") > 0);
   good.close();
-  QVERIFY(readTimeDepth(goodPath, table, &error));
+  note.clear();
+  QVERIFY(readTimeDepth(goodPath, table, &error, &note));
   QCOMPARE(table.rows.size(), 2);
-  QVERIFY(error.isEmpty());
+  QVERIFY(note.isEmpty());
 }
 
 void WellFileParserTests::reportsOptionalMissingCellsWithoutRejectingGoodDepth()

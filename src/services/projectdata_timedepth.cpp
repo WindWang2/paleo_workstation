@@ -16,7 +16,11 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const {
   if(state==paleo::area_model::Read::Failed)return out;
   if(state==paleo::area_model::Read::Unbound) {
     if(!QFile::exists(path))return out;
-    TimeDepthTable table;if(!readTimeDepth(path,table,&m_lastError))return out;
+    TimeDepthTable table;QString parseNote;
+    if(!readTimeDepth(path,table,&m_lastError,&parseNote))return out;
+    // 解析完成但零可用行（Petrel 整表拒收/全哨兵）——note 记 lastError
+    // 如实上报（消费端「时深不可用：<原因>」），不再静默空表。
+    if(table.rows.isEmpty()) { m_lastError=parseNote; return out; }
     for(const auto& row:table.rows)out.append({row.timeMs,row.hasTvd?row.tvd:qQNaN(),row.hasMd?row.md:qQNaN(),{}});
     return out;
   }

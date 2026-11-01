@@ -586,13 +586,28 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           QT_DEBUG_PLUGINS: "1"
-          PALEO_CTEST_ARGS: "-R ^tst_runtime$ --timeout 60 -V"
+          # run 41103414173 两处挂点都进探针：shard3 tst_runtime、shard1
+          # tst_basemap_project（后者只读本地 mbtiles 夹具、不走网络——挂死不是
+          # 底图联网，同为进程启动期，故同探针覆盖而非加离线 mock）。
+          PALEO_CTEST_ARGS: "-R ^(tst_runtime|tst_basemap_project)$ --timeout 60 -V"
         run: |
           Add-Type -Namespace PaleoCi -Name Native -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetErrorMode(uint mode);'
           [void][PaleoCi.Native]::SetErrorMode(0x8003)
           New-Item -Path 'HKCU:\Software\Microsoft\Windows\Windows Error Reporting' -Force | Out-Null
           Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\Windows Error Reporting' -Name DontShowUI -Value 1 -Type DWord
           ./paleo-dev.ps1 test
+      # #872：探针红/超时 ⇒ 列首个 C++ exe 的直接依赖 DLL 并在测试同款 PATH 下
+      # 定位（MISSING 即根因候选），随后显式判红；下面的分片 Test 因 probe 非
+      # success 整步跳过——不再 ×300s 逐个吊满 90 min。
+      - name: Probe diagnostics (dependents on probe failure, #872)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.probe.outcome != 'success' }}
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          ./paleo-dev.ps1 diagdeps tst_runtime
+          ./paleo-dev.ps1 diagdeps tst_basemap_project
+          echo "::error::#872 探针（tst_runtime/tst_basemap_project）未通过（outcome=${{ steps.probe.outcome }}）——本片 Test 已跳过；看上方 QT_DEBUG_PLUGINS 输出、ctest 退出码与依赖清单"
+          exit 1
       - name: Test (headless；QSettings 走测试私有注册表 hive（方向 81），片内串行)
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.probe.outcome == 'success' }}
         shell: pwsh

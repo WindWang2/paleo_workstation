@@ -79,6 +79,25 @@ private slots:
     }
     QCOMPARE(cat.assets().size(), 2); QVERIFY(assets[0] != assets[1]);
   }
+  void longLayerTitleWrapsWithoutLosingExportedContent() {
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
+    QgsProject project; auto *layer = points(project);
+    const QString name = QStringLiteral("sub-e6224ddbf3b2d55c 新建古地理图 · v2");
+    layer->setName(name);
+    PaleoGeologicalMapLayout::Settings settings; settings.kind = PaleoStandardElements::FigureKind::Facies;
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings); QVERIFY(layout);
+    PaleoGeologicalExport::Request request; request.destination = tmp.filePath("wrapped-legend"); request.dpi = 72;
+    request.formats = {PaleoLayoutExport::Format::Png, PaleoLayoutExport::Format::Pdf};
+    bool called = false; PaleoGeologicalExport::Result result;
+    QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this, [&](const auto &r) { result = r; called = true; }));
+    QTRY_VERIFY_WITH_TIMEOUT(called, 30000); QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QCOMPARE(result.assetIds.size(), 2);
+    QVERIFY(!QImage(QDir(result.directory).filePath("map.png")).isNull());
+    QVERIFY(QFileInfo(QDir(result.directory).filePath("map.pdf")).size() > 0);
+    auto *legend = qobject_cast<QgsLayoutItemLegend *>(layout->layout()->itemById("legend")); QVERIFY(legend);
+    auto *node = legend->model()->rootGroup()->findLayer(layer->id()); QVERIFY(node);
+    QCOMPARE(node->name(), name); // Wrapping changes layout, never the source identity or title.
+  }
   void dialogSeparatesProjectManagementFromExternalOutput() {
     QTemporaryDir tmp; QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "D61";
     GeologicalExportDialog dialog(settings, [&](const auto &s, QString *error) {

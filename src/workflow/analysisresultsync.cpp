@@ -42,7 +42,9 @@ bool stale(DataCatalog *catalog, const CatalogVersion &v, QSet<QString> &seen) {
   for (const auto &id : v.parentVersionIds) {
     auto branch = seen;
     const auto parent = catalog->versionById(id);
-    if (catalog->currentVersion(parent.assetId).id != id || stale(catalog, parent, branch)) return true;
+    // An edit's own immutable predecessor is lineage, not a replaceable input.
+    if ((parent.assetId != v.assetId && catalog->currentVersion(parent.assetId).id != id) ||
+        stale(catalog, parent, branch)) return true;
   }
   return false;
 }

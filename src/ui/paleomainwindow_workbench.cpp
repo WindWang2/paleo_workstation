@@ -523,7 +523,7 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
         paleo::singlefactor::isAnalysisFactorRaster(legendKind, legendSource);
     const bool cartographic =
         paleo::singlefactor::rejectsQuantitativeUse(legendKind, legendSource);
-    const bool product = d.horizon == h && workbench->supportsFaciesDisplay(layerId);
+    const bool product = matchesWorkbenchHorizon(m_selection,d.horizon) && workbench->supportsFaciesDisplay(layerId);
     QVariantList schema;
     if (product) {
       // 旧成果冻结的平级分类也迁进三级体系，图例不出现未定义相。

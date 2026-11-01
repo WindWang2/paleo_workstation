@@ -115,4 +115,15 @@ current 井相 binding。批量参考井测试只调用本地测试服务器，�
   验收套件 8 passed / 0 failed / 0 skipped；大地震体仅做有界读取，未提供模型时不宣称真实相推理通过。
 - 本批 file-budget 登记 53→52，三个剩余冻结函数值同步收紧；layering 违规维持零，其他基线不涨。
   rebase 后补齐 master 新增三个 UI 辅助头的层标记，Ribbon 弹出布局改用 DESIGN spacing token。
-  当前翻译陈旧计数随新版 master 为 602，仍属 #755 已有基线缺口，未抬高冻结值。
+  该轮旧基线上的翻译缺失曾为 602；后续 rebase 到 `d48110d5` 后合并新版翻译并补齐新增消息，最终缺失计数为 0（冻结基线 0）。
+
+
+## 2026-11-01 最新 master 收尾验证
+
+- 再次 rebase 到 `origin/master` 的 `d48110d5`（#891）；保留上游 KB/TD 缺失值、科学计算、响应式视图和翻译修复。翻译冲突采用上游目录重新 lupdate、补齐中文消息，未扩大基线。三个通用视图头的重复层标记去重。
+- 真实界面发现长图层标题使图例超纸面。标准图例沿用 DESIGN 的 8 pt 图例字体并按列宽换行，完整名称与来源身份保留；超量图例仍由边界校验阻断，不截断冒充成功。
+- 真实编图保存暴露同资产历史父版本的失效误判：新版本以自身前版为谱系时，不要求前版仍是资产 current；仍递归核对前版的外部输入和显式 stale 标记。回归验证新图 current、外部输入更新后 stale，保留单向失效纪律。
+- Windows localdeps 重新编译应用和相关测试成功（-j4）。源码闸 24/24 通过；显式 QGIS_PREFIX 的 transitive 为 func 0 / ui 4 / heavy_edges 51 / heavy_tus 49。file-budget 为 52，layering 为零，翻译缺失 0。
+- 最新构建定向 CTest 12/12 通过（Windows 串行，129.84 秒），含 C++ 主线边界、因素/模型选井、Data Service、连井和真实工区只读验收；编图定向 QtTest 4 passed，输出定向 QtTest 6 passed（PNG/PDF、长标题、超量图例拒绝、实际三级相渲染器）。真实工区验收仍为 8 passed / 0 failed / 0 skipped。
+- 较早一轮完整的 `tst_mappingworkbench` 在首个离屏 CAD 编辑用例超时（300 秒），堆栈停在 QGIS AdvancedDigitizingDockWidget 创建时的 QSettings/QLockFile。独立临时 profile 未解决；不把该完整套件记为通过。原生界面已实际完成闭合面绘制、拓扑检查和不可变新版本保存，定向空白图/证据/撤销回归通过。
+- 验收草图明确注明仅用于功能测试、不代表地质解释，解释质量保留 NeedsReview；矢量与证据包 1 项成功、0 项问题，GPKG 完整性及 SHA-256 校验通过。私人数据、图件、日志与校验记录均只留在本地工区与 build 目录。

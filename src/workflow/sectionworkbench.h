@@ -32,7 +32,7 @@ public:
     QVariantList wells;
     std::vector<seismic::SectionWellInfo> sectionWells;
   };
-  void requestPreviewData(std::function<void(const PreviewData &)> ready);
+  void requestPreviewData(std::function<void(const PreviewData &)> ready, bool includeSections = true);
   void cancelPreviewData();
   // MD 域时深：逐井校正优先（常速校正 → 常速模型），否则主时深表 MD 列严格表；
   // shift 为校正时间平移。false = 无可用时深，status 写原因
@@ -48,7 +48,7 @@ public:
   QStringList spatiallyOrderedWells(const QStringList &ids, const QString &mode);
   // 画线吸附井集：有效坐标井（口径同上）的 id/name/x/y，供 SeismicSectionTool
   // 做最近井吸附（wellsection::Well 只填坐标身份字段）。
-  QVector<wellsection::Well> wellSnapWells();
+  QVector<wellsection::Well> wellSnapWells(bool analysisOnly = false);
   bool save(const QString &name, const std::vector<glm::dvec2> &route,
             const QString &seismicPath, const QString &horizon, QString *error);
   QVariantMap restore(const QString &versionId, QString *error,
@@ -74,7 +74,7 @@ private:
   QVariantMap m_calibrations;
   QHash<QString, LasDoc> m_logs;
   quint64 m_previewGeneration = 0;
-  bool m_previewRunning = false, m_previewPending = false;
+  bool m_previewRunning = false, m_previewPending = false, m_previewIncludeSections = true;
   std::shared_ptr<std::atomic_bool> m_previewStop;
   std::function<void(const PreviewData &)> m_previewReady;
 };

@@ -9,6 +9,11 @@
 #include <QSet>
 #include <QUuid>
 
+void MappingWorkbench::setAnalysisUnit(const paleo::strat::UnitSelection &unit) {
+  if(m_analysisUnit==unit)return;
+  m_analysisUnit=unit;clearEditEvidence();
+}
+
 void MappingWorkbench::setManualEvidenceRequired(bool required) {
   if (m_manualEvidenceRequired == required)
     return;

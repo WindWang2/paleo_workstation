@@ -35,6 +35,7 @@
 #include "services/seismichorizoncluster.h"
 #include "wellpredictionservice.h"
 #include "workflows.h"
+#include "services/subintervalfactors.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -434,9 +435,21 @@ bool MappingWorkbench::ready(const QString &h, QString *error) const {
     return false;
   }
   if (h.isEmpty() || !DataCatalog::isSafePathSegment(h) ||
-      !isMappingHorizon(h)) {
+      (!isMappingHorizon(h) && h!=paleo::strat::analysisLayerKey(m_analysisUnit))) {
     fail(error, tr("请先选择有效编图层位"));
     return false;
+  }
+  if(!isMappingHorizon(h)) {
+    paleo::data::StratigraphicScheme scheme;
+    if(m_analysisUnit.revision.isEmpty()){fail(error,tr("请先选择有效编图层位"));return false;}
+    if(!paleo::strat::loadProjectSchemeFromDir(m_dir,m_analysisUnit.schemeId,m_analysisUnit.revision,scheme,nullptr,error))return false;
+    const auto *sub=paleo::data::framework::findSubInterval(scheme,{m_analysisUnit.subIntervalId.toStdString()});
+    const bool valid=m_analysisUnit.aggregate
+        ? paleo::data::framework::findInterval(scheme,{m_analysisUnit.intervalId.toStdString()})!=nullptr
+        : sub && sub->interval.value==m_analysisUnit.intervalId.toStdString();
+    if(!valid) {
+      fail(error,tr("请先选择有效编图层位"));return false;
+    }
   }
   return true;
 }
@@ -720,6 +733,8 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
     extra.insert("spatial_edit_events", events);
   }
   extra.insert("mapping_product", true);
+  if(!extra.contains("unitSelection") && parents.empty() && m_analysisUnit.isValid() && h==paleo::strat::analysisLayerKey(m_analysisUnit))
+    extra.insert("unitSelection",paleo::strat::toMap(m_analysisUnit));
   extra.insert("layer_id", id);
   extra.insert("horizon", h);
   extra.insert("kind", kind);

@@ -28,6 +28,8 @@ AreaPlanarRange toAreaRange(const paleo::data::PlanarExtent &extent)
   out.valid = extent.valid;
   out.minX = extent.minX; out.minY = extent.minY;
   out.maxX = extent.maxX; out.maxY = extent.maxY;
+  out.coordinateSystem=QString::fromUtf8(extent.coordinateSystem);
+  out.coordinateUnit=QString::fromUtf8(extent.coordinateUnit);
   return out;
 }
 } // namespace

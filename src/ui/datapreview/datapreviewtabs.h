@@ -188,9 +188,6 @@ class DataPreviewTabs : public QWidget
                                  const QVector<EntityAssetLink> &links,
                                  QWidget *host, QVBoxLayout *lay);
     QWidget *buildSurveyAreaContent(QWidget *page);
-    // 测区全景底部「地震时间剖面」预览条（datapreviewtabs_survey.cpp）：顶部
-    // 工具条挂开关，数据服务沿测区长轴读一条测线；无地震体时保持空态。
-    QWidget *buildTimeSectionStrip(QWidget *page, QHBoxLayout *topBarLay, const CatalogEntity &survey);
     QgsRectangle loadSurveyWells(class QgsVectorLayer *wellsVl); // 井位灌层 + 并集范围
     QWidget *attachOnlineBasemap(QWidget *content); // #14 井位类页 GIS 底图挂载（datapreviewtabs_basemap.cpp）
     void rebuildAssetTab(const QString &assetId); // 重试或切换版本后重建内容

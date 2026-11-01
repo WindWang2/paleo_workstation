@@ -2,7 +2,7 @@
 // token 例外：DESIGN 数据符号例外：QGIS 测区轮廓与透明填充，不改变地图符号色。（tools/ui-token-exceptions.json 精确计数）。
 #include "datapreviewtabs.h"
 #include "projectstatisticspage.h"
-#include "surveytimesectionwidget.h"
+
 #include <QTabWidget>
 #include "datapreviewtabs_internal.h"
 
@@ -60,6 +60,33 @@ void DataPreviewTabs::openProjectDashboard()
   const int index = m_tabs->addTab(page, PaleoIcons::qgisTheme(QStringLiteral("mLayoutItemChart.svg")), tr("工区看板"));
   m_pageOfAsset.insert(key, page);
   m_emptyLabel->hide(); m_tabs->show(); m_tabs->setCurrentIndex(index);
+}
+
+namespace {
+void requestSurveyAreaRange(PreviewDocService *doc,PreviewMapPage *mapPage,QLabel *crsLabel,
+  const std::shared_ptr<QgsRectangle> &completeExtent,const std::shared_ptr<QgsCoordinateReferenceSystem> &extentCrs,
+  const std::function<void()> &zoomFull) {
+  if(doc) {
+    QPointer<PreviewMapPage> guard(mapPage);
+    doc->requestProjectPlanarRange([guard,completeExtent,extentCrs,zoomFull,crsLabel](const AreaPlanarRanges &ranges) {
+      if(!guard)return;
+      const auto &range=ranges.merged;
+      const QgsCoordinateReferenceSystem crs(range.coordinateSystem);
+      if(!range.valid||!crs.isValid()) {
+        crsLabel->setToolTip(QObject::tr("完整工区范围尚不可用：%1").arg(ranges.status));return;
+      }
+      const QgsRectangle extent(range.minX,range.minY,range.maxX,range.maxY);
+      if(auto *layer=paleo::mapreference::areaRangeLayer(extent,crs,QObject::tr("工区范围"),PaleoTheme::tokens().textMuted,guard)) {
+        layer->setObjectName(QStringLiteral("surveyAreaRangeLayer"));
+        guard->addMapLayer(layer,layer->name(),QString());
+        *completeExtent=extent;*extentCrs=crs;
+        crsLabel->setToolTip(QObject::tr("完整工区范围：井口与地震数据范围并集 · %1").arg(range.coordinateSystem));
+        zoomFull();
+      }
+    });
+  }
+
+}
 }
 
 QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
@@ -181,9 +208,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   else
     mapPage->setOverviewVisible(false);
 
-  // 全景是固定内容画布：只挂私有井位层——不桥接 QgsProject 图层树（其它
-  // 画布/图层服务实例化的图层不外溢进来，也不联动）。工区范围带（原由地震
-  // 测区角点/井位并集拟合、后台恢复）按用户要求撤下。
+  // 全景只显示私有井位层及 Data Service 的完整工区范围，不桥接其它图层。
   auto *wellsVl = makeMemoryPointLayer(tr("井位"), w);
   wellsVl->setObjectName(QStringLiteral("surveyWellsLayer"));
   wellsVl->setCrs(surveyCrs);
@@ -197,24 +222,13 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   decorMgr->setScaleBarEnabled(true);
   decorMgr->setNorthArrowEnabled(true);
 
-  // 首个测区实体：底部时间剖面按它的测网号域取线（范围框已撤，不再画角点）。
-  CatalogEntity survey;
-  if (m_doc && m_doc->catalog())
-  {
-    const auto surveys = m_doc->catalog()->entities(QStringLiteral("seismic_survey"));
-    if (!surveys.isEmpty())
-      survey = surveys.first();
-  }
-
-  // 取景范围：井位并集（单井退化扩 50 m 边）；无井时 10 km 默认幅面。
-  // 工区范围带与「范围 X × Y」文案按用户要求撤下；测区角点/线号不再参与
-  // 取景（线号不是坐标，dashboardsurveymap 同口径）。
+  // 先显示井位；完整工区范围异步读取后替换取景，线号不参与坐标计算。
   if (wellsExtent.isNull())
     wellsExtent = QgsRectangle(0, 0, 10000, 10000);
   else if (wellsExtent.isEmpty())
     wellsExtent.grow(50.0);
 
-  // 坐标系说明标签（只报 CRS；原「工区范围 X × Y」文案随范围带一并撤下）
+  // 坐标系标签；完整工区范围由数据服务异步恢复，状态写入工具提示。
   const QString crsText = canvas->mapSettings().destinationCrs().type() == Qgis::CrsType::Engineering
                               ? tr("局部工程坐标 (米)")
                               : canvas->mapSettings().destinationCrs().userFriendlyIdentifier();
@@ -231,10 +245,11 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   lay->addWidget(mapPage, 1);
 
   auto completeExtent = std::make_shared<QgsRectangle>(wellsExtent);
-  auto zoomFull = [canvas, completeExtent, surveyCrs]() {
+  auto extentCrs = std::make_shared<QgsCoordinateReferenceSystem>(surveyCrs);
+  auto zoomFull = [canvas, completeExtent, extentCrs]() {
     if (!completeExtent->isEmpty())
     {
-      QgsRectangle ext = paleo::mapreference::mapExtent(canvas, *completeExtent, surveyCrs);
+      QgsRectangle ext = paleo::mapreference::mapExtent(canvas, *completeExtent, *extentCrs);
       if (ext.isEmpty()) return;
       ext.grow(qMax(ext.width(), ext.height()) * 0.08);
       canvas->setExtent(ext);
@@ -253,7 +268,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   connect(btnPan, &QToolButton::clicked, mapPage, [mapPage]() {
     mapPage->toolManager()->activate(PreviewMapToolManager::kPan);
   });
-  // 工区范围带开关随范围框一并撤下（btnBoundary/boundaryBand 不再建）。
+  // 工区范围常驻；比例尺、指南针和网格保持独立开关。
   const auto wireDecorToggle = [decorMgr, canvas](QToolButton *btn,
                                                   void (PaleoDecorationManager::*setter)(bool)) {
     connect(btn, &QToolButton::toggled, canvas, [decorMgr, canvas, setter](bool checked) {
@@ -266,9 +281,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   wireDecorToggle(btnGrid, &PaleoDecorationManager::setGridEnabled);
   connect(btnSwitchMain, &QToolButton::clicked, this, &DataPreviewTabs::requestShowOnMainCanvas);
 
-  // 底部地震时间剖面（数据服务测线预览）：沿测区长轴取中线，一次读取。
-  if (auto *timeSection = buildTimeSectionStrip(w, tbLay, survey))
-    lay->addWidget(timeSection);
+  requestSurveyAreaRange(m_doc,mapPage,crsLabel,completeExtent,extentCrs,zoomFull);
 
   // 延迟自适应全图（等几何尺寸就绪）
   QTimer::singleShot(100, mapPage, zoomFull);
@@ -291,54 +304,6 @@ QgsRectangle DataPreviewTabs::loadSurveyWells(QgsVectorLayer *wellsVl)
                                           well.surfaceX, well.surfaceY));
   }
   return extent;
-}
-
-QWidget *DataPreviewTabs::buildTimeSectionStrip(QWidget *page, QHBoxLayout *topBarLay,
-                                                const CatalogEntity &survey)
-{
-  auto *toggle = new QToolButton(topBarLay->parentWidget());
-  toggle->setObjectName(QStringLiteral("btnToggleTimeSection"));
-  toggle->setText(tr("时间剖面"));
-  toggle->setToolTip(tr("显示/隐藏底部地震时间剖面预览（数据服务测线）"));
-  toggle->setCheckable(true);
-  toggle->setChecked(true);
-  toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
-  topBarLay->addWidget(toggle);
-
-  auto *strip = new SurveyTimeSectionWidget(page);
-  strip->setObjectName(QStringLiteral("surveyTimeSectionHost"));
-  connect(toggle, &QToolButton::toggled, strip, &QWidget::setVisible);
-
-  const qlonglong modelVolumeId = survey.extra.value(QStringLiteral("areaModelVolumeId")).toLongLong();
-  if (!m_doc || modelVolumeId <= 0 || survey.inlineMax <= survey.inlineMin ||
-      survey.xlineMax <= survey.xlineMin)
-    return strip;
-  // 长轴方向做剖面（inline 跨度更大 → 固定中线 crossline、沿 inline 走）。
-  const bool alongInline =
-      qint64(survey.inlineMax) - survey.inlineMin >= qint64(survey.xlineMax) - survey.xlineMin;
-  const QString direction = alongInline ? QStringLiteral("crossline") : QStringLiteral("inline");
-  const int midLine = alongInline ? (survey.xlineMin + survey.xlineMax) / 2
-                                  : (survey.inlineMin + survey.inlineMax) / 2;
-  const int fallbackLine = alongInline ? survey.xlineMin : survey.inlineMin;
-  strip->showLoading(tr("正在读取时间剖面…"));
-  QPointer<QWidget> guard = strip;
-  m_doc->requestSurveyLinePreview(modelVolumeId, direction, midLine,
-      [this, modelVolumeId, strip, guard, direction, fallbackLine](const SurveyLinePreview &preview) {
-        if (!guard)
-          return;
-        if (!preview.ok)
-        {
-          // 中线不在测线步长网格上时回落到轴起点（readSeismicLine 只收真实线号）。
-          m_doc->requestSurveyLinePreview(modelVolumeId, direction, fallbackLine,
-              [strip, guard](const SurveyLinePreview &fallback) {
-                if (guard)
-                  strip->setResult(fallback);
-              });
-          return;
-        }
-        strip->setResult(preview);
-      });
-  return strip;
 }
 
 void DataPreviewTabs::wireWellNavigation(PreviewMapPage *page, QgsVectorLayer *layer) {

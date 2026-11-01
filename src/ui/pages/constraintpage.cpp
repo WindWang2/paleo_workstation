@@ -353,8 +353,12 @@ void ConstraintPage::bindLayerService( QObject *layers )
   bindTrackedProperty(this, kLayersProp, svc);
   connect(svc, &QgisLayerService::layerDeclared, this, [this](const QString &id) {
     updateEngineRows();
-    if (id.startsWith(QStringLiteral("wells")))
-      invalidateWellFactors();
+    if (id.startsWith(QStringLiteral("wells"))) {
+      auto *wf=qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+      auto *h=child<QComboBox>(this,"horizonCombo"); auto *table=child<QTableWidget>(this,"factorTable");
+      if (!wf || wf->preparedWellFactorVersion(pageEditHorizon(this,h),factorIdOfRow(table,checkedRow(table)),wellFactorParams()).isEmpty())
+        invalidateWellFactors();
+    }
     if (id.isEmpty() || id.startsWith(QStringLiteral("factor.")))
       refreshFactorLayers();
     refreshFactorResults();

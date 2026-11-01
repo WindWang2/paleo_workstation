@@ -12,6 +12,35 @@
 class AnalysisResultSyncTest : public QObject {
   Q_OBJECT
 private slots:
+  void editedMapLineageRemainsCurrentUntilExternalInputChanges() {
+    QTemporaryDir dir; paleo::data::DataService ds; std::string error;
+    QVERIFY(ds.createProject((dir.path()+"/artifacts/metadata/area-model").toStdString(),"test",error));
+    auto draft=paleo::strat::draftScheme("test","test",{"A","B"},{});
+    paleo::data::StratigraphicScheme head; std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(ds.commitStratigraphicScheme(draft,{},head,issues,error));
+    const auto unit=paleo::strat::makeSelection(head,paleo::strat::selectorOptions(head).first().intervalId,1);
+    DataCatalog catalog; QString detail; QVERIFY(catalog.open(dir.path(),&detail));
+    CatalogAsset input; input.id="input"; input.type="single_factor"; QVERIFY(catalog.addAsset(input,&detail));
+    CatalogVersion source; source.id="input-v1"; source.assetId=input.id; source.stage="DERIVED";
+    source.extra.insert("unitSelection",paleo::strat::toMap(unit)); QVERIFY(catalog.addVersion(source,&detail));
+    CatalogAsset map; map.id="map"; map.type="edited_facies"; QVERIFY(catalog.addAsset(map,&detail));
+    CatalogVersion first; first.id="map-v1"; first.assetId=map.id; first.stage="DERIVED";
+    first.parentVersionIds={source.id}; QVERIFY(catalog.addVersion(first,&detail));
+    CatalogVersion edited=first; edited.id="map-v2"; edited.versionNumber=2; edited.parentVersionIds={first.id};
+    QVERIFY(catalog.addVersion(edited,&detail));
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    const auto status=[&](const std::string &id) {
+      std::vector<paleo::data::SubIntervalResultBinding> results;
+      if(!ds.listSubIntervalResults(head.id,{},results,error))return std::string("read-error");
+      for(const auto &b:results)if(b.assetRef==id)return b.status;
+      return std::string("missing");
+    };
+    QCOMPARE(status("map-v2"),std::string("current"));
+    // The ignored same-asset edge must still walk the predecessor's inputs.
+    source.id="input-v2"; source.versionNumber=2; QVERIFY(catalog.addVersion(source,&detail));
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    QCOMPARE(status("map-v2"),std::string("stale"));
+  }
   void frameworkInitializesFromActualTopsAndTracksUpdates() {
     QTemporaryDir dir;
     DataCatalog catalog;
@@ -105,6 +134,15 @@ private slots:
     for (const auto &binding : results)
       if (binding.kind == "map") mapStale = binding.status == "stale";
     QVERIFY(mapStale);
+    CatalogAsset contour;contour.id="contour";contour.type="contour_lines";QVERIFY(catalog.addAsset(contour,&detail));
+    CatalogVersion line;line.id="contour-v1";line.assetId=contour.id;line.stage="DERIVED";
+    line.path="contour.gpkg";line.parentVersionIds={version.id};QVERIFY(catalog.addVersion(line,&detail));
+    QCOMPARE(analysisResultUnitSelection(&catalog,line),unit);
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    QVERIFY(ds.listSubIntervalResults(head.id,{},results,error));QCOMPARE(results.size(),size_t(3));
+    bool contourStale=false;
+    for(const auto &binding:results)if(binding.assetRef=="contour-v1")contourStale=binding.kind=="single_factor"&&binding.status=="stale";
+    QVERIFY(contourStale);
     paleo::data::DataService reader;
     QVERIFY(reader.openProjectReadOnly((dir.path()+"/artifacts/metadata/area-model").toStdString(), error));
     QVERIFY(!reader.invalidateSubIntervalResult("catalog.prediction-v1", error));

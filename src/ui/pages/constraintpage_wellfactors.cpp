@@ -133,7 +133,7 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
       findChild<QWidget *>(name + QStringLiteral("Caption"))->setVisible(visible);
     }
     refreshWellFactorGeoHint();
-    invalidateWellFactors();
+    invalidateWellFactors(!factorMode->property("rebindingFactor").toBool());
     restoreWellFactorDisplay();
   };
   connect(factorMode, &QComboBox::currentIndexChanged, this, modeChanged); modeChanged();
@@ -171,7 +171,7 @@ void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *
             });
   }
   connect(horizons, &QComboBox::currentIndexChanged, this, [this] {
-    invalidateWellFactors();
+    invalidateWellFactors(false);
     refreshWellFactorFields();
     // 构造期已勾上第一行，层位随后才到。口径下拉若没换索引就不会再发信号，
     // 已保存提取必须在这里恢复，不能只靠取值方式的 currentIndexChanged。
@@ -181,7 +181,7 @@ void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *
   });
   connect(factors, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
     if (item && item->column() == 0) {
-      invalidateWellFactors();
+      invalidateWellFactors(false);
       refreshWellFactorFields();
       refreshFactorResults();
     }
@@ -197,6 +197,8 @@ QVariantMap ConstraintPage::wellFactorParams() const {
   const auto *table = findChild<QTableWidget *>(QStringLiteral("factorTable"));
   if (factorIdOfRow(table, checkedRow(table)) == QLatin1String("strathick"))
     params.insert(QStringLiteral("factorSource"), value("factorSourceCombo"));
+  if (auto *selection=qobject_cast<SelectionContext *>(property("paleo.selection").value<QObject *>()))
+    params.insert(QStringLiteral("unitSelection"),paleo::strat::toMap(selection->activeUnit()));
   return params;
 }
 void ConstraintPage::refreshWellFactorFields() {
@@ -305,17 +307,25 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
       probe.insert(QStringLiteral("factorMode"), fieldMode);
       savedFieldMode = wf->restoreWellFactors(horizon->currentText(), factor, probe);
     }
+    mode->setProperty("rebindingFactor",true);
     mode->setCurrentIndex(mode->findData(known && profile.supportsAutoMode && !savedFieldMode ? QStringLiteral("auto") : fieldMode));
+    mode->setProperty("rebindingFactor",false);
   }
   updateFactorActionStates();
 }
-void ConstraintPage::invalidateWellFactors() {
+void ConstraintPage::invalidateWellFactors(bool markStale) {
   if (auto *table = findChild<QTableWidget *>(QStringLiteral("wellFactorTable"))) table->setRowCount(0);
   setProperty("paleo.page.wellRowsKey", QString()); // D-13：清表即弃行归属
   if (auto *hint = findChild<QLabel *>(QStringLiteral("wellFactorHint")))
     hint->setText(tr("优先读取已保存井值；缺少或来源变化时重新计算并保存。"));
-  markInputsStale(); updateWellFactorActionState();
+  if(markStale)markInputsStale(); updateWellFactorActionState();
   updateFactorActionStates();
+}
+void ConstraintPage::refreshAnalysisUnit() {
+  invalidateWellFactors(false);
+  restoreWellFactorDisplay();
+  refreshFactorLayers();
+  refreshFactorResults();
 }
 void ConstraintPage::refreshWellFactorGeoHint()
 {

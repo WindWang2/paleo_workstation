@@ -266,6 +266,10 @@ QgsLayoutItemLegend *addLegend( QgsPrintLayout *layout, QgsLayoutItemMap *map )
   legend->setLinkedMap( map );
   legend->setSyncMode( Qgis::LegendSyncMode::AllProjectLayers ); // 随图层树自动更新
   legend->setLegendFilterByMapEnabled( true );                    // 只列本图图层
+  legend->setAutoWrapLinesAfter( 38.0 ); // 50 mm box less symbols, indentation and margins
+  for ( const auto component : { Qgis::LegendComponent::Title, Qgis::LegendComponent::Group,
+                                Qgis::LegendComponent::Subgroup, Qgis::LegendComponent::SymbolLabel } )
+    legend->rstyle( component ).setTextFormat( figureTextFormat( 8 ) ); // DESIGN label size
   // DESIGN.md「白底半透明卡片承载」：不透明白底 + 细边框，浮在图上可读。
   legend->setBackgroundEnabled( true );
   legend->setBackgroundColor( QColor( 255, 255, 255, 235 ) );
@@ -516,6 +520,7 @@ bool populateFigureLayout( QgsPrintLayout *layout, FigureKind kind, const PageSe
   if ( legend && legendColumnW > 0.0 )
   {
     // 有图例列的品种：图例整列落位（浮图样式改为贴列顶）。
+    legend->setAutoWrapLinesAfter( legendColumnW - 16.0 );
     legend->attemptResize( QgsLayoutSize( legendColumnW, 80.0, Qgis::LayoutUnit::Millimeters ) );
     legend->attemptMove( QgsLayoutPoint( W - 10.0 - legendColumnW, topY,
                                          Qgis::LayoutUnit::Millimeters ) );

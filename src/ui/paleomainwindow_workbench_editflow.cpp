@@ -3,6 +3,7 @@
 #include "../services/previewdoc.h"
 #include "../workflow/dataexportworkflow.h"
 #include "../workflow/mappingworkbench.h"
+#include "../linkage/selectioncontext.h"
 #include "dialogs/dataexportdialog.h"
 #include "pages/composepage.h"
 #include "pages/mappingeditbasis.h"
@@ -18,6 +19,11 @@
 #include <algorithm>
 
 void PaleoMainWindow::attachMappingEditFlow(MappingWorkbench *workbench) {
+  if(m_selection) {
+    workbench->setAnalysisUnit(m_selection->activeUnit());
+    connect(m_selection,&SelectionContext::activeUnitChanged,workbench,&MappingWorkbench::setAnalysisUnit);
+    connect(workbench,&MappingWorkbench::catalogBound,this,[this,workbench]{workbench->setAnalysisUnit(m_selection->activeUnit());});
+  }
   workbench->setManualEvidenceRequired(currentPage() == QLatin1String("compose"));
   // 切工程时丢弃旧影响报告；会话依据由功能层一并清空。
   connect(workbench, &MappingWorkbench::catalogBound, this, [this] { m_lastImpact.clear(); });

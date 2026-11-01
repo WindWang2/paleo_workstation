@@ -85,7 +85,6 @@ add_library(paleo_ui STATIC
   src/ui/pages/mappingeditbasis.cpp
   src/ui/pages/mappingbasemapselector.cpp
   src/ui/datapreview/projectstatisticspage.cpp
-  src/ui/datapreview/surveytimesectionwidget.cpp # 测区全景内嵌地震时间剖面预览（数据服务测线）
   src/ui/datapreview/datapreviewtabdocument.cpp
   src/ui/pages/datagraphsceneitems.cpp
   src/ui/pages/datagraphicons.cpp

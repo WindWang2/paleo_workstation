@@ -131,6 +131,18 @@ QString PreviewDocService::entityIdForAsset(const QString &assetId) const
   return QString();
 }
 
+QString PreviewDocService::entityIdForModelWell(qlonglong modelWellId) const
+{
+  auto *cat = catalog(); QString match;
+  if (!cat || !cat->isOpen() || modelWellId <= 0) return {};
+  for (const auto &well : cat->entities(QStringLiteral("well")))
+    if (well.extra.value(QStringLiteral("areaModelWellId")).toLongLong() == modelWellId) {
+      if (!match.isEmpty()) return {}; // An ambiguous projection cannot select a well.
+      match = well.id;
+    }
+  return match;
+}
+
 QString PreviewDocService::absolutePathForVersion(const CatalogVersion &version) const
 {
   return m_svc ? m_svc->absolutePathForVersion(version) : QString();

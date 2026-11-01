@@ -15,6 +15,11 @@ name: ci
 #     tools/check_qgis_versions.py 门禁看守；Linux 侧不再 apt 系统 QGIS，
 #     统一走 deb 闭包 vendored 路（BUILDING.md「依赖来源策略」第 2 档）。
 env:
+  # #874 并行度口径：全局默认 2（e181da02 起为主编译限并行——MSVC/GCC 编含
+  # QGIS 头的 TU 单进程内存峰值高，标准 runner 内存有限）。显式 `--parallel 8` 只出现在
+  # 两处且有意为之：lint 的 *_autogen（只跑 moc/uic，不编译，内存可忽略）与
+  # linux-asan Build（独立非阻断 job，-g1 -gz 压调试信息内存）。上限 8 同
+  # AGENTS.md「构建/测试 -j8 以内」。新增 --parallel 须在此处补口径。
   CMAKE_BUILD_PARALLEL_LEVEL: 2
   # #764：flaky 台账 strict 档默认关闭 ⇒ 串行/直跑重跑放行「同一测试累计 ≥3 次」
   # 永远只 ::warning::、门禁永远不红（绿灯通胀）。台账经 actions/cache 跨 run 持久

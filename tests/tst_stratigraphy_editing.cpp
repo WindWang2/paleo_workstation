@@ -5,6 +5,7 @@
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QLineEdit>
+#include <QListWidget>
 #include "../src/ui/wellcomposite/multiwellview.h"
 #include "../src/ui/wellcomposite/editsession.h"
 #include <QMouseEvent>
@@ -63,6 +64,32 @@ void mouse(QWidget* viewport,QEvent::Type type,const QPoint& point,Qt::MouseButt
 class StratigraphyEditingTest:public QObject {
  Q_OBJECT
 private slots:
+ void selectedWellsStartEmptyAndLoadOneChart() {
+  Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));
+  PaleoTaskService tasks;StratigraphyWorkflow wf(&tasks);wf.setProject(fixture.directory.path(),false);
+  StratigraphyPage page(&wf);page.show();QVERIFY(QTest::qWaitForWindowExposed(&page));
+  auto* list=page.findChild<QListWidget*>("stratigraphyWells");QVERIFY(list);QCOMPARE(list->count(),2);
+  for(int i=0;i<list->count();++i)QCOMPARE(list->item(i)->checkState(),Qt::Unchecked);
+  list->item(0)->setCheckState(Qt::Checked);wf.refreshWells();
+  QCOMPARE(list->item(0)->checkState(),Qt::Checked);QCOMPARE(list->item(1)->checkState(),Qt::Unchecked);
+  page.findChild<QPushButton*>("loadCorrelationWells")->click();
+  QTRY_VERIFY_WITH_TIMEOUT(!wf.isRunning(),15000);
+  QCOMPARE(wf.document().wells.size(),size_t(1));
+  auto* section=page.findChild<WellComposite::MultiWellView*>("stratigraphySection");QVERIFY(section);QCOMPARE(section->panelCount(),1);
+ }
+ void realProjectLoadsOneWellChart() {
+  const auto project=qEnvironmentVariable("PALEO_STRATIGRAPHY_QA_PROJECT");
+  if(project.isEmpty())QSKIP("PALEO_STRATIGRAPHY_QA_PROJECT not set");
+  PaleoTaskService tasks;StratigraphyWorkflow wf(&tasks);wf.setProject(project,false);
+  StratigraphyPage page(&wf);page.show();QVERIFY(QTest::qWaitForWindowExposed(&page));
+  auto* list=page.findChild<QListWidget*>("stratigraphyWells");QVERIFY(list);QVERIFY(list->count()>0);
+  for(int i=0;i<list->count();++i)QCOMPARE(list->item(i)->checkState(),Qt::Unchecked);
+  list->item(0)->setCheckState(Qt::Checked);
+  page.findChild<QPushButton*>("loadCorrelationWells")->click();
+  QTRY_VERIFY_WITH_TIMEOUT(!wf.isRunning(),60000);
+  QCOMPARE(wf.document().wells.size(),size_t(1));
+  auto* section=page.findChild<WellComposite::MultiWellView*>("stratigraphySection");QVERIFY(section);QCOMPARE(section->panelCount(),1);
+ }
  void splitSharedBoundaryUndoRedoAndPersistence() {
   Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));StratigraphyWorkflow wf(nullptr);wf.setProject(fixture.directory.path(),false);
   const auto id=fixture.first;const auto raw=well(wf,id).input.log.values;const auto numeric=well(wf,id).series[1].values;

@@ -153,7 +153,14 @@ void OfficePreviewSession::open(const QString &path, const QString &expectedSha)
           return verified;
         }
         QString copyName = info.fileName();
-        if (!DataCatalog::isSafePathSegment(copyName)) {
+        // 会话副本走本机 HTTP 地址（/paleo-doc/<token>/<名>）：除路径段安全
+        // 外还须是 URL 友好段——'#'/'?' 是 fragment/查询分隔符，编辑器 JS
+        // 侧一解码就截断（HY 验收 2026-11-01：「#HZ19-6-22d….pptx」取数
+        // 404），'%' 在多次编解码往返里同样易碎。敌对名一律换 source.<后缀>。
+        if (!DataCatalog::isSafePathSegment(copyName) ||
+            copyName.contains(QStringLiteral("#")) ||
+            copyName.contains(QStringLiteral("?")) ||
+            copyName.contains(QStringLiteral("%"))) {
           const QString suffix = info.suffix();
           copyName = suffix.isEmpty() ? QStringLiteral("source")
                                       : QStringLiteral("source.") + suffix;

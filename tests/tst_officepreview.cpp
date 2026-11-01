@@ -121,6 +121,31 @@ private slots:
     QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
     QCOMPARE(session.endpoint().host(), QStringLiteral("127.0.0.1"));
     QCOMPARE(session.endpoint().scheme(), QStringLiteral("http"));
+    // URL 敌对文件名（'#' 开头，HY 验收 2026-11-01 实例）：会话副本必须换
+    // source.<后缀>，文档 URL 段不含 #/?/% 且取数 200——否则编辑器 JS 解码
+    // 后 # 截断成 fragment，取数 404。
+    QTemporaryDir hostileDir;
+    const QString hostile = hostileDir.filePath(
+        QStringLiteral("#HZ19-6-22d随钻汇报-简版20260121早.pptx"));
+    QVERIFY(QFile::copy(fixture(QStringLiteral("pptx")), hostile) ||
+            QFile::copy(path, hostile));
+    OfficePreviewSession hashSession;
+    QSignalSpy hashReady(&hashSession, &OfficePreviewSession::ready);
+    QSignalSpy hashFailed(&hashSession, &OfficePreviewSession::failed);
+    hashSession.open(hostile);
+    QTRY_VERIFY_WITH_TIMEOUT(!hashReady.isEmpty() || !hashFailed.isEmpty(), 2000);
+    QVERIFY2(hashFailed.isEmpty(),
+             hashFailed.isEmpty() ? "" : qPrintable(hashFailed.first().first().toString()));
+    const QString hashName = QFileInfo(hashSession.documentUrl().path()).fileName();
+    QCOMPARE(hashName, QStringLiteral("source.pptx"));
+    QVERIFY(!hashSession.documentUrl().toString(QUrl::FullyEncoded)
+                 .contains(QLatin1Char('#')));
+    QNetworkAccessManager hashNetwork;
+    QNetworkReply *hashDoc = hashNetwork.get(QNetworkRequest(hashSession.documentUrl()));
+    QTRY_VERIFY_WITH_TIMEOUT(hashDoc->isFinished(), 3000);
+    QCOMPARE(hashDoc->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+    hashDoc->deleteLater();
+    hashSession.stop();
 
     QNetworkAccessManager network;
     QNetworkReply *document = network.get(QNetworkRequest(session.documentUrl()));

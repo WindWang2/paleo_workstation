@@ -260,6 +260,11 @@ class ConstraintWorkflow : public QObject
     bool saveConstraintEdits(const QString &horizon, QString *error = nullptr);
     // P4：所有已声明约束层位的混合几何伴随视图按 store 重同步（会话保存/取消后自动调用）。
     void syncAllConstraintGeometryViews();
+    // #742：约束几何类型按层位缓存（键 = GPKG 路径 + ConstraintStore::revision），
+    // 任何 store 写入即失效。返回累计 WKT 全量解析次数（每次缓存未命中 +1），
+    // 供回归测试证明重复 constraintSource/syncAll 不再重载重解析整层位。
+    int constraintGeometryParseCount() const;
+    void invalidateConstraintGeometryCache();
     // 把逐线语义和半径写进 params_json。重开后 loadConstraints 读回同一份。
     bool updateConstraintLine(const QString &id, const QVariantMap &lineParams, QString *error = nullptr);
     bool updateConstraintLines(const QStringList &ids, const QVariantMap &patch, QString *error = nullptr);
@@ -537,6 +542,9 @@ class ConstraintWorkflow : public QObject
     QString m_projectDir;
     QVector<QVariantMap> m_inMemoryConstraints;
     int m_inMemorySeq = 0;
+    struct GeometryTypeCache;
+    std::unique_ptr<GeometryTypeCache> m_geometryTypes;
+    void invalidateConstraintGeometryCacheForLayer(const QString &qgisLayerId);
     bool canStartConstraintSession() const;
     bool ensureConstraintSession(const QString &horizon, QString *error);
     DrawSessionStarter m_drawSessionStarter;

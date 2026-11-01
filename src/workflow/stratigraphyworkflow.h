@@ -76,7 +76,7 @@ public:
  void activateClassification(qlonglong wellId);
  void moveBoundary(qlonglong well, const QString &boundary, double md);
  void editBoundary(qlonglong well,const QString& boundary,double md,const QString& name,bool locked);
- void addBoundary(qlonglong well,double md,const QString& name);
+ void addBoundary(qlonglong well,double md,const QString& name,const QString& role={});
  void removeBoundary(qlonglong well,const QString& boundary);
  void confirmBoundary(qlonglong well,const QString& boundary);
  void editCycle(qlonglong well,const QString& cycle,const QString& name,int level,int direction);

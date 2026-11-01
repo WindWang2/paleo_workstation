@@ -9,7 +9,7 @@ struct Group { std::string cycleId; int number=0, direction=0; };
 void move(paleo::data::InterpretationDocument&, long long well, const std::string& id, double md);
 void properties(paleo::data::InterpretationDocument&, long long well, const std::string& id,
                 double md, const std::string& name, bool locked);
-std::string add(paleo::data::InterpretationDocument&, long long well, double md, const std::string& name);
+std::string add(paleo::data::InterpretationDocument&, long long well, double md, const std::string& name, const std::string& role = {});
 void remove(paleo::data::InterpretationDocument&, long long well, const std::string& id);
 std::string confirm(paleo::data::InterpretationDocument&, long long well, const std::string& id);
 void cycle(paleo::data::InterpretationDocument&, long long well, const std::string& id,

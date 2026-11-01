@@ -15,6 +15,11 @@ name: ci
 #     tools/check_qgis_versions.py 门禁看守；Linux 侧不再 apt 系统 QGIS，
 #     统一走 deb 闭包 vendored 路（BUILDING.md「依赖来源策略」第 2 档）。
 env:
+  # #874 并行度口径：全局默认 2（e181da02 起为主编译限并行——MSVC/GCC 编含
+  # QGIS 头的 TU 单进程内存峰值高，标准 runner 内存有限）。显式 `--parallel 8` 只出现在
+  # 两处且有意为之：lint 的 *_autogen（只跑 moc/uic，不编译，内存可忽略）与
+  # linux-asan Build（独立非阻断 job，-g1 -gz 压调试信息内存）。上限 8 同
+  # AGENTS.md「构建/测试 -j8 以内」。新增 --parallel 须在此处补口径。
   CMAKE_BUILD_PARALLEL_LEVEL: 2
   # #764：flaky 台账 strict 档默认关闭 ⇒ 串行/直跑重跑放行「同一测试累计 ≥3 次」
   # 永远只 ::warning::、门禁永远不红（绿灯通胀）。台账经 actions/cache 跨 run 持久
@@ -586,13 +591,28 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           QT_DEBUG_PLUGINS: "1"
-          PALEO_CTEST_ARGS: "-R ^tst_runtime$ --timeout 60 -V"
+          # run 41103414173 两处挂点都进探针：shard3 tst_runtime、shard1
+          # tst_basemap_project（后者只读本地 mbtiles 夹具、不走网络——挂死不是
+          # 底图联网，同为进程启动期，故同探针覆盖而非加离线 mock）。
+          PALEO_CTEST_ARGS: "-R ^(tst_runtime|tst_basemap_project)$ --timeout 60 -V"
         run: |
           Add-Type -Namespace PaleoCi -Name Native -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetErrorMode(uint mode);'
           [void][PaleoCi.Native]::SetErrorMode(0x8003)
           New-Item -Path 'HKCU:\Software\Microsoft\Windows\Windows Error Reporting' -Force | Out-Null
           Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\Windows Error Reporting' -Name DontShowUI -Value 1 -Type DWord
           ./paleo-dev.ps1 test
+      # #872：探针红/超时 ⇒ 列首个 C++ exe 的直接依赖 DLL 并在测试同款 PATH 下
+      # 定位（MISSING 即根因候选），随后显式判红；下面的分片 Test 因 probe 非
+      # success 整步跳过——不再 ×300s 逐个吊满 90 min。
+      - name: Probe diagnostics (dependents on probe failure, #872)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.probe.outcome != 'success' }}
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          ./paleo-dev.ps1 diagdeps tst_runtime
+          ./paleo-dev.ps1 diagdeps tst_basemap_project
+          echo "::error::#872 探针（tst_runtime/tst_basemap_project）未通过（outcome=${{ steps.probe.outcome }}）——本片 Test 已跳过；看上方 QT_DEBUG_PLUGINS 输出、ctest 退出码与依赖清单"
+          exit 1
       - name: Test (headless；QSettings 走测试私有注册表 hive（方向 81），片内串行)
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.probe.outcome == 'success' }}
         shell: pwsh

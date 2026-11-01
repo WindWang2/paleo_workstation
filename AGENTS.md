@@ -92,6 +92,11 @@ i18n、ui_tokens、qgis_versions、docs_drift、ci_known_reds 等；另有 C++ �
 cmake -P 零 Python 依赖；口径见 docs/CPP_PRIMARY_BOUNDARY.md）；CI lint 车道
 的 Source gates 步是同一批脚本的权威闸口（见 .github/workflows/ci.yml），
 `--transitive` 的 func/ui 两指标只在该步全闸（QGIS_PREFIX）。
+**合入前流程（#863）**：开 PR / 请求合入前先 `git fetch && git rebase origin/master`，
+rebase 后**重跑 Source gates**（至少 `tools/check_file_budget.py --strict` 等上列脚本，
+或 `ctest -LE 'core|perf'` 的无标签闸门项）——基线类闸门（file_budget/layering
+等）在并行 PR 间会互相顶掉余量，旧基底上的绿不代表合入后的绿。本仓暂无 PR 模板，
+此条即 checklist。
 并行度上限：构建/测试一律 `-j8` 以内（`cmake --build -j8`、`ctest -j8`）——
 用户要求限制编译资源占用，不要用 `$(nproc)`。
 依赖来源：尽量不依赖系统库，尽量自编译 vendored——superbuild 首选 /

@@ -121,6 +121,8 @@ class PaleoLayoutDesignerShell : public QDialog
 
     // --- designer host API (what the interface adapter forwards to) ---
     QgsLayout *layout() const { return m_layout; }
+    //! #748：版面原生撤销栈包装（主窗口撤销组登记用；可能为空）。
+    PaleoLayoutUndoStack *undoStack() const { return m_undoStack; }
     QgsMasterLayoutInterface *masterLayout() const;
     QgsLayoutView *view() const { return m_view; }
     QgsMessageBar *messageBar() const { return m_messageBar; }

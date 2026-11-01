@@ -87,7 +87,7 @@ using namespace paleo::constraint_detail;
 // ---------------------------------------------------------------------------
 
 ConstraintWorkflow::ConstraintWorkflow( QgisProcessingService *proc, QgisLayerService *layers, QObject *parent )
-  : QObject( parent ), m_proc( proc ), m_layers( layers )
+  : QObject( parent ), m_proc( proc ), m_layers( layers ), m_geometryTypes( std::make_unique<GeometryTypeCache>() )
 {
 }
 
@@ -265,11 +265,40 @@ QString constraintLayerTitle(const QString &horizon)
   return ConstraintWorkflow::tr("%1 约束线").arg(horizon);
 }
 
-QString constraintSource(ConstraintStore *store, const QString &horizon, const QString &subset)
+// #742：层位几何类型快照。all 含空几何的类型（OGR 定型口径），present 只计
+// 非空几何（伴随视图口径）；mainType 缓存主层探针结果，避免每次重开 OGR。
+struct ConstraintGeometryTypes
 {
-  QSet<Qgis::GeometryType> types;
-  for (const auto &row : store->load(horizon))
-    types.insert(QgsGeometry::fromWkt(row.value(QStringLiteral("wkt")).toString()).type());
+  QString storeKey;
+  quint64 revision = 0;
+  QSet<Qgis::GeometryType> all;
+  QSet<Qgis::GeometryType> present;
+  bool probed = false;
+  QString probedSource;
+  Qgis::GeometryType probedMainType = Qgis::GeometryType::Unknown;
+};
+
+QString constraintStoreKey(const ConstraintStore *store)
+{
+  return QDir::cleanPath(QFileInfo(store->gpkgPath()).absoluteFilePath());
+}
+
+ConstraintGeometryTypes scanConstraintGeometryTypes(const QVector<QVariantMap> &rows)
+{
+  ConstraintGeometryTypes types;
+  for (const QVariantMap &row : rows)
+  {
+    const QgsGeometry geometry = QgsGeometry::fromWkt(row.value(QStringLiteral("wkt")).toString());
+    types.all.insert(geometry.type());
+    if (!geometry.isNull() && !geometry.isEmpty())
+      types.present.insert(geometry.type());
+  }
+  return types;
+}
+
+QString constraintSource(const ConstraintStore *store, const ConstraintGeometryTypes &geometry, const QString &subset)
+{
+  const QSet<Qgis::GeometryType> &types = geometry.all;
   QString source = QStringLiteral("%1|layername=constraints").arg(store->gpkgPath());
   // OGR 从全表首要素推断类型；单一几何层位显式定型，空约束层默认是线。
   if (types.isEmpty() || types == QSet<Qgis::GeometryType>{Qgis::GeometryType::Line})
@@ -298,7 +327,8 @@ QString constraintGeometryViewSuffix( Qgis::GeometryType type )
   }
 }
 
-void syncConstraintGeometryViews( QgisLayerService *layers, ConstraintStore *store, const QString &horizon )
+void syncConstraintGeometryViews( QgisLayerService *layers, ConstraintStore *store, const QString &horizon,
+                                  ConstraintGeometryTypes &geometry )
 {
   if ( !layers || !store || horizon.isEmpty() )
     return;
@@ -311,19 +341,19 @@ void syncConstraintGeometryViews( QgisLayerService *layers, ConstraintStore *sto
     qWarning() << "[ConstraintWorkflow] horizon not representable in subset URI, skip view sync:" << horizon;
     return;
   }
-  QSet<Qgis::GeometryType> present;
-  for ( const QVariantMap &row : store->load( horizon ) )
-  {
-    const QgsGeometry geometry = QgsGeometry::fromWkt( row.value( QStringLiteral( "wkt" ) ).toString() );
-    if ( !geometry.isNull() && !geometry.isEmpty() )
-      present.insert( geometry.type() );
-  }
+  const QSet<Qgis::GeometryType> &present = geometry.present;
   Qgis::GeometryType mainType = Qgis::GeometryType::Unknown;
   if ( !present.isEmpty() )
   {
-    const QgsVectorLayer probe( constraintSource(store, horizon, subset), QStringLiteral( "probe" ), QStringLiteral( "ogr" ) );
-    if ( probe.isValid() )
-      mainType = probe.geometryType();
+    const QString source = constraintSource( store, geometry, subset );
+    if ( !geometry.probed || geometry.probedSource != source )
+    {
+      const QgsVectorLayer probe( source, QStringLiteral( "probe" ), QStringLiteral( "ogr" ) );
+      geometry.probed = true;
+      geometry.probedSource = source;
+      geometry.probedMainType = probe.isValid() ? probe.geometryType() : Qgis::GeometryType::Unknown;
+    }
+    mainType = geometry.probedMainType;
   }
   if (auto *live = qobject_cast<QgsVectorLayer *>(layers->layer(QStringLiteral("constraints.%1").arg(horizon))))
     mainType = live->geometryType();
@@ -361,6 +391,64 @@ void syncConstraintGeometryViews( QgisLayerService *layers, ConstraintStore *sto
 
 } // namespace
 
+struct ConstraintWorkflow::GeometryTypeCache
+{
+  QHash<QString, ConstraintGeometryTypes> byHorizon;
+  int parses = 0;
+
+  // rows 非空 = 调用方刚按该层位读出的当前行，未命中时直接用它解析（不再重读）。
+  ConstraintGeometryTypes &lookup( ConstraintStore *store, const QString &horizon,
+                                   const QVector<QVariantMap> *rows = nullptr )
+  {
+    const QString key = constraintStoreKey( store );
+    const quint64 revision = ConstraintStore::revision( store->gpkgPath() );
+    auto it = byHorizon.find( horizon );
+    if ( it != byHorizon.end() && it->storeKey == key && it->revision == revision )
+      return *it;
+    ConstraintGeometryTypes fresh = scanConstraintGeometryTypes( rows ? *rows : store->load( horizon ) );
+    ++parses;
+    fresh.storeKey = key;
+    fresh.revision = revision;
+    return *byHorizon.insert( horizon, fresh );
+  }
+
+  // 只查不建：store 自上次解析后未被写过才返回条目。
+  ConstraintGeometryTypes *peek( ConstraintStore *store, const QString &horizon )
+  {
+    auto it = byHorizon.find( horizon );
+    if ( it == byHorizon.end() || it->storeKey != constraintStoreKey( store ) ||
+         it->revision != ConstraintStore::revision( store->gpkgPath() ) )
+      return nullptr;
+    return &*it;
+  }
+};
+
+int ConstraintWorkflow::constraintGeometryParseCount() const
+{
+  return m_geometryTypes ? m_geometryTypes->parses : 0;
+}
+
+void ConstraintWorkflow::invalidateConstraintGeometryCache()
+{
+  if ( m_geometryTypes )
+    m_geometryTypes->byHorizon.clear();
+}
+
+void ConstraintWorkflow::invalidateConstraintGeometryCacheForLayer( const QString &qgisLayerId )
+{
+  QgisLayerService *layers = m_layers.data();
+  if ( !m_geometryTypes || !layers )
+    return;
+  for ( auto it = m_geometryTypes->byHorizon.begin(); it != m_geometryTypes->byHorizon.end(); )
+  {
+    const QgsMapLayer *layer = layers->layer( QStringLiteral( "constraints.%1" ).arg( it.key() ) );
+    if ( qgisLayerId.isEmpty() || !layer || layer->id() == qgisLayerId )
+      it = m_geometryTypes->byHorizon.erase( it );
+    else
+      ++it;
+  }
+}
+
 void ConstraintWorkflow::setEditingService( QgisEditingService *editing )
 {
   if ( m_editingService )
@@ -370,7 +458,12 @@ void ConstraintWorkflow::setEditingService( QgisEditingService *editing )
     return;
   // P4：会话保存/取消后 store 内容可能变了（取消恢复会话起点），伴随视图重同步。
   // 信号只带 QGIS 图层 id，层位数通常很少：逐个已声明约束层位同步。
-  const auto resync = [this]( const QString & ) { syncAllConstraintGeometryViews(); };
+  // 原生图层提交可能绕过 ConstraintStore 写面（无修订号递增）：只失效被提交
+  // 图层所属层位；未触及的层位继续命中缓存，不再逐层位全量重解析。
+  const auto resync = [this]( const QString &qgisLayerId ) {
+    invalidateConstraintGeometryCacheForLayer( qgisLayerId );
+    syncAllConstraintGeometryViews();
+  };
   connect( editing, &QgisEditingService::editCommitted, this, resync );
   connect( editing, &QgisEditingService::editRolledBack, this, resync );
 }
@@ -391,8 +484,15 @@ void ConstraintWorkflow::syncAllConstraintGeometryViews()
                                    d.layerId.startsWith( PaleoLayerVocabulary::kConstraintGeometryViewPrefix ) ) )
       horizons.insert( d.horizon );
   for ( const QString &h : std::as_const( horizons ) ) {
-    loadConstraints(h); // 保存/取消后重定型主矢量层，再同步伴随几何视图。
-    syncConstraintGeometryViews(layers, cs, h);
+    // #742：store 自上次解析后未写过、主层源也与缓存定型一致 → 免重载重解析，
+    // 只按缓存核对伴随视图声明（O(1) 次声明比较）。否则保存/取消后重定型主层。
+    const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( h );
+    ConstraintGeometryTypes *cached = m_geometryTypes->peek( cs, h );
+    const bool mainCurrent = cached && !subset.isEmpty() &&
+        layers->declaration( QStringLiteral( "constraints.%1" ).arg( h ) ).source == constraintSource( cs, *cached, subset );
+    if ( !mainCurrent )
+      loadConstraints(h);
+    syncConstraintGeometryViews(layers, cs, h, m_geometryTypes->lookup(cs, h));
   }
 }
 
@@ -434,7 +534,7 @@ bool ConstraintWorkflow::ensureConstraintSession( const QString &horizon, QStrin
         *error = subsetError;
       return false; // 层位名进不了安全过滤器：拒绝（不声明无过滤全表层）
     }
-    decl.source = constraintSource(cs, horizon, subset);
+    decl.source = constraintSource(cs, m_geometryTypes->lookup(cs, horizon), subset);
     decl.group = PaleoLayerVocabulary::kConstraintsGroup;
     if ( !layers->declare( decl, error ) )
       return false;
@@ -648,7 +748,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
                                          persist ? paramsJson : QString(), persist, error ) )
         return false;
       // 显式编辑中的绘制按命令原子写 store，伴随视图即时同步。
-      syncConstraintGeometryViews( layers, cs, horizon );
+      syncConstraintGeometryViews(layers, cs, horizon, m_geometryTypes->lookup(cs, horizon));
       if ( persist )
         c.type = storedType;
       QVariantMap rec = c.toMap();
@@ -700,14 +800,14 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
       cs->remove( c.id );
       return false; // 已回滚刚写入的行，不留半截
     }
-    decl.source = constraintSource(cs, horizon, subset);
+    decl.source = constraintSource(cs, m_geometryTypes->lookup(cs, horizon), subset);
     decl.group = PaleoLayerVocabulary::kConstraintsGroup;
     if ( !layers->declare( decl, error ) )
     {
       cs->remove( c.id );
       return false;
     }
-    syncConstraintGeometryViews( layers, cs, horizon );
+    syncConstraintGeometryViews(layers, cs, horizon, m_geometryTypes->lookup(cs, horizon));
 
     if ( constraintIdOut )
       *constraintIdOut = c.id;
@@ -991,7 +1091,7 @@ bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString 
         paleo::workflow_detail::setError(error, tr("删除约束未写入 store"));
         return false;
       }
-    syncConstraintGeometryViews(m_layers.data(), cs, rowHorizon);
+    syncConstraintGeometryViews(m_layers.data(), cs, rowHorizon, m_geometryTypes->lookup(cs, rowHorizon));
     emit constraintRemoved(constraintId);
     return true;
   }
@@ -1001,7 +1101,7 @@ bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString 
       removedHorizon = row.value( QStringLiteral( "horizon" ) ).toString();
   if ( !cs->remove( constraintId, error ) )
     return false;
-  syncConstraintGeometryViews( m_layers.data(), cs, removedHorizon );
+  syncConstraintGeometryViews(m_layers.data(), cs, removedHorizon, m_geometryTypes->lookup(cs, removedHorizon));
   const auto removed = std::remove_if(
       m_inMemoryConstraints.begin(), m_inMemoryConstraints.end(),
       [&constraintId]( const QVariantMap &rec ) {
@@ -1119,11 +1219,11 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
       const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
       if ( !subset.isEmpty() )
       {
-        decl.source = constraintSource(cs, horizon, subset);
+        decl.source = constraintSource(cs, m_geometryTypes->lookup(cs, horizon, &loaded), subset);
         decl.group = PaleoLayerVocabulary::kConstraintsGroup;
         layers->declare( decl );
       }
-      syncConstraintGeometryViews( layers, cs, horizon );
+      syncConstraintGeometryViews( layers, cs, horizon, m_geometryTypes->lookup( cs, horizon, &loaded ) );
     }
     else
     {
@@ -1147,11 +1247,11 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
         const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( h );
         if ( !subset.isEmpty() )
         {
-          decl.source = constraintSource(cs, h, subset);
+          decl.source = constraintSource(cs, m_geometryTypes->lookup(cs, h), subset);
           decl.group = PaleoLayerVocabulary::kConstraintsGroup;
           layers->declare( decl );
         }
-        syncConstraintGeometryViews( layers, cs, h );
+        syncConstraintGeometryViews(layers, cs, h, m_geometryTypes->lookup(cs, h));
       }
     }
   }

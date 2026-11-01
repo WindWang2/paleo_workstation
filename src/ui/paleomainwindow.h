@@ -38,6 +38,9 @@ class QgsMapLayer;
 class LayerTreePanel;
 class LayerPropertiesDialog;
 class QgsLayoutItemMap;
+class QgsLayout;
+class PaleoLayoutDesignerShell;
+class PaleoUndoGroupRouter; // #748
 class QgsRubberBand;
 #include <QDockWidget>
 
@@ -313,6 +316,10 @@ class PaleoMainWindow : public SARibbonMainWindow
                                              QgisEditingService *editSvc,
                                              QgisLayoutService *layoutSvc,
                                              PaleoTaskService *taskSvc);
+    // #748：主窗口撤销组（QUndoGroup 焦点路由，paleomainwindow_undogroup.cpp）。
+    PaleoUndoGroupRouter *undoRouter();
+    void bindUndoGroup(PaleoEditingToolbar *edit);  // 编辑条动作接组 + 画布回落作用域
+    PaleoLayoutDesignerShell *newLayoutShell(QgsLayout *layout); // 新建并登记撤销作用域
     void attachMapBookSurface();
     // 底栏「发布」页：库路径/当前清单/只读态（§6）三面均从工程存储注入。
     void attachReleasePanel(PaleoProjectStore *store);
@@ -507,6 +514,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     LayerPropertiesDialog *m_layerProps = nullptr;
     bool m_profileReplayQueued = false; // 层位切换后的页面档案重放去抖旗标
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
+    PaleoUndoGroupRouter *m_undoRouter = nullptr; // #748，QObject 子对象
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
     QToolButton *m_statusErrorBtn = nullptr;

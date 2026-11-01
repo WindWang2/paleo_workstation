@@ -291,6 +291,55 @@ private slots:
     QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
     QCOMPARE(layers.layer("constraints.T1"), layer);
   }
+  // #742：几何类型缓存按层位 + store 修订号失效——重复同步不再全量重解析
+  // WKT；绘制/删除（含临时 ConstraintStore 实例写入）后必须重新扫描。
+  void geometryTypeCacheInvalidatesOnDrawAndDelete()
+  {
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QString error;
+    QVERIFY(constraints.appendExtended("T1", "a", "LINESTRING(0 0,10 0)", "direction_line", 1,
+                                       "{\"semantic\":\"direction_guide\",\"ratio\":4}", 1, &error));
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.loadConstraints("T1");
+    const int afterFirst = workflow.constraintGeometryParseCount();
+    QVERIFY(afterFirst >= 1);
+    for (int i = 0; i < 5; ++i) {
+      workflow.syncAllConstraintGeometryViews();
+      workflow.loadConstraints("T1");
+    }
+    QCOMPARE(workflow.constraintGeometryParseCount(), afterFirst); // 未变更 → 零重解析
+
+    QString drawnId;
+    QVERIFY2(workflow.addConstraint("T1", "LINESTRING(0 5,10 5)", "break_line", 0, &error, &drawnId,
+                                    {{"semantic", "hard_barrier"}, {"blockMode", "full_block"}}), qPrintable(error));
+    workflow.syncAllConstraintGeometryViews();
+    const int afterDraw = workflow.constraintGeometryParseCount();
+    QVERIFY(afterDraw > afterFirst); // 绘制使缓存失效
+    workflow.syncAllConstraintGeometryViews();
+    QCOMPARE(workflow.constraintGeometryParseCount(), afterDraw);
+
+    { // 另一个 store 实例写同一 gpkg 也必须失效（修订号按路径共享）
+      ConstraintStore other(gpkg, &store);
+      QVERIFY(other.remove(drawnId, &error));
+    }
+    workflow.syncAllConstraintGeometryViews();
+    const int afterDelete = workflow.constraintGeometryParseCount();
+    QVERIFY(afterDelete > afterDraw);
+    QVERIFY2(workflow.removeConstraint("a", &error), qPrintable(error));
+    workflow.syncAllConstraintGeometryViews();
+    QVERIFY(workflow.constraintGeometryParseCount() > afterDelete);
+    QVERIFY(workflow.loadConstraints("T1").isEmpty());
+  }
   // P2：会话内绘制的新约束进入原生撤销栈；store fid 不撞其他层位；
   // undo/redo/取消/保存都与 store 一致；无语义裸要素仍被拒收并撤回。
   // PR457-closure F4：undo 释放预分配 fid 且被其他写入方占用后，redo 不再

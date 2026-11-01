@@ -12,7 +12,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonDocument>
+#include <QMutex>
 #include <QPointer>
 #include <QSet>
 #include <QStringList>
@@ -22,6 +24,16 @@
 
 namespace {
 using paleo::io_detail::ensureGdalRegistered;
+QString revisionKey(const QString &gpkgPath) { return QDir::cleanPath(QFileInfo(gpkgPath).absoluteFilePath()); }
+QMutex &revisionMutex() { static QMutex mutex; return mutex; }
+QHash<QString, quint64> &revisions() { static QHash<QString, quint64> map; return map; }
+void bumpRevision(const QString &gpkgPath) {
+  const QString key = revisionKey(gpkgPath);
+  const QMutexLocker lock(&revisionMutex());
+  ++revisions()[key];
+}
+// 写路径出口（含失败/早退）一律递增：失败写已回滚，多一次失效只多一次重解析。
+struct RevisionBump { QString path; ~RevisionBump() { bumpRevision(path); } };
 using Feature = std::unique_ptr<void, decltype(&OGR_F_Destroy)>;
 using Geometry = std::unique_ptr<void, decltype(&OGR_G_DestroyGeometry)>;
 QString freshId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
@@ -329,6 +341,11 @@ ConstraintStore::ConstraintStore(const QString &gpkgPath, PaleoProjectStore *sto
   }
 }
 
+quint64 ConstraintStore::revision(const QString &gpkgPath) {
+  const QString key = revisionKey(gpkgPath);
+  const QMutexLocker lock(&revisionMutex());
+  return revisions().value(key, 0);
+}
 bool ConstraintStore::setAuditContext(const AuditContext &context, QString *error) {
   if (!contextValid(context, error)) return false;
   if (!context.actorId.isEmpty() && context.reason.trimmed().isEmpty()) {
@@ -366,6 +383,7 @@ bool ConstraintStore::ensureSchema(QString *error) {
 
 bool ConstraintStore::appendInternal(const QString &horizon, const QString &id, const QString &wkt,
     const QString &type, int faciesCode, const QString *paramsJson, int schemaVersion, QString *error, double weight) {
+  const RevisionBump revisionBump{m_gpkgPath};
   if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
   const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {
     QString reason;
@@ -605,6 +623,7 @@ bool ConstraintStore::copyAudit(const QString &destination, const QString &horiz
 }
 bool ConstraintStore::updateParameters(const QString &id, const QString &paramsJson, int schemaVersion,
                                        const QString &semanticType, QString *error) {
+  const RevisionBump revisionBump{m_gpkgPath};
   if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
   const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {
     QString reason; Transaction transaction; if (!transaction.open(m_gpkgPath, false, &reason)) return {false, reason};
@@ -631,6 +650,7 @@ bool ConstraintStore::updateParameters(const QString &id, const QString &paramsJ
   const auto result = m_enqueue ? m_enqueue(write) : write(); if (!result.ok && error) *error = result.error; return result.ok;
 }
 bool ConstraintStore::remove(const QString &id, QString *error) {
+  const RevisionBump revisionBump{m_gpkgPath};
   if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
   const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {
     if (!QFile::exists(m_gpkgPath)) return {true, {}};
@@ -681,6 +701,7 @@ ConstraintStore::CrsStorageStatus ConstraintStore::inspectCrsStorage() const {
 }
 
 bool ConstraintStore::migrateLegacyCrs(QString *error, QString *backupPathOut) {
+  const RevisionBump revisionBump{m_gpkgPath};
   if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
   // 单写者纪律：有队列就进队列（与其余写路径互斥；独占窗口内完成
   // checkpoint → 事务 → 备份 → 迁移 → 校验，外部写者进不来）。
@@ -697,6 +718,7 @@ bool ConstraintStore::migrateLegacyCrs(QString *error, QString *backupPathOut) {
 bool ConstraintStore::restoreFileFromBackup(const QString &gpkgPath,
                                             const QString &backupPath,
                                             QString *error) {
+  const RevisionBump revisionBump{gpkgPath};
   const auto bad = [error](const QString &message) {
     if (error) *error = message;
     return false;
@@ -979,6 +1001,7 @@ bool ConstraintStore::migrateLegacyCrsLocked(QString *error, QString *backupPath
 }
 
 bool ConstraintStore::replaceHorizon(const QString &horizon, const QVector<QVariantMap> &rows, QString *error) {
+  const RevisionBump revisionBump{m_gpkgPath};
   if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
   const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {
     QString reason; Transaction transaction;

@@ -389,8 +389,7 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
       if (QgsLayoutItemMap *mapItem =
               qobject_cast<QgsLayoutItemMap *>(layout->itemById(QStringLiteral("map"))))
         pinLayoutTheme(mapItem, QStringLiteral("compose"));
-      auto *shell = new PaleoLayoutDesignerShell(layout, this);
-      shell->setTaskService(m_taskSvc); // #85：导出走任务池 worker
+      auto *shell = newLayoutShell(layout); // #85 任务池 + #748 撤销组作用域
       shell->setAttribute(Qt::WA_DeleteOnClose);
       shell->setModal(false);
       shell->show();

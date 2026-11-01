@@ -21,6 +21,7 @@ class QSpinBox;
 class QgsRubberBand;
 class QgsAdvancedDigitizingDockWidget;
 class QToolButton;
+class QUndoGroup;
 
 // ui/edittools/ — PaleoEditingToolbar: the 「编辑」 toolbar host.
 //
@@ -119,6 +120,9 @@ class PaleoEditingToolbar : public QWidget
       mSecondaryUndo = std::move( undo );
       mSecondaryRedo = std::move( redo );
     }
+    // #748：主窗口撤销组。组内有活动栈（焦点在已登记停靠面）时撤销/重做与
+    // 按钮状态走该栈；无活动栈时维持上面的会话栈 → 次级栈口径。
+    void setUndoGroup( QUndoGroup *group );
 
     QSpinBox *snapToleranceSpin() const { return mSnapTolerance; }
     QSpinBox *undoDepthSpin() const { return mUndoDepth; }
@@ -203,6 +207,9 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionUndo = nullptr;
     QAction *mActionRedo = nullptr;
     std::function<bool()> mSecondaryUndo, mSecondaryRedo; // #748
+    QPointer<QUndoGroup> mUndoGroup;                       // #748，不持有
+    void routeUndo( bool undo );     // 动作触发：活动组栈优先
+    void applyUndoActionStates();    // 撤销/重做按钮 enabled + 提示
     QPointer<class QgsMapTool> mActiveEditTool; // installed tool, not owned
     std::unique_ptr<PaleoUndoStack> mUndoStack;
     QPointer<QgsProject> mProject;

@@ -181,6 +181,8 @@ public:
     bool propagationActive() const { return m_propTask != nullptr; }
 
     SeismicPickPanel *pickPanel() const { return m_pickPanel; }
+    // #748：剖面/拾取共用的解释撤销栈（主窗口撤销组按焦点切换）。
+    QUndoStack *undoStack() const { return m_undoStack; }
     void setPickMode(SectionPickMode mode);
 
 signals:

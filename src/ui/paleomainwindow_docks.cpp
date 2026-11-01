@@ -41,6 +41,7 @@
 #include "webviewpanel.h"
 #include "wellsection/wellsectionpanel.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
+#include "ui/edittools/undogrouprouter.h" // #748
 #include "ui/seismic3d/seismic3dviewpanel.h"
 #include "services/seismictaskservice.h" // AttributeVolumePreview（attrVolumeReady 接线）
 
@@ -606,6 +607,7 @@ void PaleoMainWindow::buildPageDocks()
   // ---- seismic section dock (Phase 4: 2D arbitrary line & well section dock) ----
   m_seismicSectionDock = new seismic::SeismicSectionDockWidget(tr("地震剖面 / 井震综合"), this);
   m_seismicSectionDock->setObjectName(QStringLiteral("seismicSectionDock"));
+  undoRouter()->registerScope(m_seismicSectionDock, m_seismicSectionDock->undoStack()); // #748 剖面/拾取
   addDockWidget(Qt::BottomDockWidgetArea, m_seismicSectionDock);
   tabifyDockWidget(m_bottomDock, m_seismicSectionDock);
   m_seismicSectionDock->hide();

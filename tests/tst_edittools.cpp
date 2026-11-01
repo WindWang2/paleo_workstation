@@ -76,6 +76,8 @@
 #include "qgis/qgiseditingservice.h"
 #include "qgis/topologicalindex.h"
 #include "ui/edittools/editingtoolbar.h"
+#include "ui/edittools/undogrouprouter.h"
+#include <QUndoGroup>
 #include "ui/edittools/editingtools.h"
 #include "ui/edittools/editingundostack.h"
 #include "ui/edittools/vertexeditortools.h"
@@ -141,6 +143,7 @@ class TestEditTools : public QObject
     void partitionCaptureUsesNativeEventsAndLayerCrs();
     void toolbarRelaysNativeWarningsAndExplainsPartitionActions();
     void canvasUndoFallsBackToSecondaryStack();
+    void undoGroupActiveStackFollowsFocusScope();
 
     // a) add feature → edit buffer
     void addPointClickCommitsIntoEditBuffer();
@@ -1570,6 +1573,97 @@ void TestEditTools::canvasUndoFallsBackToSecondaryStack()
   bar.setSecondaryUndo( {}, {} ); // 解除后不再调用
   emit undo->activated();
   QCOMPARE( undos, 1 );
+}
+
+namespace {
+// #748：可计数的最小命令（只记录 undo/redo 次数，不碰任何图层）。
+class CountingCommand : public QUndoCommand
+{
+  public:
+    CountingCommand( const QString &text, int *undos, int *redos ) : QUndoCommand( text ), mUndos( undos ), mRedos( redos ) {}
+    void undo() override { ++*mUndos; }
+    void redo() override { ++*mRedos; }
+  private:
+    int *mUndos, *mRedos;
+};
+} // namespace
+
+void TestEditTools::undoGroupActiveStackFollowsFocusScope()
+{
+  // #748：真 QUndoGroup——焦点作用域切换活动栈；主窗口撤销/重做动作只作用于
+  // 活动栈；未登记控件保持当前栈；画布作用域（nullptr）回落会话/次级栈。
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+  PaleoEditingToolbar bar( &canvas );
+  PaleoUndoGroupRouter router;
+  bar.setUndoGroup( router.group() );
+  QWidget host;
+  auto *layoutScope = new QWidget( &host );
+  auto *layoutChild = new QWidget( layoutScope );
+  auto *seismicScope = new QWidget( &host );
+  auto *seismicChild = new QWidget( seismicScope );
+  auto *ribbonButton = new QWidget( &host );
+  QUndoStack layoutStack, seismicStack;
+  int lu = 0, lr = 0, su = 0, sr = 0;
+  layoutStack.push( new CountingCommand( QStringLiteral( "移动图元" ), &lu, &lr ) );
+  seismicStack.push( new CountingCommand( QStringLiteral( "拾取" ), &su, &sr ) );
+  router.registerScope( layoutScope, &layoutStack );
+  router.registerScope( seismicScope, &seismicStack );
+  router.registerScope( &canvas, nullptr );
+  QCOMPARE( router.group()->stacks().size(), 2 );
+  QVERIFY( !router.activeStack() );
+  QVERIFY( !bar.actionUndo()->isEnabled() );
+
+  QSignalSpy activeSpy( router.group(), &QUndoGroup::activeStackChanged );
+  router.handleFocusChanged( layoutChild );
+  QCOMPARE( router.activeStack(), &layoutStack );
+  QCOMPARE( activeSpy.count(), 1 );
+  QVERIFY( bar.actionUndo()->isEnabled() );
+  QVERIFY( bar.actionUndo()->toolTip().contains( QStringLiteral( "移动图元" ) ) );
+  bar.actionUndo()->trigger();
+  QCOMPARE( lu, 1 );
+  QCOMPARE( su, 0 ); // 不越界撤销其他停靠面
+  QVERIFY( !bar.actionUndo()->isEnabled() );
+  QVERIFY( bar.actionRedo()->isEnabled() );
+
+  router.handleFocusChanged( ribbonButton ); // 点功能区按钮不切走目标
+  QCOMPARE( router.activeStack(), &layoutStack );
+  router.handleFocusChanged( nullptr );
+  QCOMPARE( router.activeStack(), &layoutStack );
+
+  router.handleFocusChanged( seismicChild );
+  QCOMPARE( router.activeStack(), &seismicStack );
+  QVERIFY( bar.actionUndo()->isEnabled() );
+  QVERIFY( !bar.actionRedo()->isEnabled() );
+  bar.actionUndo()->trigger();
+  QCOMPARE( su, 1 );
+  QCOMPARE( lu, 1 );
+  bar.actionRedo()->trigger();
+  QCOMPARE( sr, 2 ); // push 时 redo 一次 + 重做一次
+  QCOMPARE( lr, 1 );
+
+  int secondary = 0;
+  bar.setSecondaryUndo( [&secondary] { ++secondary; return true; }, [] { return false; } );
+  router.handleFocusChanged( &canvas ); // 画布：活动栈清空，回落既有路由
+  QVERIFY( !router.activeStack() );
+  QVERIFY( !bar.actionUndo()->isEnabled() );
+  auto *undoShortcut = canvas.findChild<QShortcut *>( QStringLiteral( "scMapEditUndo" ) );
+  QVERIFY( undoShortcut );
+  emit undoShortcut->activated();
+  QCOMPARE( secondary, 1 );
+  QCOMPARE( su, 1 );
+
+  router.handleFocusChanged( seismicChild );
+  QCOMPARE( router.activeStack(), &seismicStack );
+  delete seismicScope; // 作用域销毁：自动解除、活动栈清空、栈退组
+  QVERIFY( !router.activeStack() );
+  QCOMPARE( router.group()->stacks().size(), 1 );
+  QVERIFY( !bar.actionUndo()->isEnabled() );
+
+  router.registerScope( layoutScope, nullptr ); // 改绑：旧栈无人引用即退组
+  QVERIFY( router.group()->stacks().isEmpty() );
+  router.handleFocusChanged( layoutChild );
+  QVERIFY( !router.activeStack() );
 }
 
 void TestEditTools::toolbarTopologicalActionMirrorsProjectFlag()

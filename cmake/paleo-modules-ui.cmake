@@ -105,6 +105,7 @@ add_library(paleo_ui STATIC
   src/ui/pages/mappingreferencepanel.cpp
   src/ui/paleomainwindow_references.cpp
   src/ui/paleomainwindow_workbench.cpp
+  src/ui/paleomainwindow_undogroup.cpp           # #748 主窗口撤销组
   src/ui/paleomainwindow_workbench_editflow.cpp
   src/ui/workbench/impactoutcome.cpp            # #740：后台影响/对比终态文案（纯函数）
   src/ui/paleomainwindow_workbench_commands.cpp   # #473：命令分发链——attachWorkbench 行为守恒拆分
@@ -179,6 +180,7 @@ add_library(paleo_ui STATIC
   src/ui/edittools/editingtoolbar_shortcuts.cpp
   src/ui/edittools/editingtools.cpp                # wave/edit-tools
   src/ui/edittools/editingundostack.cpp
+  src/ui/edittools/undogrouprouter.cpp              # #748 QUndoGroup 焦点路由
   src/ui/edittools/vertexpartitionvalidation.cpp
   src/ui/edittools/vertexeditortools.cpp
   src/ui/edittools/editingtoolbar.cpp

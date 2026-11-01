@@ -150,6 +150,8 @@ namespace {
 // #748：画布 Ctrl+Z/Ctrl+Y 路由——会话内要素编辑优先，否则撤销工作台属性栈
 //（固定显示层级 #741、会话外绘制约束 #742），状态栏报命令名。
 void routeCanvasUndo(PaleoMainWindow *self, PaleoEditingToolbar *edit, MappingWorkbench *workbench) {
+  if (self)
+    self->bindUndoGroup(edit); // 停靠面焦点 → QUndoGroup 活动栈；画布回落本路由
   if (!edit || !workbench)
     return;
   const auto step = [self, workbench](bool undo) {

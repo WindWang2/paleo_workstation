@@ -32,3 +32,13 @@ paleo_services paleo_linkage paleo_workflow paleo_ui paleo_app paleo_ai(条件)
 
 已知未做（范围外）：`paleo_domain` / `paleo_algorithms` 经 `paleo_deps` 间接链接
 QGIS，分层契约尚未落到构建依赖上——解耦需要改源码依赖，不属于本次纯结构拆分。
+
+## 树外消费的片段：CalligraRenderer.cmake（#874）
+
+`CalligraRenderer.cmake` **故意不被**本仓任何 CMakeLists `include()`：真正的消费者
+是 `vendor/fetch-calligra.sh`，它把 `include("${PALEO_WORKSTATION_SOURCE}/cmake/CalligraRenderer.cmake")`
+追加进解压后的 Calligra 顶层 CMakeLists，在 Calligra 自身库（komain/kopageapp/…）
+就位后编出独立进程 `paleo_office_renderer`（源 `src/app/officepreviewrenderer.cpp`）。
+从本树看它是「零引用」，但**不要删、也不要挪进根 CMakeLists**（本树没有那些
+Calligra target）。改它或改 `officepreviewrenderer.cpp` 时须手动跑一次
+`vendor/fetch-calligra.sh` 验证——该路径无 CI 车道（见 BUILDING.md Calligra 段）。

@@ -368,7 +368,10 @@ void TestWellLogUi::wellLogPrimaryButtonPromotesLink()
   QCOMPARE(versionButtons, 1);
 
   panelButton->click();
-  QVERIFY(resolvedWellLogPrimary(*cat, QStringLiteral("ast-secondary")));
+  // #647 起改主在点击返回后的下一轮事件里经命令栈执行（不拆正在发信号的按钮）：
+  // 点击当下不得已切换，事件循环后必须切换。
+  QVERIFY(!resolvedWellLogPrimary(*cat, QStringLiteral("ast-secondary")));
+  QTRY_VERIFY(resolvedWellLogPrimary(*cat, QStringLiteral("ast-secondary")));
   QVERIFY(!resolvedWellLogPrimary(*cat, QStringLiteral("ast-primary")));
   for (const EntityAssetLink &link : cat->linksForAsset(QStringLiteral("ast-pending")))
     if (link.role == QLatin1String("well_log"))

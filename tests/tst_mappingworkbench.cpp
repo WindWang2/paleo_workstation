@@ -56,6 +56,7 @@
 #include <QAbstractButton>
 #include <QRegularExpression>
 #include "../src/ui/workbenchcommandregistry.h"
+#include "../src/ui/workbench/mappingworkbenchcommandcontroller.h"
 #include <QScopeGuard>
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -1164,7 +1165,7 @@ private slots:
       QVERIFY2(isKnownAction(action), qPrintable("unregistered workbench action: " + action));
     QSet<QString> dispatched;
     const QRegularExpression literal(QStringLiteral(R"re(action == "([A-Za-z]+)")re"));
-    for (const auto *file : {"paleomainwindow_workbench_commands.cpp", "paleomainwindow_workbench_editflow.cpp"}) {
+    for (const auto *file : {"workbench/mappingworkbenchcommandcontroller.cpp", "paleomainwindow_workbench_editflow.cpp"}) {
       QFile source(QStringLiteral(PALEO_SOURCE_DIR "/src/ui/") + QLatin1String(file));
       QVERIFY2(source.open(QIODevice::ReadOnly), file);
       auto it = literal.globalMatch(QString::fromUtf8(source.readAll()));
@@ -1174,6 +1175,38 @@ private slots:
       QVERIFY2(dispatched.contains(action), qPrintable("registered action without dispatch branch: " + action));
     for (const auto &action : std::as_const(dispatched))
       QVERIFY2(isKnownAction(action), qPrintable("dispatch branch not registered: " + action));
+  }
+  void workbenchCommandsDelegateToController() {
+    // #749：命令分发链迁出主窗口——每个工作台页挂一个 MappingWorkbenchCommandController
+    //（WorkbenchCommandHandler 实现，随页面析构），认领面 = 登记表。
+    using paleo::workbench::MappingWorkbenchCommandController;
+    using paleo::workbench::WorkbenchCommandHandler;
+    QObject context;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&context);
+    QgisCanvasController controller(&context);
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkbench(&f.work);
+    const auto pages = window.findChildren<MappingWorkbenchPage *>();
+    QVERIFY(!pages.isEmpty());
+    for (auto *page : pages) {
+      const auto handlers =
+          page->findChildren<MappingWorkbenchCommandController *>(QString(), Qt::FindDirectChildrenOnly);
+      QCOMPARE(handlers.size(), 1);
+      const WorkbenchCommandHandler *handler = handlers.first();
+      for (const auto &action : paleo::workbenchcmd::knownActions())
+        QVERIFY2(handler->handlesAction(action), qPrintable(action));
+      QVERIFY(!handler->handlesAction(QStringLiteral("noSuchWorkbenchAction")));
+      for (const auto &action : paleo::workbenchcmd::pageLocalActions())
+        QVERIFY2(!handler->handlesAction(action), qPrintable(action));
+    }
+    // 直接经接口下发（不走页面信号）与信号委托等价：未知动作同样就地报失败。
+    auto *page = pages.first();
+    auto *handler = page->findChild<MappingWorkbenchCommandController *>();
+    handler->handleCommand(QStringLiteral("noSuchWorkbenchAction"), {});
+    auto *message = page->findChild<QLabel *>("workbenchMessage");
+    QVERIFY(message);
+    QVERIFY2(message->text().contains(QStringLiteral("未知操作")), qPrintable(message->text()));
   }
   void unknownWorkbenchCommandReportsFailure() {
     // H1：未知动作不得落到默认成功文案。

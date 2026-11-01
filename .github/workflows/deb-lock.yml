@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  issues: write # #874：失败时自动开追踪 issue
 
 jobs:
   check-urls:
@@ -26,3 +27,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
       - name: Probe locked deb URLs (pool → snapshot fallback)
         run: ./vendor/fetch-deps.sh --check-urls
+      # #874：定时/手动跑红时不再静默——开（或复用已开的）追踪 issue 并写
+      # 可操作摘要。PR 触发不开 issue（红在 PR 检查里本就可见）。本 workflow
+      # 仍不进 required checks。按标题去重，避免每周叠一张新 issue。
+      - name: Open tracking issue on failure
+        if: ${{ failure() && github.event_name != 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="deb-lock 周检失败（自动开单，#874）"
+          body="workflow \`${GITHUB_WORKFLOW}\` 在 ${GITHUB_SHA} 上判红：${RUN_URL}"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty' || true)
+          if [ -n "$existing" ]; then
+            echo "::error::deb-lock 红——已有追踪 issue #$existing（未重复开单）：$RUN_URL"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+            echo "::error::deb-lock 红——已开追踪 issue：$RUN_URL"
+          fi
+          {
+            echo "## deb-lock 失败"
+            echo "- run: $RUN_URL"
+            echo "- 处置：锁定 URL 在 pool/snapshot 均不可达——按 vendor/fetch-deps.sh 刷新 vendor/deb-closure.lock；修复后手动关闭追踪 issue"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -21,6 +21,10 @@ public:
   explicit ConstraintStore(const QString &gpkgPath, PaleoProjectStore *store);
 
   QString gpkgPath() const { return m_gpkgPath; }
+  // #742：进程内按 GPKG 路径计数的写修订号。任何实例（含编辑会话的临时
+  // 实例）的行写入/删除/替换/迁移/还原后递增；读侧缓存（如约束几何类型）
+  // 以此判定失效，不必每次全表重载重解析 WKT。线程安全。
+  static quint64 revision(const QString &gpkgPath);
   bool setAuditContext(const AuditContext &context, QString *error = nullptr);
   void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
 

@@ -38,6 +38,9 @@ class QgsMapLayer;
 class LayerTreePanel;
 class LayerPropertiesDialog;
 class QgsLayoutItemMap;
+class QgsLayout;
+class PaleoLayoutDesignerShell;
+class PaleoUndoGroupRouter; // #748
 class QgsRubberBand;
 #include <QDockWidget>
 
@@ -149,6 +152,7 @@ class QCloseEvent;
 class QShowEvent;
 class QContextMenuEvent;
 class QPoint;
+namespace paleo::workbench { class MappingWorkbenchCommandController; }
 
 // ui/ — PaleoMainWindow: the six-page workflow shell (§42), Ribbon 形态。
 // 顶部 = SARibbon：「文件」应用按钮 + 六个页签（数据管理 | 地层对比 | 智能预测 | 单因素图 |
@@ -161,6 +165,8 @@ class QPoint;
 class PaleoMainWindow : public SARibbonMainWindow
 {
   Q_OBJECT
+    // #749：制图工作台命令控制器读宿主画布/服务/编辑流私有面（逐字迁出前即同面）。
+    friend class paleo::workbench::MappingWorkbenchCommandController;
   public:
     PaleoMainWindow(QgisCanvasController *canvasCtl,
                     QgisProjectService *projectSvc,
@@ -313,6 +319,10 @@ class PaleoMainWindow : public SARibbonMainWindow
                                              QgisEditingService *editSvc,
                                              QgisLayoutService *layoutSvc,
                                              PaleoTaskService *taskSvc);
+    // #748：主窗口撤销组（QUndoGroup 焦点路由，paleomainwindow_undogroup.cpp）。
+    PaleoUndoGroupRouter *undoRouter();
+    void bindUndoGroup(PaleoEditingToolbar *edit);  // 编辑条动作接组 + 画布回落作用域
+    PaleoLayoutDesignerShell *newLayoutShell(QgsLayout *layout); // 新建并登记撤销作用域
     void attachMapBookSurface();
     // 底栏「发布」页：库路径/当前清单/只读态（§6）三面均从工程存储注入。
     void attachReleasePanel(PaleoProjectStore *store);
@@ -507,6 +517,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     LayerPropertiesDialog *m_layerProps = nullptr;
     bool m_profileReplayQueued = false; // 层位切换后的页面档案重放去抖旗标
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
+    PaleoUndoGroupRouter *m_undoRouter = nullptr; // #748，QObject 子对象
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
     QToolButton *m_statusErrorBtn = nullptr;
@@ -606,8 +617,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 入口只留幂等守卫 + 页签构建 + 顺序编排；编排体按子域拆段，私有成员
     // 访问经本类成员函数（同 W4 attachMapping 拆分先例）。图例/上图/参考窗
     //（显示编排域，含参考画布 Qt::white 纸面色 token 例外）留在
-    // paleomainwindow_workbench.cpp 的工厂；证据/图谱联动、井预测修订域、
-    // 命令分发链在 paleomainwindow_workbench_{evidence,wells,commands}.cpp。
+    // paleomainwindow_workbench.cpp 的工厂；证据/图谱联动、井预测修订域在 paleomainwindow_workbench_{evidence,wells}.cpp；
+    // 命令分发链已迁出为 workbench/mappingworkbenchcommandcontroller（#749）。
     using WorkbenchLegendFn = std::function<void(const QString &)>;
     using WorkbenchShowFn = std::function<bool(const QString &, QString *)>;
     using WorkbenchOpenWellsFn = std::function<void(const QString &)>;
@@ -633,17 +644,6 @@ class PaleoMainWindow : public SARibbonMainWindow
                                         const WorkbenchLegendFn &legend,
                                         const WorkbenchShowFn &show,
                                         const WorkbenchShowFn &compare);
-    // 命令分发链（_commands.cpp）——commandRequested 的动作分支表；
-    // 参数即原 lambda 捕获面（this 之外全部显式化）。
-    void runWorkbenchCommand(MappingWorkbench *workbench, MappingWorkbenchPage *page,
-                             PaleoEditingToolbar *edit, ConstraintPage *constraint,
-                             WellPredictionPanel *wellPanel, QDockWidget *wellDock,
-                             const WorkbenchLegendFn &legend,
-                             const WorkbenchShowFn &show, const WorkbenchShowFn &compare,
-                             const WorkbenchOpenWellsFn &openWells,
-                             const WorkbenchBeginEditFn &beginEdit,
-                             const std::shared_ptr<QHash<QString, QString>> &shown,
-                             const QString &action, const QVariantMap &p);
     // 显示编排域工厂（workbench.cpp 本 TU）：图例 / 上图互斥定位 / 参考窗。
     WorkbenchLegendFn makeWorkbenchLegend(MappingWorkbench *workbench);
     WorkbenchShowFn makeWorkbenchShow(MappingWorkbench *workbench,

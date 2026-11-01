@@ -1,35 +1,31 @@
 // 层：视图
-// paleomainwindow_workbench_commands — attachWorkbench 命令分发链（#473）：
-// MappingWorkbenchPage::commandRequested 的动作分支表，逐字平移自
-// paleomainwindow_workbench.cpp 原 lambda 体（仅整体去一层缩进），行为守恒。
-// 参数即原 lambda 捕获面（this 之外全部显式化）；私有成员访问经
-// paleomainwindow.h 的成员函数声明（同 W4 拆分段先例）。
-// #538：runWorkbenchCommand 原 397 行单体（file-budget 闸 >200 行）按动作族
-// 拆为三个文件内自由函数（查询族/编辑族/生命周期族）+ 入口的参数解析/分派/
-// 公共消息逻辑。私有成员与私有嵌套回调类型（WorkbenchShowFn 等在
-// paleomainwindow.h 私有段，自由函数无法命名）经 WorkbenchCmdDeps 显式传入
-// （回调类型展开为等价的 std::function 特化）——#538 只许改三个 workbench
-// .cpp，不在头文件加成员声明。行为守恒：分支内 early-return 经
-// WbCmdStep::Return 上传入口，公共消息逻辑保持单份。
-#include "paleomainwindow.h"
-#include "workbenchcommandregistry.h"
+// mappingworkbenchcommandcontroller — 制图工作台命令控制器（#749）。
+// 原 paleomainwindow_workbench_commands.cpp（#473 分发链 / #538 三族拆分）
+// 整体迁出主窗口家族：入口 PaleoMainWindow::runWorkbenchCommand 改为
+// MappingWorkbenchCommandController::handleCommand（WorkbenchCommandHandler
+// 实现），三族自由函数与公共消息逻辑逐字平移，行为守恒。宿主私有成员经
+// friend 读取（同拆分前 WorkbenchCmdDeps 显式依赖面）。
+#include "mappingworkbenchcommandcontroller.h"
 
-#include "../qgis/qgiscanvascontroller.h"
-#include "../qgis/qgislayerservice.h"
-#include "../services/errorhub.h"
-#include "../services/paleotaskservice.h" // QPointer<PaleoTask>::running 需完整类型
-#include "../services/previewdoc.h"
-#include "../workflow/constraintimport.h" // ConstraintImportFailure 机器可判定原因码
-#include "../workflow/mappingworkbench.h"
-#include "../domain/facieshierarchy.h" // #754：pinFaciesLevel 文案携带层级名
-#include "datapreview/datapreviewtabs.h"
-#include "notifications/paleonotify.h"
-#include "pages/constraintpage.h"
-#include "pages/datapage.h"
-#include "pages/mappingreferencepanel.h"
-#include "pages/mappingworkbenchpage.h"
-#include "edittools/editingtoolbar.h"  // 命令分支用 PaleoEditingToolbar 完整类型
-#include "pages/wellpredictionpanel.h"
+#include "../paleomainwindow.h"
+#include "../workbenchcommandregistry.h"
+
+#include "../../qgis/qgiscanvascontroller.h"
+#include "../../qgis/qgislayerservice.h"
+#include "../../services/errorhub.h"
+#include "../../services/paleotaskservice.h" // QPointer<PaleoTask>::running 需完整类型
+#include "../../services/previewdoc.h"
+#include "../../workflow/constraintimport.h" // ConstraintImportFailure 机器可判定原因码
+#include "../../workflow/mappingworkbench.h"
+#include "../../domain/facieshierarchy.h" // #754：pinFaciesLevel 文案携带层级名
+#include "../datapreview/datapreviewtabs.h"
+#include "../notifications/paleonotify.h"
+#include "../pages/constraintpage.h"
+#include "../pages/datapage.h"
+#include "../pages/mappingreferencepanel.h"
+#include "../pages/mappingworkbenchpage.h"
+#include "../edittools/editingtoolbar.h"  // 命令分支用 PaleoEditingToolbar 完整类型
+#include "../pages/wellpredictionpanel.h"
 
 #include <QApplication>
 #include <QDialog>
@@ -457,19 +453,25 @@ WbCmdStep runWorkbenchLifecycleFamily(const WorkbenchCmdDeps &d,
 
 }  // namespace
 
-void PaleoMainWindow::runWorkbenchCommand(
-    MappingWorkbench *workbench, MappingWorkbenchPage *page,
-    PaleoEditingToolbar *edit, ConstraintPage *constraint,
-    WellPredictionPanel *wellPanel, QDockWidget *wellDock,
-    const WorkbenchLegendFn &legend, const WorkbenchShowFn &show,
-    const WorkbenchShowFn &compare, const WorkbenchOpenWellsFn &openWells,
-    const WorkbenchBeginEditFn &beginEdit,
-    const std::shared_ptr<QHash<QString, QString>> &shown,
-    const QString &action, const QVariantMap &p) {
-  const WorkbenchShowFn exportView = [this](const QString &id, QString *error) {
-    auto *layer = m_layerSvc->layer(id);
-    if (!layer || !m_canvasCtl->canvas()->layers().contains(layer)) {
-      if (error) *error = tr("请先显示所选图件，再输出当前地图范围和显示层级");
+namespace paleo::workbench {
+
+MappingWorkbenchCommandController::MappingWorkbenchCommandController(PaleoMainWindow *host, Context context,
+                                                                     QObject *parent)
+    : QObject(parent), m_host(host), m_ctx(std::move(context)) {}
+
+bool MappingWorkbenchCommandController::handlesAction(const QString &action) const {
+  return paleo::workbenchcmd::isKnownAction(action);
+}
+
+void MappingWorkbenchCommandController::handleCommand(const QString &action, const QVariantMap &p) {
+  PaleoMainWindow *const self = m_host.data();
+  if (!self) return;  // 宿主已析构（页面晚于主窗口销毁的竞态）：无处呈现，丢弃。
+  auto *const workbench = m_ctx.workbench;
+  auto *const page = m_ctx.page;
+  const MappingWorkbenchCommandController::ShowFn exportView = [self](const QString &id, QString *error) {
+    auto *layer = self->m_layerSvc->layer(id);
+    if (!layer || !self->m_canvasCtl->canvas()->layers().contains(layer)) {
+      if (error) *error = PaleoMainWindow::tr("请先显示所选图件，再输出当前地图范围和显示层级");
       return false;
     }
     return true; // 保留当前范围、比例尺和三级显示，不在导出前重新缩放。
@@ -479,15 +481,15 @@ void PaleoMainWindow::runWorkbenchCommand(
   // 分支量化详情成功文案（影响分析/重算对比/受控重算）：见查询族 statusDetail。
   QString statusDetail;
   // review-fix H1：未登记动作显式失败，不再落到默认成功文案。
-  if (!paleo::workbenchcmd::isKnownAction(action)) {
+  if (!handlesAction(action)) {
     qWarning("runWorkbenchCommand: unknown action '%s'", qPrintable(action));
-    const QString message = tr("未知操作：%1").arg(action);
+    const QString message = PaleoMainWindow::tr("未知操作：%1").arg(action);
     page->showMessage(message);
-    statusBar()->showMessage(message, 10000);
+    self->statusBar()->showMessage(message, 10000);
     reportWorkbenchFailure(action, message);
     return;
   }
-  if (runMappingEditFlow(page, action, p, action == "exportMap" ? exportView : show)) return;
+  if (self->runMappingEditFlow(page, action, p, action == "exportMap" ? exportView : m_ctx.show)) return;
   bool declarationOnly = false;
   const auto h = p.value("horizon").toString(),
              id = p.value("layer").toString();
@@ -495,25 +497,25 @@ void PaleoMainWindow::runWorkbenchCommand(
   // #538：依赖面显式化（私有成员/私有段回调类型经结构传入，见上方注释），
   // 动作族分派保持原 if-else 链「至多一个分支命中」的语义。
   WorkbenchCmdDeps d;
-  d.self = this;
+  d.self = self;
   d.workbench = workbench;
   d.page = page;
-  d.edit = edit;
-  d.constraint = constraint;
-  d.wellPanel = wellPanel;
-  d.wellDock = wellDock;
-  d.canvasCtl = m_canvasCtl;
-  d.layerSvc = m_layerSvc;
-  d.previewTabs = m_previewTabs;
-  d.previewDoc = m_previewDoc;
-  d.factorTask = m_factorTask;
-  d.lastImpact = &m_lastImpact;
-  d.legend = legend;
-  d.show = show;
-  d.compare = compare;
-  d.openWells = openWells;
-  d.beginEdit = beginEdit;
-  d.shown = shown;
+  d.edit = m_ctx.edit;
+  d.constraint = m_ctx.constraint;
+  d.wellPanel = m_ctx.wellPanel;
+  d.wellDock = m_ctx.wellDock;
+  d.canvasCtl = self->m_canvasCtl;
+  d.layerSvc = self->m_layerSvc;
+  d.previewTabs = self->m_previewTabs;
+  d.previewDoc = self->m_previewDoc;
+  d.factorTask = self->m_factorTask;
+  d.lastImpact = &self->m_lastImpact;
+  d.legend = m_ctx.legend;
+  d.show = m_ctx.show;
+  d.compare = m_ctx.compare;
+  d.openWells = m_ctx.openWells;
+  d.beginEdit = m_ctx.beginEdit;
+  d.shown = m_ctx.shown;
   WbCmdStep step = runWorkbenchQueryFamily(d, action, h, id, inputs, p, ok,
                                            error, statusDetail);
   if (step == WbCmdStep::Skip)
@@ -527,7 +529,7 @@ void PaleoMainWindow::runWorkbenchCommand(
     // 已登记却无分支受理（如编辑流前置条件不满足）：按失败回报。
     qWarning("runWorkbenchCommand: action '%s' not handled", qPrintable(action));
     ok = false;
-    error = tr("操作未执行：%1 当前不可用").arg(action);
+    error = PaleoMainWindow::tr("操作未执行：%1 当前不可用").arg(action);
   }
   QString message;
   // 分支已产出量化详情（像元数/报告路径/逐条 reason）时直接复用为成功文案：
@@ -535,71 +537,73 @@ void PaleoMainWindow::runWorkbenchCommand(
   // 这类命令唯一的量化结果反馈随之不可见。
   const bool detailed = ok && !statusDetail.isEmpty();
   if (!ok)
-    message = error.isEmpty() ? tr("操作未完成，请检查输入。") : error;
+    message = error.isEmpty() ? PaleoMainWindow::tr("操作未完成，请检查输入。") : error;
   else if (detailed)
     message = statusDetail;
   else if (action == "predict")
-    message = tr("预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。");
+    message = PaleoMainWindow::tr("预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。");
   else if (action == "impactAnalysis")
-    message = tr("影响分析已在后台执行，进度见任务中心；完成后状态栏提示结果。");
+    message = PaleoMainWindow::tr("影响分析已在后台执行，进度见任务中心；完成后状态栏提示结果。");
   else if (action == "compareRecompute")
-    message = tr("重算对比已在后台执行，进度见任务中心；完成后状态栏提示结果。");
+    message = PaleoMainWindow::tr("重算对比已在后台执行，进度见任务中心；完成后状态栏提示结果。");
   else if (action == "polygonize")
     message = d.workbench->polygonizeBusy()
-                  ? tr("相栅格转相面已在后台执行，进度见底栏任务中心；完成后自动登记并显示在对应地层组。")
-                  : tr("相栅格已转为相面。");
+                  ? PaleoMainWindow::tr("相栅格转相面已在后台执行，进度见底栏任务中心；完成后自动登记并显示在对应地层组。")
+                  : PaleoMainWindow::tr("相栅格已转为相面。");
   else if (action == "compose" || action == "factor" || action == "contours")
     message =
-        tr("任务已提交，进度和取消操作见任务中心；完成后显示结果。");
+        PaleoMainWindow::tr("任务已提交，进度和取消操作见任务中心；完成后显示结果。");
   else if (action == "wellattributes")
-    message = tr("已打开测井矢量属性表；保存后更新井道与单因素输入。");
+    message = PaleoMainWindow::tr("已打开测井矢量属性表；保存后更新井道与单因素输入。");
   else if (action == "wellformations")
-    message = tr("已打开分层沉积相属性表；每口井每个地层单元（组/段）一行。解释微相用于维护当前解释，预测微相保留模型结果；厚度、占比和覆盖率来自相段汇总，直接改名不重算。");
+    message = PaleoMainWindow::tr("已打开分层沉积相属性表；每口井每个地层单元（组/段）一行。解释微相用于维护当前解释，预测微相保留模型结果；厚度、占比和覆盖率来自相段汇总，直接改名不重算。");
   else if (action == "cancel")
-    message = tr("已请求取消预测。");
+    message = PaleoMainWindow::tr("已请求取消预测。");
   else if (action == "show")
-    message = tr("已在画布显示并定位选中图件。");
+    message = PaleoMainWindow::tr("已在画布显示并定位选中图件。");
   else if (action == "compare" || action == "references" || action == "referencePanel")
     message =
-        tr("已打开证据联动面板；可选择参考图件、添加并排视图，并开关范围与光标联动。");
+        PaleoMainWindow::tr("已打开证据联动面板；可选择参考图件、添加并排视图，并开关范围与光标联动。");
   else if (action == "catalog")
-    message = tr("已在数据管理中定位图件的保存版本和来源谱系。");
+    message = PaleoMainWindow::tr("已在数据管理中定位图件的保存版本和来源谱系。");
   else if (action == "displayLevel")
-    message = tr("相图显示层级、标注与图例已更新。");
+    message = PaleoMainWindow::tr("相图显示层级、标注与图例已更新。");
   else if (action == "pinFaciesLevel") {
     // #754：固定相显示层级单独文案并带上层级名；display_mode=auto 为解除固定。
     const QString mode = p.value("display_mode").toString();
     message = mode == QStringLiteral("auto")
-                  ? tr("已解除相显示层级固定，恢复跟随图层。")
-                  : tr("已固定相显示层级：%1。").arg(FaciesHierarchy::title(mode));
+                  ? PaleoMainWindow::tr("已解除相显示层级固定，恢复跟随图层。")
+                  : PaleoMainWindow::tr("已固定相显示层级：%1。").arg(FaciesHierarchy::title(mode));
   }
   else if (action == "addEvidence" || action == "removeEvidence")
-    message = tr("解释证据已更新，可撤销；保存图件版本后持久化。");
+    message = PaleoMainWindow::tr("解释证据已更新，可撤销；保存图件版本后持久化。");
   else if (action == "labels")
-    message = tr("选中图件的标注已更新。");
+    message = PaleoMainWindow::tr("选中图件的标注已更新。");
   else if (action == "schema")
-    message = tr("当前层位相分类已保存，已有图件保留原分类。");
+    message = PaleoMainWindow::tr("当前层位相分类已保存，已有图件保留原分类。");
   else if (action == "draw")
-    message = tr("请在画布逐点绘制约束线，右键结束，Esc 取消。");
+    message = PaleoMainWindow::tr("请在画布逐点绘制约束线，右键结束，Esc 取消。");
   else if (action == "assignFacies")
-    message = tr("选中要素的相类别已更新，请保存编辑以登记新版本。");
+    message = PaleoMainWindow::tr("选中要素的相类别已更新，请保存编辑以登记新版本。");
   else if (action == "welltracks")
-    message = tr("已打开井道与预测相修订面板。");
+    message = PaleoMainWindow::tr("已打开井道与预测相修订面板。");
   else if (action == "consistency")
     // #751：同步路径当场出报告、后台路径转任务中心——按 queued 标志分流，
     // 两条文案都不再是死分支（此前 consistency 被 :565 先捕获，本分支永不达）。
     message = d.workbench->consistencyQueued()
-                  ? tr("任务已提交，进度和取消操作见任务中心；完成后显示结果。")
-                  : tr("已生成地震相与测井相一致性报告并留档；双击逐井行可在画布定位。");
+                  ? PaleoMainWindow::tr("任务已提交，进度和取消操作见任务中心；完成后显示结果。")
+                  : PaleoMainWindow::tr("已生成地震相与测井相一致性报告并留档；双击逐井行可在画布定位。");
   else if (action == "delete")
-    message = declarationOnly ? tr("已从工程移除未登记图件，原始文件已保留。")
-                              : tr("已删除图件及版本记录，受管文件正在后台清理。");
+    message = declarationOnly ? PaleoMainWindow::tr("已从工程移除未登记图件，原始文件已保留。")
+                              : PaleoMainWindow::tr("已删除图件及版本记录，受管文件正在后台清理。");
   else
-    message = tr("操作完成，图件与版本已更新。");
+    message = PaleoMainWindow::tr("操作完成，图件与版本已更新。");
   page->showMessage(message);
-  statusBar()->showMessage(message, detailed ? 20000 : 10000);
+  self->statusBar()->showMessage(message, detailed ? 20000 : 10000);
   if (!ok && action == "delete")
-    PaleoNotify::warning(this, tr("图件未删除"), message);
+    PaleoNotify::warning(self, PaleoMainWindow::tr("图件未删除"), message);
   else if (!ok)
     reportWorkbenchFailure(action, message);
 }
+
+} // namespace paleo::workbench

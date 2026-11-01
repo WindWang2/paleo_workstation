@@ -207,6 +207,15 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 （#829：`_attach_predict_seismic.cpp` 自预测页接线拆出，承载地震相掩膜 DS 发布与
 MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直连 qgs*。）
 
+**实测（2026-11-01，fix/r9-mainwindow-20261101）：paleomainwindow.cpp 964 行（家族 30 TU）**
+（#749：`_workbench_commands.cpp` 迁出主窗家族，成为
+`src/ui/workbench/mappingworkbenchcommandcontroller.cpp`——`WorkbenchCommandHandler`
+接口的首个工作台控制器；`paleomainwindow.h` 删 `runWorkbenchCommand` 声明。）
+
+**实测（2026-11-01，fix/r9-all-20261101 集成）：paleomainwindow.cpp 964 行（家族 31 TU）**
+（#748 撤销组：`_undogroup.cpp` 承载 `undoRouter`/`bindUndoGroup`，本 TU 不直连 qgs*；
+`newLayoutShell` 落在已入基线的 `_attach_compose.cpp`。与 #749 迁出 `_workbench_commands.cpp` 相抵后净 +1。）
+
 家族全表（`src/ui/paleomainwindow_*.cpp` 31 TU + 本体 1 行 = 表 32 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：
@@ -220,7 +229,6 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 | `_attach_models.cpp` | 683 | 属性建模/相图/时深转换接线（W4 段） |
 | `_workbench.cpp` | 631 | 编图工作台 attachWorkbench 主函数（#473 拆分后；参考窗口经 `_references.cpp` 面板化） |
 | `_docks.cpp` | 607 | 壳构建域（#312）：中央面/左 dock/右栏/底栏/地震/连井/3D/Web dock 族 |
-| `_workbench_commands.cpp` | 568 | attachWorkbench 命令分发链（#473 拆分承载，行为守恒平移） |
 | `_wellsection.cpp` | 538 | 连井剖面 dock 壳层编排：取数/井间缝/去抖刷新/逐工区井集持久化 |
 | `_attach_compose.cpp` | 488 | 综合编图页接线（W4 段） |
 | `_attach_data.cpp` | 462 | 数据管理页接线（W4 段） |
@@ -244,6 +252,7 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 | `_attach_python.cpp` | 36 | Python 控制台/REPL 接线（方向 68） |
 | `_projectsetup.cpp` | 25 | 新建工程可选资料向导接线 |
 | `_seismic.cpp` | 183 | 地震体→停靠面板同步（syncSeismicVolumeToDocks；PW 深审批 file-budget 拆分） |
+| `_undogroup.cpp` | 22 | 撤销组域（#748）：QUndoGroup 路由器懒建与编辑工具条/画布作用域登记 |
 | `_faults.cpp` | 27 | 断层解释壳接线（方向 7）：剖面 dock 编排器 + 管理面板 dock |
 
 （`paleoribbon.cpp`/`ribbonpanels.cpp` 是 ribbon 命令组构建与镜像绑定的

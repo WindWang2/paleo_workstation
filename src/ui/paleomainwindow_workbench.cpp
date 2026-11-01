@@ -39,6 +39,7 @@
 #include "paleoicons.h"
 #include "paleomainwindow.h"
 #include "paleoribbon.h"
+#include "workbench/mappingworkbenchcommandcontroller.h"
 #include "taskpanel.h" // 智能预测开跑切到任务页
 #include <QAction>
 #include <QDockWidget>
@@ -74,7 +75,7 @@
 //（本函数原 1060 行）。各子域编排体逐字平移（行为守恒）：
 //   - 证据面板/图谱联动 → attachWorkbenchEvidence（_evidence.cpp）
 //   - 井预测修订域（dock/自动保存/右键改相）→ attachWorkbenchWells（_wells.cpp）
-//   - 命令分发 lambda 链 → runWorkbenchCommand（_commands.cpp）
+//   - 命令分发 lambda 链 → workbench/mappingworkbenchcommandcontroller（#749，原 _commands.cpp）
 //   - 图例/上图/参考窗（显示编排域）→ 下方三个工厂（留在本 TU，含
 //     Qt::white 纸面色 token 例外所在行）
 // ---------------------------------------------------------------------------
@@ -150,6 +151,8 @@ namespace {
 // #748：画布 Ctrl+Z/Ctrl+Y 路由——会话内要素编辑优先，否则撤销工作台属性栈
 //（固定显示层级 #741、会话外绘制约束 #742），状态栏报命令名。
 void routeCanvasUndo(PaleoMainWindow *self, PaleoEditingToolbar *edit, MappingWorkbench *workbench) {
+  if (self)
+    self->bindUndoGroup(edit); // 停靠面焦点 → QUndoGroup 活动栈；画布回落本路由
   if (!edit || !workbench)
     return;
   const auto step = [self, workbench](bool undo) {
@@ -334,16 +337,15 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
           });
   for (auto *page : pages) {
     bindWorkbenchPageHorizon(page,m_selection);
-    // #473：命令分发 lambda 链拆至 runWorkbenchCommand——捕获面转参数，
-    // 捕获列表保持原名原序。
-    connect(
-        page, &MappingWorkbenchPage::commandRequested, this,
-        [this, workbench, page, show, compare, edit, constraint, legend,
-         openWells, beginEdit, shown, wellPanel, wellDock](const QString &action, const QVariantMap &p) {
-          runWorkbenchCommand(workbench, page, edit, constraint, wellPanel,
-                              wellDock, legend, show, compare, openWells,
-                              beginEdit, shown, action, p);
-        });
+    // #749：命令分发链迁出为 MappingWorkbenchCommandController（每页一个，
+    // 随页面析构）；主窗口只装配并委托，捕获面原名原序进 Context。
+    auto *commands = new paleo::workbench::MappingWorkbenchCommandController(
+        this,
+        {workbench, page, edit, constraint, wellPanel, wellDock, legend, show,
+         compare, openWells, beginEdit, shown},
+        page);
+    connect(page, &MappingWorkbenchPage::commandRequested, commands,
+            &paleo::workbench::MappingWorkbenchCommandController::handleCommand);
   }
   connect(workbench, &MappingWorkbench::polygonizeFinished, this,
           [this, pages](const QString &, const QString &productId,

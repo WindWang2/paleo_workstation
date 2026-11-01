@@ -25952,6 +25952,11 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
+            <location filename="../src/services/previewwelltops.cpp" line="53" />
+            <source>时深表不可用，只有 TVD 的分层暂不绘制：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
             <location filename="../src/services/previewwelltops.cpp" line="47" />
             <source>分层 TVD 已按时深表的 MD/TVD 对照定位，原始 MD 仍保留为空。</source>
             <translation type="unfinished" />

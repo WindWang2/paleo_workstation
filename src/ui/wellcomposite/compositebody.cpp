@@ -15,6 +15,38 @@
 
 namespace WellComposite
 {
+namespace
+{
+// #874/#502：自 WellCompositeBody::paintEvent 拆出的比例尺图例卡片绘制（纯绘制，
+// 行为零变更；文案仍在成员内 tr() 生成以保持翻译上下文）。
+void drawScaleLegendCard(QPainter &p, const QSize &widgetSize, const QString &scaleText,
+                         const QString &rangeText)
+{
+  p.save();
+  const qreal cardW = 195.0;
+  const qreal cardH = 38.0;
+  const QRectF cardRect(widgetSize.width() - cardW - 10, widgetSize.height() - cardH - 10, cardW, cardH);
+
+  p.fillRect(cardRect, QColor(255, 255, 255, 235));
+  p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
+  p.drawRoundedRect(cardRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
+
+  QFont cardFont = p.font();
+  cardFont = PaleoTheme::monoFont(cardFont.pointSize());
+  cardFont.setStyleHint(QFont::TypeWriter);
+  cardFont.setPointSize(PaleoTheme::tokens().labelPt);
+  p.setFont(cardFont);
+
+  p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
+  p.drawText(QRectF(cardRect.left() + 8, cardRect.top() + 3, cardW - 16, 15),
+             Qt::AlignLeft | Qt::AlignVCenter, scaleText);
+  p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted);
+  p.drawText(QRectF(cardRect.left() + 8, cardRect.top() + 19, cardW - 16, 15),
+             Qt::AlignLeft | Qt::AlignVCenter, rangeText);
+  p.restore();
+}
+} // namespace
+
 // ----------------------------------------------------------------------------
 // WellCompositeBody: 道体渲染与手势交互
 // ----------------------------------------------------------------------------
@@ -208,21 +240,6 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
   // 依据 DESIGN.md §140：画布右下角白底半透明位置与比例尺图例卡片
   if (width() > 240 && height() > 120)
   {
-    p.save();
-    const qreal cardW = 195.0;
-    const qreal cardH = 38.0;
-    const QRectF cardRect(width() - cardW - 10, height() - cardH - 10, cardW, cardH);
-
-    p.fillRect(cardRect, QColor(255, 255, 255, 235));
-    p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
-    p.drawRoundedRect(cardRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
-
-    QFont cardFont = p.font();
-    cardFont = PaleoTheme::monoFont(cardFont.pointSize());
-    cardFont.setStyleHint(QFont::TypeWriter);
-    cardFont.setPointSize(PaleoTheme::tokens().labelPt);
-    p.setFont(cardFont);
-
     const double ppm = m_canvas->pxPerMeter();
     const double metersPerCm = (ppm > 1e-4) ? (37.79528 / ppm) : 5.0;
     const QString mCmStr = (metersPerCm < 1.0) ? QString::number(metersPerCm, 'f', 2)
@@ -230,19 +247,12 @@ void WellCompositeBody::paintEvent(QPaintEvent * /*event*/)
                                                   : QString::number(metersPerCm, 'f', 0);
     const QString scaleText = tr("比例尺: %1 (1cm≈%2m)")
                                   .arg(m_canvas->scaleRatio(), mCmStr);
-    p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
-    p.drawText(QRectF(cardRect.left() + 8, cardRect.top() + 3, cardW - 16, 15),
-               Qt::AlignLeft | Qt::AlignVCenter, scaleText);
-
     // 当前视口深度范围与跨度
     const QString rangeText = tr("[%1~%2m] 跨度:%3m")
                                   .arg(QString::number(topDepth, 'f', 1))
                                   .arg(QString::number(bottomDepth, 'f', 1))
                                   .arg(QString::number(visibleDepthSpan, 'f', 1));
-    p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted);
-    p.drawText(QRectF(cardRect.left() + 8, cardRect.top() + 19, cardW - 16, 15),
-               Qt::AlignLeft | Qt::AlignVCenter, rangeText);
-    p.restore();
+    drawScaleLegendCard(p, size(), scaleText, rangeText);
   }
 }
 

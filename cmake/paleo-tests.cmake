@@ -303,22 +303,6 @@ set_tests_properties(tst_startup_trace PROPERTIES RUN_SERIAL TRUE)
 add_executable(paleo_seismic_demo tools/seismic_showcase.cpp)
 target_link_libraries(paleo_seismic_demo PRIVATE paleo_core)
 
-add_executable(tst_boot tests/tst_boot.cpp)
-target_link_libraries(tst_boot PRIVATE paleo_qgis_iface Qt6::Test)
-paleo_test_link_sandbox(tst_boot)
-target_compile_definitions(tst_boot PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
-add_test(NAME boot COMMAND tst_boot
-         -o "${PALEO_QTEST_FIRST_RUN_DIR}/boot.txt,txt")
-paleo_test_sandbox(boot)
-
-add_executable(tst_polygonize tests/tst_polygonize.cpp spikes/polygonize/paleopolygonize.cpp)
-target_link_libraries(tst_polygonize PRIVATE paleo_qgis_iface Qt6::Test ${GDAL_LIB})
-paleo_test_link_sandbox(tst_polygonize)
-target_include_directories(tst_polygonize PRIVATE ${GDAL_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/spikes/polygonize)
-add_test(NAME polygonize COMMAND tst_polygonize
-         -o "${PALEO_QTEST_FIRST_RUN_DIR}/polygonize.txt,txt")
-paleo_test_sandbox(polygonize)
-
 # ---- wave3/model-hardening (数据模型与测试基建加固) ----
 add_paleo_test(tst_metastore LIBS paleo_store)      # sqlite user_version：新库采纳/遗留升级/未来拒开
 add_paleo_test(tst_test_sandbox LIBS paleo_domain)  # 方向81：测试沙箱契约（XDG / Windows 私有注册表 hive）

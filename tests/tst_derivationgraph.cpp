@@ -161,7 +161,10 @@ private slots:
     }
     PaleoMainWindow window(nullptr, nullptr, nullptr, nullptr, nullptr);
     window.attachWorkflows(nullptr, nullptr, nullptr, nullptr, &import);
+    // 起始页隐藏右栏「数据属性」dock；真实流程在工程打开后才进工作区并恢复它。
+    window.onProjectOpened();
     window.show(); // #424 起血缘只在面板可见时经任务中心后台查询，下列断言均等待图就绪。
+    { auto *entityPanel = window.findChild<EntityPanel *>(); QVERIFY(entityPanel); QTRY_VERIFY(entityPanel->isVisible()); }
     auto *page = window.findChild<DataPage *>(); auto *preview = window.findChild<DataPreviewTabs *>();
     QVERIFY(page); QVERIFY(preview);
     auto *graph = window.findChild<DerivationGraph *>(); QVERIFY(graph);

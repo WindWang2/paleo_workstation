@@ -82,7 +82,7 @@ private slots:
   void longLayerTitleWrapsWithoutLosingExportedContent() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     QgsProject project; auto *layer = points(project);
-    const QString name = QStringLiteral("sub-e6224ddbf3b2d55c 新建古地理图 · v2");
+    const QString name = QStringLiteral("sub-0123456789abcdef 新建古地理图 · v2");
     layer->setName(name);
     PaleoGeologicalMapLayout::Settings settings; settings.kind = PaleoStandardElements::FigureKind::Facies;
     auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings); QVERIFY(layout);

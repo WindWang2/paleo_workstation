@@ -171,11 +171,14 @@ bool matchesWorkbenchHorizon(const SelectionContext *selection,const QString &ho
 }
 void bindWorkbenchPageHorizon(MappingWorkbenchPage *page,SelectionContext *selection) {
   if(page->mode()==QLatin1String("compose")) {
-    const auto apply=[page](const paleo::strat::UnitSelection &unit) {
+    const auto apply=[page,selection] {
+      const auto unit=selection->activeUnit();
+      const auto key=paleo::strat::analysisLayerKey(unit);
       page->setProperty("paleo.unitDisplayName",unit.displayName);
-      page->setHorizon(paleo::strat::analysisLayerKey(unit));
+      page->setHorizon(key.isEmpty()?selection->activeHorizon():key);
     };
-    apply(selection->activeUnit());QObject::connect(selection,&SelectionContext::activeUnitChanged,page,apply);
+    apply();QObject::connect(selection,&SelectionContext::activeUnitChanged,page,apply);
+    QObject::connect(selection,&SelectionContext::activeHorizonChanged,page,apply);
   } else {
     page->setHorizon(selection->activeHorizon());
     QObject::connect(selection,&SelectionContext::activeHorizonChanged,page,&MappingWorkbenchPage::setHorizon);

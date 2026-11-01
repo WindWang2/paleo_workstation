@@ -216,6 +216,8 @@ FreeXL 的来源、许可和补丁说明。显式 `PALEO_FREEXL_LIBRARY` 仍可�
 避免新旧类布局混用；以后通过前缀记录保持正常增量构建，不反复清库。
 构建日志不应整屏泄漏 `/showIncludes` 行；可用 `ninja -C build -t deps`
 核对头文件确已登记。手工运行 CMake/Ninja 的本地化环境同样需要验证这项。
+若手工增量构建已在错误前缀下产出对象，仅修正 `rules.ninja` 不能补回丢失的
+依赖记录；即使前缀 stamp 没变化，也须清理后重编，再核对实际对象的 `#deps` 非零。
 `paleo-dev.ps1` 保留 UTF-8 BOM，以便 Windows PowerShell 5.1 正确解析中文字符串。
 
 **背景（历史注记，勿再踩）**：本机曾以 `C:/deps/Qt/6.8.0/msvc2022_64` 编译、

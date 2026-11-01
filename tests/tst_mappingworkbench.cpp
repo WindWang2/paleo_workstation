@@ -117,6 +117,9 @@
 #include <ogr_api.h>
 #include <ogr_srs_api.h>
 #include <qgsapplication.h>
+#include <qgscoordinatereferencesystem.h>
+#include <qgsgui.h>
+#include <qgseditorwidgetregistry.h>
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgsexpressioncontextutils.h>
 #include <qgsfillsymbollayer.h>
@@ -957,6 +960,16 @@ private slots:
     page->selectLayer(snapshot); QTRY_VERIFY(!sideMode->isEnabled());
     selection.setActiveHorizon("D62"); node->setItemVisibilityCheckedParentRecursive(true);
     controller.canvas()->setCurrentLayer(layer); QTRY_VERIFY(!mode->isEnabled());
+    QCOMPARE(page->horizon(), QString("D62"));
+    paleo::strat::UnitSelection unit;
+    unit.schemeId="test"; unit.revision="revision";
+    unit.intervalId="interval"; unit.subIntervalId="sub.test";
+    selection.setActiveUnit(unit);
+    QCOMPARE(page->horizon(), paleo::strat::analysisLayerKey(unit));
+    selection.setActiveHorizon("D63");
+    QCOMPARE(page->horizon(), paleo::strat::analysisLayerKey(unit));
+    selection.clearActiveUnit();
+    QCOMPARE(page->horizon(), QString("D63"));
   }
   void predictionProductsKeepMicrofaciesAtEveryScale() {
     Fixture f; QVERIFY(f.init()); QString error;
@@ -1079,7 +1092,12 @@ private slots:
       // QgsCollapsibleGroupBox 仅在可见时发 collapsedStateChanged：须先显示。
       page.show();
       QVERIFY(QTest::qWaitForWindowExposed(&page));
+      QVERIFY(appearance->isVisible());
+      QSignalSpy toggled(appearance, &QgsCollapsibleGroupBoxBasic::collapsedStateChanged);
       appearance->setCollapsed(false);
+      QCOMPARE(toggled.count(), 1);
+      QVERIFY2(QSettings().status() == QSettings::NoError,
+               qPrintable(QCoreApplication::organizationName() + "/" + QCoreApplication::applicationName()));
     }
     QVERIFY(QSettings().contains(key));
     QCOMPARE(QSettings().value(key).toBool(), false);
@@ -6304,7 +6322,16 @@ int main(int argc, char **argv) {
   if(!profile.isValid())return 1;
   QgsApplication app(argc, argv, true,profile.path());
   app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH",QStringLiteral("/usr")), true);
+  // Match the native runtime order; initQgis alone does not initialize the
+  // private profile/database consumed by CAD settings and attribute editors.
+  QgsApplication::init(profile.path());
+  QCoreApplication::setOrganizationName(QStringLiteral("paleo-tests"));
+  QCoreApplication::setApplicationName(QStringLiteral("tst_mappingworkbench"));
+  QString databaseError;
+  if(!QgsApplication::createDatabase(&databaseError)){qCritical().noquote()<<databaseError;return 1;}
   app.initQgis();
+  QgsCoordinateReferenceSystem::invalidateCache(true);
+  QgsGui::editorWidgetRegistry()->initEditors();
   GDALAllRegister();
   TestMappingWorkbench test;
   QList<QByteArray> forwarded;

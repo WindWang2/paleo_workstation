@@ -71,7 +71,7 @@ bool loadSnapshot(const QString &root, paleo::data::DataService &service, ModelS
   std::vector<SourceIndexEntry> sources;
   if (!service.listSourceIndexEntries(sources, detail)) { *error = q(detail); return false; }
   for (const auto &source : sources) {
-    if (source.status == "failed" || source.status == "ignored") continue;
+    if (!source.active || source.status == "failed" || source.status == "ignored") continue;
     out.sources.append(source);
   }
   for (const auto &kind : {"curves", "intervals", "time_depth", "trajectories", "core_photos",

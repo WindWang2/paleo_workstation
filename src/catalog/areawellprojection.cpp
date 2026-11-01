@@ -1,5 +1,6 @@
 // 层：数据
 #include "areawellprojection.h"
+#include "wellavailability.h"
 #include <paleo_data/service.h>
 #include <QDateTime>
 #include <QDebug>
@@ -37,6 +38,8 @@ Snapshot snapshot(const QString &project) {
     out.error = QString::fromUtf8(error); qWarning() << "area well projection:" << out.error;
     return out;
   }
+  QHash<qlonglong,WellDataAvailability> availability;
+  if(!readWellDataAvailability(service,availability,&out.error))return out;
   for (const auto &row : rows) {
     CatalogEntity entity; const auto &w = row.value;
     entity.entityType = QStringLiteral("well"); entity.name = QString::fromUtf8(w.wellName);
@@ -45,6 +48,9 @@ Snapshot snapshot(const QString &project) {
     entity.coordinateStatus = entity.hasSurface ? "untransformed" : "missing";
     entity.td = w.totalDrilledDepth;
     entity.extra = {{"areaModelWellId", qlonglong(row.id)},
+                    {"wellHasTrackData",availability.value(row.id).tracks},
+                    {"wellHasCurveData",availability.value(row.id).curves},
+                    {"wellDataSummary",availability.value(row.id).label},
                     {"wellCoordinatesCrs", QString::fromUtf8(w.coordinateSystem)},
                     {"wellCoordinateUnit", QString::fromUtf8(w.coordinateUnit)},
                     {"wellType", QString::fromUtf8(w.wellType)}, {"fieldName", QString::fromUtf8(w.fieldName)},
@@ -86,6 +92,8 @@ CatalogEntity resolve(const Snapshot &data, const CatalogEntity &stored) {
   if (id || !data.error.isEmpty()) {
     auto result = stored; result.hasSurface = false; result.surfaceX = result.surfaceY = qQNaN();
     result.extra.remove("projectLon"); result.extra.remove("projectLat");
+    result.extra.insert("wellHasTrackData",false); result.extra.insert("wellHasCurveData",false);
+    result.extra.insert("wellDataSummary",QStringLiteral("模型资料不可用"));
     result.coordinateStatus = QStringLiteral("missing"); return result;
   }
   return stored; // Legacy/manual wells that are not part of this work-area model.

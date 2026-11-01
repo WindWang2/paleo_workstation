@@ -30,9 +30,9 @@ QVariantMap identity(DataCatalog *catalog, const CatalogVersion &v, QSet<QString
 QString resultKind(const QString &type) {
   if (type == "prediction_raster" || type == "onnx_prediction") return "seismic_facies";
   if (type == "well_litho_intervals" || type == "well_facies_prediction") return "well_facies";
-  if (type == "facies_polygons") return "map";
+  if (type == "facies_polygons" || type == "edited_facies" || type == "composed_facies") return "map";
   if (type == "facies_fusion_raster") return "composite";
-  if (type.contains("factor") || type.startsWith("thickness_")) return "single_factor";
+  if (type.contains("factor") || type.startsWith("thickness_") || type=="contour_lines") return "single_factor";
   return {};
 }
 bool stale(DataCatalog *catalog, const CatalogVersion &v, QSet<QString> &seen) {
@@ -42,10 +42,17 @@ bool stale(DataCatalog *catalog, const CatalogVersion &v, QSet<QString> &seen) {
   for (const auto &id : v.parentVersionIds) {
     auto branch = seen;
     const auto parent = catalog->versionById(id);
-    if (catalog->currentVersion(parent.assetId).id != id || stale(catalog, parent, branch)) return true;
+    // An edit's own immutable predecessor is lineage, not a replaceable input.
+    if ((parent.assetId != v.assetId && catalog->currentVersion(parent.assetId).id != id) ||
+        stale(catalog, parent, branch)) return true;
   }
   return false;
 }
+}
+
+paleo::strat::UnitSelection analysisResultUnitSelection(DataCatalog *catalog,const CatalogVersion &version) {
+  if(!catalog)return {};
+  QSet<QString> seen;return paleo::strat::fromMap(identity(catalog,version,seen));
 }
 
 QString syncAnalysisResults(DataCatalog *catalog, const QString &projectDir,
@@ -83,8 +90,7 @@ QString syncAnalysisResults(DataCatalog *catalog, const QString &projectDir,
     if (cancelled && cancelled()) return {};
     const QString kind = resultKind(catalog->assetById(v.assetId).type);
     if (kind.isEmpty() || v.stage == "RAW") continue;
-    QSet<QString> seen;
-    const auto unit = paleo::strat::fromMap(identity(catalog, v, seen));
+    const auto unit = analysisResultUnitSelection(catalog,v);
     if (!unit.isValid() || unit.schemeId.isEmpty() || unit.revision.isEmpty()) continue;
     const QString id = "catalog." + v.id;
     QSet<QString> dependencies;

@@ -26,6 +26,18 @@
 // 剖面画布 → 地图定位接线（attachSections 拆出：hover 十字标 + 点击居中，
 // TimeSlice 域按测网几何换算）。只用入参局部，无壳成员。
 namespace {
+void refreshSectionCandidates(SectionWorkbench *workbench,SectionSetupDialog *setup,
+  seismic::SeismicSectionDockWidget *dock,SeismicMapLink *link) {
+    setup->setSavedSections(workbench->savedSections());
+    if(!setup->isVisible()&&!link->activeVolume()) {
+      workbench->cancelPreviewData();setup->setWells({});dock->setCandidateWells({});return;
+    }
+    workbench->requestPreviewData([setup, dock, link](const SectionWorkbench::PreviewData &data) {
+      setup->setWells(data.wells);
+      dock->setCandidateWells(link->activeVolume() ? data.sectionWells
+                                                 : std::vector<seismic::SectionWellInfo>{});
+    },bool(link->activeVolume()));
+  }
 void wireSectionTraceLocate(SeismicMapLink *link,
                             seismic::SeismicSectionDockWidget *dock) {
   auto locate = [link, dock](bool clicked, int trace, double time, double depth,
@@ -102,22 +114,17 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   band->setColor(QColor("#1B73D0"));
   band->setWidth(2);
   auto refresh = [workbench, setup, dock, link] {
-    setup->setSavedSections(workbench->savedSections());
-    workbench->requestPreviewData([setup, dock, link](const SectionWorkbench::PreviewData &data) {
-      setup->setWells(data.wells);
-      dock->setCandidateWells(link->activeVolume() ? data.sectionWells
-                                                 : std::vector<seismic::SectionWellInfo>{});
-    });
+    refreshSectionCandidates(workbench,setup,dock,link);
   };
   auto report = [this, setup](const QString &message) {
     setup->setMessage(message);
     statusBar()->showMessage(message, 10000);
   };
   auto open = [setup, refresh] {
-    refresh();
     setup->show();
     setup->raise();
     setup->activateWindow();
+    refresh();
   };
   // 绘制期间对话框隐藏；取消/失败时唤回（消息落在对话框状态行，藏着看不见）。
   auto drawingFromSetup = std::make_shared<bool>(false);
@@ -260,7 +267,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
         m_sectionCaptureTool = nullptr;
       });
     }
-    m_sectionCaptureTool->setSnapWells(workbench->wellSnapWells(),link->sourceCrs()); // 每次激活前刷新井集
+    m_sectionCaptureTool->setSnapWells(workbench->wellSnapWells(true),link->sourceCrs()); // 每次激活前刷新分析井集
     canvas->setMapTool(m_sectionCaptureTool);
   });
   connect(setup, &SectionSetupDialog::buildRequested, this,

@@ -17,8 +17,25 @@
 #include <qgsproject.h>
 #include <qgsproviderregistry.h>
 #include <qgsrasterlayer.h>
+#include <qgsvectorlayer.h>
+#include <qgsvectordataprovider.h>
+#include <qgsfeature.h>
+#include <qgsgeometry.h>
+#include <qgsfillsymbol.h>
+#include <qgssinglesymbolrenderer.h>
 
 namespace paleo::mapreference {
+QgsVectorLayer *areaRangeLayer(const QgsRectangle &extent,const QgsCoordinateReferenceSystem &crs,
+                              const QString &name,const QColor &stroke,QObject *owner) {
+  if(extent.isEmpty()||!crs.isValid())return nullptr;
+  auto *layer=new QgsVectorLayer(QStringLiteral("Polygon"),name,QStringLiteral("memory"));
+  layer->setParent(owner);layer->setCrs(crs);
+  QgsFeature feature;feature.setGeometry(QgsGeometry::fromRect(extent));
+  layer->dataProvider()->addFeature(feature);layer->updateExtents();
+  layer->setRenderer(new QgsSingleSymbolRenderer(QgsFillSymbol::createSimple({
+    {"style","no"},{"outline_color",stroke.name()},{"outline_style","dash"},{"outline_width","0.4"}}).release()));
+  return layer;
+}
 namespace {
 QString affine(const PaleoGeoreference &g)
 {

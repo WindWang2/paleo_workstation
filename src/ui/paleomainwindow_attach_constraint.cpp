@@ -153,9 +153,7 @@ void wireConstraintUnitRefresh(ConstraintPage *constraintPage, SelectionContext 
   // 同父单元切 S1–S4 时 combo 文本不变，须靠 activeUnitChanged 刷新分析态。
   QObject::connect(selection, &SelectionContext::activeUnitChanged, constraintPage,
                    [constraintPage](const paleo::strat::UnitSelection &) {
-                     // refreshFactorLayers 末尾已调 updateFactorActionStates。
-                     constraintPage->refreshFactorLayers();
-                     constraintPage->refreshFactorResults();
+                     constraintPage->refreshAnalysisUnit();
                    });
 }
 

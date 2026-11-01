@@ -110,7 +110,16 @@ private slots:
   void stratificationThenWellHeadSheetKeepsHeads();
   // issue-796 / finding-61：.dat 分层底界按井名+层名哈希匹配（O(N²) → 索引）
   void layerIntervalDatBasesMatchByKey();
+  void diagnosticSummaryIsBoundedWithoutDiscardingReport();
 };
+
+void WellFileParserTests::diagnosticSummaryIsBoundedWithoutDiscardingReport() {
+  WellParseReport report;
+  for(int i=0;i<1000;++i)report.issues.append(QStringLiteral("bad row %1: ").arg(i)+QString(10000,QLatin1Char('x')));
+  const auto summary=wellParseSummary(report);
+  QVERIFY(summary.size()<9000);QVERIFY(summary.contains("984"));
+  QCOMPARE(report.issues.size(),1000);QVERIFY(report.issues.last().size()>10000);
+}
 
 // PW-072：引号内逗号不切列，"" 还原为字面引号。
 void WellFileParserTests::csvQuotedFieldsFollowRfc4180()

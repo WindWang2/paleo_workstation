@@ -2,6 +2,7 @@
 #pragma once
 #include "constraintimport.h"
 #include "../domain/facieshierarchy.h"
+#include "../domain/stratigraphicunit.h"
 #include "../ai/remotepredictionservice.h"
 #include "../catalog/datacatalog.h"
 #include "../io/lasdoc.h"
@@ -54,6 +55,7 @@ public:
                    QObject *parent = nullptr);
   ~MappingWorkbench() override;
   void bindCatalog(DataCatalog *catalog, const QString &projectDir);
+  void setAnalysisUnit(const paleo::strat::UnitSelection &unit);
   // 只读目录访问（影响分析/反查等 UI 编排用）。
   DataCatalog *catalog() const { return m_catalog; }
   void setPredictionService(RemotePredictionService *service);
@@ -528,6 +530,7 @@ private:
   // 测井请求的单井条目（predict 与 checkWellReadiness 共用，口径单一）。
   QVariantMap wellRequestEntry(const QVariantMap &row, const QString &horizon) const;
   QString m_dir;
+  paleo::strat::UnitSelection m_analysisUnit;
   double m_displayScale = 0;
   bool m_suppressNextProductZoom = false;
   QVariantMap m_editEvidence; // 会话依据：冻结版本；切层位或工程即清空。

@@ -1547,10 +1547,10 @@ void FactorPageTests::staleSuffixSurvivesLayerRedeclare()
   QgisLayerService layers( nullptr, &manifest );
   QString err;
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "factor.T1.poro" );
+  decl.layerId = QStringLiteral( "factor.T1.sandratio" );
   decl.horizon = QStringLiteral( "T1" );
   decl.type = QStringLiteral( "raster" );
-  decl.source = QStringLiteral( "/tmp/factor.T1.poro.tif" );
+  decl.source = QStringLiteral( "/tmp/factor.T1.sandratio.tif" );
   decl.group = QStringLiteral( "02_Factor" );
   QVERIFY( layers.declare( decl, &err ) );
 
@@ -1562,25 +1562,25 @@ void FactorPageTests::staleSuffixSurvivesLayerRedeclare()
   auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
   auto *cellSize = page.findChild<QDoubleSpinBox *>( QStringLiteral( "factorCellSizeSpin" ) );
   QVERIFY( factors && cellSize );
-  factors->item( 3, 0 )->setCheckState( Qt::Checked ); // poro（已有声明）
+  factors->item( 1, 0 )->setCheckState( Qt::Checked ); // sandratio（已有声明且不依赖孔隙度字段）
 
   // 用户改像元大小 → 输入陈旧 → 勾选行状态列加「（旧输入）」。
   cellSize->setValue( cellSize->value() + 1.0 );
-  QVERIFY2( factors->item( 3, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
-            qPrintable( factors->item( 3, 3 )->text() ) );
+  QVERIFY2( factors->item( 1, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
+            qPrintable( factors->item( 1, 3 )->text() ) );
 
   // 任何 factor.* 层重声明触发 refreshFactorLayers 重写状态列——标记必须存活。
   LayerDeclaration other = decl;
   other.layerId = QStringLiteral( "factor.T1.sandthick" );
   other.source = QStringLiteral( "/tmp/factor.T1.sandthick.tif" );
   QVERIFY( layers.declare( other, &err ) );
-  QVERIFY2( factors->item( 3, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
-            qPrintable( factors->item( 3, 3 )->text() ) );
+  QVERIFY2( factors->item( 1, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
+            qPrintable( factors->item( 1, 3 )->text() ) );
 
   // 重新生成 → 新输入生效，标记清除。
-  page.noteFactorLayer( QStringLiteral( "poro" ), QStringLiteral( "factor.T1.poro" ) );
-  QVERIFY2( !factors->item( 3, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
-            qPrintable( factors->item( 3, 3 )->text() ) );
+  page.noteFactorLayer( QStringLiteral( "sandratio" ), QStringLiteral( "factor.T1.sandratio" ) );
+  QVERIFY2( !factors->item( 1, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
+            qPrintable( factors->item( 1, 3 )->text() ) );
 }
 
 // 回归（真实工程 D61）：结构 IDW 成图边界下拉曾把约束线（constraints.<层位>）

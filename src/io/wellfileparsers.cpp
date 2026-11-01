@@ -668,11 +668,14 @@ QString wellParseSummary(const WellParseReport &report)
 {
   if (report.issues.isEmpty())
     return {};
+  QStringList excerpts;
+  for(const auto &issue:report.issues.mid(0,16))excerpts.append(issue.left(512));
+  if(report.issues.size()>16)excerpts.append(QCoreApplication::translate("WellFileParsers","其余 %1 条见逐行报告").arg(report.issues.size()-16));
   return QCoreApplication::translate("WellFileParsers",
       "井表解析：接收 %1 行，拒收 %2 行；哨兵 %3，空白/缺列 %4，非数值/非有限 %5；%6")
       .arg(report.acceptedRows).arg(report.rejectedRows).arg(report.sentinelHits)
       .arg(report.blankCells).arg(report.invalidCells)
-      .arg(report.issues.join(QStringLiteral("；")));
+      .arg(excerpts.join(QStringLiteral("；")));
 }
 
 QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text, WellParseReport *report)

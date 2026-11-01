@@ -2,6 +2,7 @@
 #include "areawellchart.h"
 #include "imagelod.h"
 #include "domain/wellcompositemodel.h"
+#include "io/areamodel.h"
 #include <paleo_data/service.h>
 #include <cmath>
 #include <limits>
@@ -76,6 +77,33 @@ void appendInterval(const paleo::data::IntervalTrack &track, const paleo::data::
     out.textIntervals.append(item);
   }
 }
+}
+bool readAreaWellLithology(const QString &project, qlonglong well,
+                          QVector<wellsection::LithoSegment> &out, QString *error) {
+  out.clear(); if (error) error->clear();
+  paleo::data::DataService ds; std::string detail;
+  const auto fail = [&] { out.clear(); if (error) *error=text(detail); return false; };
+  if (!ds.openProjectReadOnly(paleo::area_model::directory(project).toUtf8().toStdString(),detail)) return fail();
+  paleo::data::WellPlotOptions options;
+  options.includeLogs=false; options.includeMarkers=false; options.includePhotos=false;
+  paleo::data::WellPlotData model;
+  if (!ds.readWellPlotData(well,options,model,detail)) return fail();
+  for (const auto &group : model.intervals) {
+    const auto &track=group.value;
+    if (!text(track.trackType).contains(QStringLiteral("岩性")) &&
+        !text(track.trackName).contains(QStringLiteral("岩性"))) continue;
+    double scale=metreScale(track.depthInfo);
+    if (track.depthInfo.depthType.empty() && track.depthInfo.depthUnit.empty()) scale=metreScale(model.defaultDepthInfo);
+    if (!std::isfinite(scale)) { detail="Lithology depth convention is not confirmed as MD/m or MD/ft"; return fail(); }
+    for (const auto &v : track.intervals) {
+      wellsection::LithoSegment segment;
+      segment.topMd=v.topDepth*scale; segment.baseMd=v.bottomDepth*scale;
+      segment.litho=text(v.intervalName); segment.source=wellsection::LithoSource::Interpreted;
+      segment.provenance=QStringLiteral("DataService · %1 · track %2").arg(text(track.trackName)).arg(group.entry.id);
+      out.append(segment);
+    }
+  }
+  return true;
 }
 bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
                       WellComposite::ComprehensiveWellData &out, QString *error,

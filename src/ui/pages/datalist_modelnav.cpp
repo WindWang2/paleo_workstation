@@ -3,6 +3,7 @@
 #include "datalist_navspec_internal.h"
 #include "../../catalog/datacatalog.h"
 #include "../../services/previewdoc.h"
+#include "../../catalog/wellavailability.h"
 #include <paleo_data/service.h>
 #include <QFileInfo>
 #include <QHash>
@@ -29,6 +30,8 @@ bool DataListPanel::appendAreaModelWellSeismic(QVector<NavNodeSpec> &tops) const
       || !service.listData("horizons", 0, horizons, error))
     return false;
   if (wells.empty() && volumes.empty() && horizons.empty()) return false;
+  QHash<qlonglong,WellDataAvailability> availability;
+  if(!readWellDataAvailability(service,availability))return false;
 
   QHash<qlonglong, QString> assetBySource;
   if (!volumes.empty() || !horizons.empty()) {
@@ -40,16 +43,19 @@ bool DataListPanel::appendAreaModelWellSeismic(QVector<NavNodeSpec> &tops) const
 
   NavNodeSpec wellRoot;
   wellRoot.text0 = tr("测井 (%1 井)").arg(int(wells.size()));
-  wellRoot.text1 = tr("数据基座：双击井名打开井道图");
+  wellRoot.text1 = tr("双击有井道资料的井打开井道图；其余井保留时深/辅助资料");
   wellRoot.type = QStringLiteral("category");
   wellRoot.icon = QStringLiteral("mIconPointLayer.svg");
   for (const auto &well : wells) {
     NavNodeSpec item;
     item.role4 = well.id;
+    item.eid = m_doc->entityIdForModelWell(well.id);
     item.type = QStringLiteral("well");
     item.icon = QStringLiteral("mIconPointLayer.svg");
     item.text0 = utf8(well.value.wellName);
-    item.tooltip0 = tr("双击打开这口井的井道图");
+    const auto support=availability.value(well.id);
+    item.tooltip0 = support.label;
+    item.sub = support.tracks ? QStringLiteral("well_tracks") : QStringLiteral("well_auxiliary");
     if (std::isfinite(well.value.wellheadX) && std::isfinite(well.value.wellheadY)) {
       item.text1 = QStringLiteral("X: %1, Y: %2")
                        .arg(QString::number(well.value.wellheadX, 'f', 1))
@@ -58,6 +64,7 @@ bool DataListPanel::appendAreaModelWellSeismic(QVector<NavNodeSpec> &tops) const
     } else {
       item.text1 = item.tooltip0;
     }
+    if(!item.text1.contains(support.label))item.text1=support.label+QStringLiteral(" · ")+item.text1;
     wellRoot.children.append(item);
   }
   tops.append(wellRoot);

@@ -70,8 +70,10 @@ QWizardPage *DataServiceImportWizard::settingsPage()
   m_crsUnit->setEnabled(false);
   form->addRow(tr("工程坐标系"), m_crs->widget()); form->addRow(tr("坐标单位"), m_crsUnit);
   m_threads = new QComboBox(page); m_threads->setObjectName(QStringLiteral("dataServiceThreadsCombo"));
-  m_threads->addItem(QStringLiteral("1"), 1); m_threads->addItem(QStringLiteral("2"), 2); m_threads->addItem(QStringLiteral("4"), 4);
-  m_threads->setCurrentIndex(2);
+  // The model importer currently enforces serial parsing for publication safety.
+  // Show the effective setting instead of offering ignored parallel values.
+  m_threads->addItem(QStringLiteral("1"), 1); m_threads->setEnabled(false);
+  m_threads->setToolTip(tr("当前导入器使用单线程解析，资料入库在后台进行。"));
   m_pending = new QComboBox(page); m_pending->setObjectName(QStringLiteral("dataServicePendingCombo"));
   m_pending->addItem(QStringLiteral("256 MiB"), 256); m_pending->addItem(QStringLiteral("512 MiB"), 512); m_pending->addItem(QStringLiteral("1024 MiB"), 1024);
   form->addRow(tr("并行解析线程"), m_threads); form->addRow(tr("待解析内存预算"), m_pending);
@@ -169,9 +171,9 @@ void DataServiceImportWizard::showPageError(int page, const QString &error)
 void DataServiceImportWizard::refreshReview()
 {
   if (!m_review) return;
-  m_review->setText(tr("工程：%1\n资料目录：%2\n坐标系：%3 [%4]\n解析线程：%5；内存预算：%6 MiB\n\n原始文件只引用、不复制；模型导入完成后直接生成索引。")
+  m_review->setText(tr("工程：%1\n资料目录：%2\n坐标系：%3 [%4]\n解析线程：%5；内存预算：%6\n\n原始文件只引用、不复制；模型导入完成后直接生成索引。")
       .arg(m_name->text().trimmed(), m_root->text().trimmed(),
-           m_crs->text().trimmed().isEmpty() ? tr("从资料声明自动识别（未声明则保留未知）") : m_crs->text().trimmed(),
+           m_crs->text().trimmed().isEmpty() ? tr("从资料声明自动识别；无 EPSG 时工程默认 EPSG:32650，来源声明待核对") : m_crs->text().trimmed(),
            m_crs->text().trimmed().isEmpty() ? tr("未设置") : m_crsUnit->currentText(),
            m_threads->currentText(), m_pending->currentText()));
 }
@@ -210,7 +212,6 @@ bool DataServiceImportWizard::validateCurrentPage()
 void DataServiceImportWizard::finish()
 {
   if (!validateProjectInputs() || !validateCoordinateInputs()) return;
-  qputenv("PALEO_IMPORT_PARSER_THREADS", m_threads->currentData().toByteArray());
   qputenv("PALEO_IMPORT_PENDING_MB", m_pending->currentData().toByteArray());
   QWizard::accept();
 }

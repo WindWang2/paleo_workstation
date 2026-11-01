@@ -67,6 +67,10 @@
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
 #include "../src/workflow/wellpredictionservice.h"
+#include "../src/workflow/analysisresultsync.h"
+#include "../src/services/subintervalfactors.h"
+#include "../src/services/stratigraphicsubintervals.h"
+#include <paleo_data/service.h>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QThreadPool>
@@ -113,6 +117,9 @@
 #include <ogr_api.h>
 #include <ogr_srs_api.h>
 #include <qgsapplication.h>
+#include <qgscoordinatereferencesystem.h>
+#include <qgsgui.h>
+#include <qgseditorwidgetregistry.h>
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgsexpressioncontextutils.h>
 #include <qgsfillsymbollayer.h>
@@ -953,6 +960,16 @@ private slots:
     page->selectLayer(snapshot); QTRY_VERIFY(!sideMode->isEnabled());
     selection.setActiveHorizon("D62"); node->setItemVisibilityCheckedParentRecursive(true);
     controller.canvas()->setCurrentLayer(layer); QTRY_VERIFY(!mode->isEnabled());
+    QCOMPARE(page->horizon(), QString("D62"));
+    paleo::strat::UnitSelection unit;
+    unit.schemeId="test"; unit.revision="revision";
+    unit.intervalId="interval"; unit.subIntervalId="sub.test";
+    selection.setActiveUnit(unit);
+    QCOMPARE(page->horizon(), paleo::strat::analysisLayerKey(unit));
+    selection.setActiveHorizon("D63");
+    QCOMPARE(page->horizon(), paleo::strat::analysisLayerKey(unit));
+    selection.clearActiveUnit();
+    QCOMPARE(page->horizon(), QString("D63"));
   }
   void predictionProductsKeepMicrofaciesAtEveryScale() {
     Fixture f; QVERIFY(f.init()); QString error;
@@ -1075,7 +1092,12 @@ private slots:
       // QgsCollapsibleGroupBox 仅在可见时发 collapsedStateChanged：须先显示。
       page.show();
       QVERIFY(QTest::qWaitForWindowExposed(&page));
+      QVERIFY(appearance->isVisible());
+      QSignalSpy toggled(appearance, &QgsCollapsibleGroupBoxBasic::collapsedStateChanged);
       appearance->setCollapsed(false);
+      QCOMPARE(toggled.count(), 1);
+      QVERIFY2(QSettings().status() == QSettings::NoError,
+               qPrintable(QCoreApplication::organizationName() + "/" + QCoreApplication::applicationName()));
     }
     QVERIFY(QSettings().contains(key));
     QCOMPARE(QSettings().value(key).toBool(), false);
@@ -2320,6 +2342,27 @@ private slots:
       PaleoTheme::applyLightTheme();
     }
     page.setHorizon("D62"); QVERIFY(f.work.editEvidence("D61").isEmpty());
+  }
+  void analysisUnitBlankMapUsesFrozenSchemeIdentity() {
+    Fixture f;QVERIFY(f.init());QString error;std::string detail;paleo::data::DataService ds;
+    const auto root=f.dir.path()+"/artifacts/metadata/area-model";
+    QVERIFY2(QFileInfo::exists(root+"/data.sqlite") ? ds.openProject(root.toStdString(),detail)
+               : ds.createProject(root.toStdString(),"test",detail),detail.c_str());
+    auto draft=paleo::strat::draftScheme("test","test",{"A","B"},{});
+    paleo::data::StratigraphicScheme scheme;std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(ds.commitStratigraphicScheme(draft,{},scheme,issues,detail));
+    auto unit=paleo::strat::makeSelection(scheme,paleo::strat::selectorOptions(scheme).front().intervalId,1);
+    const auto key=paleo::strat::analysisLayerKey(unit);
+    QVERIFY(f.work.createBlankMap(key,&error).isEmpty());
+    f.work.setAnalysisUnit(unit);const auto map=f.work.createBlankMap(key,&error);QVERIFY2(!map.isEmpty(),qPrintable(error));
+    const auto version=f.work.versionForLayer(map);QCOMPARE(paleo::strat::fromMap(version.extra.value("unitSelection").toMap()),unit);
+    QCOMPARE(syncAnalysisResults(&f.catalog,f.dir.path()),QString());
+    std::vector<paleo::data::SubIntervalResultBinding> results;QVERIFY(ds.listSubIntervalResults(scheme.id,{},results,detail));
+    QCOMPARE(results.size(),size_t(1));QCOMPARE(results.front().kind,std::string("map"));
+    QCOMPARE(results.front().schemeRevision.value,unit.revision.toStdString());
+    QVERIFY(f.work.setEditEvidence(key,{{"text","acceptance observation"},{"reason","draft only"}},&error));
+    auto changed=unit;changed.revision="missing";f.work.setAnalysisUnit(changed);
+    QVERIFY(f.work.editEvidence(key).isEmpty());QVERIFY(f.work.createBlankMap(key,&error).isEmpty());
   }
   void blankMapRequiresEvidenceAndKeepsUndoAndCoverage() {
     Fixture f; QVERIFY(f.init()); QString error;
@@ -6275,9 +6318,20 @@ int main(int argc, char **argv) {
   // __fastfail（0xc0000409）缓冲的 stdout 也一起丢，ctest --output-on-failure
   // 什么都看不到。故追加 `-o <file>,txt` 让每条用例结果落盘，崩到哪条一目了然。
   const QByteArray logPath = QByteArray(QT_TESTCASE_BUILDDIR) + "/tst_mappingworkbench-result.txt";
-  QgsApplication app(argc, argv, true);
-  app.setPrefixPath("/usr", true);
+  QTemporaryDir profile;
+  if(!profile.isValid())return 1;
+  QgsApplication app(argc, argv, true,profile.path());
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH",QStringLiteral("/usr")), true);
+  // Match the native runtime order; initQgis alone does not initialize the
+  // private profile/database consumed by CAD settings and attribute editors.
+  QgsApplication::init(profile.path());
+  QCoreApplication::setOrganizationName(QStringLiteral("paleo-tests"));
+  QCoreApplication::setApplicationName(QStringLiteral("tst_mappingworkbench"));
+  QString databaseError;
+  if(!QgsApplication::createDatabase(&databaseError)){qCritical().noquote()<<databaseError;return 1;}
   app.initQgis();
+  QgsCoordinateReferenceSystem::invalidateCache(true);
+  QgsGui::editorWidgetRegistry()->initEditors();
   GDALAllRegister();
   TestMappingWorkbench test;
   QList<QByteArray> forwarded;

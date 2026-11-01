@@ -537,6 +537,9 @@ void DataPreviewTabs::focusWellIfNeeded(const QString &assetId, QWidget *page)
 
 void DataPreviewTabs::updateTabTitle(const QString &assetId)
 {
+  // These pages have their own display titles and no backing catalog asset.
+  if (assetId == QLatin1String("project_dashboard") || assetId == QLatin1String("survey_area") ||
+      assetId.startsWith(QLatin1String("model-well:"))) return;
   QWidget *page = m_pageOfAsset.value(assetId);
   if (!page)
     return;

@@ -1,5 +1,6 @@
 // 层：功能
 #include "sectionworkbench.h"
+#include "catalog/wellavailability.h"
 #include "../domain/wellnumeric.h"
 #include "../services/futuretask.h"
 #include "derivedassets.h"
@@ -13,6 +14,7 @@
 #include <QJsonParseError>
 #include <QFutureWatcher>
 #include <QHash>
+#include <QSet>
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QStringList>
@@ -25,8 +27,9 @@ SectionWorkbench::SectionWorkbench(DataCatalog *catalog, QObject *parent)
     : QObject(parent), m_catalog(catalog) {
   syncProject();
 }
-void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &)> ready) {
+void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &)> ready,bool includeSections) {
   m_previewReady = std::move(ready);
+  m_previewIncludeSections=includeSections;
   ++m_previewGeneration;
   if (!m_catalog || !m_catalog->isOpen()) { m_previewReady = {}; return; }
   if (m_previewRunning) { m_previewPending = true; return; }
@@ -40,7 +43,7 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
   auto *watcher = new QFutureWatcher<PreviewData>(this);
   watcher->setObjectName("sectionWellPreviewWatcher");
   connect(watcher, &QFutureWatcherBase::finished, this,
-          [this, watcher, generation, sequence, path] {
+          [this, watcher, generation, sequence, path,includeSections] {
             const bool cancelled = watcher->future().isCanceled();
             const auto data = !cancelled && watcher->future().resultCount()
                                   ? watcher->result()
@@ -65,7 +68,7 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
               // 结果直接交付，不再整轮 staging 拷贝 + LAS/井重解析。
               if (!cancelled && m_previewReady && m_catalog &&
                   m_catalog->catalogPath() == path &&
-                  m_catalog->mutationSeq() == sequence)
+                  m_catalog->mutationSeq() == sequence && includeSections==m_previewIncludeSections)
               {
                 m_previewPending = false;
                 auto ready = std::move(m_previewReady);
@@ -74,7 +77,7 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
               }
               else if (m_previewReady)
               {
-                requestPreviewData(std::move(m_previewReady));
+                requestPreviewData(std::move(m_previewReady),m_previewIncludeSections);
               }
               else
               {
@@ -83,9 +86,15 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
             }
           });
   const auto future =
-      QtConcurrent::run(paleo::tasks::pool(m_tasks), [snapshot, stop] {
+      QtConcurrent::run(paleo::tasks::pool(m_tasks), [snapshot, stop,includeSections] {
         SectionWorkbench worker(snapshot.get());
-        return PreviewData{worker.wells(stop), worker.sectionWells(stop)};
+        PreviewData data;data.wells=worker.wells(stop);
+        if(includeSections) {
+          const auto candidates=worker.sectionWells(stop);
+          QSet<QString> eligible;for(const auto &row:data.wells)eligible.insert(row.toMap().value("id").toString());
+          for(const auto &well:candidates)if(eligible.contains(well.wellId))data.sectionWells.push_back(well);
+        }
+        return data;
       });
   auto *task = paleo::tasks::track(m_tasks, watcher, future,
                                    tr("读取井震剖面测井数据"), true);
@@ -210,6 +219,7 @@ QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &st
   QVariantList result;
   for (const auto &w : m_data.wells()) {
     if (stop && stop->load()) return result;
+    if(!wellSupportsAnalysis(m_catalog,m_catalog->entityById(w.id)))continue;
     auto c = calibration(w.id);
     bool tvdOk = false, mdOk = false;
     modelFor(w.id, false, &tvdOk);
@@ -309,7 +319,7 @@ QStringList SectionWorkbench::spatiallyOrderedWells(const QStringList &ids,
     return wellsection::orderWellsByPosition(ids, wells);
   return ids; // 未知 mode 原样返回（调用方拼错不改序）
 }
-QVector<wellsection::Well> SectionWorkbench::wellSnapWells() {
+QVector<wellsection::Well> SectionWorkbench::wellSnapWells(bool analysisOnly) {
   syncProject();
   QVector<wellsection::Well> out;
   for (const auto &w : m_data.wells()) {
@@ -317,6 +327,7 @@ QVector<wellsection::Well> SectionWorkbench::wellSnapWells() {
          w.coordinateStatus != QLatin1String("untransformed")) ||
         !std::isfinite(w.surfaceX) || !std::isfinite(w.surfaceY))
       continue; // 与 wellRoute 同口径：无效坐标井不进吸附集
+    if(analysisOnly&&!wellSupportsAnalysis(m_catalog,m_catalog->entityById(w.id)))continue;
     wellsection::Well snap;
     snap.id = w.id;
     snap.name = w.name;

@@ -272,6 +272,8 @@ PreviewDocService *DataPage::docService() const
 
 void DataPage::refreshAssetTable()
 {
+  const QString entity = property("paleo.page.entityId").toString();
+  const bool entityContext = property("paleo.page.assetId").toString().isEmpty() && !entity.isEmpty();
   // p5a：catalog.changed() 接到本槽——实体视图一并重取（口径与旧同件实现
   // 一致：先实体后列表）。P3：共享 ops 上下文随刷新重下发（列表侧
   // loadStoresForCatalog 之后的 ctx 才带有效 catalog/store 指针）。
@@ -282,6 +284,12 @@ void DataPage::refreshAssetTable()
     m_entityPanel->setSharedOps(m_listPanel->opsContext(), m_listPanel->opStack(),
                                 m_listPanel->operationsHistory());
     m_entityPanel->refresh();
+  }
+  // A model-well tree node has no asset ID. Rebuilding the asset list must not
+  // discard the selected well when a prediction/result version is committed.
+  if (entityContext && docService() && docService()->catalog()->hasEntity(entity)) {
+    focusWell(entity);
+    emit wellSelected(entity);
   }
 }
 
@@ -323,6 +331,13 @@ void DataPage::selectAssetsForEntities(const QStringList &entityIds)
 
 void DataPage::selectAsset(const QString &assetId)
 {
+  if (assetId.startsWith(QLatin1String("model-well:"))) {
+    const auto *doc = docService();
+    const QString well = doc ? doc->entityIdForModelWell(assetId.mid(11).toLongLong()) : QString();
+    focusWell(well);
+    if (!well.isEmpty()) emit wellSelected(well);
+    return;
+  }
   setProperty("paleo.page.versionId", QString());
   const bool overview = assetId == QLatin1String("project_dashboard") || assetId == QLatin1String("survey_area");
   const QString catalogAsset = overview ? QString() : assetId;

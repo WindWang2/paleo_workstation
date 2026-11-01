@@ -15,6 +15,8 @@
 #include "pages/pagepanels.h"
 #include "layoutdesignershell.h"
 #include "edittools/editingtoolbar.h"
+#include "edittools/undogrouprouter.h"
+#include "layout/layoutundostack.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -526,4 +528,14 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
             });
     // ---- 方向 25 M6 end ----
   }
+}
+
+// #748：新建版式设计壳并登记撤销组作用域（Qgs 符号留在已入基线的本 TU，免新增散布）。
+PaleoLayoutDesignerShell *PaleoMainWindow::newLayoutShell(QgsLayout *layout)
+{
+  auto *shell = new PaleoLayoutDesignerShell(layout, this);
+  shell->setTaskService(m_taskSvc); // #85：导出走任务池 worker
+  if (PaleoLayoutUndoStack *undo = shell->undoStack(); undo && undo->stack())
+    undoRouter()->registerScope(shell, undo->stack());
+  return shell;
 }

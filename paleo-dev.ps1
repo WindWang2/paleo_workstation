@@ -1,5 +1,5 @@
 ﻿# paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
-# Verbs: bootstrap [fetch-only] | build | test | selfcheck | checkenv | ensure-resources | clean-vendor <dep>
+# Verbs: bootstrap [fetch-only] | build | test | selfcheck | checkenv | ensure-resources | clean-vendor <dep> | diagdeps <test>
 #   bootstrap fetch-only : 只取依赖（OSGeo4W + ORT），不编译不自检——CI 用它让
 #                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。
 #   build                : $env:CI 已设时 ninja -k 0，一次暴露全部编译错误。
@@ -690,7 +690,7 @@ switch ($Verb) {
     # 不改构建树；任何一步失败都只打 warning，不掩盖探针本身的红。
     if (-not $Arg) { throw 'usage: paleo-dev.ps1 diagdeps <test-name>' }
     $ErrorActionPreference = 'Continue'
-    Enter-DependencyEnvironment
+    try { Enter-DependencyEnvironment } catch { Write-Warning "依赖环境装配失败（$_），按当前 PATH 定位" }
     try { Enter-MsvcEnvironment } catch { Write-Warning "MSVC 环境不可用（$_），跳过 dumpbin" }
     $exe = Get-ChildItem -Path $Build -Recurse -File -Filter "$Arg.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $exe) { Write-Warning "build 下找不到 $Arg.exe"; exit 0 }
@@ -702,9 +702,11 @@ switch ($Verb) {
       Where-Object { $_ -match '^\s+(\S+\.dll)\s*$' } | ForEach-Object { $Matches[1] })
     $missing = 0
     foreach ($d in $deps) {
-      $hit = Get-Command $d -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-      if (-not $hit -and (Test-Path (Join-Path $exe.DirectoryName $d))) { $hit = Get-Item (Join-Path $exe.DirectoryName $d) }
-      if ($hit) { "  ok      {0} -> {1}" -f $d, $(if ($hit.Source) { $hit.Source } else { $hit.FullName }) }
+      # 加载器搜索序近似：exe 所在目录 → System32 → PATH（不调 Get-Command，
+      # 它对非 PATHEXT 扩展名的行为随 pwsh 版本漂移）。
+      $searchDirs = @($exe.DirectoryName, [Environment]::SystemDirectory) + ($env:PATH -split ';' | Where-Object { $_ })
+      $hit = $searchDirs | ForEach-Object { Join-Path $_ $d } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+      if ($hit) { "  ok      $d -> $hit" }
       elseif ($d -match '^(api-ms-|ext-ms-)') { "  apiset  $d" }
       else { "  MISSING $d"; $missing++ }
     }

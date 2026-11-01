@@ -28,9 +28,15 @@ void PreviewDocService::wellTopsForLog(const QString &wellId, QVector<WellTopRec
     for (const auto &link : catalog()->linksForEntity(wellId))
       if (link.role == QLatin1String("trajectory") && !link.unresolved) { surveyError = tr("关联的测斜文件缺失或不可读取"); break; }
   QVector<QPair<double, double>> pairs;
-  if (needsConversion && !survey && surveyError.isEmpty())
-    for (const auto &sample : data.tdTableFor(wellId))
+  QString tdError;
+  if (needsConversion && !survey && surveyError.isEmpty()) {
+    const auto td = data.tdTableFor(wellId);
+    // 时深表读取失败（来源文件被改、多份关系等）不等于“没有时深表”：
+    // 不能退回直井等深，否则旧对照/坏对照会被静默冒充 MD。
+    if (td.isEmpty()) tdError = data.lastError();
+    for (const auto &sample : td)
       if (std::isfinite(sample.tvd) && std::isfinite(sample.md)) pairs.append({sample.tvd, sample.md});
+  }
   std::sort(pairs.begin(), pairs.end()); pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
   // MD 和 TVD 均以井口为深度零点（TVDSS 是另一个字段）。
   // 对照从井下开始时补几何原点，浅部顶界落在井口与首对照之间，不作深部外推。
@@ -44,12 +50,13 @@ void PreviewDocService::wellTopsForLog(const QString &wellId, QVector<WellTopRec
   if (needsConversion) {
     if (!surveyError.isEmpty()) warn(tr("测斜不可用，只有 TVD 的分层暂不绘制：%1").arg(surveyError));
     else if (survey) warn(tr("分层 TVD 将按测斜转换为显示 MD；超出测斜范围的层不绘制，原始分层深度不改写。"));
+    else if (!tdError.isEmpty()) warn(tr("时深表不可用，只有 TVD 的分层暂不绘制：%1").arg(tdError));
     else if (validPairs) warn(tr("分层 TVD 已按时深表的 MD/TVD 对照定位，原始 MD 仍保留为空。"));
     else if (!pairs.isEmpty()) warn(tr("时深表的 MD/TVD 对照不足或不单调，只有 TVD 的分层暂不绘制。"));
     else warn(tr("分层只有 TVD，未提供测斜或 MD/TVD 对照；按直井等深显示，原始 MD 仍保留为空。"));
   }
   const auto measuredDepth = [&](double md, double tvd) {
-    if (!std::isfinite(md) && std::isfinite(tvd) && surveyError.isEmpty()) {
+    if (!std::isfinite(md) && std::isfinite(tvd) && surveyError.isEmpty() && tdError.isEmpty()) {
       if (survey) {
         const double converted = survey->tvdToMd(tvd);
         const auto &pts = survey->points();

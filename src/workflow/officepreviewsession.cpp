@@ -295,7 +295,9 @@ void OfficePreviewSession::readSocket(QTcpSocket *socket)
   // 256MB 预算门被绕过且写 0 字节文件还按成功上报。解析失败按 400 拒；
   // 无 Content-Length 头（GET/HEAD）按「无体」处理，不因此拒绝。
   const QByteArray lengthHeader = headerValue(headers, "content-length");
-  bool lengthOk = !lengthHeader.isEmpty();
+  // lengthOk 初值 true = 无头即无体（GET/HEAD 合法）；#821 曾把初值写成
+  // !isEmpty()——空头（一切 GET）被判 400，office 预览整链 400 打不开。
+  bool lengthOk = true;
   int length = 0;
   if (!lengthHeader.isEmpty())
     length = lengthHeader.toInt(&lengthOk);

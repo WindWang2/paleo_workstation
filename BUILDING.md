@@ -177,13 +177,19 @@ vendor 路径对照（按策略优先级）：
 任务指定的 `refactor/`、`goal/` 等分支名优先。每个 worktree 使用自己的 `build/`。
 
 gitignored 依赖不会随 worktree 出现。本机共享已准备的依赖时，以主仓绝对路径
-建立 symlink（以下主仓路径按实际位置替换；不要在共享 prefix 中清理或重建）：
+建立 symlink（以下主仓路径按实际位置替换；不要在共享 prefix 中清理或重建）。
+`vendor/ranuts-document`（Office 编辑组件，AGPL-3.0）也在此列——缺它则
+应用内 Office 预览报「组件未安装」（configure 会警告；运行时见
+`<build>/office-editor` 接线）：
 
 ```bash
 git worktree add ../paleo_workstation-refactor -b refactor/dedup-docs-tests master
 cd ../paleo_workstation-refactor
 ln -s /home/kevin/projects/paleo_workstation/vendor/superbuild/prefix vendor/superbuild/prefix
 ln -s /home/kevin/projects/paleo_workstation/vendor/onnxruntime vendor/onnxruntime
+if [ -d /home/kevin/projects/paleo_workstation/vendor/ranuts-document ]; then
+  ln -s /home/kevin/projects/paleo_workstation/vendor/ranuts-document vendor/ranuts-document
+fi
 if [ -d /home/kevin/projects/paleo_workstation/vendor/prefix ]; then
   ln -s /home/kevin/projects/paleo_workstation/vendor/prefix vendor/prefix
 fi

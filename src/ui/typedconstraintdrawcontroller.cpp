@@ -10,6 +10,7 @@
 
 #include <qgsadvanceddigitizingdockwidget.h>
 #include <qgsmapcanvas.h>
+#include <qgsmessagelog.h>
 
 // 层：视图
 // m2(B) 三入口（物源线/展布线/控制点）——结构镜像 ConstraintDrawController
@@ -122,7 +123,12 @@ void TypedConstraintDrawController::onDrawn( const QString &wkt )
   const QString type = m_constraintType;
   teardown();
   if ( ok )
+  {
+    // #742：已落盘但图层加载失败——成功 + 警告，不当作未写入。
+    if ( !err.isEmpty() )
+      QgsMessageLog::logMessage( err, QStringLiteral( "Paleo" ), Qgis::MessageLevel::Warning );
     emit captureFinished( horizon, type, constraintId );
+  }
   else
     emit captureFailed( err.isEmpty() ? tr( "类型化约束提交失败" ) : err );
 }

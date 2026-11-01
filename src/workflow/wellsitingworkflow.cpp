@@ -248,6 +248,7 @@ WellSitingWorkflow::~WellSitingWorkflow()
 {
   // D.3：拆对象前停掉在飞评估（worker 阶段边界自查退出，结果无人接收）。
   cancelScenarioEvaluation();
+  cancelSitingCompute(); // #820
   delete d;
 }
 
@@ -399,44 +400,64 @@ WellSitingWorkflow::resolveDomain( const WellSitingParams &params,
 // 覆盖诊断
 // ---------------------------------------------------------------------------
 
-bool WellSitingWorkflow::runDiagnosis( const WellSitingParams &params, QString *error )
+// #820：诊断拆成 prepare（GUI 线程快照：实井/域）→ compute（纯核，可在工作池
+// 执行，不碰 catalog/图层等非线程安全活对象）→ publish（GUI 线程落成员/落图/
+// 发信号）。同步入口与异步入口共用同一三段，口径一致。
+struct WellSitingWorkflow::DiagJob
 {
-  const QList<QVariantMap> wells = realWellsForSiting();
+  int wellCount = 0;
   QString domainSource;
-  const std::vector<paleo::wellsiting::Polygon> domain = resolveDomain( params, wells, &domainSource );
-  if ( wells.isEmpty() )
-  {
-    if ( error )
-      *error = tr( "没有可定位的实井——覆盖诊断需要实井集" );
-    writeHolesLayer( paleo::wellsiting::CoverageReport{} ); // 不残留旧参数空洞
-    return false;
-  }
-
-  const paleo::wellsiting::SitingOptions options = kernelOptions( params );
-  // algo-atom：wellsiting:diagnose_coverage 经 NativeCppAdapter
-  const std::vector<paleo::wellsiting::Point2> wellsPts = wellPoints( wells );
-  paleo::DiagnoseCoverageInputs diagIn;
-  diagIn.domain = &domain;
-  diagIn.wells = &wellsPts;
-  diagIn.options = options;
-  paleo::wellsiting::SitingField field;
+  std::vector<paleo::wellsiting::Polygon> domain;
+  std::vector<paleo::wellsiting::Point2> wells;
+  paleo::wellsiting::SitingOptions options;
+  // compute 输出
+  bool ok = false;
+  QString error;
+  QVariantMap summary;
+  QList<QVariantMap> holes;
   paleo::wellsiting::CoverageReport report;
+};
+
+std::shared_ptr<WellSitingWorkflow::DiagJob>
+WellSitingWorkflow::prepareDiagnosis( const WellSitingParams &params ) const
+{
+  auto job = std::make_shared<DiagJob>();
+  const QList<QVariantMap> wells = realWellsForSiting();
+  job->domain = resolveDomain( params, wells, &job->domainSource );
+  job->wellCount = wells.size();
+  job->wells = wellPoints( wells );
+  job->options = kernelOptions( params );
+  return job;
+}
+
+void WellSitingWorkflow::computeDiagnosis( DiagJob &job )
+{
+  if ( job.wellCount == 0 )
+  {
+    job.error = tr( "没有可定位的实井——覆盖诊断需要实井集" );
+    return;
+  }
+  // algo-atom：wellsiting:diagnose_coverage 经 NativeCppAdapter
+  paleo::DiagnoseCoverageInputs diagIn;
+  diagIn.domain = &job.domain;
+  diagIn.wells = &job.wells;
+  diagIn.options = job.options;
+  paleo::wellsiting::SitingField field;
+  paleo::wellsiting::CoverageReport &report = job.report;
   QString diagErr;
   paleo::NativeCppAdapter native;
   const AlgorithmRunResult diagRun =
       native.runDiagnoseCoverage( diagIn, &report, &field, &diagErr );
   if ( !diagRun.ok )
   {
-    if ( error )
-      *error = diagErr.isEmpty() ? QString::fromStdString( field.message ) : diagErr;
-    // 旧参数的空洞图层不残留：覆写空 FeatureCollection（声明保留）。
-    writeHolesLayer( paleo::wellsiting::CoverageReport{} );
-    return false;
+    job.error = diagErr.isEmpty() ? QString::fromStdString( field.message ) : diagErr;
+    report = paleo::wellsiting::CoverageReport{};
+    return;
   }
 
   QVariantMap summary;
   summary.insert( QStringLiteral( "ok" ), true );
-  summary.insert( QStringLiteral( "well_count" ), wells.size() );
+  summary.insert( QStringLiteral( "well_count" ), job.wellCount );
   summary.insert( QStringLiteral( "hole_count" ), report.holeCount );
   summary.insert( QStringLiteral( "hole_area_total" ), report.holeAreaTotal );
   summary.insert( QStringLiteral( "hole_area_km2" ), report.holeAreaTotal / 1.0e6 );
@@ -445,7 +466,7 @@ bool WellSitingWorkflow::runDiagnosis( const WellSitingParams &params, QString *
   const bool finiteMean = std::isfinite( report.domainMeanDistance );
   summary.insert( QStringLiteral( "domain_mean_distance" ),
                   finiteMean ? QVariant( report.domainMeanDistance ) : QVariant() );
-  summary.insert( QStringLiteral( "domain_source" ), domainSource );
+  summary.insert( QStringLiteral( "domain_source" ), job.domainSource );
   if ( report.spacing.valid )
   {
     summary.insert( QStringLiteral( "spacing_mean" ), report.spacing.mean );
@@ -453,9 +474,8 @@ bool WellSitingWorkflow::runDiagnosis( const WellSitingParams &params, QString *
     summary.insert( QStringLiteral( "spacing_p90" ), report.spacing.p90 );
   }
   summary.insert( QStringLiteral( "note" ), QString::fromStdString( report.note ) );
-  m_lastDiagnosis = summary;
+  job.summary = summary;
 
-  m_lastHoles.clear();
   for ( const paleo::wellsiting::HoleRegion &region : report.regions )
   {
     QVariantMap hole;
@@ -469,12 +489,32 @@ bool WellSitingWorkflow::runDiagnosis( const WellSitingParams &params, QString *
     hole.insert( QStringLiteral( "deepest_x" ), region.deepest.x );
     hole.insert( QStringLiteral( "deepest_y" ), region.deepest.y );
     hole.insert( QStringLiteral( "wkt" ), boundaryWkt( region.boundaryParts ) );
-    m_lastHoles.append( hole );
+    job.holes.append( hole );
   }
+  job.ok = true;
+}
 
-  writeHolesLayer( report );
-  emit diagnosisDone( summary );
+bool WellSitingWorkflow::publishDiagnosis( const DiagJob &job, QString *error )
+{
+  // 失败也覆写空空洞层：旧参数空洞不残留（声明保留）。
+  writeHolesLayer( job.ok ? job.report : paleo::wellsiting::CoverageReport{} );
+  if ( !job.ok )
+  {
+    if ( error )
+      *error = job.error;
+    return false;
+  }
+  m_lastDiagnosis = job.summary;
+  m_lastHoles = job.holes;
+  emit diagnosisDone( job.summary );
   return true;
+}
+
+bool WellSitingWorkflow::runDiagnosis( const WellSitingParams &params, QString *error )
+{
+  const auto job = prepareDiagnosis( params );
+  computeDiagnosis( *job );
+  return publishDiagnosis( *job, error );
 }
 
 void WellSitingWorkflow::writeHolesLayer( const paleo::wellsiting::CoverageReport &report )
@@ -575,53 +615,76 @@ void WellSitingWorkflow::writeHolesLayer( const paleo::wellsiting::CoverageRepor
 // 候选点位
 // ---------------------------------------------------------------------------
 
-bool WellSitingWorkflow::generateCandidates( const WellSitingParams &params, QString *error )
+struct WellSitingWorkflow::CandJob
 {
-  const QList<QVariantMap> wells = realWellsForSiting();
-  if ( wells.isEmpty() )
-  {
-    if ( error )
-      *error = tr( "没有可定位的实井——候选生成需要实井集" );
-    return false;
-  }
-  const std::vector<paleo::wellsiting::Polygon> domain = resolveDomain( params, wells );
-  const paleo::wellsiting::SitingOptions options = kernelOptions( params );
-  const paleo::wellsiting::SitingField field =
-      paleo::wellsiting::sampleField( domain, wellPoints( wells ), options );
-  if ( field.status != paleo::wellsiting::Status::Ok )
-  {
-    if ( error )
-      *error = QString::fromStdString( field.message );
-    return false;
-  }
-
+  int wellCount = 0;
+  std::vector<paleo::wellsiting::Polygon> domain;
+  std::vector<paleo::wellsiting::Point2> wells;
+  paleo::wellsiting::SitingOptions options;
   paleo::wellsiting::AvoidSurfaces avoid;
-  avoid.lineBuffer = params.lineBuffer;
+  paleo::wellsiting::CandidateOptions candidateOptions;
+  bool ok = false;
+  QString error;
+  QList<QVariantMap> candidates;
+};
+
+std::shared_ptr<WellSitingWorkflow::CandJob>
+WellSitingWorkflow::prepareCandidates( const WellSitingParams &params ) const
+{
+  auto job = std::make_shared<CandJob>();
+  const QList<QVariantMap> wells = realWellsForSiting();
+  job->wellCount = wells.size();
+  if ( wells.isEmpty() )
+    return job;
+  job->domain = resolveDomain( params, wells );
+  job->wells = wellPoints( wells );
+  job->options = kernelOptions( params );
+  // 约束/断层提供方读活对象 → 只在 GUI 线程 prepare 阶段调用。
+  job->avoid.lineBuffer = params.lineBuffer;
   if ( d->constraintProvider )
     for ( const SitingConstraintGeometry &constraint : d->constraintProvider() )
     {
       if ( constraint.type != QLatin1String( "line" ) )
         continue;
       for ( const std::vector<Point2> &line : linesFromWkt( constraint.wkt ) )
-        avoid.lines.push_back( line );
+        job->avoid.lines.push_back( line );
     }
   if ( d->faultCutsProvider )
     for ( const QString &wkt : d->faultCutsProvider() )
       for ( const paleo::wellsiting::Polygon &polygon : polygonsFromWkt( wkt ) )
-        avoid.polygons.push_back( polygon );
+        job->avoid.polygons.push_back( polygon );
+  job->candidateOptions.gridSpacing = params.gridSpacing;
+  job->candidateOptions.minWellDistance = params.minWellDistance;
+  job->candidateOptions.boundaryMargin = params.boundaryMargin;
+  job->candidateOptions.perHoleLimit = params.perHoleLimit;
+  return job;
+}
 
-  paleo::wellsiting::CandidateOptions candidateOptions;
-  candidateOptions.gridSpacing = params.gridSpacing;
-  candidateOptions.minWellDistance = params.minWellDistance;
-  candidateOptions.boundaryMargin = params.boundaryMargin;
-  candidateOptions.perHoleLimit = params.perHoleLimit;
+void WellSitingWorkflow::computeCandidates( CandJob &job,
+                                            const std::atomic_bool *stop )
+{
+  if ( job.wellCount == 0 )
+  {
+    job.error = tr( "没有可定位的实井——候选生成需要实井集" );
+    return;
+  }
+  const paleo::wellsiting::SitingField field =
+      paleo::wellsiting::sampleField( job.domain, job.wells, job.options );
+  if ( field.status != paleo::wellsiting::Status::Ok )
+  {
+    job.error = QString::fromStdString( field.message );
+    return;
+  }
+  if ( stop && stop->load() )
+    return;
   const std::vector<paleo::wellsiting::CandidatePoint> candidates =
-      paleo::wellsiting::generateCandidates( field, avoid, candidateOptions, options );
-
-  m_lastCandidates.clear();
+      paleo::wellsiting::generateCandidates( field, job.avoid, job.candidateOptions,
+                                             job.options );
   int index = 0;
   for ( const paleo::wellsiting::CandidatePoint &candidate : candidates )
   {
+    if ( stop && stop->load() )
+      return;
     QVariantMap m;
     m.insert( QStringLiteral( "index" ), index++ );
     m.insert( QStringLiteral( "x" ), candidate.pos.x );
@@ -630,16 +693,118 @@ bool WellSitingWorkflow::generateCandidates( const WellSitingParams &params, QSt
     m.insert( QStringLiteral( "hole_id" ), candidate.holeId );
     m.insert( QStringLiteral( "hole_distance_m" ), candidate.holeDistance );
     const paleo::wellsiting::CandidateContribution contribution =
-        paleo::wellsiting::contributionOf( field, candidate.pos, options );
+        paleo::wellsiting::contributionOf( field, candidate.pos, job.options );
     m.insert( QStringLiteral( "contribution_hole_area_m2" ), contribution.holeAreaReduction );
     m.insert( QStringLiteral( "contribution_mean_distance_m" ),
               std::isfinite( contribution.meanDistanceReduction )
                   ? QVariant( contribution.meanDistanceReduction )
                   : QVariant() );
-    m_lastCandidates.append( m );
+    job.candidates.append( m );
   }
+  job.ok = true;
+}
+
+bool WellSitingWorkflow::publishCandidates( const CandJob &job, QString *error )
+{
+  if ( !job.ok )
+  {
+    if ( error )
+      *error = job.error;
+    return false;
+  }
+  m_lastCandidates = job.candidates;
   emit candidatesChanged();
   return true;
+}
+
+bool WellSitingWorkflow::generateCandidates( const WellSitingParams &params, QString *error )
+{
+  const auto job = prepareCandidates( params );
+  computeCandidates( *job, nullptr );
+  return publishCandidates( *job, error );
+}
+
+// —— #820 异步入口：GUI 线程 prepare → 任务服务工作池 compute → GUI 线程
+// publish。世代号 + 停止标志：新请求/取消/析构后陈旧结果一律丢弃。
+void WellSitingWorkflow::runDiagnosisAsync( const WellSitingParams &params )
+{
+  if ( m_diagStop )
+    m_diagStop->store( true );
+  auto stop = std::make_shared<std::atomic_bool>( false );
+  m_diagStop = stop;
+  const quint64 generation = ++m_diagGeneration;
+  const auto job = prepareDiagnosis( params );
+  auto *watcher = new QFutureWatcher<void>( this );
+  connect( watcher, &QFutureWatcherBase::finished, this,
+           [this, watcher, generation, job, stop]() {
+             watcher->deleteLater();
+             if ( generation != m_diagGeneration )
+               return; // 已被新请求/取消取代
+             if ( stop->load() || watcher->future().isCanceled() )
+             {
+               emit diagnosisAsyncDone( false, tr( "覆盖诊断已取消" ) );
+               return;
+             }
+             QString error;
+             const bool ok = publishDiagnosis( *job, &error );
+             emit diagnosisAsyncDone( ok, error );
+           } );
+  const QFuture<void> future = QtConcurrent::run(
+      paleo::tasks::pool( m_taskSvc ), [job, stop]() {
+        if ( !stop->load() )
+          computeDiagnosis( *job );
+      } );
+  watcher->setFuture( future );
+  if ( PaleoTask *task = paleo::tasks::track( m_taskSvc.data(), watcher, future,
+                                               tr( "布井覆盖诊断" ) ) )
+    connect( task, &PaleoTask::cancelAsked, watcher, [stop] { stop->store( true ); } );
+}
+
+void WellSitingWorkflow::generateCandidatesAsync( const WellSitingParams &params )
+{
+  if ( m_candStop )
+    m_candStop->store( true );
+  auto stop = std::make_shared<std::atomic_bool>( false );
+  m_candStop = stop;
+  const quint64 generation = ++m_candGeneration;
+  const auto job = prepareCandidates( params );
+  auto *watcher = new QFutureWatcher<void>( this );
+  connect( watcher, &QFutureWatcherBase::finished, this,
+           [this, watcher, generation, job, stop]() {
+             watcher->deleteLater();
+             if ( generation != m_candGeneration )
+               return;
+             if ( stop->load() || watcher->future().isCanceled() )
+             {
+               emit candidatesAsyncDone( false, tr( "候选生成已取消" ) );
+               return;
+             }
+             QString error;
+             const bool ok = publishCandidates( *job, &error );
+             emit candidatesAsyncDone( ok, error );
+           } );
+  const QFuture<void> future = QtConcurrent::run(
+      paleo::tasks::pool( m_taskSvc ), [job, stop]() {
+        if ( !stop->load() )
+          computeCandidates( *job, stop.get() );
+      } );
+  watcher->setFuture( future );
+  if ( PaleoTask *task = paleo::tasks::track( m_taskSvc.data(), watcher, future,
+                                               tr( "布井候选生成" ) ) )
+    connect( task, &PaleoTask::cancelAsked, watcher, [stop] { stop->store( true ); } );
+}
+
+void WellSitingWorkflow::cancelSitingCompute()
+{
+  // 只取消诊断/候选；方案评估另有 cancelScenarioEvaluation。
+  ++m_diagGeneration;
+  ++m_candGeneration;
+  for ( auto *flag : { &m_diagStop, &m_candStop } )
+    if ( *flag )
+    {
+      ( *flag )->store( true );
+      flag->reset();
+    }
 }
 
 void WellSitingWorkflow::clearCandidates()
@@ -999,6 +1164,7 @@ QVariantMap WellSitingWorkflow::evaluateScenario( const WellSitingParams &params
     contributions.insert( resolved.at( int( i ) ), c );
   }
   evaluation.insert( QStringLiteral( "contributions" ), contributions );
+  evaluation.insert( QStringLiteral( "planned_ids" ), plannedIds );
   evaluation.insert( QStringLiteral( "params" ), params.toMap() );
 
   m_lastEvaluation = evaluation;
@@ -1102,7 +1268,7 @@ void WellSitingWorkflow::evaluateScenarioAsync( const WellSitingParams &params,
            } );
   const QFuture<Outcome> future = QtConcurrent::run(
       paleo::tasks::pool( m_taskSvc ), // PW-034
-      [snap, params, stop]() -> Outcome {
+      [snap, params, plannedIds, stop]() -> Outcome {
         // 纯核：与 evaluateScenario 同口径同次序（before → after → 贡献分），
         // 只读快照；阶段边界自查停止标志（新请求/取消置位）。
         Outcome outcome;
@@ -1145,6 +1311,7 @@ void WellSitingWorkflow::evaluateScenarioAsync( const WellSitingParams &params,
         }
         evaluation.insert( QStringLiteral( "contributions" ), contributions );
         evaluation.insert( QStringLiteral( "params" ), params.toMap() );
+        evaluation.insert( QStringLiteral( "planned_ids" ), plannedIds );
         outcome.first = evaluation;
         return outcome;
       } );
@@ -1180,6 +1347,19 @@ void WellSitingWorkflow::applyEvaluationOutcome( quint64 generation,
   emit evaluationAsyncDone( evaluation, error );
 }
 
+bool WellSitingWorkflow::hasEvaluationFor( const WellSitingParams &params,
+                                           const QStringList &plannedIds ) const
+{
+  if ( m_lastEvaluation.isEmpty() )
+    return false;
+  // 实井集变化（导入/删井）也使缓存失效：用评估时的实井数做廉价校验，
+  // 计划井集按序比对（贡献分按 id 落盘）。
+  return m_lastEvaluation.value( QStringLiteral( "params" ) ).toMap() == params.toMap() &&
+         m_lastEvaluation.value( QStringLiteral( "planned_ids" ) ).toStringList() == plannedIds &&
+         m_lastEvaluation.value( QStringLiteral( "well_count" ) ).toInt() ==
+             realWellsForSiting().size();
+}
+
 bool WellSitingWorkflow::saveScenario( const QString &name, const QStringList &plannedIds,
                                        const WellSitingParams &params, QString *error )
 {
@@ -1191,7 +1371,11 @@ bool WellSitingWorkflow::saveScenario( const QString &name, const QStringList &p
   }
   ensureScenariosLoaded();
 
-  const QVariantMap evaluation = evaluateScenario( params, plannedIds, error );
+  // #820：异步评估刚算过同一（参数, 计划井集）→ 直接复用，不在 GUI 线程
+  // 重复全场采样；不匹配才回退同步评估（面板侧会先发起异步评估再保存）。
+  const QVariantMap evaluation = hasEvaluationFor( params, plannedIds )
+                                     ? m_lastEvaluation
+                                     : evaluateScenario( params, plannedIds, error );
   if ( evaluation.isEmpty() )
     return false;
 

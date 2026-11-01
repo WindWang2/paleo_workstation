@@ -37,3 +37,5 @@ SOURCES=$(find src -name '*.cpp' -o -name '*.h' | sort)
 # shellcheck disable=SC2086
 "${LUPDATE}" -no-obsolete ${SOURCES} -ts "${TS_FILES[@]}"
 echo "updated: ${TS_FILES[*]}"
+# #750：英文骨架按 zh_CN 条目集补齐（保留已有英文译文）。
+python3 tools/sync_en_ts_skeleton.py

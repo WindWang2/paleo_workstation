@@ -84,6 +84,22 @@ bool volumeBetween(const float *top, const float *base, int cols, int rows, doub
   return true;
 }
 
+double signedThickness(double top, double base, ZConvention conv)
+{
+  if (!std::isfinite(top) || !std::isfinite(base))
+    return std::numeric_limits<double>::quiet_NaN();
+  return conv == ZConvention::PositiveDown ? base - top : top - base;
+}
+
+bool volumeBetweenWithConvention(const float *top, const float *base, int cols, int rows,
+                                 double dx, double dy, ZConvention conv, VolumeReport *out,
+                                 QString *error)
+{
+  return conv == ZConvention::PositiveDown
+             ? volumeBetween(base, top, cols, rows, dx, dy, out, error)
+             : volumeBetween(top, base, cols, rows, dx, dy, out, error);
+}
+
 bool volumeAboveDatum(const float *z, int cols, int rows, double dx, double dy,
                       double datum, VolumeReport *out, QString *error)
 {

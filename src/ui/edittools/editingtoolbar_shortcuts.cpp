@@ -16,12 +16,16 @@ void PaleoEditingToolbar::installCanvasUndoShortcuts(QWidget *canvas)
     connect( scUndo, &QShortcut::activated, mActionUndo, [this] {
       if ( mActionUndo->isEnabled() )
         mActionUndo->trigger();
+      else if ( mSecondaryUndo )
+        mSecondaryUndo(); // #748：无会话内可撤销时落工作台撤销栈
     } );
     auto *scRedo = paleo::shortcuts::bindShortcut( QStringLiteral( "map.edit.redo" ), canvas );
     scRedo->setObjectName( QStringLiteral( "scMapEditRedo" ) );
     connect( scRedo, &QShortcut::activated, mActionRedo, [this] {
       if ( mActionRedo->isEnabled() )
         mActionRedo->trigger();
+      else if ( mSecondaryRedo )
+        mSecondaryRedo();
     } );
   }
 }

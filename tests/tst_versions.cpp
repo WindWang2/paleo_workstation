@@ -545,6 +545,13 @@ class TestVersions : public QObject
         }
         LayerDeclaration decl; decl.layerId = "area.D61"; decl.horizon = "D61";
         decl.type = "vector"; decl.source = shp;
+        // #774：发布门要求版本行带 PDF 资产（§260）——先登记布局产物再保存，
+        // 否则 publish() 恒以「没有 PDF 资产记录」拒绝（与环境无关）。
+        const QString pdf = makePdf(f.dir.filePath(QStringLiteral("D61_map.pdf")));
+        QVERIFY(!pdf.isEmpty());
+        QVERIFY2(f.versions.recordLayoutProduct(QStringLiteral("D61"), pdf, QStringLiteral("ast-pdf-sc"),
+                                                QStringLiteral("cafebabe"), &error),
+                 qPrintable(error));
         const auto saved = f.versions.saveVersion("D61", "{}", &error, {decl});
         QVERIFY2(saved.version > 0, qPrintable(error));
         const auto layer = QJsonDocument::fromJson(saved.provenance.toUtf8()).object()

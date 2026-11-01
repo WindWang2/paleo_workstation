@@ -216,7 +216,14 @@ bool promptIsopach(QWidget *parent, const QVector<QPair<QString, QString>> &cand
   }
   topCombo->setCurrentIndex(0);
   baseCombo->setCurrentIndex(1);
-  baseCombo->setToolTip(QObject::tr("底面（较老层位）；厚度 = 顶 − 底，带符号"));
+  baseCombo->setToolTip(QObject::tr("底面（较老层位）；厚度按 z 方向约定计算，带符号"));
+
+  // #717：z 方向约定由用户显式选择（层位栅格不带可靠的域元数据）。
+  auto *zConvCombo = new QComboBox(&dlg);
+  zConvCombo->setObjectName(QStringLiteral("isopachZConventionCombo"));
+  zConvCombo->addItem(QObject::tr("高程（向上为正）：厚度 = 顶 − 底"));
+  zConvCombo->addItem(QObject::tr("时间/深度（TWT、TVD 向下为正）：厚度 = 底 − 顶"));
+  zConvCombo->setCurrentIndex(0);
 
   auto *writeCheck = new QCheckBox(QObject::tr("写出受管等厚栅格并上图"), &dlg);
   writeCheck->setObjectName(QStringLiteral("isopachWriteCheck"));
@@ -225,6 +232,7 @@ bool promptIsopach(QWidget *parent, const QVector<QPair<QString, QString>> &cand
   auto *form = new QFormLayout;
   form->addRow(QObject::tr("顶面（上层位）"), topCombo);
   form->addRow(QObject::tr("底面（下层位）"), baseCombo);
+  form->addRow(QObject::tr("z 方向约定"), zConvCombo);
   form->addRow(QString(), writeCheck);
 
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
@@ -248,6 +256,7 @@ bool promptIsopach(QWidget *parent, const QVector<QPair<QString, QString>> &cand
     out->topIndex = topCombo->currentIndex();
     out->baseIndex = baseCombo->currentIndex();
     out->writeManaged = writeCheck->isChecked();
+    out->zPositiveDown = zConvCombo->currentIndex() == 1;
   }
   return true;
 }

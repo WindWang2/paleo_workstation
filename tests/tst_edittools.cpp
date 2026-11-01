@@ -48,6 +48,7 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QMenu>
+#include <QShortcut>
 #include <QSignalSpy>
 #include <QUndoStack>
 
@@ -139,6 +140,7 @@ class TestEditTools : public QObject
     void partitionVertexChangesKeepCoverageAndRollbackInvalidGesture();
     void partitionCaptureUsesNativeEventsAndLayerCrs();
     void toolbarRelaysNativeWarningsAndExplainsPartitionActions();
+    void canvasUndoFallsBackToSecondaryStack();
 
     // a) add feature → edit buffer
     void addPointClickCommitsIntoEditBuffer();
@@ -1547,6 +1549,27 @@ void TestEditTools::vertexTopoReleaseWeldsToNeighborVertex()
 
   canvas.unsetMapTool( &tool );
   layer.rollBack();
+}
+
+void TestEditTools::canvasUndoFallsBackToSecondaryStack()
+{
+  // #748：无会话内可撤销时，画布 Ctrl+Z/Ctrl+Y 落到工作台次级撤销栈。
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+  PaleoEditingToolbar bar( &canvas );
+  QVERIFY( !bar.actionUndo()->isEnabled() );
+  int undos = 0, redos = 0;
+  bar.setSecondaryUndo( [&undos] { ++undos; return true; }, [&redos] { ++redos; return true; } );
+  auto *undo = canvas.findChild<QShortcut *>( QStringLiteral( "scMapEditUndo" ) );
+  auto *redo = canvas.findChild<QShortcut *>( QStringLiteral( "scMapEditRedo" ) );
+  QVERIFY( undo && redo );
+  emit undo->activated();
+  emit redo->activated();
+  QCOMPARE( undos, 1 );
+  QCOMPARE( redos, 1 );
+  bar.setSecondaryUndo( {}, {} ); // 解除后不再调用
+  emit undo->activated();
+  QCOMPARE( undos, 1 );
 }
 
 void TestEditTools::toolbarTopologicalActionMirrorsProjectFlag()

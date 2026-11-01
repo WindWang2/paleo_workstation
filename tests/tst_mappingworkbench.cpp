@@ -1711,6 +1711,22 @@ private slots:
     // Changing an existing pin's level, invalid requests, and removal.
     QVERIFY(f.work.setPinnedLevel(draft, river, "facies", &error));
     QCOMPARE(keyOf(byCode[2]), expected(2, "facies"));
+    {
+      // #741：固定层级进工作台撤销栈；undo/redo 还原属性并刷新显示。
+      auto *undo = f.work.propertyEditStack();
+      QVERIFY(undo->canUndo());
+      QVERIFY(undo->undo());
+      QCOMPARE(f.work.pinnedLevels(draft).value(river).toString(), QString("micro_facies"));
+      QCOMPARE(keyOf(byCode[2]), expected(2, "micro_facies"));
+      QVERIFY(undo->redo());
+      QCOMPARE(f.work.pinnedLevels(draft).value(river).toString(), QString("facies"));
+      // 被拒时发 displayChanged（视图按真实数据回滚组合框），且不入栈。
+      const int depth = undo->count();
+      QSignalSpy refreshed(&f.work, &MappingWorkbench::displayChanged);
+      QVERIFY(!f.work.setPinnedLevel(draft, river, "invalid", &error));
+      QCOMPARE(refreshed.count(), 1);
+      QCOMPARE(undo->count(), depth);
+    }
     QVERIFY(!f.work.setPinnedLevel(draft, river, "invalid", &error));
     QVERIFY(!f.work.setPinnedLevel(draft, "[\"不存在\"]", "facies", &error));
     QVERIFY(!f.work.setPinnedLevel(draft, "garbage", "facies", &error));
@@ -2881,6 +2897,21 @@ private slots:
     QCOMPARE(layer->getFeature(feature.id()).attribute("facies_evidence"), beforeEvidence);
     QCOMPARE(layer->getFeature(feature.id()).attribute("paleo_interpretation"), beforeInterp);
   }
+  void outOfSessionConstraintDrawIsUndoable() {
+    // #742：编辑会话外绘制约束记入工作台撤销栈：undo 删除、redo 重画。
+    Fixture f; QVERIFY(f.init()); QString error, id;
+    QVERIFY2(f.constraints.drawConstraint("D61", "LINESTRING(0 0,10 5)", "break_line", 0, &error, &id), qPrintable(error));
+    QVERIFY(error.isEmpty());
+    QCOMPARE(f.constraints.loadConstraints("D61").size(), 1);
+    auto *undo = f.work.propertyEditStack();
+    QVERIFY(undo->canUndo());
+    QVERIFY(undo->undo());
+    QVERIFY(f.constraints.loadConstraints("D61").isEmpty());
+    QVERIFY(undo->redo());
+    QCOMPARE(f.constraints.loadConstraints("D61").size(), 1);
+    QVERIFY(undo->undo());
+    QVERIFY(f.constraints.loadConstraints("D61").isEmpty());
+  }
   void constraintSnapshotSavesVectorEditsAutomatically() {
     Fixture f; QVERIFY(f.init()); QString error;
     QgisEditingService edits(&f.store); f.constraints.setEditingService(&edits);
@@ -3196,6 +3227,26 @@ private slots:
     panel.resize(900, 400); QCoreApplication::processEvents();
     QTRY_VERIFY(scroll->horizontalScrollBar()->maximum() == 0);
     QCOMPARE(panel.visibleViewCount(), 4);
+    main.stopRendering();
+  }
+
+  // #746：窄停靠首屏不横向滚动——默认视图数 = max(1, 视口/最窄视图)，≤4。
+  void evidencePanelDefaultViewCountFitsNarrowDock() {
+    QgsMapCanvas main;
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    MappingEvidencePanel panel(&main, nullptr);
+    QCOMPARE(panel.views().size(), 1); // 未显示前只有一个视图
+    panel.resize(panel.minViewWidth() * 2 + panel.minViewWidth() / 2, 360);
+    panel.show();
+    QCoreApplication::processEvents();
+    auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
+    const int expected = panel.fittingViewCount(scroll->viewport()->width());
+    QVERIFY(expected >= 1 && expected <= 2);
+    QCOMPARE(int(panel.views().size()), expected);
+    QVERIFY(!scroll->horizontalScrollBar()->isVisible());
+    QCOMPARE(panel.fittingViewCount(0), 1);
+    QCOMPARE(panel.fittingViewCount(100000), int(MappingEvidencePanel::kDefaultViewCount));
     main.stopRendering();
   }
 

@@ -92,6 +92,8 @@ public:
   // #875：视图最窄/最矮按字体推导（随 DPI/字号缩放），不再是硬 260/200 像素。
   int minViewWidth() const;
   int minViewHeight() const;
+  // #746：给定视口宽可并排放下的默认视图数（≥1，≤kDefaultViewCount）。
+  int fittingViewCount(int viewportWidth) const;
   static constexpr int kMaxViewWidth = 4000;
   QSize sizeHint() const override { return {640, 340}; }
 
@@ -105,6 +107,11 @@ private:
   int defaultViewWidth() const;
   void saveWidths();
   bool eventFilter(QObject *watched, QEvent *event) override;
+  void showEvent(QShowEvent *event) override;
+  // #746：首次可见时按视口宽补足默认视图数 max(1, 视口/最窄视图)，上限 kDefaultViewCount；
+  // 用户手动增删视图后不再自动补。
+  void fillDefaultViews();
+  bool m_autoFill = true;
   QgsMapCanvas *m_mainCanvas; // 非拥有；宿主与现有参考画布共享生命周期。
   QgsProject *m_project;
   QScrollArea *m_scroll;

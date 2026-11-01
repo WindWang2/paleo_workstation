@@ -84,6 +84,11 @@ class WellSitingWorkflow : public QObject
     bool runDiagnosis( const WellSitingParams &params, QString *error = nullptr );
     QVariantMap lastDiagnosisSummary() const { return m_lastDiagnosis; }
     QList<QVariantMap> lastHoles() const { return m_lastHoles; }
+    // #820：诊断/候选异步入口——GUI 线程取快照，纯核在任务服务工作池执行
+    //（任务中心可见、可取消），GUI 线程落地后发 *AsyncDone。新请求取代旧请求。
+    void runDiagnosisAsync( const WellSitingParams &params );
+    void generateCandidatesAsync( const WellSitingParams &params );
+    void cancelSitingCompute();
 
     // —— 候选点位（目标形态 2）——
     bool generateCandidates( const WellSitingParams &params, QString *error = nullptr );
@@ -109,6 +114,9 @@ class WellSitingWorkflow : public QObject
                                   const QStringList &plannedIds,
                                   QString *error = nullptr );
     QVariantMap lastEvaluation() const { return m_lastEvaluation; }
+    // #820：最近一次评估是否正对应（参数, 计划井集, 实井数）——保存方案据此复用。
+    bool hasEvaluationFor( const WellSitingParams &params,
+                           const QStringList &plannedIds ) const;
 
     // —— 方案评估（异步，D.3）——
     // 同步 evaluateScenario 内含 3 次全场采样场 + 每候选一次全场扫描（格宽
@@ -143,6 +151,9 @@ class WellSitingWorkflow : public QObject
     // D.3：异步评估交付——evaluation 为空即失败/取消，error 如实说明。
     void evaluationAsyncDone( const QVariantMap &evaluation, const QString &error );
     void scenariosChanged();
+    // #820：异步诊断/候选终态（GUI 线程）；ok=false 时 error 如实说明（含取消）。
+    void diagnosisAsyncDone( bool ok, const QString &error );
+    void candidatesAsyncDone( bool ok, const QString &error );
 
   private:
     struct Impl;
@@ -167,6 +178,19 @@ class WellSitingWorkflow : public QObject
     void applyEvaluationOutcome( quint64 generation, const QVariantMap &evaluation,
                                  const QString &error );
     quint64 m_evalGeneration = 0;
+    // #820：诊断/候选 prepare → compute（纯核，工作池）→ publish（GUI 线程）。
+    struct DiagJob;
+    struct CandJob;
+    std::shared_ptr<DiagJob> prepareDiagnosis( const WellSitingParams &params ) const;
+    static void computeDiagnosis( DiagJob &job );
+    bool publishDiagnosis( const DiagJob &job, QString *error );
+    std::shared_ptr<CandJob> prepareCandidates( const WellSitingParams &params ) const;
+    static void computeCandidates( CandJob &job, const std::atomic_bool *stop );
+    bool publishCandidates( const CandJob &job, QString *error );
+    quint64 m_diagGeneration = 0;
+    quint64 m_candGeneration = 0;
+    std::shared_ptr<std::atomic_bool> m_diagStop;
+    std::shared_ptr<std::atomic_bool> m_candStop;
     std::shared_ptr<std::atomic_bool> m_evalStop;
     QPointer<PaleoTaskService> m_taskSvc;
 

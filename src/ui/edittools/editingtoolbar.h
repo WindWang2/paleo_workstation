@@ -111,6 +111,14 @@ class PaleoEditingToolbar : public QWidget
     QAction *actionCancel() const { return mActionCancel; }
     QAction *actionUndo() const { return mActionUndo; }
     QAction *actionRedo() const { return mActionRedo; }
+    // #748：画布 Ctrl+Z/Ctrl+Y 的次级撤销栈（工作台图层属性/会话外约束绘制）。
+    // 路由口径：要素编辑撤销栈可用时优先（会话内修改），否则落次级栈；
+    // 回调返回 false = 无可撤销/重做。空函数即解除。
+    void setSecondaryUndo( std::function<bool()> undo, std::function<bool()> redo )
+    {
+      mSecondaryUndo = std::move( undo );
+      mSecondaryRedo = std::move( redo );
+    }
 
     QSpinBox *snapToleranceSpin() const { return mSnapTolerance; }
     QSpinBox *undoDepthSpin() const { return mUndoDepth; }
@@ -194,6 +202,7 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionCancel = nullptr;
     QAction *mActionUndo = nullptr;
     QAction *mActionRedo = nullptr;
+    std::function<bool()> mSecondaryUndo, mSecondaryRedo; // #748
     QPointer<class QgsMapTool> mActiveEditTool; // installed tool, not owned
     std::unique_ptr<PaleoUndoStack> mUndoStack;
     QPointer<QgsProject> mProject;

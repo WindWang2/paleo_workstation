@@ -48,6 +48,7 @@ struct IsopachSelection
   int topIndex = -1;    // 候选表索引
   int baseIndex = -1;
   bool writeManaged = false;
+  bool zPositiveDown = false; // #717：TWT/TVD（向下为正）→ 厚度 = 底 − 顶
 };
 
 // 候选 = (显示名, 源路径)。返回 true = 确认。

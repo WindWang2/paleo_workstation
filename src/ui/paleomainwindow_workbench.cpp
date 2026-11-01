@@ -146,6 +146,28 @@ void showConsistencyReport(
 }
 } // namespace
 
+namespace {
+// #748：画布 Ctrl+Z/Ctrl+Y 路由——会话内要素编辑优先，否则撤销工作台属性栈
+//（固定显示层级 #741、会话外绘制约束 #742），状态栏报命令名。
+void routeCanvasUndo(PaleoMainWindow *self, PaleoEditingToolbar *edit, MappingWorkbench *workbench) {
+  if (!edit || !workbench)
+    return;
+  const auto step = [self, workbench](bool undo) {
+    auto *stack = workbench->propertyEditStack();
+    if (undo ? !stack->canUndo() : !stack->canRedo())
+      return false;
+    const QString text = undo ? stack->undoText() : stack->redoText();
+    const bool ok = undo ? stack->undo() : stack->redo();
+    self->statusBar()->showMessage(
+        (ok ? (undo ? PaleoMainWindow::tr("已撤销：%1") : PaleoMainWindow::tr("已重做：%1"))
+            : (undo ? PaleoMainWindow::tr("撤销失败：%1") : PaleoMainWindow::tr("重做失败：%1")))
+            .arg(text), 10000);
+    return ok;
+  };
+  edit->setSecondaryUndo([step] { return step(true); }, [step] { return step(false); });
+}
+} // namespace
+
 void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInteraction *evidence) {
   if (!workbench || property("workbenchAttached").toBool())
     return;
@@ -261,8 +283,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
         compare(QString(), &error);
         m_canvasCtl->canvas()->setFocus();
       });
-  // #473：井预测修订域拆至 attachWorkbenchWells；返回句柄沿用原局部名，
-  // 下游 connect 捕获列表零改动。
+  // #473：井预测修订域拆至 attachWorkbenchWells（句柄沿用原局部名）；#748 画布撤销路由。
+  routeCanvasUndo(this, edit, workbench);
   const auto wells = attachWorkbenchWells(workbench, edit, pages, legend, show, compare);
   auto *wellPanel = wells.panel;
   auto *wellDock = wells.dock;

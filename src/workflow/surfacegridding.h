@@ -92,13 +92,15 @@ class SurfaceGriddingWorkflow : public QObject
                           const std::function<void(const QString &, int)> &stage,
                           Outcome *outcome);
 
-  // 面运算：两结构面栅格（同网格）→ 等厚 = top − base + 体积/面积报告。
+  // 面运算：两结构面栅格（同网格）→ 等厚 + 体积/面积报告。#717：zPositiveDown
+  // =false（高程向上为正）厚度 = top − base；true（TWT/TVD 向下为正）= base − top。
   // writeManaged=true 时另写受管等厚栅格（Float32 GeoTIFF，nodata=-9999，
   // 同 top 的几何；label 进资产名，登记 DERIVED 并经 rasterReady 请壳上图）。
   // 网格不一致/打开失败/writeManaged 而未绑 catalog → 错误串。
   QString isopachBetweenRasters(const QString &topTif, const QString &baseTif,
                                 const QString &label, VolumeReport *report,
-                                bool writeManaged, Outcome *isopachOutcome = nullptr);
+                                bool writeManaged, Outcome *isopachOutcome = nullptr,
+                                bool zPositiveDown = false);
 
   signals:
   // 声明请求排队回壳：壳在 GUI 线程 upsert LayerManifest + 实例化上图。

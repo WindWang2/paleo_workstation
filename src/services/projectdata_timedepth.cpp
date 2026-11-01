@@ -77,3 +77,57 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const {
   }
   return out;
 }
+
+// 解析口径与 tdTableFor 同源（资产路径→openSource 定位来源），但确认是
+// 写路径：对本工程的工区模型以读写方式另开连接（openSource 恒只读），
+// 落到服务侧 confirmTimeDepthSemantics（整来源生效、原值留库、复核问题
+// 联动消解）。只进数据服务，不动 catalog 台账。
+bool ProjectDataFacade::confirmTimeDepthSemantics(const QString &wellId,
+                                                  const QString &timeUnit,
+                                                  const QString &timeType,
+                                                  const QString &timeReference,
+                                                  bool negateTimes, QString *error) {
+  const auto fail=[this,error](const QString &why){
+    m_lastError=why;if(error)*error=why;return false;
+  };
+  const QString path=assetFilePathFor(wellId,QStringLiteral("time_depth"));
+  if(path.isEmpty())return fail(tr("井未挂接时深资产，无可确认的来源"));
+  paleo::data::DataService probe;long long source=0;
+  const auto state=paleo::area_model::openSource(path,probe,source,&m_lastError);
+  if(state==paleo::area_model::Read::Failed)return fail(m_lastError);
+  if(state==paleo::area_model::Read::Unbound)
+    return fail(tr("时深资产未进工区数据服务（外链裸文件），请先经工区导入再确认口径"));
+  const QString root=paleo::area_model::directory(projectDir());
+  if(root.isEmpty()||!QFile::exists(root+QStringLiteral("/data.sqlite")))
+    return fail(tr("本工程未建立工区数据模型，无从确认时深口径"));
+  paleo::data::DataService service;std::string serviceError;
+  if(!service.openProject(root.toUtf8().toStdString(),serviceError))
+    return fail(QString::fromUtf8(serviceError));
+  if(service.isReadOnly())
+    return fail(tr("工区数据模型以只读方式打开，不能保存时深口径确认"));
+  const auto entity=m_catalog->entityById(wellId);
+  long long nativeWell=entity.extra.value("areaModelWellId").toLongLong();
+  if(!nativeWell) {
+    std::vector<paleo::data::WellSummary> wells;
+    if(!service.listWells(wells,serviceError))return fail(QString::fromUtf8(serviceError));
+    for(const auto& well:wells)if(QString::fromUtf8(well.name)==entity.name) {
+      if(nativeWell)return fail(tr("时深井名对应多个模型井"));
+      nativeWell=well.id;
+    }
+  }
+  std::vector<paleo::data::DataEntry> entries;
+  if(!service.verifySource(source,serviceError)||!service.listSourceData("time_depth",source,entries,serviceError))
+    return fail(QString::fromUtf8(serviceError));
+  long long entryId=0;
+  for(const auto& entry:entries)if(nativeWell&&entry.wellId==nativeWell) {
+    if(entryId)return fail(tr("同一来源有多份时深关系，请先明确采用的关系"));
+    entryId=entry.id;
+  }
+  if(!entryId)return fail(tr("数据服务中未找到本井的时深关系"));
+  if(!service.confirmTimeDepthSemantics(entryId,timeUnit.toStdString(),
+                                        timeType.toStdString(),
+                                        timeReference.toStdString(),negateTimes,
+                                        serviceError))
+    return fail(QString::fromUtf8(serviceError));
+  return true;
+}

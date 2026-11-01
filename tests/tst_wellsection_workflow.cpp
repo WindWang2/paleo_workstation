@@ -1841,6 +1841,9 @@ private slots:
     unknown.timeDepth->timeReference.clear();
     auto other=gridWell(QStringLiteral("OTHER"),1000,2000,true);
     other.timeDepth->timeReference=QStringLiteral("MSL");
+    // 装配层知道原因（服务拒绝/坏表/Petrel 拒收）→ 缝隙原因细化，不误报「缺少」。
+    auto unavail=gridWell(QStringLiteral("UT"),1004,2000,false);
+    unavail.timeDepthStatus=QStringLiteral("时深关系的深度单位、时间单位、单/双程或时间基准尚未确认");
     const QVector<wellsection::Well> wells = {
         gridWell(QStringLiteral("G1"), 1000, 2000, true),
         noCoords,
@@ -1850,12 +1853,13 @@ private slots:
         unknown,
         gridWell(QStringLiteral("G7"), 1001, 2001, true),
         other,
+        unavail,
     };
     QSignalSpy spy(&wf, &WellSectionWorkflow::seismicReady);
     wf.requestSeismic(wells, src);
     QCOMPARE(spy.size(), 1); // 全部缝出原因 → 同步发射
     const auto strip = spy[0][1].value<wellsection::SeismicStrip>();
-    QCOMPARE(strip.gaps.size(), 7);
+    QCOMPARE(strip.gaps.size(), 8);
     QCOMPARE(strip.gaps[0].reason, QStringLiteral("NC 缺少井口坐标"));
     QCOMPARE(strip.gaps[1].reason, QStringLiteral("NC 缺少井口坐标"));
     QCOMPARE(strip.gaps[2].reason, QStringLiteral("NT 缺少时深关系"));
@@ -1863,6 +1867,8 @@ private slots:
     QVERIFY(strip.gaps[4].reason.contains(QStringLiteral("基准尚未确认")));
     QVERIFY(strip.gaps[5].reason.contains(QStringLiteral("基准尚未确认")));
     QVERIFY(strip.gaps[6].reason.contains(QStringLiteral("基准不一致")));
+    QVERIFY(strip.gaps[7].reason.startsWith(QStringLiteral("UT 时深不可用：")));
+    QVERIFY(strip.gaps[7].reason.contains(QStringLiteral("尚未确认")));
     QVERIFY(!strip.anyValid());
   }
 
@@ -1973,6 +1979,48 @@ private slots:
     const auto& gap=strip.gaps[0];
     QVERIFY(std::abs(gap.sampleAt(0,wells[0].timeDepth->twtAt(1500))-std::sin(14.f))<1e-6);
     QVERIFY(std::abs(gap.sampleAt(1,wells[1].timeDepth->twtAt(1500))-std::sin(17.f))<1e-6);
+  }
+
+  // ---- 时深口径确认（HY 验收 2026-10-31：Merge_TDR 型来源解锁链路）----
+  // 未声明时间口径的 Petrel checkshots（负时间、无单位/基准）按原值入库为
+  // review——消费端如实拒绝（「尚未确认」）；人工确认（ms/TWT/MSL、符号取反）
+  // 经工区数据服务整来源落库后，同一井的 tdTableFor 交付确认口径下的正时间。
+  void confirmTimeDepthSemanticsUnblocksModelCheckshots() {
+    QTemporaryDir dir;const auto project=dir.filePath("project");
+    paleo::data::DataService data;std::string error;
+    QVERIFY2(data.createProject(paleo::area_model::directory(project).toUtf8().toStdString(),"confirm",error)||
+             data.openProject(paleo::area_model::directory(project).toUtf8().toStdString(),error),error.c_str());
+    QVERIFY(data.setProjectCrs("EPSG:32650","m",error));
+    const auto tdFile=dir.filePath("Merge_TDR");
+    QVERIFY(writeText(tdFile,QString::fromUtf8(
+        "# Petrel checkshots format\n# Unit in depth: m\nVERSION 1\nBEGIN HEADER\nX\nY\nZ\n"
+        "TWT picked\nMD\nWell\nEND HEADER\n1 2 -100 -50 110 \"A1\"\n1 2 -200 -100 210 \"A1\"\n")));
+    paleo::data::ImportReport report;
+    QVERIFY2(data.importFile(tdFile.toUtf8().toStdString(),{},report,error),error.c_str());
+    paleo::area_model::registerProject(project,&data);
+    const auto cleanup=qScopeGuard([&]{paleo::area_model::unregisterProject(&data);});
+    DataCatalog cat;QString detail;QVERIFY2(cat.open(project,&detail),qPrintable(detail));
+    QVERIFY(addEntity(cat,"one","A1",true,0,0,210));
+    QVERIFY(addFileLink(cat,"one","time_depth","td-one",tdFile,"time_depth",&detail));
+    ProjectDataFacade facade;facade.setCatalog(&cat,project);
+    // 确认前：元数据门拒绝（不猜单位/基准），诊断可行动。
+    QVERIFY(facade.tdTableFor("one").isEmpty());
+    QVERIFY(facade.lastError().contains(QStringLiteral("尚未确认")));
+    // 校验面：单位/单双程/基准逐项拒绝，未挂链井如实报错。
+    QString confirmError;
+    QVERIFY(!facade.confirmTimeDepthSemantics("one","ns","TWT","MSL",true,&confirmError));
+    QVERIFY(!facade.confirmTimeDepthSemantics("one","ms","TWT","",true,&confirmError));
+    QVERIFY(!facade.confirmTimeDepthSemantics("no-such-well","ms","TWT","MSL",true,&confirmError));
+    QVERIFY(confirmError.contains(QStringLiteral("时深资产")));
+    QVERIFY2(facade.confirmTimeDepthSemantics("one","ms","TWT","MSL",true,&confirmError),
+             qPrintable(confirmError));
+    // 确认后：同井表读取交付正时间 + 确认基准（原始库值不动由服务侧测试覆盖）。
+    const auto rows=facade.tdTableFor("one");
+    QCOMPARE(rows.size(),2);
+    QCOMPARE(rows[0].md,110.);QCOMPARE(rows[0].timeMs,50.);
+    QCOMPARE(rows[1].md,210.);QCOMPARE(rows[1].timeMs,100.);
+    QCOMPARE(rows[0].timeReference,QStringLiteral("MSL"));
+    QVERIFY(facade.lastError().isEmpty());
   }
 
   // ---- 方向 98 ②：store 间距契约（可空列——「缺」与「等距」可区分）----

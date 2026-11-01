@@ -345,17 +345,43 @@ namespace
     ++ctx.report.acceptedRows;
   }
 
-  void feedTimeDepthLine(const QString &raw, ParseContext &ctx, TimeDepthTable &table)
+  // 时深行级状态：Petrel checkshots 导出（工区数据服务的原生格式，列序
+  // X Y Z "TWT picked" MD Well…与本表 TIME/TVDSS/TVD/MD 固定列序不兼容）
+  // 嗅探即整表拒收——按固定列序硬吞会把 X 坐标当时间、TWT 当 MD 产出伪表。
+  struct TdLineState
+  {
+    bool petrel = false;
+  };
+
+  void feedTimeDepthLine(const QString &raw, ParseContext &ctx, TdLineState &st,
+                         TimeDepthTable &table)
   {
     ++ctx.line;
     const QString line = raw.trimmed();
     if (line.startsWith(QLatin1Char('#')))
     {
+      if (!st.petrel && line.contains(QStringLiteral("Petrel checkshots format"),
+                                      Qt::CaseInsensitive))
+      {
+        st.petrel = true;
+        ctx.report.issues.append(QCoreApplication::translate(
+            "WellFileParsers",
+            "第 %1 行声明 Petrel checkshots 格式：本解析器的固定列序"
+            "（TIME/TVDSS/TVD/MD）不适用，整表拒收，请经工区数据服务导入解析")
+            .arg(ctx.line));
+      }
       const int idx = line.indexOf(QStringLiteral("Well :"), Qt::CaseInsensitive);
       if (idx >= 0 && table.wellName.isEmpty()) table.wellName = line.mid(idx + 6).trimmed();
       return;
     }
     if (line.isEmpty()) return;
+    if (st.petrel)
+    {
+      // 表头块（VERSION/BEGIN HEADER/列名行）与数据行一并拒收，不再逐行报
+      //「没有可用深度」噪声——上面那条 Petrel 诊断已交代整表去向。
+      ++ctx.report.rejectedRows;
+      return;
+    }
     const QStringList t = splitTokens(raw);
     TdRow row;
     row.tvdss = std::numeric_limits<double>::quiet_NaN();
@@ -736,8 +762,9 @@ TimeDepthTable parseTimeDepthText(const QByteArray &text, WellParseReport *repor
 {
   TimeDepthTable table;
   ParseContext ctx;
+  TdLineState st;
   for (const QString &raw : withoutBom(text).split(QRegularExpression(QStringLiteral("\\r\\n|\\n|\\r"))))
-    feedTimeDepthLine(raw, ctx, table);
+    feedTimeDepthLine(raw, ctx, st, table);
   ctx.finish(report);
   return table;
 }
@@ -803,9 +830,10 @@ parseTimeDepthDevice(QIODevice *dev, QCryptographicHash *runningHash,
                      WellParseReport *report, QString *ioError)
 {
   TimeDepthTable table;
+  TdLineState st;
   if (!driveWellTextStream(dev, runningHash, report, ioError,
-                           [&table](const QString &raw, ParseContext &ctx) {
-                             feedTimeDepthLine(raw, ctx, table);
+                           [&table, &st](const QString &raw, ParseContext &ctx) {
+                             feedTimeDepthLine(raw, ctx, st, table);
                            }))
     return std::nullopt;
   return table;

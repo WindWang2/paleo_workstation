@@ -34,5 +34,14 @@ bool readTimeDepth(const QString &path,TimeDepthTable &table,QString *error) {
   const auto state=paleo::native_model::timeDepth(path,table,error);
   if(state!=paleo::native_model::Read::Unbound)return state==paleo::native_model::Read::Ready;
   QByteArray text; if(!bytes(path,text,error))return false;
-  table=parseTimeDepthText(text); return true;
+  WellParseReport report;
+  table=parseTimeDepthText(text,&report);
+  // 空表必须带原因出口：Petrel 整表拒收 / 全空行等解析性失败不能静默成
+  //「成功但零行」——调用方（tdTableFor→连井剖面）靠 error 如实上报。
+  if(table.rows.isEmpty()&&error) {
+    *error=report.issues.isEmpty()
+        ?QStringLiteral("时深表没有可用数据行")
+        :report.issues.constFirst();
+  }
+  return !table.rows.isEmpty();
 }

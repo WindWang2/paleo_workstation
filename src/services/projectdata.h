@@ -124,6 +124,15 @@ class ProjectDataFacade : public QObject
     QVector<WellTop> topsForAsset(const QString &wellId, const QString &assetId,
                                   WellParseReport *report = nullptr) const;
     QVector<TdSample> tdTableFor(const QString &wellId) const;  // empty when unlinked — callers must not fabricate times
+    // 人工确认该井主时深来源的时间口径（单位 ms/s、单双程 TWT/OWT、时间基准、
+    // negateTimes=原文件按海拔带符号需取反），经工区数据服务落库——作用于该
+    // 来源的全部时深关系（一份导出一份口径），原始点值不动。服务侧契约见
+    // DataService::confirmTimeDepthSemantics；井未挂时深/来源未进模型 → false
+    // + error 如实说明。UI 接线随后续提交（井震标定入口）。
+    bool confirmTimeDepthSemantics(const QString &wellId, const QString &timeUnit,
+                                   const QString &timeType,
+                                   const QString &timeReference, bool negateTimes,
+                                   QString *error = nullptr);
     // 图片道锚（core/lab_analysis 角色井附件图片，多成员全量——与 tops 的
     // primary 语义不同：一口井的岩心照片每张都是道内容）。按 depthMd 升序；
     // 无深度锚/链接未决不收。综合柱状图图片道与连井剖面图片道共用此查询。

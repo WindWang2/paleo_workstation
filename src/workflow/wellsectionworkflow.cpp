@@ -278,7 +278,8 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
                               .arg(pw->name)
                               .arg(missingMd);
     // 时深：逐井校正优先（workbench），否则主时深表 MD 列严格表。失败
-    // 路径如实入警告（对照井斜坏表/分层缺 MD 的既有口径），不静默为空。
+    // 路径如实入警告（对照井斜坏表/分层缺 MD 的既有口径），不静默为空；
+    // 原因同时记 timeDepthStatus——井间地震缝据此细化「缺少时深关系」。
     if (m_workbench) {
       seismic::TimeDepthModel model;
       double shift = 0.0;
@@ -286,10 +287,22 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       QString timeReference;
       if (m_workbench->mdTimeDepth(pw->id, &model, &shift, &status, &timeReference))
         well.timeDepth = wellsection::TimeDepth{model, shift, status, timeReference};
-      else if (!status.isEmpty())
+      else if (!status.isEmpty()) {
+        well.timeDepthStatus = status;
         shared->warnings << tr("井 %1 的时深不可用：%2").arg(pw->name, status);
+      }
     } else {
       const QVector<TdSample> td = m_data.tdTableFor(pw->id);
+      if (td.isEmpty()) {
+        // 空表原因（catalog 未挂链 vs 服务拒绝 vs Petrel 整表拒收）如实入
+        // 注记与警告，与 workbench 路径同口径；lastError 空 = 纯未挂链，
+        // 维持原「缺少时深关系」语义，不告警。
+        const QString reason = m_data.lastError();
+        if (!reason.isEmpty()) {
+          well.timeDepthStatus = reason;
+          shared->warnings << tr("井 %1 的时深不可用：%2").arg(pw->name, reason);
+        }
+      }
       std::vector<seismic::TdPoint> points;
       bool tvdOnlyRows = false;
       for (const TdSample &s : td) {
@@ -303,10 +316,12 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
         well.timeDepth = wellsection::TimeDepth{model, 0.0, tr("时深表"),td.front().timeReference};
       } else if (!td.isEmpty() && tvdOnlyRows && points.empty()) {
         // TVD-only 表在但连井剖面时深契约是 MD 域——如实告警，不凭空换算。
-        shared->warnings
-            << tr("井 %1 的时深表只有 TVD 列，连井剖面按 MD 域装配不可用")
-                   .arg(pw->name);
+        well.timeDepthStatus =
+            tr("时深表只有 TVD 列，连井剖面按 MD 域装配不可用");
+        shared->warnings << tr("井 %1 的时深表只有 TVD 列，连井剖面按 MD 域装配不可用")
+                                .arg(pw->name);
       } else if (!td.isEmpty()) {
+        well.timeDepthStatus = tr("时深表无效（有效样点不足或非单调）");
         shared->warnings
             << tr("井 %1 的时深表无效（有效样点不足或非单调），未参与井间地震")
                    .arg(pw->name);
@@ -1121,9 +1136,15 @@ int WellSectionWorkflow::requestSeismic(
     else if (!b.hasCoordinates())
       gap.reason = tr("%1 缺少井口坐标").arg(b.name);
     else if (!a.timeDepth)
-      gap.reason = tr("%1 缺少时深关系").arg(a.name);
+      // 装配层知道原因（服务拒绝/坏表/Petrel 拒收）时细化，避免把「有表
+      // 未确认」误报成「缺少」；真未挂链维持原句。
+      gap.reason = a.timeDepthStatus.isEmpty()
+                       ? tr("%1 缺少时深关系").arg(a.name)
+                       : tr("%1 时深不可用：%2").arg(a.name, a.timeDepthStatus);
     else if (!b.timeDepth)
-      gap.reason = tr("%1 缺少时深关系").arg(b.name);
+      gap.reason = b.timeDepthStatus.isEmpty()
+                       ? tr("%1 缺少时深关系").arg(b.name)
+                       : tr("%1 时深不可用：%2").arg(b.name, b.timeDepthStatus);
     else if (a.timeDepth->timeReference.isEmpty() || b.timeDepth->timeReference.isEmpty())
       gap.reason = tr("%1 / %2 的时深时间基准尚未确认").arg(a.name,b.name);
     else if (a.timeDepth->timeReference != b.timeDepth->timeReference)

@@ -24,7 +24,9 @@ bool readWellHeads(const QString &path, QVector<WellHeadRecord> &rows,
 bool readWellTops(const QString &path, QVector<WellTopRecord> &rows,
                   QString *error = nullptr, WellParseReport *report = nullptr);
 bool readTimeDepth(const QString &path, TimeDepthTable &table,
-                   QString *error = nullptr);
+                   QString *error = nullptr, QString *parseNote = nullptr);
+// parseNote：解析完成但零可用行（Petrel 整表拒收/全哨兵）时的首个诊断；
+// false 仅表示 IO 失败（error 承载）。
 
 QVector<WellTopRecord> parseWellTopsText(const QByteArray &text);
 QVector<WellTopRecord> parseWellTopsText(const QByteArray &text, WellParseReport *report);

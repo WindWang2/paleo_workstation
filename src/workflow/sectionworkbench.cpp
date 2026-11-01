@@ -1,6 +1,7 @@
 // 层：功能
 #include "sectionworkbench.h"
 #include "catalog/wellavailability.h"
+#include "services/wellreadiness.h"
 #include "../domain/wellnumeric.h"
 #include "../services/futuretask.h"
 #include "derivedassets.h"
@@ -152,7 +153,10 @@ seismic::TimeDepthModel SectionWorkbench::modelFor(const QString &id, bool md,
   std::vector<seismic::TdPoint> points;
   for (const auto &p : m_data.tdTableFor(id)) {
     double d = md ? p.md : p.tvd;
-    if (std::isfinite(d) && std::isfinite(p.timeMs))
+    // 时间基准面以上的采样（确认 negated 口径后时间为负——海拔在零点之上）
+    // 在地震时间域之外（体自 0ms 起，之上无同相轴可对），裁掉域外段再建
+    // 严格表；不改值（#476：负时间进表即整表拒，由调用方守域）。
+    if (std::isfinite(d) && std::isfinite(p.timeMs) && p.timeMs >= 0.0)
       points.push_back({d, p.timeMs});
   }
   *ok = model.setCheckshots(points);
@@ -217,9 +221,12 @@ QString SectionWorkbench::wellForSource(const QString &path, const QString &name
 QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &stop) {
   syncProject();
   QVariantList result;
+  // 就绪井口径（HY 验收 2026-11-01）：地震剖面候选/叠加只进「曲线+可用时深」
+  // 双全的井（stamp 缓存，确认/导入后自愈）。
+  const auto readiness = paleo::analysisReadiness(m_catalog, projectDir());
   for (const auto &w : m_data.wells()) {
     if (stop && stop->load()) return result;
-    if(!wellSupportsAnalysis(m_catalog,m_catalog->entityById(w.id)))continue;
+    if(!readiness.value(w.id).analysisReady())continue;
     auto c = calibration(w.id);
     bool tvdOk = false, mdOk = false;
     modelFor(w.id, false, &tvdOk);
@@ -322,12 +329,14 @@ QStringList SectionWorkbench::spatiallyOrderedWells(const QStringList &ids,
 QVector<wellsection::Well> SectionWorkbench::wellSnapWells(bool analysisOnly) {
   syncProject();
   QVector<wellsection::Well> out;
+  // 就绪井口径：analysis 吸附只进「曲线+可用时深」双全的井（见 wells()）。
+  const auto readiness = paleo::analysisReadiness(m_catalog, projectDir());
   for (const auto &w : m_data.wells()) {
     if ((w.coordinateStatus != QLatin1String("ok") &&
          w.coordinateStatus != QLatin1String("untransformed")) ||
         !std::isfinite(w.surfaceX) || !std::isfinite(w.surfaceY))
       continue; // 与 wellRoute 同口径：无效坐标井不进吸附集
-    if(analysisOnly&&!wellSupportsAnalysis(m_catalog,m_catalog->entityById(w.id)))continue;
+    if(analysisOnly&&!readiness.value(w.id).analysisReady())continue;
     wellsection::Well snap;
     snap.id = w.id;
     snap.name = w.name;
@@ -341,9 +350,13 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     const std::shared_ptr<std::atomic_bool> &stop) {
   syncProject();
   std::vector<seismic::SectionWellInfo> result;
+  // 就绪井口径（见 wells()）：剖面井叠加候选只进双全井。
+  const auto readiness = paleo::analysisReadiness(m_catalog, projectDir());
   for (const auto &w : m_data.wells()) {
     if (stop && stop->load()) return result;
     if (w.coordinateStatus != "ok" && w.coordinateStatus != "untransformed")
+      continue;
+    if (!readiness.value(w.id).analysisReady())
       continue;
     seismic::SectionWellInfo out;
     out.wellId = w.id;

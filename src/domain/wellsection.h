@@ -115,6 +115,10 @@ struct Well {
   QVector<LithoSegment> litho;   // 解释岩性段（catalog 资产或岩屑录井文件，可空 = GR 回落）
   QVector<ImageAnchor> images;   // 图片道锚（岩心/薄片照片，md 升序）
   std::optional<TimeDepth> timeDepth;
+  // 时深不可用的原因注记（装配层填：服务拒绝「…尚未确认」/ Petrel 整表
+  // 拒收 / 坏表等；空 = 无注记——未挂链或成功）。井间地震缝用它把
+  //「缺少时深关系」细化为可行动原因。
+  QString timeDepthStatus;
   // 井斜轨迹（catalog trajectory 角色）。无链接 = 直井几何（TVD≡MD，
   // 按 MD 绘制不变）；surveyError 非空 = 资产在但不可解析——TVD 域该井
   // 不出几何。可用性三态见 tvdStatus()（方向 69：无链接如实标无测斜）。

@@ -101,11 +101,23 @@ rebase 后**重跑 Source gates**（至少 `tools/check_file_budget.py --strict`
 用户要求限制编译资源占用，不要用 `$(nproc)`。
 依赖来源：尽量不依赖系统库，尽量自编译 vendored——superbuild 首选 /
 钉哈希闭包加速档 / 系统包仅兜底（政策全文 BUILDING.md「依赖来源策略」）。
+Office 编辑组件（gitignored vendored，`vendor/ranuts-document`，ranuts/document
+v0.0.6 / OnlyOffice WASM / AGPL-3.0，`vendor/fetch-ranuts-document.sh` 钉版构建）
+是**构建产物的一部分**：configure 期自动接入 `<build>/office-editor`
+（`cmake/extra-install.cmake`；Unix 符号链接，Windows 目录 junction——
+不做整树复制），安装树走 `libexec/office-editor`。任何构建结果都须让应用内
+Office 预览可用——
+configure 出 `office-editor` 警告即是本件缺失（抓取或 `PALEO_OFFICE_EDITOR`
+指路），不要带着警告发版；worktree 须 symlink 主仓该目录（清单在
+BUILDING.md「独立 worktree 开发」）。运行时候选序与「未安装」判定见
+`OfficePreviewSession::editorRoot()`。
 
 ## Worktree 开发
 独立分支使用独立 worktree/build；基线按任务明确指定的 master/origin/master
 选择，保留主 checkout 的未提交改动。gitignored vendor 依赖不随 worktree
-复制，共享依赖接线和显式 QGIS_PREFIX 命令见 BUILDING.md「独立 worktree 开发」。
+复制，共享依赖接线和显式 QGIS_PREFIX 命令见 BUILDING.md「独立 worktree 开发」
+（**含 `vendor/ranuts-document`**——缺它则应用内 Office 预览报「组件未安装」，
+configure 会警告提醒）。
 默认分支前缀 codex/，任务指定名字优先；仅推工作分支、提 PR，不自行合并。
 
 ## PR 合并

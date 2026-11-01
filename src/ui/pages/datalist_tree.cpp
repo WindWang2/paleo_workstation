@@ -9,6 +9,7 @@
 #include "../../catalog/catalogroles.h"
 #include "../../catalog/realizationset.h"
 #include "../../services/previewdoc.h"
+#include "../../services/wellreadiness.h"
 #include "datanavtree.h"
 #include "dataops/dataopsmodel.h"
 #include "dataopsviews.h"
@@ -122,24 +123,9 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
 
   // 工区模型已有井或地震时，这两支只读数据基座。空模型仍走下面的目录树。
   if (!appendAreaModelWellSeismic(tops)) {
-  // 1. 井 (Wells)——显示名走实体改写表（D4.1），排序按 D2.5 记忆键。
-  QVector<CatalogEntity> wells = cat->entities(QStringLiteral("well"));
-  // 软删实体（撤销新建等）不显示。
-  QVector<CatalogEntity> wellsVisible;
-  for (const CatalogEntity &e : wells)
-    if (!m_recycle.isRemoved(e.id))
-      wellsVisible.append(e);
-  wells = wellsVisible;
-  std::sort(wells.begin(), wells.end(),
-            [ovStore, this](const CatalogEntity &a, const CatalogEntity &b) {
-              if (m_treeSort == paleo::dataops::TreeSortKind::Time)
-              {
-                const paleo::dataops::EntityOverride oa = ovStore->overrideFor(a.id);
-                const paleo::dataops::EntityOverride ob = ovStore->overrideFor(b.id);
-                return false; // 实体无时间面——保持稳定序
-              }
-              return naturalNameSort(ovStore->displayName(a), ovStore->displayName(b));
-            });
+  // 1. 井 (Wells)——显示名走实体改写表（D4.1），排序按 D2.5 记忆键
+  //（收集/排序与就绪档位拆至 navspec 头——file_budget 只缩不涨）。
+  QVector<CatalogEntity> wells = visibleWellsSortedForNav(cat, ovStore);
 
   // 1. 测井（井实体树 + 多井柱状图/未关联曲线子分支）。已挂井的曲线只在
   // 井节点下出现一次（原平铺「测井」组与其重复——去重后平铺侧只收未决）。
@@ -150,6 +136,9 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
   wellRoot.icon = QStringLiteral("mIconPointLayer.svg");
   wellRoot.expanded = false;
 
+  // 井就绪标识（HY 验收 2026-11-01，与模型基座路径同档）：曲线+已确认时深
+  // 双全 → 绿档；缺项 → 橙档。全量井保留（数据管理面不过滤）。
+  const auto readiness = paleo::analysisReadiness(cat, cat->projectDir());
   for (const CatalogEntity &w : wells)
   {
     NavNodeSpec wellItem;
@@ -164,6 +153,7 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildNavTreeSpec() const
                            .arg(QString::number(w.surfaceY, 'f', 1));
       wellItem.monoDetail = true; // 坐标列走 mono 数字面（DESIGN.md）
     }
+    applyWellReadinessBadge(wellItem, readiness.value(w.id));
 
     // 获取该井所有关联资产并按角色序排（catalogRoles() 单源——well_log →
     // tops → time_depth → well_head → …）；词表外角色恒尾序、收进「未分组」桶。
@@ -670,6 +660,14 @@ void DataListPanel::applyNavSpec(QTreeWidgetItem *item, const NavNodeSpec &spec,
   PaleoTheme::setItemTextColor(item, 0, spec.warning
                                             ? PaleoTheme::ItemTextColor::Warning
                                             : PaleoTheme::ItemTextColor::Normal);
+  // 井就绪标识（HY 验收 2026-11-01）：text1 档位文字配语义色——齐备绿 /
+  // 缺项橙（文案由井条目构建路径拼入 text1；DESIGN.md:117 状态必带文字，
+  // 语义色唯一出口 ItemTextColor，不放裸色点）。
+  PaleoTheme::setItemTextColor(item, 1, spec.status1 == 1
+                                            ? PaleoTheme::ItemTextColor::Success
+                                            : (spec.status1 == 2
+                                                   ? PaleoTheme::ItemTextColor::Warning
+                                                   : PaleoTheme::ItemTextColor::Normal));
   item->setFont(1, spec.monoDetail ? PaleoTheme::monoFont() : QFont());
   Qt::ItemFlags flags = item->flags();
   if (spec.enabled)

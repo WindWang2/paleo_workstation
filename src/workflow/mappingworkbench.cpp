@@ -11,6 +11,7 @@
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
 #include "../io/lasparser.h"
+#include "../services/wellreadiness.h"
 #include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/faciespartitioneditor.h"
 #include "../qgis/faciespartitionstate.h"
@@ -538,7 +539,12 @@ QVariantList MappingWorkbench::inputs(const QString &kind) const {
   if (!m_catalog || !m_catalog->isOpen())
     return out;
   if (kind == QLatin1String("wells")) {
+    // 就绪井口径（HY 验收 2026-11-01）：井预测输入列表只进「曲线+可用时深」
+    // 双全的井（stamp 缓存，确认/导入后自愈）；数据管理面不受此过滤。
+    const auto readiness = paleo::analysisReadiness(m_catalog, m_dir);
     for (const auto &well : m_catalog->entities("well")) {
+      if (!readiness.value(well.id).analysisReady())
+        continue;
       QStringList parents;
       QString logVersion;
       for (const auto &link : m_catalog->linksForEntity(well.id))

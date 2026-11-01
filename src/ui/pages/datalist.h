@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "dataops/dataopscommands.h"
+#include "services/wellreadiness.h"
 #include "dataops/dataopsfilter.h"
 #include "dataops/dataopsfuzzy.h"
 #include "dataops/dataopsmodel.h"
@@ -246,6 +247,13 @@ class DataListPanel : public QWidget
     // 双闸；定义在 datalist_navspec_internal.h，保持 tr() 上下文不变）。
     void appendHorizonNavBranch(NavNodeSpec &seismicRoot,
                                 const QList<CatalogAsset> &horAssets) const;
+    // 井就绪档位（曲线+已确认时深）与井实体收集/排序——同样拆至
+    // datalist_navspec_internal.h（file_budget 只缩不涨）。
+    void applyWellReadinessBadge(NavNodeSpec &item,
+                                 const paleo::WellReadiness &ready) const;
+    QVector<CatalogEntity> visibleWellsSortedForNav(
+        DataCatalog *cat,
+        const paleo::dataops::EntityOverrideStore *ovStore) const;
     // 工区模型里已有井或地震时，测井/地震两支改读数据基座，不再用目录分类。
     bool appendAreaModelWellSeismic(QVector<NavNodeSpec> &tops) const;
     // 辅助资料分支（参考相图/参考资料；实现在 datalist_auxnav.cpp）。

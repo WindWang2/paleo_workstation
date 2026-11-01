@@ -93,6 +93,10 @@ private slots:
   void goodRowsAreUnchanged();
   void timeDepthFilteringMatchesBothDirections();
   void missingTvdssKeepsUsableLookupDepths();
+  // Petrel checkshots 导出与本表固定列序不兼容：嗅探整表拒收 + 诊断
+  //（HY 验收 2026-10-31：Merge_TDR 被固定列序错位吞行成伪表）。
+  void petrelCheckshotsHeaderRejectsWholeTable();
+  void readTimeDepthSurfacesEmptyTableReason();
   void reportsOptionalMissingCellsWithoutRejectingGoodDepth();
   void depthAliases_data();
   void depthAliases();
@@ -284,6 +288,75 @@ void WellFileParserTests::missingTvdssKeepsUsableLookupDepths()
     QCOMPARE(forward.timeMs, 150.0);
     QCOMPARE(inverse.depth, 150.0);
   }
+}
+
+// Petrel checkshots 导出（X Y Z "TWT picked" MD Well…）：固定列序解析器
+// 嗅探头即整表拒收——绝不把 X 坐标当 TIME、TWT 当 MD 吞成伪表。
+void WellFileParserTests::petrelCheckshotsHeaderRejectsWholeTable()
+{
+  const QByteArray petrel =
+      "# Petrel checkshots format\n"
+      "# Unit in X and Y direction: m\n"
+      "# Unit in depth: m\n"
+      "VERSION 1\n"
+      "BEGIN HEADER\n"
+      "X\nY\nZ\nTWT picked\nMD\nWell\nAverage velocity\nEND HEADER\n"
+      "303512.50 2361325.30 -956.00 -942.00 978.00 \"HZ19-1-1A\" 2029.72 2400.00\n";
+  WellParseReport report;
+  const auto td = parseTimeDepthText(petrel, &report);
+  QCOMPARE(td.rows.size(), 0);
+  QCOMPARE(report.acceptedRows, 0);
+  QVERIFY(report.rejectedRows >= 9); // 表头块 + 数据行一并拒收
+  QCOMPARE(report.issues.size(), 1); // 单条 Petrel 诊断，不逐行噪声
+  QVERIFY(report.issues.constFirst().contains(QStringLiteral("Petrel checkshots")));
+  // 固定列序正常表不受影响（含井名注释行照读）。
+  WellParseReport okReport;
+  const auto plain = parseTimeDepthText(
+      "# Well : W1\n100\t0\t100\t100\n200\t0\t200\t200\n", &okReport);
+  QCOMPARE(plain.rows.size(), 2);
+  QCOMPARE(plain.wellName, QStringLiteral("W1"));
+  QVERIFY(okReport.issues.isEmpty());
+}
+
+// 空表/整表拒收的契约：false 仅 IO；解析完成但零行 → true + 空表 +
+// parseNote 首诊断（tdTableFor 记 lastError 如实上报，预览面板按空表处理）。
+void WellFileParserTests::readTimeDepthSurfacesEmptyTableReason()
+{
+  QTemporaryDir dir;
+  const QString petrelPath = dir.filePath(QStringLiteral("Merge_TDR"));
+  QFile petrelFile(petrelPath);
+  QVERIFY(petrelFile.open(QIODevice::WriteOnly));
+  QVERIFY(petrelFile.write(
+               "# Petrel checkshots format\nBEGIN HEADER\nX\nEND HEADER\n"
+               "322680.97 2401617.76 25.50 33.55 0.00 \"HZ08-1-1\" 1520.12\n") > 0);
+  petrelFile.close();
+  TimeDepthTable table;
+  QString error, note;
+  QVERIFY(readTimeDepth(petrelPath, table, &error, &note));
+  QVERIFY(table.rows.isEmpty());
+  QVERIFY(error.isEmpty());
+  QVERIFY(note.contains(QStringLiteral("Petrel checkshots")));
+
+  const QString emptyishPath = dir.filePath(QStringLiteral("all_nulls.tdt"));
+  QFile emptyish(emptyishPath);
+  QVERIFY(emptyish.open(QIODevice::WriteOnly));
+  QVERIFY(emptyish.write("# Well : W2\nbad\tbad\tbad\tbad\n") > 0);
+  emptyish.close();
+  note.clear();
+  QVERIFY(readTimeDepth(emptyishPath, table, &error, &note));
+  QVERIFY(table.rows.isEmpty());
+  // note 带首个解析诊断（列级文案含物理行号），不再静默「成功但零行」。
+  QVERIFY(note.contains(QStringLiteral("第 2 行")));
+
+  const QString goodPath = dir.filePath(QStringLiteral("good.tdt"));
+  QFile good(goodPath);
+  QVERIFY(good.open(QIODevice::WriteOnly));
+  QVERIFY(good.write("100\t0\t100\t100\n200\t0\t200\t200\n") > 0);
+  good.close();
+  note.clear();
+  QVERIFY(readTimeDepth(goodPath, table, &error, &note));
+  QCOMPARE(table.rows.size(), 2);
+  QVERIFY(note.isEmpty());
 }
 
 void WellFileParserTests::reportsOptionalMissingCellsWithoutRejectingGoodDepth()

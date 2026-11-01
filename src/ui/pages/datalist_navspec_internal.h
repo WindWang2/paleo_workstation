@@ -3,7 +3,11 @@
 #include "datalist.h"
 
 #include "../../catalog/datacatalog.h"
+#include "../../services/wellreadiness.h"
+#include "datalistops.h"
+#include "dataops/dataopsmodel.h"
 #include <QTreeWidgetItem>
+#include <algorithm>
 
 inline int countItemNodes(const QTreeWidgetItem *item)
 {
@@ -28,6 +32,9 @@ struct DataListPanel::NavNodeSpec
   bool monoDetail = false; // text1 走 mono 字体（坐标列，DESIGN.md）
   bool warning = false;    // text0 走警色（未决关联）
   bool enabled = true;     // false = 禁选（realization 缺席成员）
+  // text1 列状态着色（井就绪标识：1=Success 曲线+时深齐备 / 2=Warning 缺项；
+  // DESIGN.md:117 状态必带文字，语义色唯一出口 ItemTextColor，禁裸色点）。
+  int status1 = 0;
   QVector<NavNodeSpec> children;
 };
 
@@ -57,4 +64,51 @@ inline void DataListPanel::appendHorizonNavBranch(NavNodeSpec &seismicRoot,
     horRoot.children.append(hItem);
   }
   seismicRoot.children.append(horRoot);
+}
+
+// 井条目的就绪档位（HY 验收 2026-11-01）：曲线+已确认时深双全 → 绿档
+//「曲线+时深齐备」；缺项 → 橙档「缺曲线/缺时深」。全量井保留（数据管理
+// 面不过滤），下游分析选井面按就绪口径另行过滤（wellreadiness）。
+// 从 buildNavTreeSpec 拆出（file_budget 只缩不涨）；tr() 上下文保持
+// "DataListPanel"。
+inline void DataListPanel::applyWellReadinessBadge(
+    NavNodeSpec &item, const paleo::WellReadiness &ready) const
+{
+  QString readinessText;
+  if (ready.analysisReady())
+  {
+    item.status1 = 1;
+    readinessText = tr("曲线+时深齐备");
+  }
+  else
+  {
+    QStringList missing;
+    if (!ready.hasCurves) missing << tr("缺曲线");
+    if (!ready.tdUsable) missing << tr("缺时深");
+    item.status1 = 2;
+    readinessText = missing.join(QStringLiteral(" · "));
+  }
+  item.text1 = item.text1.isEmpty()
+                   ? readinessText
+                   : readinessText + QStringLiteral(" · ") + item.text1;
+}
+
+// 井实体的可见收集（软删回收站滤除）+ 记忆排序（D2.5：时间档实体无时间面
+// 保持稳定序，名称档按改写显示名自然序）。从 buildNavTreeSpec 拆出。
+inline QVector<CatalogEntity> DataListPanel::visibleWellsSortedForNav(
+    DataCatalog *cat, const paleo::dataops::EntityOverrideStore *ovStore) const
+{
+  QVector<CatalogEntity> wells = cat->entities(QStringLiteral("well"));
+  QVector<CatalogEntity> wellsVisible;
+  for (const CatalogEntity &e : wells)
+    if (!m_recycle.isRemoved(e.id))
+      wellsVisible.append(e);
+  std::sort(wellsVisible.begin(), wellsVisible.end(),
+            [this, ovStore](const CatalogEntity &a, const CatalogEntity &b) {
+              if (m_treeSort == paleo::dataops::TreeSortKind::Time)
+                return false; // 实体无时间面——保持稳定序
+              return paleo::pagesinternal::naturalNameSort(ovStore->displayName(a),
+                                                    ovStore->displayName(b));
+            });
+  return wellsVisible;
 }

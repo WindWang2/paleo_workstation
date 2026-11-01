@@ -153,7 +153,14 @@ void OfficePreviewSession::open(const QString &path, const QString &expectedSha)
           return verified;
         }
         QString copyName = info.fileName();
-        if (!DataCatalog::isSafePathSegment(copyName)) {
+        // 会话副本走本机 HTTP 地址（/paleo-doc/<token>/<名>）：除路径段安全
+        // 外还须是 URL 友好段——'#'/'?' 是 fragment/查询分隔符，编辑器 JS
+        // 侧一解码就截断（HY 验收 2026-11-01：「#HZ19-6-22d….pptx」取数
+        // 404），'%' 在多次编解码往返里同样易碎。敌对名一律换 source.<后缀>。
+        if (!DataCatalog::isSafePathSegment(copyName) ||
+            copyName.contains(QStringLiteral("#")) ||
+            copyName.contains(QStringLiteral("?")) ||
+            copyName.contains(QStringLiteral("%"))) {
           const QString suffix = info.suffix();
           copyName = suffix.isEmpty() ? QStringLiteral("source")
                                       : QStringLiteral("source.") + suffix;
@@ -295,7 +302,9 @@ void OfficePreviewSession::readSocket(QTcpSocket *socket)
   // 256MB 预算门被绕过且写 0 字节文件还按成功上报。解析失败按 400 拒；
   // 无 Content-Length 头（GET/HEAD）按「无体」处理，不因此拒绝。
   const QByteArray lengthHeader = headerValue(headers, "content-length");
-  bool lengthOk = !lengthHeader.isEmpty();
+  // lengthOk 初值 true = 无头即无体（GET/HEAD 合法）；#821 曾把初值写成
+  // !isEmpty()——空头（一切 GET）被判 400，office 预览整链 400 打不开。
+  bool lengthOk = true;
   int length = 0;
   if (!lengthHeader.isEmpty())
     length = lengthHeader.toInt(&lengthOk);

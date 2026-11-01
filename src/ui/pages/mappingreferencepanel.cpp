@@ -479,7 +479,7 @@ void MappingEvidencePanel::fillDefaultViews()
   if (layout()) layout()->activate();
   const int width = m_scroll->viewport()->width();
   if (width <= 0) return;
-  m_autoFill = false;
+  // 手动增删前持续随视口变宽补足（停靠初显常很窄，之后放宽仍应得到默认视图数）。
   const int target = fittingViewCount(width);
   while (m_views.size() < target) addView();
 }

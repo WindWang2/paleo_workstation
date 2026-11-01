@@ -117,9 +117,21 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,c
    DataService service;std::string error;require(service.openProject(path,error),error);
    const auto g=paleo::stratigraphy_native::geometry(service,result->viewStateJson);const CancelCheck cancel=[task]{return task->cancelRequested();};
    if(mode==2) {
-    auto plan=planQuickInputs(service,std::vector<long long>(ids.begin(),ids.end()),preferred);
-    for(const auto& input:plan.request.wells)if(!input.curveId)throw std::runtime_error("请为每口井选择 GR 曲线");
-    CorrelationInputSnapshot snapshot;require(service.captureCorrelationInputs(plan.request,snapshot,error,cancel),error);
+    CorrelationInputRequest preview;
+    // Loading a well chart is a preview operation; ambiguous or absent GR
+    // must not prevent displaying the other available tracks. Calculations
+    // still resolve and validate GR independently in mode 0.
+    for(const auto id:ids){
+     CorrelationWellSelection input;input.wellId=id;
+     std::vector<DataEntry> curves;require(service.listData("curves",id,curves,error),error);
+     const auto usable=std::find_if(curves.begin(),curves.end(),[](const auto& curve){return curve.count>0;});
+     if(usable==curves.end())throw std::runtime_error("所选井没有可读取的曲线");
+     input.curveId=usable->id;
+     const auto chosen=std::find_if(preferred.wells.begin(),preferred.wells.end(),[id](const auto& well){return well.wellId==id;});
+     if(chosen!=preferred.wells.end()&&std::any_of(curves.begin(),curves.end(),[&](const auto& curve){return curve.id==chosen->curveId&&curve.count>0;}))input.curveId=chosen->curveId;
+     preview.wells.push_back(input);
+    }
+    CorrelationInputSnapshot snapshot;require(service.captureCorrelationInputs(preview,snapshot,error,cancel),error);
     InterpretationDocument loaded;loaded.id=QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
     loaded.name="地层对比";loaded.created=QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toStdString();
     loaded.profile=result->profile;loaded.viewStateJson=result->viewStateJson;loaded.snapshot=std::move(snapshot);loaded.projectId=loaded.snapshot.projectId;

@@ -44,9 +44,12 @@ void StratigraphyPage::buildEditor(QBoxLayout* layout) {
  m_level=new QComboBox(editor);m_level->setObjectName(QStringLiteral("cycleLevel"));m_level->addItem(tr("三级旋回"),3);m_level->addItem(tr("四级旋回"),4);
  m_direction=new QComboBox(editor);m_direction->setObjectName(QStringLiteral("cycleDirection"));m_direction->addItem(tr("方向待定"),0);m_direction->addItem(tr("正旋回"),1);m_direction->addItem(tr("反旋回"),-1);
  form->addRow(tr("界线／旋回名称"),m_name);form->addRow(tr("界线 MD"),m_depth);form->addRow(m_lock);
+ auto* boundaryRole=new QComboBox(editor);boundaryRole->setObjectName(QStringLiteral("newBoundaryRole"));
+ boundaryRole->addItem(tr("内部旋回界线"),QString());for(const char* role:{"T70","T72","T73","T80"})boundaryRole->addItem(tr("区域界面 %1").arg(QLatin1String(role)),QLatin1String(role));
+ form->addRow(tr("新增界线类型"),boundaryRole);
  const auto button=[this,editor,form](const QString& text,const char* name,const auto& fn){auto* b=new QPushButton(text,editor);b->setObjectName(QLatin1String(name));form->addRow(b);connect(b,&QPushButton::clicked,this,fn);return b;};
  button(tr("应用界线属性"),"applyBoundary",[this]{if(!m_selectedCycle&&!m_selectedObject.isEmpty())m_workflow->editBoundary(m_selectedWell,m_selectedObject,m_depth->value(),m_name->text(),m_lock->isChecked());});
- button(tr("新增内部界线"),"addBoundary",[this]{m_workflow->addBoundary(m_selectedWell,m_depth->value(),m_name->text());});
+ button(tr("新增界线"),"addBoundary",[this,boundaryRole]{m_workflow->addBoundary(m_selectedWell,m_depth->value(),m_name->text(),boundaryRole->currentData().toString());});
  button(tr("确认／采用候选"),"confirmBoundary",[this]{if(!m_selectedCycle&&!m_selectedObject.isEmpty())m_workflow->confirmBoundary(m_selectedWell,m_selectedObject);});
  button(tr("删除界线并合并相邻旋回"),"removeBoundary",[this]{
   if(m_selectedCycle||m_selectedObject.isEmpty())return;

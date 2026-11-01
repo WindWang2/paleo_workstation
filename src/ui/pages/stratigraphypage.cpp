@@ -12,6 +12,7 @@
 #include <QSplitter>
 #include <QShowEvent>
 #include <QSignalBlocker>
+#include <QSet>
 #include <QComboBox>
 #include <QLineEdit>
 #include <QDoubleSpinBox>
@@ -86,9 +87,9 @@ void StratigraphyPage::selectObject(qlonglong well,const QString& id,bool cycle)
 }
 void StratigraphyPage::refresh() {
  m_refreshing=true;const auto wells=m_workflow->wells();
- QList<qlonglong> previous;for(int i=0;i<m_wells->count();++i)previous.append(m_wells->item(i)->data(Qt::UserRole).toLongLong());
+ QList<qlonglong> previous;QSet<qlonglong> checked;for(int i=0;i<m_wells->count();++i){auto* item=m_wells->item(i);const auto id=item->data(Qt::UserRole).toLongLong();previous.append(id);if(item->checkState()==Qt::Checked)checked.insert(id);}
  QList<qlonglong> current;for(const auto& w:wells)current.append(w.id);
- if(current!=previous){m_wells->clear();for(const auto& well:wells){auto* item=new QListWidgetItem(well.name,m_wells);item->setData(Qt::UserRole,well.id);item->setCheckState(Qt::Checked);}}
+ if(current!=previous){QSignalBlocker blocker(m_wells);m_wells->clear();for(const auto& well:wells){auto* item=new QListWidgetItem(well.name,m_wells);item->setData(Qt::UserRole,well.id);item->setCheckState(checked.contains(well.id)?Qt::Checked:Qt::Unchecked);}}
  const auto rows=m_workflow->rows();QSignalBlocker tableBlock(m_results);m_results->setRowCount(rows.size());
  for(int i=0;i<rows.size();++i){const auto& r=rows[i];const QString direction=r.direction==1?tr("正旋回"):r.direction==-1?tr("反旋回"):tr("方向待定");
   const QStringList cells={r.well,r.name,r.level,QString::number(r.top,'f',3),QString::number(r.bottom,'f',3),r.cycle?direction:r.source,r.status+(r.locked?tr(" · 保护"):QString())};

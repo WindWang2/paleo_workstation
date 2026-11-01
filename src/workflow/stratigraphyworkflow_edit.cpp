@@ -57,8 +57,8 @@ void StratigraphyWorkflow::moveBoundary(qlonglong well,const QString& id,double 
 void StratigraphyWorkflow::editBoundary(qlonglong well,const QString& id,double md,const QString& name,bool locked) {
  if(edit([&](auto& doc){paleo::stratigraphy_edit::properties(doc,well,id.toStdString(),md,name.trimmed().toStdString(),locked);}))emit boundarySelected(well,id);
 }
-void StratigraphyWorkflow::addBoundary(qlonglong well,double md,const QString& name) {
- std::string id;if(edit([&](auto& doc){id=paleo::stratigraphy_edit::add(doc,well,md,name.trimmed().toStdString());}))emit boundarySelected(well,QString::fromStdString(id));
+void StratigraphyWorkflow::addBoundary(qlonglong well,double md,const QString& name,const QString& role) {
+ std::string id;if(edit([&](auto& doc){id=paleo::stratigraphy_edit::add(doc,well,md,name.trimmed().toStdString(),role.toStdString());}))emit boundarySelected(well,QString::fromStdString(id));
 }
 void StratigraphyWorkflow::removeBoundary(qlonglong well,const QString& id) {
  if(edit([&](auto& doc){paleo::stratigraphy_edit::remove(doc,well,id.toStdString());}))emit boundarySelected(well,{});

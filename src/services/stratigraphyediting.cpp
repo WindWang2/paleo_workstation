@@ -67,8 +67,15 @@ void properties(InterpretationDocument& d,long long id,const std::string& target
  auto& b=boundary(w,target);if(!b.role.empty()&&b.role!="cycle")b.name=b.role;else if(!name.empty())b.name=name;
  b.locked=locked;audit(d,target,"edit_boundary",{},{{"md",md},{"name",QString::fromStdString(b.name)},{"locked",locked}});
 }
-std::string add(InterpretationDocument& d,long long id,double md,const std::string& name) {
+std::string add(InterpretationDocument& d,long long id,double md,const std::string& name,const std::string& requestedRole) {
  auto& w=well(d,id);std::string segment;
+ if(!requestedRole.empty()) {
+  if(!regional(requestedRole))throw std::runtime_error("未知区域界面类型");
+  if(role(w,requestedRole))throw std::runtime_error("该井已有此区域界面，请选择并调整已有界面");
+  InterpretationBoundary b;b.id=uid();b.name=b.role=requestedRole;b.md=b.originalMd=md;
+  b.source="manual";b.status="confirmed";b.locked=true;w.boundaries.push_back(b);
+  audit(d,b.id,"add_regional_boundary");return b.id;
+ }
  for(int i=0;i<3;++i){const auto* a=role(w,roles[i]);const auto* b=role(w,roles[i+1]);if(a&&b&&md>a->md&&md<b->md)segment=segments[i];}
  if(segment.empty())throw std::runtime_error("新增界面须位于已确认的内部段中");
  InterpretationBoundary b;b.id=uid();b.name=name.empty()||regional(name)?"人工旋回界面":name;

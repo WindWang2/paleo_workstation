@@ -39467,6 +39467,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>StratigraphyPage</name>
         <message>
+            <source>内部旋回界线</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>区域界面 %1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>新增界线类型</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>新增界线</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
             <location filename="../src/ui/pages/stratigraphypage.cpp" line="42" />
             <source>加载井道图，计算区域界面并划分旋回；单击井道拾取深度，选中界线可拖动或编辑。</source>
             <translation type="unfinished" />

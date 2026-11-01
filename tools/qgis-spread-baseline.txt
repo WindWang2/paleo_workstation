@@ -111,7 +111,7 @@ src/ui/paleomainwindow_sections.cpp
 src/ui/paleomainwindow_status.cpp
 src/ui/paleomainwindow_wellsection.cpp
 src/ui/paleomainwindow_workbench.cpp
-src/ui/paleomainwindow_workbench_commands.cpp
+src/ui/workbench/mappingworkbenchcommandcontroller.cpp
 src/ui/paleomainwindow_workbench_wells.cpp
 src/ui/ribbonpanels.cpp
 src/ui/seismic3d/seismic3dviewpanel.cpp

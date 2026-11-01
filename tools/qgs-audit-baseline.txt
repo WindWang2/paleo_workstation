@@ -46,7 +46,7 @@ src/linkage/seismicmaplink.h
 src/linkage/wellmaplink.cpp
 src/linkage/wellmaplink.h
 src/services/crashreport.cpp
-src/ui/paleomainwindow_workbench_commands.cpp
+src/ui/workbench/mappingworkbenchcommandcontroller.cpp
 src/ui/paleomainwindow_workbench_wells.cpp
 src/ui/attributetablepanel.cpp
 src/ui/constraintdrawcontroller.cpp

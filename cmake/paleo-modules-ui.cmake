@@ -108,7 +108,9 @@ add_library(paleo_ui STATIC
   src/ui/paleomainwindow_undogroup.cpp           # #748 主窗口撤销组
   src/ui/paleomainwindow_workbench_editflow.cpp
   src/ui/workbench/impactoutcome.cpp            # #740：后台影响/对比终态文案（纯函数）
-  src/ui/paleomainwindow_workbench_commands.cpp   # #473：命令分发链——attachWorkbench 行为守恒拆分
+  src/ui/workbench/mappingworkbenchcommandcontroller.cpp  # #749：制图工作台命令控制器（原 #473 _commands.cpp）
+  src/ui/workbench/mappingworkbenchcommandcontroller.h    # #749：Q_OBJECT 头（AUTOMOC）
+  src/ui/workbench/workbenchcommandhandler.h             # #749：工作台命令处理器接口
   src/ui/paleomainwindow_workbench_evidence.cpp   # #473：证据面板/图谱联动接线
   src/ui/paleomainwindow_workbench_wells.cpp      # #473：井面板 dock/自动保存/修订链
   src/ui/paleomainwindow.cpp

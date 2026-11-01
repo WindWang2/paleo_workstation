@@ -989,7 +989,9 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
       }
       if (sameParams) {
         for (auto it = stored.cbegin(); it != stored.cend(); ++it) {
-          if (it.key() == QLatin1String("recompute"))
+          // 反向同口径：ordered_inputs 已按序比对过输入身份，不重复当参数比。
+          if (it.key() == QLatin1String("recompute") ||
+              it.key() == QLatin1String("ordered_inputs"))
             continue;
           if (!plannedParams.contains(it.key()) ||
               plannedParams.value(it.key()) != it.value()) {

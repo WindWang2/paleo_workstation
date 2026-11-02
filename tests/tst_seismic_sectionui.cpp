@@ -257,6 +257,17 @@ private slots:
     QToolTip::hideText();
   }
 
+  void endpointWellCurvesStayInsideViewport(){
+    SeismicSectionCanvas canvas;canvas.resize(800,500);canvas.setSectionData(makeSection(64,256),2.f);
+    SectionWellInfo well;well.wellId="end";well.wellName="end";well.isWithinBuffer=true;
+    well.tracePosition=63;well.calibrated=true;well.bottomTwtMs=400;
+    WellCurveItem curve;curve.curveName="GR";curve.minVal=0;curve.maxVal=1;
+    for(int i=0;i<100;++i){curve.values.push_back(i%2);curve.twtMs.push_back(100+i*2);}
+    well.curves.push_back(curve);canvas.setWells({well});canvas.setShowWellCurves(false);
+    const auto noCurves=renderCanvas(canvas);canvas.setShowWellCurves(true);
+    QVERIFY(imageDiff(noCurves,renderCanvas(canvas))>100);
+  }
+
   void captureCrowdedWellNameLabels()
   {
     SeismicSectionCanvas canvas;

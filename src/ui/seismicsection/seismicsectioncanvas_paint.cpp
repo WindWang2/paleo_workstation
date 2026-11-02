@@ -403,7 +403,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                             if (cy < vp.top() - 10 || cy > vp.bottom() + 10)
                                 continue;
                             const double norm = std::clamp(static_cast<double>((val - curve.minVal) / span), 0.0, 1.0);
-                            const double cx = wx + 4.0 + norm * trackWidth;
+                            const double cx = (wx+4.0+trackWidth>vp.right()?wx-4.0-trackWidth:wx+4.0) + norm*trackWidth;
                             poly.append(QPointF(cx, cy));
                         }
 

@@ -82,6 +82,26 @@ private slots:
       QVERIFY(!h.points.empty()); QVERIFY(std::isfinite(h.points.front().zTime));
     }
   }
+  void projectPlanarRangeUsesUnifiedCoordinates() {
+    paleo::data::DataService ds;std::string error;
+    QVERIFY2(ds.openProjectReadOnly(u(paleo::area_model::directory(project)),error),error.c_str());
+    paleo::data::ProjectPlanarRange range;
+    QVERIFY2(ds.readProjectPlanarRange(range,error),error.c_str());
+    QVERIFY2(range.merged.valid,range.status.c_str());
+    QCOMPARE(range.merged.coordinateSystem,ds.projectCrs());
+    QCOMPARE(range.merged.coordinateUnit,ds.projectCrsUnit());
+    if(range.wells.valid) {
+      QVERIFY(range.merged.minX<=range.wells.minX&&range.merged.maxX>=range.wells.maxX);
+      QVERIFY(range.merged.minY<=range.wells.minY&&range.merged.maxY>=range.wells.maxY);
+    }
+    if(range.seismic.valid) {
+      QVERIFY(range.merged.minX<=range.seismic.minX&&range.merged.maxX>=range.seismic.maxX);
+      QVERIFY(range.merged.minY<=range.seismic.minY&&range.merged.maxY>=range.seismic.maxY);
+    }
+    qInfo()<<"Project planar range"<<QString::fromStdString(range.status)
+           <<QString::fromStdString(range.merged.coordinateSystem)<<range.merged.minX<<range.merged.minY
+           <<range.merged.maxX<<range.merged.maxY<<"wells"<<range.wellsWithCoordinates<<"volumes"<<range.volumesWithRange;
+  }
   void createSourceFormationFrameworkWhenExplicitlyRequested() {
     const QString formation = qEnvironmentVariable("PALEO_ACCEPTANCE_FORMATION");
     if (qEnvironmentVariable("PALEO_ACCEPTANCE_CREATE_FRAMEWORK") != "1") return;

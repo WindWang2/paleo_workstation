@@ -48,6 +48,8 @@ target_sources(paleo_store PRIVATE src/catalog/areawellprojection.cpp src/catalo
 add_paleo_test(tst_dataservice LIBS paleo_store paleo_io Paleo::paleo_data_service)
 add_paleo_test(tst_dataservice_formats LIBS Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_dataservice_wellplot LIBS Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_dataservice_seismic LIBS Paleo::paleo_data_service Qt6::Core)
+add_paleo_test(tst_dataservice_coordinates LIBS Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_dataservice_hd LIBS paleo_domain Paleo::paleo_data_service)
 add_paleo_test(tst_dataservice_batch LIBS paleo_domain Paleo::paleo_data_service)
 add_paleo_test(tst_nativeimport LIBS paleo_io paleo_services Paleo::paleo_data_service)

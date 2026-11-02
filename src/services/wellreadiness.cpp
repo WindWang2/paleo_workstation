@@ -44,7 +44,7 @@ QString stampOf(const QString &root) {
 // 又在剖面报错」）：域外段（时间零点以上）裁剪后须能建严格表
 //（≥2 点 + 深度/时间双严格递增——TimeDepthModel::setCheckshots 自带）。
 bool relationUsable(const data::TimeDepthTable &t) {
-  if ((t.timeUnit != "ms" && t.timeUnit != "s") ||
+  if ((t.depthInfo.depthType!="MD"&&t.depthInfo.depthType!="TVD") || (t.timeUnit != "ms" && t.timeUnit != "s") ||
       (t.timeType != "TWT" && t.timeType != "OWT") || t.timeReference.empty() ||
       (t.depthInfo.depthUnit != "m" && t.depthInfo.depthUnit != "ft"))
     return false;

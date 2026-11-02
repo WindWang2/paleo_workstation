@@ -31,6 +31,7 @@ class WellSectionPanel : public QWidget
       QString id, name;
       bool hasCoordinates = false;
       double x = qQNaN(), y = qQNaN(); // 井位排序（PCA）用
+      QString alignmentStatus;
     };
     explicit WellSectionPanel(SelectionContext *ctx, QWidget *parent = nullptr);
 

@@ -283,7 +283,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
     QVector<WellSectionPanel::WellChoice> out;
     out.reserve(in.size());
     for (const auto &c : in)
-      out.push_back({c.id, c.name, c.hasCoordinates, c.x, c.y});
+      out.push_back({c.id, c.name, c.hasCoordinates, c.x, c.y, c.alignmentStatus});
     return out;
   };
 

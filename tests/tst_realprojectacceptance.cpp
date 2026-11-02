@@ -26,6 +26,11 @@
 #include "workflow/wellfaciesworkflow.h"
 #include "workflow/wellpredictionservice.h"
 #include "domain/faciescatalog.h"
+#include "services/wellreadiness.h"
+#include "workflow/wellsectionworkflow.h"
+#include "workflow/sectionworkbench.h"
+#include "services/paleotaskservice.h"
+#include "services/seismictaskservice.h"
 
 class TestRealProjectAcceptance : public QObject {
   Q_OBJECT
@@ -268,6 +273,46 @@ private slots:
     }
     inventory.insert("scopes",scopes);report.insert("fullWellScope",inventory);
     qInfo()<<"Full project wells"<<wells.size()<<"with curves"<<withCurves<<"located curves"<<locatedCurves;
+  }
+  void wellSeismicAlignmentInventory(){
+    paleo::data::DataService ds;std::string error;QString detail;
+    QVERIFY2(ds.openProjectReadOnly(u(paleo::area_model::directory(project)),error),error.c_str());
+    std::vector<paleo::data::DataEntry> entries;QVERIFY(ds.listData("time_depth",0,entries,error));QJsonArray tables;
+    for(const auto &entry:entries){
+      paleo::data::TimeDepthTable table;QVERIFY(ds.readTimeDepth(entry.id,table,error));
+      double lo=INFINITY,hi=-INFINITY;int negative=0;
+      for(const auto &point:table.depthTimePairs)if(std::isfinite(point.timeValue)){lo=std::min(lo,point.timeValue);hi=std::max(hi,point.timeValue);negative+=point.timeValue<0;}
+      tables.append(QJsonObject{{"id",double(entry.id)},{"wellId",double(entry.wellId)},{"name",QString::fromStdString(entry.name)},
+        {"depthType",QString::fromStdString(table.depthInfo.depthType)},{"depthUnit",QString::fromStdString(table.depthInfo.depthUnit)},
+        {"timeUnit",QString::fromStdString(table.timeUnit)},{"timeType",QString::fromStdString(table.timeType)},
+        {"timeReference",QString::fromStdString(table.timeReference)},{"samples",int(table.depthTimePairs.size())},{"negativeTimes",negative},{"minTime",lo},{"maxTime",hi}});
+    }
+    DataCatalog catalog;catalog.setLockedReadOnly(true);QVERIFY(catalog.open(project,&detail));
+    const auto readiness=paleo::analysisReadiness(&catalog,project);QJsonArray wells;ProjectDataFacade data;data.setCatalog(&catalog,project);
+    for(const auto &well:catalog.entities("well"))if(readiness.value(well.id).hasCurves){
+      const auto samples=data.tdTableFor(well.id);wells.append(QJsonObject{{"id",well.id},{"name",well.name},{"hasTimeDepth",readiness.value(well.id).hasTimeDepth},
+        {"tdUsable",readiness.value(well.id).tdUsable},{"selectedSamples",samples.size()},{"reason",data.lastError()}});
+    }
+    std::vector<paleo::data::DataEntry> volumes;QVERIFY(ds.listData("volumes",0,volumes,error));QJsonArray seismic;
+    for(const auto &entry:volumes){paleo::data::SeismicVolume volume;QVERIFY(ds.readVolume(entry.id,volume,error));
+      seismic.append(QJsonObject{{"id",double(entry.id)},{"timeUnit",QString::fromStdString(volume.sampling.timeUnit)},{"timeType",QString::fromStdString(volume.sampling.timeType)}});}
+    WellSectionWorkflow section(&catalog);const auto choices=section.wellChoices();QCOMPARE(choices.size(),wells.size());
+    SectionWorkbench setup(&catalog);const auto setupRows=setup.wells();QCOMPARE(setupRows.size(),wells.size());
+    const auto snap=setup.wellSnapWells(true);QVERIFY(!snap.isEmpty());
+    QStringList selected;for(const auto *name:{"HZ19-1-1A","HZ21-1-1"}){const auto ids=catalog.wellsMatchingName(name);QCOMPARE(ids.size(),1);selected.append(ids.first());}
+    QVERIFY(section.availableMnemonics(selected).contains("GR"));
+    QSignalSpy loaded(&section,&WellSectionWorkflow::sectionReady);section.request(selected,{"GR"});QCOMPARE(loaded.size(),1);
+    const auto drawn=loaded.first()[1].value<QVector<wellsection::Well>>();QCOMPARE(drawn.size(),2);
+    for(const auto &well:drawn){QVERIFY(!well.curves.isEmpty());QVERIFY(!well.curves.first().depths.isEmpty());}
+    PaleoTaskService tasks;seismic::SeismicTaskService seismicTasks(&tasks);section.setSeismicTaskService(&seismicTasks);
+    QSignalSpy strips(&section,&WellSectionWorkflow::seismicReady);section.requestSeismic(drawn,section.seismicSource());
+    QTRY_COMPARE_WITH_TIMEOUT(strips.size(),1,30000);const auto strip=strips.first()[1].value<wellsection::SeismicStrip>();
+    const bool hasUnaligned=std::any_of(drawn.cbegin(),drawn.cend(),[](const auto &well){return !well.timeDepth||well.timeDepth->timeReference.isEmpty();});
+    if(hasUnaligned){QVERIFY(!strip.anyValid());QVERIFY(!strip.gaps.first().reason.isEmpty());}
+    report.insert("wellSeismicAlignment",QJsonObject{{"tables",tables},{"curveWells",wells},{"volumes",seismic},
+      {"wellChoices",choices.size()},{"setupChoices",setupRows.size()},{"routeChoices",snap.size()},
+      {"mdWellsDrawn",drawn.size()},{"alignedSeismic",strip.anyValid()},{"seismicReason",strip.gaps.isEmpty()?strip.status:strip.gaps.first().reason}});
+    int usable=0;for(const auto &well:wells)usable+=well.toObject().value("tdUsable").toBool();qInfo()<<"Alignment inventory: curves"<<wells.size()<<"usable TD"<<usable<<"relations"<<tables.size();
   }
   void wholeWellPreviewInputs() {
     const auto name=qEnvironmentVariable("PALEO_ACCEPTANCE_PREDICT_WELL");if(name.isEmpty())return;

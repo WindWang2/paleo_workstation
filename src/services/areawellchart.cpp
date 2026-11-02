@@ -2,6 +2,8 @@
 #include "areawellchart.h"
 #include "imagelod.h"
 #include "domain/wellcompositemodel.h"
+#include "domain/welllogfacies.h"
+#include "io/lasalias.h"
 #include "io/areamodel.h"
 #include <paleo_data/service.h>
 #include <cmath>
@@ -17,6 +19,7 @@ double metreScale(const paleo::data::DepthInfo &depth) {
   if (unit == "ft" || unit == "feet") return .3048;
   return qQNaN();
 }
+
 QString property(const paleo::data::GeologicalInterval &row, const QStringList &labels) {
   for (const auto &p : row.properties)
     if (labels.contains(text(p.measurementName))) return text(p.originalText);
@@ -88,6 +91,42 @@ void appendInterval(const paleo::data::IntervalTrack &track, const paleo::data::
     out.textIntervals.append(item);
   }
 }
+}
+QStringList areaWellCurveNames(const QString &project,const QVector<qlonglong> &wells){
+  paleo::data::DataService ds;std::string error;QStringList names;
+  if(!ds.openProjectReadOnly(paleo::area_model::directory(project).toStdString(),error))return names;
+  for(const auto id:wells){std::vector<paleo::data::DataEntry> entries;
+    if(ds.listData("curves",id,entries,error))for(const auto &entry:entries)
+      if(entry.count>0&&!names.contains(QString::fromStdString(entry.name),Qt::CaseInsensitive))names.append(QString::fromStdString(entry.name));
+  }
+  return names;
+}
+bool readAreaWellSectionCurves(const QString &project,qlonglong well,const QStringList &requested,
+    QVector<wellsection::Curve> &out,QString *error,const std::function<bool()> &cancelled){
+  out.clear();if(error)error->clear();paleo::data::DataService ds;std::string detail;
+  if(!ds.openProjectReadOnly(paleo::area_model::directory(project).toStdString(),detail)){if(error)*error=QString::fromStdString(detail);return false;}
+  paleo::data::WellPlotOptions options;options.includeIntervals=false;options.includeMarkers=false;options.includePhotos=false;
+  paleo::data::WellPlotData model;if(!ds.readWellPlotData(well,options,model,detail,cancelled)){if(error)*error=QString::fromStdString(detail);return false;}
+  QVector<wellsection::Curve> available;QStringList problems;
+  for(const auto &group:model.logs){
+    if(cancelled&&cancelled())return false;
+    const auto &logs=group.value;
+    if(logs.depthInfo.depthType!="MD"||!std::isfinite(metreScale(logs.depthInfo))){problems.append(QStringLiteral("%1：需要已声明的 MD 米/英尺深度").arg(QString::fromStdString(logs.logSetName)));continue;}
+    for(const auto &source:logs.logCurves){
+      WellComposite::CurveData normalized;QVector<double> depths,values;QString reason;
+      for(double value:logs.samplingAxis.depthValues)depths.append(value);for(double value:source.sampleValues)values.append(value);
+      if(!normalizeDepthCurve(depths,values,QString::fromStdString(logs.depthInfo.depthUnit),&normalized,&reason)){problems.append(reason);continue;}
+      wellsection::Curve curve;curve.mnemonic=QString::fromStdString(source.curveName);curve.sourceMnemonic=curve.mnemonic;
+      curve.unit=QString::fromStdString(source.curveUnit);curve.depths=normalized.depths;curve.values=normalized.values;available.append(curve);
+    }
+  }
+  if(requested.isEmpty())out=available;
+  else for(const auto &name:requested){
+    auto found=std::find_if(available.cbegin(),available.cend(),[&](const auto &curve){return curve.mnemonic.compare(name,Qt::CaseInsensitive)==0;});
+    if(found==available.cend())found=std::find_if(available.cbegin(),available.cend(),[&](const auto &curve){return LasAliasMap::shared().canonicalCurve(curve.mnemonic)==LasAliasMap::shared().canonicalCurve(name);});
+    if(found!=available.cend()){auto curve=*found;curve.mnemonic=name;out.append(curve);}
+  }
+  if(error)*error=problems.join('\n');return !out.isEmpty();
 }
 bool readAreaWellLithology(const QString &project, qlonglong well,
                           QVector<wellsection::LithoSegment> &out, QString *error) {

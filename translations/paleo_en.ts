@@ -26290,7 +26290,31 @@ PDF：%3
             <source>数据服务中未找到本井的时深关系</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>所选时深来源未在工区数据服务中匹配，请检查关联</source>
+        <translation>The selected time-depth source is not linked to the project data service; check its association</translation>
+    </message>
+    <message>
+        <source>深度单位</source>
+        <translation>Depth unit</translation>
+    </message>
+    <message>
+        <source>时间单位</source>
+        <translation>Time unit</translation>
+    </message>
+    <message>
+        <source>单/双程类型</source>
+        <translation>One-way/two-way time type</translation>
+    </message>
+    <message>
+        <source>时间基准</source>
+        <translation>Time datum</translation>
+    </message>
+    <message>
+        <source>时深关系存在，但%1缺失或不受支持</source>
+        <translation>Time-depth data is present, but %1 is missing or unsupported</translation>
+    </message>
+</context>
     <context>
         <name>ProjectLayerRefreshWorkflow</name>
         <message>
@@ -37496,7 +37520,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
         <message>
             <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="100" />
-            <source>正值向下平移。分层优先 TVD，测井按 MD。没有本井时深表时，井道和分层按近似速度画在剖面上，并标明需复核。时深表范围外的点不绘制。左侧深度尺与该近似速度一致，地震图像仍按 TWT 排列。</source>
+            <source>正值向下平移。分层优先 TVD，测井按 MD。井道叠加需要有效时深及一致的地震时间基准。常速近似仅在明确选择后使用，不补齐缺失基准。时深表范围外的点不绘制，地震图像按 TWT 排列。</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -37557,7 +37581,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
         <message>
             <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="247" />
-            <source>请先导入井数据及关联时深表</source>
+            <source>请选择有曲线的井；读取完成后列表显示可选井</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -37726,7 +37750,15 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>此版本使用其他地震体，请先加载对应地震体：%1</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>有时深资料；对齐不可用：%1</source>
+        <translation>Time-depth data present; alignment unavailable: %1</translation>
+    </message>
+    <message>
+        <source>无时深资料；不叠加井道</source>
+        <translation>No time-depth data; well overlay unavailable</translation>
+    </message>
+</context>
     <context>
         <name>SegyReader</name>
         <message>
@@ -45780,7 +45812,19 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>时深表无效（有效样点不足或非单调）</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>有可用时深；叠加仍校验地震基准</source>
+        <translation>Usable time-depth data; seismic datum compatibility is checked before overlay</translation>
+    </message>
+    <message>
+        <source>有时深；时间对齐不可用，MD 井道可显示</source>
+        <translation>Time-depth data present; time alignment unavailable, MD tracks available</translation>
+    </message>
+    <message>
+        <source>无时深；MD 井道可显示</source>
+        <translation>No time-depth data; MD tracks available</translation>
+    </message>
+</context>
     <context>
         <name>WellSitingPanel</name>
         <message>

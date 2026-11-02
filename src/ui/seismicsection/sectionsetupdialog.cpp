@@ -98,9 +98,9 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   apply->setObjectName("applyAlignment");
   form->addRow(apply);
   auto *note = new QLabel(tr("正值向下平移。分层优先 TVD，测井按 "
-                             "MD。没有本井时深表时，井道和分层按近似速度画在剖面上，"
-                             "并标明需复核。时深表范围外的点不绘制。左侧深度尺与"
-                             "该近似速度一致，地震图像仍按 TWT 排列。"),
+                             "MD。井道叠加需要有效时深及一致的地震时间基准。"
+                             "常速近似仅在明确选择后使用，不补齐缺失基准。"
+                             "时深表范围外的点不绘制，地震图像按 TWT 排列。"),
                           right);
   note->setWordWrap(true);
   form->addRow(note);
@@ -244,7 +244,7 @@ void SectionSetupDialog::showWell() {
                        : QVariantMap();
   findChild<QPushButton *>("applyAlignment")->setEnabled(!row.isEmpty());
   m_velocity->setToolTip(tr("仅常速近似模式使用此速度"));
-  m_status->setText(row.isEmpty() ? tr("请先导入井数据及关联时深表")
+  m_status->setText(row.isEmpty() ? tr("请选择有曲线的井；读取完成后列表显示可选井")
                                   : row.value("name").toString() + " · " +
                                         row.value("status").toString());
   m_mode->setCurrentIndex(row.value("constant").toBool() ? 1 : 0);

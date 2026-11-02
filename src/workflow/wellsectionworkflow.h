@@ -29,6 +29,7 @@ public:
     QString id, name;
     bool hasCoordinates = false;
     double x = qQNaN(), y = qQNaN(); // 井位（视图排序用）
+    QString alignmentStatus;
   };
   struct SeismicSource {
     QString path;

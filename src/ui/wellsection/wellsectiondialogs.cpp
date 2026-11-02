@@ -100,9 +100,11 @@ WellSectionWellsDialog::WellSectionWellsDialog(
   const auto itemFor = [&](const WellSectionPanel::WellChoice &c,
                            bool checked) {
     QString text = c.name;
+    if(!c.alignmentStatus.isEmpty())text+=QStringLiteral(" · ")+c.alignmentStatus;
     if (!c.hasCoordinates)
       text += tr("（无坐标）");
     auto *it = new QListWidgetItem(text);
+    it->setToolTip(c.alignmentStatus);
     it->setData(kIdRole, c.id);
     it->setFlags(it->flags() | Qt::ItemIsUserCheckable |
                  Qt::ItemIsDragEnabled);

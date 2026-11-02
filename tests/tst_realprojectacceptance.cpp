@@ -207,6 +207,68 @@ private slots:
       }
     }
   }
+  void fullWellScopeReadiness(){
+    paleo::data::DataService ds;std::string error;QString detail;
+    QVERIFY2(ds.openProjectReadOnly(u(paleo::area_model::directory(project)),error),error.c_str());
+    std::vector<paleo::data::WellSummary> wells;QVERIFY(ds.listWells(wells,error));
+    QHash<qlonglong,WellDataAvailability> availability;QVERIFY(readWellDataAvailability(ds,availability,&detail));
+    DataCatalog catalog;catalog.setLockedReadOnly(true);QVERIFY2(catalog.open(project,&detail),qPrintable(detail));
+    RemotePredictionRequest request;request.kind="wells";request.facies=FaciesCatalog::defaults();
+    int withCurves=0,withTracks=0,timeDepthOnly=0,locatedCurves=0;
+    for(const auto &well:wells){
+      const auto present=availability.value(well.id);withCurves+=present.curves;withTracks+=present.tracks;timeDepthOnly+=present.timeDepth&&!present.tracks;
+      if(!present.curves)continue;
+      const auto ids=catalog.wellsMatchingName(QString::fromStdString(well.name));QCOMPARE(ids.size(),1);
+      const auto entity=catalog.entityById(ids.first());locatedCurves+=entity.hasSurface&&std::isfinite(entity.surfaceX)&&std::isfinite(entity.surfaceY);
+      request.wells.append(QVariantMap{{"id",ids.first()},{"name",QString::fromStdString(well.name)}});
+    }
+    QVERIFY(withCurves>8);QCOMPARE(request.wells.size(),withCurves);
+    QJsonObject inventory{{"totalWells",int(wells.size())},{"withCurves",withCurves},{"withTracks",withTracks},{"timeDepthOnly",timeDepthOnly},{"locatedCurves",locatedCurves}};
+    paleo::data::StratigraphicScheme scheme;QVERIFY(ds.readStratigraphicScheme("default",{},scheme,error));
+    QHash<qlonglong,QVector<wellsection::LithoSegment>> lithologies;QJsonArray scopes;
+    for(const auto *token:{"T30-T32-S1","T70-T72-S1"}){
+      paleo::strat::UnitSelection unit;
+      for(const auto &sub:scheme.subIntervals){const auto candidate=paleo::strat::makeSelection(scheme,QString::fromStdString(sub.interval.value),sub.index);
+        if(paleo::strat::layerToken(candidate)==token){unit=candidate;break;}}
+      QVERIFY(unit.isValid());QJsonArray factors;int thickness=0,sand=0,locatedThickness=0,locatedSand=0;
+      for(const auto &well:wells){
+        const auto range=paleo::strat::analysisWellRange(scheme,unit,{},well.id);
+        QJsonObject row{{"well",QString::fromStdString(well.name)},{"rangeResolved",range.resolved}};
+        if(!range.resolved){row.insert("reason",QString::fromStdString(range.reason));factors.append(row);continue;}
+        ++thickness;row.insert("thickness",range.bottom-range.top);
+        const auto ids=catalog.wellsMatchingName(QString::fromStdString(well.name));
+        bool located=false;
+        if(ids.size()==1){const auto entity=catalog.entityById(ids.first());located=entity.hasSurface&&std::isfinite(entity.surfaceX)&&std::isfinite(entity.surfaceY);locatedThickness+=located;}
+        row.insert("hasLocation",located);
+        if(!lithologies.contains(well.id)){
+          WellComposite::ComprehensiveWellData data;
+          if(readAreaWellChart(ds,well.id,data,&detail))for(const auto &interval:data.lithologyIntervals){
+            wellsection::LithoSegment segment;segment.topMd=interval.topDepth;segment.baseMd=interval.bottomDepth;segment.litho=interval.lithoName;lithologies[well.id].append(segment);
+          }
+        }
+        const auto value=paleo::strat::sandThicknessInRange(lithologies.value(well.id),range.top,range.bottom,nullptr);
+        if(value){++sand;locatedSand+=located;row.insert("sandThickness",*value);row.insert("sandRatio",*value/(range.bottom-range.top));}
+        factors.append(row);
+      }
+      QJsonObject scope{{"unit",token},{"thicknessWells",thickness},{"locatedThicknessWells",locatedThickness},{"sandWells",sand},{"locatedSandWells",locatedSand},{"factorInputs",factors}};
+      if(qEnvironmentVariable("PALEO_ACCEPTANCE_MODEL_CHECK")=="1"){
+        request.id=QString::fromLatin1(token);request.horizon=QString::fromLatin1(token);request.unitSelection=paleo::strat::toMap(unit);
+        WellPredictionService service;service.bindCatalog(&catalog,project);QSignalSpy checked(&service,&WellPredictionService::readinessReady);
+        service.check(request);QTRY_COMPARE_WITH_TIMEOUT(checked.size(),1,120000);
+        QVERIFY2(checked.first()[2].toString().isEmpty(),qPrintable(checked.first()[2].toString()));
+        const auto results=checked.first()[1].toList();QCOMPARE(results.size(),withCurves);int ready=0,locatedReady=0;
+        for(const auto &result:results)if(result.toMap().value("ready").toBool()){
+          ++ready;const auto entity=catalog.entityById(result.toMap().value("id").toString());
+          locatedReady+=entity.hasSurface&&std::isfinite(entity.surfaceX)&&std::isfinite(entity.surfaceY);
+        }
+        scope.insert("predictionCandidates",withCurves);scope.insert("predictionReady",ready);scope.insert("predictionWells",QJsonArray::fromVariantList(results));
+        scope.insert("locatedPredictionReady",locatedReady);
+      }
+      scopes.append(scope);qInfo()<<"Full project scope"<<token<<"thickness"<<thickness<<"sand"<<sand<<"prediction ready"<<scope.value("predictionReady").toInt();
+    }
+    inventory.insert("scopes",scopes);report.insert("fullWellScope",inventory);
+    qInfo()<<"Full project wells"<<wells.size()<<"with curves"<<withCurves<<"located curves"<<locatedCurves;
+  }
   void wholeWellPreviewInputs() {
     const auto name=qEnvironmentVariable("PALEO_ACCEPTANCE_PREDICT_WELL");if(name.isEmpty())return;
     paleo::data::DataService ds;std::string error;

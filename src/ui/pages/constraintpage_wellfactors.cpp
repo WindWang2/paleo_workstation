@@ -322,7 +322,29 @@ void ConstraintPage::invalidateWellFactors(bool markStale) {
   updateFactorActionStates();
 }
 void ConstraintPage::refreshAnalysisUnit() {
+  auto *selection=qobject_cast<SelectionContext *>(property("paleo.selection").value<QObject *>());
+  auto *horizon=child<QComboBox>(this,"horizonCombo");
+  auto *label=child<QLabel>(this,"factorAnalysisUnit");
+  if(selection&&horizon&&label){
+    const auto unit=selection->activeUnit();
+    // The hidden compatibility control only carries the actual boundary used by legacy view actions.
+    const QSignalBlocker blocked(horizon);horizon->clear();
+    if(unit.isValid()&&!unit.topBoundary.isEmpty())horizon->addItem(unit.topBoundary);
+    horizon->hide();label->show();
+    label->setText(unit.isValid()?(unit.displayName.isEmpty()?paleo::strat::layerToken(unit):unit.displayName):
+        tr("请在顶部选择地震层位单元及 S1–S4 或综合"));
+    child<QLabel>(this,"factorHorizonCaption")->setText(tr("当前地震层段"));
+    auto *factors=child<QTableWidget>(this,"factorTable");
+    for(int row=0;row<factors->rowCount();++row){
+      const auto factor=factorIdOfRow(factors,row);const auto def=factorDefinition(factor);
+      if(interpolantEngine(def.processingAlgId)){
+        const auto text=factor=="strathick"?tr("所选地震层段厚度（MD）"):tr("所选地震层段内的井点数据");
+        factors->item(row,2)->setText(text);factors->item(row,1)->setToolTip(text);
+      }
+    }
+  }
   invalidateWellFactors(false);
+  refreshWellFactorFields();refreshConstraintList();updateEngineRows();
   restoreWellFactorDisplay();
   refreshFactorLayers();
   refreshFactorResults();
@@ -365,7 +387,7 @@ void ConstraintPage::updateWellFactorActionState() {
                            : !params.value(QStringLiteral("valueField")).toString().isEmpty()));
   const bool busy = property("paleo.page.runbusy").toBool();
   const auto *horizon = child<QComboBox>(this, "horizonCombo");
-  const bool hasHorizon = horizon && !horizon->currentText().trimmed().isEmpty();
+  const bool hasHorizon = !pageAnalysisKey(this,horizon).trimmed().isEmpty();
   const auto *factors = child<QTableWidget>(this, "factorTable");
   const bool fromWells = interpolantEngine(factorDefinition(factorIdOfRow(factors, checkedRow(factors))).processingAlgId);
   // 井点提取是输入准备，与约束线相互独立（约束只在插值时汇合）。

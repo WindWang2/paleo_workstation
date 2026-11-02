@@ -11,6 +11,9 @@
 #include "linkage/selectioncontext.h"
 #include "workflow/workflows.h"
 #include <QTabWidget>
+#include <QComboBox>
+#include <QLabel>
+#include <QPushButton>
 #include <QTableWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -21,6 +24,27 @@
 class TestModelWellSelection : public QObject {
   Q_OBJECT
 private slots:
+  void factorScopeMirrorsSeismicUnitAndRejectsLegacyHorizonFallback(){
+    ConstraintPage page(nullptr);page.setHorizons({"C3","D61"});SelectionContext selection;
+    page.setProperty("paleo.selection",QVariant::fromValue<QObject *>(&selection));
+    auto *legacy=page.findChild<QComboBox *>("horizonCombo");auto *label=page.findChild<QLabel *>("factorAnalysisUnit");
+    QVERIFY(legacy&&label);page.refreshAnalysisUnit();QVERIFY(legacy->isHidden());QVERIFY(!label->isHidden());
+    QVERIFY(!page.findChild<QPushButton *>("extractWellFactorsButton")->isEnabled());
+    paleo::strat::UnitSelection unit;unit.schemeId="scheme";unit.revision="r1";unit.intervalId="T70-T72";
+    unit.subIntervalId="S2";unit.subIndex=2;unit.topBoundary="T70";unit.bottomBoundary="T72";unit.displayName=QStringLiteral("T70–T72/S2");
+    selection.setActiveUnit(unit);page.refreshAnalysisUnit();page.setHorizons({"C3","D61"});
+    QCOMPARE(label->text(),unit.displayName);QCOMPARE(legacy->currentText(),QString("T70"));QCOMPARE(legacy->count(),1);
+    QCOMPARE(page.wellFactorParams().value("unitSelection").toMap(),paleo::strat::toMap(unit));
+    auto *factors=page.findChild<QTableWidget *>("factorTable");
+    for(int row=0;row<factors->rowCount();++row)factors->item(row,0)->setCheckState(factors->item(row,0)->data(Qt::UserRole).toString()=="sandthick"?Qt::Checked:Qt::Unchecked);
+    QSignalSpy extraction(&page,&ConstraintPage::extractWellFactorsRequested);
+    page.findChild<QPushButton *>("extractWellFactorsButton")->click();QCOMPARE(extraction.size(),1);
+    QCOMPARE(extraction.first()[1].toString(),QString("T70"));QCOMPARE(extraction.first()[2].toMap().value("unitSelection").toMap(),paleo::strat::toMap(unit));
+    unit.aggregate=true;unit.subIntervalId.clear();unit.subIndex=0;unit.displayName=QStringLiteral("T70–T72/综合");
+    selection.setActiveUnit(unit);page.refreshAnalysisUnit();QCOMPARE(label->text(),unit.displayName);
+    selection.clearActiveUnit();page.refreshAnalysisUnit();QCOMPARE(legacy->count(),0);
+    QVERIFY(!page.findChild<QPushButton *>("extractWellFactorsButton")->isEnabled());
+  }
   void inventoryShowsExistingUnconfirmedTimeDepthAsPresent() {
     QTemporaryDir tmp;PaleoProjectStore store;DataImportService imports(&store);imports.setProjectDir(tmp.path());
     const auto root=areaModelDirectory(tmp.path());QVERIFY(QDir().mkpath(root));

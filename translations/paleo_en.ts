@@ -3738,7 +3738,27 @@
             <source>请先在顶部层段选择器选定子层段；层位下拉不可驱动分析。</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>当前地震层段</source>
+        <translation>Current seismic interval</translation>
+    </message>
+    <message>
+        <source>与顶部地震层位单元同步；请在顶部选择父单元及 S1–S4 或综合。</source>
+        <translation>Follows the seismic interval selector above. Select a parent interval and S1–S4 or the aggregate above.</translation>
+    </message>
+    <message>
+        <source>请在顶部选择地震层位单元及 S1–S4 或综合</source>
+        <translation>Select a seismic interval and S1–S4 or the aggregate above</translation>
+    </message>
+    <message>
+        <source>所选地震层段厚度（MD）</source>
+        <translation>Selected seismic interval thickness (MD)</translation>
+    </message>
+    <message>
+        <source>所选地震层段内的井点数据</source>
+        <translation>Well inputs within the selected seismic interval</translation>
+    </message>
+</context>
     <context>
         <name>ConstraintWorkflow</name>
         <message>

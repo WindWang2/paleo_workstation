@@ -3753,6 +3753,26 @@
         <source>请先在顶部层段选择器选定子层段；层位下拉不可驱动分析。</source>
         <translation>请先在顶部层段选择器选定子层段；层位下拉不可驱动分析。</translation>
     </message>
+    <message>
+        <source>当前地震层段</source>
+        <translation>当前地震层段</translation>
+    </message>
+    <message>
+        <source>与顶部地震层位单元同步；请在顶部选择父单元及 S1–S4 或综合。</source>
+        <translation>与顶部地震层位单元同步；请在顶部选择父单元及 S1–S4 或综合。</translation>
+    </message>
+    <message>
+        <source>请在顶部选择地震层位单元及 S1–S4 或综合</source>
+        <translation>请在顶部选择地震层位单元及 S1–S4 或综合</translation>
+    </message>
+    <message>
+        <source>所选地震层段厚度（MD）</source>
+        <translation>所选地震层段厚度（MD）</translation>
+    </message>
+    <message>
+        <source>所选地震层段内的井点数据</source>
+        <translation>所选地震层段内的井点数据</translation>
+    </message>
 </context>
 <context>
     <name>ConstraintWorkflow</name>

@@ -13,6 +13,7 @@
 #include "ui/wellsection/wellsectionpanel.h"
 #include "services/paleotaskservice.h"
 #include "services/seismicdataaccess.h"
+#include "services/seismicdataprojection.h"
 #include "services/sectiondoc.h"
 #include "io/areamodel.h"
 #include "io/dataimportservice.h"
@@ -110,13 +111,16 @@ private slots:
     paleo::data::SectionHorizonQuery query;query.volumeId=volumes[0].id;query.undeclaredTimeUnit="ms";query.undeclaredTimeType="TWT";
     for(int c=0;c<section.columns;++c)query.columns.push_back({section.inlineNumbers[c],section.crosslineNumbers[c],section.traceIndexes[c]>=0});
     paleo::data::SectionHorizonResult result;QVERIFY(ds.readSectionHorizons(query,result,error));QVERIFY(!result.bands.empty());
-    seismic::SgySliceImage image;image.width=section.columns;image.height=section.samples;
-    image.values.resize(size_t(image.width)*image.height);
-    for(int c=0;c<image.width;++c)for(int s=0;s<image.height;++s)image.values[size_t(s)*image.width+c]=section.amplitudes[size_t(c)*image.height+s];
+    double first=std::numeric_limits<double>::max(),last=std::numeric_limits<double>::lowest();
+    for(const auto& curve:result.curves)for(const auto time:curve.timesMs)if(std::isfinite(time)){first=std::min(first,time);last=std::max(last,time);}
+    options.firstTime=std::max(info.firstTime,first-200);options.lastTime=last+200;
+    QVERIFY(ds.readSeismicLine(volumes[0].id,"inline",line,options,section,error));
+    const auto image=paleo::seismicSectionImage(section);
     seismic::SectionHorizons overlays;
     for(auto& c:result.curves)overlays.curves.push_back({QString::fromStdString(c.id),QString::fromStdString(c.name),c.internalEdge,c.provisional,std::move(c.timesMs)});
     for(const auto& b:result.bands)overlays.bands.push_back({QString::fromStdString(b.id),QString::fromStdString(b.name),QString::fromStdString(b.topCurveId),QString::fromStdString(b.bottomCurveId),b.subdivision});
     seismic::SeismicSectionCanvas canvas;canvas.resize(1600,900);canvas.setSectionData(image,float(section.sampleInterval),section.firstTime);
+    canvas.setColorMap(seismic::SectionColorMapType::Grayscale);
     canvas.setHorizonOverlays(overlays);canvas.setHorizonOverlaysVisible(true);
     QVERIFY(canvas.grabCanvasImage().save(output));
     qInfo()<<"Real section preview"<<line<<section.columns<<"columns"<<result.bands.size()<<"bands";

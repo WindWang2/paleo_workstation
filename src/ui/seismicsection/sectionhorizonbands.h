@@ -12,10 +12,11 @@
 
 namespace seismic {
 using HorizonPixelAt=std::function<QPointF(int,double)>;
+struct HorizonBandLabel {QRectF rect;QString text;QColor color;};
 inline bool horizonPointIsFinite(const QPointF& point){return std::isfinite(point.x())&&std::isfinite(point.y());}
 // Explicit scheme relationships only. Missing or inverted pairs break the fill.
 inline void paintSectionHorizonBands(QPainter& painter,const QRectF& clip,const SectionHorizons& overlay,
-                                     const HorizonPixelAt& pixelAt,QVector<QRectF>& labels){
+                                     const HorizonPixelAt& pixelAt,QVector<HorizonBandLabel>& labels){
   QHash<QString,const SectionHorizonCurve *> curves;
   QHash<QString,QString> parent;
   for(const auto& curve:overlay.curves)curves.insert(curve.id,&curve);
@@ -51,10 +52,15 @@ inline void paintSectionHorizonBands(QPainter& painter,const QRectF& clip,const 
          (bestLabel.isEmpty()||std::abs(candidate.center().x()-clip.center().x())<std::abs(bestLabel.center().x()-clip.center().x())))bestLabel=candidate;
     }
     flush();
-    if(bestLabel.isEmpty()||std::any_of(labels.begin(),labels.end(),[&](const auto& r){return r.intersects(bestLabel);}))continue;
-    labels.append(bestLabel);
-    auto paper=PaleoTheme::tokens(PaleoTheme::Theme::Light).surface;paper.setAlphaF(.85f);
-    painter.fillRect(bestLabel,paper);painter.setPen(color);painter.drawText(bestLabel,Qt::AlignCenter,band.name);
+    if(!bestLabel.isEmpty())labels.append({bestLabel,band.name,color});
+  }
+}
+inline void paintSectionHorizonBandLabels(QPainter& painter,const QVector<HorizonBandLabel>& candidates,QVector<QRectF>& occupied){
+  auto paper=PaleoTheme::tokens(PaleoTheme::Theme::Light).surface;paper.setAlphaF(.85f);
+  for(const auto& label:candidates){
+    if(std::any_of(occupied.begin(),occupied.end(),[&](const auto& r){return r.intersects(label.rect);}))continue;
+    occupied.append(label.rect);painter.fillRect(label.rect,paper);painter.setPen(label.color);
+    painter.drawText(label.rect,Qt::AlignCenter,label.text);
   }
 }
 }

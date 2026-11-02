@@ -17,7 +17,8 @@ inline void paintSectionHorizons(QPainter& painter,const QRectF& clip,const Sect
   const auto& ink=PaleoTheme::tokens(PaleoTheme::Theme::Light);
   auto font=PaleoTheme::bodyFont();font.setPointSize(PaleoTheme::tokens().labelPt);painter.setFont(font);
   QVector<QRectF> labels;
-  paintSectionHorizonBands(painter,clip,overlay,pixelAt,labels);
+  QVector<HorizonBandLabel> bandLabels;
+  paintSectionHorizonBands(painter,clip,overlay,pixelAt,bandLabels);
   for(const auto& curve:overlay.curves){
     QPainterPath path;bool connected=false,haveLabel=false;QPointF anchor;
     for(size_t col=0;col<curve.timesMs.size();++col){
@@ -30,9 +31,10 @@ inline void paintSectionHorizons(QPainter& painter,const QRectF& clip,const Sect
       if(!haveLabel&&clip.contains(point)){anchor=point;haveLabel=true;}
     }
     const auto color=PaleoTheme::sectionHorizonColor(curve.name.section(QLatin1Char('/'),0,0));
-    QPen line(color,curve.internalEdge?1.1:1.8);line.setCosmetic(true);
+    QPen line(color,curve.internalEdge?.9:1.6);line.setCosmetic(true);
     if(curve.provisional)line.setStyle(Qt::DashLine);
-    auto halo=line;halo.setColor(ink.onPrimary);halo.setWidthF(line.widthF()+2.5);
+    auto halo=line;auto paper=ink.onPrimary;paper.setAlphaF(.65f);halo.setColor(paper);
+    halo.setWidthF(line.widthF()+(curve.internalEdge?.6:1.0));
     painter.strokePath(path,halo);painter.strokePath(path,line);
     if(!haveLabel)continue;
     const auto text=painter.fontMetrics().elidedText(curve.name,Qt::ElideRight,std::max(1,int(clip.width()/2)));
@@ -43,6 +45,7 @@ inline void paintSectionHorizons(QPainter& painter,const QRectF& clip,const Sect
     labels.append(badge);painter.fillRect(badge,ink.surface);painter.setPen(ink.text);
     painter.drawText(badge,Qt::AlignCenter,text);
   }
+  paintSectionHorizonBandLabels(painter,bandLabels,labels);
   painter.restore();
 }
 }

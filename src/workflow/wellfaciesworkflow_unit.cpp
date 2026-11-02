@@ -61,7 +61,7 @@ QVariantList WellFaciesWorkflow::availableStratigraphicTracks() const {
   return out;
 }
 
-bool WellFaciesWorkflow::scopePlanToUnit(QString *error) {
+bool WellFaciesWorkflow::scopePlanToUnit(QString *error, WellComposite::ComprehensiveWellData *input) {
   if (!m_hasAnalysisContext && m_stratUnitName.isEmpty()) return true; // standalone legacy consumer
   if (!m_hasAnalysisContext && !m_stratUnitName.isEmpty() && m_data.modelWellId > 0 && !projectDir().isEmpty()) {
     paleo::data::WellIntervalLogQuery q;
@@ -92,6 +92,11 @@ bool WellFaciesWorkflow::scopePlanToUnit(QString *error) {
       *error = tr("所选地层道的深度不是 MD 米制（%1/%2），不能直接截取预测输入")
                    .arg(QString::fromStdString(slice.depthType), QString::fromStdString(slice.depthUnit));
       return false;
+    }
+    if(input){
+      paleo::data::WellSubIntervalRange range;range.resolved=true;range.depthType="MD";range.depthUnit="m";
+      range.top=slice.topDepth;range.bottom=slice.bottomDepth;
+      *input=paleo::strat::scopeWellData(*input,range);return true;
     }
     QVector<WellFaciesRun> runs;
     for (auto run : m_plan.runs) {
@@ -129,6 +134,7 @@ bool WellFaciesWorkflow::scopePlanToUnit(QString *error) {
     return false;
   }
   m_analysisWellId=range.wellId;
+  if(input){*input=paleo::strat::scopeWellData(*input,range);return true;}
   QVector<WellFaciesRun> runs;
   for (auto run : m_plan.runs) {
     const auto rows=paleo::strat::scopeWellRows(run.input.rows,range);

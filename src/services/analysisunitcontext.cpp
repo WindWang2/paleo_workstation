@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <cmath>
 #include <algorithm>
+#include "domain/wellcompositemodel.h"
 
 namespace paleo::strat {
 namespace fw=paleo::data::framework;
@@ -70,6 +71,29 @@ paleo::data::WellSubIntervalRange analysisWellRange(const paleo::data::Stratigra
     combined.depthType=r.depthType;combined.depthUnit=r.depthUnit;combined.provisional|=r.provisional;
   }
   combined.index=4;combined.resolved=std::isfinite(combined.top)&&combined.bottom>combined.top;return combined;
+}
+WellComposite::ComprehensiveWellData scopeWellData(const WellComposite::ComprehensiveWellData &data,
+    const paleo::data::WellSubIntervalRange &range){
+  auto scoped=data;scoped.minDepth=range.top;scoped.maxDepth=range.bottom;
+  const bool valid=range.resolved&&range.depthType=="MD"&&range.depthUnit=="m"&&std::isfinite(range.top)&&std::isfinite(range.bottom)&&range.bottom>range.top;
+  for(auto &curve:scoped.continuousCurves){
+    const auto original=curve;curve.depths.clear();curve.values.clear();
+    for(qsizetype i=0;i<original.depths.size();++i){
+      const double depth=original.depths[i];
+      if(!valid||!std::isfinite(depth)||depth<range.top||depth>range.bottom||(depth==range.bottom&&range.index!=4))continue;
+      curve.depths.append(original.depths[i]);if(i<original.values.size())curve.values.append(original.values[i]);
+    }
+  }
+  const auto clip=[&](auto &intervals){
+    intervals.erase(std::remove_if(intervals.begin(),intervals.end(),[&](const auto &row){return !valid||!std::isfinite(row.topDepth)||!std::isfinite(row.bottomDepth)||row.bottomDepth<=row.topDepth||row.bottomDepth<=range.top||row.topDepth>=range.bottom;}),intervals.end());
+    for(auto &row:intervals){
+      row.topDepth=std::max(double(row.topDepth),range.top);
+      // S4 includes its last sample; retain an existing category covering that endpoint.
+      if(range.index!=4)row.bottomDepth=std::min(double(row.bottomDepth),range.bottom);
+    }
+  };
+  clip(scoped.formationIntervals);clip(scoped.stratigraphyIntervals);clip(scoped.lithologyIntervals);
+  clip(scoped.seismicIntervals);clip(scoped.seismicSubIntervals);return scoped;
 }
 QJsonArray scopeWellRows(const QJsonArray &rows,const paleo::data::WellSubIntervalRange &range){
   QJsonArray scoped;

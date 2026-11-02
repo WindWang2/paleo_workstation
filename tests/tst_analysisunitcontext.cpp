@@ -7,6 +7,8 @@
 #include "services/stratigraphicsubintervals.h"
 #include "services/subintervalfactors.h"
 #include "services/seismicunitinput.h"
+#include "domain/wellcompositemodel.h"
+#include "domain/welllogfacies.h"
 #include "io/areamodel.h"
 #include "seismichorizonfixture.h"
 #include <paleo_data/service.h>
@@ -46,6 +48,26 @@ class AnalysisUnitContextTest:public QObject {
   UnitSelection unit(int index=1)const{return makeSelection(scheme,selectorOptions(scheme).first().intervalId,index);}
  };
 private slots:
+ void scopeDataClipsBeforeValidationAndDoesNotInventSamples(){
+  Fixture f;QVERIFY(f.init());WellComposite::ComprehensiveWellData data;
+  WellComposite::CurveData curve;curve.name="GR";curve.depths={990,1000,1010,1020,1030,NAN};curve.values={NAN,1,2,3,NAN,5};
+  data.continuousCurves.append(curve);
+  WellComposite::FormationInterval formation;formation.name="A";formation.topDepth=990;formation.bottomDepth=1040;
+  data.formationIntervals.append(formation);
+  const auto scoped=scopeWellData(data,analysisWellRange(f.scheme,f.unit(),"well-native",17));
+  QCOMPARE(scoped.continuousCurves.first().depths,(QVector<float>{1000,1010}));
+  QCOMPARE(scoped.continuousCurves.first().values,(QVector<float>{1,2}));
+  QCOMPARE(scoped.formationIntervals.first().topDepth,1000.f);QCOMPARE(scoped.formationIntervals.first().bottomDepth,1020.f);
+  auto invalid=analysisWellRange(f.scheme,f.unit(),"well-native",17);invalid.resolved=false;
+  const auto empty=scopeWellData(data,invalid);QVERIFY(empty.continuousCurves.first().depths.isEmpty());QVERIFY(empty.formationIntervals.isEmpty());
+  data.continuousCurves.first().depths={1060,1070,1080,1090};data.continuousCurves.first().values={1,2,3,4};
+  data.formationIntervals.first().bottomDepth=1090;
+  WellComposite::LithologyInterval lithology;lithology.topDepth=990;lithology.bottomDepth=1090;lithology.lithoName=QStringLiteral("砂岩");
+  data.lithologyIntervals.append(lithology);
+  const auto last=scopeWellData(data,analysisWellRange(f.scheme,f.unit(4),"well-native",17));
+  WellFaciesModel model{"local","local","1",{},{"GR"},{QStringLiteral("河口坝")},2};
+  const auto input=prepareWellFaciesInput(last,model);QVERIFY2(input.ready(),qPrintable(input.reason));QCOMPARE(input.rows.size(),3);
+ }
  void nativeIdentityWinsAndMissingNativeDoesNotFallback(){
   Fixture f;QVERIFY(f.init());auto unit=f.unit();
   auto range=analysisWellRange(f.scheme,unit,"well-native",17);QVERIFY(range.resolved);QCOMPARE(range.top,1000.);QCOMPARE(range.wellId,17LL);

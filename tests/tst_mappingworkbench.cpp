@@ -4090,8 +4090,10 @@ private slots:
     paleo::data::ParsedFile parsed;parsed.status="parsed";parsed.kind="test";
     paleo::data::WellDataset well;well.wellInfo.wellName="A";well.wellInfo.wellheadX=10;well.wellInfo.wellheadY=20;
     paleo::data::LogSet log;log.logSetName="GR";log.depthInfo.depthType="MD";log.depthInfo.depthUnit="m";
-    log.samplingAxis.depthValues={1000,1030,1060,1090,1120};log.logCurves.push_back({"GR","API",{30,50,90,45,20},{}});
-    well.wellbore.logSets.push_back(log);parsed.wells.push_back(well);long long fileId=0;
+    log.samplingAxis.depthValues={1000,1030,1060,1090,1120};log.logCurves.push_back({"GR","API",{130,150,90,NAN,20},{}});
+    well.wellbore.logSets.push_back(log);
+    auto other=log;other.logSetName="other";other.logCurves={{"SP","mV",{1,2,3,4,5},{}}};
+    well.wellbore.logSets.push_back(other);parsed.wells.push_back(well);long long fileId=0;
     QVERIFY2(ds.importPreparedFile(source.toStdString(),source.toStdString(),source.toStdString(),
       QCryptographicHash::hash("synthetic",QCryptographicHash::Sha256).toHex().toStdString(),parsed,fileId,detail),detail.c_str());
     std::vector<paleo::data::WellSummary> nativeWells;QVERIFY(ds.listWells(nativeWells,detail));QCOMPARE(nativeWells.size(),size_t(1));
@@ -4117,6 +4119,7 @@ private slots:
     QCOMPARE(server.bodies.size(),1);
     const auto rows=server.bodies.first().value("wells").toArray().first().toObject().value("rows").toArray();
     QCOMPARE(rows.size(),2);
+    QCOMPARE(rows.first().toObject().value("GR").toDouble(),130.);
     for(const auto &row:rows){const auto depth=row.toObject().value(QStringLiteral("深度")).toDouble();QVERIFY(depth>=1000&&depth<1060);}
     QString product;
     for(const auto &row:f.work.products(key))if(row.toMap().value("kind")=="wells_prediction")product=row.toMap().value("id").toString();

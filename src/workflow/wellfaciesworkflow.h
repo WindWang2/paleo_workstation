@@ -63,7 +63,7 @@ signals:
   void attributeTableRequested(const QString &layerId);
 
 private:
-  bool scopePlanToUnit(QString *error);
+  bool scopePlanToUnit(QString *error, WellComposite::ComprehensiveWellData *input=nullptr);
   QString publishUnitResult(const WellFaciesResult &result);
   paleo::strat::UnitSelection m_analysisUnit;
   bool m_hasAnalysisContext = false;

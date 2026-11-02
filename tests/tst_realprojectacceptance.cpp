@@ -22,7 +22,10 @@
 #include "services/analysisunitcontext.h"
 #include "services/seismicunitinput.h"
 #include "services/areawellchart.h"
+#include "services/wellpredictioninput.h"
 #include "workflow/wellfaciesworkflow.h"
+#include "workflow/wellpredictionservice.h"
+#include "domain/faciescatalog.h"
 
 class TestRealProjectAcceptance : public QObject {
   Q_OBJECT
@@ -132,6 +135,71 @@ private slots:
       QVERIFY(exists(band.topCurveId));QVERIFY(exists(band.bottomCurveId));
     }
 
+  }
+  void nativeBatchWellInputs() {
+    paleo::data::DataService ds;std::string error;QString detail;
+    QVERIFY2(ds.openProjectReadOnly(u(paleo::area_model::directory(project)),error),error.c_str());
+    std::vector<paleo::data::WellSummary> wells;QVERIFY(ds.listWells(wells,error));
+    QVector<WellFaciesModel> models;
+    if(qEnvironmentVariable("PALEO_ACCEPTANCE_MODEL_CHECK")=="1"){
+      WellFaciesService service;service.configure(WellFaciesConfig::load());
+      QSignalSpy fetched(&service,&WellFaciesService::modelsReady),failed(&service,&WellFaciesService::failed);
+      service.fetchModels();QTRY_VERIFY_WITH_TIMEOUT(!fetched.isEmpty()||!failed.isEmpty(),30000);
+      QVERIFY2(failed.isEmpty(),failed.isEmpty()?"":qPrintable(failed.first()[0].toString()));
+      models=qvariant_cast<QVector<WellFaciesModel>>(fetched.first()[0]);QVERIFY(!models.isEmpty());
+    }
+    paleo::data::StratigraphicScheme scheme;QVERIFY(ds.readStratigraphicScheme("default",{},scheme,error));
+    QJsonArray results;
+    for(const auto *name:{"HZ19-1-1A","HZ21-1-1","HZ21-8-1","HZ25-4-1","HZ27-1-3","HZ27-5-1","HZ27-5-2","XJ24-1-1X"}){
+      const auto found=std::find_if(wells.begin(),wells.end(),[&](const auto &well){return well.name==name;});QVERIFY(found!=wells.end());
+      WellComposite::ComprehensiveWellData data;QVERIFY2(readAreaWellChart(ds,found->id,data,&detail),qPrintable(detail));
+      data.continuousCurves.clear();QVERIFY2(paleo::readModelWellPredictionInput(project,data,&detail),qPrintable(detail));
+      QSet<qlonglong> groups;int samples=0;
+      for(const auto &curve:data.continuousCurves){QVERIFY(curve.modelLogSetId>0);groups.insert(curve.modelLogSetId);samples+=curve.depths.size();}
+      QVERIFY(samples>0);QJsonArray units;
+      for(const auto &sub:scheme.subIntervals){
+        const auto unit=paleo::strat::makeSelection(scheme,QString::fromStdString(sub.interval.value),sub.index);
+        const auto range=paleo::strat::analysisWellRange(scheme,unit,{},found->id);
+        if(!range.resolved){units.append(QJsonObject{{"unit",paleo::strat::layerToken(unit)},{"ready",false},{"reason",QString::fromStdString(range.reason)}});continue;}
+        if(models.isEmpty())continue;
+        const auto plan=planWellFaciesRuns(paleo::strat::scopeWellData(data,range),models,{});int count=0;
+        for(const auto &run:plan.runs)count+=run.input.rows.size();
+        units.append(QJsonObject{{"unit",paleo::strat::layerToken(unit)},{"ready",plan.ready()},{"reason",plan.reason},{"rows",count}});
+      }
+      if(!models.isEmpty())QVERIFY(std::any_of(units.begin(),units.end(),[](const auto &unit){return unit.toObject().value("ready").toBool();}));
+      results.append(QJsonObject{{"well",name},{"groups",groups.size()},{"curves",data.continuousCurves.size()},{"samples",samples},{"units",units}});
+      qInfo()<<"Native batch input"<<name<<"groups"<<groups.size()<<"curves"<<data.continuousCurves.size()<<"samples"<<samples;
+    }
+    report.insert("nativeBatchWellInputs",results);
+    if(!models.isEmpty()){
+      DataCatalog catalog;catalog.setLockedReadOnly(true);QVERIFY2(catalog.open(project,&detail),qPrintable(detail));
+      RemotePredictionRequest request;request.id="acceptance-native-batch";request.kind="wells";request.facies=FaciesCatalog::defaults();
+      for(const auto &row:results){const auto name=row.toObject().value("well").toString();const auto ids=catalog.wellsMatchingName(name);QCOMPARE(ids.size(),1);
+        request.wells.append(QVariantMap{{"id",ids.first()},{"name",name}});}
+      for(const auto &sub:scheme.subIntervals){const auto unit=paleo::strat::makeSelection(scheme,QString::fromStdString(sub.interval.value),sub.index);
+        if(paleo::strat::layerToken(unit)=="T70-T72-S1"){request.unitSelection=paleo::strat::toMap(unit);request.horizon=paleo::strat::layerToken(unit);break;}}
+      QVERIFY(!request.unitSelection.isEmpty());WellPredictionService service;service.bindCatalog(&catalog,project);
+      QSignalSpy checked(&service,&WellPredictionService::readinessReady);service.check(request);QTRY_COMPARE_WITH_TIMEOUT(checked.size(),1,60000);
+      QVERIFY2(checked.first()[2].toString().isEmpty(),qPrintable(checked.first()[2].toString()));
+      const auto rows=checked.first()[1].toList();QCOMPARE(rows.size(),8);int ready=0;
+      for(const auto &row:rows){const auto well=row.toMap();ready+=well.value("ready").toBool();
+        QVERIFY(!well.value("reason").toString().contains("explicit curve group"));QVERIFY(!well.value("reason").toString().contains(QStringLiteral("当前基准为 未声明")));}
+      QVERIFY(ready>0);report.insert("nativeBatchReadiness",QJsonObject{{"unit",request.horizon},{"ready",ready},{"wells",QJsonArray::fromVariantList(rows)}});
+      qInfo()<<"Actual batch readiness"<<request.horizon<<ready<<"of"<<rows.size();
+      if(qEnvironmentVariable("PALEO_ACCEPTANCE_LIVE_BATCH")=="1"){
+        const auto config=WellFaciesConfig::load();
+        QCOMPARE(config.baseUrl.adjusted(QUrl::StripTrailingSlash).toString(),qEnvironmentVariable("PALEO_ACCEPTANCE_AUTHORIZED_API"));
+        request.id="acceptance-native-live";request.wells={request.wells.first()};
+        QSignalSpy completed(&service,&WellPredictionService::completed),failed(&service,&WellPredictionService::failed);
+        service.start(request);QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty()||!failed.isEmpty(),180000);
+        QVERIFY2(failed.isEmpty(),failed.isEmpty()?"":qPrintable(failed.first()[1].toString()));
+        const auto result=qvariant_cast<RemotePredictionResult>(completed.first()[0]);QCOMPARE(result.points.size(),1);
+        const auto point=result.points.first().toMap();QVERIFY2(point.value("facies_code").toInt()>0,qPrintable(point.value("prediction_reason").toString()));
+        const auto intervals=QJsonDocument::fromJson(point.value("facies_intervals").toString().toUtf8()).array();QVERIFY(!intervals.isEmpty());
+        for(const auto &value:intervals){const auto interval=value.toObject();QVERIFY(interval.value("top").toDouble()>=point.value("prediction_depth_top").toDouble());QVERIFY(interval.value("bottom").toDouble()<=point.value("prediction_depth_bottom").toDouble());}
+        report.insert("nativeBatchLive",QJsonObject{{"well",point.value("name").toString()},{"unit",request.horizon},{"intervals",intervals.size()},{"model",point.value("prediction_model").toString()}});
+      }
+    }
   }
   void wholeWellPreviewInputs() {
     const auto name=qEnvironmentVariable("PALEO_ACCEPTANCE_PREDICT_WELL");if(name.isEmpty())return;

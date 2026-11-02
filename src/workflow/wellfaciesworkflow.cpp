@@ -463,8 +463,9 @@ void WellFaciesWorkflow::updateInput(bool restoreCache) {
   else if (!m_modelError.isEmpty())
     reason = m_modelError;
   else {
-    m_plan = planWellFaciesRuns(m_data, m_models, m_modelId,m_allowPartialPrediction&&!m_hasAnalysisContext);
-    reason = m_plan.ready() ? QString()
+    auto input=m_data;
+    if(scopePlanToUnit(&reason,&input))m_plan = planWellFaciesRuns(input, m_models, m_modelId,m_allowPartialPrediction&&!m_hasAnalysisContext);
+    if(reason.isEmpty())reason = m_plan.ready() ? QString()
              : m_plan.reason.isEmpty()
                  ? tr("没有可调用的测井相模型，请刷新模型")
                  : m_plan.reason;

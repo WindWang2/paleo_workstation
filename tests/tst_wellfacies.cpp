@@ -1048,7 +1048,9 @@ private slots:
     QSignalSpy ready(&workflow,&WellFaciesWorkflow::availabilityChanged);
     QSignalSpy results(&workflow,&WellFaciesWorkflow::resultReady);
     QSignalSpy busy(&workflow,&WellFaciesWorkflow::busyChanged);
-    auto input=well();input.modelWellId=17;workflow.setData(input);
+    auto input=well();input.modelWellId=17;
+    input.continuousCurves.first().values[100]=NAN; // outside S1 must not block S1
+    workflow.setData(input);
     QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
     results.clear();
     workflow.run();

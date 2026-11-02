@@ -3,6 +3,7 @@
 #include "domain/stratigraphicunit.h"
 #include <paleo_data/stratigraphic_framework.h>
 #include <QJsonArray>
+namespace WellComposite { struct ComprehensiveWellData; }
 
 namespace paleo::strat {
 QString analysisProjectCrs(const QString &project,QString *error=nullptr);
@@ -14,4 +15,6 @@ bool analysisUnitGeometryCurrent(const QString &project,const UnitSelection &uni
 paleo::data::WellSubIntervalRange analysisWellRange(const paleo::data::StratigraphicScheme &scheme,
     const UnitSelection &unit,const QString &entityId,qlonglong modelWellId=0);
 QJsonArray scopeWellRows(const QJsonArray &rows,const paleo::data::WellSubIntervalRange &range);
+WellComposite::ComprehensiveWellData scopeWellData(const WellComposite::ComprehensiveWellData &data,
+    const paleo::data::WellSubIntervalRange &range);
 }

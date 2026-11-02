@@ -976,13 +976,14 @@ private slots:
     DataCatalog catalog;
     QString error;
     QVERIFY(catalog.open(dir.path(), &error));
-    CatalogEntity entity; entity.id="well-1"; entity.entityType="well"; entity.name="W-1";
+    CatalogEntity entity; entity.id="well-1"; entity.entityType="well"; entity.name="W-1";entity.extra.insert("areaModelWellId",17);
     QVERIFY(catalog.addEntity(entity, &error));
     paleo::data::DataService ds;
     std::string detail;
     QVERIFY(ds.createProject((dir.path()+"/artifacts/metadata/area-model").toStdString(), "test", detail));
     paleo::strat::WellTopTable tops;
-    tops[paleo::strat::stableWellKey(entity.id)]={{"A",1000},{"B",1016}};
+    tops[17]={{"A",1000},{"B",1016}};
+    tops[paleo::strat::stableWellKey(entity.id)]={{"A",1010},{"B",1016}};
     auto draft=paleo::strat::draftScheme("scope", "scope", {"A","B"}, tops);
     paleo::data::StratigraphicScheme head;
     std::vector<paleo::data::FrameworkIssue> issues;
@@ -998,7 +999,7 @@ private slots:
     QSignalSpy ready(&workflow,&WellFaciesWorkflow::availabilityChanged);
     QSignalSpy results(&workflow,&WellFaciesWorkflow::resultReady);
     QSignalSpy busy(&workflow,&WellFaciesWorkflow::busyChanged);
-    workflow.setData(well());
+    auto input=well();input.modelWellId=17;workflow.setData(input);
     QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
     results.clear();
     workflow.run();

@@ -5,6 +5,7 @@
 #include "mappingworkbench.h"
 #include "../qgis/wellattributestore.h"
 #include "wellpredictionservice.h"
+#include "services/analysisunitcontext.h"
 #include <QSet>
 #include <QUuid>
 
@@ -36,6 +37,11 @@ bool MappingWorkbench::checkWellReadiness(const QString &h, const QStringList &i
   request.id = QStringLiteral("readiness-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
   request.horizon = h;
   request.kind = QStringLiteral("wells");
+  if(m_analysisUnit.isValid()){
+    paleo::strat::UnitSelection frozen;
+    if(!paleo::strat::freezeAnalysisUnit(m_dir,m_analysisUnit,frozen,error))return false;
+    request.unitSelection=paleo::strat::toMap(frozen);
+  }
   QSet<QString> seen;
   for (const auto &v : inputs(QStringLiteral("wells"))) {
     const auto row = v.toMap();

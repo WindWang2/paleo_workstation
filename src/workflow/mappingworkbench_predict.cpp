@@ -34,6 +34,7 @@
 #include "evidencerecord.h"
 #include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
+#include "services/analysisunitcontext.h"
 #include "wellpredictionservice.h"
 #include "workflows.h"
 #include <QDateTime>
@@ -172,6 +173,11 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
   request.id = uid();
   request.horizon = h;
   request.kind = seismicInput ? QStringLiteral("seismic") : kind;
+  if(m_analysisUnit.isValid()){
+    paleo::strat::UnitSelection frozen;
+    if(!paleo::strat::freezeAnalysisUnit(m_dir,m_analysisUnit,frozen,error))return false;
+    request.unitSelection=paleo::strat::toMap(frozen);
+  }
   if (!FaciesTaxonomy::normalize(facies(h), &request.facies, error)) return false;
   const auto choices = inputs(kind);
   QSet<QString> seen;
@@ -199,6 +205,10 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
   }
   request.sourceVersionIds << schemaVersion(h);
   request.sourceVersionIds.removeDuplicates();
+  if(seismicInput&&!mock&&!request.unitSelection.isEmpty()){
+    const auto version=m_catalog->currentVersion(ids.first());
+    return startUnitSeismicPrediction(request,DataCatalog::resolvedVersionPath(m_dir,version));
+  }
   if (seismicInput && !mock) {
     for (const auto &l : m_catalog->linksForAsset(ids.first()))
       if (!l.unresolved) {
@@ -308,7 +318,7 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
     const bool hasAreaDb =
         QFileInfo::exists(m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite"));
     const bool useDataServiceWindow =
-        hasAreaDb && ((horizonFile.isEmpty() && isSubIntervalTarget) || horizonPath.isEmpty());
+        hasAreaDb && (!request.unitSelection.isEmpty() || (horizonFile.isEmpty() && isSubIntervalTarget) || horizonPath.isEmpty());
     if (!useDataServiceWindow && (!QFileInfo(horizonPath).isFile() || !QFileInfo(horizonPath).isReadable())) {
       fail(error, tr("未找到 %1 的可读层位数据，请在「层位文件」直接选择 DAT，或在数据管理中导入层位资料").arg(h));
       return false;
@@ -333,6 +343,7 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
     }
     m_request = request;
     m_predictionParameters = {
+      {"unitSelection",request.unitSelection},
       {"horizon_source_format", useDataServiceWindow ? "dataservice_horizon_window" : (source == SeismicHorizonSource::Scatter ? "smi_xyz_inline_crossline" : "time_raster")},
       {"horizon_source_uri", useDataServiceWindow ? (m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite")) : QFileInfo(horizonPath).absoluteFilePath()}};
     beginPredictionTask(tr("智能预测 · %1 · 地震层位窗聚类（Mock）").arg(h));
@@ -417,7 +428,7 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
     watcher->setFuture(QtConcurrent::run(
         paleo::tasks::pool(m_taskSvc),
         [seismicPath, horizonPath, cacheDir, codes, cancelled, source, useDataServiceWindow,
-         projectDir = m_dir, targetUnit = h, schemeId = m_analysisUnit.schemeId, revision = m_analysisUnit.revision,
+         projectDir = m_dir, targetUnit = h, unit = paleo::strat::fromMap(request.unitSelection),
          inputSnapshot, wellSources, schema = request.facies, transformContext](QPromise<SeismicClusterResult> &promise) {
           promise.setProgressRange(0, 100);
           QString inputPath = horizonPath;
@@ -437,7 +448,7 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
             }
           }
           auto clustered = useDataServiceWindow
-              ? clusterSeismicStratigraphicWindow(projectDir, targetUnit, schemeId, revision, codes,
+              ? clusterSeismicStratigraphicWindow(projectDir, unit, seismicPath, codes,
                     [&promise](int value) { promise.setProgressValue(value * 95 / 100); },
                     [cancelled] { return cancelled->load(); })
               : clusterSeismicHorizon(seismicPath, inputPath, cacheDir, codes,
@@ -460,6 +471,7 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
   }
   m_mockCancelled.reset();
   m_predictionParameters.clear();
+  if(!request.unitSelection.isEmpty())m_predictionParameters.insert("unitSelection",request.unitSelection);
   m_request = request;
   beginPredictionTask(request.kind == "wells"
                           ? tr("智能预测 · %1 · 测井 %2 口井（每井一个预测相）")
@@ -620,10 +632,15 @@ void MappingWorkbench::cancelPrediction() {
   if (was)
     emit predictionBusyChanged(false);
 }
-void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
+void MappingWorkbench::finishPrediction(const RemotePredictionResult &response) {
+  auto result=response;
+  if(!m_request.unitSelection.isEmpty()&&result.cells.size()==m_request.samples.size())
+    for(qsizetype i=0;i<result.cells.size();++i)if(!std::isfinite(m_request.samples[i]))result.cells[i]=-9999;
   if (result.request.id != m_request.id || !m_catalog || !m_catalog->isOpen())
     return;
   const auto request = m_request;
+  if(!request.unitSelection.isEmpty()&&!paleo::strat::analysisUnitGeometryCurrent(m_dir,paleo::strat::fromMap(request.unitSelection)))
+    m_predictionParameters.insert("stale",true);
   // Validate the response against the frozen request before publishing any
   // artifact.
   const auto schema = result.facies.isEmpty() ? request.facies : result.facies;

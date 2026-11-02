@@ -391,7 +391,7 @@ class TestFactorWorkflow : public QObject
       CatalogEntity well; well.id="well-model";well.name="SYNTH-1";well.entityType="well";
       well.hasSurface=true;well.surfaceX=1;well.surfaceY=2;well.coordinateStatus="untransformed";
       well.extra.insert("areaModelWellId",wells.front().id); QVERIFY(f.catalog.addEntity(well,&error));
-      auto draft=paleo::strat::draftScheme("scheme","scheme",{"TOP","BASE"},{{paleo::strat::stableWellKey(well.id),{{"TOP",100.},{"BASE",200.}}}});
+      auto draft=paleo::strat::draftScheme("scheme","scheme",{"TOP","BASE"},{{wells.front().id,{{"TOP",100.},{"BASE",200.}}}});
       draft.wellOccurrences.front().internal={110.,150.,180.};
       draft.wellOccurrences.front().internalStatus={"confirmed","confirmed","confirmed"};
       paleo::data::StratigraphicScheme scheme; std::vector<paleo::data::FrameworkIssue> issues;

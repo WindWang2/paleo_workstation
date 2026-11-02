@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QToolButton>
 #include <QComboBox>
+#include <QSignalBlocker>
 #include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -165,6 +166,12 @@ void WellCompositePanel::bindSelectionContext(SelectionContext *selection)
     m_selectionContext = nullptr;
   }
   const auto apply = [this](const paleo::strat::UnitSelection &u) {
+    if(m_faciesStratTrack&&m_selectionContext){
+      QSignalBlocker blocker(m_faciesStratTrack);m_faciesStratTrack->clear();
+      m_faciesStratTrack->addItem(u.isValid()?u.displayName:tr("请在顶部选择地震层段"));
+      m_faciesStratTrack->setEnabled(false);
+      m_faciesStratTrack->setToolTip(tr("预测范围跟随顶部地震层段选择，成果保存到同一方案修订"));
+    }
     if (m_faciesWorkflow) m_faciesWorkflow->setAnalysisUnit(u);
     if (!m_analysisUnitLabel)
       return;

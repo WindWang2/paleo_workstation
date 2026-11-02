@@ -68,6 +68,7 @@ private:
   bool m_hasAnalysisContext = false;
   QString m_stratTrackName, m_stratUnitName, m_stratSchemeId;
   QStringList m_unitParentVersions;
+  qlonglong m_analysisWellId=0;
   void updateInput(bool restoreCache = true);
   void loadKeyFromKeychain();
   int m_configGeneration = 0; // configure() 递增：迟到的钥匙串读结果不覆盖新配置

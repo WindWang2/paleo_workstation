@@ -4078,6 +4078,58 @@ private slots:
     QCOMPARE(reasons->count(), 3);
   }
 
+  void wellsRemoteApiUsesNativeSelectedUnitWithoutTimeDepth() {
+    WellApiServer server; WellApiEnvironment environment(server);
+    Fixture f; QVERIFY(f.init()); QString error; std::string detail;
+    QVERIFY(!f.well("A",10,20).isEmpty());
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog,f.dir.path(),&f.layers,
+      {QVariantMap{{"well_id","A"},{"top_md",1000.},{"base_md",1240.},{"lithology",QStringLiteral("砂岩")}}},&error));
+    paleo::data::DataService ds; const auto root=f.dir.path()+"/artifacts/metadata/area-model";
+    QVERIFY(QFileInfo::exists(root+"/data.sqlite")?ds.openProject(root.toStdString(),detail):ds.createProject(root.toStdString(),"test",detail));
+    const auto source=f.dir.filePath("native.txt");QFile input(source);QVERIFY(input.open(QIODevice::WriteOnly));input.write("synthetic");input.close();
+    paleo::data::ParsedFile parsed;parsed.status="parsed";parsed.kind="test";
+    paleo::data::WellDataset well;well.wellInfo.wellName="A";well.wellInfo.wellheadX=10;well.wellInfo.wellheadY=20;
+    paleo::data::LogSet log;log.logSetName="GR";log.depthInfo.depthType="MD";log.depthInfo.depthUnit="m";
+    log.samplingAxis.depthValues={1000,1030,1060,1090,1120};log.logCurves.push_back({"GR","API",{30,50,90,45,20},{}});
+    well.wellbore.logSets.push_back(log);parsed.wells.push_back(well);long long fileId=0;
+    QVERIFY2(ds.importPreparedFile(source.toStdString(),source.toStdString(),source.toStdString(),
+      QCryptographicHash::hash("synthetic",QCryptographicHash::Sha256).toHex().toStdString(),parsed,fileId,detail),detail.c_str());
+    std::vector<paleo::data::WellSummary> nativeWells;QVERIFY(ds.listWells(nativeWells,detail));QCOMPARE(nativeWells.size(),size_t(1));
+    const auto nativeId=nativeWells.front().id;
+    paleo::strat::WellTopTable tops; tops[nativeId]={{"T30",1000},{"T70",1240}};
+    tops[paleo::strat::stableWellKey("A")]={{"T30",1100},{"T70",1140}};
+    auto draft=paleo::strat::draftScheme("unit","test",{"T30","T70"},tops);
+    paleo::data::StratigraphicScheme scheme; std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(ds.commitStratigraphicScheme(draft,{},scheme,issues,detail));
+    const auto unit=paleo::strat::makeSelection(scheme,paleo::strat::selectorOptions(scheme).front().intervalId,1);
+    const auto key=paleo::strat::analysisLayerKey(unit);f.work.setAnalysisUnit(unit);
+    installRemotePrediction(&f.work,RemotePredictConfig{},nullptr,{},&f.work);
+    QSignalSpy readiness(&f.work,&MappingWorkbench::wellReadinessReady);
+    QVERIFY2(f.work.checkWellReadiness(key,{"A"},&error),qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(readiness.size(),1,10000);
+    QVERIFY2(readiness.first()[2].toString().isEmpty(),qPrintable(readiness.first()[2].toString()));
+    QVERIFY(readiness.first()[1].toList().first().toMap().value("ready").toBool());
+    QCOMPARE(server.bodies.size(),0);
+    QSignalSpy failures(&f.work,&MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.predict(key,"wells",{"A"},&error),qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(),10000);
+    QVERIFY2(failures.isEmpty(),failures.isEmpty()?"":qPrintable(failures.first()[0].toString()));
+    QCOMPARE(server.bodies.size(),1);
+    const auto rows=server.bodies.first().value("wells").toArray().first().toObject().value("rows").toArray();
+    QCOMPARE(rows.size(),2);
+    for(const auto &row:rows){const auto depth=row.toObject().value(QStringLiteral("深度")).toDouble();QVERIFY(depth>=1000&&depth<1060);}
+    QString product;
+    for(const auto &row:f.work.products(key))if(row.toMap().value("kind")=="wells_prediction")product=row.toMap().value("id").toString();
+    QVERIFY(!product.isEmpty());
+    const auto version=f.work.versionForLayer(product);
+    QCOMPARE(paleo::strat::fromMap(version.extra.value("unitSelection").toMap()),unit);
+    QCOMPARE(syncAnalysisResults(&f.catalog,f.dir.path()),QString());
+    std::vector<paleo::data::SubIntervalResultBinding> bindings;
+    QVERIFY(ds.listSubIntervalResults(scheme.id,{},bindings,detail));
+    bool native=false;
+    for(const auto &b:bindings)if(b.assetRef==version.id.toStdString()&&b.wellId==nativeId){native=true;QCOMPARE(b.status,std::string("current"));QCOMPARE(b.subInterval.value,unit.subIntervalId.toStdString());}
+    QVERIFY(native);
+  }
   void wellsRemoteApiProducesCurrentFormationVectorAndUpdatesArea() {
     WellApiServer server;
     WellApiEnvironment environment(server);

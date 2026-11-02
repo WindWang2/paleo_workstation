@@ -15620,7 +15620,23 @@ Crossline: %3 ~ %4</source>
             <source>所选井均缺少可读源文件、测井曲线或有效井坐标</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>地震相预测 · %1</source>
+        <translation>Seismic facies prediction · %1</translation>
+    </message>
+    <message>
+        <source>层段输入已准备，提交预测服务</source>
+        <translation>Unit input prepared; submitting prediction</translation>
+    </message>
+    <message>
+        <source>按当前地震层段读取逐道窗口</source>
+        <translation>Reading trace windows for the selected seismic unit</translation>
+    </message>
+    <message>
+        <source>预测服务已断开</source>
+        <translation>Prediction service disconnected</translation>
+    </message>
+</context>
     <context>
         <name>MappingWorkbenchPage</name>
         <message>
@@ -25828,7 +25844,31 @@ PDF：%3
             <source>prediction algorithm '%1' returned no output path</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>模型输入与当前层段的 RMS 网格不匹配，需要 [1,1,%1,%2]</source>
+        <translation>Model input does not match the unit RMS grid; expected [1,1,%1,%2]</translation>
+    </message>
+    <message>
+        <source>模型输出与所选层段网格不一致</source>
+        <translation>Model output does not match the selected unit grid</translation>
+    </message>
+    <message>
+        <source>所选算法未声明地震层段输入</source>
+        <translation>The algorithm does not declare a seismic-unit input</translation>
+    </message>
+    <message>
+        <source>输入成果不属于所选地震层段，请先按该层段获取输入</source>
+        <translation>The input belongs to a different seismic unit; acquire data for this unit first</translation>
+    </message>
+    <message>
+        <source>不能创建层段预测临时输入</source>
+        <translation>Cannot create temporary input for unit prediction</translation>
+    </message>
+    <message>
+        <source>算法输出未写入本次任务的成果路径，结果未发布</source>
+        <translation>The algorithm did not write to the task output path; results were not published</translation>
+    </message>
+</context>
     <context>
         <name>PreviewBasemapControl</name>
         <message>
@@ -44761,7 +44801,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>远端结果未覆盖当前地层 %1</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>当前子层段内有效测井样点不足</source>
+        <translation>Insufficient valid log samples in this subinterval</translation>
+    </message>
+</context>
     <context>
         <name>WellReadinessPanel</name>
         <message>
@@ -52730,4 +52774,15 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
     </context>
+<context>
+    <name>WellCompositePanel</name>
+    <message>
+        <source>请在顶部选择地震层段</source>
+        <translation>Select a seismic unit above</translation>
+    </message>
+    <message>
+        <source>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</source>
+        <translation>Prediction follows the seismic unit selected above; results retain the same scheme revision</translation>
+    </message>
+</context>
 </TS>

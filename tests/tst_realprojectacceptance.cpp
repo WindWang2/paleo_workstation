@@ -19,6 +19,8 @@
 #include "services/projectdata.h"
 #include "services/subintervalfactors.h"
 #include "services/stratigraphicsubintervals.h"
+#include "services/analysisunitcontext.h"
+#include "services/seismicunitinput.h"
 
 class TestRealProjectAcceptance : public QObject {
   Q_OBJECT
@@ -128,6 +130,40 @@ private slots:
       QVERIFY(exists(band.topCurveId));QVERIFY(exists(band.bottomCurveId));
     }
 
+  }
+  void analysisUnitWindowsAndPredictionInputs() {
+    paleo::data::DataService ds;std::string error;
+    QVERIFY2(ds.openProjectReadOnly(u(paleo::area_model::directory(project)),error),error.c_str());
+    paleo::data::StratigraphicScheme scheme;QVERIFY(ds.readStratigraphicScheme("default",{},scheme,error));
+    std::vector<paleo::data::WellSummary> wells;QVERIFY(ds.listWells(wells,error));
+    QSet<qlonglong> logged;
+    for(const auto &well:wells){std::vector<paleo::data::DataEntry> curves;QVERIFY(ds.listData("curves",well.id,curves,error));if(!curves.empty())logged.insert(well.id);}
+    int best=-1;auto selection=paleo::strat::UnitSelection{};
+    for(const auto &sub:scheme.subIntervals){
+      const auto unit=paleo::strat::makeSelection(scheme,QString::fromStdString(sub.interval.value),sub.index);int ready=0;
+      for(const auto &well:wells)if(logged.contains(well.id)&&paleo::strat::analysisWellRange(scheme,unit,"catalog-"+QString::number(well.id),well.id).resolved)++ready;
+      if(ready>best){best=ready;selection=unit;}
+    }
+    QVERIFY(best>0);int rows=0,nativeWindows=0;
+    for(const auto &well:wells){
+      const auto range=paleo::strat::analysisWellRange(scheme,selection,"catalog-"+QString::number(well.id),well.id);
+      if(!range.resolved)continue;++nativeWindows;QVERIFY(range.bottom>range.top);
+      if(rows||!logged.contains(well.id))continue;
+      paleo::data::WellIntervalLogQuery query;query.wellIds={well.id};query.stratigraphy.source=paleo::data::StratigraphicTrackSource::SeismicFramework;
+      query.stratigraphy.schemeId=selection.schemeId.toStdString();query.stratigraphy.revision=selection.revision.toStdString();
+      query.stratigraphy.subIntervalId.value=selection.subIntervalId.toStdString();
+      std::vector<paleo::data::WellStratigraphicLogSlice> slices;QVERIFY(ds.queryWellLogsByStratigraphy(query,slices,error));
+      if(slices.empty()||!slices.front().resolved)continue;
+      for(const auto depth:slices.front().featureTable.depths){QVERIFY(depth>=range.top);QVERIFY(depth<range.bottom||(range.index==4&&depth==range.bottom));}
+      rows=int(slices.front().featureTable.depths.size());
+    }
+    QVERIFY(rows>0);
+    std::vector<paleo::data::DataEntry> volumes;QVERIFY(ds.listData("volumes",0,volumes,error));QVERIFY(!volumes.empty());
+    paleo::data::SeismicVolume volume;QVERIFY(ds.readVolume(volumes.front().id,volume,error));
+    const auto input=paleo::strat::prepareSeismicUnitInput(project,selection,QString::fromStdString(volume.dataFile));
+    QVERIFY2(input.error.isEmpty(),qPrintable(input.error));QVERIFY(input.validCells>0);QCOMPARE(input.unit.revision,selection.revision);
+    report["unitAnalysis"]=QJsonObject{{"unit",selection.displayName},{"nativeWindows",nativeWindows},{"loggedWells",best},{"featureRows",rows},{"seismicCells",input.validCells}};
+    qInfo()<<"Unit analysis"<<selection.displayName<<"native windows"<<nativeWindows<<"logged wells"<<best<<"sample rows"<<rows<<"seismic cells"<<input.validCells;
   }
   void createSourceFormationFrameworkWhenExplicitlyRequested() {
     const QString formation = qEnvironmentVariable("PALEO_ACCEPTANCE_FORMATION");

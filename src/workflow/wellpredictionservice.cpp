@@ -10,6 +10,7 @@
 #include "../services/futuretask.h"
 #include "../services/projectdata.h"
 #include "../services/subintervalfactors.h"
+#include "services/analysisunitcontext.h"
 #include "../services/welllogset.h"
 #include "wellsectionworkflow.h"
 #include <QDebug>
@@ -166,6 +167,15 @@ void WellPredictionService::reportReadiness() {
   emit readinessReady(id, wells, {});
 }
 void WellPredictionService::prepare() {
+  m_unitRanges.clear();
+  paleo::strat::UnitSelection unit;
+  paleo::data::StratigraphicScheme scheme;
+  if(!m_request.unitSelection.isEmpty()){
+    QString error;
+    if(!paleo::strat::freezeAnalysisUnit(m_dir,paleo::strat::fromMap(m_request.unitSelection),unit,&error)||
+       !paleo::strat::loadProjectSchemeFromDir(m_dir,unit.schemeId,unit.revision,scheme,nullptr,&error))return fail(error);
+    m_request.unitSelection=paleo::strat::toMap(unit);
+  }
   struct Source {
     QVector<WellCurveRef> curves;
     QVector<WellTop> tops;
@@ -198,7 +208,7 @@ void WellPredictionService::prepare() {
     // 编图与砂地比、厚度、残差同一套层序，不跟 20kou 这类主分层。
     QString topsError;
     source.tops = project.topsForMapping(id, &topsError);
-    if (!topsError.isEmpty()) skip(int(sources.size()), topsError);
+    if (!unit.isValid() && !topsError.isEmpty()) skip(int(sources.size()), topsError);
     QString topsVersion;
     const QString topsAsset = project.mappingTopsAssetId(id);
     if (!topsAsset.isEmpty())
@@ -224,7 +234,18 @@ void WellPredictionService::prepare() {
       [](const WellTop &a, const WellTop &b) { return a.md < b.md; });
     bool current = false;
     const qlonglong modelWellId = m_catalog->entityById(id).extra.value(QStringLiteral("areaModelWellId")).toLongLong();
-    if (modelWellId > 0 && !m_dir.isEmpty() && QFileInfo::exists(m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite"))) {
+    if(unit.isValid()){
+      const auto range=paleo::strat::analysisWellRange(scheme,unit,id,modelWellId);
+      source.data.modelWellId=modelWellId;
+      if(!range.resolved||range.depthType!="MD"||range.depthUnit!="m")
+        skip(int(sources.size()),QString::fromStdString(range.reason.empty()?"当前井在所选地震层段缺少 MD 米深度窗":range.reason));
+      else {
+        m_unitRanges.insert(int(sources.size()),{{"top",range.top},{"bottom",range.bottom},{"index",range.index}});
+        WellComposite::FormationInterval f;f.name=m_request.horizon;f.topDepth=float(range.top);f.bottomDepth=float(range.bottom);
+        f.unitType=QStringLiteral("地震小层");source.data.formationIntervals.append(f);
+      }
+    }
+    if (!unit.isValid() && modelWellId > 0 && !m_dir.isEmpty() && QFileInfo::exists(m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite"))) {
       paleo::data::WellIntervalLogQuery q;
       q.wellIds = {modelWellId};
       q.stratigraphy.subIntervalId.value = m_request.horizon.toStdString();
@@ -390,7 +411,18 @@ void WellPredictionService::plan(const QVector<WellFaciesModel> &models) {
   m_runs.clear(); m_results.resize(m_data.size());
   for (int i = 0; i < m_data.size(); ++i) {
     if (m_skipped.contains(i)) continue;
-    auto planned = planWellFaciesFormationRun(m_data[i], models, m_request.horizon);
+    auto planned = m_request.unitSelection.isEmpty()
+        ? planWellFaciesFormationRun(m_data[i],models,m_request.horizon)
+        : planWellFaciesRuns(m_data[i],models,{});
+    if(!m_request.unitSelection.isEmpty()){
+      const auto selected=m_unitRanges.value(i);
+      paleo::data::WellSubIntervalRange range;range.resolved=!selected.isEmpty();range.depthType="MD";range.depthUnit="m";
+      range.top=selected.value("top").toDouble();range.bottom=selected.value("bottom").toDouble();range.index=selected.value("index").toInt();
+      QVector<WellFaciesRun> runs;
+      for(auto run:planned.runs){run.input.rows=paleo::strat::scopeWellRows(run.input.rows,range);if(run.input.rows.size()>=run.model.window)runs.append(run);}
+      planned.runs=runs;
+      if(runs.isEmpty())planned.reason=tr("当前子层段内有效测井样点不足");
+    }
     if (!planned.ready()) { skip(i, planned.reason); continue; }
     QString classError;
     for (auto &run : planned.runs) {

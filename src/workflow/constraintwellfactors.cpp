@@ -9,6 +9,7 @@
 #include "domain/mappinghorizons.h"
 #include "domain/subintervalfacies.h"
 #include "services/subintervalfactors.h"
+#include "services/analysisunitcontext.h"
 #include "domain/stratigraphicunit.h"
 #include "domain/singlefactorstrategy.h"
 #include "services/projectdata.h"
@@ -186,6 +187,10 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   paleo::data::StratigraphicScheme scheme;
   if (unitSel.isValid() && !paleo::strat::loadProjectSchemeFromDir(wf->projectDir(), unitSel.schemeId,
       unitSel.revision, scheme, nullptr, error)) return {};
+  if(unitSel.isValid()&&!out.hasMapSource){
+    const auto crs=paleo::strat::analysisProjectCrs(wf->projectDir(),error);if(crs.isEmpty())return {};
+    out.crs=QgsCoordinateReferenceSystem(crs);
+  }
   QString effectiveTopName = horizon;
   QString effectiveBaseName = baseName;
   if (unitSel.isValid() && !unitSel.topBoundary.isEmpty())
@@ -309,18 +314,12 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     double top = qQNaN(), base = qQNaN();
     QString topsError;
     if (unitSel.isValid()) {
-      const auto key=paleo::strat::stableWellKey(well.id);
-      for (const auto &sub : scheme.subIntervals) {
-        if (unitSel.aggregate ? sub.interval.value != unitSel.intervalId.toStdString()
-                              : sub.id.value != unitSel.subIntervalId.toStdString()) continue;
-        const auto range=paleo::data::framework::wellRange(scheme,key,sub.id);
-        if (!range.resolved || range.depthType != "MD" || range.depthUnit != "m") {
-          topsError=QString::fromStdString(range.reason.empty() ? "Analysis window requires confirmed MD/m" : range.reason); break;
-        }
-        top=std::isfinite(top) ? qMin(top,range.top) : range.top;
-        base=std::isfinite(base) ? qMax(base,range.bottom) : range.bottom;
-      }
-      if (!std::isfinite(top) && topsError.isEmpty()) topsError=QStringLiteral("No well occurrence in selected analysis revision");
+      const auto nativeId=wf->catalog()->entityById(well.id).extra.value("areaModelWellId").toLongLong();
+      const auto range=paleo::strat::analysisWellRange(scheme,unitSel,well.id,nativeId);
+      if(!range.resolved||range.depthType!="MD"||range.depthUnit!="m")
+        topsError=QString::fromStdString(range.reason.empty()?"当前井在所选分析层段缺少 MD 米深度窗":range.reason);
+      else {top=range.top;base=range.bottom;}
+      row.provenance.insert(QStringLiteral("analysisWellId"),range.wellId);
       row.provenance.insert(QStringLiteral("subIntervalId"),unitSel.subIntervalId);
       row.provenance.insert(QStringLiteral("windowTopMd"),top);
       row.provenance.insert(QStringLiteral("windowBottomMd"),base);
@@ -662,6 +661,8 @@ QVariantMap extractionParams(const QVariantMap &params) {
 
 bool savedFactorInputsCurrent(const DataCatalog *catalog, QgisLayerService *layers, const QString &dir, const CatalogVersion &v) {
   if (v.id.isEmpty() || !QFile::exists(DataCatalog::resolvedVersionPath(dir, v))) return false;
+  const auto unit=paleo::strat::fromMap(v.extra.value("unitSelection").toMap());
+  if(unit.isValid()&&!paleo::strat::analysisUnitGeometryCurrent(dir,unit))return false;
   for (const auto &parent : v.parentVersionIds) {
     const auto input = catalog->versionById(parent);
     if (input.id.isEmpty() || catalog->currentVersion(input.assetId).id != parent) return false;
@@ -792,8 +793,14 @@ bool ConstraintWorkflow::startWellFactorExtraction(const QString &horizon, const
 }
 
 bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QString &factorId,
-                                                const QVariantMap &params, QString *error,
+                                                const QVariantMap &requestedParams, QString *error,
                                                 bool synchronous) {
+  QVariantMap params=requestedParams;
+  if(params.contains("unitSelection")){
+    paleo::strat::UnitSelection frozen;
+    if(!paleo::strat::freezeAnalysisUnit(projectDir(),paleo::strat::fromMap(params.value("unitSelection").toMap()),frozen,error,true))return false;
+    params.insert("unitSelection",paleo::strat::toMap(frozen));
+  }
   if (factorBusy()) {
     if (error)
       *error = tr("已有单因素任务，请在任务中心查看进度");
@@ -861,6 +868,8 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
         QVariantMap{{"size", file.size()}, {"modified", file.lastModified().toMSecsSinceEpoch()}});
   }
   auto publish = [this, result, st, horizon, factorId, params, def](QString *publishError) {
+    const auto unit=paleo::strat::fromMap(params.value("unitSelection").toMap());
+    const bool geometryStale=unit.isValid()&&!paleo::strat::analysisUnitGeometryCurrent(projectDir(),unit);
     DerivedAssetRegistrar registrar(catalog(), projectDir());
     QString err;
     for (auto it = result->sourceFileStates.cbegin(); it != result->sourceFileStates.cend(); ++it) {
@@ -876,6 +885,7 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
     const QString id = QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId);
     QVariantMap extra = params;
     extra.insert(QStringLiteral("factor_id"), factorId);
+    if(geometryStale)extra.insert("stale",true);
     extra.insert(QStringLiteral("horizon"), horizon);
     extra.insert(
         QStringLiteral("sample_count"),

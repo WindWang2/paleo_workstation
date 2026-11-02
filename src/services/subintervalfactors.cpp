@@ -346,7 +346,8 @@ AutoBindReport autoBindSandRatioExtraction( const QString &projectDir, const Uni
       ++report.skipped;
       continue;
     }
-    const qlonglong wid = stableWellKey( wellId );
+    const qlonglong nativeId = row.value( QStringLiteral( "analysisWellId" ) ).toLongLong();
+    const qlonglong wid = nativeId > 0 ? nativeId : stableWellKey( wellId );
     const QString ref = assetRef.isEmpty() ? QStringLiteral( "wellfactor.%1" ).arg( wellId ) : assetRef;
     const auto f = bindSandRatioFactor( ds, sel, wid, metrics, ref );
     const auto w = bindWellFaciesFromSandRatio( ds, sel, wid, metrics, ref + QStringLiteral( ".facies" ) );

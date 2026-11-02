@@ -330,7 +330,7 @@ class ConstraintWorkflow : public QObject
                                      const QString &id, const QString &wkt, const QString &storedType,
                                      int faciesCode, const QString &paramsJson, bool extended, QString *error);
     bool extractWellFactorsImpl(const QString &horizon, const QString &factorId,
-                                const QVariantMap &params, QString *error, bool synchronous);
+                                const QVariantMap &requestedParams, QString *error, bool synchronous);
     bool prepareFactorInputs(const QString &horizon, const QString &factorId,
                              QVariantMap &params, QString *error);
     QPointer<QgsVectorLayer> m_wellFactorAttributeLayer;

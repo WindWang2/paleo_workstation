@@ -236,6 +236,7 @@ void HttpRemoteTransport::predict(const RemotePredictionRequest &request,
   for (float v : request.samples)
     samples.append(!std::isfinite(v) ? QJsonValue() : QJsonValue(double(v)));
   body.insert(QStringLiteral("samples"), samples);
+  if(!request.unitSelection.isEmpty())body.insert(QStringLiteral("unitSelection"),QJsonObject::fromVariantMap(request.unitSelection));
   body.insert(QStringLiteral("facies"), QJsonArray::fromVariantList(request.facies));
   body.insert(QStringLiteral("predictionLevel"), QStringLiteral("micro_facies"));
   body.insert(QStringLiteral("faciesSchema"), QStringLiteral("paleo_facies_hierarchy_v1"));

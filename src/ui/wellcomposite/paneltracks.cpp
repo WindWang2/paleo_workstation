@@ -112,10 +112,14 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
     m_btnPredictFacies->setEnabled(!busy);
     m_btnCancelFacies->setToolTip(busy ? tr("停止本地等待（所有地层），服务端已受理任务继续执行") : tr("没有正在等待的预测"));
     m_faciesModel->setEnabled(!busy); m_btnFaciesService->setEnabled(!busy); m_btnRefreshFacies->setEnabled(!busy);
-    if (m_faciesStratTrack) m_faciesStratTrack->setEnabled(!busy);
+    if (m_faciesStratTrack) m_faciesStratTrack->setEnabled(!busy&&!m_selectionContext);
   });
   const auto refreshStratTracks = [this, workflow] {
     if (!m_faciesStratTrack || !workflow) return;
+    if(m_selectionContext){
+      QSignalBlocker blocker(m_faciesStratTrack);m_faciesStratTrack->clear();
+      m_faciesStratTrack->addItem(m_selectionContext->activeUnit().displayName);m_faciesStratTrack->setEnabled(false);return;
+    }
     const QVariantMap prev = m_faciesStratTrack->currentData().toMap();
     QSignalBlocker block(m_faciesStratTrack);
     m_faciesStratTrack->clear();

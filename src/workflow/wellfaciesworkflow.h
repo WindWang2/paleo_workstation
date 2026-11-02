@@ -8,8 +8,8 @@
 class DataCatalog;
 class QgisLayerService;
 class QgsVectorLayer;
-// 测井相预测按地层组进行：井上每个有模型的地层组各提交一次（模型取
-// formationGroup 与该组一致的那个），逐组顺序执行、逐组返回——每组一回来
+// 测井相按实际地层组组织任务，模型不受 formationGroup 描述限制。
+// 逐组顺序执行、逐组返回——每组一回来
 // 就并入预测相道显示并按组缓存；全部组走完后一次性回写属性。注入任务服务
 // 后每个地层组是任务中心里的一条任务（进度条 + 完成/失败/已取消状态，可单独取消）。
 class WellFaciesWorkflow : public QObject {

@@ -79,7 +79,7 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
   };
   m_btnPredictFacies = faciesButton(QStringLiteral("btnPredictFacies"), tr("预测相"));
   m_btnPredictFacies->setToolTip(tr("测井相预测服务尚未连接"));
-  m_btnPredictFacies->setWhatsThis(m_wholeWellPreview ? tr("预览预测覆盖整井的有效测井样点，按地层组匹配模型；不受当前分析层段限制。") :
+  m_btnPredictFacies->setWhatsThis(m_wholeWellPreview ? tr("预览预测覆盖整井的有效测井样点，模型可用于全部地层段；不受当前分析层段限制。") :
       tr("<b>预测相</b><p>按当前分析层段深度窗提交测井相预测；"
          "成果带 SubIntervalId，可供编图证据拉取。</p>"));
   m_btnCancelFacies = faciesButton(QStringLiteral("btnCancelFacies"), tr("停止等待"));

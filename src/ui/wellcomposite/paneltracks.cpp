@@ -104,7 +104,7 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
     m_faciesReady = ready;
     if (!m_btnCancelFacies->isEnabled())
       m_btnPredictFacies->setEnabled(true);
-    m_faciesModel->setToolTip(tr("%1\n预测按地层组逐组进行；同一地层组有多个模型版本时使用此处所选版本")
+    m_faciesModel->setToolTip(tr("%1\n模型可用于全部地层段；按实际地层组组织任务，模型的组名标注不限制预测范围")
                                   .arg(m_faciesModel->currentData(Qt::ToolTipRole).toString()));
     m_btnPredictFacies->setToolTip(ready ? tr("提交当前井的对应井段预测相（按地层组逐组，逐组返回）：%1").arg(m_faciesPlan) : reason);
     m_faciesStatus->setText(ready ? tr("可预测：%1").arg(m_faciesPlan) : reason);

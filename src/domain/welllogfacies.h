@@ -7,6 +7,7 @@
 #include <QVariantList>
 
 struct WellFaciesModel {
+  // formationGroup is descriptive metadata, not an applicability constraint.
   QString id, name, version, formationGroup;
   QStringList curves, labels;
   int window = 1;
@@ -32,15 +33,15 @@ struct WellFaciesResult {
 };
 Q_DECLARE_METATYPE(WellFaciesResult)
 
-// 逐地层组预测的一项：一个地层组 + 匹配该组的模型 + 该组井段的输入。
+// 逐地层组预测的一项：一个实际地层组 + 通用模型 + 该组井段的输入。
 struct WellFaciesRun {
-  QString group; // 地层组名；空 = 模型不限组（整井）
+  QString group; // 实际地层组名；空 = 输入未标组（整井/当前分析窗）
   WellFaciesModel model;
   WellFaciesInput input;
 };
 // 一口井的逐组预测计划。runs 都是输入已就绪的项，按井深自上而下；
-// skipped 是「组名（原因）」——有模型但输入不可用、井上有组却没有模型、
-// 与前一项井段重叠。runs 为空时 reason 给出总原因。
+// skipped 是「组名（原因）」——输入不可用或与前一项井段重叠。
+// runs 为空时 reason 给出总原因。
 struct WellFaciesPlan {
   QVector<WellFaciesRun> runs;
   QStringList skipped;
@@ -73,10 +74,9 @@ bool resolveWellFaciesClasses(const WellFaciesInput &input, const QStringList &l
 bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
                            const WellFaciesInput &input,
                            WellFaciesResult *result, QString *error);
-// 预测按地层组进行：井上每个有模型的地层组各提交一次，模型取 formationGroup
-// 与该组一致的那个（同组多个版本时 preferredModelId 优先，否则取列表首个）。
-// 井上没有标注地层组、或没有任何组命中模型时，沿用整井口径：只用所选模型
-// （preferredModelId，空则首个）预测它能用的井段，不让多个模型预测同一批点。
+// 按井上实际地层组组织独立任务；所有模型均可用于所有组/段。
+// 多模型时同名描述优先，同组多个版本 preferredModelId 优先；其余使用所选/默认
+// 模型。没有组标注时按整个输入组织任务，同一个样点只预测一次。
 WellFaciesPlan planWellFaciesRuns(const WellComposite::ComprehensiveWellData &data,
                                   const QVector<WellFaciesModel> &models,
                                   const QString &preferredModelId, bool allowPartial = false);

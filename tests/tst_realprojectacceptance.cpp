@@ -189,7 +189,13 @@ private slots:
       if(qEnvironmentVariable("PALEO_ACCEPTANCE_LIVE_BATCH")=="1"){
         const auto config=WellFaciesConfig::load();
         QCOMPARE(config.baseUrl.adjusted(QUrl::StripTrailingSlash).toString(),qEnvironmentVariable("PALEO_ACCEPTANCE_AUTHORIZED_API"));
-        request.id="acceptance-native-live";request.wells={request.wells.first()};
+        const auto liveWell=qEnvironmentVariable("PALEO_ACCEPTANCE_BATCH_WELL");
+        QVariant chosen=request.wells.first();
+        if(!liveWell.isEmpty()){
+          const auto found=std::find_if(request.wells.cbegin(),request.wells.cend(),[&](const auto &well){return well.toMap().value("name").toString()==liveWell;});
+          QVERIFY(found!=request.wells.cend());chosen=*found;
+        }
+        request.id="acceptance-native-live";request.wells={chosen};
         QSignalSpy completed(&service,&WellPredictionService::completed),failed(&service,&WellPredictionService::failed);
         service.start(request);QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty()||!failed.isEmpty(),180000);
         QVERIFY2(failed.isEmpty(),failed.isEmpty()?"":qPrintable(failed.first()[1].toString()));

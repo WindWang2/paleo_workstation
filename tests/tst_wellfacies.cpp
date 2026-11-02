@@ -392,7 +392,7 @@ private slots:
     d = well();
     auto m = model();
     m.formationGroup = QStringLiteral("沙一组");
-    QVERIFY(!prepareWellFaciesInput(d, m).ready());
+    QVERIFY(prepareWellFaciesInput(d, m).ready()); // metadata does not restrict target strata
     d = well();
     d.continuousCurves[0].values[20] = std::numeric_limits<float>::quiet_NaN();
     QVERIFY(!prepareWellFaciesInput(d, model()).ready());
@@ -837,23 +837,27 @@ private slots:
     QCOMPARE(plan.runs[1].input.rows.first().toObject().value(QStringLiteral("段")).toString(),
              QStringLiteral("恩平一段"));
 
-    // 只有一个模型：另一个组如实标「无对应模型」，不拿这个模型去预测它。
+    // One model covers both actual groups, irrespective of its descriptive annotation.
     plan = planWellFaciesRuns(twoGroupWell(), {model()}, "model-1");
-    QCOMPARE(plan.runs.size(), 1);
-    QCOMPARE(plan.runs[0].group, QStringLiteral("恩平组"));
-    QCOMPARE(plan.skipped, QStringList{QStringLiteral("珠海组（无对应模型）")});
-
-    // 井上有第三个组但没有模型：照跑有模型的两组，并在 skipped 里说明。
-    plan = planWellFaciesRuns(twoGroupWell(true), both, "model-1");
     QCOMPARE(plan.runs.size(), 2);
-    QCOMPARE(plan.skipped, QStringList{QStringLiteral("文昌组（无对应模型）")});
+    QCOMPARE(plan.runs[0].group, QStringLiteral("珠海组"));
+    QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-1"));
+    QCOMPARE(plan.runs[1].model.id, QStringLiteral("model-1"));
+    QVERIFY(plan.skipped.isEmpty());
+
+    // A third group also uses the selected/default model.
+    plan = planWellFaciesRuns(twoGroupWell(true), both, "model-1");
+    QCOMPARE(plan.runs.size(), 3);
+    QCOMPARE(plan.runs[2].group, QStringLiteral("文昌组"));
+    QCOMPARE(plan.runs[2].model.id, QStringLiteral("model-1"));
+    QVERIFY(plan.skipped.isEmpty());
 
     // 同组多个版本：所选版本优先。
     auto v2 = model();
     v2.id = "model-1b";
     v2.version = "v2";
     plan = planWellFaciesRuns(twoGroupWell(), {model(), v2}, "model-1b");
-    QCOMPARE(plan.runs.size(), 1);
+    QCOMPARE(plan.runs.size(), 2);
     QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-1b"));
     plan = planWellFaciesRuns(twoGroupWell(), {model(), v2}, "");
     QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-1"));
@@ -868,12 +872,11 @@ private slots:
     QCOMPARE(plan.skipped.size(), 1);
     QVERIFY(plan.skipped[0].startsWith(QStringLiteral("恩平组（")));
 
-    // 没有任何组命中模型：沿用所选模型的原因，不静默。
+    // An annotation not present in the well does not block any actual group.
     auto none = model();
     none.formationGroup = QStringLiteral("沙一组");
     plan = planWellFaciesRuns(twoGroupWell(), {none}, none.id);
-    QVERIFY(!plan.ready());
-    QVERIFY(plan.reason.contains(QStringLiteral("沙一组")));
+    QVERIFY(plan.ready());QCOMPARE(plan.runs.size(),2);QVERIFY(plan.skipped.isEmpty());
     QVERIFY(!planWellFaciesRuns(twoGroupWell(), {}, "").ready());
   }
   // #410：编图口径——当前地层裁剪 + 单模型单 run（planWellFaciesFormationRun
@@ -911,10 +914,11 @@ private slots:
     QVERIFY2(plan.ready(), qPrintable(plan.reason));
     QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-g"));
 
-    // 只有别的组的模型：如实拒绝，不拿错模型预测当前地层。
+    // A different annotation still predicts this exact selected horizon window.
     plan = planWellFaciesFormationRun(twoGroupWell(), {zhuhaiModel()}, QStringLiteral("恩平组"));
-    QVERIFY(!plan.ready());
-    QVERIFY(plan.reason.contains(QStringLiteral("恩平组")));
+    QVERIFY2(plan.ready(),qPrintable(plan.reason));
+    QCOMPARE(plan.runs.first().model.id,QStringLiteral("model-2"));
+    QCOMPARE(plan.runs.first().input.rows.size(),128);
 
     // 不存在的地层：如实报缺有效顶底深。
     plan = planWellFaciesFormationRun(twoGroupWell(), both, QStringLiteral("不存在的组"));
@@ -936,8 +940,7 @@ private slots:
     QVERIFY2(plan.ready(), qPrintable(plan.reason));
     QCOMPARE(plan.runs.size(), 1);
     QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-1"));
-    // 但井上标了组且都不匹配时，仍拒绝——不拿错组模型预测。
-    QVERIFY(!planWellFaciesFormationRun(twoGroupWell(), {model()}, QStringLiteral("珠海组")).ready());
+    QVERIFY(planWellFaciesFormationRun(twoGroupWell(), {model()}, QStringLiteral("珠海组")).ready());
   }
   void mergeResultsKeepsDepthOrder() {
     const auto make = [](const QString &group, double top, const QString &label) {
@@ -1049,6 +1052,7 @@ private slots:
     QSignalSpy results(&workflow,&WellFaciesWorkflow::resultReady);
     QSignalSpy busy(&workflow,&WellFaciesWorkflow::busyChanged);
     auto input=well();input.modelWellId=17;
+    input.formationIntervals[0].name=QStringLiteral("韩江组");input.formationIntervals[1].name=QStringLiteral("韩江一段");
     input.continuousCurves.first().values[100]=NAN; // outside S1 must not block S1
     workflow.setData(input);
     QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
@@ -1594,7 +1598,8 @@ private slots:
     auto twoWell = twoGroupWell(true);
     QVector<WellFaciesModel> models{model(), zhuhaiModel()};
     const auto plan = planWellFaciesFormationRun(twoWell, models, QStringLiteral("文昌一段"));
-    QVERIFY2(!plan.ready(), "Must not dispatch 珠海组 or 恩平组 model for 文昌组");
+    QVERIFY2(plan.ready(),qPrintable(plan.reason));
+    QCOMPARE(plan.runs.first().input.rows.size(),128);
   }
 
   // Streaming comprehensive documents use 16M cells / 1 GiB (#821), while

@@ -43,7 +43,7 @@ WellFaciesWorkflow::WellFaciesWorkflow(QObject *parent) : QObject(parent) {
               {"id", m.id},
               {"selected", m.id == m_modelId},
               {"name", m.name + QStringLiteral(" · ") + m.version},
-              {"requirements", tr("%1；曲线 %2；段、岩性；至少 %3 点")
+              {"requirements", tr("全部地层段可用（模型标注：%1）；曲线 %2；段、岩性；至少 %3 点")
                                    .arg(m.formationGroup, m.curves.join(", "))
                                    .arg(m.window)}});
         }

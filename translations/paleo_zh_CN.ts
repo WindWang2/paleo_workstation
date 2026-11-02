@@ -25235,8 +25235,8 @@ PDF：%3
         <translation>数据预览预测整井；单井相分析按当前分析层段预测。</translation>
     </message>
     <message>
-        <source>测井相网络模型版本；整井预览按地层组匹配模型，分析页按所选层段取数。</source>
-        <translation>测井相网络模型版本；整井预览按地层组匹配模型，分析页按所选层段取数。</translation>
+        <source>测井相网络模型可用于全部地层段；整井预览覆盖有效测井，分析页按所选层段取数。</source>
+        <translation>测井相网络模型可用于全部地层段；整井预览覆盖有效测井，分析页按所选层段取数。</translation>
     </message>
     <message>
         <source>数据预览对整井有效测井样点预测，不受地图层段限制；单井相分析仍按所选子层段预测。</source>
@@ -43331,9 +43331,9 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <location filename="../src/ui/wellcomposite/paneltracks.cpp" line="99"/>
         <source>%1
-预测按地层组逐组进行；同一地层组有多个模型版本时使用此处所选版本</source>
+模型可用于全部地层段；按实际地层组组织任务，模型的组名标注不限制预测范围</source>
         <translation>%1
-预测按地层组逐组进行；同一地层组有多个模型版本时使用此处所选版本</translation>
+模型可用于全部地层段；按实际地层组组织任务，模型的组名标注不限制预测范围</translation>
     </message>
     <message>
         <location filename="../src/ui/wellcomposite/paneltracks.cpp" line="101"/>
@@ -43640,8 +43640,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>隐藏道</translation>
     </message>
     <message>
-        <source>预览预测覆盖整井的有效测井样点，按地层组匹配模型；不受当前分析层段限制。</source>
-        <translation>预览预测覆盖整井的有效测井样点，按地层组匹配模型；不受当前分析层段限制。</translation>
+        <source>预览预测覆盖整井的有效测井样点，模型可用于全部地层段；不受当前分析层段限制。</source>
+        <translation>预览预测覆盖整井的有效测井样点，模型可用于全部地层段；不受当前分析层段限制。</translation>
     </message>
     <message>
         <source>当前井无法开始预测</source>
@@ -44260,8 +44260,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <name>WellFaciesWorkflow</name>
     <message>
         <location filename="../src/workflow/wellfaciesworkflow.cpp" line="46"/>
-        <source>%1；曲线 %2；段、岩性；至少 %3 点</source>
-        <translation>%1；曲线 %2；段、岩性；至少 %3 点</translation>
+        <source>全部地层段可用（模型标注：%1）；曲线 %2；段、岩性；至少 %3 点</source>
+        <translation>全部地层段可用（模型标注：%1）；曲线 %2；段、岩性；至少 %3 点</translation>
     </message>
     <message>
         <location filename="../src/workflow/wellfaciesworkflow.cpp" line="650"/>
@@ -53082,6 +53082,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>%1：跳过 %2 个样点、%3 处缺口（%4）</source>
         <translation>%1：跳过 %2 个样点、%3 处缺口（%4）</translation>
+    </message>
+    <message>
+        <source>当前范围内没有可用于预测的井段</source>
+        <translation>当前范围内没有可用于预测的井段</translation>
     </message>
 </context>
 </TS>

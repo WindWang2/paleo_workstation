@@ -15723,6 +15723,26 @@ Crossline: %3 ~ %4</source>
         <source>预测服务已断开</source>
         <translation>预测服务已断开</translation>
     </message>
+    <message>
+        <source>预测分类或请求层段不一致，未发布</source>
+        <translation>预测分类或请求层段不一致，未发布</translation>
+    </message>
+    <message>
+        <source>预测返回井数与请求井数不一致，未发布</source>
+        <translation>预测返回井数与请求井数不一致，未发布</translation>
+    </message>
+    <message>
+        <source>井 %1 的返回身份、坐标或微相编码不一致，未发布</source>
+        <translation>井 %1 的返回身份、坐标或微相编码不一致，未发布</translation>
+    </message>
+    <message>
+        <source>井 %1 的预测井段或层段范围不一致，未发布</source>
+        <translation>井 %1 的预测井段或层段范围不一致，未发布</translation>
+    </message>
+    <message>
+        <source>井 %1 的预测未能生成当前层段优势相，未发布</source>
+        <translation>井 %1 的预测未能生成当前层段优势相，未发布</translation>
+    </message>
 </context>
 <context>
     <name>MappingWorkbenchPage</name>

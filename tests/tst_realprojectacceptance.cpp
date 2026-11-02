@@ -26,11 +26,13 @@
 #include "workflow/wellfaciesworkflow.h"
 #include "workflow/wellpredictionservice.h"
 #include "domain/faciescatalog.h"
+#include "domain/faciestaxonomy.h"
 #include "services/wellreadiness.h"
 #include "workflow/wellsectionworkflow.h"
 #include "workflow/sectionworkbench.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
+#include "qgis/wellattributestore.h"
 
 class TestRealProjectAcceptance : public QObject {
   Q_OBJECT
@@ -210,6 +212,47 @@ private slots:
         for(const auto &value:intervals){const auto interval=value.toObject();QVERIFY(interval.value("top").toDouble()>=point.value("prediction_depth_top").toDouble());QVERIFY(interval.value("bottom").toDouble()<=point.value("prediction_depth_bottom").toDouble());}
         report.insert("nativeBatchLive",QJsonObject{{"well",point.value("name").toString()},{"unit",request.horizon},{"intervals",intervals.size()},{"model",point.value("prediction_model").toString()}});
       }
+    }
+  }
+  void liveLocatedBatchResponseContract(){
+    if(qEnvironmentVariable("PALEO_ACCEPTANCE_LIVE_BATCH")!="1")QSKIP("Explicit authorized live batch only");
+    const auto config=WellFaciesConfig::load();
+    QCOMPARE(config.baseUrl.adjusted(QUrl::StripTrailingSlash).toString(),qEnvironmentVariable("PALEO_ACCEPTANCE_AUTHORIZED_API"));
+    paleo::data::DataService ds;std::string error;QString detail;
+    QVERIFY(ds.openProjectReadOnly(u(paleo::area_model::directory(project)),error));
+    paleo::data::StratigraphicScheme scheme;QVERIFY(ds.readStratigraphicScheme("default",{},scheme,error));
+    DataCatalog catalog;catalog.setLockedReadOnly(true);QVERIFY(catalog.open(project,&detail));
+    const auto availability=paleo::analysisReadiness(&catalog,project);QJsonArray batches;
+    for(const auto *token:{"T30-T32-S1","T70-T72-S1"}){
+      RemotePredictionRequest request;request.id=QStringLiteral("diagnostic-")+token;request.horizon=token;request.kind="wells";request.facies=FaciesCatalog::defaults();
+      for(const auto &sub:scheme.subIntervals){const auto unit=paleo::strat::makeSelection(scheme,QString::fromStdString(sub.interval.value),sub.index);
+        if(paleo::strat::layerToken(unit)==token){request.unitSelection=paleo::strat::toMap(unit);break;}}
+      QVERIFY(!request.unitSelection.isEmpty());
+      for(const auto &well:catalog.entities("well"))if(availability.value(well.id).hasCurves&&well.hasSurface&&std::isfinite(well.surfaceX)&&std::isfinite(well.surfaceY))
+        request.wells.append(QVariantMap{{"id",well.id},{"name",well.name},{"x",well.surfaceX},{"y",well.surfaceY},
+          {"vector_formations",WellAttributeStore::rows(project,nullptr,WellAttributeStore::Table::Formations,well.id)}});
+      QCOMPARE(request.wells.size(),47);WellPredictionService service;service.bindCatalog(&catalog,project);
+      QSignalSpy completed(&service,&WellPredictionService::completed),failed(&service,&WellPredictionService::failed);
+      service.start(request);QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty()||!failed.isEmpty(),600000);
+      QVERIFY2(failed.isEmpty(),failed.isEmpty()?"":qPrintable(failed.first()[1].toString()));
+      const auto result=qvariant_cast<RemotePredictionResult>(completed.first()[0]);QCOMPARE(result.points.size(),request.wells.size());
+      QVariantList normalized;QString hierarchyError;QVERIFY(FaciesTaxonomy::normalize(result.facies,&normalized,&hierarchyError));
+      QCOMPARE(normalized,result.facies);
+      for(int i=0;i<request.facies.size();++i)QCOMPARE(result.facies.value(i),request.facies[i]);
+      QJsonArray rows;int predicted=0;QSet<int> codes;for(const auto &v:result.facies)codes.insert(v.toMap().value("code").toInt());
+      for(int i=0;i<result.points.size();++i){const auto point=result.points[i].toMap();const auto wanted=request.wells[i].toMap();
+        const auto intervals=QJsonDocument::fromJson(point.value("facies_intervals").toString().toUtf8()).array();
+        const auto formations=QJsonDocument::fromJson(point.value("formation_intervals").toString().toUtf8()).array();
+        const bool skipped=point.value("prediction_status")==QStringLiteral("未预测");predicted+=!skipped;
+        if(!skipped)QCOMPARE(formations.size(),1);
+        QVERIFY(point.value("id")==wanted.value("id")&&point.value("x")==wanted.value("x")&&point.value("y")==wanted.value("y"));
+        QVERIFY(skipped||codes.contains(point.value("facies_code").toInt()));
+        rows.append(QJsonObject{{"name",point.value("name").toString()},{"skipped",skipped},{"reason",point.value("prediction_reason").toString()},
+          {"intervals",intervals},{"formations",formations},{"top",point.value("prediction_depth_top").toDouble()},{"bottom",point.value("prediction_depth_bottom").toDouble()}});
+      }
+      batches.append(QJsonObject{{"unit",token},{"schemaCount",result.facies.size()},{"requestSchemaCount",request.facies.size()},{"predicted",predicted},{"rows",rows},
+        {"points",QJsonArray::fromVariantList(result.points)},{"facies",QJsonArray::fromVariantList(result.facies)}});
+      report.insert("liveBatchResponseContract",batches);qInfo()<<"Live batch contract"<<token<<"schema"<<result.facies.size()<<"predicted"<<predicted;
     }
   }
   void fullWellScopeReadiness(){

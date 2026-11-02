@@ -235,6 +235,12 @@ void WellPredictionService::prepare() {
       [](const WellTop &a, const WellTop &b) { return a.md < b.md; });
     bool current = false;
     if(unit.isValid()){
+      // The selected scheme revision owns this window. A previous prediction's
+      // maintained row must not duplicate or override it on a repeat run.
+      auto &formations=source.data.formationIntervals;
+      formations.erase(std::remove_if(formations.begin(),formations.end(),[this](const auto &f){
+        return f.name.compare(m_request.horizon,Qt::CaseInsensitive)==0;
+      }),formations.end());
       const auto range=paleo::strat::analysisWellRange(scheme,unit,id,modelWellId);
       if(!range.resolved||range.depthType!="MD"||range.depthUnit!="m")
         skip(int(sources.size()),QString::fromStdString(range.reason.empty()?"当前井在所选地震层段缺少 MD 米深度窗":range.reason));

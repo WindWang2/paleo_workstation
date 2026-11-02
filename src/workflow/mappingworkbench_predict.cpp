@@ -671,6 +671,8 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &response) 
   };
   bool valid = schemaValid && result.request.horizon == request.horizon &&
                result.request.kind == request.kind;
+  QString contractError;
+  if(!valid)contractError=tr("预测分类或请求层段不一致，未发布");
   bool allCellsUndefined = false; // 地震结果是否一格有效都没有
   if (result.currentFormationOnly)
     valid = valid && request.kind == "wells" && result.partialWellCoverage &&
@@ -694,12 +696,14 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &response) 
     valid = valid && !allCellsUndefined;
   } else {
     valid = valid && result.points.size() == request.wells.size();
+    if(result.points.size()!=request.wells.size()&&contractError.isEmpty())contractError=tr("预测返回井数与请求井数不一致，未发布");
     for (int i = 0; i < result.points.size() && valid; ++i) {
       auto p = result.points[i].toMap();
       auto w = request.wells[i].toMap();
       valid = (codes.contains(p.value("facies_code").toInt()) || isSkipped(p)) &&
               p.value("id") == w.value("id") && p.value("x") == w.value("x") &&
               p.value("y") == w.value("y");
+      if(!valid)contractError=tr("井 %1 的返回身份、坐标或微相编码不一致，未发布").arg(w.value("name",w.value("id")).toString());
     }
   }
   QVariantList points = result.points;
@@ -758,6 +762,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &response) 
           valid &&
           std::isfinite(rangeTop) && std::isfinite(rangeBase) && rangeBase > rangeTop &&
           (result.partialWellCoverage || std::abs(last - rangeBase) < 1e-6);
+      if(!valid)contractError=tr("井 %1 的预测井段或层段范围不一致，未发布").arg(point.value("name",point.value("id")).toString());
       for (const auto &key : {"log_version_id", "horizon", "depth_mock"})
         point.insert(key, key == QStringLiteral("horizon")
                               ? QVariant(request.horizon)
@@ -861,7 +866,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &response) 
         for (auto a = attrs.cbegin(); a != attrs.cend(); ++a)
           point.insert(a.key(), a.value());
       } else {
-        if (result.partialWellCoverage) valid = false;
+        if (result.partialWellCoverage) { valid = false;contractError=tr("井 %1 的预测未能生成当前层段优势相，未发布").arg(point.value("name",point.value("id")).toString()); }
         point.insert("facies_scope", QStringLiteral("well"));
       }
       value = point;
@@ -895,7 +900,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &response) 
   if (allCellsUndefined && error.isEmpty())
     error = tr("预测结果全部为无数据，未发布空图件");
   if (!valid && error.isEmpty())
-    error = hierarchyError.isEmpty() ? tr("预测服务返回的网格、井集合或微相编码与请求不一致，未发布") : hierarchyError;
+    error = !hierarchyError.isEmpty()?hierarchyError:!contractError.isEmpty()?contractError:tr("预测服务返回的网格、井集合或微相编码与请求不一致，未发布");
   const auto stageDir = QDir(m_dir).filePath("artifacts/staging/" + request.id);
   QDir().mkpath(stageDir);
   const auto path = QDir(stageDir).filePath(

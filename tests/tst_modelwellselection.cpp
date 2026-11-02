@@ -12,10 +12,30 @@
 #include "workflow/workflows.h"
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
+#include <QFile>
+#include <QDir>
+#include <paleo_data/service.h>
 
 class TestModelWellSelection : public QObject {
   Q_OBJECT
 private slots:
+  void inventoryShowsExistingUnconfirmedTimeDepthAsPresent() {
+    QTemporaryDir tmp;PaleoProjectStore store;DataImportService imports(&store);imports.setProjectDir(tmp.path());
+    const auto root=areaModelDirectory(tmp.path());QVERIFY(QDir().mkpath(root));
+    paleo::data::DataService ds;std::string detail;
+    QVERIFY(ds.createProject(root.toStdString(),"inventory",detail));
+    const auto input=tmp.filePath("checkshots.txt");QFile file(input);QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("# Petrel checkshots format\n# Unit in depth: m\nVERSION 1\nBEGIN HEADER\nX\nY\nZ\nTWT picked\nMD\nWell\nEND HEADER\n1 2 -100 -50 110 \"SYNTH-1\"\n1 2 -200 -100 210 \"SYNTH-1\"\n");file.close();
+    paleo::data::ImportReport report;QVERIFY2(ds.importFile(input.toStdString(),{},report,detail),detail.c_str());ds.closeProject();
+    PreviewDocService doc(&imports);DataPage page;page.setProperty("paleo.page.importsvc",QVariant::fromValue<QObject*>(&doc));page.refreshAssetTable();
+    auto* tree=page.findChild<QTreeWidget*>("dataTree");QVERIFY(tree);bool found=false;
+    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->text(0)=="SYNTH-1") {
+      found=true;QVERIFY((*it)->text(1).contains(QStringLiteral("有时深")));QVERIFY(!(*it)->text(1).contains(QStringLiteral("待确认")));QVERIFY(!(*it)->text(1).contains(QStringLiteral("缺时深")));
+    }
+    QVERIFY(found);
+  }
   void factorResultsUseSelectedRevisionForPointsAndMaps() {
     QTemporaryDir dir;DataCatalog catalog;QString error;QVERIFY(catalog.open(dir.path(),&error));
     paleo::strat::UnitSelection unit;unit.schemeId="scheme";unit.revision="r1";unit.intervalId="parent";

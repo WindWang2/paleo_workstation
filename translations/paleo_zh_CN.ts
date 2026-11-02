@@ -6264,6 +6264,14 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
 <context>
     <name>DataListPanel</name>
     <message>
+        <source>有时深</source>
+        <translation>有时深</translation>
+    </message>
+    <message>
+        <source>有曲线</source>
+        <translation>有曲线</translation>
+    </message>
+    <message>
         <source>时深待确认或校验</source>
         <translation>时深待确认或校验</translation>
     </message>

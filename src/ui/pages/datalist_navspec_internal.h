@@ -66,28 +66,16 @@ inline void DataListPanel::appendHorizonNavBranch(NavNodeSpec &seismicRoot,
   seismicRoot.children.append(horRoot);
 }
 
-// 井条目的就绪档位（HY 验收 2026-11-01）：曲线+已确认时深双全 → 绿档
-//「曲线+时深齐备」；缺项 → 橙档「缺曲线/缺时深」。全量井保留（数据管理
-// 面不过滤），下游分析选井面按就绪口径另行过滤（wellreadiness）。
+// 数据管理只显示资料是否存在，算法适用性由实际计算入口检查。
 // 从 buildNavTreeSpec 拆出（file_budget 只缩不涨）；tr() 上下文保持
 // "DataListPanel"。
 inline void DataListPanel::applyWellReadinessBadge(
     NavNodeSpec &item, const paleo::WellReadiness &ready) const
 {
-  QString readinessText;
-  if (ready.analysisReady())
-  {
-    item.status1 = 1;
-    readinessText = tr("曲线+时深齐备");
-  }
-  else
-  {
-    QStringList missing;
-    if (!ready.hasCurves) missing << tr("缺曲线");
-    if (!ready.tdUsable) missing << (ready.hasTimeDepth ? tr("时深待确认或校验") : tr("缺时深"));
-    item.status1 = 2;
-    readinessText = missing.join(QStringLiteral(" · "));
-  }
+  const QString readinessText = QStringList{
+      ready.hasCurves ? tr("有曲线") : tr("缺曲线"),
+      ready.hasTimeDepth ? tr("有时深") : tr("缺时深")}.join(QStringLiteral(" · "));
+  item.status1 = ready.hasCurves && ready.hasTimeDepth ? 1 : 2;
   item.text1 = item.text1.isEmpty()
                    ? readinessText
                    : readinessText + QStringLiteral(" · ") + item.text1;

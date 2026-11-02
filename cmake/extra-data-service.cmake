@@ -65,7 +65,7 @@ target_link_libraries(paleo_services PRIVATE Paleo::paleo_data_service)
 target_link_libraries(paleo_workflow PRIVATE Paleo::paleo_data_service)
 add_paleo_test(tst_areamodel LIBS paleo_io paleo_services paleo_workflow Paleo::paleo_data_service)
 add_paleo_test(tst_realprojectacceptance LIBS paleo_io paleo_services Paleo::paleo_data_service)
-add_paleo_test(tst_modelwellselection LIBS paleo_ui)
+add_paleo_test(tst_modelwellselection LIBS paleo_ui Paleo::paleo_data_service)
 target_link_libraries(tst_wellcomposite PRIVATE Paleo::paleo_data_service)
 
 target_sources(paleo_workflow PRIVATE src/workflow/stratigraphyworkflow.cpp src/workflow/stratigraphyworkflow.h)

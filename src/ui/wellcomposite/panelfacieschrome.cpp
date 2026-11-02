@@ -108,6 +108,7 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
       else QMessageBox::information(this,tr("当前井无法开始预测"),reason);
       return;
     }
+    if(m_wholeWellPreview){setProperty("locatePredictionOnReturn",true);m_btnShowFacies->setChecked(true);}
     emit faciesPredictionRequested();
   });
   connect(m_btnCancelFacies, &QToolButton::clicked, this, &WellCompositePanel::faciesCancelRequested);

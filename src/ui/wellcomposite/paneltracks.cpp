@@ -17,6 +17,7 @@
 #include <QMap>
 #include "../notifications/paleonotify.h"
 #include <QSignalBlocker>
+#include <QScrollBar>
 
 namespace WellComposite
 {
@@ -115,6 +116,19 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
     m_btnCancelFacies->setToolTip(busy ? tr("停止本地等待（所有地层），服务端已受理任务继续执行") : tr("没有正在等待的预测"));
     m_faciesModel->setEnabled(!busy); m_btnFaciesService->setEnabled(!busy); m_btnRefreshFacies->setEnabled(!busy);
     if (m_faciesStratTrack) m_faciesStratTrack->setEnabled(!busy&&!m_selectionContext&&!m_wholeWellPreview);
+    if(!busy&&m_wholeWellPreview&&property("locatePredictionOnReturn").toBool()){
+      setProperty("locatePredictionOnReturn",false);
+      if(m_predictionTrack){
+        m_canvas->setScrollDepth(property("predictionFirstDepth").toDouble());
+        m_canvas->syncScrollBars();qreal left=0;
+        for(const auto &track:m_canvas->tracks()){
+          if(track==m_predictionTrack)break;
+          if(track->isVisible())left+=track->width();
+        }
+        for(auto *bar:m_canvas->findChildren<QScrollBar *>())
+          if(bar->orientation()==Qt::Horizontal)bar->setValue(qMax(0,int(left-m_canvas->width()/3.0)));
+      }
+    }
   });
   const auto refreshStratTracks = [this, workflow] {
     if (!m_faciesStratTrack || !workflow) return;
@@ -249,6 +263,7 @@ void WellCompositePanel::showFaciesPrediction(const WellFaciesResult &result) {
   m_btnShowFacies->setEnabled(true);
   m_btnShowFacies->setToolTip(tr("显示或隐藏预测相、置信度和优势相；模型 %1 %2；任务 %3")
                             .arg(result.modelName, result.modelVersion, result.jobId));
+  if(m_wholeWellPreview&&!result.intervals.isEmpty())setProperty("predictionFirstDepth",result.intervals.first().topDepth);
   m_canvas->updateAll();
 }
 

@@ -6,6 +6,7 @@
 #include "ui/seismicsection/sectionsetupdialog.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "workflow/sectionworkbench.h"
+#include "sectionalignmentfixtures.h"
 #include <QAction>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -99,6 +100,7 @@ private slots:
       e.coordinateStatus = "untransformed";
       e.td = 350;
       QVERIFY(catalog.addEntity(e));
+      QVERIFY(addSectionLogFixture(catalog,e.id));
       CatalogAsset a;
       a.id = QString("td-%1").arg(i);
       a.type = "time_depth";
@@ -144,9 +146,7 @@ private slots:
     const auto bareWell = std::find_if(placed.begin(), placed.end(), [](const auto &well) {
       return well.wellId == QLatin1String("well-3");
     });
-    QVERIFY(bareWell != placed.end());
-    QCOMPARE(bareWell->bottomTwtMs, 280.0); // 350 m × 2000 / 2500 m/s
-    QVERIFY(bareWell->alignmentStatus.contains(QStringLiteral("常速近似")));
+    QVERIFY(bareWell == placed.end()); // No curve/TD input: never invent a default-velocity overlay.
     QVERIFY(work.setCalibration("well-1", false, 2500, 25, &error));
     data = work.sectionWells();
     QCOMPARE(data[0].bottomTwtMs, 225.0);
@@ -552,6 +552,7 @@ private slots:
     linkLog(QStringLiteral("ast-acft"), acFt);
     linkLog(QStringLiteral("ast-den"), den);
     linkLog(QStringLiteral("ast-acbad"), acBad);
+    QVERIFY(addSectionTimeDepthFixture(catalog,e.id));
 
     SectionWorkbench work(&catalog);
     const auto data = work.sectionWells();
@@ -597,6 +598,7 @@ private slots:
       e.coordinateStatus = QStringLiteral("untransformed");
       e.td = 300;
       QVERIFY(catalog.addEntity(e));
+      QVERIFY(addSectionLogFixture(catalog,e.id));
     };
     const auto linkAsset = [&](const QString &wellId, const QString &assetId,
                                const QString &type, const QString &role,

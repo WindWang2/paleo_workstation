@@ -144,10 +144,10 @@ QHash<QString, WellReadiness> analysisReadiness(DataCatalog *catalog,
         QString error;
         if (readTimeDepth(path, table, &error)) {
           for (const auto &row : table.rows) {
-            if (row.hasMd && std::isfinite(row.md) && std::isfinite(row.timeMs)) {
-              r.tdUsable = TimeDepthTool::interpolateTimeMs(table, row.md, true).ok();
-              break;
-            }
+            if(!std::isfinite(row.timeMs))continue;
+            if(row.hasMd&&std::isfinite(row.md))r.tdUsable=TimeDepthTool::interpolateTimeMs(table,row.md,true).ok();
+            if(!r.tdUsable&&row.hasTvd&&std::isfinite(row.tvd))r.tdUsable=TimeDepthTool::interpolateTimeMs(table,row.tvd,false).ok();
+            if(r.tdUsable)break;
           }
         }
       }

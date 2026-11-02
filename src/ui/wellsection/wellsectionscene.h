@@ -122,6 +122,9 @@ struct RenderState {
   {
     return yForDisplay(displayOfMd(well, md));
   }
+  QVector<wellsection::Link> linksForGap(int i) const {
+    return wellsection::correlationLinks(wells[i],wells[i+1],i<strip.gaps.size()?&strip.gaps[i]:nullptr);
+  }
   // 命中测试：返回井序号或 -1（缝/边缘内）。
   int columnAtX(double x) const;
   double sceneWidth() const;
@@ -246,6 +249,7 @@ class GapItem : public QGraphicsItem
     // 连线几何：主题 curvedLinks 时走 S 形贝塞尔，否则直线；层段带/
     // 高亮带/高亮边界共用同一路径（填充与线型不走两套几何）。
     QPainterPath linkPath(const wellsection::Link &lk) const;
+    std::optional<QPainterPath> seismicLinkPath(const QString &name) const;
     // 命中最近连线（阈值内）；空名 = 未命中。坐标为 item 局部。
     QString hitLink(const QPointF &p) const;
 

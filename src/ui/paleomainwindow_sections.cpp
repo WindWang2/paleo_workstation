@@ -298,14 +298,14 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
     canvas->setMapTool(m_sectionCaptureTool);
   });
   connect(setup, &SectionSetupDialog::buildRequested, this,
-          [link, workbench, report](const QStringList &ids) {
+          [link, workbench, report, dock](const QStringList &ids) {
             QString error;
             const auto points = workbench->wellRoute(ids, &error);
             if (points.empty()) {
               report(error);
               return;
             }
-            QVector<QgsPointXY> line;
+            dock->showMajorHorizonConnections();QVector<QgsPointXY> line;
             for (const auto &p : points)
               line << QgsPointXY(p.x, p.y);
             link->triggerSectionFromMapPolyline(

@@ -6,6 +6,7 @@
 #include <QToolButton>
 #include <QCryptographicHash>
 #include <QGraphicsView>
+#include <QStyleOptionGraphicsItem>
 #include "ui/seismicsection/seismicsectioncanvas.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "ui/seismicsection/sectionhorizonrender.h"
@@ -18,6 +19,8 @@
 #include "io/areamodel.h"
 #include "io/dataimportservice.h"
 #include "domain/wellsection.h"
+#include "services/wellsectioncorrelation.h"
+#include "ui/wellsection/wellsectionscene.h"
 #include "seismichorizonfixture.h"
 #include <cmath>
 
@@ -46,6 +49,32 @@ private slots:
     QVERIFY(image.pixelColor(90,150)!=QColor(Qt::white));
     QCOMPARE(image.pixelColor(210,150),QColor(Qt::white));
     QVERIFY(image.pixelColor(330,150)!=QColor(Qt::white));
+  }
+  void correlationsUseMajorHorizonsAndCheckshots(){
+    wellsection::Well a,b;a.id="A";b.id="B";
+    a.tops={{"old formation",100},{"S1",200}};b.tops=a.tops;
+    a.correlationTops=QVector<wellsection::Top>{{"T70",300},{"T72",700}};
+    b.correlationTops=QVector<wellsection::Top>{{"T70",400},{"T72",800}};
+    QCOMPARE(wellsection::links(a,b).size(),2);
+    b.correlationTops=QVector<wellsection::Top>{};QVERIFY(wellsection::links(a,b).isEmpty());
+    b.correlationTops.reset();QVERIFY(wellsection::links(a,b).isEmpty());
+    wellsection::TimeDepth td;QVERIFY(td.model.setCheckshots({{0,0},{1000,1000}}));
+    a.timeDepth=td;b.timeDepth=td;b.timeDepth->shiftMs=100;
+    wellsection::SeismicGap gap;gap.columns=5;gap.samples=201;gap.stepMs=5;gap.values.assign(1005,0);
+    gap.horizons=overlay();gap.horizons.curves[0].timesMs={200,300,qQNaN(),500,600};
+    auto links=wellsection::correlationLinks(a,b,&gap);QCOMPARE(links.size(),1);
+    QCOMPARE(links[0].name,QString("T70"));QCOMPARE(links[0].leftMd,200.);QCOMPARE(links[0].rightMd,500.);
+    gap.horizons.curves[0].timesMs.back()=1200;QVERIFY(wellsection::correlationLinks(a,b,&gap).isEmpty());
+    gap.horizons.curves[0].timesMs.back()=600;
+    wellsectionui::RenderState state;state.wells={a,b};state.window={0,1000};state.offsets={0,0};state.strip.gaps={gap};
+    state.tpl=wellsection::SectionTemplate::defaults();state.theme=wellsection::SectionTheme::byId("classic");
+    state.theme.zoneFill=false;state.theme.curvedLinks=false;state.gapPx=200;state.pxPerMeter=.5;
+    wellsectionui::GapItem item(&state,0);QImage image(int(state.sceneWidth()),500,QImage::Format_ARGB32);image.fill(Qt::white);
+    QPainter painter(&image);QStyleOptionGraphicsItem option;option.exposedRect=item.boundingRect();item.paint(&painter,&option,nullptr);painter.end();
+    const int x=int(state.columnRight(0));
+    QVERIFY(image.pixelColor(x+25,119)!=QColor(Qt::white)); // Actual seismic bend, not endpoint Bezier.
+    QCOMPARE(image.pixelColor(x+100,175),QColor(Qt::white)); // Missing interior is not bridged.
+    QVERIFY(image.pixelColor(x+175,231)!=QColor(Qt::white));
   }
   void bandsRespectTopologyGapsAndTexture(){
     seismic::SectionHorizons data;
@@ -87,6 +116,7 @@ private slots:
     auto *button=dock.findChild<QToolButton *>("sectionHorizonToggle");QVERIFY(button);
     QVERIFY(!button->isChecked());button->setChecked(true);QVERIFY(dock.canvas()->horizonOverlaysVisible());
     button->setChecked(false);QVERIFY(!dock.canvas()->horizonOverlaysVisible());
+    dock.showMajorHorizonConnections();QVERIFY(button->isChecked());QVERIFY(dock.canvas()->majorHorizonsOnly());
     paleo::datapreview_detail::SectionPanel preview;preview.resize(700,420);
     QVector<SegyTrace> traces(5);for(auto& t:traces)t.samples.fill(0.f,201);
     preview.setTraces(traces,1000,100);preview.setHorizons(overlay());
@@ -178,7 +208,14 @@ private slots:
     paleo::data::StratigraphicScheme scheme;scheme.id="default";scheme.name="synthetic";
     for(int h=0;h<2;++h){paleo::data::StratigraphicBoundary b;b.name=h?"T72":"T70";b.order=h;b.seismicHorizonResourceId=horizons[h].id;scheme.boundaries.push_back(b);}
     paleo::data::framework::deriveUnits(scheme);std::vector<paleo::data::FrameworkIssue> issues;paleo::data::StratigraphicScheme stored;
+    paleo::data::WellIntervalOccurrence occurrence;occurrence.wellId=42;occurrence.interval=scheme.intervals.front().id;
+    occurrence.top=100;occurrence.bottom=500;occurrence.internal={200,300,400};scheme.wellOccurrences.push_back(occurrence);
     QVERIFY2(ds.commitStratigraphicScheme(scheme,{},stored,issues,detail),detail.c_str());ds.closeProject();
+    QVector<wellsection::Well> correlationWells(2);correlationWells[0].tops={{"old formation",99}};
+    QStringList warnings;paleo::loadSeismicCorrelationTops(project,{{0,42},{1,43}},correlationWells,warnings);
+    QVERIFY(warnings.isEmpty());QVERIFY(correlationWells[0].correlationTops);
+    QCOMPARE(correlationWells[0].correlationTops->size(),2);QCOMPARE(correlationWells[0].correlationTops->front().name,QString("T70"));
+    QCOMPARE(correlationWells[0].tops.front().name,QString("old formation"));QVERIFY(correlationWells[1].correlationTops->isEmpty());
     paleo::area_model::registerProject(project,this);
     struct Unregister{const void *owner;~Unregister(){paleo::area_model::unregisterProject(owner);}} unregister{this};
     PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);bool done=false,ok=false;

@@ -398,7 +398,7 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
             } else {
                 const float dtMs = float(axis.sampleIntervalMs);
                 guard->m_canvas->setSectionData(*image, dtMs, origin,axis.columnDistancesM,axis.columnCoordinates);
-                guard->m_canvas->setHorizonOverlays(axis.horizons);
+                guard->m_canvas->setMajorHorizonsOnly(false);guard->m_canvas->setHorizonOverlays(axis.horizons);
             }
             // D4：剖面身份 + 最近切片（拾取解析/追踪原料）
             {
@@ -570,6 +570,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
   const auto generation = ++m_generation;
   m_volume = volume;
   m_candidateWells=candidateWells;
+  m_canvas->setMajorHorizonsOnly(m_majorHorizonConnectionsNext);m_majorHorizonConnectionsNext=false;
   m_route.clear();
   m_distances.clear();
   // goal/fault-interpretation：任意线剖面身份 = 路径点串；同时作废 IL/XL

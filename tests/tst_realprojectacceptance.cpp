@@ -436,11 +436,21 @@ private slots:
     }
     WellSectionWorkflow section(&catalog);section.setSectionWorkbench(&workbench);QSignalSpy ready(&section,&WellSectionWorkflow::sectionReady);
     section.request(ids,{"GR"});QCOMPARE(ready.size(),1);const auto wells=ready.first()[1].value<QVector<wellsection::Well>>();QCOMPARE(wells.size(),2);
-    for(const auto &well:wells){QVERIFY(well.timeDepth);QVERIFY(!well.curves.isEmpty());}
+    for(const auto &well:wells){QVERIFY(well.timeDepth);QVERIFY(!well.curves.isEmpty());QVERIFY(well.correlationTops);QVERIFY(!well.correlationTops->isEmpty());}
     PaleoTaskService tasks;seismic::SeismicTaskService seismicTasks(&tasks);section.setSeismicTaskService(&seismicTasks);
     QSignalSpy extracted(&section,&WellSectionWorkflow::seismicReady);section.requestSeismic(wells,section.seismicSource());
     QTRY_COMPARE_WITH_TIMEOUT(extracted.size(),1,60000);const auto strip=extracted.first()[1].value<wellsection::SeismicStrip>();
     QVERIFY2(strip.anyValid(),qPrintable(strip.gaps.isEmpty()?strip.status:strip.gaps.first().reason));
+    const auto majorLinks=wellsection::correlationLinks(wells[0],wells[1],&strip.gaps.first());QVERIFY(majorLinks.size()>2);
+    QJsonArray majorNames;
+    for(const auto &link:majorLinks){
+      majorNames.append(link.name);QVERIFY(!link.name.contains("/S"));
+      const auto found=std::find_if(strip.gaps.first().horizons.curves.begin(),strip.gaps.first().horizons.curves.end(),[&](const auto &c){return c.name==link.name;});
+      QVERIFY(found!=strip.gaps.first().horizons.curves.end());QCOMPARE(found->internalEdge,0);
+      QVERIFY(std::abs(wells[0].timeDepth->twtAt(link.leftMd)-found->timesMs.front())<1e-7);
+      QVERIFY(std::abs(wells[1].timeDepth->twtAt(link.rightMd)-found->timesMs.back())<1e-7);
+    }
+    report.insert("majorSeismicConnections",majorNames);
     const auto overlays=workbench.sectionWells();int visible=0,curvePoints=0;
     for(const auto &well:overlays)if(ids.contains(well.wellId)){
       QVERIFY(well.calibrated);for(const auto &curve:well.curves)for(double time:curve.twtMs)if(std::isfinite(time))++curvePoints;++visible;

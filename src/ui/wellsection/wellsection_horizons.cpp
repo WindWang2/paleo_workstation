@@ -27,6 +27,27 @@ void WellSectionPanel::updateHorizonOverlayStatus(){
   if(auto *button=findChild<QToolButton *>("sectionHorizonToggle"))static_cast<seismic::SectionHorizonButton *>(button)->setOverlayStatus(merged);
 }
 namespace wellsectionui {
+std::optional<QPainterPath> GapItem::seismicLinkPath(const QString &name)const{
+  if(m_index>=m_st->strip.gaps.size())return {};
+  const auto &gap=m_st->strip.gaps[m_index];
+  for(const auto &curve:gap.horizons.curves){
+    if(curve.internalEdge||curve.name!=name)continue;
+    QPainterPath path;bool connected=false;
+    const auto &a=m_st->wells[m_index],&b=m_st->wells[m_index+1];
+    for(size_t col=0;col<curve.timesMs.size();++col){
+      double f=curve.timesMs.size()>1?double(col)/(curve.timesMs.size()-1):0.;
+      if(gap.columnDistancesM.size()==curve.timesMs.size()&&gap.columnDistancesM.back()>gap.columnDistancesM.front())
+        f=(gap.columnDistancesM[col]-gap.columnDistancesM.front())/(gap.columnDistancesM.back()-gap.columnDistancesM.front());
+      const double depth=wellsection::gapDisplayDepthAtTwt(a,m_st->offsets.value(m_index),b,m_st->offsets.value(m_index+1),
+        f,curve.timesMs[col],m_st->window.top,m_st->window.base,m_st->domain);
+      if(!std::isfinite(depth)){connected=false;continue;}
+      const QPointF point(m_st->columnRight(m_index)+f*m_st->gapWidth(m_index),m_st->yForDisplay(depth));
+      if(connected)path.lineTo(point);else path.moveTo(point);connected=true;
+    }
+    return path;
+  }
+  return {};
+}
 void GapItem::paintSeismicHorizons(QPainter *p,const QRectF& exposed,const wellsection::SeismicGap& gap){
   if(!m_st->seismicHorizonsOn||gap.horizons.curves.empty())return;
   const auto& a=m_st->wells[m_index];const auto& b=m_st->wells[m_index+1];

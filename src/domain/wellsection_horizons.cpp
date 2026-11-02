@@ -4,6 +4,19 @@
 #include <cmath>
 
 namespace wellsection {
+QVector<Link> correlationLinks(const Well &a,const Well &b,const SeismicGap *gap){
+  if(!gap||(gap->horizons.curves.empty()&&gap->horizons.schemeId.isEmpty()))return links(a,b);
+  QVector<Link> result;
+  if(!gap->valid()||!a.timeDepth||!b.timeDepth)return result;
+  for(const auto &curve:gap->horizons.curves){
+    if(curve.internalEdge||curve.timesMs.size()!=size_t(gap->columns)||curve.timesMs.size()<2)continue;
+    const auto left=a.timeDepth->model.TwtMsToDepth(curve.timesMs.front()-a.timeDepth->shiftMs);
+    const auto right=b.timeDepth->model.TwtMsToDepth(curve.timesMs.back()-b.timeDepth->shiftMs);
+    if(std::isfinite(left)&&std::isfinite(right))result.append({curve.name,left,right});
+  }
+  std::sort(result.begin(),result.end(),[](const auto &a,const auto &b){return a.leftMd<b.leftMd;});
+  return result;
+}
 double gapDisplayDepthAtTwt(const Well& a,double offA,const Well& b,double offB,
                             double fraction,double twtMs,double top,double base,DepthDomain domain){
   double lo=top,hi=base;

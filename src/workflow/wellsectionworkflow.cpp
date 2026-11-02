@@ -21,6 +21,7 @@
 #include "services/welllogset.h"
 #include "services/wellreadiness.h"
 #include "services/areawellchart.h"
+#include "services/wellsectioncorrelation.h"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -398,6 +399,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
 
 void WellSectionWorkflow::loadCurveBodies(Shared &shared,
                                           PaleoTask *task) {
+  paleo::loadSeismicCorrelationTops(shared.project,shared.nativeWells,shared.wells,shared.warnings);
   if(!shared.mnemonics.isEmpty())for(auto it=shared.nativeWells.cbegin();it!=shared.nativeWells.cend();++it){
     if(task&&task->cancelRequested())return;
     QString reason;QVector<wellsection::Curve> curves;

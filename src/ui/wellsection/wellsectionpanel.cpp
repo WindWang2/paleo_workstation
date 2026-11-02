@@ -972,7 +972,7 @@ int WellSectionPanel::linkCount() const
   int n = 0;
   for (int i = 0; i + 1 < m_st.wells.size(); ++i)
     for (const wellsection::Link &lk :
-         wellsection::links(m_st.wells[i], m_st.wells[i + 1]))
+         m_st.linksForGap(i))
       if (wellsection::linkConnected(m_linkOverrides, m_st.wells[i].id,
                                      m_st.wells[i + 1].id, lk.name))
         ++n;

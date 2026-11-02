@@ -111,6 +111,9 @@ struct Well {
   double kb = qQNaN();
   double totalDepth = qQNaN();
   QVector<Top> tops;
+  // Current seismic major boundaries for correlation only. An engaged empty
+  // list means no usable major picks; never borrow formation or S1–S4 tops.
+  std::optional<QVector<Top>> correlationTops;
   QVector<Curve> curves;
   QVector<FaciesSegment> facies; // 交会分类井层段（catalog 派生资产）
   QVector<LithoSegment> litho;   // 解释岩性段（catalog 资产或岩屑录井文件，可空 = GR 回落）
@@ -351,6 +354,10 @@ struct SeismicStrip {
   QString status;    // 总体状态/原因（"" = 正常）
   bool anyValid() const;
 };
+
+// Prefer the actual major horizon samples at both seismic gap endpoints.
+// Missing endpoint/checkshot coverage produces no correlation, never a fallback.
+QVector<Link> correlationLinks(const Well &a,const Well &b,const SeismicGap *gap);
 
 // 有效缝 |v| 的 percentile 截幅（有限值；跨步抽样至 ≤20 万点，
 // nth_element 选位）；结果 ≤0 或无值 → 1.0。

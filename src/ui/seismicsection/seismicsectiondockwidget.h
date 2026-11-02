@@ -101,6 +101,7 @@ public:
     // D5.3 井轨迹投影（顶/底到剖面折线的投影）；TD 无实测表 → 返回带原因注记
     void computeWellTrajectories(const std::vector<glm::dvec2> &mapPolyline);
     void computeSyntheticOverlays();                   // D5.4
+    void showMajorHorizonConnections(); // Applies to the next linked section request.
 
     // ---- D4 解释工具 ----
     const SeismicInterpretationSession &interpretationSession() const { return m_session; }
@@ -215,6 +216,7 @@ private slots:
     void onPrintImage();
 
 private:
+    bool m_majorHorizonConnectionsNext=false;
     void setupUi();
     void setupHorizonOverlayControl(QWidget *toolbar);
     void setupDisplayBar(QWidget *parent);          // D2.x 显示控制行

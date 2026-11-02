@@ -113,6 +113,8 @@ public:
     const SectionHorizons& horizonOverlays()const{return m_horizons;}
     void setHorizonOverlaysVisible(bool visible);
     bool horizonOverlaysVisible()const{return m_horizonsVisible;}
+    void setMajorHorizonsOnly(bool on){m_majorHorizonsOnly=on;update();}
+    bool majorHorizonsOnly()const{return m_majorHorizonsOnly;}
     bool hasData() const { return m_traces > 0 && m_samples > 0; }
 
     // D2.14：空数据/无效线号的原因态（无数据时的占位文案）
@@ -352,6 +354,7 @@ private:
     void paintHorizonOverlays(QPainter& painter,const QRect& viewport);
     SectionHorizons m_horizons;
     bool m_horizonsVisible=false;
+    bool m_majorHorizonsOnly=false;
     void rebuildImage();
     // 把 m_slice.values 的 [x0,x0+w)×[y0+h) 区域按当前色标/增益写入
     // m_cachedImage（瓦片流与整图重建共用一条上色路径）。

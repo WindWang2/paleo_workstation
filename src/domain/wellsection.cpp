@@ -61,9 +61,14 @@ QVector<Zone> zones(const Well &w, double bottomMd) {
 
 QVector<Link> links(const Well &left, const Well &right) {
   QVector<Link> out;
-  for (const Top &t : left.tops) {
-    const double r = right.topMd(t.name);
-    if (!std::isfinite(r))
+  const bool seismic = left.correlationTops || right.correlationTops;
+  if (seismic && (!left.correlationTops || !right.correlationTops)) return out;
+  const auto &lt = seismic ? *left.correlationTops : left.tops;
+  const auto &rt = seismic ? *right.correlationTops : right.tops;
+  for (const Top &t : lt) {
+    double r = qQNaN();
+    for (const auto &top : rt) if (top.name == t.name) { r = top.md; break; }
+    if (!std::isfinite(t.md) || !std::isfinite(r))
       continue;
     bool dup = false;
     for (const Link &l : out)

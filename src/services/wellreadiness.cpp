@@ -22,6 +22,7 @@ namespace {
 struct Snapshot {
   QString stamp;
   QSet<qlonglong> usableWells;
+  QSet<qlonglong> timeDepthWells;
   bool opened = false; // 模型存在且本次成功打开（false=无模型/打开失败，走 legacy）
 };
 QMutex cacheMutex;
@@ -91,6 +92,9 @@ Snapshot modelSnapshot(const QString &projectDir) {
   std::string error;
   if (service.openProjectReadOnly(root.toUtf8().toStdString(), error)) {
     out.opened = true;
+    std::vector<data::DataEntry> entries;
+    if(service.listData("time_depth",0,entries,error))
+      for(const auto &entry:entries)if(entry.wellId>0)out.timeDepthWells.insert(entry.wellId);
     out.usableWells = usableTimeDepthWells(service, &error);
   }
   QMutexLocker lock(&cacheMutex);
@@ -131,9 +135,11 @@ QHash<QString, WellReadiness> analysisReadiness(DataCatalog *catalog,
     const qlonglong modelId = well.extra.value(QStringLiteral("areaModelWellId")).toLongLong();
     if (modelId > 0) {
       r.tdUsable = snapshot.usableWells.contains(modelId);
+      r.hasTimeDepth = snapshot.timeDepthWells.contains(modelId);
     } else {
       const QString path = legacyTimeDepthPath(catalog, well.id);
       if (!path.isEmpty()) {
+        r.hasTimeDepth = QFileInfo::exists(path);
         TimeDepthTable table;
         QString error;
         if (readTimeDepth(path, table, &error)) {

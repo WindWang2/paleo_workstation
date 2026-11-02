@@ -2051,9 +2051,11 @@ private slots:
     //（覆盖兜底分支）。
     const auto readinessBefore=paleo::analysisReadiness(&cat,project);
     QVERIFY(readinessBefore.value("one").hasCurves);
+    QVERIFY(readinessBefore.value("one").hasTimeDepth);
     QVERIFY(!readinessBefore.value("one").tdUsable);
     QVERIFY(!readinessBefore.value("one").analysisReady());
     QVERIFY(readinessBefore.value("two").analysisReady());
+    QVERIFY(readinessBefore.value("two").hasTimeDepth);
     // 校验面：单位/单双程/基准逐项拒绝，未挂链井如实报错。
     QString confirmError;
     QVERIFY(!facade.confirmTimeDepthSemantics("one","ns","TWT","MSL",true,&confirmError));
@@ -2086,6 +2088,7 @@ private slots:
     QVERIFY(readinessAfter.value("one").analysisReady());
     QVERIFY(readinessAfter.value("two").analysisReady());
     QVERIFY(!readinessAfter.value("three").tdUsable); // 确认过但脏表——严格拒
+    QVERIFY(readinessAfter.value("three").hasTimeDepth);
     QVERIFY(!readinessAfter.value("three").analysisReady());
     WellSectionWorkflow wf(&cat);
     const auto choices=wf.wellChoices();

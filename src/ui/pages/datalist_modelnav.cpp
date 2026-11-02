@@ -76,10 +76,11 @@ bool DataListPanel::appendAreaModelWellSeismic(QVector<NavNodeSpec> &tops) const
     } else {
       QStringList missing;
       if (!support.curves) missing << tr("缺曲线");
-      if (!tdUsable) missing << tr("缺时深");
+      if (!tdUsable) missing << (support.timeDepth ? tr("时深待确认或校验") : tr("缺时深"));
       item.status1 = 2;
       item.text1 = missing.join(QStringLiteral(" · ")) + QStringLiteral(" · ") + item.text1;
     }
+    if(support.timeDepth&&!tdUsable)item.tooltip0+=QStringLiteral("\n")+tr("已有时深表，尚未通过单位、时间基准或单调性检查。");
     wellRoot.children.append(item);
   }
   tops.append(wellRoot);

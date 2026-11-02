@@ -84,7 +84,7 @@ inline void DataListPanel::applyWellReadinessBadge(
   {
     QStringList missing;
     if (!ready.hasCurves) missing << tr("缺曲线");
-    if (!ready.tdUsable) missing << tr("缺时深");
+    if (!ready.tdUsable) missing << (ready.hasTimeDepth ? tr("时深待确认或校验") : tr("缺时深"));
     item.status1 = 2;
     readinessText = missing.join(QStringLiteral(" · "));
   }

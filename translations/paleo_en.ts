@@ -6246,6 +6246,14 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
     <context>
         <name>DataListPanel</name>
         <message>
+            <source>时深待确认或校验</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>已有时深表，尚未通过单位、时间基准或单调性检查。</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
             <location filename="../src/ui/pages/datalistops.h" line="24" />
             <source>还没有数据资产 — 先导入工区文件夹，或用上方按钮导入单个文件</source>
             <translation type="unfinished" />

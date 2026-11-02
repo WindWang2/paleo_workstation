@@ -16,6 +16,7 @@ namespace paleo {
 struct WellReadiness {
   bool hasCurves = false; // 有可用测井曲线（模型井 extra 标志 / 链接判定）
   bool tdUsable = false;  // 时深可用：模型侧已确认口径，或 legacy 链接表可插值
+  bool hasTimeDepth = false; // 存在时深资料，与通过确认/校验分开
   bool analysisReady() const { return hasCurves && tdUsable; }
 };
 

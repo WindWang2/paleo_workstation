@@ -66,6 +66,10 @@ class StratigraphyEditingTest:public QObject {
 private slots:
  void selectedWellsStartEmptyAndLoadOneChart() {
   Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));
+  // 无时深表的井也必须可选、可加载及人工划分，不能被井震计算前置条件隐藏。
+  paleo::data::DataService data;std::string detail;std::vector<paleo::data::DataEntry> relations;
+  QVERIFY(data.openProjectReadOnly(paleo::area_model::directory(fixture.directory.path()).toStdString(),detail));
+  QVERIFY(data.listData("time_depth",0,relations,detail));QVERIFY(relations.empty());data.closeProject();
   PaleoTaskService tasks;StratigraphyWorkflow wf(&tasks);wf.setProject(fixture.directory.path(),false);
   StratigraphyPage page(&wf);page.show();QVERIFY(QTest::qWaitForWindowExposed(&page));
   auto* list=page.findChild<QListWidget*>("stratigraphyWells");QVERIFY(list);QCOMPARE(list->count(),2);

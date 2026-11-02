@@ -529,7 +529,7 @@ void WellSectionPanel::setSection(const QVector<wellsection::Well> &wells)
       const wellsection::Well &o = m_wells.at(i);
       const wellsection::Well &n = wells.at(i);
       if (o.id != n.id || !sameCoord(o.x, n.x) || !sameCoord(o.y, n.y) ||
-          bool(o.timeDepth)!=bool(n.timeDepth) ||
+          bool(o.timeDepth)!=bool(n.timeDepth) || o.correlationRevision!=n.correlationRevision ||
           (o.timeDepth&&n.timeDepth&&o.timeDepth->timeReference!=n.timeDepth->timeReference)) {
         keepStrip = false;
         break;

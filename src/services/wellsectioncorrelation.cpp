@@ -23,6 +23,7 @@ void loadSeismicCorrelationTops(const QString &project,const QHash<int,qlonglong
   if(!ds.readStratigraphicScheme((found==schemes.end()?schemes.front():*found).id,{},scheme,error)) {
     warnings.append(QString::fromStdString(error));return;
   }
+  for(auto &well:wells)well.correlationRevision=QString::fromStdString(scheme.id+":"+scheme.revision.value);
   for(auto it=nativeWells.cbegin();it!=nativeWells.cend();++it) {
     if(it.key()<0||it.key()>=wells.size())continue;
     auto &tops=*wells[it.key()].correlationTops;QHash<QString,double> depths;QSet<QString> conflicts;

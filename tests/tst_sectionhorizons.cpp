@@ -76,6 +76,16 @@ private slots:
     QCOMPARE(image.pixelColor(x+100,175),QColor(Qt::white)); // Missing interior is not bridged.
     QVERIFY(image.pixelColor(x+175,231)!=QColor(Qt::white));
   }
+  void schemeRevisionInvalidatesCorrelationStrip(){
+    WellSectionPanel panel(nullptr);wellsection::Well a,b;a.id="A";b.id="B";a.totalDepth=b.totalDepth=1000;
+    a.correlationRevision=b.correlationRevision="scheme:r1";panel.setSection({a,b});
+    panel.setSeismicAvailable(true,{});panel.setSeismicEnabled(true);
+    wellsection::SeismicStrip strip;strip.gaps.resize(1);strip.gaps[0].reason="old sampled horizons";panel.setSeismicStrip(strip);
+    QSignalSpy requested(&panel,&WellSectionPanel::seismicRequested);panel.setSection({a,b});QCOMPARE(requested.size(),0);
+    QCOMPARE(panel.gapReason(0),QString("old sampled horizons"));
+    a.correlationRevision=b.correlationRevision="scheme:r2";panel.setSection({a,b});QCOMPARE(requested.size(),1);
+    QVERIFY(panel.gapReason(0)!=QString("old sampled horizons"));
+  }
   void bandsRespectTopologyGapsAndTexture(){
     seismic::SectionHorizons data;
     data.curves.push_back({"top","T70",0,false,{40,40,40,qQNaN(),40,110,40}});
@@ -214,6 +224,7 @@ private slots:
     QVector<wellsection::Well> correlationWells(2);correlationWells[0].tops={{"old formation",99}};
     QStringList warnings;paleo::loadSeismicCorrelationTops(project,{{0,42},{1,43}},correlationWells,warnings);
     QVERIFY(warnings.isEmpty());QVERIFY(correlationWells[0].correlationTops);
+    QVERIFY(!correlationWells[0].correlationRevision.isEmpty());
     QCOMPARE(correlationWells[0].correlationTops->size(),2);QCOMPARE(correlationWells[0].correlationTops->front().name,QString("T70"));
     QCOMPARE(correlationWells[0].tops.front().name,QString("old formation"));QVERIFY(correlationWells[1].correlationTops->isEmpty());
     paleo::area_model::registerProject(project,this);

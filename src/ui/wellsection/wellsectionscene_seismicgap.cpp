@@ -57,6 +57,7 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
   // 连线分 Effective/断开两组：断开画细虚线示意（可右键重连），不参与
   // 层段带/高亮带的闭合几何。
   const QVector<wellsection::Link> allLks = m_st->linksForGap(m_index);
+  const bool seismicLinks=a.correlationTops||b.correlationTops||(gap&&!gap->horizons.curves.empty());
   QVector<wellsection::Link> lks;   // 连接中的
   QVector<wellsection::Link> broken; // 用户断开的
   for (const auto &lk : allLks) {
@@ -92,8 +93,8 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
       QPainterPath band = top;
       band.connectPath(bot.toReversed());
       band.closeSubpath();
-      QColor c = wellsection::zoneColor(m_st->zoneOrder.indexOf(lks[k].name));
-      c.setAlpha(140);
+      QColor c = seismicLinks?PaleoTheme::sectionHorizonColor(lks[k].name):wellsection::zoneColor(m_st->zoneOrder.indexOf(lks[k].name));
+      c.setAlpha(seismicLinks?51:140);
       p->fillPath(band, c);
     }
   }
@@ -132,7 +133,7 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
   {
     if (&lk == la || &lk == lb)
       continue;
-    QPen pen(m_st->theme.link, m_st->theme.linkWidth);
+    QPen pen(seismicLinks?PaleoTheme::sectionHorizonColor(lk.name):m_st->theme.link,seismicLinks?1.6:m_st->theme.linkWidth);
     if (lk.name == m_hoverLink)
       pen.setWidthF(pen.widthF() + 1.2);
     stroke(linkPath(lk), pen);

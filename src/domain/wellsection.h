@@ -114,6 +114,7 @@ struct Well {
   // Current seismic major boundaries for correlation only. An engaged empty
   // list means no usable major picks; never borrow formation or S1–S4 tops.
   std::optional<QVector<Top>> correlationTops;
+  QString correlationRevision; // Invalidates sampled seismic horizons after a scheme edit.
   QVector<Curve> curves;
   QVector<FaciesSegment> facies; // 交会分类井层段（catalog 派生资产）
   QVector<LithoSegment> litho;   // 解释岩性段（catalog 资产或岩屑录井文件，可空 = GR 回落）

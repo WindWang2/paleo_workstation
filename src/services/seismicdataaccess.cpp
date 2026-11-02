@@ -1,8 +1,14 @@
 // 层：数据
 #include "seismicdataaccess.h"
+#include "seismicsource.h"
 #include "../io/areamodel.h"
 
 namespace paleo {
+bool readSeismicSourceCrs(const QString &path,QString &crs,QString *error){
+ crs.clear();if(error)error->clear();SeismicDataAccess source;
+ if(!source.open(path,error))return false;
+ crs=source.coordinateSystem();return true;
+}
 bool SeismicDataAccess::open(const QString& path,QString *error) {
  m_volume=0;m_unit.clear();m_crs.clear();m_file=path.toUtf8().toStdString();long long source=0;
  const auto state=area_model::openSource(path,m_service,source,error);

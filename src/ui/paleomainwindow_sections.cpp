@@ -12,6 +12,7 @@
 #include "seismicsection/seismicsectiondockwidget.h"
 #include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/previewdoc.h"
+#include "services/paleotaskservice.h"
 #include "workflow/sectionworkbench.h"
 #include "wellcomposite/derivedsink.h"
 #include "wellcomposite/wellcompositepanel.h"
@@ -26,6 +27,28 @@
 // 剖面画布 → 地图定位接线（attachSections 拆出：hover 十字标 + 点击居中，
 // TimeSlice 域按测网几何换算）。只用入参局部，无壳成员。
 namespace {
+void showSectionSetup(SectionSetupDialog *setup,SeismicMapLink *link,
+                      const std::function<PaleoTask*()> &load) {
+  setup->show();setup->raise();setup->activateWindow();
+  if(link->activeVolume()){
+    setup->setSeismicState(link->gridGeometry().valid,link->gridGeometry().valid?QString():QObject::tr("地震体缺少有效 XY 测网几何，请检查道头坐标"));return;
+  }
+  setup->setSeismicState(false,QObject::tr("正在加载工区地震体及测网，请稍候…"));
+  QPointer<PaleoTask> task=load();
+  if(task&&task->running()){
+    QObject::connect(task,&PaleoTask::finished,setup,[setup,link,task]{
+      if(!link->activeVolume())setup->setSeismicState(false,task&&!task->errorText().isEmpty()?task->errorText():QObject::tr("地震体加载未完成，请重新打开连井剖面"));
+    },Qt::SingleShotConnection);
+  }else if(!link->activeVolume())setup->setSeismicState(false,QObject::tr("工区未找到可加载的地震体，请检查数据管理中的来源"));
+}
+std::function<void()> wireSectionSetup(SectionSetupDialog *setup,SeismicMapLink *link,
+    const std::function<void()> &refresh,const std::function<PaleoTask*()> &load){
+  QObject::connect(link,&SeismicMapLink::sectionVolumeChanged,setup,[setup,link](const auto &volume){
+    const bool ready=volume&&link->gridGeometry().valid;
+    setup->setSeismicState(ready,ready?QObject::tr("地震体及测网已就绪"):QObject::tr("地震体或 XY 测网未就绪，不能生成剖面"));
+  });
+  return [setup,link,refresh,load]{showSectionSetup(setup,link,load);refresh();};
+}
 void refreshSectionCandidates(SectionWorkbench *workbench,SectionSetupDialog *setup,
   seismic::SeismicSectionDockWidget *dock,SeismicMapLink *link) {
     setup->setSavedSections(workbench->savedSections());
@@ -120,12 +143,11 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
     setup->setMessage(message);
     statusBar()->showMessage(message, 10000);
   };
-  auto open = [setup, refresh] {
-    setup->show();
-    setup->raise();
-    setup->activateWindow();
-    refresh();
-  };
+  auto open = wireSectionSetup(setup,link,refresh,[this]{
+      if(!m_seismicOpenTask||!m_seismicOpenTask->running())m_seismicAutoLoadedPaths.clear();
+      syncSeismicVolumeToDocks(true);
+      return m_seismicOpenTask.data();
+  });
   // 绘制期间对话框隐藏；取消/失败时唤回（消息落在对话框状态行，藏着看不见）。
   auto drawingFromSetup = std::make_shared<bool>(false);
   auto *action = new QAction(tr("连井 / 时深对齐"), this);

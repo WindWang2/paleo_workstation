@@ -132,17 +132,8 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   m_message->setObjectName("sectionSetupMessage");
   m_message->setWordWrap(true);
   layout->addWidget(m_message);
-  auto gateBuild = [this, build, reorder] {
-    int selected = 0;
-    for (int i = 0; i < m_wells->count(); ++i)
-      selected += m_wells->item(i)->checkState() == Qt::Checked;
-    build->setEnabled(selected >= 2);
-    build->setToolTip(selected < 2 ? tr("至少勾选两口坐标不同的井")
-                                   : tr("按列表从上到下生成剖面"));
-    reorder->setEnabled(selected >= 2);
-  };
-  connect(m_wells, &QListWidget::itemChanged, this, gateBuild);
-  gateBuild();
+  connect(m_wells, &QListWidget::itemChanged, this, &SectionSetupDialog::updateActions);
+  updateActions();
   connect(m_wells, &QListWidget::currentRowChanged, this,
           &SectionSetupDialog::showWell);
   connect(m_mode, &QComboBox::currentIndexChanged, this,
@@ -217,23 +208,29 @@ void SectionSetupDialog::setWells(const QVariantList &wells) {
   if (!m_wells->currentItem() && m_wells->count())
     m_wells->setCurrentRow(0);
   showWell();
-  int checkedCount = 0;
-  for (int i = 0; i < m_wells->count(); ++i)
-    checkedCount += m_wells->item(i)->checkState() == Qt::Checked;
-  findChild<QPushButton *>("buildWellSection")->setEnabled(checkedCount >= 2);
-  if (auto *reorderBtn = findChild<QPushButton *>("spatialReorderBtn"))
-    reorderBtn->setEnabled(checkedCount >= 2);
+  updateActions();
 }
 void SectionSetupDialog::setSavedSections(const QVariantList &sections) {
   m_saved->clear();
-  findChild<QPushButton *>("restoreSectionSession")
-      ->setEnabled(!sections.isEmpty());
   m_saved->setToolTip(sections.isEmpty() ? tr("工程尚无已保存的剖面版本")
                                          : QString());
   for (const auto &v : sections) {
     auto row = v.toMap();
     m_saved->addItem(row.value("name").toString(), row.value("id"));
   }
+  updateActions();
+}
+void SectionSetupDialog::setSeismicState(bool ready,const QString &message){
+  m_seismicReady=ready;setMessage(message);updateActions();
+}
+void SectionSetupDialog::updateActions(){
+  const int selected=checkedWellIds().size();
+  auto *build=findChild<QPushButton *>("buildWellSection");
+  build->setEnabled(m_seismicReady&&selected>=2);
+  build->setToolTip(!m_seismicReady?tr("地震体及测网就绪后可生成剖面"):selected<2?tr("至少勾选两口坐标不同的井"):tr("按列表从上到下生成剖面"));
+  findChild<QPushButton *>("drawArbitrarySection")->setEnabled(m_seismicReady);
+  findChild<QPushButton *>("restoreSectionSession")->setEnabled(m_seismicReady&&m_saved->count()>0);
+  findChild<QPushButton *>("spatialReorderBtn")->setEnabled(selected>=2);
 }
 void SectionSetupDialog::setMessage(const QString &text) {
   m_message->setText(text);

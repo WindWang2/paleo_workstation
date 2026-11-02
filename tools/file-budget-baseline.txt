@@ -69,7 +69,7 @@ src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:368
 src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:646
 src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:224
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:476
-src/ui/paleomainwindow_sections.cpp:fn:attachSections:278
+src/ui/paleomainwindow_sections.cpp:fn:attachSections:277
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:426
 src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:295
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255

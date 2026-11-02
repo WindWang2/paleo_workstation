@@ -317,8 +317,21 @@ private slots:
       QVERIFY(!layer.labelsEnabled());
     }
   }
+  void setupWaitsForSeismicGeometryAndKeepsWellSelection(){
+    SectionSetupDialog dialog;
+    const QVariantList rows{QVariantMap{{"id","A"},{"name","A"},{"coordinates",true}},QVariantMap{{"id","B"},{"name","B"},{"coordinates",true}}};
+    dialog.setWells(rows);dialog.applyWellOrder({"A","B"});
+    auto *build=dialog.findChild<QPushButton *>("buildWellSection");
+    auto *draw=dialog.findChild<QPushButton *>("drawArbitrarySection");
+    QVERIFY(!build->isEnabled());QVERIFY(!draw->isEnabled());
+    dialog.setSeismicState(true);QVERIFY(build->isEnabled());QVERIFY(draw->isEnabled());
+    dialog.setSeismicState(false,"source failed");dialog.setWells(rows);
+    QVERIFY(!build->isEnabled());QCOMPARE(dialog.checkedWellIds(),(QStringList{"A","B"}));
+    dialog.setSeismicState(true);QVERIFY(build->isEnabled());
+  }
   void setupIntentsAndSelectionSurviveRefresh() {
     SectionSetupDialog dialog;
+    dialog.setSeismicState(true);
     QVariantList rows{QVariantMap{{"id", "w1"},
                                   {"name", "A1"},
                                   {"coordinates", true},
@@ -352,6 +365,7 @@ private slots:
   // 吸附井序落盘：applyWellOrder 把给定序置顶并勾选，其余保相对序置未勾选。
   void applyWellOrderReordersAndChecks() {
     SectionSetupDialog dialog;
+    dialog.setSeismicState(true);
     QVariantList rows{QVariantMap{{"id", "A"}, {"name", "A"}, {"coordinates", true}},
                       QVariantMap{{"id", "B"}, {"name", "B"}, {"coordinates", true}},
                       QVariantMap{{"id", "C"}, {"name", "C"}, {"coordinates", true}},

@@ -35916,6 +35916,30 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>当前剖面：%1 条界线。</source>
         <translation>Current section: %1 boundaries.</translation>
     </message>
+    <message>
+        <source>地震体缺少有效 XY 测网几何，请检查道头坐标</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>正在加载工区地震体及测网，请稍候…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>地震体加载未完成，请重新打开连井剖面</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>工区未找到可加载的地震体，请检查数据管理中的来源</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>地震体及测网已就绪</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>地震体或 XY 测网未就绪，不能生成剖面</source>
+        <translation type="unfinished" />
+    </message>
 </context>
     <context>
         <name>QgisCanvasController</name>
@@ -37609,7 +37633,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>缺失</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>地震体及测网就绪后可生成剖面</source>
+        <translation type="unfinished" />
+    </message>
+</context>
     <context>
         <name>SectionWorkbench</name>
         <message>

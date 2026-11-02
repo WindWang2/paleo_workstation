@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QElapsedTimer>
+#include <QScopeGuard>
 #include <paleo_data/service.h>
 #include "catalog/datacatalog.h"
 #include "catalog/areawellprojection.h"
@@ -33,6 +34,8 @@
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
 #include "qgis/wellattributestore.h"
+#include "services/seismicdataaccess.h"
+#include "linkage/seismicmaplink.h"
 
 class TestRealProjectAcceptance : public QObject {
   Q_OBJECT
@@ -316,6 +319,29 @@ private slots:
     }
     inventory.insert("scopes",scopes);report.insert("fullWellScope",inventory);
     qInfo()<<"Full project wells"<<wells.size()<<"with curves"<<withCurves<<"located curves"<<locatedCurves;
+  }
+  void sectionVolumeLoadUsesNativeCrsAndGeometry(){
+    QString error;const auto path=paleo::seismicProjectSource(project,{},&error);QVERIFY2(!path.isEmpty(),qPrintable(error));
+    paleo::area_model::registerProject(project,this);
+    const auto unregister=qScopeGuard([this]{paleo::area_model::unregisterProject(this);});
+    PaleoTaskService tasks;seismic::SeismicTaskService service;service.setTaskService(&tasks);
+    bool done=false,ok=false;std::shared_ptr<seismic::SgyVolume> volume;
+    service.startVolumeLoad(path,[&](bool success,auto value,const QString &detail){ok=success;volume=value;error=detail;done=true;},true);
+    QTRY_VERIFY_WITH_TIMEOUT(done,180000);QVERIFY2(ok&&volume,qPrintable(error));
+    SeismicMapLink link(nullptr,nullptr);link.setActiveVolume(volume);
+    QVERIFY(link.gridGeometry().valid);QCOMPARE(link.sourceCrs(),QStringLiteral("EPSG:32650"));
+    const auto grid=link.gridGeometry();const auto il=volume->InlineValues()[volume->InlineValues().size()/2];
+    const auto &lines=volume->XlineValues();QVERIFY(lines.size()>2);const auto middle=lines.size()/2;
+    QVector<QgsPointXY> points;for(auto index:{middle,middle+1}){double x=0,y=0;grid.inlineXlineToXy(il,lines[index],&x,&y);points.append(QgsPointXY(x,y));}
+    std::vector<glm::ivec2> route;
+    connect(&link,&SeismicMapLink::sectionExtractRequested,&link,[&](auto,std::vector<glm::ivec2> path,QString,auto){route=std::move(path);});
+    QSignalSpy extracted(&link,&SeismicMapLink::sectionExtractedFromMap);link.triggerSectionFromMapPolyline(points,"native-geometry");
+    QCOMPARE(extracted.size(),1);QVERIFY2(extracted.first()[0].toBool(),qPrintable(extracted.first()[1].toString()));
+    seismic::SgySectionOptions options;options.maxColumns=32;done=false;std::shared_ptr<const seismic::SgySliceImage> image;
+    service.startSectionExtraction(volume,route,options,[&](bool success,auto value,const auto &,const QString &detail){ok=success;image=value;error=detail;done=true;});
+    QTRY_VERIFY_WITH_TIMEOUT(done,60000);QVERIFY2(ok&&image,qPrintable(error));
+    QVERIFY(std::any_of(image->values.begin(),image->values.end(),[](float v){return std::isfinite(v);}));
+    report.insert("sectionVolumeLoad",QJsonObject{{"sourceCrs",link.sourceCrs()},{"geometryValid",true},{"fileBytes",double(QFileInfo(path).size())},{"traces",double(volume->Index()->traceCount)},{"columns",image->width},{"samples",image->height}});
   }
   void wellSeismicAlignmentInventory(){
     paleo::data::DataService ds;std::string error;QString detail;

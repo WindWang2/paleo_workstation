@@ -49,12 +49,7 @@ void SectionSetupDialog::applyWellOrder(const QStringList &ids) {
     m_wells->setCurrentRow(0);
   showWell();
   // 与 setWells 末尾同口径：Blocker 抑制了 itemChanged，按钮门控手工刷新。
-  int checkedCount = 0;
-  for (int i = 0; i < m_wells->count(); ++i)
-    checkedCount += m_wells->item(i)->checkState() == Qt::Checked;
-  findChild<QPushButton *>("buildWellSection")->setEnabled(checkedCount >= 2);
-  if (auto *reorderBtn = findChild<QPushButton *>("spatialReorderBtn"))
-    reorderBtn->setEnabled(checkedCount >= 2);
+  updateActions();
 }
 
 QStringList SectionSetupDialog::checkedWellIds() const {

@@ -12,6 +12,7 @@
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QListWidget>
+#include <QLabel>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTextStream>
@@ -225,20 +226,30 @@ private slots:
                                        "old", {{0, 0}, {300, 0}});
     seismic::SectionWellInfo w;
     w.wellName = "A1";
+    w.wellId="A1";
     w.surfaceX = 300;
     w.surfaceY = 100;
     w.calibrated = true;
     w.bottomTwtMs = 170;
+    w.trajectory={{0,0,300,100,90},{100,100,300,100,qQNaN()},{200,200,300,100,150}};
     w.alignmentStatus = "时深表";
     w.tops.push_back({"H1", 120, 100, 100});
     dock.extractSectionFromVolumeAsync(
         volume, {{1000, 2000}, {1003, 2000}, {1003, 2003}}, "current",
         {{0, 0}, {300, 0}, {300, 600}}, {w});
+    w.bottomTwtMs=172.;w.trajectory.front().twtMs=91.;dock.setCandidateWells({w});
     QTRY_VERIFY_WITH_TIMEOUT(done.count() == 1, 10000);
     QVERIFY(done[0][0].toBool());
     QVERIFY(dock.hasRoute());
     QCOMPARE(dock.canvas()->startSampleMs(), 50.0);
     QCOMPARE(dock.canvas()->totalDistanceM(), 900.0);
+    const auto trajectory=dock.canvas()->wellTrajectories();QCOMPARE(trajectory.size(),size_t(1));
+    QCOMPARE(trajectory[0].bottomTwtMs,172.);QCOMPARE(trajectory[0].vertices[0].twtMs,91.);
+    QVERIFY(std::isnan(trajectory[0].vertices[1].twtMs));QCOMPARE(trajectory[0].vertices[2].twtMs,150.);
+    for(auto *label:dock.findChildren<QLabel*>())QVERIFY(!label->text().contains(QStringLiteral("时深用默认均速")));
+    w.bottomTwtMs=175.;w.trajectory.front().twtMs=95.;dock.setCandidateWells({w});
+    QCOMPARE(dock.canvas()->wells().front().bottomTwtMs,175.);
+    QCOMPARE(dock.canvas()->wellTrajectories().front().vertices.front().twtMs,95.);
     QSignalSpy clicked(dock.canvas(),
                        &seismic::SeismicSectionCanvas::traceClicked);
     const int col = dock.canvas()->traceCount() - 2;

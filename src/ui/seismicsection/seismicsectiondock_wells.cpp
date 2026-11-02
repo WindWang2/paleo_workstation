@@ -124,6 +124,8 @@ private:
 
 void SeismicSectionDockWidget::setCandidateWells(const std::vector<SectionWellInfo> &wells) {
     m_candidateWells = wells;
+    refreshWellOverlay(wells);
+    if(m_route.size()>=2)computeWellTrajectories(m_route);
     computeSyntheticOverlays();
 }
 
@@ -190,16 +192,16 @@ void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dv
                                     well.bottomY != 0.0 ? well.bottomY : well.surfaceY);
             t.bottomTracePos = ProjectPointToTracePos(mapPolyline, distances, totalTraces, bottom);
             t.topTwtMs = 0.0;
-            t.bottomTwtMs = m_canvas->timeDepthModel().DepthToTwtMs(well.totalDepth);
+            t.bottomTwtMs = well.calibrated?well.bottomTwtMs:m_canvas->timeDepthModel().DepthToTwtMs(well.totalDepth);
             // goal/well-trajectory：测斜站逐点投影成折线（twt 用 workbench
-            // 逐站校准值；未对齐站回退画布时深模型，再不行顶点不画）。
+            // 逐站校准值；已标定井的表外站点保持空值，不回退全局均速）。
             const TimeDepthModel &td = m_canvas->timeDepthModel();
             for (const WellTrajSample &s : well.trajectory) {
                 SeismicSectionCanvas::TrajVertex v;
                 v.tracePos = ProjectPointToTracePos(mapPolyline, distances, totalTraces, {s.x, s.y});
-                v.twtMs = std::isfinite(s.twtMs) && s.twtMs > 0.0
-                              ? s.twtMs
-                              : (s.tvd > 0.0 ? td.DepthToTwtMs(s.tvd) : s.twtMs);
+                v.twtMs = well.calibrated ? s.twtMs
+                    : (std::isfinite(s.twtMs) && s.twtMs > 0.0 ? s.twtMs
+                       : (s.tvd > 0.0 ? td.DepthToTwtMs(s.tvd) : s.twtMs));
                 t.vertices.push_back(v);
             }
             trajectories.push_back(t);
@@ -207,12 +209,8 @@ void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dv
     }
     m_canvas->setWellTrajectories(trajectories);
 
-    // D5.3 原因态：时深无实测检查点 → 状态栏注记（仍按均速投影）。
-    // 幂等守卫：任意线提取完成都会走到这里——无守卫时后缀随每次提取
-    // 无限累积串接。
-    if (!m_candidateWells.empty() && !m_canvas->timeDepthModel().hasCheckshots() &&
-        !m_lblTitle->text().contains(QLatin1String("时深用默认均速")))
-        setLineTitle(tr("%1（时深用默认均速——无实测检查点表）").arg(m_lblTitle->text()));
+    // The canvas model only supplies the optional reference-depth axis. Per-well
+    // checkshots are authoritative; its absence says nothing about these wells.
 }
 
 void SeismicSectionDockWidget::computeSyntheticOverlays() {

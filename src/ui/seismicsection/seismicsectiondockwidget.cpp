@@ -569,6 +569,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
   m_sliceIndex = -1;
   const auto generation = ++m_generation;
   m_volume = volume;
+  m_candidateWells=candidateWells;
   m_route.clear();
   m_distances.clear();
   // goal/fault-interpretation：任意线剖面身份 = 路径点串；同时作废 IL/XL
@@ -589,8 +590,8 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
   QPointer<SeismicSectionDockWidget> guard(this);
   m_extraction = m_taskService->startSectionExtraction(
       std::make_shared<SgyVolume>(*volume), pathPoints, options,
-      [guard, generation, volume, pathPoints, lineTitle, mapPolyline,
-       candidateWells](bool ok, std::shared_ptr<const SgySliceImage> image,
+      [guard, generation, volume, pathPoints, lineTitle, mapPolyline]
+       (bool ok, std::shared_ptr<const SgySliceImage> image,
                const SeismicSectionExtractionStats &stats, const QString &error) {
         if (!guard || guard->m_generation != generation)
           return;
@@ -622,17 +623,9 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
             *image, float(stats.sampleIntervalMs), stats.firstTimeMs,
             geometry.distancesM, geometry.coordinates);
         guard->m_canvas->setHorizonOverlays(stats.horizons);
-        guard->refreshWellOverlay(candidateWells);
         guard->setLineTitle(lineTitle);
-        // #225：入参候选井写入成员——computeWellTrajectories /
-        // computeSyntheticOverlays / 井旁道 / 子波提取 / 反演低频井读的都是
-        // m_candidateWells，旧实现只按入参判空、成员恒空，四条链生产恒死。
-        guard->m_candidateWells = candidateWells;
-        // D5.3/D5.4：井轨迹投影 + 合成记录（任意线链路，wave/seismic-chain-deep）
-        if (!candidateWells.empty()) {
-          guard->computeWellTrajectories(route);
-          guard->computeSyntheticOverlays();
-        }
+        // Use the latest calibration even when semantics changed during extraction.
+        guard->setCandidateWells(guard->m_candidateWells);
         // 与切片路径同拍刷新解释叠加：剖面身份变了（任意线），
         // FaultSet 棒按新身份重新过滤回显（goal/fault-interpretation）。
         guard->refreshInterpretationOverlay();

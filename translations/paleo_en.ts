@@ -8186,7 +8186,22 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
             <source>已从目录移除 %1 项索引记录；文件均未改动</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <location filename="../src/ui/pages/datalist_modelnav.cpp" line="75"/>
+        <source>曲线+时深齐备</source>
+        <translation>Curves and time-depth ready</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_modelnav.cpp" line="78"/>
+        <source>缺曲线</source>
+        <translation>Missing curves</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_modelnav.cpp" line="79"/>
+        <source>缺时深</source>
+        <translation>Missing time-depth</translation>
+    </message>
+</context>
     <context>
         <name>DataPage</name>
         <message>
@@ -26152,7 +26167,32 @@ PDF：%3
             <source>时深关系的深度单位、时间单位、单/双程或时间基准尚未确认</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <location filename="../src/services/projectdata_timedepth.cpp" line="98"/>
+        <source>井未挂接时深资产，无可确认的来源</source>
+        <translation>Well has no linked time-depth asset to confirm</translation>
+    </message>
+    <message>
+        <location filename="../src/services/projectdata_timedepth.cpp" line="103"/>
+        <source>时深资产未进工区数据服务（外链裸文件），请先经工区导入再确认口径</source>
+        <translation>Time-depth asset is an unbound external file; import into the project data service before confirming</translation>
+    </message>
+    <message>
+        <location filename="../src/services/projectdata_timedepth.cpp" line="106"/>
+        <source>本工程未建立工区数据模型，无从确认时深口径</source>
+        <translation>This project has no area data model, so time-depth policy cannot be confirmed</translation>
+    </message>
+    <message>
+        <location filename="../src/services/projectdata_timedepth.cpp" line="111"/>
+        <source>工区数据模型以只读方式打开，不能保存时深口径确认</source>
+        <translation>Area data model is open read-only; cannot save time-depth confirmation</translation>
+    </message>
+    <message>
+        <location filename="../src/services/projectdata_timedepth.cpp" line="130"/>
+        <source>数据服务中未找到本井的时深关系</source>
+        <translation>No time-depth relation for this well in the data service</translation>
+    </message>
+</context>
     <context>
         <name>ProjectLayerRefreshWorkflow</name>
         <message>
@@ -44191,7 +44231,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>第 %1 行没有可用深度（TVDSS/TVD/MD），拒收该行</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <location filename="../src/io/wellfileparsers.cpp" line="369"/>
+        <source>第 %1 行声明 Petrel checkshots 格式：本解析器的固定列序（TIME/TVDSS/TVD/MD）不适用，整表拒收，请经工区数据服务导入解析</source>
+        <translation>Line %1 declares Petrel checkshots format: this parser's fixed column order (TIME/TVDSS/TVD/MD) does not apply; reject the whole table and import via the project data service</translation>
+    </message>
+</context>
     <context>
         <name>WellLocatorFilter</name>
         <message>
@@ -45510,7 +45555,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>剖面提取失败</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <location filename="../src/workflow/wellsectionworkflow.cpp" line="1149"/>
+        <source>%1 时深不可用：%2</source>
+        <translation>%1 time-depth unavailable: %2</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/wellsectionworkflow.cpp" line="326"/>
+        <source>时深表只有 TVD 列，连井剖面按 MD 域装配不可用</source>
+        <translation>Time-depth table has TVD only; well-section assembly in MD domain is unavailable</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/wellsectionworkflow.cpp" line="330"/>
+        <source>时深表无效（有效样点不足或非单调）</source>
+        <translation>Time-depth table invalid (too few usable samples or non-monotonic)</translation>
+    </message>
+</context>
     <context>
         <name>WellSitingPanel</name>
         <message>

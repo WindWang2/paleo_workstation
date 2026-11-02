@@ -110,15 +110,15 @@ QList<StratigraphyRow> StratigraphyWorkflow::rows() const {
  }
  return result;
 }
-void StratigraphyWorkflow::calculate(const QList<qlonglong>& ids,bool subdivide,const QString& scope){if(subdivide&&!canSubdivide(ids,scope)){emit statusChanged(tr("勾选井须与已加载井一致，并具有所选段的有效顶底界面"));return;}runCalculation(ids,subdivide?1:0,scope);}
-void StratigraphyWorkflow::loadWells(const QList<qlonglong>& ids){runCalculation(ids,2);}
+void StratigraphyWorkflow::calculate(const QList<qlonglong>& wells,bool subdivide,const QString& segment){if(subdivide&&!canSubdivide(wells,segment)){emit statusChanged(tr("勾选井须与已加载井一致，并具有所选段的有效顶底界面"));return;}runCalculation(wells,subdivide?1:0,segment);}
+void StratigraphyWorkflow::loadWells(const QList<qlonglong>& wells){runCalculation(wells,2);}
 void StratigraphyWorkflow::derive(const QString& segment){runCalculation({},3,segment);}
 void StratigraphyWorkflow::propagate(const QList<StratigraphyAssignment>& assignments,const QString& segment){runCalculation({},4,segment,assignments);}
-void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,const QString& scope,const QList<StratigraphyAssignment>& overrides) {
- if(d->task||!d->tasks||d->path.isEmpty()||d->readOnly||(ids.isEmpty()&&mode<3)) {emit statusChanged(tr("请打开可写工程并选择井，等待当前任务完成"));return;}
+void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &wells,int mode,const QString& segment,const QList<StratigraphyAssignment>& assignments) {
+ if(d->task||!d->tasks||d->path.isEmpty()||d->readOnly||(wells.isEmpty()&&mode<3)) {emit statusChanged(tr("请打开可写工程并选择井，等待当前任务完成"));return;}
  const auto path=d->path.toStdString();const auto generation=d->generation;
  auto result=std::make_shared<InterpretationDocument>(d->document);const auto preferred=d->preferred;
- auto *task=d->tasks->start(tr("地层对比"),[path,ids,mode,scope,overrides,result,preferred](PaleoTask *task)->QString {
+ auto *task=d->tasks->start(tr("地层对比"),[path,wells,mode,segment,assignments,result,preferred](PaleoTask *task)->QString {
   try {
    DataService service;std::string error;require(service.openProject(path,error),error);
    const auto g=paleo::stratigraphy_native::geometry(service,result->viewStateJson);const CancelCheck cancel=[task]{return task->cancelRequested();};
@@ -127,7 +127,7 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,c
     // Loading a well chart is a preview operation; ambiguous or absent GR
     // must not prevent displaying the other available tracks. Calculations
     // still resolve and validate GR independently in mode 0.
-    for(const auto id:ids){
+    for(const auto id:wells){
      CorrelationWellSelection input;input.wellId=id;
      std::vector<DataEntry> curves;require(service.listData("curves",id,curves,error),error);
      const auto usable=std::find_if(curves.begin(),curves.end(),[](const auto& curve){return curve.count>0;});
@@ -145,18 +145,18 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,c
     *result=std::move(loaded);
    } else if(mode>=3) {
     if(result->wells.empty())throw std::runtime_error("请先加载井资料");
-    if(mode==3)*result=deriveForSegments(*result,g,cancel,{},scope.toStdString());
+    if(mode==3)*result=deriveForSegments(*result,g,cancel,{},segment.toStdString());
     if(mode==4) {
-     std::vector<TemplateAssignment> assignments;
-     for(const auto& row:overrides) {
+     std::vector<TemplateAssignment> templateAssignments;
+     for(const auto& row:assignments) {
       const auto key=row.key.split('|');if(key.size()!=2)continue;
       InterpretationTemplate t;require(service.readReferenceTemplate(key[0].toStdString(),key[1].toStdString(),t,error),error);
-      assignments.push_back({row.well,row.segment.toStdString(),t});
+      templateAssignments.push_back({row.well,row.segment.toStdString(),t});
      }
-     *result=propagateTemplates(*result,assignments,g,cancel,{},scope.toStdString());
+     *result=propagateTemplates(*result,templateAssignments,g,cancel,{},segment.toStdString());
     }
    } else if(mode==0) {
-    std::vector<long long> selected(ids.begin(),ids.end());
+    std::vector<long long> selected(wells.begin(),wells.end());
     auto plan=planQuickInputs(service,selected,preferred);
     for(const auto& issue:plan.issues)if(issue.blocking&&issue.field!="timeDepth"&&issue.field!="coordinates"&&issue.field!="trajectory")throw std::runtime_error(issue.message);
     for(auto& row:plan.request.wells){const auto explicitSource=std::find_if(preferred.wells.begin(),preferred.wells.end(),[&](const auto& w){return w.wellId==row.wellId;});if(explicitSource==preferred.wells.end()||!explicitSource->timeDepthId)row.timeDepthId=0;}
@@ -188,7 +188,7 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,c
     stored.insert(stored.end(),discovery.templates.begin(),discovery.templates.end());
     for(const auto &candidate:stored)
      if(std::none_of(result->templates.begin(),result->templates.end(),[&](const auto &t){return t.id==candidate.id&&t.version==candidate.version;}))result->templates.push_back(candidate);
-    auto plan=planQuickTemplates(*result,g,0,scope.toStdString(),2.0,discovery.manualReferences);checkPlan(plan);
+    auto plan=planQuickTemplates(*result,g,0,segment.toStdString(),2.0,discovery.manualReferences);checkPlan(plan);
     for(const auto &reference:plan.manualReferences)for(auto &well:result->wells)
      if(well.wellId==reference.wellId&&well.cycles.empty()&&
         std::any_of(plan.segmentPlans.begin(),plan.segmentPlans.end(),[&](const auto &segment){return segment.referenceWellId==reference.wellId;})&&
@@ -203,8 +203,8 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,c
     result->viewStateJson=QJsonDocument(view).toJson(QJsonDocument::Compact).toStdString();
     for(const auto &issue:plan.issues)for(auto &well:result->wells)
      if(!issue.wellId||issue.wellId==well.wellId)well.warnings.push_back(issue.message);
-    *result=deriveForSegments(*result,g,cancel,{},scope.toStdString());
-    *result=propagateTemplates(*result,plan.assignments,g,cancel,{},scope.toStdString());
+    *result=deriveForSegments(*result,g,cancel,{},segment.toStdString());
+    *result=propagateTemplates(*result,plan.assignments,g,cancel,{},segment.toStdString());
     if(!result->runs.empty()) {
      auto parameters=QJsonDocument::fromJson(QByteArray::fromStdString(result->runs.back().parametersJson)).object();
      parameters["uniformTemplatePlan"]=QJsonDocument::fromJson(QByteArray::fromStdString(plan.recommendationJson)).object();

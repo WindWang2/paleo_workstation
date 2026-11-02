@@ -8215,6 +8215,21 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <source>已从目录移除 %1 项索引记录；文件均未改动</source>
         <translation>已从目录移除 %1 项索引记录；文件均未改动</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_modelnav.cpp" line="75"/>
+        <source>曲线+时深齐备</source>
+        <translation>曲线+时深齐备</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_modelnav.cpp" line="78"/>
+        <source>缺曲线</source>
+        <translation>缺曲线</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_modelnav.cpp" line="79"/>
+        <source>缺时深</source>
+        <translation>缺时深</translation>
+    </message>
 </context>
 <context>
     <name>DataPage</name>
@@ -26262,6 +26277,31 @@ PDF：%3
         <location filename="../src/services/projectdata_timedepth.cpp" line="52"/>
         <source>时深关系的深度单位、时间单位、单/双程或时间基准尚未确认</source>
         <translation>时深关系的深度单位、时间单位、单/双程或时间基准尚未确认</translation>
+    </message>
+    <message>
+        <location filename="../src/services/projectdata_timedepth.cpp" line="98"/>
+        <source>井未挂接时深资产，无可确认的来源</source>
+        <translation>井未挂接时深资产，无可确认的来源</translation>
+    </message>
+    <message>
+        <location filename="../src/services/projectdata_timedepth.cpp" line="103"/>
+        <source>时深资产未进工区数据服务（外链裸文件），请先经工区导入再确认口径</source>
+        <translation>时深资产未进工区数据服务（外链裸文件），请先经工区导入再确认口径</translation>
+    </message>
+    <message>
+        <location filename="../src/services/projectdata_timedepth.cpp" line="106"/>
+        <source>本工程未建立工区数据模型，无从确认时深口径</source>
+        <translation>本工程未建立工区数据模型，无从确认时深口径</translation>
+    </message>
+    <message>
+        <location filename="../src/services/projectdata_timedepth.cpp" line="111"/>
+        <source>工区数据模型以只读方式打开，不能保存时深口径确认</source>
+        <translation>工区数据模型以只读方式打开，不能保存时深口径确认</translation>
+    </message>
+    <message>
+        <location filename="../src/services/projectdata_timedepth.cpp" line="130"/>
+        <source>数据服务中未找到本井的时深关系</source>
+        <translation>数据服务中未找到本井的时深关系</translation>
     </message>
 </context>
 <context>
@@ -44381,6 +44421,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>第 %1 行没有可用深度（TVDSS/TVD/MD），拒收该行</source>
         <translation>第 %1 行没有可用深度（TVDSS/TVD/MD），拒收该行</translation>
     </message>
+    <message>
+        <location filename="../src/io/wellfileparsers.cpp" line="369"/>
+        <source>第 %1 行声明 Petrel checkshots 格式：本解析器的固定列序（TIME/TVDSS/TVD/MD）不适用，整表拒收，请经工区数据服务导入解析</source>
+        <translation>第 %1 行声明 Petrel checkshots 格式：本解析器的固定列序（TIME/TVDSS/TVD/MD）不适用，整表拒收，请经工区数据服务导入解析</translation>
+    </message>
 </context>
 <context>
     <name>WellLocatorFilter</name>
@@ -45699,6 +45744,21 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/wellsectionworkflow.cpp" line="1148"/>
         <source>剖面提取失败</source>
         <translation>剖面提取失败</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/wellsectionworkflow.cpp" line="1149"/>
+        <source>%1 时深不可用：%2</source>
+        <translation>%1 时深不可用：%2</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/wellsectionworkflow.cpp" line="326"/>
+        <source>时深表只有 TVD 列，连井剖面按 MD 域装配不可用</source>
+        <translation>时深表只有 TVD 列，连井剖面按 MD 域装配不可用</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/wellsectionworkflow.cpp" line="330"/>
+        <source>时深表无效（有效样点不足或非单调）</source>
+        <translation>时深表无效（有效样点不足或非单调）</translation>
     </message>
 </context>
 <context>

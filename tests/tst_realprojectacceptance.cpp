@@ -35,6 +35,7 @@
 #include "services/seismictaskservice.h"
 #include "qgis/wellattributestore.h"
 #include "services/seismicdataaccess.h"
+#include "services/timedepthalignment.h"
 #include "linkage/seismicmaplink.h"
 
 class TestRealProjectAcceptance : public QObject {
@@ -364,7 +365,7 @@ private slots:
     }
     std::vector<paleo::data::DataEntry> volumes;QVERIFY(ds.listData("volumes",0,volumes,error));QJsonArray seismic;
     for(const auto &entry:volumes){paleo::data::SeismicVolume volume;QVERIFY(ds.readVolume(entry.id,volume,error));
-      seismic.append(QJsonObject{{"id",double(entry.id)},{"timeUnit",QString::fromStdString(volume.sampling.timeUnit)},{"timeType",QString::fromStdString(volume.sampling.timeType)}});}
+      seismic.append(QJsonObject{{"id",double(entry.id)},{"timeUnit",QString::fromStdString(volume.sampling.timeUnit)},{"timeType",QString::fromStdString(volume.sampling.timeType)},{"timeReference",QString::fromStdString(volume.sampling.timeReference)}});}
     WellSectionWorkflow section(&catalog);const auto choices=section.wellChoices();QCOMPARE(choices.size(),wells.size());
     SectionWorkbench setup(&catalog);const auto setupRows=setup.wells();QCOMPARE(setupRows.size(),wells.size());
     const auto snap=setup.wellSnapWells(true);QVERIFY(!snap.isEmpty());
@@ -382,6 +383,70 @@ private slots:
       {"wellChoices",choices.size()},{"setupChoices",setupRows.size()},{"routeChoices",snap.size()},
       {"mdWellsDrawn",drawn.size()},{"alignedSeismic",strip.anyValid()},{"seismicReason",strip.gaps.isEmpty()?strip.status:strip.gaps.first().reason}});
     int usable=0;for(const auto &well:wells)usable+=well.toObject().value("tdUsable").toBool();qInfo()<<"Alignment inventory: curves"<<wells.size()<<"usable TD"<<usable<<"relations"<<tables.size();
+  }
+  void confirmPetrelAlignmentWhenExplicitlyRequested(){
+    if(qEnvironmentVariable("PALEO_ACCEPTANCE_CONFIRM_PETREL_ALIGNMENT")!="1")QSKIP("Explicit source/sign/datum authorization required");
+    const auto reference=qEnvironmentVariable("PALEO_ACCEPTANCE_TIME_REFERENCE").trimmed();QVERIFY(!reference.isEmpty());
+    ProjectDirLock lock(project);QString detail;QVERIFY2(lock.tryLock(&detail),qPrintable(detail));
+    paleo::data::DataService ds;std::string error;
+    QVERIFY2(ds.openProject(u(paleo::area_model::directory(project)),error),error.c_str());
+    std::vector<paleo::data::SourceIndexEntry> sources;QVERIFY(ds.listSourceIndexEntries(sources,error));
+    QSet<qlonglong> authorized;
+    for(const auto &source:sources){const auto name=QFileInfo(QString::fromStdString(source.path)).fileName();
+      if(name=="Merge_TDR"||name=="HZ19-6_(XJ30_2nd_PSDM-t)_DT_ALL")authorized.insert(source.id);}
+    QCOMPARE(authorized.size(),2);
+    std::vector<paleo::data::DataEntry> entries,volumes;QVERIFY(ds.listData("time_depth",0,entries,error));QVERIFY(ds.listData("volumes",0,volumes,error));
+    QCOMPARE(volumes.size(),size_t(1));paleo::data::SeismicVolume volume;QVERIFY(ds.readVolume(volumes.front().id,volume,error));
+    QCOMPARE(volume.geometry.coordinateSystem,std::string("EPSG:32650"));QCOMPARE(volume.sampling.timeUnit,std::string("ms"));
+    QVERIFY(volume.sampling.timeType.empty()||volume.sampling.timeType=="TWT");
+    QHash<qlonglong,std::vector<paleo::data::TimeDepthPoint>> original;std::vector<long long> ids;
+    for(const auto &entry:entries)if(authorized.contains(entry.sourceId)){
+      paleo::data::TimeDepthTable table;QVERIFY(ds.readTimeDepth(entry.id,table,error));
+      QCOMPARE(table.depthInfo.depthUnit,std::string("m"));QCOMPARE(table.timeType,std::string("TWT"));
+      QVERIFY(table.timeUnit.empty()||table.timeUnit=="ms");
+      if(table.timeSign=="negated")for(auto &point:table.depthTimePairs)point.timeValue=-point.timeValue;
+      original.insert(entry.id,table.depthTimePairs);ids.push_back(entry.id);
+    }
+    QCOMPARE(ids.size(),size_t(119));
+    const auto backup=project+"/artifacts/backups/time-depth-before-"+QDateTime::currentDateTimeUtc().toString("yyyyMMdd-HHmmsszzz")+".sqlite";
+    QVERIFY(QDir().mkpath(QFileInfo(backup).absolutePath()));QVERIFY2(ds.snapshotDatabase(u(backup),error),error.c_str());
+    QVERIFY2(ds.confirmTimeDepthAlignment(ids,"ms","TWT",u(reference),true,volumes.front().id,error),error.c_str());
+    for(const auto &entry:entries)if(original.contains(entry.id)){
+      paleo::data::TimeDepthTable after;QVERIFY(ds.readTimeDepth(entry.id,after,error));const auto raw=original.value(entry.id);
+      QCOMPARE(after.depthTimePairs.size(),raw.size());QCOMPARE(after.timeReference,u(reference));QCOMPARE(after.timeSign,std::string("negated"));
+      for(size_t i=0;i<raw.size();++i){QCOMPARE(after.depthTimePairs[i].depthValue,raw[i].depthValue);QCOMPARE(after.depthTimePairs[i].timeValue,-raw[i].timeValue);}
+    }
+    paleo::data::SeismicVolume after;QVERIFY(ds.readVolume(volumes.front().id,after,error));QCOMPARE(after.sampling.timeReference,u(reference));
+    QCOMPARE(after.sampling.firstTime,volume.sampling.firstTime);QCOMPARE(after.sampling.sampleInterval,volume.sampling.sampleInterval);QCOMPARE(after.sampling.sampleCount,volume.sampling.sampleCount);
+    report.insert("confirmedPetrelAlignment",QJsonObject{{"relations",int(ids.size())},{"sources",authorized.size()},{"reference",reference},{"backup",backup}});
+  }
+  void selectedWellsUseRealCheckshotsAndSeismic(){
+    if(qEnvironmentVariable("PALEO_ACCEPTANCE_VERIFY_PETREL_ALIGNMENT")!="1")QSKIP("Explicit aligned-project acceptance only");
+    paleo::area_model::registerProject(project,this);
+    const auto unregister=qScopeGuard([this]{paleo::area_model::unregisterProject(this);});
+    DataCatalog catalog;catalog.setLockedReadOnly(true);QString error;QVERIFY2(catalog.open(project,&error),qPrintable(error));
+    ProjectDataFacade data;data.setCatalog(&catalog,project);SectionWorkbench workbench(&catalog);QStringList ids;QJsonArray details;
+    for(const auto *name:{"HZ21-7-1","HZ21-8-1"}){
+      const auto matches=catalog.wellsMatchingName(name);QCOMPARE(matches.size(),1);ids<<matches.first();
+      const auto rows=data.tdTableFor(ids.last());QVERIFY2(!rows.isEmpty(),qPrintable(data.lastError()));
+      seismic::TimeDepthModel model;double shift=0;QString status,reference;
+      QVERIFY2(workbench.mdTimeDepth(ids.last(),&model,&shift,&status,&reference),qPrintable(status));
+      int checked=0;for(const auto &point:rows)if(point.timeMs>=0){QVERIFY(std::abs(model.DepthToTwtMs(point.md)-point.timeMs)<1e-7);++checked;}
+      QVERIFY(checked>100);details.append(QJsonObject{{"name",name},{"samples",rows.size()},{"checkshotsMatched",checked},{"reference",reference}});
+    }
+    WellSectionWorkflow section(&catalog);section.setSectionWorkbench(&workbench);QSignalSpy ready(&section,&WellSectionWorkflow::sectionReady);
+    section.request(ids,{"GR"});QCOMPARE(ready.size(),1);const auto wells=ready.first()[1].value<QVector<wellsection::Well>>();QCOMPARE(wells.size(),2);
+    for(const auto &well:wells){QVERIFY(well.timeDepth);QVERIFY(!well.curves.isEmpty());}
+    PaleoTaskService tasks;seismic::SeismicTaskService seismicTasks(&tasks);section.setSeismicTaskService(&seismicTasks);
+    QSignalSpy extracted(&section,&WellSectionWorkflow::seismicReady);section.requestSeismic(wells,section.seismicSource());
+    QTRY_COMPARE_WITH_TIMEOUT(extracted.size(),1,60000);const auto strip=extracted.first()[1].value<wellsection::SeismicStrip>();
+    QVERIFY2(strip.anyValid(),qPrintable(strip.gaps.isEmpty()?strip.status:strip.gaps.first().reason));
+    const auto overlays=workbench.sectionWells();int visible=0,curvePoints=0;
+    for(const auto &well:overlays)if(ids.contains(well.wellId)){
+      QVERIFY(well.calibrated);for(const auto &curve:well.curves)for(double time:curve.twtMs)if(std::isfinite(time))++curvePoints;++visible;
+    }
+    QCOMPARE(visible,2);QVERIFY(curvePoints>100);
+    report.insert("selectedWellAlignment",QJsonObject{{"wells",details},{"seismicValid",true},{"overlayWells",visible},{"curvePoints",curvePoints}});
   }
   void wholeWellPreviewInputs() {
     const auto name=qEnvironmentVariable("PALEO_ACCEPTANCE_PREDICT_WELL");if(name.isEmpty())return;

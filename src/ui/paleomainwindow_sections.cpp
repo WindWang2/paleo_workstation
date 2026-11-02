@@ -27,6 +27,10 @@
 // 剖面画布 → 地图定位接线（attachSections 拆出：hover 十字标 + 点击居中，
 // TimeSlice 域按测网几何换算）。只用入参局部，无壳成员。
 namespace {
+SectionSetupDialog *createSectionSetup(QWidget *parent,const std::function<void(const QStringList&)> &open){
+  auto *setup=new SectionSetupDialog(parent);
+  QObject::connect(setup,&SectionSetupDialog::timeDepthSettingsRequested,setup,open);return setup;
+}
 void showSectionSetup(SectionSetupDialog *setup,SeismicMapLink *link,
                       const std::function<PaleoTask*()> &load) {
   setup->show();setup->raise();setup->activateWindow();
@@ -42,7 +46,8 @@ void showSectionSetup(SectionSetupDialog *setup,SeismicMapLink *link,
   }else if(!link->activeVolume())setup->setSeismicState(false,QObject::tr("工区未找到可加载的地震体，请检查数据管理中的来源"));
 }
 std::function<void()> wireSectionSetup(SectionSetupDialog *setup,SeismicMapLink *link,
-    const std::function<void()> &refresh,const std::function<PaleoTask*()> &load){
+    SectionWorkbench *workbench,const std::function<void()> &refresh,const std::function<PaleoTask*()> &load){
+  QObject::connect(workbench,&SectionWorkbench::alignmentsChanged,setup,refresh);
   QObject::connect(link,&SeismicMapLink::sectionVolumeChanged,setup,[setup,link](const auto &volume){
     const bool ready=volume&&link->gridGeometry().valid;
     setup->setSeismicState(ready,ready?QObject::tr("地震体及测网已就绪"):QObject::tr("地震体或 XY 测网未就绪，不能生成剖面"));
@@ -129,7 +134,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
     connect(m_previewDoc->catalog(), &DataCatalog::changed, sink,
             &WellComposite::WellCompositeDerivedSink::refreshAlignments);
   }
-  auto *setup = new SectionSetupDialog(this);
+  auto *setup = createSectionSetup(this,[this](const QStringList &ids){showTimeDepthAlignment(ids);});
   auto route = std::make_shared<std::vector<glm::dvec2>>();
   auto routeHorizon = std::make_shared<QString>();
   auto *band =
@@ -143,7 +148,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
     setup->setMessage(message);
     statusBar()->showMessage(message, 10000);
   };
-  auto open = wireSectionSetup(setup,link,refresh,[this]{
+  auto open = wireSectionSetup(setup,link,workbench,refresh,[this]{
       if(!m_seismicOpenTask||!m_seismicOpenTask->running())m_seismicAutoLoadedPaths.clear();
       syncSeismicVolumeToDocks(true);
       return m_seismicOpenTask.data();

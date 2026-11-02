@@ -157,6 +157,11 @@ WellSectionWellsDialog::WellSectionWellsDialog(
   sortBtn->setToolTip(tr("按井口坐标的主轴方向排列勾选井"));
   btnRow->addWidget(mapBtn);
   btnRow->addWidget(sortBtn);
+  auto *td=new QPushButton(tr("时深对齐设置…"),this);td->setObjectName("wellSectionTimeDepthSettings");btnRow->addWidget(td);
+  connect(td,&QPushButton::clicked,this,[this]{
+    auto ids=selectedIds();if(ids.isEmpty()&&m_list->currentItem())ids<<m_list->currentItem()->data(kIdRole).toString();
+    if(!ids.isEmpty())emit timeDepthSettingsRequested(ids);
+  });
   btnRow->addStretch(1);
   lay->addLayout(btnRow);
 
@@ -184,6 +189,14 @@ WellSectionWellsDialog::WellSectionWellsDialog(
           [this] { sortCheckedByPosition(); });
 }
 
+void WellSectionWellsDialog::setWellChoices(const QVector<WellSectionPanel::WellChoice> &choices){
+  for(int i=0;i<m_list->count();++i){auto *item=m_list->item(i);
+    for(const auto &choice:choices)if(choice.id==item->data(kIdRole).toString()){
+      item->setText(choice.name+(choice.alignmentStatus.isEmpty()?QString():QStringLiteral(" · ")+choice.alignmentStatus)+(choice.hasCoordinates?QString():tr("（无坐标）")));
+      item->setToolTip(choice.alignmentStatus);break;
+    }
+  }
+}
 QStringList WellSectionWellsDialog::selectedIds() const
 {
   QStringList out;

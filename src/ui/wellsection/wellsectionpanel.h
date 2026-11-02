@@ -145,6 +145,7 @@ class WellSectionPanel : public QWidget
     void moveWell(int from, int to);
 
   signals:
+    void timeDepthSettingsRequested(const QStringList &ids);
     void dataRequested(const QStringList &wellIds, const QStringList &mnemonics);
     void seismicRequested();
     void faultsRequested();

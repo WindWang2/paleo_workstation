@@ -500,8 +500,8 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
 void WellSectionPanel::setWellChoices(const QVector<WellChoice> &choices)
 {
   m_choices = choices;
+  if(auto *dialog=findChild<WellSectionWellsDialog*>())dialog->setWellChoices(choices);
 }
-
 void WellSectionPanel::setMnemonicChoices(const QStringList &mnemonics)
 {
   m_mnemonicChoices = mnemonics;
@@ -1330,9 +1330,9 @@ void WellSectionPanel::removeWellAt(int index)
 
 void WellSectionPanel::openWellsDialog()
 {
-  WellSectionWellsDialog dlg(m_choices, m_ids,
-                             m_ctx ? m_ctx->selectedIds() : QStringList(),
-                             this);
+  WellSectionWellsDialog dlg(m_choices,m_ids,m_ctx?m_ctx->selectedIds():QStringList(),this);
+  connect(&dlg,&WellSectionWellsDialog::timeDepthSettingsRequested,this,&WellSectionPanel::timeDepthSettingsRequested);
+
   if (dlg.exec() != QDialog::Accepted)
     return;
   const QStringList ids = dlg.selectedIds();

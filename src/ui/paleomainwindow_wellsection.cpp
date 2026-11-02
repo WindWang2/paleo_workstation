@@ -144,7 +144,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
   if (m_seismicTaskSvc)
     wf->setSeismicTaskService(m_seismicTaskSvc.get());
   wf->setSectionWorkbench(m_sectionWorkbench);
-
+  connect(panel,&WellSectionPanel::timeDepthSettingsRequested,this,&PaleoMainWindow::showTimeDepthAlignment);
   // 剖面编辑产物落库（井序 + 连线改接 + 深度域 + 井间距；每次落盘版本 +1
   // ——Oracle #2）。深度域/间距进剖面状态（方向 69/98 工程级 round-trip）：
   // 用户域/井距动作与井序/改接同一保存钩子。无工程库（store 空/未开工程）

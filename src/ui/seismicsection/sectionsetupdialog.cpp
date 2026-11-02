@@ -78,6 +78,11 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   m_status = new QLabel(right);
   m_status->setWordWrap(true);
   form->addRow(m_status);
+  auto *semantics=new QPushButton(tr("时深来源与地震时间基准…"),right);
+  semantics->setObjectName("editTimeDepthSemantics");form->addRow(semantics);
+  connect(semantics,&QPushButton::clicked,this,[this]{
+    if(auto *item=m_wells->currentItem())emit timeDepthSettingsRequested({item->data(Qt::UserRole).toMap().value("id").toString()});
+  });
   m_mode = new QComboBox(right);
   m_mode->setObjectName("alignmentMode");
   m_mode->addItems({tr("使用本井时深表（不外推）"), tr("常速近似（需复核）")});

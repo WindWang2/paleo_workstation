@@ -9,6 +9,7 @@
 #include "io/wellfileparsers.h"
 #include "services/welllogset.h"
 #include "services/areawellchart.h"
+#include "services/timedepthalignment.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -28,6 +29,13 @@
 SectionWorkbench::SectionWorkbench(DataCatalog *catalog, QObject *parent)
     : QObject(parent), m_catalog(catalog) {
   syncProject();
+}
+QVariantMap SectionWorkbench::timeDepthAlignmentOptions(const QStringList &ids,QString *error) const {
+  return paleo::timeDepthAlignmentOptions(m_catalog,ids,error);
+}
+bool SectionWorkbench::saveTimeDepthAlignment(const QVariantMap &selection,QString *error){
+  if(!paleo::saveTimeDepthAlignment(m_catalog,selection,error))return false;
+  cancelPreviewData();emit alignmentsChanged();return true;
 }
 void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &)> ready,bool includeSections) {
   m_previewReady = std::move(ready);

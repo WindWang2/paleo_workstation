@@ -27,6 +27,7 @@ signals:
   void drawRequested();
   // 清除地图上的剖面连线（rubber band + 壳侧路线状态）。
   void clearRequested();
+  void timeDepthSettingsRequested(const QStringList &ids);
   // 「按空间关系重排」：mode = "nearest" | "pca"；ids = 当前勾选井（列表序）。
   void spatialReorderRequested(const QString &mode, const QStringList &ids);
   void calibrationRequested(const QString &id, bool constant, double velocity,

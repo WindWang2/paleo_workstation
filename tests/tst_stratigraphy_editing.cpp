@@ -6,6 +6,9 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QLabel>
+#include <QTableWidget>
+#include <QScopeGuard>
 #include "../src/ui/wellcomposite/multiwellview.h"
 #include "../src/ui/wellcomposite/editsession.h"
 #include <QMouseEvent>
@@ -80,6 +83,9 @@ private slots:
   QTRY_VERIFY_WITH_TIMEOUT(!wf.isRunning(),15000);
   QCOMPARE(wf.document().wells.size(),size_t(1));
   auto* section=page.findChild<WellComposite::MultiWellView*>("stratigraphySection");QVERIFY(section);QCOMPARE(section->panelCount(),1);
+  auto* status=page.findChild<QLabel*>("stratigraphyStatus");QVERIFY(status);
+  QVERIFY(status->text().contains("MD"));QVERIFY(!status->text().contains(QStringLiteral("未选择时深")));QVERIFY(!status->text().contains('\n'));
+  QVERIFY(!wf.document().wells.front().input.warnings.empty()); // Raw alignment diagnostics remain available in history.
   list->setCurrentRow(0);
   auto* role=page.findChild<QComboBox*>("newBoundaryRole");auto* depth=page.findChild<QDoubleSpinBox*>("boundaryMd");auto* add=page.findChild<QPushButton*>("addBoundary");QVERIFY(role&&depth&&add);
   role->setCurrentIndex(role->findData("T70"));depth->setValue(110);add->click();
@@ -90,6 +96,26 @@ private slots:
   role->setCurrentIndex(0);depth->setValue(150);add->click();
   QCOMPARE(wf.document().wells.front().boundaries.size(),size_t(3));QVERIFY(!wf.document().wells.front().cycles.empty());
   wf.undo();QCOMPARE(wf.document().wells.front().boundaries.size(),size_t(2));wf.redo();
+ }
+ void comparisonChromeReservesSpaceForTracks() {
+  Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));
+  int factories=0;WellComposite::WellCompositePanel::setFaciesWorkflowFactory([&](QObject*)->WellFaciesWorkflow*{++factories;return nullptr;});
+  auto reset=qScopeGuard([]{WellComposite::WellCompositePanel::setFaciesWorkflowFactory({});});
+  StratigraphyWorkflow wf(nullptr);wf.setProject(fixture.directory.path(),false);
+  StratigraphyPage page(&wf);page.resize(1800,1100);page.show();QTest::qWait(60);
+  auto* section=page.findChild<WellComposite::MultiWellView*>("stratigraphySection");QVERIFY(section);QCOMPARE(section->panelCount(),2);
+  QCOMPARE(factories,0); // Comparison must not fetch models or subscribe to prediction availability.
+  for(int i=0;i<section->panelCount();++i){auto* panel=section->panelAt(i);QVERIFY(panel);
+   auto* top=panel->findChild<QWidget*>("wellCompositeTopBar");auto* footer=panel->findChild<QWidget*>("wellPreviewFooter");QVERIFY(top&&footer);
+   QVERIFY(!panel->findChild<QToolButton*>("btnPredictFacies")->isVisible());
+   QVERIFY(!panel->findChild<QLabel*>("lblFaciesPredictionStatus")->isVisible());
+   QVERIFY(!panel->findChild<QLabel*>("lblCompReadout")->isVisible());
+   QVERIFY(panel->canvas()->height()>=panel->height()-top->height()-footer->height()-4*PaleoTheme::tokens().spacingXs);
+  }
+  auto* table=page.findChild<QTableWidget*>("stratigraphyResults");QVERIFY(table);QVERIFY(!table->isVisible());
+  auto* tableToggle=page.findChild<QPushButton*>("stratigraphyTableToggle");QVERIFY(tableToggle);tableToggle->click();QVERIFY(table->isVisible());tableToggle->click();QVERIFY(!table->isVisible());
+  auto* range=page.findChild<QDoubleSpinBox*>("displayTop");QVERIFY(range);QVERIFY(!range->isVisible());
+  page.findChild<QPushButton*>("stratigraphyAdvancedToggle")->click();QVERIFY(range->isVisible());
  }
  void realProjectLoadsOneWellChart() {
   const auto project=qEnvironmentVariable("PALEO_STRATIGRAPHY_QA_PROJECT");

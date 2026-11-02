@@ -49,7 +49,7 @@ class WellCompositePanel : public QWidget
   Q_OBJECT
 
 public:
-  enum class PredictionScope { SelectedUnit, WholeWellPreview };
+  enum class PredictionScope { SelectedUnit, WholeWellPreview, Comparison };
   explicit WellCompositePanel(QWidget *parent = nullptr, PredictionScope scope = PredictionScope::SelectedUnit);
   void addPreviewAction(const QString &text, std::function<void()> action);
   void setPreviewSummary(const QString &text);

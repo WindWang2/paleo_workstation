@@ -41,7 +41,7 @@ void StratigraphyPage::showGeometry() {
  m_workflow->setGeometrySettings(settings);
 }
 void StratigraphyPage::showClustering() {
- if(!m_workflow->canEdit())return;const int size=int(m_workflow->document().wells.size());if(size<2){m_status->setText(tr("至少加载两口井后进行分组"));return;}
+ if(!m_workflow->canEdit())return;const int size=int(m_workflow->document().wells.size());if(size<2){setStatus(tr("至少加载两口井后进行分组"));return;}
  bool ok=false;const int count=QInputDialog::getInt(this,tr("曲线形态分组"),tr("分组数量"),std::min(3,size),1,std::min(8,size),1,&ok);if(!ok)return;
  auto groups=m_workflow->previewClustering(count);if(groups.members.empty())return;
  QDialog dialog(this);dialog.setWindowTitle(tr("井群分组与人工修订"));auto* layout=new QVBoxLayout(&dialog);auto* note=new QLabel(tr("分组用于推荐同类参考井；具有人工解释的井才能作为标准井。可修订分组，原始计算与人工修订标记同时保留。"),&dialog);note->setWordWrap(true);layout->addWidget(note);
@@ -62,5 +62,5 @@ void StratigraphyPage::startHorizons() {
  }
  buttons(dialog,layout);if(dialog.exec()!=QDialog::Accepted)return;
  for(int i=0;i<issues.size();++i){const auto id=qobject_cast<QComboBox*>(table->cellWidget(i,1))->currentData().toLongLong();if(!id)continue;QString kind=issues[i].field;if(kind=="curve")kind="curves";else if(kind.startsWith("horizon:"))kind=kind.mid(8);m_workflow->chooseResource(issues[i].well,kind,id);}
- if(!m_workflow->inputIssues(ids).isEmpty()){m_status->setText(tr("仍有资料缺失或来源待确认，请补齐后再计算。"));return;}m_workflow->calculate(ids,false);
+ if(!m_workflow->inputIssues(ids).isEmpty()){setStatus(tr("仍有资料缺失或来源待确认，请补齐后再计算。"));return;}m_workflow->calculate(ids,false);
 }

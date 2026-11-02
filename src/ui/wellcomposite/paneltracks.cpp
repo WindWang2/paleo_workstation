@@ -80,7 +80,7 @@ void WellCompositePanel::syncSessionToTracks()
 }
 
 void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
-  if (!workflow || m_faciesWorkflow) return;
+  if (!workflow || m_faciesWorkflow || property("comparisonPreview").toBool()) return;
   m_faciesWorkflow = workflow;
   workflow->setAllowPartialPrediction(m_wholeWellPreview);
   connect(this, &WellCompositePanel::faciesDataChanged, workflow, &WellFaciesWorkflow::setData);

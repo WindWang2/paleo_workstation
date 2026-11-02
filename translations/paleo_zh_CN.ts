@@ -40758,6 +40758,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>图像导出失败，请检查路径、可写性或缩小井组。</source>
         <translation>图像导出失败，请检查路径、可写性或缩小井组。</translation>
     </message>
+    <message>
+        <source>界线列表</source>
+        <translation>界线列表</translation>
+    </message>
+    <message>
+        <source>MD 井道显示不需要时深或测斜；未选择关系的提示仅影响井震联合计算，不表示原始资料不存在。</source>
+        <translation>MD 井道显示不需要时深或测斜；未选择关系的提示仅影响井震联合计算，不表示原始资料不存在。</translation>
+    </message>
 </context>
 <context>
     <name>StratigraphyWorkflow</name>
@@ -40870,6 +40878,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/stratigraphyworkflow_versions.cpp" line="27"/>
         <source>已读取所选解释版本</source>
         <translation>已读取所选解释版本</translation>
+    </message>
+    <message>
+        <source>已加载 %1 口井，可直接进行 MD 地层对比与界线编辑。资料诊断在“更多设置与历史”中查看。</source>
+        <translation>已加载 %1 口井，可直接进行 MD 地层对比与界线编辑。资料诊断在“更多设置与历史”中查看。</translation>
+    </message>
+    <message>
+        <source>计算完成，请复核结果；详细资料与计算诊断在“更多设置与历史”中查看。</source>
+        <translation>计算完成，请复核结果；详细资料与计算诊断在“更多设置与历史”中查看。</translation>
     </message>
 </context>
 <context>

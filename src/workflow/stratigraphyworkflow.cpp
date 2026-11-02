@@ -210,12 +210,14 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &wells,int mode
    return {};
   }catch(const std::exception &e){return QString::fromUtf8(e.what());}
  });d->task=task;emit busyChanged(true);
- connect(task,&PaleoTask::finished,this,[this,task,result,generation] {
+ connect(task,&PaleoTask::finished,this,[this,task,result,generation,mode] {
   if(generation!=d->generation)return;d->task=nullptr;emit busyChanged(false);
   if(task->state()!=PaleoTask::State::Succeeded){emit statusChanged(task->errorText());return;}
   d->history.clear();d->future.clear();d->document=std::move(*result);d->dirty=true;emit documentReplaced();QStringList diagnostics;
   for(const auto &w:d->document.wells)for(const auto &message:w.warnings)diagnostics.append(text(message));
-  emit changed();emit statusChanged(diagnostics.isEmpty()?tr("计算完成，请复核并保存分层版本"):diagnostics.join('\n'));
+  diagnostics.removeDuplicates();emit changed();
+  emit statusChanged(mode==2?tr("已加载 %1 口井，可直接进行 MD 地层对比与界线编辑。资料诊断在“更多设置与历史”中查看。").arg(d->document.wells.size())
+      :diagnostics.isEmpty()?tr("计算完成，请复核并保存分层版本"):tr("计算完成，请复核结果；详细资料与计算诊断在“更多设置与历史”中查看。"));
  });
 }
 void StratigraphyWorkflow::save() {

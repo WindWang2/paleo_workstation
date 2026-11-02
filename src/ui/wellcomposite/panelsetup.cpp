@@ -39,6 +39,7 @@ void compactToolbar(QWidget *topBar, QBoxLayout *layout, const QSet<QWidget *> &
   auto *menu = new QMenu(more); more->setMenu(menu);
   const auto controls = topBar->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
   for (auto *control : controls) {
+    if(control->property("omitFromWellOptions").toBool()){layout->removeWidget(control);control->hide();continue;}
     if (control == more || frequent.contains(control)) continue;
     layout->removeWidget(control); control->hide();
     // Proxy actions retain the original widgets' ownership and findChild API.

@@ -32,7 +32,7 @@ void StratigraphyPage::showHierarchy() {
  for(const auto& r:rows)if(r.wellId==m_selectedWell&&r.id==m_selectedObject&&r.cycle)segment=r.segment;
  QList<StratigraphyRow> children;for(const auto& r:rows)if(r.cycle&&r.level=="4"&&r.wellId==m_selectedWell&&r.segment==segment)children.append(r);
  std::sort(children.begin(),children.end(),[](const auto& a,const auto& b){return a.top<b.top;});
- if(children.isEmpty()){m_status->setText(tr("请先选择一口井的旋回，或选择具体段；该段须有四级旋回。"));return;}
+ if(children.isEmpty()){setStatus(tr("请先选择一口井的旋回，或选择具体段；该段须有四级旋回。"));return;}
  QDialog dialog(this);dialog.setObjectName(QStringLiteral("stratigraphyHierarchyDialog"));dialog.setWindowTitle(tr("三级组合 · %1").arg(segment));paleo::ui_detail::resizeWithinScreen(&dialog,QSize(650,500));
  auto* layout=new QVBoxLayout(&dialog);auto* note=new QLabel(tr("连续四级旋回填写相同组号，即组成一个三级旋回。组号递增，0 表示不建立父级；同组方向须一致。共享端点与原深度保持不变。"),&dialog);note->setWordWrap(true);layout->addWidget(note);
  auto* table=new QTableWidget(children.size(),3,&dialog);table->setObjectName(QStringLiteral("hierarchyGroups"));table->setHorizontalHeaderLabels({tr("四级旋回"),tr("三级组号"),tr("三级方向")});table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);layout->addWidget(table);
@@ -58,13 +58,13 @@ void StratigraphyPage::showAlgorithms() {
  auto* pace=check(tr("PACE 参与划分"),profile.usePace);auto* residual=check(tr("GR 残差累计参与划分"),profile.useResidual);auto* phase=check(tr("相位参与划分"),profile.usePhase);
  auto* guidance=check(tr("允许模板定位候选（待校核）"),profile.allowTemplateGuidedCandidates);
  acceptButtons(dialog,layout);if(dialog.exec()!=QDialog::Accepted)return;
- std::vector<int> parsed;for(const auto& n:orders->text().split(',')){bool ok=false;int v=n.trimmed().toInt(&ok);if(!ok||v<2||v>512){m_status->setText(tr("AR 阶数需为 2–512 的整数"));return;}parsed.push_back(v);}
- if(parsed.empty()||parsed.size()>8){m_status->setText(tr("请选择 1–8 个 AR 阶数"));return;}
+ std::vector<int> parsed;for(const auto& n:orders->text().split(',')){bool ok=false;int v=n.trimmed().toInt(&ok);if(!ok||v<2||v>512){setStatus(tr("AR 阶数需为 2–512 的整数"));return;}parsed.push_back(v);}
+ if(parsed.empty()||parsed.size()>8){setStatus(tr("请选择 1–8 个 AR 阶数"));return;}
  profile.arOrders=parsed;profile.sampleStep=step->value();profile.maxGap=gap->value();profile.padding=padding->value();profile.minimumThickness=thickness->value();
  profile.resample=resample->isChecked();profile.invertPhase=invert->isChecked();profile.usePace=pace->isChecked();profile.useResidual=residual->isChecked();profile.usePhase=phase->isChecked();profile.allowTemplateGuidedCandidates=guidance->isChecked();m_workflow->setProfile(profile);
 }
 void StratigraphyPage::showDiagnostics() {
- const auto& doc=m_workflow->document();QStringList text;
+ const auto& doc=m_workflow->document();QStringList text{tr("MD 井道显示不需要时深或测斜；未选择关系的提示仅影响井震联合计算，不表示原始资料不存在。")};
  for(const auto& w:doc.wells){text.append(QString::fromStdString(w.name));for(const auto& warning:w.warnings)text.append(QString::fromStdString(warning));}
  for(const auto& run:doc.runs){text.append(QString::fromStdString(run.kind+" · "+run.status));text.append(QString::fromStdString(run.parametersJson));text.append(QString::fromStdString(run.diagnosticsJson));}
  QDialog dialog(this);dialog.setWindowTitle(tr("资料与计算诊断"));paleo::ui_detail::resizeWithinScreen(&dialog,QSize(850,600));auto* layout=new QVBoxLayout(&dialog);auto* view=new QPlainTextEdit(&dialog);view->setReadOnly(true);view->setPlainText(text.join('\n'));layout->addWidget(view);acceptButtons(dialog,layout);dialog.exec();

@@ -94,6 +94,12 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
   m_btnRefreshFacies->setToolTip(tr("获取网络服务当前可调用的模型及输入要求"));
   m_btnFaciesService = faciesButton(QStringLiteral("btnFaciesService"), tr("预测服务"));
   m_btnFaciesService->setToolTip(tr("设置测井相预测服务地址与 API 密钥"));
+  if(property("comparisonPreview").toBool()){
+    for(QWidget *widget:QList<QWidget*>{m_analysisUnitLabel,m_faciesModel,m_faciesStratTrack,
+        m_btnPredictFacies,m_btnCancelFacies,m_btnShowFacies,m_btnRefreshFacies,m_btnFaciesService})
+      widget->setProperty("omitFromWellOptions",true);
+    return;
+  }
   connect(m_btnPredictFacies, &QToolButton::clicked, this, [this] {
     if (!m_faciesWorkflow) {
       m_faciesStatus->setText(tr("测井相预测尚未接入"));

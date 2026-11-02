@@ -8186,6 +8186,21 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
             <source>已从目录移除 %1 项索引记录；文件均未改动</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_modelnav.cpp" line="75" />
+            <source>曲线+时深齐备</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_modelnav.cpp" line="78" />
+            <source>缺曲线</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_modelnav.cpp" line="79" />
+            <source>缺时深</source>
+            <translation type="unfinished" />
+        </message>
     </context>
     <context>
         <name>DataPage</name>
@@ -9484,6 +9499,11 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
         <message>
             <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="189" />
             <source>井位坐标表不存在，请重新选择。</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/dataserviceimportwizard.cpp" line="77" />
+            <source>后台并行解析文件的线程数；资料按目录顺序统一入库。</source>
             <translation type="unfinished" />
         </message>
     </context>
@@ -25066,6 +25086,11 @@ PDF：%3
             <source>（快捷键：%1）</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/ui/help/whatsthiscatalog.cpp" line="137" />
+            <source>选择测井相预测的地层道与单元范围（支持地震小层、地震层位及其他地质分层道）。</source>
+            <translation type="unfinished" />
+        </message>
     </context>
     <context>
         <name>PetroPhysPanel</name>
@@ -26150,6 +26175,31 @@ PDF：%3
         <message>
             <location filename="../src/services/projectdata_timedepth.cpp" line="52" />
             <source>时深关系的深度单位、时间单位、单/双程或时间基准尚未确认</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/services/projectdata_timedepth.cpp" line="98" />
+            <source>井未挂接时深资产，无可确认的来源</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/services/projectdata_timedepth.cpp" line="103" />
+            <source>时深资产未进工区数据服务（外链裸文件），请先经工区导入再确认口径</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/services/projectdata_timedepth.cpp" line="106" />
+            <source>本工程未建立工区数据模型，无从确认时深口径</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/services/projectdata_timedepth.cpp" line="111" />
+            <source>工区数据模型以只读方式打开，不能保存时深口径确认</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/services/projectdata_timedepth.cpp" line="130" />
+            <source>数据服务中未找到本井的时深关系</source>
             <translation type="unfinished" />
         </message>
     </context>
@@ -43265,6 +43315,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>测井曲线</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="60" />
+            <source>测井相地层道范围</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="63" />
+            <source>选择单井相预测的地层道与单元范围（支持地震小层、地震层位及其他地层道）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="65" />
+            <source>&lt;b&gt;测井相地层道范围&lt;/b&gt;&lt;p&gt;可切换地震小层（T70-T72-S1..S4）、地震层位或其他地质分层道（组、段）截取测井相预测输入。&lt;/p&gt;</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="66" />
+            <source>跟随分析层段 / 全部地层组</source>
+            <translation type="unfinished" />
+        </message>
     </context>
     <context>
         <name>WellComposite::WellLegendDialog</name>
@@ -44133,6 +44203,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>%1 · %2 测井相</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/workflow/wellfaciesworkflow_unit.cpp" line="75" />
+            <source>按地层道查询测井层段失败</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/wellfaciesworkflow_unit.cpp" line="80" />
+            <source>该井在所选地层道上没有可解析的层段</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/wellfaciesworkflow_unit.cpp" line="86" />
+            <source>所选地层道的深度不是 MD 米制（%1/%2），不能直接截取预测输入</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/wellfaciesworkflow_unit.cpp" line="104" />
+            <source>当前层段内有效测井样点不足</source>
+            <translation type="unfinished" />
+        </message>
     </context>
     <context>
         <name>WellFileParsers</name>
@@ -44189,6 +44279,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <message>
             <location filename="../src/io/wellfileparsers.cpp" line="370" />
             <source>第 %1 行没有可用深度（TVDSS/TVD/MD），拒收该行</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/io/wellfileparsers.cpp" line="369" />
+            <source>第 %1 行声明 Petrel checkshots 格式：本解析器的固定列序（TIME/TVDSS/TVD/MD）不适用，整表拒收，请经工区数据服务导入解析</source>
             <translation type="unfinished" />
         </message>
     </context>
@@ -45508,6 +45603,21 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <message>
             <location filename="../src/workflow/wellsectionworkflow.cpp" line="1148" />
             <source>剖面提取失败</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/wellsectionworkflow.cpp" line="1149" />
+            <source>%1 时深不可用：%2</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/wellsectionworkflow.cpp" line="326" />
+            <source>时深表只有 TVD 列，连井剖面按 MD 域装配不可用</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/wellsectionworkflow.cpp" line="330" />
+            <source>时深表无效（有效样点不足或非单调）</source>
             <translation type="unfinished" />
         </message>
     </context>

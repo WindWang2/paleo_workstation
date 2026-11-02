@@ -55,6 +55,16 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
          "预测深度窗与成果身份跟随分析层段（UnitSelection），"
          "勿把本下拉当作层位选择。</p>"));
   topLay->addWidget(m_faciesModel);
+  m_faciesStratTrack = new QComboBox(topBar);
+  m_faciesStratTrack->setObjectName(QStringLiteral("faciesStratigraphicTrack"));
+  m_faciesStratTrack->setAccessibleName(tr("测井相地层道范围"));
+  m_faciesStratTrack->setMinimumContentsLength(10);
+  m_faciesStratTrack->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  m_faciesStratTrack->setToolTip(tr("选择单井相预测的地层道与单元范围（支持地震小层、地震层位及其他地层道）"));
+  m_faciesStratTrack->setWhatsThis(
+      tr("<b>测井相地层道范围</b><p>可切换地震小层（T70-T72-S1..S4）、地震层位或其他地质分层道（组、段）截取测井相预测输入。</p>"));
+  m_faciesStratTrack->addItem(tr("跟随分析层段 / 全部地层组"), QVariantMap{});
+  topLay->addWidget(m_faciesStratTrack);
   const auto faciesButton = [&](const QString &name, const QString &text) {
     auto *button = new QToolButton(topBar);
     button->setObjectName(name);
@@ -100,6 +110,14 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
   connect(m_btnRefreshFacies, &QToolButton::clicked, this, &WellCompositePanel::faciesModelsRequested);
   connect(m_faciesModel, &QComboBox::currentIndexChanged, this, [this] {
     emit faciesModelSelected(m_faciesModel->currentData().toString());
+  });
+  connect(m_faciesStratTrack, &QComboBox::currentIndexChanged, this, [this] {
+    if (!m_faciesWorkflow || !m_faciesStratTrack) return;
+    const QVariantMap sel = m_faciesStratTrack->currentData().toMap();
+    m_faciesWorkflow->setStratigraphicTrackFilter(
+        sel.value(QStringLiteral("trackName")).toString(),
+        sel.value(QStringLiteral("unitName")).toString(),
+        sel.value(QStringLiteral("schemeId")).toString());
   });
   connect(m_btnShowFacies, &QToolButton::toggled, this, [this](bool visible) {
     if (m_predictionTrack)

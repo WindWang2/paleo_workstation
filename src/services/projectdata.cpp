@@ -155,18 +155,28 @@ QVector<WellTop> storedWellTops(const QString &project,qlonglong well,QString *e
     const auto unit=QString::fromUtf8(info.depthUnit).trimmed().toLower();
     return unit=="m"||unit=="metre"||unit=="meter"?1.:unit=="ft"||unit=="feet"?.3048:qQNaN();
   };
-  const auto append=[&](const QString &name,double depth) {
+  const auto append=[&](const QString &name,double depth,double tvd=qQNaN(),bool allowExisting=false) {
     if(name.isEmpty()||!std::isfinite(depth))return true;
     if(seen.contains(name)) {
+      if(allowExisting)return true;
       if(std::abs(seen.value(name)-depth)>1e-6){detail="Conflicting stored well boundary depths";return false;}
       return true;
     }
-    WellTop top;top.horizon=name;top.md=depth;result.append(top);seen.insert(name,depth);return true;
+    WellTop top;top.horizon=name;top.md=depth;
+    if(std::isfinite(tvd))top.tvd=tvd;
+    result.append(top);seen.insert(name,depth);return true;
   };
-  for(const auto &group:data.markers) {
-    const double factor=scale(group.value.depthInfo);
-    if(!std::isfinite(factor)){detail="Well marker depth convention is not confirmed as MD";return fail();}
-    for(const auto &v:group.value.markers)if(!append(QString::fromUtf8(v.markerName),v.depthValue*factor))return fail();
+  for(int pass=0;pass<2;++pass) {
+    for(const auto &group:data.markers) {
+      const bool isSeismicAuto=(QString::fromUtf8(group.value.trackName)==QStringLiteral("地震层位标志层"));
+      if((pass==0)==isSeismicAuto)continue;
+      const double factor=scale(group.value.depthInfo);
+      if(!std::isfinite(factor)){detail="Well marker depth convention is not confirmed as MD";return fail();}
+      for(const auto &v:group.value.markers) {
+        const double tvd=std::isfinite(v.tvd)?v.tvd*factor:qQNaN();
+        if(!append(QString::fromUtf8(v.markerName),v.depthValue*factor,tvd,isSeismicAuto))return fail();
+      }
+    }
   }
   for(const auto &group:data.intervals) {
     const auto &track=group.value;
@@ -178,6 +188,18 @@ QVector<WellTop> storedWellTops(const QString &project,qlonglong well,QString *e
       if(name.isEmpty())continue;
       if(!append(name,v.topDepth*factor)||!append(name+QStringLiteral("顶"),v.topDepth*factor))return fail();
       if(v.bottomNotPenetrated!=1&&!append(name+QStringLiteral("底"),v.bottomDepth*factor))return fail();
+    }
+  }
+  paleo::data::StratigraphicScheme scheme;std::string ignoreErr;
+  if(ds.readStratigraphicScheme("default",{},scheme,ignoreErr)) {
+    for(const auto &occ:scheme.wellOccurrences) {
+      if(occ.wellId!=well||(!occ.depthType.empty()&&occ.depthType!="MD")||(!occ.depthUnit.empty()&&occ.depthUnit!="m"))continue;
+      const auto *iv=paleo::data::framework::findInterval(scheme,occ.interval);
+      if(!iv)continue;
+      if(const auto *topB=paleo::data::framework::findBoundary(scheme,iv->top))
+        append(QString::fromUtf8(topB->name),occ.top,occ.top,true);
+      if(const auto *botB=paleo::data::framework::findBoundary(scheme,iv->bottom))
+        append(QString::fromUtf8(botB->name),occ.bottom,occ.bottom,true);
     }
   }
   return result;

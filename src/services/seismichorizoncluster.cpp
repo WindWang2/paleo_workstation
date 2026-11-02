@@ -3,6 +3,7 @@
 #include "seismichorizonscatter.h"
 #include "io/segyreader.h"
 #include "services/seismicmapping.h"
+#include "services/subintervalfactors.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -13,7 +14,7 @@
 
 SeismicClusterResult clusterSeismicHorizon(
     const QString &seismicPath, const QString &horizonPath,
-    const QString &cacheDir, const QVector<int> &codes,
+    const QString &cacheDir, const QVector<int> &faciesCodes,
     const std::function<void(int)> &progress,
     const std::function<bool()> &cancel, SeismicHorizonSource source) {
   SeismicClusterResult result;
@@ -23,7 +24,7 @@ SeismicClusterResult clusterSeismicHorizon(
     result.error = QStringLiteral("已取消");
     return result;
   }
-  if (codes.isEmpty() || codes.size() > 64) {
+  if (faciesCodes.isEmpty() || faciesCodes.size() > 64) {
     result.error = QStringLiteral("请配置 1–64 个相类别");
     return result;
   }
@@ -183,7 +184,7 @@ SeismicClusterResult clusterSeismicHorizon(
     report(30 + 45 * ++lineIndex / std::max(1, int(lines.size())));
   }
   if (stopped()) { result.error = QStringLiteral("已取消"); return result; }
-  if (features.size() < codes.size()) {
+  if (features.size() < faciesCodes.size()) {
     result.error = QStringLiteral("层位与地震反射窗的有效交集不足，无法聚类");
     return result;
   }
@@ -199,7 +200,7 @@ SeismicClusterResult clusterSeismicHorizon(
     double sum = 0; for (int d = 0; d < 3; ++d) sum += std::pow(a[d] - b[d], 2); return sum;
   };
   QVector<Feature> centers{features.first()};
-  while (centers.size() < codes.size()) {
+  while (centers.size() < faciesCodes.size()) {
     double farthest = -1; int chosen = 0;
     for (int i = 0; i < features.size(); ++i) {
       if ((i % 1024) == 0 && stopped()) {
@@ -214,7 +215,7 @@ SeismicClusterResult clusterSeismicHorizon(
   QVector<int> labels(features.size(), -1);
   for (int iteration = 0; iteration < 40; ++iteration) {
     if (stopped()) { result.error = QStringLiteral("已取消"); return result; }
-    QVector<Feature> sums(codes.size()); QVector<int> sizes(codes.size(), 0);
+    QVector<Feature> sums(faciesCodes.size()); QVector<int> sizes(faciesCodes.size(), 0);
     bool changed = false;
     for (int i = 0; i < features.size(); ++i) {
       if ((i % 1024) == 0 && stopped()) {
@@ -233,16 +234,175 @@ SeismicClusterResult clusterSeismicHorizon(
     report(75 + iteration * 24 / 40);
     if (!changed) break;
   }
-  QVector<int> order(codes.size()); std::iota(order.begin(), order.end(), 0);
+  QVector<int> order(faciesCodes.size()); std::iota(order.begin(), order.end(), 0);
   std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return centers[a][1] < centers[b][1]; });
-  QVector<int> classCodes(codes.size());
-  for (int k = 0; k < order.size(); ++k) classCodes[order[k]] = codes[k];
+  QVector<int> classCodes(faciesCodes.size());
+  for (int k = 0; k < order.size(); ++k) classCodes[order[k]] = faciesCodes[k];
   result.cells.fill(-9999, count);
   for (int i = 0; i < cells.size(); ++i) result.cells[cells[i]] = classCodes[labels[i]];
   result.validCells = cells.size();
   if (droppedInlines > 0)
     result.warnings.append(QStringLiteral("有 %1 条 inline 读取失败被跳过，相带覆盖缩水（详见日志）")
                                .arg(droppedInlines));
+  report(100);
+  return result;
+}
+
+SeismicClusterResult clusterSeismicStratigraphicWindow(
+    const QString &projectDir, const QString &targetUnitOrHorizon,
+    const QString &schemeId, const QString &revision,
+    const QVector<int> &faciesCodes,
+    const std::function<void(int)> &progress,
+    const std::function<bool()> &cancel) {
+  SeismicClusterResult result;
+  const auto stopped = [&] { return cancel && cancel(); };
+  const auto report = [&](int value) { if (progress) progress(value); };
+  if (stopped()) {
+    result.error = QStringLiteral("已取消");
+    return result;
+  }
+  if (faciesCodes.isEmpty() || faciesCodes.size() > 64) {
+    result.error = QStringLiteral("请配置 1–64 个相类别");
+    return result;
+  }
+  report(5);
+  paleo::data::SeismicHorizonWindowQuery query;
+  query.target.schemeId = schemeId.trimmed().isEmpty() ? "default" : schemeId.trimmed().toStdString();
+  query.target.revision = revision.trimmed().toStdString();
+  query.target.subIntervalId.value = targetUnitOrHorizon.trimmed().toStdString();
+  query.target.intervalId.value = targetUnitOrHorizon.trimmed().toStdString();
+  query.target.unitName = targetUnitOrHorizon.trimmed().toStdString();
+  query.sampleMode = paleo::data::HorizonWindowSampleMode::ResampledFixedCount;
+  query.resampledSampleCount = 16;
+  query.computeWindowAttributes = true;
+  query.computeDepthRange = true;
+
+  paleo::strat::UnitSelection sel;
+  sel.schemeId = schemeId.trimmed().isEmpty() ? QStringLiteral("default") : schemeId.trimmed();
+  sel.revision = revision.trimmed();
+  sel.subIntervalId = targetUnitOrHorizon.trimmed();
+  sel.intervalId = targetUnitOrHorizon.trimmed();
+  sel.displayName = targetUnitOrHorizon.trimmed();
+  paleo::data::SeismicHorizonWindowResult win;
+  if (!paleo::strat::queryProjectSeismicHorizonWindow(projectDir, sel, query, win, &result.error, cancel))
+    return result;
+  report(55);
+
+  const int K = std::max(1, win.fixedSampleCount);
+  double xmin = std::numeric_limits<double>::infinity(), xmax = -xmin;
+  double ymin = xmin, ymax = -xmin;
+  for (const auto &tr : win.traces) {
+    if (tr.status != 1 || !std::isfinite(tr.x) || !std::isfinite(tr.y)) continue;
+    xmin = std::min(xmin, tr.x); xmax = std::max(xmax, tr.x);
+    ymin = std::min(ymin, tr.y); ymax = std::max(ymax, tr.y);
+  }
+  result.columns = 64;
+  result.rows = 64;
+  const double dx = (xmax - xmin) / std::max(1, result.columns - 1);
+  const double dy = (ymax - ymin) / std::max(1, result.rows - 1);
+  if (!std::isfinite(dx) || !std::isfinite(dy) || dx <= 0 || dy <= 0) {
+    result.error = QStringLiteral("层位变时深窗与地震缺少有效的二维坐标交集");
+    return result;
+  }
+  result.extent = QRectF(xmin - dx / 2.0, ymin - dy / 2.0, result.columns * dx, result.rows * dy);
+
+  using Feature = std::array<double, 3>;
+  struct CellPick {
+    double distance = std::numeric_limits<double>::infinity();
+    Feature feature{};
+    bool valid = false;
+  };
+  const int count = result.columns * result.rows;
+  QVector<CellPick> gridPicks(count);
+  for (size_t idx = 0; idx < win.traces.size(); ++idx) {
+    if ((idx % 512) == 0 && stopped()) {
+      result.error = QStringLiteral("已取消");
+      return result;
+    }
+    const auto &tr = win.traces[idx];
+    if (tr.status != 1 || !std::isfinite(tr.x) || !std::isfinite(tr.y)) continue;
+    const size_t baseOffset = idx * size_t(K);
+    if (baseOffset + size_t(K) > win.amplitudes.size() || K < 2) continue;
+    double mean = 0.0, rms = 0.0, changes = 0.0;
+    bool finite = true;
+    for (int k = 0; k < K; ++k) {
+      const double v = win.amplitudes[baseOffset + size_t(k)];
+      if (!std::isfinite(v)) { finite = false; break; }
+      mean += v;
+      rms += v * v;
+      if (k > 0 && v * double(win.amplitudes[baseOffset + size_t(k - 1)]) < 0.0)
+        ++changes;
+    }
+    if (!finite) continue;
+    const int col = std::clamp(int(std::floor((tr.x - result.extent.left()) / dx)), 0, result.columns - 1);
+    const int row = std::clamp(int(std::floor((result.extent.bottom() - tr.y) / dy)), 0, result.rows - 1);
+    const int cell = row * result.columns + col;
+    const double dist = std::hypot((tr.x - xmin) / dx - col, (ymax - tr.y) / dy - row);
+    if (!gridPicks[cell].valid || dist < gridPicks[cell].distance) {
+      gridPicks[cell].valid = true;
+      gridPicks[cell].distance = dist;
+      gridPicks[cell].feature = {mean / K, std::sqrt(rms / K), changes / (K - 1)};
+    }
+  }
+
+  QVector<Feature> features;
+  QVector<int> cells;
+  for (int c = 0; c < count; ++c) {
+    if (gridPicks[c].valid) {
+      features.append(gridPicks[c].feature);
+      cells.append(c);
+    }
+  }
+  if (features.size() < faciesCodes.size()) {
+    result.error = QStringLiteral("层位变时深窗与地震反射的有效交集不足，无法聚类");
+    return result;
+  }
+  Feature mean{}, scale{};
+  for (const auto &f : features)
+    for (int d = 0; d < 3; ++d) mean[d] += f[d] / features.size();
+  for (const auto &f : features)
+    for (int d = 0; d < 3; ++d) scale[d] += std::pow(f[d] - mean[d], 2) / features.size();
+  for (auto &f : features)
+    for (int d = 0; d < 3; ++d) f[d] = (f[d] - mean[d]) / std::max(1e-12, std::sqrt(scale[d]));
+  const auto distance = [](const Feature &a, const Feature &b) {
+    double sum = 0; for (int d = 0; d < 3; ++d) sum += std::pow(a[d] - b[d], 2); return sum;
+  };
+  QVector<Feature> centers{features.first()};
+  while (centers.size() < faciesCodes.size()) {
+    double farthest = -1; int chosen = 0;
+    for (int i = 0; i < features.size(); ++i) {
+      double nearest = std::numeric_limits<double>::infinity();
+      for (const auto &center : centers) nearest = std::min(nearest, distance(features[i], center));
+      if (nearest > farthest) { farthest = nearest; chosen = i; }
+    }
+    centers.append(features[chosen]);
+  }
+  QVector<int> labels(features.size(), -1);
+  for (int iteration = 0; iteration < 40; ++iteration) {
+    if (stopped()) { result.error = QStringLiteral("已取消"); return result; }
+    QVector<Feature> sums(faciesCodes.size()); QVector<int> sizes(faciesCodes.size(), 0);
+    bool changed = false;
+    for (int i = 0; i < features.size(); ++i) {
+      double nearest = std::numeric_limits<double>::infinity(); int label = 0;
+      for (int k = 0; k < centers.size(); ++k) {
+        const double dist = distance(features[i], centers[k]);
+        if (dist < nearest) { nearest = dist; label = k; }
+      }
+      changed = changed || labels[i] != label; labels[i] = label; ++sizes[label];
+      for (int d = 0; d < 3; ++d) sums[label][d] += features[i][d];
+    }
+    for (int k = 0; k < centers.size(); ++k)
+      if (sizes[k]) for (int d = 0; d < 3; ++d) centers[k][d] = sums[k][d] / sizes[k];
+    report(75 + iteration * 24 / 40);
+    if (!changed) break;
+  }
+  QVector<int> order(faciesCodes.size()); std::iota(order.begin(), order.end(), 0);
+  std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return centers[a][1] < centers[b][1]; });
+  QVector<int> classCodes(faciesCodes.size());
+  for (int k = 0; k < order.size(); ++k) classCodes[order[k]] = faciesCodes[k];
+  result.cells.fill(-9999, count);
+  for (int i = 0; i < cells.size(); ++i) result.cells[cells[i]] = classCodes[labels[i]];
+  result.validCells = cells.size();
   report(100);
   return result;
 }

@@ -272,6 +272,7 @@ private:
   QToolButton *m_btnPredictFacies = nullptr, *m_btnCancelFacies = nullptr;
   QToolButton *m_btnFaciesService = nullptr, *m_btnRefreshFacies = nullptr, *m_btnShowFacies = nullptr;
   QComboBox *m_faciesModel = nullptr;
+  QComboBox *m_faciesStratTrack = nullptr;
   QLabel *m_faciesStatus = nullptr;
   QLabel *m_analysisUnitLabel = nullptr;
   QPointer<SelectionContext> m_selectionContext;

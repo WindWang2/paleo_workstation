@@ -8,13 +8,32 @@
 #include <QFileInfo>
 #include <cmath>
 
-QString ensureProjectAnalysisScheme(DataCatalog *catalog, const QString &directory, const QStringList &boundaries) {
+QString ensureProjectAnalysisScheme(DataCatalog *catalog, const QString &projectDir, const QStringList &boundaries) {
   if (!catalog || catalog->refusesWrites() || boundaries.size() < 2 ||
-      !QFileInfo::exists(directory + "/artifacts/metadata/area-model/data.sqlite")) return {};
+      !QFileInfo::exists(projectDir + "/artifacts/metadata/area-model/data.sqlite")) return {};
   paleo::data::DataService ds;
   QString error;
-  if (!paleo::strat::openProjectDataService(directory, ds, &error)) return error;
-  const auto schemes = paleo::strat::listProjectSchemes(ds, &error);
+  if (!paleo::strat::openProjectDataService(projectDir, ds, &error)) return error;
+  auto schemes = paleo::strat::listProjectSchemes(ds, &error);
+  if (!error.isEmpty()) return error;
+  bool hasSeismicDefault = false;
+  for (const auto &choice : schemes)
+    if (choice.id == QLatin1String("default"))
+      hasSeismicDefault = true;
+  if (!hasSeismicDefault) {
+    std::vector<paleo::data::DataEntry> horizons;
+    std::string hErr;
+    if (ds.listData("horizons", 0, horizons, hErr) && horizons.size() >= 2) {
+      paleo::data::SeismicStratigraphyBuildOptions buildOpts;
+      paleo::data::SeismicStratigraphyBuildReport buildReport;
+      std::string buildErr;
+      if (ds.buildSeismicStratigraphicFramework(buildOpts, buildReport, buildErr) &&
+          buildReport.intervalCount > 0) {
+        schemes = paleo::strat::listProjectSchemes(ds, &error);
+        if (!error.isEmpty()) return error;
+      }
+    }
+  }
   if (!error.isEmpty()) return error;
   const std::string marker = "Paleo: project model analysis framework";
   paleo::data::StratigraphicScheme previous;
@@ -27,7 +46,7 @@ QString ensureProjectAnalysisScheme(DataCatalog *catalog, const QString &directo
     if (!found || previous.note != marker) return {};
   }
   ProjectDataFacade data;
-  data.setCatalog(catalog, directory);
+  data.setCatalog(catalog, projectDir);
   paleo::strat::WellTopTable tops;
   for (const auto &well : data.wells()) {
     const auto values = data.topsForMapping(well.id, &error);

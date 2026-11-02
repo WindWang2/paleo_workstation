@@ -84,6 +84,26 @@ namespace DashboardSurveyMap
     vl->setObjectName( QString::fromLatin1( kWells ) );
     styleWells( vl, style );
     c->setLayers( { vl } );
+    c->setExtent( QgsRectangle( 495000, 0, 505000, 10000 ) );
+    QObject::connect( c, &QgsMapCanvas::extentsChanged, map, [map, c] {
+      if ( map->property( "paleoClampingExtent" ).toBool() )
+        return;
+      const QRectF home = map->property( "paleoHomeExtent" ).toRectF();
+      if ( home.width() <= 0 || home.height() <= 0 )
+        return;
+      const QgsRectangle cur = c->extent();
+      const double maxW = home.width() * 8.0;
+      const double maxH = home.height() * 8.0;
+      if ( cur.width() > maxW || cur.height() > maxH
+           || !std::isfinite( cur.xMinimum() ) || !std::isfinite( cur.yMinimum() ) )
+      {
+        map->setProperty( "paleoClampingExtent", true );
+        const QPointF ctr = home.center();
+        c->setExtent( QgsRectangle( ctr.x() - maxW * 0.5, ctr.y() - maxH * 0.5,
+                                    ctr.x() + maxW * 0.5, ctr.y() + maxH * 0.5 ) );
+        map->setProperty( "paleoClampingExtent", false );
+      }
+    } );
     return map;
   }
 
@@ -147,6 +167,8 @@ namespace DashboardSurveyMap
     else if ( extent.isEmpty() )
       extent.grow( 50.0 );
     extent.scale( 1.08 );
+    m->setProperty( "paleoHomeExtent",
+                    QRectF( extent.xMinimum(), extent.yMinimum(), extent.width(), extent.height() ) );
     c->setExtent( extent );
     c->refresh();
   }

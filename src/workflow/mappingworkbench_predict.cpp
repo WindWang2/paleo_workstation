@@ -135,9 +135,10 @@ void MappingWorkbench::cancelPredictionTask() {
   }
 }
 
-bool MappingWorkbench::predict(const QString &h, const QString &kind,
+bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
                                const QStringList &ids, QString *error,
                                const QString &horizonFile) {
+  const QString &h = horizon;
   if (!ready(h, error))
     return false;
   const bool mock = kind == QLatin1String("seismic_mock");
@@ -301,7 +302,14 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
           }
       }
     }
-    if (!QFileInfo(horizonPath).isFile() || !QFileInfo(horizonPath).isReadable()) {
+    const bool isSubIntervalTarget =
+        (m_analysisUnit.isValid() && h == paleo::strat::analysisLayerKey(m_analysisUnit)) ||
+        h.contains(QLatin1Char('-'));
+    const bool hasAreaDb =
+        QFileInfo::exists(m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite"));
+    const bool useDataServiceWindow =
+        hasAreaDb && ((horizonFile.isEmpty() && isSubIntervalTarget) || horizonPath.isEmpty());
+    if (!useDataServiceWindow && (!QFileInfo(horizonPath).isFile() || !QFileInfo(horizonPath).isReadable())) {
       fail(error, tr("未找到 %1 的可读层位数据，请在「层位文件」直接选择 DAT，或在数据管理中导入层位资料").arg(h));
       return false;
     }
@@ -314,7 +322,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     const QString seismicPath = DataCatalog::resolvedVersionPath(m_dir, seismicVersion);
     const QString cacheDir = QDir(m_dir).filePath("artifacts/cache/segy-index");
     std::shared_ptr<QTemporaryDir> inputSnapshot;
-    if (source == SeismicHorizonSource::Scatter) {
+    if (!useDataServiceWindow && source == SeismicHorizonSource::Scatter) {
       const QString staging = QDir(m_dir).filePath("artifacts/staging");
       QDir().mkpath(staging);
       inputSnapshot = std::make_shared<QTemporaryDir>(staging + "/horizon-input-XXXXXX");
@@ -325,8 +333,8 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     }
     m_request = request;
     m_predictionParameters = {
-      {"horizon_source_format", source == SeismicHorizonSource::Scatter ? "smi_xyz_inline_crossline" : "time_raster"},
-      {"horizon_source_uri", QFileInfo(horizonPath).absoluteFilePath()}};
+      {"horizon_source_format", useDataServiceWindow ? "dataservice_horizon_window" : (source == SeismicHorizonSource::Scatter ? "smi_xyz_inline_crossline" : "time_raster")},
+      {"horizon_source_uri", useDataServiceWindow ? (m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite")) : QFileInfo(horizonPath).absoluteFilePath()}};
     beginPredictionTask(tr("智能预测 · %1 · 地震层位窗聚类（Mock）").arg(h));
     if (m_task)
       m_task->reportDetail(tr("后台读取地震道与层位窗"));
@@ -408,7 +416,8 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     const auto transformContext = m_project->project()->transformContext();
     watcher->setFuture(QtConcurrent::run(
         paleo::tasks::pool(m_taskSvc),
-        [seismicPath, horizonPath, cacheDir, codes, cancelled, source,
+        [seismicPath, horizonPath, cacheDir, codes, cancelled, source, useDataServiceWindow,
+         projectDir = m_dir, targetUnit = h, schemeId = m_analysisUnit.schemeId, revision = m_analysisUnit.revision,
          inputSnapshot, wellSources, schema = request.facies, transformContext](QPromise<SeismicClusterResult> &promise) {
           promise.setProgressRange(0, 100);
           QString inputPath = horizonPath;
@@ -427,7 +436,11 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
               return;
             }
           }
-          auto clustered = clusterSeismicHorizon(seismicPath, inputPath, cacheDir, codes,
+          auto clustered = useDataServiceWindow
+              ? clusterSeismicStratigraphicWindow(projectDir, targetUnit, schemeId, revision, codes,
+                    [&promise](int value) { promise.setProgressValue(value * 95 / 100); },
+                    [cancelled] { return cancelled->load(); })
+              : clusterSeismicHorizon(seismicPath, inputPath, cacheDir, codes,
               [&promise](int value) { promise.setProgressValue(value * 95 / 100); },
               [cancelled] { return cancelled->load(); }, source);
           if (clustered.error.isEmpty()) {
@@ -991,8 +1004,9 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
   if (!error.isEmpty())
     emit errorOccurred(error);
 }
-QString MappingWorkbench::ensureInputVersion(const QString &id,
+QString MappingWorkbench::ensureInputVersion(const QString &layerId,
                                              QString *error) {
+  const QString &id = layerId;
   const auto existing = versionForLayer(id);
   if (!existing.id.isEmpty() && !id.startsWith("draft."))
     return existing.id;

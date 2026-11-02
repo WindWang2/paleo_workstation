@@ -23,16 +23,16 @@ bool SeismicDataAccess::open(const QString& path,QString *error) {
 bool SeismicDataAccess::inspect(data::SeismicFileInfo& result,std::string& error,const data::CancelCheck& cancel) {
  return m_volume?m_service.inspectSeismic(m_volume,result,error,cancel):data::DataService::inspectSeismicFile(m_file,result,error,cancel);
 }
-bool SeismicDataAccess::line(bool il,int number,const data::SectionReadOptions& options,data::SeismicSectionResult& result,std::string& error,const data::CancelCheck& cancel) {
- const std::string direction=il?"inline":"crossline";
+bool SeismicDataAccess::line(bool isInline,int number,const data::SectionReadOptions& options,data::SeismicSectionResult& result,std::string& error,const data::CancelCheck& cancel) {
+ const std::string direction=isInline?"inline":"crossline";
  return m_volume?m_service.readSeismicLine(m_volume,direction,number,options,result,error,cancel):data::DataService::readSeismicFileLine(m_file,direction,number,options,result,error,cancel);
 }
 bool SeismicDataAccess::time(double ms,const data::TimeSliceReadOptions& options,data::SeismicTimeSliceResult& result,std::string& error,const data::CancelCheck& cancel) {
  return m_volume?m_service.readSeismicTimeSlice(m_volume,ms,options,result,error,cancel):data::DataService::readSeismicFileTimeSlice(m_file,ms,options,result,error,cancel);
 }
-bool SeismicDataAccess::section(const std::vector<std::pair<int,int>>& path,int columns,bool interpolate,bool outside,data::SeismicSectionResult& result,std::string& error,const data::CancelCheck& cancel) {
+bool SeismicDataAccess::section(const std::vector<std::pair<int,int>>& path,int maxColumns,bool interpolate,bool outside,data::SeismicSectionResult& result,std::string& error,const data::CancelCheck& cancel) {
  if(!m_volume){data::SeismicFileInfo info;if(!inspect(info,error,cancel))return false;m_unit=info.coordinateLengthUnit;}
- return m_volume?m_service.readSeismicGridSection(m_volume,path,columns,interpolate,outside,result,error,cancel):data::DataService::readSeismicFileGridSection(m_file,path,columns,interpolate,outside,result,error,cancel);
+ return m_volume?m_service.readSeismicGridSection(m_volume,path,maxColumns,interpolate,outside,result,error,cancel):data::DataService::readSeismicFileGridSection(m_file,path,maxColumns,interpolate,outside,result,error,cancel);
 }
 bool SeismicDataAccess::xySection(const std::vector<std::pair<double,double>>& path,const QString& timeReference,
     data::SeismicSectionResult& result,std::string& error,const data::CancelCheck& cancel) {
@@ -52,6 +52,14 @@ bool SeismicDataAccess::xySection(const std::vector<std::pair<double,double>>& p
  result.firstTime*=factor;result.sampleInterval*=factor;result.timeUnit="ms";
  if(volume.geometry.coordinateUnit=="ft")for(auto& distance:result.distances)distance*=0.3048;
  return true;
+}
+bool SeismicDataAccess::horizonWindow(const data::SeismicHorizonWindowQuery& query,
+    data::SeismicHorizonWindowResult& result,std::string& error,const data::CancelCheck& cancel) {
+ result={};error.clear();
+ if(!m_volume){error="按地震层位/小层读取变时深窗口需要工区数据服务中已登记的地震体";return false;}
+ data::SeismicHorizonWindowQuery boundQuery=query;
+ boundQuery.volumeId=m_volume;
+ return m_service.readSeismicHorizonWindow(boundQuery,result,error,cancel);
 }
 QString seismicProjectSource(const QString& project,const QString& preferred,QString *error) {
  if(error)error->clear();

@@ -187,7 +187,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         p.drawText(vp, Qt::AlignCenter | Qt::TextWordWrap, placeholder);
     }
 
-    // 3. Render Wellbores, Tops, and Curves inside viewport
+    paintHorizonOverlays(p,vp); // Major horizons and scheme-defined internal edges.
     if (m_showWells && !m_wells.empty() && hasData()) {
         if (m_orientation == SectionOrientation::TimeSlice) {
             // Horizontal slice wellhead markers & penetrated tops

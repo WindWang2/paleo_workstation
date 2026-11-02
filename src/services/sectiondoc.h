@@ -3,6 +3,7 @@
 #include "../domain/sectiontrace.h" // SegyReadReport/SegyTrace（SectionDoc 值成员）
 
 #include "previewdoc.h"
+#include "domain/seismic/sectionhorizons.h"
 
 // services/ — PreviewDocService::SectionDoc 的完整定义（方向 59 从
 // previewdoc.h 拆出的重出参类型）。previewdoc.h 只留嵌套前向声明
@@ -22,6 +23,7 @@ struct PreviewDocService::SectionDoc
   double startTimeMs = 0.0;
   bool isInline = true;
   int lineNo = -1;
+  seismic::SectionHorizons horizons;
 };
 
 Q_DECLARE_METATYPE(PreviewDocService::SectionDoc)

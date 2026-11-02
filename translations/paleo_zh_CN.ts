@@ -35935,6 +35935,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>完整工区范围：井口与地震数据范围并集 · %1</source>
         <translation>完整工区范围：井口与地震数据范围并集 · %1</translation>
     </message>
+    <message>
+        <source>地震层位</source>
+        <translation>地震层位</translation>
+    </message>
+    <message>
+        <source>叠加地震层位</source>
+        <translation>叠加地震层位</translation>
+    </message>
+    <message>
+        <source>叠加大层界面及 S1–S4 小层分界；虚线为方案推导分界，实线为已解释界线。</source>
+        <translation>叠加大层界面及 S1–S4 小层分界；虚线为方案推导分界，实线为已解释界线。</translation>
+    </message>
+    <message>
+        <source>当前剖面没有可叠加层位。</source>
+        <translation>当前剖面没有可叠加层位。</translation>
+    </message>
+    <message>
+        <source>当前剖面：%1 条界线。</source>
+        <translation>当前剖面：%1 条界线。</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>

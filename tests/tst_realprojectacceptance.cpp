@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QSaveFile>
+#include <QElapsedTimer>
 #include <paleo_data/service.h>
 #include "catalog/datacatalog.h"
 #include "catalog/areawellprojection.h"
@@ -101,6 +102,27 @@ private slots:
     qInfo()<<"Project planar range"<<QString::fromStdString(range.status)
            <<QString::fromStdString(range.merged.coordinateSystem)<<range.merged.minX<<range.merged.minY
            <<range.merged.maxX<<range.merged.maxY<<"wells"<<range.wellsWithCoordinates<<"volumes"<<range.volumesWithRange;
+  }
+  void seismicSectionHorizonsFollowActualColumns() {
+    paleo::data::DataService ds;std::string error;
+    QVERIFY2(ds.openProjectReadOnly(u(paleo::area_model::directory(project)),error),error.c_str());
+    std::vector<paleo::data::DataEntry> volumes;QVERIFY(ds.listData("volumes",0,volumes,error));QVERIFY(!volumes.empty());
+    paleo::data::SeismicFileInfo info;QVERIFY2(ds.inspectSeismic(volumes[0].id,info,error),error.c_str());
+    const int line=info.inlineMin+(info.inlineCount/2)*info.inlineStep;
+    paleo::data::SectionReadOptions options;options.maxColumns=256;options.firstTime=options.lastTime=info.firstTime;
+    paleo::data::SeismicSectionResult section;QVERIFY2(ds.readSeismicLine(volumes[0].id,"inline",line,options,section,error),error.c_str());
+    paleo::data::SectionHorizonQuery query;query.volumeId=volumes[0].id;query.undeclaredTimeUnit="ms";query.undeclaredTimeType="TWT";
+    for(int col=0;col<section.columns;++col)query.columns.push_back({section.inlineNumbers[col],section.crosslineNumbers[col],section.traceIndexes[col]>=0});
+    QElapsedTimer clock;clock.start();paleo::data::SectionHorizonResult result;
+    QVERIFY2(ds.readSectionHorizons(query,result,error),error.c_str());
+    int major=0,minor=0;
+    for(const auto& curve:result.curves){
+      QCOMPARE(curve.timesMs.size(),size_t(section.columns));
+      if(curve.internalEdge)++minor;else ++major;
+      for(int col=0;col<section.columns;++col)if(section.traceIndexes[col]<0)QVERIFY(std::isnan(curve.timesMs[col]));
+    }
+    QVERIFY(major>0);if(!result.schemeId.empty())QVERIFY(minor>0);
+    qInfo()<<"Section horizon overlay"<<"columns"<<section.columns<<"major"<<major<<"internal"<<minor<<"elapsed_ms"<<clock.elapsed();
   }
   void createSourceFormationFrameworkWhenExplicitlyRequested() {
     const QString formation = qEnvironmentVariable("PALEO_ACCEPTANCE_FORMATION");

@@ -738,6 +738,7 @@ void DataPreviewTabs::onSectionReady(const QString &assetId,
   // SectionPanel 是本 cpp 内聚的预览控件——挂起时存的是它。
   auto *sp = static_cast<SectionPanel *>(pend.panel.data());
   sp->setTraces(doc.traces, doc.sampleIntervalUs, doc.startTimeMs, doc.readReport.message);
+  sp->setHorizons(doc.horizons);
   if (pend.hasTie)
     sp->setTieMarker(pend.tieText, pend.tieMs);
   // 标题后缀：「文件名 · IL1315」/「文件名 · XL4165」（§4）。

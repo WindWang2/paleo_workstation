@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 #include <QString>
+#include "domain/seismic/sectionhorizons.h"
 #include <paleo_data/service.h>
 
 namespace paleo {
@@ -20,6 +21,8 @@ public:
  bool horizonWindow(const paleo::data::SeismicHorizonWindowQuery& query,
                     paleo::data::SeismicHorizonWindowResult& result,
                     std::string& error,const paleo::data::CancelCheck& cancel={});
+ seismic::SectionHorizons sectionHorizons(const paleo::data::SeismicSectionResult& section,
+                                         const paleo::data::CancelCheck& cancel={});
 private:
  paleo::data::DataService m_service;
  long long m_volume=0;

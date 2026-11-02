@@ -2,6 +2,7 @@
 #pragma once
 #include "domain/deviationsurvey.h"
 #include "domain/seismic/timedepthmodel.h"
+#include "domain/seismic/sectionhorizons.h"
 #include <QImage>
 #include <QMetaType>
 #include <QString>
@@ -332,6 +333,7 @@ TopsTable topsTable(const QVector<Well> &wells, const Datum &datum,
 // 井间地震缝：reason 非空 = 不可绘（文字填缝）。values 行主序
 // [sample*columns + column]，NaN 无效。column 0 = 左井端。
 struct SeismicGap {
+  seismic::SectionHorizons horizons;
   QString reason;
   int columns = 0, samples = 0;
   double startMs = 0.0, stepMs = 0.0;
@@ -360,6 +362,10 @@ float adaptiveClip(const QVector<SeismicGap> &gaps, double percentile = 0.99);
 double gapTwtMs(const Well &a, double offA, const Well &b, double offB,
                 double f, double displayDepth,
                 DepthDomain domain = DepthDomain::MD);
+// Inverse of the same gap sampling function, clipped to the visible valid TD
+// intersection. Missing checkshots/coverage never produce an extrapolated line.
+double gapDisplayDepthAtTwt(const Well& a,double offA,const Well& b,double offB,
+                            double fraction,double twtMs,double top,double base,DepthDomain domain);
 
 } // namespace wellsection
 

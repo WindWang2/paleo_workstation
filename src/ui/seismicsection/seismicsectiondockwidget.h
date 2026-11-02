@@ -216,6 +216,7 @@ private slots:
 
 private:
     void setupUi();
+    void setupHorizonOverlayControl(QWidget *toolbar);
     void setupDisplayBar(QWidget *parent);          // D2.x 显示控制行
     void showTraceHeaderCard(int traceIndex);       // D2.11
     void updateCompareSlice();                      // D2.10 卷帘 B 图提取

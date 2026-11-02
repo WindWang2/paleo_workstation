@@ -55,6 +55,7 @@ struct RenderState {
   wellsection::SectionTheme theme;
   wellsection::SeismicStrip strip;
   bool seismicOn = false;
+  bool seismicHorizonsOn=false;
   // 缝内地震色标：-1 = 跟随主题（seismicGray→灰度，否则红白蓝）；
   // >=0 = seismic::SectionColorMapType 显式预设（与剖面画布同一 LUT）。
   int seismicCmap = -1;
@@ -241,6 +242,7 @@ class GapItem : public QGraphicsItem
   private:
     void paintSeismic(QPainter *p, const QRectF &exposed,
                       const wellsection::SeismicGap &gap);
+    void paintSeismicHorizons(QPainter *p,const QRectF& exposed,const wellsection::SeismicGap& gap);
     // 连线几何：主题 curvedLinks 时走 S 形贝塞尔，否则直线；层段带/
     // 高亮带/高亮边界共用同一路径（填充与线型不走两套几何）。
     QPainterPath linkPath(const wellsection::Link &lk) const;

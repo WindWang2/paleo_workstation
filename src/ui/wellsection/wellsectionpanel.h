@@ -60,6 +60,8 @@ class WellSectionPanel : public QWidget
     bool highlightEnabled() const { return m_highlightOn; }
     void setHighlightEnabled(bool on);
     bool seismicEnabled() const { return m_seismicOn; }
+    void setSeismicHorizonsEnabled(bool on);
+    bool seismicHorizonsEnabled()const{return m_st.seismicHorizonsOn;}
     void setSeismicEnabled(bool on); // on + ≥2 井 → seismicRequested
     // 缝内地震色标：-1 = 跟随主题；0..7 = 剖面画布同款预设（QSettings 持久化）。
     int seismicColorMap() const { return m_seismicCmap; }
@@ -200,6 +202,8 @@ class WellSectionPanel : public QWidget
     QString m_themeId = QStringLiteral("classic");
     bool m_highlightOn = true;
     bool m_seismicOn = false;
+    void setupHorizonOverlayControl(QWidget *toolbar);
+    void updateHorizonOverlayStatus();
     int m_seismicCmap = -1;      // -1 = 跟随主题；0..7 = SectionColorMapType
     bool m_seismicCmapInvert = false;
     bool m_seismicAvailable = false;

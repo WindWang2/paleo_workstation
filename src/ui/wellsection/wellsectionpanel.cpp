@@ -183,7 +183,7 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
                        tr("基准面与深度域：井深 / 海拔 / 拉平 / 垂深（TVD）"));
   m_seismicBtn = mkBtn("wellSectionSeismicButton", "mIconRasterLayer.svg",
                        tr("井间叠加地震剖面（按时深关系自适应缩放）"));
-  m_seismicBtn->setCheckable(true);
+  m_seismicBtn->setCheckable(true);setupHorizonOverlayControl(bar);
   m_faultBtn = mkBtn("wellSectionFaultButton", "mIconLineLayer.svg",
                      tr("断层投绘（断面与剖面井径求交）"));
   m_faultBtn->setCheckable(true);
@@ -562,7 +562,7 @@ void WellSectionPanel::setSeismicStrip(const wellsection::SeismicStrip &strip)
 {
   if (strip.gaps.size() != m_wells.size() - 1)
     return; // 与当前井集不符 → 丢弃
-  m_st.strip = strip;
+  m_st.strip = strip;updateHorizonOverlayStatus();
   ++m_st.stripVersion;
   syncGapToolTips();
   for (auto *g : m_gapItems)

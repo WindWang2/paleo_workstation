@@ -109,6 +109,10 @@ public:
     int xlineMax() const { return m_xlineMax; }
 
     void clearData();
+    void setHorizonOverlays(const SectionHorizons& horizons);
+    const SectionHorizons& horizonOverlays()const{return m_horizons;}
+    void setHorizonOverlaysVisible(bool visible);
+    bool horizonOverlaysVisible()const{return m_horizonsVisible;}
     bool hasData() const { return m_traces > 0 && m_samples > 0; }
 
     // D2.14：空数据/无效线号的原因态（无数据时的占位文案）
@@ -312,6 +316,7 @@ public:
     double pixelToInline(double py) const;
 
 signals:
+    void horizonOverlaysChanged();
     void traceHovered(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void traceClicked(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
     void zoomChanged(double zoomFactor);
@@ -344,6 +349,9 @@ private:
     };
     QVector<WellPinLabel> wellPinLabels() const;
     void paintWellPins(QPainter &p);
+    void paintHorizonOverlays(QPainter& painter,const QRect& viewport);
+    SectionHorizons m_horizons;
+    bool m_horizonsVisible=false;
     void rebuildImage();
     // 把 m_slice.values 的 [x0,x0+w)×[y0+h) 区域按当前色标/增益写入
     // m_cachedImage（瓦片流与整图重建共用一条上色路径）。

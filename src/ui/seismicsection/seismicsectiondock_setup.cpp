@@ -344,7 +344,7 @@ void SeismicSectionDockWidget::setupUi() {
     auto *actArbLine = wellMenu->addAction(tr("任意线编辑器…"));           // D5.1
 
     m_btnWellOptions->setMenu(wellMenu);
-    toolLay->addWidget(m_btnWellOptions);
+    toolLay->addWidget(m_btnWellOptions);setupHorizonOverlayControl(toolbar);
 
     toolLay->addStretch(1);
 

@@ -37,6 +37,7 @@ PaleoTask *SeismicTaskService::startDataPlane(const QString& path,SgySliceType t
     options.firstTime=options.lastTime=paleo::data::Missing;
     if(!source.line(type==SgySliceType::Inline,index,options,section,detail,cancel))return QString::fromUtf8(detail);
    }
+   axis->horizons=source.sectionHorizons(section,cancel);
    const auto unit=source.coordinateUnit().empty()?info.coordinateLengthUnit:source.coordinateUnit();
    const double scale=unit=="ft"?.3048:1.;double distance=0;bool metric=unit=="m"||unit=="ft";
    for(int col=0;col<section.columns;++col) {
@@ -65,6 +66,7 @@ PaleoTask *SeismicTaskService::startDataSection(const QString& path,const std::v
   paleo::SeismicDataAccess source;QString error;std::string detail;if(!source.open(path,&error))return error;
   paleo::data::SeismicSectionResult section;
   if(!source.xySection(points,reference,section,detail,[task]{return task->cancelRequested();}))return QString::fromUtf8(detail);
+  out->horizons=source.sectionHorizons(section,[task]{return task->cancelRequested();});
   out->columns=section.columns;out->samples=section.samples;out->firstTimeMs=section.firstTime;
   out->sampleIntervalMs=section.sampleInterval;out->timeReference=reference;out->distancesM=std::move(section.distances);
   out->values.resize(section.amplitudes.size());

@@ -1165,7 +1165,7 @@ int WellSectionWorkflow::requestSeismic(
           if(ok&&section&&section->columns>0&&section->samples>0&&section->values.size()==size_t(section->columns)*section->samples) {
             gap.columns=section->columns;gap.samples=section->samples;
             gap.startMs=section->firstTimeMs;gap.stepMs=section->sampleIntervalMs;
-            gap.values=section->values;gap.columnDistancesM=section->distancesM;
+            gap.values=section->values;gap.columnDistancesM=section->distancesM;gap.horizons=section->horizons;
           } else {
             gap.columns = 0;
             gap.samples = 0;

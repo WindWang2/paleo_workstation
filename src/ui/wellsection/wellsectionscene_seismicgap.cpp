@@ -152,6 +152,7 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
     stroke(linkPath(*lb), hiPen);
 
   // 6. 不可绘原因（地震开且缝无效；tooltip 在面板侧挂，不在 paint 里改）。
+  if(seismicDrawn)paintSeismicHorizons(p,exposed,*gap);
   if (m_st->seismicOn && gap && !gap->valid() && !gap->reason.isEmpty())
   {
     QFont f = p->font();

@@ -257,7 +257,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   decode();
   barLay->addWidget(mode);
   barLay->addWidget(no);
-  barLay->addWidget(panel->createColorMapControl(bar));
+  barLay->addWidget(panel->createDisplayControls(bar));
   if (initialInline >= 0)
     barLay->addWidget(caption8(tr("%1 所在测线").arg(tieWellName), bar)); // §4 旁注
   barLay->addStretch(1);

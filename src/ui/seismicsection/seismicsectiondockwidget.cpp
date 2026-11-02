@@ -317,7 +317,7 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     // 清叠加的防线挡不住旧线属性图残留。opt-02：层段（zone）叠加同款
     // 论证成立（属性建模烘焙在 mid-inline 那一刀，换线即错线显示）。
     m_canvas->clearAttrOverlay();
-    m_canvas->clearZoneOverlay();
+    m_canvas->clearZoneOverlay();m_canvas->setHorizonOverlays({});
 
     // 常规 IL/XL/Time 切换：丢弃任意线旧状态（route/井叠加），
     // hasRoute() 复归 false（wave/sections 语义）。
@@ -398,6 +398,7 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
             } else {
                 const float dtMs = float(axis.sampleIntervalMs);
                 guard->m_canvas->setSectionData(*image, dtMs, origin,axis.columnDistancesM,axis.columnCoordinates);
+                guard->m_canvas->setHorizonOverlays(axis.horizons);
             }
             // D4：剖面身份 + 最近切片（拾取解析/追踪原料）
             {
@@ -564,7 +565,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
   if (m_btnCurtain && m_btnCurtain->isChecked())
     m_btnCurtain->setChecked(false);
   m_canvas->clearAttrOverlay();
-  m_canvas->clearZoneOverlay();
+  m_canvas->clearZoneOverlay();m_canvas->setHorizonOverlays({});
   m_sliceIndex = -1;
   const auto generation = ++m_generation;
   m_volume = volume;
@@ -590,7 +591,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
       std::make_shared<SgyVolume>(*volume), pathPoints, options,
       [guard, generation, volume, pathPoints, lineTitle, mapPolyline,
        candidateWells](bool ok, std::shared_ptr<const SgySliceImage> image,
-               const SgySectionStats &stats, const QString &error) {
+               const SeismicSectionExtractionStats &stats, const QString &error) {
         if (!guard || guard->m_generation != generation)
           return;
         guard->m_progressBar->hide();
@@ -620,6 +621,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
         guard->m_canvas->setSectionData(
             *image, float(stats.sampleIntervalMs), stats.firstTimeMs,
             geometry.distancesM, geometry.coordinates);
+        guard->m_canvas->setHorizonOverlays(stats.horizons);
         guard->refreshWellOverlay(candidateWells);
         guard->setLineTitle(lineTitle);
         // #225：入参候选井写入成员——computeWellTrajectories /

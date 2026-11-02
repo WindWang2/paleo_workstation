@@ -804,6 +804,7 @@ void PreviewDocService::requestSection(const QString &assetId,
     paleo::data::SeismicSectionResult section;std::string detail;
     const auto cancel=[t]{return t&&t->cancelRequested();};
     if(!source.line(isInline,lineNo,options,section,detail,cancel))return QString::fromUtf8(detail);
+    out->doc.horizons=source.sectionHorizons(section,cancel);
     out->doc.sampleIntervalUs=float(section.sampleInterval*1000);out->doc.startTimeMs=section.firstTime;
     out->doc.readReport.requestedTraceCount=section.columns;
     for(int column=0;column<section.columns;++column) {

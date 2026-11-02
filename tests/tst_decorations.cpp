@@ -7,10 +7,12 @@
 #include <QWidget>
 
 #include <qgsapplication.h>
+#include <qgscoordinatereferencesystem.h>
 #include <qgsmapcanvas.h>
 #include <qgsmapdecoration.h>
 #include <qgsmapsettings.h>
 #include <qgsmaptoolpan.h>
+#include <qgsmessagelog.h>
 #include <qgsrectangle.h>
 
 #include "../src/ui/decorations/paleodecorations.h"
@@ -130,6 +132,7 @@ class TestDecorations : public QObject
     void decorationsPaintPixels();
     void disabledDecorationPaintsNothing();
     void watermarkPaintsWhenEnabled();
+    void scaleBarOutOfDomainUtmExtentLogsNoProjErrors();
     void vertexShimDockLifecycle();
     void vertexShimAutoShow();
 
@@ -327,6 +330,38 @@ void TestDecorations::vertexShimAutoShow()
   QVERIFY( !shim.attachedTool() );
 
   delete pan;
+}
+
+void TestDecorations::scaleBarOutOfDomainUtmExtentLogsNoProjErrors()
+{
+  QStringList projErrors;
+  const auto conn = QObject::connect(
+      QgsApplication::messageLog(),
+      &QgsMessageLog::messageReceivedWithFormat,
+      [&projErrors]( const QString &message, const QString &, Qgis::MessageLevel, Qgis::StringFormat ) {
+        if ( message.contains( QLatin1String( "Forward transform" ) )
+             || message.contains( QLatin1String( "Point outside of projection domain" ) ) )
+          projErrors << message;
+      } );
+
+  QgsMapCanvas canvas;
+  canvas.resize( 640, 200 );
+  canvas.setDestinationCrs( QgsCoordinateReferenceSystem( QStringLiteral( "EPSG:32650" ) ) );
+  PaleoDecorationManager mgr( &canvas );
+  mgr.setScaleBarEnabled( true );
+
+  canvas.setExtent( QgsRectangle( -20332272.727273, -6067015.584416, 20332272.727273, 6067015.584416 ) );
+  canvas.refresh();
+  QCoreApplication::processEvents();
+  QVERIFY2( paintAndCount( canvas, mgr ) > 0, "scale bar should fall back to planar metres cleanly" );
+
+  canvas.setExtent( QgsRectangle( 12868023.0, 2456186.0, 12968023.0, 2536186.0 ) );
+  canvas.refresh();
+  QCoreApplication::processEvents();
+  QVERIFY2( paintAndCount( canvas, mgr ) > 0, "stale Web Mercator extent on UTM canvas must not break scale bar" );
+
+  QObject::disconnect( conn );
+  QVERIFY2( projErrors.isEmpty(), qPrintable( projErrors.join( QLatin1Char( '\n' ) ) ) );
 }
 
 int main( int argc, char *argv[] )

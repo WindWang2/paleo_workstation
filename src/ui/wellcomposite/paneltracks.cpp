@@ -47,7 +47,13 @@ void WellCompositePanel::syncSessionToTracks()
           break; // 砂层组不受分层编辑会话同步（与旧标题判据同语义）
         case FormationTrack::FormationSource::Layers:
           if (!doc.formationIntervals.isEmpty())
-            ft->setIntervals(doc.formationIntervals);
+          {
+            QVector<FormationInterval> byType;
+            for (const auto &fi : doc.formationIntervals)
+              if (fi.unitType == ft->title())
+                byType.append(fi);
+            ft->setIntervals(byType.isEmpty() ? doc.formationIntervals : byType);
+          }
           break;
       }
     }
@@ -106,6 +112,33 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
     m_btnPredictFacies->setEnabled(!busy);
     m_btnCancelFacies->setToolTip(busy ? tr("停止本地等待（所有地层），服务端已受理任务继续执行") : tr("没有正在等待的预测"));
     m_faciesModel->setEnabled(!busy); m_btnFaciesService->setEnabled(!busy); m_btnRefreshFacies->setEnabled(!busy);
+    if (m_faciesStratTrack) m_faciesStratTrack->setEnabled(!busy);
+  });
+  const auto refreshStratTracks = [this, workflow] {
+    if (!m_faciesStratTrack || !workflow) return;
+    const QVariantMap prev = m_faciesStratTrack->currentData().toMap();
+    QSignalBlocker block(m_faciesStratTrack);
+    m_faciesStratTrack->clear();
+    m_faciesStratTrack->addItem(tr("跟随分析层段 / 全部地层组"), QVariantMap{});
+    int selectIdx = 0;
+    for (const auto &v : workflow->availableStratigraphicTracks()) {
+      const auto t = v.toMap();
+      const QString trackName = t.value(QStringLiteral("trackName")).toString();
+      const QString schemeId = t.value(QStringLiteral("schemeId")).toString();
+      for (const QString &unitName : t.value(QStringLiteral("unitNames")).toStringList()) {
+        const QVariantMap itemData{{QStringLiteral("trackName"), trackName},
+                                   {QStringLiteral("unitName"), unitName},
+                                   {QStringLiteral("schemeId"), schemeId}};
+        m_faciesStratTrack->addItem(QStringLiteral("%1 · %2").arg(trackName, unitName), itemData);
+        if (!prev.isEmpty() && prev.value(QStringLiteral("trackName")) == trackName &&
+            prev.value(QStringLiteral("unitName")) == unitName)
+          selectIdx = m_faciesStratTrack->count() - 1;
+      }
+    }
+    m_faciesStratTrack->setCurrentIndex(selectIdx);
+  };
+  connect(this, &WellCompositePanel::faciesDataChanged, this, [refreshStratTracks](const ComprehensiveWellData &) {
+    refreshStratTracks();
   });
   connect(workflow, &WellFaciesWorkflow::statusChanged, m_faciesStatus, &QLabel::setText);
   connect(workflow, &WellFaciesWorkflow::resultReady, this, &WellCompositePanel::showFaciesPrediction);
@@ -125,6 +158,7 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
   if (auto *button = findChild<QToolButton *>(QStringLiteral("btnWellFormations")))
     connect(button, &QToolButton::clicked, workflow, &WellFaciesWorkflow::requestFormationTable);
   workflow->setData(m_data);
+  refreshStratTracks();
   if (m_selectionContext) workflow->setAnalysisUnit(m_selectionContext->activeUnit());
 }
 void WellCompositePanel::showWellAttributes(const ComprehensiveWellData &data) {

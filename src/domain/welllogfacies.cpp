@@ -156,16 +156,37 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
     }
     curves.append(found);
   }
-  if (data.formationIntervals.isEmpty())
+  if (data.formationIntervals.isEmpty() && data.seismicSubIntervals.isEmpty() && data.seismicIntervals.isEmpty())
     return fail(tr("缺少段井道（地层单位）"));
   if (data.lithologyIntervals.isEmpty())
     return fail(tr("缺少岩性井道"));
+  const auto isSeismicTrack = [](const FormationInterval &f) {
+    return f.unitType == QStringLiteral("地震小层") || f.unitType == QStringLiteral("地震层位");
+  };
   QVector<FormationInterval> segments;
   for (const auto &f : data.formationIntervals)
-    if (f.unitType == QStringLiteral("段") ||
-        f.name.trimmed().endsWith(QStringLiteral("段")) ||
-        (!isGroupName(f) && !f.name.trimmed().isEmpty()))
+    if (!isSeismicTrack(f) &&
+        (f.unitType == QStringLiteral("段") ||
+         f.name.trimmed().endsWith(QStringLiteral("段")) ||
+         (!isGroupName(f) && !f.name.trimmed().isEmpty())))
       segments.append(f);
+  if (segments.isEmpty()) {
+    for (const auto &f : data.formationIntervals)
+      if (f.unitType == QStringLiteral("地震小层") && !f.name.trimmed().isEmpty())
+        segments.append(f);
+    if (segments.isEmpty())
+      for (const auto &f : data.seismicSubIntervals)
+        if (!f.name.trimmed().isEmpty())
+          segments.append(f);
+    if (segments.isEmpty())
+      for (const auto &f : data.formationIntervals)
+        if (f.unitType == QStringLiteral("地震层位") && !f.name.trimmed().isEmpty())
+          segments.append(f);
+    if (segments.isEmpty())
+      for (const auto &f : data.seismicIntervals)
+        if (!f.name.trimmed().isEmpty())
+          segments.append(f);
+  }
   if (segments.isEmpty())
     return fail(tr("缺少段井道（只有组分层，不能代替段）"));
   bool namedGroup = false;
@@ -431,9 +452,14 @@ WellFaciesPlan planWellFaciesFormationRun(const ComprehensiveWellData &data,
                                           const QVector<WellFaciesModel> &models,
                                           const QString &horizon) {
   WellFaciesPlan plan;
-  const auto current = std::find_if(data.formationIntervals.cbegin(), data.formationIntervals.cend(),
+  QVector<FormationInterval> allFormations = data.formationIntervals;
+  for (const auto &s : data.seismicSubIntervals)
+    allFormations.append(s);
+  for (const auto &s : data.seismicIntervals)
+    allFormations.append(s);
+  const auto current = std::find_if(allFormations.cbegin(), allFormations.cend(),
       [&horizon](const auto &f) { return f.name.compare(horizon, Qt::CaseInsensitive) == 0; });
-  if (current == data.formationIntervals.cend() ||
+  if (current == allFormations.cend() ||
       !std::isfinite(current->topDepth) || !std::isfinite(current->bottomDepth) ||
       current->bottomDepth <= current->topDepth) {
     plan.reason = tr("当前地层 %1 缺少有效顶底深").arg(horizon);
@@ -441,6 +467,7 @@ WellFaciesPlan planWellFaciesFormationRun(const ComprehensiveWellData &data,
   }
   const double top = current->topDepth, base = current->bottomDepth;
   ComprehensiveWellData scoped = data;
+  scoped.formationIntervals = allFormations;
   scoped.minDepth = top; scoped.maxDepth = base;
   // 保留每根曲线在当前地层内的原始采样，不向层外扩窗或补模拟数据。
   for (auto &curve : scoped.continuousCurves) {

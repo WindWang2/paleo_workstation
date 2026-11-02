@@ -164,6 +164,7 @@ void QgisCanvasController::bindProject()
   if ( svc )
     connect( svc, &QgisProjectService::projectOpened, this, [this, svc] {
       QgsProject *p = svc->project();
+      const bool emptyProject = p && p->mapLayers().empty();
       applyProjectCrs( p );
       // Rebind defensively: read() may rebuild the tree under the bridge.
       if ( p && m_canvas )
@@ -171,23 +172,37 @@ void QgisCanvasController::bindProject()
         delete m_bridge;
         m_bridge = new QgsLayerTreeMapCanvasBridge( p->layerTreeRoot(), m_canvas, this );
         m_bridge->setAutoSetupOnFirstLayer(false);
+        if ( emptyProject )
+          m_canvas->setExtent( QgsRectangle( 0, 0, 10000, 10000 ) );
       }
     } );
   if (svc)
     connect(svc, &QgisProjectService::mapConfigurationChanged, this, [this, svc] {
       if (!m_canvas) return;
+      bool hasDataLayer = false;
+      if (svc->project()) {
+        for (auto *layer : svc->project()->mapLayers())
+          if (layer && !layer->customProperty("paleoBasemap").toBool()) { hasDataLayer = true; break; }
+      }
+      if (!hasDataLayer) {
+        for (auto *layer : m_canvas->layers())
+          if (layer && !layer->customProperty("paleoBasemap").toBool()) { hasDataLayer = true; break; }
+      }
       const auto oldCrs = m_canvas->mapSettings().destinationCrs();
       const auto newCrs = svc->project()->crs();
-      auto extent = m_canvas->extent();
-      try {
-        auto context = svc->project()->transformContext();
-        if (!context.hasTransform(oldCrs, newCrs)) context = m_canvas->mapSettings().transformContext();
-        QgsCoordinateTransform transform(oldCrs, newCrs, context);
-        if (transform.isValid()) extent = transform.transformBoundingBox(extent);
-      } catch (const QgsCsException &) { extent = {}; }
+      QgsRectangle extent;
+      if (hasDataLayer) {
+        extent = m_canvas->extent();
+        try {
+          auto context = svc->project()->transformContext();
+          if (!context.hasTransform(oldCrs, newCrs)) context = m_canvas->mapSettings().transformContext();
+          QgsCoordinateTransform transform(oldCrs, newCrs, context);
+          if (transform.isValid()) extent = transform.transformBoundingBox(extent);
+        } catch (const QgsCsException &) { extent = {}; }
+      }
       applyProjectCrs(svc->project());
       if (!extent.isEmpty()) m_canvas->setExtent(extent);
-      else zoomToFullExtent();
+      else if (hasDataLayer) zoomToFullExtent();
       m_canvas->refresh();
     });
 }

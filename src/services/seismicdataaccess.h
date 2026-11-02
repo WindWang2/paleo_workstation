@@ -17,6 +17,9 @@ public:
  bool section(const std::vector<std::pair<int,int>>& path,int maxColumns,bool interpolate,bool outside,paleo::data::SeismicSectionResult& result,std::string& error,const paleo::data::CancelCheck& cancel={});
  bool xySection(const std::vector<std::pair<double,double>>& path,const QString& timeReference,
                 paleo::data::SeismicSectionResult& result,std::string& error,const paleo::data::CancelCheck& cancel={});
+ bool horizonWindow(const paleo::data::SeismicHorizonWindowQuery& query,
+                    paleo::data::SeismicHorizonWindowResult& result,
+                    std::string& error,const paleo::data::CancelCheck& cancel={});
 private:
  paleo::data::DataService m_service;
  long long m_volume=0;

@@ -64,12 +64,23 @@ void appendInterval(const paleo::data::IntervalTrack &track, const paleo::data::
       else item.description+=text(p.originalText)+" ";
     }
     out.coreBarrels.append(item);
-  } else if (kind.contains(QStringLiteral("地层")) || name.contains(QStringLiteral("砂层")) || name.contains(QStringLiteral("层序"))) {
+  } else if (kind.contains(QStringLiteral("地层")) || kind.contains(QStringLiteral("地震")) ||
+             name.contains(QStringLiteral("地震层位")) || name.contains(QStringLiteral("地震小层")) ||
+             name.contains(QStringLiteral("砂层")) || name.contains(QStringLiteral("层序"))) {
     WellComposite::FormationInterval item; item.topDepth=top; item.bottomDepth=bottom;
     item.name=text(v.intervalName); item.unitType=name;
     if (name.contains(QStringLiteral("砂层"))) out.sandIntervals.append(item);
     else if (name.contains(QStringLiteral("层序"))) out.sequenceIntervals.append(item);
-    else out.formationIntervals.append(item);
+    else {
+      if (name.contains(QStringLiteral("地震小层"))) {
+        item.color = QColor(QStringLiteral("#B3E5FC"));
+        out.seismicSubIntervals.append(item);
+      } else if (name.contains(QStringLiteral("地震层位"))) {
+        item.color = QColor(QStringLiteral("#C8E6C9"));
+        out.seismicIntervals.append(item);
+      }
+      out.formationIntervals.append(item);
+    }
   } else {
     WellComposite::TextInterval item; item.topDepth=top; item.bottomDepth=bottom;
     item.category=name; item.text=text(v.intervalName);

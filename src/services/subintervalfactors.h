@@ -3,12 +3,14 @@
 #include "domain/subintervalfacies.h"
 #include "domain/stratigraphicunit.h"
 #include "domain/wellsection.h"
+#include "paleo_data/seismic.h"
 #include "paleo_data/stratigraphic_framework.h"
 
 #include <QString>
 #include <QVariantMap>
 #include <vector>
 #include <QVector>
+#include <functional>
 #include <optional>
 
 namespace paleo::data
@@ -165,5 +167,23 @@ struct PagedLabeledChoices
 // filter 空 = 不过滤；MatchContains、大小写不敏感。page 越界夹到末页。
 PagedLabeledChoices pageLabeledChoices( const QVector<LabeledIdChoice> &all, const QString &filter, int page,
                                         int pageSize = kSchemeRevisionPageSize );
+
+// 按 UnitSelection（四等分小层 S1..S4 或父层位）从工程 DataService 读取逐道变时窗/变深窗地震数据。
+bool queryProjectSeismicHorizonWindow( const QString &projectDir, const UnitSelection &sel,
+                                       paleo::data::SeismicHorizonWindowQuery query,
+                                       paleo::data::SeismicHorizonWindowResult &out,
+                                       QString *error = nullptr,
+                                       const std::function<bool()> &cancelled = {} );
+
+// 列出工程中可用于单井相预测的地层道（含 '地震小层'、'地震层位' 及其他地质分层道 '组'、'段'）。
+bool listProjectStratigraphicTracks( const QString &projectDir,
+                                     std::vector<paleo::data::StratigraphicTrackDescriptor> &out,
+                                     QString *error = nullptr );
+
+// 按地层/四等分小层从工程 DataService 提取单井或多井测井曲线与辅助层段道切片。
+bool queryProjectWellLogsByStratigraphy( const QString &projectDir,
+                                         const paleo::data::WellIntervalLogQuery &query,
+                                         std::vector<paleo::data::WellStratigraphicLogSlice> &out,
+                                         QString *error = nullptr );
 
 } // namespace paleo::strat

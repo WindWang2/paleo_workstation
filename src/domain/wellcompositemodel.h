@@ -184,6 +184,9 @@ struct ComprehensiveWellData
   QVector<FaciesInterval> faciesIntervals;
   // 层序地层单元（SQ1/SQ2… 或 体系域）；XML「层序道」工作表或地层单位道「道名=层序」行，可缺省
   QVector<FormationInterval> sequenceIntervals;
+  // 地震层位（T70-T72 等）与四等分地震小层（T70-T72-S1..S4 等）
+  QVector<FormationInterval> seismicIntervals;
+  QVector<FormationInterval> seismicSubIntervals;
 
   bool isEmpty() const;
 };

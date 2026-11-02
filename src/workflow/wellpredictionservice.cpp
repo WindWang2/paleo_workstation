@@ -9,6 +9,7 @@
 #include "../qgis/wellattributestore.h"
 #include "../services/futuretask.h"
 #include "../services/projectdata.h"
+#include "../services/subintervalfactors.h"
 #include "../services/welllogset.h"
 #include "wellsectionworkflow.h"
 #include <QDebug>
@@ -222,6 +223,31 @@ void WellPredictionService::prepare() {
     std::stable_sort(source.tops.begin(), source.tops.end(),
       [](const WellTop &a, const WellTop &b) { return a.md < b.md; });
     bool current = false;
+    const qlonglong modelWellId = m_catalog->entityById(id).extra.value(QStringLiteral("areaModelWellId")).toLongLong();
+    if (modelWellId > 0 && !m_dir.isEmpty() && QFileInfo::exists(m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite"))) {
+      paleo::data::WellIntervalLogQuery q;
+      q.wellIds = {modelWellId};
+      q.stratigraphy.subIntervalId.value = m_request.horizon.toStdString();
+      q.stratigraphy.intervalId.value = m_request.horizon.toStdString();
+      q.stratigraphy.unitName = m_request.horizon.toStdString();
+      std::vector<paleo::data::WellStratigraphicLogSlice> slices;
+      QString qErr;
+      if (paleo::strat::queryProjectWellLogsByStratigraphy(m_dir, q, slices, &qErr) &&
+          !slices.empty() && slices.front().resolved &&
+          std::isfinite(slices.front().topDepth) && std::isfinite(slices.front().bottomDepth) &&
+          slices.front().bottomDepth > slices.front().topDepth &&
+          (slices.front().depthType.empty() || slices.front().depthType == "MD") &&
+          (slices.front().depthUnit.empty() || slices.front().depthUnit == "m") &&
+          std::none_of(source.data.formationIntervals.cbegin(), source.data.formationIntervals.cend(),
+                       [this](const auto &f) { return f.name.compare(m_request.horizon, Qt::CaseInsensitive) == 0; })) {
+        WellComposite::FormationInterval stratFormation;
+        stratFormation.name = m_request.horizon;
+        stratFormation.topDepth = float(slices.front().topDepth);
+        stratFormation.bottomDepth = float(slices.front().bottomDepth);
+        stratFormation.unitType = QString::fromStdString(slices.front().trackName.empty() ? "地震小层" : slices.front().trackName);
+        source.data.formationIntervals.append(stratFormation);
+      }
+    }
     for (const auto &top : source.tops)
       current |= top.horizon.compare(m_request.horizon, Qt::CaseInsensitive) == 0;
     for (const auto &formation : source.data.formationIntervals)

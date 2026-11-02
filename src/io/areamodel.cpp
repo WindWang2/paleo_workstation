@@ -101,14 +101,12 @@ bool importDirectoryWithCrs(const QString &project, const QString &source,
   }
   paleo::data::ImportOptions options;
   options.copySources = false;
-  bool configured = false;
-  const int threads = qEnvironmentVariableIntValue("PALEO_IMPORT_PARSER_THREADS", &configured);
-  // Parallel parse workers have been aborting the process while publishing one
-  // file's result (fast-fail while freeing a parse note). Keep import serial
-  // until that result can be published safely.
-  options.parserThreads = std::clamp(configured ? threads : 1, 1, 1);
-  const int pendingMb = qEnvironmentVariableIntValue("PALEO_IMPORT_PENDING_MB", &configured);
-  options.maxPendingBytes = qint64(std::clamp(configured ? pendingMb : 256, 8, 1024)) * 1024 * 1024;
+  bool threadsConfigured = false;
+  const int threads = qEnvironmentVariableIntValue("PALEO_IMPORT_PARSER_THREADS", &threadsConfigured);
+  options.parserThreads = std::clamp(threadsConfigured ? threads : 4, 1, 4);
+  bool pendingConfigured = false;
+  const int pendingMb = qEnvironmentVariableIntValue("PALEO_IMPORT_PENDING_MB", &pendingConfigured);
+  options.maxPendingBytes = qint64(std::clamp(pendingConfigured ? pendingMb : 256, 8, 1024)) * 1024 * 1024;
   options.parsing.comprehensiveWellMetreDepth = true;
   // A computation target is not a declaration of every input's source CRS.
   // Data_service collects explicit source declarations during parsing.
@@ -120,6 +118,26 @@ bool importDirectoryWithCrs(const QString &project, const QString &source,
   const bool ok = service.importDirectory(source.toUtf8().toStdString(), options, report, detail, [&progress](const paleo::data::ImportProgress &p) {
     if (progress) progress(p.completed, p.total, QString::fromUtf8(p.status) + ": " + QString::fromUtf8(p.file));
   }, cancelled);
+  if (!report.cancelled && (ok || report.imported > 0 || report.registered > 0 || report.cached > 0)) {
+    std::vector<paleo::data::DataEntry> horizons;
+    std::string hErr;
+    if (service.listData("horizons", 0, horizons, hErr) && horizons.size() >= 2) {
+      if (progress) progress(report.seen, report.seen, QStringLiteral("分析地震层位与时深关系，生成井震四等分小层"));
+      paleo::data::SeismicStratigraphyBuildOptions stratOpts;
+      paleo::data::SeismicStratigraphyBuildReport stratReport;
+      std::string stratErr;
+      if (service.buildSeismicStratigraphicFramework(stratOpts, stratReport, stratErr, cancelled)) {
+        qInfo() << "area-seismic-stratigraphy: scheme=" << QString::fromUtf8(stratReport.schemeId)
+                << "horizons=" << stratReport.horizonCount
+                << "intervals=" << stratReport.intervalCount
+                << "sub_intervals=" << stratReport.subIntervalCount
+                << "matched_wells=" << stratReport.matchedWellCount
+                << "skipped_wells=" << stratReport.skippedWellCount;
+      } else {
+        qWarning() << "area-seismic-stratigraphy skipped:" << QString::fromUtf8(stratErr);
+      }
+    }
+  }
   qInfo() << "area-import: files=" << report.seen << "elapsed_ms=" << report.elapsedMs
           << "hash_ms=" << report.hashMs << "parse_ms=" << report.parseMs
           << "copy_ms=" << report.copyMs << "store_ms=" << report.storeMs

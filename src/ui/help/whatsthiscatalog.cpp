@@ -134,6 +134,7 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"WellComposite::WellCompositePanel", "scaleCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择纵向比例尺，或自适应窗口高度。"), nullptr},
     {"WellComposite::WellCompositePanel", "lblAnalysisUnit", QT_TRANSLATE_NOOP("PaleoWhatsThis", "当前分析层段（UnitSelection）。测井相深度窗与成果身份跟随画布层段分析条；本处只读。"), nullptr},
     {"WellComposite::WellCompositePanel", "faciesPredictionModel", QT_TRANSLATE_NOOP("PaleoWhatsThis", "测井相网络模型版本。层段身份由分析层段决定，不要把本下拉当作层位选择。"), nullptr},
+    {"WellComposite::WellCompositePanel", "faciesStratigraphicTrack", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择测井相预测的地层道与单元范围（支持地震小层、地震层位及其他地质分层道）。"), nullptr},
     {"WellComposite::WellCompositePanel", "btnPredictFacies", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按当前分析层段深度窗提交测井相预测；成果带 SubIntervalId。"), nullptr},
     {"WellComposite::WellCompositePanel", "btnCompResetZoom", QT_TRANSLATE_NOOP("PaleoWhatsThis", "恢复显示全井段；也可双击道内任意位置。"), nullptr},
     {"WellComposite::WellCompositePanel", "btnCompGoto", QT_TRANSLATE_NOOP("PaleoWhatsThis", "跳转到指定深度。"), "wellcomposite.gotoDepth"},

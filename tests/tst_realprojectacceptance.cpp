@@ -122,7 +122,12 @@ private slots:
       for(int col=0;col<section.columns;++col)if(section.traceIndexes[col]<0)QVERIFY(std::isnan(curve.timesMs[col]));
     }
     QVERIFY(major>0);if(!result.schemeId.empty())QVERIFY(minor>0);
-    qInfo()<<"Section horizon overlay"<<"columns"<<section.columns<<"major"<<major<<"internal"<<minor<<"elapsed_ms"<<clock.elapsed();
+    qInfo()<<"Section horizon overlay"<<"columns"<<section.columns<<"major"<<major<<"internal"<<minor<<"bands"<<result.bands.size()<<"elapsed_ms"<<clock.elapsed();
+    for(const auto& band:result.bands){
+      const auto exists=[&](const auto& id){return std::any_of(result.curves.begin(),result.curves.end(),[&](const auto& c){return c.id==id;});};
+      QVERIFY(exists(band.topCurveId));QVERIFY(exists(band.bottomCurveId));
+    }
+
   }
   void createSourceFormationFrameworkWhenExplicitlyRequested() {
     const QString formation = qEnvironmentVariable("PALEO_ACCEPTANCE_FORMATION");

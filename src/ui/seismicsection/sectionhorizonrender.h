@@ -2,6 +2,7 @@
 #pragma once
 #include "domain/seismic/sectionhorizons.h"
 #include "ui/paleotheme.h"
+#include "sectionhorizonbands.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <algorithm>
@@ -16,6 +17,7 @@ inline void paintSectionHorizons(QPainter& painter,const QRectF& clip,const Sect
   const auto& ink=PaleoTheme::tokens(PaleoTheme::Theme::Light);
   auto font=PaleoTheme::bodyFont();font.setPointSize(PaleoTheme::tokens().labelPt);painter.setFont(font);
   QVector<QRectF> labels;
+  paintSectionHorizonBands(painter,clip,overlay,pixelAt,labels);
   for(const auto& curve:overlay.curves){
     QPainterPath path;bool connected=false,haveLabel=false;QPointF anchor;
     for(size_t col=0;col<curve.timesMs.size();++col){
@@ -27,7 +29,8 @@ inline void paintSectionHorizons(QPainter& painter,const QRectF& clip,const Sect
       connected=true;
       if(!haveLabel&&clip.contains(point)){anchor=point;haveLabel=true;}
     }
-    QPen line(ink.text,curve.internalEdge?1.1:1.8);line.setCosmetic(true);
+    const auto color=PaleoTheme::sectionHorizonColor(curve.name.section(QLatin1Char('/'),0,0));
+    QPen line(color,curve.internalEdge?1.1:1.8);line.setCosmetic(true);
     if(curve.provisional)line.setStyle(Qt::DashLine);
     auto halo=line;halo.setColor(ink.onPrimary);halo.setWidthF(line.widthF()+2.5);
     painter.strokePath(path,halo);painter.strokePath(path,line);

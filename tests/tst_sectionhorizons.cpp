@@ -46,6 +46,30 @@ private slots:
     QCOMPARE(image.pixelColor(210,150),QColor(Qt::white));
     QVERIFY(image.pixelColor(330,150)!=QColor(Qt::white));
   }
+  void bandsRespectTopologyGapsAndTexture(){
+    seismic::SectionHorizons data;
+    data.curves.push_back({"top","T70",0,false,{40,40,40,qQNaN(),40,110,40}});
+    data.curves.push_back({"base","T72",0,false,{100,100,100,100,100,100,100}});
+    data.bands.push_back({"interval","T70–T72","top","base",0});
+    const auto render=[&](const auto& overlay){
+      QImage img(360,180,QImage::Format_ARGB32);img.fill(Qt::white);
+      QPainter p(&img);seismic::paintSectionHorizons(p,img.rect(),overlay,[](int c,double t){return QPointF(30+50*c,t);});
+      p.end();return img;
+    };
+    const auto image=render(data);
+    QVERIFY(image.pixelColor(60,55)!=QColor(Qt::white));
+    // 20% fill preserves the base texture: every channel remains close to white.
+    const auto fill=image.pixelColor(60,55);QVERIFY(fill.red()>190&&fill.green()>190&&fill.blue()>190);
+    QCOMPARE(image.pixelColor(155,55),QColor(Qt::white)); // absent column, no bridging
+    QCOMPARE(image.pixelColor(305,55),QColor(Qt::white)); // inverted top/base, no bridging
+    QCOMPARE(image.pixelColor(60,125),QColor(Qt::white)); // outside the actual interval
+    auto noTopology=data;noTopology.bands.clear();QCOMPARE(render(noTopology).pixelColor(60,55),QColor(Qt::white));
+    auto reordered=data;std::reverse(reordered.curves.begin(),reordered.curves.end());const auto reorderedImage=render(reordered);
+    QCOMPARE(reorderedImage.pixelColor(60,55),fill);QCOMPARE(reorderedImage.pixelColor(155,55),QColor(Qt::white));
+    QVERIFY(PaleoTheme::sectionHorizonColor("T70")!=PaleoTheme::sectionHorizonColor("T72"));
+    const auto color=PaleoTheme::sectionHorizonColor("T70");PaleoTheme::applyTheme(PaleoTheme::Theme::Dark);
+    QCOMPARE(PaleoTheme::sectionHorizonColor("T70"),color);PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
+  }
   void controlsAndExportsFollowToggle(){
     seismic::SgySliceImage image;image.width=5;image.height=201;image.values.assign(1005,0.f);
     seismic::SeismicSectionCanvas canvas;canvas.resize(700,420);canvas.setSectionData(image,1,100);
@@ -72,6 +96,30 @@ private slots:
     WellSectionPanel wells(nullptr);auto *wellButton=wells.findChild<QToolButton *>("sectionHorizonToggle");QVERIFY(wellButton);
     wellButton->setChecked(true);QVERIFY(wells.seismicHorizonsEnabled());
     wellButton->setChecked(false);QVERIFY(!wells.seismicHorizonsEnabled());
+  }
+  void realProjectPreviewWhenRequested(){
+    const auto project=qEnvironmentVariable("PALEO_ACCEPTANCE_PROJECT"),output=qEnvironmentVariable("PALEO_ACCEPTANCE_SECTION_PREVIEW");
+    if(project.isEmpty()||output.isEmpty())QSKIP("Optional local project preview requires explicit paths");
+    paleo::data::DataService ds;std::string error;
+    QVERIFY2(ds.openProjectReadOnly(paleo::area_model::directory(project).toStdString(),error),error.c_str());
+    std::vector<paleo::data::DataEntry> volumes;QVERIFY(ds.listData("volumes",0,volumes,error));QVERIFY(!volumes.empty());
+    paleo::data::SeismicFileInfo info;QVERIFY(ds.inspectSeismic(volumes[0].id,info,error));
+    const int line=info.inlineMin+(info.inlineCount/2)*info.inlineStep;
+    paleo::data::SectionReadOptions options;options.maxColumns=512;
+    paleo::data::SeismicSectionResult section;QVERIFY2(ds.readSeismicLine(volumes[0].id,"inline",line,options,section,error),error.c_str());
+    paleo::data::SectionHorizonQuery query;query.volumeId=volumes[0].id;query.undeclaredTimeUnit="ms";query.undeclaredTimeType="TWT";
+    for(int c=0;c<section.columns;++c)query.columns.push_back({section.inlineNumbers[c],section.crosslineNumbers[c],section.traceIndexes[c]>=0});
+    paleo::data::SectionHorizonResult result;QVERIFY(ds.readSectionHorizons(query,result,error));QVERIFY(!result.bands.empty());
+    seismic::SgySliceImage image;image.width=section.columns;image.height=section.samples;
+    image.values.resize(size_t(image.width)*image.height);
+    for(int c=0;c<image.width;++c)for(int s=0;s<image.height;++s)image.values[size_t(s)*image.width+c]=section.amplitudes[size_t(c)*image.height+s];
+    seismic::SectionHorizons overlays;
+    for(auto& c:result.curves)overlays.curves.push_back({QString::fromStdString(c.id),QString::fromStdString(c.name),c.internalEdge,c.provisional,std::move(c.timesMs)});
+    for(const auto& b:result.bands)overlays.bands.push_back({QString::fromStdString(b.id),QString::fromStdString(b.name),QString::fromStdString(b.topCurveId),QString::fromStdString(b.bottomCurveId),b.subdivision});
+    seismic::SeismicSectionCanvas canvas;canvas.resize(1600,900);canvas.setSectionData(image,float(section.sampleInterval),section.firstTime);
+    canvas.setHorizonOverlays(overlays);canvas.setHorizonOverlaysVisible(true);
+    QVERIFY(canvas.grabCanvasImage().save(output));
+    qInfo()<<"Real section preview"<<line<<section.columns<<"columns"<<result.bands.size()<<"bands";
   }
   void wellGapOverlayDrawsOverSeismic(){
     WellSectionPanel panel(nullptr);panel.resize(1000,600);
@@ -133,6 +181,7 @@ private slots:
     seismic::SeismicNativeInfo axis;
     service.startDataPlane(path,seismic::SgySliceType::Inline,101,[&](bool success,auto,const auto& info,const auto&){ok=success;axis=info;done=true;});
     QTRY_VERIFY_WITH_TIMEOUT(done,10000);QVERIFY(ok);QCOMPARE(axis.horizons.curves.size(),size_t(5));
+    QCOMPARE(axis.horizons.bands.size(),size_t(5));
     QCOMPARE(axis.horizons.curves[0].timesMs[0],82.);
     done=false;service.startDataPlane(path,seismic::SgySliceType::Xline,2001,[&](bool success,auto,const auto& info,const auto&){ok=success;axis=info;done=true;});
     QTRY_VERIFY_WITH_TIMEOUT(done,10000);QVERIFY(ok);QCOMPARE(axis.horizons.curves[0].timesMs[0],81.);

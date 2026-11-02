@@ -35789,8 +35789,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>Overlay seismic horizons</translation>
     </message>
     <message>
-        <source>叠加大层界面及 S1–S4 小层分界；虚线为方案推导分界，实线为已解释界线。</source>
-        <translation>Overlay major horizons and S1–S4 boundaries. Dashed lines are scheme-derived; solid lines are interpreted.</translation>
+        <source>叠加大层界面、S1–S4 小层分界及半透明层间色带；虚线为方案推导分界，实线为已解释界线。</source>
+        <translation>Overlay major horizons, S1–S4 boundaries and translucent interval bands. Dashed lines are scheme-derived; solid lines are interpreted.</translation>
     </message>
     <message>
         <source>当前剖面没有可叠加层位。</source>

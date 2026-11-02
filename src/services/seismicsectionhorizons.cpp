@@ -23,6 +23,8 @@ seismic::SectionHorizons SeismicDataAccess::sectionHorizons(const data::SeismicS
   for(auto& curve:read.curves)result.curves.push_back({QString::fromStdString(curve.id),QString::fromStdString(curve.name),
                                                     curve.internalEdge,curve.provisional,std::move(curve.timesMs)});
   for(const auto& warning:read.warnings)result.warnings.append(QString::fromStdString(warning));
+  for(const auto& band:read.bands)result.bands.push_back({QString::fromStdString(band.id),QString::fromStdString(band.name),
+      QString::fromStdString(band.topCurveId),QString::fromStdString(band.bottomCurveId),band.subdivision});
   return result;
 }
 }

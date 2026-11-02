@@ -23,8 +23,8 @@ void WellCompositePanel::setFaciesWorkflowFactory(FaciesWorkflowFactory factory)
   s_faciesFactory = std::move(factory);
 }
 
-WellCompositePanel::WellCompositePanel(QWidget *parent)
-  : QWidget(parent)
+WellCompositePanel::WellCompositePanel(QWidget *parent, PredictionScope scope)
+  : QWidget(parent), m_wholeWellPreview(scope == PredictionScope::WholeWellPreview)
 {
   setupUi();
   connect(m_canvas, &WellCompositeCanvas::imagePreviewRequested, this,

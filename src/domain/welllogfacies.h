@@ -59,8 +59,12 @@ bool normalizeDepthCurve(const QVector<double> &depths, const QVector<double> &v
                          QString *reason);
 
 WellFaciesInput
+// validSegments != nullptr: split at nulls/gaps and retain only runs meeting model.window.
+// The strict default rejects discontinuous input; missing data is never filled.
 prepareWellFaciesInput(const WellComposite::ComprehensiveWellData &data,
-                       const WellFaciesModel &model);
+                       const WellFaciesModel &model,
+                       QVector<WellFaciesInput> *validSegments = nullptr,
+                       QStringList *skipped = nullptr);
 // 在提交或准备检查前冻结全部模型微相的三级归属，点名未知/歧义类别。
 bool bindWellFaciesClasses(const WellFaciesModel &model, const QVariantList &schema,
                            WellFaciesInput *input, QString *error);
@@ -75,7 +79,7 @@ bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
 // （preferredModelId，空则首个）预测它能用的井段，不让多个模型预测同一批点。
 WellFaciesPlan planWellFaciesRuns(const WellComposite::ComprehensiveWellData &data,
                                   const QVector<WellFaciesModel> &models,
-                                  const QString &preferredModelId);
+                                  const QString &preferredModelId, bool allowPartial = false);
 // 编图按当前地层预测：先把曲线、岩性、分层裁到该地层的 [顶深, 底深)，
 // 只匹配一个模型并提交一次；当前范围外的曲线缺口不影响本次输入。
 WellFaciesPlan planWellFaciesFormationRun(const WellComposite::ComprehensiveWellData &data,

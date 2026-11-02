@@ -16,6 +16,7 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <functional>
 
 namespace WellComposite {
@@ -43,7 +44,8 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
       tr("<b>分析层段</b><p>测井相预测归属稳定 SubIntervalId。"
          "切换请用画布层段分析条；本标签只反映 SelectionContext::activeUnit。</p>"));
   topLay->addWidget(m_analysisUnitLabel);
-  bindSelectionContext(s_selectionProvider);
+  if (!m_wholeWellPreview) bindSelectionContext(s_selectionProvider);
+  else m_analysisUnitLabel->setText(tr("预测范围：整井（按地层组逐组）"));
 
   m_faciesModel = new QComboBox(topBar);
   m_faciesModel->setObjectName(QStringLiteral("faciesPredictionModel"));
@@ -77,7 +79,7 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
   };
   m_btnPredictFacies = faciesButton(QStringLiteral("btnPredictFacies"), tr("预测相"));
   m_btnPredictFacies->setToolTip(tr("测井相预测服务尚未连接"));
-  m_btnPredictFacies->setWhatsThis(
+  m_btnPredictFacies->setWhatsThis(m_wholeWellPreview ? tr("预览预测覆盖整井的有效测井样点，按地层组匹配模型；不受当前分析层段限制。") :
       tr("<b>预测相</b><p>按当前分析层段深度窗提交测井相预测；"
          "成果带 SubIntervalId，可供编图证据拉取。</p>"));
   m_btnCancelFacies = faciesButton(QStringLiteral("btnCancelFacies"), tr("停止等待"));
@@ -103,6 +105,7 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
       if (reason.contains(QStringLiteral("API 密钥")) || reason.contains(QStringLiteral("服务地址"))
           || reason.contains(QStringLiteral("允许不加密")))
         m_btnFaciesService->click();
+      else QMessageBox::information(this,tr("当前井无法开始预测"),reason);
       return;
     }
     emit faciesPredictionRequested();
@@ -159,6 +162,7 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
 
 void WellCompositePanel::bindSelectionContext(SelectionContext *selection)
 {
+  if (m_wholeWellPreview) return;
   if (!m_analysisUnitLabel)
     return;
   if (m_selectionContext) {

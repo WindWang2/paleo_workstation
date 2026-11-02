@@ -81,6 +81,7 @@ void WellCompositePanel::syncSessionToTracks()
 void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
   if (!workflow || m_faciesWorkflow) return;
   m_faciesWorkflow = workflow;
+  workflow->setAllowPartialPrediction(m_wholeWellPreview);
   connect(this, &WellCompositePanel::faciesDataChanged, workflow, &WellFaciesWorkflow::setData);
   connect(this, &WellCompositePanel::faciesPredictionRequested, workflow, &WellFaciesWorkflow::run);
   connect(this, &WellCompositePanel::faciesCancelRequested, workflow, &WellFaciesWorkflow::cancel);
@@ -106,16 +107,21 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
                                   .arg(m_faciesModel->currentData(Qt::ToolTipRole).toString()));
     m_btnPredictFacies->setToolTip(ready ? tr("提交当前井的对应井段预测相（按地层组逐组，逐组返回）：%1").arg(m_faciesPlan) : reason);
     m_faciesStatus->setText(ready ? tr("可预测：%1").arg(m_faciesPlan) : reason);
+    m_faciesStatus->setToolTip(m_faciesStatus->text());
   });
   connect(workflow, &WellFaciesWorkflow::busyChanged, this, [this](bool busy) {
     m_btnCancelFacies->setEnabled(busy);
     m_btnPredictFacies->setEnabled(!busy);
     m_btnCancelFacies->setToolTip(busy ? tr("停止本地等待（所有地层），服务端已受理任务继续执行") : tr("没有正在等待的预测"));
     m_faciesModel->setEnabled(!busy); m_btnFaciesService->setEnabled(!busy); m_btnRefreshFacies->setEnabled(!busy);
-    if (m_faciesStratTrack) m_faciesStratTrack->setEnabled(!busy&&!m_selectionContext);
+    if (m_faciesStratTrack) m_faciesStratTrack->setEnabled(!busy&&!m_selectionContext&&!m_wholeWellPreview);
   });
   const auto refreshStratTracks = [this, workflow] {
     if (!m_faciesStratTrack || !workflow) return;
+    if (m_wholeWellPreview) {
+      QSignalBlocker blocker(m_faciesStratTrack);m_faciesStratTrack->clear();
+      m_faciesStratTrack->addItem(tr("整井（按地层组逐组）"));m_faciesStratTrack->setEnabled(false);return;
+    }
     if(m_selectionContext){
       QSignalBlocker blocker(m_faciesStratTrack);m_faciesStratTrack->clear();
       m_faciesStratTrack->addItem(m_selectionContext->activeUnit().displayName);m_faciesStratTrack->setEnabled(false);return;
@@ -144,7 +150,7 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
   connect(this, &WellCompositePanel::faciesDataChanged, this, [refreshStratTracks](const ComprehensiveWellData &) {
     refreshStratTracks();
   });
-  connect(workflow, &WellFaciesWorkflow::statusChanged, m_faciesStatus, &QLabel::setText);
+  connect(workflow, &WellFaciesWorkflow::statusChanged, m_faciesStatus, [this](const QString &text) { m_faciesStatus->setText(text);m_faciesStatus->setToolTip(text); });
   connect(workflow, &WellFaciesWorkflow::resultReady, this, &WellCompositePanel::showFaciesPrediction);
   connect(workflow, &WellFaciesWorkflow::resultCleared, this, &WellCompositePanel::clearFaciesPrediction);
   connect(workflow, &WellFaciesWorkflow::attributeAvailabilityChanged, this, [this](bool available, const QString &reason) {

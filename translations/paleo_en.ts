@@ -25123,7 +25123,19 @@ PDF：%3
             <source>选择测井相预测的地层道与单元范围（支持地震小层、地震层位及其他地质分层道）。</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>数据预览预测整井；单井相分析按当前分析层段预测。</source>
+        <translation>Data preview predicts the whole well; single-well facies analysis uses the selected interval.</translation>
+    </message>
+    <message>
+        <source>测井相网络模型版本；整井预览按地层组匹配模型，分析页按所选层段取数。</source>
+        <translation>Remote well-facies model version; preview matches models by formation group, while analysis uses the selected interval.</translation>
+    </message>
+    <message>
+        <source>数据预览对整井有效测井样点预测，不受地图层段限制；单井相分析仍按所选子层段预测。</source>
+        <translation>Data preview predicts valid samples throughout the well independently of the map interval; single-well facies analysis uses the selected subinterval.</translation>
+    </message>
+</context>
     <context>
         <name>PetroPhysPanel</name>
         <message>
@@ -43411,7 +43423,27 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>跟随分析层段 / 全部地层组</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>预测范围：整井（按地层组逐组）</source>
+        <translation>Prediction range: whole well (by formation group)</translation>
+    </message>
+    <message>
+        <source>整井（按地层组逐组）</source>
+        <translation>Whole well (by formation group)</translation>
+    </message>
+    <message>
+        <source>隐藏道</source>
+        <translation>Hidden tracks</translation>
+    </message>
+    <message>
+        <source>预览预测覆盖整井的有效测井样点，按地层组匹配模型；不受当前分析层段限制。</source>
+        <translation>Preview prediction uses valid samples across the well, with models matched by formation group; the analysis interval does not restrict it.</translation>
+    </message>
+    <message>
+        <source>当前井无法开始预测</source>
+        <translation>Unable to start prediction for this well</translation>
+    </message>
+</context>
     <context>
         <name>WellComposite::WellLegendDialog</name>
         <message>
@@ -43716,7 +43748,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>光标: %1m</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>%1–%2 m</source>
+        <translation>%1–%2 m</translation>
+    </message>
+</context>
     <context>
         <name>WellComposite::WellSelectionDialog</name>
         <message>
@@ -44299,7 +44335,15 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>当前层段内有效测井样点不足</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>%1 · %2–%3 m</source>
+        <translation>%1 · %2–%3 m</translation>
+    </message>
+    <message>
+        <source>预测完成：%1 个井段（%2）· %3 个深度点 · %4；%5</source>
+        <translation>Prediction complete: %1 intervals (%2), %3 samples, %4; %5</translation>
+    </message>
+</context>
     <context>
         <name>WellFileParsers</name>
         <message>
@@ -52783,6 +52827,17 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</source>
         <translation>Prediction follows the seismic unit selected above; results retain the same scheme revision</translation>
+    </message>
+</context>
+<context>
+    <name>WellFacies</name>
+    <message>
+        <source>缺少段或岩性井道</source>
+        <translation>Missing formation member or lithology track</translation>
+    </message>
+    <message>
+        <source>%1：跳过 %2 个样点、%3 处缺口（%4）</source>
+        <translation>%1: skipped %2 samples and %3 gaps (%4)</translation>
     </message>
 </context>
 </TS>

@@ -25230,6 +25230,18 @@ PDF：%3
         <source>选择测井相预测的地层道与单元范围（支持地震小层、地震层位及其他地质分层道）。</source>
         <translation>选择测井相预测的地层道与单元范围（支持地震小层、地震层位及其他地质分层道）。</translation>
     </message>
+    <message>
+        <source>数据预览预测整井；单井相分析按当前分析层段预测。</source>
+        <translation>数据预览预测整井；单井相分析按当前分析层段预测。</translation>
+    </message>
+    <message>
+        <source>测井相网络模型版本；整井预览按地层组匹配模型，分析页按所选层段取数。</source>
+        <translation>测井相网络模型版本；整井预览按地层组匹配模型，分析页按所选层段取数。</translation>
+    </message>
+    <message>
+        <source>数据预览对整井有效测井样点预测，不受地图层段限制；单井相分析仍按所选子层段预测。</source>
+        <translation>数据预览对整井有效测井样点预测，不受地图层段限制；单井相分析仍按所选子层段预测。</translation>
+    </message>
 </context>
 <context>
     <name>PetroPhysPanel</name>
@@ -43599,6 +43611,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>跟随分析层段 / 全部地层组</source>
         <translation>跟随分析层段 / 全部地层组</translation>
     </message>
+    <message>
+        <source>预测范围：整井（按地层组逐组）</source>
+        <translation>预测范围：整井（按地层组逐组）</translation>
+    </message>
+    <message>
+        <source>整井（按地层组逐组）</source>
+        <translation>整井（按地层组逐组）</translation>
+    </message>
+    <message>
+        <source>隐藏道</source>
+        <translation>隐藏道</translation>
+    </message>
+    <message>
+        <source>预览预测覆盖整井的有效测井样点，按地层组匹配模型；不受当前分析层段限制。</source>
+        <translation>预览预测覆盖整井的有效测井样点，按地层组匹配模型；不受当前分析层段限制。</translation>
+    </message>
+    <message>
+        <source>当前井无法开始预测</source>
+        <translation>当前井无法开始预测</translation>
+    </message>
 </context>
 <context>
     <name>WellComposite::WellLegendDialog</name>
@@ -43903,6 +43935,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="719"/>
         <source>光标: %1m</source>
         <translation>光标: %1m</translation>
+    </message>
+    <message>
+        <source>%1–%2 m</source>
+        <translation>%1–%2 m</translation>
     </message>
 </context>
 <context>
@@ -44488,6 +44524,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/wellfaciesworkflow_unit.cpp" line="104"/>
         <source>当前层段内有效测井样点不足</source>
         <translation>当前层段内有效测井样点不足</translation>
+    </message>
+    <message>
+        <source>%1 · %2–%3 m</source>
+        <translation>%1 · %2–%3 m</translation>
+    </message>
+    <message>
+        <source>预测完成：%1 个井段（%2）· %3 个深度点 · %4；%5</source>
+        <translation>预测完成：%1 个井段（%2）· %3 个深度点 · %4；%5</translation>
     </message>
 </context>
 <context>
@@ -53011,6 +53055,17 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</source>
         <translation>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</translation>
+    </message>
+</context>
+<context>
+    <name>WellFacies</name>
+    <message>
+        <source>缺少段或岩性井道</source>
+        <translation>缺少段或岩性井道</translation>
+    </message>
+    <message>
+        <source>%1：跳过 %2 个样点、%3 处缺口（%4）</source>
+        <translation>%1：跳过 %2 个样点、%3 处缺口（%4）</translation>
     </message>
 </context>
 </TS>

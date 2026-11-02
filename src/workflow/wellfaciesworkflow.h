@@ -24,6 +24,7 @@ public:
   void refreshModels();
   void run();
   void setAnalysisUnit(const paleo::strat::UnitSelection &unit);
+  void setAllowPartialPrediction(bool enabled);
   void setStratigraphicTrackFilter(const QString &trackName,
                                    const QString &unitName = QString(),
                                    const QString &schemeId = QString());
@@ -66,6 +67,7 @@ private:
   QString publishUnitResult(const WellFaciesResult &result);
   paleo::strat::UnitSelection m_analysisUnit;
   bool m_hasAnalysisContext = false;
+  bool m_allowPartialPrediction = false;
   QString m_stratTrackName, m_stratUnitName, m_stratSchemeId;
   QStringList m_unitParentVersions;
   qlonglong m_analysisWellId=0;

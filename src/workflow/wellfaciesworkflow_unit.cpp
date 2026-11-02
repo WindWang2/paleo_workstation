@@ -18,6 +18,10 @@ void WellFaciesWorkflow::setAnalysisUnit(const paleo::strat::UnitSelection &unit
   emit resultCleared();
   updateInput();
 }
+void WellFaciesWorkflow::setAllowPartialPrediction(bool enabled) {
+  if(m_allowPartialPrediction==enabled)return;
+  if(m_busy)cancel();m_allowPartialPrediction=enabled;updateInput();
+}
 
 void WellFaciesWorkflow::setStratigraphicTrackFilter(const QString &trackName,
                                                      const QString &unitName,

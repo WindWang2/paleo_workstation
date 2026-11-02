@@ -21,6 +21,8 @@
 #include "services/stratigraphicsubintervals.h"
 #include "services/analysisunitcontext.h"
 #include "services/seismicunitinput.h"
+#include "services/areawellchart.h"
+#include "workflow/wellfaciesworkflow.h"
 
 class TestRealProjectAcceptance : public QObject {
   Q_OBJECT
@@ -130,6 +132,33 @@ private slots:
       QVERIFY(exists(band.topCurveId));QVERIFY(exists(band.bottomCurveId));
     }
 
+  }
+  void wholeWellPreviewInputs() {
+    const auto name=qEnvironmentVariable("PALEO_ACCEPTANCE_PREDICT_WELL");if(name.isEmpty())return;
+    paleo::data::DataService ds;std::string error;
+    QVERIFY2(ds.openProjectReadOnly(u(paleo::area_model::directory(project)),error),error.c_str());
+    std::vector<paleo::data::WellSummary> wells;QVERIFY(ds.listWells(wells,error));qlonglong id=0;
+    for(const auto &well:wells)if(QString::fromStdString(well.name)==name)id=well.id;
+    QVERIFY(id>0);WellComposite::ComprehensiveWellData data;QString detail;
+    QVERIFY2(readAreaWellChart(ds,id,data,&detail),qPrintable(detail));
+    WellFaciesModel model{"acceptance","local input check","1",{}, {"GR"},{QStringLiteral("河口坝")},128};
+    const auto strict=planWellFaciesRuns(data,{model},{});const auto plan=planWellFaciesRuns(data,{model},{},true);
+    QVERIFY2(plan.ready(),qPrintable(plan.reason));int count=0;
+    for(const auto &run:plan.runs){QVERIFY(run.input.rows.size()>=model.window);count+=run.input.rows.size();}
+    qInfo()<<"Whole-well input"<<name<<"runs"<<plan.runs.size()<<"valid rows"<<count<<"skips"<<plan.skipped<<"strict reason"<<strict.reason;
+    report.insert("wholeWellPreview",QJsonObject{{"runs",plan.runs.size()},{"rows",count},{"strictReason",strict.reason}});
+    if(qEnvironmentVariable("PALEO_ACCEPTANCE_LIVE_WELL")=="1"){
+      const auto config=WellFaciesConfig::load();
+      QCOMPARE(config.baseUrl.adjusted(QUrl::StripTrailingSlash).toString(),qEnvironmentVariable("PALEO_ACCEPTANCE_AUTHORIZED_API"));
+      WellFaciesWorkflow workflow;workflow.setAllowPartialPrediction(true);
+      QSignalSpy available(&workflow,&WellFaciesWorkflow::availabilityChanged),results(&workflow,&WellFaciesWorkflow::resultReady),busy(&workflow,&WellFaciesWorkflow::busyChanged),status(&workflow,&WellFaciesWorkflow::statusChanged);
+      workflow.configure(config,false);workflow.setData(data);
+      QTRY_VERIFY_WITH_TIMEOUT(!available.isEmpty()&&available.last()[0].toBool(),30000);
+      results.clear();workflow.run();QTRY_VERIFY_WITH_TIMEOUT(!busy.isEmpty()&&!busy.last()[0].toBool(),180000);
+      QVERIFY2(!results.isEmpty(),status.isEmpty()?"No prediction result":qPrintable(status.last()[0].toString()));
+      const auto result=qvariant_cast<WellFaciesResult>(results.last()[0]);QVERIFY(!result.confidence.depths.isEmpty());
+      qInfo()<<"Live whole-well prediction returned"<<result.confidence.depths.size()<<"samples and"<<result.intervals.size()<<"facies intervals";
+    }
   }
   void analysisUnitWindowsAndPredictionInputs() {
     paleo::data::DataService ds;std::string error;

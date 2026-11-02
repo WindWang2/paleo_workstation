@@ -6,6 +6,7 @@
 #include "ui/wellcomposite/wellcompositepanel.h"
 #include "ui/wellcomposite/curveconfigdialog.h"
 #include "workflow/wellfaciesworkflow.h"
+#include "linkage/selectioncontext.h"
 #include "catalog/datacatalog.h"
 #include "services/subintervalfactors.h"
 #include "services/stratigraphicsubintervals.h"
@@ -971,6 +972,54 @@ private slots:
     QCOMPARE(merged.response.value("groups").toArray().size(), 2);
   }
   // 逐组预测：每组一次 /predict、逐组返回合并显示，每组一条任务中心任务。
+  void previewPredictsWholeWellDespiteMissingAnalysisUnit() {
+    SelectionContext context;
+    paleo::strat::UnitSelection missing;missing.schemeId="absent";missing.revision="absent";
+    missing.intervalId="missing-parent";missing.subIntervalId="missing-sub";missing.subIndex=1;missing.displayName="T30–T32/S1";
+    context.setActiveUnit(missing);
+    WellCompositePanel::setSelectionContextProvider(&context);
+    WellCompositePanel panel(nullptr,WellCompositePanel::PredictionScope::WholeWellPreview);
+    WellCompositePanel::setSelectionContextProvider(nullptr);
+    auto *workflow=new WellFaciesWorkflow(&panel);panel.bindFaciesWorkflow(workflow);
+    Server server;auto small=model();small.window=16;server.models={small};
+    QSignalSpy results(workflow,&WellFaciesWorkflow::resultReady);
+    workflow->configure(server.config(),false);QVERIFY(panel.loadWellData(well(),QString(),false));
+    auto *run=panel.findChild<QToolButton *>("btnPredictFacies");
+    QTRY_VERIFY2(run->toolTip().startsWith(QStringLiteral("提交当前井")),qPrintable(run->toolTip()));
+    panel.resize(1000,700);panel.show();QTest::qWait(20);
+    auto *top=panel.findChild<QWidget *>("wellCompositeTopBar");auto *footer=panel.findChild<QWidget *>("wellPreviewFooter");
+    QVERIFY(top&&footer);QVERIFY(top->isVisible());QVERIFY(footer->isVisible());
+    QVERIFY(panel.canvas()->height()>=panel.height()-top->height()-footer->height()-4*PaleoTheme::tokens().spacingXs);
+    QVERIFY(!panel.findChild<QLabel *>("lblCompReadout")->isVisible());
+    QVERIFY(panel.findChild<QLabel *>("lblFaciesPredictionStatus")->parentWidget()==footer);
+    context.clearActiveUnit(); // A map selection change cannot invalidate the preview run.
+    run->click();QTRY_VERIFY_WITH_TIMEOUT(!results.isEmpty(),10000);
+    QCOMPARE(server.predictRows,(QList<int>{128}));
+    const auto result=qvariant_cast<WellFaciesResult>(results.last()[0]);QCOMPARE(result.confidence.depths.size(),128);
+    QVERIFY(result.confidence.depths.last()>1015);
+  }
+  void previewSplitsMissingSamplesWithoutInventingCoverage() {
+    auto data=well();data.continuousCurves[0].values[64]=NAN;
+    auto small=model();small.window=16;
+    QVERIFY(!planWellFaciesRuns(data,{small},{}).ready());
+    const auto plan=planWellFaciesRuns(data,{small},{},true);
+    QCOMPARE(plan.runs.size(),2);QCOMPARE(plan.runs[0].input.rows.size(),64);QCOMPARE(plan.runs[1].input.rows.size(),63);
+    QVERIFY(!plan.skipped.isEmpty());
+    Server server;server.models={small};
+    WellCompositePanel panel(nullptr,WellCompositePanel::PredictionScope::WholeWellPreview);
+    auto *workflow=new WellFaciesWorkflow(&panel);panel.bindFaciesWorkflow(workflow);
+    QSignalSpy results(workflow,&WellFaciesWorkflow::resultReady);
+    workflow->configure(server.config(),false);QVERIFY(panel.loadWellData(data,QString(),false));
+    auto *run=panel.findChild<QToolButton *>("btnPredictFacies");
+    QTRY_VERIFY(run->toolTip().startsWith(QStringLiteral("提交当前井")));results.clear();run->click();
+    QTRY_COMPARE_WITH_TIMEOUT(server.predictRows.size(),2,10000);
+    QTRY_VERIFY_WITH_TIMEOUT(!results.isEmpty()&&qvariant_cast<WellFaciesResult>(results.last()[0]).confidence.depths.size()==127,10000);
+    const auto result=qvariant_cast<WellFaciesResult>(results.last()[0]);
+    QVERIFY(!result.confidence.depths.contains(1008));
+    for(const auto &iv:result.intervals)QVERIFY(iv.bottomDepth<=1008||iv.topDepth>1008);
+    auto sparse=data;small.window=128;
+    QVERIFY(!planWellFaciesRuns(sparse,{small},{},true).ready()); // Cannot bridge a null to reach model size.
+  }
   void workflowSubIntervalUsesOnlySelectedDepthWindow() {
     QTemporaryDir dir;
     DataCatalog catalog;

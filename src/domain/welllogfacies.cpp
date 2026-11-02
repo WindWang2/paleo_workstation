@@ -114,9 +114,11 @@ void appendUnique(QStringList &list, const QString &value) {
 }
 } // namespace
 WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
-                                       const WellFaciesModel &model) {
+                                       const WellFaciesModel &model,QVector<WellFaciesInput> *validSegments,QStringList *skipped) {
+  if (validSegments) validSegments->clear();
   WellFaciesInput out;
-  const auto fail = [&out](const QString &s) {
+  const auto fail = [&out,validSegments](const QString &s) {
+    if (validSegments) validSegments->clear();
     out.rows = {};
     out.reason = s;
     return out;
@@ -228,6 +230,13 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
   for (const auto *curve : curves)
     curveSteps.append(qMax(step, medianStep(*curve)));
   double previous = -std::numeric_limits<double>::infinity();
+  int skippedPoints=0, gaps=0;QString firstSkipped;
+  const auto flush=[&] {
+    if (out.rows.size()>=model.window) validSegments->append(out);
+    else skippedPoints+=out.rows.size();
+    out.rows={};previous=-std::numeric_limits<double>::infinity();
+  };
+  const auto note=[&](const QString &reason){if(firstSkipped.isEmpty())firstSkipped=reason;};
   for (double depth : depths) {
     bool inGroup = !restrictToGroup;
     if (restrictToGroup) {
@@ -253,26 +262,42 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
     // 「*岩段」（如白云岩段、砂岩段）属于岩性描述分段，不能作为地层分段。
     if (!segment || segment->name.trimmed().isEmpty() ||
         segment->name.endsWith(QStringLiteral("岩段")) || !lith ||
-        lith->lithoName.trimmed().isEmpty())
+        lith->lithoName.trimmed().isEmpty()) {
+      if(validSegments){flush();++skippedPoints;note(tr("缺少段或岩性井道"));}
       continue;
-    if (std::isfinite(previous) && depth - previous > step * 1.5 + 0.001)
-      return fail(tr("目标井段存在深度缺口，不能作为连续井段预测"));
+    }
+    if (std::isfinite(previous) && depth - previous > step * 1.5 + 0.001) {
+      if(!validSegments)return fail(tr("目标井段存在深度缺口，不能作为连续井段预测"));
+      flush();++gaps;note(tr("目标井段存在深度缺口，不能作为连续井段预测"));
+    }
     if (segment->name.size() > 128 || lith->lithoName.size() > 128)
       return fail(tr("段或岩性文本超过 128 字符"));
     QJsonObject row{{QStringLiteral("深度"), depth},
                     {QStringLiteral("段"), segment->name.trimmed()},
                     {QStringLiteral("岩性"), lith->lithoName.trimmed()}};
     const double maxGap = step * 1.5 + 0.001;
+    QString rowError;
     for (qsizetype n = 0; n < curves.size(); ++n) {
       double value;
       const double curveGap = curveSteps[n] * 1.5 + 0.001;
-      if (!curveValue(*curves[n], depth, &value, qMax(maxGap, curveGap)))
-        return fail(
-            tr("深度 %1 m 的 %2 缺少有效数值").arg(depth).arg(model.curves[n]));
+      if (!curveValue(*curves[n], depth, &value, qMax(maxGap, curveGap))) {
+        rowError=tr("深度 %1 m 的 %2 缺少有效数值").arg(depth).arg(model.curves[n]);break;
+      }
       row.insert(model.curves[n], value);
+    }
+    if(!rowError.isEmpty()){
+      if(!validSegments)return fail(rowError);
+      flush();++skippedPoints;note(rowError);continue;
     }
     out.rows.append(row);
     previous = depth;
+  }
+  if(validSegments){
+    flush();
+    if(skipped&&(skippedPoints||gaps))skipped->append(tr("%1：跳过 %2 个样点、%3 处缺口（%4）")
+        .arg(model.formationGroup.isEmpty()?tr("整井"):model.formationGroup).arg(skippedPoints).arg(gaps).arg(firstSkipped));
+    if(!validSegments->isEmpty())return validSegments->first();
+    return fail(firstSkipped.isEmpty()?tr("有效深度点 %1 个，模型至少需要 %2 个").arg(0).arg(model.window):firstSkipped);
   }
   if (out.rows.isEmpty())
     return fail(tr("没有模型对应的 %1 井段").arg(model.formationGroup));
@@ -365,7 +390,7 @@ bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
 }
 WellFaciesPlan planWellFaciesRuns(const ComprehensiveWellData &data,
                                   const QVector<WellFaciesModel> &models,
-                                  const QString &preferredModelId) {
+                                  const QString &preferredModelId,bool allowPartial) {
   WellFaciesPlan plan;
   if (models.isEmpty()) {
     plan.reason = tr("没有可调用的测井相模型，请刷新模型");
@@ -407,11 +432,14 @@ WellFaciesPlan planWellFaciesRuns(const ComprehensiveWellData &data,
     }
     const WellFaciesModel &model = *chosen.value(group);
     const QString label = group.isEmpty() ? tr("整井") : group;
-    WellFaciesInput input = prepareWellFaciesInput(data, model);
-    if (!input.ready()) {
-      plan.skipped << tr("%1（%2）").arg(label, input.reason);
+    QVector<WellFaciesInput> inputs;
+    const auto prepared=prepareWellFaciesInput(data,model,allowPartial?&inputs:nullptr,allowPartial?&plan.skipped:nullptr);
+    if(!allowPartial&&prepared.ready())inputs.append(prepared);
+    if (inputs.isEmpty()) {
+      plan.skipped << tr("%1（%2）").arg(label, prepared.reason);
       continue;
     }
+    for(const auto &input:inputs){
     const bool overlap = std::any_of(
         input.rows.cbegin(), input.rows.cend(),
         [&used](const QJsonValue &row) { return used.contains(depthKey(row)); });
@@ -422,14 +450,16 @@ WellFaciesPlan planWellFaciesRuns(const ComprehensiveWellData &data,
     for (const auto &row : input.rows)
       used.insert(depthKey(row));
     plan.runs.append({group, model, input});
+    }
   }
   if (plan.runs.isEmpty()) {
     // 没有任何组命中模型：沿用整井口径，只用所选模型，原因也取它的。
     plan.skipped.clear();
-    WellFaciesInput input = prepareWellFaciesInput(data, *preferred);
-    if (input.ready())
-      plan.runs.append({preferred->formationGroup, *preferred, input});
-    else
+    QVector<WellFaciesInput> inputs;
+    WellFaciesInput input = prepareWellFaciesInput(data, *preferred,allowPartial?&inputs:nullptr,allowPartial?&plan.skipped:nullptr);
+    if(!allowPartial&&input.ready())inputs.append(input);
+    for(const auto &part:inputs)plan.runs.append({preferred->formationGroup,*preferred,part});
+    if(inputs.isEmpty())
       plan.reason = input.reason;
     return plan;
   }

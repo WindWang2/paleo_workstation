@@ -122,6 +122,10 @@ private slots:
         }
       }
     }
+    auto *layer=WellAttributeStore::open(&f.catalog,f.dir.path(),&f.layers,false,false);
+    QVERIFY(layer); QSignalSpy commits(layer,&QgsVectorLayer::afterCommitChanges);
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog,f.dir.path(),&f.layers,{prediction},&error,true));
+    QCOMPARE(commits.size(),0); // An unchanged prediction must not write protected NULL fields.
     QCOMPARE(source.faciesIntervals.first().majorFacies,major);
   }
   void predictionPreservesUncodedFormationFacies() {

@@ -132,6 +132,10 @@ bool intervalPredictionField(const QString &field) {
   return field == "predicted_facies" || field == "model" || field == "job_id" ||
          field == "prediction_status" || field == "prediction_reason";
 }
+bool intervalFaciesField(const QString &field) {
+  return field == "facies" || field == "sub_facies" || field == "micro_facies" ||
+         field == "facies_code" || field == "facies_pattern";
+}
 QgsFeature featureFor(QgsVectorLayer *layer, DataCatalog *catalog,
                       const QVariantMap &row) {
   QgsFeature f(layer->fields());
@@ -557,12 +561,14 @@ bool mergeIntervals(DataCatalog *catalog, const QString &dir,
             missing = true;
             break;
           }
-          for (auto p = next.cbegin(); p != next.cend(); ++p)
+          for (auto p = next.cbegin(); p != next.cend(); ++p) {
+            if (hasFaciesInterpretation(*previous) && intervalFaciesField(p.key())) continue;
             if (p.key() != "top_md" && p.key() != "base_md" &&
                 p.key() != "well_id" && !p.value().isNull() &&
                 (previous->value(p.key()).isNull() ||
                  (intervalPredictionField(p.key()) && previous->value(p.key()) != p.value())))
               missing = true;
+          }
         }
       }
     }
@@ -592,9 +598,7 @@ bool mergeIntervals(DataCatalog *catalog, const QString &dir,
         for (auto p = b->cbegin(); p != b->cend(); ++p) {
           const QString &k = p.key();
           const bool isPredictionMeta = intervalPredictionField(k);
-          const bool isFaciesAttribute = (k == "facies" || k == "sub_facies" ||
-                                          k == "micro_facies" || k == "facies_code" ||
-                                          k == "facies_pattern");
+          const bool isFaciesAttribute = intervalFaciesField(k);
           // Keep the whole existing hierarchy, including intentionally empty
           // levels/patterns; filling them from a model would mix two interpretations.
           if (onlyMissing && hasExistingFacies && isFaciesAttribute) continue;

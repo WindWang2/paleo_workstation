@@ -99,3 +99,9 @@ DataService 层位与框架测试通过；areamodel 12、sectionhorizons 13、�
 连井工作流 41、井震标定 13 passed（两个测试各有一个未启用的可选外部资料项）。
 规模基线仅收缩：paintEvent 743→678 行、wellsectionpanel 1541→1532 行，
 UI 字面量例外登记 338→337 项，无新增基线豁免。
+
+fetch/rebase origin/master 后，Windows 主程序编译、30 项 Source gates 和带
+QGIS_PREFIX 的完整 transitive 检查通过。保存并正常关闭旧窗口后，以依赖环境
+重新打开 tt3：从“连井／时深”入口生成 HZ19 两井的真实 TWT 剖面，再打开
+HZ21 两井的 MD 连井图，窗口中确认两侧曲线、大层道及横贯井柱的界线已绘出。
+启动仅记录既有局部 CRS 无大地基准提示，没有 DLL 装载失败。

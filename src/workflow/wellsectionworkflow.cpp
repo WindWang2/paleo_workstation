@@ -983,12 +983,15 @@ private:
 // 预测结果落 DERIVED）。岩屑表契约：顶深/底深/岩性必需列 + 描述可选列
 // （方言表头见 cuttingsdoc.h），一井一份。
 QHash<QString, QVector<wellsection::LithoSegment>> WellSectionWorkflow::lithologiesFor(
-    const QStringList &wellIds, QStringList *warnings) const {
+    const QStringList &wellIds, QStringList *warnings,QHash<QString,QStringList> *perWellWarnings) const {
   Q_ASSERT(QThread::currentThread() == thread());
+  QStringList localWarnings;if(!warnings)warnings=&localWarnings;
+  if(perWellWarnings)perWellWarnings->clear();
   CatalogWellLithologyProvider provider(m_catalog, projectDir(), warnings,
                                         &m_lithoSelection, &m_interpParseCache);
   QHash<QString, QVector<wellsection::LithoSegment>> result;
-  for (const QString &id : wellIds) result.insert(id, provider.lithologyFor(id));
+  for (const QString &id : wellIds){const auto first=warnings->size();result.insert(id, provider.lithologyFor(id));
+    if(perWellWarnings)perWellWarnings->insert(id,warnings->mid(first));}
   return result;
 }
 

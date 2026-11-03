@@ -1891,6 +1891,15 @@ void FactorPageTests::oneClickExtractThenGenerateStopsWithReason()
   QVERIFY2(status->text().contains(QStringLiteral("一键成图已停止：当前层位缺少井位")), qPrintable(status->text()));
   QVERIFY(oneClick->isEnabled()); // 可重试；逐步按钮仍在
   QVERIFY(extract->isEnabled());
+  // Successful publication can finish at the worker's 98% stage. The page
+  // must settle at 100%, without retaining the one-click 2/2 pending prefix.
+  page.setRunBusy(true);
+  page.setProperty("paleo.page.oneclick",QStringLiteral("generate"));
+  page.noteRunStage(QStringLiteral("保存成果"),98);
+  page.setRunBusy(false);
+  QTRY_VERIFY(page.property("paleo.page.oneclick").toString().isEmpty());
+  QCOMPARE(progress->value(),100);
+  QVERIFY(!progress->format().contains(QStringLiteral("一键 2/2")));
 }
 
 void FactorPageTests::fallbackToolsGroupedUnderMoreTools()

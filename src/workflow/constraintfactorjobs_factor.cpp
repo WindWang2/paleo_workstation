@@ -184,7 +184,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return generateGeostatFactor( horizon, factorId, method, def, params, error );
   if ( method == QLatin1String( "surfer_idw" ) )
     return generateSurferIdwFactor( horizon, factorId, def, params, error );
-  if ( !method.isEmpty() )
+  if ( !method.isEmpty() && method != QLatin1String( "idw" ) )
   {
     paleo::workflow_detail::setError( error, tr( "未知单因素方法：%1" ).arg( method ) );
     return false;

@@ -42,7 +42,12 @@ void SeismicSectionCanvas::paintWellPath(QPainter& painter,const SectionWellInfo
     flush();
   }
   for(const auto &syn:m_syntheticOverlays){
-    if(syn.wellId!=well.wellId||!syn.ok)continue;
+    if(syn.wellId!=well.wellId||syn.twtMs.empty())continue;
+    if(!syn.ok){
+      painter.setFont(PaleoTheme::bodyFont(tokens.labelPt));painter.setPen(tokens.warning);
+      painter.drawText(QRectF(x+8,viewport.top()+4,150,30),Qt::AlignLeft|Qt::TextWordWrap,tr("合成记录不可用：%1").arg(syn.reason));
+      continue;
+    }
     painter.setPen(QPen(tokens.error,1.4));painter.setBrush(Qt::NoBrush);
     QPolygonF wave;const auto flushWave=[&]{if(wave.size()>1)painter.drawPolyline(wave);wave.clear();};
     for(size_t i=0;i<std::min(syn.twtMs.size(),syn.amplitude.size());++i){
@@ -53,7 +58,6 @@ void SeismicSectionCanvas::paintWellPath(QPainter& painter,const SectionWellInfo
     }
     flushWave();
   }
-  Q_UNUSED(viewport)
 }
 void SeismicSectionCanvas::paintWellTracks(QPainter& painter,const SectionWellInfo& well,const QRect& viewport,double x){
   const auto &tokens=PaleoTheme::tokens();

@@ -13,7 +13,8 @@ void attachTimeDepthPositions(const paleo::data::TimeDepthTable &table,
   source.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
   target.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
   if (source.SetFromUserInput(sourceCrs.toUtf8().constData()) != OGRERR_NONE ||
-      target.SetFromUserInput(projectCrs.toUtf8().constData()) != OGRERR_NONE || !target.IsProjected())
+      target.SetFromUserInput(projectCrs.toUtf8().constData()) != OGRERR_NONE || !target.IsProjected() ||
+      std::abs(target.GetLinearUnits()-1.)>1e-9)
     issue = QObject::tr("轨迹坐标系无效，未叠加井轨迹");
   const double unit = table.coordinateUnit == "m" ? 1. : table.coordinateUnit == "ft" ? .3048 : qQNaN();
   if (!std::isfinite(unit) || !source.IsProjected())

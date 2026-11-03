@@ -37,4 +37,7 @@ DataService 的改动：
   未提供路径而跳过。完整 `tst_datapreview` 既有初始化超时不计为通过。
 
 Windows 主程序已重新编译，Office 编辑器接线正常；构建最多 8 workers，测试串行。
+保存旧窗口后正常重启 tt3，窗口实际完成 Inline 1260→3576→3577→3576，大小层
+界线和色带正常显示；修复版保持运行。fetch/rebase origin/master 后 30 项 Source
+gates 与完整 QGIS transitive 通过；DataService 已 rebase origin/main 并推送。
 真实体保持外部只读，未提交私人数据、数据库、生成图像或日志。基线未放宽。

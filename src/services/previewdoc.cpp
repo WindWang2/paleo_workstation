@@ -803,7 +803,9 @@ void PreviewDocService::requestSection(const QString &assetId,
     paleo::data::SectionReadOptions options;options.fullResolution=true;options.maxValues=64000000;
     paleo::data::SeismicSectionResult section;std::string detail;
     const auto cancel=[t]{return t&&t->cancelRequested();};
+    if(t)t->reportStage(QObject::tr("读取测线振幅"),10);
     if(!source.line(isInline,lineNo,options,section,detail,cancel))return QString::fromUtf8(detail);
+    if(t)t->reportStage(QObject::tr("加载地震层位"),70);
     out->doc.horizons=source.sectionHorizons(section,cancel);
     out->doc.sampleIntervalUs=float(section.sampleInterval*1000);out->doc.startTimeMs=section.firstTime;
     out->doc.readReport.requestedTraceCount=section.columns;

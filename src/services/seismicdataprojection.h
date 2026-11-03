@@ -6,5 +6,6 @@
 namespace paleo {
 seismic::SgySliceImage seismicSectionImage(const data::SeismicSectionResult& section);
 bool readSeismicDataSlice(const QString& path,seismic::SgySliceType type,int index,
-    seismic::SgySliceImage& image,QString& error,const data::CancelCheck& cancel={});
+    seismic::SgySliceImage& image,QString& error,const data::CancelCheck& cancel={},
+    const std::function<void(int,int)>& progress={});
 }

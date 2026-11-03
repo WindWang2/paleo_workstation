@@ -5,6 +5,7 @@
 #include "io/areamodel.h"
 #include <QDateTime>
 #include <QFileInfo>
+#include <QTimer>
 #include <cmath>
 
 namespace seismic {
@@ -28,15 +29,12 @@ PaleoTask *SeismicTaskService::startDataPlane(const QString& path,SgySliceType t
   *axis={info.sampleCount,info.inlineMin,info.inlineMax,info.crosslineMin,info.crosslineMax,info.firstTime,info.sampleInterval};
   axis->coordinateSystem=source.coordinateSystem();
   if(type!=SgySliceType::Time) {
-   // A single native sample per trace supplies geometry even when texture values hit the LRU.
+   // One native read supplies values, XY and overlay columns together.
    paleo::data::SectionReadOptions options;options.fullResolution=true;options.maxValues=64000000;
-   options.firstTime=options.lastTime=info.firstTime;paleo::data::SeismicSectionResult section;
-   if(!source.line(type==SgySliceType::Inline,index,options,section,detail,cancel)) {
-    if(cancel())return {};
-    // Entire first sample can be null while later samples and trace XY are valid.
-    options.firstTime=options.lastTime=paleo::data::Missing;
-    if(!source.line(type==SgySliceType::Inline,index,options,section,detail,cancel))return QString::fromUtf8(detail);
-   }
+   paleo::data::SeismicSectionResult section;
+   task->reportStage(QObject::tr("读取测线振幅"),10);
+   if(!source.line(type==SgySliceType::Inline,index,options,section,detail,cancel))return QString::fromUtf8(detail);
+   task->reportStage(QObject::tr("加载地震层位"),70);
    axis->horizons=source.sectionHorizons(section,cancel);
    const auto unit=source.coordinateUnit().empty()?info.coordinateLengthUnit:source.coordinateUnit();
    const double scale=unit=="ft"?.3048:1.;double distance=0;bool metric=unit=="m"||unit=="ft";
@@ -47,6 +45,7 @@ PaleoTask *SeismicTaskService::startDataPlane(const QString& path,SgySliceType t
     axis->columnCoordinates.push_back({x,y});axis->columnDistancesM.push_back(float(distance));
    }
    if(!metric)axis->columnDistancesM.clear();
+   if(!*image)*image=std::make_shared<SgySliceImage>(paleo::seismicSectionImage(section));
   }
   if(!*image){auto values=std::make_shared<SgySliceImage>();if(!paleo::readSeismicDataSlice(path,type,index,*values,error,cancel))return error;*image=values;}return {};
  },{},true);
@@ -91,11 +90,24 @@ PaleoTask *SeismicTaskService::startDataInfo(const QString& path,std::function<v
 PaleoTask *SeismicTaskService::startDataSlice(const QString& path,SgySliceType type,int index,
     std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done) {
  if(!taskService_){if(done)done(false,nullptr,tr("后台地震服务未连接"));return nullptr;}
+ const auto key=nativePlaneKey(path,type,index);
+ if(const auto hit=dataCache_.Find(key)){
+  QTimer::singleShot(0,this,[this,path,type,index,key,hit,done]{
+   const bool valid=key==nativePlaneKey(path,type,index);
+   if(done)done(valid,valid?hit:nullptr,valid?QString():tr("地震来源已变化，请重新加载"));
+  });return nullptr;
+ }
  auto out=std::make_shared<SgySliceImage>();
- auto *task=startBounded(tr("读取地震剖面"),[path,type,index,out](PaleoTask *task)->QString {
-  QString error;if(!paleo::readSeismicDataSlice(path,type,index,*out,error,[task]{return task->cancelRequested();}))return error;return {};
+ auto *task=startBounded(type==SgySliceType::Time?tr("读取水平时间切片"):tr("读取地震剖面"),[path,type,index,out](PaleoTask *task)->QString {
+  QString error;if(!paleo::readSeismicDataSlice(path,type,index,*out,error,[task]{return task->cancelRequested();},
+      [task](int done,int total){task->reportBytes(done,total);}))return error;return {};
  },{},true);
- connect(task,&PaleoTask::finished,this,[task,out,done]{const bool ok=task->state()==PaleoTask::State::Succeeded;if(done)done(ok,ok?out:nullptr,task->errorText());});
+ connect(task,&PaleoTask::finished,this,[this,task,out,done,path,type,index,key]{
+  const bool changed=key!=nativePlaneKey(path,type,index);
+  const bool ok=task->state()==PaleoTask::State::Succeeded&&!changed;
+  if(ok)dataCache_.Store(key,out);
+  if(done)done(ok,ok?out:nullptr,changed?tr("地震来源已变化，请重新加载"):task->errorText());
+ });
  return task;
 }
 }

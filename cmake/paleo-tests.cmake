@@ -177,6 +177,7 @@ add_paleo_test(tst_seismic_core LIBS paleo_domain)
 add_paleo_test(tst_sgycoordmapper LIBS paleo_domain)  # #135 仿射拟合数值稳定性（中心化最小二乘）
 add_paleo_test(tst_welltracelocate LIBS paleo_domain) # #129 井口 XY → 井旁道（非单位线距/旋转测网）
 add_paleo_test(tst_seismic_index LIBS paleo_services)
+add_paleo_test(tst_seismic_reads LIBS paleo_services Paleo::paleo_data_service)
 add_paleo_test(tst_fspath LIBS paleo_domain) # #291 QString↔filesystem::path UTF-16 契约（Windows 中文路径回归闸门）
 target_compile_definitions(tst_fspath PRIVATE
   SEGY_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/testdata/project_area/mini_seismic.sgy")

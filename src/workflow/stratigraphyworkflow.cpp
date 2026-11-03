@@ -45,10 +45,8 @@ void StratigraphyWorkflow::setProject(const QString &project,bool readOnly) {
   if(opened&&service.listWells(wells,error)) {
    QHash<qlonglong,WellDataAvailability> support;QString supportError;
    if(readWellDataAvailability(service,support,&supportError)) {
-    // 就绪井口径（HY 验收 2026-11-01）：地层对比选井只进「曲线+可用时深」
-    // 双全的井（时深口径已确认——未确认表不算，与就绪表同一确认门）。
-    const auto usableTd=paleo::usableTimeDepthWells(service);
-    for(const auto &w:wells)if(support.value(w.id).curves&&usableTd.contains(w.id))d->wells.append({w.id,text(w.name)});
+    // 井道预览和人工地层划分只需要曲线；井震计算在执行时校验时深。
+    for(const auto &w:wells)if(support.value(w.id).curves)d->wells.append({w.id,text(w.name)});
    } else emit statusChanged(supportError);
    std::vector<InterpretationSummary> versions;
    if(!service.listInterpretations(versions,error)) {
@@ -78,9 +76,7 @@ void StratigraphyWorkflow::refreshWells() {
  if(!service.openProjectReadOnly(d->path.toStdString(),error)||!service.listWells(wells,error)){emit statusChanged(text(error));return;}
  QHash<qlonglong,WellDataAvailability> support;QString supportError;
  if(!readWellDataAvailability(service,support,&supportError)){emit statusChanged(supportError);return;}
- // 就绪井口径同 setProject：曲线+可用（已确认）时深双全。
- const auto usableTd=paleo::usableTimeDepthWells(service);
- d->wells.clear();for(const auto &well:wells)if(support.value(well.id).curves&&usableTd.contains(well.id))d->wells.append({well.id,text(well.name)});emit changed();
+ d->wells.clear();for(const auto &well:wells)if(support.value(well.id).curves)d->wells.append({well.id,text(well.name)});emit changed();
 }
 QList<StratigraphyTrack> StratigraphyWorkflow::tracks() const {
  QList<StratigraphyTrack> result;const auto policy=conventions();
@@ -110,15 +106,15 @@ QList<StratigraphyRow> StratigraphyWorkflow::rows() const {
  }
  return result;
 }
-void StratigraphyWorkflow::calculate(const QList<qlonglong>& ids,bool subdivide,const QString& scope){if(subdivide&&!canSubdivide(ids,scope)){emit statusChanged(tr("勾选井须与已加载井一致，并具有所选段的有效顶底界面"));return;}runCalculation(ids,subdivide?1:0,scope);}
-void StratigraphyWorkflow::loadWells(const QList<qlonglong>& ids){runCalculation(ids,2);}
+void StratigraphyWorkflow::calculate(const QList<qlonglong>& wells,bool subdivide,const QString& segment){if(subdivide&&!canSubdivide(wells,segment)){emit statusChanged(tr("勾选井须与已加载井一致，并具有所选段的有效顶底界面"));return;}runCalculation(wells,subdivide?1:0,segment);}
+void StratigraphyWorkflow::loadWells(const QList<qlonglong>& wells){runCalculation(wells,2);}
 void StratigraphyWorkflow::derive(const QString& segment){runCalculation({},3,segment);}
 void StratigraphyWorkflow::propagate(const QList<StratigraphyAssignment>& assignments,const QString& segment){runCalculation({},4,segment,assignments);}
-void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,const QString& scope,const QList<StratigraphyAssignment>& overrides) {
- if(d->task||!d->tasks||d->path.isEmpty()||d->readOnly||(ids.isEmpty()&&mode<3)) {emit statusChanged(tr("请打开可写工程并选择井，等待当前任务完成"));return;}
+void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &wells,int mode,const QString& segment,const QList<StratigraphyAssignment>& assignments) {
+ if(d->task||!d->tasks||d->path.isEmpty()||d->readOnly||(wells.isEmpty()&&mode<3)) {emit statusChanged(tr("请打开可写工程并选择井，等待当前任务完成"));return;}
  const auto path=d->path.toStdString();const auto generation=d->generation;
  auto result=std::make_shared<InterpretationDocument>(d->document);const auto preferred=d->preferred;
- auto *task=d->tasks->start(tr("地层对比"),[path,ids,mode,scope,overrides,result,preferred](PaleoTask *task)->QString {
+ auto *task=d->tasks->start(tr("地层对比"),[path,wells,mode,segment,assignments,result,preferred](PaleoTask *task)->QString {
   try {
    DataService service;std::string error;require(service.openProject(path,error),error);
    const auto g=paleo::stratigraphy_native::geometry(service,result->viewStateJson);const CancelCheck cancel=[task]{return task->cancelRequested();};
@@ -127,7 +123,7 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,c
     // Loading a well chart is a preview operation; ambiguous or absent GR
     // must not prevent displaying the other available tracks. Calculations
     // still resolve and validate GR independently in mode 0.
-    for(const auto id:ids){
+    for(const auto id:wells){
      CorrelationWellSelection input;input.wellId=id;
      std::vector<DataEntry> curves;require(service.listData("curves",id,curves,error),error);
      const auto usable=std::find_if(curves.begin(),curves.end(),[](const auto& curve){return curve.count>0;});
@@ -145,18 +141,18 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,c
     *result=std::move(loaded);
    } else if(mode>=3) {
     if(result->wells.empty())throw std::runtime_error("请先加载井资料");
-    if(mode==3)*result=deriveForSegments(*result,g,cancel,{},scope.toStdString());
+    if(mode==3)*result=deriveForSegments(*result,g,cancel,{},segment.toStdString());
     if(mode==4) {
-     std::vector<TemplateAssignment> assignments;
-     for(const auto& row:overrides) {
+     std::vector<TemplateAssignment> templateAssignments;
+     for(const auto& row:assignments) {
       const auto key=row.key.split('|');if(key.size()!=2)continue;
       InterpretationTemplate t;require(service.readReferenceTemplate(key[0].toStdString(),key[1].toStdString(),t,error),error);
-      assignments.push_back({row.well,row.segment.toStdString(),t});
+      templateAssignments.push_back({row.well,row.segment.toStdString(),t});
      }
-     *result=propagateTemplates(*result,assignments,g,cancel,{},scope.toStdString());
+     *result=propagateTemplates(*result,templateAssignments,g,cancel,{},segment.toStdString());
     }
    } else if(mode==0) {
-    std::vector<long long> selected(ids.begin(),ids.end());
+    std::vector<long long> selected(wells.begin(),wells.end());
     auto plan=planQuickInputs(service,selected,preferred);
     for(const auto& issue:plan.issues)if(issue.blocking&&issue.field!="timeDepth"&&issue.field!="coordinates"&&issue.field!="trajectory")throw std::runtime_error(issue.message);
     for(auto& row:plan.request.wells){const auto explicitSource=std::find_if(preferred.wells.begin(),preferred.wells.end(),[&](const auto& w){return w.wellId==row.wellId;});if(explicitSource==preferred.wells.end()||!explicitSource->timeDepthId)row.timeDepthId=0;}
@@ -188,7 +184,7 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,c
     stored.insert(stored.end(),discovery.templates.begin(),discovery.templates.end());
     for(const auto &candidate:stored)
      if(std::none_of(result->templates.begin(),result->templates.end(),[&](const auto &t){return t.id==candidate.id&&t.version==candidate.version;}))result->templates.push_back(candidate);
-    auto plan=planQuickTemplates(*result,g,0,scope.toStdString(),2.0,discovery.manualReferences);checkPlan(plan);
+    auto plan=planQuickTemplates(*result,g,0,segment.toStdString(),2.0,discovery.manualReferences);checkPlan(plan);
     for(const auto &reference:plan.manualReferences)for(auto &well:result->wells)
      if(well.wellId==reference.wellId&&well.cycles.empty()&&
         std::any_of(plan.segmentPlans.begin(),plan.segmentPlans.end(),[&](const auto &segment){return segment.referenceWellId==reference.wellId;})&&
@@ -203,8 +199,8 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,c
     result->viewStateJson=QJsonDocument(view).toJson(QJsonDocument::Compact).toStdString();
     for(const auto &issue:plan.issues)for(auto &well:result->wells)
      if(!issue.wellId||issue.wellId==well.wellId)well.warnings.push_back(issue.message);
-    *result=deriveForSegments(*result,g,cancel,{},scope.toStdString());
-    *result=propagateTemplates(*result,plan.assignments,g,cancel,{},scope.toStdString());
+    *result=deriveForSegments(*result,g,cancel,{},segment.toStdString());
+    *result=propagateTemplates(*result,plan.assignments,g,cancel,{},segment.toStdString());
     if(!result->runs.empty()) {
      auto parameters=QJsonDocument::fromJson(QByteArray::fromStdString(result->runs.back().parametersJson)).object();
      parameters["uniformTemplatePlan"]=QJsonDocument::fromJson(QByteArray::fromStdString(plan.recommendationJson)).object();
@@ -214,12 +210,14 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &ids,int mode,c
    return {};
   }catch(const std::exception &e){return QString::fromUtf8(e.what());}
  });d->task=task;emit busyChanged(true);
- connect(task,&PaleoTask::finished,this,[this,task,result,generation] {
+ connect(task,&PaleoTask::finished,this,[this,task,result,generation,mode] {
   if(generation!=d->generation)return;d->task=nullptr;emit busyChanged(false);
   if(task->state()!=PaleoTask::State::Succeeded){emit statusChanged(task->errorText());return;}
   d->history.clear();d->future.clear();d->document=std::move(*result);d->dirty=true;emit documentReplaced();QStringList diagnostics;
   for(const auto &w:d->document.wells)for(const auto &message:w.warnings)diagnostics.append(text(message));
-  emit changed();emit statusChanged(diagnostics.isEmpty()?tr("计算完成，请复核并保存分层版本"):diagnostics.join('\n'));
+  diagnostics.removeDuplicates();emit changed();
+  emit statusChanged(mode==2?tr("已加载 %1 口井，可直接进行 MD 地层对比与界线编辑。资料诊断在“更多设置与历史”中查看。").arg(d->document.wells.size())
+      :diagnostics.isEmpty()?tr("计算完成，请复核并保存分层版本"):tr("计算完成，请复核结果；详细资料与计算诊断在“更多设置与历史”中查看。"));
  });
 }
 void StratigraphyWorkflow::save() {

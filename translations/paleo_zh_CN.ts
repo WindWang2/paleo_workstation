@@ -3753,6 +3753,26 @@
         <source>请先在顶部层段选择器选定子层段；层位下拉不可驱动分析。</source>
         <translation>请先在顶部层段选择器选定子层段；层位下拉不可驱动分析。</translation>
     </message>
+    <message>
+        <source>当前地震层段</source>
+        <translation>当前地震层段</translation>
+    </message>
+    <message>
+        <source>与顶部地震层位单元同步；请在顶部选择父单元及 S1–S4 或综合。</source>
+        <translation>与顶部地震层位单元同步；请在顶部选择父单元及 S1–S4 或综合。</translation>
+    </message>
+    <message>
+        <source>请在顶部选择地震层位单元及 S1–S4 或综合</source>
+        <translation>请在顶部选择地震层位单元及 S1–S4 或综合</translation>
+    </message>
+    <message>
+        <source>所选地震层段厚度（MD）</source>
+        <translation>所选地震层段厚度（MD）</translation>
+    </message>
+    <message>
+        <source>所选地震层段内的井点数据</source>
+        <translation>所选地震层段内的井点数据</translation>
+    </message>
 </context>
 <context>
     <name>ConstraintWorkflow</name>
@@ -6263,6 +6283,22 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
 </context>
 <context>
     <name>DataListPanel</name>
+    <message>
+        <source>有时深</source>
+        <translation>有时深</translation>
+    </message>
+    <message>
+        <source>有曲线</source>
+        <translation>有曲线</translation>
+    </message>
+    <message>
+        <source>时深待确认或校验</source>
+        <translation>时深待确认或校验</translation>
+    </message>
+    <message>
+        <source>已有时深表，尚未通过单位、时间基准或单调性检查。</source>
+        <translation>已有时深表，尚未通过单位、时间基准或单调性检查。</translation>
+    </message>
     <message>
         <location filename="../src/ui/pages/datalistops.h" line="24"/>
         <source>还没有数据资产 — 先导入工区文件夹，或用上方按钮导入单个文件</source>
@@ -15671,6 +15707,42 @@ Crossline: %3 ~ %4</source>
         <source>所选井均缺少可读源文件、测井曲线或有效井坐标</source>
         <translation>所选井均缺少可读源文件、测井曲线或有效井坐标</translation>
     </message>
+    <message>
+        <source>地震相预测 · %1</source>
+        <translation>地震相预测 · %1</translation>
+    </message>
+    <message>
+        <source>层段输入已准备，提交预测服务</source>
+        <translation>层段输入已准备，提交预测服务</translation>
+    </message>
+    <message>
+        <source>按当前地震层段读取逐道窗口</source>
+        <translation>按当前地震层段读取逐道窗口</translation>
+    </message>
+    <message>
+        <source>预测服务已断开</source>
+        <translation>预测服务已断开</translation>
+    </message>
+    <message>
+        <source>预测分类或请求层段不一致，未发布</source>
+        <translation>预测分类或请求层段不一致，未发布</translation>
+    </message>
+    <message>
+        <source>预测返回井数与请求井数不一致，未发布</source>
+        <translation>预测返回井数与请求井数不一致，未发布</translation>
+    </message>
+    <message>
+        <source>井 %1 的返回身份、坐标或微相编码不一致，未发布</source>
+        <translation>井 %1 的返回身份、坐标或微相编码不一致，未发布</translation>
+    </message>
+    <message>
+        <source>井 %1 的预测井段或层段范围不一致，未发布</source>
+        <translation>井 %1 的预测井段或层段范围不一致，未发布</translation>
+    </message>
+    <message>
+        <source>井 %1 的预测未能生成当前层段优势相，未发布</source>
+        <translation>井 %1 的预测未能生成当前层段优势相，未发布</translation>
+    </message>
 </context>
 <context>
     <name>MappingWorkbenchPage</name>
@@ -23338,6 +23410,11 @@ PDF：%3
         <source>数据可视化</source>
         <translation>数据可视化</translation>
     </message>
+<message>
+        <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="16" />
+        <source>时深来源与地震时间基准已保存，正在刷新连井数据</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 <context>
     <name>PaleoMapBookController</name>
@@ -25198,6 +25275,18 @@ PDF：%3
         <source>选择测井相预测的地层道与单元范围（支持地震小层、地震层位及其他地质分层道）。</source>
         <translation>选择测井相预测的地层道与单元范围（支持地震小层、地震层位及其他地质分层道）。</translation>
     </message>
+    <message>
+        <source>数据预览预测整井；单井相分析按当前分析层段预测。</source>
+        <translation>数据预览预测整井；单井相分析按当前分析层段预测。</translation>
+    </message>
+    <message>
+        <source>测井相网络模型可用于全部地层段；整井预览覆盖有效测井，分析页按所选层段取数。</source>
+        <translation>测井相网络模型可用于全部地层段；整井预览覆盖有效测井，分析页按所选层段取数。</translation>
+    </message>
+    <message>
+        <source>数据预览对整井有效测井样点预测，不受地图层段限制；单井相分析仍按所选子层段预测。</source>
+        <translation>数据预览对整井有效测井样点预测，不受地图层段限制；单井相分析仍按所选子层段预测。</translation>
+    </message>
 </context>
 <context>
     <name>PetroPhysPanel</name>
@@ -25923,6 +26012,30 @@ PDF：%3
         <source>prediction algorithm &apos;%1&apos; returned no output path</source>
         <translation>预测算法“%1”未返回输出路径</translation>
     </message>
+    <message>
+        <source>模型输入与当前层段的 RMS 网格不匹配，需要 [1,1,%1,%2]</source>
+        <translation>模型输入与当前层段的 RMS 网格不匹配，需要 [1,1,%1,%2]</translation>
+    </message>
+    <message>
+        <source>模型输出与所选层段网格不一致</source>
+        <translation>模型输出与所选层段网格不一致</translation>
+    </message>
+    <message>
+        <source>所选算法未声明地震层段输入</source>
+        <translation>所选算法未声明地震层段输入</translation>
+    </message>
+    <message>
+        <source>输入成果不属于所选地震层段，请先按该层段获取输入</source>
+        <translation>输入成果不属于所选地震层段，请先按该层段获取输入</translation>
+    </message>
+    <message>
+        <source>不能创建层段预测临时输入</source>
+        <translation>不能创建层段预测临时输入</translation>
+    </message>
+    <message>
+        <source>算法输出未写入本次任务的成果路径，结果未发布</source>
+        <translation>算法输出未写入本次任务的成果路径，结果未发布</translation>
+    </message>
 </context>
 <context>
     <name>PreviewBasemapControl</name>
@@ -26312,6 +26425,30 @@ PDF：%3
         <location filename="../src/services/projectdata_timedepth.cpp" line="130"/>
         <source>数据服务中未找到本井的时深关系</source>
         <translation>数据服务中未找到本井的时深关系</translation>
+    </message>
+    <message>
+        <source>所选时深来源未在工区数据服务中匹配，请检查关联</source>
+        <translation>所选时深来源未在工区数据服务中匹配，请检查关联</translation>
+    </message>
+    <message>
+        <source>深度单位</source>
+        <translation>深度单位</translation>
+    </message>
+    <message>
+        <source>时间单位</source>
+        <translation>时间单位</translation>
+    </message>
+    <message>
+        <source>单/双程类型</source>
+        <translation>单/双程类型</translation>
+    </message>
+    <message>
+        <source>时间基准</source>
+        <translation>时间基准</translation>
+    </message>
+    <message>
+        <source>时深关系存在，但%1缺失或不受支持</source>
+        <translation>时深关系存在，但%1缺失或不受支持</translation>
     </message>
 </context>
 <context>
@@ -35919,6 +36056,50 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>完整工区范围：井口与地震数据范围并集 · %1</source>
         <translation>完整工区范围：井口与地震数据范围并集 · %1</translation>
     </message>
+    <message>
+        <source>地震层位</source>
+        <translation>地震层位</translation>
+    </message>
+    <message>
+        <source>叠加地震层位</source>
+        <translation>叠加地震层位</translation>
+    </message>
+    <message>
+        <source>叠加大层界面、S1–S4 小层分界及半透明层间色带；虚线为方案推导分界，实线为已解释界线。</source>
+        <translation>叠加大层界面、S1–S4 小层分界及半透明层间色带；虚线为方案推导分界，实线为已解释界线。</translation>
+    </message>
+    <message>
+        <source>当前剖面没有可叠加层位。</source>
+        <translation>当前剖面没有可叠加层位。</translation>
+    </message>
+    <message>
+        <source>当前剖面：%1 条界线。</source>
+        <translation>当前剖面：%1 条界线。</translation>
+    </message>
+    <message>
+        <source>地震体缺少有效 XY 测网几何，请检查道头坐标</source>
+        <translation>地震体缺少有效 XY 测网几何，请检查道头坐标</translation>
+    </message>
+    <message>
+        <source>正在加载工区地震体及测网，请稍候…</source>
+        <translation>正在加载工区地震体及测网，请稍候…</translation>
+    </message>
+    <message>
+        <source>地震体加载未完成，请重新打开连井剖面</source>
+        <translation>地震体加载未完成，请重新打开连井剖面</translation>
+    </message>
+    <message>
+        <source>工区未找到可加载的地震体，请检查数据管理中的来源</source>
+        <translation>工区未找到可加载的地震体，请检查数据管理中的来源</translation>
+    </message>
+    <message>
+        <source>地震体及测网已就绪</source>
+        <translation>地震体及测网已就绪</translation>
+    </message>
+    <message>
+        <source>地震体或 XY 测网未就绪，不能生成剖面</source>
+        <translation>地震体或 XY 测网未就绪，不能生成剖面</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>
@@ -37543,8 +37724,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="100"/>
-        <source>正值向下平移。分层优先 TVD，测井按 MD。没有本井时深表时，井道和分层按近似速度画在剖面上，并标明需复核。时深表范围外的点不绘制。左侧深度尺与该近似速度一致，地震图像仍按 TWT 排列。</source>
-        <translation>正值向下平移。分层优先 TVD，测井按 MD。没有本井时深表时，井道和分层按近似速度画在剖面上，并标明需复核。时深表范围外的点不绘制。左侧深度尺与该近似速度一致，地震图像仍按 TWT 排列。</translation>
+        <source>正值向下平移。分层优先 TVD，测井按 MD。井道叠加需要有效时深及一致的地震时间基准。常速近似仅在明确选择后使用，不补齐缺失基准。时深表范围外的点不绘制，地震图像按 TWT 排列。</source>
+        <translation>正值向下平移。分层优先 TVD，测井按 MD。井道叠加需要有效时深及一致的地震时间基准。常速近似仅在明确选择后使用，不补齐缺失基准。时深表范围外的点不绘制，地震图像按 TWT 排列。</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="110"/>
@@ -37604,15 +37785,24 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="247"/>
-        <source>请先导入井数据及关联时深表</source>
-        <translation>请先导入井数据及关联时深表</translation>
+        <source>请选择有曲线的井；读取完成后列表显示可选井</source>
+        <translation>请选择有曲线的井；读取完成后列表显示可选井</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="263"/>
         <source>缺失</source>
         <translation>缺失</translation>
     </message>
-</context>
+    <message>
+        <source>地震体及测网就绪后可生成剖面</source>
+        <translation>地震体及测网就绪后可生成剖面</translation>
+    </message>
+<message>
+        <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="81" />
+        <source>时深来源与地震时间基准…</source>
+        <translation type="unfinished" />
+    </message>
+    </context>
 <context>
     <name>SectionWorkbench</name>
     <message>
@@ -37772,6 +37962,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/sectionworkbench.cpp" line="684"/>
         <source>此版本使用其他地震体，请先加载对应地震体：%1</source>
         <translation>此版本使用其他地震体，请先加载对应地震体：%1</translation>
+    </message>
+    <message>
+        <source>有时深资料；对齐不可用：%1</source>
+        <translation>有时深资料；对齐不可用：%1</translation>
+    </message>
+    <message>
+        <source>无时深资料；不叠加井道</source>
+        <translation>无时深资料；不叠加井道</translation>
     </message>
 </context>
 <context>
@@ -40670,6 +40868,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>图像导出失败，请检查路径、可写性或缩小井组。</source>
         <translation>图像导出失败，请检查路径、可写性或缩小井组。</translation>
     </message>
+    <message>
+        <source>界线列表</source>
+        <translation>界线列表</translation>
+    </message>
+    <message>
+        <source>MD 井道显示不需要时深或测斜；未选择关系的提示仅影响井震联合计算，不表示原始资料不存在。</source>
+        <translation>MD 井道显示不需要时深或测斜；未选择关系的提示仅影响井震联合计算，不表示原始资料不存在。</translation>
+    </message>
 </context>
 <context>
     <name>StratigraphyWorkflow</name>
@@ -40782,6 +40988,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/stratigraphyworkflow_versions.cpp" line="27"/>
         <source>已读取所选解释版本</source>
         <translation>已读取所选解释版本</translation>
+    </message>
+    <message>
+        <source>已加载 %1 口井，可直接进行 MD 地层对比与界线编辑。资料诊断在“更多设置与历史”中查看。</source>
+        <translation>已加载 %1 口井，可直接进行 MD 地层对比与界线编辑。资料诊断在“更多设置与历史”中查看。</translation>
+    </message>
+    <message>
+        <source>计算完成，请复核结果；详细资料与计算诊断在“更多设置与历史”中查看。</source>
+        <translation>计算完成，请复核结果；详细资料与计算诊断在“更多设置与历史”中查看。</translation>
     </message>
 </context>
 <context>
@@ -43227,9 +43441,9 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <location filename="../src/ui/wellcomposite/paneltracks.cpp" line="99"/>
         <source>%1
-预测按地层组逐组进行；同一地层组有多个模型版本时使用此处所选版本</source>
+模型可用于全部地层段；按实际地层组组织任务，模型的组名标注不限制预测范围</source>
         <translation>%1
-预测按地层组逐组进行；同一地层组有多个模型版本时使用此处所选版本</translation>
+模型可用于全部地层段；按实际地层组组织任务，模型的组名标注不限制预测范围</translation>
     </message>
     <message>
         <location filename="../src/ui/wellcomposite/paneltracks.cpp" line="101"/>
@@ -43523,7 +43737,42 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>跟随分析层段 / 全部地层组</source>
         <translation>跟随分析层段 / 全部地层组</translation>
     </message>
-</context>
+    <message>
+        <source>预测范围：整井（按地层组逐组）</source>
+        <translation>预测范围：整井（按地层组逐组）</translation>
+    </message>
+    <message>
+        <source>整井（按地层组逐组）</source>
+        <translation>整井（按地层组逐组）</translation>
+    </message>
+    <message>
+        <source>隐藏道</source>
+        <translation>隐藏道</translation>
+    </message>
+    <message>
+        <source>预览预测覆盖整井的有效测井样点，模型可用于全部地层段；不受当前分析层段限制。</source>
+        <translation>预览预测覆盖整井的有效测井样点，模型可用于全部地层段；不受当前分析层段限制。</translation>
+    </message>
+    <message>
+        <source>当前井无法开始预测</source>
+        <translation>当前井无法开始预测</translation>
+    </message>
+<message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="182" />
+        <source>请在顶部选择地震层段</source>
+        <translation type="unfinished">请在顶部选择地震层段</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="184" />
+        <source>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</source>
+        <translation type="unfinished">预测范围跟随顶部地震层段选择，成果保存到同一方案修订</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelpreviewchrome.cpp" line="31" />
+        <source>地质图例</source>
+        <translation type="unfinished">地质图例</translation>
+    </message>
+    </context>
 <context>
     <name>WellComposite::WellLegendDialog</name>
     <message>
@@ -43827,6 +44076,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/wellcomposite/wellpositionlegendwidget.cpp" line="719"/>
         <source>光标: %1m</source>
         <translation>光标: %1m</translation>
+    </message>
+    <message>
+        <source>%1–%2 m</source>
+        <translation>%1–%2 m</translation>
     </message>
 </context>
 <context>
@@ -44132,8 +44385,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <name>WellFaciesWorkflow</name>
     <message>
         <location filename="../src/workflow/wellfaciesworkflow.cpp" line="46"/>
-        <source>%1；曲线 %2；段、岩性；至少 %3 点</source>
-        <translation>%1；曲线 %2；段、岩性；至少 %3 点</translation>
+        <source>全部地层段可用（模型标注：%1）；曲线 %2；段、岩性；至少 %3 点</source>
+        <translation>全部地层段可用（模型标注：%1）；曲线 %2；段、岩性；至少 %3 点</translation>
     </message>
     <message>
         <location filename="../src/workflow/wellfaciesworkflow.cpp" line="650"/>
@@ -44412,6 +44665,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/wellfaciesworkflow_unit.cpp" line="104"/>
         <source>当前层段内有效测井样点不足</source>
         <translation>当前层段内有效测井样点不足</translation>
+    </message>
+    <message>
+        <source>%1 · %2–%3 m</source>
+        <translation>%1 · %2–%3 m</translation>
+    </message>
+    <message>
+        <source>预测完成：%1 个井段（%2）· %3 个深度点 · %4；%5</source>
+        <translation>预测完成：%1 个井段（%2）· %3 个深度点 · %4；%5</translation>
     </message>
 </context>
 <context>
@@ -44914,6 +45175,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/wellpredictionservice.cpp" line="448"/>
         <source>远端结果未覆盖当前地层 %1</source>
         <translation>远端结果未覆盖当前地层 %1</translation>
+    </message>
+    <message>
+        <source>当前子层段内有效测井样点不足</source>
+        <translation>当前子层段内有效测井样点不足</translation>
     </message>
 </context>
 <context>
@@ -45572,7 +45837,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>取消</source>
         <translation>取消</translation>
     </message>
-</context>
+<message>
+        <location filename="../src/ui/wellsection/wellsectiondialogs.cpp" line="160" />
+        <source>时深对齐设置…</source>
+        <translation type="unfinished" />
+    </message>
+    </context>
 <context>
     <name>WellSectionWorkflow</name>
     <message>
@@ -45809,6 +46079,18 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/wellsectionworkflow.cpp" line="330"/>
         <source>时深表无效（有效样点不足或非单调）</source>
         <translation>时深表无效（有效样点不足或非单调）</translation>
+    </message>
+    <message>
+        <source>有可用时深；叠加仍校验地震基准</source>
+        <translation>有可用时深；叠加仍校验地震基准</translation>
+    </message>
+    <message>
+        <source>有时深；时间对齐不可用，MD 井道可显示</source>
+        <translation>有时深；时间对齐不可用，MD 井道可显示</translation>
+    </message>
+    <message>
+        <source>无时深；MD 井道可显示</source>
+        <translation>无时深；MD 井道可显示</translation>
     </message>
 </context>
 <context>
@@ -52922,4 +53204,139 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>从剖面移除</translation>
     </message>
 </context>
+<context>
+    <name>WellCompositePanel</name>
+    <message>
+        <source>请在顶部选择地震层段</source>
+        <translation>请在顶部选择地震层段</translation>
+    </message>
+    <message>
+        <source>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</source>
+        <translation>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</translation>
+    </message>
+</context>
+<context>
+    <name>WellFacies</name>
+    <message>
+        <source>缺少段或岩性井道</source>
+        <translation>缺少段或岩性井道</translation>
+    </message>
+    <message>
+        <source>%1：跳过 %2 个样点、%3 处缺口（%4）</source>
+        <translation>%1：跳过 %2 个样点、%3 处缺口（%4）</translation>
+    </message>
+    <message>
+        <source>当前范围内没有可用于预测的井段</source>
+        <translation>当前范围内没有可用于预测的井段</translation>
+    </message>
+</context>
+<context>
+    <name>TimeDepthAlignmentDialog</name>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="15" />
+        <source>时深来源与地震时间基准</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="18" />
+        <source>按来源保存，影响同一导出中的全部井。保留原始点值；取反仅用于读取换算。地震体共用所填时间零点，采样间隔和振幅不变。</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="23" />
+        <source>%1 · %2 份井时深关系 · 示例 %3 点，时间 %4～%5（负值 %6 点）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="29" />
+        <source>选择时间单位</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="29" />
+        <source>时深时间单位</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="30" />
+        <source>选择单／双程</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="30" />
+        <source>双程 TWT</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="30" />
+        <source>单程 OWT</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="30" />
+        <source>时深时间类型</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="31" />
+        <source>选择时间正方向</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="31" />
+        <source>原值已向下为正</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="31" />
+        <source>原值取反，转为向下为正</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="31" />
+        <source>时深符号换算</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="32" />
+        <source>填写共同时间零点名称，如工区地震时间零点</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="32" />
+        <source>共同时间基准</source>
+        <translation type="unfinished">共同时间基准</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="33" />
+        <source>仅保存时深来源，不修改地震体</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="35" />
+        <source>同时关联 TWT 地震体</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="45" />
+        <source>所选井没有数据服务时深来源</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="45" />
+        <source>工程为只读，不能保存</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="47" />
+        <source>保存来源与时间基准</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="48" />
+        <source>取消</source>
+        <translation type="unfinished">取消</translation>
+    </message>
+</context>
+
 </TS>

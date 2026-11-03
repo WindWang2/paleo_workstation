@@ -317,7 +317,7 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     // 清叠加的防线挡不住旧线属性图残留。opt-02：层段（zone）叠加同款
     // 论证成立（属性建模烘焙在 mid-inline 那一刀，换线即错线显示）。
     m_canvas->clearAttrOverlay();
-    m_canvas->clearZoneOverlay();
+    m_canvas->clearZoneOverlay();m_canvas->setHorizonOverlays({});
 
     // 常规 IL/XL/Time 切换：丢弃任意线旧状态（route/井叠加），
     // hasRoute() 复归 false（wave/sections 语义）。
@@ -398,6 +398,7 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
             } else {
                 const float dtMs = float(axis.sampleIntervalMs);
                 guard->m_canvas->setSectionData(*image, dtMs, origin,axis.columnDistancesM,axis.columnCoordinates);
+                guard->m_canvas->setMajorHorizonsOnly(false);guard->m_canvas->setHorizonOverlays(axis.horizons);
             }
             // D4：剖面身份 + 最近切片（拾取解析/追踪原料）
             {
@@ -536,6 +537,7 @@ void SeismicSectionDockWidget::refreshWellOverlay(
   auto projected = SectionWellProjector::ProjectWells(
       m_route, {}, distances, wells, std::numeric_limits<double>::max(),
       m_canvas->timeDepthModel());
+  projectSectionHorizonTies(projected,m_canvas->horizonOverlays());
   m_canvas->setWells(projected);
 }
 
@@ -564,10 +566,12 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
   if (m_btnCurtain && m_btnCurtain->isChecked())
     m_btnCurtain->setChecked(false);
   m_canvas->clearAttrOverlay();
-  m_canvas->clearZoneOverlay();
+  m_canvas->clearZoneOverlay();m_canvas->setHorizonOverlays({});
   m_sliceIndex = -1;
   const auto generation = ++m_generation;
   m_volume = volume;
+  m_candidateWells=candidateWells;
+  m_canvas->setMajorHorizonsOnly(m_majorHorizonConnectionsNext);m_majorHorizonConnectionsNext=false;
   m_route.clear();
   m_distances.clear();
   // goal/fault-interpretation：任意线剖面身份 = 路径点串；同时作废 IL/XL
@@ -588,9 +592,9 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
   QPointer<SeismicSectionDockWidget> guard(this);
   m_extraction = m_taskService->startSectionExtraction(
       std::make_shared<SgyVolume>(*volume), pathPoints, options,
-      [guard, generation, volume, pathPoints, lineTitle, mapPolyline,
-       candidateWells](bool ok, std::shared_ptr<const SgySliceImage> image,
-               const SgySectionStats &stats, const QString &error) {
+      [guard, generation, volume, pathPoints, lineTitle, mapPolyline]
+       (bool ok, std::shared_ptr<const SgySliceImage> image,
+               const SeismicSectionExtractionStats &stats, const QString &error) {
         if (!guard || guard->m_generation != generation)
           return;
         guard->m_progressBar->hide();
@@ -620,17 +624,10 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
         guard->m_canvas->setSectionData(
             *image, float(stats.sampleIntervalMs), stats.firstTimeMs,
             geometry.distancesM, geometry.coordinates);
-        guard->refreshWellOverlay(candidateWells);
+        guard->m_canvas->setHorizonOverlays(stats.horizons);
         guard->setLineTitle(lineTitle);
-        // #225：入参候选井写入成员——computeWellTrajectories /
-        // computeSyntheticOverlays / 井旁道 / 子波提取 / 反演低频井读的都是
-        // m_candidateWells，旧实现只按入参判空、成员恒空，四条链生产恒死。
-        guard->m_candidateWells = candidateWells;
-        // D5.3/D5.4：井轨迹投影 + 合成记录（任意线链路，wave/seismic-chain-deep）
-        if (!candidateWells.empty()) {
-          guard->computeWellTrajectories(route);
-          guard->computeSyntheticOverlays();
-        }
+        // Use the latest calibration even when semantics changed during extraction.
+        guard->setCandidateWells(guard->m_candidateWells);
         // 与切片路径同拍刷新解释叠加：剖面身份变了（任意线），
         // FaultSet 棒按新身份重新过滤回显（goal/fault-interpretation）。
         guard->refreshInterpretationOverlay();

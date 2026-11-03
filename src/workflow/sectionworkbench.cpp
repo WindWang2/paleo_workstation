@@ -8,6 +8,8 @@
 #include "io/welllogread.h"
 #include "io/wellfileparsers.h"
 #include "services/welllogset.h"
+#include "services/areawellchart.h"
+#include "services/timedepthalignment.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -27,6 +29,13 @@
 SectionWorkbench::SectionWorkbench(DataCatalog *catalog, QObject *parent)
     : QObject(parent), m_catalog(catalog) {
   syncProject();
+}
+QVariantMap SectionWorkbench::timeDepthAlignmentOptions(const QStringList &ids,QString *error) const {
+  return paleo::timeDepthAlignmentOptions(m_catalog,ids,error);
+}
+bool SectionWorkbench::saveTimeDepthAlignment(const QVariantMap &selection,QString *error){
+  if(!paleo::saveTimeDepthAlignment(m_catalog,selection,error))return false;
+  cancelPreviewData();emit alignmentsChanged();return true;
 }
 void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &)> ready,bool includeSections) {
   m_previewReady = std::move(ready);
@@ -221,29 +230,21 @@ QString SectionWorkbench::wellForSource(const QString &path, const QString &name
 QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &stop) {
   syncProject();
   QVariantList result;
-  // 就绪井口径（HY 验收 2026-11-01）：地震剖面候选/叠加只进「曲线+可用时深」
-  // 双全的井（stamp 缓存，确认/导入后自愈）。
+  // 列表展示有曲线的井及其对齐诊断；真正井震叠加由 sectionWells 严格校验。
   const auto readiness = paleo::analysisReadiness(m_catalog, projectDir());
   for (const auto &w : m_data.wells()) {
     if (stop && stop->load()) return result;
-    if(!readiness.value(w.id).analysisReady())continue;
+    if(!readiness.value(w.id).hasCurves)continue;
     auto c = calibration(w.id);
     bool tvdOk = false, mdOk = false;
     modelFor(w.id, false, &tvdOk);
     modelFor(w.id, true, &mdOk);
     const auto samples = m_data.tdTableFor(w.id);
-    // 与 344 行 fallbackVelocity 同一条双侧判定（opt-02：界面状态串与
-    // TimeDepthModel 实际取值必须同口径——只查下界会让越界值在界面宣称一个
-    // 速度、换算时却回落 2500）。
-    const double listedVelocity = [&c] {
-      const double v = c.value("velocity").toDouble();
-      return v > 100.0 && v < 20000.0 ? v : 2500.0;
-    }();
     QString status =
         c.value("constant").toBool()
             ? tr("常速近似（需复核）")
             : (samples.isEmpty()
-                   ? tr("无时深表，按 %1 m/s 近似叠加").arg(listedVelocity, 0, 'f', 0)
+                   ? (readiness.value(w.id).hasTimeDepth?tr("有时深资料；对齐不可用：%1").arg(m_data.lastError()):tr("无时深资料；不叠加井道"))
                    : (!tvdOk && !mdOk
                           ? tr("时深表无序或有效样点不足")
                           : (tvdOk && mdOk ? tr("时深表：TVD / MD")
@@ -329,14 +330,14 @@ QStringList SectionWorkbench::spatiallyOrderedWells(const QStringList &ids,
 QVector<wellsection::Well> SectionWorkbench::wellSnapWells(bool analysisOnly) {
   syncProject();
   QVector<wellsection::Well> out;
-  // 就绪井口径：analysis 吸附只进「曲线+可用时深」双全的井（见 wells()）。
+  // 路线取样只需要井位和曲线；时深条件在井道叠加时校验，不阻挡地震剖面路线。
   const auto readiness = paleo::analysisReadiness(m_catalog, projectDir());
   for (const auto &w : m_data.wells()) {
     if ((w.coordinateStatus != QLatin1String("ok") &&
          w.coordinateStatus != QLatin1String("untransformed")) ||
         !std::isfinite(w.surfaceX) || !std::isfinite(w.surfaceY))
       continue; // 与 wellRoute 同口径：无效坐标井不进吸附集
-    if(analysisOnly&&!readiness.value(w.id).analysisReady())continue;
+    if(analysisOnly&&!readiness.value(w.id).hasCurves)continue;
     wellsection::Well snap;
     snap.id = w.id;
     snap.name = w.name;
@@ -359,6 +360,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     if (!readiness.value(w.id).analysisReady())
       continue;
     seismic::SectionWellInfo out;
+    const auto nativeId=m_catalog->entityById(w.id).extra.value("areaModelWellId").toLongLong();
     out.wellId = w.id;
     out.wellName = w.name;
     out.surfaceX = w.surfaceX;
@@ -367,18 +369,12 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     out.calibrated = true;
     bool tvdOk = false, mdOk = false;
     auto tvd = modelFor(w.id, false, &tvdOk), md = modelFor(w.id, true, &mdOk);
+    if((!tvdOk&&!mdOk)||m_data.tdTableFor(w.id).isEmpty())continue;
     const QVariantMap c = calibration(w.id);
     const double shift = c.value("shift").toDouble();
+    if(nativeId>0&&mdOk){out.mdTimeDepth=md;out.timeShiftMs=shift;}
     const double velocity = c.value("velocity").toDouble();
-    // 常速回退的有效速度与 setCalibration 契约同界 [100,20000)——手改
-    // alignment JSON 写入界外值时按缺省 2500 回落（opt-02：显示与换算同口径）。
-    const double fallbackVelocity =
-        velocity > 100.0 && velocity < 20000.0 ? velocity : 2500.0;
-    out.alignmentStatus = c.value("constant").toBool()
-                              ? tr("常速近似")
-                              : (tvdOk || mdOk ? tr("时深表")
-                                               : tr("常速近似（无时深表，%1 m/s）")
-                                                     .arg(fallbackVelocity, 0, 'f', 0));
+    out.alignmentStatus=c.value("constant").toBool()?tr("常速近似"):tr("时深表");
     bool partial = false;
     auto timeFor = [&](double d, bool useMd) {
       if (!std::isfinite(d))
@@ -390,9 +386,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
           partial = true;
         return result;
       }
-      // 没有本井时深表时，用近似速度把井道和分层放到 TWT 剖面上。
-      seismic::TimeDepthModel fallback(fallbackVelocity);
-      return fallback.DepthToTwtMs(d) + shift;
+      partial=true;return qQNaN(); // Never manufacture the missing depth axis with a default velocity.
     };
     out.bottomTwtMs = timeFor(out.totalDepth, true);
     // goal/well-trajectory：有测斜 → 剖面井轨按真实轨迹（xy = 井口 + 位移，
@@ -427,7 +421,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
       }
     }
     WellParseReport topsReport;
-    const auto tops = m_data.topsFor(w.id, &topsReport);
+    const auto tops = nativeId>0?QVector<WellTop>{}:m_data.topsFor(w.id, &topsReport);
     if (!topsReport.issues.isEmpty())
       out.alignmentStatus += tr(" · 分层文件读面：%1").arg(wellParseSummary(topsReport));
     for (const auto &t : tops) {
@@ -437,7 +431,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
       top.tvd = t.tvd;
       // 域回退（opt-02）：目标域时深模型缺席而该行另一域值在手时，经可用
       // 模型精确换算（与上方 trajTwt 同口径）；有可用模型时绝不把 TVD 值
-      // 当深度喂常速模型（两域模型皆缺的常速近似按原语义喂该域值）。
+      // 当深度喂常速模型；缺另一域关系时保留缺失。
       const bool preferMd = !std::isfinite(t.tvd);
       bool useMd = preferMd;
       double depth = preferMd ? t.md : t.tvd;
@@ -445,7 +439,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
         useMd = true;
         depth = t.md;
       } else if (preferMd && !mdOk && tvdOk && survey) {
-        // MD 顶 + 仅 TVD 表：测斜换 TVD 后精确换算；无测斜不虚构（保持常速）。
+        // MD 顶 + 仅 TVD 表：测斜换 TVD 后精确换算；无测斜不虚构。
         const double tvd = survey->tvdAt(t.md);
         if (std::isfinite(tvd)) {
           useMd = false;
@@ -459,8 +453,21 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
                               : top.twtMs;
       out.tops.push_back(top);
     }
-    const QVector<WellCurveRef> curveIndex =
-        WellLogSet::wellCurveIndex(m_catalog, projectDir(), w.id);
+    QVector<WellCurveRef> curveIndex;QHash<QString,LasDoc> nativeDocs;
+    if(nativeId>0){
+      QVector<wellsection::Curve> curves;QString reason;
+      readAreaWellSectionCurves(projectDir(),nativeId,{},curves,&reason,[&]{return stop&&stop->load();});
+      if(!reason.isEmpty())out.alignmentStatus+=" · "+reason;
+      for(const auto &curve:curves){
+        const auto key=QStringLiteral("native:%1:%2").arg(nativeId).arg(nativeDocs.size());
+        LasDoc doc;doc.ok=true;LasCurve depth,values;depth.name="MD";depth.unit="m";
+        values.name=curve.sourceMnemonic;values.unit=curve.unit;
+        for(float v:curve.depths)depth.values.append(v);for(float v:curve.values)values.values.append(v);
+        doc.curves={depth,values};doc.curveNames={"MD",curve.sourceMnemonic};nativeDocs.insert(key,doc);
+        WellCurveRef ref;ref.path=key;ref.sourceVersionId=key;ref.mnemonic=curve.sourceMnemonic;ref.column=1;curveIndex.append(ref);
+      }
+    }else curveIndex=WellLogSet::wellCurveIndex(m_catalog,projectDir(),w.id);
+    auto &logs=nativeId>0?nativeDocs:m_logs;
     QStringList fileOrder;
     QHash<QString, QVector<WellCurveRef>> byFile;
     for (const WellCurveRef &ref : curveIndex) {
@@ -479,12 +486,12 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
       const QString cacheKey = refs.first().sourceVersionId.isEmpty()
                                    ? key
                                    : refs.first().sourceVersionId;
-      if (!m_logs.contains(cacheKey)) {
+      if (!logs.contains(cacheKey)) {
         // 遗留 P3：整份 LasDoc 按版本 id 常驻无上限（版本翻新后旧键永不
         // 释放，长会话内存单调涨）——64 条上限近似 LRU（对齐 wellsectionworkflow
         // kInterpParseCacheMaxEntries 口径）。
-        while (m_logs.size() >= 64)
-          m_logs.remove(m_logs.constBegin().key());
+        while (logs.size() >= 64)
+          logs.remove(logs.constBegin().key());
         LasDoc doc;
         LasHeaderInfo header;
         const auto &path = refs.first().path;
@@ -497,9 +504,9 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
           doc.error = tr("剖面叠加需要 MD 测深，索引基准为 %1；请先完成深度转换")
               .arg(header.indexBasis.isEmpty() ? tr("未声明") : header.indexBasis);
         }
-        m_logs.insert(cacheKey, doc);
+        logs.insert(cacheKey, doc);
       }
-      const auto &doc = m_logs[cacheKey];
+      const auto &doc = logs[cacheKey];
       if (!doc.ok || doc.curves.size() < 2) {
         // #480 P3-1：坏文件不再静默——解析失败写进对齐状态（同单位未知口径），
         // 剖面曲线缺失有感知。
@@ -571,7 +578,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
         const float sample = static_cast<float>(values.values[i] * valueScale);
         curve.depthsM.push_back(d);
         curve.twtMs.push_back(t);
-        curve.values.push_back(sample);
+        curve.values.push_back(paleo::wellnumeric::isNullCurveValue(sample)?qQNaN():sample);
         // 空值判定走 domain 权威口径（C.4 / #589）：此前这里硬编码第三套
         // 阈值——-9999.0 在 wellnumeric/welllogfacies 链是哨兵（判缺失），
         // 在这里却算合法样值并进 min/max 统计，把曲线量程压成 -9999。

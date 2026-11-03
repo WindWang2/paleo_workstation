@@ -22,6 +22,7 @@ namespace {
 struct Snapshot {
   QString stamp;
   QSet<qlonglong> usableWells;
+  QSet<qlonglong> timeDepthWells;
   bool opened = false; // 模型存在且本次成功打开（false=无模型/打开失败，走 legacy）
 };
 QMutex cacheMutex;
@@ -43,7 +44,7 @@ QString stampOf(const QString &root) {
 // 又在剖面报错」）：域外段（时间零点以上）裁剪后须能建严格表
 //（≥2 点 + 深度/时间双严格递增——TimeDepthModel::setCheckshots 自带）。
 bool relationUsable(const data::TimeDepthTable &t) {
-  if ((t.timeUnit != "ms" && t.timeUnit != "s") ||
+  if ((t.depthInfo.depthType!="MD"&&t.depthInfo.depthType!="TVD") || (t.timeUnit != "ms" && t.timeUnit != "s") ||
       (t.timeType != "TWT" && t.timeType != "OWT") || t.timeReference.empty() ||
       (t.depthInfo.depthUnit != "m" && t.depthInfo.depthUnit != "ft"))
     return false;
@@ -91,6 +92,9 @@ Snapshot modelSnapshot(const QString &projectDir) {
   std::string error;
   if (service.openProjectReadOnly(root.toUtf8().toStdString(), error)) {
     out.opened = true;
+    std::vector<data::DataEntry> entries;
+    if(service.listData("time_depth",0,entries,error))
+      for(const auto &entry:entries)if(entry.wellId>0)out.timeDepthWells.insert(entry.wellId);
     out.usableWells = usableTimeDepthWells(service, &error);
   }
   QMutexLocker lock(&cacheMutex);
@@ -131,17 +135,19 @@ QHash<QString, WellReadiness> analysisReadiness(DataCatalog *catalog,
     const qlonglong modelId = well.extra.value(QStringLiteral("areaModelWellId")).toLongLong();
     if (modelId > 0) {
       r.tdUsable = snapshot.usableWells.contains(modelId);
+      r.hasTimeDepth = snapshot.timeDepthWells.contains(modelId);
     } else {
       const QString path = legacyTimeDepthPath(catalog, well.id);
       if (!path.isEmpty()) {
+        r.hasTimeDepth = QFileInfo::exists(path);
         TimeDepthTable table;
         QString error;
         if (readTimeDepth(path, table, &error)) {
           for (const auto &row : table.rows) {
-            if (row.hasMd && std::isfinite(row.md) && std::isfinite(row.timeMs)) {
-              r.tdUsable = TimeDepthTool::interpolateTimeMs(table, row.md, true).ok();
-              break;
-            }
+            if(!std::isfinite(row.timeMs))continue;
+            if(row.hasMd&&std::isfinite(row.md))r.tdUsable=TimeDepthTool::interpolateTimeMs(table,row.md,true).ok();
+            if(!r.tdUsable&&row.hasTvd&&std::isfinite(row.tvd))r.tdUsable=TimeDepthTool::interpolateTimeMs(table,row.tvd,false).ok();
+            if(r.tdUsable)break;
           }
         }
       }

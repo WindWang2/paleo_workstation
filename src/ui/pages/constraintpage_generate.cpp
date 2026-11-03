@@ -915,6 +915,7 @@ void ConstraintPage::continueOneClick()
   }
   if (step == QLatin1String("generate")) {
     setProperty(kOneClickProp, QString());
+    noteRunStage(tr("任务完成"),100);
     if (auto *status = child<QLabel>(this, "statusLabel"))
       status->setText(tr("等值图已生成并保存；可直接使用，也可选生成等值线。"));
     updateOneClickState();

@@ -16,6 +16,7 @@
 #include "workflow/sectionworkbench.h"
 #include <QtEndian>
 #include "services/projectdata.h"
+#include "services/areawellchart.h"
 #include "workflow/xmlpreviewsession.h"
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -36,6 +37,9 @@ private slots:
       w.defaultDepthInfo.depthType="MD";w.defaultDepthInfo.depthUnit="m";
       if(n==0) {paleo::data::TimeDepthTable td;td.relationName="checkshot";td.depthTimePairs={{100,200},{200,300}};w.timeDepthRelations.push_back(td);}
       if(n==1) {paleo::data::LogSet logs;logs.logSetName="logs";logs.depthInfo=w.defaultDepthInfo;logs.samplingAxis.depthValues={100,101};
+        auto missing=logs;missing.logSetName="empty acquisition";paleo::data::LogCurve empty;empty.curveName="GR";empty.curveUnit="API";empty.sampleValues={-999.25,-999.25};missing.logCurves.push_back(empty);w.wellbore.logSets.push_back(missing);
+        paleo::data::TimeDepthTable td;td.relationName="usable checkshot";td.depthInfo=w.defaultDepthInfo;
+        td.timeUnit="ms";td.timeType="TWT";td.timeReference="synthetic datum";td.depthTimePairs={{100,200},{200,300}};w.timeDepthRelations.push_back(td);
         paleo::data::LogCurve curve;curve.curveName="GR";curve.curveUnit="API";curve.sampleValues={10,20};logs.logCurves.push_back(curve);w.wellbore.logSets.push_back(logs);
         paleo::data::IntervalTrack track;track.trackName="组";track.trackType="地层";
         paleo::data::GeologicalInterval interval;interval.intervalName="F1";interval.topDepth=100;interval.bottomDepth=200;track.intervals.push_back(interval);w.wellbore.intervalTracks.push_back(track);}
@@ -51,12 +55,13 @@ private slots:
     QCOMPARE(catalog.entities("well").size(),3);
     const auto td=catalog.entityById(catalog.wellsMatchingName("SYNTH-0").front());
     QVERIFY(!wellSupportsAnalysis(&catalog,td));QVERIFY(td.extra.value("wellDataSummary").toString().contains(QStringLiteral("时深")));
-    WellSectionWorkflow sections(&catalog);QCOMPARE(sections.wellChoices().size(),2);
-    SectionWorkbench seismic(&catalog);QCOMPARE(seismic.wells().size(),2);
-    QCOMPARE(seismic.wellSnapWells(true).size(),2);QCOMPARE(seismic.wellSnapWells().size(),3);
+    WellSectionWorkflow sections(&catalog);QCOMPARE(sections.wellChoices().size(),1);
+    QCOMPARE(sections.wellChoices().front().name,QString("SYNTH-1"));
+    SectionWorkbench seismic(&catalog);QCOMPARE(seismic.wells().size(),1);
+    QCOMPARE(seismic.wellSnapWells(true).size(),1);QCOMPARE(seismic.wellSnapWells().size(),3);
     bool ready=false;SectionWorkbench::PreviewData preview;
     seismic.requestPreviewData([&](const auto &value){preview=value;ready=true;},false);
-    QTRY_VERIFY(ready);QCOMPARE(preview.wells.size(),2);QVERIFY(preview.sectionWells.empty());
+    QTRY_VERIFY(ready);QCOMPARE(preview.wells.size(),1);QVERIFY(preview.sectionWells.empty());
     ProjectDataFacade facade;facade.setCatalog(&catalog,project);
     const auto tops=facade.topsFor(catalog.wellsMatchingName("SYNTH-1").front());
     QVERIFY(std::any_of(tops.begin(),tops.end(),[](const auto &t){return t.horizon=="F1"&&t.md==100.;}));
@@ -66,6 +71,9 @@ private slots:
     QCOMPARE(sectionReady.size(),1);
     const auto restored=qvariant_cast<QVector<wellsection::Well>>(sectionReady.front().at(1));
     QCOMPARE(restored.size(),1);
+    QVector<wellsection::Curve> selected;
+    QVERIFY(readAreaWellSectionCurves(project,catalog.entityById(restored.front().id).extra.value("areaModelWellId").toLongLong(),{"GR"},selected,&detail));
+    QCOMPARE(selected.size(),1);QCOMPARE(selected.front().values,QVector<float>({10,20}));
     QVERIFY(std::any_of(restored.front().tops.begin(),restored.front().tops.end(),[](const auto &t){return t.name=="F1"&&t.md==100.;}));
     StratigraphyWorkflow stratigraphy(nullptr);stratigraphy.setProject(project,true);
     QCOMPARE(stratigraphy.wells().size(),1);QCOMPARE(stratigraphy.wells().front().name,QString("SYNTH-1"));
@@ -161,11 +169,12 @@ private slots:
     QVERIFY2(snapshot.chartOk,qPrintable(snapshot.chartError));
     QCOMPARE(snapshot.chart.continuousCurves.size(),2);
     QCOMPARE(snapshot.chart.projectCoordinateSystem,QString("EPSG:4326"));
-    // Unknown well CRS must remain unknown even when project CRS is known.
+    // Missing declarations inherit the project convention without changing XY.
     QVERIFY(service.openProject(paleo::area_model::directory(project).toStdString(),detail));
     info.coordinateSystem.clear();info.coordinateUnit.clear();QVERIFY(service.saveWellInfo(wells.front().id,info,detail));service.closeProject();
     QVERIFY(PreviewDocService::areaPreviewSource(project,source,nullptr,&chart,&ready,&error));QVERIFY(ready);
-    QVERIFY(chart.coordinateSystem.isEmpty());QCOMPARE(chart.projectCoordinateSystem,QString("EPSG:4326"));
+    QCOMPARE(chart.coordinateSystem,QString("EPSG:4326"));QCOMPARE(chart.coordinateUnit,QString("degree"));
+    QCOMPARE(chart.projectCoordinateSystem,QString("EPSG:4326"));QCOMPARE(chart.x,0.0);QCOMPARE(chart.y,300000.0);
     QVERIFY(PreviewDocService::areaPreviewSource(project,source,nullptr,&chart,&ready,&error,999999));
     QVERIFY(!ready);QVERIFY(chart.isEmpty());QVERIFY(!error.isEmpty());
     QVERIFY(!PreviewDocService::areaPreviewSource(temp.filePath("missing"),source,nullptr,&chart,&ready,&error));

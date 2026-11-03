@@ -60,7 +60,7 @@ add_paleo_test(tst_sequenceframework LIBS paleo_services)  # 方向28：格架 C
 add_paleo_test(tst_geosymbols LIBS paleo_qgis paleo_domain) # 方向31：花纹/线型词表+入口（qrc 资源在 paleo_domain）
 add_paleo_test(tst_semanticlegend LIBS paleo_qgis paleo_domain) # 方向31：图例自动生成 + 增删/renderer 联动
 add_paleo_test(tst_symbolpicker LIBS paleo_ui paleo_qgis paleo_domain) # 方向31：符号选择器面板（缩略/过滤/patternPicked）
-add_paleo_test(tst_workflows LIBS paleo_workflow)
+add_paleo_test(tst_workflows LIBS paleo_workflow Paleo::paleo_data_service)
 add_paleo_test(tst_boundaryeditrules LIBS paleo_workflow) # 方向39：相界类型编辑规则（纯语义面）
 add_paleo_test(tst_wellsiting_workflow LIBS paleo_workflow)  # 方向34：井网辅助编排（Oracle 2/4）
 add_paleo_test(tst_wellsiting_panel LIBS paleo_ui)         # 方向34：布井辅助面板（视图锚点/意图信号）
@@ -177,6 +177,7 @@ add_paleo_test(tst_seismic_core LIBS paleo_domain)
 add_paleo_test(tst_sgycoordmapper LIBS paleo_domain)  # #135 仿射拟合数值稳定性（中心化最小二乘）
 add_paleo_test(tst_welltracelocate LIBS paleo_domain) # #129 井口 XY → 井旁道（非单位线距/旋转测网）
 add_paleo_test(tst_seismic_index LIBS paleo_services)
+add_paleo_test(tst_seismic_reads LIBS paleo_services Paleo::paleo_data_service)
 add_paleo_test(tst_fspath LIBS paleo_domain) # #291 QString↔filesystem::path UTF-16 契约（Windows 中文路径回归闸门）
 target_compile_definitions(tst_fspath PRIVATE
   SEGY_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/testdata/project_area/mini_seismic.sgy")

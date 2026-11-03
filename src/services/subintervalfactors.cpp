@@ -185,7 +185,7 @@ SandRatioMetrics sandRatioForProvisionalSub( double parentTopMd, double parentBo
 }
 
 BindResult bindSandRatioFactor( paleo::data::DataService &ds, const UnitSelection &sel, qlonglong wellId,
-                                const SandRatioMetrics &metrics, const QString &assetRef )
+                                const SandRatioMetrics &metrics, const QString &assetRef,const QVariantMap &acquisition )
 {
   if ( !metrics.ok )
   {
@@ -203,12 +203,18 @@ BindResult bindSandRatioFactor( paleo::data::DataService &ds, const UnitSelectio
   detail.insert( QStringLiteral( "classCode" ), metrics.faciesClass.code );
   detail.insert( QStringLiteral( "classId" ), metrics.faciesClass.id );
   detail.insert( QStringLiteral( "classLabelZh" ), metrics.faciesClass.labelZh );
+  detail.insert("acquisition",acquisition);
+  if(acquisition.value("valueBasis")==QLatin1String("covered_md")){
+    detail.insert("intervalThicknessMd",metrics.thicknessMd);
+    detail.insert("thicknessMd",acquisition.value("coveredThicknessMd"));
+    detail.insert("sandThicknessMd",acquisition.value("observedSandThicknessMd"));
+  }
   return bindKind( ds, sel, QStringLiteral( "single_factor" ), wellId, assetRef, QStringLiteral( "current" ),
                    detail );
 }
 
 BindResult bindWellFaciesFromSandRatio( paleo::data::DataService &ds, const UnitSelection &sel, qlonglong wellId,
-                                        const SandRatioMetrics &metrics, const QString &assetRef )
+                                        const SandRatioMetrics &metrics, const QString &assetRef,const QVariantMap &acquisition )
 {
   if ( !metrics.ok )
   {
@@ -224,6 +230,7 @@ BindResult bindWellFaciesFromSandRatio( paleo::data::DataService &ds, const Unit
   detail.insert( QStringLiteral( "classLabelZh" ), metrics.faciesClass.labelZh );
   detail.insert( QStringLiteral( "topMd" ), metrics.topMd );
   detail.insert( QStringLiteral( "bottomMd" ), metrics.bottomMd );
+  detail.insert("acquisition",acquisition);
   return bindKind( ds, sel, QStringLiteral( "well_facies" ), wellId, assetRef, QStringLiteral( "current" ),
                    detail );
 }
@@ -303,7 +310,7 @@ AutoBindReport autoBindSandRatioExtraction( const QString &projectDir, const Uni
   for ( const auto &v : rows )
   {
     const auto row = v.toMap();
-    if ( !row.value( QStringLiteral( "contributing" ) ).toBool()
+    if ( !row.value("calculated").toBool() && !row.value( QStringLiteral( "contributing" ) ).toBool()
          && !row.value( QStringLiteral( "participating" ) ).toBool() )
     {
       ++report.skipped;
@@ -346,10 +353,15 @@ AutoBindReport autoBindSandRatioExtraction( const QString &projectDir, const Uni
       ++report.skipped;
       continue;
     }
-    const qlonglong wid = stableWellKey( wellId );
+    const qlonglong nativeId = row.value( QStringLiteral( "analysisWellId" ) ).toLongLong();
+    const qlonglong wid = nativeId > 0 ? nativeId : stableWellKey( wellId );
     const QString ref = assetRef.isEmpty() ? QStringLiteral( "wellfactor.%1" ).arg( wellId ) : assetRef;
-    const auto f = bindSandRatioFactor( ds, sel, wid, metrics, ref );
-    const auto w = bindWellFaciesFromSandRatio( ds, sel, wid, metrics, ref + QStringLiteral( ".facies" ) );
+    QVariantMap acquisition;
+    for(const auto *key:{"valueMethod","valueBasis","estimated","coverage","coveredThicknessMd","observedSandThicknessMd",
+                        "grLogSetId","grSourceId","grCurve","grSandBaseline","grShaleBaseline","grShaleCutoff","grThreshold","grMaxGapMetres","source"})
+      if(row.contains(key))acquisition.insert(QLatin1String(key),row.value(key));
+    const auto f = bindSandRatioFactor( ds, sel, wid, metrics, ref,acquisition );
+    const auto w = bindWellFaciesFromSandRatio( ds, sel, wid, metrics, ref + QStringLiteral( ".facies" ),acquisition );
     if ( f.ok && w.ok )
       ++report.boundWells;
     else

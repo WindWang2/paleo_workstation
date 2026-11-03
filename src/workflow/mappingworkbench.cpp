@@ -539,11 +539,11 @@ QVariantList MappingWorkbench::inputs(const QString &kind) const {
   if (!m_catalog || !m_catalog->isOpen())
     return out;
   if (kind == QLatin1String("wells")) {
-    // 就绪井口径（HY 验收 2026-11-01）：井预测输入列表只进「曲线+可用时深」
-    // 双全的井（stamp 缓存，确认/导入后自愈）；数据管理面不受此过滤。
+    // 井相预测按 MD 曲线取样，不依赖井震时深换算；所选层段的窗口与
+    // 有效样点由 WellPredictionService 同时用于准备检查和正式运行。
     const auto readiness = paleo::analysisReadiness(m_catalog, m_dir);
     for (const auto &well : m_catalog->entities("well")) {
-      if (!readiness.value(well.id).analysisReady())
+      if (!readiness.value(well.id).hasCurves)
         continue;
       QStringList parents;
       QString logVersion;

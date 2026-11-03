@@ -3,6 +3,8 @@
 #include "derivedassets.h"
 #include "catalog/datacatalog.h"
 #include "services/subintervalfactors.h"
+#include "services/analysisunitcontext.h"
+#include "analysisresultsync.h"
 #include "paleo_data/stratigraphic_framework.h"
 #include <QJsonDocument>
 #include <QSaveFile>
@@ -15,6 +17,10 @@ void WellFaciesWorkflow::setAnalysisUnit(const paleo::strat::UnitSelection &unit
   m_analysisUnit = unit;
   emit resultCleared();
   updateInput();
+}
+void WellFaciesWorkflow::setAllowPartialPrediction(bool enabled) {
+  if(m_allowPartialPrediction==enabled)return;
+  if(m_busy)cancel();m_allowPartialPrediction=enabled;updateInput();
 }
 
 void WellFaciesWorkflow::setStratigraphicTrackFilter(const QString &trackName,
@@ -55,9 +61,9 @@ QVariantList WellFaciesWorkflow::availableStratigraphicTracks() const {
   return out;
 }
 
-bool WellFaciesWorkflow::scopePlanToUnit(QString *error) {
+bool WellFaciesWorkflow::scopePlanToUnit(QString *error, WellComposite::ComprehensiveWellData *input) {
   if (!m_hasAnalysisContext && m_stratUnitName.isEmpty()) return true; // standalone legacy consumer
-  if (!m_stratUnitName.isEmpty() && m_data.modelWellId > 0 && !projectDir().isEmpty()) {
+  if (!m_hasAnalysisContext && !m_stratUnitName.isEmpty() && m_data.modelWellId > 0 && !projectDir().isEmpty()) {
     paleo::data::WellIntervalLogQuery q;
     q.wellIds = {m_data.modelWellId};
     q.stratigraphy.source =
@@ -87,6 +93,11 @@ bool WellFaciesWorkflow::scopePlanToUnit(QString *error) {
                    .arg(QString::fromStdString(slice.depthType), QString::fromStdString(slice.depthUnit));
       return false;
     }
+    if(input){
+      paleo::data::WellSubIntervalRange range;range.resolved=true;range.depthType="MD";range.depthUnit="m";
+      range.top=slice.topDepth;range.bottom=slice.bottomDepth;
+      *input=paleo::strat::scopeWellData(*input,range);return true;
+    }
     QVector<WellFaciesRun> runs;
     for (auto run : m_plan.runs) {
       QJsonArray rows;
@@ -107,53 +118,26 @@ bool WellFaciesWorkflow::scopePlanToUnit(QString *error) {
   if (!m_analysisUnit.isValid() || m_analysisUnit.aggregate) {
     *error = tr("请先选择具体分析子层段（S1–S4）"); return false;
   }
+  paleo::strat::UnitSelection frozen;
+  if(!paleo::strat::freezeAnalysisUnit(projectDir(),m_analysisUnit,frozen,error))return false;
+  m_analysisUnit=frozen;
   const auto wells = m_catalog ? m_catalog->wellsMatchingName(m_data.wellName) : QStringList{};
+  if(m_data.modelWellId<=0&&wells.size()==1)m_data.modelWellId=m_catalog->entityById(wells.first()).extra.value("areaModelWellId").toLongLong();
   if (wells.size() != 1 && m_data.modelWellId <= 0) { *error = tr("当前井身份未唯一解析"); return false; }
   paleo::data::StratigraphicScheme scheme;
   if (!paleo::strat::loadProjectSchemeFromDir(projectDir(), m_analysisUnit.schemeId,
        m_analysisUnit.revision, scheme, nullptr, error)) return false;
-  const auto *sub = paleo::data::framework::resolveSubInterval(scheme, m_analysisUnit.subIntervalId.toStdString());
-  const paleo::data::SubIntervalId resolvedSubId = sub ? sub->id : paleo::data::SubIntervalId{m_analysisUnit.subIntervalId.toStdString()};
-  paleo::data::WellSubIntervalRange range;
-  if (m_data.modelWellId > 0 && !projectDir().isEmpty()) {
-    paleo::data::WellIntervalLogQuery q;
-    q.wellIds = {m_data.modelWellId};
-    q.stratigraphy.source = paleo::data::StratigraphicTrackSource::SeismicFramework;
-    q.stratigraphy.schemeId = m_analysisUnit.schemeId.toStdString();
-    q.stratigraphy.revision = m_analysisUnit.revision.toStdString();
-    q.stratigraphy.subIntervalId.value = m_analysisUnit.subIntervalId.toStdString();
-    q.stratigraphy.intervalId.value = m_analysisUnit.intervalId.toStdString();
-    q.stratigraphy.unitName = m_analysisUnit.subIntervalId.toStdString();
-    std::vector<paleo::data::WellStratigraphicLogSlice> slices;
-    QString qErr;
-    if (paleo::strat::queryProjectWellLogsByStratigraphy(projectDir(), q, slices, &qErr) &&
-        !slices.empty() && slices.front().resolved &&
-        (slices.front().depthType.empty() || slices.front().depthType == "MD") &&
-        (slices.front().depthUnit.empty() || slices.front().depthUnit == "m")) {
-      range.resolved = true;
-      range.top = slices.front().topDepth;
-      range.bottom = slices.front().bottomDepth;
-      range.depthType = slices.front().depthType;
-      range.depthUnit = slices.front().depthUnit;
-      range.index = m_analysisUnit.subIndex > 0 ? m_analysisUnit.subIndex : 4;
-    }
-  }
-  if (!range.resolved && m_data.modelWellId > 0)
-    range = paleo::data::framework::wellRange(scheme, m_data.modelWellId, resolvedSubId);
-  if (!range.resolved && wells.size() == 1)
-    range = paleo::data::framework::wellRange(scheme, paleo::strat::stableWellKey(wells.first()), resolvedSubId);
+  const auto range=paleo::strat::analysisWellRange(scheme,m_analysisUnit,
+      wells.size()==1?wells.first():QString(),m_data.modelWellId);
   if (!range.resolved || range.depthType != "MD" || range.depthUnit != "m") {
     *error = range.reason.empty() ? tr("分析层段缺少有效 MD 米深度窗") : QString::fromStdString(range.reason);
     return false;
   }
+  m_analysisWellId=range.wellId;
+  if(input){*input=paleo::strat::scopeWellData(*input,range);return true;}
   QVector<WellFaciesRun> runs;
   for (auto run : m_plan.runs) {
-    QJsonArray rows;
-    for (const auto &value : run.input.rows) {
-      const double depth = value.toObject().value(QStringLiteral("深度")).toDouble(NAN);
-      if (std::isfinite(depth) && depth >= range.top &&
-          (depth < range.bottom || (range.index == 4 && depth == range.bottom))) rows.append(value);
-    }
+    const auto rows=paleo::strat::scopeWellRows(run.input.rows,range);
     if (rows.size() < run.model.window) continue;
     run.input.rows = rows;
     runs.append(run);
@@ -165,6 +149,7 @@ bool WellFaciesWorkflow::scopePlanToUnit(QString *error) {
 
 QString WellFaciesWorkflow::publishUnitResult(const WellFaciesResult &result) {
   if (!m_hasAnalysisContext) return {};
+  const bool geometryStale=!paleo::strat::analysisUnitGeometryCurrent(projectDir(),m_analysisUnit);
   DerivedAssetRegistrar registrar(m_catalog, projectDir());
   QString error;
   const auto stage = registrar.stage("well_facies_prediction",
@@ -189,5 +174,8 @@ QString WellFaciesWorkflow::publishUnitResult(const WellFaciesResult &result) {
     const auto v = m_catalog->versionById(id);
     if (v.id.isEmpty() || m_catalog->currentVersion(v.assetId).id != id) extra.insert("stale", true);
   }
-  return registrar.commit(stage, m_unitParentVersions, "welllogfacies://" + result.jobId, extra, &error) ? QString() : error;
+  extra.insert("modelWellId",m_data.modelWellId);extra.insert("analysisWellId",m_analysisWellId);
+  if(geometryStale)extra.insert("stale",true);
+  if(!registrar.commit(stage,m_unitParentVersions,"welllogfacies://"+result.jobId,extra,&error))return error;
+  return syncAnalysisResults(m_catalog,projectDir());
 }

@@ -2,6 +2,7 @@
 #include "analysisresultsync.h"
 #include "catalog/datacatalog.h"
 #include "services/subintervalfactors.h"
+#include "services/analysisunitcontext.h"
 #include "paleo_data/service.h"
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -28,8 +29,8 @@ QVariantMap identity(DataCatalog *catalog, const CatalogVersion &v, QSet<QString
   return inherited;
 }
 QString resultKind(const QString &type) {
-  if (type == "prediction_raster" || type == "onnx_prediction") return "seismic_facies";
-  if (type == "well_litho_intervals" || type == "well_facies_prediction") return "well_facies";
+  if (type == "prediction_raster" || type == "onnx_prediction" || type == "seismic_prediction") return "seismic_facies";
+  if (type == "well_litho_intervals" || type == "well_facies_prediction" || type == "wells_prediction") return "well_facies";
   if (type == "facies_polygons" || type == "edited_facies" || type == "composed_facies") return "map";
   if (type == "facies_fusion_raster") return "composite";
   if (type.contains("factor") || type.startsWith("thickness_") || type=="contour_lines") return "single_factor";
@@ -48,6 +49,36 @@ bool stale(DataCatalog *catalog, const CatalogVersion &v, QSet<QString> &seen) {
   }
   return false;
 }
+QString syncWellChildren(paleo::data::DataService &ds,DataCatalog *catalog,const CatalogVersion &version,
+    const paleo::strat::UnitSelection &unit,bool outdated,QSet<QString> &registered,QSet<QString> &invalidated){
+  const auto wells=version.extra.value("supporting_wells").toList();if(wells.isEmpty())return {};
+  paleo::data::StratigraphicScheme scheme;std::string error;
+  if(!ds.readStratigraphicScheme(unit.schemeId.toStdString(),unit.revision.toStdString(),scheme,error))return QString::fromStdString(error);
+  for(const auto &value:wells){
+    const auto row=value.toMap();const auto entity=row.value("entity_id",row.value("id",row.value("well_id"))).toString();if(entity.isEmpty())continue;
+    const auto native=catalog->entityById(entity).extra.value("areaModelWellId").toLongLong();
+    const auto range=paleo::strat::analysisWellRange(scheme,unit,entity,native);if(!range.resolved)continue;
+    const auto id="catalog."+version.id+"/well/"+QString::number(range.wellId);
+    if(registered.contains(id)){
+      if(outdated&&!invalidated.contains(id)){
+        if(!ds.invalidateSubIntervalResult(id.toStdString(),error))return QString::fromStdString(error);invalidated.insert(id);
+      }
+      continue;
+    }
+    paleo::data::SubIntervalResultBinding binding,stored;
+    binding.id=id.toStdString();binding.kind="well_facies";binding.schemeId=unit.schemeId.toStdString();
+    binding.schemeRevision.value=unit.revision.toStdString();binding.interval.value=unit.intervalId.toStdString();
+    binding.subInterval.value=unit.subIntervalId.toStdString();binding.aggregate=unit.aggregate;binding.wellId=range.wellId;
+    binding.assetRef=version.id.toStdString();binding.status=outdated?"stale":"current";
+    binding.inputFingerprint=QCryptographicHash::hash((version.id+id+version.sha256).toUtf8(),QCryptographicHash::Sha256).toHex().toStdString();
+    auto detail=row;detail.insert("versionId",version.id);detail.insert("wellEntityId",entity);
+    detail.insert("topMd",range.top);detail.insert("bottomMd",range.bottom);
+    binding.detailJson=QJsonDocument(QJsonObject::fromVariantMap(detail)).toJson(QJsonDocument::Compact).toStdString();
+    if(!ds.bindSubIntervalResult(binding,stored,error))return QString::fromStdString(error);registered.insert(id);
+  }
+  return {};
+}
+
 }
 
 paleo::strat::UnitSelection analysisResultUnitSelection(DataCatalog *catalog,const CatalogVersion &version) {
@@ -79,7 +110,7 @@ QString syncAnalysisResults(DataCatalog *catalog, const QString &projectDir,
       const auto id = QString::fromStdString(b.id);
       registered.insert(id);
       if (b.status == "stale" || b.status == "legacy_unresolved") invalidated.insert(id);
-      if (!invalidated.contains(id) && id.startsWith("catalog.") && catalog->versionById(id.mid(8)).id.isEmpty()) {
+      if (!invalidated.contains(id) && id.startsWith("catalog.") && catalog->versionById(id.mid(8).section('/',0,0)).id.isEmpty()) {
         if (!ds.invalidateSubIntervalResult(b.id, detail)) return QString::fromStdString(detail);
         invalidated.insert(id); // #890：记账，后续同 id 不再重复 invalidate
       }
@@ -95,6 +126,10 @@ QString syncAnalysisResults(DataCatalog *catalog, const QString &projectDir,
     const QString id = "catalog." + v.id;
     QSet<QString> dependencies;
     bool outdated = stale(catalog, v, dependencies);
+    if(kind=="well_facies"){
+      outdated=outdated||!paleo::strat::analysisUnitGeometryCurrent(projectDir,unit);
+      const auto children=syncWellChildren(ds,catalog,v,unit,outdated,registered,invalidated);if(!children.isEmpty())return children;
+    }
     if (registered.contains(id)) {
       if (outdated && !invalidated.contains(id)) {
         std::string failure;
@@ -117,7 +152,12 @@ QString syncAnalysisResults(DataCatalog *catalog, const QString &projectDir,
     b.interval.value = unit.intervalId.toStdString(); b.subInterval.value = unit.subIntervalId.toStdString();
     b.aggregate = unit.aggregate; b.assetRef = v.id.toStdString();
     const QString well = v.extra.value("wellEntityId").toString();
-    if (!well.isEmpty()) b.wellId = paleo::strat::stableWellKey(well);
+    if(v.extra.value("analysisWellId").toLongLong()>0)b.wellId=v.extra.value("analysisWellId").toLongLong();
+    else if(v.extra.value("modelWellId").toLongLong()>0)b.wellId=v.extra.value("modelWellId").toLongLong();
+    else if (!well.isEmpty()) {
+      const auto nativeId=v.extra.value("modelWellId",catalog->entityById(well).extra.value("areaModelWellId")).toLongLong();
+      b.wellId=nativeId>0?nativeId:paleo::strat::stableWellKey(well);
+    }
     QVariantList inputs;
     for (const auto &parent : v.parentVersionIds)
       inputs.append(QVariantMap{{"id", parent}, {"sha256", catalog->versionById(parent).sha256}});

@@ -39,7 +39,9 @@ struct SeismicNativeInfo {
  std::vector<glm::dvec2> columnCoordinates; // actual source XY, NaN when unavailable
  std::vector<float> columnDistancesM;
  QString coordinateSystem;
+ SectionHorizons horizons;
 };
+struct SeismicSectionExtractionStats : SgySectionStats { SectionHorizons horizons; };
 
 // 秒级首屏快照（QuickOpenSegyPreview 的主线程可消费副本）：
 // 网格范围/角点验证结论/中央测线真振幅缩略（未读列 NaN）。
@@ -298,7 +300,7 @@ public:
       std::shared_ptr<SgyVolume> volume,
       const std::vector<glm::ivec2> &pathPoints,
       const SgySectionOptions &options,
-      std::function<void(bool success, std::shared_ptr<const SgySliceImage> image, const SgySectionStats &stats, const QString &error)> onFinished);
+      std::function<void(bool success, std::shared_ptr<const SgySliceImage> image, const SeismicSectionExtractionStats &stats, const QString &error)> onFinished);
 
   // 4. SEG-Y → .sf3c 工作区转码（engine TranscodeJob，可续跑/可取消）。
   //    workspaceBase 为空时按 Auto 约定取 <sgyPath> 本身（产出 <sgy>.sf3c.meta +
@@ -795,11 +797,11 @@ public:
   // 或回落路径时为空，不合成）。
   std::shared_ptr<const SgySliceImage> cachedSection(
       const std::vector<glm::ivec2> &pathPoints, std::shared_ptr<const SgyVolume> volume,
-      const SgySectionOptions &options, SgySectionStats *stats = nullptr) const;
+      const SgySectionOptions &options, SeismicSectionExtractionStats *stats = nullptr) const;
   void cacheSection(const std::vector<glm::ivec2> &pathPoints,
                     std::shared_ptr<const SgyVolume> volume,
                     std::shared_ptr<const SgySliceImage> image,
-                    std::shared_ptr<const SgySectionStats> stats,
+                    std::shared_ptr<const SeismicSectionExtractionStats> stats,
                     const SgySectionOptions &options);
 
 signals:
@@ -839,7 +841,7 @@ private:
   {
     qint64 key = 0;
     std::shared_ptr<const SgySliceImage> image;
-    std::shared_ptr<const SgySectionStats> stats;
+    std::shared_ptr<const SeismicSectionExtractionStats> stats;
     quint64 lastUse = 0;
   };
   mutable std::vector<SectionCacheEntry> sectionCache_;

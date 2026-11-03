@@ -56,7 +56,8 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
 
   // 连线分 Effective/断开两组：断开画细虚线示意（可右键重连），不参与
   // 层段带/高亮带的闭合几何。
-  const QVector<wellsection::Link> allLks = wellsection::links(a, b);
+  const QVector<wellsection::Link> allLks = m_st->linksForGap(m_index);
+  const bool seismicLinks=a.correlationTops||b.correlationTops||(gap&&!gap->horizons.curves.empty());
   QVector<wellsection::Link> lks;   // 连接中的
   QVector<wellsection::Link> broken; // 用户断开的
   for (const auto &lk : allLks) {
@@ -88,11 +89,12 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
       QPainterPath bot = linkPath(lks[k + 1]);
       if (top.isEmpty() || bot.isEmpty())
         continue;
+      if(top.toSubpathPolygons().size()!=1||bot.toSubpathPolygons().size()!=1)continue;
       QPainterPath band = top;
       band.connectPath(bot.toReversed());
       band.closeSubpath();
-      QColor c = wellsection::zoneColor(m_st->zoneOrder.indexOf(lks[k].name));
-      c.setAlpha(140);
+      QColor c = seismicLinks?PaleoTheme::sectionHorizonColor(lks[k].name):wellsection::zoneColor(m_st->zoneOrder.indexOf(lks[k].name));
+      c.setAlpha(seismicLinks?51:140);
       p->fillPath(band, c);
     }
   }
@@ -114,7 +116,7 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
   {
     QPainterPath top = linkPath(*la);
     QPainterPath bot = linkPath(*lb);
-    if (!top.isEmpty() && !bot.isEmpty())
+    if (!top.isEmpty() && !bot.isEmpty() && top.toSubpathPolygons().size()==1 && bot.toSubpathPolygons().size()==1)
     {
       QPainterPath band = top;
       band.connectPath(bot.toReversed());
@@ -131,7 +133,7 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
   {
     if (&lk == la || &lk == lb)
       continue;
-    QPen pen(m_st->theme.link, m_st->theme.linkWidth);
+    QPen pen(seismicLinks?PaleoTheme::sectionHorizonColor(lk.name):m_st->theme.link,seismicLinks?1.6:m_st->theme.linkWidth);
     if (lk.name == m_hoverLink)
       pen.setWidthF(pen.widthF() + 1.2);
     stroke(linkPath(lk), pen);
@@ -152,6 +154,7 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
     stroke(linkPath(*lb), hiPen);
 
   // 6. 不可绘原因（地震开且缝无效；tooltip 在面板侧挂，不在 paint 里改）。
+  if(seismicDrawn)paintSeismicHorizons(p,exposed,*gap);
   if (m_st->seismicOn && gap && !gap->valid() && !gap->reason.isEmpty())
   {
     QFont f = p->font();
@@ -167,6 +170,7 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
 
 QPainterPath GapItem::linkPath(const wellsection::Link &lk) const
 {
+  if(const auto path=seismicLinkPath(lk.name))return *path;
   const double x0 = m_st->columnRight(m_index);
   const double x1 = m_st->columnLeft(m_index + 1);
   const double yl = m_st->yForMd(m_index, lk.leftMd);
@@ -189,36 +193,13 @@ QPainterPath GapItem::linkPath(const wellsection::Link &lk) const
 // 连线命中：路径上采样最近距离（贝塞尔重几何不必精确解析），阈值 6px。
 QString GapItem::hitLink(const QPointF &pt) const
 {
-  const wellsection::Well &a = m_st->wells[m_index];
-  const wellsection::Well &b = m_st->wells[m_index + 1];
-  const double x0 = m_st->columnRight(m_index);
-  const double x1 = m_st->columnLeft(m_index + 1);
   QString best;
   double bestDist = 6.0;
-  for (const auto &lk : wellsection::links(a, b))
+  for (const auto &lk : m_st->linksForGap(m_index))
   {
-    const double yl = m_st->yForMd(m_index, lk.leftMd);
-    const double yr = m_st->yForMd(m_index + 1, lk.rightMd);
-    const bool curved = m_st->theme.curvedLinks;
-    QPointF prev(x0, yl);
-    for (int s = 1; s <= 16; ++s)
+    for(const auto &polygon:linkPath(lk).toSubpathPolygons())for(int s=1;s<polygon.size();++s)
     {
-      const double t = double(s) / 16.0;
-      QPointF cur;
-      if (curved)
-      {
-        const double mt = 1.0 - t;
-        const double mx = (x0 + x1) * 0.5;
-        cur.setX(mt * mt * mt * x0 + 3.0 * mt * mt * t * mx +
-                 3.0 * mt * t * t * mx + t * t * t * x1);
-        cur.setY(mt * mt * mt * yl + 3.0 * mt * mt * t * yl +
-                 3.0 * mt * t * t * yr + t * t * t * yr);
-      }
-      else
-      {
-        cur.setX(x0 + (x1 - x0) * t);
-        cur.setY(yl + (yr - yl) * t);
-      }
+      const QPointF prev=polygon[s-1],cur=polygon[s];
       // 线段 prev→cur 到点的距离（点到线段投影）。
       const QPointF d = cur - prev;
       const double len2 = QPointF::dotProduct(d, d);
@@ -233,7 +214,6 @@ QString GapItem::hitLink(const QPointF &pt) const
         bestDist = dist;
         best = lk.name;
       }
-      prev = cur;
     }
   }
   return best;

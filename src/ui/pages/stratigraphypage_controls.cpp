@@ -16,6 +16,7 @@
 #include <QLabel>
 #include <QInputDialog>
 #include <QSignalBlocker>
+#include <QTableWidget>
 void StratigraphyPage::buildActions(QBoxLayout* layout) {
  auto* row=new QHBoxLayout;layout->addLayout(row);
  const auto button=[this,row](const QString& text,const char* name,const auto& fn){auto* b=new QPushButton(text,this);b->setObjectName(QLatin1String(name));row->addWidget(b);connect(b,&QPushButton::clicked,this,fn);return b;};
@@ -25,6 +26,8 @@ void StratigraphyPage::buildActions(QBoxLayout* layout) {
  auto* save=button(tr("保存分层版本"),"saveInterpretation",[this]{m_workflow->setViewOptions({{"flatten",m_flatten->currentData().toString()},{"segmentScope",m_scope->currentData().toString()}});m_workflow->save();});
  auto* undo=button(tr("撤销"),"undoInterpretation",[this]{m_workflow->undo();});
  auto* redo=button(tr("重做"),"redoInterpretation",[this]{m_workflow->redo();});
+ button(tr("全图"),"fitFormation",[this]{fitFormation();});
+ auto* list=button(tr("界线列表"),"stratigraphyTableToggle",[this](bool shown){if(m_results)m_results->setVisible(shown);});list->setCheckable(true);
  // #869：页内键盘撤销/重做（键序登记在 ShortcutCatalog stratigraphy.*；按钮禁用时 click 无效）。
  connect(paleo::shortcuts::bindShortcut(QStringLiteral("stratigraphy.undo"),this),&QShortcut::activated,undo,&QPushButton::click);
  connect(paleo::shortcuts::bindShortcut(QStringLiteral("stratigraphy.redo"),this),&QShortcut::activated,redo,&QPushButton::click);
@@ -91,7 +94,7 @@ void StratigraphyPage::buildAdvanced(QBoxLayout* layout) {
  auto* read=new QPushButton(tr("读取所选版本"),widget);read->setObjectName(QStringLiteral("readInterpretation"));history->addWidget(read);
  connect(m_saved,&QComboBox::currentIndexChanged,this,&StratigraphyPage::refreshRevisions);
  connect(read,&QPushButton::clicked,this,[this]{if(confirmReplace())m_workflow->loadVersion(m_saved->currentData().toString(),m_revision->currentData().toString());});
- layout->addWidget(widget);widget->hide();
+ buildRangeControls(box);layout->addWidget(widget);widget->hide();
 }
 void StratigraphyPage::refreshRevisions() {
  QSignalBlocker blocker(m_revision);m_revision->clear();const auto id=m_saved->currentData().toString();

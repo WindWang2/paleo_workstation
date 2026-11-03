@@ -183,7 +183,7 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
                        tr("基准面与深度域：井深 / 海拔 / 拉平 / 垂深（TVD）"));
   m_seismicBtn = mkBtn("wellSectionSeismicButton", "mIconRasterLayer.svg",
                        tr("井间叠加地震剖面（按时深关系自适应缩放）"));
-  m_seismicBtn->setCheckable(true);
+  m_seismicBtn->setCheckable(true);setupHorizonOverlayControl(bar);
   m_faultBtn = mkBtn("wellSectionFaultButton", "mIconLineLayer.svg",
                      tr("断层投绘（断面与剖面井径求交）"));
   m_faultBtn->setCheckable(true);
@@ -500,8 +500,8 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
 void WellSectionPanel::setWellChoices(const QVector<WellChoice> &choices)
 {
   m_choices = choices;
+  if(auto *dialog=findChild<WellSectionWellsDialog*>())dialog->setWellChoices(choices);
 }
-
 void WellSectionPanel::setMnemonicChoices(const QStringList &mnemonics)
 {
   m_mnemonicChoices = mnemonics;
@@ -529,7 +529,7 @@ void WellSectionPanel::setSection(const QVector<wellsection::Well> &wells)
       const wellsection::Well &o = m_wells.at(i);
       const wellsection::Well &n = wells.at(i);
       if (o.id != n.id || !sameCoord(o.x, n.x) || !sameCoord(o.y, n.y) ||
-          bool(o.timeDepth)!=bool(n.timeDepth) ||
+          bool(o.timeDepth)!=bool(n.timeDepth) || o.correlationRevision!=n.correlationRevision ||
           (o.timeDepth&&n.timeDepth&&o.timeDepth->timeReference!=n.timeDepth->timeReference)) {
         keepStrip = false;
         break;
@@ -563,6 +563,7 @@ void WellSectionPanel::setSeismicStrip(const wellsection::SeismicStrip &strip)
   if (strip.gaps.size() != m_wells.size() - 1)
     return; // 与当前井集不符 → 丢弃
   m_st.strip = strip;
+  rebuildFiltered();applyLayout();updateHorizonOverlayStatus();
   ++m_st.stripVersion;
   syncGapToolTips();
   for (auto *g : m_gapItems)
@@ -966,19 +967,6 @@ bool WellSectionPanel::exportTo(const QString &path) const
   return renderImage(1.0).save(path);
 }
 
-// ---- 测试钩子 ----
-int WellSectionPanel::linkCount() const
-{
-  int n = 0;
-  for (int i = 0; i + 1 < m_st.wells.size(); ++i)
-    for (const wellsection::Link &lk :
-         wellsection::links(m_st.wells[i], m_st.wells[i + 1]))
-      if (wellsection::linkConnected(m_linkOverrides, m_st.wells[i].id,
-                                     m_st.wells[i + 1].id, lk.name))
-        ++n;
-  return n;
-}
-
 QString WellSectionPanel::highlightedFormation() const
 {
   if (m_st.activeTop.isEmpty())
@@ -1059,6 +1047,7 @@ QString WellSectionPanel::lithoTrackCaption(const QString &wellId) const
 void WellSectionPanel::rebuildFiltered()
 {
   m_st.wells = wellsection::filterTops(m_wells, m_tpl);
+  wellsection::useSeismicCorrelationTops(m_st.wells,m_st.strip);
   m_st.domain = m_domain;
   m_st.offsets.clear();
   for (const auto &w : m_st.wells)
@@ -1070,6 +1059,8 @@ void WellSectionPanel::rebuildFiltered()
   m_st.faultsOn = m_faultsOn;
   m_st.zoneOrder = wellsection::orderedTopNames(m_st.wells);
   m_st.tpl = m_tpl;
+  if(std::any_of(m_st.wells.begin(),m_st.wells.end(),[](const auto &w){return w.correlationTops.has_value();}))
+    for(auto &track:m_st.tpl.tracks)if(track.kind==wellsection::TrackKind::Zone)track.title=QObject::tr("地震层位");
   m_st.seismicOn = m_seismicOn;
   m_st.selected = -1;
   for (int i = 0; i < m_st.wells.size(); ++i)
@@ -1330,9 +1321,9 @@ void WellSectionPanel::removeWellAt(int index)
 
 void WellSectionPanel::openWellsDialog()
 {
-  WellSectionWellsDialog dlg(m_choices, m_ids,
-                             m_ctx ? m_ctx->selectedIds() : QStringList(),
-                             this);
+  WellSectionWellsDialog dlg(m_choices,m_ids,m_ctx?m_ctx->selectedIds():QStringList(),this);
+  connect(&dlg,&WellSectionWellsDialog::timeDepthSettingsRequested,this,&WellSectionPanel::timeDepthSettingsRequested);
+
   if (dlg.exec() != QDialog::Accepted)
     return;
   const QStringList ids = dlg.selectedIds();

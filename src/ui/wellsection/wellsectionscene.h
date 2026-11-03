@@ -55,6 +55,7 @@ struct RenderState {
   wellsection::SectionTheme theme;
   wellsection::SeismicStrip strip;
   bool seismicOn = false;
+  bool seismicHorizonsOn=false;
   // 缝内地震色标：-1 = 跟随主题（seismicGray→灰度，否则红白蓝）；
   // >=0 = seismic::SectionColorMapType 显式预设（与剖面画布同一 LUT）。
   int seismicCmap = -1;
@@ -120,6 +121,9 @@ struct RenderState {
   double yForMd(int well, double md) const
   {
     return yForDisplay(displayOfMd(well, md));
+  }
+  QVector<wellsection::Link> linksForGap(int i) const {
+    return wellsection::correlationLinks(wells[i],wells[i+1],i<strip.gaps.size()?&strip.gaps[i]:nullptr);
   }
   // 命中测试：返回井序号或 -1（缝/边缘内）。
   int columnAtX(double x) const;
@@ -241,9 +245,11 @@ class GapItem : public QGraphicsItem
   private:
     void paintSeismic(QPainter *p, const QRectF &exposed,
                       const wellsection::SeismicGap &gap);
+    void paintSeismicHorizons(QPainter *p,const QRectF& exposed,const wellsection::SeismicGap& gap);
     // 连线几何：主题 curvedLinks 时走 S 形贝塞尔，否则直线；层段带/
     // 高亮带/高亮边界共用同一路径（填充与线型不走两套几何）。
     QPainterPath linkPath(const wellsection::Link &lk) const;
+    std::optional<QPainterPath> seismicLinkPath(const QString &name) const;
     // 命中最近连线（阈值内）；空名 = 未命中。坐标为 item 局部。
     QString hitLink(const QPointF &p) const;
 

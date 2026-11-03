@@ -16,6 +16,7 @@
 #include <QLinearGradient>
 #include <QPainter>
 #include <QPen>
+#include <QPointer>
 #include <QRectF>
 #include <QString>
 #include <QVector>
@@ -28,6 +29,8 @@
 #include "../../domain/sectiontrace.h"     // SegyTrace/SegySectionGrid
 #include "../paleotheme.h"
 #include "../seismicsection/seismiccolormap.h"
+#include "../seismicsection/sectionhorizoncontrols.h"
+#include "../seismicsection/sectionhorizonrender.h"
 
 namespace paleo::datapreview_detail {
 
@@ -77,6 +80,7 @@ public:
   void setTraces(const QVector<SegyTrace> &traces, float dtUs, double t0Ms,
                  const QString &readWarning = {})
   {
+    setHorizons({});
     if (traces.isEmpty())
     {
       clearImage();
@@ -120,9 +124,23 @@ public:
     update();
   }
   bool hasImage() const { return !m_img.isNull(); }
+  QWidget *createDisplayControls(QWidget *parent){
+    auto *control=new QWidget(parent);auto *layout=new QHBoxLayout(control);
+    layout->setContentsMargins(0,0,0,0);layout->setSpacing(PaleoTheme::tokens().spacingXs);
+    layout->addWidget(createColorMapControl(control));layout->addWidget(createHorizonControl(control));return control;
+  }
+  QWidget *createHorizonControl(QWidget *parent){
+    m_horizonButton=new seismic::SectionHorizonButton(parent);m_horizonButton->setChecked(m_horizonsVisible);
+    m_horizonButton->setOverlayStatus(m_horizons);
+    connect(m_horizonButton,&QToolButton::toggled,this,[this](bool on){m_horizonsVisible=on;update();});return m_horizonButton;
+  }
+  void setHorizons(const seismic::SectionHorizons& horizons){
+    m_horizons=horizons;if(m_horizonButton)m_horizonButton->setOverlayStatus(m_horizons);update();
+  }
   void clearImage()
   {
     m_img = QImage();
+    setHorizons({});
     m_caption.clear();
     setToolTip(QString());
     m_error.clear();
@@ -131,6 +149,7 @@ public:
   }
   void setError(const QString &text)
   {
+    setHorizons({});
     m_img = QImage();
     m_error = text;
     clearTieMarker();
@@ -210,6 +229,8 @@ protected:
     p.restore();
 
     // 3. D61 标定线（时间 ms → 剖面内水平线 + 井名标注）
+    if(m_horizonsVisible&&m_dtMs>0)seismic::paintSectionHorizons(p,dst,m_horizons,[&](int col,double time){
+      return QPointF(dst.left()+(col+.5)*dst.width()/m_img.width(),dst.top()+((time-m_t0Ms)/m_dtMs+.5)*dst.height()/m_img.height());});
     if (std::isfinite(m_tieMs) && m_dtMs > 0.0 && m_img.height() > 1)
     {
       const double row = (m_tieMs - m_t0Ms) / m_dtMs;
@@ -288,6 +309,9 @@ protected:
   }
 
 private:
+  seismic::SectionHorizons m_horizons;
+  QPointer<seismic::SectionHorizonButton> m_horizonButton;
+  bool m_horizonsVisible=false;
   void updateColorTable()
   {
     // 0 保留给缺测；1..255 表达 [-1,1]，128 为零振幅。换色只更新调色板。

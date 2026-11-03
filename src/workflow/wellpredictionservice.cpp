@@ -4,18 +4,17 @@
 #include "../domain/faciescatalog.h"
 #include "../domain/faciestaxonomy.h"
 #include "../domain/welllogfacies.h"
-#include "../domain/wellnumeric.h"
-#include "../io/welllogread.h"
 #include "../qgis/wellattributestore.h"
 #include "../services/futuretask.h"
 #include "../services/projectdata.h"
 #include "../services/subintervalfactors.h"
+#include "services/analysisunitcontext.h"
 #include "../services/welllogset.h"
+#include "services/wellpredictioninput.h"
 #include "wellsectionworkflow.h"
 #include <QDebug>
 #include <QFutureWatcher>
 #include <QFileInfo>
-#include <QCoreApplication>
 #include <QJsonDocument>
 #include <QSet>
 #include <QTimer>
@@ -166,6 +165,15 @@ void WellPredictionService::reportReadiness() {
   emit readinessReady(id, wells, {});
 }
 void WellPredictionService::prepare() {
+  m_unitRanges.clear();
+  paleo::strat::UnitSelection unit;
+  paleo::data::StratigraphicScheme scheme;
+  if(!m_request.unitSelection.isEmpty()){
+    QString error;
+    if(!paleo::strat::freezeAnalysisUnit(m_dir,paleo::strat::fromMap(m_request.unitSelection),unit,&error)||
+       !paleo::strat::loadProjectSchemeFromDir(m_dir,unit.schemeId,unit.revision,scheme,nullptr,&error))return fail(error);
+    m_request.unitSelection=paleo::strat::toMap(unit);
+  }
   struct Source {
     QVector<WellCurveRef> curves;
     QVector<WellTop> tops;
@@ -186,21 +194,24 @@ void WellPredictionService::prepare() {
     const QString id = well.value("id").toString();
     Source source;
     source.data.wellName = well.value("name").toString();
-    source.curves = WellLogSet::wellCurveIndex(m_catalog, m_dir, id);
+    const qlonglong modelWellId = m_catalog->entityById(id).extra.value(QStringLiteral("areaModelWellId")).toLongLong();
+    source.data.modelWellId=modelWellId;
+    if(modelWellId<=0)source.curves = WellLogSet::wellCurveIndex(m_catalog, m_dir, id);
     for (const auto &curve : source.curves)
       if (!curve.sourceVersionId.isEmpty()) m_request.sourceVersionIds << curve.sourceVersionId;
-    // 编图输入选择可能来自旧快照，实际消费的岩屑来源也必须保留。
+    // 实际消费的原生测井、组段分层及显式岩性来源参与成果失效。
     for (const auto &link : m_catalog->linksForEntity(id))
-      if (!link.unresolved && link.role == QLatin1String("cuttings")) {
+      if (!link.unresolved && (link.role == QLatin1String("cuttings") || link.role == QLatin1String("well_log") ||
+                              (modelWellId>0 && link.role == QLatin1String("tops")))) {
         const auto version = m_catalog->currentVersion(link.assetId);
         if (!version.id.isEmpty()) m_request.sourceVersionIds << version.id;
       }
     // 编图与砂地比、厚度、残差同一套层序，不跟 20kou 这类主分层。
     QString topsError;
-    source.tops = project.topsForMapping(id, &topsError);
-    if (!topsError.isEmpty()) skip(int(sources.size()), topsError);
+    if(modelWellId<=0||!unit.isValid())source.tops = project.topsForMapping(id, &topsError);
+    if (!unit.isValid() && !topsError.isEmpty()) skip(int(sources.size()), topsError);
     QString topsVersion;
-    const QString topsAsset = project.mappingTopsAssetId(id);
+    const QString topsAsset = modelWellId>0 ? QString() : project.mappingTopsAssetId(id);
     if (!topsAsset.isEmpty())
       topsVersion = m_catalog->currentVersion(topsAsset).id;
     // 工区维护表中的组/段及显式底深随本次输入冻结，优先于原始 tops。
@@ -223,8 +234,23 @@ void WellPredictionService::prepare() {
     std::stable_sort(source.tops.begin(), source.tops.end(),
       [](const WellTop &a, const WellTop &b) { return a.md < b.md; });
     bool current = false;
-    const qlonglong modelWellId = m_catalog->entityById(id).extra.value(QStringLiteral("areaModelWellId")).toLongLong();
-    if (modelWellId > 0 && !m_dir.isEmpty() && QFileInfo::exists(m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite"))) {
+    if(unit.isValid()){
+      // The selected scheme revision owns this window. A previous prediction's
+      // maintained row must not duplicate or override it on a repeat run.
+      auto &formations=source.data.formationIntervals;
+      formations.erase(std::remove_if(formations.begin(),formations.end(),[this](const auto &f){
+        return f.name.compare(m_request.horizon,Qt::CaseInsensitive)==0;
+      }),formations.end());
+      const auto range=paleo::strat::analysisWellRange(scheme,unit,id,modelWellId);
+      if(!range.resolved||range.depthType!="MD"||range.depthUnit!="m")
+        skip(int(sources.size()),QString::fromStdString(range.reason.empty()?"当前井在所选地震层段缺少 MD 米深度窗":range.reason));
+      else {
+        m_unitRanges.insert(int(sources.size()),{{"top",range.top},{"bottom",range.bottom},{"index",range.index}});
+        WellComposite::FormationInterval f;f.name=m_request.horizon;f.topDepth=float(range.top);f.bottomDepth=float(range.bottom);
+        f.unitType=QStringLiteral("地震小层");source.data.formationIntervals.append(f);
+      }
+    }
+    if (!unit.isValid() && modelWellId > 0 && !m_dir.isEmpty() && QFileInfo::exists(m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite"))) {
       paleo::data::WellIntervalLogQuery q;
       q.wellIds = {modelWellId};
       q.stratigraphy.subIntervalId.value = m_request.horizon.toStdString();
@@ -254,7 +280,7 @@ void WellPredictionService::prepare() {
       current |= formation.name.compare(m_request.horizon, Qt::CaseInsensitive) == 0;
     if (!current) skip(int(sources.size()), tr("缺少当前地层 %1 的分层").arg(m_request.horizon));
     if (!topsVersion.isEmpty()) m_request.sourceVersionIds << topsVersion;
-    if (source.curves.isEmpty()) skip(int(sources.size()), tr("没有可读测井曲线"));
+    if (source.curves.isEmpty() && modelWellId<=0) skip(int(sources.size()), tr("没有可读测井曲线"));
     for (const auto &segment : lithologies.value(id)) {
       WellComposite::LithologyInterval interval;
       interval.topDepth = float(segment.topMd); interval.bottomDepth = float(segment.baseMd);
@@ -294,7 +320,7 @@ void WellPredictionService::prepare() {
   });
   watcher->setFuture(QtConcurrent::run(
       paleo::tasks::pool(m_tasks),
-      [sources, cancelled, readErrors](
+      [sources, cancelled, readErrors, projectDir=m_dir](
           QPromise<QVector<WellComposite::ComprehensiveWellData>> &promise) {
         promise.setProgressRange(0, int(sources.size()));
         QVector<WellComposite::ComprehensiveWellData> data;
@@ -302,55 +328,15 @@ void WellPredictionService::prepare() {
           if (cancelled->load())
             break;
           auto well = source.data;
-          QHash<QString, QPair<LasHeaderInfo, LasDoc>> docs;
-          QHash<QString, WellLogFormat> formats; // 每路径一次嗅探（C-8）
-          double top = std::numeric_limits<double>::infinity(), base = -top;
-          for (const auto &ref : source.curves) {
-            if (cancelled->load())
-              break;
-            if (!docs.contains(ref.path)) {
-              const auto format = WellLogRead::detect(ref.path);
-              formats.insert(ref.path, format);
-              LasHeaderInfo header;
-              LasDoc parsed;
-              parsed.ok = WellLogRead::parse(ref.path, format,
-                                             header, parsed.curves, &parsed.error);
-              parsed.curveNames = header.curveNames;
-              docs.insert(ref.path, {header, parsed});
-            }
-            const auto &header = docs[ref.path].first;
-            const auto &doc = docs[ref.path].second;
-            const bool explicitAxis = formats.value(ref.path) != WellLogFormat::Las;
-            const auto unitScale = doc.curves.isEmpty() ? std::optional<double>() :
-                paleo::wellnumeric::depthScaleToMetres(doc.curves.first().unit);
-            if (explicitAxis && (!doc.ok || header.indexBasis != QLatin1String("MD") || !unitScale)) {
-              readErrors->insert(int(data.size()), QCoreApplication::translate("WellPredictionService", "%1：预测需要已声明米或英尺单位的 MD 测深，当前基准为 %2；请检查索引与单位。%3")
-                  .arg(QFileInfo(ref.path).fileName(), header.indexBasis.isEmpty() ? QCoreApplication::translate("WellPredictionService", "未声明") : header.indexBasis, doc.error));
-              well.continuousCurves.clear();
-              break;
-            }
-            if (doc.curves.isEmpty() || ref.column < 1 ||
-                ref.column >= doc.curves.size())
-              continue;
-            // 预测输入使用测深（MD）；其他深度域不能直接当成 MD。
-            if (header.indexBasis != "MD")
-              continue;
-            WellComposite::CurveData curve;
-            curve.name = ref.mnemonic;
-            curve.unit = doc.curves[ref.column].unit;
-            const auto &depth = doc.curves.first();
-            QString reason;
-            if (!normalizeDepthCurve(depth.values, doc.curves[ref.column].values,
-                                     depth.unit, &curve, &reason)) {
-              qWarning().noquote() << "well prediction: skip curve" << ref.mnemonic
-                                   << "of" << ref.path << "-" << reason;
-              continue;
-            }
-            if (!curve.depths.isEmpty()) {
-              top = std::min(top, double(curve.depths.first()));
-              base = std::max(base, double(curve.depths.last()));
-            }
-            well.continuousCurves.append(curve);
+          QString error;
+          const auto stopped=[cancelled]{return cancelled->load();};
+          const bool ok=well.modelWellId>0
+              ? paleo::readModelWellPredictionInput(projectDir,well,&error,stopped)
+              : paleo::readFileWellPredictionCurves(source.curves,well,&error,stopped);
+          if(!ok&&!stopped())readErrors->insert(int(data.size()),error);
+          double top=std::numeric_limits<double>::infinity(),base=-top;
+          for(const auto &curve:well.continuousCurves)if(!curve.depths.isEmpty()){
+            top=std::min(top,double(curve.depths.first()));base=std::max(base,double(curve.depths.last()));
           }
           well.minDepth = top;
           well.maxDepth = base;
@@ -390,7 +376,23 @@ void WellPredictionService::plan(const QVector<WellFaciesModel> &models) {
   m_runs.clear(); m_results.resize(m_data.size());
   for (int i = 0; i < m_data.size(); ++i) {
     if (m_skipped.contains(i)) continue;
-    auto planned = planWellFaciesFormationRun(m_data[i], models, m_request.horizon);
+    auto input=m_data[i];
+    paleo::data::WellSubIntervalRange range;
+    if(!m_request.unitSelection.isEmpty()){
+      const auto selected=m_unitRanges.value(i);
+      range.resolved=!selected.isEmpty();range.depthType="MD";range.depthUnit="m";
+      range.top=selected.value("top").toDouble();range.bottom=selected.value("bottom").toDouble();range.index=selected.value("index").toInt();
+      input=paleo::strat::scopeWellData(input,range);
+    }
+    auto planned = m_request.unitSelection.isEmpty()
+        ? planWellFaciesFormationRun(input,models,m_request.horizon)
+        : planWellFaciesRuns(input,models,{});
+    if(!m_request.unitSelection.isEmpty()&&planned.ready()){
+      QVector<WellFaciesRun> runs;
+      for(auto run:planned.runs){run.input.rows=paleo::strat::scopeWellRows(run.input.rows,range);if(run.input.rows.size()>=run.model.window)runs.append(run);}
+      planned.runs=runs;
+      if(runs.isEmpty())planned.reason=tr("当前子层段内有效测井样点不足");
+    }
     if (!planned.ready()) { skip(i, planned.reason); continue; }
     QString classError;
     for (auto &run : planned.runs) {

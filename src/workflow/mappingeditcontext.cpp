@@ -11,6 +11,7 @@
 
 void MappingWorkbench::setAnalysisUnit(const paleo::strat::UnitSelection &unit) {
   if(m_analysisUnit==unit)return;
+  if(!m_request.id.isEmpty()||!m_readinessId.isEmpty())cancelPrediction();
   m_analysisUnit=unit;clearEditEvidence();
 }
 

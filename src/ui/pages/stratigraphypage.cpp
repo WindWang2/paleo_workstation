@@ -41,9 +41,8 @@ StratigraphyPage::StratigraphyPage(StratigraphyWorkflow* workflow,QWidget* paren
  layout->setContentsMargins(t.spacingSm,t.spacingSm,t.spacingSm,t.spacingSm);layout->setSpacing(t.spacingSm);
  buildActions(layout);buildAdvanced(layout);
  m_status=new QLabel(tr("加载井道图，计算区域界面并划分旋回；单击井道拾取深度，选中界线可拖动或编辑。"),this);
- m_status->setObjectName(QStringLiteral("stratigraphyStatus"));m_status->setWordWrap(true);
+ m_status->setObjectName(QStringLiteral("stratigraphyStatus"));m_status->setWordWrap(false);m_status->setMinimumWidth(0);m_status->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
  m_status->setTextFormat(Qt::PlainText);m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);layout->addWidget(m_status);
- buildRangeControls(layout);
  auto* body=new QHBoxLayout;m_wells=new QListWidget(this);
  m_wells->setObjectName(QStringLiteral("stratigraphyWells"));m_wells->setAccessibleName(tr("参与对比的井"));body->addWidget(m_wells,1);
  auto* splitter=new QSplitter(Qt::Vertical,this);
@@ -57,11 +56,11 @@ StratigraphyPage::StratigraphyPage(StratigraphyWorkflow* workflow,QWidget* paren
  m_results->setAccessibleName(tr("地层划分结果"));m_results->setSelectionBehavior(QAbstractItemView::SelectRows);
  m_results->setHorizontalHeaderLabels({tr("井"),tr("界面／旋回"),tr("级别"),tr("顶深 MD（m）"),tr("底深 MD（m）"),tr("来源／方向"),tr("状态")});
  m_results->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);m_results->horizontalHeader()->setStretchLastSection(true);
- m_results->setEditTriggers(QAbstractItemView::NoEditTriggers);splitter->addWidget(m_results);splitter->setStretchFactor(0,3);splitter->setStretchFactor(1,1);
+ m_results->setEditTriggers(QAbstractItemView::NoEditTriggers);splitter->addWidget(m_results);m_results->hide();splitter->setStretchFactor(0,3);splitter->setStretchFactor(1,1);
  body->addWidget(splitter,5);buildEditor(body);layout->addLayout(body,1);
  connect(workflow,&StratigraphyWorkflow::documentReplaced,this,[this]{m_reloadPreview=true;clearSelection();const auto view=QJsonDocument::fromJson(QByteArray::fromStdString(m_workflow->document().viewStateJson)).object();m_flatten->setCurrentIndex(std::max(0,m_flatten->findData(view["flatten"].toString())));m_scope->setCurrentIndex(std::max(0,m_scope->findData(view["segmentScope"].toString())));});
  connect(workflow,&StratigraphyWorkflow::changed,this,&StratigraphyPage::refresh);
- connect(workflow,&StratigraphyWorkflow::statusChanged,m_status,&QLabel::setText);
+ connect(workflow,&StratigraphyWorkflow::statusChanged,this,&StratigraphyPage::setStatus);
  connect(workflow,&StratigraphyWorkflow::busyChanged,this,[this](bool busy){m_wells->setEnabled(!busy);for(auto* panel:m_section->findChildren<WellComposite::WellCompositePanel*>())panel->setBoundaryAnnotationMode(true,m_workflow->canEdit());});
  connect(workflow,&StratigraphyWorkflow::boundarySelected,this,[this](qlonglong well,const QString& id){selectObject(well,id);});
  connect(m_wells,&QListWidget::currentItemChanged,this,[this](QListWidgetItem* item){if(item){m_selectedWell=item->data(Qt::UserRole).toLongLong();m_selectedObject.clear();}});
@@ -70,6 +69,7 @@ StratigraphyPage::StratigraphyPage(StratigraphyWorkflow* workflow,QWidget* paren
  connect(m_results,&QTableWidget::cellClicked,this,[this](int row,int){const auto rows=m_workflow->rows();if(row<rows.size())selectObject(rows[row].wellId,rows[row].id,rows[row].cycle);});
  refresh();
 }
+void StratigraphyPage::setStatus(const QString& message){m_status->setToolTip(message);m_status->setText(message.simplified());}
 QList<qlonglong> StratigraphyPage::selectedWells() const {
  if(!m_wells)return {};
  QList<qlonglong> ids;for(int i=0;i<m_wells->count();++i)if(m_wells->item(i)->checkState()==Qt::Checked)ids.append(m_wells->item(i)->data(Qt::UserRole).toLongLong());return ids;

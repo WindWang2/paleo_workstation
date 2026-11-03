@@ -216,7 +216,10 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 （#748 撤销组：`_undogroup.cpp` 承载 `undoRouter`/`bindUndoGroup`，本 TU 不直连 qgs*；
 `newLayoutShell` 落在已入基线的 `_attach_compose.cpp`。与 #749 迁出 `_workbench_commands.cpp` 相抵后净 +1。）
 
-家族全表（`src/ui/paleomainwindow_*.cpp` 31 TU + 本体 1 行 = 表 32 行，平铺不
+**实测（2026-11-03，井震时间口径入口）：paleomainwindow.cpp 964 行（家族 32 TU）**
+新增 `_timedepth.cpp` 只编排共用来源设置视图与 SectionWorkbench，不直连 Qgs。
+
+家族全表（`src/ui/paleomainwindow_*.cpp` 32 TU + 本体 1 行 = 表 33 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：
 
@@ -235,6 +238,7 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 | `_attach_mapping.cpp` | 418 | 编图流水线与版本域接线（W4 段：导出接线/版本状态机/发布门） |
 | `_workbench_wells.cpp` | 360 | 井预测面板 dock/自动保存/修订链（#473 拆分承载） |
 | `_sections.cpp` | 319 | 地震剖面窗壳接线（sectionsetup/剖面路径橡皮筋） |
+| `_timedepth.cpp` | 20 | 共用时深来源与地震时间零点设置接线（2026-11-03） |
 | `_ribbon.cpp` | 258 | ribbon 骨架域（#312）：buildRibbon 页签/文件菜单/全局按钮组 |
 | `_pages.cpp` | 239 | 页切换域（#312）：showPage 六页编排/dock 保存恢复/底栏自动露出 |
 | `_project.cpp` | 210 | 工程打开/导入编排入口域（#312）：openPath/确认表/懒建编排器 |

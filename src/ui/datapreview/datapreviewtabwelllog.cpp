@@ -153,7 +153,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   }
   const QStringList names = header.curveNames;
   // ResFormStar 多井道综合柱状图总装（骨架即建；曲线数据两段式第二段补装）
-  auto *compPanel = new WellComposite::WellCompositePanel(host);
+  auto *compPanel = new WellComposite::WellCompositePanel(host, WellComposite::WellCompositePanel::PredictionScope::WholeWellPreview);
   compPanel->setObjectName(QStringLiteral("wellCompositePanel"));
 
   // 查询该井是否有关联分层数据 (DC.dat)

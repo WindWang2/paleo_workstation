@@ -1,8 +1,15 @@
 // 层：数据
 #include "seismicdataaccess.h"
+#include "seismicsource.h"
+#include "seismiclinecache.h"
 #include "../io/areamodel.h"
 
 namespace paleo {
+bool readSeismicSourceCrs(const QString &path,QString &crs,QString *error){
+ crs.clear();if(error)error->clear();SeismicDataAccess source;
+ if(!source.open(path,error))return false;
+ crs=source.coordinateSystem();return true;
+}
 bool SeismicDataAccess::open(const QString& path,QString *error) {
  m_volume=0;m_unit.clear();m_crs.clear();m_file=path.toUtf8().toStdString();long long source=0;
  const auto state=area_model::openSource(path,m_service,source,error);
@@ -25,10 +32,12 @@ bool SeismicDataAccess::inspect(data::SeismicFileInfo& result,std::string& error
 }
 bool SeismicDataAccess::line(bool isInline,int number,const data::SectionReadOptions& options,data::SeismicSectionResult& result,std::string& error,const data::CancelCheck& cancel) {
  const std::string direction=isInline?"inline":"crossline";
- return m_volume?m_service.readSeismicLine(m_volume,direction,number,options,result,error,cancel):data::DataService::readSeismicFileLine(m_file,direction,number,options,result,error,cancel);
+ const auto context=area_model::cacheToken(QString::fromUtf8(m_file))+QString::number(m_volume);
+ return cachedSeismicLine(QString::fromUtf8(m_file),context,isInline,number,options,result,error,cancel,
+   [&](auto& out,auto& detail){return m_volume?m_service.readSeismicLine(m_volume,direction,number,options,out,detail,cancel):data::DataService::readSeismicFileLine(m_file,direction,number,options,out,detail,cancel);});
 }
-bool SeismicDataAccess::time(double ms,const data::TimeSliceReadOptions& options,data::SeismicTimeSliceResult& result,std::string& error,const data::CancelCheck& cancel) {
- return m_volume?m_service.readSeismicTimeSlice(m_volume,ms,options,result,error,cancel):data::DataService::readSeismicFileTimeSlice(m_file,ms,options,result,error,cancel);
+bool SeismicDataAccess::time(double ms,const data::TimeSliceReadOptions& options,data::SeismicTimeSliceResult& result,std::string& error,const data::CancelCheck& cancel,const data::TimeSliceTileCallback& tileReady) {
+ return m_volume?m_service.readSeismicTimeSlice(m_volume,ms,options,result,error,cancel,tileReady):data::DataService::readSeismicFileTimeSlice(m_file,ms,options,result,error,cancel);
 }
 bool SeismicDataAccess::section(const std::vector<std::pair<int,int>>& path,int maxColumns,bool interpolate,bool outside,data::SeismicSectionResult& result,std::string& error,const data::CancelCheck& cancel) {
  if(!m_volume){data::SeismicFileInfo info;if(!inspect(info,error,cancel))return false;m_unit=info.coordinateLengthUnit;}

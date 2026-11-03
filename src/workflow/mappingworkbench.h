@@ -503,7 +503,8 @@ private:
                                                        const CatalogVersion &v);
   QVariantMap consistencyImpl(const QString &layerId, QString *error,
                               const QString &counterpartId, bool background);
-  void finishPrediction(const RemotePredictionResult &result);
+  void finishPrediction(const RemotePredictionResult &response);
+  bool startUnitSeismicPrediction(const RemotePredictionRequest &request,const QString &source);
   // 任务中心行：开一行 / 收尾（error 空 = 完成）/ 取消（取消态收尾）。
   void beginPredictionTask(const QString &title);
   void endPredictionTask(const QString &error = {});

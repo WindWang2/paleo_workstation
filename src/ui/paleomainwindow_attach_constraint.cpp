@@ -155,6 +155,7 @@ void wireConstraintUnitRefresh(ConstraintPage *constraintPage, SelectionContext 
                    [constraintPage](const paleo::strat::UnitSelection &) {
                      constraintPage->refreshAnalysisUnit();
                    });
+  constraintPage->refreshAnalysisUnit();
 }
 
 } // namespace

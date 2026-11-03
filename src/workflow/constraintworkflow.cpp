@@ -30,6 +30,9 @@
 #include "derivedassets.h"
 #include "algorithmpublish.h"
 #include "mappingworkflow.h"
+#include "io/areamodel.h"
+#include "qgis/projectmapreference.h"
+#include <paleo_data/service.h>
 
 #include <QDateTime>
 #include <QDir>
@@ -92,6 +95,42 @@ ConstraintWorkflow::ConstraintWorkflow( QgisProcessingService *proc, QgisLayerSe
 }
 
 ConstraintWorkflow::~ConstraintWorkflow() = default;
+
+QString ConstraintWorkflow::ensureProjectBoundary(QString *error)
+{
+  if(error)error->clear();
+  if(!catalog()||!layerService()||projectDir().isEmpty())return {};
+  paleo::data::ProjectPlanarRange range;
+  if(paleo::area_model::projectRange(paleo::area_model::directory(projectDir()),range,error)!=paleo::area_model::Read::Ready)return {};
+  const auto &r=range.merged;
+  if(!r.valid||r.coordinateUnit!="m"){
+    if(error)*error=tr("工区范围不可用：%1").arg(QString::fromStdString(range.status));return {};
+  }
+  const QgsRectangle extent(r.minX,r.minY,r.maxX,r.maxY);
+  const QgsCoordinateReferenceSystem crs(QString::fromStdString(r.coordinateSystem));
+  const QString id=QStringLiteral("boundary.project_range");
+  const QVariantMap signature{{"xmin",r.minX},{"ymin",r.minY},{"xmax",r.maxX},{"ymax",r.maxY},{"crs",crs.toWkt()}};
+  DerivedAssetRegistrar registrar(catalog(),projectDir());
+  QString path;
+  for(const auto &asset:catalog()->assets()){
+    if(asset.type!="project_planar_range")continue;
+    const auto v=catalog()->currentVersion(asset.id);
+    const auto stored=DataCatalog::resolvedVersionPath(projectDir(),v);
+    if(v.extra.value("range").toMap()==signature&&QFileInfo::exists(stored)&&QFileInfo::exists(stored+".qml")){path=stored;break;}
+  }
+  if(path.isEmpty()){
+    const auto st=registrar.stage("project_planar_range",tr("工区范围"),"project_range.gpkg",error);
+    if(!st.isValid()||!paleo::mapreference::writeAreaRange(st.absolutePath,extent,crs,error))return {};
+    QVariantMap extra{{"range",signature},{"range_source","DataService.readProjectPlanarRange"},{"status",QString::fromStdString(range.status)}};
+    if(!registrar.commit(st,{},paleo::area_model::directory(projectDir()),extra,error))return {};
+    path=st.absolutePath;
+  }
+  LayerDeclaration decl;decl.layerId=id;decl.type="vector";decl.source=path+"|layername=area";
+  decl.styleRef=path+".qml";decl.group="00_Data";decl.title=tr("工区范围（井位与地震）");
+  if(layerService()->declaration(id).source!=decl.source&&!layerService()->declare(decl,error))return {};
+  if(!layerService()->instantiate(id,error))return {};
+  return id;
+}
 
 void ConstraintWorkflow::setConstraintStore( ConstraintStore *store )
 {

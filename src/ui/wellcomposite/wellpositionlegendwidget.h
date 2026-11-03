@@ -123,6 +123,7 @@ class WellPositionLegendWidget : public QWidget
 
 public:
   explicit WellPositionLegendWidget(QWidget *parent = nullptr);
+  void setCompactPreview();
   ~WellPositionLegendWidget() override = default;
 
   void updateViewport(double topDepth, double bottomDepth, double span);
@@ -149,6 +150,7 @@ private:
   QToolButton *m_btnLegend = nullptr;
 
   ComprehensiveWellData m_wellData;
+  bool m_compactPreview = false;
   double m_minDepth = 0.0;
   double m_maxDepth = 3000.0;
   double m_currentTopDepth = 0.0;

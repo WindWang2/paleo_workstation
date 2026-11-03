@@ -29,6 +29,9 @@ class WellSectionWellsDialog : public QDialog
                            const QStringList &mapSelection,
                            QWidget *parent = nullptr);
     QStringList selectedIds() const; // 勾选项按列表序
+    void setWellChoices(const QVector<WellSectionPanel::WellChoice> &choices);
+  signals:
+    void timeDepthSettingsRequested(const QStringList &ids);
 
   private:
     void checkAppend(const QStringList &ids);   // 地图选中

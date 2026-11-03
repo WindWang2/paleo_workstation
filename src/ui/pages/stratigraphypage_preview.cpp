@@ -38,18 +38,18 @@ void StratigraphyPage::refreshPreview() {
   QStringList previewWarnings;
   for(const auto& well:m_workflow->document().wells) {
    ComprehensiveWellData data;QString error;bool baseLoaded=true;
-   if(!m_workflow->previewWellData(well.wellId,&data,&error,&baseLoaded)){m_status->setText(tr("井道预览装载失败：%1").arg(error));continue;}
+   if(!m_workflow->previewWellData(well.wellId,&data,&error,&baseLoaded)){setStatus(tr("井道预览装载失败：%1").arg(error));continue;}
    // #827：基础模型失败但解释版本还有派生曲线时，装载返回 true；必须显式提示，
    // 否则用户只看到「少了几条道」的正常界面。
    if(!baseLoaded) previewWarnings<<tr("井道 %1：基础模型读取失败（%2），当前仅显示解释派生曲线。")
        .arg(data.wellName.isEmpty()?QString::number(well.wellId):data.wellName,error);
-   auto* panel=new WellCompositePanel(m_section);panel->setProperty("wellId",qlonglong(well.wellId));
+   auto* panel=new WellCompositePanel(m_section,WellCompositePanel::PredictionScope::Comparison);panel->setProperty("wellId",qlonglong(well.wellId));
    panel->setObjectName(QStringLiteral("stratigraphyWell_%1").arg(well.wellId));
    panel->loadWellData(data);
    // #880：不再把道总宽钉成 panel 最小宽——井柱画布自带水平滚动条，窄预览区可挤窄对照。
    connectPreview(panel,well.wellId);m_section->setPanel(slot++,panel);
   }
-  if(!previewWarnings.isEmpty()) m_status->setText(previewWarnings.join(QStringLiteral("\n")));
+  if(!previewWarnings.isEmpty()) setStatus(previewWarnings.join(QStringLiteral("\n")));
  }
  m_markerIds.clear();const auto rows=m_workflow->rows();const auto tracks=m_workflow->tracks();
  for(int i=0;i<m_section->slotCount();++i)if(auto* panel=m_section->panelAt(i)) {

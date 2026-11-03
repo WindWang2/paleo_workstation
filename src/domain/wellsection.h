@@ -2,6 +2,7 @@
 #pragma once
 #include "domain/deviationsurvey.h"
 #include "domain/seismic/timedepthmodel.h"
+#include "domain/seismic/sectionhorizons.h"
 #include <QImage>
 #include <QMetaType>
 #include <QString>
@@ -110,6 +111,10 @@ struct Well {
   double kb = qQNaN();
   double totalDepth = qQNaN();
   QVector<Top> tops;
+  // Current seismic major boundaries for correlation only. An engaged empty
+  // list means no usable major picks; never borrow formation or S1–S4 tops.
+  std::optional<QVector<Top>> correlationTops;
+  QString correlationRevision; // Invalidates sampled seismic horizons after a scheme edit.
   QVector<Curve> curves;
   QVector<FaciesSegment> facies; // 交会分类井层段（catalog 派生资产）
   QVector<LithoSegment> litho;   // 解释岩性段（catalog 资产或岩屑录井文件，可空 = GR 回落）
@@ -332,6 +337,7 @@ TopsTable topsTable(const QVector<Well> &wells, const Datum &datum,
 // 井间地震缝：reason 非空 = 不可绘（文字填缝）。values 行主序
 // [sample*columns + column]，NaN 无效。column 0 = 左井端。
 struct SeismicGap {
+  seismic::SectionHorizons horizons;
   QString reason;
   int columns = 0, samples = 0;
   double startMs = 0.0, stepMs = 0.0;
@@ -350,6 +356,12 @@ struct SeismicStrip {
   bool anyValid() const;
 };
 
+// Prefer the actual major horizon samples at both seismic gap endpoints.
+// Missing endpoint/checkshot coverage produces no correlation, never a fallback.
+QVector<Link> correlationLinks(const Well &a,const Well &b,const SeismicGap *gap);
+// Render snapshot only; the workflow's original formation tops stay unchanged.
+void useSeismicCorrelationTops(QVector<Well> &wells,const SeismicStrip &strip);
+
 // 有效缝 |v| 的 percentile 截幅（有限值；跨步抽样至 ≤20 万点，
 // nth_element 选位）；结果 ≤0 或无值 → 1.0。
 float adaptiveClip(const QVector<SeismicGap> &gaps, double percentile = 0.99);
@@ -360,6 +372,10 @@ float adaptiveClip(const QVector<SeismicGap> &gaps, double percentile = 0.99);
 double gapTwtMs(const Well &a, double offA, const Well &b, double offB,
                 double f, double displayDepth,
                 DepthDomain domain = DepthDomain::MD);
+// Inverse of the same gap sampling function, clipped to the visible valid TD
+// intersection. Missing checkshots/coverage never produce an extrapolated line.
+double gapDisplayDepthAtTwt(const Well& a,double offA,const Well& b,double offB,
+                            double fraction,double twtMs,double top,double base,DepthDomain domain);
 
 } // namespace wellsection
 

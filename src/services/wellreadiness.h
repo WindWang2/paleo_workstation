@@ -10,12 +10,13 @@ namespace paleo::data { class DataService; }
 namespace paleo {
 
 // 井就绪度（可分析判定）：曲线 + 可用时深双全才进下游分析的选井面
-//（连井剖面 / 地震剖面 / 井预测 / 地层对比 / 交会图；数据管理与几何类
+//（连井剖面 / 地震剖面 / 地层对比 / 交会图；数据管理与几何类
 // 面板不过滤——HY 验收 2026-11-01 口径）。「有时深表但口径未确认」不算
 // 就绪：与消费端确认门（tdTableFor 元数据门）一致，宁缺勿假。
 struct WellReadiness {
   bool hasCurves = false; // 有可用测井曲线（模型井 extra 标志 / 链接判定）
   bool tdUsable = false;  // 时深可用：模型侧已确认口径，或 legacy 链接表可插值
+  bool hasTimeDepth = false; // 存在时深资料，与通过确认/校验分开
   bool analysisReady() const { return hasCurves && tdUsable; }
 };
 

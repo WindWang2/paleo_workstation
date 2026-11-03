@@ -47,10 +47,7 @@ bool DataListPanel::appendAreaModelWellSeismic(QVector<NavNodeSpec> &tops) const
   wellRoot.text1 = tr("双击有井道资料的井打开井道图；其余井保留时深/辅助资料");
   wellRoot.type = QStringLiteral("category");
   wellRoot.icon = QStringLiteral("mIconPointLayer.svg");
-  // 井就绪标识（HY 验收 2026-11-01）：曲线+已确认时深双全 → 绿档「曲线+时深
-  // 齐备」；缺项 → 橙档「缺曲线/缺时深」。全量井保留（数据管理面不过滤），
-  // 下游分析选井面按就绪口径另行过滤（wellreadiness）。
-  const auto usableTd = paleo::usableTimeDepthWells(service);
+  // 数据库存与分析适用性分开：井树只显示资料是否存在。
   for (const auto &well : wells) {
     NavNodeSpec item;
     item.role4 = well.id;
@@ -69,17 +66,9 @@ bool DataListPanel::appendAreaModelWellSeismic(QVector<NavNodeSpec> &tops) const
     } else {
       item.text1 = item.tooltip0;
     }
-    const bool tdUsable = usableTd.contains(well.id);
-    if (support.curves && tdUsable) {
-      item.status1 = 1;
-      item.text1 = tr("曲线+时深齐备") + QStringLiteral(" · ") + item.text1;
-    } else {
-      QStringList missing;
-      if (!support.curves) missing << tr("缺曲线");
-      if (!tdUsable) missing << tr("缺时深");
-      item.status1 = 2;
-      item.text1 = missing.join(QStringLiteral(" · ")) + QStringLiteral(" · ") + item.text1;
-    }
+    paleo::WellReadiness inventory;
+    inventory.hasCurves=support.curves;inventory.hasTimeDepth=support.timeDepth;
+    applyWellReadinessBadge(item,inventory);
     wellRoot.children.append(item);
   }
   tops.append(wellRoot);

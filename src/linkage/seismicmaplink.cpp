@@ -6,6 +6,8 @@
 #include "selectioncontext.h"
 #include "qgis/projectmapreference.h"
 #include "catalog/datacatalog.h"
+#include "services/seismicsource.h"
+#include "services/fspathutils.h"
 
 #include <QSignalBlocker>
 #include <cmath>
@@ -98,6 +100,9 @@ void SeismicMapLink::setActiveVolume(std::shared_ptr<const seismic::SgyVolume> v
   m_volume = volume;
   m_sourceCrs.clear();
   m_gridGeom = {};
+  if(volume){QString error;
+    if(!paleo::readSeismicSourceCrs(paleo::fromFsPath(volume->Path()),m_sourceCrs,&error)){emit sectionVolumeChanged(volume);return;}
+  }
   if (volume && volume->Index()) {
     const auto mapper = seismic::SgyCoordinateMapper::Fit(*volume->Index());
     if (mapper.valid()) {

@@ -761,6 +761,18 @@ namespace PaleoTheme
   }
 } // namespace PaleoTheme
 
+namespace PaleoTheme {
+QColor sectionHorizonColor(const QString &name) {
+  static const QColor colors[]={QColor(QStringLiteral("#C83C32")),QColor(QStringLiteral("#A27800")),
+    QColor(QStringLiteral("#18796B")),QColor(QStringLiteral("#744D9B")),
+    QColor(QStringLiteral("#285EAA")),QColor(QStringLiteral("#8B5839"))};
+  quint32 hash=2166136261u;
+  // Stable across sessions, unlike a process-randomized qHash or result order.
+  for(const auto c:name.trimmed().toUpper()){hash^=c.unicode();hash*=16777619u;}
+  return colors[hash%6];
+}
+}
+
 // Graph-specific presentation, approved by the 2026-10-24 visual correction.
 namespace PaleoTheme {
 QColor graphColor(int category) {

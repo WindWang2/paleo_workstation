@@ -257,7 +257,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   decode();
   barLay->addWidget(mode);
   barLay->addWidget(no);
-  barLay->addWidget(panel->createColorMapControl(bar));
+  barLay->addWidget(panel->createDisplayControls(bar));
   if (initialInline >= 0)
     barLay->addWidget(caption8(tr("%1 所在测线").arg(tieWellName), bar)); // §4 旁注
   barLay->addStretch(1);
@@ -764,8 +764,8 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   auto nativeRead=std::make_shared<QPointer<PaleoTask>>();
   auto nativeGeneration=std::make_shared<quint64>(0);
   const QPointer<seismic::SeismicSectionCanvas> nativeCanvas(timeCanvas);
-  const auto requestTimeSlice=[this,abs,nativeInfo,nativeRead,nativeCanvas,lblTimeMs,pendingIdx,nativeGeneration](int index){
-    if(!nativeCanvas||index<0||index>=nativeInfo->sampleCount)return;
+  const auto requestTimeSlice=[this,abs,nativeInfo,nativeRead,nativeCanvas,lblTimeMs,pendingIdx,nativeGeneration,modeTabs](int index){
+    if(!nativeCanvas||modeTabs->currentIndex()!=2||index<0||index>=nativeInfo->sampleCount)return;
     const auto generation=++(*nativeGeneration);
     if(*nativeRead)(*nativeRead)->requestCancel();
     const double ms=nativeInfo->firstTimeMs+index*nativeInfo->sampleIntervalMs;
@@ -781,9 +781,9 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   };
   connect(host,&QObject::destroyed,this,[nativeRead]{if(*nativeRead)(*nativeRead)->requestCancel();});
   connect(sliceDebounce,&QTimer::timeout,host,[pendingIdx,requestTimeSlice]{if(*pendingIdx>=0)requestTimeSlice(*pendingIdx);});
-  const auto updateTimeSlice = [pendingIdx, sliceDebounce](int sampleIndex) {
+  const auto updateTimeSlice = [pendingIdx, sliceDebounce,modeTabs](int sampleIndex) {
     *pendingIdx = sampleIndex;
-    sliceDebounce->start();
+    if(modeTabs->currentIndex()==2)sliceDebounce->start();
   };
 
   connect(sliderTime, &QSlider::valueChanged, host, [spinTime, updateTimeSlice](int val) {
@@ -810,7 +810,8 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     });
     connect(host,&QObject::destroyed,service,[infoTask]{if(infoTask)infoTask->requestCancel();});
   }
-  connect(modeTabs, &QTabWidget::currentChanged, host, [ensureVolumeLoaded, panel3d, timeCanvas, updateTimeSlice, sliderTime](int idx) {
+  connect(modeTabs, &QTabWidget::currentChanged, host, [ensureVolumeLoaded, panel3d, timeCanvas, updateTimeSlice, sliderTime,nativeRead,nativeGeneration,sliceDebounce](int idx) {
+    if(idx!=2){sliceDebounce->stop();++*nativeGeneration;if(*nativeRead)(*nativeRead)->requestCancel();}
     if (idx == 1)
     {
       ensureVolumeLoaded();
@@ -822,7 +823,6 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     }
     else if (idx == 2)
     {
-      ensureVolumeLoaded();
       updateTimeSlice(sliderTime->value());
       QTimer::singleShot(20, timeCanvas, [timeCanvas]() {
         timeCanvas->fitToWindow();

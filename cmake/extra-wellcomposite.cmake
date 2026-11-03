@@ -5,6 +5,7 @@
 # D5 多井对比 / D6 深度变换 / D7 打磨可达性 / D8 测试与文档。
 
 target_sources(paleo_ui PRIVATE
+  src/ui/wellcomposite/panelpreviewchrome.cpp
   src/ui/wellcomposite/trackregistry.cpp        # D1.1/D1.2 道规格与类型注册表
   src/ui/wellcomposite/trackops.cpp             # D1.5/D1.9 CSV 导出/复制/注入
   src/ui/wellcomposite/standardcurvetracks.cpp   # 单井默认曲线组合

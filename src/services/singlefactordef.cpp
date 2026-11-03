@@ -189,9 +189,9 @@ FactorGeologicalProfile SingleFactorRegistry::geologicalProfile( const QString &
   {
     p.unit = QStringLiteral( "无量纲" );
     p.validRange = QStringLiteral( "[0, 1]" );
-    p.ruleSentence = QStringLiteral( "采用解释砂厚 ÷ 地层厚度（MD，同一层段）" );
-    p.note = QStringLiteral( "砂厚与层厚须同一层位与深度基准；分母为零、缺值或比值越出 [0,1] 的井排除。"
-                             "优先直读已维护的砂地比字段，否则按厚度相除；不用 GR 切砂冒充解释。" );
+    p.ruleSentence = QStringLiteral( "完整岩性解释优先，不足时按同层段 GR 有效覆盖估算砂地比" );
+    p.note = QStringLiteral( "解释值为砂厚÷层厚；GR 估算采用线性泥质指标，默认全井有效 GR 的 P05/P95 为砂/泥基线、泥质阈值 0.5。"
+                             "缺口不外推，按有效覆盖段计算并记录覆盖率与来源。可计算但无坐标的井保留井值，不能参与平面插值。" );
     p.supportsAutoMode = true;
     setOk( true );
     return p;

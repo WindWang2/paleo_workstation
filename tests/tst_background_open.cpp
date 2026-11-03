@@ -21,6 +21,7 @@
 #include "../src/workflow/sectionworkbench.h"
 #include "../src/io/perffixtures.h"
 #include "../src/workflow/xmlpreviewsession.h"
+#include "sectionalignmentfixtures.h"
 
 namespace {
 bool namedWatcherBusy(const QObject *owner, const QString &name)
@@ -49,6 +50,7 @@ private slots:
     QVERIFY(catalog.addVersion(version));
     EntityAssetLink link; link.entityType = "well"; link.entityId = well.id; link.assetId = asset.id; link.role = "well_log";
     QVERIFY(catalog.addLink(link));
+    QVERIFY(addSectionTimeDepthFixture(catalog,well.id));
     SectionWorkbench work(&catalog);
     int ticks = 0; QTimer heartbeat; heartbeat.setInterval(2);
     connect(&heartbeat, &QTimer::timeout, this, [&] { ++ticks; }); heartbeat.start();

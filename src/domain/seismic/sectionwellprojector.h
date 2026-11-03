@@ -4,9 +4,11 @@
 #include <QColor>
 #include <QString>
 #include <vector>
+#include <optional>
 #include <glm/glm.hpp>
 
 #include "domain/seismic/timedepthmodel.h"
+#include "domain/seismic/sectionhorizons.h"
 
 namespace seismic {
 
@@ -59,6 +61,10 @@ struct SectionWellInfo {
     bool calibrated = false;
     double bottomTwtMs = qQNaN();
     QString alignmentStatus;
+    // Native well log MD calibration for ties to the currently displayed
+    // seismic surface. Original formation picks are not overwritten in storage.
+    std::optional<TimeDepthModel> mdTimeDepth;
+    double timeShiftMs=0;
 
     // Projection geometry along the unfolded section line
     double cumulativeDistanceM = 0.0; // Distance from start of section (meters)
@@ -82,5 +88,6 @@ public:
         double bufferDistanceM = 500.0,
         const TimeDepthModel &tdModel = TimeDepthModel());
 };
+void projectSectionHorizonTies(std::vector<SectionWellInfo>& wells,const SectionHorizons& horizons);
 
 } // namespace seismic

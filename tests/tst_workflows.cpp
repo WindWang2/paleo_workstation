@@ -1,4 +1,9 @@
 #include "helpers/workflowfixture.h"
+#include "services/stratigraphicsubintervals.h"
+#include "services/seismicunitinput.h"
+#include "qgis/unitraster.h"
+#include "io/areamodel.h"
+#include <paleo_data/service.h>
 #include "../src/qgis/layervocabulary.h"
 #include <QtTest>
 #include <QFile>
@@ -93,7 +98,7 @@ private slots:
   {
     Fixture f;
     QVERIFY(initFixture(f));
-    const auto path = makeRaster(f.dir.filePath("unit-input.tif"), 2, 2, {1, 2, 1, 2});
+    auto path = makeRaster(f.dir.filePath("unit-input.tif"), 2, 2, {1, 2, 1, 2});
     QVERIFY(!path.isEmpty());
     QString error;
     QVERIFY(f.layers.declare(decl("horizon.T1", "T1", "raster", path), &error));
@@ -101,13 +106,25 @@ private slots:
     QVERIFY(input);
     PredictionWorkflow workflow(&f.proc, &f.layers);
     workflow.setCatalog(&f.catalog, f.dir.path());
-    const QVariantMap unit{{"subIntervalId", "sub-result"}, {"schemeId", "scheme"}, {"revision", "r1"}};
-    const QVariantMap params{{"INPUT", QVariant::fromValue(input)}, {"analysisLayerKey", "sub-result"},
+    paleo::data::DataService ds;std::string detail;
+    const auto modelRoot=paleo::area_model::directory(f.dir.path());
+    QVERIFY2(QFileInfo::exists(modelRoot+"/data.sqlite")?ds.openProject(modelRoot.toStdString(),detail):ds.createProject(modelRoot.toStdString(),"test",detail),detail.c_str());
+    auto draft=paleo::strat::draftScheme("scheme","test",{"T1","T2"},{});
+    paleo::data::StratigraphicScheme stored;std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(ds.commitStratigraphicScheme(draft,{},stored,issues,detail));
+    const auto selection=paleo::strat::makeSelection(stored,paleo::strat::selectorOptions(stored).first().intervalId,1);
+    const auto unit=paleo::strat::toMap(selection);const auto key=paleo::strat::analysisLayerKey(selection);
+    DerivedAssetRegistrar registrar(&f.catalog,f.dir.path());
+    const auto stage=registrar.stage("seismic_unit_rms","unit-input","input.tif",&error);QVERIFY2(stage.isValid(),qPrintable(error));
+    QVERIFY(QFile::copy(path,stage.absolutePath));QVERIFY2(registrar.commit(stage,{},path,{{"unitSelection",unit}},&error),qPrintable(error));
+    path=stage.absolutePath;QVERIFY(f.layers.declare(decl("horizon.T1","T1","raster",path),&error));
+    input=f.layers.instantiate("horizon.T1",&error);QVERIFY(input);
+    const QVariantMap params{{"INPUT", QVariant::fromValue(input)}, {"analysisLayerKey", key},
                              {"unitSelection", unit}};
     PredictionWorkflow::PredictionJob job;
     QVERIFY2(workflow.preparePredictionJob("T1", "paleo:paleo_geological_smoothing", params, &job, &error), qPrintable(error));
-    QCOMPARE(job.horizon, QString("sub-result"));
-    QVERIFY(job.layerId.startsWith("predict.sub-result."));
+    QCOMPARE(job.horizon,key);
+    QVERIFY(job.layerId.startsWith("predict."+key+"."));
     QCOMPARE(job.inputUri, path);
     QCOMPARE(job.commitExtra.value("unitSelection").toMap(), unit);
     QVERIFY(!job.commitExtra.value("algorithm_parameters").toMap().contains("INPUT"));
@@ -115,6 +132,20 @@ private slots:
     QVERIFY(!workflow.publishPredictionJob(job, &error));
     QVERIFY(error.contains(QStringLiteral("工程已切换")));
     PaleoWorkflowDiscardPredictionStagingDir(job.staging.versionId, job.staging.absolutePath);
+  }
+  void scopedRasterPreservesCoverageAndRejectsChangedGrid() {
+    QTemporaryDir dir;paleo::strat::SeismicUnitInput input;input.rows=2;input.columns=2;
+    input.extent=QRectF(500000,4000000,20,20);input.crs=QgsCoordinateReferenceSystem("EPSG:32650").toWkt();input.samples={1,NAN,2,3};
+    QString error;const auto source=dir.filePath("input.tif"),output=dir.filePath("output.tif");
+    QVERIFY2(UnitRaster::writeInput(input,source,&error),qPrintable(error));QVERIFY(QFile::copy(source,output));
+    auto ds=GDALOpen(output.toUtf8().constData(),GA_Update);QVERIFY(ds);float values[4]={9,9,9,9};
+    QCOMPARE(GDALRasterIO(GDALGetRasterBand(ds,1),GF_Write,0,0,2,2,values,2,2,GDT_Float32,0,0),CE_None);GDALClose(ds);
+    QVERIFY2(UnitRaster::maskOutputLikeInput(source,output,&error),qPrintable(error));
+    ds=GDALOpen(output.toUtf8().constData(),GA_Update);QVERIFY(ds);
+    QCOMPARE(GDALRasterIO(GDALGetRasterBand(ds,1),GF_Read,0,0,2,2,values,2,2,GDT_Float32,0,0),CE_None);
+    QCOMPARE(values[0],9.f);QCOMPARE(values[1],-9999.f);QCOMPARE(values[2],9.f);
+    double gt[6];QCOMPARE(GDALGetGeoTransform(ds,gt),CE_None);gt[0]+=1;QCOMPARE(GDALSetGeoTransform(ds,gt),CE_None);GDALClose(ds);
+    QVERIFY(!UnitRaster::maskOutputLikeInput(source,output,&error));
   }
 
   void initTestCase()

@@ -2,6 +2,7 @@
 #pragma once
 #include <QString>
 #include <vector>
+#include "domain/seismic/sectionhorizons.h"
 
 namespace seismic {
 // Numerical section: rows increase in absolute TWT, independent of texture orientation.
@@ -11,5 +12,6 @@ struct SeismicSectionData {
   QString timeReference;
   std::vector<double> distancesM;
   std::vector<float> values; // [sample * columns + column], original amplitudes
+  SectionHorizons horizons;
 };
 }

@@ -39,6 +39,7 @@ void compactToolbar(QWidget *topBar, QBoxLayout *layout, const QSet<QWidget *> &
   auto *menu = new QMenu(more); more->setMenu(menu);
   const auto controls = topBar->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
   for (auto *control : controls) {
+    if(control->property("omitFromWellOptions").toBool()){layout->removeWidget(control);control->hide();continue;}
     if (control == more || frequent.contains(control)) continue;
     layout->removeWidget(control); control->hide();
     // Proxy actions retain the original widgets' ownership and findChild API.
@@ -285,11 +286,11 @@ void WellCompositePanel::setupUi()
   topLay->addWidget(m_lblStatus);
 
   compactToolbar(topBar, topLay, {m_lblWellName, m_scaleCombo, m_btnResetZoom, m_btnGoto, m_btnConfigCurves, m_btnPredictFacies, m_btnExport});
-  rootLay->addWidget(topBar); appendReadout(rootLay, m_lblReadout, m_lblZoom, m_lblStatus);
+  rootLay->addWidget(topBar); if (!m_wholeWellPreview) appendReadout(rootLay, m_lblReadout, m_lblZoom, m_lblStatus);
   m_faciesStatus = new QLabel(this);
   m_faciesStatus->setObjectName(QStringLiteral("lblFaciesPredictionStatus"));
   m_faciesStatus->setWordWrap(true);
-  rootLay->addWidget(m_faciesStatus);
+  if (!m_wholeWellPreview) rootLay->addWidget(m_faciesStatus);
 
   m_canvas = new WellCompositeCanvas(this);
   m_canvas->setObjectName(QStringLiteral("wellCompositeCanvas"));
@@ -297,12 +298,12 @@ void WellCompositePanel::setupUi()
 
   // D1.10 隐藏道管理条
   m_hiddenBar = new HiddenTrackBar(this);
-  rootLay->addWidget(m_hiddenBar);
+  if (!m_wholeWellPreview) rootLay->addWidget(m_hiddenBar);
 
   // 底部位置显示与比例尺图例综合控制栏
   m_legendWidget = new WellPositionLegendWidget(this);
   m_legendWidget->setObjectName(QStringLiteral("wellPositionLegendWidget"));
-  rootLay->addWidget(new PaleoToolRow(m_legendWidget, this));
+  if (m_wholeWellPreview) setupPreviewFooter(rootLay); else rootLay->addWidget(new PaleoToolRow(m_legendWidget, this));
 
   // ---- 事件与信号绑定 ----
   connect(m_btnZoomIn, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::zoomIn);

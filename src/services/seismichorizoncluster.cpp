@@ -1,5 +1,8 @@
 // 层：数据
 #include "seismichorizoncluster.h"
+#include "seismicunitinput.h"
+#include "stratigraphicsubintervals.h"
+#include "seismicdataaccess.h"
 #include "seismichorizonscatter.h"
 #include "io/segyreader.h"
 #include "services/seismicmapping.h"
@@ -249,8 +252,7 @@ SeismicClusterResult clusterSeismicHorizon(
 }
 
 SeismicClusterResult clusterSeismicStratigraphicWindow(
-    const QString &projectDir, const QString &targetUnitOrHorizon,
-    const QString &schemeId, const QString &revision,
+    const QString &projectDir, const paleo::strat::UnitSelection &unit, const QString &seismicPath,
     const QVector<int> &faciesCodes,
     const std::function<void(int)> &progress,
     const std::function<bool()> &cancel) {
@@ -266,26 +268,8 @@ SeismicClusterResult clusterSeismicStratigraphicWindow(
     return result;
   }
   report(5);
-  paleo::data::SeismicHorizonWindowQuery query;
-  query.target.schemeId = schemeId.trimmed().isEmpty() ? "default" : schemeId.trimmed().toStdString();
-  query.target.revision = revision.trimmed().toStdString();
-  query.target.subIntervalId.value = targetUnitOrHorizon.trimmed().toStdString();
-  query.target.intervalId.value = targetUnitOrHorizon.trimmed().toStdString();
-  query.target.unitName = targetUnitOrHorizon.trimmed().toStdString();
-  query.sampleMode = paleo::data::HorizonWindowSampleMode::ResampledFixedCount;
-  query.resampledSampleCount = 16;
-  query.computeWindowAttributes = true;
-  query.computeDepthRange = true;
-
-  paleo::strat::UnitSelection sel;
-  sel.schemeId = schemeId.trimmed().isEmpty() ? QStringLiteral("default") : schemeId.trimmed();
-  sel.revision = revision.trimmed();
-  sel.subIntervalId = targetUnitOrHorizon.trimmed();
-  sel.intervalId = targetUnitOrHorizon.trimmed();
-  sel.displayName = targetUnitOrHorizon.trimmed();
   paleo::data::SeismicHorizonWindowResult win;
-  if (!paleo::strat::queryProjectSeismicHorizonWindow(projectDir, sel, query, win, &result.error, cancel))
-    return result;
+  if(!paleo::strat::readSeismicAnalysisWindow(projectDir,unit,seismicPath,win,&result.error,cancel))return result;
   report(55);
 
   const int K = std::max(1, win.fixedSampleCount);
@@ -405,4 +389,16 @@ SeismicClusterResult clusterSeismicStratigraphicWindow(
   result.validCells = cells.size();
   report(100);
   return result;
+}
+
+SeismicClusterResult clusterSeismicStratigraphicWindow(const QString &projectDir,const QString &targetUnitOrHorizon,
+    const QString &schemeId,const QString &revision,const QVector<int> &faciesCodes,
+    const std::function<void(int)> &progress,const std::function<bool()> &cancel){
+  SeismicClusterResult failure;paleo::data::StratigraphicScheme scheme;
+  if(!paleo::strat::loadProjectSchemeFromDir(projectDir,schemeId,revision,scheme,nullptr,&failure.error))return failure;
+  const auto *sub=paleo::data::framework::resolveSubInterval(scheme,targetUnitOrHorizon.toStdString());
+  if(!sub){failure.error=QStringLiteral("请选择具体的地震子层段 S1–S4");return failure;}
+  const auto unit=paleo::strat::makeSelection(scheme,QString::fromStdString(sub->interval.value),sub->index);
+  const auto path=paleo::seismicProjectSource(projectDir,{},&failure.error);if(path.isEmpty())return failure;
+  return clusterSeismicStratigraphicWindow(projectDir,unit,path,faciesCodes,progress,cancel);
 }

@@ -53039,6 +53039,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>剖面提取失败：%1</source>
         <translation>剖面提取失败：%1</translation>
     </message>
+    <message>
+        <source>井 %1 需要沿三维轨迹取道；当前固定井位子波算法未执行</source>
+        <translation>井 %1 需要沿三维轨迹取道；当前固定井位子波算法未执行</translation>
+    </message>
+    <message>
+        <source>井 %1 需要随深度变化的空间低频约束；当前固定井位反演算法未执行</source>
+        <translation>井 %1 需要随深度变化的空间低频约束；当前固定井位反演算法未执行</translation>
+    </message>
 </context>
 <context>
     <name>seismic::SeismicTaskService</name>

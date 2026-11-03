@@ -2,6 +2,7 @@
 // 方向 65：goal/seismic-inversion 反演控制器族——最近井子波提取（#125 逐井时深）
 // 与 InversionWorkflow 三段式反演（世代号丢弃陈旧发布）。
 #include "ui/seismicsection/seismicsectiondockwidget.h"
+#include "services/sectionwellgeometry.h"
 #include "ui/seismicsection/inversionpanel.h"
 
 #include "catalog/datacatalog.h"
@@ -60,6 +61,10 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
     for (const SectionWellInfo &w : m_candidateWells)
         if (!best || std::abs(w.offsetDistanceM) < std::abs(best->offsetDistanceM))
             best = &w; // 「最近井」按绝对偏移选——有符号比较会取到最负侧
+    if(requiresSpatialWellSampling(*best)){
+        if(m_invPanel)m_invPanel->showResult(false,tr("井 %1 需要沿三维轨迹取道；当前固定井位子波算法未执行").arg(best->wellName));
+        return;
+    }
     const WellCurveItem *ac = nullptr;
     const WellCurveItem *den = nullptr;
     for (const WellCurveItem &c : best->curves) {
@@ -171,6 +176,10 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
     std::vector<paleo::inv::InversionWorkflow::LowFreqWellInput> wells;
     QStringList skippedNoTd;
     for (const SectionWellInfo &w : m_candidateWells) {
+        if(requiresSpatialWellSampling(w)){
+            m_invPanel->showResult(false,tr("井 %1 需要随深度变化的空间低频约束；当前固定井位反演算法未执行").arg(w.wellName));
+            return;
+        }
         const WellCurveItem *ac = nullptr;
         const WellCurveItem *den = nullptr;
         for (const WellCurveItem &c : w.curves) {

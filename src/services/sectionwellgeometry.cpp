@@ -3,6 +3,17 @@
 #include <algorithm>
 #include <cmath>
 
+bool requiresSpatialWellSampling(const seismic::SectionWellInfo& well){
+  if(well.requiresSpatialPath&&well.trajectory.empty())return true;
+  const seismic::WellTrajSample* first=nullptr;
+  for(const auto& point:well.trajectory){
+    if(!std::isfinite(point.x)||!std::isfinite(point.y))continue;
+    if(!first)first=&point;
+    else if(std::hypot(point.x-first->x,point.y-first->y)>1e-6)return true;
+  }
+  return false;
+}
+
 void attachSectionWellGeometry(seismic::SectionWellInfo &well, const QVector<TdSample> &rows,
     const std::optional<paleo::WellDeviationSurvey> &survey,
     const seismic::TimeDepthModel *md, const seismic::TimeDepthModel *tvd, double shiftMs)

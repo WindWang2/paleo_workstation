@@ -60,6 +60,7 @@ private slots:
     QCOMPARE(rows[2].positionCrs,QString("EPSG:32650"));QVERIFY(rows[2].timeDepthId>0);
     SectionWorkbench bench(&f.catalog);const auto wells=bench.sectionWells();QCOMPARE(wells.size(),size_t(1));
     const auto &well=wells[0];QVERIFY(well.requiresSpatialPath);QCOMPARE(well.trajectory.size(),size_t(4));
+    QVERIFY(requiresSpatialWellSampling(well));
     QCOMPARE(well.trajectory[2].x,300040.);QCOMPARE(well.trajectory[2].twtMs,200.);
     QCOMPARE(well.bottomX,300090.);QVERIFY(well.trajectorySource.startsWith("time_depth_xyz:"));
     QVERIFY(!well.curves.empty());QCOMPARE(well.curves[0].twtMs[2],200.);
@@ -76,6 +77,7 @@ private slots:
     QCOMPARE(wells[0].trajectorySource,QString("survey_minimum_curvature"));
     DeviatedFixture empty;QVERIFY(empty.init(false));SectionWorkbench without(&empty.catalog);
     const auto unknown=without.sectionWells();QCOMPARE(unknown.size(),size_t(1));QVERIFY(unknown[0].trajectory.empty());
+    QVERIFY(requiresSpatialWellSampling(unknown[0]));
     const auto projected=seismic::SectionWellProjector::ProjectWells({{300000,2300000},{300100,2300000}},{},{0,100},unknown,500);
     QVERIFY(!projected[0].isWithinBuffer);QVERIFY(unknown[0].trajectoryStatus.contains(QStringLiteral("未叠加")));
     QVector<TdSample> constant(2);constant[0].md=0;constant[1].md=100;

@@ -52811,6 +52811,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>剖面提取失败：%1</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <source>井 %1 需要沿三维轨迹取道；当前固定井位子波算法未执行</source>
+            <translation>Well %1 requires sampling along its 3D trajectory; fixed-position wavelet estimation was not run</translation>
+        </message>
+        <message>
+            <source>井 %1 需要随深度变化的空间低频约束；当前固定井位反演算法未执行</source>
+            <translation>Well %1 requires spatial low-frequency constraints that vary with depth; fixed-position inversion was not run</translation>
+        </message>
     </context>
     <context>
         <name>seismic::SeismicTaskService</name>

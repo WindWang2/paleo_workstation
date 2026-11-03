@@ -52812,14 +52812,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>井 %1 需要沿三维轨迹取道；当前固定井位子波算法未执行</source>
-            <translation>Well %1 requires sampling along its 3D trajectory; fixed-position wavelet estimation was not run</translation>
-        </message>
-        <message>
-            <source>井 %1 需要随深度变化的空间低频约束；当前固定井位反演算法未执行</source>
-            <translation>Well %1 requires spatial low-frequency constraints that vary with depth; fixed-position inversion was not run</translation>
-        </message>
-    </context>
+        <source>沿井子波估计</source>
+        <translation>Along-well wavelet estimation</translation>
+    </message>
+    <message>
+        <source>｜拟合相关较低，请复核井震标定后再用于解释</source>
+        <translation> | Low fit correlation; review the well-to-seismic calibration before interpretation</translation>
+    </message>
+</context>
     <context>
         <name>seismic::SeismicTaskService</name>
         <message>

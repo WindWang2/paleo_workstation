@@ -3,8 +3,13 @@
 #include "seismicsource.h"
 #include "seismiclinecache.h"
 #include "../io/areamodel.h"
+#include <QFileInfo>
+#include <QDir>
 
 namespace paleo {
+QString SeismicDataAccess::projectDirectory() const {
+ return m_volume?QDir(QString::fromStdString(m_service.projectPath())).absoluteFilePath(QStringLiteral("../../..")):QString();
+}
 bool readSeismicSourceCrs(const QString &path,QString &crs,QString *error){
  crs.clear();if(error)error->clear();SeismicDataAccess source;
  if(!source.open(path,error))return false;
@@ -29,6 +34,26 @@ bool SeismicDataAccess::open(const QString& path,QString *error) {
 }
 bool SeismicDataAccess::inspect(data::SeismicFileInfo& result,std::string& error,const data::CancelCheck& cancel) {
  return m_volume?m_service.inspectSeismic(m_volume,result,error,cancel):data::DataService::inspectSeismicFile(m_file,result,error,cancel);
+}
+bool SeismicDataAccess::openProjectSource(const QString& project,const QString& path,QString *error){
+ m_volume=0;m_unit.clear();m_crs.clear();m_file=path.toStdString();std::string detail;
+ if(!m_service.openProjectReadOnly(area_model::directory(project).toStdString(),detail)){if(error)*error=QString::fromStdString(detail);return false;}
+ std::vector<data::DataEntry> entries;if(!m_service.listData("volumes",0,entries,detail)){if(error)*error=QString::fromStdString(detail);return false;}
+ const auto identity=[](const QString& p){const QFileInfo f(p);return f.canonicalFilePath().isEmpty()?f.absoluteFilePath():f.canonicalFilePath();};
+ data::SeismicVolume chosen;
+ for(const auto& entry:entries){data::SeismicVolume candidate;if(!m_service.readVolume(entry.id,candidate,detail)){if(error)*error=QString::fromStdString(detail);return false;}
+  if(identity(QString::fromStdString(candidate.dataFile))!=identity(path))continue;
+  if(m_volume){if(error)*error=QStringLiteral("同一地震来源登记了多个体，无法选择");m_volume=0;return false;}
+  m_volume=entry.id;chosen=std::move(candidate);
+ }
+ if(!m_volume){if(error)*error=QStringLiteral("当前工区未登记所选地震体");return false;}
+ m_file=chosen.dataFile;m_unit=chosen.geometry.coordinateUnit;m_crs=chosen.geometry.coordinateSystem;return true;
+}
+bool SeismicDataAccess::volume(data::SeismicVolume& result,std::string& error){
+ if(!m_volume){error="需要工区已登记地震体";return false;}return m_service.readVolume(m_volume,result,error);
+}
+bool SeismicDataAccess::range(data::SeismicCoordinateRange& result,std::string& error,const data::CancelCheck& cancel){
+ if(!m_volume){error="需要工区已登记地震体";return false;}return m_service.readSeismicCoordinateRange(m_volume,result,error,cancel);
 }
 bool SeismicDataAccess::line(bool isInline,int number,const data::SectionReadOptions& options,data::SeismicSectionResult& result,std::string& error,const data::CancelCheck& cancel) {
  const std::string direction=isInline?"inline":"crossline";

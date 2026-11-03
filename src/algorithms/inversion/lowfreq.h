@@ -10,7 +10,7 @@
 // 即「全局趋势」。不假装高频：产物元数据必须携带 lowCutHz 与 layersUsed。
 //
 // 井阻抗曲线是 TWT 域、已重采样到体时间网格（MD→TWT 是调用方的事，
-// 垂直井语义——方向 19 井轨迹未落地，如实递延）。
+// 可逐样点携带真实轨迹坐标；空坐标数组保留旧固定井位契约）。
 
 #include <string>
 #include <vector>
@@ -24,6 +24,7 @@ struct LowFreqWellTrace
   double x = 0.0;
   double y = 0.0;
   std::vector<float> impedance;
+  std::vector<double> xSamples, ySamples; // optional, same nS; NaN means no observed position
 };
 
 // 层位 TWT 网格：nIl*nXl 行主序（行 = inline），NaN = 缺失格。

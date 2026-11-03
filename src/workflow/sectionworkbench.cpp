@@ -381,6 +381,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     auto tvd = modelFor(w.id, false, &tvdOk,&timeDepthRows), md = modelFor(w.id, true, &mdOk,&timeDepthRows);
     if((!tvdOk&&!mdOk)||timeDepthRows.isEmpty())continue;
     out.requiresSpatialPath=nativeId>0;
+    if(!timeDepthRows.isEmpty())out.timeReference=timeDepthRows.first().timeReference;
     const QVariantMap c = calibration(w.id);
     const double shift = c.value("shift").toDouble();
     if(nativeId>0&&mdOk){out.mdTimeDepth=md;out.timeShiftMs=shift;}

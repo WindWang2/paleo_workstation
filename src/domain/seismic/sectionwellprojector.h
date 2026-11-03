@@ -69,6 +69,7 @@ struct SectionWellInfo {
     double timeShiftMs=0;
     bool requiresSpatialPath = false; // native wells must not fall back to a fictitious vertical bore
     QString trajectorySource, trajectoryStatus;
+    QString timeReference;
 
     // Projection geometry along the unfolded section line
     double cumulativeDistanceM = 0.0; // Distance from start of section (meters)

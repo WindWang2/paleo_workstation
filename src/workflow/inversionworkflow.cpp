@@ -1,5 +1,7 @@
 // 层：功能
 #include "inversionworkflow.h"
+#include "inversionnative.h"
+#include "services/seismicdataaccess.h"
 
 #include "../domain/seismic/timedepthmodel.h"
 #include "../io/segyreader.h"
@@ -46,16 +48,17 @@ bool setError(QString *error, const QString &text)
 std::vector<paleo::inversion::ReflSpike> reflectivitySpikes(
     const std::vector<double> &acDepthsM, const std::vector<float> &acUsPerM,
     const std::vector<double> &denDepthsM, const std::vector<float> &denValues,
-    const seismic::TimeDepthModel &td)
+    const seismic::TimeDepthModel &td,bool preserveMissing)
 {
     std::vector<double> depths = acDepthsM;
     depths.insert(depths.end(), denDepthsM.begin(), denDepthsM.end());
     std::sort(depths.begin(), depths.end());
     depths.erase(std::unique(depths.begin(), depths.end()), depths.end());
-    auto interp = [](const std::vector<double> &xs, const std::vector<float> &ys,
+    auto interp = [preserveMissing](const std::vector<double> &xs, const std::vector<float> &ys,
                      double x) -> double {
         if (xs.size() != ys.size() || xs.empty())
             return std::numeric_limits<double>::quiet_NaN();
+        if(preserveMissing&&(x<xs.front()||x>xs.back()))return std::numeric_limits<double>::quiet_NaN();
         if (x <= xs.front())
             return ys.front();
         if (x >= xs.back())
@@ -63,6 +66,7 @@ std::vector<paleo::inversion::ReflSpike> reflectivitySpikes(
         const auto it = std::upper_bound(xs.begin(), xs.end(), x);
         const size_t hi = size_t(it - xs.begin());
         const size_t lo = hi - 1;
+        if(x==xs[lo])return ys[lo];
         const double f = (x - xs[lo]) / (xs[hi] - xs[lo]);
         return double(ys[lo]) + f * (double(ys[hi]) - double(ys[lo]));
     };
@@ -72,8 +76,10 @@ std::vector<paleo::inversion::ReflSpike> reflectivitySpikes(
     for (double d : depths) {
         const double dt = interp(acDepthsM, acUsPerM, d);
         const double den = interp(denDepthsM, denValues, d);
-        if (!(dt > 1e-6) || !(den > 0.0))
+        if (!(dt > 1e-6) || !(den > 0.0) || !std::isfinite(dt) || !std::isfinite(den)){
+            if(preserveMissing)zPrev=std::numeric_limits<double>::quiet_NaN();
             continue;
+        }
         const double z = den * (1e6 / dt);
         if (std::isfinite(zPrev)) {
             const double denom = z + zPrev;
@@ -242,6 +248,7 @@ bool InversionWorkflow::prepareWaveletJob(const WaveletJobRequest &req, WaveletJ
     job->prepared = false;
     job->ok = false;
     job->error.clear();
+    job->spatialEvidence.clear();
     job->req = req;
     if (req.acDepthsM.size() != req.acUsPerM.size() || req.acDepthsM.size() < 2 ||
         req.denDepthsM.size() != req.denValues.size() || req.denDepthsM.size() < 2)
@@ -252,6 +259,17 @@ bool InversionWorkflow::prepareWaveletJob(const WaveletJobRequest &req, WaveletJ
         return setError(error, QStringLiteral("地震体路径无效: %1").arg(req.seismicPath));
     if (!(req.waveletLengthMs >= 16.0))
         return setError(error, QStringLiteral("子波长度过短（≥16 ms）"));
+    if(req.requireTrajectory&&req.trajectory.size()<2)
+        return setError(error,QStringLiteral("需要真实沿井轨迹，不能使用井口替代"));
+    if(req.requireTrajectory&&req.projectDirectory.isEmpty())
+        return setError(error,QStringLiteral("沿井估计需要工区 DataService 来源"));
+    if(!req.projectDirectory.isEmpty()){
+        const auto valid=[](const std::vector<double>& axis){
+            for(size_t i=0;i<axis.size();++i)if(!std::isfinite(axis[i])||(i&&axis[i]<=axis[i-1]))return false;return true;
+        };
+        if(!valid(req.acDepthsM)||!valid(req.denDepthsM)||!valid(req.tdDepthM)||!valid(req.tdTimeMs))
+            return setError(error,QStringLiteral("沿井子波输入需要有限且严格递增的 MD/TWT 轴"));
+    }
 
     seismic::TimeDepthModel td;
     std::vector<seismic::TdPoint> points;
@@ -260,7 +278,7 @@ bool InversionWorkflow::prepareWaveletJob(const WaveletJobRequest &req, WaveletJ
         points.push_back({req.tdDepthM[i], req.tdTimeMs[i]});
     td.setPoints(points);
 
-    job->spikes = reflectivitySpikes(req.acDepthsM, req.acUsPerM, req.denDepthsM, req.denValues, td);
+    job->spikes = reflectivitySpikes(req.acDepthsM, req.acUsPerM, req.denDepthsM, req.denValues, td,!req.projectDirectory.isEmpty());
     if (job->spikes.size() < 2)
         return setError(error, QStringLiteral("反射系数尖峰不足 2 个（曲线/时深配合无法定子波）"));
     job->prepared = true;
@@ -276,6 +294,8 @@ bool InversionWorkflow::computeWaveletJob(WaveletJob *job, const std::function<b
         return setError(&job->error, QStringLiteral("已取消"));
     if (progress)
         progress(0.1);
+
+    if(!job->req.projectDirectory.isEmpty())return computeRegisteredWavelet(job,cancelled,progress);
 
     SegyReader reader;
     QString openErr;
@@ -363,7 +383,7 @@ QString InversionWorkflow::publishWaveletJob(const WaveletJob &job, DerivedAsset
         return QString();
     }
 
-    QVariantMap extra;
+    QVariantMap extra=job.spatialEvidence;
     extra.insert(QStringLiteral("wellId"), job.req.wellId);
     extra.insert(QStringLiteral("method"), QStringLiteral("wiener-ls"));
     extra.insert(QStringLiteral("fitCorrelation"), job.fitCorrelation);
@@ -375,7 +395,7 @@ QString InversionWorkflow::publishWaveletJob(const WaveletJob &job, DerivedAsset
     extra.insert(QStringLiteral("spikeCount"), int(job.spikes.size()));
     extra.insert(QStringLiteral("sourceSeismic"), job.req.seismicPath);
     extra.insert(QStringLiteral("nearestTrace"), job.nearestTraceNote);
-    const QByteArray body = paleo::inversion::waveletToJson(job.wavelet, QJsonObject());
+    const QByteArray body = paleo::inversion::waveletToJson(job.wavelet, QJsonObject::fromVariantMap(job.spatialEvidence));
     QFile file(staging.absolutePath);
     if (!file.open(QIODevice::WriteOnly) || file.write(body) != body.size()) {
         setError(error, QStringLiteral("wavelet.json 写入失败: %1").arg(staging.absolutePath));
@@ -407,7 +427,10 @@ bool InversionWorkflow::prepareInversionJob(const InversionJobRequest &req, Inve
     job->prepared = false;
     job->ok = false;
     job->error.clear();
+    job->spatialEvidence.clear();
     job->req = req;
+    job->dataServiceSource = false;
+    job->hasLowFreq=false;job->lowFreq={};
     if (req.method != QStringLiteral("bandlimited") && req.method != QStringLiteral("sparse"))
         return setError(error, QStringLiteral("method 必须为 bandlimited 或 sparse"));
     if (req.seismicPath.isEmpty() || !QFile::exists(req.seismicPath))
@@ -432,6 +455,21 @@ bool InversionWorkflow::prepareInversionJob(const InversionJobRequest &req, Inve
     }
     if (wavelet.isEmpty())
         return setError(error, QStringLiteral("子波为空"));
+
+    if(!req.projectDirectory.isEmpty())return prepareRegisteredInversion(req,wavelet,job,error);
+    // Even without candidate wells, a registered native volume must never fall
+    // through to the legacy whole-file SegyReader allocation.
+    paleo::SeismicDataAccess registered;
+    if(!registered.open(req.seismicPath,error))return false;
+    if(registered.registered()){
+        auto resolved=req;resolved.projectDirectory=registered.projectDirectory();
+        paleo::data::SeismicVolume volume;std::string detail;
+        if(!registered.volume(volume,detail))return setError(error,QString::fromStdString(detail));
+        resolved.timeReference=QString::fromStdString(volume.sampling.timeReference);job->req=resolved;
+        return prepareRegisteredInversion(resolved,wavelet,job,error);
+    }
+    for(const auto& well:req.lowFreqWells)if(well.requireTrajectory)
+        return setError(error,QStringLiteral("空间井约束需要工区 DataService 反演"));
 
     SegyReader reader;
     QString openErr;
@@ -526,6 +564,7 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
         return setError(&job->error, QStringLiteral("反演作业未 prepare"));
     if (cancelled && cancelled())
         return setError(&job->error, QStringLiteral("已取消"));
+    if(job->dataServiceSource)return computeRegisteredInversion(job,cancelled,progress);
 
     SegyReader reader;
     QString openErr;
@@ -814,8 +853,11 @@ InversionWorkflow::PublishResult InversionWorkflow::publishInversionJob(
         return result;
     }
 
+    if (!paleo::inversion::readImpedanceVolumeHeader(job.tempVolumePath, &result.volumeHeader, &result.error)) {
+        setError(error, result.error); return result;
+    }
     const QStringList parents = registrar.parentVersionIdsFor(job.req.parentPaths);
-    QVariantMap extra;
+    QVariantMap extra=job.spatialEvidence;
     extra.insert(QStringLiteral("provenance_schema_version"), 1);
     extra.insert(QStringLiteral("method"), job.req.method);
     extra.insert(QStringLiteral("lowCutHz"), job.req.lowCutHz);

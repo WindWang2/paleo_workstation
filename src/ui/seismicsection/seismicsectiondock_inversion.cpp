@@ -4,6 +4,7 @@
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "services/sectionwellgeometry.h"
 #include "ui/seismicsection/inversionpanel.h"
+#include "ui/seismicsection/seismicsectioncanvas.h"
 
 #include "catalog/datacatalog.h"
 #include "workflow/derivedassets.h"
@@ -19,6 +20,10 @@
 namespace seismic {
 
 namespace {
+struct InversionTempCleanup {
+    QString path;
+    ~InversionTempCleanup(){paleo::inv::InversionWorkflow::reclaimTempVolume(path);}
+};
 
 // #125：井 AC×DEN → TWT 域阻抗散样。TWT 取曲线自带的逐井时间轴（SectionWorkbench
 // 按该井时深表/常速近似 + 平移算好，与剖面井叠加同口径），不用画布全局模型重算；
@@ -33,13 +38,13 @@ bool wellTimeDepthTable(const WellCurveItem *ac, const WellCurveItem *den,
 }
 
 bool wellImpedanceTwt(const WellCurveItem *ac, const WellCurveItem *den,
-                      std::vector<double> *twtMs, std::vector<float> *impedance)
+                      std::vector<double> *twtMs, std::vector<float> *impedance,bool preserveMissing)
 {
     std::vector<double> tdD, tdT;
     if (!wellTimeDepthTable(ac, den, &tdD, &tdT))
         return false;
     return paleo::inv::wellImpedanceTwt(ac->depthsM, ac->values, den->depthsM, den->values, tdD, tdT,
-                                        twtMs, impedance);
+                                        twtMs, impedance,preserveMissing);
 }
 
 } // namespace
@@ -58,11 +63,13 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
         return;
     }
     const SectionWellInfo *best = nullptr;
-    for (const SectionWellInfo &w : m_candidateWells)
-        if (!best || std::abs(w.offsetDistanceM) < std::abs(best->offsetDistanceM))
+    const auto& displayed=m_canvas->wells();
+    for (const SectionWellInfo &w : displayed)
+        if (w.isWithinBuffer&&(!best || std::abs(w.offsetDistanceM) < std::abs(best->offsetDistanceM)))
             best = &w; // 「最近井」按绝对偏移选——有符号比较会取到最负侧
-    if(requiresSpatialWellSampling(*best)){
-        if(m_invPanel)m_invPanel->showResult(false,tr("井 %1 需要沿三维轨迹取道；当前固定井位子波算法未执行").arg(best->wellName));
+    if(!best){if(m_invPanel)m_invPanel->showResult(false,tr("剖面缓冲带内无候选井"));return;}
+    if (best->requiresSpatialPath && best->trajectory.size()<2) {
+        if(m_invPanel)m_invPanel->showResult(false,best->trajectoryStatus);
         return;
     }
     const WellCurveItem *ac = nullptr;
@@ -103,15 +110,30 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
     req.tdTimeMs = std::move(tdTwtMs);
     req.seismicPath = m_session.sourceSgyPath;
     req.parentVersionId = m_catalogVersionId;
-
-    paleo::inv::InversionWorkflow::WaveletJob job;
-    QString err;
-    if (!wf.prepareWaveletJob(req, &job, &err) || !wf.computeWaveletJob(&job)) {
-        if (m_invPanel)
-            m_invPanel->showResult(false, err.isEmpty() ? job.error : err);
-        return;
+    if(best->requiresSpatialPath){
+        req.projectDirectory=m_interpretationDir;req.timeReference=best->timeReference;
+        req.trajectory=best->trajectory;req.trajectorySource=best->trajectorySource;req.requireTrajectory=true;
     }
 
+    if(!m_taskService){if(m_invPanel)m_invPanel->showResult(false,tr("任务服务未注入"));return;}
+    auto result=std::make_shared<paleo::inv::InversionWorkflow::WaveletJob>();
+    const quint64 generation=++m_invGeneration;
+    if(m_invPanel)m_invPanel->setBusy(true);
+    m_invTask=m_taskService->startBounded(tr("沿井子波估计"),[req,result](PaleoTask* task)->QString{
+        paleo::inv::InversionWorkflow workflow;QString error;
+        if(!workflow.prepareWaveletJob(req,result.get(),&error))return error;
+        if(!workflow.computeWaveletJob(result.get(),[task]{return task->cancelRequested();},
+            [task](double f){task->reportStage(QStringLiteral("decode"),int(f*100));}))return result->error;
+        return {};
+    },QString(),false);
+    if(!m_invTask){if(m_invPanel)m_invPanel->setBusy(false);return;}
+    const QPointer<PaleoTask> task=m_invTask;
+    connect(task,&PaleoTask::finished,this,[this,generation,result,task]{
+    if(generation!=m_invGeneration||!m_invPanel||!task)return;
+    if(task->state()!=PaleoTask::State::Succeeded||!result->ok){
+        m_invPanel->showResult(false,result->error.isEmpty()?task->errorText():result->error);return;
+    }
+    const auto& job=*result;paleo::inv::InversionWorkflow wf;QString err;
     QString waveletPath;
     if (m_catalog) {
         DerivedAssetRegistrar registrar(m_catalog, m_interpretationDir);
@@ -149,8 +171,10 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
             true, tr("子波已提取（%1）：主频 %2 Hz，拟合相关 %3")
                       .arg(job.nearestTraceNote)
                       .arg(job.wavelet.dominantFreqHz(), 0, 'f', 1)
-                      .arg(job.fitCorrelation, 0, 'f', 3));
+                      .arg(job.fitCorrelation, 0, 'f', 3)
+                      + (job.fitCorrelation<.5?tr("｜拟合相关较低，请复核井震标定后再用于解释"):QString()));
     }
+    });
 }
 
 // 「反演」：InversionWorkflow 三段式。prepare+compute 在任务线程，发布回
@@ -176,9 +200,9 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
     std::vector<paleo::inv::InversionWorkflow::LowFreqWellInput> wells;
     QStringList skippedNoTd;
     for (const SectionWellInfo &w : m_candidateWells) {
-        if(requiresSpatialWellSampling(w)){
-            m_invPanel->showResult(false,tr("井 %1 需要随深度变化的空间低频约束；当前固定井位反演算法未执行").arg(w.wellName));
-            return;
+        if(w.requiresSpatialPath && w.trajectory.size()<2){
+            skippedNoTd << (w.wellName+QStringLiteral(": ")+w.trajectoryStatus);
+            continue;
         }
         const WellCurveItem *ac = nullptr;
         const WellCurveItem *den = nullptr;
@@ -197,7 +221,9 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
         lw.wellId = w.wellId;
         lw.x = w.surfaceX;
         lw.y = w.surfaceY;
-        if (!wellImpedanceTwt(ac, den, &lw.twtMs, &lw.impedance)) {
+        lw.trajectory=w.trajectory;lw.timeReference=w.timeReference;lw.trajectorySource=w.trajectorySource;
+        lw.requireTrajectory=w.requiresSpatialPath;
+        if (!wellImpedanceTwt(ac, den, &lw.twtMs, &lw.impedance,w.requiresSpatialPath)) {
             skippedNoTd << w.wellId; // 缺有效逐井时深：不参与低频模型（#125）
             continue;
         }
@@ -207,6 +233,9 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
     auto request = std::make_shared<paleo::inv::InversionWorkflow::InversionJobRequest>();
     request->seismicPath = m_session.sourceSgyPath;
     request->waveletPath = params.waveletPath;
+    for(const auto& well:m_candidateWells)if(well.requiresSpatialPath){
+        request->projectDirectory=m_interpretationDir;request->timeReference=well.timeReference;break;
+    }
     request->method = params.method;
     request->lowCutHz = params.lowCutHz;
     request->lambda = params.lambda;
@@ -219,11 +248,12 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
         request->parentPaths = QStringList{m_session.sourceSgyPath, params.waveletPath};
 
     auto job = std::make_shared<paleo::inv::InversionWorkflow::InversionJob>();
+    auto cleanup=std::make_shared<InversionTempCleanup>();
     const quint64 gen = ++m_invGeneration;
     m_invPanel->setBusy(true);
     m_invTask = m_taskService->startBounded(
         tr("地震反演"),
-        [request, job](PaleoTask *task) -> QString {
+        [request, job, cleanup](PaleoTask *task) -> QString {
             if (task->cancelRequested())
                 return tr("已取消");
             task->reportStage(QStringLiteral("build"), 2);
@@ -231,32 +261,34 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
             if (!paleo::inv::InversionWorkflow().prepareInversionJob(*request, job.get(), &err))
                 return err;
             task->reportStage(QStringLiteral("decode"), 5);
-            if (!paleo::inv::InversionWorkflow().computeInversionJob(
+            const bool computed=paleo::inv::InversionWorkflow().computeInversionJob(
                     job.get(), [task] { return task->cancelRequested(); },
                     [task](double f) {
                         if (task)
                             task->reportStage(QStringLiteral("decode"),
                                               5 + int(f * 90.0));
-                    }))
+                    });
+            cleanup->path=job->tempVolumePath;
+            if (!computed)
                 return job->error;
             return QString();
         },
         QString(), /*quiet=*/false);
 
-    if (!m_invTask)
-        return;
+    if (!m_invTask) { m_invPanel->setBusy(false); return; }
     connect(m_invTask, &PaleoTask::changed, this, [this]() {
         if (m_invPanel && m_invTask && m_invTask->running())
             m_invPanel->updateProgress(m_invTask->stagePercent() < 0 ? 0 : m_invTask->stagePercent(),
                                        m_invTask->stage());
     });
-    connect(m_invTask, &PaleoTask::finished, this, [this, gen, job, skippedNoTd]() {
+    connect(m_invTask, &PaleoTask::finished, this, [this, gen, job, cleanup, skippedNoTd]() {
         if (!m_invPanel || !m_invTask)
             return;
         // #371：世代不匹配（换体/换工程/新请求已接管）——静默丢弃：面板
         // 忙态属于新一代请求，这里再 showResult 会把它打回非忙态。
-        if (gen != m_invGeneration)
-            return;
+        if (gen != m_invGeneration) {
+            paleo::inv::InversionWorkflow::reclaimTempVolume(job->tempVolumePath);return;
+        }
         if (m_invTask->state() == PaleoTask::State::Cancelled) {
             paleo::inv::InversionWorkflow::reclaimTempVolume(job->tempVolumePath);
             m_invPanel->showResult(false, tr("反演已取消"));
@@ -269,6 +301,7 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
             return;
         }
         if (!m_catalog) {
+            cleanup->path.clear(); // The result is explicitly handed to the user below.
             // 不回收：提示文案把体位置告知用户作人工兜底（目录未连接时
             // publishInversionJob 无从执行，tempVolumePath 是唯一成果）。
             m_invPanel->showResult(false, tr("反演完成，但数据目录未连接，无法登记（体在 %1）")
